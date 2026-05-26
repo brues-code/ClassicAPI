@@ -144,9 +144,10 @@ static int __fastcall Script_GetNamePlateGUIDs(void *L) {
     return 1;
 }
 
-// Pushes a nameplate Frame onto the stack — registered or fresh
-// wrapper depending on whether the engine assigned a real refKey.
-static void PushNamePlateFrame(void *L, void *nameplate) {
+// Exported via `nameplate/Walk.h` so `Events.cpp` can reuse the same
+// frame-push path. Internal callers (Script_GetNamePlates etc.) call
+// it through the unqualified name (they live in the same namespace).
+void PushNamePlateFrame(void *L, void *nameplate) {
     const int refKey = *reinterpret_cast<const int *>(
         static_cast<uint8_t *>(nameplate) + Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
     if (refKey > 0) {

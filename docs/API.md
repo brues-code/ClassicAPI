@@ -1576,37 +1576,44 @@ would be left dangling.
 
 ### `NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events
 
-Fire when nameplate state actually changes. All three carry a single
-payload — the **unit GUID string** (modern `"0xHHHHHHHHHHHHHHHH"`
-format).
+Fire when nameplate state actually changes. Payloads:
 
-| Event | When it fires |
-|-------|---------------|
-| `NAME_PLATE_CREATED` | First time we surface a particular `CGNamePlateFrame` pointer. Same frame re-used for a later unit (pool recycle) does NOT refire. |
-| `NAME_PLATE_UNIT_ADDED` | Unit gets a visible nameplate (entered nameplate range, became hostile, etc.). |
-| `NAME_PLATE_UNIT_REMOVED` | Unit's nameplate is gone (left range, despawned, etc.). |
+| Event | `arg1` | Notes |
+|-------|--------|-------|
+| `NAME_PLATE_CREATED` | nameplate **Frame** | Matches modern WoW. Fires once per unique `CGNamePlateFrame` pointer — same frame re-used via pool recycle does NOT refire. |
+| `NAME_PLATE_UNIT_ADDED` | unit **GUID string** | Modern uses a `"nameplateN"` token; vanilla's token resolver isn't extensible. Pass `arg1` to [`GetNamePlateForGUID`](#c_nameplategetnameplateforguidguidstring) for the frame. |
+| `NAME_PLATE_UNIT_REMOVED` | unit **GUID string** | Same as above. |
 
 ```lua
 local f = CreateFrame("Frame")
+f:RegisterEvent("NAME_PLATE_CREATED")
 f:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 f:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 f:SetScript("OnEvent", function()
-    -- arg1 = unit GUID string ("0xF13000C36C26FD02", etc.)
-    if event == "NAME_PLATE_UNIT_ADDED" then
-        -- skin the nameplate, register tracking, etc.
+    if event == "NAME_PLATE_CREATED" then
+        -- arg1 = the nameplate Frame itself
+        arg1:SetAlpha(0.8)
+    elseif event == "NAME_PLATE_UNIT_ADDED" then
+        -- arg1 = unit GUID string ("0xF13000C36C26FD02", etc.)
+        local plate = C_NamePlate.GetNamePlateForGUID(arg1)
+        -- ... style based on the unit ...
     end
 end)
 ```
 
+> **CREATED timing with nameplate addons (pfUI / TidyPlates / etc).**
+> The event fires when the *engine* allocates the underlying
+> `CGNamePlateFrame`. Nameplate-mod addons typically decorate the
+> frame on their own per-frame update — so `arg1` at `CREATED` time
+> is a bare frame with no addon-side decorations yet. For
+> unit-specific work after the addon has decorated, use
+> `NAME_PLATE_UNIT_ADDED` (fires next tick at the latest) or fetch
+> the current frame on-demand via `GetNamePlateForGUID`.
+
 > **Modern divergence.** Retail passes `"nameplateN"` unit tokens to
-> ADDED/REMOVED and the nameplate `Frame` to CREATED. We don't expose
-> nameplate tokens (the engine's resolver isn't extensible without
-> hooking it), and the event dispatcher can't push a Frame as
-> payload — so all three events use the GUID string. Addons that
-> need the Frame call
-> [`C_NamePlate.GetNamePlateForUnit`](#c_nameplategetnameplateforunitunittoken)
-> reactively, using the GUID via a custom token-resolution path or
-> matching against `GetNamePlateGUIDs()`.
+> `ADDED`/`REMOVED`. Vanilla's token resolver isn't extensible, so
+> we ship the GUID string instead and let addons round-trip through
+> `GetNamePlateForGUID` to reach the frame.
 
 **Implementation notes**
 

@@ -2089,6 +2089,14 @@ enum Offsets {
     // to L->top → `add [ecx+8], 0x10` incr_top). `0x6F32B0` is
     // `lua_replace` (single TValue copy + decr_top).
     LUA_PUSH_VALUE = 0x6F3350,
+    // `luaL_ref(L, t)` — pops the top, stores it in the table at `t`
+    // at a freshly-allocated integer key, returns the key. Use with
+    // `LUA_REGISTRY_INDEX` to stash Lua values across C-side scopes;
+    // pair with `LUA_REF_UNREF` to release.
+    LUA_REF_REF = 0x6F5310,
+    // `luaL_unref(L, t, ref)` — releases a ref previously returned
+    // by `luaL_ref`, freeing the slot for future allocations.
+    LUA_REF_UNREF = 0x6F5400,
     LUA_PUSH_CCLOSURE = 0x6F3920,
     LUA_NEW_TABLE = 0x6F3C90,
     LUA_GET_TABLE = 0x6F3A40,     // (was 0x6F3EA0, which is lua_rawset)

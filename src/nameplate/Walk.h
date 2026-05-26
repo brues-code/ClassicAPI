@@ -23,6 +23,16 @@
 // Header-only template — used by both the Lua-facing accessors in
 // `nameplate/Info.cpp` and the per-tick differ in `nameplate/Events.cpp`.
 
+namespace NamePlate::Info {
+
+// Pushes the nameplate Frame at `nameplate` onto the Lua stack —
+// either the cached registry-wrapper (addon-registered plates) or a
+// fresh per-call wrapper (default vanilla plates). Defined in
+// `Info.cpp`.
+void PushNamePlateFrame(void *L, void *nameplate);
+
+} // namespace NamePlate::Info
+
 namespace NamePlate::Walk {
 
 constexpr uintptr_t kLocalPlayerGlobal = 0x00B41414;

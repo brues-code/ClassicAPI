@@ -21,12 +21,18 @@
 // is absorbed because we only compare with the previous *frame's*
 // state, not every transient `unit + 0xE60` write.
 //
-// Events fire with the unit's GUID string as payload — vanilla has no
-// `"nameplateN"` tokens (engine resolver isn't extensible) and the
-// event dispatcher's format codes don't include a "push frame" type.
-// Addons that need the frame call
-// `C_NamePlate.GetNamePlateForUnit(<token-or-GUID-equivalent>)`
-// reactively.
+// Payload shape:
+// - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame** (matches
+//   modern WoW). The engine's printf-style dispatcher
+//   (`FUN_FIRE_EVENT`) only knows `%s`/`%d`/`%u`/`%f` format codes
+//   with no "push Lua value" option, so we route this event through
+//   a pre-set path: save current `_G.arg1`, set it to the frame, fire
+//   with empty format (dispatcher leaves `_G.arg<N>` alone when no
+//   codes are parsed), restore.
+// - `NAME_PLATE_UNIT_ADDED` / `_REMOVED` — `arg1` is the unit GUID
+//   string. Modern uses a `"nameplateN"` token; vanilla's token
+//   resolver isn't extensible. Addons call
+//   `C_NamePlate.GetNamePlateForGUID(arg1)` to get the frame.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -77,6 +83,56 @@ void FireWithGUID(const char *eventName, uint64_t guid) {
     Event::Custom::Fire(slot, "%s", buf);
 }
 
+// Fire `eventName` with the nameplate `Frame` set as `_G.arg1`.
+// `FUN_FIRE_EVENT`'s format-string parser only handles primitive
+// types, but it only mutates `_G.arg<N>` for codes it actually
+// parses. With an empty format we pre-set `_G.arg1` and the
+// dispatcher leaves it alone. Restore the previous value after
+// fire so we don't leak our frame into unrelated global state.
+//
+// Lua-stack-clean: stack depth on entry == stack depth on exit.
+using LuaRefRef_t = int(__fastcall *)(void *L, int t);
+using LuaRefUnref_t = void(__fastcall *)(void *L, int t, int ref);
+using LuaRawGetI_t = void(__fastcall *)(void *L, int t, int n);
+
+void FireWithFrame(const char *eventName, void *frame) {
+    if (frame == nullptr)
+        return;
+    const int slot = Event::Custom::Lookup(eventName);
+    if (slot < 0)
+        return;
+
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+
+    auto refRef = reinterpret_cast<LuaRefRef_t>(
+        static_cast<uintptr_t>(Offsets::LUA_REF_REF));
+    auto refUnref = reinterpret_cast<LuaRefUnref_t>(
+        static_cast<uintptr_t>(Offsets::LUA_REF_UNREF));
+    auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
+        Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
+
+    // Save current `_G.arg1` to the registry.
+    Game::Lua::PushString(L, "arg1");
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+    const int savedRef = refRef(L, Game::Lua::REGISTRY_INDEX);
+
+    // Set `_G.arg1 = frame`.
+    Game::Lua::PushString(L, "arg1");
+    NamePlate::Info::PushNamePlateFrame(L, frame);
+    Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
+
+    // Fire — empty format, so the dispatcher doesn't touch `arg1`.
+    Event::Custom::Fire(slot, "");
+
+    // Restore previous `_G.arg1` from the saved registry ref.
+    Game::Lua::PushString(L, "arg1");
+    rawgeti(L, Game::Lua::REGISTRY_INDEX, savedRef);
+    Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
+    refUnref(L, Game::Lua::REGISTRY_INDEX, savedRef);
+}
+
 void OnWorldTick() {
     g_currentTickPlates.clear();
     g_currentTickPlates.reserve(64); // typical visible-nameplate ceiling
@@ -89,11 +145,12 @@ void OnWorldTick() {
             g_currentTickPlates.emplace(guid, nameplate);
         });
 
-    // Fire CREATED for never-before-seen frame pointers, ADDED for
-    // GUIDs not in last tick's snapshot.
+    // Fire CREATED (with the Frame as arg1) for never-before-seen
+    // frame pointers; ADDED (with GUID string) for GUIDs not in last
+    // tick's snapshot.
     for (const auto &kv : g_currentTickPlates) {
         if (g_seenPlates.insert(kv.second).second)
-            FireWithGUID(kEventCreated, kv.first);
+            FireWithFrame(kEventCreated, const_cast<void *>(kv.second));
         if (g_lastTickPlates.find(kv.first) == g_lastTickPlates.end())
             FireWithGUID(kEventUnitAdded, kv.first);
     }
