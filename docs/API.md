@@ -4355,6 +4355,8 @@ engine hooks. Modern also provides `"nameplateN"` unit tokens and
 `NAME_PLATE_UNIT_ADDED` / `REMOVED` events — both unimplemented
 here (multi-session scope).
 
+## NameCache
+
 GUID-keyed cache of player names and classes. The engine itself
 maintains an in-memory `NameCache` at `0x00C0E228`, populated by
 `SMSG_NAME_QUERY_RESPONSE` — but vanilla doesn't expose it to Lua,
