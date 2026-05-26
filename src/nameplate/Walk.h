@@ -35,6 +35,15 @@ void PushNamePlateFrame(void *L, void *nameplate);
 
 namespace NamePlate::Walk {
 
+// `0x00B41414` is a player-related global that overlays multiple
+// sub-objects at different offsets. We read the object-hash-table
+// fields at `+0x1C` (bucket array) and `+0x24` (bucket mask) — that
+// sub-struct is safe to walk for any unit the engine knows about.
+// **Do not feed this pointer to inventory routines** (`GetItemBySlot`
+// etc.); the CGPlayer_C inventory manager lives at a different
+// offset (`+0x1D38`) and is sourced via `ResolveUnitToken("player")`,
+// not via this global. See CLAUDE.md "Resolving an item-location"
+// for the inventory-crash story.
 constexpr uintptr_t kLocalPlayerGlobal = 0x00B41414;
 constexpr int kOffPlayerBucketArray = 0x1C;
 constexpr int kOffPlayerBucketMask = 0x24;

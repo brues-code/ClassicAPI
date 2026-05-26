@@ -2092,10 +2092,18 @@ enum Offsets {
     // `luaL_ref(L, t)` — pops the top, stores it in the table at `t`
     // at a freshly-allocated integer key, returns the key. Use with
     // `LUA_REGISTRY_INDEX` to stash Lua values across C-side scopes;
-    // pair with `LUA_REF_UNREF` to release.
+    // pair with `LUA_REF_UNREF` to release. Verified by decompiling
+    // `FUN_006f5310`: classic luaL_ref shape — nil-top early-out
+    // returning `LUA_REFNIL = -1`, FREELIST_REF chain pop (pushvalue +
+    // tonumber on table[0]), else objlen-based new slot, finally
+    // table[ref] = popped value.
     LUA_REF_REF = 0x6F5310,
     // `luaL_unref(L, t, ref)` — releases a ref previously returned
-    // by `luaL_ref`, freeing the slot for future allocations.
+    // by `luaL_ref`, freeing the slot for future allocations. Verified
+    // by decompiling `FUN_006f5400`: `ref >= 0` guard (skips
+    // `LUA_NOREF = -2` / `LUA_REFNIL = -1`), reads current FREELIST_REF
+    // head, writes it to `table[ref]`, then updates FREELIST_REF = ref
+    // — the canonical freelist-link operation.
     LUA_REF_UNREF = 0x6F5400,
     LUA_PUSH_CCLOSURE = 0x6F3920,
     LUA_NEW_TABLE = 0x6F3C90,
