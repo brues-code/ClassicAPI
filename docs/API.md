@@ -73,6 +73,7 @@ build instructions.
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
+  - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
@@ -1571,6 +1572,56 @@ The thread-message hook is per-thread, not per-`HWND` — it survives
 renderer-state changes that recreate WoW's main window (e.g. toggling
 vertical sync), where an `SetWindowLongPtr`-style `WNDPROC` subclass
 would be left dangling.
+
+### `NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events
+
+Fire when nameplate state actually changes. All three carry a single
+payload — the **unit GUID string** (modern `"0xHHHHHHHHHHHHHHHH"`
+format).
+
+| Event | When it fires |
+|-------|---------------|
+| `NAME_PLATE_CREATED` | First time we surface a particular `CGNamePlateFrame` pointer. Same frame re-used for a later unit (pool recycle) does NOT refire. |
+| `NAME_PLATE_UNIT_ADDED` | Unit gets a visible nameplate (entered nameplate range, became hostile, etc.). |
+| `NAME_PLATE_UNIT_REMOVED` | Unit's nameplate is gone (left range, despawned, etc.). |
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+f:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+f:SetScript("OnEvent", function()
+    -- arg1 = unit GUID string ("0xF13000C36C26FD02", etc.)
+    if event == "NAME_PLATE_UNIT_ADDED" then
+        -- skin the nameplate, register tracking, etc.
+    end
+end)
+```
+
+> **Modern divergence.** Retail passes `"nameplateN"` unit tokens to
+> ADDED/REMOVED and the nameplate `Frame` to CREATED. We don't expose
+> nameplate tokens (the engine's resolver isn't extensible without
+> hooking it), and the event dispatcher can't push a Frame as
+> payload — so all three events use the GUID string. Addons that
+> need the Frame call
+> [`C_NamePlate.GetNamePlateForUnit`](#c_nameplategetnameplateforunitunittoken)
+> reactively, using the GUID via a custom token-resolution path or
+> matching against `GetNamePlateGUIDs()`.
+
+**Implementation notes**
+
+Detected by per-frame polling, not engine hooks. Each world tick we
+walk the object hash for nameplated units and diff against the
+previous tick's snapshot. Modern WoW also synthesizes these via
+diffing (the underlying engine has no event for "plate state
+changed"). The cost is ~20-50µs/frame even in busy raids — well
+below noise.
+
+The diff approach absorbs the engine's transient hide/reshow cycle:
+vanilla has ~7 code paths that briefly zero `unit + 0xE60` (z-order
+rebuilds, anchor changes, flag-change re-eval) and the next frame's
+show path re-allocates from the pool. Those transient zeroes never
+become events because the unit appears in both the previous and
+current tick's snapshot.
 
 ### `QUEST_ACCEPTED` event
 

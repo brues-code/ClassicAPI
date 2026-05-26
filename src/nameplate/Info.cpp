@@ -55,6 +55,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "guid/Guid.h"
+#include "nameplate/Walk.h"
 
 #include <cstdint>
 
@@ -62,16 +63,8 @@ namespace NamePlate::Info {
 
 namespace {
 
-constexpr uintptr_t kLocalPlayerGlobal = 0x00B41414;
-constexpr int kOffPlayerBucketArray = 0x1C;
-constexpr int kOffPlayerBucketMask = 0x24;
-constexpr int kBucketStride = 12;
-constexpr int kBucketLinkOffsetField = 0; // byte 0: link-field offset within entry
-constexpr int kBucketChainHeadField = 8;  // byte 8: chain head pointer
-constexpr int kOffEntryInstanceBlock = 0x08;
-constexpr int kOffInstanceTypeMask = 0x08;
-constexpr uint32_t kTypeMaskUnit = 0x08;
-constexpr int kOffUnitNamePlate = 0xE60;
+using NamePlate::Walk::ForEachNamePlatedUnit;
+using NamePlate::Walk::kOffUnitNamePlate;
 
 using LuaRawGetI_t = void(__fastcall *)(void *L, int idx, int n);
 using LuaPushLightUserdata_t = void(__fastcall *)(void *L, void *p);
@@ -104,52 +97,6 @@ void PushFreshFrameWrapper(void *L, void *frame) {
     Game::Lua::PushString(L, kFrameMetatableGlobal);
     Game::Lua::GetTable(L, kLuaGlobalsIndex);
     setMetatable(L, -2);
-}
-
-// Walk visible units with allocated nameplates, invoking `emit(unit,
-// nameplate, instance)` for each. Returns the number of emissions.
-template <typename F>
-int ForEachNamePlatedUnit(F &&emit) {
-    auto *player = *reinterpret_cast<uint8_t *const *>(kLocalPlayerGlobal);
-    if (player == nullptr)
-        return 0;
-
-    auto *buckets = *reinterpret_cast<uint8_t *const *>(
-        player + kOffPlayerBucketArray);
-    const uint32_t mask = *reinterpret_cast<const uint32_t *>(
-        player + kOffPlayerBucketMask);
-    if (buckets == nullptr || mask == 0xFFFFFFFFu)
-        return 0;
-
-    int count = 0;
-    for (uint32_t b = 0; b <= mask; ++b) {
-        const uint8_t *bucket = buckets + b * kBucketStride;
-        const uint32_t linkOffset = *reinterpret_cast<const uint32_t *>(
-            bucket + kBucketLinkOffsetField);
-        uintptr_t entry = *reinterpret_cast<const uintptr_t *>(
-            bucket + kBucketChainHeadField);
-
-        while (entry != 0 && (entry & 1) == 0) {
-            auto *obj = reinterpret_cast<const uint8_t *>(entry);
-            auto *instance = *reinterpret_cast<const uint8_t *const *>(
-                obj + kOffEntryInstanceBlock);
-            if (instance != nullptr) {
-                const uint32_t typeMask = *reinterpret_cast<const uint32_t *>(
-                    instance + kOffInstanceTypeMask);
-                if ((typeMask & kTypeMaskUnit) != 0) {
-                    const auto *nameplate = *reinterpret_cast<const uint8_t *const *>(
-                        obj + kOffUnitNamePlate);
-                    if (nameplate != nullptr) {
-                        emit(obj, nameplate, instance);
-                        ++count;
-                    }
-                }
-            }
-            entry = *reinterpret_cast<const uintptr_t *>(
-                obj + linkOffset + 4);
-        }
-    }
-    return count;
 }
 
 } // namespace

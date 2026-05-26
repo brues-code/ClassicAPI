@@ -95,6 +95,9 @@ functions, just behavior the stock 1.12 engine didn't have. See the
 | `HEARTHSTONE_BOUND` | *(none)* |
 | `ITEM_DATA_LOAD_RESULT` | `itemID, success` |
 | `MODIFIER_STATE_CHANGED` | `keyName, down` |
+| `NAME_PLATE_CREATED` | `unitGUID` |
+| `NAME_PLATE_UNIT_ADDED` | `unitGUID` |
+| `NAME_PLATE_UNIT_REMOVED` | `unitGUID` |
 | `PLAYER_STARTED_LOOKING` | *(none)* |
 | `PLAYER_STOPPED_LOOKING` | *(none)* |
 | `PLAYER_STARTED_MOVING` | *(none)* |
