@@ -11,13 +11,17 @@
 // You should have received a copy of the GNU Lesser General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_NamePlate.GetNamePlateGUIDs()` — enumerates GUIDs of currently-
-// visible units that have an allocated nameplate frame.
+// `C_NamePlate.GetNamePlates()` — returns nameplate Frame objects,
+// matching modern WoW's signature. Each CGNamePlateFrame is a CFrame
+// subclass that stores its Lua-registry ref-key at the standard
+// `OFF_COBJECT_LUA_REGISTRY_REF = +0x08`; pushing
+// `registry[refKey]` yields the Lua table that addons can call
+// `:Show()`, `:GetWidth()`, etc. on.
 //
-// Named differently from modern `C_NamePlate.GetNamePlates` because
-// the modern call returns nameplate `Frame` objects, not GUIDs. This
-// backport ships only the GUID primitive; surfacing the frames would
-// require additional engine hooks.
+// `C_NamePlate.GetNamePlateGUIDs()` — companion returning the GUID
+// strings of the same set of units. Faster than walking
+// `GetNamePlates()` + reading guid back, useful when an addon only
+// needs the GUIDs (raid-target tracking, threat coloring, etc.).
 //
 // Vanilla 1.12 stores each unit's nameplate pointer at `CGUnit + 0xE60`
 // (verified via `FUN_006086E0`'s "ensure nameplate exists" path). The
@@ -53,23 +57,24 @@ constexpr int kOffInstanceTypeMask = 0x08;
 constexpr uint32_t kTypeMaskUnit = 0x08;
 constexpr int kOffUnitNamePlate = 0xE60;
 
-} // namespace
+using LuaRawGetI_t = void(__fastcall *)(void *L, int idx, int n);
 
-static int __fastcall Script_GetNamePlateGUIDs(void *L) {
-    Game::Lua::NewTable(L);
-
+// Walk visible units with allocated nameplates, invoking `emit(unit,
+// nameplate, instance)` for each. Returns the number of emissions.
+template <typename F>
+int ForEachNamePlatedUnit(F &&emit) {
     auto *player = *reinterpret_cast<uint8_t *const *>(kLocalPlayerGlobal);
     if (player == nullptr)
-        return 1;
+        return 0;
 
     auto *buckets = *reinterpret_cast<uint8_t *const *>(
         player + kOffPlayerBucketArray);
     const uint32_t mask = *reinterpret_cast<const uint32_t *>(
         player + kOffPlayerBucketMask);
     if (buckets == nullptr || mask == 0xFFFFFFFFu)
-        return 1;
+        return 0;
 
-    int nextIndex = 1;
+    int count = 0;
     for (uint32_t b = 0; b <= mask; ++b) {
         const uint8_t *bucket = buckets + b * kBucketStride;
         const uint32_t linkOffset = *reinterpret_cast<const uint32_t *>(
@@ -85,30 +90,63 @@ static int __fastcall Script_GetNamePlateGUIDs(void *L) {
                 const uint32_t typeMask = *reinterpret_cast<const uint32_t *>(
                     instance + kOffInstanceTypeMask);
                 if ((typeMask & kTypeMaskUnit) != 0) {
-                    const auto *nameplate = *reinterpret_cast<const void *const *>(
+                    const auto *nameplate = *reinterpret_cast<const uint8_t *const *>(
                         obj + kOffUnitNamePlate);
                     if (nameplate != nullptr) {
-                        const uint64_t guid = *reinterpret_cast<const uint64_t *>(
-                            instance);
-                        if (guid != 0) {
-                            char buf[Guid::STRING_SIZE];
-                            Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
-                            Game::Lua::PushString(L,
-                                Guid::FormatAsString(guid, buf, sizeof buf));
-                            Game::Lua::SetTable(L, -3);
-                        }
+                        emit(obj, nameplate, instance);
+                        ++count;
                     }
                 }
             }
-
             entry = *reinterpret_cast<const uintptr_t *>(
                 obj + linkOffset + 4);
         }
     }
+    return count;
+}
+
+} // namespace
+
+static int __fastcall Script_GetNamePlates(void *L) {
+    Game::Lua::NewTable(L);
+    auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
+        Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
+    int nextIndex = 1;
+    ForEachNamePlatedUnit(
+        [L, rawgeti, &nextIndex](const uint8_t *, const uint8_t *nameplate,
+                                  const uint8_t *) {
+            const int refKey = *reinterpret_cast<const int *>(
+                nameplate + Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
+            if (refKey == 0)
+                return;
+            Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
+            rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
+            Game::Lua::SetTable(L, -3);
+        });
+    return 1;
+}
+
+static int __fastcall Script_GetNamePlateGUIDs(void *L) {
+    Game::Lua::NewTable(L);
+    int nextIndex = 1;
+    ForEachNamePlatedUnit(
+        [L, &nextIndex](const uint8_t *, const uint8_t *,
+                         const uint8_t *instance) {
+            const uint64_t guid = *reinterpret_cast<const uint64_t *>(instance);
+            if (guid == 0)
+                return;
+            char buf[Guid::STRING_SIZE];
+            Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
+            Game::Lua::PushString(L,
+                Guid::FormatAsString(guid, buf, sizeof buf));
+            Game::Lua::SetTable(L, -3);
+        });
     return 1;
 }
 
 static void RegisterLuaFunctions() {
+    Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlates",
+                                     &Script_GetNamePlates);
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateGUIDs",
                                      &Script_GetNamePlateGUIDs);
 }

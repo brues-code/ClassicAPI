@@ -196,6 +196,7 @@ build instructions.
   - [`C_MerchantFrame.IsSellAllJunkEnabled()`](#c_merchantframeissellalljunkenabled)
 
 - [NamePlate](#nameplate)
+  - [`C_NamePlate.GetNamePlates()`](#c_nameplategetnameplates)
   - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
 
 - [NameCache](#namecache)
@@ -4330,30 +4331,54 @@ gate `SellAllJunkItems` on this don't no-op silently.
 
 ## NamePlate
 
+Modern `C_NamePlate.*` returns nameplate `Frame` objects keyed off
+unit data. Vanilla 1.12 doesn't ship the API at all — but the
+underlying data (per-unit nameplate pointer at `CGUnit + 0xE60`)
+exists. We enumerate visible units via the local-player-anchored
+object hash table, filter by `TYPEMASK_UNIT`, and return matches.
+
+> **Scope vs. modern.** Modern API also provides `"nameplateN"` unit
+> tokens and `NAME_PLATE_UNIT_ADDED` / `REMOVED` events. Both
+> deferred — would require hooking the unit-token resolver and a
+> per-frame polling loop. The functions documented below give
+> addons enough to walk plates per call.
+
+### `C_NamePlate.GetNamePlates()`
+
+Returns a 1-based table of nameplate `Frame` objects — one per
+CGUnit that currently has an allocated nameplate. The frames are
+real Lua tables with methods (`:GetName()`, `:GetWidth()`,
+`:SetAlpha()`, etc.); decorations added by other addons (pfUI's
+nameplate skin, healthbar overlays, etc.) are visible on the
+returned tables as expected.
+
+```lua
+local plates = C_NamePlate.GetNamePlates()
+for i, plate in ipairs(plates) do
+    print(i, plate:GetName(), plate:GetWidth())
+end
+```
+
+Pushes `registry[plate + 0x08]` for each frame — the per-CFrame Lua
+registry ref-key the engine populates on frame creation. Empty
+table when nameplates are toggled off (`V` key) or no units are in
+nameplate range.
+
 ### `C_NamePlate.GetNamePlateGUIDs()`
 
-Returns a 1-based table of GUID strings (modern `"0x..."` format) —
-one per CGUnit that currently has an allocated nameplate frame.
-Empty table when nameplates are toggled off (`V` key) or no units
-in nameplate range are visible.
+Companion to `GetNamePlates()` — returns the GUID strings of the
+same set of units in modern `"0xHHHHHHHHHHHHHHHH"` format. Useful
+when an addon only needs GUIDs (raid-target tracking, threat
+coloring) and doesn't want to walk the frame list to read each
+plate's stored guid.
 
 ```lua
 /dump C_NamePlate.GetNamePlateGUIDs()
 -- { "0xF13000C36C26FD02", "0xF130000009276912", ... }
 ```
 
-Walks the local-player-anchored object hash table for `TYPEMASK_UNIT`
-entries, filters by `*(unit + 0xE60) != nullptr` (the per-unit
-nameplate-frame pointer the engine assigns in `FUN_006086E0`'s "show
-nameplate" path). Returns the GUIDs of matching units in hash-bucket
-order — order isn't stable across calls.
-
-**Named differently from modern WoW's `C_NamePlate.GetNamePlates`** —
-the modern call returns nameplate `Frame` objects, not GUIDs. We
-ship the GUID primitive; surfacing the frames would need additional
-engine hooks. Modern also provides `"nameplateN"` unit tokens and
-`NAME_PLATE_UNIT_ADDED` / `REMOVED` events — both unimplemented
-here (multi-session scope).
+Same enumeration as `GetNamePlates`; the two return parallel lists
+in the same hash-bucket order (which isn't stable across calls).
 
 ## NameCache
 
