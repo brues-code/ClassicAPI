@@ -16,6 +16,7 @@
 #include "MinHook.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "nameplate/Walk.h"
 #include "player/NameCache.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
@@ -36,6 +37,10 @@ static bool __fastcall FrameScript_Initialize_h() {
     // FrameScript_Initialize), invalidate our cached slot indices. The
     // table is rebuilt at a fresh allocation; the old slots are stale.
     Event::Custom::PrepareForReload();
+
+    // Drop the nameplate wrapper-cache refkeys for the same reason:
+    // the Lua registry that holds them is about to be freed.
+    NamePlate::Info::PrepareForReload();
 
     // Persist the name cache before the engine starts tearing down.
     // This hook fires on both `/reload` and `/logout` (the engine

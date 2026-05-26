@@ -25,11 +25,19 @@
 
 namespace NamePlate::Info {
 
-// Pushes the nameplate Frame at `nameplate` onto the Lua stack —
-// either the cached registry-wrapper (addon-registered plates) or a
-// fresh per-call wrapper (default vanilla plates). Defined in
-// `Info.cpp`.
+// Pushes the nameplate Frame at `nameplate` onto the Lua stack.
+// Returns a stable wrapper table — the same table for the same
+// nameplate pointer across every call — so addon-set fields on the
+// wrapper (pfUI: `plate.nameplate`) survive between
+// `NAME_PLATE_CREATED` and a later `GetNamePlateFor*` lookup.
+// Defined in `Info.cpp`.
 void PushNamePlateFrame(void *L, void *nameplate);
+
+// Clears the wrapper-cache map. Called from `FrameScript_Initialize`
+// before the engine tears down the Lua registry on `/reload`; the
+// next push for each plate then builds a fresh wrapper pinned in
+// the freshly-rebuilt registry.
+void PrepareForReload();
 
 } // namespace NamePlate::Info
 
