@@ -281,6 +281,28 @@ enum Offsets {
     // input it's the right primitive.
     FUN_TOKEN_TO_GUID = 0x00515970,
 
+    // `SStrCmpI(a, b, n)` — Storm's case-insensitive memcmp-style
+    // comparator. **`int __stdcall(const char *a, const char *b, int n)`**
+    // — the function ends with `ret 0xc`, so the callee pops the
+    // 3-arg stack frame. Declaring it as `__cdecl` and calling makes
+    // MSVC emit a redundant `add esp, 12` post-call, drifting ESP
+    // upward by 12 per call and corrupting the caller's stack frame
+    // — manifested as a deep-Lua crash whose `L` pointer landed in
+    // `.text`. Returns 0 when the first `n` characters match
+    // (ignoring case) or both strings end before `n`.
+    FUN_SSTR_CMP_I = 0x0064A4C0,
+
+    // UNIT_FIELD_TARGET within `m_objectFields` — 64-bit GUID at byte
+    // offsets +0x28 (lo) / +0x2C (hi). Verified by disassembling
+    // `FUN_TOKEN_TO_GUID`'s suffix walker at `0x00515A1C-A2C`:
+    // `mov eax, [obj + 0x110]; mov edi, [eax + 0x28]; mov ebx, [eax + 0x2c]`
+    // — reads the target GUID to chain `targettarget`-style tokens.
+    // Distinct from the higher field offsets in the
+    // `OFF_UNIT_FIELD_*` block; UNIT_FIELD_TARGET is one of the few
+    // 1.12 offsets that matches the CMaNGOS-documented vanilla
+    // layout.
+    OFF_UNIT_FIELD_TARGET = 0x28,
+
     // Party / raid roster counts and the party GUID array referenced
     // in the `FUN_TOKEN_TO_GUID` dispatch comment above. Used by
     // `UnitTokenFromGUID` to cap its candidate iteration — solo

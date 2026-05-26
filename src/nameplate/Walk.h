@@ -33,6 +33,17 @@ void PushNamePlateFrame(void *L, void *nameplate);
 
 } // namespace NamePlate::Info
 
+namespace NamePlate::Events {
+
+// Returns the GUID currently bound to `nameplateN` (1-based, matching
+// the modern Lua token form). `0` means no nameplate at that index.
+// Backed by the per-tick UNIT_ADDED / UNIT_REMOVED diff in
+// `Events.cpp` — order is creation-order (append on ADDED, erase on
+// REMOVED), stable within a frame.
+uint64_t GetGUIDByIndex(int oneBased);
+
+} // namespace NamePlate::Events
+
 namespace NamePlate::Walk {
 
 // `0x00B41414` is a player-related global that overlays multiple

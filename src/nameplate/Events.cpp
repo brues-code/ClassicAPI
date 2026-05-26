@@ -41,9 +41,11 @@
 #include "nameplate/Walk.h"
 #include "tick/WorldTick.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace NamePlate::Events {
 
@@ -79,6 +81,14 @@ std::unordered_map<uint64_t, const void *> g_currentTickPlates;
 // <80 even in AV-scale scenes (matching the `reserve(64)` below) —
 // then tops out as pool reuse covers all subsequent shows.
 std::unordered_set<const void *> g_seenPlates;
+
+// Ordered list of currently-visible nameplate GUIDs, in
+// creation-order. Append on UNIT_ADDED, erase on UNIT_REMOVED. Backs
+// the `nameplateN` unit-token resolver in `TokenResolver.cpp`. Order
+// matches modern WoW semantics: stable for the lifetime of each
+// plate, gaps when middle plates vanish (until the next REMOVED
+// shifts later entries down).
+std::vector<uint64_t> g_orderedGUIDs;
 
 void FireWithGUID(const char *eventName, uint64_t guid) {
     if (guid == 0)
@@ -155,18 +165,28 @@ void OnWorldTick() {
 
     // Fire CREATED (with the Frame as arg1) for never-before-seen
     // frame pointers; ADDED (with GUID string) for GUIDs not in last
-    // tick's snapshot.
+    // tick's snapshot. New ADDED entries also get appended to the
+    // ordered GUID list that backs `nameplateN` token resolution.
     for (const auto &kv : g_currentTickPlates) {
         if (g_seenPlates.insert(kv.second).second)
             FireWithFrame(kEventCreated, const_cast<void *>(kv.second));
-        if (g_lastTickPlates.find(kv.first) == g_lastTickPlates.end())
+        if (g_lastTickPlates.find(kv.first) == g_lastTickPlates.end()) {
             FireWithGUID(kEventUnitAdded, kv.first);
+            g_orderedGUIDs.push_back(kv.first);
+        }
     }
 
     // Fire REMOVED for GUIDs in last tick's snapshot but not current.
+    // Same GUIDs are removed from the ordered list so later plates
+    // shift down — matches modern semantics.
     for (const auto &kv : g_lastTickPlates) {
-        if (g_currentTickPlates.find(kv.first) == g_currentTickPlates.end())
+        if (g_currentTickPlates.find(kv.first) == g_currentTickPlates.end()) {
             FireWithGUID(kEventUnitRemoved, kv.first);
+            auto it = std::find(g_orderedGUIDs.begin(), g_orderedGUIDs.end(),
+                                kv.first);
+            if (it != g_orderedGUIDs.end())
+                g_orderedGUIDs.erase(it);
+        }
     }
 
     g_lastTickPlates.swap(g_currentTickPlates);
@@ -175,5 +195,17 @@ void OnWorldTick() {
 } // namespace
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
+
+// Exposed via `nameplate/Walk.h` so the `nameplateN` token resolver
+// in `TokenResolver.cpp` can map an index to a GUID without seeing
+// the internal vector.
+uint64_t GetGUIDByIndex(int oneBased) {
+    if (oneBased <= 0)
+        return 0;
+    const size_t idx = static_cast<size_t>(oneBased - 1);
+    if (idx >= g_orderedGUIDs.size())
+        return 0;
+    return g_orderedGUIDs[idx];
+}
 
 } // namespace NamePlate::Events
