@@ -200,6 +200,30 @@ enum Offsets {
     // Registers a single global Lua function. __fastcall(name, func).
     FUN_FRAMESCRIPT_REGISTER_FUNCTION = 0x00704120,
 
+    // `FrameScript_Object::ScriptRegister(this, name)` — `__thiscall`,
+    // `this` = a `CFrameScriptObject *`. On first call (when `this+0x04`
+    // is zero) builds a Lua wrapper table `{[0] = lightuserdata(this)}`
+    // with `_G["__framescript_meta"]` as metatable, `luaL_ref`s it into
+    // the registry, stores the refkey at `this+0x08`. Always increments
+    // `this+0x04` (the Lua-side refcount). Optional `name` argument
+    // installs `_G[name] = wrapper` for engine-named frames.
+    //
+    // We call this in `PushNamePlateFrame` so the engine and our own
+    // C_NamePlate getters operate on the **same** wrapper table —
+    // every push through `lua_rawgeti(REGISTRY, this+0x08)` (the
+    // canonical engine path) lands on the same Lua object pfUI
+    // received in `NAME_PLATE_CREATED`, so addon-set fields
+    // (`plate.nameplate = decoratedButton`) survive engine-side
+    // re-fetches. Earlier note in `Info.cpp` warned about pinning the
+    // refcount; for pool-managed nameplates the engine never
+    // un-registers them anyway, so the pin is benign.
+    FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER = 0x00701BD0,
+
+    // `this+0x04` Lua refcount, incremented by `ScriptRegister`. We
+    // read it as a "has the engine ever exposed this CObject to Lua"
+    // probe — equivalent to checking `this+0x08 > 0` but more direct.
+    OFF_COBJECT_LUA_REFCOUNT = 0x04,
+
     // Direct cvar lookup — `__fastcall(const char *name) → CVar* | NULL`.
     // Hash-table by-name lookup over the CVar registry; same call
     // `Script_GetCVar` makes internally before the engine wraps the

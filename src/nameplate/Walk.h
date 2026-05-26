@@ -26,18 +26,11 @@
 namespace NamePlate::Info {
 
 // Pushes the nameplate Frame at `nameplate` onto the Lua stack.
-// Returns a stable wrapper table — the same table for the same
-// nameplate pointer across every call — so addon-set fields on the
-// wrapper (pfUI: `plate.nameplate`) survive between
-// `NAME_PLATE_CREATED` and a later `GetNamePlateFor*` lookup.
-// Defined in `Info.cpp`.
+// Returns the engine's canonical wrapper table — the same one
+// `rawgeti(REGISTRY, nameplate + 0x08)` resolves to anywhere else
+// in the engine — so addon-set fields (pfUI: `plate.nameplate`)
+// survive every roundtrip through our API. Defined in `Info.cpp`.
 void PushNamePlateFrame(void *L, void *nameplate);
-
-// Clears the wrapper-cache map. Called from `FrameScript_Initialize`
-// before the engine tears down the Lua registry on `/reload`; the
-// next push for each plate then builds a fresh wrapper pinned in
-// the freshly-rebuilt registry.
-void PrepareForReload();
 
 } // namespace NamePlate::Info
 
@@ -49,6 +42,13 @@ namespace NamePlate::Events {
 // `Events.cpp` — order is creation-order (append on ADDED, erase on
 // REMOVED), stable within a frame.
 uint64_t GetGUIDByIndex(int oneBased);
+
+// Clears the per-tick diff state (seen pointers, last tick's
+// snapshot, ordered GUID list) so the post-`/reload` tick refires
+// CREATED + UNIT_ADDED for every currently-visible plate. Called
+// from `FrameScript_Initialize_h` alongside the wrapper-cache reset
+// in `NamePlate::Info::PrepareForReload`.
+void PrepareForReload();
 
 } // namespace NamePlate::Events
 

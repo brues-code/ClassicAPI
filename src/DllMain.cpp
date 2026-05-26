@@ -38,9 +38,14 @@ static bool __fastcall FrameScript_Initialize_h() {
     // table is rebuilt at a fresh allocation; the old slots are stale.
     Event::Custom::PrepareForReload();
 
-    // Drop the nameplate wrapper-cache refkeys for the same reason:
-    // the Lua registry that holds them is about to be freed.
-    NamePlate::Info::PrepareForReload();
+    // Clear the nameplate diff state so currently-visible plates
+    // refire CREATED and UNIT_ADDED on the next tick — re-presents
+    // them to the freshly reloaded UI, matching modern WoW. The
+    // wrappers themselves now live in the engine's own registry
+    // (via `FrameScript_Object::ScriptRegister`), which the engine
+    // tears down and rebuilds across the Lua reset — no per-module
+    // cache to clear here.
+    NamePlate::Events::PrepareForReload();
 
     // Persist the name cache before the engine starts tearing down.
     // This hook fires on both `/reload` and `/logout` (the engine

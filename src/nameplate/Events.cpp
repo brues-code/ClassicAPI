@@ -220,6 +220,24 @@ void OnWorldTick() {
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 
+// Called from `FrameScript_Initialize_h` ahead of the engine's Lua
+// teardown. Clears the diff state alongside `NamePlate::Info`'s
+// wrapper-cache reset so that on the first post-reload tick every
+// currently-visible plate refires `NAME_PLATE_CREATED` and
+// `NAME_PLATE_UNIT_ADDED`. Without this, addons that decorate via
+// CREATED (pfUI: builds its overlay button per-pointer) never see
+// the existing plates after a `/reload` — `g_seenPlates` would
+// suppress every refire, and the freshly-built wrapper would lack
+// the addon's `.nameplate` field.
+//
+// `g_orderedGUIDs` is also cleared so the post-reload token indices
+// start at `nameplate1` again, matching the order plates re-fire in.
+void PrepareForReload() {
+    g_seenPlates.clear();
+    g_lastTickPlates.clear();
+    g_orderedGUIDs.clear();
+}
+
 // Exposed via `nameplate/Walk.h` so the `nameplateN` token resolver
 // in `TokenResolver.cpp` can map an index to a GUID without seeing
 // the internal vector.
