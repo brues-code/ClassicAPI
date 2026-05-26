@@ -198,6 +198,7 @@ build instructions.
 - [NamePlate](#nameplate)
   - [`C_NamePlate.GetNamePlates()`](#c_nameplategetnameplates)
   - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
+  - [`C_NamePlate.GetNamePlateForUnit(unitToken)`](#c_nameplategetnameplateforunitunittoken)
 
 - [NameCache](#namecache)
   - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
@@ -4396,6 +4397,25 @@ Lua 5.0 has no `select()`, so collect into a table via
 `{plate:GetRegions()}` and index. Addon-created plates have
 different region layouts — those frames inherit whatever shape the
 addon built, not this one.
+
+### `C_NamePlate.GetNamePlateForUnit(unitToken)`
+
+Returns the nameplate Frame for a single unit (resolved via the
+engine's token-to-GUID path, so out-of-range party/raid members
+work too), or `nil` if the unit has no allocated nameplate.
+
+```lua
+local plate = C_NamePlate.GetNamePlateForUnit("target")
+if plate then
+    local regions = {plate:GetRegions()}
+    print("targeting:", regions[3]:GetText())   -- e.g. "Santora"
+end
+```
+
+Same registered-vs-fresh-wrapper behavior as `GetNamePlates()` —
+addon-created plates return their cached wrapper, default vanilla
+plates get a fresh per-call wrapper. Don't cache the result across
+the unit going out of range.
 
 ### `C_NamePlate.GetNamePlateGUIDs()`
 

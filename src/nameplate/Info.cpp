@@ -76,6 +76,10 @@ constexpr int kOffUnitNamePlate = 0xE60;
 using LuaRawGetI_t = void(__fastcall *)(void *L, int idx, int n);
 using LuaPushLightUserdata_t = void(__fastcall *)(void *L, void *p);
 using LuaSetMetatable_t = int(__fastcall *)(void *L, int idx);
+using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
+using ResolveByGUID_t = void *(__fastcall *)(int type, const char *debugName,
+                                              uint32_t guidLo, uint32_t guidHi,
+                                              int priority);
 
 constexpr uintptr_t kFunLuaPushLightUserdata = 0x006F3A20;
 constexpr uintptr_t kFunLuaSetMetatable = 0x006F4020;
@@ -193,11 +197,75 @@ static int __fastcall Script_GetNamePlateGUIDs(void *L) {
     return 1;
 }
 
+// Pushes a nameplate Frame onto the stack — registered or fresh
+// wrapper depending on whether the engine assigned a real refKey.
+static void PushNamePlateFrame(void *L, void *nameplate) {
+    const int refKey = *reinterpret_cast<const int *>(
+        static_cast<uint8_t *>(nameplate) + Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
+    if (refKey > 0) {
+        auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
+            Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
+        rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
+    } else {
+        PushFreshFrameWrapper(L, nameplate);
+    }
+}
+
+// `C_NamePlate.GetNamePlateForUnit(unitToken)` — returns the
+// nameplate Frame for the given unit, or `nil` if the unit has no
+// nameplate (out of range, hidden, etc.). Resolves the token to a
+// GUID via the engine's `FUN_TOKEN_TO_GUID` so distant party/raid
+// members can be queried, then looks up the CGUnit via the object
+// hash and reads its `+0xE60` nameplate pointer.
+static int __fastcall Script_GetNamePlateForUnit(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    const char *token = Game::Lua::ToString(L, 1);
+    if (token == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+
+    auto tokenToGuid = reinterpret_cast<TokenToGUID_t>(
+        static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID));
+    const uint64_t guid = tokenToGuid(token);
+    if (guid == 0) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+
+    auto resolve = reinterpret_cast<ResolveByGUID_t>(
+        static_cast<uintptr_t>(Offsets::FUN_OBJECT_RESOLVE_BY_GUID));
+    auto *unit = static_cast<uint8_t *>(
+        resolve(Offsets::OBJ_TYPE_UNIT, "NamePlate",
+                static_cast<uint32_t>(guid),
+                static_cast<uint32_t>(guid >> 32),
+                0x172));
+    if (unit == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+
+    auto *nameplate = *reinterpret_cast<uint8_t *const *>(
+        unit + kOffUnitNamePlate);
+    if (nameplate == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+
+    PushNamePlateFrame(L, nameplate);
+    return 1;
+}
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlates",
                                      &Script_GetNamePlates);
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateGUIDs",
                                      &Script_GetNamePlateGUIDs);
+    Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateForUnit",
+                                     &Script_GetNamePlateForUnit);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
