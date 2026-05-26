@@ -120,6 +120,12 @@ functions, just behavior the stock 1.12 engine didn't have. See the
 | Addon security | `Enum.AddOnSecurityStatus.{Secure,Insecure,Banned,NotAvailable}` |
 | Power type | `Enum.PowerType.{HealthCost,None,Mana,Rage,Focus,Energy,Happiness}` |
 
+### Unit tokens
+
+| Token | Resolves to |
+|-------|-------------|
+| `nameplate1`..`nameplateN` | Unit behind the Nth visible nameplate, in creation-order. Works with every `UnitX` function — `UnitName`, `UnitGUID`, `UnitClass`, `UnitHealth`, etc. Suffix chains (`nameplate1target`, `nameplate1targettarget`) compose. See [NamePlate / Unit tokens](docs/API.md#unit-tokens-nameplaten). |
+
 ## Installation
 
 Use [VanillaFixes](https://github.com/hannesmann/vanillafixes) to load the

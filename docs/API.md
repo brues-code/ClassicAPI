@@ -201,6 +201,7 @@ build instructions.
   - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
   - [`C_NamePlate.GetNamePlateForUnit(unitToken)`](#c_nameplategetnameplateforunitunittoken)
   - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
+  - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
 
 - [NameCache](#namecache)
   - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
@@ -1581,7 +1582,7 @@ Fire when nameplate state actually changes. Payloads:
 | Event | `arg1` | Notes |
 |-------|--------|-------|
 | `NAME_PLATE_CREATED` | nameplate **Frame** | Matches modern WoW. Fires once per unique `CGNamePlateFrame` pointer — same frame re-used via pool recycle does NOT refire. |
-| `NAME_PLATE_UNIT_ADDED` | unit **GUID string** | Modern uses a `"nameplateN"` token; vanilla's token resolver isn't extensible. Pass `arg1` to [`GetNamePlateForGUID`](#c_nameplategetnameplateforguidguidstring) for the frame. |
+| `NAME_PLATE_UNIT_ADDED` | unit **GUID string** | Modern passes a `"nameplateN"` unit token; we ship the GUID string instead because event payloads can't carry Lua values through the engine's printf-style dispatcher. The `nameplateN` token itself **does** work for `UnitName` / `UnitGUID` / etc. — see [Unit tokens](#unit-tokens-nameplaten). |
 | `NAME_PLATE_UNIT_REMOVED` | unit **GUID string** | Same as above. |
 
 ```lua
@@ -1610,10 +1611,14 @@ end)
 > `NAME_PLATE_UNIT_ADDED` (fires next tick at the latest) or fetch
 > the current frame on-demand via `GetNamePlateForGUID`.
 
-> **Modern divergence.** Retail passes `"nameplateN"` unit tokens to
-> `ADDED`/`REMOVED`. Vanilla's token resolver isn't extensible, so
-> we ship the GUID string instead and let addons round-trip through
-> `GetNamePlateForGUID` to reach the frame.
+> **Modern divergence.** Retail passes `"nameplateN"` unit tokens as
+> the event payload. The vanilla engine's event dispatcher only
+> accepts `%s`/`%d`/`%u`/`%f` format codes — no path for "push the
+> token string and let `UnitX` resolve it lazily" — so we ship the
+> GUID string and addons can either round-trip via
+> `GetNamePlateForGUID` for the frame, or pass the matching
+> `"nameplate1"`-style token to any `UnitX` function. See
+> [Unit tokens](#unit-tokens-nameplaten).
 
 **Implementation notes**
 
@@ -4397,11 +4402,10 @@ underlying data (per-unit nameplate pointer at `CGUnit + 0xE60`)
 exists. We enumerate visible units via the local-player-anchored
 object hash table, filter by `TYPEMASK_UNIT`, and return matches.
 
-> **Scope vs. modern.** Modern API also provides `"nameplateN"` unit
-> tokens and `NAME_PLATE_UNIT_ADDED` / `REMOVED` events. Both
-> deferred — would require hooking the unit-token resolver and a
-> per-frame polling loop. The functions documented below give
-> addons enough to walk plates per call.
+Modern's `"nameplateN"` unit-token family is also supported — see
+[Unit tokens](#unit-tokens-nameplaten) below. `NAME_PLATE_UNIT_ADDED`
+/ `_REMOVED` / `_CREATED` events fire via a per-tick visible-plate
+diff (see [the events section](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)).
 
 ### `C_NamePlate.GetNamePlates()`
 
@@ -4517,6 +4521,45 @@ entries, filters by `*(unit + 0xE60) != nullptr`. The per-unit
 nameplate pointer is set by `FUN_006086E0`'s "show nameplate" path
 regardless of which nameplate system rendered it. Order follows
 hash-bucket iteration and isn't stable across calls.
+
+### Unit tokens (`nameplateN`)
+
+`"nameplate1"`, `"nameplate2"`, … work as unit tokens against every
+`UnitX` function: `UnitName`, `UnitGUID`, `UnitClass`, `UnitHealth`,
+`UnitHealthMax`, `UnitLevel`, `UnitFaction`, `UnitReaction`,
+`UnitExists`, `UnitIsPlayer`, `UnitIsEnemy`, `UnitIsDead`, etc. —
+~30 functions for free.
+
+```lua
+for i = 1, 40 do
+    if not UnitExists("nameplate" .. i) then break end
+    print(i, UnitName("nameplate" .. i), UnitClass("nameplate" .. i))
+end
+```
+
+Ordering is **creation-order** — each new plate appends to the end of
+the list and stays at its index until the unit goes out of range or
+the plate is removed, at which point later indices shift down.
+Stable for the lifetime of a single plate; no mid-frame reordering.
+Same semantics as modern WoW.
+
+Token chains work too — `"nameplate1target"`, `"nameplate1targettarget"`,
+etc. — by mirroring the engine's own `targettarget`-style suffix
+walker (read `UNIT_FIELD_TARGET` off `m_objectFields`, loop). Other
+suffixes (`pet`, `master`) aren't supported by the vanilla engine's
+own walker either, so they don't compose.
+
+Out-of-range indices return `nil` cleanly without raising "Unknown
+unit name" — `UnitExists("nameplate99")` just returns `false`.
+
+**Implementation note.** We hook `FUN_TOKEN_TO_GUID` (the central
+token→GUID resolver) so the entire `Script_Unit*` surface gains the
+new token form transparently. The hook is gated by an `SStrCmpI`
+prefix check against `"nameplate"`; non-nameplate tokens
+(`"player"`, `"target"`, `"partyN"`, etc.) fall straight through to
+the unmodified resolver. The ordered list is maintained alongside
+the existing `NAME_PLATE_UNIT_ADDED` / `_REMOVED` diff in the
+per-tick nameplate walker.
 
 ## NameCache
 
@@ -6712,9 +6755,13 @@ known unit tokens and return the first one currently mapped to that
 GUID, or `nil` if none of them point at it.
 
 The search order matches modern retail with post-1.12 tokens
-omitted (`vehicle`, `nameplateN`, `arenaN`, `arenapetN`, `bossN`,
-`focus`, `softenemy`, `softfriend`, `softinteract` all post-date
-vanilla and the engine's resolver doesn't recognize them):
+omitted (`vehicle`, `arenaN`, `arenapetN`, `bossN`, `focus`,
+`softenemy`, `softfriend`, `softinteract` all post-date vanilla and
+the engine's resolver doesn't recognize them). `nameplateN` is
+recognized by the resolver (we hook it — see
+[Unit tokens](#unit-tokens-nameplaten)) but **not** searched here —
+two GUIDs can share a nameplate index over the lifetime of a
+session, so it's not a stable reverse-lookup key:
 
 ```
 player → pet → party1..4 → partypet1..4 → raid1..40
