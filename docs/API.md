@@ -4346,11 +4346,10 @@ object hash table, filter by `TYPEMASK_UNIT`, and return matches.
 ### `C_NamePlate.GetNamePlates()`
 
 Returns a 1-based table of nameplate `Frame` objects — one per
-CGUnit that currently has an allocated nameplate. The frames are
-real Lua tables with methods (`:GetName()`, `:GetWidth()`,
-`:SetAlpha()`, etc.); decorations added by other addons (pfUI's
-nameplate skin, healthbar overlays, etc.) are visible on the
-returned tables as expected.
+CGUnit that currently has an allocated **Lua-registered** nameplate.
+The frames are real Lua tables with methods (`:GetName()`,
+`:GetWidth()`, `:SetAlpha()`, etc.) and any addon-added decorations
+on them.
 
 ```lua
 local plates = C_NamePlate.GetNamePlates()
@@ -4359,26 +4358,64 @@ for i, plate in ipairs(plates) do
 end
 ```
 
-Pushes `registry[plate + 0x08]` for each frame — the per-CFrame Lua
-registry ref-key the engine populates on frame creation. Empty
-table when nameplates are toggled off (`V` key) or no units are in
-nameplate range.
+Two kinds of plates can show up:
+
+- **Addon-created plates** (pfUI, TidyPlates, NamePlateMod, etc.):
+  registered with Lua via `CreateFrame`, so each has a real
+  registry ref. We push `registry[plate + 0x08]`. Identity is
+  stable across calls — caching is safe while the frame is alive.
+
+- **Default vanilla plates**: created internally by the engine
+  without ever calling `CreateFrame`. Their `+0x08` field holds the
+  sentinel `LUA_NOREF` (`-2`), not a real registry key. We build a
+  fresh wrapper table per call (`{[0] = lightuserdata(plate)}` with
+  the global `__framescript_meta` metatable) so addons get the
+  same method surface. The wrapper isn't cached engine-side, so
+  identity isn't stable across calls — don't compare wrappers, and
+  don't store them across the unit going out of range (the
+  underlying frame may be freed). Call `GetNamePlates()` fresh
+  each time you need plates.
+
+### Reading region content from a default nameplate
+
+Vanilla plates have six child regions in stable positions. Walk them
+with `:GetRegions()`:
+
+```lua
+local plates = C_NamePlate.GetNamePlates()
+for _, plate in ipairs(plates) do
+    local regions = {plate:GetRegions()}
+    local name  = regions[3]:GetText()              -- e.g. "Joseph Dalton"
+    local level = tonumber(regions[4]:GetText())    -- e.g. 60
+    -- regions[1], [2], [5], [6] are textures (border, healthbar,
+    -- glow, raid-icon — order depends on the engine's draw order)
+end
+```
+
+Lua 5.0 has no `select()`, so collect into a table via
+`{plate:GetRegions()}` and index. Addon-created plates have
+different region layouts — those frames inherit whatever shape the
+addon built, not this one.
 
 ### `C_NamePlate.GetNamePlateGUIDs()`
 
-Companion to `GetNamePlates()` — returns the GUID strings of the
-same set of units in modern `"0xHHHHHHHHHHHHHHHH"` format. Useful
-when an addon only needs GUIDs (raid-target tracking, threat
-coloring) and doesn't want to walk the frame list to read each
-plate's stored guid.
+Returns a 1-based table of GUID strings (modern
+`"0xHHHHHHHHHHHHHHHH"` format) — one per CGUnit with an allocated
+nameplate, **regardless** of whether the frame has been registered
+with Lua. Catches default vanilla nameplates that
+[`GetNamePlates`](#c_nameplategetnameplates) can't surface as
+frames.
 
 ```lua
 /dump C_NamePlate.GetNamePlateGUIDs()
 -- { "0xF13000C36C26FD02", "0xF130000009276912", ... }
 ```
 
-Same enumeration as `GetNamePlates`; the two return parallel lists
-in the same hash-bucket order (which isn't stable across calls).
+Walks the local-player-anchored object hash table for `TYPEMASK_UNIT`
+entries, filters by `*(unit + 0xE60) != nullptr`. The per-unit
+nameplate pointer is set by `FUN_006086E0`'s "show nameplate" path
+regardless of which nameplate system rendered it. Order follows
+hash-bucket iteration and isn't stable across calls.
 
 ## NameCache
 
