@@ -103,24 +103,16 @@ void PushFreshFrameWrapper(void *L, void *frame) {
 
 static int __fastcall Script_GetNamePlates(void *L) {
     Game::Lua::NewTable(L);
-    auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
-        Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
     int nextIndex = 1;
     ForEachNamePlatedUnit(
-        [L, rawgeti, &nextIndex](const uint8_t *, const uint8_t *nameplate,
-                                  const uint8_t *) {
+        [L, &nextIndex](const uint8_t *, const uint8_t *nameplate,
+                         const uint8_t *) {
             Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
-            // The engine initializes `OFF_COBJECT_LUA_REGISTRY_REF` to
-            // `LUA_NOREF` (`-2`) for internally-created frames; a real
-            // refkey is always a positive integer from `luaL_ref`.
-            // Treat anything `<= 0` as unregistered.
-            const int refKey = *reinterpret_cast<const int *>(
-                nameplate + Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
-            if (refKey > 0) {
-                rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
-            } else {
-                PushFreshFrameWrapper(L, const_cast<uint8_t *>(nameplate));
-            }
+            // Shared helper validates refkey freshness (defensive vs.
+            // stale-across-reload) and falls back to a fresh wrapper
+            // if the registry slot doesn't actually hold the frame
+            // table any more.
+            PushNamePlateFrame(L, const_cast<uint8_t *>(nameplate));
             Game::Lua::SetTable(L, -3);
         });
     return 1;
@@ -147,6 +139,16 @@ static int __fastcall Script_GetNamePlateGUIDs(void *L) {
 // Exported via `nameplate/Walk.h` so `Events.cpp` can reuse the same
 // frame-push path. Internal callers (Script_GetNamePlates etc.) call
 // it through the unqualified name (they live in the same namespace).
+//
+// Defensive against stale refkeys: on `/reload` the C++ frame
+// persists but the Lua registry is rebuilt at a fresh state. The
+// engine's per-frame teardown should release each refkey via
+// `luaL_unref`, but we'd rather not rely on it for every frame in
+// every reload path — if the rawgeti'd value isn't actually a
+// frame-wrapper table (nil, freed registry slot, anything), pop it
+// and synthesise a fresh wrapper. Same fallback the
+// "unregistered frame" path uses, so the caller can't observe a
+// non-table being pushed.
 void PushNamePlateFrame(void *L, void *nameplate) {
     const int refKey = *reinterpret_cast<const int *>(
         static_cast<uint8_t *>(nameplate) + Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
@@ -154,9 +156,11 @@ void PushNamePlateFrame(void *L, void *nameplate) {
         auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
             Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
         rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
-    } else {
-        PushFreshFrameWrapper(L, nameplate);
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE)
+            return;
+        Game::Lua::SetTop(L, -2); // pop the stale value
     }
+    PushFreshFrameWrapper(L, nameplate);
 }
 
 // GUID → nameplate Frame pushed on stack. Pushes nil if the GUID

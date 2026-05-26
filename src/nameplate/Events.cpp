@@ -70,6 +70,14 @@ std::unordered_map<uint64_t, const void *> g_currentTickPlates;
 // Frame pointers we've ever surfaced as nameplate plates. First
 // sighting fires NAME_PLATE_CREATED; same pointer reappearing (pool
 // reuse) doesn't refire.
+//
+// Bounded by the engine's CGNamePlateFrame freelist high-water mark:
+// `FUN_006087F0` first checks the global freelist head at
+// `DAT_00c4d920` and recycles any waiting frame before falling back
+// to `SMemAlloc(0x518)`. So the set grows only up to the peak
+// simultaneous-visible-plate count for the session — typically
+// <80 even in AV-scale scenes (matching the `reserve(64)` below) —
+// then tops out as pool reuse covers all subsequent shows.
 std::unordered_set<const void *> g_seenPlates;
 
 void FireWithGUID(const char *eventName, uint64_t guid) {
