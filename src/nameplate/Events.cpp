@@ -21,28 +21,30 @@
 // is absorbed because we only compare with the previous *frame's*
 // state, not every transient `unit + 0xE60` write.
 //
-// Payload shape:
-// - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame** (matches
-//   modern WoW). The engine's printf-style dispatcher
-//   (`FUN_FIRE_EVENT`) only knows `%s`/`%d`/`%u`/`%f` format codes
-//   with no "push Lua value" option, so we route this event through
-//   a pre-set path: save current `_G.arg1`, set it to the frame, fire
-//   with empty format (dispatcher leaves `_G.arg<N>` alone when no
-//   codes are parsed), restore.
-// - `NAME_PLATE_UNIT_ADDED` / `_REMOVED` — `arg1` is the unit GUID
-//   string. Modern uses a `"nameplateN"` token; vanilla's token
-//   resolver isn't extensible. Addons call
-//   `C_NamePlate.GetNamePlateForGUID(arg1)` to get the frame.
+// Payload shape (matches modern WoW exactly):
+// - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame**. The
+//   engine's printf-style dispatcher (`FUN_FIRE_EVENT`) only knows
+//   `%s`/`%d`/`%u`/`%f` format codes with no "push Lua value" option,
+//   so we route this event through a pre-set path: save current
+//   `_G.arg1`, set it to the frame, fire with empty format
+//   (dispatcher leaves `_G.arg<N>` alone when no codes are parsed),
+//   restore.
+// - `NAME_PLATE_UNIT_ADDED` / `_REMOVED` — `arg1` is the
+//   `"nameplateN"` unit token (formatted from the plate's index in
+//   `g_orderedGUIDs` at fire time). The token resolves to the unit
+//   via the `nameplateN`-aware token resolver in `TokenResolver.cpp`
+//   — addons can pass it straight to `UnitName`, `UnitGUID`, etc.,
+//   or to `GetNamePlateForUnit` for the frame.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
-#include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "tick/WorldTick.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -90,15 +92,26 @@ std::unordered_set<const void *> g_seenPlates;
 // shifts later entries down).
 std::vector<uint64_t> g_orderedGUIDs;
 
-void FireWithGUID(const char *eventName, uint64_t guid) {
-    if (guid == 0)
+// Fire `eventName` with a pre-formatted string as `arg1`. The engine
+// dispatcher's `%s` format code pushes the C string into `_G.arg1`
+// as a Lua string — no escaping concerns for our own input
+// (`"nameplateN"`).
+void FireWithString(const char *eventName, const char *value) {
+    if (value == nullptr)
         return;
     const int slot = Event::Custom::Lookup(eventName);
     if (slot < 0)
         return;
-    char buf[Guid::STRING_SIZE];
-    Guid::FormatAsString(guid, buf, sizeof buf);
-    Event::Custom::Fire(slot, "%s", buf);
+    Event::Custom::Fire(slot, "%s", value);
+}
+
+// Format a 1-based nameplate index as `"nameplateN"` for ADDED /
+// REMOVED event payloads. Buffer should be at least 24 bytes — 9
+// for the prefix, up to 10 digits for the index, room for null.
+// Returns `buf` for convenient inline use.
+const char *FormatNamePlateToken(char *buf, size_t bufSize, int oneBasedIndex) {
+    std::snprintf(buf, bufSize, "nameplate%d", oneBasedIndex);
+    return buf;
 }
 
 // Fire `eventName` with the nameplate `Frame` set as `_G.arg1`.
@@ -164,28 +177,39 @@ void OnWorldTick() {
         });
 
     // Fire CREATED (with the Frame as arg1) for never-before-seen
-    // frame pointers; ADDED (with GUID string) for GUIDs not in last
-    // tick's snapshot. New ADDED entries also get appended to the
-    // ordered GUID list that backs `nameplateN` token resolution.
+    // frame pointers; ADDED (with `"nameplateN"` token as arg1) for
+    // GUIDs not in last tick's snapshot. New entries are appended to
+    // the ordered list *before* firing so the token resolves to the
+    // newly-added plate during the event handler.
     for (const auto &kv : g_currentTickPlates) {
         if (g_seenPlates.insert(kv.second).second)
             FireWithFrame(kEventCreated, const_cast<void *>(kv.second));
         if (g_lastTickPlates.find(kv.first) == g_lastTickPlates.end()) {
-            FireWithGUID(kEventUnitAdded, kv.first);
             g_orderedGUIDs.push_back(kv.first);
+            char tokenBuf[24];
+            FireWithString(kEventUnitAdded,
+                FormatNamePlateToken(tokenBuf, sizeof tokenBuf,
+                                     static_cast<int>(g_orderedGUIDs.size())));
         }
     }
 
     // Fire REMOVED for GUIDs in last tick's snapshot but not current.
-    // Same GUIDs are removed from the ordered list so later plates
-    // shift down — matches modern semantics.
+    // We compute the token from the position *before* erasing so the
+    // event payload reflects the slot the unit just vacated; the
+    // handler can still resolve the token to the unit via
+    // `g_orderedGUIDs[slot]` during dispatch. Later plates shift down
+    // when we erase — matches modern semantics.
     for (const auto &kv : g_lastTickPlates) {
         if (g_currentTickPlates.find(kv.first) == g_currentTickPlates.end()) {
-            FireWithGUID(kEventUnitRemoved, kv.first);
             auto it = std::find(g_orderedGUIDs.begin(), g_orderedGUIDs.end(),
                                 kv.first);
-            if (it != g_orderedGUIDs.end())
-                g_orderedGUIDs.erase(it);
+            if (it == g_orderedGUIDs.end())
+                continue;
+            const int oneBased = static_cast<int>(it - g_orderedGUIDs.begin()) + 1;
+            char tokenBuf[24];
+            FireWithString(kEventUnitRemoved,
+                FormatNamePlateToken(tokenBuf, sizeof tokenBuf, oneBased));
+            g_orderedGUIDs.erase(it);
         }
     }
 

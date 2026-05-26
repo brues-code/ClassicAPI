@@ -1582,8 +1582,8 @@ Fire when nameplate state actually changes. Payloads:
 | Event | `arg1` | Notes |
 |-------|--------|-------|
 | `NAME_PLATE_CREATED` | nameplate **Frame** | Matches modern WoW. Fires once per unique `CGNamePlateFrame` pointer — same frame re-used via pool recycle does NOT refire. |
-| `NAME_PLATE_UNIT_ADDED` | unit **GUID string** | Modern passes a `"nameplateN"` unit token; we ship the GUID string instead because event payloads can't carry Lua values through the engine's printf-style dispatcher. The `nameplateN` token itself **does** work for `UnitName` / `UnitGUID` / etc. — see [Unit tokens](#unit-tokens-nameplaten). |
-| `NAME_PLATE_UNIT_REMOVED` | unit **GUID string** | Same as above. |
+| `NAME_PLATE_UNIT_ADDED` | `"nameplateN"` **unit token** | Matches modern WoW. Pass straight to `UnitName` / `UnitGUID` / `UnitClass` / etc., or to [`GetNamePlateForUnit`](#c_nameplategetnameplateforunitunittoken) for the frame. The token is positional — see [Unit tokens](#unit-tokens-nameplaten) for ordering semantics. |
+| `NAME_PLATE_UNIT_REMOVED` | `"nameplateN"` **unit token** | Same as above. Computed from the plate's slot *before* it shifts out of the ordered list, so the token still resolves to the leaving unit during the event handler. |
 
 ```lua
 local f = CreateFrame("Frame")
@@ -1595,8 +1595,9 @@ f:SetScript("OnEvent", function()
         -- arg1 = the nameplate Frame itself
         arg1:SetAlpha(0.8)
     elseif event == "NAME_PLATE_UNIT_ADDED" then
-        -- arg1 = unit GUID string ("0xF13000C36C26FD02", etc.)
-        local plate = C_NamePlate.GetNamePlateForGUID(arg1)
+        -- arg1 = "nameplate1" / "nameplate2" / ...
+        local name = UnitName(arg1)
+        local plate = C_NamePlate.GetNamePlateForUnit(arg1)
         -- ... style based on the unit ...
     end
 end)
@@ -1609,16 +1610,14 @@ end)
 > is a bare frame with no addon-side decorations yet. For
 > unit-specific work after the addon has decorated, use
 > `NAME_PLATE_UNIT_ADDED` (fires next tick at the latest) or fetch
-> the current frame on-demand via `GetNamePlateForGUID`.
+> the current frame on-demand via `GetNamePlateForUnit(arg1)`.
 
-> **Modern divergence.** Retail passes `"nameplateN"` unit tokens as
-> the event payload. The vanilla engine's event dispatcher only
-> accepts `%s`/`%d`/`%u`/`%f` format codes — no path for "push the
-> token string and let `UnitX` resolve it lazily" — so we ship the
-> GUID string and addons can either round-trip via
-> `GetNamePlateForGUID` for the frame, or pass the matching
-> `"nameplate1"`-style token to any `UnitX` function. See
-> [Unit tokens](#unit-tokens-nameplaten).
+> **Token stability gotcha.** Like modern WoW, the `arg1` token is
+> positional — `"nameplate3"` today may resolve to a different unit
+> after the slot vacates and shifts. If you need a per-unit hash key
+> for cross-event bookkeeping, call `UnitGUID(arg1)` and store the
+> GUID instead. See [Unit tokens](#unit-tokens-nameplaten) for the
+> ordering rules.
 
 **Implementation notes**
 
@@ -4483,19 +4482,20 @@ the unit going out of range.
 ### `C_NamePlate.GetNamePlateForGUID(guidString)`
 
 Same as `GetNamePlateForUnit` but takes the `"0xHHHHHHHHHHHHHHHH"`
-GUID-string form. Designed to pair with the
-[NAME_PLATE_UNIT_ADDED / REMOVED](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
-events, whose payload is the unit GUID rather than a token.
+GUID-string form. Useful when you've stored a unit GUID across
+events (e.g., converted the positional `"nameplateN"` token to a
+GUID via `UnitGUID(arg1)` at `NAME_PLATE_UNIT_ADDED` time) and need
+the frame later.
 
 ```lua
+local platesByGuid = {}
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 f:SetScript("OnEvent", function()
-    -- arg1 = GUID string
-    local plate = C_NamePlate.GetNamePlateForGUID(arg1)
-    if plate then
-        -- ... skin / style plate ...
-    end
+    -- arg1 = "nameplateN" token; convert to stable GUID for storage
+    local guid = UnitGUID(arg1)
+    platesByGuid[guid] = C_NamePlate.GetNamePlateForGUID(guid)
 end)
 ```
 

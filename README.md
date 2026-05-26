@@ -96,8 +96,8 @@ functions, just behavior the stock 1.12 engine didn't have. See the
 | `ITEM_DATA_LOAD_RESULT` | `itemID, success` |
 | `MODIFIER_STATE_CHANGED` | `keyName, down` |
 | `NAME_PLATE_CREATED` | `nameplateFrame` |
-| `NAME_PLATE_UNIT_ADDED` | `unitGUID` |
-| `NAME_PLATE_UNIT_REMOVED` | `unitGUID` |
+| `NAME_PLATE_UNIT_ADDED` | `unitToken` ("nameplateN") |
+| `NAME_PLATE_UNIT_REMOVED` | `unitToken` ("nameplateN") |
 | `PLAYER_STARTED_LOOKING` | *(none)* |
 | `PLAYER_STOPPED_LOOKING` | *(none)* |
 | `PLAYER_STARTED_MOVING` | *(none)* |
