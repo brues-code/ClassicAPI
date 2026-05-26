@@ -195,6 +195,9 @@ build instructions.
   - [`C_MerchantFrame.IsMerchantItemRefundable(slot)`](#c_merchantframeismerchantitemrefundableslot)
   - [`C_MerchantFrame.IsSellAllJunkEnabled()`](#c_merchantframeissellalljunkenabled)
 
+- [NamePlate](#nameplate)
+  - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
+
 - [NameCache](#namecache)
   - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
   - [`C_PlayerCache.GetPlayerInfoByName(name)`](#c_playercachegetplayerinfobynamename)
@@ -4325,7 +4328,32 @@ disable the sell-all-junk button; vanilla has no such setting, so
 the feature is always on. Function exists so retail addons that
 gate `SellAllJunkItems` on this don't no-op silently.
 
-## NameCache
+## NamePlate
+
+### `C_NamePlate.GetNamePlateGUIDs()`
+
+Returns a 1-based table of GUID strings (modern `"0x..."` format) —
+one per CGUnit that currently has an allocated nameplate frame.
+Empty table when nameplates are toggled off (`V` key) or no units
+in nameplate range are visible.
+
+```lua
+/dump C_NamePlate.GetNamePlateGUIDs()
+-- { "0xF13000C36C26FD02", "0xF130000009276912", ... }
+```
+
+Walks the local-player-anchored object hash table for `TYPEMASK_UNIT`
+entries, filters by `*(unit + 0xE60) != nullptr` (the per-unit
+nameplate-frame pointer the engine assigns in `FUN_006086E0`'s "show
+nameplate" path). Returns the GUIDs of matching units in hash-bucket
+order — order isn't stable across calls.
+
+**Named differently from modern WoW's `C_NamePlate.GetNamePlates`** —
+the modern call returns nameplate `Frame` objects, not GUIDs. We
+ship the GUID primitive; surfacing the frames would need additional
+engine hooks. Modern also provides `"nameplateN"` unit tokens and
+`NAME_PLATE_UNIT_ADDED` / `REMOVED` events — both unimplemented
+here (multi-session scope).
 
 GUID-keyed cache of player names and classes. The engine itself
 maintains an in-memory `NameCache` at `0x00C0E228`, populated by
