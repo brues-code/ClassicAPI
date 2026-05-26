@@ -158,12 +158,39 @@ static void PushNamePlateFrame(void *L, void *nameplate) {
     }
 }
 
+// GUID → nameplate Frame pushed on stack. Pushes nil if the GUID
+// doesn't resolve to a visible CGUnit, or the unit has no allocated
+// nameplate.
+static void PushNamePlateForGUID(void *L, uint64_t guid) {
+    if (guid == 0) {
+        Game::Lua::PushNil(L);
+        return;
+    }
+    auto resolve = reinterpret_cast<ResolveByGUID_t>(
+        static_cast<uintptr_t>(Offsets::FUN_OBJECT_RESOLVE_BY_GUID));
+    auto *unit = static_cast<uint8_t *>(
+        resolve(Offsets::OBJ_TYPE_UNIT, "NamePlate",
+                static_cast<uint32_t>(guid),
+                static_cast<uint32_t>(guid >> 32),
+                0x172));
+    if (unit == nullptr) {
+        Game::Lua::PushNil(L);
+        return;
+    }
+    auto *nameplate = *reinterpret_cast<uint8_t *const *>(
+        unit + kOffUnitNamePlate);
+    if (nameplate == nullptr) {
+        Game::Lua::PushNil(L);
+        return;
+    }
+    PushNamePlateFrame(L, nameplate);
+}
+
 // `C_NamePlate.GetNamePlateForUnit(unitToken)` — returns the
 // nameplate Frame for the given unit, or `nil` if the unit has no
 // nameplate (out of range, hidden, etc.). Resolves the token to a
 // GUID via the engine's `FUN_TOKEN_TO_GUID` so distant party/raid
-// members can be queried, then looks up the CGUnit via the object
-// hash and reads its `+0xE60` nameplate pointer.
+// members can be queried.
 static int __fastcall Script_GetNamePlateForUnit(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::PushNil(L);
@@ -174,35 +201,28 @@ static int __fastcall Script_GetNamePlateForUnit(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-
     auto tokenToGuid = reinterpret_cast<TokenToGUID_t>(
         static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID));
-    const uint64_t guid = tokenToGuid(token);
-    if (guid == 0) {
+    PushNamePlateForGUID(L, tokenToGuid(token));
+    return 1;
+}
+
+// `C_NamePlate.GetNamePlateForGUID(guidString)` — same as
+// `GetNamePlateForUnit` but takes a `"0xHHHHHHHHHHHHHHHH"` GUID
+// string. Useful for handling the `NAME_PLATE_UNIT_ADDED` /
+// `_REMOVED` events whose payload is a GUID, not a unit token.
+static int __fastcall Script_GetNamePlateForGUID(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::PushNil(L);
         return 1;
     }
-
-    auto resolve = reinterpret_cast<ResolveByGUID_t>(
-        static_cast<uintptr_t>(Offsets::FUN_OBJECT_RESOLVE_BY_GUID));
-    auto *unit = static_cast<uint8_t *>(
-        resolve(Offsets::OBJ_TYPE_UNIT, "NamePlate",
-                static_cast<uint32_t>(guid),
-                static_cast<uint32_t>(guid >> 32),
-                0x172));
-    if (unit == nullptr) {
+    const char *guidStr = Game::Lua::ToString(L, 1);
+    uint64_t guid = 0;
+    if (guidStr == nullptr || !Guid::Parse(guidStr, &guid)) {
         Game::Lua::PushNil(L);
         return 1;
     }
-
-    auto *nameplate = *reinterpret_cast<uint8_t *const *>(
-        unit + kOffUnitNamePlate);
-    if (nameplate == nullptr) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
-
-    PushNamePlateFrame(L, nameplate);
+    PushNamePlateForGUID(L, guid);
     return 1;
 }
 
@@ -213,6 +233,8 @@ static void RegisterLuaFunctions() {
                                      &Script_GetNamePlateGUIDs);
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateForUnit",
                                      &Script_GetNamePlateForUnit);
+    Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateForGUID",
+                                     &Script_GetNamePlateForGUID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

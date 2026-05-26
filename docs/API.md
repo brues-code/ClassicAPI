@@ -200,6 +200,7 @@ build instructions.
   - [`C_NamePlate.GetNamePlates()`](#c_nameplategetnameplates)
   - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
   - [`C_NamePlate.GetNamePlateForUnit(unitToken)`](#c_nameplategetnameplateforunitunittoken)
+  - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
 
 - [NameCache](#namecache)
   - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
@@ -4467,6 +4468,28 @@ Same registered-vs-fresh-wrapper behavior as `GetNamePlates()` —
 addon-created plates return their cached wrapper, default vanilla
 plates get a fresh per-call wrapper. Don't cache the result across
 the unit going out of range.
+
+### `C_NamePlate.GetNamePlateForGUID(guidString)`
+
+Same as `GetNamePlateForUnit` but takes the `"0xHHHHHHHHHHHHHHHH"`
+GUID-string form. Designed to pair with the
+[NAME_PLATE_UNIT_ADDED / REMOVED](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
+events, whose payload is the unit GUID rather than a token.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+f:SetScript("OnEvent", function()
+    -- arg1 = GUID string
+    local plate = C_NamePlate.GetNamePlateForGUID(arg1)
+    if plate then
+        -- ... skin / style plate ...
+    end
+end)
+```
+
+Returns `nil` if the GUID doesn't parse, doesn't resolve to a
+visible CGUnit, or the unit has no allocated nameplate.
 
 ### `C_NamePlate.GetNamePlateGUIDs()`
 
