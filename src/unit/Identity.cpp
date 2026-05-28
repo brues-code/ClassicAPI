@@ -111,11 +111,12 @@ static int __fastcall Script_UnitGUID(void *L) {
 // 1.12 and `FUN_TOKEN_TO_GUID` would raise "Unknown unit name" for
 // them). `nameplateN` and `focus` are included — we hook the token
 // resolver so the engine recognizes them (see
-// `unit/TokenExtensions.cpp` and `unit/Focus.cpp`). Order:
+// `unit/TokenExtensions.cpp` and `unit/Focus.cpp`). Order matches
+// retail with the dropped tokens skipped in place:
 //
 //   player → pet → party1..4 → partypet1..4 → raid1..40
-//          → raidpet1..40 → nameplate1..N → target → npc
-//          → mouseover → focus
+//          → raidpet1..40 → nameplate1..N → target → focus
+//          → npc → mouseover
 //
 // The result is inherently unstable — multiple tokens can map to the
 // same GUID at once (your target IS your mouseover IS your party1), and
@@ -204,9 +205,9 @@ static int __fastcall Script_UnitTokenFromGUID(void *L) {
     }
 
     if (check("target")) return 1;
+    if (check("focus")) return 1;
     if (check("npc")) return 1;
     if (check("mouseover")) return 1;
-    if (check("focus")) return 1;
 
     return 0;
 }

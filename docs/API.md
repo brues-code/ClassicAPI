@@ -2162,9 +2162,10 @@ so addons get the engine semantics they expect.
 Returns `nil` cleanly when no focus is set; doesn't raise the
 "Unknown unit name" error.
 
-[`UnitTokenFromGUID`](#unittokenfromguidguid) scans `"focus"` last
-(after `mouseover`) so a focused unit's GUID will reverse-resolve
-to `"focus"` only if no earlier slot also points to it.
+[`UnitTokenFromGUID`](#unittokenfromguidguid) scans `"focus"` right
+after `"target"` (matching retail order), so a focused unit's GUID
+reverse-resolves to `"focus"` only if it isn't already addressable
+as `"player"` / `"party*"` / `"raid*"` / `"nameplate*"` / `"target"`.
 
 ## FriendList
 
@@ -6881,8 +6882,8 @@ shift to a different unit between calls, so re-verify with
 
 ```
 player → pet → party1..4 → partypet1..4 → raid1..40
-       → raidpet1..40 → nameplate1..N → target → npc
-       → mouseover → focus
+       → raidpet1..40 → nameplate1..N → target → focus
+       → npc → mouseover
 ```
 
 ```lua
