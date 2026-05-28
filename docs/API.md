@@ -6,6 +6,9 @@ build instructions.
 
 ## Contents
 
+- [Account](#account)
+  - [`SaveAccount(name, password)` / `DeleteAccount(name)` / `GetSavedAccounts()` / `LoginWithSavedAccount(name)` — GlueXML only](#saveaccountname-password--deleteaccountname--getsavedaccounts--loginwithsavedaccountname--gluexml-only)
+
 - [Action](#action)
   - [`GetActionInfo(slot)`](#getactioninfoslot)
 
@@ -330,6 +333,105 @@ build instructions.
   - [`C_UnitAuras.GetAuraDataBySpellName(unit, spellName [, filter])`](#c_unitaurasgetauradatabyspellnameunit-spellname--filter)
   - [`C_UnitAuras.GetUnitAuras(unit [, filter])`](#c_unitaurasgetunitaurasunit--filter)
   - [`C_UnitAuras.GetAuraDispelTypeColor(dispelName)`](#c_unitaurasgetauradispeltypecolordispelname)
+
+## Account
+
+### `SaveAccount(name, password)` / `DeleteAccount(name)` / `GetSavedAccounts()` / `LoginWithSavedAccount(name)` — GlueXML only
+
+Persists account credentials in Windows Credential Manager (per-user,
+DPAPI-encrypted) and dispatches login from C so the plaintext password
+never crosses the C↔Lua boundary on the way out. Designed for GlueXML
+rewrites of `AccountLogin.lua` that want a selection list of remembered
+accounts without persisting plaintext passwords to SavedVariables.
+
+> **Only callable from the login screen** (the "glue" Lua state).
+> Calling them from an in-world addon errors with "attempt to call nil"
+> — they aren't registered there.
+
+- `SaveAccount(name, password)` — encrypt and save under the current
+  realmlist. Returns `true` on success, `false` if name or password is
+  empty, no realmlist is set, or the OS rejects the write.
+- `DeleteAccount(name)` — remove the saved entry. Returns `true` if a
+  matching entry existed and was deleted.
+- `GetSavedAccounts()` — returns a numeric-keyed table of account names
+  for the current realmlist. Other realmlists' entries are invisible.
+  Empty table if no realmlist is set.
+- `LoginWithSavedAccount(name)` — decrypt internally and feed the
+  credentials to the engine's login function. Returns `true` if
+  credentials were found and dispatched, `false` if no such entry
+  exists. **Plaintext is never returned to Lua.** Equivalent to what
+  `DefaultServerLogin(name, password)` does, but with the password
+  fetched from the vault rather than passed in.
+
+#### Scoping per realmlist
+
+Every operation is scoped by the current `realmList` CVar (the address
+from `realmlist.wtf`, e.g. `"logon.turtle-wow.org"`), not the friendly
+display name. The same account name on two different private servers
+therefore gets two distinct vault entries:
+
+```
+ClassicAPI/WoW/logon.turtle-wow.org/MYACCT
+ClassicAPI/WoW/logon.other-server.com/MYACCT
+```
+
+Switching realmlists changes the visible account list automatically;
+no separate "select realm" step. If you need a refresh while still on
+the login screen, call `Autologin_Load()` (or `GetSavedAccounts()`
+directly) after the realmlist changes.
+
+#### Storage
+
+Entries live in the OS Credential Manager under the
+`ClassicAPI/WoW/<realmlist>/` namespace. Users can inspect and wipe
+them via Windows' `control /name Microsoft.CredentialManager` →
+Generic Credentials, the same way they'd manage any other Windows-
+stored credential.
+
+#### Security caveats
+
+Realistic about what this defends against:
+
+- **Defeats**: casual file inspection of WTF, sharing the WTF folder,
+  cloud-syncing it, another Windows user on the same machine, malware
+  running as a different Windows user.
+- **Does not defeat**: any process running as the current Windows user
+  can decrypt these via DPAPI — it's per-user, not per-process. No
+  "decrypt and return plaintext" path is exposed to Lua, so a hostile
+  addon can trigger a login with a saved account but can't extract the
+  password. Plaintext is also unavoidably in process memory while the
+  engine sends SRP.
+
+#### Addon example
+
+```lua
+-- GlueXML, e.g. AccountLogin.lua: save credentials on first manual
+-- login, one-click login on subsequent shows.
+
+local function OnLoginClicked()
+    local name = AccountLoginAccountEdit:GetText()
+    local password = AccountLoginPasswordEdit:GetText()
+    if not name or name == "" then return end
+
+    if password and password ~= "" then
+        -- Fresh login or password change: persist + log in.
+        SaveAccount(name, password)
+        LoginWithSavedAccount(name)
+    else
+        -- Reuse stored credentials.
+        LoginWithSavedAccount(name)
+    end
+end
+
+-- Populate a selection list from the vault.
+local accounts = GetSavedAccounts()
+for i = 1, table.getn(accounts) do
+    print(i, accounts[i])
+end
+
+-- Forget an account.
+DeleteAccount("OLDACCT")
+```
 
 ## Action
 
