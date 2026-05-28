@@ -29,6 +29,7 @@ Full per-function reference: **[docs/API.md](docs/API.md)**.
 | [Events](docs/API.md#events) | `C_EventUtils.IsEventValid` |
 | [Expansion](docs/API.md#expansion) | `ClassicExpansionAtLeast`, `ClassicExpansionAtMost`, `GetClassicExpansionLevel` |
 | [Faction](docs/API.md#faction) | `C_Reputation.GetFactionDataByIndex`, `C_Reputation.GetFactionStandings`, `C_Reputation.GetLastStandingChange`, `C_Reputation.GetWatchedFactionData`, `C_Reputation.SetWatchedFactionByID`, `GetFactionIDByIndex`, `GetFactionInfoByID`, `GetFactionParentID` |
+| [Focus](docs/API.md#focus) | `ClearFocus`, `FocusUnit` |
 | [FriendList](docs/API.md#friendlist) | `C_FriendList.IsWhoQueryPending`, `C_FriendList.SendWhoQueryByName` |
 | [Gossip](docs/API.md#gossip) | `C_GossipInfo.CloseGossip`, `C_GossipInfo.GetActiveQuests`, `C_GossipInfo.GetAvailableQuests`, `C_GossipInfo.GetNumActiveQuests`, `C_GossipInfo.GetNumAvailableQuests`, `C_GossipInfo.GetNumOptions`, `C_GossipInfo.GetOptions`, `C_GossipInfo.GetText`, `C_GossipInfo.SelectActiveQuest`, `C_GossipInfo.SelectAvailableQuest`, `C_GossipInfo.SelectOption`, `C_GossipInfo.SelectOptionByIndex` |
 | [GameTooltip](docs/API.md#gametooltip) | `GameTooltip:GetGameObject`, `GameTooltip:GetItem`, `GameTooltip:GetOwner`, `GameTooltip:GetSpell`, `GameTooltip:GetUnitGUID`, `GameTooltip:HasGameObject`, `GameTooltip:HasItem`, `GameTooltip:HasSpell`, `GameTooltip:HasUnit`, `GameTooltip:SetEquipmentSet`, `GameTooltip:SetInventoryItemByID`, `GameTooltip:SetItemByID`, `GameTooltip:SetSpellByID`, `GameTooltip:SetTalentByID`, `GameTooltip:SetUnitAura` |
@@ -98,6 +99,7 @@ functions, just behavior the stock 1.12 engine didn't have. See the
 | `NAME_PLATE_CREATED` | `nameplateFrame` |
 | `NAME_PLATE_UNIT_ADDED` | `unitToken` ("nameplateN") |
 | `NAME_PLATE_UNIT_REMOVED` | `unitToken` ("nameplateN") |
+| `PLAYER_FOCUS_CHANGED` | *(none)* |
 | `PLAYER_STARTED_LOOKING` | *(none)* |
 | `PLAYER_STOPPED_LOOKING` | *(none)* |
 | `PLAYER_STARTED_MOVING` | *(none)* |
@@ -125,6 +127,7 @@ functions, just behavior the stock 1.12 engine didn't have. See the
 | Token | Resolves to |
 |-------|-------------|
 | `nameplate1`..`nameplateN` | Unit behind the Nth visible nameplate, in creation-order. Works with every `UnitX` function — `UnitName`, `UnitGUID`, `UnitClass`, `UnitHealth`, etc. Suffix chains (`nameplate1target`, `nameplate1targettarget`) compose. See [NamePlate / Unit tokens](docs/API.md#unit-tokens-nameplaten). |
+| `focus` / `focustarget` | Sticky target set via [`FocusUnit`](docs/API.md#focusunitunit), cleared via [`ClearFocus`](docs/API.md#clearfocus). Same `UnitX` coverage as `nameplateN`. Fires [`PLAYER_FOCUS_CHANGED`](docs/API.md#player_focus_changed-event) on transition. See [Focus](docs/API.md#focus). |
 
 ## Installation
 

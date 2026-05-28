@@ -11,45 +11,41 @@
 // You should have received a copy of the GNU Lesser General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Extend `FUN_TOKEN_TO_GUID` (`0x00515970`) with modern WoW's
-// `nameplateN` unit-token family. Hooking the central token→GUID
-// resolver means every `Script_Unit*` (UnitName, UnitGUID, UnitHealth,
-// UnitClass, UnitExists, …) gains nameplate-token support for free,
+// Extend `FUN_TOKEN_TO_GUID` (`0x00515970`) with post-vanilla unit
+// tokens. Hooking the central token→GUID resolver means every
+// `Script_Unit*` (UnitName, UnitGUID, UnitHealth, UnitClass,
+// UnitExists, …) gains support for the new token families for free,
 // since they all funnel here.
 //
-// Resolution:
+// Currently extended families:
 //
-// 1. SStrCmpI the input against `"nameplate"` (9 chars). Non-match →
-//    fall through to the original resolver and behave exactly as
-//    before (engine handles `player` / `target` / `partyN` / etc.,
-//    or raises "Unknown unit name").
-// 2. Parse trailing digits — `nameplate1`, `nameplate12`, ... — into
-//    a 1-based index `N`.
-// 3. Look up `N` in `NamePlate::Events`' ordered GUID list. Out of
-//    range returns 0 quietly, which the engine treats as "no unit"
-//    and Lua callers see as `nil` — matches modern behavior, no
-//    "Unknown unit name" error.
-// 4. If the token continues past the digits (`nameplate1target`,
-//    `nameplate1targettarget`, …) mirror the engine's own suffix
-//    walker at `LAB_005159d3`: each `"target"` chunk advances the
-//    GUID by reading `m_objectFields + OFF_UNIT_FIELD_TARGET`
-//    (UNIT_FIELD_TARGET) via `ObjectByGUID`.
+// - `nameplate1`..`nameplateN` — index into the ordered list of
+//   visible nameplates maintained in `nameplate/Events.cpp`. See
+//   `Unit tokens (nameplateN)` in docs/API.md.
 //
-// The engine's walker is **inside** the function we hook, so a hook
-// that returns early at the prefix-parse step would skip it
-// entirely. Replicating the walker here keeps `nameplate1target`
-// working without rewriting the resolver. The walker's logic is
-// short (one `SStrCmpI` + one `ObjectByGUID` + one field-read per
-// iteration) and matches the engine instruction-for-instruction —
-// verified against the disassembly of `0x005159D3..0x00515A2C`.
+// - `focus` — single-slot sticky target backed by `Unit::Focus`.
+//   See `unit/Focus.cpp` for the storage + `PLAYER_FOCUS_CHANGED`
+//   event firing.
+//
+// Both families compose with the engine's own `target`-suffix walker
+// (`focustarget`, `nameplate1targettarget`) via the shared
+// `WalkSuffix` helper, which mirrors the engine's
+// `LAB_005159d3..0x00515A2C` walker instruction-for-instruction
+// (SStrCmpI "target" + ObjectByGUID + read UNIT_FIELD_TARGET).
+//
+// Resolution order in the hook: focus check first (literal-equal,
+// short token), then nameplate prefix (longer, requires digit).
+// Both branches short-circuit; on no-match the original engine
+// resolver runs unchanged.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "nameplate/Walk.h"
+#include "unit/Focus.h"
 
 #include <cstdint>
 
-namespace NamePlate::TokenResolver {
+namespace Unit::TokenExtensions {
 
 namespace {
 
@@ -64,8 +60,10 @@ using ResolveByGUID_t = void *(__fastcall *)(int type, const char *debugName,
                                               uint32_t guidLo, uint32_t guidHi,
                                               int priority);
 
-constexpr const char kPrefix[] = "nameplate";
-constexpr int kPrefixLen = static_cast<int>(sizeof(kPrefix) - 1);
+constexpr const char kNamePlatePrefix[] = "nameplate";
+constexpr int kNamePlatePrefixLen = static_cast<int>(sizeof(kNamePlatePrefix) - 1);
+constexpr const char kFocusPrefix[] = "focus";
+constexpr int kFocusPrefixLen = static_cast<int>(sizeof(kFocusPrefix) - 1);
 constexpr const char kSuffixTarget[] = "target";
 constexpr int kSuffixTargetLen = static_cast<int>(sizeof(kSuffixTarget) - 1);
 
@@ -87,7 +85,7 @@ uint64_t WalkSuffix(uint64_t guid, const char *suffix) {
             return 0; // unknown suffix component — modern returns nil
         suffix += kSuffixTargetLen;
         auto *obj = static_cast<uint8_t *>(
-            resolve(Offsets::OBJ_TYPE_UNIT, "nameplate",
+            resolve(Offsets::OBJ_TYPE_UNIT, "ClassicAPI",
                     static_cast<uint32_t>(guid),
                     static_cast<uint32_t>(guid >> 32),
                     kResolvePriority));
@@ -113,27 +111,36 @@ uint64_t __fastcall Hook_h(const char *token) {
         return Original_o(token);
 
     auto sstrcmpi = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
-    if (sstrcmpi(token, kPrefix, kPrefixLen) != 0)
-        return Original_o(token);
 
-    // Must have at least one digit after `"nameplate"`; otherwise
-    // it's `"nameplate"` (no number) or `"nameplateX"` — fall
-    // through to the original so the engine raises its
-    // "Unknown unit name" error consistently.
-    const char *p = token + kPrefixLen;
-    if (*p < '0' || *p > '9')
-        return Original_o(token);
-
-    int index = 0;
-    while (*p >= '0' && *p <= '9') {
-        index = index * 10 + (*p - '0');
-        ++p;
+    // `focus` / `focustarget*`. The 5-char prefix is unique among
+    // unit tokens (no `focuscast` / `focused*` etc. live in vanilla
+    // or modern resolvers), so any match continues as our token.
+    if (sstrcmpi(token, kFocusPrefix, kFocusPrefixLen) == 0) {
+        const uint64_t guid = Unit::Focus::Get();
+        if (guid == 0)
+            return 0;
+        return WalkSuffix(guid, token + kFocusPrefixLen);
     }
 
-    const uint64_t guid = NamePlate::Events::GetGUIDByIndex(index);
-    if (guid == 0)
-        return 0; // OOB / no plate at index — modern returns nil
-    return WalkSuffix(guid, p);
+    // `nameplateN` / `nameplate1target*`. Requires a digit after the
+    // prefix; anything else (`nameplate`, `nameplateX`) falls through
+    // to the engine for its standard "Unknown unit name" error.
+    if (sstrcmpi(token, kNamePlatePrefix, kNamePlatePrefixLen) == 0) {
+        const char *p = token + kNamePlatePrefixLen;
+        if (*p >= '0' && *p <= '9') {
+            int index = 0;
+            while (*p >= '0' && *p <= '9') {
+                index = index * 10 + (*p - '0');
+                ++p;
+            }
+            const uint64_t guid = NamePlate::Events::GetGUIDByIndex(index);
+            if (guid == 0)
+                return 0;
+            return WalkSuffix(guid, p);
+        }
+    }
+
+    return Original_o(token);
 }
 
 } // namespace
@@ -143,4 +150,4 @@ static const Game::HookAutoRegister _hook{
     reinterpret_cast<void *>(&Hook_h),
     reinterpret_cast<void **>(&Original_o)};
 
-} // namespace NamePlate::TokenResolver
+} // namespace Unit::TokenExtensions

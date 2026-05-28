@@ -74,6 +74,7 @@ build instructions.
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
+  - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
@@ -92,6 +93,11 @@ build instructions.
   - [`C_Reputation.GetFactionDataByIndex(factionSortIndex)`](#c_reputationgetfactiondatabyindexfactionsortindex)
   - [`C_Reputation.SetWatchedFactionByID(factionID)`](#c_reputationsetwatchedfactionbyidfactionid)
   - [`C_Reputation.GetLastStandingChange()`](#c_reputationgetlaststandingchange)
+
+- [Focus](#focus)
+  - [`FocusUnit(unit)`](#focusunitunit)
+  - [`ClearFocus()`](#clearfocus)
+  - [Unit token (`focus` / `focustarget`)](#unit-token-focus--focustarget)
 
 - [FriendList](#friendlist)
   - [`C_FriendList.SendWhoQueryByName(name)`](#c_friendlistsendwhoquerybynamename)
@@ -1649,6 +1655,33 @@ show path re-allocates from the pool. Those transient zeroes never
 become events because the unit appears in both the previous and
 current tick's snapshot.
 
+### `PLAYER_FOCUS_CHANGED` event
+
+Fires whenever the player's focus changes — assignment via
+[`FocusUnit`](#focusunitunit), clear via [`ClearFocus`](#clearfocus),
+or a `FocusUnit(token)` call where the token resolves to no GUID
+(implicit clear). No payload args; the new focus GUID is read off
+[`UnitGUID("focus")`](#unitguidunit) in the handler.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_FOCUS_CHANGED")
+f:SetScript("OnEvent", function()
+    local guid = UnitGUID("focus")
+    if guid then
+        print("focusing", UnitName("focus"))
+    else
+        print("focus cleared")
+    end
+end)
+```
+
+**Identity-checked**: assigning the same GUID twice is a no-op
+(no event refires), matching 3.3.5's `FUN_0051FF20` behavior.
+Mirrors modern's documented semantics — "fired whenever the
+player's focus target is changed, including when the focus target
+is lost or cleared".
+
 ### `QUEST_ACCEPTED` event
 
 Fires once per quest the player just accepted, with two payload args:
@@ -2064,6 +2097,74 @@ state is cleared as soon as the dispatch returns.
 This is a ClassicAPI-only call; modern WoW has no equivalent (modern
 addons get the factionID from `FACTION_STANDING_CHANGED` directly, so
 they don't need a separate getter).
+
+## Focus
+
+Polyfills modern WoW's focus-target system: a single sticky GUID
+that addons can pin to a unit and address via the `"focus"` unit
+token across the entire `UnitX` API surface. Backed by a hook on
+`FUN_TOKEN_TO_GUID` (shared with the [`nameplateN`](#unit-tokens-nameplaten)
+tokens — see `unit/TokenExtensions.cpp`).
+
+State is **session-only** — drops on `/reload`, `/logout`, and zone
+loads that recreate Lua state. Modern Classic Era behaves the same;
+addons that want persistence have to re-`FocusUnit` from `SavedVariables`
+at `ADDON_LOADED`.
+
+### `FocusUnit(unit)`
+
+Sets focus to the given unit. Argument is a unit token —
+`"target"`, `"mouseover"`, `"party1"`, `"nameplate1"`, anything the
+resolver accepts. Calling with no argument is shorthand for
+`FocusUnit("target")` (matches modern's `/focus` slash command
+default).
+
+```lua
+FocusUnit("target")        -- pin the current target
+FocusUnit("nameplate1")    -- pin the unit behind nameplate1
+FocusUnit()                -- same as FocusUnit("target")
+```
+
+Fires [`PLAYER_FOCUS_CHANGED`](#player_focus_changed-event) if the
+resolved GUID differs from the current focus. No-op (no event) if
+the same unit is already focused — matches the
+identity-check-first behavior of 3.3.5's `FUN_0051FF20`.
+
+Passing a token that doesn't resolve to a unit (e.g. `"target"`
+with nothing targeted, or `"party5"` solo) clears focus — same as
+calling `ClearFocus()`.
+
+### `ClearFocus()`
+
+Drops the focus. Fires `PLAYER_FOCUS_CHANGED` if there was one;
+no-op otherwise.
+
+```lua
+ClearFocus()
+```
+
+### Unit token (`focus` / `focustarget`)
+
+`"focus"` resolves to whatever GUID `FocusUnit` last stashed.
+Accepted by every `UnitX` function:
+
+```lua
+local name = UnitName("focus")             -- nil if no focus
+local hp   = UnitHealth("focus")
+local _, class = UnitClass("focus")
+```
+
+Chains compose through the engine's standard suffix walker:
+`"focustarget"`, `"focustargettarget"`, etc. — same behavior as
+`"targettarget"`, mirrored instruction-for-instruction in our hook
+so addons get the engine semantics they expect.
+
+Returns `nil` cleanly when no focus is set; doesn't raise the
+"Unknown unit name" error.
+
+[`UnitTokenFromGUID`](#unittokenfromguidguid) scans `"focus"` last
+(after `mouseover`) so a focused unit's GUID will reverse-resolve
+to `"focus"` only if no earlier slot also points to it.
 
 ## FriendList
 
@@ -6769,19 +6870,19 @@ known unit tokens and return the first one currently mapped to that
 GUID, or `nil` if none of them point at it.
 
 The search order matches modern retail with post-1.12 tokens
-omitted (`vehicle`, `arenaN`, `arenapetN`, `bossN`, `focus`,
-`softenemy`, `softfriend`, `softinteract` all post-date vanilla and
-the engine's resolver doesn't recognize them). `nameplateN` is
-included between `raidpetN` and `target` — we hook the resolver so
-the engine recognizes the token form (see
-[Unit tokens](#unit-tokens-nameplaten)). As with the other
-positional tokens, the returned `"nameplate3"`-style result is only
-valid at that instant; the slot may shift to a different unit
-between calls, so re-verify with `UnitGUID(token)` before reusing.
+omitted (`vehicle`, `arenaN`, `arenapetN`, `bossN`, `softenemy`,
+`softfriend`, `softinteract` all post-date vanilla and the engine's
+resolver doesn't recognize them). `nameplateN` and `focus` are
+included — we hook the resolver so the engine recognizes both token
+forms. As with the other positional tokens, a returned
+`"nameplate3"` result is only valid at that instant; the slot may
+shift to a different unit between calls, so re-verify with
+`UnitGUID(token)` before reusing.
 
 ```
 player → pet → party1..4 → partypet1..4 → raid1..40
-       → raidpet1..40 → nameplate1..N → target → npc → mouseover
+       → raidpet1..40 → nameplate1..N → target → npc
+       → mouseover → focus
 ```
 
 ```lua

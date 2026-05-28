@@ -107,14 +107,15 @@ static int __fastcall Script_UnitGUID(void *L) {
 //
 // The search walks the modern retail token order with post-vanilla
 // tokens dropped (no `vehicle`, `arenaN`, `arenapetN`, `bossN`,
-// `focus`, `softenemy`, `softfriend`, `softinteract` — those all
-// post-date 1.12 and `FUN_TOKEN_TO_GUID` would raise "Unknown unit
-// name" for them). `nameplateN` is included — we hook the token
-// resolver so the engine recognizes it (see `nameplate/TokenResolver.cpp`).
-// Order:
+// `softenemy`, `softfriend`, `softinteract` — those all post-date
+// 1.12 and `FUN_TOKEN_TO_GUID` would raise "Unknown unit name" for
+// them). `nameplateN` and `focus` are included — we hook the token
+// resolver so the engine recognizes them (see
+// `unit/TokenExtensions.cpp` and `unit/Focus.cpp`). Order:
 //
 //   player → pet → party1..4 → partypet1..4 → raid1..40
-//          → raidpet1..40 → nameplate1..N → target → npc → mouseover
+//          → raidpet1..40 → nameplate1..N → target → npc
+//          → mouseover → focus
 //
 // The result is inherently unstable — multiple tokens can map to the
 // same GUID at once (your target IS your mouseover IS your party1), and
@@ -205,6 +206,7 @@ static int __fastcall Script_UnitTokenFromGUID(void *L) {
     if (check("target")) return 1;
     if (check("npc")) return 1;
     if (check("mouseover")) return 1;
+    if (check("focus")) return 1;
 
     return 0;
 }

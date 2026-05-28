@@ -32,7 +32,7 @@
 // - `NAME_PLATE_UNIT_ADDED` / `_REMOVED` — `arg1` is the
 //   `"nameplateN"` unit token (formatted from the plate's index in
 //   `g_orderedGUIDs` at fire time). The token resolves to the unit
-//   via the `nameplateN`-aware token resolver in `TokenResolver.cpp`
+//   via the `nameplateN`-aware token resolver in `unit/TokenExtensions.cpp`
 //   — addons can pass it straight to `UnitName`, `UnitGUID`, etc.,
 //   or to `GetNamePlateForUnit` for the frame.
 
@@ -86,7 +86,7 @@ std::unordered_set<const void *> g_seenPlates;
 
 // Ordered list of currently-visible nameplate GUIDs, in
 // creation-order. Append on UNIT_ADDED, erase on UNIT_REMOVED. Backs
-// the `nameplateN` unit-token resolver in `TokenResolver.cpp`. Order
+// the `nameplateN` unit-token resolver in `unit/TokenExtensions.cpp`. Order
 // matches modern WoW semantics: stable for the lifetime of each
 // plate, gaps when middle plates vanish (until the next REMOVED
 // shifts later entries down).
@@ -239,7 +239,7 @@ void PrepareForReload() {
 }
 
 // Exposed via `nameplate/Walk.h` so the `nameplateN` token resolver
-// in `TokenResolver.cpp` can map an index to a GUID without seeing
+// in `unit/TokenExtensions.cpp` can map an index to a GUID without seeing
 // the internal vector.
 uint64_t GetGUIDByIndex(int oneBased) {
     if (oneBased <= 0)
