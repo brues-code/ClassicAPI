@@ -158,8 +158,25 @@ bool Delete(const char *accountName) {
     return CredDeleteW(target.c_str(), CRED_TYPE_GENERIC, 0) != FALSE;
 }
 
-std::vector<std::string> List() {
-    std::vector<std::string> result;
+namespace {
+
+// FILETIME (100-ns intervals since 1601-01-01) → Unix epoch seconds.
+// Returns 0 for zero/invalid input.
+uint64_t FileTimeToUnix(FILETIME ft) {
+    const uint64_t v = (static_cast<uint64_t>(ft.dwHighDateTime) << 32) |
+                       ft.dwLowDateTime;
+    if (v == 0) return 0;
+    // 11644473600 seconds between 1601-01-01 and 1970-01-01, expressed
+    // in 100-ns ticks.
+    constexpr uint64_t kEpochDiff100ns = 116444736000000000ULL;
+    if (v < kEpochDiff100ns) return 0;
+    return (v - kEpochDiff100ns) / 10000000ULL;
+}
+
+} // namespace
+
+std::vector<Entry> List() {
+    std::vector<Entry> result;
 
     // Enumeration filter is scoped to the current realm, so entries
     // for other private servers are invisible. The wildcard pattern
@@ -178,7 +195,9 @@ std::vector<std::string> List() {
     for (DWORD i = 0; i < count; ++i) {
         if (!entries[i] || !entries[i]->TargetName) continue;
         std::string account = ExtractAccount(entries[i]->TargetName);
-        if (!account.empty()) result.push_back(std::move(account));
+        if (account.empty()) continue;
+        result.push_back({std::move(account),
+                          FileTimeToUnix(entries[i]->LastWritten)});
     }
     CredFree(entries);
     return result;

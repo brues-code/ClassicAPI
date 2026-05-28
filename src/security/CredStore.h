@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -48,9 +49,19 @@ bool Save(const char *accountName, const char *password);
 // realm. Returns true if a matching entry existed and was deleted.
 bool Delete(const char *accountName);
 
+// One entry returned by `List()` — the account name plus the
+// Windows-tracked `LastWritten` timestamp converted to Unix epoch
+// seconds. The engine refreshes `LastWritten` on every `CredWriteW`,
+// so `LoginWithSavedAccount` re-saves the credential after use to
+// keep the timestamp current ("last written" == "last used").
+struct Entry {
+    std::string name;
+    uint64_t lastUsedUnix;
+};
+
 // Enumerate every saved account for the current engine realm. Empty
 // list if no realm is set or no entries exist.
-std::vector<std::string> List();
+std::vector<Entry> List();
 
 // Load the password for `accountName` under the current engine realm
 // into `outPassword`. The output is nul-terminated and the vector's

@@ -88,8 +88,12 @@ int __fastcall Script_GetSavedAccounts(void *L) {
     Game::Lua::NewTable(L);
     int key = 1;
     for (const auto &acct : accounts) {
+        // Push outer index → inner table { name=..., lastUsed=... }.
         Game::Lua::PushNumber(L, static_cast<double>(key++));
-        Game::Lua::PushString(L, acct.c_str());
+        Game::Lua::NewTable(L);
+        Game::Lua::SetFieldString(L, "name", acct.name.c_str());
+        Game::Lua::SetFieldNumber(L, "lastUsed",
+                                  static_cast<double>(acct.lastUsedUnix));
         Game::Lua::SetTable(L, -3);
     }
     return 1;
@@ -108,6 +112,15 @@ int __fastcall Script_LoginWithSavedAccount(void *L) {
         return 1;
     }
 
+    // Keep a copy of the plaintext on the stack — the engine's login
+    // path zeros the buffer it consumes (see Offsets::FUN_GLUE_LOGIN_ATTEMPT
+    // notes), but we need the plaintext for one more thing: re-saving
+    // the credential so Windows updates LastWritten. Without that,
+    // `lastUsed` in `GetSavedAccounts()` would only reflect the
+    // original `SaveAccount` time, not actual logins.
+    std::vector<char> copyForTouch(password.begin(), password.end());
+    copyForTouch.push_back('\0');
+
     // CredStore::Load gives us a vector sized to the password length
     // with a trailing nul one past the end (resize to len after writing
     // len+1 bytes). The engine login function reads via strlen, so we
@@ -117,12 +130,20 @@ int __fastcall Script_LoginWithSavedAccount(void *L) {
     // after SRP consumes them.
     LoginAttempt(name, password.data());
 
+    // Refresh LastWritten by re-saving the credential. Done after
+    // engine consumes so a no-op call (e.g. glue guards not satisfied)
+    // doesn't update the timestamp on a login that didn't happen.
+    // ... actually, the engine no-ops silently, so we can't gate on
+    // success. We update unconditionally; in practice this only fires
+    // from the AccountLogin screen, which has the guards satisfied.
+    Security::CredStore::Save(name, copyForTouch.data());
+
     // Belt-and-suspenders scrub. Engine already zeroed `password.size()`
     // bytes, but we re-scrub the full vector capacity in case the
-    // engine's wipe assumed an exact strlen match.
-    if (!password.empty()) {
-        SecureZeroMemory(password.data(), password.size());
-    }
+    // engine's wipe assumed an exact strlen match. Also scrub the
+    // touch copy that lived through the engine call.
+    SecureZeroMemory(password.data(), password.size());
+    SecureZeroMemory(copyForTouch.data(), copyForTouch.size());
 
     Game::Lua::PushBool(L, true);
     return 1;

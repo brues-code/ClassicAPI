@@ -353,15 +353,28 @@ accounts without persisting plaintext passwords to SavedVariables.
   empty, no realmlist is set, or the OS rejects the write.
 - `DeleteAccount(name)` — remove the saved entry. Returns `true` if a
   matching entry existed and was deleted.
-- `GetSavedAccounts()` — returns a numeric-keyed table of account names
-  for the current realmlist. Other realmlists' entries are invisible.
-  Empty table if no realmlist is set.
+- `GetSavedAccounts()` — returns a numeric-keyed table of entries for
+  the current realmlist. Other realmlists' entries are invisible. Empty
+  table if no realmlist is set. Each entry is a table:
+
+  | Field | Type | Notes |
+  |---|---|---|
+  | `name` | string | Account name as saved. |
+  | `lastUsed` | number | Unix epoch seconds of the last write to the vault entry. Refreshed automatically by `LoginWithSavedAccount`, so this functions as a "last used" timestamp. `0` if Windows didn't supply a timestamp (extremely rare, e.g. credentials manually injected). |
+
+  ```lua
+  for i, entry in ipairs(GetSavedAccounts()) do
+      print(entry.name, date("%Y-%m-%d %H:%M", entry.lastUsed))
+  end
+  ```
+
 - `LoginWithSavedAccount(name)` — decrypt internally and feed the
   credentials to the engine's login function. Returns `true` if
   credentials were found and dispatched, `false` if no such entry
   exists. **Plaintext is never returned to Lua.** Equivalent to what
   `DefaultServerLogin(name, password)` does, but with the password
-  fetched from the vault rather than passed in.
+  fetched from the vault rather than passed in. Also re-saves the
+  credential (same value) to refresh the `lastUsed` timestamp.
 
 #### Scoping per realmlist
 
@@ -423,10 +436,12 @@ local function OnLoginClicked()
     end
 end
 
--- Populate a selection list from the vault.
+-- Populate a selection list from the vault, sorted by recency.
 local accounts = GetSavedAccounts()
+table.sort(accounts, function(a, b) return a.lastUsed > b.lastUsed end)
 for i = 1, table.getn(accounts) do
-    print(i, accounts[i])
+    local e = accounts[i]
+    print(i, e.name, "last used:", date("%m/%d/%Y", e.lastUsed))
 end
 
 -- Forget an account.
