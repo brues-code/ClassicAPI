@@ -3139,4 +3139,55 @@ enum Offsets {
     SMSG_OPCODE_MIRROR_TIMER_PAUSE = 0x1DA,
     SMSG_OPCODE_MIRROR_TIMER_STOP = 0x1DB,
     MIRROR_TIMER_SLOT_COUNT = 3,
+
+    // `realmList` CVar reader — returns the configured realmlist
+    // address (e.g. "logon.turtle-wow.org") as a `const char *`, or
+    // NULL when unset. `__fastcall(int forceRefresh)`; pass 0 to read
+    // the cached value (callers in the engine pass non-zero only
+    // around CMSG_AUTH_SESSION reconnects). Lazily registers the CVar
+    // on first call.
+    //
+    // This is the realmlist *address*, not the display name (the
+    // friendly server name visible in the realm-select dialog lives
+    // in the `realmName` CVar at `FUN_005AB7D0`, read by
+    // `Script_GetServerName`). Credentials are scoped on this value
+    // because two different private servers may share the same
+    // friendly name but never the same realmlist address.
+    FUN_CVAR_REALM_LIST = 0x005AB680,
+
+    // Engine login entry — the C function `Script_DefaultServerLogin`
+    // (the glue Lua binding at `0x0046D160`) tail-calls into here with
+    // the account/password as raw C strings. We invoke it directly from
+    // C++ when dispatching a saved-credential login, bypassing the
+    // round-trip through Lua so the plaintext never crosses the
+    // Lua boundary on the way out.
+    //
+    //   __fastcall void(ecx = const char *account, edx = char *password)
+    //
+    // The function:
+    //   1. Gates on three globals — VAR_GLUE_LOGIN_READY1,
+    //      VAR_GLUE_LOGIN_READY2 (both must be nonzero) and
+    //      VAR_GLUE_LOGIN_INPROGRESS (must be zero). All set up by the
+    //      normal glue boot flow; a call made while the AccountLogin
+    //      screen is showing is safe, an off-screen call silently no-ops.
+    //   2. Copies the account into a 0x40-byte buffer at `0x00B41DB0`
+    //      and uppercases it in place.
+    //   3. Fires the "connecting" status event.
+    //   4. Hands the (uppercased account, password) pair to the SRP
+    //      initiator at `FUN_005AB4B0`.
+    //   5. **Zeros the caller's password buffer in place** via an
+    //      unrolled `REP STOSD` loop counting strlen bytes — so the
+    //      decrypted-on-stack buffer we feed in gets scrubbed for free
+    //      after the SRP step consumes it.
+    //   6. Calls into the AddOn-registry init (`FUN_0051C740`) with the
+    //      uppercased account name. Same call documented in CLAUDE.md
+    //      under "AddOn registry & hot-reload".
+    FUN_GLUE_LOGIN_ATTEMPT = 0x0046AFB0,
+
+    // Glue-state readiness flags read by `FUN_GLUE_LOGIN_ATTEMPT`'s
+    // prologue. Names reflect the gate-condition logic, not anything
+    // intrinsic to the engine — the engine just checks `R1 && R2 && !IP`.
+    VAR_GLUE_LOGIN_READY1 = 0x00B41DFC,
+    VAR_GLUE_LOGIN_READY2 = 0x00B41E04,
+    VAR_GLUE_LOGIN_INPROGRESS = 0x00B41DA0,
 };

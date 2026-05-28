@@ -55,7 +55,7 @@ target_compile_definitions(
   ${PROJECT_NAME}
   PRIVATE CLASSICAPI_VERSION_VALUE=${CLASSICAPI_VERSION_VALUE})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE minhook)
+target_link_libraries(${PROJECT_NAME} PRIVATE minhook advapi32)
 
 target_include_directories(
   ${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
