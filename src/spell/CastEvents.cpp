@@ -68,12 +68,12 @@ const char *LocalizedField(const uint8_t *rec, int fieldOffset) {
 }
 
 // Cast UID for a REAL (Type-3) cast — player and remote alike. Per the retail
-// spell-cast-GUID spec (Wowhead) for non-local-only casts: the low 23 bits
-// are the cast's UNIX-epoch second modulo 2^23, and the higher bits are a
-// counter incrementing for casts observed within the same second (Creature-
-// GUID-like). Type-2 casts — local-only FAILED casts, "failed due to
-// requirements not being met" — use a plain incrementing integer instead
-// (`g_guidCounter`), matching the spec's local-cast rule.
+// spell-cast-GUID spec (warcraft.wiki.gg/wiki/GUID#Cast) for non-local-only
+// casts: the low 23 bits are the cast's UNIX-epoch second modulo 2^23, and the
+// higher bits are a counter incrementing for casts observed within the same
+// second (Creature-GUID-like). Type-2 casts — local-only FAILED casts, "failed
+// due to requirements not being met" — use a plain incrementing integer
+// instead (`g_guidCounter`), matching the spec's local-cast rule.
 int MakeCastUID() {
     const uint32_t nowSec = static_cast<uint32_t>(std::time(nullptr));
     static uint32_t s_lastSec = 0;
@@ -91,7 +91,7 @@ int MakeCastUID() {
 // `Cast-<type>-<serverID>-<instanceID>-<zoneUID>-<spellID>-<castUID>`.
 // Vanilla can't know server/instance/zone, so those three fields are 0. `type`
 // is 3 for real casts (active abilities, channels — the common case) and 2 for
-// local-only FAILED casts, per Wowhead's type table. The load-bearing parts
+// local-only FAILED casts, per the spec's type table. The load-bearing parts
 // are the spellID (field 6, which addons `strsplit("-")` out) and the unique
 // per-cast castUID (field 7). Same (type, spellID, castUID) for every event of
 // one cast → identical string, so START pairs with STOP.
@@ -261,7 +261,7 @@ void __fastcall SpellFailed_h(uint32_t spellId, int result, int unk1, int unk2,
     // progress, or just ended), that cast's end is already reported by the
     // poll's INTERRUPTED — don't also fire FAILED. Only a failure with NO
     // started cast is a genuine pre-cast rejection (out of range, no mana,
-    // on cooldown) → UNIT_SPELLCAST_FAILED. This is Wowhead's Type 2: a
+    // on cooldown) → UNIT_SPELLCAST_FAILED. This is the spec's Type 2: a
     // local-only cast that never reached the server, so it gets a plain
     // incrementing-integer UID (not the time-based real-cast UID).
     if (g_castSpell == sid || recentCast)
@@ -511,6 +511,29 @@ void OnRemoteSucceeded(uint64_t casterGuid, int spellID) {
     // No tracked cast — an instant (no SMSG_SPELL_START). Nothing precedes it,
     // so fire SUCCEEDED now with a fresh (server-time-based) remote UID.
     FireRemote(kSucceeded, casterGuid, spellID, MakeCastUID());
+}
+
+bool CurrentCastGuid(uint64_t casterGuid, int spellID, char *out,
+                     size_t outSize) {
+    if (casterGuid == 0 || spellID == 0 || out == nullptr)
+        return false;
+    int uid;
+    if (casterGuid == Unit::Identity::PlayerGuid()) {
+        // Player's own cast — the guid PollPlayer minted at START (threaded
+        // from SENT). Channels are excluded (g_chanGuid) — UnitCastingInfo is
+        // cast-only.
+        if (g_castSpell != spellID)
+            return false;
+        uid = g_castGuid;
+    } else {
+        // Remote caster — its live event entry (a channel entry is skipped).
+        const RemoteEvt *e = FindRemoteEvt(casterGuid);
+        if (e == nullptr || e->spellID != spellID || e->isChannel)
+            return false;
+        uid = e->guidNum;
+    }
+    BuildCastGuid(out, outSize, /*type=*/3, spellID, uid);
+    return true;
 }
 
 void OnRemoteAborted(uint64_t casterGuid, int spellID) {

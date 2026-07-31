@@ -35,6 +35,7 @@
 // registers for these the module costs one pointer-compare per transition
 // and does no arg synthesis.
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Spell::CastEvents {
@@ -69,6 +70,15 @@ void OnPlayerSucceeded(int spellID);
 // `C_Spell.UnitChannelInfo`, matching modern — this event is only the "re-read
 // now" trigger.
 void OnPlayerChannelUpdate(int spellID);
+
+// Write the castGUID string of `casterGuid`'s current CAST of `spellID` into
+// `out` (>= 48 bytes) and return true, or return false if that unit isn't
+// tracked as casting this spell. It's the SAME string the cast's events carry
+// (`SENT`/`START`/…), so `C_Spell.UnitCastingInfo`'s `castID` return can pull
+// it from here and stay consistent with the events. `casterGuid` is the local
+// player's GUID for own casts, or the remote caster's GUID. Channels are
+// excluded (retail's UnitChannelInfo has no castID).
+bool CurrentCastGuid(uint64_t casterGuid, int spellID, char *out, size_t outSize);
 
 // `UNIT_SPELLCAST_SENT` is handled internally — the module subscribes to
 // the shared `Net::SendObserver` and fires it when CMSG_CAST_SPELL leaves

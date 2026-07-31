@@ -10842,9 +10842,12 @@ so progress is `(GetTime()*1000 - startTimeMs) / (endTimeMs - startTimeMs)`.
 > the **effective** cast time (the engine's own cast-time helper: base +
 > level scaling + cast-time talents like Improved Frostbolt + the
 > haste/cast-speed multiplier), so it matches the in-game cast bar — e.g.
-> a Mage's talented Frostbolt reads 2.5s, not the 3.0s base. Fields
-> vanilla can't fill are structurally-correct placeholders:
-> `castID`/`castBarID` = `nil`, `notInterruptible` = `false`,
+> a Mage's talented Frostbolt reads 2.5s, not the 3.0s base. `castID` is
+> the cast's **castGUID** — the exact string the
+> [`UNIT_SPELLCAST_*`](#unit_spellcast_-events) events carry for this cast,
+> so you can correlate the polled info with the events (works for the player
+> and other units). Fields vanilla can't fill are structurally-correct
+> placeholders: `castBarID` = `nil`, `notInterruptible` = `false`,
 > `delayTimeMs` = `0`.
 
 ### `C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`
@@ -10934,8 +10937,8 @@ out) and a unique-per-cast `castUID` (field 7). **Every event of one cast
 carries the same castGUID**, so `SENT` → `START`/`CHANNEL_START` →
 `SUCCEEDED` → `STOP`/`CHANNEL_STOP` all pair up — including across the caster
 and observers (they converge on the same value), and a chained same-spell
-recast gets its own castUID. The `type` and `castUID` follow Wowhead's
-spell-cast-GUID spec:
+recast gets its own castUID. The `type` and `castUID` follow the
+[spell-cast-GUID spec](https://warcraft.wiki.gg/wiki/GUID#Cast):
 - **Type 3** (real casts — the common case): `castUID` is time-based — the
   low 23 bits are the cast's UNIX-epoch second, the higher bits a per-second
   counter.

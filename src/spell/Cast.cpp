@@ -233,8 +233,10 @@ const char *SpellIconPath(const uint8_t *rec) {
 }
 
 // Pushes UnitCastingInfo's 11-tuple from a tracked cast, or nothing (nil)
-// if there's no active cast.
-int PushCastInfo(void *L, const TrackedSpell &c) {
+// if there's no active cast. `casterGuid` identifies whose cast this is (the
+// player's or a remote unit's) so `castID` can be pulled from Spell::CastEvents
+// — the same castGUID the cast's UNIT_SPELLCAST_* events carry.
+int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid) {
     if (c.spellID == 0)
         return 0;
     // Self-expire: once the cast window has elapsed, report nothing even if
@@ -253,7 +255,12 @@ int PushCastInfo(void *L, const TrackedSpell &c) {
     PushMs(L, c.startMs);                                    // 4 startTimeMs
     PushMs(L, c.endMs);                                      // 5 endTimeMs
     Game::Lua::PushBool(L, IsTradeskill(rec));               // 6 isTradeskill
-    Game::Lua::PushNil(L);                                   // 7 castID
+    char castGuid[48];                                       // 7 castID
+    if (Spell::CastEvents::CurrentCastGuid(casterGuid, c.spellID, castGuid,
+                                           sizeof castGuid))
+        Game::Lua::PushString(L, castGuid);
+    else
+        Game::Lua::PushNil(L);
     Game::Lua::PushBool(L, false);                           // 8 notInterruptible
     Game::Lua::PushNumber(L, static_cast<double>(c.spellID)); // 9 castingSpellID
     Game::Lua::PushNil(L);                                   // 10 castBarID
@@ -798,7 +805,9 @@ void OnWorldTick() {
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 
 // `CastingInfo()` — local player's cast, no token lookup.
-static int __fastcall Script_CastingInfo(void *L) { return PushCastInfo(L, g_cast); }
+static int __fastcall Script_CastingInfo(void *L) {
+    return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid());
+}
 
 // `UnitCastingInfo(unit)` — local player from self-tracking; other units
 // from the SMSG_SPELL_START cache (regular casts still within their cast
@@ -814,11 +823,13 @@ static int __fastcall Script_UnitCastingInfo(void *L) {
     if (u == nullptr)
         return 0;
     if (u == Resolve("player"))
-        return PushCastInfo(L, g_cast);
+        return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid());
 
-    const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(u));
+    const uint64_t guid = Unit::Identity::GuidForObject(u);
+    const RemoteCast *rc = FindRemoteCast(guid);
     if (rc != nullptr && !rc->isChannel && NowMs() < rc->endMs)
-        return PushCastInfo(L, TrackedSpell{rc->spellID, rc->startMs, rc->endMs});
+        return PushCastInfo(L, TrackedSpell{rc->spellID, rc->startMs, rc->endMs},
+                            guid);
     return 0;
 }
 
