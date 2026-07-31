@@ -470,6 +470,12 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime) {
     const int endMs = instantChannel ? now + RemoteChannelDurationMs(rec)
                                      : now + static_cast<int>(castTime);
     StoreRemoteCast(caster, spellID, now, endMs, instantChannel);
+    // Phase 2 events: START (cast) or CHANNEL_START (channel). Skip pure
+    // instants (non-channel, castTime 0 → no bar); their SUCCEEDED still fires
+    // from the SPELL_GO hook.
+    if (castTime > 0 || instantChannel)
+        Spell::CastEvents::OnRemoteCastStart(caster, spellID, endMs,
+                                             instantChannel);
 }
 
 // Co-hook on the SMSG_SPELL_START handler. Gated on opCode 0x131 so every
@@ -619,8 +625,16 @@ void HandleCastAborted(uint64_t guid, int spellID) {
     // clear it on interrupt — this packet is the only signal. Whether the
     // caster receives their own broadcast is server-dependent; if it never
     // fires, the endMs self-expiry backstop still applies.
-    if (guid == Unit::Identity::PlayerGuid() && g_cast.spellID == spellID)
-        g_cast.spellID = 0;
+    if (guid == Unit::Identity::PlayerGuid()) {
+        // Cast interrupts are surfaced by PollPlayer (g_castSucceeded). Player
+        // CHANNELS never fire INTERRUPTED (retail only fires CHANNEL_STOP for
+        // them, interrupted or not), so there's nothing to do for a channel.
+        if (g_cast.spellID == spellID)
+            g_cast.spellID = 0;
+        return;
+    }
+    // Phase 2: remote unit — the poll fires INTERRUPTED + STOP for it.
+    Spell::CastEvents::OnRemoteAborted(guid, spellID);
 }
 
 // Co-hook on the SMSG_SPELL_FAILED_OTHER handler — the server broadcasts it
@@ -778,6 +792,7 @@ void OnWorldTick() {
     // listener-gated (near-free when no addon uses these).
     Spell::CastEvents::PollPlayer(g_cast.spellID, g_cast.startMs, g_cast.delayMs,
                                   g_channel.spellID, g_channel.startMs);
+    Spell::CastEvents::PollRemote();
 }
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};

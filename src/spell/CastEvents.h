@@ -46,6 +46,8 @@ namespace Spell::CastEvents {
 //   - regular cast start / stop / same-spell recast  → UNIT_SPELLCAST_START / _STOP
 //   - accumulated pushback growth                     → UNIT_SPELLCAST_DELAYED
 //   - channel start / stop                            → UNIT_SPELLCAST_CHANNEL_START / _STOP
+// Channels never fire INTERRUPTED — retail emits only CHANNEL_STOP for a
+// channel whether it ends naturally or is cut short.
 void PollPlayer(int castSpellID, int castStartMs, int castDelayMs,
                 int channelSpellID, int channelStartMs);
 
@@ -73,5 +75,45 @@ void OnPlayerChannelUpdate(int spellID);
 // the client (the earliest point in a cast's life). The castGUID minted
 // there threads forward: the matching START / SUCCEEDED / FAILED reuse it,
 // so all of a cast's events share one guid.
+
+// ---- Phase 2: non-player (remote) units --------------------------------
+//
+// Remote casts have a narrower data surface than the player's: vanilla only
+// broadcasts a caster's cast via SMSG_SPELL_START (+ SPELL_GO at completion)
+// and its abort via the failure packets / ClearCastingSpell choke point. So
+// remotes get START / STOP / CHANNEL_START / CHANNEL_STOP / SUCCEEDED /
+// INTERRUPTED, but NOT SENT / DELAYED / FAILED / CHANNEL_UPDATE (that data
+// is caster-only or client-local and never reaches an observer — see the
+// remote-unit limitations in CLAUDE.md).
+//
+// `Spell::Cast` owns the remote-cast packet hooks; it calls these at the
+// transition points, and each event is fanned out to EVERY unit token the
+// caster GUID currently maps to (target / focus / nameplateN / party / raid /
+// mouseover), via `Unit::Identity::TokensForGUID`. Each remote cast gets its
+// own synthesized castGUID, shared across its events.
+
+// A remote unit began a cast (SMSG_SPELL_START). `endMs` is the computed end
+// (server castTime, or channel duration); `isChannel` selects
+// CHANNEL_START/STOP vs START/STOP. Called only for real bars — pure instants
+// (no cast time, not a channel) are skipped by the caller. Fired from the
+// poll so START lands at frame time in the right order.
+void OnRemoteCastStart(uint64_t casterGuid, int spellID, int endMs,
+                       bool isChannel);
+
+// A remote unit's spell went off (SMSG_SPELL_GO). Marks the tracked cast so
+// the poll fires SUCCEEDED (then STOP) in order; if there's no tracked cast
+// (an instant, which sends no SPELL_START) fires SUCCEEDED immediately with a
+// fresh castGUID.
+void OnRemoteSucceeded(uint64_t casterGuid, int spellID);
+
+// A remote unit's cast was aborted (failure packet / ClearCastingSpell). The
+// poll fires INTERRUPTED + STOP (or CHANNEL_STOP) for it next frame.
+void OnRemoteAborted(uint64_t casterGuid, int spellID);
+
+// Per-frame driver for remote cast events — fires START/CHANNEL_START, then
+// SUCCEEDED, then STOP/CHANNEL_STOP/INTERRUPTED in modern order as each
+// tracked remote cast transitions, and expires casts at their computed end.
+// Called from `Spell::Cast::OnWorldTick` after `PollPlayer`.
+void PollRemote();
 
 } // namespace Spell::CastEvents

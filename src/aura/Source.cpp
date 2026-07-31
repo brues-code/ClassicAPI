@@ -589,6 +589,8 @@ void __fastcall SpellGo_h(uint64_t *itemGUID, uint64_t *casterGUID,
     if (caster == Unit::Identity::PlayerGuid()) {
         Totem::Tracker::OnPlayerSpellGo(spellId);
         Spell::CastEvents::OnPlayerSucceeded(static_cast<int>(spellId));
+    } else {
+        Spell::CastEvents::OnRemoteSucceeded(caster, static_cast<int>(spellId));
     }
 
     // Mirror server-side duration edits the client is never told about

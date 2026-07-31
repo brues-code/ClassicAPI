@@ -328,6 +328,51 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
     return nullptr;
 }
 
+int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {
+    if (guid == 0 || out == nullptr || maxTokens <= 0)
+        return 0;
+
+    int n = 0;
+    // Engine-native tokens via the reverse map. It fills a shared static
+    // array and returns its base; snapshot each string into `out` before we
+    // do anything re-entrant. Non-throwing (count 0 pre-world).
+    using TokensFromGuid_t =
+        const char *const *(__fastcall *)(const uint64_t *guid, int *outCount);
+    int nativeCount = 0;
+    const char *const *natives = reinterpret_cast<TokensFromGuid_t>(
+        static_cast<uintptr_t>(Offsets::FUN_UNIT_TOKENS_FROM_GUID))(&guid,
+                                                                    &nativeCount);
+    if (natives != nullptr) {
+        for (int i = 0; i < nativeCount && n < maxTokens; ++i) {
+            const char *tok = natives[i];
+            if (tok == nullptr)
+                continue;
+            // SuperWoW patches this reverse map to ALSO emit the caster's raw
+            // GUID string ("0x…") as a token (it makes GUID strings valid unit
+            // tokens). Skip it — the standard tokens are what retail-compat
+            // addons expect; echoing the GUID we were handed is noise.
+            if (tok[0] == '0' && (tok[1] == 'x' || tok[1] == 'X'))
+                continue;
+            std::snprintf(out[n], 32, "%s", tok);
+            ++n;
+        }
+    }
+
+    // Synthetic tokens the engine's map can't produce. `focus` resolves via
+    // our token-resolver hook (returns 0 when unset — never raises).
+    if (n < maxTokens && GuidForToken("focus") == guid)
+        std::snprintf(out[n++], 32, "focus");
+
+    // Visible nameplates — sparse slot array, so scan and skip gaps.
+    const int plateCount = NamePlate::Events::GetSlotCount();
+    for (int i = 1; i <= plateCount && n < maxTokens; ++i) {
+        if (NamePlate::Events::GetGUIDByIndex(i) == guid)
+            std::snprintf(out[n++], 32, "nameplate%d", i);
+    }
+
+    return n;
+}
+
 static int __fastcall Script_UnitTokenFromGUID(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: UnitTokenFromGUID(\"unitGUID\")");

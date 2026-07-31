@@ -23,6 +23,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <ctime>
 
 namespace Spell::CastEvents {
 
@@ -66,22 +67,44 @@ const char *LocalizedField(const uint8_t *rec, int fieldOffset) {
     return *reinterpret_cast<const char *const *>(rec + fieldOffset + locale * 4);
 }
 
+// Cast UID for a REAL (Type-3) cast — player and remote alike. Per the retail
+// spell-cast-GUID spec (Wowhead) for non-local-only casts: the low 23 bits
+// are the cast's UNIX-epoch second modulo 2^23, and the higher bits are a
+// counter incrementing for casts observed within the same second (Creature-
+// GUID-like). Type-2 casts — local-only FAILED casts, "failed due to
+// requirements not being met" — use a plain incrementing integer instead
+// (`g_guidCounter`), matching the spec's local-cast rule.
+int MakeCastUID() {
+    const uint32_t nowSec = static_cast<uint32_t>(std::time(nullptr));
+    static uint32_t s_lastSec = 0;
+    static uint32_t s_perSec = 0;
+    if (nowSec == s_lastSec)
+        ++s_perSec;
+    else {
+        s_lastSec = nowSec;
+        s_perSec = 0;
+    }
+    return static_cast<int>((s_perSec << 23) | (nowSec & 0x7FFFFFu));
+}
+
 // Modern-shaped castGUID:
 // `Cast-<type>-<serverID>-<instanceID>-<zoneUID>-<spellID>-<castUID>`.
-// Vanilla can't know server/instance/zone, so those three fields are 0; the
-// load-bearing parts are the spellID (field 6, which addons `strsplit("-")`
-// out) and the unique per-cast castUID (field 7). Same (spellID, guidNum)
-// for every event of one cast → identical string, so START pairs with STOP.
-void BuildCastGuid(char *out, size_t n, int spellID, int guidNum) {
-    std::snprintf(out, n, "Cast-3-0-0-0-%d-%010X", spellID,
-                  static_cast<unsigned>(guidNum));
+// Vanilla can't know server/instance/zone, so those three fields are 0. `type`
+// is 3 for real casts (active abilities, channels — the common case) and 2 for
+// local-only FAILED casts, per Wowhead's type table. The load-bearing parts
+// are the spellID (field 6, which addons `strsplit("-")` out) and the unique
+// per-cast castUID (field 7). Same (type, spellID, castUID) for every event of
+// one cast → identical string, so START pairs with STOP.
+void BuildCastGuid(char *out, size_t n, int type, int spellID, int castUID) {
+    std::snprintf(out, n, "Cast-%d-0-0-0-%d-%010X", type, spellID,
+                  static_cast<unsigned>(castUID));
 }
 
 // Fire a standard-shape event `(unitTarget, castGUID, spellID, spellName,
 // rank)`. Gated on a listener so an unwatched event does no DBC lookups or
 // string formatting. A null name/rank pushes `nil` through the dispatcher's
 // `lua_pushstring(NULL) → pushnil` tail-jump, which is fine.
-void Fire(const char *eventName, int spellID, int guidNum) {
+void Fire(const char *eventName, int spellID, int guidNum, int type = 3) {
     const int slot = Event::Custom::Lookup(eventName);
     if (!Event::Custom::HasListeners(slot))
         return;
@@ -89,7 +112,7 @@ void Fire(const char *eventName, int spellID, int guidNum) {
     if (rec == nullptr)
         return;
     char castGuid[48];
-    BuildCastGuid(castGuid, sizeof(castGuid), spellID, guidNum);
+    BuildCastGuid(castGuid, sizeof(castGuid), type, spellID, guidNum);
     Event::Custom::Fire(slot, "%s%s%d%s%s", "player", castGuid, spellID,
                         LocalizedField(rec, OFF_NAME),
                         LocalizedField(rec, OFF_RANK));
@@ -107,7 +130,7 @@ void FireSent(int spellID, int guidNum, const char *target) {
     if (rec == nullptr)
         return;
     char castGuid[48];
-    BuildCastGuid(castGuid, sizeof(castGuid), spellID, guidNum);
+    BuildCastGuid(castGuid, sizeof(castGuid), /*type=*/3, spellID, guidNum);
     Event::Custom::Fire(slot, "%s%s%s%d%s%s", "player", target ? target : "",
                         castGuid, spellID, LocalizedField(rec, OFF_NAME),
                         LocalizedField(rec, OFF_RANK));
@@ -115,6 +138,8 @@ void FireSent(int spellID, int guidNum, const char *target) {
 
 // --- Previous-frame snapshot of the player's cast/channel --------------
 
+// Incrementing integer for Type-2 (local-only FAILED) cast UIDs only. Real
+// casts get a time-based UID from `MakeCastUID`.
 int g_guidCounter = 0;
 
 int g_castSpell = 0;   // 0 = not casting
@@ -132,9 +157,10 @@ int g_chanGuid = 0;
 int g_pendingGuid = 0;
 int g_pendingSpell = 0;
 
-// The castGUID counter for a cast of `spellID`: reuse the SENT-minted
-// pending one when it matches (and consume it), else mint fresh. Casts
-// with no observed SENT (some engine-internal paths) just get a fresh guid.
+// The castGUID UID for a real (Type-3) cast of `spellID`: reuse the SENT-
+// minted pending one when it matches (and consume it), else mint a fresh
+// time-based UID. Casts with no observed SENT (some engine-internal paths)
+// just get a fresh one.
 int NextCastGuid(int spellID) {
     if (g_pendingGuid != 0 && g_pendingSpell == spellID) {
         const int g = g_pendingGuid;
@@ -142,7 +168,7 @@ int NextCastGuid(int spellID) {
         g_pendingSpell = 0;
         return g;
     }
-    return ++g_guidCounter;
+    return MakeCastUID();
 }
 
 // Last cast that ended (fired STOP) + when, so SpellFailed_h can tell a
@@ -235,10 +261,12 @@ void __fastcall SpellFailed_h(uint32_t spellId, int result, int unk1, int unk2,
     // progress, or just ended), that cast's end is already reported by the
     // poll's INTERRUPTED — don't also fire FAILED. Only a failure with NO
     // started cast is a genuine pre-cast rejection (out of range, no mana,
-    // on cooldown) → UNIT_SPELLCAST_FAILED.
+    // on cooldown) → UNIT_SPELLCAST_FAILED. This is Wowhead's Type 2: a
+    // local-only cast that never reached the server, so it gets a plain
+    // incrementing-integer UID (not the time-based real-cast UID).
     if (g_castSpell == sid || recentCast)
         return;
-    Fire(kFailed, sid, NextCastGuid(sid));
+    Fire(kFailed, sid, ++g_guidCounter, /*type=*/2);
 }
 
 const Game::HookAutoRegister _failedHook{
@@ -269,13 +297,75 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
         if (targetGuid != 0)
             Unit::Identity::TokenFromGUID(targetGuid, target, sizeof(target));
     }
-    const int guid = ++g_guidCounter;
+    const int guid = MakeCastUID(); // real cast (Type 3) → time-based UID
     g_pendingGuid = guid;
     g_pendingSpell = spellID;
     FireSent(spellID, guid, target);
 }
 
 const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+
+// ---- Remote (non-player) unit cast events ------------------------------
+
+// Fire `eventName` for EVERY unit token currently mapping to `casterGuid`.
+// The listener gate + DBC name/rank lookup + castGUID build happen once, then
+// the payload is fanned out per token (`target` / `focus` / `nameplateN` /
+// `party` / `raid` / `mouseover`). Same `(unit, castGUID, spellID, spellName,
+// rank)` shape as the player events, just with a non-"player" unit.
+void FireRemote(const char *eventName, uint64_t casterGuid, int spellID,
+                int guidNum) {
+    const int slot = Event::Custom::Lookup(eventName);
+    if (!Event::Custom::HasListeners(slot))
+        return;
+    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
+    if (rec == nullptr)
+        return;
+    char tokens[16][32];
+    const int n = Unit::Identity::TokensForGUID(casterGuid, tokens, 16);
+    if (n == 0)
+        return;
+    char castGuid[48];
+    BuildCastGuid(castGuid, sizeof(castGuid), /*type=*/3, spellID, guidNum);
+    const char *name = LocalizedField(rec, OFF_NAME);
+    const char *rank = LocalizedField(rec, OFF_RANK);
+    for (int i = 0; i < n; ++i)
+        Event::Custom::Fire(slot, "%s%s%d%s%s", tokens[i], castGuid, spellID,
+                            name, rank);
+}
+
+// One tracked cast per remote caster (a unit can't cast two at once), fired
+// from the poll so ordering (START -> SUCCEEDED -> STOP) is centralized.
+struct RemoteEvt {
+    uint64_t guid;
+    int spellID;
+    int guidNum;
+    int endMs;
+    bool isChannel;
+    bool pendingStart;  // START/CHANNEL_START not yet fired
+    bool startFired;
+    bool succeeded;     // SPELL_GO seen -> completion, not interrupt
+    bool succeededFired;
+    bool aborted;       // failure packet / ClearCastingSpell seen
+    bool active;
+};
+constexpr int kRemoteEvtSlots = 64;
+RemoteEvt g_remoteEvt[kRemoteEvtSlots];
+
+RemoteEvt *FindRemoteEvt(uint64_t guid) {
+    for (auto &e : g_remoteEvt)
+        if (e.active && e.guid == guid)
+            return &e;
+    return nullptr;
+}
+
+RemoteEvt *AllocRemoteEvt(uint64_t guid) {
+    if (RemoteEvt *existing = FindRemoteEvt(guid))
+        return existing; // replace the caster's prior cast in place
+    for (auto &e : g_remoteEvt)
+        if (!e.active)
+            return &e;
+    return &g_remoteEvt[0]; // pool exhausted (64 casters) — reuse slot 0
+}
 
 } // namespace
 
@@ -325,6 +415,8 @@ void PollPlayer(int castSpellID, int castStartMs, int castDelayMs,
     (void)channelStartMs;
     const bool newChan = channelSpellID != 0 && channelSpellID != g_chanSpell;
     if (g_chanSpell != 0 && (channelSpellID == 0 || newChan)) {
+        // Channels only ever fire CHANNEL_STOP — never INTERRUPTED — whether
+        // they end naturally or are cut short (retail behavior, verified).
         Fire(kChannelStop, g_chanSpell, g_chanGuid);
         g_chanSpell = 0;
     }
@@ -389,6 +481,100 @@ void OnPlayerChannelUpdate(int spellID) {
     if (spellID == 0 || g_chanSpell != spellID)
         return;
     Fire(kChannelUpdate, spellID, g_chanGuid);
+}
+
+// ---- Remote unit entry points ------------------------------------------
+
+void OnRemoteCastStart(uint64_t casterGuid, int spellID, int endMs,
+                       bool isChannel) {
+    if (casterGuid == 0 || spellID == 0)
+        return;
+    RemoteEvt *e = AllocRemoteEvt(casterGuid);
+    *e = RemoteEvt{};
+    e->guid = casterGuid;
+    e->spellID = spellID;
+    e->guidNum = MakeCastUID();
+    e->endMs = endMs;
+    e->isChannel = isChannel;
+    e->pendingStart = true;
+    e->active = true;
+}
+
+void OnRemoteSucceeded(uint64_t casterGuid, int spellID) {
+    if (casterGuid == 0 || spellID == 0)
+        return;
+    RemoteEvt *e = FindRemoteEvt(casterGuid);
+    if (e != nullptr && e->spellID == spellID) {
+        e->succeeded = true; // poll fires SUCCEEDED (then STOP) in order
+        return;
+    }
+    // No tracked cast — an instant (no SMSG_SPELL_START). Nothing precedes it,
+    // so fire SUCCEEDED now with a fresh (server-time-based) remote UID.
+    FireRemote(kSucceeded, casterGuid, spellID, MakeCastUID());
+}
+
+void OnRemoteAborted(uint64_t casterGuid, int spellID) {
+    if (casterGuid == 0 || spellID == 0)
+        return;
+    RemoteEvt *e = FindRemoteEvt(casterGuid);
+    if (e != nullptr && e->spellID == spellID)
+        e->aborted = true; // poll fires INTERRUPTED + STOP next frame
+}
+
+void PollRemote() {
+    const int now = NowMs();
+    for (auto &e : g_remoteEvt) {
+        if (!e.active)
+            continue;
+
+        // 1. START / CHANNEL_START.
+        if (e.pendingStart) {
+            FireRemote(e.isChannel ? kChannelStart : kStart, e.guid, e.spellID,
+                       e.guidNum);
+            e.pendingStart = false;
+            e.startFired = true;
+        }
+
+        // 2. SUCCEEDED (SPELL_GO seen). A regular cast completes here (STOP
+        //    follows immediately); a channel keeps running to its endMs.
+        if (e.succeeded && !e.succeededFired) {
+            FireRemote(kSucceeded, e.guid, e.spellID, e.guidNum);
+            e.succeededFired = true;
+            if (!e.isChannel) {
+                FireRemote(kStop, e.guid, e.spellID, e.guidNum);
+                e.active = false;
+                continue;
+            }
+            // A channel's SPELL_GO (which just set `succeeded`) also drives the
+            // engine's cast→channel `ClearCastingSpell` in the same packet
+            // batch — our abort hook sees that. It's the channel STARTING, not
+            // an interrupt, so drop the same-batch abort; otherwise the channel
+            // is killed at its own start. A genuine interrupt lands on a later
+            // poll, when `succeededFired` is already set, so it's still honored.
+            e.aborted = false;
+        }
+
+        // 3. Abort (kick / LoS / death / movement). A cut-short CAST fires
+        //    INTERRUPTED then STOP; a CHANNEL fires only CHANNEL_STOP (retail
+        //    never emits INTERRUPTED for channels, ended early or not — so the
+        //    caster and observer match).
+        if (e.aborted) {
+            if (e.startFired && !e.isChannel)
+                FireRemote(kInterrupted, e.guid, e.spellID, e.guidNum);
+            FireRemote(e.isChannel ? kChannelStop : kStop, e.guid, e.spellID,
+                       e.guidNum);
+            e.active = false;
+            continue;
+        }
+
+        // 4. Natural end at the computed time — the STOP for a channel, and
+        //    the backstop for a cast whose SPELL_GO we never saw.
+        if (e.endMs != 0 && now - e.endMs >= 0) {
+            FireRemote(e.isChannel ? kChannelStop : kStop, e.guid, e.spellID,
+                       e.guidNum);
+            e.active = false;
+        }
+    }
 }
 
 } // namespace Spell::CastEvents

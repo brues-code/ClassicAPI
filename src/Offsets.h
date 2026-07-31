@@ -554,6 +554,24 @@ enum Offsets {
     // input it's the right primitive.
     FUN_TOKEN_TO_GUID = 0x00515970,
 
+    // `__fastcall(const uint64_t *guid /*ecx*/, int *outCount /*edx*/) ->
+    // char** tokenArray` — the engine's GUID → unit-token REVERSE map. Fills
+    // a reused static buffer array (the returned pointer) with the name
+    // string of every ENGINE-NATIVE token currently pointing at `guid` and
+    // writes the count to `*outCount`. Checks, in order: player, pet, target,
+    // party1..4, partypet1..4, raid1..40, raidpet1..40, npc, mouseover — the
+    // same slots the per-token unit-event broadcast `FUN_00515e50` fans out
+    // to (that function is just this map + a fire-per-token loop). Does NOT
+    // know ClassicAPI's synthetic `focus` / `nameplateN` tokens (the engine
+    // has no concept of them) — callers add those separately. Non-throwing:
+    // returns count 0 pre-world (resolves the active player internally and
+    // bails if absent). The returned array is a shared static reused on the
+    // next call, so snapshot the strings before doing anything that could
+    // re-enter. nampower names this `GetNamesFromGUID` (left as an unfilled
+    // TODO in its offsets.hpp). Used by `Unit::Identity::TokensForGUID` for
+    // the phase-2 `UNIT_SPELLCAST_*` remote-unit fan-out.
+    FUN_UNIT_TOKENS_FROM_GUID = 0x00515C50,
+
     // Mouseover-unit GUID globals — the `"mouseover"` token resolves to
     // these (see the token-dispatch list above). Written ONLY by
     // `FUN_SET_MOUSEOVER_UNIT`; zero when nothing is moused over. Used by
