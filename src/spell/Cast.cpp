@@ -800,6 +800,7 @@ void OnWorldTick() {
     Spell::CastEvents::PollPlayer(g_cast.spellID, g_cast.startMs, g_cast.delayMs,
                                   g_channel.spellID, g_channel.startMs);
     Spell::CastEvents::PollRemote();
+    Spell::CastEvents::PollReticle();
 }
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};

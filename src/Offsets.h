@@ -3565,6 +3565,23 @@ enum Offsets {
     // `FUN_006E3D10`. Non-zero means "the cast bar is showing this
     // spell"; cleared to 0 when the cast finishes or is cancelled.
     VAR_CURRENT_CAST_SPELL = 0x00CECA88,
+
+    // Ground/reticle-targeting flags — non-zero while a spell is awaiting a
+    // target click (the AoE reticle / target cursor). `SpellIsTargeting()`
+    // (`0x006E6CD0`) returns true iff this != 0 (via its predicate
+    // `FUN_006E48A0`, `return DAT_00CECAC0 != 0`); `Spell_C_TargetSpell`
+    // (`0x006E5250`) sets the flag bits from the spell's target type, and the
+    // clear helper `FUN_006E4900` (from `SpellStopTargeting`) / a ground
+    // placement zeroes it. Polled by `Spell::CastEvents::PollReticle` to fire
+    // UNIT_SPELLCAST_RETICLE_TARGET / _CLEAR.
+    VAR_SPELL_TARGETING_FLAGS = 0x00CECAC0,
+    // The pending cast spellID — written by `Spell_C_CastSpell` (`0x006E4B60`)
+    // to the spell being cast, and used elsewhere as a `Spell.dbc` index (e.g.
+    // `CancelSpell`'s `records[this]`). While `VAR_SPELL_TARGETING_FLAGS` is
+    // set it's the spell whose reticle is up, so the RETICLE events read the
+    // spellID from here.
+    VAR_PENDING_CAST_SPELL = 0x00CEAC58,
+
     // The cast-start state writer — `__fastcall(int spellID, int
     // targetState)`. Sets `VAR_CURRENT_CAST_SPELL` (pushing any current
     // spell into `VAR_QUEUED_CAST_SPELL`; `spellID == 0` restores the queued

@@ -10884,8 +10884,8 @@ placeholder fields as `C_Spell.UnitCastingInfo`.
 Backport of the TBC+ cast/channel events to 1.12, for the **local player and
 other units**. Ported cast-bar / rotation addons (anything written against
 the modern signature) register these instead of vanilla's arg-less
-`SPELLCAST_*` events and read `unit, castGUID, spellID` directly. Ten events
-are provided; six also fire for non-player units:
+`SPELLCAST_*` events and read `unit, castGUID, spellID` directly. Twelve
+events are provided; six also fire for non-player units:
 
 | Event | Fires when | Units | Args |
 |-------|-----------|-------|------|
@@ -10899,6 +10899,8 @@ are provided; six also fire for non-player units:
 | `UNIT_SPELLCAST_CHANNEL_START` | a channel begins | all | same |
 | `UNIT_SPELLCAST_CHANNEL_UPDATE` | pushback shortens a channel | player | same |
 | `UNIT_SPELLCAST_CHANNEL_STOP` | a channel ends | all | same |
+| `UNIT_SPELLCAST_RETICLE_TARGET` | a ground-target reticle appears (AoE placement — Blizzard, Flare, …) | player | `unit, "", spellID, spellName, rank` |
+| `UNIT_SPELLCAST_RETICLE_CLEAR` | the reticle is placed or cancelled | player | `unit, "", spellID, spellName, rank` |
 
 `unit` (arg1) is the token of the casting unit — `"player"` for your own
 casts, or a unit token (`"target"`, `"focus"`, `"party3"`, `"nameplate2"`,
@@ -10928,6 +10930,14 @@ they're **best-effort** — driven purely by the packets an observer receives:
 channel ends, whether it completed or was cut short (verified against retail),
 so ClassicAPI matches that for both the player and other units. `INTERRUPTED`
 is a cast-only event.
+
+**Reticle events** fire for ground-targeted (AoE) spells only, always for the
+player: `RETICLE_TARGET` when the placement reticle comes up, `RETICLE_CLEAR`
+when it's placed or cancelled. There's no cast yet, so the castGUID slot
+(arg2) is empty — retail pushes `nil` there, but the engine's event
+dispatcher can't emit a `nil` mid-argument-list, so ClassicAPI pushes `""`
+instead. `unit` (arg1) and `spellID` (arg3) are exact; arg2 is the only
+difference and is inconsequential for a reticle.
 
 **castGUID.** A synthesized string in the modern shape
 `Cast-<type>-<serverID>-<instanceID>-<zoneUID>-<spellID>-<castUID>`. Vanilla

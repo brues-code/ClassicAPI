@@ -165,6 +165,8 @@ when launching with `-console`), not as Lua functions. See the
 | `UNIT_SPELLCAST_CHANNEL_START` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_CHANNEL_UPDATE` | `"player", castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_CHANNEL_STOP` | `unit, castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_RETICLE_TARGET` | `"player", "", spellID, spellName, rank` |
+| `UNIT_SPELLCAST_RETICLE_CLEAR` | `"player", "", spellID, spellName, rank` |
 | `UPDATE_INVENTORY_DURABILITY` | *(none)* |
 | `UPDATE_SHAPESHIFT_FORM` | *(none)* |
 | `VOICE_CHAT_TTS_PLAYBACK_STARTED` | `numConsumers, utteranceID, durationMS, destination` |

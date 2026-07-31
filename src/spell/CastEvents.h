@@ -52,6 +52,13 @@ namespace Spell::CastEvents {
 void PollPlayer(int castSpellID, int castStartMs, int castDelayMs,
                 int channelSpellID, int channelStartMs);
 
+// Derive the ground-target reticle events from the engine's targeting flags.
+// Called from `Spell::Cast::OnWorldTick`. On the reticle appearing for a
+// ground-targeted spell (Blizzard, Flare, …) fires UNIT_SPELLCAST_RETICLE_TARGET;
+// on it clearing (spell placed or cancelled) fires UNIT_SPELLCAST_RETICLE_CLEAR.
+// Both are `(unitTarget, nil, spellID, spellName, rank)` — always the player.
+void PollReticle();
+
 // Fire `UNIT_SPELLCAST_SUCCEEDED` for the local player. Called from the
 // SPELL_GO hook (`Aura::Source`) when the caster is the player — that
 // packet is "the spell went off," so it fires for instants (which never

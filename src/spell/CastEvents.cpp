@@ -43,6 +43,8 @@ constexpr const char *kSucceeded = "UNIT_SPELLCAST_SUCCEEDED";
 constexpr const char *kInterrupted = "UNIT_SPELLCAST_INTERRUPTED";
 constexpr const char *kFailed = "UNIT_SPELLCAST_FAILED";
 constexpr const char *kSent = "UNIT_SPELLCAST_SENT";
+constexpr const char *kReticleTarget = "UNIT_SPELLCAST_RETICLE_TARGET";
+constexpr const char *kReticleClear = "UNIT_SPELLCAST_RETICLE_CLEAR";
 
 const Event::Custom::AutoReserve _rStart{kStart};
 const Event::Custom::AutoReserve _rStop{kStop};
@@ -54,6 +56,8 @@ const Event::Custom::AutoReserve _rSucceeded{kSucceeded};
 const Event::Custom::AutoReserve _rInterrupted{kInterrupted};
 const Event::Custom::AutoReserve _rFailed{kFailed};
 const Event::Custom::AutoReserve _rSent{kSent};
+const Event::Custom::AutoReserve _rReticleTarget{kReticleTarget};
+const Event::Custom::AutoReserve _rReticleClear{kReticleClear};
 
 // Autoshot spams client-side failures while ramping — nampower filters it
 // out of its failure event, so do we.
@@ -135,6 +139,33 @@ void FireSent(int spellID, int guidNum, const char *target) {
                         castGuid, spellID, LocalizedField(rec, OFF_NAME),
                         LocalizedField(rec, OFF_RANK));
 }
+
+// Fire a RETICLE event `(unitTarget, castGUID, spellID, spellName, rank)`.
+// There's no cast yet, so the castGUID slot is empty — retail pushes `nil`
+// there, but the engine's event dispatcher can't emit a nil mid-format (a
+// NULL `%s` corrupts every arg after it — the nil trick only survives as the
+// LAST arg), so we push `""` instead. `unit` (arg1) and `spellID` (arg3) —
+// the load-bearing fields — are exact; only arg2 differs (`""` vs `nil`),
+// which is inconsequential for a reticle (no cast to identify). spellName /
+// rank are our usual extension tail.
+void FireReticle(const char *eventName, int spellID) {
+    const int slot = Event::Custom::Lookup(eventName);
+    if (!Event::Custom::HasListeners(slot))
+        return;
+    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
+    if (rec == nullptr)
+        return;
+    Event::Custom::Fire(slot, "%s%s%d%s%s", "player", "", spellID,
+                        LocalizedField(rec, OFF_NAME),
+                        LocalizedField(rec, OFF_RANK));
+}
+
+// spellID whose reticle we last reported active (0 = no reticle up).
+int s_reticleSpell = 0;
+// Set when the reticle spell is actually cast (a CMSG_CAST_SPELL for it went
+// out) — so the reticle is clearing by PLACEMENT, and RETICLE_CLEAR is
+// suppressed (retail fires CLEAR only on a real cancel).
+bool s_reticlePlaced = false;
 
 // --- Previous-frame snapshot of the player's cast/channel --------------
 
@@ -284,6 +315,11 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
     const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
     if (spellID == 0)
         return;
+    // If this is the spell whose reticle is up, the player just PLACED it —
+    // the reticle will clear by placement, not cancel, so suppress its
+    // RETICLE_CLEAR (retail fires CLEAR only on a real cancel).
+    if (s_reticleSpell != 0 && spellID == s_reticleSpell)
+        s_reticlePlaced = true;
     // CMSG_CAST_SPELL body after spellId is SpellCastTargets: targetMask
     // (u16), then a packed unit GUID when the UNIT flag is set (self /
     // no-target casts carry none). Resolve that GUID to a unit token for
@@ -470,6 +506,34 @@ void OnPlayerSucceeded(int spellID) {
         guid = NextCastGuid(spellID); // instant — pairs with its SENT
     }
     Fire(kSucceeded, spellID, guid);
+}
+
+void PollReticle() {
+    const bool active =
+        *reinterpret_cast<const int *>(Offsets::VAR_SPELL_TARGETING_FLAGS) != 0;
+    if (active) {
+        if (s_reticleSpell == 0) {
+            // Reticle just came up — report the pending spell. Read the spellID
+            // now (it's set by Spell_C_CastSpell before targeting begins); if
+            // it's transiently 0 this frame, retry next tick.
+            const int spellID =
+                *reinterpret_cast<const int *>(Offsets::VAR_PENDING_CAST_SPELL);
+            if (spellID != 0) {
+                s_reticleSpell = spellID;
+                s_reticlePlaced = false;
+                FireReticle(kReticleTarget, spellID);
+            }
+        }
+    } else if (s_reticleSpell != 0) {
+        // Reticle cleared. Fire CLEAR only if the spell wasn't cast — i.e. the
+        // player CANCELLED (Esc / right-click). A placement (CMSG_CAST_SPELL
+        // went out, s_reticlePlaced set by OnSend) clears the reticle too but
+        // is not a CLEAR event in retail.
+        if (!s_reticlePlaced)
+            FireReticle(kReticleClear, s_reticleSpell);
+        s_reticleSpell = 0;
+        s_reticlePlaced = false;
+    }
 }
 
 void OnPlayerChannelUpdate(int spellID) {
