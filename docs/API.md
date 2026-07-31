@@ -442,6 +442,7 @@ build instructions.
   - [`C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`](#c_spellcancelspellbyidspellid--cancelspellbynamename)
   - [`C_Spell.UnitCastingInfo(unit)` / `C_Spell.CastingInfo()`](#c_spellunitcastinginfounit--c_spellcastinginfo)
   - [`C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`](#c_spellunitchannelinfounit--c_spellchannelinfo)
+  - [`UNIT_SPELLCAST_*` events (player)](#unit_spellcast_-events-player)
   - [`C_Spell.GetSpellLevelInfo(spellID)`](#c_spellgetspelllevelinfospellid)
   - [`GetSpellRequiredTargetLevel(spellID)`](#getspellrequiredtargetlevelspellid)
 
@@ -10874,6 +10875,84 @@ so a stale cache entry never applies to a different/ended channel);
 otherwise it falls back to `name`/`displayName`/`textureID`/`spellID` with
 **`nil` times**. The player path is unchanged (full timing). Same
 placeholder fields as `C_Spell.UnitCastingInfo`.
+
+### `UNIT_SPELLCAST_*` events (player)
+
+Backport of the TBC+ cast/channel events to 1.12 for the **local player**.
+Ported cast-bar / rotation addons (anything written against the modern
+signature) register these instead of vanilla's arg-less `SPELLCAST_*`
+events and read `unit, castGUID, spellID` directly. Ten events are
+provided:
+
+| Event | Fires when | Args |
+|-------|-----------|------|
+| `UNIT_SPELLCAST_SENT` | `CMSG_CAST_SPELL` leaves the client (earliest point) | `unit, target, castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_START` | a cast-time spell begins | `unit, castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_STOP` | a cast-time spell ends (any reason) | same |
+| `UNIT_SPELLCAST_DELAYED` | pushback extends the cast | same |
+| `UNIT_SPELLCAST_SUCCEEDED` | the spell goes off (`SMSG_SPELL_GO`) — incl. instants | same |
+| `UNIT_SPELLCAST_INTERRUPTED` | a started cast is interrupted (kick, movement, LoS) | same |
+| `UNIT_SPELLCAST_FAILED` | a cast is rejected before it starts (range, mana, cooldown) | same |
+| `UNIT_SPELLCAST_CHANNEL_START` | a channel begins | same |
+| `UNIT_SPELLCAST_CHANNEL_UPDATE` | pushback shortens a channel | same |
+| `UNIT_SPELLCAST_CHANNEL_STOP` | a channel ends | same |
+
+`unit` (arg1) is always `"player"` — this is the player-only phase; other
+units aren't fanned out yet. `spellName` / `rank` are ClassicAPI tail
+extensions (modern stops at `spellID`); addons reading only the first three
+positional args are unaffected.
+
+**castGUID.** A synthesized string in the modern shape
+`Cast-<type>-<serverID>-<instanceID>-<zoneUID>-<spellID>-<castUID>`. Vanilla
+can't know server / instance / zone, so those three fields are `0`; the
+load-bearing parts are the `spellID` (field 6, which addons `strsplit("-")`
+out) and a unique-per-cast `castUID` (field 7). **Every event of one cast
+carries the same castGUID**, so `SENT` → `START`/`CHANNEL_START` →
+`SUCCEEDED` → `STOP`/`CHANNEL_STOP` all pair up — a chained same-spell
+recast gets its own castUID.
+
+**Ordering** matches modern:
+
+- Cast-time spell: `SENT → START → SUCCEEDED → STOP`.
+- Channel: `SENT → CHANNEL_START → SUCCEEDED → CHANNEL_STOP` (CHANNEL_START
+  before SUCCEEDED, as on retail).
+- Instant: `SENT → SUCCEEDED`.
+
+**INTERRUPTED vs FAILED** follow modern's split: a spell that never started
+(out of range, not enough mana, on cooldown, LoS to a target) fires
+`FAILED`; a spell that was *already casting* and gets stopped (an enemy
+kick, moving to cancel, breaking LoS mid-cast) fires `INTERRUPTED`. Holding
+the cast key while running fires `INTERRUPTED` repeatedly (once per retry),
+each reusing the interrupted cast's castGUID — matching retail.
+
+**Channel pushback.** Taking damage while channeling shortens the channel in
+vanilla; `CHANNEL_UPDATE` fires on each hit and
+[`C_Spell.UnitChannelInfo`](#c_spellunitchannelinfounit--c_spellchannelinfo)'s
+`endTimeMs` re-anchors to the server's new remaining time, so cast bars
+shrink correctly. (The event carries no time — like retail it's a "re-read
+now" trigger; timing is read back from `UnitChannelInfo`.)
+
+Every fire is gated on whether any frame is registered for that event, so
+the whole system costs one pointer-compare per state transition when no
+addon uses it (no arg synthesis, no DBC lookups).
+
+```lua
+local f = CreateFrame("Frame")
+for _, e in ipairs({
+    "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
+    "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_CHANNEL_START",
+}) do f:RegisterEvent(e) end
+f:SetScript("OnEvent", function()
+    -- vanilla passes event/arg1/... as globals, not function params
+    if arg1 == "player" then print(event, arg3) end  -- arg3 = spellID
+end)
+```
+
+> **Player-only, and additive to the vanilla `SPELLCAST_*` events.** The
+> engine's own arg-less `SPELLCAST_START` / `SPELLCAST_CHANNEL_UPDATE` / …
+> still fire as before; these `UNIT_`-prefixed events are the modern layer
+> on top. Other units, `UNIT_SPELLCAST_FAILED_QUIET`, and the empowered-cast
+> events are not implemented.
 
 ### `C_Spell.GetSpellLevelInfo(spellID)`
 

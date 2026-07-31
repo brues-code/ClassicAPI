@@ -21,6 +21,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "net/PacketReader.h"
+#include "net/SendObserver.h"
 #include "spell/Mod.h"
 #include "unit/Identity.h"
 
@@ -86,28 +87,17 @@ int ConsumeCapturedCP(uint32_t spellId) {
 // re-entry, but still build and send CMSG_CAST_SPELL through the engine).
 // Snapshot the combo points at the moment the cast request leaves: the
 // server consumes them before SMSG_SPELL_GO arrives, so reading at
-// SpellGo time is too late.
-using NetSend_t = void(__fastcall *)(void *conn, void *edx,
-                                     CDataStore *packet);
-NetSend_t g_origNetSend = nullptr;
-
-void __fastcall NetSend_h(void *conn, void *edx, CDataStore *packet) {
-    if (packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint32_t opcode = Net::Read<uint32_t>(packet);
-        if (opcode == Offsets::OP_CMSG_CAST_SPELL) {
-            const uint32_t spellId = Net::Read<uint32_t>(packet);
-            if (spellId != 0)
-                g_capture = {spellId, CurrentComboPoints(), NowMs()};
-        }
-        packet->m_read = saved;
-    }
-    g_origNetSend(conn, edx, packet);
+// SpellGo time is too late. We watch sends through the shared
+// `Net::SendObserver` rather than owning the funnel hook ourselves.
+void OnSend(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode != Offsets::OP_CMSG_CAST_SPELL)
+        return;
+    const uint32_t spellId = Net::Read<uint32_t>(packet);
+    if (spellId != 0)
+        g_capture = {spellId, CurrentComboPoints(), NowMs()};
 }
 
-const Game::HookAutoRegister _sendHook{
-    Offsets::FUN_NET_SEND, reinterpret_cast<void *>(&NetSend_h),
-    reinterpret_cast<void **>(&g_origNetSend)};
+const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
 
 // ---- Duration data (SpellDuration.dbc + Lua overrides) --------------------
 

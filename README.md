@@ -155,6 +155,16 @@ when launching with `-console`), not as Lua functions. See the
 | `QUEST_DATA_LOAD_RESULT` | `questID, success` |
 | `QUEST_REMOVED` | `questID` |
 | `QUEST_TURNED_IN` | `questID, xpReward, moneyReward` |
+| `UNIT_SPELLCAST_SENT` | `"player", target, castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_START` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_STOP` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_DELAYED` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_SUCCEEDED` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_INTERRUPTED` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_FAILED` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_CHANNEL_START` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_CHANNEL_UPDATE` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_CHANNEL_STOP` | `"player", castGUID, spellID, spellName, rank` |
 | `UPDATE_INVENTORY_DURABILITY` | *(none)* |
 | `UPDATE_SHAPESHIFT_FORM` | *(none)* |
 | `VOICE_CHAT_TTS_PLAYBACK_STARTED` | `numConsumers, utteranceID, durationMS, destination` |

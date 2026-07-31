@@ -1216,6 +1216,20 @@ enum Offsets {
     // collision, per-channel-start frequency).
     FUN_SPELL_CHANNEL_START = 0x006E7550,
 
+    // `MSG_CHANNEL_UPDATE` handler (`FUN_006e75f0`) — same `int __stdcall(
+    // uint32_t *opCode, CDataStore *packet)` shape. Body: a single u32 =
+    // the channel's new REMAINING time (ms). Sent to the caster on damage
+    // pushback (which shortens a vanilla channel) and once more at the
+    // channel's end (remaining == 0). Verified at 0x006e75f0: reads the u32,
+    // then fires vanilla's `SPELLCAST_CHANNEL_UPDATE(remaining)` (event
+    // 0x157) on pushback or `SPELLCAST_CHANNEL_STOP` (0x158) at end — but
+    // stores the new end NOWHERE, so `Spell::Cast`'s g_channel.endMs
+    // (computed once at start) never reflects pushback. Co-hooked to
+    // re-anchor endMs (and fire UNIT_SPELLCAST_CHANNEL_UPDATE). nampower
+    // hooks it too (SpellChannelUpdateHandlerHook — accepted co-hook, per-
+    // pushback frequency, same as the START sibling).
+    FUN_SPELL_CHANNEL_UPDATE = 0x006E75F0,
+
     // `SMSG_SPELL_FAILED_OTHER` handler — `int __stdcall(uint32_t *opCode,
     // CDataStore *packet)`, same shape as FUN_SPELL_DELAYED. Body:
     // `casterGuid(u64, plain), spellId(u32)`. In (v)mangos cores this is
@@ -1244,6 +1258,21 @@ enum Offsets {
     // nampower calls this SpellFailedHandler (offsets.hpp) but doesn't
     // hook it.
     FUN_SPELL_FAILURE = 0x006E8D80,
+
+    // `Spell_C_SpellFailed` — the CLIENT-side cast-failure entry, distinct
+    // from the two SMSG_SPELL_FAILURE/_OTHER packet handlers above. Fires
+    // for the local player's own cast rejections (out of range, no mana,
+    // "spell not ready", LoS, interrupted, …). `__fastcall(uint32_t
+    // spellId, uint8_t spellResult /*edx*/, int unk1, int unk2, bool
+    // failedByServer)` — signature per nampower's Spell_C_SpellFailedT.
+    // Backs `UNIT_SPELLCAST_FAILED` (`Spell::CastEvents`). Not hooked
+    // elsewhere in this project (we hook the packet handlers, not this).
+    FUN_SPELL_C_SPELL_FAILED = 0x006E1A00,
+
+    // `Spell_C_SpellFailed` result code for a fake/suppressed failure
+    // (Unleashed Potential and similar) — the engine's SPELL_FAILED_DONT_
+    // REPORT. nampower filters it out of its failure event; so do we.
+    SPELL_FAILED_DONT_REPORT = 23,
 
     // `CGUnit_C::ClearCastingSpell` — `__thiscall void(CGUnit *unit,
     // int spellID, char notify, char cleanup)` (nampower names the offset

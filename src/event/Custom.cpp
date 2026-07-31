@@ -282,6 +282,22 @@ int LookupByName(const char *name) {
     return -1;
 }
 
+bool HasListeners(int slot) {
+    if (slot < 0)
+        return false;
+    auto *base = *reinterpret_cast<uint8_t **>(Offsets::VAR_EVENT_TABLE_BASE_PTR);
+    const int count = *reinterpret_cast<int *>(Offsets::VAR_EVENT_TABLE_COUNT);
+    if (base == nullptr || slot >= count)
+        return false;
+    // The entry's chain head (`+0x0C`): a populated subscriber chain is a
+    // non-zero pointer with the low bit clear; `0` or an odd (tagged)
+    // value is the empty self-sentinel — same test the grow-safety scan
+    // uses. So this is true iff at least one frame registered for the event.
+    const uint32_t head = *reinterpret_cast<const uint32_t *>(
+        base + slot * Offsets::EVENT_ENTRY_STRIDE + Offsets::OFF_EVENT_ENTRY_HEAD);
+    return head != 0 && (head & 1) == 0;
+}
+
 void RetryClaims() {
     // Grow the table first if the low gap pool is short (dormant valve).
     // Runs at most once per table build; on the first call every chain is

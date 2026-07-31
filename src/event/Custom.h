@@ -64,6 +64,15 @@ int Lookup(const char *name);
 // fire ourselves (e.g., polyfilling missing event dispatches).
 int LookupByName(const char *name);
 
+// True iff at least one frame is currently registered for the event in
+// `slot` (its subscriber chain is non-empty). Reads the entry's chain
+// head at `+0x0C` — a couple of pointer derefs, no allocation. Use this
+// to gate expensive per-fire work (arg synthesis, DBC lookups) so an
+// event nobody listens to costs almost nothing: `if (HasListeners(slot))
+// { …build args…; Fire(slot, …); }`. `false` for `slot < 0` or a slot
+// past the live table.
+bool HasListeners(int slot);
+
 // Dispatches a custom event via the engine's printf-style event
 // dispatcher at `FUN_FIRE_EVENT` (`0x00703F50`). `format` is a
 // concatenation of `%d` (int), `%u` (uint), `%f` (double), `%s`

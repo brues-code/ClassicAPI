@@ -21,6 +21,7 @@
 #include "Offsets.h"
 #include "net/PacketReader.h"
 #include "player/StatSignal.h"
+#include "spell/CastEvents.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "totem/Tracker.h"
@@ -581,10 +582,14 @@ void __fastcall SpellGo_h(uint64_t *itemGUID, uint64_t *casterGUID,
     if (caster == 0 || spellId == 0)
         return;
 
-    // Feed the totem tracker BEFORE the aura gate below — a totem summon
-    // applies no aura, so it would otherwise be dropped. Player casts only.
-    if (caster == Unit::Identity::PlayerGuid())
+    // Feed the totem tracker + fire UNIT_SPELLCAST_SUCCEEDED BEFORE the aura
+    // gate below — a totem summon (and any non-aura spell) applies no aura,
+    // so it would otherwise be dropped. SPELL_GO is "the spell went off", so
+    // this is the succeeded signal for instants too. Player casts only.
+    if (caster == Unit::Identity::PlayerGuid()) {
         Totem::Tracker::OnPlayerSpellGo(spellId);
+        Spell::CastEvents::OnPlayerSucceeded(static_cast<int>(spellId));
+    }
 
     // Mirror server-side duration edits the client is never told about
     // (Conflagrate -3s Immolate, Molten Blast refresh Flame Shock, …). Runs

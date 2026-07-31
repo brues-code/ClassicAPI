@@ -73,6 +73,7 @@
 #include "dbc/Lookup.h"
 #include "net/PacketReader.h"
 #include "spell/Lookup.h"
+#include "spell/CastEvents.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
 
@@ -561,6 +562,42 @@ const Game::HookAutoRegister _channelStartHook{
     reinterpret_cast<void *>(&ChannelStart_h),
     reinterpret_cast<void **>(&g_origChannelStart)};
 
+// MSG_CHANNEL_UPDATE (0x006e75f0) — sent to the channeling PLAYER on damage
+// pushback (vanilla channels SHORTEN when hit) and once more at the channel's
+// end (remaining == 0). Body is a single u32 = the new remaining time (ms);
+// the spell is the in-progress channel (the packet carries no spellID, same as
+// the engine's own handler). The engine fires its Lua SPELLCAST_CHANNEL_UPDATE
+// but stores the new end nowhere, so g_channel.endMs — computed once at start —
+// would keep reporting the full, un-pushed-back duration through
+// UnitChannelInfo. Re-anchor it to the server's remaining time so the query
+// (and the OnWorldTick endMs self-expiry) track pushback; on remaining == 0
+// clear the channel so CHANNEL_STOP fires promptly (ahead of the ~1 s-lagged
+// +0x228 field).
+using ChannelUpdate_t = int(__stdcall *)(uint32_t *opCode,
+                                         Net::CDataStore *packet);
+ChannelUpdate_t g_origChannelUpdate = nullptr;
+
+int __stdcall ChannelUpdate_h(uint32_t *opCode, Net::CDataStore *packet) {
+    if (packet != nullptr && g_channel.spellID != 0) {
+        const uint32_t saved = packet->m_read;
+        const uint32_t remaining = Net::Read<uint32_t>(packet);
+        packet->m_read = saved;
+        const int spellID = g_channel.spellID;
+        if (remaining == 0) {
+            g_channel.spellID = 0; // authoritative channel end
+        } else {
+            g_channel.endMs = NowMs() + static_cast<int>(remaining);
+            Spell::CastEvents::OnPlayerChannelUpdate(spellID);
+        }
+    }
+    return g_origChannelUpdate(opCode, packet);
+}
+
+const Game::HookAutoRegister _channelUpdateHook{
+    Offsets::FUN_SPELL_CHANNEL_UPDATE,
+    reinterpret_cast<void *>(&ChannelUpdate_h),
+    reinterpret_cast<void **>(&g_origChannelUpdate)};
+
 // Shared abort handling for the two sibling failure packets. Servers
 // derived from (v)mangos broadcast BOTH `SMSG_SPELL_FAILURE` and
 // `SMSG_SPELL_FAILED_OTHER` from Spell::SendInterrupted, but which one a
@@ -714,7 +751,33 @@ void OnWorldTick() {
             else if (chan == 0 && g_channelConfirmed)
                 g_channel.spellID = 0;
         }
+        // Self-expiry backstop for the poll: the +0x228 broadcast clears ~1
+        // tick (~1s) late, so a channel that runs its full duration would
+        // otherwise linger until then — the poll's CHANNEL_STOP (and any
+        // g_channel reader) would trail the real end by ~1s. Clear at the
+        // server-computed endMs too, so the effective stop is the EARLIER of
+        // (computed end, early +0x228 clear — the summon-ritual / interrupt
+        // case). Mirrors PushChannelInfo's endMs guard, which already hides
+        // the channel from UnitChannelInfo at this same instant.
+        //
+        // Wrap-safe compare: the ms tick (rdtsc-backed, survives reboots) can
+        // sit past 2^31, where a stored endMs reads NEGATIVE as a signed int.
+        // A direct `now >= endMs` would then misfire for a channel straddling
+        // the boundary. The signed DELTA cancels the wrap (correct for any
+        // interval < ~24.8 days — a channel is always far shorter), so test
+        // `now - endMs >= 0` instead.
+        if (g_channel.spellID != 0 && g_channel.endMs != 0 &&
+            NowMs() - g_channel.endMs >= 0)
+            g_channel.spellID = 0;
     }
+
+    // Derive the player's UNIT_SPELLCAST_* events from the cast/channel
+    // state above, now that this tick's clears have been applied. Poll-
+    // based so it needs no changes to the many stamp/clear sites; ~1 frame
+    // latency is imperceptible for a cast bar, and every fire is
+    // listener-gated (near-free when no addon uses these).
+    Spell::CastEvents::PollPlayer(g_cast.spellID, g_cast.startMs, g_cast.delayMs,
+                                  g_channel.spellID, g_channel.startMs);
 }
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
