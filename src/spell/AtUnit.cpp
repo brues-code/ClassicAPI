@@ -45,6 +45,7 @@
 
 #include "Game.h"
 #include "spell/AtCursor.h"
+#include "spell/AtUnit.h"
 #include "spell/MacroPrimarySpell.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
@@ -54,6 +55,33 @@
 namespace Spell::AtUnit {
 
 namespace {
+
+// The shared cast-at-unit core, used by both the Lua entry and the C++ API.
+// Resolves the token once → object, reads position + GUID, dispatches the cast
+// WITH that GUID, then handles the ground-spell placement branch. `byNumber`
+// selects spellID vs spellName. Fail-fast so a bad/absent unit doesn't leave
+// the engine mid-cast.
+bool CastCore(const char *token, bool byNumber, int spellID, const char *spellName) {
+    void *unitObj = Unit::Position::ResolveToken(token);
+    float pos[3];
+    if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos))
+        return false;
+    const uint64_t targetGuid = Unit::Identity::GuidForObject(unitObj);
+
+    const bool dispatched =
+        byNumber ? Spell::AtCursor::DispatchSpellCast(spellID, targetGuid)
+                 : Spell::AtCursor::DispatchSpellCastByName(spellName, targetGuid);
+    if (!dispatched)
+        return false;
+
+    // Unit-target / normal spells fired straight at the GUID — no placement.
+    // Ground spells are now sitting in placement mode; commit at the unit's
+    // feet (CommitAtCoords cancels + fails for a non-ground placement, i.e.
+    // an unaccepted unit target).
+    if (!Spell::AtCursor::IsPlacementActive())
+        return true;
+    return Spell::AtCursor::CommitAtCoords(pos);
+}
 
 int __fastcall Script_C_Spell_CastAtUnit(void *L) {
     // arg1: numeric spellID (exact rank) or spell name ("(Rank N)"-aware).
@@ -65,38 +93,12 @@ int __fastcall Script_C_Spell_CastAtUnit(void *L) {
         return 1;
     }
     const char *token = Game::Lua::ToString(L, 2);
-
-    // Resolve the unit once → object, then read position + GUID from it.
-    // Fail fast so a bad/absent unit doesn't leave the engine mid-cast.
-    void *unitObj = Unit::Position::ResolveToken(token);
-    float pos[3];
-    if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos)) {
-        Game::Lua::PushBool(L, false);
-        return 1;
-    }
-    const uint64_t targetGuid = Unit::Identity::GuidForObject(unitObj);
-
-    const bool dispatched =
+    const bool ok =
         byNumber
-            ? Spell::AtCursor::DispatchSpellCast(
-                  static_cast<int>(Game::Lua::ToNumber(L, 1)), targetGuid)
-            : Spell::AtCursor::DispatchSpellCastByName(Game::Lua::ToString(L, 1),
-                                                       targetGuid);
-    if (!dispatched) {
-        Game::Lua::PushBool(L, false);
-        return 1;
-    }
-
-    // Unit-target / normal spells fired straight at the GUID — no placement.
-    // Ground spells are now sitting in placement mode; commit at the unit's
-    // feet (CommitAtCoords cancels + fails for a non-ground placement, i.e.
-    // an unaccepted unit target).
-    if (!Spell::AtCursor::IsPlacementActive()) {
-        Game::Lua::PushBool(L, true);
-        return 1;
-    }
-    const bool placed = Spell::AtCursor::CommitAtCoords(pos);
-    Game::Lua::PushBool(L, placed);
+            ? CastCore(token, true, static_cast<int>(Game::Lua::ToNumber(L, 1)),
+                       nullptr)
+            : CastCore(token, false, 0, Game::Lua::ToString(L, 1));
+    Game::Lua::PushBool(L, ok);
     return 1;
 }
 
@@ -130,5 +132,19 @@ const Spell::MacroPrimarySpell::PatternAutoRegister _patreg{
     "C_Spell.CastAtUnit(", &ExtractCastAtUnitArg};
 
 } // namespace
+
+// ---- C++ API (see AtUnit.h) — same core as the Lua entry, no round-trip -----
+
+bool CastByName(const char *spellName, const char *unitToken) {
+    if (spellName == nullptr || unitToken == nullptr)
+        return false;
+    return CastCore(unitToken, false, 0, spellName);
+}
+
+bool CastByID(int spellID, const char *unitToken) {
+    if (unitToken == nullptr)
+        return false;
+    return CastCore(unitToken, true, spellID, nullptr);
+}
 
 } // namespace Spell::AtUnit

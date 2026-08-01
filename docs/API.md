@@ -3806,8 +3806,8 @@ uses for `type1`/`*type1`-style resolution):
 4. `"*"..name.."*"`
 5. `name`
 
-`SetAttributeNoHandler` is an alias of `SetAttribute` here — see the
-`OnAttributeChanged` note below.
+`SetAttributeNoHandler` sets the value **without** firing `OnAttributeChanged`;
+`SetAttribute` fires it (see below).
 
 **Unit-frame mouseover — the headline use.** Setting a **string `unit`
 attribute** makes the frame a mouseover source: while the cursor is over it,
@@ -3845,32 +3845,75 @@ may be any token the resolver understands — `"party1"`, `"target"`, `"focus"`,
 `"nameplateN"`, or a raw GUID literal. Set `unit` to a non-string (e.g. `nil`)
 to stop the binding.
 
-**Click actions (`type1` / `type2`).** A `type` attribute makes clicking the
-frame act on its `unit`:
+**Click actions (`type1` / `type2` / …).** A `type` attribute makes clicking the
+frame perform one action on its `unit` — the retail secure-button model: exactly
+**one verb per click**, resolved from the attributes.
 
 ```lua
-f:SetAttribute("type1", "target")   -- left-click targets the unit
-f:SetAttribute("type2", "focus")    -- right-click sets ClassicAPI focus to it
+f:SetAttribute("type1", "target")        -- left-click targets the unit
+f:SetAttribute("type2", "focus")         -- right-click sets ClassicAPI focus to it
+-- click-casting, expressed purely as attributes:
+f:SetAttribute("shift-type1", "spell")
+f:SetAttribute("shift-spell1", "Flash Heal")   -- shift-left-click heals the unit
 ```
 
-Left-click reads `type1`, right-click reads `type2`, and both fall back to a
-plain `type` attribute. Supported verbs: `"target"`, `"assist"` (target the
-unit's target), `"focus"`. Setting a `type*` attribute installs a **chained
-`OnClick` on that frame only** (nothing global) — it reads the attributes at
-click time and runs *after* any handler the frame already had. Because it chains
-whatever `OnClick` is present when the `type` attribute is set, set `type*`
-**after** the frame's own scripts (real addons configure attributes after
-building the widget). The frame must be a **Button** registered for the click:
-left is the Button default; right needs `RegisterForClicks("RightButtonUp")`,
-which real unit frames already call. Other verbs (`togglemenu`, `spell`,
-`macro`) aren't backported yet.
+**Resolution.** The verb is read from `[prefix]type[suffix]`, where the prefix is
+the held modifiers (`alt-`, `ctrl-`, `shift-`, in that order) and the suffix is
+the button number (`1`=Left, `2`=Right, `3`=Middle, `4`/`5`=side). Precedence is
+`prefix..type..suffix` → `type..suffix` → `type`, so `type1` applies under any
+modifier unless a modifier-specific attribute (`shift-type1`) overrides it — and
+`type` (no suffix) is the catch-all.
 
-**`OnAttributeChanged` is not fired.** Retail fires this script from
-`SetAttribute` (and `SetAttributeNoHandler` suppresses it). Making it a real
-`SetScript`-able handler needs a co-hook on the base-frame script-name resolver
-(the analog of the tooltip-side `OnTooltipSet*` work); it isn't required for the
-mouseover use case, so `SetAttribute` currently doesn't fire it and the two
-setters behave identically. Fast-follow.
+**Verbs:** `target`, `assist`, `focus`, `spell` (reads the modifier-qualified
+`spell` attribute and casts it on the unit via the native
+[`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) — the unit's GUID is fed straight to
+the cast dispatcher, so there's no target juggling, and ground-target spells
+land at the unit's feet), `macro` (takes the
+`macrotext`/`macro` attribute and prefers an addon-provided `RunMacro` — e.g.
+SuperCleveRoidMacros, which handles named macros and extended macro text —
+falling back to running the text natively, line by line through the stock
+`ChatEdit_ParseText`, when no `RunMacro` global is present), `stopcasting`, and `menu` /
+`togglemenu` (pops the standard unit dropdown — whisper/inspect/trade/invite/…,
+the same menu `PlayerFrame`/`TargetFrame`/`PartyMemberFrame` show — at the
+cursor). `target` respects the engine's default-interaction precedence: with a
+spell on the cursor it casts on the unit, with an item on the cursor it drops it
+on the unit, instead of switching target.
+
+**One verb per click.** Setting a `type*` attribute installs a **chained
+`OnClick` on that frame only** (nothing global). When a verb resolves, our
+handler *owns* the click and does **not** run the frame's previous `OnClick` —
+so a configured `type1` never fires alongside the addon's own click handler.
+Unconfigured clicks (no matching `type`, or an unrecognized verb) fall through
+to the frame's own `OnClick`, so an addon can keep custom behavior there. The
+frame must be a **Button** registered for the click
+(left is the Button default; right needs `RegisterForClicks("RightButtonUp")`).
+
+**Clobbering.** The handler self-heals: addons that re-`SetScript("OnClick", …)`
+(pfUI on every raid relayout) replace our closure, so re-set a `type*` attribute
+afterward to reinstall — re-wiring detects and skips its own closure, so it never
+double-chains.
+
+**`OnAttributeChanged`** is a real `SetScript` / `GetScript` / `HookScript`-able
+frame script, on **every** frame — `SetAttribute` fires it after setting the
+value, `SetAttributeNoHandler` doesn't. As with all 1.12 frame scripts, the
+handler takes no parameters and reads its context from globals: `this` = the
+frame, `arg1` = the (lowercased) attribute name, `arg2` = the new value.
+
+```lua
+f:SetScript("OnAttributeChanged", function()
+    if arg1 == "unit" then
+        MyFrame_Update(this, arg2)   -- react to unit changes
+    end
+end)
+f:SetAttribute("unit", "party1")     -- fires the handler (arg1="unit", arg2="party1")
+f:SetAttributeNoHandler("unit", "party2")  -- sets it silently, no handler
+```
+
+It's implemented the same way as the tooltip-side `OnTooltipSet*` scripts — a
+co-hook on the base-frame script-name resolver that hands out an external
+per-frame handler slot for this one name (1.12 frames are never destroyed, so
+the slot never goes stale). Recursion-guarded, so a handler may itself call
+`SetAttribute`.
 
 ## FriendList
 
