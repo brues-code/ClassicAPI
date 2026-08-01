@@ -164,7 +164,7 @@ build instructions.
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
-  - [`frame:SetAttribute` / `SetAttributeNoHandler` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--framegetattribute)
+  - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
 
 - [FriendList](#friendlist)
   - [`C_FriendList.SendWhoQueryByName(name)`](#c_friendlistsendwhoquerybynamename)
@@ -3781,16 +3781,22 @@ UIParent:GetEffectiveAlpha()   -- 1
 Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
 ```
 
-### `frame:SetAttribute(name, value)` / `frame:SetAttributeNoHandler(name, value)` / `frame:GetAttribute(...)`
+### `frame:SetAttribute(name, value)` / `frame:SetAttributeNoHandler(name, value)` / `frame:ClearAttribute(name)` / `frame:GetAttribute(...)`
 
 Backports the frame **attribute** system — a per-frame, case-insensitive
 key→value store — to 1.12 as native methods on every frame. Attributes were
 added in 2.0 with secure frames and don't exist in vanilla at all; `value`
 can be any Lua type and round-trips exactly.
 
+`cleared = frame:ClearAttribute(name)` (retail 11.2.0) removes an attribute and
+returns whether it was set. Unlike `SetAttribute`, it does **not** fire
+`OnAttributeChanged` — matching retail (verified against a live 12.0 client).
+
 ```lua
 f:SetAttribute("unit", "party1")
 f:GetAttribute("unit")            -- "party1"
+f:ClearAttribute("unit")          -- true  (was set; now removed)
+f:ClearAttribute("unit")          -- false (nothing to clear)
 f:SetAttribute("count", 3)
 f:GetAttribute("count")           -- 3
 f:GetAttribute("missing")         -- nil

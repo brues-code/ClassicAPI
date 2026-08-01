@@ -14,7 +14,7 @@
 // Frame attributes + unit-frame mouseover/click backport.
 //
 // Backports `frame:SetAttribute` / `frame:SetAttributeNoHandler` /
-// `frame:GetAttribute` to 1.12 as native methods on the base Frame registry
+// `frame:ClearAttribute` / `frame:GetAttribute` to 1.12 as native methods on the base Frame registry
 // (every frame gets them, like the modern clients). Vanilla has no attribute
 // system at all — it arrived in 2.0 with secure frames. Attributes are just a
 // per-frame, case-insensitive key→value store (verified from the 3.3.5
@@ -737,6 +737,31 @@ int DoSet(void *L, bool fireHandler) { // (self, name, value)
 int __fastcall Script_SetAttribute(void *L) { return DoSet(L, /*fireHandler*/ true); }
 int __fastcall Script_SetAttributeNoHandler(void *L) { return DoSet(L, /*fireHandler*/ false); }
 
+// `cleared = frame:ClearAttribute("name")` — retail (11.2.0) attribute removal;
+// `cleared` is true iff the attribute was set (and is now gone). Routes through
+// DoSet's nil-value path so it also drops a `unit` mouseover binding, but does
+// NOT fire OnAttributeChanged — verified against retail (a live 12.0 test showed
+// ClearAttribute firing no handler, unlike SetAttribute).
+int __fastcall Script_ClearAttribute(void *L) {
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: frame:ClearAttribute(\"name\")");
+        return 0;
+    }
+    char lname[256];
+    LowerCopy(lname, Game::Lua::ToString(L, 2), sizeof lname);
+
+    const bool existed = TryPushValue(L, 1, lname); // leaves the value on top if set
+    if (existed)
+        Game::Lua::SetTop(L, Game::Lua::GetTop(L) - 1); // drop the peeked value
+
+    Game::Lua::SetTop(L, 2);   // (self, name)
+    Game::Lua::PushNil(L);     // (self, name, nil) → value = nil clears the key
+    DoSet(L, /*fireHandler*/ false); // retail ClearAttribute fires no OnAttributeChanged
+
+    Game::Lua::PushBool(L, existed);
+    return 1;
+}
+
 int __fastcall Script_GetAttribute(void *L) {
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: frame:GetAttribute(\"name\")");
@@ -775,6 +800,7 @@ int __fastcall Script_GetAttribute(void *L) {
 const Game::Lua::FrameMethodEntry g_frameMethods[] = {
     {"SetAttribute", &Script_SetAttribute},
     {"SetAttributeNoHandler", &Script_SetAttributeNoHandler},
+    {"ClearAttribute", &Script_ClearAttribute},
     {"GetAttribute", &Script_GetAttribute},
 };
 
