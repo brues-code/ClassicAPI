@@ -162,6 +162,7 @@ when launching with `-console`), not as Lua functions. See the
 | `UNIT_SPELLCAST_SUCCEEDED` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_INTERRUPTED` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_FAILED` | `"player", castGUID, spellID, spellName, rank` |
+| `UNIT_SPELLCAST_FAILED_QUIET` | `"player", castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_CHANNEL_START` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_CHANNEL_UPDATE` | `"player", castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_CHANNEL_STOP` | `unit, castGUID, spellID, spellName, rank` |

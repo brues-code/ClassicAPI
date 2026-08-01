@@ -42,6 +42,7 @@ constexpr const char *kChannelUpdate = "UNIT_SPELLCAST_CHANNEL_UPDATE";
 constexpr const char *kSucceeded = "UNIT_SPELLCAST_SUCCEEDED";
 constexpr const char *kInterrupted = "UNIT_SPELLCAST_INTERRUPTED";
 constexpr const char *kFailed = "UNIT_SPELLCAST_FAILED";
+constexpr const char *kFailedQuiet = "UNIT_SPELLCAST_FAILED_QUIET";
 constexpr const char *kSent = "UNIT_SPELLCAST_SENT";
 constexpr const char *kReticleTarget = "UNIT_SPELLCAST_RETICLE_TARGET";
 constexpr const char *kReticleClear = "UNIT_SPELLCAST_RETICLE_CLEAR";
@@ -55,6 +56,7 @@ const Event::Custom::AutoReserve _rChannelUpdate{kChannelUpdate};
 const Event::Custom::AutoReserve _rSucceeded{kSucceeded};
 const Event::Custom::AutoReserve _rInterrupted{kInterrupted};
 const Event::Custom::AutoReserve _rFailed{kFailed};
+const Event::Custom::AutoReserve _rFailedQuiet{kFailedQuiet};
 const Event::Custom::AutoReserve _rSent{kSent};
 const Event::Custom::AutoReserve _rReticleTarget{kReticleTarget};
 const Event::Custom::AutoReserve _rReticleClear{kReticleClear};
@@ -226,6 +228,24 @@ bool IsInterruptResult(int code) {
            code == kSpellFailedInterruptedCombat || code == kSpellFailedMoving;
 }
 
+// SpellCastResult codes that modern surfaces as UNIT_SPELLCAST_FAILED_QUIET (a
+// suppressed, no-error-text failure) rather than FAILED. This is a fixed
+// whitelist, not a "was an error shown" heuristic: verified against the 3.3.5
+// client's unit-spellcast event dispatch (FUN_007fecc0 selects the QUIET event
+// for exactly CHARMED / DONT_REPORT / SPELL_IN_PROGRESS), then mapped to 1.12's
+// SpellCastResult enum (FUN_006e23e0):
+//   CHARMED (0x14) · DONT_REPORT (0x17) · SPELL_IN_PROGRESS (0x61)
+// SPELL_IN_PROGRESS is the common one — casting while already casting, or a
+// nampower spell-queue rejection.
+constexpr int kSpellFailedCharmed = 20;         // 0x14
+constexpr int kSpellFailedSpellInProgress = 97; // 0x61
+
+bool IsQuietResult(int code) {
+    return code == kSpellFailedCharmed ||
+           code == Offsets::SPELL_FAILED_DONT_REPORT ||
+           code == kSpellFailedSpellInProgress;
+}
+
 // A channel's SUCCEEDED is deferred so it fires AFTER CHANNEL_START, matching
 // modern's order (SENT → CHANNEL_START → SUCCEEDED → CHANNEL_STOP). SPELL_GO
 // (OnPlayerSucceeded) lands a poll before the channel is detected, so instead
@@ -267,10 +287,18 @@ SpellFailed_t g_origSpellFailed = nullptr;
 void __fastcall SpellFailed_h(uint32_t spellId, int result, int unk1, int unk2,
                               int failedByServer) {
     g_origSpellFailed(spellId, result, unk1, unk2, failedByServer);
-    if ((result & 0xFF) == Offsets::SPELL_FAILED_DONT_REPORT ||
-        spellId == kAutoShotSpellId)
-        return;
+    if (spellId == kAutoShotSpellId)
+        return; // autoshot ramp spams client failures — filter (like nampower)
     const int sid = static_cast<int>(spellId);
+    // A "quiet" failure the engine shows NO error text for (already casting,
+    // charmed, spammy retries, reticle cancels, Unleashed-Potential-style fake
+    // fails, …). Modern surfaces those as UNIT_SPELLCAST_FAILED_QUIET rather
+    // than FAILED — see IsQuietResult for the verified 3-code whitelist. Same
+    // type-2 (local-only) castGUID as FAILED.
+    if (IsQuietResult(result & 0xFF)) {
+        Fire(kFailedQuiet, sid, ++g_guidCounter, /*type=*/2);
+        return;
+    }
     const int now = NowMs();
     const bool recentCast =
         g_endedSpell == sid && now - g_endedTMs < kEndWindowMs;

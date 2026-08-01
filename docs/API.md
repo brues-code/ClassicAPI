@@ -10884,7 +10884,7 @@ placeholder fields as `C_Spell.UnitCastingInfo`.
 Backport of the TBC+ cast/channel events to 1.12, for the **local player and
 other units**. Ported cast-bar / rotation addons (anything written against
 the modern signature) register these instead of vanilla's arg-less
-`SPELLCAST_*` events and read `unit, castGUID, spellID` directly. Twelve
+`SPELLCAST_*` events and read `unit, castGUID, spellID` directly. Thirteen
 events are provided; six also fire for non-player units:
 
 | Event | Fires when | Units | Args |
@@ -10895,7 +10895,8 @@ events are provided; six also fire for non-player units:
 | `UNIT_SPELLCAST_DELAYED` | pushback extends the cast | player | same |
 | `UNIT_SPELLCAST_SUCCEEDED` | the spell goes off (`SMSG_SPELL_GO`) — incl. instants | all | same |
 | `UNIT_SPELLCAST_INTERRUPTED` | a started **cast** is interrupted (kick, movement, LoS) — never for channels | all | same |
-| `UNIT_SPELLCAST_FAILED` | a cast is rejected before it starts (range, mana, cooldown) | player | same |
+| `UNIT_SPELLCAST_FAILED` | a cast is rejected before it starts (range, mana, cooldown) with an error shown | player | same |
+| `UNIT_SPELLCAST_FAILED_QUIET` | a cast fails with **no** error shown (spammy retry, reticle cancel, …) | player | same |
 | `UNIT_SPELLCAST_CHANNEL_START` | a channel begins | all | same |
 | `UNIT_SPELLCAST_CHANNEL_UPDATE` | pushback shortens a channel | player | same |
 | `UNIT_SPELLCAST_CHANNEL_STOP` | a channel ends | all | same |
@@ -10962,10 +10963,15 @@ recast gets its own castUID. The `type` and `castUID` follow the
   before SUCCEEDED, as on retail).
 - Instant: `SENT → SUCCEEDED`.
 
-**INTERRUPTED vs FAILED** follow modern's split: a spell that never started
-(out of range, not enough mana, on cooldown, LoS to a target) fires
-`FAILED`; a spell that was *already casting* and gets stopped (an enemy
-kick, moving to cancel, breaking LoS mid-cast) fires `INTERRUPTED`. Holding
+**INTERRUPTED vs FAILED vs FAILED_QUIET** follow modern's split: a spell that
+never started (out of range, not enough mana, on cooldown, LoS to a target)
+fires `FAILED`, except for a fixed whitelist of "quiet" `SpellCastResult`
+codes that fire `FAILED_QUIET` instead — `SPELL_IN_PROGRESS` (casting while
+already casting / a spell-queue rejection), `DONT_REPORT` (fake fails, a
+cancelled ground reticle), and `CHARMED`. That whitelist mirrors the 3.3.5
+client's own unit-spellcast dispatch, mapped to vanilla's `SpellCastResult`
+enum. A spell that was *already casting* and gets stopped (an enemy kick,
+moving to cancel, breaking LoS mid-cast) fires `INTERRUPTED`. Holding
 the cast key while running fires `INTERRUPTED` repeatedly (once per retry),
 each reusing the interrupted cast's castGUID — matching retail.
 
@@ -10994,9 +11000,9 @@ end)
 
 > **Additive to the vanilla `SPELLCAST_*` events.** The engine's own arg-less
 > `SPELLCAST_START` / `SPELLCAST_CHANNEL_UPDATE` / … still fire as before;
-> these `UNIT_`-prefixed events are the modern layer on top.
-> `UNIT_SPELLCAST_FAILED_QUIET` and the empowered-cast events are not
-> implemented.
+> these `UNIT_`-prefixed events are the modern layer on top. The empowered-cast
+> events (`UNIT_SPELLCAST_EMPOWER_*`, a Dragonflight addition) are not
+> implemented — vanilla has no empowered casts.
 
 ### `C_Spell.GetSpellLevelInfo(spellID)`
 
