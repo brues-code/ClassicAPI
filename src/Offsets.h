@@ -1422,12 +1422,27 @@ enum Offsets {
     // clear on `*(context+0xCFC) == self`, i.e. the IsDragging predicate.
     VAR_UI_CONTEXT_PTR = 0x00CF0BD8,
     OFF_UI_CONTEXT_DRAG_TARGET = 0xCFC,
+    // Frame currently under the mouse (the CFrameScriptObject* that
+    // `GetMouseFocus` returns): `*(*VAR_UI_CONTEXT_PTR + 0x7C)`. 0 when the
+    // cursor is over no mouse-enabled frame. `Frame::Attributes` polls this to
+    // drive the `mouseover` override from the hovered frame's `unit` attribute.
+    OFF_UI_CONTEXT_MOUSE_FOCUS = 0x7C,
     FUN_SCRIPT_FRAME_SHOW = 0x00775750,
     FUN_SCRIPT_FRAME_HIDE = 0x00775810,
     FUN_SCRIPT_FRAME_SETMINRESIZE = 0x00776020,
     FUN_SCRIPT_FRAME_SETMAXRESIZE = 0x007762A0,
     FUN_SCRIPT_FRAME_GETSCRIPT = 0x00774780,
     FUN_SCRIPT_FRAME_SETSCRIPT = 0x007748D0,
+    // `frame:EnableMouse(enable)` (Frame registry) — `Frame::Attributes` calls
+    // it so a unit-attributed frame registers as the mouse-focus (bare frames
+    // otherwise never hover). Standard `int __fastcall(void *L)` Script_* shape.
+    FUN_SCRIPT_FRAME_ENABLEMOUSE = 0x00777070,
+    // Button OnClick dispatcher — `__thiscall(button, buttonCode)` at
+    // 0x00779540, invoking the button's OnClick slot `[button+0x4CC]`. NOTE: do
+    // NOT MinHook it — SuperWoW's click-casting inline-hooks the same prologue
+    // and a second hook corrupts the trampoline (ERROR #132). `Frame::Attributes`
+    // instead installs a normal chained OnClick on the opted-in frame. Kept as
+    // the verified dispatch reference only.
     // Frame GetAlpha (own alpha, 0..1) + Region GetParent — walked by
     // Frame::Modern's GetEffectiveAlpha up the parent chain.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,

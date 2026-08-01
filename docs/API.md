@@ -164,6 +164,7 @@ build instructions.
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
+  - [`frame:SetAttribute` / `SetAttributeNoHandler` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--framegetattribute)
 
 - [FriendList](#friendlist)
   - [`C_FriendList.SendWhoQueryByName(name)`](#c_friendlistsendwhoquerybynamename)
@@ -3779,6 +3780,97 @@ UIParent:GetEffectiveAlpha()   -- 1
 -- with UIParent at 0.5 and Minimap's own alpha 1:
 Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
 ```
+
+### `frame:SetAttribute(name, value)` / `frame:SetAttributeNoHandler(name, value)` / `frame:GetAttribute(...)`
+
+Backports the frame **attribute** system — a per-frame, case-insensitive
+key→value store — to 1.12 as native methods on every frame. Attributes were
+added in 2.0 with secure frames and don't exist in vanilla at all; `value`
+can be any Lua type and round-trips exactly.
+
+```lua
+f:SetAttribute("unit", "party1")
+f:GetAttribute("unit")            -- "party1"
+f:SetAttribute("count", 3)
+f:GetAttribute("count")           -- 3
+f:GetAttribute("missing")         -- nil
+```
+
+`GetAttribute` also has the modifier form `GetAttribute(prefix, name, suffix)`,
+which tries, in order, and returns the first match (the same precedence retail
+uses for `type1`/`*type1`-style resolution):
+
+1. `prefix..name..suffix`
+2. `"*"..name..suffix`
+3. `prefix..name.."*"`
+4. `"*"..name.."*"`
+5. `name`
+
+`SetAttributeNoHandler` is an alias of `SetAttribute` here — see the
+`OnAttributeChanged` note below.
+
+**Unit-frame mouseover — the headline use.** Setting a **string `unit`
+attribute** makes the frame a mouseover source: while the cursor is over it,
+the `mouseover` unit token resolves to that frame's unit. This is the piece of
+SecureUnitButton behavior modern unit-frame addons rely on — and since 1.12 has
+no combat lockdown or taint, no secure machinery is needed to provide it.
+
+```lua
+local f = CreateFrame("Button", "MyUnitFrame", UIParent)
+f:SetWidth(120); f:SetHeight(40)
+f:SetPoint("CENTER")
+f:SetAttribute("unit", "party1")
+-- Hover it → the `mouseover` token resolves to party1:
+--   UnitName("mouseover"), UnitHealth("mouseover"), GameTooltip:SetUnit("mouseover"),
+--   mouseover-cast, and UPDATE_MOUSEOVER_UNIT all work.
+```
+
+How it works, and why it's robust: rather than installing `OnEnter`/`OnLeave`
+on the frame (which an addon's own `SetScript("OnEnter", …)` would overwrite —
+pfUI sets `unit` *before* its scripts, for instance), this mirrors retail and
+SuperWoW's `SetMouseoverUnit`. The engine's mouse-focus frame is watched once
+per frame; when a hovered frame carries a `unit` attribute, the engine's **real
+mouseover setter** is invoked for that unit — **1:1 with hovering the unit's 3D
+model**: the model highlights, the mouseover tooltip builds, and
+`UPDATE_MOUSEOVER_UNIT` fires, in addition to the GUID slot being set. So
+everything that reads mouseover — the resolver's `mouseover` branch,
+`GameTooltip:SetUnit("mouseover")`, `UnitX("mouseover")`, mouseover-cast — sees
+it natively. Because nothing touches the frame's scripts, an addon setting its
+own handlers can't break it; and it's stomp-proof (the engine's 3D-hover setter
+is event-driven, so while the cursor is over UI nothing overwrites the slot). It
+follows live token changes (a `unit="target"` frame tracks your current target
+while hovered). Setting a string `unit` also `EnableMouse`s the frame so a bare
+frame becomes hoverable at all (real unit frames already are). The `unit` value
+may be any token the resolver understands — `"party1"`, `"target"`, `"focus"`,
+`"nameplateN"`, or a raw GUID literal. Set `unit` to a non-string (e.g. `nil`)
+to stop the binding.
+
+**Click actions (`type1` / `type2`).** A `type` attribute makes clicking the
+frame act on its `unit`:
+
+```lua
+f:SetAttribute("type1", "target")   -- left-click targets the unit
+f:SetAttribute("type2", "focus")    -- right-click sets ClassicAPI focus to it
+```
+
+Left-click reads `type1`, right-click reads `type2`, and both fall back to a
+plain `type` attribute. Supported verbs: `"target"`, `"assist"` (target the
+unit's target), `"focus"`. Setting a `type*` attribute installs a **chained
+`OnClick` on that frame only** (nothing global) — it reads the attributes at
+click time and runs *after* any handler the frame already had. Because it chains
+whatever `OnClick` is present when the `type` attribute is set, set `type*`
+**after** the frame's own scripts (real addons configure attributes after
+building the widget). The frame must be a **Button** registered for the click:
+left is the Button default; right needs `RegisterForClicks("RightButtonUp")`,
+which real unit frames already call. Other verbs (`togglemenu`, `spell`,
+`macro`) aren't backported yet.
+
+**`OnAttributeChanged` is not fired.** Retail fires this script from
+`SetAttribute` (and `SetAttributeNoHandler` suppresses it). Making it a real
+`SetScript`-able handler needs a co-hook on the base-frame script-name resolver
+(the analog of the tooltip-side `OnTooltipSet*` work); it isn't required for the
+mouseover use case, so `SetAttribute` currently doesn't fire it and the two
+setters behave identically. Fast-follow.
 
 ## FriendList
 
