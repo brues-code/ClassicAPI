@@ -27,6 +27,13 @@
 //   See `unit/Focus.cpp` for the storage + `PLAYER_FOCUS_CHANGED`
 //   event firing.
 //
+// - `0x<hex>` — a raw 64-bit GUID literal (SuperWoW's format:
+//   `"0x"` + up to 16 hex digits). Lets every `Unit*` accept a GUID
+//   in place of a token, which is SuperWoW's headline "hard
+//   dependency" feature. Only enabled when SuperWoW is NOT loaded —
+//   when it is, its own resolver hook owns GUID input and we defer to
+//   avoid double-handling. See `GuidTokenEnabled` below.
+//
 // Both families compose with the engine's own `target`-suffix walker
 // (`focustarget`, `nameplate1targettarget`) via the shared
 // `WalkSuffix` helper, which mirrors the engine's
@@ -45,9 +52,35 @@
 
 #include <cstdint>
 
+#include <windows.h>
+
 namespace Unit::TokenExtensions {
 
 namespace {
+
+// SuperWoW (loaded by VanillaFixes from `dlls.txt` as `SuperWoWhook.dll`)
+// already makes the token resolver accept `"0x..."` GUID literals, so we
+// only add it ourselves when SuperWoW is absent — otherwise both would
+// parse the same input. VanillaFixes `LoadLibrary`s every listed DLL during
+// its injection pass, long before this hook installs at game boot, so the
+// module handle is present iff SuperWoW is active. Cached — module presence
+// is fixed for the process lifetime.
+bool GuidTokenEnabled() {
+    static const bool enabled =
+        GetModuleHandleA("SuperWoWhook.dll") == nullptr;
+    return enabled;
+}
+
+// Hex nibble, or -1 for a non-hex character. Case-insensitive.
+int HexNibble(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 // `__stdcall`, not `__cdecl` — `FUN_00064A4C0` ends with `ret 0xc`,
@@ -109,6 +142,25 @@ uint64_t WalkSuffix(uint64_t guid, const char *suffix) {
 uint64_t __fastcall Hook_h(const char *token) {
     if (token == nullptr || *token == '\0')
         return Original_o(token);
+
+    // Raw GUID literal `0x<hex>` (SuperWoW input format). The parsed GUID
+    // is returned straight to the engine's own back-half of the resolver
+    // (`FUN_00468460(unit-mask, guid)`), the identical path `"player"`
+    // takes — so an out-of-range / unloaded GUID resolves to nil exactly
+    // like any absent unit, no special handling. Feeds the same suffix
+    // walker as the other families, so `"0x…target"` composes too.
+    if (GuidTokenEnabled() && token[0] == '0' &&
+        (token[1] == 'x' || token[1] == 'X')) {
+        const char *p = token + 2;
+        uint64_t guid = 0;
+        int digits = 0;
+        for (int nibble; (nibble = HexNibble(*p)) >= 0; ++p) {
+            guid = (guid << 4) | static_cast<uint32_t>(nibble);
+            ++digits;
+        }
+        if (digits > 0)
+            return WalkSuffix(guid, p);
+    }
 
     auto sstrcmpi = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
 

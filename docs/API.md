@@ -8710,6 +8710,31 @@ the unmodified resolver. The ordered list is maintained alongside
 the existing `NAME_PLATE_UNIT_ADDED` / `_REMOVED` diff in the
 per-tick nameplate walker.
 
+### Unit tokens (GUID literals)
+
+A raw 64-bit GUID literal — `"0x"` followed by up to 16 hex digits
+(e.g. `"0xF130000000000A5"`) — works as a unit token against the same
+`UnitX` surface, so a GUID can be passed anywhere a token is expected:
+
+```lua
+local guid = UnitGUID("target")        -- e.g. "0xF13000..."
+print(UnitName(guid), UnitHealth(guid), UnitClass(guid))
+```
+
+Hex parsing is case-insensitive; the parsed GUID is handed to the engine's
+own object-manager lookup (the identical path `"player"` takes), so a GUID
+for a unit that isn't currently loaded (out of range, not synced) resolves
+to `nil` exactly like any absent unit — no error. Suffix chains compose:
+`"0x…target"` walks to the referenced unit's target.
+
+This is the **input** direction only — to obtain a token's GUID use
+[`UnitGUID`](#unitguidunit).
+
+**Compatible with SuperWoW.** SuperWoW provides the same GUID-input support,
+so when it's loaded we detect it and defer to its resolver (no double
+handling); when it isn't, this fills the gap. Either way GUID-token input
+behaves identically, so addons needn't care whether SuperWoW is present.
+
 ## NameCache
 
 GUID-keyed cache of player names and classes. The engine itself
@@ -12460,6 +12485,10 @@ local guid = UnitGUID("player")  -- "0x0000000000000777" (low IDs are local-real
 local guid = UnitGUID("target")  -- "0xF13000059A002553" (the F130... prefix tags creatures)
 local guid = UnitGUID("party1")  -- works even if party1 is on a different continent
 ```
+
+The returned string is itself accepted as a unit token — `UnitName(guid)`,
+`UnitHealth(guid)`, etc. all work — so a GUID round-trips as a stable
+handle. See [Unit tokens (GUID literals)](#unit-tokens-guid-literals).
 
 **Works for OOR party / raid members.** Earlier versions of this
 function returned nil for `"partyN"` / `"raidN"` when the member's
