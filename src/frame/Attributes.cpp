@@ -19,8 +19,9 @@
 // system at all — it arrived in 2.0 with secure frames. Attributes are just a
 // per-frame, case-insensitive key→value store (verified from the 3.3.5
 // implementation: a name→Lua-value map plus a getter with prefix/name/suffix
-// wildcard precedence). We store the map on the frame's own Lua table under a
-// private key, so it's collected with the frame.
+// wildcard precedence). We store the map in the Lua registry keyed by the frame
+// (registry[frame]) — invisible to Lua script and tamper-proof, like retail's
+// C-side attribute store (see PushSub).
 //
 // The headline use — SecureUnitButton behavior, minus the secure wrapper (1.12
 // has no combat lockdown or taint, so protected actions just work):
@@ -114,11 +115,6 @@ int CallScript(uintptr_t fn, void *L) {
     return reinterpret_cast<ScriptFn_t>(fn)(L);
 }
 
-// Private key on the frame's own Lua table for the attribute subtable. The
-// leading control byte can't be produced by a lowercased user attribute name,
-// so it never collides with a real attribute.
-constexpr const char kAttrKey[] = "\1ClassicAPIAttributes";
-
 // ---- small string helpers --------------------------------------------------
 
 void LowerCopy(char *dst, const char *src, size_t n) {
@@ -155,30 +151,28 @@ bool EqI(const char *a, const char *b) {
     return *a == *b;
 }
 
-// ---- attribute storage (on the frame's own Lua table) ----------------------
+// ---- attribute storage (in the Lua registry, keyed by the frame) -----------
 
-// Pushes frame[kAttrKey] (the attribute subtable) onto the stack. With
-// create=true, lazily creates and stores it. Returns true iff a subtable is
-// left on top; false (nothing left on the stack) when absent and !create.
+// Pushes the frame's attribute subtable onto the stack. Stored as
+// registry[frame] in the Lua registry (LUA_REGISTRYINDEX) rather than as a
+// field on the frame's own table — the registry is C-side and has no _G path,
+// so the store is invisible to `pairs(frame)` and can't be read or tampered
+// with from Lua, matching how retail keeps attributes C-side. With create=true,
+// lazily creates and stores it. Returns true iff a subtable is left on top;
+// false (nothing left on the stack) when absent and !create. 1.12 frames are
+// immortal, so the strong registry key never leaks.
 bool PushSub(void *L, int frameIdx, bool create) {
-    Game::Lua::PushValue(L, frameIdx);      // [.., frame]
-    const int f = Game::Lua::GetTop(L);
-    Game::Lua::PushString(L, kAttrKey);      // [.., frame, key]
-    Game::Lua::RawGet(L, f);                 // [.., frame, sub|nil]
-    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE) {
-        Game::Lua::Remove(L, f);             // [.., sub]
-        return true;
-    }
-    Game::Lua::SetTop(L, f);                 // [.., frame]   (drop the nil)
-    if (!create) {
-        Game::Lua::SetTop(L, f - 1);         // [..]          (drop frame)
+    Game::Lua::PushValue(L, frameIdx);                  // [.., frame]  (key)
+    Game::Lua::RawGet(L, Game::Lua::REGISTRY_INDEX);    // [.., sub|nil]
+    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE)
+        return true;                                    // [.., sub]
+    Game::Lua::SetTop(L, Game::Lua::GetTop(L) - 1);     // drop the nil -> [..]
+    if (!create)
         return false;
-    }
-    Game::Lua::NewTable(L);                   // [.., frame, sub]
-    Game::Lua::PushString(L, kAttrKey);       // [.., frame, sub, key]
-    Game::Lua::PushValue(L, f + 1);           // [.., frame, sub, key, sub]
-    Game::Lua::RawSet(L, f);                  // frame[key] = sub -> [.., frame, sub]
-    Game::Lua::Remove(L, f);                  // [.., sub]
+    Game::Lua::NewTable(L);                             // [.., sub]
+    Game::Lua::PushValue(L, frameIdx);                  // [.., sub, frame]  (key)
+    Game::Lua::PushValue(L, -2);                        // [.., sub, frame, sub]  (value)
+    Game::Lua::RawSet(L, Game::Lua::REGISTRY_INDEX);    // registry[frame] = sub -> [.., sub]
     return true;
 }
 
@@ -204,8 +198,9 @@ bool CopyAttr(void *L, int frameIdx, const char *lname, char *buf, size_t n) {
     return ok;
 }
 
-// If frame[kAttrKey][keyLower] is non-nil, leave that value on the stack top
-// and return true; otherwise restore the stack and return false.
+// If the frame's attribute subtable has a non-nil value for keyLower, leave that
+// value on the stack top and return true; otherwise restore the stack and
+// return false.
 bool TryPushValue(void *L, int frameIdx, const char *keyLower) {
     const int top = Game::Lua::GetTop(L);
     if (PushSub(L, frameIdx, false)) {       // [.., sub]
