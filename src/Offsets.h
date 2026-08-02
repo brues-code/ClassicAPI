@@ -140,6 +140,39 @@ enum Offsets {
     //   and call the inner invoker, which is self-contained.
     FUN_GAMETOOLTIP_SCRIPT_RESOLVER = 0x005295D0,
     FUN_FRAME_INVOKE_SCRIPT = 0x00704D50,
+    // The arg-passing sibling of FUN_FRAME_INVOKE_SCRIPT — every frame
+    // script that carries values (OnClick(button), OnMouseWheel(delta),
+    // OnUpdate(elapsed), OnValueChanged(value), OnKeyDown(key), OnEvent's
+    // args, …) funnels through here. __cdecl(int handlerRef, void *frame,
+    // const char *fmt, void *vaPtr): fmt is a printf-style spec string
+    // (`%d`/`%u`/`%f`/`%s`), vaPtr points at the packed vararg buffer
+    // (4-byte stride for d/u/s, 8 for f). It sets the `arg1..argN` globals
+    // from the format (saving/restoring the previous values), sets the
+    // `this` global to `frame`, then runs the handler under a protected
+    // lua_pcall with **zero Lua args** and the engine error handler
+    // (VAR_FRAMESCRIPT_ERROR_HANDLER_REF) as errfunc. FUN_FRAME_INVOKE_SCRIPT
+    // is the same shape for the no-arg scripts (OnShow/OnHide/OnEnter/…).
+    // `Frame::ScriptArgs` co-hooks both to additionally pass the handler
+    // modern positional args (self, arg1..argN). The frame's own Lua object
+    // ref lives at frame+OFF_COBJECT_LUA_REF (refcount at
+    // OFF_COBJECT_LUA_REFCOUNT); FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER
+    // lazily creates it when the refcount is 0.
+    FUN_FRAME_RUN_SCRIPT_ARGS = 0x00704F10,
+    // The base ScriptObject's OnEvent handler slot — an 8-byte
+    // {handler, context} pair at frame+0x0C (from FUN_00702590, the base
+    // resolver every frame-type resolver chains through, and confirmed by
+    // the event dispatchers FUN_00703E50 / FUN_00703F50 passing `frame+0xC`
+    // as the slot). `*(int*)(frame + OFF_FRAME_ONEVENT_SLOT)` is the OnEvent
+    // handler ref; `Frame::ScriptArgs` compares it against the handler ref
+    // the runner is invoking to detect an OnEvent dispatch (exact — each
+    // SetScript makes a distinct ref, so a function bound to two scripts
+    // still differs per slot) and prepend the `event` positional.
+    OFF_FRAME_ONEVENT_SLOT = 0x0C,
+    // Registry ref (an int, not a pointer) to the frame-script message
+    // handler the engine passes as the `errfunc` to every script pcall —
+    // read as `*(int*)VAR_FRAMESCRIPT_ERROR_HANDLER_REF`, pushed via
+    // lua_rawgeti(REGISTRY, ref). Set once at engine init.
+    VAR_FRAMESCRIPT_ERROR_HANDLER_REF = 0x008722C8,
     // The base Frame script-name resolver — __thiscall(frame, const char *name)
     // -> int* slot, 0 for an unknown name. Maps the standard base-frame scripts
     // to their 8-byte {handler, context} slots on the frame (OnLoad@+0x118,
@@ -422,6 +455,12 @@ enum Offsets {
     // read it as a "has the engine ever exposed this CObject to Lua"
     // probe — equivalent to checking `this+0x08 > 0` but more direct.
     OFF_COBJECT_LUA_REFCOUNT = 0x04,
+
+    // `this+0x08` — the CObject's Lua-registry ref (an int key into the
+    // registry table). `lua_rawgeti(REGISTRY, this[+0x08])` pushes the
+    // frame's Lua-side object. Lazily populated by ScriptRegister when the
+    // refcount above is 0.
+    OFF_COBJECT_LUA_REF = 0x08,
 
     // Direct cvar lookup — `__fastcall(const char *name) → CVar* | NULL`.
     // Hash-table by-name lookup over the CVar registry; same call
@@ -4092,6 +4131,15 @@ enum Offsets {
     LUA_NEW_TABLE = 0x6F3C90,
     LUA_GET_TABLE = 0x6F3A40,     // (was 0x6F3EA0, which is lua_rawset)
     LUA_RAW_GET = 0x6F3B00,
+    // `lua_rawgeti(L, idx, n)` — pushes `table_at_idx[n]` without invoking
+    // metamethods. __fastcall(L /*ecx*/, idx /*edx*/, n /*stack*/). The
+    // frame-script runner uses it with `idx = REGISTRY` to push a value
+    // stored under an integer ref (handler, frame object, message handler,
+    // and luaL_ref'd saved globals). Note it also carries the WoW
+    // frame-script exec-context stamp (the `DAT_00ceeac0` dance) for pushed
+    // CObjects — which is exactly why the engine pushes handler/frame
+    // through it rather than a plain rawget.
+    LUA_RAWGETI = 0x6F3BC0,
     LUA_SET_TABLE = 0x6F3E20,
     LUA_RAW_SET = 0x6F3EA0,
     LUA_INSERT = 0x6F31A0,
