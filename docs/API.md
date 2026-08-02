@@ -3875,7 +3875,7 @@ modifier/button-qualified, same precedence as `type`):
 
 | Verb | Extra attributes | Action |
 |------|------------------|--------|
-| `target` | — | Targets the `unit`. Respects the engine's default-interaction precedence: with a spell on the cursor it casts on the unit, with an item on the cursor it drops it on the unit, instead of switching target. |
+| `target` | — | Targets the `unit` (or clears the target if `unit` is `"none"`). Respects the engine's default-interaction precedence: with a spell on the cursor it casts on the unit, with an item on the cursor it drops it on the unit, instead of switching target. |
 | `assist` | — | Targets the `unit`'s target. |
 | `focus` | — | Sets the ClassicAPI focus to the `unit`. |
 | `spell` | `spell` | Casts the `spell` on the `unit` via [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) — the unit's GUID goes straight to the cast dispatcher (no target juggling), and ground-target spells land at the unit's feet. |

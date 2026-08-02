@@ -553,6 +553,11 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
                   const char *verb, const char *unit) {
     if (EqI(verb, "target")) {
         if (!unit) return false;
+        // `unit="none"` clears the target (retail's SecureActionButton behavior).
+        if (EqI(unit, "none")) {
+            CallGlobal(L, "ClearTarget");
+            return true;
+        }
         // Cursor / pending-spell take precedence, matching the engine's default
         // unit interaction — cast the pending spell / drop the item on the unit
         // instead of switching target. The two predicates are ours (direct C++);
