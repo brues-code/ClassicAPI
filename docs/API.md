@@ -3874,7 +3874,10 @@ modifier unless a modifier-specific attribute (`shift-type1`) overrides it — a
 `spell` attribute and casts it on the unit via the native
 [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) — the unit's GUID is fed straight to
 the cast dispatcher, so there's no target juggling, and ground-target spells
-land at the unit's feet), `macro` (takes the
+land at the unit's feet), `item` (uses the `item` attribute — an item
+name/itemID/link via `C_Item.UseItemByName` with the unit as the use target, or
+a `"bag slot"` string like `"0 1"` via `UseContainerItem`; the deprecated
+`bag`/`slot` attributes also work), `macro` (takes the
 `macrotext`/`macro` attribute and prefers an addon-provided `RunMacro` — e.g.
 SuperCleveRoidMacros, which handles named macros and extended macro text —
 falling back to running the text natively, line by line through the stock

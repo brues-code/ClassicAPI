@@ -60,7 +60,10 @@
 // unit instead of switching target), `assist`, `focus`, `spell` (reads the
 // `spell` attribute and casts it on the unit via our native C_Spell.CastAtUnit —
 // the unit's GUID goes straight to the cast dispatcher, no target juggling, and
-// ground-target spells land at the unit's feet), `macro` (from the
+// ground-target spells land at the unit's feet), `item` (uses the `item`
+// attribute — a name/itemID/link via C_Item.UseItemByName with the unit as the
+// use target, or a "bag slot" string like "0 1" via UseContainerItem; the
+// deprecated `bag`/`slot` attributes also work), `macro` (from the
 // `macrotext`/`macro` attribute — prefers an addon RunMacro, else runs natively
 // via the stock ChatEdit_ParseText), `stopcasting`, `menu`/`togglemenu` (pops
 // the standard unit dropdown at the cursor via the addon's
@@ -101,6 +104,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -279,6 +283,35 @@ bool CallGlobalStr(void *L, const char *name, const char *arg) {
     return called;
 }
 
+// _G[table][method](a, b) — two string args (null → nil, since PushString maps
+// NULL to nil), no results. Returns true iff the method resolved to a function
+// and got called. Used when the target is our own C_* function but the call must
+// cross the Lua boundary — e.g. C_Item.UseItemByName, whose bag walk does
+// SetTop(L, 0); going through lua_call gives it its own stack frame so that reset
+// clears only its frame, not the dispatcher's (a direct C++ call would wipe our
+// stack — the reason `spell`, which is stack-free, calls Spell::AtUnit directly
+// while `item` routes through here).
+bool CallTableFunc2Str(void *L, const char *table, const char *method,
+                       const char *a, const char *b) {
+    const int top = Game::Lua::GetTop(L);
+    bool called = false;
+    Game::Lua::PushString(L, table);
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);   // _G[table]
+    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE) {
+        const int t = Game::Lua::GetTop(L);
+        Game::Lua::PushString(L, method);
+        Game::Lua::GetTable(L, t);                       // _G[table][method]
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
+            Game::Lua::PushString(L, a);
+            Game::Lua::PushString(L, b);
+            Game::Lua::Call(L, 2, 0);
+            called = true;
+        }
+    }
+    Game::Lua::SetTop(L, top);
+    return called;
+}
+
 // ---- macrotext execution (stock ChatEdit_ParseText, no addon dependency) ----
 //
 // 1.12 has no `RunMacroText`/`RunMacro` global — those are addon shims (pfUI
@@ -449,6 +482,71 @@ bool ReadModAttr(void *L, int fi, const char *prefix, const char *name,
     return CopyAttr(L, fi, key, buf, n);
 }
 
+// Reads attribute `keyLower` as an int (stored as a number, or a numeric
+// string) into *out. Leaves the stack as it found it. Returns true on success.
+bool ReadAttrInt(void *L, int fi, const char *keyLower, int *out) {
+    bool ok = false;
+    if (TryPushValue(L, fi, keyLower)) {                 // value left on top
+        const int t = Game::Lua::Type(L, -1);
+        if (t == Game::Lua::TYPE_NUMBER) {
+            *out = static_cast<int>(Game::Lua::ToNumber(L, -1));
+            ok = true;
+        } else if (t == Game::Lua::TYPE_STRING) {
+            const char *s = Game::Lua::ToString(L, -1);
+            char *end = nullptr;
+            const long v = s ? std::strtol(s, &end, 10) : 0;
+            if (s && end != s) {
+                *out = static_cast<int>(v);
+                ok = true;
+            }
+        }
+        Game::Lua::SetTop(L, Game::Lua::GetTop(L) - 1);  // pop the peeked value
+    }
+    return ok;
+}
+
+// Numeric analog of ReadModAttr (prefix..name..suffix precedence).
+bool ReadModAttrInt(void *L, int fi, const char *prefix, const char *name,
+                    const char *suffix, int *out) {
+    char key[128];
+    Compose3Lower(key, sizeof key, prefix, name, suffix);
+    if (ReadAttrInt(L, fi, key, out)) return true;
+    Compose3Lower(key, sizeof key, "", name, suffix);
+    if (ReadAttrInt(L, fi, key, out)) return true;
+    Compose3Lower(key, sizeof key, "", name, "");
+    return ReadAttrInt(L, fi, key, out);
+}
+
+// Parses a "bag slot" string (two integers, e.g. "0 1") into bag/slot. Returns
+// false unless the whole string is exactly two integers, so a normal item name
+// or a bare itemID ("12345") falls through to the name path.
+bool ParseBagSlot(const char *s, int *bag, int *slot) {
+    char *end = nullptr;
+    const long b = std::strtol(s, &end, 10);
+    if (end == s) return false;                          // not a leading number
+    const char *p = end;
+    const long sl = std::strtol(p, &end, 10);
+    if (end == p) return false;                          // only one number
+    while (*end == ' ' || *end == '\t') ++end;
+    if (*end != '\0') return false;                      // trailing junk
+    *bag = static_cast<int>(b);
+    *slot = static_cast<int>(sl);
+    return true;
+}
+
+// _G[name](a, b) — two number args, no results. Returns true iff called.
+bool CallGlobalNum2(void *L, const char *name, double a, double b) {
+    const int top = Game::Lua::GetTop(L);
+    const bool called = PushGlobalFunc(L, name);
+    if (called) {
+        Game::Lua::PushNumber(L, a);
+        Game::Lua::PushNumber(L, b);
+        Game::Lua::Call(L, 2, 0);
+    }
+    Game::Lua::SetTop(L, top);
+    return called;
+}
+
 // Performs the resolved `verb` on `unit` (a token attribute value, may be null).
 // Returns true if it owned the click (so the chained handler is skipped).
 bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
@@ -485,6 +583,24 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
             return false;
         Spell::AtUnit::CastByName(spell, unit);
         return true;
+    }
+    if (EqI(verb, "item")) {
+        char item[128];
+        int bag, slot;
+        if (ReadModAttr(L, fi, prefix, "item", suffix, item, sizeof item)) {
+            if (ParseBagSlot(item, &bag, &slot))
+                CallGlobalNum2(L, "UseContainerItem", bag, slot);
+            else
+                CallTableFunc2Str(L, "C_Item", "UseItemByName", item, unit);
+            return true;
+        }
+        // Deprecated form: no `item`, take the `bag` + `slot` attributes.
+        if (ReadModAttrInt(L, fi, prefix, "bag", suffix, &bag) &&
+            ReadModAttrInt(L, fi, prefix, "slot", suffix, &slot)) {
+            CallGlobalNum2(L, "UseContainerItem", bag, slot);
+            return true;
+        }
+        return false;
     }
     if (EqI(verb, "macro")) {
         char macro[512];
