@@ -19,6 +19,7 @@
 #include "Data.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "player/StatSignal.h"
 #include "spell/CastEvents.h"
@@ -555,30 +556,15 @@ const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 // keeps the parse short and robust.
 constexpr int kMaxTargets = 16;
 
-using SpellGo_t = void(__fastcall *)(uint64_t *itemGUID, uint64_t *casterGUID,
-                                     uint32_t spellId, CDataStore *packet);
-SpellGo_t g_origSpellGo = nullptr;
-
-void __fastcall SpellGo_h(uint64_t *itemGUID, uint64_t *casterGUID,
-                          uint32_t spellId, CDataStore *packet) {
-    uint64_t targets[kMaxTargets];
-    int numTargets = 0;
-
-    if (packet != nullptr) {
-        const uint32_t savedRead = packet->m_read;
-        Net::Read<int16_t>(packet); // castFlags (unused)
-        const uint8_t numHit = Net::Read<uint8_t>(packet);
-        for (int i = 0; i < numHit; ++i) {
-            const uint64_t guid = Net::Read<uint64_t>(packet);
-            if (numTargets < kMaxTargets)
-                targets[numTargets++] = guid;
-        }
-        packet->m_read = savedRead; // restore so the engine re-parses cleanly
-    }
-
-    g_origSpellGo(itemGUID, casterGUID, spellId, packet);
-
-    const uint64_t caster = (casterGUID != nullptr) ? *casterGUID : 0;
+// The self-contained SPELL_GO processing (succeeded events, server-side
+// duration edits, aura-source caching). None of it reads engine descriptor
+// state, so it's order-independent of the engine's own SPELL_GO handler —
+// which is why it can run from the dispatch funnel (before the leaf handler)
+// rather than after a co-hook's original call. The aura *application* hooks
+// fire off a separate SMSG_UPDATE_OBJECT, so RememberPlayerCast's handoff to
+// them is unaffected by the move.
+void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
+                   int numTargets) {
     if (caster == 0 || spellId == 0)
         return;
 
@@ -631,9 +617,33 @@ void __fastcall SpellGo_h(uint64_t *itemGUID, uint64_t *casterGUID,
               KIND_UNKNOWN);
 }
 
-const Game::HookAutoRegister _hook{Offsets::FUN_SPELL_GO,
-                                   reinterpret_cast<void *>(&SpellGo_h),
-                                   reinterpret_cast<void **>(&g_origSpellGo)};
+// SMSG_SPELL_GO parse (funnel subscriber). At the leaf handler the engine has
+// pre-decoded itemGuid/casterGuid/spellId; here we're at the raw body, so we
+// decode them ourselves before the hit list:
+//   itemGuid(packed), casterGuid(packed), spellId(u32), castFlags(i16),
+//   numHit(u8), hitGuids(u64 × numHit).
+void ParseSpellGo(CDataStore *packet) {
+    Net::ReadPackedGuid(packet); // itemGuid (unused)
+    const uint64_t caster = Net::ReadPackedGuid(packet);
+    const uint32_t spellId = Net::Read<uint32_t>(packet);
+    Net::Read<int16_t>(packet); // castFlags (unused)
+    const uint8_t numHit = Net::Read<uint8_t>(packet);
+    uint64_t targets[kMaxTargets];
+    int numTargets = 0;
+    for (int i = 0; i < numHit; ++i) {
+        const uint64_t guid = Net::Read<uint64_t>(packet);
+        if (numTargets < kMaxTargets)
+            targets[numTargets++] = guid;
+    }
+    HandleSpellGo(caster, spellId, targets, numTargets);
+}
+
+void SpellGoSub(uint32_t opcode, CDataStore *packet) {
+    if (opcode == Offsets::SMSG_SPELL_GO && packet != nullptr)
+        ParseSpellGo(packet);
+}
+
+const Net::PacketDispatch::AutoSubscribe _spellGoSub{&SpellGoSub};
 
 // ---- Aura-application co-hooks (timing for proc / triggered auras) -------
 

@@ -43,6 +43,7 @@
 #include "aura/Source.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
+#include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
@@ -111,7 +112,7 @@ const char *ClassifyControlLoss(const uint8_t *rec) {
     return nullptr;
 }
 
-// ---- School-interrupt lockout state (fed by the SMSG_SPELL_COOLDOWN hook) --
+// ---- School-interrupt lockout state (fed by SMSG_SPELL_COOLDOWN) -----------
 
 // One active lockout per school index (0..6); active while now < endMs.
 // Self-expiring, per-process — a stale entry from before a relog is already
@@ -122,54 +123,51 @@ struct SchoolLock {
 };
 SchoolLock g_schoolLock[Offsets::SPELL_SCHOOL_COUNT] = {};
 
-using CooldownHandler_t = int(__stdcall *)(uint32_t *opCode,
-                                           Net::CDataStore *packet);
-CooldownHandler_t g_origCooldown = nullptr;
-
-int __stdcall Cooldown_h(uint32_t *opCode, Net::CDataStore *packet) {
-    if (packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint64_t guid = Net::Read<uint64_t>(packet);
-        if (guid != 0 && guid == Unit::Identity::PlayerGuid()) {
-            int count = 0;
-            int firstDur = 0;
-            bool uniform = true;
-            int schoolIdx = -1;
-            while (packet->m_read + 8 <= packet->m_size && count < 256) {
-                const uint32_t spellID = Net::Read<uint32_t>(packet);
-                const int dur = static_cast<int>(Net::Read<uint32_t>(packet));
-                if (count == 0)
-                    firstDur = dur;
-                else if (dur != firstDur)
-                    uniform = false;
-                if (schoolIdx < 0) {
-                    const uint8_t *rec =
-                        Spell::Lookup::RecordForID(static_cast<int>(spellID));
-                    if (rec != nullptr) {
-                        const int s = SpellSchoolIndex(rec);
-                        if (s >= 0 && s < Offsets::SPELL_SCHOOL_COUNT)
-                            schoolIdx = s;
-                    }
-                }
-                ++count;
-            }
-            // A uniform-duration batch of >=2 same-school spells is a school
-            // lockout (ProhibitSpellSchool); single/varied packets are normal
-            // cooldowns and ignored.
-            if (count >= 2 && uniform && firstDur > 0 && schoolIdx >= 0) {
-                const int now = NowMs();
-                g_schoolLock[schoolIdx].startMs = now;
-                g_schoolLock[schoolIdx].endMs = now + firstDur;
+// Subscribe to the SMSG dispatch funnel rather than co-hooking the cooldown
+// handler (0x006E9460) directly — nampower detours that leaf handler, so
+// sharing its prologue is the documented MinHook/hadesmem collision risk;
+// the funnel is a chokepoint nobody else hooks. The dispatcher positions the
+// cursor at the body (after the u16 opcode) and restores it afterward, so we
+// just read.
+void CooldownSub(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode != Offsets::SMSG_SPELL_COOLDOWN || packet == nullptr)
+        return;
+    const uint64_t guid = Net::Read<uint64_t>(packet);
+    if (guid == 0 || guid != Unit::Identity::PlayerGuid())
+        return;
+    int count = 0;
+    int firstDur = 0;
+    bool uniform = true;
+    int schoolIdx = -1;
+    while (packet->m_read + 8 <= packet->m_size && count < 256) {
+        const uint32_t spellID = Net::Read<uint32_t>(packet);
+        const int dur = static_cast<int>(Net::Read<uint32_t>(packet));
+        if (count == 0)
+            firstDur = dur;
+        else if (dur != firstDur)
+            uniform = false;
+        if (schoolIdx < 0) {
+            const uint8_t *rec =
+                Spell::Lookup::RecordForID(static_cast<int>(spellID));
+            if (rec != nullptr) {
+                const int s = SpellSchoolIndex(rec);
+                if (s >= 0 && s < Offsets::SPELL_SCHOOL_COUNT)
+                    schoolIdx = s;
             }
         }
-        packet->m_read = saved; // restore before the engine re-parses
+        ++count;
     }
-    return g_origCooldown(opCode, packet);
+    // A uniform-duration batch of >=2 same-school spells is a school lockout
+    // (ProhibitSpellSchool); single/varied packets are normal cooldowns and
+    // ignored.
+    if (count >= 2 && uniform && firstDur > 0 && schoolIdx >= 0) {
+        const int now = NowMs();
+        g_schoolLock[schoolIdx].startMs = now;
+        g_schoolLock[schoolIdx].endMs = now + firstDur;
+    }
 }
 
-const Game::HookAutoRegister _cooldownHook{
-    Offsets::FUN_SPELL_COOLDOWN_HANDLER, reinterpret_cast<void *>(&Cooldown_h),
-    reinterpret_cast<void **>(&g_origCooldown)};
+const Net::PacketDispatch::AutoSubscribe _cooldownSub{&CooldownSub};
 
 // ---- Aggregated active-effect list ----------------------------------------
 

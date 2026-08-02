@@ -71,6 +71,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "spell/Lookup.h"
 #include "spell/CastEvents.h"
@@ -485,131 +486,73 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime) {
                                              instantChannel);
 }
 
-// Co-hook on the SMSG_SPELL_START handler. Gated on opCode 0x131 so every
-// other packet this handler processes is a cheap early-out. Packet layout
-// mirrors nampower's SpellStartHandlerHook.
-using SpellStartHandler_t = int(__fastcall *)(uint32_t unk, uint32_t opCode,
-                                              uint32_t unk2,
-                                              Net::CDataStore *packet);
-SpellStartHandler_t g_origSpellStart = nullptr;
-
-int __fastcall SpellStartHandler_h(uint32_t unk, uint32_t opCode,
-                                   uint32_t unk2, Net::CDataStore *packet) {
-    if (opCode == 0x131 && packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        Net::ReadPackedGuid(packet); // itemGuid (unused)
-        const uint64_t caster = Net::ReadPackedGuid(packet);
-        const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
-        Net::Read<uint16_t>(packet); // castFlags (unused)
-        const uint32_t castTime = Net::Read<uint32_t>(packet);
-        packet->m_read = saved; // restore before the engine re-parses
-        HandleSpellStart(caster, spellID, castTime);
-    }
-    return g_origSpellStart(unk, opCode, unk2, packet);
+// SMSG_SPELL_START parse. Body (mirrored from nampower's SpellStartHandler):
+// itemGuid(packed), casterGuid(packed), spellId(u32), castFlags(u16),
+// castTime(u32). Runs from the Net::PacketDispatch funnel with the cursor
+// already positioned at the body.
+void ParseSpellStart(Net::CDataStore *packet) {
+    Net::ReadPackedGuid(packet); // itemGuid (unused)
+    const uint64_t caster = Net::ReadPackedGuid(packet);
+    const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
+    Net::Read<uint16_t>(packet); // castFlags (unused)
+    const uint32_t castTime = Net::Read<uint32_t>(packet);
+    HandleSpellStart(caster, spellID, castTime);
 }
 
-const Game::HookAutoRegister _spellStartHook{
-    Offsets::FUN_SPELL_START_HANDLER,
-    reinterpret_cast<void *>(&SpellStartHandler_h),
-    reinterpret_cast<void **>(&g_origSpellStart)};
-
-// Co-hook on the SMSG_SPELL_DELAYED handler — cast pushback. The server
-// only sends it to the affected caster, so it's effectively always the
-// local player; extend the tracked cast's end time (and report the
-// accumulated delay as delayTimeMs) so an addon's bar stretches on damage.
-using SpellDelayed_t = int(__stdcall *)(uint32_t *opCode,
-                                        Net::CDataStore *packet);
-SpellDelayed_t g_origSpellDelayed = nullptr;
-
-int __stdcall SpellDelayed_h(uint32_t *opCode, Net::CDataStore *packet) {
-    if (packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint64_t guid = Net::Read<uint64_t>(packet);
-        const uint32_t delay = Net::Read<uint32_t>(packet);
-        packet->m_read = saved;
-        if (delay != 0 && g_cast.spellID != 0 &&
-            guid == Unit::Identity::PlayerGuid()) {
-            g_cast.endMs += static_cast<int>(delay);
-            g_cast.delayMs += static_cast<int>(delay);
-        }
+// SMSG_SPELL_DELAYED — cast pushback. The server only sends it to the
+// affected caster, so it's effectively always the local player; extend the
+// tracked cast's end (and report the accumulated delay as delayTimeMs) so an
+// addon's bar stretches on damage. Body: guid(u64), delay(u32).
+void ParseSpellDelayed(Net::CDataStore *packet) {
+    const uint64_t guid = Net::Read<uint64_t>(packet);
+    const uint32_t delay = Net::Read<uint32_t>(packet);
+    if (delay != 0 && g_cast.spellID != 0 &&
+        guid == Unit::Identity::PlayerGuid()) {
+        g_cast.endMs += static_cast<int>(delay);
+        g_cast.delayMs += static_cast<int>(delay);
     }
-    return g_origSpellDelayed(opCode, packet);
 }
 
-const Game::HookAutoRegister _spellDelayedHook{
-    Offsets::FUN_SPELL_DELAYED, reinterpret_cast<void *>(&SpellDelayed_h),
-    reinterpret_cast<void **>(&g_origSpellDelayed)};
-
-// Co-hook on the MSG_CHANNEL_START handler — the server tells the caster a
-// channel has begun, with the server-authoritative (modifier-applied)
-// duration. Sent only to the caster, so it's always the local player. This
-// is what makes CAST-THEN-CHANNEL spells (Mind Control: 3 s cast, then a
-// 60 s channel) show both phases: their SMSG_SPELL_START carries the cast
-// (castTime > 0, handled as a regular cast in HandleSpellStart) and only
-// this packet marks the channel actually starting. For instant channels it
-// re-stamps what the SpellStart path just wrote (same moment, server
-// duration) — harmless. We stamp before the original runs so the data is
-// fresh when the engine fires SPELLCAST_CHANNEL_START. Packet layout
-// mirrored from nampower's SpellChannelStartHandlerHook:
+// MSG_CHANNEL_START — the server tells the caster a channel has begun, with
+// the server-authoritative (modifier-applied) duration. Sent only to the
+// caster, so always the local player. This is what makes CAST-THEN-CHANNEL
+// spells (Mind Control: 3 s cast, then a 60 s channel) show both phases:
+// their SMSG_SPELL_START carries the cast (castTime > 0, handled as a regular
+// cast in HandleSpellStart) and only this packet marks the channel starting.
+// For instant channels it re-stamps what the SpellStart path just wrote (same
+// moment, server duration) — harmless. Running from the dispatch funnel keeps
+// the stamp ahead of the engine's leaf handler (which fires
+// SPELLCAST_CHANNEL_START), so the data is fresh when addons poll. Body:
 // spellId(u32), durationMs(u32).
-using ChannelStart_t = int(__stdcall *)(uint32_t *opCode,
-                                        Net::CDataStore *packet);
-ChannelStart_t g_origChannelStart = nullptr;
-
-int __stdcall ChannelStart_h(uint32_t *opCode, Net::CDataStore *packet) {
-    if (packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
-        const uint32_t duration = Net::Read<uint32_t>(packet);
-        packet->m_read = saved;
-        if (spellID != 0 && duration > 0) {
-            const int now = NowMs();
-            StampChannel(spellID, now, now + static_cast<int>(duration));
-        }
+void ParseChannelStart(Net::CDataStore *packet) {
+    const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
+    const uint32_t duration = Net::Read<uint32_t>(packet);
+    if (spellID != 0 && duration > 0) {
+        const int now = NowMs();
+        StampChannel(spellID, now, now + static_cast<int>(duration));
     }
-    return g_origChannelStart(opCode, packet);
 }
 
-const Game::HookAutoRegister _channelStartHook{
-    Offsets::FUN_SPELL_CHANNEL_START,
-    reinterpret_cast<void *>(&ChannelStart_h),
-    reinterpret_cast<void **>(&g_origChannelStart)};
-
-// MSG_CHANNEL_UPDATE (0x006e75f0) — sent to the channeling PLAYER on damage
-// pushback (vanilla channels SHORTEN when hit) and once more at the channel's
-// end (remaining == 0). Body is a single u32 = the new remaining time (ms);
-// the spell is the in-progress channel (the packet carries no spellID, same as
-// the engine's own handler). The engine fires its Lua SPELLCAST_CHANNEL_UPDATE
-// but stores the new end nowhere, so g_channel.endMs — computed once at start —
-// would keep reporting the full, un-pushed-back duration through
-// UnitChannelInfo. Re-anchor it to the server's remaining time so the query
-// (and the OnWorldTick endMs self-expiry) track pushback; on remaining == 0
-// clear the channel so CHANNEL_STOP fires promptly (ahead of the ~1 s-lagged
-// +0x228 field).
-using ChannelUpdate_t = int(__stdcall *)(uint32_t *opCode,
-                                         Net::CDataStore *packet);
-ChannelUpdate_t g_origChannelUpdate = nullptr;
-
-int __stdcall ChannelUpdate_h(uint32_t *opCode, Net::CDataStore *packet) {
-    if (packet != nullptr && g_channel.spellID != 0) {
-        const uint32_t saved = packet->m_read;
-        const uint32_t remaining = Net::Read<uint32_t>(packet);
-        packet->m_read = saved;
-        const int spellID = g_channel.spellID;
-        if (remaining == 0) {
-            g_channel.spellID = 0; // authoritative channel end
-        } else {
-            g_channel.endMs = NowMs() + static_cast<int>(remaining);
-            Spell::CastEvents::OnPlayerChannelUpdate(spellID);
-        }
+// MSG_CHANNEL_UPDATE — sent to the channeling PLAYER on damage pushback
+// (vanilla channels SHORTEN when hit) and once more at the channel's end
+// (remaining == 0). Body is a single u32 = the new remaining time (ms); the
+// spell is the in-progress channel (the packet carries no spellID). The engine
+// stores the new end nowhere, so re-anchor g_channel.endMs to the server's
+// remaining time so UnitChannelInfo (and the OnWorldTick endMs self-expiry)
+// track pushback; on remaining == 0 clear the channel so CHANNEL_STOP fires
+// promptly (ahead of the ~1 s-lagged +0x228 field).
+void ParseChannelUpdate(Net::CDataStore *packet) {
+    if (g_channel.spellID == 0)
+        return;
+    const uint32_t remaining = Net::Read<uint32_t>(packet);
+    const int spellID = g_channel.spellID;
+    if (remaining == 0) {
+        g_channel.spellID = 0; // authoritative channel end
+    } else {
+        g_channel.endMs = NowMs() + static_cast<int>(remaining);
+        Spell::CastEvents::OnPlayerChannelUpdate(spellID);
     }
-    return g_origChannelUpdate(opCode, packet);
 }
-
-const Game::HookAutoRegister _channelUpdateHook{
-    Offsets::FUN_SPELL_CHANNEL_UPDATE,
-    reinterpret_cast<void *>(&ChannelUpdate_h),
-    reinterpret_cast<void **>(&g_origChannelUpdate)};
 
 // Shared abort handling for the two sibling failure packets. Servers
 // derived from (v)mangos broadcast BOTH `SMSG_SPELL_FAILURE` and
@@ -644,56 +587,18 @@ void HandleCastAborted(uint64_t guid, int spellID) {
     Spell::CastEvents::OnRemoteAborted(guid, spellID);
 }
 
-// Co-hook on the SMSG_SPELL_FAILED_OTHER handler — the server broadcasts it
-// to observers whenever a started cast aborts (interrupt, death, movement,
-// fizzle). It's what lets us drop a remote cast the moment it dies instead
-// of letting the ghost bar run to its computed end (the documented
-// remote-unit limitation above). Packet body is plain (not packed):
-// casterGuid(u64), spellId(u32).
-using SpellFailedOther_t = int(__stdcall *)(uint32_t *opCode,
-                                            Net::CDataStore *packet);
-SpellFailedOther_t g_origSpellFailedOther = nullptr;
-
-int __stdcall SpellFailedOther_h(uint32_t *opCode, Net::CDataStore *packet) {
-    if (packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint64_t guid = Net::Read<uint64_t>(packet);
-        const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
-        packet->m_read = saved;
-        HandleCastAborted(guid, spellID);
-    }
-    return g_origSpellFailedOther(opCode, packet);
+// SMSG_SPELL_FAILURE / SMSG_SPELL_FAILED_OTHER — sibling abort packets. The
+// server broadcasts one (which varies by core / abort path) to observers when
+// a started cast aborts (interrupt, death, movement, fizzle); handling both
+// makes eviction independent of which the server chose. Both share the head
+// casterGuid(u64), spellId(u32) — plain, not packed (SpellFailure has a
+// trailing result(u8) we don't read). Drops a remote cast the moment it dies
+// instead of letting the ghost bar run to its computed end.
+void ParseCastAborted(Net::CDataStore *packet) {
+    const uint64_t guid = Net::Read<uint64_t>(packet);
+    const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
+    HandleCastAborted(guid, spellID);
 }
-
-const Game::HookAutoRegister _spellFailedOtherHook{
-    Offsets::FUN_SPELL_FAILED_OTHER,
-    reinterpret_cast<void *>(&SpellFailedOther_h),
-    reinterpret_cast<void **>(&g_origSpellFailedOther)};
-
-// Co-hook on the SMSG_SPELL_FAILURE handler — FAILED_OTHER's sibling, with
-// a trailing result(u8) after the same casterGuid(u64), spellId(u32) head
-// (we don't read the result). This is the packet that actually stops the
-// caster's cast VISUAL in the engine's own handler, so it demonstrably
-// arrives for interrupts; hooking both siblings makes the eviction
-// independent of which one the server chose to send.
-using SpellFailure_t = int(__stdcall *)(uint32_t *opCode,
-                                        Net::CDataStore *packet);
-SpellFailure_t g_origSpellFailure = nullptr;
-
-int __stdcall SpellFailure_h(uint32_t *opCode, Net::CDataStore *packet) {
-    if (packet != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint64_t guid = Net::Read<uint64_t>(packet);
-        const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
-        packet->m_read = saved;
-        HandleCastAborted(guid, spellID);
-    }
-    return g_origSpellFailure(opCode, packet);
-}
-
-const Game::HookAutoRegister _spellFailureHook{
-    Offsets::FUN_SPELL_FAILURE, reinterpret_cast<void *>(&SpellFailure_h),
-    reinterpret_cast<void **>(&g_origSpellFailure)};
 
 // Co-hook on CGUnit_C::ClearCastingSpell — the engine choke point every
 // "unit stopped casting" path funnels through (failure packets, SPELL_GO,
@@ -728,6 +633,29 @@ const Game::HookAutoRegister _clearCastingHook{
     Offsets::FUN_UNIT_CLEAR_CASTING_SPELL,
     reinterpret_cast<void *>(&ClearCastingSpell_h),
     reinterpret_cast<void **>(&g_origClearCastingSpell)};
+
+// One subscriber on the SMSG dispatch funnel, replacing the six per-opcode
+// co-hooks these spell packets used to install (SpellStart / Delayed /
+// ChannelStart / ChannelUpdate / Failure / FailedOther) — every one of which
+// nampower also detours. The dispatcher hands us the cursor at the body (the
+// opcode already consumed). CastStartSet and ClearCastingSpell stay direct
+// hooks: they're engine methods, not SMSG handlers, so the funnel can't reach
+// them (and ClearCastingSpell is the SuperWoW-shared interrupt choke point).
+void SpellPacketSub(uint32_t opcode, Net::CDataStore *packet) {
+    if (packet == nullptr)
+        return;
+    switch (opcode) {
+    case Offsets::SMSG_SPELL_START:          ParseSpellStart(packet); break;
+    case Offsets::SMSG_SPELL_DELAYED:        ParseSpellDelayed(packet); break;
+    case Offsets::SMSG_SPELL_CHANNEL_START:  ParseChannelStart(packet); break;
+    case Offsets::SMSG_SPELL_CHANNEL_UPDATE: ParseChannelUpdate(packet); break;
+    case Offsets::SMSG_SPELL_FAILURE:
+    case Offsets::SMSG_SPELL_FAILED_OTHER:   ParseCastAborted(packet); break;
+    default:                                 break;
+    }
+}
+
+const Net::PacketDispatch::AutoSubscribe _spellPacketSub{&SpellPacketSub};
 
 } // namespace
 

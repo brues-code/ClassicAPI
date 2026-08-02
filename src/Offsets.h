@@ -1376,8 +1376,28 @@ enum Offsets {
     // funnels through here (the raw-ingress sibling at 0x00537B10 only
     // special-cases 0x1DD compressed-moves before queueing into this).
     // Useful as a temporary whole-protocol sniff point: co-hook, peek the
-    // u16 at the cursor, restore, log.
+    // u16 at the cursor, restore, log. `Net::PacketDispatch` co-hooks it as
+    // the single fan-out point for incoming-packet subscribers — the
+    // collision-avoiding alternative to each feature MinHook-ing its
+    // per-opcode SMSG handler (which nampower/SuperWoW also hook). nampower
+    // does NOT hook this funnel (it detours the per-opcode handlers), so
+    // moving our parsing here removes those shared prologues.
     FUN_NET_MESSAGE_DISPATCH = 0x00537AA0,
+
+    // Incoming spell-subsystem SMSG opcodes — the u16 message ids the engine
+    // dispatch table (see FUN_006e7150) maps to per-opcode handlers. Used by
+    // the `Net::PacketDispatch` subscribers that replaced the per-handler
+    // co-hooks. Verified from the registrar: 0x131/0x132 both route to
+    // FUN_006E7640 (it branches on the opcode; the 0x132 path decodes and
+    // calls the SpellGo builder FUN_006E7A70).
+    SMSG_SPELL_START = 0x131,
+    SMSG_SPELL_GO = 0x132,
+    SMSG_SPELL_FAILURE = 0x133,
+    SMSG_SPELL_COOLDOWN = 0x134,
+    SMSG_SPELL_CHANNEL_START = 0x139,
+    SMSG_SPELL_CHANNEL_UPDATE = 0x13A,
+    SMSG_SPELL_DELAYED = 0x1E2,
+    SMSG_SPELL_FAILED_OTHER = 0x2A6,
 
     // NetClient send — `__thiscall void(void *conn, CDataStore *packet)`.
     // The outgoing counterpart of FUN_NET_MESSAGE_DISPATCH: every CMSG the
