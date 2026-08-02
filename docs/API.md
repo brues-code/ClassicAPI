@@ -3870,23 +3870,22 @@ the button number (`1`=Left, `2`=Right, `3`=Middle, `4`/`5`=side). Precedence is
 modifier unless a modifier-specific attribute (`shift-type1`) overrides it — and
 `type` (no suffix) is the catch-all.
 
-**Verbs:** `target`, `assist`, `focus`, `spell` (reads the modifier-qualified
-`spell` attribute and casts it on the unit via the native
-[`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) — the unit's GUID is fed straight to
-the cast dispatcher, so there's no target juggling, and ground-target spells
-land at the unit's feet), `item` (uses the `item` attribute — an item
-name/itemID/link via `C_Item.UseItemByName` with the unit as the use target, or
-a `"bag slot"` string like `"0 1"` via `UseContainerItem`; the deprecated
-`bag`/`slot` attributes also work), `macro` (takes the
-`macrotext`/`macro` attribute and prefers an addon-provided `RunMacro` — e.g.
-SuperCleveRoidMacros, which handles named macros and extended macro text —
-falling back to running the text natively, line by line through the stock
-`ChatEdit_ParseText`, when no `RunMacro` global is present), `stopcasting`, and `menu` /
-`togglemenu` (pops the standard unit dropdown — whisper/inspect/trade/invite/…,
-the same menu `PlayerFrame`/`TargetFrame`/`PartyMemberFrame` show — at the
-cursor). `target` respects the engine's default-interaction precedence: with a
-spell on the cursor it casts on the unit, with an item on the cursor it drops it
-on the unit, instead of switching target.
+**Verbs.** The resolved verb reads its own extra attributes (also
+modifier/button-qualified, same precedence as `type`):
+
+| Verb | Extra attributes | Action |
+|------|------------------|--------|
+| `target` | — | Targets the `unit`. Respects the engine's default-interaction precedence: with a spell on the cursor it casts on the unit, with an item on the cursor it drops it on the unit, instead of switching target. |
+| `assist` | — | Targets the `unit`'s target. |
+| `focus` | — | Sets the ClassicAPI focus to the `unit`. |
+| `spell` | `spell` | Casts the `spell` on the `unit` via [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) — the unit's GUID goes straight to the cast dispatcher (no target juggling), and ground-target spells land at the unit's feet. |
+| `item` | `item`, or `bag`+`slot` | Uses an item on the `unit`. `item` may be a name / itemID / link (used via `C_Item.UseItemByName`, unit as the target) or a `"bag slot"` string like `"0 1"` (used via `UseContainerItem`). The deprecated `bag`+`slot` attributes are used when `item` is unset. |
+| `macro` | `macrotext` or `macro` | Runs the macro text. Prefers an addon `RunMacro` (e.g. SuperCleveRoidMacros — named macros + extended conditionals); otherwise runs the text natively, line by line, through the stock `ChatEdit_ParseText`. |
+| `stopcasting` | — | Stops the current cast. |
+| `menu` / `togglemenu` | — | Pops the standard unit dropdown at the cursor (whisper / inspect / trade / invite / …, the same menu `PlayerFrame` / `TargetFrame` / `PartyMemberFrame` show). |
+
+Every verb that acts on a unit uses the frame's `unit` attribute (resolved with
+the same modifier/button precedence).
 
 **One verb per click.** Setting a `type*` attribute installs a **chained
 `OnClick` on that frame only** (nothing global). When a verb resolves, our
