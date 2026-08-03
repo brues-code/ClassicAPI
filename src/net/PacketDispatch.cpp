@@ -22,7 +22,7 @@ namespace Net::PacketDispatch {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
+PacketSubscriber *g_head = nullptr;
 
 // `FUN_NET_MESSAGE_DISPATCH` — `__thiscall(netClient, param_1, CDataStore*)`,
 // rendered here as `__fastcall(self /*ecx*/, edx, param_1, packet)`. The
@@ -36,23 +36,15 @@ Dispatch_t g_orig = nullptr;
 
 void __fastcall Dispatch_h(void *self, void *edx, uint32_t param_1,
                            CDataStore *packet) {
-    if (packet != nullptr && g_head != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint32_t opcode = Net::Read<uint16_t>(packet);
-        const uint32_t afterOpcode = packet->m_read;
-        for (auto *node = g_head; node != nullptr; node = node->next) {
-            packet->m_read = afterOpcode; // each subscriber reads independently
-            node->cb(opcode, packet);
-        }
-        packet->m_read = saved; // hand the engine an untouched cursor
-    }
+    if (packet != nullptr && g_head != nullptr)
+        Net::FanOutByOpcode<uint16_t>(g_head, packet); // opcode is a u16 SMSG id
     g_orig(self, edx, param_1, packet);
 }
 
 } // namespace
 
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_head) {
-    g_head = this;
+AutoSubscribe::AutoSubscribe(Net::PacketCallback cb) {
+    Net::Subscribe(g_head, this, cb);
 }
 
 static const Game::HookAutoRegister _hook{

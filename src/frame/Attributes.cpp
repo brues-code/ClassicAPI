@@ -101,6 +101,7 @@
 #include "spell/AtUnit.h"
 #include "tick/WorldTick.h"
 #include "unit/Focus.h"
+#include "unit/Identity.h"
 
 #include <cctype>
 #include <cstdint>
@@ -153,6 +154,30 @@ bool EqI(const char *a, const char *b) {
             std::tolower(static_cast<unsigned char>(*b)))
             return false;
     return *a == *b;
+}
+
+// True if `lname` (already lowercase) is a click "type" action attribute: an
+// optional modifier prefix (alt-/ctrl-/shift-, any order/combo) followed by
+// "type" and an optional button digit — i.e. anything the click resolver
+// (ButtonSuffix + ReadModAttr) reads as a verb selector: type, type1..type5,
+// shift-type1, alt-ctrl-type2, … . This is the exact set WireOnClick must
+// (re)install for; keying the wiring off it (rather than a fixed
+// type/type1/type2 list) means a middle-click (type3) or modifier-only config
+// still installs the chained OnClick.
+bool IsTypeAttr(const char *lname) {
+    const char *p = lname;
+    for (bool advanced = true; advanced;) {
+        if (std::strncmp(p, "alt-", 4) == 0)        p += 4;
+        else if (std::strncmp(p, "ctrl-", 5) == 0)  p += 5;
+        else if (std::strncmp(p, "shift-", 6) == 0) p += 6;
+        else                                        advanced = false;
+    }
+    if (std::strncmp(p, "type", 4) != 0)
+        return false;
+    p += 4;
+    if (p[0] == '\0')
+        return true;                                     // "type"
+    return p[0] >= '1' && p[0] <= '5' && p[1] == '\0';   // "typeN"
 }
 
 // ---- attribute storage (in the Lua registry, keyed by the frame) -----------
@@ -220,16 +245,10 @@ bool TryPushValue(void *L, int frameIdx, const char *keyLower) {
     return false;
 }
 
-// ---- engine primitives -----------------------------------------------------
-
-// Resolve a unit token/GUID to a GUID via the hooked resolver (handles
-// player/target/party/raid plus our focus / nameplateN / raw-GUID extensions).
-// For recognized tokens this never raises; unit attributes are tokens by
-// contract.
-uint64_t ResolveToken(const char *token) {
-    return reinterpret_cast<uint64_t(__fastcall *)(const char *)>(
-        static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID))(token);
-}
+// Unit token → GUID goes through `Unit::Identity::GuidForToken` (engine
+// resolver + `"player"` fast-path, handling our focus / nameplateN / raw-GUID
+// extensions). For recognized tokens it never raises; unit attributes are
+// tokens by contract.
 
 // ---- Lua-global call helpers (used by the click dispatcher) -----------------
 //
@@ -239,48 +258,23 @@ uint64_t ResolveToken(const char *token) {
 // (Spell::AtUnit, Unit::Focus). Both run under the engine's protected OnClick
 // invocation, so a Lua error inside one is caught there (no crash).
 
-// Pushes _G[name]; leaves it on the stack and returns true only if it's a
-// function (otherwise pops it and returns false).
-bool PushGlobalFunc(void *L, const char *name) {
-    Game::Lua::PushString(L, name);
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION)
-        return true;
-    Game::Lua::SetTop(L, Game::Lua::GetTop(L) - 1);
-    return false;
-}
+// The plain global-call primitives (push-if-function, call with no/one arg)
+// live in Game::Lua now (PushGlobalFunction / CallGlobal / CallGlobalString) —
+// shared with the other modules that dispatch to FrameXML globals by name. The
+// two shapes below are specific enough to stay here.
 
-// _G[name]() -> boolean (false if the global isn't a function).
+// _G[name]() -> boolean (false if the global isn't a function). Distinct from
+// Game::Lua::CallGlobal in that it returns the call's boolean RESULT (used for
+// the IsAltKeyDown/IsShiftKeyDown modifier probes).
 bool CallBoolGlobal(void *L, const char *name) {
     const int top = Game::Lua::GetTop(L);
     bool r = false;
-    if (PushGlobalFunc(L, name)) {
+    if (Game::Lua::PushGlobalFunction(L, name)) {
         Game::Lua::Call(L, 0, 1);
         r = Game::Lua::ToBoolean(L, -1) != 0;
     }
     Game::Lua::SetTop(L, top);
     return r;
-}
-
-// _G[name]() — no args, no results.
-void CallGlobal(void *L, const char *name) {
-    const int top = Game::Lua::GetTop(L);
-    if (PushGlobalFunc(L, name))
-        Game::Lua::Call(L, 0, 0);
-    Game::Lua::SetTop(L, top);
-}
-
-// _G[name](arg) — one string arg, no results. Returns true iff the global was a
-// function and got called (false when it's absent), so callers can fall back.
-bool CallGlobalStr(void *L, const char *name, const char *arg) {
-    const int top = Game::Lua::GetTop(L);
-    const bool called = PushGlobalFunc(L, name);
-    if (called) {
-        Game::Lua::PushString(L, arg);
-        Game::Lua::Call(L, 1, 0);
-    }
-    Game::Lua::SetTop(L, top);
-    return called;
 }
 
 // _G[table][method](a, b) — two string args (null → nil, since PushString maps
@@ -357,13 +351,13 @@ void RunMacroLineC(void *L, const char *line, size_t len) {
     Game::Lua::SetTable(L, mt);
 
     // No lua_setmetatable binding — use the Lua global.
-    if (PushGlobalFunc(L, "setmetatable")) {
+    if (Game::Lua::PushGlobalFunction(L, "setmetatable")) {
         Game::Lua::PushValue(L, obj);
         Game::Lua::PushValue(L, mt);
         Game::Lua::Call(L, 2, 0);
     }
 
-    if (PushGlobalFunc(L, "ChatEdit_ParseText")) {
+    if (Game::Lua::PushGlobalFunction(L, "ChatEdit_ParseText")) {
         Game::Lua::PushValue(L, obj);
         Game::Lua::PushNumber(L, 1);           // send = 1
         Game::Lua::Call(L, 2, 0);
@@ -423,7 +417,8 @@ void MouseoverTick() {
     if (focus != nullptr) {
         auto it = g_unitByFrame.find(focus);
         if (it != g_unitByFrame.end())
-            guid = ResolveToken(it->second.c_str()); // live — follows target changes
+            guid = Unit::Identity::GuidForToken(
+                it->second.c_str()); // live — follows target changes
     }
 
     if (guid != g_lastSet) {
@@ -537,7 +532,7 @@ bool ParseBagSlot(const char *s, int *bag, int *slot) {
 // _G[name](a, b) — two number args, no results. Returns true iff called.
 bool CallGlobalNum2(void *L, const char *name, double a, double b) {
     const int top = Game::Lua::GetTop(L);
-    const bool called = PushGlobalFunc(L, name);
+    const bool called = Game::Lua::PushGlobalFunction(L, name);
     if (called) {
         Game::Lua::PushNumber(L, a);
         Game::Lua::PushNumber(L, b);
@@ -555,7 +550,7 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         if (!unit) return false;
         // `unit="none"` clears the target (retail's SecureActionButton behavior).
         if (EqI(unit, "none")) {
-            CallGlobal(L, "ClearTarget");
+            Game::Lua::CallGlobal(L, "ClearTarget");
             return true;
         }
         // Cursor / pending-spell take precedence, matching the engine's default
@@ -564,21 +559,21 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         // the actions are engine-only, so they go through the Lua globals (which
         // are the engine's own entries, with token→GUID resolution).
         if (Spell::AtCursor::IsPlacementActive())
-            CallGlobalStr(L, "SpellTargetUnit", unit);
+            Game::Lua::CallGlobalString(L, "SpellTargetUnit", unit);
         else if (Cursor::Info::HasItem())
-            CallGlobalStr(L, "DropItemOnUnit", unit);
+            Game::Lua::CallGlobalString(L, "DropItemOnUnit", unit);
         else
-            CallGlobalStr(L, "TargetUnit", unit);
+            Game::Lua::CallGlobalString(L, "TargetUnit", unit);
         return true;
     }
     if (EqI(verb, "assist")) {
         if (!unit) return false;
-        CallGlobalStr(L, "AssistUnit", unit);
+        Game::Lua::CallGlobalString(L, "AssistUnit", unit);
         return true;
     }
     if (EqI(verb, "focus")) {
         if (!unit) return false;
-        Unit::Focus::Set(ResolveToken(unit));
+        Unit::Focus::Set(Unit::Identity::GuidForToken(unit));
         return true;
     }
     if (EqI(verb, "spell")) {
@@ -615,19 +610,19 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         // Prefer an addon-provided RunMacro (SuperCleveRoidMacros, pfUI, …) — it
         // handles named macros and extended macro text; fall back to the stock
         // ChatEdit_ParseText path when no RunMacro global is present.
-        if (!CallGlobalStr(L, "RunMacro", macro))
+        if (!Game::Lua::CallGlobalString(L, "RunMacro", macro))
             RunMacroTextC(L, macro);
         return true;
     }
     if (EqI(verb, "stop") || EqI(verb, "stopcasting")) {
-        CallGlobal(L, "SpellStopCasting");
+        Game::Lua::CallGlobal(L, "SpellStopCasting");
         return true;
     }
     if (EqI(verb, "menu") || EqI(verb, "togglemenu")) {
         if (!unit) return false;
         // The unit dropdown is pure FrameXML work (UnitPopup + ToggleDropDown),
         // so it lives in the !!!ClassicAPI addon; we just pop it at the cursor.
-        CallGlobalStr(L, "ClassicAPI_ToggleUnitMenu", unit);
+        Game::Lua::CallGlobalString(L, "ClassicAPI_ToggleUnitMenu", unit);
         return true;
     }
     // Unknown verb → not handled here; the chained handler runs.
@@ -770,19 +765,42 @@ void FireAttributeChanged(void *L, void *frame, const char *name) {
         return;
 
     const int savedTop = Game::Lua::GetTop(L);
+
+    // Snapshot the caller's arg1/arg2 first. SetAttribute can be called from
+    // inside a running script handler that still needs them, and the invoker
+    // below neither saves the globals nor restores the stack top — so we save
+    // (onto the stack, below anything the invoker pushes), overwrite, fire,
+    // then put them back. 1.12 passes handler args as globals, not params.
+    Game::Lua::PushString(L, "arg1");
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);        // [.., oldArg1]
+    Game::Lua::PushString(L, "arg2");
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);        // [.., oldArg1, oldArg2]
+    const int oldArg1 = savedTop + 1;
+    const int oldArg2 = savedTop + 2;
+
     Game::Lua::PushString(L, "arg1");
     Game::Lua::PushString(L, name);
-    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);           // _G.arg1 = name
+    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);          // _G.arg1 = name
     Game::Lua::PushString(L, "arg2");
     if (savedTop >= 3)
-        Game::Lua::PushValue(L, 3);
+        Game::Lua::PushValue(L, 3);                          // the new value
     else
         Game::Lua::PushNil(L);
-    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);           // _G.arg2 = value
+    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);          // _G.arg2 = value
 
     ++g_firingAttr;
     reinterpret_cast<InvokeAttrScript_t>(Offsets::FUN_FRAME_INVOKE_SCRIPT)(slot[0], frame);
     --g_firingAttr;
+
+    // Restore arg1/arg2 from the snapshot (the fired handler may also have
+    // written them; the caller's values win).
+    Game::Lua::PushString(L, "arg1");
+    Game::Lua::PushValue(L, oldArg1);
+    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);
+    Game::Lua::PushString(L, "arg2");
+    Game::Lua::PushValue(L, oldArg2);
+    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);
+
     Game::Lua::SetTop(L, savedTop);
 }
 
@@ -836,10 +854,10 @@ int DoSet(void *L, bool fireHandler) { // (self, name, value)
     // is idempotent and self-healing, so calling it on every `type*` set both
     // avoids double-chaining and reinstalls after an addon clobbered our
     // OnClick — set `type*` again after re-SetScript to recover. The handler
-    // reads all the attributes fresh at click time.
-    else if ((std::strcmp(lname, "type1") == 0 || std::strcmp(lname, "type2") == 0 ||
-              std::strcmp(lname, "type") == 0) &&
-             isString) {
+    // reads all the attributes fresh at click time. IsTypeAttr covers every
+    // form the resolver reads (type, typeN, modifier-prefixed), so a middle-
+    // click or modifier-only binding still wires.
+    else if (IsTypeAttr(lname) && isString) {
         Game::Lua::PushCClosure(L, &WireOnClick, 0);
         Game::Lua::PushValue(L, 1); // arg = self
         Game::Lua::PCall(L, 1, 0, 0); // ignore errors (non-Button frame)

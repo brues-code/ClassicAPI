@@ -13,7 +13,8 @@
 #include <cstdint>
 
 // Minimal reader for the engine's `CDataStore` packet buffer, shared by the
-// packet co-hooks (`Aura::Source`'s SpellGo, `Spell::Cast`'s SpellStart).
+// packet-observer subscribers (`Aura::Source`'s SpellGo, `Spell::Cast`'s
+// SpellStart, …) that read incoming SMSGs via `Net::PacketDispatch`.
 //
 // `CDataStore` is POLYMORPHIC in the engine (virtual Internal*/Reset/etc.),
 // so a vtable pointer sits at offset 0 and the data members start at +0x04.

@@ -20,7 +20,7 @@ namespace Net::SendObserver {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
+PacketSubscriber *g_head = nullptr;
 
 // `FUN_NET_SEND` — `__thiscall(conn, CDataStore*)`, rendered here as
 // `__fastcall(conn /*ecx*/, edx, packet)`. The leading u32 of the buffer is
@@ -29,23 +29,15 @@ using NetSend_t = void(__fastcall *)(void *conn, void *edx, CDataStore *packet);
 NetSend_t g_origNetSend = nullptr;
 
 void __fastcall NetSend_h(void *conn, void *edx, CDataStore *packet) {
-    if (packet != nullptr && g_head != nullptr) {
-        const uint32_t saved = packet->m_read;
-        const uint32_t opcode = Net::Read<uint32_t>(packet);
-        const uint32_t afterOpcode = packet->m_read;
-        for (auto *node = g_head; node != nullptr; node = node->next) {
-            packet->m_read = afterOpcode; // each subscriber reads independently
-            node->cb(opcode, packet);
-        }
-        packet->m_read = saved; // hand the engine an untouched cursor
-    }
+    if (packet != nullptr && g_head != nullptr)
+        Net::FanOutByOpcode<uint32_t>(g_head, packet); // opcode is a u32 CMSG id
     g_origNetSend(conn, edx, packet);
 }
 
 } // namespace
 
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_head) {
-    g_head = this;
+AutoSubscribe::AutoSubscribe(Net::PacketCallback cb) {
+    Net::Subscribe(g_head, this, cb);
 }
 
 static const Game::HookAutoRegister _hook{

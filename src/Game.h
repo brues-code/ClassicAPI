@@ -244,6 +244,22 @@ void PushLocalizedString(void *L, const char *globalName, const char *fallback);
 // using `PushLocalizedString` + manual `string.format` invocation.
 void PushLocalizedFormatInt(void *L, const char *globalName,
                             const char *fallback, int n);
+
+// Pushes `_G[name]` and returns true only if it resolved to a function
+// (leaving it on the stack, ready to be called); otherwise pops it and
+// returns false. The building block for the CallGlobal* helpers below and for
+// any C module that dispatches to a Lua/FrameXML global by name (a pattern
+// several modules otherwise open-code).
+bool PushGlobalFunction(void *L, const char *name);
+
+// `_G[name]()` — no args, no results; a no-op if the global isn't a function.
+// Stack-neutral.
+void CallGlobal(void *L, const char *name);
+
+// `_G[name](arg)` — one string arg (NULL → nil), no results. Returns true iff
+// the global was a function and got called, so callers can fall back to a
+// native path when the FrameXML/addon global is absent. Stack-neutral.
+bool CallGlobalString(void *L, const char *name, const char *arg);
 } // namespace Lua
 
 // Developer-console command system — the `~` console available when the

@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "net/PacketObserver.h"
 #include "net/PacketReader.h"
 
 #include <cstdint>
@@ -33,12 +34,11 @@
 
 namespace Net::SendObserver {
 
-using Callback = void (*)(uint32_t opcode, CDataStore *packet);
-
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback cb);
-    Callback cb;
-    AutoSubscribe *next;
+// Chains onto the outgoing-packet subscriber list at static-init time. The
+// list plumbing + fan-out live in net/PacketObserver.h (shared with
+// Net::PacketDispatch).
+struct AutoSubscribe : Net::PacketSubscriber {
+    explicit AutoSubscribe(Net::PacketCallback cb);
 };
 
 } // namespace Net::SendObserver

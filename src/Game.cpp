@@ -185,6 +185,33 @@ void SetGlobalNumber(void *L, const char *name, double value) {
     RawSet(L, GLOBALS_INDEX);
 }
 
+bool PushGlobalFunction(void *L, const char *name) {
+    PushString(L, name);
+    GetTable(L, GLOBALS_INDEX);
+    if (Type(L, -1) == TYPE_FUNCTION)
+        return true;
+    SetTop(L, -2); // pop the non-function
+    return false;
+}
+
+void CallGlobal(void *L, const char *name) {
+    const int top = GetTop(L);
+    if (PushGlobalFunction(L, name))
+        Call(L, 0, 0);
+    SetTop(L, top);
+}
+
+bool CallGlobalString(void *L, const char *name, const char *arg) {
+    const int top = GetTop(L);
+    const bool called = PushGlobalFunction(L, name);
+    if (called) {
+        PushString(L, arg);
+        Call(L, 1, 0);
+    }
+    SetTop(L, top);
+    return called;
+}
+
 void PushLocalizedString(void *L, const char *globalName, const char *fallback) {
     PushString(L, globalName);
     GetTable(L, GLOBALS_INDEX);
