@@ -40,11 +40,11 @@
 // SetScript creates a distinct ref, so a function bound to two scripts still
 // differs per slot — so no fragile "are we mid event-dispatch" flag is needed.
 //
-// Runtime switch (default ON): `SetModernScriptArgs(false)` / (true),
-// `GetModernScriptArgs()`. While disabled the hook is a straight passthrough
-// to the original runner (zero reimplementation risk), so it can be toggled
-// safely per session — worth knowing, since this lands on the hottest Lua path
-// in the engine (FUN_FRAME_RUN_SCRIPT_ARGS fires for every OnUpdate frame).
+// Runtime switch, default OFF (opt-in): `SetModernScriptArgs(true)` enables it,
+// `GetModernScriptArgs()` reads the state. While disabled both detours are a
+// straight passthrough to the original runner (zero reimplementation risk).
+// Opt-in because this lands on the hottest Lua path in the engine
+// (FUN_FRAME_RUN_SCRIPT_ARGS fires for every OnUpdate frame).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -55,8 +55,8 @@ namespace Frame::ScriptArgs {
 
 namespace {
 
-// Runtime switch. Default ON. When false, both detours tail-call the original
-// runner unchanged (exact vanilla behavior, no reimplementation risk).
+// Runtime switch. Default OFF (opt-in). When false, both detours tail-call the
+// original runner unchanged (exact vanilla behavior, no reimplementation risk).
 bool g_enabled = false;
 
 // Engine cap: the runner stops setting arg globals at index 19 (arg1..arg19).
