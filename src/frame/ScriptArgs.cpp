@@ -57,7 +57,7 @@ namespace {
 
 // Runtime switch. Default ON. When false, both detours tail-call the original
 // runner unchanged (exact vanilla behavior, no reimplementation risk).
-bool g_enabled = true;
+bool g_enabled = false;
 
 // Engine cap: the runner stops setting arg globals at index 19 (arg1..arg19).
 constexpr int kMaxArgs = 19;
