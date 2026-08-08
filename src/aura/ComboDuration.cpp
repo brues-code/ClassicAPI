@@ -57,28 +57,52 @@ uint8_t CurrentComboPoints() {
     return *(info + Offsets::OFF_CGPLAYER_COMBO_POINTS);
 }
 
-// One cast in flight at a time is the practical case (a second finisher
-// can't be cast until the server consumes the first one's combo points),
-// so a single slot with a spellID match and a short TTL suffices.
+// Keyed by spellID, because a finisher's own SMSG_SPELL_GO is not reliably
+// the next one to arrive after its cast. A talent that procs an aura on the
+// finisher (Turtle's rogue Taste for Blood casts spell 52529 on the player)
+// lands its SPELL_GO first, and every player-cast aura spell reaches
+// TryComboScaledMs. A single slot -- or a lookup that cleared the slot on a
+// spellID mismatch -- therefore lost the snapshot to the proc, and the
+// finisher fell back to its 0-CP base duration. Only the matching entry is
+// ever consumed; a miss leaves every other capture intact.
 struct Capture {
     uint32_t spellId;
     uint8_t comboPoints;
     uint32_t capturedMs;
 };
-Capture g_capture{0, 0, 0};
+constexpr int kCaptureCount = 8;
+Capture g_captures[kCaptureCount];
+int g_captureCursor = 0;
 
 // Worst-case send -> SMSG_SPELL_GO roundtrip. Past this the snapshot is
 // stale (the cast failed / was rejected) and must not scale a later cast.
 constexpr uint32_t kCaptureTtlMs = 2000;
 
+void RememberCapture(uint32_t spellId, uint8_t comboPoints, uint32_t nowMs) {
+    for (auto &c : g_captures) {
+        if (c.spellId == spellId) { // re-cast before the first resolved
+            c.comboPoints = comboPoints;
+            c.capturedMs = nowMs;
+            return;
+        }
+    }
+    g_captures[g_captureCursor] = {spellId, comboPoints, nowMs};
+    g_captureCursor = (g_captureCursor + 1) % kCaptureCount;
+}
+
 int ConsumeCapturedCP(uint32_t spellId) {
-    const Capture c = g_capture;
-    g_capture = {0, 0, 0};
-    if (c.spellId != spellId || c.comboPoints == 0)
-        return 0;
-    if (NowMs() - c.capturedMs >= kCaptureTtlMs)
-        return 0;
-    return c.comboPoints;
+    for (auto &c : g_captures) {
+        if (c.spellId != spellId)
+            continue;
+        const Capture got = c;
+        c = {0, 0, 0};
+        if (got.comboPoints == 0)
+            return 0;
+        if (NowMs() - got.capturedMs >= kCaptureTtlMs)
+            return 0;
+        return got.comboPoints;
+    }
+    return 0;
 }
 
 // Co-hook on the NetClient send — the one funnel every outgoing CMSG
@@ -94,7 +118,7 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
         return;
     const uint32_t spellId = Net::Read<uint32_t>(packet);
     if (spellId != 0)
-        g_capture = {spellId, CurrentComboPoints(), NowMs()};
+        RememberCapture(spellId, CurrentComboPoints(), NowMs());
 }
 
 const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
