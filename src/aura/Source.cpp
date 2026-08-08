@@ -19,6 +19,7 @@
 #include "Data.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "guid/Guid.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "player/StatSignal.h"
@@ -322,6 +323,31 @@ void Evict(uint64_t targetGuid, uint32_t spellId) {
     }
 }
 
+// `C_UnitAuras.RefreshAuraDurationByFamily(unit, family, familyFlags[, icon])`
+// -> spellID refreshed, or nil. The caster is always the local player. `unit`
+// takes a raw GUID string as well as a token: the caller observed something
+// about a specific unit, which a re-resolved token may no longer name.
+int __fastcall Script_RefreshAuraDurationByFamily(void *L) {
+    if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsNumber(L, 2) ||
+        !Game::Lua::IsNumber(L, 3))
+        return 0;
+    const char *unit = Game::Lua::ToString(L, 1);
+    uint64_t guid = 0;
+    if (!Guid::Parse(unit, &guid))
+        guid = Unit::Identity::GuidForToken(unit);
+    const auto family = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    const auto mask = static_cast<uint64_t>(Game::Lua::ToNumber(L, 3));
+    uint32_t icon = 0;
+    if (Game::Lua::IsNumber(L, 4))
+        icon = static_cast<uint32_t>(Game::Lua::ToNumber(L, 4));
+    const uint32_t spellId = RefreshDurationByFamily(
+        guid, family, mask, icon, Unit::Identity::PlayerGuid());
+    if (spellId == 0)
+        return 0;
+    Game::Lua::PushNumber(L, static_cast<double>(spellId));
+    return 1;
+}
+
 // ---- Server-side duration modifiers (trigger-driven inference) -----------
 //
 // Some server mechanics change a DoT's remaining time on another unit with
@@ -360,21 +386,29 @@ constexpr int kMaxMods = 128;
 DurationMod g_mods[kMaxMods];
 int g_modCount = 0;
 
-bool AffectedMatches(const uint8_t *rec, const DurationMod &m) {
+// The affected-aura selector alone, shared with the Lua-facing by-family
+// refresh so the two cannot disagree about what they match.
+bool AffectedMatchesRaw(const uint8_t *rec, uint32_t family, uint64_t mask,
+                        uint32_t icon) {
     if (rec == nullptr)
         return false;
     if (*reinterpret_cast<const uint32_t *>(
-            rec + Offsets::OFF_SPELL_RECORD_FAMILY_NAME) != m.affectedFamily)
+            rec + Offsets::OFF_SPELL_RECORD_FAMILY_NAME) != family)
         return false;
     const uint64_t flags = *reinterpret_cast<const uint64_t *>(
         rec + Offsets::OFF_SPELL_RECORD_FAMILY_FLAGS);
-    if ((flags & m.affectedMask) == 0)
+    if ((flags & mask) == 0)
         return false;
-    if (m.affectedIcon != 0 &&
+    if (icon != 0 &&
         *reinterpret_cast<const uint32_t *>(
-            rec + Offsets::OFF_SPELL_RECORD_ICON_ID) != m.affectedIcon)
+            rec + Offsets::OFF_SPELL_RECORD_ICON_ID) != icon)
         return false;
     return true;
+}
+
+bool AffectedMatches(const uint8_t *rec, const DurationMod &m) {
+    return AffectedMatchesRaw(rec, m.affectedFamily, m.affectedMask,
+                              m.affectedIcon);
 }
 
 // A rule's trigger matches either by exact spellID, or (triggerSpellId == 0)
@@ -575,6 +609,9 @@ void RegisterDurationModLua() {
     Game::Lua::RegisterTableFunction("C_UnitAuras",
                                      "RegisterAuraDurationModifierByTrigger",
                                      &Script_RegisterAuraDurationModifierByTrigger);
+    Game::Lua::RegisterTableFunction("C_UnitAuras",
+                                     "RefreshAuraDurationByFamily",
+                                     &Script_RefreshAuraDurationByFamily);
 }
 
 const Game::ModuleAutoRegister _autoregDurationMod{&RegisterDurationModLua};
@@ -865,6 +902,38 @@ bool Get(uint64_t unitGuid, uint32_t spellId, uint64_t *outCaster,
         }
     }
     return false;
+}
+
+uint32_t RefreshDurationByFamily(uint64_t unitGuid, uint32_t family,
+                                 uint64_t mask, uint32_t icon,
+                                 uint64_t casterGuid) {
+    if (unitGuid == 0 || mask == 0 || casterGuid == 0)
+        return 0;
+    const uint32_t now = NowMs();
+    for (auto &e : g_cache) {
+        if (!e.used || e.targetGuid != unitGuid)
+            continue;
+        // Caller's own aura only, scoped as ApplyDurationModifiers scopes a
+        // rule; a caster-less entry is claimed rather than skipped, same as
+        // there.
+        if (e.casterGuid != 0 && e.casterGuid != casterGuid)
+            continue;
+        if (!AffectedMatchesRaw(
+                Spell::Lookup::RecordForID(static_cast<int>(e.spellId)), family,
+                mask, icon))
+            continue;
+        if (e.durationMs == 0)
+            continue; // never invent a duration
+        if (e.casterGuid == 0)
+            e.casterGuid = casterGuid;
+        // The applied duration, not a recomputed one (the server's
+        // RefreshHolder): a Rip cast at 3 combo points returns to its own
+        // duration, not a five-point one.
+        e.expirationMs = now + e.durationMs;
+        e.stampMs = now;
+        return e.spellId;
+    }
+    return 0;
 }
 
 void EvictAbsent(uint64_t unitGuid, const uint32_t *presentSpellIds, int count) {

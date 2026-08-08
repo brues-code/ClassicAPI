@@ -42,6 +42,15 @@ namespace Aura::Source {
 bool Get(uint64_t unitGuid, uint32_t spellId, uint64_t *outCaster,
          uint32_t *outExpirationMs, uint32_t *outDurationMs);
 
+// Refreshes `casterGuid`'s aura on `unitGuid` matching the same selector the
+// duration rules use — SpellFamilyName + family-flag overlap + optional icon
+// (0 = any) — to a full duration from now. Returns the spellID refreshed, or 0
+// if nothing matched. For a mechanic whose duration edit reaches the client
+// too late to be attributed to a cast packet, so no rule can express it.
+uint32_t RefreshDurationByFamily(uint64_t unitGuid, uint32_t family,
+                                 uint64_t mask, uint32_t icon,
+                                 uint64_t casterGuid);
+
 // One cached aura, as returned by `Enumerate`.
 struct CachedAura {
     uint32_t spellId;

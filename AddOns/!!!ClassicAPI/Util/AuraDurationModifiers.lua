@@ -18,12 +18,13 @@
 -- RegisterAuraDurationModifierByTrigger matches it by SpellFamilyName + school
 -- index instead (see Shadow Weaving below).
 --
--- NOT included on purpose: Carnage's Rip/Rake refresh fires behind a
--- server-side probability roll on Ferocious Bite. The client can't know the
--- roll's outcome, so inferring it would show wrong timers. If you accept that,
--- register it yourself, e.g. (DRUID = 7):
---   C_UnitAuras.RegisterAuraDurationModifier(<ferociousBiteID>, 7, tonumber("800000",16), 108, "refresh") -- Rip
---   C_UnitAuras.RegisterAuraDurationModifier(<ferociousBiteID>, 7, tonumber("1000",16),   494, "refresh") -- Rake
+-- Carnage (druid) is the case a rule cannot express, and is handled at the
+-- bottom of this file instead: its refresh fires behind a per-combo-point
+-- probability roll, so keying it on the Ferocious Bite cast alone would
+-- over-refresh at every rank but 2/2 spending five points. The roll's outcome
+-- IS observable -- it returns a combo point -- but that arrives as a combo
+-- point change rather than a packet, which is not something the trigger
+-- matching here can see.
 -- Conflagrate's *full*-consume variant (other servers) removes Immolate
 -- outright; that clears the aura slot and ClassicAPI evicts it via the normal
 -- removal path, so the reduce rule below is harmless there and correct on
@@ -67,4 +68,61 @@ EventUtil.RegisterOnceFrameEventAndCallback("SPELLS_CHANGED", function()
     if IsPlayerSpell(15334) then
         C_UnitAuras.RegisterAuraDurationModifierByTrigger(PRIEST, SHADOW, PRIEST, SW_FLAG, SW_ICON, "refresh")
     end
+end)
+
+-- Carnage (druid): Ferocious Bite gains a chance PER COMBO POINT SPENT (10% at
+-- rank 1, 20% at rank 2) to refresh the caster's Rake and Rip and to grant an
+-- additional combo point. The refresh emits no packet and the proc applies no
+-- aura, so no trigger rule can see it -- but the granted point can be:
+-- Ferocious Bite spends every point, so a gain right after one is the proc.
+-- Only 2/2 spending five is certain, so confirming beats assuming; refreshing
+-- on every Bite would show a full timer on a DoT about to fall off.
+--
+-- Rip and Rake are matched by family flags (every rank, server additions
+-- included); Ferocious Bite is an ID list like the triggers above. An unlisted
+-- rank under-triggers, leaving the timer as it is today.
+local DRUID = 7
+local RIP_FLAG,  RIP_ICON  = tonumber("800000", 16), 108
+local RAKE_FLAG, RAKE_ICON = tonumber("1000", 16),   494
+local FEROCIOUS_BITE = {
+    [22568] = 1, [22827] = 1, [22828] = 1, [22829] = 1, [31018] = 1,
+}
+
+-- Long enough to absorb latency, short enough that the GCD the Bite just
+-- started excludes any other source of a combo point.
+local CARNAGE_WINDOW = 0.5
+
+local carnageGuid, carnageUntil
+
+-- At file load UnitClass has no player to answer for and returns nil, so the
+-- class gate would silently never register.
+EventUtil.ContinueOnPlayerLogin(function()
+    local _, class = UnitClass("player")
+    if class ~= "DRUID" then return end
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    f:RegisterEvent("PLAYER_COMBO_POINTS")
+    f:SetScript("OnEvent", function()
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            if arg1 ~= "player" or not FEROCIOUS_BITE[arg3] then return end
+            -- Captured now, used later: the refresh belongs to the unit the
+            -- Bite hit, which need not still be the target.
+            carnageGuid, carnageUntil = UnitGUID("target"), GetTime() + CARNAGE_WINDOW
+            return
+        end
+
+        if not carnageGuid then return end
+        if GetTime() > carnageUntil then carnageGuid = nil; return end
+
+        -- The Bite spent every point, so the first change reported after it
+        -- already reflects that: 0 is a failed roll, anything above it is the
+        -- refund. Waiting to see the 0 would miss the proc whenever the server
+        -- coalesces spend and refund into one update (5 -> 1).
+        if GetComboPoints() > 0 then
+            C_UnitAuras.RefreshAuraDurationByFamily(carnageGuid, DRUID, RIP_FLAG, RIP_ICON)
+            C_UnitAuras.RefreshAuraDurationByFamily(carnageGuid, DRUID, RAKE_FLAG, RAKE_ICON)
+            carnageGuid = nil
+        end
+    end)
 end)
