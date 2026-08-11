@@ -31,10 +31,17 @@ namespace Spell::Cooldown {
 
 namespace {
 
+// The engine writes an *unsigned* millisecond tick into `outStart`.
+// Reading it into a signed `int` makes every timestamp negative once
+// the machine has been up past 2^31 ms (~24.9 days): a real start of
+// 2697363158 ms comes back as -1597604138, and `startTime + duration`
+// then lands a month in the past, so callers see every cooldown as
+// already elapsed. `Aura::Data` already stores these as `uint32_t`
+// for the same reason.
 using QueryCooldown_t = void(__fastcall *)(int spellID, int bookType,
-                                            int *outDuration,
-                                            int *outStart,
-                                            int *outEnable);
+                                            uint32_t *outDuration,
+                                            uint32_t *outStart,
+                                            uint32_t *outEnable);
 
 int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
     const int spellID = Spell::Arg::ResolveSpellID(L, 1);
@@ -43,7 +50,7 @@ int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
 
     auto fn = reinterpret_cast<QueryCooldown_t>(
         static_cast<uintptr_t>(Offsets::FUN_SPELL_QUERY_COOLDOWN));
-    int durationMs = 0, startMs = 0, enable = 0;
+    uint32_t durationMs = 0, startMs = 0, enable = 0;
     fn(spellID, 0 /* bookType=player */, &durationMs, &startMs, &enable);
 
     Game::Lua::NewTable(L);

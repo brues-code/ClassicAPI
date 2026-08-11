@@ -57,9 +57,16 @@ namespace LossOfControl {
 namespace {
 
 using TickMs_t = uint32_t(__fastcall *)();
-int NowMs() {
-    return static_cast<int>(
-        reinterpret_cast<TickMs_t>(Offsets::FUN_OS_TICKCOUNT_MS)());
+uint32_t NowMs() {
+    return reinterpret_cast<TickMs_t>(Offsets::FUN_OS_TICKCOUNT_MS)();
+}
+
+// True once `deadlineMs` has been reached. Both operands wrap together,
+// so the signed difference stays correct across the 2^32 ms rollover —
+// the same idiom `Aura::Data::ExpirationElapsed` uses. A plain
+// `now < deadline` compare would invert for the ~24.9 days after a wrap.
+bool Reached(uint32_t nowMs, uint32_t deadlineMs) {
+    return static_cast<int32_t>(nowMs - deadlineMs) >= 0;
 }
 
 const char *SpellName(const uint8_t *rec) {
@@ -90,12 +97,15 @@ int SpellSchoolIndex(const uint8_t *rec) {
 
 // ---- School-interrupt lockout state (fed by SMSG_SPELL_COOLDOWN) -----------
 
-// One active lockout per school index (0..6); active while now < endMs.
+// One active lockout per school index (0..6); active until `Reached(endMs)`.
 // Self-expiring, per-process — a stale entry from before a relog is already
 // in the past on the shared uptime clock, so no reset is needed.
+// Unsigned, like every other tick store here: the OS counter wraps at
+// 2^32 ms and reading it into a signed `int` turns every timestamp
+// negative past 2^31 ms (~24.9 days uptime).
 struct SchoolLock {
-    int startMs;
-    int endMs;
+    uint32_t startMs;
+    uint32_t endMs;
 };
 SchoolLock g_schoolLock[Offsets::SPELL_SCHOOL_COUNT] = {};
 
@@ -137,9 +147,9 @@ void CooldownSub(uint32_t opcode, Net::CDataStore *packet) {
     // (ProhibitSpellSchool); single/varied packets are normal cooldowns and
     // ignored.
     if (count >= 2 && uniform && firstDur > 0 && schoolIdx >= 0) {
-        const int now = NowMs();
+        const uint32_t now = NowMs();
         g_schoolLock[schoolIdx].startMs = now;
-        g_schoolLock[schoolIdx].endMs = now + firstDur;
+        g_schoolLock[schoolIdx].endMs = now + static_cast<uint32_t>(firstDur);
     }
 }
 
@@ -152,17 +162,17 @@ struct LocEntry {
     int spellID;        // 0 = unknown (school interrupt)
     const uint8_t *rec; // spell record for name/icon; null for school interrupt
     int schoolMask;     // lockoutSchool
-    int startMs;        // 0 = unknown
-    int endMs;          // 0 = unknown / no timing
+    uint32_t startMs;   // 0 = unknown
+    uint32_t endMs;     // 0 = unknown / no timing
 };
 
 int BuildList(LocEntry *out, int maxOut) {
-    const int now = NowMs();
+    const uint32_t now = NowMs();
     int n = 0;
 
     // School-interrupt lockouts first.
     for (int s = 0; s < Offsets::SPELL_SCHOOL_COUNT && n < maxOut; ++s) {
-        if (g_schoolLock[s].endMs != 0 && now < g_schoolLock[s].endMs) {
+        if (g_schoolLock[s].endMs != 0 && !Reached(now, g_schoolLock[s].endMs)) {
             LocEntry &e = out[n++];
             e.locType = "SCHOOL_INTERRUPT";
             e.spellID = 0;
@@ -204,9 +214,9 @@ int BuildList(LocEntry *out, int maxOut) {
             uint32_t expMs = 0, durMs = 0;
             if (Aura::Source::Get(playerGuid, spellID, &caster, &expMs, &durMs) &&
                 expMs != 0) {
-                e.endMs = static_cast<int>(expMs);
+                e.endMs = expMs;
                 if (durMs != 0)
-                    e.startMs = static_cast<int>(expMs - durMs);
+                    e.startMs = expMs - durMs;
             }
         }
     }
@@ -302,7 +312,7 @@ int __fastcall Script_GetActiveLossOfControlData(void *L) {
         return 0; // nil
 
     const LocEntry &e = entries[index - 1];
-    const int now = NowMs();
+    const uint32_t now = NowMs();
 
     Game::Lua::NewTable(L);
     Game::Lua::SetFieldString(L, "locType", e.locType);
@@ -314,12 +324,14 @@ int __fastcall Script_GetActiveLossOfControlData(void *L) {
 
     // Timing (seconds, GetTime() epoch). Nullable — leave a field unset (nil)
     // when we don't know it, per the modern contract.
-    if (e.endMs != 0 && now < e.endMs) {
-        Game::Lua::SetFieldNumber(L, "timeRemaining", (e.endMs - now) * 0.001);
+    if (e.endMs != 0 && !Reached(now, e.endMs)) {
+        Game::Lua::SetFieldNumber(L, "timeRemaining",
+                                  static_cast<double>(e.endMs - now) * 0.001);
         if (e.startMs != 0) {
-            Game::Lua::SetFieldNumber(L, "startTime", e.startMs * 0.001);
-            Game::Lua::SetFieldNumber(L, "duration",
-                                      (e.endMs - e.startMs) * 0.001);
+            Game::Lua::SetFieldNumber(L, "startTime",
+                                      static_cast<double>(e.startMs) * 0.001);
+            Game::Lua::SetFieldNumber(
+                L, "duration", static_cast<double>(e.endMs - e.startMs) * 0.001);
         }
     }
 
