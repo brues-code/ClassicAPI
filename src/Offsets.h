@@ -6207,4 +6207,169 @@ enum Offsets {
     // `__fastcall(const char *name) -> definition node`, 0 if unregistered
     // (case-insensitive, hashed). See FUN_006ee6f0 in Templates.cpp notes.
     FUN_XML_TEMPLATE_LOOKUP = 0x006EE6F0,
+
+    // --- Inline texture escape (`|Tpath:h:w:...|t`) backport -------------------
+    // See src/text/InlineTexture.cpp and docs/InlineTextureEscapes.md. The
+    // 1.12 text pipeline is a shared `|`-tokenizer feeding per-purpose loops.
+    // Slice 1 injects an inline-texture quad into the text PAINT pass.
+
+    // Text paint pass — flushes each text line's per-font-page glyph vertex
+    // batches to the GPU every frame. `__fastcall(layoutObj)`; gated on
+    // VAR_TEXT_PAINT_ENABLED. This is the co-hook site where we draw the
+    // frame's collected inline-texture quads after the glyph batches (the
+    // device is in the correct textured-UI state here). See FUN_005c8fe0.
+    FUN_TEXT_PAINT = 0x005C8FE0,
+    VAR_TEXT_PAINT_ENABLED = 0x00C2B9D4, // DAT_00c2b9d4 gate the paint reads
+
+    // GxU device primitives (thin wrappers over the global device at
+    // [VAR_GX_DEVICE]). Vertex stride for the UI text path is 0x18:
+    //   { float x,y,z; u32 colorBGRA; float u,v; }  (verified in FUN_005c8710)
+    // and FUN_005c8f40 expands 4-vertex quads into a triangle list via a
+    // shared index buffer ({0,1,2, 0,2,3}).
+    VAR_GX_DEVICE = 0x00C0ED38,
+    GX_TEXT_VERTEX_STRIDE = 0x18,
+    GX_TEXTURE_SELECTOR = 0x17, // render-state selector FUN_005c8fe0 binds text pages with
+
+    // Lock the shared dynamic vertex buffer. `__fastcall(ecx=0, edx=stride,
+    // stack=vertCount) -> handle`. RET 4 (cleans the one stack arg).
+    FUN_GX_LOCK_DYNAMIC_VB = 0x0058A140,
+    // `__fastcall(ecx=handle) -> vertex-data write pointer`.
+    FUN_GX_VB_DATA_PTR = 0x0058A080,
+    // Bind a texture to a render-state selector. `__fastcall(ecx=selector,
+    // edx=CGxTexture*)`. Selector 0x17 = the text page slot.
+    FUN_GX_BIND_TEXTURE = 0x00589E80,
+    // Submit `vertCount` written verts (as quads → tri-list) and return a
+    // fresh data pointer for continued writing. `__fastcall(ecx=&handle,
+    // edx=vertCount) -> next-data-ptr`.
+    FUN_GX_SUBMIT_VB = 0x005C8F40,
+    // Unlock the dynamic VB. `__fastcall(ecx=handle, edx=0)`.
+    FUN_GX_UNLOCK_VB = 0x0058A0A0,
+
+    // Path → bindable CGxTexture handle. `__fastcall(char *path, void *desc,
+    // u32 flags, 0, 1) -> CGxTexture*` (returns a fallback texture on failure,
+    // never null). On success the descriptor arg is never dereferenced; on
+    // the load-failure log path it is, so we pass a byte-identical copy of the
+    // 5-dword on-stack descriptor FUN_00770200 builds (its `vtbl` slot is the
+    // data symbol at PTR_TEXLOAD_DESC_VTBL). See FUN_00770200 / FUN_00449d90.
+    FUN_TEXTURE_LOAD_BY_PATH = 0x00449D90,
+    PTR_TEXLOAD_DESC_VTBL = 0x007FFA10, // &PTR_FUN_007ffa10 — desc[0] value
+    // Texture-flags builder. `__thiscall(this=&flagsOut, blend, 0, 0, 0,0,0,
+    // 1, 0)` writes the load-flags bitfield into *this. We call it exactly as
+    // FUN_00770200 does so the flags match the engine's SetTexture path.
+    FUN_GX_TEXFLAGS_INIT = 0x0058A980,
+    VAR_TEXTURE_BLEND_DEFAULT = 0x00878CF0, // DAT_00878cf0 blend arg
+
+    // Render/texture-stage-state setter. `__fastcall(selector, value)` (selector
+    // < 0x46). The engine tracks state per selector at [device+0x2824+sel*0x18]
+    // and flushes to D3D at draw time. Selector 7 = texture-stage COLOR OP (it
+    // auto-sets the paired ALPHA OP at selector 8 via a colorop->alphaop table).
+    // The font path uses colorop 2 (colour from the diffuse/vertex, alpha from
+    // the glyph texture) — which renders a colour icon as a flat vertex-coloured
+    // square. We switch colorop to MODULATE for the inline-texture quad so the
+    // icon's own RGB is sampled, then restore 2. See FUN_00589e60 / FUN_005c8b70.
+    FUN_GX_RENDER_STATE = 0x00589E60,
+    GX_RS_COLOR_OP = 7,
+    GX_COLOR_OP_TEXT = 2, // value the font setup leaves selector 7 at
+
+    // Direct D3D state setter on the device (bypasses the selector→flush layer).
+    // `__thiscall(device, internalState, value)`; internal state 0x42 = stage-0
+    // D3DTSS_COLOROP, 0x4a = ALPHAOP (see FUN_005a2570's SetTextureStageState
+    // cases). The device caches each state at [device + internalState*4 +
+    // OFF_GX_D3D_STATE_CACHE]; read it there to save/restore. The font path
+    // leaves COLOROP at SELECTARG2 (diffuse) so a colour icon shows the flat
+    // vertex colour; setting it to D3DTOP_MODULATE(4) samples the texture's RGB
+    // against the default COLORARG1=TEXTURE. D3DTOP_SELECTARG1(2) shows pure
+    // texture (no vertex tint) — a clean residency check.
+    FUN_GX_D3D_STATE_SET = 0x005A2570,
+    GX_D3D_COLOR_OP = 0x42,
+    OFF_GX_D3D_STATE_CACHE = 0x3A6C,
+    VAR_GX_D3D_DEVICE = 0x00C0ED38, // same as VAR_GX_DEVICE; the D3D wrapper object
+
+    // Texture streaming load callback. `__fastcall(event, w, h, a4, a5, HTEXTURE
+    // *tex, a7, a8)`; event 0 = "load": it synchronously decodes the BLP at
+    // `tex+0xc` (via FUN_004491f0) into the decoded-texture slot `tex+0x120`.
+    // The engine normally fires this from the streaming system only for
+    // textures a live frame references — our standalone-loaded texture never is,
+    // so we invoke the load event ourselves to make the pixels resident. The
+    // texture struct returned by FUN_00449d90 (FUN_0041af10 = AddRef) is exactly
+    // this HTEXTURE. See FUN_0044a260 / FUN_0044a140.
+    FUN_TEXTURE_FORCE_DECODE = 0x0044A260,
+
+    // The engine's "get renderable texture" entry. `__fastcall(HTEXTURE, force,
+    // outObj) -> CGxTexture*`. Returns the bindable CGxTexture at [tex+0x140],
+    // creating/loading it (via FUN_0044ad50, which submits/prioritizes the
+    // streaming load) when force!=0. This is what the widget render calls every
+    // frame — calling it per-frame is the "live reference" that drives residency
+    // AND yields the correct object to bind (the raw HTEXTURE binds as
+    // SetTexture(0) = white; its own +0x48 is not the D3D handle). See
+    // FUN_0044acf0 / FUN_004ec440's texture-bind sites.
+    FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,
+
+    // --- Inline-texture positioning (slice 1: measure/emit integration) --------
+    // The 1.12 text pipeline builds a layout as a list of render "nodes" (one
+    // per wrapped line); each node owns per-font-page glyph vertex batches and a
+    // screen origin, and the paint pass (FUN_005c8fe0) walks the layout's node
+    // list drawing each node's batches translated by that origin. See
+    // docs/InlineTextureEscapes.md and the decompiled map in InlineTexture.cpp.
+
+    // Per-line glyph emitter. `__thiscall(node, byte *text, int len, uint
+    // *colorState, float *penXYZ, uint *pageMask, int *linkState)`. Reads the
+    // pen start from penXYZ[0..2] (node-local), appends glyph quads to the
+    // node's page batches, and on return writes the final pen x (node-local,
+    // as a FLOAT via `FSTP dword` — read linkState[4] as float, not int) into
+    // linkState[4]. We co-hook it and, for a line that
+    // contains an inline `|T…|t`, render the plain runs by delegating to the
+    // original per segment (threading the pen via linkState[4]) and record an
+    // icon quad at the pen between segments. Safe to call repeatedly per line
+    // because the batch-clear at its top is gated on OFF_TEXT_NODE_FLAGS bit 3,
+    // which is clear during normal accumulation draw. See FUN_005ccbe0.
+    FUN_TEXT_EMITTER = 0x005CCBE0,
+    // Node flags. Bit 3 (0x08) gates the emitter's per-call batch-clear (set
+    // only in a rebuild mode we don't take); we segment only when it's clear.
+    OFF_TEXT_NODE_FLAGS = 0x5C,
+    // Node screen origin (float x, float y). The paint pass translates the
+    // node's node-local glyph verts by this; an inline icon recorded in
+    // node-local pen coords is drawn at (localX + originX, localY + originY).
+    OFF_TEXT_NODE_ORIGIN_X = 0x70,
+    OFF_TEXT_NODE_ORIGIN_Y = 0x74,
+    // Layout node list — intrusive singly-linked list of render nodes. Head at
+    // [layout+0x24]; next = *(node + [layout+0x1c] + 4); the tail sentinel has
+    // its low bit set (mirrors the paint pass's own walk in FUN_005c8fe0).
+    OFF_TEXT_LAYOUT_NODE_HEAD = 0x24,
+    OFF_TEXT_LAYOUT_NODE_LINK = 0x1C,
+    // Node source-text pointer. The draw builder FUN_005cdc20 starts from
+    // [node+0x48] and advances it per wrapped line, calling the emitter once
+    // per line on the SAME node — so `emitterText == [node+0x48]` identifies
+    // the first wrapped line (used to clear the node's icon list once per
+    // build, then accumulate across lines).
+    OFF_TEXT_NODE_TEXT = 0x48,
+    // Node font-size field (float), fed to the font-height helper.
+    OFF_TEXT_NODE_FONT_SIZE = 0x1C,
+    // Font pixel-height helper. `__fastcall(int flag /*ecx = (nodeFlags>>7)&1*/,
+    // float fontSize /*stack = [node+0x1c]*/) -> float` (returns in ST0). The
+    // emitter calls it to size glyphs; we call it to derive the text's vertical
+    // extent so an inline icon can be centred on the line independent of font
+    // size. See FUN_005c6fa0.
+    FUN_TEXT_FONT_HEIGHT = 0x005C6FA0,
+
+    // Shared `|`-escape tokenizer. `__fastcall(byte *text /*ecx*/, int
+    // *bytesConsumed /*edx*/, uint *colorOut, uint flags, uint *payloadOut) ->
+    // tokenType`. ~11 callers (measure loops, line-fit/wrap, the emitter, the
+    // draw builder). It has NO `|T` case, so `|T` falls through to a literal
+    // `|`. We co-hook it so an inline-texture span (`||T…||t` after the
+    // FontString pipe-doubling, or a clean `|T…|t`) is consumed as ONE
+    // near-zero-width token — this stops every measure/wrap caller from
+    // counting the path text and wrapping early. The emitter detects icons on
+    // its own (and delegates plain segments that never contain `|T`), so the
+    // draw path is unaffected by this hook. See FUN_005c2810.
+    FUN_TEXT_TOKENIZER = 0x005C2810,
+
+    // Focused-editbox global — holds the CSimpleEditBox that currently has
+    // keyboard focus (the one showing a cursor), or 0 when no input field is
+    // active. Written by EditBox SetFocus (`mov [0xcf4dc8],esi` @0x0077e3f8),
+    // cleared by ClearFocus (FUN_0077e410). We read it to suppress inline-icon
+    // rendering while any editbox is focused, so input fields show raw,
+    // editable `|T…|t` markup (cached display text keeps its icons). See the
+    // editbox vtable at 0x0081c8c0 / FUN_0077e410.
+    VAR_FOCUSED_EDITBOX = 0x00CF4DC8,
 };
