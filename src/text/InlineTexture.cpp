@@ -32,9 +32,15 @@
 //      to glyph batches. This avoids reimplementing the emitter's intricate
 //      vertex math: the engine still draws every glyph; we only insert icons.
 //
-// Slice 1 handles `|Tpath:height[:width]|t` (fixed size, no offset/texcoord/
-// colour, no wrap/measure correction). See docs/InlineTextureEscapes.md for the
-// remaining slices and the full RE map.
+// Supports the full positional payload
+// `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
+// (size, pen offset, sprite-sheet texcoord crop, and r:g:b vertex tint). The one
+// deliberate gap is MEASURE width: the tokenizer reports an icon as ~zero width,
+// so `GetStringWidth`/wrap/hyperlink-hittest undercount it — there is no width
+// field in the engine's token contract, and the only fixes are hot per-glyph
+// hooks (against the MinHook-collision guidance) or several parallel measure-loop
+// hooks for a mostly-cosmetic gain. See docs/InlineTextureEscapes.md for the RE
+// map and the full rationale.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -188,9 +194,10 @@ void DrawTexturedQuad(void *tex, float x0, float y0, float x1, float y1, float u
 
 // --- inline-texture descriptor parse ---------------------------------------
 
-// Parsed `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom|t`
+// Parsed
+// `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
 // payload. Trailing fields are optional; texcoords crop a sprite sheet (e.g. the
-// raid-target icons) to one cell.
+// raid-target icons) to one cell, and r:g:b (0-255) tint the icon.
 struct IconDesc {
     std::string path;
     float height = 0.0f;
@@ -198,6 +205,10 @@ struct IconDesc {
     float offsetX = 0.0f; // pen-relative pixel shift
     float offsetY = 0.0f;
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f; // full texture by default
+    // Vertex colour (modulates the texture). Packed 0xAARRGGBB — the same order
+    // the engine builds for `|cAARRGGBB` text (verified in the tokenizer's colour
+    // path), so full white = no tint. Set from the optional r:g:b (0-255) fields.
+    uint32_t color = 0xFFFFFFFFu;
 };
 
 // Reads a numeric field starting at `s` (bounded by `end`), stopping at the
@@ -235,12 +246,12 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
     if (colon >= end)
         return false; // path with no height
 
-    // Parse up to 10 numeric fields after the path:
-    // height, width, offsetX, offsetY, texW, texH, left, right, top, bottom.
-    float f[10] = {0};
+    // Parse up to 13 numeric fields after the path: height, width, offsetX,
+    // offsetY, texW, texH, left, right, top, bottom, r, g, b.
+    float f[13] = {0};
     int nf = 0;
     const char *p = colon + 1;
-    while (p < end && nf < 10) {
+    while (p < end && nf < 13) {
         const char *nx = p;
         f[nf++] = ParseField(p, end, &nx);
         p = nx;
@@ -259,6 +270,19 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
         out.v0 = f[8] / f[5];
         out.v1 = f[9] / f[5];
     }
+    // r=f[10] g=f[11] b=f[12] (0-255) -> vertex tint. All three required (they're
+    // the last positional fields); clamped to a byte and packed 0xFFrrggbb.
+    if (nf >= 13) {
+        auto clampByte = [](float v) -> uint32_t {
+            if (v < 0.0f)
+                v = 0.0f;
+            if (v > 255.0f)
+                v = 255.0f;
+            return static_cast<uint32_t>(v + 0.5f);
+        };
+        out.color = 0xFF000000u | (clampByte(f[10]) << 16) | (clampByte(f[11]) << 8) |
+                    clampByte(f[12]);
+    }
     return true;
 }
 
@@ -276,6 +300,7 @@ struct IconRecord {
     float z;
     float offsetX, offsetY;      // pen-relative pixel shift
     float u0, v0, u1, v1;        // texture crop
+    uint32_t color;              // vertex tint (0xAARRGGBB; white = untinted)
 };
 
 // Icons keyed by render node. Rebuilt whenever the emitter runs for a node
@@ -643,6 +668,7 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
                 r.v0 = d.v0;
                 r.u1 = d.u1;
                 r.v1 = d.v1;
+                r.color = d.color;
                 icons.push_back(r);
                 penX += w; // reserve horizontal space for the icon
             }
@@ -720,7 +746,7 @@ void FlushLayout(void *layout) {
                 const float x1 = cx + r.w;
                 const float y0 = cy - r.h * 0.5f;
                 const float y1 = cy + r.h * 0.5f;
-                DrawTexturedQuad(r.tex, x0, y0, x1, y1, r.u0, r.v0, r.u1, r.v1, 0xFFFFFFFFu, r.z);
+                DrawTexturedQuad(r.tex, x0, y0, x1, y1, r.u0, r.v0, r.u1, r.v1, r.color, r.z);
                 ++g_iconsDrawn;
             }
         }

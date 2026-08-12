@@ -5,10 +5,12 @@ inline texture markup (`|Tpath:height:width:…|t`) in FontStrings / chat /
 tooltips — the way 4.3.4+ does. **The feature is complete and shipped**
 ([src/text/InlineTexture.cpp](../src/text/InlineTexture.cpp)): icons render
 inline in chat/display text (BLP + uncompressed TGA), multi-icon and multi-line,
-font-centred, wrapping correctly, cropped from sprite sheets via texcoords, and
-excluded from editable input fields. This file keeps the RE map that got us
-there: the rendering primitive first, then the positioning / measure / editbox /
-texcoord findings.
+font-centred, wrapping correctly, cropped from sprite sheets via texcoords,
+tinted by an optional `r:g:b` vertex colour, and excluded from editable input
+fields. The one deliberate gap is measure width (an icon counts as ~zero width
+for `GetStringWidth`/wrap/hit-test — see the hover-accuracy section for why it's
+deferred). This file keeps the RE map that got us there: the rendering primitive
+first, then the positioning / measure / editbox / texcoord / colour findings.
 
 ## SOLVED — the working rendering primitive (verified in-game: a coin icon renders in full colour)
 
@@ -160,6 +162,38 @@ near-zero-width token so every measure/fit caller ignores the path characters.
 The emitter detects icons independently (it scans the raw bytes), so the draw
 path is unaffected.
 
+### Deliberate gap: measure width undercounts an icon (hover-accuracy)
+
+The tokenizer reports an icon span as a **near-zero-width** token, so
+`GetStringWidth`, line-wrap, and hyperlink hit-test all count the icon as ~0
+pixels wide (the emitter still reserves the render width, so text after an icon
+is positioned correctly — only the *measured* width is short). Making measure
+account for the real icon width is **not a clean slice**, and this was scoped by
+disassembly (`FUN_005c6940` = GetStringWidth backend, `FUN_005c6b70` = per-glyph
+advance, `FUN_005cdc20`/`FUN_005c7260` = wrap):
+
+- The engine's token contract has **no width field**. A glyph token carries one
+  payload codepoint (`*payloadOut`); each measure loop derives advance from it
+  via `FUN_005cabd0(node, char)` (glyph lookup) → `FUN_005c6b70` (font advance).
+  An icon has an arbitrary pixel width unrelated to any font glyph, so it can't
+  be expressed as a payload char.
+- There is **no single cold choke**: `FUN_005c6940` (width), `FUN_005c7470`/
+  `FUN_005c7260` (wrap), and the hit-test loop each tokenize and accrue width
+  independently — parallel loops, not layered on one primitive.
+- So the only fixes are (a) hook the two **per-glyph** helpers
+  (`FUN_005cabd0`/`FUN_005c6b70`) to carry an icon width in the payload's low
+  bits — but those are the hottest text functions in the engine (per character),
+  which the [MinHook-collision guidance](../CLAUDE.md) says to avoid; or (b) hook
+  the ~6 parallel measure/wrap/hit-test entry points and post-add icon widths.
+
+The payoff is mostly cosmetic (a ~icon-width wrap/`GetStringWidth` error, rarely
+visible for the typical 1-2 icons per line). The big-ticket use — hyperlink
+hover tooltips on an icon (the TwitchEmotes `|H…|h|T…|t|h` pattern) — needs the
+hit-test width **plus** a separate hyperlink-region feature we haven't built, so
+measure width alone wouldn't deliver it. Deferred deliberately; revisit only if a
+consumer needs pixel-accurate icon width, and prefer approach (b) (cold hooks)
+over (a).
+
 ### Editbox exclusion — node flag bit 6 (the hard-won one)
 
 Editable text must show raw, editable `|T…|t` markup, not rendered icons. 1.12's
@@ -188,10 +222,21 @@ frame-level hook is ever needed, but bit 6 made it unnecessary.)
 
 ### Descriptor fields + the vertical flip
 
-`ParseIcon` handles `path:height:width:offsetX:offsetY:texW:texH:left:right:top:
-bottom`. Texcoords crop a sprite sheet to one cell: `u = left/texW, right/texW`,
+`ParseIcon` handles the full positional payload
+`path:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b`.
+Texcoords crop a sprite sheet to one cell: `u = left/texW, right/texW`,
 `v = top/texH, bottom/texH` — e.g. `UI-RaidTargetingIcons` is a 256×256 sheet,
 4×2 grid of 64×64, so marker N's cell is `256:256:<col*64>:<+64>:<row*64>:<+64>`.
+
+**Vertex colour (`r:g:b`, 0-255):** the last three positional fields tint the
+icon. They pack to `0xFFrrggbb` — the same `0xAARRGGBB` order the tokenizer's
+`|cAARRGGBB` colour path builds (verified from `FUN_005c2810`'s colour branch),
+so the value flows straight into the quad's vertex colour and the font stage's
+default MODULATE COLOROP multiplies `texture.rgb × tint`. White (`255:255:255`,
+the default) = untinted. Because parsing is positional, a tint needs all the
+preceding fields present; the `TintIcon` helper passes `0`s for width..bottom
+(texW/texH `0` disables the texcoord crop → full texture) so the colour lands in
+the trailing slots.
 
 **Vertical flip:** the UI device backend is OpenGL (bottom-left texture origin,
 v=0 at the bottom), so `DrawTexturedQuad` maps the TOP screen corners to **v1**
@@ -212,10 +257,11 @@ markers, swords).
 
 Diagnostic Lua (`_classicapi_InlineTexEnable/Suppress/Tune/Stats`) and the
 capture globals remain for now. Optional slices left: exact icon width in the
-measure path (so hyperlink-wrapped icons hover pixel-accurately — see the
-TwitchEmotes `|H…|h|T…|t` pattern), vertex-colour tint (the `:rV:gV:bV` fields),
-and animation-strip frame cycling. RLE-compressed TGAs don't decode in 1.12 (only
-uncompressed) — convert with `magick in.tga -compress none -orient bottom-left`.
+measure path (deferred — see "Deliberate gap: measure width undercounts an icon"
+above for the full RE verdict) and animation-strip frame cycling. Vertex-colour
+tint (the `:r:g:b` fields) is **done**. RLE-compressed TGAs don't decode in 1.12
+(only uncompressed) — convert with `magick in.tga -compress none -orient
+bottom-left`.
 
 ## Goal & spec
 
