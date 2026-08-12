@@ -6326,6 +6326,11 @@ enum Offsets {
     FUN_TEXT_EMITTER = 0x005CCBE0,
     // Node flags. Bit 3 (0x08) gates the emitter's per-call batch-clear (set
     // only in a rebuild mode we don't take); we segment only when it's clear.
+    // Bit 6 (0x40) = EDITABLE text (set on editbox content; verified in-game:
+    // the macro editbox is 0x4D, chat display 0x20D, FontStrings 0x0D). It rides
+    // in the tokenizer's flags argument, so we suppress inline rendering per node
+    // for editboxes — they show raw, editable `|T…|t` markup. This is the 1.12
+    // analog of 4.3.4's per-render texture-disable flag (tokenizer bit 0x1000).
     OFF_TEXT_NODE_FLAGS = 0x5C,
     // Node screen origin (float x, float y). The paint pass translates the
     // node's node-local glyph verts by this; an inline icon recorded in

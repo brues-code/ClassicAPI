@@ -278,6 +278,19 @@ inline bool InputFocused() {
     return *reinterpret_cast<void *const *>(Offsets::VAR_FOCUSED_EDITBOX) != nullptr;
 }
 inline bool Suppressed() { return g_suppressInline || InputFocused(); }
+
+// A text node's flags (`[node+0x5c]`) bit 6 (0x40) distinguishes editable input
+// text (set on the macro editbox: flags 0x4D) from display text (chat 0x20D,
+// FontStrings 0x0D — bit 6 clear). It's a per-node property the emitter and
+// tokenizer don't otherwise use, and it rides in the tokenizer's flags
+// argument, so we can suppress inline rendering per node — covering editboxes
+// the focus global misses (multi-line editors build once, un-focused). This
+// mirrors 4.3.4's per-render texture-disable flag, adapted to 1.12's layout.
+inline bool NodeEditable(const void *node) {
+    return (*reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(node) +
+                                                Offsets::OFF_TEXT_NODE_FLAGS) &
+            0x40u) != 0;
+}
 float g_vBias = 0.0f;     // extra node-local Y added to the icon centre (fine-tune)
 float g_sizeScale = 1.0f; // multiplies the parsed icon size
 // Icon vertical centre = penY + fontHeight * centerFrac. penY sits near the
@@ -298,6 +311,8 @@ volatile int g_flushNodesSeen = 0; // nodes the flush walked (last paint)
 volatile int g_lastIconN = 0; // icons recorded on the last segmented line
 volatile int g_lastFirstLine = 0; // was that line the first wrapped line?
 uint32_t g_lastVtable = 0;    // [node+0] vtable of the last `|T` node
+volatile int g_lastFocused = 0; // focus global set at last `|T` build?
+volatile int g_lastMono = 0;    // monochrome flag set at last `|T` build?
 
 // Marker capture — grabs the text of the first emitter call whose text starts
 // with '~', so a prefixed test string proves whether it reaches FUN_005ccbe0.
@@ -388,9 +403,10 @@ Tokenizer_t g_tokenizerOriginal = nullptr;
 
 uint32_t __fastcall Tokenizer_h(uint8_t *text, int *bytesConsumed, uint32_t *colorOut,
                                 uint32_t flags, uint32_t *payloadOut) {
-    // Only intervene at a pipe when enabled and not suppressed (suppressed while
-    // an editbox is focused, so it measures/wraps the raw markup literally).
-    if (g_inlineEnabled && !Suppressed() && text != nullptr && text[0] == '|') {
+    // Only intervene at a pipe when enabled, not suppressed, and not editable
+    // text (flags bit 0x40) — editboxes measure/wrap the raw markup literally.
+    if (g_inlineEnabled && !Suppressed() && (flags & 0x40u) == 0 && text != nullptr &&
+        text[0] == '|') {
         const int span = InlineSpanLen(text);
         if (span > 0) {
             // Consume the whole escape as one glyph-type token with a payload
@@ -431,11 +447,12 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         return;
     }
 
-    // Suppressed (an editbox is focused) — render the node's text verbatim and
-    // drop any icons previously recorded for it, so a focused input field shows
-    // raw, editable markup. Display nodes that don't rebuild keep their icons
-    // (the flush is unaffected).
-    if (Suppressed()) {
+    // Suppressed — render the node's text verbatim and drop any icons
+    // previously recorded for it, so editable input shows raw markup. Covers a
+    // focused editbox (focus global) and any editable node (flags bit 6),
+    // including un-focused multi-line editors. Display nodes that don't rebuild
+    // keep their icons (the flush is unaffected).
+    if (Suppressed() || (node != nullptr && NodeEditable(node))) {
         if (node != nullptr)
             g_nodeIcons.erase(node);
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);
@@ -470,11 +487,9 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             *reinterpret_cast<uint32_t *>(reinterpret_cast<uint8_t *>(node) +
                                           Offsets::OFF_TEXT_NODE_FLAGS);
         g_lastLen = len;
-        // Node vtable (offset 0) — an EditBox and a FontString/chat line are
-        // different C++ classes, so this distinguishes editable input text
-        // (which must show raw markup) from display text. Reading offset 0 is
-        // always safe.
         g_lastVtable = *reinterpret_cast<uint32_t *>(node);
+        g_lastFocused = InputFocused() ? 1 : 0;
+        g_lastMono = NodeEditable(node) ? 1 : 0; // editable-flag (bit 6) at capture
     }
 
     if (node == nullptr || text == nullptr || len <= 0) {
@@ -660,7 +675,9 @@ void FlushLayout(void *layout) {
         ++g_flushNodesSeen;
         auto *n = reinterpret_cast<uint8_t *>(node);
         auto it = g_nodeIcons.find(node);
-        if (it != g_nodeIcons.end() && !it->second.empty()) {
+        // Never draw icons over editable text (flags bit 6) — safety net for any
+        // records made before the emitter's editable-suppress applied.
+        if (it != g_nodeIcons.end() && !it->second.empty() && !NodeEditable(node)) {
             const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
             const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
             for (const IconRecord &r : it->second) {
@@ -761,8 +778,8 @@ int __fastcall Script_InlineTexStats(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(g_nodeIcons.size()));
     Game::Lua::PushNumber(L, static_cast<double>(g_iconsDrawn));
     Game::Lua::PushNumber(L, static_cast<double>(g_lastIconN));
-    Game::Lua::PushNumber(L, static_cast<double>(g_lastVtable));
-    Game::Lua::PushNumber(L, static_cast<double>(g_faultCode));
+    Game::Lua::PushNumber(L, static_cast<double>(g_lastFocused));
+    Game::Lua::PushNumber(L, static_cast<double>(g_lastMono));
     return 11;
 }
 
