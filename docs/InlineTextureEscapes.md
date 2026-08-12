@@ -2,10 +2,13 @@
 
 Design + reverse-engineering map for teaching the 1.12 text engine to render
 inline texture markup (`|Tpath:height:width:…|t`) in FontStrings / chat /
-tooltips — the way 4.3.4+ does. The **rendering primitive is working**
-([src/text/InlineTexture.cpp](../src/text/InlineTexture.cpp)); the remaining
-work is inline positioning (parser + measure/emit). This file is the blueprint
-so the multi-session build survives a context reset.
+tooltips — the way 4.3.4+ does. **The feature is complete and shipped**
+([src/text/InlineTexture.cpp](../src/text/InlineTexture.cpp)): icons render
+inline in chat/display text (BLP + uncompressed TGA), multi-icon and multi-line,
+font-centred, wrapping correctly, cropped from sprite sheets via texcoords, and
+excluded from editable input fields. This file keeps the RE map that got us
+there: the rendering primitive first, then the positioning / measure / editbox /
+texcoord findings.
 
 ## SOLVED — the working rendering primitive (verified in-game: a coin icon renders in full colour)
 
@@ -64,65 +67,155 @@ SetTexture `+0x104`). Selector map (shared across GL/D3D backends): 7=blend,
 0x10=depthtest, 0x14=cullface, 0x17-0x1e=texture bind (8 units),
 0x1f-0x26=colorop/alphaop preset (unit 0-7).
 
-## Remaining work — inline positioning
+## SOLVED — positioning, measure/wrap, editbox exclusion, texcoords
 
-The primitive draws at arbitrary `(x0,y0,x1,y1)`. To finish: parse
-`|Tpath:height[:width…]|t` (port the 4.3.4 field parser `FUN_00617ba0` → 0x40
-descriptor, below), walk the text to compute each `|T`'s pen x within its line,
-and draw the icon there. Measure loop `FUN_005c6940` and draw builder/emitter
-`FUN_005cdc20`/`FUN_005ccbe0` are the integration points (segment approach:
-delegate non-`|T` runs to the originals, advance the pen, insert an icon quad).
+The primitive draws at arbitrary coords; the rest is knowing WHERE and WHEN.
+Everything is in [src/text/InlineTexture.cpp](../src/text/InlineTexture.cpp);
+offsets under the "Inline texture escape" + positioning blocks in
+[Offsets.h](../src/Offsets.h).
 
-## Resume context (post-compaction) — current code state + how to continue
+### The text render hierarchy (verified)
 
-**Everything lives in [src/text/InlineTexture.cpp](../src/text/InlineTexture.cpp)**
-(a new `src/text/` dir; CMake globs it). Offsets are in
-[Offsets.h](../src/Offsets.h) under the "Inline texture escape" block +
-`FUN_TEXTURE_GET_RENDERABLE` (0x0044ACF0). The module:
-- `LoadTextureByPath(path)` — real, cached, returns the HTEXTURE (working).
-- `DrawTexturedQuad(...)` — real, working: resolves the bindable CGxTexture via
-  `FUN_0044acf0(tex, 1, 0)`, binds it, writes 4 verts (order TL,TR,BL,BR),
-  submits. `order` param selects vertex permutation (kOrders) — order 0 is
-  correct; the others were winding-calibration and can be dropped.
-- Paint co-hook on `FUN_005c8fe0` (`Paint_h`) — draws the armed test quad after
-  the original. **Off by default**; only draws once armed from Lua.
-- SEH-wrapped `SafeDraw` + `g_drawStage`/`CaptureFault` capture fault
-  stage/address into `Stats` — scaffolding, remove once positioning is wired.
+```
+frame → renderNode [frame+0x118] → group [renderNode+0x18]
+      → node [group+0x18]        → line [node+0x24]  ← the emitter's `this`
+```
 
-**Lua diagnostic surface (all scaffolding — strip when the real feature lands):**
-- `_classicapi_InlineTexDraw(x0,y0,x1,y1[,z[,colorARGB[,order[,colorOp]]]])` —
-  arm the test quad (auto-loads a coin if nothing loaded). `"off"` disables.
-- `_classicapi_InlineTexLoad(path)` → texPtr, vtable, flagByte.
-- `_classicapi_InlineTexStats()` → drawCalls, faults, faultStage, texPtr,
-  enabled, d3dHandle, texGen, devGen, faultAddr, faultCode.
-- `_classicapi_InlineTexProbe()` — captures a real glyph's 4 VB corners (used to
-  calibrate the coordinate space; the space is per-layout pixels, y-down).
-- `_classicapi_InlineTexUseWidget(region)` — point the draw at an existing
-  Texture widget's `[region+0xcc]` HTEXTURE (was used to debug residency).
+- Main UI render `FUN_007657d0(DAT_00cf0bd8)` walks strata → frames, calls
+  `FUN_0076fb00(renderNode)` per frame's render node.
+- `FUN_0076fb00` draws the frame's Texture regions then `FUN_005c1ef0(group)` →
+  `FUN_005c8b70(group)` → `FUN_005c8fe0(node)` per node.
+- `FUN_005c8fe0(node)` = the **paint pass** we co-hook: ensures each line built
+  (`FUN_005cd6a0` → `FUN_005cdc20` → the emitter), then binds each font page and
+  copies the line's per-page glyph batches into the dynamic VB, translated by the
+  line origin `[line+0x70]/[+0x74]`.
+- The **emitter** `FUN_005ccbe0(line, text, len, colorState, penXYZ, pageMask,
+  linkState)` builds one wrapped line's glyph quads. `this` (the "line"/node the
+  icon list keys on) owns batches `[+0xa0+page*4]` and origin `[+0x70]`. **Note
+  the render node the emitter sees has NO back-pointer up to the frame** — the
+  editbox discriminator had to be found another way (see below).
 
-**In-game verification:** `/script _classicapi_InlineTexDraw(100,100,150,150)`
-renders a coloured coin at chat-top. This is the proof the primitive works.
+### Positioning — segmented delegation (co-hook the emitter)
 
-**Build / deploy (learned this session):**
-- `set -o pipefail; cmake --build build --config Release 2>&1 | tail -5 && cp build/Release/ClassicAPI.dll "C:/WoW/Octo/dll/ClassicAPI.dll"`.
-  The `set -o pipefail` matters — without it a failed build still runs the `cp`
-  and deploys a stale DLL.
-- **The client must be fully EXITED to link** — it loads
-  `dll_local\ClassicAPI.dll` which is a **symlink to `build/Release/ClassicAPI.dll`**,
-  so the running game locks the linker's output. (The `cp` to `dll\` is
-  belt-and-suspenders; the symlinked build output is what actually loads.)
-- **DLL changes need a full client restart** (not `/reload`). Every test round =
-  exit game → build → relaunch. Expect this cadence.
+We do NOT reimplement the emitter's intricate glyph vertex math. Instead, in the
+`FUN_005ccbe0` co-hook, for a line containing an inline texture:
 
-**Immediate next step (slice 1):** port the 4.3.4 field parser `FUN_00617ba0`
-(→ 0x40 descriptor, layout in the 4.3.4 reference section above) as a standalone
-C++ function (needs 1.12 strchr `FUN_0040fa50`-equivalents / atoi / atof — verify
-addresses in 1.12). Then co-hook the measure loop `FUN_005c6940` + draw builder
-`FUN_005cdc20`: for a `|T`-containing line, delegate non-`|T` runs to the
-original (call `g_orig` on plain segments, reading back the pen advance) and
-insert an icon quad (via the working `DrawTexturedQuad`, but recorded per-layout
-and flushed in the `FUN_005c8fe0` co-hook so it draws at the real pen x/y). Start
-with fixed-size `|Tpath:height|t` (slice 1 in Incremental slices).
+1. Split the line at icon boundaries. Render each **plain run** by calling the
+   ORIGINAL emitter on just that substring — the engine still draws every glyph.
+2. Thread the pen across runs: on return the emitter leaves the final node-local
+   pen x in **`linkState[4]`**, stored with `FSTP dword` — a **FLOAT bit
+   pattern**, not an int. Read it as a float (`*(float*)&linkState[4]`); an
+   int-cast yields garbage (this bug hid the icon off-screen and dropped the
+   trailing text).
+3. Record an `IconRecord` at the pen (node-local `x`,`y`) into `g_nodeIcons[line]`
+   and advance the pen by the icon width. `DrawTexturedQuad` never runs during
+   the build — icons are recorded and **flushed** in the `FUN_005c8fe0` paint
+   co-hook, where each line's origin `[line+0x70]/[+0x74]` maps node-local →
+   screen (the same translate the glyph copy `FUN_005c8710` applies; confirmed
+   pure translation, no extra scale, DAT_00c2b9dc==0 path).
+4. Restore `penXYZ[0]` on exit (the original never writes it; the draw builder
+   does NOT reset it between left-justified lines, so leaving it mutated
+   cascade-shifts every following line).
+
+### FontString pipe-doubling — the escape arrives as `||T…||t`
+
+The FontString text sanitizer **doubles any pipe that doesn't begin a recognized
+escape** so it renders as a literal `|`. 1.12 doesn't know `|T`, so a caller's
+`|Tpath:h|t` reaches the emitter as `||Tpath:h||t` (verified: emitter text length
++2, pipes doubled). The detector therefore matches BOTH the doubled form (the
+real-world case) and a clean `|T` (should one ever arrive undoubled). Normal
+doubled pipes (`|| `) never match because the next char must be `T`.
+
+### bit-3 batch-clear mode
+
+The emitter clears the line's page batches at its top only when node flag
+`[line+0x5c] & 0x08` is set (the FontString/static case). Calling the original
+per segment would then wipe all but the last run. Handled by doing the clear
+ONCE per build (a `len==0` original call with bit 3 still set), then clearing
+bit 3 so the per-segment calls APPEND, restoring flags on exit. Bit 5 (shadow)
+isn't set for these nodes, so the only added work is a harmless colour append.
+
+### Multi-line / multi-icon accumulation
+
+The draw builder walks a node's wrapped lines by calling the emitter repeatedly
+on the SAME node, advancing the text pointer. So the icon list is cleared ONCE
+per build — on the first wrapped line, detected by `text == [node+0x48]` (the
+node's text start) — and icons ACCUMULATE across lines. Multiple icons per line
+fall out of the segmentation loop naturally.
+
+### Vertical centring — font-relative
+
+`penXYZ[1]` sits near the text TOP, so the icon centre = `penY + fontHeight *
+0.5`. Font height comes from the engine's own `FUN_005c6fa0(flag, [node+0x1c])`
+(the emitter's glyph-sizing call), so centring holds across font sizes without a
+fixed pixel nudge.
+
+### Measure / wrap — co-hook the tokenizer
+
+Line wrap is decided by the measure/fit functions (`FUN_005c6940`, `FUN_005c7470`
+via `FUN_005c7260`), which all share the `|`-tokenizer `FUN_005c2810`. Left
+alone, they count the hidden path text and wrap early. Fix: co-hook the
+tokenizer — when it's at an inline-texture span, consume the whole span as ONE
+near-zero-width token so every measure/fit caller ignores the path characters.
+The emitter detects icons independently (it scans the raw bytes), so the draw
+path is unaffected.
+
+### Editbox exclusion — node flag bit 6 (the hard-won one)
+
+Editable text must show raw, editable `|T…|t` markup, not rendered icons. 1.12's
+tokenizer, unlike 4.3.4's, has no per-render texture-disable bit (4.3.4 uses
+tokenizer flag **0x1000** to kill only `|T`, **0x800** to kill all escapes), and
+editbox text nodes are NOT distinguishable by class from the render node — the
+emitter can't reach the owning frame. Two attempts failed:
+
+- **Focused-editbox global `DAT_00cf4dc8`** (holds the editbox with keyboard
+  focus, cleared by `ClearFocus` = `FUN_0077e410`): works for single-line inputs
+  (chat) that rebuild on each keystroke, but a **multi-line editor (MacroFrameText)
+  builds its layout once, un-focused**, so it's never caught.
+- **Monochrome render flag `DAT_00c2b9dc`** (`FUN_005c8b70` sets it per group;
+  editbox content is the monochrome/"green box" path): un-set at MacroFrameText's
+  build time, and flickered as a flush gate. Dropped.
+
+The reliable signal is **node flags `[node+0x5c]` bit 6 (0x40) = EDITABLE**
+(verified in-game: macro editbox `0x4D`, chat display `0x20D`, FontStrings
+`0x0D`). It's a per-node property the emitter/tokenizer don't otherwise use, and
+it **rides in the tokenizer's flags argument** — so we suppress inline rendering
+per node in the tokenizer, emitter, and flush. This is the 1.12 analog of
+4.3.4's per-render texture-disable flag. The focus global is kept as a belt-and-
+suspenders fallback. (The editbox class vtable is `0x0081c8c0`, its script-slot
+resolver `FUN_0077a310` with focus slots at `+0x438`/`+0x440` — useful if a
+frame-level hook is ever needed, but bit 6 made it unnecessary.)
+
+### Descriptor fields + the vertical flip
+
+`ParseIcon` handles `path:height:width:offsetX:offsetY:texW:texH:left:right:top:
+bottom`. Texcoords crop a sprite sheet to one cell: `u = left/texW, right/texW`,
+`v = top/texH, bottom/texH` — e.g. `UI-RaidTargetingIcons` is a 256×256 sheet,
+4×2 grid of 64×64, so marker N's cell is `256:256:<col*64>:<+64>:<row*64>:<+64>`.
+
+**Vertical flip:** the UI device backend is OpenGL (bottom-left texture origin,
+v=0 at the bottom), so `DrawTexturedQuad` maps the TOP screen corners to **v1**
+and the bottom to **v0**. Without this the texture renders upside-down —
+invisible on symmetric icons (a coin), obvious on directional ones (raid
+markers, swords).
+
+### Build / deploy / test cadence
+
+- `set -o pipefail; cmake --build build --config Release 2>&1 | tail -5 && cp build/Release/ClassicAPI.dll "C:/WoW/Octo/dll/ClassicAPI.dll"`
+  — `pipefail` stops a failed build from deploying a stale DLL.
+- **The client must be fully EXITED to relink** (it loads a symlink to the
+  linker's output). DLL changes need a full restart, not `/reload`.
+- **The embedded `!!!ClassicAPI` addon is symlinked**, so Lua-only changes (the
+  `TextureTest()` harness in `Util/AddOnCompat.lua`) need only `/reload`.
+
+### Still scaffolding / optional
+
+Diagnostic Lua (`_classicapi_InlineTexEnable/Suppress/Tune/Stats`) and the
+capture globals remain for now. Optional slices left: exact icon width in the
+measure path (so hyperlink-wrapped icons hover pixel-accurately — see the
+TwitchEmotes `|H…|h|T…|t` pattern), vertex-colour tint (the `:rV:gV:bV` fields),
+and animation-strip frame cycling. RLE-compressed TGAs don't decode in 1.12 (only
+uncompressed) — convert with `magick in.tga -compress none -orient bottom-left`.
 
 ## Goal & spec
 
