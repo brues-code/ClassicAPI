@@ -284,10 +284,10 @@ struct IconRecord {
 // and are cleared when the address is reused and rebuilt.
 std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
 
-// Runtime toggle (default off — opt-in until the feature is proven, and to keep
-// the hot text path untouched otherwise). Calibration knobs for vertical
-// placement / size tuned live before the constants are baked.
-bool g_inlineEnabled = false;
+// Runtime toggle (default ON — the feature is proven; `_classicapi_InlineTexEnable(false)`
+// still turns it off). When off, the emitter/tokenizer co-hooks fast-path
+// straight to the originals.
+bool g_inlineEnabled = true;
 // Manual suppression override (Lua _classicapi_InlineTexSuppress) — normally
 // unused; the automatic editbox-focus check below covers the real case.
 bool g_suppressInline = false;
