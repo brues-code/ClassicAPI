@@ -168,10 +168,15 @@ void DrawTexturedQuad(void *tex, float x0, float y0, float x1, float y1, float u
         auto bind = reinterpret_cast<GxBind_t>(Offsets::FUN_GX_BIND_TEXTURE);
         bind(Offsets::GX_TEXTURE_SELECTOR, cgxTex);
 
-        v[0] = {x0, y0, z, color, u0, v0};
-        v[1] = {x1, y0, z, color, u1, v0};
-        v[2] = {x0, y1, z, color, u0, v1};
-        v[3] = {x1, y1, z, color, u1, v1};
+        // The UI device backend is OpenGL (bottom-left texture origin, v=0 at
+        // the bottom), so the top screen row maps to the LARGER v and the bottom
+        // to the smaller v — otherwise the texture renders vertically flipped
+        // (invisible on symmetric icons, obvious on directional ones like the
+        // raid-target markers). Map top corners to v1, bottom corners to v0.
+        v[0] = {x0, y0, z, color, u0, v1};
+        v[1] = {x1, y0, z, color, u1, v1};
+        v[2] = {x0, y1, z, color, u0, v0};
+        v[3] = {x1, y1, z, color, u1, v0};
 
         auto submit = reinterpret_cast<GxSubmit_t>(Offsets::FUN_GX_SUBMIT_VB);
         submit(&handle, 4);
@@ -183,11 +188,16 @@ void DrawTexturedQuad(void *tex, float x0, float y0, float x1, float y1, float u
 
 // --- inline-texture descriptor parse ---------------------------------------
 
-// Parsed `|Tpath:height[:width[:…]]|t` payload (slice 1 fields only).
+// Parsed `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom|t`
+// payload. Trailing fields are optional; texcoords crop a sprite sheet (e.g. the
+// raid-target icons) to one cell.
 struct IconDesc {
     std::string path;
     float height = 0.0f;
-    float width = 0.0f; // defaults to height when the width field is absent
+    float width = 0.0f;   // defaults to height when the width field is absent/0
+    float offsetX = 0.0f; // pen-relative pixel shift
+    float offsetY = 0.0f;
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f; // full texture by default
 };
 
 // Reads a numeric field starting at `s` (bounded by `end`), stopping at the
@@ -224,18 +234,30 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
 
     if (colon >= end)
         return false; // path with no height
-    const char *p = colon + 1;
-    const char *next = p;
-    out.height = ParseField(p, end, &next);
-    if (out.height <= 0.0f)
-        return false;
 
-    if (next < end) {
-        const char *n2 = next;
-        float w = ParseField(next, end, &n2);
-        out.width = (w > 0.0f) ? w : out.height;
-    } else {
-        out.width = out.height;
+    // Parse up to 10 numeric fields after the path:
+    // height, width, offsetX, offsetY, texW, texH, left, right, top, bottom.
+    float f[10] = {0};
+    int nf = 0;
+    const char *p = colon + 1;
+    while (p < end && nf < 10) {
+        const char *nx = p;
+        f[nf++] = ParseField(p, end, &nx);
+        p = nx;
+    }
+    if (nf < 1 || f[0] <= 0.0f)
+        return false; // height required
+    out.height = f[0];
+    out.width = (nf >= 2 && f[1] > 0.0f) ? f[1] : out.height;
+    out.offsetX = (nf >= 3) ? f[2] : 0.0f;
+    out.offsetY = (nf >= 4) ? f[3] : 0.0f;
+    // texW=f[4] texH=f[5] left=f[6] right=f[7] top=f[8] bottom=f[9] -> normalized
+    // texcoords cropping the sheet to one cell.
+    if (nf >= 10 && f[4] > 0.0f && f[5] > 0.0f) {
+        out.u0 = f[6] / f[4];
+        out.u1 = f[7] / f[4];
+        out.v0 = f[8] / f[5];
+        out.v1 = f[9] / f[5];
     }
     return true;
 }
@@ -252,6 +274,8 @@ struct IconRecord {
     float w;
     float h;
     float z;
+    float offsetX, offsetY;      // pen-relative pixel shift
+    float u0, v0, u1, v1;        // texture crop
 };
 
 // Icons keyed by render node. Rebuilt whenever the emitter runs for a node
@@ -613,6 +637,12 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
                 r.w = w;
                 r.h = h;
                 r.z = penZ;
+                r.offsetX = d.offsetX * g_sizeScale;
+                r.offsetY = d.offsetY * g_sizeScale;
+                r.u0 = d.u0;
+                r.v0 = d.v0;
+                r.u1 = d.u1;
+                r.v1 = d.v1;
                 icons.push_back(r);
                 penX += w; // reserve horizontal space for the icon
             }
@@ -681,15 +711,16 @@ void FlushLayout(void *layout) {
             const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
             const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
             for (const IconRecord &r : it->second) {
-                const float cx = r.x + ox; // screen left
+                const float cx = r.x + ox + r.offsetX; // screen left
                 // Centre on the line: penY is near the text top, so add a
-                // fraction of the font height (plus the fine-tune bias).
-                const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias;
+                // fraction of the font height (plus the fine-tune bias). offsetY
+                // shifts up (WoW convention), so subtract it.
+                const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
                 const float x0 = cx;
                 const float x1 = cx + r.w;
                 const float y0 = cy - r.h * 0.5f;
                 const float y1 = cy + r.h * 0.5f;
-                DrawTexturedQuad(r.tex, x0, y0, x1, y1, 0.0f, 0.0f, 1.0f, 1.0f, 0xFFFFFFFFu, r.z);
+                DrawTexturedQuad(r.tex, x0, y0, x1, y1, r.u0, r.v0, r.u1, r.v1, 0xFFFFFFFFu, r.z);
                 ++g_iconsDrawn;
             }
         }
