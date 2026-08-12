@@ -314,15 +314,28 @@ std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
 // straight to the originals.
 bool g_inlineEnabled = true;
 // Manual suppression override (Lua _classicapi_InlineTexSuppress) — normally
-// unused; the automatic editbox-focus check below covers the real case.
+// unused. Editbox exclusion is per-node via NodeEditable (below), not a global.
 bool g_suppressInline = false;
 
 // True while an EditBox has keyboard focus (the engine's cursor global is set).
-// We suppress icon RECORDING + measure intervention (but NOT the flush of
-// already-recorded display icons) while input is active, so a focused input
-// field shows raw, editable `|T…|t` markup while cached display text keeps its
-// icons. This is the engine's own focus signal — the one that drives the text
-// cursor — so it needs no per-node guessing or Lua enumeration.
+// This is a GLOBAL signal (whole UI, not per-node), and it's the ONLY thing that
+// catches single-line focused inputs (chat entry box, pfChatCopyBox): unlike the
+// macro editor (node flags 0x4D, bit 6 set), those editboxes' text-layout nodes
+// are indistinguishable from display FontStrings by flags (both 0x0D/0x20D, bit 6
+// CLEAR — verified in-game), so NodeEditable can't catch them and there is no
+// per-node flag signal.
+//
+// It gates BOTH the tokenizer and the emitter, and the tokenizer half is
+// load-bearing for RENDER, not just measure: when the emitter suppresses an
+// editbox it delegates to the ORIGINAL emitter, which itself re-enters the
+// tokenizer to lay out glyphs (FUN_005ccbe0 calls FUN_005c2810). If the tokenizer
+// still intercepted, it would eat the `|T` span as a zero-width token and the
+// editbox would draw BLANK instead of raw markup (verified in-game). So the
+// tokenizer must ALSO stand down while an editbox is focused. That also makes the
+// focused editbox MEASURE its own text raw — correct, since its caret/width must
+// match the raw glyphs it's showing. The only imprecision is a display FontString
+// measured WHILE an editbox happens to be focused (rare); in normal use
+// `GetStringWidth` runs unfocused and counts an icon as ~zero width.
 inline bool InputFocused() {
     return *reinterpret_cast<void *const *>(Offsets::VAR_FOCUSED_EDITBOX) != nullptr;
 }
@@ -452,8 +465,19 @@ Tokenizer_t g_tokenizerOriginal = nullptr;
 
 uint32_t __fastcall Tokenizer_h(uint8_t *text, int *bytesConsumed, uint32_t *colorOut,
                                 uint32_t flags, uint32_t *payloadOut) {
-    // Only intervene at a pipe when enabled, not suppressed, and not editable
-    // text (flags bit 0x40) — editboxes measure/wrap the raw markup literally.
+    // Intervene at a pipe when enabled, not suppressed, and flags bit 0x40 clear.
+    //
+    // That bit is load-bearing on the RENDER path (not just measure): when the
+    // emitter suppresses an editbox it delegates to the ORIGINAL emitter, which
+    // re-enters THIS tokenizer to lay out glyphs (FUN_005ccbe0 → FUN_005c2810).
+    // On that path `flags` is the node's own flags, and bit 0x40 (EDITABLE, set on
+    // the macro editor 0x4D) means "leave `|T` as literal text". Without the gate
+    // the span would be eaten as a zero-width token and the (unfocused) macro
+    // editor would draw BLANK instead of raw markup. Focused single-line inputs
+    // (chat / pfChatCopyBox) lack bit 6 and are covered by Suppressed() →
+    // InputFocused() instead. On the GetStringWidth measure path bit 0x40 is clear
+    // (verified: flags == 5), so the gate passes and an icon still measures
+    // ~zero — only a literal-markup editbox keeps the path text.
     if (g_inlineEnabled && !Suppressed() && (flags & 0x40u) == 0 && text != nullptr &&
         text[0] == '|') {
         const int span = InlineSpanLen(text);
@@ -835,9 +859,7 @@ int __fastcall Script_InlineTexStats(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(g_nodeIcons.size()));
     Game::Lua::PushNumber(L, static_cast<double>(g_iconsDrawn));
     Game::Lua::PushNumber(L, static_cast<double>(g_lastIconN));
-    Game::Lua::PushNumber(L, static_cast<double>(g_lastFocused));
-    Game::Lua::PushNumber(L, static_cast<double>(g_lastMono));
-    return 11;
+    return 9;
 }
 
 // _classicapi_InlineTexCap() -> latched, capturedLength, capturedText

@@ -194,31 +194,70 @@ measure width alone wouldn't deliver it. Deferred deliberately; revisit only if 
 consumer needs pixel-accurate icon width, and prefer approach (b) (cold hooks)
 over (a).
 
-### Editbox exclusion — node flag bit 6 (the hard-won one)
+**Focus-time caveat (not a bug).** The ~zero-width result holds only while no
+editbox is focused. Because the tokenizer stands down whenever `InputFocused()`
+is true (so editboxes render raw — see the editbox section), a `GetStringWidth`
+call made *while an editbox is focused* measures the icon's literal path text
+instead (e.g. `+184px` for a 34-char path). This bit the test harness: `/run
+TextureTest()` executes with the chat box still focused, so a same-frame measure
+was inflated. Real addon `GetStringWidth` calls happen during layout (unfocused),
+where the icon is ~zero width; defer the measure a frame past `/run` to see the
+true value. So the "gap" is: unfocused → icon ≈ 0 (short by one icon width);
+focused → icon ≈ its path text (the editbox-raw tradeoff), never the real icon
+width.
 
-Editable text must show raw, editable `|T…|t` markup, not rendered icons. 1.12's
-tokenizer, unlike 4.3.4's, has no per-render texture-disable bit (4.3.4 uses
-tokenizer flag **0x1000** to kill only `|T`, **0x800** to kill all escapes), and
-editbox text nodes are NOT distinguishable by class from the render node — the
-emitter can't reach the owning frame. Two attempts failed:
+### Editbox exclusion — two COMPLEMENTARY signals (bit 6 + focus global)
 
-- **Focused-editbox global `DAT_00cf4dc8`** (holds the editbox with keyboard
-  focus, cleared by `ClearFocus` = `FUN_0077e410`): works for single-line inputs
-  (chat) that rebuild on each keystroke, but a **multi-line editor (MacroFrameText)
-  builds its layout once, un-focused**, so it's never caught.
-- **Monochrome render flag `DAT_00c2b9dc`** (`FUN_005c8b70` sets it per group;
-  editbox content is the monochrome/"green box" path): un-set at MacroFrameText's
-  build time, and flickered as a flush gate. Dropped.
+Editable text must show raw, editable `|T…|t` markup, not rendered icons — you
+edit macros, tweak icon fields, copy/paste texture strings. **This is
+retail-correct, verified in-game on a modern client:** typing
+`|TInterface\Icons\INV_Misc_Coin_01:16|t` into the chat entry box OR a macro body
+shows it **raw** (no icon) — Blizzard neutralizes player-*typed* escape sequences
+as anti-abuse — while addon/system text (`AddMessage`, `GetCoinTextureString`)
+renders. Retail's discriminator is the text's SOURCE (trusted vs player-typed),
+not editbox-vs-display; a shift-clicked item link renders in the chat box because
+it's inserted through the trusted path, but a typed `|T`/`|c` does not. Our
+editbox-raw + display-renders split reproduces the same observable outcome. (One
+mechanism-level divergence we accept: our editbox-raw uses the GLOBAL focus signal
+below, so while an editbox is focused OTHER display text that rebuilds also
+briefly shows raw; retail suppresses per-source. Cosmetic, and a per-editbox fix
+would need hot-path text-buffer matching — not worth it.) 1.12's tokenizer,
+unlike 4.3.4's, has no per-render texture-disable bit (4.3.4 uses tokenizer flag
+**0x1000** to kill only `|T`, **0x800** to kill all escapes), and editbox text
+nodes are NOT distinguishable by class from the render node — the emitter can't
+reach the owning frame. It takes **two signals together**, not one (an earlier
+version of this note wrongly called the focus global a redundant "belt-and-
+suspenders fallback" — removing it renders the chat/copy boxes' `|T` as icons):
 
-The reliable signal is **node flags `[node+0x5c]` bit 6 (0x40) = EDITABLE**
-(verified in-game: macro editbox `0x4D`, chat display `0x20D`, FontStrings
-`0x0D`). It's a per-node property the emitter/tokenizer don't otherwise use, and
-it **rides in the tokenizer's flags argument** — so we suppress inline rendering
-per node in the tokenizer, emitter, and flush. This is the 1.12 analog of
-4.3.4's per-render texture-disable flag. The focus global is kept as a belt-and-
-suspenders fallback. (The editbox class vtable is `0x0081c8c0`, its script-slot
-resolver `FUN_0077a310` with focus slots at `+0x438`/`+0x440` — useful if a
-frame-level hook is ever needed, but bit 6 made it unnecessary.)
+- **Node flag `[node+0x5c]` bit 6 (0x40) = EDITABLE** — catches the **macro
+  editor** (`MacroFrameText`, flags `0x4D`), which builds its layout once,
+  **un-focused**, so the focus global never sees it. But single-line inputs
+  (chat entry box, `pfChatCopyBox`) have bit 6 **CLEAR** — their nodes are
+  `0x0D`/`0x20D`, identical to display FontStrings — so bit 6 can't catch them.
+- **Focused-editbox global `DAT_00cf4dc8`** (`InputFocused()`; holds the editbox
+  with keyboard focus, cleared by `ClearFocus` = `FUN_0077e410`) — catches those
+  single-line inputs. It's GLOBAL (true UI-wide, not per-node), which is why,
+  while an editbox is focused, other display text that *rebuilds* also briefly
+  renders raw. That's an accepted tradeoff: there is no per-node signal for
+  single-line inputs, and when you're in an editbox seeing raw markup is what you
+  want anyway.
+
+**Why the tokenizer's bit-6 gate is load-bearing for RENDER, not just measure:**
+when the emitter suppresses an editbox it delegates to the ORIGINAL emitter,
+which **re-enters the tokenizer** to lay out glyphs (`FUN_005ccbe0` →
+`FUN_005c2810`). On that render path `flags` is the node's own flags, so bit
+0x40 makes the tokenizer stand down and the `|T` draws as literal text. Drop the
+bit-6 gate and the (un-focused) macro editor draws **BLANK** — the tokenizer eats
+the span as a zero-width token and the original emitter renders nothing (verified
+in-game). Focused single-line inputs get the same "don't intercept" via
+`Suppressed()` → `InputFocused()`. So both the emitter and the tokenizer consult
+`Suppressed() || bit-6`; the two must agree or you get blank-vs-raw mismatches.
+
+(Dead end: **monochrome render flag `DAT_00c2b9dc`** (`FUN_005c8b70` sets it per
+group) — un-set at MacroFrameText's build time and flickered as a flush gate.
+Dropped. The editbox class vtable is `0x0081c8c0`, its script-slot resolver
+`FUN_0077a310` with focus slots at `+0x438`/`+0x440` — useful if a frame-level
+hook is ever needed.)
 
 ### Descriptor fields + the vertical flip
 
