@@ -398,8 +398,9 @@ inline bool NodeEditable(const void *node) {
 float g_vBias = 0.0f;     // extra node-local Y added to the icon centre (fine-tune)
 float g_sizeScale = 1.0f; // multiplies the parsed icon size
 // Icon vertical centre = penY + fontHeight * centerFrac. penY sits near the
-// text top, so ~0.5 centres the icon on the line regardless of font size.
-float g_centerFrac = 0.5f;
+// text top; ~0.6 centres the icon on the line across the fonts we render into
+// (chat + pfUI's bubble), tuned in-game via _classicapi_InlineTexTune.
+float g_centerFrac = 0.6f;
 
 // --- diagnostics (temporary; strip once the path is proven) ----------------
 // Localize where the pipeline breaks: does the emitter fire for the text under
@@ -654,6 +655,27 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         if (firstLine)
             g_emitterOriginal(node, edx, text, 0, colorState, penXYZ, pageMask, linkState);
         *flagsPtr = savedFlags & ~8u;
+
+        // Clearing bit 3 switches the engine from the FontString's UNIFORM colour
+        // to PER-GLYPH colour taken from colorState. Chat lines carry their colour
+        // as `|cAARRGGBB…|r` codes in the text, so the per-glyph path colours them
+        // correctly. But a standalone FontString coloured via SetTextColor with
+        // plain text (e.g. pfUI's reskinned speech bubble) keeps its colour in the
+        // SetTextColor slot (`*(u32**)(fs+0xB8)` → 0xAARRGGBB), NOT colorState — so
+        // colorState defaults to black and the segmented glyphs render black. When
+        // the current glyph colour is black-RGB, inject the SetTextColor value so
+        // those glyphs keep the intended colour. The guard leaves `|c`-driven text
+        // (non-black colorState) untouched, so chat is unaffected.
+        // Clearing bit 3 switches the engine from the FontString's UNIFORM colour
+        // (RGB from SetTextColor + opacity applied wholesale) to PER-GLYPH colour
+        // taken from colorState = [node+0x2c]. That field's RGB is correct, but its
+        // ALPHA byte is a stale default (observed 0x07 ≈ 3%) rather than the
+        // FontString's real opacity — so the segmented glyphs draw ~transparent,
+        // and a FontString with a dark outline (pfUI's reskinned bubble) shows only
+        // the outline: "black text". Force the glyph alpha opaque, keeping the RGB
+        // (so a coloured bubble stays its colour). `|c`-driven text already carries
+        // alpha 0xFF, so this is a no-op for chat lines.
+        colorState[0] |= 0xFF000000u;
     }
 
     // Font pixel height of this line — used to centre icons vertically (penY
@@ -674,6 +696,38 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     const float penY = penXYZ[1];
     const float penZ = penXYZ[2];
     float penX = penXYZ[0];
+
+    // Centre/right-justify correction. The engine positioned the pen
+    // (penXYZ[0]) using this line's MEASURED width, which counts inline icons as
+    // ~zero (the tokenizer measure gap). The rendered line is wider by the icons'
+    // reserved width, so a centred line overflows its box to the right (empty
+    // space on the left) and a right-aligned line overflows past the right edge.
+    // Pre-sum this line's icon widths and shift the pen left by half that (centre)
+    // or all of it (right) so the whole text+icons block is justified as a unit.
+    // Left-justify (chat, justify 0) needs no shift. node+0x54: 1 = centre,
+    // 2 = right (verified in the draw builder FUN_005cdc20's justify branch).
+    const int justify =
+        *reinterpret_cast<const int *>(reinterpret_cast<const uint8_t *>(node) + 0x54);
+    if (justify == 1 || justify == 2) {
+        float iconW = 0.0f;
+        for (int k = 0; k < len;) {
+            const int ml = IconStartLen(text, len, k);
+            if (ml == 0) {
+                ++k;
+                continue;
+            }
+            int cl = 0;
+            const size_t ce = FindIconClose(text, len, static_cast<size_t>(k) + ml, ml == 3, &cl);
+            if (ce == static_cast<size_t>(-1))
+                break;
+            IconDesc d;
+            const char *pl = reinterpret_cast<const char *>(text) + k + ml;
+            if (ParseIcon(pl, ce - (static_cast<size_t>(k) + ml), d))
+                iconW += (d.width > 0.0f ? d.width : d.height) * g_sizeScale;
+            k = static_cast<int>(ce) + cl;
+        }
+        penX -= (justify == 1) ? iconW * 0.5f : iconW;
+    }
 
     // Draws a plain run [start,start+n) via the original emitter, threading the
     // pen: the original starts at penXYZ[0] and leaves the final node-local pen

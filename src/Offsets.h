@@ -754,8 +754,9 @@ enum Offsets {
     //
     // Hooked (once) by `Chat::Dispatch`, which orchestrates the concerns
     // sharing this choke point: `Chat::CurrentGUID` (publish the sender
-    // GUID for `GetCurrentChatGUID()`) and `Chat::IconFilter` (strip
-    // player-injected `|T` icon spoofs from chat + speech bubbles).
+    // GUID for `GetCurrentChatGUID()`), `Chat::IconFilter` (strip
+    // player-injected `|T` icon spoofs from chat + speech bubbles), and
+    // `Chat::RaidMarkers` (expand `{rtN}`/`{skull}`/… into inline markers).
     FUN_CHAT_DISPATCH = 0x0049A870,
     // Per-player inventory manager lives at this offset on the player object.
     // +0x00 = u32 slot count (OFF_INVMGR_SLOT_COUNT), +0x04 = u64* GUID
