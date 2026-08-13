@@ -737,9 +737,13 @@ enum Offsets {
     // (opcode 0x96 → FUN_0049D560) parses the wire data. Called with
     // the sender GUID as stack args 9 and 10 (lo, hi).
     //
-    // Calling convention: `__fastcall` with 10 args — ECX = sender
-    // name string, EDX = chat type, then 8 stack args ending in the
-    // GUID pair. Called from:
+    // Calling convention: `__fastcall`, `RET 0x28` — ECX = the MESSAGE
+    // text, EDX = chat type, then 10 stack args ending in the sender
+    // GUID pair (lo, hi). (ECX was previously mislabeled "sender name";
+    // verified from the call-site disassembly in FUN_0049D560 —
+    // `MOV ECX,[EBP-0x10]` is the raw/processed message. The message is
+    // copied into one buffer that feeds BOTH the chat frame and the
+    // say/yell bubble spawn FUN_00608AC0.) Called from:
     //   - FUN_0049D560 directly for live (non-throttled) chat
     //   - The pending-chat queue processor (`__AUPENDINGCHAT`) for
     //     messages buffered via FUN_0049CAE0 when the engine flag at
@@ -748,9 +752,10 @@ enum Offsets {
     //     (system notifications, arena team membership changes, etc.)
     //     which pass 0 / NULL for the GUID args
     //
-    // Hooked by `Chat::CurrentGUID::ChatDispatch_h` to capture the
-    // GUID into a global for `GetCurrentChatGUID()` to read during an
-    // addon's CHAT_MSG_* OnEvent.
+    // Hooked (once) by `Chat::Dispatch`, which orchestrates the concerns
+    // sharing this choke point: `Chat::CurrentGUID` (publish the sender
+    // GUID for `GetCurrentChatGUID()`) and `Chat::IconFilter` (strip
+    // player-injected `|T` icon spoofs from chat + speech bubbles).
     FUN_CHAT_DISPATCH = 0x0049A870,
     // Per-player inventory manager lives at this offset on the player object.
     // +0x00 = u32 slot count (OFF_INVMGR_SLOT_COUNT), +0x04 = u64* GUID

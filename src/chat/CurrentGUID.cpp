@@ -18,29 +18,19 @@
 // against an internal cache to identify the player. With this we
 // just read the GUID directly.
 //
-// Implementation: the SMSG_MESSAGECHAT handler at FUN_0049D560 reads
-// the senderGUID from the packet (offsets `[ebp-0x10]` / `[ebp-0xC]`
-// in that function's stack frame) and forwards it as args 9-10 to
-// the chat dispatcher at FUN_0049A870. The dispatcher in turn fires
-// the appropriate CHAT_MSG_* event during its execution. We hook the
-// dispatcher's entry, stash the GUID into a file-scope global, call
-// the original (which fires the event synchronously), then clear the
-// global on return. Inside the addon's OnEvent, `GetCurrentChatGUID`
-// reads the global.
-//
-// Why not hook the SMSG handler directly: the GUID isn't in argument
-// registers/stack at the handler's entry — it's read mid-function
-// into locals. Hooking the dispatcher (which receives the GUID as
-// args) is structurally simpler. The trade-off: the dispatcher is
-// also called for synthetic chat (system notifications, arena team
-// events, etc.) with GUID = 0; for those, `GetCurrentChatGUID()`
-// returns nil — matches the modern API's behavior of nil GUID for
-// non-player-sourced chat.
+// The GUID is published for the duration of a chat dispatch by a
+// `DispatchScope` (see the header), which Chat::Dispatch — the single
+// owner of the FUN_0049A870 chat-dispatch hook — constructs around the
+// original call. The engine fires the CHAT_MSG_* event synchronously
+// inside that call, so `GetCurrentChatGUID` reads the right GUID from
+// the addon's OnEvent. The dispatcher is also called for synthetic chat
+// (system notifications, arena team events, etc.) with GUID = 0; for
+// those `GetCurrentChatGUID()` returns nil — matching the modern API's
+// behavior of a nil GUID for non-player-sourced chat.
 
 #include "CurrentGUID.h"
 
 #include "Game.h"
-#include "Offsets.h"
 #include "guid/Guid.h"
 
 #include <cstdint>
@@ -69,39 +59,17 @@ void RegisterLuaFunctions() {
 
 } // namespace
 
-ChatDispatch_t ChatDispatch_o = nullptr;
+DispatchScope::DispatchScope(uint32_t guidLo, uint32_t guidHi)
+    : prevLo_(g_currentGuidLo), prevHi_(g_currentGuidHi) {
+    g_currentGuidLo = guidLo;
+    g_currentGuidHi = guidHi;
+}
 
-void __fastcall ChatDispatch_h(
-    const char *sender, int chatType,
-    int arg3, int arg4, int arg5, int arg6, int arg7,
-    int targetGuidLo, int targetGuidHi, int arg10,
-    int senderGuidLo, int senderGuidHi)
-{
-    // Save before original — the engine's chat event fires DURING
-    // origCall, and the addon's OnEvent runs synchronously inside
-    // that window. The GUID must be readable at that point.
-    const uint32_t prevLo = g_currentGuidLo;
-    const uint32_t prevHi = g_currentGuidHi;
-    g_currentGuidLo = static_cast<uint32_t>(senderGuidLo);
-    g_currentGuidHi = static_cast<uint32_t>(senderGuidHi);
-
-    ChatDispatch_o(sender, chatType, arg3, arg4, arg5, arg6, arg7,
-                   targetGuidLo, targetGuidHi, arg10,
-                   senderGuidLo, senderGuidHi);
-
-    // Restore prior value rather than clearing to 0, so nested
-    // dispatch (one chat event firing during another's OnEvent —
-    // e.g. an addon calling SendChatMessage from its handler) leaves
-    // the outer context's GUID intact when the inner returns.
-    g_currentGuidLo = prevLo;
-    g_currentGuidHi = prevHi;
+DispatchScope::~DispatchScope() {
+    g_currentGuidLo = prevLo_;
+    g_currentGuidHi = prevHi_;
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
-
-static const Game::HookAutoRegister _hookreg{
-    Offsets::FUN_CHAT_DISPATCH,
-    reinterpret_cast<void *>(&ChatDispatch_h),
-    reinterpret_cast<void **>(&ChatDispatch_o)};
 
 } // namespace Chat::CurrentGUID
