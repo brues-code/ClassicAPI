@@ -870,7 +870,30 @@ void FlushLayout(void *layout) {
             break;
         ++g_flushNodesSeen;
         auto *n = reinterpret_cast<uint8_t *>(node);
+        // Does this node's CURRENT text still carry inline-texture markup? The
+        // chat frame reuses its line FontStrings: when a line is cleared (text set
+        // empty) or reused for markup-free text, the draw builder early-returns on
+        // it, so the emitter never runs and never erases the old icon record. That
+        // record is then STALE — drawing it paints ghost icons at the FontString's
+        // parked position (seen in-game as a strip of icons at the bottom of the
+        // screen). So gate the draw on the live text still having `|T`; if not, the
+        // record is stale — drop it and skip.
+        const uint8_t *ntext = *reinterpret_cast<uint8_t *const *>(n + Offsets::OFF_TEXT_NODE_TEXT);
+        bool hasMarkup = false;
+        if (LooksReadable(ntext)) {
+            for (int k = 0; k < 2048 && ntext[k] != '\0'; ++k)
+                if (ntext[k] == '|' && ntext[k + 1] == 'T') {
+                    hasMarkup = true;
+                    break;
+                }
+        }
         auto it = g_nodeIcons.find(node);
+        if (it != g_nodeIcons.end() && !it->second.empty() && !hasMarkup) {
+            // Stale record — the node's text no longer has markup. Drop it.
+            g_nodeIcons.erase(it);
+            node = *reinterpret_cast<void **>(n + linkOff + 4);
+            continue;
+        }
         // Never draw icons over editable text (flags bit 6) — safety net for any
         // records made before the emitter's editable-suppress applied.
         if (it != g_nodeIcons.end() && !it->second.empty() && !NodeEditable(node)) {
