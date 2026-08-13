@@ -318,28 +318,70 @@ bool g_inlineEnabled = true;
 bool g_suppressInline = false;
 
 // True while an EditBox has keyboard focus (the engine's cursor global is set).
-// This is a GLOBAL signal (whole UI, not per-node), and it's the ONLY thing that
-// catches single-line focused inputs (chat entry box, pfChatCopyBox): unlike the
-// macro editor (node flags 0x4D, bit 6 set), those editboxes' text-layout nodes
-// are indistinguishable from display FontStrings by flags (both 0x0D/0x20D, bit 6
-// CLEAR — verified in-game), so NodeEditable can't catch them and there is no
-// per-node flag signal.
-//
-// It gates BOTH the tokenizer and the emitter, and the tokenizer half is
-// load-bearing for RENDER, not just measure: when the emitter suppresses an
-// editbox it delegates to the ORIGINAL emitter, which itself re-enters the
-// tokenizer to lay out glyphs (FUN_005ccbe0 calls FUN_005c2810). If the tokenizer
-// still intercepted, it would eat the `|T` span as a zero-width token and the
-// editbox would draw BLANK instead of raw markup (verified in-game). So the
-// tokenizer must ALSO stand down while an editbox is focused. That also makes the
-// focused editbox MEASURE its own text raw — correct, since its caret/width must
-// match the raw glyphs it's showing. The only imprecision is a display FontString
-// measured WHILE an editbox happens to be focused (rare); in normal use
-// `GetStringWidth` runs unfocused and counts an icon as ~zero width.
+// Diagnostic-only now — suppression keys on the focused editbox's BUFFER, not
+// this global (see TextInFocusedEditbox below).
 inline bool InputFocused() {
     return *reinterpret_cast<void *const *>(Offsets::VAR_FOCUSED_EDITBOX) != nullptr;
 }
-inline bool Suppressed() { return g_suppressInline || InputFocused(); }
+
+// True if `t` points into [buf, buf+strlen(buf)] — a TIGHT, exact extent (bounded
+// strlen, cap 0x4000). The editbox's buffers are distinct heap allocations, so an
+// in-range pointer is unambiguously that buffer's, with no false-match cap. Guards
+// every deref: a null/unreadable buffer or below-range pointer just returns false.
+bool PtrInBuffer(const uint8_t *t, const uint8_t *buf) {
+    if (!LooksReadable(buf) || t < buf)
+        return false;
+    size_t n = 0;
+    while (n < 0x4000u && buf[n] != '\0')
+        ++n;
+    return t <= buf + n;
+}
+
+// True if `text` points into EITHER of the focused editbox's two text buffers —
+// i.e. this emit or tokenize is rendering or measuring the focused input field,
+// which must show and measure RAW `|T…|t` markup so its glyphs and caret stay in
+// sync. This is the PER-EDITBOX replacement for the old global focus check: it
+// suppresses only the focused field's own text, so chat-history icons/emotes keep
+// rendering while you type.
+//
+// The editbox keeps its text in TWO places (verified via Ghidra), and both must be
+// matched or the field desyncs (seen in-game: matching only the input buffer gave
+// raw WIDTH but a rendered icon):
+//   • INPUT buffer  ([fe+0x32C]/[fe+0x334]) — the caret/width MEASURE path reads it
+//     in place (FUN_0077da80 → FUN_00772ae0 → … → FUN_005c6940 loops the tokenizer).
+//   • DISPLAY buffer (*([fe+0x328]+0xF0))    — a SStrDup'd copy the editbox actually
+//     RENDERS from; the emitter's node text and the re-entrant render tokenizer see
+//     this one (FUN_00771d80 writes it; the emitter delegates to the original, which
+//     re-enters FUN_005c2810 with `text` inside this copy — else the span is eaten as
+//     a zero-width token and the editbox draws BLANK).
+//
+// Called only on pipe-leading tokens (~1% of tokenizer calls) and short-circuits
+// when nothing is focused, so the two bounded strlens are off the hot path. A
+// display FontString measured while an editbox is focused matches NEITHER buffer,
+// so an icon still measures ~zero there — correct, an improvement over the global.
+bool TextInFocusedEditbox(const void *text) {
+    const void *fe = *reinterpret_cast<const void *const *>(Offsets::VAR_FOCUSED_EDITBOX);
+    if (!LooksReadable(fe))
+        return false;
+    auto *f = reinterpret_cast<const uint8_t *>(fe);
+    auto *t = reinterpret_cast<const uint8_t *>(text);
+
+    // Input buffer (caret/measure path).
+    const uint8_t sel = f[Offsets::OFF_EDITBOX_BUFFER_SELECT];
+    const uint8_t *inBuf = *reinterpret_cast<const uint8_t *const *>(
+        f + ((sel & 8u) ? Offsets::OFF_EDITBOX_BUFFER_MASKED : Offsets::OFF_EDITBOX_BUFFER));
+    if (PtrInBuffer(t, inBuf))
+        return true;
+
+    // Display buffer (render path): the FontString copy at *([fe+0x328]+0xF0).
+    const uint8_t *fs = *reinterpret_cast<const uint8_t *const *>(
+        f + Offsets::OFF_EDITBOX_TEXT_FONTSTRING);
+    if (!LooksReadable(fs))
+        return false;
+    const uint8_t *dispBuf =
+        *reinterpret_cast<const uint8_t *const *>(fs + Offsets::OFF_FONTSTRING_TEXT);
+    return PtrInBuffer(t, dispBuf);
+}
 
 // A text node's flags (`[node+0x5c]`) bit 6 (0x40) distinguishes editable input
 // text (set on the macro editbox: flags 0x4D) from display text (chat 0x20D,
@@ -465,21 +507,22 @@ Tokenizer_t g_tokenizerOriginal = nullptr;
 
 uint32_t __fastcall Tokenizer_h(uint8_t *text, int *bytesConsumed, uint32_t *colorOut,
                                 uint32_t flags, uint32_t *payloadOut) {
-    // Intervene at a pipe when enabled, not suppressed, and flags bit 0x40 clear.
+    // Intervene at a pipe when enabled, not manually suppressed, flags bit 0x40
+    // clear, and the text is NOT the focused editbox's own buffer.
     //
-    // That bit is load-bearing on the RENDER path (not just measure): when the
-    // emitter suppresses an editbox it delegates to the ORIGINAL emitter, which
-    // re-enters THIS tokenizer to lay out glyphs (FUN_005ccbe0 → FUN_005c2810).
-    // On that path `flags` is the node's own flags, and bit 0x40 (EDITABLE, set on
-    // the macro editor 0x4D) means "leave `|T` as literal text". Without the gate
-    // the span would be eaten as a zero-width token and the (unfocused) macro
-    // editor would draw BLANK instead of raw markup. Focused single-line inputs
-    // (chat / pfChatCopyBox) lack bit 6 and are covered by Suppressed() →
-    // InputFocused() instead. On the GetStringWidth measure path bit 0x40 is clear
-    // (verified: flags == 5), so the gate passes and an icon still measures
-    // ~zero — only a literal-markup editbox keeps the path text.
-    if (g_inlineEnabled && !Suppressed() && (flags & 0x40u) == 0 && text != nullptr &&
-        text[0] == '|') {
+    // Bit 0x40 (EDITABLE, set on the macro editor 0x4D) means "leave `|T` as
+    // literal text" — it catches the macro editor on both render and measure.
+    // Single-line inputs (chat / pfChatCopyBox) lack bit 6, so TextInFocusedEditbox
+    // catches them instead: it stands the tokenizer down for the focused field's
+    // own text on BOTH the re-entrant render path (the suppressed emitter delegates
+    // to the original, which re-enters here with `text` inside feBuf — else the
+    // span is eaten as a zero-width token and the editbox draws BLANK) and its
+    // independent caret/width MEASURE (FUN_005c6940 loops this tokenizer), keeping
+    // the caret aligned with the raw glyphs. The check sits after `text[0] == '|'`
+    // so it runs only on pipe tokens. A display FontString measured while an editbox
+    // is focused is NOT in feBuf, so an icon still measures ~zero there — correct.
+    if (g_inlineEnabled && !g_suppressInline && (flags & 0x40u) == 0 && text != nullptr &&
+        text[0] == '|' && !TextInFocusedEditbox(text)) {
         const int span = InlineSpanLen(text);
         if (span > 0) {
             // Consume the whole escape as one glyph-type token with a payload
@@ -521,11 +564,14 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     }
 
     // Suppressed — render the node's text verbatim and drop any icons
-    // previously recorded for it, so editable input shows raw markup. Covers a
-    // focused editbox (focus global) and any editable node (flags bit 6),
-    // including un-focused multi-line editors. Display nodes that don't rebuild
-    // keep their icons (the flush is unaffected).
-    if (Suppressed() || (node != nullptr && NodeEditable(node))) {
+    // previously recorded for it, so editable input shows raw markup. Covers the
+    // FOCUSED editbox's own text (its `text` points into feBuf) and any editable
+    // node (flags bit 6, e.g. the un-focused macro editor), plus the manual
+    // override. Per-editbox now, not global: a chat-history node's text is not in
+    // feBuf, so its icons keep rendering while an editbox is focused. Display
+    // nodes that don't rebuild keep their icons (the flush is unaffected).
+    if (g_suppressInline || TextInFocusedEditbox(text) ||
+        (node != nullptr && NodeEditable(node))) {
         if (node != nullptr)
             g_nodeIcons.erase(node);
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);

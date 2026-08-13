@@ -6377,9 +6377,29 @@ enum Offsets {
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is
     // active. Written by EditBox SetFocus (`mov [0xcf4dc8],esi` @0x0077e3f8),
-    // cleared by ClearFocus (FUN_0077e410). We read it to suppress inline-icon
-    // rendering while any editbox is focused, so input fields show raw,
-    // editable `|T…|t` markup (cached display text keeps its icons). See the
-    // editbox vtable at 0x0081c8c0 / FUN_0077e410.
+    // cleared by ClearFocus (FUN_0077e410). We read it (plus the buffer offsets
+    // below) to identify the focused editbox's OWN text and suppress inline-icon
+    // rendering for JUST that text, so the input field shows raw, editable
+    // `|T…|t` markup while everything else (chat history icons/emotes) keeps
+    // rendering. See the editbox vtable at 0x0081c8c0 / FUN_0077e410.
     VAR_FOCUSED_EDITBOX = 0x00CF4DC8,
+    // CSimpleEditBox text-buffer layout — the editbox lays out and measures its
+    // text IN PLACE from these buffers (no internal copy), so its layout node's
+    // text pointer ([node+0x48]) and every wrapped-line text pointer point INTO
+    // this buffer. Verified from the caret positioner FUN_0077da80: it selects
+    // the buffer via `(*(byte*)(fe+0x318) & 8) ? *(char**)(fe+0x334) :
+    // *(char**)(fe+0x32C)` and measures substrings of it directly with
+    // FUN_00772ae0(fs, feBuf+off, n). Used by Text::InlineTexture to correlate a
+    // node/token to the focused editbox by pointer range.
+    OFF_EDITBOX_BUFFER_SELECT = 0x318, // byte; bit 3 (0x08) picks the masked buffer
+    OFF_EDITBOX_BUFFER = 0x32C,        // char* — normal text buffer
+    OFF_EDITBOX_BUFFER_MASKED = 0x334, // char* — masked/password variant buffer
+    // The editbox's DISPLAY FontString ([fe+0x328], param_1[0xca] in FUN_0077da80).
+    // Its rendered text is a COPY of the input buffer, stored at
+    // *(fs + OFF_FONTSTRING_TEXT) — the editbox lays out (renders) from this copy,
+    // NOT from the input buffer above (which only the caret/measure path reads in
+    // place). So identifying the focused editbox's own render nodes needs BOTH
+    // buffers. Verified: FUN_00771d80 (FontString SetText) writes the copy to
+    // *(this+0xF0) via SStrDup.
+    OFF_EDITBOX_TEXT_FONTSTRING = 0x328, // CSimpleFontString* — the display text object
 };
