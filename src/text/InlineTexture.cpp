@@ -574,15 +574,28 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     }
 
     // Suppressed — render the node's text verbatim and drop any icons previously
-    // recorded for it, so editable input shows raw markup. Covers the FOCUSED
+    // recorded for it, so editable INPUT shows raw markup. Covers the FOCUSED
     // editbox's own text (this render line's CONTENT equals the editbox input —
     // the editbox renders through a transient copy with no pointer link), the
-    // pointer path (`text` inside the input buffer, rare), any editable node
-    // (flags bit 6, e.g. the un-focused macro editor), and the manual override.
-    // Per-editbox, not global: a chat-history line's content differs, so its icons
-    // keep rendering while an editbox is focused.
+    // pointer path (`text` inside the input buffer, rare), a true INPUT box, and
+    // the manual override.
+    //
+    // An input box is editable (flags bit 6) AND has bit 3 (0x08): the macro
+    // editor is 0x4D, the name box 0xC8, the chat input 0xC8 — all carry 0x08.
+    // pfUI renders the chat SCROLLBACK through EDITABLE nodes too (flags 0x45,
+    // bit 6 but NOT bit 3); a blanket NodeEditable gate blanked every chat icon
+    // whenever that display was live (during scroll / as messages arrive — it
+    // looked like icons "vanishing"). Gating on bit 3 suppresses only real input
+    // boxes and leaves the chat display's icons intact. The focused input box's
+    // pointer/content match alone is NOT enough: its render form is pipe-DOUBLED
+    // (`||T`) while the input buffer is single-pipe, so the compare misses.
+    const bool inputBox =
+        node != nullptr && NodeEditable(node) &&
+        (*reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(node) +
+                                             Offsets::OFF_TEXT_NODE_FLAGS) &
+         0x08u) != 0;
     if (g_suppressInline || TextInFocusedEditbox(text) || EmitLineIsFocusedEditbox(text) ||
-        (node != nullptr && NodeEditable(node))) {
+        inputBox) {
         if (node != nullptr)
             g_nodeIcons.erase(node);
         // Bracket the delegated raw layout so the re-entrant tokenizer stands down
@@ -894,9 +907,11 @@ void FlushLayout(void *layout) {
             node = *reinterpret_cast<void **>(n + linkOff + 4);
             continue;
         }
-        // Never draw icons over editable text (flags bit 6) — safety net for any
-        // records made before the emitter's editable-suppress applied.
-        if (it != g_nodeIcons.end() && !it->second.empty() && !NodeEditable(node)) {
+        // Draw the node's recorded icons. No NodeEditable gate: a real input box
+        // is suppressed at the emitter (bit 3 + bit 6) so it never gets a record,
+        // while pfUI's editable chat SCROLLBACK (bit 6, no bit 3) legitimately
+        // records and must draw — gating on NodeEditable here would re-blank it.
+        if (it != g_nodeIcons.end() && !it->second.empty()) {
             const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
             const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
             for (const IconRecord &r : it->second) {
