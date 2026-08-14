@@ -98,6 +98,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "cursor/Info.h"
+#include "macro/Execute.h"
 #include "object/Resolve.h"
 #include "spell/AtCursor.h"
 #include "spell/AtUnit.h"
@@ -297,78 +298,6 @@ bool CallTableFunc2Str(void *L, const char *table, const char *method,
     }
     Game::Lua::SetTop(L, top);
     return called;
-}
-
-// ---- macrotext execution (stock ChatEdit_ParseText, no addon dependency) ----
-//
-// 1.12 has no `RunMacroText`/`RunMacro` global — those are addon shims (pfUI
-// wraps `ChatEdit_ParseText`; SuperCleveRoidMacros ships its own `RunMacro`).
-// To run macro text without depending on an addon, we replicate pfUI's shim in
-// C: build a throwaway "edit box" whose `GetText` returns the line and whose
-// every other method is a harmless no-op (via an `__index` metamethod), then
-// hand it to the stock FrameXML `ChatEdit_ParseText(editBox, 1)` — the same
-// path the real chat box uses to dispatch a slash command / send a line.
-
-// GetText: returns upvalue(1), the captured line.
-int __fastcall MacroGetText_c(void *L) {
-    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
-    return 1;
-}
-
-// A no-op standing in for any edit-box method the parser happens to call.
-int __fastcall MacroNoop_c(void *) { return 0; }
-
-// __index(tab, key): hand back the no-op so `editBox:AnyMethod()` is safe.
-int __fastcall MacroIndex_c(void *L) {
-    Game::Lua::PushCClosure(L, &MacroNoop_c, 0);
-    return 1;
-}
-
-// Runs a single macro line through the stock chat parser.
-void RunMacroLineC(void *L, const char *line, size_t len) {
-    if (len == 0) return;
-    const int top = Game::Lua::GetTop(L);
-
-    Game::Lua::NewTable(L);                    // fake editBox
-    const int obj = Game::Lua::GetTop(L);
-
-    Game::Lua::PushString(L, "GetText");       // obj.GetText = closure over line
-    Game::Lua::PushLString(L, line, static_cast<unsigned int>(len));
-    Game::Lua::PushCClosure(L, &MacroGetText_c, 1);
-    Game::Lua::SetTable(L, obj);
-
-    Game::Lua::NewTable(L);                     // metatable { __index = noop }
-    const int mt = Game::Lua::GetTop(L);
-    Game::Lua::PushString(L, "__index");
-    Game::Lua::PushCClosure(L, &MacroIndex_c, 0);
-    Game::Lua::SetTable(L, mt);
-
-    // No lua_setmetatable binding — use the Lua global.
-    if (Game::Lua::PushGlobalFunction(L, "setmetatable")) {
-        Game::Lua::PushValue(L, obj);
-        Game::Lua::PushValue(L, mt);
-        Game::Lua::Call(L, 2, 0);
-    }
-
-    if (Game::Lua::PushGlobalFunction(L, "ChatEdit_ParseText")) {
-        Game::Lua::PushValue(L, obj);
-        Game::Lua::PushNumber(L, 1);           // send = 1
-        Game::Lua::Call(L, 2, 0);
-    }
-
-    Game::Lua::SetTop(L, top);
-}
-
-// Runs macro text one line at a time — a real macro is line-delimited, and a
-// single ChatEdit_ParseText call only dispatches one command.
-void RunMacroTextC(void *L, const char *text) {
-    if (!text) return;
-    for (const char *p = text; *p;) {
-        const char *nl = p;
-        while (*nl && *nl != '\n') ++nl;
-        RunMacroLineC(L, p, static_cast<size_t>(nl - p));
-        p = (*nl == '\n') ? nl + 1 : nl;
-    }
 }
 
 // ---- mouse-focus poll (drives the native mouseover slot) -------------------
@@ -676,16 +605,14 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         // (which is what SuperCleveRoidMacros ships) can't interpret text and
         // would silently resolve nothing.
         if (ReadModAttr(L, fi, prefix, "macrotext", suffix, macro, sizeof macro)) {
-            RunMacroTextC(L, macro);
+            Macro::Execute::Text(L, macro);
             handled = true;
         }
         // Deprecated `macro` form: a saved-macro name/index. Prefer an
         // addon-provided RunMacro (SuperCleveRoidMacros, pfUI, …) to run the
         // named macro's body; fall back to the stock parser when none exists.
         else if (ReadModAttr(L, fi, prefix, "macro", suffix, macro, sizeof macro)) {
-            if (!Game::Lua::CallGlobalString(L, "RunMacro", macro))
-                RunMacroTextC(L, macro);
-            handled = true;
+            handled = Macro::Execute::Saved(L, macro);
         }
         // Restore the target the click swapped away from. `FUN_TARGET_BY_GUID`
         // validates the GUID resolves to a live unit and bails otherwise, so a

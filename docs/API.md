@@ -3799,7 +3799,107 @@ after `"target"` (matching retail order), so a focused unit's GUID
 reverse-resolves to `"focus"` only if it isn't already addressable
 as `"player"` / `"party*"` / `"raid*"` / `"nameplate*"` / `"target"`.
 
-### Bindings (`FOCUSTARGET` / `TARGETFOCUS`)
+## Bindings
+
+Backports the direct-action and temporary override binding APIs added in WoW
+2.0. The permanent helpers write later-client action command strings into
+vanilla's native binding table; the override helpers add a separate,
+session-only layer in front of that table.
+
+### Permanent direct-action bindings
+
+| Function | Equivalent command |
+|----------|--------------------|
+| `ok = SetBindingSpell(key, spell)` | `SetBinding(key, "SPELL " .. spell)` |
+| `ok = SetBindingItem(key, item)` | `SetBinding(key, "ITEM " .. item)` |
+| `ok = SetBindingMacro(key, macroNameOrIndex)` | `SetBinding(key, "MACRO " .. macroNameOrIndex)` |
+| `ok = SetBindingClick(key, buttonName [, mouseButton])` | `SetBinding(key, "CLICK " .. buttonName .. (mouseButton and ":" .. mouseButton or ""))` |
+
+`key` is any binding string accepted by the client, such as `"CTRL-F"`,
+`"SHIFT-BUTTON4"`, or `"F8"`. `spell`, `item`, `macroNameOrIndex`, and
+`buttonName` identify the action to perform. `macroNameOrIndex` accepts either
+a saved macro's name or its decimal index. `mouseButton` is passed to the
+button's click handler and defaults to `"LeftButton"`; when supplied, it is
+stored as the `:MouseButton` suffix of the `CLICK` command.
+
+Each helper returns `1` if vanilla's `SetBinding` changed the binding and
+`nil` otherwise. It changes whichever binding set is currently loaded, fires
+vanilla's normal `UPDATE_BINDINGS` notification, and is not persisted until
+the addon calls `SaveBindings`. Use vanilla `SetBinding(key)` to unbind a key;
+the typed helpers always require an action argument.
+
+The command hook also understands manually constructed `SPELL`, `ITEM`,
+`MACRO`, and `CLICK` strings passed directly to vanilla `SetBinding`.
+
+### Temporary override bindings
+
+```lua
+SetOverrideBinding(owner, isPriority, key [, command])
+SetOverrideBindingSpell(owner, isPriority, key, spell)
+SetOverrideBindingItem(owner, isPriority, key, item)
+SetOverrideBindingMacro(owner, isPriority, key, macroNameOrIndex)
+SetOverrideBindingClick(owner, isPriority, key, buttonName [, mouseButton])
+ClearOverrideBindings(owner)
+```
+
+`owner` must be a frame and `isPriority` must be a Boolean. The typed helpers
+construct the same four action strings shown above. The generic
+`SetOverrideBinding` also accepts ordinary Bindings.xml command names, which
+are delegated to vanilla's command executor. Override setters and
+`ClearOverrideBindings` return no values.
+
+Passing no `command` (or `nil`) to `SetOverrideBinding` removes that owner's
+override for `key`. `ClearOverrideBindings(owner)` removes every override
+belonging to that owner. Overrides never change or save the native binding
+table and are cleared whenever the FrameScript Lua state is recreated, such
+as on `/reload` or logout.
+
+Resolution order is:
+
+1. Priority override bindings.
+2. Non-priority override bindings.
+3. The normal native binding.
+
+When multiple owners set the same key at the same priority, the most recently
+set override wins. Removing it immediately reveals the next matching override
+or the unchanged native binding.
+
+### Action execution
+
+| Command | Execution path |
+|---------|----------------|
+| `SPELL name` | Calls vanilla `CastSpellByName(name)`. The usual `/cast` spell-name syntax is accepted. |
+| `ITEM item` | Calls `C_Item.UseItemByName(item)`, accepting the names, item strings, and item IDs supported by that API. |
+| `MACRO nameOrIndex` | Resolves a saved macro by name or decimal index. An addon-provided `RunMacro` is used when available; otherwise ClassicAPI resolves it with `GetMacroInfo` and dispatches its body through `ChatEdit_ParseText`. |
+| `CLICK ButtonName[:MouseButton]` | Resolves the named global frame and calls its ordinary `:Click(mouseButton)` method. The default is `LeftButton`. |
+
+`SetBindingMacro` and `SetOverrideBindingMacro` take a saved macro identifier,
+not literal macro text. To bind literal macro text, bind a named button whose
+ClassicAPI attributes describe a macro action:
+
+```lua
+local button = CreateFrame("Button", "MyMacroTextBindingButton")
+button:SetAttribute("type", "macro")
+button:SetAttribute("macrotext", "/say Bound macro text")
+
+SetBindingClick("CTRL-F7", button:GetName())
+```
+
+### 1.12 compatibility notes
+
+- There is no combat lockdown or secure execution. These functions remain
+  callable in combat, and `CLICK` invokes the frame's ordinary click path.
+- Direct actions run on key-down. The corresponding key-up is consumed; a
+  click binding does not emulate later clients' separate mouse-down and
+  mouse-up delivery.
+- The override layer is not reflected by vanilla `GetBindingAction`.
+  In particular, the later-client `GetBindingAction(key, true)` override query
+  is not backported.
+- Override ownership is explicit. Call `ClearOverrideBindings(owner)` when the
+  addon's owner is no longer needed; all remaining overrides are also cleared
+  when the Lua state is recreated.
+
+### Predefined focus bindings (`FOCUSTARGET` / `TARGETFOCUS`)
 
 Two key bindings appear in the keybind UI (`Esc` → Key Bindings)
 under the **Targeting Functions** group, between `PETATTACK` and the

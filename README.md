@@ -20,6 +20,7 @@ Full per-function reference: **[docs/API.md](docs/API.md)**.
 | [Action](docs/API.md#action) | `GetActionInfo` |
 | [AddOns](docs/API.md#addons) | `C_AddOns.DoesAddOnExist`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded` |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem` |
+| [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings` |
 | [Chat](docs/API.md#chat) | `GetCurrentChatGUID` |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |
@@ -202,6 +203,17 @@ when launching with `-console`), not as Lua functions. See the
 
 ### Bindings
 
+ClassicAPI backports the later-client direct-action and temporary override
+binding families. Permanent bindings use the standard `SPELL`, `ITEM`,
+`MACRO`, and `CLICK` command strings and can be saved normally. Overrides are
+session-only, frame-owned, and support the usual priority flag.
+
+See the [Bindings API reference](docs/API.md#bindings) for signatures,
+precedence, execution behavior, macro-text usage, and 1.12 compatibility
+notes.
+
+#### Predefined focus bindings
+
 Injected into the engine's **Targeting Functions** group at FrameXML
 Bindings.xml load time, so they appear in the keybind UI alongside
 native targeting bindings instead of orphaned at the bottom.
@@ -211,7 +223,8 @@ native targeting bindings instead of orphaned at the bottom.
 | `FOCUSTARGET` | `FocusUnit("target")` — pin current target as focus |
 | `TARGETFOCUS` | `TargetUnit("focus")` — switch target to the focus |
 
-See [Focus / Bindings](docs/API.md#bindings-focustarget--targetfocus) for the implementation note.
+See [Predefined focus bindings](docs/API.md#predefined-focus-bindings-focustarget--targetfocus)
+for the implementation note.
 
 ### Behaviors
 

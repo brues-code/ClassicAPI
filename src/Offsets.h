@@ -40,6 +40,29 @@ enum Offsets {
     // state, so `FrameScript_RegisterFunction` writes land on it.
     FUN_LOAD_GLUE_SCRIPT_FUNCTIONS = 0x0046ABB0,
 
+    // Binding manager internals used by the direct-action/override binding backport.
+    //
+    // Stock Lua `SetBinding` wrapper (`int __fastcall(lua_State *)`).
+    // The SetBindingSpell/Item/Macro/Click wrappers delegate to it after
+    // constructing their action command, preserving punctuation-key
+    // normalization, current-set selection, the Boolean return value, and the
+    // native UPDATE_BINDINGS notification.
+    FUN_SCRIPT_SET_BINDING = 0x004B8000,
+
+    // Hardware-key dispatch, before the normal binding table is resolved:
+    //   int __thiscall(manager, key, isDown)
+    // Hooking here lets owner-scoped override bindings remain a separate
+    // layer rather than temporarily mutating the character/account binding
+    // table. The normal dispatcher is called unchanged when no override wins.
+    FUN_BINDING_KEY_DISPATCH = 0x004B7990,
+
+    // Executes a resolved binding command:
+    //   int __thiscall(manager, command, isDown)
+    // Vanilla has no SPELL/ITEM/MACRO/CLICK direct-action command handlers. The
+    // hook recognizes those four families and delegates every native command
+    // to the client.
+    FUN_BINDING_COMMAND_EXECUTE = 0x004B7B50,
+
     // GameTooltip script-method prologue helpers (used to resolve self → CFrameScriptObject*).
     // Underlying Lua C API names per [[docs/LuaCAPI.md]] are `lua_rawgeti`
     // (0x6F3BC0) and `lua_touserdata` (0x6F3740). The Set* method prologue's
