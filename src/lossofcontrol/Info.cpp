@@ -202,7 +202,8 @@ int BuildList(LocEntry *out, int maxOut) {
             e.endMs = 0;
             uint64_t caster = 0;
             uint32_t expMs = 0, durMs = 0;
-            if (Aura::Source::Get(playerGuid, spellID, &caster, &expMs, &durMs) &&
+            if (Aura::Source::Get(playerGuid, spellID, slot, &caster, &expMs,
+                                  &durMs) &&
                 expMs != 0) {
                 e.endMs = expMs;
                 if (durMs != 0)

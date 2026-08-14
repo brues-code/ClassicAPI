@@ -19,7 +19,15 @@
 // the client ever sees the caster + a server-authoritative duration is the
 // `SMSG_SPELL_GO` packet at cast time. We parse it (the same packet
 // nampower parses for its `AURA_CAST_ON_*` events) and remember, per
-// `(targetGuid, spellId)`, who cast it and when it should expire.
+// `(targetGuid, spellId, casterGuid)`, who cast it and when it should expire.
+//
+// The caster belongs in that key because it belongs in the server's: two
+// same-class raiders' Corruption on one boss are two auras in two descriptor
+// slots, and a `(target, spell)` cache holds one entry for both — the second
+// cast overwrites the first caster's timing, and either copy falling off
+// evicts the survivor's entry too. The descriptor stores only spell IDs, so
+// each entry additionally records the slot its aura was seated in
+// (`OnAuraAdded`), which is what lets a per-slot query name the right instance.
 //
 // `Aura::Data::Push` consults this to fill `sourceUnit` (caster, resolved
 // to a unit token) and `expirationTime` for non-player units. The cache is
@@ -31,15 +39,25 @@
 
 namespace Aura::Source {
 
-// Looks up the cached caster + timing for the aura `spellId` currently on
-// the unit identified by `unitGuid`. Returns true and fills the out params
-// on a hit. `*outExpirationMs` is an absolute `GetTickCount`-epoch timestamp
-// (0 = unknown / infinite-duration aura); `*outDurationMs` is the applied
-// duration including the caster's modifiers (talents etc.; 0 = none) — use
-// it for the `duration` field so it stays consistent with `expirationTime`;
-// `*outCaster` is the caster's 64-bit GUID (never 0 on a hit). Returns false
-// on a miss or for zero inputs.
-bool Get(uint64_t unitGuid, uint32_t spellId, uint64_t *outCaster,
+// `slot` value for a query with no descriptor slot to go on (out-of-range
+// group array, cache fallback) and for an entry not yet seated in one.
+constexpr int SLOT_UNBOUND = -1;
+
+// Looks up the cached caster + timing for the aura `spellId` occupying
+// absolute descriptor `slot` on the unit identified by `unitGuid`. Returns
+// true and fills the out params on a hit. `*outExpirationMs` is an absolute
+// `GetTickCount`-epoch timestamp (0 = unknown / infinite-duration aura);
+// `*outDurationMs` is the applied duration including the caster's modifiers
+// (talents etc.; 0 = none) — use it for the `duration` field so it stays
+// consistent with `expirationTime`; `*outCaster` is the caster's 64-bit GUID
+// (0 when the aura was seen applied but its cast never observed). Returns
+// false on a miss or for zero inputs.
+//
+// Pass `SLOT_UNBOUND` when the caller has no slot. Resolution is by slot
+// first, then by spell ID when the unit carries only one entry for it; two
+// casters' entries with no slot binding resolve to a miss rather than to a
+// coin flip between them.
+bool Get(uint64_t unitGuid, uint32_t spellId, int slot, uint64_t *outCaster,
          uint32_t *outExpirationMs, uint32_t *outDurationMs);
 
 // Refreshes `casterGuid`'s aura on `unitGuid` matching the same selector the
@@ -76,19 +94,27 @@ struct CachedAura {
     uint64_t casterGuid;   // 0 = caster unknown (application hook, no SpellGo)
     uint32_t expirationMs; // 0 = infinite / unknown
     uint32_t durationMs;   // applied duration (incl. caster mods); 0 = none
+    int slot;              // descriptor slot the aura was seated in; feed it
+                           // back to `Get` to reach this exact entry again
 };
 
-// Evicts every cached entry for `unitGuid` whose spellId is NOT present in
-// `presentSpellIds[0..count)`. Used to reconcile the cache against a unit's
-// authoritative descriptor when it is back in view (a populated aura array
-// means the unit is fully synced): an entry the descriptor no longer lists
-// was removed while we couldn't observe it — e.g. a buff the owner cancelled
-// while out of our range, whose `OnAuraRemoved` we never received — so drop
-// it before the descriptor-drop fallback resurfaces it as a phantom. The
-// caller must only invoke this when the descriptor is populated (count > 0);
-// an empty array can't distinguish "out of range" from "genuinely buffless",
-// so reconciling then would wrongly wipe still-valid out-of-range entries.
-void EvictAbsent(uint64_t unitGuid, const uint32_t *presentSpellIds, int count);
+// Evicts every cached entry for `unitGuid` the unit's descriptor contradicts.
+// `slotSpellIds` is the raw `UNIT_FIELD_AURA` array — exactly
+// `Offsets::UNIT_AURA_TOTAL` spell IDs indexed by absolute slot, 0 for empty.
+// Used to reconcile the cache against a unit's authoritative descriptor when
+// it is back in view (a populated aura array means the unit is fully synced):
+// an entry the descriptor no longer backs was removed while we couldn't
+// observe it — e.g. a buff the owner cancelled while out of our range, whose
+// `OnAuraRemoved` we never received — so drop it before the descriptor-drop
+// fallback resurfaces it as a phantom.
+//
+// An entry seated in a slot is checked against THAT slot, so one caster's
+// copy going away retires its own entry even while another caster keeps the
+// spell ID present on the unit. Entries never seated are checked against the
+// whole array. An all-empty array is ignored: it can't distinguish "out of
+// range" from "genuinely buffless", and reconciling then would wrongly wipe
+// still-valid out-of-range entries.
+void EvictAbsent(uint64_t unitGuid, const uint32_t *slotSpellIds);
 
 // Fills `out` with up to `maxOut` cached, non-expired auras on `unitGuid`
 // whose helpful/harmful classification matches `harmful`. Returns the count

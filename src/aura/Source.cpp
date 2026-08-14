@@ -122,6 +122,18 @@ bool WasRecentPlayerCast(uint32_t spellId) {
 // application hook fires for the same aura.
 enum Kind : int8_t { KIND_UNKNOWN = -1, KIND_HELPFUL = 0, KIND_HARMFUL = 1 };
 
+// An entry is one AURA INSTANCE, identified the way the server identifies one:
+// `(target, spell, caster)`. Two same-class raiders' Corruption on one boss are
+// two auras occupying two descriptor slots, so a `(target, spell)` identity
+// collapses them into one entry — the later cast overwrites the earlier
+// caster's timing, and `OnAuraRemoved` for either copy evicts both.
+//
+// The descriptor only stores spell IDs, so recovering WHICH instance a slot
+// holds needs the slot bound to its entry. SpellGo knows the caster but no
+// slot; `OnAuraAdded` knows the slot but no caster. They arrive in that order
+// (SpellGo, then the SMSG_UPDATE_OBJECT that seats the aura), so the
+// application hook binds the cast capture it belongs to — the newest entry for
+// this `(target, spell)` still awaiting a slot.
 struct Entry {
     uint64_t targetGuid;
     uint64_t casterGuid;
@@ -129,12 +141,13 @@ struct Entry {
     uint32_t expirationMs; // 0 = infinite / unknown duration
     uint32_t durationMs;   // applied duration (incl. caster mods); 0 = none
     uint32_t stampMs;      // last write time; EvictAbsent grace (see below)
+    int16_t slot;          // absolute descriptor slot, SLOT_UNBOUND until bound
     int8_t kind;           // Kind; descriptor-slot-derived, KIND_UNKNOWN if only seen via SpellGo
     bool used;
 };
 
 // Sized for the realistic worst case: a fully raid-buffed 40-man plus its
-// debuff load. We cache one entry per (target, spellId) for EVERY
+// debuff load. We cache one entry per (target, spellId, caster) for EVERY
 // aura-applying SMSG_SPELL_GO we observe — not just auras on the player, but
 // every buff cast on every unit in view — so the live working set in a raid
 // is ~40 members × ~30 persistent buffs ≈ 1200, plus debuffs. At the old 256
@@ -142,7 +155,9 @@ struct Entry {
 // dropping their source (the "lost sourceGUID on a buff" report). 2048 gives
 // a fully-buffed 40-man comfortable headroom; the tick sweep still reclaims
 // expired/orphaned entries so it rarely approaches full outside a raid.
-// (~40 bytes/entry → ~80 KB static.)
+// (~40 bytes/entry → ~80 KB static.) Per-caster identity adds one entry per
+// extra caster of the same spell on one target, which is bounded by the 16
+// debuff slots that can hold them.
 constexpr int kCacheSize = 2048;
 Entry g_cache[kCacheSize];
 
@@ -187,48 +202,68 @@ bool DescriptorListsAura(uint64_t guid, uint32_t spellId) {
     return false;
 }
 
-// `fromCast` true: the SpellGo hook — authoritative caster + caster-modified
-// (talented) timing. False: the OnAuraAdded application hook — timing only,
-// no caster, and it must not clobber an entry SpellGo already owns (that
-// would replace talented timing with the unmodified base), so it skips
-// entries that already carry a caster.
-void Store(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid,
-           uint32_t expirationMs, uint32_t durationMs, bool fromCast,
-           int8_t kind) {
-    if (targetGuid == 0 || spellId == 0)
-        return;
+// ---- Entry lookup --------------------------------------------------------
 
-    const uint32_t now = NowMs();
+// The exact aura instance `caster` has on `targetGuid` — the server's own
+// identity for one aura, and what a repeat cast refreshes.
+Entry *FindByCaster(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid) {
+    for (auto &e : g_cache)
+        if (e.used && e.targetGuid == targetGuid && e.spellId == spellId &&
+            e.casterGuid == casterGuid)
+            return &e;
+    return nullptr;
+}
 
-    // Update an existing entry for this exact aura instance.
+// The instance seated in descriptor slot `slot`.
+Entry *FindBySlot(uint64_t targetGuid, uint32_t spellId, int slot) {
+    if (slot < 0)
+        return nullptr;
+    for (auto &e : g_cache)
+        if (e.used && e.targetGuid == targetGuid && e.spellId == spellId &&
+            e.slot == slot)
+            return &e;
+    return nullptr;
+}
+
+// The newest cast capture for this aura still awaiting a descriptor slot —
+// what an `OnAuraAdded` for `(target, spell)` is seating. Newest wins because
+// SpellGo precedes the application by a packet, so the freshest unbound entry
+// is the cast that just landed; an older one is a capture that never seated
+// (fully resisted, immune) and is left to expire on its own.
+Entry *FindFreshestUnbound(uint64_t targetGuid, uint32_t spellId) {
+    Entry *best = nullptr;
+    for (auto &e : g_cache)
+        if (e.used && e.targetGuid == targetGuid && e.spellId == spellId &&
+            e.slot == SLOT_UNBOUND && (best == nullptr || e.stampMs > best->stampMs))
+            best = &e;
+    return best;
+}
+
+// The one entry for `(target, spell)`, or null when there are none or several.
+// Several means two casters and no way to tell their instances apart from a
+// spell ID alone, which is exactly when guessing is what produces a wrong
+// caster and a wrong timer.
+Entry *FindSole(uint64_t targetGuid, uint32_t spellId) {
+    Entry *found = nullptr;
     for (auto &e : g_cache) {
-        if (e.used && e.targetGuid == targetGuid && e.spellId == spellId) {
-            e.stampMs = now; // refresh EvictAbsent grace on any touch
-            // Learn the classification whenever a slot-derived kind arrives —
-            // independent of caster/timing ownership, and never downgrade a
-            // known kind back to unknown.
-            if (kind != KIND_UNKNOWN)
-                e.kind = kind;
-            if (!fromCast && e.casterGuid != 0)
-                return; // SpellGo owns this entry; keep its caster + timing
-            if (casterGuid != 0)
-                e.casterGuid = casterGuid;
-            e.expirationMs = expirationMs;
-            e.durationMs = durationMs;
-            return;
-        }
+        if (!e.used || e.targetGuid != targetGuid || e.spellId != spellId)
+            continue;
+        if (found != nullptr)
+            return nullptr;
+        found = &e;
     }
-    // Take a free slot, else an expired one whose aura the descriptor no
-    // longer lists (a still-present aura keeps its slot so its caster isn't
-    // lost — see DescriptorListsAura), else evict round-robin.
+    return found;
+}
+
+// Takes a free slot, else an expired one whose aura the descriptor no longer
+// lists (a still-present aura keeps its slot so its caster isn't lost — see
+// DescriptorListsAura), else evicts.
+Entry *Claim(uint32_t now) {
     for (auto &e : g_cache) {
         if (!e.used ||
             (e.expirationMs != 0 && now >= e.expirationMs &&
-             !DescriptorListsAura(e.targetGuid, e.spellId))) {
-            e = {targetGuid, casterGuid, spellId, expirationMs, durationMs,
-                 now, kind, true};
-            return;
-        }
+             !DescriptorListsAura(e.targetGuid, e.spellId)))
+            return &e;
     }
     // Saturated. Honor the same invariant as the tick sweep: an entry whose
     // aura is still present on a resolvable unit is NEVER evicted — its caster
@@ -253,9 +288,91 @@ void Store(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid,
         if (orphan == nullptr || e.stampMs < orphan->stampMs)
             orphan = &e;
     }
-    Entry *victim = (orphan != nullptr) ? orphan : lru;
-    *victim = {targetGuid, casterGuid, spellId, expirationMs, durationMs, now,
-               kind, true};
+    return (orphan != nullptr) ? orphan : lru;
+}
+
+// ---- Writes --------------------------------------------------------------
+
+// The SpellGo hook: authoritative caster + caster-modified (talented) timing.
+// Identity is `(target, spell, caster)`, so a second caster of the same spell
+// opens its own entry instead of overwriting the first's, and a recast by the
+// same caster refreshes theirs — keeping the descriptor slot already bound to
+// it.
+void StoreFromCast(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid,
+                   uint32_t expirationMs, uint32_t durationMs) {
+    if (targetGuid == 0 || spellId == 0)
+        return;
+    const uint32_t now = NowMs();
+    Entry *e = FindByCaster(targetGuid, spellId, casterGuid);
+    // A lone unattributed entry for this aura is the same instance seen without
+    // a caster (seated by an application hook while we were out of view, or a
+    // group-array guess), so claim it rather than opening a second entry for
+    // one aura — the same adoption `ApplyDurationModifiers` does. Only when
+    // it's the unit's only entry for the spell: with several, "the one this
+    // cast refreshes" is a guess, and guessing wrong writes this caster's timer
+    // onto another's aura.
+    if (e == nullptr) {
+        Entry *sole = FindSole(targetGuid, spellId);
+        if (sole != nullptr && sole->casterGuid == 0)
+            e = sole;
+    }
+    if (e == nullptr) {
+        e = Claim(now);
+        *e = {targetGuid, casterGuid, spellId, expirationMs, durationMs,
+              now,        SLOT_UNBOUND, KIND_UNKNOWN, true};
+        return;
+    }
+    e->stampMs = now; // refresh EvictAbsent grace on any touch
+    e->casterGuid = casterGuid;
+    e->expirationMs = expirationMs;
+    e->durationMs = durationMs;
+}
+
+// The OnAuraAdded / OnAuraStacksChanged application hooks: a descriptor slot,
+// a classification, and base timing — but no caster (except the local player's
+// own recent cast, which `StampApplication` resolves). Seats the slot on the
+// cast capture it belongs to, and must not clobber the caster + talented
+// timing SpellGo already owns for that instance.
+//
+// `slot` is SLOT_UNBOUND for the out-of-range group-array path, which has no
+// descriptor at all; there the only available identity is `(target, spell)`.
+void StoreFromApplication(uint64_t targetGuid, uint32_t spellId,
+                          uint64_t casterGuid, uint32_t expirationMs,
+                          uint32_t durationMs, int slot, int8_t kind) {
+    if (targetGuid == 0 || spellId == 0)
+        return;
+    const uint32_t now = NowMs();
+    // Anything outside the descriptor's slot range can't index it, so it binds
+    // nothing — `EvictAbsent` indexes the array by a bound entry's slot.
+    if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
+        slot = SLOT_UNBOUND;
+
+    Entry *e = FindBySlot(targetGuid, spellId, slot);
+    if (e == nullptr)
+        e = FindFreshestUnbound(targetGuid, spellId);
+    if (e == nullptr && slot < 0)
+        e = FindSole(targetGuid, spellId);
+    if (e == nullptr) {
+        e = Claim(now);
+        *e = {targetGuid, casterGuid, spellId, expirationMs, durationMs, now,
+              static_cast<int16_t>(slot), kind, true};
+        return;
+    }
+
+    e->stampMs = now;
+    if (slot >= 0)
+        e->slot = static_cast<int16_t>(slot);
+    // Learn the classification whenever a slot-derived kind arrives —
+    // independent of caster/timing ownership, and never downgrade a known kind
+    // back to unknown.
+    if (kind != KIND_UNKNOWN)
+        e->kind = kind;
+    if (e->casterGuid != 0)
+        return; // SpellGo owns this entry; keep its caster + talented timing
+    if (casterGuid != 0)
+        e->casterGuid = casterGuid;
+    e->expirationMs = expirationMs;
+    e->durationMs = durationMs;
 }
 
 // ---- Out-of-range group-member aura snapshots ---------------------------
@@ -293,25 +410,29 @@ void StampGroupGuess(uint64_t guid, uint16_t spellId, int8_t kind, uint32_t now)
     const uint32_t base = SpellDurationMs(rec, /*casterIsPlayer*/ false);
     if (base == 0)
         return;
-    Store(guid, spellId, /*casterGuid*/ 0, now + base, base, /*fromCast*/ false,
-          kind);
+    StoreFromApplication(guid, spellId, /*casterGuid*/ 0, now + base, base,
+                         SLOT_UNBOUND, kind);
 }
 
-// Evict the entry for an aura the engine reports gone. Keyed by (target,
-// spell) like the rest of the cache. Without this, the GetAuraDataByIndex
-// fallback would keep surfacing a dropped aura until its computed expiry —
-// e.g. a Rank 1 buff replaced by Rank 2 (engine drops Rank 1 from the
-// descriptor) would show as a phantom second aura, or a dispelled buff would
-// linger.
-void Evict(uint64_t targetGuid, uint32_t spellId) {
+// Evict the entry for an aura the engine reports gone, identified by the
+// descriptor slot it vacated. Without this, the GetAuraDataByIndex fallback
+// would keep surfacing a dropped aura until its computed expiry — e.g. a Rank
+// 1 buff replaced by Rank 2 (engine drops Rank 1 from the descriptor) would
+// show as a phantom second aura, or a dispelled buff would linger.
+//
+// The slot is what makes this safe when two casters hold the same spell on one
+// target: only the instance that actually fell off goes. Falling back to a
+// spell-ID match when nothing is bound to the slot keeps the pre-binding
+// behaviour, but only while the match is unambiguous — dropping one of two
+// casters' entries at random would take a live aura's caster with it.
+void Evict(uint64_t targetGuid, uint32_t spellId, int slot) {
     if (targetGuid == 0 || spellId == 0)
         return;
-    for (auto &e : g_cache) {
-        if (e.used && e.targetGuid == targetGuid && e.spellId == spellId) {
-            e.used = false;
-            return;
-        }
-    }
+    Entry *e = FindBySlot(targetGuid, spellId, slot);
+    if (e == nullptr)
+        e = FindSole(targetGuid, spellId);
+    if (e != nullptr)
+        e->used = false;
 }
 
 // ---- Server-side duration modifiers (trigger-driven inference) -----------
@@ -702,13 +823,11 @@ void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
 
     if (numTargets == 0) {
         // No explicit hit list (self-cast with caster-implicit target).
-        Store(caster, spellId, caster, expirationMs, durationMs, true,
-              KIND_UNKNOWN);
+        StoreFromCast(caster, spellId, caster, expirationMs, durationMs);
         return;
     }
     for (int i = 0; i < numTargets; ++i)
-        Store(targets[i], spellId, caster, expirationMs, durationMs, true,
-              KIND_UNKNOWN);
+        StoreFromCast(targets[i], spellId, caster, expirationMs, durationMs);
 }
 
 // SMSG_SPELL_GO parse (funnel subscriber). At the leaf handler the engine has
@@ -741,12 +860,19 @@ const Net::PacketDispatch::AutoSubscribe _spellGoSub{&SpellGoSub};
 
 // ---- Aura-application co-hooks (timing for proc / triggered auras) -------
 
-// Stamp expiration for an aura that just landed/refreshed on `unit`. Used by
-// both the add and stack-change hooks. No caster is available from these
-// paths, so it stamps timing only with `fromCast=false` — Store skips any
-// entry SpellGo already owns, so a directly-cast aura keeps its talented
-// timing. Base (unmodified) duration is the best estimate without a caster.
-void StampApplication(void *unit, uint32_t spellId, int8_t kind) {
+// Classify by the absolute aura slot: 0..BUFF_COUNT-1 = buff (helpful),
+// BUFF_COUNT..TOTAL-1 = debuff (harmful).
+int8_t KindForSlot(int slot) {
+    return slot >= Offsets::UNIT_AURA_BUFF_COUNT ? KIND_HARMFUL : KIND_HELPFUL;
+}
+
+// Stamp expiration for an aura that just landed/refreshed in `slot` on `unit`.
+// Used by both the add and stack-change hooks. No caster is available from
+// these paths, so it stamps timing only — StoreFromApplication keeps whatever
+// SpellGo already owns, so a directly-cast aura keeps its talented timing.
+// Base (unmodified) duration is the best estimate without a caster. The slot
+// is what binds this application to the cast capture behind it.
+void StampApplication(void *unit, uint32_t spellId, int slot) {
     if (spellId == 0)
         return;
     const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellId));
@@ -763,14 +889,8 @@ void StampApplication(void *unit, uint32_t spellId, int8_t kind) {
     const uint32_t durationMs = SpellDurationMs(rec, byPlayer);
     const uint64_t caster = byPlayer ? Unit::Identity::PlayerGuid() : 0;
     const uint32_t expirationMs = durationMs > 0 ? NowMs() + durationMs : 0;
-    Store(unitGuid, spellId, caster, expirationMs, durationMs,
-          /*fromCast*/ false, kind);
-}
-
-// Classify by the absolute aura slot: 0..BUFF_COUNT-1 = buff (helpful),
-// BUFF_COUNT..TOTAL-1 = debuff (harmful).
-int8_t KindForSlot(int slot) {
-    return slot >= Offsets::UNIT_AURA_BUFF_COUNT ? KIND_HARMFUL : KIND_HELPFUL;
+    StoreFromApplication(unitGuid, spellId, caster, expirationMs, durationMs,
+                         slot, KindForSlot(slot));
 }
 
 // Bump the player-stat-inputs signal when an aura change hits the LOCAL
@@ -790,7 +910,7 @@ OnAuraAdded_t g_origOnAuraAdded = nullptr;
 void __fastcall OnAuraAdded_h(void *unit, void *edx, uint32_t slot,
                               uint32_t spellId) {
     g_origOnAuraAdded(unit, edx, slot, spellId);
-    StampApplication(unit, spellId, KindForSlot(static_cast<int>(slot)));
+    StampApplication(unit, spellId, static_cast<int>(slot));
     NotifyIfPlayer(unit);
 }
 
@@ -810,8 +930,7 @@ void __fastcall OnAuraStacksChanged_h(void *unit, void *edx, int slot,
     g_origOnAuraStacksChanged(unit, edx, slot, stackCount);
     StampApplication(
         unit,
-        Aura::Data::ReadSpellID(static_cast<const uint8_t *>(unit), slot),
-        KindForSlot(slot));
+        Aura::Data::ReadSpellID(static_cast<const uint8_t *>(unit), slot), slot);
     NotifyIfPlayer(unit);
 }
 
@@ -840,8 +959,7 @@ OnAuraRemoved_t g_origOnAuraRemoved = nullptr;
 void __fastcall OnAuraRemoved_h(void *unit, void *edx, uint32_t slot,
                                 uint32_t spellId) {
     g_origOnAuraRemoved(unit, edx, slot, spellId);
-    (void)slot;
-    Evict(Unit::Identity::GuidForObject(unit), spellId);
+    Evict(Unit::Identity::GuidForObject(unit), spellId, static_cast<int>(slot));
     NotifyIfPlayer(unit);
 }
 
@@ -851,19 +969,25 @@ const Game::HookAutoRegister _hookAuraRemoved{
 
 } // namespace
 
-bool Get(uint64_t unitGuid, uint32_t spellId, uint64_t *outCaster,
+bool Get(uint64_t unitGuid, uint32_t spellId, int slot, uint64_t *outCaster,
          uint32_t *outExpirationMs, uint32_t *outDurationMs) {
     if (unitGuid == 0 || spellId == 0)
         return false;
-    for (const auto &e : g_cache) {
-        if (e.used && e.targetGuid == unitGuid && e.spellId == spellId) {
-            *outCaster = e.casterGuid;
-            *outExpirationMs = e.expirationMs;
-            *outDurationMs = e.durationMs;
-            return true;
-        }
-    }
-    return false;
+    // Slot first: the only identity that separates two casters' copies of one
+    // spell. Then the sole entry, which is every single-caster case and the
+    // whole of the slotless (out-of-range group array, cache fallback) path.
+    // Several entries and no binding is a genuine ambiguity — reporting the
+    // miss leaves the caller its unknown-caster defaults instead of one
+    // caster's timer on the other's aura.
+    const Entry *e = FindBySlot(unitGuid, spellId, slot);
+    if (e == nullptr)
+        e = FindSole(unitGuid, spellId);
+    if (e == nullptr)
+        return false;
+    *outCaster = e->casterGuid;
+    *outExpirationMs = e->expirationMs;
+    *outDurationMs = e->durationMs;
+    return true;
 }
 
 bool AddDurationMod(uint32_t triggerSpellId, uint32_t affectedFamily,
@@ -908,9 +1032,17 @@ uint32_t RefreshDurationByFamily(uint64_t unitGuid, uint32_t family,
     return 0;
 }
 
-void EvictAbsent(uint64_t unitGuid, const uint32_t *presentSpellIds, int count) {
-    if (unitGuid == 0 || presentSpellIds == nullptr || count <= 0)
+void EvictAbsent(uint64_t unitGuid, const uint32_t *slotSpellIds) {
+    if (unitGuid == 0 || slotSpellIds == nullptr)
         return;
+    bool anyPresent = false;
+    for (int s = 0; s < Offsets::UNIT_AURA_TOTAL; ++s)
+        if (slotSpellIds[s] != 0) {
+            anyPresent = true;
+            break;
+        }
+    if (!anyPresent)
+        return; // out of range vs genuinely buffless — see the header
     const uint32_t now = NowMs();
     for (auto &e : g_cache) {
         if (!e.used || e.targetGuid != unitGuid)
@@ -920,11 +1052,18 @@ void EvictAbsent(uint64_t unitGuid, const uint32_t *presentSpellIds, int count) 
         if (now - e.stampMs < kEvictGraceMs)
             continue;
         bool present = false;
-        for (int i = 0; i < count; ++i)
-            if (presentSpellIds[i] == e.spellId) {
-                present = true;
-                break;
-            }
+        if (e.slot != SLOT_UNBOUND) {
+            // A bound entry is only backed by the slot it was seated in, so a
+            // slot now holding a different spell (or nothing) leaves it stale
+            // even when another caster's copy keeps the spell ID on the unit.
+            present = slotSpellIds[e.slot] == e.spellId;
+        } else {
+            for (int s = 0; s < Offsets::UNIT_AURA_TOTAL; ++s)
+                if (slotSpellIds[s] == e.spellId) {
+                    present = true;
+                    break;
+                }
+        }
         if (!present)
             e.used = false;
     }
@@ -943,7 +1082,8 @@ int Enumerate(uint64_t unitGuid, bool harmful, CachedAura *out, int maxOut) {
             continue;
         if (e.expirationMs != 0 && now >= e.expirationMs)
             continue; // expired (infinite-duration entries pass)
-        out[n++] = {e.spellId, e.casterGuid, e.expirationMs, e.durationMs};
+        out[n++] = {e.spellId, e.casterGuid, e.expirationMs, e.durationMs,
+                    e.slot};
     }
     return n;
 }
