@@ -18,6 +18,8 @@
 #include "event/Custom.h"
 #include "nameplate/Walk.h"
 #include "player/NameCache.h"
+#include "text/InlineTexture.h"
+#include "text/InlineTexturePool.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
 static Game::LoadScriptFunctions_t LoadScriptFunctions_o = nullptr;
@@ -46,6 +48,12 @@ static bool __fastcall FrameScript_Initialize_h() {
     // tears down and rebuilds across the Lua reset — no per-module
     // cache to clear here.
     NamePlate::Events::PrepareForReload();
+
+    // The reload teardown destroys every icon pool texture, fontstring,
+    // and text node — forget all inline-icon pointers now so nothing
+    // touches them (see InlineTexture.h / InlineTexturePool.h).
+    Text::InlineTexture::PrepareForReload();
+    Text::InlineTexturePool::PrepareForReload();
 
     // Persist the name cache before the engine starts tearing down.
     // This hook fires on both `/reload` and `/logout` (the engine

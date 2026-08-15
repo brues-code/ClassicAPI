@@ -264,9 +264,11 @@ enum Offsets {
     OFF_REGION_ANCHOR = 0x24,                     // LayoutFrame anchor sub-object (SetPoint `this` / relativeTo base)
     DRAWLAYER_ARTWORK = 2,
     FRAMEPOINT_TOPLEFT = 0,
+    FRAMEPOINT_TOPRIGHT = 2,
     FRAMEPOINT_LEFT = 3,
     FRAMEPOINT_RIGHT = 5,
     FRAMEPOINT_BOTTOMLEFT = 6,
+    FRAMEPOINT_BOTTOMRIGHT = 8,
 
     // FUN_REGION_SET_POINT stores offsets in *internal* coordinates, not
     // pixels. Script_SetPoint converts: `internal = pixel * [0x00832A44] /
@@ -276,6 +278,101 @@ enum Offsets {
     VAR_UI_COORD_SCALE_MUL = 0x00832A44,   // float numerator
     VAR_UI_COORD_SCALE_DIV = 0x00832A4C,   // float denominator base
     UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
+
+    // CSimpleTexture (`Texture` widget) creation + operate primitives, used by
+    // Text::InlineTexturePool to render inline |T icons as engine-owned,
+    // managed-pool, resident-kept textures (the residency fix — see
+    // docs/InlineTextureResidency.md). Mirrors Script_CreateTexture
+    // (FUN_00773A20) and the Texture frame-method handlers; the sibling of the
+    // CSimpleFontString path above. Same FUN_REGION_POOL_ALLOC / SetPoint /
+    // Show / Hide / SetColor (FUN_FONTSTRING_SET_COLOR) as the FontString pool.
+    VAR_SIMPLETEXTURE_POOL = 0x00CF4CE0,      // &DAT_00cf4ce0 CSimpleTexture free-list pool (`this`)
+    VAR_SIMPLETEXTURE_CLASS_TAG = 0x00846588, // ".?AVCSimpleTexture@@" (alloc debug tag)
+    FUN_SIMPLETEXTURE_CTOR = 0x0076FC40,      // __thiscall(mem, parent, layer, sublayer) -> tex
+    // CSimpleTexture::SetTexture(path). Loads via FUN_00449D90, stores the owned
+    // HTEXTURE at +0xCC (releases the old via DecRef FUN_0041AED0), marks dirty.
+    // `__thiscall(tex, path, 0, *VAR_TEXTURE_BLEND_DEFAULT, 0) -> u32`. The
+    // ownership + engine batched region-draw is the residency win. Same-path
+    // early-out makes pooled reuse cheap.
+    FUN_SIMPLETEXTURE_SET_TEXTURE = 0x00770200,
+    // CSimpleTexture::SetTexCoord — `__thiscall(tex, float[4])`. Struct field
+    // order is {top, left, bottom, right} = {v0, u0, v1, u1} (verified from the
+    // SetTexCoord handler 0x0079BEB0's Lua-arg → struct mapping). Natural
+    // texcoords (no v-flip — the engine region path is top-left origin).
+    FUN_SIMPLETEXTURE_SET_TEXCOORD = 0x00770410,
+    OFF_SIMPLETEXTURE_HTEXTURE = 0xCC,        // owned HTEXTURE ref (diagnostic)
+    // Region corner-store: `__thiscall(region, const float rect[4])` writes the
+    // drawn quad corners into region+0xD4..+0x100 from the rect ({yA,left,yB,right}
+    // screen px). The renderer only draws a region whose +0xD4 corners are
+    // populated (verified: the draw gate tests region+0xD4 != 0), and normally
+    // SetPoint→layout-resolve calls this. We call it directly to place an icon by
+    // its screen rect with NO anchors (anchoring 100+ textures/frame corrupts the
+    // UI-manager pending-layout list — the FUN_00765650 crash).
+    FUN_REGION_STORE_CORNERS = 0x007705B0,
+
+    // __thiscall(region+OFF_REGION_ANCHOR, int flag /*stack; pass 0*/) — force a
+    // synchronous layout resolve: recomputes the region's rect (+0x64) from its
+    // anchors right now, instead of waiting for the render's pending-layout pass.
+    // Verified from Show (FUN_0077FCB0 at 0x0077FCE1: PUSH 0; LEA ECX,[ESI+0x24];
+    // CALL). Load-bearing for tick-time icon placement: SetTexCoord
+    // (FUN_00770410) stores the DRAW CORNERS (+0xD4) from the rect as a side
+    // effect, so without a realize between SetPoint and SetTexCoord the corners
+    // are stored from the STALE pre-anchor rect — the region's rect then resolves
+    // correctly (diagnostics look perfect) but the renderer draws the corners,
+    // which stay zero/stale → invisible icons (and the old build's frozen
+    // top-left icons: corners stored from the zero rect at first apply).
+    FUN_REGION_LAYOUT_REALIZE = 0x00768060,
+
+    // CSimpleFontString::RebuildString — destroys the old gxu text node and
+    // creates the fresh one (FUN_0044d420), storing it at fs+0xF8. Gated on the
+    // fs dirty bit (+0x60 & 1), so it fires on TEXT CHANGES, not per frame.
+    // Co-hooked by Text::InlineTexture to map text node → owning fontstring —
+    // the key that lets inline-icon regions anchor to their owning line
+    // (1.12 chat lines ARE CSimpleFontStrings: the ScrollingMessageFrame's
+    // display refresh FUN_00788750 SetTexts/anchors/shows one fs per visible
+    // line — verified against the 4.3.4 CSimpleEmbeddedTexture model, which
+    // anchors its icon regions to the owning fontstring the same way).
+    FUN_FONTSTRING_REBUILD_STRING = 0x007724A0,
+    // fs+0xF8 holds an HTEXTBLOCK handle, NOT the node itself: FUN_0044d420
+    // allocates the 12-byte handle {vtbl, refcount, node}, FUN_005c1c30 writes
+    // the created text node into handle+8, and FUN_0041af10 AddRefs and returns
+    // the handle. The layout's node (what the emitter/paint hooks see) is
+    // therefore *( *(fs+0xF8) + 8 ).
+    OFF_FONTSTRING_TEXT_BLOCK = 0xF8, // HTEXTBLOCK handle (0 when dirty/empty)
+    OFF_TEXTBLOCK_NODE = 0x8,         // the gxu text node inside the handle
+    // CSimpleRegion::SetParentAndLayer — __thiscall(region, parentFrame, layer,
+    // show). Handles old-parent unlink + new-parent region-registry insert +
+    // conditional Show. Verified from the region base ctor FUN_0077F640 and the
+    // message frame's per-line setup (FUN_00788750 calls it with (frame, 2, 1)).
+    FUN_REGION_SET_PARENT_AND_LAYER = 0x0077FD10,
+    OFF_REGION_PARENT = 0x9C,         // region's parent frame ptr (read by Show's gates)
+    OFF_REGION_DESIRED_SHOWN = 0xC4,  // Show (FUN_0077FCB0) NO-OPS unless this is set;
+                                      // engine callers always write it before show/hide
+    OFF_REGION_ACTUALLY_SHOWN = 0xC8, // 1 after Show completed (the realize latch)
+
+    // Owning-frame recovery for the inline-icon pool (the 3.3.5 ownership model,
+    // no overlay). Chat renders through the strata walker FUN_007657d0 →
+    // per-frame draw-list rebuild FUN_00765920 → per-layer render FUN_0076FB00 →
+    // text paint (NOT through the child-frame render FUN_0076B3F0). So
+    // Text::InlineTexturePool co-hooks the two below:
+    //   • FUN_FRAME_DRAWLIST_REBUILD — `__fastcall(frame)`, receives the frame
+    //     cleanly and owns its 5 inline draw layers at frame + OFF_FRAME_LAYER_BASE
+    //     + i*FRAME_LAYER_STRIDE. We record layer→frame so the layer-render hook
+    //     can recover the owning frame with no offset-scan / vtable guessing.
+    //   • FUN_FRAME_LAYER_RENDER — `__fastcall(layer)`, the per-layer paint that
+    //     directly wraps the chat text paint. We bracket the icon pool's pass here
+    //     (the flush runs nested) and look the frame up in the layer→frame map.
+    FUN_FRAME_DRAWLIST_REBUILD = 0x00765920,
+    FUN_FRAME_LAYER_RENDER = 0x0076FB00,
+    OFF_FRAME_LAYER_BASE = 0x1C,   // first inline draw layer, region-relative
+    FRAME_LAYER_STRIDE = 0x30,     // per-layer stride
+    FRAME_LAYER_COUNT = 5,         // BACKGROUND..OVERLAY
+    // Resolved on-screen rect of a region: 4 floats at regionBase+0x64 (=
+    // LayoutFrame+0x40), in GxU SCREEN PIXELS — verified: FUN_00770670 reads
+    // them and FUN_007705b0 stores them straight as GxU vertex corners. Layout is
+    // {yA, left, yB, right} (x at [1]/[3], y at [0]/[2]); use min/max to get
+    // left/top without pinning which y index is top.
+    OFF_REGION_RECT = 0x64,
 
     // "Currently displayed thing" state fields on a GameTooltip frame
     // instance. Each Set* path writes one of these (and zero or two

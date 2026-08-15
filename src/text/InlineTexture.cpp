@@ -18,19 +18,25 @@
 // This module teaches the text engine to render the icon inline.
 //
 // Two working pieces:
-//   1. The rendering PRIMITIVE (LoadTextureByPath + DrawTexturedQuad) — a path
-//      string becomes a bound, resident, coloured textured quad drawn through
-//      the same GxU dynamic-VB path the glyph paint pass uses. See the "SOLVED"
-//      section in docs/InlineTextureEscapes.md for the full recipe (the key was
-//      FUN_0044acf0 for residency + correct bind).
-//   2. POSITIONING — co-hook the per-line glyph emitter (FUN_005ccbe0) and, for
-//      a line containing `|T…|t`, render the plain text runs by DELEGATING to
-//      the original emitter per segment (threading the pen through linkState[4])
-//      while recording an icon quad at the pen between runs. The recorded icons
-//      are flushed in the paint co-hook (FUN_005c8fe0), translated by each
-//      render node's screen origin — the same transform the paint pass applies
-//      to glyph batches. This avoids reimplementing the emitter's intricate
-//      vertex math: the engine still draws every glyph; we only insert icons.
+//   1. POSITIONING — co-hook the per-line glyph emitter (FUN_005ccbe0) and, for
+//      a line containing `|T…|t`, render the plain text runs by DELEGATING to the
+//      original emitter per segment (threading the pen through linkState[4]) while
+//      recording an icon at the pen between runs. This avoids reimplementing the
+//      emitter's intricate vertex math: the engine still lays out every glyph; we
+//      only track where each icon goes.
+//   2. RENDERING — the 4.3.4 CSimpleEmbeddedTexture model, ported faithfully.
+//      A co-hook on CSimpleFontString::RebuildString (FUN_007724A0) maps each
+//      fresh text node to its OWNING FONTSTRING (1.12 chat lines are real
+//      CSimpleFontStrings — the ScrollingMessageFrame's display refresh
+//      FUN_00788750 SetTexts/anchors/shows one per visible line). A WorldTick
+//      publisher then walks the icon records and hands each to
+//      `Text::InlineTexturePool::PlaceOwned`, which configures a pooled
+//      engine-managed CSimpleTexture ANCHORED TO THE OWNING FONTSTRING at the
+//      pen offset — exactly how 4.3.4's UpdateEmbeddedTextures anchors its
+//      embedded textures. The engine draws the region every frame (residency)
+//      and the anchor system moves it with its line on every scroll/shift
+//      (zero per-frame work, no render transforms, no mid-render mutation).
+//      See docs/InlineTextureResidency.md.
 //
 // Supports the full positional payload
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
@@ -42,8 +48,12 @@
 // hooks for a mostly-cosmetic gain. See docs/InlineTextureEscapes.md for the RE
 // map and the full rationale.
 
+#include "text/InlineTexture.h"
+
 #include "Game.h"
 #include "Offsets.h"
+#include "text/InlineTexturePool.h"
+#include "tick/WorldTick.h"
 
 #include <windows.h>
 
@@ -57,140 +67,50 @@ namespace Text::InlineTexture {
 
 namespace {
 
-// The UI text vertex the GxU path expects (stride 0x18 = 24 bytes), verified
-// from the glyph vertex assembler FUN_005c8710's store loop:
-//   +0x00 x  +0x04 y  +0x08 z  +0x0c colorBGRA  +0x10 u  +0x14 v
-struct Vertex {
-    float x;
-    float y;
-    float z;
-    uint32_t color;
-    float u;
-    float v;
-};
-static_assert(sizeof(Vertex) == 0x18, "text vertex must be 24 bytes");
-
-// True if `p` looks like a readable in-process pointer (heap/.data range), so
-// we can probe engine structures without faulting on a bad/uninitialized field.
+// True if `p` looks like a readable in-process pointer (heap/.data range), so we
+// can probe engine structures without faulting on a bad/uninitialized field.
 bool LooksReadable(const void *p) {
     auto a = reinterpret_cast<uintptr_t>(p);
     return a >= 0x00010000u && a < 0x7FFF0000u;
 }
 
-// --- texture-by-path load --------------------------------------------------
+// --- text node → owning fontstring map --------------------------------------
 
-// Byte-identical to the 5-dword on-stack descriptor FUN_00770200 builds before
-// calling FUN_00449d90. On a successful load the loader never touches it; only
-// the load-failure log path dereferences it, so a faithful copy keeps the
-// failure path (missing texture) as safe as the engine's own call.
-struct TexLoadDesc {
-    void *vtbl;
-    int32_t field4;
-    void *self8;
-    uint32_t fieldC;
-    int32_t field10;
-};
+// CSimpleFontString::RebuildString (FUN_007724A0) destroys the old text block
+// and creates the fresh one at fs+0xF8 (an HTEXTBLOCK handle whose +8 is the
+// gxu text node). Co-hooking it maps every live node to its owner — 1.12 chat
+// lines are real CSimpleFontStrings (the ScrollingMessageFrame display refresh
+// drives one per visible line), so this single map covers chat, tooltips, and
+// standalone FontStrings alike. Entries are validated at use (the owner's
+// current node must still equal the mapped node) and evicted when stale; nodes
+// freed and reallocated simply get remapped here.
+std::unordered_map<void *, void *> g_nodeOwner;
 
-using TexFlagsInit_t = void *(__thiscall *)(void *self, uint32_t blend, int, int, int, int, int,
-                                            uint32_t, int);
-using TextureLoad_t = uint32_t(__fastcall *)(const char *path, void *desc, uint32_t flags, int,
-                                             int);
-
-std::unordered_map<std::string, void *> g_texCache;
-
-// Resolves a texture PATH string to a bindable CGxTexture handle, caching by
-// path. Mirrors FUN_00770200's load exactly: build the flags via
-// FUN_0058a980, then FUN_00449d90(path, &desc, flags, 0, 1). The engine keeps
-// its own by-name texture cache alive (refcounted), so the returned handle is
-// stable for the session's UI usage.
-void *LoadTextureByPath(const char *path) {
-    if (path == nullptr || path[0] == '\0')
+// The fontstring's CURRENT text node: fs+0xF8 (HTEXTBLOCK handle) → handle+8.
+void *OwnerNode(void *fs) {
+    void *handle = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
+                                              Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+    if (handle == nullptr)
         return nullptr;
-
-    std::string key(path);
-    auto it = g_texCache.find(key);
-    if (it != g_texCache.end())
-        return it->second;
-
-    TexLoadDesc desc;
-    desc.vtbl = reinterpret_cast<void *>(Offsets::PTR_TEXLOAD_DESC_VTBL);
-    desc.field4 = 8;
-    desc.self8 = &desc.self8;
-    desc.fieldC = reinterpret_cast<uintptr_t>(&desc.self8) | 1u;
-    desc.field10 = 0;
-
-    uint32_t flags = 0;
-    const uint32_t blend = *reinterpret_cast<uint32_t *>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
-    auto texFlagsInit = reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT);
-    texFlagsInit(&flags, blend, 0, 0, 0, 0, 0, 1, 0);
-
-    auto loader = reinterpret_cast<TextureLoad_t>(Offsets::FUN_TEXTURE_LOAD_BY_PATH);
-    void *handle = reinterpret_cast<void *>(loader(path, &desc, flags, 0, 1));
-
-    g_texCache.emplace(std::move(key), handle);
-    return handle;
+    return *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(handle) +
+                                      Offsets::OFF_TEXTBLOCK_NODE);
 }
 
-// --- textured-quad draw ----------------------------------------------------
+using RebuildString_t = void(__fastcall *)(void *fs);
+RebuildString_t g_rebuildOriginal = nullptr;
 
-using GxBind_t = void(__fastcall *)(int selector, void *tex);
-using GxLockVB_t = int(__fastcall *)(int zero, int stride, int vertCount);
-using GxVBData_t = void *(__fastcall *)(int handle);
-using GxSubmit_t = void *(__fastcall *)(int *handle, int vertCount);
-using GxUnlock_t = void(__fastcall *)(int handle, int zero);
-
-// The dynamic VB is a fixed ring the paint pass always locks at 0x800 verts;
-// we mirror that reservation exactly (writing only the 4 we need).
-constexpr int kRingVerts = 0x800;
-
-// Draws one textured quad through the UI text VB primitive. Must run while the
-// device is in the text-paint state (i.e. from the paint co-hook, after the
-// original glyph flush). Corner order TL, TR, BL, BR matches the shared quad
-// index buffer ({0,1,2, 2,1,3}) and the device cull winding.
-void DrawTexturedQuad(void *tex, float x0, float y0, float x1, float y1, float u0, float v0,
-                      float u1, float v1, uint32_t color, float z) {
-    if (tex == nullptr)
-        return;
-
-    auto lockVB = reinterpret_cast<GxLockVB_t>(Offsets::FUN_GX_LOCK_DYNAMIC_VB);
-    int handle = lockVB(0, Offsets::GX_TEXT_VERTEX_STRIDE, kRingVerts);
-
-    auto vbData = reinterpret_cast<GxVBData_t>(Offsets::FUN_GX_VB_DATA_PTR);
-    auto *v = reinterpret_cast<Vertex *>(vbData(handle));
-    if (v != nullptr) {
-        // Resolve the HTEXTURE to its bindable CGxTexture the way the engine's
-        // render does: FUN_0044acf0(tex, force=1, 0) returns [tex+0x140] and
-        // drives the streaming load. Calling it every frame is the live
-        // reference that makes the texture resident. Binding the raw HTEXTURE
-        // instead is SetTexture(0) = white.
-        auto getRenderable = reinterpret_cast<void *(__fastcall *)(void *, int, void *)>(
-            Offsets::FUN_TEXTURE_GET_RENDERABLE);
-        void *cgxTex = getRenderable(tex, 1, nullptr);
-        if (!LooksReadable(cgxTex)) {
-            auto unlockEarly = reinterpret_cast<GxUnlock_t>(Offsets::FUN_GX_UNLOCK_VB);
-            unlockEarly(handle, 0);
-            return;
-        }
-        auto bind = reinterpret_cast<GxBind_t>(Offsets::FUN_GX_BIND_TEXTURE);
-        bind(Offsets::GX_TEXTURE_SELECTOR, cgxTex);
-
-        // The UI device backend is OpenGL (bottom-left texture origin, v=0 at
-        // the bottom), so the top screen row maps to the LARGER v and the bottom
-        // to the smaller v — otherwise the texture renders vertically flipped
-        // (invisible on symmetric icons, obvious on directional ones like the
-        // raid-target markers). Map top corners to v1, bottom corners to v0.
-        v[0] = {x0, y0, z, color, u0, v1};
-        v[1] = {x1, y0, z, color, u1, v1};
-        v[2] = {x0, y1, z, color, u0, v0};
-        v[3] = {x1, y1, z, color, u1, v0};
-
-        auto submit = reinterpret_cast<GxSubmit_t>(Offsets::FUN_GX_SUBMIT_VB);
-        submit(&handle, 4);
+void __fastcall RebuildString_h(void *fs) {
+    g_rebuildOriginal(fs);
+    if (fs != nullptr) {
+        void *node = OwnerNode(fs);
+        if (node != nullptr)
+            g_nodeOwner[node] = fs;
     }
-
-    auto unlock = reinterpret_cast<GxUnlock_t>(Offsets::FUN_GX_UNLOCK_VB);
-    unlock(handle, 0);
 }
+
+static const Game::HookAutoRegister _rebuildHook{
+    Offsets::FUN_FONTSTRING_REBUILD_STRING, reinterpret_cast<void *>(&RebuildString_h),
+    reinterpret_cast<void **>(&g_rebuildOriginal)};
 
 // --- inline-texture descriptor parse ---------------------------------------
 
@@ -211,8 +131,8 @@ struct IconDesc {
     uint32_t color = 0xFFFFFFFFu;
 };
 
-// Reads a numeric field starting at `s` (bounded by `end`), stopping at the
-// next ':' or the end. Returns the parsed value; sets `next` past the field's
+// Reads a numeric field starting at `s` (bounded by `end`), stopping at the next
+// ':' or the end. Returns the parsed value; sets `next` past the field's
 // terminating ':' (or to `end`). Tolerates leading spaces and decimals.
 float ParseField(const char *s, const char *end, const char **next) {
     char buf[32];
@@ -256,8 +176,10 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
         f[nf++] = ParseField(p, end, &nx);
         p = nx;
     }
-    if (nf < 1 || f[0] <= 0.0f)
-        return false; // height required
+    if (nf < 1)
+        return false; // need at least the height field
+    // height/width of 0 means "auto" — resolved to the line's font height at emit
+    // time (retail's `:0:0` convention, e.g. GetCoinTextureString coins).
     out.height = f[0];
     out.width = (nf >= 2 && f[1] > 0.0f) ? f[1] : out.height;
     out.offsetX = (nf >= 3) ? f[2] : 0.0f;
@@ -291,35 +213,35 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
 // One icon to draw, in the render node's node-local coordinate space (the same
 // space glyph verts live in — the paint pass translates it by the node origin).
 struct IconRecord {
-    void *tex;  // bindable HTEXTURE (from LoadTextureByPath)
-    float x;    // node-local left
-    float y;    // node-local pen reference (penXYZ[1]) — near the text top
-    float fontH; // font pixel height of the line, for vertical centering
+    std::string path; // texture path (the pool's region loads it via SetTexture)
+    float x;          // node-local left
+    float y;          // node-local pen reference (penXYZ[1]) — near the text top
+    float fontH;      // font pixel height of the line, for vertical centering
     float w;
     float h;
-    float z;
-    float offsetX, offsetY;      // pen-relative pixel shift
-    float u0, v0, u1, v1;        // texture crop
-    uint32_t color;              // vertex tint (0xAARRGGBB; white = untinted)
+    float z;                // pen z (penXYZ[2]) — quad depth
+    float offsetX, offsetY; // pen-relative pixel shift
+    float u0, v0, u1, v1;   // texture crop
+    uint32_t color;         // vertex tint (0xAARRGGBB; white = untinted)
 };
 
-// Icons keyed by render node. Rebuilt whenever the emitter runs for a node
-// (see Emitter_h), so it tracks the node's current text. Entries for freed
-// nodes are never dereferenced (flush only walks the layout's live node list)
-// and are cleared when the address is reused and rebuilt.
+// Icons keyed by render node. Rebuilt whenever the emitter runs for a node (see
+// Emitter_h), so it tracks the node's current text. Entries for freed nodes are
+// never dereferenced (flush only walks the layout's live node list) and are
+// cleared when the address is reused and rebuilt.
 std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
 
 // Runtime toggle (default ON — the feature is proven; `_classicapi_InlineTexEnable(false)`
-// still turns it off). When off, the emitter/tokenizer co-hooks fast-path
-// straight to the originals.
+// still turns it off). When off, the emitter/tokenizer co-hooks fast-path straight
+// to the originals.
 bool g_inlineEnabled = true;
 // Manual suppression override (Lua _classicapi_InlineTexSuppress) — normally
 // unused. Editbox exclusion is per-node via NodeEditable (below), not a global.
 bool g_suppressInline = false;
 
 // True while an EditBox has keyboard focus (the engine's cursor global is set).
-// Diagnostic-only now — suppression keys on the focused editbox's BUFFER, not
-// this global (see TextInFocusedEditbox below).
+// Suppression keys on the focused editbox's BUFFER, not this global (see
+// TextInFocusedEditbox below); kept only for the manual-override edge.
 inline bool InputFocused() {
     return *reinterpret_cast<void *const *>(Offsets::VAR_FOCUSED_EDITBOX) != nullptr;
 }
@@ -366,16 +288,37 @@ bool TextInFocusedEditbox(const void *text) {
 // no pointer link to the editbox (verified in-game: the render buffer matched the
 // input buffer's string exactly but sat in an unrelated heap block). The emitter
 // gets that whole copy as one line, so a content compare identifies it. Bounded to
-// 0x400 bytes; only reached on a pipe-leading emit line while an editbox is focused.
+// 0x1000 bytes; only reached on a pipe-leading emit line while an editbox is focused.
 bool EmitLineIsFocusedEditbox(const uint8_t *text) {
     const uint8_t *inBuf = FocusedEditboxInput();
     if (inBuf == nullptr || !LooksReadable(text))
         return false;
-    for (int i = 0; i < 0x400; ++i) {
-        if (text[i] != inBuf[i])
+    // Compare render vs input with `||` collapsed to a single `|` on BOTH sides.
+    // Different editboxes handle typed escapes differently: some render the text
+    // as-is (render == input buffer, both single-pipe), some neutralize each `|`
+    // to `||` in the render while the buffer stays single-pipe. Collapsing pairs
+    // on both sides makes the compare robust to either, so the focused input's OWN
+    // line is recognized (and shown raw) regardless of doubling — no flag gate
+    // (which mis-fires on pfUI's editable chat display) needed. A chat history
+    // line's content differs, so it never matches and keeps its icons.
+    size_t r = 0, in = 0;
+    for (int guard = 0; guard < 0x1000; ++guard) {
+        uint8_t a = text[r];
+        if (a == '|' && text[r + 1] == '|') {
+            r += 2; // collapse `||` -> `|`
+        } else {
+            r += 1;
+        }
+        uint8_t b = inBuf[in];
+        if (b == '|' && inBuf[in + 1] == '|') {
+            in += 2; // collapse `||` -> `|`
+        } else {
+            in += 1;
+        }
+        if (a != b)
             return false;
-        if (text[i] == '\0')
-            return true; // matched to the terminator
+        if (a == '\0')
+            return true; // both reached the terminator together
     }
     return true;
 }
@@ -393,58 +336,43 @@ inline bool TextInReentry(const uint8_t *t) {
 // A text node's flags (`[node+0x5c]`) bit 6 (0x40) distinguishes editable input
 // text (set on the macro editbox: flags 0x4D) from display text (chat 0x20D,
 // FontStrings 0x0D — bit 6 clear). It's a per-node property the emitter and
-// tokenizer don't otherwise use, and it rides in the tokenizer's flags
-// argument, so we can suppress inline rendering per node — covering editboxes
-// the focus global misses (multi-line editors build once, un-focused). This
-// mirrors 4.3.4's per-render texture-disable flag, adapted to 1.12's layout.
+// tokenizer don't otherwise use, and it rides in the tokenizer's flags argument,
+// so we can suppress inline rendering per node — covering editboxes the focus
+// global misses (multi-line editors build once, un-focused). This mirrors 4.3.4's
+// per-render texture-disable flag, adapted to 1.12's layout.
 inline bool NodeEditable(const void *node) {
     return (*reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(node) +
                                                 Offsets::OFF_TEXT_NODE_FLAGS) &
             0x40u) != 0;
 }
+
 float g_vBias = 0.0f;     // extra node-local Y added to the icon centre (fine-tune)
 float g_sizeScale = 1.0f; // multiplies the parsed icon size
-// Icon vertical centre = penY + fontHeight * centerFrac. penY sits near the
-// text top; ~0.6 centres the icon on the line across the fonts we render into
-// (chat + pfUI's bubble), tuned in-game via _classicapi_InlineTexTune.
+// Icon vertical centre = penY + fontHeight * centerFrac. penY sits near the text
+// top; ~0.6 centres the icon on the line across the fonts we render into (chat +
+// pfUI's bubble), tuned in-game via _classicapi_InlineTexTune.
 float g_centerFrac = 0.6f;
-
-// --- diagnostics (temporary; strip once the path is proven) ----------------
-// Localize where the pipeline breaks: does the emitter fire for the text under
-// test, does it detect `|T`, and what are the node flags (bit 3 gates whether
-// segmented delegation is safe).
-volatile int g_emCalls = 0;   // Emitter_h invocations while enabled
-volatile int g_emFound = 0;   // …where the line contains an inline `|T`
-volatile int g_emSegmented = 0; // …where we actually took the segmented path
-volatile int g_emPipeCalls = 0; // …whose text contains ANY '|' (colour codes etc.)
-uint32_t g_lastFlags = 0;     // [node+0x5c] of the last `|T`-containing line
-int g_lastLen = 0;            // its length
-volatile int g_flushNodesSeen = 0; // nodes the flush walked (last paint)
-volatile int g_lastIconN = 0; // icons recorded on the last segmented line
-volatile int g_lastFirstLine = 0; // was that line the first wrapped line?
-uint32_t g_lastVtable = 0;    // [node+0] vtable of the last `|T` node
-volatile int g_lastFocused = 0; // focus global set at last `|T` build?
-volatile int g_lastMono = 0;    // monochrome flag set at last `|T` build?
-
-// Marker capture — grabs the text of the first emitter call whose text starts
-// with '~', so a prefixed test string proves whether it reaches FUN_005ccbe0.
-char g_capBuf[96] = {0};
-volatile bool g_capLatched = false;
-int g_capLen = 0;
+// Horizontal breathing room around every inline icon, as a fraction of the icon's
+// width. Applied FULL on the lead (left) and HALF on the trail (right): the
+// preceding glyph's right-side bearing extends past the reported pen and eats into
+// the left gap visually, so a lead-heavy split makes the left and right gaps LOOK
+// even. Without any pad an icon crowds the char before it. Tuned via
+// _classicapi_InlineTexTune (4th arg). 0.18 ≈ 3px lead / 1.5px trail on an 18px icon.
+float g_iconPadFrac = 0.18f;
 
 // The 1.12 FontString text sanitizer DOUBLES any pipe that doesn't begin a
 // recognized escape (so it renders as a literal `|`). Since 1.12 doesn't know
 // `|T`, a caller's `|Tpath:h|t` arrives at the emitter as `||Tpath:h||t`
-// (verified in-game: emitter text length +2, pipes doubled). So we accept both
-// the doubled form (the real-world case) and a clean `|T` (should one ever
-// reach us undoubled, e.g. after a future sanitizer hook). A literal user
-// `||T…||t` is effectively nonexistent, and ordinary doubled pipes (`|| `)
-// never match because the char after must be `T`.
+// (verified in-game: emitter text length +2, pipes doubled). So we accept both the
+// doubled form (the real-world case) and a clean `|T` (should one ever reach us
+// undoubled, e.g. after a future sanitizer hook). A literal user `||T…||t` is
+// effectively nonexistent, and ordinary doubled pipes (`|| `) never match because
+// the char after must be `T`.
 
 // If an inline-texture escape starts at text[i], returns its opening-marker
 // length: 3 for the doubled `||T`, 2 for a clean `|T`; 0 otherwise. The doubled
-// form is checked first so the leading `|` of `||T` wins over reading the 2nd
-// `|` as a clean `|T`.
+// form is checked first so the leading `|` of `||T` wins over reading the 2nd `|`
+// as a clean `|T`.
 int IconStartLen(const uint8_t *text, int len, int i) {
     if (i + 2 < len && text[i] == '|' && text[i + 1] == '|' && text[i + 2] == 'T')
         return 3;
@@ -516,30 +444,29 @@ Tokenizer_t g_tokenizerOriginal = nullptr;
 uint32_t __fastcall Tokenizer_h(uint8_t *text, int *bytesConsumed, uint32_t *colorOut,
                                 uint32_t flags, uint32_t *payloadOut) {
     // Intervene at a pipe when enabled, not manually suppressed, flags bit 0x40
-    // clear, and the text is NOT the focused editbox's own text.
+    // (EDITABLE) clear, and the text is NOT the focused editbox's own text.
     //
     // Bit 0x40 (EDITABLE, set on the macro editor 0x4D) means "leave `|T` as
-    // literal text" — it catches the macro editor on both render and measure.
-    // Single-line inputs (chat / pfChatCopyBox) lack bit 6 and are handled two ways:
+    // literal" — it keeps the macro editor's measure literal so its caret stays
+    // aligned with the raw glyphs the emitter draws for it. Chat DISPLAY is
+    // editable=0 (flags 0x205, ICON-NODE probe), so this does NOT touch it — its
+    // icons still measure ~zero. Single-line inputs (chat / name box) lack bit 6
+    // and are handled by the two focused-input signals:
     //   • MEASURE (caret/GetStringWidth loops this tokenizer over the input buffer
     //     in place) → TextInFocusedEditbox: `text` points into that buffer.
     //   • Re-entrant RENDER (the suppressed emitter delegates the raw line to the
     //     original, which re-enters here) → TextInReentry: `text` is inside the
     //     line span the emitter bracketed. Without it the span is eaten as a
     //     zero-width token and the editbox draws BLANK.
-    // Both keep the caret aligned with the raw glyphs. The checks sit after
-    // `text[0] == '|'` so they run only on pipe tokens. A display FontString
-    // measured while an editbox is focused matches neither, so an icon still
-    // measures ~zero there — correct.
     if (g_inlineEnabled && !g_suppressInline && (flags & 0x40u) == 0 && text != nullptr &&
         text[0] == '|' && !TextInReentry(text) && !TextInFocusedEditbox(text)) {
         const int span = InlineSpanLen(text);
         if (span > 0) {
-            // Consume the whole escape as one glyph-type token with a payload
-            // that resolves to no glyph — so every measure/wrap caller advances
-            // past the path text and counts it as near-zero width instead of
-            // ~40 literal characters. The emitter detects icons itself and is
-            // unaffected (it only ever delegates plain, `|T`-free segments).
+            // Consume the whole escape as one glyph-type token with a payload that
+            // resolves to no glyph — so every measure/wrap caller advances past the
+            // path text and counts it as near-zero width instead of ~40 literal
+            // characters. The emitter detects icons itself and is unaffected (it
+            // only ever delegates plain, `|T`-free segments).
             if (bytesConsumed)
                 *bytesConsumed = span;
             if (payloadOut)
@@ -557,8 +484,8 @@ static const Game::HookAutoRegister _tokenizerHook{Offsets::FUN_TEXT_TOKENIZER,
 // --- emitter co-hook (positioning) -----------------------------------------
 
 // FUN_005ccbe0 — the per-line glyph emitter. __thiscall(node, text, len,
-// colorState, penXYZ, pageMask, linkState); declared __fastcall with a dummy
-// edx (the established pattern for co-hooking __thiscall engine methods).
+// colorState, penXYZ, pageMask, linkState); declared __fastcall with a dummy edx
+// (the established pattern for co-hooking __thiscall engine methods).
 using Emitter_t = void(__fastcall *)(void *node, void *edx, uint8_t *text, int len,
                                      uint32_t *colorState, float *penXYZ, uint32_t *pageMask,
                                      int *linkState);
@@ -566,36 +493,31 @@ Emitter_t g_emitterOriginal = nullptr;
 
 void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_t *colorState,
                           float *penXYZ, uint32_t *pageMask, int *linkState) {
-    // Fast path — feature off: delegate verbatim, touching nothing. Keeps the
-    // hot text-render path a single bool check when disabled.
+    // Fast path — feature off: delegate verbatim, touching nothing.
     if (!g_inlineEnabled) {
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);
         return;
     }
 
     // Suppressed — render the node's text verbatim and drop any icons previously
-    // recorded for it, so editable INPUT shows raw markup. Covers the FOCUSED
+    // recorded for it, so editable input shows raw markup. Covers the FOCUSED
     // editbox's own text (this render line's CONTENT equals the editbox input —
     // the editbox renders through a transient copy with no pointer link), the
-    // pointer path (`text` inside the input buffer, rare), a true INPUT box, and
-    // the manual override.
-    //
-    // An input box is editable (flags bit 6) AND has bit 3 (0x08): the macro
-    // editor is 0x4D, the name box 0xC8, the chat input 0xC8 — all carry 0x08.
-    // pfUI renders the chat SCROLLBACK through EDITABLE nodes too (flags 0x45,
-    // bit 6 but NOT bit 3); a blanket NodeEditable gate blanked every chat icon
-    // whenever that display was live (during scroll / as messages arrive — it
-    // looked like icons "vanishing"). Gating on bit 3 suppresses only real input
-    // boxes and leaves the chat display's icons intact. The focused input box's
-    // pointer/content match alone is NOT enough: its render form is pipe-DOUBLED
-    // (`||T`) while the input buffer is single-pipe, so the compare misses.
-    const bool inputBox =
-        node != nullptr && NodeEditable(node) &&
-        (*reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(node) +
-                                             Offsets::OFF_TEXT_NODE_FLAGS) &
-         0x08u) != 0;
-    if (g_suppressInline || TextInFocusedEditbox(text) || EmitLineIsFocusedEditbox(text) ||
-        inputBox) {
+    // pointer path (`text` inside the input buffer, rare), any editable node (flags
+    // bit 6, e.g. the un-focused macro editor), and the manual override. Per-
+    // editbox, not global: a chat-history line's content differs, so its icons keep
+    // rendering while an editbox is focused.
+    const bool sup_manual = g_suppressInline;
+    const bool sup_ptr = TextInFocusedEditbox(text);
+    const bool sup_content = !sup_ptr && EmitLineIsFocusedEditbox(text);
+    // Suppress on the editable bit (bit 6). Verified via the ICON-NODE probe: chat
+    // DISPLAY is editable=0 (flags 0x205), the macro editor is editable=1 (0x4D),
+    // the focused chat edit box is editable=0 but content-matched (0x20D). So the
+    // editable bit cleanly catches the un-focused macro editor (which content-match
+    // can't, since it's not the focused editbox) without touching chat display.
+    // Content-match still handles the focused chat/name box.
+    const bool sup_editable = node != nullptr && NodeEditable(node);
+    if (sup_manual || sup_ptr || sup_content || sup_editable) {
         if (node != nullptr)
             g_nodeIcons.erase(node);
         // Bracket the delegated raw layout so the re-entrant tokenizer stands down
@@ -608,74 +530,38 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         return;
     }
 
-    ++g_emCalls;
-    if (text != nullptr && len > 0) {
-        bool pipe = false;
-        for (int k = 0; k < len; ++k) {
-            if (text[k] == '|') {
-                pipe = true;
-                break;
-            }
-        }
-        if (pipe)
-            ++g_emPipeCalls;
-        if (!g_capLatched && text[0] == 0x7E /* '~' */) {
-            int n = len < 95 ? len : 95;
-            for (int k = 0; k < n; ++k)
-                g_capBuf[k] = static_cast<char>(text[k]);
-            g_capBuf[n] = '\0';
-            g_capLen = len;
-            g_capLatched = true;
-        }
-    }
-    const bool hasSpan =
-        node != nullptr && text != nullptr && len > 0 && HasInlineTexture(text, len);
-    if (hasSpan) {
-        ++g_emFound;
-        g_lastFlags =
-            *reinterpret_cast<uint32_t *>(reinterpret_cast<uint8_t *>(node) +
-                                          Offsets::OFF_TEXT_NODE_FLAGS);
-        g_lastLen = len;
-        g_lastVtable = *reinterpret_cast<uint32_t *>(node);
-        g_lastFocused = InputFocused() ? 1 : 0;
-        g_lastMono = NodeEditable(node) ? 1 : 0; // editable-flag (bit 6) at capture
-    }
-
     if (node == nullptr || text == nullptr || len <= 0) {
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);
         return;
     }
 
-    // The draw builder walks a node's wrapped lines by calling the emitter once
-    // per line on the SAME node, advancing the text pointer; the first line's
-    // pointer equals the node's text start. Clear the icon list once here so
-    // wrapped lines ACCUMULATE their icons instead of each wiping the previous.
+    // The draw builder walks a node's wrapped lines by calling the emitter once per
+    // line on the SAME node, advancing the text pointer; the first line's pointer
+    // equals the node's text start. Clear the icon list once here so wrapped lines
+    // ACCUMULATE their icons instead of each wiping the previous.
     const bool firstLine =
         text == *reinterpret_cast<uint8_t **>(reinterpret_cast<uint8_t *>(node) +
                                               Offsets::OFF_TEXT_NODE_TEXT);
     if (firstLine)
         g_nodeIcons.erase(node);
 
-    if (!hasSpan) {
-        // No inline texture on this line — render it normally without touching
-        // the node's icon list (icons from other wrapped lines are preserved).
+    if (!HasInlineTexture(text, len)) {
+        // No inline texture on this line — render it normally without touching the
+        // node's icon list (icons from other wrapped lines are preserved).
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);
         return;
     }
 
     // This line owns inline textures — append them, rendering the plain runs by
     // delegating to the original per segment.
-    ++g_emSegmented;
     std::vector<IconRecord> &icons = g_nodeIcons[node];
 
-    // Bit 3 of the node flags gates the emitter's per-call batch-clear. When
-    // set (the standalone-FontString case), each original call would wipe the
-    // page batches, so segmenting would lose all but the last run. Handle it by
-    // doing the batch-clear ONCE per build (a len-0 original call with bit 3
-    // still set, only on the first wrapped line), then clearing bit 3 so our
-    // per-segment calls APPEND. Restore the flags before returning. Bit 5
-    // (shadow) is not set for these nodes, so the only extra work the cleared
-    // bit enables is a harmless colour-array append.
+    // Bit 3 of the node flags gates the emitter's per-call batch-clear. When set
+    // (the standalone-FontString case), each original call would wipe the page
+    // batches, so segmenting would lose all but the last run. Handle it by doing
+    // the batch-clear ONCE per build (a len-0 original call with bit 3 still set,
+    // only on the first wrapped line), then clearing bit 3 so our per-segment calls
+    // APPEND. Restore the flags before returning.
     uint32_t *const flagsPtr = reinterpret_cast<uint32_t *>(reinterpret_cast<uint8_t *>(node) +
                                                             Offsets::OFF_TEXT_NODE_FLAGS);
     const uint32_t savedFlags = *flagsPtr;
@@ -685,16 +571,6 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             g_emitterOriginal(node, edx, text, 0, colorState, penXYZ, pageMask, linkState);
         *flagsPtr = savedFlags & ~8u;
 
-        // Clearing bit 3 switches the engine from the FontString's UNIFORM colour
-        // to PER-GLYPH colour taken from colorState. Chat lines carry their colour
-        // as `|cAARRGGBB…|r` codes in the text, so the per-glyph path colours them
-        // correctly. But a standalone FontString coloured via SetTextColor with
-        // plain text (e.g. pfUI's reskinned speech bubble) keeps its colour in the
-        // SetTextColor slot (`*(u32**)(fs+0xB8)` → 0xAARRGGBB), NOT colorState — so
-        // colorState defaults to black and the segmented glyphs render black. When
-        // the current glyph colour is black-RGB, inject the SetTextColor value so
-        // those glyphs keep the intended colour. The guard leaves `|c`-driven text
-        // (non-black colorState) untouched, so chat is unaffected.
         // Clearing bit 3 switches the engine from the FontString's UNIFORM colour
         // (RGB from SetTextColor + opacity applied wholesale) to PER-GLYPH colour
         // taken from colorState = [node+0x2c]. That field's RGB is correct, but its
@@ -707,9 +583,9 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         colorState[0] |= 0xFF000000u;
     }
 
-    // Font pixel height of this line — used to centre icons vertically (penY
-    // sits near the text top). Mirrors the emitter's own call: ecx =
-    // (nodeFlags>>7)&1, stack = the node's font size [node+0x1c].
+    // Font pixel height of this line — used to centre icons vertically (penY sits
+    // near the text top). Mirrors the emitter's own call: ecx = (nodeFlags>>7)&1,
+    // stack = the node's font size [node+0x1c].
     const int fontFlag = static_cast<int>((savedFlags >> 7) & 1u);
     const float fontSize =
         *reinterpret_cast<float *>(reinterpret_cast<uint8_t *>(node) +
@@ -717,24 +593,24 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     const float fontH = reinterpret_cast<float(__fastcall *)(int, float)>(
         Offsets::FUN_TEXT_FONT_HEIGHT)(fontFlag, fontSize);
 
-    // The original emitter never writes penXYZ[0]; we mutate it to thread the
-    // pen across segments, so snapshot and restore it. The draw builder does
-    // NOT reset penXYZ[0] between left-justified lines, so leaving it mutated
-    // would cascade-shift every following line.
+    // The original emitter never writes penXYZ[0]; we mutate it to thread the pen
+    // across segments, so snapshot and restore it. The draw builder does NOT reset
+    // penXYZ[0] between left-justified lines, so leaving it mutated would cascade-
+    // shift every following line.
     const float startX = penXYZ[0];
     const float penY = penXYZ[1];
     const float penZ = penXYZ[2];
     float penX = penXYZ[0];
 
-    // Centre/right-justify correction. The engine positioned the pen
-    // (penXYZ[0]) using this line's MEASURED width, which counts inline icons as
-    // ~zero (the tokenizer measure gap). The rendered line is wider by the icons'
-    // reserved width, so a centred line overflows its box to the right (empty
-    // space on the left) and a right-aligned line overflows past the right edge.
-    // Pre-sum this line's icon widths and shift the pen left by half that (centre)
-    // or all of it (right) so the whole text+icons block is justified as a unit.
-    // Left-justify (chat, justify 0) needs no shift. node+0x54: 1 = centre,
-    // 2 = right (verified in the draw builder FUN_005cdc20's justify branch).
+    // Centre/right-justify correction. The engine positioned the pen (penXYZ[0])
+    // using this line's MEASURED width, which counts inline icons as ~zero (the
+    // tokenizer measure gap). The rendered line is wider by the icons' reserved
+    // width, so a centred line overflows its box to the right (empty space on the
+    // left) and a right-aligned line overflows past the right edge. Pre-sum this
+    // line's icon widths and shift the pen left by half that (centre) or all of it
+    // (right) so the whole text+icons block is justified as a unit. Left-justify
+    // (chat, justify 0) needs no shift. node+0x54: 1 = centre, 2 = right (verified
+    // in the draw builder FUN_005cdc20's justify branch).
     const int justify =
         *reinterpret_cast<const int *>(reinterpret_cast<const uint8_t *>(node) + 0x54);
     if (justify == 1 || justify == 2) {
@@ -751,24 +627,26 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
                 break;
             IconDesc d;
             const char *pl = reinterpret_cast<const char *>(text) + k + ml;
-            if (ParseIcon(pl, ce - (static_cast<size_t>(k) + ml), d))
-                iconW += (d.width > 0.0f ? d.width : d.height) * g_sizeScale;
+            if (ParseIcon(pl, ce - (static_cast<size_t>(k) + ml), d)) {
+                const float bh = (d.height > 0.0f) ? d.height : fontH;
+                const float iw = (d.width > 0.0f ? d.width : bh) * g_sizeScale;
+                iconW += iw + 1.5f * (iw * g_iconPadFrac); // include lead + half-trail pad
+            }
             k = static_cast<int>(ce) + cl;
         }
         penX -= (justify == 1) ? iconW * 0.5f : iconW;
     }
 
     // Draws a plain run [start,start+n) via the original emitter, threading the
-    // pen: the original starts at penXYZ[0] and leaves the final node-local pen
-    // x (truncated to int) in linkState[4]. n == 0 is a safe no-op that just
-    // finalizes linkState (used to keep the pen/link state consistent between
-    // and after icons).
+    // pen: the original starts at penXYZ[0] and leaves the final node-local pen x
+    // (truncated to int) in linkState[4]. n == 0 is a safe no-op that just finalizes
+    // linkState (used to keep the pen/link state consistent between and after icons).
     auto drawRun = [&](size_t start, int n) {
         penXYZ[0] = penX;
         g_emitterOriginal(node, edx, text + start, n, colorState, penXYZ, pageMask, linkState);
-        // linkState[4] holds the final pen x, stored by the engine with `FSTP
-        // dword` — i.e. a FLOAT bit pattern, not an int. Read it as a float
-        // (an int-cast reinterprets the bits and yields garbage).
+        // linkState[4] holds the final pen x, stored by the engine with `FSTP dword`
+        // — i.e. a FLOAT bit pattern, not an int. Read it as a float (an int-cast
+        // reinterprets the bits and yields garbage).
         penX = *reinterpret_cast<float *>(&linkState[4]);
     };
 
@@ -803,28 +681,36 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         const char *payload = reinterpret_cast<const char *>(text) + i + mlen;
         size_t payloadLen = close - (static_cast<size_t>(i) + mlen);
         if (ParseIcon(payload, payloadLen, d)) {
-            void *tex = LoadTextureByPath(d.path.c_str());
-            if (tex != nullptr) {
-                float w = d.width * g_sizeScale;
-                float h = d.height * g_sizeScale;
-                IconRecord r;
-                r.tex = tex;
-                r.x = penX;
-                r.y = penY;
-                r.fontH = fontH;
-                r.w = w;
-                r.h = h;
-                r.z = penZ;
-                r.offsetX = d.offsetX * g_sizeScale;
-                r.offsetY = d.offsetY * g_sizeScale;
-                r.u0 = d.u0;
-                r.v0 = d.v0;
-                r.u1 = d.u1;
-                r.v1 = d.v1;
-                r.color = d.color;
-                icons.push_back(r);
-                penX += w; // reserve horizontal space for the icon
-            }
+            // height/width of 0 => size to the line's font (retail :0:0).
+            const float baseH = (d.height > 0.0f) ? d.height : fontH;
+            const float baseW = (d.width > 0.0f) ? d.width : baseH;
+            const float w = baseW * g_sizeScale;
+            const float h = baseH * g_sizeScale;
+            IconRecord r;
+            r.path = d.path;
+            r.x = penX;
+            r.y = penY;
+            r.fontH = fontH;
+            r.w = w;
+            r.h = h;
+            r.z = penZ;
+            r.offsetX = d.offsetX * g_sizeScale;
+            r.offsetY = d.offsetY * g_sizeScale;
+            r.u0 = d.u0;
+            r.v0 = d.v0;
+            r.u1 = d.u1;
+            r.v1 = d.v1;
+            r.color = d.color;
+            icons.push_back(std::move(r));
+            // Reserve the icon width + a LEAD pad (full) and a TRAIL pad (half) so
+            // it never jams against adjacent text. Lead-heavy on purpose: the
+            // preceding glyph's right-side bearing eats into the left gap visually,
+            // so a symmetric layout pad looks tighter on the left / looser on the
+            // right — a half trail balances that. The lead pad is applied to the
+            // draw position in FlushLayout; a positive offsetX adds extra lead; a
+            // negative one (deliberate leftward overlap) doesn't shrink the advance.
+            const float pad = w * g_iconPadFrac;
+            penX += w + 1.5f * pad + (r.offsetX > 0.0f ? r.offsetX : 0.0f);
         }
         penXYZ[0] = penX;
         i = static_cast<int>(close) + closeLen; // skip past the closing marker
@@ -834,11 +720,8 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // Trailing plain run (also finalizes pen/link state for the builder).
     drawRun(runStart, len - static_cast<int>(runStart));
 
-    g_lastIconN = static_cast<int>(icons.size());
-    g_lastFirstLine = firstLine ? 1 : 0;
-
-    // Restore the pen origin to match the engine's own post-call invariant, and
-    // the node flags (bit 3) we cleared for the segmented append.
+    // Restore the pen origin to match the engine's own post-call invariant, and the
+    // node flags (bit 3) we cleared for the segmented append.
     penXYZ[0] = startX;
     if (batchClearMode)
         *flagsPtr = savedFlags;
@@ -848,107 +731,84 @@ static const Game::HookAutoRegister _emitterHook{Offsets::FUN_TEXT_EMITTER,
                                                  reinterpret_cast<void *>(&Emitter_h),
                                                  reinterpret_cast<void **>(&g_emitterOriginal)};
 
-// --- paint co-hook: flush recorded icons -----------------------------------
+// --- tick publisher: anchor recorded icons to their owning fontstrings ------
 
-using Paint_t = void(__fastcall *)(void *layout);
-Paint_t g_paintOriginal = nullptr;
+uint32_t g_faultCode = 0;
+uintptr_t g_faultAddr = 0;
 
-// Draws all icons recorded for the layout's live render nodes, translating each
-// from node-local coords by the node's screen origin (+0x70/+0x74) — the same
-// transform the paint pass applies to glyph batches. Runs after the original
-// paint so icons land over the reserved blank space, in the correct device
-// state. SEH-guarded: a fault here (bad node/texture) disables the feature
-// rather than crashing the client.
 int CaptureFault(EXCEPTION_POINTERS *ep, uint32_t *code, uintptr_t *addr) {
     *code = ep->ExceptionRecord->ExceptionCode;
     *addr = reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-uint32_t g_faultCode = 0;
-uintptr_t g_faultAddr = 0;
-volatile int g_iconsDrawn = 0;
+// Validates a node→owner map entry, SEH-guarded because the owner fontstring
+// may have been freed since it was mapped (regions die with their frames).
+// Returns 1 when `fs` still owns `node` AND its live text still carries `|T`
+// markup; 0 when the entry is stale (evict); a fault also returns 0.
+// No C++ objects with destructors in here (SEH constraint).
+int OwnerValid(void *fs, void *node) {
+    __try {
+        if (!LooksReadable(fs))
+            return 0;
+        const uint8_t *f = reinterpret_cast<const uint8_t *>(fs);
+        void *handle = *reinterpret_cast<void *const *>(f + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+        if (!LooksReadable(handle))
+            return 0;
+        if (*reinterpret_cast<void *const *>(reinterpret_cast<const uint8_t *>(handle) +
+                                             Offsets::OFF_TEXTBLOCK_NODE) != node)
+            return 0;
+        // The chat frame reuses its line fontstrings: a record whose owner now
+        // shows markup-free text is stale (the emitter never ran to erase it).
+        const uint8_t *txt = *reinterpret_cast<const uint8_t *const *>(f + 0xF0);
+        if (!LooksReadable(txt))
+            return 0;
+        for (int k = 0; k < 2048 && txt[k] != '\0'; ++k)
+            if (txt[k] == '|' && txt[k + 1] == 'T')
+                return 1;
+        return 0;
+    } __except (CaptureFault(GetExceptionInformation(), &g_faultCode, &g_faultAddr)) {
+        return 0;
+    }
+}
 
-void FlushLayout(void *layout) {
-    if (!LooksReadable(layout))
+// WorldTick: walk the icon records, resolve each node's owning fontstring, and
+// hand every icon to the pool as an OWNER-ANCHORED placement (fs-local coords,
+// x right / y down from the fontstring's text origin). The pool configures one
+// managed region per icon — one SetPoint to the owner, so the engine's anchor
+// system moves icons with their lines on every scroll/shift with zero per-frame
+// work here. Runs entirely off-render.
+void PublishIcons() {
+    if (!g_inlineEnabled) {
+        Text::InlineTexturePool::ApplyPass();
         return;
-    auto *L = reinterpret_cast<uint8_t *>(layout);
-    const int linkOff = *reinterpret_cast<int *>(L + Offsets::OFF_TEXT_LAYOUT_NODE_LINK);
-    void *node = *reinterpret_cast<void **>(L + Offsets::OFF_TEXT_LAYOUT_NODE_HEAD);
-
-    for (int guard = 0; node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0 &&
-                        guard < 4096;
-         ++guard) {
-        if (!LooksReadable(node))
-            break;
-        ++g_flushNodesSeen;
-        auto *n = reinterpret_cast<uint8_t *>(node);
-        // Does this node's CURRENT text still carry inline-texture markup? The
-        // chat frame reuses its line FontStrings: when a line is cleared (text set
-        // empty) or reused for markup-free text, the draw builder early-returns on
-        // it, so the emitter never runs and never erases the old icon record. That
-        // record is then STALE — drawing it paints ghost icons at the FontString's
-        // parked position (seen in-game as a strip of icons at the bottom of the
-        // screen). So gate the draw on the live text still having `|T`; if not, the
-        // record is stale — drop it and skip.
-        const uint8_t *ntext = *reinterpret_cast<uint8_t *const *>(n + Offsets::OFF_TEXT_NODE_TEXT);
-        bool hasMarkup = false;
-        if (LooksReadable(ntext)) {
-            for (int k = 0; k < 2048 && ntext[k] != '\0'; ++k)
-                if (ntext[k] == '|' && ntext[k + 1] == 'T') {
-                    hasMarkup = true;
-                    break;
-                }
-        }
-        auto it = g_nodeIcons.find(node);
-        if (it != g_nodeIcons.end() && !it->second.empty() && !hasMarkup) {
-            // Stale record — the node's text no longer has markup. Drop it.
-            g_nodeIcons.erase(it);
-            node = *reinterpret_cast<void **>(n + linkOff + 4);
+    }
+    for (auto it = g_nodeIcons.begin(); it != g_nodeIcons.end();) {
+        void *node = it->first;
+        auto ownerIt = g_nodeOwner.find(node);
+        if (ownerIt == g_nodeOwner.end()) {
+            ++it; // not mapped yet (rebuild hasn't run) — keep the record
             continue;
         }
-        // Draw the node's recorded icons. No NodeEditable gate: a real input box
-        // is suppressed at the emitter (bit 3 + bit 6) so it never gets a record,
-        // while pfUI's editable chat SCROLLBACK (bit 6, no bit 3) legitimately
-        // records and must draw — gating on NodeEditable here would re-blank it.
-        if (it != g_nodeIcons.end() && !it->second.empty()) {
-            const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
-            const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
-            for (const IconRecord &r : it->second) {
-                const float cx = r.x + ox + r.offsetX; // screen left
-                // Centre on the line: penY is near the text top, so add a
-                // fraction of the font height (plus the fine-tune bias). offsetY
-                // shifts up (WoW convention), so subtract it.
-                const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
-                const float x0 = cx;
-                const float x1 = cx + r.w;
-                const float y0 = cy - r.h * 0.5f;
-                const float y1 = cy + r.h * 0.5f;
-                DrawTexturedQuad(r.tex, x0, y0, x1, y1, r.u0, r.v0, r.u1, r.v1, r.color, r.z);
-                ++g_iconsDrawn;
-            }
+        void *fs = ownerIt->second;
+        if (!OwnerValid(fs, node)) {
+            g_nodeOwner.erase(ownerIt);
+            it = g_nodeIcons.erase(it);
+            continue;
         }
-        node = *reinterpret_cast<void **>(n + linkOff + 4);
+        for (const IconRecord &r : it->second) {
+            const float cx = r.x + r.offsetX + r.w * g_iconPadFrac;
+            const float cy = r.y + r.fontH * g_centerFrac + g_vBias - r.offsetY;
+            Text::InlineTexturePool::PlaceOwned(fs, cx, cy - r.h * 0.5f, cx + r.w,
+                                                cy + r.h * 0.5f, r.path.c_str(), r.u0, r.v0,
+                                                r.u1, r.v1, r.color);
+        }
+        ++it;
     }
+    Text::InlineTexturePool::ApplyPass();
 }
 
-void SafeFlush(void *layout) {
-    __try {
-        FlushLayout(layout);
-    } __except (CaptureFault(GetExceptionInformation(), &g_faultCode, &g_faultAddr)) {
-        g_inlineEnabled = false;
-    }
-}
-
-void __fastcall Paint_h(void *layout) {
-    g_paintOriginal(layout);
-    if (g_inlineEnabled)
-        SafeFlush(layout);
-}
-
-static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
-                                               reinterpret_cast<void *>(&Paint_h),
-                                               reinterpret_cast<void **>(&g_paintOriginal)};
+static const Tick::WorldTick::AutoSubscribe _tick{&PublishIcons};
 
 // --- Lua control surface ---------------------------------------------------
 
@@ -957,7 +817,6 @@ double Arg(void *L, int idx, double fallback) {
 }
 
 // _classicapi_InlineTexEnable([on]) -> enabled
-// Toggles the inline-texture feature. No arg / truthy = on; false / 0 = off.
 int __fastcall Script_InlineTexEnable(void *L) {
     if (Game::Lua::GetTop(L) == 0)
         g_inlineEnabled = true;
@@ -968,9 +827,6 @@ int __fastcall Script_InlineTexEnable(void *L) {
 }
 
 // _classicapi_InlineTexSuppress([on]) -> suppressed
-// Temporarily suppress icon rendering in newly-built text (used while an editbox
-// has focus so input shows raw markup). Already-drawn display icons are
-// unaffected. No arg / truthy = suppress; false / 0 = resume.
 int __fastcall Script_InlineTexSuppress(void *L) {
     if (Game::Lua::GetTop(L) == 0)
         g_suppressInline = true;
@@ -980,51 +836,30 @@ int __fastcall Script_InlineTexSuppress(void *L) {
     return 1;
 }
 
-// _classicapi_InlineTexTune(vBias, sizeScale, centerFrac) -> vBias, sizeScale,
-// centerFrac. Live calibration: vBias is a fine node-local Y nudge, sizeScale
-// multiplies the icon size, centerFrac is the fraction of the font height added
-// to penY to centre the icon (default 0.5). All optional; omitted args keep
-// their current value.
+// _classicapi_InlineTexTune(vBias, sizeScale, centerFrac, iconPadFrac) ->
+// vBias, sizeScale, centerFrac, iconPadFrac. Live geometry calibration; omitted
+// args keep their current value.
 int __fastcall Script_InlineTexTune(void *L) {
     g_vBias = static_cast<float>(Arg(L, 1, g_vBias));
     g_sizeScale = static_cast<float>(Arg(L, 2, g_sizeScale));
     g_centerFrac = static_cast<float>(Arg(L, 3, g_centerFrac));
+    g_iconPadFrac = static_cast<float>(Arg(L, 4, g_iconPadFrac));
     Game::Lua::PushNumber(L, g_vBias);
     Game::Lua::PushNumber(L, g_sizeScale);
     Game::Lua::PushNumber(L, g_centerFrac);
-    return 3;
+    Game::Lua::PushNumber(L, g_iconPadFrac);
+    return 4;
 }
 
-// _classicapi_InlineTexStats() -> enabled, emCalls, emFound, emSegmented,
-// lastFlags, lastLen, trackedNodes, iconsDrawn, flushNodesSeen, faultCode.
-// Ground truth on where the pipeline breaks:
-//   emCalls == 0        -> the emitter (FUN_005ccbe0) never fires for the text
-//   emFound == 0        -> it fires but never sees `|T` (wrong text/path)
-//   lastFlags & 8       -> node is in batch-clear mode; segmentation bails
-//   emSegmented > 0 but trackedNodes == 0 -> recording/parse/load failed
-//   trackedNodes > 0 but iconsDrawn == 0  -> flush isn't matching the nodes
+// _classicapi_InlineTexStats() -> enabled, suppressed, trackedNodes, faultCode,
+//                                 ownerMapSize.
 int __fastcall Script_InlineTexStats(void *L) {
     Game::Lua::PushBool(L, g_inlineEnabled);
-    Game::Lua::PushNumber(L, static_cast<double>(g_emCalls));
-    Game::Lua::PushNumber(L, static_cast<double>(g_emFound));
-    Game::Lua::PushNumber(L, static_cast<double>(g_emPipeCalls));
-    Game::Lua::PushNumber(L, static_cast<double>(g_emSegmented));
-    Game::Lua::PushNumber(L, static_cast<double>(g_lastFlags));
+    Game::Lua::PushBool(L, g_suppressInline);
     Game::Lua::PushNumber(L, static_cast<double>(g_nodeIcons.size()));
-    Game::Lua::PushNumber(L, static_cast<double>(g_iconsDrawn));
-    Game::Lua::PushNumber(L, static_cast<double>(g_lastIconN));
-    return 9;
-}
-
-// _classicapi_InlineTexCap() -> latched, capturedLength, capturedText
-// Returns the text of the first emitter call whose text began with '~'. If
-// latched is false, no emitter call ever received text starting with '~' — i.e.
-// a '~'-prefixed FontString does NOT flow through FUN_005ccbe0.
-int __fastcall Script_InlineTexCap(void *L) {
-    Game::Lua::PushBool(L, g_capLatched);
-    Game::Lua::PushNumber(L, static_cast<double>(g_capLen));
-    Game::Lua::PushString(L, g_capBuf);
-    return 3;
+    Game::Lua::PushNumber(L, static_cast<double>(g_faultCode));
+    Game::Lua::PushNumber(L, static_cast<double>(g_nodeOwner.size()));
+    return 5;
 }
 
 void RegisterLuaFunctions() {
@@ -1032,11 +867,18 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexSuppress", &Script_InlineTexSuppress);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexTune", &Script_InlineTexTune);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexStats", &Script_InlineTexStats);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexCap", &Script_InlineTexCap);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+void PrepareForReload() {
+    // /reload frees every fontstring (regions die with their frames) and every
+    // gxu text node — both maps hold dangling pointers. Forget them; records
+    // and mappings rebuild as the reloaded UI re-emits its text.
+    g_nodeOwner.clear();
+    g_nodeIcons.clear();
+}
 
 } // namespace Text::InlineTexture
