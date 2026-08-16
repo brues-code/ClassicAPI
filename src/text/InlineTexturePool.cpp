@@ -58,9 +58,12 @@ using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, 
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using ShowHide_t = void(__fastcall *)(void *tex);
 
+// NOTE upper bound: the client is Large Address Aware — heap pointers above
+// 0x80000000 are valid (a 2GB cap here silently dropped high fontstrings/nodes;
+// see InlineTexture.cpp's LooksReadable note).
 bool LooksReadable(const void *p) {
     auto a = reinterpret_cast<uintptr_t>(p);
-    return a >= 0x00010000u && a < 0x7FFF0000u;
+    return a >= 0x00010000u && a < 0xFFFF0000u;
 }
 
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
@@ -567,7 +570,7 @@ int __fastcall Script_InlineTexFsDump(void *L) {
 int __fastcall Script_InlineTexBroken(void *L) {
     int pushed = 0;
     for (auto &kv : g_fsIcons) {
-        if (pushed >= 8)
+        if (pushed >= 12)
             break;
         FsPlacements &np = kv.second;
         if (!np.want.empty())
@@ -601,7 +604,9 @@ int __fastcall Script_InlineTexBroken(void *L) {
                               static_cast<double>(Text::InlineTexture::DebugNodeFlags(kv.first)));
         Game::Lua::PushNumber(L,
                               static_cast<double>(Text::InlineTexture::DebugNodeSeenAge(kv.first)));
-        pushed += 4;
+        Game::Lua::PushNumber(L, Text::InlineTexture::DebugNodeBuiltKnown(kv.first));
+        Game::Lua::PushNumber(L, Text::InlineTexture::DebugNodeEmitOutcome(kv.first));
+        pushed += 6;
     }
     return pushed;
 }

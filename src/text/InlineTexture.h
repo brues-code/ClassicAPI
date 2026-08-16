@@ -41,4 +41,15 @@ unsigned int DebugNodeFlags(void *fs);
 // the node's layout is not being painted — the flush can never queue for it.
 int DebugNodeSeenAge(void *fs);
 
+// Debug: 1 if the tracked draw builder (FUN_TEXT_DRAW_BUILDER) has ever run
+// for the fs's current node, else 0 (-1 chain unreadable). 0 with visible text
+// means the node is built/rendered through a path we don't hook.
+int DebugNodeBuiltKnown(void *fs);
+
+// Debug: the last emitter outcome for the fs's current node (-1 = emitter
+// never entered for it): 1 feature-off, 2 null args, 3 manual suppress,
+// 4 focused-editbox pointer suppress, 5 content suppress, 6 editable suppress,
+// 7 no-markup line(s) only, 8 recorded icons.
+int DebugNodeEmitOutcome(void *fs);
+
 } // namespace Text::InlineTexture
