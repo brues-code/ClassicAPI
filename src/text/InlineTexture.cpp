@@ -327,11 +327,11 @@ int g_renderMode = 1;
 float g_penPerAnchor = 0.0f;
 
 // Region-mode calibration, PEN units added to the region copy's position only
-// (quads are the ground truth and never shifted). The pen→anchor map carries a
-// small constant residual (the probe data showed ~3 pen units on y with the
-// analogous x term); (3, -1) is the in-game calibrated best fit. Tunable live
-// via _classicapi_InlineTexRegionCal(dx, dy).
-float g_regionCalX = 3.0f;
+// (quads are the ground truth and never shifted). x needs no constant — the +3
+// once calibrated here turned out to be the missing lead pad, now applied at
+// draw for both render paths. y keeps a 1px residual (the pen→anchor map's one
+// true constant). Tunable live via _classicapi_InlineTexRegionCal(dx, dy).
+float g_regionCalX = 0.0f;
 float g_regionCalY = -1.0f;
 
 // RebuildString co-hook: after the engine (re)builds a fontstring's text block,
@@ -982,7 +982,12 @@ void FlushLayout(void *layout) {
                 K = DeriveK(n, reinterpret_cast<uint8_t *>(fs), ox);
             std::vector<Text::InlineTexturePool::Placement> places;
             for (const IconRecord &r : it->second) {
-                const float cx = r.x + ox + r.offsetX; // screen left
+                // Screen left = pen + the FULL lead pad. The emitter reserves
+                // w + 1.5×pad in the advance (lead 1×, trail 0.5×) — drawing at
+                // the raw pen put all of that gap AFTER the icon, which is why
+                // a string-final icon (money-string copper) looked jammed
+                // against its digits and grew per-coin offset hacks.
+                const float cx = r.x + ox + r.offsetX + r.w * g_iconPadFrac;
                 // Centre on the line: penY sits near the text top, so add a
                 // fraction of the font height (plus the fine-tune bias). offsetY
                 // shifts up (WoW convention), so subtract it.
