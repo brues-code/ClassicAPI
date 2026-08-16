@@ -340,6 +340,31 @@ enum Offsets {
     // therefore *( *(fs+0xF8) + 8 ).
     OFF_FONTSTRING_TEXT_BLOCK = 0xF8, // HTEXTBLOCK handle (0 when dirty/empty)
     OFF_TEXTBLOCK_NODE = 0x8,         // the gxu text node inside the handle
+    // Byte of fontstring state flags; bit 1 = "text block needs rebuild".
+    // RebuildString (0x7724A0) gates on it at entry, releases the old block
+    // (+0xF8 = 0), and only CREATES a new one if the fs rect is resolved —
+    // a SetText during an unresolved rect leaves the fs blockless with the
+    // refcounted zombie node still painting. If the bit is also clear at that
+    // point, nothing ever rebuilds (the stuck-blockless state InlineTexture's
+    // flush nudges by re-setting this bit).
+    OFF_FONTSTRING_DIRTY_FLAGS = 0x60,
+    // The per-node draw builder: walks a node's wrapped lines and calls the
+    // glyph emitter (FUN_TEXT_EMITTER) once per line. Called from the paint's
+    // per-node pre-pass FUN_005cd6a0 (`__thiscall(node)`, no stack args). We
+    // co-hook it to stamp exact BUILD BOUNDARIES for the emitter's first-line
+    // detection — the old `text == node+text-ptr` heuristic silently failed on
+    // pfUI-processed chat lines (stale/preprocessed pointer), leaving inherited
+    // records on reused node addresses (ghost icons) or never clearing them.
+    FUN_TEXT_DRAW_BUILDER = 0x005CDC20,
+    // The gxu text-node FREE: unlinks the node from its layout lists and pushes
+    // it onto the node free list (DAT_00c2b98c) for reuse. Single caller —
+    // FUN_005c1d00, the HTEXTBLOCK handle release (handle vtbl 0x008026e4 dtor
+    // 0x0044D5C0 → 0x005c1d00 → here). This is the choke point where every
+    // text node dies and its address becomes reusable: InlineTexture hooks it
+    // to erase ALL per-node state exactly at death, making stale-record and
+    // stale-owner bugs (ghost icons, orphaned records) structurally impossible
+    // instead of heuristically guarded.
+    FUN_TEXT_NODE_FREE = 0x005CD950,
     // THE pen↔anchor unit bridge. RebuildString (0x7724A0) multiplies every
     // text-unit quantity by region+0x7C when crossing into node creation:
     // nodePos = inset×s + rect corner, nodeFontH = fontPx×s, spacing = +0xF4×s,
@@ -5292,6 +5317,22 @@ enum Offsets {
     // Calling convention: `__fastcall(int ecx, int edx, int stackArg)`,
     // `RET 0x4` (callee cleans the one stack arg).
     FUN_WORLD_TICK = 0x0066FD50,
+
+    // UI render root — the CSimpleTop singleton's (`DAT_00cf0bd8`) per-frame
+    // render callback. Registered at priority 1.0 into the global HLAYER list
+    // (`FUN_00442800`) and drained every frame by the master scene-render pump
+    // `FUN_00442350`; body is just `FUN_00765650(root, ...)` (UI layout pass)
+    // then `FUN_007657d0(root)` (the strata walk that draws every UI frame).
+    // Unlike FUN_WORLD_TICK this fires in BOTH glue and world: the root ctor
+    // `FUN_00764180` runs from the world-init path (`FUN_0048FBF0`) AND the
+    // glue-boot path (`FUN_0046A7B0`), so the UI renders — and this callback
+    // fires — on the login/character-select screens too. This is the tick to
+    // drive UI-object upkeep that must also run on glue (inline-texture icon
+    // regions), where FUN_WORLD_TICK is silent. `__stdcall(void *bounds,
+    // int flag)`, `RET 0x8`; clean PUSH EBP / MOV EBP,ESP prologue (MinHook-
+    // safe). Single caller (the HLAYER drain), quiet render region — not a
+    // known collision target for the other Octo DLLs.
+    FUN_UI_RENDER_ROOT = 0x00764330,
 
     // SMSG_BINDPOINTUPDATE handler. The server sends this packet on
     // initial login (to sync the player's current bind) and again

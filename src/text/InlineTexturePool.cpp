@@ -37,6 +37,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "text/InlineTexture.h"
 #include "tick/WorldTick.h"
 
 #include <string>
@@ -93,9 +94,16 @@ struct FsPlacements {
     bool dirty = false;
     std::vector<IconRegion> regions; // engine regions currently serving this fs
     int shown = 0;                   // how many of `regions` are visible
+    // Maintain-tick of the last QueuePlacements touch (deduped ones included).
+    // A LIVE painted icon line is re-queued every paint; a parked/orphaned fs
+    // (recycled chat line whose node never rebuilds — the "ghost icons at the
+    // parked position" class) stops being touched entirely, so its regions
+    // expire via the freshness check in Maintain.
+    uint32_t lastTouchTick = 0;
 };
 
 std::unordered_map<void *, FsPlacements> g_fsIcons;
+uint32_t g_maintainTick = 0;
 
 // Holder geometry/alpha, live-tunable via _classicapi_InlineTexHolderCfg for
 // in-game verification. Units are the region anchor space ([0..1] across the
@@ -195,12 +203,11 @@ void *CreateRegion(void *parent) {
 // engine moves the icon with its line for free).
 void ApplyPlacement(IconRegion &r, void *fs, const Placement &p) {
     auto *f = reinterpret_cast<uint8_t *>(fs);
-    // Region rect at +0x64 is {yA, left, yB, right} — x at [1]/[3], y at
-    // [0]/[2]; take min per axis rather than pinning which index is which
-    // corner (the RE note's warning). Anchor-space y grows up.
-    const float *rc = reinterpret_cast<const float *>(f + Offsets::OFF_REGION_RECT);
-    const float fsBottom = (rc[0] < rc[2]) ? rc[0] : rc[2];
-    const float fsLeft = (rc[1] < rc[3]) ? rc[1] : rc[3];
+    // Placement coords are FS-RELATIVE (from the fs rect's min corner), computed
+    // at PAINT time in the same flush as the icon coords. Do NOT read the fs
+    // rect here: an apply-time read raced the chat relayout (SetText briefly
+    // invalidates the rect) and parked icons off their line, where the dedup
+    // then froze them — the scroll-landing "randomly hidden icon" bug.
 
     if (r.path != p.path) {
         const uint32_t blend = *reinterpret_cast<uint32_t *>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
@@ -238,9 +245,9 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p) {
     void *texAnchor = reinterpret_cast<uint8_t *>(r.tex) + Offsets::OFF_REGION_ANCHOR;
     void *fsAnchor = f + Offsets::OFF_REGION_ANCHOR;
     setPoint(texAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
-             (p.x0 - fsLeft) * scale, (p.y0 - fsBottom) * scale, 1);
+             p.x0 * scale, p.y0 * scale, 1);
     setPoint(texAnchor, Offsets::FRAMEPOINT_TOPRIGHT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
-             (p.x1 - fsLeft) * scale, (p.y1 - fsBottom) * scale, 1);
+             p.x1 * scale, p.y1 * scale, 1);
     reinterpret_cast<Realize_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(texAnchor, 0);
     Show(r.tex);
 }
@@ -263,9 +270,25 @@ void Maintain() {
         }
     }
 
+    ++g_maintainTick;
     for (auto &kv : g_fsIcons) {
         void *fs = kv.first;
         FsPlacements &np = kv.second;
+
+        // Freshness expiry: a LIVE painted icon line re-queues every paint, so
+        // its touch stamp stays current. A parked/orphaned fs (recycled chat
+        // line whose node never rebuilds and may not even be walked) stops
+        // being touched — hide its regions and drop the stale want so nothing
+        // ghosts at the parked position. ~1s at a per-frame tick.
+        constexpr uint32_t kWantTTL = 60;
+        if (np.shown > 0 && g_maintainTick - np.lastTouchTick > kWantTTL) {
+            for (int i = 0; i < np.shown; ++i)
+                Hide(np.regions[static_cast<size_t>(i)].tex);
+            np.shown = 0;
+            np.want.clear();
+            np.dirty = false;
+            continue;
+        }
 
         // Mirror the fontstring's visibility EVERY tick, not just on dirty:
         // expired/hidden chat lines get their fs Hidden by the message frame,
@@ -368,10 +391,12 @@ void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
         FsPlacements np;
         np.want = std::move(icons);
         np.dirty = true;
+        np.lastTouchTick = g_maintainTick;
         g_fsIcons.emplace(fs, std::move(np));
         return;
     }
     FsPlacements &np = it->second;
+    np.lastTouchTick = g_maintainTick; // freshness — deduped touches count too
     if (np.want == icons)
         return; // identical re-queue (the per-paint steady state) — no work
     np.want = std::move(icons);
@@ -448,6 +473,139 @@ int __fastcall Script_InlineTexRegionDump(void *L) {
     return 0;
 }
 
+// _classicapi_InlineTexFsDump() -> total, markup, missingWant, lostApply,
+// hiddenRegion, healthy, fsHidden, dirty. Triangulates WHERE the pipeline
+// loses an icon when a scrolled chat line lands without one:
+//   markup      = tracked fs whose LIVE text (fs+0xF0) contains |T
+//   missingWant = markup fs with EMPTY want        -> paint side never queued
+//   lostApply   = want>0, not dirty, shown<want    -> tick side lost the apply
+//   hiddenRegion= applied but a region reads +0xC8==0 while its fs is shown
+//   healthy     = markup fs fully applied and all regions shown
+// Run while a scrolled-in line is visibly missing its icon.
+int __fastcall Script_InlineTexFsDump(void *L) {
+    int total = 0, markup = 0, missingWant = 0, lostApply = 0, hiddenRegion = 0, healthy = 0,
+        fsHidden = 0, dirty = 0;
+    int chain[7] = {0, 0, 0, 0, 0, 0, 0}; // DebugChainState buckets for missingWant fs
+    for (auto &kv : g_fsIcons) {
+        ++total;
+        FsPlacements &np = kv.second;
+        auto *f = reinterpret_cast<uint8_t *>(kv.first);
+        if (!LooksReadable(f))
+            continue;
+        const bool fsShown =
+            *reinterpret_cast<const uint32_t *>(f + Offsets::OFF_REGION_ACTUALLY_SHOWN) != 0;
+        if (!fsShown)
+            ++fsHidden;
+        if (np.dirty)
+            ++dirty;
+        bool hasMarkup = false;
+        const char *text = *reinterpret_cast<const char *const *>(f + 0xF0);
+        if (LooksReadable(text))
+            for (int k = 0; k < 2048 && text[k] != '\0'; ++k)
+                if (text[k] == '|' && (text[k + 1] == 'T' || text[k + 1] == 't')) {
+                    hasMarkup = (text[k + 1] == 'T');
+                    if (hasMarkup)
+                        break;
+                }
+        if (hasMarkup)
+            ++markup;
+        const int want = static_cast<int>(np.want.size());
+        // Anomalies only count for VISIBLE fontstrings: a hidden line's node
+        // isn't painted, so it legitimately stops re-queueing — an empty want
+        // there is bookkeeping, not a bug (this blind spot produced phantom
+        // missingWant counts next to fsHidden).
+        if (hasMarkup && want == 0) {
+            if (fsShown) {
+                ++missingWant;
+                const int cs = Text::InlineTexture::DebugChainState(kv.first);
+                if (cs >= 0 && cs <= 6)
+                    ++chain[cs];
+            }
+            continue;
+        }
+        if (want > 0 && !np.dirty && np.shown < want) {
+            ++lostApply;
+            continue;
+        }
+        bool anyRegionHidden = false;
+        for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i) {
+            auto *t = reinterpret_cast<uint8_t *>(np.regions[static_cast<size_t>(i)].tex);
+            if (LooksReadable(t) &&
+                *reinterpret_cast<const uint32_t *>(t + Offsets::OFF_REGION_ACTUALLY_SHOWN) == 0) {
+                anyRegionHidden = true;
+                break;
+            }
+        }
+        if (fsShown && want > 0 && anyRegionHidden) {
+            ++hiddenRegion;
+            continue;
+        }
+        if (hasMarkup && fsShown && want > 0 && np.shown >= want)
+            ++healthy;
+    }
+    Game::Lua::PushNumber(L, total);
+    Game::Lua::PushNumber(L, markup);
+    Game::Lua::PushNumber(L, missingWant);
+    Game::Lua::PushNumber(L, lostApply);
+    Game::Lua::PushNumber(L, hiddenRegion);
+    Game::Lua::PushNumber(L, healthy);
+    Game::Lua::PushNumber(L, fsHidden);
+    Game::Lua::PushNumber(L, dirty);
+    // Chain classification of the missingWant fs (see DebugChainState):
+    // [9] unreadable, [10] node unmapped, [11] mapped to other fs,
+    // [12] authoritative but NO records, [13] authoritative WITH records,
+    // [14] blockless rebuild-pending, [15] blockless STUCK (nudged).
+    for (int i = 0; i < 7; ++i)
+        Game::Lua::PushNumber(L, chain[i]);
+    return 15;
+}
+
+// _classicapi_InlineTexBroken() -> up to 2 × (textSnippet, chainState,
+// nodeFlags, nodeSeenAge) for VISIBLE markup fontstrings whose want is empty —
+// names the actual broken lines; nodeSeenAge large/growing = the node's layout
+// is never painted, so the flush can never queue it.
+int __fastcall Script_InlineTexBroken(void *L) {
+    int pushed = 0;
+    for (auto &kv : g_fsIcons) {
+        if (pushed >= 8)
+            break;
+        FsPlacements &np = kv.second;
+        if (!np.want.empty())
+            continue;
+        auto *f = reinterpret_cast<uint8_t *>(kv.first);
+        if (!LooksReadable(f))
+            continue;
+        if (*reinterpret_cast<const uint32_t *>(f + Offsets::OFF_REGION_ACTUALLY_SHOWN) == 0)
+            continue;
+        const char *text = *reinterpret_cast<const char *const *>(f + 0xF0);
+        if (!LooksReadable(text))
+            continue;
+        bool hasMarkup = false;
+        for (int k = 0; k < 2048 && text[k] != '\0'; ++k)
+            if (text[k] == '|' && text[k + 1] == 'T') {
+                hasMarkup = true;
+                break;
+            }
+        if (!hasMarkup)
+            continue;
+        char snip[96];
+        int n = 0;
+        while (n < 95 && text[n] != '\0') {
+            snip[n] = text[n];
+            ++n;
+        }
+        snip[n] = '\0';
+        Game::Lua::PushString(L, snip);
+        Game::Lua::PushNumber(L, Text::InlineTexture::DebugChainState(kv.first));
+        Game::Lua::PushNumber(L,
+                              static_cast<double>(Text::InlineTexture::DebugNodeFlags(kv.first)));
+        Game::Lua::PushNumber(L,
+                              static_cast<double>(Text::InlineTexture::DebugNodeSeenAge(kv.first)));
+        pushed += 4;
+    }
+    return pushed;
+}
+
 // _classicapi_InlineTexHolderCfg([visible][, size][, alpha]) -> the three.
 // Live-reconfigures every holder; omitted args keep their value. `visible` and
 // `size` are anchor units (~[0..1] across the screen; px ≈ units × screenWidth),
@@ -473,6 +631,8 @@ void RegisterLuaFunctions() {
                                       &Script_InlineTexHolderCfg);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexRegionDump",
                                       &Script_InlineTexRegionDump);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexFsDump", &Script_InlineTexFsDump);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexBroken", &Script_InlineTexBroken);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

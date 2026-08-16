@@ -301,11 +301,19 @@ struct IconRecord {
     uint32_t color;         // vertex tint (0xAARRGGBB; white = untinted)
 };
 
-// Icons keyed by render node. Rebuilt whenever the emitter runs for a node (see
-// Emitter_h), so it tracks the node's current text. Entries for freed nodes are
-// never dereferenced (flush only walks the layout's live node list) and are
-// cleared when the address is reused and rebuilt.
-std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
+// Icons keyed by render node, VERSIONED BY BUILD: `builtSeq` is the builder
+// invocation that produced the records. The flush only trusts records whose
+// builtSeq matches the node's LATEST build (g_nodeBuilt) — a build that never
+// ran the emitter (empty text) leaves records from a previous life at a reused
+// address, and unversioned records ghosted: pfUI nameplate fontstrings churn
+// node addresses constantly, inherited dead emote records, passed the
+// authority check (genuinely their current node), and drew emote icons at the
+// parked nameplate position at the bottom of the screen.
+struct NodeIcons {
+    uint32_t builtSeq = 0;
+    std::vector<IconRecord> icons;
+};
+std::unordered_map<void *, NodeIcons> g_nodeIcons;
 
 // node → owning CSimpleFontString, recorded by the RebuildString co-hook (the
 // 4.3.4 ownership model — 1.12 chat lines ARE fontstrings). Consulted by the
@@ -313,6 +321,13 @@ std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
 // are guarded by LooksReadable at use (chat/bubble fontstrings are pooled and
 // long-lived); the map clears on /reload.
 std::unordered_map<void *, void *> g_nodeOwner;
+
+// Flush visit stamps: which flush call last WALKED each owned node. Lets the
+// Broken() diagnostic distinguish "node painted but queue dropped" from "node's
+// layout is never painted at all" (the two remaining theories for a visible
+// markup line with an empty want).
+uint32_t g_flushSeq = 0;
+std::unordered_map<void *, uint32_t> g_nodeSeen;
 
 // Render mode: 0 = raw quads (pen space, pixel-true, needs residency holders),
 // 1 = engine regions (4.3.4 model — resident by construction; the default), 2 =
@@ -333,6 +348,60 @@ float g_penPerAnchor = 0.0f;
 // true constant). Tunable live via _classicapi_InlineTexRegionCal(dx, dy).
 float g_regionCalX = 0.0f;
 float g_regionCalY = -1.0f;
+
+// Draw-builder co-hook: exact build boundaries for first-line detection. The
+// builder runs once per node build and calls the emitter per wrapped line;
+// stamping the node + zeroing the emit counter here lets the emitter know
+// "this is the first line of a fresh build" with certainty. (The previous
+// heuristic — comparing the emit text pointer against node+text — failed on
+// pfUI-processed lines and caused both the erased-live-records bug and the
+// ghost-icons-on-reused-nodes bug.)
+void *g_buildNode = nullptr;
+uint32_t g_buildEmitSeq = 0;
+// Monotonic builder-invocation counter + per-node latest build. Records carry
+// the build they were made in; the flush rejects records older than the node's
+// latest build (see NodeIcons).
+uint32_t g_buildCounter = 0;
+std::unordered_map<void *, uint32_t> g_nodeBuilt;
+
+using DrawBuilder_t = void(__fastcall *)(void *node);
+DrawBuilder_t g_builderOriginal = nullptr;
+
+void __fastcall DrawBuilder_h(void *node) {
+    g_buildNode = node;
+    g_buildEmitSeq = 0;
+    g_nodeBuilt[node] = ++g_buildCounter;
+    g_builderOriginal(node);
+    g_buildNode = nullptr;
+}
+
+static const Game::HookAutoRegister _builderHook{Offsets::FUN_TEXT_DRAW_BUILDER,
+                                                 reinterpret_cast<void *>(&DrawBuilder_h),
+                                                 reinterpret_cast<void **>(&g_builderOriginal)};
+
+// Node-free co-hook: THE lifetime fix. Every gxu text node dies through
+// FUN_TEXT_NODE_FREE (single engine call site) before its address goes back to
+// the free list for reuse. Erasing all per-node state here makes it a hard
+// invariant that anything in our maps refers to a LIVE node — the entire class
+// of stale-record/stale-owner bugs (inherited ghost icons on recycled
+// nameplates, orphaned records inflating dropNoFs, reload leftovers) becomes
+// structurally impossible rather than heuristically guarded.
+using NodeFree_t = void(__fastcall *)(void *node);
+NodeFree_t g_nodeFreeOriginal = nullptr;
+
+void __fastcall NodeFree_h(void *node) {
+    if (node != nullptr) {
+        g_nodeIcons.erase(node);
+        g_nodeOwner.erase(node);
+        g_nodeSeen.erase(node);
+        g_nodeBuilt.erase(node);
+    }
+    g_nodeFreeOriginal(node);
+}
+
+static const Game::HookAutoRegister _nodeFreeHook{Offsets::FUN_TEXT_NODE_FREE,
+                                                  reinterpret_cast<void *>(&NodeFree_h),
+                                                  reinterpret_cast<void **>(&g_nodeFreeOriginal)};
 
 // RebuildString co-hook: after the engine (re)builds a fontstring's text block,
 // record node → fontstring. `fs+0xF8` is an HTEXTBLOCK handle; the node lives
@@ -358,11 +427,15 @@ static const Game::HookAutoRegister _rebuildHook{Offsets::FUN_FONTSTRING_REBUILD
                                                  reinterpret_cast<void *>(&RebuildString_h),
                                                  reinterpret_cast<void **>(&g_rebuildOriginal)};
 
-// Derives/refreshes K from this node + its fontstring: K = originX / justifyRefX
+// Derives K for THIS node from its own fontstring: K = originX / justifyRefX
 // (node+0x54: 0 = left, 1 = centre, 2 = right — the draw builder's encoding).
-// Guards: resolved rect, no x inset (RebuildString adds insetX×s to the node
-// position, which would bias the ratio), ref far enough from 0 for precision.
-// Falls back to the cached value when this node can't vouch.
+// K is PER-FONTSTRING, not global: pen space is scaled by the fs's effective
+// scale chain, so a pfUI money display at a custom frame scale has a different
+// K than chat (the deterministic 0.53× half-size icons were exactly this —
+// a global chat-derived K applied to a differently-scaled fs). The node's own
+// derivation is preferred; the global cache is a fallback for nodes whose
+// justify ref sits too close to 0 to divide by (guarded), updated only within
+// ±10% (a mid-layout stale-rect read must not poison it).
 float DeriveK(const uint8_t *n, const uint8_t *f, float originX) {
     if (LooksReadable(f)) {
         const float left = *reinterpret_cast<const float *>(f + Offsets::OFF_REGION_RECT + 4);
@@ -374,8 +447,12 @@ float DeriveK(const uint8_t *n, const uint8_t *f, float originX) {
                 (justify == 1) ? (left + right) * 0.5f : ((justify == 2) ? right : left);
             if (std::fabs(ref) > 0.02f && originX > 1.0f) {
                 const float k = originX / ref;
-                if (k > 1.0f)
-                    g_penPerAnchor = k;
+                if (k > 1.0f) {
+                    if (g_penPerAnchor <= 1.0f ||
+                        (k > g_penPerAnchor * 0.9f && k < g_penPerAnchor * 1.1f))
+                        g_penPerAnchor = k;
+                    return k; // this node's own K — always right for its fs
+                }
             }
         }
     }
@@ -686,26 +763,42 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         return;
     }
 
-    // The draw builder walks a node's wrapped lines by calling the emitter once per
-    // line on the SAME node, advancing the text pointer; the first line's pointer
-    // equals the node's text start. Clear the icon list once here so wrapped lines
-    // ACCUMULATE their icons instead of each wiping the previous.
+    // The draw builder walks a node's wrapped lines by calling the emitter once
+    // per line on the SAME node. First-line detection comes from the builder
+    // co-hook's build stamp (exact), NOT from comparing text pointers against
+    // node+text — that heuristic silently failed on pfUI-processed lines,
+    // leaving reused nodes' inherited records alive (ghost icons). Clear the
+    // icon list once per build so wrapped lines ACCUMULATE their icons instead
+    // of each wiping the previous.
+    // Build-stamp detection when this emit is inside a tracked builder run
+    // (exact); the old text-pointer heuristic as fallback for any emitter
+    // caller that doesn't route through FUN_TEXT_DRAW_BUILDER — `false` there
+    // would mean never-erase, which is how reused nodes kept dead records.
     const bool firstLine =
-        text == *reinterpret_cast<uint8_t **>(reinterpret_cast<uint8_t *>(node) +
-                                              Offsets::OFF_TEXT_NODE_TEXT);
+        (node == g_buildNode)
+            ? (g_buildEmitSeq++ == 0)
+            : (text == *reinterpret_cast<uint8_t **>(reinterpret_cast<uint8_t *>(node) +
+                                                     Offsets::OFF_TEXT_NODE_TEXT));
     if (firstLine)
         g_nodeIcons.erase(node);
 
     if (!HasInlineTexture(text, len)) {
-        // No inline texture on this line — render it normally without touching the
-        // node's icon list (icons from other wrapped lines are preserved).
+        // No inline texture on this line — render it normally. Note: firstLine
+        // already erased the node's stale records above, so a REUSED node
+        // address whose new text has no markup is cleaned HERE, by the emitter.
+        // This is the ghost-icon protection; the flush must NOT re-derive it by
+        // scanning node text (that scan read a stale/preprocessed pointer on
+        // pfUI chat lines and erased LIVE records every frame — the persistent
+        // iconless LFG lines).
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);
         return;
     }
 
     // This line owns inline textures — append them, rendering the plain runs by
     // delegating to the original per segment.
-    std::vector<IconRecord> &icons = g_nodeIcons[node];
+    NodeIcons &nodeEntry = g_nodeIcons[node];
+    nodeEntry.builtSeq = g_buildCounter; // records belong to the current build
+    std::vector<IconRecord> &icons = nodeEntry.icons;
 
     // Bit 3 of the node flags gates the emitter's per-call batch-clear. When set
     // (the standalone-FontString case), each original call would wipe the page
@@ -888,6 +981,15 @@ static const Game::HookAutoRegister _emitterHook{Offsets::FUN_TEXT_EMITTER,
 uint32_t g_faultCode = 0;
 uintptr_t g_faultAddr = 0;
 
+// Flush-gate telemetry (cumulative): how often an icon-bearing node's region
+// queue was issued vs dropped, and by which gate. Read via InlineTexStats.
+uint32_t g_statQueued = 0;   // QueuePlacements(fs, places) issued
+uint32_t g_statDropNoFs = 0; // owner missing / authority failed
+uint32_t g_statDropRect = 0; // fs rect unresolved this paint
+uint32_t g_statDropK = 0;    // pen→anchor scale not yet derived
+uint32_t g_statNudged = 0;   // stuck-blockless fs redirtied for engine rebuild
+uint32_t g_statDropEditable = 0; // editable node queued {} over an owner fs
+
 int CaptureFault(EXCEPTION_POINTERS *ep, uint32_t *code, uintptr_t *addr) {
     *code = ep->ExceptionRecord->ExceptionCode;
     *addr = reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
@@ -906,6 +1008,7 @@ Paint_t g_paintOriginal = nullptr;
 void FlushLayout(void *layout) {
     if (!LooksReadable(layout))
         return;
+    ++g_flushSeq;
     auto *L = reinterpret_cast<uint8_t *>(layout);
     const int linkOff = *reinterpret_cast<int *>(L + Offsets::OFF_TEXT_LAYOUT_NODE_LINK);
     void *node = *reinterpret_cast<void **>(L + Offsets::OFF_TEXT_LAYOUT_NODE_HEAD);
@@ -929,46 +1032,72 @@ void FlushLayout(void *layout) {
         if (g_renderMode != 0) {
             auto ow = g_nodeOwner.find(node);
             if (ow != g_nodeOwner.end() && LooksReadable(ow->second)) {
-                void *block = *reinterpret_cast<void **>(
-                    reinterpret_cast<uint8_t *>(ow->second) + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+                auto *of = reinterpret_cast<uint8_t *>(ow->second);
+                void *block =
+                    *reinterpret_cast<void **>(of + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+                g_nodeSeen[node] = g_flushSeq;
                 if (LooksReadable(block) &&
                     *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
-                                               Offsets::OFF_TEXTBLOCK_NODE) == node)
+                                               Offsets::OFF_TEXTBLOCK_NODE) == node) {
                     fs = ow->second;
+                } else if (block == nullptr) {
+                    // Stuck-blockless fs: RebuildString released the block (a
+                    // SetText landed on an unresolved rect) and never rebuilt;
+                    // this zombie node keeps painting the old text. Re-set the
+                    // fs's rebuild-dirty bit so the engine rebuilds next update
+                    // and the icon pipeline resumes. Byte write only — safe
+                    // from the paint tail (consumed by the fs's own update).
+                    uint8_t *flags = of + Offsets::OFF_FONTSTRING_DIRTY_FLAGS;
+                    if ((*flags & 1u) == 0) {
+                        *flags |= 1u;
+                        ++g_statNudged;
+                    }
+                }
             }
         }
 
         auto it = g_nodeIcons.find(node);
-        if (it == g_nodeIcons.end() || it->second.empty()) {
+        // Ghost guard, scanned against the FONTSTRING's text (fs+0xF0 — proven
+        // trustworthy by the Broken() dumps, unlike the node's text pointer,
+        // which lied on pfUI chat lines and made the old node-text scan erase
+        // LIVE records). A node with records whose owning fs currently shows
+        // text WITHOUT any |T (e.g. a recycled nameplate name that inherited a
+        // dead emote node's address) is stale: erase and clear. False matches
+        // can only false-KEEP (safe), never false-erase.
+        // (NOTE: do NOT build-version records against the builder counter — the
+        // builder runs every paint but only emits when dirty, so a version
+        // check erases good records on every clean paint: the all-icons-gone
+        // regression.)
+        if (it != g_nodeIcons.end() && !it->second.icons.empty() && fs != nullptr) {
+            const char *ftext = *reinterpret_cast<const char *const *>(
+                reinterpret_cast<uint8_t *>(fs) + 0xF0);
+            bool fsHasMarkup = false;
+            if (LooksReadable(ftext)) {
+                for (int k = 1; k < 2048 && ftext[k] != '\0'; ++k)
+                    if (ftext[k] == 'T' && ftext[k - 1] == '|') {
+                        fsHasMarkup = true;
+                        break;
+                    }
+            }
+            if (!fsHasMarkup) {
+                g_nodeIcons.erase(it);
+                it = g_nodeIcons.end();
+            }
+        }
+        if (it == g_nodeIcons.end() || it->second.icons.empty()) {
             if (fs != nullptr)
                 Text::InlineTexturePool::QueuePlacements(fs, {});
             node = next;
             continue;
         }
 
-        // Drop stale records: the chat frame reuses its line FontStrings, and when
-        // a line is cleared or reused for markup-free text the draw builder
-        // early-returns on it, so the emitter never runs and never erases the old
-        // record — drawing it would paint ghost icons at the parked position. So
-        // gate on the node's live text still containing `|T`.
-        const uint8_t *ntext = *reinterpret_cast<uint8_t *const *>(n + Offsets::OFF_TEXT_NODE_TEXT);
-        bool hasMarkup = false;
-        if (LooksReadable(ntext)) {
-            for (int k = 0; k < 2048 && ntext[k] != '\0'; ++k)
-                if (ntext[k] == '|' && ntext[k + 1] == 'T') {
-                    hasMarkup = true;
-                    break;
-                }
-        }
-        if (!hasMarkup) {
-            g_nodeIcons.erase(it);
-            // Hide any icon regions still serving this fontstring (chat reuses
-            // line fontstrings for markup-free text — ghost regions otherwise).
-            if (fs != nullptr)
-                Text::InlineTexturePool::QueuePlacements(fs, {});
-            node = next;
-            continue;
-        }
+        // NOTE: no node-text stale scan here. Records are authoritative from the
+        // emitter alone: a reused node address is always rebuilt → dirty → the
+        // emitter runs before any flush walks it, and its firstLine erase (or
+        // suppression erase) cleans stale records. The old flush-side scan of
+        // node+text for |T read a stale/preprocessed pointer on pfUI chat lines
+        // and ERASED LIVE RECORDS every frame — the persistent iconless LFG
+        // lines (FsDump chain bucket 3).
 
         // Never draw over editable text (flags bit 6) — safety net for records
         // made before the emitter's editable-suppress applied.
@@ -978,10 +1107,27 @@ void FlushLayout(void *layout) {
             const bool wantQuads = g_renderMode != 1;
             const bool wantRegions = g_renderMode != 0;
             float K = 0.0f;
-            if (wantRegions)
+            // The fs rect, read HERE in the same flush as the icon coords — a
+            // coherent snapshot. Placements are stored FS-RELATIVE: an
+            // apply-time rect read raced the chat relayout (SetText invalidates
+            // the rect briefly), and a placement applied against a mid-relayout
+            // rect parked the icon off the line — then the dedup (unchanged
+            // absolute want) froze it there. Relative offsets are also
+            // position-invariant, so scrolling no longer re-places anything.
+            float fsLeft = 0.0f, fsBottom = 0.0f;
+            bool fsRectValid = false;
+            if (wantRegions) {
                 K = DeriveK(n, reinterpret_cast<uint8_t *>(fs), ox);
+                if (fs != nullptr) {
+                    const float *rc = reinterpret_cast<const float *>(
+                        reinterpret_cast<uint8_t *>(fs) + Offsets::OFF_REGION_RECT);
+                    fsBottom = (rc[0] < rc[2]) ? rc[0] : rc[2];
+                    fsLeft = (rc[1] < rc[3]) ? rc[1] : rc[3];
+                    fsRectValid = rc[1] != rc[3]; // unresolved rect reads 0-width
+                }
+            }
             std::vector<Text::InlineTexturePool::Placement> places;
-            for (const IconRecord &r : it->second) {
+            for (const IconRecord &r : it->second.icons) {
                 // Screen left = pen + the FULL lead pad. The emitter reserves
                 // w + 1.5×pad in the advance (lead 1×, trail 0.5×) — drawing at
                 // the raw pen put all of that gap AFTER the icon, which is why
@@ -997,15 +1143,15 @@ void FlushLayout(void *layout) {
                                      r.v0, r.u1, r.v1, r.color, r.z);
                     Text::InlineTexturePool::Hold(r.path.c_str());
                 }
-                if (wantRegions && K > 1.0f && fs != nullptr) {
+                if (wantRegions && K > 1.0f && fs != nullptr && fsRectValid) {
                     const float rx = cx + g_regionCalX;
                     const float ry = cy + g_regionCalY;
                     Text::InlineTexturePool::Placement p;
                     p.path = r.path;
-                    p.x0 = rx / K;
-                    p.y0 = (ry - r.h * 0.5f) / K;
-                    p.x1 = (rx + r.w) / K;
-                    p.y1 = (ry + r.h * 0.5f) / K;
+                    p.x0 = rx / K - fsLeft;
+                    p.y0 = (ry - r.h * 0.5f) / K - fsBottom;
+                    p.x1 = (rx + r.w) / K - fsLeft;
+                    p.y1 = (ry + r.h * 0.5f) / K - fsBottom;
                     p.color = r.color;
                     p.u0 = r.u0;
                     p.v0 = r.v0;
@@ -1014,9 +1160,28 @@ void FlushLayout(void *layout) {
                     places.push_back(std::move(p));
                 }
             }
-            if (wantRegions && fs != nullptr)
-                Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
+            // The queue gate must match the per-icon build gate EXACTLY —
+            // including K. If any input wasn't ready this paint (unresolved fs
+            // rect, K not yet derived), SKIP the queue and retry next paint: an
+            // empty queue here would HIDE the line's icons and the dedup would
+            // freeze it hidden forever (identical empty re-queues never dirty).
+            // That was the scroll-landing bug's second head: lines painted
+            // before the session's first K derivation queued {} and stayed
+            // iconless until their text changed.
+            if (wantRegions) {
+                if (fs == nullptr)
+                    ++g_statDropNoFs;
+                else if (!fsRectValid)
+                    ++g_statDropRect;
+                else if (!(K > 1.0f))
+                    ++g_statDropK;
+                else {
+                    ++g_statQueued;
+                    Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
+                }
+            }
         } else if (fs != nullptr) {
+            ++g_statDropEditable;
             Text::InlineTexturePool::QueuePlacements(fs, {});
         }
         node = next;
@@ -1081,13 +1246,22 @@ int __fastcall Script_InlineTexTune(void *L) {
     return 4;
 }
 
-// _classicapi_InlineTexStats() -> enabled, suppressed, trackedNodes, faultCode.
+// _classicapi_InlineTexStats() -> enabled, suppressed, trackedNodes, faultCode,
+// queued, dropNoFs, dropRect, dropK, faultAddr (flush-gate telemetry cumulative;
+// faultAddr = the faulting instruction VA when the SEH latch tripped, 0 if never).
 int __fastcall Script_InlineTexStats(void *L) {
     Game::Lua::PushBool(L, g_inlineEnabled);
     Game::Lua::PushBool(L, g_suppressInline);
     Game::Lua::PushNumber(L, static_cast<double>(g_nodeIcons.size()));
     Game::Lua::PushNumber(L, static_cast<double>(g_faultCode));
-    return 4;
+    Game::Lua::PushNumber(L, static_cast<double>(g_statQueued));
+    Game::Lua::PushNumber(L, static_cast<double>(g_statDropNoFs));
+    Game::Lua::PushNumber(L, static_cast<double>(g_statDropRect));
+    Game::Lua::PushNumber(L, static_cast<double>(g_statDropK));
+    Game::Lua::PushNumber(L, static_cast<double>(g_faultAddr));
+    Game::Lua::PushNumber(L, static_cast<double>(g_statNudged));
+    Game::Lua::PushNumber(L, static_cast<double>(g_statDropEditable));
+    return 11;
 }
 
 // _classicapi_InlineTexMode([n]) -> mode. 0 = quads (pen-space, needs holders),
@@ -1183,6 +1357,67 @@ static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
+int DebugChainState(void *fs) {
+    if (!LooksReadable(fs))
+        return 0;
+    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
+                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+    if (block == nullptr) {
+        // Blockless: rebuild pending (dirty bit set → engine will rebuild) vs
+        // STUCK (bit clear → nothing will ever rebuild; the flush nudges these).
+        const uint8_t flags = *(reinterpret_cast<uint8_t *>(fs) +
+                                Offsets::OFF_FONTSTRING_DIRTY_FLAGS);
+        return (flags & 1u) ? 5 : 6;
+    }
+    if (!LooksReadable(block))
+        return 0;
+    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
+                                            Offsets::OFF_TEXTBLOCK_NODE);
+    if (!LooksReadable(node))
+        return 0;
+    auto ow = g_nodeOwner.find(node);
+    if (ow == g_nodeOwner.end())
+        return 1;
+    if (ow->second != fs)
+        return 2;
+    auto it = g_nodeIcons.find(node);
+    if (it == g_nodeIcons.end() || it->second.icons.empty())
+        return 3;
+    return 4;
+}
+
+int DebugNodeSeenAge(void *fs) {
+    if (!LooksReadable(fs))
+        return -1;
+    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
+                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+    if (!LooksReadable(block))
+        return -1;
+    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
+                                            Offsets::OFF_TEXTBLOCK_NODE);
+    if (!LooksReadable(node))
+        return -1;
+    auto it = g_nodeSeen.find(node);
+    if (it == g_nodeSeen.end())
+        return -1;
+    return static_cast<int>(g_flushSeq - it->second);
+}
+
+unsigned int DebugNodeFlags(void *fs) {
+    if (!LooksReadable(fs))
+        return 0xFFFFFFFFu;
+    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
+                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+    if (!LooksReadable(block))
+        return 0xFFFFFFFFu;
+    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
+                                            Offsets::OFF_TEXTBLOCK_NODE);
+    if (!LooksReadable(node))
+        return 0xFFFFFFFFu;
+    return *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(node) +
+                                               Offsets::OFF_TEXT_NODE_FLAGS);
+}
+
 void PrepareForReload() {
     // /reload frees every gxu text node — g_nodeIcons/g_nodeOwner hold stale
     // node pointers. Forget them (records rebuild as the reloaded UI re-emits
@@ -1190,6 +1425,8 @@ void PrepareForReload() {
     // cache); K survives (resolution/uiScale don't change across /reload).
     g_nodeIcons.clear();
     g_nodeOwner.clear();
+    g_nodeSeen.clear();
+    g_nodeBuilt.clear();
 }
 
 } // namespace Text::InlineTexture

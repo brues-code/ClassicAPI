@@ -47,9 +47,14 @@ void Hold(const char *path);
 // construction (no flicker, no holders needed); engine-anchored → tracks the
 // fontstring's movement for free.
 
-// One icon's target geometry, in ABSOLUTE anchor-space screen coordinates
-// (y up, same units as the region rect at +0x64). The pool converts to
-// fs-relative SetPoint offsets when applying.
+// One icon's target geometry, in anchor-space units RELATIVE TO THE OWNING
+// FONTSTRING's rect min corner (y up, same units as the region rect at +0x64).
+// Computed entirely at PAINT time — icon coords and fs rect read in the same
+// flush, a coherent snapshot — so the pool applies it verbatim with no
+// apply-time rect read (an apply-time read raced the chat relayout after
+// SetText and parked icons off their line, where the dedup froze them: the
+// scroll-landing "randomly hidden icon" bug). Relative offsets are also
+// position-invariant, so scrolling a line re-queues nothing.
 struct Placement {
     std::string path;
     float x0, y0, x1, y1;
