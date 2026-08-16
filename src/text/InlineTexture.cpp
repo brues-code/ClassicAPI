@@ -53,7 +53,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "text/InlineTexturePool.h"
-#include "tick/WorldTick.h"
 
 #include <windows.h>
 
@@ -74,43 +73,118 @@ bool LooksReadable(const void *p) {
     return a >= 0x00010000u && a < 0x7FFF0000u;
 }
 
-// --- text node → owning fontstring map --------------------------------------
+// --- textured-quad rendering primitive --------------------------------------
+//
+// Icons draw as raw GxU quads in the text engine's OWN render space (pen +
+// node-origin), the same coordinate system and dynamic VB the glyphs use — so
+// position is pixel-exact by construction, with no anchor/layout-space
+// conversion. Residency (the reason quads alone flickered) is handled
+// separately by Text::InlineTexturePool holders: one engine-managed
+// CSimpleTexture per texture path, drawn every frame, keeps that texture hot in
+// VRAM for these quads to bind.
 
-// CSimpleFontString::RebuildString (FUN_007724A0) destroys the old text block
-// and creates the fresh one at fs+0xF8 (an HTEXTBLOCK handle whose +8 is the
-// gxu text node). Co-hooking it maps every live node to its owner — 1.12 chat
-// lines are real CSimpleFontStrings (the ScrollingMessageFrame display refresh
-// drives one per visible line), so this single map covers chat, tooltips, and
-// standalone FontStrings alike. Entries are validated at use (the owner's
-// current node must still equal the mapped node) and evicted when stale; nodes
-// freed and reallocated simply get remapped here.
-std::unordered_map<void *, void *> g_nodeOwner;
+// The UI text vertex the GxU path expects (stride 0x18 = 24 bytes), from the
+// glyph vertex assembler FUN_005c8710: +0x00 x +0x04 y +0x08 z +0x0c colorBGRA
+// +0x10 u +0x14 v.
+struct Vertex {
+    float x, y, z;
+    uint32_t color;
+    float u, v;
+};
+static_assert(sizeof(Vertex) == 0x18, "text vertex must be 24 bytes");
 
-// The fontstring's CURRENT text node: fs+0xF8 (HTEXTBLOCK handle) → handle+8.
-void *OwnerNode(void *fs) {
-    void *handle = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
-                                              Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (handle == nullptr)
+// Byte-identical to the 5-dword on-stack descriptor FUN_00770200 builds before
+// FUN_00449d90. On a successful load the loader never touches it; only the
+// load-failure log path reads it, so a faithful copy keeps the missing-texture
+// path as safe as the engine's own call.
+struct TexLoadDesc {
+    void *vtbl;
+    int32_t field4;
+    void *self8;
+    uint32_t fieldC;
+    int32_t field10;
+};
+
+using TexFlagsInit_t = void *(__thiscall *)(void *self, uint32_t blend, int, int, int, int, int,
+                                            uint32_t, int);
+using TextureLoad_t = uint32_t(__fastcall *)(const char *path, void *desc, uint32_t flags, int,
+                                             int);
+
+std::unordered_map<std::string, void *> g_texCache;
+
+// Resolve a texture PATH to a bindable CGxTexture handle (cached by path).
+// Mirrors FUN_00770200's load: build flags via FUN_0058a980, then
+// FUN_00449d90(path, &desc, flags, 0, 1). The engine keeps its own refcounted
+// by-name cache, so the handle is stable for the session.
+void *LoadTextureByPath(const char *path) {
+    if (path == nullptr || path[0] == '\0')
         return nullptr;
-    return *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(handle) +
-                                      Offsets::OFF_TEXTBLOCK_NODE);
+    std::string key(path);
+    auto it = g_texCache.find(key);
+    if (it != g_texCache.end())
+        return it->second;
+
+    TexLoadDesc desc;
+    desc.vtbl = reinterpret_cast<void *>(Offsets::PTR_TEXLOAD_DESC_VTBL);
+    desc.field4 = 8;
+    desc.self8 = &desc.self8;
+    desc.fieldC = reinterpret_cast<uintptr_t>(&desc.self8) | 1u;
+    desc.field10 = 0;
+    uint32_t flags = 0;
+    const uint32_t blend = *reinterpret_cast<uint32_t *>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
+    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0, 1,
+                                                                    0);
+    void *handle = reinterpret_cast<void *>(
+        reinterpret_cast<TextureLoad_t>(Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, flags, 0,
+                                                                           1));
+    g_texCache.emplace(std::move(key), handle);
+    return handle;
 }
 
-using RebuildString_t = void(__fastcall *)(void *fs);
-RebuildString_t g_rebuildOriginal = nullptr;
+using GxBind_t = void(__fastcall *)(int selector, void *tex);
+using GxLockVB_t = int(__fastcall *)(int zero, int stride, int vertCount);
+using GxVBData_t = void *(__fastcall *)(int handle);
+using GxSubmit_t = void *(__fastcall *)(int *handle, int vertCount);
+using GxUnlock_t = void(__fastcall *)(int handle, int zero);
 
-void __fastcall RebuildString_h(void *fs) {
-    g_rebuildOriginal(fs);
-    if (fs != nullptr) {
-        void *node = OwnerNode(fs);
-        if (node != nullptr)
-            g_nodeOwner[node] = fs;
+constexpr int kRingVerts = 0x800; // the paint pass always locks this many; mirror it
+
+// Draw one textured quad through the UI text VB primitive. Must run while the
+// device is in the text-paint state (from the paint co-hook, after the original
+// glyph flush). Corner order TL, TR, BL, BR matches the shared quad index
+// buffer ({0,1,2, 2,1,3}) and the device cull winding.
+void DrawTexturedQuad(void *tex, float x0, float y0, float x1, float y1, float u0, float v0,
+                      float u1, float v1, uint32_t color, float z) {
+    if (tex == nullptr)
+        return;
+    auto lockVB = reinterpret_cast<GxLockVB_t>(Offsets::FUN_GX_LOCK_DYNAMIC_VB);
+    int handle = lockVB(0, Offsets::GX_TEXT_VERTEX_STRIDE, kRingVerts);
+    auto vbData = reinterpret_cast<GxVBData_t>(Offsets::FUN_GX_VB_DATA_PTR);
+    auto *v = reinterpret_cast<Vertex *>(vbData(handle));
+    if (v != nullptr) {
+        // Resolve the HTEXTURE to its bindable CGxTexture the way the engine's
+        // render does: FUN_0044acf0(tex, force=1, 0) returns [tex+0x140] and
+        // drives the streaming load. Binding the raw HTEXTURE is SetTexture(0).
+        auto getRenderable = reinterpret_cast<void *(__fastcall *)(void *, int, void *)>(
+            Offsets::FUN_TEXTURE_GET_RENDERABLE);
+        void *cgxTex = getRenderable(tex, 1, nullptr);
+        if (!LooksReadable(cgxTex)) {
+            reinterpret_cast<GxUnlock_t>(Offsets::FUN_GX_UNLOCK_VB)(handle, 0);
+            return;
+        }
+        reinterpret_cast<GxBind_t>(Offsets::FUN_GX_BIND_TEXTURE)(Offsets::GX_TEXTURE_SELECTOR,
+                                                                 cgxTex);
+        // The UI device backend is OpenGL (bottom-left texture origin, v=0 at the
+        // bottom), so top corners map to the LARGER v — else the icon renders
+        // vertically flipped (obvious on directional raid-target markers).
+        v[0] = {x0, y0, z, color, u0, v1};
+        v[1] = {x1, y0, z, color, u1, v1};
+        v[2] = {x0, y1, z, color, u0, v0};
+        v[3] = {x1, y1, z, color, u1, v0};
+        reinterpret_cast<GxSubmit_t>(Offsets::FUN_GX_SUBMIT_VB)(&handle, 4);
     }
+    reinterpret_cast<GxUnlock_t>(Offsets::FUN_GX_UNLOCK_VB)(handle, 0);
 }
-
-static const Game::HookAutoRegister _rebuildHook{
-    Offsets::FUN_FONTSTRING_REBUILD_STRING, reinterpret_cast<void *>(&RebuildString_h),
-    reinterpret_cast<void **>(&g_rebuildOriginal)};
 
 // --- inline-texture descriptor parse ---------------------------------------
 
@@ -213,10 +287,11 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
 // One icon to draw, in the render node's node-local coordinate space (the same
 // space glyph verts live in — the paint pass translates it by the node origin).
 struct IconRecord {
-    std::string path; // texture path (the pool's region loads it via SetTexture)
-    float x;          // node-local left
-    float y;          // node-local pen reference (penXYZ[1]) — near the text top
-    float fontH;      // font pixel height of the line, for vertical centering
+    std::string path;       // texture path (also the residency-holder key)
+    void *tex;              // bindable HTEXTURE (from LoadTextureByPath)
+    float x;                // node-local pen x at the icon
+    float y;                // node-local pen reference (penXYZ[1]) — near the text top
+    float fontH;            // font pixel height of the line, for vertical centering
     float w;
     float h;
     float z;                // pen z (penXYZ[2]) — quad depth
@@ -688,6 +763,7 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             const float h = baseH * g_sizeScale;
             IconRecord r;
             r.path = d.path;
+            r.tex = LoadTextureByPath(d.path.c_str());
             r.x = penX;
             r.y = penY;
             r.fontH = fontH;
@@ -731,7 +807,7 @@ static const Game::HookAutoRegister _emitterHook{Offsets::FUN_TEXT_EMITTER,
                                                  reinterpret_cast<void *>(&Emitter_h),
                                                  reinterpret_cast<void **>(&g_emitterOriginal)};
 
-// --- tick publisher: anchor recorded icons to their owning fontstrings ------
+// --- paint co-hook: draw recorded icons as quads ---------------------------
 
 uint32_t g_faultCode = 0;
 uintptr_t g_faultAddr = 0;
@@ -742,73 +818,93 @@ int CaptureFault(EXCEPTION_POINTERS *ep, uint32_t *code, uintptr_t *addr) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-// Validates a node→owner map entry, SEH-guarded because the owner fontstring
-// may have been freed since it was mapped (regions die with their frames).
-// Returns 1 when `fs` still owns `node` AND its live text still carries `|T`
-// markup; 0 when the entry is stale (evict); a fault also returns 0.
-// No C++ objects with destructors in here (SEH constraint).
-int OwnerValid(void *fs, void *node) {
-    __try {
-        if (!LooksReadable(fs))
-            return 0;
-        const uint8_t *f = reinterpret_cast<const uint8_t *>(fs);
-        void *handle = *reinterpret_cast<void *const *>(f + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-        if (!LooksReadable(handle))
-            return 0;
-        if (*reinterpret_cast<void *const *>(reinterpret_cast<const uint8_t *>(handle) +
-                                             Offsets::OFF_TEXTBLOCK_NODE) != node)
-            return 0;
-        // The chat frame reuses its line fontstrings: a record whose owner now
-        // shows markup-free text is stale (the emitter never ran to erase it).
-        const uint8_t *txt = *reinterpret_cast<const uint8_t *const *>(f + 0xF0);
-        if (!LooksReadable(txt))
-            return 0;
-        for (int k = 0; k < 2048 && txt[k] != '\0'; ++k)
-            if (txt[k] == '|' && txt[k + 1] == 'T')
-                return 1;
-        return 0;
-    } __except (CaptureFault(GetExceptionInformation(), &g_faultCode, &g_faultAddr)) {
-        return 0;
-    }
-}
+using Paint_t = void(__fastcall *)(void *layout);
+Paint_t g_paintOriginal = nullptr;
 
-// WorldTick: walk the icon records, resolve each node's owning fontstring, and
-// hand every icon to the pool as an OWNER-ANCHORED placement (fs-local coords,
-// x right / y down from the fontstring's text origin). The pool configures one
-// managed region per icon — one SetPoint to the owner, so the engine's anchor
-// system moves icons with their lines on every scroll/shift with zero per-frame
-// work here. Runs entirely off-render.
-void PublishIcons() {
-    if (!g_inlineEnabled) {
-        Text::InlineTexturePool::ApplyPass();
+// Draws every recorded icon for the layout's live render nodes as a raw quad,
+// translating from node-local coords by the node's screen origin (+0x70/+0x74) —
+// the SAME transform the paint pass applies to glyph batches, so position is
+// pixel-exact. Runs after the original paint (device in the text-paint state).
+// Also asks the pool to hold each texture resident (a managed CSimpleTexture
+// per path, engine-drawn) so the raw quad never flickers / blanks on a 2nd client.
+void FlushLayout(void *layout) {
+    if (!LooksReadable(layout))
         return;
-    }
-    for (auto it = g_nodeIcons.begin(); it != g_nodeIcons.end();) {
-        void *node = it->first;
-        auto ownerIt = g_nodeOwner.find(node);
-        if (ownerIt == g_nodeOwner.end()) {
-            ++it; // not mapped yet (rebuild hasn't run) — keep the record
+    auto *L = reinterpret_cast<uint8_t *>(layout);
+    const int linkOff = *reinterpret_cast<int *>(L + Offsets::OFF_TEXT_LAYOUT_NODE_LINK);
+    void *node = *reinterpret_cast<void **>(L + Offsets::OFF_TEXT_LAYOUT_NODE_HEAD);
+
+    for (int guard = 0; node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0 &&
+                        guard < 4096;
+         ++guard) {
+        if (!LooksReadable(node))
+            break;
+        auto *n = reinterpret_cast<uint8_t *>(node);
+        void *const next = *reinterpret_cast<void **>(n + linkOff + 4);
+
+        auto it = g_nodeIcons.find(node);
+        if (it == g_nodeIcons.end() || it->second.empty()) {
+            node = next;
             continue;
         }
-        void *fs = ownerIt->second;
-        if (!OwnerValid(fs, node)) {
-            g_nodeOwner.erase(ownerIt);
-            it = g_nodeIcons.erase(it);
+
+        // Drop stale records: the chat frame reuses its line FontStrings, and when
+        // a line is cleared or reused for markup-free text the draw builder
+        // early-returns on it, so the emitter never runs and never erases the old
+        // record — drawing it would paint ghost icons at the parked position. So
+        // gate on the node's live text still containing `|T`.
+        const uint8_t *ntext = *reinterpret_cast<uint8_t *const *>(n + Offsets::OFF_TEXT_NODE_TEXT);
+        bool hasMarkup = false;
+        if (LooksReadable(ntext)) {
+            for (int k = 0; k < 2048 && ntext[k] != '\0'; ++k)
+                if (ntext[k] == '|' && ntext[k + 1] == 'T') {
+                    hasMarkup = true;
+                    break;
+                }
+        }
+        if (!hasMarkup) {
+            g_nodeIcons.erase(it);
+            node = next;
             continue;
         }
-        for (const IconRecord &r : it->second) {
-            const float cx = r.x + r.offsetX + r.w * g_iconPadFrac;
-            const float cy = r.y + r.fontH * g_centerFrac + g_vBias - r.offsetY;
-            Text::InlineTexturePool::PlaceOwned(fs, cx, cy - r.h * 0.5f, cx + r.w,
-                                                cy + r.h * 0.5f, r.path.c_str(), r.u0, r.v0,
-                                                r.u1, r.v1, r.color);
+
+        // Never draw over editable text (flags bit 6) — safety net for records
+        // made before the emitter's editable-suppress applied.
+        if (!NodeEditable(node)) {
+            const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
+            const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
+            for (const IconRecord &r : it->second) {
+                const float cx = r.x + ox + r.offsetX; // screen left
+                // Centre on the line: penY sits near the text top, so add a
+                // fraction of the font height (plus the fine-tune bias). offsetY
+                // shifts up (WoW convention), so subtract it.
+                const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
+                DrawTexturedQuad(r.tex, cx, cy - r.h * 0.5f, cx + r.w, cy + r.h * 0.5f, r.u0, r.v0,
+                                 r.u1, r.v1, r.color, r.z);
+                Text::InlineTexturePool::Hold(r.path.c_str());
+            }
         }
-        ++it;
+        node = next;
     }
-    Text::InlineTexturePool::ApplyPass();
 }
 
-static const Tick::WorldTick::AutoSubscribe _tick{&PublishIcons};
+void SafeFlush(void *layout) {
+    __try {
+        FlushLayout(layout);
+    } __except (CaptureFault(GetExceptionInformation(), &g_faultCode, &g_faultAddr)) {
+        g_inlineEnabled = false;
+    }
+}
+
+void __fastcall Paint_h(void *layout) {
+    g_paintOriginal(layout);
+    if (g_inlineEnabled)
+        SafeFlush(layout);
+}
+
+static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
+                                               reinterpret_cast<void *>(&Paint_h),
+                                               reinterpret_cast<void **>(&g_paintOriginal)};
 
 // --- Lua control surface ---------------------------------------------------
 
@@ -836,9 +932,8 @@ int __fastcall Script_InlineTexSuppress(void *L) {
     return 1;
 }
 
-// _classicapi_InlineTexTune(vBias, sizeScale, centerFrac, iconPadFrac) ->
-// vBias, sizeScale, centerFrac, iconPadFrac. Live geometry calibration; omitted
-// args keep their current value.
+// _classicapi_InlineTexTune(vBias, sizeScale, centerFrac, iconPadFrac) -> the
+// same four. Live geometry calibration; omitted args keep their value.
 int __fastcall Script_InlineTexTune(void *L) {
     g_vBias = static_cast<float>(Arg(L, 1, g_vBias));
     g_sizeScale = static_cast<float>(Arg(L, 2, g_sizeScale));
@@ -851,15 +946,13 @@ int __fastcall Script_InlineTexTune(void *L) {
     return 4;
 }
 
-// _classicapi_InlineTexStats() -> enabled, suppressed, trackedNodes, faultCode,
-//                                 ownerMapSize.
+// _classicapi_InlineTexStats() -> enabled, suppressed, trackedNodes, faultCode.
 int __fastcall Script_InlineTexStats(void *L) {
     Game::Lua::PushBool(L, g_inlineEnabled);
     Game::Lua::PushBool(L, g_suppressInline);
     Game::Lua::PushNumber(L, static_cast<double>(g_nodeIcons.size()));
     Game::Lua::PushNumber(L, static_cast<double>(g_faultCode));
-    Game::Lua::PushNumber(L, static_cast<double>(g_nodeOwner.size()));
-    return 5;
+    return 4;
 }
 
 void RegisterLuaFunctions() {
@@ -874,10 +967,9 @@ static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 } // namespace
 
 void PrepareForReload() {
-    // /reload frees every fontstring (regions die with their frames) and every
-    // gxu text node — both maps hold dangling pointers. Forget them; records
-    // and mappings rebuild as the reloaded UI re-emits its text.
-    g_nodeOwner.clear();
+    // /reload frees every gxu text node — g_nodeIcons holds stale node pointers.
+    // Forget them (records rebuild as the reloaded UI re-emits its text). The
+    // texture-handle cache stays valid (engine keeps its by-name cache).
     g_nodeIcons.clear();
 }
 

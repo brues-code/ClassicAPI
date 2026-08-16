@@ -13,48 +13,30 @@
 
 #pragma once
 
-#include <cstdint>
-
-// Pool of engine-owned `CSimpleTexture` regions rendering inline `|T…|t` icons —
-// the 4.3.4 `CSimpleEmbeddedTexture` model ported to 1.12.
+// Texture-residency holders for the inline-|T icons.
 //
-// Verified against 4.3.4's `UpdateEmbeddedTextures` (FUN_004fd670 →
-// FUN_004fd390, CSimpleRender.cpp): an embedded icon is a pooled CSimpleTexture
-// configured at text-UPDATE time — SetTexture + a SetPoint anchored to the
-// OWNING FONTSTRING + texcoord + Show — then left alone. The engine's region
-// draw keeps its texture resident (no flicker), and the anchor system moves it
-// whenever the owning line moves (scroll costs nothing). 1.12 chat lines are
-// real CSimpleFontStrings (the ScrollingMessageFrame display refresh
-// FUN_00788750 drives one per visible line), so the same ownership works for
-// chat, tooltips, and standalone FontStrings alike.
-//
-// Timing: PlaceOwned() only records; ApplyPass() (called from the icon
-// publisher's WorldTick) performs all engine mutation off-render, diff-cached
-// per slot so an unchanged icon costs nothing.
+// The icons themselves render as raw GxU quads in the text engine's own space
+// (see text/InlineTexture.cpp) — pixel-exact position, but a raw quad binds an
+// UNOWNED texture that the engine evicts under VRAM pressure (the flicker on
+// scroll / blank on a 2nd client). The engine only keeps a texture resident
+// while it draws a region that owns it. So for each distinct texture path we
+// create ONE engine-managed CSimpleTexture, draw it every frame (offscreen,
+// 1px), and never touch it again — its draw is the live reference that keeps the
+// texture hot in VRAM for the quads to bind. Zero churn, no per-icon regions.
 
 namespace Text::InlineTexturePool {
 
-// Record one icon anchored to `ownerFs` (a live CSimpleFontString) for this
-// pass. Coordinates are owner-local UI px, x right / y down from the owner's
-// text origin. (u0,v0)=(left,top), (u1,v1)=(right,bottom) texcoords; color =
-// 0xAARRGGBB tint. Returns false if the pass is full.
-bool PlaceOwned(void *ownerFs, float x0, float y0, float x1, float y1, const char *path, float u0,
-                float v0, float u1, float v1, uint32_t color);
+// Ensure a residency holder exists for `path`. Cheap + idempotent: records the
+// path; the holder is created once on the next WorldTick. Safe to call from the
+// paint hook (records a string only, no engine calls).
+void Hold(const char *path);
 
-// Apply the recorded pass to the pool (all engine mutation happens here, on the
-// WorldTick): per changed slot — reparent to the owner's frame if needed,
-// SetTexture, two corner anchors to the owner, realize, texcoord, tint, and
-// mirror the owner's shown state. Slots past the pass are hidden.
-void ApplyPass();
-
-// Called from FrameScript_Initialize_h BEFORE the /reload teardown. The reload
-// destroys every pool texture (regions die with their frames), so all engine
-// pointers are dropped WITHOUT touching them and everything rebuilds lazily.
+// Called from FrameScript_Initialize_h BEFORE the /reload teardown: the reload
+// destroys every holder texture (regions die with their frames), so drop the
+// pointers without touching them — holders rebuild lazily as icons re-draw.
 void PrepareForReload();
 
-// Diagnostics.
-int PoolReady();
-int PoolSize();
-int ShownCount();
+// Diagnostics: number of live holders.
+int HolderCount();
 
 } // namespace Text::InlineTexturePool
