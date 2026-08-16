@@ -229,13 +229,22 @@ Entry *FindBySlot(uint64_t targetGuid, uint32_t spellId, int slot) {
 // what an `OnAuraAdded` for `(target, spell)` is seating. Newest wins because
 // SpellGo precedes the application by a packet, so the freshest unbound entry
 // is the cast that just landed; an older one is a capture that never seated
-// (fully resisted, immune) and is left to expire on its own.
-Entry *FindFreshestUnbound(uint64_t targetGuid, uint32_t spellId) {
+// (fully resisted, immune) and is left to expire on its own. "Newest" is the
+// smallest `Time::Clock::Elapsed(stamp, now)` — a wrap-safe signed difference;
+// a raw `stampMs >` compare inverts across the 2^32 ms tick wrap.
+Entry *FindFreshestUnbound(uint64_t targetGuid, uint32_t spellId, uint32_t now) {
     Entry *best = nullptr;
-    for (auto &e : g_cache)
-        if (e.used && e.targetGuid == targetGuid && e.spellId == spellId &&
-            e.slot == SLOT_UNBOUND && (best == nullptr || e.stampMs > best->stampMs))
+    uint32_t bestElapsed = 0;
+    for (auto &e : g_cache) {
+        if (!e.used || e.targetGuid != targetGuid || e.spellId != spellId ||
+            e.slot != SLOT_UNBOUND)
+            continue;
+        const uint32_t elapsed = Time::Clock::Elapsed(e.stampMs, now);
+        if (best == nullptr || elapsed < bestElapsed) {
             best = &e;
+            bestElapsed = elapsed;
+        }
+    }
     return best;
 }
 
@@ -349,7 +358,7 @@ void StoreFromApplication(uint64_t targetGuid, uint32_t spellId,
 
     Entry *e = FindBySlot(targetGuid, spellId, slot);
     if (e == nullptr)
-        e = FindFreshestUnbound(targetGuid, spellId);
+        e = FindFreshestUnbound(targetGuid, spellId, now);
     if (e == nullptr && slot < 0)
         e = FindSole(targetGuid, spellId);
     if (e == nullptr) {
