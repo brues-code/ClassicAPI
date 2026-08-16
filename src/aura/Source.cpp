@@ -161,6 +161,15 @@ struct Entry {
 constexpr int kCacheSize = 2048;
 Entry g_cache[kCacheSize];
 
+// One past the highest slot ever claimed since the last flush — the active
+// prefix `[0, g_usedHigh)`. Every used entry lives below it (Claim is the sole
+// allocator and extends it; FlushAll resets it), so all lookups scan only this
+// prefix instead of the full 2048. Outside a raid the working set is a handful
+// of auras, so this is the difference between a ~30-entry scan and a 2048-entry
+// one on the per-aura query path. Never lowered on eviction — an over-estimate
+// only costs a few extra skipped (!used) slots, never a missed live entry.
+int g_usedHigh = 0;
+
 // SMSG_SPELL_GO arrives before the SMSG_UPDATE_OBJECT that adds the aura to
 // the target's descriptor, so for a brief window a just-captured entry names
 // an aura the descriptor doesn't list yet. `EvictAbsent` (run from a query's
@@ -207,10 +216,12 @@ bool DescriptorListsAura(uint64_t guid, uint32_t spellId) {
 // The exact aura instance `caster` has on `targetGuid` — the server's own
 // identity for one aura, and what a repeat cast refreshes.
 Entry *FindByCaster(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid) {
-    for (auto &e : g_cache)
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (e.used && e.targetGuid == targetGuid && e.spellId == spellId &&
             e.casterGuid == casterGuid)
             return &e;
+    }
     return nullptr;
 }
 
@@ -218,10 +229,12 @@ Entry *FindByCaster(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid) 
 Entry *FindBySlot(uint64_t targetGuid, uint32_t spellId, int slot) {
     if (slot < 0)
         return nullptr;
-    for (auto &e : g_cache)
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (e.used && e.targetGuid == targetGuid && e.spellId == spellId &&
             e.slot == slot)
             return &e;
+    }
     return nullptr;
 }
 
@@ -235,7 +248,8 @@ Entry *FindBySlot(uint64_t targetGuid, uint32_t spellId, int slot) {
 Entry *FindFreshestUnbound(uint64_t targetGuid, uint32_t spellId, uint32_t now) {
     Entry *best = nullptr;
     uint32_t bestElapsed = 0;
-    for (auto &e : g_cache) {
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (!e.used || e.targetGuid != targetGuid || e.spellId != spellId ||
             e.slot != SLOT_UNBOUND)
             continue;
@@ -254,7 +268,8 @@ Entry *FindFreshestUnbound(uint64_t targetGuid, uint32_t spellId, uint32_t now) 
 // caster and a wrong timer.
 Entry *FindSole(uint64_t targetGuid, uint32_t spellId) {
     Entry *found = nullptr;
-    for (auto &e : g_cache) {
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (!e.used || e.targetGuid != targetGuid || e.spellId != spellId)
             continue;
         if (found != nullptr)
@@ -275,15 +290,27 @@ Entry *FindInstance(uint64_t targetGuid, uint32_t spellId, int slot) {
     return e != nullptr ? e : FindSole(targetGuid, spellId);
 }
 
+// Marks the slot `e` occupies as within the active prefix, so later lookups
+// reach it. Every new entry passes through here (Claim is the only allocator),
+// which is what keeps the `[0, g_usedHigh)` invariant true for all writers.
+Entry *Register(Entry *e) {
+    const int idx = static_cast<int>(e - g_cache);
+    if (idx >= g_usedHigh)
+        g_usedHigh = idx + 1;
+    return e;
+}
+
 // Takes a free slot, else an expired one whose aura the descriptor no longer
 // lists (a still-present aura keeps its slot so its caster isn't lost — see
-// DescriptorListsAura), else evicts.
+// DescriptorListsAura), else evicts. Scans the full array — as the allocator it
+// must be able to hand out slots beyond the current active prefix (that is how
+// the prefix grows), so it can't bound itself by g_usedHigh.
 Entry *Claim(uint32_t now) {
     for (auto &e : g_cache) {
         if (!e.used ||
             (e.expirationMs != 0 && now >= e.expirationMs &&
              !DescriptorListsAura(e.targetGuid, e.spellId)))
-            return &e;
+            return Register(&e);
     }
     // Saturated. Honor the same invariant as the tick sweep: an entry whose
     // aura is still present on a resolvable unit is NEVER evicted — its caster
@@ -308,7 +335,7 @@ Entry *Claim(uint32_t now) {
         if (orphan == nullptr || e.stampMs < orphan->stampMs)
             orphan = &e;
     }
-    return (orphan != nullptr) ? orphan : lru;
+    return Register((orphan != nullptr) ? orphan : lru);
 }
 
 // ---- Writes --------------------------------------------------------------
@@ -608,7 +635,8 @@ void ApplyDurationModifiers(uint32_t triggerSpellId, uint64_t caster,
         if (!TriggerMatches(m, triggerSpellId, triggerRec))
             continue;
         for (int t = 0; t < numTargets; ++t) {
-            for (auto &e : g_cache) {
+            for (int i = 0; i < g_usedHigh; ++i) {
+                Entry &e = g_cache[i];
                 if (!e.used || e.targetGuid != targets[t])
                     continue;
                 // The mechanic acts on the trigger-caster's own aura. Cast-applied
@@ -716,8 +744,9 @@ const Game::ModuleAutoRegister _autoregDurationMod{&RegisterDurationModLua};
 
 // Wipe the whole cache. Used on a map transition (see OnWorldTick).
 void FlushAll() {
-    for (auto &e : g_cache)
-        e.used = false;
+    for (int i = 0; i < g_usedHigh; ++i)
+        g_cache[i].used = false;
+    g_usedHigh = 0; // active prefix is empty again
     // Reset transition baselines too: post-transition group auras re-sync and
     // should be treated as first-sight (unknown age), not diffed as new.
     for (auto &s : g_groupSnaps)
@@ -753,7 +782,8 @@ void OnWorldTick() {
     }
 
     const uint32_t now = NowMs();
-    for (auto &e : g_cache) {
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (!e.used || e.expirationMs == 0 || !Time::Clock::Reached(now, e.expirationMs))
             continue;
         // A timer elapse doesn't prove the aura is gone — expirationMs is only
@@ -1019,7 +1049,8 @@ uint32_t RefreshDurationByFamily(uint64_t unitGuid, uint32_t family,
     if (unitGuid == 0 || mask == 0 || casterGuid == 0)
         return 0;
     const uint32_t now = NowMs();
-    for (auto &e : g_cache) {
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (!e.used || e.targetGuid != unitGuid)
             continue;
         // Caller's own aura only, scoped as ApplyDurationModifiers scopes a
@@ -1058,7 +1089,8 @@ void EvictAbsent(uint64_t unitGuid, const uint32_t *slotSpellIds) {
     if (!anyPresent)
         return; // out of range vs genuinely buffless — see the header
     const uint32_t now = NowMs();
-    for (auto &e : g_cache) {
+    for (int i = 0; i < g_usedHigh; ++i) {
+        Entry &e = g_cache[i];
         if (!e.used || e.targetGuid != unitGuid)
             continue;
         // Fresh SpellGo capture the descriptor hasn't synced yet — see
@@ -1089,9 +1121,8 @@ int Enumerate(uint64_t unitGuid, bool harmful, CachedAura *out, int maxOut) {
     const int8_t want = harmful ? KIND_HARMFUL : KIND_HELPFUL;
     const uint32_t now = NowMs();
     int n = 0;
-    for (const auto &e : g_cache) {
-        if (n >= maxOut)
-            break;
+    for (int i = 0; i < g_usedHigh && n < maxOut; ++i) {
+        const Entry &e = g_cache[i];
         if (!e.used || e.targetGuid != unitGuid || e.kind != want)
             continue;
         if (e.expirationMs != 0 && now >= e.expirationMs)
