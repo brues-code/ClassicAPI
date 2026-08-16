@@ -264,6 +264,17 @@ Entry *FindSole(uint64_t targetGuid, uint32_t spellId) {
     return found;
 }
 
+// The instance a slot-bearing query means: the entry seated in `slot`, else the
+// unit's sole entry for the spell — every single-caster case and the slotless
+// (out-of-range group array, cache fallback) paths. Two casters' entries with
+// no slot binding resolve to null (see FindSole), never to a coin flip. This is
+// the read-side identity rule; both `Get` and `Evict` resolve through it so they
+// can't drift into naming different instances for the same query.
+Entry *FindInstance(uint64_t targetGuid, uint32_t spellId, int slot) {
+    Entry *e = FindBySlot(targetGuid, spellId, slot);
+    return e != nullptr ? e : FindSole(targetGuid, spellId);
+}
+
 // Takes a free slot, else an expired one whose aura the descriptor no longer
 // lists (a still-present aura keeps its slot so its caster isn't lost — see
 // DescriptorListsAura), else evicts.
@@ -437,9 +448,7 @@ void StampGroupGuess(uint64_t guid, uint16_t spellId, int8_t kind, uint32_t now)
 void Evict(uint64_t targetGuid, uint32_t spellId, int slot) {
     if (targetGuid == 0 || spellId == 0)
         return;
-    Entry *e = FindBySlot(targetGuid, spellId, slot);
-    if (e == nullptr)
-        e = FindSole(targetGuid, spellId);
+    Entry *e = FindInstance(targetGuid, spellId, slot);
     if (e != nullptr)
         e->used = false;
 }
@@ -982,15 +991,11 @@ bool Get(uint64_t unitGuid, uint32_t spellId, int slot, uint64_t *outCaster,
          uint32_t *outExpirationMs, uint32_t *outDurationMs) {
     if (unitGuid == 0 || spellId == 0)
         return false;
-    // Slot first: the only identity that separates two casters' copies of one
-    // spell. Then the sole entry, which is every single-caster case and the
-    // whole of the slotless (out-of-range group array, cache fallback) path.
-    // Several entries and no binding is a genuine ambiguity — reporting the
-    // miss leaves the caller its unknown-caster defaults instead of one
-    // caster's timer on the other's aura.
-    const Entry *e = FindBySlot(unitGuid, spellId, slot);
-    if (e == nullptr)
-        e = FindSole(unitGuid, spellId);
+    // Slot first, then the sole entry (see FindInstance): several entries and no
+    // slot binding is a genuine ambiguity, so reporting the miss leaves the
+    // caller its unknown-caster defaults instead of one caster's timer on the
+    // other's aura.
+    const Entry *e = FindInstance(unitGuid, spellId, slot);
     if (e == nullptr)
         return false;
     *outCaster = e->casterGuid;
