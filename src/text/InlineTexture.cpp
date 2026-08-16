@@ -56,6 +56,7 @@
 
 #include <windows.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -305,6 +306,81 @@ struct IconRecord {
 // never dereferenced (flush only walks the layout's live node list) and are
 // cleared when the address is reused and rebuilt.
 std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
+
+// node → owning CSimpleFontString, recorded by the RebuildString co-hook (the
+// 4.3.4 ownership model — 1.12 chat lines ARE fontstrings). Consulted by the
+// region render mode to anchor icon regions to their line. Stale fs pointers
+// are guarded by LooksReadable at use (chat/bubble fontstrings are pooled and
+// long-lived); the map clears on /reload.
+std::unordered_map<void *, void *> g_nodeOwner;
+
+// Render mode: 0 = raw quads (pen space, pixel-true, needs residency holders),
+// 1 = engine regions (4.3.4 model — resident by construction; the default), 2 =
+// both (bring-up A/B: if the region placement is right, the two coincide).
+int g_renderMode = 1;
+
+// Cached pen-units-per-anchor-unit scale (K). Derived per flush from any icon
+// node whose fontstring rect is resolved: the node origin is the fontstring's
+// justification anchor point mapped by K (verified empirically: two probe
+// fontstrings gave origin = rectJustifyRef × K with K ≈ 1470, both axes, no
+// offset). 0 until first derivation → region placement waits for it.
+float g_penPerAnchor = 0.0f;
+
+// Region-mode calibration, PEN units added to the region copy's position only
+// (quads are the ground truth and never shifted). The pen→anchor map carries a
+// small constant residual (the probe data showed ~3 pen units on y with the
+// analogous x term); (3, -1) is the in-game calibrated best fit. Tunable live
+// via _classicapi_InlineTexRegionCal(dx, dy).
+float g_regionCalX = 3.0f;
+float g_regionCalY = -1.0f;
+
+// RebuildString co-hook: after the engine (re)builds a fontstring's text block,
+// record node → fontstring. `fs+0xF8` is an HTEXTBLOCK handle; the node lives
+// at handle+8.
+using RebuildString_t = void(__fastcall *)(void *fs);
+RebuildString_t g_rebuildOriginal = nullptr;
+
+void __fastcall RebuildString_h(void *fs) {
+    g_rebuildOriginal(fs);
+    if (!LooksReadable(fs))
+        return;
+    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
+                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+    if (!LooksReadable(block))
+        return;
+    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
+                                            Offsets::OFF_TEXTBLOCK_NODE);
+    if (LooksReadable(node))
+        g_nodeOwner[node] = fs;
+}
+
+static const Game::HookAutoRegister _rebuildHook{Offsets::FUN_FONTSTRING_REBUILD_STRING,
+                                                 reinterpret_cast<void *>(&RebuildString_h),
+                                                 reinterpret_cast<void **>(&g_rebuildOriginal)};
+
+// Derives/refreshes K from this node + its fontstring: K = originX / justifyRefX
+// (node+0x54: 0 = left, 1 = centre, 2 = right — the draw builder's encoding).
+// Guards: resolved rect, no x inset (RebuildString adds insetX×s to the node
+// position, which would bias the ratio), ref far enough from 0 for precision.
+// Falls back to the cached value when this node can't vouch.
+float DeriveK(const uint8_t *n, const uint8_t *f, float originX) {
+    if (LooksReadable(f)) {
+        const float left = *reinterpret_cast<const float *>(f + Offsets::OFF_REGION_RECT + 4);
+        const float right = *reinterpret_cast<const float *>(f + Offsets::OFF_REGION_RECT + 12);
+        const float insetX = *reinterpret_cast<const float *>(f + Offsets::OFF_FONTSTRING_INSET_X);
+        if (left < right && std::fabs(insetX) < 1e-6f) {
+            const int justify = *reinterpret_cast<const int *>(n + 0x54);
+            const float ref =
+                (justify == 1) ? (left + right) * 0.5f : ((justify == 2) ? right : left);
+            if (std::fabs(ref) > 0.02f && originX > 1.0f) {
+                const float k = originX / ref;
+                if (k > 1.0f)
+                    g_penPerAnchor = k;
+            }
+        }
+    }
+    return g_penPerAnchor;
+}
 
 // Runtime toggle (default ON — the feature is proven; `_classicapi_InlineTexEnable(false)`
 // still turns it off). When off, the emitter/tokenizer co-hooks fast-path straight
@@ -842,8 +918,30 @@ void FlushLayout(void *layout) {
         auto *n = reinterpret_cast<uint8_t *>(node);
         void *const next = *reinterpret_cast<void **>(n + linkOff + 4);
 
+        // Resolve the owning fontstring up front (region modes): a node with NO
+        // icons must still clear its fontstring's regions — the fs may have just
+        // been re-SetText'd from icon text to plain text (chat line slot reuse).
+        // A node only speaks for its fontstring while it IS the fontstring's
+        // CURRENT text node (fs+0xF8 → handle+8): around a rebuild, the old and
+        // new node can both be walked in one paint, and letting the stale one
+        // queue (especially a clear) made icons vanish nondeterministically.
+        void *fs = nullptr;
+        if (g_renderMode != 0) {
+            auto ow = g_nodeOwner.find(node);
+            if (ow != g_nodeOwner.end() && LooksReadable(ow->second)) {
+                void *block = *reinterpret_cast<void **>(
+                    reinterpret_cast<uint8_t *>(ow->second) + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+                if (LooksReadable(block) &&
+                    *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
+                                               Offsets::OFF_TEXTBLOCK_NODE) == node)
+                    fs = ow->second;
+            }
+        }
+
         auto it = g_nodeIcons.find(node);
         if (it == g_nodeIcons.end() || it->second.empty()) {
+            if (fs != nullptr)
+                Text::InlineTexturePool::QueuePlacements(fs, {});
             node = next;
             continue;
         }
@@ -864,6 +962,10 @@ void FlushLayout(void *layout) {
         }
         if (!hasMarkup) {
             g_nodeIcons.erase(it);
+            // Hide any icon regions still serving this fontstring (chat reuses
+            // line fontstrings for markup-free text — ghost regions otherwise).
+            if (fs != nullptr)
+                Text::InlineTexturePool::QueuePlacements(fs, {});
             node = next;
             continue;
         }
@@ -873,16 +975,44 @@ void FlushLayout(void *layout) {
         if (!NodeEditable(node)) {
             const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
             const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
+            const bool wantQuads = g_renderMode != 1;
+            const bool wantRegions = g_renderMode != 0;
+            float K = 0.0f;
+            if (wantRegions)
+                K = DeriveK(n, reinterpret_cast<uint8_t *>(fs), ox);
+            std::vector<Text::InlineTexturePool::Placement> places;
             for (const IconRecord &r : it->second) {
                 const float cx = r.x + ox + r.offsetX; // screen left
                 // Centre on the line: penY sits near the text top, so add a
                 // fraction of the font height (plus the fine-tune bias). offsetY
                 // shifts up (WoW convention), so subtract it.
                 const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
-                DrawTexturedQuad(r.tex, cx, cy - r.h * 0.5f, cx + r.w, cy + r.h * 0.5f, r.u0, r.v0,
-                                 r.u1, r.v1, r.color, r.z);
-                Text::InlineTexturePool::Hold(r.path.c_str());
+                if (wantQuads) {
+                    DrawTexturedQuad(r.tex, cx, cy - r.h * 0.5f, cx + r.w, cy + r.h * 0.5f, r.u0,
+                                     r.v0, r.u1, r.v1, r.color, r.z);
+                    Text::InlineTexturePool::Hold(r.path.c_str());
+                }
+                if (wantRegions && K > 1.0f && fs != nullptr) {
+                    const float rx = cx + g_regionCalX;
+                    const float ry = cy + g_regionCalY;
+                    Text::InlineTexturePool::Placement p;
+                    p.path = r.path;
+                    p.x0 = rx / K;
+                    p.y0 = (ry - r.h * 0.5f) / K;
+                    p.x1 = (rx + r.w) / K;
+                    p.y1 = (ry + r.h * 0.5f) / K;
+                    p.color = r.color;
+                    p.u0 = r.u0;
+                    p.v0 = r.v0;
+                    p.u1 = r.u1;
+                    p.v1 = r.v1;
+                    places.push_back(std::move(p));
+                }
             }
+            if (wantRegions && fs != nullptr)
+                Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
+        } else if (fs != nullptr) {
+            Text::InlineTexturePool::QueuePlacements(fs, {});
         }
         node = next;
     }
@@ -955,11 +1085,93 @@ int __fastcall Script_InlineTexStats(void *L) {
     return 4;
 }
 
+// _classicapi_InlineTexMode([n]) -> mode. 0 = quads (pen-space, needs holders),
+// 1 = regions (engine-drawn, 4.3.4 model), 2 = both (bring-up A/B overlay).
+int __fastcall Script_InlineTexMode(void *L) {
+    if (Game::Lua::IsNumber(L, 1)) {
+        const int m = static_cast<int>(Game::Lua::ToNumber(L, 1));
+        if (m >= 0 && m <= 2) {
+            if (m == 0 && g_renderMode != 0)
+                Text::InlineTexturePool::HideAll(); // no flush walk will clear them
+            g_renderMode = m;
+        }
+    }
+    Game::Lua::PushNumber(L, static_cast<double>(g_renderMode));
+    return 1;
+}
+
+// _classicapi_InlineTexRegionCal([dx][, dy]) -> dx, dy. Pixel (pen-unit) nudge
+// applied to region-mode icons only; use in mode 2 to align the region copy
+// onto the quad copy (the pixel-perfect reference).
+int __fastcall Script_InlineTexRegionCal(void *L) {
+    g_regionCalX = static_cast<float>(Arg(L, 1, g_regionCalX));
+    g_regionCalY = static_cast<float>(Arg(L, 2, g_regionCalY));
+    Game::Lua::PushNumber(L, g_regionCalX);
+    Game::Lua::PushNumber(L, g_regionCalY);
+    return 2;
+}
+
+// _classicapi_InlineTexProbeFS("FontStringName") ->
+//   s, rect[0..3] (raw +0x64..+0x70: {yA, left, yB, right}), insetX, insetY,
+//   originX, originY, nodeFontH
+// Verification probe for the pen↔anchor scale bridge (RebuildString 0x7724A0,
+// fs+0x7C): expected relations are origin ≈ (rectCorner + inset×s)/s (or ×s,
+// depending on which side of the bridge the node stores) and nodeFontH ≈
+// fontPx×s. Node fields are nil when the fontstring has no built text block.
+int __fastcall Script_InlineTexProbeFS(void *L) {
+    if (!Game::Lua::IsString(L, 1))
+        return 0;
+    void *fs = nullptr;
+    {
+        const int top = Game::Lua::GetTop(L);
+        Game::Lua::PushString(L, Game::Lua::ToString(L, 1));
+        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+        fs = Game::Lua::ResolveObject(L, -1);
+        Game::Lua::SetTop(L, top);
+    }
+    if (!LooksReadable(fs))
+        return 0;
+    auto *f = reinterpret_cast<uint8_t *>(fs);
+    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(f + Offsets::OFF_LAYOUT_SCALE));
+    for (int i = 0; i < 4; ++i)
+        Game::Lua::PushNumber(L,
+                              *reinterpret_cast<float *>(f + Offsets::OFF_REGION_RECT + i * 4));
+    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(f + Offsets::OFF_FONTSTRING_INSET_X));
+    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(f + Offsets::OFF_FONTSTRING_INSET_Y));
+
+    void *node = nullptr;
+    void *block = *reinterpret_cast<void **>(f + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
+    if (LooksReadable(block))
+        node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
+                                          Offsets::OFF_TEXTBLOCK_NODE);
+    if (LooksReadable(node)) {
+        auto *n = reinterpret_cast<uint8_t *>(node);
+        Game::Lua::PushNumber(L, *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X));
+        Game::Lua::PushNumber(L, *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y));
+        Game::Lua::PushNumber(L,
+                              *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_FONT_SIZE));
+    } else {
+        Game::Lua::PushNil(L);
+        Game::Lua::PushNil(L);
+        Game::Lua::PushNil(L);
+    }
+    // The engine's Script_SetPoint px→internal conversion globals, to correlate
+    // against the measured K (if K == div×1024/mul, pen units are SetPoint px).
+    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(Offsets::VAR_UI_COORD_SCALE_MUL));
+    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(Offsets::VAR_UI_COORD_SCALE_DIV));
+    // Live K cache (0 until an icon node has derived it).
+    Game::Lua::PushNumber(L, g_penPerAnchor);
+    return 13;
+}
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexEnable", &Script_InlineTexEnable);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexSuppress", &Script_InlineTexSuppress);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexTune", &Script_InlineTexTune);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexStats", &Script_InlineTexStats);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexProbeFS", &Script_InlineTexProbeFS);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexMode", &Script_InlineTexMode);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexRegionCal", &Script_InlineTexRegionCal);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
@@ -967,10 +1179,12 @@ static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 } // namespace
 
 void PrepareForReload() {
-    // /reload frees every gxu text node — g_nodeIcons holds stale node pointers.
-    // Forget them (records rebuild as the reloaded UI re-emits its text). The
-    // texture-handle cache stays valid (engine keeps its by-name cache).
+    // /reload frees every gxu text node — g_nodeIcons/g_nodeOwner hold stale
+    // node pointers. Forget them (records rebuild as the reloaded UI re-emits
+    // its text). The texture-handle cache stays valid (engine keeps its by-name
+    // cache); K survives (resolution/uiScale don't change across /reload).
     g_nodeIcons.clear();
+    g_nodeOwner.clear();
 }
 
 } // namespace Text::InlineTexture

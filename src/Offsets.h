@@ -340,6 +340,16 @@ enum Offsets {
     // therefore *( *(fs+0xF8) + 8 ).
     OFF_FONTSTRING_TEXT_BLOCK = 0xF8, // HTEXTBLOCK handle (0 when dirty/empty)
     OFF_TEXTBLOCK_NODE = 0x8,         // the gxu text node inside the handle
+    // THE pen↔anchor unit bridge. RebuildString (0x7724A0) multiplies every
+    // text-unit quantity by region+0x7C when crossing into node creation:
+    // nodePos = inset×s + rect corner, nodeFontH = fontPx×s, spacing = +0xF4×s,
+    // and divides rect extents by s for the text-unit width/height. SetParent
+    // (FUN_0076AB10) propagates the parent's +0x7C down the frame tree — it's
+    // the per-object layout/UI-scale chain. This single scalar is what every
+    // earlier "derive the scale" attempt (13/16, ownerH/fontH) was guessing at.
+    OFF_LAYOUT_SCALE = 0x7C,          // float: anchor units per text/pen unit
+    OFF_FONTSTRING_INSET_X = 0x110,   // float, text units (RebuildString posX term)
+    OFF_FONTSTRING_INSET_Y = 0x114,   // float, text units (RebuildString posY term)
     // CSimpleRegion::SetParentAndLayer — __thiscall(region, parentFrame, layer,
     // show). Handles old-parent unlink + new-parent region-registry insert +
     // conditional Show. Verified from the region base ctor FUN_0077F640 and the
