@@ -38,7 +38,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "text/InlineTexture.h"
-#include "tick/WorldTick.h"
+#include "tick/FrameTick.h"
 
 #include <string>
 #include <unordered_map>
@@ -255,8 +255,9 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p) {
     Show(r.tex);
 }
 
-// WorldTick: create holders + apply queued placements (both deferred out of the
-// render pass — regions must never be mutated mid-paint).
+// Per-frame tick (FrameTick — glue AND world): create holders + apply queued
+// placements (both deferred out of the text paint — regions must never be
+// mutated mid-paint).
 void Maintain() {
     if (!g_pending.empty()) {
         if (g_uiParent == nullptr)
@@ -372,7 +373,12 @@ void Maintain() {
     }
 }
 
-static const Tick::WorldTick::AutoSubscribe _tick{&Maintain};
+// FrameTick, not WorldTick: icon regions are UI objects that also exist on the
+// glue screen (addon-list titles with |T emotes), and FrameTick fires wherever
+// the UI renders — glue and world. (An earlier FrameTick attempt was blamed
+// for an in-world regression and reverted; that was the LAA pointer-bound
+// phantom — see laa-pointer-bounds / dc61f77. Single tick is the clean design.)
+static const Tick::FrameTick::AutoSubscribe _tick{&Maintain};
 
 } // namespace
 
