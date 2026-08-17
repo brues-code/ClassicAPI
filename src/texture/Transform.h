@@ -10,12 +10,13 @@
 
 #pragma once
 
-namespace Texture::Rotation {
+namespace Texture::Transform {
 
-// Clears the per-region rotation table. Called from DllMain's reload / glue
-// teardown paths: addon textures are destroyed on `/reload` and world→glue, and
-// the region pool reuses their addresses, so a stale entry must not survive to
-// spuriously rotate a new texture that happens to land on the same pointer.
+// Clears the per-region corner-transform table (rotation + vertex offsets).
+// Called from DllMain's reload / glue teardown paths: addon textures are
+// destroyed on `/reload` and world→glue, and the region pool reuses their
+// addresses, so a stale entry must not survive to transform a new texture that
+// lands on the same pointer.
 void PrepareForReload();
 
-} // namespace Texture::Rotation
+} // namespace Texture::Transform

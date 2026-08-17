@@ -164,6 +164,7 @@ build instructions.
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
+  - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
@@ -3921,7 +3922,8 @@ angle of `0` clears the rotation and returns the texture to upright.
 The method turns the four corners of the drawn quad, so the whole texture stays
 visible and no corner is clipped. It works on any texture, including
 engine-created ones. The rotation holds across moves and resizes, and costs
-nothing per frame while it stays still.
+nothing per frame while it stays still. `GetRotation()` returns the current
+angle in radians.
 
 ```lua
 local t = frame:CreateTexture(nil, "ARTWORK")
@@ -3929,6 +3931,35 @@ t:SetAllPoints(frame)
 t:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
 t:SetRotation(math.rad(45))      -- 45 degrees counter-clockwise
 t:SetRotation(math.pi, 0, 1)     -- half turn around the top-left corner
+```
+
+### `texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`
+
+Moves one corner of a texture by `offsetX, offsetY` pixels. `vertexIndex` picks
+the corner: `UPPER_LEFT_VERTEX`, `LOWER_LEFT_VERTEX`, `UPPER_RIGHT_VERTEX`, or
+`LOWER_RIGHT_VERTEX` (values 1 to 4). `+x` is right and `+y` is up. Vanilla has
+no way to move a texture's corners. This backport matches retail.
+
+Moving the corners warps the whole quad, so the texture and its background move
+together. It suits skew, trapezoid, and fake-perspective effects, and waving
+animations. It composes with `SetRotation`: the texture rotates first, then the
+offsets apply. The offset holds across moves, resizes, and `SetTexture`, and
+costs nothing per frame while it stays still.
+
+`GetVertexOffset(vertexIndex)` returns the current `offsetX, offsetY` for a
+corner (`0, 0` if unset).
+
+Note: an offset that turns the quad inside-out — mirroring it past its opposite
+edge — is not drawn. The engine skips a back-facing quad, so keep the warp
+within a non-mirrored shape.
+
+```lua
+local t = frame:CreateTexture(nil, "ARTWORK")
+t:SetAllPoints(frame)
+t:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+-- pull the top two corners inward: a trapezoid (fake perspective)
+t:SetVertexOffset(UPPER_LEFT_VERTEX, 20, 0)
+t:SetVertexOffset(UPPER_RIGHT_VERTEX, -20, 0)
 ```
 
 ### `frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`

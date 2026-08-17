@@ -20,7 +20,7 @@
 #include "player/NameCache.h"
 #include "text/InlineTexture.h"
 #include "text/InlineTexturePool.h"
-#include "texture/Rotation.h"
+#include "texture/Transform.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
 static Game::LoadScriptFunctions_t LoadScriptFunctions_o = nullptr;
@@ -56,9 +56,9 @@ static bool __fastcall FrameScript_Initialize_h() {
     Text::InlineTexture::PrepareForReload();
     Text::InlineTexturePool::PrepareForReload();
 
-    // Drop per-region SetRotation state — the reload destroys every addon
-    // texture and the region pool reuses their pointers.
-    Texture::Rotation::PrepareForReload();
+    // Drop per-region corner transforms (SetRotation / SetVertexOffset) — the
+    // reload destroys every addon texture and the region pool reuses their pointers.
+    Texture::Transform::PrepareForReload();
 
     // Persist the name cache before the engine starts tearing down.
     // This hook fires on both `/reload` and `/logout` (the engine
@@ -90,7 +90,7 @@ static void __stdcall LoadGlueScriptFunctions_h() {
     // handles individual deaths, but bulk teardown paths may bypass it.)
     Text::InlineTexture::PrepareForReload();
     Text::InlineTexturePool::PrepareForReload();
-    Texture::Rotation::PrepareForReload();
+    Texture::Transform::PrepareForReload();
 }
 
 // Every Lua-side `frame:RegisterEvent(...)` is a chance to claim a slot
