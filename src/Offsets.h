@@ -6539,12 +6539,47 @@ enum Offsets {
     OFF_TEXT_NODE_TEXT = 0x48,
     // Node font-size field (float), fed to the font-height helper.
     OFF_TEXT_NODE_FONT_SIZE = 0x1C,
+    // Node's gxu font-face pointer. The emitter FUN_005ccbe0 reads *(node+0x44)
+    // as the `this` for every glyph call (glyph lookup FUN_005cabd0, the pair
+    // advance, the native-height getter below).
+    OFF_TEXT_NODE_FONT_FACE = 0x44,
     // Font pixel-height helper. `__fastcall(int flag /*ecx = (nodeFlags>>7)&1*/,
     // float fontSize /*stack = [node+0x1c]*/) -> float` (returns in ST0). The
     // emitter calls it to size glyphs; we call it to derive the text's vertical
     // extent so an inline icon can be centred on the line independent of font
     // size. See FUN_005c6fa0.
     FUN_TEXT_FONT_HEIGHT = 0x005C6FA0,
+    // Font-face NATIVE pixel height getter: `__fastcall(void *fontFace) -> int`
+    // (returns *(font+0x24C)). The emitter's pen scale is
+    // FUN_TEXT_FONT_HEIGHT(...) / (float)nativeHeight — glyph-record advances
+    // are in native-font units and multiply by that scale into pen units.
+    // See FUN_005cae90.
+    FUN_TEXT_FONT_NATIVE_HEIGHT = 0x005CAE90,
+    // Glyph PAIR advance: `__thiscall(void *fontFace, uint prevCh, uint curCh)
+    // -> float (ST0)`, native-font units = baseAdvance(prevCh) +
+    // kern(prevCh,curCh)·[font+0x188], memoized per pair. The emitter computes
+    // this at the top of each token iteration and places the CURRENT glyph at
+    // pen + pairAdvance(prev, cur) — i.e. the pen is LAZY: a glyph's own
+    // advance is only consumed when the NEXT token lands. Consequence
+    // (verified in FUN_005ccbe0's tail): the emitter's final pen write
+    // (linkState[4]) is x(lastGlyph) + pairAdvance(secondLast, last) — the
+    // last pair RE-ADDED as a stand-in for the last glyph's own advance. For a
+    // single-glyph run that stand-in is 0 (no pair ever computed) → the
+    // read-back reports the run as zero-width (the money-string "coin sits on
+    // the lone digit" bug). The emitter co-hook corrects the read-back with
+    // these helpers: pen = linkState[4] − pairAdvance(prev,last)·scale +
+    // baseAdvance(last)·scale. See FUN_005ca2d0.
+    FUN_TEXT_GLYPH_PAIR_ADVANCE = 0x005CA2D0,
+    // The flags&0x10 variant of the pair advance (same shape; the emitter
+    // selects it when node flags bit 4 is set). See FUN_005ca4b0.
+    FUN_TEXT_GLYPH_PAIR_ADVANCE_ALT = 0x005CA4B0,
+    // Glyph BASE advance: `__thiscall(void *fontFace, uint ch) -> float (ST0)`,
+    // native-font units, from the font's glyph cache (present for any glyph the
+    // emitter just drew; returns a default for uncached). This is the pair
+    // advance's first term — the terminal-glyph advance with no following
+    // kern, exactly what an inline icon following the glyph needs. See
+    // FUN_005ca240.
+    FUN_TEXT_GLYPH_BASE_ADVANCE = 0x005CA240,
 
     // Shared `|`-escape tokenizer. `__fastcall(byte *text /*ecx*/, int
     // *bytesConsumed /*edx*/, uint *colorOut, uint flags, uint *payloadOut) ->

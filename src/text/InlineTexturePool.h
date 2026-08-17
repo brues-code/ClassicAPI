@@ -13,39 +13,20 @@
 
 #pragma once
 
-// Texture-residency holders for the inline-|T icons.
+// Engine-region rendering for the inline-|T icons (the 4.3.4
+// CSimpleEmbeddedTexture model).
 //
-// The icons themselves render as raw GxU quads in the text engine's own space
-// (see text/InlineTexture.cpp) — pixel-exact position, but a raw quad binds an
-// UNOWNED texture that the engine evicts under VRAM pressure (the flicker on
-// scroll / blank on a 2nd client). The engine only keeps a texture resident
-// while it draws a region that owns it. So for each distinct texture path we
-// create ONE engine-managed CSimpleTexture, drawn every frame, and never touch
-// it again — its draw is the live reference that keeps the texture hot for the
-// quads to bind. The holder must be FULLY OPAQUE to actually draw (near-zero
-// alpha truncates to 0 in the engine's parent×region alpha product and the
-// region goes inert); it's invisible by GEOMETRY instead — a quad hanging
-// almost entirely off the bottom-left screen edge, sub-pixel sliver on-screen
-// (batched and bound, but no pixel center covered). See the .cpp header.
+// One pooled CSimpleTexture per visible inline icon, anchored RELATIVE TO THE
+// OWNING FONTSTRING at offsets converted from pen space via the fs+0x7C scale
+// bridge (see InlineTexture.cpp's FlushLayout). Engine-drawn → resident by
+// construction (no VRAM-eviction flicker); engine-anchored → tracks the
+// fontstring's movement for free.
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace Text::InlineTexturePool {
-
-// Ensure a residency holder exists for `path`. Cheap + idempotent: records the
-// path; the holder is created once on the next WorldTick. Safe to call from the
-// paint hook (records a string only, no engine calls).
-void Hold(const char *path);
-
-// --- region-mode placement (the 4.3.4 CSimpleEmbeddedTexture model) ---------
-//
-// One pooled CSimpleTexture per visible inline icon, anchored RELATIVE TO THE
-// OWNING FONTSTRING at offsets converted from pen space via the fs+0x7C scale
-// bridge (see InlineTexture.cpp's FlushLayout). Engine-drawn → resident by
-// construction (no flicker, no holders needed); engine-anchored → tracks the
-// fontstring's movement for free.
 
 // One icon's target geometry, in anchor-space units RELATIVE TO THE OWNING
 // FONTSTRING's rect min corner (y up, same units as the region rect at +0x64).
@@ -77,16 +58,9 @@ inline bool operator==(const Placement &a, const Placement &b) {
 // hidden fontstring's regions are hidden automatically each tick.
 void QueuePlacements(void *fs, std::vector<Placement> &&icons);
 
-// Hide every placed icon region (mode switch away from regions). Pooled regions
-// are kept for reuse.
-void HideAll();
-
 // Called from FrameScript_Initialize_h BEFORE the /reload teardown: the reload
-// destroys every holder texture (regions die with their frames), so drop the
-// pointers without touching them — holders rebuild lazily as icons re-draw.
+// destroys every icon region (they die with their parent frames), so drop the
+// pointers without touching them — regions rebuild lazily as icons re-draw.
 void PrepareForReload();
-
-// Diagnostics: number of live holders.
-int HolderCount();
 
 } // namespace Text::InlineTexturePool

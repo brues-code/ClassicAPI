@@ -24,19 +24,20 @@
 //      recording an icon at the pen between runs. This avoids reimplementing the
 //      emitter's intricate vertex math: the engine still lays out every glyph; we
 //      only track where each icon goes.
-//   2. RENDERING — the 4.3.4 CSimpleEmbeddedTexture model, ported faithfully.
-//      A co-hook on CSimpleFontString::RebuildString (FUN_007724A0) maps each
-//      fresh text node to its OWNING FONTSTRING (1.12 chat lines are real
-//      CSimpleFontStrings — the ScrollingMessageFrame's display refresh
-//      FUN_00788750 SetTexts/anchors/shows one per visible line). A WorldTick
-//      publisher then walks the icon records and hands each to
-//      `Text::InlineTexturePool::PlaceOwned`, which configures a pooled
-//      engine-managed CSimpleTexture ANCHORED TO THE OWNING FONTSTRING at the
-//      pen offset — exactly how 4.3.4's UpdateEmbeddedTextures anchors its
-//      embedded textures. The engine draws the region every frame (residency)
-//      and the anchor system moves it with its line on every scroll/shift
-//      (zero per-frame work, no render transforms, no mid-render mutation).
-//      See docs/InlineTextureResidency.md.
+//   2. RENDERING — the 4.3.4 CSimpleEmbeddedTexture model, ported faithfully
+//      (the ONLY render path; a raw-GxU-quad mode existed during bring-up and
+//      was removed). A co-hook on CSimpleFontString::RebuildString
+//      (FUN_007724A0) maps each fresh text node to its OWNING FONTSTRING (1.12
+//      chat lines are real CSimpleFontStrings — the ScrollingMessageFrame's
+//      display refresh FUN_00788750 SetTexts/anchors/shows one per visible
+//      line). The paint-tail flush walks the icon records and queues each to
+//      `Text::InlineTexturePool`, which configures a pooled engine-managed
+//      CSimpleTexture ANCHORED TO THE OWNING FONTSTRING at the pen offset —
+//      exactly how 4.3.4's UpdateEmbeddedTextures anchors its embedded
+//      textures. The engine draws the region every frame (residency) and the
+//      anchor system moves it with its line on every scroll/shift (zero
+//      per-frame work, no render transforms, no mid-render mutation). See
+//      docs/InlineTextureResidency.md.
 //
 // Supports the full positional payload
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
@@ -84,119 +85,6 @@ namespace {
 bool LooksReadable(const void *p) {
     auto a = reinterpret_cast<uintptr_t>(p);
     return a >= 0x00010000u && a < 0xFFFF0000u;
-}
-
-// --- textured-quad rendering primitive --------------------------------------
-//
-// Icons draw as raw GxU quads in the text engine's OWN render space (pen +
-// node-origin), the same coordinate system and dynamic VB the glyphs use — so
-// position is pixel-exact by construction, with no anchor/layout-space
-// conversion. Residency (the reason quads alone flickered) is handled
-// separately by Text::InlineTexturePool holders: one engine-managed
-// CSimpleTexture per texture path, drawn every frame, keeps that texture hot in
-// VRAM for these quads to bind.
-
-// The UI text vertex the GxU path expects (stride 0x18 = 24 bytes), from the
-// glyph vertex assembler FUN_005c8710: +0x00 x +0x04 y +0x08 z +0x0c colorBGRA
-// +0x10 u +0x14 v.
-struct Vertex {
-    float x, y, z;
-    uint32_t color;
-    float u, v;
-};
-static_assert(sizeof(Vertex) == 0x18, "text vertex must be 24 bytes");
-
-// Byte-identical to the 5-dword on-stack descriptor FUN_00770200 builds before
-// FUN_00449d90. On a successful load the loader never touches it; only the
-// load-failure log path reads it, so a faithful copy keeps the missing-texture
-// path as safe as the engine's own call.
-struct TexLoadDesc {
-    void *vtbl;
-    int32_t field4;
-    void *self8;
-    uint32_t fieldC;
-    int32_t field10;
-};
-
-using TexFlagsInit_t = void *(__thiscall *)(void *self, uint32_t blend, int, int, int, int, int,
-                                            uint32_t, int);
-using TextureLoad_t = uint32_t(__fastcall *)(const char *path, void *desc, uint32_t flags, int,
-                                             int);
-
-std::unordered_map<std::string, void *> g_texCache;
-
-// Resolve a texture PATH to a bindable CGxTexture handle (cached by path).
-// Mirrors FUN_00770200's load: build flags via FUN_0058a980, then
-// FUN_00449d90(path, &desc, flags, 0, 1). The engine keeps its own refcounted
-// by-name cache, so the handle is stable for the session.
-void *LoadTextureByPath(const char *path) {
-    if (path == nullptr || path[0] == '\0')
-        return nullptr;
-    std::string key(path);
-    auto it = g_texCache.find(key);
-    if (it != g_texCache.end())
-        return it->second;
-
-    TexLoadDesc desc;
-    desc.vtbl = reinterpret_cast<void *>(Offsets::PTR_TEXLOAD_DESC_VTBL);
-    desc.field4 = 8;
-    desc.self8 = &desc.self8;
-    desc.fieldC = reinterpret_cast<uintptr_t>(&desc.self8) | 1u;
-    desc.field10 = 0;
-    uint32_t flags = 0;
-    const uint32_t blend = *reinterpret_cast<uint32_t *>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
-    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0, 1,
-                                                                    0);
-    void *handle = reinterpret_cast<void *>(
-        reinterpret_cast<TextureLoad_t>(Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, flags, 0,
-                                                                           1));
-    g_texCache.emplace(std::move(key), handle);
-    return handle;
-}
-
-using GxBind_t = void(__fastcall *)(int selector, void *tex);
-using GxLockVB_t = int(__fastcall *)(int zero, int stride, int vertCount);
-using GxVBData_t = void *(__fastcall *)(int handle);
-using GxSubmit_t = void *(__fastcall *)(int *handle, int vertCount);
-using GxUnlock_t = void(__fastcall *)(int handle, int zero);
-
-constexpr int kRingVerts = 0x800; // the paint pass always locks this many; mirror it
-
-// Draw one textured quad through the UI text VB primitive. Must run while the
-// device is in the text-paint state (from the paint co-hook, after the original
-// glyph flush). Corner order TL, TR, BL, BR matches the shared quad index
-// buffer ({0,1,2, 2,1,3}) and the device cull winding.
-void DrawTexturedQuad(void *tex, float x0, float y0, float x1, float y1, float u0, float v0,
-                      float u1, float v1, uint32_t color, float z) {
-    if (tex == nullptr)
-        return;
-    auto lockVB = reinterpret_cast<GxLockVB_t>(Offsets::FUN_GX_LOCK_DYNAMIC_VB);
-    int handle = lockVB(0, Offsets::GX_TEXT_VERTEX_STRIDE, kRingVerts);
-    auto vbData = reinterpret_cast<GxVBData_t>(Offsets::FUN_GX_VB_DATA_PTR);
-    auto *v = reinterpret_cast<Vertex *>(vbData(handle));
-    if (v != nullptr) {
-        // Resolve the HTEXTURE to its bindable CGxTexture the way the engine's
-        // render does: FUN_0044acf0(tex, force=1, 0) returns [tex+0x140] and
-        // drives the streaming load. Binding the raw HTEXTURE is SetTexture(0).
-        auto getRenderable = reinterpret_cast<void *(__fastcall *)(void *, int, void *)>(
-            Offsets::FUN_TEXTURE_GET_RENDERABLE);
-        void *cgxTex = getRenderable(tex, 1, nullptr);
-        if (!LooksReadable(cgxTex)) {
-            reinterpret_cast<GxUnlock_t>(Offsets::FUN_GX_UNLOCK_VB)(handle, 0);
-            return;
-        }
-        reinterpret_cast<GxBind_t>(Offsets::FUN_GX_BIND_TEXTURE)(Offsets::GX_TEXTURE_SELECTOR,
-                                                                 cgxTex);
-        // The UI device backend is OpenGL (bottom-left texture origin, v=0 at the
-        // bottom), so top corners map to the LARGER v — else the icon renders
-        // vertically flipped (obvious on directional raid-target markers).
-        v[0] = {x0, y0, z, color, u0, v1};
-        v[1] = {x1, y0, z, color, u1, v1};
-        v[2] = {x0, y1, z, color, u0, v0};
-        v[3] = {x1, y1, z, color, u1, v0};
-        reinterpret_cast<GxSubmit_t>(Offsets::FUN_GX_SUBMIT_VB)(&handle, 4);
-    }
-    reinterpret_cast<GxUnlock_t>(Offsets::FUN_GX_UNLOCK_VB)(handle, 0);
 }
 
 // --- inline-texture descriptor parse ---------------------------------------
@@ -300,14 +188,13 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
 // One icon to draw, in the render node's node-local coordinate space (the same
 // space glyph verts live in — the paint pass translates it by the node origin).
 struct IconRecord {
-    std::string path;       // texture path (also the residency-holder key)
-    void *tex;              // bindable HTEXTURE (from LoadTextureByPath)
+    std::string path;       // texture path
     float x;                // node-local pen x at the icon
     float y;                // node-local pen reference (penXYZ[1]) — near the text top
     float fontH;            // font pixel height of the line, for vertical centering
     float w;
     float h;
-    float z;                // pen z (penXYZ[2]) — quad depth
+    float z;                // pen z (penXYZ[2])
     float offsetX, offsetY; // pen-relative pixel shift
     float u0, v0, u1, v1;   // texture crop
     uint32_t color;         // vertex tint (0xAARRGGBB; white = untinted)
@@ -341,11 +228,6 @@ std::unordered_map<void *, void *> g_nodeOwner;
 uint32_t g_flushSeq = 0;
 std::unordered_map<void *, uint32_t> g_nodeSeen;
 
-// Render mode: 0 = raw quads (pen space, pixel-true, needs residency holders),
-// 1 = engine regions (4.3.4 model — resident by construction; the default), 2 =
-// both (bring-up A/B: if the region placement is right, the two coincide).
-int g_renderMode = 1;
-
 // Cached pen-units-per-anchor-unit scale (K). Derived per flush from any icon
 // node whose fontstring rect is resolved: the node origin is the fontstring's
 // justification anchor point mapped by K (verified empirically: two probe
@@ -353,11 +235,10 @@ int g_renderMode = 1;
 // offset). 0 until first derivation → region placement waits for it.
 float g_penPerAnchor = 0.0f;
 
-// Region-mode calibration, PEN units added to the region copy's position only
-// (quads are the ground truth and never shifted). x needs no constant — the +3
-// once calibrated here turned out to be the missing lead pad, now applied at
-// draw for both render paths. y keeps a 1px residual (the pen→anchor map's one
-// true constant). Tunable live via _classicapi_InlineTexRegionCal(dx, dy).
+// Region calibration, PEN units added to the region's position. x needs no
+// constant — the +3 once calibrated here turned out to be the missing lead pad,
+// now applied at draw. y keeps a 1px residual (the pen→anchor map's one true
+// constant). Tunable live via _classicapi_InlineTexRegionCal(dx, dy).
 float g_regionCalX = 0.0f;
 float g_regionCalY = -1.0f;
 
@@ -611,12 +492,18 @@ float g_sizeScale = 1.0f; // multiplies the parsed icon size
 // top; ~0.6 centres the icon on the line across the fonts we render into (chat +
 // pfUI's bubble), tuned in-game via _classicapi_InlineTexTune.
 float g_centerFrac = 0.6f;
-// Horizontal breathing room around every inline icon, as a fraction of the icon's
-// width. Applied FULL on the lead (left) and HALF on the trail (right): the
-// preceding glyph's right-side bearing extends past the reported pen and eats into
-// the left gap visually, so a lead-heavy split makes the left and right gaps LOOK
-// even. Without any pad an icon crowds the char before it. Tuned via
-// _classicapi_InlineTexTune (4th arg). 0.18 ≈ 3px lead / 1.5px trail on an 18px icon.
+// Horizontal breathing room around every inline icon, as a fraction of the LINE'S
+// FONT HEIGHT — a text-relative gap, like the space between words. It is NOT a
+// fraction of the icon's own width: that made the gap scale with icon size, so a
+// small icon (e.g. a font-height coin next to a digit) jammed its neighbour while a
+// huge icon floated away from it. Keying off the font height makes the gap constant
+// for a given text size regardless of how big the icon is drawn — and a font-height
+// icon is unchanged, so marks / default coins / default emotes keep their spacing.
+// Applied FULL on the lead (left) and HALF on the trail (right): the preceding
+// glyph's right-side bearing extends past the reported pen and eats into the left
+// gap visually, so a lead-heavy split makes the left and right gaps LOOK even.
+// Without any pad an icon crowds the char before it. Tuned via
+// _classicapi_InlineTexTune (4th arg). 0.18 ≈ 2.7px lead / 1.35px trail at a 15px font.
 float g_iconPadFrac = 0.18f;
 
 // The 1.12 FontString text sanitizer DOUBLES any pipe that doesn't begin a
@@ -694,17 +581,18 @@ int InlineSpanLen(const uint8_t *text) {
 
 // THE per-icon pen advance the emitter reserves: icon width + full lead pad +
 // half trail pad + any positive offsetX (a negative offsetX — deliberate
-// leftward overlap — doesn't shrink the advance). Single source shared by the
-// emitter's icon loop, its centre/right-justify pre-shift, and the string-width
-// co-hook — the three MUST agree or measured and rendered width drift.
-// `fontHPen` resolves the retail `:0` auto-size (icon dims default to the
-// line's font height); pen units in, pen units out.
+// leftward overlap — doesn't shrink the advance). Each pad is
+// `fontHPen * g_iconPadFrac` — a font-relative gap, NOT icon-width-relative (see
+// g_iconPadFrac). Single source shared by the emitter's icon loop, its
+// centre/right-justify pre-shift, and the string-width co-hook — the three MUST
+// agree or measured and rendered width drift. `fontHPen` resolves the retail `:0`
+// auto-size (icon dims default to the line's font height); pen units in, out.
 float IconAdvancePen(const IconDesc &d, float fontHPen) {
     const float baseH = (d.height > 0.0f) ? d.height : fontHPen;
     const float baseW = (d.width > 0.0f) ? d.width : baseH;
     const float w = baseW * g_sizeScale;
     const float offX = d.offsetX * g_sizeScale;
-    return w + 1.5f * (w * g_iconPadFrac) + (offX > 0.0f ? offX : 0.0f);
+    return w + 1.5f * (fontHPen * g_iconPadFrac) + (offX > 0.0f ? offX : 0.0f);
 }
 
 // Sum of IconAdvancePen over every well-formed `|T…|t` (or sanitizer-doubled
@@ -1235,6 +1123,18 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     const float fontH = reinterpret_cast<float(__fastcall *)(int, float)>(
         Offsets::FUN_TEXT_FONT_HEIGHT)(fontFlag, fontSize);
 
+    // Font face + native→pen advance scale, mirroring the emitter's own
+    // `local_10 = fontH / (float)nativeHeight`. Used by drawRun's terminal-
+    // advance correction (glyph-record advances are native-font units).
+    void *const fontFace = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(node) +
+                                                      Offsets::OFF_TEXT_NODE_FONT_FACE);
+    using FontNativeHeight_t = int(__fastcall *)(void *font);
+    const int fontNativeH =
+        (fontFace != nullptr)
+            ? reinterpret_cast<FontNativeHeight_t>(Offsets::FUN_TEXT_FONT_NATIVE_HEIGHT)(fontFace)
+            : 0;
+    const float penScale = (fontNativeH > 0) ? fontH / static_cast<float>(fontNativeH) : 0.0f;
+
     // The original emitter never writes penXYZ[0]; we mutate it to thread the pen
     // across segments, so snapshot and restore it. The draw builder does NOT reset
     // penXYZ[0] between left-justified lines, so leaving it mutated would cascade-
@@ -1263,16 +1163,87 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     }
 
     // Draws a plain run [start,start+n) via the original emitter, threading the
-    // pen: the original starts at penXYZ[0] and leaves the final node-local pen x
-    // (truncated to int) in linkState[4]. n == 0 is a safe no-op that just finalizes
-    // linkState (used to keep the pen/link state consistent between and after icons).
+    // pen: the original starts at penXYZ[0] and leaves its final pen x in
+    // linkState[4] (a FLOAT bit pattern — `FSTP dword`; an int-cast yields
+    // garbage). n == 0 is a safe no-op that just finalizes linkState.
+    //
+    // THE READ-BACK IS LAZY AND NEEDS CORRECTION (verified in FUN_005ccbe0):
+    // the emitter's pen consumes a glyph's advance only when the NEXT token
+    // lands (each glyph is placed at pen + pairAdvance(prev, cur)), and its
+    // final write is `linkState[4] = x(lastGlyph) + pairAdvance(secondLast,
+    // last)` — the last PAIR re-added as a stand-in for the LAST glyph's own
+    // advance. For a 1-glyph run the stand-in is 0 (no pair exists), so the
+    // run reads as zero-width — the money-string "coin sits on the lone digit"
+    // bug ("|cffffffff0" → penAfter 0). For "…] 1" the stand-in is the SPACE's
+    // advance (narrower than the digit's) — the single-digit clip. Fix: walk
+    // the run with the engine's own tokenizer, and when it ends in a glyph
+    // replace the stand-in with the truth:
+    //   pen = linkState[4] − pairAdvance(prev, last)·scale + baseAdvance(last)·scale
+    // (both terms truncated to int when node-flags bit 7 is clear, mirroring
+    // the emitter's per-placement __ftol snap). Runs ending in a NON-glyph
+    // token (trailing |c/|r) need no correction: the trailing iteration's
+    // recompute already folded pairAdvance(lastGlyph, junkPayload) ≈
+    // baseAdvance(lastGlyph) into the write. This mirrors 4.3.4's texture case,
+    // which computes the pending last-glyph advance explicitly at the icon
+    // (FUN_0061ea10 case 7) instead of trusting a stored pen.
+    using GlyphPairAdvance_t = float(__thiscall *)(void *font, uint32_t prevCh, uint32_t curCh);
+    using GlyphBaseAdvance_t = float(__thiscall *)(void *font, uint32_t ch);
     auto drawRun = [&](size_t start, int n) {
         penXYZ[0] = penX;
         g_emitterOriginal(node, edx, text + start, n, colorState, penXYZ, pageMask, linkState);
-        // linkState[4] holds the final pen x, stored by the engine with `FSTP dword`
-        // — i.e. a FLOAT bit pattern, not an int. Read it as a float (an int-cast
-        // reinterprets the bits and yields garbage).
         penX = *reinterpret_cast<float *>(&linkState[4]);
+        if (n <= 0 || penScale <= 0.0f || fontFace == nullptr)
+            return;
+        // Token-walk the run (the ORIGINAL tokenizer — our co-hook would eat
+        // |T spans, but runs never contain them by construction) for its last
+        // two glyph payloads.
+        uint32_t prevCh = 0, lastCh = 0;
+        int glyphCount = 0;
+        bool endsInGlyph = false;
+        const uint8_t *p = text + start;
+        int rem = n;
+        while (rem > 0 && *p != 0) {
+            int consumed = 0;
+            uint32_t colorOut = 0, payload = 0;
+            const uint32_t tok = g_tokenizerOriginal(const_cast<uint8_t *>(p), &consumed,
+                                                     &colorOut, savedFlags, &payload);
+            if (consumed <= 0 || consumed > rem)
+                break;
+            p += consumed;
+            rem -= consumed;
+            // Emitter switch handles 0(color)/1(reset)/2(break)/4(|H)/5(|h)
+            // specially; everything else (6 = glyph, 3 = literal ||) draws.
+            if (tok != 0 && tok != 1 && tok != 2 && tok != 4 && tok != 5) {
+                prevCh = lastCh;
+                lastCh = payload;
+                ++glyphCount;
+                endsInGlyph = true;
+            } else {
+                endsInGlyph = false;
+            }
+        }
+        if (!endsInGlyph)
+            return;
+        const bool snap = (savedFlags & 0x80u) == 0;
+        // The stand-in the engine's final write added: pairAdvance(prev, last),
+        // 0 for a 1-glyph run (never computed). Same kerning variant the
+        // emitter picks (flags bit 4).
+        float standIn = 0.0f;
+        if (glyphCount >= 2) {
+            const uintptr_t pairFn = ((savedFlags & 0x10u) != 0)
+                                         ? Offsets::FUN_TEXT_GLYPH_PAIR_ADVANCE_ALT
+                                         : Offsets::FUN_TEXT_GLYPH_PAIR_ADVANCE;
+            standIn =
+                reinterpret_cast<GlyphPairAdvance_t>(pairFn)(fontFace, prevCh, lastCh) * penScale;
+            if (snap)
+                standIn = static_cast<float>(static_cast<int>(standIn));
+        }
+        float terminal = reinterpret_cast<GlyphBaseAdvance_t>(
+                             Offsets::FUN_TEXT_GLYPH_BASE_ADVANCE)(fontFace, lastCh) *
+                         penScale;
+        if (snap)
+            terminal = static_cast<float>(static_cast<int>(terminal));
+        penX += terminal - standIn;
     };
 
     size_t runStart = 0;
@@ -1313,7 +1284,6 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             const float h = baseH * g_sizeScale;
             IconRecord r;
             r.path = d.path;
-            r.tex = LoadTextureByPath(d.path.c_str());
             r.x = penX;
             r.y = penY;
             r.fontH = fontH;
@@ -1401,15 +1371,15 @@ void FlushLayout(void *layout) {
         auto *n = reinterpret_cast<uint8_t *>(node);
         void *const next = *reinterpret_cast<void **>(n + linkOff + 4);
 
-        // Resolve the owning fontstring up front (region modes): a node with NO
-        // icons must still clear its fontstring's regions — the fs may have just
-        // been re-SetText'd from icon text to plain text (chat line slot reuse).
+        // Resolve the owning fontstring up front: a node with NO icons must
+        // still clear its fontstring's regions — the fs may have just been
+        // re-SetText'd from icon text to plain text (chat line slot reuse).
         // A node only speaks for its fontstring while it IS the fontstring's
         // CURRENT text node (fs+0xF8 → handle+8): around a rebuild, the old and
         // new node can both be walked in one paint, and letting the stale one
         // queue (especially a clear) made icons vanish nondeterministically.
         void *fs = nullptr;
-        if (g_renderMode != 0) {
+        {
             auto ow = g_nodeOwner.find(node);
             if (ow != g_nodeOwner.end() && LooksReadable(ow->second)) {
                 auto *of = reinterpret_cast<uint8_t *>(ow->second);
@@ -1484,9 +1454,6 @@ void FlushLayout(void *layout) {
         if (!NodeEditable(node)) {
             const float ox = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X);
             const float oy = *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y);
-            const bool wantQuads = g_renderMode != 1;
-            const bool wantRegions = g_renderMode != 0;
-            float K = 0.0f;
             // The fs rect, read HERE in the same flush as the icon coords — a
             // coherent snapshot. Placements are stored FS-RELATIVE: an
             // apply-time rect read raced the chat relayout (SetText invalidates
@@ -1494,17 +1461,15 @@ void FlushLayout(void *layout) {
             // rect parked the icon off the line — then the dedup (unchanged
             // absolute want) froze it there. Relative offsets are also
             // position-invariant, so scrolling no longer re-places anything.
+            const float K = DeriveK(n, reinterpret_cast<uint8_t *>(fs), ox);
             float fsLeft = 0.0f, fsBottom = 0.0f;
             bool fsRectValid = false;
-            if (wantRegions) {
-                K = DeriveK(n, reinterpret_cast<uint8_t *>(fs), ox);
-                if (fs != nullptr) {
-                    const float *rc = reinterpret_cast<const float *>(
-                        reinterpret_cast<uint8_t *>(fs) + Offsets::OFF_REGION_RECT);
-                    fsBottom = (rc[0] < rc[2]) ? rc[0] : rc[2];
-                    fsLeft = (rc[1] < rc[3]) ? rc[1] : rc[3];
-                    fsRectValid = rc[1] != rc[3]; // unresolved rect reads 0-width
-                }
+            if (fs != nullptr) {
+                const float *rc = reinterpret_cast<const float *>(
+                    reinterpret_cast<uint8_t *>(fs) + Offsets::OFF_REGION_RECT);
+                fsBottom = (rc[0] < rc[2]) ? rc[0] : rc[2];
+                fsLeft = (rc[1] < rc[3]) ? rc[1] : rc[3];
+                fsRectValid = rc[1] != rc[3]; // unresolved rect reads 0-width
             }
             std::vector<Text::InlineTexturePool::Placement> places;
             for (const IconRecord &r : it->second.icons) {
@@ -1512,18 +1477,14 @@ void FlushLayout(void *layout) {
                 // w + 1.5×pad in the advance (lead 1×, trail 0.5×) — drawing at
                 // the raw pen put all of that gap AFTER the icon, which is why
                 // a string-final icon (money-string copper) looked jammed
-                // against its digits and grew per-coin offset hacks.
-                const float cx = r.x + ox + r.offsetX + r.w * g_iconPadFrac;
+                // against its digits and grew per-coin offset hacks. The pad is
+                // fontH-relative (NOT r.w) — must match IconAdvancePen exactly.
+                const float cx = r.x + ox + r.offsetX + r.fontH * g_iconPadFrac;
                 // Centre on the line: penY sits near the text top, so add a
                 // fraction of the font height (plus the fine-tune bias). offsetY
                 // shifts up (WoW convention), so subtract it.
                 const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
-                if (wantQuads) {
-                    DrawTexturedQuad(r.tex, cx, cy - r.h * 0.5f, cx + r.w, cy + r.h * 0.5f, r.u0,
-                                     r.v0, r.u1, r.v1, r.color, r.z);
-                    Text::InlineTexturePool::Hold(r.path.c_str());
-                }
-                if (wantRegions && K > 1.0f && fs != nullptr && fsRectValid) {
+                if (K > 1.0f && fs != nullptr && fsRectValid) {
                     const float rx = cx + g_regionCalX;
                     const float ry = cy + g_regionCalY;
                     Text::InlineTexturePool::Placement p;
@@ -1548,17 +1509,15 @@ void FlushLayout(void *layout) {
             // That was the scroll-landing bug's second head: lines painted
             // before the session's first K derivation queued {} and stayed
             // iconless until their text changed.
-            if (wantRegions) {
-                if (fs == nullptr)
-                    ++g_statDropNoFs;
-                else if (!fsRectValid)
-                    ++g_statDropRect;
-                else if (!(K > 1.0f))
-                    ++g_statDropK;
-                else {
-                    ++g_statQueued;
-                    Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
-                }
+            if (fs == nullptr)
+                ++g_statDropNoFs;
+            else if (!fsRectValid)
+                ++g_statDropRect;
+            else if (!(K > 1.0f))
+                ++g_statDropK;
+            else {
+                ++g_statQueued;
+                Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
             }
         } else if (fs != nullptr) {
             ++g_statDropEditable;
@@ -1644,24 +1603,8 @@ int __fastcall Script_InlineTexStats(void *L) {
     return 11;
 }
 
-// _classicapi_InlineTexMode([n]) -> mode. 0 = quads (pen-space, needs holders),
-// 1 = regions (engine-drawn, 4.3.4 model), 2 = both (bring-up A/B overlay).
-int __fastcall Script_InlineTexMode(void *L) {
-    if (Game::Lua::IsNumber(L, 1)) {
-        const int m = static_cast<int>(Game::Lua::ToNumber(L, 1));
-        if (m >= 0 && m <= 2) {
-            if (m == 0 && g_renderMode != 0)
-                Text::InlineTexturePool::HideAll(); // no flush walk will clear them
-            g_renderMode = m;
-        }
-    }
-    Game::Lua::PushNumber(L, static_cast<double>(g_renderMode));
-    return 1;
-}
-
 // _classicapi_InlineTexRegionCal([dx][, dy]) -> dx, dy. Pixel (pen-unit) nudge
-// applied to region-mode icons only; use in mode 2 to align the region copy
-// onto the quad copy (the pixel-perfect reference).
+// applied to the icon regions' position.
 int __fastcall Script_InlineTexRegionCal(void *L) {
     g_regionCalX = static_cast<float>(Arg(L, 1, g_regionCalX));
     g_regionCalY = static_cast<float>(Arg(L, 2, g_regionCalY));
@@ -1771,7 +1714,6 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexTune", &Script_InlineTexTune);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexStats", &Script_InlineTexStats);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexProbeFS", &Script_InlineTexProbeFS);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexMode", &Script_InlineTexMode);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexRegionCal", &Script_InlineTexRegionCal);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexWrap", &Script_InlineTexWrap);
 }
