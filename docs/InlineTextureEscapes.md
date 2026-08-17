@@ -239,8 +239,16 @@ outWidth)`). The hook probes sandboxed (local out-params plus a COPY of the
 `p10` in/out state byte, so the caller's first-line state is not consumed):
 s = 0 first (feasible → no shrink at all — the common short-message case),
 escalate by the measured deficit when infeasible, bisect down after the
-first feasible hit; ≤4 probes, and with no feasible hit the last escalation
-target wins (wraps early rather than overflowing). `outBreak` and
+first feasible hit; ≤8 probes, and with no feasible hit the last escalation
+target wins (wraps early rather than overflowing). The feasibility check
+carries a HALF-GLYPH tolerance: an auto-width fontstring (single anchor, no
+width — e.g. pfUI's addon-list labels) wraps at the icon-inclusive string
+width our GetStringWidth hook feeds the effective-width vmethod, so its line
+fits with exactly zero slack, and cross-computation drift between the two
+hooks' unit chains (plus OUTLINE extras and the trailing-glyph quirk) read
+"fits exactly" as "1px over" — shrinking a zero-slack line forces a wrap
+that had no business existing. Genuine icon overflow is ≥ a full icon, so
+half a glyph separates drift from real overflow. `outBreak` and
 `outNext − text` are byte counts; `outBreak == len` means the whole text
 fit. Two rejected earlier schemes, for the record: a naive whole-remaining-
 text sum shredded an 8-icon line to one word per line, and a fixed-point

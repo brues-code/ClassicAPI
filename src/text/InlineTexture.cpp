@@ -63,6 +63,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
@@ -903,6 +904,7 @@ struct WrapDiag {
     float fontHPx = 0.0f;   // FUN_TEXT_FONT_HEIGHT's pixel realization of it
     int len = 0;            // text length scanned (to '\n'/'\0', cap 2048)
     int passes = 0;         // probe passes run (≤8)
+    float probeS[8] = {};   // per-pass shrink candidate probed
     float sumPx[8] = {};    // per-pass icon-advance sum before the probe break
     int lineLen[8] = {};    // per-pass line length used for the sum (chars)
     int pBreakA[8] = {};    // per-pass raw outBreak from the stepper
@@ -1011,6 +1013,7 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                     float slack = probeW - pWidth;
                     if (slack < 0.0f)
                         slack = 0.0f;
+                    d.probeS[pass] = s;
                     d.sumPx[pass] = sumPx;
                     d.lineLen[pass] = lineLen;
                     d.pBreakA[pass] = pBreak;
@@ -1019,7 +1022,39 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                                          : -1;
                     d.pWidthA[pass] = pWidth;
                     d.passes = pass + 1;
-                    if (iconUnits <= s + slack) {
+                    // AUTO-WIDTH bail: the whole text fits its budget with at
+                    // most ~a glyph of slack — the signature of a
+                    // single-anchor, no-width fontstring whose wrap budget is
+                    // its own text-only measure plus a ~1-glyph engine margin
+                    // (measured 1.07×fontH on pfUI's addon-list labels; the
+                    // half-glyph first cut missed it). There is no real frame
+                    // edge to protect there: the box is synthetic, the icons
+                    // draw past it harmlessly, and any shrink FABRICATES a
+                    // wrap on a line the engine would never have wrapped.
+                    // Real-width content stays covered: an overflowing line
+                    // breaks (lineLen < len), and a fitting line in a real
+                    // frame carries frame-sized slack (the Marks harness line
+                    // measures ~3.5×fontH) — only a text that lands within
+                    // 1.5 glyphs of exactly filling its frame gives up its
+                    // shrink, and its overflow is bounded by its icon sum
+                    // (the pre-hook status quo).
+                    if (pass == 0 && lineLen == len && slack <= fontH * 1.5f)
+                        break; // s == 0, best unset → final shrink = 0
+                    // Half-glyph feasibility tolerance. An AUTO-WIDTH
+                    // fontstring's wrap width IS the icon-inclusive string
+                    // width (the GetStringWidth hook feeds the effective-width
+                    // vmethod), so its line fits with EXACTLY zero slack —
+                    // iconSum == slack up to cross-computation drift (the two
+                    // hooks derive the icon sum through different unit chains,
+                    // plus OUTLINE extras and the trailing-glyph ink/advance
+                    // quirk). Without tolerance that drift reads "fits
+                    // exactly" as "1px over", shrinks a zero-slack line, and
+                    // forces a wrap that had no business existing (the
+                    // TwitchEmotes addon-list label). Genuine icon overflow is
+                    // >= a full icon (~1.27 fontH), so half a glyph separates
+                    // drift from real overflow; the cost is that a real
+                    // overflow may render up to half a glyph past the edge.
+                    if (iconUnits <= s + slack + fontH * 0.5f) {
                         if (best < 0.0f || s < best)
                             best = s;
                         if (s <= 0.0f)
@@ -1636,15 +1671,13 @@ int __fastcall Script_InlineTexRegionCal(void *L) {
 }
 
 // _classicapi_InlineTexWrap([n]) -> wrapWidth, fontH, fontHPx, len, passes,
-// finalSumPx, shrunkWidth, floored, then per pass:
-// (sumPx, lineLen, rawOutBreak, rawOutNextDelta, rawOutWidth). n = 0
-// (default) is the most recent icon-bearing wrap-stepper call, 1 the one
-// before, … up to 7. wrapWidth/fontH/shrunk/rawOutWidth are in the CALLER's
-// unit space; fontHPx and the sums are pixels. Healthy convergence: passes
-// ≥ 2 with the last two sums equal and finalSumPx ≈ (icons on line 1) ×
-// advance. Oscillating passes (sums alternating high/low) mean a spread-icon
-// line with no true fixed point — the hook then splits the difference. The
-// raw out-params expose the stepper's break semantics per caller.
+// finalSumPx, shrunkWidth, floored, passSummary. n = 0 (default) is the most
+// recent icon-bearing wrap-stepper call, 1 the one before, … up to 7.
+// wrapWidth/fontH/shrunk are in the CALLER's unit space; fontHPx and the
+// sums are pixels. passSummary is one string ("p1 s=… sum=…px len=… brk=…
+// nxt=… w=… | p2 …") with every probe's shrink candidate, icon sum, line
+// length, raw outBreak/outNext−text, and raw outWidth — compacted so /dump's
+// ~30-value print cap never truncates the record.
 int __fastcall Script_InlineTexWrap(void *L) {
     uint32_t n = 0;
     if (Game::Lua::IsNumber(L, 1))
@@ -1663,14 +1696,20 @@ int __fastcall Script_InlineTexWrap(void *L) {
     Game::Lua::PushNumber(L, d.finalSumPx);
     Game::Lua::PushNumber(L, d.shrunk);
     Game::Lua::PushNumber(L, static_cast<double>(d.floored));
-    for (int i = 0; i < d.passes; ++i) {
-        Game::Lua::PushNumber(L, d.sumPx[i]);
-        Game::Lua::PushNumber(L, static_cast<double>(d.lineLen[i]));
-        Game::Lua::PushNumber(L, static_cast<double>(d.pBreakA[i]));
-        Game::Lua::PushNumber(L, static_cast<double>(d.pNextD[i]));
-        Game::Lua::PushNumber(L, d.pWidthA[i]);
+    // All passes compacted into ONE string so a /dump never truncates (its
+    // print caps around 30 values).
+    char buf[512];
+    int off = 0;
+    for (int i = 0; i < d.passes && off < static_cast<int>(sizeof(buf)) - 1; ++i) {
+        off += snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off),
+                        "%sp%d s=%.4f sum=%.1fpx len=%d brk=%d nxt=%d w=%.4f",
+                        (i != 0) ? " | " : "", i + 1, d.probeS[i], d.sumPx[i], d.lineLen[i],
+                        d.pBreakA[i], d.pNextD[i], d.pWidthA[i]);
+        if (off < 0)
+            break;
     }
-    return 8 + d.passes * 5;
+    Game::Lua::PushString(L, buf);
+    return 9;
 }
 
 // _classicapi_InlineTexProbeFS("FontStringName") ->
