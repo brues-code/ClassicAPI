@@ -163,6 +163,7 @@ build instructions.
   - [`GetMouseFoci()`](#getmousefoci)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
+  - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
@@ -3906,6 +3907,29 @@ Related: the stock `fontstring:GetStringWidth()` now **includes inline
 reserves for each icon, so the measured width matches the rendered
 width. Editbox text is not adjusted: an editbox shows raw markup, and
 its caret math must measure that same raw text.
+
+### `texture:SetRotation(angle [, cx, cy])`
+
+Rotates a texture by `angle` radians. A positive angle turns the texture
+counter-clockwise. Later clients added this method. Vanilla has no texture
+rotation of its own.
+
+The optional `cx, cy` set the pivot point, as a normalized position inside the
+texture from `0` to `1`. The default pivot is the center, `(0.5, 0.5)`. An
+angle of `0` clears the rotation and returns the texture to upright.
+
+The method turns the four corners of the drawn quad, so the whole texture stays
+visible and no corner is clipped. It works on any texture, including
+engine-created ones. The rotation holds across moves and resizes, and costs
+nothing per frame while it stays still.
+
+```lua
+local t = frame:CreateTexture(nil, "ARTWORK")
+t:SetAllPoints(frame)
+t:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+t:SetRotation(math.rad(45))      -- 45 degrees counter-clockwise
+t:SetRotation(math.pi, 0, 1)     -- half turn around the top-left corner
+```
 
 ### `frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`
 

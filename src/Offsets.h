@@ -305,14 +305,38 @@ enum Offsets {
     // texcoords (no v-flip — the engine region path is top-left origin).
     FUN_SIMPLETEXTURE_SET_TEXCOORD = 0x00770410,
     OFF_SIMPLETEXTURE_HTEXTURE = 0xCC,        // owned HTEXTURE ref (diagnostic)
+    // The four drawn-quad corner POSITIONS: 4 vertices of {x, y, z} floats (0xC
+    // stride), order BL, TL, BR, TR (from FUN_REGION_STORE_CORNERS's writes). The
+    // region draw enqueue FUN_00772fd0 (0x00772fd0) hands region+0xD4 straight to
+    // the vertex batch as FOUR INDEPENDENT vertices — and region+0x104 as the
+    // matching 4 per-corner texcoords — never re-deriving an axis-aligned rect.
+    // So writing ROTATED x,y here draws a rotated quad with NO corner clipping
+    // (unlike 4.3.4's SetRotation, which rotates the texcoords instead). Used by
+    // texture/Rotation.cpp for Texture:SetRotation.
+    OFF_SIMPLETEXTURE_CORNERS = 0xD4,
     // Region corner-store: `__thiscall(region, const float rect[4])` writes the
     // drawn quad corners into region+0xD4..+0x100 from the rect ({yA,left,yB,right}
     // screen px). The renderer only draws a region whose +0xD4 corners are
     // populated (verified: the draw gate tests region+0xD4 != 0), and normally
     // SetPoint→layout-resolve calls this. We call it directly to place an icon by
     // its screen rect with NO anchors (anchoring 100+ textures/frame corrupts the
-    // UI-manager pending-layout list — the FUN_00765650 crash).
+    // UI-manager pending-layout list — the FUN_00765650 crash). Co-hooked by
+    // texture/Rotation.cpp, which re-applies rotation right after the engine
+    // restores the axis-aligned corners (layout resolve / SetTexCoord).
     FUN_REGION_STORE_CORNERS = 0x007705B0,
+    // Texcoord crop applied to a {top,left,bottom,right} screen rect before the
+    // corner-store: shrinks right→left and bottom→top by the region's per-corner
+    // texcoord span (ABS of the +0x104 U/V differences), so a partial SetTexCoord
+    // draws a smaller quad. No-op for full 0..1 texcoords. `__thiscall(region,
+    // float rect[4])`, rect in/out.
+    FUN_REGION_TEXCOORD_CROP = 0x00770570,
+    // Get the region's resolved screen rect: `__thiscall(region+OFF_REGION_ANCHOR,
+    // float out[4]) -> int` (1 = valid, 0 = not laid out yet). Reads the anchor
+    // sub-object's +0x40..+0x4C = {top, left, bottom, right}, gated on the
+    // rect-valid bit [+0x3c]&1. This is the engine's own source for the corner
+    // rect (see FUN_00770410's SetTexCoord path); texture/Rotation.cpp reads it to
+    // rebuild axis-aligned corners before rotating.
+    FUN_REGION_GET_RECT = 0x00768320,
 
     // __thiscall(region+OFF_REGION_ANCHOR, int flag /*stack; pass 0*/) — force a
     // synchronous layout resolve: recomputes the region's rect (+0x64) from its
