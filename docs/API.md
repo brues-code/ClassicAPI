@@ -162,6 +162,7 @@ build instructions.
   - [`region:IsDragging()`](#regionisdragging)
   - [`GetMouseFoci()`](#getmousefoci)
   - [`frame:SetShown(shown)`](#framesetshownshown)
+  - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
@@ -3881,6 +3882,30 @@ end
 `Show()` if `shown` is truthy, `Hide()` otherwise. Registered for
 frames, textures and fontstrings (each branch has its own engine
 Show/Hide implementation).
+
+### `fontstring:GetStringHeight()`
+
+This is the companion to vanilla's `GetStringWidth`. Blizzard first
+shipped it in 2.3.0. It returns the height of the rendered text, in
+UI pixels. The result includes word wrap: wrapped text measures
+`lines × fontHeight + (lines − 1) × spacing` (the `SetSpacing`
+value). The height comes from the same wrap math that the renderer
+uses. Empty or unset text returns `0`. The vanilla engine already
+computes this height internally, for tooltip auto-sizing and chat
+line stacking. This method only adds the missing Lua binding.
+
+```lua
+local f = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+f:SetWidth(100)
+f:SetText("a long line that wraps a few times")
+frame:SetHeight(f:GetStringHeight() + 16)  -- size the box to the text
+```
+
+Related: the stock `fontstring:GetStringWidth()` now **includes inline
+`|T…|t` icon widths**. It reports the same advance that the renderer
+reserves for each icon, so the measured width matches the rendered
+width. Editbox text is not adjusted: an editbox shows raw markup, and
+its caret math must measure that same raw text.
 
 ### `frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`
 

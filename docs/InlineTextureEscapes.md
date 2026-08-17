@@ -162,49 +162,89 @@ near-zero-width token so every measure/fit caller ignores the path characters.
 The emitter detects icons independently (it scans the raw bytes), so the draw
 path is unaffected.
 
-### Deliberate gap: measure width undercounts an icon (hover-accuracy)
+### Measure width: FIXED at the fs-level choke (`GetStringWidth` counts icons)
 
-The tokenizer reports an icon span as a **near-zero-width** token, so
-`GetStringWidth`, line-wrap, and hyperlink hit-test all count the icon as ~0
-pixels wide (the emitter still reserves the render width, so text after an icon
-is positioned correctly — only the *measured* width is short). Making measure
-account for the real icon width is **not a clean slice**, and this was scoped by
-disassembly (`FUN_005c6940` = GetStringWidth backend, `FUN_005c6b70` = per-glyph
-advance, `FUN_005cdc20`/`FUN_005c7260` = wrap):
+The tokenizer reports an icon span as a **near-zero-width** token, so at the
+gxu loop level every measure caller counts the icon as ~0 pixels wide. (The
+emitter still reserves the render width, so text after an icon positions
+correctly.) An earlier version of this doc concluded that the gap could not
+be closed cleanly, because the gxu engine has **no single cold choke**:
 
-- The engine's token contract has **no width field**. A glyph token carries one
-  payload codepoint (`*payloadOut`); each measure loop derives advance from it
-  via `FUN_005cabd0(node, char)` (glyph lookup) → `FUN_005c6b70` (font advance).
-  An icon has an arbitrary pixel width unrelated to any font glyph, so it can't
-  be expressed as a payload char.
-- There is **no single cold choke**: `FUN_005c6940` (width), `FUN_005c7470`/
-  `FUN_005c7260` (wrap), and the hit-test loop each tokenize and accrue width
-  independently — parallel loops, not layered on one primitive.
-- So the only fixes are (a) hook the two **per-glyph** helpers
-  (`FUN_005cabd0`/`FUN_005c6b70`) to carry an icon width in the payload's low
-  bits — but those are the hottest text functions in the engine (per character),
-  which the [MinHook-collision guidance](../CLAUDE.md) says to avoid; or (b) hook
-  the ~6 parallel measure/wrap/hit-test entry points and post-add icon widths.
+- `FUN_005c6940` (width), `FUN_005c7470`/`FUN_005c7260` (wrap), and the
+  hit-test loop each tokenize and accrue width independently.
+- The token contract has no width field.
+- The per-glyph helpers (`FUN_005cabd0`/`FUN_005c6b70`) are the hottest text
+  functions in the engine.
 
-The payoff is mostly cosmetic (a ~icon-width wrap/`GetStringWidth` error, rarely
-visible for the typical 1-2 icons per line). The big-ticket use — hyperlink
-hover tooltips on an icon (the TwitchEmotes `|H…|h|T…|t|h` pattern) — needs the
-hit-test width **plus** a separate hyperlink-region feature we haven't built, so
-measure width alone wouldn't deliver it. Deferred deliberately; revisit only if a
-consumer needs pixel-accurate icon width, and prefer approach (b) (cold hooks)
-over (a).
+That analysis was right about the gxu level. The choke sits ONE LEVEL UP:
+**`FUN_00772890` = `CSimpleFontString::GetStringWidthInternal`**
+(`Offsets::FUN_FONTSTRING_STRING_WIDTH`) is cold, MinHook-safe, and the single
+funnel for exactly 4 callers:
 
-**Focus-time caveat (not a bug).** The ~zero-width result holds only while no
-editbox is focused. Because the tokenizer stands down whenever `InputFocused()`
-is true (so editboxes render raw — see the editbox section), a `GetStringWidth`
-call made *while an editbox is focused* measures the icon's literal path text
-instead (e.g. `+184px` for a 34-char path). This bit the test harness: `/run
-TextureTest()` executes with the chat box still focused, so a same-frame measure
-was inflated. Real addon `GetStringWidth` calls happen during layout (unfocused),
-where the icon is ~zero width; defer the measure a frame past `/run` to see the
-true value. So the "gap" is: unfocused → icon ≈ 0 (short by one icon width);
-focused → icon ≈ its path text (the editbox-raw tradeoff), never the real icon
-width.
+- `Script_GetStringWidth` (0x0079E510)
+- the GameTooltip auto-size (0x00530640)
+- the editbox caret positioner (0x0077DE70)
+- the layout effective-width vmethod (`FUN_00772930` = fs+0x24 vtbl +0x1C,
+  which feeds auto-width fontstring layout)
+
+It lazily computes into the `fs+0xFC` cache (anchor units, 0.0 sentinel) via
+the measure core `FUN_0044D670`, then divides the pen-space result by
+`fs+0x7C`.
+
+The co-hook lives in `src/text/InlineTexture.cpp`. It calls the original,
+then adds `SumIconAdvances(text) / K` when two gates pass:
+
+- `InlineInterceptActive(text)` is true — the **same predicate** the tokenizer
+  hook stands down on, factored into one function so measure and render can
+  never disagree.
+- The fs is not an editbox: `fs+0x120 & 0x1000` is clear (the fs-level bit
+  `FUN_0044D670` translates into the gxu editbox flag 0x40).
+
+`K = [0x832A4C] × 1024 / [0x832A44]` (≈1468) is the anchor→pixel push factor
+— the same conversion `Script_GetStringWidth` applies in reverse when it
+pushes. The per-icon advance comes from `IconAdvancePen`, the **same helper**
+the emitter reserves with (width + 1.5×pad + positive offsetX) — so the
+measured width matches the rendered width by construction.
+
+Unit trap (hit on first flight): escape sizes are UI PIXELS. Do NOT divide
+the icon sum by `fs+0x7C` — that field is the layout UI *scale* (~0.68–1.0).
+The original's own `out / fs+0x7C` applies to a value the measure core
+already ran through the `FUN_0041AD80` gxu→internal converter, not to raw
+pixels. The `/0x7C` version measured a 16px icon as +44k px.
+
+The hook NEVER writes the `fs+0xFC` cache: the original can serve the cached
+value, so the icon sum is re-derived and re-added per call (idempotent).
+
+The same hook also fixes two layout consumers for free: tooltips auto-size
+wide enough for icon-bearing lines, and auto-width fontstrings lay out at
+their true rendered width.
+
+**Still icon-blind (accepted residuals):**
+
+- The wrap-break computer (`FUN_00772B60`), the substring measure
+  (`FUN_00772AE0`), and hyperlink hit-testing still see icons as ~0. Wrap
+  decisions therefore ignore icon width (render can overflow the right edge
+  on a wrap-tight line). Hover hit-testing on an icon needs a hyperlink-region
+  feature we have not built. Revisit `FUN_00772AE0` (also cold) if a consumer
+  needs icon-aware substring widths.
+- A ~≤1px artifact when an icon is the last token: the gxu width loop ends on
+  the last *glyph's* ink width rather than its advance (`FUN_005c6b70` gets the
+  remaining-text pointer), and a trailing icon shifts the previous glyph's
+  treatment — the source of the old −0.8px measurement.
+- An fs whose `fs+0xFC` cache was filled while the feature was toggled
+  differently (`_classicapi_InlineTexEnable`) keeps its old base width until
+  the next `SetText`/font change re-dirties it. Debug-toggle-only.
+
+**Editbox measure stays raw (by design).** The caret/measure path reads the
+focused editbox's INPUT buffer in place, and the tokenizer stands down on it
+per-editbox (`TextInFocusedEditbox` pointer-range test — not a global focus
+check), so caret math measures the raw `|T…|t` literal the editbox renders.
+The width hook mirrors that with the `fs+0x120 & 0x1000` editable gate. One
+marginal wobble: the focused single-line chat editbox's display fontstring
+carries editable=0 (only multi-line editors set the bit), so the caret
+positioner's line-boundary branch (multi-line-only in practice) can see an
+icon-adjusted `FUN_00772890` on it. Closing that costs a per-token content
+compare, which is not worth it.
 
 ### Editbox exclusion — two COMPLEMENTARY signals (bit 6 + focus global)
 

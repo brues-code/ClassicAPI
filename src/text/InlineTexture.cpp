@@ -40,13 +40,15 @@
 //
 // Supports the full positional payload
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
-// (size, pen offset, sprite-sheet texcoord crop, and r:g:b vertex tint). The one
-// deliberate gap is MEASURE width: the tokenizer reports an icon as ~zero width,
-// so `GetStringWidth`/wrap/hyperlink-hittest undercount it — there is no width
-// field in the engine's token contract, and the only fixes are hot per-glyph
-// hooks (against the MinHook-collision guidance) or several parallel measure-loop
-// hooks for a mostly-cosmetic gain. See docs/InlineTextureEscapes.md for the RE
-// map and the full rationale.
+// (size, pen offset, sprite-sheet texcoord crop, and r:g:b vertex tint). MEASURE
+// width is corrected at the fs-level choke: the tokenizer still reports an icon
+// as ~zero width to every measure/wrap loop (the token contract has no width
+// field), but a co-hook on the internal string-width getter
+// (FUN_FONTSTRING_STRING_WIDTH) re-adds the same per-icon advances the emitter
+// reserves — so GetStringWidth, the tooltip auto-size, and auto-width layout
+// match the rendered width. Still icon-blind (documented, accepted): the
+// wrap-break computer (FUN_00772B60), the substring measure (FUN_00772AE0), and
+// hyperlink hit-testing. See docs/InlineTextureEscapes.md for the RE map.
 
 #include "text/InlineTexture.h"
 
@@ -572,6 +574,20 @@ inline bool TextInReentry(const uint8_t *t) {
     return g_reentryLo != nullptr && t >= g_reentryLo && t < g_reentryHi;
 }
 
+// The tokenizer's stand-down environment, factored into ONE predicate so measure
+// and render can never disagree: true when inline-texture interception is ACTIVE
+// for `text` (spans are eaten as zero-width tokens and icons render). `editable`
+// is the caller's editbox bit at its own representation level — gxu flags bit
+// 0x40 at the tokenizer, fs+0x120 bit 0x1000 at the string-width co-hook
+// (FUN_0044D670 translates the latter into the former, so both call shapes
+// evaluate the same engine bit). The tokenizer's `text[0] == '|'` position check
+// stays at its call site — it's about where the tokenizer stands in the text,
+// not about whether the feature is active.
+bool InlineInterceptActive(const uint8_t *text, bool editable) {
+    return g_inlineEnabled && !g_suppressInline && !editable && text != nullptr &&
+           !TextInReentry(text) && !TextInFocusedEditbox(text);
+}
+
 // A text node's flags (`[node+0x5c]`) bit 6 (0x40) distinguishes editable input
 // text (set on the macro editbox: flags 0x4D) from display text (chat 0x20D,
 // FontStrings 0x0D — bit 6 clear). It's a per-node property the emitter and
@@ -672,6 +688,51 @@ int InlineSpanLen(const uint8_t *text) {
     return 0; // unterminated → let the engine treat it as ordinary text
 }
 
+// THE per-icon pen advance the emitter reserves: icon width + full lead pad +
+// half trail pad + any positive offsetX (a negative offsetX — deliberate
+// leftward overlap — doesn't shrink the advance). Single source shared by the
+// emitter's icon loop, its centre/right-justify pre-shift, and the string-width
+// co-hook — the three MUST agree or measured and rendered width drift.
+// `fontHPen` resolves the retail `:0` auto-size (icon dims default to the
+// line's font height); pen units in, pen units out.
+float IconAdvancePen(const IconDesc &d, float fontHPen) {
+    const float baseH = (d.height > 0.0f) ? d.height : fontHPen;
+    const float baseW = (d.width > 0.0f) ? d.width : baseH;
+    const float w = baseW * g_sizeScale;
+    const float offX = d.offsetX * g_sizeScale;
+    return w + 1.5f * (w * g_iconPadFrac) + (offX > 0.0f ? offX : 0.0f);
+}
+
+// Sum of IconAdvancePen over every well-formed `|T…|t` (or sanitizer-doubled
+// `||T…||t`) span in [text, text+len). Malformed/unterminated spans contribute
+// nothing — mirroring the emitter, which renders them as plain text.
+float SumIconAdvances(const uint8_t *text, int len, float fontHPen) {
+    float sum = 0.0f;
+    int i = 0;
+    while (i < len) {
+        const int ml = IconStartLen(text, len, i);
+        if (ml == 0) {
+            // Skip an escaped pipe as a pair so its 2nd `|` isn't re-read as a
+            // clean `|T` next iteration (same walk the emitter does).
+            if (text[i] == '|' && i + 1 < len && text[i + 1] == '|')
+                i += 2;
+            else
+                ++i;
+            continue;
+        }
+        int cl = 0;
+        const size_t ce = FindIconClose(text, len, static_cast<size_t>(i) + ml, ml == 3, &cl);
+        if (ce == static_cast<size_t>(-1))
+            break; // unterminated → the rest is plain text
+        IconDesc d;
+        if (ParseIcon(reinterpret_cast<const char *>(text) + i + ml,
+                      ce - (static_cast<size_t>(i) + ml), d))
+            sum += IconAdvancePen(d, fontHPen);
+        i = static_cast<int>(ce) + cl;
+    }
+    return sum;
+}
+
 // --- tokenizer co-hook (measure/wrap correction) ---------------------------
 
 // FUN_005c2810 — the shared `|`-escape tokenizer. Returns a token-type code,
@@ -697,8 +758,8 @@ uint32_t __fastcall Tokenizer_h(uint8_t *text, int *bytesConsumed, uint32_t *col
     //     original, which re-enters here) → TextInReentry: `text` is inside the
     //     line span the emitter bracketed. Without it the span is eaten as a
     //     zero-width token and the editbox draws BLANK.
-    if (g_inlineEnabled && !g_suppressInline && (flags & 0x40u) == 0 && text != nullptr &&
-        text[0] == '|' && !TextInReentry(text) && !TextInFocusedEditbox(text)) {
+    if (text != nullptr && text[0] == '|' &&
+        InlineInterceptActive(text, (flags & 0x40u) != 0)) {
         const int span = InlineSpanLen(text);
         if (span > 0) {
             // Consume the whole escape as one glyph-type token with a payload that
@@ -719,6 +780,79 @@ uint32_t __fastcall Tokenizer_h(uint8_t *text, int *bytesConsumed, uint32_t *col
 static const Game::HookAutoRegister _tokenizerHook{Offsets::FUN_TEXT_TOKENIZER,
                                                    reinterpret_cast<void *>(&Tokenizer_h),
                                                    reinterpret_cast<void **>(&g_tokenizerOriginal)};
+
+// --- string-width co-hook (measure-width icon fix) --------------------------
+//
+// FUN_FONTSTRING_STRING_WIDTH = CSimpleFontString::GetStringWidthInternal (see
+// Offsets.h for the full derivation). The tokenizer hook above makes every
+// measure path count a `|T` span as ~zero while the emitter reserves the real
+// advance — so GetStringWidth, the GameTooltip auto-size, and auto-width layout
+// undercount by the icons' widths. Fix at the single fs-level choke: call the
+// original, then, when the tokenizer WOULD have eaten the spans (the shared
+// InlineInterceptActive predicate) and the fs isn't an editbox, add the same
+// per-icon advances the emitter reserves (the shared IconAdvancePen math).
+//
+// UNITS: escape sizes ("|T…:16|t") are UI pixels; the internal getter returns
+// ANCHOR units. Convert px→anchor with the same global factor the Script push
+// chain uses: K = [VAR_UI_COORD_SCALE_DIV] × 1024 / [VAR_UI_COORD_SCALE_MUL]
+// (anchor→px), i.e. sum_px / K. Do NOT divide by fs+0x7C — that's the layout
+// UI SCALE (~0.68-1.0), and the original's own `out / fs+0x7C` applies to a
+// value FUN_0044D670 already ran through the FUN_0041AD80 gxu→internal
+// converter, not to raw pixels (a /0x7C here inflated a 16px icon to +44k px
+// on first flight). The `:0` auto-size default gets fontH in px as
+// internal × K, which also tracks a scaled fs correctly.
+//
+// Idempotence: the original may serve the cached fs+0xFC — the icon sum is
+// re-derived and re-added on EVERY call, and the cache is NEVER written.
+//
+// Residuals (documented in docs/InlineTextureEscapes.md): the measure loop ends
+// on the last glyph's INK width rather than its advance, so a trailing icon
+// leaves a ~≤1px artifact; wrap-break (FUN_00772B60), substring measure
+// (FUN_00772AE0), and hyperlink hit-test stay icon-blind. The focused chat
+// editbox's own display fontstring (editable bit CLEAR — only multi-line
+// editors carry it) can reach this through the caret positioner's line-boundary
+// branch with a content-suppressed raw render; that branch is multi-line-only
+// in practice, so no content compare is spent here.
+using StringWidthInternal_t = float(__fastcall *)(void *fs);
+// FUN_FONTSTRING_FONT_HEIGHT is __thiscall(fs, mode-on-stack) — dummy-EDX
+// __fastcall matches the register/stack layout (established pattern).
+using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
+StringWidthInternal_t g_stringWidthOriginal = nullptr;
+
+float __fastcall StringWidth_h(void *fs) {
+    const float base = g_stringWidthOriginal(fs);
+    if (!LooksReadable(fs))
+        return base;
+    const auto *f = reinterpret_cast<const uint8_t *>(fs);
+    // fs+0x120 bit 0x1000 → gxu editbox bit 0x40: an editbox measures the raw
+    // markup it renders, so its width must stay unadjusted (caret alignment).
+    const bool editable =
+        (*reinterpret_cast<const uint32_t *>(f + Offsets::OFF_FONTSTRING_MEASURE_FLAGS) &
+         0x1000u) != 0;
+    const uint8_t *text =
+        *reinterpret_cast<const uint8_t *const *>(f + Offsets::OFF_FONTSTRING_TEXT);
+    if (!LooksReadable(text) || !InlineInterceptActive(text, editable))
+        return base;
+    int len = 0;
+    while (len < 0x4000 && text[len] != '\0')
+        ++len;
+    if (!HasInlineTexture(text, len))
+        return base;
+    const float mul = *reinterpret_cast<const float *>(Offsets::VAR_UI_COORD_SCALE_MUL);
+    const float div = *reinterpret_cast<const float *>(Offsets::VAR_UI_COORD_SCALE_DIV);
+    if (!(mul > 0.0f) || !(div > 0.0f))
+        return base;
+    const float anchorToPx = div * Offsets::UI_COORD_SCALE_UNIT / mul; // ≈1468 (the push K)
+    // Font height in UI pixels for the `:0` auto-size default (internal × K).
+    const float fontHPx =
+        reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(fs, nullptr, 1) *
+        anchorToPx;
+    return base + SumIconAdvances(text, len, fontHPx) / anchorToPx;
+}
+
+static const Game::HookAutoRegister _stringWidthHook{
+    Offsets::FUN_FONTSTRING_STRING_WIDTH, reinterpret_cast<void *>(&StringWidth_h),
+    reinterpret_cast<void **>(&g_stringWidthOriginal)};
 
 // --- emitter co-hook (positioning) -----------------------------------------
 
@@ -876,26 +1010,9 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     const int justify =
         *reinterpret_cast<const int *>(reinterpret_cast<const uint8_t *>(node) + 0x54);
     if (justify == 1 || justify == 2) {
-        float iconW = 0.0f;
-        for (int k = 0; k < len;) {
-            const int ml = IconStartLen(text, len, k);
-            if (ml == 0) {
-                ++k;
-                continue;
-            }
-            int cl = 0;
-            const size_t ce = FindIconClose(text, len, static_cast<size_t>(k) + ml, ml == 3, &cl);
-            if (ce == static_cast<size_t>(-1))
-                break;
-            IconDesc d;
-            const char *pl = reinterpret_cast<const char *>(text) + k + ml;
-            if (ParseIcon(pl, ce - (static_cast<size_t>(k) + ml), d)) {
-                const float bh = (d.height > 0.0f) ? d.height : fontH;
-                const float iw = (d.width > 0.0f ? d.width : bh) * g_sizeScale;
-                iconW += iw + 1.5f * (iw * g_iconPadFrac); // include lead + half-trail pad
-            }
-            k = static_cast<int>(ce) + cl;
-        }
+        // Shared helper so the pre-shift matches the real advances exactly
+        // (including the positive-offsetX term an earlier inline copy omitted).
+        const float iconW = SumIconAdvances(text, len, fontH);
         penX -= (justify == 1) ? iconW * 0.5f : iconW;
     }
 
@@ -970,10 +1087,9 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             // preceding glyph's right-side bearing eats into the left gap visually,
             // so a symmetric layout pad looks tighter on the left / looser on the
             // right — a half trail balances that. The lead pad is applied to the
-            // draw position in FlushLayout; a positive offsetX adds extra lead; a
-            // negative one (deliberate leftward overlap) doesn't shrink the advance.
-            const float pad = w * g_iconPadFrac;
-            penX += w + 1.5f * pad + (r.offsetX > 0.0f ? r.offsetX : 0.0f);
+            // draw position in FlushLayout. Shared with the justify pre-shift and
+            // the string-width co-hook — never inline this math.
+            penX += IconAdvancePen(d, fontH);
         }
         penXYZ[0] = penX;
         i = static_cast<int>(close) + closeLen; // skip past the closing marker

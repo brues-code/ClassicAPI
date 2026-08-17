@@ -275,6 +275,10 @@ enum Offsets {
     // ([0x00832A4C] * 1024)` (FUN_0041ae60's factor × input ÷
     // (FUN_0041ad70's return × DAT_007ffd68)). Both globals are runtime
     // UI-scale floats; passing raw pixels makes offsets ~1000× too large.
+    // The REVERSE conversion (internal → UI pixels) is what the Script_*
+    // measure getters push: Script_GetStringWidth (0x0079E510) — and our
+    // GetStringHeight backport — compute `px = internal * [0x00832A4C] *
+    // 1024 / [0x00832A44]` (FUN_0041AE40(FUN_0041AD70() × DAT_007FFD68 × v)).
     VAR_UI_COORD_SCALE_MUL = 0x00832A44,   // float numerator
     VAR_UI_COORD_SCALE_DIV = 0x00832A4C,   // float denominator base
     UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
@@ -6551,4 +6555,48 @@ enum Offsets {
     // buffers. Verified: FUN_00771d80 (FontString SetText) writes the copy to
     // *(this+0xF0) via SStrDup.
     OFF_EDITBOX_TEXT_FONTSTRING = 0x328, // CSimpleFontString* — the display text object
+
+    // --- FontString measure internals (GetStringWidth icon fix + GetStringHeight) ---
+    // CSimpleFontString::GetStringWidthInternal — `float(__fastcall)(fs /*ecx*/)`,
+    // returns in x87 ST0. Lazily computes into the fs+0xFC cache (ANCHOR units,
+    // sentinel 0.0f = DAT_007ffd74): display-text getter FUN_00771EC0, then measure
+    // core FUN_0044D670(fontHandle fs+0xE0, text, len, fontH*[fs+0x7C], &out,
+    // fs+0x108, 0, flags fs+0x120), then `fs+0xFC = out / [fs+0x7C]`. Exactly 4
+    // callers: Script_GetStringWidth (0x0079E510), GameTooltip auto-size
+    // (0x00530640), the editbox caret positioner (0x0077DE70), and the layout
+    // effective-width vmethod (FUN_00772930 = fs+0x24 vtbl slot +0x1C: explicit
+    // rect width else string width). Prologue PUSH EBX; PUSH ESI; MOV ESI,ECX;
+    // FLD [ESI+0xFC] — MinHook-safe. Co-hooked by Text::InlineTexture to add
+    // inline |T icon advances; the hook must NEVER write the fs+0xFC cache (the
+    // original may serve the cached value — the icon sum is re-added per call).
+    FUN_FONTSTRING_STRING_WIDTH = 0x00772890,
+    // CSimpleFontString::GetStringHeightInternal — `float(__fastcall)(fs)`, ST0.
+    // Wrap-aware: FUN_0044D750 → FUN_005C2070 → wrap engine FUN_005C7260 (the
+    // same wrap math the render uses); returns lines*fontH + (lines-1)*spacing
+    // (spacing = fs+0xF4), cached at fs+0x100 (anchor units, 0.0 sentinel; empty
+    // text → 0). Wrap width = the effective-width vmethod (fs+0x24 vtbl +0x1C).
+    // Used internally by the tooltip auto-size (0x00530640), multi-line editbox
+    // height (0x0077D4D0), and ScrollingMessageFrame line stacking (0x00788750)
+    // — FontString::Metrics only CALLS it (the GetStringHeight backport), no hook.
+    FUN_FONTSTRING_STRING_HEIGHT = 0x007729B0,
+    // Per-fontstring font-height getter, ANCHOR units (reads fs+0xE4; with
+    // mode=1 and measure-flag 0x200 set, re-derives from the gxu font's native
+    // height). ECX = fs, mode on the STACK (`PUSH 0x1; MOV ECX,ESI; CALL` at
+    // 0x007728F4) → declare `__fastcall(fs, edx_unused, int mode)`. The ENGINE's
+    // width path multiplies its return by [fs+0x7C] (the layout UI SCALE) before
+    // handing it to the measure core. Our width hook instead converts it to UI
+    // PIXELS (× the anchor→px push factor VAR_UI_COORD_SCALE_DIV × 1024 /
+    // VAR_UI_COORD_SCALE_MUL, ≈1468) to resolve `:0` auto-sized icon dims —
+    // escape sizes are PIXELS, not fs+0x7C-scaled pen units; dividing a pixel
+    // advance by fs+0x7C (~0.68) inflated a 16px icon to +44k measured px on
+    // first flight. Distinct from FUN_TEXT_FONT_HEIGHT (0x005C6FA0), the
+    // node-level gxu helper.
+    FUN_FONTSTRING_FONT_HEIGHT = 0x007727B0,
+    // FontString measure-flags word (the `flags` arg the measure paths pass to
+    // FUN_0044D670/FUN_0044D750, and the justify field: bits 0-2). The measure
+    // core translates fs-level bits to gxu/tokenizer flags; bit 0x1000 → gxu
+    // bit 0x40 = EDITABLE (OFF_TEXT_NODE_FLAGS bit 6 — the exact bit the
+    // tokenizer co-hook stands down on). The width hook tests it so editbox
+    // carets keep measuring the raw |T markup they render.
+    OFF_FONTSTRING_MEASURE_FLAGS = 0x120,
 };
