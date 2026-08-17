@@ -6404,95 +6404,19 @@ enum Offsets {
 
     // Text paint pass — flushes each text line's per-font-page glyph vertex
     // batches to the GPU every frame. `__fastcall(layoutObj)`; gated on
-    // VAR_TEXT_PAINT_ENABLED. This is the co-hook site where we draw the
-    // frame's collected inline-texture quads after the glyph batches (the
-    // device is in the correct textured-UI state here). See FUN_005c8fe0.
+    // DAT_00c2b9d4. Co-hooked post-original: the flush walks the layout's node
+    // list and queues each recorded inline icon as a fontstring-anchored region
+    // placement (Text::InlineTexturePool). See FUN_005c8fe0.
+    // (The GxU raw-quad primitives this site once drew with — dynamic-VB
+    // lock/write/submit, texture bind/load/force-decode, colorop state — were
+    // removed with the quad render mode; VAs are preserved in
+    // docs/InlineTextureEscapes.md and git history if ever needed again.)
     FUN_TEXT_PAINT = 0x005C8FE0,
-    VAR_TEXT_PAINT_ENABLED = 0x00C2B9D4, // DAT_00c2b9d4 gate the paint reads
 
-    // GxU device primitives (thin wrappers over the global device at
-    // [VAR_GX_DEVICE]). Vertex stride for the UI text path is 0x18:
-    //   { float x,y,z; u32 colorBGRA; float u,v; }  (verified in FUN_005c8710)
-    // and FUN_005c8f40 expands 4-vertex quads into a triangle list via a
-    // shared index buffer ({0,1,2, 0,2,3}).
-    VAR_GX_DEVICE = 0x00C0ED38,
-    GX_TEXT_VERTEX_STRIDE = 0x18,
-    GX_TEXTURE_SELECTOR = 0x17, // render-state selector FUN_005c8fe0 binds text pages with
-
-    // Lock the shared dynamic vertex buffer. `__fastcall(ecx=0, edx=stride,
-    // stack=vertCount) -> handle`. RET 4 (cleans the one stack arg).
-    FUN_GX_LOCK_DYNAMIC_VB = 0x0058A140,
-    // `__fastcall(ecx=handle) -> vertex-data write pointer`.
-    FUN_GX_VB_DATA_PTR = 0x0058A080,
-    // Bind a texture to a render-state selector. `__fastcall(ecx=selector,
-    // edx=CGxTexture*)`. Selector 0x17 = the text page slot.
-    FUN_GX_BIND_TEXTURE = 0x00589E80,
-    // Submit `vertCount` written verts (as quads → tri-list) and return a
-    // fresh data pointer for continued writing. `__fastcall(ecx=&handle,
-    // edx=vertCount) -> next-data-ptr`.
-    FUN_GX_SUBMIT_VB = 0x005C8F40,
-    // Unlock the dynamic VB. `__fastcall(ecx=handle, edx=0)`.
-    FUN_GX_UNLOCK_VB = 0x0058A0A0,
-
-    // Path → bindable CGxTexture handle. `__fastcall(char *path, void *desc,
-    // u32 flags, 0, 1) -> CGxTexture*` (returns a fallback texture on failure,
-    // never null). On success the descriptor arg is never dereferenced; on
-    // the load-failure log path it is, so we pass a byte-identical copy of the
-    // 5-dword on-stack descriptor FUN_00770200 builds (its `vtbl` slot is the
-    // data symbol at PTR_TEXLOAD_DESC_VTBL). See FUN_00770200 / FUN_00449d90.
-    FUN_TEXTURE_LOAD_BY_PATH = 0x00449D90,
-    PTR_TEXLOAD_DESC_VTBL = 0x007FFA10, // &PTR_FUN_007ffa10 — desc[0] value
-    // Texture-flags builder. `__thiscall(this=&flagsOut, blend, 0, 0, 0,0,0,
-    // 1, 0)` writes the load-flags bitfield into *this. We call it exactly as
-    // FUN_00770200 does so the flags match the engine's SetTexture path.
-    FUN_GX_TEXFLAGS_INIT = 0x0058A980,
-    VAR_TEXTURE_BLEND_DEFAULT = 0x00878CF0, // DAT_00878cf0 blend arg
-
-    // Render/texture-stage-state setter. `__fastcall(selector, value)` (selector
-    // < 0x46). The engine tracks state per selector at [device+0x2824+sel*0x18]
-    // and flushes to D3D at draw time. Selector 7 = texture-stage COLOR OP (it
-    // auto-sets the paired ALPHA OP at selector 8 via a colorop->alphaop table).
-    // The font path uses colorop 2 (colour from the diffuse/vertex, alpha from
-    // the glyph texture) — which renders a colour icon as a flat vertex-coloured
-    // square. We switch colorop to MODULATE for the inline-texture quad so the
-    // icon's own RGB is sampled, then restore 2. See FUN_00589e60 / FUN_005c8b70.
-    FUN_GX_RENDER_STATE = 0x00589E60,
-    GX_RS_COLOR_OP = 7,
-    GX_COLOR_OP_TEXT = 2, // value the font setup leaves selector 7 at
-
-    // Direct D3D state setter on the device (bypasses the selector→flush layer).
-    // `__thiscall(device, internalState, value)`; internal state 0x42 = stage-0
-    // D3DTSS_COLOROP, 0x4a = ALPHAOP (see FUN_005a2570's SetTextureStageState
-    // cases). The device caches each state at [device + internalState*4 +
-    // OFF_GX_D3D_STATE_CACHE]; read it there to save/restore. The font path
-    // leaves COLOROP at SELECTARG2 (diffuse) so a colour icon shows the flat
-    // vertex colour; setting it to D3DTOP_MODULATE(4) samples the texture's RGB
-    // against the default COLORARG1=TEXTURE. D3DTOP_SELECTARG1(2) shows pure
-    // texture (no vertex tint) — a clean residency check.
-    FUN_GX_D3D_STATE_SET = 0x005A2570,
-    GX_D3D_COLOR_OP = 0x42,
-    OFF_GX_D3D_STATE_CACHE = 0x3A6C,
-    VAR_GX_D3D_DEVICE = 0x00C0ED38, // same as VAR_GX_DEVICE; the D3D wrapper object
-
-    // Texture streaming load callback. `__fastcall(event, w, h, a4, a5, HTEXTURE
-    // *tex, a7, a8)`; event 0 = "load": it synchronously decodes the BLP at
-    // `tex+0xc` (via FUN_004491f0) into the decoded-texture slot `tex+0x120`.
-    // The engine normally fires this from the streaming system only for
-    // textures a live frame references — our standalone-loaded texture never is,
-    // so we invoke the load event ourselves to make the pixels resident. The
-    // texture struct returned by FUN_00449d90 (FUN_0041af10 = AddRef) is exactly
-    // this HTEXTURE. See FUN_0044a260 / FUN_0044a140.
-    FUN_TEXTURE_FORCE_DECODE = 0x0044A260,
-
-    // The engine's "get renderable texture" entry. `__fastcall(HTEXTURE, force,
-    // outObj) -> CGxTexture*`. Returns the bindable CGxTexture at [tex+0x140],
-    // creating/loading it (via FUN_0044ad50, which submits/prioritizes the
-    // streaming load) when force!=0. This is what the widget render calls every
-    // frame — calling it per-frame is the "live reference" that drives residency
-    // AND yields the correct object to bind (the raw HTEXTURE binds as
-    // SetTexture(0) = white; its own +0x48 is not the D3D handle). See
-    // FUN_0044acf0 / FUN_004ec440's texture-bind sites.
-    FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,
+    // Default texture-load blend arg (DAT_00878cf0) — passed to the engine's
+    // SetTexture-by-path (FUN_SIMPLETEXTURE_SET_TEXTURE) exactly as
+    // Script_Texture_SetTexture's own call site does.
+    VAR_TEXTURE_BLEND_DEFAULT = 0x00878CF0,
 
     // --- Inline-texture positioning (slice 1: measure/emit integration) --------
     // The 1.12 text pipeline builds a layout as a list of render "nodes" (one

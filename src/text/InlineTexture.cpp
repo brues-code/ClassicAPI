@@ -194,7 +194,6 @@ struct IconRecord {
     float fontH;            // font pixel height of the line, for vertical centering
     float w;
     float h;
-    float z;                // pen z (penXYZ[2])
     float offsetX, offsetY; // pen-relative pixel shift
     float u0, v0, u1, v1;   // texture crop
     uint32_t color;         // vertex tint (0xAARRGGBB; white = untinted)
@@ -1141,7 +1140,6 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // shift every following line.
     const float startX = penXYZ[0];
     const float penY = penXYZ[1];
-    const float penZ = penXYZ[2];
     float penX = penXYZ[0];
 
     // Centre/right-justify correction. The engine positioned the pen (penXYZ[0])
@@ -1289,7 +1287,6 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             r.fontH = fontH;
             r.w = w;
             r.h = h;
-            r.z = penZ;
             r.offsetX = d.offsetX * g_sizeScale;
             r.offsetY = d.offsetY * g_sizeScale;
             r.u0 = d.u0;
@@ -1326,7 +1323,7 @@ static const Game::HookAutoRegister _emitterHook{Offsets::FUN_TEXT_EMITTER,
                                                  reinterpret_cast<void *>(&Emitter_h),
                                                  reinterpret_cast<void **>(&g_emitterOriginal)};
 
-// --- paint co-hook: draw recorded icons as quads ---------------------------
+// --- paint co-hook: queue recorded icons as region placements ---------------
 
 uint32_t g_faultCode = 0;
 uintptr_t g_faultAddr = 0;
@@ -1349,12 +1346,13 @@ int CaptureFault(EXCEPTION_POINTERS *ep, uint32_t *code, uintptr_t *addr) {
 using Paint_t = void(__fastcall *)(void *layout);
 Paint_t g_paintOriginal = nullptr;
 
-// Draws every recorded icon for the layout's live render nodes as a raw quad,
-// translating from node-local coords by the node's screen origin (+0x70/+0x74) —
-// the SAME transform the paint pass applies to glyph batches, so position is
-// pixel-exact. Runs after the original paint (device in the text-paint state).
-// Also asks the pool to hold each texture resident (a managed CSimpleTexture
-// per path, engine-drawn) so the raw quad never flickers / blanks on a 2nd client.
+// Walks the layout's live render nodes and, for each recorded icon, computes
+// its screen geometry (node-local pen coords translated by the node's screen
+// origin +0x70/+0x74 — the SAME transform the paint pass applies to glyph
+// batches) and queues it to Text::InlineTexturePool as a placement RELATIVE TO
+// THE OWNING FONTSTRING. Runs after the original paint so icon coords and the
+// fs rect are read in one coherent snapshot; the pool applies placements on
+// the next FrameTick (regions are never mutated mid-render).
 void FlushLayout(void *layout) {
     if (!LooksReadable(layout))
         return;
