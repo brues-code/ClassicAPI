@@ -79,6 +79,9 @@ build instructions.
   - [`C_CreatureInfo.GetCreatureTypeInfo(creatureTypeID)`](#c_creatureinfogetcreaturetypeinfocreaturetypeid)
   - [`C_CreatureInfo.GetCreatureTypeIDs()`](#c_creatureinfogetcreaturetypeids)
 
+- [Currency](#currency)
+  - [`GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`](#getcointexturestringamount--fontheight--c_currencyinfogetcointexturestringamount--fontheight)
+
 - [CVar](#cvar)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
 
@@ -2014,6 +2017,35 @@ each round-tripping with
 local ids = C_CreatureInfo.GetCreatureTypeIDs()
 -- { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }
 ```
+
+## Currency
+
+### `GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`
+
+Returns the amount of copper as a money string with real coin icons —
+for example `"12<gold> 34<silver> 56<copper>"`. The icons are inline
+`|T…|t` markup over vanilla's `UI-MoneyIcons` sprite sheet, rendered by
+ClassicAPI's inline-texture backport. Both names call the same C
+function, like retail.
+
+Only the non-zero denominations appear, in gold → silver → copper
+order. An `amount` of `0` returns `"0<copper>"`. A negative or
+fractional `amount` is clamped to `0` / rounded.
+
+`fontHeight` sets the icon height in UI pixels. When omitted (or `0`),
+each coin sizes itself to the font of the fontstring that shows the
+string — the retail default.
+
+```lua
+GetCoinTextureString(123456)   -- "12g 34s 56c" with coin icons
+GetCoinTextureString(5)        -- "5c" with a copper icon
+GetCoinTextureString(5, 24)    -- same, with a 24px coin
+```
+
+The per-denomination formats are the GlobalStrings
+`GOLD_AMOUNT_TEXTURE` / `SILVER_AMOUNT_TEXTURE` /
+`COPPER_AMOUNT_TEXTURE`, backported in the embedded `!!!ClassicAPI`
+addon's locale layer — a locale can override them.
 
 ## CVar
 

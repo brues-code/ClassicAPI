@@ -2,12 +2,15 @@
 -- 1.12 / Lua 5.0.
 --
 -- 5.0 notes: no `#`/`%`/string-method syntax — uses string.*, math.mod.
--- The currency/cost helpers (C_CurrencyInfo etc.) are omitted. GetMoneyString
--- uses text symbols, not coin texture markup (markup doesn't render in 1.12).
+-- GetMoneyString gives the text-symbol form ("12g 34s 56c"). The coin-icon form
+-- (GetCoinTextureString / C_CurrencyInfo.GetCoinTextureString) is provided by the
+-- ClassicAPI DLL in C++ (src/currency/CoinText.cpp) — like retail, where it's a
+-- C function — now that the inline-texture backport renders |T markup in 1.12.
 --
 -- The FrameXML format-string globals these functions consume
--- (LARGE_NUMBER_SEPERATOR, PERCENTAGE_STRING, GOLD_AMOUNT_SYMBOL, …) are
--- defined in the locale layer (locales/enUS.lua), which loads first.
+-- (LARGE_NUMBER_SEPERATOR, PERCENTAGE_STRING, GOLD_AMOUNT_SYMBOL,
+-- GOLD_AMOUNT_TEXTURE, …) are defined in the locale layer (locales/enUS.lua),
+-- which loads first.
 
 COPPER_PER_SILVER = 100;
 SILVER_PER_GOLD = 100;
@@ -73,10 +76,9 @@ function SplitTextIntoHeaderAndNonHeader(text)
 end
 
 -- (money, separateThousands [, checkGoldThreshold, showZeroAsGold])
--- Text-symbol form ("12g 34s 56c"); the coin-texture form from the
--- reference is dropped since texture markup doesn't render in 1.12. The
--- checkGoldThreshold arg is accepted for signature compatibility but not
--- applied (it relied on modern Constants tables).
+-- Text-symbol form ("12g 34s 56c"); for the coin-icon form use
+-- GetCoinTextureString below. The checkGoldThreshold arg is accepted for
+-- signature compatibility but not applied (it relied on modern Constants tables).
 function GetMoneyString(money, separateThousands, checkGoldThreshold, showZeroAsGold)
     local gold = math.floor(money / COPPER_PER_GOLD);
     local silver = math.floor(math.mod(money, COPPER_PER_GOLD) / COPPER_PER_SILVER);
