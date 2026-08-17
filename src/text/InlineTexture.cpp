@@ -46,9 +46,12 @@
 // field), but a co-hook on the internal string-width getter
 // (FUN_FONTSTRING_STRING_WIDTH) re-adds the same per-icon advances the emitter
 // reserves — so GetStringWidth, the tooltip auto-size, and auto-width layout
-// match the rendered width. Still icon-blind (documented, accepted): the
-// wrap-break computer (FUN_00772B60), the substring measure (FUN_00772AE0), and
-// hyperlink hit-testing. See docs/InlineTextureEscapes.md for the RE map.
+// match the rendered width — and a co-hook on the shared wrap-stepper
+// dispatcher (FUN_TEXT_WRAP_STEPPER) shrinks the wrap width by the line's icon
+// advances so wrapped lines break at the visible edge instead of overflowing.
+// Still icon-blind (documented, accepted): the substring measure
+// (FUN_00772AE0) and hyperlink hit-testing. See docs/InlineTextureEscapes.md
+// for the RE map.
 
 #include "text/InlineTexture.h"
 
@@ -854,6 +857,214 @@ static const Game::HookAutoRegister _stringWidthHook{
     Offsets::FUN_FONTSTRING_STRING_WIDTH, reinterpret_cast<void *>(&StringWidth_h),
     reinterpret_cast<void **>(&g_stringWidthOriginal)};
 
+// --- wrap-stepper co-hook (icon-aware line breaks) ---------------------------
+//
+// FUN_TEXT_WRAP_STEPPER lays out one wrapped line per call (see Offsets.h).
+// It measures the line through the tokenizer, which eats each `|T` span as
+// ~zero width — so the break lands as if the icons weren't there, and the
+// emitter's real advances then overflow the right edge (chat lines with
+// prefix icons ran past the frame). Fix: shrink the wrapWidth argument by the
+// advances of the icons in the remaining text (same IconAdvancePen math the
+// emitter reserves), then call the original. `text` always points at the
+// REMAINING text, so a continuation line whose icons are already behind it
+// gets sum = 0 — chat prefix icons come out exact. An icon that would land on
+// a LATER wrapped line still shrinks the earlier calls' width, wrapping those
+// lines slightly early — the safe direction (never overflow), cosmetic only.
+//
+// Because all four wrap consumers route through this one dispatcher, the
+// render's breaks, GetStringHeight's line count, ellipsis truncation, and the
+// break arrays all shift together — no cross-consumer drift.
+//
+// UNITS (bit us on first flight): each caller passes fontH/wrapWidth in its
+// OWN space — the draw builder passes the node's fontSize (+0x1C) and wrap
+// width (+0x3C) in internal text units, while the fs-level callers (height,
+// fit, break arrays — the path CHAT wraps through) pass the much smaller
+// anchor-converted space. Subtracting a raw pixel advance annihilated those
+// small widths to the floor and shredded icon-bearing chat lines into
+// 2-glyph fragments. The space-agnostic conversion uses the engine's own
+// convention: every gxu caller passes fontH in the units FUN_TEXT_FONT_HEIGHT
+// expects, and the measure loops use FUN_TEXT_FONT_HEIGHT(flag, fontH) as the
+// PIXEL realization of that fontH (see FUN_005c6940's final scale). So
+// px→caller-units is exactly (fontH / fontHPx): compute the icon sum in true
+// pixels (same value the emitter reserves), then scale by that ratio.
+using WrapStepper_t = void(__fastcall *)(void *font, uint8_t *text, float fontH,
+                                         float wrapWidth, int *outBreak, float *outWidth,
+                                         void *outNext, float indent, uint32_t flags,
+                                         uint8_t *p10);
+WrapStepper_t g_wrapStepperOriginal = nullptr;
+
+// Diagnostics ring for the wrap hook — one record per icon-bearing stepper
+// call, read back via _classicapi_InlineTexWrap(n). All widths are in the
+// CALLER's unit space except the *Px fields.
+constexpr uint32_t kWrapDiagCount = 8;
+struct WrapDiag {
+    float wrapWidth = 0.0f; // width the caller passed
+    float fontH = 0.0f;     // fontH the caller passed (caller units)
+    float fontHPx = 0.0f;   // FUN_TEXT_FONT_HEIGHT's pixel realization of it
+    int len = 0;            // text length scanned (to '\n'/'\0', cap 2048)
+    int passes = 0;         // probe passes run (≤8)
+    float sumPx[8] = {};    // per-pass icon-advance sum before the probe break
+    int lineLen[8] = {};    // per-pass line length used for the sum (chars)
+    int pBreakA[8] = {};    // per-pass raw outBreak from the stepper
+    int pNextD[8] = {};     // per-pass raw outNext - text (-1 when null/inval)
+    float pWidthA[8] = {};  // per-pass raw outWidth from the stepper
+    float finalSumPx = 0.0f;
+    float shrunk = 0.0f;    // width handed to the original
+    int floored = 0;        // hit the minWidth floor
+};
+WrapDiag g_wrapDiag[kWrapDiagCount];
+uint32_t g_wrapDiagNext = 0;
+
+void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrapWidth,
+                              int *outBreak, float *outWidth, void *outNext, float indent,
+                              uint32_t flags, uint8_t *p10) {
+    // flags bit 0x80 routes to the no-wrap path (wrapWidth unused); bit 0x40 is
+    // the editbox bit the tokenizer stands down on — same predicate, same gate.
+    // Positive fontH/wrapWidth gates mirror the original's own validation: a
+    // shrink below zero would trip its bail-to-zero-outputs path and blank the
+    // line, so the floor keeps a couple of glyphs' worth of progress instead.
+    if ((flags & 0x80u) == 0 && wrapWidth > 0.0f && fontH > 0.0f &&
+        InlineInterceptActive(text, (flags & 0x40u) != 0)) {
+        int len = 0;
+        while (len < 2048 && text[len] != '\0' && text[len] != '\n')
+            ++len;
+        if (HasInlineTexture(text, len)) {
+            // Pixel realization of this caller's fontH — the same helper the
+            // measure loops and the emitter use. px → caller units is then
+            // (fontH / fontHPx); see the units note above.
+            const int fontFlag = static_cast<int>((flags >> 7) & 1u);
+            const float fontHPx = reinterpret_cast<float(__fastcall *)(int, float)>(
+                Offsets::FUN_TEXT_FONT_HEIGHT)(fontFlag, fontH);
+            if (fontHPx > 0.0f) {
+                const float toUnits = fontH / fontHPx;
+                const float minWidth = fontH * 2.0f;
+                // Only icons that actually LAND on this line may shrink its
+                // width — subtracting every icon in the remaining text made an
+                // 8-icon line wrap absurdly early (one word per line). The
+                // break position depends on the shrink and vice versa, so run
+                // the stepper as a sandboxed probe (local out-params + a COPY
+                // of the p10 in/out state byte, so the caller's first-line
+                // state isn't consumed) and iterate to a fixed point: probe
+                // unshrunk first (latest possible break = upper bound on the
+                // line's icons), re-count icons before the resulting break,
+                // re-probe with that shrink. Converges when the icon set
+                // stabilizes (exact); on boundary oscillation take the larger
+                // of the last two sums (wraps at most one icon early — the
+                // safe direction).
+                //
+                // The probe width MUST be floored like the final width: a ≤0
+                // probe width trips the stepper's bail-to-zero-outputs path,
+                // the zeroed break falls back to lineLen = len, the sum snaps
+                // back to EVERY icon, and the loop "converges" on the naive
+                // whole-text shrink (the v2 bug — multi-icon lines still
+                // shredded while single-icon lines worked).
+                WrapDiag &d = g_wrapDiag[g_wrapDiagNext % kWrapDiagCount];
+                ++g_wrapDiagNext;
+                d = WrapDiag{};
+                d.wrapWidth = wrapWidth;
+                d.fontH = fontH;
+                d.fontHPx = fontHPx;
+                d.len = len;
+                // Minimal-feasible-shrink search. The stepper reports the
+                // line's measured (icons-at-zero) width in outWidth, so each
+                // probe yields a direct feasibility check: the line renders
+                // inside the frame iff its icons fit in the shrink plus the
+                // spare the break left — iconSum ≤ s + (probeW − outWidth).
+                // Search for the SMALLEST feasible s (fullest lines):
+                //   • s = 0 feasible → no shrink at all (line fits its icons
+                //     in the natural slack — the common short-message case).
+                //   • infeasible with no feasible found yet → escalate to the
+                //     measured deficit (iconSum − slack; strictly increasing).
+                //   • once a [lo = infeasible, best = feasible] bracket
+                //     exists → bisect it, feasible probes lowering best,
+                //     infeasible ones raising lo, until the bracket is under
+                //     a quarter-glyph. Giving up on the first stale
+                //     escalation candidate (an earlier version) left the
+                //     bracket unsearched and cost the Marks line a whole
+                //     mark+word pair per line.
+                // Bounded at 8 probes; if none lands feasible, the last
+                // escalation target is used (an upper-bound shrink — wraps
+                // early rather than overflowing).
+                float lo = -1.0f;   // largest known-infeasible s
+                float best = -1.0f; // smallest known-feasible s
+                float s = 0.0f;
+                for (int pass = 0; pass < 8; ++pass) {
+                    int pBreak = 0;
+                    float pWidth = 0.0f;
+                    uint8_t *pNext = nullptr;
+                    uint8_t p10copy = (p10 != nullptr) ? *p10 : 0;
+                    float probeW = wrapWidth - s;
+                    if (probeW < minWidth)
+                        probeW = minWidth;
+                    g_wrapStepperOriginal(font, text, fontH, probeW, &pBreak, &pWidth,
+                                          static_cast<void *>(&pNext), indent, flags,
+                                          (p10 != nullptr) ? &p10copy : nullptr);
+                    // outBreak and outNext−text are both BYTE counts (verified
+                    // via the diag); outBreak == len means the whole text fit.
+                    int lineLen = len;
+                    if (pBreak > 0 && pBreak < len)
+                        lineLen = pBreak;
+                    else if (pNext > text && pNext - text < len)
+                        lineLen = static_cast<int>(pNext - text);
+                    const float sumPx = SumIconAdvances(text, lineLen, fontHPx);
+                    const float iconUnits = sumPx * toUnits;
+                    float slack = probeW - pWidth;
+                    if (slack < 0.0f)
+                        slack = 0.0f;
+                    d.sumPx[pass] = sumPx;
+                    d.lineLen[pass] = lineLen;
+                    d.pBreakA[pass] = pBreak;
+                    d.pNextD[pass] = (pNext != nullptr && pNext >= text)
+                                         ? static_cast<int>(pNext - text)
+                                         : -1;
+                    d.pWidthA[pass] = pWidth;
+                    d.passes = pass + 1;
+                    if (iconUnits <= s + slack) {
+                        if (best < 0.0f || s < best)
+                            best = s;
+                        if (s <= 0.0f)
+                            break; // can't beat zero shrink
+                    } else {
+                        if (s > lo)
+                            lo = s;
+                        if (best < 0.0f) {
+                            // No feasible found yet — escalate by the
+                            // measured deficit (strictly increasing).
+                            float next = iconUnits - slack;
+                            if (next <= s)
+                                next = s + fontH;
+                            s = next;
+                            continue;
+                        }
+                    }
+                    // A [lo, best] bracket exists — bisect until it's tighter
+                    // than a quarter-glyph.
+                    if (lo < 0.0f || best < 0.0f)
+                        break; // feasible with no infeasible below → best = s
+                    if (best - lo < fontH * 0.25f)
+                        break;
+                    s = (lo + best) * 0.5f;
+                }
+                const float finalShrink = (best >= 0.0f) ? best : s;
+                float shrunk = wrapWidth - finalShrink;
+                if (shrunk < minWidth) {
+                    shrunk = minWidth;
+                    d.floored = 1;
+                }
+                d.finalSumPx = (toUnits > 0.0f) ? (finalShrink / toUnits) : 0.0f;
+                d.shrunk = shrunk;
+                wrapWidth = shrunk;
+            }
+        }
+    }
+    g_wrapStepperOriginal(font, text, fontH, wrapWidth, outBreak, outWidth, outNext, indent,
+                          flags, p10);
+}
+
+static const Game::HookAutoRegister _wrapStepperHook{
+    Offsets::FUN_TEXT_WRAP_STEPPER, reinterpret_cast<void *>(&WrapStepper_h),
+    reinterpret_cast<void **>(&g_wrapStepperOriginal)};
+
 // --- emitter co-hook (positioning) -----------------------------------------
 
 // FUN_005ccbe0 — the per-line glyph emitter. __thiscall(node, text, len,
@@ -1424,6 +1635,44 @@ int __fastcall Script_InlineTexRegionCal(void *L) {
     return 2;
 }
 
+// _classicapi_InlineTexWrap([n]) -> wrapWidth, fontH, fontHPx, len, passes,
+// finalSumPx, shrunkWidth, floored, then per pass:
+// (sumPx, lineLen, rawOutBreak, rawOutNextDelta, rawOutWidth). n = 0
+// (default) is the most recent icon-bearing wrap-stepper call, 1 the one
+// before, … up to 7. wrapWidth/fontH/shrunk/rawOutWidth are in the CALLER's
+// unit space; fontHPx and the sums are pixels. Healthy convergence: passes
+// ≥ 2 with the last two sums equal and finalSumPx ≈ (icons on line 1) ×
+// advance. Oscillating passes (sums alternating high/low) mean a spread-icon
+// line with no true fixed point — the hook then splits the difference. The
+// raw out-params expose the stepper's break semantics per caller.
+int __fastcall Script_InlineTexWrap(void *L) {
+    uint32_t n = 0;
+    if (Game::Lua::IsNumber(L, 1))
+        n = static_cast<uint32_t>(Game::Lua::ToNumber(L, 1));
+    if (n >= kWrapDiagCount || n >= g_wrapDiagNext)
+        return 0;
+    const WrapDiag &d =
+        g_wrapDiag[(g_wrapDiagNext - 1 - n) % kWrapDiagCount];
+    if (d.passes == 0)
+        return 0;
+    Game::Lua::PushNumber(L, d.wrapWidth);
+    Game::Lua::PushNumber(L, d.fontH);
+    Game::Lua::PushNumber(L, d.fontHPx);
+    Game::Lua::PushNumber(L, static_cast<double>(d.len));
+    Game::Lua::PushNumber(L, static_cast<double>(d.passes));
+    Game::Lua::PushNumber(L, d.finalSumPx);
+    Game::Lua::PushNumber(L, d.shrunk);
+    Game::Lua::PushNumber(L, static_cast<double>(d.floored));
+    for (int i = 0; i < d.passes; ++i) {
+        Game::Lua::PushNumber(L, d.sumPx[i]);
+        Game::Lua::PushNumber(L, static_cast<double>(d.lineLen[i]));
+        Game::Lua::PushNumber(L, static_cast<double>(d.pBreakA[i]));
+        Game::Lua::PushNumber(L, static_cast<double>(d.pNextD[i]));
+        Game::Lua::PushNumber(L, d.pWidthA[i]);
+    }
+    return 8 + d.passes * 5;
+}
+
 // _classicapi_InlineTexProbeFS("FontStringName") ->
 //   s, rect[0..3] (raw +0x64..+0x70: {yA, left, yB, right}), insetX, insetY,
 //   originX, originY, nodeFontH
@@ -1485,6 +1734,7 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexProbeFS", &Script_InlineTexProbeFS);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexMode", &Script_InlineTexMode);
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexRegionCal", &Script_InlineTexRegionCal);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexWrap", &Script_InlineTexWrap);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

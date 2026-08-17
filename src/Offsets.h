@@ -6527,6 +6527,32 @@ enum Offsets {
     // draw path is unaffected by this hook. See FUN_005c2810.
     FUN_TEXT_TOKENIZER = 0x005C2810,
 
+    // Shared wrap-stepper dispatcher — lays out ONE wrapped line per call.
+    // `__fastcall(gxuFont /*ecx*/, byte *text /*edx*/, float fontH, float
+    // wrapWidth, int *outBreak, float *outWidth, void *outNext, float indent,
+    // uint flags, byte *p10)`, callee cleans 0x20 (verified RET 0x20; prologue
+    // PUSH EBP; MOV EBP,ESP; FLD [EBP+8] — MinHook-safe). Thin validator that
+    // routes flags&0x80 to the no-wrap path (FUN_005C7300, ignores wrapWidth)
+    // and everything else to the real stepper FUN_005C7470. Its exactly 4
+    // callers are EVERY wrap consumer: the draw builder FUN_005CDC20 (render
+    // breaks), the height measure FUN_005C2070 (GetStringHeight), the
+    // chars-that-fit counter FUN_005C21C0 (ellipsis truncation), and the
+    // break-array computer FUN_005C2430 (behind FUN_00772B60) — so a co-hook
+    // here keeps render, height, truncation, and break arrays mutually
+    // consistent. Text::InlineTexture shrinks the wrapWidth arg by the line's
+    // inline-icon advances (the tokenizer hook hides them from the measure, so
+    // breaks otherwise land as if icons were 0 wide and the emitter's real
+    // advances overflow the right edge). UNITS: each caller passes
+    // fontH/wrapWidth in its OWN space (node text units from the builder, the
+    // small anchor-converted space from the fs-level callers — the path chat
+    // wraps through); a raw-pixel subtraction annihilates the small spaces
+    // (shredded chat lines into 2-glyph fragments on first flight). Convert
+    // px→caller units by (fontH / FUN_TEXT_FONT_HEIGHT(flag, fontH)) — the
+    // engine's own pixel realization of the fontH param (FUN_005C6940's final
+    // scale uses exactly that call), so the ratio is valid in every caller's
+    // space.
+    FUN_TEXT_WRAP_STEPPER = 0x005C7260,
+
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is
     // active. Written by EditBox SetFocus (`mov [0xcf4dc8],esi` @0x0077e3f8),

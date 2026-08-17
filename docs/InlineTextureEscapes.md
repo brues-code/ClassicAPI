@@ -219,14 +219,57 @@ The same hook also fixes two layout consumers for free: tooltips auto-size
 wide enough for icon-bearing lines, and auto-width fontstrings lay out at
 their true rendered width.
 
+### Wrap: FIXED at the shared stepper (`FUN_TEXT_WRAP_STEPPER` = 0x005C7260)
+
+Wrap decisions also measured icons as ~0, so a chat line with prefix icons
+broke as if the icons were not there and the emitter's real advances ran past
+the right edge. The choke is the wrap-stepper dispatcher `FUN_005C7260`: it
+lays out one wrapped line per call, and its exactly 4 callers are EVERY wrap
+consumer — the draw builder `FUN_005CDC20` (render breaks), the height
+measure `FUN_005C2070`, the chars-that-fit counter `FUN_005C21C0` (ellipsis),
+and the break-array computer `FUN_005C2430` (behind `FUN_00772B60`).
+
+The co-hook shrinks the `wrapWidth` argument by a **minimal feasible
+shrink**, gated on the same `InlineInterceptActive` predicate plus the flags
+editbox bit 0x40 the dispatcher already carries. The stepper reports each
+probe's measured (icons-at-zero) line width in `outWidth`, which gives a
+direct feasibility check: the line renders inside the frame iff its icons
+fit in the shrink plus the spare the break left (`iconSum ≤ s + (probeW −
+outWidth)`). The hook probes sandboxed (local out-params plus a COPY of the
+`p10` in/out state byte, so the caller's first-line state is not consumed):
+s = 0 first (feasible → no shrink at all — the common short-message case),
+escalate by the measured deficit when infeasible, bisect down after the
+first feasible hit; ≤4 probes, and with no feasible hit the last escalation
+target wins (wraps early rather than overflowing). `outBreak` and
+`outNext − text` are byte counts; `outBreak == len` means the whole text
+fit. Two rejected earlier schemes, for the record: a naive whole-remaining-
+text sum shredded an 8-icon line to one word per line, and a fixed-point
+iteration on the icon count oscillated (a ~55-byte zero-width escape makes
+the break↔icon-count coupling discontinuous — no fixed point exists).
+`text` always points at the REMAINING text, so a continuation line whose
+icons are behind it gets sum = 0. Because all four consumers share the hook,
+render breaks, `GetStringHeight`, truncation, and break arrays shift
+together. Diagnostics: `_classicapi_InlineTexWrap(n)` dumps the last 8
+icon-bearing calls with per-probe raw out-params.
+
+Unit trap #2 (hit on first flight, like the width hook's): each caller passes
+fontH/wrapWidth in its OWN space — the draw builder passes node text units
+(node+0x1C / node+0x3C), and the fs-level callers (the path chat wraps
+through) pass the much smaller anchor-converted space. Subtracting a raw
+pixel advance annihilated the small widths to the floor and shredded
+icon-bearing chat lines into 2-glyph fragments. The space-agnostic conversion
+uses the engine's own convention: the measure loops realize their fontH param
+as pixels via `FUN_TEXT_FONT_HEIGHT(flag, fontH)` (see `FUN_005c6940`'s final
+scale), so px → caller units is exactly `fontH / fontHPx`. The hook computes
+the icon sum in true pixels (the same value the emitter reserves) and scales
+by that ratio.
+
 **Still icon-blind (accepted residuals):**
 
-- The wrap-break computer (`FUN_00772B60`), the substring measure
-  (`FUN_00772AE0`), and hyperlink hit-testing still see icons as ~0. Wrap
-  decisions therefore ignore icon width (render can overflow the right edge
-  on a wrap-tight line). Hover hit-testing on an icon needs a hyperlink-region
-  feature we have not built. Revisit `FUN_00772AE0` (also cold) if a consumer
-  needs icon-aware substring widths.
+- The substring measure (`FUN_00772AE0`) and hyperlink hit-testing still see
+  icons as ~0. Hover hit-testing on an icon needs a hyperlink-region feature
+  we have not built. Revisit `FUN_00772AE0` (also cold) if a consumer needs
+  icon-aware substring widths.
 - A ~≤1px artifact when an icon is the last token: the gxu width loop ends on
   the last *glyph's* ink width rather than its advance (`FUN_005c6b70` gets the
   remaining-text pointer), and a trailing icon shifts the previous glyph's
