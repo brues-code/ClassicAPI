@@ -299,6 +299,13 @@ enum Offsets {
     // ownership + engine batched region-draw is the residency win. Same-path
     // early-out makes pooled reuse cheap.
     FUN_SIMPLETEXTURE_SET_TEXTURE = 0x00770200,
+    // Script_Texture_SetTexture — the Lua `texture:SetTexture(...)` handler. Its
+    // NUMERIC branch (arg 2 a number) clamps r/g/b/a to [0,1] and fills the
+    // texture with a solid colour via FUN_00770360; its string branch loads a
+    // path through FUN_00770200 above. texture/ColorTexture.cpp aliases this whole
+    // handler as the 7.0 `SetColorTexture` (which IS exactly the numeric form), so
+    // the clamp and opaque-alpha default come straight from the engine.
+    FUN_SCRIPT_TEXTURE_SET_TEXTURE = 0x0079BB40,
     // CSimpleTexture::SetTexCoord — `__thiscall(tex, float[4])`. Struct field
     // order is {top, left, bottom, right} = {v0, u0, v1, u1} (verified from the
     // SetTexCoord handler 0x0079BEB0's Lua-arg → struct mapping). Natural

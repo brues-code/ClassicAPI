@@ -165,6 +165,7 @@ build instructions.
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
+  - [`texture:SetColorTexture(colorR, colorG, colorB [, a])`](#texturesetcolortexturecolorr-colorg-colorb--a)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
@@ -3960,6 +3961,20 @@ t:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
 -- pull the top two corners inward: a trapezoid (fake perspective)
 t:SetVertexOffset(UPPER_LEFT_VERTEX, 20, 0)
 t:SetVertexOffset(UPPER_RIGHT_VERTEX, -20, 0)
+```
+
+### `texture:SetColorTexture(colorR, colorG, colorB [, a])`
+
+Fills the texture with a solid color. Each channel is `0` to `1`. The alpha `a`
+is optional and defaults to `1` (opaque). This is the 7.0 name for a fill that
+vanilla already does — `SetTexture(r, g, b [, a])` with numbers instead of a
+path. The backport is the same engine call under a second name, so the clamping
+and the opaque default match the engine.
+
+```lua
+local t = frame:CreateTexture(nil, "BACKGROUND")
+t:SetAllPoints(frame)
+t:SetColorTexture(0.1, 0.6, 1.0, 0.8)  -- semi-transparent blue fill
 ```
 
 ### `frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`
