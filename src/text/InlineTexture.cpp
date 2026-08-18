@@ -199,33 +199,21 @@ struct IconRecord {
     uint32_t color;         // vertex tint (0xAARRGGBB; white = untinted)
 };
 
-// Icons keyed by render node, VERSIONED BY BUILD: `builtSeq` is the builder
-// invocation that produced the records. The flush only trusts records whose
-// builtSeq matches the node's LATEST build (g_nodeBuilt) — a build that never
-// ran the emitter (empty text) leaves records from a previous life at a reused
-// address, and unversioned records ghosted: pfUI nameplate fontstrings churn
-// node addresses constantly, inherited dead emote records, passed the
-// authority check (genuinely their current node), and drew emote icons at the
-// parked nameplate position at the bottom of the screen.
-struct NodeIcons {
-    uint32_t builtSeq = 0;
-    std::vector<IconRecord> icons;
-};
-std::unordered_map<void *, NodeIcons> g_nodeIcons;
+// Icons keyed by render node. Stale-record safety is structural, not
+// versioned: the node-free co-hook (below) erases a node's records the moment
+// its address can be reused, and the emitter's firstLine erase resets them on
+// every rebuild. (An explicit per-build version check was tried and REJECTED —
+// the builder runs every paint but only emits when dirty, so a version
+// mismatch on a clean paint erased live records: the all-icons-gone
+// regression.)
+std::unordered_map<void *, std::vector<IconRecord>> g_nodeIcons;
 
 // node → owning CSimpleFontString, recorded by the RebuildString co-hook (the
 // 4.3.4 ownership model — 1.12 chat lines ARE fontstrings). Consulted by the
-// region render mode to anchor icon regions to their line. Stale fs pointers
-// are guarded by LooksReadable at use (chat/bubble fontstrings are pooled and
-// long-lived); the map clears on /reload.
+// flush to anchor icon regions to their line. Stale fs pointers are guarded by
+// LooksReadable at use (chat/bubble fontstrings are pooled and long-lived);
+// the map clears on /reload.
 std::unordered_map<void *, void *> g_nodeOwner;
-
-// Flush visit stamps: which flush call last WALKED each owned node. Lets the
-// Broken() diagnostic distinguish "node painted but queue dropped" from "node's
-// layout is never painted at all" (the two remaining theories for a visible
-// markup line with an empty want).
-uint32_t g_flushSeq = 0;
-std::unordered_map<void *, uint32_t> g_nodeSeen;
 
 // Cached pen-units-per-anchor-unit scale (K). Derived per flush from any icon
 // node whose fontstring rect is resolved: the node origin is the fontstring's
@@ -250,15 +238,6 @@ float g_regionCalY = -1.0f;
 // ghost-icons-on-reused-nodes bug.)
 void *g_buildNode = nullptr;
 uint32_t g_buildEmitSeq = 0;
-// Monotonic builder-invocation counter + per-node latest build. Records carry
-// the build they were made in; the flush rejects records older than the node's
-// latest build (see NodeIcons).
-uint32_t g_buildCounter = 0;
-std::unordered_map<void *, uint32_t> g_nodeBuilt;
-// Last emitter outcome per node (diagnostic): 1 feature-off delegate, 2 null
-// args, 3 manual suppress, 4 focused-editbox pointer suppress, 5 content
-// suppress, 6 editable suppress, 7 no-markup line, 8 recorded icons.
-std::unordered_map<void *, uint8_t> g_nodeEmit;
 
 using DrawBuilder_t = void(__fastcall *)(void *node);
 DrawBuilder_t g_builderOriginal = nullptr;
@@ -266,7 +245,6 @@ DrawBuilder_t g_builderOriginal = nullptr;
 void __fastcall DrawBuilder_h(void *node) {
     g_buildNode = node;
     g_buildEmitSeq = 0;
-    g_nodeBuilt[node] = ++g_buildCounter;
     g_builderOriginal(node);
     g_buildNode = nullptr;
 }
@@ -289,9 +267,6 @@ void __fastcall NodeFree_h(void *node) {
     if (node != nullptr) {
         g_nodeIcons.erase(node);
         g_nodeOwner.erase(node);
-        g_nodeSeen.erase(node);
-        g_nodeBuilt.erase(node);
-        g_nodeEmit.erase(node);
     }
     g_nodeFreeOriginal(node);
 }
@@ -1024,10 +999,8 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // Content-match still handles the focused chat/name box.
     const bool sup_editable = node != nullptr && NodeEditable(node);
     if (sup_manual || sup_ptr || sup_content || sup_editable) {
-        if (node != nullptr) {
+        if (node != nullptr)
             g_nodeIcons.erase(node);
-            g_nodeEmit[node] = sup_manual ? 3 : (sup_ptr ? 4 : (sup_content ? 5 : 6));
-        }
         // Bracket the delegated raw layout so the re-entrant tokenizer stands down
         // across the whole line (else it eats `|T` as a zero-width token → BLANK).
         g_reentryLo = text;
@@ -1059,10 +1032,8 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             ? (g_buildEmitSeq++ == 0)
             : (text == *reinterpret_cast<uint8_t **>(reinterpret_cast<uint8_t *>(node) +
                                                      Offsets::OFF_TEXT_NODE_TEXT));
-    if (firstLine) {
+    if (firstLine)
         g_nodeIcons.erase(node);
-        g_nodeEmit.erase(node); // fresh build → fresh outcome
-    }
 
     if (!HasInlineTexture(text, len)) {
         // No inline texture on this line — render it normally. Note: firstLine
@@ -1072,18 +1043,13 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         // scanning node text (that scan read a stale/preprocessed pointer on
         // pfUI chat lines and erased LIVE records every frame — the persistent
         // iconless LFG lines).
-        if (g_nodeEmit[node] != 8) // don't demote a build that recorded on an earlier line
-            g_nodeEmit[node] = 7;
         g_emitterOriginal(node, edx, text, len, colorState, penXYZ, pageMask, linkState);
         return;
     }
 
     // This line owns inline textures — append them, rendering the plain runs by
     // delegating to the original per segment.
-    NodeIcons &nodeEntry = g_nodeIcons[node];
-    g_nodeEmit[node] = 8; // this build recorded icons
-    nodeEntry.builtSeq = g_buildCounter; // records belong to the current build
-    std::vector<IconRecord> &icons = nodeEntry.icons;
+    std::vector<IconRecord> &icons = g_nodeIcons[node];
 
     // Bit 3 of the node flags gates the emitter's per-call batch-clear. When set
     // (the standalone-FontString case), each original call would wipe the page
@@ -1356,7 +1322,6 @@ Paint_t g_paintOriginal = nullptr;
 void FlushLayout(void *layout) {
     if (!LooksReadable(layout))
         return;
-    ++g_flushSeq;
     auto *L = reinterpret_cast<uint8_t *>(layout);
     const int linkOff = *reinterpret_cast<int *>(L + Offsets::OFF_TEXT_LAYOUT_NODE_LINK);
     void *node = *reinterpret_cast<void **>(L + Offsets::OFF_TEXT_LAYOUT_NODE_HEAD);
@@ -1383,7 +1348,6 @@ void FlushLayout(void *layout) {
                 auto *of = reinterpret_cast<uint8_t *>(ow->second);
                 void *block =
                     *reinterpret_cast<void **>(of + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-                g_nodeSeen[node] = g_flushSeq;
                 if (LooksReadable(block) &&
                     *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
                                                Offsets::OFF_TEXTBLOCK_NODE) == node) {
@@ -1416,7 +1380,7 @@ void FlushLayout(void *layout) {
         // builder runs every paint but only emits when dirty, so a version
         // check erases good records on every clean paint: the all-icons-gone
         // regression.)
-        if (it != g_nodeIcons.end() && !it->second.icons.empty() && fs != nullptr) {
+        if (it != g_nodeIcons.end() && !it->second.empty() && fs != nullptr) {
             const char *ftext = *reinterpret_cast<const char *const *>(
                 reinterpret_cast<uint8_t *>(fs) + 0xF0);
             bool fsHasMarkup = false;
@@ -1432,7 +1396,7 @@ void FlushLayout(void *layout) {
                 it = g_nodeIcons.end();
             }
         }
-        if (it == g_nodeIcons.end() || it->second.icons.empty()) {
+        if (it == g_nodeIcons.end() || it->second.empty()) {
             if (fs != nullptr)
                 Text::InlineTexturePool::QueuePlacements(fs, {});
             node = next;
@@ -1470,7 +1434,7 @@ void FlushLayout(void *layout) {
                 fsRectValid = rc[1] != rc[3]; // unresolved rect reads 0-width
             }
             std::vector<Text::InlineTexturePool::Placement> places;
-            for (const IconRecord &r : it->second.icons) {
+            for (const IconRecord &r : it->second) {
                 // Screen left = pen + the FULL lead pad. The emitter reserves
                 // w + 1.5×pad in the advance (lead 1×, trail 0.5×) — drawing at
                 // the raw pen put all of that gap AFTER the icon, which is why
@@ -1720,107 +1684,12 @@ static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
-int DebugChainState(void *fs) {
-    if (!LooksReadable(fs))
-        return 0;
-    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
-                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (block == nullptr) {
-        // Blockless: rebuild pending (dirty bit set → engine will rebuild) vs
-        // STUCK (bit clear → nothing will ever rebuild; the flush nudges these).
-        const uint8_t flags = *(reinterpret_cast<uint8_t *>(fs) +
-                                Offsets::OFF_FONTSTRING_DIRTY_FLAGS);
-        return (flags & 1u) ? 5 : 6;
-    }
-    if (!LooksReadable(block))
-        return 0;
-    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
-                                            Offsets::OFF_TEXTBLOCK_NODE);
-    if (!LooksReadable(node))
-        return 0;
-    auto ow = g_nodeOwner.find(node);
-    if (ow == g_nodeOwner.end())
-        return 1;
-    if (ow->second != fs)
-        return 2;
-    auto it = g_nodeIcons.find(node);
-    if (it == g_nodeIcons.end() || it->second.icons.empty())
-        return 3;
-    return 4;
-}
-
-int DebugNodeSeenAge(void *fs) {
-    if (!LooksReadable(fs))
-        return -1;
-    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
-                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (!LooksReadable(block))
-        return -1;
-    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
-                                            Offsets::OFF_TEXTBLOCK_NODE);
-    if (!LooksReadable(node))
-        return -1;
-    auto it = g_nodeSeen.find(node);
-    if (it == g_nodeSeen.end())
-        return -1;
-    return static_cast<int>(g_flushSeq - it->second);
-}
-
-namespace {
-// fs → current node (fs+0xF8 → handle+8), nullptr when the chain is unreadable.
-void *DebugCurrentNode(void *fs) {
-    if (!LooksReadable(fs))
-        return nullptr;
-    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
-                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (!LooksReadable(block))
-        return nullptr;
-    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
-                                            Offsets::OFF_TEXTBLOCK_NODE);
-    return LooksReadable(node) ? node : nullptr;
-}
-} // namespace
-
-int DebugNodeBuiltKnown(void *fs) {
-    void *node = DebugCurrentNode(fs);
-    if (node == nullptr)
-        return -1;
-    return g_nodeBuilt.find(node) != g_nodeBuilt.end() ? 1 : 0;
-}
-
-int DebugNodeEmitOutcome(void *fs) {
-    void *node = DebugCurrentNode(fs);
-    if (node == nullptr)
-        return -1;
-    auto it = g_nodeEmit.find(node);
-    return it == g_nodeEmit.end() ? -1 : static_cast<int>(it->second);
-}
-
-unsigned int DebugNodeFlags(void *fs) {
-    if (!LooksReadable(fs))
-        return 0xFFFFFFFFu;
-    void *block = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
-                                             Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (!LooksReadable(block))
-        return 0xFFFFFFFFu;
-    void *node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
-                                            Offsets::OFF_TEXTBLOCK_NODE);
-    if (!LooksReadable(node))
-        return 0xFFFFFFFFu;
-    return *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(node) +
-                                               Offsets::OFF_TEXT_NODE_FLAGS);
-}
-
 void PrepareForReload() {
     // /reload frees every gxu text node — g_nodeIcons/g_nodeOwner hold stale
     // node pointers. Forget them (records rebuild as the reloaded UI re-emits
-    // its text). The texture-handle cache stays valid (engine keeps its by-name
-    // cache); K survives (resolution/uiScale don't change across /reload).
+    // its text). K survives (resolution/uiScale don't change across /reload).
     g_nodeIcons.clear();
     g_nodeOwner.clear();
-    g_nodeSeen.clear();
-    g_nodeBuilt.clear();
-    g_nodeEmit.clear();
 }
 
 } // namespace Text::InlineTexture
