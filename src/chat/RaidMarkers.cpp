@@ -96,6 +96,14 @@ const char *Substitute(const char *msg, char *buf, size_t bufSize) {
     if (msg == nullptr || !HasBrace(msg))
         return msg; // common case: forward untouched, no copy
 
+    // A token inflates ~28x (a 3-char `{rtN}` -> ~85-byte `|T` markup), so a
+    // marker-dense message can exceed `buf`. Never DROP message content to fit:
+    // only expand a token when the expansion AND the whole remaining input (worst
+    // case copied 1:1 as literal text) still fit. Past that point later tokens
+    // stay literal `{rtN}`, so the full message text is always preserved — a DLL
+    // user never sees a shorter line than a non-DLL user, just fewer icons.
+    const size_t msgLen = std::strlen(msg);
+
     size_t j = 0;
     for (size_t i = 0; msg[i] != '\0' && j + 1 < bufSize;) {
         if (msg[i] == '{') {
@@ -123,7 +131,10 @@ const char *Substitute(const char *msg, char *buf, size_t bufSize) {
                         "||TInterface\\TargetingFrame\\UI-RaidTargetingIcons:%d:%d:0:0:256:256:"
                         "%d:%d:%d:%d||t",
                         kMarkerSizePx, kMarkerSizePx, l, r, t, b);
-                    if (m > 0 && j + static_cast<size_t>(m) + 1 < bufSize) {
+                    // Reserve room for the literal tail after this token
+                    // (msg[k+1..]) so the rest of the message always fits.
+                    const size_t tail = msgLen - (k + 1);
+                    if (m > 0 && j + static_cast<size_t>(m) + tail + 1 <= bufSize) {
                         std::memcpy(buf + j, markup, static_cast<size_t>(m));
                         j += static_cast<size_t>(m);
                         i = k + 1; // consume through the closing `}`
