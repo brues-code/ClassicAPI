@@ -56,6 +56,11 @@ using ShowHide_t = void(__fastcall *)(void *tex);
 // value filtered live chat icons out entirely.
 std::unordered_set<uintptr_t> g_fsVtables;
 
+// A vtable pointer that lands in the WoW.exe image (.rdata) — engine C++ classes
+// (fontstrings, our CSimpleTexture regions) carry their vtable there. Gates what
+// the learned-vtable sets admit so a stray value never poisons them.
+bool InWowImage(uintptr_t vt) { return vt >= 0x00400000u && vt < 0x00D2B000u; }
+
 // Record a live fontstring's vtable. Called only from QueuePlacements, which the
 // paint hook invokes with a fontstring the engine is actively drawing — so
 // *(void**)fs is a valid vtable here. The module-range gate is belt-and-braces
@@ -64,7 +69,7 @@ void LearnFontStringVtable(const void *fs) {
     if (!LooksReadable(fs))
         return;
     const uintptr_t vt = *reinterpret_cast<const uintptr_t *>(fs);
-    if (vt >= 0x00400000u && vt < 0x00D2B000u) // WoW.exe image range
+    if (InWowImage(vt))
         g_fsVtables.insert(vt);
 }
 
@@ -80,6 +85,29 @@ bool IsLiveFontString(const void *fs) {
     if (!LooksReadable(fs))
         return false;
     return g_fsVtables.count(*reinterpret_cast<const uintptr_t *>(fs)) != 0;
+}
+
+// Same technique, for our pooled CSimpleTexture regions. Learned from
+// CreateRegion's freshly-ctor'd object (the ctor writes the vtable). A region is
+// parented to the fontstring's PARENT FRAME, so it outlives the fontstring — EXCEPT
+// when that parent frame itself dies, which frees the fontstring AND its child
+// regions together. The eviction path runs with a non-live fontstring, so it can't
+// assume the regions survived; this gate keeps its Hide off a region whose memory
+// was freed and recycled (a bare pointer there would fault).
+std::unordered_set<uintptr_t> g_regionVtables;
+
+void LearnRegionVtable(const void *tex) {
+    if (!LooksReadable(tex))
+        return;
+    const uintptr_t vt = *reinterpret_cast<const uintptr_t *>(tex);
+    if (InWowImage(vt))
+        g_regionVtables.insert(vt);
+}
+
+bool IsLiveRegion(const void *tex) {
+    if (!LooksReadable(tex))
+        return false;
+    return g_regionVtables.count(*reinterpret_cast<const uintptr_t *>(tex)) != 0;
 }
 
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
@@ -170,7 +198,9 @@ void *CreateRegion(void *parent) {
     if (mem == nullptr)
         return nullptr;
     auto ctor = reinterpret_cast<TexCtor_t>(Offsets::FUN_SIMPLETEXTURE_CTOR);
-    return ctor(mem, parent, Offsets::DRAWLAYER_ARTWORK, 1);
+    void *tex = ctor(mem, parent, Offsets::DRAWLAYER_ARTWORK, 1);
+    LearnRegionVtable(tex); // for the eviction-path liveness gate
+    return tex;
 }
 
 // Applies one placement to one region: texture, texcoords, color (with the
@@ -242,13 +272,19 @@ void MaintainImpl() {
         // Stale-key eviction (the crash fix). A destroyed fontstring leaves a
         // dangling key here; its heap memory may be reused as unrelated data, so
         // a VA-range check is not enough — verify the live-fontstring vtable. If
-        // it is gone, hide our regions (their tex pointers are OURS, parented to
-        // the chat frame, so still valid) and erase the entry. This also stops
-        // dead keys from accumulating: only live fontstrings survive, and the
+        // it is gone, hide our regions and erase the entry. This also stops dead
+        // keys from accumulating: only live fontstrings survive, and the
         // chat/tooltip pools reuse a bounded set of them.
         if (!IsLiveFontString(fs)) {
+            // The regions usually outlive the fontstring (they're parented to its
+            // parent FRAME, which persists while lines churn). But if the fontstring
+            // died because that parent frame died, the regions died with it — so
+            // gate each Hide on the region's OWN vtable liveness, else Hide would
+            // write to freed/recycled region memory. A dead region needs no hiding
+            // (it's already gone); a live one still gets hidden so it can't ghost.
             for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
-                Hide(np.regions[static_cast<size_t>(i)].tex);
+                if (IsLiveRegion(np.regions[static_cast<size_t>(i)].tex))
+                    Hide(np.regions[static_cast<size_t>(i)].tex);
             // ACCEPTED LEAK: erasing the entry drops np.regions without freeing
             // the pooled CSimpleTextures — they stay (hidden) on their parent
             // frame until it dies (/reload frees all of them). We do NOT reclaim
