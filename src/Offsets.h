@@ -63,6 +63,24 @@ enum Offsets {
     // to the client.
     FUN_BINDING_COMMAND_EXECUTE = 0x004B7B50,
 
+    // Binding-manager `this`-relative flag, set to 1 while a resolved binding
+    // command runs. FUN_BINDING_KEY_DISPATCH writes 1 immediately before its
+    // call to FUN_BINDING_COMMAND_EXECUTE and 0 immediately after. Override
+    // commands dispatched outside that engine path must mirror it so native
+    // command handlers observe the same manager state a real keypress produces.
+    // Verified in the FUN_BINDING_KEY_DISPATCH disassembly.
+    OFF_BINDING_MANAGER_EXECUTING = 0xD8,
+
+    // Frame-script execution context and its nesting depth (the `DAT_00ceeac0`
+    // dance referenced below). Shared by the binding dispatcher and the
+    // tooltip/frame script invokers. FUN_BINDING_KEY_DISPATCH saves the context
+    // pointer, zeroes it for the nested command, restores it afterward, and
+    // floors the depth back to 0. `Bindings::Api` mirrors this when it runs an
+    // override command outside the engine's own dispatch. Verified in that
+    // disassembly.
+    VAR_FRAMESCRIPT_EXEC_CONTEXT = 0x00CEEAC0,
+    VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH = 0x00CEEAC4,
+
     // GameTooltip script-method prologue helpers (used to resolve self → CFrameScriptObject*).
     // Underlying Lua C API names per [[docs/LuaCAPI.md]] are `lua_rawgeti`
     // (0x6F3BC0) and `lua_touserdata` (0x6F3740). The Set* method prologue's

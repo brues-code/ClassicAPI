@@ -3864,6 +3864,17 @@ When multiple owners set the same key at the same priority, the most recently
 set override wins. Removing it immediately reveals the next matching override
 or the unchanged native binding.
 
+`key` is matched case-insensitively, and its modifiers are accepted in any
+order: `"ctrl-alt-F"`, `"ALT-CTRL-F"`, and `"Alt-Ctrl-F"` all bind the same
+key. The override layer normalizes the key to the engine's own keypress form
+(`ALT-CTRL-SHIFT-` before the base key) before matching, so the override fires
+regardless of how the caller spelled it.
+
+A generic `SetOverrideBinding` command that is an ordinary Bindings.xml command
+runs through the engine's own command executor with the same execution context
+a native keypress establishes, so it behaves like the equivalent permanent
+binding.
+
 ### Action execution
 
 | Command | Execution path |

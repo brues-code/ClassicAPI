@@ -77,6 +77,13 @@ std::vector<OverrideEntry> g_overrides;
 std::unordered_map<std::string, std::string> g_activeOverrides;
 uint64_t g_nextSequence = 0;
 
+// Normalizes a binding key to the engine's own canonical form so a stored
+// override matches the string FUN_BINDING_KEY_DISPATCH builds at keypress. The
+// engine's key-string builder (FUN_004b6630) always emits modifiers in the
+// fixed order ALT-CTRL-SHIFT- ahead of the base key, regardless of the order
+// the caller passed them; vanilla SetBinding never reorders, so the override
+// layer does it here. Both the store and the lookup run through this, so they
+// stay consistent while also matching the engine's keypress form.
 std::string CanonicalKey(const char *key) {
     std::string result = key ? key : "";
     for (char &character : result) {
@@ -84,7 +91,42 @@ std::string CanonicalKey(const char *key) {
             character = static_cast<char>(character - 'a' + 'A');
     }
 
-    return result;
+    // Strip the three modifier prefixes in whatever order/repetition they
+    // appear, then re-emit them in the engine's fixed order. Prefix-stripping
+    // (rather than splitting on '-') keeps the minus base key correct, e.g.
+    // "SHIFT--" -> modifier SHIFT + base "-".
+    bool alt = false, ctrl = false, shift = false;
+    size_t base = 0;
+    for (bool matched = true; matched;) {
+        matched = false;
+        if (result.compare(base, 4, "ALT-") == 0) {
+            alt = true;
+            base += 4;
+            matched = true;
+        } else if (result.compare(base, 5, "CTRL-") == 0) {
+            ctrl = true;
+            base += 5;
+            matched = true;
+        } else if (result.compare(base, 6, "SHIFT-") == 0) {
+            shift = true;
+            base += 6;
+            matched = true;
+        }
+    }
+
+    if (!alt && !ctrl && !shift)
+        return result;
+
+    std::string canonical;
+    if (alt)
+        canonical += "ALT-";
+    if (ctrl)
+        canonical += "CTRL-";
+    if (shift)
+        canonical += "SHIFT-";
+    canonical += result.substr(base);
+
+    return canonical;
 }
 
 std::string MakeCommand(const char *prefix, const char *arg) {
@@ -295,6 +337,43 @@ int __fastcall CommandExecute_h(void *mgr, void *, const char *cmd, int isDown) 
     return ExecuteCommand(mgr, cmd, isDown);
 }
 
+// Runs an override-resolved command with the same execution context the engine
+// wraps around a native keypress. FUN_BINDING_KEY_DISPATCH saves the frame-
+// script exec-context, zeroes it for the nested command, marks the manager as
+// mid-command (`+0xD8`), then restores the context and floors the nesting
+// depth. Native-table bindings already run inside this (the engine sets it up
+// before calling FUN_BINDING_COMMAND_EXECUTE, which we co-hook); overrides
+// bypass that path, so we mirror it here. Without it, a native Bindings.xml
+// command dispatched through an override would run without the context its
+// handler expects. Special SPELL/ITEM/MACRO/CLICK commands run harmlessly
+// inside the same wrapper.
+int DispatchOverrideCommand(void *mgr, const char *cmd, int isDown) {
+    volatile uint32_t *context =
+        reinterpret_cast<volatile uint32_t *>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+    volatile uint32_t *depth = reinterpret_cast<volatile uint32_t *>(
+        Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
+    volatile uint32_t *executing = reinterpret_cast<volatile uint32_t *>(
+        reinterpret_cast<char *>(mgr) + Offsets::OFF_BINDING_MANAGER_EXECUTING);
+
+    const uint32_t savedContext = *context;
+    *depth = *depth + 1;
+    if (*depth != 0)
+        *context = 0;
+
+    *executing = 1;
+    const int result = ExecuteCommand(mgr, cmd, isDown);
+    *executing = 0;
+
+    if (*depth != 0)
+        *context = savedContext;
+    if (static_cast<int32_t>(*depth) - 1 > 0)
+        *depth = *depth - 1;
+    else
+        *depth = 0;
+
+    return result;
+}
+
 int __fastcall KeyDispatch_h(void *mgr, void *, const char *key, int isDown) {
     const std::string canonicalKey = CanonicalKey(key);
 
@@ -304,7 +383,7 @@ int __fastcall KeyDispatch_h(void *mgr, void *, const char *key, int isDown) {
     if (!isDown) {
         auto active = g_activeOverrides.find(canonicalKey);
         if (active != g_activeOverrides.end()) {
-            ExecuteCommand(mgr, active->second.c_str(), 0);
+            DispatchOverrideCommand(mgr, active->second.c_str(), 0);
             g_activeOverrides.erase(active);
             return 1;
         }
@@ -317,7 +396,7 @@ int __fastcall KeyDispatch_h(void *mgr, void *, const char *key, int isDown) {
     if (isDown)
         g_activeOverrides[canonicalKey] = entry->command;
 
-    return ExecuteCommand(mgr, entry->command.c_str(), isDown);
+    return DispatchOverrideCommand(mgr, entry->command.c_str(), isDown);
 }
 
 int SetBindingCommand(void *L, const char *prefix, const char *usage) {
