@@ -96,6 +96,13 @@ int __fastcall Script_GetCoinTextureString(void *L) {
     long long amount = static_cast<long long>(amt < 0.0 ? amt - 0.5 : amt + 0.5); // round
     if (amount < 0)
         amount = 0;
+    // Vanilla money is a uint32 copper field, so 0xFFFFFFFF copper (~429,496
+    // gold) is the most the game can represent. Clamp to it: an unclamped huge
+    // input (e.g. 1e15) makes `gold` exceed INT_MAX, and the cast below truncates
+    // it to the low 32 bits, printing a garbage count through the "%d" format.
+    constexpr long long kMaxCopper = 0xFFFFFFFFLL;
+    if (amount > kMaxCopper)
+        amount = kMaxCopper;
 
     int height = kDefaultHeight;
     if (Game::Lua::IsNumber(L, 2)) {
