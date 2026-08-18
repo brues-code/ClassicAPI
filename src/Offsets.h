@@ -374,6 +374,25 @@ enum Offsets {
     // the handle. The layout's node (what the emitter/paint hooks see) is
     // therefore *( *(fs+0xF8) + 8 ).
     OFF_FONTSTRING_TEXT_BLOCK = 0xF8, // HTEXTBLOCK handle (0 when dirty/empty)
+    // CSimpleFontString live text color: count at +0xB4, array pointer at +0xB8
+    // (uint32 BGRA per slot; slot 0 = the base color, alpha = byte 3; a parallel
+    // per-glyph alpha-byte array hangs off +0xA8/+0xA4). Written by the fs
+    // SetColor (FUN_FONTSTRING_SET_COLOR 0x0077F750: stores the dword at
+    // (*(u32**)(fs+0xB8))[0] + the alpha byte at (*(u8**)(fs+0xA8))[0], then
+    // fires the color-update vmethod +0x20). Count 0 = never colored = default
+    // opaque white. THE CHAT-FADE SIGNAL: the ScrollingMessageFrame's fader
+    // (FUN_00788460, gated on the SetFading flag at smf+0x360; per-line state
+    // {rgba@+4, shown@+8, timeVisibleLeft@+0xC, fadeLeft@+0x10} in the
+    // stride-0x10 line array at smf+0x3A4) animates each visible line
+    // fontstring's alpha byte through this same SetColor every frame, then
+    // hides the fs at fade end. Text::InlineTexturePool mirrors this byte onto
+    // the line's icon regions each tick so inline icons fade with their line
+    // (regions parent to the CHAT FRAME, so the frame's own alpha byte —
+    // frame+0xC8, per Script_GetAlpha 0x00774DC0 — already modulates them via
+    // the engine's parent×region product; only the fs's own component needs
+    // mirroring).
+    OFF_FONTSTRING_COLOR_COUNT = 0xB4,
+    OFF_FONTSTRING_COLOR_ARRAY = 0xB8,
     OFF_TEXTBLOCK_NODE = 0x8,         // the gxu text node inside the handle
     // Byte of fontstring state flags; bit 1 = "text block needs rebuild".
     // RebuildString (0x7724A0) gates on it at entry, releases the old block
