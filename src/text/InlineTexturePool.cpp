@@ -27,6 +27,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Text::InlineTexturePool {
 
@@ -48,6 +49,41 @@ using ShowHide_t = void(__fastcall *)(void *tex);
 bool LooksReadable(const void *p) {
     auto a = reinterpret_cast<uintptr_t>(p);
     return a >= 0x00010000u && a < 0xFFFF0000u;
+}
+
+// Vtables seen at object+0x00 of REAL, live fontstrings — learned at paint time
+// (see LearnFontStringVtable / QueuePlacements). A fontstring is polymorphic, so
+// its vtable is a fixed .rdata pointer per class. We LEARN rather than hardcode
+// because chat (ScrollingMessageFrame's internal lines), tooltip, and addon
+// fontstrings are different classes with different vtables — a single hardcoded
+// value filtered live chat icons out entirely.
+std::unordered_set<uintptr_t> g_fsVtables;
+
+// Record a live fontstring's vtable. Called only from QueuePlacements, which the
+// paint hook invokes with a fontstring the engine is actively drawing — so
+// *(void**)fs is a valid vtable here. The module-range gate is belt-and-braces
+// against ever poisoning the set with a stray value.
+void LearnFontStringVtable(const void *fs) {
+    auto a = reinterpret_cast<uintptr_t>(fs);
+    if (a < 0x00010000u || a >= 0xFFFF0000u)
+        return;
+    const uintptr_t vt = *reinterpret_cast<const uintptr_t *>(fs);
+    if (vt >= 0x00400000u && vt < 0x00D2B000u) // WoW.exe image range
+        g_fsVtables.insert(vt);
+}
+
+// True only for a LIVE fontstring: its object+0x00 vtable matches one learned
+// from a genuinely-painted fontstring. A bare VA-range check is not enough — a
+// freed fontstring whose heap memory is reused (as a string buffer, …) still
+// passes it, and reading a garbage "parent" (fs+0x9C) from such a stale key
+// crashed the region attach (FUN_0076a750 dereferencing *(parent+0x1B4), parent
+// = ASCII "-Rac" string bytes). Reused memory never carries a fontstring vtable.
+// The vtable read is safe: the range check bounds the pointer, and these object
+// pages stay committed (we already read fs+0xC8 on the same pointer).
+bool IsLiveFontString(const void *fs) {
+    if (!LooksReadable(fs))
+        return false;
+    return g_fsVtables.count(*reinterpret_cast<const uintptr_t *>(fs)) != 0;
 }
 
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
@@ -197,9 +233,23 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint8_t fsAlpha
 // (deferred out of the text paint — regions must never be mutated mid-paint).
 void Maintain() {
     ++g_maintainTick;
-    for (auto &kv : g_fsIcons) {
-        void *fs = kv.first;
-        FsPlacements &np = kv.second;
+    for (auto it = g_fsIcons.begin(); it != g_fsIcons.end();) {
+        void *fs = it->first;
+        FsPlacements &np = it->second;
+
+        // Stale-key eviction (the crash fix). A destroyed fontstring leaves a
+        // dangling key here; its heap memory may be reused as unrelated data, so
+        // a VA-range check is not enough — verify the live-fontstring vtable. If
+        // it is gone, hide our regions (their tex pointers are OURS, parented to
+        // the chat frame, so still valid) and erase the entry. This also stops
+        // dead keys from accumulating: only live fontstrings survive, and the
+        // chat/tooltip pools reuse a bounded set of them.
+        if (!IsLiveFontString(fs)) {
+            for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
+                Hide(np.regions[static_cast<size_t>(i)].tex);
+            it = g_fsIcons.erase(it);
+            continue;
+        }
 
         // Freshness expiry: a LIVE painted icon line re-queues every paint, so
         // its touch stamp stays current. A parked/orphaned fs (recycled chat
@@ -213,22 +263,24 @@ void Maintain() {
             np.shown = 0;
             np.want.clear();
             np.dirty = false;
+            ++it;
             continue;
         }
 
-        // Mirror the fontstring's visibility EVERY tick, not just on dirty:
+        // Mirror the fontstring's own visibility EVERY tick, not just on dirty:
         // expired/hidden chat lines get their fs Hidden by the message frame,
         // and our regions are parented to the CHAT FRAME (regions can't parent
-        // regions), so they don't inherit the line's own hide.
-        const bool fsAlive =
-            LooksReadable(fs) &&
+        // regions), so they don't inherit the line's own hide. fs is a live
+        // fontstring here (checked above), so this read is safe.
+        const bool fsShown =
             *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fs) +
                                                 Offsets::OFF_REGION_ACTUALLY_SHOWN) != 0;
-        if (!fsAlive) {
+        if (!fsShown) {
             for (int i = 0; i < np.shown; ++i)
                 Hide(np.regions[static_cast<size_t>(i)].tex);
             np.shown = 0;
             np.dirty = true; // re-place if/when the fs shows again
+            ++it;
             continue;
         }
 
@@ -240,8 +292,10 @@ void Maintain() {
             np.dirty = false;
             void *parent = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
                                                       Offsets::OFF_REGION_PARENT);
-            if (!LooksReadable(parent))
+            if (!LooksReadable(parent)) {
+                ++it;
                 continue;
+            }
             const int want = static_cast<int>(np.want.size());
             for (int i = 0; i < want; ++i) {
                 if (i >= static_cast<int>(np.regions.size())) {
@@ -313,6 +367,8 @@ void Maintain() {
                 ApplyPlacement(r, fs, p, fsAlpha);
             }
         }
+
+        ++it;
     }
 }
 
@@ -328,6 +384,11 @@ static const Tick::FrameTick::AutoSubscribe _tick{&Maintain};
 void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
     if (fs == nullptr)
         return;
+    // fs is a fontstring the engine is actively painting — learn its class
+    // vtable so Maintain's liveness check recognizes it (and stale, reused-memory
+    // keys, which never carry one). Must precede the early returns below so an
+    // entry's vtable is always known before Maintain evaluates it.
+    LearnFontStringVtable(fs);
     auto it = g_fsIcons.find(fs);
     if (it == g_fsIcons.end()) {
         if (icons.empty())
