@@ -23,6 +23,7 @@
 #include "text/InlineTexturePool.h"
 
 #include "Offsets.h"
+#include "text/PtrProbe.h"
 #include "tick/FrameTick.h"
 
 #include <string>
@@ -43,13 +44,7 @@ using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, 
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using ShowHide_t = void(__fastcall *)(void *tex);
 
-// NOTE upper bound: the client is Large Address Aware — heap pointers above
-// 0x80000000 are valid (a 2GB cap here silently dropped high fontstrings/nodes;
-// see InlineTexture.cpp's LooksReadable note).
-bool LooksReadable(const void *p) {
-    auto a = reinterpret_cast<uintptr_t>(p);
-    return a >= 0x00010000u && a < 0xFFFF0000u;
-}
+// LAA-aware pointer sanity probe: Text::LooksReadable (text/PtrProbe.h).
 
 // Vtables seen at object+0x00 of REAL, live fontstrings — learned at paint time
 // (see LearnFontStringVtable / QueuePlacements). A fontstring is polymorphic, so
@@ -64,8 +59,7 @@ std::unordered_set<uintptr_t> g_fsVtables;
 // *(void**)fs is a valid vtable here. The module-range gate is belt-and-braces
 // against ever poisoning the set with a stray value.
 void LearnFontStringVtable(const void *fs) {
-    auto a = reinterpret_cast<uintptr_t>(fs);
-    if (a < 0x00010000u || a >= 0xFFFF0000u)
+    if (!LooksReadable(fs))
         return;
     const uintptr_t vt = *reinterpret_cast<const uintptr_t *>(fs);
     if (vt >= 0x00400000u && vt < 0x00D2B000u) // WoW.exe image range

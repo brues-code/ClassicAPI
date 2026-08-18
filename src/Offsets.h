@@ -6464,6 +6464,11 @@ enum Offsets {
     // for editboxes — they show raw, editable `|T…|t` markup. This is the 1.12
     // analog of 4.3.4's per-render texture-disable flag (tokenizer bit 0x1000).
     OFF_TEXT_NODE_FLAGS = 0x5C,
+    // Node horizontal justify (int): 0 = left, 1 = centre, 2 = right — the draw
+    // builder's encoding. The emitter pre-shifts an inline icon's pen by the
+    // line's justify offset for centre/right nodes (left needs no shift).
+    // Verified in-game against centred/right-aligned text layout.
+    OFF_TEXT_NODE_JUSTIFY = 0x54,
     // Node screen origin (float x, float y). The paint pass translates the
     // node's node-local glyph verts by this; an inline icon recorded in
     // node-local pen coords is drawn at (localX + originX, localY + originY).

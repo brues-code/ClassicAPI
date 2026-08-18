@@ -62,6 +62,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "text/InlineTexturePool.h"
+#include "text/PtrProbe.h"
 
 #include <windows.h>
 
@@ -76,18 +77,7 @@ namespace Text::InlineTexture {
 
 namespace {
 
-// True if `p` looks like a readable in-process pointer (heap/.data range), so we
-// can probe engine structures without faulting on a bad/uninitialized field.
-// UPPER BOUND IS 4GB-ish, NOT 2GB: this client is Large Address Aware
-// (VanillaFixes), so heap allocations above 0x80000000 are valid and common
-// once the heap grows. A 0x7FFF0000 cap silently rejected high nodes and
-// fontstrings — and because the flush's layout walk BREAKS on an "unreadable"
-// node, one high node truncated the walk and every node after it lost its
-// icons (the per-row random missing-icon bug).
-bool LooksReadable(const void *p) {
-    auto a = reinterpret_cast<uintptr_t>(p);
-    return a >= 0x00010000u && a < 0xFFFF0000u;
-}
+// LAA-aware pointer sanity probe: Text::LooksReadable (text/PtrProbe.h).
 
 // --- inline-texture descriptor parse ---------------------------------------
 
@@ -316,7 +306,8 @@ float DeriveK(const uint8_t *n, const uint8_t *f, float originX) {
         const float right = *reinterpret_cast<const float *>(f + Offsets::OFF_REGION_RECT + 12);
         const float insetX = *reinterpret_cast<const float *>(f + Offsets::OFF_FONTSTRING_INSET_X);
         if (left < right && std::fabs(insetX) < 1e-6f) {
-            const int justify = *reinterpret_cast<const int *>(n + 0x54);
+            const int justify =
+                *reinterpret_cast<const int *>(n + Offsets::OFF_TEXT_NODE_JUSTIFY);
             const float ref =
                 (justify == 1) ? (left + right) * 0.5f : ((justify == 2) ? right : left);
             if (std::fabs(ref) > 0.02f && originX > 1.0f) {
@@ -1228,8 +1219,8 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // (right) so the whole text+icons block is justified as a unit. Left-justify
     // (chat, justify 0) needs no shift. node+0x54: 1 = centre, 2 = right (verified
     // in the draw builder FUN_005cdc20's justify branch).
-    const int justify =
-        *reinterpret_cast<const int *>(reinterpret_cast<const uint8_t *>(node) + 0x54);
+    const int justify = *reinterpret_cast<const int *>(
+        reinterpret_cast<const uint8_t *>(node) + Offsets::OFF_TEXT_NODE_JUSTIFY);
     if (justify == 1 || justify == 2) {
         // Shared helper so the pre-shift matches the real advances exactly
         // (including the positive-offsetX term an earlier inline copy omitted).
@@ -1472,7 +1463,7 @@ void FlushLayout(void *layout) {
         // regression.)
         if (it != g_nodeIcons.end() && !it->second.empty() && fs != nullptr) {
             const char *ftext = *reinterpret_cast<const char *const *>(
-                reinterpret_cast<uint8_t *>(fs) + 0xF0);
+                reinterpret_cast<uint8_t *>(fs) + Offsets::OFF_FONTSTRING_TEXT);
             bool fsHasMarkup = false;
             if (LooksReadable(ftext)) {
                 for (int k = 1; k < 2048 && ftext[k] != '\0'; ++k)
