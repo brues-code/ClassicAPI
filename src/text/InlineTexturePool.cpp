@@ -258,7 +258,7 @@ void Maintain() {
         // ghosts at the parked position. ~1s at a per-frame tick.
         constexpr uint32_t kWantTTL = 60;
         if (np.shown > 0 && g_maintainTick - np.lastTouchTick > kWantTTL) {
-            for (int i = 0; i < np.shown; ++i)
+            for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
                 Hide(np.regions[static_cast<size_t>(i)].tex);
             np.shown = 0;
             np.want.clear();
@@ -276,7 +276,7 @@ void Maintain() {
             *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fs) +
                                                 Offsets::OFF_REGION_ACTUALLY_SHOWN) != 0;
         if (!fsShown) {
-            for (int i = 0; i < np.shown; ++i)
+            for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
                 Hide(np.regions[static_cast<size_t>(i)].tex);
             np.shown = 0;
             np.dirty = true; // re-place if/when the fs shows again
@@ -316,7 +316,9 @@ void Maintain() {
             for (int i = want; i < np.shown; ++i)
                 if (i < static_cast<int>(np.regions.size()))
                     Hide(np.regions[static_cast<size_t>(i)].tex);
-            np.shown = want;
+            np.shown = (want < static_cast<int>(np.regions.size()))
+                           ? want
+                           : static_cast<int>(np.regions.size());
             np.appliedAlpha = fsAlpha;
         } else if (np.shown > 0 && fsAlpha != np.appliedAlpha) {
             // CHAT-FADE MIRROR: the ScrollingMessageFrame fader animates the
