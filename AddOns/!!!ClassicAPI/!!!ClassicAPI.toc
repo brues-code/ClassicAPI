@@ -45,3 +45,4 @@ Util\Vector4D.lua
 Util\UIParent.lua
 Util\AuraDurationModifiers.lua
 Util\SecureUnitMenu.lua
+Util\TextureUtil.lua
