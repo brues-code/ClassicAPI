@@ -42,17 +42,20 @@
 // Supports the full positional payload
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
 // (size, pen offset, sprite-sheet texcoord crop, and r:g:b vertex tint). MEASURE
-// width is corrected at the fs-level choke: the tokenizer still reports an icon
-// as ~zero width to every measure/wrap loop (the token contract has no width
-// field), but a co-hook on the internal string-width getter
-// (FUN_FONTSTRING_STRING_WIDTH) re-adds the same per-icon advances the emitter
-// reserves — so GetStringWidth, the tooltip auto-size, and auto-width layout
-// match the rendered width — and a co-hook on the shared wrap-stepper
-// dispatcher (FUN_TEXT_WRAP_STEPPER) shrinks the wrap width by the line's icon
-// advances so wrapped lines break at the visible edge instead of overflowing.
-// Still icon-blind (documented, accepted): the substring measure
-// (FUN_00772AE0) and hyperlink hit-testing. See docs/InlineTextureEscapes.md
-// for the RE map.
+// is corrected at the fs-level chokes: the tokenizer still reports an icon as
+// ~zero to every measure/wrap loop (the token contract has no size fields), but
+// a co-hook on the internal string-width getter (FUN_FONTSTRING_STRING_WIDTH)
+// re-adds the same per-icon advances the emitter reserves — so GetStringWidth,
+// the tooltip auto-size, and auto-width layout match the rendered width — a
+// co-hook on the internal string-height getter (FUN_FONTSTRING_STRING_HEIGHT)
+// adds the tallest icon's overflow past the font height — so a tall icon's
+// LINE grows to fit it (chat stacking + auto-height rects; tall icons
+// bottom-align at draw so the overflow points into the grown space) — and a
+// co-hook on the shared wrap-stepper dispatcher (FUN_TEXT_WRAP_STEPPER)
+// shrinks the wrap width by the line's icon advances so wrapped lines break at
+// the visible edge instead of overflowing. Still icon-blind (documented,
+// accepted): the substring measure (FUN_00772AE0) and hyperlink hit-testing.
+// See docs/InlineTextureEscapes.md for the RE map.
 
 #include "text/InlineTexture.h"
 
@@ -590,6 +593,41 @@ float SumIconAdvances(const uint8_t *text, int len, float fontHPen) {
     return sum;
 }
 
+// The tallest icon's VERTICAL OVERFLOW past the font height, in px, over every
+// well-formed span in [text, text+len) — 0 when every icon fits the line.
+// Only explicit `|T…:H|t` heights can overflow (the `:0` default IS the font
+// height). Drives the line-height growth: the string-height co-hook adds this
+// so a tall icon's line takes real vertical room (the 4.3.4 model, whose wrap
+// and measure loops export a max-texture-height for exactly this), and the
+// draw bottom-aligns tall icons so the overflow points INTO the grown space.
+float MaxIconOverflowPx(const uint8_t *text, int len, float fontHPx) {
+    float maxH = 0.0f;
+    int i = 0;
+    while (i < len) {
+        const int ml = IconStartLen(text, len, i);
+        if (ml == 0) {
+            if (text[i] == '|' && i + 1 < len && text[i + 1] == '|')
+                i += 2;
+            else
+                ++i;
+            continue;
+        }
+        int cl = 0;
+        const size_t ce = FindIconClose(text, len, static_cast<size_t>(i) + ml, ml == 3, &cl);
+        if (ce == static_cast<size_t>(-1))
+            break;
+        IconDesc d;
+        if (ParseIcon(reinterpret_cast<const char *>(text) + i + ml,
+                      ce - (static_cast<size_t>(i) + ml), d)) {
+            const float h = ((d.height > 0.0f) ? d.height : fontHPx) * g_sizeScale;
+            if (h > maxH)
+                maxH = h;
+        }
+        i = static_cast<int>(ce) + cl;
+    }
+    return (maxH > fontHPx) ? (maxH - fontHPx) : 0.0f;
+}
+
 // --- tokenizer co-hook (measure/wrap correction) ---------------------------
 
 // FUN_005c2810 — the shared `|`-escape tokenizer. Returns a token-type code,
@@ -710,6 +748,68 @@ float __fastcall StringWidth_h(void *fs) {
 static const Game::HookAutoRegister _stringWidthHook{
     Offsets::FUN_FONTSTRING_STRING_WIDTH, reinterpret_cast<void *>(&StringWidth_h),
     reinterpret_cast<void **>(&g_stringWidthOriginal)};
+
+// --- string-height co-hook (line growth for tall icons) ---------------------
+//
+// FUN_FONTSTRING_STRING_HEIGHT = GetStringHeightInternal (cache fs+0x100,
+// lines×fontH + (lines−1)×spacing — icon-blind). Its three binary consumers
+// (verified via xrefs):
+//   • FUN_00772A60 — the anchor's effective-height vmethod: explicit height if
+//     set, else THIS. Chat line fontstrings get only a SetWidth from the
+//     ScrollingMessageFrame refresh, so their rect height resolves here.
+//   • FUN_00788750 — the SMF display refresh: budgets vertical space per line
+//     with THIS and anchors each line to the previous line's rect.
+//   • FUN_0077D4D0 — the multi-line EDITBOX self-size (excluded below; editbox
+//     text renders raw markup, so its height must stay literal).
+// Adding the tallest icon's overflow past the font height therefore grows the
+// line's rect AND the chat stack's spacing in one place — a 24px emote in 15px
+// chat takes real vertical room instead of overlapping its neighbours. This is
+// the 4.3.4 model: its measure/wrap loops export a max-texture-height out-param
+// and the layout grows the line (FUN_00618b90/FUN_00618e40 case 7).
+//
+// The draw side bottom-aligns tall icons (see FlushLayout's cy), so the
+// overflow points UP — into the grown space — which matches the SMF's
+// bottom-anchored stacking (older lines shift up by the growth).
+//
+// Same rules as the width hook: NEVER write the fs+0x100 cache (the delta is
+// re-derived and re-added per call — idempotent); px→anchor via the push
+// factor, not fs+0x7C. v1 limit (documented): the delta is the WHOLE text's
+// max overflow, exact when the tall icons sit on one wrapped line (the emote
+// case); two tall icons on different wrapped lines of one message under-grow.
+using StringHeightInternal_t = float(__fastcall *)(void *fs);
+StringHeightInternal_t g_stringHeightOriginal = nullptr;
+
+float __fastcall StringHeight_h(void *fs) {
+    const float base = g_stringHeightOriginal(fs);
+    if (!LooksReadable(fs))
+        return base;
+    const auto *f = reinterpret_cast<const uint8_t *>(fs);
+    const bool editable =
+        (*reinterpret_cast<const uint32_t *>(f + Offsets::OFF_FONTSTRING_MEASURE_FLAGS) &
+         0x1000u) != 0;
+    const uint8_t *text =
+        *reinterpret_cast<const uint8_t *const *>(f + Offsets::OFF_FONTSTRING_TEXT);
+    if (!LooksReadable(text) || !InlineInterceptActive(text, editable))
+        return base;
+    int len = 0;
+    while (len < 0x4000 && text[len] != '\0')
+        ++len;
+    if (!HasInlineTexture(text, len))
+        return base;
+    const float mul = *reinterpret_cast<const float *>(Offsets::VAR_UI_COORD_SCALE_MUL);
+    const float div = *reinterpret_cast<const float *>(Offsets::VAR_UI_COORD_SCALE_DIV);
+    if (!(mul > 0.0f) || !(div > 0.0f))
+        return base;
+    const float anchorToPx = div * Offsets::UI_COORD_SCALE_UNIT / mul;
+    const float fontHPx =
+        reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(fs, nullptr, 1) *
+        anchorToPx;
+    return base + MaxIconOverflowPx(text, len, fontHPx) / anchorToPx;
+}
+
+static const Game::HookAutoRegister _stringHeightHook{
+    Offsets::FUN_FONTSTRING_STRING_HEIGHT, reinterpret_cast<void *>(&StringHeight_h),
+    reinterpret_cast<void **>(&g_stringHeightOriginal)};
 
 // --- wrap-stepper co-hook (icon-aware line breaks) ---------------------------
 //
@@ -1371,6 +1471,14 @@ void FlushLayout(void *layout) {
                 // Centre on the line: penY sits near the text top, so add a
                 // fraction of the font height (plus the fine-tune bias). offsetY
                 // shifts up (WoW convention), so subtract it.
+                //
+                // TALL icons (h > fontH) centre too: the string-height co-hook
+                // grew the line by the overflow, and the text centres itself
+                // inside the grown rect (verified in-game — a bottom-aligned
+                // icon clipped the neighbouring line while retail shows tall
+                // emotes centred with no clip), so the extra space appears half
+                // above and half below the text. A centred icon fills exactly
+                // that — the retail look.
                 const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
                 if (K > 1.0f && fs != nullptr && fsRectValid) {
                     const float rx = cx + g_regionCalX;
