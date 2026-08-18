@@ -811,6 +811,70 @@ static const Game::HookAutoRegister _stringHeightHook{
     Offsets::FUN_FONTSTRING_STRING_HEIGHT, reinterpret_cast<void *>(&StringHeight_h),
     reinterpret_cast<void **>(&g_stringHeightOriginal)};
 
+// --- hyperlink-rect co-hook (tall icons stay hoverable) ----------------------
+//
+// FUN_TEXT_LINK_RECT_ADD appends a link's hit rect with the TEXT band's y
+// extent (fontH tall — see Offsets.h). A tall inline icon inside a link
+// (|H…|h with a |T…:32|t emote) centres on the line and pokes past that band,
+// so only its text-high middle slice was hoverable.
+//
+// The consumer geometry (FUN_00788c00 → FUN_007a3350 + two in-game
+// experiments): the SMF rebuilds a HIT REGION per record, anchored to the
+// LINE FONTSTRING's TOP-LEFT with the record's y band as offset/height. The
+// band's y values are Y-UP (numeric max = screen top; extending the max
+// visibly grew the region into the line ABOVE), and the band is TEXT-relative
+// — but the string-height co-hook grew the fs rect by the icon overflow and
+// the text centres in the grown rect, so the anchor (rect top) already sits
+// HALF the overflow above the text top, pre-shifting the whole hit band up.
+// Net: the unmodified band covers [iconTop .. textBottom − half] — the
+// original "only the top half hovers" symptom — and the ONLY correction
+// needed is pushing the screen BOTTOM down by the FULL overflow, i.e.
+// DECREASING the numeric MIN edge. (Symmetric ± expansion moved the bottom
+// edge UP — bottom third dead; extending the max grew the top into the line
+// above — both verified in-game and both consistent with this model.)
+// escStart/escLen span the whole |H…|h escape, so any |T inside is found; the
+// InlineInterceptActive gate keeps raw-rendered contexts (suppressed editbox
+// delegation) literal. Known v1 rough edge: a tall icon OUTSIDE the link but
+// on the same line grows the line without this hook firing for the link,
+// leaving that link's band half-overflow high.
+using LinkRectAdd_t = void(__fastcall *)(void *node, void *edx, float yA, float xLeft, float yB,
+                                         float xRight, const char *linkStart, uint32_t linkLen,
+                                         const uint8_t *escStart, uint32_t escLen);
+LinkRectAdd_t g_linkRectAddOriginal = nullptr;
+
+void __fastcall LinkRectAdd_h(void *node, void *edx, float yA, float xLeft, float yB, float xRight,
+                              const char *linkStart, uint32_t linkLen, const uint8_t *escStart,
+                              uint32_t escLen) {
+    if (g_inlineEnabled && LooksReadable(node) && LooksReadable(escStart) && escLen > 0 &&
+        escLen < 0x4000 && InlineInterceptActive(escStart, false)) {
+        const int len = static_cast<int>(escLen);
+        if (HasInlineTexture(escStart, len)) {
+            // The line's font pixel height, the emitter's own recipe (ecx =
+            // (nodeFlags>>7)&1, stack = node fontSize).
+            const uint32_t nodeFlags = *reinterpret_cast<const uint32_t *>(
+                reinterpret_cast<const uint8_t *>(node) + Offsets::OFF_TEXT_NODE_FLAGS);
+            const float fontSize = *reinterpret_cast<const float *>(
+                reinterpret_cast<const uint8_t *>(node) + Offsets::OFF_TEXT_NODE_FONT_SIZE);
+            const float fontH = reinterpret_cast<float(__fastcall *)(int, float)>(
+                Offsets::FUN_TEXT_FONT_HEIGHT)(static_cast<int>((nodeFlags >> 7) & 1u), fontSize);
+            const float overflow = MaxIconOverflowPx(escStart, len, fontH);
+            if (overflow > 0.0f) {
+                // Push the SCREEN BOTTOM down: decrease the numeric MIN edge
+                // (y-up band) — see the anchor-shift analysis above.
+                if (yA <= yB)
+                    yA -= overflow;
+                else
+                    yB -= overflow;
+            }
+        }
+    }
+    g_linkRectAddOriginal(node, edx, yA, xLeft, yB, xRight, linkStart, linkLen, escStart, escLen);
+}
+
+static const Game::HookAutoRegister _linkRectAddHook{Offsets::FUN_TEXT_LINK_RECT_ADD,
+                                                     reinterpret_cast<void *>(&LinkRectAdd_h),
+                                                     reinterpret_cast<void **>(&g_linkRectAddOriginal)};
+
 // --- wrap-stepper co-hook (icon-aware line breaks) ---------------------------
 //
 // FUN_TEXT_WRAP_STEPPER lays out one wrapped line per call (see Offsets.h).

@@ -6523,6 +6523,20 @@ enum Offsets {
     // kern, exactly what an inline icon following the glyph needs. See
     // FUN_005ca240.
     FUN_TEXT_GLYPH_BASE_ADVANCE = 0x005CA240,
+    // Hyperlink hit-rect registration (the GXUFONTHYPERLINKINFO append).
+    // `__thiscall(node, float yA, float xLeft, float yB, float xRight,
+    // char *linkStart, uint linkLen, char *escStart, uint escLen)` — 8 stack
+    // dwords, RET 0x20. Appends a 0x20-byte record to the node's link array
+    // (cap +0x7C, count +0x80, data +0x84): the four floats normalized to
+    // screen space ({yA,left,yB,right} — the engine's y-first rect order; the
+    // emitter's |H open writes linkState[2]=xLeft, |h close linkState[4]=
+    // xRight, the draw builder provides the line's yA/yB), then the four link
+    // dwords raw. Called from the emitter's |h close (case 5). The y extent is
+    // the TEXT band (fontH tall) — co-hooked so a link containing a tall
+    // inline icon gets its hit band expanded by the icon's overflow (the
+    // line-height-growth counterpart; without it only the text-high slice of
+    // a 32px emote link was hoverable). See FUN_005cd310.
+    FUN_TEXT_LINK_RECT_ADD = 0x005CD310,
 
     // Shared `|`-escape tokenizer. `__fastcall(byte *text /*ecx*/, int
     // *bytesConsumed /*edx*/, uint *colorOut, uint flags, uint *payloadOut) ->
