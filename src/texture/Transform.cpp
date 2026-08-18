@@ -291,11 +291,38 @@ int __fastcall Script_GetVertexOffset(void *L) {
     return 2;
 }
 
+// Debug binding: dump the drawn-quad corner array (+0xD4) and the resolved
+// layout rect, raw internal units, no conversion. Returns 12 numbers:
+// BLx,BLy, TLx,TLy, BRx,BRy, TRx,TRy, rectTop, rectLeft, rectBottom, rectRight.
+// Diagnostic-only — for corner-transform triage from Lua.
+int __fastcall Script_GetCorners(void *L) {
+    void *tex = nullptr;
+    if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
+        tex = Game::Lua::ResolveObject(L, 1);
+    if (tex == nullptr) {
+        Game::Lua::Error(L, "Usage: texture:GetCorners()");
+        return 0;
+    }
+    const float *base = reinterpret_cast<const float *>(
+        reinterpret_cast<char *>(tex) + Offsets::OFF_SIMPLETEXTURE_CORNERS);
+    for (int i = 0; i < 4; ++i) {
+        Game::Lua::PushNumber(L, base[i * 3 + 0]);
+        Game::Lua::PushNumber(L, base[i * 3 + 1]);
+    }
+    float rect[4] = {0, 0, 0, 0};
+    void *anchor = reinterpret_cast<char *>(tex) + Offsets::OFF_REGION_ANCHOR;
+    reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(anchor, nullptr, rect);
+    for (int i = 0; i < 4; ++i)
+        Game::Lua::PushNumber(L, rect[i]);
+    return 12;
+}
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetRotation", &Script_SetRotation},
     {"GetRotation", &Script_GetRotation},
     {"SetVertexOffset", &Script_SetVertexOffset},
     {"GetVertexOffset", &Script_GetVertexOffset},
+    {"GetCorners", &Script_GetCorners},
 };
 
 void RegisterLuaFunctions() {
