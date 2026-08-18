@@ -64,7 +64,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
@@ -225,9 +224,9 @@ float g_penPerAnchor = 0.0f;
 // Region calibration, PEN units added to the region's position. x needs no
 // constant — the +3 once calibrated here turned out to be the missing lead pad,
 // now applied at draw. y keeps a 1px residual (the pen→anchor map's one true
-// constant). Tunable live via _classicapi_InlineTexRegionCal(dx, dy).
-float g_regionCalX = 0.0f;
-float g_regionCalY = -1.0f;
+// constant). Calibrated in-game during bring-up; fixed now.
+constexpr float g_regionCalX = 0.0f;
+constexpr float g_regionCalY = -1.0f;
 
 // Draw-builder co-hook: exact build boundaries for first-line detection. The
 // builder runs once per node build and calls the emitter per wrapped line;
@@ -332,19 +331,9 @@ float DeriveK(const uint8_t *n, const uint8_t *f, float originX) {
 }
 
 // Runtime toggle (default ON — the feature is proven; `_classicapi_InlineTexEnable(false)`
-// still turns it off). When off, the emitter/tokenizer co-hooks fast-path straight
-// to the originals.
+// still turns it off, and the SEH latch trips it on a flush fault). When off, the
+// emitter/tokenizer co-hooks fast-path straight to the originals.
 bool g_inlineEnabled = true;
-// Manual suppression override (Lua _classicapi_InlineTexSuppress) — normally
-// unused. Editbox exclusion is per-node via NodeEditable (below), not a global.
-bool g_suppressInline = false;
-
-// True while an EditBox has keyboard focus (the engine's cursor global is set).
-// Suppression keys on the focused editbox's BUFFER, not this global (see
-// TextInFocusedEditbox below); kept only for the manual-override edge.
-inline bool InputFocused() {
-    return *reinterpret_cast<void *const *>(Offsets::VAR_FOCUSED_EDITBOX) != nullptr;
-}
 
 // True if `t` points into [buf, buf+strlen(buf)] — a TIGHT, exact extent (bounded
 // strlen, cap 0x4000). The editbox's buffers are distinct heap allocations, so an
@@ -443,8 +432,8 @@ inline bool TextInReentry(const uint8_t *t) {
 // stays at its call site — it's about where the tokenizer stands in the text,
 // not about whether the feature is active.
 bool InlineInterceptActive(const uint8_t *text, bool editable) {
-    return g_inlineEnabled && !g_suppressInline && !editable && text != nullptr &&
-           !TextInReentry(text) && !TextInFocusedEditbox(text);
+    return g_inlineEnabled && !editable && text != nullptr && !TextInReentry(text) &&
+           !TextInFocusedEditbox(text);
 }
 
 // A text node's flags (`[node+0x5c]`) bit 6 (0x40) distinguishes editable input
@@ -460,12 +449,14 @@ inline bool NodeEditable(const void *node) {
             0x40u) != 0;
 }
 
-float g_vBias = 0.0f;     // extra node-local Y added to the icon centre (fine-tune)
-float g_sizeScale = 1.0f; // multiplies the parsed icon size
+// Geometry constants, calibrated in-game during bring-up (via a since-removed
+// live-tune surface) and now fixed.
+constexpr float g_vBias = 0.0f;     // extra node-local Y added to the icon centre
+constexpr float g_sizeScale = 1.0f; // multiplies the parsed icon size
 // Icon vertical centre = penY + fontHeight * centerFrac. penY sits near the text
 // top; ~0.6 centres the icon on the line across the fonts we render into (chat +
-// pfUI's bubble), tuned in-game via _classicapi_InlineTexTune.
-float g_centerFrac = 0.6f;
+// pfUI's bubble).
+constexpr float g_centerFrac = 0.6f;
 // Horizontal breathing room around every inline icon, as a fraction of the LINE'S
 // FONT HEIGHT — a text-relative gap, like the space between words. It is NOT a
 // fraction of the icon's own width: that made the gap scale with icon size, so a
@@ -476,9 +467,9 @@ float g_centerFrac = 0.6f;
 // Applied FULL on the lead (left) and HALF on the trail (right): the preceding
 // glyph's right-side bearing extends past the reported pen and eats into the left
 // gap visually, so a lead-heavy split makes the left and right gaps LOOK even.
-// Without any pad an icon crowds the char before it. Tuned via
-// _classicapi_InlineTexTune (4th arg). 0.18 ≈ 2.7px lead / 1.35px trail at a 15px font.
-float g_iconPadFrac = 0.18f;
+// Without any pad an icon crowds the char before it. 0.18 ≈ 2.7px lead / 1.35px
+// trail at a 15px font.
+constexpr float g_iconPadFrac = 0.18f;
 
 // The 1.12 FontString text sanitizer DOUBLES any pipe that doesn't begin a
 // recognized escape (so it renders as a literal `|`). Since 1.12 doesn't know
@@ -756,29 +747,6 @@ using WrapStepper_t = void(__fastcall *)(void *font, uint8_t *text, float fontH,
                                          uint8_t *p10);
 WrapStepper_t g_wrapStepperOriginal = nullptr;
 
-// Diagnostics ring for the wrap hook — one record per icon-bearing stepper
-// call, read back via _classicapi_InlineTexWrap(n). All widths are in the
-// CALLER's unit space except the *Px fields.
-constexpr uint32_t kWrapDiagCount = 8;
-struct WrapDiag {
-    float wrapWidth = 0.0f; // width the caller passed
-    float fontH = 0.0f;     // fontH the caller passed (caller units)
-    float fontHPx = 0.0f;   // FUN_TEXT_FONT_HEIGHT's pixel realization of it
-    int len = 0;            // text length scanned (to '\n'/'\0', cap 2048)
-    int passes = 0;         // probe passes run (≤8)
-    float probeS[8] = {};   // per-pass shrink candidate probed
-    float sumPx[8] = {};    // per-pass icon-advance sum before the probe break
-    int lineLen[8] = {};    // per-pass line length used for the sum (chars)
-    int pBreakA[8] = {};    // per-pass raw outBreak from the stepper
-    int pNextD[8] = {};     // per-pass raw outNext - text (-1 when null/inval)
-    float pWidthA[8] = {};  // per-pass raw outWidth from the stepper
-    float finalSumPx = 0.0f;
-    float shrunk = 0.0f;    // width handed to the original
-    int floored = 0;        // hit the minWidth floor
-};
-WrapDiag g_wrapDiag[kWrapDiagCount];
-uint32_t g_wrapDiagNext = 0;
-
 void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrapWidth,
                               int *outBreak, float *outWidth, void *outNext, float indent,
                               uint32_t flags, uint8_t *p10) {
@@ -822,13 +790,6 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                 // back to EVERY icon, and the loop "converges" on the naive
                 // whole-text shrink (the v2 bug — multi-icon lines still
                 // shredded while single-icon lines worked).
-                WrapDiag &d = g_wrapDiag[g_wrapDiagNext % kWrapDiagCount];
-                ++g_wrapDiagNext;
-                d = WrapDiag{};
-                d.wrapWidth = wrapWidth;
-                d.fontH = fontH;
-                d.fontHPx = fontHPx;
-                d.len = len;
                 // Minimal-feasible-shrink search. The stepper reports the
                 // line's measured (icons-at-zero) width in outWidth, so each
                 // probe yields a direct feasibility check: the line renders
@@ -864,7 +825,7 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                                           static_cast<void *>(&pNext), indent, flags,
                                           (p10 != nullptr) ? &p10copy : nullptr);
                     // outBreak and outNext−text are both BYTE counts (verified
-                    // via the diag); outBreak == len means the whole text fit.
+                    // during bring-up); outBreak == len means the whole text fit.
                     int lineLen = len;
                     if (pBreak > 0 && pBreak < len)
                         lineLen = pBreak;
@@ -875,15 +836,6 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                     float slack = probeW - pWidth;
                     if (slack < 0.0f)
                         slack = 0.0f;
-                    d.probeS[pass] = s;
-                    d.sumPx[pass] = sumPx;
-                    d.lineLen[pass] = lineLen;
-                    d.pBreakA[pass] = pBreak;
-                    d.pNextD[pass] = (pNext != nullptr && pNext >= text)
-                                         ? static_cast<int>(pNext - text)
-                                         : -1;
-                    d.pWidthA[pass] = pWidth;
-                    d.passes = pass + 1;
                     // AUTO-WIDTH bail: the whole text fits its budget with at
                     // most ~a glyph of slack — the signature of a
                     // single-anchor, no-width fontstring whose wrap budget is
@@ -944,12 +896,8 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                 }
                 const float finalShrink = (best >= 0.0f) ? best : s;
                 float shrunk = wrapWidth - finalShrink;
-                if (shrunk < minWidth) {
+                if (shrunk < minWidth)
                     shrunk = minWidth;
-                    d.floored = 1;
-                }
-                d.finalSumPx = (toUnits > 0.0f) ? (finalShrink / toUnits) : 0.0f;
-                d.shrunk = shrunk;
                 wrapWidth = shrunk;
             }
         }
@@ -984,11 +932,10 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // recorded for it, so editable input shows raw markup. Covers the FOCUSED
     // editbox's own text (this render line's CONTENT equals the editbox input —
     // the editbox renders through a transient copy with no pointer link), the
-    // pointer path (`text` inside the input buffer, rare), any editable node (flags
-    // bit 6, e.g. the un-focused macro editor), and the manual override. Per-
-    // editbox, not global: a chat-history line's content differs, so its icons keep
-    // rendering while an editbox is focused.
-    const bool sup_manual = g_suppressInline;
+    // pointer path (`text` inside the input buffer, rare), and any editable node
+    // (flags bit 6, e.g. the un-focused macro editor). Per-editbox, not global: a
+    // chat-history line's content differs, so its icons keep rendering while an
+    // editbox is focused.
     const bool sup_ptr = TextInFocusedEditbox(text);
     const bool sup_content = !sup_ptr && EmitLineIsFocusedEditbox(text);
     // Suppress on the editable bit (bit 6). Verified via the ICON-NODE probe: chat
@@ -998,7 +945,7 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // can't, since it's not the focused editbox) without touching chat display.
     // Content-match still handles the focused chat/name box.
     const bool sup_editable = node != nullptr && NodeEditable(node);
-    if (sup_manual || sup_ptr || sup_content || sup_editable) {
+    if (sup_ptr || sup_content || sup_editable) {
         if (node != nullptr)
             g_nodeIcons.erase(node);
         // Bracket the delegated raw layout so the re-entrant tokenizer stands down
@@ -1291,24 +1238,6 @@ static const Game::HookAutoRegister _emitterHook{Offsets::FUN_TEXT_EMITTER,
 
 // --- paint co-hook: queue recorded icons as region placements ---------------
 
-uint32_t g_faultCode = 0;
-uintptr_t g_faultAddr = 0;
-
-// Flush-gate telemetry (cumulative): how often an icon-bearing node's region
-// queue was issued vs dropped, and by which gate. Read via InlineTexStats.
-uint32_t g_statQueued = 0;   // QueuePlacements(fs, places) issued
-uint32_t g_statDropNoFs = 0; // owner missing / authority failed
-uint32_t g_statDropRect = 0; // fs rect unresolved this paint
-uint32_t g_statDropK = 0;    // pen→anchor scale not yet derived
-uint32_t g_statNudged = 0;   // stuck-blockless fs redirtied for engine rebuild
-uint32_t g_statDropEditable = 0; // editable node queued {} over an owner fs
-
-int CaptureFault(EXCEPTION_POINTERS *ep, uint32_t *code, uintptr_t *addr) {
-    *code = ep->ExceptionRecord->ExceptionCode;
-    *addr = reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-
 using Paint_t = void(__fastcall *)(void *layout);
 Paint_t g_paintOriginal = nullptr;
 
@@ -1360,10 +1289,7 @@ void FlushLayout(void *layout) {
                     // and the icon pipeline resumes. Byte write only — safe
                     // from the paint tail (consumed by the fs's own update).
                     uint8_t *flags = of + Offsets::OFF_FONTSTRING_DIRTY_FLAGS;
-                    if ((*flags & 1u) == 0) {
-                        *flags |= 1u;
-                        ++g_statNudged;
-                    }
+                    *flags |= 1u;
                 }
             }
         }
@@ -1471,28 +1397,22 @@ void FlushLayout(void *layout) {
             // That was the scroll-landing bug's second head: lines painted
             // before the session's first K derivation queued {} and stayed
             // iconless until their text changed.
-            if (fs == nullptr)
-                ++g_statDropNoFs;
-            else if (!fsRectValid)
-                ++g_statDropRect;
-            else if (!(K > 1.0f))
-                ++g_statDropK;
-            else {
-                ++g_statQueued;
+            if (fs != nullptr && fsRectValid && K > 1.0f)
                 Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
-            }
         } else if (fs != nullptr) {
-            ++g_statDropEditable;
             Text::InlineTexturePool::QueuePlacements(fs, {});
         }
         node = next;
     }
 }
 
+// SEH latch: a fault anywhere in the flush disables the whole feature for the
+// session instead of crashing the client (re-enable via
+// _classicapi_InlineTexEnable after a /reload if it was transient).
 void SafeFlush(void *layout) {
     __try {
         FlushLayout(layout);
-    } __except (CaptureFault(GetExceptionInformation(), &g_faultCode, &g_faultAddr)) {
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
         g_inlineEnabled = false;
     }
 }
@@ -1509,11 +1429,8 @@ static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
 
 // --- Lua control surface ---------------------------------------------------
 
-double Arg(void *L, int idx, double fallback) {
-    return Game::Lua::IsNumber(L, idx) ? Game::Lua::ToNumber(L, idx) : fallback;
-}
-
-// _classicapi_InlineTexEnable([on]) -> enabled
+// _classicapi_InlineTexEnable([on]) -> enabled. The feature kill switch (also
+// what the SEH latch trips on a flush fault).
 int __fastcall Script_InlineTexEnable(void *L) {
     if (Game::Lua::GetTop(L) == 0)
         g_inlineEnabled = true;
@@ -1523,161 +1440,8 @@ int __fastcall Script_InlineTexEnable(void *L) {
     return 1;
 }
 
-// _classicapi_InlineTexSuppress([on]) -> suppressed
-int __fastcall Script_InlineTexSuppress(void *L) {
-    if (Game::Lua::GetTop(L) == 0)
-        g_suppressInline = true;
-    else
-        g_suppressInline = Game::Lua::ToBoolean(L, 1) != 0;
-    Game::Lua::PushBool(L, g_suppressInline);
-    return 1;
-}
-
-// _classicapi_InlineTexTune(vBias, sizeScale, centerFrac, iconPadFrac) -> the
-// same four. Live geometry calibration; omitted args keep their value.
-int __fastcall Script_InlineTexTune(void *L) {
-    g_vBias = static_cast<float>(Arg(L, 1, g_vBias));
-    g_sizeScale = static_cast<float>(Arg(L, 2, g_sizeScale));
-    g_centerFrac = static_cast<float>(Arg(L, 3, g_centerFrac));
-    g_iconPadFrac = static_cast<float>(Arg(L, 4, g_iconPadFrac));
-    Game::Lua::PushNumber(L, g_vBias);
-    Game::Lua::PushNumber(L, g_sizeScale);
-    Game::Lua::PushNumber(L, g_centerFrac);
-    Game::Lua::PushNumber(L, g_iconPadFrac);
-    return 4;
-}
-
-// _classicapi_InlineTexStats() -> enabled, suppressed, trackedNodes, faultCode,
-// queued, dropNoFs, dropRect, dropK, faultAddr (flush-gate telemetry cumulative;
-// faultAddr = the faulting instruction VA when the SEH latch tripped, 0 if never).
-int __fastcall Script_InlineTexStats(void *L) {
-    Game::Lua::PushBool(L, g_inlineEnabled);
-    Game::Lua::PushBool(L, g_suppressInline);
-    Game::Lua::PushNumber(L, static_cast<double>(g_nodeIcons.size()));
-    Game::Lua::PushNumber(L, static_cast<double>(g_faultCode));
-    Game::Lua::PushNumber(L, static_cast<double>(g_statQueued));
-    Game::Lua::PushNumber(L, static_cast<double>(g_statDropNoFs));
-    Game::Lua::PushNumber(L, static_cast<double>(g_statDropRect));
-    Game::Lua::PushNumber(L, static_cast<double>(g_statDropK));
-    Game::Lua::PushNumber(L, static_cast<double>(g_faultAddr));
-    Game::Lua::PushNumber(L, static_cast<double>(g_statNudged));
-    Game::Lua::PushNumber(L, static_cast<double>(g_statDropEditable));
-    return 11;
-}
-
-// _classicapi_InlineTexRegionCal([dx][, dy]) -> dx, dy. Pixel (pen-unit) nudge
-// applied to the icon regions' position.
-int __fastcall Script_InlineTexRegionCal(void *L) {
-    g_regionCalX = static_cast<float>(Arg(L, 1, g_regionCalX));
-    g_regionCalY = static_cast<float>(Arg(L, 2, g_regionCalY));
-    Game::Lua::PushNumber(L, g_regionCalX);
-    Game::Lua::PushNumber(L, g_regionCalY);
-    return 2;
-}
-
-// _classicapi_InlineTexWrap([n]) -> wrapWidth, fontH, fontHPx, len, passes,
-// finalSumPx, shrunkWidth, floored, passSummary. n = 0 (default) is the most
-// recent icon-bearing wrap-stepper call, 1 the one before, … up to 7.
-// wrapWidth/fontH/shrunk are in the CALLER's unit space; fontHPx and the
-// sums are pixels. passSummary is one string ("p1 s=… sum=…px len=… brk=…
-// nxt=… w=… | p2 …") with every probe's shrink candidate, icon sum, line
-// length, raw outBreak/outNext−text, and raw outWidth — compacted so /dump's
-// ~30-value print cap never truncates the record.
-int __fastcall Script_InlineTexWrap(void *L) {
-    uint32_t n = 0;
-    if (Game::Lua::IsNumber(L, 1))
-        n = static_cast<uint32_t>(Game::Lua::ToNumber(L, 1));
-    if (n >= kWrapDiagCount || n >= g_wrapDiagNext)
-        return 0;
-    const WrapDiag &d =
-        g_wrapDiag[(g_wrapDiagNext - 1 - n) % kWrapDiagCount];
-    if (d.passes == 0)
-        return 0;
-    Game::Lua::PushNumber(L, d.wrapWidth);
-    Game::Lua::PushNumber(L, d.fontH);
-    Game::Lua::PushNumber(L, d.fontHPx);
-    Game::Lua::PushNumber(L, static_cast<double>(d.len));
-    Game::Lua::PushNumber(L, static_cast<double>(d.passes));
-    Game::Lua::PushNumber(L, d.finalSumPx);
-    Game::Lua::PushNumber(L, d.shrunk);
-    Game::Lua::PushNumber(L, static_cast<double>(d.floored));
-    // All passes compacted into ONE string so a /dump never truncates (its
-    // print caps around 30 values).
-    char buf[512];
-    int off = 0;
-    for (int i = 0; i < d.passes && off < static_cast<int>(sizeof(buf)) - 1; ++i) {
-        off += snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off),
-                        "%sp%d s=%.4f sum=%.1fpx len=%d brk=%d nxt=%d w=%.4f",
-                        (i != 0) ? " | " : "", i + 1, d.probeS[i], d.sumPx[i], d.lineLen[i],
-                        d.pBreakA[i], d.pNextD[i], d.pWidthA[i]);
-        if (off < 0)
-            break;
-    }
-    Game::Lua::PushString(L, buf);
-    return 9;
-}
-
-// _classicapi_InlineTexProbeFS("FontStringName") ->
-//   s, rect[0..3] (raw +0x64..+0x70: {yA, left, yB, right}), insetX, insetY,
-//   originX, originY, nodeFontH
-// Verification probe for the pen↔anchor scale bridge (RebuildString 0x7724A0,
-// fs+0x7C): expected relations are origin ≈ (rectCorner + inset×s)/s (or ×s,
-// depending on which side of the bridge the node stores) and nodeFontH ≈
-// fontPx×s. Node fields are nil when the fontstring has no built text block.
-int __fastcall Script_InlineTexProbeFS(void *L) {
-    if (!Game::Lua::IsString(L, 1))
-        return 0;
-    void *fs = nullptr;
-    {
-        const int top = Game::Lua::GetTop(L);
-        Game::Lua::PushString(L, Game::Lua::ToString(L, 1));
-        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-        fs = Game::Lua::ResolveObject(L, -1);
-        Game::Lua::SetTop(L, top);
-    }
-    if (!LooksReadable(fs))
-        return 0;
-    auto *f = reinterpret_cast<uint8_t *>(fs);
-    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(f + Offsets::OFF_LAYOUT_SCALE));
-    for (int i = 0; i < 4; ++i)
-        Game::Lua::PushNumber(L,
-                              *reinterpret_cast<float *>(f + Offsets::OFF_REGION_RECT + i * 4));
-    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(f + Offsets::OFF_FONTSTRING_INSET_X));
-    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(f + Offsets::OFF_FONTSTRING_INSET_Y));
-
-    void *node = nullptr;
-    void *block = *reinterpret_cast<void **>(f + Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (LooksReadable(block))
-        node = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(block) +
-                                          Offsets::OFF_TEXTBLOCK_NODE);
-    if (LooksReadable(node)) {
-        auto *n = reinterpret_cast<uint8_t *>(node);
-        Game::Lua::PushNumber(L, *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_X));
-        Game::Lua::PushNumber(L, *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_ORIGIN_Y));
-        Game::Lua::PushNumber(L,
-                              *reinterpret_cast<float *>(n + Offsets::OFF_TEXT_NODE_FONT_SIZE));
-    } else {
-        Game::Lua::PushNil(L);
-        Game::Lua::PushNil(L);
-        Game::Lua::PushNil(L);
-    }
-    // The engine's Script_SetPoint px→internal conversion globals, to correlate
-    // against the measured K (if K == div×1024/mul, pen units are SetPoint px).
-    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(Offsets::VAR_UI_COORD_SCALE_MUL));
-    Game::Lua::PushNumber(L, *reinterpret_cast<float *>(Offsets::VAR_UI_COORD_SCALE_DIV));
-    // Live K cache (0 until an icon node has derived it).
-    Game::Lua::PushNumber(L, g_penPerAnchor);
-    return 13;
-}
-
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexEnable", &Script_InlineTexEnable);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexSuppress", &Script_InlineTexSuppress);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexTune", &Script_InlineTexTune);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexStats", &Script_InlineTexStats);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexProbeFS", &Script_InlineTexProbeFS);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexRegionCal", &Script_InlineTexRegionCal);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexWrap", &Script_InlineTexWrap);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
