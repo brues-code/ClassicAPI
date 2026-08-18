@@ -26,6 +26,8 @@
 #include "text/PtrProbe.h"
 #include "tick/FrameTick.h"
 
+#include <windows.h> // SEH (__try/__except, EXCEPTION_EXECUTE_HANDLER)
+
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -118,6 +120,10 @@ struct FsPlacements {
 
 std::unordered_map<void *, FsPlacements> g_fsIcons;
 uint32_t g_maintainTick = 0;
+
+// Latched off by Maintain's SEH guard on a fault; re-armed on /reload (see
+// PrepareForReload). Mirrors InlineTexture.cpp's g_inlineEnabled paint latch.
+bool g_maintainDisabled = false;
 
 void Show(void *tex) {
     // Show no-ops unless the desired-shown flag (+0xC4) is set; engine callers
@@ -225,7 +231,9 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint8_t fsAlpha
 
 // Per-frame tick (FrameTick — glue AND world): apply queued placements
 // (deferred out of the text paint — regions must never be mutated mid-paint).
-void Maintain() {
+// Wrapped by Maintain() below; kept destructor-holding C++ objects out of the
+// SEH frame (MSVC won't allow __try in a function that needs object unwinding).
+void MaintainImpl() {
     ++g_maintainTick;
     for (auto it = g_fsIcons.begin(); it != g_fsIcons.end();) {
         void *fs = it->first;
@@ -241,6 +249,15 @@ void Maintain() {
         if (!IsLiveFontString(fs)) {
             for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
                 Hide(np.regions[static_cast<size_t>(i)].tex);
+            // ACCEPTED LEAK: erasing the entry drops np.regions without freeing
+            // the pooled CSimpleTextures — they stay (hidden) on their parent
+            // frame until it dies (/reload frees all of them). We do NOT reclaim
+            // them, on purpose: any reclaim (a free list, or an explicit destroy)
+            // would reuse/free a region pointer whose parent frame may already be
+            // gone — a use-after-free on the exact path this liveness check was
+            // added to stop crashing. The leak is bounded and near-zero in
+            // practice: chat/tooltip fontstrings are a reused, never-evicted set,
+            // so only genuinely-destroyed transient |T fontstrings ever land here.
             it = g_fsIcons.erase(it);
             continue;
         }
@@ -368,6 +385,22 @@ void Maintain() {
     }
 }
 
+// SEH latch mirroring InlineTexture.cpp's SafeFlush. Maintain's liveness probe
+// dereferences a fontstring pointer whose object *may* have been freed (see
+// IsLiveFontString) — a residual the design accepts. The paint path is already
+// guarded; this closes the matching hole on the tick path, so a fault disables
+// maintenance for the session instead of crashing the client. A /reload re-arms
+// it (PrepareForReload). The __try body holds no C++ objects — see MaintainImpl.
+void Maintain() {
+    if (g_maintainDisabled)
+        return;
+    __try {
+        MaintainImpl();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_maintainDisabled = true;
+    }
+}
+
 // FrameTick, not WorldTick: icon regions are UI objects that also exist on the
 // glue screen (addon-list titles with |T emotes), and FrameTick fires wherever
 // the UI renders — glue and world. (An earlier FrameTick attempt was blamed
@@ -408,6 +441,7 @@ void PrepareForReload() {
     // The reload teardown frees the icon regions (they die with their parent
     // frames); only forget the pointers — never Hide/free them.
     g_fsIcons.clear();
+    g_maintainDisabled = false; // re-arm the SEH latch for the fresh UI
 }
 
 } // namespace Text::InlineTexturePool
