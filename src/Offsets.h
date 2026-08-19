@@ -374,10 +374,22 @@ enum Offsets {
     FUN_REGION_STORE_CORNERS = 0x007705B0,
     // Texcoord crop applied to a {top,left,bottom,right} screen rect before the
     // corner-store: shrinks right→left and bottom→top by the region's per-corner
-    // texcoord span (ABS of the +0x104 U/V differences), so a partial SetTexCoord
-    // draws a smaller quad. No-op for full 0..1 texcoords. `__thiscall(region,
-    // float rect[4])`, rect in/out.
+    // texcoord span (ABS of the +0x104 U/V differences). No-op for full 0..1
+    // texcoords. `__thiscall(region, float rect[4])`, rect in/out. The crop
+    // itself is unconditional; every engine call site gates it on
+    // OFF_REGION_TEXCOORD_MODIFIES_RECT below — with the flag clear (the
+    // default) a partial SetTexCoord draws at the region's FULL size, so
+    // callers replicating an engine store must apply the same gate.
     FUN_REGION_TEXCOORD_CROP = 0x00770570,
+    // The SetTexCoordModifiesRect flag (int). Written from the Lua boolean by
+    // Script_SetTexCoordModifiesRect (0x0079C080, `piVar4[0x49]`), read back
+    // 1/nil by Script_GetTexCoordModifiesRect (0x0079C120). All three
+    // FUN_REGION_TEXCOORD_CROP call sites test it: the SetTexCoord writers
+    // (FUN_00770410 4-arg, FUN_007704C0 8-arg corner form) crop+store only
+    // when set, and the layout-resolve store path (FUN_00770670) crops when
+    // set / stores the raw anchor rect (+0x40..+0x4C) when clear. Zero by
+    // default (region ctor), so the crop never runs unless an addon opts in.
+    OFF_REGION_TEXCOORD_MODIFIES_RECT = 0x124,
     // Get the region's resolved screen rect: `__thiscall(region+OFF_REGION_ANCHOR,
     // float out[4]) -> int` (1 = valid, 0 = not laid out yet). Reads the anchor
     // sub-object's +0x40..+0x4C = {top, left, bottom, right}, gated on the
