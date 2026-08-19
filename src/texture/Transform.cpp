@@ -25,6 +25,12 @@
 // transform is written once and costs nothing per frame; a moving/resizing
 // region re-transforms automatically.
 //
+// A transform composes with the 8-argument corner form of SetTexCoord, which is
+// how a caller warps the SHAPE and says what each moved corner SAMPLES in one
+// paired write (WeakAuras' radial wedges are built this way). That only holds
+// because the offsets are measured against the region's untouched layout rect —
+// see the note in ApplyFromRect.
+//
 // Units: rotation is scale-invariant, but a vertex offset has a magnitude. The
 // Lua offset is in the texture's LOCAL pixels (like SetPoint's x/y), stored
 // raw, and converted to the engine's internal layout space inside WriteCorners
@@ -79,8 +85,6 @@ StoreCorners_t g_storeOriginal = nullptr;
 
 // FUN_REGION_GET_RECT — __thiscall(region+OFF_REGION_ANCHOR, float out[4]) -> int.
 using GetRect_t = int(__fastcall *)(void *anchor, void *edx, float *outRect);
-// FUN_REGION_TEXCOORD_CROP — __thiscall(region, float rect[4]) (rect in/out).
-using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 
 // 1024-normalized UI pixels → internal layout (anchor) units — the same
 // conversion Tooltip::LinePool applies before calling engine SetPoint. A
@@ -180,7 +184,17 @@ bool ApplyFromRect(void *region, const Xf &xf) {
     if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(anchor, nullptr,
                                                                   rect) == 0)
         return false;
-    reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, nullptr, rect);
+    // The texcoord crop (FUN_REGION_TEXCOORD_CROP) is deliberately NOT applied
+    // here. The engine gates it on the region's SetTexCoordModifiesRect flag,
+    // which is off by default, so a plain texture with a partial or
+    // corner-form texcoord draws at its FULL size — verified in-game against
+    // .25-span, inset, sheared and wedge-shaped corner texcoords, every one of
+    // which left the drawn quad untouched. Calling it directly bypassed that
+    // gate, so a region carrying both a transform and a partial texcoord had
+    // its offsets measured against a shrunken rect: WeakAuras-style radial
+    // wedges, whose texcoords and vertex offsets are one paired corner move,
+    // collapsed onto the rect's edge (a 64px wedge that should have spanned
+    // x = 0.5..1 of its region landed entirely on x = 0.5).
     // rect = {top, left, bottom, right}
     WriteCorners(region, rect[1], rect[3], rect[0], rect[2], xf);
     return true;
