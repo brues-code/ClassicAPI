@@ -4823,6 +4823,19 @@ enum Offsets {
     // two callers (this = loadbuffer, 0x006F5490 = loadfile). Hooking here
     // lets a source-level transform see every chunk before the 5.0 parser.
     FUN_LUAL_LOADBUFFER = 0x006F5690,
+    // Return address of the `call luaL_loadbuffer` inside the compile-AND-run
+    // funnel FUN_00704AE0 (the CALL is at 0x00704B0C; next instruction, and so
+    // the pushed return address, is 0x00704B11). FUN_00704AE0 compiles a buffer
+    // then IMMEDIATELY `lua_pcall`s it (0x00704B42) — it is the funnel every
+    // addon/FrameXML FILE load reaches (FUN_006ede10 -> FUN_00704bc0 -> here)
+    // AND what `RunScript` runs through. LuaSyntax's `luaL_loadbuffer` hook
+    // reads `_ReturnAddress()` and arms the addon-args grant ONLY when the
+    // caller is THIS site — i.e. a chunk that will be run before anything else,
+    // so its preamble consumes the grant immediately. `loadstring` (0x00703280,
+    // returns to 0x007032B5) compiles WITHOUT running and takes a
+    // caller-forgeable chunkname, so it must NOT arm; the call-site check
+    // excludes it even when nested inside a RunScript body.
+    RET_LUA_FILE_COMPILE = 0x00704B11,
     // Shared environment-protection predicate for `getfenv`/`setfenv`
     // (`bool __fastcall(L /*ecx*/)`). Pushes the function-at-top's environment
     // via `lua_getfenv(L, -1)`, then pushes the protection marker

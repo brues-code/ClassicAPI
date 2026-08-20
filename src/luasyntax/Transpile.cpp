@@ -75,7 +75,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <intrin.h> // _ReturnAddress
 #include <string>
 #include <vector>
 
@@ -172,6 +174,8 @@ size_t SkipShortString(const char *src, size_t len, size_t pos) {
 // merged) plus hex/exponent chars.
 size_t SkipNumber(const char *src, size_t len, size_t pos) {
     size_t i = pos;
+    const bool isHex = pos + 1 < len && src[pos] == '0' &&
+                       (src[pos + 1] == 'x' || src[pos + 1] == 'X');
     bool seenDot = false;
     while (i < len) {
         char c = src[i];
@@ -187,8 +191,14 @@ size_t SkipNumber(const char *src, size_t len, size_t pos) {
             continue;
         }
         if ((c == '+' || c == '-') && i > pos) {
+            // Exponent sign continues the number. The marker is e/E for a
+            // decimal literal but p/P for a hex float — in a hex literal e/E
+            // are DIGITS, so `0xE-1` must break at `-` (not swallow it, which
+            // would make `0xE-1 % 2` parse as `__mod(0xE-1,2)`, a wrong result).
             char p = src[i - 1];
-            if (p == 'e' || p == 'E' || p == 'p' || p == 'P') {
+            const bool expMarker =
+                isHex ? (p == 'p' || p == 'P') : (p == 'e' || p == 'E');
+            if (expMarker) {
                 i++;
                 continue;
             }
@@ -792,10 +802,12 @@ int __fastcall Script_Mod(void *L) {
 inline char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
 
 // Name of the addon whose chunk is currently being loaded — set by
-// `LoadBuffer_h` at the moment it injects the addon-args preamble, consumed
-// once by that chunk's `__addonns(...)` call (the first thing the chunk runs).
-// Empty except during that single-chunk window. This is what makes `__addonns`
-// safe to expose as a `_G` global: see `Script_AddonNS`.
+// `LoadBuffer_h` when it injects the addon-args preamble, and ONLY when the
+// loadbuffer call came from the immediate-run file funnel (see the
+// `_ReturnAddress` gate there). Consumed once by that chunk's `__addonns(...)`
+// call — the first thing the chunk runs — so it is empty except during that
+// single-chunk window. This is what makes `__addonns` safe to expose as a `_G`
+// global: see `Script_AddonNS`.
 char g_loadingAddon[128] = "";
 
 // Case-insensitive equality of two NUL-terminated ASCII strings.
@@ -813,13 +825,22 @@ bool EqualsCI(const char *a, const char *b) {
 // has no debug.getregistry / debug introspection), so `__addonns` is the sole
 // Lua-visible door to it. Left ungated, any addon could read another addon's
 // private table by name at runtime. So it is context-gated: it answers only
-// while `g_loadingAddon` names the caller's own chunk (set by `LoadBuffer_h`
-// just before the preamble runs) and returns nil otherwise. The name arg must
-// also match, so a mid-load chunk cannot ask for a different addon's table.
-// The gate is one-shot (cleared on the answer) — the preamble calls this
-// exactly once, and nothing else legitimately does. Cross-addon runtime access
-// goes through the TOC-gated `C_AddOns.GetAddOnLocalTable`, which calls
-// `PushAddonNamespace` directly (not this global) after its own checks.
+// while `g_loadingAddon` names the caller's own chunk and returns nil otherwise.
+// The name arg must also match, so a mid-load chunk cannot ask for a different
+// addon's table. The gate is one-shot (cleared on the answer) — the preamble
+// calls this exactly once, and nothing else legitimately does.
+//
+// The grant is armed by `LoadBuffer_h` ONLY when the loadbuffer call comes from
+// the immediate-run file funnel (its `_ReturnAddress` is `RET_LUA_FILE_COMPILE`,
+// which pcalls the chunk right after compiling). That is the load-bearing
+// defense: `loadstring` takes a caller-controlled chunkname (arg 2) and compiles
+// WITHOUT running, so without the call-site gate a
+// `loadstring("...","@Interface\\AddOns\\Victim\\x")` would arm the grant and
+// leak Victim's table. loadstring's loadbuffer call has a different return
+// address (it is NOT the file funnel), so it never arms — even when nested
+// inside a RunScript body that itself runs through the file funnel. Cross-addon
+// runtime access goes through the TOC-gated `C_AddOns.GetAddOnLocalTable`, which
+// calls `PushAddonNamespace` directly (not this global) after its own checks.
 int __fastcall Script_AddonNS(void *L) {
     const char *name = Game::Lua::ToString(L, 1);
     if (name == nullptr || g_loadingAddon[0] == '\0' || !EqualsCI(name, g_loadingAddon)) {
@@ -841,16 +862,19 @@ int __fastcall Script_AddonNS(void *L) {
 bool AddonNameFromChunk(const char *chunk, char *out, size_t outSize) {
     if (chunk == nullptr)
         return false;
-    static const char kMarker[] = "addons\\"; // lowercase, 7 chars incl. the '\'
-    const size_t mlen = 7;
+    static const char kWord[] = "addons"; // then a path separator, either slash
+    const size_t wlen = 6;
     for (const char *p = chunk; *p; ++p) {
         size_t i = 0;
-        for (; i < mlen; ++i)
-            if (LowerAscii(p[i]) != kMarker[i]) // stops at NUL (NUL != a letter)
+        for (; i < wlen; ++i)
+            if (LowerAscii(p[i]) != kWord[i]) // stops at NUL (NUL != a letter)
                 break;
-        if (i != mlen)
+        if (i != wlen)
             continue;
-        const char *ns = p + mlen;
+        const char sep = p[wlen];
+        if (sep != '\\' && sep != '/') // match "addons\" OR "addons/"
+            continue;
+        const char *ns = p + wlen + 1;
         size_t k = 0;
         while (ns[k] != '\0' && ns[k] != '\\' && ns[k] != '/')
             ++k;
@@ -873,6 +897,15 @@ using LoadBuffer_t = int(__fastcall *)(void *L, const char *buff, unsigned size,
 LoadBuffer_t g_origLoadBuffer = nullptr;
 
 int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char *name) {
+    // Who called luaL_loadbuffer? The addon-args grant may be armed only for the
+    // immediate-run file funnel (FUN_00704AE0 pcalls right after compiling), so
+    // the preamble consumes the grant before anything else runs. `loadstring`
+    // compiles WITHOUT running and takes a caller-forgeable chunkname — its call
+    // has a different return address, so it can never arm the grant (even nested
+    // inside a RunScript that itself runs through the file funnel).
+    const bool fromFileFunnel =
+        reinterpret_cast<uintptr_t>(_ReturnAddress()) == Offsets::RET_LUA_FILE_COMPILE;
+
     if (buff == nullptr || size == 0)
         return g_origLoadBuffer(L, buff, size, name);
 
@@ -892,10 +925,11 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     // varargs via a chunk-local `arg`, so a file-scope `local name, ns = ...`
     // (now `unpack(arg)`) resolves. Vanilla never passed these — 1.12's main
     // chunk has no `arg`. Only fires when a real `...` expression is present
-    // (didVararg) and the chunkname is an addon file; the preamble carries no
-    // newline, so line numbers are preserved.
+    // (didVararg), the compile is the file funnel's own (fromFileFunnel — NOT
+    // loadstring, whose chunkname is caller-forgeable), and the chunkname is an
+    // addon path; the preamble carries no newline, so line numbers survive.
     char addon[128];
-    if (didVararg && AddonNameFromChunk(name, addon, sizeof addon)) {
+    if (fromFileFunnel && didVararg && AddonNameFromChunk(name, addon, sizeof addon)) {
         size_t bom = (bodyLen >= 3 && static_cast<unsigned char>(body[0]) == 0xEF &&
                       static_cast<unsigned char>(body[1]) == 0xBB &&
                       static_cast<unsigned char>(body[2]) == 0xBF)
