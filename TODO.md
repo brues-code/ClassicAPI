@@ -3816,40 +3816,41 @@ addon. ClassicAPI's only worthwhile contribution in this space is an
 unrelated precise-combat-log event feed — filed as its own thing, not as
 "threat".
 
-## 99. `C_AddOns.GetAddOnLocalTable(name)` — gate on loaded + opt-in TOC flag — TODO
+## 99. `C_AddOns.GetAddOnLocalTable(name)` — gate on loaded + opt-in TOC flag — DONE
 
-Shipped (branch `feat/lua-syntax-transpile`) as a thin public alias of the
-addon-args namespace: it calls the same `Script_AddonNS` as the internal
-`__addonns`, so it returns the per-addon shared table create-on-demand for
-**any** name, loaded or not, with no access control. That's fine as a first
-cut but is more permissive than retail.
+Shipped gated (branch `feat/lua-syntax-transpile`,
+[src/addons/LocalTable.cpp](src/addons/LocalTable.cpp)). Returns the addon's
+private namespace table **only** when BOTH hold, else `nil`:
+1. the addon `name` is **loaded** (`FUN_ADDON_IS_LOADED`, by-name), and
+2. its `.toc` declares `## AllowAddOnTableAccess: <nonzero>` (scanned via
+   `FUN_FILE_READ` on `Interface\AddOns\<name>\<name>.toc`, read as a TOC
+   boolean flag; approach (a) from the notes below — no parser hook).
 
-Retail gates this: `GetAddOnLocalTable(name)` returns the table **only** when
-BOTH hold, else `nil`:
-1. the addon `name` is **loaded**, and
-2. its `.toc` declares **`## AllowAddOnTableAccess: 1`** — an explicit opt-in,
-   so one addon can't reach into another's private namespace without consent.
+The two paths stay separate, as required:
+- **Internal** `__addonns` (the `local name, ns = ...` preamble) stays
+  **ungated** — an addon always gets its own namespace. Still in
+  `luasyntax/Transpile.cpp`.
+- **Public** `C_AddOns.GetAddOnLocalTable` carries the gate, in
+  `addons/LocalTable.cpp`.
 
-Keep the two paths separate when implementing:
-- **Internal** (`__addonns`, used by the `local name, ns = ...` preamble) stays
-  **ungated** — an addon always gets its own namespace. Do NOT gate the
-  preamble path or addons break.
-- **Public** (`C_AddOns.GetAddOnLocalTable`) gets the gate: check loaded state,
-  check the opt-in flag, then return `__addonns(name)` or `nil`.
+Both resolve to the SAME table per addon via `LuaSyntax::PushAddonNamespace`
+(the one owner of the registry-backed name→table map, exposed by
+[src/luasyntax/AddonNamespace.h](src/luasyntax/AddonNamespace.h)) — so an addon
+reads back exactly what it (or its files' `...`) stored.
 
-Implementation notes:
-- **Loaded check** is easy — reuse the engine's loaded state (`IsAddOnLoaded` /
-  the addon-registry entry). See the AddOn-registry section in CLAUDE.md.
-- **`AllowAddOnTableAccess`** is the work: the vanilla TOC parser
-  (`FUN_0051C9B0`) only stores the `##` fields it knows about and silently
-  drops unknown directives, so there's no engine field for it. Options:
-  (a) parse the addon's `.toc` ourselves (`Interface\AddOns\<name>\<name>.toc`
-  via `FUN_FILE_READ`) and scan for the line, caching the result per addon; or
-  (b) co-hook the TOC parser to capture the directive into a spare
-  `AddOnEntry` byte. (a) is simpler and avoids touching the parser.
-- Verify the exact retail directive spelling/semantics
-  (`## AllowAddOnTableAccess: 1`) before shipping the gate.
+Directive spelling + function name verified present in the 1.15.8 Classic Era
+binary (`AllowAddOnTableAccess:` TOC key, `GetAddOnLocalTable`).
 
-Not urgent — current behavior is functional; this is a security/opt-in
-tightening to match retail. See [src/luasyntax/Transpile.cpp](src/luasyntax/Transpile.cpp)
-(`Script_AddonNS` + the `RegisterTableFunction("C_AddOns", "GetAddOnLocalTable", …)`).
+Deliberate scope choices (revisit only if an addon needs otherwise):
+- **Name (string) input only.** A numeric index returns `nil` — cross-addon
+  table access is by name, and the map is name-keyed. Every other `C_AddOns.*`
+  wrapper accepts name-or-index; this one does not.
+- **`nil` on denial, not a Lua error.** Matches the project's modern-API
+  convention (nil over `lua_error`). Retail may raise instead; switch the
+  denial branches to `Game::Lua::Error` if strict parity is wanted.
+- **No per-name cache** on the TOC scan — GetAddOnLocalTable is not a hot path.
+
+Not shipped by default: no addon opts in yet. The embedded `!!!ClassicAPI`
+addon could add `## AllowAddOnTableAccess: 1` to its `.toc` to expose its own
+namespace as a worked example, but that's a product/security decision left to
+the maintainer.

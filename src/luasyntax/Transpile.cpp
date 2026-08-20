@@ -64,9 +64,14 @@
 //     `...` yields the name + a per-addon shared table. `__addonns` returns the
 //     same table for every file of an addon (registry-backed). The preamble is
 //     newline-free (line numbers preserved) and only touches AddOns\ chunks.
+//     The `__addonns` global is CONTEXT-GATED (see `Script_AddonNS`): it only
+//     answers for the addon mid-load, for its own name — so it cannot be used
+//     at runtime to read another addon's private table. Cross-addon access is
+//     the separate, TOC-opt-in `C_AddOns.GetAddOnLocalTable`.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "luasyntax/AddonNamespace.h"
 
 #include <algorithm>
 #include <cmath>
@@ -784,45 +789,51 @@ int __fastcall Script_Mod(void *L) {
     return 1;
 }
 
-// __addonns(name) -> the per-addon shared table (the modern second vararg).
-// Created once per addon name and returned identically thereafter, backed by a
-// map in the Lua registry (hidden from addons). Backs the addon-args preamble.
-constexpr const char *kAddonNsRegKey = "__classicapi_addon_ns";
+inline char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
 
+// Name of the addon whose chunk is currently being loaded — set by
+// `LoadBuffer_h` at the moment it injects the addon-args preamble, consumed
+// once by that chunk's `__addonns(...)` call (the first thing the chunk runs).
+// Empty except during that single-chunk window. This is what makes `__addonns`
+// safe to expose as a `_G` global: see `Script_AddonNS`.
+char g_loadingAddon[128] = "";
+
+// Case-insensitive equality of two NUL-terminated ASCII strings.
+bool EqualsCI(const char *a, const char *b) {
+    for (; *a && *b; ++a, ++b)
+        if (LowerAscii(*a) != LowerAscii(*b))
+            return false;
+    return *a == *b;
+}
+
+// __addonns(name) -> the per-addon shared table (the modern second vararg),
+// but ONLY for the addon currently mid-load, and only for its OWN name.
+//
+// The map itself lives in the Lua registry (unreachable from Lua — this build
+// has no debug.getregistry / debug introspection), so `__addonns` is the sole
+// Lua-visible door to it. Left ungated, any addon could read another addon's
+// private table by name at runtime. So it is context-gated: it answers only
+// while `g_loadingAddon` names the caller's own chunk (set by `LoadBuffer_h`
+// just before the preamble runs) and returns nil otherwise. The name arg must
+// also match, so a mid-load chunk cannot ask for a different addon's table.
+// The gate is one-shot (cleared on the answer) — the preamble calls this
+// exactly once, and nothing else legitimately does. Cross-addon runtime access
+// goes through the TOC-gated `C_AddOns.GetAddOnLocalTable`, which calls
+// `PushAddonNamespace` directly (not this global) after its own checks.
 int __fastcall Script_AddonNS(void *L) {
     const char *name = Game::Lua::ToString(L, 1);
-    if (name == nullptr) {
-        Game::Lua::NewTable(L); // defensive — the preamble always passes a literal
+    if (name == nullptr || g_loadingAddon[0] == '\0' || !EqualsCI(name, g_loadingAddon)) {
+        Game::Lua::PushNil(L);
         return 1;
     }
-    // registry[kAddonNsRegKey] — the name->ns map, created on first use.
-    Game::Lua::PushString(L, kAddonNsRegKey);
-    Game::Lua::RawGet(L, Game::Lua::REGISTRY_INDEX);
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::SetTop(L, -2); // pop the non-table
-        Game::Lua::NewTable(L);
-        Game::Lua::PushString(L, kAddonNsRegKey);
-        Game::Lua::PushValue(L, -2); // dup map
-        Game::Lua::RawSet(L, Game::Lua::REGISTRY_INDEX);
-    }
-    // map on top; fetch map[name], creating a fresh ns if missing.
-    Game::Lua::PushString(L, name);
-    Game::Lua::RawGet(L, -2);
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::SetTop(L, -2); // pop nil
-        Game::Lua::NewTable(L);
-        Game::Lua::PushString(L, name);
-        Game::Lua::PushValue(L, -2); // dup ns
-        Game::Lua::RawSet(L, -4);    // map[name] = ns
-    }
-    return 1; // ns on top
+    g_loadingAddon[0] = '\0'; // one-shot: consume the load-time grant
+    PushAddonNamespace(L, name); // LuaSyntax::PushAddonNamespace (defined below)
+    return 1;
 }
 
 // ============================================================================
 // luaL_loadbuffer co-hook — the universal compile chokepoint.
 // ============================================================================
-
-inline char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
 
 // Extract the addon folder name from a file chunkname like
 // "@Interface\AddOns\<Name>\<file>". Returns true + fills `out` (NUL-terminated)
@@ -899,7 +910,20 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
         full += addon;
         full += "\"),n=2};";
         full.append(body + bom, bodyLen - bom);
-        return g_origLoadBuffer(L, full.data(), static_cast<unsigned>(full.size()), name);
+        // Grant this chunk (and only this chunk) the right to fetch its own
+        // namespace via `__addonns`. The loader runs strictly
+        // loadbuffer->pcall per file, and the preamble consuming the grant is
+        // the chunk's first act, so the window is a single uninterrupted
+        // chunk. If the compile fails the chunk never runs, so revoke it now
+        // rather than leave a stale grant for a later runtime `__addonns` call.
+        // `addon` is a validated name <= 127 chars (AddonNameFromChunk bounds
+        // it to sizeof addon), so it fits g_loadingAddon exactly.
+        std::memcpy(g_loadingAddon, addon, std::strlen(addon) + 1);
+        const int rc = g_origLoadBuffer(L, full.data(),
+                                        static_cast<unsigned>(full.size()), name);
+        if (rc != 0)
+            g_loadingAddon[0] = '\0';
+        return rc;
     }
 
     if (body != buff)
@@ -958,7 +982,6 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__len", &Script_Len);
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
     Game::Lua::RegisterGlobalFunction("__addonns", &Script_AddonNS);
-    Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnLocalTable", &Script_AddonNS);
     Game::Lua::RegisterGlobalFunction("_classicapi_TranspileLength", &Script_TranspileLength);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetLengthOperator", &Script_SetLengthOperator);
     Game::Lua::RegisterGlobalFunction("_classicapi_GetLengthOperator", &Script_GetLengthOperator);
@@ -982,5 +1005,36 @@ const Game::HookAutoRegister _loadHook{
     reinterpret_cast<void **>(&g_origLoadBuffer)};
 
 } // namespace
+
+// The one place the per-addon namespace map is read/created (see
+// AddonNamespace.h). Registry key is local — nothing else may touch this map,
+// so both callers (the `__addonns` preamble global and the gated
+// `C_AddOns.GetAddOnLocalTable`) resolve to the same table per addon.
+void PushAddonNamespace(void *L, const char *name) {
+    static constexpr const char *kAddonNsRegKey = "__classicapi_addon_ns";
+
+    // registry[kAddonNsRegKey] — the name->ns map, created on first use.
+    Game::Lua::PushString(L, kAddonNsRegKey);
+    Game::Lua::RawGet(L, Game::Lua::REGISTRY_INDEX);
+    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::SetTop(L, -2); // pop the non-table
+        Game::Lua::NewTable(L);
+        Game::Lua::PushString(L, kAddonNsRegKey);
+        Game::Lua::PushValue(L, -2); // dup map
+        Game::Lua::RawSet(L, Game::Lua::REGISTRY_INDEX);
+    }
+    // map on top; fetch map[name], creating a fresh ns if missing.
+    Game::Lua::PushString(L, name);
+    Game::Lua::RawGet(L, -2);
+    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::SetTop(L, -2); // pop nil
+        Game::Lua::NewTable(L);
+        Game::Lua::PushString(L, name);
+        Game::Lua::PushValue(L, -2); // dup ns
+        Game::Lua::RawSet(L, -4);    // map[name] = ns
+    }
+    // Drop the map beneath the ns so the net effect is +1 (ns on top).
+    Game::Lua::Remove(L, -2);
+}
 
 } // namespace LuaSyntax

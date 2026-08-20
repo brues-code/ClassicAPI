@@ -21,6 +21,7 @@ build instructions.
   - [`C_AddOns.GetAddOnSecurity(indexOrName)`](#c_addonsgetaddonsecurityindexorname)
   - [`C_AddOns.DoesAddOnExist(indexOrName)`](#c_addonsdoesaddonexistindexorname)
   - [`C_AddOns.GetAddOnOptionalDependencies(indexOrName)`](#c_addonsgetaddonoptionaldependenciesindexorname)
+  - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
 
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
@@ -925,6 +926,37 @@ without erroring.
 C_AddOns.GetAddOnOptionalDependencies("MyAddon")  -- "Atlas", "pfQuest"
 C_AddOns.GetAddOnOptionalDependencies("Atlas")    -- (nothing — no OptionalDeps)
 ```
+
+### `C_AddOns.GetAddOnLocalTable(name)`
+
+Returns the private table of the addon named `name`. This is the same
+table the addon's own files receive as the second value of `...`:
+
+```lua
+-- inside MyAddon's files
+local addonName, addonTable = ...
+```
+
+Another addon reads that table only when both conditions are true:
+
+1. `MyAddon` is loaded, and
+2. `MyAddon`'s `.toc` file declares `## AllowAddOnTableAccess: 1`.
+
+If either condition is false, the function returns `nil`. An addon
+that does not opt in keeps its table private. The check protects each
+addon's table from access it did not permit.
+
+```lua
+-- MyAddon.toc contains: ## AllowAddOnTableAccess: 1
+local t = C_AddOns.GetAddOnLocalTable("MyAddon")   -- MyAddon's table
+t.sharedValue = 5                                  -- MyAddon sees this too
+
+C_AddOns.GetAddOnLocalTable("DebugTools")   -- nil (no opt-in directive)
+C_AddOns.GetAddOnLocalTable("DoesNotExist") -- nil (not loaded)
+```
+
+Pass the addon name as a string. A numeric index returns `nil` — one
+addon refers to another by name, not by load order.
 
 ## AuctionHouse
 
