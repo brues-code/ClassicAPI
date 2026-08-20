@@ -51,8 +51,9 @@
 //   * `__len` on a table returns a border (bisection) = 5.1 `#`; it ignores
 //     any `table.setn` count (5.1 has no setn — correct `#` semantics).
 //   * Diagnostic `_classicapi_TranspileLength(src)` returns the full rewrite.
-//   * Toggles `_classicapi_SetLengthOperator(bool)` / `SetModuloOperator` /
-//     `SetVarargExpansion`.
+//   * Toggles via `_classicapi_SetTranspileOption(name, bool)` /
+//     `_classicapi_GetTranspileOption(name)` (name = "Length" / "Modulo" /
+//     "VarargExpansion").
 //   * `...` expands to `unpack(arg)`, which is faithful in every position and
 //     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
 //     Only the `...` in a function's parameter list is left intact.
@@ -799,8 +800,6 @@ int __fastcall Script_Mod(void *L) {
     return 1;
 }
 
-inline char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
-
 // Name of the addon whose chunk is currently being loaded — set by
 // `LoadBuffer_h` when it injects the addon-args preamble, and ONLY when the
 // loadbuffer call came from the immediate-run file funnel (see the
@@ -809,14 +808,6 @@ inline char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<cha
 // single-chunk window. This is what makes `__addonns` safe to expose as a `_G`
 // global: see `Script_AddonNS`.
 char g_loadingAddon[128] = "";
-
-// Case-insensitive equality of two NUL-terminated ASCII strings.
-bool EqualsCI(const char *a, const char *b) {
-    for (; *a && *b; ++a, ++b)
-        if (LowerAscii(*a) != LowerAscii(*b))
-            return false;
-    return *a == *b;
-}
 
 // __addonns(name) -> the per-addon shared table (the modern second vararg),
 // but ONLY for the addon currently mid-load, and only for its OWN name.
@@ -843,7 +834,7 @@ bool EqualsCI(const char *a, const char *b) {
 // calls `PushAddonNamespace` directly (not this global) after its own checks.
 int __fastcall Script_AddonNS(void *L) {
     const char *name = Game::Lua::ToString(L, 1);
-    if (name == nullptr || g_loadingAddon[0] == '\0' || !EqualsCI(name, g_loadingAddon)) {
+    if (name == nullptr || g_loadingAddon[0] == '\0' || _stricmp(name, g_loadingAddon) != 0) {
         Game::Lua::PushNil(L);
         return 1;
     }
@@ -862,19 +853,15 @@ int __fastcall Script_AddonNS(void *L) {
 bool AddonNameFromChunk(const char *chunk, char *out, size_t outSize) {
     if (chunk == nullptr)
         return false;
-    static const char kWord[] = "addons"; // then a path separator, either slash
-    const size_t wlen = 6;
     for (const char *p = chunk; *p; ++p) {
-        size_t i = 0;
-        for (; i < wlen; ++i)
-            if (LowerAscii(p[i]) != kWord[i]) // stops at NUL (NUL != a letter)
-                break;
-        if (i != wlen)
+        // "addons" then a path separator (either slash). _strnicmp stops at a
+        // NUL, so a short tail near end-of-string just mismatches.
+        if (_strnicmp(p, "addons", 6) != 0)
             continue;
-        const char sep = p[wlen];
+        const char sep = p[6];
         if (sep != '\\' && sep != '/') // match "addons\" OR "addons/"
             continue;
-        const char *ns = p + wlen + 1;
+        const char *ns = p + 7;
         size_t k = 0;
         while (ns[k] != '\0' && ns[k] != '\\' && ns[k] != '/')
             ++k;
@@ -984,31 +971,46 @@ int __fastcall Script_TranspileLength(void *L) {
     return 1;
 }
 
-int __fastcall Script_SetLengthOperator(void *L) {
-    g_lenEnabled = Game::Lua::ToBoolean(L, 1) != 0;
-    Game::Lua::PushBool(L, g_lenEnabled);
+// The transpiler's runtime switches, table-driven. These are diagnostics /
+// kill-switches: a `#`/`%`/`...`-bearing chunk can't compile on 5.0 unless
+// rewritten, so disabling a switch only reverts affected chunks to the broken
+// (un-transpiled) state — useful to answer "is ClassicAPI's rewrite breaking
+// this addon?" without shipping a config surface. Lua sees one Set + one Get
+// keyed by name (case-insensitive), instead of a Set/Get pair per switch.
+struct Toggle { const char *name; bool *flag; };
+const Toggle kToggles[] = {
+    {"Length", &g_lenEnabled},
+    {"Modulo", &g_modEnabled},
+    {"VarargExpansion", &g_varargEnabled},
+};
+bool *FindToggle(const char *name) {
+    if (name)
+        for (const auto &t : kToggles)
+            if (_stricmp(name, t.name) == 0)
+                return t.flag;
+    return nullptr;
+}
+
+// _classicapi_SetTranspileOption(name, bool) -> the new value, or nil if the
+// name is unknown.
+int __fastcall Script_SetTranspileOption(void *L) {
+    bool *flag = FindToggle(Game::Lua::ToString(L, 1));
+    if (flag == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    *flag = Game::Lua::ToBoolean(L, 2) != 0;
+    Game::Lua::PushBool(L, *flag);
     return 1;
 }
-int __fastcall Script_GetLengthOperator(void *L) {
-    Game::Lua::PushBool(L, g_lenEnabled);
-    return 1;
-}
-int __fastcall Script_SetModuloOperator(void *L) {
-    g_modEnabled = Game::Lua::ToBoolean(L, 1) != 0;
-    Game::Lua::PushBool(L, g_modEnabled);
-    return 1;
-}
-int __fastcall Script_GetModuloOperator(void *L) {
-    Game::Lua::PushBool(L, g_modEnabled);
-    return 1;
-}
-int __fastcall Script_SetVarargExpansion(void *L) {
-    g_varargEnabled = Game::Lua::ToBoolean(L, 1) != 0;
-    Game::Lua::PushBool(L, g_varargEnabled);
-    return 1;
-}
-int __fastcall Script_GetVarargExpansion(void *L) {
-    Game::Lua::PushBool(L, g_varargEnabled);
+// _classicapi_GetTranspileOption(name) -> bool, or nil if the name is unknown.
+int __fastcall Script_GetTranspileOption(void *L) {
+    bool *flag = FindToggle(Game::Lua::ToString(L, 1));
+    if (flag == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    Game::Lua::PushBool(L, *flag);
     return 1;
 }
 
@@ -1017,12 +1019,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
     Game::Lua::RegisterGlobalFunction("__addonns", &Script_AddonNS);
     Game::Lua::RegisterGlobalFunction("_classicapi_TranspileLength", &Script_TranspileLength);
-    Game::Lua::RegisterGlobalFunction("_classicapi_SetLengthOperator", &Script_SetLengthOperator);
-    Game::Lua::RegisterGlobalFunction("_classicapi_GetLengthOperator", &Script_GetLengthOperator);
-    Game::Lua::RegisterGlobalFunction("_classicapi_SetModuloOperator", &Script_SetModuloOperator);
-    Game::Lua::RegisterGlobalFunction("_classicapi_GetModuloOperator", &Script_GetModuloOperator);
-    Game::Lua::RegisterGlobalFunction("_classicapi_SetVarargExpansion", &Script_SetVarargExpansion);
-    Game::Lua::RegisterGlobalFunction("_classicapi_GetVarargExpansion", &Script_GetVarargExpansion);
+    Game::Lua::RegisterGlobalFunction("_classicapi_SetTranspileOption", &Script_SetTranspileOption);
+    Game::Lua::RegisterGlobalFunction("_classicapi_GetTranspileOption", &Script_GetTranspileOption);
 }
 
 // `__len` / `__mod` also on the glue state — the load hook is state-agnostic,

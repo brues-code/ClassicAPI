@@ -47,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/Toc.h"
 #include "bindings/Inject.h"
 
 #include <cstdint>
@@ -142,25 +143,19 @@ using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int 
 // sensitive on the key. Returns false if no Version line is found.
 bool ExtractTocVersion(const char *content, size_t size,
                        char *out, size_t outSize) {
-    static const char kKey[] = "## Version:";
-    constexpr size_t kKeyLen = sizeof(kKey) - 1;
-    for (size_t i = 0; i + kKeyLen <= size; ++i) {
-        const bool atLineStart = (i == 0) || content[i - 1] == '\n';
-        if (!atLineStart) continue;
-        if (std::memcmp(content + i, kKey, kKeyLen) != 0) continue;
-        const char *p = content + i + kKeyLen;
-        const char *end = content + size;
-        while (p < end && (*p == ' ' || *p == '\t')) ++p;
-        size_t j = 0;
-        while (p < end && *p != '\r' && *p != '\n' && j + 1 < outSize) {
-            out[j++] = *p++;
-        }
-        while (j > 0 && (out[j - 1] == ' ' || out[j - 1] == '\t')) --j;
-        out[j] = '\0';
-        return j > 0;
+    const char *v = nullptr;
+    size_t n = 0;
+    if (outSize == 0)
+        return false;
+    if (!AddOns::Toc::FindValue(content, size, "## Version:", &v, &n) || n == 0) {
+        out[0] = '\0';
+        return false;
     }
-    if (outSize > 0) out[0] = '\0';
-    return false;
+    if (n >= outSize)
+        n = outSize - 1;
+    std::memcpy(out, v, n);
+    out[n] = '\0';
+    return true;
 }
 
 // Returns -1/0/+1 for `a < b` / `a == b` / `a > b`. "DEV" is the

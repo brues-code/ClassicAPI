@@ -31,8 +31,10 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/Toc.h"
 #include "luasyntax/AddonNamespace.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 
@@ -54,20 +56,6 @@ using FileRead_t = int(__stdcall *)(int unused, const char *path, void **outBuf,
                                     int flag1, int flag2);
 using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
 
-inline char LowerAscii(char c) {
-    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
-}
-
-// Case-insensitive compare of `n` bytes. TOC keys are matched loosely — the
-// engine treats them case-insensitively and we own this scan (the parser never
-// sees the directive), so an author writing a different case still opts in.
-bool EqualsCI(const char *a, const char *b, size_t n) {
-    for (size_t i = 0; i < n; ++i)
-        if (LowerAscii(a[i]) != LowerAscii(b[i]))
-            return false;
-    return true;
-}
-
 // True iff the addon's `.toc` has a line `## AllowAddOnTableAccess: <nonzero>`.
 // The value is read as a TOC boolean flag: parse the leading integer, true iff
 // non-zero (so `1` opts in, `0`/absent do not) — matching WoW's numeric TOC
@@ -88,28 +76,18 @@ bool TocAllowsTableAccess(const char *name) {
     if (fileRead(0, path, &buf, &size, 1, 1, 0) == 0 || buf == nullptr)
         return false;
 
-    const char *c = static_cast<const char *>(buf);
-    static const char kKey[] = "## AllowAddOnTableAccess:";
-    constexpr size_t kKeyLen = sizeof(kKey) - 1;
-
+    const char *v = nullptr;
+    size_t n = 0;
     bool allowed = false;
-    for (size_t i = 0; i + kKeyLen <= size; ++i) {
-        const bool atLineStart = (i == 0) || c[i - 1] == '\n';
-        if (!atLineStart || !EqualsCI(c + i, kKey, kKeyLen))
-            continue;
-        const char *p = c + i + kKeyLen;
-        const char *end = c + size;
-        while (p < end && (*p == ' ' || *p == '\t'))
-            ++p;
+    if (AddOns::Toc::FindValue(static_cast<const char *>(buf), size,
+                               "## AllowAddOnTableAccess:", &v, &n)) {
         int value = 0;
         bool anyDigit = false;
-        while (p < end && *p >= '0' && *p <= '9') {
-            value = value * 10 + (*p - '0');
-            ++p;
+        for (size_t k = 0; k < n && v[k] >= '0' && v[k] <= '9'; ++k) {
+            value = value * 10 + (v[k] - '0');
             anyDigit = true;
         }
         allowed = anyDigit && value != 0;
-        break;
     }
 
     auto smemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
