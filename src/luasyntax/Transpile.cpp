@@ -11,18 +11,20 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Lua 5.1 syntax backport (source-level transpile) — PROTOTYPE.
+// Lua 5.1 syntax backport (source-level transpile).
 //
 // Vanilla's Lua is 5.0. It lacks the 5.1 operators `#` (length) and `%`
-// (modulo), so modern addon ports that use them fail to COMPILE. We don't
-// touch the 5.0 parser/VM (there is no OP_LEN / OP_MOD and no free opcode);
-// instead we rewrite the SOURCE before it reaches the parser: co-hook
-// `luaL_loadbuffer` (the one function every compile funnels through — file
-// scripts, `loadstring`, XML `<OnLoad>`), parse the chunk with a small
-// Lua-aware precedence-climbing parser, and rewrite:
+// (modulo) AND `...` used as an expression, so modern addon ports that use
+// them fail to COMPILE. We don't touch the 5.0 parser/VM (there is no
+// OP_LEN / OP_MOD and no free opcode); instead we rewrite the SOURCE before it
+// reaches the parser: co-hook `luaL_loadbuffer` (the one function every compile
+// funnels through — file scripts, `loadstring`, XML `<OnLoad>`) and rewrite:
 //     #operand      ->  __len(operand)
 //     a % b         ->  __mod(a, b)
-// `__len` / `__mod` are C globals we register (see below).
+//     ...           ->  unpack(arg)      (the `...` EXPRESSION, not the decl)
+// `__len` / `__mod` are C globals we register (see below); `unpack` and the
+// 5.0 `arg` table are already present. RewriteChunk runs the vararg pass first,
+// then the # / % precedence parser.
 //
 // Why a real parser (not regex / one-term-each-side): `#` is prefix but `%`
 // is binary infix, so its operands must be delimited by PRECEDENCE —
@@ -48,9 +50,15 @@
 //     use first-close matching, not depth. Real addons ~never nest these.
 //   * `__len` on a table returns a border (bisection) = 5.1 `#`; it ignores
 //     any `table.setn` count (5.1 has no setn — correct `#` semantics).
-//   * Diagnostic `_classicapi_TranspileLength(src)` returns the rewrite.
-//   * Toggles `_classicapi_SetLengthOperator(bool)` / `SetModuloOperator`.
-//   * `...` is a separate, larger phase (not here).
+//   * Diagnostic `_classicapi_TranspileLength(src)` returns the full rewrite.
+//   * Toggles `_classicapi_SetLengthOperator(bool)` / `SetModuloOperator` /
+//     `SetVarargExpansion`.
+//   * `...` expands to `unpack(arg)`, which is faithful in every position and
+//     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
+//     Only the `...` in a function's parameter list is left intact. File-scope
+//     `...` (the `local name = ...` addon-args idiom) depends on whether the
+//     client PASSES varargs to addon chunks — a loader question, separate from
+//     this syntax rewrite.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -67,10 +75,11 @@ namespace {
 
 constexpr size_t NPOS = static_cast<size_t>(-1);
 
-// Runtime switches, default ON — a `#`/`%`-bearing chunk does not compile on
-// 5.0 today, so enabling by default cannot regress working addons.
+// Runtime switches, default ON — a `#`/`%`/`...`-bearing chunk does not compile
+// on 5.0 today, so enabling by default cannot regress working addons.
 bool g_lenEnabled = true;
 bool g_modEnabled = true;
+bool g_varargEnabled = true;
 
 // lua_rawgeti(L, idx, n) — push table_at_idx[n] without metamethods. Not
 // exposed via Game::Lua; used to probe table elements for the border search.
@@ -573,6 +582,144 @@ bool RewriteAll(const char *src, size_t len, std::string &out) {
 }
 
 // ============================================================================
+// Vararg pass: rewrite the `...` EXPRESSION into `unpack(arg)`.
+//
+// This build is pure Lua 5.0 varargs: `function(...)` works and populates the
+// `arg` table (with `arg.n`), but `...` as an expression is a parse error.
+// `unpack(arg)` is a faithful, position-independent substitute — it's itself a
+// multi-value expression, so it spreads in tail position and truncates to one
+// value elsewhere exactly as `...` does, and this build's `unpack(arg)`
+// preserves embedded nils via `arg.n` (verified in-game). The ONLY `...` we must
+// leave alone is the one in a function's PARAMETER LIST — that's the vararg
+// declaration that creates `arg`. Nested vararg functions work for free: each
+// `function(...)` makes its own `arg` and `unpack(arg)` binds to the nearest.
+//
+// Kept a separate pass (not folded into the # / % precedence parser) because it
+// needs no precedence — it's a token substitution once the param-list `...` is
+// excluded. Order vs RewriteAll is irrelevant (neither produces the other's
+// trigger); RewriteChunk runs this first.
+// ============================================================================
+
+bool ContainsTripleDot(const char *src, size_t len) {
+    for (size_t i = 0; i + 2 < len; i++)
+        if (src[i] == '.' && src[i + 1] == '.' && src[i + 2] == '.')
+            return true;
+    return false;
+}
+
+// From a '(' token at `k`, return the index just past the matching ')', or the
+// token count if unbalanced. Parens are always single-char puncts.
+size_t MatchParenTok(const std::vector<Token> &t, const char *src, size_t k) {
+    int depth = 0;
+    for (size_t j = k; j < t.size(); j++) {
+        if (t[j].kind != TK_PUNCT || (t[j].end - t[j].start) != 1)
+            continue;
+        char ch = src[t[j].start];
+        if (ch == '(')
+            depth++;
+        else if (ch == ')') {
+            depth--;
+            if (depth == 0)
+                return j + 1;
+        }
+    }
+    return t.size();
+}
+
+bool RewriteVararg(const char *src, size_t len, std::string &out) {
+    if (src == nullptr || len == 0 || !g_varargEnabled)
+        return false;
+    if (!ContainsTripleDot(src, len))
+        return false;
+
+    std::vector<Token> toks;
+    Tokenize(src, len, toks);
+    const size_t n = toks.size();
+
+    auto isDot = [&](size_t i) {
+        return i < n && toks[i].kind == TK_PUNCT &&
+               (toks[i].end - toks[i].start) == 1 && src[toks[i].start] == '.';
+    };
+    // A `...` is a maximal run of exactly three consecutive `.` puncts
+    // (distinct from `.` field access and `..` concat).
+    auto isVararg = [&](size_t i) {
+        return isDot(i) && isDot(i + 1) && isDot(i + 2) && !isDot(i + 3) &&
+               (i == 0 || !isDot(i - 1));
+    };
+    auto isPunct = [&](size_t i, char ch) {
+        return i < n && toks[i].kind == TK_PUNCT &&
+               (toks[i].end - toks[i].start) == 1 && src[toks[i].start] == ch;
+    };
+
+    // Mark the `...` inside each function's parameter list — the vararg
+    // declaration, which must be left intact.
+    std::vector<char> skip(n, 0);
+    for (size_t i = 0; i < n; i++) {
+        if (toks[i].kind != TK_NAME || !SpanEq(src, toks[i], "function"))
+            continue;
+        // Skip the name path (`foo`, `a.b`, `a.b:c`, or nothing) to the '('.
+        size_t j = i + 1;
+        while (j < n && !isPunct(j, '(') &&
+               (toks[j].kind == TK_NAME || isPunct(j, '.') || isPunct(j, ':')))
+            j++;
+        if (!isPunct(j, '('))
+            continue;
+        size_t e = MatchParenTok(toks, src, j);
+        for (size_t p = j; p + 2 < e; p++) {
+            if (isVararg(p)) {
+                skip[p] = 1; // a param list has at most one `...` (last param)
+                break;
+            }
+        }
+        i = e - 1; // resume at the function body
+    }
+
+    // Replace each remaining `...` with `unpack(arg)` (offsets already ascending).
+    std::string result;
+    result.reserve(len + 8);
+    size_t prev = 0;
+    bool any = false;
+    for (size_t i = 0; i < n;) {
+        if (isVararg(i)) {
+            if (!skip[i]) {
+                result.append(src + prev, toks[i].start - prev);
+                result.append("unpack(arg)");
+                prev = toks[i + 2].end;
+                any = true;
+            }
+            i += 3;
+        } else {
+            i++;
+        }
+    }
+    if (!any)
+        return false;
+    result.append(src + prev, len - prev);
+    out = std::move(result);
+    return true;
+}
+
+// Run every syntax rewrite over a chunk (vararg first, then # / %). Returns
+// true and fills `out` if anything changed.
+bool RewriteChunk(const char *src, size_t len, std::string &out) {
+    std::string a;
+    bool didVararg = RewriteVararg(src, len, a);
+    const char *cur = didVararg ? a.data() : src;
+    size_t curLen = didVararg ? a.size() : len;
+
+    std::string b;
+    if (RewriteAll(cur, curLen, b)) {
+        out = std::move(b);
+        return true;
+    }
+    if (didVararg) {
+        out = std::move(a);
+        return true;
+    }
+    return false;
+}
+
+// ============================================================================
 // Runtime helpers: __len (string length / table border) and __mod (5.1 `%`).
 // ============================================================================
 
@@ -643,7 +790,7 @@ LoadBuffer_t g_origLoadBuffer = nullptr;
 int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char *name) {
     if (buff != nullptr && size != 0) {
         std::string out;
-        if (RewriteAll(buff, size, out))
+        if (RewriteChunk(buff, size, out))
             return g_origLoadBuffer(L, out.data(), static_cast<unsigned>(out.size()), name);
     }
     return g_origLoadBuffer(L, buff, size, name);
@@ -661,7 +808,7 @@ int __fastcall Script_TranspileLength(void *L) {
     }
     unsigned n = Game::Lua::StrLen(L, 1);
     std::string out;
-    if (RewriteAll(s, n, out))
+    if (RewriteChunk(s, n, out))
         Game::Lua::PushLString(L, out.data(), static_cast<unsigned>(out.size()));
     else
         Game::Lua::PushLString(L, s, n);
@@ -686,6 +833,15 @@ int __fastcall Script_GetModuloOperator(void *L) {
     Game::Lua::PushBool(L, g_modEnabled);
     return 1;
 }
+int __fastcall Script_SetVarargExpansion(void *L) {
+    g_varargEnabled = Game::Lua::ToBoolean(L, 1) != 0;
+    Game::Lua::PushBool(L, g_varargEnabled);
+    return 1;
+}
+int __fastcall Script_GetVarargExpansion(void *L) {
+    Game::Lua::PushBool(L, g_varargEnabled);
+    return 1;
+}
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__len", &Script_Len);
@@ -695,6 +851,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_GetLengthOperator", &Script_GetLengthOperator);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetModuloOperator", &Script_SetModuloOperator);
     Game::Lua::RegisterGlobalFunction("_classicapi_GetModuloOperator", &Script_GetModuloOperator);
+    Game::Lua::RegisterGlobalFunction("_classicapi_SetVarargExpansion", &Script_SetVarargExpansion);
+    Game::Lua::RegisterGlobalFunction("_classicapi_GetVarargExpansion", &Script_GetVarargExpansion);
 }
 
 // `__len` / `__mod` also on the glue state — the load hook is state-agnostic,
