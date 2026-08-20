@@ -4734,6 +4734,15 @@ enum Offsets {
     // CObjects — which is exactly why the engine pushes handler/frame
     // through it rather than a plain rawget.
     LUA_RAWGETI = 0x6F3BC0,
+    // `lua_getmetatable(L, objindex)` — pushes the metatable of the value at
+    // objindex and returns 1, or pushes nothing and returns 0 when it has none.
+    // Verified in docs/LuaCAPI.md and by the getfenv/getmetatable base-lib
+    // functions that call it. Used by the `__environment` env-protection hook.
+    LUA_GET_METATABLE = 0x6F3CF0,
+    // `lua_getfenv(L, idx)` — pushes the environment table of the function
+    // (or userdata/thread) at `idx`. The getfenv/setfenv base-lib code calls
+    // it to read a function's environment before the protection check.
+    LUA_GET_FENV = 0x6F3D50,
     LUA_SET_TABLE = 0x6F3E20,
     LUA_RAW_SET = 0x6F3EA0,
     LUA_INSERT = 0x6F31A0,
@@ -4814,6 +4823,18 @@ enum Offsets {
     // two callers (this = loadbuffer, 0x006F5490 = loadfile). Hooking here
     // lets a source-level transform see every chunk before the 5.0 parser.
     FUN_LUAL_LOADBUFFER = 0x006F5690,
+    // Shared environment-protection predicate for `getfenv`/`setfenv`
+    // (`bool __fastcall(L /*ecx*/)`). Pushes the function-at-top's environment
+    // via `lua_getfenv(L, -1)`, then pushes the protection marker
+    // `env["__fenv"]` (a RAW field on the env table) and returns whether it is
+    // non-nil — net stack effect +2 (env, marker). `getfenv` (`0x00702AC0`)
+    // returns the marker in place of the real env when set; `setfenv`
+    // (`0x00702BF8`) raises "cannot change a protected environment" when set.
+    // We co-hook this ONE predicate to read `getmetatable(env).__environment`
+    // (raw) instead — the Lua 5.1 form (verified against 3.3.5's
+    // `FUN_0084F2F0`) — with the raw `__fenv` field kept as a fallback, so both
+    // consumers gain the 5.1 semantics with the 1.12 behavior preserved.
+    FUN_LUA_ENV_PROTECT_PREDICATE = 0x00702BA0,
     // `lua_checkstack(L, n)` — `int __fastcall(L /*ecx*/, n /*edx*/)`.
     // Ensures room for `n` more stack values, growing if needed; returns 0
     // (without growing) when `(top-base)/16 + n` would exceed LUA_MAXCSTACK
