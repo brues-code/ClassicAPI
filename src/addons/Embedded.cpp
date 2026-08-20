@@ -47,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/FlavorToc.h"
 #include "addons/Toc.h"
 #include "bindings/Inject.h"
 
@@ -296,8 +297,14 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
 
     const char *suffix = StripAddonPrefix(path);
     if (suffix == nullptr) {
-        // Path isn't under `Interface\AddOns\!!!ClassicAPI\` — straight
-        // pass-through, we don't care.
+        // Not our embedded addon. If this is a base-TOC read for a multi-flavor
+        // addon that ships only `<Name>_Vanilla.toc` / `_Classic.toc`, serve
+        // that in place of the missing `<Name>.toc` so it registers and loads
+        // (see addons/FlavorToc.h). Otherwise straight pass-through.
+        if (AddOns::FlavorToc::TryHandle(unused, path, outBuf, outSize,
+                                         extraBytes, flag1, flag2, FileRead_o)) {
+            return 1;
+        }
         return FileRead_o(unused, path, outBuf, outSize, extraBytes,
                           flag1, flag2);
     }
