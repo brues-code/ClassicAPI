@@ -3815,3 +3815,41 @@ estimate. Anyone who wants vanilla threat should run an existing threat
 addon. ClassicAPI's only worthwhile contribution in this space is an
 unrelated precise-combat-log event feed — filed as its own thing, not as
 "threat".
+
+## 99. `C_AddOns.GetAddOnLocalTable(name)` — gate on loaded + opt-in TOC flag — TODO
+
+Shipped (branch `feat/lua-syntax-transpile`) as a thin public alias of the
+addon-args namespace: it calls the same `Script_AddonNS` as the internal
+`__addonns`, so it returns the per-addon shared table create-on-demand for
+**any** name, loaded or not, with no access control. That's fine as a first
+cut but is more permissive than retail.
+
+Retail gates this: `GetAddOnLocalTable(name)` returns the table **only** when
+BOTH hold, else `nil`:
+1. the addon `name` is **loaded**, and
+2. its `.toc` declares **`## AllowAddOnTableAccess: 1`** — an explicit opt-in,
+   so one addon can't reach into another's private namespace without consent.
+
+Keep the two paths separate when implementing:
+- **Internal** (`__addonns`, used by the `local name, ns = ...` preamble) stays
+  **ungated** — an addon always gets its own namespace. Do NOT gate the
+  preamble path or addons break.
+- **Public** (`C_AddOns.GetAddOnLocalTable`) gets the gate: check loaded state,
+  check the opt-in flag, then return `__addonns(name)` or `nil`.
+
+Implementation notes:
+- **Loaded check** is easy — reuse the engine's loaded state (`IsAddOnLoaded` /
+  the addon-registry entry). See the AddOn-registry section in CLAUDE.md.
+- **`AllowAddOnTableAccess`** is the work: the vanilla TOC parser
+  (`FUN_0051C9B0`) only stores the `##` fields it knows about and silently
+  drops unknown directives, so there's no engine field for it. Options:
+  (a) parse the addon's `.toc` ourselves (`Interface\AddOns\<name>\<name>.toc`
+  via `FUN_FILE_READ`) and scan for the line, caching the result per addon; or
+  (b) co-hook the TOC parser to capture the directive into a spare
+  `AddOnEntry` byte. (a) is simpler and avoids touching the parser.
+- Verify the exact retail directive spelling/semantics
+  (`## AllowAddOnTableAccess: 1`) before shipping the gate.
+
+Not urgent — current behavior is functional; this is a security/opt-in
+tightening to match retail. See [src/luasyntax/Transpile.cpp](src/luasyntax/Transpile.cpp)
+(`Script_AddonNS` + the `RegisterTableFunction("C_AddOns", "GetAddOnLocalTable", …)`).

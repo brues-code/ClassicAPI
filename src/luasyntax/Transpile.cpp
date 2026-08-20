@@ -958,6 +958,7 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__len", &Script_Len);
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
     Game::Lua::RegisterGlobalFunction("__addonns", &Script_AddonNS);
+    Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnLocalTable", &Script_AddonNS);
     Game::Lua::RegisterGlobalFunction("_classicapi_TranspileLength", &Script_TranspileLength);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetLengthOperator", &Script_SetLengthOperator);
     Game::Lua::RegisterGlobalFunction("_classicapi_GetLengthOperator", &Script_GetLengthOperator);
