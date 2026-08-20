@@ -4800,6 +4800,20 @@ enum Offsets {
     // `rawset(nil)` clear leaves it stale and subsequent `table.insert`
     // appends past the wiped slots.
     LUAL_SETN = 0x6F4EA0,
+    // `luaL_loadbuffer(L, buff, size, chunkname)` — compiles a source
+    // buffer into a Lua function on the stack (does NOT run it). Returns
+    // an int status (0 = ok) in eax; Ghidra types it void because the
+    // status flows through `lua_load`. __fastcall(L /*ecx*/, buff /*edx*/,
+    // size /*stack*/, chunkname /*stack*/); strips a leading UTF-8 BOM.
+    // This is the UNIVERSAL Lua compile chokepoint — every path that turns
+    // source text into bytecode funnels through it: `luaL_loadstring`
+    // (0x006F57C0, backs the `loadstring` global) and the three FrameScript
+    // execute/load funnels (0x00704AE0 / 0x00704C70 / 0x00703280, backing
+    // `RunScript`, XML `<OnLoad>`/`<OnClick>` handlers, and file-loaded
+    // addon chunks). Verified via xrefs to `lua_load` (0x006F4320) and its
+    // two callers (this = loadbuffer, 0x006F5490 = loadfile). Hooking here
+    // lets a source-level transform see every chunk before the 5.0 parser.
+    FUN_LUAL_LOADBUFFER = 0x006F5690,
     // `lua_checkstack(L, n)` — `int __fastcall(L /*ecx*/, n /*edx*/)`.
     // Ensures room for `n` more stack values, growing if needed; returns 0
     // (without growing) when `(top-base)/16 + n` would exceed LUA_MAXCSTACK
