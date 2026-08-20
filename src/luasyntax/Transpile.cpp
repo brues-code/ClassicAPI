@@ -55,10 +55,15 @@
 //     `SetVarargExpansion`.
 //   * `...` expands to `unpack(arg)`, which is faithful in every position and
 //     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
-//     Only the `...` in a function's parameter list is left intact. File-scope
-//     `...` (the `local name = ...` addon-args idiom) depends on whether the
-//     client PASSES varargs to addon chunks — a loader question, separate from
-//     this syntax rewrite.
+//     Only the `...` in a function's parameter list is left intact.
+//   * Addon-args: vanilla never passed `(addonName, addonTable)` to addon
+//     chunks (1.12's main chunk has no `arg`), so the modern file-scope
+//     `local name, ns = ...` idiom would resolve to `unpack(nil)`. For addon
+//     files (chunkname `@Interface\AddOns\<Name>\...`) that use a real `...`,
+//     we prepend a chunk-local `arg = {"<Name>", __addonns("<Name>"), n=2}` so
+//     `...` yields the name + a per-addon shared table. `__addonns` returns the
+//     same table for every file of an addon (registry-backed). The preamble is
+//     newline-free (line numbers preserved) and only touches AddOns\ chunks.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -779,20 +784,126 @@ int __fastcall Script_Mod(void *L) {
     return 1;
 }
 
+// __addonns(name) -> the per-addon shared table (the modern second vararg).
+// Created once per addon name and returned identically thereafter, backed by a
+// map in the Lua registry (hidden from addons). Backs the addon-args preamble.
+constexpr const char *kAddonNsRegKey = "__classicapi_addon_ns";
+
+int __fastcall Script_AddonNS(void *L) {
+    const char *name = Game::Lua::ToString(L, 1);
+    if (name == nullptr) {
+        Game::Lua::NewTable(L); // defensive — the preamble always passes a literal
+        return 1;
+    }
+    // registry[kAddonNsRegKey] — the name->ns map, created on first use.
+    Game::Lua::PushString(L, kAddonNsRegKey);
+    Game::Lua::RawGet(L, Game::Lua::REGISTRY_INDEX);
+    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::SetTop(L, -2); // pop the non-table
+        Game::Lua::NewTable(L);
+        Game::Lua::PushString(L, kAddonNsRegKey);
+        Game::Lua::PushValue(L, -2); // dup map
+        Game::Lua::RawSet(L, Game::Lua::REGISTRY_INDEX);
+    }
+    // map on top; fetch map[name], creating a fresh ns if missing.
+    Game::Lua::PushString(L, name);
+    Game::Lua::RawGet(L, -2);
+    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::SetTop(L, -2); // pop nil
+        Game::Lua::NewTable(L);
+        Game::Lua::PushString(L, name);
+        Game::Lua::PushValue(L, -2); // dup ns
+        Game::Lua::RawSet(L, -4);    // map[name] = ns
+    }
+    return 1; // ns on top
+}
+
 // ============================================================================
 // luaL_loadbuffer co-hook — the universal compile chokepoint.
 // ============================================================================
+
+inline char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
+
+// Extract the addon folder name from a file chunkname like
+// "@Interface\AddOns\<Name>\<file>". Returns true + fills `out` (NUL-terminated)
+// only for an addon file with a name safe to embed in a "..." literal.
+bool AddonNameFromChunk(const char *chunk, char *out, size_t outSize) {
+    if (chunk == nullptr)
+        return false;
+    static const char kMarker[] = "addons\\"; // lowercase, 7 chars incl. the '\'
+    const size_t mlen = 7;
+    for (const char *p = chunk; *p; ++p) {
+        size_t i = 0;
+        for (; i < mlen; ++i)
+            if (LowerAscii(p[i]) != kMarker[i]) // stops at NUL (NUL != a letter)
+                break;
+        if (i != mlen)
+            continue;
+        const char *ns = p + mlen;
+        size_t k = 0;
+        while (ns[k] != '\0' && ns[k] != '\\' && ns[k] != '/')
+            ++k;
+        if (k == 0 || k + 1 > outSize)
+            return false;
+        for (size_t j = 0; j < k; ++j) {
+            char c = ns[j];
+            if (c == '"' || c == '\\' || c == '\n' || c == '\r')
+                return false; // would break the injected string literal
+        }
+        std::memcpy(out, ns, k);
+        out[k] = '\0';
+        return true;
+    }
+    return false;
+}
 
 using LoadBuffer_t = int(__fastcall *)(void *L, const char *buff, unsigned size,
                                        const char *name);
 LoadBuffer_t g_origLoadBuffer = nullptr;
 
 int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char *name) {
-    if (buff != nullptr && size != 0) {
-        std::string out;
-        if (RewriteChunk(buff, size, out))
-            return g_origLoadBuffer(L, out.data(), static_cast<unsigned>(out.size()), name);
+    if (buff == nullptr || size == 0)
+        return g_origLoadBuffer(L, buff, size, name);
+
+    // Syntax transpile: vararg first, then # / %.
+    std::string va;
+    bool didVararg = RewriteVararg(buff, size, va);
+    const char *body = didVararg ? va.data() : buff;
+    size_t bodyLen = didVararg ? va.size() : size;
+
+    std::string ops;
+    if (RewriteAll(body, bodyLen, ops)) {
+        body = ops.data();
+        bodyLen = ops.size();
     }
+
+    // Addon-args: hand an addon file's chunk the modern (addonName, addonTable)
+    // varargs via a chunk-local `arg`, so a file-scope `local name, ns = ...`
+    // (now `unpack(arg)`) resolves. Vanilla never passed these — 1.12's main
+    // chunk has no `arg`. Only fires when a real `...` expression is present
+    // (didVararg) and the chunkname is an addon file; the preamble carries no
+    // newline, so line numbers are preserved.
+    char addon[128];
+    if (didVararg && AddonNameFromChunk(name, addon, sizeof addon)) {
+        size_t bom = (bodyLen >= 3 && static_cast<unsigned char>(body[0]) == 0xEF &&
+                      static_cast<unsigned char>(body[1]) == 0xBB &&
+                      static_cast<unsigned char>(body[2]) == 0xBF)
+                         ? 3
+                         : 0;
+        std::string full;
+        full.reserve(bodyLen + 48);
+        full.append(body, bom); // keep a leading BOM ahead of the preamble
+        full += "local arg={\"";
+        full += addon;
+        full += "\",__addonns(\"";
+        full += addon;
+        full += "\"),n=2};";
+        full.append(body + bom, bodyLen - bom);
+        return g_origLoadBuffer(L, full.data(), static_cast<unsigned>(full.size()), name);
+    }
+
+    if (body != buff)
+        return g_origLoadBuffer(L, body, static_cast<unsigned>(bodyLen), name);
     return g_origLoadBuffer(L, buff, size, name);
 }
 
@@ -846,6 +957,7 @@ int __fastcall Script_GetVarargExpansion(void *L) {
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__len", &Script_Len);
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
+    Game::Lua::RegisterGlobalFunction("__addonns", &Script_AddonNS);
     Game::Lua::RegisterGlobalFunction("_classicapi_TranspileLength", &Script_TranspileLength);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetLengthOperator", &Script_SetLengthOperator);
     Game::Lua::RegisterGlobalFunction("_classicapi_GetLengthOperator", &Script_GetLengthOperator);
