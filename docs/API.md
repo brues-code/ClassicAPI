@@ -1050,14 +1050,10 @@ SavedVariables load **before** its files run, so file-scope code sees them:
 local db = MyAddonDB       -- the restored table, not nil
 ```
 
-This covers both `## SavedVariables` and `## SavedVariablesPerCharacter`. A
+This covers both `## SavedVariables` and `## SavedVariablesPerCharacter`.
+File-scope reads and writes both behave as they do on modern clients. A
 SavedVariables file exists only after the first save, so the first-ever
 login still sees `nil` — there is nothing on disk to load yet.
-
-**Limit.** The engine still runs its own SavedVariables load at the normal
-step, right after the files. So a file-scope *read* works, but a file-scope
-*write* to a SavedVariable is overwritten before `ADDON_LOADED`. Do writes
-in an `ADDON_LOADED` handler, the way addons normally do.
 
 ## AuctionHouse
 
