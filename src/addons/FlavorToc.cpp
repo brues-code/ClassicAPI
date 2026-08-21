@@ -78,27 +78,31 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
         return false;
 
     char cand[512];
-    if (prefixLen + 16 >= sizeof cand) // "_Vanilla.toc" + NUL fits in 16
+    if (prefixLen + 16 >= sizeof cand) // "_ClassicAPI.toc" + NUL is 16 (longest)
         return false;                  // pathological path length — let base read run
     std::memcpy(cand, path, prefixLen);
 
-    // Probe order, most specific first. `_Turtle` is offered only on a
-    // Turtle-lineage client (gated on Turtle::Detected) so stock 1.12 never
-    // prefers Turtle-only code; then the generic vanilla/classic fallbacks.
-    // Deliberately NOT _Mainline/_Cata/etc — those are not for a vanilla client.
-    const char *order[3];
+    // Only flavors that describe THIS environment, most specific first:
+    //   `_Turtle`     — Turtle client/content, only when Turtle is detected;
+    //   `_ClassicAPI` — 1.12 + ClassicAPI, ALWAYS (ClassicAPI is present by
+    //                   definition — it is the code doing this redirect).
+    // Deliberately NOT `_Vanilla`/`_Classic` (those target the 1.15 Classic Era
+    // client — a modern engine + full modern API — which this 1.12 +
+    // partial-backport client is not), nor `_Mainline`/`_Cata`/etc.
+    const char *order[2];
     int count = 0;
     if (Turtle::Detected())
         order[count++] = "_Turtle.toc";
-    order[count++] = "_Vanilla.toc";
-    order[count++] = "_Classic.toc";
+    order[count++] = "_ClassicAPI.toc";
 
     for (int i = 0; i < count; ++i) {
         std::memcpy(cand + prefixLen, order[i], std::strlen(order[i]) + 1); // incl. NUL
         if (orig(unused, cand, outBuf, outSize, extraBytes, flag1, flag2) != 0)
             return true; // served the flavor TOC in place of the base
     }
-    return false; // no matching flavor TOC — caller reads the base path
+    // No matching flavor TOC — fall through: the caller reads the base path,
+    // which chains through any other FUN_FILE_READ hooker before the engine.
+    return false;
 }
 
 } // namespace AddOns::FlavorToc

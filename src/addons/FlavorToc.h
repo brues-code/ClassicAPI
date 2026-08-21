@@ -31,17 +31,20 @@ using FileReadFn = int(__stdcall *)(int unused, const char *path, void **outBuf,
 // addon never registers — it is invisible, not merely mis-loaded.
 //
 // Called from the FUN_FILE_READ hook. If `path` is an addon base-TOC read
-// (`…\AddOns\<Name>\<Name>.toc`), probe the vanilla-appropriate flavor TOCs in
-// precedence order and, if one exists, serve it via `orig` (as if it were the
-// base TOC) and return true. Order, most specific first:
-//   `<Name>_Turtle.toc`   — ONLY on a Turtle-lineage client (Turtle::Detected),
-//                           a ClassicAPI extension for Turtle's server content;
-//   `<Name>_Vanilla.toc`  — WoW Classic vanilla;
-//   `<Name>_Classic.toc`  — all classic expansions.
-// This deliberately wins over an existing base `<Name>.toc`, mirroring the
-// retail client (flavor-specific beats the generic base). We do NOT fall back
-// to `_Mainline`/`_Cata`/etc.: an addon shipping only those does not support
-// vanilla and should stay unlisted.
+// (`…\AddOns\<Name>\<Name>.toc`), probe the flavor TOCs that describe THIS
+// environment and, if one exists, serve it via `orig` (as if it were the base
+// TOC) and return true. Order, most specific first:
+//   `<Name>_Turtle.toc`     — Turtle client/content, ONLY when Turtle is
+//                             detected (Turtle::Detected); a ClassicAPI extension;
+//   `<Name>_ClassicAPI.toc` — 1.12 + ClassicAPI, ALWAYS (ClassicAPI is present
+//                             by definition — it is the code doing this redirect).
+// Both are ClassicAPI conventions, not retail flavors. We deliberately do NOT
+// map to `_Vanilla`/`_Classic` (those target the 1.15 Classic Era client — a
+// modern engine + full modern API — which a 1.12 + partial-backport client is
+// not), nor `_Mainline`/`_Cata`/etc. A selected flavor wins over an existing
+// base `<Name>.toc`. If neither flavor exists, TryHandle returns false and the
+// caller does the normal base read — which chains through any other DLL that
+// hooked FUN_FILE_READ before reaching the engine.
 //
 // The redirect fires at BOTH the registration scan (glue/char-select) and the
 // in-world load pass, which must agree on the flavor. `Turtle::Detected()` is
