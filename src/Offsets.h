@@ -5198,6 +5198,14 @@ enum Offsets {
     // call is a no-op when the user has the addon installed on disk.
     FUN_TOC_PARSER = 0x0051C9B0,
 
+    // Client interface version — `__cdecl() -> uint32` (no args), a bare
+    // `return 0x2BC0` (11200). The addon loadability resolver `FUN_0051e780`
+    // compares an addon's parsed `## Interface:` number (entry+0x1C) against
+    // this; a mismatch is the OUT_OF_DATE reason (code 7) that blocks loading
+    // while the `checkAddonVersion` cvar is on. `AddOns::TocRewrite` calls it
+    // to recognize the client version inside a multi-flavor comma-list.
+    FUN_ADDON_CLIENT_INTERFACE_VERSION = 0x0051D7D0,
+
     // AddOn registry init — `__fastcall(accountName)`. Documented in
     // CLAUDE.md ("AddOn registry & hot-reload"). Hooked post-call so
     // we can splice the embedded addon entry into the freshly-populated

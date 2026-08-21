@@ -75,6 +75,71 @@ const char *VariableValue(const char *head, size_t headLen) {
     return nullptr;
 }
 
+// The client interface version the loadability check compares against
+// (FUN_0051d7d0 -> 0x2BC0 = 11200). Read live so we mirror the engine's own
+// value rather than hardcoding it.
+using ClientIfaceVer_t = uint32_t(__cdecl *)();
+uint32_t ClientInterfaceVersion() {
+    return reinterpret_cast<ClientIfaceVer_t>(
+        static_cast<uintptr_t>(Offsets::FUN_ADDON_CLIENT_INTERFACE_VERSION))();
+}
+
+// If `line` is a `## Interface:` directive whose value is a comma-list that
+// contains the client version but does NOT lead with it, append a normalized
+// `<prefix>: <clientVersion>` line to `out` and return true. Vanilla's parser
+// reads only the first number, so without this a later 11200 is never seen and
+// the addon is marked out of date. Returns false for any other line, and for
+// an interface line that needs no change (single value, no client version, or
+// client version already first) — the caller then copies the line verbatim.
+bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
+    size_t s = 0;
+    while (s < len && IsSpace(line[s])) ++s;
+    if (s + 1 >= len || line[s] != '#' || line[s + 1] != '#') return false;
+    size_t p = s + 2;
+    while (p < len && IsSpace(line[p])) ++p;
+    static const char kKey[] = "interface"; // matched case-insensitively
+    const size_t klen = 9;
+    if (p + klen > len) return false;
+    for (size_t i = 0; i < klen; ++i)
+        if (Lower(line[p + i]) != kKey[i]) return false;
+    p += klen;
+    while (p < len && IsSpace(line[p])) ++p;
+    if (p >= len || line[p] != ':') return false;
+    ++p;                       // past ':'
+    const size_t prefixEnd = p; // "## Interface:" (author spacing preserved)
+
+    const uint32_t client = ClientInterfaceVersion();
+    long first = -1;
+    bool hasComma = false, hasClient = false;
+    size_t q = p;
+    while (q < len) {
+        while (q < len && (IsSpace(line[q]) || line[q] == ',')) {
+            if (line[q] == ',') hasComma = true;
+            ++q;
+        }
+        long v = 0;
+        bool digit = false;
+        while (q < len && line[q] >= '0' && line[q] <= '9') {
+            v = v * 10 + (line[q] - '0');
+            ++q;
+            digit = true;
+        }
+        if (digit) {
+            if (first < 0) first = v;
+            if (static_cast<uint32_t>(v) == client) hasClient = true;
+        } else if (q < len) {
+            ++q; // skip a stray non-digit so the scan always advances
+        }
+    }
+    if (!hasComma || !hasClient || first == static_cast<long>(client))
+        return false; // single value / no client version / already first
+
+    out.append(line, prefixEnd);
+    out.push_back(' ');
+    out += std::to_string(client);
+    return true;
+}
+
 // Evaluate a `[keyword args]` condition. `*known` reports whether the
 // keyword is recognized; the return is whether the line should load. An
 // unrecognized keyword returns false so the caller drops the line (a
@@ -171,8 +236,13 @@ void RebuildToc(const char *src, size_t srcLen, std::string &out) {
 
         size_t s = 0;
         while (s < len && IsSpace(line[s])) ++s;
-        if (s >= len || line[s] == '#') {
-            out.append(line, len); // blank / comment / metadata
+        if (s >= len) {
+            out.append(line, len); // blank
+        } else if (line[s] == '#') {
+            // Comment / `##` metadata — verbatim, except a multi-flavor
+            // `## Interface:` list that hides the client version.
+            if (!TryRewriteInterfaceLine(line, len, out))
+                out.append(line, len);
         } else if (ProcessFileLine(line, len, lineOut)) {
             out.append(lineOut);
         } else {
@@ -209,14 +279,17 @@ void Transform(const char *path, void **outBuf, size_t *outSize) {
                             : std::strlen(content);
     if (size == 0) return;
 
-    // Fast path: no '[' means no directives — leave the engine buffer alone.
-    if (std::memchr(content, '[', size) == nullptr) return;
+    // Fast path: no '[' (directives) and no ',' (a possible `## Interface:`
+    // list) means nothing to do — leave the engine buffer alone.
+    if (std::memchr(content, '[', size) == nullptr &&
+        std::memchr(content, ',', size) == nullptr)
+        return;
 
     std::string rebuilt;
     RebuildToc(content, size, rebuilt);
     if (rebuilt.size() == size &&
         std::memcmp(rebuilt.data(), content, size) == 0)
-        return; // the `[` was only in metadata/comments — nothing changed
+        return; // brackets/commas were only in unaffected lines — nothing changed
 
     auto SMemAlloc = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC);
     auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);

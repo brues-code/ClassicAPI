@@ -982,6 +982,13 @@ this client on purpose. ClassicAPI does not use `_Vanilla` or `_Classic`
 files — those target the 1.15 Classic Era client, which runs a modern
 engine this build does not match.
 
+**Multi-flavor `## Interface:` version.** A retail TOC can list several
+interface versions on one line:
+
+```
+## Interface: 120100, 50504, 38002, 20506, 11200
+```
+
 **Per-line directives.** Inside a TOC, gate individual file lines with a
 condition, or expand a path variable:
 

@@ -38,9 +38,9 @@ namespace AddOns::TocRewrite {
 // This closes the gap at the FUN_FILE_READ layer (alongside FlavorToc /
 // Embedded): after an addon TOC is read, rewrite its file-reference lines
 // so the engine's own load loop sees clean paths. `##` metadata and `#`
-// comment lines are copied verbatim (metadata-line conditions, added in
-// retail 12.0.7, are out of scope). What the tokens resolve to on this
-// 1.12 client:
+// comment lines are copied verbatim, with ONE exception (`## Interface:`,
+// below); metadata-line conditions, added in retail 12.0.7, are out of
+// scope. What the tokens resolve to on this 1.12 client:
 //
 //   [AllowLoadGameType ...]   keep the line iff the list contains `vanilla`
 //   [AllowLoadTextLocale ...] keep the line iff the list contains the
@@ -56,12 +56,24 @@ namespace AddOns::TocRewrite {
 // single-word `[Token]` is left verbatim (the engine then fails to find
 // that path, so the file does not load).
 //
+// Multi-flavor `## Interface:` list. Retail lets a TOC list several
+// interface versions (`## Interface: 120100, 50504, 11200`). Vanilla's
+// parser is a plain atoi that reads only the FIRST number, so it never
+// sees a later 11200 and marks the addon out of date. When the client
+// version (FUN_ADDON_CLIENT_INTERFACE_VERSION, 11200) appears anywhere in
+// the list but is not first, the `## Interface:` line is rewritten to that
+// single value so the engine marks the addon compatible. A list WITHOUT
+// the client version is left unchanged — it still parses to its first
+// value and stays out of date, exactly as before.
+//
 // Called from the FUN_FILE_READ hook after the read succeeds. Does
-// nothing unless `path` is an addon `.toc` read AND its content contains
-// a `[` (the fast-path bail keeps every bracket-free TOC zero-copy). When
-// it does rewrite, it allocates a fresh Storm buffer, frees the original,
-// and updates `*outBuf` / `*outSize` — the caller frees the replacement
-// exactly as it would the engine's own read buffer.
+// nothing unless `path` is an addon `.toc` read AND its content contains a
+// `[` (directives) or a `,` (a possible `## Interface:` list) — the
+// fast-path bail keeps every unaffected TOC zero-copy, and a rebuild that
+// changes nothing is discarded by a content compare. When it does rewrite,
+// it allocates a fresh Storm buffer, frees the original, and updates
+// `*outBuf` / `*outSize` — the caller frees the replacement exactly as it
+// would the engine's own read buffer.
 void Transform(const char *path, void **outBuf, size_t *outSize);
 
 } // namespace AddOns::TocRewrite
