@@ -48,8 +48,9 @@
 // so error line numbers are preserved.
 //
 // Prototype scope / limits (documented):
-//   * Nested long strings/comments (`[[ a [[ b ]] c ]]`, a 5.0-only quirk)
-//     use first-close matching, not depth. Real addons ~never nest these.
+//   * Nested long strings/comments (`[[ a [[ b ]] c ]]`) are depth-matched to
+//     mirror the 5.0 engine lexer (which nests), so string/comment boundaries
+//     are exact.
 //   * `__len` on a table returns a border (bisection) = 5.1 `#`; it ignores
 //     any `table.setn` count (5.1 has no setn — correct `#` semantics).
 //   * Hex literals: only INTEGER `0x…` (up to 16 hex digits) are converted,
@@ -139,11 +140,25 @@ int LongBracketLevel(const char *src, size_t len, size_t pos) {
     return -1;
 }
 
-// Skip a long string/comment from the opening `[` (`pos`). First close match
-// only — no nesting (prototype limit). Returns offset past the close, or len.
+// Skip a long string/comment from the opening `[` (`pos`). Returns offset past
+// the close, or len if unterminated.
+//
+// Lua 5.0 (this client) NESTS level-0 `[[ ]]`: an inner `[[` raises the depth,
+// a `]]` lowers it, and the string closes only at depth 0 — verified against
+// the engine's own long-string reader FUN_00700010, which keeps exactly this
+// counter. We must mirror it or we mis-identify where a nested long string ends
+// and could rewrite `#`/`%` bytes the parser actually treats as string content.
+// `[=[`-style levels are a 5.1 form this 5.0 client does not accept (its reader
+// has no `=` handling), so they never nest — first matching close wins.
 size_t SkipLongBracket(const char *src, size_t len, size_t pos, int level) {
     size_t i = pos + 2 + static_cast<size_t>(level);
+    int depth = 0;
     while (i < len) {
+        if (level == 0 && src[i] == '[' && i + 1 < len && src[i + 1] == '[') {
+            depth++;
+            i += 2;
+            continue;
+        }
         if (src[i] == ']') {
             size_t j = i + 1;
             int eq = 0;
@@ -151,8 +166,13 @@ size_t SkipLongBracket(const char *src, size_t len, size_t pos, int level) {
                 j++;
                 eq++;
             }
-            if (eq == level && j < len && src[j] == ']')
-                return j + 1;
+            if (eq == level && j < len && src[j] == ']') {
+                if (depth == 0)
+                    return j + 1;
+                depth--;
+                i = j + 1;
+                continue;
+            }
         }
         i++;
     }
@@ -269,6 +289,19 @@ void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
             out.push_back({TK_NUMBER, s, i});
             continue;
         }
+        if (c == '.') {
+            // Dots tokenize greedily like Lua's own lexer: '.', '..', or '...'
+            // (at most 3). A '.<digit>' was already taken as a number above, so
+            // a '.' reaching here is punctuation. Emitting '...' as ONE token is
+            // what lets the vararg pass tell it apart from an adjacent '..'
+            // concat: `x .. ...` is `..` then `...`, never a five-dot run.
+            size_t d = 1;
+            while (d < 3 && i + d < len && src[i + d] == '.')
+                d++;
+            out.push_back({TK_PUNCT, i, i + d});
+            i += d;
+            continue;
+        }
         out.push_back({TK_PUNCT, i, i + 1}); // single punctuation byte
         i++;
     }
@@ -300,6 +333,20 @@ struct Ctx {
     std::vector<CharOp> charOps;
     bool lenOn;
     bool modOn;
+    int depth = 0; // current parse-recursion depth (see DepthGuard)
+};
+
+// The `#`/`%` parser recurses per nested bracket / chained operator. Cap the
+// depth so a pathological chunk (`{{{{…}}}}` thousands deep) can't overflow the
+// C stack inside the hook — Lua's own parser rejects that with a clean "too
+// many syntax levels" error at ~200 (LUAI_MAXCCALLS); we mirror the bound and
+// simply stop rewriting the over-deep region (it then fails to compile on 5.0
+// exactly as it would have without us — no crash, no regression).
+constexpr int kMaxParseDepth = 200;
+struct DepthGuard {
+    int &d;
+    explicit DepthGuard(int &dd) : d(dd) { ++d; }
+    ~DepthGuard() { --d; }
 };
 
 inline const Token &Tk(const Ctx &c, size_t i) { return (*c.toks)[i]; }
@@ -400,7 +447,7 @@ size_t ParseSuffixes(Ctx &c, size_t k) {
         if (tk.kind != TK_PUNCT)
             break;
         char ch = c.src[tk.start];
-        if (ch == '.') {
+        if (ch == '.' && (tk.end - tk.start) == 1) { // field access `.name` — not `..`/`...`
             if (IsNameNonKw(c, k + 1)) {
                 k += 2;
                 continue;
@@ -495,6 +542,9 @@ int BinPrec(const char *src, const Token &t, bool &rightAssoc) {
 // past the expression, or `k` if there is no primary (nothing parsed).
 size_t ParseExpr(Ctx &c, size_t k, int minPrec) {
     const size_t start = k;
+    DepthGuard guard(c.depth);
+    if (c.depth > kMaxParseDepth)
+        return start; // too deep — leave this region un-rewritten (see kMaxParseDepth)
     size_t cur;
 
     if (k < NT(c) && (PunctIs(c, k, '-') || PunctIs(c, k, '#') || NameIs(c, k, "not"))) {
@@ -667,15 +717,12 @@ bool RewriteVararg(const char *src, size_t len, std::string &out) {
     Tokenize(src, len, toks);
     const size_t n = toks.size();
 
-    auto isDot = [&](size_t i) {
-        return i < n && toks[i].kind == TK_PUNCT &&
-               (toks[i].end - toks[i].start) == 1 && src[toks[i].start] == '.';
-    };
-    // A `...` is a maximal run of exactly three consecutive `.` puncts
-    // (distinct from `.` field access and `..` concat).
+    // A `...` is a single 3-char punct token — Tokenize now emits '.', '..',
+    // '...' greedily like Lua's lexer, so the vararg is trivially distinct from
+    // `.` field access and `..` concat, even written adjacent as `x .. ...`
+    // (which is `..` then `...`, not a five-dot run the old scan couldn't split).
     auto isVararg = [&](size_t i) {
-        return isDot(i) && isDot(i + 1) && isDot(i + 2) && !isDot(i + 3) &&
-               (i == 0 || !isDot(i - 1));
+        return i < n && toks[i].kind == TK_PUNCT && (toks[i].end - toks[i].start) == 3;
     };
     auto isPunct = [&](size_t i, char ch) {
         return i < n && toks[i].kind == TK_PUNCT &&
@@ -696,7 +743,7 @@ bool RewriteVararg(const char *src, size_t len, std::string &out) {
         if (!isPunct(j, '('))
             continue;
         size_t e = MatchParenTok(toks, src, j);
-        for (size_t p = j; p + 2 < e; p++) {
+        for (size_t p = j; p < e; p++) {
             if (isVararg(p)) {
                 skip[p] = 1; // a param list has at most one `...` (last param)
                 break;
@@ -705,22 +752,17 @@ bool RewriteVararg(const char *src, size_t len, std::string &out) {
         i = e - 1; // resume at the function body
     }
 
-    // Replace each remaining `...` with `unpack(arg)` (offsets already ascending).
+    // Replace each remaining `...` with `unpack(arg)`.
     std::string result;
     result.reserve(len + 8);
     size_t prev = 0;
     bool any = false;
-    for (size_t i = 0; i < n;) {
-        if (isVararg(i)) {
-            if (!skip[i]) {
-                result.append(src + prev, toks[i].start - prev);
-                result.append("unpack(arg)");
-                prev = toks[i + 2].end;
-                any = true;
-            }
-            i += 3;
-        } else {
-            i++;
+    for (size_t i = 0; i < n; ++i) {
+        if (isVararg(i) && !skip[i]) {
+            result.append(src + prev, toks[i].start - prev);
+            result.append("unpack(arg)");
+            prev = toks[i].end;
+            any = true;
         }
     }
     if (!any)
@@ -984,6 +1026,12 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     if (buff == nullptr || size == 0)
         return g_origLoadBuffer(L, buff, size, name);
 
+    // Precompiled bytecode (Lua's ESC "Lua" chunk signature) is NOT source —
+    // the rewrite passes would tokenize its bytes as text and corrupt it, and
+    // the 5.0 undump is unhardened. Pass it straight through untouched.
+    if (static_cast<unsigned char>(buff[0]) == 0x1B)
+        return g_origLoadBuffer(L, buff, size, name);
+
     // Syntax transpile: hex literals first, then vararg, then # / %.
     std::string hx;
     const char *body = buff;
@@ -994,60 +1042,80 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     }
 
     std::string va;
-    bool didVararg = RewriteVararg(body, bodyLen, va);
+    const bool didVararg = RewriteVararg(body, bodyLen, va);
     if (didVararg) {
         body = va.data();
         bodyLen = va.size();
     }
 
     std::string ops;
-    if (RewriteAll(body, bodyLen, ops)) {
+    const bool didOps = RewriteAll(body, bodyLen, ops);
+    if (didOps) {
         body = ops.data();
         bodyLen = ops.size();
     }
 
-    // Addon-args: hand an addon file's chunk the modern (addonName, addonTable)
-    // varargs via a chunk-local `arg`, so a file-scope `local name, ns = ...`
-    // (now `unpack(arg)`) resolves. Vanilla never passed these — 1.12's main
-    // chunk has no `arg`. Only fires when a real `...` expression is present
-    // (didVararg), the compile is the file funnel's own (fromFileFunnel — NOT
-    // loadstring, whose chunkname is caller-forgeable), and the chunkname is an
-    // addon path; the preamble carries no newline, so line numbers survive.
+    // Assemble a newline-free preamble (line numbers preserved). Two parts:
+    //  * Helper capture. `#`/`%`/`...` lower to `__len`/`__mod`/`unpack` CALLS;
+    //    as bare globals those resolve nil under a `setfenv` sandbox with no
+    //    `_G` fall-through, whereas real 5.1 operators are environment-
+    //    independent. Capturing them at chunk top — default env, before any
+    //    setfenv the chunk runs — into chunk-locals restores that: nested
+    //    functions bind them as upvalues, unaffected by their own environment.
+    //  * Addon-args. For an addon FILE chunk, hand it the modern (addonName,
+    //    addonTable) varargs via a chunk-local `arg`, so file-scope
+    //    `local name, ns = ...` (now `unpack(arg)`) resolves. Vanilla never
+    //    passed these — 1.12's main chunk has no `arg`. Only when a real `...`
+    //    is present (didVararg), the compile is the file funnel's own
+    //    (fromFileFunnel — NOT loadstring, whose chunkname is caller-forgeable),
+    //    and the chunkname is an addon path.
+    std::string pre;
+    if (didOps)
+        pre += "local __len,__mod=__len,__mod;";
+    if (didVararg)
+        pre += "local unpack=unpack;";
+
+    bool armed = false;
     char addon[128];
     if (fromFileFunnel && didVararg && AddonNameFromChunk(name, addon, sizeof addon)) {
-        size_t bom = (bodyLen >= 3 && static_cast<unsigned char>(body[0]) == 0xEF &&
-                      static_cast<unsigned char>(body[1]) == 0xBB &&
-                      static_cast<unsigned char>(body[2]) == 0xBF)
-                         ? 3
-                         : 0;
-        std::string full;
-        full.reserve(bodyLen + 48);
-        full.append(body, bom); // keep a leading BOM ahead of the preamble
-        full += "local arg={\"";
-        full += addon;
-        full += "\",__addonns(\"";
-        full += addon;
-        full += "\"),n=2};";
-        full.append(body + bom, bodyLen - bom);
-        // Grant this chunk (and only this chunk) the right to fetch its own
-        // namespace via `__addonns`. The loader runs strictly
-        // loadbuffer->pcall per file, and the preamble consuming the grant is
-        // the chunk's first act, so the window is a single uninterrupted
-        // chunk. If the compile fails the chunk never runs, so revoke it now
-        // rather than leave a stale grant for a later runtime `__addonns` call.
-        // `addon` is a validated name <= 127 chars (AddonNameFromChunk bounds
-        // it to sizeof addon), so it fits g_loadingAddon exactly.
-        std::memcpy(g_loadingAddon, addon, std::strlen(addon) + 1);
-        const int rc = g_origLoadBuffer(L, full.data(),
-                                        static_cast<unsigned>(full.size()), name);
-        if (rc != 0)
-            g_loadingAddon[0] = '\0';
-        return rc;
+        pre += "local arg={\"";
+        pre += addon;
+        pre += "\",__addonns(\"";
+        pre += addon;
+        pre += "\"),n=2};";
+        armed = true;
     }
 
-    if (body != buff)
-        return g_origLoadBuffer(L, body, static_cast<unsigned>(bodyLen), name);
-    return g_origLoadBuffer(L, buff, size, name);
+    if (pre.empty()) {
+        // No operator/vararg rewrite needing a preamble (hex-only, or nothing).
+        if (body != buff)
+            return g_origLoadBuffer(L, body, static_cast<unsigned>(bodyLen), name);
+        return g_origLoadBuffer(L, buff, size, name);
+    }
+
+    const size_t bom = (bodyLen >= 3 && static_cast<unsigned char>(body[0]) == 0xEF &&
+                        static_cast<unsigned char>(body[1]) == 0xBB &&
+                        static_cast<unsigned char>(body[2]) == 0xBF)
+                           ? 3
+                           : 0;
+    std::string full;
+    full.reserve(bodyLen + pre.size() + 4);
+    full.append(body, bom); // keep a leading BOM ahead of the preamble
+    full += pre;
+    full.append(body + bom, bodyLen - bom);
+
+    // Grant this chunk (and only this chunk) the right to fetch its own
+    // namespace via `__addonns`; the preamble consumes the grant as the chunk's
+    // first act, so the window is a single uninterrupted chunk. Revoke on
+    // compile failure so no stale grant leaks to a later runtime call. `addon`
+    // is a validated name <= 127 chars, so it fits g_loadingAddon exactly.
+    if (armed)
+        std::memcpy(g_loadingAddon, addon, std::strlen(addon) + 1);
+    const int rc =
+        g_origLoadBuffer(L, full.data(), static_cast<unsigned>(full.size()), name);
+    if (armed && rc != 0)
+        g_loadingAddon[0] = '\0';
+    return rc;
 }
 
 // ============================================================================
@@ -1144,6 +1212,20 @@ const Game::HookAutoRegister _loadHook{
 void PushAddonNamespace(void *L, const char *name) {
     static constexpr const char *kAddonNsRegKey = "__classicapi_addon_ns";
 
+    // Case-fold the map key. Addon folder names are case-insensitive on
+    // Windows, but the load-time producer keys by the folder's exact case
+    // (from the chunkname) while `C_AddOns.GetAddOnLocalTable` passes the
+    // caller's arbitrary case — its gates (by-name IsLoaded, TOC read) are both
+    // case-insensitive too. Without folding, a case-mismatched request would
+    // miss the real table and silently mint a fresh empty one. Fold both here,
+    // the single choke point, so every caller lands on the same table.
+    char key[128];
+    size_t ki = 0;
+    for (; name[ki] != '\0' && ki + 1 < sizeof key; ++ki)
+        key[ki] = (name[ki] >= 'A' && name[ki] <= 'Z') ? static_cast<char>(name[ki] + 32)
+                                                        : name[ki];
+    key[ki] = '\0';
+
     // registry[kAddonNsRegKey] — the name->ns map, created on first use.
     Game::Lua::PushString(L, kAddonNsRegKey);
     Game::Lua::RawGet(L, Game::Lua::REGISTRY_INDEX);
@@ -1154,15 +1236,15 @@ void PushAddonNamespace(void *L, const char *name) {
         Game::Lua::PushValue(L, -2); // dup map
         Game::Lua::RawSet(L, Game::Lua::REGISTRY_INDEX);
     }
-    // map on top; fetch map[name], creating a fresh ns if missing.
-    Game::Lua::PushString(L, name);
+    // map on top; fetch map[key], creating a fresh ns if missing.
+    Game::Lua::PushString(L, key);
     Game::Lua::RawGet(L, -2);
     if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
         Game::Lua::SetTop(L, -2); // pop nil
         Game::Lua::NewTable(L);
-        Game::Lua::PushString(L, name);
+        Game::Lua::PushString(L, key);
         Game::Lua::PushValue(L, -2); // dup ns
-        Game::Lua::RawSet(L, -4);    // map[name] = ns
+        Game::Lua::RawSet(L, -4);    // map[key] = ns
     }
     // Drop the map beneath the ns so the net effect is +1 (ns on top).
     Game::Lua::Remove(L, -2);
