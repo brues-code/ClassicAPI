@@ -27,6 +27,16 @@ namespace {
 bool g_detected = false;
 char g_version[32] = {0};
 
+// Which Lua state is live right now: the glue screen (true) or the in-world
+// FrameScript state (false). The `TURTLE_*` glue markers are set by Turtle's
+// GlueXML and are only trustworthy on the glue state — no user addon runs
+// there. In-world, ANY addon can define a global by one of those names (a
+// Turtle-UI port shipping the strings, say), which must NOT latch Turtle
+// detection. So the marker probe is gated on this. Driven by the engine's own
+// per-state script-registration hooks below; starts true (the client boots to
+// the glue screen).
+bool g_onGlue = true;
+
 void Probe() {
     if (g_detected && g_version[0] != '\0')
         return; // fully resolved (Turtle + version known)
@@ -64,7 +74,11 @@ void Probe() {
     // clone-robust. Latch detected; the version stays empty until in-world.
     // This is what lets `Addons::FlavorToc` select `_Turtle.toc` consistently
     // at BOTH the glue registration scan and the in-world load pass.
-    if (!g_detected) {
+    //
+    // Only consult the markers while actually ON the glue state (`g_onGlue`).
+    // In-world these names are forgeable by any loaded addon, so trusting them
+    // there would let a stock client be mis-detected as Turtle for the session.
+    if (!g_detected && g_onGlue) {
         static const char *const kGlueMarkers[] = {
             "AUTH_TURTLE_WEBSITE", "TURTLE_ARMORY", "TURTLE_KNOWLEDGE_DATABASE"};
         for (const char *marker : kGlueMarkers) {
@@ -80,6 +94,18 @@ void Probe() {
     }
 }
 
+// Track the live Lua state via the engine's per-state script-registration
+// hooks. The in-world registration (`ModuleAutoRegister`) fires on each world
+// load BEFORE the addon load pass, so `g_onGlue` is already false by the time
+// any addon's `FlavorToc` calls `Detected()`; the glue registration
+// (`GlueModuleAutoRegister`) fires on every glue boot (initial launch + each
+// world->glue logout). Neither reads a forgeable Lua global.
+void OnInWorldRegister() { g_onGlue = false; }
+void OnGlueRegister() { g_onGlue = true; }
+
+const Game::ModuleAutoRegister _inWorldReg{&OnInWorldRegister};
+const Game::GlueModuleAutoRegister _glueReg{&OnGlueRegister};
+
 } // namespace
 
 bool Detected() {
@@ -89,7 +115,10 @@ bool Detected() {
 
 const char *Version() {
     Probe();
-    return g_detected ? g_version : nullptr;
+    // nullptr until the in-world `TURTLE_WOW_VERSION` fills g_version — a
+    // glue-only detection latches Detected() with the version still empty, and
+    // the header promises nullptr (not "") in that window.
+    return (g_detected && g_version[0] != '\0') ? g_version : nullptr;
 }
 
 } // namespace Turtle
