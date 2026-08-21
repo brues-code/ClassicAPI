@@ -25,13 +25,28 @@
 // So `function(self, delta)` gets nothing today.
 //
 // We co-hook both runners and REPLACE their pcall tail: keep setting the same
-// globals (so vanilla handlers reading `this`/`arg1` keep working — this is
-// purely additive; Lua silently drops the extra positional args a zero-param
-// handler doesn't declare), but push `self` + `arg1..argN` as real arguments
-// and `pcall` with `nargs = 1 + N`. The reimplementation mirrors the engine's
-// message-handler errfunc, but saves the clobbered globals on the Lua stack
-// (not registry refs like the engine) so an out-of-memory longjmp mid-push
-// unwinds them for free — no leaked refs, no per-call ref churn. See RunModern.
+// globals (so handlers reading `this`/`arg1` keep working), but push `self` +
+// `arg1..argN` as real arguments and `pcall` with `nargs = 1 + N`. The
+// reimplementation mirrors the engine's message-handler errfunc, but saves the
+// clobbered globals on the Lua stack (not registry refs like the engine) so an
+// out-of-memory longjmp mid-push unwinds them for free — no leaked refs, no
+// per-call ref churn. See RunModern.
+//
+// The reimplemented path is taken ONLY for a handler that actually declares a
+// parameter or is vararg (checked via its Proto — see HandlerWantsArgs). A
+// handler that declares NO parameters can't observe positional args, so pushing
+// them is a no-op — those route through the original engine runner unchanged:
+// provably identical to vanilla, and OFF the engine's hottest Lua path (the vast
+// majority of vanilla handlers, which read `this`/`arg1`, are param-less). So a
+// param-less vanilla handler is untouched; only a param-declaring handler sees
+// the `(self, [event,] arg1..argN)` shape.
+//
+// Irreducible caveat: a param-declaring handler and a modern handler are
+// indistinguishable to the dispatcher — both are one-param Lua functions. So a
+// vanilla handler that declares a parameter expecting it to be nil (e.g. a
+// function reused as both a direct call and a handler) WILL now receive a real
+// value. There is no signal to tell the two apart; such a handler must opt out
+// per-session via `SetModernScriptArgs(false)`.
 //
 // Convention: `(self, arg1..argN)` for every script, plus `event` inserted as
 // the first positional for OnEvent — `(self, event, arg1..argN)` — matching
@@ -266,6 +281,55 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
     return true;
 }
 
+// Lua 5.0 internal offsets for reading a handler's arity — verified against the
+// engine's own luaD_precall (0x006F6050) / lua_dump (0x006F4370) /
+// lua_iscfunction (0x006F34A0):
+//   lua_State: top @ +0x08 (TValue *, next free slot)
+//   TValue:    tag @ +0x00 (int); GC/closure pointer @ +0x08  (16-byte TValue)
+//   Closure:   isC byte @ +0x06; union member (C func / Proto) @ +0x0C
+//   Proto:     numparams (u8) @ +0x45, is_vararg (u8) @ +0x46
+// Single-use here, so kept local (like the lua_State field offsets elsewhere).
+constexpr uintptr_t OFF_LUASTATE_TOP = 0x08;
+constexpr uintptr_t OFF_TVALUE_GC = 0x08;
+constexpr uintptr_t OFF_CLOSURE_ISC = 0x06;
+constexpr uintptr_t OFF_LCLOSURE_PROTO = 0x0C;
+constexpr uintptr_t OFF_PROTO_NUMPARAMS = 0x45;
+constexpr uintptr_t OFF_PROTO_IS_VARARG = 0x46;
+constexpr int kLuaTFunction = 6;
+constexpr uintptr_t kTValueSize = 0x10;
+
+// Does this handler actually observe positional args? A vanilla handler reads
+// this/arg1 globals and declares NO parameters, so pushing positional args to
+// it is observably identical to vanilla — those route through the original
+// engine runner instead (exact vanilla, and off the hottest Lua path). Only a
+// Lua closure that declares a parameter or is vararg — a modern
+// `function(self, delta)` / `function(self, ...)` — takes the reimplemented
+// positional path. A C-closure handler (HookScript's thunk, say) reads
+// globals/upvalues, never positional args, so it counts as "no" too.
+//
+// Reads the handler's Proto directly (the engine exposes no arity via the C
+// API); every read is bounded — a non-function ref, a C closure, or a null
+// Proto all fall through to "no".
+bool HandlerWantsArgs(void *L, int handlerRef) {
+    RawGetI(L, Game::Lua::REGISTRY_INDEX, handlerRef); // push registry[handlerRef]
+    bool wants = false;
+    const void *tv = reinterpret_cast<const void *>(
+        Game::Read<uintptr_t>(L, OFF_LUASTATE_TOP) - kTValueSize);
+    if (Game::Read<int>(tv, 0) == kLuaTFunction) {
+        const void *cl =
+            reinterpret_cast<const void *>(Game::Read<uintptr_t>(tv, OFF_TVALUE_GC));
+        if (cl != nullptr && Game::Read<uint8_t>(cl, OFF_CLOSURE_ISC) == 0) { // Lua closure
+            const void *proto = reinterpret_cast<const void *>(
+                Game::Read<uintptr_t>(cl, OFF_LCLOSURE_PROTO));
+            if (proto != nullptr)
+                wants = Game::Read<uint8_t>(proto, OFF_PROTO_NUMPARAMS) > 0 ||
+                        Game::Read<uint8_t>(proto, OFF_PROTO_IS_VARARG) != 0;
+        }
+    }
+    Game::Lua::SetTop(L, -2); // pop the handler
+    return wants;
+}
+
 // --- FUN_FRAME_RUN_SCRIPT_ARGS co-hook (scripts with values) ----------------
 using RunArgs_t = void(__cdecl *)(int handlerRef, void *frame, const char *fmt,
                                   const void *vaPtr);
@@ -273,9 +337,12 @@ RunArgs_t g_origRunArgs = nullptr;
 
 void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
                        const void *vaPtr) {
-    if (g_enabled && handlerRef != 0 && fmt != nullptr &&
-        RunModern(handlerRef, frame, fmt, vaPtr))
-        return;
+    if (g_enabled && handlerRef != 0 && fmt != nullptr) {
+        void *L = Game::Lua::State();
+        if (L != nullptr && HandlerWantsArgs(L, handlerRef) &&
+            RunModern(handlerRef, frame, fmt, vaPtr))
+            return;
+    }
     g_origRunArgs(handlerRef, frame, fmt, vaPtr);
 }
 
@@ -286,9 +353,12 @@ using Invoke_t = void(__fastcall *)(int handlerRef, void *frame);
 Invoke_t g_origInvoke = nullptr;
 
 void __fastcall Invoke_h(int handlerRef, void *frame) {
-    if (g_enabled && handlerRef != 0 && frame != nullptr &&
-        RunModern(handlerRef, frame, /*fmt*/ nullptr, /*vaPtr*/ nullptr))
-        return;
+    if (g_enabled && handlerRef != 0 && frame != nullptr) {
+        void *L = Game::Lua::State();
+        if (L != nullptr && HandlerWantsArgs(L, handlerRef) &&
+            RunModern(handlerRef, frame, /*fmt*/ nullptr, /*vaPtr*/ nullptr))
+            return;
+    }
     g_origInvoke(handlerRef, frame);
 }
 

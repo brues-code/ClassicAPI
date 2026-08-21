@@ -4614,10 +4614,19 @@ addon ports written as `function(self, delta) … end` work unmodified:
   `OnClick(self, button)`, `OnValueChanged(self, value)`, `OnUpdate(self, elapsed)`.
 - `OnEvent`: `(self, event, arg1..argN)`.
 
-It's purely **additive** — the `this` / `arg1` / `event` globals are still set, so
-vanilla-style handlers keep working; a handler declaring no parameters just ignores
-the extras. `SetModernScriptArgs(enable)` sets the state and returns it;
+The `this` / `arg1` / `event` globals stay set, so a handler that reads them still
+works. A handler that declares no parameters is unaffected — it cannot see the
+positional arguments. `SetModernScriptArgs(enable)` sets the state and returns it.
 `GetModernScriptArgs()` returns the current state.
+
+**Caveat — a parameter that was always nil now gets a value.** Vanilla passed
+every handler zero arguments, so any parameter a handler declared was always nil.
+When this feature is on, a declared parameter gets its real value. A modern
+`function(self, delta)` handler needs this behavior. But it also changes a vanilla
+handler that declared a parameter and expected it to be nil. One example is a
+function used both as a direct call (with a real argument) and as a script
+handler. If such a handler misbehaves, disable the feature with
+`SetModernScriptArgs(false)`.
 
 **Default ON.** Modern handler signatures are a core Lua 5.1 feature, so ports
 that use them work with no setup. It reimplements the tail of the engine's
