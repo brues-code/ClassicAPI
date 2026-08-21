@@ -14,17 +14,19 @@
 // Lua 5.1 syntax backport (source-level transpile).
 //
 // Vanilla's Lua is 5.0. It lacks the 5.1 operators `#` (length) and `%`
-// (modulo) AND `...` used as an expression, so modern addon ports that use
-// them fail to COMPILE. We don't touch the 5.0 parser/VM (there is no
-// OP_LEN / OP_MOD and no free opcode); instead we rewrite the SOURCE before it
-// reaches the parser: co-hook `luaL_loadbuffer` (the one function every compile
-// funnels through — file scripts, `loadstring`, XML `<OnLoad>`) and rewrite:
+// (modulo), `...` used as an expression, AND `0x` hexadecimal number
+// literals, so modern addon ports that use them fail to COMPILE. We don't
+// touch the 5.0 parser/VM (there is no OP_LEN / OP_MOD and no free opcode);
+// instead we rewrite the SOURCE before it reaches the parser: co-hook
+// `luaL_loadbuffer` (the one function every compile funnels through — file
+// scripts, `loadstring`, XML `<OnLoad>`) and rewrite:
 //     #operand      ->  __len(operand)
 //     a % b         ->  __mod(a, b)
 //     ...           ->  unpack(arg)      (the `...` EXPRESSION, not the decl)
+//     0xHH...       ->  <decimal>        (5.0's lexer rejects hex literals)
 // `__len` / `__mod` are C globals we register (see below); `unpack` and the
-// 5.0 `arg` table are already present. RewriteChunk runs the vararg pass first,
-// then the # / % precedence parser.
+// 5.0 `arg` table are already present. RewriteChunk runs the hex pass first,
+// then the vararg pass, then the # / % precedence parser.
 //
 // Why a real parser (not regex / one-term-each-side): `#` is prefix but `%`
 // is binary infix, so its operands must be delimited by PRECEDENCE —
@@ -50,10 +52,15 @@
 //     use first-close matching, not depth. Real addons ~never nest these.
 //   * `__len` on a table returns a border (bisection) = 5.1 `#`; it ignores
 //     any `table.setn` count (5.1 has no setn — correct `#` semantics).
+//   * Hex literals: only INTEGER `0x…` (up to 16 hex digits) are converted,
+//     to the exact decimal the value represents — the same double 5.1 would
+//     produce. Hex FLOATS (`0x1.8p3`) and > 64-bit literals are left as-is
+//     (vanishingly rare in addons; they fail to compile exactly as today, so
+//     no regression). The value is unsigned (`0xFFFFFFFF` -> 4294967295).
 //   * Diagnostic `_classicapi_TranspileLength(src)` returns the full rewrite.
 //   * Toggles via `_classicapi_SetTranspileOption(name, bool)` /
 //     `_classicapi_GetTranspileOption(name)` (name = "Length" / "Modulo" /
-//     "VarargExpansion").
+//     "VarargExpansion" / "HexLiterals").
 //   * `...` expands to `unpack(arg)`, which is faithful in every position and
 //     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
 //     Only the `...` in a function's parameter list is left intact.
@@ -88,11 +95,12 @@ namespace {
 
 constexpr size_t NPOS = static_cast<size_t>(-1);
 
-// Runtime switches, default ON — a `#`/`%`/`...`-bearing chunk does not compile
-// on 5.0 today, so enabling by default cannot regress working addons.
+// Runtime switches, default ON — a `#`/`%`/`...`/`0x`-bearing chunk does not
+// compile on 5.0 today, so enabling by default cannot regress working addons.
 bool g_lenEnabled = true;
 bool g_modEnabled = true;
 bool g_varargEnabled = true;
+bool g_hexEnabled = true;
 
 // lua_rawgeti(L, idx, n) — push table_at_idx[n] without metamethods. Not
 // exposed via Game::Lua; used to probe table elements for the border search.
@@ -181,7 +189,9 @@ size_t SkipNumber(const char *src, size_t len, size_t pos) {
     while (i < len) {
         char c = src[i];
         if (c == '.') {
-            if (seenDot)
+            // A second dot, or the `..` concat operator, ends the number so
+            // `0xFF.."x"` / `1..2` split cleanly (the concat is not consumed).
+            if (seenDot || (i + 1 < len && src[i + 1] == '.'))
                 break;
             seenDot = true;
             i++;
@@ -720,13 +730,87 @@ bool RewriteVararg(const char *src, size_t len, std::string &out) {
     return true;
 }
 
-// Run every syntax rewrite over a chunk (vararg first, then # / %). Returns
-// true and fills `out` if anything changed.
+// ============================================================================
+// Hex-literal pass: rewrite 5.1 `0x…` integer literals to decimal.
+//
+// Lua 5.0's lexer reads only decimal digits + one `.` + `e` exponent, so a
+// `0x…` literal fails to compile (which is why addons resort to
+// `tonumber("0x…", 16)`). We convert each hex INTEGER token to the exact
+// decimal it denotes — Lua then reads it as the same double 5.1 would. The
+// value is unsigned. Hex floats and > 64-bit literals are left untouched (they
+// fail to compile as they do today — no regression). Runs before the other
+// passes; the tokenizer already skips strings/comments, so `"0xFF"` / `--0xFF`
+// are safe, and it never inserts a newline (line numbers preserved).
+// ============================================================================
+
+inline bool IsHexDigit(unsigned char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+bool ContainsHexPrefix(const char *src, size_t len) {
+    for (size_t i = 0; i + 1 < len; i++)
+        if (src[i] == '0' && (src[i + 1] == 'x' || src[i + 1] == 'X'))
+            return true;
+    return false;
+}
+
+bool RewriteHex(const char *src, size_t len, std::string &out) {
+    if (src == nullptr || len == 0 || !g_hexEnabled)
+        return false;
+    if (!ContainsHexPrefix(src, len))
+        return false;
+
+    std::vector<Token> toks;
+    Tokenize(src, len, toks);
+
+    out.clear();
+    out.reserve(len);
+    size_t p = 0;
+    bool any = false;
+    for (const Token &t : toks) {
+        if (t.kind != TK_NUMBER || t.end - t.start < 3)
+            continue; // need "0x" + >= 1 digit
+        if (src[t.start] != '0')
+            continue;
+        char x = src[t.start + 1];
+        if (x != 'x' && x != 'X')
+            continue;
+        const size_t nDigits = t.end - (t.start + 2);
+        if (nDigits == 0 || nDigits > 16)
+            continue; // no digits, or wider than uint64 — leave as-is
+
+        uint64_t val = 0;
+        bool pure = true;
+        for (size_t i = t.start + 2; i < t.end; i++) {
+            unsigned char c = static_cast<unsigned char>(src[i]);
+            if (!IsHexDigit(c)) { pure = false; break; } // hex float ('.'/'p') or junk
+            val = val * 16 + ((c <= '9') ? (c - '0') : ((c | 0x20) - 'a' + 10));
+        }
+        if (!pure)
+            continue;
+
+        out.append(src + p, t.start - p);
+        out.append(std::to_string(val));
+        p = t.end;
+        any = true;
+    }
+    if (!any)
+        return false;
+    out.append(src + p, len - p);
+    return true;
+}
+
+// Run every syntax rewrite over a chunk (hex first, then vararg, then # / %).
+// Returns true and fills `out` if anything changed.
 bool RewriteChunk(const char *src, size_t len, std::string &out) {
+    std::string h;
+    bool didHex = RewriteHex(src, len, h);
+    const char *cur = didHex ? h.data() : src;
+    size_t curLen = didHex ? h.size() : len;
+
     std::string a;
-    bool didVararg = RewriteVararg(src, len, a);
-    const char *cur = didVararg ? a.data() : src;
-    size_t curLen = didVararg ? a.size() : len;
+    bool didVararg = RewriteVararg(cur, curLen, a);
+    if (didVararg) { cur = a.data(); curLen = a.size(); }
 
     std::string b;
     if (RewriteAll(cur, curLen, b)) {
@@ -735,6 +819,10 @@ bool RewriteChunk(const char *src, size_t len, std::string &out) {
     }
     if (didVararg) {
         out = std::move(a);
+        return true;
+    }
+    if (didHex) {
+        out = std::move(h);
         return true;
     }
     return false;
@@ -896,11 +984,21 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     if (buff == nullptr || size == 0)
         return g_origLoadBuffer(L, buff, size, name);
 
-    // Syntax transpile: vararg first, then # / %.
+    // Syntax transpile: hex literals first, then vararg, then # / %.
+    std::string hx;
+    const char *body = buff;
+    size_t bodyLen = size;
+    if (RewriteHex(body, bodyLen, hx)) {
+        body = hx.data();
+        bodyLen = hx.size();
+    }
+
     std::string va;
-    bool didVararg = RewriteVararg(buff, size, va);
-    const char *body = didVararg ? va.data() : buff;
-    size_t bodyLen = didVararg ? va.size() : size;
+    bool didVararg = RewriteVararg(body, bodyLen, va);
+    if (didVararg) {
+        body = va.data();
+        bodyLen = va.size();
+    }
 
     std::string ops;
     if (RewriteAll(body, bodyLen, ops)) {
@@ -982,6 +1080,7 @@ const Toggle kToggles[] = {
     {"Length", &g_lenEnabled},
     {"Modulo", &g_modEnabled},
     {"VarargExpansion", &g_varargEnabled},
+    {"HexLiterals", &g_hexEnabled},
 };
 bool *FindToggle(const char *name) {
     if (name)

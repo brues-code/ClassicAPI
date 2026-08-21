@@ -343,7 +343,7 @@ build instructions.
   - [`C_LossOfControl.GetActiveLossOfControlData(index)`](#c_lossofcontrolgetactivelossofcontroldataindex)
 
 - [Lua](#lua)
-  - [Lua 5.1 syntax: length, modulo, and vararg](#lua-51-syntax-length-modulo-and-vararg)
+  - [Lua 5.1 syntax](#lua-51-syntax)
   - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
   - [`table.wipe(t)`](#tablewipet)
@@ -8486,17 +8486,19 @@ backported addons find them. Most are single-function additions (several are
 just the 5.0→5.1 renames — `string.gmatch`←`gfind`, `math.fmod`←`math.mod`);
 `coroutine.*` restores the whole stripped coroutine library.
 
-### Lua 5.1 syntax: length, modulo, and vararg
+### Lua 5.1 syntax
 
-1.12 runs Lua 5.0. It cannot compile three pieces of Lua 5.1 syntax that
+1.12 runs Lua 5.0. It cannot compile four pieces of Lua 5.1 syntax that
 modern addons use. These are the length operator `#`, the modulo operator
-`%`, and `...` used as an expression. ClassicAPI rewrites addon source to
-the 5.0 equivalent before it compiles, so all three work:
+`%`, `...` used as an expression, and `0x` hexadecimal number literals.
+ClassicAPI rewrites addon source to the 5.0 equivalent before it compiles,
+so all four work:
 
 ```lua
 local n = #myTable          -- length operator
 local r = a % b             -- modulo operator
 local args = { ... }        -- ... as an expression, not only in a parameter list
+local mask = 0xFF00         -- hex number literal
 ```
 
 The rewrite is transparent. You do not call anything. It runs on every
@@ -8512,6 +8514,9 @@ What each form does:
   `-1 % 3` is `2`, while `math.mod(-1, 3)` is `-1`.
 - `...` as an expression yields all the varargs. The `...` in a function
   parameter list stays as the vararg declaration.
+- `0xFF00` becomes its decimal value (`65280`) — the same number Lua 5.1
+  produces. Vanilla's lexer rejects `0x` literals, so without this an addon
+  needs `tonumber("0xFF00", 16)`.
 
 **Addon file arguments.** A modern addon reads its name and its private
 table from the file arguments:
@@ -8534,14 +8539,17 @@ needs that addon's opt-in.
 - A nested long string or comment (`[[ a [[ b ]] c ]]`) matches at the
   first close, not by depth. This is a 5.0-only form that addons almost
   never use.
+- Only integer hex is converted. Hex *floats* (`0x1.8p3`) and literals
+  wider than 64 bits are left as-is. Both are almost nonexistent in addon
+  code.
 - Error line numbers stay correct. The rewrite adds no new lines.
 - The globals `__len` and `__mod` are the rewrite's helper functions.
   Treat them as internal. Do not call them directly.
 - To turn a rewrite off for diagnosis, call
   `_classicapi_SetTranspileOption(name, false)`, where `name` is
-  `"Length"`, `"Modulo"`, or `"VarargExpansion"`. This reverts affected
-  chunks to the state that fails to compile, so use it only to answer
-  "is the rewrite breaking this addon?".
+  `"Length"`, `"Modulo"`, `"VarargExpansion"`, or `"HexLiterals"`. This
+  reverts affected chunks to the state that fails to compile, so use it
+  only to answer "is the rewrite breaking this addon?".
 
 ### `getfenv` / `setfenv` environment protection
 
