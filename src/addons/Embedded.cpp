@@ -49,6 +49,7 @@
 #include "Offsets.h"
 #include "addons/FlavorToc.h"
 #include "addons/Toc.h"
+#include "addons/TocRewrite.h"
 #include "bindings/Inject.h"
 
 #include <cstdint>
@@ -298,15 +299,24 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
     const char *suffix = StripAddonPrefix(path);
     if (suffix == nullptr) {
         // Not our embedded addon. If this is a base-TOC read for a multi-flavor
-        // addon that ships only `<Name>_Vanilla.toc` / `_Classic.toc`, serve
+        // addon that ships only `<Name>_Turtle.toc` / `_ClassicAPI.toc`, serve
         // that in place of the missing `<Name>.toc` so it registers and loads
-        // (see addons/FlavorToc.h). Otherwise straight pass-through.
+        // (see addons/FlavorToc.h).
+        int result;
         if (AddOns::FlavorToc::TryHandle(unused, path, outBuf, outSize,
                                          extraBytes, flag1, flag2, FileRead_o)) {
-            return 1;
+            result = 1;
+        } else {
+            result = FileRead_o(unused, path, outBuf, outSize, extraBytes,
+                                flag1, flag2);
         }
-        return FileRead_o(unused, path, outBuf, outSize, extraBytes,
-                          flag1, flag2);
+        // Per-line TOC directives: evaluate `[Condition]` and expand
+        // `[Variable]` tokens on this addon TOC's file lines so the load
+        // pass sees clean paths (see addons/TocRewrite.h). No-op unless
+        // `path` is an addon `.toc` that actually contains directives.
+        if (result != 0)
+            AddOns::TocRewrite::Transform(path, outBuf, outSize);
+        return result;
     }
 
     DecideSource();

@@ -4679,6 +4679,17 @@ enum Offsets {
 
     VAR_LOCALE_INDEX = 0x00C0E080,             // 0..8, picks one of the 9 localized strings
 
+    // Locale-name string table — a parallel `const char *[8]` indexed by
+    // VAR_LOCALE_INDEX, holding the exact codes `GetLocale()` returns:
+    // enUS / koKR / frFR / deDE / zhCN / zhTW / esES / xxYY. This is the
+    // source `Script_GetLocale` (FUN_0048d8b0) reads:
+    //   lua_pushstring(L, (&PTR_DAT_008558a4)[DAT_00c0e080]);
+    // Verified by resolving all 8 entries from the binary. Index range is
+    // 0..7 (VAR_LOCALE_INDEX is documented 0..8, but slot 8 overreads into
+    // the string pool — clamp to 0..7 before reading). Used by the TOC
+    // `[TextLocale]` / `[AllowLoadTextLocale]` directives (AddOns::TocRewrite).
+    VAR_LOCALE_NAME_TABLE = 0x008558A4,
+
     LUA_IS_NUMBER = 0x6F34D0,
     LUA_IS_STRING = 0x6F3510,
     LUA_TO_NUMBER = 0x6F3620,
