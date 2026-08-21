@@ -983,6 +983,17 @@ this client on purpose. ClassicAPI does not use `_Vanilla` or `_Classic`
 files — those target the 1.15 Classic Era client, which runs a modern
 engine this build does not match.
 
+**Flavor Bindings files.** The same selection applies to an addon's
+keybinding file. An addon can ship `Bindings_ClassicAPI.xml` (used on any
+client) or `Bindings_Turtle.xml` (used only on a Turtle client, and it
+wins), in place of or alongside a plain `Bindings.xml`:
+
+- A flavor file wins over a plain `Bindings.xml`.
+- A flavor-only addon (no plain `Bindings.xml`) still loads its bindings.
+
+The `_Vanilla` / `_Classic` names are not used here either, for the same
+reason as the TOC files.
+
 **Multi-flavor `## Interface:` version.** A retail TOC can list several
 interface versions on one line:
 

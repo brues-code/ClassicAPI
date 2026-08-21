@@ -47,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/FlavorBindings.h"
 #include "addons/FlavorToc.h"
 #include "addons/Toc.h"
 #include "addons/TocRewrite.h"
@@ -305,6 +306,14 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
         int result;
         if (AddOns::FlavorToc::TryHandle(unused, path, outBuf, outSize,
                                          extraBytes, flag1, flag2, FileRead_o)) {
+            result = 1;
+        } else if (AddOns::FlavorBindings::TryHandle(unused, path, outBuf, outSize,
+                                                     extraBytes, flag1, flag2,
+                                                     FileRead_o)) {
+            // Flavor-specific addon keybindings: serve `Bindings_Turtle.xml` /
+            // `Bindings_ClassicAPI.xml` for a `…\AddOns\<Name>\Bindings.xml`
+            // read (see addons/FlavorBindings.h). The paired exists-check
+            // co-hook lives in that module.
             result = 1;
         } else {
             result = FileRead_o(unused, path, outBuf, outSize, extraBytes,
