@@ -4619,21 +4619,21 @@ vanilla-style handlers keep working; a handler declaring no parameters just igno
 the extras. `SetModernScriptArgs(enable)` sets the state and returns it;
 `GetModernScriptArgs()` returns the current state.
 
-**Default OFF (opt-in).** It reimplements the tail of the engine's hottest Lua
-path (the runner that fires for every `OnUpdate`, every frame), so it stays off
-unless you ask for it; while off the dispatch path is exactly vanilla. Enable it
-once at load if your addon relies on the modern handler signature.
+**Default ON.** Modern handler signatures are a core Lua 5.1 feature, so ports
+that use them work with no setup. It reimplements the tail of the engine's
+hottest Lua path (the runner that fires for every `OnUpdate`, every frame); if
+you ever need exact-vanilla dispatch, `SetModernScriptArgs(false)` turns it off
+and both runners become a straight passthrough.
 
 ```lua
-SetModernScriptArgs(true)   -- returns true
-
+-- On by default; SetModernScriptArgs(false) would turn it off.
 local f = CreateFrame("Frame")
 f:EnableMouseWheel(true)
 f:SetScript("OnMouseWheel", function(self, delta)
     -- `self` and `delta` are bound; `this` / `arg1` still work too
 end)
 
-GetModernScriptArgs()       -- true
+GetModernScriptArgs()       -- true (default)
 ```
 
 ## FriendList

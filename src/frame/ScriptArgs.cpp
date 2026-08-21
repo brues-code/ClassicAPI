@@ -41,10 +41,12 @@
 // SetScript creates a distinct ref, so a function bound to two scripts still
 // differs per slot — so no fragile "are we mid event-dispatch" flag is needed.
 //
-// Runtime switch, default OFF (opt-in): `SetModernScriptArgs(true)` enables it,
-// `GetModernScriptArgs()` reads the state. While disabled both detours are a
-// straight passthrough to the original runner (zero reimplementation risk).
-// Opt-in because this lands on the hottest Lua path in the engine
+// Runtime switch, default ON — modern handler signatures are a core 5.1
+// feature, so ports that write `function(self, delta)` work out of the box.
+// `SetModernScriptArgs(false)` disables it, `GetModernScriptArgs()` reads the
+// state. While disabled both detours are a straight passthrough to the original
+// runner (exact vanilla behavior, zero reimplementation risk) — the OFF escape
+// valve, since this lands on the hottest Lua path in the engine
 // (FUN_FRAME_RUN_SCRIPT_ARGS fires for every OnUpdate frame).
 
 #include "Game.h"
@@ -56,9 +58,10 @@ namespace Frame::ScriptArgs {
 
 namespace {
 
-// Runtime switch. Default OFF (opt-in). When false, both detours tail-call the
-// original runner unchanged (exact vanilla behavior, no reimplementation risk).
-bool g_enabled = false;
+// Runtime switch. Default ON (core 5.1 behavior). When false, both detours
+// tail-call the original runner unchanged (exact vanilla behavior, no
+// reimplementation risk) — the OFF escape valve for this hot path.
+bool g_enabled = true;
 
 // Engine cap: the runner stops setting arg globals at index 19 (arg1..arg19).
 constexpr int kMaxArgs = 19;
