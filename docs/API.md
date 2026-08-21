@@ -22,6 +22,7 @@ build instructions.
   - [`C_AddOns.DoesAddOnExist(indexOrName)`](#c_addonsdoesaddonexistindexorname)
   - [`C_AddOns.GetAddOnOptionalDependencies(indexOrName)`](#c_addonsgetaddonoptionaldependenciesindexorname)
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
+  - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
 
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
@@ -341,6 +342,8 @@ build instructions.
   - [`C_LossOfControl.GetActiveLossOfControlData(index)`](#c_lossofcontrolgetactivelossofcontroldataindex)
 
 - [Lua](#lua)
+  - [Lua 5.1 syntax: length, modulo, and vararg](#lua-51-syntax-length-modulo-and-vararg)
+  - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
   - [`table.wipe(t)`](#tablewipet)
   - [`table.count(tbl)`](#tablecounttbl)
@@ -957,6 +960,68 @@ C_AddOns.GetAddOnLocalTable("DoesNotExist") -- nil (not loaded)
 
 Pass the addon name as a string. A numeric index returns `nil` — one
 addon refers to another by name, not by load order.
+
+### Conditional and multi-flavor TOC loading
+
+Modern addons often support several game versions from one folder.
+ClassicAPI backports two TOC mechanisms so these addons load on 1.12.
+This client is the **Vanilla** game type of the **Classic** family.
+
+**Flavor TOC files.** Some addons ship no plain `<Name>.toc`. They ship
+one TOC per version instead. ClassicAPI loads such an addon from a
+version-specific TOC, and prefers it even when a plain `<Name>.toc` also
+exists:
+
+- `<Name>_ClassicAPI.toc` — used on any client, because ClassicAPI is
+  always present.
+- `<Name>_Turtle.toc` — used only on a Turtle client. It wins over the
+  `_ClassicAPI` file.
+
+Both suffixes are ClassicAPI conventions. Name a TOC this way to target
+this client on purpose. ClassicAPI does not use `_Vanilla` or `_Classic`
+files — those target the 1.15 Classic Era client, which runs a modern
+engine this build does not match.
+
+**Per-line directives.** Inside a TOC, gate individual file lines with a
+condition, or expand a path variable:
+
+```
+# Loads on this client (game type is vanilla):
+Vanilla.lua              [AllowLoadGameType vanilla]
+
+# Dropped on this client:
+Mainline.lua             [AllowLoadGameType mainline]
+
+# Loads only under a matching client locale:
+Localization\deDE.lua    [AllowLoadTextLocale deDE]
+
+# Path variables expand before the file loads:
+[Family]\Init.lua                # -> Classic\Init.lua
+[Game]\Init.lua                  # -> Vanilla\Init.lua
+Localization\[TextLocale].lua    # -> Localization\enUS.lua  (your locale)
+```
+
+How each token resolves on this client:
+
+| Directive | Result |
+|---|---|
+| `[AllowLoadGameType ...]` | Loads the line when the list contains `vanilla`. |
+| `[AllowLoadTextLocale ...]` | Loads the line when the list contains your client locale (the `GetLocale()` code). |
+| `[AllowLoad ...]` | Loads on `game`, drops on `glue`. |
+| `[Family]` | `Classic` |
+| `[Game]` | `Vanilla` |
+| `[TextLocale]` | Your client locale code, for example `enUS`. |
+
+A line loads only when every condition on it passes. An unknown condition
+drops the line. A file gated by a rule this client does not know stays
+unloaded.
+
+**Limits.**
+
+- Conditions on `## metadata` lines are not supported. Only file-reference
+  lines are gated. Retail added metadata-line conditions in a much later
+  version.
+- `[AllowLoad glue]` never loads. Addon files load in-game only.
 
 ## AuctionHouse
 
@@ -8377,6 +8442,85 @@ added and that 1.12's Lua 5.0 is missing — restored by ClassicAPI so
 backported addons find them. Most are single-function additions (several are
 just the 5.0→5.1 renames — `string.gmatch`←`gfind`, `math.fmod`←`math.mod`);
 `coroutine.*` restores the whole stripped coroutine library.
+
+### Lua 5.1 syntax: length, modulo, and vararg
+
+1.12 runs Lua 5.0. It cannot compile three pieces of Lua 5.1 syntax that
+modern addons use. These are the length operator `#`, the modulo operator
+`%`, and `...` used as an expression. ClassicAPI rewrites addon source to
+the 5.0 equivalent before it compiles, so all three work:
+
+```lua
+local n = #myTable          -- length operator
+local r = a % b             -- modulo operator
+local args = { ... }        -- ... as an expression, not only in a parameter list
+```
+
+The rewrite is transparent. You do not call anything. It runs on every
+chunk the client compiles — addon files, `loadstring`, and XML `<OnLoad>`
+handlers.
+
+What each form does:
+
+- `#x` gives the length of a string, or a border of a table (the value
+  Lua 5.1 `#` returns). It ignores `table.setn`.
+- `a % b` uses the Lua 5.1 result `a - floor(a/b)*b`, which takes the sign
+  of `b`. This differs from `math.mod` (C `fmod`, truncated toward zero):
+  `-1 % 3` is `2`, while `math.mod(-1, 3)` is `-1`.
+- `...` as an expression yields all the varargs. The `...` in a function
+  parameter list stays as the vararg declaration.
+
+**Addon file arguments.** A modern addon reads its name and its private
+table from the file arguments:
+
+```lua
+local addonName, addonTable = ...
+```
+
+Vanilla never passed these to an addon file. ClassicAPI supplies them to
+any file under `Interface\AddOns\` that reads `...`. `addonName` is the
+folder name. `addonTable` is one table shared by every file of that addon.
+To read another addon's table, use
+[`C_AddOns.GetAddOnLocalTable`](#c_addonsgetaddonlocaltablename), which
+needs that addon's opt-in.
+
+**Limits.**
+
+- The rewrite reads strings and comments correctly. A `%` in `"%d"` or a
+  `#` in `--[[ # ]]` is left alone.
+- A nested long string or comment (`[[ a [[ b ]] c ]]`) matches at the
+  first close, not by depth. This is a 5.0-only form that addons almost
+  never use.
+- Error line numbers stay correct. The rewrite adds no new lines.
+- The globals `__len` and `__mod` are the rewrite's helper functions.
+  Treat them as internal. Do not call them directly.
+- To turn a rewrite off for diagnosis, call
+  `_classicapi_SetTranspileOption(name, false)`, where `name` is
+  `"Length"`, `"Modulo"`, or `"VarargExpansion"`. This reverts affected
+  chunks to the state that fails to compile, so use it only to answer
+  "is the rewrite breaking this addon?".
+
+### `getfenv` / `setfenv` environment protection
+
+A sandbox can protect the environment table it gives to restricted code.
+Put a metatable on that table with an `__environment` field:
+
+```lua
+local view = setmetatable({}, { __environment = "protected" })
+setfenv(restrictedFn, view)
+```
+
+From then on, code inside the sandbox sees the protection:
+
+- `getfenv()` returns the `__environment` value, not the real table. The
+  restricted code cannot reach or change the true environment.
+- `setfenv()` on that environment raises `cannot change a protected
+  environment`.
+
+This is the Lua 5.1 form. 1.12 already protected environments, but it read
+a raw `__fenv` field on the table itself. ClassicAPI adds the 5.1
+metatable form and keeps `__fenv` as a fallback. The change is additive:
+an environment with neither marker behaves as before.
 
 ### `select(index, ...)`
 

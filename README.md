@@ -18,7 +18,7 @@ Full per-function reference: **[docs/API.md](docs/API.md)**.
 | Namespace | Calls |
 |-----------|-------|
 | [Action](docs/API.md#action) | `GetActionInfo` |
-| [AddOns](docs/API.md#addons) | `C_AddOns.DoesAddOnExist`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded` |
+| [AddOns](docs/API.md#addons) | `C_AddOns.DoesAddOnExist`, `C_AddOns.GetAddOnLocalTable`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded` |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem` |
 | [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings` |
 | [Chat](docs/API.md#chat) | `GetCurrentChatGUID` |
@@ -234,6 +234,9 @@ Transparent engine tweaks — no API to call, they just fix a vanilla limitation
 |-------|--------|
 | Tooltip line cap | Lifts `GameTooltip`'s hard 30-line limit to 60 for every `GameTooltipTemplate` frame (`GameTooltip`, `ShoppingTooltip1/2`, `ItemRefTooltip`, AtlasLoot, …). Stat-heavy tooltips and comparison blocks (e.g. pfUI's eqcompare) no longer have their extra lines silently dropped. Done in pure C++ by growing the engine's FontString pool at tooltip-creation time. |
 | Inline textures | Draws inline texture markup (`\|T…\|t`) as icons in FontStrings, chat, and tooltips, the way 4.3.4+ clients do. Vanilla 1.12 shows the raw escape as literal text instead. This covers item and spell icons, raid-target markers, and the coin icons in money strings. `GetStringWidth` and `GetStringHeight` count the icons, so measured width and text wrapping stay correct. Done in pure C++ by hooking the engine's text pipeline — no addon. |
+| Lua 5.1 syntax | Compiles the Lua 5.1 length (`#`), modulo (`%`), and `...`-expression syntax that vanilla's Lua 5.0 rejects, by rewriting addon source before it compiles. Each addon file also receives its `(name, table)` through `...` (`local name, tbl = ...`). See [Lua 5.1 syntax](docs/API.md#lua-51-syntax-length-modulo-and-vararg). |
+| Lua 5.1 environment protection | `getfenv` / `setfenv` honor a `__environment` metatable field — the Lua 5.1 sandbox form — in addition to vanilla's raw `__fenv`. See [getfenv / setfenv environment protection](docs/API.md#getfenv--setfenv-environment-protection). |
+| Multi-flavor & conditional TOC loading | Loads modern multi-flavor addons that ship one folder. Selects a version-specific TOC (`<Name>_ClassicAPI.toc` or `<Name>_Turtle.toc`), and honors per-line `[AllowLoadGameType]` / `[AllowLoadTextLocale]` conditions and `[Family]` / `[Game]` / `[TextLocale]` path variables inside a TOC. See [Conditional and multi-flavor TOC loading](docs/API.md#conditional-and-multi-flavor-toc-loading). |
 
 ## Installation
 
