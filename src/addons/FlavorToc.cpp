@@ -13,6 +13,8 @@
 
 #include "addons/FlavorToc.h"
 
+#include "turtle/Detect.h"
+
 #include <cstring>
 
 namespace AddOns::FlavorToc {
@@ -64,10 +66,6 @@ bool ParseBaseToc(const char *path, size_t *prefixLen) {
     return true;
 }
 
-// Vanilla-appropriate flavors, in the client's precedence order. Deliberately
-// omits _Mainline/_Cata/etc — those are not for a vanilla client.
-const char *const kFlavorSuffixes[] = {"_Vanilla.toc", "_Classic.toc"};
-
 } // namespace
 
 bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
@@ -84,12 +82,23 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
         return false;                  // pathological path length — let base read run
     std::memcpy(cand, path, prefixLen);
 
-    for (const char *suffix : kFlavorSuffixes) {
-        std::memcpy(cand + prefixLen, suffix, std::strlen(suffix) + 1); // incl. NUL
+    // Probe order, most specific first. `_Turtle` is offered only on a
+    // Turtle-lineage client (gated on Turtle::Detected) so stock 1.12 never
+    // prefers Turtle-only code; then the generic vanilla/classic fallbacks.
+    // Deliberately NOT _Mainline/_Cata/etc — those are not for a vanilla client.
+    const char *order[3];
+    int count = 0;
+    if (Turtle::Detected())
+        order[count++] = "_Turtle.toc";
+    order[count++] = "_Vanilla.toc";
+    order[count++] = "_Classic.toc";
+
+    for (int i = 0; i < count; ++i) {
+        std::memcpy(cand + prefixLen, order[i], std::strlen(order[i]) + 1); // incl. NUL
         if (orig(unused, cand, outBuf, outSize, extraBytes, flag1, flag2) != 0)
             return true; // served the flavor TOC in place of the base
     }
-    return false; // no vanilla flavor TOC — caller reads the base path
+    return false; // no matching flavor TOC — caller reads the base path
 }
 
 } // namespace AddOns::FlavorToc

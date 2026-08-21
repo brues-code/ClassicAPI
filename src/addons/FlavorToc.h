@@ -32,13 +32,22 @@ using FileReadFn = int(__stdcall *)(int unused, const char *path, void **outBuf,
 //
 // Called from the FUN_FILE_READ hook. If `path` is an addon base-TOC read
 // (`…\AddOns\<Name>\<Name>.toc`), probe the vanilla-appropriate flavor TOCs in
-// the client's own precedence — `<Name>_Vanilla.toc` first, then
-// `<Name>_Classic.toc` — and, if one exists, serve it via `orig` (as if it
-// were the base TOC) and return true. This deliberately wins over an existing
-// base `<Name>.toc`, mirroring the retail client (flavor-specific beats the
-// generic base, and `_Vanilla` beats `_Classic`). We do NOT fall back to
-// `_Mainline`/`_Cata`/etc.: an addon shipping only those does not support
+// precedence order and, if one exists, serve it via `orig` (as if it were the
+// base TOC) and return true. Order, most specific first:
+//   `<Name>_Turtle.toc`   — ONLY on a Turtle-lineage client (Turtle::Detected),
+//                           a ClassicAPI extension for Turtle's server content;
+//   `<Name>_Vanilla.toc`  — WoW Classic vanilla;
+//   `<Name>_Classic.toc`  — all classic expansions.
+// This deliberately wins over an existing base `<Name>.toc`, mirroring the
+// retail client (flavor-specific beats the generic base). We do NOT fall back
+// to `_Mainline`/`_Cata`/etc.: an addon shipping only those does not support
 // vanilla and should stay unlisted.
+//
+// The redirect fires at BOTH the registration scan (glue/char-select) and the
+// in-world load pass, which must agree on the flavor. `Turtle::Detected()` is
+// therefore consistent across both: it reads the in-world `TURTLE_WOW_VERSION`
+// global AND Turtle's glue-time `TURTLE_*` GlueXML globals, so it returns true
+// at the glue scan too (see turtle/Detect.h).
 //
 // Returns false when `path` is not a base-TOC read, or no vanilla flavor TOC
 // exists — the caller then performs the normal base read. Because the redirect

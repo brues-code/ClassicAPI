@@ -14,24 +14,29 @@
 #pragma once
 
 // Turtle WoW client detection — the gate for every module under
-// `src/turtle/`. Turtle's FrameXML sets a `TURTLE_WOW_VERSION` global (see
-// `FrameXML/Globals.lua`, e.g. `"1.18.1"`); its presence is the
-// authoritative "this is the Turtle client" signal — no realm-list
-// sniffing (which conflates "connected to Turtle" with "running the
-// Turtle client" and was rejected for the Rip combo-duration work), no
-// binary fingerprinting.
+// `src/turtle/`. Two signals, so it works in-world AND on the glue screen:
+//   * in-world: the engine-set `TURTLE_WOW_VERSION` global (e.g. `"1.18.1"`;
+//     not defined in Turtle's FrameXML Lua — it's set by the client binary);
+//   * glue screen: Turtle's GlueXML `TURTLE_*` string globals (GlueStrings.lua,
+//     e.g. `AUTH_TURTLE_WEBSITE` / `TURTLE_ARMORY`), set at glue boot.
+// Clones keep those NAMES (they rebrand only the URL/value), so name presence
+// is clone-robust. No realm-list sniffing (which conflates "connected to
+// Turtle" with "running the Turtle client", and varies per clone — rejected
+// for the Rip combo-duration work), no binary fingerprinting.
 namespace Turtle {
 
-// True iff running on a Turtle WoW client. Reads the `TURTLE_WOW_VERSION`
-// global and LATCHES true once seen. Safe to call any time: it returns
-// false until the in-game Lua state exists AND FrameXML's Globals.lua has
-// run (so it can read false very early in boot / on the glue screen), then
-// flips true and stays true. Never caches a false result, so an early
-// probe can't wrongly pin a Turtle client as non-Turtle.
+// True iff running on a Turtle WoW (or clone) client. LATCHES true once either
+// signal is seen. Safe to call from any state / any time — including during the
+// glue-time addon-registration scan, which is what lets `Addons::FlavorToc`
+// pick `_Turtle.toc` consistently at both scan and in-world load. Never caches
+// a false result, so an early probe (before either signal exists) can't wrongly
+// pin a Turtle client as non-Turtle.
 bool Detected();
 
 // The Turtle client version string (e.g. `"1.18.1"`), or nullptr when not
-// Turtle / not yet detected. Points at an internally-cached copy.
+// Turtle / not yet in-world (glue detection latches Detected() without a
+// version — it fills once `TURTLE_WOW_VERSION` is readable in-world). Points at
+// an internally-cached copy.
 const char *Version();
 
 } // namespace Turtle
