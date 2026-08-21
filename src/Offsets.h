@@ -5206,6 +5206,35 @@ enum Offsets {
     // to recognize the client version inside a multi-flavor comma-list.
     FUN_ADDON_CLIENT_INTERFACE_VERSION = 0x0051D7D0,
 
+    // Per-addon file loader — `__fastcall(char *tocPath, int *bindingsCtx,
+    // int *progress) -> uint32`. `FUN_0051f240` calls it once per addon with
+    // `Interface\AddOns\<Name>\<Name>.toc`; it reads the TOC and runs each
+    // referenced Lua/XML file. Vanilla runs it BEFORE the addon's
+    // SavedVariables are loaded (files execute with SV nil), so
+    // `Addons::SavedVarsFirst` co-hooks it to honor `## LoadSavedVariablesFirst`
+    // by loading the SV first for flagged addons.
+    FUN_ADDON_LOAD_FILES = 0x006EDB90,
+
+    // Read + run a Lua file — `__fastcall(const char *path, void *checksumOut,
+    // void *errCtx) -> uint32`. Reads via `FUN_FILE_READ`, then compiles +
+    // pcalls; returns 0 (and fires errCtx's callback only when errCtx != null)
+    // if the file is missing, so it is safe to call on an absent path. How the
+    // engine loads each SavedVariables `.lua` (and how addon files run).
+    FUN_LUA_LOAD_FILE = 0x00704BC0,
+
+    // File-exists probe — `__stdcall(const char *path, int mode)` (RET 8);
+    // nonzero when the file exists. `mode = 1` on the addon / SavedVariables
+    // paths. Used to mirror the engine's SV path fallback (prefer the
+    // realm-scoped per-character file, else the realm-less one).
+    FUN_FILE_EXISTS = 0x00648A30,
+
+    // `realmName` CVar value reader — no-arg, `-> const char *` (last-connected
+    // realm's display name; lazily registers the cvar). The realm segment of
+    // the per-character SavedVariables path. (The character segment is
+    // FUN_GET_LOGIN_ACCOUNT_NAME, whose label is a misnomer — it returns the
+    // 0x00C27D88 buffer, NULL until a character is logged in.)
+    FUN_GET_REALM_NAME = 0x005AB7D0,
+
     // AddOn registry init — `__fastcall(accountName)`. Documented in
     // CLAUDE.md ("AddOn registry & hot-reload"). Hooked post-call so
     // we can splice the embedded addon entry into the freshly-populated

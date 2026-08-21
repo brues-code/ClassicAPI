@@ -23,6 +23,7 @@ build instructions.
   - [`C_AddOns.GetAddOnOptionalDependencies(indexOrName)`](#c_addonsgetaddonoptionaldependenciesindexorname)
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
+  - [SavedVariables loaded first](#savedvariables-loaded-first)
 
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
@@ -1029,6 +1030,34 @@ unloaded.
   lines are gated. Retail added metadata-line conditions in a much later
   version.
 - `[AllowLoad glue]` never loads. Addon files load in-game only.
+
+### SavedVariables loaded first
+
+Normally 1.12 runs an addon's files first, then loads its SavedVariables,
+then fires `ADDON_LOADED`. So file-scope code sees its SavedVariables as
+`nil`. A modern addon avoids this with one TOC line:
+
+```
+## SavedVariables: MyAddonDB
+## LoadSavedVariablesFirst: 1
+```
+
+ClassicAPI honors `## LoadSavedVariablesFirst`. For a flagged addon, its
+SavedVariables load **before** its files run, so file-scope code sees them:
+
+```lua
+-- With the directive, in MyAddon's file:
+local db = MyAddonDB       -- the restored table, not nil
+```
+
+This covers both `## SavedVariables` and `## SavedVariablesPerCharacter`. A
+SavedVariables file exists only after the first save, so the first-ever
+login still sees `nil` — there is nothing on disk to load yet.
+
+**Limit.** The engine still runs its own SavedVariables load at the normal
+step, right after the files. So a file-scope *read* works, but a file-scope
+*write* to a SavedVariable is overwritten before `ADDON_LOADED`. Do writes
+in an `ADDON_LOADED` handler, the way addons normally do.
 
 ## AuctionHouse
 
