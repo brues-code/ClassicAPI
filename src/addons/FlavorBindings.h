@@ -15,13 +15,11 @@
 
 #include <cstddef>
 
+#include "addons/EngineIO.h"
+
 namespace AddOns::FlavorBindings {
 
-// Signature of the engine file reader FUN_FILE_READ (0x00648620), __stdcall
-// (callee cleans 28 bytes / RET 0x1C). Same shape addons/Embedded.cpp uses.
-using FileReadFn = int(__stdcall *)(int unused, const char *path, void **outBuf,
-                                    size_t *outSize, size_t extraBytes,
-                                    int flag1, int flag2);
+using EngineIO::FileReadFn;
 
 // Flavor-specific addon Bindings selection — the Bindings.xml analog of
 // AddOns::FlavorToc.

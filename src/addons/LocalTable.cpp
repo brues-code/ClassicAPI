@@ -31,6 +31,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/EngineIO.h"
 #include "addons/Toc.h"
 #include "luasyntax/AddonNamespace.h"
 
@@ -46,15 +47,11 @@ namespace {
 // passing the name string works because the lookup hashes it. See Offsets.h.
 using IsLoadedFn_t = uint8_t(__fastcall *)(const char *name);
 
-// `FUN_FILE_READ` — __stdcall (callee cleans 28 bytes via RET 0x1C). Shape
-// copied verbatim from addons/Embedded.cpp; declaring it __cdecl silently
-// corrupts the caller's stack. Calling the raw address routes through
-// Embedded's file-read hook, which forwards every non-`!!!ClassicAPI` path to
-// the original untouched — exactly what we want here.
-using FileRead_t = int(__stdcall *)(int unused, const char *path, void **outBuf,
-                                    size_t *outSize, size_t extraBytes,
-                                    int flag1, int flag2);
-using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
+// FUN_FILE_READ / the Storm free (see addons/EngineIO.h). Calling the raw
+// FUN_FILE_READ address routes through Embedded's file-read hook, which forwards
+// every non-`!!!ClassicAPI` path to the original untouched — what we want here.
+using AddOns::EngineIO::FileReadFn;
+using AddOns::EngineIO::SMemFreeFn;
 
 // True iff the addon's `.toc` has a line `## AllowAddOnTableAccess: <nonzero>`.
 // The value is read as a TOC boolean flag: parse the leading integer, true iff
@@ -72,7 +69,7 @@ bool TocAllowsTableAccess(const char *name) {
 
     void *buf = nullptr;
     size_t size = 0;
-    auto fileRead = reinterpret_cast<FileRead_t>(Offsets::FUN_FILE_READ);
+    auto fileRead = reinterpret_cast<FileReadFn>(Offsets::FUN_FILE_READ);
     if (fileRead(0, path, &buf, &size, 1, 1, 0) == 0 || buf == nullptr)
         return false;
 
@@ -90,7 +87,7 @@ bool TocAllowsTableAccess(const char *name) {
         allowed = anyDigit && value != 0;
     }
 
-    auto smemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
+    auto smemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
     smemFree(buf, __FILE__, __LINE__, 0);
     return allowed;
 }

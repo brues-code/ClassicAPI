@@ -11,7 +11,9 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "addons/EngineIO.h"
 #include "addons/FlavorBindings.h"
+#include "addons/Toc.h"
 
 #include "Game.h"
 #include "Offsets.h"
@@ -25,15 +27,10 @@ namespace AddOns::FlavorBindings {
 
 namespace {
 
+using AddOns::Toc::EqCI;
+using AddOns::Toc::Lower;
+
 constexpr size_t NPOS = static_cast<size_t>(-1);
-
-char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
-
-bool EqCI(const char *s, size_t n, const char *lit) {
-    for (size_t i = 0; i < n; ++i)
-        if (lit[i] == '\0' || Lower(s[i]) != Lower(lit[i])) return false;
-    return lit[n] == '\0';
-}
 
 // If `path` is an addon Bindings read (`…\AddOns\<Name>\Bindings.xml`, CI),
 // return the length of the prefix up to the `Bindings.xml` filename (so a
@@ -76,7 +73,7 @@ int FlavorOrder(const char *(&order)[2]) {
 }
 
 // Engine file-exists probe FUN_00648a30 — __stdcall(path, mode) (RET 8).
-using FileExistsFn = int(__stdcall *)(const char *path, int mode);
+using EngineIO::FileExistsFn;
 FileExistsFn g_origExists = nullptr;
 
 // Co-hook the exists-check so `Interface\AddOns\<Name>\Bindings.xml` reports as

@@ -11,10 +11,13 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "addons/EngineIO.h"
 #include "addons/TocRewrite.h"
+#include "addons/Toc.h"
 
 #include "Offsets.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -23,21 +26,12 @@ namespace AddOns::TocRewrite {
 
 namespace {
 
-// Storm allocator — the same buffers FUN_FILE_READ hands out, so the
-// caller's normal SMemFree reclaims our replacement. `__stdcall` per the
-// functions' RET 0x10 epilogue (matches addons/Embedded.cpp).
-using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
-using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
+using AddOns::EngineIO::SMemAllocFn;
+using AddOns::EngineIO::SMemFreeFn;
+using AddOns::Toc::EqCI;
+using AddOns::Toc::Lower;
 
-char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
 bool IsSpace(char c) { return c == ' ' || c == '\t'; }
-
-// Case-insensitive equality of [s, s+n) against the NUL-terminated `lit`.
-bool EqCI(const char *s, size_t n, const char *lit) {
-    for (size_t i = 0; i < n; ++i)
-        if (lit[i] == '\0' || Lower(s[i]) != Lower(lit[i])) return false;
-    return lit[n] == '\0';
-}
 
 // The client locale code ("enUS", "frFR", …) — the exact string
 // GetLocale() returns (Offsets.h VAR_LOCALE_NAME_TABLE derivation).
@@ -140,20 +134,17 @@ bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     return true;
 }
 
-// Evaluate a `[keyword args]` condition. `*known` reports whether the
-// keyword is recognized; the return is whether the line should load. An
-// unrecognized keyword returns false so the caller drops the line (a
+// Evaluate a `[keyword args]` condition — the return is whether the line should
+// load. An unrecognized keyword returns false so the caller drops the line (a
 // condition we cannot confirm must not load — fail safe).
 bool EvalCondition(const char *head, size_t headLen, const char *args,
-                   size_t argsLen, bool *known) {
-    *known = true;
+                   size_t argsLen) {
     if (EqCI(head, headLen, "AllowLoadGameType"))
         return ListContains(args, argsLen, "vanilla");
     if (EqCI(head, headLen, "AllowLoadTextLocale"))
         return ListContains(args, argsLen, ClientLocale());
     if (EqCI(head, headLen, "AllowLoad"))
         return ListContains(args, argsLen, "game"); // addon files: in-game only
-    *known = false;
     return false;
 }
 
@@ -199,8 +190,7 @@ bool ProcessFileLine(const char *line, size_t len, std::string &out) {
         } else {
             // Keyword + args: a condition. Strip it from the path (drop a
             // space we already emitted before it so nothing dangles).
-            bool known = false;
-            keep = keep && EvalCondition(head, headLen, args, argsLen, &known);
+            keep = keep && EvalCondition(head, headLen, args, argsLen);
             if (!out.empty() && out.back() == ' ') out.pop_back();
         }
         i = close + 1;
@@ -291,8 +281,8 @@ void Transform(const char *path, void **outBuf, size_t *outSize) {
         std::memcmp(rebuilt.data(), content, size) == 0)
         return; // brackets/commas were only in unaffected lines — nothing changed
 
-    auto SMemAlloc = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC);
-    auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
+    auto SMemAlloc = reinterpret_cast<SMemAllocFn>(Offsets::FUN_STORM_SMEM_ALLOC);
+    auto SMemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
     const size_t newLen = rebuilt.size();
     void *buf = SMemAlloc(newLen + 1, __FILE__, __LINE__, 0); // +1 NUL (extraBytes=1)
     if (buf == nullptr) return;                               // OOM — keep the original

@@ -18,6 +18,21 @@
 
 namespace AddOns::Toc {
 
+// Fold an ASCII letter to lower case (leaves every other byte unchanged).
+inline char Lower(char c) {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+}
+
+// Case-insensitive equality of the `n` bytes at `s` against the NUL-terminated
+// `lit` (ASCII). True only when the lengths match too. Shared by the addon
+// modules that scan `…\AddOns\<Name>\…` paths and TOC directive lines.
+inline bool EqCI(const char *s, size_t n, const char *lit) {
+    for (size_t i = 0; i < n; ++i)
+        if (lit[i] == '\0' || Lower(s[i]) != Lower(lit[i]))
+            return false;
+    return lit[n] == '\0';
+}
+
 // Scans an in-memory TOC buffer for `directive` (the full line prefix, e.g.
 // "## Version:") at a line start, case-insensitively, and returns the value
 // that follows via out-params: [*valStart, *valStart + *valLen), trimmed of

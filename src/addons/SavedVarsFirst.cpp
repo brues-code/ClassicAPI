@@ -45,6 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/EngineIO.h"
 #include "addons/Toc.h"
 
 #include <cstddef>
@@ -60,15 +61,13 @@ namespace {
 
 constexpr size_t NPOS = static_cast<size_t>(-1);
 
-// The hooked FUN_FILE_READ (so a flavor TOC's flag is read — FlavorToc
-// applies); __stdcall, RET 0x1C (see addons/Embedded.cpp).
-using FileReadFn = int(__stdcall *)(int unused, const char *path, void **outBuf,
-                                    size_t *outSize, size_t extraBytes,
-                                    int flag1, int flag2);
-using SMemFreeFn = void(__stdcall *)(void *buf, const char *file, int line, int flags);
+// Engine file I/O via the hooked FUN_FILE_READ (so a flavor TOC's flag is read —
+// FlavorToc applies), the exists-check, and the Storm free. See addons/EngineIO.h.
+using AddOns::EngineIO::FileExistsFn;
+using AddOns::EngineIO::FileReadFn;
+using AddOns::EngineIO::SMemFreeFn;
 using LoadTocFilesFn = uint32_t(__fastcall *)(char *tocPath, int *a2, int *a3);
 using LuaLoadFileFn = uint32_t(__fastcall *)(const char *path, void *a2, void *a3);
-using FileExistsFn = int(__stdcall *)(const char *path, int mode);
 using NameFn = const char *(*)(); // no-arg readers (return in EAX)
 
 LoadTocFilesFn g_orig = nullptr;
@@ -79,13 +78,8 @@ LuaLoadFileFn g_origLuaLoad = nullptr;
 // a handful of entries (one addon's SV files, briefly). Main-thread only.
 std::vector<std::string> g_pendingSuppress;
 
-char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
-
-bool EqCI(const char *s, size_t n, const char *lit) {
-    for (size_t i = 0; i < n; ++i)
-        if (lit[i] == '\0' || Lower(s[i]) != Lower(lit[i])) return false;
-    return lit[n] == '\0';
-}
+using AddOns::Toc::EqCI;
+using AddOns::Toc::Lower;
 
 bool SamePathCI(const char *a, const char *b) {
     for (; *a != '\0' && *b != '\0'; ++a, ++b)

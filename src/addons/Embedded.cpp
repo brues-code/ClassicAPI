@@ -47,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/EngineIO.h"
 #include "addons/FlavorBindings.h"
 #include "addons/FlavorToc.h"
 #include "addons/Toc.h"
@@ -115,30 +116,15 @@ const ClassicAPIFiles::File *LookupEmbedded(const char *suffix) {
     return nullptr;
 }
 
-// Storm allocator — same one `FUN_FILE_READ` uses internally. Buffer
-// allocated here is freed cleanly by the caller's standard `SMemFree`
-// (`FUN_STORM_SMEM_FREE`). `__stdcall` per the function's `RET 0x10`
-// (4 args × 4 bytes = 16) epilogue.
-//   __stdcall void *SMemAlloc(size_t size, const char *file, int line, int flags)
-using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
+// Engine file I/O + Storm allocator — see addons/EngineIO.h for the shapes and
+// the __stdcall / ESP-drift hazard. A buffer we SMemAlloc here is freed cleanly
+// by the caller's standard SMemFree in turn.
+using AddOns::EngineIO::FileReadFn;
+using AddOns::EngineIO::SMemAllocFn;
+using AddOns::EngineIO::SMemFreeFn;
 
-// `FUN_FILE_READ` — same shape derived from the Octo decompile.
-// Calling convention is `__stdcall` (callee cleans 28 bytes via
-// `RET 0x1C`), not `__cdecl` — confirmed via the function epilogue.
-// Getting this wrong silently corrupts the caller's stack frame.
-//   __stdcall int FileRead(int unused, const char *path, void **outBuf,
-//                          size_t *outSize, size_t extraBytes,
-//                          int flag1, int flag2)
-using FileRead_t = int(__stdcall *)(int unused, const char *path, void **outBuf,
-                                    size_t *outSize, size_t extraBytes,
-                                    int flag1, int flag2);
-FileRead_t FileRead_o = nullptr;
-
-// Storm-allocator free. Used to release the disk-TOC buffer after we
-// scrape its version line — same path the engine itself uses when
-// `FileRead_o` succeeded and the caller's done with the result.
-//   __stdcall void SMemFree(void *buf, const char *file, int line, int flags)
-using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
+// The trampoline to the original FUN_FILE_READ (installed by the co-hook below).
+FileReadFn FileRead_o = nullptr;
 
 // Extracts the value of the `## Version: X` line from a TOC byte
 // buffer. Writes into `out` (size `outSize`) and returns true on
@@ -227,7 +213,7 @@ bool DiskHasDevMarker() {
     const int ok = FileRead_o(0, fullPath, &buf, &size, 1, 1, 0);
     if (ok == 0 || buf == nullptr)
         return false;
-    auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
+    auto SMemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
     SMemFree(buf, __FILE__, __LINE__, 0);
     return true;
 }
@@ -272,7 +258,7 @@ void DecideSource() {
     // Free the disk buffer we just borrowed — we only needed it for
     // the version-line scrape. The actual content for the engine's
     // TOC read comes through the regular hook path below.
-    auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
+    auto SMemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
     SMemFree(diskBuf, __FILE__, __LINE__, 0);
 
     // Missing or unparseable disk version → assume it's older than
@@ -352,7 +338,7 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
                           flag1, flag2);
     }
 
-    auto SMemAlloc = reinterpret_cast<SMemAlloc_t>(
+    auto SMemAlloc = reinterpret_cast<SMemAllocFn>(
         Offsets::FUN_STORM_SMEM_ALLOC);
     const size_t totalSize = entry->size + extraBytes;
     void *buf = SMemAlloc(totalSize, __FILE__, __LINE__, 0);
