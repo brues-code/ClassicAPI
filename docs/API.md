@@ -8497,17 +8497,18 @@ just the 5.0→5.1 renames — `string.gmatch`←`gfind`, `math.fmod`←`math.mo
 
 ### Lua 5.1 syntax
 
-1.12 runs Lua 5.0. It cannot compile four pieces of Lua 5.1 syntax that
+1.12 runs Lua 5.0. It cannot compile five pieces of Lua 5.1 syntax that
 modern addons use. These are the length operator `#`, the modulo operator
-`%`, `...` used as an expression, and `0x` hexadecimal number literals.
-ClassicAPI rewrites addon source to the 5.0 equivalent before it compiles,
-so all four work:
+`%`, `...` used as an expression, `0x` hexadecimal number literals, and
+leveled long brackets (`[=[ ... ]=]`). ClassicAPI rewrites addon source to
+the 5.0 equivalent before it compiles, so all five work:
 
 ```lua
 local n = #myTable          -- length operator
 local r = a % b             -- modulo operator
 local args = { ... }        -- ... as an expression, not only in a parameter list
 local mask = 0xFF00         -- hex number literal
+local doc = [=[ has ]] in it ]=]   -- leveled long bracket
 ```
 
 The rewrite is transparent. You do not call anything. It runs on every
@@ -8526,6 +8527,11 @@ What each form does:
 - `0xFF00` becomes its decimal value (`65280`) — the same number Lua 5.1
   produces. Vanilla's lexer rejects `0x` literals, so without this an addon
   needs `tonumber("0xFF00", 16)`.
+- `[=[ ... ]=]` (a leveled long bracket, with any number of `=`) holds text
+  a plain `[[ ... ]]` cannot, such as text that contains `]]`. ClassicAPI
+  rewrites a leveled long string to a plain long string, or to a quoted
+  string when its body needs one. It removes a leveled long comment
+  (`--[=[ ... ]=]`).
 
 **Addon file arguments.** A modern addon reads its name and its private
 table from the file arguments:
@@ -8545,9 +8551,13 @@ needs that addon's opt-in.
 
 - The rewrite reads strings and comments correctly. A `%` in `"%d"` or a
   `#` in `--[[ # ]]` is left alone.
-- A nested long string or comment (`[[ a [[ b ]] c ]]`) matches at the
-  first close, not by depth. This is a 5.0-only form that addons almost
-  never use.
+- A plain long string that contains `[[` nests and closes by depth, the
+  same as the 5.0 engine. Lua 5.1 does not nest. For text that contains
+  `[[` or `]]`, use a leveled bracket (`[=[ ... ]=]`).
+- ClassicAPI rewrites a leveled long string to a plain `[[ ... ]]` when it
+  can, which keeps the exact value. A body that contains `[[` or `]]`, or
+  ends with `]`, becomes a quoted string instead. A quoted string keeps a
+  leading newline in the value. Lua 5.1 drops that newline.
 - Only integer hex is converted. Hex *floats* (`0x1.8p3`) and literals
   wider than 64 bits are left as-is. Both are almost nonexistent in addon
   code.
@@ -8556,7 +8566,8 @@ needs that addon's opt-in.
   Treat them as internal. Do not call them directly.
 - To turn a rewrite off for diagnosis, call
   `_classicapi_SetTranspileOption(name, false)`, where `name` is
-  `"Length"`, `"Modulo"`, `"VarargExpansion"`, or `"HexLiterals"`. This
+  `"Length"`, `"Modulo"`, `"VarargExpansion"`, `"HexLiterals"`, or
+  `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
 

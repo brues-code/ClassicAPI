@@ -14,16 +14,17 @@
 // Lua 5.1 syntax backport (source-level transpile).
 //
 // Vanilla's Lua is 5.0. It lacks the 5.1 operators `#` (length) and `%`
-// (modulo), `...` used as an expression, AND `0x` hexadecimal number
-// literals, so modern addon ports that use them fail to COMPILE. We don't
-// touch the 5.0 parser/VM (there is no OP_LEN / OP_MOD and no free opcode);
-// instead we rewrite the SOURCE before it reaches the parser: co-hook
-// `luaL_loadbuffer` (the one function every compile funnels through — file
-// scripts, `loadstring`, XML `<OnLoad>`) and rewrite:
+// (modulo), `...` used as an expression, `0x` hexadecimal number literals, AND
+// leveled long brackets (`[=[`…`]=]`), so modern addon ports that use them fail
+// to COMPILE. We don't touch the 5.0 parser/VM (there is no OP_LEN / OP_MOD and
+// no free opcode); instead we rewrite the SOURCE before it reaches the parser:
+// co-hook `luaL_loadbuffer` (the one function every compile funnels through —
+// file scripts, `loadstring`, XML `<OnLoad>`) and rewrite:
 //     #operand      ->  __len(operand)
 //     a % b         ->  __mod(a, b)
 //     ...           ->  unpack(arg)      (the `...` EXPRESSION, not the decl)
 //     0xHH...       ->  <decimal>        (5.0's lexer rejects hex literals)
+//     [=[ … ]=]     ->  [[ … ]] or "…"   (5.0 has no leveled long brackets)
 // `__len` / `__mod` are C globals we register (see below); `unpack` and the
 // 5.0 `arg` table are already present. RunPasses runs the hex pass first, then
 // the vararg pass, then the # / % precedence parser, over one shared
@@ -52,6 +53,10 @@
 //   * Nested long strings/comments (`[[ a [[ b ]] c ]]`) are depth-matched to
 //     mirror the 5.0 engine lexer (which nests), so string/comment boundaries
 //     are exact.
+//   * Leveled long brackets (`[=[`…`]=]`, `[==[`…`]==]`) — a 5.1 form this 5.0
+//     engine has no lexer support for — are rewritten to a `[[…]]` or quoted
+//     literal (long comments blanked to spaces), line-count-preserving. See the
+//     RewriteLongBrackets pass below.
 //   * `__len` on a table returns a border (bisection) = 5.1 `#`; it ignores
 //     any `table.setn` count (5.1 has no setn — correct `#` semantics).
 //   * Hex literals: only INTEGER `0x…` (up to 16 hex digits) are converted,
@@ -62,7 +67,7 @@
 //   * Diagnostic `_classicapi_TranspileLength(src)` returns the full rewrite.
 //   * Toggles via `_classicapi_SetTranspileOption(name, bool)` /
 //     `_classicapi_GetTranspileOption(name)` (name = "Length" / "Modulo" /
-//     "VarargExpansion" / "HexLiterals").
+//     "VarargExpansion" / "HexLiterals" / "LongBrackets").
 //   * `...` expands to `unpack(arg)`, which is faithful in every position and
 //     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
 //     Only the `...` in a function's parameter list is left intact.
@@ -73,7 +78,12 @@
 //     we prepend a chunk-local `arg = {"<Name>", __addonns("<Name>"), n=2}` so
 //     `...` yields the name + a per-addon shared table. `__addonns` returns the
 //     same table for every file of an addon (registry-backed). The preamble is
-//     newline-free (line numbers preserved) and only touches AddOns\ chunks.
+//     newline-free (line numbers preserved).
+//   * Non-addon vararg chunks (RunScript `/run`, XML <OnLoad>, loadstring) get a
+//     `local arg = {n=0}` fallback: their main chunk is not vararg, so a
+//     top-level `...` would otherwise be `unpack(nil)` and throw where 5.1
+//     yields nothing. A chunk called with args (`loadstring(...)(a,b)`) can't
+//     recover them — this build doesn't populate `arg` for called chunks.
 //     The `__addonns` global is CONTEXT-GATED (see `Script_AddonNS`): it only
 //     answers for the addon mid-load, for its own name — so it cannot be used
 //     at runtime to read another addon's private table. Cross-addon access is
@@ -97,12 +107,13 @@ namespace {
 
 constexpr size_t NPOS = static_cast<size_t>(-1);
 
-// Runtime switches, default ON — a `#`/`%`/`...`/`0x`-bearing chunk does not
-// compile on 5.0 today, so enabling by default cannot regress working addons.
+// Runtime switches, default ON — a `#`/`%`/`...`/`0x`/`[=[`-bearing chunk does
+// not compile on 5.0 today, so enabling by default cannot regress working addons.
 bool g_lenEnabled = true;
 bool g_modEnabled = true;
 bool g_varargEnabled = true;
 bool g_hexEnabled = true;
+bool g_longBracketEnabled = true;
 
 // lua_rawgeti(L, idx, n) — push table_at_idx[n] without metamethods. Not
 // exposed via Game::Lua; used to probe table elements for the border search.
@@ -840,6 +851,175 @@ bool RewriteHex(const char *src, size_t len, const std::vector<Token> &toks,
     return true;
 }
 
+// ============================================================================
+// Long-bracket-level pass: rewrite 5.1 `[=[`…`]=]` / `[==[`…`]==]` (and their
+// `--[=[` long-comment forms) into a shape the 5.0 engine accepts.
+//
+// Lua 5.1 added LEVELED long brackets (a run of `=` between the two `[`, matched
+// by count on close). This 5.0 engine has NONE — its lexer reads one char after
+// `[`: if it's `[` it's a level-0 long string, otherwise a bare `[` token
+// (verified in the engine lexer FUN_006ff610; the `--[[` comment path is the
+// same). So `[=[…]=]` fails to compile, and a modern addon that uses a leveled
+// bracket (usually to hold text containing `]]`) can't load.
+//
+// We convert each leveled long bracket, PRESERVING LINE COUNT (no newline is
+// added or removed, so error line numbers stay exact):
+//   * Long STRING, body free of `[[`/`]]` and not ending in `]`  ->  `[[body]]`
+//     (level 0). Byte-exact value, including the engine's leading-newline strip.
+//     The `]`-ending / `[[`/`]]`-containing bodies would early-close or nest a
+//     level-0 bracket, so they take the quoted path instead.
+//   * Long STRING otherwise  ->  a quoted "…" literal: `"`->`\"`, `\`->`\\`,
+//     each newline -> `\`+newline (a Lua line continuation: embeds `\n` AND
+//     advances the physical line), `\r`->`\r`, NUL->`\0`, other bytes verbatim.
+//   * Long COMMENT  ->  blanked to spaces (newlines kept); a comment is
+//     whitespace, so this is semantically exact.
+//
+// Level 0 (`[[…]]`, `--[[…]]`) is left untouched — the engine handles it.
+//
+// Caveat: the quoted-string form does NOT reproduce 5.1's leading-newline strip
+// (a level-≥1 long string that begins with a newline keeps that `\n` in its
+// value). Only bodies that fall to the quoted path are affected (they contain
+// `[[`/`]]` or end in `]`); the common multi-line case takes the byte-exact
+// `[[body]]` path. Line numbers stay exact either way.
+//
+// Runs FIRST in RunPasses (it changes string/comment boundaries), before the
+// shared tokenization the hex / vararg / operator passes use. A false-positive
+// `[=` gate (inside a string, say) is harmless: the walker copies non-bracket
+// bytes verbatim and returns "unchanged" when it finds no real leveled bracket.
+// ============================================================================
+
+// Cheap gate: a leveled long bracket must begin `[=` (`[`+`=`…). Necessary
+// prefix for `[=[`, `[==[`, and the `--[=[` comment form.
+bool MaybeLeveledBracket(const char *src, size_t len) {
+    for (size_t i = 0; i + 1 < len; i++)
+        if (src[i] == '[' && src[i + 1] == '=')
+            return true;
+    return false;
+}
+
+// True iff [start,end) is a properly-closed level-`level` long bracket, i.e.
+// SkipLongBracket found a real `]`+`=`×level+`]` close (not end-of-buffer).
+bool LongBracketClosed(const char *src, size_t start, size_t end, int level) {
+    const size_t delim = 2 + static_cast<size_t>(level); // width of `[=…=[` == `]=…=]`
+    if (end < start + 2 * delim)
+        return false; // no room for both delimiters
+    const size_t p = end - delim;
+    if (src[p] != ']' || src[end - 1] != ']')
+        return false;
+    for (int k = 0; k < level; k++)
+        if (src[p + 1 + k] != '=')
+            return false;
+    return true;
+}
+
+// Emit the leveled long STRING [start,end) (verified closed) as a 5.0 literal.
+void EmitLeveledString(const char *src, size_t start, size_t end, int level,
+                       std::string &out) {
+    const size_t delim = 2 + static_cast<size_t>(level);
+    const size_t cs = start + delim; // content start (past `[=…=[`)
+    const size_t ce = end - delim;   // content end (before `]=…=]`)
+
+    // Tier 1: `[[body]]` when body can't early-close or nest a level-0 bracket.
+    bool hasDouble = false;
+    for (size_t p = cs; p + 1 < ce; p++)
+        if ((src[p] == '[' && src[p + 1] == '[') ||
+            (src[p] == ']' && src[p + 1] == ']')) {
+            hasDouble = true;
+            break;
+        }
+    const bool endsInBracket = (ce > cs) && src[ce - 1] == ']'; // would merge with `]]`
+    if (!hasDouble && !endsInBracket) {
+        out.append("[[");
+        out.append(src + cs, ce - cs);
+        out.append("]]");
+        return;
+    }
+
+    // Tier 2: quoted string — general, preserves line count and byte values.
+    out.push_back('"');
+    for (size_t p = cs; p < ce; p++) {
+        const unsigned char b = static_cast<unsigned char>(src[p]);
+        switch (b) {
+        case '"':  out.append("\\\""); break;
+        case '\\': out.append("\\\\"); break;
+        case '\n': out.push_back('\\'); out.push_back('\n'); break; // line continuation
+        case '\r': out.append("\\r"); break;
+        case '\0': out.append("\\0"); break;
+        default:   out.push_back(static_cast<char>(b)); break;
+        }
+    }
+    out.push_back('"');
+}
+
+bool RewriteLongBrackets(const char *src, size_t len, std::string &out) {
+    out.clear();
+    out.reserve(len + 16);
+    size_t i = 0;
+    bool any = false;
+    while (i < len) {
+        const char c = src[i];
+        if (c == '"' || c == '\'') { // short string — copy verbatim
+            const size_t e = SkipShortString(src, len, i);
+            out.append(src + i, e - i);
+            i = e;
+            continue;
+        }
+        if (c == '-' && i + 1 < len && src[i + 1] == '-') { // comment
+            const size_t j = i + 2;
+            const int lvl =
+                (j < len && src[j] == '[') ? LongBracketLevel(src, len, j) : -1;
+            if (lvl > 0) {
+                const size_t e = SkipLongBracket(src, len, j, lvl);
+                if (LongBracketClosed(src, j, e, lvl)) {
+                    for (size_t p = i; p < e; p++) // blank to spaces, keep newlines
+                        out.push_back((src[p] == '\n' || src[p] == '\r') ? src[p] : ' ');
+                    any = true;
+                } else {
+                    out.append(src + i, e - i); // unterminated — leave for the engine
+                }
+                i = e;
+                continue;
+            }
+            if (lvl == 0) { // level-0 long comment — engine handles it
+                const size_t e = SkipLongBracket(src, len, j, 0);
+                out.append(src + i, e - i);
+                i = e;
+                continue;
+            }
+            size_t e = j; // line comment — verbatim to end of line
+            while (e < len && src[e] != '\n')
+                e++;
+            out.append(src + i, e - i);
+            i = e;
+            continue;
+        }
+        if (c == '[') { // long string?
+            const int lvl = LongBracketLevel(src, len, i);
+            if (lvl > 0) {
+                const size_t e = SkipLongBracket(src, len, i, lvl);
+                if (LongBracketClosed(src, i, e, lvl)) {
+                    EmitLeveledString(src, i, e, lvl, out);
+                    any = true;
+                } else {
+                    out.append(src + i, e - i); // unterminated — leave for the engine
+                }
+                i = e;
+                continue;
+            }
+            if (lvl == 0) { // level-0 long string — engine handles it
+                const size_t e = SkipLongBracket(src, len, i, 0);
+                out.append(src + i, e - i);
+                i = e;
+                continue;
+            }
+            // else: a bare '[' — fall through to the byte copy
+        }
+        out.push_back(c);
+        i++;
+    }
+    return any;
+}
+
 // Run every syntax rewrite over a chunk (hex first, then vararg, then # / %),
 // tokenizing ONCE and re-lexing only after a pass actually rewrites the buffer
 // (rare) — the passes share one token stream instead of re-lexing per pass.
@@ -854,40 +1034,48 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
         return false;
 
     // Cheap byte gate — skip tokenizing entirely when no trigger char is present
-    // (the common case for a chunk with none of `0x` / `...` / `#` / `%`).
+    // (the common case for a chunk with none of `[=` / `0x` / `...` / `#` / `%`).
+    const bool maybeLong = g_longBracketEnabled && MaybeLeveledBracket(src, len);
     const bool maybeHex = g_hexEnabled && ContainsHexPrefix(src, len);
     const bool maybeVararg = g_varargEnabled && ContainsTripleDot(src, len);
     const bool maybeOps = (g_lenEnabled && std::memchr(src, '#', len) != nullptr) ||
                           (g_modEnabled && std::memchr(src, '%', len) != nullptr);
-    if (!maybeHex && !maybeVararg && !maybeOps)
+    if (!maybeLong && !maybeHex && !maybeVararg && !maybeOps)
         return false;
-
-    std::vector<Token> toks;
-    Tokenize(src, len, toks);
 
     const char *cur = src;
     size_t curLen = len;
-    std::string hx, va, ops;
-    int last = 0; // which pass owns the final buffer: 1 hex, 2 vararg, 3 ops
+    std::string lb, hx, va, ops;
+    int last = 0; // owns the final buffer: 1 long-bracket, 2 hex, 3 vararg, 4 ops
+
+    // Leveled long brackets first — this rewrites string/comment boundaries, so
+    // it must run before the shared tokenization the other passes consume.
+    if (maybeLong && RewriteLongBrackets(cur, curLen, lb)) {
+        cur = lb.data(); curLen = lb.size(); last = 1;
+    }
+
+    std::vector<Token> toks;
+    Tokenize(cur, curLen, toks);
 
     if (maybeHex && RewriteHex(cur, curLen, toks, hx)) {
-        cur = hx.data(); curLen = hx.size(); last = 1;
+        cur = hx.data(); curLen = hx.size(); last = 2;
         Tokenize(cur, curLen, toks); // buffer changed — re-lex for the next pass
     }
     if (maybeVararg && RewriteVararg(cur, curLen, toks, va)) {
-        cur = va.data(); curLen = va.size(); last = 2;
+        cur = va.data(); curLen = va.size(); last = 3;
         if (outVararg) *outVararg = true;
         Tokenize(cur, curLen, toks);
     }
     if (maybeOps && RewriteAll(cur, curLen, toks, ops)) {
-        last = 3;
+        last = 4;
         if (outOps) *outOps = true;
     }
 
     switch (last) {
-    case 1: out = std::move(hx); return true;
-    case 2: out = std::move(va); return true;
-    case 3: out = std::move(ops); return true;
+    case 1: out = std::move(lb); return true;
+    case 2: out = std::move(hx); return true;
+    case 3: out = std::move(va); return true;
+    case 4: out = std::move(ops); return true;
     default: return false;
     }
 }
@@ -1090,13 +1278,31 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
 
     bool armed = false;
     char addon[128];
-    if (fromFileFunnel && didVararg && AddonNameFromChunk(name, addon, sizeof addon)) {
-        pre += "local arg={\"";
-        pre += addon;
-        pre += "\",__addonns(\"";
-        pre += addon;
-        pre += "\"),n=2};";
-        armed = true;
+    if (didVararg) {
+        if (fromFileFunnel && AddonNameFromChunk(name, addon, sizeof addon)) {
+            pre += "local arg={\"";
+            pre += addon;
+            pre += "\",__addonns(\"";
+            pre += addon;
+            pre += "\"),n=2};";
+            armed = true;
+        } else {
+            // Top-level `...` OUTSIDE the addon file funnel — RunScript (`/run`),
+            // XML <OnLoad>, or loadstring. Vanilla's main / RunScript chunk is
+            // NOT vararg, so `arg` is nil there and the `unpack(arg)` we emit
+            // would throw where 5.1's `...` yields nothing. Bind a chunk-local
+            // empty vararg table so those chunks match 5.1 (top-level `...`
+            // yields nothing). A vararg function's own `arg` local shadows this
+            // at its own scope, so nested `function(...)` bodies are unaffected.
+            //
+            // Limitation (verified in-game): a loadstring'd chunk CALLED with
+            // args — `loadstring("return ...")(a,b)` — can't recover them. This
+            // build does not populate `arg` for a called chunk, and `...` is not
+            // a real 5.0 expression, so there is no source for the call args.
+            // Not a regression: without the rewrite that chunk fails to compile
+            // outright. This case is vanishingly rare in addons.
+            pre += "local arg={n=0};";
+        }
     }
 
     if (pre.empty()) {
@@ -1162,6 +1368,7 @@ const Toggle kToggles[] = {
     {"Modulo", &g_modEnabled},
     {"VarargExpansion", &g_varargEnabled},
     {"HexLiterals", &g_hexEnabled},
+    {"LongBrackets", &g_longBracketEnabled},
 };
 bool *FindToggle(const char *name) {
     if (name)
