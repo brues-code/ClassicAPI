@@ -25,8 +25,9 @@
 //     ...           ->  unpack(arg)      (the `...` EXPRESSION, not the decl)
 //     0xHH...       ->  <decimal>        (5.0's lexer rejects hex literals)
 // `__len` / `__mod` are C globals we register (see below); `unpack` and the
-// 5.0 `arg` table are already present. RewriteChunk runs the hex pass first,
-// then the vararg pass, then the # / % precedence parser.
+// 5.0 `arg` table are already present. RunPasses runs the hex pass first, then
+// the vararg pass, then the # / % precedence parser, over one shared
+// tokenization (RewriteChunk and LoadBuffer_h both go through it).
 //
 // Why a real parser (not regex / one-term-each-side): `#` is prefix but `%`
 // is binary infix, so its operands must be delimited by PRECEDENCE —
@@ -638,17 +639,27 @@ void BuildOutput(Ctx &c, const char *src, size_t len, std::string &out) {
     }
 }
 
-// Rewrite `src` -> `out`. Returns true and fills `out` if anything changed.
-bool RewriteAll(const char *src, size_t len, std::string &out) {
-    if (src == nullptr || len == 0)
-        return false;
-    bool wantLen = g_lenEnabled && std::memchr(src, '#', len) != nullptr;
-    bool wantMod = g_modEnabled && std::memchr(src, '%', len) != nullptr;
+// Rewrite `src` -> `out` using the pre-tokenized `toks`. Returns true and fills
+// `out` if anything changed.
+bool RewriteAll(const char *src, size_t len, const std::vector<Token> &toks,
+                std::string &out) {
+    // Gate the (recursive) parse on an actual `#`/`%` OPERATOR token. A `%`
+    // inside a format string (`"%d"`) is part of a TK_STRING token, not a punct,
+    // so this skips the whole parse for the common format-string-only case
+    // instead of parsing the chunk and discarding an empty edit list.
+    bool wantLen = false, wantMod = false;
+    for (const Token &t : toks) {
+        if (t.kind != TK_PUNCT || t.end - t.start != 1)
+            continue;
+        const char ch = src[t.start];
+        if (ch == '#') wantLen = true;
+        else if (ch == '%') wantMod = true;
+        if (wantLen && wantMod) break;
+    }
+    wantLen = wantLen && g_lenEnabled;
+    wantMod = wantMod && g_modEnabled;
     if (!wantLen && !wantMod)
         return false;
-
-    std::vector<Token> toks;
-    Tokenize(src, len, toks);
 
     Ctx c;
     c.src = src;
@@ -657,7 +668,7 @@ bool RewriteAll(const char *src, size_t len, std::string &out) {
     c.modOn = wantMod;
     ScanRange(c, 0, toks.size());
     if (c.opens.empty())
-        return false; // e.g. `%` only inside format strings
+        return false;
     BuildOutput(c, src, len, out);
     return true;
 }
@@ -678,7 +689,7 @@ bool RewriteAll(const char *src, size_t len, std::string &out) {
 // Kept a separate pass (not folded into the # / % precedence parser) because it
 // needs no precedence — it's a token substitution once the param-list `...` is
 // excluded. Order vs RewriteAll is irrelevant (neither produces the other's
-// trigger); RewriteChunk runs this first.
+// trigger); RunPasses runs this first.
 // ============================================================================
 
 bool ContainsTripleDot(const char *src, size_t len) {
@@ -707,14 +718,8 @@ size_t MatchParenTok(const std::vector<Token> &t, const char *src, size_t k) {
     return t.size();
 }
 
-bool RewriteVararg(const char *src, size_t len, std::string &out) {
-    if (src == nullptr || len == 0 || !g_varargEnabled)
-        return false;
-    if (!ContainsTripleDot(src, len))
-        return false;
-
-    std::vector<Token> toks;
-    Tokenize(src, len, toks);
+bool RewriteVararg(const char *src, size_t len, const std::vector<Token> &toks,
+                   std::string &out) {
     const size_t n = toks.size();
 
     // A `...` is a single 3-char punct token — Tokenize now emits '.', '..',
@@ -796,15 +801,8 @@ bool ContainsHexPrefix(const char *src, size_t len) {
     return false;
 }
 
-bool RewriteHex(const char *src, size_t len, std::string &out) {
-    if (src == nullptr || len == 0 || !g_hexEnabled)
-        return false;
-    if (!ContainsHexPrefix(src, len))
-        return false;
-
-    std::vector<Token> toks;
-    Tokenize(src, len, toks);
-
+bool RewriteHex(const char *src, size_t len, const std::vector<Token> &toks,
+                std::string &out) {
     out.clear();
     out.reserve(len);
     size_t p = 0;
@@ -842,32 +840,62 @@ bool RewriteHex(const char *src, size_t len, std::string &out) {
     return true;
 }
 
-// Run every syntax rewrite over a chunk (hex first, then vararg, then # / %).
-// Returns true and fills `out` if anything changed.
+// Run every syntax rewrite over a chunk (hex first, then vararg, then # / %),
+// tokenizing ONCE and re-lexing only after a pass actually rewrites the buffer
+// (rare) — the passes share one token stream instead of re-lexing per pass.
+// Returns true and fills `out` if anything changed; `*outVararg` / `*outOps`
+// (optional) report whether the vararg / operator pass fired, for the load-time
+// preamble in LoadBuffer_h.
+bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
+               bool *outOps) {
+    if (outVararg) *outVararg = false;
+    if (outOps) *outOps = false;
+    if (src == nullptr || len == 0)
+        return false;
+
+    // Cheap byte gate — skip tokenizing entirely when no trigger char is present
+    // (the common case for a chunk with none of `0x` / `...` / `#` / `%`).
+    const bool maybeHex = g_hexEnabled && ContainsHexPrefix(src, len);
+    const bool maybeVararg = g_varargEnabled && ContainsTripleDot(src, len);
+    const bool maybeOps = (g_lenEnabled && std::memchr(src, '#', len) != nullptr) ||
+                          (g_modEnabled && std::memchr(src, '%', len) != nullptr);
+    if (!maybeHex && !maybeVararg && !maybeOps)
+        return false;
+
+    std::vector<Token> toks;
+    Tokenize(src, len, toks);
+
+    const char *cur = src;
+    size_t curLen = len;
+    std::string hx, va, ops;
+    int last = 0; // which pass owns the final buffer: 1 hex, 2 vararg, 3 ops
+
+    if (maybeHex && RewriteHex(cur, curLen, toks, hx)) {
+        cur = hx.data(); curLen = hx.size(); last = 1;
+        Tokenize(cur, curLen, toks); // buffer changed — re-lex for the next pass
+    }
+    if (maybeVararg && RewriteVararg(cur, curLen, toks, va)) {
+        cur = va.data(); curLen = va.size(); last = 2;
+        if (outVararg) *outVararg = true;
+        Tokenize(cur, curLen, toks);
+    }
+    if (maybeOps && RewriteAll(cur, curLen, toks, ops)) {
+        last = 3;
+        if (outOps) *outOps = true;
+    }
+
+    switch (last) {
+    case 1: out = std::move(hx); return true;
+    case 2: out = std::move(va); return true;
+    case 3: out = std::move(ops); return true;
+    default: return false;
+    }
+}
+
+// Diagnostic entry: the full operator/vararg/hex rewrite of a chunk, without the
+// load-time addon-args/helper preamble (that is LoadBuffer_h's concern).
 bool RewriteChunk(const char *src, size_t len, std::string &out) {
-    std::string h;
-    bool didHex = RewriteHex(src, len, h);
-    const char *cur = didHex ? h.data() : src;
-    size_t curLen = didHex ? h.size() : len;
-
-    std::string a;
-    bool didVararg = RewriteVararg(cur, curLen, a);
-    if (didVararg) { cur = a.data(); curLen = a.size(); }
-
-    std::string b;
-    if (RewriteAll(cur, curLen, b)) {
-        out = std::move(b);
-        return true;
-    }
-    if (didVararg) {
-        out = std::move(a);
-        return true;
-    }
-    if (didHex) {
-        out = std::move(h);
-        return true;
-    }
-    return false;
+    return RunPasses(src, len, out, nullptr, nullptr);
 }
 
 // ============================================================================
@@ -1032,28 +1060,13 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     if (static_cast<unsigned char>(buff[0]) == 0x1B)
         return g_origLoadBuffer(L, buff, size, name);
 
-    // Syntax transpile: hex literals first, then vararg, then # / %.
-    std::string hx;
-    const char *body = buff;
-    size_t bodyLen = size;
-    if (RewriteHex(body, bodyLen, hx)) {
-        body = hx.data();
-        bodyLen = hx.size();
-    }
-
-    std::string va;
-    const bool didVararg = RewriteVararg(body, bodyLen, va);
-    if (didVararg) {
-        body = va.data();
-        bodyLen = va.size();
-    }
-
-    std::string ops;
-    const bool didOps = RewriteAll(body, bodyLen, ops);
-    if (didOps) {
-        body = ops.data();
-        bodyLen = ops.size();
-    }
+    // Syntax transpile: hex literals first, then vararg, then # / % — one shared
+    // tokenization (see RunPasses). `didVararg` / `didOps` drive the preamble.
+    std::string transpiled;
+    bool didVararg = false, didOps = false;
+    const bool changed = RunPasses(buff, size, transpiled, &didVararg, &didOps);
+    const char *body = changed ? transpiled.data() : buff;
+    size_t bodyLen = changed ? transpiled.size() : size;
 
     // Assemble a newline-free preamble (line numbers preserved). Two parts:
     //  * Helper capture. `#`/`%`/`...` lower to `__len`/`__mod`/`unpack` CALLS;
