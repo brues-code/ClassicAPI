@@ -189,7 +189,7 @@ function SecureActionButton_OnClick(self, button)
             RunMacro(macro, button);
         else
             local text = SecureButton_GetModifiedAttribute(self, "macrotext", button);
-            if text then
+            if text and RunMacroText then
                 RunMacroText(text, button);
             end
         end
@@ -221,7 +221,9 @@ function SecureActionButton_OnClick(self, button)
             delegate:Click(button);
         end
     elseif actionType == "menu" or actionType == "togglemenu" then
-        if unit then
+        if self.menu then
+            self.menu(self, unit);
+        elseif unit then
             ClassicAPI_ToggleUnitMenu(unit);
         end
     elseif actionType then

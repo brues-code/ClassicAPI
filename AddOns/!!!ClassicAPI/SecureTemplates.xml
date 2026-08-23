@@ -23,12 +23,7 @@
 		</Scripts>
 	</Button>
 
-	<!-- Insecure variant (identical behavior in 1.12 since there's no combat lockdown) -->
-	<Button name="InsecureActionButtonTemplate" inherits="SecureFrameTemplate" virtual="true">
-		<Scripts>
-			<OnClick>
-				SecureActionButton_OnClick(this, arg1);
-			</OnClick>
-		</Scripts>
-	</Button>
+	<!-- Insecure variant: identical behavior in 1.12 (no combat lockdown), so
+	     just inherit the secure template rather than duplicate its OnClick. -->
+	<Button name="InsecureActionButtonTemplate" inherits="SecureActionButtonTemplate" virtual="true"/>
 </Ui>
