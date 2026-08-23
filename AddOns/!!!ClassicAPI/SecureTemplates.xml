@@ -5,23 +5,15 @@
 	<!-- A base template for secure frames (no-op in 1.12, no taint system) -->
 	<Frame name="SecureFrameTemplate" virtual="true"/>
 
-	<!-- A button template for click-cast style action buttons -->
-	<Button name="SecureActionButtonTemplate" inherits="SecureFrameTemplate" virtual="true">
-		<Scripts>
-			<OnClick>
-				SecureActionButton_OnClick(this, arg1);
-			</OnClick>
-		</Scripts>
-	</Button>
+	<!-- Secure action button. Click behavior is driven natively by the C++
+	     Frame::Attributes module: setting a "type*" attribute installs the
+	     OnClick dispatcher, so the template itself needs no <OnClick>. -->
+	<Button name="SecureActionButtonTemplate" inherits="SecureFrameTemplate" virtual="true"/>
 
-	<!-- A variant of SecureActionButtonTemplate used for unit buttons -->
-	<Button name="SecureUnitButtonTemplate" inherits="SecureFrameTemplate" virtual="true">
-		<Scripts>
-			<OnClick>
-				SecureUnitButton_OnClick(this, arg1);
-			</OnClick>
-		</Scripts>
-	</Button>
+	<!-- Unit-button variant (identical to the action button on 1.12; its
+	     "type"/"unit" attributes drive it). SecureUnitButton_OnLoad is a Lua
+	     convenience for the common target + right-click-menu setup. -->
+	<Button name="SecureUnitButtonTemplate" inherits="SecureFrameTemplate" virtual="true"/>
 
 	<!-- Insecure variant: identical behavior in 1.12 (no combat lockdown), so
 	     just inherit the secure template rather than duplicate its OnClick. -->

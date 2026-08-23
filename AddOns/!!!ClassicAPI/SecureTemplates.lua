@@ -1,16 +1,15 @@
 -- SecureTemplates.lua — Lua-side helpers for SecureActionButtonTemplate et al.
 --
--- Backport of Blizzard's 2.0 SecureTemplates.lua for 1.12. Provides the
--- modifier/button attribute resolution functions that addons call directly
--- (SecureButton_GetModifiedAttribute, SecureButton_GetModifierPrefix, etc.)
--- and the OnClick dispatchers referenced by SecureTemplates.xml.
+-- Backport of the modifier/button attribute-resolution functions from
+-- Blizzard's 2.0 SecureTemplates.lua that addons call directly
+-- (SecureButton_GetModifiedAttribute, SecureButton_GetModifierPrefix,
+-- SecureButton_GetUnit, …), plus the SecureUnitButton_OnLoad convenience.
 --
--- The heavy click-dispatch logic (target, spell, item, macro, focus, etc.)
--- is handled natively by the C++ Frame::Attributes module for performance
--- and correctness on 1.12. The Lua SecureActionButton_OnClick here acts as
--- a compatibility entry point for addons that invoke it directly; for frames
--- with a C++-installed OnClick closure (any frame with a "type*" attribute),
--- the C++ path takes priority and only chains here for unhandled clicks.
+-- Click dispatch is NOT here: the C++ Frame::Attributes module is the single
+-- dispatcher. Setting a "type*" attribute on a frame installs a native OnClick
+-- that resolves the verb (target/spell/item/macro/focus/assist/stop/menu/
+-- action/pet/click/custom), so the templates carry no <OnClick> and there is no
+-- parallel Lua dispatcher to drift out of sync.
 
 -- The "modified attribute" takes the form of: modifier-name-button
 -- The modifier is one of "shift-", "ctrl-", "alt-", and the button is a
@@ -113,160 +112,14 @@ function SecureButton_GetUnit(self)
 end
 
 -- ---------------------------------------------------------------------------
--- SecureActionButton_OnClick
---
--- The primary click dispatcher. Called from the SecureActionButtonTemplate's
--- XML <OnClick> handler. The C++ Frame::Attributes module installs its own
--- native closure over this when SetAttribute("type*", ...) is called —
--- that closure takes priority and only chains here for unhandled clicks.
--- This Lua version exists for:
---   1. Addons that call SecureActionButton_OnClick(frame, button) directly
---   2. Frames where the C++ closure hasn't been installed yet
+-- SecureUnitButton_OnLoad — convenience for the common unit-button setup:
+-- left-click targets, any other button opens the right-click unit menu. The
+-- click behavior itself is native: setting these "type*"/"unit" attributes is
+-- what makes the C++ Frame::Attributes dispatcher act on the clicks.
 -- ---------------------------------------------------------------------------
 
-function SecureActionButton_OnClick(self, button)
-    -- Lookup the unit, based on the modifiers and button
-    local unit = SecureButton_GetModifiedUnit(self, button);
-
-    -- Don't do anything if our unit doesn't exist
-    if unit and unit ~= "none" and not UnitExists(unit) then
-        return;
-    end
-
-    -- Remap button suffixes based on disposition
-    if unit then
-        local origButton = button;
-        if UnitCanAttack("player", unit) then
-            button = SecureButton_GetModifiedAttribute(self, "harmbutton", button) or button;
-        elseif UnitCanAssist("player", unit) then
-            button = SecureButton_GetModifiedAttribute(self, "helpbutton", button) or button;
-        end
-
-        if button ~= origButton then
-            unit = SecureButton_GetModifiedUnit(self, button);
-            if unit and unit ~= "none" and not UnitExists(unit) then
-                return;
-            end
-        end
-    end
-
-    -- Lookup the action type
-    local actionType = SecureButton_GetModifiedAttribute(self, "type", button);
-
-    if actionType == "action" then
-        local action = SecureButton_GetModifiedAttribute(self, "action", button);
-        if action then
-            UseAction(action, unit, button);
-        end
-    elseif actionType == "pet" then
-        local action = SecureButton_GetModifiedAttribute(self, "action", button);
-        if action then
-            CastPetAction(action, unit);
-        end
-    elseif actionType == "spell" then
-        local spell = SecureButton_GetModifiedAttribute(self, "spell", button);
-        if spell then
-            CastSpellByName(spell, unit);
-        end
-    elseif actionType == "item" then
-        local bag = SecureButton_GetModifiedAttribute(self, "bag", button);
-        local slot = SecureButton_GetModifiedAttribute(self, "slot", button);
-        if slot then
-            if bag then
-                UseContainerItem(bag, slot, unit);
-            else
-                UseInventoryItem(slot, unit);
-            end
-        else
-            local item = SecureButton_GetModifiedAttribute(self, "item", button);
-            if item then
-                UseItemByName(item, unit);
-            end
-        end
-    elseif actionType == "macro" then
-        local macro = SecureButton_GetModifiedAttribute(self, "macro", button);
-        if macro then
-            RunMacro(macro, button);
-        else
-            local text = SecureButton_GetModifiedAttribute(self, "macrotext", button);
-            if text and RunMacroText then
-                RunMacroText(text, button);
-            end
-        end
-    elseif actionType == "stop" then
-        if SpellIsTargeting() then
-            SpellStopTargeting();
-        end
-    elseif actionType == "target" then
-        if unit then
-            if SpellIsTargeting() then
-                SpellTargetUnit(unit);
-            elseif CursorHasItem() then
-                DropItemOnUnit(unit);
-            else
-                TargetUnit(unit);
-            end
-        end
-    elseif actionType == "focus" then
-        if unit then
-            FocusUnit(unit);
-        end
-    elseif actionType == "assist" then
-        if unit then
-            AssistUnit(unit);
-        end
-    elseif actionType == "click" then
-        local delegate = SecureButton_GetModifiedAttribute(self, "clickbutton", button);
-        if delegate then
-            delegate:Click(button);
-        end
-    elseif actionType == "menu" or actionType == "togglemenu" then
-        if self.menu then
-            self.menu(self, unit);
-        elseif unit then
-            ClassicAPI_ToggleUnitMenu(unit);
-        end
-    elseif actionType then
-        -- Custom action support
-        local func = rawget(self, actionType);
-        if func then
-            func(self, unit, button);
-        end
-    end
-
-    -- Target predefined item if we just cast a targeting spell
-    if SpellCanTargetItem and SpellCanTargetItem() then
-        local bag = SecureButton_GetModifiedAttribute(self, "target-bag", button);
-        local slot = SecureButton_GetModifiedAttribute(self, "target-slot", button);
-        if slot then
-            if bag then
-                UseContainerItem(bag, slot);
-            else
-                UseInventoryItem(slot);
-            end
-        else
-            local item = SecureButton_GetModifiedAttribute(self, "target-item", button);
-            if item and SpellTargetItem then
-                SpellTargetItem(item);
-            end
-        end
-    end
-end
-
-function SecureUnitButton_OnLoad(self, unit, menufunc)
+function SecureUnitButton_OnLoad(self, unit)
     self:SetAttribute("type1", "target");
     self:SetAttribute("type*", "menu");
     self:SetAttribute("unit", unit);
-    self.menu = menufunc;
-end
-
-function SecureUnitButton_OnClick(self, button)
-    local actionType = SecureButton_GetModifiedAttribute(self, "type", button);
-    if actionType == "menu" then
-        if SpellIsTargeting() then
-            SpellStopTargeting();
-            return;
-        end
-    end
-    SecureActionButton_OnClick(self, button);
 end

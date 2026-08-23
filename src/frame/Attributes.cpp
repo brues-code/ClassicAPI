@@ -69,7 +69,14 @@
 // `macrotext`/`macro` attribute — prefers an addon RunMacro, else runs natively
 // via the stock ChatEdit_ParseText), `stopcasting`, `menu`/`togglemenu` (pops
 // the standard unit dropdown at the cursor via the addon's
-// ClassicAPI_ToggleUnitMenu). Actions call ordinary Lua globals where the entry
+// ClassicAPI_ToggleUnitMenu, or cancels spell-targeting when a spell is on the
+// cursor), `action` (UseAction of the `action` slot), `pet` (CastPetAction of
+// the `action` index), `click` (forwards to the frame in the `clickbutton`
+// attribute via delegate:Click), and any other verb as a custom action — a
+// function stored as a raw field on the frame named by the verb, called as
+// func(self, unit, button). This is the complete secure-button verb set, so the
+// !!!ClassicAPI addon ships no parallel Lua dispatcher. Actions call ordinary
+// Lua globals where the entry
 // is the engine's (TargetUnit, IsAltKeyDown, …); where we own a C++ module the
 // dispatch goes straight to it, no Lua round-trip (Spell::AtUnit for `spell`,
 // Unit::Focus for `focus`). All run under the engine's protected OnClick.
@@ -211,7 +218,12 @@ bool CopyAttr(void *L, int frameIdx, const char *lname, char *buf, size_t n) {
         const int si = Game::Lua::GetTop(L);
         Game::Lua::PushString(L, lname);
         Game::Lua::RawGet(L, si);            // [.., sub, val]
-        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_STRING) {
+        const int t = Game::Lua::Type(L, -1);
+        if (t == Game::Lua::TYPE_STRING || t == Game::Lua::TYPE_NUMBER) {
+            // lua_tostring coerces a number to its digits in place — on our
+            // temporary stack copy, so the stored attribute is untouched. This
+            // lets a numeric attribute value (e.g. SetAttribute("spell", 12345)
+            // or a numeric itemID) read as a string.
             const char *s = Game::Lua::ToString(L, -1);
             if (s) {
                 BoundedCopy(buf, s, n);
@@ -514,10 +526,79 @@ bool CallGlobalNum2(void *L, const char *name, double a, double b) {
     return called;
 }
 
+// _G[name](a) — one number arg, no results. Returns true iff called.
+bool CallGlobalNum1(void *L, const char *name, double a) {
+    const int top = Game::Lua::GetTop(L);
+    const bool called = Game::Lua::PushGlobalFunction(L, name);
+    if (called) {
+        Game::Lua::PushNumber(L, a);
+        Game::Lua::Call(L, 1, 0);
+    }
+    Game::Lua::SetTop(L, top);
+    return called;
+}
+
+// `click` verb: the `clickbutton` attribute holds a FRAME (not a string).
+// Resolve it with the same modified-key precedence as ReadModAttr, then forward
+// the click via delegate:Click(button). Returns true iff a delegate was called.
+bool ClickDelegate(void *L, int fi, const char *prefix, const char *suffix,
+                   const char *button) {
+    char key[128];
+    Compose3Lower(key, sizeof key, prefix, "clickbutton", suffix);
+    bool got = TryPushValue(L, fi, key);
+    if (!got) {
+        Compose3Lower(key, sizeof key, "", "clickbutton", suffix);
+        got = TryPushValue(L, fi, key);
+    }
+    if (!got) {
+        Compose3Lower(key, sizeof key, "", "clickbutton", "");
+        got = TryPushValue(L, fi, key);
+    }
+    if (!got) return false;                          // no delegate configured
+
+    const int di = Game::Lua::GetTop(L);             // the delegate value
+    bool called = false;
+    if (Game::Lua::Type(L, di) == Game::Lua::TYPE_TABLE) {
+        Game::Lua::PushString(L, "Click");
+        Game::Lua::GetTable(L, di);                  // delegate.Click
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
+            Game::Lua::PushValue(L, di);             // self = delegate
+            Game::Lua::PushString(L, button);        // button name
+            Game::Lua::Call(L, 2, 0);
+            called = true;
+        }
+    }
+    Game::Lua::SetTop(L, di - 1);                    // drop the delegate (+leftovers)
+    return called;
+}
+
+// Custom verb: a function stored as a raw field on the frame's own table named
+// by the verb (retail's escape hatch), invoked as func(self, unit, button).
+// Returns true iff such a function existed and was called.
+bool CallCustomAction(void *L, int fi, const char *verb, const char *unit,
+                      const char *button) {
+    if (Game::Lua::Type(L, fi) != Game::Lua::TYPE_TABLE) return false;
+    Game::Lua::PushString(L, verb);
+    Game::Lua::RawGet(L, fi);                        // frame[verb]
+    bool called = false;
+    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
+        Game::Lua::PushValue(L, fi);                 // self
+        Game::Lua::PushString(L, unit);              // unit (nil if null)
+        Game::Lua::PushString(L, button);            // button name
+        Game::Lua::Call(L, 3, 0);
+        called = true;
+    } else {
+        Game::Lua::SetTop(L, Game::Lua::GetTop(L) - 1);
+    }
+    return called;
+}
+
 // Performs the resolved `verb` on `unit` (a token attribute value, may be null).
-// Returns true if it owned the click (so the chained handler is skipped).
+// `button` is the raw click-button name ("LeftButton", …), needed by the
+// `click` and custom verbs. Returns true if it owned the click (so the chained
+// handler is skipped).
 bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
-                  const char *verb, const char *unit) {
+                  const char *verb, const char *unit, const char *button) {
     if (Ascii::EqualCI(verb, "target")) {
         if (!unit) return false;
         // `unit="none"` clears the target (retail's SecureActionButton behavior).
@@ -549,14 +630,28 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         return true;
     }
     if (Ascii::EqualCI(verb, "spell")) {
+        // A numeric spell ID (modern addons do SetAttribute("spell", 12345),
+        // stored as a Lua number; a numeric string is accepted too). Cast the
+        // EXACT rank by ID through the spellbook-slot resolver — at the unit, or
+        // with no unit on the current target (targetGuid 0). NOT name
+        // resolution, which casts the highest known rank regardless of the rank
+        // the caller asked for.
+        int spellID;
+        if (ReadModAttrInt(L, fi, prefix, "spell", suffix, &spellID)) {
+            if (unit)
+                Spell::AtUnit::CastByID(spellID, unit);
+            else
+                Spell::AtCursor::DispatchSpellCast(spellID);
+            return true;
+        }
+        // Otherwise a spell name. With a `unit`, cast straight at it (GUID →
+        // dispatcher, no target juggling; a ground-target spell lands at its
+        // feet). With no `unit`, fall back to the plain global cast on the
+        // current target — a `type="spell"` button that sets no `unit`
+        // attribute (issue #18) works like `/cast <spell>`.
         char spell[128];
         if (!ReadModAttr(L, fi, prefix, "spell", suffix, spell, sizeof spell))
             return false;
-        // With a `unit`, cast straight at it (GUID → dispatcher, no target
-        // juggling; a ground-target spell lands at its feet). With no `unit`,
-        // fall back to the plain global cast on the current target — a
-        // `type="spell"` button that sets no `unit` attribute (issue #18) now
-        // works like `/cast <spell>` instead of doing nothing.
         if (unit)
             Spell::AtUnit::CastByName(spell, unit);
         else
@@ -638,15 +733,38 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         Game::Lua::CallGlobal(L, "SpellStopCasting");
         return true;
     }
+    if (Ascii::EqualCI(verb, "action")) {
+        int slot;
+        if (!ReadModAttrInt(L, fi, prefix, "action", suffix, &slot)) return false;
+        CallGlobalNum1(L, "UseAction", slot);
+        return true;
+    }
+    if (Ascii::EqualCI(verb, "pet")) {
+        int index;
+        if (!ReadModAttrInt(L, fi, prefix, "action", suffix, &index)) return false;
+        CallGlobalNum1(L, "CastPetAction", index);
+        return true;
+    }
+    if (Ascii::EqualCI(verb, "click")) {
+        return ClickDelegate(L, fi, prefix, suffix, button);
+    }
     if (Ascii::EqualCI(verb, "menu") || Ascii::EqualCI(verb, "togglemenu")) {
+        // While a spell is on the cursor, cancel targeting instead of opening
+        // the menu (retail's SecureUnitButton behavior).
+        if (CallBoolGlobal(L, "SpellIsTargeting")) {
+            Game::Lua::CallGlobal(L, "SpellStopTargeting");
+            return true;
+        }
         if (!unit) return false;
         // The unit dropdown is pure FrameXML work (UnitPopup + ToggleDropDown),
         // so it lives in the !!!ClassicAPI addon; we just pop it at the cursor.
         Game::Lua::CallGlobalString(L, "ClassicAPI_ToggleUnitMenu", unit);
         return true;
     }
-    // Unknown verb → not handled here; the chained handler runs.
-    return false;
+    // Unknown verb → a custom action: a function stored as a raw field on the
+    // frame named by the verb (retail's escape hatch). If none exists it isn't
+    // handled here and the frame's own chained OnClick runs.
+    return CallCustomAction(L, fi, verb, unit, button);
 }
 
 // The chained OnClick handler. Upvalues: 1 = previous handler (or nil), 2 = the
@@ -681,7 +799,7 @@ int __fastcall OnClick_c(void *L) {
             const bool haveUnit =
                 ReadModAttr(L, fi, prefix, "unit", suffix, unit, sizeof unit);
             handled = DispatchVerb(L, fi, prefix, suffix, verb,
-                                   haveUnit ? unit : nullptr);
+                                   haveUnit ? unit : nullptr, btn);
         }
     }
     Game::Lua::SetTop(L, top);
