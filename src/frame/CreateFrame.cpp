@@ -227,16 +227,22 @@ int __fastcall CreateFrame_h(void *L) {
         return rc;  // creation failed (e.g. unknown frame type) — leave as-is.
 
     // Recover the created frame object (top of stack) and graft the remaining
-    // templates onto it with the engine's own inherit primitive.
-    void *frameObj = Game::Lua::ResolveObject(L, Game::Lua::GetTop(L));
-    if (frameObj == nullptr)
-        return rc;
-
-    BuildStatus status;
-    InitStatus(&status);
-    for (int i = 1; i < resolved; ++i)
-        ApplyTemplateNode(frameObj, resolvedNodes[i], &status);
-    ResetStatus(&status);
+    // templates onto it with the engine's own inherit primitive. Snapshot the
+    // stack the engine left (frame at `savedTop`) and restore it afterward, so
+    // anything a grafted template's appliers touch on the Lua stack (a child
+    // frame's OnLoad, `$parent` name resolution) can't shift the return value
+    // the caller reads back — the Tooltip::SetEvents save/restore discipline,
+    // which matters in this hook-saturated environment.
+    const int savedTop = Game::Lua::GetTop(L);
+    void *frameObj = Game::Lua::ResolveObject(L, savedTop);
+    if (frameObj != nullptr) {
+        BuildStatus status;
+        InitStatus(&status);
+        for (int i = 1; i < resolved; ++i)
+            ApplyTemplateNode(frameObj, resolvedNodes[i], &status);
+        ResetStatus(&status);
+        Game::Lua::SetTop(L, savedTop);
+    }
 
     return rc;
 }
