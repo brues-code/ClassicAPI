@@ -89,7 +89,7 @@ function SecureButton_GetModifiedUnit(self, button)
         local unitsuffix = SecureButton_GetModifiedAttribute(self, "unitsuffix", button);
         if unitsuffix then
             unit = unit .. unitsuffix;
-            unit = string.gsub(unit, "^([^%%d]+)([%%d]+)[pP][eE][tT]", "%1pet%2");
+            unit = string.gsub(unit, "^([^%d]+)([%d]+)[pP][eE][tT]", "%1pet%2");
         end
         return unit;
     end
@@ -106,7 +106,7 @@ function SecureButton_GetUnit(self)
         local unitsuffix = SecureButton_GetAttribute(self, "unitsuffix");
         if unitsuffix then
             unit = unit .. unitsuffix;
-            unit = string.gsub(unit, "^([^%%d]+)([%%d]+)[pP][eE][tT]", "%1pet%2");
+            unit = string.gsub(unit, "^([^%d]+)([%d]+)[pP][eE][tT]", "%1pet%2");
         end
         return unit;
     end

@@ -13,34 +13,40 @@
 
 // Multi-template `CreateFrame` support.
 //
-// Modern WoW (2.0+) allows comma-separated template lists in CreateFrame's 4th
-// argument:
+// Modern WoW (2.0+) allows a comma-separated template list in CreateFrame's
+// 4th argument:
 //
 //     CreateFrame("Button", nil, parent,
 //                 "UIPanelButtonTemplate, SecureActionButtonTemplate")
 //
-// Vanilla 1.12's `Script_CreateFrame` (0x007060B0) only accepts a single
-// template name — passing the full comma-separated string causes the lookup
-// to fail (no template with that literal compound name exists). The engine's
-// own XML `inherits="A, B"` attribute DOES split on commas internally (in the
-// XML parser at `FUN_006ede10`), but the Lua-facing `CreateFrame` does not.
+// Vanilla 1.12's `Script_CreateFrame` (0x007060B0) resolves the 4th arg as a
+// SINGLE template name — the whole comma string is one lookup, which fails.
+// 1.12 has no native multi-inheritance: the frame builder `FUN_006ee280`
+// applies exactly one `inherits` name.
 //
-// This module hooks `Script_CreateFrame` to:
-//   1. Detect a comma in the 4th argument.
-//   2. Split the comma-delimited list and trim whitespace.
-//   3. Pass the first entry to the original `Script_CreateFrame`, creating
-//      the frame with that template's full XML inheritance applied.
+// This hook adds real multi-inheritance by mirroring the engine's OWN inherit
+// mechanism. It:
+//   1. Splits the 4th arg on commas and trims each entry.
+//   2. Resolves each name in the XML template registry, keeping the resolvable
+//      ones in list order (typos / not-yet-loaded optional deps are skipped).
+//   3. Builds the frame through the original `Script_CreateFrame` using the
+//      FIRST resolved template — the engine does the object creation, that
+//      template's full inherit chain, ref/name setup, and OnLoad.
+//   4. Grafts each REMAINING resolved template onto the created frame with the
+//      two `__thiscall` calls the builder `FUN_006ee280` emits per inherited
+//      node (verified at 0x006ee4ca):
+//        content        : frameObj->vtable[+8](templateDefNode, status)        (FUN_00769820)
+//        child <Frames> : (frameObj+0x24)->vtable[+8](templateDefNode, status) (FUN_0076a060)
+//      Both recurse the grafted template's own `inherits`, add its regions /
+//      backdrop / attributes / script handlers, and create its child frames —
+//      exactly as if the frame had inherited it. Later templates override
+//      earlier ones, matching modern left-to-right inherit order.
 //
-// The first template in the list is typically the "visual" one (e.g.
-// `UIPanelButtonTemplate` carrying size, textures, fonts) while subsequent
-// entries are behavioral (e.g. `SecureActionButtonTemplate` carrying an
-// OnClick handler). The behavioral templates' functionality is provided by
-// the C++ `Frame::Attributes` module — which installs a native OnClick
-// closure when `SetAttribute("type*", ...)` is called — so not applying the
-// second template's XML properties is functionally correct.
-//
-// If a template name doesn't resolve in the XML registry (typo, optional
-// dependency not loaded, etc.) it is skipped; the first resolvable entry wins.
+// OnLoad runs once, during the engine build of the first template (step 3).
+// Secondary templates' `<OnLoad>` handlers are registered (they fire on the
+// next relevant event) but not re-run at creation, and the frame's OnLoad is
+// not re-fired. `status` is the engine's XML-build error accumulator, built
+// and reset exactly as `Script_CreateFrame` does.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -55,15 +61,75 @@ namespace {
 using ScriptFn_t = int(__fastcall *)(void *L);
 using TemplateLookup_t = const uint8_t *(__fastcall *)(const char *name);
 
+// XML-node applier vmethod: applies `node` (and its `inherits` chain) to
+// `self`. __thiscall(self /*ecx*/, node, status). Reached at vtable byte
+// offset +8 on both the frame's main object (content applier, FUN_00769820)
+// and its child-<Frames> sub-object at frame+0x24 (FUN_0076a060).
+using ApplyNodeFn = void(__thiscall *)(void *self, const void *node, void *status);
+
+// Empties / re-initializes the XML-build status object. __thiscall(this).
+using StatusReset_t = void(__thiscall *)(void *self);
+
 // The original Script_CreateFrame function, populated by MinHook.
 ScriptFn_t g_origCreateFrame = nullptr;
 
 // ---- helpers ---------------------------------------------------------------
 
-// Returns non-null if `name` resolves in the engine's XML template registry.
+// Returns the definition node if `name` resolves in the engine's XML template
+// registry, else nullptr.
 const uint8_t *LookupTemplate(const char *name) {
     return reinterpret_cast<TemplateLookup_t>(
         static_cast<uintptr_t>(Offsets::FUN_XML_TEMPLATE_LOOKUP))(name);
+}
+
+// Byte offset of the child-<Frames> applier sub-object within a frame object,
+// and the vtable slot of the "apply XML node" vmethod. Both read straight from
+// the builder FUN_006ee280's apply sequence at 0x006ee4ca:
+//   MOV EDX,[EDI]      CALL [EDX+0x20]                    ; top-level content
+//   MOV EAX,[EDI+0x24] LEA ECX,[EDI+0x24] CALL [EAX+0x8]  ; child <Frames>
+//   MOV EDX,[EDI]      CALL [EDX+0x24]                    ; finalize / OnLoad
+// The inherit-recursion inside FUN_00769820 / FUN_0076a060 uses vtable[+8] —
+// that is the applier we invoke to graft an extra template.
+constexpr int kChildApplierSubObj = 0x24;
+constexpr int kApplyNodeVtableSlot = 2;  // byte offset +8 / sizeof(void*)
+
+// The XML-build status object: the 5-dword error accumulator Script_CreateFrame
+// stack-builds ({vtable, 8, &self+8, (&self+8)|1, 0}). The appliers only ever
+// call its vtable[+0xc] (a __cdecl printf-style logger); building the engine's
+// real one absorbs any sub-node warning exactly as the engine does and is safe
+// against every slot.
+struct BuildStatus {
+    const void *vtable;
+    int         kind;
+    void       *head;
+    uintptr_t   tail;
+    int         count;
+};
+
+void InitStatus(BuildStatus *s) {
+    s->vtable = reinterpret_cast<const void *>(
+        static_cast<uintptr_t>(Offsets::PTR_TEXLOAD_DESC_VTBL));
+    s->kind = 8;
+    s->head = &s->head;
+    s->tail = reinterpret_cast<uintptr_t>(&s->head) | 1u;
+    s->count = 0;
+}
+
+void ResetStatus(BuildStatus *s) {
+    reinterpret_cast<StatusReset_t>(
+        static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_STATUS_RESET))(s);
+}
+
+// Grafts template definition `node` onto the already-created frame `frameObj`,
+// applying its content and its child <Frames> the same way the engine applies
+// an inherited node.
+void ApplyTemplateNode(void *frameObj, const void *node, void *status) {
+    void **vtbl = *reinterpret_cast<void ***>(frameObj);
+    reinterpret_cast<ApplyNodeFn>(vtbl[kApplyNodeVtableSlot])(frameObj, node, status);
+
+    void *childSub = reinterpret_cast<char *>(frameObj) + kChildApplierSubObj;
+    void **childVtbl = *reinterpret_cast<void ***>(childSub);
+    reinterpret_cast<ApplyNodeFn>(childVtbl[kApplyNodeVtableSlot])(childSub, node, status);
 }
 
 // Maximum templates in a single comma-separated list.
@@ -87,6 +153,12 @@ int SplitTemplates(char *buf, size_t bufLen, const char *input,
         char *start = p;
         while (*p && *p != ',') ++p;
 
+        // Note whether we stopped on a comma BEFORE writing the terminator:
+        // when there is no trailing whitespace, `end` lands on the comma
+        // itself, so `*end = '\0'` would clobber it and the advance below
+        // would then miss it — dropping every entry after the first.
+        const bool atComma = (*p == ',');
+
         char *end = p;
         while (end > start && (*(end - 1) == ' ' || *(end - 1) == '\t'))
             --end;
@@ -95,7 +167,7 @@ int SplitTemplates(char *buf, size_t bufLen, const char *input,
         if (*start != '\0')
             out[count++] = start;
 
-        if (*p == ',') ++p;
+        if (atComma) ++p;
     }
     return count;
 }
@@ -115,40 +187,58 @@ int __fastcall CreateFrame_h(void *L) {
     if (std::strchr(inherits, ',') == nullptr)
         return g_origCreateFrame(L);
 
-    // ---- comma-delimited: split and resolve ---------------------------------
+    // ---- comma-delimited: split, resolve, combine --------------------------
 
     char buf[1024];
     const char *names[kMaxTemplates];
     const int count = SplitTemplates(buf, sizeof buf, inherits, names);
-
     if (count == 0)
         return g_origCreateFrame(L);
 
-    // If only one entry after splitting (e.g. trailing comma), use it directly.
-    if (count == 1) {
-        Game::Lua::SetTop(L, 3);
-        Game::Lua::PushString(L, names[0]);
-        return g_origCreateFrame(L);
-    }
-
-    // Multiple entries: find the first that resolves in the XML template
-    // registry. Unresolvable names (typos, optional deps) are skipped.
-    const char *resolved = nullptr;
+    // Resolve each token; keep the resolvable definition nodes in list order.
+    const char *resolvedNames[kMaxTemplates];
+    const void *resolvedNodes[kMaxTemplates];
+    int resolved = 0;
     for (int i = 0; i < count; ++i) {
-        if (LookupTemplate(names[i]) != nullptr) {
-            resolved = names[i];
-            break;
+        const uint8_t *node = LookupTemplate(names[i]);
+        if (node != nullptr) {
+            resolvedNames[resolved] = names[i];
+            resolvedNodes[resolved] = node;
+            ++resolved;
         }
     }
 
-    // Replace arg 4 with the single resolved template (or nil if none found).
-    Game::Lua::SetTop(L, 3);
-    if (resolved != nullptr)
-        Game::Lua::PushString(L, resolved);
-    else
-        Game::Lua::PushNil(L);
+    // 0 or 1 resolvable: nothing to combine. Hand the engine a single name —
+    // the first resolved one, or (if none resolved) the first token so the
+    // engine emits its normal "couldn't find inherited node" error rather than
+    // silently building a template-less frame.
+    if (resolved <= 1) {
+        Game::Lua::SetTop(L, 3);
+        Game::Lua::PushString(L, resolved == 1 ? resolvedNames[0] : names[0]);
+        return g_origCreateFrame(L);
+    }
 
-    return g_origCreateFrame(L);
+    // Build with the first resolved template through the engine (object
+    // creation + its full inherit chain + ref/name setup + OnLoad).
+    Game::Lua::SetTop(L, 3);
+    Game::Lua::PushString(L, resolvedNames[0]);
+    const int rc = g_origCreateFrame(L);
+    if (rc != 1)
+        return rc;  // creation failed (e.g. unknown frame type) — leave as-is.
+
+    // Recover the created frame object (top of stack) and graft the remaining
+    // templates onto it with the engine's own inherit primitive.
+    void *frameObj = Game::Lua::ResolveObject(L, Game::Lua::GetTop(L));
+    if (frameObj == nullptr)
+        return rc;
+
+    BuildStatus status;
+    InitStatus(&status);
+    for (int i = 1; i < resolved; ++i)
+        ApplyTemplateNode(frameObj, resolvedNodes[i], &status);
+    ResetStatus(&status);
+
+    return rc;
 }
 
 // ---- registration ----------------------------------------------------------
