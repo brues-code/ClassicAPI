@@ -1,0 +1,6 @@
+## Interface: 11200
+## Title: SecureTemplateTest
+## Notes: Debug addon to verify SecureActionButtonTemplate + CreateFrame comma-split.
+## Dependencies: !!!ClassicAPI
+
+SecureTemplateTest.lua

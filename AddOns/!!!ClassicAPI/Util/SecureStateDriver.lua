@@ -35,34 +35,8 @@
 -- SecureButton_* (minimal -- no taint, no modifier/button suffix machinery)
 -- ---------------------------------------------------------------------------
 
--- frame:GetAttribute(name), then walk up parents while the chain opts in via
--- "useparent-<name>" or "useparent*".
-function SecureButton_GetAttribute(frame, name)
-    local value = frame:GetAttribute(name);
-    while value == nil
-        and (frame:GetAttribute("useparent-" .. name) or frame:GetAttribute("useparent*")) do
-        frame = frame:GetParent();
-        if not frame then
-            break;
-        end
-        value = frame:GetAttribute(name);
-    end
-    return value;
-end
-
--- The frame's `unit` attribute plus an optional `unitsuffix` (3.3.5 verbatim,
--- including the raid1pet -> raidpet1 normalization).
-function SecureButton_GetUnit(frame)
-    local unit = SecureButton_GetAttribute(frame, "unit");
-    if unit then
-        local unitsuffix = SecureButton_GetAttribute(frame, "unitsuffix");
-        if unitsuffix then
-            unit = unit .. unitsuffix;
-            unit = string.gsub(unit, "^([^%d]+)([%d]+)[pP][eE][tT]", "%1pet%2");
-        end
-        return unit;
-    end
-end
+-- SecureButton_GetAttribute and SecureButton_GetUnit are defined in
+-- SecureTemplates.lua (loaded earlier via SecureTemplates.xml).
 
 -- ---------------------------------------------------------------------------
 -- Private state

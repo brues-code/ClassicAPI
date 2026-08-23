@@ -6900,6 +6900,14 @@ enum Offsets {
     // (case-insensitive, hashed). See FUN_006ee6f0 in Templates.cpp notes.
     FUN_XML_TEMPLATE_LOOKUP = 0x006EE6F0,
 
+    // `CreateFrame(type [, name, parent, template])` — the global FrameScript
+    // function at table 0x00872E74 slot 3. Standard `int __fastcall(void *L)`
+    // shape. Vanilla accepts only a SINGLE template name; the hook in
+    // `Frame::CreateFrame` splits comma-separated inherits strings so modern
+    // multi-template calls work (e.g. "UIPanelButtonTemplate,
+    // SecureActionButtonTemplate").
+    FUN_SCRIPT_CREATEFRAME = 0x007060B0,
+
     // --- Inline texture escape (`|Tpath:h:w:...|t`) backport -------------------
     // See src/text/InlineTexture.cpp and docs/InlineTextureEscapes.md. The
     // 1.12 text pipeline is a shared `|`-tokenizer feeding per-purpose loops.

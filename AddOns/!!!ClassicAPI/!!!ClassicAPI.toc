@@ -7,6 +7,7 @@
 
 locales\locales.xml
 
+SecureTemplates.xml
 Compat.lua
 Util\Print.lua
 Util\Mixin.lua
@@ -44,7 +45,6 @@ Util\Vector3D.lua
 Util\Vector4D.lua
 Util\UIParent.lua
 Util\AuraDurationModifiers.lua
-Util\AuraUtil.lua
 Util\SecureUnitMenu.lua
 Util\TextureUtil.lua
 Util\MacroOptions.lua

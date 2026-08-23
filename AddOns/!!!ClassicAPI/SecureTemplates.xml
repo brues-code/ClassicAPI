@@ -1,0 +1,34 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<Script file="SecureTemplates.lua"/>
+
+	<!-- A base template for secure frames (no-op in 1.12, no taint system) -->
+	<Frame name="SecureFrameTemplate" virtual="true"/>
+
+	<!-- A button template for click-cast style action buttons -->
+	<Button name="SecureActionButtonTemplate" inherits="SecureFrameTemplate" virtual="true">
+		<Scripts>
+			<OnClick>
+				SecureActionButton_OnClick(this, arg1);
+			</OnClick>
+		</Scripts>
+	</Button>
+
+	<!-- A variant of SecureActionButtonTemplate used for unit buttons -->
+	<Button name="SecureUnitButtonTemplate" inherits="SecureFrameTemplate" virtual="true">
+		<Scripts>
+			<OnClick>
+				SecureUnitButton_OnClick(this, arg1);
+			</OnClick>
+		</Scripts>
+	</Button>
+
+	<!-- Insecure variant (identical behavior in 1.12 since there's no combat lockdown) -->
+	<Button name="InsecureActionButtonTemplate" inherits="SecureFrameTemplate" virtual="true">
+		<Scripts>
+			<OnClick>
+				SecureActionButton_OnClick(this, arg1);
+			</OnClick>
+		</Scripts>
+	</Button>
+</Ui>
