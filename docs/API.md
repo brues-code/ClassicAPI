@@ -1102,6 +1102,35 @@ File-scope reads and writes both behave as they do on modern clients. A
 SavedVariables file exists only after the first save, so the first-ever
 login still sees `nil` — there is nothing on disk to load yet.
 
+### `/reload` picks up new addons and new files
+
+A stock 1.12 client fixes its view of the game folder at launch. A file
+you add while the game runs does not load until you restart the client.
+Only edits to files that already existed at launch take effect on
+`/reload`.
+
+ClassicAPI removes the restart requirement. On every `/reload`:
+
+- **A new folder under `Interface\AddOns\` loads as a normal addon.** It
+  appears in `GetNumAddOns()` / `GetAddOnInfo()`, fires `ADDON_LOADED`,
+  and its dependencies, SavedVariables, keybindings, and flavor TOC all
+  work as usual.
+- **New files added to an existing addon load** (add the file and its
+  TOC line, then `/reload`).
+- **A first-time SavedVariables file survives `/reload`.** On a stock
+  client, the first save of a newly installed addon is written to disk
+  but cannot be read back until a restart, so the settings appear lost.
+  That quirk is fixed.
+
+Limits — a re-login handles these:
+
+- `##` metadata edits to an addon that was registered at login (for
+  example a changed `## SavedVariables:` or `## Dependencies:` list) do
+  not take effect on `/reload`. A NEW addon's metadata is read fresh, so
+  this only affects addons that already existed.
+- Deleting an addon folder does not remove it from the addon list. The
+  stale entry loads nothing.
+
 ## AuctionHouse
 
 ### `C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`
