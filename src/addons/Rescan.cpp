@@ -66,6 +66,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/Registry.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -122,19 +123,8 @@ void DescAppend(Desc *desc, uint32_t value, DescGrow_t grow) {
     desc->data[desc->count++] = value;
 }
 
-// Walk the registry's intrusive linked list (same traversal as the
-// engine's load pass: next at `entry + [VAR_ADDON_LIST_CTRL] + 4`,
-// low-bit-1 or NULL terminates).
-template <typename Fn> void ForEachEntry(Fn fn) {
-    const int linkOffset = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_ADDON_LIST_CTRL));
-    uintptr_t entry = *reinterpret_cast<const uintptr_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_ADDON_LIST_HEAD));
-    while ((entry & 1) == 0 && entry != 0) {
-        fn(entry);
-        entry = *reinterpret_cast<const uintptr_t *>(entry + linkOffset + 4);
-    }
-}
+// The registry linked-list walk lives in `addons/Registry.h`
+// (`Addons::ForEachEntry`), shared with `Addons::Embedded`.
 
 // By-name registry lookup via the engine's own hash resolver (returns
 // the entry's RequiredDeps desc, so subtract its offset — same recovery
@@ -265,6 +255,17 @@ void Run() {
     // hash lookup per already-registered addon; new folders register
     // as complete, normal entries (their TOC is readable now — and it
     // goes through the FlavorToc/TocRewrite read hooks like any other).
+    //
+    // The dedup guard is why this replay can NEVER refresh or corrupt
+    // an existing entry's `##` metadata (verified in the parser's
+    // decompile): the guard is the function's FIRST block — hash
+    // lookup + name compare, early `return` on match BEFORE the TOC
+    // path is even built, so no file read and no entry write happen
+    // for a registered name. Both the Storm hash (`FUN_0064B3F0`,
+    // uppercases a–z and folds '/'→'\\' before hashing) and the
+    // compare (`SStrCmpI`) are case-insensitive, so a case-renamed
+    // folder still matches its existing entry rather than registering
+    // a duplicate.
     auto scan =
         reinterpret_cast<ScanDiskDirs_t>(Offsets::FUN_ADDON_SCAN_DISK_DIRS);
     scan(reinterpret_cast<const char *>(Offsets::VAR_ADDON_PATH_PREFIX),
