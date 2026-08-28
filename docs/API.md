@@ -1121,15 +1121,12 @@ ClassicAPI removes the restart requirement. On every `/reload`:
   client, the first save of a newly installed addon is written to disk
   but cannot be read back until a restart, so the settings appear lost.
   That quirk is fixed.
-
-Limits — a re-login handles these:
-
-- `##` metadata edits to an addon that was registered at login (for
-  example a changed `## SavedVariables:` or `## Dependencies:` list) do
-  not take effect on `/reload`. A NEW addon's metadata is read fresh, so
-  this only affects addons that already existed.
-- Deleting an addon folder does not remove it from the addon list. The
-  stale entry loads nothing.
+- **`##` metadata edits take effect.** Change any `##` line — for
+  example the `## SavedVariables:` or `## Dependencies:` list, the
+  `## Title:`, or the `## Interface:` version — and `/reload` applies
+  it. `GetAddOnMetadata` returns the new values.
+- **Deleting an addon folder removes it from the addon list** on the
+  next `/reload`.
 
 ## AuctionHouse
 

@@ -5734,6 +5734,38 @@ enum Offsets {
     OFF_ADDON_LOADWITH_ARRAY = 0x60,
     OFF_ADDON_REVLOADWITH_DESC = 0x88,
 
+    // `## Secure:` flag byte. Parser write site verified in
+    // `FUN_TOC_PARSER`'s decompile (`*(bool *)(entry_dwords + 10)` =
+    // `+0x28`); also set by the SMSG_ADDON_INFO secure path at login.
+    // Entries with this set are SMSG-managed (Blizzard addons on stock
+    // clients) — never evict/re-register them: the parser cannot restore
+    // packet-delivered state (and their MPQ TOCs never change anyway).
+    OFF_ADDON_ENTRY_SECURE = 0x28,
+
+    // Complete single-`AddOnEntry` destructor — vtable slot 0 of the
+    // registry's node factory (`[0x00BE1B60]` = `&PTR_FUN_00808c7c`,
+    // installed by the boot init `FUN_0051C360`; the login teardown
+    // `FUN_0051FA40` dispatches per entry through it).
+    // `__stdcall(AddOnEntry *)`, RET 4 (arg read from `[EBP+8]`,
+    // verified by disassembly). Body (`FUN_005200A0` → field cleanup
+    // `FUN_005200D0`, both decompiled):
+    //   - frees EVERY owned allocation: name (+0x14), the +0x30 string,
+    //     all five dep/SV string arrays AND their buffers
+    //     (+0x38/+0x48/+0x58/+0x68/+0x78), the reverse-LoadWith buffer
+    //     (+0x88), and the per-entry `##` metadata hash table (+0x98 —
+    //     the Title/Notes/Author/X-* nodes `GetAddOnMetadata` reads);
+    //   - SELF-UNLINKS from both registry structures: the intrusive
+    //     list (link node +0xC via `FUN_00520A60`, which neighbor-
+    //     patches from the node alone and no-ops when already unlinked)
+    //     and the hash bucket chain (+0x4);
+    //   - frees the entry struct itself (`__AUUIADDON__` tag).
+    // What it does NOT clean: THIS entry's pointer inside OTHER
+    // entries' reverse-LoadWith lists — the caller must scrub those
+    // first (`Addons::Rescan`), or the loader's post-ADDON_LOADED loop
+    // (`FUN_0051F240` tail: reads +0x8C/+0x90, derefs each entry's
+    // +0x14) reads freed memory.
+    FUN_ADDON_ENTRY_DESTROY = 0x005200A0,
+
     // `u8` set to 1 by `FUN_ADDON_INIT` after the login scan completes,
     // cleared by the registry teardown `FUN_0051FA40`. Gates anything
     // that touches the registry outside the login path.
