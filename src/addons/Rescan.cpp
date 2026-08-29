@@ -310,17 +310,20 @@ void ScrubReverseLoadWith(uintptr_t victim) {
 // for changes, re-feeds the name to the parser. Re-registered entries
 // are appended to `refreshed` so they join the same reverse-LoadWith /
 // display-array fix-ups a new folder gets. Returns true when anything
-// was evicted (the display array holds a freed name pointer until it's
-// rebuilt).
+// was actually evicted (the display array holds a freed name pointer
+// until it's rebuilt).
 //
 // Victims are collected during the walk and processed after it — the
 // destructor unlinks the entry the iterator stands on (its next-pointer
 // is zeroed), so evicting mid-walk would silently truncate the walk.
 // Names are copied for the same reason: the dtor frees the entry's
-// name string.
+// name string. `g_metaHash` is committed only once the re-registration
+// actually happened — updating it during the walk would absorb the edit
+// forever if any later step failed, with no retry on the next /reload.
 bool RefreshChangedMetadata(std::vector<uintptr_t> &refreshed) {
     struct Victim {
         std::string name;
+        uint32_t newHash;
         bool reRegister; // false: TOC unreadable — evict only
     };
     std::vector<Victim> victims;
@@ -331,18 +334,17 @@ bool RefreshChangedMetadata(std::vector<uintptr_t> &refreshed) {
             return;
         uint32_t h = 0;
         if (!TryHashToc(name, &h)) {
-            victims.push_back({name, false});
+            victims.push_back({name, 0, false});
             return;
         }
         auto it = g_metaHash.find(name);
         if (it == g_metaHash.end())
             g_metaHash.emplace(name, h); // first sighting — seed only
-        else if (it->second != h) {
-            it->second = h;
-            victims.push_back({name, true});
-        }
+        else if (it->second != h)
+            victims.push_back({name, h, true});
     });
 
+    bool anyEvicted = false;
     auto destroy =
         reinterpret_cast<EntryDestroy_t>(Offsets::FUN_ADDON_ENTRY_DESTROY);
     auto parse = reinterpret_cast<TocParser_t>(Offsets::FUN_TOC_PARSER);
@@ -352,16 +354,30 @@ bool RefreshChangedMetadata(std::vector<uintptr_t> &refreshed) {
             continue;
         ScrubReverseLoadWith(entry);
         destroy(reinterpret_cast<void *>(entry));
+        anyEvicted = true;
         if (!v.reRegister) {
             g_metaHash.erase(v.name);
             continue;
         }
+        // The parser appends the fresh entry at the list TAIL, so a
+        // refreshed addon's position in the load pass changes for this
+        // reload. Declared dependencies still force-load first; only
+        // undeclared load-order assumptions between unrelated addons
+        // could observe the difference.
         parse(v.name.c_str());
         const uintptr_t fresh = ResolveEntryByName(v.name.c_str());
-        if (fresh != 0)
+        if (fresh != 0) {
             refreshed.push_back(fresh);
+            g_metaHash[v.name] = v.newHash;
+        } else {
+            // Evicted but the parse didn't restore it (TOC became
+            // unreadable between hash and parse) — treat as deleted so
+            // a reappearing folder re-seeds instead of diffing against
+            // a hash the registry never absorbed.
+            g_metaHash.erase(v.name);
+        }
     }
-    return !victims.empty();
+    return anyEvicted;
 }
 
 // ── Step 2: registry rescan + mirrored fix-ups ────────────────────────
