@@ -15974,14 +15974,14 @@ Backport of the `C_UnitAuras` namespace. Returns
 
 Reads primarily off the unit's `m_objectFields` descriptor — same
 data source `UnitBuff` / `UnitDebuff` use. The descriptor has 48 aura
-slots. The server seats buffs in slots 0 to 31 and debuffs in slots 32
-to 47 while it can. When the 16 debuff slots are full, it puts further
-debuffs into free buff slots. Each slot also carries a flag that records
-the aura's real polarity, and `HELPFUL` / `HARMFUL` select on that flag.
-So a debuff that sits in a buff slot is still a debuff here. The native
-`UnitBuff` / `UnitDebuff` split by slot range and report such a debuff as
-a buff. Indices are stable in the normal case: a `HARMFUL` walk visits
-slots 32 to 47 first, then any spilled debuffs in 0 to 31.
+slots. Buffs sit in slots 0 to 31 and debuffs in slots 32 to 47.
+
+Some servers, Turtle among them, put extra debuffs into free buff slots
+once the 16 debuff slots are full. `HELPFUL` and `HARMFUL` still select on
+the aura's real polarity there, so a debuff in a buff slot is still a
+debuff. The native `UnitBuff` and `UnitDebuff` split by slot range and
+report that debuff as a buff. Indices stay stable either way. A `HARMFUL`
+walk visits slots 32 to 47 first, then any spilled debuffs in 0 to 31.
 
 When a party/raid member has **no live unit object at all** (a
 different map, far out of range), there is no descriptor to read — but
@@ -15998,8 +15998,8 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `applications` | number | stack count (engine stores `stacks-1`, we display `+1`) |
 | `spellId` | number | spell ID from the descriptor's aura array |
 | `dispelName` | string | `"Magic"` / `"Curse"` / `"Disease"` / `"Poison"` (from `SpellDispelType.dbc`), or `""` if non-dispellable |
-| `isHelpful` | boolean | true when the slot's polarity flag marks the aura positive |
-| `isHarmful` | boolean | true when the slot's polarity flag marks the aura negative. Read from the flag, not the slot number, so a debuff parked in a buff slot reads harmful |
+| `isHelpful` | boolean | true when the aura is a buff |
+| `isHarmful` | boolean | true when the aura is a debuff. This is the aura's real polarity, so a debuff parked in a buff slot still reads harmful |
 | `duration` | number | applied duration in seconds. When the aura's cast was observed (in the `Aura::Source` cache), this is the caster-modified duration — talent/glyph extensions like Improved Shadow Word: Pain included — so it stays consistent with `expirationTime` (`remaining ≤ duration`). On a cache miss it falls back to the base `Spell.dbc → SpellDuration.dbc` value with level scaling. Returns 0 for spells flagged "no duration" (passives, paladin auras, infinite buffs) |
 | `expirationTime` | number | for `unit == "player"`, read from the engine's player-buff table at `0x00BC6040` (same data `GetPlayerBuffTimeLeft` returns). For any other unit, taken from the `Aura::Source` cache (cast time + duration captured from `SMSG_SPELL_GO`; see below). `0` when neither source has it. `expirationTime - GetTime()` gives the true remaining time |
 | `sourceUnit` | string | unit token of the caster (`"player"`, `"raid7"`, `"nameplate1"`, …), resolved from the `Aura::Source` cache. `nil` if the cast wasn't observed or the caster maps to no current token |

@@ -22,6 +22,7 @@
 #include "spell/CrowdControl.h"
 #include "spell/IsSelfBuff.h"
 #include "time/Clock.h"
+#include "turtle/Detect.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -275,6 +276,21 @@ bool IsSlotPopulated(const uint8_t *unit, int slot) {
 bool IsSlotHarmful(const uint8_t *unit, int slot) {
     if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return false;
+
+    // Normally the slot range IS the polarity: an aura is written to 0..31 when
+    // helpful and 32..47 when harmful, and nothing ever crosses over. The flag
+    // nibble cannot be used here, because in a stock descriptor those bits mean
+    // something else entirely — one bit per spell effect index that carries an
+    // aura, plus a cancelable bit. Reading bit 0x08 as "harmful" would then be
+    // reading "effect index 0 has an aura", which is true of nearly every aura,
+    // and would report almost every BUFF as a debuff.
+    if (!Turtle::Detected())
+        return slot >= Offsets::UNIT_AURA_BUFF_COUNT;
+
+    // Turtle lets a debuff spill into a buff slot once the harmful range is
+    // full, so the range stops being reliable — and it repurposes those same
+    // nibble bits to carry the real polarity (0x04 helpful, 0x08 harmful) so
+    // the information survives the spill. There, the nibble is the answer.
     auto *desc = Descriptor(unit);
     if (desc == nullptr)
         return false;

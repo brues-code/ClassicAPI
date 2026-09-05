@@ -1527,16 +1527,30 @@ enum Offsets {
     UNIT_AURA_DEBUFF_COUNT = 16,               // slot range 32..47 (harmful)
     UNIT_AURA_TOTAL = 48,
     UNIT_AURA_VISIBLE_MASK = 0x0E,             // nibble mask used by the engine's visibility gate
-    // Per-slot flag nibble bits as the server writes them (tortoise-wow
-    // SpellAuraHolder::SetAuraFlag, verified): a positive aura gets HELPFUL
-    // (+ CANCELABLE unless SPELL_ATTR_CANT_CANCEL), a negative aura gets
-    // HARMFUL. This is the aura's real polarity. The slot range is only where
-    // the server preferred to seat it — once the 16 debuff slots are full it
-    // parks further debuffs in 0..31 (and sets UNIT_FLAG_AURAS_VISIBLE so the
-    // client renders them), so a slot number alone misreads those.
+    // Per-slot flag nibble bits. THE MEANING OF 0x02/0x04/0x08 IS NOT THE SAME
+    // ON EVERY SERVER, so read them only through `Aura::Data::IsSlotHarmful`,
+    // which picks the right interpretation.
+    //
+    // Stock (vmangos SpellAuraDefines.h + SetAuraFlag, verified): the bits are
+    // CANCELABLE 0x01, EFF_INDEX_2 0x02, EFF_INDEX_1 0x04, EFF_INDEX_0 0x08 —
+    // one bit per spell effect index that carries an aura, plus cancelable for
+    // a positive aura. NO POLARITY IS ENCODED. Polarity comes from the slot
+    // range instead (0..31 helpful, 32..47 harmful), which is exact because
+    // the slot search is a strict if/else on IsPositive and never crosses over.
+    // Reading 0x08 as "harmful" here would really be reading "effect index 0
+    // has an aura", which is true of nearly every aura — so nearly every BUFF
+    // would come back as a debuff.
+    //
+    // Turtle (tortoise-wow SetAuraFlag, verified) replaces the effect-index
+    // bits with polarity: positive gets 0x04 (+ CANCELABLE unless
+    // SPELL_ATTR_CANT_CANCEL), negative gets 0x08. It has to, because Turtle
+    // also drops the `else` in the slot search so a debuff spills into 0..31
+    // once the 16 harmful slots are full (and sets UNIT_FLAG_AURAS_VISIBLE so
+    // the client still renders it). There the range is unreliable and the
+    // nibble is the real answer — the exact inverse of stock.
     UNIT_AURA_FLAG_CANCELABLE = 0x01,
-    UNIT_AURA_FLAG_HELPFUL = 0x04,
-    UNIT_AURA_FLAG_HARMFUL = 0x08,
+    UNIT_AURA_FLAG_HELPFUL = 0x04,  // Turtle only; stock = EFF_INDEX_1
+    UNIT_AURA_FLAG_HARMFUL = 0x08,  // Turtle only; stock = EFF_INDEX_0
 
     // PLAYER_FIELD_MOD_DAMAGE_DONE_POS/NEG — the player's per-school spell
     // damage bonus. Offsets from the engine's own UpdateField name/index

@@ -21,9 +21,8 @@
 // tokens separated by `|` and/or whitespace, each optionally negated with a
 // leading `!`. Whole-token matching, so `RAID_PLAYER_DISPELLABLE` is not
 // mistaken for `PLAYER` and `!PLAYER` is a negation rather than a match.
-// Honored: `HELPFUL` / `HARMFUL` (the aura's flag-nibble polarity — see
-// Data.h; NOT the slot range, which misreads debuffs spilled into buff
-// slots), `PLAYER` /
+// Honored: `HELPFUL` / `HARMFUL` (the aura's real polarity, read however this
+// server encodes it — see `Aura::Data::IsSlotHarmful`), `PLAYER` /
 // `!PLAYER` (caster == / != the local player, from the Aura::Source cache),
 // `DISPELLABLE` / `!DISPELLABLE` (dispel type is / isn't one a
 // dispel/purge/steal can remove — Spell.dbc Dispel ∈ Magic/Curse/Disease/

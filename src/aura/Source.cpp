@@ -1515,10 +1515,10 @@ const Net::PacketDispatch::AutoSubscribe _spellGoSub{&SpellGoSub};
 
 // ---- Aura-application co-hooks (timing for proc / triggered auras) -------
 
-// Classify by the slot's flag nibble (UNIT_AURA_FLAG_HARMFUL), not its range:
-// the server parks debuffs in buff slots once the 16 are full, and the nibble
-// is what records their real polarity. The descriptor write pass has already
-// landed the flags when the application hooks fire (see Aura::Data).
+// Defer to `Aura::Data::IsSlotHarmful` rather than testing the range here — how
+// polarity is encoded differs between servers, and that function is the one
+// place that decides. The descriptor write pass has already landed both the
+// slot and its flags by the time the application hooks fire.
 int8_t KindForSlot(const void *unit, int slot) {
     return Aura::Data::IsSlotHarmful(static_cast<const uint8_t *>(unit), slot)
                ? KIND_HARMFUL

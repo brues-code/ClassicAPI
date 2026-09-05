@@ -20,17 +20,28 @@
 // `unit + OFF_CGUNIT_OBJECT_FIELDS`; the layout is documented in
 // `Offsets.h` under `OFF_UNIT_FIELD_AURA*`.
 //
-// Slots are absolute 0..47. The server SEATS positive auras in 0..31 and
-// negative ones in 32..47, but that is a preference, not a rule: once the 16
-// debuff slots are full it parks further debuffs in 0..31 (and sets
-// UNIT_FLAG_AURAS_VISIBLE so the client renders them). An aura's real polarity
-// is the per-slot flag nibble (UNIT_AURA_FLAG_HELPFUL / _HARMFUL), which the
-// server writes for every visible aura — that is what `Filter` selects on
-// here. The engine's own UnitBuff/UnitDebuff split by slot range and so report
-// a spilled debuff as a buff; that is a 1.12 UI limitation we deliberately do
-// not mirror (retail's contract is the aura's actual polarity). A polarity
-// walk visits its home range first, then the other range, so indices stay
-// exactly what they were in the common no-spill case.
+// Slots are absolute 0..47, and how polarity is read out of them DEPENDS ON THE
+// SERVER. `IsSlotHarmful` owns that decision; nothing else should look at either
+// signal directly.
+//
+// Normally the slot range IS the polarity: positive auras are written to 0..31
+// and negative ones to 32..47 by a strict either/or, so nothing crosses over.
+// The flag nibble is no help — in a stock descriptor those bits record which
+// spell effect indices carry an aura, not whether the aura is good or bad.
+//
+// Turtle changes both halves. Once the 16 harmful slots are full it spills
+// further debuffs into 0..31 (setting UNIT_FLAG_AURAS_VISIBLE so the client
+// still renders them), which makes the range unreliable — and it repurposes the
+// nibble to carry the true polarity so the information survives the spill.
+// There, the nibble is authoritative. See `Offsets::UNIT_AURA_FLAG_HARMFUL`.
+//
+// Either way `Filter` selects on the aura's REAL polarity, so a spilled debuff
+// is reported as a debuff. The engine's own UnitBuff/UnitDebuff split purely by
+// slot range and would call it a buff; that is a 1.12 UI limitation we
+// deliberately do not mirror, since retail's contract is actual polarity. A
+// polarity walk visits its home range first and then the other range, so
+// indices are unchanged wherever no spill has happened — which is everywhere,
+// on a server that does not spill.
 //
 // Callers that take a 1-based Lua index into "buffs" or "debuffs" translate
 // to the absolute 0..47 slot before calling in.
@@ -93,9 +104,10 @@ uint32_t ReadSpellID(const uint8_t *unit, int slot);
 // to decide whether to surface an aura through Lua.
 bool IsSlotPopulated(const uint8_t *unit, int slot);
 
-// The aura's polarity from its flag nibble: true iff the slot carries
-// UNIT_AURA_FLAG_HARMFUL. False for an empty slot or a null unit. This, not
-// the slot range, is what `Filter` selects on (see the file header).
+// The aura's real polarity, read the way this server encodes it: the slot range
+// normally, the flag nibble on Turtle (see the file header). False for an empty
+// slot or a null unit. This is what `Filter` selects on, and the ONE place the
+// two encodings are chosen between.
 bool IsSlotHarmful(const uint8_t *unit, int slot);
 
 // The engine's TOOLTIP visibility gate for a slot: occupied, visible nibble,
