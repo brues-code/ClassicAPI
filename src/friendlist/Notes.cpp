@@ -18,8 +18,7 @@
 
 #include "Notes.h"
 
-#include "Game.h"
-#include "Offsets.h"
+#include "settings/Paths.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -41,43 +40,11 @@ std::unordered_map<uint64_t, Entry> g_notes;
 std::string g_path;
 bool g_loaded = false;
 
-const char *ReadAccountName() {
-    return Game::Read<const char *>(Offsets::VAR_ACCOUNT_NAME_PTR);
-}
-
-const char *ReadRealmName() {
-    auto *info = Game::Read<uint8_t *>(Offsets::VAR_REALM_INFO_PTR);
-    if (info == nullptr)
-        return nullptr;
-    return Game::Read<const char *>(info, Offsets::OFF_REALM_INFO_NAME);
-}
-
-const char *ReadCharacterName() {
-    auto *p = reinterpret_cast<const char *>(Offsets::VAR_CHARACTER_NAME);
-    return (p[0] == '\0') ? nullptr : p;
-}
-
 // WTF\Account\<acct>\<realm>\<char>\ClassicAPI_FriendNotes.txt, or empty until
 // the account + realm + character session globals are populated. Per-character
 // because the friends list is per-character in vanilla.
 std::string ResolveFilePath() {
-    const char *account = ReadAccountName();
-    if (account == nullptr || account[0] == '\0')
-        return {};
-    const char *realm = ReadRealmName();
-    if (realm == nullptr || realm[0] == '\0')
-        return {};
-    const char *character = ReadCharacterName();
-    if (character == nullptr)
-        return {};
-    std::string out = "WTF\\Account\\";
-    out += account;
-    out += '\\';
-    out += realm;
-    out += '\\';
-    out += character;
-    out += "\\ClassicAPI_FriendNotes.txt";
-    return out;
+    return Settings::Paths::CharacterFile("ClassicAPI_FriendNotes.txt");
 }
 
 // Notes are a single line each; the file is tab-delimited, so a note must

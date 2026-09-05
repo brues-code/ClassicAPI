@@ -13,7 +13,7 @@
 
 #include "Account.h"
 
-#include "Offsets.h"
+#include "Paths.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -26,11 +26,6 @@ namespace {
 AutoRegister *g_head = nullptr;
 std::string g_loadedAccount;
 bool g_anyLoadAttempted = false;
-
-const char *ReadAccountName() {
-    return *reinterpret_cast<const char *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_ACCOUNT_NAME_PTR));
-}
 
 void ResetAllSections() {
     for (auto *s = g_head; s != nullptr; s = s->next)
@@ -62,19 +57,10 @@ AutoRegister::AutoRegister(ResetFn r, SerializeFn s, ParseFn p)
     g_head = this;
 }
 
-std::string Path() {
-    const char *acct = ReadAccountName();
-    if (acct == nullptr || acct[0] == '\0')
-        return {};
-    std::string out = "WTF\\Account\\";
-    out += acct;
-    out += "\\ClassicAPI.txt";
-    return out;
-}
+std::string Path() { return Paths::AccountFile("ClassicAPI.txt"); }
 
 bool EnsureLoaded() {
-    const char *acctRaw = ReadAccountName();
-    const std::string account = (acctRaw != nullptr) ? acctRaw : "";
+    const std::string account = Paths::AccountName();
     if (account.empty())
         return false;
     if (g_anyLoadAttempted && g_loadedAccount == account)

@@ -13,8 +13,7 @@
 
 #include "Storage.h"
 
-#include "Game.h"
-#include "Offsets.h"
+#include "settings/Paths.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -24,22 +23,6 @@
 namespace EquipmentSet::Storage {
 
 namespace {
-
-const char *ReadAccountName() {
-    return Game::Read<const char *>(Offsets::VAR_ACCOUNT_NAME_PTR);
-}
-
-const char *ReadCharacterName() {
-    auto *p = reinterpret_cast<const char *>(Offsets::VAR_CHARACTER_NAME);
-    return (p[0] == '\0') ? nullptr : p;
-}
-
-const char *ReadRealmName() {
-    auto *info = Game::Read<uint8_t *>(Offsets::VAR_REALM_INFO_PTR);
-    if (info == nullptr)
-        return nullptr;
-    return Game::Read<const char *>(info, Offsets::OFF_REALM_INFO_NAME);
-}
 
 // Removes trailing CR/LF/whitespace. Names from the engine are ASCII
 // only (the chat input filter rejects high bytes) so we don't have to
@@ -74,23 +57,7 @@ bool ParseField(const std::string &line, const std::string &key, std::string *va
 } // namespace
 
 std::string ResolveFilePath() {
-    const char *account = ReadAccountName();
-    if (account == nullptr || account[0] == '\0')
-        return {};
-    const char *realm = ReadRealmName();
-    if (realm == nullptr || realm[0] == '\0')
-        return {};
-    const char *character = ReadCharacterName();
-    if (character == nullptr)
-        return {};
-    std::string out = "WTF\\Account\\";
-    out += account;
-    out += '\\';
-    out += realm;
-    out += '\\';
-    out += character;
-    out += "\\ClassicAPI_EquipmentSets.txt";
-    return out;
+    return Settings::Paths::CharacterFile("ClassicAPI_EquipmentSets.txt");
 }
 
 bool Load(const std::string &path, std::vector<Set> *outSets) {
