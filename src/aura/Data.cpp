@@ -273,6 +273,19 @@ bool IsSlotPopulated(const uint8_t *unit, int slot) {
     return IsVisible(SpellRecord(spellID));
 }
 
+// Every nibble Turtle's SetAuraFlag can write for an occupied slot: HELPFUL,
+// HELPFUL|CANCELABLE, or HARMFUL alone. Nothing else is reachable there — a
+// negative aura gets exactly HARMFUL, and a positive one always carries HELPFUL.
+bool IsTurtlePolarityNibble(uint8_t nibble) {
+    return nibble == Offsets::UNIT_AURA_FLAG_HELPFUL ||
+           nibble == (Offsets::UNIT_AURA_FLAG_HELPFUL | Offsets::UNIT_AURA_FLAG_CANCELABLE) ||
+           nibble == Offsets::UNIT_AURA_FLAG_HARMFUL;
+}
+
+// Latched for the process once a nibble proves the flags are not polarity here.
+// A server does not change its encoding mid-session, so this never resets.
+bool g_nibbleContradicted = false;
+
 bool IsSlotHarmful(const uint8_t *unit, int slot) {
     if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return false;
@@ -291,11 +304,28 @@ bool IsSlotHarmful(const uint8_t *unit, int slot) {
     // full, so the range stops being reliable — and it repurposes those same
     // nibble bits to carry the real polarity (0x04 helpful, 0x08 harmful) so
     // the information survives the spill. There, the nibble is the answer.
+    if (g_nibbleContradicted)
+        return slot >= Offsets::UNIT_AURA_BUFF_COUNT;
+
     auto *desc = Descriptor(unit);
     if (desc == nullptr)
         return false;
     const uint8_t byte = *(desc + Offsets::OFF_UNIT_FIELD_AURAFLAGS + slot / 2);
     const uint8_t nibble = (byte >> ((slot & 1) * 4)) & 0xF;
+
+    // Fail safe. Detection says this server SHOULD be writing polarity here, so
+    // a nibble it could not have produced means that assumption is stale — the
+    // server changed how it writes the flags. Fall back to the slot range for
+    // good rather than keep reading bits whose meaning we no longer know: the
+    // range is merely incomplete for spilled debuffs, whereas a misread nibble
+    // reports nearly every buff as a debuff. Revocation only, never promotion —
+    // nothing here can turn nibble reading ON, because the agreeing case is not
+    // provable (an all-0x08 run is equally consistent with single-effect auras
+    // under the other encoding).
+    if (nibble != 0 && !IsTurtlePolarityNibble(nibble)) {
+        g_nibbleContradicted = true;
+        return slot >= Offsets::UNIT_AURA_BUFF_COUNT;
+    }
     return (nibble & Offsets::UNIT_AURA_FLAG_HARMFUL) != 0;
 }
 
