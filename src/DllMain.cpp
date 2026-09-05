@@ -15,6 +15,7 @@
 #include "Game.h"
 #include "MinHook.h"
 #include "Offsets.h"
+#include "config/FileSwitch.h"
 #include "event/Custom.h"
 #include "player/NameCache.h"
 #include "text/InlineTexture.h"
@@ -206,6 +207,14 @@ extern "C" DWORD Load() { return EnsureInitialized(); }
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
+
+        // The ONE thing that has to happen this early, and the only module this
+        // file names directly. The engine reads its config file during boot,
+        // several calls before VanillaFixes invokes `Load`, so a `-config`
+        // switch cannot be applied from the normal install path — by then the
+        // file has been read. This is a single 4-byte store, not a hook, so it
+        // carries none of the loader-lock cost described above.
+        Config::FileSwitch::Apply();
 
         // Install nothing here (loader lock — see the block comment above).
         //

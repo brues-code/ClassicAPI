@@ -897,6 +897,29 @@ enum Offsets {
     FUN_FIND_CVAR = 0x0063DEC0,
     OFF_CVAR_VALUE_STR = 0x20,
 
+    // The config filename, as an immediate operand. Boot calls
+    // `FUN_0063D380("Config.wtf")` from `FUN_00402350` at `0x00402370`
+    // (`B9 80 E5 82 00` = `MOV ECX, 0x0082E580`), and that function keeps the
+    // pointer at `VAR_CONFIG_FILENAME_PTR`, which then drives BOTH sides:
+    //   load — `0x0063D428`: `MOV ECX,[0x00C4EDD4]; CALL 0x0063D820`
+    //   save — `FUN_0063D980` builds `"WTF\"` + the same pointer
+    // So one pointer names the file for reading and writing, and swapping it
+    // redirects both consistently. This constant is the 4-byte OPERAND (the
+    // instruction VA + 1), which `Config::FileSwitch` overwrites with its own
+    // string to implement the `-config` switch.
+    //
+    // It is patched rather than hooked because the call happens during boot,
+    // BEFORE VanillaFixes calls our `Load` export — VF hooks GetCPUFrequency
+    // (`0x0042C060`), reached via `FUN_00641260` from the `FUN_0063A230()`
+    // that `FUN_00402350` runs several calls AFTER the config is already read.
+    // Our DllMain does run in time (VF injects every dlls.txt DLL while the
+    // process is still CREATE_SUSPENDED, resuming only afterwards), and a
+    // 4-byte store needs no trampoline.
+    PATCH_CONFIG_FILENAME_PTR = 0x00402371,
+    // Where `FUN_0063D380` stores that pointer. Read by the loader call above
+    // and by the save.
+    VAR_CONFIG_FILENAME_PTR = 0x00C4EDD4,
+
     // Internal CVar registrar — what `Script_RegisterCVar` calls after a
     // `FindCVar` miss (the call at `0x00488B8A`). `__fastcall`; ECX=name,
     // EDX is a second string slot the script path leaves 0, then six
