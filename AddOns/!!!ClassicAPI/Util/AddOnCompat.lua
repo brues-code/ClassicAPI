@@ -79,6 +79,53 @@ end
 
 CAPI_MouseoverClearedCompat(GameTooltip)
 
+-- Restores vanilla calling for ONE frame's script handler. Our DLL hands script
+-- handlers modern positional arguments (`self`, then the event's own args) on
+-- top of the `this` / `arg1` globals vanilla uses. That is additive for a
+-- handler declared `function()`, but a handler declared with a parameter of its
+-- own -- one written to be BOTH called directly and used as a script -- now
+-- receives `self` in that parameter instead of the nil it was written for.
+--
+-- The wrapper below takes no parameters, so those extra arguments stop here,
+-- and the original runs with the empty argument list vanilla gave it. The
+-- globals are untouched by the nesting, so the handler still reads `this` and
+-- `event` normally.
+function CAPI_VanillaScriptArgsCompat(frame, script)
+    if not frame then return end
+    local original = frame:GetScript(script)
+    if not original then return end
+    frame:SetScript(script, function()
+        original()
+    end)
+end
+
+-- LunaUnitFrames sets `SetupGroupHeader(groupType)` as its group headers'
+-- OnEvent while also calling it directly with a group name. As a handler it
+-- expects `groupType` to be nil so it falls back to `this.unitGroup`. Given
+-- `self` instead, it looks the header up by frame rather than by name, finds
+-- nothing, and indexes nil (units.lua:358, issue #41). Its raid counterpart
+-- takes the header frame itself, so `self` is already what it wants -- only the
+-- group headers need this.
+if C_AddOns.DoesAddOnExist("LunaUnitFrames") then
+    EventUtil.ContinueOnAddOnLoaded("LunaUnitFrames", function()
+        if not (LunaUF and LunaUF.Units) then return end
+
+        local function FixGroupHeader(unit)
+            CAPI_VanillaScriptArgsCompat(getglobal("LUFHeader" .. (unit or "")),
+                                         "OnEvent")
+        end
+
+        -- Headers are built on demand, so cover the ones already up and every
+        -- one created later.
+        FixGroupHeader("party")
+        FixGroupHeader("partytarget")
+        FixGroupHeader("partypet")
+        hooksecurefunc(LunaUF.Units, "LoadGroupHeader", function(self, unit)
+            FixGroupHeader(unit)
+        end)
+    end)
+end
+
 if C_AddOns.DoesAddOnExist("Puppeteer") then
     EventUtil.ContinueOnAddOnLoaded("Puppeteer", function()
         CAPI_MouseoverClearedCompat(PTEnemyUpdater)
