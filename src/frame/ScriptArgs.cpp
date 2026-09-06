@@ -287,14 +287,13 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
 //   lua_State: top @ +0x08 (TValue *, next free slot)
 //   TValue:    tag @ +0x00 (int); GC/closure pointer @ +0x08  (16-byte TValue)
 //   Closure:   isC byte @ +0x06; union member (C func / Proto) @ +0x0C
-//   Proto:     numparams (u8) @ +0x45, is_vararg (u8) @ +0x46
 // Single-use here, so kept local (like the lua_State field offsets elsewhere).
+// The Proto fields this reads (numparams @ +0x45, is_vararg @ +0x46) are shared
+// with LuaSyntax::Upvalues and live in Offsets.h as OFF_LUA_PROTO_*.
 constexpr uintptr_t OFF_LUASTATE_TOP = 0x08;
 constexpr uintptr_t OFF_TVALUE_GC = 0x08;
 constexpr uintptr_t OFF_CLOSURE_ISC = 0x06;
 constexpr uintptr_t OFF_LCLOSURE_PROTO = 0x0C;
-constexpr uintptr_t OFF_PROTO_NUMPARAMS = 0x45;
-constexpr uintptr_t OFF_PROTO_IS_VARARG = 0x46;
 constexpr int kLuaTFunction = 6;
 constexpr uintptr_t kTValueSize = 0x10;
 
@@ -322,8 +321,8 @@ bool HandlerWantsArgs(void *L, int handlerRef) {
             const void *proto = reinterpret_cast<const void *>(
                 Game::Read<uintptr_t>(cl, OFF_LCLOSURE_PROTO));
             if (proto != nullptr)
-                wants = Game::Read<uint8_t>(proto, OFF_PROTO_NUMPARAMS) > 0 ||
-                        Game::Read<uint8_t>(proto, OFF_PROTO_IS_VARARG) != 0;
+                wants = Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_NUMPARAMS) > 0 ||
+                        Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_IS_VARARG) != 0;
         }
     }
     Game::Lua::SetTop(L, -2); // pop the handler

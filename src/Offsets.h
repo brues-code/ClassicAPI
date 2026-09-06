@@ -5155,6 +5155,76 @@ enum Offsets {
     // follows the usual Lua convention: `@name` is shown as a filename, `=name`
     // verbatim. This is what `RunScript` runs through.
     FUN_LUA_RUN_STRING = 0x00704AE0,
+
+    // --- Lua 5.0 parser internals: the upvalue limit --------------------------
+    // Stock lparser.c compiled as-is (the `lua\src\lparser.c` path string is
+    // still in .rdata). The 32-upvalue limit is NOT just the `PUSH 0x20`
+    // immediate in indexupvalue: it is the size of a fixed `expdesc
+    // upvalues[32]` array inside the parser's FuncState, and the array ends
+    // exactly where the next field begins — 0x38 + 32 × 0x14 = 0x2B8 =
+    // OFF_LUA_FUNCSTATE_ACTVAR, the declared-variable stack. Raising the
+    // immediate alone makes the 33rd upvalue overwrite actvar[0] and miscompile.
+    // In 5.0 the array has exactly two readers, both below; everything past the
+    // parser is dynamic (nups and LClosure.nupvalues are bytes, OP_GETUPVAL's B
+    // field is 9 bits, closures are sized per instance, the debug-name array
+    // grows with luaM_growaux). LuaSyntax::Upvalues co-hooks the two readers and
+    // spills entries 33+ into side storage, raising the ceiling to the byte.
+    //
+    // indexupvalue(fs, name, v) -> index. `__fastcall(ecx = FuncState*, edx =
+    // TString *name, [stack] expdesc *v)`, RET 4. Scans fs->upvalues for
+    // {k, info} equal to v's, else checklimit(nups+1, 32, "upvalues"), grows
+    // f->upvalues (names) via luaM_growaux(L, block, &f->sizeupvalues, 4,
+    // 0x7FFFFFFD, ""), stores the name and the expdesc, returns nups++.
+    FUN_LUA_PARSER_INDEXUPVALUE = 0x006FDF80,
+    // pushclosure(ls, func, v). `__fastcall(ecx = LexState*, edx = FuncState
+    // *func, [stack] expdesc *v)`, RET 4. Grows f->p via luaM_growaux(L, f->p,
+    // &f->sizep, 4, 0x3FFFF, "constant table overflow"), stores func->f at
+    // f->p[np++], emits OP_CLOSURE (0x22) with luaK_codeABx(fs, op, 0, np-1),
+    // init_exp(v, VRELOCABLE = 10, pc), then one luaK_codeABC(fs, k == VLOCAL
+    // (5) ? OP_MOVE (0) : OP_GETUPVAL (4), 0, info, 0) per func->upvalues[i].
+    FUN_LUA_PARSER_PUSHCLOSURE = 0x006FD980,
+    // luaY_checklimit(ls, value, limit, what). `__fastcall(ecx = LexState*,
+    // edx = value, [stack] limit, what)`, RET 8. Raises "too many %s (limit=%d)"
+    // through luaO_pushfstring(ls->L, …) when limit < value; never returns then.
+    // NOTE: takes the LexState in this build, not the FuncState stock 5.0 passes.
+    FUN_LUA_PARSER_CHECKLIMIT = 0x006FF440,
+    // init_exp(v, k, info): `__fastcall(ecx = expdesc*, edx = k, [stack] info)`.
+    FUN_LUA_PARSER_INIT_EXP = 0x006FD3E0,
+    // luaM_growaux(L, block, &size, elemSize, limit, errMsg) -> new block.
+    // `__fastcall(ecx = L, edx = block, [stack] int *size, elemSize, limit,
+    // msg)`, RET 0x10.
+    FUN_LUA_M_GROWAUX = 0x006FC900,
+    // luaK_codeABx(fs, op, A, Bx) -> pc and luaK_codeABC(fs, op, A, B, C) -> pc.
+    // `__fastcall(ecx = fs, edx = op, [stack] …)`; RET 8 / RET 0xC.
+    FUN_LUA_K_CODEABX = 0x00701910,
+    FUN_LUA_K_CODEABC = 0x007018E0,
+    // FuncState (lparser.h), verified from indexupvalue / pushclosure /
+    // new_localvar: f@+0, ls@+0xC, L@+0x10, np@+0x2C, nactvar@+0x34, then the
+    // fixed expdesc upvalues[32]@+0x38 (stride 0x14) running into
+    // actvar[200]@+0x2B8.
+    OFF_LUA_FUNCSTATE_F = 0x00,
+    OFF_LUA_FUNCSTATE_LS = 0x0C,
+    OFF_LUA_FUNCSTATE_L = 0x10,
+    OFF_LUA_FUNCSTATE_NP = 0x2C,
+    OFF_LUA_FUNCSTATE_UPVALUES = 0x38,
+    OFF_LUA_FUNCSTATE_ACTVAR = 0x2B8,
+    LUA_PARSER_NATIVE_UPVALUE_SLOTS = 32, // sizeof(fs->upvalues) / sizeof(expdesc)
+    SIZEOF_LUA_EXPDESC = 0x14,            // { k, info, aux, t, f }
+    // LexState: fs@+0x30, L@+0x34 (new_localvar reads both; checklimit reads L).
+    OFF_LUA_LEXSTATE_FS = 0x30,
+    OFF_LUA_LEXSTATE_L = 0x34,
+    // Proto (lobject.h). p/sizep and upvalues/sizeupvalues from pushclosure and
+    // indexupvalue; the four packed bytes at +0x44 are nups, numparams,
+    // is_vararg, maxstacksize — numparams/is_vararg were verified separately by
+    // Frame::ScriptArgs, which reads them to decide whether a handler declares
+    // parameters, and they pin nups to the byte before them.
+    OFF_LUA_PROTO_P = 0x10,
+    OFF_LUA_PROTO_UPVALUES = 0x1C, // TString **, the debug names
+    OFF_LUA_PROTO_SIZEUPVALUES = 0x24,
+    OFF_LUA_PROTO_SIZEP = 0x34,
+    OFF_LUA_PROTO_NUPS = 0x44,
+    OFF_LUA_PROTO_NUMPARAMS = 0x45,
+    OFF_LUA_PROTO_IS_VARARG = 0x46,
     // Shared environment-protection predicate for `getfenv`/`setfenv`
     // (`bool __fastcall(L /*ecx*/)`). Pushes the function-at-top's environment
     // via `lua_getfenv(L, -1)`, then pushes the protection marker

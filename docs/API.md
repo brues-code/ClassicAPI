@@ -390,6 +390,7 @@ build instructions.
 
 - [Lua](#lua)
   - [Lua 5.1 syntax](#lua-51-syntax)
+  - [Upvalue limit](#upvalue-limit)
   - [String methods (`s:upper()`, `s:format(...)`)](#string-methods-supper-sformat)
   - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
@@ -9281,6 +9282,18 @@ needs that addon's opt-in.
   `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
+
+### Upvalue limit
+
+A function can use up to 255 upvalues — the outer locals it refers to.
+
+Lua 5.0 stops at 32 and rejects the whole file with `too many upvalues
+(limit=32)`. Lua 5.1 allows 60. A large handler that reads many file-level
+locals can be valid Lua 5.1 and still fail to load here for that reason
+alone. ClassicAPI raises the limit to 255, the most a closure can hold.
+
+Nothing changes for a function within the old limit. Past 255 the error is
+the same message with the new number: `too many upvalues (limit=255)`.
 
 ### String methods (`s:upper()`, `s:format(...)`)
 
