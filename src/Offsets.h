@@ -958,7 +958,27 @@ enum Offsets {
     //        lands on a later run rather than now.
     //   0x4  read only — Script_SetCVar (FUN_00488C10) tests this before
     //        doing anything else and raises `"%s" is read only`.
-    //   0x80000000  set when a cvar is registered with registerConsole = 0.
+    //   0x80000000  visible to Lua. FUN_FIND_CVAR rejects any cvar without it
+    //        (`if (-1 < (int)flags) return 0` — the flags read as SIGNED), and
+    //        GetCVar / SetCVar / C_CVar.* all go through that lookup, so a cvar
+    //        missing this bit cannot be reached from Lua at all. It is set when
+    //        the registrar's `registerConsole` argument is 0.
+    //
+    // That last bit is how the engine handles a Config.wtf line it does not
+    // recognise. The config loader FUN_0063D820 runs each `SET` line as a
+    // console command, and the `set` handler FUN_0063D500 looks the name up
+    // with FUN_0063DE30 — the SAME hash walk minus the bit-31 test — and
+    // registers a new cvar with registerConsole = 1 when it finds nothing —
+    // with flags 0, which the registrar then ORs the archive bit into, so the
+    // config writer saves it straight back out.
+    //
+    // So ANY line left in Config.wtf becomes a cvar on the next boot, whether
+    // or not the client implements a setting by that name: it is preserved
+    // across sessions and stays writable from the console, while being
+    // invisible to Lua. realmlist.wtf runs through the same `set` path, so a
+    // line there materialises in Config.wtf the same way. Such a cvar appears
+    // in the console command list and returns nil from every Lua cvar getter,
+    // which is consistent rather than a gap.
     CVAR_FLAG_ARCHIVE = 0x1,
     CVAR_FLAG_STAGED = 0x2,
     CVAR_FLAG_READ_ONLY = 0x4,

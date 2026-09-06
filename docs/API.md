@@ -2490,6 +2490,14 @@ from "set to an empty string". Console commands are not cvars, so a command
 name returns `nil` too — `C_CVar.GetCVarInfo("help")` is `nil`, while
 [`ConsoleGetAllCommands`](#consolegetallcommands) lists both.
 
+Any line left in `Config.wtf` becomes a cvar the next time the client
+starts, whether or not a setting by that name exists. The client keeps it,
+saves it again on exit, and lets you change it from the console, but Lua
+cannot read it. `GetCVar`, `SetCVar` and this function all return `nil` for
+one of these, so the Lua cvar functions agree with each other.
+[`ConsoleGetAllCommands`](#consolegetallcommands) does list them, because
+the console can reach them.
+
 Available on the login screen as well as in-game.
 
 ### `C_CVar.GetCVarBool(cvar)`
