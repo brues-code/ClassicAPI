@@ -19,15 +19,20 @@ namespace {
 
 AutoSubscribe *g_head = nullptr;
 
-// FUN_UI_RENDER_ROOT is `__stdcall(void *bounds, int flag)`, RET 0x8 (see the
-// Offsets.h note). Match the convention exactly so the stack stays balanced.
-using UIRenderRoot_t = void(__stdcall *)(void *bounds, int flag);
+// FUN_UI_RENDER_ROOT is `__stdcall(const float *bounds, float elapsed)`,
+// RET 0x8 (see the Offsets.h note). `elapsed` is the frame delta the UI layout
+// pass hands to every frame's per-frame update — the same value OnUpdate
+// receives; `bounds` is the layer rect the HLAYER drain passes to every layer,
+// which this callback never reads. Both are forwarded untouched; the caller
+// discards the return value. Match the convention exactly so the stack stays
+// balanced.
+using UIRenderRoot_t = void(__stdcall *)(const float *bounds, float elapsed);
 UIRenderRoot_t UIRenderRoot_o = nullptr;
 
-void __stdcall UIRenderRoot_h(void *bounds, int flag) {
+void __stdcall UIRenderRoot_h(const float *bounds, float elapsed) {
     // Original UI draw first, subscribers at the tail — the strata walk is
     // complete, so no frame is mid-draw when regions are mutated.
-    UIRenderRoot_o(bounds, flag);
+    UIRenderRoot_o(bounds, elapsed);
     for (auto *node = g_head; node != nullptr; node = node->next)
         node->cb();
 }

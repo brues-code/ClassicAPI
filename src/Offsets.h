@@ -6274,17 +6274,26 @@ enum Offsets {
     // UI render root — the CSimpleTop singleton's (`DAT_00cf0bd8`) per-frame
     // render callback. Registered at priority 1.0 into the global HLAYER list
     // (`FUN_00442800`) and drained every frame by the master scene-render pump
-    // `FUN_00442350`; body is just `FUN_00765650(root, ...)` (UI layout pass)
-    // then `FUN_007657d0(root)` (the strata walk that draws every UI frame).
-    // Unlike FUN_WORLD_TICK this fires in BOTH glue and world: the root ctor
-    // `FUN_00764180` runs from the world-init path (`FUN_0048FBF0`) AND the
-    // glue-boot path (`FUN_0046A7B0`), so the UI renders — and this callback
-    // fires — on the login/character-select screens too. This is the tick to
-    // drive UI-object upkeep that must also run on glue (inline-texture icon
-    // regions), where FUN_WORLD_TICK is silent. `__stdcall(void *bounds,
-    // int flag)`, `RET 0x8`; clean PUSH EBP / MOV EBP,ESP prologue (MinHook-
-    // safe). Single caller (the HLAYER drain), quiet render region — not a
-    // known collision target for the other Octo DLLs.
+    // `FUN_00442350`; body is just `FUN_00765650(root, elapsed)` (the UI layout
+    // pass, which hands `elapsed` to every frame's vtable +0x38 per-frame update
+    // — the value OnUpdate receives as `%f`) then `FUN_007657d0(root)` (the
+    // strata walk that draws every UI frame). Unlike FUN_WORLD_TICK this fires
+    // in BOTH glue and world: the root ctor `FUN_00764180` runs from the
+    // world-init path (`FUN_0048FBF0`) AND the glue-boot path (`FUN_0046A7B0`),
+    // so the UI renders — and this callback fires — on the login/character-
+    // select screens too. This is the tick to drive UI-object upkeep that must
+    // also run on glue (inline-texture icon regions), where FUN_WORLD_TICK is
+    // silent.
+    //
+    // ABI: `__stdcall(const float *bounds, float elapsed)`, `RET 0x8`. The drain
+    // calls every layer as `cb(layer + 0x18 /*rect*/, DAT_00885608)` and
+    // discards the return value. `DAT_00885608` is the frame delta: stored by
+    // the setter at 0x00442330, zeroed by the drain at 0x004426C3 once every
+    // layer has run. This callback never reads `bounds` ([EBP+8] is not
+    // loaded) and never reads ECX on entry, so it is not a `__thiscall` in
+    // disguise. Clean PUSH EBP / MOV EBP,ESP prologue (MinHook-safe). Single
+    // caller (the HLAYER drain), quiet render region — not a known collision
+    // target for the other Octo DLLs.
     FUN_UI_RENDER_ROOT = 0x00764330,
 
     // SMSG_BINDPOINTUPDATE handler. The server sends this packet on
