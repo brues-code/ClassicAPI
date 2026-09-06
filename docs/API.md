@@ -97,6 +97,7 @@ build instructions.
 
 - [CVar](#cvar)
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
+  - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
 
 - [Cursor](#cursor)
@@ -2499,6 +2500,28 @@ one of these, so the Lua cvar functions agree with each other.
 the console can reach them.
 
 Available on the login screen as well as in-game.
+
+### `C_CVar.DoesCVarExist(name)`
+
+Returns whether a cvar by that name can be read and written from Lua. A
+ClassicAPI extension.
+
+```lua
+C_CVar.DoesCVarExist("gxResolution")   -- true
+C_CVar.DoesCVarExist("doesNotExist")   -- false
+C_CVar.DoesCVarExist("help")           -- false: a console command, not a cvar
+```
+
+It answers the question worth asking before you call `GetCVar` or `SetCVar`,
+so it is true exactly when those work:
+
+```lua
+C_CVar.DoesCVarExist(name) == (C_CVar.GetCVarInfo(name) ~= nil)
+```
+
+That includes the `Config.wtf` case described above: a name the client keeps
+but does not implement is reported as `false`, because no Lua function can
+read it. Returns `false` for anything that is not a string.
 
 ### `C_CVar.GetCVarBool(cvar)`
 

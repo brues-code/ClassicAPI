@@ -90,13 +90,42 @@ int __fastcall Script_C_CVar_GetCVarInfo(void *L) {
     return 7;
 }
 
+// `C_CVar.DoesCVarExist(name)` — a ClassicAPI addition, named for the
+// `DoesAddOnExist` / `DoesSpellExist` pair. It answers the question callers
+// actually have, which is whether GetCVar and SetCVar will work on this name,
+// so it uses the same lookup they do. That makes the invariant exact:
+//
+//     C_CVar.DoesCVarExist(name) == (C_CVar.GetCVarInfo(name) ~= nil)
+//
+// and it holds for a name preserved out of Config.wtf without the client
+// implementing it: such a cvar is real and reachable from the console, but no
+// Lua getter can see it, so reporting it as existing would be a lie to every
+// caller who then tried to read it.
+//
+// Returns false rather than raising for a non-string, matching the two
+// Does*Exist functions it is named after -- a predicate should answer, not
+// throw.
+int __fastcall Script_C_CVar_DoesCVarExist(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
+    auto findCVar = reinterpret_cast<FindCVar_t>(Offsets::FUN_FIND_CVAR);
+    Game::Lua::PushBool(L, findCVar(Game::Lua::ToString(L, 1)) != nullptr);
+    return 1;
+}
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo);
+    Game::Lua::RegisterTableFunction("C_CVar", "DoesCVarExist",
+                                     &Script_C_CVar_DoesCVarExist);
 }
 
 // Cvar storage is process-global, so the same surface works pre-login.
 void RegisterGlueFunctions() {
     Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo);
+    Game::Lua::RegisterTableFunction("C_CVar", "DoesCVarExist",
+                                     &Script_C_CVar_DoesCVarExist);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
