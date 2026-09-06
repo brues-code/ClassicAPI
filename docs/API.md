@@ -60,6 +60,14 @@ build instructions.
   - [`StopAttack()`](#stopattack)
 
 - [Console](#console)
+  - [`ConsoleExec(command)`](#consoleexeccommand)
+  - [`ConsoleEcho(message [, colorType])`](#consoleechomessage--colortype)
+  - [`ConsolePrintAllMatchingCommands(prefix)`](#consoleprintallmatchingcommandsprefix)
+  - [`ConsoleIsActive()`](#consoleisactive)
+  - [`ConsoleGetColorFromType(colorType)`](#consolegetcolorfromtypecolortype)
+  - [`ConsoleGetFontHeight()`](#consolegetfontheight)
+  - [`SetConsoleKey(keyCode)`](#setconsolekeykeycode)
+  - [`CalculateStringEditDistance(a, b)`](#calculatestringeditdistancea-b)
   - [`ConsoleGetAllCommands()`](#consolegetallcommands)
   - [`ExportInterfaceFiles art|code` (console command)](#exportinterfacefiles-artcode-console-command)
   - [`ExportDBCFiles` (console command)](#exportdbcfiles-console-command)
@@ -1592,6 +1600,101 @@ StartAttack("focus")     -- attack your focus unit
 Stops your melee auto-attack. If you are not attacking, the call does nothing.
 
 ## Console
+
+The developer console is the overlay you open with `~` when the client is
+started with `-console`. These functions run commands in it, write to it, and
+read its state.
+
+### `ConsoleExec(command)`
+
+Runs a console command line, the same way typing it into the console does.
+
+```lua
+ConsoleExec("ExportDBCFiles")
+ConsoleExec("gxRestart")
+```
+
+Every command [`ConsoleGetAllCommands`](#consolegetallcommands) lists can be run
+this way, so anything the console can do is now reachable from Lua. The command
+is added to the console's history, and an unknown command writes
+`Unknown command` to the console rather than raising.
+
+The console's own `set` command is **not** the same as `SetCVar`. It writes any
+cvar, including one `SetCVar` refuses as read-only and one no Lua function can
+read. `ConsoleExec("set …")` is therefore a way around the limits every other
+cvar function keeps, and it changes settings that persist. Prefer `SetCVar`
+unless you specifically want the console's behaviour.
+
+Works whether or not the console is open, and whether or not `-console` was
+used.
+
+### `ConsoleEcho(message [, colorType])`
+
+Writes one line to the console. `colorType` is 0 to 8 and picks the colour, as
+[`ConsoleGetColorFromType`](#consolegetcolorfromtypecolortype) describes;
+it defaults to 0, white.
+
+```lua
+ConsoleEcho("something happened")
+ConsoleEcho("something went wrong", 3)   -- red
+```
+
+The line is kept whether or not the console is open, so it is there when you
+next open it.
+
+### `ConsolePrintAllMatchingCommands(prefix)`
+
+Writes every command whose name begins with `prefix` to the console, the way its
+own completion lists candidates. The match ignores case. An empty prefix prints
+nothing; use [`ConsoleGetAllCommands`](#consolegetallcommands) to get everything.
+
+### `ConsoleIsActive()`
+
+Returns whether the console is open right now. Always `false` when the client
+was started without `-console`, because the key that opens it does nothing then.
+
+### `ConsoleGetColorFromType(colorType)`
+
+Returns `r, g, b, a` for one of the console's nine line colours, each 0 to 1, or
+`nil` outside that range.
+
+| Type | Colour | | Type | Colour |
+|---|---|---|---|---|
+| 0 | white | | 5 | white |
+| 1 | white | | 6 | white |
+| 2 | grey | | 7 | white, half alpha |
+| 3 | red | | 8 | black |
+| 4 | yellow | | | |
+
+### `ConsoleGetFontHeight()`
+
+Returns the console's text height as a fraction of the screen height. The
+default is `0.02`.
+
+There is no matching setter. The font is built once while the client starts, and
+rebuilding it afterwards leaves every line already in the console pointing at a
+font that no longer exists.
+
+### `SetConsoleKey(keyCode)`
+
+Sets the key that opens and closes the console.
+
+`keyCode` is the client's own numeric key code, not a key name — the console
+compares raw key codes and nothing in it reads names. The key still only works
+when the client was started with `-console`.
+
+### `CalculateStringEditDistance(a, b)`
+
+Returns how many single-character insertions, deletions or substitutions turn
+one string into the other. The console uses it to suggest a command when one is
+mistyped.
+
+```lua
+CalculateStringEditDistance("kitten", "sitting")   -- 3
+CalculateStringEditDistance("help", "hepl")        -- 2
+```
+
+Returns `nil` if the shorter string is 256 characters or longer.
 
 ### `ConsoleGetAllCommands()`
 

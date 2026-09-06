@@ -5651,6 +5651,49 @@ enum Offsets {
     CONSOLE_CATEGORY_COUNT = 9,
     SIZEOF_CONSOLE_CATEGORY_ENTRY = 0x18,
 
+    // --- The rest of the console surface --------------------------------------
+    // Run a command line: `__fastcall(const char *line, int addToHistory)`. Skips
+    // leading spaces, resolves the name, and calls the node's +0x18 handler —
+    // the same field ConsoleGetAllCommands reports. Prints "Unknown command"
+    // when nothing matches. This is what replays each `SET` line of Config.wtf.
+    FUN_CONSOLE_EXEC = 0x0063CE00,
+    // `__fastcall(int keyCode)`, the whole body being a store to
+    // VAR_CONSOLE_TOGGLE_KEY.
+    FUN_CONSOLE_SET_KEY = 0x0063CB00,
+    // Console font init: reads VAR_CONSOLE_FONT_HEIGHT, releases the old font
+    // handle, creates `Fonts\ARIALN.ttf` at that size, and re-seeds
+    // VAR_CONSOLE_COLORS to its defaults.
+    //
+    // DO NOT CALL IT. It has no code callers — its single reference is one
+    // table entry at 0x0080E170 — so it runs exactly once at startup, before a
+    // console line exists. The null-check-and-free of the previous handle looks
+    // like re-entrancy but is not: every existing line holds a cached,
+    // font-dependent draw object at +0x20, and this frees the font without
+    // touching them, so the NEXT console render walks freed data and faults in
+    // the texture manager. The console's own shutdown frees the font and those
+    // per-line objects together, which is what the pairing is for. Verified by
+    // crashing this way; see console/Shell.cpp for why there is no font-height
+    // setter.
+    FUN_CONSOLE_FONT_INIT = 0x00639100,
+    // Toggled by the console key in the key handler FUN_0063C860, which acts
+    // only when VAR_CONSOLE_ENABLED is set: `visible = (visible == 0)`.
+    VAR_CONSOLE_VISIBLE = 0x00C4EAC8,
+    // Set at startup from the `-console` command-line switch (FUN_00419C10(0x22)
+    // in ConsoleDeviceInitialize). Without it the toggle key does nothing, so
+    // the console can never open.
+    VAR_CONSOLE_ENABLED = 0x00C4EC20,
+    VAR_CONSOLE_TOGGLE_KEY = 0x00864554,
+    // Nine ARGB uint32 colours indexed by a line's colour type — the second
+    // argument to FUN_CONSOLE_WRITE, stored per line at +0x1C and used to pick
+    // the colour at draw time. Seeded by FUN_00638A60 / FUN_CONSOLE_FONT_INIT
+    // (white, white, grey, red, yellow, white, white, half-alpha white, black),
+    // and the engine's own setter bounds the index with `< 9`. `help` writes
+    // type 4, "Unknown command" type 0.
+    VAR_CONSOLE_COLORS = 0x00C4EAD8,
+    CONSOLE_COLOR_COUNT = 9,
+    // Console font height as a fraction of screen height, 0.02 by default.
+    VAR_CONSOLE_FONT_HEIGHT = 0x0086455C,
+
     // `ConsoleWrite(const char *line /*ecx*/, int colorFlag /*edx*/)` —
     // appends a line to the developer console's output buffer. No-ops
     // cleanly when the console isn't active (gated on the console-init

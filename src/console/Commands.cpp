@@ -57,9 +57,21 @@ namespace {
 constexpr int kCommandTypeCvar = 0;
 constexpr int kCommandTypeCommand = 1;
 
+using ConsoleWrite_t = void(__fastcall *)(const char *line, int colorType);
+
 // A list node, or 0 once the walk reaches the end. The low bit tags the
 // sentinel, the same convention the addon registry and the parser lists use.
 bool IsNode(uintptr_t node) { return node != 0 && (node & 1) == 0; }
+
+char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; }
+
+bool StartsWithIgnoreCase(const char *name, const char *prefix) {
+    for (size_t i = 0; prefix[i] != '\0'; ++i) {
+        if (name[i] == '\0' || Lower(name[i]) != Lower(prefix[i]))
+            return false;
+    }
+    return true;
+}
 
 void SetStringField(void *L, const char *key, const char *value) {
     Game::Lua::PushString(L, key);
@@ -122,6 +134,34 @@ int __fastcall Script_GetAllCommands(void *L) {
 // return still deserves the number instead of a nil. `Macro` and `Script` have
 // no registration path here, and `Reveal` / `None` are not among the engine's
 // nine categories -- everything else lines up, which is the point.
+// `ConsolePrintAllMatchingCommands(prefix)` — write every command whose name
+// starts with `prefix` to the console, the way its own tab completion lists
+// candidates. Case-insensitive, matching how the engine resolves a command
+// name.
+//
+// Prints nothing for an empty prefix rather than dumping all 500-odd entries;
+// ConsoleGetAllCommands is the way to ask for everything.
+int __fastcall Script_ConsolePrintAllMatchingCommands(void *L) {
+    if (!Game::Lua::IsString(L, 1))
+        return 0;
+    const char *prefix = Game::Lua::ToString(L, 1);
+    if (prefix == nullptr || prefix[0] == '\0')
+        return 0;
+
+    auto write = reinterpret_cast<ConsoleWrite_t>(Offsets::FUN_CONSOLE_WRITE);
+    const uintptr_t linkOffset =
+        Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LINK_OFFSET);
+    uintptr_t node = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LIST_HEAD);
+    while (IsNode(node)) {
+        const auto *name =
+            Game::Read<const char *>(node + Offsets::OFF_CONSOLE_COMMAND_NAME);
+        node = Game::Read<uint32_t>(node + linkOffset + 4);
+        if (name != nullptr && StartsWithIgnoreCase(name, prefix))
+            write(name, 0);
+    }
+    return 0;
+}
+
 const Game::Lua::EnumIntegerEntry kCommandTypeEntries[] = {
     {"Cvar", kCommandTypeCvar},
     {"Command", kCommandTypeCommand},
@@ -140,6 +180,8 @@ const Game::Lua::EnumIntegerEntry kCategoryEntries[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("ConsoleGetAllCommands", &Script_GetAllCommands);
+    Game::Lua::RegisterGlobalFunction("ConsolePrintAllMatchingCommands",
+                                      &Script_ConsolePrintAllMatchingCommands);
     Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCommandType", kCommandTypeEntries,
                                    sizeof(kCommandTypeEntries) /
                                        sizeof(kCommandTypeEntries[0]));
