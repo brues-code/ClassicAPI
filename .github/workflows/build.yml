@@ -97,12 +97,28 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      # Dev builds carry their own symbols. With the PDB sitting next to the DLL
+      # the client's crash handler resolves our frames to file and line — a
+      # tester's log reads `Texture::Mask::PrimIndexed_h+12 (Mask.cpp,246)`
+      # instead of a bare address — and the map resolves `0001:offset` addresses
+      # by hand when there is no dump. Both match THIS build and nothing else,
+      # which is why they travel with it rather than being rebuilt later from the
+      # same commit. Unlike the release bundle these need no off-putting name:
+      # the artifact is behind the Actions UI, so whoever downloads it is already
+      # the audience for symbols.
       - name: Upload artifact
         if: steps.ver.outputs.is_release != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ClassicAPI-${{ github.sha }}
-          path: build/Release/ClassicAPI.dll
+          # Shared parent is build/Release, so all three land at the zip root.
+          path: |
+            build/Release/ClassicAPI.dll
+            build/Release/ClassicAPI.pdb
+            build/Release/ClassicAPI.map
+          # A symbol-less artifact looks identical to a good one until someone
+          # needs a stack out of it, so fail the build instead of warning.
+          if-no-files-found: error
 
       # Bundle both debug artifacts into one zip so a crash from a shipped DLL
       # can be triaged exactly. The PDB gives WinDbg/x64dbg/VS a line-level
