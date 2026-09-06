@@ -11,7 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Lifts the parser's limit of 32 upvalues per function to 255.
+// Lifts the parser's limit of 32 upvalues per function to Lua 5.1's 60.
 //
 // Lua 5.0 refuses the 33rd upvalue with "too many upvalues (limit=32)". Lua 5.1
 // allows 60, so a function written against a modern client can be perfectly
@@ -33,8 +33,8 @@
 // complete to emit one OP_MOVE / OP_GETUPVAL per entry after OP_CLOSURE.
 // Everything downstream is sized dynamically -- f->nups and LClosure.nupvalues
 // are bytes, OP_GETUPVAL's B field is 9 bits, closures are allocated per
-// instance, the debug-name array grows on demand -- so the byte is the real
-// ceiling and the array is the only obstacle.
+// instance, the debug-name array grows on demand -- so the structural ceiling
+// is the byte, 255, and the array is the only obstacle in the way of it.
 //
 // THE APPROACH. Co-hook both readers and keep entries 33 and up in side storage
 // keyed by the FuncState's address. A function that stays within 32 upvalues
@@ -84,7 +84,13 @@ static_assert(sizeof(Expdesc) == Offsets::SIZEOF_LUA_EXPDESC,
               "expdesc must match the parser's 20-byte stride");
 
 constexpr int kNativeSlots = Offsets::LUA_PARSER_NATIVE_UPVALUE_SLOTS;
-constexpr int kLimit = 255; // f->nups and LClosure.nupvalues are lu_byte
+
+// Lua 5.1's own MAXUPVALUES. Addons are written against that, so it is the
+// number that makes a 5.1-valid function load, rather than an invitation to
+// write something no other client would accept. The structural ceiling is 255
+// (f->nups and LClosure.nupvalues are lu_byte) and nothing below depends on
+// which of the two this is: raising it is this constant and nothing else.
+constexpr int kLimit = 60;
 
 constexpr int32_t VLOCAL = 5;
 constexpr int32_t VRELOCABLE = 10;
@@ -142,8 +148,8 @@ int __fastcall IndexUpvalue_h(void *fs, void *name, Expdesc *v) {
         if (SameUpvalue(spill[i], *v))
             return kNativeSlots + static_cast<int>(i);
 
-    // The engine's own limit check with the byte's ceiling: over it, this raises
-    // "too many upvalues (limit=255)" exactly as the original raises at 32, and
+    // The engine's own limit check with the raised ceiling: over it, this raises
+    // "too many upvalues (limit=60)" exactly as the original raises at 32, and
     // does not return.
     void *ls = *At<void *>(fs, Offsets::OFF_LUA_FUNCSTATE_LS);
     reinterpret_cast<CheckLimit_t>(Offsets::FUN_LUA_PARSER_CHECKLIMIT)(ls, nups + 1, kLimit,

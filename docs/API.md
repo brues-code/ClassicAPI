@@ -9285,15 +9285,15 @@ needs that addon's opt-in.
 
 ### Upvalue limit
 
-A function can use up to 255 upvalues — the outer locals it refers to.
+A function can use up to 60 upvalues — the outer locals it refers to.
 
 Lua 5.0 stops at 32 and rejects the whole file with `too many upvalues
-(limit=32)`. Lua 5.1 allows 60. A large handler that reads many file-level
-locals can be valid Lua 5.1 and still fail to load here for that reason
-alone. ClassicAPI raises the limit to 255, the most a closure can hold.
+(limit=32)`. A large handler that reads many file-level locals can be
+valid Lua 5.1, which allows 60, and still fail to load here for that
+reason alone. ClassicAPI raises the limit to the same 60.
 
-Nothing changes for a function within the old limit. Past 255 the error is
-the same message with the new number: `too many upvalues (limit=255)`.
+Nothing changes for a function within the old limit. Past 60 the error is
+the same message with the new number: `too many upvalues (limit=60)`.
 
 ### String methods (`s:upper()`, `s:format(...)`)
 

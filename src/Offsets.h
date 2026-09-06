@@ -5168,7 +5168,8 @@ enum Offsets {
     // parser is dynamic (nups and LClosure.nupvalues are bytes, OP_GETUPVAL's B
     // field is 9 bits, closures are sized per instance, the debug-name array
     // grows with luaM_growaux). LuaSyntax::Upvalues co-hooks the two readers and
-    // spills entries 33+ into side storage, raising the ceiling to the byte.
+    // spills entries 33+ into side storage, raising the limit to Lua 5.1's 60.
+    // The structural ceiling is the byte, 255, if it is ever wanted.
     //
     // indexupvalue(fs, name, v) -> index. `__fastcall(ecx = FuncState*, edx =
     // TString *name, [stack] expdesc *v)`, RET 4. Scans fs->upvalues for
