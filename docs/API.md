@@ -365,6 +365,10 @@ build instructions.
   - [`GetItemIcon(itemID)` / `C_Item.GetItemIcon(itemLocation)` / `C_Item.GetItemIconByID(item)`](#getitemiconitemid--c_itemgetitemiconitemlocation--c_itemgetitemiconbyiditem)
   - [`OffhandHasWeapon()`](#offhandhasweapon)
 
+- [Launch](#launch)
+  - [`-config <name>` (launch switch)](#-config-name-launch-switch)
+  - [`-gluescript` / `-gluescriptFile` / `-gamescript` / `-gamescriptFile` (launch switches)](#-gluescript--gluescriptfile--gamescript--gamescriptfile-launch-switches)
+
 - [Loot](#loot)
   - [`C_Loot.GetNearbyLootableUnits()`](#c_lootgetnearbylootableunits)
   - [`C_Loot.LootUnit(guid)`](#c_lootlootunitguid)
@@ -8761,6 +8765,87 @@ if OffhandHasWeapon() then
     -- Apply mainhand+offhand poison, refresh dual-wield rotation, etc.
 end
 ```
+
+## Launch
+
+Options you add to the command line that starts the game, alongside
+`-console`. They are not Lua functions — put them on the launcher
+shortcut, or on whichever executable you start the client with:
+
+```
+VanillaFixes.exe -console -config Config2.wtf
+```
+
+An option name is matched without regard to case, and `-name value`,
+`-name=value` and `/name value` all work. Put double quotes around a
+value that contains spaces.
+
+### `-config <name>` (launch switch)
+
+Reads and writes `WTF\<name>` in place of `WTF\Config.wtf`, so one
+install can hold several settings profiles.
+
+```
+VanillaFixes.exe -console -config Config-raid.wtf
+```
+
+The name must be a plain filename with no folder in it. A name that
+contains `\`, `/` or `:` is refused, and the client uses `Config.wtf`
+instead. That way a setting is never written somewhere you cannot find
+it.
+
+The client both loads and saves through this one name. Everything the
+client keeps in that file follows the profile: video and sound settings,
+console variables, and the account name the login screen remembers. The
+addon enable list does not, because it lives in `WTF\Account\` instead.
+
+On first use the file does not exist yet. The client starts from its
+defaults and writes the file when you quit.
+
+### `-gluescript` / `-gluescriptFile` / `-gamescript` / `-gamescriptFile` (launch switches)
+
+Run Lua as the client starts. Four options, in two pairs: one pair for
+the login and character-select screens, one pair for in-game. In each
+pair, the plain option takes the code itself and the `File` option takes
+the path to a file that contains it.
+
+| Option | Runs |
+|---|---|
+| `-gluescript <code>` | at the login and character-select screens |
+| `-gluescriptFile <path>` | the file's contents, at those same screens |
+| `-gamescript <code>` | one time, in-game |
+| `-gamescriptFile <path>` | the file's contents, one time in-game |
+
+```
+VanillaFixes.exe -console -gamescript "print('hello from the command line')"
+VanillaFixes.exe -console -gamescriptFile C:\scripts\startup.lua
+```
+
+**When each one runs.** Every script runs after the interface for its
+screen has loaded. So it can call interface functions, read and change
+frames, and use anything an addon has set up.
+
+A glue script runs each time the login and character-select screens
+appear. That includes the first time and every return from the world when
+you log out. A script that logs in for you therefore keeps working after
+a logout.
+
+A game script runs one time only, on the first frame after you enter the
+world. It does not run again for `/reload`, and it does not run again if
+you log out and back in on another character.
+
+**Files.** A path may be absolute or relative to the folder the client
+runs in. The file is read at the moment the script runs, so you can edit
+it between launches without touching the shortcut. A file the client
+cannot read is reported in `Logs\classicapi_debug.log` and the rest of
+the launch continues.
+
+**Both at once.** If you pass both options of a pair, both run: the code
+first, then the file.
+
+**Errors.** A script that fails to compile, or that raises while it runs,
+is reported the same way any other script error is. It does not stop the
+client, and it does not stop the other scripts.
 
 ## Loot
 
