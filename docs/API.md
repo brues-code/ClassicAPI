@@ -99,6 +99,7 @@ build instructions.
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
   - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
+  - [`C_CVar.GetCVarBitfield(name, index)` / `C_CVar.SetCVarBitfield(name, index, value)`](#c_cvargetcvarbitfieldname-index--c_cvarsetcvarbitfieldname-index-value)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
 
 - [Cursor](#cursor)
@@ -2532,6 +2533,33 @@ This is always `true` by the time any addon runs. Settings are read while the
 client starts, before there is any Lua to ask, and none of them are fetched
 over the network, so there is nothing to wait for. It is here so that ported
 code which checks it keeps working.
+
+### `C_CVar.GetCVarBitfield(name, index)` / `C_CVar.SetCVarBitfield(name, index, value)`
+
+Read or write one bit of a cvar, so a single cvar can hold many separate
+true/false settings. The index counts from 1.
+
+```lua
+RegisterCVar("myAddonFlags", "0")
+
+C_CVar.SetCVarBitfield("myAddonFlags", 1, true)
+C_CVar.SetCVarBitfield("myAddonFlags", 5, true)
+GetCVar("myAddonFlags")                          -- "17", bits 1 and 5
+C_CVar.GetCVarBitfield("myAddonFlags", 5)        -- true
+C_CVar.GetCVarBitfield("myAddonFlags", 2)        -- false
+```
+
+The index may be 1 to 64. `GetCVarBitfield` returns `nil` outside that range,
+or for a name that is not a cvar, so "no such bit" stays apart from "the bit
+is false".
+
+`SetCVarBitfield` returns whether it worked. It returns `false` for an index
+outside the range, for a name that is not a cvar, and for a read-only cvar —
+the same cvars [`GetCVarInfo`](#c_cvargetcvarinfoname) reports `isReadOnly`
+for. A successful write saves the cvar the same way `SetCVar` does.
+
+Any cvar works, and a cvar you register yourself is the usual way to use
+these. Every bit is independent, so setting one leaves the rest alone.
 
 ### `C_CVar.GetCVarBool(cvar)`
 
