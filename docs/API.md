@@ -4724,6 +4724,11 @@ coordinates of the rectangle inside it, so one call replaces a `SetTexture` and 
 Pass `true` for `useAtlasSize` to also resize the texture to the art's own pixel
 size. Any further arguments are accepted and ignored.
 
+After `SetAtlas`, texture coordinates address the art and not the file it sits
+in, so `0` to `1` covers the whole of the art. `SetTexCoord(0, 0.5, 0, 0.5)`
+shows the top-left quarter of the art, and `GetTexCoord` reads back what you
+asked for. `SetTexture` points the texture at a file again and clears the atlas.
+
 When the name is not known, the texture keeps whatever it was showing. Call
 `_classicapi_DumpAtlasMisses()` to list the names that were asked for and not
 found.

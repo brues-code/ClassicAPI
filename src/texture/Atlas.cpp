@@ -97,9 +97,18 @@ std::set<std::string> g_misses;
 // lets this module skip a `FUN_SIMPLETEXTURE_CTOR` hook. It must skip one:
 // `Texture::Mask` already owns that target, and MinHook refuses a duplicate,
 // which would abort the entire hook install.
+// Texture coordinates in the engine's own corner order: UL, LL, UR, LR, each an
+// (x, y) pair — the order GetTexCoord pushes them in. Identity selects all of
+// whatever the texture points at.
+constexpr float kIdentityCoords[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
+
 struct Applied {
     std::string name;
     void *hTexture = nullptr;
+    // What the addon last asked SetTexCoord for, in SPRITE space. A region has
+    // exactly one set of coordinates in the engine and the atlas rect occupies
+    // it, so this is the only record of what was actually requested.
+    float user[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
 };
 std::unordered_map<void *, Applied> g_applied;
 
@@ -108,6 +117,53 @@ void *RegionTexture(void *region) {
         return nullptr;
     return *reinterpret_cast<void *const *>(static_cast<uint8_t *>(region) +
                                             Offsets::OFF_SIMPLETEXTURE_HTEXTURE);
+}
+
+// The atlas entry live on `region`, or null. Drops a stale one on the way, which
+// is what makes a plain SetTexture afterwards clear the atlas. The empty-map
+// test up front is what keeps this off the cost of every ordinary SetTexCoord:
+// nothing has an atlas until an addon sets one.
+Applied *LiveEntry(void *region) {
+    if (region == nullptr || g_applied.empty())
+        return nullptr;
+    auto it = g_applied.find(region);
+    if (it == g_applied.end())
+        return nullptr;
+    if (RegionTexture(region) != it->second.hTexture) {
+        g_applied.erase(it);
+        return nullptr;
+    }
+    return &it->second;
+}
+
+// Map sprite-space corners onto the atlas's rectangle within its file.
+void Compose(const Info &info, const float user[8], float out[8]) {
+    const float width = info.right - info.left;
+    const float height = info.bottom - info.top;
+    for (int i = 0; i < 4; ++i) {
+        out[i * 2] = info.left + user[i * 2] * width;
+        out[i * 2 + 1] = info.top + user[i * 2 + 1] * height;
+    }
+}
+
+// SetTexCoord is co-hooked below, so every write this module makes goes through
+// the trampoline: the values here are already in file space and must not be
+// composed a second time.
+ScriptFn_t g_setTexCoordOriginal = nullptr;
+ScriptFn_t g_getTexCoordOriginal = nullptr;
+
+int WriteTexCoord(void *L) {
+    return g_setTexCoordOriginal != nullptr
+               ? g_setTexCoordOriginal(L)
+               : CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
+}
+
+// Pushes (self, 8 corners) and writes them straight through.
+void WriteCorners(void *L, const float corners[8]) {
+    Game::Lua::SetTop(L, 1); // (self)
+    for (int i = 0; i < 8; ++i)
+        Game::Lua::PushNumber(L, corners[i]);
+    WriteTexCoord(L);
 }
 
 // Synthetic ids for addon-registered atlases, counting down from -1 so they can
@@ -268,12 +324,10 @@ int __fastcall Script_SetAtlas(void *L) {
     Game::Lua::PushString(L, info->file.c_str());
     CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE, L);
 
-    Game::Lua::SetTop(L, 1); // (self)
-    Game::Lua::PushNumber(L, info->left);
-    Game::Lua::PushNumber(L, info->right);
-    Game::Lua::PushNumber(L, info->top);
-    Game::Lua::PushNumber(L, info->bottom);
-    CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
+    // Identity in sprite space is the atlas's whole rectangle in file space.
+    float corners[8];
+    Compose(*info, kIdentityCoords, corners);
+    WriteCorners(L, corners);
 
     if (useAtlasSize && info->width > 0.0f && info->height > 0.0f) {
         Game::Lua::SetTop(L, 1); // (self)
@@ -299,14 +353,10 @@ int __fastcall Script_GetAtlas(void *L) {
     void *region = Game::Lua::ResolveObject(L, 1);
     if (region == nullptr)
         return 0;
-    auto it = g_applied.find(region);
-    if (it == g_applied.end())
+    const Applied *entry = LiveEntry(region);
+    if (entry == nullptr)
         return 0;
-    if (RegionTexture(region) != it->second.hTexture) {
-        g_applied.erase(it);
-        return 0;
-    }
-    Game::Lua::PushString(L, it->second.name.c_str());
+    Game::Lua::PushString(L, entry->name.c_str());
     return 1;
 }
 
@@ -320,40 +370,133 @@ int __fastcall Script_GetAtlas(void *L) {
 // SetAtlas leaves GetTexCoord at 0,0,1,1, and a reset after a SetTexCoord comes
 // back to it with GetAtlas still reporting the atlas.
 //
-// Here an atlas IS its texcoords: there is no separate layer to hold the
-// sub-rect, so the two pieces of state share one slot. Identity for an atlas'd
-// texture is therefore the atlas's own rect, and resetting to a literal 0,0,1,1
-// would show the whole sheet where retail shows the sprite. Restoring the rect
-// is what reproduces the visible result.
+// Here that is a plain restore of identity: SetTexCoord composition below keeps
+// the addon's coordinates in sprite space, so identity means the whole sprite
+// for an atlas'd texture and the whole file for any other.
 int __fastcall Script_ResetTexCoord(void *L) {
     void *region = Game::Lua::ResolveObject(L, 1);
     if (region == nullptr)
         return 0;
 
-    float left = 0.0f, right = 1.0f, top = 0.0f, bottom = 1.0f;
-    // Same staleness guard GetAtlas uses: a texture pointed somewhere else since
-    // is no longer an atlas, so identity for it is the whole texture.
-    auto it = g_applied.find(region);
-    if (it != g_applied.end()) {
-        if (RegionTexture(region) != it->second.hTexture) {
-            g_applied.erase(it);
-        } else if (const Info *info = Find(it->second.name.c_str())) {
-            left = info->left;
-            right = info->right;
-            top = info->top;
-            bottom = info->bottom;
-        }
+    float corners[8];
+    Applied *entry = LiveEntry(region);
+    const Info *info = (entry != nullptr) ? Find(entry->name.c_str()) : nullptr;
+    if (info != nullptr) {
+        for (int i = 0; i < 8; ++i)
+            entry->user[i] = kIdentityCoords[i];
+        Compose(*info, kIdentityCoords, corners);
+    } else {
+        for (int i = 0; i < 8; ++i)
+            corners[i] = kIdentityCoords[i];
     }
 
-    Game::Lua::SetTop(L, 1); // (self)
-    Game::Lua::PushNumber(L, left);
-    Game::Lua::PushNumber(L, right);
-    Game::Lua::PushNumber(L, top);
-    Game::Lua::PushNumber(L, bottom);
-    CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
+    WriteCorners(L, corners);
     Game::Lua::SetTop(L, 0);
     return 0;
 }
+
+// --- SetTexCoord / GetTexCoord composition ----------------------------------
+//
+// With an atlas applied, texture coordinates address the SPRITE rather than the
+// file it sits in: 0..1 is the whole of the atlas's art. Verified against a live
+// client — GetTexCoord reads the full rect immediately after SetAtlas, with the
+// atlas still reported by GetAtlas — and it is the only reading under which a
+// ported SetTexCoord shows the image the author meant rather than a slice of
+// the surrounding sheet.
+//
+// The engine keeps one set of coordinates per region, and this module writes the
+// atlas rect into it, so the addon's own coordinates have nowhere to live. They
+// ride along with the atlas name instead: SetTexCoord records them and writes
+// the composed result for the engine to draw, GetTexCoord hands them back.
+//
+// Both pass straight through for a texture with no atlas, which is every texture
+// in the game until an addon calls SetAtlas — LiveEntry's empty-map test is the
+// whole cost in that case.
+
+// Reads the 4-argument (left, right, top, bottom) or 8-argument corner form into
+// corner order. False for anything else, which is left to the engine to reject
+// so its own error text is what the author sees.
+bool ReadTexCoordArgs(void *L, float out[8]) {
+    const int top = Game::Lua::GetTop(L);
+    if (top != 5 && top != 9)
+        return false;
+    float a[8];
+    const int count = top - 1;
+    for (int i = 0; i < count; ++i) {
+        if (!Game::Lua::IsNumber(L, 2 + i))
+            return false;
+        a[i] = static_cast<float>(Game::Lua::ToNumber(L, 2 + i));
+    }
+    if (count == 8) {
+        for (int i = 0; i < 8; ++i)
+            out[i] = a[i];
+        return true;
+    }
+    const float left = a[0], right = a[1], upper = a[2], lower = a[3];
+    out[0] = left;  out[1] = upper; // UL
+    out[2] = left;  out[3] = lower; // LL
+    out[4] = right; out[5] = upper; // UR
+    out[6] = right; out[7] = lower; // LR
+    return true;
+}
+
+int __fastcall SetTexCoord_h(void *L) {
+    if (!g_applied.empty()) {
+        Applied *entry = LiveEntry(Game::Lua::ResolveObject(L, 1));
+        const Info *info = (entry != nullptr) ? Find(entry->name.c_str()) : nullptr;
+        float user[8];
+        if (info != nullptr && ReadTexCoordArgs(L, user)) {
+            for (int i = 0; i < 8; ++i)
+                entry->user[i] = user[i];
+            float corners[8];
+            Compose(*info, user, corners);
+            WriteCorners(L, corners);
+            Game::Lua::SetTop(L, 0);
+            return 0;
+        }
+    }
+    return g_setTexCoordOriginal(L);
+}
+
+int __fastcall GetTexCoord_h(void *L) {
+    if (!g_applied.empty()) {
+        const Applied *entry = LiveEntry(Game::Lua::ResolveObject(L, 1));
+        if (entry != nullptr) {
+            for (int i = 0; i < 8; ++i)
+                Game::Lua::PushNumber(L, entry->user[i]);
+            return 8;
+        }
+    }
+    return g_getTexCoordOriginal(L);
+}
+
+// A texture pointed at a file is no longer showing an atlas. LiveEntry's handle
+// comparison cannot see that on its own when the atlas names the very file being
+// set — the engine hands back the same HTEXTURE — so clear it here, where the
+// intent is unambiguous. The handle comparison still earns its keep for a
+// recycled region, which is a different question and the reason this module
+// needs no region-constructor hook.
+//
+// SetAtlas records its entry only after its own SetTexture call, so this running
+// first costs it nothing.
+ScriptFn_t g_setTextureOriginal = nullptr;
+
+int __fastcall SetTexture_h(void *L) {
+    if (!g_applied.empty())
+        g_applied.erase(Game::Lua::ResolveObject(L, 1));
+    return g_setTextureOriginal(L);
+}
+
+const Game::HookAutoRegister _setTextureHook{Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE,
+                                             reinterpret_cast<void *>(&SetTexture_h),
+                                             reinterpret_cast<void **>(&g_setTextureOriginal)};
+
+const Game::HookAutoRegister _setTexCoordHook{Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD,
+                                              reinterpret_cast<void *>(&SetTexCoord_h),
+                                              reinterpret_cast<void **>(&g_setTexCoordOriginal)};
+const Game::HookAutoRegister _getTexCoordHook{Offsets::FUN_SCRIPT_TEXTURE_GET_TEXCOORD,
+                                              reinterpret_cast<void *>(&GetTexCoord_h),
+                                              reinterpret_cast<void **>(&g_getTexCoordOriginal)};
 
 // --- diagnostics ------------------------------------------------------------
 

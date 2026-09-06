@@ -481,6 +481,12 @@ enum Offsets {
     // handler rather than the native setter so an atlas set inherits the engine's
     // own arg validation and both coordinate forms.
     FUN_SCRIPT_TEXTURE_SET_TEXCOORD = 0x0079BEB0,
+    // `texture:GetTexCoord()` (entry 16 of the same batch). Always returns 8
+    // values — four (x, y) corner pairs read from region +0x104 in the order
+    // UL, LL, UR, LR. texture/Atlas.cpp co-hooks both this and the setter so an
+    // atlas'd texture's coordinates address the sprite rather than the file it
+    // sits in; the pair is the only place that mapping is applied.
+    FUN_SCRIPT_TEXTURE_GET_TEXCOORD = 0x0079BDF0,
     // CSimpleTexture::SetTexCoord — `__thiscall(tex, float[4])`. Struct field
     // order is {top, left, bottom, right} = {v0, u0, v1, u1} (verified from the
     // SetTexCoord handler 0x0079BEB0's Lua-arg → struct mapping). Natural
