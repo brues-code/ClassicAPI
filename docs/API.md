@@ -96,6 +96,7 @@ build instructions.
   - [`GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`](#getcointexturestringamount--fontheight--c_currencyinfogetcointexturestringamount--fontheight)
 
 - [CVar](#cvar)
+  - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
 
 - [Cursor](#cursor)
@@ -2451,6 +2452,45 @@ The per-denomination formats are the GlobalStrings
 addon's locale layer — a locale can override them.
 
 ## CVar
+
+### `C_CVar.GetCVarInfo(name)`
+
+Returns a cvar's value, its default, and what may be done to it. Seven values:
+
+```
+value, defaultValue, isStoredServerAccount, isStoredServerCharacter,
+isLockedFromUser, isSecure, isReadOnly = C_CVar.GetCVarInfo(name)
+```
+
+| Return | Type | Meaning |
+|--------|------|---------|
+| `value` | string | the current value |
+| `defaultValue` | string | the value it was registered with |
+| `isStoredServerAccount` | boolean | always `false` |
+| `isStoredServerCharacter` | boolean | always `false` |
+| `isLockedFromUser` | boolean | always `false` |
+| `isSecure` | boolean | always `false` |
+| `isReadOnly` | boolean | `true` when `SetCVar` will refuse to change it |
+
+```lua
+local value, default = C_CVar.GetCVarInfo("gxResolution")
+-- "2560x1080", "640x480"
+
+local _, _, _, _, _, _, readOnly = C_CVar.GetCVarInfo("realmList")
+-- readOnly is true
+```
+
+`isReadOnly` is the useful one: it tells you in advance whether `SetCVar`
+will work, and `realmList`, `realmName` and `scriptMemory` are read-only.
+Cvars are stored on your own machine, so the two `isStoredServer` returns
+are always `false`, and no cvar is locked or secure.
+
+Returns `nil` for a name that is not a cvar, so you can tell "no such cvar"
+from "set to an empty string". Console commands are not cvars, so a command
+name returns `nil` too — `C_CVar.GetCVarInfo("help")` is `nil`, while
+[`ConsoleGetAllCommands`](#consolegetallcommands) lists both.
+
+Available on the login screen as well as in-game.
 
 ### `C_CVar.GetCVarBool(cvar)`
 

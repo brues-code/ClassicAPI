@@ -60,7 +60,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [ColorUtil](docs/API.md#colorutil) | `C_ColorUtil.ConvertRGBToHSV`, `C_ColorUtil.ConvertHSVToRGB`, `C_ColorUtil.ConvertHSVToHSL`, `C_ColorUtil.ConvertHSLToHSV`, `C_ColorUtil.ConvertHSLToRGB`, `C_ColorUtil.GenerateTextColorCode`, `C_ColorUtil.WrapTextInColor`, `C_ColorUtil.WrapTextInColorCode` |
 | [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack` |
 | [Console](docs/API.md#console) | `ConsoleGetAllCommands` |
-| [CVar](docs/API.md#cvar) | `C_CVar.GetCVarBool` |
+| [CVar](docs/API.md#cvar) | `C_CVar.GetCVarBool`, `C_CVar.GetCVarInfo` |
 | [Cursor](docs/API.md#cursor) | `GetCursorInfo` |
 | [Container](docs/API.md#container) | `C_Container.CalculateTotalNumberOfFreeBagSlots`, `C_Container.GetContainerItemCharges`, `C_Container.GetContainerItemDurability`, `C_Container.GetContainerItemID`, `C_Container.GetContainerItemInfo`, `C_Container.GetContainerItemRepairCost`, `C_Container.GetContainerNumFreeSlots`, `C_Container.GetItemCooldown`, `C_Container.HasContainerItem`, `C_Container.IsContainerItemOpenable`, `C_Container.MoveItem`, `C_Container.PlayerHasHearthstone`, `C_Container.SwapItems`, `C_Container.UseHearthstone`, `GetItemCooldown` |
 | [Creature](docs/API.md#creature) | `C_CreatureInfo.GetCreatureID`, `C_CreatureInfo.GetCreatureInfoByID`, `C_CreatureInfo.RequestLoadCreatureByID`, `C_CreatureInfo.GetRaceInfo`, `C_CreatureInfo.GetClassInfo`, `C_CreatureInfo.GetCreatureFamilyInfo`, `C_CreatureInfo.GetCreatureFamilyIDs`, `C_CreatureInfo.GetFactionInfo`, `C_CreatureInfo.GetCreatureTypeInfo`, `C_CreatureInfo.GetCreatureTypeIDs` |

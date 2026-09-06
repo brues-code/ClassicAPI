@@ -945,6 +945,23 @@ enum Offsets {
     FUN_SET_CVAR_VALUE = 0x0063DF50,
     // CVar struct fields (beyond the value string at +0x20 above).
     OFF_CVAR_FLAGS = 0x1C,
+    // The default value, kept alongside the live one at OFF_CVAR_VALUE_STR.
+    // `cvarlist` (FUN_0063D6F0) compares the two and appends "(default: %s)"
+    // when they differ, which is what identifies each; +0x34 is the reset
+    // value it prints the same way, and +0x38 holds a staged value (below).
+    OFF_CVAR_DEFAULT_STR = 0x30,
+    // Flag bits within OFF_CVAR_FLAGS, each from the code that acts on it:
+    //   0x1  archive — the registrar forces it on, and the config writer
+    //        (FUN_0063D980) skips any cvar without it.
+    //   0x2  staged — FUN_SET_CVAR_VALUE stores the new value at +0x38 and
+    //        marks the config dirty INSTEAD of applying it, so the change
+    //        lands on a later run rather than now.
+    //   0x4  read only — Script_SetCVar (FUN_00488C10) tests this before
+    //        doing anything else and raises `"%s" is read only`.
+    //   0x80000000  set when a cvar is registered with registerConsole = 0.
+    CVAR_FLAG_ARCHIVE = 0x1,
+    CVAR_FLAG_STAGED = 0x2,
+    CVAR_FLAG_READ_ONLY = 0x4,
     OFF_CVAR_CALLBACK = 0xBC,
     OFF_CVAR_USERDATA = 0xC0,
     // The categoryId the script path passes as the registrar's 6th stack
