@@ -5573,6 +5573,40 @@ enum Offsets {
     // command's own registration in `FUN_006400E0`.
     FUN_CONSOLE_COMMAND_REGISTER = 0x0063F9E0,
 
+    // The registry that registrar fills: a Storm intrusive list plus a by-name
+    // hash. `Console::Commands` walks the list to back `C_Console.GetAllCommands`,
+    // mirroring the `help` handler (`FUN_0063FDC0`) exactly — it prints each
+    // command whose `+0x20` matches the requested category, stepping with
+    // `next = *(uint32_t *)(node + LINK_OFFSET + 4)` and stopping on a null or
+    // low-bit-tagged sentinel, the same tagged-pointer idiom as the addon
+    // registry. LINK_OFFSET is a value, not a pointer.
+    VAR_CONSOLE_COMMAND_LIST_HEAD = 0x00C4F854,
+    VAR_CONSOLE_COMMAND_LINK_OFFSET = 0x00C4F84C,
+    // Node fields, from the registrar's stores (`node[5..8]`) cross-checked
+    // against the help handler's reads. The registrar keeps `name` and `help`
+    // BY POINTER — it copies neither — so both outlive it only because every
+    // caller passes a literal.
+    OFF_CONSOLE_COMMAND_NAME = 0x14,
+    OFF_CONSOLE_COMMAND_HANDLER = 0x18,
+    OFF_CONSOLE_COMMAND_HELP = 0x1C, // may be null
+    OFF_CONSOLE_COMMAND_CATEGORY = 0x20,
+    // Every CVar is ALSO a console command: the CVar registrar's last act is
+    // `FUN_CONSOLE_COMMAND_REGISTER(cvar->name, 0x0063DDE0, categoryId, help)`,
+    // with this shared get/set handler. So the command list already contains
+    // every CVar — walking the CVar list too would double-count — and the
+    // handler pointer is an exact test for which kind a node is.
+    FUN_CONSOLE_CVAR_COMMAND_HANDLER = 0x0063DDE0,
+    // `{ int id; char name[0x14]; }` x 9, read by the bare `help` command to
+    // list the categories. Ids 0..8 are debug, graphics, console, combat, game,
+    // default, net, sound, gm, in that order — which is Enum.ConsoleCategory's
+    // own 0..8, so a category read off a command node needs no translation.
+    // This table is where that claim was checked; `Console::Commands` states
+    // the enum in full rather than deriving it, because the enum also carries
+    // Reveal (9) and None (10), which this client has no categories for.
+    VAR_CONSOLE_CATEGORY_TABLE = 0x008653A0,
+    CONSOLE_CATEGORY_COUNT = 9,
+    SIZEOF_CONSOLE_CATEGORY_ENTRY = 0x18,
+
     // `ConsoleWrite(const char *line /*ecx*/, int colorFlag /*edx*/)` —
     // appends a line to the developer console's output buffer. No-ops
     // cleanly when the console isn't active (gated on the console-init

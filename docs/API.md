@@ -60,6 +60,7 @@ build instructions.
   - [`StopAttack()`](#stopattack)
 
 - [Console](#console)
+  - [`ConsoleGetAllCommands()`](#consolegetallcommands)
   - [`ExportInterfaceFiles art|code` (console command)](#exportinterfacefiles-artcode-console-command)
   - [`ExportDBCFiles` (console command)](#exportdbcfiles-console-command)
 
@@ -1587,6 +1588,42 @@ StartAttack("focus")     -- attack your focus unit
 Stops your melee auto-attack. If you are not attacking, the call does nothing.
 
 ## Console
+
+### `ConsoleGetAllCommands()`
+
+Returns a list of every console command and console variable the client has,
+each as a table:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `command` | string | the name you type in the console |
+| `help` | string | the description, or `""` when it has none |
+| `category` | number | an `Enum.ConsoleCategory` value |
+| `commandType` | number | an `Enum.ConsoleCommandType` value |
+| `scriptContents` | string | always `""` |
+| `scriptParameters` | string | always `""` |
+
+```lua
+for _, info in ipairs(ConsoleGetAllCommands()) do
+    if info.commandType == Enum.ConsoleCommandType.Cvar then
+        print(info.command, GetCVar(info.command))
+    end
+end
+```
+
+Console variables are included, and most of them carry no description, so
+`help` is often `""` for them. Console macros and scripts do not exist on this
+client, so `commandType` is only ever `Cvar` or `Command`, and the two script
+fields are always empty.
+
+`Enum.ConsoleCategory` holds `Debug` 0, `Graphics` 1, `Console` 2, `Combat` 3,
+`Game` 4, `Default` 5, `Net` 6, `Sound` 7, `Gm` 8, `Reveal` 9 and `None` 10.
+Every command reports one of `Debug` through `Gm`.
+`Enum.ConsoleCommandType` holds `Cvar` 0, `Command` 1, `Macro` 2 and
+`Script` 3.
+
+The list is live: a command added while the game runs, such as one of the export
+commands below, appears in the next call.
 
 ### `ExportInterfaceFiles art|code` (console command)
 
