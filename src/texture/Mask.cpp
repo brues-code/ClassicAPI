@@ -591,6 +591,11 @@ void PrepareForReload() {
     g_maskRegions.clear();
 }
 
+// The masked-draw path's own gate, minus the per-draw shape tests: if this is
+// false, PrimStreams_h took the fast path on every draw and this module bound
+// nothing on any texture stage.
+bool AnyMaskActive() { return g_enabled && (!g_regionMask.empty() || !g_baseMasks.empty()); }
+
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 } // namespace Texture::Mask

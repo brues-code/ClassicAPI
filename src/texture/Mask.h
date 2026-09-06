@@ -23,4 +23,11 @@ namespace Texture::Mask {
 // clears an individual entry on reuse; this drops them all in one shot.)
 void PrepareForReload();
 
+// Whether any region currently carries a mask — i.e. whether the masked-draw
+// path can bind anything on units 1..7 at all. False means this module has not
+// touched a texture stage since the last reload, which is what
+// Texture::MipAccounting reports to rule the mask path in or out of a
+// zero-dimension texture without anyone having to reproduce the freeze.
+bool AnyMaskActive();
+
 } // namespace Texture::Mask

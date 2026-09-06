@@ -7498,6 +7498,50 @@ enum Offsets {
     FUN_GX_TEXFLAGS_INIT = 0x0058A980,
     FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,
 
+    // --- Texture memory accounting: the zero-dimension hang -------------------
+    // FUN_GX_TEXTURE_MIP_BYTES totals a texture's bytes across its mip chain:
+    // `__thiscall(device, GxTexture, width, height)` (RET 0xC), where a width or
+    // height of -1 means "read the texture's own". Both dimensions are shifted
+    // right by OFF_GXDEV_TEXTURE_REDUCE, then divided into format blocks
+    // (DAT_00809D48 = block side, DAT_00809D6C = bytes per block, both indexed by
+    // OFF_GXTEXTURE_FORMAT * 4). A single-level texture returns after the base
+    // level; a mipmapped one (OFF_GXTEXTURE_FLAGS & 7 >= 2) enters the halving
+    // loop at 0x00594D47.
+    //
+    // THAT LOOP HANGS ON A ZERO DIMENSION — the engine bug Texture::MipAccounting
+    // guards. Its only exit is both dimensions reaching exactly 1 (`CMP EBX,1 /
+    // JNZ` then `CMP EDI,EBX / JNZ`), and each halving is gated by `JBE`, so a 0
+    // never shifts and never reaches 1:
+    //     00594D47 CMP EBX,1     ; width == 1?
+    //     00594D4A JNZ 00594D59
+    //     00594D4C CMP EDI,EBX   ; height == 1 too? -> return
+    //     00594D4E JNZ 00594D60
+    //     00594D59 JBE 00594D60  ; width <= 1 -> skip the SHR (0 stays 0)
+    // The spin does no allocation and no I/O, so it presents as a hard freeze at
+    // 100% of one core rather than a crash. Caught live at 0x00594D78 by a
+    // SIGSEGV-forced backtrace: the frame's four printed stack slots are this
+    // function's own reused parameter slots, which read back as 4 bytes/block
+    // (uncompressed 32-bit) with both dimensions 0.
+    //
+    // Reachable from two callers. FUN_00594D90 (the per-frame bind stamp, run
+    // once per texture per frame from the texture-stage apply FUN_005A29D0) passes
+    // -1/-1 for a whole texture; FUN_00594C80 (lock / dirty-rect accounting)
+    // passes a RECT's width and height, so an empty-but-flagged rect hangs it just
+    // the same. The guard covers both by clamping at the entry.
+    FUN_GX_TEXTURE_MIP_BYTES = 0x00594CE0,
+    // Device-relative global texture-reduction level, consumed here as `SHR
+    // dimension, CL` (so the CPU masks it to 5 bits). Its writer has not been
+    // identified; the guard needs only the value this accounting itself applies,
+    // and reads it from the same field for exactly that reason.
+    OFF_GXDEV_TEXTURE_REDUCE = 0x31C,
+    // GxTexture fields, every one written verbatim by the constructor
+    // FUN_00591600 with no validation of any kind — which is how a 0x0 texture
+    // comes to exist in the first place.
+    OFF_GXTEXTURE_WIDTH = 0x24,
+    OFF_GXTEXTURE_HEIGHT = 0x28,
+    OFF_GXTEXTURE_FORMAT = 0x34,
+    OFF_GXTEXTURE_FLAGS = 0x3C, // bits 0..2 = mip mode; >= 2 means a mip chain
+
     // --- Texture dimension gates (power-of-two / max size) --------------------
     // 1.12 rejects a non-power-of-two texture TWICE, and both are plain software
     // checks — no device caps are consulted for the POT rule at either site:
