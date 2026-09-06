@@ -98,6 +98,7 @@ build instructions.
 - [CVar](#cvar)
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
+  - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
 
 - [Cursor](#cursor)
@@ -2522,6 +2523,15 @@ C_CVar.DoesCVarExist(name) == (C_CVar.GetCVarInfo(name) ~= nil)
 That includes the `Config.wtf` case described above: a name the client keeps
 but does not implement is reported as `false`, because no Lua function can
 read it. Returns `false` for anything that is not a string.
+
+### `C_CVar.AreCVarsLoaded()`
+
+Returns whether the client has finished loading its settings.
+
+This is always `true` by the time any addon runs. Settings are read while the
+client starts, before there is any Lua to ask, and none of them are fetched
+over the network, so there is nothing to wait for. It is here so that ported
+code which checks it keeps working.
 
 ### `C_CVar.GetCVarBool(cvar)`
 

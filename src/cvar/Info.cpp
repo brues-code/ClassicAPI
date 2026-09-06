@@ -115,10 +115,30 @@ int __fastcall Script_C_CVar_DoesCVarExist(void *L) {
     return 1;
 }
 
+// `C_CVar.AreCVarsLoaded()` — whether the cvar registry is up.
+//
+// Reports the registry's own initialised state rather than a constant, so it
+// states a fact instead of an assumption. In practice it is always true by the
+// time anything can call it: the config system starts from the boot path
+// (FUN_0063D380, reached straight out of the entry point), which registers
+// commands and replays Config.wtf long before a Lua state exists. So there is
+// no window in which Lua could observe false.
+//
+// It is a real question upstream, where an account's cvars can be stored
+// server-side and arrive after login. Nothing here is fetched over the network,
+// so once the boot path has run there is nothing further to wait for.
+int __fastcall Script_C_CVar_AreCVarsLoaded(void *L) {
+    const uint32_t mask = *reinterpret_cast<const uint32_t *>(Offsets::VAR_CVAR_HASH_MASK);
+    Game::Lua::PushBool(L, mask != Offsets::CVAR_HASH_MASK_UNINITIALIZED);
+    return 1;
+}
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo);
     Game::Lua::RegisterTableFunction("C_CVar", "DoesCVarExist",
                                      &Script_C_CVar_DoesCVarExist);
+    Game::Lua::RegisterTableFunction("C_CVar", "AreCVarsLoaded",
+                                     &Script_C_CVar_AreCVarsLoaded);
 }
 
 // Cvar storage is process-global, so the same surface works pre-login.
@@ -126,6 +146,8 @@ void RegisterGlueFunctions() {
     Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo);
     Game::Lua::RegisterTableFunction("C_CVar", "DoesCVarExist",
                                      &Script_C_CVar_DoesCVarExist);
+    Game::Lua::RegisterTableFunction("C_CVar", "AreCVarsLoaded",
+                                     &Script_C_CVar_AreCVarsLoaded);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

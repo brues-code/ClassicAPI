@@ -945,6 +945,13 @@ enum Offsets {
     FUN_SET_CVAR_VALUE = 0x0063DF50,
     // CVar struct fields (beyond the value string at +0x20 above).
     OFF_CVAR_FLAGS = 0x1C,
+    // Hash mask of the cvar registry, and its initialised/not sentinel. Every
+    // lookup gates on it (`if (mask == 0xFFFFFFFF) return 0`) and the registrar
+    // builds the table on first use when it sees the sentinel, so a value other
+    // than 0xFFFFFFFF means at least one cvar has been registered — the closest
+    // thing this client has to "the cvar system is up".
+    VAR_CVAR_HASH_MASK = 0x00C4EDB8,
+    CVAR_HASH_MASK_UNINITIALIZED = 0xFFFFFFFF,
     // The default value, kept alongside the live one at OFF_CVAR_VALUE_STR.
     // `cvarlist` (FUN_0063D6F0) compares the two and appends "(default: %s)"
     // when they differ, which is what identifies each; +0x34 is the reset
