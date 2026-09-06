@@ -5137,6 +5137,18 @@ enum Offsets {
     // caller-forgeable chunkname, so it must NOT arm; the call-site check
     // excludes it even when nested inside a RunScript body.
     RET_LUA_FILE_COMPILE = 0x00704B11,
+    // That funnel itself: `int __fastcall(const char *source, uint32_t size,
+    // const char *chunkName, void *errCtx)`, returning 1 when the chunk both
+    // compiled and ran and 0 otherwise. It resolves the Lua state through
+    // FUN_007040D0 rather than taking one, so a single call site reaches
+    // whichever state is current -- the glue state during glue boot, the in-game
+    // state afterwards. It also pushes the FrameScript error handler
+    // (DAT_008722C8) as the pcall's errfunc, so a runtime error is reported the
+    // way any script error is even when `errCtx` is null; `errCtx`, when given,
+    // is an object whose vtable +0xC receives the message instead. `chunkName`
+    // follows the usual Lua convention: `@name` is shown as a filename, `=name`
+    // verbatim. This is what `RunScript` runs through.
+    FUN_LUA_RUN_STRING = 0x00704AE0,
     // Shared environment-protection predicate for `getfenv`/`setfenv`
     // (`bool __fastcall(L /*ecx*/)`). Pushes the function-at-top's environment
     // via `lua_getfenv(L, -1)`, then pushes the protection marker

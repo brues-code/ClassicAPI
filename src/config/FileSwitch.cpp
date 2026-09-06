@@ -19,6 +19,7 @@
 
 #include "FileSwitch.h"
 
+#include "CommandLine.h"
 #include "Offsets.h"
 
 #include <windows.h>
@@ -34,22 +35,6 @@ namespace {
 // file-static buffer rather than anything owned by a scope.
 char g_configName[64];
 
-bool IsSpace(char c) { return c == ' ' || c == '\t'; }
-
-bool EqualsIgnoreCase(const char *a, const char *b, size_t len) {
-    for (size_t i = 0; i < len; ++i) {
-        char ca = a[i];
-        char cb = b[i];
-        if (ca >= 'A' && ca <= 'Z')
-            ca = static_cast<char>(ca - 'A' + 'a');
-        if (cb >= 'A' && cb <= 'Z')
-            cb = static_cast<char>(cb - 'A' + 'a');
-        if (ca != cb)
-            return false;
-    }
-    return true;
-}
-
 // A filename is required to be a plain name. The engine builds the save path as
 // `WTF\` + this, and a subdirectory that does not exist makes the save fail
 // silently, which would throw away a session's settings with nothing to show for
@@ -64,62 +49,10 @@ bool IsPlainFilename(const char *name) {
     return true;
 }
 
-// Copies the token at `p` into `out`, honoring double quotes so a name with a
-// space still arrives whole. Returns false when the token is empty or too long.
-bool ReadToken(const char *p, char *out, size_t outSize) {
-    const bool quoted = (*p == '"');
-    if (quoted)
-        ++p;
-
-    size_t n = 0;
-    while (*p != '\0' && (quoted ? (*p != '"') : !IsSpace(*p))) {
-        if (n + 1 >= outSize)
-            return false; // longer than we will accept
-        out[n++] = *p++;
-    }
-    out[n] = '\0';
-    return n > 0;
-}
-
-// Finds `-config <name>` (or `-config=<name>`) on the command line and copies the
-// name into `out`. Also accepts a `/` switch prefix, which Windows tools allow.
-bool ParseSwitch(char *out, size_t outSize) {
-    const char *cmdLine = ::GetCommandLineA();
-    if (cmdLine == nullptr)
-        return false;
-
-    static const char kSwitch[] = "config";
-    const size_t kSwitchLen = sizeof(kSwitch) - 1;
-
-    for (const char *p = cmdLine; *p != '\0'; ++p) {
-        if (*p != '-' && *p != '/')
-            continue;
-        // Only at a token boundary, so a path containing "-config" cannot match.
-        if (p != cmdLine && !IsSpace(p[-1]) && p[-1] != '"')
-            continue;
-
-        const char *name = p + 1;
-        if (!EqualsIgnoreCase(name, kSwitch, kSwitchLen))
-            continue;
-
-        const char *after = name + kSwitchLen;
-        if (*after == '=') {
-            ++after;
-        } else if (IsSpace(*after)) {
-            while (IsSpace(*after))
-                ++after;
-        } else {
-            continue; // a longer switch that merely starts with "config"
-        }
-        return ReadToken(after, out, outSize);
-    }
-    return false;
-}
-
 } // namespace
 
 void Apply() {
-    if (!ParseSwitch(g_configName, sizeof g_configName))
+    if (!Config::CommandLine::Value("config", g_configName, sizeof g_configName))
         return;
     if (!IsPlainFilename(g_configName))
         return;
