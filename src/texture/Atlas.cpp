@@ -310,6 +310,51 @@ int __fastcall Script_GetAtlas(void *L) {
     return 1;
 }
 
+// `texture:ResetTexCoord()` — drop any sub-selection made with SetTexCoord and
+// go back to showing the whole of whatever the texture is pointed at.
+//
+// Retail holds the source and the user's texcoords as separate state. With an
+// atlas applied there, GetTexCoord reads the full 0..1 rect, because 0..1 means
+// "all of the sprite" rather than "all of the sheet" — so resetting returns that
+// layer to identity and the atlas stays applied. Verified in-game on 12.x:
+// SetAtlas leaves GetTexCoord at 0,0,1,1, and a reset after a SetTexCoord comes
+// back to it with GetAtlas still reporting the atlas.
+//
+// Here an atlas IS its texcoords: there is no separate layer to hold the
+// sub-rect, so the two pieces of state share one slot. Identity for an atlas'd
+// texture is therefore the atlas's own rect, and resetting to a literal 0,0,1,1
+// would show the whole sheet where retail shows the sprite. Restoring the rect
+// is what reproduces the visible result.
+int __fastcall Script_ResetTexCoord(void *L) {
+    void *region = Game::Lua::ResolveObject(L, 1);
+    if (region == nullptr)
+        return 0;
+
+    float left = 0.0f, right = 1.0f, top = 0.0f, bottom = 1.0f;
+    // Same staleness guard GetAtlas uses: a texture pointed somewhere else since
+    // is no longer an atlas, so identity for it is the whole texture.
+    auto it = g_applied.find(region);
+    if (it != g_applied.end()) {
+        if (RegionTexture(region) != it->second.hTexture) {
+            g_applied.erase(it);
+        } else if (const Info *info = Find(it->second.name.c_str())) {
+            left = info->left;
+            right = info->right;
+            top = info->top;
+            bottom = info->bottom;
+        }
+    }
+
+    Game::Lua::SetTop(L, 1); // (self)
+    Game::Lua::PushNumber(L, left);
+    Game::Lua::PushNumber(L, right);
+    Game::Lua::PushNumber(L, top);
+    Game::Lua::PushNumber(L, bottom);
+    CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
+    Game::Lua::SetTop(L, 0);
+    return 0;
+}
+
 // --- diagnostics ------------------------------------------------------------
 
 // Returns every atlas name something asked for that nothing could resolve, and
@@ -335,6 +380,7 @@ int __fastcall Script_DumpAtlasMisses(void *L) {
 const Game::Lua::FrameMethodEntry g_textureMethods[] = {
     {"SetAtlas", &Script_SetAtlas},
     {"GetAtlas", &Script_GetAtlas},
+    {"ResetTexCoord", &Script_ResetTexCoord},
 };
 
 void RegisterLuaFunctions() {

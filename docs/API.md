@@ -201,6 +201,7 @@ build instructions.
   - [`texture:SetColorTexture(colorR, colorG, colorB [, a])`](#texturesetcolortexturecolorr-colorg-colorb--a)
   - [`texture:SetAtlas(atlas [, useAtlasSize])`](#texturesetatlasatlas--useatlassize)
   - [`texture:GetAtlas()`](#texturegetatlas)
+  - [`texture:ResetTexCoord()`](#textureresettexcoord)
   - [`texture:SetSpriteSheetCell(cell, numRows, numColumns)`](#texturesetspritesheetcellcell-numrows-numcolumns)
   - [Texture size and shape](#texture-size-and-shape)
   - [`fontstring:SetRotation(angle [, cx, cy])`](#fontstringsetrotationangle--cx-cy)
@@ -4736,6 +4737,22 @@ t:SetAtlas("MinimapArrow", true)   -- draws the art at its own 32x32 size
 
 Returns the atlas name last set on this texture, or `nil` when it is showing
 something else. Pointing the texture at a file with `SetTexture` clears the name.
+
+### `texture:ResetTexCoord()`
+
+Drops a crop made with `SetTexCoord` or `SetSpriteSheetCell` and shows the whole
+of what the texture points at.
+
+For a texture set with `SetAtlas`, the whole of what it points at is the atlas's
+own rectangle, so the art comes back and the atlas name stays set. For any other
+texture it is the whole file, the same as `SetTexCoord(0, 1, 0, 1)`.
+
+```lua
+local t = frame:CreateTexture(nil, "ARTWORK")
+t:SetAtlas("MinimapArrow")
+t:SetTexCoord(0, 0.5, 0, 0.5)   -- shows the top-left quarter of the art
+t:ResetTexCoord()               -- shows the art again
+```
 
 ### `texture:SetSpriteSheetCell(cell, numRows, numColumns)`
 
