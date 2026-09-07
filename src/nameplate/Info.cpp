@@ -12,43 +12,46 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `C_NamePlate.GetNamePlates()` — returns nameplate Frame objects,
-// matching modern WoW's signature. Two paths because vanilla has two
-// kinds of nameplates:
+// matching modern WoW's signature.
 //
-// 1. **Addon-created** (pfUI, TidyPlates, etc.) — already registered
-//    with Lua via `CreateFrame`. Their Lua-registry ref-key sits at
-//    `+0x08`; we push `registry[refKey]` to return the cached
-//    wrapper. Identity stable across calls.
-//
-// 2. **Default vanilla nameplates** — created internally without ever
-//    calling `CreateFrame`, so `+0x08` is 0. We build a fresh wrapper
-//    table per call: `{[0] = lightuserdata(frame)}` with the global
-//    `__framescript_meta` metatable. Methods work
-//    (`:GetWidth()` / `:GetAlpha()` / etc.) but the wrapper isn't
-//    cached engine-side — calling `GetNamePlates()` again returns a
-//    different table for the same frame. Don't compare wrappers by
-//    identity, and don't cache them across the unit going out of
-//    range (the underlying frame may be freed).
-//
-// We deliberately don't call the engine's frame-registration helper
-// (`FUN_00701BD0`) for the unregistered case — it increments a Lua
-// refcount on the frame that's never decremented, pinning the frame
-// in memory.
+// One push path covers both kinds of nameplate. Addon-created plates
+// (pfUI, TidyPlates) already carry a Lua-registry refkey at `+0x08`
+// from `CreateFrame`; engine-created ones start at 0 and get theirs
+// lazily on first push. Both end at `rawgeti(REGISTRY, frame + 0x08)`,
+// the engine's canonical wrapper, so identity is stable across calls
+// and addon fields set on it (pfUI's `plate.nameplate`) survive every
+// roundtrip. `UI::FrameObject::Push` owns that — see its note for the
+// pfUI-divergence story that motivated delegating to the engine, and
+// for the CObject refcount `ScriptRegister` bumps.
 //
 // `C_NamePlate.GetNamePlateGUIDs()` — companion returning the GUID
-// strings of the same set of units, regardless of registration
-// state. Cheapest enumeration when an addon only needs the GUIDs.
+// strings of the same set of units. Cheapest enumeration when an addon
+// only needs the GUIDs.
 //
 // Vanilla 1.12 stores each unit's nameplate pointer at `CGUnit + 0xE60`
 // (verified via `FUN_006086E0`'s "ensure nameplate exists" path). The
-// nameplate also caches the unit's GUID at `+0x4E8` for back-lookup.
-// There's no central "active nameplates" list — the engine maintains
-// per-unit pointers updated by per-unit state-change handlers.
+// nameplate caches the unit's GUID at `+0x4E8` for back-lookup and
+// carries a Storm link node at `+0x4DC`/`+0x4E0` (prev link-address /
+// next base-address).
 //
-// To enumerate, we walk the local-player-anchored object hash table
-// (`player + 0x1C` = bucket array, `player + 0x24` = mask). Each
-// bucket header stores the link-field offset at byte 0 and the
-// chain-head pointer at byte 8 — Storm's intrusive-hash pattern.
+// There IS a central list of live nameplates — header `{0x00C4D928,
+// 0x00C4D92C}`, with a free/recycle list at `{0x00C4D91C, 0x00C4D920}`
+// — but we deliberately don't enumerate through it:
+//
+// - `FUN_00608870` re-sorts that list by screen depth on EVERY plate's
+//   position update, unlinking and reinserting the node. It is in
+//   motion throughout the render, whereas no nameplate code touches
+//   the object hash table.
+// - `FUN_006087F0` recycles a pooled node without clearing `+0x4E8`,
+//   so a node's cached GUID is stale until `FUN_007CB6D0` rebinds it.
+//   `unit + 0xE60` is the only authoritative live binding.
+// - We need the unit and its instance block for the GUID regardless,
+//   and the hash walk yields all three together.
+//
+// So we enumerate by walking the local-player-anchored object hash
+// table instead (`player + 0x1C` = bucket array, `player + 0x24` =
+// mask). Each bucket header stores the link-field offset at byte 0 and
+// the chain-head pointer at byte 8 — Storm's intrusive-hash pattern.
 // Filter by `TYPEMASK_UNIT` (`flags & 0x08` at `*(entry+8) + 8`) and
 // check `+0xE60` for a non-null nameplate pointer.
 
