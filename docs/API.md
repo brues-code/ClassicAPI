@@ -87,6 +87,7 @@ build instructions.
   - [`C_Container.UseHearthstone()`](#c_containerusehearthstone)
   - [`C_Container.SwapItems(srcBag, srcSlot, dstBag, dstSlot)`](#c_containerswapitemssrcbag-srcslot-dstbag-dstslot)
   - [`C_Container.MoveItem(srcBag, srcSlot, dstBag, dstSlot, count)`](#c_containermoveitemsrcbag-srcslot-dstbag-dstslot-count)
+  - [`C_Container.AutoStoreItem(srcBag, srcSlot [, dstBag])`](#c_containerautostoreitemsrcbag-srcslot--dstbag)
 
 - [Creature](#creature)
   - [`C_CreatureInfo.GetCreatureID(guid)`](#c_creatureinfogetcreatureidguid)
@@ -2292,6 +2293,74 @@ constraint as `SwapItems`.
 > opcode 0x10E), so the cursor is never touched.
 
 Send is fire-and-forget (same as `SwapItems`).
+
+### `C_Container.AutoStoreItem(srcBag, srcSlot [, dstBag])`
+
+Moves an item and lets the server pick the destination slot. Returns
+`true` on send, `false` for bad args (missing bag, out-of-range slot,
+empty source, or a source and destination the call cannot serve).
+
+The server does not just look for an empty slot. It first merges the
+item into existing stacks of the same item, and splits it across
+several of them when that is what fits. It places a remainder in a
+free slot only if some is left over. So one call consolidates a
+partial stack:
+
+```lua
+-- Two partial stacks of item 12662: slot 1 holds 5, slot 2 holds 3.
+C_Container.AutoStoreItem(0, 2)
+-- Slot 1 now holds 8, and slot 2 is empty.
+
+-- Confine the item to bag 2
+C_Container.AutoStoreItem(0, 5, 2)
+```
+
+`dstBag` says where you want the item, and defaults to `0`:
+
+- `0` — anywhere in the main inventory that it fits. This means the
+  whole inventory, not the backpack. The backpack cannot be named
+  separately as a destination.
+- `1..4` — that equipped bag only.
+- `-1` — anywhere in the bank that it fits.
+
+Deposits and withdrawals both work, and both merge on arrival:
+
+```lua
+-- Deposit, merging into stacks already in the bank
+C_Container.AutoStoreItem(0, 3, -1)
+
+-- Withdraw bank slot 5 back into the bags
+C_Container.AutoStoreItem(-1, 5, 0)
+```
+
+A bank item always travels back to your bags, so you cannot ask for a
+new slot inside the bank. These three combinations are accepted, and
+every other pair returns `false`:
+
+| Source | `dstBag` | Result |
+|---|---|---|
+| inventory | `0..4` | stays in the inventory |
+| inventory | `-1` | goes to the bank |
+| bank | `0` | comes back to the inventory |
+
+To consolidate stacks inside the bank, use `C_Container.MoveItem` for
+each pair. Individual bank bags (`5..10`) are not valid destinations.
+
+Bank slots need the bank window open, the same as `SwapItems` and
+`MoveItem`.
+
+> **Prefer this over merging stacks yourself.** This call needs no
+> stack-size lookup, because the server decides what fits. A merge you
+> compute in Lua has to size each stack first with
+> `C_Item.GetItemMaxStackSizeByID`, which returns `nil` until that
+> item's data has arrived. A merge written that way silently skips any
+> stack it cannot size.
+
+There is no way to name the destination slot, which is the point of the
+call. Use `C_Container.SwapItems` or `C_Container.MoveItem` when you
+need to choose it.
+
+Send is fire-and-forget (same as `SwapItems` and `MoveItem`).
 
 ## Creature
 

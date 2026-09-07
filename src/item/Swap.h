@@ -97,4 +97,48 @@ bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot);
 // Lua stack.
 bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int count);
 
+// "Put this item away" — the server picks the destination slot
+// (`CMSG_AUTOSTORE_BAG_ITEM`, opcode 0x10B). Unlike `Containers` and
+// `MoveCount` there is no destination slot to supply, and that is the
+// whole value of it: the server first merges the stack into existing
+// non-full stacks of the same item (splitting it across several if
+// needed), then places any remainder in a free slot.
+//
+// So this is the right primitive for consolidating partial stacks,
+// because it needs no stack-size lookup on this side. Computing the
+// merge here would mean sizing every stack first, and the max-stack
+// getter is nil until that item's data has arrived from the server —
+// so a cold item cache silently skips exactly the stacks it could not
+// size. The server never has to look one up.
+//
+// `dstBag` says where you want it, and two different engine builders
+// serve it because the wire has two autostore opcodes:
+//   dstBag 0    → anywhere in the main inventory that it fits
+//   dstBag 1..4 → that equipped bag only
+//   dstBag -1   → anywhere in the bank that it fits
+//
+// The backpack is not separately addressable, because on the wire the
+// backpack IS the player container — so 0 means the whole inventory,
+// not "the backpack". Individual bank bags (5..10) are likewise not
+// addressable: the bank opcode carries no destination at all.
+//
+// WHAT IS NOT EXPRESSIBLE: moving an item to a fresh slot on the side
+// it is already on, when that side is the bank. The bank opcode derives
+// its direction from the source, so a bank-sourced item always travels
+// to the inventory. Consolidating stacks WITHIN the bank therefore
+// cannot use this call — use `MoveCount` per pair instead. The
+// combinations this accepts are exactly:
+//   inventory source, dstBag 0..4  → stays in the inventory
+//   inventory source, dstBag -1    → goes to the bank
+//   bank source,      dstBag 0     → comes back to the inventory
+// Anything else returns false rather than sending a packet that would
+// do something other than what was asked.
+//
+// Returns false on bad args, an unequipped bag, a rejected
+// source/destination pair, or an empty source slot. Everything else is
+// server-side; failures come back as `SMSG_INVENTORY_CHANGE_FAILURE`
+// exactly as for the other two. Stomps the Lua stack for the same
+// reason `Containers` does.
+bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag);
+
 } // namespace Item::Swap

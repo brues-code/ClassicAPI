@@ -799,8 +799,10 @@ enum Offsets {
     // `Script_EquipCursorItem` (0x00489660) uses after the cursor's
     // source location has been resolved. Sends opcode 0x10D
     // (CMSG_SWAP_INV_ITEM) for same-container swaps or 0x10C
-    // (CMSG_AUTOEQUIP_ITEM) for cross-container, then runs the
-    // packet through the engine's own send pipeline at FUN_005AB630.
+    // (CMSG_SWAP_ITEM) for cross-container, then runs the packet
+    // through the engine's own send pipeline at FUN_005AB630.
+    // (0x10C is SWAP_ITEM; CMSG_AUTOEQUIP_ITEM is 0x10A and belongs to
+    // the cursor/equip builder FUN_005E1480, not this one.)
     //
     // Signature:
     //   void __thiscall(
@@ -852,6 +854,84 @@ enum Offsets {
     //     u32 dstLinearSlot,                    // only low byte
     //     u32 count);                           // only low byte
     FUN_INVENTORY_SPLIT = 0x005E1210,
+
+    // Third sibling in the same packet-builder family — `__thiscall`,
+    // same shared bag-byte converter (`FUN_005E13B0`), same send
+    // pipeline (`FUN_005AB630`). Builds `CMSG_AUTOSTORE_BAG_ITEM`
+    // (opcode 0x10B): "take this item and put it wherever it belongs
+    // in that container", with the DESTINATION SLOT CHOSEN BY THE
+    // SERVER. Wire format:
+    //   [0x10B, srcBag, srcLinearSlot, dstBag]
+    //
+    // Signature — EIGHT stack args, `RET 0x20`. The count is from the
+    // RET, not from a decompiler parameter list: the last slot
+    // (`EBP+0x24`) is never READ by the body, but it IS popped, so a
+    // 7-arg declaration leaves the callee popping four bytes too many
+    // and ESP walks on every call. Trailing-ignored-arg is this
+    // family's habit — it is where swap keeps its `flag` and split its
+    // `count` — but the family is NOT uniform in arity: those two take
+    // nine (`RET 0x24`), this one eight.
+    //   void __thiscall(
+    //     CGPlayer *this,
+    //     u32 unused1, u32 unused2,             // EBP+0x08/+0x0C, unread
+    //     u32 srcContainerLo, u32 srcContainerHi,
+    //     u32 srcLinearSlot,                    // only low byte hits the wire
+    //     u32 dstContainerLo, u32 dstContainerHi,
+    //     u32 unused3);                         // EBP+0x24, unread but popped
+    //
+    // Note there is no dst slot argument at all — that is the point of
+    // the opcode. Server-side (`HandleAutoStoreBagItemOpcode`) it runs
+    // `CanStoreItem(dstBag, NULL_SLOT, …)`, which is a TWO-PASS search:
+    // first "merge into existing non-full stacks of this item" (filling
+    // a position/count vector, so one stack can be distributed across
+    // several destinations), then "find a free slot" for whatever count
+    // is left. So this single packet performs partial-stack
+    // consolidation with no stack-size lookup on our side at all.
+    //
+    // Note the value in that is NOT that the client's stack size could
+    // be wrong: 1.12 has no item DBC, so stack size arrives from the
+    // server and is cached in itemcache.wdb, and the client's copy
+    // normally agrees by construction. The value is availability —
+    // `C_Item.GetItemMaxStackSizeByID` is nil until an item's data has
+    // arrived, so anything that sizes stacks first has a cold-cache
+    // hole, and the server never needs to size them.
+    //
+    // The converter returns `0xFF` for any GUID absent from the
+    // player's invMgr container array, and the player's own GUID is
+    // absent — so passing the PLAYER as the destination sends
+    // `dstBag = 0xFF` (INVENTORY_SLOT_BAG_0), which the server reads as
+    // "search every bag". The builder guards that case: a converted
+    // `0xFF` is only allowed through when the destination GUID really is
+    // the player's, otherwise it drops the send silently. Consequence:
+    // the backpack is not separately addressable as a destination (it
+    // IS the player container), so bagID 0 means "anywhere it fits".
+    FUN_INVENTORY_AUTOSTORE = 0x005E12E0,
+
+    // Bank counterpart — `CMSG_AUTOSTORE_BANK_ITEM` (opcode 0x282).
+    // THREE stack args, `RET 0xC`. Wire: [0x282, srcBag, srcSlot].
+    //   void __thiscall(
+    //     CGPlayer *this,
+    //     u32 srcContainerLo, u32 srcContainerHi,
+    //     u32 srcLinearSlot);                   // only low byte hits the wire
+    //
+    // No destination of any kind, because the server DERIVES THE
+    // DIRECTION FROM THE SOURCE (`HandleAutoStoreBankItemOpcode`):
+    // a bank source runs `CanStoreItem(NULL_BAG, NULL_SLOT, …)` and
+    // lands in the inventory; an inventory source runs
+    // `CanBankItem(NULL_BAG, NULL_SLOT, …)` and lands in the bank.
+    // Both are the same merge-into-existing-stacks-then-free-slot
+    // search as 0x10B, just aimed at the other side.
+    //
+    // So this opcode moves an item ACROSS the inventory/bank boundary
+    // and cannot move one within its own side. Bank-internal
+    // consolidation is not expressible through autostore at all — it
+    // needs per-pair moves (`FUN_INVENTORY_SPLIT` / `_SWAP`).
+    //
+    // Unlike its siblings this one validates the source itself before
+    // sending: resolves the container by GUID (`FUN_00468460` with
+    // typeMask 1), bounds-checks the slot against the container's item
+    // array, and bails when the GUID in that slot is zero.
+    FUN_INVENTORY_AUTOSTORE_BANK = 0x005E18F0,
 
     // Registers a single global Lua function. __fastcall(name, func).
     FUN_FRAMESCRIPT_REGISTER_FUNCTION = 0x00704120,
@@ -2516,9 +2596,17 @@ enum Offsets {
     VAR_GUILD_ROSTER_TOTAL_COUNT = 0x00B73118,
     OFF_GUILD_MEMBER_NAME = 0x08,
 
-    // PackBagSlot — __fastcall(L, void **outInvMgr, int *outLinearSlot, int *outUnused) → bool.
+    // PackBagSlot — __fastcall(L, void **outInvMgr, int *outLinearSlot, int *outIsBank) → bool.
     // Reads bagID at Lua stack[1] and slot at stack[2], validates them, and
     // returns the inventory manager + linear slot ready to feed into GetItemBySlot.
+    //
+    // The fourth out-param is NOT unused (it was labelled `outUnused`
+    // here until the bank-autostore work): it is set to 1 for a bank
+    // position — bagID -1 (main bank) and bagIDs 5..10 (bank bags) —
+    // and left 0 otherwise, keyring included. `Script_UseContainerItem`
+    // is what consumes it: a non-zero flag is what makes right-clicking
+    // a bank item send `CMSG_AUTOSTORE_BANK_ITEM` instead of using it.
+    // This is the engine's own definition of "is this a bank slot".
     FUN_PACK_BAG_SLOT = 0x004F9820,
     // Equipped-bag container-GUID getter — `uint64 __fastcall(uint bagIndex0)`
     // where `bagIndex0` is 0-based (Lua bagID 1..4 → 0..3; 4..9 are bank bags,
@@ -2563,10 +2651,18 @@ enum Offsets {
     // it hides data that's present from boot. Reading the GUID array
     // directly recovers it without ever opening the bank window.
     OFF_INVMGR_GUID_ARRAY = 0x04,
+    INVMGR_BACKPACK_FIRST_SLOT = 23,
+    INVMGR_BACKPACK_LAST_SLOT = 38,
     INVMGR_BANK_MAIN_FIRST_SLOT = 39,
     INVMGR_BANK_MAIN_LAST_SLOT = 62,
     INVMGR_BANK_BAG_FIRST_SLOT = 63,
     INVMGR_BANK_BAG_LAST_SLOT = 68,
+    // Keyring (Lua bagID -2). No LAST constant: the engine bounds this
+    // range against the invMgr's own slot count (OFF_INVMGR_SLOT_COUNT)
+    // rather than a fixed size, since keyring capacity grows with level.
+    // Base confirmed from FUN_PACK_BAG_SLOT, which maps Lua bagID -2 to
+    // `slot - 1 + 0x51`.
+    INVMGR_KEYRING_FIRST_SLOT = 81,
     // Engine's `ObjectMgr::Get`-style resolver — given a type and GUID,
     // returns the resolved CGObject pointer (or null). Same function the
     // engine itself uses inside `GetItemBySlot` (called at `0x00622904`)
