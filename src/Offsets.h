@@ -812,7 +812,28 @@ enum Offsets {
     //     u32 srcLinearSlot,
     //     u32 dstContainerGuidLo, u32 dstContainerGuidHi,
     //     u32 dstLinearSlot,
-    //     int flag);   // 0 = normal path
+    //     int flag);
+    //
+    // `flag` IS NOT COSMETIC — it gates a pre-send confirmation check,
+    // and with 0 this function can decide to send NOTHING AT ALL.
+    // Before building the packet, and only when the DESTINATION is not
+    // an equipment or bag-container slot, it resolves the item being
+    // moved (the destination's item when the source is an equipment
+    // slot, otherwise the source's) and then either:
+    //   - stashes the parameters and returns, when that item is not in
+    //     the item cache yet; or
+    //   - stashes the parameters, fires event 0x120 (the bind
+    //     confirmation dialog) and returns, when the item's `m_bonding`
+    //     (record +0x194) is 2 (BIND_WHEN_EQUIPPED) and `FUN_005EA930`
+    //     reports this character could equip it.
+    // Both paths send no packet and report nothing, since the function
+    // returns void — so a caller that moves a Bind-on-Equip item it
+    // could wear just silently does not move it.
+    //
+    // Passing 1 skips the gate, which is what the engine itself does
+    // when it re-issues a swap after the player accepts the dialog. That
+    // is correct for any caller whose two endpoints are both bag content
+    // slots, since nothing there can bind an item.
     //
     // Linear-slot encoding for sources/dests in player invMgr:
     //   0..18  paperdoll (1-based slot - 1)

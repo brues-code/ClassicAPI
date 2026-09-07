@@ -289,6 +289,15 @@ bool ToBag(const void *cgItem, int srcPaperdollSlot, int dstBagID, int dstSlotIn
 }
 
 bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int count) {
+    return MoveCountFrom(Item::Location::ResolveBag(L, srcBag, srcSlot),
+                         srcBag, srcSlot, dstBag, dstSlot, count);
+}
+
+bool MoveCountFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag,
+                   int dstSlot, int count) {
+    if (srcItem == nullptr)
+        return false; // empty source slot
+
     // Vanilla protocol writes count as a single byte. Clamp at 255;
     // anything larger would either truncate silently (255 sent) or
     // wrap (0 = no-op). Refuse zero outright too.
@@ -304,13 +313,6 @@ bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int co
                        &dstContainerLo, &dstContainerHi, &dstLinear))
         return false;
 
-    // Confirm source is occupied — surfacing "empty source" as a clean
-    // local `false` rather than relying on the server reject + log
-    // SMSG_INVENTORY_CHANGE_FAILURE noise.
-    const uint8_t *srcItem = Item::Location::ResolveBag(L, srcBag, srcSlot);
-    if (srcItem == nullptr)
-        return false;
-
     // Vanilla server rejects `CMSG_SPLIT_ITEM` when count == srcStack
     // (`EQUIP_ERR_COULDNT_SPLIT_ITEMS`) — conceptually "split N off,
     // leave residual", and splitting the entire stack would leave
@@ -319,14 +321,15 @@ bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int co
     // server treats as a merge for same-item destinations (up to
     // maxStack). Route there for count == srcStack so callers don't
     // have to special-case "move everything".
-    auto *srcDescriptor = Item::ObjectFields(srcItem);
+    auto *srcDescriptor =
+        Item::ObjectFields(static_cast<const uint8_t *>(srcItem));
     const int srcStack = srcDescriptor == nullptr ? 0 :
         static_cast<int>(Game::Read<uint32_t>(
             srcDescriptor, Offsets::OFF_DESCRIPTOR_STACK_COUNT));
     if (count > srcStack)
         return false; // server would reject anyway; fail fast and locally
     if (count == srcStack)
-        return Containers(L, srcBag, srcSlot, dstBag, dstSlot);
+        return ContainersFrom(srcItem, srcBag, srcSlot, dstBag, dstSlot);
 
     void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr)
@@ -347,7 +350,14 @@ bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int co
     return true;
 }
 
-bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag) {
+bool AutoStoreFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag) {
+    // The opcode puts no item GUID on the wire — the server locates the
+    // item from (bag, slot) — so the pointer is here purely to prove the
+    // source is occupied, which keeps an empty slot a clean local false
+    // instead of a server reject.
+    if (srcItem == nullptr)
+        return false;
+
     const bool srcIsBank =
         srcBag == -1 || (srcBag >= FIRST_BANK_BAG_ID && srcBag <= LAST_BANK_BAG_ID);
 
@@ -373,11 +383,6 @@ bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag) {
     uint32_t dstContainerLo = 0, dstContainerHi = 0;
     if (!crossToBank &&
         !EncodeContainerGuid(dstBag, &dstContainerLo, &dstContainerHi))
-        return false;
-
-    // Confirm the source is occupied so an empty slot is a clean local
-    // `false` instead of a server reject. Stomps the Lua stack.
-    if (Item::Location::ResolveBag(L, srcBag, srcSlot) == nullptr)
         return false;
 
     void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
@@ -421,7 +426,23 @@ bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag) {
     return true;
 }
 
+bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag) {
+    // Resolving stomps the Lua stack, so callers must have read every
+    // argument they need before getting here.
+    return AutoStoreFrom(Item::Location::ResolveBag(L, srcBag, srcSlot),
+                         srcBag, srcSlot, dstBag);
+}
+
 bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot) {
+    return ContainersFrom(Item::Location::ResolveBag(L, srcBag, srcSlot),
+                          srcBag, srcSlot, dstBag, dstSlot);
+}
+
+bool ContainersFrom(const void *srcItem, int srcBag, int srcSlot,
+                    int dstBag, int dstSlot) {
+    if (srcItem == nullptr)
+        return false; // empty source slot
+
     uint32_t srcContainerLo = 0, srcContainerHi = 0, srcLinear = 0;
     uint32_t dstContainerLo = 0, dstContainerHi = 0, dstLinear = 0;
     if (!EncodeBagSlot(srcBag, srcSlot,
@@ -431,13 +452,6 @@ bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot) {
                        &dstContainerLo, &dstContainerHi, &dstLinear))
         return false;
 
-    // Look up the source CGItem so we can put its GUID on the wire.
-    // This stomps the Lua stack — caller must have already read every
-    // arg it cares about.
-    const uint8_t *srcItem = Item::Location::ResolveBag(L, srcBag, srcSlot);
-    if (srcItem == nullptr)
-        return false; // empty source slot
-
     void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr)
         return false;
@@ -446,12 +460,28 @@ bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot) {
     if (!ReadGuid(srcItem, &itemLo, &itemHi))
         return false;
 
+    // flag = 1 SUPPRESSES the engine's pre-send confirmation gate, and
+    // that is load-bearing rather than an optimization. With flag = 0 the
+    // builder inspects the item being moved and, if it is Bind-on-Equip
+    // and this character could equip it, stashes the parameters and
+    // raises the bind-confirmation dialog INSTEAD OF SENDING ANYTHING —
+    // silently, since the builder returns void. It does the same when the
+    // item is not in the item cache yet. Either way the move just does
+    // not happen.
+    //
+    // Suppressing it is correct here because this function addresses bag
+    // CONTENT slots on both sides and never a paperdoll slot, so nothing
+    // it sends can bind an item; the gate exists for the paths that move
+    // an item into equipment, which are `FromBag` / `ToBag` /
+    // `FromPaperdoll` and which pass 0. The engine sets this same flag
+    // itself when it re-issues a swap after the player accepts the
+    // dialog.
     auto fn = reinterpret_cast<SwapFn_t>(Offsets::FUN_INVENTORY_SWAP);
     fn(player,
        itemLo, itemHi,
        srcContainerLo, srcContainerHi, srcLinear,
        dstContainerLo, dstContainerHi, dstLinear,
-       0);
+       1);
     return true;
 }
 

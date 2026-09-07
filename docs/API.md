@@ -88,6 +88,8 @@ build instructions.
   - [`C_Container.SwapItems(srcBag, srcSlot, dstBag, dstSlot)`](#c_containerswapitemssrcbag-srcslot-dstbag-dstslot)
   - [`C_Container.MoveItem(srcBag, srcSlot, dstBag, dstSlot, count)`](#c_containermoveitemsrcbag-srcslot-dstbag-dstslot-count)
   - [`C_Container.AutoStoreItem(srcBag, srcSlot [, dstBag])`](#c_containerautostoreitemsrcbag-srcslot--dstbag)
+  - [`C_Container.SortBags()`](#c_containersortbags)
+  - [`C_Container.SortBankBags()`](#c_containersortbankbags)
 
 - [Creature](#creature)
   - [`C_CreatureInfo.GetCreatureID(guid)`](#c_creatureinfogetcreatureidguid)
@@ -2361,6 +2363,69 @@ call. Use `C_Container.SwapItems` or `C_Container.MoveItem` when you
 need to choose it.
 
 Send is fire-and-forget (same as `SwapItems` and `MoveItem`).
+
+### `C_Container.SortBags()`
+
+Arranges the items in your bags. Takes no arguments and returns nothing.
+
+The work spans several frames, because every item move is a request to
+the server. A call made while a sort is still running is ignored, so a
+held keybind cannot stack them up.
+
+Partial stacks are combined first. Then items are placed in this order,
+starting from the first slot:
+
+1. Hearthstone
+2. Weapons and armor, best quality first
+3. Consumables
+4. Reagents
+5. Trade goods
+6. Quest items
+7. Everything else, best quality first
+8. Junk (gray items)
+
+Junk fills from the last slot backward, so it collects away from
+everything else. Within each group, items sort by type, then subtype,
+then name, and fuller stacks come first.
+
+A specialty bag keeps only what it accepts, so a quiver holds ammunition
+and nothing else. Items that do not fit a specialty bag go to your
+general bags.
+
+```lua
+C_Container.SortBags()
+```
+
+> **An item that is still loading stays put.** Until an item's data
+> arrives from the server, it has no type, quality or name to group it
+> by. The sort leaves such an item alone, and keeps other items out of
+> its slot. Call `C_Container.SortBags()` again once the data arrives.
+> This is most likely just after you log in.
+
+This order is ClassicAPI's own. To sort a different way, build it from
+`C_Container.SwapItems`, `C_Container.MoveItem` and
+`C_Container.AutoStoreItem`.
+
+### `C_Container.SortBankBags()`
+
+Arranges the items in your bank. Uses the same order as
+`C_Container.SortBags()`. Takes no arguments and returns nothing.
+
+Open the bank first. The server refuses bank moves while the bank is
+closed, so a call made with the bank closed does nothing at all.
+
+Only one sort runs at a time. A call made while a bag sort or another
+bank sort is still running is ignored.
+
+```lua
+C_Container.SortBankBags()
+```
+
+> **Stacks combine less reliably here than in your bags.** To combine
+> stacks inside the bank, the client has to work out what fits, and that
+> needs each item's max stack size. Until an item's data arrives from
+> the server that number is unknown, so a stack the client cannot
+> measure is left alone. Sorting your bags does not have this limit.
 
 ## Creature
 

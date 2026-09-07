@@ -141,4 +141,36 @@ bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int co
 // reason `Containers` does.
 bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag);
 
+// Lua-free forms of `Containers` and `AutoStore`, for callers that
+// already hold the source `CGItem *` and therefore need no lookup.
+//
+// The Lua-taking forms exist only to resolve that pointer, and they do
+// it through `Item::Location::ResolveBag` → the engine's `PackBagSlot`,
+// which reads its arguments off the Lua stack and stomps it. That is
+// fine inside a Lua call, where the stack is ours. It is NOT fine from
+// a tick or bag-update callback, where the engine may have its own
+// values there — so anything running outside a Lua call must use these.
+//
+// The caller owns the pointer's validity. It stays valid across a batch
+// of swaps: a server-side swap moves item GUIDs between slots and does
+// not destroy the objects, so pointers snapshotted before the batch are
+// still good during it.
+bool ContainersFrom(const void *srcItem, int srcBag, int srcSlot,
+                    int dstBag, int dstSlot);
+
+bool AutoStoreFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag);
+
+// CAUTION when batching. This reads the source's LIVE stack count to
+// decide whether `count` is the whole stack (which must go as a swap,
+// since the server rejects a split that would empty its source) or a
+// partial one. A caller firing several moves in one frame gets no server
+// replies in between, so those counts are still the pre-batch values
+// while the caller's own model has moved on — and a move the caller
+// knows is "the last 3" is sent as a split of 3 from a stack the server
+// says holds 3, which it refuses with "Couldn't split those items".
+// Such a caller should decide from its own model and call
+// `ContainersFrom` directly for whole-stack moves.
+bool MoveCountFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag,
+                   int dstSlot, int count);
+
 } // namespace Item::Swap
