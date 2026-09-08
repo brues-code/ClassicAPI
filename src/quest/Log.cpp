@@ -13,11 +13,36 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "quest/Log.h"
 #include "unit/Flags.h"
 
 #include <cstdint>
 
 namespace Quest::Log {
+
+// Field +8 is the header indicator: non-NULL = header, NULL = real quest.
+// Verified by Script_GetQuestLogTitle's isHeader push at 0x004DF9A9 (it pushes
+// 1.0 when [+8] != 0) and by the helper at 0x004DF150 used by IsUnitOnQuest
+// (returns the +0 questID only when [+8] == 0, NULL otherwise).
+int IndexForQuestID(int questID) {
+    if (questID <= 0)
+        return -1;
+
+    const int total = *reinterpret_cast<const int *>(
+        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
+    auto *base = reinterpret_cast<const uint8_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
+    for (int i = 0; i < total; ++i) {
+        auto *entry = base + i * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
+        if (*reinterpret_cast<const void *const *>(
+                entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr)
+            continue; // header row
+        if (*reinterpret_cast<const int *>(
+                entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID) == questID)
+            return i;
+    }
+    return -1;
+}
 
 namespace {
 
@@ -63,19 +88,21 @@ static int __fastcall Script_GetQuestIDForLogIndex(void *L) {
     if (idx < 0 || idx >= total)
         return 0; // nil for out-of-range
 
-    auto *entry = reinterpret_cast<uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) + idx * 16;
+    auto *entry = reinterpret_cast<const uint8_t *>(
+                      static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) +
+                  idx * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
 
-    // Field +8 is the header indicator: non-NULL = header, NULL = real quest.
-    // Verified by Script_GetQuestLogTitle's isHeader push at 0x004DF9A9 (it pushes
-    // 1.0 when [+8] != 0) and by the helper at 0x004DF150 used by IsUnitOnQuest
-    // (returns the +0 questID only when [+8] == 0, NULL otherwise).
-    if (*reinterpret_cast<void *const *>(entry + 8) != nullptr) {
+    // Header rows report questID 0 rather than nil, so a caller walking
+    // 1..GetNumQuestLogEntries() can tell "header" from "out of range".
+    // See `IndexForQuestID` for the header gate's verification trail.
+    if (*reinterpret_cast<const void *const *>(
+            entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr) {
         Game::Lua::PushNumber(L, 0.0);
         return 1;
     }
 
-    const int questID = *reinterpret_cast<const int *>(entry + 0);
+    const int questID = *reinterpret_cast<const int *>(
+        entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
     Game::Lua::PushNumber(L, static_cast<double>(questID));
     return 1;
 }
@@ -84,34 +111,18 @@ static int __fastcall Script_GetQuestIDForLogIndex(void *L) {
 // `GetQuestIDForLogIndex`: the 1-based quest-log index of `questID`, or nil
 // if the quest isn't in the log. The index spans the full entry array
 // (headers included), matching `GetQuestIDForLogIndex` /
-// `GetQuestLogTitle`. Walks `VAR_QUEST_LOG_ENTRIES`, skipping header rows via
-// the `+8` header-pointer gate, and returns the first matching entry's index.
+// `GetQuestLogTitle`.
 static int __fastcall Script_GetLogIndexForQuestID(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetLogIndexForQuestID(questID)");
         return 0;
     }
-    const int target = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    if (target <= 0)
-        return 0; // nil — no such quest
-
-    const int total = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    auto *base = reinterpret_cast<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
-    for (int i = 0; i < total; ++i) {
-        auto *entry = base + i * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-        if (*reinterpret_cast<const void *const *>(
-                entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr)
-            continue; // header row
-        const int questID = *reinterpret_cast<const int *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
-        if (questID == target) {
-            Game::Lua::PushNumber(L, static_cast<double>(i + 1)); // 1-based
-            return 1;
-        }
-    }
-    return 0; // nil — quest not in the log
+    const int index =
+        IndexForQuestID(static_cast<int>(Game::Lua::ToNumber(L, 1)));
+    if (index < 0)
+        return 0; // nil — quest not in the log
+    Game::Lua::PushNumber(L, static_cast<double>(index + 1)); // 1-based
+    return 1;
 }
 
 // `C_QuestLog.GetHeaderIndexForQuest(questID)` — the 1-based log index of the
@@ -124,30 +135,13 @@ static int __fastcall Script_GetHeaderIndexForQuest(void *L) {
         Game::Lua::Error(L, "Usage: GetHeaderIndexForQuest(questID)");
         return 0;
     }
-    const int target = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    if (target <= 0)
-        return 0; // nil — no such quest
-
-    const int total = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    auto *base = reinterpret_cast<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
-
-    // Locate the quest's entry.
-    int questIndex = -1;
-    for (int i = 0; i < total; ++i) {
-        auto *entry = base + i * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-        if (*reinterpret_cast<const void *const *>(
-                entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr)
-            continue; // header row
-        if (*reinterpret_cast<const int *>(
-                entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID) == target) {
-            questIndex = i;
-            break;
-        }
-    }
+    const int questIndex =
+        IndexForQuestID(static_cast<int>(Game::Lua::ToNumber(L, 1)));
     if (questIndex < 0)
         return 0; // quest not in the log
+
+    auto *base = reinterpret_cast<const uint8_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
 
     // Walk back to the nearest preceding header.
     for (int i = questIndex - 1; i >= 0; --i) {
@@ -163,41 +157,14 @@ static int __fastcall Script_GetHeaderIndexForQuest(void *L) {
 
 // `C_QuestLog.IsOnQuest(questID)` — true iff `questID` is currently
 // in the player's quest log (incomplete OR ready-to-turn-in; the log
-// holds both). Walks `VAR_QUEST_LOG_ENTRIES` and matches against each
-// real entry's questID field. Headers are skipped via the `+8`
-// header-pointer gate documented above.
+// holds both).
 //
 // Returns `false` for non-positive or non-number input (no
 // `lua_error` — modern semantics).
 static int __fastcall Script_IsOnQuest(void *L) {
-    if (!Game::Lua::IsNumber(L, 1)) {
-        Game::Lua::PushBool(L, false);
-        return 1;
-    }
-    const int target = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    if (target <= 0) {
-        Game::Lua::PushBool(L, false);
-        return 1;
-    }
-
-    const int total = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    auto *base = reinterpret_cast<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
-    for (int i = 0; i < total; ++i) {
-        auto *entry = base + i * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-        if (*reinterpret_cast<const void *const *>(
-                entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr) {
-            continue; // header row
-        }
-        const int questID = *reinterpret_cast<const int *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
-        if (questID == target) {
-            Game::Lua::PushBool(L, true);
-            return 1;
-        }
-    }
-    Game::Lua::PushBool(L, false);
+    const bool on = Game::Lua::IsNumber(L, 1) &&
+                    IsOnQuest(static_cast<int>(Game::Lua::ToNumber(L, 1)));
+    Game::Lua::PushBool(L, on);
     return 1;
 }
 
