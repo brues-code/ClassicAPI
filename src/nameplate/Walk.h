@@ -49,6 +49,20 @@ uint64_t GetGUIDByIndex(int oneBased);
 // sparse.
 int GetSlotCount();
 
+// The nameplate Frame `guid` is losing, valid ONLY while that GUID's
+// `NAME_PLATE_UNIT_REMOVED` handler is running; `nullptr` at any other time
+// or for any other GUID.
+//
+// A plate is reported removed precisely because the unit→plate binding
+// (`unit + 0xE60`) is already gone, so `GetNamePlateForUnit` /
+// `GetNamePlateForGUID` cannot derive it from live state during the event.
+// Retail resolves it there — `NamePlateDriverMixin:OnNamePlateRemoved` calls
+// `C_NamePlate.GetNamePlateForUnit(unitToken, issecure())` — so the getters in
+// `Info.cpp` consult this as their last fallback. Returns `nullptr` when the
+// engine has already recycled the frame onto another unit, since serving it
+// then would hand the handler somebody else's plate.
+const void *PlateBeingRemoved(uint64_t guid);
+
 // Clears the per-tick diff state (seen pointers, last tick's
 // snapshot, ordered GUID list) so the post-`/reload` tick refires
 // CREATED + UNIT_ADDED for every currently-visible plate. Called

@@ -94,6 +94,27 @@ std::unordered_set<const void *> g_seenPlates;
 // `nameplateN` unit-token resolver in `unit/TokenExtensions.cpp`.
 std::vector<uint64_t> g_slots;
 
+// The (GUID, Frame) pair currently being torn down, published only for the
+// duration of that GUID's `NAME_PLATE_UNIT_REMOVED` dispatch and cleared
+// immediately after. `NamePlate::Info`'s getters fall back to it because the
+// unit→plate binding they read is already gone by the time the event fires —
+// see `PlateBeingRemoved` in `nameplate/Walk.h` for the retail precedent.
+uint64_t g_removingGuid = 0;
+const void *g_removingPlate = nullptr;
+
+// True iff `plate` is bound to some unit in THIS tick's walk — i.e. the engine
+// pulled the frame off its freelist and rebound it to another unit in the gap
+// between the tick that last saw it and the tick that noticed it was gone.
+// Frames are pooled and reused (`FUN_006087F0`), so the pointer stays valid
+// memory either way; what makes it unservable is that it now belongs to
+// somebody else.
+bool PlateReassigned(const void *plate) {
+    for (const auto &kv : g_currentTickPlates)
+        if (kv.second == plate)
+            return true;
+    return false;
+}
+
 // Assign `guid` the lowest free slot, reusing a vacated one when present and
 // growing the array only when every slot is occupied. Returns the 0-based
 // slot. Never shifts an existing entry.
@@ -249,9 +270,18 @@ void OnWorldTick() {
             if (it == g_slots.end())
                 continue;
             const int oneBased = static_cast<int>(it - g_slots.begin()) + 1;
+            // Let the handler reach the frame it is being told about; live
+            // state can no longer answer for it. Skipped once the engine has
+            // rebound the frame to another unit.
+            if (!PlateReassigned(kv.second)) {
+                g_removingGuid = kv.first;
+                g_removingPlate = kv.second;
+            }
             char tokenBuf[24];
             FireWithString(_evtUnitRemoved,
                 FormatNamePlateToken(tokenBuf, sizeof tokenBuf, oneBased));
+            g_removingGuid = 0;
+            g_removingPlate = nullptr;
             Unit::TokenObserver::Unregister(kv.first, &NamePlateFieldCb);
             *it = 0; // free the slot (no shift of survivors)
             while (!g_slots.empty() && g_slots.back() == 0)
@@ -302,6 +332,14 @@ uint64_t GetGUIDByIndex(int oneBased) {
     if (idx >= g_slots.size())
         return 0;
     return g_slots[idx]; // 0 when the slot is free
+}
+
+// The frame `guid` is losing, for the span of its UNIT_REMOVED dispatch only
+// (see `nameplate/Walk.h`).
+const void *PlateBeingRemoved(uint64_t guid) {
+    if (guid == 0 || guid != g_removingGuid)
+        return nullptr;
+    return g_removingPlate;
 }
 
 // Number of slots (1-based max index). Because the slot array is SPARSE,
