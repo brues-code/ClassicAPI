@@ -413,6 +413,7 @@ build instructions.
   - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
   - [`unpack(list [, i [, j]])`](#unpacklist--i--j)
+  - [`xpcall(f, msgh [, arg1, ...])`](#xpcallf-msgh--arg1-)
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
   - [`table.wipe(t)`](#tablewipet)
   - [`table.count(tbl)`](#tablecounttbl)
@@ -9847,6 +9848,37 @@ unpack({10, 20, 30}, 2, 2)  -- 20
 `i` defaults to `1` and `j` to the table length — the `table.getn`
 length, so a vararg `arg` table's `n` field is honored and embedded nils
 keep their slots. Errors on a non-table first argument, exactly like 5.1.
+
+### `xpcall(f, msgh [, arg1, ...])`
+
+Calls `f` under the message handler `msgh`, passing the trailing arguments
+to `f`. Returns `true` plus everything `f` returned, or `false` plus the
+handler's return.
+
+Stock `xpcall` takes only `(f, msgh)` and calls `f` with no arguments. It
+does not error on extra arguments — it discards them, so a function that
+reads its parameters receives nil. ClassicAPI forwards them instead:
+
+```lua
+local ok, sum = xpcall(function(a, b) return a + b end, geterrorhandler(), 2, 3)
+-- ok = true, sum = 5
+```
+
+A two-argument call behaves exactly as before, so the capturing-closure
+form stays correct and needs no change:
+
+```lua
+xpcall(function() return f(a, b) end, handler)
+```
+
+Available to in-game addons and glue-screen code alike.
+
+Note that `error("...")` does not reach the handler. WoW replaces Lua's
+`error` with one that reports through `geterrorhandler()` and then returns
+normally, so `f` looks like it finished and you get `true` with the message
+printed to chat. Real runtime errors — indexing or calling nil, arithmetic
+on a non-number — do reach the handler. To abort into it deliberately, cause
+one of those: `(nil)()` is the shortest.
 
 ### `collectgarbage(opt [, arg])`
 
