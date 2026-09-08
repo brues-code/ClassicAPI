@@ -31,6 +31,18 @@ const Set *FindByID(uint32_t setID);
 const Set *FindByName(const char *name);
 int IndexOf(uint32_t setID); // 0-based; -1 if missing
 
+// Every set that includes the item instance `itemGuid`, in set order.
+// Empty when the item belongs to no set, and for the reserved
+// `GUID_EMPTY` / `GUID_IGNORED` sentinels — those mark a slot as empty
+// or skipped, so they are never a real item and must not match.
+//
+// Matching is by GUID, so it identifies the one physical item that was
+// saved into the set rather than any copy of the same itemID: a second
+// Arcanite Reaper in the bag next to the set's own does not report as
+// part of the set. Pointers reference `All()`'s storage and stay valid
+// until the next mutation.
+std::vector<const Set *> SetsContainingItem(uint64_t itemGuid);
+
 // Mutations — bump-and-save semantics. Each returns the affected
 // set's ID (or 0 on failure), persists to disk, and fires
 // `EQUIPMENT_SETS_CHANGED`. Callers don't need to manage the file

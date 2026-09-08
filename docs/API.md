@@ -81,6 +81,9 @@ build instructions.
   - [`C_Container.GetContainerItemRepairCost(containerIndex, slotIndex)`](#c_containergetcontaineritemrepaircostcontainerindex-slotindex)
   - [`C_Container.GetContainerItemCharges(containerIndex, slotIndex)`](#c_containergetcontaineritemchargescontainerindex-slotindex)
   - [`C_Container.GetContainerNumFreeSlots(bagID)`](#c_containergetcontainernumfreeslotsbagid)
+  - [`C_Container.GetContainerFreeSlots(bagID)`](#c_containergetcontainerfreeslotsbagid)
+  - [`C_Container.GetContainerItemQuestInfo(containerIndex, slotIndex)`](#c_containergetcontaineritemquestinfocontainerindex-slotindex)
+  - [`C_Container.GetContainerItemEquipmentSetInfo(containerIndex, slotIndex)`](#c_containergetcontaineritemequipmentsetinfocontainerindex-slotindex)
   - [`C_Container.CalculateTotalNumberOfFreeBagSlots()`](#c_containercalculatetotalnumberoffreebagslots)
   - [`C_Container.IsContainerItemOpenable(containerIndex, slotIndex)`](#c_containeriscontaineritemopenablecontainerindex-slotindex)
   - [`C_Container.PlayerHasHearthstone()`](#c_containerplayerhashearthstone)
@@ -91,6 +94,8 @@ build instructions.
   - [`C_Container.SortBags()`](#c_containersortbags)
   - [`C_Container.SortBankBags()`](#c_containersortbankbags)
   - [`C_Container.GetSortBagsRightToLeft()` / `C_Container.SetSortBagsRightToLeft(enable)`](#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable)
+  - [`C_Container.GetBackpackAutosortDisabled()` / `C_Container.SetBackpackAutosortDisabled(disable)`](#c_containergetbackpackautosortdisabled--c_containersetbackpackautosortdisableddisable)
+  - [`C_Container.GetBankAutosortDisabled()` / `C_Container.SetBankAutosortDisabled(disable)`](#c_containergetbankautosortdisabled--c_containersetbankautosortdisableddisable)
 
 - [Creature](#creature)
   - [`C_CreatureInfo.GetCreatureID(guid)`](#c_creatureinfogetcreatureidguid)
@@ -2091,6 +2096,105 @@ internally and counts slots that resolve to a null `CGItem *` (i.e.,
 empty). Cross-checked in-game against a manual
 `C_Container.GetContainerItemID` walk; counts match.
 
+### `C_Container.GetContainerFreeSlots(bagID)`
+
+Returns which slots in a bag are empty, as a table of slot numbers in
+ascending order.
+
+```
+freeSlots = C_Container.GetContainerFreeSlots(bagID)
+```
+
+- `bagID = 0` — the player's main backpack.
+- `bagID = 1..4` — the player's equipped bag slots. If no bag is
+  equipped there, the call returns nothing.
+- Other `bagID` values (bank, keyring, out of range) return nothing.
+
+A full bag returns an empty table. A bag that is not there returns
+nothing at all, so an empty table and a missing bag stay easy to tell
+apart:
+
+```lua
+local freeSlots = C_Container.GetContainerFreeSlots(bagID)
+if freeSlots then
+    for _, slot in ipairs(freeSlots) do
+        -- slot is empty
+    end
+end
+```
+
+Use [`C_Container.GetContainerNumFreeSlots`](#c_containergetcontainernumfreeslotsbagid)
+when you only need how many there are.
+
+### `C_Container.GetContainerItemQuestInfo(containerIndex, slotIndex)`
+
+Returns the quest state of one bag slot, as a single table.
+
+```
+questInfo = C_Container.GetContainerItemQuestInfo(containerIndex, slotIndex)
+```
+
+The table holds three fields:
+
+- `isQuestItem` — `true` when the item is a quest item.
+- `questID` — the quest the item begins, or `nil` when it begins no
+  quest.
+- `isActive` — `true` when the quest in `questID` is already in the
+  player's quest log.
+
+`questID` is the quest the item *starts*, not a quest the item counts
+towards. Together the three fields say which marker a bag button should
+show: a `questID` the player has not accepted yet takes the exclamation
+mark, and either an accepted `questID` or a plain quest item takes the
+question-mark border.
+
+```lua
+local questInfo = C_Container.GetContainerItemQuestInfo(bag, slot)
+if questInfo.questID and not questInfo.isActive then
+    -- this item starts a quest the player has not picked up
+elseif questInfo.questID or questInfo.isQuestItem then
+    -- quest-related item
+end
+```
+
+The table always comes back, so the fields are safe to read directly. An
+empty slot reports `isQuestItem = false`, no `questID`, and
+`isActive = false`.
+
+> **The first read of an item can be blank.** An item whose data has not
+> arrived from the server yet reports the empty answer above, and asks
+> for that data. Read it again after `GET_ITEM_INFO_RECEIVED` or the next
+> `BAG_UPDATE` and it will be right.
+
+### `C_Container.GetContainerItemEquipmentSetInfo(containerIndex, slotIndex)`
+
+Returns whether the item in a bag slot belongs to an equipment set, and
+the names of the sets it belongs to.
+
+```
+inSet, setList = C_Container.GetContainerItemEquipmentSetInfo(containerIndex, slotIndex)
+```
+
+- `inSet` — `true` when the item is part of at least one equipment set.
+- `setList` — the set names joined with `", "`, in the order the sets
+  are stored. `nil` when the item is in no set.
+
+```lua
+local inSet, setList = C_Container.GetContainerItemEquipmentSetInfo(bag, slot)
+if inSet then
+    GameTooltip:AddLine("Equipment Sets: " .. setList)
+end
+```
+
+The match is on the exact item, not on the kind of item. An equipment
+set remembers the individual item that was saved into it, so a second
+copy of the same item in another slot reports `false` while the saved
+one reports `true`. Reorganising your bags does not change the answer:
+the item keeps its identity wherever it is stored.
+
+An empty slot, and a slot in a bag you do not have, both report
+`false`.
+
 ### `C_Container.CalculateTotalNumberOfFreeBagSlots()`
 
 Returns the total number of free slots across the player's
@@ -2447,6 +2551,35 @@ C_Container.SortBags()
 
 The setting is saved, so it survives logging out. It is stored as the
 `sortBagsRightToLeft` console variable, which `GetCVar` also reads.
+
+### `C_Container.GetBackpackAutosortDisabled()` / `C_Container.SetBackpackAutosortDisabled(disable)`
+
+Keeps the backpack out of `C_Container.SortBags()`. `Get` returns
+whether it is disabled. `Set` returns nothing, and applies to the next
+sort rather than re-sorting straight away.
+
+While it is on, a sort leaves every item in the backpack where it is and
+arranges only the equipped bags.
+
+```lua
+C_Container.SetBackpackAutosortDisabled(true)
+C_Container.SortBags() -- bags 1..4 only
+```
+
+The setting is saved, so it survives logging out. It is stored as the
+`backpackAutosortDisabled` console variable, which `GetCVar` also reads.
+
+### `C_Container.GetBankAutosortDisabled()` / `C_Container.SetBankAutosortDisabled(disable)`
+
+The same setting for the bank: it keeps the main bank container out of
+`C_Container.SortBankBags()`, leaving only the bank bags to be arranged.
+
+```lua
+C_Container.SetBankAutosortDisabled(true)
+C_Container.SortBankBags() -- bank bags only
+```
+
+Stored as the `bankAutosortDisabled` console variable.
 
 ## Creature
 

@@ -19,6 +19,7 @@
 #include "item/Record.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace Container::FreeSlots {
 
@@ -115,6 +116,46 @@ int __fastcall Script_C_Container_GetContainerNumFreeSlots(void *L) {
     return 2;
 }
 
+// `C_Container.GetContainerFreeSlots(bagID)` — which slots are empty,
+// as an array of slot numbers in ascending order, rather than
+// `GetContainerNumFreeSlots`'s count of them. A full bag returns an
+// empty table; a bag that isn't there returns nothing, which is how
+// callers tell "no free slots" from "no such bag".
+//
+// `bagID` is 0..4 like the rest of this file (0 = backpack, 1..4 =
+// equipped bag slots); bank and keyring indices are the "no such bag"
+// case.
+int __fastcall Script_C_Container_GetContainerFreeSlots(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L,
+            "Usage: C_Container.GetContainerFreeSlots(bagID)");
+        return 0;
+    }
+    const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
+
+    const BagInfo info = ResolveBagInfo(bagID);
+    if (info.slotCount <= 0)
+        return 0; // nothing — no such bag
+
+    // Collect before building the table. Each `ResolveBag` stomps stack
+    // slots 1 and 2, so the table cannot be on the stack during the walk.
+    std::vector<int> freeSlots;
+    freeSlots.reserve(static_cast<size_t>(info.slotCount));
+    for (int slot = 1; slot <= info.slotCount; ++slot) {
+        if (Item::Location::ResolveBag(L, bagID, slot) == nullptr)
+            freeSlots.push_back(slot);
+    }
+
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::NewTable(L);
+    for (size_t i = 0; i < freeSlots.size(); ++i) {
+        Game::Lua::PushNumber(L, static_cast<double>(i + 1));
+        Game::Lua::PushNumber(L, static_cast<double>(freeSlots[i]));
+        Game::Lua::RawSet(L, -3);
+    }
+    return 1;
+}
+
 // `C_Container.CalculateTotalNumberOfFreeBagSlots()` — the total number of
 // free slots across the player's *general-purpose* bags (backpack + equipped
 // bags 0..4 whose BagFamily is 0). Specialty bags (quivers, soul bags, herb
@@ -146,6 +187,8 @@ int __fastcall Script_C_Container_CalculateTotalNumberOfFreeBagSlots(void *L) {
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerNumFreeSlots",
                                      &Script_C_Container_GetContainerNumFreeSlots);
+    Game::Lua::RegisterTableFunction("C_Container", "GetContainerFreeSlots",
+                                     &Script_C_Container_GetContainerFreeSlots);
     Game::Lua::RegisterTableFunction("C_Container", "CalculateTotalNumberOfFreeBagSlots",
                                      &Script_C_Container_CalculateTotalNumberOfFreeBagSlots);
 }

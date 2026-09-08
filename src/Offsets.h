@@ -3203,7 +3203,14 @@ enum Offsets {
     OFF_ITEMSTATS_PAGE_TEXT = 0x19C,       // u32 — PageText.dbc row (readable books)
     OFF_ITEMSTATS_LANGUAGE_ID = 0x1A0,     // u32 — language for book text
     OFF_ITEMSTATS_PAGE_MATERIAL = 0x1A4,   // u32 — book material
-    OFF_ITEMSTATS_START_QUEST = 0x1A8,     // u32 — questID started by right-click
+    // u32 — the quest this item BEGINS (the tooltip's "This Item Begins
+    // a Quest" line), not one it is an objective for; 0 = starts nothing.
+    // Both of the binary's references to the `ITEM_STARTS_QUEST`
+    // global-string name at `0x0084e4fc` are in the tooltip builder
+    // `FUN_0052b650`, which reads the neighbouring `m_lockID` as
+    // `puVar4[0x6b]` (= +0x1AC) — so this field is `puVar4[0x6a]`.
+    // Read by `C_Container.GetContainerItemQuestInfo` as its `questID`.
+    OFF_ITEMSTATS_START_QUEST = 0x1A8,
     OFF_ITEMSTATS_MATERIAL = 0x1B0,        // i32 — material type
     OFF_ITEMSTATS_SHEATH = 0x1B4,          // u32 — weapon sheath style
     OFF_ITEMSTATS_RANDOM_PROPERTY = 0x1B8, // i32 — random property template

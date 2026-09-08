@@ -88,6 +88,22 @@ bool RightToLeft() {
     return CVar::Factory::GetInt(g_rightToLeftCVar, 0) != 0;
 }
 
+// The two containers a sort can be told to leave alone. An equipped bag
+// is excluded per-bag through its own `DisableAutoSort` slot flag; the
+// backpack and the main bank container have no such slot, so each gets
+// its own setting. Persisted as cvars for the same reason the fill
+// direction is.
+CVar::Factory::Handle g_backpackAutosortCVar = nullptr;
+CVar::Factory::Handle g_bankAutosortCVar = nullptr;
+
+bool BackpackAutosortDisabled() {
+    return CVar::Factory::GetInt(g_backpackAutosortCVar, 0) != 0;
+}
+
+bool BankAutosortDisabled() {
+    return CVar::Factory::GetInt(g_bankAutosortCVar, 0) != 0;
+}
+
 // Merge packets sent by the most recent phase one, reset per sort.
 int g_mergePackets = 0;
 
@@ -766,14 +782,37 @@ void StartSort(const int *bags, int bagCount) {
 // the work spans at least two frames. A call while a sort is already in
 // flight is ignored rather than queued, so a held-down keybind cannot
 // stack them up — and neither can sorting bags and bank at once.
+// Runs a sort over `bags`, dropping `excluded` when its autosort setting
+// says to leave that container alone. Dropping a bag from the set is all
+// it takes: the snapshot, the comparator and the placement only ever see
+// the bags they are handed, so an excluded bag is neither read from nor
+// written to.
+void StartSortExcluding(const int *bags, int count, int excluded,
+                        bool excludeIt) {
+    if (!excludeIt) {
+        StartSort(bags, count);
+        return;
+    }
+    std::vector<int> kept;
+    kept.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        if (bags[i] != excluded)
+            kept.push_back(bags[i]);
+    }
+    if (!kept.empty())
+        StartSort(kept.data(), static_cast<int>(kept.size()));
+}
+
 int __fastcall Script_C_Container_SortBags(void * /*L*/) {
-    StartSort(kInventoryBags,
-              sizeof(kInventoryBags) / sizeof(kInventoryBags[0]));
+    StartSortExcluding(kInventoryBags,
+                       sizeof(kInventoryBags) / sizeof(kInventoryBags[0]),
+                       /*excluded*/ 0, BackpackAutosortDisabled());
     return 0;
 }
 
 int __fastcall Script_C_Container_SortBankBags(void * /*L*/) {
-    StartSort(kBankBags, sizeof(kBankBags) / sizeof(kBankBags[0]));
+    StartSortExcluding(kBankBags, sizeof(kBankBags) / sizeof(kBankBags[0]),
+                       /*excluded*/ -1, BankAutosortDisabled());
     return 0;
 }
 
@@ -835,9 +874,38 @@ int __fastcall Script_GetSortBagsRightToLeft(void *L) {
     return 1;
 }
 
+// `C_Container.SetBackpackAutosortDisabled(disable)` /
+// `C_Container.SetBankAutosortDisabled(disable)` — keep that container
+// out of `SortBags` / `SortBankBags`. No return, matching the modern
+// signatures; the paired getters report the stored setting.
+int __fastcall Script_SetBackpackAutosortDisabled(void *L) {
+    CVar::Factory::SetInt(g_backpackAutosortCVar,
+                          Game::Lua::ToBoolean(L, 1) != 0 ? 1 : 0);
+    return 0;
+}
+
+int __fastcall Script_GetBackpackAutosortDisabled(void *L) {
+    Game::Lua::PushBool(L, BackpackAutosortDisabled());
+    return 1;
+}
+
+int __fastcall Script_SetBankAutosortDisabled(void *L) {
+    CVar::Factory::SetInt(g_bankAutosortCVar,
+                          Game::Lua::ToBoolean(L, 1) != 0 ? 1 : 0);
+    return 0;
+}
+
+int __fastcall Script_GetBankAutosortDisabled(void *L) {
+    Game::Lua::PushBool(L, BankAutosortDisabled());
+    return 1;
+}
+
 void RegisterLuaFunctions() {
     // Dedups by name, so re-registering each reload is harmless.
     g_rightToLeftCVar = CVar::Factory::Register("sortBagsRightToLeft", "0");
+    g_backpackAutosortCVar =
+        CVar::Factory::Register("backpackAutosortDisabled", "0");
+    g_bankAutosortCVar = CVar::Factory::Register("bankAutosortDisabled", "0");
 
     Game::Lua::RegisterTableFunction("C_Container", "SortBags",
                                      &Script_C_Container_SortBags);
@@ -847,6 +915,14 @@ void RegisterLuaFunctions() {
                                      &Script_GetSortBagsRightToLeft);
     Game::Lua::RegisterTableFunction("C_Container", "SortBankBags",
                                      &Script_C_Container_SortBankBags);
+    Game::Lua::RegisterTableFunction("C_Container", "SetBackpackAutosortDisabled",
+                                     &Script_SetBackpackAutosortDisabled);
+    Game::Lua::RegisterTableFunction("C_Container", "GetBackpackAutosortDisabled",
+                                     &Script_GetBackpackAutosortDisabled);
+    Game::Lua::RegisterTableFunction("C_Container", "SetBankAutosortDisabled",
+                                     &Script_SetBankAutosortDisabled);
+    Game::Lua::RegisterTableFunction("C_Container", "GetBankAutosortDisabled",
+                                     &Script_GetBankAutosortDisabled);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsStats",
                                       &Script_SortBagsStats);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsBags",

@@ -143,6 +143,25 @@ int IndexOf(uint32_t setID) {
     return -1;
 }
 
+std::vector<const Set *> SetsContainingItem(uint64_t itemGuid) {
+    EnsureLoaded();
+    std::vector<const Set *> found;
+    // The sentinels are slot markers, not items — a set with an empty or
+    // ignored slot must not match a caller that hands us one of them.
+    if (itemGuid == GUID_EMPTY || itemGuid == GUID_IGNORED)
+        return found;
+
+    for (const Set &s : g_sets) {
+        for (int i = 0; i < SLOT_COUNT; ++i) {
+            if (s.items[i] == itemGuid) {
+                found.push_back(&s);
+                break; // one hit per set, however many slots match
+            }
+        }
+    }
+    return found;
+}
+
 uint32_t Create(const char *name, const char *icon) {
     EnsureLoaded();
     if (g_path.empty() || name == nullptr || name[0] == '\0')
