@@ -122,7 +122,6 @@ build instructions.
 - [Cursor](#cursor)
   - [`GetCursorInfo()`](#getcursorinfo)
   - [`CURSOR_CHANGED` event](#cursor_changed-event)
-  - [`Enum.UICursorType`](#enumuicursortype)
 
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
@@ -304,6 +303,7 @@ build instructions.
   - [`Enum.PowerType`](#enumpowertype)
   - [`Enum.SpellBookSpellBank`](#enumspellbookspellbank)
   - [`Enum.SpellBookItemType`](#enumspellbookitemtype)
+  - [`Enum.UICursorType`](#enumuicursortype)
 
 - [Glue](#glue)
   - [`C_Glue.IsFirstLoadThisSession()`](#c_glueisfirstloadthissession)
@@ -3080,10 +3080,10 @@ CURSOR_CHANGED: isDefault, newCursorType, oldCursorType, oldCursorVirtualID
   holding something (write `if isDefault then` — the event dispatcher
   cannot push real booleans).
 - **`newCursorType`** (number) — what the cursor holds now, as an
-  `Enum.UICursorType` value.
+  [`Enum.UICursorType`](#enumuicursortype) value.
 - **`oldCursorType`** (number) — what it held before, same enum.
 - **`oldCursorVirtualID`** (number) — the previous content's
-  identifying number: itemID, spellID, macro index, merchant slot, or a
+  identifying number: itemID, spellID, macro slot, merchant slot, or a
   money amount in copper. `0` when the cursor was empty.
 
 ```lua
@@ -3113,32 +3113,6 @@ change rather than during it.
 Two holdings that look alike still count as a change: picking up one of
 two identical stacks, dropping it, and picking up the other reports each
 pickup separately.
-
-### `Enum.UICursorType`
-
-The cursor-content types `CURSOR_CHANGED` reports.
-
-| Field | Value | Occurs here |
-|-------|-------|-------------|
-| `Default` | 0 | yes — cursor empty |
-| `Item` | 1 | yes |
-| `Money` | 2 | yes |
-| `Spell` | 3 | yes |
-| `PetAction` | 4 | yes |
-| `Merchant` | 5 | yes |
-| `ActionBar` | 6 | no |
-| `Macro` | 7 | yes |
-| `Ammo` | 8 | no |
-| `Pet` | 9 | yes — a pet dragged in the stable |
-| `GuildBank` … `PerksProgramVendorItem` | 10-20 | no |
-
-Every field is present so a comparison against any of them is valid,
-but the ones marked "no" name content this client does not have, so
-they never come through as a cursor type.
-
-`PetAction` and `Pet` are the two types `GetCursorInfo` returns `nil`
-for — there is no type string that fits them, but the enum does name
-them, so the event reports them.
 
 ## EquipmentSet
 
@@ -7224,6 +7198,33 @@ exist for signature parity but never occur.
 | `2`   | `FutureSpell` | A not-yet-learned trainer spell. Never occurs. |
 | `3`   | `PetAction`   | A pet-book spell. |
 | `4`   | `Flyout`      | A flyout group. Never occurs. |
+
+### `Enum.UICursorType`
+
+What the cursor is holding. Reported as the `newCursorType` and
+`oldCursorType` arguments of
+[`CURSOR_CHANGED`](#cursor_changed-event).
+
+| Value | Field | Notes |
+|------:|-------|-------|
+| `0` | `Default` | Cursor empty. |
+| `1` | `Item` | |
+| `2` | `Money` | |
+| `3` | `Spell` | |
+| `4` | `PetAction` | |
+| `5` | `Merchant` | |
+| `6` | `ActionBar` | Never occurs. |
+| `7` | `Macro` | |
+| `8` | `Ammo` | Never occurs. |
+| `9` | `Pet` | A pet dragged in the stable. |
+| `10`-`20` | `GuildBank` … `PerksProgramVendorItem` | Never occur. |
+
+The values marked "never occur" name content this client does not have.
+They are still defined, so comparing against any field is valid.
+
+`PetAction` and `Pet` are the two types
+[`GetCursorInfo`](#getcursorinfo) returns `nil` for — no type string
+fits them, but the enum names them, so the event reports them.
 
 ## Glue
 
