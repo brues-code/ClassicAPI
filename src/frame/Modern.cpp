@@ -331,63 +331,6 @@ int __fastcall Script_HookScript(void *L) {
     return 0;
 }
 
-// ---- IsEventRegistered (Frame) ---------------------------------------------
-
-// `frame:IsEventRegistered("event")` — vanilla has RegisterEvent /
-// UnregisterEvent but not the query. There's no engine Script_* to
-// delegate to, so we replicate the membership check that lives inside
-// Frame::RegisterEvent (FUN_00702140): find the event by name in the live
-// event table, then walk that entry's subscriber chain for this frame.
-// The frame pointer we compare against is the same CFrameScriptObject*
-// the engine stores (Game::Lua::ResolveObject resolves self exactly as
-// Script_RegisterEvent does).
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
-
-bool FrameHasEvent(void *frame, const char *eventName) {
-    const uint32_t count = Game::Read<uint32_t>(
-        static_cast<uintptr_t>(Offsets::VAR_EVENT_TABLE_COUNT));
-    auto *base = Game::Read<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_EVENT_TABLE_BASE_PTR));
-    if (count == 0 || base == nullptr)
-        return false;
-
-    auto sstrcmpi = reinterpret_cast<SStrCmpI_t>(
-        static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I));
-
-    for (uint32_t i = 0; i < count; ++i) {
-        const uint8_t *entry = base + i * Offsets::EVENT_ENTRY_STRIDE;
-        const char *name = Game::Read<const char *>(
-            entry, Offsets::OFF_EVENT_ENTRY_NAME);
-        if (name == nullptr)
-            continue;
-        if (sstrcmpi(name, eventName, 0x7FFFFFFF) != 0)
-            continue;
-        // Names are unique, so this is the one entry — walk its chain.
-        uintptr_t node = Game::Read<uintptr_t>(
-            entry, Offsets::OFF_EVENT_ENTRY_HEAD);
-        while ((node & 1) == 0 && node != 0) {
-            if (Game::Read<void *>(node + Offsets::OFF_EVENT_NODE_FRAME) == frame)
-                return true;
-            node = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT);
-        }
-        return false;
-    }
-    return false;
-}
-
-int __fastcall Script_IsEventRegistered(void *L) {
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: frame:IsEventRegistered(\"event\")");
-        return 0;
-    }
-    void *frame = Game::Lua::ResolveObject(L, 1);
-    const char *eventName = Game::Lua::ToString(L, 2);
-    const bool registered =
-        frame != nullptr && eventName != nullptr && FrameHasEvent(frame, eventName);
-    Game::Lua::PushBool(L, registered);
-    return 1;
-}
-
 // ---- SetPoint one-arg form (Script_SetPoint co-hook) -----------------------
 
 // Vanilla's Script_SetPoint accepts every modern form except the bare
@@ -427,7 +370,6 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
                                   Offsets::FUN_SCRIPT_FRAME_HIDE>},
     {"SetResizeBounds", &Script_SetResizeBounds},
     {"HookScript", &Script_HookScript},
-    {"IsEventRegistered", &Script_IsEventRegistered},
     {"GetEffectiveAlpha", &Script_GetEffectiveAlpha},
 };
 

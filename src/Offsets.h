@@ -246,10 +246,15 @@ enum Offsets {
     // (the arg'd runner Frame::ScriptArgs hooks) and restores. Every arg'd
     // input-script fire funnels through here via FUN_007026F0 (its variadic
     // forwarder); the event dispatcher FUN_00703F50 is the only other caller.
-    // `Frame::ClickEvents` co-hooks it, gates on `slotPtr == frame +
-    // OFF_BUTTON_ONCLICK_HANDLER` (an exact OnClick match — no other fire passes
-    // that slot address), and fires PreClick before / PostClick after by
-    // re-invoking with the same (fmt, vaPtr) so the button-name arg is reused.
+    // ONE hook, owned by `Frame::RunnerHook`, fans out to subscribers that each
+    // claim a disjoint slot address (a second MinHook here would abort the
+    // whole install — subscribe instead): `Frame::ClickEvents` gates on
+    // `slotPtr == frame + OFF_BUTTON_ONCLICK_HANDLER` (an exact OnClick match —
+    // no other fire passes that slot) and brackets OnClick with PreClick /
+    // PostClick by re-invoking with the same (fmt, vaPtr) so the button-name
+    // arg is reused; `Frame::UnitEvent` gates on `slotPtr == frame +
+    // OFF_FRAME_ONEVENT_SLOT` (the dispatcher's per-frame OnEvent fire) and
+    // suppresses the call when a RegisterUnitEvent filter rejects arg1.
     // Deliberately NOT the button click vmethod FUN_00779540, which SuperWoW
     // inline-hooks for click-casting (a second hook there faults, ERROR #132 —
     // see the note near FUN_SCRIPT_FRAME_GET_STRATA); this runner is uncontested.
@@ -2258,6 +2263,16 @@ enum Offsets {
     FUN_SCRIPT_FRAME_SETMAXRESIZE = 0x007762A0,
     FUN_SCRIPT_FRAME_GETSCRIPT = 0x00774780,
     FUN_SCRIPT_FRAME_SETSCRIPT = 0x007748D0,
+    // `frame:RegisterEvent(event)` (Frame registry, `Script_RegisterEvent`) —
+    // standard `int __fastcall(void *L)`: resolves self at 1, reads the event
+    // name at 2, calls FUN_FRAME_REGISTER_EVENT. `Frame::UnitEvent` delegates
+    // `RegisterUnitEvent` to it by stack reshape so chain membership stays
+    // engine-owned (self typecheck, error text, and DllMain's RegisterEvent
+    // hook all run as for a plain call). Siblings from the same method table,
+    // referenced in comments only: UnregisterEvent 0x00774B30 (calls
+    // FUN_FRAME_UNREGISTER_EVENT), RegisterAllEvents 0x00774C20,
+    // UnregisterAllEvents 0x00774CF0 (calls FUN_FRAME_UNREGISTER_ALL_EVENTS).
+    FUN_SCRIPT_FRAME_REGISTEREVENT = 0x00774A40,
     // `frame:EnableMouse(enable)` (Frame registry) — `Frame::Attributes` calls
     // it so a unit-attributed frame registers as the mouse-focus (bare frames
     // otherwise never hover). Standard `int __fastcall(void *L)` Script_* shape.
@@ -5549,11 +5564,29 @@ enum Offsets {
 
     // `Frame::RegisterEvent` — the C++ helper called by the Lua
     // `frame:RegisterEvent(eventName)` method (`Script_RegisterEvent` at
-    // `0x00774A40`). `__thiscall` with `(this=frame, eventName)`. Walks
-    // the entry array at `[VAR_EVENT_TABLE_BASE_PTR]`, case-insensitively
-    // strcmps against each entry's name, and appends `frame` to the
-    // matching entry's chain.
+    // `0x00774A40` = FUN_SCRIPT_FRAME_REGISTEREVENT). `__thiscall` with
+    // `(this=frame, eventName)`. Walks the entry array at
+    // `[VAR_EVENT_TABLE_BASE_PTR]`, case-insensitively strcmps against each
+    // entry's name, appends `frame` to the matching entry's chain, and appends
+    // the event index to the frame's own registered-event list (`+0x14` cap,
+    // `+0x18` count, `+0x1C` int[]). Returns 1 when the frame was ALREADY on
+    // that chain (no-op), 0 after appending.
     FUN_FRAME_REGISTER_EVENT = 0x00702140,
+    // `Frame::UnregisterEvent` — `__thiscall(this=frame, eventName)`. Walks
+    // the frame's registered-event list backwards for the entry whose name
+    // matches (SStrCmpI), unlinks + frees the frame's `__AUEVENTLISTENERNODE__`
+    // from that chain, and compacts the list. Sole caller is the Lua wrapper
+    // `Script_UnregisterEvent` (0x00774B30). `Frame::UnitEvent` co-hooks it to
+    // drop the (frame, event) unit filter exactly when the engine drops the
+    // node — mirroring 5.4.8, where the filter LIVES on the node.
+    FUN_FRAME_UNREGISTER_EVENT = 0x00702280,
+    // `Frame::UnregisterAllEvents` — `__fastcall(frame)`. Unlinks the frame's
+    // node from every chain in its registered-event list, frees the list, and
+    // zeroes `+0x14/+0x18/+0x1C`. Callers: the Lua wrapper
+    // `Script_UnregisterAllEvents` (0x00774CF0) and the CScriptObject
+    // destructor FUN_00701B40 — so a hook here also sees frame destruction.
+    // `Frame::UnitEvent` co-hooks it to drop all of the frame's unit filters.
+    FUN_FRAME_UNREGISTER_ALL_EVENTS = 0x007024F0,
 
     // `RebuildEventTable` — the engine's bulk event-table population
     // routine. `__fastcall(const char **names, int count) -> void`

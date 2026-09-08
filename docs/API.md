@@ -234,6 +234,7 @@ build instructions.
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
+  - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
   - [`SetModernScriptArgs(enable)` / `GetModernScriptArgs()`](#setmodernscriptargsenable--getmodernscriptargs)
@@ -5327,19 +5328,67 @@ end)
 
 ### `frame:IsEventRegistered(event)`
 
-The engine ships `RegisterEvent` / `UnregisterEvent` but not the query.
-Returns `true` if the frame is currently registered for `event`,
-`false` otherwise (including for an unknown event name). Reuses the
-engine's own subscriber-chain membership check — the same walk
-`RegisterEvent` performs before appending — so the answer is exactly
-what the event dispatcher sees. Works on any frame.
+Returns `true` if the frame is registered for `event`, else `false` (also
+`false` for an unknown event name). If the registration came from
+`frame:RegisterUnitEvent`, the unit tokens follow as extra returns, in the
+order they were given. Works on any frame.
 
 ```lua
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:IsEventRegistered("PLAYER_LOGIN")   -- true
 f:IsEventRegistered("PLAYER_LOGOUT")  -- false
+
+f:RegisterUnitEvent("UNIT_HEALTH", "player", "target")
+f:IsEventRegistered("UNIT_HEALTH")    -- true, "player", "target"
 ```
+
+### `frame:RegisterUnitEvent(event, ...units)`
+
+Registers the frame for `event`, but the frame's `OnEvent` runs only when the
+event's first argument (the unit token) is one of `units`. Use it in place of
+`RegisterEvent` for `UNIT_*` events, so a handler for one unit does not receive
+every other unit's events. Returns whether the frame is now registered.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterUnitEvent("UNIT_HEALTH", "player")
+f:SetScript("OnEvent", function(self, event, unit)
+    -- unit is always "player" here
+end)
+```
+
+Unit tokens compare without regard to case. Every token that names a unit
+works, including `focus`, `nameplateN`, and `markN`. A unit that is several
+tokens at once (your target who is also `party1`) fires the event once for
+each token that matches.
+
+Pass as many units as you need. Other clients take at most four, so keep to
+four for code you also run elsewhere — accepting more is a ClassicAPI
+extension.
+
+```lua
+f:RegisterUnitEvent("UNIT_HEALTH", "player", "party1", "party2", "party3")
+```
+
+Behavior notes:
+
+- A registration keeps its kind until you unregister it. `RegisterEvent` on a
+  unit-filtered registration keeps the filter. `RegisterUnitEvent` on a plain
+  registration keeps it plain. `RegisterUnitEvent` on a unit-filtered
+  registration replaces the units. To switch kinds, call `UnregisterEvent`
+  first.
+- If you give no unit, or no unit argument is a string, the call acts as
+  `RegisterEvent`.
+- The filter applies only when the event's first argument is a string. For an
+  event whose first argument is a number, or that has no arguments, the frame
+  receives the event as with `RegisterEvent`.
+- `UnregisterEvent` and `UnregisterAllEvents` remove the filter with the
+  registration.
+- `frame:IsEventRegistered(event)` returns the unit tokens after the boolean.
+
+`FrameUtil.RegisterFrameForUnitEvents(frame, events, ...units)` calls
+`RegisterUnitEvent` for each event in the `events` table.
 
 ### `frame:GetEffectiveAlpha()`
 

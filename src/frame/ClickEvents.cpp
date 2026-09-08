@@ -29,10 +29,11 @@
 //
 //   - The engine fires a button's OnClick through the arg'd script runner
 //     FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT(frame, frame+0x4CC, "%s", &buttonName).
-//     We co-hook that runner and, when the fired slot IS the OnClick slot,
-//     re-invoke the runner for our PreClick cell first, then let OnClick run,
-//     then re-invoke for PostClick — reusing the SAME (fmt, varargs) so
-//     PreClick/PostClick receive arg1 = the button name exactly like OnClick.
+//     We intercept that runner (through `Frame::RunnerHook`, the shared single
+//     hook on it) and, when the fired slot IS the OnClick slot, re-invoke the
+//     runner for our PreClick cell first, then let OnClick run, then re-invoke
+//     for PostClick — reusing the SAME (fmt, varargs) so PreClick/PostClick
+//     receive arg1 = the button name exactly like OnClick.
 //
 // Why the runner and not the button click vmethod (FUN_00779540): SuperWoW
 // inline-hooks that vmethod for click-casting, and a second MinHook there
@@ -50,6 +51,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/RunnerHook.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -122,13 +124,12 @@ int __fastcall Resolver_h(void *self, void *edx, const char *name) {
     return 0;
 }
 
-// --- Runner co-hook (fire PreClick before / PostClick after OnClick) ---
-using RunScript_t = void(__cdecl *)(void *frame, uint32_t *slotPtr,
-                                    const char *fmt, void *varargs);
-RunScript_t g_runOriginal = nullptr;
+// --- Runner interceptor (fire PreClick before / PostClick after OnClick) ---
+// Subscribed to `Frame::RunnerHook`, the single shared hook on
+// FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT (MinHook allows one hook per address).
 
 // Fire the handler (if any) for `kind` on `frame`, reusing the OnClick fire's
-// own (fmt, varargs) so arg1 = the button name. We call the original runner
+// own (fmt, varargs) so arg1 = the button name. We call the engine runner
 // directly (its exec-context stamp is valid at this dispatch level). The runner
 // balances the Lua stack itself; we snapshot/restore the top as cheap insurance
 // against any imbalance leaking to the still-running button click code.
@@ -138,26 +139,25 @@ void FireCell(void *frame, int kind, const char *fmt, void *varargs) {
         return;
     void *L = Game::Lua::State();
     const int savedTop = (L != nullptr) ? Game::Lua::GetTop(L) : 0;
-    g_runOriginal(frame, slot, fmt, varargs);
+    Frame::RunnerHook::Original(frame, slot, fmt, varargs);
     if (L != nullptr)
         Game::Lua::SetTop(L, savedTop);
 }
 
-void __cdecl RunScript_h(void *frame, uint32_t *slotPtr, const char *fmt,
-                         void *varargs) {
+// Falls through (false) for every fire that isn't a top-level OnClick;
+// otherwise runs the whole bracket itself and reports it handled (true).
+bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     const auto onClickSlot = reinterpret_cast<uint32_t *>(
         reinterpret_cast<char *>(frame) + Offsets::OFF_BUTTON_ONCLICK_HANDLER);
-
-    if (slotPtr != onClickSlot || g_firing > 0) {
-        g_runOriginal(frame, slotPtr, fmt, varargs);
-        return;
-    }
+    if (slotPtr != onClickSlot || g_firing > 0)
+        return false;
 
     ++g_firing;
     FireCell(frame, SK_PRECLICK, fmt, varargs);
-    g_runOriginal(frame, slotPtr, fmt, varargs); // the button's OnClick
+    Frame::RunnerHook::Original(frame, slotPtr, fmt, varargs); // the button's OnClick
     FireCell(frame, SK_POSTCLICK, fmt, varargs);
     --g_firing;
+    return true;
 }
 
 static const Game::HookAutoRegister _resolverHook{
@@ -165,10 +165,7 @@ static const Game::HookAutoRegister _resolverHook{
     reinterpret_cast<void *>(&Resolver_h),
     reinterpret_cast<void **>(&g_resolverOriginal)};
 
-static const Game::HookAutoRegister _runnerHook{
-    Offsets::FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT,
-    reinterpret_cast<void *>(&RunScript_h),
-    reinterpret_cast<void **>(&g_runOriginal)};
+static const Frame::RunnerHook::AutoSubscribe _runnerSub{&OnRun};
 
 } // namespace
 

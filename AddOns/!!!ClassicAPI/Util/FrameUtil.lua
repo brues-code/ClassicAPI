@@ -3,14 +3,20 @@
 -- Only the dependency-light, commonly-called helpers are ported. Omitted:
 --   - the fade/flash functions (UIFrameFade*/UIFrameFlash*) are already
 --     native in 1.12.
---   - RegisterFrameForUnitEvents (no RegisterUnitEvent in 1.12), and the
---     scale/layout/secure/EventRegistry helpers (rely on APIs absent here).
+--   - the scale/layout/secure/EventRegistry helpers (rely on APIs absent
+--     here).
 
 FrameUtil = FrameUtil or {};
 
 function FrameUtil.RegisterFrameForEvents(frame, events)
     for i, event in ipairs(events) do
         frame:RegisterEvent(event);
+    end
+end
+
+function FrameUtil.RegisterFrameForUnitEvents(frame, events, ...)
+    for i, event in ipairs(events) do
+        frame:RegisterUnitEvent(event, unpack(arg));
     end
 end
 
