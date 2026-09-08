@@ -90,6 +90,7 @@ build instructions.
   - [`C_Container.AutoStoreItem(srcBag, srcSlot [, dstBag])`](#c_containerautostoreitemsrcbag-srcslot--dstbag)
   - [`C_Container.SortBags()`](#c_containersortbags)
   - [`C_Container.SortBankBags()`](#c_containersortbankbags)
+  - [`C_Container.GetSortBagsRightToLeft()` / `C_Container.SetSortBagsRightToLeft(enable)`](#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable)
 
 - [Creature](#creature)
   - [`C_CreatureInfo.GetCreatureID(guid)`](#c_creatureinfogetcreatureidguid)
@@ -2426,6 +2427,24 @@ C_Container.SortBankBags()
 > needs each item's max stack size. Until an item's data arrives from
 > the server that number is unknown, so a stack the client cannot
 > measure is left alone. Sorting your bags does not have this limit.
+
+### `C_Container.GetSortBagsRightToLeft()` / `C_Container.SetSortBagsRightToLeft(enable)`
+
+Sets which end of your bags a sort fills from. `Get` returns
+`isEnabled`. `Set` returns nothing, and applies to the next sort rather
+than re-sorting straight away.
+
+When it is on, the sorted items start at the last slot of the last bag,
+and junk collects at the first slot of the first bag. Both ends move
+together, so junk stays at the opposite end from everything else.
+
+```lua
+C_Container.SetSortBagsRightToLeft(true)
+C_Container.SortBags()
+```
+
+The setting is saved, so it survives logging out. It is stored as the
+`sortBagsRightToLeft` console variable, which `GetCVar` also reads.
 
 ## Creature
 

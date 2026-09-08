@@ -55,6 +55,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "bag/UpdateDelayed.h"
+#include "cvar/Factory.h"
 #include "item/BagFamily.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
@@ -77,6 +78,15 @@ namespace {
 // (see ConsolidateViaServer / ConsolidateLocally).
 constexpr int kInventoryBags[] = {0, 1, 2, 3, 4};
 constexpr int kBankBags[] = {-1, 5, 6, 7, 8, 9, 10};
+
+// Fill direction, persisted like every other engine setting: the cvar
+// carries it to Config.wtf and `GetCVar("sortBagsRightToLeft")` reads it,
+// so it survives a session the way the retail setting does.
+CVar::Factory::Handle g_rightToLeftCVar = nullptr;
+
+bool RightToLeft() {
+    return CVar::Factory::GetInt(g_rightToLeftCVar, 0) != 0;
+}
 
 // Merge packets sent by the most recent phase one, reset per sort.
 int g_mergePackets = 0;
@@ -598,6 +608,17 @@ void Place(const int *bags, int bagCount) {
 
     std::sort(items.begin(), items.end(), Precedes);
 
+    // Right-to-left is expressed entirely as reversed cell lists: the
+    // passes below still fill from the "front" and the "far end", those
+    // ends have just swapped which physical slot they mean. So the
+    // sorted run starts at the last slot of the last bag and junk
+    // collects at the first slot of the first, both flipping together.
+    if (RightToLeft()) {
+        std::reverse(general.begin(), general.end());
+        for (auto &p : specialty)
+            std::reverse(p.cells.begin(), p.cells.end());
+    }
+
     // Forward pass for everything but junk: a matching specialty bag
     // first, overflowing into the general cells. Junk then fills the
     // general cells from the far end, so it collects away from the rest
@@ -800,9 +821,30 @@ int __fastcall Script_SortBagsBags(void *L) {
     return pushed;
 }
 
+// `C_Container.SetSortBagsRightToLeft(enable)` — no return, matching the
+// modern signature. Takes effect on the next sort; it does not re-sort.
+int __fastcall Script_SetSortBagsRightToLeft(void *L) {
+    CVar::Factory::SetInt(g_rightToLeftCVar,
+                          Game::Lua::ToBoolean(L, 1) != 0 ? 1 : 0);
+    return 0;
+}
+
+// `C_Container.GetSortBagsRightToLeft()` -> isEnabled
+int __fastcall Script_GetSortBagsRightToLeft(void *L) {
+    Game::Lua::PushBool(L, RightToLeft());
+    return 1;
+}
+
 void RegisterLuaFunctions() {
+    // Dedups by name, so re-registering each reload is harmless.
+    g_rightToLeftCVar = CVar::Factory::Register("sortBagsRightToLeft", "0");
+
     Game::Lua::RegisterTableFunction("C_Container", "SortBags",
                                      &Script_C_Container_SortBags);
+    Game::Lua::RegisterTableFunction("C_Container", "SetSortBagsRightToLeft",
+                                     &Script_SetSortBagsRightToLeft);
+    Game::Lua::RegisterTableFunction("C_Container", "GetSortBagsRightToLeft",
+                                     &Script_GetSortBagsRightToLeft);
     Game::Lua::RegisterTableFunction("C_Container", "SortBankBags",
                                      &Script_C_Container_SortBankBags);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsStats",
