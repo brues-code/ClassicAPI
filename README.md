@@ -173,6 +173,7 @@ when launching with `-console`), not as Lua functions. See the
 |-------|---------|
 | `BAG_NEW_ITEMS_UPDATED` | *(none)* |
 | `BAG_UPDATE_DELAYED` | *(none)* |
+| `CURSOR_CHANGED` | `isDefault, newCursorType, oldCursorType, oldCursorVirtualID` |
 | `EQUIPMENT_SETS_CHANGED` | *(none)* |
 | `EQUIPMENT_SWAP_PENDING` | `setID` |
 | `EQUIPMENT_SWAP_FINISHED` | `success, setID` |
@@ -240,6 +241,7 @@ when launching with `-console`), not as Lua functions. See the
 | Inventory type | `Enum.InventoryType.Index*Type` (0–34, e.g. `IndexHeadType`=1 … `IndexRelicType`=28) |
 | Item class | `Enum.ItemClass.{Consumable,Container,Weapon,Gem,Armor,Reagent,Projectile,Tradegoods,ItemEnhancement,Recipe,Quiver,Questitem,Key,Miscellaneous,…}` (0–19) |
 | Item quality | `Enum.ItemQuality.{Poor,Common,Uncommon,Rare,Epic,Legendary,Artifact}` (0–6) |
+| Cursor type | `Enum.UICursorType.{Default,Item,Money,Spell,PetAction,Merchant,Macro,Pet,…}` (0–20; this client yields 0–5, 7 and 9) |
 | Spellbook bank | `Enum.SpellBookSpellBank.{Player,Pet}` (0–1) |
 | Spellbook item type | `Enum.SpellBookItemType.{None,Spell,FutureSpell,PetAction,Flyout}` (0–4; 1.12 only yields `Spell`/`PetAction`) |
 

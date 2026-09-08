@@ -7643,7 +7643,7 @@ enum Offsets {
     //   6/7 other drag-source items — itemID at
     //      `VAR_CURSOR_GENERIC_SLOT`. Type 7 is action-bar pickup
     //      (`FUN_004E6130`); type 6 is another drag path (mail/etc.).
-    //   8  macro — 1-based index at `VAR_CURSOR_MACRO_INDEX`
+    //   8  macro — macroID at `VAR_CURSOR_MACRO_ID`
     //   9  inventory item (equipped slot) — itemID stored at
     //      `VAR_CURSOR_GENERIC_SLOT`. Bare itemID rather than a GUID
     //      because the item is out of the descriptor stream while
@@ -7659,7 +7659,13 @@ enum Offsets {
     VAR_CURSOR_MONEY_COPPER = 0x00B4E2F0,
     VAR_CURSOR_SPELL_ID = 0x00B4E2F4,
     VAR_CURSOR_PETACTION_PACKED = 0x00B4E2F8,
-    VAR_CURSOR_MACRO_INDEX = 0x00B4E2FC,
+    // Holds the macro's **macroID**, not its slot — `Script_PickupMacro`
+    // (`0x004F1AE0`) turns the Lua 1-based index into a macroID via
+    // `FUN_004F0EB0` (`VAR_MACRO_SLOT_MAP[index]`) before storing it, so
+    // this reads as e.g. `0x01000003` rather than `4`. Convert back with
+    // `FUN_MACRO_ID_TO_SLOT(id) + 1` for anything that wants the slot
+    // `GetMacroInfo` takes.
+    VAR_CURSOR_MACRO_ID = 0x00B4E2FC,
     VAR_CURSOR_STABLEPET_INDEX = 0x00B4E300,
     VAR_CURSOR_GENERIC_SLOT = 0x00B4B41C,
     VAR_CURSOR_GENERIC_DISPLAY = 0x00B4D8EC,

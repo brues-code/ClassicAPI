@@ -121,6 +121,8 @@ build instructions.
 
 - [Cursor](#cursor)
   - [`GetCursorInfo()`](#getcursorinfo)
+  - [`CURSOR_CHANGED` event](#cursor_changed-event)
+  - [`Enum.UICursorType`](#enumuicursortype)
 
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
@@ -3065,6 +3067,78 @@ from `PickupAction`, etc. These don't map cleanly to any `GetCursorInfo`
 string, so we return `nil` for them. Consumers needing to detect those
 can use the engine-native `CursorHasItem` / `CursorHasSpell` /
 `CursorHasMoney` and the source-side `PickupX` calls.
+
+### `CURSOR_CHANGED` event
+
+Fires when what the cursor holds changes, and says what it held before:
+
+```
+CURSOR_CHANGED: isDefault, newCursorType, oldCursorType, oldCursorVirtualID
+```
+
+- **`isDefault`** — `1` when the cursor is now empty, `nil` when it is
+  holding something (write `if isDefault then` — the event dispatcher
+  cannot push real booleans).
+- **`newCursorType`** (number) — what the cursor holds now, as an
+  `Enum.UICursorType` value.
+- **`oldCursorType`** (number) — what it held before, same enum.
+- **`oldCursorVirtualID`** (number) — the previous content's
+  identifying number: itemID, spellID, macro index, merchant slot, or a
+  money amount in copper. `0` when the cursor was empty.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("CURSOR_CHANGED")
+f:SetScript("OnEvent", function()
+    if arg2 == Enum.UICursorType.Item then
+        -- an item was just picked up; GetCursorInfo() has the details
+    end
+end)
+```
+
+`CURSOR_UPDATE` is untouched and still fires as it always has, so
+nothing that listens to it needs changing. Prefer `CURSOR_CHANGED` for
+new code, because it reports every kind of cursor. `CURSOR_UPDATE`
+announces a pickup only for items: picking up money, a spell, a macro,
+a pet action or a stabled pet gives you one `CURSOR_UPDATE` that
+describes an *empty* cursor, and nothing at all once the new content is
+in place. `CURSOR_UPDATE` also fires in cases where the cursor did not
+change, such as one per item while a stack is moved.
+
+`CURSOR_CHANGED` compares the cursor against the last state it reported,
+so it fires once per real change and stays quiet otherwise. It is
+checked once a frame, which means it arrives on the frame after the
+change rather than during it.
+
+Two holdings that look alike still count as a change: picking up one of
+two identical stacks, dropping it, and picking up the other reports each
+pickup separately.
+
+### `Enum.UICursorType`
+
+The cursor-content types `CURSOR_CHANGED` reports.
+
+| Field | Value | Occurs here |
+|-------|-------|-------------|
+| `Default` | 0 | yes — cursor empty |
+| `Item` | 1 | yes |
+| `Money` | 2 | yes |
+| `Spell` | 3 | yes |
+| `PetAction` | 4 | yes |
+| `Merchant` | 5 | yes |
+| `ActionBar` | 6 | no |
+| `Macro` | 7 | yes |
+| `Ammo` | 8 | no |
+| `Pet` | 9 | yes — a pet dragged in the stable |
+| `GuildBank` … `PerksProgramVendorItem` | 10-20 | no |
+
+Every field is present so a comparison against any of them is valid,
+but the ones marked "no" name content this client does not have, so
+they never come through as a cursor type.
+
+`PetAction` and `Pet` are the two types `GetCursorInfo` returns `nil`
+for — there is no type string that fits them, but the enum does name
+them, so the event reports them.
 
 ## EquipmentSet
 

@@ -97,15 +97,47 @@ constexpr uint32_t TYPE_GENERIC_ITEM_LO = 6;
 constexpr uint32_t TYPE_GENERIC_ITEM_HI = 7;
 constexpr uint32_t TYPE_MACRO = 8;
 constexpr uint32_t TYPE_INVENTORY_ITEM = 9;
-// Type 10 is stable-pet pickup (`FUN_00495010`, the source of the
-// earlier misidentification as "merchant"). Modern WoW has no
-// equivalent `GetCursorInfo` return for stable pets, so we leave it
-// as nil.
+// Type 4 is pet-action pickup and type 10 is stable-pet pickup
+// (`FUN_00495010`, the source of the earlier misidentification as
+// "merchant"). Neither has an equivalent `GetCursorInfo` return, so
+// that function leaves both as nil — but `Enum.UICursorType` does name
+// them, so `Current()` below reports them.
+constexpr uint32_t TYPE_PET_ACTION = 4;
+constexpr uint32_t TYPE_STABLE_PET = 10;
+
+// `Enum.UICursorType` values, for `Current()`. The full enum is
+// registered in [[cursor/Changed.cpp]]; only the handful the 1.12
+// cursor can actually hold are named here.
+constexpr int UI_DEFAULT = 0;
+constexpr int UI_ITEM = 1;
+constexpr int UI_MONEY = 2;
+constexpr int UI_SPELL = 3;
+constexpr int UI_PET_ACTION = 4;
+constexpr int UI_MERCHANT = 5;
+constexpr int UI_MACRO = 7;
+constexpr int UI_PET = 9;
 
 constexpr uint32_t GUID_TYPE_FILTER_ITEM = 0x2;
 
 uint32_t ReadVar(uintptr_t va) {
     return *reinterpret_cast<const uint32_t *>(va);
+}
+
+// The macro cursor stores a macroID, not the slot Lua deals in (see
+// `VAR_CURSOR_MACRO_ID`). Hand it back through the engine's own reverse
+// scan of the slot map — the same conversion the legacy `CreateMacro`
+// wrapper does to produce the index it returns to Lua. 0 when the
+// macroID no longer maps to a slot, which is what an empty cursor
+// reports too.
+uint32_t CursorMacroSlot() {
+    const uint32_t macroID = ReadVar(Offsets::VAR_CURSOR_MACRO_ID);
+    if (macroID == 0)
+        return 0;
+    using IdToSlot_t = uint32_t(__fastcall *)(int macroID);
+    const uint32_t slot0 = reinterpret_cast<IdToSlot_t>(
+        static_cast<uintptr_t>(Offsets::FUN_MACRO_ID_TO_SLOT))(
+        static_cast<int>(macroID));
+    return (slot0 == 0xFFFFFFFFu) ? 0 : slot0 + 1;
 }
 
 int PushItem(void *L, const uint8_t *cgItem) {
@@ -222,11 +254,13 @@ int PushSpellCursor(void *L) {
 }
 
 int PushMacroCursor(void *L) {
-    const uint32_t index = ReadVar(Offsets::VAR_CURSOR_MACRO_INDEX);
-    if (index == 0)
+    // The 1-based slot, so the value feeds straight into `GetMacroInfo`
+    // — the cursor global itself holds a macroID.
+    const uint32_t slot = CursorMacroSlot();
+    if (slot == 0)
         return 0;
     Game::Lua::PushString(L, "macro");
-    Game::Lua::PushNumber(L, static_cast<double>(index));
+    Game::Lua::PushNumber(L, static_cast<double>(slot));
     return 2;
 }
 
@@ -268,6 +302,66 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 bool HasItem() {
     return ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_LO) != 0 ||
            ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_HI) != 0;
+}
+
+State Current() {
+    const uint32_t type = ReadVar(Offsets::VAR_CURSOR_TYPE);
+    switch (type) {
+        case TYPE_BAG_ITEM: {
+            const uint32_t lo = ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_LO);
+            const uint32_t hi = ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_HI);
+            if (lo == 0 && hi == 0)
+                break; // type set but storage not written yet
+            // Same resolve `Script_GetCursorInfo` does for this type —
+            // FrameXML already calls into it from a CURSOR_UPDATE
+            // handler, so the object manager is queryable at this point
+            // in the dispatch.
+            auto resolver =
+                reinterpret_cast<ObjectFromGUID_t>(Offsets::FUN_OBJECT_FROM_GUID);
+            const uint8_t *cgItem = resolver(GUID_TYPE_FILTER_ITEM, lo, hi, 0);
+            const int itemID =
+                (cgItem != nullptr) ? Item::ID::FromCGItem(cgItem) : 0;
+            return {UI_ITEM, itemID > 0 ? static_cast<uint32_t>(itemID) : 0u};
+        }
+        case TYPE_GENERIC_ITEM_LO:
+        case TYPE_GENERIC_ITEM_HI:
+        case TYPE_INVENTORY_ITEM:
+            return {UI_ITEM, ReadVar(Offsets::VAR_CURSOR_GENERIC_SLOT)};
+        case TYPE_MONEY:
+            return {UI_MONEY, ReadVar(Offsets::VAR_CURSOR_MONEY_COPPER)};
+        case TYPE_SPELL:
+            return {UI_SPELL, ReadVar(Offsets::VAR_CURSOR_SPELL_ID)};
+        case TYPE_MERCHANT:
+            // 1-based to match what `GetCursorInfo` pushes for this type.
+            return {UI_MERCHANT,
+                    ReadVar(Offsets::VAR_CURSOR_GENERIC_SOURCE) + 1};
+        case TYPE_MACRO:
+            return {UI_MACRO, CursorMacroSlot()};
+        case TYPE_PET_ACTION:
+            return {UI_PET_ACTION, 0};
+        case TYPE_STABLE_PET:
+            return {UI_PET, 0};
+        case TYPE_EMPTY:
+        default:
+            break;
+    }
+    return {UI_DEFAULT, 0};
+}
+
+Raw ReadRaw() {
+    return {ReadVar(Offsets::VAR_CURSOR_TYPE),
+            ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_LO),
+            ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_HI),
+            ReadVar(Offsets::VAR_CURSOR_GENERIC_SLOT),
+            ReadVar(Offsets::VAR_CURSOR_MONEY_COPPER),
+            ReadVar(Offsets::VAR_CURSOR_SPELL_ID),
+            ReadVar(Offsets::VAR_CURSOR_MACRO_ID)};
+}
+
+bool Same(const Raw &a, const Raw &b) {
+    return a.type == b.type && a.guidLo == b.guidLo && a.guidHi == b.guidHi &&
+           a.genericSlot == b.genericSlot && a.money == b.money &&
+           a.spellID == b.spellID && a.macroID == b.macroID;
 }
 
 } // namespace Cursor::Info
