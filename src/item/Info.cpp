@@ -141,8 +141,10 @@ static int PushIconForItemID(void *L, int itemID) {
     if (itemID <= 0)
         return 0;
     const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr)
+    if (record == nullptr) {
+        Item::Data::WarmCache(static_cast<uint32_t>(itemID));
         return 0;
+    }
     const uint32_t displayInfoID = Game::Read<uint32_t>(
         record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
     char iconPath[260];
