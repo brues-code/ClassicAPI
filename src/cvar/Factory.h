@@ -66,6 +66,14 @@ Handle Find(const char *name);
 // valid for the cvar's lifetime.
 const char *GetString(Handle cvar);
 
+// Read the value the cvar was REGISTERED with, which the engine keeps
+// alongside the live value and never rewrites. Comparing the two is how the
+// engine's own `cvarlist` decides whether to print "(default: %s)", and it is
+// the only way to tell "nobody has ever set this" from "set to exactly the
+// default" without a marker of our own. Returns null if `cvar` is null or the
+// cvar was registered without a default.
+const char *GetDefaultString(Handle cvar);
+
 // Read the value parsed as a base-10 integer, or `fallback` if `cvar` is
 // null or the value isn't numeric.
 int GetInt(Handle cvar, int fallback = 0);
@@ -75,6 +83,13 @@ int GetInt(Handle cvar, int fallback = 0);
 void SetString(Handle cvar, const char *value);
 
 // Convenience: set from an integer.
+//
+// Both setters go through the engine's own value setter, which REFUSES the
+// write when the cvar carries `CVAR_FLAG_READ_ONLY` — silently, since the
+// innermost writer opens with `if (flags & 0x4) return;`. Some cvars gain
+// that bit partway through boot (`scriptMemory` is writable on the glue
+// state and read-only once in the world), so a write that has to land needs
+// to happen before the bit appears rather than fight it.
 void SetInt(Handle cvar, int value);
 
 } // namespace CVar::Factory

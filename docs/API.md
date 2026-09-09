@@ -118,6 +118,7 @@ build instructions.
   - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
   - [`C_CVar.GetCVarBitfield(name, index)` / `C_CVar.SetCVarBitfield(name, index, value)`](#c_cvargetcvarbitfieldname-index--c_cvarsetcvarbitfieldname-index-value)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
+  - [The interface memory limit](#the-interface-memory-limit)
 
 - [Cursor](#cursor)
   - [`GetCursorInfo()`](#getcursorinfo)
@@ -3018,6 +3019,32 @@ storage is process-global, so writes on either state are
 immediately visible on the other (a `SetCVar("foo", "1")` from a
 GlueXML script will read back as `"1"` on the in-world side, and
 vice versa).
+
+### The interface memory limit
+
+The `scriptMemory` cvar caps how much memory the interface may use, counted
+in kilobytes. Its own value is 49152, which is 48 MB.
+
+| Stage | What happens |
+|---|---|
+| Interface memory goes over the limit | The client frees what it can. |
+| It is still over | A popup asks you to disable add-ons and restart. |
+| 15 seconds later | The client closes. |
+
+A value of 0 turns the check off. ClassicAPI sets 0 for you, so a large
+add-on set does not meet the popup, and it does that only while the cvar
+still holds its own value. If you picked a value yourself, your value
+stands.
+
+`SetCVar` cannot change this cvar while you are in the world, because the
+client makes it read-only there. To pick your own limit, close the game and
+add the line yourself in `WTF\Config.wtf`:
+
+```
+SET scriptMemory "65536"
+```
+
+That asks for a 64 MB limit, and any value above 0 turns the check back on.
 
 ## Cursor
 
