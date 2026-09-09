@@ -26,6 +26,22 @@ SlashCmdList["CLEARFOCUS"] = function(msg)
 	end
 end
 
+SlashCmdList["STARTATTACK"] = function(msg)
+	local action, target = SecureCmdOptionParse(msg);
+	if ( action ) then
+		if ( not target or target == "target" ) then
+			target = action;
+		end
+		StartAttack(target);
+	end
+end
+
+SlashCmdList["STOPATTACK"] = function(msg)
+	if ( SecureCmdOptionParse(msg) ) then
+		StopAttack();
+	end
+end
+
 SlashCmdList["EQUIP_SET"] = function(msg)
 	local set = SecureCmdOptionParse(msg);
 	if ( set and set ~= "" ) then

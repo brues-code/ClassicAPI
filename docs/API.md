@@ -1626,6 +1626,19 @@ StartAttack("focus")     -- attack your focus unit
 
 Stops your melee auto-attack. If you are not attacking, the call does nothing.
 
+Both functions also exist as slash commands: `/startattack [target]` and
+`/stopattack`. The commands accept the same `[conditions]` that `/focus`
+accepts, and each client language has its own command names next to the
+English ones (for example `/angriffstart` and `/angriffstop` on a German
+client).
+
+```
+/startattack
+/startattack focus
+/startattack [harm] target
+/stopattack
+```
+
 ## Console
 
 The developer console is the overlay you open with `~` when the client is
