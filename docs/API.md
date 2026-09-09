@@ -594,6 +594,7 @@ build instructions.
   - [`C_SpellBook.GetSpellBookItemInfo(slotIndex, spellBank)`](#c_spellbookgetspellbookiteminfoslotindex-spellbank)
   - [`C_SpellBook.GetSpellLevelLearned(spellID)`](#c_spellbookgetspelllevellearnedspellid)
   - [`C_SpellBook.GetCurrentLevelSpells([level])`](#c_spellbookgetcurrentlevelspellslevel)
+  - [`C_SpellBook.GetPlayerSpellsByAura(auraName)`](#c_spellbookgetplayerspellsbyauraauraname)
   - [`C_SpellBook.GetSkillLineName(skillLineID)`](#c_spellbookgetskilllinenameskilllineid)
   - [`C_SpellBook.GetSkillLineRank(skillLineID)`](#c_spellbookgetskilllinerankskilllineid)
   - [`C_SpellBook.GetSpellSkillLine(spellID)`](#c_spellbookgetspellskilllinespellid)
@@ -14471,6 +14472,59 @@ Class/race come from the local player — there's no
 clean class-string→classID lookup. Returns an empty table at
 character select / pre-login (no CGPlayer yet) and for levels
 where no class/race spells match.
+
+### `C_SpellBook.GetPlayerSpellsByAura(auraName)`
+
+Returns every spell the player currently knows that has an effect
+applying the given aura, as a 1-based array of spell IDs in ascending
+order. Empty when none does.
+
+```
+spellIDs = C_SpellBook.GetPlayerSpellsByAura(auraName)
+```
+
+`auraName` is an aura code — the same number
+[`C_Spell.GetSpellEffectInfo`](#c_spellgetspelleffectinfospellid)
+reports in its `auraName` field. `0` means "applies no aura" and returns
+an empty array.
+
+This is `IsPlayerSpell` asked the other way round. Instead of testing one
+spell, it reads the same set of known spells and reports the ones whose
+effects carry the aura. A talent is present at its current rank only, so
+summing the amounts of the result never counts two ranks of one talent.
+
+```lua
+-- everything the player knows that shortens the energy tick
+for _, spellID in ipairs(C_SpellBook.GetPlayerSpellsByAura(217)) do
+    local fx = C_Spell.GetSpellEffectInfo(spellID)
+    -- read the amount from the effect whose auraName is 217
+end
+```
+
+Known is not the same as active. For a passive — a talent, a racial —
+it is: known means in effect, and a passive never appears in the buff
+list. A castable buff in the result is only learned; whether it is up is
+a question for the buff list. And a buff another player puts on you is
+not a spell you know, so it is not here at all. Split the result on
+[`C_Spell.IsSpellPassive`](#c_spellisspellpassivespellid) and check
+active buffs separately:
+
+```lua
+local mod = 0
+for _, spellID in ipairs(C_SpellBook.GetPlayerSpellsByAura(217)) do
+    if C_Spell.IsSpellPassive(spellID) then
+        mod = mod + AmountOf(spellID)      -- in effect while known
+    end
+end
+for i = 1, 32 do
+    local spellID = select(10, C_UnitAuras.UnitAura("player", i, "HELPFUL"))
+    if not spellID then break end
+    mod = mod + AmountOf(spellID)          -- in effect while up
+end
+```
+
+A list built this way follows the data: a retuned value, a new rank, or
+an added source shows up without a code change.
 
 ### `C_SpellBook.GetSkillLineName(skillLineID)`
 

@@ -480,6 +480,83 @@ static bool PlayerKnowsSpell(int spellID) {
     return (bitmap[spellID >> 5] & mask) != 0;
 }
 
+// `C_SpellBook.GetPlayerSpellsByAura(auraName)` -> { spellID, ... }
+//
+// Every spell the player currently knows whose Spell.dbc record has an
+// effect applying aura `auraName` (an EffectApplyAuraName code — 134 for
+// MOD_MANA_REGEN_INTERRUPT, 217 for Turtle's MOD_ENERGY_REGEN_TIME, ...),
+// as a 1-based ascending array of spell IDs.
+//
+// This is `IsPlayerSpell` turned around: rather than asking about one
+// spell, it walks the same known-spell bitmap and reports the set bits
+// whose record carries the aura. Only a set bit ever touches a record,
+// so the cost is a few hundred lookups, not the ~28,000-row table — and
+// it is the right table to walk, because "which of MY spells apply this"
+// is the question a caller summing aura amounts is actually asking. The
+// bitmap holds only a talent's CURRENT rank, so such a sum never
+// double-counts ranks.
+//
+// Known is not the same as active. For a passive it is — known means in
+// effect, and a passive never appears in the buff list. A castable buff
+// in this result is merely learned; whether it is up is a buff-list
+// question, and a buff another player put on us is not in the bitmap at
+// all. Callers split on `C_Spell.IsSpellPassive` accordingly.
+//
+// `auraName` 0 means "applies no aura" and would match most of what the
+// player knows, so it and negatives return the empty array. Empty before
+// login too, when the bitmap is not yet allocated.
+static int __fastcall Script_GetPlayerSpellsByAura(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L,
+            "Usage: C_SpellBook.GetPlayerSpellsByAura(auraName)");
+        return 0;
+    }
+    const int auraName = static_cast<int>(Game::Lua::ToNumber(L, 1));
+
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::NewTable(L);
+    if (auraName <= 0)
+        return 1;
+
+    auto *bitmap = Game::Read<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
+    if (bitmap == nullptr)
+        return 1;
+    const int spellCount = Game::Read<int>(
+        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
+
+    // The bitmap covers spellIDs 0..spellCount inclusive, one bit each,
+    // so the last word is index spellCount >> 5. Zero words — the vast
+    // majority — cost one compare.
+    int n = 0;
+    for (int word = 0; word <= (spellCount >> 5); ++word) {
+        const uint32_t bits = bitmap[word];
+        if (bits == 0)
+            continue;
+        for (int bit = 0; bit < 32; ++bit) {
+            if ((bits & (1u << bit)) == 0)
+                continue;
+            const int spellID = (word << 5) | bit;
+            if (spellID < 1 || spellID > spellCount)
+                continue;
+            const uint8_t *record = Spell::Lookup::RecordForID(spellID);
+            if (record == nullptr)
+                continue;
+            auto *auras = reinterpret_cast<const int32_t *>(
+                record + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
+            for (int e = 0; e < Offsets::SPELL_RECORD_EFFECT_COUNT; ++e) {
+                if (auras[e] == auraName) {
+                    Game::Lua::PushNumber(L, static_cast<double>(++n));
+                    Game::Lua::PushNumber(L, static_cast<double>(spellID));
+                    Game::Lua::RawSet(L, -3);
+                    break; // one entry per spell, however many effects match
+                }
+            }
+        }
+    }
+    return 1;
+}
+
 static int __fastcall Script_IsPlayerSpell(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: IsPlayerSpell(spellID)");
@@ -732,6 +809,8 @@ static void RegisterLuaFunctions() {
                                       &Script_C_Spell_IsSpellHelpful);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellBookItemInfo",
                                       &Script_C_SpellBook_GetSpellBookItemInfo);
+    Game::Lua::RegisterTableFunction("C_SpellBook", "GetPlayerSpellsByAura",
+                                      &Script_GetPlayerSpellsByAura);
     Game::Lua::RegisterIntegerEnum("Enum", "SpellBookSpellBank",
                                    kSpellBookSpellBankEntries, 2);
     Game::Lua::RegisterIntegerEnum("Enum", "SpellBookItemType",
