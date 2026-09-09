@@ -43,6 +43,18 @@ bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
 //   - "pet"                          → 1 (pet)
 int SpellbookSlotToID(int slot1Based, int bookType);
 
+// Modern `Enum.SpellBookSpellBank` argument at Lua stack `idx` → the engine
+// bookType above. `1` (Pet) selects the pet book; a missing arg, a
+// non-number, or any other value reads as the player book — the same
+// tolerance `C_SpellBook.GetSpellBookItemInfo` established.
+int SpellBankArgToBookType(void *L, int idx);
+
+// The modern `(slotIndex, spellBank)` argument pair at Lua stack
+// `slotIdx` / `bankIdx` → the spellID in that slot. 0 when the slot arg is
+// not a number or the slot is empty / out of range. Pure stack reads — the
+// caller may still read other arguments afterwards.
+int SpellbookItemArgsToID(void *L, int slotIdx, int bankIdx);
+
 // Inverse of `SpellbookSlotToID` — finds the 1-based slot where a
 // given `spellID` lives in the spellbook arrays. Searches the player
 // book first (`bookType=0`), then the pet book (`bookType=1`). On a

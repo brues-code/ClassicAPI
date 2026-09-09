@@ -158,6 +158,7 @@ build instructions.
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
+  - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
   - [`LOOT_SCAN_COMPLETED` event](#loot_scan_completed-event)
   - [`LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events](#loss_of_control_added--loss_of_control_update-events)
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
@@ -558,6 +559,7 @@ build instructions.
   - [`C_Spell.GetSpellRadius(spellID)` / `GetSpellRadius(slot, bookType)`](#c_spellgetspellradiusspellid--getspellradiusslot-booktype)
   - [`C_Spell.GetSpellPowerCost(spellIdentifier)`](#c_spellgetspellpowercostspellidentifier)
   - [`C_Spell.GetSpellReagents(spellID)`](#c_spellgetspellreagentsspellid)
+  - [`C_Spell.GetSpellCastCount(spellIdentifier)`](#c_spellgetspellcastcountspellidentifier)
   - [`C_Spell.GetSpellSubtext(spellIdentifier)`](#c_spellgetspellsubtextspellidentifier)
   - [`IsPassiveSpell(spellID)` / `IsPassiveSpell(slot, bookType)`](#ispassivespellspellid--ispassivespellslot-booktype)
   - [`C_Spell.IsSpellPassive(spellID)`](#c_spellisspellpassivespellid)
@@ -569,6 +571,7 @@ build instructions.
   - [`IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)`](#isusablespellspell--isusablespellslot-booktype)
   - [`C_Spell.IsSpellUsable(spellID)`](#c_spellisspellusablespellid)
   - [`C_Spell.GetSpellCooldown(spellIdentifier)`](#c_spellgetspellcooldownspellidentifier)
+  - [`C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`](#c_spellgetspelllossofcontrolcooldownspellidentifier)
   - [`C_Spell.IsCurrentSpell(spellIdentifier)`](#c_spelliscurrentspellspellidentifier)
   - [`C_Spell.IsSelfBuff(spellID)`](#c_spellisselfbuffspellid)
   - [`C_Spell.SpellHasRange(spellIdentifier)` / `SpellHasRange(slot, bookType)`](#c_spellspellhasrangespellidentifier--spellhasrangeslot-booktype)
@@ -592,6 +595,15 @@ build instructions.
 - [SpellBook](#spellbook)
   - [`FindSpellBookSlotByID(spellID)`](#findspellbookslotbyidspellid)
   - [`C_SpellBook.GetSpellBookItemInfo(slotIndex, spellBank)`](#c_spellbookgetspellbookiteminfoslotindex-spellbank)
+  - [`C_SpellBook.GetNumSpellBookSkillLines()`](#c_spellbookgetnumspellbookskilllines)
+  - [`C_SpellBook.GetSpellBookSkillLineInfo(skillLineIndex)`](#c_spellbookgetspellbookskilllineinfoskilllineindex)
+  - [`C_SpellBook.GetSpellBookItemSkillLineIndex(slotIndex, spellBank)`](#c_spellbookgetspellbookitemskilllineindexslotindex-spellbank)
+  - [`C_SpellBook.GetSkillLineIndexByID(skillLineID)`](#c_spellbookgetskilllineindexbyidskilllineid)
+  - [`C_SpellBook.GetSpellBookItemCastCount(slotIndex, spellBank)`](#c_spellbookgetspellbookitemcastcountslotindex-spellbank)
+  - [`C_SpellBook.GetSpellBookItemLossOfControlCooldownInfo(slotIndex, spellBank)`](#c_spellbookgetspellbookitemlossofcontrolcooldowninfoslotindex-spellbank)
+  - [`C_SpellBook.GetSpellBookItemLossOfControlCooldownDuration(slotIndex, spellBank)`](#c_spellbookgetspellbookitemlossofcontrolcooldowndurationslotindex-spellbank)
+  - [`C_SpellBook.IsClassTalentSpellBookItem(slotIndex, spellBank)`](#c_spellbookisclasstalentspellbookitemslotindex-spellbank)
+  - [`C_SpellBook.ContainsAnyDisenchantSpell()`](#c_spellbookcontainsanydisenchantspell)
   - [`C_SpellBook.GetSpellLevelLearned(spellID)`](#c_spellbookgetspelllevellearnedspellid)
   - [`C_SpellBook.GetCurrentLevelSpells([level])`](#c_spellbookgetcurrentlevelspellslevel)
   - [`C_SpellBook.GetPlayerSpellsByAura(auraName)`](#c_spellbookgetplayerspellsbyauraauraname)
@@ -3755,6 +3767,31 @@ polling. Register like any engine event
 | `LOOT_HISTORY_FULL_UPDATE` | — | The item set changed structurally — a new item appeared (roll opened) or the 128-item ring evicted the oldest (every index shifted). Re-read the whole list. Also fired by `C_LootHistory.Clear()`. |
 
 See the [LootHistory](#loothistory) section for the reconstruction and read API.
+
+### `LEARNED_SPELL_IN_SKILL_LINE` event
+
+Fires when the player learns a spell that enters the spellbook.
+
+```lua
+-- arg1 = spellID, arg2 = skillLineIndex, arg3 = isGuildPerkSpell
+local f = CreateFrame("Frame")
+f:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+f:SetScript("OnEvent", function()
+    local tab = C_SpellBook.GetSpellBookSkillLineInfo(arg2)
+    print("learned", C_Spell.GetSpellName(arg1), "in", tab.name)
+end)
+```
+
+| Arg | Type | Notes |
+|---|---|---|
+| `spellID` | number | The spell that was learned. |
+| `skillLineIndex` | number | The 1-based spellbook tab that now holds it. Feed it to [`C_SpellBook.GetSpellBookSkillLineInfo`](#c_spellbookgetspellbookskilllineinfoskilllineindex). |
+| `isGuildPerkSpell` | nil | Always `nil` (false). |
+
+The event fires next to the stock `LEARNED_SPELL_IN_TAB`, under the same
+rule: the game announced the new spell (a trainer, a quest reward, a talent)
+and the spell got a spellbook slot. The spells restored at login do not fire
+it. Profession recipes do not enter the spellbook, so they do not fire it.
 
 ### `LOOT_SCAN_COMPLETED` event
 
@@ -9862,6 +9899,10 @@ Fidelity notes:
 The `LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events fire as these
 effects change — see [Events](#loss_of_control_added--loss_of_control_update-events).
 
+For the effect that blocks one specific spell, shaped as a cooldown, see
+[`C_Spell.GetSpellLossOfControlCooldown`](#c_spellgetspelllossofcontrolcooldownspellidentifier)
+and its spellbook-slot variants.
+
 ## Lua
 
 Standard-library functions that this Lua 5.0 is missing — restored by
@@ -13377,6 +13418,24 @@ documented in some emulator sources places these at `+0x110` /
 `+0x130`, which is wrong for 1.12.1). Iteration stops at the first
 empty slot, matching how the engine walks its own reagent loop.
 
+### `C_Spell.GetSpellCastCount(spellIdentifier)`
+
+Returns how many times the player can cast the spell with the reagents
+they carry. Returns `0` for a spell without reagents, and for an unknown
+spell.
+
+```lua
+C_Spell.GetSpellCastCount(23028)  -- Arcane Brilliance: your Arcane Powder count
+C_Spell.GetSpellCastCount(133)    -- Fireball: 0 (no reagents)
+```
+
+The count is the smallest `floor(carried / required)` over the spell's
+reagents. "Carried" means equipped items and bags 0 to 4. Reagents in the
+bank do not count, because a cast cannot use them.
+
+`spellIdentifier` accepts a spellID, a spell name, or a spell link, like
+[`C_Spell.GetSpellCooldown`](#c_spellgetspellcooldownspellidentifier).
+
 ### `C_Spell.GetSpellSubtext(spellIdentifier)`
 
 Returns the localized "Rank N" / "Passive" / "Racial Passive" /
@@ -13638,6 +13697,39 @@ The `activeCategory`, `timeUntilEndOfStartRecovery`, and
 
 Returns `nil` if the resolved spellID is `0` or doesn't have a
 `Spell.dbc` row.
+
+### `C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`
+
+Returns `startTime, duration` for the loss-of-control effect that stops
+the player from casting this spell right now. Both values are seconds on
+the `GetTime()` clock, like
+[`C_Spell.GetSpellCooldown`](#c_spellgetspellcooldownspellidentifier).
+Both are `0` when nothing blocks the spell. Returns `nil` for an unknown
+spell.
+
+```lua
+local start, duration = C_Spell.GetSpellLossOfControlCooldown(133)  -- Fireball
+if duration > 0 then
+    cooldownFrame:SetCooldown(start, duration)  -- the loss-of-control swipe
+end
+```
+
+Which effects block which spells:
+
+| Effect | Blocks |
+|---|---|
+| School lockout (Counterspell, Kick, ...) | Spells of the locked school. |
+| Stun, fear, confuse, charm, possess | Every spell. |
+| Silence | Spells that a silence prevents (most casts). |
+| Pacify | Abilities that a pacify prevents (most melee and ranged abilities). |
+| Root, disarm | Nothing. |
+
+The function reports only effects with a known end time. See the timing
+note in [LossOfControl](#lossofcontrol): a school lockout always has one,
+and a control effect has one when ClassicAPI saw the cast that applied it.
+When only the end time is known, `startTime` is the current time and
+`duration` is the remaining time. When several effects block the spell,
+the function reports the one that ends last.
 
 ### `C_Spell.IsCurrentSpell(spellIdentifier)`
 
@@ -14422,9 +14514,115 @@ Returns `nil` for an empty or out-of-range slot.
 > **Deviations forced by the data.** `iconID` is a
 > texture path, not a `fileID` (there is no fileID system) — the same
 > deviation as [`C_Spell.GetSpellInfo`](#c_spellgetspellinfospellid).
-> `skillLineIndex` is not returned (`nil`); spellbook tabs aren't
-> SkillLines. `isOffSpec` is always `false` — there are no
-> specializations.
+> `skillLineIndex` is not returned (`nil`) — use
+> [`C_SpellBook.GetSpellBookItemSkillLineIndex`](#c_spellbookgetspellbookitemskilllineindexslotindex-spellbank).
+> `isOffSpec` is always `false` — there are no specializations.
+
+### `C_SpellBook.GetNumSpellBookSkillLines()`
+
+Returns the number of tabs in the player spellbook: General, then one tab
+per skill line such as Fire or Fury.
+
+### `C_SpellBook.GetSpellBookSkillLineInfo(skillLineIndex)`
+
+Returns a table describing spellbook tab `skillLineIndex` (1-based), or
+`nil` for an index outside `1 .. GetNumSpellBookSkillLines()`.
+
+```lua
+for i = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+    local tab = C_SpellBook.GetSpellBookSkillLineInfo(i)
+    for slot = tab.itemIndexOffset + 1, tab.itemIndexOffset + tab.numSpellBookItems do
+        local item = C_SpellBook.GetSpellBookItemInfo(slot, Enum.SpellBookSpellBank.Player)
+        print(tab.name, item.name)
+    end
+end
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | string | The tab name (`"General"`, `"Fire"`, `"Fury"`, ...). |
+| `iconID` | string | The tab icon **path** — feed it to `texture:SetTexture(...)`. |
+| `itemIndexOffset` | number | This value + 1 is the first `slotIndex` of the tab. |
+| `numSpellBookItems` | number | The number of spells in the tab. |
+| `isGuild` | boolean | Always `false`. |
+| `shouldHide` | boolean | Always `false`. |
+| `specID`, `offSpecID` | nil | Always `nil`. |
+
+The name, icon, offset, and count are the same values
+`GetSpellTabInfo(skillLineIndex)` returns.
+
+### `C_SpellBook.GetSpellBookItemSkillLineIndex(slotIndex, spellBank)`
+
+Returns the 1-based tab index that holds player-book slot `slotIndex`.
+Returns `nil` for a slot past the last spell, and for every pet-book slot
+(the pet book has no tabs).
+
+```lua
+C_SpellBook.GetSpellBookItemSkillLineIndex(1, Enum.SpellBookSpellBank.Player)  -- 1 (General)
+```
+
+### `C_SpellBook.GetSkillLineIndexByID(skillLineID)`
+
+Returns the 1-based tab index for a `SkillLine.dbc` ID, or `nil` when the
+player has no tab for that skill line. The General tab has no skill line
+ID.
+
+```lua
+local _, skillLineID = C_SpellBook.GetSpellSkillLine(133)   -- Fireball: "Fire", 8
+local tab = C_SpellBook.GetSkillLineIndexByID(skillLineID)  -- the Fire tab, or nil on a non-mage
+```
+
+Paired with
+[`C_SpellBook.GetSpellSkillLine`](#c_spellbookgetspellskilllinespellid) it
+answers "which of my tabs holds this spellID" without walking the book.
+
+### `C_SpellBook.GetSpellBookItemCastCount(slotIndex, spellBank)`
+
+Spellbook-slot variant of
+[`C_Spell.GetSpellCastCount`](#c_spellgetspellcastcountspellidentifier).
+Returns `0` for an empty slot.
+
+### `C_SpellBook.GetSpellBookItemLossOfControlCooldownInfo(slotIndex, spellBank)`
+
+Spellbook-slot variant of
+[`C_Spell.GetSpellLossOfControlCooldown`](#c_spellgetspelllossofcontrolcooldownspellidentifier),
+returned as a table. Returns `nil` for an empty slot.
+
+| Field | Type | Notes |
+|---|---|---|
+| `startTime` | number | Start of the blocking effect, in `GetTime()` seconds. `0` when nothing blocks the spell. |
+| `duration` | number | Length of the blocking effect in seconds. `0` when nothing blocks the spell. |
+| `modRate` | number | Always `1`. |
+| `isActive` | boolean | `true` while an effect blocks the spell. |
+| `shouldReplaceNormalCooldown` | boolean | `true` when the effect outlasts the spell's own cooldown. A button then draws the loss-of-control swipe instead of the normal one. |
+
+### `C_SpellBook.GetSpellBookItemLossOfControlCooldownDuration(slotIndex, spellBank)`
+
+The `duration` field above on its own. Returns `nil` for an empty slot.
+
+### `C_SpellBook.IsClassTalentSpellBookItem(slotIndex, spellBank)`
+
+Returns `true` when the spell in the slot comes from a talent: the
+talent's own spell (Mortal Strike rank 1), or a higher rank of that
+ability that you trained (Mortal Strike rank 2). Returns `false` for every
+pet-book slot and for an empty slot.
+
+```lua
+local bank = Enum.SpellBookSpellBank.Player
+local info = C_SpellBook.GetSpellBookItemInfo(slot, bank)
+if C_SpellBook.IsClassTalentSpellBookItem(slot, bank) then
+    print(info.name, "is a talent ability")
+end
+```
+
+Higher ranks are found through the next-rank links in the client data.
+Most ability chains carry them, and coverage is limited to the chains that
+do.
+
+### `C_SpellBook.ContainsAnyDisenchantSpell()`
+
+Returns `true` when the player knows a spell that disenchants items
+(Disenchant, from Enchanting).
 
 ### `C_SpellBook.GetSpellLevelLearned(spellID)`
 

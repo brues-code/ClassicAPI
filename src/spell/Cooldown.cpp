@@ -19,6 +19,8 @@
 // Same `FUN_SPELL_QUERY_COOLDOWN` helper `Spell::Usable` uses for
 // the cooldown gate, just exposed through the modern table shape.
 
+#include "Cooldown.h"
+
 #include "Arg.h"
 #include "Lookup.h"
 
@@ -44,13 +46,10 @@ using QueryCooldown_t = void(__fastcall *)(int spellID, int bookType,
 
 int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
     const int spellID = Spell::Arg::ResolveSpellID(L, 1);
-    if (spellID <= 0 || Spell::Lookup::RecordForID(spellID) == nullptr)
+    uint32_t durationMs = 0, startMs = 0;
+    bool enabled = false;
+    if (!Query(spellID, &startMs, &durationMs, &enabled))
         return 0;
-
-    auto fn = reinterpret_cast<QueryCooldown_t>(
-        static_cast<uintptr_t>(Offsets::FUN_SPELL_QUERY_COOLDOWN));
-    uint32_t durationMs = 0, startMs = 0, enable = 0;
-    fn(spellID, 0 /* bookType=player */, &durationMs, &startMs, &enable);
 
     Game::Lua::NewTable(L);
     // Engine returns ms with the same epoch as `GetTime()` — multiply
@@ -60,7 +59,7 @@ int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
                               static_cast<double>(startMs) * 0.001);
     Game::Lua::SetFieldNumber(L, "duration",
                               static_cast<double>(durationMs) * 0.001);
-    Game::Lua::SetFieldBool(L, "isEnabled", enable != 0);
+    Game::Lua::SetFieldBool(L, "isEnabled", enabled);
     // Vanilla has no haste-on-cooldown mechanic. Hard-code 1.0 so
     // modern code that divides remaining-time by `modRate` works.
     Game::Lua::SetFieldNumber(L, "modRate", 1.0);
@@ -72,6 +71,20 @@ int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
 }
 
 } // namespace
+
+bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
+           bool *enabled) {
+    if (spellID <= 0 || Spell::Lookup::RecordForID(spellID) == nullptr)
+        return false;
+    auto fn = reinterpret_cast<QueryCooldown_t>(
+        static_cast<uintptr_t>(Offsets::FUN_SPELL_QUERY_COOLDOWN));
+    uint32_t duration = 0, start = 0, enable = 0;
+    fn(spellID, 0 /* bookType=player */, &duration, &start, &enable);
+    *startMs = start;
+    *durationMs = duration;
+    *enabled = enable != 0;
+    return true;
+}
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellCooldown",

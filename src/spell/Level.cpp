@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "spell/Lookup.h"
+#include "talent/SpellSet.h"
 
 #include <cstdint>
 #include <unordered_set>
@@ -32,43 +33,6 @@ const uint8_t *PlayerDescriptor() {
         return nullptr;
     return Game::Read<const uint8_t *>(
         player, Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
-// Builds (or returns the cached) set of every spellID that appears
-// in `Talent.dbc` — across all 9 rank slots of every talent record.
-// Used to skip talent-tree spells in `GetCurrentLevelSpells`; modern
-// `GetCurrentLevelSpells` only reports auto-learned / trainable
-// class spells, never talents (which are point-purchased separately).
-//
-// Cache survives across calls in a session (Talent.dbc is a static
-// DBC). First call before the engine has loaded the DBC (e.g.,
-// pre-login) leaves the set empty; subsequent calls retry until
-// non-empty.
-std::unordered_set<int> &TalentSpellSet() {
-    static std::unordered_set<int> set;
-    if (!set.empty())
-        return set;
-    const uint8_t *const *records = Game::Read<const uint8_t *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_TALENT_DBC_RECORDS));
-    const int count = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_TALENT_DBC_COUNT));
-    if (records == nullptr || count <= 0)
-        return set;
-    // Each Talent.dbc record stores rank-N spellIDs at +0x10 + N*4
-    // for N = 0..8 (9 ranks). Many slots are 0 for unused ranks.
-    for (int i = 1; i <= count; ++i) {
-        const uint8_t *rec = records[i];
-        if (rec == nullptr)
-            continue;
-        auto *ranks = Game::Ptr<const uint32_t>(
-            rec, Offsets::OFF_TALENT_SPELL_RANK);
-        for (int j = 0; j < 9; ++j) {
-            const uint32_t spellID = ranks[j];
-            if (spellID != 0)
-                set.insert(static_cast<int>(spellID));
-        }
-    }
-    return set;
 }
 
 // Looks up the `BaseLevel` field of a Spell.dbc record. Returns 0
@@ -412,7 +376,7 @@ int __fastcall Script_GetCurrentLevelSpells(void *L) {
         // Skip talents — they're class spells in SLA but learned via
         // talent points, not auto-granted at level. Modern's
         // GetCurrentLevelSpells excludes them too.
-        if (TalentSpellSet().count(spellID) != 0)
+        if (Talent::SpellSet::IsTalentRank(spellID))
             continue;
         // Skip engine-internal spellbook-hidden spells (HIDDEN_CLIENTSIDE):
         // they can carry a BaseLevel but never surface as learnable.

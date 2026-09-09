@@ -13,6 +13,7 @@
 
 #include "Lookup.h"
 
+#include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 
@@ -48,6 +49,19 @@ int SpellbookSlotToID(int slot1Based, int bookType) {
                                       : Offsets::VAR_PLAYER_SPELLBOOK;
     auto *array = reinterpret_cast<const int *>(static_cast<uintptr_t>(base));
     return array[slot];
+}
+
+int SpellBankArgToBookType(void *L, int idx) {
+    if (!Game::Lua::IsNumber(L, idx))
+        return 0;
+    return static_cast<int>(Game::Lua::ToNumber(L, idx)) == 1 ? 1 : 0;
+}
+
+int SpellbookItemArgsToID(void *L, int slotIdx, int bankIdx) {
+    if (!Game::Lua::IsNumber(L, slotIdx))
+        return 0;
+    const int slot = static_cast<int>(Game::Lua::ToNumber(L, slotIdx));
+    return SpellbookSlotToID(slot, SpellBankArgToBookType(L, bankIdx));
 }
 
 int RecipeSlotSpellID(uintptr_t entriesVar, uintptr_t countVar, int slotIndex0) {

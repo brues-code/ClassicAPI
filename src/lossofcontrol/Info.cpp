@@ -43,6 +43,7 @@
 #include "aura/Source.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
+#include "lossofcontrol/Lockout.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "spell/CrowdControl.h"
@@ -52,6 +53,7 @@
 #include "unit/Identity.h"
 
 #include <cstdint>
+#include <cstring>
 
 namespace LossOfControl {
 
@@ -214,6 +216,31 @@ int BuildList(LocEntry *out, int maxOut) {
     return n;
 }
 
+// Which spells a control-loss effect blocks — the server's cast gates
+// (`Spell::CheckCast`) restated: a school lockout gates by the spell's school
+// (`Unit::IsSpellSchoolLocked`); stun / fear / confuse / charm / possess gate
+// every cast (UNIT_STAT_STUNNED / FLEEING / CONFUSED, or control handed to
+// another unit); silence and pacify gate by the spell's PreventionType
+// (UNIT_FLAG_SILENCED ↔ SPELL_PREVENTION_TYPE_SILENCE, UNIT_FLAG_PACIFIED ↔
+// _PACIFY). Root and disarm stop no cast.
+bool Blocks(const LocEntry &e, int schoolIdx, int preventionType) {
+    const char *t = e.locType;
+    if (std::strcmp(t, "SCHOOL_INTERRUPT") == 0)
+        return (e.schoolMask & (1 << schoolIdx)) != 0;
+    if (std::strcmp(t, "STUN") == 0 || std::strcmp(t, "FEAR") == 0 ||
+        std::strcmp(t, "CONFUSE") == 0 || std::strcmp(t, "CHARM") == 0 ||
+        std::strcmp(t, "POSSESS") == 0)
+        return true;
+    const bool both = std::strcmp(t, "PACIFYSILENCE") == 0;
+    if ((both || std::strcmp(t, "SILENCE") == 0) &&
+        preventionType == Offsets::SPELL_PREVENTION_TYPE_SILENCE)
+        return true;
+    if ((both || std::strcmp(t, "PACIFY") == 0) &&
+        preventionType == Offsets::SPELL_PREVENTION_TYPE_PACIFY)
+        return true;
+    return false;
+}
+
 // ---- LOSS_OF_CONTROL_ADDED / _UPDATE events (WorldTick poll-and-diff) ------
 //
 // Effect *expiry* (a school lockout timing out, a CC aura falling off) has no
@@ -333,6 +360,34 @@ int __fastcall Script_GetActiveLossOfControlData(void *L) {
 }
 
 } // namespace
+
+bool LockoutForSpell(int spellID, uint32_t *startMs, uint32_t *endMs) {
+    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
+    if (rec == nullptr)
+        return false;
+    const int school = SpellSchoolIndex(rec);
+    const int prevention =
+        Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_PREVENTION_TYPE);
+
+    LocEntry entries[32];
+    const int n = BuildList(entries, 32);
+    const uint32_t now = NowMs();
+    bool found = false;
+    for (int i = 0; i < n; ++i) {
+        const LocEntry &e = entries[i];
+        if (e.endMs == 0 || Reached(now, e.endMs))
+            continue; // timing unknown, or already over
+        if (!Blocks(e, school, prevention))
+            continue;
+        if (!found || Time::Clock::Remaining(now, e.endMs) >
+                          Time::Clock::Remaining(now, *endMs)) {
+            *startMs = e.startMs;
+            *endMs = e.endMs;
+            found = true;
+        }
+    }
+    return found;
+}
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(

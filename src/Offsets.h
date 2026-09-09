@@ -3742,6 +3742,14 @@ enum Offsets {
     OFF_SLA_CLASS_MASK = 0x10,
     OFF_SLA_EXCLUDE_RACE = 0x14,
     OFF_SLA_EXCLUDE_CLASS = 0x18,
+    // Field 8: the spellID of the NEXT rank that supersedes this row's
+    // spell (0 = none / not linked). Verified against the extracted DBC:
+    // Mortal Strike 12294 → 21551 → 21552, Kick 1766 → 1767. Populated
+    // for ability chains (660 of 6812 rows) but NOT for every chain —
+    // Fireball 133's row holds 0 — so treat it as "known next rank", not
+    // as a complete rank graph. `Talent::SpellSet` follows it to extend a
+    // talent's rank-1 spell to its trained higher ranks.
+    OFF_SLA_SUPERCEDED_BY_SPELL = 0x20,
     // Skill-up threshold ranks (grey / green) at record fields 10/11.
     // A row with either nonzero is a craftable recipe; profession
     // rank-up / passive rows have both zero. Empirically: the
@@ -4467,6 +4475,42 @@ enum Offsets {
     VAR_PLAYER_SPELLBOOK = 0x00B700F0,
     VAR_PET_SPELLBOOK = 0x00B6F098,
     SPELLBOOK_MAX_SLOTS = 0x400,
+    // Populated-slot count of the player array above. The learn writer
+    // `FUN_LEARN_SPELL` appends a newly learned spell at
+    // `VAR_PLAYER_SPELLBOOK[count++]` (0x004B2B37: `mov [ecx*4 + B700F0],
+    // spellID; inc [B7116C]`), so a before/after read of this count is the
+    // exact "was it added to the book" gate the engine itself uses before
+    // firing LEARNED_SPELL_IN_TAB. Read by `Spell::Learn`.
+    VAR_PLAYER_SPELLBOOK_COUNT = 0x00B7116C,
+
+    // Spellbook TABS — what `GetNumSpellTabs` / `GetSpellTabInfo` read.
+    // `[VAR_SPELL_TAB_ENTRIES]` is a `SpellTab **` (heap array of pointers,
+    // grown by `FUN_LEARN_SPELL` as new skill lines appear); `[VAR_SPELL_TAB_
+    // COUNT]` is the live tab count. Each 8-byte `SpellTab` is
+    // `{ skillLineID @+0, numSpells @+4 }` — verified from
+    // `Script_GetSpellTabInfo` (0x004B3CE0), which reads `entry[0]` as the
+    // SkillLine.dbc ID (0 = the "General" tab, name from the GENERAL global
+    // string + `Interface\Icons\Ability_Kick`; else name `SkillLine+0x0C`
+    // localized, icon via `SkillLine+0x54` → SpellIcon.dbc) and pushes
+    // `entry[1]` as numSpells. Tabs partition the player spellbook array in
+    // order: tab i covers slots `[offset(i), offset(i) + numSpells)` where
+    // `offset` is `FUN_SPELL_TAB_SLOT_OFFSET`. The skillLineID per tab is
+    // never surfaced to Lua by the stock API — `Spell::Tabs` exposes it as
+    // `C_SpellBook.GetSkillLineIndexByID` / `GetSpellBookItemSkillLineIndex`.
+    VAR_SPELL_TAB_ENTRIES = 0x00B71160,
+    VAR_SPELL_TAB_COUNT = 0x00B71170,
+    OFF_SPELL_TAB_SKILL_LINE_ID = 0x00,
+    OFF_SPELL_TAB_NUM_SPELLS = 0x04,
+    // `int __fastcall(uint tabIndex0)` — sum of `numSpells` over tabs
+    // `[0, tabIndex0)`, i.e. the 0-based first slot of that tab (the `offset`
+    // return of `GetSpellTabInfo`). Returns 0 for tab 0 and for OOR input.
+    FUN_SPELL_TAB_SLOT_OFFSET = 0x004B2580,
+    // The engine's own `Script_GetSpellTabInfo(index)` Lua C function
+    // (`int __fastcall(void *L)`; reads `L[1]`, pushes `name, texture,
+    // offset, numSpells`). `C_SpellBook.GetSpellBookSkillLineInfo` reshapes
+    // the stack and calls it directly so the GENERAL-tab localization and the
+    // SkillLine → SpellIcon chain stay the engine's.
+    FUN_SCRIPT_GET_SPELL_TAB_INFO = 0x004B3CE0,
 
     // Active minimap-tracking spell ID (0 = none). Vanilla tracks exactly
     // one active tracker as a plain int here, derived from the player's
@@ -4500,10 +4544,20 @@ enum Offsets {
     // spellbook arrays, and fires SPELLS_CHANGED; unlearn (`FUN_004b2c50`)
     // clears the bit and removes the spell. Both `__fastcall`: learn is
     // (uint spellID, int notify, uint replacedSpellID), unlearn is
-    // (uint spellID, int). Co-hooked (spell/Info.cpp) to bump
+    // (uint spellID, int). Co-hooked (spell/Learn.cpp) to bump
     // Player::StatSignal so a talent respec invalidates GetSpellBonusHealing's
-    // talent-conversion cache. They fire at login (SMSG_INITIAL_SPELLS) and on
-    // each learn/unlearn — never per-frame, so cool hook targets.
+    // talent-conversion cache, and to fire LEARNED_SPELL_IN_SKILL_LINE. They
+    // fire at login (SMSG_INITIAL_SPELLS) and on each learn/unlearn — never
+    // per-frame, so cool hook targets.
+    //
+    // Learn's own event gate (decompiled): it fires LEARNED_SPELL_IN_TAB
+    // (event 0x1FE, fmt "%d" at 0x00835154) only when `notify != 0` AND the
+    // spell was appended to the player spellbook array (non-trade, non-
+    // hidden spells; passives included). Shapeshift-form spells additionally
+    // hit the form list + UPDATE_SHAPESHIFT_FORMS; trade spells only get the
+    // "learned how to create" chat line (0x39). There is NO action-bar
+    // auto-placement anywhere in it — 1.12 never pushes a learned spell to a
+    // bar, so SPELL_PUSHED_TO_ACTIONBAR has no engine source.
     FUN_LEARN_SPELL = 0x004B25B0,
     FUN_UNLEARN_SPELL = 0x004B2C50,
 
@@ -7259,6 +7313,9 @@ enum Offsets {
     SPELL_EFFECT_LEARN_SPELL = 36,
     SPELL_EFFECT_ENCHANT_ITEM = 53,
     SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY = 54,
+    // Verified from Spell.dbc: 13262 "Disenchant" has Effect[0] = 99 (the
+    // only row carrying it). Effect 32 is TRIGGER_MISSILE, not disenchant.
+    SPELL_EFFECT_DISENCHANT = 99,
 
     // EffectBasePoints[3] — the base magnitude of each effect, stored as
     // (value - 1) for the fixed-die spells that back item stats (the
@@ -7313,6 +7370,19 @@ enum Offsets {
     OFF_SPELL_RECORD_ICON_ID = 0x1D4,                 // u32 SpellIconID (→ SpellIcon.dbc)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
+
+    // PreventionType (column 165) — which control-loss flag stops the cast:
+    // 0 none, 1 SILENCE (UNIT_FLAG_SILENCED), 2 PACIFY (UNIT_FLAG_PACIFIED);
+    // the server's `Spell::CheckCast` gate. Verified against the extracted
+    // Spell.dbc with the column chain Name@120 → Rank@129 → Family@160 →
+    // FamilyFlags@161-162 → MaxAffectedTargets@163 → DmgClass@164 →
+    // PreventionType@165: Fireball 133 = 1, Power Word: Fortitude 1243 = 1,
+    // Heroic Strike 78 = 2, Kick 1766 = 2, Throw 2764 = 2, Attack 6603 = 0.
+    // Only 0/1/2 occur (20549 / 6201 / 1268 rows). Read by
+    // `LossOfControl::LockoutForSpell`.
+    OFF_SPELL_RECORD_PREVENTION_TYPE = 0x294,
+    SPELL_PREVENTION_TYPE_SILENCE = 1,
+    SPELL_PREVENTION_TYPE_PACIFY = 2,
     OFF_SPELL_RECORD_ATTRIBUTES_EX = 0x1C,            // u32 (column 7)
     OFF_SPELL_RECORD_ATTRIBUTES_EX2 = 0x20,           // u32 (column 8)
     OFF_SPELL_RECORD_ATTRIBUTES_EX3 = 0x24,           // u32 (column 9)
