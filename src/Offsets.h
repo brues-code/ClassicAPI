@@ -535,6 +535,16 @@ enum Offsets {
     // set / stores the raw anchor rect (+0x40..+0x4C) when clear. Zero by
     // default (region ctor), so the crop never runs unless an addon opts in.
     OFF_REGION_TEXCOORD_MODIFIES_RECT = 0x124,
+    // The region's pixel-shader slot (CGxShader*, 0 = fixed-function). This IS
+    // the engine's desaturation state: Script_SetDesaturated (0x0079C1E0)
+    // stores the UI Desaturate shader here via FUN_SIMPLETEXTURE_SET_SHADER,
+    // Script_IsDesaturated (0x0079C2C0) tests it != 0, the batch append
+    // FUN_00772FD0 copies it into the layer entry (+0x18), and the layer draw
+    // FUN_0076FB00 binds it per region with GxRs selector GXRS_PIXEL_SHADER.
+    // The region ctor FUN_0076FC40 zeroes it. texture/Desaturation.cpp selects
+    // its per-level shader objects through this slot — see the "Texture
+    // desaturation" block.
+    OFF_SIMPLETEXTURE_SHADER = 0x128,
     // Get the region's resolved screen rect: `__thiscall(region+OFF_REGION_ANCHOR,
     // float out[4]) -> int` (1 = valid, 0 = not laid out yet). Reads the anchor
     // sub-object's +0x40..+0x4C = {top, left, bottom, right}, gated on the
@@ -7972,6 +7982,65 @@ enum Offsets {
     PTR_TEXLOAD_DESC_VTBL = 0x007FFA10,
     FUN_GX_TEXFLAGS_INIT = 0x0058A980,
     FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,
+
+    // --- Texture desaturation (`Texture:SetDesaturation` backport) --------------
+    // The engine desaturates by binding ONE pixel shader per region: the UI
+    // shader loaded at CSimpleTop construction (FUN_0076FDA0) from
+    // "Shaders\Pixel\Desaturate.bls" into VAR_UI_SHADER_DESATURATE, stored in the
+    // region slot OFF_SIMPLETEXTURE_SHADER and bound by the layer draw
+    // (FUN_0076FB00 → FUN_GX_RS_SET_PTR(0x3F, shader) → D3D SetPixelShader in
+    // FUN_005A0570). texture/Desaturation.cpp creates one shader object per
+    // desaturation level through the engine's own loader and writes it into the
+    // same slot — no draw hooks. Decoded stock ps_2_0 program: def c0 luma; dcl
+    // t0.xy; dcl v0; dcl_2d s0; texld r0,t0,s0; dp3 r0.rgb,r0,c0; mul
+    // r0.a,r0.a,v0.a; mov oC0,r0 — it drops the vertex-colour RGB.
+    //
+    // Loader chain (FUN_GX_SHADER_CREATE → device vmethod +0xDC = FUN_005A0370):
+    // FUN_00595240 dedups by path hash in the device's shader table (a hit
+    // returns the node, refcount++) and creates the node (vtable 0x00809EA8,
+    // zero-filled) on a miss; FUN_00595130 opens the path with the HANDLE file
+    // API (FUN_006477A0 — NOT FUN_FILE_READ, so the addon read hook never sees
+    // shader loads), reads the header + the block the device profile selects,
+    // and lets the node parse it (CGxShader vtable slot 0 = FUN_00598320). A
+    // MISSING file returns silently, leaving the registered node with valid = 0.
+    // The D3D loader then compiles eagerly (FUN_GX_D3D_COMPILE_PIXEL_SHADER). A
+    // node whose compile failed binds a NULL shader in FUN_005A0570 — the region
+    // draws fixed-function, never black. The device is created once per process
+    // (ConsoleDeviceInitialize 0x0063A230 is the factory's only caller) and the
+    // reload-from-file vmethod (+0xE8, wrapper 0x0058B390) has no callers, so
+    // shader pointers are process-lifetime.
+    //
+    // .bls container (magic 'SPXG'): u32 version, u32, 12 block offsets (0..4 =
+    // ps_1_1/1_2/1_3/1_4/2_0 D3D bytecode, 5..8 nv binary, 10 ARBfp text);
+    // block = u32 constCount, entries, u32 samplerCount, entries, u32 codeType
+    // (2 = D3D bytecode), u32 codeSize, code. Param entry = 0x90 bytes {char
+    // name[0x40]; u32 register; float default[16]; u32 type; u32; u32} →
+    // CGxShaderParam node (+0x4c register, +0x54 data, +0x40 type, +0x50 dirty).
+    // The per-draw state flush FUN_00594210 re-uploads a bound shader's dirty
+    // params (FUN_005955F0 → FUN_005A0420 → SetPixelShaderConstantF) — stock
+    // data only exercises that for vertex shaders, which is why the backport
+    // bakes the amount into a `def` constant instead of a param.
+    FUN_SIMPLETEXTURE_SET_SHADER = 0x00770650, // __thiscall(region, CGxShader*): writes the slot, FUN_0077FDF0 re-batch iff changed
+    VAR_UI_SHADER_DESATURATE = 0x00CF4CD4,     // DAT_00CF4CD0[1]: stock Desaturate.bls CGxShader*; released by FUN_0076FDD0 at shutdown
+    FUN_SCRIPT_TEXTURE_SET_DESATURATED = 0x0079C1E0, // Texture method batch entry 20; flag via FUN_LUA_TO_BOOLEAN_LOOSE(L, 2, 1)
+    FUN_GX_SHADER_CREATE = 0x0058B2B0,         // __fastcall(type /*ecx*/, CGxShader **out /*edx*/, const char *path)
+    FUN_GX_D3D_COMPILE_PIXEL_SHADER = 0x005A0250, // __thiscall(dev, shader): +0x2c = 0, CreatePixelShader iff +0x50 == 2 && +0x58 → +0x20, +0x2c = 1
+    FUN_GX_ARRAY_GROW_BYTES = 0x005268B0,      // __thiscall({cap,size,data,quantum}*, newCap): sets cap, SMemReAllocs data; size is the caller's
+    PTR_GXDEVICE_D3D_VTBL = 0x00809EF8,        // CGxDeviceD3d vtable (ctor FUN_00598CE0); the OpenGL device's (0x00809AF8) has another layout
+    OFF_GXDEVD3D_DEVICE9 = 0x38A8,             // IDirect3DDevice9* (every D3D call in FUN_005A2F00 / FUN_005A0250 goes through it)
+    OFF_GXDEVD3D_ALIVE = 0xF2C,                // 1 after CreateDevice / a successful Reset (FUN_005995C0 / FUN_005A1680), 0 after a failed Present (FUN_005A1910); gates draws and compiles
+    OFF_GXDEV_PS_PROFILE = 0x2D4,              // dev+0x2D0+type*4, from D3DCAPS9.PixelShaderVersion in FUN_00598EE0: 4 = ps_2_0+, 3/2/1/0 = ps_1_4/1_3/1_2/1_1, -1 none
+    OFF_GXSHADER_D3D_OBJECT = 0x20,            // IDirect3DPixelShader9* (created by the compile)
+    OFF_GXSHADER_TYPE = 0x24,                  // 0 = vertex, 1 = pixel
+    OFF_GXSHADER_VALID = 0x2C,
+    OFF_GXSHADER_CODE_TYPE = 0x50,             // GXSHADER_CODE_D3D for bytecode blocks
+    OFF_GXSHADER_CODE_DESC = 0x54,             // {cap, size, data, quantum}
+    OFF_GXSHADER_CODE_SIZE = 0x58,
+    OFF_GXSHADER_CODE_DATA = 0x5C,
+    GXSHADER_TYPE_PIXEL = 1,
+    GXSHADER_CODE_D3D = 2,
+    GXRS_PIXEL_SHADER = 0x3F,                  // pointer-form selector (0x40 = vertex shader); doc only — the engine's draw binds it
+    FUN_LUA_TO_BOOLEAN_LOOSE = 0x006F1C10,     // __fastcall(L, idx, default): nil→0, boolean, number→int, "1/t/y…"→1, "0/f/n…"→0, "enabled"→1, "disabled"→0, other→default
 
     // --- Texture memory accounting: the zero-dimension hang -------------------
     // FUN_GX_TEXTURE_MIP_BYTES totals a texture's bytes across its mip chain:

@@ -228,6 +228,8 @@ build instructions.
   - [`texture:GetAtlas()`](#texturegetatlas)
   - [`texture:ResetTexCoord()`](#textureresettexcoord)
   - [`texture:SetSpriteSheetCell(cell, numRows, numColumns)`](#texturesetspritesheetcellcell-numrows-numcolumns)
+  - [`texture:SetDesaturation(amount)`](#texturesetdesaturationamount)
+  - [`texture:GetDesaturation()`](#texturegetdesaturation)
   - [Texture size and shape](#texture-size-and-shape)
   - [`fontstring:SetRotation(angle [, cx, cy])`](#fontstringsetrotationangle--cx-cy)
   - [`editBox:SetCursorPosition(position)`](#editboxsetcursorpositionposition)
@@ -5456,6 +5458,32 @@ The texture keeps what it was showing when `cell` falls outside the grid.
 t:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
 t:SetSpriteSheetCell(8, 4, 4)
 ```
+
+### `texture:SetDesaturation(amount)`
+
+Removes some or all of the color from a texture. `amount` is a number from `0`
+(full color) to `1` (grayscale). The method clamps values outside this range.
+At every amount, the texture keeps the tint that `SetVertexColor` gives it.
+
+`SetDesaturated(true)` is the same as `SetDesaturation(1)`, and
+`SetDesaturated(false)` is the same as `SetDesaturation(0)`. All three methods
+change the same setting, so `SetDesaturated(false)` also clears a partial
+amount.
+
+```lua
+icon:SetDesaturation(0.5)          -- half of the color is gone
+icon:SetVertexColor(1, 0.5, 0.5)   -- the gray keeps a red tint
+icon:SetDesaturated(false)         -- full color again
+```
+
+### `texture:GetDesaturation()`
+
+Returns the current desaturation amount as a number from `0` to `1`. A texture
+that `SetDesaturated(true)` made gray returns `1`.
+
+The texture stores the amount in 255 steps, so the value that you read back can
+differ a little from the value that you set. For example, `0.5` reads back as
+`0.50196`.
 
 ### Texture size and shape
 
