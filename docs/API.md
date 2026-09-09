@@ -552,6 +552,7 @@ build instructions.
   - [`C_Spell.GetSpellLink(spellID)`](#c_spellgetspelllinkspellid)
   - [`C_Spell.GetSpellDescription(spellID)`](#c_spellgetspelldescriptionspellid)
   - [`C_Spell.GetSpellMechanicByID(spellID)`](#c_spellgetspellmechanicbyidspellid)
+  - [`C_Spell.GetSpellEffectInfo(spellID)`](#c_spellgetspelleffectinfospellid)
   - [`C_Spell.GetSpellEffectMechanics(spellID)`](#c_spellgetspelleffectmechanicsspellid)
   - [`C_Spell.GetSpellDispelType(spellID)`](#c_spellgetspelldispeltypespellid)
   - [`C_Spell.GetSpellRadius(spellID)` / `GetSpellRadius(slot, bookType)`](#c_spellgetspellradiusspellid--getspellradiusslot-booktype)
@@ -13161,6 +13162,69 @@ column is exactly what this function returns):
 > **No mechanic `30`.** The table tops out at `27`. Sap and Gouge report
 > `14` (incapacitated) — the `30` ("sapped") value used by some
 > addon tables has no row here.
+
+### `C_Spell.GetSpellEffectInfo(spellID)`
+
+Returns one table per spell effect, holding that effect's raw
+`Spell.dbc` fields, as a 1-based array of three. `nil` for an invalid or
+out-of-range spell ID.
+
+```
+effects = C_Spell.GetSpellEffectInfo(spellID)
+```
+
+Each entry holds:
+
+| Field | Meaning |
+|-------|---------|
+| `effect` | The `SPELL_EFFECT_*` code. `0` when the slot is unused. |
+| `auraName` | Which aura the effect applies. `0` when it applies none. |
+| `basePoints` | The effect's stored magnitude. |
+| `baseDice` | Added to `basePoints` for the fixed magnitude. |
+| `dieSides` | Size of the magnitude's random range. |
+| `pointsPerLevel` | Magnitude gained per level. Fractional. |
+| `dicePerLevel` | Random range gained per level. Fractional. |
+| `miscValue` | The effect's parameter, such as which stat a stat-modifying aura applies to. |
+
+All three entries are always present. An unused effect slot has every
+field `0`.
+
+```lua
+local fx = C_Spell.GetSpellEffectInfo(1243)  -- Power Word: Fortitude
+-- fx[1].auraName == 29, fx[1].basePoints == 2, fx[1].baseDice == 1
+-- so the effect grants 3 -- the +3 Stamina the tooltip shows
+```
+
+**Working out an effect's magnitude.** For most auras `dieSides` is `1`
+or `0` and `pointsPerLevel` is `0`, and then the magnitude is simply
+`basePoints + baseDice`. The general form also scales with the caster's
+level, which needs the spell's level fields from
+[`GetSpellLevelInfo`](#c_spellgetspelllevelinfospellid):
+
+```lua
+local spellLevel, _, maxLevel = C_Spell.GetSpellLevelInfo(spellID)
+local cap = maxLevel > 0 and maxLevel or UnitLevel("player")
+local level = math.max(spellLevel, math.min(UnitLevel("player"), cap)) - spellLevel
+
+local points = fx.basePoints + level * fx.pointsPerLevel
+local random = fx.dieSides + level * fx.dicePerLevel
+local value = points + fx.baseDice   -- only valid while random <= 1
+```
+
+> **A `dieSides` above `1` means the magnitude is rolled.** The value is
+> picked when the spell is cast and is not available here, so treat such
+> an effect as having no single magnitude rather than reporting the low
+> end of its range.
+
+The fields are the stored ones, so a magnitude worked out from them also
+leaves out what the caster brings to a cast: combo points, talent and
+gear modifiers, and the extra level scaling some spells are flagged for.
+Expect it to match a tooltip for a plain aura and to fall short for a
+damage or healing figure.
+
+Reads `Spell.dbc` directly, so it covers every spell the client knows,
+not just the player's spellbook, with no caching or waiting on the
+server.
 
 ### `C_Spell.GetSpellEffectMechanics(spellID)`
 

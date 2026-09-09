@@ -7276,6 +7276,26 @@ enum Offsets {
     // (Effect@61, DieSides@64, BaseDice@67, BasePoints@76) against 7468.
     OFF_SPELL_RECORD_EFFECT_BASE_DICE = 0x10C,        // int32[3]
 
+    // The rest of the amount inputs, so a caller can reproduce the
+    // engine's full per-effect magnitude rather than only the fixed
+    // `BasePoints + BaseDice` case above. Same field run the BASE_DICE
+    // note verifies (Effect@61, DieSides@64, BaseDice@67, BasePoints@76),
+    // continued: DicePerLevel@70, RealPointsPerLevel@73.
+    //
+    // The magnitude is
+    //   level  = clamp(charLevel, spellLevel..maxLevel) - spellLevel
+    //   points = BasePoints + level * RealPointsPerLevel
+    //   random = DieSides   + level * DicePerLevel
+    //   value  = points + (random <= 1 ? BaseDice : roll(BaseDice, random))
+    // so `DieSides > 1` marks an effect whose amount is a server-side die
+    // roll no client can reproduce. Read by C_Spell.GetSpellEffectInfo.
+    OFF_SPELL_RECORD_EFFECT_DIE_SIDES = 0x100,        // int32[3]
+    // Both per-level fields are FLOAT, not int — verified by reading
+    // field 73 on spells 10 / 17 / 43 / 91 / 122, which decode as
+    // 0.1 / 0.8 / 1.0 / -1.0 / 0.5 as float and as garbage as int32.
+    OFF_SPELL_RECORD_EFFECT_DICE_PER_LEVEL = 0x118,   // float[3]
+    OFF_SPELL_RECORD_EFFECT_REAL_POINTS_PER_LEVEL = 0x124, // float[3]
+
     // Per-effect EffectRadiusIndex[3] → SpellRadius.dbc. Verified by
     // FUN_006e6350, which reads spellRec[+0x160] (effect 0) and
     // spellRec[+0x164] (effect 1) as radius indices. 0 = effect has no
