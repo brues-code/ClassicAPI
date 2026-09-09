@@ -21,12 +21,21 @@
 #include "spell/Lookup.h"
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace Talent::SpellSet {
 
 namespace {
+
+const char *Name(int spellID) {
+    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
+    if (rec == nullptr)
+        return nullptr;
+    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
+    return Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES + locale * 4);
+}
 
 // Every spellID in a Talent.dbc rank column. Each record stores rank-N
 // spellIDs at `OFF_TALENT_SPELL_RANK + N*4` for N = 0..8; unused ranks are 0.
@@ -98,6 +107,28 @@ const std::unordered_set<int> &LineSet() {
     return set;
 }
 
+// Localized names of every talent rank spell — the fallback for chains the
+// SLA link does not cover (the whole Mind Flay chain 15407 → 17311 → … has
+// 0 in that column, so `LineSet` holds only rank 1). The engine's own
+// notion of a rank set is "same name in the spellbook": a name-cast
+// resolves to the highest same-named spell in the book
+// (`Spell::Lookup::SpellNameToID` mirrors it), so a book spell that shares
+// a talent rank's name is a rank of that talent.
+const std::unordered_set<std::string> &NameSet() {
+    static std::unordered_set<std::string> set;
+    if (!set.empty())
+        return set;
+    const std::unordered_set<int> &ranks = RankSet();
+    if (ranks.empty())
+        return set;
+    for (int spellID : ranks) {
+        const char *name = Name(spellID);
+        if (name != nullptr && *name != '\0')
+            set.insert(name);
+    }
+    return set;
+}
+
 // `C_SpellBook.IsClassTalentSpellBookItem(slotIndex, spellBank)` -> bool.
 // A pet-book slot is never a talent.
 int __fastcall Script_IsClassTalentSpellBookItem(void *L) {
@@ -121,7 +152,10 @@ bool IsTalentRank(int spellID) {
 }
 
 bool IsTalentLine(int spellID) {
-    return LineSet().count(spellID) != 0;
+    if (LineSet().count(spellID) != 0)
+        return true;
+    const char *name = Name(spellID);
+    return name != nullptr && *name != '\0' && NameSet().count(name) != 0;
 }
 
 } // namespace Talent::SpellSet

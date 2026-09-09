@@ -3745,10 +3745,13 @@ enum Offsets {
     // Field 8: the spellID of the NEXT rank that supersedes this row's
     // spell (0 = none / not linked). Verified against the extracted DBC:
     // Mortal Strike 12294 → 21551 → 21552, Kick 1766 → 1767. Populated
-    // for ability chains (660 of 6812 rows) but NOT for every chain —
-    // Fireball 133's row holds 0 — so treat it as "known next rank", not
-    // as a complete rank graph. `Talent::SpellSet` follows it to extend a
-    // talent's rank-1 spell to its trained higher ranks.
+    // for some ability chains (660 of 6812 rows) but NOT for every chain —
+    // Fireball 133's row and the ENTIRE Mind Flay chain (15407, 17311..
+    // 17314, 18807) hold 0 — so treat it as "known next rank", not as a
+    // complete rank graph. The engine's own rank-chain walk
+    // (`FUN_SPELL_RANK_CHAIN_KNOWN`) reads this same field and has the same
+    // gap. `Talent::SpellSet` follows it to extend a talent's rank-1 spell
+    // to its trained higher ranks, then falls back to a shared spell name.
     OFF_SLA_SUPERCEDED_BY_SPELL = 0x20,
     // Skill-up threshold ranks (grey / green) at record fields 10/11.
     // A row with either nonzero is a craftable recipe; profession

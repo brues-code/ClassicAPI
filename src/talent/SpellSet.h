@@ -23,11 +23,13 @@ namespace Talent::SpellSet {
 // active talent ability such as Mortal Strike 12294).
 bool IsTalentRank(int spellID);
 
-// `IsTalentRank` extended along SkillLineAbility's next-rank links: also
-// true for the trained higher ranks of a talent ability (Mortal Strike
-// 21551, 21552, ...), which a spellbook lists next to the talent-granted
-// rank 1. Coverage follows the links the DBC provides (see
-// `Offsets::OFF_SLA_SUPERCEDED_BY_SPELL`).
+// `IsTalentRank` extended to the trained higher ranks of a talent ability
+// (Mortal Strike 21551, 21552, ...), which a spellbook lists next to the
+// talent-granted rank 1. Two sources: SkillLineAbility's next-rank links
+// (see `Offsets::OFF_SLA_SUPERCEDED_BY_SPELL`), and — for chains without
+// links, like Mind Flay — a shared localized name with a talent rank
+// spell, the engine's own name-cast notion of a rank set. Meant for spells
+// in the player's spellbook; a name match there is a rank of that talent.
 bool IsTalentLine(int spellID);
 
 } // namespace Talent::SpellSet

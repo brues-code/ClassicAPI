@@ -14615,9 +14615,10 @@ if C_SpellBook.IsClassTalentSpellBookItem(slot, bank) then
 end
 ```
 
-Higher ranks are found through the next-rank links in the client data.
-Most ability chains carry them, and coverage is limited to the chains that
-do.
+Higher ranks are found in two ways: through the next-rank links in the
+client data, and through the spell name. A spellbook spell with the same
+name as a talent's spell counts as a rank of that talent. Mind Flay is one
+chain that needs the second way.
 
 ### `C_SpellBook.ContainsAnyDisenchantSpell()`
 
