@@ -1123,35 +1123,44 @@ addon refers to another by name, not by load order.
 
 ### Conditional and multi-flavor TOC loading
 
-Some addons support several game versions from one folder.
-ClassicAPI supports two TOC mechanisms so these addons load here.
-This client is the **Vanilla** game type of the **Classic** family.
+Some addons support several game versions from one folder. ClassicAPI
+reads the TOC conventions those addons use, so they load here.
 
-**Flavor TOC files.** Some addons ship no plain `<Name>.toc`. They ship
-one TOC per version instead. ClassicAPI loads such an addon from a
-version-specific TOC, and prefers it even when a plain `<Name>.toc` also
-exists:
+**Flavor TOC files.** An addon that supports several clients can name its
+TOC after the client it targets. The plain `<Name>.toc` is then optional.
+ClassicAPI reads two of these names:
 
-- `<Name>_ClassicAPI.toc` — used on any client, because ClassicAPI is
-  always present.
-- `<Name>_Turtle.toc` — used only on a Turtle client. It wins over the
-  `_ClassicAPI` file.
+- `<Name>_Turtle.toc` — on a Turtle client only.
+- `<Name>_ClassicAPI.toc` — on any client.
 
-Both suffixes are ClassicAPI conventions. Name a TOC this way to target
-this client on purpose. ClassicAPI does not use `_Vanilla` or `_Classic`
-files — those target a different client that runs an engine this build
-does not match.
+ClassicAPI looks for `_Turtle` first, so it wins when both exist. Either
+one also wins over a plain `<Name>.toc`. An addon can therefore keep its
+plain TOC for other clients and put its ClassicAPI build in a suffixed
+file.
+
+ClassicAPI does not read `_Vanilla` or `_Classic`. Those names belong to
+the Classic Era client, which is a separate program with its own engine
+and its own API. An addon's `_Vanilla` files are written for that client.
+Such a file can start the addon and then fail inside it, on a function or
+a template this client does not provide. So an addon that ships only
+`_Vanilla` and `_Mainline` TOCs does not load at all. Add a
+`_ClassicAPI.toc` to support this client.
+
+**Note the word `vanilla`.** The two TOC conventions reuse it for
+different things. As a file suffix, `_Vanilla` names the Classic Era
+client, so ClassicAPI ignores it. As a directive value, `vanilla` names
+this client's game type, so `[AllowLoadGameType vanilla]` loads the line.
 
 **Flavor Bindings files.** The same selection applies to an addon's
-keybinding file. An addon can ship `Bindings_ClassicAPI.xml` (used on any
-client) or `Bindings_Turtle.xml` (used only on a Turtle client, and it
-wins), in place of or alongside a plain `Bindings.xml`:
+keybinding file:
 
-- A flavor file wins over a plain `Bindings.xml`.
-- A flavor-only addon (no plain `Bindings.xml`) still loads its bindings.
+- `Bindings_Turtle.xml` — on a Turtle client only.
+- `Bindings_ClassicAPI.xml` — on any client.
 
-The `_Vanilla` / `_Classic` names are not used here either, for the same
-reason as the TOC files.
+The order matches the TOC files: `_Turtle` first, and either one wins
+over a plain `Bindings.xml`. An addon that ships no plain `Bindings.xml`
+still loads its bindings from a flavor file. ClassicAPI does not read
+`_Vanilla` or `_Classic` here either.
 
 **Multi-flavor `## Interface:` version.** A TOC can list several
 interface versions on one line:
@@ -1159,6 +1168,10 @@ interface versions on one line:
 ```
 ## Interface: 120100, 50504, 38002, 20506, 11200
 ```
+
+The addon loads when the list contains this client's interface version,
+`11200`. The position of that entry in the list does not matter. A list
+without it stays out of date, and the addon does not load.
 
 **Per-line directives.** Inside a TOC, gate individual file lines with a
 condition, or expand a path variable:
