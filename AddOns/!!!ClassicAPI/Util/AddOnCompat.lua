@@ -1,5 +1,10 @@
 if C_AddOns.DoesAddOnExist('pfUI') then
     EventUtil.ContinueOnAddOnLoaded('pfUI', function()
+        -- A pfUI that sets `handlesHookScript` was written against our
+        -- additions and manages them itself, so none of the shims below apply
+        -- to it.
+        if pfUI.handlesHookScript then return end
+
         -- pfUI\pfUI.lua redeclares the RAID_CLASS_COLORS object at least 14 times (insane!!)
         -- This stops it from replacing all our ColorMixin values
         pfUI.UpdateColors = function() end
@@ -17,13 +22,12 @@ if C_AddOns.DoesAddOnExist('pfUI') then
         -- CreateFrame to shadow HookScript with a falsy field so those forks
         -- fall back to their vanilla SetScript path. The wrapper is removed as
         -- soon as the actionbar module finishes loading so it affects nothing
-        -- else. A pfUI is trusted to handle HookScript itself if EITHER signal
-        -- is present: the maintained "brues" X-Website tag OR the
-        -- `pfUI.handlesHookScript` capability flag. Without the website the
-        -- flag is required; if neither is present we apply the shim.
+        -- else. The maintained "brues" fork, identified by its X-Website tag,
+        -- handles HookScript on its own buttons and is exempt from this part;
+        -- every other fork gets the shim.
         local website = GetAddOnMetadata("pfUI", "X-Website")
         local hasBruesWebsite = website and strfind(website, 'brues')
-        if not hasBruesWebsite and not pfUI.handlesHookScript then
+        if not hasBruesWebsite then
             local _createFrame = CreateFrame
             local HookedCreateFrame = function(frameType, name, parent, template)
                 local frame = _createFrame(frameType, name, parent, template)
@@ -50,6 +54,7 @@ end
 -- ShaguTweaks libpredict register's TBC events that ClassicAPI backports.
 if C_AddOns.DoesAddOnExist("ShaguTweaks") then
     EventUtil.ContinueOnAddOnLoaded("ShaguTweaks", function()
+        if ShaguTweaks.API.classicapi_version then return end
         local libp = ShaguTweaks.libpredict
         if libp then
             libp.sender:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
