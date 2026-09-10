@@ -171,6 +171,30 @@ bool FindByArgInBags(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out)
 // Lua stack.
 bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out);
 
+// Resolves the item argument of the "use this item" APIs, which take
+// EITHER an item location or an item reference:
+//   - a location — `{equipmentSlotIndex=N}` / `{bagID=B, slotIndex=S}`, or
+//     an item GUID string — names ONE exact item, so it is tried first and
+//     resolved through `Resolve`;
+//   - a reference — itemID, `item:N`, an item link, or the name of an item
+//     the player carries — is searched for with `FindByArgInBags`, which
+//     takes the first match.
+// The distinction matters wherever two stacks of the same item are held: a
+// location says which one, a reference does not.
+//
+// Returns nullptr when the argument is neither form, or names nothing the
+// player has. Stomps the Lua stack (both paths) — read every other argument
+// off the stack before calling.
+const uint8_t *ResolveItemArgOrLocation(void *L, int idx);
+
+// Same resolution, for callers that need WHERE the item is and not only
+// which one — the equip paths encode the source slot in their packet. Fills
+// `*out` the way `FindByArg` does: `equipmentSlotIndex` non-zero for an
+// equipped item, else `bagID` / `slotIndex`. A reference is searched for in
+// the bags only, so it never resolves to an equipped item; a location can
+// name either.
+bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out);
+
 // Resolves `(bagID, slotIndex)` to its `CGItem *` WITHOUT the Lua stack:
 // the backpack (bag 0) is indexed straight off the player inventory manager
 // at `BACKPACK_LINEAR_BASE + slot - 1`, bags 1..4 through

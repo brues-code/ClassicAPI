@@ -340,7 +340,7 @@ build instructions.
 
 - [Item](#item)
   - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexititemlocation--c_itemdoesitemexistbyiditem)
-  - [`C_Item.EquipItemByName(itemInfo [, dstSlot])`](#c_itemequipitembynameiteminfo--dstslot)
+  - [`C_Item.EquipItemByName(item [, dstSlot])`](#c_itemequipitembynameitem--dstslot)
   - [`C_Item.GetCurrentItemLevel(itemLocation)` / `C_Item.GetDetailedItemLevelInfo(item)`](#c_itemgetcurrentitemlevelitemlocation--c_itemgetdetaileditemlevelinfoitem)
   - [`C_Item.GetItemCount(itemInfo, [includeBank], [includeUses])`](#c_itemgetitemcountiteminfo-includebank-includeuses)
   - [`C_Item.GetItemData(itemLocation)` / `C_Item.GetItemDataByID(item)`](#c_itemgetitemdataitemlocation--c_itemgetitemdatabyiditem)
@@ -386,9 +386,9 @@ build instructions.
   - [`C_Item.RequestLoadItemDataByID(item)` / `C_Item.RequestLoadItemData(itemLocation)`](#c_itemrequestloaditemdatabyiditem--c_itemrequestloaditemdataitemlocation)
   - [`C_Item.UnlockAllItems()`](#c_itemunlockallitems)
   - [`C_Item.UnlockItem(itemLocation)`](#c_itemunlockitemitemlocation)
-  - [`C_Item.UseAtCursor(itemInfo)`](#c_itemuseatcursoriteminfo)
-  - [`C_Item.UseAtUnit(itemInfo, unit)`](#c_itemuseatunititeminfo-unit)
-  - [`C_Item.UseItemByName(itemInfo [, unit])`](#c_itemuseitembynameiteminfo--unit)
+  - [`C_Item.UseAtCursor(item)`](#c_itemuseatcursoritem)
+  - [`C_Item.UseAtUnit(item, unit)`](#c_itemuseatunititem-unit)
+  - [`C_Item.UseItemByName(item [, unit])`](#c_itemuseitembynameitem--unit)
   - [`Get*ItemID` — companions to the engine's `Get*ItemLink` family](#getitemid--companions-to-the-engines-getitemlink-family)
   - [`GetAverageItemLevel()`](#getaverageitemlevel)
   - [`GetInventoryItemDurability(invSlot)`](#getinventoryitemdurabilityinvslot)
@@ -3349,7 +3349,7 @@ silently. Returns `true` if the call ran (the set existed), `false`
 otherwise.
 
 Implementation uses the same `FUN_INVENTORY_SWAP` primitive
-[`C_Item.EquipItemByName`](#c_itemequipitembynameiteminfo--dstslot)
+[`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot)
 uses for its explicit-slot path. Each swap is a single
 CMSG_SWAP_INV_ITEM (or CMSG_AUTOEQUIP_ITEM) packet that the server
 applies atomically — the two-cycle "ring A in slot 11, ring B in
@@ -7754,24 +7754,37 @@ if C_Item.DoesItemExist({equipmentSlotIndex = INVSLOT_HEAD}) then ... end
 if C_Item.DoesItemExistByID(6948) then ... end
 ```
 
-### `C_Item.EquipItemByName(itemInfo [, dstSlot])`
+### `C_Item.EquipItemByName(item [, dstSlot])`
 
-Finds the first item in the player's bags matching `itemInfo` and
-equips it. With `dstSlot` (a 1-based character-pane slot, 1..19),
+Equips `item`. With `dstSlot` (a 1-based character-pane slot, 1..19),
 equips to that specific slot; without, the engine auto-picks based on
 the item's inventory type.
 
-`itemInfo` accepts the same shapes as
-[`C_Item.IsEquippedItem`](#c_itemisequippeditemitem) — itemID number,
-bare `"item:N"` string, full chat link, or a localized item name. Name
-matching is case-insensitive against each candidate's *decorated* name
-(random suffix included — a suffixed item matches its full name, not the
-base), the same shared predicate `C_Item.IsEquippedItem` uses.
+`item` takes either of two forms:
+
+- An item **reference**: an itemID number, bare `"item:N"` string, a full
+  chat link, or a localized item name — the shapes
+  [`C_Item.IsEquippedItem`](#c_itemisequippeditemitem) takes. The first
+  matching item in your bags is equipped. Name matching is case-insensitive
+  against each candidate's *decorated* name (random suffix included — a
+  suffixed item matches its full name, not the base), the same shared
+  predicate `C_Item.IsEquippedItem` uses.
+- An item **location**: `{bagID = B, slotIndex = S}`,
+  `{equipmentSlotIndex = N}`, or an item GUID string — the shapes
+  [`C_Item.GetItemID`](#c_itemgetitemiditemlocation) takes. A location names
+  one exact item, so use it when you hold two of the same item with
+  different enchants or suffixes and which one you equip matters.
+
+An `{equipmentSlotIndex = N}` location names an item you are already
+wearing, so it needs a `dstSlot` to move to: that is how you swap rings
+(11 ↔ 12), trinkets (13 ↔ 14) or weapons (16 ↔ 17). Without `dstSlot` there
+is nothing for the engine to pick, and the call does nothing.
 
 Returns nothing. Silently no-ops when:
 
 - the input is `nil`, an empty string, or otherwise unparseable
-- no matching item is in bags (already-equipped items aren't moved)
+- you do not have the item; a reference searches your bags only, so an
+  item you are already wearing is only reachable by location
 - the engine refuses the equip — combat, locked item, type mismatch
   with `dstSlot`, locked equipment slot, etc.
 
@@ -7788,10 +7801,12 @@ Two paths based on `dstSlot`:
   stays on the cursor.
 - **No `dstSlot` (engine auto-picks slot from inventory type):**
   falls back to the cursor-pickup + `AutoEquipCursorItem` path
-  because the auto-pick logic reads off cursor state. For this
-  path only, the function refuses to operate (no-op) when
-  `CursorHasItem()` is already true, to avoid clobbering whatever's
-  held.
+  because the auto-pick logic reads off cursor state.
+
+Both paths first return anything on the cursor to the slot it came from, so
+a held item is neither clobbered nor left visually locked. The item is
+resolved after that, which means a location naming the slot a held item came
+from still finds it — while held, that slot reads empty.
 
 ```lua
 -- By itemID, auto-pick slot:
@@ -7802,6 +7817,12 @@ C_Item.EquipItemByName("Linen Cloth", 17)
 
 -- From a chat link:
 C_Item.EquipItemByName(itemLink)
+
+-- That exact bag slot, auto-pick where it goes:
+C_Item.EquipItemByName({ bagID = 0, slotIndex = 1 })
+
+-- Move the main-hand weapon to the off-hand:
+C_Item.EquipItemByName({ equipmentSlotIndex = 16 }, 17)
 ```
 
 ### `C_Item.GetCurrentItemLevel(itemLocation)` / `C_Item.GetDetailedItemLevelInfo(item)`
@@ -9186,7 +9207,7 @@ dropped into a bag/equipment slot, deleted (`DeleteCursorItem`), sold
 at a merchant, etc.
 
 `itemInfo` accepts the same shapes as
-[`C_Item.EquipItemByName`](#c_itemequipitembynameiteminfo--dstslot) —
+[`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot) —
 itemID number, bare `"item:N"` string, full chat link, or a localized
 item name (matched case-insensitively against each candidate's
 *decorated* name, random suffix included). Unlike the by-name equip/use
@@ -9302,50 +9323,55 @@ sweep is logout). This call gives you an in-session escape hatch.
 > update will set the lock right back. For cursor-cancel semantics,
 > pair with the engine's `ClearCursor()`.
 
-### `C_Item.UseAtCursor(itemInfo)`
+### `C_Item.UseAtCursor(item)`
 
-Uses `itemInfo` at the player's current cursor world position —
+Uses `item` at the player's current cursor world position —
 ClassicAPI's `[@cursor]` analog for ground-target on-use items
 (Iron Grenade, Bombling, demolition charges, etc.). Returns `true`
 when the cursor-placement leg landed (the item fires at terrain);
 `false` for items that aren't ground-target (the item still fires
-normally with no implicit target), unparseable input, items not in
-bags, cursor over UI / off-screen, etc.
+normally with no implicit target), unparseable input, items you do
+not have, cursor over UI / off-screen, etc.
 
-`itemInfo` accepts the same shapes as
-[`C_Item.UseItemByName`](#c_itemuseitembynameiteminfo--unit) — itemID,
-bare `"item:N"`, full chat link, or localized name.
+`item` takes either of two forms:
+
+- An item **reference**: an itemID, bare `"item:N"`, a full chat link, or a
+  localized name — the shapes
+  [`C_Item.UseItemByName`](#c_itemuseitembynameitem--unit) takes. The
+  first matching item in your bags is used.
+- An item **location**: `{bagID = B, slotIndex = S}`,
+  `{equipmentSlotIndex = N}`, or an item GUID string — the shapes
+  [`C_Item.GetItemID`](#c_itemgetitemiditemlocation) takes. A location names
+  one exact item, so use it when you hold two stacks of the same thing and
+  the one you mean matters.
 
 ```lua
 C_Item.UseAtCursor(4068)            -- Iron Grenade at cursor
 C_Item.UseAtCursor("Iron Grenade")
+C_Item.UseAtCursor({ bagID = 0, slotIndex = 1 })
 ```
 
-Implementation chains the existing item-use path
-(`Item::Location::FindByArgInBags` + `FUN_ITEM_USE`) with
-[`Spell::AtCursor::Resolve`](#c_spellcastatcursorspellidorname) — same
-cursor-resolution helper `C_Spell.CastAtCursor` uses. When the item
-fires a non-ground-target spell, the cursor leg no-ops and returns
-`false`; the item still uses normally (any implicit target — current
-selection, etc. — applies).
+When the item fires a non-ground-target spell, the cursor leg no-ops
+and returns `false`; the item still uses normally (any implicit
+target — current selection, etc. — applies).
 
 Cancels placement automatically when the cursor isn't on terrain —
 the item-use packet is never sent, so an off-screen click doesn't
 waste the grenade.
 
-### `C_Item.UseAtUnit(itemInfo, unit)`
+### `C_Item.UseAtUnit(item, unit)`
 
 Unit-position analog of
-[`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo): uses `itemInfo` at
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem): uses `item` at
 `unit`'s feet rather than the cursor. ClassicAPI's `[@unit]` for
-ground-target on-use items. `itemInfo` accepts the same forms as
-`UseAtCursor` (itemID, bare `"item:N"`, full chat link, localized
-name); `unit` is any unit token (`"player"`, `"target"`,
-`"mouseover"`, `"party1"`, …).
+ground-target on-use items. `item` accepts the same two forms as
+`UseAtCursor` — an item reference or an item location; `unit` is any
+unit token (`"player"`, `"target"`, `"mouseover"`, `"party1"`, …).
 
 ```lua
 C_Item.UseAtUnit(4068, "target")            -- Iron Grenade at the target's feet
 C_Item.UseAtUnit("Iron Grenade", "player")
+C_Item.UseAtUnit({ bagID = 0, slotIndex = 1 }, "player")
 ```
 
 Returns `true` when the placement landed at the unit. Returns `false` for
@@ -9363,25 +9389,31 @@ A unit token that names nothing right now, such as `"party3"` while solo,
 returns `false`. A string that is not a unit token at all raises the
 engine's standard "Unknown unit" error, as `UnitHealth("garbage")` does and
 as `C_Spell.CastAtUnit` does. That differs from
-[`C_Item.UseItemByName`](#c_itemuseitembynameiteminfo--unit), whose contract
+[`C_Item.UseItemByName`](#c_itemuseitembynameitem--unit), whose contract
 is to no-op on anything it cannot use.
 
-### `C_Item.UseItemByName(itemInfo [, unit])`
+### `C_Item.UseItemByName(item [, unit])`
 
-Finds the first item in the player's bags matching `itemInfo` and
-uses it. Returns nothing; silently no-ops when:
+Uses `item`. Returns nothing; silently no-ops when:
 
 - the input is `nil`, an empty string, or otherwise unparseable
-- no matching item is in bags
+- the player does not have the item
 - the engine refuses the use — cooldown, locked item, level
   requirement, etc.
 
-`itemInfo` accepts the same shapes as
-[`C_Item.EquipItemByName`](#c_itemequipitembynameiteminfo--dstslot) —
-itemID number, bare `"item:N"` string, full chat link, or a localized
-item name. Name matching is case-insensitive against each candidate's
-*decorated* name (random suffix included), the same shared predicate
-`C_Item.IsEquippedItem` uses.
+`item` takes either of two forms:
+
+- An item **reference**: an itemID number, bare `"item:N"` string, a full
+  chat link, or a localized item name — the shapes
+  [`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot) takes.
+  The first matching item in your bags is used. Name matching is
+  case-insensitive against each candidate's *decorated* name (random suffix
+  included), the same shared predicate `C_Item.IsEquippedItem` uses.
+- An item **location**: `{bagID = B, slotIndex = S}`,
+  `{equipmentSlotIndex = N}`, or an item GUID string — the shapes
+  [`C_Item.GetItemID`](#c_itemgetitemiditemlocation) takes. A location names
+  one exact item, so use it when you hold two stacks of the same thing and
+  the one you mean matters.
 
 The optional `unit` argument is a unit token (`"player"`, `"target"`,
 `"focus"`, `"partyN"`, `"raidN"`, `"nameplateN"`, …) used as the cast
@@ -9390,13 +9422,14 @@ effects). For self-use items (hearthstone, potions, food) the engine
 overwrites the target with the item's own GUID before dispatch, so
 passing a `unit` to those is harmless and has no effect. Unrecognized
 strings are treated as "no target" rather than raising, matching the
-silently-no-op contract of `itemInfo`.
+silently-no-op contract of `item`.
 
 ```lua
 C_Item.UseItemByName("Hearthstone")                       -- hearth home
 C_Item.UseItemByName(6948)                                -- same thing, by ID
 C_Item.UseItemByName("Major Healing Potion")
 C_Item.UseItemByName("Scroll of Stamina IV", "target")    -- buff your tank
+C_Item.UseItemByName({ bagID = 0, slotIndex = 1 })        -- that exact slot
 ```
 
 Locates the item directly, then hands the `CGItem *` to the engine's
@@ -14689,7 +14722,7 @@ the cast fires normally; the placement-resolve no-ops since the
 engine never set the placement flag, and we return `false`.
 
 The companion item version is
-[`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo) — same chain via
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem) — same chain via
 the item-use path for grenades / on-use ground-target items.
 
 ### `C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`
@@ -14742,7 +14775,7 @@ cancelled. A genuinely unrecognized unit-token string raises the engine's
 standard "Unknown unit" error, matching `UnitHealth("garbage")`.
 
 The companion item version is
-[`C_Item.UseAtUnit`](#c_itemuseatunititeminfo-unit).
+[`C_Item.UseAtUnit`](#c_itemuseatunititem-unit).
 
 ### `C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`
 

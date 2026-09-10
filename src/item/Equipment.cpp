@@ -135,19 +135,28 @@ int __fastcall Script_C_Item_IsEquippedItem(void *L) {
     return 1;
 }
 
-// `C_Item.EquipItemByName(itemInfo [, dstSlot])` — finds the first
-// item in the player's bags matching `itemInfo` (itemID, link, or
-// name) and equips it.
+// `C_Item.EquipItemByName(item [, dstSlot])` — equips `item`.
+//
+// `item` is an item reference (itemID, `item:N`, a link, or the name of an
+// item the player carries — the first bag match is equipped) or an item
+// location (`{bagID=B, slotIndex=S}`, `{equipmentSlotIndex=N}`, an item
+// GUID), which names one exact item. See
+// `Item::Location::FindItemArgOrLocation`, shared with the item-use APIs;
+// this call wants the source coordinates too, since the swap packet carries
+// them.
 //
 // Two paths after a shared cursor-clear:
 //
-// - **Explicit `dstSlot`** (1..19): cursor-free direct swap via
-//   `Item::Swap::FromBag`, which calls the engine's
-//   `FUN_INVENTORY_SWAP` primitive. Atomic server-side, no pickup.
+// - **Explicit `dstSlot`** (1..19): cursor-free direct swap via the engine's
+//   `FUN_INVENTORY_SWAP` primitive — atomic server-side, no pickup.
+//   `Item::Swap::FromBag` for an item in a bag, `FromPaperdoll` for one
+//   already equipped (an `{equipmentSlotIndex=N}` location, which is how a
+//   ring 11↔12 or weapon 16↔17 move is expressed).
 //
 // - **No `dstSlot`** (engine auto-picks slot from INVTYPE): cursor-
 //   pickup + `AutoEquipCursorItem`, because 1.12's auto-pick logic
-//   reads its slot decision off cursor state.
+//   reads its slot decision off cursor state. An already-equipped item has
+//   nothing to auto-pick, so that combination does nothing.
 //
 // Both paths start with `ClearCursor()` to clear any preexisting
 // cursor state. If something was on the cursor, it gets returned
@@ -157,37 +166,41 @@ int __fastcall Script_C_Item_IsEquippedItem(void *L) {
 // item-flag clear (`FUN_00495190(0, 1)`); a held item would stay
 // visually locked until a relog refreshed inventory state.
 //
-// Returns nothing. Silently no-ops on bad/missing input, item not
-// found in bags, or engine refusing the swap (combat lockdown,
+// The item is resolved AFTER that clear, so a location naming the slot a
+// held item came from resolves to it (its slot reads empty while held) and a
+// name search sees the returned item too. `Script_ClearCursor` is
+// `FUN_00495190(1, 1)` and nothing else — it takes no arguments and reads no
+// Lua stack — so our own arguments survive it.
+//
+// Returns nothing. Silently no-ops on bad/missing input, an item the player
+// doesn't have, or the engine refusing the swap (combat lockdown,
 // item-locked flag, type mismatch).
 int __fastcall Script_C_Item_EquipItemByName(void *L) {
-    const auto arg = Item::Arg::Resolve(L, 1);
-    if (arg.itemID <= 0 && arg.name == nullptr) {
-        return 0;
-    }
-
     const bool hasDstSlot = Game::Lua::IsNumber(L, 2);
     const int dstSlot = hasDstSlot ? static_cast<int>(Game::Lua::ToNumber(L, 2)) : 0;
 
-    // Return any held cursor item to its slot BEFORE searching for
-    // the target. FUN_INVENTORY_SWAP's end-of-call cleanup at
-    // FUN_00495190(0, 1) clears LOCAL cursor globals but skips the
-    // visual-lock-flag clear (`item+0x314 & ~1`) — so a held item
-    // would stay visually locked until a relog refreshed state.
-    // ClearCursor's FUN_00495190(1, 1) does include that clear.
-    Game::Lua::SetTop(L, 0);
+    // Return any held cursor item to its slot BEFORE resolving the target.
+    // FUN_INVENTORY_SWAP's end-of-call cleanup at FUN_00495190(0, 1) clears
+    // LOCAL cursor globals but skips the visual-lock-flag clear
+    // (`item+0x314 & ~1`) — so a held item would stay visually locked until
+    // a relog refreshed state. ClearCursor's FUN_00495190(1, 1) includes it.
     reinterpret_cast<int(__fastcall *)(void *)>(
         Offsets::FUN_SCRIPT_CLEAR_CURSOR)(L);
 
     Item::Location::ByGUIDResult found;
-    if (!Item::Location::FindByArgInBags(L, arg, &found)) {
+    if (!Item::Location::FindItemArgOrLocation(L, 1, &found)) {
         return 0;
     }
 
     if (hasDstSlot) {
-        Item::Swap::FromBag(found.item, found.bagID, found.slotIndex, dstSlot);
+        if (found.equipmentSlotIndex != 0)
+            Item::Swap::FromPaperdoll(found.item, found.equipmentSlotIndex, dstSlot);
+        else
+            Item::Swap::FromBag(found.item, found.bagID, found.slotIndex, dstSlot);
         return 0;
     }
+    if (found.equipmentSlotIndex != 0)
+        return 0; // already equipped — no slot for the engine to pick
 
     // Auto-slot path: pick the item up onto the cursor, then call the
     // engine's `CGPlayer::AutoEquipCursorItem` helper directly
