@@ -23,14 +23,15 @@
 // instead of the cursor raycast.
 //
 // Returns `true` when the placement landed at the unit; `false` for
-// non-ground-target items (the item still fires, no implicit target),
-// unparseable input, item-not-in-bags, or an unresolvable unit.
+// non-ground-target items (which still fire, at the unit), unparseable
+// input, item-not-in-bags, or an unresolvable unit.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "item/Arg.h"
 #include "item/Location.h"
 #include "spell/AtCursor.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 
 #include <cstdint>
@@ -63,15 +64,21 @@ int __fastcall Script_C_Item_UseAtUnit(void *L) {
         return 1;
     }
 
+    // Dispatch with the unit's GUID as the implicit target, exactly as
+    // `C_Spell.CastAtUnit` does. A ground-target item ignores it and enters
+    // placement, committed below; a unit-target one (a bandage, a scroll)
+    // fires straight at the unit instead of at whatever is selected. Read
+    // before `FindByArgInBags`, which stomps the Lua stack.
+    const uint64_t targetGuid = Unit::Identity::GuidForToken(token);
+
     Item::Location::ByGUIDResult found;
     if (!Item::Location::FindByArgInBags(L, arg, &found)) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
 
-    const uint64_t zeroTarget = 0;
     auto useItem = reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE);
-    useItem(found.item, &zeroTarget, 0);
+    useItem(found.item, &targetGuid, 0);
 
     const bool placed = Spell::AtCursor::CommitAtCoords(pos);
     Game::Lua::PushBool(L, placed);

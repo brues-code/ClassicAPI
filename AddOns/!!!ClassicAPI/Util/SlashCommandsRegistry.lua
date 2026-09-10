@@ -55,6 +55,12 @@ function SecureCmdUseItem(name, bag, slot, target)
 		if ( name ) then
 			C_Item.UseAtCursor(name);
 		end
+	elseif ( target == "player" and name ) then
+		-- `@player` drops a ground-target item at your own feet. Only your
+		-- own position is offered this way; aiming one at another unit is
+		-- not something you can do by hand either. An item with no ground
+		-- effect is used on you, as before.
+		C_Item.UseAtUnit(name, "player");
 	elseif ( bag ) then
 		UseContainerItem(bag, slot, target == "player");
 	elseif ( slot ) then

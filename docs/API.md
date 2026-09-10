@@ -9347,16 +9347,16 @@ C_Item.UseAtUnit(4068, "target")            -- Iron Grenade at the target's feet
 C_Item.UseAtUnit("Iron Grenade", "player")
 ```
 
-Same chain as `UseAtCursor` (`Item::Location::FindByArgInBags` +
-`FUN_ITEM_USE`) but committing the placement at the unit's world
-position via
-[`Spell::AtCursor::CommitAtCoords`](#c_spellcastatunitspellidorname-unit)
-instead of the cursor raycast. Returns `true` when the placement
-landed at the unit; `false` for non-ground-target items (the item
-still fires with any implicit target), unparseable input,
-item-not-in-bags, or an unresolvable unit. The unit is resolved
-before the item fires, so an absent unit fails without consuming the
-item.
+Returns `true` when the placement landed at the unit. Returns `false` for
+unparseable input, an item you do not carry, or a unit that cannot be
+resolved. The unit is resolved before the item fires, so an absent unit
+fails without consuming the item.
+
+An item with no ground effect also returns `false`, and is used **on the
+unit**: the item fires with that unit as its target rather than with
+whatever you have selected. So this covers both kinds of on-use item, the
+same way [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) covers
+both kinds of spell.
 
 ### `C_Item.UseItemByName(itemInfo [, unit])`
 
@@ -10873,9 +10873,14 @@ mouse, through
 [`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo). A spell or item with no
 ground effect is cast or used normally.
 
+`[@player]` drops a ground-target item at your own feet. Your own position
+is the only one an item can be aimed at this way. An item with no ground
+effect is used on you, as it was before.
+
 ```
 /cast [@cursor] Blizzard
 /use [@cursor] item:4390
+/use [@player] item:4390
 ```
 
 `/use` is `/cast` under a second name. Each client language has its own
