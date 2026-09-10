@@ -104,6 +104,10 @@ struct Entry {
     Kind kind = Kind::None;
     bool conditional = false;
     bool dirty = false;
+    // An addon published this resolution through `Publish`, so it owns the
+    // macro: we neither parse the body nor re-evaluate it, and the lookups
+    // answer from it even while yielding. See the header.
+    bool external = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
     Target target = Target::None;
@@ -326,6 +330,14 @@ void Rescan(void *L) {
             e = Entry{};
             continue;
         }
+        // A published macro is the publisher's to describe — don't re-read
+        // its body. Ownership follows the macro, so it only drops when the
+        // slot comes to hold a different one.
+        if (e.external) {
+            if (e.macroID == macroID)
+                continue;
+            e = Entry{};
+        }
         Parsed parsed;
         ParseBody(reinterpret_cast<const char *>(entry + Offsets::OFF_MACRO_BODY), &parsed);
         if (e.macroID != macroID || e.kind != parsed.kind || !SameOptions(e, parsed)) {
@@ -483,36 +495,31 @@ struct BusyScope {
     ~BusyScope() { g_busy = false; }
 };
 
-void Evaluate(void *L, Entry &e, uint32_t nowMs) {
-    BusyScope busy;
-    e.dirty = false;
-    e.lastEvalMs = nowMs;
+// What the engine's per-macro spell cache should hold for `r`: the spell
+// itself, the "named but unknown" sentinel that greys the button, or 0 for an
+// item / nothing.
+void DesiredCache(const Resolution &r, bool matched, uint32_t *spell, uint32_t *pet) {
+    *spell = 0;
+    *pet = 0;
+    if (r.target == Target::Spell) {
+        *spell = r.spellID;
+        *pet = r.isPet;
+    } else if (r.target == Target::None && matched) {
+        *spell = kUnresolvedSpell;
+    }
+}
+
+// Store `r` on the entry, push it into the engine's cache, and repaint the
+// slots when anything a button reads has moved. Shared by our own evaluation
+// and by `Publish`.
+void ApplyResolution(void *L, Entry &e, const Resolution &r, bool matched) {
     uint8_t *entry = EntryForID(e.macroID);
     if (entry == nullptr) {
         e = Entry{}; // macro deleted underneath us
         return;
     }
-
-    // First option line whose clause matches with a non-empty value.
-    bool matched = false;
-    char value[kOptionsMax] = {};
-    for (int i = 0; i < e.optionCount; ++i) {
-        if (ResolveOptions(L, e.options[i], value, sizeof(value)) && value[0] != '\0') {
-            matched = true;
-            break;
-        }
-    }
-    Resolution r;
-    if (matched)
-        ResolveValue(value, &r);
-
     uint32_t cacheSpell = 0, cachePet = 0;
-    if (r.target == Target::Spell) {
-        cacheSpell = r.spellID;
-        cachePet = r.isPet;
-    } else if (r.target == Target::None && matched) {
-        cacheSpell = kUnresolvedSpell;
-    }
+    DesiredCache(r, matched, &cacheSpell, &cachePet);
 
     auto &cache = Game::Ref<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL);
     auto &pet = Game::Ref<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL_IS_PET);
@@ -530,20 +537,86 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
         Repaint(L, e.macroID);
 }
 
+void Evaluate(void *L, Entry &e, uint32_t nowMs) {
+    BusyScope busy;
+    e.dirty = false;
+    e.lastEvalMs = nowMs;
+
+    // First option line whose clause matches with a non-empty value.
+    bool matched = false;
+    char value[kOptionsMax] = {};
+    for (int i = 0; i < e.optionCount; ++i) {
+        if (ResolveOptions(L, e.options[i], value, sizeof(value)) && value[0] != '\0') {
+            matched = true;
+            break;
+        }
+    }
+    Resolution r;
+    if (matched)
+        ResolveValue(value, &r);
+    ApplyResolution(L, e, r, matched);
+}
+
+// Re-push every published resolution whose engine cache has drifted. The
+// engine rewrites that field whenever it re-parses a macro (create, edit,
+// world enter, spellbook update), which would otherwise silently replace a
+// publisher's answer with the engine's own first `/cast` line. Runs even
+// while yielding, since a publisher owns its macro either way.
+void MaintainExternal(void *L) {
+    for (Entry &e : g_entries) {
+        if (!e.external || e.macroID == 0)
+            continue;
+        const uint8_t *entry = EntryForID(e.macroID);
+        if (entry == nullptr) {
+            e = Entry{};
+            continue;
+        }
+        Resolution r;
+        r.target = e.target;
+        r.spellID = e.spellID;
+        r.isPet = e.isPet;
+        r.itemID = e.itemID;
+        uint32_t wantSpell = 0, wantPet = 0;
+        DesiredCache(r, e.kind != Kind::None, &wantSpell, &wantPet);
+        const uint32_t haveSpell = *reinterpret_cast<const uint32_t *>(
+            entry + Offsets::OFF_MACRO_PRIMARY_SPELL);
+        const uint32_t havePet = *reinterpret_cast<const uint32_t *>(
+            entry + Offsets::OFF_MACRO_PRIMARY_SPELL_IS_PET);
+        if (haveSpell == wantSpell && havePet == wantPet)
+            continue;
+        BusyScope busy;
+        // Force the repaint: the stored resolution already matches, so only
+        // the engine's copy is stale.
+        e.target = Target::None;
+        ApplyResolution(L, e, r, e.kind != Kind::None);
+    }
+}
+
+// Read `CleveRoids.<field>` as a boolean. The table is already at the top of
+// the stack; leaves the stack as it found it apart from what the caller pops.
+bool ReadCleveRoidsFlag(void *L, const char *field) {
+    Game::Lua::PushString(L, field);
+    Game::Lua::RawGet(L, -2);
+    const bool set = Game::Lua::ToBoolean(L, -1) != 0;
+    Game::Lua::SetTop(L, Game::Lua::GetTop(L) - 1);
+    return set;
+}
+
 // SuperCleveRoidMacros owns macro display when it is loaded and hasn't
 // disabled itself: `CleveRoids` is its namespace table, `CleveRoids.disabled`
-// its self-disable flag.
+// its self-disable flag. A build that drives our display instead of replacing
+// the action globals announces itself with `ClassicAPIMacroDisplay`, and then
+// we do NOT stand down wholesale — it publishes per macro through `Publish`,
+// and macros it does not claim stay ours. Forks without the flag keep the
+// original all-or-nothing yield, so an older one can't end up fighting us.
 bool DetectYield(void *L) {
     const int top = Game::Lua::GetTop(L);
     Game::Lua::PushString(L, "CleveRoids");
     Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
     bool yield = false;
     if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE) {
-        Game::Lua::PushString(L, "disabled");
-        Game::Lua::RawGet(L, -2);
-        const bool disabled = Game::Lua::Type(L, -1) == Game::Lua::TYPE_BOOLEAN &&
-                              Game::Lua::ToBoolean(L, -1) != 0;
-        yield = !disabled;
+        yield = !ReadCleveRoidsFlag(L, "disabled") &&
+                !ReadCleveRoidsFlag(L, "ClassicAPIMacroDisplay");
     }
     Game::Lua::SetTop(L, top);
     return yield;
@@ -622,6 +695,9 @@ void Tick() {
 
     const uint32_t now = Time::Clock::NowMs();
     RefreshYield(L, now);
+    // Published macros are maintained either way — their owner is driving us
+    // directly, which the wholesale yield has no say over.
+    MaintainExternal(L);
     if (g_yielding)
         return;
     if (!CatchUp(L, now))
@@ -680,14 +756,70 @@ bool Active() {
     return !g_yielding;
 }
 
+bool Publish(int macroSlot, const char *value) {
+    if (macroSlot < 1 || macroSlot > kMaxMacros)
+        return false;
+    void *L = ReadyState();
+    if (L == nullptr)
+        return false;
+
+    auto *slotMap = reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_MACRO_SLOT_MAP));
+    const uint32_t macroID = slotMap[macroSlot - 1];
+    if (EntryForID(macroID) == nullptr)
+        return false;
+
+    Entry &e = g_entries[macroSlot - 1];
+    if (!e.external || e.macroID != macroID) {
+        e = Entry{};
+        e.macroID = macroID;
+        e.external = true;
+    }
+    // Kind marks the macro as claimed even when nothing resolved, so the
+    // button falls back to the question mark rather than to our own parse.
+    e.kind = Kind::ShowTooltip;
+
+    Resolution r;
+    const bool matched = value != nullptr && value[0] != '\0';
+    if (matched)
+        ResolveValue(value, &r);
+
+    BusyScope busy;
+    ApplyResolution(L, e, r, matched);
+    return e.target != Target::None;
+}
+
+void Release(int macroSlot) {
+    if (macroSlot < 1 || macroSlot > kMaxMacros)
+        return;
+    Entry &e = g_entries[macroSlot - 1];
+    if (!e.external)
+        return;
+    e = Entry{};
+    // Re-read the body and re-apply our own resolution for it.
+    g_rescanPending = true;
+}
+
 bool Lookup(uint32_t macroID, Info *out) {
     if (macroID == 0)
         return false;
     CatchUpIfPending();
+    // A published resolution answers even while yielding: its owner asked us
+    // to display it, so the wholesale stand-down doesn't apply to it.
+    for (const Entry &e : g_entries) {
+        if (!e.external || e.macroID != macroID || e.target == Target::None)
+            continue;
+        out->kind = e.kind;
+        out->target = e.target;
+        out->spellID = e.spellID;
+        out->isPet = e.isPet;
+        out->itemID = e.itemID;
+        return true;
+    }
     if (g_yielding)
         return false;
     for (const Entry &e : g_entries) {
-        if (e.macroID != macroID || e.kind == Kind::None)
+        if (e.macroID != macroID || e.kind == Kind::None || e.external)
             continue;
         if (e.target != Target::None) {
             out->kind = e.kind;

@@ -462,6 +462,7 @@ build instructions.
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
   - [`C_Macro.CreateMacro` / `C_Macro.EditMacro`](#c_macrocreatemacro--c_macroeditmacro)
+  - [`C_Macro.SetMacroDisplay(macroSlot, value)`](#c_macrosetmacrodisplaymacroslot-value)
 
 - [Mail](#mail)
   - [`GetSendMailItemLink([attachmentIndex])`](#getsendmailitemlinkattachmentindex)
@@ -11037,7 +11038,10 @@ reach chat.
 to.
 
 If SuperCleveRoidMacros is loaded, it controls macro display, and ClassicAPI
-does not evaluate `#showtooltip`.
+does not evaluate `#showtooltip`. A build that hands its own results over
+through
+[`C_Macro.SetMacroDisplay`](#c_macrosetmacrodisplaymacroslot-value) keeps
+`#showtooltip` working for the macros it does not claim.
 
 ### Numeric spellIDs in `/cast` and `CastSpellByName`
 
@@ -11260,6 +11264,55 @@ path, use the legacy globals.
 The legacy `CreateMacro` / `EditMacro` globals do not change. They stay
 index-only. String-icon callers use the `C_Macro` namespace instead.
 Edits persist across sessions, the same as edits in the Macro UI.
+
+### `C_Macro.SetMacroDisplay(macroSlot, value)`
+
+Tells the client what a macro is about, so the action button shows it. For
+an addon that parses macros itself and wants the button to follow, instead
+of replacing `GetActionTexture`, `GetActionCooldown`, `IsUsableAction` and
+the rest in Lua.
+
+```lua
+C_Macro.SetMacroDisplay(1, "Frostbolt")   -- show this
+C_Macro.SetMacroDisplay(1, false)         -- mine, nothing matched, show ?
+C_Macro.SetMacroDisplay(1, nil)           -- released, `#showtooltip` resumes
+```
+
+`macroSlot` is the macro index, the same one
+[`GetMacroInfo`](#getmacroinfomacroslot) and
+[`GetMacroSpell`](#getmacrospellmacroslot) take. `value` takes every form a
+[`#showtooltip`](#showtooltip-and-show) value takes: a spell name or ID, an
+item name, `item:N`, an item link, an inventory slot, or `bag slot`. An item
+you carry wins over a spell of the same name, as in `/cast`.
+
+Returns `true` when the value named a spell or an item.
+
+**What the button picks up.** The spell is written where the client keeps
+each macro's spell, which is the field its own buttons read. So cooldown,
+range, usable, out-of-mana greying, the current-cast highlight and
+auto-repeat all follow, with no function replaced. The tooltip follows, and
+so does the count, cooldown and consumable state for an item. The icon
+appears in three places, two of which Lua cannot reach: the action button,
+the cursor while you drag the macro, and the macro window grid.
+
+The icon replaces the macro's own only when that is the question mark, which
+is the same rule `#showtooltip` follows. A macro with a chosen icon keeps it.
+
+**Call it whenever your answer changes.** Nothing is re-evaluated for you.
+The value stands until you publish another, and it survives the client
+re-reading the macro, so an edit elsewhere cannot quietly replace it.
+
+Publishing takes the macro over: `#showtooltip` is not parsed for it while
+you hold it, and `nil` gives it back.
+
+> **For macro addons that currently take over the action bar.** ClassicAPI
+> stands down from macro display entirely when SuperCleveRoidMacros is
+> loaded, since it owns the bar with its own conditionals. A build that
+> drives this instead sets `CleveRoids.ClassicAPIMacroDisplay = true`, which
+> lifts that. Ownership is then per macro: published ones show what you
+> published, and ones you do not claim fall back to `#showtooltip`. Forks
+> that do not set the flag keep the old all-or-nothing behavior, so an
+> older one cannot end up fighting for the same buttons.
 
 ## Mail
 

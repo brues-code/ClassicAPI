@@ -36,7 +36,20 @@
 //
 // Yields entirely when SuperCleveRoidMacros is loaded (it owns macro display
 // with its own conditional dialect): `Active()` is false and every lookup
-// fails, so the overrides pass straight through to the engine.
+// fails, so the overrides pass straight through to the engine. A build that
+// sets `CleveRoids.ClassicAPIMacroDisplay` drives us through `Publish`
+// instead and lifts that wholesale yield.
+//
+// PUBLISHING. An addon with its own macro parser can hand us the resolution
+// and let this module do the display work, instead of replacing
+// `GetActionTexture` / `GetActionCooldown` / `IsUsableAction` / … in Lua.
+// That is a strictly better deal for it: writing the spell into the engine's
+// own per-macro cache is what makes cooldown, range, usable, current and
+// auto-repeat correct for a macro button without a single override, and the
+// icon reaches two places Lua cannot — the cursor while a macro is dragged,
+// and the macro window grid — because both come from an engine getter we
+// hook. A published macro is not re-parsed or re-evaluated by us, and it is
+// honored even while yielding.
 
 namespace Macro::ShowTooltip {
 
@@ -53,6 +66,23 @@ struct Info {
 
 // False while yielding to SuperCleveRoidMacros (or before login).
 bool Active();
+
+// Publish the resolution for macro slot `macroSlot` (1-based, as
+// `GetMacroInfo` / `GetMacroSpell` index macros). `value` takes the forms a
+// `#showtooltip` value takes — a spell name or ID, an item name, `item:N`,
+// an item link, an inventory slot, `bag slot` — and null or empty means the
+// publisher's conditions matched nothing, which shows the question mark
+// rather than handing the macro back to our parser.
+//
+// Returns true when the value resolved to a spell or an item. Applies
+// immediately: the engine cache is written and the affected buttons repaint
+// before it returns, so a publisher can call it straight out of its own
+// evaluation.
+bool Publish(int macroSlot, const char *value);
+
+// Give a published macro back, so our own `#showtooltip` parse resumes for
+// it. No-op for a macro that was never published.
+void Release(int macroSlot);
 
 // The directive resolution for a macro (by macroID — what the action table
 // stores) or for an action slot (0-based). False when the macro has no
