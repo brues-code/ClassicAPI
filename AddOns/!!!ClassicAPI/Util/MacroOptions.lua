@@ -452,15 +452,21 @@ local function UnitTokenExists(unit)
     return (ok and exists) and true or false;
 end
 
+-- Targets that do not name a unit. `none` clears the target and `cursor`
+-- names a world position, so neither can be tested with UnitExists and both
+-- always pass the existence gate below.
+local NON_UNIT_TARGETS = { none = true, cursor = true };
+
 local function GroupPasses(group)
     local target = group.target;
     if group.n == 0 then
         -- A group that only names a unit (`[@mouseover]`) passes only while
         -- that unit exists, so `[@mouseover][] Spell` falls through to the
-        -- next group when nothing is moused over. A bare `[]` and `[@none]`
-        -- always pass. Groups with conditions leave existence to them
-        -- (`[@focus,noexists]` still works).
-        return not target or strlower(target) == "none" or UnitTokenExists(target);
+        -- next group when nothing is moused over. A bare `[]` and the
+        -- non-unit targets always pass. Groups with conditions leave
+        -- existence to them (`[@focus,noexists]` still works).
+        return not target or NON_UNIT_TARGETS[strlower(target)] or
+               UnitTokenExists(target);
     end
     target = target or "target";
     for i = 1, group.n do

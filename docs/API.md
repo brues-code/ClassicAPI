@@ -5926,9 +5926,12 @@ Rules:
   need a unit use it, and default to `"target"`.
 - A group whose only piece is a `@unit` matches only while that unit exists.
   So `[@mouseover][] Spell` uses the mouseover unit when there is one, and
-  falls through to `[]` (your target) when there is not. A bare `[]` and
-  `[@none]` always match. A group with conditions leaves the existence test
-  to them, so `[@focus,noexists]` works as written.
+  falls through to `[]` (your target) when there is not. A bare `[]` always
+  matches. A group with conditions leaves the existence test to them, so
+  `[@focus,noexists]` works as written.
+- `@none` and `@cursor` name no unit, so they always match. `@none` clears
+  the target and `@cursor` names the position under your mouse, which
+  `/cast` and `/use` use to place a ground-target spell or item.
 
 Returns the matched value, plus the passing group's target token as a second
 value (nil when the group set no target). Returns nil when no clause matches.
@@ -10857,6 +10860,17 @@ through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and an
 item named by name is used on that unit. An item named by slot is used on
 your current target. `[@player]` with a `bag slot` value uses the item on
 yourself.
+
+`[@cursor]` places a ground-target spell or item at the position under your
+mouse, through
+[`C_Spell.CastAtCursor`](#c_spellcastatcursorspellidorname) and
+[`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo). A spell or item with no
+ground effect is cast or used normally.
+
+```
+/cast [@cursor] Blizzard
+/use [@cursor] item:4390
+```
 
 `/use` is `/cast` under a second name. Each client language has its own
 command names next to the English ones (for example `/benutzen` on a German

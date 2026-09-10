@@ -36,7 +36,15 @@ function SecureCmdItemParse(item)
 end
 
 function SecureCmdUseItem(name, bag, slot, target)
-	if ( bag ) then
+	if ( target == "cursor" ) then
+		-- `@cursor` names a world position, so a ground-target item places
+		-- its effect there. `SecureCmdItemParse` has already turned a bag or
+		-- inventory slot into a link, so one call covers every form. An item
+		-- with no ground effect is used normally.
+		if ( name ) then
+			C_Item.UseAtCursor(name);
+		end
+	elseif ( bag ) then
 		UseContainerItem(bag, slot, target == "player");
 	elseif ( slot ) then
 		UseInventoryItem(slot);
@@ -53,6 +61,8 @@ local function SecureCmdCast(msg)
 	local name, bag, slot = SecureCmdItemParse(action);
 	if ( slot or (name and C_Item.GetItemCount(name) > 0) ) then
 		SecureCmdUseItem(name, bag, slot, target);
+	elseif ( target == "cursor" ) then
+		C_Spell.CastAtCursor(action);
 	elseif ( not target or target == "target" ) then
 		CastSpellByName(action);
 	else
