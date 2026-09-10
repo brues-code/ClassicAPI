@@ -518,6 +518,8 @@ build instructions.
   - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
   - [Unit tokens (`markN`)](#unit-tokens-markn)
+  - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
+  - [`IsUnitToken(value)`](#isunittokenvalue)
 
 - [NameCache](#namecache)
   - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
@@ -12375,6 +12377,38 @@ This is the **input** direction only — to obtain a token's GUID use
 so when it's loaded we detect it and defer to its resolver (no double
 handling); when it isn't, this fills the gap. Either way GUID-token input
 behaves identically, so addons needn't care whether SuperWoW is present.
+
+### `IsUnitToken(value)`
+
+Returns `true` when `value` is a unit token, and `false` when it is anything
+else, such as a character name.
+
+Several functions come in pairs, one that takes a token and one that takes a
+name, and each raises an error on the other kind. Use this to pick between
+them:
+
+```lua
+if IsUnitToken(x) then TargetUnit(x) else TargetByName(x) end
+if IsUnitToken(x) then FollowUnit(x) else FollowByName(x) end
+```
+
+That is the common case for conditional slash commands, because
+`SecureCmdOptionParse` returns either kind from the same expression.
+`/target [@focus]` gives the token `focus`, and `/target Bob` gives the name
+`Bob`.
+
+The answer covers every token family the client accepts, including
+`nameplateN`, `markN`, `focus`, GUID literals, and suffix chains such as
+`focustarget`.
+
+The question is whether the text names a token, not whether a unit is there.
+So `"target"` with nothing targeted, and `"party3"` while solo, are both
+`true`. A missing or non-string argument is `false`.
+
+A name that reads like a token is treated as the token. Call the by-name
+function directly to reach a player named `Target`.
+
+*ClassicAPI extension.*
 
 ## NameCache
 

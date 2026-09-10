@@ -1223,7 +1223,18 @@ enum Offsets {
     // Don't use this from code paths that need to handle literal
     // character names — see CLAUDE.md "Resolving input to a name"
     // for the `lua_pcall(UnitName)` workaround. For pure unit-token
-    // input it's the right primitive.
+    // input it's the right primitive. To ask "is this string a unit
+    // token?" without eating that error, use
+    // `Unit::TokenResolve::IsUnitToken` (protected probe).
+    //
+    // Verified on the Turtle build: the unknown-token fallthrough
+    // (`jne` at 0x00515C14) is patched to `jmp 0x00D06670`, in the
+    // added `.tdata` section — that stub parses a `0x<16 hex>` GUID
+    // literal and otherwise re-enters the stock error tail at
+    // 0x00515C1A with ("Unknown unit name: %s", token). So the error
+    // is intact, AND this client resolves GUID literals natively,
+    // with no SuperWoW involved (relevant to `unit/TokenExtensions.cpp`,
+    // which adds that family itself only when SuperWoW is absent).
     FUN_TOKEN_TO_GUID = 0x00515970,
 
     // `__fastcall(const uint64_t *guid /*ecx*/, int *outCount /*edx*/) ->
