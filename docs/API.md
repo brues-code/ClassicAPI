@@ -596,7 +596,7 @@ build instructions.
   - [`IsHarmfulSpell(spell)` / `IsHelpfulSpell(spell)`](#isharmfulspellspell--ishelpfulspellspell)
   - [`C_Spell.IsSpellHarmful(spellID)` / `C_Spell.IsSpellHelpful(spellID)`](#c_spellisspellharmfulspellid--c_spellisspellhelpfulspellid)
   - [`GetSpellSchool(spellID)`](#getspellschoolspellid)
-  - [`CastSpellNoToggle(name | spellID [, unit])`](#castspellnotogglename--spellid--unit)
+  - [`CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`](#castspellnotogglename--spellid--unit--placegroundspell)
   - [`C_Spell.CastAtCursor(spellIDOrName)`](#c_spellcastatcursorspellidorname)
   - [`C_Spell.CastAtUnit(spellIDOrName, unit)`](#c_spellcastatunitspellidorname-unit)
   - [`C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`](#c_spellcancelspellbyidspellid--cancelspellbynamename)
@@ -10869,6 +10869,19 @@ The value is read in this order:
   (`/cast 5019`), see
   [Numeric spellIDs](#numeric-spellids-in-cast-and-castspellbyname).
 
+A `!` in front of a spell name starts the spell but never turns it off. Use
+it for the abilities that toggle: auto-repeat shots (Shoot, Auto Shot) and
+the self-buffs (stance, aspect, seal, form, tracking). If the ability is
+already on, the line does nothing, so you can press the button again without
+stopping it.
+
+```
+/cast !Shoot
+/cast !Auto Shot
+/cast [@focus] !Auto Shot
+/cast !Battle Stance
+```
+
 With a `@unit` target other than `target`, a spell is cast on that unit
 through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and an
 item named by name is used on that unit. An item named by slot is used on
@@ -11003,6 +11016,9 @@ but keeps the macro name as the tooltip.
 #showtooltip Healthstone
 /use Healthstone
 
+#showtooltip
+/cast !Shoot
+
 #show 13
 /use 13
 ```
@@ -11011,7 +11027,8 @@ but keeps the macro name as the tooltip.
   as `/cast`: a spell name, a spellID, an item name, `item:N`, an item
   link, an inventory slot, or `bag slot`. It accepts the same
   `[conditions]`. An item that you carry wins over a spell of the same
-  name, as in `/cast`.
+  name, as in `/cast`. A spell name can carry the `!` prefix, and the
+  button shows that spell.
 - An item named by ID shows even when you carry none of it, since the icon
   and tooltip come from the item itself. An item named by name has to be on
   you or equipped for the button to find it.
@@ -14524,10 +14541,12 @@ resistance-aware aura libraries, and damage-meter school tagging.
 Previously addons either maintained hardcoded `spellID → school`
 tables or scanned tooltips for the first-line color tag.
 
-### `CastSpellNoToggle(name | spellID [, unit])`
+### `CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`
 
 Spam-safe variant of `CastSpellByName` that won't toggle off an
-already-active spell. Covers both kinds of toggle abilities:
+already-active spell. This is what a
+[`/cast !Name`](#cast-and-use) line calls. Covers both kinds of toggle
+abilities:
 
 - **Auto-repeat** — Shoot, Auto-Shot, Wand. Tracked via the engine's
   active-auto-repeat global.
@@ -14592,6 +14611,15 @@ auto-repeat spell fires straight at that unit. A ground-target spell
 lands at the unit's feet. This is the same cast-at-unit path as
 [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit).
 
+A third argument of `false` holds a ground-target spell back. The spell is
+cast on the unit, and the reticle comes up for you to click, exactly as the
+third argument of `C_Spell.CastAtUnit` works. Leave it out to place the
+spell at the unit.
+
+```lua
+CastSpellNoToggle("Auto Shot", "focus", false)
+```
+
 The toggle gates run first, so the unit only matters when the spell
 actually casts. If the spell is already toggled on, the call stays a
 no-op and ignores the unit. An unknown unit token raises the engine's
@@ -14600,7 +14628,8 @@ standard "Unknown unit" error, the same as `UnitHealth`.
 String input matches case-insensitively and tolerates a trailing
 `(Rank N)` suffix the same way `CastSpellByName` itself does —
 `"Shoot"` and `"Shoot(Rank 1)"` both compare equal to a Shoot that's
-already auto-repeating.
+already auto-repeating. A leading `!` is accepted and dropped, so the
+macro form and the Lua form read the same.
 
 Reads `[VAR_ACTIVE_AUTO_REPEAT_SPELL]` (`0x00CEAC30`) for the auto-
 repeat check, and the engine's `FUN_SPELL_IS_TOGGLE_AURA_ACTIVE`

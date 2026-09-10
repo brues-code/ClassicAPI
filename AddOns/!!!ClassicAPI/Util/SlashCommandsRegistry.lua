@@ -75,6 +75,19 @@ local function SecureCmdCast(msg)
 	if ( not action or action == "" ) then
 		return;
 	end
+	-- `!Name` asks for the spell to be started but never turned off, for the
+	-- abilities that toggle: auto-repeat (Shoot, Auto Shot) and the self-auras
+	-- (stances, aspects, seals, forms, tracking). Strip the prefix here and
+	-- cast through `CastSpellNoToggle`, which asks the engine whether the
+	-- ability is already up before it casts.
+	local noToggle;
+	if ( string.sub(action, 1, 1) == "!" ) then
+		noToggle = true;
+		action = string.sub(action, 2);
+		if ( action == "" ) then
+			return;
+		end
+	end
 	if ( target and target ~= "" and target ~= "cursor" ) then
 		target = SecureCmdTargetUnit(target);
 		if ( not target ) then
@@ -87,7 +100,15 @@ local function SecureCmdCast(msg)
 	elseif ( target == "cursor" ) then
 		C_Spell.CastAtCursor(action);
 	elseif ( not target or target == "target" ) then
-		CastSpellByName(action);
+		if ( noToggle ) then
+			CastSpellNoToggle(action);
+		else
+			CastSpellByName(action);
+		end
+	elseif ( noToggle ) then
+		-- Same unit rules as below: your own feet take a ground-target
+		-- spell, another unit does not.
+		CastSpellNoToggle(action, target, target == "player");
 	elseif ( target == "player" ) then
 		-- A ground-target spell lands at your own feet; a normal one is
 		-- cast on you.

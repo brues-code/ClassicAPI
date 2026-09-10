@@ -152,10 +152,10 @@ const Spell::MacroPrimarySpell::PatternAutoRegister _patreg{
 
 // ---- C++ API (see AtUnit.h) — same core as the Lua entry, no round-trip -----
 
-bool CastByName(const char *spellName, const char *unitToken) {
+bool CastByName(const char *spellName, const char *unitToken, bool placeGroundSpell) {
     if (spellName == nullptr || unitToken == nullptr)
         return false;
-    return CastCore(unitToken, false, 0, spellName, /*allowGroundPlacement*/ true);
+    return CastCore(unitToken, false, 0, spellName, placeGroundSpell);
 }
 
 bool CastByID(int spellID, const char *unitToken) {

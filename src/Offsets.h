@@ -5039,9 +5039,9 @@ enum Offsets {
     // `Script_CastSpellByName` (every Lua cast) AND by
     // `FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID` (which the macro parser
     // uses). Hooking here makes one change to both the runtime cast
-    // path AND the macro-tagging path — useful for accepting numeric
-    // spellID input as if it were a name (the `Spell::CastByID`
-    // module does this to enable `/cast 5019`-style macros).
+    // path AND the macro-tagging path — `Spell::NameResolve` owns that
+    // hook and uses it for the two macro name forms the engine never
+    // learned: a numeric spellID (`/cast 5019`) and the `!Name` prefix.
     FUN_RESOLVE_SPELL_NAME_TO_SLOT = 0x004B3950,
 
     // `__fastcall(uint slot, int bookType) -> int isActive`. Returns 1

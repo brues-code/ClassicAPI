@@ -30,7 +30,8 @@
 //     `bag slot` / equipment slot 1..19 → item; else an item the player
 //     carries by that name (3.3.5 is item-first too, and so is our `/cast`);
 //     else the engine's name → spellbook resolver (rank suffixes and numeric
-//     spellIDs included, the latter via the CastByID hook); else unresolved.
+//     spellIDs and a `!` prefix included, the latter two via the
+//     `Spell::NameResolve` hook); else unresolved.
 //   - Write. Spell → `+0x564` = spellID, `+0x568` = pet flag. Item or no
 //     matching clause → `+0x564` = 0 (the engine's "no cast" value: usable,
 //     macro's own icon). A value that matched but resolved to nothing →
