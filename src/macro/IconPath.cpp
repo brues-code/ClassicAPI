@@ -62,8 +62,15 @@ void __fastcall MacroIconPath_h(uint32_t macroID, char *out, uint32_t size) {
         return;
     if (!Macro::ShowTooltip::HasQuestionMarkIcon(macroID))
         return;
+    // Passive: one of this getter's two callers is `FUN_MACRO_PICKUP`, inside
+    // the UseAction core, so the hook can run from a click or a drag. The
+    // catch-up `Lookup` performs would evaluate conditions through
+    // `SecureCmdOptionParse` and repaint — running Lua and dispatching
+    // `ACTIONBAR_SLOT_CHANGED` to addon handlers from underneath the click.
+    // The world tick does that work instead, and repaints the button when it
+    // changes anything.
     Macro::ShowTooltip::Info info;
-    if (!Macro::ShowTooltip::Lookup(macroID, &info))
+    if (!Macro::ShowTooltip::LookupPassive(macroID, &info))
         return;
     const bool active = info.target == Macro::ShowTooltip::Target::Spell && SpellIconActive(macroID);
     char resolved[0x104];

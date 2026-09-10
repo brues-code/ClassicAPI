@@ -34,15 +34,12 @@ namespace Macro::RunBody {
 
 namespace {
 
-using RunBody_t = void(__fastcall *)(int macroEntry);
-RunBody_t RunBody_o = nullptr;
-
 using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
                                      const char *delims, int *outQuoted);
 
-// The engine runner's own line buffer size (`SUB ESP, 0x404` + the 0x400
-// it hands to the tokenizer).
-constexpr unsigned kLineBufferSize = 0x400;
+constexpr unsigned kLineBufferSize = Offsets::MACRO_LINE_BUFFER_SIZE;
+
+bool IsBlank(char c) { return c == ' ' || c == '\t'; }
 
 void __fastcall RunBody_h(int macroEntry) {
     if (macroEntry == 0)
@@ -55,17 +52,25 @@ void __fastcall RunBody_h(int macroEntry) {
     char line[kLineBufferSize];
     while (cursor != nullptr && *cursor != '\0') {
         tokenize(&cursor, line, kLineBufferSize, delims, nullptr);
-        if (line[0] == '\0' || line[0] == '#')
+        // The tokenizer splits on `\r\n` only, so a directive typed with a
+        // leading space still arrives with it. Find the first real character
+        // before deciding the line is a comment — otherwise ` #showtooltip`
+        // goes to chat as a /say.
+        const char *text = line;
+        while (IsBlank(*text))
+            ++text;
+        if (*text == '\0' || *text == '#')
             continue;
-        Event::Custom::Fire(static_cast<int>(Offsets::EVENT_EXECUTE_CHAT_LINE), "%s",
-                            static_cast<const char *>(line));
+        Event::Custom::Fire(static_cast<int>(Offsets::EVENT_EXECUTE_CHAT_LINE), "%s", text);
     }
 }
 
+// No trampoline: the loop above replaces the original outright, so the hook
+// never calls back into it.
 const Game::HookAutoRegister _hookreg{
     Offsets::FUN_MACRO_RUN_BODY,
     reinterpret_cast<void *>(&RunBody_h),
-    reinterpret_cast<void **>(&RunBody_o)};
+    nullptr};
 
 } // namespace
 

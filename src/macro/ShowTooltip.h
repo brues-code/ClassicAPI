@@ -30,15 +30,16 @@
 // resolved to a spell (the engine's own name resolver) or an item (inventory
 // walk) — writes the spell into that same engine field, and repaints the
 // affected slots through the engine's own slot-changed notifier. The icon
-// (`Action::Texture`), tooltip (`Tooltip::SetAction`) and item count /
-// cooldown / consumable overrides (`Action::ItemState`) read the resolution
-// through `Lookup` / `ForSlot`.
+// (`Macro::IconPath`, a hook on the engine's macro icon getter), tooltip
+// (`Tooltip::SetAction`) and item count / cooldown / consumable overrides
+// (`Action::ItemState`) read the resolution through `Lookup` / `ForSlot` /
+// `LookupPassive`.
 //
 // Yields entirely when SuperCleveRoidMacros is loaded (it owns macro display
-// with its own conditional dialect): `Active()` is false and every lookup
-// fails, so the overrides pass straight through to the engine. A build that
-// sets `CleveRoids.ClassicAPIMacroDisplay` drives us through `Publish`
-// instead and lifts that wholesale yield.
+// with its own conditional dialect): every lookup fails, so the overrides
+// pass straight through to the engine. A build that sets
+// `CleveRoids.ClassicAPIMacroDisplay` drives us through `Publish` instead and
+// lifts that wholesale yield.
 //
 // PUBLISHING. An addon with its own macro parser can hand us the resolution
 // and let this module do the display work, instead of replacing
@@ -63,9 +64,6 @@ struct Info {
     uint32_t isPet;   // Target::Spell — 1 when it resolved from the pet book
     int itemID;       // Target::Item
 };
-
-// False while yielding to SuperCleveRoidMacros (or before login).
-bool Active();
 
 // Publish the resolution for macro slot `macroSlot` (1-based, as
 // `GetMacroInfo` / `GetMacroSpell` index macros). `value` takes the forms a
@@ -92,6 +90,14 @@ void Release(int macroSlot);
 // next tick), so readers never see a stale resolution.
 bool Lookup(uint32_t macroID, Info *out);
 bool ForSlot(int slot0, Info *out);
+
+// `Lookup` without the on-the-spot catch-up — for callers the engine can
+// reach from a click or a drag, where re-entering Lua is not safe (the
+// catch-up evaluates conditions through `SecureCmdOptionParse` and repaints,
+// which fires `ACTIONBAR_SLOT_CHANGED` and runs addon handlers). Reads only
+// what the entries already hold, so a resolution can be one world tick
+// behind an edit; the tick's own repaint brings the button up to date.
+bool LookupPassive(uint32_t macroID, Info *out);
 
 // True when the macro's own icon is the question mark
 // (`INV_Misc_QuestionMark`) — the one icon the directive replaces on the

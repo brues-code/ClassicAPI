@@ -45,6 +45,13 @@ void Line(void *L, const char *line, size_t length) {
         return;
     if (line[length - 1] == '\r')
         --length;
+    // Leading blanks come through as typed, so skip past them before
+    // anything else: a directive written with an indent is still a comment,
+    // and letting it through would send it to chat.
+    while (length > 0 && (*line == ' ' || *line == '\t')) {
+        ++line;
+        --length;
+    }
     if (length == 0)
         return;
     // `#` lines are comments (`#showtooltip`, `#show`) — the engine's own

@@ -87,7 +87,7 @@ namespace {
 constexpr int kMaxMacros = Offsets::MACRO_SLOT_MAP_COUNT;
 constexpr int kMaxOptionLines = 8;
 constexpr size_t kOptionsMax = 256;
-constexpr size_t kLineBufferSize = 0x400; // the engine runner's line buffer
+constexpr size_t kLineBufferSize = Offsets::MACRO_LINE_BUFFER_SIZE;
 constexpr uint32_t kUnresolvedSpell = 0xFFFFFFFFu;
 
 // Same throttle as `STATE_DRIVER_UPDATE_THROTTLE` in Util/SecureStateDriver.lua.
@@ -148,6 +148,7 @@ int g_slashNameCount = 0;
 bool g_slashNamesLoaded = false;
 
 using MacroIDToEntry_t = uint8_t *(__fastcall *)(uint32_t macroID);
+using MacroParse_t = void(__fastcall *)(int macroEntry);
 using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
                                      const char *delims, int *outQuoted);
 using ResolveSpellName_t = int(__fastcall *)(const char *name, int *outIsPet);
@@ -186,6 +187,11 @@ void CopyTrimmed(const char *src, char *dst, size_t dstSize) {
 
 // `#showtooltip` / `#show` at the start of `line`, followed by end-of-line or
 // whitespace. Case-insensitive. Sets `*args` to the (blank-skipped) rest.
+//
+// Leading blanks are skipped first: the tokenizer splits on `\r\n` only, so a
+// directive typed with an indent arrives with it, and testing byte 0 would
+// both miss the directive and (through the `#` filters in `Macro::RunBody` /
+// `Macro::Execute`) let the line reach chat.
 Kind ParseDirective(const char *line, const char **args) {
     struct Word {
         const char *text;
@@ -196,6 +202,7 @@ Kind ParseDirective(const char *line, const char **args) {
         {"#showtooltip", 12, Kind::ShowTooltip},
         {"#show", 5, Kind::Show},
     };
+    line = SkipBlanks(line);
     for (const Word &w : kWords) {
         if (_strnicmp(line, w.text, w.len) != 0)
             continue;
@@ -247,6 +254,7 @@ void LoadSlashNames(void *L) {
 // rule: the command text followed by a space. `/castsequence x` does not
 // match `/cast`. Null when the line is not a cast/use command.
 const char *CastCommandArgs(const char *line) {
+    line = SkipBlanks(line); // an indented `/cast` line is still a cast line
     for (int i = 0; i < g_slashNameCount; ++i) {
         const size_t len = std::strlen(g_slashNames[i]);
         if (_strnicmp(line, g_slashNames[i], len) == 0 && line[len] == ' ')
@@ -747,64 +755,9 @@ void PrepareForReload() {
     g_yieldChecked = false;
 }
 
-const Tick::WorldTick::AutoSubscribe _tick{&Tick};
-const Game::ReloadAutoRegister _reload{&PrepareForReload};
-const Spell::MacroPrimarySpell::PostParseAutoRegister _parsed{&OnMacroParsed};
-
-} // namespace
-
-bool Active() {
-    return !g_yielding;
-}
-
-bool Publish(int macroSlot, const char *value) {
-    if (macroSlot < 1 || macroSlot > kMaxMacros)
-        return false;
-    void *L = ReadyState();
-    if (L == nullptr)
-        return false;
-
-    auto *slotMap = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_MACRO_SLOT_MAP));
-    const uint32_t macroID = slotMap[macroSlot - 1];
-    if (EntryForID(macroID) == nullptr)
-        return false;
-
-    Entry &e = g_entries[macroSlot - 1];
-    if (!e.external || e.macroID != macroID) {
-        e = Entry{};
-        e.macroID = macroID;
-        e.external = true;
-    }
-    // Kind marks the macro as claimed even when nothing resolved, so the
-    // button falls back to the question mark rather than to our own parse.
-    e.kind = Kind::ShowTooltip;
-
-    Resolution r;
-    const bool matched = value != nullptr && value[0] != '\0';
-    if (matched)
-        ResolveValue(value, &r);
-
-    BusyScope busy;
-    ApplyResolution(L, e, r, matched);
-    return e.target != Target::None;
-}
-
-void Release(int macroSlot) {
-    if (macroSlot < 1 || macroSlot > kMaxMacros)
-        return;
-    Entry &e = g_entries[macroSlot - 1];
-    if (!e.external)
-        return;
-    e = Entry{};
-    // Re-read the body and re-apply our own resolution for it.
-    g_rescanPending = true;
-}
-
-bool Lookup(uint32_t macroID, Info *out) {
-    if (macroID == 0)
-        return false;
-    CatchUpIfPending();
+// The lookup itself, over what the entries already hold. `Lookup` runs the
+// catch-up first; `LookupPassive` does not.
+bool LookupEntries(uint32_t macroID, Info *out) {
     // A published resolution answers even while yielding: its owner asked us
     // to display it, so the wholesale stand-down doesn't apply to it.
     for (const Entry &e : g_entries) {
@@ -850,6 +803,85 @@ bool Lookup(uint32_t macroID, Info *out) {
         return false;
     }
     return false;
+}
+
+const Tick::WorldTick::AutoSubscribe _tick{&Tick};
+const Game::ReloadAutoRegister _reload{&PrepareForReload};
+const Spell::MacroPrimarySpell::PostParseAutoRegister _parsed{&OnMacroParsed};
+
+} // namespace
+
+bool Publish(int macroSlot, const char *value) {
+    if (macroSlot < 1 || macroSlot > kMaxMacros)
+        return false;
+    void *L = ReadyState();
+    if (L == nullptr)
+        return false;
+
+    auto *slotMap = reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_MACRO_SLOT_MAP));
+    const uint32_t macroID = slotMap[macroSlot - 1];
+    if (EntryForID(macroID) == nullptr)
+        return false;
+
+    Entry &e = g_entries[macroSlot - 1];
+    if (!e.external || e.macroID != macroID) {
+        e = Entry{};
+        e.macroID = macroID;
+        e.external = true;
+    }
+    // Kind marks the macro as claimed even when nothing resolved, so the
+    // button falls back to the question mark rather than to our own parse.
+    e.kind = Kind::ShowTooltip;
+
+    Resolution r;
+    const bool matched = value != nullptr && value[0] != '\0';
+    if (matched)
+        ResolveValue(value, &r);
+
+    BusyScope busy;
+    ApplyResolution(L, e, r, matched);
+    return e.target != Target::None;
+}
+
+void Release(int macroSlot) {
+    if (macroSlot < 1 || macroSlot > kMaxMacros)
+        return;
+    Entry &e = g_entries[macroSlot - 1];
+    if (!e.external)
+        return;
+    const uint32_t macroID = e.macroID;
+    e = Entry{};
+    // Re-read the body and re-apply our own resolution for it.
+    g_rescanPending = true;
+
+    // Give the engine's field back to the engine. Its parser is what fills
+    // the primary-spell cache from the body, and a macro with no directive of
+    // its own gets no resolution from us — so nothing else would ever
+    // overwrite the publisher's spell, and the button, its tooltip, cooldown
+    // and auto-repeat state would stay on it. The parse also marks a rescan
+    // through the post-parse observer, so our own resolution resumes for a
+    // macro that does carry a directive.
+    uint8_t *entry = EntryForID(macroID);
+    if (entry == nullptr)
+        return;
+    reinterpret_cast<MacroParse_t>(Offsets::FUN_MACRO_PARSE_PRIMARY_SPELL)(
+        static_cast<int>(reinterpret_cast<uintptr_t>(entry)));
+    if (void *L = ReadyState()) {
+        BusyScope busy; // the repaint's Lua handlers read back through `Lookup`
+        Repaint(L, macroID);
+    }
+}
+
+bool Lookup(uint32_t macroID, Info *out) {
+    if (macroID == 0)
+        return false;
+    CatchUpIfPending();
+    return LookupEntries(macroID, out);
+}
+
+bool LookupPassive(uint32_t macroID, Info *out) {
+    return macroID != 0 && LookupEntries(macroID, out);
 }
 
 bool ForSlot(int slot0, Info *out) {
