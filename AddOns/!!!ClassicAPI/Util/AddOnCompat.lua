@@ -160,3 +160,82 @@ if C_AddOns.DoesAddOnExist("ModernSpellBook") and not HookScript then
         end
     end
 end
+
+-- Compost-2.0 (rev 17406+, bundled by BigWigs among others) replaces most of
+-- its own body with stubs once it believes it is on Lua 5.1, on the reasoning
+-- that table recycling is pointless when the collector already does it:
+--
+--     local lua51 = loadstring("return function(...) return ... end") and true or false
+--     ...
+--     if lua51 then function lib:Erase() return {} end
+--     else          function lib:Erase(t) --[[ clears t in place ]] end
+--
+-- Our 5.1 syntax backport makes that probe pass, so the stubs win. For
+-- GetTable and Reclaim that is harmless -- both are pure recycling hints. Erase
+-- is not: callers hand it a live table and expect its keys gone. The stub takes
+-- no parameter at all, so every `compost:Erase(t)` that clears in place (rather
+-- than assigning the returned table) silently stops clearing.
+--
+-- Puppeteer is the reported casualty. PTUnit:ClearAuras erases its
+-- TrackedDebuffTypes, AfflictedDebuffTypes and aura-ID sets in place, so a
+-- dispel type never leaves the set once applied: a cursed raid member keeps its
+-- debuff colour after the curse is cleaned, and HasDebuffID answers true for
+-- auras that are long gone. It takes a second addon shipping the newer Compost
+-- to show up, because AceLibrary arbitrates on the highest $Revision and
+-- ignores load order -- so a lone Puppeteer keeps its own working rev 11579.
+--
+-- Restore an in-place Erase matching the pre-stub body. Probed by behavior
+-- rather than by revision or addon name, so a Compost that already clears is
+-- left alone.
+--
+-- Re-checked on every ADDON_LOADED rather than once, because AceLibrary can
+-- upgrade a library at any point during load -- including from an addon loaded
+-- on demand mid-session -- and an upgrade installs the new copy's functions
+-- over ours. We cannot simply wait for a late event either, since this addon
+-- loads first and AceLibrary does not exist yet at that point.
+--
+-- Repeating is cheap because the verdict is cached against the function that
+-- earned it: a check settles to two identity comparisons once the live Erase
+-- has been either vetted or replaced, and only an Erase we have never seen
+-- costs a probe. The probe table is reused across checks (refilled each time,
+-- so leftover state cannot skew the answer) rather than built per check.
+local compostProbe = {}
+local vettedErase
+
+local function EraseInPlace(self, t)
+    if type(t) ~= "table" then return end
+    setmetatable(t, nil)
+    for k in pairs(t) do
+        t[k] = nil
+    end
+    table.setn(t, 0)
+    return t
+end
+
+local function EnsureCompostErasesInPlace()
+    if not (AceLibrary and AceLibrary.HasInstance
+            and AceLibrary:HasInstance("Compost-2.0")) then
+        return
+    end
+
+    local compost = AceLibrary("Compost-2.0")
+    if compost.Erase == EraseInPlace or compost.Erase == vettedErase then
+        return
+    end
+
+    compostProbe[1] = "array"
+    compostProbe.key = "hash"
+    compost:Erase(compostProbe)
+    if next(compostProbe) == nil then
+        vettedErase = compost.Erase -- clears in place; leave it alone
+        return
+    end
+
+    compost.Erase = EraseInPlace
+end
+
+EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
+                                            EnsureCompostErasesInPlace)
+EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
+                                            EnsureCompostErasesInPlace)
+EnsureCompostErasesInPlace()
