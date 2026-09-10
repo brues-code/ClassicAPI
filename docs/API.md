@@ -122,7 +122,6 @@ build instructions.
 
 - [Cursor](#cursor)
   - [`GetCursorInfo()`](#getcursorinfo)
-  - [`CURSOR_CHANGED` event](#cursor_changed-event)
 
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
@@ -154,6 +153,7 @@ build instructions.
   - [Player input-state events (`PLAYER_STARTED_MOVING` / `LOOKING` / `TURNING` + `STOPPED_*`)](#player-input-state-events)
   - [`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events](#global_mouse_down--global_mouse_up-events)
   - [`AUCTION_MULTISELL_START` / `AUCTION_MULTISELL_UPDATE` / `AUCTION_MULTISELL_FAILURE` events](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
+  - [`CURSOR_CHANGED` event](#cursor_changed-event)
   - [`EQUIPMENT_SETS_CHANGED` event](#equipment_sets_changed-event)
   - [`EQUIPMENT_SWAP_PENDING` event](#equipment_swap_pending-event)
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
@@ -3137,51 +3137,8 @@ string, so we return `nil` for them. Consumers needing to detect those
 can use the engine-native `CursorHasItem` / `CursorHasSpell` /
 `CursorHasMoney` and the source-side `PickupX` calls.
 
-### `CURSOR_CHANGED` event
-
-Fires when what the cursor holds changes, and says what it held before:
-
-```
-CURSOR_CHANGED: isDefault, newCursorType, oldCursorType, oldCursorVirtualID
-```
-
-- **`isDefault`** — `1` when the cursor is now empty, `nil` when it is
-  holding something (write `if isDefault then` — the event dispatcher
-  cannot push real booleans).
-- **`newCursorType`** (number) — what the cursor holds now, as an
-  [`Enum.UICursorType`](#enumuicursortype) value.
-- **`oldCursorType`** (number) — what it held before, same enum.
-- **`oldCursorVirtualID`** (number) — the previous content's
-  identifying number: itemID, spellID, macro slot, merchant slot, or a
-  money amount in copper. `0` when the cursor was empty.
-
-```lua
-local f = CreateFrame("Frame")
-f:RegisterEvent("CURSOR_CHANGED")
-f:SetScript("OnEvent", function()
-    if arg2 == Enum.UICursorType.Item then
-        -- an item was just picked up; GetCursorInfo() has the details
-    end
-end)
-```
-
-`CURSOR_UPDATE` is untouched and still fires as it always has, so
-nothing that listens to it needs changing. Prefer `CURSOR_CHANGED` for
-new code, because it reports every kind of cursor. `CURSOR_UPDATE`
-announces a pickup only for items: picking up money, a spell, a macro,
-a pet action or a stabled pet gives you one `CURSOR_UPDATE` that
-describes an *empty* cursor, and nothing at all once the new content is
-in place. `CURSOR_UPDATE` also fires in cases where the cursor did not
-change, such as one per item while a stack is moved.
-
-`CURSOR_CHANGED` compares the cursor against the last state it reported,
-so it fires once per real change and stays quiet otherwise. It is
-checked once a frame, which means it arrives on the frame after the
-change rather than during it.
-
-Two holdings that look alike still count as a change: picking up one of
-two identical stacks, dropping it, and picking up the other reports each
-pickup separately.
+Changes to what the cursor holds are reported by the
+[`CURSOR_CHANGED` event](#cursor_changed-event).
 
 ## EquipmentSet
 
@@ -3726,6 +3683,52 @@ honored when WoW is the foreground window — clicking in another
 app while alt-tabbed doesn't fire. UP transitions always fire,
 even if the user alt-tabbed mid-click, so an addon never gets
 left in a "button is held" state.
+
+### `CURSOR_CHANGED` event
+
+Fires when what the cursor holds changes, and says what it held before:
+
+```
+CURSOR_CHANGED: isDefault, newCursorType, oldCursorType, oldCursorVirtualID
+```
+
+- **`isDefault`** — `1` when the cursor is now empty, `nil` when it is
+  holding something (write `if isDefault then` — the event dispatcher
+  cannot push real booleans).
+- **`newCursorType`** (number) — what the cursor holds now, as an
+  [`Enum.UICursorType`](#enumuicursortype) value.
+- **`oldCursorType`** (number) — what it held before, same enum.
+- **`oldCursorVirtualID`** (number) — the previous content's
+  identifying number: itemID, spellID, macro slot, merchant slot, or a
+  money amount in copper. `0` when the cursor was empty.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("CURSOR_CHANGED")
+f:SetScript("OnEvent", function()
+    if arg2 == Enum.UICursorType.Item then
+        -- an item was just picked up; GetCursorInfo() has the details
+    end
+end)
+```
+
+`CURSOR_UPDATE` is untouched and still fires as it always has, so
+nothing that listens to it needs changing. Prefer `CURSOR_CHANGED` for
+new code, because it reports every kind of cursor. `CURSOR_UPDATE`
+announces a pickup only for items: picking up money, a spell, a macro,
+a pet action or a stabled pet gives you one `CURSOR_UPDATE` that
+describes an *empty* cursor, and nothing at all once the new content is
+in place. `CURSOR_UPDATE` also fires in cases where the cursor did not
+change, such as one per item while a stack is moved.
+
+`CURSOR_CHANGED` compares the cursor against the last state it reported,
+so it fires once per real change and stays quiet otherwise. It is
+checked once a frame, which means it arrives on the frame after the
+change rather than during it.
+
+Two holdings that look alike still count as a change: picking up one of
+two identical stacks, dropping it, and picking up the other reports each
+pickup separately.
 
 ### `EQUIPMENT_SETS_CHANGED` event
 
