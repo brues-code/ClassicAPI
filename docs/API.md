@@ -8696,8 +8696,14 @@ hasRanged, rangedExpire, rangedCharges, rangedEnchantID
 ```lua
 -- Apply Brilliant Mana Oil to mainhand, then:
 local has, expireMs, charges, enchantID = C_Item.GetWeaponEnchantInfo()
--- has = true, expireMs ≈ 1800000, charges = 5, enchantID = <oil's enchant>
+-- has = true, expireMs = 1800000, charges = 0, enchantID = 2629
+
+-- Apply Instant Poison instead:
+-- has = true, expireMs = 1800000, charges = 40, enchantID = 323
 ```
+
+An oil runs on time alone and reports `charges = 0`. A poison reports a
+charge count as well as a time.
 
 Reads the **temporary** enchant slot (`ITEM_FIELD_ENCHANTMENT`
 slot 1 at descriptor `+0x4C`) — the same slot oils, sharpening
