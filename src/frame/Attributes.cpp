@@ -105,6 +105,7 @@
 
 #include "frame/Attributes.h"
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
@@ -143,13 +144,7 @@ void LowerCopy(char *dst, const char *src, size_t n) {
     dst[i] = '\0';
 }
 
-// Bounded, always-terminated copy (avoids the C4996 strncpy/strcpy warnings).
-void BoundedCopy(char *dst, const char *src, size_t n) {
-    size_t i = 0;
-    for (; src && src[i] && i + 1 < n; ++i)
-        dst[i] = src[i];
-    dst[i] = '\0';
-}
+using Common::BoundedCopy;
 
 // dst = tolower(a .. b .. c). Truncates at n-1.
 void Compose3Lower(char *dst, size_t n, const char *a, const char *b, const char *c) {

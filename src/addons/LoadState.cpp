@@ -22,10 +22,9 @@
 
 #include "addons/LoadState.h"
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
-
-#include <cstring>
 
 namespace AddOns::LoadState {
 
@@ -59,14 +58,8 @@ LoadOne_t s_loadOne_o = nullptr;
 
 unsigned int __fastcall LoadOne_h(const char *name, char flag, void *progressCtx) {
     const int slot = g_depth;
-    if (slot >= 0 && slot < kMaxDepth) {
-        if (name != nullptr) {
-            std::strncpy(g_stack[slot], name, kMaxName - 1);
-            g_stack[slot][kMaxName - 1] = '\0';
-        } else {
-            g_stack[slot][0] = '\0';
-        }
-    }
+    if (slot >= 0 && slot < kMaxDepth)
+        Common::BoundedCopy(g_stack[slot], name, kMaxName);
     ++g_depth;
 
     const unsigned int result = s_loadOne_o(name, flag, progressCtx);

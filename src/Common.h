@@ -11,8 +11,16 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include <cstddef>
+
 namespace Common {
 
 bool PatchBytes(void *dst, const void *src, size_t len);
+
+// Bounded, always-terminated string copy: writes at most `n - 1`
+// characters plus the terminator, and treats a null `src` as empty. `n`
+// is the size of `dst`. Stands in for `strncpy`, which MSVC deprecates
+// (C4996) and which does not terminate on truncation.
+void BoundedCopy(char *dst, const char *src, size_t n);
 
 } // namespace Common

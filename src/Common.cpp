@@ -31,4 +31,13 @@ bool PatchBytes(void *dst, const void *src, size_t len) {
     return true;
 }
 
+void BoundedCopy(char *dst, const char *src, size_t n) {
+    if (dst == nullptr || n == 0)
+        return;
+    size_t i = 0;
+    for (; src != nullptr && src[i] != '\0' && i + 1 < n; ++i)
+        dst[i] = src[i];
+    dst[i] = '\0';
+}
+
 } // namespace Common
