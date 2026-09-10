@@ -367,6 +367,8 @@ build instructions.
   - [`GetItemSubClassInfo(classID, subClassID)` / `C_Item.GetItemSubClassInfo(classID, subClassID)`](#getitemsubclassinfoclassid-subclassid--c_itemgetitemsubclassinfoclassid-subclassid)
   - [`C_Item.GetItemUniqueness(itemLocation)` / `C_Item.GetItemUniquenessByID(item)`](#c_itemgetitemuniquenessitemlocation--c_itemgetitemuniquenessbyiditem)
   - [`C_Item.GetStackCount(itemLocation)`](#c_itemgetstackcountitemlocation)
+  - [`C_Item.GetWeaponEnchantInfo()`](#c_itemgetweaponenchantinfo)
+  - [`C_Item.GetEnchantInfo(enchantID)`](#c_itemgetenchantinfoenchantid)
   - [`C_Item.IsBound(itemLocation)`](#c_itemisbounditemlocation)
   - [`IsConsumableItem(item)` / `C_Item.IsConsumableItem(item)`](#isconsumableitemitem--c_itemisconsumableitemitem)
   - [`C_Item.IsEquippableItem(item)`](#c_itemisequippableitemitem)
@@ -8678,6 +8680,104 @@ Reads `ITEM_FIELD_STACK_COUNT` directly off the item's
 `m_objectFields` — same field `GetContainerItemInfo` returns as
 `itemCount`. Returns `0` for empty / unresolvable locations.
 
+### `C_Item.GetWeaponEnchantInfo()`
+
+Returns a 12-tuple, including the **temp-enchant IDs** that the stock
+8-return global omits.
+
+```
+hasMain, mainExpire, mainCharges, mainEnchantID,
+hasOff,  offExpire,  offCharges,  offEnchantID,
+hasRanged, rangedExpire, rangedCharges, rangedEnchantID
+   = C_Item.GetWeaponEnchantInfo()
+```
+
+```lua
+-- Apply Brilliant Mana Oil to mainhand, then:
+local has, expireMs, charges, enchantID = C_Item.GetWeaponEnchantInfo()
+-- has = true, expireMs ≈ 1800000, charges = 5, enchantID = <oil's enchant>
+```
+
+Reads the **temporary** enchant slot (`ITEM_FIELD_ENCHANTMENT`
+slot 1 at descriptor `+0x4C`) — the same slot oils, sharpening
+stones, and poisons populate and the engine drains as they expire.
+This is what `GetWeaponEnchantInfo` measures.
+
+The permanent enchant (Crusader, Mongoose, etc., in slot 0 at
+`+0x40`) is **not** reported here — that's a separate field and
+`GetWeaponEnchantInfo` doesn't expose it either. Get the
+permanent enchant ID by parsing `GetInventoryItemLink("player",
+slot)` (the link includes it as the 2nd numeric field).
+
+The stock global `GetWeaponEnchantInfo` is unchanged — old
+addons reading positions 4..8 by index still work.
+
+Equivalent to the extended form of `GetWeaponEnchantInfo`.
+
+### `C_Item.GetEnchantInfo(enchantID)`
+
+Resolves an item-enchantment ID — the `enchantID` returned by
+[`C_Item.GetWeaponEnchantInfo`](#c_itemgetweaponenchantinfo) for a
+weapon's temporary enchant, and the same IDs item permanent enchants
+use — into a table:
+
+```lua
+local info = C_Item.GetEnchantInfo(enchantID)
+-- info.enchantID = <id>
+-- info.name      = "Crusader"        -- localized display name
+-- info.effects   = { {type=1, amount=0, arg=20007} }
+-- info.spellID   = 20007             -- spell-type enchants only
+```
+
+```lua
+-- A proc/equip enchant → chain its spellID into C_Spell:
+local info = C_Item.GetEnchantInfo(1900)          -- "Crusader"
+if info.spellID then
+    print(C_Spell.GetSpellDescription(info.spellID))  -- the proc's text
+end
+```
+
+`effects` is an array of the record's non-empty effect slots, each
+`{ type, amount, arg }` where `type` is the standard
+`ITEM_ENCHANTMENT_TYPE`:
+
+| type | meaning | carries |
+|------|---------|---------|
+| 1 | combat-proc spell | `arg` = spellID |
+| 2 | weapon damage | `amount` = +damage |
+| 3 | equip spell / aura | `arg` = spellID |
+| 4 | resistance / armor | `amount` = +value |
+| 5 | stat | `arg` = stat index, `amount` = value |
+| 6 | totem | — |
+| 7 | use spell | `arg` = spellID |
+
+For spell types (1/3/7) `arg` is a spellID feedable into
+[`C_Spell.GetSpellInfo`](#getspellinfospellid--getspellinfoslot-booktype) /
+`GetSpellDescription`; the first such id is also surfaced at top level
+as `spellID` for convenience (absent for non-spell enchants like
+sharpening stones).
+
+Returns `nil` for a non-numeric / non-positive id, an out-of-range
+id, or a record with no name.
+
+Reads `SpellItemEnchantment.dbc` (records `0x00C0D7D8`, count
+`0x00C0D7DC`) — the 24-column table every enchant ID indexes:
+`Type[3]@+0x04`, `Amount[3]@+0x10`, `EffectArg[3]@+0x28`,
+`Name[8]@+0x34` (locale-indexed). The layout was verified by parsing
+the on-disk DBC against known records (Crusader 1900 → type 1, arg
+20007; Sharpened +3 → type 2, amount 3). Fully resident from boot, so
+it answers for any enchant ID with no caching or round-trip.
+
+Lives in `C_Item` (not `C_Spell`) because the id originates from
+`C_Item.GetWeaponEnchantInfo` and the concept is an item enchantment —
+`SpellItemEnchantment` is just the DBC's internal name (enchants are
+*implemented* via spell effects).
+
+> **Not derivable: the source item.** The enchant record holds no
+> back-reference to the item that applied it, and there is no
+> client-side reverse index (enchantID → item). Finding it would need
+> an external scraped DB (pfQuest/Questie-style).
+
 ### `C_Item.IsBound(itemLocation)`
 
 Returns `true` if the item at the given location is soulbound, `false` otherwise
@@ -13974,104 +14074,6 @@ spell's `InterruptFlags` has the auto-attack bit (`0x08`) and its
 `AttributesEx2` does not have the "no reset auto actions" bit
 (`0x20000`). Both fields come from `Spell.dbc`. Slam carries that
 second bit, so it keeps its swing.
-
-### `C_Item.GetWeaponEnchantInfo()`
-
-Returns a 12-tuple, including the **temp-enchant IDs** that the stock
-8-return global omits.
-
-```
-hasMain, mainExpire, mainCharges, mainEnchantID,
-hasOff,  offExpire,  offCharges,  offEnchantID,
-hasRanged, rangedExpire, rangedCharges, rangedEnchantID
-   = C_Item.GetWeaponEnchantInfo()
-```
-
-```lua
--- Apply Brilliant Mana Oil to mainhand, then:
-local has, expireMs, charges, enchantID = C_Item.GetWeaponEnchantInfo()
--- has = true, expireMs ≈ 1800000, charges = 5, enchantID = <oil's enchant>
-```
-
-Reads the **temporary** enchant slot (`ITEM_FIELD_ENCHANTMENT`
-slot 1 at descriptor `+0x4C`) — the same slot oils, sharpening
-stones, and poisons populate and the engine drains as they expire.
-This is what `GetWeaponEnchantInfo` measures.
-
-The permanent enchant (Crusader, Mongoose, etc., in slot 0 at
-`+0x40`) is **not** reported here — that's a separate field and
-`GetWeaponEnchantInfo` doesn't expose it either. Get the
-permanent enchant ID by parsing `GetInventoryItemLink("player",
-slot)` (the link includes it as the 2nd numeric field).
-
-The stock global `GetWeaponEnchantInfo` is unchanged — old
-addons reading positions 4..8 by index still work.
-
-Equivalent to the extended form of `GetWeaponEnchantInfo`.
-
-### `C_Item.GetEnchantInfo(enchantID)`
-
-Resolves an item-enchantment ID — the `enchantID` returned by
-[`C_Item.GetWeaponEnchantInfo`](#c_itemgetweaponenchantinfo) for a
-weapon's temporary enchant, and the same IDs item permanent enchants
-use — into a table:
-
-```lua
-local info = C_Item.GetEnchantInfo(enchantID)
--- info.enchantID = <id>
--- info.name      = "Crusader"        -- localized display name
--- info.effects   = { {type=1, amount=0, arg=20007} }
--- info.spellID   = 20007             -- spell-type enchants only
-```
-
-```lua
--- A proc/equip enchant → chain its spellID into C_Spell:
-local info = C_Item.GetEnchantInfo(1900)          -- "Crusader"
-if info.spellID then
-    print(C_Spell.GetSpellDescription(info.spellID))  -- the proc's text
-end
-```
-
-`effects` is an array of the record's non-empty effect slots, each
-`{ type, amount, arg }` where `type` is the standard
-`ITEM_ENCHANTMENT_TYPE`:
-
-| type | meaning | carries |
-|------|---------|---------|
-| 1 | combat-proc spell | `arg` = spellID |
-| 2 | weapon damage | `amount` = +damage |
-| 3 | equip spell / aura | `arg` = spellID |
-| 4 | resistance / armor | `amount` = +value |
-| 5 | stat | `arg` = stat index, `amount` = value |
-| 6 | totem | — |
-| 7 | use spell | `arg` = spellID |
-
-For spell types (1/3/7) `arg` is a spellID feedable into
-[`C_Spell.GetSpellInfo`](#getspellinfospellid--getspellinfoslot-booktype) /
-`GetSpellDescription`; the first such id is also surfaced at top level
-as `spellID` for convenience (absent for non-spell enchants like
-sharpening stones).
-
-Returns `nil` for a non-numeric / non-positive id, an out-of-range
-id, or a record with no name.
-
-Reads `SpellItemEnchantment.dbc` (records `0x00C0D7D8`, count
-`0x00C0D7DC`) — the 24-column table every enchant ID indexes:
-`Type[3]@+0x04`, `Amount[3]@+0x10`, `EffectArg[3]@+0x28`,
-`Name[8]@+0x34` (locale-indexed). The layout was verified by parsing
-the on-disk DBC against known records (Crusader 1900 → type 1, arg
-20007; Sharpened +3 → type 2, amount 3). Fully resident from boot, so
-it answers for any enchant ID with no caching or round-trip.
-
-Lives in `C_Item` (not `C_Spell`) because the id originates from
-`C_Item.GetWeaponEnchantInfo` and the concept is an item enchantment —
-`SpellItemEnchantment` is just the DBC's internal name (enchants are
-*implemented* via spell effects).
-
-> **Not derivable: the source item.** The enchant record holds no
-> back-reference to the item that applied it, and there is no
-> client-side reverse index (enchantID → item). Finding it would need
-> an external scraped DB (pfQuest/Questie-style).
 
 ### `IsHarmfulSpell(spell)` / `IsHelpfulSpell(spell)`
 
