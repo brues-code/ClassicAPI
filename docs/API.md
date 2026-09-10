@@ -5936,9 +5936,10 @@ Rules:
   falls through to `[]` (your target) when there is not. A bare `[]` always
   matches. A group with conditions leaves the existence test to them, so
   `[@focus,noexists]` works as written.
-- `@none` and `@cursor` name no unit, so they always match. `@none` clears
-  the target and `@cursor` names the position under your mouse, which
-  `/cast` and `/use` use to place a ground-target spell or item.
+- `@none` and `@cursor` name no unit, so they always match. `@none` asks for
+  no unit: `/target` clears your target, and the other commands act with no
+  unit named. `@cursor` names the position under your mouse, which `/cast`
+  and `/use` use to place a ground-target spell or item.
 
 Returns the matched value, plus the passing group's target token as a second
 value (nil when the group set no target). Returns nil when no clause matches.
@@ -10916,15 +10917,18 @@ stopping it.
 ```
 
 With a `@unit` target other than `target`, a spell is cast on that unit
-through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and an
-item named by name is used on that unit. An item named by slot is used on
-your current target. `[@player]` with a `bag slot` value uses the item on
-yourself.
+through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and the
+item is used on that unit. `[@player]` uses the item on yourself. This works
+for an item named by `bag slot` or by inventory slot as well as by name.
+
+`/use` always uses the item. Clicking a bag slot sells the item while a
+merchant window is open, and repairs it under the repair cursor, but the
+command does neither.
 
 `[@cursor]` places a ground-target spell or item at the position under your
 mouse, through
 [`C_Spell.CastAtCursor`](#c_spellcastatcursorspellidorname) and
-[`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo). A spell or item with no
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem). A spell or item with no
 ground effect is cast or used normally.
 
 `[@player]` drops a ground-target spell or item at your own feet. A spell or

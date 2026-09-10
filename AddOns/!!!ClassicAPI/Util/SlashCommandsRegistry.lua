@@ -35,6 +35,19 @@ function SecureCmdItemParse(item)
 	return item, bag, slot;
 end
 
+-- A number with no bag or inventory slot behind it. `/cast 5019` names a
+-- spell, so the item lookup must never see it: an item reference reads a
+-- number as an itemID, and a carried item with that ID would be used in
+-- place of the spell.
+local function IsBareNumber(text)
+	return string.match(text, "^%d+$") ~= nil;
+end
+
+-- Targets that name no unit. `@cursor` names the position under the mouse,
+-- which a ground-target spell or item is placed at; `@none` asks for no unit
+-- at all, so it becomes the untargeted form of whatever verb ran.
+local NON_UNIT_TARGETS = { none = true, cursor = true };
+
 -- `@unit` and `target=unit` accept a character name as well as a unit token
 -- (`[target=Feral]`), and the engine's unit functions take only tokens.
 -- Resolve once here so every command below hands them something they accept.
@@ -43,30 +56,67 @@ local function SecureCmdTargetUnit(target)
 	if ( not target or target == "" or IsUnitToken(target) ) then
 		return target;
 	end
+	-- Keep the non-unit targets out of the by-name search, which matches on
+	-- the START of a name: `@none` would happily find a nearby Nonek.
+	if ( NON_UNIT_TARGETS[strlower(target)] ) then
+		return nil;
+	end
 	return UnitTokenFromName(target);
 end
 
+-- One target normalization for every verb below: an empty target and `@none`
+-- become nil (no unit), a non-unit target keeps its own name, and anything
+-- else has to resolve to a token. Returns `false` for a name with nobody
+-- around to match it, which the callers treat as "do nothing".
+local function SecureCmdNormalizeTarget(target)
+	if ( not target or target == "" ) then
+		return nil;
+	end
+	local lower = strlower(target);
+	if ( lower == "none" ) then
+		return nil;
+	end
+	if ( NON_UNIT_TARGETS[lower] ) then
+		return lower;
+	end
+	return SecureCmdTargetUnit(target) or false;
+end
+
+-- The item a `/use` line names, in the form the three calls below take. An
+-- explicit bag or inventory slot becomes a location, which names ONE item:
+-- looking the item up by name again would take the first match anywhere, and
+-- with two stacks of the same thing that is the wrong one.
+local function SecureCmdItemLocation(name, bag, slot)
+	if ( bag ) then
+		return { bagID = tonumber(bag), slotIndex = tonumber(slot) };
+	end
+	if ( slot ) then
+		return { equipmentSlotIndex = tonumber(slot) };
+	end
+	return name;
+end
+
 function SecureCmdUseItem(name, bag, slot, target)
+	local item = SecureCmdItemLocation(name, bag, slot);
+	if ( not item ) then
+		return;
+	end
 	if ( target == "cursor" ) then
 		-- `@cursor` names a world position, so a ground-target item places
-		-- its effect there. `SecureCmdItemParse` has already turned a bag or
-		-- inventory slot into a link, so one call covers every form. An item
-		-- with no ground effect is used normally.
-		if ( name ) then
-			C_Item.UseAtCursor(name);
-		end
-	elseif ( target == "player" and name ) then
+		-- its effect there. An item with no ground effect is used normally.
+		C_Item.UseAtCursor(item);
+	elseif ( target == "player" ) then
 		-- `@player` drops a ground-target item at your own feet. Only your
 		-- own position is offered this way; aiming one at another unit is
 		-- not something you can do by hand either. An item with no ground
 		-- effect is used on you, as before.
-		C_Item.UseAtUnit(name, "player");
-	elseif ( bag ) then
-		UseContainerItem(bag, slot, target == "player");
-	elseif ( slot ) then
-		UseInventoryItem(slot);
-	elseif ( name ) then
-		C_Item.UseItemByName(name, target);
+		C_Item.UseAtUnit(item, "player");
+	else
+		-- Every form goes through one call, so a slot is aimed at `@unit`
+		-- just like a name is. `/use` also always means use: clicking a bag
+		-- slot sells the item at a merchant and repairs it under the repair
+		-- cursor, which a typed command should never do.
+		C_Item.UseItemByName(item, target);
 	end
 end
 
@@ -88,14 +138,12 @@ local function SecureCmdCast(msg)
 			return;
 		end
 	end
-	if ( target and target ~= "" and target ~= "cursor" ) then
-		target = SecureCmdTargetUnit(target);
-		if ( not target ) then
-			return; -- a named unit with nobody around to match it
-		end
+	target = SecureCmdNormalizeTarget(target);
+	if ( target == false ) then
+		return; -- a named unit with nobody around to match it
 	end
 	local name, bag, slot = SecureCmdItemParse(action);
-	if ( slot or (name and C_Item.GetItemCount(name) > 0) ) then
+	if ( slot or (name and not IsBareNumber(action) and C_Item.GetItemCount(name) > 0) ) then
 		SecureCmdUseItem(name, bag, slot, target);
 	elseif ( target == "cursor" ) then
 		C_Spell.CastAtCursor(action);
@@ -217,6 +265,16 @@ local function SecureCmdTarget(msg, exactMatch)
 	if ( not action ) then
 		return;
 	end
+	if ( target ) then
+		local lower = strlower(target);
+		if ( lower == "none" ) then
+			ClearTarget();  -- `@none` clears the target
+			return;
+		end
+		if ( NON_UNIT_TARGETS[lower] ) then
+			return;         -- `@cursor` names no unit to target
+		end
+	end
 	if ( not target or target == "target" ) then
 		target = action;
 	end
@@ -247,7 +305,12 @@ SlashCmdList["ASSIST"] = function(msg)
 	if ( not action ) then
 		return;
 	end
-	if ( not target ) then
+	if ( target and NON_UNIT_TARGETS[strlower(target)] ) then
+		return; -- `@none` and `@cursor` name no unit to assist
+	end
+	-- An explicit `@target` leaves the trailing name in charge, the same way
+	-- `/target` and `/follow` read it.
+	if ( not target or target == "target" ) then
 		target = action;
 	end
 	if ( target == "" ) then
@@ -267,6 +330,9 @@ SlashCmdList["FOLLOW"] = function(msg)
 	local action, target = SecureCmdOptionParse(msg);
 	if ( not action ) then
 		return;
+	end
+	if ( target and NON_UNIT_TARGETS[strlower(target)] ) then
+		return; -- `@none` and `@cursor` name no unit to follow
 	end
 	if ( not target or target == "target" ) then
 		target = action;
@@ -289,11 +355,13 @@ SlashCmdList["TARGET_LAST_TARGET"] = function(msg)
 end
 
 -- The cycling selectors take the parsed value as their "reverse" flag, so
--- `/targetenemy [mod:shift] 1` steps backwards while shift is held.
+-- `/targetenemy [mod:shift] 1` steps backwards while shift is held. A clause
+-- that matched with no value has to arrive as nil: an empty string is a true
+-- boolean in Lua, which would make every bare `/targetenemy` step backwards.
 local function SecureCmdTargetCycle(msg, fn)
 	local action = SecureCmdOptionParse(msg);
 	if ( action ) then
-		fn(action);
+		fn(action ~= "" and action or nil);
 	end
 end
 
