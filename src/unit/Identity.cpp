@@ -27,6 +27,13 @@ namespace Unit::Identity {
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 
+// `FUN_UNIT_FIND_BY_NAME` — see Offsets.h. The distance bound is passed as
+// the float bit pattern the engine's own callers use (FLT_MAX = no limit).
+using FindUnitByName_t = uint64_t(__fastcall *)(const char *name, uint32_t typeMask,
+                                               int mode, int exactMatch,
+                                               uint32_t maxDistance);
+static constexpr uint32_t kMaxDistanceFltMax = 0x7F7FFFFF;
+
 // The selected character's GUID, captured at the glue "Enter World" click
 // (the FUN_GLUE_ENTER_WORLD co-hook below) — i.e. before the engine has
 // created the in-world player object whose +0xC0 holds the live GUID.
@@ -388,9 +395,48 @@ static int __fastcall Script_UnitTokenFromGUID(void *L) {
     return 1;
 }
 
+// `UnitTokenFromName(name [, exactMatch])` -> unit token, or nothing.
+//
+// The macro `@unit` / `target=unit` piece accepts a character name as well
+// as a unit token, but nothing in 1.12 turns a name into something the
+// `Unit*` functions accept. This runs the engine's own by-name search — the
+// one behind `TargetByName` — and reports the winner as a token.
+//
+// Prefers a standard token (`party1`, `target`, …) so callers get the
+// stable, readable form, and falls back to the GUID literal for a unit no
+// token names, since the resolver takes those too. `exactMatch` mirrors
+// `TargetByName`: clear matches on the start of the name, set requires all
+// of it.
+static int __fastcall Script_UnitTokenFromName(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: UnitTokenFromName(\"name\" [, exactMatch])");
+        return 0;
+    }
+    const char *name = Game::Lua::ToString(L, 1);
+    if (name == nullptr || name[0] == '\0')
+        return 0;
+
+    const int exact = Game::Lua::ToBoolean(L, 2);
+    auto find = reinterpret_cast<FindUnitByName_t>(Offsets::FUN_UNIT_FIND_BY_NAME);
+    const uint64_t guid = find(name, Offsets::TYPEMASK_UNIT, /*mode*/ 0, exact,
+                               kMaxDistanceFltMax);
+    if (guid == 0)
+        return 0;
+
+    char buf[32];
+    if (const char *token = TokenFromGUID(guid, buf, sizeof buf)) {
+        Game::Lua::PushString(L, token);
+        return 1;
+    }
+    char guidBuf[Guid::STRING_SIZE];
+    Game::Lua::PushString(L, Guid::FormatAsString(guid, guidBuf, sizeof guidBuf));
+    return 1;
+}
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("UnitGUID", &Script_UnitGUID);
     Game::Lua::RegisterGlobalFunction("UnitTokenFromGUID", &Script_UnitTokenFromGUID);
+    Game::Lua::RegisterGlobalFunction("UnitTokenFromName", &Script_UnitTokenFromName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

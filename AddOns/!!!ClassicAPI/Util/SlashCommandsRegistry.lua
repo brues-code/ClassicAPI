@@ -35,6 +35,17 @@ function SecureCmdItemParse(item)
 	return item, bag, slot;
 end
 
+-- `@unit` and `target=unit` accept a character name as well as a unit token
+-- (`[target=Feral]`), and the engine's unit functions take only tokens.
+-- Resolve once here so every command below hands them something they accept.
+-- Returns nil for a name with nobody around to match it.
+local function SecureCmdTargetUnit(target)
+	if ( not target or target == "" or IsUnitToken(target) ) then
+		return target;
+	end
+	return UnitTokenFromName(target);
+end
+
 function SecureCmdUseItem(name, bag, slot, target)
 	if ( target == "cursor" ) then
 		-- `@cursor` names a world position, so a ground-target item places
@@ -57,6 +68,12 @@ local function SecureCmdCast(msg)
 	local action, target = SecureCmdOptionParse(msg);
 	if ( not action or action == "" ) then
 		return;
+	end
+	if ( target and target ~= "" and target ~= "cursor" ) then
+		target = SecureCmdTargetUnit(target);
+		if ( not target ) then
+			return; -- a named unit with nobody around to match it
+		end
 	end
 	local name, bag, slot = SecureCmdItemParse(action);
 	if ( slot or (name and C_Item.GetItemCount(name) > 0) ) then
@@ -82,7 +99,10 @@ SlashCmdList["FOCUS"] = function(msg)
 			if ( not target or target == "focus" ) then
 				target = action;
 			end
-			FocusUnit(target);
+			target = SecureCmdTargetUnit(target);
+			if ( target ) then
+				FocusUnit(target);
+			end
 		end
 	end
 end
@@ -99,7 +119,10 @@ SlashCmdList["STARTATTACK"] = function(msg)
 		if ( not target or target == "target" ) then
 			target = action;
 		end
-		StartAttack(target);
+		target = SecureCmdTargetUnit(target);
+		if ( target ) then
+			StartAttack(target);
+		end
 	end
 end
 

@@ -445,11 +445,21 @@ end
 
 local cache = {};
 
--- UnitExists through pcall: the engine raises on a malformed token, and a
--- typo in `@unit` must fail the group, not the caller.
-local function UnitTokenExists(unit)
-    local ok, exists = pcall(UnitExists, unit);
-    return (ok and exists) and true or false;
+-- Resolve a `@unit` piece to something the engine's unit functions accept,
+-- and report whether a unit is actually there.
+--   a unit token -> itself, plus whether it currently has a unit
+--   a name       -> the token for the unit of that name, or nil
+-- `@unit` takes a character name as well as a token (`[target=Feral]`), and
+-- the pcall is what tells them apart: the engine raises for a string that
+-- names no token, which is exactly the case to hand to the by-name search.
+-- That also keeps a typo failing the group instead of the caller.
+local function ResolveTarget(target)
+    local ok, exists = pcall(UnitExists, target);
+    if ok then
+        return target, (exists and true or false);
+    end
+    local token = UnitTokenFromName(target);
+    return token, token ~= nil;
 end
 
 -- Targets that do not name a unit. `none` clears the target and `cursor`
@@ -459,14 +469,26 @@ local NON_UNIT_TARGETS = { none = true, cursor = true };
 
 local function GroupPasses(group)
     local target = group.target;
+    local named = target and not NON_UNIT_TARGETS[strlower(target)];
     if group.n == 0 then
         -- A group that only names a unit (`[@mouseover]`) passes only while
         -- that unit exists, so `[@mouseover][] Spell` falls through to the
         -- next group when nothing is moused over. A bare `[]` and the
         -- non-unit targets always pass. Groups with conditions leave
         -- existence to them (`[@focus,noexists]` still works).
-        return not target or NON_UNIT_TARGETS[strlower(target)] or
-               UnitTokenExists(target);
+        if not named then
+            return true;
+        end
+        local _, exists = ResolveTarget(target);
+        return exists;
+    end
+    if named then
+        -- The conditions ask the engine about this unit, so a name has to
+        -- become a token first.
+        target = ResolveTarget(target);
+        if not target then
+            return false;
+        end
     end
     target = target or "target";
     for i = 1, group.n do

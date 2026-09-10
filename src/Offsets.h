@@ -1162,6 +1162,24 @@ enum Offsets {
     // (lo) and `guid[1]` (hi) through the pointer.
     FUN_TARGET_BY_GUID = 0x00489A40,
 
+    // The engine's find-a-unit-by-name search, behind `TargetByName`,
+    // `AssistByName` and `FollowByName`.
+    //   `uint64_t __fastcall(const char *name /*ecx*/, uint32_t typeMask /*edx*/,
+    //                        int mode, int exactMatch, float maxDistance)`
+    // Walks party, then raid, then every object, and returns the best GUID
+    // (0 = none). `typeMask` is the object typemask the candidates are
+    // resolved against: 8 (unit, what `TargetByName` passes) or 0x10 (player,
+    // what assist and follow pass). `mode` selects which candidate sets run
+    // (1 skips the party/raid pre-pass, 3 skips the raid one); target and
+    // assist pass 0, follow passes 2. `maxDistance` is a float bit pattern —
+    // the callers all pass 0x7F7FFFFF (FLT_MAX).
+    //
+    // `exactMatch` picks the rule in the per-candidate predicate
+    // `FUN_00493C60`: clear takes the longest case-insensitive PREFIX match,
+    // tied by distance; set requires a full match, and that hit stops the
+    // walk immediately.
+    FUN_UNIT_FIND_BY_NAME = 0x00493AA0,
+
     // Tab-targeting internals, shared with our backported TargetNearest* /
     // TargetDirection* family (`target/Nearest.cpp`).
     //

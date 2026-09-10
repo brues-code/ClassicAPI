@@ -709,6 +709,7 @@ build instructions.
 - [Unit](#unit)
   - [`UnitGUID(unit)`](#unitguidunit)
   - [`UnitTokenFromGUID(guid)`](#unittokenfromguidguid)
+  - [`UnitTokenFromName(name [, exactMatch])`](#unittokenfromnamename--exactmatch)
   - [`UnitSubName(unit)`](#unitsubnameunit)
   - [`UnitCreatureFamilyID(unit)`](#unitcreaturefamilyidunit)
   - [`UnitCreatureTypeID(unit)`](#unitcreaturetypeidunit)
@@ -5924,6 +5925,11 @@ Rules:
   are OR'd.
 - A `@unit` or `target=unit` piece sets the group's target. Conditions that
   need a unit use it, and default to `"target"`.
+- The unit can be a character name as well as a token, so
+  `[target=Feral] Rejuvenation` heals the player called Feral. The name
+  matches on its start and picks the nearest match, and it has to be
+  someone around you. See
+  [`UnitTokenFromName`](#unittokenfromnamename--exactmatch).
 - A group whose only piece is a `@unit` matches only while that unit exists.
   So `[@mouseover][] Spell` uses the mouseover unit when there is one, and
   falls through to `[]` (your target) when there is not. A bare `[]` always
@@ -16678,6 +16684,32 @@ end
 > that don't match any currently-resolvable token — including
 > ex-targets, ex-mouseover units, distant players seen in the chat
 > log, etc. The engine simply doesn't address those by token.
+
+### `UnitTokenFromName(name [, exactMatch])`
+
+Finds the unit called `name` and returns a token for it, or `nil` when
+nobody around matches. This is what lets a character name stand in for a
+unit token, as `[target=Feral]` does in a macro.
+
+```lua
+local token = UnitTokenFromName("Feral")
+if token then
+    print(UnitHealth(token), UnitClass(token))
+end
+```
+
+The search matches on the start of the name and prefers the nearest unit,
+the same rule `TargetByName` uses. Pass a true `exactMatch` to require the
+whole name. It looks through your party, then your raid, then every unit
+loaded around you, so it reaches units that no standard token names.
+
+The result is a standard token such as `party1` or `target` when one fits,
+and otherwise the unit's GUID, which the unit functions also accept.
+
+Treat it as a snapshot. Which token names a unit changes as you retarget or
+as the group changes, so resolve it again rather than storing it.
+
+*ClassicAPI extension.*
 
 ### `UnitSubName(unit)`
 
