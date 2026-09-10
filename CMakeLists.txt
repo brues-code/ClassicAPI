@@ -2,6 +2,21 @@ cmake_minimum_required(VERSION 3.10)
 
 project(ClassicAPI LANGUAGES CXX RC)
 
+# WoW.exe is x86, so the injected DLL must be x86 too — there is no valid
+# 64-bit configure of this project. Fail here rather than let one through:
+# a 64-bit build's first visible symptom is a static_assert deep in a
+# struct-layout check, which reads as an unrelated code fault. An IDE that
+# configures on its own (VS Code's CMake Tools picks an architecture from a
+# scanned kit) can flip an existing build directory this way, which is what
+# CMakePresets.json's `win32` preset exists to prevent.
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+    message(FATAL_ERROR
+        "ClassicAPI builds 32-bit only. This configure uses "
+        "${CMAKE_SIZEOF_VOID_P}-byte pointers. Delete the build directory, "
+        "because CMake cannot switch platform in place. Then configure with "
+        "`cmake --preset win32` or `cmake -B build -A Win32`.")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")

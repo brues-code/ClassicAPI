@@ -1,0 +1,25 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "win32",
+      "displayName": "Win32 (x86)",
+      "description": "The only supported configuration: WoW.exe is 32-bit, so the DLL must be 32-bit too. No generator is named, so CMake picks the newest installed Visual Studio, matching the documented command line.",
+      "binaryDir": "${sourceDir}/build",
+      "architecture": "Win32"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "release",
+      "displayName": "Release",
+      "configurePreset": "win32",
+      "configuration": "Release"
+    }
+  ]
+}
