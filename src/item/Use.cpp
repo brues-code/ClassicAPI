@@ -11,12 +11,16 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_Item.UseItemByName(itemInfo [, unit])` — finds the first item in
-// the player's bags matching `itemInfo` (itemID, link, or name) and
-// uses it via the engine's `CGItem::UseItem` primitive. Optional
-// `unit` is a unit token (`"player"`, `"target"`, `"focus"`, …)
-// passed to spell-cast items (scrolls, traps, on-use targeted
-// effects) as the cast target.
+// `C_Item.UseItemByName(item [, unit])` — uses `item` via the engine's
+// `CGItem::UseItem` primitive. Optional `unit` is a unit token (`"player"`,
+// `"target"`, `"focus"`, …) passed to spell-cast items (scrolls, traps,
+// on-use targeted effects) as the cast target.
+//
+// `item` is an item reference (itemID, `item:N`, a link, or the name of an
+// item the player carries — the first bag match is used) or an item location
+// (`{bagID=B, slotIndex=S}`, `{equipmentSlotIndex=N}`, an item GUID), which
+// names one exact item. See `Item::Location::ResolveItemArgOrLocation`, which
+// `C_Item.UseAtCursor` and `C_Item.UseAtUnit` share.
 //
 // Same structure 3.3.5's `Script_UseItemByName` uses: locate the item
 // directly, then hand it to the engine's by-item-pointer use call.
@@ -37,15 +41,15 @@
 // stray target is harmless. We default to a zero GUID when the caller
 // omits `unit` — matches existing call sites.
 //
-// Returns nothing. Silently no-ops on bad input, item not found in
-// bags, item locked, on cooldown, etc. An unrecognized `unit` string
+// Returns nothing. Silently no-ops on bad input, an item the player doesn't
+// have, item locked, on cooldown, etc. An unrecognized `unit` string
 // is treated as "no target" rather than raising, matching arg-1's
 // "silently no-ops on bad input" contract.
 
 #include "Game.h"
 #include "Offsets.h"
-#include "item/Arg.h"
 #include "item/Location.h"
+#include "unit/TokenResolve.h"
 
 #include <cstdint>
 
@@ -62,25 +66,28 @@ uint64_t ResolveUnitGuid(void *L, int idx) {
     if (!Game::Lua::IsString(L, idx))
         return 0;
     const char *token = Game::Lua::ToString(L, idx);
+    // The engine's resolver RAISES for a string that names no token, which
+    // would turn a bad `unit` into an error out of a function whose contract
+    // is to no-op on bad input — and this is reached from secure-button
+    // attributes and key bindings, where the string is whatever an addon
+    // configured. Probe first so an unusable one is simply no target.
+    if (!Unit::TokenResolve::IsUnitToken(token))
+        return 0;
     auto fn = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID);
     return fn(token);
 }
 
 int __fastcall Script_C_Item_UseItemByName(void *L) {
-    const auto arg = Item::Arg::Resolve(L, 1);
-    if (arg.itemID <= 0 && arg.name == nullptr) {
-        return 0;
-    }
-
+    // Read the unit first: the item resolve below stomps the Lua stack.
     const uint64_t targetGuid = ResolveUnitGuid(L, 2);
 
-    Item::Location::ByGUIDResult found;
-    if (!Item::Location::FindByArgInBags(L, arg, &found)) {
+    const uint8_t *item = Item::Location::ResolveItemArgOrLocation(L, 1);
+    if (item == nullptr) {
         return 0;
     }
 
     auto useItem = reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE);
-    useItem(found.item, &targetGuid, 0);
+    useItem(item, &targetGuid, 0);
     return 0;
 }
 

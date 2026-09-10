@@ -445,8 +445,80 @@ end
 
 local cache = {};
 
+-- `@unit` takes a character name as well as a token (`[target=Feral]`), and a
+-- name has to be searched for in the object manager. That search is the one
+-- expensive step here, so a pass remembers what it already found. The table
+-- is only built once a pass meets a name, and the next pass drops it: a token
+-- kept across passes could name a different unit by then.
+local passNames;
+
+local function TokenForName(name)
+    if passNames then
+        local cached = passNames[name];
+        if cached ~= nil then
+            return cached or nil;               -- false records "nobody there"
+        end
+    else
+        passNames = {};
+    end
+    local token = UnitTokenFromName(name);
+    passNames[name] = token or false;
+    return token;
+end
+
+-- A `@unit` piece as something the engine's unit functions accept, with no
+-- question asked about whether a unit is there. `IsUnitToken` tells a token
+-- from a name by asking the engine's own resolver, and it does not go looking
+-- for the unit -- which is what the conditions do next anyway.
+local function TokenForTarget(target)
+    if IsUnitToken(target) then
+        return target;
+    end
+    return TokenForName(target);
+end
+
+-- Whether a `@unit` piece has a unit behind it right now. The pcall tells a
+-- token from a name in one step: the engine raises for a string that names no
+-- token, which is exactly the case to hand to the by-name search. That also
+-- keeps a typo failing the group instead of the caller.
+local function TargetExists(target)
+    local ok, exists = pcall(UnitExists, target);
+    if ok then
+        return exists and true or false;
+    end
+    local token = TokenForName(target);
+    return token ~= nil and UnitExists(token) and true or false;
+end
+
+-- Targets that do not name a unit. `none` clears the target and `cursor`
+-- names a world position, so neither can be tested with UnitExists and both
+-- always pass the existence gate below.
+local NON_UNIT_TARGETS = { none = true, cursor = true };
+
 local function GroupPasses(group)
-    local target = group.target or "target";
+    local target = group.target;
+    local named = target and not NON_UNIT_TARGETS[strlower(target)];
+    if group.n == 0 then
+        -- A group that only names a unit (`[@mouseover]`) passes only while
+        -- that unit exists, so `[@mouseover][] Spell` falls through to the
+        -- next group when nothing is moused over. A bare `[]` and the
+        -- non-unit targets always pass. Groups with conditions leave
+        -- existence to them (`[@focus,noexists]` still works).
+        if not named then
+            return true;
+        end
+        return TargetExists(target);
+    end
+    if named then
+        -- The conditions ask the engine about this unit, so a name has to
+        -- become a token first. Existence is theirs to test, so it is not
+        -- asked for here.
+        target = TokenForTarget(target);
+        if not target then
+            return false;
+        end
+    end
+    target = target or "target";
     for i = 1, group.n do
         local cond = group[i];
         local ok = cond.pred(target, cond.args);
@@ -464,6 +536,13 @@ function SecureCmdOptionParse(options)
     if type(options) ~= "string" then
         error("Usage: SecureCmdOptionParse(\"options\")");
         return nil;                             -- WoW's error() may not unwind
+    end
+
+    -- Start of a pass: drop what the last one resolved by name. Nothing is
+    -- allocated unless a name was actually met, so the all-token case (the
+    -- common one, polled several times a second) costs nothing here.
+    if passNames then
+        passNames = nil;
     end
 
     local clauses = cache[options];

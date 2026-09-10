@@ -18,12 +18,12 @@
 #include "item/BagFamily.h"
 #include "item/Data.h"
 #include "item/ID.h"
+#include "item/Icon.h"
 #include "item/Link.h"
 #include "item/Location.h"
 #include "item/Record.h"
 
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 
 namespace Item::Info {
@@ -72,19 +72,6 @@ static const char *LookupInvType(uint32_t invType) {
     return PushedOrEmpty(table[invType]);
 }
 
-static bool BuildIconPath(uint32_t displayInfoID, char *out, size_t outSize) {
-    if (out == nullptr || outSize == 0)
-        return false;
-    out[0] = 0;
-    const char *iconName = DBC::StringField(
-        Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
-        displayInfoID, Offsets::OFF_ITEMDISPLAYINFO_ICON);
-    if (iconName == nullptr)
-        return false;
-    snprintf(out, outSize, "Interface\\Icons\\%s", iconName);
-    return true;
-}
-
 // `GetItemInfoInstant` is the modern "synchronous, never blocks" item
 // info call. In modern WoW the trailing 6 fields come from client-side
 // `Item-sparse.db2` and so the call always returns the full 7-tuple.
@@ -121,7 +108,7 @@ static int __fastcall Script_GetItemInfoInstant(void *L) {
         Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
 
     char iconPath[260];
-    if (!BuildIconPath(displayInfoID, iconPath, sizeof(iconPath)))
+    if (!Item::Icon::PathForDisplayInfoID(displayInfoID, iconPath, sizeof(iconPath)))
         iconPath[0] = 0;
 
     Game::Lua::PushString(L, LookupItemClassName(classID));
@@ -148,7 +135,7 @@ static int PushIconForItemID(void *L, int itemID) {
     const uint32_t displayInfoID = Game::Read<uint32_t>(
         record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
     char iconPath[260];
-    if (!BuildIconPath(displayInfoID, iconPath, sizeof(iconPath)))
+    if (!Item::Icon::PathForDisplayInfoID(displayInfoID, iconPath, sizeof(iconPath)))
         return 0;
     Game::Lua::PushString(L, iconPath);
     return 1;
@@ -292,7 +279,7 @@ static int __fastcall Script_C_Item_GetItemInfo(void *L) {
             : name;
 
     char iconPath[260];
-    if (!BuildIconPath(displayInfoID, iconPath, sizeof(iconPath)))
+    if (!Item::Icon::PathForDisplayInfoID(displayInfoID, iconPath, sizeof(iconPath)))
         iconPath[0] = 0;
     char link[256];
     const bool haveLink = Item::Link::BasicFromIDSuffix(static_cast<uint32_t>(itemID),

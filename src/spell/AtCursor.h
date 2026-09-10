@@ -47,6 +47,14 @@ bool Resolve();
 // placement was committed.
 bool CommitAtCoords(const float coords[3]);
 
+// True when the in-flight placement is a GROUND one that `CommitAtCoords`
+// would land, so a caller that wants the reticle left for the player to
+// click can tell that apart from a placement it must not leave armed. Same
+// guards as the commit paths, including the side effect: a NON-ground
+// placement is cancelled here, because it means the engine did not accept
+// the unit as a target and the cursor has to recover.
+bool GroundPlacementPending();
+
 // Resolves a numeric `spellID` to a spellbook slot and dispatches the
 // cast through the engine — the shared front half of
 // `C_Spell.CastAtCursor` / `CastAtUnit`. For a ground-target spell

@@ -234,6 +234,60 @@ bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out) {
     return FindByArgInBags(L, arg, out);
 }
 
+const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex) {
+    if (slotIndex < 1)
+        return nullptr;
+    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
+        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
+    if (bagID == 0) {
+        if (slotIndex > Offsets::BACKPACK_NUM_SLOTS)
+            return nullptr;
+        void *invMgr = const_cast<uint8_t *>(Unit::Identity::PlayerInventoryManager());
+        if (invMgr == nullptr)
+            return nullptr;
+        return static_cast<const uint8_t *>(
+            GetItemBySlot(invMgr, Offsets::BACKPACK_LINEAR_BASE + slotIndex - 1));
+    }
+    void *bagInv = EquippedBagInventory(bagID);
+    if (bagInv == nullptr)
+        return nullptr;
+    const int slotCount = static_cast<int>(*reinterpret_cast<const uint32_t *>(bagInv));
+    if (slotIndex > slotCount)
+        return nullptr;
+    return static_cast<const uint8_t *>(GetItemBySlot(bagInv, slotIndex - 1));
+}
+
+bool FindByArgNoLua(const Item::Arg::Resolved &arg, ByGUIDResult *out) {
+    if (arg.itemID <= 0 && arg.name == nullptr)
+        return false;
+
+    for (int slot = Offsets::EQUIPMENT_SLOT_FIRST;
+         slot <= Offsets::EQUIPMENT_SLOT_LAST; ++slot) {
+        auto *item = ResolveEquipmentSlot(slot);
+        if (item != nullptr && MatchesArg(item, arg)) {
+            out->equipmentSlotIndex = slot;
+            out->bagID = 0;
+            out->slotIndex = 0;
+            out->item = item;
+            return true;
+        }
+    }
+    for (int bagID = 0; bagID <= 4; ++bagID) {
+        const int slotCount = GetBagSlotCount(bagID);
+        for (int slotIndex = 1; slotIndex <= slotCount; ++slotIndex) {
+            auto *item = ResolveBagSlotNoLua(bagID, slotIndex);
+            if (item == nullptr || !MatchesArg(item, arg))
+                continue;
+            out->equipmentSlotIndex = 0;
+            out->bagID = bagID;
+            out->slotIndex = slotIndex;
+            out->item = item;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool FindByGUID(void *L, uint64_t guid, ByGUIDResult *out) {
     if (guid == 0)
         return false;
@@ -280,32 +334,84 @@ bool IsLocationArg(void *L, int idx) {
     return t == Game::Lua::TYPE_TABLE || t == Game::Lua::TYPE_STRING;
 }
 
-const uint8_t *Resolve(void *L, int locIdx) {
+// The location forms, reporting WHERE the item is as well as which one.
+// `Resolve` is this minus the coordinates; the argument resolvers below add
+// the item-reference forms on top.
+static bool ResolveLocationDetail(void *L, int locIdx, ByGUIDResult *out) {
+    *out = ByGUIDResult{};
     const int t = Game::Lua::Type(L, locIdx);
 
     if (t == Game::Lua::TYPE_STRING) {
         uint64_t guid = 0;
         if (!ParseGUIDString(Game::Lua::ToString(L, locIdx), &guid))
-            return nullptr;
-        ByGUIDResult found;
-        if (!FindByGUID(L, guid, &found))
-            return nullptr;
-        return found.item;
+            return false;
+        if (!FindByGUID(L, guid, out)) {
+            *out = ByGUIDResult{}; // a miss may have written into it
+            return false;
+        }
+        return true;
     }
 
     if (t != Game::Lua::TYPE_TABLE)
-        return nullptr;
+        return false;
 
     int eqSlot = 0;
-    if (TryReadIntField(L, locIdx, "equipmentSlotIndex", &eqSlot))
-        return ResolveEquipmentSlot(eqSlot);
+    if (TryReadIntField(L, locIdx, "equipmentSlotIndex", &eqSlot)) {
+        out->equipmentSlotIndex = eqSlot;
+        out->item = ResolveEquipmentSlot(eqSlot);
+        return out->item != nullptr;
+    }
 
     int bagID = 0, slotIndex = 0;
     if (TryReadIntField(L, locIdx, "bagID", &bagID) &&
-        TryReadIntField(L, locIdx, "slotIndex", &slotIndex))
-        return ResolveBagSlot(L, bagID, slotIndex);
+        TryReadIntField(L, locIdx, "slotIndex", &slotIndex)) {
+        out->bagID = bagID;
+        out->slotIndex = slotIndex;
+        out->item = ResolveBagSlot(L, bagID, slotIndex);
+        return out->item != nullptr;
+    }
 
-    return nullptr;
+    return false;
+}
+
+const uint8_t *Resolve(void *L, int locIdx) {
+    ByGUIDResult found;
+    return ResolveLocationDetail(L, locIdx, &found) ? found.item : nullptr;
+}
+
+bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out) {
+    *out = ByGUIDResult{};
+    const int t = Game::Lua::Type(L, idx);
+
+    // A table is only ever a location, and so is a string that parses as an
+    // item GUID — a strict `0x` + 16 hex digits, which no item link or item
+    // name can look like. Decide from the argument alone, and commit: a
+    // location resolve STOMPS the Lua stack (`PackBagSlot` overwrites the
+    // first stack slots with its own arguments), so falling back to the
+    // reference forms after one has run would re-read the argument as
+    // whatever it left behind — a bag index read as an itemID, which names
+    // an unrelated item.
+    if (t == Game::Lua::TYPE_TABLE)
+        return ResolveLocationDetail(L, idx, out);
+    if (t == Game::Lua::TYPE_STRING) {
+        uint64_t guid = 0;
+        if (ParseGUIDString(Game::Lua::ToString(L, idx), &guid)) {
+            if (FindByGUID(L, guid, out))
+                return true;
+            *out = ByGUIDResult{}; // a miss may have written into it
+            return false;
+        }
+    }
+
+    const Item::Arg::Resolved arg = Item::Arg::Resolve(L, idx);
+    if (arg.itemID <= 0 && arg.name == nullptr)
+        return false;
+    return FindByArgInBags(L, arg, out);
+}
+
+const uint8_t *ResolveItemArgOrLocation(void *L, int idx) {
+    ByGUIDResult found;
+    return FindItemArgOrLocation(L, idx, &found) ? found.item : nullptr;
 }
 
 } // namespace Item::Location

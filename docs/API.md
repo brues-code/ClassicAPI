@@ -340,7 +340,7 @@ build instructions.
 
 - [Item](#item)
   - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexititemlocation--c_itemdoesitemexistbyiditem)
-  - [`C_Item.EquipItemByName(itemInfo [, dstSlot])`](#c_itemequipitembynameiteminfo--dstslot)
+  - [`C_Item.EquipItemByName(item [, dstSlot])`](#c_itemequipitembynameitem--dstslot)
   - [`C_Item.GetCurrentItemLevel(itemLocation)` / `C_Item.GetDetailedItemLevelInfo(item)`](#c_itemgetcurrentitemlevelitemlocation--c_itemgetdetaileditemlevelinfoitem)
   - [`C_Item.GetItemCount(itemInfo, [includeBank], [includeUses])`](#c_itemgetitemcountiteminfo-includebank-includeuses)
   - [`C_Item.GetItemData(itemLocation)` / `C_Item.GetItemDataByID(item)`](#c_itemgetitemdataitemlocation--c_itemgetitemdatabyiditem)
@@ -386,9 +386,9 @@ build instructions.
   - [`C_Item.RequestLoadItemDataByID(item)` / `C_Item.RequestLoadItemData(itemLocation)`](#c_itemrequestloaditemdatabyiditem--c_itemrequestloaditemdataitemlocation)
   - [`C_Item.UnlockAllItems()`](#c_itemunlockallitems)
   - [`C_Item.UnlockItem(itemLocation)`](#c_itemunlockitemitemlocation)
-  - [`C_Item.UseAtCursor(itemInfo)`](#c_itemuseatcursoriteminfo)
-  - [`C_Item.UseAtUnit(itemInfo, unit)`](#c_itemuseatunititeminfo-unit)
-  - [`C_Item.UseItemByName(itemInfo [, unit])`](#c_itemuseitembynameiteminfo--unit)
+  - [`C_Item.UseAtCursor(item)`](#c_itemuseatcursoritem)
+  - [`C_Item.UseAtUnit(item, unit)`](#c_itemuseatunititem-unit)
+  - [`C_Item.UseItemByName(item [, unit])`](#c_itemuseitembynameitem--unit)
   - [`Get*ItemID` — companions to the engine's `Get*ItemLink` family](#getitemid--companions-to-the-engines-getitemlink-family)
   - [`GetAverageItemLevel()`](#getaverageitemlevel)
   - [`GetInventoryItemDurability(invSlot)`](#getinventoryitemdurabilityinvslot)
@@ -453,11 +453,16 @@ build instructions.
   - [Async pattern (RunAsync + C_Timer.After)](#async-pattern-runasync--c_timerafter)
 
 - [Macros](#macros)
+  - [`/cast` and `/use`](#cast-and-use)
+  - [More commands with `[conditions]`](#more-commands-with-conditions)
+  - [`#showtooltip` and `#show`](#showtooltip-and-show)
   - [Numeric spellIDs in `/cast` and `CastSpellByName`](#numeric-spellids-in-cast-and-castspellbyname)
   - [`CastSpellNoToggle` as a macro cast line](#castspellnotoggle-as-a-macro-cast-line)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
+  - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
   - [`C_Macro.CreateMacro` / `C_Macro.EditMacro`](#c_macrocreatemacro--c_macroeditmacro)
+  - [`C_Macro.SetMacroDisplay(macroSlot, value)`](#c_macrosetmacrodisplaymacroslot-value)
 
 - [Mail](#mail)
   - [`GetSendMailItemLink([attachmentIndex])`](#getsendmailitemlinkattachmentindex)
@@ -515,6 +520,8 @@ build instructions.
   - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
   - [Unit tokens (`markN`)](#unit-tokens-markn)
+  - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
+  - [`IsUnitToken(value)`](#isunittokenvalue)
 
 - [NameCache](#namecache)
   - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
@@ -589,7 +596,7 @@ build instructions.
   - [`IsHarmfulSpell(spell)` / `IsHelpfulSpell(spell)`](#isharmfulspellspell--ishelpfulspellspell)
   - [`C_Spell.IsSpellHarmful(spellID)` / `C_Spell.IsSpellHelpful(spellID)`](#c_spellisspellharmfulspellid--c_spellisspellhelpfulspellid)
   - [`GetSpellSchool(spellID)`](#getspellschoolspellid)
-  - [`CastSpellNoToggle(name | spellID [, unit])`](#castspellnotogglename--spellid--unit)
+  - [`CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`](#castspellnotogglename--spellid--unit--placegroundspell)
   - [`C_Spell.CastAtCursor(spellIDOrName)`](#c_spellcastatcursorspellidorname)
   - [`C_Spell.CastAtUnit(spellIDOrName, unit)`](#c_spellcastatunitspellidorname-unit)
   - [`C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`](#c_spellcancelspellbyidspellid--cancelspellbynamename)
@@ -703,6 +710,7 @@ build instructions.
 - [Unit](#unit)
   - [`UnitGUID(unit)`](#unitguidunit)
   - [`UnitTokenFromGUID(guid)`](#unittokenfromguidguid)
+  - [`UnitTokenFromName(name [, exactMatch])`](#unittokenfromnamename--exactmatch)
   - [`UnitSubName(unit)`](#unitsubnameunit)
   - [`UnitCreatureFamilyID(unit)`](#unitcreaturefamilyidunit)
   - [`UnitCreatureTypeID(unit)`](#unitcreaturetypeidunit)
@@ -3341,7 +3349,7 @@ silently. Returns `true` if the call ran (the set existed), `false`
 otherwise.
 
 Implementation uses the same `FUN_INVENTORY_SWAP` primitive
-[`C_Item.EquipItemByName`](#c_itemequipitembynameiteminfo--dstslot)
+[`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot)
 uses for its explicit-slot path. Each swap is a single
 CMSG_SWAP_INV_ITEM (or CMSG_AUTOEQUIP_ITEM) packet that the server
 applies atomically — the two-cycle "ring A in slot 11, ring B in
@@ -5918,6 +5926,20 @@ Rules:
   are OR'd.
 - A `@unit` or `target=unit` piece sets the group's target. Conditions that
   need a unit use it, and default to `"target"`.
+- The unit can be a character name as well as a token, so
+  `[target=Feral] Rejuvenation` heals the player called Feral. The name
+  matches on its start and picks the nearest match, and it has to be
+  someone around you. See
+  [`UnitTokenFromName`](#unittokenfromnamename--exactmatch).
+- A group whose only piece is a `@unit` matches only while that unit exists.
+  So `[@mouseover][] Spell` uses the mouseover unit when there is one, and
+  falls through to `[]` (your target) when there is not. A bare `[]` always
+  matches. A group with conditions leaves the existence test to them, so
+  `[@focus,noexists]` works as written.
+- `@none` and `@cursor` name no unit, so they always match. `@none` asks for
+  no unit: `/target` clears your target, and the other commands act with no
+  unit named. `@cursor` names the position under your mouse, which `/cast`
+  and `/use` use to place a ground-target spell or item.
 
 Returns the matched value, plus the passing group's target token as a second
 value (nil when the group set no target). Returns nil when no clause matches.
@@ -7733,24 +7755,37 @@ if C_Item.DoesItemExist({equipmentSlotIndex = INVSLOT_HEAD}) then ... end
 if C_Item.DoesItemExistByID(6948) then ... end
 ```
 
-### `C_Item.EquipItemByName(itemInfo [, dstSlot])`
+### `C_Item.EquipItemByName(item [, dstSlot])`
 
-Finds the first item in the player's bags matching `itemInfo` and
-equips it. With `dstSlot` (a 1-based character-pane slot, 1..19),
+Equips `item`. With `dstSlot` (a 1-based character-pane slot, 1..19),
 equips to that specific slot; without, the engine auto-picks based on
 the item's inventory type.
 
-`itemInfo` accepts the same shapes as
-[`C_Item.IsEquippedItem`](#c_itemisequippeditemitem) — itemID number,
-bare `"item:N"` string, full chat link, or a localized item name. Name
-matching is case-insensitive against each candidate's *decorated* name
-(random suffix included — a suffixed item matches its full name, not the
-base), the same shared predicate `C_Item.IsEquippedItem` uses.
+`item` takes either of two forms:
+
+- An item **reference**: an itemID number, bare `"item:N"` string, a full
+  chat link, or a localized item name — the shapes
+  [`C_Item.IsEquippedItem`](#c_itemisequippeditemitem) takes. The first
+  matching item in your bags is equipped. Name matching is case-insensitive
+  against each candidate's *decorated* name (random suffix included — a
+  suffixed item matches its full name, not the base), the same shared
+  predicate `C_Item.IsEquippedItem` uses.
+- An item **location**: `{bagID = B, slotIndex = S}`,
+  `{equipmentSlotIndex = N}`, or an item GUID string — the shapes
+  [`C_Item.GetItemID`](#c_itemgetitemiditemlocation) takes. A location names
+  one exact item, so use it when you hold two of the same item with
+  different enchants or suffixes and which one you equip matters.
+
+An `{equipmentSlotIndex = N}` location names an item you are already
+wearing, so it needs a `dstSlot` to move to: that is how you swap rings
+(11 ↔ 12), trinkets (13 ↔ 14) or weapons (16 ↔ 17). Without `dstSlot` there
+is nothing for the engine to pick, and the call does nothing.
 
 Returns nothing. Silently no-ops when:
 
 - the input is `nil`, an empty string, or otherwise unparseable
-- no matching item is in bags (already-equipped items aren't moved)
+- you do not have the item; a reference searches your bags only, so an
+  item you are already wearing is only reachable by location
 - the engine refuses the equip — combat, locked item, type mismatch
   with `dstSlot`, locked equipment slot, etc.
 
@@ -7767,10 +7802,12 @@ Two paths based on `dstSlot`:
   stays on the cursor.
 - **No `dstSlot` (engine auto-picks slot from inventory type):**
   falls back to the cursor-pickup + `AutoEquipCursorItem` path
-  because the auto-pick logic reads off cursor state. For this
-  path only, the function refuses to operate (no-op) when
-  `CursorHasItem()` is already true, to avoid clobbering whatever's
-  held.
+  because the auto-pick logic reads off cursor state.
+
+Both paths first return anything on the cursor to the slot it came from, so
+a held item is neither clobbered nor left visually locked. The item is
+resolved after that, which means a location naming the slot a held item came
+from still finds it — while held, that slot reads empty.
 
 ```lua
 -- By itemID, auto-pick slot:
@@ -7781,6 +7818,12 @@ C_Item.EquipItemByName("Linen Cloth", 17)
 
 -- From a chat link:
 C_Item.EquipItemByName(itemLink)
+
+-- That exact bag slot, auto-pick where it goes:
+C_Item.EquipItemByName({ bagID = 0, slotIndex = 1 })
+
+-- Move the main-hand weapon to the off-hand:
+C_Item.EquipItemByName({ equipmentSlotIndex = 16 }, 17)
 ```
 
 ### `C_Item.GetCurrentItemLevel(itemLocation)` / `C_Item.GetDetailedItemLevelInfo(item)`
@@ -7805,9 +7848,10 @@ bags, and optionally bank.
 count = C_Item.GetItemCount(itemInfo [, includeBank [, includeUses]])
 ```
 
-- `itemInfo` — numeric `itemID` or string containing `"item:NNN"`
-  (full chat links work). Item names are NOT accepted (there is
-  no name → ID resolver).
+- `itemInfo` — a numeric `itemID`, a string that contains `"item:NNN"`
+  (full chat links work), or an item name. A name is compared, without
+  regard to case, with the full name of each item that you carry (the
+  suffix included, so `"Foo of the Owl"` matches and `"Foo"` does not).
 - `includeBank` *(optional, default false)* — also walk bank slots
   (bag `-1` for the main bank, bags `5..10` for bank-bag slots).
 - `includeUses` *(optional, default false)* — when `true`, multiplies
@@ -7819,6 +7863,7 @@ count = C_Item.GetItemCount(itemInfo [, includeBank [, includeUses]])
 local n = C_Item.GetItemCount(2589)               -- Linen Cloth in bags + equipped
 local n = C_Item.GetItemCount(2589, true)         -- + bank
 local n = C_Item.GetItemCount("item:2589")        -- string form works too
+local n = C_Item.GetItemCount("Linen Cloth")      -- by name
 
 -- Equipped items count toward the total:
 local trinketID = GetInventoryItemID("player", INVSLOT_TRINKET1)
@@ -9163,7 +9208,7 @@ dropped into a bag/equipment slot, deleted (`DeleteCursorItem`), sold
 at a merchant, etc.
 
 `itemInfo` accepts the same shapes as
-[`C_Item.EquipItemByName`](#c_itemequipitembynameiteminfo--dstslot) —
+[`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot) —
 itemID number, bare `"item:N"` string, full chat link, or a localized
 item name (matched case-insensitively against each candidate's
 *decorated* name, random suffix included). Unlike the by-name equip/use
@@ -9279,79 +9324,97 @@ sweep is logout). This call gives you an in-session escape hatch.
 > update will set the lock right back. For cursor-cancel semantics,
 > pair with the engine's `ClearCursor()`.
 
-### `C_Item.UseAtCursor(itemInfo)`
+### `C_Item.UseAtCursor(item)`
 
-Uses `itemInfo` at the player's current cursor world position —
+Uses `item` at the player's current cursor world position —
 ClassicAPI's `[@cursor]` analog for ground-target on-use items
 (Iron Grenade, Bombling, demolition charges, etc.). Returns `true`
 when the cursor-placement leg landed (the item fires at terrain);
 `false` for items that aren't ground-target (the item still fires
-normally with no implicit target), unparseable input, items not in
-bags, cursor over UI / off-screen, etc.
+normally with no implicit target), unparseable input, items you do
+not have, cursor over UI / off-screen, etc.
 
-`itemInfo` accepts the same shapes as
-[`C_Item.UseItemByName`](#c_itemuseitembynameiteminfo--unit) — itemID,
-bare `"item:N"`, full chat link, or localized name.
+`item` takes either of two forms:
+
+- An item **reference**: an itemID, bare `"item:N"`, a full chat link, or a
+  localized name — the shapes
+  [`C_Item.UseItemByName`](#c_itemuseitembynameitem--unit) takes. The
+  first matching item in your bags is used.
+- An item **location**: `{bagID = B, slotIndex = S}`,
+  `{equipmentSlotIndex = N}`, or an item GUID string — the shapes
+  [`C_Item.GetItemID`](#c_itemgetitemiditemlocation) takes. A location names
+  one exact item, so use it when you hold two stacks of the same thing and
+  the one you mean matters.
 
 ```lua
 C_Item.UseAtCursor(4068)            -- Iron Grenade at cursor
 C_Item.UseAtCursor("Iron Grenade")
+C_Item.UseAtCursor({ bagID = 0, slotIndex = 1 })
 ```
 
-Implementation chains the existing item-use path
-(`Item::Location::FindByArgInBags` + `FUN_ITEM_USE`) with
-[`Spell::AtCursor::Resolve`](#c_spellcastatcursorspellidorname) — same
-cursor-resolution helper `C_Spell.CastAtCursor` uses. When the item
-fires a non-ground-target spell, the cursor leg no-ops and returns
-`false`; the item still uses normally (any implicit target — current
-selection, etc. — applies).
+When the item fires a non-ground-target spell, the cursor leg no-ops
+and returns `false`; the item still uses normally (any implicit
+target — current selection, etc. — applies).
 
 Cancels placement automatically when the cursor isn't on terrain —
 the item-use packet is never sent, so an off-screen click doesn't
 waste the grenade.
 
-### `C_Item.UseAtUnit(itemInfo, unit)`
+### `C_Item.UseAtUnit(item, unit)`
 
 Unit-position analog of
-[`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo): uses `itemInfo` at
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem): uses `item` at
 `unit`'s feet rather than the cursor. ClassicAPI's `[@unit]` for
-ground-target on-use items. `itemInfo` accepts the same forms as
-`UseAtCursor` (itemID, bare `"item:N"`, full chat link, localized
-name); `unit` is any unit token (`"player"`, `"target"`,
-`"mouseover"`, `"party1"`, …).
+ground-target on-use items. `item` accepts the same two forms as
+`UseAtCursor` — an item reference or an item location; `unit` is any
+unit token (`"player"`, `"target"`, `"mouseover"`, `"party1"`, …).
 
 ```lua
 C_Item.UseAtUnit(4068, "target")            -- Iron Grenade at the target's feet
 C_Item.UseAtUnit("Iron Grenade", "player")
+C_Item.UseAtUnit({ bagID = 0, slotIndex = 1 }, "player")
 ```
 
-Same chain as `UseAtCursor` (`Item::Location::FindByArgInBags` +
-`FUN_ITEM_USE`) but committing the placement at the unit's world
-position via
-[`Spell::AtCursor::CommitAtCoords`](#c_spellcastatunitspellidorname-unit)
-instead of the cursor raycast. Returns `true` when the placement
-landed at the unit; `false` for non-ground-target items (the item
-still fires with any implicit target), unparseable input,
-item-not-in-bags, or an unresolvable unit. The unit is resolved
-before the item fires, so an absent unit fails without consuming the
-item.
+Returns `true` when the placement landed at the unit. Returns `false` for
+unparseable input, an item you do not carry, or a unit that cannot be
+resolved. The unit is resolved before the item fires, so an absent unit
+fails without consuming the item.
 
-### `C_Item.UseItemByName(itemInfo [, unit])`
+An item with no ground effect also returns `false`, and is used **on the
+unit**: the item fires with that unit as its target rather than with
+whatever you have selected. So this covers both kinds of on-use item, the
+same way [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) covers
+both kinds of spell.
 
-Finds the first item in the player's bags matching `itemInfo` and
-uses it. Returns nothing; silently no-ops when:
+A unit token that names nothing right now, such as `"party3"` while solo,
+returns `false`. A string that is not a unit token at all raises the
+engine's standard "Unknown unit" error, as `UnitHealth("garbage")` does and
+as `C_Spell.CastAtUnit` does. That differs from
+[`C_Item.UseItemByName`](#c_itemuseitembynameitem--unit), whose contract
+is to no-op on anything it cannot use.
+
+### `C_Item.UseItemByName(item [, unit])`
+
+Uses `item`. Returns nothing; silently no-ops when:
 
 - the input is `nil`, an empty string, or otherwise unparseable
-- no matching item is in bags
+- the player does not have the item
 - the engine refuses the use — cooldown, locked item, level
   requirement, etc.
 
-`itemInfo` accepts the same shapes as
-[`C_Item.EquipItemByName`](#c_itemequipitembynameiteminfo--dstslot) —
-itemID number, bare `"item:N"` string, full chat link, or a localized
-item name. Name matching is case-insensitive against each candidate's
-*decorated* name (random suffix included), the same shared predicate
-`C_Item.IsEquippedItem` uses.
+`item` takes either of two forms:
+
+- An item **reference**: an itemID number, bare `"item:N"` string, a full
+  chat link, or a localized item name — the shapes
+  [`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot) takes.
+  The first matching item in your bags is used. Name matching is
+  case-insensitive against each candidate's *decorated* name (random suffix
+  included), the same shared predicate `C_Item.IsEquippedItem` uses.
+- An item **location**: `{bagID = B, slotIndex = S}`,
+  `{equipmentSlotIndex = N}`, or an item GUID string — the shapes
+  [`C_Item.GetItemID`](#c_itemgetitemiditemlocation) takes. A location names
+  one exact item, so use it when you hold two stacks of the same thing and
+  the one you mean matters.
 
 The optional `unit` argument is a unit token (`"player"`, `"target"`,
 `"focus"`, `"partyN"`, `"raidN"`, `"nameplateN"`, …) used as the cast
@@ -9360,13 +9423,14 @@ effects). For self-use items (hearthstone, potions, food) the engine
 overwrites the target with the item's own GUID before dispatch, so
 passing a `unit` to those is harmless and has no effect. Unrecognized
 strings are treated as "no target" rather than raising, matching the
-silently-no-op contract of `itemInfo`.
+silently-no-op contract of `item`.
 
 ```lua
 C_Item.UseItemByName("Hearthstone")                       -- hearth home
 C_Item.UseItemByName(6948)                                -- same thing, by ID
 C_Item.UseItemByName("Major Healing Potion")
 C_Item.UseItemByName("Scroll of Stamina IV", "target")    -- buff your tank
+C_Item.UseItemByName({ bagID = 0, slotIndex = 1 })        -- that exact slot
 ```
 
 Locates the item directly, then hands the `CGItem *` to the engine's
@@ -10807,17 +10871,231 @@ wraps the same primitive for the non-coroutine case.
 
 ## Macros
 
-Engine-level extensions to how macros are parsed and dispatched. These
-don't add new Lua functions — they teach the engine to recognize input
-forms it didn't accept in stock 1.12. Macro authors get them for free
-once `ClassicAPI.dll` is loaded.
+Macro features: the `/cast` and `/use` commands with `[conditions]`, the
+`#showtooltip` and `#show` directives, and extensions to how the engine
+reads cast lines. Macro authors get them once `ClassicAPI.dll` is loaded.
 
-This client doesn't support `[target=...]`-style macro conditionals
-natively; we don't add those. If you have a separate DLL/addon that
-does (nampower's conditional macros, SuperWoWhook, etc.), the
-extensions below compose with it — that layer strips the bracket
-clause and forwards the cleaned tail to `CastSpellByName`, which then
-flows through our additions.
+### `/cast` and `/use`
+
+Both commands accept `[conditions]` and a `@unit` target. The first clause
+that matches gives the value. See
+[`SecureCmdOptionParse`](#securecmdoptionparseoptions) for the syntax and
+the list of conditions.
+
+```
+/cast Frostbolt
+/cast [mod:shift] Frostbolt; Fireball
+/cast [@player] Renew
+/cast [@mouseover,help] Flash Heal; Flash Heal
+/use Healthstone
+/use 13
+/use 0 1
+```
+
+The value is read in this order:
+
+- `bag slot` (for example `0 1`) uses the item in that bag slot.
+- A number from 1 to 19 uses the item equipped in that inventory slot.
+- `item:N`, or a pasted item link, uses that item by ID.
+- The name of an item that you carry uses that item. An item name wins
+  over a spell name.
+- Every other value is cast as a spell. A number is a spellID
+  (`/cast 5019`), see
+  [Numeric spellIDs](#numeric-spellids-in-cast-and-castspellbyname).
+
+A `!` in front of a spell name starts the spell but never turns it off. Use
+it for the abilities that toggle: auto-repeat shots (Shoot, Auto Shot) and
+the self-buffs (stance, aspect, seal, form, tracking). If the ability is
+already on, the line does nothing, so you can press the button again without
+stopping it.
+
+```
+/cast !Shoot
+/cast !Auto Shot
+/cast [@focus] !Auto Shot
+/cast !Battle Stance
+```
+
+With a `@unit` target other than `target`, a spell is cast on that unit
+through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and the
+item is used on that unit. `[@player]` uses the item on yourself. This works
+for an item named by `bag slot` or by inventory slot as well as by name.
+
+`/use` always uses the item. Clicking a bag slot sells the item while a
+merchant window is open, and repairs it under the repair cursor, but the
+command does neither.
+
+`[@cursor]` places a ground-target spell or item at the position under your
+mouse, through
+[`C_Spell.CastAtCursor`](#c_spellcastatcursorspellidorname) and
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem). A spell or item with no
+ground effect is cast or used normally.
+
+`[@player]` drops a ground-target spell or item at your own feet. A spell or
+item with no ground effect is cast or used on you.
+
+Your own feet and the cursor are the only two positions a ground-target
+spell or item can be aimed at this way. `[@target]` and the other units cast
+the spell on that unit when it takes a unit, and otherwise bring up the
+reticle for you to click, which is aim you already had.
+
+```
+/cast [@cursor] Blizzard
+/use [@cursor] item:4390
+/use [@player] item:4390
+```
+
+`/use` is `/cast` under a second name. Each client language has its own
+command names next to the English ones (for example `/benutzen` on a German
+client).
+
+If SuperCleveRoidMacros is loaded, it handles `/cast` lines that contain
+conditions and all `/use` lines. Plain `/cast Name` lines still go through
+ClassicAPI.
+
+### More commands with `[conditions]`
+
+These commands take the same `[conditions]` and `@unit` syntax as `/cast`.
+Each client language has its own command names next to the English ones.
+
+**Targeting.** `@unit` sets what is acted on. A value that is not a unit
+token is matched against character names, nearest first, by the start of
+the name.
+
+| Command | Does |
+|---|---|
+| `/target` | Targets a unit or a name. |
+| `/targetexact` | Targets only a full name match. |
+| `/cleartarget` | Drops the target. |
+| `/targetlasttarget` | Targets your previous target. |
+| `/targetlastenemy` | Targets your previous enemy. |
+| `/targetenemy` | Steps through nearby enemies. |
+| `/targetfriend` | Steps through nearby friendly units. |
+| `/targetenemyplayer` | Steps through nearby hostile players. |
+| `/targetfriendplayer` | Steps through nearby friendly players. |
+| `/targetparty` | Steps through your party. |
+| `/targetraid` | Steps through your raid. |
+| `/assist` | Targets what another unit has targeted. |
+| `/follow` | Follows a unit. |
+
+The stepping commands treat their value as a reverse flag, so
+`/targetenemy [mod:shift] 1` steps backwards while shift is held.
+
+```
+/target [@mouseover,harm] [] Bob
+/targetexact Bobby
+/assist [@focus]
+/cleartarget [dead]
+```
+
+**Casting and player state.**
+
+| Command | Does |
+|---|---|
+| `/stopcasting` | Stops the current cast. |
+| `/cancelaura` | Removes one of your buffs by name. |
+| `/cancelform` | Leaves your current shapeshift form. |
+| `/dismount` | Dismounts you. |
+
+```
+/cancelaura Power Word: Shield
+/cancelform [stance:1]
+/stopcasting [mod:alt]
+```
+
+**Equipment.** `/equip` takes an item name, and `/equipslot` takes an
+inventory slot number from 1 to 19 followed by an item name.
+
+```
+/equip Thunderfury
+/equipslot 16 Thunderfury
+```
+
+**Action bars.** `/changeactionbar` takes a page from 1 to 6.
+`/swapactionbar` takes two pages and moves to whichever one you are not on.
+
+```
+/changeactionbar 2
+/swapactionbar 1 2
+```
+
+**Pet.** `/petattack`, `/petfollow`, `/petstay`, `/petpassive`,
+`/petdefensive` and `/petaggressive` take conditions only.
+`/petautocaston`, `/petautocastoff` and `/petautocasttoggle` take a pet
+spell name.
+
+```
+/petattack [harm]
+/petautocaston Growl
+/petfollow [@player,noharm]
+```
+
+`/petattack` always sends the pet at your current target. Conditions still
+decide whether it runs, so `/petattack [@mouseover]` cannot aim at your
+mouseover.
+
+### `#showtooltip` and `#show`
+
+Put `#showtooltip` on the first line of a macro. The action button then shows
+the spell or item that the macro is about: its tooltip, cooldown, usable
+state, count, range, and auto-repeat highlight. If the macro icon is the
+question mark, the button, the macro window, and the cursor while you drag
+the macro also show the icon of that spell or item. `#show` does the same,
+but keeps the macro name as the tooltip.
+
+```
+#showtooltip
+/cast Frostbolt
+
+#showtooltip [mod:shift] Frostbolt; Fireball
+/cast [mod:shift] Frostbolt; Fireball
+
+#showtooltip Healthstone
+/use Healthstone
+
+#showtooltip
+/cast !Shoot
+
+#show 13
+/use 13
+```
+
+- `#showtooltip <value>` shows that value. The value takes the same forms
+  as `/cast`: a spell name, a spellID, an item name, `item:N`, an item
+  link, an inventory slot, or `bag slot`. It accepts the same
+  `[conditions]`. An item that you carry wins over a spell of the same
+  name, as in `/cast`. A spell name can carry the `!` prefix, and the
+  button shows that spell.
+- An item named by ID shows even when you carry none of it, since the icon
+  and tooltip come from the item itself. An item named by name has to be on
+  you or equipped for the button to find it.
+- `#showtooltip` with no value reads the `/cast` and `/use` lines of the
+  macro, in order, up to the first line without conditions. It shows the
+  first line whose clause matches. The line without conditions is the
+  default.
+- Conditions are evaluated again when a modifier key, your target, your
+  mouseover unit, or your combat state changes, and about five times per
+  second otherwise. So the button follows `[mod:...]`, `[combat]`,
+  `[@target,harm]` and the other conditions.
+- If no clause matches, the button shows the macro's own icon and name. A
+  group that only names a unit (`[@mouseover]`) matches only while that unit
+  exists, so `[@mouseover] Rejuvenation` alone shows `?` with nothing under
+  the cursor, and `[@mouseover][] Rejuvenation` shows the spell and casts on
+  your target instead. If the value names a spell that you do not know, the
+  button is greyed out.
+
+Lines that start with `#` are comments. They never run, and they never
+reach chat.
+
+[`GetMacroSpell`](#getmacrospellmacroslot) and
+[`GetMacroItem`](#getmacroitemmacroslot) return what the directive resolved
+to.
+
+If SuperCleveRoidMacros is loaded, it controls macro display, and ClassicAPI
+does not evaluate `#showtooltip`. A build that hands its own results over
+through
+[`C_Macro.SetMacroDisplay`](#c_macrosetmacrodisplaymacroslot-value) keeps
+`#showtooltip` working for the macros it does not claim.
 
 ### Numeric spellIDs in `/cast` and `CastSpellByName`
 
@@ -10889,10 +11167,13 @@ new DLL to pick up the new parser behavior.
 
 ### `GetMacroSpell(macroSlot)`
 
-Returns `(name, rank, spellID)` for the spell a macro's first `/cast`
-/ `/castsequence` / `CastSpellByName(...)` directive resolves to, or
-nothing when the macro slot is empty, contains no cast directive, or
-the directive's name doesn't resolve to a spell the player knows.
+Returns `(name, rank, spellID)` for the spell that a macro shows. When the
+macro has a [`#showtooltip` or `#show`](#showtooltip-and-show) directive,
+this is the spell that the directive resolved to. Otherwise it is the spell
+that the first `/cast` / `/castsequence` / `CastSpellByName(...)` line
+resolves to. Returns nothing when the macro slot is empty, the macro has
+no cast, the shown value is an item, or the name does not resolve to a
+spell that the player knows.
 
 ```lua
 -- macro slot 1's body: "/cast Fireball(Rank 5)"
@@ -10908,11 +11189,6 @@ GetMacroSpell(3)
 -- (no returns)
 ```
 
-No body parsing happens at call time — the engine already
-walks every macro body at create / edit / refresh and caches the
-resolved spellID on the macro struct. We just read the cache and
-look the name + rank up in `Spell.dbc`. Result: O(1) per call.
-
 `CastSpellNoToggle("<name>")` macros are also recognized — the
 parser hook from the [`CastSpellNoToggle`](#castspellnotoggle-as-a-macro-cast-line)
 section tags them with the same spellID a `/cast` line would, so
@@ -10924,6 +11200,20 @@ section tags them with the same spellID a `/cast` line would, so
 > last edited under stock 1.12) will have a stale `0` cache —
 > opening them in the Macro UI and clicking Okay re-runs the parser
 > and the new behavior takes effect.
+
+### `GetMacroItem(macroSlot)`
+
+Returns `(name, link)` for the item that a macro's
+[`#showtooltip` or `#show`](#showtooltip-and-show) directive resolved to.
+Returns nothing when the macro has no directive, or when the directive
+resolved to a spell. If you carry the item, the name and the link are those
+of your item, with its suffix and enchant.
+
+```lua
+-- macro slot 4's body: "#showtooltip Healthstone" then "/use Healthstone"
+local name, link = GetMacroItem(4)
+-- name = "Major Healthstone", link = "|cffffffff|Hitem:9421:0:0:0|h[Major Healthstone]|h|r"
+```
 
 ### `GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`
 
@@ -11028,6 +11318,55 @@ path, use the legacy globals.
 The legacy `CreateMacro` / `EditMacro` globals do not change. They stay
 index-only. String-icon callers use the `C_Macro` namespace instead.
 Edits persist across sessions, the same as edits in the Macro UI.
+
+### `C_Macro.SetMacroDisplay(macroSlot, value)`
+
+Tells the client what a macro is about, so the action button shows it. For
+an addon that parses macros itself and wants the button to follow, instead
+of replacing `GetActionTexture`, `GetActionCooldown`, `IsUsableAction` and
+the rest in Lua.
+
+```lua
+C_Macro.SetMacroDisplay(1, "Frostbolt")   -- show this
+C_Macro.SetMacroDisplay(1, false)         -- mine, nothing matched, show ?
+C_Macro.SetMacroDisplay(1, nil)           -- released, `#showtooltip` resumes
+```
+
+`macroSlot` is the macro index, the same one
+[`GetMacroInfo`](#getmacroinfomacroslot) and
+[`GetMacroSpell`](#getmacrospellmacroslot) take. `value` takes every form a
+[`#showtooltip`](#showtooltip-and-show) value takes: a spell name or ID, an
+item name, `item:N`, an item link, an inventory slot, or `bag slot`. An item
+you carry wins over a spell of the same name, as in `/cast`.
+
+Returns `true` when the value named a spell or an item.
+
+**What the button picks up.** The spell is written where the client keeps
+each macro's spell, which is the field its own buttons read. So cooldown,
+range, usable, out-of-mana greying, the current-cast highlight and
+auto-repeat all follow, with no function replaced. The tooltip follows, and
+so does the count, cooldown and consumable state for an item. The icon
+appears in three places, two of which Lua cannot reach: the action button,
+the cursor while you drag the macro, and the macro window grid.
+
+The icon replaces the macro's own only when that is the question mark, which
+is the same rule `#showtooltip` follows. A macro with a chosen icon keeps it.
+
+**Call it whenever your answer changes.** Nothing is re-evaluated for you.
+The value stands until you publish another, and it survives the client
+re-reading the macro, so an edit elsewhere cannot quietly replace it.
+
+Publishing takes the macro over: `#showtooltip` is not parsed for it while
+you hold it, and `nil` gives it back.
+
+> **For macro addons that currently take over the action bar.** ClassicAPI
+> stands down from macro display entirely when SuperCleveRoidMacros is
+> loaded, since it owns the bar with its own conditionals. A build that
+> drives this instead sets `CleveRoids.ClassicAPIMacroDisplay = true`, which
+> lifts that. Ownership is then per macro: published ones show what you
+> published, and ones you do not claim fall back to `#showtooltip`. Forks
+> that do not set the flag keep the old all-or-nothing behavior, so an
+> older one cannot end up fighting for the same buttons.
 
 ## Mail
 
@@ -12268,6 +12607,38 @@ This is the **input** direction only — to obtain a token's GUID use
 so when it's loaded we detect it and defer to its resolver (no double
 handling); when it isn't, this fills the gap. Either way GUID-token input
 behaves identically, so addons needn't care whether SuperWoW is present.
+
+### `IsUnitToken(value)`
+
+Returns `true` when `value` is a unit token, and `false` when it is anything
+else, such as a character name.
+
+Several functions come in pairs, one that takes a token and one that takes a
+name, and each raises an error on the other kind. Use this to pick between
+them:
+
+```lua
+if IsUnitToken(x) then TargetUnit(x) else TargetByName(x) end
+if IsUnitToken(x) then FollowUnit(x) else FollowByName(x) end
+```
+
+That is the common case for conditional slash commands, because
+`SecureCmdOptionParse` returns either kind from the same expression.
+`/target [@focus]` gives the token `focus`, and `/target Bob` gives the name
+`Bob`.
+
+The answer covers every token family the client accepts, including
+`nameplateN`, `markN`, `focus`, GUID literals, and suffix chains such as
+`focustarget`.
+
+The question is whether the text names a token, not whether a unit is there.
+So `"target"` with nothing targeted, and `"party3"` while solo, are both
+`true`. A missing or non-string argument is `false`.
+
+A name that reads like a token is treated as the token. Call the by-name
+function directly to reach a player named `Target`.
+
+*ClassicAPI extension.*
 
 ## NameCache
 
@@ -14207,10 +14578,12 @@ resistance-aware aura libraries, and damage-meter school tagging.
 Previously addons either maintained hardcoded `spellID → school`
 tables or scanned tooltips for the first-line color tag.
 
-### `CastSpellNoToggle(name | spellID [, unit])`
+### `CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`
 
 Spam-safe variant of `CastSpellByName` that won't toggle off an
-already-active spell. Covers both kinds of toggle abilities:
+already-active spell. This is what a
+[`/cast !Name`](#cast-and-use) line calls. Covers both kinds of toggle
+abilities:
 
 - **Auto-repeat** — Shoot, Auto-Shot, Wand. Tracked via the engine's
   active-auto-repeat global.
@@ -14275,6 +14648,15 @@ auto-repeat spell fires straight at that unit. A ground-target spell
 lands at the unit's feet. This is the same cast-at-unit path as
 [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit).
 
+A third argument of `false` holds a ground-target spell back. The spell is
+cast on the unit, and the reticle comes up for you to click, exactly as the
+third argument of `C_Spell.CastAtUnit` works. Leave it out to place the
+spell at the unit.
+
+```lua
+CastSpellNoToggle("Auto Shot", "focus", false)
+```
+
 The toggle gates run first, so the unit only matters when the spell
 actually casts. If the spell is already toggled on, the call stays a
 no-op and ignores the unit. An unknown unit token raises the engine's
@@ -14283,7 +14665,8 @@ standard "Unknown unit" error, the same as `UnitHealth`.
 String input matches case-insensitively and tolerates a trailing
 `(Rank N)` suffix the same way `CastSpellByName` itself does —
 `"Shoot"` and `"Shoot(Rank 1)"` both compare equal to a Shoot that's
-already auto-repeating.
+already auto-repeating. A leading `!` is accepted and dropped, so the
+macro form and the Lua form read the same.
 
 Reads `[VAR_ACTIVE_AUTO_REPEAT_SPELL]` (`0x00CEAC30`) for the auto-
 repeat check, and the engine's `FUN_SPELL_IS_TOGGLE_AURA_ACTIVE`
@@ -14343,10 +14726,10 @@ the cast fires normally; the placement-resolve no-ops since the
 engine never set the placement flag, and we return `false`.
 
 The companion item version is
-[`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo) — same chain via
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem) — same chain via
 the item-use path for grenades / on-use ground-target items.
 
-### `C_Spell.CastAtUnit(spellIDOrName, unit)`
+### `C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`
 
 Casts a spell **at `unit`, whatever its target type** — ClassicAPI's
 analog of `/cast [@unit] Spell`:
@@ -14365,6 +14748,11 @@ for that spell (wrong faction, out of range).
 
 The first argument takes a spellID or a spell name, with the same
 exact-rank / `(Rank N)` semantics as `CastAtCursor`.
+
+`placeGroundSpell` defaults to true, which is the behavior above. Pass
+`false` to cast a normal spell on the unit as usual but leave a ground-target
+spell's reticle for the player to click, instead of dropping it on the unit.
+That is what `/cast [@unit] Spell` does for every unit but yourself.
 
 ```lua
 -- ground-target: dropped at the unit's feet
@@ -14391,7 +14779,7 @@ cancelled. A genuinely unrecognized unit-token string raises the engine's
 standard "Unknown unit" error, matching `UnitHealth("garbage")`.
 
 The companion item version is
-[`C_Item.UseAtUnit`](#c_itemuseatunititeminfo-unit).
+[`C_Item.UseAtUnit`](#c_itemuseatunititem-unit).
 
 ### `C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`
 
@@ -16436,6 +16824,32 @@ end
 > that don't match any currently-resolvable token — including
 > ex-targets, ex-mouseover units, distant players seen in the chat
 > log, etc. The engine simply doesn't address those by token.
+
+### `UnitTokenFromName(name [, exactMatch])`
+
+Finds the unit called `name` and returns a token for it, or `nil` when
+nobody around matches. This is what lets a character name stand in for a
+unit token, as `[target=Feral]` does in a macro.
+
+```lua
+local token = UnitTokenFromName("Feral")
+if token then
+    print(UnitHealth(token), UnitClass(token))
+end
+```
+
+The search matches on the start of the name and prefers the nearest unit,
+the same rule `TargetByName` uses. Pass a true `exactMatch` to require the
+whole name. It looks through your party, then your raid, then every unit
+loaded around you, so it reaches units that no standard token names.
+
+The result is a standard token such as `party1` or `target` when one fits,
+and otherwise the unit's GUID, which the unit functions also accept.
+
+Treat it as a snapshot. Which token names a unit changes as you retarget or
+as the group changes, so resolve it again rather than storing it.
+
+*ClassicAPI extension.*
 
 ### `UnitSubName(unit)`
 

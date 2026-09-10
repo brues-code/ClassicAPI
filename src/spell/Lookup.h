@@ -63,6 +63,15 @@ int SpellbookItemArgsToID(void *L, int slotIdx, int bankIdx);
 // in either book.
 int FindSpellbookSlot(int spellID, int *outBookType);
 
+// The spell's icon texture path from SpellIcon.dbc (already a full
+// `Interface\Icons\...` path), or nullptr when the record is null or the
+// icon row is missing/empty. `active` selects Spell.dbc's `activeIconID`
+// (`+0x1D8`, the icon shown while a toggle / stance / auto-repeat is up)
+// instead of `iconID` (`+0x1D4`) — exactly the choice the engine's action
+// texture resolver makes off `FUN_ACTION_SPELL_ICON_ACTIVE`, with no
+// fallback to the base icon when the active one is 0.
+const char *IconPath(const uint8_t *spellRecord, bool active);
+
 // Resolves a spell NAME to a spellID against the player's (then pet's)
 // spellbook — the same scope retail's `GetSpellInfo(name)` uses. The
 // match is exact and case-sensitive against the current locale's name

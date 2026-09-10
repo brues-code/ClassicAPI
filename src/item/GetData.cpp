@@ -26,12 +26,12 @@
 #include "dbc/Lookup.h"
 #include "item/Arg.h"
 #include "item/ID.h"
+#include "item/Icon.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "item/Spell.h"
 
 #include <cstdint>
-#include <cstdio>
 
 namespace Item::GetData {
 
@@ -83,19 +83,6 @@ const char *LookupInvType(uint32_t invType) {
     auto **table = reinterpret_cast<const char **>(Offsets::VAR_INVTYPE_STRING_TABLE);
     const char *s = table[invType];
     return (s != nullptr && s[0] != '\0') ? s : "";
-}
-
-bool BuildIconPath(uint32_t displayInfoID, char *out, size_t outSize) {
-    if (out == nullptr || outSize == 0)
-        return false;
-    out[0] = '\0';
-    const char *iconName = DBC::StringField(
-        Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
-        displayInfoID, Offsets::OFF_ITEMDISPLAYINFO_ICON);
-    if (iconName == nullptr || iconName[0] == '\0')
-        return false;
-    std::snprintf(out, outSize, "Interface\\Icons\\%s", iconName);
-    return true;
 }
 
 // Wrath flipped the bagFamily encoding from raw 1-based IDs to a
@@ -247,7 +234,7 @@ void PushItemDataTable(void *L, uint32_t itemID, const uint8_t *record) {
         record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
     Game::Lua::SetFieldNumber(L, "displayInfoID", static_cast<double>(displayInfoID));
     char iconPath[260];
-    if (BuildIconPath(displayInfoID, iconPath, sizeof(iconPath)))
+    if (Item::Icon::PathForDisplayInfoID(displayInfoID, iconPath, sizeof(iconPath)))
         Game::Lua::SetFieldString(L, "icon", iconPath);
 
     // Quality / classification

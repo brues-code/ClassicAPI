@@ -19,15 +19,17 @@
 //
 // Both feed the unit's GUID straight to the engine's cast dispatcher — a
 // unit-target/normal spell fires directly on the unit (no current-target
-// juggling), a ground-target spell lands at the unit's feet. Returns true when
-// the spell was cast. Safe to call from inside a Lua C function: a genuinely
-// unknown token raises the engine's standard "Unknown unit" error in the
-// resolver, caught by the enclosing protected call.
+// juggling). `placeGroundSpell` decides what a ground-target spell does: place
+// it at the unit's feet, or leave the reticle up for the player to click (the
+// aim they already had). Returns true when the spell was cast. Safe to call
+// from inside a Lua C function: a genuinely unknown token raises the engine's
+// standard "Unknown unit" error in the resolver, caught by the enclosing
+// protected call.
 
 namespace Spell::AtUnit {
 
 // Cast by name ("(Rank N)"-aware — `"Blizzard"` is the highest known rank).
-bool CastByName(const char *spellName, const char *unitToken);
+bool CastByName(const char *spellName, const char *unitToken, bool placeGroundSpell);
 
 // Cast the exact numeric spellID (a specific rank).
 bool CastByID(int spellID, const char *unitToken);

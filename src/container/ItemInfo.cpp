@@ -49,31 +49,19 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
+#include "item/Icon.h"
 #include "item/Link.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "item/StatAccum.h"
 
 #include <cstdint>
-#include <cstdio>
 
 namespace Container::ItemInfo {
 
 namespace {
-
-bool BuildIconPath(uint32_t displayInfoID, char *out, size_t outSize) {
-    out[0] = '\0';
-    const char *iconName = DBC::StringField(
-        Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
-        displayInfoID, Offsets::OFF_ITEMDISPLAYINFO_ICON);
-    if (iconName == nullptr || iconName[0] == '\0')
-        return false;
-    std::snprintf(out, outSize, "Interface\\Icons\\%s", iconName);
-    return true;
-}
 
 // Mirrors the engine's `readable` decision (0x004F97BD..0x004F97CF): a slot
 // is readable when its static page text is set OR the per-instance
@@ -137,7 +125,7 @@ int __fastcall Script_C_Container_GetContainerItemInfo(void *L) {
     if (record != nullptr) {
         const uint32_t displayInfoID = Game::Read<uint32_t>(
             record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
-        haveIcon = BuildIconPath(displayInfoID, iconPath, sizeof(iconPath));
+        haveIcon = Item::Icon::PathForDisplayInfoID(displayInfoID, iconPath, sizeof(iconPath));
         quality = Game::Read<uint32_t>(
             record, Offsets::OFF_ITEMSTATS_QUALITY);
         haveQuality = true;

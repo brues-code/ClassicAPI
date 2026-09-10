@@ -650,7 +650,7 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         if (!ReadModAttr(L, fi, prefix, "spell", suffix, spell, sizeof spell))
             return false;
         if (unit)
-            Spell::AtUnit::CastByName(spell, unit);
+            Spell::AtUnit::CastByName(spell, unit, /*placeGroundSpell*/ true);
         else
             Game::Lua::CallGlobalString(L, "CastSpellByName", spell);
         return true;
