@@ -3145,12 +3145,12 @@ Changes to what the cursor holds are reported by the
 
 ## EquipmentSet
 
-Backports the `C_EquipmentSet.*` namespace on top of a client-side
-persistent store. Equipment-set data normally lives server-side, synced
-via `SMSG_EQUIPMENT_SET_LIST`. This server doesn't speak that opcode, so
-each character's sets are kept in a per-character file under
-`WTF\Account\...`. The format matches what `VanillaMinimapTracking` does
-for its tracking config.
+`C_EquipmentSet.*` — named sets of gear you can save and equip again
+with one call.
+
+Sets belong to one character. Each character keeps its own sets in a file
+on disk, so a set does not follow you to another character, and a copy of
+your `WTF` folder carries its sets with it.
 
 ### Overview & file format
 
