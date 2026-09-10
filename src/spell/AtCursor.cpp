@@ -102,6 +102,8 @@ bool CommitAtCoords(const float coords[3]) {
     return true;
 }
 
+bool GroundPlacementPending() { return PlacementReady(); }
+
 bool Resolve() {
     if (!PlacementReady())
         return false;

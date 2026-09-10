@@ -61,7 +61,8 @@ namespace {
 // WITH that GUID, then handles the ground-spell placement branch. `byNumber`
 // selects spellID vs spellName. Fail-fast so a bad/absent unit doesn't leave
 // the engine mid-cast.
-bool CastCore(const char *token, bool byNumber, int spellID, const char *spellName) {
+bool CastCore(const char *token, bool byNumber, int spellID, const char *spellName,
+              bool allowGroundPlacement) {
     void *unitObj = Unit::Position::ResolveToken(token);
     float pos[3];
     if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos))
@@ -80,12 +81,22 @@ bool CastCore(const char *token, bool byNumber, int spellID, const char *spellNa
     // an unaccepted unit target).
     if (!Spell::AtCursor::IsPlacementActive())
         return true;
+    if (!allowGroundPlacement) {
+        // Caller wants the unit as the cast target but not the aim that
+        // comes with placing a ground spell there. Leave a ground reticle
+        // up for the player to click, which is what casting it by hand
+        // does; anything else still has to be cancelled.
+        return Spell::AtCursor::GroundPlacementPending();
+    }
     return Spell::AtCursor::CommitAtCoords(pos);
 }
 
 int __fastcall Script_C_Spell_CastAtUnit(void *L) {
     // arg1: numeric spellID (exact rank) or spell name ("(Rank N)"-aware).
     // arg2: unit token.
+    // arg3: place a ground-target spell at the unit — defaults to true, so
+    //       omitting it keeps the whole primitive. `false` casts on the unit
+    //       but leaves a ground spell's reticle for the player.
     const bool byNumber = Game::Lua::IsNumber(L, 1);
     if ((!byNumber && !Game::Lua::IsString(L, 1)) ||
         !Game::Lua::IsString(L, 2)) {
@@ -93,11 +104,17 @@ int __fastcall Script_C_Spell_CastAtUnit(void *L) {
         return 1;
     }
     const char *token = Game::Lua::ToString(L, 2);
+    // Omitted or nil means the default (place it); only an explicit false
+    // holds the reticle. `lua_type` reports NONE, not nil, past the top of
+    // the stack, so test the top rather than the type alone.
+    const bool allowGround = Game::Lua::GetTop(L) < 3 ||
+                             Game::Lua::Type(L, 3) == Game::Lua::TYPE_NIL ||
+                             Game::Lua::ToBoolean(L, 3) != 0;
     const bool ok =
         byNumber
             ? CastCore(token, true, static_cast<int>(Game::Lua::ToNumber(L, 1)),
-                       nullptr)
-            : CastCore(token, false, 0, Game::Lua::ToString(L, 1));
+                       nullptr, allowGround)
+            : CastCore(token, false, 0, Game::Lua::ToString(L, 1), allowGround);
     Game::Lua::PushBool(L, ok);
     return 1;
 }
@@ -138,13 +155,13 @@ const Spell::MacroPrimarySpell::PatternAutoRegister _patreg{
 bool CastByName(const char *spellName, const char *unitToken) {
     if (spellName == nullptr || unitToken == nullptr)
         return false;
-    return CastCore(unitToken, false, 0, spellName);
+    return CastCore(unitToken, false, 0, spellName, /*allowGroundPlacement*/ true);
 }
 
 bool CastByID(int spellID, const char *unitToken) {
     if (unitToken == nullptr)
         return false;
-    return CastCore(unitToken, true, spellID, nullptr);
+    return CastCore(unitToken, true, spellID, nullptr, /*allowGroundPlacement*/ true);
 }
 
 } // namespace Spell::AtUnit

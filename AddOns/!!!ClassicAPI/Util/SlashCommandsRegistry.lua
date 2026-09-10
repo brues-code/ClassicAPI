@@ -88,8 +88,15 @@ local function SecureCmdCast(msg)
 		C_Spell.CastAtCursor(action);
 	elseif ( not target or target == "target" ) then
 		CastSpellByName(action);
+	elseif ( target == "player" ) then
+		-- A ground-target spell lands at your own feet; a normal one is
+		-- cast on you.
+		C_Spell.CastAtUnit(action, target, true);
 	else
-		C_Spell.CastAtUnit(action, target);
+		-- Any other unit has the spell cast on it, but a ground-target one
+		-- is not placed there: that is aim you do not have by hand. The
+		-- reticle comes up as usual.
+		C_Spell.CastAtUnit(action, target, false);
 	end
 end
 

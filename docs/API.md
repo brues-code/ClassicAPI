@@ -10873,9 +10873,13 @@ mouse, through
 [`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo). A spell or item with no
 ground effect is cast or used normally.
 
-`[@player]` drops a ground-target item at your own feet. Your own position
-is the only one an item can be aimed at this way. An item with no ground
-effect is used on you, as it was before.
+`[@player]` drops a ground-target spell or item at your own feet. A spell or
+item with no ground effect is cast or used on you.
+
+Your own feet and the cursor are the only two positions a ground-target
+spell or item can be aimed at this way. `[@target]` and the other units cast
+the spell on that unit when it takes a unit, and otherwise bring up the
+reticle for you to click, which is aim you already had.
 
 ```
 /cast [@cursor] Blizzard
@@ -14599,7 +14603,7 @@ The companion item version is
 [`C_Item.UseAtCursor`](#c_itemuseatcursoriteminfo) — same chain via
 the item-use path for grenades / on-use ground-target items.
 
-### `C_Spell.CastAtUnit(spellIDOrName, unit)`
+### `C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`
 
 Casts a spell **at `unit`, whatever its target type** — ClassicAPI's
 analog of `/cast [@unit] Spell`:
@@ -14618,6 +14622,11 @@ for that spell (wrong faction, out of range).
 
 The first argument takes a spellID or a spell name, with the same
 exact-rank / `(Rank N)` semantics as `CastAtCursor`.
+
+`placeGroundSpell` defaults to true, which is the behavior above. Pass
+`false` to cast a normal spell on the unit as usual but leave a ground-target
+spell's reticle for the player to click, instead of dropping it on the unit.
+That is what `/cast [@unit] Spell` does for every unit but yourself.
 
 ```lua
 -- ground-target: dropped at the unit's feet
