@@ -3382,6 +3382,13 @@ enum Offsets {
     VAR_INVTYPE_STRING_TABLE = 0x0083DDB0,
     INVTYPE_TABLE_MAX_INDEX = 28,
 
+    // The two `m_inventoryType` values that mean "consumed when used", so
+    // both the item-consumable test (`C_Item.IsConsumableItem`) and the
+    // action-slot one (`IsConsumableAction`) single them out. Indices into
+    // the table above: 24 = `INVTYPE_AMMO`, 25 = `INVTYPE_THROWN`.
+    INVTYPE_AMMO = 24,
+    INVTYPE_THROWN = 25,
+
     // Faction "displayed list" — the engine maintains a sorted/visible list
     // of factions the player has rep with. `Script_GetNumFactions` (at
     // 0x004D64C0) returns `[VAR_FACTION_DISPLAY_COUNT]` (the primary list
@@ -4581,6 +4588,11 @@ enum Offsets {
     // Shared by the macro parser (0x100 buffer) and the body runner (0x400).
     FUN_STORM_STR_TOKENIZE = 0x0064AE50,
     VAR_MACRO_LINE_DELIMS = 0x0082EDFC, // "\r\n" — the macro line delimiter set (bytes 0D 0A 00 verified)
+    // The engine runner's own line buffer size (`SUB ESP, 0x404` plus the
+    // 0x400 it hands the tokenizer). Anything that tokenizes a macro body
+    // the way the runner does uses the same buffer, so a body line never
+    // truncates differently from the engine's.
+    MACRO_LINE_BUFFER_SIZE = 0x400,
     EVENT_EXECUTE_CHAT_LINE = 0x188,     // fmt "%s", one macro body line
 
     // Macro-icon database. Populated lazily by `FUN_LOAD_MACRO_ICONS`

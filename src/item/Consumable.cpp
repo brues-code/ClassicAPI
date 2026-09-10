@@ -43,8 +43,6 @@ namespace Item::Consumable {
 namespace {
 
 constexpr uint32_t kItemClassConsumable = 0;
-constexpr uint32_t kInvTypeAmmo = 24;   // INVTYPE_AMMO
-constexpr uint32_t kInvTypeThrown = 25; // INVTYPE_THROWN
 
 int __fastcall Script_C_Item_IsConsumableItem(void *L) {
     const int itemID = Item::Arg::ResolveItemID(L, 1);
@@ -63,7 +61,8 @@ int __fastcall Script_C_Item_IsConsumableItem(void *L) {
         record + Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
 
     const bool consumable = classID == kItemClassConsumable ||
-                            invType == kInvTypeAmmo || invType == kInvTypeThrown;
+                            invType == Offsets::INVTYPE_AMMO ||
+                            invType == Offsets::INVTYPE_THROWN;
     Game::Lua::PushBoolean(L, consumable);
     return 1;
 }

@@ -18,11 +18,16 @@
 
 namespace Item::Icon {
 
-// Writes `Interface\Icons\<name>` for the cached item into `out` — the
-// ItemStats `displayInfoID` → `ItemDisplayInfo.dbc` icon field, the same
-// chain `GetItemInfo` / `GetItemIcon` use. Returns false (out empty) when
-// the item isn't cached or the display row has no icon. Passive: never
-// warms the cache.
+// Writes `Interface\Icons\<name>` for an `ItemDisplayInfo.dbc` row into
+// `out`. The one place this path is built — `GetItemInfo`,
+// `GetItemInfoInstant`, `C_Item.GetItemData` and the container getters all
+// come through here, so a change to the chain has a single site. Returns
+// false (out empty) when the row is missing or carries no icon.
+bool PathForDisplayInfoID(uint32_t displayInfoID, char *out, size_t outSize);
+
+// Same, starting from an itemID: the cached item's ItemStats
+// `displayInfoID`, then the row above. Returns false when the item isn't
+// cached. Passive: never warms the cache.
 bool PathForItemID(uint32_t itemID, char *out, size_t outSize);
 
 } // namespace Item::Icon

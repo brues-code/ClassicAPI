@@ -45,11 +45,6 @@ namespace {
 using ScriptFn_t = int(__fastcall *)(void *L);
 using ItemCount_t = uint32_t(__fastcall *)(uint32_t itemID);
 
-// ItemStats `inventoryType` values the engine's consumable rule tests.
-constexpr uint32_t INVTYPE_AMMO = 24;
-constexpr uint32_t INVTYPE_THROWN = 25;
-constexpr int kItemSpellSlots = 5;
-
 int Engine(uintptr_t fn, void *L) {
     return reinterpret_cast<ScriptFn_t>(fn)(L);
 }
@@ -86,13 +81,13 @@ bool IsConsumable(int itemID) {
     if (record == nullptr)
         return false;
     const uint32_t invType = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
-    if (invType == INVTYPE_AMMO || invType == INVTYPE_THROWN)
+    if (invType == Offsets::INVTYPE_AMMO || invType == Offsets::INVTYPE_THROWN)
         return true;
-    for (int i = 0; i < kItemSpellSlots; ++i) {
+    for (int i = 0; i < Offsets::ITEMSTATS_SPELL_SLOT_COUNT; ++i) {
         const uint32_t spellID = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_ID + i * 4);
         const uint32_t trigger = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_TRIGGER + i * 4);
         const int32_t charges = Game::Read<int32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_CHARGES + i * 4);
-        if (spellID != 0 && trigger == 0 && charges < 0)
+        if (spellID != 0 && trigger == Offsets::ITEM_SPELLTRIGGER_ON_USE && charges < 0)
             return true;
     }
     return false;

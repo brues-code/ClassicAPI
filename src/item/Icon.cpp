@@ -22,6 +22,19 @@
 
 namespace Item::Icon {
 
+bool PathForDisplayInfoID(uint32_t displayInfoID, char *out, size_t outSize) {
+    if (out == nullptr || outSize == 0)
+        return false;
+    out[0] = '\0';
+    const char *iconName = DBC::StringField(
+        Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
+        displayInfoID, Offsets::OFF_ITEMDISPLAYINFO_ICON);
+    if (iconName == nullptr || iconName[0] == '\0')
+        return false;
+    std::snprintf(out, outSize, "Interface\\Icons\\%s", iconName);
+    return true;
+}
+
 bool PathForItemID(uint32_t itemID, char *out, size_t outSize) {
     if (out == nullptr || outSize == 0)
         return false;
@@ -29,15 +42,8 @@ bool PathForItemID(uint32_t itemID, char *out, size_t outSize) {
     const uint8_t *record = Item::PeekRecord(itemID);
     if (record == nullptr)
         return false;
-    const uint32_t displayInfoID =
-        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
-    const char *iconName = DBC::StringField(
-        Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
-        displayInfoID, Offsets::OFF_ITEMDISPLAYINFO_ICON);
-    if (iconName == nullptr)
-        return false;
-    std::snprintf(out, outSize, "Interface\\Icons\\%s", iconName);
-    return true;
+    return PathForDisplayInfoID(
+        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID), out, outSize);
 }
 
 } // namespace Item::Icon
