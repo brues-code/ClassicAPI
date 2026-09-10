@@ -425,17 +425,35 @@ void ResolveValue(const char *value, Resolution *r) {
         return;
     }
     int n = 0;
-    if (ParseInt(value, &n) && n >= Offsets::EQUIPMENT_SLOT_FIRST &&
+    const bool numeric = ParseInt(value, &n);
+    if (numeric && n >= Offsets::EQUIPMENT_SLOT_FIRST &&
         n <= Offsets::EQUIPMENT_SLOT_LAST) {
         SetItem(Item::Location::ResolveEquipmentSlot(n), r);
         return;
     }
-    Item::Arg::Resolved arg{0, 0, value};
-    Item::Location::ByGUIDResult found;
-    if (Item::Location::FindByArgNoLua(arg, &found)) {
-        SetItem(found.item, r);
-        if (r->target == Target::Item)
+    // A bare number that is not an equipment slot stays a spellID, which is
+    // the documented `/cast 5019` rule, so it must not reach the item
+    // lookup — `Item::Arg::ResolveString` would read it as an itemID.
+    // Everything else goes through the shared parser, so an `item:N` value
+    // or a pasted item link resolves by ID and anything else by name.
+    if (!numeric) {
+        const Item::Arg::Resolved arg = Item::Arg::ResolveString(value);
+        Item::Location::ByGUIDResult found;
+        if (Item::Location::FindByArgNoLua(arg, &found)) {
+            SetItem(found.item, r);
+            if (r->target == Target::Item)
+                return;
+        }
+        // An explicit ID needs no instance — the icon and tooltip come from
+        // the item record, so it resolves even with none carried (in the
+        // bank, or a macro written ahead of looting it). This is the one
+        // item form not limited to what you hold; a NAME still is, since
+        // 1.12 has no name-keyed item cache to search.
+        if (arg.itemID > 0) {
+            r->target = Target::Item;
+            r->itemID = arg.itemID;
             return;
+        }
     }
     int isPet = 0;
     const int spellID = reinterpret_cast<ResolveSpellName_t>(

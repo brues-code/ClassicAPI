@@ -10845,6 +10845,7 @@ The value is read in this order:
 
 - `bag slot` (for example `0 1`) uses the item in that bag slot.
 - A number from 1 to 19 uses the item equipped in that inventory slot.
+- `item:N`, or a pasted item link, uses that item by ID.
 - The name of an item that you carry uses that item. An item name wins
   over a spell name.
 - Every other value is cast as a spell. A number is a spellID
@@ -10970,9 +10971,13 @@ but keeps the macro name as the tooltip.
 ```
 
 - `#showtooltip <value>` shows that value. The value takes the same forms
-  as `/cast`: a spell name, a spellID, an item name, an inventory slot, or
-  `bag slot`. It accepts the same `[conditions]`. An item that you carry
-  wins over a spell of the same name, as in `/cast`.
+  as `/cast`: a spell name, a spellID, an item name, `item:N`, an item
+  link, an inventory slot, or `bag slot`. It accepts the same
+  `[conditions]`. An item that you carry wins over a spell of the same
+  name, as in `/cast`.
+- An item named by ID shows even when you carry none of it, since the icon
+  and tooltip come from the item itself. An item named by name has to be on
+  you or equipped for the button to find it.
 - `#showtooltip` with no value reads the `/cast` and `/use` lines of the
   macro, in order, up to the first line without conditions. It shows the
   first line whose clause matches. The line without conditions is the

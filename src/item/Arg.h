@@ -36,6 +36,16 @@ struct Resolved {
 // Returns `{0, nullptr}` for nil, tables, or other unsupported types.
 Resolved Resolve(void *L, int idx);
 
+// String half of `Resolve`, for callers with no Lua stack (the
+// `#showtooltip` evaluator runs on the world tick). Same three string forms
+// and the same precedence: embedded `item:` link, then plain numeric, then
+// name. `name` aliases `s`, so keep `s` alive as long as the result.
+//
+// NOTE the plain-numeric branch: a caller where a bare number means
+// something else (a spellID, an equipment slot) must decide that BEFORE
+// calling, because this reads `"6948"` as an itemID.
+Resolved ResolveString(const char *s);
+
 // Convenience: itemID only, dropping any name info. Equivalent to
 // `Resolve(L, idx).itemID`. Suitable for callers that don't support
 // name-based matching.

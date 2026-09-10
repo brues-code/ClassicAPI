@@ -29,7 +29,11 @@ Resolved Resolve(void *L, int idx) {
     if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_STRING) {
         return out;
     }
-    const char *s = Game::Lua::ToString(L, idx);
+    return ResolveString(Game::Lua::ToString(L, idx));
+}
+
+Resolved ResolveString(const char *s) {
+    Resolved out{0, 0, nullptr};
     if (s == nullptr) {
         return out;
     }
