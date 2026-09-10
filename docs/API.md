@@ -454,6 +454,7 @@ build instructions.
 
 - [Macros](#macros)
   - [`/cast` and `/use`](#cast-and-use)
+  - [More commands with `[conditions]`](#more-commands-with-conditions)
   - [`#showtooltip` and `#show`](#showtooltip-and-show)
   - [Numeric spellIDs in `/cast` and `CastSpellByName`](#numeric-spellids-in-cast-and-castspellbyname)
   - [`CastSpellNoToggle` as a macro cast line](#castspellnotoggle-as-a-macro-cast-line)
@@ -10863,6 +10864,87 @@ client).
 If SuperCleveRoidMacros is loaded, it handles `/cast` lines that contain
 conditions and all `/use` lines. Plain `/cast Name` lines still go through
 ClassicAPI.
+
+### More commands with `[conditions]`
+
+These commands take the same `[conditions]` and `@unit` syntax as `/cast`.
+Each client language has its own command names next to the English ones.
+
+**Targeting.** `@unit` sets what is acted on. A value that is not a unit
+token is matched against character names, nearest first, by the start of
+the name.
+
+| Command | Does |
+|---|---|
+| `/target` | Targets a unit or a name. |
+| `/targetexact` | Targets only a full name match. |
+| `/cleartarget` | Drops the target. |
+| `/targetlasttarget` | Targets your previous target. |
+| `/targetlastenemy` | Targets your previous enemy. |
+| `/targetenemy` | Steps through nearby enemies. |
+| `/targetfriend` | Steps through nearby friendly units. |
+| `/targetenemyplayer` | Steps through nearby hostile players. |
+| `/targetfriendplayer` | Steps through nearby friendly players. |
+| `/targetparty` | Steps through your party. |
+| `/targetraid` | Steps through your raid. |
+| `/assist` | Targets what another unit has targeted. |
+| `/follow` | Follows a unit. |
+
+The stepping commands treat their value as a reverse flag, so
+`/targetenemy [mod:shift] 1` steps backwards while shift is held.
+
+```
+/target [@mouseover,harm] [] Bob
+/targetexact Bobby
+/assist [@focus]
+/cleartarget [dead]
+```
+
+**Casting and player state.**
+
+| Command | Does |
+|---|---|
+| `/stopcasting` | Stops the current cast. |
+| `/cancelaura` | Removes one of your buffs by name. |
+| `/cancelform` | Leaves your current shapeshift form. |
+| `/dismount` | Dismounts you. |
+
+```
+/cancelaura Power Word: Shield
+/cancelform [stance:1]
+/stopcasting [mod:alt]
+```
+
+**Equipment.** `/equip` takes an item name, and `/equipslot` takes an
+inventory slot number from 1 to 19 followed by an item name.
+
+```
+/equip Thunderfury
+/equipslot 16 Thunderfury
+```
+
+**Action bars.** `/changeactionbar` takes a page from 1 to 6.
+`/swapactionbar` takes two pages and moves to whichever one you are not on.
+
+```
+/changeactionbar 2
+/swapactionbar 1 2
+```
+
+**Pet.** `/petattack`, `/petfollow`, `/petstay`, `/petpassive`,
+`/petdefensive` and `/petaggressive` take conditions only.
+`/petautocaston`, `/petautocastoff` and `/petautocasttoggle` take a pet
+spell name.
+
+```
+/petattack [harm]
+/petautocaston Growl
+/petfollow [@player,noharm]
+```
+
+`/petattack` always sends the pet at your current target. Conditions still
+decide whether it runs, so `/petattack [@mouseover]` cannot aim at your
+mouseover.
 
 ### `#showtooltip` and `#show`
 
