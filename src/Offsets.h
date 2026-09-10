@@ -2932,9 +2932,16 @@ enum Offsets {
     // enchant ID indexes SpellItemEnchantment.dbc. Block base = field
     // 16 = +0x40 (field 15 FLAGS at +0x3C precedes it); slot stride
     // 0x0C, enchant ID at slot+0x00. Used by spell/BonusDamage.cpp to
-    // fold enchant-granted spell power into GetSpellBonusDamage.
+    // fold enchant-granted spell power into GetSpellBonusDamage, and by
+    // item/WeaponEnchant.cpp to read the temporary slot.
     OFF_DESCRIPTOR_ENCHANTMENT_ID = 0x40,
     DESCRIPTOR_ENCHANTMENT_SLOT_STRIDE = 0x0C,
+    // Within one slot, following the enchant ID at slot+0x00.
+    DESCRIPTOR_ENCHANTMENT_DURATION_DELTA = 0x04,
+    DESCRIPTOR_ENCHANTMENT_CHARGES_DELTA = 0x08,
+    // Slot 1 of the block — poisons, weapon oils, sharpening stones, the
+    // shaman imbues. The timed enchant `GetWeaponEnchantInfo` measures.
+    DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY = 1,
     // ITEM_FIELD_DURABILITY (current) and ITEM_FIELD_MAXDURABILITY (max) live
     // adjacent to each other in the descriptor as plain dwords. Verified in
     // `Script_GetInventoryItemBroken` (`0x004C8590`): after resolving the

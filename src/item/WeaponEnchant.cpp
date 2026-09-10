@@ -26,16 +26,6 @@ constexpr int INVSLOT_MAINHAND = 16;
 constexpr int INVSLOT_OFFHAND = 17;
 constexpr int INVSLOT_RANGED = 18;
 
-// ITEM_FIELD_ENCHANTMENT layout: 7 slots × 3 dwords each, starting
-// at descriptor +0x40. Each slot is `{ id, duration, charges }`.
-// Slot 0 is the PERMANENT enchant (Crusader, Mongoose, …);
-// slot 1 is the TEMPORARY enchant (poisons, oils, sharpening
-// stones, etc.) — what `GetWeaponEnchantInfo` measures.
-constexpr int OFF_TEMP_ENCHANT_SLOT = 0x4C; // slot 1 base offset
-constexpr int OFF_ENCHANT_ID = 0x0;
-constexpr int OFF_ENCHANT_DURATION = 0x4;
-constexpr int OFF_ENCHANT_CHARGES = 0x8;
-
 struct EnchantInfo {
     bool has;
     uint32_t expirationMs;
@@ -43,25 +33,38 @@ struct EnchantInfo {
     uint32_t enchantID;
 };
 
-// Reads the temp-enchant fields off the item at `paperdollSlot`.
-// `has` is true iff an enchant is currently active (id non-zero AND
-// non-expired) — matches modern `GetWeaponEnchantInfo`'s
-// hasMainHandEnchant semantic. Returns a zeroed struct for empty
-// slots, missing items, or missing descriptors.
-EnchantInfo ReadTempEnchant(int paperdollSlot) {
+// Reads the temporary-enchant slot of `cgItem`. `has` is true iff an
+// enchant is currently active (id non-zero AND non-expired) — matches
+// modern `GetWeaponEnchantInfo`'s hasMainHandEnchant semantic. Returns
+// a zeroed struct for an empty slot, a missing item, or a missing
+// descriptor, so every caller can report "no enchant" uniformly.
+//
+// The slot layout lives in `Offsets.h` (`OFF_DESCRIPTOR_ENCHANTMENT_*`)
+// — the same block `spell/BonusDamage.cpp` walks for enchant-granted
+// spell power.
+EnchantInfo ReadTempEnchant(const uint8_t *cgItem) {
     EnchantInfo r{false, 0, 0, 0};
-    const uint8_t *item = Item::Location::ResolveEquipmentSlot(paperdollSlot);
-    if (item == nullptr)
+    if (cgItem == nullptr)
         return r;
-    auto *desc = Item::ObjectFields(item);
+    const uint8_t *desc = Item::ObjectFields(cgItem);
     if (desc == nullptr)
         return r;
-    auto *slot = reinterpret_cast<const uint32_t *>(desc + OFF_TEMP_ENCHANT_SLOT);
-    r.enchantID = slot[OFF_ENCHANT_ID / 4];
-    r.expirationMs = slot[OFF_ENCHANT_DURATION / 4];
-    r.charges = slot[OFF_ENCHANT_CHARGES / 4];
+
+    constexpr uintptr_t kSlot =
+        Offsets::OFF_DESCRIPTOR_ENCHANTMENT_ID +
+        Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY *
+            Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_STRIDE;
+    r.enchantID = Game::Read<uint32_t>(desc, kSlot);
+    r.expirationMs = Game::Read<uint32_t>(
+        desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_DURATION_DELTA);
+    r.charges = Game::Read<uint32_t>(
+        desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_CHARGES_DELTA);
     r.has = (r.enchantID != 0 && r.expirationMs > 0);
     return r;
+}
+
+EnchantInfo ReadEquippedTempEnchant(int paperdollSlot) {
+    return ReadTempEnchant(Item::Location::ResolveEquipmentSlot(paperdollSlot));
 }
 
 // `C_Item.GetWeaponEnchantInfo()` — modern 12-tuple. Vanilla 1.12's
@@ -88,9 +91,9 @@ EnchantInfo ReadTempEnchant(int paperdollSlot) {
 // `GetWeaponEnchantInfo` is specifically about the timed
 // temp-enchant data, which is what this function returns.
 int __fastcall Script_C_Item_GetWeaponEnchantInfo(void *L) {
-    const EnchantInfo main = ReadTempEnchant(INVSLOT_MAINHAND);
-    const EnchantInfo off = ReadTempEnchant(INVSLOT_OFFHAND);
-    const EnchantInfo ranged = ReadTempEnchant(INVSLOT_RANGED);
+    const EnchantInfo main = ReadEquippedTempEnchant(INVSLOT_MAINHAND);
+    const EnchantInfo off = ReadEquippedTempEnchant(INVSLOT_OFFHAND);
+    const EnchantInfo ranged = ReadEquippedTempEnchant(INVSLOT_RANGED);
 
     Game::Lua::PushBool(L, main.has);
     Game::Lua::PushNumber(L, static_cast<double>(main.expirationMs));
@@ -110,9 +113,44 @@ int __fastcall Script_C_Item_GetWeaponEnchantInfo(void *L) {
     return 12;
 }
 
+// `C_Item.GetItemTempEnchantInfo(itemLocation)` — the same temporary
+// enchant `GetWeaponEnchantInfo` reports, for ANY item the player owns
+// rather than only the three equipped weapon slots:
+//
+//   1. hasEnchant    (bool)
+//   2. expirationMs  (ms remaining)
+//   3. charges       (int)
+//   4. enchantID     (int — 0 if no temp enchant)
+//
+// Same 4-tuple `GetWeaponEnchantInfo` returns per slot, so the two
+// compose, and `enchantID` feeds `C_Item.GetEnchantInfo`.
+//
+// A rogue's poisoned weapon keeps its temp enchant while it sits in a
+// bag, and the equipped-slot getters cannot see it there. Accepts every
+// location form the rest of the `C_Item` location family does (table or
+// GUID string) via `Item::Location::Resolve`.
+//
+// An unresolvable location reports "no enchant" rather than raising or
+// returning nothing, matching what an empty equipped slot reports.
+int __fastcall Script_C_Item_GetItemTempEnchantInfo(void *L) {
+    if (!Item::Location::IsLocationArg(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_Item.GetItemTempEnchantInfo(itemLocation)");
+        return 0;
+    }
+
+    const EnchantInfo e = ReadTempEnchant(Item::Location::Resolve(L, 1));
+    Game::Lua::PushBool(L, e.has);
+    Game::Lua::PushNumber(L, static_cast<double>(e.expirationMs));
+    Game::Lua::PushNumber(L, static_cast<double>(e.charges));
+    Game::Lua::PushNumber(L, static_cast<double>(e.enchantID));
+    return 4;
+}
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetWeaponEnchantInfo",
                                       &Script_C_Item_GetWeaponEnchantInfo);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemTempEnchantInfo",
+                                      &Script_C_Item_GetItemTempEnchantInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

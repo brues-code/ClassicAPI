@@ -368,6 +368,7 @@ build instructions.
   - [`C_Item.GetItemUniqueness(itemLocation)` / `C_Item.GetItemUniquenessByID(item)`](#c_itemgetitemuniquenessitemlocation--c_itemgetitemuniquenessbyiditem)
   - [`C_Item.GetStackCount(itemLocation)`](#c_itemgetstackcountitemlocation)
   - [`C_Item.GetWeaponEnchantInfo()`](#c_itemgetweaponenchantinfo)
+  - [`C_Item.GetItemTempEnchantInfo(itemLocation)`](#c_itemgetitemtempenchantinfoitemlocation)
   - [`C_Item.GetEnchantInfo(enchantID)`](#c_itemgetenchantinfoenchantid)
   - [`C_Item.IsBound(itemLocation)`](#c_itemisbounditemlocation)
   - [`IsConsumableItem(item)` / `C_Item.IsConsumableItem(item)`](#isconsumableitemitem--c_itemisconsumableitemitem)
@@ -8713,6 +8714,47 @@ The stock global `GetWeaponEnchantInfo` is unchanged — old
 addons reading positions 4..8 by index still work.
 
 Equivalent to the extended form of `GetWeaponEnchantInfo`.
+
+### `C_Item.GetItemTempEnchantInfo(itemLocation)`
+
+Returns the temporary enchant on any item you own — a poison, a weapon
+oil, a sharpening stone, or a shaman imbue:
+
+```
+hasEnchant, expirationMs, charges, enchantID
+   = C_Item.GetItemTempEnchantInfo(itemLocation)
+```
+
+```lua
+-- The poison on a swap weapon that sits in a bag
+local has, expireMs, charges, enchantID =
+    C_Item.GetItemTempEnchantInfo({ bagID = 0, slotIndex = 3 })
+if has then
+    local info = C_Item.GetEnchantInfo(enchantID)
+    print(info.name, charges .. " charges")
+end
+```
+
+The location takes the same forms as the other `C_Item` location calls:
+a table (`{equipmentSlotIndex=N}` or `{bagID=B, slotIndex=S}`), or the
+GUID string from `C_Item.GetItemGUID`.
+
+The four returns match one weapon slot of
+[`C_Item.GetWeaponEnchantInfo`](#c_itemgetweaponenchantinfo), so the two
+read the same way. `enchantID` goes straight into
+[`C_Item.GetEnchantInfo`](#c_itemgetenchantinfoenchantid) for the name
+and the effects.
+
+A weapon keeps its poison while it rests in a bag. The equipped-slot
+calls cannot see that weapon. This call can.
+
+This call never returns the permanent enchant (Crusader, Mongoose).
+That enchant is a separate field.
+
+An empty slot returns `false, 0, 0, 0`. An item you do not own returns
+the same, and so does a location that resolves to nothing.
+
+This call is a ClassicAPI extension.
 
 ### `C_Item.GetEnchantInfo(enchantID)`
 
