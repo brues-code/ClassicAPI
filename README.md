@@ -32,6 +32,8 @@ The flagship feature: run modern Lua 5.1 addon code on 1.12's Lua 5.0 VM.
 |---------|--------|
 | Inline textures | Draws inline texture markup (`\|T…\|t`) and atlas markup (`\|A…\|a`) as icons in FontStrings, chat, and tooltips. This covers item and spell icons, raid-target markers, and the coin icons in money strings. `GetStringWidth` and `GetStringHeight` count the icons, so measured width and text wrapping stay correct. Done in pure C++ by hooking the engine's text pipeline — no addon. |
 | Tooltip line cap | Lifts `GameTooltip`'s hard 30-line limit to 60 for every `GameTooltipTemplate` frame (`GameTooltip`, `ShoppingTooltip1/2`, `ItemRefTooltip`, AtlasLoot, …). Stat-heavy tooltips and comparison blocks (e.g. pfUI's eqcompare) no longer have their extra lines silently dropped. Done in pure C++ by growing the engine's FontString pool at tooltip-creation time. |
+| [Macro conditions](docs/API.md#more-commands-with-conditions) | `[conditions]` and `@unit` work on 38 slash commands, from `/cast` and `/use` to `/target`, `/follow`, `/cancelaura` and the `/pet` family. With `/cast [@mouseover,harm][] Fireball`, the spell goes to the mouseover unit. With no mouseover unit, it goes to your target. `@cursor` places a ground-target spell or item under the mouse and `@player` places it at your feet. A character name works where a unit token does (`[target=Feral]`). Addons read the same rules through `SecureCmdOptionParse`. |
+| [`#showtooltip`](docs/API.md#showtooltip-and-show) | A macro button shows what the macro does. The icon, tooltip, cooldown, range, usable state and auto-repeat glow all follow the spell or item that the directive resolves to, conditions included. They update as the conditions change. The result goes into the engine field that action-bar addons already read, so they need no code of their own. An addon with its own macro parser can publish its result through `C_Macro.SetMacroDisplay`. It then does not need to replace the action globals. |
 | [Event-driven nameplates](docs/API.md#nameplate) | The modern `C_NamePlate` API, driven by real events. `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` fire as plates appear and vanish, `nameplate1`..`nameplateN` tokens resolve with every `UnitX` function (and fire `UNIT_HEALTH`, `UNIT_AURA`, … as `arg1 == "nameplateN"`), and `C_NamePlate.GetNamePlateForUnit` / `GetNamePlates` hand back the live frames. |
 | [Focus target](docs/API.md#focus) | A sticky focus unit. `FocusUnit("target")` pins it and `ClearFocus()` drops it, with `PLAYER_FOCUS_CHANGED` on every change. The `focus` / `focustarget` tokens resolve with every `UnitX` function and fire unit events (`UNIT_HEALTH`, `UNIT_AURA`, … as `arg1 == "focus"`), and the predefined `FOCUSTARGET` / `TARGETFOCUS` keybinds are ready to set. |
 | [Retail-like `/reload`](docs/API.md#reload-picks-up-new-addons-and-new-files) | `/reload` picks up addon changes made while the game runs. A new folder under `Interface\AddOns\` registers and loads as a normal addon, new files added to an existing addon's TOC load, a newly installed addon's first SavedVariables save survives `/reload`, `##` metadata edits (`## SavedVariables:`, `## Dependencies:`, `## Title:`, …) take effect, and a deleted addon folder drops from the addon list. |
@@ -85,7 +87,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [LootHistory](docs/API.md#loothistory) | `C_LootHistory.GetNumItems`, `C_LootHistory.GetItem`, `C_LootHistory.GetPlayerInfo`, `C_LootHistory.Clear` |
 | [LossOfControl](docs/API.md#lossofcontrol) | `C_LossOfControl.GetActiveLossOfControlData`, `C_LossOfControl.GetActiveLossOfControlDataCount` |
 | [Lua](docs/API.md#lua) | `collectgarbage` (5.1 options), `coroutine.create`, `coroutine.resume`, `coroutine.running`, `coroutine.status`, `coroutine.wrap`, `coroutine.yield`, `CreateFromMixins`, `math.fmod`, `math.huge`, `math.modf`, `Mixin`, `select`, `string.gmatch`, `string.gsub` (table replacement), `string.match`, `string.reverse`, `strjoin`, `strreplace`, `strrev`, `strsplit`, `strtrim`, `table.count`, `table.maxn`, `table.wipe`, `unpack` (range args), `xpcall` (argument forwarding) |
-| [Macros](docs/API.md#macros) | `C_Macro.CreateMacro`, `C_Macro.EditMacro`, `GetLooseMacroIcons`, `GetLooseMacroItemIcons`, `GetMacroIcons`, `GetMacroItemIcons`, `GetMacroSpell` |
+| [Macros](docs/API.md#macros) | `C_Macro.CreateMacro`, `C_Macro.EditMacro`, `C_Macro.SetMacroDisplay`, `GetLooseMacroIcons`, `GetLooseMacroItemIcons`, `GetMacroIcons`, `GetMacroItem`, `GetMacroItemIcons`, `GetMacroSpell` |
 | [Mail](docs/API.md#mail) | `GetInboxItemLink`, `GetSendMailItemLink` |
 | [Map](docs/API.md#map) | `C_Map.CanSetUserWaypointOnMap`, `C_Map.ClearUserWaypoint`, `C_Map.GetAreaInfo`, `C_Map.GetAreas`, `C_Map.GetAreaTriggerInfo`, `C_Map.GetAreaTriggers`, `C_Map.GetBestMapForUnit`, `C_Map.GetFallbackWorldMapID`, `C_Map.GetMapAreaIDs`, `C_Map.GetMapArtLayers`, `C_Map.GetMapArtLayerTextures`, `C_Map.GetMapChildrenInfo`, `C_Map.GetMapInfo`, `C_Map.GetMapInfoAtPosition`, `C_Map.GetMapOverlays`, `C_Map.GetMapPosFromWorldPos`, `C_Map.GetMapRectOnMap`, `C_Map.GetMapWorldSize`, `C_Map.GetPlayerMapPosition`, `C_Map.GetUserWaypoint`, `C_Map.GetUserWaypointFromHyperlink`, `C_Map.GetUserWaypointHyperlink`, `C_Map.GetUserWaypointPositionForMap`, `C_Map.GetWorldPosFromMapPos`, `C_Map.HasUserWaypoint`, `C_Map.MapHasArt`, `C_Map.SetUserWaypoint` |
 | [MapExplorationInfo](docs/API.md#mapexplorationinfo) | `C_MapExplorationInfo.GetExploredMapTextures`, `C_MapExplorationInfo.GetUnexploredMapTextures` |
@@ -108,7 +110,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [Tracking](docs/API.md#tracking) | `GetNumTrackingTypes`, `GetTrackingInfo`, `SetTracking` |
 | [TradeSkillUI](docs/API.md#tradeskillui) | `C_TradeSkillUI.GetTradeSkillListLink`, `C_TradeSkillUI.GetCraftListLink`, `C_TradeSkillUI.GetTradeSkillListRecipes` |
 | [UIColor](docs/API.md#uicolor) | `C_UIColor.GetColors` |
-| [Unit](docs/API.md#unit) | `ClosestUnitPosition`, `GetUnitSpeed`, `UnitClassBase`, `UnitCreatedBySpell`, `UnitCreatureFamilyID`, `UnitCreatureID`, `UnitCreatureTypeID`, `UnitDistanceSquared`, `UnitGUID`, `UnitHealthMissing`, `UnitInLineOfSight`, `UnitInRange`, `UnitIsAFK`, `UnitIsDND`, `UnitIsFeignDeath`, `UnitIsInMyGuild`, `UnitIsMinion`, `UnitIsOtherPlayersPet`, `UnitIsPet`, `UnitIsPossessed`, `UnitOwnerGUID`, `UnitPosition`, `UnitPower`, `UnitPowerMax`, `UnitPowerMissing`, `UnitPowerType`, `UnitRaceBase`, `UnitSpellHaste`, `UnitSpellTargetName`, `UnitStandState`, `UnitSubName`, `UnitTokenFromGUID` |
+| [Unit](docs/API.md#unit) | `ClosestUnitPosition`, `GetUnitSpeed`, `IsUnitToken`, `UnitClassBase`, `UnitCreatedBySpell`, `UnitCreatureFamilyID`, `UnitCreatureID`, `UnitCreatureTypeID`, `UnitDistanceSquared`, `UnitGUID`, `UnitHealthMissing`, `UnitInLineOfSight`, `UnitInRange`, `UnitIsAFK`, `UnitIsDND`, `UnitIsFeignDeath`, `UnitIsInMyGuild`, `UnitIsMinion`, `UnitIsOtherPlayersPet`, `UnitIsPet`, `UnitIsPossessed`, `UnitOwnerGUID`, `UnitPosition`, `UnitPower`, `UnitPowerMax`, `UnitPowerMissing`, `UnitPowerType`, `UnitRaceBase`, `UnitSpellHaste`, `UnitSpellTargetName`, `UnitStandState`, `UnitSubName`, `UnitTokenFromGUID`, `UnitTokenFromName` |
 | [UnitAuras](docs/API.md#unitauras) | `C_UnitAuras.GetAuraDataByIndex`, `C_UnitAuras.GetAuraDataBySlot`, `C_UnitAuras.GetAuraDataBySpellName`, `C_UnitAuras.GetAuraDispelTypeColor`, `C_UnitAuras.GetAuraSlots`, `C_UnitAuras.GetBuffDataByIndex`, `C_UnitAuras.GetDebuffDataByIndex`, `C_UnitAuras.GetPlayerAuraBySpellID`, `C_UnitAuras.GetUnitAuraBySpellID`, `C_UnitAuras.GetUnitAuras`, `C_UnitAuras.RegisterAuraDurationModifierByTrigger`, `C_UnitAuras.RegisterComboDuration`, `C_UnitAuras.UnitAura`, `C_UnitAuras.UnitAuraBySlot`, `C_UnitAuras.UnitBuff`, `C_UnitAuras.UnitDebuff` |
 | [VoiceChat](docs/API.md#voicechat) | `C_VoiceChat.GetTtsVoices`, `C_VoiceChat.GetRemoteTtsVoices`, `C_VoiceChat.SpeakText`, `C_VoiceChat.StopSpeakingText`, `C_TTSSettings.GetSpeechRate`, `C_TTSSettings.GetSpeechVolume`, `C_TTSSettings.GetSpeechVoiceID`, `C_TTSSettings.GetVoiceOptionName`, `C_TTSSettings.SetSpeechRate`, `C_TTSSettings.SetSpeechVolume`, `C_TTSSettings.SetVoiceOption`, `C_TTSSettings.SetVoiceOptionByName`, `C_TTSSettings.SetDefaultSettings`, `C_TTSSettings.RefreshVoices` |
 | [XMLUtil](docs/API.md#xmlutil) | `C_XMLUtil.DoesTemplateExist`, `C_XMLUtil.GetTemplateInfo`, `C_XMLUtil.GetTemplates` |
@@ -137,17 +139,40 @@ the glue state because GlueXML had no way to reach them otherwise.
 </details>
 
 <details>
-<summary><b>Macros</b> — engine-level parsing extensions</summary>
+<summary><b>Macros</b> — forms a macro body accepts</summary>
 
-Engine-level extensions to macro parsing and dispatch — no new Lua
-functions. See the
-[Macros section in the Lua reference](docs/API.md#macros) for details.
+The DLL parses these forms, so an action-bar addon needs no code for them.
+See the [Macros section in the Lua reference](docs/API.md#macros) for
+details.
 
 | Form | What it does |
 |------|--------------|
-| `/cast <spellID>` | `/cast 5019` casts Shoot if known; macro slot tags correctly for action-bar UI |
-| `CastSpellByName("<spellID>")` | Same — numeric strings resolve through the engine's name resolver |
-| `CastSpellNoToggle("<name>")` in a macro | Engine's macro parser now recognizes it as a primary-spell line, so the macro slot in an addon like pfUI highlights when its spell is auto-repeating or its self-aura is active |
+| `#showtooltip [conditions] Value` | First line of a macro. Sets what the button shows. Bare `#showtooltip` follows the first `/cast` or `/use` line instead. `#show` is the same form. |
+| `[conditions]` and `@unit` | Accepted by 38 commands. The slash-command list below names them. |
+| `!Name` | Starts an ability but never turns it off. Use it for auto-repeat shots and for the self-buffs (stance, aspect, seal, form, tracking). |
+| A line that starts with `#` | A comment. The line never reaches chat. |
+| `/cast <spellID>` | For a spell you know, `/cast 5019` casts it by ID. The macro slot also tags correctly for an action-bar addon. |
+| `CastSpellByName("<spellID>")` | A numeric string resolves through the engine name resolver, the same as `/cast`. |
+| `CastSpellNoToggle("<name>")` in a macro | The engine macro parser reads this as a primary-spell line. The macro slot in an addon such as pfUI then highlights while the spell is on auto-repeat or its self-aura is active. |
+
+</details>
+
+<details>
+<summary><b>Slash commands</b> — <code>[conditions]</code> on 38 commands</summary>
+
+The bundled addon registers these commands. Each one takes the same
+`[conditions]` and `@unit` syntax as `/cast`. Each client language has its
+own command names next to the English ones. See
+[More commands with `[conditions]`](docs/API.md#more-commands-with-conditions)
+for what each command does.
+
+| Group | Commands |
+|-------|----------|
+| Casting | `/cast`, `/use`, `/stopcasting`, `/cancelaura`, `/cancelform`, `/dismount` |
+| Targeting | `/target`, `/targetexact`, `/cleartarget`, `/targetlasttarget`, `/targetlastenemy`, `/targetenemy`, `/targetfriend`, `/targetenemyplayer`, `/targetfriendplayer`, `/targetparty`, `/targetraid`, `/assist`, `/follow`, `/focus`, `/clearfocus`, `/startattack`, `/stopattack` |
+| Equipment | `/equip`, `/equipslot`, `/equipset` |
+| Action bars | `/changeactionbar`, `/swapactionbar`, `/click` |
+| Pet | `/petattack`, `/petfollow`, `/petstay`, `/petpassive`, `/petdefensive`, `/petaggressive`, `/petautocaston`, `/petautocastoff`, `/petautocasttoggle` |
 
 </details>
 
@@ -310,7 +335,9 @@ functions but that consumer code still expects to find as globals —
 `CallbackRegistryMixin`, `EventRegistry`, `ColorMixin` + `CreateColor`,
 `Item` / `ItemLocation`, `MathUtil`(`Lerp` / `Clamp` / `CreateCounter`),
 `TableUtil` (`tCompare`, `MergeTable`, `SafePack`, etc.), and `EventUtil`
-(`ContinueOnAddOnLoaded` etc.).
+(`ContinueOnAddOnLoaded` and more). It also holds the conditional slash
+commands and `SecureCmdOptionParse`, the parser that reads `[conditions]`
+and `@unit` for them.
 
 **You don't have to install the addon manually** — the DLL embeds
 the contents of [`AddOns/!!!ClassicAPI/`](AddOns/!!!ClassicAPI/) and

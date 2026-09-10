@@ -12070,6 +12070,8 @@ end
 > lookup). An addon can drop `GetAreaTriggers()` straight in place of a
 > shipped table.
 
+## MerchantFrame
+
 The six `C_MerchantFrame.*` calls addons use when
 interacting with a vendor. All entry points read the engine's
 merchant/buyback storage directly — no Lua-roundtrip through
