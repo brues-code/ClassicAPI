@@ -117,7 +117,21 @@ enum Offsets {
     // expecting the standard self+args layout on the Lua stack.
     // (Slot numbers are the method-registry index per `docs/raw_methods.txt`.)
     FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK = 0x00531FD0, // slot 12
+    // `SetAction(slot)`: cooldown via FUN_ACTION_SLOT_COOLDOWN, clear, then
+    // attack → "ATTACK" text; item-by-ID → FUN_GAMETOOLTIP_BUILD_ITEM (owned
+    // instance via FUN_INVMGR_FIND_ITEM_BY_ID, else bare itemID); spell →
+    // FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP(spellID, brief /*1 unless the
+    // UberTooltips cvar int is set*/, cooldownRemainingMs, 0, 1, 0, 0);
+    // macro → FUN_GAMETOOLTIP_SET_MACRO (name only). Pushes 1 when the
+    // builder returned non-zero (FrameXML keeps refreshing), else nil.
+    // `Tooltip::SetAction` re-registers the name in front of it for macro
+    // slots with a `#showtooltip` directive and tail-calls it otherwise.
+    FUN_SCRIPT_GAMETOOLTIP_SET_ACTION = 0x005322A0, // slot 13
     FUN_SCRIPT_GAMETOOLTIP_SET_INVENTORY_ITEM = 0x00532EE0, // slot 19
+    FUN_SCRIPT_GAMETOOLTIP_SET_BAG_ITEM = 0x00534620, // slot 30 — (bag, slot)
+    // Macro-slot tooltip: `__thiscall(tooltip, uint macroID)` — clear +
+    // SetText(entry+OFF_MACRO_NAME) + Show. Internal, not a script entry.
+    FUN_GAMETOOLTIP_SET_MACRO = 0x0052B040,
     FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_BUFF = 0x00534AC0, // slot 32
     FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_DEBUFF = 0x00534E30, // slot 33
     FUN_SCRIPT_GAMETOOLTIP_SET_TALENT = 0x00535170, // slot 34
@@ -4351,6 +4365,65 @@ enum Offsets {
     ACTION_PAYLOAD_MASK_BAG_OR_MACRO = 0xBFFFFFFF,
     ACTION_PAYLOAD_MASK_ITEM_BY_ID = 0x7FFFFFFF,
 
+    // Engine "is this 0x40000000 slot a macro?" — `bool __fastcall(uint
+    // slot0)`: `FUN_MACRO_ID_TO_SLOT(entry & 0xBFFFFFFF) != 0xFFFFFFFF`.
+    // Every action reader's macro branch gates on it.
+    FUN_ACTION_IS_MACRO = 0x004E5030,
+    // Per-slot texture resolver behind `Script_GetActionTexture` (its sole
+    // caller) — `char *__fastcall(uint slot0)`, NULL for an empty slot.
+    // Branch order: attack → auto-repeat → item-by-ID (ItemStats display
+    // info → icon) → spell (SpellIcon path; the active icon `+0x1D8` when
+    // FUN_ACTION_SPELL_ICON_ACTIVE says so) → macro (FUN_MACRO_ICON_PATH
+    // into a static 0x104-byte buffer).
+    FUN_ACTION_SLOT_TEXTURE = 0x004E6A50,
+    // `int __fastcall(uint slot0)` — non-zero while the slot's spell is
+    // active (toggle / stance / auto-repeat up); the texture resolver then
+    // shows Spell.dbc's `activeIconID` (+0x1D8) instead of `iconID` (+0x1D4).
+    FUN_ACTION_SPELL_ICON_ACTIVE = 0x004E55F0,
+    // Per-slot cooldown — `void __fastcall(uint slot0, int *start, int
+    // *duration, uint *enable)`, ms ticks (the triple
+    // `Script_GetActionCooldown` scales by 0.001). Item-by-ID slots go through
+    // FUN_ITEM_QUERY_COOLDOWN; every other slot through FUN_ACTION_SLOT_TO_SPELL
+    // — so a macro slot's cooldown is its cached primary spell's.
+    FUN_ACTION_SLOT_COOLDOWN = 0x004E6CA0,
+    // The engine's own "this slot changed" notifier — `__fastcall(uint slot0
+    // /*ecx*/, int sendToServer /*edx*/, int quiet /*stack*/)`, RET 4.
+    // Recomputes the per-slot usable / noMana arrays (`0x00BC6B60` /
+    // `0x00BC67A0`) via the usable helper `FUN_004E5050` and, when `quiet ==
+    // 0`, fires EVENT_ACTIONBAR_SLOT_CHANGED with `slot0 + 1` — which
+    // FrameXML's `ActionButton_OnEvent` compares against `this.action`.
+    // Called by the engine at the end of every place / pickup. Pass
+    // `(slot0, 0, 0)` to repaint a slot without the CMSG_SET_ACTION_BUTTON
+    // packet (verified by disassembly: the packet build is the `edx != 0`
+    // branch, the event fire the `[esp+4] == 0` branch).
+    FUN_ACTION_SLOT_CHANGED_NOTIFY = 0x004E58E0,
+    // Count of `itemID` the player carries, as `UseAction` caches per
+    // item-by-ID slot into VAR_ACTION_ITEM_COUNTS — `uint __fastcall(uint
+    // itemID)`. Charged items (ItemStats `SPELL_CHARGES[0]` set) sum charges
+    // via FUN_INVMGR_COUNT_ITEM_BY_ID, everything else sums stacks
+    // (`FUN_00622130`). The inner GetActionCount (`0x004E6C70`) only reads
+    // the cached array, item-by-ID slots only.
+    FUN_ACTION_ITEM_COUNT = 0x004E6D20,
+    VAR_ACTION_ITEM_COUNTS = 0x00BC6390, // uint[120]
+    // Inventory-manager searches behind the action-bar item branches —
+    // `__thiscall(invMgr, uint itemID, uint flags)`. Both drive the slot
+    // visitor `FUN_00622420`, which with `flags == 0` on the player
+    // inventory manager walks equipment (linear 0..18), bag slots (19..22),
+    // backpack (23..38), keyring (81..112) and recurses into each equipped
+    // bag — never the bank.
+    FUN_INVMGR_FIND_ITEM_BY_ID = 0x00622270,  // → CGItem *, first match
+    FUN_INVMGR_COUNT_ITEM_BY_ID = 0x00622180, // → summed charges of the matches
+    // The registered action-bar Lua C functions that `Action::ItemState`
+    // re-registers in front of. Tail-call these with the untouched stack for
+    // every slot we don't own (they raise their own usage errors).
+    // `GetActionTexture` needs no override: its macro branch goes through the
+    // hooked FUN_MACRO_ICON_PATH.
+    FUN_SCRIPT_GET_ACTION_TEXTURE = 0x004E6E10,
+    FUN_SCRIPT_GET_ACTION_COOLDOWN = 0x004E6ED0,
+    FUN_SCRIPT_GET_ACTION_COUNT = 0x004E6E70,
+    FUN_SCRIPT_IS_CONSUMABLE_ACTION = 0x004E7470,
+    EVENT_ACTIONBAR_SLOT_CHANGED = 0xD5, // fmt "%d", 1-based slot
+
     // Per-character macro-slot map (uint[36]). Entry N holds the macroID
     // of the macro in slot N (0 = empty slot). The same memory is used
     // to look up macros by hash in `FUN_004F0E40` (Script_GetMacroInfo)
@@ -4366,6 +4439,12 @@ enum Offsets {
     // engine's cached primary-spell ID at `entry + OFF_MACRO_PRIMARY_SPELL`
     // without re-parsing the body. See `Macro::Spell::Script_GetMacroSpell`.
     FUN_MACRO_SLOT_TO_ENTRY = 0x004F0E40,
+    // `Script_GetMacroInfo` — `int __fastcall(void *L)`; pushes `(name,
+    // "Interface\Icons\<OFF_MACRO_ICON>", body, isLocal-or-nil)`, always 4
+    // returns (nils for an empty slot). `Macro::Info` re-registers
+    // `GetMacroInfo` in front of it to swap the texture for `?` macros with a
+    // resolved `#showtooltip` — what the Macro UI grid and the popup read.
+    FUN_SCRIPT_GET_MACRO_INFO = 0x004F1760,
 
     // Macro create/edit workers — back `C_Macro.CreateMacro` /
     // `C_Macro.EditMacro` (see [[src/macro/Edit.cpp]]). Both store the
@@ -4414,6 +4493,66 @@ enum Offsets {
     OFF_MACRO_NAME = 0x24,        // char[0x40] inline
     OFF_MACRO_ICON = 0x64,        // char[0x100] inline bare basename
     OFF_MACRO_LOCAL_FLAG = 0x20,  // uint32 `local` flag (echoed by GetMacroInfo)
+    // Which spellbook the cached primary spell (`OFF_MACRO_PRIMARY_SPELL`)
+    // came from: 0 = player, 1 = pet. Written alongside `+0x564` by the
+    // parser's name resolver (FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID's out-param)
+    // and handed back as the pet flag by FUN_ACTION_SLOT_TO_SPELL.
+    OFF_MACRO_PRIMARY_SPELL_IS_PET = 0x568,
+
+    // macroID → `MacroEntry *` — `__fastcall(uint macroID)`. Walks the
+    // per-character macro hash (buckets at `[0x00BDCC54]`, mask at
+    // `[0x00BDCC5C]`; `entry+0x00` is the macroID key). The resolver behind
+    // every action-bar macro branch (slot→spell `FUN_004E5BA0`,
+    // FUN_GAMETOOLTIP_SET_MACRO, FUN_MACRO_RUN_BY_ID) — the action table
+    // stores macroIDs, not slots. NULL when the id isn't registered (deleted
+    // macro). (An earlier entry mislabeled this address as a per-spell
+    // "state cache" lookup with `+0x564 = usable` / `+0x568 = noMana`; those
+    // are the macro's primary spell and pet flag, and nothing read them
+    // through the mislabel.)
+    FUN_MACRO_ID_TO_ENTRY = 0x004F0F40,
+
+    // Macro icon path — `void __fastcall(uint macroID, char *out, uint
+    // size)`: sprintf("%s%s", "Interface\\Icons\\", entry+OFF_MACRO_ICON)
+    // into `out`, empty when the id is unknown. Exactly two callers (binary
+    // scan for `call 0x004F0FD0`): the per-slot texture resolver
+    // FUN_ACTION_SLOT_TEXTURE (`0x004E6C44`) and the macro cursor pickup
+    // FUN_MACRO_PICKUP (`0x00494F97`), so a co-hook here (`Macro::IconPath`)
+    // gives the `?`-icon rule to action buttons AND the drag cursor at once —
+    // the same place 3.3.5 keeps it (its getter `FUN_00566ac0`).
+    // `Script_GetMacroInfo` does NOT call it (it formats the path itself).
+    FUN_MACRO_ICON_PATH = 0x004F0FD0,
+    // Puts a macro on the cursor — `__fastcall(uint macroID)`; called from
+    // the UseAction core for macro slots when the cursor is in pickup mode
+    // (`FUN_004E62E0` / `FUN_004E6130`). Paints the cursor via
+    // FUN_MACRO_ICON_PATH. Doc-only.
+    FUN_MACRO_PICKUP = 0x00494F80,
+
+    // Macro body runner — `void __fastcall(MacroEntry *entry)`, null-safe.
+    // Tokenizes the body at `+OFF_MACRO_BODY` with FUN_STORM_STR_TOKENIZE
+    // (delimiters VAR_MACRO_LINE_DELIMS, 0x400-byte line buffer) and fires
+    // EVENT_EXECUTE_CHAT_LINE("%s", line) for every non-empty line;
+    // FrameXML's hidden `MacroEditBox` then pushes each line through
+    // `ChatEdit_SendText`. Sole caller FUN_MACRO_RUN_BY_ID (macroID → entry),
+    // itself called from the UseAction core `FUN_004E5EE0` for macro slots.
+    // Vanilla never skips `#` lines, so `#showtooltip` reached chat —
+    // `Macro::RunBody` co-hooks this to drop them.
+    FUN_MACRO_RUN_BODY = 0x004F14E0,
+    FUN_MACRO_RUN_BY_ID = 0x004F1460,
+    // The two engine re-parse passes that also rewrite `+0x564`/`+0x568`
+    // (both call FUN_MACRO_PARSE_PRIMARY_SPELL per macro): every macro
+    // (world-enter init `FUN_005DEA50` + macro file load `FUN_004F0600`), and
+    // only the unresolved ones (`+0x564 < 0` or `+0x568 != 0`) on spellbook
+    // update (`FUN_004BD990`).
+    FUN_MACRO_REPARSE_ALL = 0x004F0CA0,
+    FUN_MACRO_REPARSE_UNRESOLVED = 0x004F0CE0,
+    // Storm string tokenizer — `__stdcall(char **cursor, char *out, uint
+    // outSize, const char *delims, int *outQuoted)`, RET 0x14. Skips leading
+    // delimiters, copies the next token (honoring `"` quoting) NUL-terminated
+    // into `out` and advances `*cursor` past it. `outQuoted` may be NULL.
+    // Shared by the macro parser (0x100 buffer) and the body runner (0x400).
+    FUN_STORM_STR_TOKENIZE = 0x0064AE50,
+    VAR_MACRO_LINE_DELIMS = 0x0082EDFC, // "\r\n" — the macro line delimiter set (bytes 0D 0A 00 verified)
+    EVENT_EXECUTE_CHAT_LINE = 0x188,     // fmt "%s", one macro body line
 
     // Macro-icon database. Populated lazily by `FUN_LOAD_MACRO_ICONS`
     // on the first `GetNumMacroIcons` call — enumerates `Interface\Icons\`
@@ -4654,22 +4793,13 @@ enum Offsets {
     OFF_SPELL_REAGENT_COUNT = 0xC8,
     SPELL_MAX_REAGENTS = 8,
 
-    // Per-spell *runtime* state cache, indexed by spellID via a hash
-    // table (mask at `[VAR_SPELL_STATE_HASH_MASK]`, base at
-    // `[VAR_SPELL_STATE_HASH_BASE]`). The engine maintains the cache as
-    // player state changes — cooldown, silence, GCD, mana balance, etc.
-    // each update flips the relevant byte. The action-bar usability
-    // path at `0x004E5BA0` reads `+0x564` (usable) and `+0x568`
-    // (noMana) directly off this cache; we do the same to back
-    // `IsUsableSpell` / `C_Spell.IsSpellUsable`.
-    //
-    // `FUN_SPELL_LOOKUP_STATE` is `__fastcall(int spellID) → void *`
-    // — the hash-walking helper. Returns null for spells the player
-    // doesn't know (cache only holds known spellIDs) or pre-login
-    // (when `[VAR_SPELL_STATE_HASH_MASK]` is `-1`).
-    FUN_SPELL_LOOKUP_STATE = 0x004F0F40,
-    OFF_SPELL_STATE_USABLE = 0x564,
-    OFF_SPELL_STATE_NO_MANA = 0x568,
+    // (`0x004F0F40` used to be listed here as a per-spell "state cache"
+    // lookup with `+0x564 = usable` / `+0x568 = noMana`. Decompiled, it is
+    // the macroID → MacroEntry resolver — see FUN_MACRO_ID_TO_ENTRY — and the
+    // two fields are the macro's cached primary spell and its pet flag
+    // (OFF_MACRO_PRIMARY_SPELL / OFF_MACRO_PRIMARY_SPELL_IS_PET). The
+    // action-bar path `0x004E5BA0` that reads them is the macro branch of
+    // FUN_ACTION_SLOT_TO_SPELL. `IsUsableSpell` never read the mislabel.)
 
     // Spell description format helper. Reads the locale-resolved description
     // string from `record[+0x228 + locale*4]` and walks it character-by-
@@ -4864,9 +4994,11 @@ enum Offsets {
     // `__fastcall(const char *name, int *outIsPet)`. Internally calls
     // `FUN_004B3950` (the rank-stripping name-with-`(Rank N)` parser)
     // to get a spellbook slot, then returns
-    // `[VAR_PLAYER_SPELLBOOK][slot]` (or `[VAR_PET_SPELLBOOK][slot]`
-    // when `*outIsPet` is set on entry). Returns 0 if the name doesn't
-    // resolve to a known spellbook entry. This is the resolver the
+    // `[VAR_PLAYER_SPELLBOOK][slot]` or `[VAR_PET_SPELLBOOK][slot]` and
+    // WRITES which book matched to `*outIsPet` (0 player, 1 pet — an
+    // output; initialize it to 0). The macro parser passes
+    // `&entry->OFF_MACRO_PRIMARY_SPELL_IS_PET` here. Returns 0 if the name
+    // doesn't resolve to a known spellbook entry. This is the resolver the
     // engine's macro parser uses — name → spellID lookup that respects
     // the player's known spell list.
     FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID = 0x004B3BC0,
@@ -4897,9 +5029,12 @@ enum Offsets {
 
     // MacroEntry struct offsets (verified by tracing FUN_004EFE00).
     // The macro body is an inline null-terminated string at `+0x164`;
-    // line breaks are `\n`. The primary-spell cache (what
-    // `IsAutoRepeatAction` ultimately reads via the spell-state hash
-    // lookup at `[0x00C0E2A0]`) is at `+0x564`.
+    // line breaks are `\r\n` / `\n` (VAR_MACRO_LINE_DELIMS). The
+    // primary-spell cache is at `+0x564` (its spellbook flag at
+    // OFF_MACRO_PRIMARY_SPELL_IS_PET); FUN_ACTION_SLOT_TO_SPELL returns it
+    // for every macro slot, so cooldown / usable / range / current /
+    // auto-repeat all follow it — and `Macro::ShowTooltip` writes the
+    // `#showtooltip`-resolved spell into it for exactly that reason.
     OFF_MACRO_BODY = 0x164,
     OFF_MACRO_PRIMARY_SPELL = 0x564,
 
@@ -7388,6 +7523,7 @@ enum Offsets {
     OFF_SPELL_RECORD_FAMILY_NAME = 0x280,             // u32
     OFF_SPELL_RECORD_FAMILY_FLAGS = 0x284,            // u64
     OFF_SPELL_RECORD_ICON_ID = 0x1D4,                 // u32 SpellIconID (→ SpellIcon.dbc)
+    OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
 

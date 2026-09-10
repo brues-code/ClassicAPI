@@ -90,4 +90,6 @@ SLASH_STARTATTACK1 = "/startattack";
 SLASH_STARTATTACK2 = "/startattack";
 SLASH_STOPATTACK1 = "/stopattack";
 SLASH_STOPATTACK2 = "/stopattack";
+SLASH_USE1 = "/use";
+SLASH_USE2 = "/use";
 LINK_TRADESKILL_TOOLTIP = "点击这里以创建一个链接到你的专业的快捷方式。";

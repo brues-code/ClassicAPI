@@ -41,4 +41,20 @@ struct PatternAutoRegister {
     PatternAutoRegister *next;
 };
 
+// Post-parse observer. Fires after EVERY engine parse of a macro body —
+// create, edit, the world-enter reparse-all and the spellbook-update
+// reparse-unresolved passes — with the `MacroEntry *` whose primary-spell
+// cache (`+0x564` / `+0x568`) the engine (and the patterns above) just
+// rewrote. The observer may not call into Lua: the parse runs from packet
+// handlers and world-init paths where the Lua state isn't ready; mark state
+// dirty and act on the next WorldTick (what `Macro::ShowTooltip` does).
+// Same static-init chain pattern as `PatternAutoRegister`.
+using PostParseCallback = void (*)(int macroEntry);
+
+struct PostParseAutoRegister {
+    explicit PostParseAutoRegister(PostParseCallback cb);
+    PostParseCallback cb;
+    PostParseAutoRegister *next;
+};
+
 } // namespace Spell::MacroPrimarySpell

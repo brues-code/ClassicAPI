@@ -445,8 +445,24 @@ end
 
 local cache = {};
 
+-- UnitExists through pcall: the engine raises on a malformed token, and a
+-- typo in `@unit` must fail the group, not the caller.
+local function UnitTokenExists(unit)
+    local ok, exists = pcall(UnitExists, unit);
+    return (ok and exists) and true or false;
+end
+
 local function GroupPasses(group)
-    local target = group.target or "target";
+    local target = group.target;
+    if group.n == 0 then
+        -- A group that only names a unit (`[@mouseover]`) passes only while
+        -- that unit exists, so `[@mouseover][] Spell` falls through to the
+        -- next group when nothing is moused over. A bare `[]` and `[@none]`
+        -- always pass. Groups with conditions leave existence to them
+        -- (`[@focus,noexists]` still works).
+        return not target or strlower(target) == "none" or UnitTokenExists(target);
+    end
+    target = target or "target";
     for i = 1, group.n do
         local cond = group[i];
         local ok = cond.pred(target, cond.args);

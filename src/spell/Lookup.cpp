@@ -29,6 +29,17 @@ const uint8_t *RecordForID(int spellID) {
                        static_cast<uint32_t>(spellID));
 }
 
+const char *IconPath(const uint8_t *spellRecord, bool active) {
+    if (spellRecord == nullptr)
+        return nullptr;
+    const uint32_t iconID = Game::Read<uint32_t>(
+        spellRecord, active ? Offsets::OFF_SPELL_RECORD_ACTIVE_ICON_ID
+                            : Offsets::OFF_SPELL_RECORD_ICON_ID);
+    return DBC::StringField(Offsets::VAR_SPELL_ICON_RECORDS,
+                            Offsets::VAR_SPELL_ICON_COUNT, iconID,
+                            Offsets::OFF_SPELLICON_PATH);
+}
+
 bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
                    uint64_t flagMask) {
     if (spellRecord == nullptr)

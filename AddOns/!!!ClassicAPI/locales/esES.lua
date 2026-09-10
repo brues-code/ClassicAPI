@@ -90,4 +90,6 @@ SLASH_STARTATTACK1 = "/startattack";
 SLASH_STARTATTACK2 = "/empezarataque";
 SLASH_STOPATTACK1 = "/stopattack";
 SLASH_STOPATTACK2 = "/pararataque";
+SLASH_USE1 = "/use";
+SLASH_USE2 = "/usar";
 LINK_TRADESKILL_TOOLTIP = "Haz clic aquí para crear un vínculo a tu profesión.";

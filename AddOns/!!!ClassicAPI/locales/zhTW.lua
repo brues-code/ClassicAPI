@@ -90,4 +90,6 @@ SLASH_STARTATTACK1 = "/開始攻擊";
 SLASH_STARTATTACK2 = "/startattack";
 SLASH_STOPATTACK1 = "/停止攻擊";
 SLASH_STOPATTACK2 = "/stopattack";
+SLASH_USE1 = "/使用";
+SLASH_USE2 = "/use";
 LINK_TRADESKILL_TOOLTIP = "點擊這裡以製造一個你專業技能的連結。";

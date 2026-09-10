@@ -47,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Slot.h"
 
 #include <cstdint>
 
@@ -60,19 +61,6 @@ uint32_t ReadEntry(int slot0) {
     auto *base = reinterpret_cast<const uint32_t *>(
         static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE));
     return base[slot0];
-}
-
-// Returns 1-based macro slot index if `key` matches any entry in the
-// macro-slot map, or 0 if no match. `key` is the action entry with the
-// `0x40000000` type bit stripped (i.e. `entry & 0xBFFFFFFF`).
-int FindMacroSlot(uint32_t key) {
-    auto *map = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_MACRO_SLOT_MAP));
-    for (int i = 0; i < Offsets::MACRO_SLOT_MAP_COUNT; ++i) {
-        if (map[i] == key)
-            return i + 1;
-    }
-    return 0;
 }
 
 int __fastcall Script_GetActionInfo(void *L) {
@@ -117,7 +105,7 @@ int __fastcall Script_GetActionInfo(void *L) {
 
     if (type == Offsets::ACTION_TYPE_BAG_OR_MACRO) {
         const uint32_t key = entry & Offsets::ACTION_PAYLOAD_MASK_BAG_OR_MACRO;
-        const int macroSlot = FindMacroSlot(key);
+        const int macroSlot = Action::Slot::MacroSlotForID(key);
         if (macroSlot > 0) {
             Game::Lua::PushString(L, "macro");
             Game::Lua::PushNumber(L, static_cast<double>(macroSlot));

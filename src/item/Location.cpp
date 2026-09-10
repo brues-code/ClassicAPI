@@ -234,6 +234,60 @@ bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out) {
     return FindByArgInBags(L, arg, out);
 }
 
+const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex) {
+    if (slotIndex < 1)
+        return nullptr;
+    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
+        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
+    if (bagID == 0) {
+        if (slotIndex > Offsets::BACKPACK_NUM_SLOTS)
+            return nullptr;
+        void *invMgr = const_cast<uint8_t *>(Unit::Identity::PlayerInventoryManager());
+        if (invMgr == nullptr)
+            return nullptr;
+        return static_cast<const uint8_t *>(
+            GetItemBySlot(invMgr, Offsets::BACKPACK_LINEAR_BASE + slotIndex - 1));
+    }
+    void *bagInv = EquippedBagInventory(bagID);
+    if (bagInv == nullptr)
+        return nullptr;
+    const int slotCount = static_cast<int>(*reinterpret_cast<const uint32_t *>(bagInv));
+    if (slotIndex > slotCount)
+        return nullptr;
+    return static_cast<const uint8_t *>(GetItemBySlot(bagInv, slotIndex - 1));
+}
+
+bool FindByArgNoLua(const Item::Arg::Resolved &arg, ByGUIDResult *out) {
+    if (arg.itemID <= 0 && arg.name == nullptr)
+        return false;
+
+    for (int slot = Offsets::EQUIPMENT_SLOT_FIRST;
+         slot <= Offsets::EQUIPMENT_SLOT_LAST; ++slot) {
+        auto *item = ResolveEquipmentSlot(slot);
+        if (item != nullptr && MatchesArg(item, arg)) {
+            out->equipmentSlotIndex = slot;
+            out->bagID = 0;
+            out->slotIndex = 0;
+            out->item = item;
+            return true;
+        }
+    }
+    for (int bagID = 0; bagID <= 4; ++bagID) {
+        const int slotCount = GetBagSlotCount(bagID);
+        for (int slotIndex = 1; slotIndex <= slotCount; ++slotIndex) {
+            auto *item = ResolveBagSlotNoLua(bagID, slotIndex);
+            if (item == nullptr || !MatchesArg(item, arg))
+                continue;
+            out->equipmentSlotIndex = 0;
+            out->bagID = bagID;
+            out->slotIndex = slotIndex;
+            out->item = item;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool FindByGUID(void *L, uint64_t guid, ByGUIDResult *out) {
     if (guid == 0)
         return false;

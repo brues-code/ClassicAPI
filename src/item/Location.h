@@ -171,6 +171,22 @@ bool FindByArgInBags(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out)
 // Lua stack.
 bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out);
 
+// Resolves `(bagID, slotIndex)` to its `CGItem *` WITHOUT the Lua stack:
+// the backpack (bag 0) is indexed straight off the player inventory manager
+// at `BACKPACK_LINEAR_BASE + slot - 1`, bags 1..4 through
+// `EquippedBagInventory` — both via the engine's `GetItemBySlot`. Returns
+// nullptr for a bad bag, an out-of-range slot, or an empty slot. Safe from
+// any context (world tick, packet hooks) — the `PackBagSlot`-based
+// `ResolveBag` is not, because it reads its inputs off the Lua stack.
+const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex);
+
+// `FindByArg` for callers with no Lua callback context: same equipment-first,
+// bags-second walk and the same `MatchesArg` predicate, built on
+// `ResolveEquipmentSlot` + `ResolveBagSlotNoLua`. Pure C — used by the
+// `#showtooltip` evaluator on the world tick and by the action-bar display
+// overrides at hover time.
+bool FindByArgNoLua(const Item::Arg::Resolved &arg, ByGUIDResult *out);
+
 // Parses the `"0xHHHHHHHHLLLLLLLL"` GUID string format
 // `C_Item.GetItemGUID` returns. Strict: requires exactly `0x` prefix
 // + 16 case-insensitive hex digits. Returns false (and leaves `*out`

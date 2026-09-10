@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "input/Modifier.h"
+
 #include "Game.h"
 #include "event/Custom.h"
 
@@ -240,5 +242,9 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+uint32_t CurrentMask() {
+    return g_modifierMask;
+}
 
 } // namespace Input::Modifier

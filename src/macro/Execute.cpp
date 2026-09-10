@@ -47,6 +47,10 @@ void Line(void *L, const char *line, size_t length) {
         --length;
     if (length == 0)
         return;
+    // `#` lines are comments (`#showtooltip`, `#show`) — the engine's own
+    // runner skips them too (see `Macro::RunBody`).
+    if (line[0] == '#')
+        return;
 
     const int top = Game::Lua::GetTop(L);
 

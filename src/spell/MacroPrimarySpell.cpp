@@ -46,9 +46,15 @@ namespace Spell::MacroPrimarySpell {
 namespace {
 
 PatternAutoRegister *g_patternHead = nullptr;
+PostParseAutoRegister *g_postParseHead = nullptr;
 
 using MacroParse_t = void(__fastcall *)(int macroEntry);
 MacroParse_t MacroParse_o = nullptr;
+
+void NotifyParsed(int macroEntry) {
+    for (auto *node = g_postParseHead; node != nullptr; node = node->next)
+        node->cb(macroEntry);
+}
 
 // Vanilla's parser uses a 256-byte stack buffer per line; bytes past
 // the buffer clobber the saved entry pointer at `[EBP-4]` and the
@@ -114,17 +120,18 @@ void __fastcall MacroParse_h(int macroEntry) {
         const int spellID = ScanBody(body);
         if (spellID > 0)
             *cacheField = spellID;
+        NotifyParsed(macroEntry);
         return;
     }
 
     MacroParse_o(macroEntry);
 
-    if (*cacheField != 0)
-        return;
-
-    const int spellID = ScanBody(body);
-    if (spellID > 0)
-        *cacheField = spellID;
+    if (*cacheField == 0) {
+        const int spellID = ScanBody(body);
+        if (spellID > 0)
+            *cacheField = spellID;
+    }
+    NotifyParsed(macroEntry);
 }
 
 const Game::HookAutoRegister _hookreg{
@@ -140,6 +147,12 @@ PatternAutoRegister::PatternAutoRegister(const char *p, ArgExtractor e)
       extract(e),
       next(g_patternHead) {
     g_patternHead = this;
+}
+
+PostParseAutoRegister::PostParseAutoRegister(PostParseCallback c)
+    : cb(c),
+      next(g_postParseHead) {
+    g_postParseHead = this;
 }
 
 } // namespace Spell::MacroPrimarySpell

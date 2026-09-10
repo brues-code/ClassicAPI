@@ -91,5 +91,7 @@ SLASH_STARTATTACK1 = "/startattack";
 SLASH_STARTATTACK2 = "/startattack";
 SLASH_STOPATTACK1 = "/stopattack";
 SLASH_STOPATTACK2 = "/stopattack";
+SLASH_USE1 = "/use";
+SLASH_USE2 = "/use";
 TARGETFOCUS = "Target Focus";
 LINK_TRADESKILL_TOOLTIP = "Click here to create a link to your profession.";

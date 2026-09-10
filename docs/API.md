@@ -453,9 +453,12 @@ build instructions.
   - [Async pattern (RunAsync + C_Timer.After)](#async-pattern-runasync--c_timerafter)
 
 - [Macros](#macros)
+  - [`/cast` and `/use`](#cast-and-use)
+  - [`#showtooltip` and `#show`](#showtooltip-and-show)
   - [Numeric spellIDs in `/cast` and `CastSpellByName`](#numeric-spellids-in-cast-and-castspellbyname)
   - [`CastSpellNoToggle` as a macro cast line](#castspellnotoggle-as-a-macro-cast-line)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
+  - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
   - [`C_Macro.CreateMacro` / `C_Macro.EditMacro`](#c_macrocreatemacro--c_macroeditmacro)
 
@@ -5918,6 +5921,11 @@ Rules:
   are OR'd.
 - A `@unit` or `target=unit` piece sets the group's target. Conditions that
   need a unit use it, and default to `"target"`.
+- A group whose only piece is a `@unit` matches only while that unit exists.
+  So `[@mouseover][] Spell` uses the mouseover unit when there is one, and
+  falls through to `[]` (your target) when there is not. A bare `[]` and
+  `[@none]` always match. A group with conditions leaves the existence test
+  to them, so `[@focus,noexists]` works as written.
 
 Returns the matched value, plus the passing group's target token as a second
 value (nil when the group set no target). Returns nil when no clause matches.
@@ -7805,9 +7813,10 @@ bags, and optionally bank.
 count = C_Item.GetItemCount(itemInfo [, includeBank [, includeUses]])
 ```
 
-- `itemInfo` — numeric `itemID` or string containing `"item:NNN"`
-  (full chat links work). Item names are NOT accepted (there is
-  no name → ID resolver).
+- `itemInfo` — a numeric `itemID`, a string that contains `"item:NNN"`
+  (full chat links work), or an item name. A name is compared, without
+  regard to case, with the full name of each item that you carry (the
+  suffix included, so `"Foo of the Owl"` matches and `"Foo"` does not).
 - `includeBank` *(optional, default false)* — also walk bank slots
   (bag `-1` for the main bank, bags `5..10` for bank-bag slots).
 - `includeUses` *(optional, default false)* — when `true`, multiplies
@@ -7819,6 +7828,7 @@ count = C_Item.GetItemCount(itemInfo [, includeBank [, includeUses]])
 local n = C_Item.GetItemCount(2589)               -- Linen Cloth in bags + equipped
 local n = C_Item.GetItemCount(2589, true)         -- + bank
 local n = C_Item.GetItemCount("item:2589")        -- string form works too
+local n = C_Item.GetItemCount("Linen Cloth")      -- by name
 
 -- Equipped items count toward the total:
 local trinketID = GetInventoryItemID("player", INVSLOT_TRINKET1)
@@ -10807,17 +10817,102 @@ wraps the same primitive for the non-coroutine case.
 
 ## Macros
 
-Engine-level extensions to how macros are parsed and dispatched. These
-don't add new Lua functions — they teach the engine to recognize input
-forms it didn't accept in stock 1.12. Macro authors get them for free
-once `ClassicAPI.dll` is loaded.
+Macro features: the `/cast` and `/use` commands with `[conditions]`, the
+`#showtooltip` and `#show` directives, and extensions to how the engine
+reads cast lines. Macro authors get them once `ClassicAPI.dll` is loaded.
 
-This client doesn't support `[target=...]`-style macro conditionals
-natively; we don't add those. If you have a separate DLL/addon that
-does (nampower's conditional macros, SuperWoWhook, etc.), the
-extensions below compose with it — that layer strips the bracket
-clause and forwards the cleaned tail to `CastSpellByName`, which then
-flows through our additions.
+### `/cast` and `/use`
+
+Both commands accept `[conditions]` and a `@unit` target. The first clause
+that matches gives the value. See
+[`SecureCmdOptionParse`](#securecmdoptionparseoptions) for the syntax and
+the list of conditions.
+
+```
+/cast Frostbolt
+/cast [mod:shift] Frostbolt; Fireball
+/cast [@player] Renew
+/cast [@mouseover,help] Flash Heal; Flash Heal
+/use Healthstone
+/use 13
+/use 0 1
+```
+
+The value is read in this order:
+
+- `bag slot` (for example `0 1`) uses the item in that bag slot.
+- A number from 1 to 19 uses the item equipped in that inventory slot.
+- The name of an item that you carry uses that item. An item name wins
+  over a spell name.
+- Every other value is cast as a spell. A number is a spellID
+  (`/cast 5019`), see
+  [Numeric spellIDs](#numeric-spellids-in-cast-and-castspellbyname).
+
+With a `@unit` target other than `target`, a spell is cast on that unit
+through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and an
+item named by name is used on that unit. An item named by slot is used on
+your current target. `[@player]` with a `bag slot` value uses the item on
+yourself.
+
+`/use` is `/cast` under a second name. Each client language has its own
+command names next to the English ones (for example `/benutzen` on a German
+client).
+
+If SuperCleveRoidMacros is loaded, it handles `/cast` lines that contain
+conditions and all `/use` lines. Plain `/cast Name` lines still go through
+ClassicAPI.
+
+### `#showtooltip` and `#show`
+
+Put `#showtooltip` on the first line of a macro. The action button then shows
+the spell or item that the macro is about: its tooltip, cooldown, usable
+state, count, range, and auto-repeat highlight. If the macro icon is the
+question mark, the button, the macro window, and the cursor while you drag
+the macro also show the icon of that spell or item. `#show` does the same,
+but keeps the macro name as the tooltip.
+
+```
+#showtooltip
+/cast Frostbolt
+
+#showtooltip [mod:shift] Frostbolt; Fireball
+/cast [mod:shift] Frostbolt; Fireball
+
+#showtooltip Healthstone
+/use Healthstone
+
+#show 13
+/use 13
+```
+
+- `#showtooltip <value>` shows that value. The value takes the same forms
+  as `/cast`: a spell name, a spellID, an item name, an inventory slot, or
+  `bag slot`. It accepts the same `[conditions]`. An item that you carry
+  wins over a spell of the same name, as in `/cast`.
+- `#showtooltip` with no value reads the `/cast` and `/use` lines of the
+  macro, in order, up to the first line without conditions. It shows the
+  first line whose clause matches. The line without conditions is the
+  default.
+- Conditions are evaluated again when a modifier key, your target, your
+  mouseover unit, or your combat state changes, and about five times per
+  second otherwise. So the button follows `[mod:...]`, `[combat]`,
+  `[@target,harm]` and the other conditions.
+- If no clause matches, the button shows the macro's own icon and name. A
+  group that only names a unit (`[@mouseover]`) matches only while that unit
+  exists, so `[@mouseover] Rejuvenation` alone shows `?` with nothing under
+  the cursor, and `[@mouseover][] Rejuvenation` shows the spell and casts on
+  your target instead. If the value names a spell that you do not know, the
+  button is greyed out.
+
+Lines that start with `#` are comments. They never run, and they never
+reach chat.
+
+[`GetMacroSpell`](#getmacrospellmacroslot) and
+[`GetMacroItem`](#getmacroitemmacroslot) return what the directive resolved
+to.
+
+If SuperCleveRoidMacros is loaded, it controls macro display, and ClassicAPI
+does not evaluate `#showtooltip`.
 
 ### Numeric spellIDs in `/cast` and `CastSpellByName`
 
@@ -10889,10 +10984,13 @@ new DLL to pick up the new parser behavior.
 
 ### `GetMacroSpell(macroSlot)`
 
-Returns `(name, rank, spellID)` for the spell a macro's first `/cast`
-/ `/castsequence` / `CastSpellByName(...)` directive resolves to, or
-nothing when the macro slot is empty, contains no cast directive, or
-the directive's name doesn't resolve to a spell the player knows.
+Returns `(name, rank, spellID)` for the spell that a macro shows. When the
+macro has a [`#showtooltip` or `#show`](#showtooltip-and-show) directive,
+this is the spell that the directive resolved to. Otherwise it is the spell
+that the first `/cast` / `/castsequence` / `CastSpellByName(...)` line
+resolves to. Returns nothing when the macro slot is empty, the macro has
+no cast, the shown value is an item, or the name does not resolve to a
+spell that the player knows.
 
 ```lua
 -- macro slot 1's body: "/cast Fireball(Rank 5)"
@@ -10908,11 +11006,6 @@ GetMacroSpell(3)
 -- (no returns)
 ```
 
-No body parsing happens at call time — the engine already
-walks every macro body at create / edit / refresh and caches the
-resolved spellID on the macro struct. We just read the cache and
-look the name + rank up in `Spell.dbc`. Result: O(1) per call.
-
 `CastSpellNoToggle("<name>")` macros are also recognized — the
 parser hook from the [`CastSpellNoToggle`](#castspellnotoggle-as-a-macro-cast-line)
 section tags them with the same spellID a `/cast` line would, so
@@ -10924,6 +11017,20 @@ section tags them with the same spellID a `/cast` line would, so
 > last edited under stock 1.12) will have a stale `0` cache —
 > opening them in the Macro UI and clicking Okay re-runs the parser
 > and the new behavior takes effect.
+
+### `GetMacroItem(macroSlot)`
+
+Returns `(name, link)` for the item that a macro's
+[`#showtooltip` or `#show`](#showtooltip-and-show) directive resolved to.
+Returns nothing when the macro has no directive, or when the directive
+resolved to a spell. If you carry the item, the name and the link are those
+of your item, with its suffix and enchant.
+
+```lua
+-- macro slot 4's body: "#showtooltip Healthstone" then "/use Healthstone"
+local name, link = GetMacroItem(4)
+-- name = "Major Healthstone", link = "|cffffffff|Hitem:9421:0:0:0|h[Major Healthstone]|h|r"
+```
 
 ### `GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`
 
