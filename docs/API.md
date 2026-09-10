@@ -9358,6 +9358,13 @@ whatever you have selected. So this covers both kinds of on-use item, the
 same way [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) covers
 both kinds of spell.
 
+A unit token that names nothing right now, such as `"party3"` while solo,
+returns `false`. A string that is not a unit token at all raises the
+engine's standard "Unknown unit" error, as `UnitHealth("garbage")` does and
+as `C_Spell.CastAtUnit` does. That differs from
+[`C_Item.UseItemByName`](#c_itemuseitembynameiteminfo--unit), whose contract
+is to no-op on anything it cannot use.
+
 ### `C_Item.UseItemByName(itemInfo [, unit])`
 
 Finds the first item in the player's bags matching `itemInfo` and
