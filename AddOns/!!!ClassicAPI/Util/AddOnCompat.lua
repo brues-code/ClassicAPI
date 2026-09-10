@@ -47,10 +47,6 @@ if C_AddOns.DoesAddOnExist('pfUI') then
     end)
 end
 
-if C_AddOns.DoesAddOnExist("SpecialTalentUI") then
-    EventUtil.ContinueOnAddOnLoaded("SpecialTalentUI", CAPI_ApplyStandardColorGlobals)
-end
-
 -- ShaguTweaks libpredict register's TBC events that ClassicAPI backports.
 if C_AddOns.DoesAddOnExist("ShaguTweaks") then
     EventUtil.ContinueOnAddOnLoaded("ShaguTweaks", function()
@@ -244,3 +240,18 @@ EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
 EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
                                             EnsureCompostErasesInPlace)
 EnsureCompostErasesInPlace()
+
+-- Some addons carry a copy of Blizzard's own color definitions -- a plain
+-- `NORMAL_FONT_COLOR = {r=1.0, g=0.82, b=0}` and its friends -- and assign
+-- them at file scope. That takes ColorMixin off those globals for every addon
+-- that loads later, which is what breaks pfUI's who list when it calls
+-- `NORMAL_FONT_COLOR:GetRGB()` (brues-code/pfUI#56).
+--
+-- Re-apply after each addon loads, so a clobbered color is repaired before the
+-- next addon reads it. This also covers an addon loaded on demand mid-session.
+-- The pass mixes the methods back into the table that is there, and costs one
+-- lookup per color when nothing is broken.
+EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
+                                            CAPI_ApplyStandardColorGlobals)
+EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
+                                            CAPI_ApplyStandardColorGlobals)
