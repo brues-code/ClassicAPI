@@ -105,6 +105,9 @@ struct Entry {
     Kind kind = Kind::None;
     bool conditional = false;
     bool dirty = false;
+    // The option lines use a condition our parser does not own, so another
+    // macro addon owns this macro. Set once per parse of the body.
+    bool foreign = false;
     // An addon published this resolution through `Publish`, so it owns the
     // macro: we neither parse the body nor re-evaluate it, and the lookups
     // answer from it even while yielding. See the header.
@@ -358,8 +361,11 @@ void Rescan(void *L) {
             std::memcpy(e.options, parsed.options, sizeof(e.options));
         }
         // The engine parse that triggered this rescan rewrote `+0x564` —
-        // every directive gets re-applied, changed or not.
-        e.dirty = (e.kind != Kind::None && e.optionCount > 0);
+        // every directive gets re-applied, changed or not. A macro in
+        // another addon's dialect is not ours to re-apply, and leaving it
+        // dirty would keep `HasPendingWork` true and re-run the catch-up on
+        // every reader.
+        e.dirty = (e.kind != Kind::None && e.optionCount > 0 && !e.foreign);
     }
 }
 
@@ -369,8 +375,14 @@ void Rescan(void *L) {
 // for a bare `[@unit]` group is the parser's rule (Util/MacroOptions.lua),
 // shared with `/cast`, so a `[@mouseover][]` clause falls through to its
 // `[]` group here exactly as it does for the cast.
-bool ResolveOptions(void *L, const char *options, char *out, size_t outSize) {
+//
+// `*outForeign` is set when the line uses a condition our parser does not
+// own. We ask quietly, because a macro body is not ours: another macro addon
+// has its own conditions, and naming one at the player would be noise about a
+// macro that works.
+bool ResolveOptions(void *L, const char *options, char *out, size_t outSize, bool *outForeign) {
     out[0] = '\0';
+    *outForeign = false;
     if (std::strchr(options, '[') == nullptr && std::strchr(options, ';') == nullptr) {
         CopyTrimmed(options, out, outSize);
         return true;
@@ -381,12 +393,18 @@ bool ResolveOptions(void *L, const char *options, char *out, size_t outSize) {
         return false;
     }
     Game::Lua::PushString(L, options);
+    Game::Lua::PushBoolean(L, 1); // quiet
     bool matched = false;
-    if (Game::Lua::PCall(L, 1, 2, 0) == 0 && Game::Lua::Type(L, -2) == Game::Lua::TYPE_STRING) {
-        const char *value = Game::Lua::ToString(L, -2);
-        if (value != nullptr) {
-            CopyTrimmed(value, out, outSize); // copy before the SetTop below
-            matched = true;
+    if (Game::Lua::PCall(L, 2, 3, 0) == 0) {
+        // Third return: the first condition we do not own, or nil.
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_STRING)
+            *outForeign = true;
+        if (Game::Lua::Type(L, -3) == Game::Lua::TYPE_STRING) {
+            const char *value = Game::Lua::ToString(L, -3);
+            if (value != nullptr) {
+                CopyTrimmed(value, out, outSize); // copy before the SetTop below
+                matched = true;
+            }
         }
     }
     Game::Lua::SetTop(L, top);
@@ -555,7 +573,19 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
     bool matched = false;
     char value[kOptionsMax] = {};
     for (int i = 0; i < e.optionCount; ++i) {
-        if (ResolveOptions(L, e.options[i], value, sizeof(value)) && value[0] != '\0') {
+        bool foreign = false;
+        const bool got = ResolveOptions(L, e.options[i], value, sizeof(value), &foreign);
+        if (foreign) {
+            // Another macro addon's dialect. Its conditions decide what this
+            // macro does, and we cannot evaluate them, so the macro is not
+            // ours to describe: leave the engine's own parse of the body in
+            // its cache and stop re-evaluating. A publisher can still claim
+            // it through `Publish`, and an edit re-tests it (`Rescan` clears
+            // the entry whenever the option lines change).
+            e.foreign = true;
+            return;
+        }
+        if (got && value[0] != '\0') {
             matched = true;
             break;
         }
@@ -691,7 +721,7 @@ bool CatchUp(void *L, uint32_t now) {
         g_rescanPending = false;
     }
     for (Entry &e : g_entries) {
-        if (e.dirty && e.kind != Kind::None && e.optionCount > 0)
+        if (e.dirty && e.kind != Kind::None && e.optionCount > 0 && !e.foreign)
             Evaluate(L, e, now);
     }
     return true;
@@ -717,7 +747,7 @@ void Tick() {
     g_lastState = state;
 
     for (Entry &e : g_entries) {
-        if (e.kind == Kind::None || e.optionCount == 0)
+        if (e.kind == Kind::None || e.optionCount == 0 || e.foreign)
             continue;
         const uint32_t interval = e.conditional ? kConditionalIntervalMs : kStaticIntervalMs;
         if ((e.conditional && stateChanged) ||

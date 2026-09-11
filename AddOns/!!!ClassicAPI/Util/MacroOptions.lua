@@ -346,6 +346,14 @@ CONDITIONS.worn = CONDITIONS.equipped;
 
 local warned = {};
 
+-- Keywords met during the current `ParseOptions` run that this parser does
+-- not own. A condition we cannot evaluate means the options were written for
+-- another macro parser's dialect, so the fact is recorded on the parsed
+-- clause set rather than reported here. The caller decides what to do with
+-- it: a command the player ran names the keyword, and the macro-display scan
+-- leaves the macro alone.
+local parseUnknowns;
+
 -- piece -> { pred = fn, neg = bool, args = { n, [i] } or nil }
 local function ParseCondition(piece)
     local neg = false;
@@ -368,10 +376,11 @@ local function ParseCondition(piece)
 
     local pred = CONDITIONS[keyword];
     if not pred then
-        if not warned[keyword] then
-            warned[keyword] = true;
-            print("SecureCmdOptionParse: unknown condition '" .. keyword .. "'");
+        if not parseUnknowns then
+            parseUnknowns = { n = 0 };
         end
+        parseUnknowns.n = parseUnknowns.n + 1;
+        parseUnknowns[parseUnknowns.n] = keyword;
         pred = AlwaysFalse;
         neg = false;                            -- an unknown keyword is a hard false
     end
@@ -413,8 +422,10 @@ local function ParseClause(text)
     return { value = Trim(value), groups = groups };
 end
 
--- options -> { n, [i] = clause }.  Splits on ';' at bracket depth 0.
+-- options -> { n, [i] = clause, unknown = { n, [i] = keyword } or nil }.
+-- Splits on ';' at bracket depth 0.
 local function ParseOptions(options)
+    parseUnknowns = nil;
     local clauses = { n = 0 };
     local len = strlen(options);
     local pos = 1;
@@ -436,6 +447,8 @@ local function ParseOptions(options)
         clauses[clauses.n] = ParseClause(strsub(options, pos, i - 1));
         pos = i + 1;
     end
+    clauses.unknown = parseUnknowns;
+    parseUnknowns = nil;
     return clauses;
 end
 
@@ -532,7 +545,14 @@ local function GroupPasses(group)
     return true;
 end
 
-function SecureCmdOptionParse(options)
+-- Returns the matched value, the passing group's target, and the name of the
+-- first condition the options use that this parser does not own.
+--
+-- That third value marks the options as another macro parser's dialect. A
+-- caller that scans macro bodies it did not write passes `quiet` and reads it,
+-- so it can leave such a macro alone instead of naming a keyword the player
+-- has no reason to fix.
+function SecureCmdOptionParse(options, quiet)
     if type(options) ~= "string" then
         error("Usage: SecureCmdOptionParse(\"options\")");
         return nil;                             -- WoW's error() may not unwind
@@ -551,17 +571,30 @@ function SecureCmdOptionParse(options)
         cache[options] = clauses;
     end
 
+    -- Name each keyword once, for a caller that wants to hear about it.
+    local unknown = clauses.unknown;
+    if unknown and not quiet then
+        for i = 1, unknown.n do
+            local keyword = unknown[i];
+            if not warned[keyword] then
+                warned[keyword] = true;
+                print("SecureCmdOptionParse: unknown condition '" .. keyword .. "'");
+            end
+        end
+    end
+    local foreign = unknown and unknown[1] or nil;
+
     for i = 1, clauses.n do
         local clause = clauses[i];
         local groups = clause.groups;
         if groups.n == 0 then
-            return clause.value;
+            return clause.value, nil, foreign;
         end
         for j = 1, groups.n do
             if GroupPasses(groups[j]) then
-                return clause.value, groups[j].target;
+                return clause.value, groups[j].target, foreign;
             end
         end
     end
-    return nil;
+    return nil, nil, foreign;
 end

@@ -248,7 +248,7 @@ build instructions.
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
   - [`SetModernScriptArgs(enable)` / `GetModernScriptArgs()`](#setmodernscriptargsenable--getmodernscriptargs)
-  - [`SecureCmdOptionParse(options)`](#securecmdoptionparseoptions)
+  - [`SecureCmdOptionParse(options [, quiet])`](#securecmdoptionparseoptions--quiet)
   - [`RegisterStateDriver` / `UnregisterStateDriver`](#registerstatedriver--unregisterstatedriver)
   - [`RegisterAttributeDriver` / `UnregisterAttributeDriver`](#registerattributedriver--unregisterattributedriver)
   - [`RegisterUnitWatch` / `UnregisterUnitWatch` / `UnitWatchRegistered`](#registerunitwatch--unregisterunitwatch--unitwatchregistered)
@@ -5906,7 +5906,7 @@ end)
 GetModernScriptArgs()       -- true (default)
 ```
 
-### `SecureCmdOptionParse(options)`
+### `SecureCmdOptionParse(options [, quiet])`
 
 Parses a macro conditional string. Returns the value of the first clause that
 matches. This is the parser behind `/cast [combat] Spell`-style options.
@@ -5943,6 +5943,17 @@ Rules:
 
 Returns the matched value, plus the passing group's target token as a second
 value (nil when the group set no target). Returns nil when no clause matches.
+
+A condition this parser does not know cannot pass, so its group fails. The
+name of the first such condition comes back as a third value, and the parser
+also prints it once. Pass `quiet` to get the third value without the message.
+
+Use `quiet` when you read options that somebody else wrote. Another macro
+addon has its own conditions, and a macro that works under that addon names
+conditions this parser never heard of. The third value tells you those
+options belong to that addon, so you can leave them to it. The
+`#showtooltip` reader does exactly this: a macro whose conditions it cannot
+evaluate stays as the engine left it.
 
 ```lua
 SecureCmdOptionParse("hello")                -- "hello"
@@ -10879,7 +10890,7 @@ reads cast lines. Macro authors get them once `ClassicAPI.dll` is loaded.
 
 Both commands accept `[conditions]` and a `@unit` target. The first clause
 that matches gives the value. See
-[`SecureCmdOptionParse`](#securecmdoptionparseoptions) for the syntax and
+[`SecureCmdOptionParse`](#securecmdoptionparseoptions--quiet) for the syntax and
 the list of conditions.
 
 ```
@@ -11096,6 +11107,15 @@ does not evaluate `#showtooltip`. A build that hands its own results over
 through
 [`C_Macro.SetMacroDisplay`](#c_macrosetmacrodisplaymacroslot-value) keeps
 `#showtooltip` working for the macros it does not claim.
+
+A macro that names a condition
+[`SecureCmdOptionParse`](#securecmdoptionparseoptions--quiet) does not know
+belongs to another macro addon. Its conditions decide what the macro does,
+and ClassicAPI cannot evaluate them, so the button stays as the engine left
+it. The addon that owns those conditions can still drive the button through
+`C_Macro.SetMacroDisplay`. Nothing is printed about the condition: the macro
+works, and the player has nothing to correct. An edit to the macro tests the
+conditions again.
 
 ### Numeric spellIDs in `/cast` and `CastSpellByName`
 
