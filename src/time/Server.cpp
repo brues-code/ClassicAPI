@@ -159,18 +159,15 @@ static int __fastcall Script_GetServerTime(void *L) {
     return 1;
 }
 
+// This global is not ours to keep. Registration happens inside
+// `FUN_LOAD_SCRIPT_FUNCTIONS` and FrameXML loads after that, so a client
+// whose `GameTime.lua` declares its own `function GetServerTime()`
+// (Turtle's returns `(serverHour, serverMinute)`) silently replaces it on
+// every login and every `/reload`. The reachable name when that happens is
+// `ClassicAPI.GetServerTime`, which the registrar binds on its own — see
+// `MirrorRegistration` in Game.cpp.
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetServerTime", &Script_GetServerTime);
-
-    // Same function under a namespaced name, because the bare global is not
-    // ours to keep. Registration happens inside `FUN_LOAD_SCRIPT_FUNCTIONS`,
-    // and FrameXML loads after that — so a client whose `GameTime.lua`
-    // declares its own `function GetServerTime()` (Turtle's returns
-    // `(serverHour, serverMinute)`) silently replaces the global on every
-    // login and every `/reload`, and no addon can reach the C function
-    // again. Nothing declares this name, so it always resolves to the epoch.
-    Game::Lua::RegisterTableFunction("C_DateAndTime", "GetServerTime",
-                                     &Script_GetServerTime);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

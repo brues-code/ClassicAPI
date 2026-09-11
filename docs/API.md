@@ -685,7 +685,6 @@ build instructions.
   - [`C_DateAndTime.GetCalendarTimeFromEpoch(epoch)`](#c_dateandtimegetcalendartimefromepochepoch)
   - [`C_DateAndTime.AdjustTimeByDays(date, days)` / `AdjustTimeByMinutes(date, minutes)`](#c_dateandtimeadjusttimebydaysdate-days--adjusttimebyminutesdate-minutes)
   - [`C_DateAndTime.CompareCalendarTime(lhs, rhs)`](#c_dateandtimecomparecalendartimelhs-rhs)
-  - [`C_DateAndTime.GetServerTime()`](#c_dateandtimegetservertime)
   - [`C_DateAndTime.GetServerTimeLocal()`](#c_dateandtimegetservertimelocal)
   - [`C_DateAndTime.GetSecondsUntilDailyReset()`](#c_dateandtimegetsecondsuntildailyreset)
 
@@ -16324,9 +16323,9 @@ local now = GetServerTime()
 > **A client can replace this global.** Some clients declare their own
 > `GetServerTime` function in FrameXML, which replaces the global with a
 > different return value. Turtle WoW is one, and its version returns the
-> server hour and the server minute.
-> [`C_DateAndTime.GetServerTime()`](#c_dateandtimegetservertime) is the
-> name that always returns the timestamp.
+> server hour and the server minute. Call
+> [`ClassicAPI.GetServerTime()`](#classicapi-namespace) to reach the
+> timestamp on such a client.
 
 The value is an instant, with second resolution. It is independent of the
 realm's timezone and of any per-zone time shift the realm applies, so it
@@ -16510,23 +16509,6 @@ local yesterday = C_DateAndTime.AdjustTimeByDays(today, -1)
 Returns `-1` if `lhs < rhs`, `0` if equal, `1` if `lhs > rhs`.
 Compares by epoch conversion so denormalized inputs sort
 consistently.
-
-### `C_DateAndTime.GetServerTime()`
-
-Returns the current server clock as a Unix epoch timestamp, exactly as
-[`GetServerTime()`](#getservertime) does. A ClassicAPI extension, and the
-name to call when the result must be that timestamp on every client.
-
-```lua
-local now = C_DateAndTime.GetServerTime()
--- now = 1778260148 (Fri 2026-05-08 17:09:08 UTC)
-```
-
-Some clients declare their own `GetServerTime` function in FrameXML, which
-replaces the global with a different return value. Turtle WoW is one. Its
-version returns the server hour and the server minute, so
-`GetServerTime()` there is not a timestamp. FrameXML never touches this
-namespaced name.
 
 ### `C_DateAndTime.GetServerTimeLocal()`
 

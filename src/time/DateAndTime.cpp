@@ -14,8 +14,7 @@
 // `C_DateAndTime.*` — backport of modern's date-math API. Four of the
 // seven functions in this file are pure arithmetic on a `CalendarTime`
 // table (year/month/monthDay/weekday/hour/minute) — no engine state
-// touched at all. (`C_DateAndTime.GetServerTime` is registered by
-// `Time::Server`, which owns the clock itself.)
+// touched at all.
 //
 // The three that DO read a clock each pick one of the two the client
 // receives, per `Time::Server`: `GetCurrentCalendarTime` and
