@@ -42,7 +42,7 @@ build instructions.
   - [`GetCurrentChatGUID()`](#getcurrentchatguid)
 
 - [Class](#class)
-  - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable-isfemale)
+  - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable--isfemale)
 
 - [ColorUtil](#colorutil)
   - [`C_ColorUtil.ConvertRGBToHSV(r, g, b)`](#c_colorutilconvertrgbtohsvr-g-b)
@@ -197,7 +197,7 @@ build instructions.
   - [`FocusUnit(unit)`](#focusunitunit)
   - [`ClearFocus()`](#clearfocus)
   - [Unit token (`focus` / `focustarget`)](#unit-token-focus--focustarget)
-  - [Bindings (`FOCUSTARGET` / `TARGETFOCUS`)](#bindings-focustarget--targetfocus)
+  - [Bindings (`FOCUSTARGET` / `TARGETFOCUS`)](#predefined-focus-bindings-focustarget--targetfocus)
 
 - [Frame](#frame)
   - [`region:SetPoint("point")` (one-argument form)](#regionsetpointpoint-one-argument-form)
@@ -339,7 +339,7 @@ build instructions.
   - [`GetInstanceInfo()`](#getinstanceinfo)
 
 - [Item](#item)
-  - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexititemlocation--c_itemdoesitemexistbyiditem)
+  - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexistitemlocation--c_itemdoesitemexistbyiditem)
   - [`C_Item.EquipItemByName(item [, dstSlot])`](#c_itemequipitembynameitem--dstslot)
   - [`C_Item.GetCurrentItemLevel(itemLocation)` / `C_Item.GetDetailedItemLevelInfo(item)`](#c_itemgetcurrentitemlevelitemlocation--c_itemgetdetaileditemlevelinfoitem)
   - [`C_Item.GetItemCount(itemInfo, [includeBank], [includeUses])`](#c_itemgetitemcountiteminfo-includebank-includeuses)
@@ -400,7 +400,7 @@ build instructions.
 
 - [Launch](#launch)
   - [`-config <name>` (launch switch)](#-config-name-launch-switch)
-  - [`-gluescript` / `-gluescriptFile` / `-gamescript` / `-gamescriptFile` (launch switches)](#-gluescript--gluescriptfile--gamescript--gamescriptfile-launch-switches)
+  - [`-gluescript` / `-gluescriptFile` / `-gamescript` / `-gamescriptFile` (launch switches)](#-gluescript---gluescriptfile---gamescript---gamescriptfile-launch-switches)
 
 - [Loot](#loot)
   - [`C_Loot.GetNearbyLootableUnits()`](#c_lootgetnearbylootableunits)
@@ -433,7 +433,7 @@ build instructions.
   - [`table.count(tbl)`](#tablecounttbl)
   - [`table.maxn(t)`](#tablemaxnt)
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
-  - [`Mixin(object, ...)` / `CreateFromMixins(...)`](#mixinobject--createfrommixins)
+  - [`Mixin(object, ...)` / `CreateFromMixins(...)`](#mixinobject---createfrommixins)
   - [`string.match` / `string.gmatch`](#stringmatch--stringgmatch)
   - [`string.gsub` table replacement](#stringgsub-table-replacement)
   - [`strsplit(sep, str [, pieces])`](#strsplitsep-str--pieces)
@@ -543,7 +543,7 @@ build instructions.
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
 - [Quest](#quest)
-  - [`C_QuestLog.GetQuestIDForLogIndex(index)`](#c_questlogGetQuestIDForLogIndexindex)
+  - [`C_QuestLog.GetQuestIDForLogIndex(index)`](#c_questloggetquestidforlogindexindex)
   - [`C_QuestLog.GetLogIndexForQuestID(questID)`](#c_questloggetlogindexforquestidquestid)
   - [`C_QuestLog.GetHeaderIndexForQuest(questID)`](#c_questloggetheaderindexforquestquestid)
   - [`C_QuestLog.RequestLoadQuestByID(questID)`](#c_questlogrequestloadquestbyidquestid)
@@ -598,7 +598,7 @@ build instructions.
   - [`GetSpellSchool(spellID)`](#getspellschoolspellid)
   - [`CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`](#castspellnotogglename--spellid--unit--placegroundspell)
   - [`C_Spell.CastAtCursor(spellIDOrName)`](#c_spellcastatcursorspellidorname)
-  - [`C_Spell.CastAtUnit(spellIDOrName, unit)`](#c_spellcastatunitspellidorname-unit)
+  - [`C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`](#c_spellcastatunitspellidorname-unit--placegroundspell)
   - [`C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`](#c_spellcancelspellbyidspellid--cancelspellbynamename)
   - [`C_Spell.UnitCastingInfo(unit)` / `C_Spell.CastingInfo()`](#c_spellunitcastinginfounit--c_spellcastinginfo)
   - [`C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`](#c_spellunitchannelinfounit--c_spellchannelinfo)
@@ -663,7 +663,7 @@ build instructions.
   - [`C_TaxiMap.GetAllTaxiNodes([uiMapID])`](#c_taximapgetalltaxinodesuimapid)
   - [`C_TaxiMap.GetTaxiPaths()`](#c_taximapgettaxipaths)
   - [`C_TaxiMap.GetTaxiPathWaypoints(pathID)`](#c_taximapgettaxipathwaypointspathid)
-  - [`C_TaxiMap.GetTaxiRoute(slotIndex)`](#c_taximapgettaxiroutepslotindex)
+  - [`C_TaxiMap.GetTaxiRoute(slotIndex)`](#c_taximapgettaxirouteslotindex)
 
 - [Texture](#texture)
   - [`C_Texture.GetAtlasInfo(atlasName)`](#c_texturegetatlasinfoatlasname)
@@ -677,7 +677,7 @@ build instructions.
 - [Time](#time)
   - [`GetServerTime()`](#getservertime)
   - [`GetTimeCached()`](#gettimecached)
-  - [`C_Timer.After(seconds, callback)`](#c_timeraftersseconds-callback)
+  - [`C_Timer.After(seconds, callback)`](#c_timerafterseconds-callback)
   - [`C_Timer.NewTimer(seconds, callback)`](#c_timernewtimerseconds-callback)
   - [`C_Timer.NewTicker(seconds, callback, [iterations])`](#c_timernewtickerseconds-callback-iterations)
   - [`C_DateAndTime` overview](#c_dateandtime-overview)
@@ -2046,7 +2046,7 @@ without scanning tooltips. A ClassicAPI extension.
 ### `C_Container.GetContainerItemCharges(containerIndex, slotIndex)`
 
 Per-slot equivalent of
-[`C_Item.GetItemCount`](#c_itemgetitemcountitem-includebank-includecharges)'s
+[`C_Item.GetItemCount`](#c_itemgetitemcountiteminfo-includebank-includeuses)'s
 `includeCharges=true` mode — returns the total uses available in
 *this single slot*, where `GetItemCount` totals the same value
 across every matching slot.
@@ -2278,7 +2278,7 @@ Takes no arguments.
 
 ### `C_Container.IsContainerItemOpenable(containerIndex, slotIndex)`
 
-Positional-arg wrapper for [`C_Item.IsItemOpenable`](#c_itemisitemopenableitemlocation--c_itemisitemopenablebyiditem)
+Positional-arg wrapper for [`C_Item.IsItemOpenable`](#c_itemisitemopenableitemlocation)
 against a bag/slot pair. Same `(isOpenable, canOpen)` tuple — see
 the linked section for full semantics. Both returns are `nil` for
 empty slots or items whose data hasn't been cached yet.
@@ -5818,7 +5818,7 @@ modifier/button-qualified, same precedence as `type`):
 | `target` | — | Targets the `unit` (or clears the target if `unit` is `"none"`). Respects the engine's default-interaction precedence: with a spell on the cursor it casts on the unit, with an item on the cursor it drops it on the unit, instead of switching target. |
 | `assist` | — | Targets the `unit`'s target. |
 | `focus` | — | Sets the ClassicAPI focus to the `unit`. |
-| `spell` | `spell` | Casts the `spell`. With a `unit`, it casts on that unit via [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) — the unit's GUID goes straight to the cast dispatcher (no target juggling), and a ground-target spell lands at the unit's feet. With no `unit`, it casts on the current target through `CastSpellByName`, like a plain `/cast`. |
+| `spell` | `spell` | Casts the `spell`. With a `unit`, it casts on that unit via [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell) — the unit's GUID goes straight to the cast dispatcher (no target juggling), and a ground-target spell lands at the unit's feet. With no `unit`, it casts on the current target through `CastSpellByName`, like a plain `/cast`. |
 | `item` | `item`, or `bag`+`slot` | Uses an item on the `unit`. `item` may be a name / itemID / link (used via `C_Item.UseItemByName`, unit as the target) or a `"bag slot"` string like `"0 1"` (used via `UseContainerItem`). The deprecated `bag`+`slot` attributes are used when `item` is unset. |
 | `macro` | `macrotext` or `macro` | Runs the macro text. To give the macro a unit, the handler selects the clicked `unit`, runs the macro, then restores the target from before the click. It prefers an addon `RunMacro` (for example, SuperCleveRoidMacros — named macros and extended conditionals). If no addon `RunMacro` exists, it runs the text natively, line by line, through the stock `ChatEdit_ParseText`. |
 | `stopcasting` | — | Stops the current cast. |
@@ -7270,7 +7270,7 @@ if C_Item.GetItemInventoryType(loc) == Enum.InventoryType.IndexHeadType then ...
 The item-class enum — the numeric `classID` reported as the 12th return
 of [`GetItemInfo`](#c_itemgetiteminfoiteminfo) and taken by
 [`GetItemClassInfo`](#getitemclassinfoclassid) /
-[`GetItemSubClassInfo`](#getitemsubclassinfoclassid-subclassid). The
+[`GetItemSubClassInfo`](#getitemsubclassinfoclassid-subclassid--c_itemgetitemsubclassinfoclassid-subclassid). The
 obsolete slots keep their key names even though `ItemClass.dbc` labels
 them `"…(OBSOLETE)"`.
 
@@ -9394,7 +9394,7 @@ fails without consuming the item.
 An item with no ground effect also returns `false`, and is used **on the
 unit**: the item fires with that unit as its target rather than with
 whatever you have selected. So this covers both kinds of on-use item, the
-same way [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit) covers
+same way [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell) covers
 both kinds of spell.
 
 A unit token that names nothing right now, such as `"party3"` while solo,
@@ -10928,7 +10928,7 @@ stopping it.
 ```
 
 With a `@unit` target other than `target`, a spell is cast on that unit
-through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit), and the
+through [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell), and the
 item is used on that unit. `[@player]` uses the item on yourself. This works
 for an item named by `bag slot` or by inventory slot as well as by name.
 
@@ -11353,7 +11353,7 @@ C_Macro.SetMacroDisplay(1, nil)           -- released, `#showtooltip` resumes
 ```
 
 `macroSlot` is the macro index, the same one
-[`GetMacroInfo`](#getmacroinfomacroslot) and
+`GetMacroInfo` and
 [`GetMacroSpell`](#getmacrospellmacroslot) take. `value` takes every form a
 [`#showtooltip`](#showtooltip-and-show) value takes: a spell name or ID, an
 item name, `item:N`, an item link, an inventory slot, or `bag slot`. An item
@@ -13277,7 +13277,7 @@ end
 ```
 
 Walks the same `VAR_QUEST_LOG_ENTRIES` array
-[`C_QuestLog.GetQuestIDForLogIndex`](#c_questlogGetQuestIDForLogIndexindex)
+[`C_QuestLog.GetQuestIDForLogIndex`](#c_questloggetquestidforlogindexindex)
 reads and matches against each real entry's questID, skipping the
 zone/category header rows.
 
@@ -14668,7 +14668,7 @@ The unit is any standard token — `"focus"`, `"targettarget"`,
 `"party1"`, `"mouseover"`, a player name, and so on. A unit-target or
 auto-repeat spell fires straight at that unit. A ground-target spell
 lands at the unit's feet. This is the same cast-at-unit path as
-[`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit).
+[`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell).
 
 A third argument of `false` holds a ground-target spell back. The spell is
 cast on the unit, and the reticle comes up for you to click, exactly as the
@@ -16712,7 +16712,7 @@ nearly every trainer-taught recipe). `createdItem` is the crafted item's ID
 
 The array is in canonical recipe order (one entry per *possible* recipe in the
 skill line, not just the known ones). Turn a `spellID` into a name/icon with
-[`GetSpellInfo`](#getspellinfospellid). Recipes past the end of a short/garbled
+[`GetSpellInfo`](#getspellinfospellid--getspellinfoslot-booktype). Recipes past the end of a short/garbled
 `bits` string decode as not-known rather than erroring.
 
 ## UIColor
