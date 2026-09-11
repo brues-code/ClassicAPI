@@ -116,6 +116,11 @@ enum Offsets {
     // backported convenience methods. Each is `int __fastcall(void *L)`
     // expecting the standard self+args layout on the Lua stack.
     // (Slot numbers are the method-registry index per `docs/raw_methods.txt`.)
+    // `SetText(text [, r, g, b, a, wrap])`: clear (FUN_GAMETOOLTIP_CLEAR), one
+    // line, then the has-text flag + Show vmethod — the exact sequence the
+    // engine's own macro branch (FUN_GAMETOOLTIP_SET_MACRO) runs, reachable
+    // through an entry point no sibling DLL has detoured. Pushes nothing.
+    FUN_SCRIPT_GAMETOOLTIP_SET_TEXT = 0x00531B90,      // slot 9
     FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK = 0x00531FD0, // slot 12
     // `SetAction(slot)`: cooldown via FUN_ACTION_SLOT_COOLDOWN, clear, then
     // attack → "ATTACK" text; item-by-ID → FUN_GAMETOOLTIP_BUILD_ITEM (owned

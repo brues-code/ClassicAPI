@@ -11402,8 +11402,10 @@ Returns `true` when the value named a spell or an item.
 **What the button picks up.** The spell is written where the client keeps
 each macro's spell, which is the field its own buttons read. So cooldown,
 range, usable, out-of-mana greying, the current-cast highlight and
-auto-repeat all follow, with no function replaced. The tooltip follows, and
-so does the count, cooldown and consumable state for an item. The icon
+auto-repeat all follow, with no function replaced. The count, cooldown and
+consumable state for an item follow too. The tooltip follows only when the
+first line of the macro is `#showtooltip`. A macro with `#show`, or with no
+directive, keeps its own name as the tooltip. The icon
 appears in three places, two of which Lua cannot reach: the action button,
 the cursor while you drag the macro, and the macro window grid.
 

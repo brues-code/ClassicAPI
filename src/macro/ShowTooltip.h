@@ -63,6 +63,10 @@ struct Info {
     uint32_t spellID; // Target::Spell
     uint32_t isPet;   // Target::Spell — 1 when it resolved from the pet book
     int itemID;       // Target::Item
+    // The directive carries conditions, so its answer can change with nothing
+    // to announce it — a modifier going down, a new mouseover. A tooltip built
+    // from it has to keep re-reading while the cursor rests on the button.
+    bool conditional;
 };
 
 // Publish the resolution for macro slot `macroSlot` (1-based, as
@@ -76,6 +80,11 @@ struct Info {
 // immediately: the engine cache is written and the affected buttons repaint
 // before it returns, so a publisher can call it straight out of its own
 // evaluation.
+//
+// The published value always drives the icon, cooldown, count and usable
+// state. Whether it also replaces the TOOLTIP is the macro body's call: only
+// `#showtooltip` hands the tooltip over, while `#show` (icon only) and a body
+// with no directive at all keep the engine's macro-name tooltip.
 bool Publish(int macroSlot, const char *value);
 
 // Give a published macro back, so our own `#showtooltip` parse resumes for
@@ -98,6 +107,11 @@ bool ForSlot(int slot0, Info *out);
 // what the entries already hold, so a resolution can be one world tick
 // behind an edit; the tick's own repaint brings the button up to date.
 bool LookupPassive(uint32_t macroID, Info *out);
+
+// The name of the macro on action slot `slot0` (0-based), or null when that
+// slot holds no macro. Points into the engine's macro entry, so copy it if you
+// need it past the current call.
+const char *MacroNameForSlot(int slot0);
 
 // True when the macro's own icon is the question mark
 // (`INV_Misc_QuestionMark`) — the one icon the directive replaces on the

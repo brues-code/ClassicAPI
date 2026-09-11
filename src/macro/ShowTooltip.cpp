@@ -112,6 +112,13 @@ struct Entry {
     // macro: we neither parse the body nor re-evaluate it, and the lookups
     // answer from it even while yielding. See the header.
     bool external = false;
+    // The last resolution had a value to resolve, even if it resolved to
+    // nothing. The engine's cache tells those two apart — a value that named
+    // something unresolvable greys the button (`0xFFFFFFFF`), nothing matched
+    // at all leaves it usable (`0`) — so it has to be remembered. It cannot be
+    // re-derived from `kind`, which `Publish` sets whether or not the publisher
+    // had a value for us.
+    bool matched = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
     Target target = Target::None;
@@ -557,6 +564,7 @@ void ApplyResolution(void *L, Entry &e, const Resolution &r, bool matched) {
     e.spellID = r.spellID;
     e.isPet = r.isPet;
     e.itemID = r.itemID;
+    e.matched = matched;
     cache = cacheSpell;
     pet = cachePet;
 
@@ -616,7 +624,12 @@ void MaintainExternal(void *L) {
         r.isPet = e.isPet;
         r.itemID = e.itemID;
         uint32_t wantSpell = 0, wantPet = 0;
-        DesiredCache(r, e.kind != Kind::None, &wantSpell, &wantPet);
+        // `e.matched`, never `kind != None`: `Publish` marks a claimed macro
+        // `ShowTooltip` even when the publisher had nothing for us, and
+        // re-deriving it from that would turn the publisher's "nothing matched"
+        // (cache `0`, button usable) into "named an unknown spell" (the
+        // grey-out sentinel) on the first tick after the publish.
+        DesiredCache(r, e.matched, &wantSpell, &wantPet);
         const uint32_t haveSpell = *reinterpret_cast<const uint32_t *>(
             entry + Offsets::OFF_MACRO_PRIMARY_SPELL);
         const uint32_t havePet = *reinterpret_cast<const uint32_t *>(
@@ -627,7 +640,7 @@ void MaintainExternal(void *L) {
         // Force the repaint: the stored resolution already matches, so only
         // the engine's copy is stale.
         e.target = Target::None;
-        ApplyResolution(L, e, r, e.kind != Kind::None);
+        ApplyResolution(L, e, r, e.matched);
     }
 }
 
@@ -779,7 +792,24 @@ void OnMacroParsed(int /*macroEntry*/) {
 
 // Lua-derived state (slash-command names, the SCRM latch) is reload-fragile;
 // the engine also re-parses every macro after a reload.
+//
+// Published claims are dropped here, because a claim must not outlive its
+// publisher. Nothing re-evaluates a published macro for us, so its owner
+// republishes on every load — and an addon that is disabled or removed between
+// reloads would otherwise leave every macro it ever claimed frozen on its last
+// answer forever, since `Rescan` deliberately never re-reads a claimed body.
+// Each one gets the engine's own parse of its body first, the same handoff
+// `Release` performs, so a macro we stop describing isn't left holding a value
+// of ours in the engine's field.
 void PrepareForReload() {
+    for (Entry &e : g_entries) {
+        if (e.external && e.macroID != 0) {
+            if (uint8_t *entry = EntryForID(e.macroID))
+                reinterpret_cast<MacroParse_t>(Offsets::FUN_MACRO_PARSE_PRIMARY_SPELL)(
+                    static_cast<int>(reinterpret_cast<uintptr_t>(entry)));
+        }
+        e = Entry{};
+    }
     g_rescanPending = true;
     g_slashNamesLoaded = false;
     g_yieldChecked = false;
@@ -787,50 +817,76 @@ void PrepareForReload() {
 
 // The lookup itself, over what the entries already hold. `Lookup` runs the
 // catch-up first; `LookupPassive` does not.
+// The entry describing `macroID`, or null when no live macro slot holds that
+// id or the entry there hasn't caught up to it yet.
+//
+// Entries are keyed by macro-slot index, and the slot map is the only thing
+// that says which index holds an id right now — so resolve through it rather
+// than scanning for a matching `macroID`. A scan answers from whichever entry
+// happens to carry the id, and that is not sound: `FUN_MACRO_CREATE` bumps one
+// of two per-scope counters, so a general and a per-character macro can share
+// an id, and an entry whose index shifted keeps its old id until the next
+// rescan. Either way another macro's resolution could answer for this one. A
+// mismatch here means "not ours yet" and the caller falls back to the engine
+// until the rescan re-keys the entry.
+const Entry *EntryForMacro(uint32_t macroID) {
+    const int slot = Action::Slot::MacroSlotForID(macroID);
+    if (slot <= 0 || slot > kMaxMacros)
+        return nullptr;
+    const Entry &e = g_entries[slot - 1];
+    return e.macroID == macroID ? &e : nullptr;
+}
+
 bool LookupEntries(uint32_t macroID, Info *out) {
+    const Entry *found = EntryForMacro(macroID);
+    if (found == nullptr)
+        return false;
+    const Entry &e = *found;
+
     // A published resolution answers even while yielding: its owner asked us
     // to display it, so the wholesale stand-down doesn't apply to it.
-    for (const Entry &e : g_entries) {
-        if (!e.external || e.macroID != macroID || e.target == Target::None)
-            continue;
+    if (e.external) {
+        if (e.target == Target::None)
+            return false;
         out->kind = e.kind;
         out->target = e.target;
         out->spellID = e.spellID;
         out->isPet = e.isPet;
         out->itemID = e.itemID;
+        // A publisher re-publishes the moment its answer changes, so a claimed
+        // macro never needs the polling refresh a condition of ours does.
+        out->conditional = false;
         return true;
     }
-    if (g_yielding)
+    if (g_yielding || e.kind == Kind::None)
         return false;
-    for (const Entry &e : g_entries) {
-        if (e.macroID != macroID || e.kind == Kind::None || e.external)
-            continue;
-        if (e.target != Target::None) {
-            out->kind = e.kind;
-            out->target = e.target;
-            out->spellID = e.spellID;
-            out->isPet = e.isPet;
-            out->itemID = e.itemID;
-            return true;
-        }
-        if (e.optionCount == 0) {
-            // Bare directive with no `/cast` or `/use` line to draw from:
-            // show whatever the engine's own parse resolved (a
-            // `CastSpellByName("...")` line, for instance).
-            const uint8_t *entry = EntryForID(macroID);
-            if (entry == nullptr)
-                return false;
-            const uint32_t spellID = Game::Read<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL);
-            if (spellID == 0 || spellID == kUnresolvedSpell)
-                return false;
-            out->kind = e.kind;
-            out->target = Target::Spell;
-            out->spellID = spellID;
-            out->isPet = Game::Read<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL_IS_PET);
-            out->itemID = 0;
-            return true;
-        }
-        return false;
+    if (e.target != Target::None) {
+        out->kind = e.kind;
+        out->target = e.target;
+        out->spellID = e.spellID;
+        out->isPet = e.isPet;
+        out->itemID = e.itemID;
+        out->conditional = e.conditional;
+        return true;
+    }
+    if (e.optionCount == 0) {
+        // Bare directive with no `/cast` or `/use` line to draw from: show
+        // whatever the engine's own parse resolved (a `CastSpellByName("...")`
+        // line, for instance).
+        const uint8_t *entry = EntryForID(macroID);
+        if (entry == nullptr)
+            return false;
+        const uint32_t spellID = Game::Read<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL);
+        if (spellID == 0 || spellID == kUnresolvedSpell)
+            return false;
+        out->kind = e.kind;
+        out->target = Target::Spell;
+        out->spellID = spellID;
+        out->isPet = Game::Read<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL_IS_PET);
+        out->itemID = 0;
+        // A bare directive has no option lines, so nothing to re-evaluate.
+        out->conditional = false;
+        return true;
     }
     return false;
 }
@@ -851,7 +907,8 @@ bool Publish(int macroSlot, const char *value) {
     auto *slotMap = reinterpret_cast<const uint32_t *>(
         static_cast<uintptr_t>(Offsets::VAR_MACRO_SLOT_MAP));
     const uint32_t macroID = slotMap[macroSlot - 1];
-    if (EntryForID(macroID) == nullptr)
+    const uint8_t *macroEntry = EntryForID(macroID);
+    if (macroEntry == nullptr)
         return false;
 
     Entry &e = g_entries[macroSlot - 1];
@@ -860,9 +917,16 @@ bool Publish(int macroSlot, const char *value) {
         e.macroID = macroID;
         e.external = true;
     }
-    // Kind marks the macro as claimed even when nothing resolved, so the
-    // button falls back to the question mark rather than to our own parse.
-    e.kind = Kind::ShowTooltip;
+    // Kind marks the macro as claimed even when nothing resolved, so the button
+    // falls back to the question mark rather than to our own parse. WHICH kind
+    // is the body's call, not the publisher's: `#show` is the macro's author
+    // asking for the icon alone, and a body with no directive keeps the
+    // engine's macro-name tooltip the way retail does. Only `#showtooltip`
+    // hands the tooltip over. The claim stands either way, so the icon,
+    // cooldown, count and usable state still follow the published value.
+    Parsed parsed;
+    ParseBody(reinterpret_cast<const char *>(macroEntry + Offsets::OFF_MACRO_BODY), &parsed);
+    e.kind = (parsed.kind == Kind::ShowTooltip) ? Kind::ShowTooltip : Kind::Show;
 
     Resolution r;
     const bool matched = value != nullptr && value[0] != '\0';
@@ -917,6 +981,16 @@ bool LookupPassive(uint32_t macroID, Info *out) {
 bool ForSlot(int slot0, Info *out) {
     const uint32_t macroID = Action::Slot::MacroIDForSlot(slot0);
     return macroID != 0 && Lookup(macroID, out);
+}
+
+const char *MacroNameForSlot(int slot0) {
+    const uint32_t macroID = Action::Slot::MacroIDForSlot(slot0);
+    if (macroID == 0)
+        return nullptr;
+    const uint8_t *entry = EntryForID(macroID);
+    if (entry == nullptr)
+        return nullptr;
+    return reinterpret_cast<const char *>(entry + Offsets::OFF_MACRO_NAME);
 }
 
 bool HasQuestionMarkIcon(uint32_t macroID) {
