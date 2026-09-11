@@ -99,28 +99,6 @@ void *ResolveObject(void *L, int idx) {
     return result;
 }
 
-void RegisterGlobalFunction(const char *name, CFunction func) {
-    auto fn = reinterpret_cast<FrameScript_RegisterFunction_t>(
-        Offsets::FUN_FRAMESCRIPT_REGISTER_FUNCTION);
-    fn(name, func);
-}
-
-// Aliased to the same engine entry; the engine reads VAR_LUA_STATE
-// internally to decide which state to write to, and the glue hook
-// runs while that pointer is set to the glue state. Wrapped as a
-// named function (rather than `using RegisterGlueFunction = ...`) so
-// callers express intent at the call site.
-void RegisterGlueFunction(const char *name, CFunction func) {
-    auto fn = reinterpret_cast<FrameScript_RegisterFunction_t>(
-        Offsets::FUN_FRAMESCRIPT_REGISTER_FUNCTION);
-    fn(name, func);
-}
-
-void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count) {
-    auto fn = reinterpret_cast<RegisterFrameMethods_t>(Offsets::FUN_REGISTER_FRAME_METHODS);
-    fn(table, count, context);
-}
-
 // Looks up `_G[name]`. If absent, creates a fresh table and binds it.
 // Leaves the resulting table on top of the stack.
 namespace {
@@ -136,7 +114,101 @@ void EnsureGlobalTable(void *L, const char *name) {
     Insert(L, -2);                 //                           [tbl, name, tbl]
     SetTable(L, GLOBALS_INDEX);    // _G[name] = tbl; pops k+v. [tbl]
 }
+
+// Same, one level down: ensures `parent[name]` is a table, with `parent`
+// on top of the stack. Leaves `[parent, sub]`. Raw access, so a namespace
+// carrying a metatable can't divert the read or the write.
+void EnsureSubTable(void *L, const char *name) {
+    PushString(L, name);           //                           [parent, name]
+    RawGet(L, -2);                 //                           [parent, parent[name]]
+    if (Type(L, -1) == TYPE_TABLE)
+        return;
+    SetTop(L, -2);                 // pop the non-table.        [parent]
+    NewTable(L);                   //                           [parent, sub]
+    PushString(L, name);           //                           [parent, sub, name]
+    PushValue(L, -2);              //                           [parent, sub, name, sub]
+    RawSet(L, -4);                 // parent[name] = sub.       [parent, sub]
+}
+
+// The escape-hatch namespace. Registering a name is not the same as owning
+// it: the engine's registrars write `_G`, FrameXML and every addon load
+// after that, and whoever writes last wins with no error and no way for the
+// loser to notice. `GetServerTime` is the case on record — a client whose
+// GameTime.lua declares its own replaced ours on every login.
+//
+// So every name the registrars below bind is also bound under
+// `_G.ClassicAPI`, which nothing else writes. Two properties earn their
+// keep, and both depend on doing this HERE rather than from Lua:
+//
+//   - It runs at registration, so the mirror captures OUR function. A
+//     Lua-side `ClassicAPI.X = X` in the embedded addon would run after
+//     FrameXML and faithfully copy the clobbered version.
+//   - It mirrors by VALUE, reading the name back instead of making a
+//     second closure over the same C function. So `ClassicAPI.X == X`
+//     holds until something replaces the global, and the pair doubles as
+//     a clobber check for addons and for us.
+//
+// Not covered: frame methods (`obj:Method()` lives in the per-frame-type
+// registry, not `_G`) and `RegisterIntegerEnum` values (a mirrored number
+// is a copy, not a reference).
+constexpr const char *kMirrorTable = "ClassicAPI";
+
+void MirrorRegistration(const char *tableName, const char *name) {
+    void *L = State();
+    if (L == nullptr)
+        return;
+    const int top = GetTop(L);
+
+    // Read back whatever the registration actually bound.
+    if (tableName != nullptr) {
+        EnsureGlobalTable(L, tableName); // [src]
+        PushString(L, name);             // [src, name]
+        RawGet(L, -2);                   // [src, value]
+    } else {
+        PushString(L, name);             // [name]
+        GetTable(L, GLOBALS_INDEX);      // [value]
+    }
+    if (Type(L, -1) != TYPE_FUNCTION) {
+        SetTop(L, top); // registration didn't land; nothing to mirror
+        return;
+    }
+    const int valueIdx = GetTop(L); // absolute, so the pushes below can't skew it
+
+    EnsureGlobalTable(L, kMirrorTable);  // [..., mirror]
+    if (tableName != nullptr)
+        EnsureSubTable(L, tableName);    // [..., mirror, sub]
+    PushString(L, name);
+    PushValue(L, valueIdx);
+    RawSet(L, -3);                       // target[name] = value
+    SetTop(L, top);
+}
 } // namespace
+
+void RegisterGlobalFunction(const char *name, CFunction func) {
+    auto fn = reinterpret_cast<FrameScript_RegisterFunction_t>(
+        Offsets::FUN_FRAMESCRIPT_REGISTER_FUNCTION);
+    fn(name, func);
+    MirrorRegistration(nullptr, name);
+}
+
+// Aliased to the same engine entry; the engine reads VAR_LUA_STATE
+// internally to decide which state to write to, and the glue hook
+// runs while that pointer is set to the glue state. Wrapped as a
+// named function (rather than `using RegisterGlueFunction = ...`) so
+// callers express intent at the call site.
+void RegisterGlueFunction(const char *name, CFunction func) {
+    auto fn = reinterpret_cast<FrameScript_RegisterFunction_t>(
+        Offsets::FUN_FRAMESCRIPT_REGISTER_FUNCTION);
+    fn(name, func);
+    // `State()` is the glue state here for the same reason the engine
+    // registrar writes there, so the mirror lands on the glue `_G`.
+    MirrorRegistration(nullptr, name);
+}
+
+void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count) {
+    auto fn = reinterpret_cast<RegisterFrameMethods_t>(Offsets::FUN_REGISTER_FRAME_METHODS);
+    fn(table, count, context);
+}
 
 // Registers `func` at `_G[tableName][methodName]`. If the namespace
 // doesn't already exist, creates an empty table for it.
@@ -149,6 +221,7 @@ void RegisterTableFunction(const char *tableName, const char *methodName, CFunct
     PushCClosure(L, func, 0);            // [tbl, methodName, closure]
     SetTable(L, -3);                     // tbl[m]=c; pops k+v. [tbl]
     SetTop(L, -2);                       // pop tbl. []
+    MirrorRegistration(tableName, methodName);
 }
 
 void RegisterIntegerEnum(const char *parent, const char *sub,

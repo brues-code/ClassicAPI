@@ -216,6 +216,13 @@ void *State();
 // the `self` slot of any `frame:method(...)` invocation.
 void *ResolveObject(void *L, int idx);
 
+// Every name these registrars bind is ALSO bound under `_G.ClassicAPI` —
+// `ClassicAPI.GetSpellInfo`, `ClassicAPI.C_Item.IsBound` — as an escape
+// hatch for names something else replaces later, and by value so
+// `ClassicAPI.X == X` until that happens. Automatic; a new module needs no
+// extra call. See `MirrorRegistration` in Game.cpp for why it lives here
+// and what it does not cover.
+
 // Registers a single global Lua function (e.g. `GetSpellInfo`). The function
 // must use the WoW Lua C function ABI: `int __fastcall(void *L)`.
 void RegisterGlobalFunction(const char *name, CFunction func);

@@ -1539,6 +1539,44 @@ differentiate the two anyway, so callers won't typically notice.
 Sparse class IDs (classID 6 and a few others are skipped) have NULL
 records and are silently skipped.
 
+## ClassicAPI namespace
+
+Every function on this page is bound twice: under the name it documents,
+and under the same name inside the `ClassicAPI` table. Namespaced calls
+keep their namespace as a subtable.
+
+```lua
+ClassicAPI.GetServerTime()                       -- == GetServerTime
+ClassicAPI.C_Item.IsBound(itemLocation)          -- == C_Item.IsBound
+ClassicAPI.coroutine.create(fn)                  -- == coroutine.create
+```
+
+Both names hold the same function, so `ClassicAPI.X == X` is true. That
+equality is the point of the table. A Lua global belongs to whoever
+writes it last, and FrameXML and every addon load after ClassicAPI
+registers, so any of these names can be taken later with no error and no
+warning. The mirrored name cannot be taken, which gives you two things:
+
+```lua
+-- Reach a function whose global was replaced
+local now = ClassicAPI.GetServerTime()
+
+-- Detect that it was replaced
+if GetServerTime ~= ClassicAPI.GetServerTime then
+    -- something else owns this global now
+end
+```
+
+**Prefer the documented name.** Code written against `GetServerTime()`
+runs on other clients; code written against `ClassicAPI.GetServerTime()`
+runs only here. Reach for the table when a name is known to be taken, or
+to test whether it is — not as a default calling style.
+
+Two kinds of addition are absent from the table. Frame methods
+(`tooltip:SetSpellByID(...)`) are not globals, so nothing mirrors them.
+Enum tables and value globals such as `CLASSIC_API_VERSION` are values
+rather than functions, and a mirrored value would be a stale copy.
+
 ## ColorUtil
 
 The `C_ColorUtil` color-space and text-color-code helpers. All are
