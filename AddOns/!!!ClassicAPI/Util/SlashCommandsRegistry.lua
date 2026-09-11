@@ -6,6 +6,13 @@ function RegisterNewSlashCommand(callback, command, commandAlias)
     SlashCmdList[name] = callback;
 end
 
+-- Keys that exist before this file runs, so the block at the bottom can tell
+-- the commands we ADD from the ones we replace.
+local preexistingKeys = {};
+for key in pairs(SlashCmdList) do
+	preexistingKeys[key] = true;
+end
+
 -- `/cast` and `/use` (the FrameXML ChatFrame.lua shape): conditionals through
 -- SecureCmdOptionParse, items before spells, `[@unit]` cast targets.
 -- A bare number is an inventory slot only when it is one (1..19); any other
@@ -562,3 +569,75 @@ end
 SlashCmdList["PET_AUTOCASTTOGGLE"] = function(msg)
 	SecureCmdPetAutocast(msg, nil);
 end
+
+-- ---------------------------------------------------------------------
+-- Give a contested command back to whoever already owned it
+--
+-- Vanilla has no `/petattack`, so the entry above ADDS it. A macro addon can
+-- ship the same command under its own SlashCmdList key -- SuperCleveRoidMacros
+-- registers `PETATTACK` where we register `PET_ATTACK`, both with a
+-- `SLASH_*` string of "/petattack". `ChatEdit_ParseText` walks SlashCmdList
+-- with `pairs` and takes the first match, so two keys claiming one command
+-- make the winner hash order: a coin flip. When ours won, it fed
+-- `[hastarget,alive,harm]` to SecureCmdOptionParse, which does not know that
+-- addon's conditions, so the line matched nothing and the macro did nothing.
+--
+-- Rejecting a condition we cannot evaluate is right on its own -- retail does
+-- the same -- so the error is owning the command at all. Hand it back. One
+-- command split across two condition dialects would be worse than one owner,
+-- because the dialects disagree: our `[@unit]`-only group passes only while
+-- that unit exists, where 3.3.5's passes unconditionally.
+--
+-- Only commands we ADD are given up. A command we replace (`/cast`, `/target`)
+-- has no second entry to lose to, and an addon that wraps ours afterwards
+-- chains through us as it always did.
+--
+-- Resolved a frame later, not at file scope: this addon loads first by design,
+-- so while it runs the other addon has not registered yet and there is nothing
+-- to detect. It cannot wait on PLAYER_LOGIN either -- that has already fired
+-- on a `/reload`, so `ContinueOnPlayerLogin` would run the check immediately
+-- and see the same empty table. The addon load pass is synchronous, so the
+-- next frame is after every non-demand addon has registered, on a cold login
+-- and on a reload alike. An addon that loads on demand later keeps its own
+-- entry and the coin flip with it.
+local addedKeys = {};
+for key in pairs(SlashCmdList) do
+	if ( not preexistingKeys[key] ) then
+		addedKeys[key] = true;
+	end
+end
+
+-- The command strings a SlashCmdList key answers to, upper-cased the way
+-- `ChatEdit_ParseText` compares them.
+local function CommandStrings(key)
+	local commands = {};
+	local i = 1;
+	while ( _G["SLASH_"..key..i] ) do
+		commands[strupper(_G["SLASH_"..key..i])] = true;
+		i = i + 1;
+	end
+	return commands;
+end
+
+local function ClaimedElsewhere(key, commands)
+	for otherKey in pairs(SlashCmdList) do
+		if ( otherKey ~= key and not addedKeys[otherKey] ) then
+			local i = 1;
+			while ( _G["SLASH_"..otherKey..i] ) do
+				if ( commands[strupper(_G["SLASH_"..otherKey..i])] ) then
+					return true;
+				end
+				i = i + 1;
+			end
+		end
+	end
+	return false;
+end
+
+RunNextFrame(function()
+	for key in pairs(addedKeys) do
+		if ( ClaimedElsewhere(key, CommandStrings(key)) ) then
+			SlashCmdList[key] = nil;
+		end
+	end
+end)
