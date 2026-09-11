@@ -151,7 +151,7 @@ static int __fastcall Script_GameTooltipGetUnitGUID(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:GetUnitGUID()");
         return 0;
     }
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr)
         return 0;
 
@@ -184,7 +184,7 @@ static int __fastcall Script_GameTooltipHasUnit(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:HasUnit()");
         return 0;
     }
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr) {
         Game::Lua::PushBool(L, false);
         return 1;

@@ -160,7 +160,7 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     if (s == nullptr)
         return 0;
 
-    void *self = Game::Lua::ResolveObject(L, 1);
+    void *self = Game::Lua::ResolveTooltip(L);
     if (self == nullptr)
         return 0;
 

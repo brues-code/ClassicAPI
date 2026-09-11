@@ -246,7 +246,7 @@ void __fastcall StoreCorners_h(void *region, void *edx, float *rect) {
 int __fastcall Script_SetRotation(void *L) {
     void *tex = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        tex = Game::Lua::ResolveObject(L, 1);
+        tex = Game::Lua::ResolveTexture(L, 1, /*raiseError=*/false);
     if (tex == nullptr || !Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: texture:SetRotation(angle [, cx, cy])");
         return 0;
@@ -261,10 +261,21 @@ int __fastcall Script_SetRotation(void *L) {
     return 0;
 }
 
+// Registered on BOTH registries below (the reader is shared; only SetRotation
+// differs per type), so either is a legitimate self and the gate must accept
+// both — hence the id pair rather than `ResolveTexture`.
+constexpr uintptr_t kRotatableTypeIds[] = {
+    Offsets::VAR_TEXTURE_LUA_TYPE_ID,
+    Offsets::VAR_FONTSTRING_LUA_TYPE_ID,
+};
+
 int __fastcall Script_GetRotation(void *L) {
     void *tex = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        tex = Game::Lua::ResolveObject(L, 1);
+        tex = Game::Lua::ResolveTypedObjectAny(
+            L, 1, kRotatableTypeIds,
+            static_cast<int>(sizeof(kRotatableTypeIds) / sizeof(kRotatableTypeIds[0])),
+            /*raiseError=*/false);
     if (tex == nullptr) {
         Game::Lua::Error(L, "Usage: region:GetRotation()");
         return 0;
@@ -500,7 +511,7 @@ void ReapplyFontStringRotation(void *fs) {
 int __fastcall Script_SetRotationFS(void *L) {
     void *fs = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        fs = Game::Lua::ResolveObject(L, 1);
+        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
     if (fs == nullptr || !Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: fontstring:SetRotation(angle [, cx, cy])");
         return 0;
@@ -522,7 +533,7 @@ int __fastcall Script_SetRotationFS(void *L) {
 int __fastcall Script_SetVertexOffset(void *L) {
     void *tex = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        tex = Game::Lua::ResolveObject(L, 1);
+        tex = Game::Lua::ResolveTexture(L, 1, /*raiseError=*/false);
     const int slot = Game::Lua::IsNumber(L, 2)
                          ? VertexSlot(static_cast<int>(Game::Lua::ToNumber(L, 2)))
                          : -1;
@@ -547,7 +558,7 @@ int __fastcall Script_SetVertexOffset(void *L) {
 int __fastcall Script_GetVertexOffset(void *L) {
     void *tex = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        tex = Game::Lua::ResolveObject(L, 1);
+        tex = Game::Lua::ResolveTexture(L, 1, /*raiseError=*/false);
     const int slot = Game::Lua::IsNumber(L, 2)
                          ? VertexSlot(static_cast<int>(Game::Lua::ToNumber(L, 2)))
                          : -1;
@@ -568,7 +579,7 @@ int __fastcall Script_GetVertexOffset(void *L) {
 int __fastcall Script_GetCorners(void *L) {
     void *tex = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        tex = Game::Lua::ResolveObject(L, 1);
+        tex = Game::Lua::ResolveTexture(L, 1, /*raiseError=*/false);
     if (tex == nullptr) {
         Game::Lua::Error(L, "Usage: texture:GetCorners()");
         return 0;
@@ -596,7 +607,7 @@ int __fastcall Script_GetCorners(void *L) {
 int __fastcall Script_GetGlyphVerts(void *L) {
     void *fs = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        fs = Game::Lua::ResolveObject(L, 1);
+        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
     if (fs == nullptr) {
         Game::Lua::Error(L, "Usage: fontstring:GetGlyphVerts()");
         return 0;

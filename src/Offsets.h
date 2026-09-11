@@ -2196,6 +2196,40 @@ enum Offsets {
     // every frame type.
     VAR_MODEL_LUA_TYPE_ID = 0x00CF0C5C,
     VAR_FRAMESCRIPT_TYPE_ID_COUNTER = 0x00CEEF6C,
+
+    // Frame-script type ids for the other classes we register methods on —
+    // same lazy-assign mechanism as VAR_MODEL_LUA_TYPE_ID, one id per CLASS
+    // shared by all of its methods (VAR_GAMETOOLTIP_LUA_TYPE_ID is read or
+    // written by ~45 functions in the GameTooltip method block).
+    //
+    // Each was read from the prologue of a method that can only belong to
+    // that class. That matters: a BASE-class method registered into several
+    // tables carries the base's id, so sampling `GetObjectType` or
+    // `GetDrawLayer` risks a gate that accepts unrelated types. Frame is from
+    // `Script_RegisterEvent` (FUN_00774A40) and Texture from
+    // `Script_SetDesaturated` (FUN_0079C1E0), both cross-checked against the
+    // first entry of their table; GameTooltip from
+    // `Script_GameTooltip_SetSpell` (FUN_00532D10). Pairs 1:1 with the
+    // VAR_*_METHOD_REGISTRY values above.
+    VAR_GAMETOOLTIP_LUA_TYPE_ID = 0x00C0D414,
+    VAR_FRAME_LUA_TYPE_ID = 0x00CF0C10,
+    VAR_REGION_LUA_TYPE_ID = 0x00CF0C3C,
+    VAR_TEXTURE_LUA_TYPE_ID = 0x00CF4CDC,
+    VAR_FONTSTRING_LUA_TYPE_ID = 0x00CF2CCC,
+    VAR_EDITBOX_LUA_TYPE_ID = 0x00CF4DB4,
+
+    // CFrameScriptObject vtable slot 4 — the `IsA(typeId)` predicate every
+    // frame class implements, and the gate every engine method applies to its
+    // `self` before touching it. `char __thiscall(void *self, int typeId)`.
+    OFF_VMT_FRAMESCRIPT_ISA = 0x10,
+
+    // The three errors an engine frame method raises for a bad `self`, as
+    // .data string literals. None contains a `%`, so they are safe to hand
+    // straight to the variadic `lua_error`, and reading the engine's own
+    // strings keeps our diagnostics identical to the stock ones.
+    STR_FS_THIS_NON_TABLE = 0x00847EF8,
+    STR_FS_THIS_NON_OBJECT = 0x00847EC0,
+    STR_FS_WRONG_OBJECT_TYPE = 0x00847E98,
     // FUN_0076cfe0(model /*ecx*/, int replaceableType, const char *path) —
     // loads `path` as a texture and binds it to the model's replaceable-texture
     // slot `replaceableType`. Worker behind `Model:ReplaceIconTexture` (which

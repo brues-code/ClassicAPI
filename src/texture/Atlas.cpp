@@ -293,7 +293,7 @@ int __fastcall Script_RegisterAtlas(void *L) {
 // filter or wrap mode to set, and dropping them silently is what lets modern call
 // sites pass through unchanged.
 int __fastcall Script_SetAtlas(void *L) {
-    void *region = Game::Lua::ResolveObject(L, 1);
+    void *region = Game::Lua::ResolveTexture(L);
     if (region == nullptr)
         return 0;
 
@@ -350,7 +350,7 @@ int __fastcall Script_SetAtlas(void *L) {
 // `texture:GetAtlas()` — the atlas last set on this texture, or nil if the
 // texture has been pointed somewhere else since.
 int __fastcall Script_GetAtlas(void *L) {
-    void *region = Game::Lua::ResolveObject(L, 1);
+    void *region = Game::Lua::ResolveTexture(L);
     if (region == nullptr)
         return 0;
     const Applied *entry = LiveEntry(region);
@@ -374,7 +374,7 @@ int __fastcall Script_GetAtlas(void *L) {
 // the addon's coordinates in sprite space, so identity means the whole sprite
 // for an atlas'd texture and the whole file for any other.
 int __fastcall Script_ResetTexCoord(void *L) {
-    void *region = Game::Lua::ResolveObject(L, 1);
+    void *region = Game::Lua::ResolveTexture(L);
     if (region == nullptr)
         return 0;
 

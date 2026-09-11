@@ -216,6 +216,49 @@ void *State();
 // the `self` slot of any `frame:method(...)` invocation.
 void *ResolveObject(void *L, int idx);
 
+// Same resolve, then the type gate every engine frame method applies to its
+// `self` before touching it: `lua_type == table`, resolve to the object, then
+// the `IsA(typeId)` vmethod at vtable+0x10. `ResolveObject` alone is not
+// enough for a method that casts the result — it hands back a
+// `CFrameScriptObject *` for ANY frame, so `GameTooltip.SetSpellByID(button)`
+// would reach the tooltip builder with a Button. Frame methods are ordinary
+// first-class Lua values (the per-type dispatcher is an `__index` handler
+// that returns the method closure), so that call is reachable from plain Lua
+// and the gate is not optional.
+//
+// `typeIdVar` is the class's `VAR_*_LUA_TYPE_ID`, which must match the
+// registry the method was registered on. The id is assigned lazily by
+// whichever method of the class runs first, so these mirror that assignment
+// and work even before any stock method of the type has been called.
+//
+// Raises the engine's own three errors and returns null. Pass
+// `raiseError = false` for an optional object ARGUMENT, where the caller
+// wants a silent null rather than a "this" error naming the wrong slot.
+// Returns null either way, so callers always check.
+void *ResolveTypedObject(void *L, int idx, uintptr_t typeIdVar,
+                         bool raiseError = true);
+
+// For a method registered on SEVERAL registries, where any of those types is
+// a legitimate `self`. Accepts the object if `IsA` passes for any of the
+// listed ids — which is exactly what being in all of those registries means,
+// and avoids having to pin down the shared base class.
+void *ResolveTypedObjectAny(void *L, int idx, const uintptr_t *typeIdVars,
+                            int count, bool raiseError = true);
+
+// The class's live type id, assigning it if the engine has not yet. Needed
+// directly only when calling a type-specific vtable slot.
+int FrameScriptTypeId(uintptr_t typeIdVar);
+
+// Per-type sugar over `ResolveTypedObject`, so a call site cannot pair a
+// method with the wrong class's id. `idx` defaults to the `self` slot.
+void *ResolveTooltip(void *L, int idx = 1, bool raiseError = true);
+void *ResolveFrame(void *L, int idx = 1, bool raiseError = true);
+void *ResolveRegion(void *L, int idx = 1, bool raiseError = true);
+void *ResolveTexture(void *L, int idx = 1, bool raiseError = true);
+void *ResolveFontString(void *L, int idx = 1, bool raiseError = true);
+void *ResolveEditBox(void *L, int idx = 1, bool raiseError = true);
+void *ResolveModel(void *L, int idx = 1, bool raiseError = true);
+
 // Every name these registrars bind is ALSO bound under `_G.ClassicAPI` —
 // `ClassicAPI.GetSpellInfo`, `ClassicAPI.C_Item.IsBound` — as an escape
 // hatch for names something else replaces later, and by value so

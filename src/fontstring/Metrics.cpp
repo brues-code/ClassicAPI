@@ -151,7 +151,7 @@ float WrapBudget(void *fs) {
 void *ResolveSelf(void *L, const char *usage) {
     void *fs = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        fs = Game::Lua::ResolveObject(L, 1);
+        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
     if (fs == nullptr)
         Game::Lua::Error(L, "%s", usage);
     return fs;
@@ -362,7 +362,7 @@ int __fastcall Script_GetMaxLines(void *L) {
 int __fastcall Script_SetFormattedText(void *L) {
     void *fs = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        fs = Game::Lua::ResolveObject(L, 1);
+        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
     if (fs == nullptr || !Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: fontstring:SetFormattedText(\"format\"[, ...])");
         return 0;

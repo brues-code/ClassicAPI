@@ -117,7 +117,7 @@ int __fastcall Script_SetAction(void *L) {
         return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
 
     if (info.target == Macro::ShowTooltip::Target::Spell) {
-        void *tooltip = Game::Lua::ResolveObject(L, 1);
+        void *tooltip = Game::Lua::ResolveTooltip(L);
         if (tooltip == nullptr)
             return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
         return ShowSpell(L, tooltip, slot0, static_cast<int>(info.spellID));

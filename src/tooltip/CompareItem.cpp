@@ -525,7 +525,10 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
     int hoveredID = Item::Arg::ResolveItemID(L, 2);
     int hoveredSuffix = Item::StatAccum::ParseRandomSuffixFromLink(L, 2);
     if (hoveredID <= 0 && Game::Lua::Type(L, 5) == Game::Lua::TYPE_TABLE) {
-        if (void *cmp = Game::Lua::ResolveObject(L, 5)) {
+        // Typed: `CurrentID` reads tooltip fields off this object, so a
+        // non-tooltip here would read them out of unrelated memory. Silent —
+        // the argument is optional and we already fall through without it.
+        if (void *cmp = Game::Lua::ResolveTooltip(L, 5, /*raiseError=*/false)) {
             uint64_t g = 0;
             hoveredID = Item::TooltipItem::CurrentID(cmp, &g);
             if (g != 0) {
@@ -581,7 +584,7 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
 
     // The tooltip's underlying CFrameScriptObject — the `this` for the
     // engine's builder / add-line thiscalls.
-    void *self = Game::Lua::ResolveObject(L, 1);
+    void *self = Game::Lua::ResolveTooltip(L);
     if (self == nullptr)
         return bail(0);
 
@@ -630,7 +633,7 @@ int __fastcall Script_IsEquippedItem(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:IsEquippedItem()");
         return 0;
     }
-    void *self = Game::Lua::ResolveObject(L, 1);
+    void *self = Game::Lua::ResolveTooltip(L);
     const int itemID = self != nullptr ? Item::TooltipItem::CurrentID(self, nullptr) : 0;
 
     bool equipped = false;

@@ -530,7 +530,7 @@ int __fastcall Script_GameTooltipSetTotem(void *L) {
     if (!t.active || t.spellID == 0)
         return 0;
 
-    void *self = Game::Lua::ResolveObject(L, 1);
+    void *self = Game::Lua::ResolveTooltip(L);
     if (self == nullptr)
         return 0;
 

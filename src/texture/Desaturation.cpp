@@ -311,7 +311,7 @@ int LevelOf(void *region) {
 void *ResolveSelf(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE)
         return nullptr;
-    return Game::Lua::ResolveObject(L, 1);
+    return Game::Lua::ResolveTexture(L, 1, /*raiseError=*/false);
 }
 
 // --- Lua surface ------------------------------------------------------------

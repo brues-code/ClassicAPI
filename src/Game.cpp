@@ -99,6 +99,81 @@ void *ResolveObject(void *L, int idx) {
     return result;
 }
 
+namespace {
+using FrameScriptIsA_t = char(__thiscall *)(void *self, int typeId);
+
+const char *EngineString(uintptr_t address) {
+    return reinterpret_cast<const char *>(address);
+}
+
+// Shared body: the engine's prologue with N accepted type ids.
+void *ResolveChecked(void *L, int idx, const uintptr_t *typeIdVars, int count,
+                     bool raiseError) {
+    if (Type(L, idx) != TYPE_TABLE) {
+        if (raiseError)
+            Error(L, EngineString(Offsets::STR_FS_THIS_NON_TABLE));
+        return nullptr;
+    }
+    void *obj = ResolveObject(L, idx);
+    if (obj == nullptr) {
+        if (raiseError)
+            Error(L, EngineString(Offsets::STR_FS_THIS_NON_OBJECT));
+        return nullptr;
+    }
+    auto **vtable = *reinterpret_cast<void ***>(obj);
+    auto IsA = reinterpret_cast<FrameScriptIsA_t>(
+        vtable[Offsets::OFF_VMT_FRAMESCRIPT_ISA / sizeof(void *)]);
+    for (int i = 0; i < count; ++i) {
+        if (IsA(obj, FrameScriptTypeId(typeIdVars[i])))
+            return obj;
+    }
+    if (raiseError)
+        Error(L, EngineString(Offsets::STR_FS_WRONG_OBJECT_TYPE));
+    return nullptr;
+}
+} // namespace
+
+int FrameScriptTypeId(uintptr_t typeIdVar) {
+    auto &typeId = Game::Ref<int>(typeIdVar);
+    if (typeId == 0) {
+        auto &counter = Game::Ref<int>(Offsets::VAR_FRAMESCRIPT_TYPE_ID_COUNTER);
+        counter += 1;
+        typeId = counter;
+    }
+    return typeId;
+}
+
+void *ResolveTypedObject(void *L, int idx, uintptr_t typeIdVar, bool raiseError) {
+    return ResolveChecked(L, idx, &typeIdVar, 1, raiseError);
+}
+
+void *ResolveTypedObjectAny(void *L, int idx, const uintptr_t *typeIdVars,
+                            int count, bool raiseError) {
+    return ResolveChecked(L, idx, typeIdVars, count, raiseError);
+}
+
+void *ResolveTooltip(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_GAMETOOLTIP_LUA_TYPE_ID, raiseError);
+}
+void *ResolveFrame(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_FRAME_LUA_TYPE_ID, raiseError);
+}
+void *ResolveRegion(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_REGION_LUA_TYPE_ID, raiseError);
+}
+void *ResolveTexture(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_TEXTURE_LUA_TYPE_ID, raiseError);
+}
+void *ResolveFontString(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_FONTSTRING_LUA_TYPE_ID, raiseError);
+}
+void *ResolveEditBox(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_EDITBOX_LUA_TYPE_ID, raiseError);
+}
+void *ResolveModel(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_MODEL_LUA_TYPE_ID, raiseError);
+}
+
 // Looks up `_G[name]`. If absent, creates a fresh table and binds it.
 // Leaves the resulting table on top of the stack.
 namespace {

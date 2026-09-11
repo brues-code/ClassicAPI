@@ -119,6 +119,28 @@ bool CallRegionNumber(void *L, uintptr_t fn, double *out) {
     return true;
 }
 
+// `IsMouseOver` and `IsDragging` go on the REGION base registry, which every
+// region-family type inherits from — so a frame, texture or fontstring self
+// reaches them legitimately, and a Region-only gate would reject the very
+// callers the base registration exists to serve. Accepting the four ids
+// states that set directly instead of resting on an assumption about which
+// classes the engine's `IsA` treats as Regions. Both methods only read
+// Region-base state, so the wider set is sound. Non-raising: each reports
+// false for an unusable self, the contract they already had.
+constexpr uintptr_t kRegionFamilyTypeIds[] = {
+    Offsets::VAR_REGION_LUA_TYPE_ID,
+    Offsets::VAR_FRAME_LUA_TYPE_ID,
+    Offsets::VAR_TEXTURE_LUA_TYPE_ID,
+    Offsets::VAR_FONTSTRING_LUA_TYPE_ID,
+};
+
+void *ResolveRegionFamily(void *L) {
+    return Game::Lua::ResolveTypedObjectAny(
+        L, 1, kRegionFamilyTypeIds,
+        static_cast<int>(sizeof(kRegionFamilyTypeIds) / sizeof(kRegionFamilyTypeIds[0])),
+        /*raiseError=*/false);
+}
+
 int __fastcall Script_IsMouseOver(void *L) {
     // Offsets first — the stack gets reshaped by the delegated getters.
     const double offTop = Game::Lua::IsNumber(L, 2) ? Game::Lua::ToNumber(L, 2) : 0.0;
@@ -126,7 +148,7 @@ int __fastcall Script_IsMouseOver(void *L) {
     const double offLeft = Game::Lua::IsNumber(L, 4) ? Game::Lua::ToNumber(L, 4) : 0.0;
     const double offRight = Game::Lua::IsNumber(L, 5) ? Game::Lua::ToNumber(L, 5) : 0.0;
 
-    void *obj = Game::Lua::ResolveObject(L, 1);
+    void *obj = ResolveRegionFamily(L);
     if (obj == nullptr) {
         Game::Lua::PushBool(L, false);
         return 1;
@@ -191,7 +213,7 @@ int __fastcall Script_GetRect(void *L) {
 // regions — a texture/fontstring self can never match the frame stored
 // there, so it reports false, as it should.
 int __fastcall Script_IsDragging(void *L) {
-    void *self = Game::Lua::ResolveObject(L, 1);
+    void *self = ResolveRegionFamily(L);
     void *ctx = Game::Read<void *>(static_cast<uintptr_t>(Offsets::VAR_UI_CONTEXT_PTR));
     void *dragTarget =
         ctx != nullptr

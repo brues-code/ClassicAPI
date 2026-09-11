@@ -441,7 +441,7 @@ static const Game::HookAutoRegister _ctorHook{Offsets::FUN_SIMPLETEXTURE_CTOR,
 
 // texture:SetMask("path") sets the mask; SetMask(nil) / SetMask("") clears it.
 int __fastcall Script_SetMask(void *L) {
-    void *region = Game::Lua::ResolveObject(L, 1);
+    void *region = Game::Lua::ResolveTexture(L);
     if (region == nullptr)
         return 0;
     const char *path = (Game::Lua::GetTop(L) >= 2 && Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING)
@@ -485,8 +485,8 @@ int __fastcall Script_CreateMaskTexture(void *L) {
 // calls add further masks (drawn on units 1..7; extras past the device's stage
 // budget are stored but not applied). Adding the same mask twice is a no-op.
 int __fastcall Script_AddMaskTexture(void *L) {
-    void *base = Game::Lua::ResolveObject(L, 1);
-    void *mask = Game::Lua::ResolveObject(L, 2);
+    void *base = Game::Lua::ResolveTexture(L);
+    void *mask = Game::Lua::ResolveTexture(L, 2, /*raiseError=*/false);
     if (base == nullptr || mask == nullptr || base == mask)
         return 0;
     auto &v = g_baseMasks[base];
@@ -499,10 +499,10 @@ int __fastcall Script_AddMaskTexture(void *L) {
 
 // texture:RemoveMaskTexture([mask]) — drop the given mask, or all if omitted.
 int __fastcall Script_RemoveMaskTexture(void *L) {
-    void *base = Game::Lua::ResolveObject(L, 1);
+    void *base = Game::Lua::ResolveTexture(L);
     if (base == nullptr)
         return 0;
-    void *mask = Game::Lua::ResolveObject(L, 2);
+    void *mask = Game::Lua::ResolveTexture(L, 2, /*raiseError=*/false);
     auto it = g_baseMasks.find(base);
     if (it == g_baseMasks.end())
         return 0;
@@ -519,7 +519,7 @@ int __fastcall Script_RemoveMaskTexture(void *L) {
 
 // texture:GetNumMaskTextures() -> count.
 int __fastcall Script_GetNumMaskTextures(void *L) {
-    void *base = Game::Lua::ResolveObject(L, 1);
+    void *base = Game::Lua::ResolveTexture(L);
     int n = 0;
     if (base != nullptr) {
         auto it = g_baseMasks.find(base);
@@ -532,7 +532,7 @@ int __fastcall Script_GetNumMaskTextures(void *L) {
 
 // texture:GetMaskTexture(index) -> the index-th mask region object (or nil).
 int __fastcall Script_GetMaskTexture(void *L) {
-    void *base = Game::Lua::ResolveObject(L, 1);
+    void *base = Game::Lua::ResolveTexture(L);
     const int index =
         (Game::Lua::GetTop(L) >= 2) ? static_cast<int>(Game::Lua::ToNumber(L, 2)) : 1;
     if (base != nullptr && index >= 1) {

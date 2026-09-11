@@ -49,13 +49,10 @@
 namespace Model::DisplayInfo {
 namespace {
 
-// The CFrameScriptObject "is-a" vmethod, at vtable +0x10 for every frame type,
-// and the Model model-load worker at vtable +0x94 (the one Script_SetModel
-// invokes after resolving self). Both single-use here, so kept local.
-constexpr int kVmtIsA = 0x10;
+// The Model model-load worker at vtable +0x94 — the one Script_SetModel
+// invokes after resolving self. Single-use here, so kept local.
 constexpr int kVmtLoadModel = 0x94;
 
-using IsA_t = char(__thiscall *)(void *self, int typeId);
 using LoadModel_t = void(__thiscall *)(void *self, const char *path);
 using SetReplaceableTexture_t = void(__thiscall *)(void *model, int type, const char *path);
 
@@ -65,30 +62,12 @@ Fn Vmethod(void *obj, int byteOffset) {
     return *reinterpret_cast<Fn *>(vtbl + byteOffset);
 }
 
-// The Model frame-script type id. The engine assigns it lazily on the first
-// Model method call; mirror that assignment (FUN_0076d950's prologue) so a
-// type-check is valid even if no stock Model method has run yet.
-int ModelTypeId() {
-    auto &typeId = Game::Ref<int>(Offsets::VAR_MODEL_LUA_TYPE_ID);
-    if (typeId == 0) {
-        auto &counter = Game::Ref<int>(Offsets::VAR_FRAMESCRIPT_TYPE_ID_COUNTER);
-        counter += 1;
-        typeId = counter;
-    }
-    return typeId;
-}
-
-// Resolve arg1 to a Model object, or nullptr if it is not a Model. Mirrors the
-// resolve-then-typecheck prologue every Model method uses: generic object
-// resolve, then the IsA vmethod. The type-check matters here because we call a
-// Model vtable slot directly — a non-Model region would dispatch a wrong method.
+// Resolve arg1 to a Model object, or nullptr if it is not a Model. The
+// type-check matters especially here because we call a Model vtable slot
+// directly — a non-Model region would dispatch a wrong method. Non-raising,
+// which is the contract the callers below already had.
 void *ResolveModel(void *L) {
-    void *obj = Game::Lua::ResolveObject(L, 1);
-    if (obj == nullptr)
-        return nullptr;
-    if (!Vmethod<IsA_t>(obj, kVmtIsA)(obj, ModelTypeId()))
-        return nullptr;
-    return obj;
+    return Game::Lua::ResolveModel(L, 1, /*raiseError=*/false);
 }
 
 // Apply a creature display's TextureVariation skins to the just-loaded model.

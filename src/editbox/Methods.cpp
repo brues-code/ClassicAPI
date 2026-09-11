@@ -64,7 +64,7 @@ uint32_t ColorByte(void *L, int idx, double dflt) {
 }
 
 int __fastcall Script_SetCursorPosition(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr || !Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: EditBox:SetCursorPosition(position)");
         return 0;
@@ -82,7 +82,7 @@ int __fastcall Script_SetCursorPosition(void *L) {
 }
 
 int __fastcall Script_GetCursorPosition(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::Error(L, "Usage: EditBox:GetCursorPosition()");
         return 0;
@@ -96,7 +96,7 @@ int __fastcall Script_GetCursorPosition(void *L) {
 // vs GetCursorPosition's byte offset. Equal for ASCII; differs once the text
 // holds multibyte characters.
 int __fastcall Script_GetUTF8CursorPosition(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::Error(L, "Usage: EditBox:GetUTF8CursorPosition()");
         return 0;
@@ -113,7 +113,7 @@ int __fastcall Script_GetUTF8CursorPosition(void *L) {
 // helper does; vanilla can only clear a selection via HighlightText(0, 0),
 // which yanks it to offset 0 instead of leaving the caret in place.
 int __fastcall Script_ClearHighlightText(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::Error(L, "Usage: EditBox:ClearHighlightText()");
         return 0;
@@ -128,7 +128,7 @@ int __fastcall Script_ClearHighlightText(void *L) {
 // focused box in one global (written by SetFocus / cleared by ClearFocus), so
 // focus is just pointer identity against it.
 int __fastcall Script_HasFocus(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::PushBool(L, false);
         return 1;
@@ -140,7 +140,7 @@ int __fastcall Script_HasFocus(void *L) {
 
 // True when the box holds any text (its byte length is non-zero).
 int __fastcall Script_HasText(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::PushBool(L, false);
         return 1;
@@ -156,7 +156,7 @@ int __fastcall Script_HasText(void *L) {
 // it on all three via the engine's own region color setter. Colors are 0..1;
 // alpha defaults to 1. Takes effect on the next selection paint.
 int __fastcall Script_SetHighlightColor(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr || !Game::Lua::IsNumber(L, 2) ||
         !Game::Lua::IsNumber(L, 3) || !Game::Lua::IsNumber(L, 4)) {
         Game::Lua::Error(L, "Usage: EditBox:SetHighlightColor(r, g, b [, a])");
@@ -181,7 +181,7 @@ int __fastcall Script_SetHighlightColor(void *L) {
 // GetHighlightColor() -> r, g, b, a (each 0..1). Reads the color off the first
 // highlight region; a region with no explicit color reads back white (opaque).
 int __fastcall Script_GetHighlightColor(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::Error(L, "Usage: EditBox:GetHighlightColor()");
         return 0;
@@ -205,7 +205,7 @@ int __fastcall Script_GetHighlightColor(void *L) {
 // drops every entry and resets the write position. No-op when history was
 // never enabled (max 0).
 int __fastcall Script_ClearHistory(void *L) {
-    void *eb = Game::Lua::ResolveObject(L, 1);
+    void *eb = Game::Lua::ResolveEditBox(L);
     if (eb == nullptr) {
         Game::Lua::Error(L, "Usage: EditBox:ClearHistory()");
         return 0;

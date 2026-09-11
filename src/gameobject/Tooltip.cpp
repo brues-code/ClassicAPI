@@ -58,7 +58,7 @@ static int __fastcall Script_GameTooltipGetGameObject(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:GetGameObject()");
         return 0;
     }
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr)
         return 0;
 
@@ -105,7 +105,7 @@ static int __fastcall Script_GameTooltipHasGameObject(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:HasGameObject()");
         return 0;
     }
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr) {
         Game::Lua::PushBool(L, false);
         return 1;

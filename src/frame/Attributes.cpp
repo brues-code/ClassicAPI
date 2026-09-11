@@ -990,7 +990,7 @@ int DoSet(void *L, bool fireHandler) { // (self, name, value)
     // (the key the mouse-focus poll uses) and enable its mouse so it can be
     // hovered.
     if (std::strcmp(lname, "unit") == 0) {
-        void *obj = Game::Lua::ResolveObject(L, 1);
+        void *obj = Game::Lua::ResolveFrame(L);
         if (obj != nullptr) {
             if (isString) {
                 const char *tok = Game::Lua::ToString(L, 3);
@@ -1018,7 +1018,7 @@ int DoSet(void *L, bool fireHandler) { // (self, name, value)
     }
 
     if (fireHandler)
-        FireAttributeChanged(L, Game::Lua::ResolveObject(L, 1), lname);
+        FireAttributeChanged(L, Game::Lua::ResolveFrame(L), lname);
     return 0;
 }
 

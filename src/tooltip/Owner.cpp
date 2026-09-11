@@ -49,7 +49,7 @@ static int __fastcall Script_GameTooltipGetOwner(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:GetOwner()");
         return 0;
     }
-    void *tooltip = Game::Lua::ResolveObject(L, 1);
+    void *tooltip = Game::Lua::ResolveTooltip(L);
     if (tooltip == nullptr)
         return 0;
 

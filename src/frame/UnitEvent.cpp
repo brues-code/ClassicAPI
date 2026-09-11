@@ -175,7 +175,7 @@ int __fastcall Script_RegisterUnitEvent(void *L) {
         Game::Lua::Error(L, "Usage: frame:RegisterUnitEvent(\"event\" [, \"unit1\", ...])");
         return 0;
     }
-    void *frame = Game::Lua::ResolveObject(L, 1);
+    void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr) {
         // Not a frame — hand it to the engine so it raises its own error, so
         // the message stays the engine's rather than a copy of it.
@@ -231,7 +231,7 @@ int __fastcall Script_IsEventRegistered(void *L) {
         Game::Lua::Error(L, "Usage: frame:IsEventRegistered(\"event\")");
         return 0;
     }
-    void *frame = Game::Lua::ResolveObject(L, 1);
+    void *frame = Game::Lua::ResolveFrame(L);
     const char *eventName = Game::Lua::ToString(L, 2);
     const uint8_t *entry = (frame != nullptr) ? FindEventEntry(eventName) : nullptr;
     const bool registered = entry != nullptr && ChainHas(entry, frame);

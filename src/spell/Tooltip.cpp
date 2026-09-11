@@ -31,7 +31,7 @@ using BuildSpellTooltip_t = void(__thiscall *)(void *thisObj, int spellID, int a
 void ShowByID(void *L, int spellID) {
     if (spellID <= 0)
         return;
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr)
         return;
     auto BuildSpellTooltip =
@@ -70,7 +70,7 @@ static int __fastcall Script_GameTooltipSetSpellByID(void *L) {
 void AppendByID(void *L, int spellID) {
     if (spellID <= 0)
         return;
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr)
         return;
     auto *tt = static_cast<uint8_t *>(tooltipObj);
@@ -137,7 +137,7 @@ static int __fastcall Script_GameTooltipGetSpell(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:GetSpell()");
         return 0;
     }
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr)
         return 0;
 
@@ -176,7 +176,7 @@ static int __fastcall Script_GameTooltipHasSpell(void *L) {
         Game::Lua::Error(L, "Usage: GameTooltip:HasSpell()");
         return 0;
     }
-    void *tooltipObj = Game::Lua::ResolveObject(L, 1);
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr) {
         Game::Lua::PushBool(L, 0);
         return 1;
