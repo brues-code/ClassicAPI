@@ -6347,6 +6347,40 @@ enum Offsets {
     OFF_GAMETIME_MONTH = 0x10,
     OFF_GAMETIME_YEAR = 0x14,
 
+    // Server-clock skew, the engine's own `CMSG_QUERY_TIME` sync — and a
+    // strictly better server clock than `VAR_GAMETIME_STRUCT` above, which
+    // carries minute granularity, no timezone, and (on realms that set a
+    // per-map time offset) the ZONE clock rather than the server's.
+    //
+    // `FUN_004DE430` (quest-log enter-world setup) sends `CMSG_QUERY_TIME`
+    // (opcode `0x1CE`) unconditionally on every enter-world. The response
+    // handler `FUN_004DE400`, registered for `SMSG_QUERY_TIME_RESPONSE`
+    // (`0x1CF`) by `FUN_004DE390`, reads the body's single u32 — a raw
+    // `time(nullptr)` server-side — and `FUN_004DEEF0` stores the skew:
+    //
+    //   VAR_SERVER_TIME_DELTA   = FUN_SERVER_TIME_LOCAL_SECONDS() - serverEpoch
+    //   [0x00BB749C]            = FUN_SERVER_TIME_LOCAL_SECONDS() + 0xE10
+    //
+    // so `serverEpoch = FUN_SERVER_TIME_LOCAL_SECONDS() - delta`. That
+    // direction is confirmed by the engine's own use of it: the timed-quest
+    // expiry check in `FUN_004DE510` tests
+    // `(questEndTime + delta) - localNow - 1 < 0`, i.e. it converts a
+    // server timestamp into local-clock space by ADDING the delta.
+    //
+    // The second global is a re-query deadline (`0xE10` = 3600 s); the
+    // quest-log rebuild re-sends `CMSG_QUERY_TIME` once it passes. Both are
+    // zeroed by `FUN_004DE390`, and the handler substitutes 1 for a
+    // computed 0 — so **0 is the engine's own "never synced" sentinel** and
+    // must be checked before use.
+    VAR_SERVER_TIME_DELTA = 0x00BB7494,
+
+    // Local Unix epoch in seconds — the CRT `time(nullptr)`
+    // (`FUN_0073F049`) behind a 500 ms cache in an interlocked 64-bit slot
+    // at `DAT_00884048`. `__fastcall void → uint32_t`. This is the clock
+    // `VAR_SERVER_TIME_DELTA` is measured against, so the two must always
+    // be read together.
+    FUN_SERVER_TIME_LOCAL_SECONDS = 0x00429580,
+
     // AddOn registry. The engine keeps a flat 4-byte-stride array of
     // `AddOnEntry *` at `[VAR_ADDON_ARRAY]`, with the in-use count at
     // `[VAR_ADDON_COUNT]`. Each entry's first 12 bytes are an inline

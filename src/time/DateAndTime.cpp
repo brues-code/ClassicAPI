@@ -11,14 +11,18 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_DateAndTime.*` — backport of modern's date-math API. Six of the
-// seven functions we ship are pure arithmetic on a `CalendarTime`
+// `C_DateAndTime.*` — backport of modern's date-math API. Four of the
+// seven functions in this file are pure arithmetic on a `CalendarTime`
 // table (year/month/monthDay/weekday/hour/minute) — no engine state
-// touched at all. The seventh, `GetSecondsUntilDailyReset`, treats
-// reset as midnight in *server* wall-clock time. That falls out of
-// `Time::Server::CurrentEpoch()` naturally: that helper converts the
-// engine's server-time fields to an epoch by treating them AS UTC,
-// so `epoch % 86400 == 0` lands precisely on server midnight.
+// touched at all. (`C_DateAndTime.GetServerTime` is registered by
+// `Time::Server`, which owns the clock itself.)
+//
+// The three that DO read a clock each pick one of the two the client
+// receives, per `Time::Server`: `GetCurrentCalendarTime` and
+// `GetServerTimeLocal` display realm time and take `RealmClockEpoch`, while
+// `GetSecondsUntilDailyReset` counts down to a real moment and takes
+// `CurrentEpoch`. Reversing either pairing is wrong by the realm's UTC
+// offset, so keep each call site's reason in view when editing.
 //
 // `GetSecondsUntilWeeklyReset` is intentionally omitted — vanilla
 // has no server-broadcast reset schedule and Turtle WoW realms vary,
@@ -163,8 +167,11 @@ int __fastcall Script_GetCalendarTimeFromEpoch(void *L) {
     return 1;
 }
 
+// Returns REALM time, not UTC — the documented contract, and the reason
+// this reads `RealmClockEpoch` rather than `CurrentEpoch`. Its hour and
+// minute therefore always agree with `GetGameTime()`.
 int __fastcall Script_GetCurrentCalendarTime(void *L) {
-    const int64_t epoch = Time::Server::CurrentEpoch();
+    const int64_t epoch = Time::Server::RealmClockEpoch();
     if (epoch <= 0)
         return 0;
     std::time_t e = static_cast<std::time_t>(epoch);
@@ -176,9 +183,13 @@ int __fastcall Script_GetCurrentCalendarTime(void *L) {
     return 1;
 }
 
-// `GetSecondsUntilDailyReset()` — server-midnight semantics. Server
-// time treated as UTC for epoch math (see `Time::Server`), so
-// `epoch % 86400` = seconds-into-server-day naturally.
+// `GetSecondsUntilDailyReset()` — UTC-midnight semantics, which is where
+// the server's own day boundary sits: it buckets its day as
+// `(gameTime + configuredOffset) / 86400` over a raw `time(nullptr)`, and
+// never transmits that offset. So this reads `CurrentEpoch` (the instant),
+// for which `epoch % 86400` is seconds-into-the-UTC-day, and NOT
+// `RealmClockEpoch` — the realm's displayed midnight is a different moment
+// whenever the realm is not on UTC.
 int __fastcall Script_GetSecondsUntilDailyReset(void *L) {
     const int64_t epoch = Time::Server::CurrentEpoch();
     if (epoch <= 0)
@@ -189,25 +200,16 @@ int __fastcall Script_GetSecondsUntilDailyReset(void *L) {
     return 1;
 }
 
-// `GetServerTimeLocal()` — modern returns the server's wall clock
-// re-interpreted as local time and packed as a Unix epoch. The trick:
-// take the server's UTC-style components, feed them to `mktime`
-// (which interprets them as local time), and the resulting epoch is
-// what addons want for `date(format, GetServerTimeLocal())` to print
-// server-clock strings.
+// `GetServerTimeLocal()` — the epoch offset by the server's timezone, so
+// that formatting it prints the realm's clock digits rather than the
+// instant. `RealmClockEpoch` already IS that value: it packs the wall clock
+// the realm broadcasts into an epoch as though those digits were UTC, which
+// makes it `GetServerTime() + serverTimezoneOffset` by construction.
 int __fastcall Script_GetServerTimeLocal(void *L) {
-    const int64_t epoch = Time::Server::CurrentEpoch();
+    const int64_t epoch = Time::Server::RealmClockEpoch();
     if (epoch <= 0)
         return 0;
-    std::time_t e = static_cast<std::time_t>(epoch);
-    std::tm t{};
-    if (gmtime_s(&t, &e) != 0)
-        return 0;
-    t.tm_isdst = -1;
-    const std::time_t local = std::mktime(&t);
-    if (local == -1)
-        return 0;
-    Game::Lua::PushNumber(L, static_cast<double>(local));
+    Game::Lua::PushNumber(L, static_cast<double>(epoch));
     return 1;
 }
 

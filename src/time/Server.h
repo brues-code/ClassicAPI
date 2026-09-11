@@ -17,14 +17,34 @@
 
 namespace Time::Server {
 
-// Reads the engine's game-time struct and returns the current server
-// clock as a Unix epoch (seconds since 1970-01-01 UTC). Same interpolation
-// trick `Script_GetServerTime` uses — `GetTickCount` deltas fill in the
-// sub-minute portion that the wire protocol doesn't carry.
+// The client receives TWO different clocks, and they answer two different
+// questions. Both accessors return 0 when their source has no data yet
+// (before login). Pick by what the caller's contract says, not by
+// convenience — on a realm that is not on UTC, or in a zone the realm time
+// -shifts, these return very different values.
+
+// The instant: a true Unix epoch, seconds since 1970-01-01 UTC. Backed by
+// the engine's own `CMSG_QUERY_TIME` sync, so it has real seconds and is
+// free of both the realm's timezone and any per-map time offset. Use it for
+// anything that compares, sorts, stores, or counts down — `GetServerTime`
+// and the daily reset.
 //
-// Returns 0 before login while the struct is BSS-zero. Cold-start
-// accuracy: the first reported minute lands at :00 (off by up to 59s);
-// subsequent calls are accurate within a few hundred ms.
+// Falls back to `RealmClockEpoch` for the ~1 RTT after enter-world before
+// the sync lands, and on a server that never answers the query. That
+// fallback is the wrong clock by the realm's UTC offset, so a caller can
+// see the value jump once during the first moments of a session.
 int64_t CurrentEpoch();
+
+// The realm's wall clock, expressed as the epoch that renders back to those
+// same digits under UTC. Built from the gametime the server broadcasts, so
+// it matches `GetGameTime()` exactly — including a per-map time offset where
+// the realm applies one. Minute granularity, with `GetTickCount` filling the
+// sub-minute part.
+//
+// This is not an instant and must not be compared against a real timestamp.
+// Use it only to DISPLAY realm time: the calendar's date and time fields,
+// and `GetServerTimeLocal`, whose contract is "the epoch offset by the
+// server's timezone" — which is precisely this value.
+int64_t RealmClockEpoch();
 
 } // namespace Time::Server

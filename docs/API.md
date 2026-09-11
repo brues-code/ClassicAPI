@@ -685,6 +685,7 @@ build instructions.
   - [`C_DateAndTime.GetCalendarTimeFromEpoch(epoch)`](#c_dateandtimegetcalendartimefromepochepoch)
   - [`C_DateAndTime.AdjustTimeByDays(date, days)` / `AdjustTimeByMinutes(date, minutes)`](#c_dateandtimeadjusttimebydaysdate-days--adjusttimebyminutesdate-minutes)
   - [`C_DateAndTime.CompareCalendarTime(lhs, rhs)`](#c_dateandtimecomparecalendartimelhs-rhs)
+  - [`C_DateAndTime.GetServerTime()`](#c_dateandtimegetservertime)
   - [`C_DateAndTime.GetServerTimeLocal()`](#c_dateandtimegetservertimelocal)
   - [`C_DateAndTime.GetSecondsUntilDailyReset()`](#c_dateandtimegetsecondsuntildailyreset)
 
@@ -16282,26 +16283,28 @@ local now = GetServerTime()
 -- now = 1778260148 (Fri 2026-05-08 17:09:08 UTC)
 ```
 
-Reads year/month/day/hour/minute from the engine's game-time struct at
-`0x00CE8538` (populated from `SMSG_LOGIN_VERIFY_WORLD` /
-`SMSG_LOGIN_SETTIMESPEED` and advanced by the internal tick handler) and
-converts via `_mkgmtime`. Stock `GetTime()` returns frame-relative
-seconds-since-login and is useless for wall-clock alignment; this is the
-right call for calendar / log-timestamp / cooldown-sync use cases.
+> **A client can replace this global.** Some clients declare their own
+> `GetServerTime` function in FrameXML, which replaces the global with a
+> different return value. Turtle WoW is one, and its version returns the
+> server hour and the server minute.
+> [`C_DateAndTime.GetServerTime()`](#c_dateandtimegetservertime) is the
+> name that always returns the timestamp.
 
-> **Sub-minute accuracy.** The 1.12 wire protocol carries time at
-> minute granularity — the packed gametime field has no seconds — so
-> the engine's clock only steps every minute. We interpolate within the
-> minute using `GetTickCount`: whenever we observe the engine's minute
-> change, we anchor to the current tick and add `(now - anchor) / 1000`
-> seconds for subsequent calls in that minute.
->
-> The very first call after login lands at second `:00` of the current
-> minute (we have no way to know how far in we are when we first see
-> it), so the cold-start value can be off by 0..59 seconds. After the
-> first minute rollover we observe, the anchor lands at the rollover
-> boundary and the timestamp is accurate to within a second of the
-> engine's clock for as long as the session continues.
+The value is an instant, with second resolution. It is independent of the
+realm's timezone and of any per-zone time shift the realm applies, so it
+stays continuous when the player changes continents. That makes it the
+right call for log timestamps, sorting, and anything that counts down.
+Stock `GetTime()` measures the session instead, and cannot be compared
+against it.
+
+To print the realm's clock digits rather than the instant, use
+[`C_DateAndTime.GetServerTimeLocal()`](#c_dateandtimegetservertimelocal).
+
+> **Right after login.** The realm reports the instant on request, and
+> the answer takes a moment to arrive. Until it does, this function
+> reports the realm's wall clock instead, which is wrong by the realm's
+> timezone offset. The value corrects itself once the answer lands, so a
+> caller that starts at login can see it step once.
 
 ### `GetTimeCached()`
 
@@ -16402,7 +16405,7 @@ Implementation notes (apply to all three functions):
 ### `C_DateAndTime` overview
 
 Backport of the `C_DateAndTime` namespace — calendar-style
-date math built on top of `GetServerTime()`. All seven functions
+date math built on top of the server clock. The calendar functions
 exchange `CalendarTime` tables with these fields (matching
 Blizzard's `TimeDocumentation.lua`):
 
@@ -16415,11 +16418,17 @@ Blizzard's `TimeDocumentation.lua`):
 | `hour` | 0..23 | |
 | `minute` | 0..59 | |
 
-> **Daily reset semantics.** `GetSecondsUntilDailyReset` treats reset
-> as midnight in server wall-clock time. This is exactly what
-> `GetServerTime() % 86400 == 0` gives you — the engine's gametime
-> components are converted to an epoch by treating them as UTC, so
-> day boundaries in epoch math align with server-clock midnight.
+> **Two clocks.** A realm sends the client both an instant and a wall
+> clock, and they differ by the realm's timezone. `GetServerTime` and
+> `GetSecondsUntilDailyReset` report the instant, so they are the ones
+> to compare, sort, store, and count down with.
+> `GetCurrentCalendarTime` and `GetServerTimeLocal` report the wall
+> clock, for display, and always agree with `GetGameTime()`.
+>
+> **Daily reset semantics.** `GetSecondsUntilDailyReset` counts down to
+> UTC midnight, which is where a realm's own day boundary sits. A realm
+> can shift that boundary by a configured amount, and it never tells the
+> client, so a realm that shifts it resets at a different moment.
 >
 > **Weekly reset not implemented.** There is no server-broadcast
 > weekly reset schedule, and Turtle WoW realm schedules vary, so
@@ -16429,8 +16438,11 @@ Blizzard's `TimeDocumentation.lua`):
 
 ### `C_DateAndTime.GetCurrentCalendarTime()`
 
-Returns the server clock as a CalendarTime table, or nothing before
-login. Equivalent to `GetCalendarTimeFromEpoch(GetServerTime())`.
+Returns the realm's date and time as a CalendarTime table, or nothing
+before login. The `hour` and `minute` fields always agree with
+`GetGameTime()`. This is realm time, not the instant, so it does not
+match `GetCalendarTimeFromEpoch(GetServerTime())` on a realm that is
+not on UTC.
 
 ```lua
 local t = C_DateAndTime.GetCurrentCalendarTime()
@@ -16461,14 +16473,30 @@ Returns `-1` if `lhs < rhs`, `0` if equal, `1` if `lhs > rhs`.
 Compares by epoch conversion so denormalized inputs sort
 consistently.
 
+### `C_DateAndTime.GetServerTime()`
+
+Returns the current server clock as a Unix epoch timestamp, exactly as
+[`GetServerTime()`](#getservertime) does. A ClassicAPI extension, and the
+name to call when the result must be that timestamp on every client.
+
+```lua
+local now = C_DateAndTime.GetServerTime()
+-- now = 1778260148 (Fri 2026-05-08 17:09:08 UTC)
+```
+
+Some clients declare their own `GetServerTime` function in FrameXML, which
+replaces the global with a different return value. Turtle WoW is one. Its
+version returns the server hour and the server minute, so
+`GetServerTime()` there is not a timestamp. FrameXML never touches this
+namespaced name.
+
 ### `C_DateAndTime.GetServerTimeLocal()`
 
-Returns the server's wall clock re-interpreted as a Unix epoch in
-the **player's** local timezone. Useful when you want to feed a
-server-clock value into Lua's `date(format, epoch)` and have the
-formatted string show the server's apparent hour/minute. If the
-server reports 14:30 and the player is in UTC-5, this returns the
-epoch that corresponds to 14:30 in UTC-5 (which is 19:30 UTC).
+Returns [`GetServerTime()`](#getservertime) offset by the server's
+timezone. The result is a display value, not an instant: formatting it
+shows the realm's clock digits. If the realm reports 14:30, this
+returns the epoch for 14:30 UTC, so `date("!%H:%M", t)` prints
+`14:30`. Do not compare it against a real timestamp.
 
 ### `C_DateAndTime.GetSecondsUntilDailyReset()`
 

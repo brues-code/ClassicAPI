@@ -25,7 +25,39 @@ namespace Time::Server {
 
 namespace {
 
-// Interpolation anchor. The 1.12 wire protocol carries time at minute
+using LocalSeconds_t = uint32_t(__fastcall *)();
+
+// Primary source: the engine's own server-clock sync. It sends
+// `CMSG_QUERY_TIME` on every enter-world and caches the skew between the
+// server's reply (a raw `time(nullptr)`) and the local clock, refreshing
+// hourly — so the subtraction below yields a true Unix epoch with real
+// seconds, free of both the timezone guess and any per-map time offset the
+// realm applies to the gametime it broadcasts. See `Offsets.h`
+// (`VAR_SERVER_TIME_DELTA`) for the full derivation.
+//
+// Returns 0 when the engine has not synced yet — the ~1 RTT after
+// enter-world, or a server that never answers the query. 0 is the engine's
+// own sentinel for that, not ours: the handler substitutes 1 for a computed
+// skew of 0 precisely so the value stays a reliable "synced" flag.
+int64_t EpochFromServerSync() {
+    const uint32_t delta =
+        Game::Read<uint32_t>(Offsets::VAR_SERVER_TIME_DELTA);
+    if (delta == 0)
+        return 0;
+
+    const auto localSeconds = reinterpret_cast<LocalSeconds_t>(
+        static_cast<uintptr_t>(Offsets::FUN_SERVER_TIME_LOCAL_SECONDS));
+    const uint32_t now = localSeconds();
+    if (now == 0)
+        return 0; // local clock unreadable; the delta alone says nothing
+
+    // Unsigned subtraction, so a local clock set behind the server's (a
+    // delta that reads as a huge uint32) still lands on the right epoch.
+    return static_cast<int64_t>(static_cast<uint32_t>(now - delta));
+}
+
+// Interpolation anchor for the FALLBACK path below. The 1.12 wire protocol
+// carries the broadcast gametime at minute
 // granularity — `SMSG_LOGIN_SETTIMESPEED`'s packed gametime field has
 // no seconds — so the engine's stored hour/minute fields only step
 // every minute. To produce a Unix timestamp that ticks every second
@@ -45,7 +77,13 @@ int g_lastHour = -1;
 int g_lastMinute = -1;
 DWORD g_anchorTick = 0;
 
-int64_t ComputeCurrentEpoch() {
+// Fallback: rebuild an epoch from the broadcast gametime struct. Used only
+// until the sync above lands, and on servers that don't implement
+// `CMSG_QUERY_TIME`. Weaker on three counts — minute granularity papered
+// over by the interpolation above, no timezone on the wire (so the server's
+// wall clock is treated as UTC), and it carries whatever per-map offset the
+// realm folded in before broadcasting.
+int64_t EpochFromGameTime() {
     auto *base = reinterpret_cast<const uint8_t *>(
         static_cast<uintptr_t>(Offsets::VAR_GAMETIME_STRUCT));
 
@@ -91,23 +129,28 @@ int64_t ComputeCurrentEpoch() {
     return static_cast<int64_t>(minuteStart) + elapsedSec;
 }
 
+int64_t ComputeCurrentEpoch() {
+    const int64_t synced = EpochFromServerSync();
+    if (synced > 0)
+        return synced;
+    return EpochFromGameTime();
+}
+
 } // namespace
 
 int64_t CurrentEpoch() { return ComputeCurrentEpoch(); }
+
+int64_t RealmClockEpoch() { return EpochFromGameTime(); }
 
 // `GetServerTime()` — returns the current server clock as a Unix epoch
 // timestamp (seconds since 1970-01-01 UTC). 1.12's stock `GetTime()` is
 // frame-relative seconds-since-login, useless for any addon that needs
 // wall-clock alignment (calendar, log timestamps, cooldown sync).
 //
-// Reads year/month/day/hour/minute from the engine's game-time struct at
-// `VAR_GAMETIME_STRUCT` (populated by SMSG_LOGIN_VERIFY_WORLD /
-// SMSG_LOGIN_SETTIMESPEED) and converts via `_mkgmtime`, with
-// `GetTickCount`-based interpolation between minute boundaries. We
-// don't reuse the engine's `0x00642320` helper because that one folds
-// in a divide-by-86400 (returning days-since-epoch, not seconds).
-//
-// Returns `nil` before login while the struct is BSS-zero.
+// Prefers the engine's `CMSG_QUERY_TIME` skew (`EpochFromServerSync`) and
+// falls back to the broadcast gametime struct (`EpochFromGameTime`) until
+// that syncs. Returns `nil` when neither source has data — before login,
+// while the gametime struct is still BSS-zero.
 static int __fastcall Script_GetServerTime(void *L) {
     const int64_t epoch = ComputeCurrentEpoch();
     if (epoch <= 0)
@@ -118,6 +161,16 @@ static int __fastcall Script_GetServerTime(void *L) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetServerTime", &Script_GetServerTime);
+
+    // Same function under a namespaced name, because the bare global is not
+    // ours to keep. Registration happens inside `FUN_LOAD_SCRIPT_FUNCTIONS`,
+    // and FrameXML loads after that — so a client whose `GameTime.lua`
+    // declares its own `function GetServerTime()` (Turtle's returns
+    // `(serverHour, serverMinute)`) silently replaces the global on every
+    // login and every `/reload`, and no addon can reach the C function
+    // again. Nothing declares this name, so it always resolves to the epoch.
+    Game::Lua::RegisterTableFunction("C_DateAndTime", "GetServerTime",
+                                     &Script_GetServerTime);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
