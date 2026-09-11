@@ -11104,6 +11104,9 @@ does the same, but keeps the macro name as the tooltip.
 #showtooltip Healthstone
 /use Healthstone
 
+#showtooltip spell:1539
+/cast 1539
+
 #showtooltip
 /cast !Shoot
 
@@ -11113,10 +11116,17 @@ does the same, but keeps the macro name as the tooltip.
 
 - `#showtooltip <value>` shows that value. The value takes the same forms
   as `/cast`: a spell name, a spellID, an item name, `item:N`, an item
-  link, an inventory slot, or `bag slot`. It accepts the same
+  link, an inventory slot, or `bag slot`. It also takes `spell:N`, which
+  names a spell by ID and nothing else. It accepts the same
   `[conditions]`. An item that you carry wins over a spell of the same
   name, as in `/cast`. A spell name can carry the `!` prefix, and the
   button shows that spell.
+- A spell you name by ID shows even when you have not learned it. The icon
+  and the tooltip come from the spell itself, so `#showtooltip spell:1539`
+  and `#showtooltip 1539` both show spell 1539. The button is still greyed
+  out, because you cannot cast it. This applies to a value the directive
+  names itself. The bare form below reads your `/cast` lines, and a spell
+  there resolves only as far as the cast does.
 - An item named by ID shows even when you carry none of it, since the icon
   and tooltip come from the item itself. An item named by name has to be on
   you or equipped for the button to find it.
@@ -11132,8 +11142,8 @@ does the same, but keeps the macro name as the tooltip.
   group that only names a unit (`[@mouseover]`) matches only while that unit
   exists, so `[@mouseover] Rejuvenation` alone shows `?` with nothing under
   the cursor, and `[@mouseover][] Rejuvenation` shows the spell and casts on
-  your target instead. If the value names a spell that you do not know, the
-  button is greyed out.
+  your target instead. If the value names a spell by name that you do not
+  know, nothing shows. Name it by ID to show it anyway.
 
 Lines that start with `#` are comments. They never run, and they never
 reach chat.
@@ -11412,9 +11422,11 @@ C_Macro.SetMacroDisplay(1, nil)           -- released, `#showtooltip` resumes
 `macroSlot` is the macro index, the same one
 `GetMacroInfo` and
 [`GetMacroSpell`](#getmacrospellmacroslot) take. `value` takes every form a
-[`#showtooltip`](#showtooltip-and-show) value takes: a spell name or ID, an
-item name, `item:N`, an item link, an inventory slot, or `bag slot`. An item
-you carry wins over a spell of the same name, as in `/cast`.
+[`#showtooltip`](#showtooltip-and-show) value takes: a spell name or ID,
+`spell:N`, an item name, `item:N`, an item link, an inventory slot, or
+`bag slot`. An item you carry wins over a spell of the same name, as in
+`/cast`. A spell you name by ID shows even when the player has not learned
+it, the same as a directive that names its own value.
 
 Returns `true` when the value named a spell or an item.
 

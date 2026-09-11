@@ -104,6 +104,10 @@ struct Entry {
     uint32_t macroID = 0;
     Kind kind = Kind::None;
     bool conditional = false;
+    // The directive named its own value, so an explicitly named spellID is
+    // ours to describe whether or not the player has learned it. See
+    // `ResolveValue`.
+    bool explicitValue = false;
     bool dirty = false;
     // The option lines use a condition our parser does not own, so another
     // macro addon owns this macro. Set once per parse of the body.
@@ -276,6 +280,10 @@ const char *CastCommandArgs(const char *line) {
 struct Parsed {
     Kind kind = Kind::None;
     bool conditional = false;
+    // The directive carried the value itself (`#showtooltip <value>`) rather
+    // than the bare form reading the macro's `/cast` and `/use` lines. See
+    // `ResolveValue` for what it buys.
+    bool explicitValue = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
 };
@@ -306,6 +314,7 @@ void ParseBody(const char *body, Parsed *out) {
     out->kind = kind;
 
     if (*args != '\0') {
+        out->explicitValue = true;
         AppendOptionLine(out, args);
         return;
     }
@@ -364,6 +373,7 @@ void Rescan(void *L) {
             e.macroID = macroID;
             e.kind = parsed.kind;
             e.conditional = parsed.conditional;
+            e.explicitValue = parsed.explicitValue;
             e.optionCount = parsed.optionCount;
             std::memcpy(e.options, parsed.options, sizeof(e.options));
         }
@@ -462,9 +472,51 @@ void SetItem(const uint8_t *cgItem, Resolution *r) {
     }
 }
 
+// A spell named by ID for DISPLAY, straight out of `Spell.dbc` — no spellbook
+// involved, so it resolves for a spell the player has not learned.
+//
+// The name path cannot do this. It resolves a name (or an ID through its name)
+// to a spellbook SLOT, and an unlearned spell has none — the same constraint
+// `/cast` has, and rightly, since a cast needs that slot. An icon and a tooltip
+// do not: both come from the spell record either way.
+bool SetSpellByID(int spellID, Resolution *r) {
+    if (spellID <= 0 || ::Spell::Lookup::RecordForID(spellID) == nullptr)
+        return false;
+    r->target = Target::Spell;
+    r->spellID = static_cast<uint32_t>(spellID);
+    r->isPet = 0;
+    return true;
+}
+
+// `spell:N`, the display counterpart of `item:N`. Returns 0 when `value` is
+// not that form.
+int ParseSpellRef(const char *value) {
+    static const char kPrefix[] = "spell:";
+    constexpr size_t kPrefixLen = sizeof(kPrefix) - 1;
+    if (_strnicmp(value, kPrefix, kPrefixLen) != 0)
+        return 0;
+    int id = 0;
+    const char *end = nullptr;
+    if (!ParseUInt(value + kPrefixLen, &end, &id) || *SkipBlanks(end) != '\0')
+        return 0;
+    return id;
+}
+
 // Item forms first, then a carried item by name, then a spell — the 3.3.5
 // evaluator's order, and the order our `/cast` handler uses.
-void ResolveValue(const char *value, Resolution *r) {
+//
+// `explicitValue` is set when the directive carried the value itself
+// (`#showtooltip <value>`) or a publisher handed it over, as opposed to the
+// bare form reading the macro's `/cast` and `/use` lines. Only then does a
+// bare spellID skip the spellbook: an explicit value is the author naming what
+// to display, while a value lifted off a cast line should resolve exactly as
+// far as that cast would. `spell:N` skips it either way — nobody writes that
+// form except to name a spell for display.
+void ResolveValue(const char *value, Resolution *r, bool explicitValue) {
+    if (const int spellRef = ParseSpellRef(value)) {
+        SetSpellByID(spellRef, r);
+        return;
+    }
     int bag = 0, slot = 0;
     if (ParseBagSlot(value, &bag, &slot)) {
         SetItem(Item::Location::ResolveBagSlotNoLua(bag, slot), r);
@@ -508,7 +560,13 @@ void ResolveValue(const char *value, Resolution *r) {
         r->target = Target::Spell;
         r->spellID = static_cast<uint32_t>(spellID);
         r->isPet = (isPet != 0) ? 1u : 0u;
+        return;
     }
+    // The spellbook had no slot for it. An explicitly named ID is still a
+    // spell we can describe, so fall back to the record; the pet flag stays 0,
+    // since a pet-book slot is exactly what we just failed to find.
+    if (explicitValue && numeric)
+        SetSpellByID(n, r);
 }
 
 // Repaint every action slot holding `macroID` through the engine's own
@@ -600,7 +658,7 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
     }
     Resolution r;
     if (matched)
-        ResolveValue(value, &r);
+        ResolveValue(value, &r, e.explicitValue);
     ApplyResolution(L, e, r, matched);
 }
 
@@ -930,8 +988,10 @@ bool Publish(int macroSlot, const char *value) {
 
     Resolution r;
     const bool matched = value != nullptr && value[0] != '\0';
+    // A publisher naming a value is naming it explicitly, the same as a
+    // directive that carries one.
     if (matched)
-        ResolveValue(value, &r);
+        ResolveValue(value, &r, /*explicitValue=*/true);
 
     BusyScope busy;
     ApplyResolution(L, e, r, matched);
