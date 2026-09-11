@@ -50,7 +50,7 @@ end
 -- ShaguTweaks libpredict register's TBC events that ClassicAPI backports.
 if C_AddOns.DoesAddOnExist("ShaguTweaks") then
     EventUtil.ContinueOnAddOnLoaded("ShaguTweaks", function()
-        if ShaguTweaks.API.classicapi_version then return end
+        if not ShaguTweaks or (ShaguTweaks.API and ShaguTweaks.API.classicapi_version) then return end
         local libp = ShaguTweaks.libpredict
         if libp then
             libp.sender:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
