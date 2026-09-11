@@ -4516,9 +4516,12 @@ enum Offsets {
     FUN_MACRO_SLOT_TO_ENTRY = 0x004F0E40,
     // `Script_GetMacroInfo` — `int __fastcall(void *L)`; pushes `(name,
     // "Interface\Icons\<OFF_MACRO_ICON>", body, isLocal-or-nil)`, always 4
-    // returns (nils for an empty slot). `Macro::Info` re-registers
-    // `GetMacroInfo` in front of it to swap the texture for `?` macros with a
-    // resolved `#showtooltip` — what the Macro UI grid and the popup read.
+    // returns (nils for an empty slot). Left alone deliberately: it is the read
+    // side of the icon `C_Macro.EditMacro` writes, and the Macro UI seeds its
+    // icon selector from that texture (`MacroFrame_Update` ->
+    // `MacroPopupFrame.selectedIconTexture`), so a resolved `#showtooltip`
+    // icon here would report a choice the player never made. The icon a macro
+    // SHOWS is `C_Macro.GetMacroIcon` (`Macro::IconPath`) instead.
     FUN_SCRIPT_GET_MACRO_INFO = 0x004F1760,
 
     // Macro create/edit workers — back `C_Macro.CreateMacro` /

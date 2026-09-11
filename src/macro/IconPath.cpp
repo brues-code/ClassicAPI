@@ -21,8 +21,17 @@
 // the per-slot texture resolver (`FUN_ACTION_SLOT_TEXTURE`, behind
 // `GetActionTexture`) and the macro pickup `FUN_MACRO_PICKUP`, which paints
 // the cursor while a macro is dragged — the two call sites a scan of the
-// binary finds. `GetMacroInfo` formats its own path and is handled by
-// `Macro::Info`.
+// binary finds.
+//
+// `GetMacroInfo` formats its own path and is left alone on purpose. It is the
+// read side of the icon `C_Macro.EditMacro` writes, and the Macro UI seeds its
+// icon selector from that return (`MacroFrame_Update` ->
+// `MacroPopupFrame.selectedIconTexture`), so answering with a resolved icon
+// there would tell the player they had picked an icon they never picked. Any
+// caller that wants the icon a macro currently SHOWS asks for it instead,
+// through `C_Macro.GetMacroIcon` below — which is this hook's own answer, so
+// the rule stays in one place. `Util/MacroIconSelection.lua` uses it to paint
+// the Macro UI's list buttons.
 //
 // The spell's active icon (toggle / stance up) is chosen through the engine's
 // own per-slot test `FUN_ACTION_SPELL_ICON_ACTIVE`, on the first action slot
@@ -87,6 +96,45 @@ const Game::HookAutoRegister _hookreg{
     Offsets::FUN_MACRO_ICON_PATH,
     reinterpret_cast<void *>(&MacroIconPath_h),
     reinterpret_cast<void **>(&MacroIconPath_o)};
+
+using MacroSlotToEntry_t = const uint8_t *(__fastcall *)(unsigned slot0Based);
+
+// `C_Macro.GetMacroIcon(macroSlot)` — the icon the macro currently shows: the
+// spell's or item's when a `#showtooltip` / `#show` resolved and the macro's
+// own icon is the question mark, else the macro's own. Nothing for an empty
+// slot.
+//
+// Reads it through the getter this module hooks, so the answer is the same one
+// the action button and the drag cursor get, active-icon choice included.
+int __fastcall Script_GetMacroIcon(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_Macro.GetMacroIcon(macroSlot)");
+        return 0;
+    }
+    const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
+    if (slot < 1 || slot > Offsets::MACRO_SLOT_MAP_COUNT)
+        return 0;
+    const uint8_t *entry = reinterpret_cast<MacroSlotToEntry_t>(
+        Offsets::FUN_MACRO_SLOT_TO_ENTRY)(static_cast<unsigned>(slot - 1));
+    if (entry == nullptr)
+        return 0;
+
+    char path[0x104]; // the engine's own texture buffer size
+    path[0] = '\0';
+    // The hooked address, not the trampoline: the `?` rule lives in the hook.
+    reinterpret_cast<MacroIconPath_t>(Offsets::FUN_MACRO_ICON_PATH)(
+        *reinterpret_cast<const uint32_t *>(entry), path, sizeof(path));
+    if (path[0] == '\0')
+        return 0;
+    Game::Lua::PushString(L, path);
+    return 1;
+}
+
+void RegisterLuaFunctions() {
+    Game::Lua::RegisterTableFunction("C_Macro", "GetMacroIcon", &Script_GetMacroIcon);
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 

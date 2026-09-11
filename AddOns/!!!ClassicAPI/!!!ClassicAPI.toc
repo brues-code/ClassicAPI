@@ -51,3 +51,4 @@ Util\SecureUnitMenu.lua
 Util\TextureUtil.lua
 Util\MacroOptions.lua
 Util\SecureStateDriver.lua
+Util\MacroIconSelection.lua

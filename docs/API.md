@@ -462,6 +462,7 @@ build instructions.
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
   - [`C_Macro.CreateMacro` / `C_Macro.EditMacro`](#c_macrocreatemacro--c_macroeditmacro)
+  - [`C_Macro.GetMacroIcon(macroSlot)`](#c_macrogetmacroiconmacroslot)
   - [`C_Macro.SetMacroDisplay(macroSlot, value)`](#c_macrosetmacrodisplaymacroslot-value)
 
 - [Mail](#mail)
@@ -11089,8 +11090,9 @@ Put `#showtooltip` on the first line of a macro. The action button then shows
 the spell or item that the macro is about: its tooltip, cooldown, usable
 state, count, range, and auto-repeat highlight. If the macro icon is the
 question mark, the button, the macro window, and the cursor while you drag
-the macro also show the icon of that spell or item. `#show` does the same,
-but keeps the macro name as the tooltip.
+the macro also show the icon of that spell or item. The icon selector still
+shows the question mark, because that is the icon the macro keeps. `#show`
+does the same, but keeps the macro name as the tooltip.
 
 ```
 #showtooltip
@@ -11377,6 +11379,23 @@ The legacy `CreateMacro` / `EditMacro` globals do not change. They stay
 index-only. String-icon callers use the `C_Macro` namespace instead.
 Edits persist across sessions, the same as edits in the Macro UI.
 
+### `C_Macro.GetMacroIcon(macroSlot)`
+
+Returns the icon the macro currently shows, as `Interface\Icons\<name>`.
+Returns nothing when the slot is empty.
+
+```lua
+C_Macro.GetMacroIcon(1)   -- "Interface\\Icons\\Spell_Nature_Rejuvenation"
+```
+
+This is the icon on the action button: the spell's or item's when a
+[`#showtooltip`](#showtooltip-and-show) resolved and the macro's own icon is
+the question mark, and the macro's own icon otherwise.
+
+`GetMacroInfo` returns the icon the macro stores, which is the icon its icon
+selector edits. Use this function when you want the icon a macro shows, and
+`GetMacroInfo` when you want the one the player picked.
+
 ### `C_Macro.SetMacroDisplay(macroSlot, value)`
 
 Tells the client what a macro is about, so the action button shows it. For
@@ -11405,9 +11424,9 @@ range, usable, out-of-mana greying, the current-cast highlight and
 auto-repeat all follow, with no function replaced. The count, cooldown and
 consumable state for an item follow too. The tooltip follows only when the
 first line of the macro is `#showtooltip`. A macro with `#show`, or with no
-directive, keeps its own name as the tooltip. The icon
-appears in three places, two of which Lua cannot reach: the action button,
-the cursor while you drag the macro, and the macro window grid.
+directive, keeps its own name as the tooltip. The icon appears on the action
+button, on the cursor while you drag the macro, and in the macro window.
+[`C_Macro.GetMacroIcon`](#c_macrogetmacroiconmacroslot) reads it back.
 
 The icon replaces the macro's own only when that is the question mark, which
 is the same rule `#showtooltip` follows. A macro with a chosen icon keeps it.
