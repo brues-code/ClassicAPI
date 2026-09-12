@@ -26,9 +26,11 @@
 //     0xHH...       ->  <decimal>        (5.0's lexer rejects hex literals)
 //     [=[ … ]=]     ->  [[ … ]] or "…"   (5.0 has no leveled long brackets)
 // `__len` / `__mod` are C globals we register (see below); `unpack` and the
-// 5.0 `arg` table are already present. RunPasses runs the hex pass first, then
-// the vararg pass, then the # / % precedence parser, over one shared
-// tokenization (RewriteChunk and LoadBuffer_h both go through it).
+// 5.0 `arg` table are already present. RunPasses lexes the chunk once WITHOUT
+// building tokens to learn whether any trigger (`[=[`, `0x`, `...`, `#`, `%`)
+// occurs outside a string or comment, and only then tokenizes and runs the
+// passes — hex first, then vararg, then the # / % precedence parser — over one
+// shared token stream (RewriteChunk and LoadBuffer_h both go through it).
 //
 // Why a real parser (not regex / one-term-each-side): `#` is prefix but `%`
 // is binary infix, so its operands must be delimited by PRECEDENCE —
@@ -42,12 +44,21 @@
 // (`-1 % 3` == 2, but fmod(-1,3) == -1). __mod computes the real 5.1
 // definition `a - floor(a/b)*b`.
 //
-// Safety: the rewrite runs only when a chunk contains `#` or `%`, and either
-// as an OPERATOR already fails to compile on 5.0 — so we cannot regress
-// working code UNLESS we misread one inside a string/comment (`"%d"`,
+// Safety: the rewrite runs only when a chunk contains `#` or `%` as a TOKEN,
+// and either as an OPERATOR already fails to compile on 5.0 — so we cannot
+// regress working code UNLESS we misread one inside a string/comment (`"%d"`,
 // `"%a+"`, `--[[ # ]]`). The lexer's string/comment skipping is therefore
-// the one safety-critical part, and it is exact. No newlines are inserted,
-// so error line numbers are preserved.
+// the one safety-critical part, and it is exact. One lexer body (`Lex`)
+// serves both the trigger scan and tokenization, so the two cannot disagree
+// about where a string ends. No newlines are inserted, so error line numbers
+// are preserved.
+//
+// Cost: a chunk whose only `%` / `...` sit inside strings — every format
+// string, every "Loading...", and every SavedVariables file — costs one
+// allocation-free lex and nothing else. That is most chunks: whole-buffer byte
+// gates (the previous design) fired on those and tokenized 100+ MB of them per
+// login on a 160 MB addon corpus, for a token stream RewriteAll then found
+// empty of operators and threw away.
 //
 // Prototype scope / limits (documented):
 //   * Nested long strings/comments (`[[ a [[ b ]] c ]]`) are depth-matched to
@@ -64,7 +75,9 @@
 //     produce. Hex FLOATS (`0x1.8p3`) and > 64-bit literals are left as-is
 //     (vanishingly rare in addons; they fail to compile exactly as today, so
 //     no regression). The value is unsigned (`0xFFFFFFFF` -> 4294967295).
-//   * Diagnostic `_classicapi_TranspileLength(src)` returns the full rewrite.
+//   * Diagnostic `_classicapi_Transpile(src)` returns the full rewrite;
+//     `_classicapi_TranspileStats()` returns the load hook's cumulative chunk
+//     count, bytes, tokenized chunks, tokenized bytes and milliseconds.
 //   * Toggles via `_classicapi_SetTranspileOption(name, bool)` /
 //     `_classicapi_GetTranspileOption(name)` (name = "Length" / "Modulo" /
 //     "VarargExpansion" / "HexLiterals" / "LongBrackets").
@@ -101,6 +114,7 @@
 #include <intrin.h> // _ReturnAddress
 #include <string>
 #include <vector>
+#include <windows.h> // QueryPerformanceCounter
 
 namespace LuaSyntax {
 
@@ -115,6 +129,18 @@ bool g_modEnabled = true;
 bool g_varargEnabled = true;
 bool g_hexEnabled = true;
 bool g_longBracketEnabled = true;
+
+// Cumulative cost of the load hook since DLL load, read back by
+// `_classicapi_TranspileStats` — answers "what does the transpiler cost this
+// install" without a profiler.
+struct Stats {
+    unsigned chunks = 0;                // chunks LoadBuffer_h saw
+    unsigned long long bytes = 0;       // their source bytes
+    unsigned tokenizedChunks = 0;       // chunks that needed a token stream
+    unsigned long long tokenizedBytes = 0;
+    long long ticks = 0;                // QueryPerformanceCounter ticks inside RunPasses
+};
+Stats g_stats;
 
 // lua_rawgeti(L, idx, n) — push table_at_idx[n] without metamethods. Not
 // exposed via Game::Lua; used to probe table elements for the border search.
@@ -252,17 +278,14 @@ size_t SkipNumber(const char *src, size_t len, size_t pos) {
     return i;
 }
 
-void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
-    // Clear first — RunPasses re-tokenizes into the SAME vector after a pass
-    // rewrites the buffer. Without this, the re-lex APPENDED the new tokens
-    // after the stale ones, and the next pass walked a mixed stream: stale
-    // positions from the old buffer, then new tokens starting back at 0,
-    // whose `t.start` sits BEHIND the splice cursor — the `t.start - p`
-    // size_t underflow then threw std::length_error("string too long")
-    // through the loadbuffer hook into the engine = fatal ERROR #132.
-    // Field-reproduced with WeakAuras' Chomp Internal.lua (hex pass fires,
-    // then the vararg pass walks the doubled stream).
-    out.clear();
+// The lexer body. `sink.OnToken(kind, start, end)` receives every token and
+// `sink.OnLeveled()` a note for each `[=[`-style long bracket (string or
+// comment), the 5.1 form RewriteLongBrackets has to convert. Templated on the
+// sink so ONE body serves both callers — `Tokenize` (materialize the token
+// vector) and RunPasses' trigger scan (`FlagSink`, no allocation). The
+// string/comment skipping is the safety-critical part; two copies could drift.
+template <typename Sink>
+void Lex(const char *src, size_t len, Sink &sink) {
     size_t i = 0;
     while (i < len) {
         unsigned char c = static_cast<unsigned char>(src[i]);
@@ -275,6 +298,8 @@ void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
             if (j < len && src[j] == '[') {
                 int lvl = LongBracketLevel(src, len, j);
                 if (lvl >= 0) {
+                    if (lvl > 0)
+                        sink.OnLeveled();
                     i = SkipLongBracket(src, len, j, lvl);
                     continue;
                 }
@@ -286,16 +311,18 @@ void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
         if (c == '[') { // long string?
             int lvl = LongBracketLevel(src, len, i);
             if (lvl >= 0) {
+                if (lvl > 0)
+                    sink.OnLeveled();
                 size_t s = i;
                 i = SkipLongBracket(src, len, i, lvl);
-                out.push_back({TK_STRING, s, i});
+                sink.OnToken(TK_STRING, s, i);
                 continue;
             }
         }
         if (c == '"' || c == '\'') {
             size_t s = i;
             i = SkipShortString(src, len, i);
-            out.push_back({TK_STRING, s, i});
+            sink.OnToken(TK_STRING, s, i);
             continue;
         }
         if (IsNameStart(c)) {
@@ -303,13 +330,13 @@ void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
             i++;
             while (i < len && IsNameCont(static_cast<unsigned char>(src[i])))
                 i++;
-            out.push_back({TK_NAME, s, i});
+            sink.OnToken(TK_NAME, s, i);
             continue;
         }
         if (IsDigit(c) || (c == '.' && i + 1 < len && IsDigit(static_cast<unsigned char>(src[i + 1])))) {
             size_t s = i;
             i = SkipNumber(src, len, i);
-            out.push_back({TK_NUMBER, s, i});
+            sink.OnToken(TK_NUMBER, s, i);
             continue;
         }
         if (c == '.') {
@@ -321,13 +348,65 @@ void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
             size_t d = 1;
             while (d < 3 && i + d < len && src[i + d] == '.')
                 d++;
-            out.push_back({TK_PUNCT, i, i + d});
+            sink.OnToken(TK_PUNCT, i, i + d);
             i += d;
             continue;
         }
-        out.push_back({TK_PUNCT, i, i + 1}); // single punctuation byte
+        sink.OnToken(TK_PUNCT, i, i + 1); // single punctuation byte
         i++;
     }
+}
+
+// Sink that materializes the token vector.
+struct TokenSink {
+    std::vector<Token> &out;
+    void OnLeveled() {}
+    void OnToken(TokKind kind, size_t start, size_t end) { out.push_back({kind, start, end}); }
+};
+
+// Sink that records only whether each pass has any work. A trigger counts
+// only as a TOKEN: a `%` inside "%d", a `...` inside "Loading...", or a `#`
+// inside a comment sets nothing — those are exactly the bytes whole-buffer
+// gates fired on, tokenizing the chunk for nothing.
+struct FlagSink {
+    const char *src;
+    bool hash = false;    // `#` punct
+    bool mod = false;     // `%` punct
+    bool vararg = false;  // `...` punct (param-list ones included; the pass sorts them out)
+    bool hex = false;     // `0x…` number
+    bool leveled = false; // `[=[`-style long bracket, string or comment
+    void OnLeveled() { leveled = true; }
+    void OnToken(TokKind kind, size_t start, size_t end) {
+        const size_t n = end - start;
+        if (kind == TK_PUNCT) {
+            if (n == 3)
+                vararg = true;
+            else if (n == 1) {
+                if (src[start] == '#')
+                    hash = true;
+                else if (src[start] == '%')
+                    mod = true;
+            }
+        } else if (kind == TK_NUMBER && n >= 3 && src[start] == '0' &&
+                   (src[start + 1] == 'x' || src[start + 1] == 'X')) {
+            hex = true;
+        }
+    }
+};
+
+void Tokenize(const char *src, size_t len, std::vector<Token> &out) {
+    // Clear first — RunPasses re-tokenizes into the SAME vector after a pass
+    // rewrites the buffer. Without this, the re-lex APPENDED the new tokens
+    // after the stale ones, and the next pass walked a mixed stream: stale
+    // positions from the old buffer, then new tokens starting back at 0,
+    // whose `t.start` sits BEHIND the splice cursor — the `t.start - p`
+    // size_t underflow then threw std::length_error("string too long")
+    // through the loadbuffer hook into the engine = fatal ERROR #132.
+    // Field-reproduced with WeakAuras' Chomp Internal.lua (hex pass fires,
+    // then the vararg pass walks the doubled stream).
+    out.clear();
+    TokenSink sink{out};
+    Lex(src, len, sink);
 }
 
 // ============================================================================
@@ -661,28 +740,12 @@ void BuildOutput(Ctx &c, const char *src, size_t len, std::string &out) {
     }
 }
 
-// Rewrite `src` -> `out` using the pre-tokenized `toks`. Returns true and fills
+// Rewrite `src` -> `out` using the pre-tokenized `toks`. `wantLen` / `wantMod`
+// come from the trigger scan (a `#` / `%` punct exists and its switch is on);
+// RunPasses only calls this when at least one is set. Returns true and fills
 // `out` if anything changed.
 bool RewriteAll(const char *src, size_t len, const std::vector<Token> &toks,
-                std::string &out) {
-    // Gate the (recursive) parse on an actual `#`/`%` OPERATOR token. A `%`
-    // inside a format string (`"%d"`) is part of a TK_STRING token, not a punct,
-    // so this skips the whole parse for the common format-string-only case
-    // instead of parsing the chunk and discarding an empty edit list.
-    bool wantLen = false, wantMod = false;
-    for (const Token &t : toks) {
-        if (t.kind != TK_PUNCT || t.end - t.start != 1)
-            continue;
-        const char ch = src[t.start];
-        if (ch == '#') wantLen = true;
-        else if (ch == '%') wantMod = true;
-        if (wantLen && wantMod) break;
-    }
-    wantLen = wantLen && g_lenEnabled;
-    wantMod = wantMod && g_modEnabled;
-    if (!wantLen && !wantMod)
-        return false;
-
+                std::string &out, bool wantLen, bool wantMod) {
     Ctx c;
     c.src = src;
     c.toks = &toks;
@@ -713,13 +776,6 @@ bool RewriteAll(const char *src, size_t len, const std::vector<Token> &toks,
 // excluded. Order vs RewriteAll is irrelevant (neither produces the other's
 // trigger); RunPasses runs this first.
 // ============================================================================
-
-bool ContainsTripleDot(const char *src, size_t len) {
-    for (size_t i = 0; i + 2 < len; i++)
-        if (src[i] == '.' && src[i + 1] == '.' && src[i + 2] == '.')
-            return true;
-    return false;
-}
 
 // From a '(' token at `k`, return the index just past the matching ')', or the
 // token count if unbalanced. Parens are always single-char puncts.
@@ -816,13 +872,6 @@ inline bool IsHexDigit(unsigned char c) {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-bool ContainsHexPrefix(const char *src, size_t len) {
-    for (size_t i = 0; i + 1 < len; i++)
-        if (src[i] == '0' && (src[i + 1] == 'x' || src[i + 1] == 'X'))
-            return true;
-    return false;
-}
-
 bool RewriteHex(const char *src, size_t len, const std::vector<Token> &toks,
                 std::string &out) {
     out.clear();
@@ -894,19 +943,12 @@ bool RewriteHex(const char *src, size_t len, const std::vector<Token> &toks,
 // `[[body]]` path. Line numbers stay exact either way.
 //
 // Runs FIRST in RunPasses (it changes string/comment boundaries), before the
-// shared tokenization the hex / vararg / operator passes use. A false-positive
-// `[=` gate (inside a string, say) is harmless: the walker copies non-bracket
-// bytes verbatim and returns "unchanged" when it finds no real leveled bracket.
+// shared tokenization the hex / vararg / operator passes use, and only when the
+// trigger scan saw a leveled bracket open in code (`FlagSink::leveled`). The
+// walker copies non-bracket bytes verbatim and returns "unchanged" when it
+// finds no properly closed leveled bracket, so an unterminated one is left for
+// the engine to report.
 // ============================================================================
-
-// Cheap gate: a leveled long bracket must begin `[=` (`[`+`=`…). Necessary
-// prefix for `[=[`, `[==[`, and the `--[=[` comment form.
-bool MaybeLeveledBracket(const char *src, size_t len) {
-    for (size_t i = 0; i + 1 < len; i++)
-        if (src[i] == '[' && src[i + 1] == '=')
-            return true;
-    return false;
-}
 
 // True iff [start,end) is a properly-closed level-`level` long bracket, i.e.
 // SkipLongBracket found a real `]`+`=`×level+`]` close (not end-of-buffer).
@@ -1031,9 +1073,13 @@ bool RewriteLongBrackets(const char *src, size_t len, std::string &out) {
     return any;
 }
 
-// Run every syntax rewrite over a chunk (hex first, then vararg, then # / %),
-// tokenizing ONCE and re-lexing only after a pass actually rewrites the buffer
-// (rare) — the passes share one token stream instead of re-lexing per pass.
+// Run every syntax rewrite over a chunk. One allocation-free lex (`FlagSink`)
+// decides which passes have work — a trigger counts only outside strings and
+// comments — so a chunk with none, or with `%` / `...` only inside strings
+// (format strings, "Loading...", every SavedVariables file), is done after
+// that single pass. Otherwise: leveled brackets first (they move string
+// boundaries), then tokenize ONCE and run hex, vararg, # / % over the shared
+// stream, re-lexing only after a pass actually rewrites the buffer (rare).
 // Returns true and fills `out` if anything changed; `*outVararg` / `*outOps`
 // (optional) report whether the vararg / operator pass fired, for the load-time
 // preamble in LoadBuffer_h.
@@ -1044,14 +1090,15 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
     if (src == nullptr || len == 0)
         return false;
 
-    // Cheap byte gate — skip tokenizing entirely when no trigger char is present
-    // (the common case for a chunk with none of `[=` / `0x` / `...` / `#` / `%`).
-    const bool maybeLong = g_longBracketEnabled && MaybeLeveledBracket(src, len);
-    const bool maybeHex = g_hexEnabled && ContainsHexPrefix(src, len);
-    const bool maybeVararg = g_varargEnabled && ContainsTripleDot(src, len);
-    const bool maybeOps = (g_lenEnabled && std::memchr(src, '#', len) != nullptr) ||
-                          (g_modEnabled && std::memchr(src, '%', len) != nullptr);
-    if (!maybeLong && !maybeHex && !maybeVararg && !maybeOps)
+    FlagSink flags{src};
+    Lex(src, len, flags);
+    const bool wantLong = g_longBracketEnabled && flags.leveled;
+    const bool wantHex = g_hexEnabled && flags.hex;
+    const bool wantVararg = g_varargEnabled && flags.vararg;
+    const bool wantLen = g_lenEnabled && flags.hash;
+    const bool wantMod = g_modEnabled && flags.mod;
+    const bool wantTokens = wantHex || wantVararg || wantLen || wantMod;
+    if (!wantLong && !wantTokens)
         return false;
 
     const char *cur = src;
@@ -1060,24 +1107,32 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
     int last = 0; // owns the final buffer: 1 long-bracket, 2 hex, 3 vararg, 4 ops
 
     // Leveled long brackets first — this rewrites string/comment boundaries, so
-    // it must run before the shared tokenization the other passes consume.
-    if (maybeLong && RewriteLongBrackets(cur, curLen, lb)) {
+    // it must run before the shared tokenization the other passes consume. The
+    // flags stay valid across it: it only rewrites string/comment bytes, which
+    // never produced one.
+    if (wantLong && RewriteLongBrackets(cur, curLen, lb)) {
         cur = lb.data(); curLen = lb.size(); last = 1;
+    }
+    if (!wantTokens) {
+        if (last == 1) { out = std::move(lb); return true; }
+        return false;
     }
 
     std::vector<Token> toks;
     Tokenize(cur, curLen, toks);
+    g_stats.tokenizedChunks++;
+    g_stats.tokenizedBytes += curLen;
 
-    if (maybeHex && RewriteHex(cur, curLen, toks, hx)) {
+    if (wantHex && RewriteHex(cur, curLen, toks, hx)) {
         cur = hx.data(); curLen = hx.size(); last = 2;
         Tokenize(cur, curLen, toks); // buffer changed — re-lex for the next pass
     }
-    if (maybeVararg && RewriteVararg(cur, curLen, toks, va)) {
+    if (wantVararg && RewriteVararg(cur, curLen, toks, va)) {
         cur = va.data(); curLen = va.size(); last = 3;
         if (outVararg) *outVararg = true;
         Tokenize(cur, curLen, toks);
     }
-    if (maybeOps && RewriteAll(cur, curLen, toks, ops)) {
+    if ((wantLen || wantMod) && RewriteAll(cur, curLen, toks, ops, wantLen, wantMod)) {
         last = 4;
         if (outOps) *outOps = true;
     }
@@ -1272,11 +1327,17 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     std::string transpiled;
     bool didVararg = false, didOps = false;
     bool changed = false;
+    LARGE_INTEGER t0, t1;
+    QueryPerformanceCounter(&t0);
     try {
         changed = RunPasses(buff, size, transpiled, &didVararg, &didOps);
     } catch (...) {
         return g_origLoadBuffer(L, buff, size, name);
     }
+    QueryPerformanceCounter(&t1);
+    g_stats.ticks += t1.QuadPart - t0.QuadPart;
+    g_stats.chunks++;
+    g_stats.bytes += size;
     const char *body = changed ? transpiled.data() : buff;
     size_t bodyLen = changed ? transpiled.size() : size;
 
@@ -1404,6 +1465,24 @@ int __fastcall Script_Transpile(void *L) {
     return 1;
 }
 
+// _classicapi_TranspileStats() -> chunks, bytes, tokenizedChunks,
+// tokenizedBytes, milliseconds — cumulative since DLL load, over every chunk
+// the load hook saw (addon files, SavedVariables, RunScript, XML handlers,
+// loadstring). `milliseconds` is time inside RunPasses only.
+int __fastcall Script_TranspileStats(void *L) {
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+    const double ms = freq.QuadPart != 0
+                          ? static_cast<double>(g_stats.ticks) * 1000.0 / static_cast<double>(freq.QuadPart)
+                          : 0.0;
+    Game::Lua::PushNumber(L, static_cast<double>(g_stats.chunks));
+    Game::Lua::PushNumber(L, static_cast<double>(g_stats.bytes));
+    Game::Lua::PushNumber(L, static_cast<double>(g_stats.tokenizedChunks));
+    Game::Lua::PushNumber(L, static_cast<double>(g_stats.tokenizedBytes));
+    Game::Lua::PushNumber(L, ms);
+    return 5;
+}
+
 // The transpiler's runtime switches, table-driven. These are diagnostics /
 // kill-switches: a `#`/`%`/`...`-bearing chunk can't compile on 5.0 unless
 // rewritten, so disabling a switch only reverts affected chunks to the broken
@@ -1454,6 +1533,7 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
     Game::Lua::RegisterGlobalFunction("__addonns", &Script_AddonNS);
     Game::Lua::RegisterGlobalFunction("_classicapi_Transpile", &Script_Transpile);
+    Game::Lua::RegisterGlobalFunction("_classicapi_TranspileStats", &Script_TranspileStats);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetTranspileOption", &Script_SetTranspileOption);
     Game::Lua::RegisterGlobalFunction("_classicapi_GetTranspileOption", &Script_GetTranspileOption);
 }

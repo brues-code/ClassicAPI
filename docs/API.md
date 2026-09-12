@@ -10331,6 +10331,9 @@ needs that addon's opt-in.
   `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
+- `_classicapi_TranspileStats()` returns five numbers: the chunks loaded,
+  their bytes, the chunks that needed a full token pass, those bytes, and
+  the milliseconds the rewrite has used since the client started.
 
 ### Upvalue limit
 
