@@ -561,6 +561,7 @@ build instructions.
   - [`PlaySound(soundKitID [, channel])` / `PlaySound(soundName)`](#playsoundsoundkitid--channel--playsoundsoundname)
   - [`C_Sound.PlaySound(soundKitID [, channel])`](#c_soundplaysoundsoundkitid--channel)
   - [`C_Sound.IsPlaying(soundHandle)`](#c_soundisplayingsoundhandle)
+  - [`C_Sound.PlayItemSound(soundType, item)`](#c_soundplayitemsoundsoundtype-item)
   - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
   - [`C_Sound.GetRecentSoundFiles()`](#c_soundgetrecentsoundfiles)
 - [Spell](#spell)
@@ -13692,6 +13693,46 @@ A handle is only meaningful while its sound plays. After the sound ends
 the client can give the same handle value to a later sound, so a handle
 you have held for a while can report `true` for a different sound. Read it
 soon after you get it.
+
+### `C_Sound.PlayItemSound(soundType, item)`
+
+Plays the noise an item makes when you handle it, without doing the action.
+
+```lua
+C_Sound.PlayItemSound(Enum.ItemSoundType.Pickup, { bagID = 0, slotIndex = 1 })
+C_Sound.PlayItemSound(Enum.ItemSoundType.Drop, { equipmentSlotIndex = 1 })
+```
+
+`soundType` is an `Enum.ItemSoundType` value:
+
+| Value | Field |
+|---|---|
+| 0 | `Pickup` |
+| 1 | `Drop` |
+| 2 | `Use` |
+| 3 | `Close` |
+
+`item` is an item location — `{ bagID = B, slotIndex = S }` or
+`{ equipmentSlotIndex = N }`. It also takes the other forms this
+documentation's item functions accept: an item GUID string, an itemID, an
+item link, or the name of an item you carry.
+
+All four types are passed through to the client, which looks the sound up
+in its own item-sound data. With the data a stock client ships, only
+`Pickup` and `Drop` produce a sound: items are grouped into sound groups,
+and every group a real item belongs to fills in those two while leaving
+`Use` and `Close` empty. Those two are accepted and play nothing.
+
+A server that fills in the missing entries gets them for free — nothing
+here limits the type, so `Use` and `Close` start playing as soon as the
+data defines them.
+
+The sound comes from the item's **display**, so items that look alike
+sound alike. A sword sounds like metal and a robe sounds like cloth,
+whatever else differs between them.
+
+Nothing plays, and nothing is raised, when the item cannot be found or
+its data has not arrived yet.
 
 ### `MuteSoundFile(file)` / `UnmuteSoundFile(file)`
 

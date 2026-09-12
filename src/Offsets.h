@@ -6160,6 +6160,23 @@ enum Offsets {
     // own target calls, capturing whatever is registered at addon load.
     FUN_SCRIPT_PLAY_SOUND = 0x004586D0,
 
+    // Item-sound player — `void __fastcall(int soundType /*ecx*/,
+    // int displayInfoID /*edx*/)`, the whole of `C_Sound.PlayItemSound`
+    // below the Lua edge. Bounds-checks the display id against
+    // ItemDisplayInfo (`[0x00C0DC10]` records, `[0x00C0DC14]` count), reads
+    // that row's ItemGroupSounds id at `+0x2C`, bounds-checks THAT against
+    // ItemGroupSounds (`[0x00C0DBFC]` / `[0x00C0DC00]`), and plays the
+    // SoundEntries id at `row + 0x04 + soundType * 4` via `FUN_00458850`.
+    //
+    // So an ItemGroupSounds row is four sound ids, and their column order
+    // is the modern `Enum.ItemSoundType` order — 0 Pickup, 1 Drop, 2 Use,
+    // 3 Close. Every bounds failure falls through silently, which is the
+    // behavior an unknown item should have at the Lua edge too.
+    //
+    // Note the key is the item's DISPLAY id (`OFF_ITEMSTATS_DISPLAY_INFO_ID`),
+    // not its itemID: items that share a display share a sound.
+    FUN_SOUND_PLAY_ITEM = 0x00457FF0,
+
     // Console-command registrar — the vanilla equivalent of 4.3.4's
     // `FUN_00654c90`. Registers a developer-console command (the `~`
     // console you get when launching with `-console`).
