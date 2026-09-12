@@ -6098,6 +6098,68 @@ enum Offsets {
     OFF_SOUND_ENTRY_DIRECTORY = 0x5C,
     SOUND_ENTRY_FILE_COUNT = 10,
 
+    // ---- Sound playback ------------------------------------------------
+    //
+    // `FUN_007A5450` is the ONE funnel every sound in this client passes
+    // through: `int *__fastcall(int category /*ecx*/, const char *path
+    // /*edx*/, uint flags, char deferStart)`. It returns the stream object,
+    // or NULL when the sound did not start — the engine's own "didn't
+    // play" answer, produced by its pre-play gate `FUN_007A66A0` (per
+    // category active-count limit, plus a by-path-hash dedup when
+    // `flags & 1`). Every caller already handles NULL, which is what makes
+    // muting expressible here: return NULL and nothing else changes.
+    //
+    // Six callers, and they are the whole surface: Script_PlaySoundFile
+    // (`FUN_00458780`, category 3), the SoundEntries player
+    // `FUN_SOUND_PLAY_ENTRY` (which is where `PlaySound` and every
+    // DBC-driven spell/creature/UI sound lands), and four music/ambience
+    // paths (`FUN_0045AE50`, `FUN_00460240`, `FUN_00461290`,
+    // `FUN_007A5620`, all category 0). There is no second route: the
+    // binary links only FMOD's FSOUND_Stream_* API — no
+    // FSOUND_Sample_Load, no FSOUND_PlaySound — so every sound, however
+    // short, is a stream opened by path.
+    //
+    // `category` indexes per-category state (`0x00CF553C[c]` active count
+    // against the cap at `0x0087CE60[c]`), and `FUN_007A66A0` rejects
+    // `c > 0xC`, so the valid range is 0..12.
+    FUN_SOUND_PLAY_BY_PATH = 0x007A5450,
+    SOUND_CATEGORY_MAX = 0x0C,
+
+    // SoundEntries player — `void *__fastcall(char orFlag4 /*ecx*/, char
+    // orFlag10 /*edx*/, int category, int soundEntryID, int variantIndex,
+    // int orFlag2)`, RET 0x10, returning the stream object or NULL.
+    // Resolves the row (`FUN_0045CDA0`), picks one of its up-to-10 file
+    // variants (`FUN_0045BB70`; `variantIndex = -1` takes the weighted
+    // random pick the engine uses), then calls FUN_SOUND_PLAY_BY_PATH.
+    //
+    // ABI verified by disassembly, NOT the decompile — Ghidra maps the
+    // arguments inconsistently against the call site. `FUN_00458850`, the
+    // tail of `PlaySound(name)`, calls it as `(0, 0, 0, id, -1, 0)` and
+    // coerces the result to a bool, which is exactly a by-ID play: the
+    // engine has always played by SoundEntries ID internally, it simply
+    // never exposed that to Lua (`PlaySound` takes only the row's name).
+    FUN_SOUND_PLAY_ENTRY = 0x0045CE60,
+
+    // Head of the live stream list, walked by `FUN_007A66A0`'s dedup pass:
+    // an intrusive list with `next` at `+0x04` and the Storm tagged-pointer
+    // sentinel (low bit set, or null, ends it). Membership is how
+    // `C_Sound.IsPlaying` validates a handle — a stream object is freed
+    // when it finishes, so the handle must never be dereferenced directly.
+    VAR_SOUND_STREAM_LIST_HEAD = 0x00CF557C,
+    OFF_SOUND_STREAM_NEXT = 0x04,
+
+    // `Script_PlaySound` — the engine's `PlaySound(soundName)`: hashes the
+    // name to a SoundEntries row and calls `FUN_00458850`, whose tail is
+    // `FUN_SOUND_PLAY_ENTRY(0, 0, 0, id, -1, 0)`. `Sound::Play`
+    // re-registers `PlaySound` over it to also accept a SoundKitID, and
+    // tail-calls this with the stack untouched for every other argument
+    // shape. Contention checked before re-registering: no sibling DLL
+    // references it (UnitXP_SP3's "PlaySound" string is the winmm
+    // `PlaySoundW` import), and the one addon that reassigns the global
+    // (unitscan) does a temporary `PlaySound = pass` / restore around its
+    // own target calls, capturing whatever is registered at addon load.
+    FUN_SCRIPT_PLAY_SOUND = 0x004586D0,
+
     // Console-command registrar — the vanilla equivalent of 4.3.4's
     // `FUN_00654c90`. Registers a developer-console command (the `~`
     // console you get when launching with `-console`).

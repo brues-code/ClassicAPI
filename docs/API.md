@@ -557,6 +557,12 @@ build instructions.
   - [`C_QuestLog.IsQuestDataCachedByID(questID)`](#c_questlogisquestdatacachedbyidquestid)
   - [`GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`](#getquestlogleaderboardidobjectiveindex--questindex)
 
+- [Sound](#sound)
+  - [`PlaySound(soundKitID [, channel])` / `PlaySound(soundName)`](#playsoundsoundkitid--channel--playsoundsoundname)
+  - [`C_Sound.PlaySound(soundKitID [, channel])`](#c_soundplaysoundsoundkitid--channel)
+  - [`C_Sound.IsPlaying(soundHandle)`](#c_soundisplayingsoundhandle)
+  - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
+  - [`C_Sound.GetRecentSoundFiles()`](#c_soundgetrecentsoundfiles)
 - [Spell](#spell)
   - [`C_Spell.DoesSpellExist(spellID)`](#c_spelldoesspellexistspellid)
   - [`C_Spell.GetSchoolString(schoolMask)`](#c_spellgetschoolstringschoolmask)
@@ -13626,6 +13632,117 @@ A separate function keeps the existing call wire-compatible.
 > Iteration mirrors the engine at `0x004E0110`: walk the NPC/GO array
 > first, skip zero slots, then the item array. 1-based `objectiveIndex`
 > counts only non-empty slots.
+
+## Sound
+
+Every sound the client plays comes from one table of sound entries. Each
+entry has an id — a **SoundKitID** — and one or more audio files. The same
+ids the modern client uses are the ids here, so `8959` is the raid warning
+in both.
+
+To see the file paths, extract them with the
+[`ExportSoundFiles`](#exportsoundfiles-subpath-console-command) console
+command.
+
+### `PlaySound(soundKitID [, channel])` / `PlaySound(soundName)`
+
+Plays a sound.
+
+- Give a **number** and it plays that SoundKitID. It returns
+  `willPlay, soundHandle`.
+- Give a **string** and it plays the sound entry with that name, exactly as
+  before. It returns nothing.
+
+```lua
+PlaySound(8959)                  -- true, 394043692
+PlaySound("igMainMenuOpen")      -- plays, returns nothing
+```
+
+`channel` selects the sound category, `0` to `12`. Leave it out for `0`,
+which is what the client uses for interface sounds and music. A channel
+**name** such as `"SFX"` is accepted and ignored, so code written for the
+modern client still runs. The categories here do not match those names.
+
+### `C_Sound.PlaySound(soundKitID [, channel])`
+
+The same as the numeric form above, and it takes only a number. Returns
+`willPlay, soundHandle`.
+
+```lua
+local willPlay, handle = C_Sound.PlaySound(8959)
+```
+
+`willPlay` is `false` when the sound cannot start. That happens when the
+file is muted, when the id names no entry, or when the category already
+has as many sounds as it allows.
+
+An entry can hold several files. The client picks one of them, with the
+same weighting it uses for its own sounds.
+
+### `C_Sound.IsPlaying(soundHandle)`
+
+Returns `true` while the sound for that handle is still playing.
+
+```lua
+local _, handle = C_Sound.PlaySound(8959)
+C_Sound.IsPlaying(handle)   -- true, until the sound ends
+```
+
+A handle is only meaningful while its sound plays. After the sound ends
+the client can give the same handle value to a later sound, so a handle
+you have held for a while can report `true` for a different sound. Read it
+soon after you get it.
+
+### `MuteSoundFile(file)` / `UnmuteSoundFile(file)`
+
+Stops a sound file from playing, and lets it play again.
+
+```lua
+MuteSoundFile("Sound\\Interface\\RaidWarning.wav")
+PlaySound(8959)      -- false: silent
+UnmuteSoundFile("Sound\\Interface\\RaidWarning.wav")
+PlaySound(8959)      -- true: plays again
+```
+
+`file` is the path of the audio file, such as
+`"Sound\\Creature\\Ragnaros\\RagnarosAggro01.wav"`. Upper and lower case
+do not matter, and you can use `/` in place of `\\`.
+
+A mute applies to the file, so it covers every sound that uses it, whoever
+starts it. `MuteSoundFile` returns `true` when the path is now muted.
+`UnmuteSoundFile` returns `true` when the path had been muted.
+
+Mutes last until you log out or reload. To keep them, save your list and
+apply it again on login.
+
+### `C_Sound.GetRecentSoundFiles()`
+
+Returns the files that played most recently, newest first. Use it to find
+the path of a sound you just heard.
+
+```lua
+local recent = C_Sound.GetRecentSoundFiles()
+-- recent[1] = { file = "Sound\\interface\\RaidWarning.wav",
+--               time = 96036833, muted = false }
+```
+
+Each entry has three fields:
+
+| Field | Meaning |
+|---|---|
+| `file` | The path of the audio file. Pass it to `MuteSoundFile`. |
+| `time` | When it played, in milliseconds on `GetTime()`'s scale. `GetTime() * 1000 - time` is how long ago. |
+| `muted` | `true` when the file is muted. |
+
+The list holds the last 64 **different** files. A file that plays again
+moves to the front instead of taking a second place, so a repeating
+footstep cannot push the rest out.
+
+Muted files stay in the list, marked `muted = true`, so you can still find
+one to un-mute.
+
+The list covers every sound the client plays, not only the ones you start.
+Opening a bag or taking a step puts a file in it.
 
 ## Spell
 
