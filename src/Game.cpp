@@ -299,6 +299,32 @@ void RegisterTableFunction(const char *tableName, const char *methodName, CFunct
     MirrorRegistration(tableName, methodName);
 }
 
+// `_G[alias] = _G[tableName][methodName]`, by VALUE. The engine binds its
+// short aliases this way (`tinsert = tab.insert` in the compat snippet it
+// runs at Lua init), so a module that registers over a library function has
+// to re-bind the alias to the same closure — that keeps `tinsert ==
+// table.insert` true, as the engine left it, instead of minting a second
+// closure. A plain raw write, exactly what the snippet's assignment did. No-op
+// if the source is not a function (nothing was registered to alias).
+void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName) {
+    void *L = State();
+    if (L == nullptr)
+        return;
+    const int top = GetTop(L);
+    EnsureGlobalTable(L, tableName);     // [tbl]
+    PushString(L, methodName);           // [tbl, m]
+    RawGet(L, -2);                       // [tbl, value]
+    if (Type(L, -1) != TYPE_FUNCTION) {
+        SetTop(L, top);
+        return;
+    }
+    PushString(L, alias);                // [tbl, value, alias]
+    PushValue(L, -2);                    // [tbl, value, alias, value]
+    RawSet(L, GLOBALS_INDEX);            // _G[alias] = value.  [tbl, value]
+    SetTop(L, top);
+    MirrorRegistration(nullptr, alias);
+}
+
 void RegisterIntegerEnum(const char *parent, const char *sub,
                          const EnumIntegerEntry *entries, int count) {
     void *L = State();

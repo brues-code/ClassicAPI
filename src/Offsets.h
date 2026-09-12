@@ -5556,9 +5556,14 @@ enum Offsets {
     // caller trace above. Decompile matches 5.0.2 tinsert exactly:
     // lua_gettop → luaL_checktype(1, TABLE) → n = luaL_getn(1)+1 →
     // optional-pos shift-up loop (rawgeti/rawseti) → luaL_setn(1, n) →
-    // lua_pushvalue(value) → lua_rawseti(1, pos). Both `table.insert` and
-    // the FrameXML `tinsert` alias resolve to this one C function. Hooked
-    // by Table::Length to mark deliberate trailing-nil appends (#36/#39).
+    // lua_pushvalue(value) → lua_rawseti(1, pos). Its ONLY xref is that
+    // luaL_reg entry — no engine C code calls it — and exactly two Lua
+    // values hold it: `table.insert` (lib open) and the global `tinsert`,
+    // bound by the engine's embedded compat snippet (`tinsert = tab.insert`,
+    // .data 0x008722E8, run by FUN_00703b80 right before
+    // FUN_LOAD_SCRIPT_FUNCTIONS). Table::Length registers its marking
+    // `table.insert` OVER both names (no hook) and calls this address
+    // directly for the engine behavior (#36/#39).
     FUN_LUA_TABLE_INSERT = 0x7FB6B0,
     // `luaV_gettable(L, t, key, loop)` — the VM's generic index resolver.
     // __fastcall(L /*ecx*/, t /*edx*/, key /*stack*/, loop /*stack*/),

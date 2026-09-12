@@ -300,6 +300,14 @@ void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int coun
 void RegisterTableFunction(const char *tableName, const char *methodName,
                            CFunction func);
 
+// Binds `_G[alias]` to the SAME closure as `_G[tableName][methodName]`, by
+// value — the way the engine's own Lua-init snippet binds its short aliases
+// (`tinsert = table.insert`, `strlen = string.len`, …). Use it after
+// registering over a library function whose alias the snippet has already
+// captured, so the alias follows the replacement and `alias == table.method`
+// stays true. Mirrored under `_G.ClassicAPI` like every other registration.
+void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName);
+
 // Key/value pair for `RegisterIntegerEnum`. `key` becomes a field name
 // (PascalCase, matching Blizzard's `Enum.*` naming) and `value` is the
 // integer the enum field maps to.
