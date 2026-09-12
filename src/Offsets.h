@@ -6147,6 +6147,27 @@ enum Offsets {
     // when it finishes, so the handle must never be dereferenced directly.
     VAR_SOUND_STREAM_LIST_HEAD = 0x00CF557C,
     OFF_SOUND_STREAM_NEXT = 0x04,
+    // SoundEntries row resolver — `void *__fastcall(uint soundEntryID)`,
+    // null for an id with no row. The by-id player calls it first; we need
+    // it too because the volume applicator below is a method ON the row.
+    FUN_SOUND_ENTRY_FOR_ID = 0x0045CDA0,
+
+    // Row volume applicator — `void __thiscall(void *row, void *stream,
+    // float scale)`. Computes the row's own volume times `scale`
+    // (`FUN_00458C60`) and stores it on the stream via `FUN_007A5DC0`,
+    // which writes `stream + OFF_SOUND_STREAM_VOLUME` and pushes it to
+    // FMOD. The by-id player already calls this with a scale of 1.0
+    // immediately after starting a sound, so calling it again with another
+    // scale REPLACES the volume rather than compounding — which is what
+    // makes a volume override expressible without touching FMOD directly.
+    // (It also re-rolls the random pitch for rows flagged 0x400 at
+    // `row + 0x7C`, exactly as the engine's own call does.)
+    FUN_SOUND_APPLY_ROW_VOLUME = 0x00458DA0,
+
+    // The stream's current volume, as written by `FUN_007A5DC0` — i.e. the
+    // row's volume after scaling, which is what "scaled volume" names.
+    OFF_SOUND_STREAM_VOLUME = 0x74,
+
     // Hash of the path the stream was opened with, stamped at creation
     // (`FUN_007A51D0`: `obj[0x20] = FUN_0064AF90(path)`) and compared by
     // the dedup pass. Stream objects come from a pool and their addresses

@@ -561,6 +561,8 @@ build instructions.
 - [Sound](#sound)
   - [`PlaySound(soundKitID)` / `PlaySound(soundName)`](#playsoundsoundkitid--playsoundsoundname)
   - [`C_Sound.PlaySound(soundKitID [, channel, forceNoDuplicates, runFinishCallback])`](#c_soundplaysoundsoundkitid--channel-forcenoduplicates-runfinishcallback)
+  - [`C_Sound.PlaySoundWithOptions(params)`](#c_soundplaysoundwithoptionsparams)
+  - [`C_Sound.GetSoundScaledVolume(soundHandle)`](#c_soundgetsoundscaledvolumesoundhandle)
   - [`C_Sound.IsPlaying(soundHandle)`](#c_soundisplayingsoundhandle)
   - [`C_Sound.PlayItemSound(soundType, item)`](#c_soundplayitemsoundsoundtype-item)
   - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
@@ -13709,6 +13711,38 @@ same weighting it uses for its own sounds.
 | `channel` | The sound category, `0` to `12`. Leave it out for `0`, which is what the client uses for interface sounds and music. A channel **name** such as `"SFX"` is accepted and ignored: the categories here do not match those names. |
 | `forceNoDuplicates` | Accepted and ignored. |
 | `runFinishCallback` | Pass `true` to get the [`SOUNDKIT_FINISHED`](#soundkit_finished-event) event when this sound ends. |
+
+### `C_Sound.PlaySoundWithOptions(params)`
+
+The same as `C_Sound.PlaySound`, with the arguments in a table. Returns
+`success, soundHandle`.
+
+```lua
+local ok, handle = C_Sound.PlaySoundWithOptions({
+    soundKitID = 8959,
+    volumeOverride = 0.4,
+    runFinishCallback = true,
+})
+```
+
+| Field | Meaning |
+|---|---|
+| `soundKitID` | The sound to play. |
+| `volumeOverride` | Scales the sound's volume. `1` leaves it alone, `0` is silent. Leave it out to play at the sound's own volume. |
+| `runFinishCallback` | Pass `true` to get the [`SOUNDKIT_FINISHED`](#soundkit_finished-event) event when this sound ends. |
+| `uiSoundSubType` | Accepted and ignored. |
+| `forceNoDuplicates` | Accepted and ignored. |
+| `overridePriority` | Accepted and ignored. |
+
+### `C_Sound.GetSoundScaledVolume(soundHandle)`
+
+Returns the volume a sound is playing at — its own volume after any
+scaling. Returns `nil` once the sound has ended.
+
+```lua
+local _, handle = C_Sound.PlaySoundWithOptions({ soundKitID = 8959, volumeOverride = 0.4 })
+C_Sound.GetSoundScaledVolume(handle)
+```
 
 ### `C_Sound.IsPlaying(soundHandle)`
 

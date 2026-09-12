@@ -84,6 +84,20 @@ uint32_t PathHash(uintptr_t node) {
         node + Offsets::OFF_SOUND_STREAM_PATH_HASH);
 }
 
+// Re-apply a row's volume to a already-started stream at `scale`. The by-id
+// player runs this with 1.0 as it starts the sound, and the setter writes
+// rather than accumulates, so a second call simply replaces the volume.
+using SoundEntryForID_t = void *(__fastcall *)(unsigned soundEntryID);
+using ApplyRowVolume_t = void(__thiscall *)(void *row, void *stream, float scale);
+
+void ApplyVolumeScale(int soundKitID, void *handle, float scale) {
+    void *row = reinterpret_cast<SoundEntryForID_t>(Offsets::FUN_SOUND_ENTRY_FOR_ID)(
+        static_cast<unsigned>(soundKitID));
+    if (row == nullptr)
+        return;
+    reinterpret_cast<ApplyRowVolume_t>(Offsets::FUN_SOUND_APPLY_ROW_VOLUME)(row, handle, scale);
+}
+
 // ---- SOUNDKIT_FINISHED ------------------------------------------------
 //
 // Fires with the sound handle once that sound stops, and ONLY for sounds
@@ -162,29 +176,31 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
 // trade than the missing flag.
 //
 // `runFinishCallback` opts the sound in to SOUNDKIT_FINISHED.
-int PlayById(void *L, int soundKitID, int optionalBase) {
+// The options every play path shares, however they were spelled at the
+// Lua edge. `volumeScale < 0` means "leave the row's own volume alone".
+struct PlayOptions {
+    int category = 0;
+    bool runFinishCallback = false;
+    float volumeScale = -1.0f;
+};
+
+// Start `soundKitID` with `opts` and push `willPlay, soundHandle`.
+int PlayWithOptions(void *L, int soundKitID, const PlayOptions &opts) {
     if (soundKitID <= 0) {
         Game::Lua::PushBool(L, false);
         Game::Lua::PushNil(L);
         return 2;
     }
 
-    int category = 0;
-    bool runFinishCallback = false;
-    if (optionalBase > 0) {
-        if (Game::Lua::Type(L, optionalBase) == Game::Lua::TYPE_NUMBER) {
-            category = static_cast<int>(Game::Lua::ToNumber(L, optionalBase));
-            if (category < 0 || category > Offsets::SOUND_CATEGORY_MAX)
-                category = 0; // the engine rejects the rest outright
-        }
-        runFinishCallback = Game::Lua::ToBoolean(L, optionalBase + 2) != 0;
-    }
-
     auto play = reinterpret_cast<PlaySoundEntry_t>(Offsets::FUN_SOUND_PLAY_ENTRY);
-    void *handle = play(0, 0, category, soundKitID, kVariantRandom, 0);
+    void *handle = play(0, 0, opts.category, soundKitID, kVariantRandom, 0);
 
-    if (handle != nullptr && runFinishCallback)
-        TrackForFinish(reinterpret_cast<uintptr_t>(handle));
+    if (handle != nullptr) {
+        if (opts.volumeScale >= 0.0f)
+            ApplyVolumeScale(soundKitID, handle, opts.volumeScale);
+        if (opts.runFinishCallback)
+            TrackForFinish(reinterpret_cast<uintptr_t>(handle));
+    }
 
     Game::Lua::PushBool(L, handle != nullptr);
     if (handle != nullptr)
@@ -192,6 +208,19 @@ int PlayById(void *L, int soundKitID, int optionalBase) {
     else
         Game::Lua::PushNil(L);
     return 2;
+}
+
+int PlayById(void *L, int soundKitID, int optionalBase) {
+    PlayOptions opts;
+    if (optionalBase > 0) {
+        if (Game::Lua::Type(L, optionalBase) == Game::Lua::TYPE_NUMBER) {
+            opts.category = static_cast<int>(Game::Lua::ToNumber(L, optionalBase));
+            if (opts.category < 0 || opts.category > Offsets::SOUND_CATEGORY_MAX)
+                opts.category = 0; // the engine rejects the rest outright
+        }
+        opts.runFinishCallback = Game::Lua::ToBoolean(L, optionalBase + 2) != 0;
+    }
+    return PlayWithOptions(L, soundKitID, opts);
 }
 
 // C_Sound.PlaySound(soundKitID [, channel [, forceNoDuplicates
@@ -229,6 +258,78 @@ int __fastcall Script_PlaySound(void *L) {
     return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_PLAY_SOUND)(L);
 }
 
+// Read `name` from the params table at stack index `idx`. Uses GetTable
+// rather than a raw read so a params table built from a mixin still works.
+// Leaves the stack as it found it.
+bool Field(void *L, int idx, const char *name) {
+    Game::Lua::PushString(L, name);
+    Game::Lua::GetTable(L, idx);
+    return true; // value is on the stack; caller pops
+}
+
+double FieldNumber(void *L, int idx, const char *name, double fallback) {
+    Field(L, idx, name);
+    const double v = (Game::Lua::Type(L, -1) == Game::Lua::TYPE_NUMBER)
+                         ? Game::Lua::ToNumber(L, -1)
+                         : fallback;
+    Game::Lua::SetTop(L, -2);
+    return v;
+}
+
+bool FieldBool(void *L, int idx, const char *name) {
+    Field(L, idx, name);
+    const bool v = Game::Lua::ToBoolean(L, -1) != 0;
+    Game::Lua::SetTop(L, -2);
+    return v;
+}
+
+// C_Sound.PlaySoundWithOptions(params) -> success, soundHandle
+//
+// The table form of PlaySound. Honors `soundKitID`, `runFinishCallback`
+// and `volumeOverride`; accepts and ignores `uiSoundSubType`,
+// `forceNoDuplicates` and `overridePriority`, which have nothing behind
+// them here (see PlayById for why forceNoDuplicates cannot be asked for).
+//
+// `volumeOverride` scales the sound's own volume, so 1.0 is unchanged and
+// 0 is silent.
+int __fastcall Script_PlaySoundWithOptions(void *L) {
+    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::Error(L, "Usage: C_Sound.PlaySoundWithOptions(params)");
+        return 0;
+    }
+    const int soundKitID = static_cast<int>(FieldNumber(L, 1, "soundKitID", 0));
+
+    PlayOptions opts;
+    opts.runFinishCallback = FieldBool(L, 1, "runFinishCallback");
+    const double volume = FieldNumber(L, 1, "volumeOverride", -1.0);
+    if (volume >= 0.0)
+        opts.volumeScale = static_cast<float>(volume);
+
+    return PlayWithOptions(L, soundKitID, opts);
+}
+
+// C_Sound.GetSoundScaledVolume(soundHandle) -> number
+//
+// The volume the sound is playing at: the sound's own volume after any
+// scaling. Reads the field only off a stream still in the live list, since
+// a finished stream's memory goes back to a pool.
+int __fastcall Script_GetSoundScaledVolume(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    const uintptr_t node =
+        FindStreamNode(static_cast<uintptr_t>(Game::Lua::ToNumber(L, 1)));
+    if (node == 0) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    const float volume = *reinterpret_cast<const float *>(
+        node + Offsets::OFF_SOUND_STREAM_VOLUME);
+    Game::Lua::PushNumber(L, static_cast<double>(volume));
+    return 1;
+}
+
 // C_Sound.IsPlaying(soundHandle) -> bool
 int __fastcall Script_IsPlaying(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
@@ -243,6 +344,10 @@ int __fastcall Script_IsPlaying(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Sound", "PlaySound", &Script_C_Sound_PlaySound);
+    Game::Lua::RegisterTableFunction("C_Sound", "PlaySoundWithOptions",
+                                     &Script_PlaySoundWithOptions);
+    Game::Lua::RegisterTableFunction("C_Sound", "GetSoundScaledVolume",
+                                     &Script_GetSoundScaledVolume);
     Game::Lua::RegisterTableFunction("C_Sound", "IsPlaying", &Script_IsPlaying);
     // A strict superset of the engine's own global — see Script_PlaySound.
     Game::Lua::RegisterGlobalFunction("PlaySound", &Script_PlaySound);
