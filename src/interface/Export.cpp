@@ -28,6 +28,39 @@
 // init is straight-line (no name table), and it catches the ~18 DBCs the
 // listfile doesn't index. See `ScanPathGetters`.
 //
+// `ExportSoundFiles [subpath]` — ClassicAPI-original, same shape: dumps
+// the `Sound\` tree to `BlizzardSound\`. Every audio file this client can
+// play lives under that one root (SoundEntries.dbc's DirectoryBase column
+// is `Sound\...` for all 8805 rows), so the prefix is the whole corpus.
+// Three deliberate differences from the other two commands:
+//
+//   * It UNIONS the listfile walk with SoundEntries.dbc. An MPQ resolves
+//     a read by hashing the path, so `(listfile)` is only an index, and
+//     299 files this client ships under `Sound\` appear in no archive's
+//     index at all — they exist and play, but nothing enumerates them.
+//     SoundEntries names those (it is the authoritative "what can this
+//     client play" list, the same role the `.text` path-getter scan
+//     plays for `ExportDBCFiles`). The listfile half is still needed the
+//     other way round: ~300 shipped files sit in no SoundEntries row
+//     (character combat grunts and doodad audio, referenced from model
+//     data). `Collector::Add` dedups the overlap case-insensitively.
+//   * NO extension filter. `Sound\` is entirely audio, so filtering can
+//     only hide things — and the DBC itself carries typo'd names
+//     (`Kill3.wac`, `PVPFlagTaken.Mono`) that an extension whitelist
+//     would drop. `extCount == 0` means "take everything".
+//   * The destination is `BlizzardSound\`, NOT `Sound\`. The engine's
+//     loose-file VFS index (see the frozen-index note in CLAUDE.md)
+//     resolves loose files ahead of archives, so writing ~1 GB back into
+//     `Sound\` would shadow the MPQs and be re-indexed at every launch.
+//     `ExportDBCFiles` writing to `DBFilesClient\` shadows on purpose
+//     (tools read the result); sound gains nothing from it.
+//
+// The optional `subpath` narrows the enumeration prefix
+// (`ExportSoundFiles Creature\Illidan` → `Sound\Creature\Illidan`), since
+// the full tree is roughly a gigabyte. It narrows only WHICH files are
+// written — the layout under `BlizzardSound\` always mirrors the full
+// tree, so a narrowed export drops into the same place a full one would.
+//
 // Files land relative to the client's working directory, mirroring the
 // retail command's `BlizzardInterface{Code,Art}\<relative-path>`
 // layout. On completion it writes a "wrote N files" line back to the
@@ -58,6 +91,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "debug/Log.h"
 
 #include <windows.h>
 
@@ -88,10 +122,9 @@ using MpqEnumCb_t = int(__fastcall *)(const char *fullPath);
 using MpqEnumFiles_t = void(__fastcall *)(int archiveSelector, const char *pathPrefix,
                                           MpqEnumCb_t callback, void *userParam);
 
-// The archive-set selector the engine's own macro-icon loader passes to
-// FUN_00401470 — covers the primary mounted archives plus the selected
-// extra. We mirror it.
-constexpr int kArchiveSelector = 6;
+// `EnumAllArchives` (defined below, once the collector callback exists)
+// is the only enumeration entry point — see its note for why a single
+// FUN_00401470 call can never see more than one secondary archive.
 
 // Case-insensitive ASCII equality.
 bool EqualsCI(const char *a, const char *b) {
@@ -190,13 +223,33 @@ struct Collector {
 Collector *g_collector = nullptr;
 
 // MPQ enumeration callback — one call per listfile entry under the
-// active prefix. Keep going (return 1) regardless.
+// active prefix. Keep going (return 1) regardless. `extCount == 0` means
+// "no extension filter" (the sound export — see the header note).
 int __fastcall CollectCb(const char *fullPath) {
     Collector *c = g_collector;
     if (c != nullptr && fullPath != nullptr &&
-        HasExtension(fullPath, c->exts, c->extCount))
+        (c->extCount == 0 || HasExtension(fullPath, c->exts, c->extCount)))
         c->Add(fullPath);
     return 1; // 0 would stop enumeration
+}
+
+// One enumeration pass per secondary archive, into the active collector.
+//
+// FUN_00401470's selector is an INDEX into a fixed 10-entry table
+// (model/texture/terrain/wmo/sound/misc/interface/fonts/speech/dbc), not
+// a set: each call walks the primary archives plus exactly ONE of those
+// ten, so a single call can never see more than one of them. See
+// Offsets.h `MPQ_SECONDARY_ARCHIVE_COUNT` for the derivation and for the
+// bug this caused.
+//
+// Sweeping all ten re-walks the primary listfiles ten times; `Collector`
+// dedups case-insensitively, so the cost is a few extra listfile parses
+// on a one-shot command, and the benefit is not having to know which
+// archive happens to hold the content being exported.
+void EnumAllArchives(const char *pathPrefix) {
+    auto MpqEnumFiles = reinterpret_cast<MpqEnumFiles_t>(Offsets::FUN_MPQ_ENUM_FILES);
+    for (int sel = 0; sel < Offsets::MPQ_SECONDARY_ARCHIVE_COUNT; ++sel)
+        MpqEnumFiles(sel, pathPrefix, &CollectCb, nullptr);
 }
 
 // --- DBC path-getter scan ---------------------------------------------
@@ -254,48 +307,166 @@ void ScanPathGetters(Collector &c) {
 
 // Read each collected source path from the MPQs and write it under
 // `dstRoot`, re-rooted by stripping the leading `prefixLen` chars (the
-// "Interface\" / "DBFilesClient\" prefix). Returns the number written.
+// "Interface\" / "DBFilesClient\" prefix). Returns the number written and,
+// via `skipped`, how many enumerated paths did NOT reach disk.
+//
+// Report the skips rather than swallowing them. A path only gets here
+// because an archive index named it, so a failure means the index and the
+// archive disagree — worth knowing, and invisible otherwise: a silent
+// `continue` is exactly what hid 16 sound files the engine can
+// demonstrably open (`PlaySoundFile` returns 1 for them). The count goes
+// on the console line; the paths go to the debug log, so they can be read
+// without re-running the export.
 int WriteFiles(const std::vector<std::string> &files, size_t prefixLen,
-               const char *dstRoot) {
+               const char *dstRoot, int *skipped) {
     auto FileRead = reinterpret_cast<FileRead_t>(Offsets::FUN_FILE_READ);
     auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
 
     int written = 0;
+    int missed = 0;
     for (const std::string &src : files) {
         void *buf = nullptr;
         unsigned int size = 0;
-        if (FileRead(0, src.c_str(), &buf, &size, 0, 1, 0) == 0 || buf == nullptr)
+        if (FileRead(0, src.c_str(), &buf, &size, 0, 1, 0) == 0 || buf == nullptr) {
+            ++missed;
+            Debug::Log::Printf("Export: read failed: %s", src.c_str());
             continue;
+        }
 
         // Re-root: "<prefix>Sub\Foo.ext" -> "<dstRoot>\Sub\Foo.ext".
         std::string dst = dstRoot;
         dst.push_back('\\');
         dst.append(src, prefixLen, std::string::npos);
 
-        if (WriteFileToDisk(dst, buf, size))
+        if (WriteFileToDisk(dst, buf, size)) {
             ++written;
+        } else {
+            ++missed;
+            Debug::Log::Printf("Export: write failed (err %lu): %s",
+                               static_cast<unsigned long>(GetLastError()), dst.c_str());
+        }
 
         SMemFree(buf, __FILE__, __LINE__, 0);
     }
+    if (skipped != nullptr)
+        *skipped = missed;
     return written;
 }
 
-// Enumerate every MPQ file under `pathPrefix` whose extension matches
-// one of `exts`, read each, and write it under `dstRoot`. Returns the
-// number of files successfully written.
-int ExportTree(const char *pathPrefix, const char *const *exts, int extCount,
-               const char *dstRoot) {
-    auto MpqEnumFiles = reinterpret_cast<MpqEnumFiles_t>(Offsets::FUN_MPQ_ENUM_FILES);
-
+// Enumerate every MPQ file under `pathPrefix` whose extension matches one
+// of `exts` (all of them when `extCount == 0`), read each, and write it
+// under `dstRoot`. `stripLen` is how much of each source path to drop when
+// re-rooting — normally the prefix's own length, but the sound export
+// passes a narrowed prefix while still stripping only `Sound\`, so a
+// narrowed run lands where a full one would. Returns the number written.
+int ExportTree(const char *pathPrefix, size_t stripLen, const char *const *exts,
+               int extCount, const char *dstRoot, int *skipped) {
     Collector collector;
     collector.exts = exts;
     collector.extCount = extCount;
 
     g_collector = &collector;
-    MpqEnumFiles(kArchiveSelector, pathPrefix, &CollectCb, nullptr);
+    EnumAllArchives(pathPrefix);
     g_collector = nullptr;
 
-    return WriteFiles(collector.files, std::strlen(pathPrefix), dstRoot);
+    return WriteFiles(collector.files, stripLen, dstRoot, skipped);
+}
+
+// --- SoundEntries scan ------------------------------------------------
+//
+// Walk the loaded SoundEntries.dbc and add every `DirectoryBase\File`
+// the table names, filtered to `prefix` ourselves (the engine's
+// enumerator applies the prefix for the listfile half; this half is
+// ours). See Offsets.h `VAR_SOUND_ENTRIES_RECORDS` for why this source
+// exists at all and for the record layout.
+
+// Case-insensitive "does `s` start with `prefix`".
+bool StartsWithCI(const char *s, const char *prefix) {
+    for (;; ++s, ++prefix) {
+        if (*prefix == '\0')
+            return true;
+        char a = *s, b = *prefix;
+        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
+        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
+        if (a != b)
+            return false;
+    }
+}
+
+// True when `p` points into the loaded image's data — the record's
+// string columns are fixed up to real pointers at load, but a row may
+// leave a File slot null, and a table that never loaded leaves garbage.
+bool PlausibleString(const char *p) {
+    const uintptr_t v = reinterpret_cast<uintptr_t>(p);
+    return v >= kImageStart && v < 0xFFFF0000u;
+}
+
+void ScanSoundEntries(Collector &c, const char *prefix) {
+    const int count = *reinterpret_cast<const int *>(
+        static_cast<uintptr_t>(Offsets::VAR_SOUND_ENTRIES_COUNT));
+    const uint8_t *const *records = *reinterpret_cast<const uint8_t *const *const *>(
+        static_cast<uintptr_t>(Offsets::VAR_SOUND_ENTRIES_RECORDS));
+    if (records == nullptr || count <= 0)
+        return; // table not loaded — the listfile half still stands
+
+    for (int id = 1; id <= count; ++id) {
+        const uint8_t *rec = records[id];
+        if (rec == nullptr)
+            continue;
+        const char *dir = *reinterpret_cast<const char *const *>(
+            rec + Offsets::OFF_SOUND_ENTRY_DIRECTORY);
+        if (!PlausibleString(dir) || *dir == '\0')
+            continue;
+
+        for (int i = 0; i < Offsets::SOUND_ENTRY_FILE_COUNT; ++i) {
+            const char *file = *reinterpret_cast<const char *const *>(
+                rec + Offsets::OFF_SOUND_ENTRY_FILES + i * 4);
+            if (!PlausibleString(file) || *file == '\0')
+                continue;
+
+            // Join as "<dir>\<file>", trimming separators off both sides
+            // so the stray-leading-backslash row can't produce "\Sound\..."
+            // (which would survive neither the prefix test nor re-rooting).
+            std::string path;
+            for (const char *p = dir; *p != '\0'; ++p)
+                path.push_back((*p == '/') ? '\\' : *p);
+            size_t begin = 0;
+            while (begin < path.size() && path[begin] == '\\')
+                ++begin;
+            path.erase(0, begin);
+            while (!path.empty() && path.back() == '\\')
+                path.pop_back();
+            path.push_back('\\');
+            for (const char *p = file; *p != '\0'; ++p)
+                if (*p != '/' && *p != '\\')
+                    path.push_back(*p);
+                else
+                    path.push_back('\\');
+
+            if (StartsWithCI(path.c_str(), prefix))
+                c.Add(path.c_str());
+        }
+    }
+}
+
+// Export the sound tree: the listfile walk unioned with SoundEntries.dbc
+// (see the header note). `prefix` is "Sound\" plus any user subpath;
+// `stripLen` is always the "Sound\" root so a narrowed run lands in the
+// same layout a full one would.
+int ExportSound(const char *prefix, size_t stripLen, const char *dstRoot,
+                int *skipped) {
+    Collector collector; // extCount 0 — no extension filter
+
+    g_collector = &collector;
+    EnumAllArchives(prefix);
+    g_collector = nullptr;
+
+    ScanSoundEntries(collector, prefix);
+
+    // A DBC-named file need not exist in any archive (the table outlives
+    // content edits), so a skip here is expected and not per se a fault —
+    // unlike the other two exports, where every path came from an index.
+    return WriteFiles(collector.files, stripLen, dstRoot, skipped);
 }
 
 // Export the DBC tables. Unions two sources, deduped case-insensitively:
@@ -305,20 +476,32 @@ int ExportTree(const char *pathPrefix, const char *const *exts, int extCount,
 //      actually loads — catches the ~18 DBCs absent from the listfile).
 // Every DBC path is "DBFilesClient\Name.dbc", so re-rooting strips that
 // 14-char prefix and writes under `dstRoot`.
-int ExportDBC(const char *dstRoot) {
-    auto MpqEnumFiles = reinterpret_cast<MpqEnumFiles_t>(Offsets::FUN_MPQ_ENUM_FILES);
-
+int ExportDBC(const char *dstRoot, int *skipped) {
     Collector collector;
     collector.exts = kDbcExts;
     collector.extCount = 1;
 
     g_collector = &collector;
-    MpqEnumFiles(kArchiveSelector, "DBFilesClient\\", &CollectCb, nullptr);
+    EnumAllArchives("DBFilesClient\\");
     g_collector = nullptr;
 
     ScanPathGetters(collector);
 
-    return WriteFiles(collector.files, std::strlen("DBFilesClient\\"), dstRoot);
+    return WriteFiles(collector.files, std::strlen("DBFilesClient\\"), dstRoot,
+                      skipped);
+}
+
+// `" (N skipped — see Logs\classicapi_debug.log)"`, or "" when nothing was
+// skipped, so a clean run reads exactly as it always has. Returns a pointer
+// into a static buffer — one export runs at a time, and the caller consumes
+// it immediately in snprintf.
+const char *SkippedSuffix(int skipped) {
+    static char buf[80];
+    if (skipped <= 0)
+        return "";
+    snprintf(buf, sizeof(buf), " (%d skipped — see Logs\\classicapi_debug.log)",
+             skipped);
+    return buf;
 }
 
 // Console-command handler ABI: edx = the argument text after the
@@ -350,16 +533,19 @@ int __fastcall Console_ExportInterfaceFiles(void * /*unused*/, const char *args)
         return 1;
     }
 
+    int skipped = 0;
     const int written = ExportTree(
-        "Interface\\",
+        "Interface\\", std::strlen("Interface\\"),
         (mode == MODE_ART) ? kArtExts : kCodeExts,
         (mode == MODE_ART) ? 2 : 4,
-        (mode == MODE_ART) ? "BlizzardInterfaceArt" : "BlizzardInterfaceCode");
+        (mode == MODE_ART) ? "BlizzardInterfaceArt" : "BlizzardInterfaceCode",
+        &skipped);
 
-    char msg[160];
-    snprintf(msg, sizeof(msg), "ExportInterfaceFiles: wrote %d %s file(s) to %s\\",
+    char msg[200];
+    snprintf(msg, sizeof(msg), "ExportInterfaceFiles: wrote %d %s file(s) to %s\\%s",
              written, (mode == MODE_ART) ? "art" : "code",
-             (mode == MODE_ART) ? "BlizzardInterfaceArt" : "BlizzardInterfaceCode");
+             (mode == MODE_ART) ? "BlizzardInterfaceArt" : "BlizzardInterfaceCode",
+             SkippedSuffix(skipped));
     Game::Console::Write(msg);
     return 1;
 }
@@ -370,11 +556,52 @@ int __fastcall Console_ExportInterfaceFiles(void * /*unused*/, const char *args)
 // Unions the MPQ (listfile) with a `.text` path-getter scan so it gets
 // the complete set the client loads, including DBCs the listfile omits.
 int __fastcall Console_ExportDBCFiles(void * /*unused*/, const char * /*args*/) {
-    const int written = ExportDBC("DBFilesClient");
+    int skipped = 0;
+    const int written = ExportDBC("DBFilesClient", &skipped);
 
-    char msg[96];
+    char msg[160];
     snprintf(msg, sizeof(msg),
-             "ExportDBCFiles: wrote %d .dbc file(s) to DBFilesClient\\", written);
+             "ExportDBCFiles: wrote %d .dbc file(s) to DBFilesClient\\%s", written,
+             SkippedSuffix(skipped));
+    Game::Console::Write(msg);
+    return 1;
+}
+
+// `ExportSoundFiles [subpath]` — dumps the MPQ `Sound\` tree to
+// `BlizzardSound\`. The optional argument narrows the enumeration to a
+// path prefix under `Sound\` (plain prefix matching, so `Creature\Ill`
+// catches `Creature\Illidan...`); bare exports everything, which is on
+// the order of a gigabyte and takes a while. The argument can only
+// restrict which archive entries match — every written path comes from
+// the listfile, never from the argument.
+int __fastcall Console_ExportSoundFiles(void * /*unused*/, const char *args) {
+    static const char kRoot[] = "Sound\\";
+    constexpr size_t kRootLen = sizeof(kRoot) - 1;
+
+    const char *p = (args != nullptr) ? args : "";
+    while (*p == ' ' || *p == '\t')
+        ++p;
+    while (*p == '\\' || *p == '/') // a leading separator would double up
+        ++p;
+
+    // prefix = "Sound\" + subpath, with separators normalized and any
+    // trailing whitespace dropped.
+    std::string prefix(kRoot, kRootLen);
+    for (; *p != '\0'; ++p)
+        prefix.push_back((*p == '/') ? '\\' : *p);
+    while (!prefix.empty() &&
+           (prefix.back() == ' ' || prefix.back() == '\t'))
+        prefix.pop_back();
+
+    // Strip only "Sound\" regardless of how narrow the prefix is, so the
+    // output always mirrors the full tree.
+    int skipped = 0;
+    const int written = ExportSound(prefix.c_str(), kRootLen, "BlizzardSound", &skipped);
+
+    char msg[360];
+    snprintf(msg, sizeof(msg),
+             "ExportSoundFiles: wrote %d file(s) under %s to BlizzardSound\\%s",
+             written, prefix.c_str(), SkippedSuffix(skipped));
     Game::Console::Write(msg);
     return 1;
 }
@@ -400,6 +627,11 @@ void EnsureRegistered() {
         Game::Console::CATEGORY_DEBUG,
         "Extracts the client's .dbc tables from the MPQs to disk. "
         "Usage: ExportDBCFiles");
+    Game::Console::RegisterCommand(
+        "ExportSoundFiles", &Console_ExportSoundFiles,
+        Game::Console::CATEGORY_DEBUG,
+        "Extracts the client's sound files from the MPQs to disk. "
+        "Usage: ExportSoundFiles [subpath]");
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&EnsureRegistered};

@@ -71,6 +71,7 @@ build instructions.
   - [`ConsoleGetAllCommands()`](#consolegetallcommands)
   - [`ExportInterfaceFiles art|code` (console command)](#exportinterfacefiles-artcode-console-command)
   - [`ExportDBCFiles` (console command)](#exportdbcfiles-console-command)
+  - [`ExportSoundFiles [subpath]` (console command)](#exportsoundfiles-subpath-console-command)
 
 - [Container](#container)
   - [`C_Container.GetContainerItemID(bagIndex, slotIndex)`](#c_containergetcontaineritemidbagindex-slotindex)
@@ -1904,6 +1905,44 @@ Results are deduped case-insensitively. Handy for a local DBC dump to
 inspect schemas/values directly — e.g. verifying a record's column
 layout against a known row, the way `C_Item.GetEnchantInfo`'s effect
 columns were confirmed — without a standalone MPQ extraction tool.
+
+### `ExportSoundFiles [subpath]` (console command)
+
+A ClassicAPI-original companion that dumps the client's sound files out
+of the MPQ archives to `BlizzardSound\` under the working directory
+(next to `WoW.exe`). Every sound the client can play lives under one
+`Sound\` root, and the export preserves that subtree — e.g.
+`Sound\Creature\Ragnaros\RagnarosAggro01.wav` becomes
+`BlizzardSound\Creature\Ragnaros\RagnarosAggro01.wav`.
+
+```
+> ExportSoundFiles Creature\Ragnaros
+ExportSoundFiles: wrote 27 file(s) under Sound\Creature\Ragnaros to BlizzardSound\
+```
+
+The optional `subpath` narrows the export to a path prefix under
+`Sound\`. It is plain prefix matching, so `Creature\Rag` also catches
+`Creature\Ragnaros`. Use it: the whole tree is roughly a gigabyte, and
+the command runs synchronously, freezing the client until it finishes.
+Bare `ExportSoundFiles` exports everything.
+
+Notes:
+
+- Every file under `Sound\` is exported, whatever its extension. The
+  tree is entirely audio (`.wav`, `.mp3`, `.ogg`), and a few files are
+  named inconsistently, so filtering by extension would only hide them.
+- The export covers every sound the client can play, not only the ones
+  its archives index: several hundred files it ships are named by no
+  index at all, and the client's own sound table supplies them instead.
+  That table also names files this build does not ship (sounds
+  belonging to later content); those are skipped, so the written count
+  lands under the number of names.
+- A narrowed export writes into the same layout a full one would, so
+  running it repeatedly with different subpaths builds up one tree.
+- The destination is `BlizzardSound\`, deliberately not `Sound\`. The
+  client prefers a loose file over the archived copy of the same path,
+  so exporting into `Sound\` would shadow the archives with a gigabyte
+  of duplicates that get re-indexed at every launch.
 
 ## Container
 

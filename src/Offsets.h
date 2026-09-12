@@ -6041,6 +6041,63 @@ enum Offsets {
     // disk/MPQ roles swapped; this entry is the authoritative note.
     FUN_MPQ_ENUM_FILES = 0x00401470,
 
+    // ...and the `archiveSelector` is NOT "an archive set" — it is an INDEX
+    // into a fixed 10-entry table of secondary archives. `FUN_00401470`
+    // walks the primary archives (`[0, DAT_00882740)`: the Data\patch-*.MPQ
+    // set plus speech2 sub-archives) and then exactly ONE more, at
+    // `archives[DAT_00882744 + selector]`. The mount function
+    // `FUN_00403740` builds that group from the name table at
+    // `0x0082E12C`, looping `uVar9 < 0x28` over 4-byte entries — so ten,
+    // in this order:
+    //
+    //   0 model    1 texture   2 terrain   3 wmo    4 sound
+    //   5 misc     6 interface 7 fonts     8 speech 9 dbc
+    //
+    // `DAT_00882740 == DAT_00882744` (both assigned the primary count), so
+    // the selector indexes that table directly and 0..9 are all in range;
+    // a failed open leaves a null the enumerator already skips.
+    //
+    // This bit us: passing 6 (copied from the macro-icon loader, which
+    // wants interface.MPQ) made `ExportInterfaceFiles` complete by
+    // coincidence while `ExportSoundFiles` saw neither sound.MPQ nor
+    // speech.MPQ — 6,561 of 9,535 listed sound files, silently. Anything
+    // enumerating content must sweep all ten selectors rather than guess
+    // which archive holds what; `Interface::Export::EnumAllArchives` does.
+    MPQ_SECONDARY_ARCHIVE_COUNT = 10,
+
+    // SoundEntries.dbc — the client's sound-file table, and the second
+    // source `ExportSoundFiles` enumerates from.
+    //
+    // The reason it needs one: an MPQ resolves a read by HASHING the
+    // path, so `(listfile)` is only an optional index, and this client's
+    // sound archives index a small fraction of what they hold. Measured
+    // on the 1.18.1 build: the listfile walk yields 3,184 files under
+    // `Sound\` while SoundEntries alone names 13,696 — including core
+    // entries like `Sound\Spells\DivineShield.wav` that demonstrably
+    // play. The two sets each carry files the other lacks (162 listfile
+    // files are in no SoundEntries row: doodad/model-referenced audio),
+    // so the export unions them, exactly as `ExportDBCFiles` unions the
+    // listfile with its `.text` path-getter scan.
+    //
+    // Standard 5-DWORD class instance at `0x00C0D8D4`; records-array
+    // pointer at `+0x08`, count at `+0x0C` (docs/DBCs.md). 29 fields,
+    // 116-byte records; string fields are fixed up to `char *` at load.
+    // Record layout (the columns we read; verified by parsing the
+    // extracted .dbc and rebuilding paths that match the exported tree):
+    //   +0x00 id
+    //   +0x08 Name
+    //   +0x0C `File[10]`      — bare file names, NULL for unused slots
+    //   +0x5C DirectoryBase   — e.g. "Sound\Spells"; one row in this
+    //                           build has a stray leading backslash
+    //                           ("\Sound\Creature\Ashbringer\"), so trim
+    //                           separators off both halves before
+    //                           joining them with a single '\'.
+    VAR_SOUND_ENTRIES_RECORDS = 0x00C0D8DC,
+    VAR_SOUND_ENTRIES_COUNT = 0x00C0D8E0,
+    OFF_SOUND_ENTRY_FILES = 0x0C,
+    OFF_SOUND_ENTRY_DIRECTORY = 0x5C,
+    SOUND_ENTRY_FILE_COUNT = 10,
+
     // Console-command registrar — the vanilla equivalent of 4.3.4's
     // `FUN_00654c90`. Registers a developer-console command (the `~`
     // console you get when launching with `-console`).
