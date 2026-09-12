@@ -1259,4 +1259,42 @@
     2: 0x00706040  CreateFont
     3: 0x007060B0  CreateFrame
 
+=== luaL_openlib base library  Table 0x00811E28  Count=36  (not a FrameScript_RegisterFunction batch; see BlizzardScriptAPI.md §3) ===
+    0: 0x00702770  setglobal
+    1: 0x007027B0  getglobal
+    2: 0x007027E0  debugload
+    3: 0x007027F0  debuginfo
+    4: 0x00702800  debugprint
+    5: 0x00702810  debugdump
+    6: 0x00702820  debugbreak
+    7: 0x00702830  debugtimestamp
+    8: 0x00702840  debugprofilestart
+    9: 0x00702860  debugprofilestop
+   10: 0x00702900  seterrorhandler
+   11: 0x00702950  geterrorhandler
+   12: 0x00702970  error
+   13: 0x007029F0  getmetatable
+   14: 0x00702A40  setmetatable
+   15: 0x00702AC0  getfenv
+   16: 0x00702BE0  setfenv
+   17: 0x00702C90  next
+   18: 0x00702CD0  ipairs
+   19: 0x00702DA0  pairs
+   20: 0x00702DF0  type
+   21: 0x00702E30  tonumber
+   22: 0x00702F40  tostring
+   23: 0x007030A0  unpack
+   24: 0x007030F0  rawequal
+   25: 0x00703130  rawget
+   26: 0x00703160  rawset
+   27: 0x007031A0  assert
+   28: 0x00703200  gcinfo
+   29: 0x00703250  collectgarbage
+   30: 0x00703280  loadstring
+   31: 0x007032F0  pcall
+   32: 0x00703340  xpcall
+   33: 0x007033A0  date
+   34: 0x007035A0  time
+   35: 0x00703760  debugstack
+
 

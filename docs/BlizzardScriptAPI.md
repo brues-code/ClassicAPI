@@ -9,7 +9,8 @@ ImageBase `0x00400000`. All VAs in this doc use that base.
 
 ## How Blizzard wires Lua
 
-There are two registries.
+There are two Blizzard registries, plus the Lua standard libraries, which are
+bound a third way (§3) and are NOT in the batch counts below.
 
 ### 1. Global functions — `FrameScript_RegisterFunction` at `0x00704120`
 
@@ -56,6 +57,62 @@ C3                  ret
 
 23 tables found, **481 methods total**. The runtime dispatcher at `0x005368D0`
 resolves `frame:method(...)` by looking the name up in the matching context.
+
+### 3. Lua standard libraries — `luaL_openlib` tables
+
+The Lua 5.0 standard libraries, and Blizzard's replacements inside them, are
+bound by `luaL_openlib` walking one `luaL_reg { char *name; lua_CFunction
+func; }[]` table per library when the Lua state is created (`FUN_00703B80`,
+called immediately BEFORE `FUN_LOAD_SCRIPT_FUNCTIONS`). They never pass
+through `FrameScript_RegisterFunction`, so none of them appear in the 54
+batches above or in the loop scan behind `raw_globals.txt` — which is how
+`debugprofilestart` / `debugprofilestop` (stock since 1.7.0) went
+uncatalogued here until 2026-09. **Before declaring a global absent, check
+these tables or `/dump` the name in game.**
+
+**Base library** — table `[0x00811E28]`, 36 entries, `.rdata`. Blizzard's
+own base library: the stock 5.0 set minus `dofile`/`loadfile`/`require`/
+`print` (`print` is a ClassicAPI backport), plus the `debug*` /
+`*errorhandler` / `date` / `time` additions.
+
+```
+0x00702770  setglobal          0x00702DF0  type
+0x007027B0  getglobal          0x00702E30  tonumber
+0x007027E0  debugload          0x00702F40  tostring
+0x007027F0  debuginfo          0x007030A0  unpack
+0x00702800  debugprint         0x007030F0  rawequal
+0x00702810  debugdump          0x00703130  rawget
+0x00702820  debugbreak         0x00703160  rawset
+0x00702830  debugtimestamp     0x007031A0  assert
+0x00702840  debugprofilestart  0x00703200  gcinfo
+0x00702860  debugprofilestop   0x00703250  collectgarbage
+0x00702900  seterrorhandler    0x00703280  loadstring
+0x00702950  geterrorhandler    0x007032F0  pcall
+0x00702970  error              0x00703340  xpcall
+0x007029F0  getmetatable       0x007033A0  date
+0x00702A40  setmetatable       0x007035A0  time
+0x00702AC0  getfenv            0x00703760  debugstack
+0x00702BE0  setfenv
+0x00702C90  next
+0x00702CD0  ipairs
+0x00702DA0  pairs
+```
+
+`debugprofilestart` stores `rdtsc` in `0x00CEEB58` (u64);
+`debugprofilestop` pushes `|rdtsc − start| / (ticksPerSecond / 1000)` as a
+double, where `ticksPerSecond` is `FUN_0042C020` = `(int64)(1000.0 /
+[0x008332C8])` — a TSC scale calibrated at boot (the image holds `1.0`). So:
+milliseconds with a sub-microsecond fraction, from the CPU counter, unrelated
+to the engine's millisecond tick and to `GetTime()`.
+
+The `table`, `string` and `math` libraries have the same shape (the `table`
+library's `luaL_reg` is at `0x00822D70` — see `Offsets.h`
+`FUN_LUA_TABLE_INSERT`) and are not enumerated here. The short global
+aliases (`tinsert`, `getn`, `strlen`, `format`, `floor`, …) are not registered
+at all: an embedded Lua chunk at `.data 0x008722E8`, run by the same state
+init, assigns them from the library tables (`tinsert = tab.insert`). A module
+that registers over a library function must therefore re-bind its alias —
+`Game::Lua::RegisterGlobalAlias`.
 
 ## Scope
 
