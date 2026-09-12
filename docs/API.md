@@ -14603,59 +14603,70 @@ GetSpellBonusHealing()   -- your +Healing
 
 ### `IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)`
 
-Returns `(usable, noMana)` for a spell. Returns `(1, nil)` when the spell is castable,
-`(nil, 1)` when only mana is preventing it, `(nil, nil)` for any
-other reason (unknown spell, dead, etc.). Matches the `1`/`nil`
-return convention of the existing `Script_IsUsableAction`.
+Returns `(usable, noMana)` for a spell. The result is the same verdict
+that `IsUsableAction` gives for an action slot that holds this spell,
+read live. Returns `(1, nil)` when you can cast the spell now,
+`(nil, 1)` when only power stops you, and `(nil, nil)` for any other
+block. The `1`/`nil` pairs match `IsUsableAction`.
 
-Two arg shapes accepted:
+Two argument shapes:
 
-- **`IsUsableSpell(spellID)`** — direct spellID lookup.
-- **`IsUsableSpell(slot, bookType)`** — `bookType` is `"spell"`
-  (player) or `"pet"`. Resolves to a spellID via the same engine
-  spellbook arrays `GetSpellInfo`/`GetSpellLink` walk.
+- **`IsUsableSpell(spellID)`** — a spellID. A spell that you do not
+  know returns `(nil, nil)`. A pet spell given by ID (Growl, Cower) is
+  tested for the pet.
+- **`IsUsableSpell(slot, bookType)`** — a spellbook slot. `bookType`
+  is `"spell"` for the player book or `"pet"` for the pet book.
 
 ```lua
-IsUsableSpell(133)           -- Fireball: 1, nil if you have mana, nil, 1 if not
+IsUsableSpell(133)           -- Fireball: 1, nil with mana; nil, 1 without
 IsUsableSpell(1, "spell")    -- player spellbook slot 1
+IsUsableSpell(1, "pet")      -- pet spellbook slot 1
 ```
 
-> **What this function checks:**
+> **What the result includes.** Every condition that greys an action
+> button:
 >
-> 1. Player knows the spell (engine's spell-knowledge bitmap —
->    covers trained class abilities, talent passives, racials,
->    profession recipes).
-> 2. Player is alive (HEALTH > 0).
-> 3. Spell is not on cooldown (engine's per-spell cooldown helper).
-> 4. Player has enough of the spell's power type for the base cost
->    (mana / rage / focus / energy / happiness) — *only* this
->    failure sets `noMana=true`.
-> 5. Player has all required reagents in bags (Spell.dbc
->    Reagent[8] / ReagentCount[8]).
+> - The player is alive, unless the spell is castable while dead.
+> - The player has control. When control is lost (fear, charm), only
+>   spells that work in that state pass.
+> - The required stance or form. Whirlwind in Battle Stance is not
+>   usable.
+> - Reagents and totems in the bags.
+> - An equipped weapon of the required type, and ammo for ranged
+>   spells.
+> - Combo points for finishers.
+> - Stealth-only and out-of-combat-only spells.
+> - Aura states on the player and on the current target.
+> - A toggle spell that is already active (Stealth while stealthed) is
+>   not usable.
+> - Power. The cost of the spell, with your talents applied, against
+>   your current power. This is the only test that sets `noMana`.
 >
-> **What this function doesn't check** (different concerns): silence,
-> GCD, stance/form, range, target type, line-of-sight, casting state.
+> **What the result does not include.** Cooldown, silence, and school
+> lockouts. An action button greys for usability and swipes for
+> cooldown as two separate states. This function keeps that split.
+> Read cooldown with
+> [`C_Spell.GetSpellCooldown`](#c_spellgetspellcooldownspellidentifier)
+> and lockouts with
+> [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex).
 >
-> Verified empirically on Turtle WoW for the mana branch: Renew rank
-> 3 (cost 105) is reported usable at 144 mana and unusable at 39
-> mana, transitioning at exactly the cost boundary. Cooldown and
-> reagent checks ship in the same implementation but haven't been
-> exercised in-game; if you find an inconsistency, the reagent
-> offsets (+0x110 / +0x130) and cooldown helper (`0x006E2EA0`) are
-> the components to verify.
+> For a pet spell, the test is the current power of the pet against
+> the spell cost, after the pet can act (not stunned, feared, or
+> confused).
 
 ### `C_Spell.IsSpellUsable(spellID)`
 
-Table-namespace form. Same logic as
-[`IsUsableSpell(spellID)`](#isusablespellspell--isusablespellslot-booktype)
-but returns proper booleans (`isUsable`, `insufficientPower`) per
-the `C_Spell.*` convention rather than `1`/`nil` pairs.
+Table-namespace form. Same result as
+[`IsUsableSpell(spellID)`](#isusablespellspell--isusablespellslot-booktype),
+but returns booleans (`isUsable`, `insufficientPower`) per the
+`C_Spell.*` convention. Accepts a spellID, a spell link, or a spell
+name.
 
 ```lua
 local usable, noMana = C_Spell.IsSpellUsable(133)
 -- usable=true, noMana=false  → cast it
 -- usable=false, noMana=true  → drink up
--- usable=false, noMana=false → unknown spell, dead, or other block
+-- usable=false, noMana=false → unknown spell, wrong stance, dead, or another block
 ```
 
 ### `C_Spell.GetSpellCooldown(spellIdentifier)`

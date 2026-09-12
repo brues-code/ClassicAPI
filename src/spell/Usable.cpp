@@ -1,4 +1,4 @@
-﻿// This file is part of ClassicAPI.
+// This file is part of ClassicAPI.
 //
 // ClassicAPI is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -11,11 +11,35 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+// `IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)` and
+// `C_Spell.IsSpellUsable(spell)` — `(usable, noMana)` for a spell.
+//
+// The verdict is the engine's own. `IsUsableAction` reads a per-slot cache
+// that the recompute `FUN_004E5050` fills by calling `FUN_SPELL_IS_USABLE`
+// on the slot's spell record (player spells) or by comparing the pet's power
+// against the spell cost (pet spells). This module runs the same two paths
+// live, so `IsUsableSpell(id)` agrees with `IsUsableAction(slot)` for a slot
+// holding that spell — and is never stale, since it doesn't go through the
+// cache. Whatever the helper decides (stance / form, reagents, equipped
+// weapon and ammo, combo points, aura states, control loss, power) is what
+// we return; see the `FUN_SPELL_IS_USABLE` note in Offsets.h for the full
+// verified list. Like the engine, this does NOT fold in cooldown — that is a
+// separate concern (`GetSpellCooldown`), and FrameXML greys / swipes the two
+// independently.
+//
+// An earlier version hand-rolled five checks (known, alive, off cooldown,
+// power, reagents) instead of calling the helper. It diverged from
+// `IsUsableAction` exactly where the helper does more (stance) or less
+// (cooldown) — GitHub issue #51. Don't reintroduce a parallel check list.
+//
+// The one thing added on top of the helper is a knowledge gate: the helper
+// doesn't check whether the player knows the spell (it's also fed item
+// on-use spells), and the action bar only ever holds known spells, so a
+// spell the player hasn't learned reports `(nil, nil)` here.
+
 #include "Game.h"
 #include "Offsets.h"
-#include "item/CGItem.h"
-#include "item/ID.h"
-#include "item/Location.h"
+#include "object/Resolve.h"
 #include "spell/Arg.h"
 #include "spell/Lookup.h"
 
@@ -25,17 +49,15 @@ namespace Spell::Usable {
 
 namespace {
 
+using SpellIsUsable_t = int(__fastcall *)(const uint8_t *spellRecord, int *outNoMana);
 using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int unit);
-
-// Spell.dbc record field offsets we read for usability. Fully documented
-// in CLAUDE.md.
+using PetActionsUsable_t = int(__cdecl *)();
 
 // Returns true if the player knows `spellID` per the engine's spell-
 // knowledge bitmap at `[VAR_PLAYER_SPELL_BITMAP]`. Same check
 // `IsPlayerSpell` (`src/spell/Info.cpp`) uses — covers trained
-// abilities, talents, racials, profession recipes, etc. *Importantly*,
-// covers spells that are **not** currently on an action bar — racials
-// kept off the bar still register here.
+// abilities, talents, racials, profession recipes, and spells that are
+// not on any action bar.
 bool PlayerKnowsSpell(int spellID) {
     if (spellID <= 0)
         return false;
@@ -50,158 +72,92 @@ bool PlayerKnowsSpell(int spellID) {
     return (bitmap[spellID >> 5] & (1u << (spellID & 31))) != 0;
 }
 
-const uint8_t *PlayerDescriptor() {
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (player == nullptr)
-        return nullptr;
-    return Game::Read<const uint8_t *>(
-        player, Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
-// Calls the engine's cooldown helper at `FUN_SPELL_QUERY_COOLDOWN`
-// for the player spellbook (bookType=0). Returns true if the spell
-// has an active cooldown.
-//
-// `__fastcall(spellID, bookType, *duration, *start, *enable)` —
-// duration is the engine's raw cooldown length in milliseconds (the
-// Lua-side `Script_GetSpellCooldown` multiplies by 0.001 before
-// pushing), start is the absolute engine tick count when the
-// cooldown began. Both are 0 when no cooldown is active.
-using QueryCooldown_t = void(__fastcall *)(int spellID, int bookType,
-                                            int *outDuration,
-                                            int *outStart,
-                                            int *outEnable);
-
-bool IsOnCooldown(int spellID) {
-    auto fn = reinterpret_cast<QueryCooldown_t>(Offsets::FUN_SPELL_QUERY_COOLDOWN);
-    int duration = 0, start = 0, enable = 0;
-    fn(spellID, 0 /* bookType=player */, &duration, &start, &enable);
-    return duration > 0;
-}
-
-// Walks player bags 0..4 counting items matching `targetItemID`.
-// Returns the summed stack count. Same logic
-// `Item::Count::CountInBag` uses; inlined here to avoid promoting
-// it across modules just for one extra caller.
-//
-// Stomps the Lua stack — caller must own it. Stack contents on
-// return are unspecified (caller should `SetTop` if needed).
-int CountItemInBags(void *L, int targetItemID) {
-    int total = 0;
-    for (int bag = 0; bag <= 4; bag++) {
-        const int slots = Item::Location::GetBagSlotCount(bag);
-        for (int slot = 1; slot <= slots; slot++) {
-            const uint8_t *item = Item::Location::ResolveBag(L, bag, slot);
-            if (item == nullptr)
-                continue;
-            if (Item::ID::FromCGItem(item) != targetItemID)
-                continue;
-            auto *itemDesc = Item::ObjectFields(item);
-            if (itemDesc == nullptr)
-                continue;
-            total += static_cast<int>(Game::Read<uint32_t>(
-                itemDesc, Offsets::OFF_DESCRIPTOR_STACK_COUNT));
-        }
-    }
-    return total;
-}
-
-// Returns true iff the player has enough of every reagent the spell
-// requires (Reagent[i] > 0 with corresponding ReagentCount[i] > 0).
-// Spells with zero reagents trivially pass.
-bool HasReagents(void *L, const uint8_t *record) {
-    for (int i = 0; i < Offsets::SPELL_MAX_REAGENTS; i++) {
-        const int reagentItemID = static_cast<int>(Game::Read<int32_t>(
-            record, Offsets::OFF_SPELL_REAGENT_ID + i * 4));
-        const int reagentCount = static_cast<int>(Game::Read<int32_t>(
-            record, Offsets::OFF_SPELL_REAGENT_COUNT + i * 4));
-        if (reagentItemID <= 0 || reagentCount <= 0)
-            continue;
-        if (CountItemInBags(L, reagentItemID) < reagentCount)
-            return false;
-    }
-    return true;
-}
-
-// Computes (usable, noMana) for the local player.
-//
-// Checks performed (in order, short-circuiting on first failure):
-//   1. Spell is known (engine bitmap — covers all sources: trained,
-//      talents, racials, profession recipes).
-//   2. Spell record exists in Spell.dbc.
-//   3. Player descriptor is reachable (post-login).
-//   4. Player is alive (HEALTH > 0).
-//   5. Spell is not on cooldown (engine cooldown helper).
-//   6. Player has enough power for the spell's *effective* cost (talent
-//      reductions applied) of its `PowerType`. Only this flips
-//      `noMana=true`.
-//   7. Player has all required reagents in bags (Reagent[8] /
-//      ReagentCount[8] from the spell record).
-//
-// Not checked (deliberately — different concerns or post-vanilla
-// concepts that don't apply): silence, GCD, stance/form, range,
-// target type/validity, line-of-sight, casting state.
 struct Usability {
     bool usable;
     bool noMana;
 };
 
-Usability ComputeUsability(void *L, int spellID) {
+// Player spell — the spell branch of `FUN_004E5050`: the engine helper on
+// the record, `noMana` from its out-param.
+Usability ComputePlayer(int spellID) {
     Usability r{false, false};
-
     if (!PlayerKnowsSpell(spellID))
         return r;
-
     auto *record = Spell::Lookup::RecordForID(spellID);
     if (record == nullptr)
         return r;
 
-    auto *desc = PlayerDescriptor();
-    if (desc == nullptr)
-        return r;
-
-    const int health = Game::Read<int>(
-        desc, Offsets::OFF_UNIT_FIELD_HEALTH);
-    if (health <= 0)
-        return r;
-
-    if (IsOnCooldown(spellID))
-        return r;
-
-    // Mana check is the only one that flips noMana. Use the engine's
-    // effective-cost helper (op-14 SpellMod + descriptor power-cost mods +
-    // ManaCostPercent), so talent reductions like Frost Channeling count —
-    // not just the base ManaCost. Falls back to base if the engine can't
-    // resolve a cost (shouldn't happen here: the player descriptor
-    // resolved above, so it has a player context).
-    const int powerType = static_cast<int>(Game::Read<int8_t>(
-        record, Offsets::OFF_SPELL_RECORD_POWER_TYPE));
-    if (powerType >= 0 && powerType <= 4) {
-        auto getCost = reinterpret_cast<GetSpellCost_t>(Offsets::FUN_GET_SPELL_COST);
-        uint32_t cost = getCost(spellID, 0 /* local player */);
-        if (cost == 0xFFFFFFFF)
-            cost = Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_MANA_COST);
-        if (cost > 0) {
-            const int currentPower = Game::Read<int>(
-                desc, Offsets::OFF_UNIT_FIELD_POWER1 + powerType * 4);
-            if (currentPower < static_cast<int>(cost)) {
-                r.noMana = true;
-                return r;
-            }
-        }
-    }
-
-    if (!HasReagents(L, record))
-        return r;
-
-    r.usable = true;
+    auto isUsable = reinterpret_cast<SpellIsUsable_t>(Offsets::FUN_SPELL_IS_USABLE);
+    int noMana = 0;
+    r.usable = (isUsable(record, &noMana) & 0xFF) != 0;
+    r.noMana = noMana != 0;
     return r;
 }
 
-// Same arg-shape resolver `Spell::Info::ResolveLuaArgsToSpellID` uses —
-// duplicated here because it's file-static there. Accepts spellID
-// (number) or (slot, bookType) for spellbook lookups.
-int ResolveSpellArg(void *L) {
+// Pet spell — the pet branch of `FUN_004E5050`, mirrored step for step:
+// the pet must be able to act (`FUN_PET_ACTIONS_USABLE`), then the pet's
+// current power of the spell's PowerType (-2 = health) is compared against
+// the cost from `FUN_GET_SPELL_COST(spellID, 0)` — the engine passes unit
+// 0 here too. `cost <= power` is a signed compare, as in the engine.
+Usability ComputePet(int spellID) {
+    Usability r{false, false};
+    auto *record = Spell::Lookup::RecordForID(spellID);
+    if (record == nullptr)
+        return r;
+
+    auto petCanAct = reinterpret_cast<PetActionsUsable_t>(Offsets::FUN_PET_ACTIONS_USABLE);
+    if (petCanAct() == 0)
+        return r;
+
+    const uint64_t petGuid = Game::Read<uint64_t>(
+        static_cast<uintptr_t>(Offsets::VAR_PET_GUID));
+    auto *pet = static_cast<const uint8_t *>(
+        Object::ByGuid(Offsets::TYPEMASK_UNIT, petGuid));
+    if (pet == nullptr)
+        return r;
+    auto *desc = Game::Read<const uint8_t *>(pet, Offsets::OFF_UNIT_DESCRIPTOR);
+    if (desc == nullptr)
+        return r;
+
+    const int powerType = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
+    int power;
+    if (powerType == -2) {
+        power = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_HEALTH);
+    } else if (powerType >= 0 && powerType <= 4) {
+        power = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_POWER1 + powerType * 4);
+    } else {
+        return r; // not a power type Spell.dbc can hold; the engine would index garbage
+    }
+
+    auto getCost = reinterpret_cast<GetSpellCost_t>(Offsets::FUN_GET_SPELL_COST);
+    const int cost = static_cast<int>(getCost(spellID, 0));
+    if (cost <= power) {
+        r.usable = true;
+        return r;
+    }
+    r.noMana = true;
+    return r;
+}
+
+// `bookType` 1 = pet book (the `(slot, "pet")` arg shape). A spell given
+// by ID takes the player path when the player knows it; otherwise, if it
+// sits in the pet book (Growl, Cower, …), the pet path.
+Usability Compute(int spellID, int bookType) {
+    if (bookType == 1)
+        return ComputePet(spellID);
+    if (PlayerKnowsSpell(spellID))
+        return ComputePlayer(spellID);
+    int foundBook = 0;
+    if (Spell::Lookup::FindSpellbookSlot(spellID, &foundBook) != 0 && foundBook == 1)
+        return ComputePet(spellID);
+    return Usability{false, false};
+}
+
+// `IsUsableSpell(spellID)` or `IsUsableSpell(slot, bookType)`. Writes the
+// engine bookType (0 player, 1 pet) to `*outBookType`; returns the spellID
+// (0 when the slot is empty / out of range).
+int ResolveSpellArg(void *L, int *outBookType) {
+    *outBookType = 0;
     if (!Game::Lua::IsNumber(L, 1))
         return 0;
     const int arg1 = static_cast<int>(Game::Lua::ToNumber(L, 1));
@@ -213,6 +169,7 @@ int ResolveSpellArg(void *L) {
             (book[1] == 'e' || book[1] == 'E') &&
             (book[2] == 't' || book[2] == 'T') &&
             book[3] == 0);
+        *outBookType = bookType;
         return Spell::Lookup::SpellbookSlotToID(arg1, bookType);
     }
     return arg1;
@@ -226,8 +183,9 @@ int __fastcall Script_IsUsableSpell(void *L) {
         Game::Lua::Error(L, "Usage: IsUsableSpell(spellID) or IsUsableSpell(slot, bookType)");
         return 0;
     }
-    const int spellID = ResolveSpellArg(L);
-    Usability r = ComputeUsability(L, spellID);
+    int bookType = 0;
+    const int spellID = ResolveSpellArg(L, &bookType);
+    const Usability r = Compute(spellID, bookType);
     if (r.usable) {
         Game::Lua::PushNumber(L, 1.0);
         Game::Lua::PushNil(L);
@@ -241,12 +199,12 @@ int __fastcall Script_IsUsableSpell(void *L) {
     return 2;
 }
 
-// `C_Spell.IsSpellUsable(spellID)` — modern table-namespace form.
-// Returns proper booleans (`isUsable`, `insufficientPower`) per the
-// `C_Spell.*` convention, not 1/nil pairs.
+// `C_Spell.IsSpellUsable(spell)` — modern table-namespace form. Accepts
+// a spellID, link, or name. Returns proper booleans (`isUsable`,
+// `insufficientPower`) per the `C_Spell.*` convention, not 1/nil pairs.
 int __fastcall Script_C_Spell_IsSpellUsable(void *L) {
     const int spellID = Spell::Arg::ResolveSpellID(L, 1);
-    Usability r = ComputeUsability(L, spellID);
+    const Usability r = Compute(spellID, 0);
     Game::Lua::PushBool(L, r.usable);
     Game::Lua::PushBool(L, r.noMana);
     return 2;

@@ -1120,51 +1120,50 @@ spell-API functions use. Returns `(1, nil)` / `(nil, 1)` /
 `(nil, nil)` per legacy convention. `C_Spell.IsSpellUsable` is the
 modern shape — same logic, returns proper booleans.
 
-**Two engine-cache approaches investigated and discarded:**
+**Reworked for issue #51 (2026-09-12) — it now IS the engine's
+verdict.** `IsUsableAction` reads the per-slot cache
+(`0x00BC6B60` usable / `0x00BC67A0` noMana, reader `FUN_004E5230`),
+which the recompute `FUN_004E5050` fills per slot. For a player spell
+slot that recompute is one call: `FUN_SPELL_IS_USABLE(record,
+&noMana)` (`0x006E3D60`). For a pet spell slot it is `FUN_PET_ACTIONS_
+USABLE()` then the pet's power vs `FUN_GET_SPELL_COST(spellID, 0)`.
+`Spell::Usable` now runs exactly those two paths live (plus a
+knowledge gate on `VAR_PLAYER_SPELL_BITMAP`, since the helper is also
+fed item on-use spells and never checks knowledge). Verified check
+list of the helper is on `FUN_SPELL_IS_USABLE` in `Offsets.h`.
+
+**The first version hand-rolled five checks instead** (known, alive,
+off cooldown, power, reagents) and diverged from `IsUsableAction`
+exactly where the helper does more or less — the issue #51 repro
+(Warrior, Whirlwind):
+
+| State | `IsUsableAction` | old `IsUsableSpell` |
+|---|---|---|
+| Berserker, 0 rage, on CD | `nil, 1` | `nil, nil` (we tested cooldown first — the engine never does) |
+| Battle Stance, 25 rage | `nil, nil` | `1, nil` (we never tested stance) |
+
+Cooldown is deliberately NOT part of usability: FrameXML greys
+(`IsUsableAction`) and swipes (`GetActionCooldown`) as two separate
+states, and the engine helper has no cooldown branch. Rule #1 case:
+`Item::Usable` had been calling the helper all along.
+
+**Two engine-cache approaches investigated and discarded before the
+first version** (still true, kept for the record):
 
 1. **Per-spell cache at `0x004F0F40` returning fields at +0x564
    / +0x568** — initially looked promising (the action-bar
    dispatcher at `0x004E5BA0` reads these), but the writers
    (`0x004EFF17` cluster) showed they're parsed config integers,
-   not real-time usability bools. False trail.
+   not real-time usability bools. False trail. (Later identified as
+   the macro entry's cached primary spell — see the `#showtooltip`
+   notes.)
 2. **Action-bar per-slot caches at `0x00BC67A0` (noMana) and
    `0x00BC6B60` (usable)** — these ARE real-time, but only updated
    for the 120 action-bar slots. Spells off the bar stay
    uninitialized. Action-bar-only is the wrong abstraction since
-   modern `IsUsableSpell(spellID)` is action-bar-agnostic.
-
-Settled on a **manual five-check approach**:
-1. Player knows the spell (`VAR_PLAYER_SPELL_BITMAP` lookup —
-   covers profession recipes, talents, racials, etc.).
-2. Player is alive (`HEALTH > 0`).
-3. Spell is not on cooldown (`FUN_SPELL_QUERY_COOLDOWN` —
-   the engine helper `Script_GetSpellCooldown` calls internally
-   after slot resolution, queried with `bookType=0` for player).
-4. Player has ≥ `ManaCost` of the spell's `PowerType` —
-   only this failure flips `noMana=true`.
-5. Player has all required reagents in bags
-   (`Spell.dbc` Reagent[8] / ReagentCount[8] at `+0x110` /
-   `+0x130`, walked via `Item::Location::ResolveBag`).
-
-**Not checked** (deliberate, different concerns): silence, GCD,
-stance/form, range, target type, line-of-sight, casting state.
-
-**Verified on Turtle WoW:**
-- Mana check: Renew rank 3 (cost 105) reports usable at 144 mana
-  and unusable at 39 mana, transitioning exactly at the cost
-  boundary.
-- Reagent check: SHIPPED BUT UNVERIFIED — the Reagent[8] /
-  ReagentCount[8] offsets at `+0x110` / `+0x130` are the
-  CMaNGOS-documented vanilla layout, and we know spell records
-  match CMaNGOS docs (PowerType=+0x7C and ManaCost=+0x80 both
-  match), so high confidence — but no in-game verification yet.
-  Should test with a reagent spell (e.g., Mage Teleport spell 3565
-  needs Rune of Teleportation 17031). Failure mode if offsets are
-  wrong: reagent check becomes a no-op (always passes).
-- Cooldown check: SHIPPED BUT UNVERIFIED in this implementation —
-  the helper signature was traced via `Script_GetSpellCooldown` at
-  `0x004B40A0` but not exercised in-game. Should test with a
-  cooldown'd spell.
+   modern `IsUsableSpell(spellID)` is action-bar-agnostic. The fix
+   above sidesteps this by calling what FILLS the cache, not the
+   cache.
 
 **Important offset correction along the way.** Initial implementation
 read POWER1 at descriptor `+0x5C` based on the CMaNGOS-documented

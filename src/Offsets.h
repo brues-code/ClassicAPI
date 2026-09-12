@@ -1883,20 +1883,33 @@ enum Offsets {
     // folds in the descriptor cost mods).
     FUN_GET_SPELL_COST = 0x006E31B0,
 
-    // Full spell-castability check for the LOCAL player:
-    // `char __fastcall(const uint8_t *spellRecord /*ecx*/,
-    //                  int *outNoMana /*edx*/)`.
-    // Resolves the local player internally (no unit arg), then gates
-    // on casting state, stun/confuse flags, mechanic immunities,
-    // shapeshift/form + required stances, aura-state requirements,
-    // combo points (finishers), spell RequiredSkill, and finally the
-    // power check: `cost(FUN_GET_SPELL_COST) <= currentPower` → usable,
-    // else sets `*outNoMana = 1`. Returns nonzero (low byte) when
-    // usable. Does NOT check spell knowledge — so it's valid to feed
-    // an item's on-use spell record (which the player never "knows").
-    // This is the helper the action-usability recompute uses for
-    // player spell slots; `Item::Usable` reuses it for item on-use
-    // spells. Returns 0 cleanly pre-world (no player).
+    // The engine's spell-castability verdict for the LOCAL player — the
+    // function behind `IsUsableAction` for a player spell slot (the spell
+    // branch of the per-slot recompute `FUN_004E5050`) and behind the
+    // spellbook grey-out recompute (`FUN_004B31C0`, which fires
+    // SPELL_UPDATE_USABLE):
+    //   `char __fastcall(const uint8_t *spellRecord /*ecx*/,
+    //                    int *outNoMana /*edx*/)`.
+    // Resolves the player internally (no unit arg). Verified check order
+    // (decompiled): Effect[0] == ATTACK → always usable; dead / ghost unless
+    // CASTABLE_WHILE_DEAD (0x800000); the player-control flag
+    // (`DAT_00B4B3E4`, toggled with PLAYER_CONTROL_LOST / _GAINED) — with
+    // control lost only spells usable while fleeing / confused / charmed
+    // pass; totems + reagents in bags (`FUN_006E4000`); equipped-item
+    // class / subclass, main-hand / off-hand and ammo (`FUN_006E40E0`);
+    // combo points for finishers (AttributesEx 0x500000); Stances /
+    // StancesNot against the shapeshift byte (`FUN_00612480`, the
+    // Battle-Stance-Whirlwind case); ONLY_STEALTHED (0x20000);
+    // CANT_USED_IN_COMBAT (0x10000000); CasterAuraState; TargetAuraState
+    // (+ can-attack / can-assist on the current target); DISABLED_WHILE_
+    // ACTIVE (0x2000000) while the spell is active; and LAST
+    // `cost(FUN_GET_SPELL_COST) <= currentPower` (PowerType -2 = health) —
+    // the ONLY branch that sets `*outNoMana = 1`. Returns nonzero (low
+    // byte) when usable. Does NOT check cooldown, spell knowledge, silence
+    // or school lockouts — a knowledge gate belongs in the caller, and it's
+    // valid to feed an item's on-use spell record (which the player never
+    // "knows"). Read by `Spell::Usable` (IsUsableSpell) and `Item::Usable`
+    // (item on-use spells). Returns 0 cleanly pre-world (no player).
     FUN_SPELL_IS_USABLE = 0x006E3D60,
 
     // Effective spell/channel duration (ms):
@@ -4724,6 +4737,23 @@ enum Offsets {
     // exact "was it added to the book" gate the engine itself uses before
     // firing LEARNED_SPELL_IN_TAB. Read by `Spell::Learn`.
     VAR_PLAYER_SPELLBOOK_COUNT = 0x00B7116C,
+
+    // The player's pet GUID as a u64 (lo @ +0, hi @ +4). Verified three
+    // ways: `Script_HasPetUI` (0x004BE670) resolves it with TYPEMASK_UNIT
+    // through FUN_OBJECT_RESOLVE_BY_GUID, FUN_PET_ACTIONS_USABLE compares it
+    // against the CGPlayer pet field (`[player+0xE68]+0x830`), and the pet
+    // branch of the action-usability recompute `FUN_004E5050` resolves the
+    // pet from it before reading the pet's power.
+    VAR_PET_GUID = 0x00B714A0,
+    // "The pet can act" — the core of `Script_GetPetActionsUsable`
+    // (0x004BE0B0), `int()` with no args. True when the player isn't
+    // charmed, the CGPlayer pet field matches VAR_PET_GUID, the pet
+    // resolves, its charmer / summoner is the player, it's not stunned /
+    // fleeing / confused, and the pet-state flag `[0x00B71468] & 0x8000000`
+    // is clear. The pet branch of `FUN_004E5050` gates on it before the
+    // pet power check; `Spell::Usable` mirrors that branch for pet-book
+    // spells.
+    FUN_PET_ACTIONS_USABLE = 0x004BCF70,
 
     // Spellbook TABS — what `GetNumSpellTabs` / `GetSpellTabInfo` read.
     // `[VAR_SPELL_TAB_ENTRIES]` is a `SpellTab **` (heap array of pointers,
