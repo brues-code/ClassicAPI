@@ -49,13 +49,13 @@
 //      `n` field is the 5.0 vararg-table contract (`arg` = {n=3, holes}),
 //      where trailing nils are intentional — healing it would corrupt
 //      vararg counts.
-//   3. `t[n]` nil, no `t.n`: scan down for the true border `b` and heal to
-//      it (the 5.1 answer) — UNLESS the nil at slot `n` is a deliberate
-//      `table.insert(t, nil)` append slot, detected by the writer-side mark
-//      below, in which case keep the stored length. Read-only — no
-//      write-back, so a length read never mutates state; the engine's own
-//      `table.insert` calls `luaL_setn(n+1)` on the next append, which
-//      re-syncs the stored length by itself.
+//   3. `t[n]` nil, no `t.n`: heal to a border below `n` (the 5.1 answer,
+//      found by the same bisection 5.1's `#` uses — table/Border.h) — UNLESS
+//      the nil at slot `n` is a deliberate `table.insert(t, nil)` append
+//      slot, detected by the writer-side mark below, in which case keep the
+//      stored length. Read-only — no write-back, so a length read never
+//      mutates state; the engine's own `table.insert` calls `luaL_setn(n+1)`
+//      on the next append, which re-syncs the stored length by itself.
 //
 // Why a writer-side mark (our `table.insert`, below) and not a state heuristic: a
 // deliberate 5.0 nil append (`table.insert(t, nil)` — writes `t[n]=nil` +
@@ -95,13 +95,14 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "table/Border.h"
 
 namespace Table::Length {
 
 namespace {
 
 using LuaLGetN_t = int(__fastcall *)(void *L, int idx);
-using RawGetI_t = void(__fastcall *)(void *L, int idx, int n);
+using Table::Border::SlotIsNil;
 
 LuaLGetN_t g_getnOriginal = nullptr;
 
@@ -114,14 +115,6 @@ const auto kEngineTableInsert =
 // Registry key of the weak-keyed mark table: `marks[t] = storedN` recorded
 // at the moment `table.insert(t, nil)` reserved slot `storedN`.
 constexpr char kMarkKey[] = "ClassicAPI_TrailingNilMark";
-
-// True if t[k] (rawgeti) is nil. Balances the stack.
-bool SlotIsNil(void *L, int absIdx, int k) {
-    reinterpret_cast<RawGetI_t>(Offsets::LUA_RAWGETI)(L, absIdx, k);
-    const bool isNil = Game::Lua::Type(L, -1) == Game::Lua::TYPE_NIL;
-    Game::Lua::SetTop(L, -2);
-    return isNil;
-}
 
 // Pushes the mark table, creating `registry[kMarkKey] = setmetatable({},
 // {__mode = "k"})` on first use (per Lua state — the registry survives
@@ -207,21 +200,27 @@ int __fastcall LuaLGetN_h(void *L, int idx) {
     if (hasExplicitN)
         return n;
 
-    // Scan down for the true border.
-    int b = n - 1;
-    while (b > 0 && SlotIsNil(L, absIdx, b))
-        --b;
-
-    // Stored length exactly one past the border: either a deliberate
+    // Stored length exactly one past a populated slot: either a deliberate
     // `table.insert(t, nil)` reserved slot (keep — issue #36) or a cleared /
     // recycled table stale by one (heal — issue #39). The states are
-    // identical; only the writer-side mark recorded by `TableInsert_h` can
-    // tell them apart.
-    if (n - b == 1 && HasTrailingNilMark(L, absIdx, n))
+    // identical; only the writer-side mark recorded by `Script_TableInsert`
+    // can tell them apart. "One past" is `t[n-1] ~= nil` (slot 0 counts as
+    // populated) — one probe, the same condition the former walk-down
+    // expressed as `n - b == 1` — and it is tested before the mark so the
+    // common stale case never touches the registry.
+    const bool onePast = n == 1 || !SlotIsNil(L, absIdx, n - 1);
+    if (onePast && HasTrailingNilMark(L, absIdx, n))
         return n;
 
-    // Stale — heal to the border, the 5.1 answer.
-    return b;
+    // Stale — heal to a border below `n`, found the way 5.1's `#` finds it:
+    // bisect between slot 0 (virtually populated) and the nil at `n`. O(log n)
+    // however far the stored length has drifted, where the former walk-down
+    // cost one probe per stale slot on EVERY read until the next append
+    // re-synced the length. For the two shapes that matter — a fully cleared
+    // table, a table stale by one — the answer is the same 0 / n-1; a stale
+    // table WITH holes gets some border rather than the highest, which is
+    // what 5.1 itself returns for that table.
+    return static_cast<int>(Table::Border::Bisect(L, absIdx, 0, static_cast<unsigned>(n)));
 }
 
 // `Script_TableInsert` is registered OVER the engine's `table.insert` rather

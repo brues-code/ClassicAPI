@@ -106,6 +106,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "luasyntax/AddonNamespace.h"
+#include "table/Border.h"
 
 #include <algorithm>
 #include <cmath>
@@ -141,11 +142,6 @@ struct Stats {
     long long ticks = 0;                // QueryPerformanceCounter ticks inside RunPasses
 };
 Stats g_stats;
-
-// lua_rawgeti(L, idx, n) — push table_at_idx[n] without metamethods. Not
-// exposed via Game::Lua; used to probe table elements for the border search.
-using RawGetI_t = void(__fastcall *)(void *L, int idx, int n);
-const auto RawGetI = reinterpret_cast<RawGetI_t>(Offsets::LUA_RAWGETI);
 
 // ============================================================================
 // Lexer — enough of Lua 5.0 to skip strings/comments and delimit expressions.
@@ -1156,35 +1152,6 @@ bool RewriteChunk(const char *src, size_t len, std::string &out) {
 // Runtime helpers: __len (string length / table border) and __mod (5.1 `%`).
 // ============================================================================
 
-bool ElemNonNil(void *L, int n) {
-    RawGetI(L, 1, n);
-    bool nn = Game::Lua::Type(L, -1) != Game::Lua::TYPE_NIL;
-    Game::Lua::SetTop(L, -2);
-    return nn;
-}
-
-double TableBorder(void *L) {
-    unsigned i = 0, j = 1;
-    while (ElemNonNil(L, static_cast<int>(j))) {
-        i = j;
-        if (j > 0x7FFFFFFFu / 2) {
-            i = 1;
-            while (ElemNonNil(L, static_cast<int>(i)))
-                i++;
-            return static_cast<double>(i - 1);
-        }
-        j *= 2;
-    }
-    while (j - i > 1) {
-        unsigned m = (i + j) / 2;
-        if (ElemNonNil(L, static_cast<int>(m)))
-            i = m;
-        else
-            j = m;
-    }
-    return static_cast<double>(i);
-}
-
 int __fastcall Script_Len(void *L) {
     int ty = Game::Lua::Type(L, 1);
     if (ty == Game::Lua::TYPE_STRING) {
@@ -1192,7 +1159,8 @@ int __fastcall Script_Len(void *L) {
         return 1;
     }
     if (ty == Game::Lua::TYPE_TABLE) {
-        Game::Lua::PushNumber(L, TableBorder(L));
+        // 5.1's `#` on a table: a border, by luaH_getn's search (table/Border.h).
+        Game::Lua::PushNumber(L, static_cast<double>(Table::Border::Find(L, 1)));
         return 1;
     }
     Game::Lua::Error(L, "attempt to get length of a non-table, non-string value");
