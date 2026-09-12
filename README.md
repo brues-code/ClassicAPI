@@ -232,6 +232,7 @@ when launching with `-console`), not as Lua functions. See the
 | `QUEST_DATA_LOAD_RESULT` | `questID, success` |
 | `QUEST_REMOVED` | `questID` |
 | `QUEST_TURNED_IN` | `questID, xpReward, moneyReward` |
+| `SOUNDKIT_FINISHED` | `soundHandle` (only for sounds played with `runFinishCallback`) |
 | `UNIT_SPELLCAST_SENT` | `"player", target, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_START` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_STOP` | `unit, castGUID, spellID, spellName, rank` |

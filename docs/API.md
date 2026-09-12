@@ -169,6 +169,7 @@ build instructions.
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
   - [`QUEST_REMOVED` event](#quest_removed-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
+  - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
@@ -558,8 +559,8 @@ build instructions.
   - [`GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`](#getquestlogleaderboardidobjectiveindex--questindex)
 
 - [Sound](#sound)
-  - [`PlaySound(soundKitID [, channel])` / `PlaySound(soundName)`](#playsoundsoundkitid--channel--playsoundsoundname)
-  - [`C_Sound.PlaySound(soundKitID [, channel])`](#c_soundplaysoundsoundkitid--channel)
+  - [`PlaySound(soundKitID)` / `PlaySound(soundName)`](#playsoundsoundkitid--playsoundsoundname)
+  - [`C_Sound.PlaySound(soundKitID [, channel, forceNoDuplicates, runFinishCallback])`](#c_soundplaysoundsoundkitid--channel-forcenoduplicates-runfinishcallback)
   - [`C_Sound.IsPlaying(soundHandle)`](#c_soundisplayingsoundhandle)
   - [`C_Sound.PlayItemSound(soundType, item)`](#c_soundplayitemsoundsoundtype-item)
   - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
@@ -4241,6 +4242,31 @@ quest invalidated, etc.). Only fires on a real successful turn-in.
 > sends it after committing the turn-in (XP / money / item awards
 > done, quest removed from log). Hooking the packet handler gives
 > us a clean turn-in signal.
+
+### `SOUNDKIT_FINISHED` event
+
+Fires when a sound finishes playing.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("SOUNDKIT_FINISHED")
+f:SetScript("OnEvent", function()
+    print("finished:", arg1)   -- the handle of the sound that ended
+end)
+
+C_Sound.PlaySound(8959, nil, nil, true)
+```
+
+| Argument | Meaning |
+|---|---|
+| `arg1` | `soundHandle` — the handle [`C_Sound.PlaySound`](#c_soundplaysoundsoundkitid--channel-forcenoduplicates-runfinishcallback) returned for the sound that just ended. |
+
+It fires **only** for sounds played with `runFinishCallback` set to `true`.
+Sounds played any other way report nothing — every footstep and button
+click would otherwise raise an event.
+
+The event arrives on the frame after the sound ends, which is when the
+client releases it.
 
 ### `UNIT_FACTION` event (fire-coverage fix)
 
@@ -13645,7 +13671,7 @@ To see the file paths, extract them with the
 [`ExportSoundFiles`](#exportsoundfiles-subpath-console-command) console
 command.
 
-### `PlaySound(soundKitID [, channel])` / `PlaySound(soundName)`
+### `PlaySound(soundKitID)` / `PlaySound(soundName)`
 
 Plays a sound.
 
@@ -13659,14 +13685,12 @@ PlaySound(8959)                  -- true, 394043692
 PlaySound("igMainMenuOpen")      -- plays, returns nothing
 ```
 
-`channel` selects the sound category, `0` to `12`. Leave it out for `0`,
-which is what the client uses for interface sounds and music. A channel
-**name** such as `"SFX"` is accepted and ignored, so code written for the
-modern client still runs. The categories here do not match those names.
+The id is the only thing added here. For a channel, or to be told when the
+sound ends, use `C_Sound.PlaySound` below.
 
-### `C_Sound.PlaySound(soundKitID [, channel])`
+### `C_Sound.PlaySound(soundKitID [, channel, forceNoDuplicates, runFinishCallback])`
 
-The same as the numeric form above, and it takes only a number. Returns
+Plays a SoundKitID, and takes only a number. Returns
 `willPlay, soundHandle`.
 
 ```lua
@@ -13679,6 +13703,12 @@ has as many sounds as it allows.
 
 An entry can hold several files. The client picks one of them, with the
 same weighting it uses for its own sounds.
+
+| Argument | Meaning |
+|---|---|
+| `channel` | The sound category, `0` to `12`. Leave it out for `0`, which is what the client uses for interface sounds and music. A channel **name** such as `"SFX"` is accepted and ignored: the categories here do not match those names. |
+| `forceNoDuplicates` | Accepted and ignored. |
+| `runFinishCallback` | Pass `true` to get the [`SOUNDKIT_FINISHED`](#soundkit_finished-event) event when this sound ends. |
 
 ### `C_Sound.IsPlaying(soundHandle)`
 

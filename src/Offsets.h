@@ -6147,6 +6147,22 @@ enum Offsets {
     // when it finishes, so the handle must never be dereferenced directly.
     VAR_SOUND_STREAM_LIST_HEAD = 0x00CF557C,
     OFF_SOUND_STREAM_NEXT = 0x04,
+    // Hash of the path the stream was opened with, stamped at creation
+    // (`FUN_007A51D0`: `obj[0x20] = FUN_0064AF90(path)`) and compared by
+    // the dedup pass. Stream objects come from a pool and their addresses
+    // are reused, so this is what tells one instance from another at the
+    // same address — see `Sound::Play`'s finish tracking.
+    OFF_SOUND_STREAM_PATH_HASH = 0x80,
+
+    // Per-frame sound update, main thread: drains finished streams
+    // (`FUN_007A4B60`), updates the 3D listener, then calls FSOUND_Update.
+    // The drain matters for anything reporting completion: FMOD's own end
+    // callback (`FUN_007A53C0`) runs on the STREAMER thread and only moves
+    // the stream onto a deferred list under a critical section
+    // (`0x00CF55B4`) — so a finished sound must never be reported from
+    // there. `FUN_007A4B60` is where the engine reclaims those, on the main
+    // thread, which is the only safe side to notice completion from.
+    FUN_SOUND_UPDATE_FRAME = 0x007A4AD0,
 
     // `Script_PlaySound` — the engine's `PlaySound(soundName)`: hashes the
     // name to a SoundEntries row and calls `FUN_00458850`, whose tail is
