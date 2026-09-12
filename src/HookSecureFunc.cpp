@@ -19,14 +19,19 @@ namespace HookSecureFunc {
 
 namespace {
 
-// Names that must not be hooked when targeting `_G`. Hooking any of these
-// would either break taint propagation (the "secure" functions) or replace
-// core Lua language primitives whose behavior the engine depends on
-// internally — e.g. `pairs` is called from C in the iterator path; if Lua
-// `pairs` is replaced with a wrapper closure, the engine still gets the
-// original via its own table-method dispatch, but Lua-side iteration goes
-// through our wrapper, and the two diverging is a footgun. Modern WoW
-// rejects the hook outright; we mirror that. Sorted alphabetically.
+// Names that must not be hooked when targeting `_G`. This is the client's
+// own list, VERBATIM: patch 11.0.0 (The War Within, 2024-07-23) made
+// `hooksecurefunc` refuse exactly these 23 names with a "Cannot hook
+// function" error — the taint-relevant primitives (the "secure" family plus
+// the Lua primitives secure code paths run through). It is deliberately NOT
+// "every base-library function": 11.0 leaves `tostring`, `error`,
+// `loadstring`, `assert`, `collectgarbage`, … hookable, and includes names
+// that are not base-library functions at all. So do not derive this from
+// the engine's `luaopen_base` table (`0x00811E28`, 36 entries — see
+// BlizzardScriptAPI.md §3); that is a different set with a different
+// purpose. Names with no 1.12 counterpart (`wipe` is `table.wipe` here; the
+// secure family does not exist) stay for parity of the error an addon
+// sees. Sorted alphabetically.
 const char *const kUnhookableNames[] = {
     "getfenv", "getmetatable", "hooksecurefunc", "ipairs", "issecurevalue",
     "issecurevariable", "next", "pairs", "pcall", "pcallwithenv", "rawget",

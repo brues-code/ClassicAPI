@@ -7625,6 +7625,15 @@ Errors via `lua_error` on:
 - Non-function `callback`
 - `target[name]` not resolvable to a function (covers typos and
   hooking unknown frame methods)
+- The two-argument form naming a function that cannot be hooked on `_G`
+  (error `hooksecurefunc: function is unhookable`): `getfenv`,
+  `getmetatable`, `hooksecurefunc`, `ipairs`, `issecurevalue`,
+  `issecurevariable`, `next`, `pairs`, `pcall`, `pcallwithenv`, `rawget`,
+  `rawset`, `scrub`, `securecall`, `securecallfunction`,
+  `secureexecuterange`, `select`, `setfenv`, `setmetatable`, `type`,
+  `unpack`, `wipe`, `xpcall`. This is the same list the current client
+  enforces. The three-argument form is not restricted, even with `_G` as
+  the table.
 
 ## Input
 

@@ -1847,10 +1847,17 @@ are supported.
 
 ### Unhookable globals
 
-Modern WoW rejects `hooksecurefunc("<core lua/secure fn>", ...)` outright
-to keep callers from clobbering language primitives or breaking taint
-propagation. We mirror that with a name blacklist in `Script_HookSecureFunc`
-that fires `lua_error` with `"hooksecurefunc: function is unhookable"`
+Patch 11.0.0 (The War Within, 2024-07-23) made `hooksecurefunc` refuse a
+fixed set of names with a "Cannot hook function" error, to keep callers
+from clobbering language primitives or breaking taint propagation. No
+earlier client has the restriction (3.3.5, 4.3.4 and 5.4.8 carry no such
+string), so 11.0's published list is the reference — and it is NOT the
+engine's base-library table (`0x00811E28`, 36 entries, catalogued in
+`BlizzardScriptAPI.md` §3): 11.0 leaves `tostring`/`error`/`loadstring`
+hookable and includes secure-family names that are not base functions. We
+mirror the 11.0 list verbatim with a name blacklist in
+`Script_HookSecureFunc` that fires `lua_error` with
+`"hooksecurefunc: function is unhookable"`
 when the two-arg form targets one of: `getfenv`, `getmetatable`,
 `hooksecurefunc`, `ipairs`, `issecurevalue`, `issecurevariable`, `next`,
 `pairs`, `pcall`, `pcallwithenv`, `rawget`, `rawset`, `scrub`,
