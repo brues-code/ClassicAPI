@@ -592,6 +592,22 @@ end
 -- has no second entry to lose to, and an addon that wraps ours afterwards
 -- chains through us as it always did.
 --
+-- And only while the entry is still ours to give. Both halves of the decision
+-- are snapshotted below at file scope, while the table holds exactly what this
+-- file registered:
+--
+--   * The handler, so a key another addon has since taken OVER is left alone.
+--     SuperCleveRoidMacros writes its own conditional handler into our
+--     `SlashCmdList.CANCELAURA`, so clearing the key a frame later would delete
+--     that addon's command instead of handing ours back. Taking a key over is
+--     already how an addon wins a command; there is nothing left to resolve.
+--   * The command strings, because an addon that takes a key over also writes
+--     its own aliases into the same `SLASH_<key><i>` globals -- SCRM's
+--     `SLASH_CANCELAURA2 = "/unbuff"` replaces ours. Read a frame later, the
+--     test would run against a command we never registered, and a third addon
+--     owning that command would make us surrender an entry over a collision
+--     that is none of our business.
+--
 -- Resolved a frame later, not at file scope: this addon loads first by design,
 -- so while it runs the other addon has not registered yet and there is nothing
 -- to detect. It cannot wait on PLAYER_LOGIN either -- that has already fired
@@ -600,12 +616,6 @@ end
 -- next frame is after every non-demand addon has registered, on a cold login
 -- and on a reload alike. An addon that loads on demand later keeps its own
 -- entry and the coin flip with it.
-local addedKeys = {};
-for key in pairs(SlashCmdList) do
-	if ( not preexistingKeys[key] ) then
-		addedKeys[key] = true;
-	end
-end
 
 -- The command strings a SlashCmdList key answers to, upper-cased the way
 -- `ChatEdit_ParseText` compares them.
@@ -617,6 +627,17 @@ local function CommandStrings(key)
 		i = i + 1;
 	end
 	return commands;
+end
+
+local addedKeys = {};
+local addedHandlers = {};
+local addedCommands = {};
+for key, handler in pairs(SlashCmdList) do
+	if ( not preexistingKeys[key] ) then
+		addedKeys[key] = true;
+		addedHandlers[key] = handler;
+		addedCommands[key] = CommandStrings(key);
+	end
 end
 
 local function ClaimedElsewhere(key, commands)
@@ -636,7 +657,8 @@ end
 
 RunNextFrame(function()
 	for key in pairs(addedKeys) do
-		if ( ClaimedElsewhere(key, CommandStrings(key)) ) then
+		if ( SlashCmdList[key] == addedHandlers[key]
+			and ClaimedElsewhere(key, addedCommands[key]) ) then
 			SlashCmdList[key] = nil;
 		end
 	end
