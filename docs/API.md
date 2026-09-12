@@ -565,6 +565,7 @@ build instructions.
   - [`C_Sound.GetSoundScaledVolume(soundHandle)`](#c_soundgetsoundscaledvolumesoundhandle)
   - [`C_Sound.IsPlaying(soundHandle)`](#c_soundisplayingsoundhandle)
   - [`C_Sound.PlayItemSound(soundType, item)`](#c_soundplayitemsoundsoundtype-item)
+  - [`C_Sound.PlayVocalErrorSound(vocalErrorSoundID)`](#c_soundplayvocalerrorsoundvocalerrorsoundid)
   - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
   - [`C_Sound.GetRecentSoundFiles()`](#c_soundgetrecentsoundfiles)
 - [Spell](#spell)
@@ -13797,6 +13798,23 @@ whatever else differs between them.
 
 Nothing plays, and nothing is raised, when the item cannot be found or
 its data has not arrived yet.
+
+### `C_Sound.PlayVocalErrorSound(vocalErrorSoundID)`
+
+Plays your character's spoken complaint for an error — "my bags are full",
+"I have no ammo" — in the voice of their race and sex.
+
+```lua
+C_Sound.PlayVocalErrorSound(Enum.Vocalerrorsounds.Inventoryfull)
+C_Sound.PlayVocalErrorSound(Enum.Vocalerrorsounds.Outofammo)
+```
+
+`Enum.Vocalerrorsounds` holds all 68 values, from `Inventoryfull` (0) to
+`ExhaustedObsolete` (67). Every one of them has recordings for the
+playable races.
+
+Some combinations have no recording for one sex, and a few have none at
+all. Those play nothing, and raise nothing.
 
 ### `MuteSoundFile(file)` / `UnmuteSoundFile(file)`
 

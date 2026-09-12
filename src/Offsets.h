@@ -6147,6 +6147,34 @@ enum Offsets {
     // when it finishes, so the handle must never be dereferenced directly.
     VAR_SOUND_STREAM_LIST_HEAD = 0x00CF557C,
     OFF_SOUND_STREAM_NEXT = 0x04,
+    // VocalUISounds.dbc — the player's spoken error lines ("my bags are
+    // full"), one row per (error, race), each naming a male and a female
+    // recording. Standard 5-DWORD class instance at `0x00C0D604`.
+    //
+    // Record layout, verified by resolving a row's sound ids to their
+    // SoundEntries names: row `{9, 0, 1, 1875, 1999, 626, 626}` is error 0
+    // for race 1, whose normal sounds are `HumanMale_InventoryFull` and
+    // `HumanFemale_InventoryFull`.
+    //   +0x00 id
+    //   +0x04 vocal error enum — matches the modern
+    //         `Enum.Vocalerrorsounds` values, and this build carries ALL
+    //         68 of them (0..67) for 11 races
+    //   +0x08 ChrRaces id
+    //   +0x0C normal sound id [male, female]  (-1 where unrecorded)
+    //   +0x14 "pissed" sound id [male, female] — the escalated take; many
+    //         of these ids name no SoundEntries row, so they are not used
+    //
+    // NOTE the engine loads this table and never reads it: the only xrefs
+    // to the records/count globals are the loader's own writes. So the
+    // row lookup has no engine function to borrow, and `Sound::VocalError`
+    // does it directly — the play itself still goes through the engine's
+    // by-id player.
+    VAR_VOCAL_UI_SOUNDS_RECORDS = 0x00C0D60C,
+    VAR_VOCAL_UI_SOUNDS_COUNT = 0x00C0D610,
+    OFF_VOCAL_UI_ENUM = 0x04,
+    OFF_VOCAL_UI_RACE = 0x08,
+    OFF_VOCAL_UI_NORMAL_SOUND = 0x0C, // int[2], indexed by sex (0 male)
+
     // SoundEntries row resolver — `void *__fastcall(uint soundEntryID)`,
     // null for an id with no row. The by-id player calls it first; we need
     // it too because the volume applicator below is a method ON the row.
