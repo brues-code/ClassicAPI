@@ -41,9 +41,21 @@ static int __fastcall Script_DoesSpellExist(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kDoesSpellExistArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell ID to test."),
+};
+static const Game::Doc::Field kDoesSpellExistRets[] = {
+    Game::Doc::Req("exists", "bool", "True when the client holds data for that spell ID."),
+};
+static const Game::Doc::Function kDoesSpellExist{
+    "Whether a spell ID names a real spell, as a check before you read more about it.",
+    kDoesSpellExistArgs, kDoesSpellExistRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "DoesSpellExist",
-                                     &Script_DoesSpellExist);
+                                     &Script_DoesSpellExist, &kDoesSpellExist);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

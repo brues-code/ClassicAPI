@@ -210,12 +210,39 @@ int __fastcall Script_C_Spell_IsSpellUsable(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kLegacyArgs[] = {
+    Game::Doc::Req("spell", "number", "A spell ID, or a spellbook slot when bookType is given."),
+    Game::Doc::Opt("bookType", "string", nullptr,
+                   "\"spell\" or \"pet\"; makes the first argument a slot in that book."),
+};
+const Game::Doc::Field kLegacyRets[] = {
+    Game::Doc::Opt("usable", "number", nullptr, "1 when the spell can be cast now, else nil."),
+    Game::Doc::Opt("noMana", "number", nullptr, "1 when power is the only block, else nil."),
+};
+const Game::Doc::Function kIsUsableSpell{
+    "Whether the player can cast the spell now, in 1/nil pairs like IsUsableAction; "
+    "cooldown is not part of the answer.",
+    kLegacyArgs, kLegacyRets, "SpellGlobals"};
+
+const Game::Doc::Field kModernArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kModernRets[] = {
+    Game::Doc::Req("isUsable", "bool", "True when the spell can be cast now."),
+    Game::Doc::Req("insufficientPower", "bool", "True when power is the only block."),
+};
+const Game::Doc::Function kIsSpellUsable{
+    "Whether the player can cast the spell now; cooldown is not part of the answer.",
+    kModernArgs, kModernRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("IsUsableSpell", &Script_IsUsableSpell);
+    Game::Lua::RegisterGlobalFunction("IsUsableSpell", &Script_IsUsableSpell, &kIsUsableSpell);
     Game::Lua::RegisterTableFunction("C_Spell", "IsSpellUsable",
-                                     &Script_C_Spell_IsSpellUsable);
+                                     &Script_C_Spell_IsSpellUsable, &kIsSpellUsable);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

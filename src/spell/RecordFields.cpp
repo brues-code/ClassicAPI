@@ -90,13 +90,43 @@ static int __fastcall Script_ResetsMeleeSwing(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellArgs[] = {
+    Game::Doc::Req("spellID", "SpellIdentifier",
+                   "A spell ID, spell link, or spell name."),
+};
+
+const Game::Doc::Field kDispelTypeRets[] = {
+    Game::Doc::Req("dispelType", "number",
+                   "1 magic, 2 curse, 3 disease, 4 poison; 0 when nothing removes it."),
+};
+const Game::Doc::Function kGetSpellDispelType{
+    "Which kind of dispel removes the effects of a spell.", kSpellArgs, kDispelTypeRets};
+
+const Game::Doc::Field kNextMeleeRets[] = {
+    Game::Doc::Req("isNextMelee", "bool",
+                   "True when the ability lands on your next weapon swing."),
+};
+const Game::Doc::Function kIsNextMeleeSpell{
+    "Whether the ability waits for your next weapon swing instead of casting.",
+    kSpellArgs, kNextMeleeRets};
+
+const Game::Doc::Field kResetsSwingRets[] = {
+    Game::Doc::Req("resetsSwing", "bool",
+                   "True when casting the spell starts the swing timer again."),
+};
+const Game::Doc::Function kResetsMeleeSwing{
+    "Whether casting the spell starts your melee swing timer again.",
+    kSpellArgs, kResetsSwingRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellDispelType",
-                                     &Script_GetSpellDispelType);
+                                     &Script_GetSpellDispelType, &kGetSpellDispelType);
     Game::Lua::RegisterTableFunction("C_Spell", "IsNextMeleeSpell",
-                                     &Script_IsNextMeleeSpell);
+                                     &Script_IsNextMeleeSpell, &kIsNextMeleeSpell);
     Game::Lua::RegisterTableFunction("C_Spell", "ResetsMeleeSwing",
-                                     &Script_ResetsMeleeSwing);
+                                     &Script_ResetsMeleeSwing, &kResetsMeleeSwing);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

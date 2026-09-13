@@ -63,11 +63,24 @@ int __fastcall Script_IsCurrentSpell(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("isCurrent", "bool",
+                   "True while the spell is on the cast bar, queued, or channeling."),
+};
+const Game::Doc::Function kIsCurrentSpell{
+    "Whether the player is casting, channeling, or has queued this spell.",
+    kArgs, kRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "IsCurrentSpell",
-                                     &Script_IsCurrentSpell);
+                                     &Script_IsCurrentSpell, &kIsCurrentSpell);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

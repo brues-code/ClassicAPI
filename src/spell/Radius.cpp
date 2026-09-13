@@ -109,10 +109,38 @@ static int __fastcall Script_GetSpellRadius(void *L) {
     return PushRadiusForSpellID(L, Spell::Lookup::SpellbookSlotToID(slot, bookType));
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kRadiusRets[] = {
+    Game::Doc::Opt("baseRadius", "number", nullptr,
+                   "The radius in yards for any caster; nil when the spell has no area."),
+    Game::Doc::Opt("modifiedRadius", "number", nullptr,
+                   "The radius with the local player's talent and item changes applied."),
+};
+
+const Game::Doc::Field kByIdentifierArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Function kC_SpellGetSpellRadius{
+    "The area a spell covers in yards, before and after the player's own changes to it.",
+    kByIdentifierArgs, kRadiusRets};
+
+const Game::Doc::Field kBySlotArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "A 1-based spellbook slot."),
+    Game::Doc::Opt("bookType", "string", "\"spell\"",
+                   "\"spell\" or \"pet\"; picks the book the slot belongs to."),
+};
+const Game::Doc::Function kGetSpellRadius{
+    "The area the spell in a spellbook slot covers in yards, before and after the "
+    "player's own changes to it.",
+    kBySlotArgs, kRadiusRets, "SpellGlobals"};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellRadius",
-                                     &Script_C_Spell_GetSpellRadius);
-    Game::Lua::RegisterGlobalFunction("GetSpellRadius", &Script_GetSpellRadius);
+                                     &Script_C_Spell_GetSpellRadius,
+                                     &kC_SpellGetSpellRadius);
+    Game::Lua::RegisterGlobalFunction("GetSpellRadius", &Script_GetSpellRadius,
+                                      &kGetSpellRadius);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

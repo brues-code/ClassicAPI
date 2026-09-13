@@ -53,9 +53,23 @@ static int __fastcall Script_GetSpellDescription(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kGetSpellDescriptionArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+static const Game::Doc::Field kGetSpellDescriptionRets[] = {
+    Game::Doc::Opt("description", "string", nullptr,
+                   "Nil for an unknown spell and for a spell with no description in "
+                   "your language."),
+};
+static const Game::Doc::Function kGetSpellDescription{
+    "The spell's description text, with its placeholders filled in at the base rank.",
+    kGetSpellDescriptionArgs, kGetSpellDescriptionRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellDescription",
-                                     &Script_GetSpellDescription);
+                                     &Script_GetSpellDescription, &kGetSpellDescription);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

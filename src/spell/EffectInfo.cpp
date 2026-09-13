@@ -114,9 +114,41 @@ int __fastcall Script_GetSpellEffectInfo(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellEffectInfoFields[] = {
+    Game::Doc::Req("effect", "number", "The effect code; 0 when the slot is unused."),
+    Game::Doc::Req("auraName", "number",
+                   "Which aura the effect applies; 0 when it applies none."),
+    Game::Doc::Req("basePoints", "number", "The effect's stored magnitude."),
+    Game::Doc::Req("baseDice", "number", "Added to basePoints for the fixed magnitude."),
+    Game::Doc::Req("dieSides", "number",
+                   "Size of the magnitude's random range; above 1 means the server rolls it."),
+    Game::Doc::Req("pointsPerLevel", "number", "Magnitude gained per level; can be fractional."),
+    Game::Doc::Req("dicePerLevel", "number",
+                   "Random range gained per level; can be fractional."),
+    Game::Doc::Req("miscValue", "number",
+                   "The effect's parameter, such as which stat a stat aura changes."),
+};
+const Game::Doc::Structure kSpellEffectInfo{
+    "SpellEffectInfo", "Spell", kSpellEffectInfoFields,
+    "The stored fields of one spell effect."};
+
+const Game::Doc::Field kGetSpellEffectInfoArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kGetSpellEffectInfoRets[] = {
+    Game::Doc::Opt("effects", "table", nullptr,
+                   "Three SpellEffectInfo tables, one per effect slot, counted from 1; "
+                   "an unused slot has every field 0. Nil for an unknown spell."),
+};
+const Game::Doc::Function kGetSpellEffectInfo{
+    "The stored fields of each of the spell's three effects.",
+    kGetSpellEffectInfoArgs, kGetSpellEffectInfoRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellEffectInfo",
-                                     &Script_GetSpellEffectInfo);
+                                     &Script_GetSpellEffectInfo, &kGetSpellEffectInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

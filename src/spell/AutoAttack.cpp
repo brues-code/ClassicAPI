@@ -103,15 +103,49 @@ static int __fastcall Script_IsRangedAutoAttackSpellBookItem(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kSpellArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell to test."),
+};
+static const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "A spellbook slot, counted from 1."),
+    Game::Doc::Opt("bookType", "string", "\"spell\"",
+                   "\"pet\" reads the pet book; the spell bank number 1 does the same."),
+};
+
+static const Game::Doc::Field kIsMeleeRets[] = {
+    Game::Doc::Req("isAutoAttack", "bool", "True for the melee auto attack."),
+};
+static const Game::Doc::Field kIsRangedRets[] = {
+    Game::Doc::Req("isRangedAutoAttack", "bool", "True for a ranged auto attack."),
+};
+
+static const Game::Doc::Function kIsAutoAttackSpell{
+    "Whether the spell is the melee auto attack that drives your weapon swings.",
+    kSpellArgs, kIsMeleeRets};
+static const Game::Doc::Function kIsRangedAutoAttackSpell{
+    "Whether the spell is a repeating ranged attack, such as Auto Shot or a wand shot.",
+    kSpellArgs, kIsRangedRets};
+static const Game::Doc::Function kIsAutoAttackSpellBookItem{
+    "Whether the spellbook slot holds the melee auto attack.",
+    kSlotArgs, kIsMeleeRets};
+static const Game::Doc::Function kIsRangedAutoAttackSpellBookItem{
+    "Whether the spellbook slot holds a repeating ranged attack.",
+    kSlotArgs, kIsRangedRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "IsAutoAttackSpell",
-                                     &Script_IsAutoAttackSpell);
+                                     &Script_IsAutoAttackSpell, &kIsAutoAttackSpell);
     Game::Lua::RegisterTableFunction("C_Spell", "IsRangedAutoAttackSpell",
-                                     &Script_IsRangedAutoAttackSpell);
+                                     &Script_IsRangedAutoAttackSpell,
+                                     &kIsRangedAutoAttackSpell);
     Game::Lua::RegisterTableFunction("C_SpellBook", "IsAutoAttackSpellBookItem",
-                                     &Script_IsAutoAttackSpellBookItem);
+                                     &Script_IsAutoAttackSpellBookItem,
+                                     &kIsAutoAttackSpellBookItem);
     Game::Lua::RegisterTableFunction("C_SpellBook", "IsRangedAutoAttackSpellBookItem",
-                                     &Script_IsRangedAutoAttackSpellBookItem);
+                                     &Script_IsRangedAutoAttackSpellBookItem,
+                                     &kIsRangedAutoAttackSpellBookItem);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

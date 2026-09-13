@@ -3860,3 +3860,58 @@ Not shipped by default: no addon opts in yet. The embedded `!!!ClassicAPI`
 addon could add `## AllowAddOnTableAccess: 1` to its `.toc` to expose its own
 namespace as a worked example, but that's a product/security decision left to
 the maintainer.
+
+## 100. Self-documenting API + `/classicapi` browser — SHIPPED (first slice)
+
+`docs/API.md` is 18.7k lines and its anchors are signature slugs, so a
+signature edit breaks the 281 internal + 88 README links into it. Blizzard
+solved the same problem by shipping the API as DATA
+(`Blizzard_APIDocumentationGenerated`: one table per system with typed
+`Functions` / `Events` / `Tables`) plus a browser addon
+(`Blizzard_APIDocumentation`, the `/api` command). warcraft.wiki.gg's
+Arguments/Returns blocks are those same tables rendered by a bot — so one set
+of descriptors feeds the in-game browser, a page generator, and a drift check.
+
+**Shipped in this round**
+
+- `namespace Game::Doc` in [src/Game.h](src/Game.h) — `Field` +
+  `Req`/`Opt`/`Vararg`, `FieldList`, `Function`, `Method`, `Structure`,
+  `Event`. Constant-initialized `const` objects; no heap, no dynamic init.
+- A trailing descriptor argument on all six `Game::Lua::Register*`, and on
+  `Event::Custom::AutoReserve`. Zero changes inside any `Script_*`.
+- [src/api/Documentation.cpp](src/api/Documentation.cpp) — records every
+  registration on the first pass of each Lua state, derives systems, and
+  exports `C_APIDocumentation.GetSystems()` / `GetSystem(name)` lazily in
+  Blizzard's exact table shape, plus `_classicapi_UndocumentedAPI()`.
+- `AddOns/!!!ClassicAPI/APIDocumentation/` — the 8-file port of
+  `Blizzard_APIDocumentation`, driven by `/classicapi` (short `/capi`).
+  Named for what it documents: the browser holds only ClassicAPI's own
+  surface, so `/api` would have over-promised.
+- `Util/LinkUtil.lua` — the `SetItemRef` → `LinkUtil.ProcessLink` dispatch,
+  wiring up a `RegisterLinkHandler` registry that had been dead code. Any
+  future link type now registers a handler instead of stacking another
+  `SetItemRef` override. Also fixed `assertsafe` being undefined there.
+- Documented: the whole `C_Spell` / `C_SpellBook` surface, the spell globals
+  (`SpellGlobals`), the two SpellBook enums, the 13 `UNIT_SPELLCAST_*`
+  events, `GameTooltipAPI` (frame-method example), and `C_Glue` (glue and
+  mixed-environment example).
+
+**The remaining sweep.** `_classicapi_UndocumentedAPI()` is the worklist —
+~700 registrations across ~46 namespaces. Do it a namespace at a time; the
+descriptor goes beside the registration and must be written against the
+`Script_*` BODY, not against `docs/API.md` (which is already stale in
+places — `IsHarmfulSpell` / `IsHelpfulSpell` describe an `AttributesEx` bit
+read that the code does not do; it walks the effects' implicit targets).
+`tools/New-ApiDocSkeletons.ps1` emits paste-ready skeletons from the 207
+single-line `Usage:` strings + the API.md headings, with `// TODO` on every
+guess — a starting point to verify, never to paste blind.
+
+When the sweep finishes, delete the `= nullptr` / `= 0` defaults from the six
+registrar parameters: a registration without a descriptor then fails to
+compile, which is the whole point of putting the descriptor at the call site.
+
+**Then, not before:** an `ExportAPIDocumentation` console command (glue-
+registered like `ExportInterfaceFiles`, writing one Blizzard-format `.lua`
+per system plus `Undocumented.txt`), a CI diff of the committed copies to
+catch descriptor drift, and a Markdown/wiki generator to replace the
+hand-maintained `docs/API.md` — the reason the descriptors exist at all.

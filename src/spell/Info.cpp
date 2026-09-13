@@ -788,36 +788,255 @@ static int __fastcall Script_C_SpellBook_GetSpellBookItemInfo(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+// The globals that share `ResolveLuaArgsToSpellID`: a spell ID, a name, a
+// "name(Rank N)", or a link — or a spellbook slot when a bookType follows.
+static const Game::Doc::Field kSpellOrSlotArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier",
+                   "A spell ID, name, or link, or a spellbook slot when bookType is given."),
+    Game::Doc::Opt("bookType", "string", nullptr,
+                   "\"spell\" or \"pet\"; makes the first argument a slot in that book."),
+};
+
+// The `C_Spell.*` forms take one identifier; they have no slot form.
+static const Game::Doc::Field kSpellIdArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+
+static const Game::Doc::Field kGetSpellInfoRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Localized spell name; all returns are nil for an unknown spell."),
+    Game::Doc::Opt("rank", "string", nullptr, "Localized rank text, such as \"Rank 2\"."),
+    Game::Doc::Opt("icon", "string", nullptr, "Icon texture path."),
+    Game::Doc::Opt("cost", "number", nullptr, "Base power cost."),
+    Game::Doc::Opt("isFunnel", "bool", nullptr, "True for a health funnel spell."),
+    Game::Doc::Opt("powerType", "number", nullptr,
+                   "0 mana, 1 rage, 2 focus, 3 energy, 4 happiness."),
+    Game::Doc::Opt("castTime", "number", nullptr,
+                   "Base cast time in milliseconds; 0 when instant."),
+    Game::Doc::Opt("minRange", "number", nullptr, "Minimum range in yards."),
+    Game::Doc::Opt("maxRange", "number", nullptr, "Maximum range in yards."),
+    Game::Doc::Opt("spellID", "number", nullptr, "The spell ID the arguments resolved to."),
+};
+static const Game::Doc::Function kGetSpellInfo{
+    "Name, rank, icon, cost, cast time and range for any spell, plus its ID.",
+    kSpellOrSlotArgs, kGetSpellInfoRets, "SpellGlobals"};
+
+static const Game::Doc::Field kSpellInfoFields[] = {
+    Game::Doc::Opt("name", "string", nullptr, "Localized spell name."),
+    Game::Doc::Opt("iconID", "string", nullptr,
+                   "Icon texture path; give it to texture:SetTexture."),
+    Game::Doc::Req("castTime", "number", "Base cast time in milliseconds; 0 when instant."),
+    Game::Doc::Req("minRange", "number", "Minimum range in yards."),
+    Game::Doc::Req("maxRange", "number", "Maximum range in yards."),
+    Game::Doc::Req("spellID", "number", "The spell ID."),
+    Game::Doc::Opt("rank", "string", nullptr, "Localized rank text, such as \"Rank 2\"."),
+    Game::Doc::Req("cost", "number", "Base power cost."),
+    Game::Doc::Req("isFunnel", "bool", "True for a health funnel spell."),
+    Game::Doc::Req("powerType", "number", "0 mana, 1 rage, 2 focus, 3 energy, 4 happiness."),
+};
+static const Game::Doc::Structure kSpellInfoStruct{
+    "SpellInfo", "Spell", kSpellInfoFields, "Static data for one spell."};
+
+static const Game::Doc::Field kCSpellInfoRets[] = {
+    Game::Doc::Opt("info", "SpellInfo", nullptr, "Nil for an unknown spell."),
+};
+static const Game::Doc::Function kCSpellGetSpellInfo{
+    "A table of the spell's name, icon, cast time, range and cost.",
+    kSpellIdArgs, kCSpellInfoRets};
+
+static const Game::Doc::Field kSpellNameRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil for an unknown spell, or one with no name in this locale."),
+};
+static const Game::Doc::Function kCSpellGetSpellName{
+    "The localized name of a spell.", kSpellIdArgs, kSpellNameRets};
+
+static const Game::Doc::Field kSpellTextureRets[] = {
+    Game::Doc::Opt("texture", "string", nullptr,
+                   "Icon texture path; nil when the spell or its icon is unknown."),
+};
+static const Game::Doc::Function kCSpellGetSpellTexture{
+    "The icon texture path for a spell.", kSpellIdArgs, kSpellTextureRets};
+
+static const Game::Doc::Field kGetSpellLinkRets[] = {
+    Game::Doc::Opt("link", "string", nullptr,
+                   "Chat hyperlink for the spell; nil for an unknown spell."),
+    Game::Doc::Opt("spellID", "number", nullptr, "The spell ID the arguments resolved to."),
+};
+static const Game::Doc::Function kGetSpellLink{
+    "The chat hyperlink for a spell, with the spell ID it resolves to.",
+    kSpellOrSlotArgs, kGetSpellLinkRets, "SpellGlobals"};
+
+static const Game::Doc::Field kCSpellLinkRets[] = {
+    Game::Doc::Opt("link", "string", nullptr,
+                   "Chat hyperlink for the spell; nil for an unknown spell."),
+};
+static const Game::Doc::Function kCSpellGetSpellLink{
+    "The chat hyperlink for a spell.", kSpellIdArgs, kCSpellLinkRets};
+
+static const Game::Doc::Field kFindSlotArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell to look for."),
+};
+static const Game::Doc::Field kFindSlotRets[] = {
+    Game::Doc::Opt("slot", "luaIndex", nullptr,
+                   "Spellbook slot holding the spell; nil when neither book has it."),
+    Game::Doc::Opt("bookType", "string", nullptr, "\"spell\" or \"pet\"."),
+};
+static const Game::Doc::Function kFindSpellBookSlotByID{
+    "The spellbook slot and book that hold a spell.",
+    kFindSlotArgs, kFindSlotRets, "SpellGlobals"};
+
+static const Game::Doc::Field kIsPassiveRets[] = {
+    Game::Doc::Opt("isPassive", "bool", nullptr,
+                   "True when the spell applies itself with no cast; nil for an unknown spell."),
+};
+static const Game::Doc::Function kIsPassiveSpell{
+    "Whether a spell is passive, so it needs no cast.",
+    kSpellOrSlotArgs, kIsPassiveRets, "SpellGlobals"};
+static const Game::Doc::Function kCSpellIsSpellPassive{
+    "Whether a spell is passive, so it needs no cast.",
+    kSpellIdArgs, kIsPassiveRets};
+
+static const Game::Doc::Field kIsPlayerSpellArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell to test."),
+};
+static const Game::Doc::Field kIsPlayerSpellRets[] = {
+    Game::Doc::Req("isKnown", "bool", "True when the player knows this exact spell ID."),
+};
+static const Game::Doc::Function kIsPlayerSpell{
+    "Whether the player knows the spell, talents, racials and recipes included.",
+    kIsPlayerSpellArgs, kIsPlayerSpellRets, "SpellGlobals"};
+
+static const Game::Doc::Field kCanDualWieldRets[] = {
+    Game::Doc::Req("canDualWield", "bool", "True when the player has learned Dual Wield."),
+};
+static const Game::Doc::Function kCanDualWield{
+    "Whether the player can hold a weapon in the off hand.",
+    {}, kCanDualWieldRets, "SpellGlobals"};
+
+static const Game::Doc::Field kIsSpellKnownArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell to test."),
+    Game::Doc::Opt("isPet", "bool", "false", "Search the pet spellbook instead."),
+};
+static const Game::Doc::Field kIsSpellKnownRets[] = {
+    Game::Doc::Req("isKnown", "bool", "True when the chosen spellbook holds the spell."),
+};
+static const Game::Doc::Function kIsSpellKnown{
+    "Whether the spell has a button in the player's or the pet's spellbook.",
+    kIsSpellKnownArgs, kIsSpellKnownRets, "SpellGlobals"};
+
+static const Game::Doc::Field kIsHarmfulRets[] = {
+    Game::Doc::Req("isHarmful", "bool", "True when an effect of the spell aims at an enemy."),
+};
+static const Game::Doc::Function kIsHarmfulSpell{
+    "Whether the spell aims at an enemy.",
+    kSpellOrSlotArgs, kIsHarmfulRets, "SpellGlobals"};
+static const Game::Doc::Function kCSpellIsSpellHarmful{
+    "Whether the spell aims at an enemy.", kSpellIdArgs, kIsHarmfulRets};
+
+static const Game::Doc::Field kIsHelpfulRets[] = {
+    Game::Doc::Req("isHelpful", "bool",
+                   "True when an effect of the spell aims at yourself or a friendly unit."),
+};
+static const Game::Doc::Function kIsHelpfulSpell{
+    "Whether the spell aims at yourself or a friendly unit.",
+    kSpellOrSlotArgs, kIsHelpfulRets, "SpellGlobals"};
+static const Game::Doc::Function kCSpellIsSpellHelpful{
+    "Whether the spell aims at yourself or a friendly unit.",
+    kSpellIdArgs, kIsHelpfulRets};
+
+static const Game::Doc::Field kSpellBookItemInfoFields[] = {
+    Game::Doc::Req("itemType", "SpellBookItemType", "Spell for the player book, PetAction for the pet book."),
+    Game::Doc::Req("actionID", "number", "The spell ID; the same value as spellID."),
+    Game::Doc::Req("spellID", "number", "The spell ID in the slot."),
+    Game::Doc::Opt("name", "string", nullptr, "Localized spell name."),
+    Game::Doc::Req("subName", "string", "Rank text, such as \"Rank 3\", or an empty string."),
+    Game::Doc::Opt("iconID", "string", nullptr,
+                   "Icon texture path; give it to texture:SetTexture."),
+    Game::Doc::Req("isPassive", "bool", "True for a passive spell."),
+    Game::Doc::Req("isOffSpec", "bool", "Always false."),
+};
+static const Game::Doc::Structure kSpellBookItemInfoStruct{
+    "SpellBookItemInfo", "SpellBook", kSpellBookItemInfoFields,
+    "The spell that fills one spellbook slot."};
+
+static const Game::Doc::Field kGetSpellBookItemInfoArgs[] = {
+    Game::Doc::Req("slotIndex", "luaIndex", "Slot number, counted across the whole book."),
+    Game::Doc::Opt("spellBank", "SpellBookSpellBank", "0",
+                   "Which book to read; Player by default."),
+};
+static const Game::Doc::Field kGetSpellBookItemInfoRets[] = {
+    Game::Doc::Opt("info", "SpellBookItemInfo", nullptr,
+                   "Nil for an empty slot, or a slot past the end of the book."),
+};
+static const Game::Doc::Function kGetSpellBookItemInfo{
+    "A table describing the spell in a spellbook slot.",
+    kGetSpellBookItemInfoArgs, kGetSpellBookItemInfoRets};
+
+static const Game::Doc::Field kByAuraArgs[] = {
+    Game::Doc::Req("auraName", "number", "The aura code an effect of the spell must apply."),
+};
+static const Game::Doc::Field kByAuraRets[] = {
+    Game::Doc::Req("spellIDs", "table",
+                   "Spell IDs in ascending order; empty when no known spell applies the aura."),
+};
+static const Game::Doc::Function kGetPlayerSpellsByAura{
+    "Every spell the player knows that applies the given aura.",
+    kByAuraArgs, kByAuraRets};
+
+static const Game::Doc::Field kDisenchantRets[] = {
+    Game::Doc::Req("hasDisenchant", "bool", "True when a known spell disenchants items."),
+};
+static const Game::Doc::Function kContainsAnyDisenchantSpell{
+    "Whether the player knows a spell that disenchants items.", {}, kDisenchantRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetSpellInfo", &Script_GetSpellInfo);
-    Game::Lua::RegisterGlobalFunction("GetSpellLink", &Script_GetSpellLink);
+    Game::Lua::RegisterGlobalFunction("GetSpellInfo", &Script_GetSpellInfo, &kGetSpellInfo);
+    Game::Lua::RegisterGlobalFunction("GetSpellLink", &Script_GetSpellLink, &kGetSpellLink);
     Game::Lua::RegisterGlobalFunction("FindSpellBookSlotByID",
-                                      &Script_FindSpellBookSlotByID);
-    Game::Lua::RegisterGlobalFunction("IsPassiveSpell", &Script_IsPassiveSpell);
-    Game::Lua::RegisterGlobalFunction("IsPlayerSpell", &Script_IsPlayerSpell);
-    Game::Lua::RegisterGlobalFunction("CanDualWield", &Script_CanDualWield);
-    Game::Lua::RegisterGlobalFunction("IsSpellKnown", &Script_IsSpellKnown);
-    Game::Lua::RegisterGlobalFunction("IsHarmfulSpell", &Script_IsHarmfulSpell);
-    Game::Lua::RegisterGlobalFunction("IsHelpfulSpell", &Script_IsHelpfulSpell);
-    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellLink", &Script_C_GetSpellLink);
-    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellInfo", &Script_C_GetSpellInfo);
-    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellName", &Script_C_GetSpellName);
-    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellTexture", &Script_C_GetSpellTexture);
-    Game::Lua::RegisterTableFunction("C_Spell", "IsSpellPassive", &Script_C_IsSpellPassive);
+                                      &Script_FindSpellBookSlotByID,
+                                      &kFindSpellBookSlotByID);
+    Game::Lua::RegisterGlobalFunction("IsPassiveSpell", &Script_IsPassiveSpell,
+                                      &kIsPassiveSpell);
+    Game::Lua::RegisterGlobalFunction("IsPlayerSpell", &Script_IsPlayerSpell,
+                                      &kIsPlayerSpell);
+    Game::Lua::RegisterGlobalFunction("CanDualWield", &Script_CanDualWield, &kCanDualWield);
+    Game::Lua::RegisterGlobalFunction("IsSpellKnown", &Script_IsSpellKnown, &kIsSpellKnown);
+    Game::Lua::RegisterGlobalFunction("IsHarmfulSpell", &Script_IsHarmfulSpell,
+                                      &kIsHarmfulSpell);
+    Game::Lua::RegisterGlobalFunction("IsHelpfulSpell", &Script_IsHelpfulSpell,
+                                      &kIsHelpfulSpell);
+    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellLink", &Script_C_GetSpellLink,
+                                      &kCSpellGetSpellLink);
+    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellInfo", &Script_C_GetSpellInfo,
+                                      &kCSpellGetSpellInfo);
+    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellName", &Script_C_GetSpellName,
+                                      &kCSpellGetSpellName);
+    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellTexture", &Script_C_GetSpellTexture,
+                                      &kCSpellGetSpellTexture);
+    Game::Lua::RegisterTableFunction("C_Spell", "IsSpellPassive", &Script_C_IsSpellPassive,
+                                      &kCSpellIsSpellPassive);
     Game::Lua::RegisterTableFunction("C_Spell", "IsSpellHarmful",
-                                      &Script_C_Spell_IsSpellHarmful);
+                                      &Script_C_Spell_IsSpellHarmful,
+                                      &kCSpellIsSpellHarmful);
     Game::Lua::RegisterTableFunction("C_Spell", "IsSpellHelpful",
-                                      &Script_C_Spell_IsSpellHelpful);
+                                      &Script_C_Spell_IsSpellHelpful,
+                                      &kCSpellIsSpellHelpful);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellBookItemInfo",
-                                      &Script_C_SpellBook_GetSpellBookItemInfo);
+                                      &Script_C_SpellBook_GetSpellBookItemInfo,
+                                      &kGetSpellBookItemInfo);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetPlayerSpellsByAura",
-                                      &Script_GetPlayerSpellsByAura);
+                                      &Script_GetPlayerSpellsByAura,
+                                      &kGetPlayerSpellsByAura);
     Game::Lua::RegisterTableFunction("C_SpellBook", "ContainsAnyDisenchantSpell",
-                                      &Script_ContainsAnyDisenchantSpell);
+                                      &Script_ContainsAnyDisenchantSpell,
+                                      &kContainsAnyDisenchantSpell);
     Game::Lua::RegisterIntegerEnum("Enum", "SpellBookSpellBank",
-                                   kSpellBookSpellBankEntries, 2);
+                                   kSpellBookSpellBankEntries, 2, "SpellBook");
     Game::Lua::RegisterIntegerEnum("Enum", "SpellBookItemType",
-                                   kSpellBookItemTypeEntries, 5);
+                                   kSpellBookItemTypeEntries, 5, "SpellBook");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -60,9 +60,23 @@ static int __fastcall Script_GetSchoolString(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("schoolMask", "number",
+                   "A damage-school bitmask, such as 4 for fire or 32 for shadow."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("school", "string",
+                   "The localized school name, or \"Unknown\" when the mask names "
+                   "more than one school."),
+};
+const Game::Doc::Function kGetSchoolString{
+    "The localized name of a damage school.", kArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSchoolString",
-                                     &Script_GetSchoolString);
+                                     &Script_GetSchoolString, &kGetSchoolString);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

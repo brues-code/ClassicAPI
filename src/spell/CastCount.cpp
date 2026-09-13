@@ -78,12 +78,41 @@ int __fastcall Script_C_SpellBook_GetSpellBookItemCastCount(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kBySpellArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kBySpellRets[] = {
+    Game::Doc::Req("castCount", "number",
+                   "Casts the carried reagents allow; 0 for an unknown spell and for a "
+                   "spell that needs no reagents."),
+};
+const Game::Doc::Function kGetSpellCastCount{
+    "How many times you can cast the spell with the reagents you carry.",
+    kBySpellArgs, kBySpellRets};
+
+const Game::Doc::Field kBySlotArgs[] = {
+    Game::Doc::Req("slotIndex", "luaIndex", "A spellbook slot, counted from 1."),
+    Game::Doc::Opt("spellBank", "number", "0", "1 reads the pet book; anything else "
+                                               "reads the player book."),
+};
+const Game::Doc::Field kBySlotRets[] = {
+    Game::Doc::Req("castCount", "number",
+                   "Casts the carried reagents allow; 0 for an empty slot and for a "
+                   "spell that needs no reagents."),
+};
+const Game::Doc::Function kGetSpellBookItemCastCount{
+    "How many times you can cast the slot's spell with the reagents you carry.",
+    kBySlotArgs, kBySlotRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellCastCount",
-                                     &Script_C_Spell_GetSpellCastCount);
+                                     &Script_C_Spell_GetSpellCastCount,
+                                     &kGetSpellCastCount);
     Game::Lua::RegisterTableFunction(
         "C_SpellBook", "GetSpellBookItemCastCount",
-        &Script_C_SpellBook_GetSpellBookItemCastCount);
+        &Script_C_SpellBook_GetSpellBookItemCastCount, &kGetSpellBookItemCastCount);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -59,19 +59,37 @@ int __fastcall Script_IsOnGlueScreen_False(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kIsFirstLoadRets[] = {
+    Game::Doc::Req("isFirstLoad", "bool",
+                   "True only while the first login screen since launch is showing."),
+};
+const Game::Doc::Function kIsFirstLoadThisSession{
+    "Whether this is the first login screen since the game started.",
+    {}, kIsFirstLoadRets};
+
+const Game::Doc::Field kIsOnGlueScreenRets[] = {
+    Game::Doc::Req("isOnGlueScreen", "bool", "True on the login and character screens."),
+};
+const Game::Doc::Function kIsOnGlueScreen{
+    "Whether a login or character screen is showing rather than the world.",
+    {}, kIsOnGlueScreenRets};
+
 void RegisterGlue() {
     ++g_glueBootCount; // one glue boot per callback invocation
     Game::Lua::RegisterTableFunction("C_Glue", "IsFirstLoadThisSession",
-                                     &Script_IsFirstLoadThisSession);
+                                     &Script_IsFirstLoadThisSession,
+                                     &kIsFirstLoadThisSession);
     Game::Lua::RegisterTableFunction("C_Glue", "IsOnGlueScreen",
-                                     &Script_IsOnGlueScreen_True);
+                                     &Script_IsOnGlueScreen_True, &kIsOnGlueScreen);
 }
 
 void RegisterInGame() {
     // In-world: only IsOnGlueScreen makes sense (and it's always false).
     // IsFirstLoadThisSession is a glue concept, so it's not registered here.
     Game::Lua::RegisterTableFunction("C_Glue", "IsOnGlueScreen",
-                                     &Script_IsOnGlueScreen_False);
+                                     &Script_IsOnGlueScreen_False, &kIsOnGlueScreen);
 }
 
 const Game::GlueModuleAutoRegister _autoregGlue{&RegisterGlue};

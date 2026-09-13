@@ -31,20 +31,83 @@ namespace Spell::CastEvents {
 namespace {
 
 
+// --- Event documentation ----------------------------------------------------
+//
+// Every event here carries `(unitTarget, castGUID, spellID, spellName, rank)`
+// except SENT, which inserts `target` at argument 2. `spellName` and `rank`
+// are a ClassicAPI addition to the retail payload — they save the handler a
+// lookup, and a handler written for retail simply ignores them.
+
+const Game::Doc::Field kCastPayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken", "The unit that is casting."),
+    Game::Doc::Req("castGUID", "string",
+                   "Identifies one cast. Every event of that cast carries the same value."),
+    Game::Doc::Req("spellID", "number"),
+    Game::Doc::Opt("spellName", "string", nullptr, "The spell's name in the client's language."),
+    Game::Doc::Opt("rank", "string", nullptr, "The spell's rank text, when it has one."),
+};
+
+// The reticle is up before any cast exists, so there is no castGUID to send.
+const Game::Doc::Field kReticlePayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken", "Always \"player\"."),
+    Game::Doc::Req("castGUID", "string", "Always empty; no cast exists yet."),
+    Game::Doc::Req("spellID", "number"),
+    Game::Doc::Opt("spellName", "string", nullptr, "The spell's name in the client's language."),
+    Game::Doc::Opt("rank", "string", nullptr, "The spell's rank text, when it has one."),
+};
+
+const Game::Doc::Field kSentPayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken", "Always \"player\"."),
+    Game::Doc::Req("target", "string",
+                   "Unit token of the cast's target, or empty for a self or untargeted cast."),
+    Game::Doc::Req("castGUID", "string",
+                   "Identifies one cast. Every event of that cast carries the same value."),
+    Game::Doc::Req("spellID", "number"),
+    Game::Doc::Opt("spellName", "string", nullptr, "The spell's name in the client's language."),
+    Game::Doc::Opt("rank", "string", nullptr, "The spell's rank text, when it has one."),
+};
+
+const Game::Doc::Event kStartDoc{"Spell", "A unit began casting a spell.", kCastPayload};
+const Game::Doc::Event kStopDoc{"Spell",
+    "A cast ended, for any reason. It follows every START.", kCastPayload};
+const Game::Doc::Event kDelayedDoc{"Spell",
+    "A cast's finish time moved. Read the times again.", kCastPayload};
+const Game::Doc::Event kChannelStartDoc{"Spell", "A unit began channeling a spell.",
+                                        kCastPayload};
+const Game::Doc::Event kChannelStopDoc{"Spell",
+    "A channel ended, whether it finished or was cut short.", kCastPayload};
+const Game::Doc::Event kChannelUpdateDoc{"Spell",
+    "A channel's finish time moved. Read the times again.", kCastPayload};
+const Game::Doc::Event kSucceededDoc{"Spell", "A spell took effect.", kCastPayload};
+const Game::Doc::Event kInterruptedDoc{"Spell",
+    "A cast was cut short. Channels do not fire this.", kCastPayload};
+const Game::Doc::Event kFailedDoc{"Spell",
+    "A cast was refused before it began, such as out of range or short of power.",
+    kCastPayload};
+const Game::Doc::Event kFailedQuietDoc{"Spell",
+    "A cast was refused and the client showed no error.", kCastPayload};
+const Game::Doc::Event kSentDoc{"Spell",
+    "The player asked the server to cast a spell. It is the first event of a cast.",
+    kSentPayload};
+const Game::Doc::Event kReticleTargetDoc{"Spell",
+    "A spell is waiting for the player to choose a ground target.", kReticlePayload};
+const Game::Doc::Event kReticleClearDoc{"Spell",
+    "The player cancelled a spell that was waiting for a ground target.", kReticlePayload};
+
 // The reservations double as the fire handles (`k*.Slot()` — O(1)).
-const Event::Custom::AutoReserve kStart{"UNIT_SPELLCAST_START"};
-const Event::Custom::AutoReserve kStop{"UNIT_SPELLCAST_STOP"};
-const Event::Custom::AutoReserve kDelayed{"UNIT_SPELLCAST_DELAYED"};
-const Event::Custom::AutoReserve kChannelStart{"UNIT_SPELLCAST_CHANNEL_START"};
-const Event::Custom::AutoReserve kChannelStop{"UNIT_SPELLCAST_CHANNEL_STOP"};
-const Event::Custom::AutoReserve kChannelUpdate{"UNIT_SPELLCAST_CHANNEL_UPDATE"};
-const Event::Custom::AutoReserve kSucceeded{"UNIT_SPELLCAST_SUCCEEDED"};
-const Event::Custom::AutoReserve kInterrupted{"UNIT_SPELLCAST_INTERRUPTED"};
-const Event::Custom::AutoReserve kFailed{"UNIT_SPELLCAST_FAILED"};
-const Event::Custom::AutoReserve kFailedQuiet{"UNIT_SPELLCAST_FAILED_QUIET"};
-const Event::Custom::AutoReserve kSent{"UNIT_SPELLCAST_SENT"};
-const Event::Custom::AutoReserve kReticleTarget{"UNIT_SPELLCAST_RETICLE_TARGET"};
-const Event::Custom::AutoReserve kReticleClear{"UNIT_SPELLCAST_RETICLE_CLEAR"};
+const Event::Custom::AutoReserve kStart{"UNIT_SPELLCAST_START", &kStartDoc};
+const Event::Custom::AutoReserve kStop{"UNIT_SPELLCAST_STOP", &kStopDoc};
+const Event::Custom::AutoReserve kDelayed{"UNIT_SPELLCAST_DELAYED", &kDelayedDoc};
+const Event::Custom::AutoReserve kChannelStart{"UNIT_SPELLCAST_CHANNEL_START", &kChannelStartDoc};
+const Event::Custom::AutoReserve kChannelStop{"UNIT_SPELLCAST_CHANNEL_STOP", &kChannelStopDoc};
+const Event::Custom::AutoReserve kChannelUpdate{"UNIT_SPELLCAST_CHANNEL_UPDATE", &kChannelUpdateDoc};
+const Event::Custom::AutoReserve kSucceeded{"UNIT_SPELLCAST_SUCCEEDED", &kSucceededDoc};
+const Event::Custom::AutoReserve kInterrupted{"UNIT_SPELLCAST_INTERRUPTED", &kInterruptedDoc};
+const Event::Custom::AutoReserve kFailed{"UNIT_SPELLCAST_FAILED", &kFailedDoc};
+const Event::Custom::AutoReserve kFailedQuiet{"UNIT_SPELLCAST_FAILED_QUIET", &kFailedQuietDoc};
+const Event::Custom::AutoReserve kSent{"UNIT_SPELLCAST_SENT", &kSentDoc};
+const Event::Custom::AutoReserve kReticleTarget{"UNIT_SPELLCAST_RETICLE_TARGET", &kReticleTargetDoc};
+const Event::Custom::AutoReserve kReticleClear{"UNIT_SPELLCAST_RETICLE_CLEAR", &kReticleClearDoc};
 
 // Autoshot spams client-side failures while ramping — nampower filters it
 // out of its failure event, so do we.

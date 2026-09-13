@@ -26,6 +26,12 @@ build instructions.
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
   - [SavedVariables loaded first](#savedvariables-loaded-first)
 
+- [APIDocumentation](#apidocumentation)
+  - [`/classicapi`](#classicapi)
+  - [`C_APIDocumentation.GetSystems()`](#c_apidocumentationgetsystems)
+  - [`C_APIDocumentation.GetSystem(system)`](#c_apidocumentationgetsystemsystem)
+  - [`_classicapi_UndocumentedAPI()`](#_classicapi_undocumentedapi)
+
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
 
@@ -1288,6 +1294,98 @@ ClassicAPI removes the restart requirement. On every `/reload`:
   it. `GetAddOnMetadata` returns the new values.
 - **Deleting an addon folder removes it from the addon list** on the
   next `/reload`.
+
+## APIDocumentation
+
+ClassicAPI describes its own surface. Each function it adds carries a
+typed signature: the name and type of every argument and return value,
+which of them can be nil, and one sentence that says what the function
+does. Events, enumerations, and the table shapes functions return are
+described the same way.
+
+You read this in the game with `/classicapi`, or from code through
+`C_APIDocumentation`.
+
+### `/classicapi`
+
+Browse the API from the chat box. `/capi` is the short form.
+
+```
+/classicapi                        usage
+/classicapi stats                  how much is documented
+/classicapi system list            every system
+/classicapi spell                  one system
+/classicapi spell list             every function, event and table in a system
+/classicapi search cooldown        search everything
+/classicapi spell search cooldown  search one system
+```
+
+`search` also answers to `s`. Every search takes a Lua pattern.
+
+Results are clickable. Click a name to print its full signature, with
+each argument and return value on its own line. Right-click copies a
+ready-to-paste call to the clipboard. Shift-click puts a `/dump` of the
+function in the chat box, with the cursor between the parentheses.
+
+Functions are grouped into systems. A system is a namespace such as
+`C_Spell`, a group of plain globals such as `SpellGlobals`, or a widget
+method set such as `SimpleTextureAPI`. Find a system by its name or its
+namespace: `/classicapi spell` and `/classicapi c_spell` both work, and
+case does not matter.
+
+The browser holds what ClassicAPI adds. The functions the client already
+ships are not in it.
+
+### `C_APIDocumentation.GetSystems()`
+
+Returns an array of system names, sorted.
+
+```lua
+local systems = C_APIDocumentation.GetSystems()
+-- { "Item", "ItemGlobals", "Spell", "SpellBook", "SpellGlobals", ... }
+```
+
+### `C_APIDocumentation.GetSystem(system)`
+
+Returns one system's documentation table, or `nil` if no system has that
+name. Match on the name or the namespace; case does not matter. Each
+call builds a new table, so the caller may keep it and change it.
+
+```lua
+local spell = C_APIDocumentation.GetSystem("C_Spell")
+spell.Name        -- "Spell"
+spell.Namespace   -- "C_Spell"
+spell.Functions[1].Name
+spell.Functions[1].Returns[1].Type
+```
+
+| Field | Meaning |
+|-------|---------|
+| `Name` | The system's name. |
+| `Type` | `"System"` for a namespace or a group of globals, `"ScriptObject"` for a widget method set. |
+| `Namespace` | The table the functions live in, such as `C_Spell`. Absent for globals and widget methods. |
+| `Environment` | `"All"`, `"Game"`, or `"Glue"` — where the functions exist. |
+| `Functions` | Array of functions. Each has `Name`, `Type`, and where documented `Documentation`, `Arguments`, and `Returns`. |
+| `Events` | Array of events. Each has `Name`, `LiteralName`, and where documented `Documentation` and `Payload`. |
+| `Tables` | Array of table shapes. A `Structure` has `Fields`; an `Enumeration` also has `NumValues`, `MinValue`, and `MaxValue`. |
+
+An argument, return value, payload value, or field is described by
+`Name`, `Type`, and `Nilable`, plus `Default` and `Documentation` when
+they apply. `Type` is a Lua type such as `number` or `string`, or the
+name of a table shape in some system's `Tables`.
+
+The layout matches the one Blizzard's own documentation uses, so a tool
+written against that data reads this without change.
+
+### `_classicapi_UndocumentedAPI()`
+
+Returns an array of the registered names that carry no description yet,
+and its length. Names are being described one namespace at a time, so
+this list shrinks with each release.
+
+```lua
+local missing, count = _classicapi_UndocumentedAPI()
+```
 
 ## AuctionHouse
 

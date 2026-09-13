@@ -52,3 +52,12 @@ Util\TextureUtil.lua
 Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
+
+APIDocumentation\BaseAPIMixin.lua
+APIDocumentation\FieldsAPIMixin.lua
+APIDocumentation\FunctionsAPIMixin.lua
+APIDocumentation\SystemsAPIMixin.lua
+APIDocumentation\TablesAPIMixin.lua
+APIDocumentation\EventsAPIMixin.lua
+APIDocumentation\APIDocumentation.lua
+APIDocumentation\APIDocumentation_Bootstrap.lua

@@ -58,11 +58,39 @@ static int __fastcall Script_SpellHasRange(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kByIdentifierArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kByIdentifierRets[] = {
+    Game::Doc::Req("hasRange", "bool",
+                   "True when the spell's minimum or maximum range is above zero."),
+};
+const Game::Doc::Function kC_SpellHasRange{
+    "Whether the spell is cast at something at a distance rather than on the caster.",
+    kByIdentifierArgs, kByIdentifierRets};
+
+const Game::Doc::Field kBySlotArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "A 1-based spellbook slot."),
+    Game::Doc::Opt("bookType", "string", "\"spell\"",
+                   "\"spell\" or \"pet\"; picks the book the slot belongs to."),
+};
+const Game::Doc::Field kBySlotRets[] = {
+    Game::Doc::Req("hasRange", "bool",
+                   "True when the spell's minimum or maximum range is above zero; "
+                   "false for an empty slot."),
+};
+const Game::Doc::Function kSpellHasRange{
+    "Whether the spellbook slot holds a spell you cast at a distance rather than on "
+    "the caster.",
+    kBySlotArgs, kBySlotRets, "SpellGlobals"};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "SpellHasRange",
-                                     &Script_C_Spell_SpellHasRange);
+                                     &Script_C_Spell_SpellHasRange, &kC_SpellHasRange);
     Game::Lua::RegisterGlobalFunction("SpellHasRange",
-                                      &Script_SpellHasRange);
+                                      &Script_SpellHasRange, &kSpellHasRange);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

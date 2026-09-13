@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Game {
@@ -77,6 +78,113 @@ using LoadScriptFunctions_t = void(__fastcall *)();
 // Hooked to inject our own glue-side globals after the engine finishes
 // registering its 109 glue functions. See FUN_LOAD_GLUE_SCRIPT_FUNCTIONS.
 using LoadGlueScriptFunctions_t = void(__stdcall *)();
+
+// --- API documentation descriptors -----------------------------------------
+//
+// Every Lua registration (see the `Register*` functions in `Game::Lua`) can
+// carry a descriptor: the signature the function presents to Lua — typed
+// arguments and returns, nilability, defaults — plus a one-sentence summary.
+// The descriptors are the single source of truth for the API's SHAPE.
+// `src/api/Documentation.cpp` records each registration on the first pass of
+// each Lua state and exports the result on demand as Blizzard
+// `APIDocumentation` tables (`C_APIDocumentation.GetSystems` / `GetSystem`),
+// which the embedded addon's `/api` browser renders. Prose beyond one
+// sentence stays in the docs; a descriptor is shape, not manual.
+//
+// Rules:
+//   - One descriptor per REGISTERED NAME, not per C function. The same
+//     `Script_*` bound twice with different return conventions
+//     (`IsUsableSpell` → 1/nil pairs, `C_Spell.IsSpellUsable` → booleans)
+//     gets two descriptors; a pair with the same shape may share one.
+//   - `type` uses Blizzard's spellings — "number", "string", "bool",
+//     "table", "luaIndex", "UnitToken", "SpellIdentifier", … — or the Name
+//     of a `Structure` / enumeration declared elsewhere, which the browser
+//     renders as a link.
+//   - `Function::system` names the System a GLOBAL belongs to; convention
+//     `<Area>Globals` ("SpellGlobals", "ItemGlobals"). Table functions
+//     derive theirs from the table ("C_Spell" → System "Spell", Namespace
+//     "C_Spell"); frame methods from the registry. A global's system must
+//     not reuse a namespaced System's Name — the browser would prefix it.
+//   - Descriptors are `const` objects with constant initializers (string
+//     literals + file-scope arrays): no heap, no dynamic init.
+//   - Summaries are user-facing text: one sentence, plain words, present
+//     tense, no patch versions.
+namespace Doc {
+
+struct Field {
+    const char *name;
+    const char *type;
+    bool nilable;
+    const char *defaultValue; // Lua literal ("false", "0", "\"player\""), or nullptr
+    const char *doc;          // one sentence, or nullptr
+};
+
+// Required argument / always-present return.
+constexpr Field Req(const char *name, const char *type, const char *doc = nullptr) {
+    return {name, type, false, nullptr, doc};
+}
+// Optional: nilable when no default is given, otherwise non-nil with that
+// default (Blizzard marks defaulted arguments `Nilable = false` + `Default`).
+constexpr Field Opt(const char *name, const char *type, const char *dflt = nullptr,
+                    const char *doc = nullptr) {
+    return {name, type, dflt == nullptr, dflt, doc};
+}
+// Variable arguments / returns.
+constexpr Field Vararg(const char *type, const char *doc = nullptr) {
+    return {"...", type, true, nullptr, doc};
+}
+
+// A view over a file-scope `const Field[]`; `{}` means none.
+struct FieldList {
+    const Field *data = nullptr;
+    int count = 0;
+    constexpr FieldList() = default;
+    template <size_t N>
+    constexpr FieldList(const Field (&a)[N]) : data(a), count(static_cast<int>(N)) {}
+};
+
+// A registered function. Positional init: `{summary, args, rets}` for a
+// table function, `{summary, args, rets, "XGlobals"}` for a global, and
+// `{summary, args, rets, nullptr, true}` for a namespaced ClassicAPI
+// extension.
+struct Function {
+    const char *summary;
+    FieldList args;
+    FieldList rets;
+    const char *system;  // globals / glue / aliases only; see the rules above
+    bool extension;      // a ClassicAPI-original API, not a Blizzard one
+};
+
+// Pairs a frame method with its descriptor BY NAME (the engine's method
+// tables are name-keyed; `SetShown` exists on four registries with four
+// function pointers). Order is free; unmatched names are reported.
+struct Method {
+    const char *name;
+    const Function *doc;
+};
+
+// A table shape a function returns or accepts → `Tables{Type="Structure"}`
+// in `system`. Self-registering: nothing binds a structure to Lua, so it
+// chains onto a static list at construction. Declare it next to the
+// function that returns it.
+struct Structure {
+    Structure(const char *name, const char *system, FieldList fields,
+              const char *summary = nullptr);
+    const char *name;
+    const char *system;
+    FieldList fields;
+    const char *summary;
+    const Structure *next;
+};
+
+// A custom event's payload, attached to its `Event::Custom::AutoReserve`.
+struct Event {
+    const char *system;
+    const char *summary;
+    FieldList payload;
+};
+
+} // namespace Doc
 
 namespace Lua {
 using CFunction = int(__fastcall *)(void *L);
@@ -265,10 +373,21 @@ void *ResolveModel(void *L, int idx = 1, bool raiseError = true);
 // `ClassicAPI.X == X` until that happens. Automatic; a new module needs no
 // extra call. See `MirrorRegistration` in Game.cpp for why it lives here
 // and what it does not cover.
+//
+// Every registrar also RECORDS the registration for the API documentation
+// (`src/api/Documentation.cpp`): kind, table, name, registry, and which Lua
+// state's pass it ran in (in-game / glue / both). Only the FIRST pass of
+// each state records — later passes (every `/reload`) are no-ops — and a
+// registration made outside a `Run*Registrations` pass is not recorded at
+// all. The trailing `doc` argument is the descriptor (see `Game::Doc`
+// above); pass `nullptr` for a not-yet-documented registration and
+// `_classicapi_UndocumentedAPI()` lists it. The defaults exist only until
+// the sweep finishes; then they go and a missing descriptor stops compiling.
 
 // Registers a single global Lua function (e.g. `GetSpellInfo`). The function
 // must use the WoW Lua C function ABI: `int __fastcall(void *L)`.
-void RegisterGlobalFunction(const char *name, CFunction func);
+void RegisterGlobalFunction(const char *name, CFunction func,
+                            const Doc::Function *doc = nullptr);
 
 // Glue-state equivalent of `RegisterGlobalFunction`. Identical wire
 // (calls `FrameScript_RegisterFunction`); the engine routes the
@@ -278,7 +397,8 @@ void RegisterGlobalFunction(const char *name, CFunction func);
 // its own 109 glue functions, and `VAR_LUA_STATE` still points at the
 // glue state. Calling outside that window would silently target the
 // wrong state.
-void RegisterGlueFunction(const char *name, CFunction func);
+void RegisterGlueFunction(const char *name, CFunction func,
+                          const Doc::Function *doc = nullptr);
 
 // Frame-method registration entry: { name, func } pairs walked by the engine's
 // per-frame-type method-table iterator. Layout matches what the engine expects
@@ -290,15 +410,17 @@ struct FrameMethodEntry {
 
 // Registers a batch of methods on a per-frame-type registry (e.g.
 // GameTooltipMethodRegistry for `tooltip:Foo()` calls). `context` is the
-// registry address — see Offsets::VAR_*_METHOD_REGISTRY.
-void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count);
+// registry address — see Offsets::VAR_*_METHOD_REGISTRY. `docs` pairs
+// descriptors to the entries by NAME (any order, any subset).
+void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count,
+                          const Doc::Method *docs = nullptr, int docCount = 0);
 
 // Registers `func` at `_G[tableName][methodName]`, creating the namespace
 // table if it doesn't already exist. This is how modern WoW C_*-style APIs
 // are bound — the engine has no built-in support for table-bound Lua
 // functions, so we manipulate the globals table directly via the Lua C API.
 void RegisterTableFunction(const char *tableName, const char *methodName,
-                           CFunction func);
+                           CFunction func, const Doc::Function *doc = nullptr);
 
 // Binds `_G[alias]` to the SAME closure as `_G[tableName][methodName]`, by
 // value — the way the engine's own Lua-init snippet binds its short aliases
@@ -306,7 +428,8 @@ void RegisterTableFunction(const char *tableName, const char *methodName,
 // registering over a library function whose alias the snippet has already
 // captured, so the alias follows the replacement and `alias == table.method`
 // stays true. Mirrored under `_G.ClassicAPI` like every other registration.
-void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName);
+void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName,
+                         const Doc::Function *doc = nullptr);
 
 // Key/value pair for `RegisterIntegerEnum`. `key` becomes a field name
 // (PascalCase, matching Blizzard's `Enum.*` naming) and `value` is the
@@ -319,8 +442,11 @@ struct EnumIntegerEntry {
 // Registers `_G[parent][sub] = { entries }` as an integer-valued enum
 // table, creating `_G[parent]` if needed. Used for Blizzard-style
 // `Enum.AddOnSecurityStatus = { Secure=0, Insecure=1, ... }` shapes.
+// `docSystem` is the documentation System the enumeration belongs to
+// ("SpellBook", "Item", …); the entries themselves are the documentation.
 void RegisterIntegerEnum(const char *parent, const char *sub,
-                         const EnumIntegerEntry *entries, int count);
+                         const EnumIntegerEntry *entries, int count,
+                         const char *docSystem = nullptr);
 
 // Set `t[key] = value` on the table currently at stack[-1] (the most
 // common shape used when populating a struct-style table mid-build).

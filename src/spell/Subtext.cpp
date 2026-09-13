@@ -29,6 +29,17 @@ namespace Spell::Subtext {
 
 namespace {
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("subtext", "string", nullptr,
+                   "The rank line, nil when the spell has none."),
+};
+const Game::Doc::Function kGetSpellSubtext{
+    "The rank text shown under a spell's name in the spellbook.", kArgs, kRets};
 
 } // namespace
 
@@ -52,7 +63,7 @@ static int __fastcall Script_GetSpellSubtext(void *L) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellSubtext",
-                                     &Script_GetSpellSubtext);
+                                     &Script_GetSpellSubtext, &kGetSpellSubtext);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

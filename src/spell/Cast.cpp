@@ -977,6 +977,71 @@ static int __fastcall Script_UnitSpellTargetName(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kUnitArgs[] = {
+    Game::Doc::Req("unit", "UnitToken", "The unit to read."),
+};
+
+// Both cast getters push the same 11 values, and push nothing at all when
+// there is no cast — so every return is nilable.
+static const Game::Doc::Field kCastingInfoRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Localized spell name; all returns are nil when the unit is not casting."),
+    Game::Doc::Opt("displayName", "string", nullptr, "Same as name."),
+    Game::Doc::Opt("textureID", "string", nullptr, "Icon texture path."),
+    Game::Doc::Opt("startTimeMs", "number", nullptr,
+                   "When the cast began, on the same clock as GetTime times 1000."),
+    Game::Doc::Opt("endTimeMs", "number", nullptr, "When the cast ends, on the same clock."),
+    Game::Doc::Opt("isTradeskill", "bool", nullptr, "True for a profession recipe cast."),
+    Game::Doc::Opt("castID", "string", nullptr,
+                   "The cast GUID the UNIT_SPELLCAST events carry for this cast."),
+    Game::Doc::Opt("notInterruptible", "bool", nullptr,
+                   "True when no interrupt or silence you know can stop the cast."),
+    Game::Doc::Opt("castingSpellID", "number", nullptr, "The spell being cast."),
+    Game::Doc::Opt("castBarID", "number", nullptr, "Always nil."),
+    Game::Doc::Opt("delayTimeMs", "number", nullptr,
+                   "Pushback the cast has taken so far, in milliseconds."),
+};
+static const Game::Doc::Function kUnitCastingInfo{
+    "The regular cast a unit has in progress, with its start and end times.",
+    kUnitArgs, kCastingInfoRets};
+static const Game::Doc::Function kCastingInfo{
+    "The regular cast the player has in progress, with its start and end times.",
+    {}, kCastingInfoRets};
+
+// Both channel getters push the same 8 values, and nothing when there is no
+// channel. Remote units whose channel we did not see begin report nil times.
+static const Game::Doc::Field kChannelInfoRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Localized spell name; all returns are nil when the unit is not channeling."),
+    Game::Doc::Opt("displayName", "string", nullptr, "Same as name."),
+    Game::Doc::Opt("textureID", "string", nullptr, "Icon texture path."),
+    Game::Doc::Opt("startTimeMs", "number", nullptr,
+                   "When the channel began, on the same clock as GetTime times 1000; "
+                   "nil for a unit whose channel you did not see begin."),
+    Game::Doc::Opt("endTimeMs", "number", nullptr, "When the channel ends, on the same clock."),
+    Game::Doc::Opt("isTradeskill", "bool", nullptr, "True for a profession recipe cast."),
+    Game::Doc::Opt("notInterruptible", "bool", nullptr,
+                   "True when no interrupt or silence you know can stop the channel."),
+    Game::Doc::Opt("spellID", "number", nullptr, "The spell being channeled."),
+};
+static const Game::Doc::Function kUnitChannelInfo{
+    "The channel a unit has in progress, with its start and end times.",
+    kUnitArgs, kChannelInfoRets};
+static const Game::Doc::Function kChannelInfo{
+    "The channel the player has in progress, with its start and end times.",
+    {}, kChannelInfoRets};
+
+static const Game::Doc::Field kTargetNameRets[] = {
+    Game::Doc::Opt("targetName", "string", nullptr,
+                   "Nil when the unit is not casting, the spell has no unit target, "
+                   "or the name cannot be resolved."),
+};
+static const Game::Doc::Function kUnitSpellTargetName{
+    "The name of the unit that a unit is casting or channeling a spell at.",
+    kUnitArgs, kTargetNameRets, "SpellGlobals", true};
+
 static void RegisterLuaFunctions() {
     // Registered under C_Spell rather than as globals to avoid clobbering
     // the global `UnitCastingInfo` / `UnitChannelInfo` names. Addons that
@@ -986,13 +1051,18 @@ static void RegisterLuaFunctions() {
     // engine never exposes). Occupying the global makes them adopt our
     // player-only version and drop their superior fallback — so we cede
     // the global names and expose the functions here instead.
-    Game::Lua::RegisterTableFunction("C_Spell", "UnitCastingInfo", &Script_UnitCastingInfo);
-    Game::Lua::RegisterTableFunction("C_Spell", "CastingInfo", &Script_CastingInfo);
-    Game::Lua::RegisterTableFunction("C_Spell", "UnitChannelInfo", &Script_UnitChannelInfo);
-    Game::Lua::RegisterTableFunction("C_Spell", "ChannelInfo", &Script_ChannelInfo);
+    Game::Lua::RegisterTableFunction("C_Spell", "UnitCastingInfo", &Script_UnitCastingInfo,
+                                     &kUnitCastingInfo);
+    Game::Lua::RegisterTableFunction("C_Spell", "CastingInfo", &Script_CastingInfo,
+                                     &kCastingInfo);
+    Game::Lua::RegisterTableFunction("C_Spell", "UnitChannelInfo", &Script_UnitChannelInfo,
+                                     &kUnitChannelInfo);
+    Game::Lua::RegisterTableFunction("C_Spell", "ChannelInfo", &Script_ChannelInfo,
+                                     &kChannelInfo);
     // A novel ClassicAPI name (no addon ships its own), so it's safe as a
     // global — and it matches the `UnitSpellTargetName(unit)` call shape.
-    Game::Lua::RegisterGlobalFunction("UnitSpellTargetName", &Script_UnitSpellTargetName);
+    Game::Lua::RegisterGlobalFunction("UnitSpellTargetName", &Script_UnitSpellTargetName,
+                                      &kUnitSpellTargetName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

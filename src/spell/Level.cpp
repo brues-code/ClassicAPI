@@ -392,17 +392,67 @@ int __fastcall Script_GetCurrentLevelSpells(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellIDArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell to examine."),
+};
+
+const Game::Doc::Field kLevelLearnedRets[] = {
+    Game::Doc::Req("level", "number",
+                   "The level the spell becomes available, or 0 when it has no "
+                   "level requirement."),
+};
+const Game::Doc::Function kGetSpellLevelLearned{
+    "The level at which a spell becomes available.", kSpellIDArgs, kLevelLearnedRets};
+
+const Game::Doc::Field kCurrentLevelSpellsArgs[] = {
+    Game::Doc::Opt("level", "number", nullptr,
+                   "The level to ask about; defaults to the player's own level."),
+};
+const Game::Doc::Field kCurrentLevelSpellsRets[] = {
+    Game::Doc::Req("spellIDs", "table",
+                   "A 1-based array of spell IDs, empty when nothing matches."),
+};
+const Game::Doc::Function kGetCurrentLevelSpells{
+    "The spells the player's class and race can train at a given level.",
+    kCurrentLevelSpellsArgs, kCurrentLevelSpellsRets};
+
+const Game::Doc::Field kRequiredTargetLevelRets[] = {
+    Game::Doc::Opt("level", "number", nullptr,
+                   "The lowest target level, 0 when the spell has no such limit; "
+                   "nil for an unknown spell."),
+};
+const Game::Doc::Function kGetSpellRequiredTargetLevel{
+    "The lowest level a target must be for this rank of the spell to apply to it.",
+    kSpellIDArgs, kRequiredTargetLevelRets, "SpellGlobals"};
+
+const Game::Doc::Field kLevelInfoRets[] = {
+    Game::Doc::Opt("spellLevel", "number", nullptr,
+                   "The level of this rank; nil for an unknown spell."),
+    Game::Doc::Opt("baseLevel", "number", nullptr, "The base level of the spell."),
+    Game::Doc::Opt("maxLevel", "number", nullptr,
+                   "The level at which per-level scaling stops, or 0 for no cap."),
+};
+const Game::Doc::Function kGetSpellLevelInfo{
+    "The three level values of a spell: its rank level, base level, and scaling cap.",
+    kSpellIDArgs, kLevelInfoRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellLevelLearned",
-                                      &Script_GetSpellLevelLearned);
+                                      &Script_GetSpellLevelLearned,
+                                      &kGetSpellLevelLearned);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetCurrentLevelSpells",
-                                      &Script_GetCurrentLevelSpells);
+                                      &Script_GetCurrentLevelSpells,
+                                      &kGetCurrentLevelSpells);
     Game::Lua::RegisterGlobalFunction("GetSpellRequiredTargetLevel",
-                                      &Script_GetSpellRequiredTargetLevel);
+                                      &Script_GetSpellRequiredTargetLevel,
+                                      &kGetSpellRequiredTargetLevel);
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellLevelInfo",
-                                      &Script_GetSpellLevelInfo);
+                                      &Script_GetSpellLevelInfo, &kGetSpellLevelInfo);
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellRequiredTargetLevel",
-                                      &Script_GetSpellRequiredTargetLevel);
+                                      &Script_GetSpellRequiredTargetLevel,
+                                      &kGetSpellRequiredTargetLevel);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

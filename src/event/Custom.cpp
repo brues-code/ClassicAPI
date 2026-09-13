@@ -39,11 +39,12 @@ namespace {
 // GET_ITEM_INFO_RECEIVED) never claimed a slot. Grep `AutoReserve` before
 // bumping the reservation count near this ceiling.
 constexpr int MAX_RESERVED = 64;
-struct ReservedName {
+struct Reservation {
     const char *name;
     int slot;  // -1 until claimed
+    const Game::Doc::Event *doc;  // API documentation; nullptr = undocumented
 };
-ReservedName g_reserved[MAX_RESERVED];
+Reservation g_reserved[MAX_RESERVED];
 int g_reservedCount = 0;
 bool g_writesEnabled = false;
 // One-shot latch so a genuinely full event table (no NULL slot left to
@@ -243,13 +244,18 @@ void Grow() {
 
 } // namespace
 
-AutoReserve::AutoReserve(const char *name) {
+AutoReserve::AutoReserve(const char *name, const Game::Doc::Event *doc) {
     if (name == nullptr)
         return;
     // Dedup: a name reserved twice resolves both instances to the one entry.
+    // A descriptor on either instance documents the one reservation (an event
+    // fired from several modules is declared in a shared header, but a second
+    // declaration must not silently drop its documentation).
     for (int i = 0; i < g_reservedCount; ++i) {
         if (std::strcmp(g_reserved[i].name, name) == 0) {
             index_ = i;
+            if (g_reserved[i].doc == nullptr)
+                g_reserved[i].doc = doc;
             return;
         }
     }
@@ -257,12 +263,23 @@ AutoReserve::AutoReserve(const char *name) {
         return; // overflow — index_ stays -1, Slot() reports unclaimed
     g_reserved[g_reservedCount].name = name;
     g_reserved[g_reservedCount].slot = -1;
+    g_reserved[g_reservedCount].doc = doc;
     index_ = g_reservedCount;
     ++g_reservedCount;
 }
 
 int AutoReserve::Slot() const {
     return index_ >= 0 ? g_reserved[index_].slot : -1;
+}
+
+int ReservedCount() { return g_reservedCount; }
+
+const char *ReservedName(int index) {
+    return (index >= 0 && index < g_reservedCount) ? g_reserved[index].name : nullptr;
+}
+
+const Game::Doc::Event *ReservedDoc(int index) {
+    return (index >= 0 && index < g_reservedCount) ? g_reserved[index].doc : nullptr;
 }
 
 int LookupByName(const char *name) {

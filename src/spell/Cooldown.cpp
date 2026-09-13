@@ -70,6 +70,30 @@ int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellCooldownInfoFields[] = {
+    Game::Doc::Req("startTime", "number",
+                   "When the cooldown began, in seconds on the GetTime clock; 0 when none runs."),
+    Game::Doc::Req("duration", "number", "Cooldown length in seconds; 0 when none runs."),
+    Game::Doc::Req("isEnabled", "bool", "False while the cooldown is on hold."),
+    Game::Doc::Req("modRate", "number", "Always 1."),
+};
+const Game::Doc::Structure kSpellCooldownInfo{
+    "SpellCooldownInfo", "Spell", kSpellCooldownInfoFields,
+    "Cooldown state for one spell."};
+
+const Game::Doc::Field kGetSpellCooldownArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kGetSpellCooldownRets[] = {
+    Game::Doc::Opt("cooldownInfo", "SpellCooldownInfo", nullptr,
+                   "Nil when the spell cannot be resolved."),
+};
+const Game::Doc::Function kGetSpellCooldown{
+    "When a spell's cooldown began and how long it lasts.",
+    kGetSpellCooldownArgs, kGetSpellCooldownRets};
+
 } // namespace
 
 bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
@@ -88,7 +112,8 @@ bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellCooldown",
-                                     &Script_C_Spell_GetSpellCooldown);
+                                     &Script_C_Spell_GetSpellCooldown,
+                                     &kGetSpellCooldown);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

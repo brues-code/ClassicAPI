@@ -46,9 +46,24 @@ int __fastcall Script_C_Spell_IsSpellInRange(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+    Game::Doc::Req("targetUnit", "UnitToken", "The unit to measure the distance to."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("inRange", "bool", nullptr,
+                   "True when in range, false when out of range, nil when the spell or "
+                   "unit gives no answer."),
+};
+const Game::Doc::Function kIsSpellInRange{
+    "Whether the player is close enough to the unit to cast the spell on it.",
+    kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "IsSpellInRange",
-                                     &Script_C_Spell_IsSpellInRange);
+                                     &Script_C_Spell_IsSpellInRange, &kIsSpellInRange);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

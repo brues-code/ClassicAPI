@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "MinHook.h"
 #include "Offsets.h"
+#include "api/Documentation.h"
 
 namespace Game {
 
@@ -259,11 +260,12 @@ void MirrorRegistration(const char *tableName, const char *name) {
 }
 } // namespace
 
-void RegisterGlobalFunction(const char *name, CFunction func) {
+void RegisterGlobalFunction(const char *name, CFunction func, const Doc::Function *doc) {
     auto fn = reinterpret_cast<FrameScript_RegisterFunction_t>(
         Offsets::FUN_FRAMESCRIPT_REGISTER_FUNCTION);
     fn(name, func);
     MirrorRegistration(nullptr, name);
+    Api::Documentation::RecordGlobal(name, doc);
 }
 
 // Aliased to the same engine entry; the engine reads VAR_LUA_STATE
@@ -271,23 +273,27 @@ void RegisterGlobalFunction(const char *name, CFunction func) {
 // runs while that pointer is set to the glue state. Wrapped as a
 // named function (rather than `using RegisterGlueFunction = ...`) so
 // callers express intent at the call site.
-void RegisterGlueFunction(const char *name, CFunction func) {
+void RegisterGlueFunction(const char *name, CFunction func, const Doc::Function *doc) {
     auto fn = reinterpret_cast<FrameScript_RegisterFunction_t>(
         Offsets::FUN_FRAMESCRIPT_REGISTER_FUNCTION);
     fn(name, func);
     // `State()` is the glue state here for the same reason the engine
     // registrar writes there, so the mirror lands on the glue `_G`.
     MirrorRegistration(nullptr, name);
+    Api::Documentation::RecordGlobal(name, doc);
 }
 
-void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count) {
+void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count,
+                          const Doc::Method *docs, int docCount) {
     auto fn = reinterpret_cast<RegisterFrameMethods_t>(Offsets::FUN_REGISTER_FRAME_METHODS);
     fn(table, count, context);
+    Api::Documentation::RecordFrameMethods(context, table, count, docs, docCount);
 }
 
 // Registers `func` at `_G[tableName][methodName]`. If the namespace
 // doesn't already exist, creates an empty table for it.
-void RegisterTableFunction(const char *tableName, const char *methodName, CFunction func) {
+void RegisterTableFunction(const char *tableName, const char *methodName, CFunction func,
+                           const Doc::Function *doc) {
     void *L = State();
     if (L == nullptr)
         return;
@@ -297,6 +303,7 @@ void RegisterTableFunction(const char *tableName, const char *methodName, CFunct
     SetTable(L, -3);                     // tbl[m]=c; pops k+v. [tbl]
     SetTop(L, -2);                       // pop tbl. []
     MirrorRegistration(tableName, methodName);
+    Api::Documentation::RecordTable(tableName, methodName, doc);
 }
 
 // `_G[alias] = _G[tableName][methodName]`, by VALUE. The engine binds its
@@ -306,7 +313,8 @@ void RegisterTableFunction(const char *tableName, const char *methodName, CFunct
 // table.insert` true, as the engine left it, instead of minting a second
 // closure. A plain raw write, exactly what the snippet's assignment did. No-op
 // if the source is not a function (nothing was registered to alias).
-void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName) {
+void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName,
+                         const Doc::Function *doc) {
     void *L = State();
     if (L == nullptr)
         return;
@@ -323,10 +331,12 @@ void RegisterGlobalAlias(const char *alias, const char *tableName, const char *m
     RawSet(L, GLOBALS_INDEX);            // _G[alias] = value.  [tbl, value]
     SetTop(L, top);
     MirrorRegistration(nullptr, alias);
+    Api::Documentation::RecordGlobal(alias, doc);
 }
 
 void RegisterIntegerEnum(const char *parent, const char *sub,
-                         const EnumIntegerEntry *entries, int count) {
+                         const EnumIntegerEntry *entries, int count,
+                         const char *docSystem) {
     void *L = State();
     if (L == nullptr)
         return;
@@ -340,6 +350,7 @@ void RegisterIntegerEnum(const char *parent, const char *sub,
     }
     SetTable(L, -3); // parentTbl[sub] = subTbl
     SetTop(L, -2);   // pop parentTbl
+    Api::Documentation::RecordEnum(parent, sub, entries, count, docSystem);
 }
 
 void SetFieldNumber(void *L, const char *key, double value) {
@@ -477,8 +488,10 @@ ModuleAutoRegister::ModuleAutoRegister(Fn f) : fn(f), next(g_moduleHead) {
 }
 
 void RunModuleRegistrations() {
+    Api::Documentation::BeginPass(Api::Documentation::ENV_GAME);
     for (auto *node = g_moduleHead; node != nullptr; node = node->next)
         node->fn();
+    Api::Documentation::EndPass();
 }
 
 GlueModuleAutoRegister::GlueModuleAutoRegister(Fn f)
@@ -487,8 +500,10 @@ GlueModuleAutoRegister::GlueModuleAutoRegister(Fn f)
 }
 
 void RunGlueModuleRegistrations() {
+    Api::Documentation::BeginPass(Api::Documentation::ENV_GLUE);
     for (auto *node = g_glueModuleHead; node != nullptr; node = node->next)
         node->fn();
+    Api::Documentation::EndPass();
 }
 
 ReloadAutoRegister::ReloadAutoRegister(Fn f) : fn(f), next(g_reloadHead) {

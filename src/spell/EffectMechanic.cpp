@@ -64,11 +64,26 @@ int __fastcall Script_GetSpellEffectMechanics(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kGetSpellEffectMechanicsArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kGetSpellEffectMechanicsRets[] = {
+    Game::Doc::Opt("mechanics", "table", nullptr,
+                   "Three mechanic IDs, one per effect slot, counted from 1; 0 where an "
+                   "effect carries no mechanic. Nil for an unknown spell."),
+};
+const Game::Doc::Function kGetSpellEffectMechanics{
+    "The mechanic each of the spell's three effects applies, such as root or bleed.",
+    kGetSpellEffectMechanicsArgs, kGetSpellEffectMechanicsRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellEffectMechanics",
-                                     &Script_GetSpellEffectMechanics);
+                                     &Script_GetSpellEffectMechanics,
+                                     &kGetSpellEffectMechanics);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

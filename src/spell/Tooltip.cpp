@@ -194,11 +194,45 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"HasSpell", &Script_GameTooltipHasSpell},
 };
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kSpellIDArg[] = {
+    Game::Doc::Req("spellID", "number", "Any spell ID, learned or not."),
+};
+static const Game::Doc::Function kSetSpellByID{
+    "Fills the tooltip with a spell's tooltip.", kSpellIDArg, {}};
+static const Game::Doc::Function kAddSpellByID{
+    "Appends a spell's tooltip to what the tooltip already shows.", kSpellIDArg, {}};
+
+static const Game::Doc::Field kGetSpellRets[] = {
+    Game::Doc::Opt("name", "string", nullptr, "Nil when the tooltip shows no spell."),
+    Game::Doc::Opt("rank", "string", nullptr, "Empty for a spell that has no rank."),
+    Game::Doc::Opt("spellID", "number"),
+};
+static const Game::Doc::Function kGetSpell{
+    "The spell the tooltip is showing. Aura tooltips report nothing.", {}, kGetSpellRets};
+
+static const Game::Doc::Field kHasSpellRets[] = {
+    Game::Doc::Req("hasSpell", "bool", "True while the tooltip shows a spell."),
+};
+static const Game::Doc::Function kHasSpell{
+    "Whether the tooltip is showing a spell. Aura tooltips report false.",
+    {}, kHasSpellRets};
+
+static const Game::Doc::Method g_methodDocs[] = {
+    {"SetSpellByID", &kSetSpellByID},
+    {"AddSpellByID", &kAddSpellByID},
+    {"GetSpell", &kGetSpell},
+    {"HasSpell", &kHasSpell},
+};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
         g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])),
+        g_methodDocs,
+        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -80,9 +80,27 @@ static int __fastcall Script_GetSpellMechanicByID(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spellID", "SpellIdentifier",
+                   "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("mechanicID", "number", nullptr,
+                   "The mechanic the spell applies, 0 when it applies none; "
+                   "nil for an unknown spell."),
+    Game::Doc::Opt("name", "string", nullptr,
+                   "The English mechanic name, nil when the mechanic has none."),
+};
+const Game::Doc::Function kGetSpellMechanicByID{
+    "The crowd-control mechanic a spell applies, with its English name.",
+    kArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellMechanicByID",
-                                     &Script_GetSpellMechanicByID);
+                                     &Script_GetSpellMechanicByID,
+                                     &kGetSpellMechanicByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

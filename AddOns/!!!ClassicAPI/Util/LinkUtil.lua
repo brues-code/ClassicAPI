@@ -61,6 +61,18 @@ LinkTypes = {
 
 LinkUtil = {};
 
+-- `assertsafe` isn't a global in stock 1.12; defined as a local fallback so
+-- this file stays self-contained, the same way FunctionUtil.lua and Pools.lua
+-- do. Only fires when `condition` is falsy, matching Blizzard's semantics.
+local function assertsafe(condition, msg)
+	if not condition then
+		local handler = geterrorhandler and geterrorhandler();
+		if handler then
+			handler(msg or "assertion failed!");
+		end
+	end
+end
+
 function LinkUtil.FormatLink(linkType, linkDisplayText, ...)
 	local linkFormatTable = { string.format("|H%s", linkType) };
 	for i = 1, arg.n do
@@ -184,4 +196,26 @@ do
 
 		s_linkHandlerFunctions[linkType] = handlerFunction;
 	end
+end
+
+------------------------------------------------------------------------------
+-- Click dispatch. Retail's SetItemRef opens with exactly this: build the
+-- context, offer the link to the registered handlers, and stop if one took it.
+-- 1.12's SetItemRef knows only item and player links and would reject anything
+-- else, so the dispatch wraps it here instead of living in the engine.
+--
+-- The chat renderer itself accepts any |H<type>:...|h[text]|h and makes it
+-- clickable, so a handler is all a new link type needs.
+--
+-- Capture-and-replace, not hooksecurefunc: a post-hook cannot stop the engine
+-- from rejecting the link first. 1.12 passes (link, text, button); `link` is
+-- the payload without the |H and |h wrappers, `text` the whole decorated link.
+------------------------------------------------------------------------------
+local originalSetItemRef = SetItemRef;
+function SetItemRef(link, text, button, chatFrame)
+	local contextData = { button = button, frame = chatFrame };
+	if LinkUtil.ProcessLink(link, text, contextData) == LinkProcessorResponse.Handled then
+		return;
+	end
+	return originalSetItemRef(link, text, button, chatFrame);
 end

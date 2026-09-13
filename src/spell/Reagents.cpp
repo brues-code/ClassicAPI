@@ -60,11 +60,33 @@ int __fastcall Script_C_Spell_GetSpellReagents(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellReagentInfoFields[] = {
+    Game::Doc::Req("itemID", "number", "The item the cast consumes."),
+    Game::Doc::Req("count", "number", "How many of that item one cast consumes."),
+};
+const Game::Doc::Structure kSpellReagentInfo{
+    "SpellReagentInfo", "Spell", kSpellReagentInfoFields,
+    "One item a spell consumes when you cast it."};
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("reagents", "table", nullptr,
+                   "An array of SpellReagentInfo entries, empty when the spell uses "
+                   "none; nil for an unknown spell."),
+};
+const Game::Doc::Function kGetSpellReagents{
+    "The items a spell consumes each time you cast it.", kArgs, kRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellReagents",
-                                     &Script_C_Spell_GetSpellReagents);
+                                     &Script_C_Spell_GetSpellReagents,
+                                     &kGetSpellReagents);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

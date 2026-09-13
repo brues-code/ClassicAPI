@@ -119,9 +119,28 @@ int __fastcall Script_C_Spell_CastAtUnit(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kCastAtUnitArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier",
+                   "A spell ID, which casts that exact rank, or a spell name, "
+                   "which casts the highest rank you know unless it ends in \"(Rank N)\"."),
+    Game::Doc::Req("unit", "UnitToken", "The unit to cast the spell at."),
+    Game::Doc::Opt("placeGroundSpell", "bool", "true",
+                   "False leaves a ground-target spell's reticle for you to click."),
+};
+const Game::Doc::Field kCastAtUnitRets[] = {
+    Game::Doc::Req("cast", "bool",
+                   "True when the spell went out at the unit; false when you do not know "
+                   "the spell, or the unit is not a target the spell accepts."),
+};
+const Game::Doc::Function kCastAtUnit{
+    "Casts a spell at a unit, dropping a ground-target spell at that unit's feet.",
+    kCastAtUnitArgs, kCastAtUnitRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "CastAtUnit",
-                                     &Script_C_Spell_CastAtUnit);
+                                     &Script_C_Spell_CastAtUnit, &kCastAtUnit);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

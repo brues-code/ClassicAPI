@@ -86,13 +86,30 @@ int __fastcall Script_CancelSpellByName(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kByIDArgs[] = {
+    Game::Doc::Req("spellID", "number", "The buff to cancel."),
+};
+const Game::Doc::Function kCancelSpellByID{
+    "Cancels one of your own buffs by spell ID.", kByIDArgs, {}};
+
+const Game::Doc::Field kByNameArgs[] = {
+    Game::Doc::Req("name", "string",
+                   "The buff's name, matched without regard to case; a \"(Rank N)\" "
+                   "suffix is not read."),
+};
+const Game::Doc::Function kCancelSpellByName{
+    "Cancels the first of your own buffs whose name matches.",
+    kByNameArgs, {}, "SpellGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "CancelSpellByID",
-                                     &Script_CancelSpellByID);
+                                     &Script_CancelSpellByID, &kCancelSpellByID);
     Game::Lua::RegisterGlobalFunction("CancelSpellByName",
-                                      &Script_CancelSpellByName);
+                                      &Script_CancelSpellByName, &kCancelSpellByName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

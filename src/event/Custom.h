@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "Game.h"
 #include "Offsets.h"
 
 namespace Event::Custom {
@@ -50,13 +51,26 @@ namespace Event::Custom {
 // `RegisterEvent` triggers `RetryClaims`), which `Fire` treats as a no-op.
 // Do NOT cache the return across frames — read it at fire time (the read
 // is two loads; there is nothing to save).
+//
+// `doc` is the event's API documentation (its System, a summary, and the
+// payload fields — see `Game::Doc::Event`); `Api::Documentation` exports it
+// under the System's `Events`. A reservation without one is listed by
+// `_classicapi_UndocumentedAPI()`.
 struct AutoReserve {
-    explicit AutoReserve(const char *name);
+    explicit AutoReserve(const char *name, const Game::Doc::Event *doc = nullptr);
     int Slot() const;
 
 private:
     int index_ = -1; // into the reservation table; -1 = dropped (overflow)
 };
+
+// Read access to the reservation table for the API documentation: the
+// number of reserved names, the literal name of the i-th (0-based), and its
+// descriptor (nullptr when undocumented). Indices are stable for the
+// process lifetime (reservations are only ever appended).
+int ReservedCount();
+const char *ReservedName(int index);
+const Game::Doc::Event *ReservedDoc(int index);
 
 // Walks the live engine event table at `[VAR_EVENT_TABLE_BASE_PTR]`
 // looking for an entry whose name strcmps equal to `name`. Returns

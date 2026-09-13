@@ -83,9 +83,21 @@ static int __fastcall Script_IsSelfBuff(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spellID", "number", "The spell to examine."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("isSelfBuff", "bool",
+                   "True when every effect of the spell targets the caster alone."),
+};
+const Game::Doc::Function kIsSelfBuff{
+    "Whether the spell only ever applies to the caster.", kArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "IsSelfBuff",
-                                     &Script_IsSelfBuff);
+                                     &Script_IsSelfBuff, &kIsSelfBuff);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
