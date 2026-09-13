@@ -4093,12 +4093,13 @@ end)
 > `NAME_PLATE_UNIT_ADDED` (fires next tick at the latest) or fetch
 > the current frame on-demand via `GetNamePlateForUnit(arg1)`.
 
-> **Token stability gotcha.** The `arg1` token is positional —
-> `"nameplate3"` today may resolve to a different unit after the slot
-> vacates and shifts. If you need a per-unit hash key
-> for cross-event bookkeeping, call `UnitGUID(arg1)` and store the
-> GUID instead. See [Unit tokens](#unit-tokens-nameplaten) for the
-> ordering rules.
+> **Token stability gotcha.** A plate keeps its token for its whole
+> life, and the other plates never renumber when one plate is
+> removed. But a removed plate frees its slot, and a later plate can
+> reuse that slot. So `"nameplate3"` can name a different unit at a
+> later time. For a key that stays with one unit, call
+> `UnitGUID(arg1)` and store the GUID. See
+> [Unit tokens](#unit-tokens-nameplaten) for the slot rules.
 
 **Implementation notes**
 
@@ -12568,23 +12569,24 @@ for i, plate in ipairs(plates) do
 end
 ```
 
-Two kinds of plates can show up:
+Two kinds of plates can show up. Both give you the same frame object
+that every other path gives you for that plate:
 
-- **Addon-created plates** (pfUI, TidyPlates, NamePlateMod, etc.):
-  registered with Lua via `CreateFrame`, so each has a real
-  registry ref. We push `registry[plate + 0x08]`. Identity is
-  stable across calls — caching is safe while the frame is alive.
+- **Addon-created plates** (pfUI, TidyPlates, NamePlateMod, and
+  others): built with `CreateFrame`. The addon puts its own fields
+  and methods on that frame, and you see them here.
 
-- **Default engine plates**: created internally by the engine
-  without ever calling `CreateFrame`. Their `+0x08` field holds the
-  sentinel `LUA_NOREF` (`-2`), not a real registry key. We build a
-  fresh wrapper table per call (`{[0] = lightuserdata(plate)}` with
-  the global `__framescript_meta` metatable) so addons get the
-  same method surface. The wrapper isn't cached engine-side, so
-  identity isn't stable across calls — don't compare wrappers, and
-  don't store them across the unit going out of range (the
-  underlying frame may be freed). Call `GetNamePlates()` fresh
-  each time you need plates.
+- **Default engine plates**: built by the engine without
+  `CreateFrame`. The first call registers the frame with Lua. Every
+  later call gives you that same object.
+
+Identity is stable across calls for both kinds. Two calls give you the
+same table for one plate, so you can compare frames with `==`. Fields
+that you set on a frame stay on it.
+
+A plate frame comes from a pool. When the unit goes out of range, the
+engine can give that frame to a different unit. Do not store a frame
+across that point. When you need plates, call `GetNamePlates()` again.
 
 ### Reading region content from a default nameplate
 
@@ -12621,10 +12623,9 @@ if plate then
 end
 ```
 
-Same registered-vs-fresh-wrapper behavior as `GetNamePlates()` —
-addon-created plates return their cached wrapper, default engine
-plates get a fresh per-call wrapper. Don't cache the result across
-the unit going out of range.
+The frame object is the same one that `GetNamePlates()` gives you for
+that plate. Do not store the result across the unit going out of
+range. The engine can give that frame to a different unit.
 
 ### `C_NamePlate.GetNamePlateForGUID(guidString)`
 
@@ -12678,9 +12679,12 @@ hash-bucket iteration and isn't stable across calls.
 ~30 functions for free.
 
 ```lua
+-- A slot can be vacant, so skip gaps. Do not stop at the first one.
 for i = 1, 40 do
-    if not UnitExists("nameplate" .. i) then break end
-    print(i, UnitName("nameplate" .. i), UnitClass("nameplate" .. i))
+    local token = "nameplate" .. i
+    if UnitExists(token) then
+        print(i, UnitName(token), UnitClass(token))
+    end
 end
 ```
 
