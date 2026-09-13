@@ -91,7 +91,6 @@ bool SpellHiddenFromSpellbook(int spellID) {
 // checks are NOT in the 1.12 client's Spell.dbc — server-only columns — so
 // the spellLevel rule is the only client-readable target-level mechanism.)
 
-constexpr uint32_t SPELL_EFFECT_APPLY_AURA = 6;
 constexpr uint32_t SPELL_EFFECT_APPLY_AREA_AURA_PARTY = 35;
 
 int LocaleIndex() {
@@ -154,7 +153,7 @@ int RequiredTargetLevel(const uint8_t *record) {
         Game::Ptr<const uint32_t>(record, Offsets::OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A);
     bool positiveAura = false;
     for (int i = 0; i < 3; ++i) {
-        if ((effect[i] == SPELL_EFFECT_APPLY_AURA &&
+        if ((effect[i] == Offsets::SPELL_EFFECT_APPLY_AURA &&
              IsPositiveRankTarget(targetA[i])) ||
             effect[i] == SPELL_EFFECT_APPLY_AREA_AURA_PARTY) {
             positiveAura = true;

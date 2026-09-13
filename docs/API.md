@@ -15286,9 +15286,18 @@ so progress is `(GetTime()*1000 - startTimeMs) / (endTimeMs - startTimeMs)`.
 > the cast's **castGUID** — the exact string the
 > [`UNIT_SPELLCAST_*`](#unit_spellcast_-events) events carry for this cast,
 > so you can correlate the polled info with the events (works for the player
-> and other units). Fields that can't be filled are structurally-correct
-> placeholders: `castBarID` = `nil`, `notInterruptible` = `false`,
-> `delayTimeMs` = `0`.
+> and other units). `delayTimeMs` is the pushback the cast has taken so far,
+> in milliseconds. `castBarID` has no source here and is always `nil`.
+>
+> `notInterruptible` is `true` when no interrupt or silence that **you**
+> know can stop the cast. The value is relative to your own abilities, so a
+> rogue and a mage can read different values for the same cast. It is `true`
+> in two cases: the spell can never be interrupted, or the caster has an aura
+> that blocks every interrupt and silence you know (for example Divine Shield,
+> Ice Block, or Banish). If you know no interrupt and no silence, the value is
+> always `false`. Limits: a creature's built-in interrupt immunity is
+> server-side data that the client never receives, so a boss with that
+> immunity reads `false` while your interrupt still fails on it.
 
 ### `C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`
 
@@ -15316,8 +15325,8 @@ as casts: when we observed the channel begin, the remote unit returns full
 **start/end times** (validated against the live `UNIT_FIELD_CHANNEL_SPELL`
 so a stale cache entry never applies to a different/ended channel);
 otherwise it falls back to `name`/`displayName`/`textureID`/`spellID` with
-**`nil` times**. The player path is unchanged (full timing). Same
-placeholder fields as `C_Spell.UnitCastingInfo`.
+**`nil` times**. The player path is unchanged (full timing).
+`notInterruptible` follows the same rules as in `C_Spell.UnitCastingInfo`.
 
 ### `C_Spell.GetSpellLevelInfo(spellID)`
 

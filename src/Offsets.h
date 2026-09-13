@@ -7817,6 +7817,15 @@ enum Offsets {
     // recipes, e.g. "Steel Plate Boots" = effect 36).
     OFF_SPELL_RECORD_EFFECT = 0xF4,                   // int32[3]
     SPELL_EFFECT_SCHOOL_DAMAGE = 2,                    // direct damage (verified vs server SpellDefines.h)
+    SPELL_EFFECT_APPLY_AURA = 6,                       // EffectApplyAuraName[i] then names the aura type
+    SPELL_EFFECT_TRIGGER_SPELL = 64,                   // casts EffectTriggerSpell[i] (Feral Charge 16979 → 19675)
+    // Kick / Pummel / Shield Bash / Counterspell / Earth Shock — 57 Spell.dbc
+    // rows carry it. The server's Spell::EffectInterruptCast is its handler.
+    SPELL_EFFECT_INTERRUPT_CAST = 68,
+    // EffectTriggerSpell[3] (columns 109-111): the spell an effect 64 casts.
+    // Verified in Spell.dbc: Feral Charge 16979 → [1] = 19675 "Feral Charge
+    // Effect" (the row that carries the druid's INTERRUPT_CAST).
+    OFF_SPELL_RECORD_EFFECT_TRIGGER_SPELL = 0x1B4,    // int32[3]
     SPELL_EFFECT_CREATE_ITEM = 24,
     SPELL_EFFECT_LEARN_SPELL = 36,
     SPELL_EFFECT_ENCHANT_ITEM = 53,
@@ -7918,10 +7927,27 @@ enum Offsets {
     // failure on this bit) use it; thrown items (grenades — e.g. spell 4068)
     // lack it, so movement must not end their cast. See Spell::Cast (issue #23).
     SPELL_INTERRUPT_FLAG_MOVEMENT = 0x1,
+    // Bit 1: the bit the server's interrupt EFFECT tests on a cast before Kick /
+    // Pummel / Counterspell may stop it — tortoise `Spell::EffectInterruptCast`
+    // (vmangos names the same bit DAMAGE_PUSHBACK). Player casts carry 0x0F;
+    // creature casts with 0x00 / 0x08 / 0x09 / 0x0D (Shadow Flame, Frost
+    // Breath, …) cannot be interrupted by those abilities. Silence auras ignore
+    // the flags (PreventionType only). Read by Spell::Interruptible.
+    SPELL_INTERRUPT_FLAG_DAMAGE = 0x2,
+    // ChannelInterruptFlags (column 23). Bit 2 is the channel analog of the
+    // gate above (CHANNEL_FLAG_INTERRUPT in both cores). Verified in Spell.dbc:
+    // Blizzard / Arcane Missiles 0x7C0C, non-channels 0.
+    OFF_SPELL_RECORD_CHANNEL_INTERRUPT_FLAGS = 0x5C,  // u32 (column 23)
+    CHANNEL_FLAG_INTERRUPT = 0x4,
 
     // Remaining Spell.dbc record fields — the single source of truth for the
     // record layout (byte = column * 4). Modules must use these rather than
     // redefining local copies.
+    // Single school id (column 1) — 0 physical … 6 arcane; a spell's school
+    // MASK is `1 << School` (the server's GetSpellSchoolMask). Verified in
+    // Spell.dbc: Kick 0, Fireball 2, Earth Shock 3, Shadow Bolt 5,
+    // Counterspell 6. Read by Spell::Interruptible.
+    OFF_SPELL_RECORD_SCHOOL = 0x04,                   // u32 (column 1)
     OFF_SPELL_RECORD_CASTING_TIME_INDEX = 0x48,       // u32 → SpellCastTimes.dbc
     OFF_SPELL_RECORD_MAX_LEVEL = 0x6C,                // u32 (scaling cap level)
     OFF_SPELL_RECORD_SPELL_LEVEL = 0x74,              // u32 (this rank's effective level)
@@ -7946,6 +7972,12 @@ enum Offsets {
     // reads `spellRec[+0x14]` as the spell's mechanic when the per-
     // effect EffectMiscValue is 0. Read by C_Spell.GetSpellMechanicByID.
     OFF_SPELL_RECORD_MECHANIC = 0x14,
+    // SpellMechanic.dbc ids (server SpellDefines.h `Mechanics`). Every
+    // interrupt ability carries 26 — per effect (Kick / Pummel / Shield Bash /
+    // Earth Shock EffectMechanic[1]) or spell-level (Counterspell Mechanic) —
+    // so MECHANIC_IMMUNITY of 26 is what makes a caster unkickable.
+    MECHANIC_SILENCE = 9,
+    MECHANIC_INTERRUPT = 26,
     SPELL_AURA_MOD_STEALTH = 16,
     SPELL_AURA_MOD_SHAPESHIFT = 36,
     SPELL_AURA_MOUNTED = 78,
@@ -7967,6 +7999,15 @@ enum Offsets {
     SPELL_AURA_MOD_SILENCE = 27,
     SPELL_AURA_MOD_PACIFY_SILENCE = 60,
     SPELL_AURA_MOD_DISARM = 67,
+    // Immunity aura types (server SpellAuraDefines.h). EffectMiscValue: 37 = a
+    // SPELL_EFFECT id, 38 = a SPELL_AURA id, 39 = a school MASK (Divine Shield
+    // rows carry 39 with 1 and 126; verified in Spell.dbc), 77 = a SpellMechanic
+    // id. The 3.3.5 client's not-interruptible walk tests exactly these four;
+    // read by Spell::Interruptible.
+    SPELL_AURA_EFFECT_IMMUNITY = 37,
+    SPELL_AURA_STATE_IMMUNITY = 38,
+    SPELL_AURA_SCHOOL_IMMUNITY = 39,
+    SPELL_AURA_MECHANIC_IMMUNITY = 77,
 
     // SMSG_SPELL_COOLDOWN (0x134) handler, registered by the spell-opcode
     // boot registrar FUN_006e7150 exactly like the failure/channel handlers

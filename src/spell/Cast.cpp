@@ -64,9 +64,11 @@
 //     test only the victim's client received it), so a remote bar can't
 //     stretch. Inherent 1.12 protocol gap, not recoverable client-side.
 //
-// Modern-signature fields vanilla can't fill are structurally-correct
-// placeholders: castID / castBarID = nil, notInterruptible = false,
-// isTradeskill = false (no readable flag in 1.12), delayTimeMs = 0.
+// The other modern-signature fields: `castID` is the cast's castGUID
+// (Spell::CastEvents), `isTradeskill` is SPELL_ATTR_TRADESPELL, `delayTimeMs`
+// the accumulated pushback, `notInterruptible` the 3.3.5 client's own
+// player-relative predicate on 1.12 data (Spell::Interruptible). `castBarID`
+// has no 1.12 source and stays nil.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -75,6 +77,7 @@
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "player/Info.h"
+#include "spell/Interruptible.h"
 #include "spell/Lookup.h"
 #include "spell/CastEvents.h"
 #include "tick/WorldTick.h"
@@ -293,8 +296,11 @@ const char *SpellIconPath(const uint8_t *rec) {
 // Pushes UnitCastingInfo's 11-tuple from a tracked cast, or nothing (nil)
 // if there's no active cast. `casterGuid` identifies whose cast this is (the
 // player's or a remote unit's) so `castID` can be pulled from Spell::CastEvents
-// — the same castGUID the cast's UNIT_SPELLCAST_* events carry.
-int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid) {
+// — the same castGUID the cast's UNIT_SPELLCAST_* events carry. `casterUnit`
+// is the caster's CGUnit (null when unresolvable) for the immunity-aura half
+// of `notInterruptible`.
+int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
+                 const uint8_t *casterUnit) {
     if (c.spellID == 0)
         return 0;
     // Self-expire: once the cast window has elapsed, report nothing even if
@@ -319,7 +325,8 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid) {
         Game::Lua::PushString(L, castGuid);
     else
         Game::Lua::PushNil(L);
-    Game::Lua::PushBool(L, false);                           // 8 notInterruptible
+    Game::Lua::PushBool(L, Spell::Interruptible::NotInterruptible(
+                               casterUnit, rec, /*isChannel*/ false)); // 8 notInterruptible
     Game::Lua::PushNumber(L, static_cast<double>(c.spellID)); // 9 castingSpellID
     Game::Lua::PushNil(L);                                   // 10 castBarID
     Game::Lua::PushNumber(L, static_cast<double>(c.delayMs)); // 11 delayTimeMs
@@ -328,7 +335,10 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid) {
 
 // Pushes UnitChannelInfo's 8-tuple. `haveTimes` is false for remote units
 // (we only track the local player's channel start), pushing nil times.
-int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes) {
+// `casterUnit` is the channeling CGUnit (null when unresolvable), for the
+// immunity-aura half of `notInterruptible`.
+int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes,
+                    const uint8_t *casterUnit) {
     if (spellID == 0)
         return 0;
     // Self-expire a timed channel once its window elapses (mirrors
@@ -352,7 +362,8 @@ int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes
         Game::Lua::PushNil(L);
     }
     Game::Lua::PushBool(L, IsTradeskill(rec));               // 6 isTradeskill
-    Game::Lua::PushBool(L, false);                           // 7 notInterruptible
+    Game::Lua::PushBool(L, Spell::Interruptible::NotInterruptible(
+                               casterUnit, rec, /*isChannel*/ true)); // 7 notInterruptible
     Game::Lua::PushNumber(L, static_cast<double>(spellID));   // 8 spellID
     return 8;
 }
@@ -857,7 +868,8 @@ static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 
 // `CastingInfo()` — local player's cast, no token lookup.
 static int __fastcall Script_CastingInfo(void *L) {
-    return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid());
+    return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid(),
+                        Unit::Identity::PlayerObject());
 }
 
 // `UnitCastingInfo(unit)` — local player from self-tracking; other units
@@ -874,19 +886,21 @@ static int __fastcall Script_UnitCastingInfo(void *L) {
     if (u == nullptr)
         return 0;
     if (u == Resolve("player"))
-        return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid());
+        return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid(),
+                            Unit::Identity::PlayerObject());
 
     const uint64_t guid = Unit::Identity::GuidForObject(u);
     const RemoteCast *rc = FindRemoteCast(guid);
     if (rc != nullptr && !rc->isChannel && NowMs() < rc->endMs)
         return PushCastInfo(L, TrackedSpell{rc->spellID, rc->startMs, rc->endMs},
-                            guid);
+                            guid, static_cast<const uint8_t *>(u));
     return 0;
 }
 
 // `ChannelInfo()` — local player's channel, no token lookup.
 static int __fastcall Script_ChannelInfo(void *L) {
-    return PushChannelInfo(L, g_channel.spellID, g_channel.startMs, g_channel.endMs, true);
+    return PushChannelInfo(L, g_channel.spellID, g_channel.startMs, g_channel.endMs, true,
+                           Unit::Identity::PlayerObject());
 }
 
 // `UnitChannelInfo(unit)` — full timing for the player; spellID/name/
@@ -901,10 +915,11 @@ static int __fastcall Script_UnitChannelInfo(void *L) {
     if (u == nullptr)
         return 0;
     if (u == Resolve("player"))
-        return PushChannelInfo(L, g_channel.spellID, g_channel.startMs, g_channel.endMs, true);
+        return PushChannelInfo(L, g_channel.spellID, g_channel.startMs, g_channel.endMs, true,
+                               Unit::Identity::PlayerObject());
 
-    auto *desc = Game::Read<const uint8_t *>(
-        u, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *unit = static_cast<const uint8_t *>(u);
+    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
     if (desc == nullptr)
         return 0;
     // The live +0x228 field is authoritative for "is this unit channeling
@@ -913,10 +928,10 @@ static int __fastcall Script_UnitChannelInfo(void *L) {
     const int spellID = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
     if (spellID == 0)
         return 0;
-    const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(u));
+    const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(unit));
     if (rc != nullptr && rc->isChannel && rc->spellID == spellID && NowMs() < rc->endMs)
-        return PushChannelInfo(L, spellID, rc->startMs, rc->endMs, /*haveTimes*/ true);
-    return PushChannelInfo(L, spellID, 0, 0, /*haveTimes*/ false);
+        return PushChannelInfo(L, spellID, rc->startMs, rc->endMs, /*haveTimes*/ true, unit);
+    return PushChannelInfo(L, spellID, 0, 0, /*haveTimes*/ false, unit);
 }
 
 // The unit GUID `caster` is currently casting / channeling AT, or 0 when it
