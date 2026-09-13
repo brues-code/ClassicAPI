@@ -1551,6 +1551,24 @@ enum Offsets {
     // descriptor at +0x114 — these are sibling classes under CGObject
     // with class-specific descriptor offsets.
     OFF_UNIT_DESCRIPTOR = 0x110,
+    // A creature's LIVE creature_template entry — in the INSTANCE BLOCK at
+    // `[unit + OFF_UNIT_GUID_PTR]` (GUID @+0x00, entry @+0x0C), the same
+    // shape as CGItem's block (GUID @+0x00, itemID @+0x0C). NOT the
+    // descriptor's OBJECT_FIELD_ENTRY slot (+0xC), which reads 0 for
+    // creatures exactly as it does for items (in-game probe: a Gordunni
+    // Mage-Lord read desc 0 / block 5239 / GUID bits 5236). This is what the
+    // engine keys the creature NAME query on: `FUN_00604600` resolves the unit
+    // and calls the creature cache with `[[unit+8] + 0xC]`; it is registered
+    // as the OBJECT-bank field-0xC handler (`FUN_006041f0` →
+    // `FUN_00468070(0, 0xC, 4, 0x604600)`). Do NOT derive a creature id from
+    // the GUID's entry bits instead: the server builds the GUID from the spawn
+    // row's FIRST creature id (`Creature::CreateFromProto` →
+    // `Object::_Create(guidlow, creature_id[0], …)`) and applies the rolled
+    // template with `UpdateEntry` → `SetEntry` only, so multi-id spawns (6,935
+    // Turtle rows) and respawn re-rolls put a different template behind the
+    // same GUID entry — Turtle's Gordunni rows are {5236, 5238, 5239} and
+    // every one of them carries 5236 in its GUID. Read by `Unit::CreatureID`.
+    OFF_UNIT_INSTANCE_ENTRY = 0x0C,
 
     // CGCreature client-side creature-data cache row. Populated by the
     // engine when an NPC GUID becomes visible (the same row the

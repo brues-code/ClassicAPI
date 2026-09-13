@@ -2828,9 +2828,9 @@ Stored as the `bankAutosortDisabled` console variable.
 
 ### `C_CreatureInfo.GetCreatureID(guid)`
 
-Extracts the creature template / NPC ID from a unit GUID. The entry ID
-is packed directly into bits 24-47 of the 64-bit GUID for the types that
-carry one; this function does the shift and mask so addons don't have to.
+Returns the creature template / NPC id for a unit GUID, or `nil`. The id is
+the same one the game uses to look up the creature's name, and the same one
+Wowhead and Turtle's database show in their NPC pages.
 
 ```lua
 C_CreatureInfo.GetCreatureID(UnitGUID("target"))   -- 1842 for Hogger
@@ -2838,10 +2838,17 @@ C_CreatureInfo.GetCreatureID(UnitGUID("pet"))      -- pet's creature template ID
 C_CreatureInfo.GetCreatureID(UnitGUID("player"))   -- nil (no entry on players)
 ```
 
+While the unit is in view, the id is read live from the unit, so it always
+matches the name you see. Some spawn points pick one of several templates,
+and a respawn can pick a different one. When such a unit is out of view, the
+id comes from the GUID instead, and that id is the spawn point's first
+template, which can differ from the unit's current name.
+
 Accepts creature GUIDs (`0xF130xxxx…`) and pet GUIDs
 (`0xF140xxxx…`). Returns `nil` for:
 - non-string input or malformed GUIDs
-- player GUIDs — the low 32 bits hold a player ID, not a template
+- player GUIDs — a player carries no template
+- a pet that is out of view — a pet GUID does not carry its template
 - game-object / dynamic-object / corpse / item GUIDs — `C_CreatureInfo`
   doesn't surface entry IDs for these even though the bits are in the
   same range; addons that need them can shift the raw GUID themselves
@@ -17450,12 +17457,14 @@ creatureID = UnitCreatureID(unit)
 /dump UnitCreatureID("pet")      -- your pet's creature-template id
 ```
 
-The entry id is packed into the unit's GUID (bits 24-47), so this reads it
-straight from the resolved GUID — no creature cache lookup. Returns `nil` for a
-player (a player GUID carries no template), an unresolvable-but-valid token
-(`"target"` with nothing targeted, an empty `"partyN"` slot), and any unit whose
-GUID isn't a creature or pet. Raises a Lua error on a garbage token — the
-standard `UnitX` behavior. Pair with
+The id is read live from the unit, so it always matches the name you see, and
+it is the id Wowhead and Turtle's database show for that NPC. For a unit that
+is out of view, the same fallback as `C_CreatureInfo.GetCreatureID` applies.
+Returns `nil` for a player (a player carries no template), an
+unresolvable-but-valid token (`"target"` with nothing targeted, an empty
+`"partyN"` slot), an out-of-view pet, and any unit whose GUID isn't a creature
+or pet. Raises a Lua error on a garbage token — the standard `UnitX` behavior.
+Pair with
 [`C_CreatureInfo.GetCreatureInfoByID`](#c_creatureinfogetcreatureinfobyidcreatureid)
 to get the name from the id.
 
