@@ -50,6 +50,9 @@ build instructions.
 - [Class](#class)
   - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable--isfemale)
 
+- [ClassColor](#classcolor)
+  - [`C_ClassColor.GetClassColor(className)`](#c_classcolorgetclasscolorclassname)
+
 - [ColorUtil](#colorutil)
   - [`C_ColorUtil.ConvertRGBToHSV(r, g, b)`](#c_colorutilconvertrgbtohsvr-g-b)
   - [`C_ColorUtil.ConvertHSVToRGB(h, s, v)`](#c_colorutilconverthsvtorgbh-s-v)
@@ -1651,6 +1654,31 @@ differentiate the two anyway, so callers won't typically notice.
 
 Sparse class IDs (classID 6 and a few others are skipped) have NULL
 records and are silently skipped.
+
+## ClassColor
+
+### `C_ClassColor.GetClassColor(className)`
+
+Returns the color of a class as a `ColorMixin`. Returns `nil` if
+`className` is not a class.
+
+`className` is the class file name, not the localized name. It is the
+uppercase token that `UnitClass` returns as its second value.
+
+```lua
+local _, classFile = UnitClass("target")     -- "WARRIOR"
+local color = C_ClassColor.GetClassColor(classFile)
+if color then
+    print(color:WrapTextInColorCode(UnitName("target")))
+end
+```
+
+The color is the one the whole interface uses for that class, and every
+caller gets the same object. Do not write to its fields — the change
+applies everywhere. Use `CreateColor(color:GetRGBA())` for a copy you
+can edit.
+
+An addon that recolors a class changes what this function returns.
 
 ## ClassicAPI namespace
 

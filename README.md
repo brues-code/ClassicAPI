@@ -60,6 +60,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [Chat](docs/API.md#chat) | `GetCurrentChatGUID` |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |
+| [ClassColor](docs/API.md#classcolor) | `C_ClassColor.GetClassColor` |
 | [ColorUtil](docs/API.md#colorutil) | `C_ColorUtil.ConvertRGBToHSV`, `C_ColorUtil.ConvertHSVToRGB`, `C_ColorUtil.ConvertHSVToHSL`, `C_ColorUtil.ConvertHSLToHSV`, `C_ColorUtil.ConvertHSLToRGB`, `C_ColorUtil.GenerateTextColorCode`, `C_ColorUtil.WrapTextInColor`, `C_ColorUtil.WrapTextInColorCode` |
 | [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack` |
 | [Console](docs/API.md#console) | `CalculateStringEditDistance`, `ConsoleEcho`, `ConsoleExec`, `ConsoleGetAllCommands`, `ConsoleGetColorFromType`, `ConsoleGetFontHeight`, `ConsoleIsActive`, `ConsolePrintAllMatchingCommands`, `SetConsoleKey` |
