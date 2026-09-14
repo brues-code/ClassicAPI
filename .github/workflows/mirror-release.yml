@@ -1,0 +1,186 @@
+name: Mirror release
+
+# Copy a GitHub release — its notes and the files attached to it — across to
+# the Gitea mirror at https://octowow.st/git/brues/ClassicAPI.
+#
+# A Gitea pull mirror replicates commits and tags only. Releases are database
+# records with their own attachments, so they never cross: the mirror's
+# Releases page shows bare tags with nothing to download. This workflow pushes
+# them over through Gitea's API.
+#
+# ONE-TIME SETUP: on the mirror, go to Settings -> Applications -> Generate New
+# Token, tick `repository` write, and copy the token. On GitHub, add it under
+# Settings -> Secrets and variables -> Actions as `MIRROR_TOKEN`. The token
+# needs push rights on brues/ClassicAPI.
+#
+# Two ways in:
+#   - `Build` calls it after every release build (see the `mirror` job there).
+#   - Run it from the Actions UI with a `tag` to redo one release, or with
+#     `tag` left blank to backfill every release that exists on GitHub.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to mirror (e.g. v2.0.0). Blank = every release.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout: the release files come from the GitHub release itself, so
+      # this reads the same bytes a user downloads rather than a rebuild.
+      - name: Push release to the mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MIRROR_TOKEN:-}" ]; then
+            echo "::error::MIRROR_TOKEN is not set - see the setup note at the top of .github/workflows/mirror-release.yml"
+            exit 1
+          fi
+
+          API=https://octowow.st/git/api/v1
+          MIRROR=brues/ClassicAPI
+          RESP=$(mktemp)
+
+          # Sends one API call. Prints the HTTP status; leaves the body in $RESP.
+          req() {
+            local method=$1 path=$2
+            shift 2
+            curl -sS -m 600 -o "$RESP" -w '%{http_code}' -X "$method" \
+              -H "Authorization: token $MIRROR_TOKEN" \
+              -H 'Accept: application/json' \
+              "$API/$path" "$@"
+          }
+
+          fail() {
+            echo "::error::$1"
+            echo "the mirror replied: $(head -c 2000 "$RESP")"
+            exit 1
+          }
+
+          # A release must hang off a tag that is already on the mirror. If the
+          # tag is missing the mirror has not pulled yet, so ask it to and wait.
+          # Attaching to a tag the mirror does not have would let its next sync
+          # turn our release back into a draft.
+          ensure_tag() {
+            local tag=$1 i
+            if [ "$(req GET "repos/$MIRROR/tags/$tag")" = 200 ]; then
+              return 0
+            fi
+            echo "  tag $tag is not on the mirror yet - asking it to sync"
+            req POST "repos/$MIRROR/mirror-sync" > /dev/null || true
+            for i in $(seq 1 30); do
+              sleep 10
+              if [ "$(req GET "repos/$MIRROR/tags/$tag")" = 200 ]; then
+                echo "  tag $tag arrived after $(( i * 10 ))s"
+                return 0
+              fi
+            done
+            fail "tag $tag never reached the mirror. Sync it, then run this workflow again."
+          }
+
+          mirror_one() {
+            local tag=$1 work code id f name size have_id have_size enc
+            work=$(mktemp -d)
+            echo "=== $tag ==="
+
+            gh release view "$tag" --json tagName,name,body,isDraft,isPrerelease > "$work/gh.json"
+            if [ "$(jq -r .isDraft "$work/gh.json")" = true ]; then
+              echo "  still a draft on GitHub - skipped"
+              return 0
+            fi
+
+            ensure_tag "$tag"
+
+            jq '{tag_name: .tagName,
+                 name: (.name // .tagName),
+                 body: (.body // ""),
+                 draft: false,
+                 prerelease: .isPrerelease}' "$work/gh.json" > "$work/release.json"
+
+            # Gitea's tag sync leaves a bare tag record behind. Patching it
+            # promotes that record to a real release instead of colliding.
+            code=$(req GET "repos/$MIRROR/releases/tags/$tag")
+            if [ "$code" = 200 ]; then
+              id=$(jq -r .id "$RESP")
+              code=$(req PATCH "repos/$MIRROR/releases/$id" \
+                -H 'Content-Type: application/json' --data-binary @"$work/release.json")
+              if [ "$code" != 200 ]; then
+                fail "could not update release $tag on the mirror (HTTP $code)"
+              fi
+              echo "  updated release #$id"
+            else
+              code=$(req POST "repos/$MIRROR/releases" \
+                -H 'Content-Type: application/json' --data-binary @"$work/release.json")
+              if [ "$code" != 201 ]; then
+                fail "could not create release $tag on the mirror (HTTP $code)"
+              fi
+              id=$(jq -r .id "$RESP")
+              echo "  created release #$id"
+            fi
+
+            mkdir -p "$work/assets"
+            # Exits non-zero when the release carries no files, which is fine.
+            gh release download "$tag" --dir "$work/assets" --clobber || true
+
+            code=$(req GET "repos/$MIRROR/releases/$id/assets")
+            if [ "$code" != 200 ]; then
+              fail "could not list the mirror's attachments for $tag (HTTP $code)"
+            fi
+            cp "$RESP" "$work/have.json"
+
+            for f in "$work"/assets/*; do
+              [ -f "$f" ] || continue
+              name=$(basename "$f")
+              size=$(stat -c %s "$f")
+              have_id=$(jq -r --arg n "$name" 'map(select(.name == $n)) | .[0].id // ""' "$work/have.json")
+              have_size=$(jq -r --arg n "$name" 'map(select(.name == $n)) | .[0].size // ""' "$work/have.json")
+
+              # Same name and same size: already mirrored. A size mismatch means
+              # a re-cut release, so replace it - Gitea would otherwise keep both
+              # and serve the stale one from the older link.
+              if [ -n "$have_id" ] && [ "$have_size" = "$size" ]; then
+                echo "  $name is already there"
+                continue
+              fi
+              if [ -n "$have_id" ]; then
+                req DELETE "repos/$MIRROR/releases/$id/assets/$have_id" > /dev/null
+              fi
+
+              enc=$(jq -rn --arg n "$name" '$n | @uri')
+              code=$(req POST "repos/$MIRROR/releases/$id/assets?name=$enc" -F "attachment=@$f")
+              if [ "$code" != 201 ]; then
+                fail "could not upload $name (HTTP $code)"
+              fi
+              echo "  uploaded $name ($size bytes)"
+            done
+          }
+
+          if [ -n "${TAG:-}" ]; then
+            mirror_one "$TAG"
+          else
+            echo "no tag given - backfilling every release on GitHub"
+            gh release list --limit 200 --json tagName --jq '.[].tagName' > /tmp/tags.txt
+            # fd 3 keeps gh and curl from eating the tag list off stdin.
+            while read -r t <&3; do
+              if [ -n "$t" ]; then
+                mirror_one "$t"
+              fi
+            done 3< /tmp/tags.txt
+          fi

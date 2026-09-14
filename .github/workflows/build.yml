@@ -53,6 +53,10 @@ jobs:
   build:
     needs: pick-runner
     runs-on: ${{ needs.pick-runner.outputs.label }}
+    # Handed to the `mirror` job below, which cannot see this job's steps.
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      is_release: ${{ steps.ver.outputs.is_release }}
     # Windows PowerShell 5.1 is always present; the runner's default `pwsh`
     # (PowerShell Core) is not installed by default, and `shell: bash` on a
     # self-hosted box resolves to the WSL launcher in System32.
@@ -147,3 +151,17 @@ jobs:
             build/Release/ClassicAPI.dll
             build/Release/Crash-Symbols-Use-For-Debugging-${{ steps.ver.outputs.tag }}.zip
           generate_release_notes: true
+
+  # The Gitea mirror pulls commits and tags but never releases, so hand the
+  # finished release across to it. A separate job on purpose: the DLL is
+  # already published on GitHub by this point, so a mirror problem shows up on
+  # its own instead of failing the release build. A `release: published` event
+  # would not work here — releases made with the default GITHUB_TOKEN do not
+  # start another workflow.
+  mirror:
+    needs: build
+    if: needs.build.outputs.is_release == 'true'
+    uses: ./.github/workflows/mirror-release.yml
+    with:
+      tag: ${{ needs.build.outputs.tag }}
+    secrets: inherit
