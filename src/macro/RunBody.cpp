@@ -25,6 +25,14 @@
 // The loop below is the engine's own, minus the `#` check: same tokenizer,
 // same delimiter set, same 0x400-byte buffer, same event dispatch. The
 // original is not called.
+//
+// It also owns `StopMacro()`, the global behind `/stopmacro`. 3.3.5 splits it
+// the same way — the command is FrameXML (`SecureCmdList["STOPMACRO"]` calls
+// `StopMacro()` when its conditions pass) and the flag is the runner's, which
+// is what makes "stop the rest of THIS macro" mean anything. Each line's
+// `EXECUTE_CHAT_LINE` is dispatched synchronously, all the way through
+// `ChatEdit_SendText` into the slash handler, so by the time the fire returns
+// the flag is already set and the next line simply never runs.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -41,6 +49,13 @@ constexpr unsigned kLineBufferSize = Offsets::MACRO_LINE_BUFFER_SIZE;
 
 bool IsBlank(char c) { return c == ' ' || c == '\t'; }
 
+// Set by `StopMacro()`, read after each dispatched line. Scoped to the macro
+// currently running: a line that runs ANOTHER macro (a `/click` on a button
+// holding one) re-enters the runner, and that inner body's `/stopmacro` must
+// end the inner body only. Saving and restoring around each run gives exactly
+// that, and costs nothing on the common non-nested path.
+bool g_stopRequested = false;
+
 void __fastcall RunBody_h(int macroEntry) {
     if (macroEntry == 0)
         return;
@@ -48,6 +63,9 @@ void __fastcall RunBody_h(int macroEntry) {
     auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
     const char *delims = reinterpret_cast<const char *>(Offsets::VAR_MACRO_LINE_DELIMS);
     const char *cursor = reinterpret_cast<const char *>(macroEntry + Offsets::OFF_MACRO_BODY);
+
+    const bool outerStop = g_stopRequested;
+    g_stopRequested = false;
 
     char line[kLineBufferSize];
     while (cursor != nullptr && *cursor != '\0') {
@@ -62,8 +80,26 @@ void __fastcall RunBody_h(int macroEntry) {
         if (*text == '\0' || *text == '#')
             continue;
         Event::Custom::Fire(static_cast<int>(Offsets::EVENT_EXECUTE_CHAT_LINE), "%s", text);
+        if (g_stopRequested)
+            break; // a `/stopmacro` on that line
     }
+
+    g_stopRequested = outerStop;
 }
+
+// `StopMacro()` — stop running the macro body that is executing right now.
+// Nothing happens when no macro is running: the flag is cleared at the start
+// of every body and restored at the end, so a stray call from a script or a
+// keybinding leaves nothing armed behind it.
+int __fastcall Script_StopMacro(void * /*L*/) {
+    g_stopRequested = true;
+    return 0;
+}
+
+const Game::Doc::Function kStopMacro{
+    "Stop running the rest of the macro body that is executing now. Does "
+    "nothing when no macro is running.",
+    {}, {}, "MacroGlobals"};
 
 // No trampoline: the loop above replaces the original outright, so the hook
 // never calls back into it.
@@ -71,6 +107,12 @@ const Game::HookAutoRegister _hookreg{
     Offsets::FUN_MACRO_RUN_BODY,
     reinterpret_cast<void *>(&RunBody_h),
     nullptr};
+
+void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("StopMacro", &Script_StopMacro, &kStopMacro);
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 

@@ -981,6 +981,25 @@ SLASH_CASTRANDOM1 = "/castrandom";
 SlashCmdList["USERANDOM"] = SecureCmdCastRandom;
 SLASH_USERANDOM1 = "/userandom";
 
+-- `/stopmacro [conditions]` -- stop before the rest of the body runs. The flag
+-- belongs to the macro runner, which clears it for each body it starts, so a
+-- bare call outside a macro does nothing and cannot leave one armed.
+--
+-- Through the mirror, not the bare global. `StopMacro` is a plain name in a
+-- crowded space, and the global is only ours until an addon declares one of
+-- its own -- at which point this command would set THEIR flag, ours would
+-- stay clear, and the rest of the macro would keep running with nothing to
+-- show for it. The mirror captured our function at registration, before
+-- FrameXML and every addon.
+local StopMacroSelf = ClassicAPI.StopMacro;
+
+SlashCmdList["STOPMACRO"] = function(msg)
+	if ( SecureCmdOptionParse(msg) ) then
+		StopMacroSelf();
+	end
+end
+SLASH_STOPMACRO1 = "/stopmacro";
+
 -- ---------------------------------------------------------------------
 -- Give a contested command back to whoever already owned it
 --
