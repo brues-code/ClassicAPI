@@ -60,7 +60,11 @@
             </EdgeSize>
         </Backdrop>
         <Layers>
-            <Layer level="BACKGROUND">
+            <!-- ARTWORK, not BACKGROUND: the Backdrop draws its own
+                 background into BACKGROUND after the textures declared here,
+                 which would bury this bar. The title text is in OVERLAY, so
+                 it still reads over the top. -->
+            <Layer level="ARTWORK">
                 <Texture name="$parentTitleBG" file="Interface\QuestFrame\UI-QuestLogTitleHighlight">
                     <Size x="280" y="20"/>
                     <Anchors>
@@ -278,7 +282,12 @@
             </EdgeSize>
         </Backdrop>
         <Layers>
-            <Layer level="BACKGROUND">
+            <!-- ARTWORK, not BACKGROUND: the Backdrop above draws its
+                 background and border into BACKGROUND, and it is applied
+                 after the textures declared here, so a header in that layer
+                 ends up behind the window border. Every Blizzard frame that
+                 uses UI-DialogBox-Header puts it in ARTWORK for this reason. -->
+            <Layer level="ARTWORK">
                 <Texture name="$parentTitleBG" file="Interface\DialogFrame\UI-DialogBox-Header">
                     <Size x="256" y="64"/>
                     <Anchors>
@@ -322,8 +331,16 @@
                     <OnDragStop>ScriptErrorsFrame_TitleButton_OnDragStop();</OnDragStop>
                 </Scripts>
             </Frame>
+            <!-- Width leaves room for the scroll bar inside the border.
+                 UIPanelScrollFrameTemplate hangs its bar off this frame's
+                 right edge (+6, 16 wide, button art a little wider), so the
+                 bar ends at about right + 23. The frame's interior margin is
+                 368, where the Close button ends, which puts the widest this
+                 can be at 328. Blizzard's own numbers do not carry over here:
+                 its ScriptErrorsFrame inherits UIPanelDialogTemplate, a thin
+                 GearManager border, not this 32px dialog backdrop. -->
             <ScrollFrame name="$parentScrollFrame" inherits="UIPanelScrollFrameTemplate">
-                <Size x="343" y="170"/>
+                <Size x="328" y="170"/>
                 <Anchors>
                     <Anchor point="TOPLEFT">
                         <Offset x="16" y="-32"/>
@@ -331,7 +348,7 @@
                 </Anchors>
                 <ScrollChild>
                     <EditBox name="$parentText" multiLine="true" letters="4000" autoFocus="false">
-                        <Size x="343" y="170"/>
+                        <Size x="328" y="170"/>
                         <Scripts>
                             <OnEscapePressed>this:ClearFocus();</OnEscapePressed>
                             <OnEditFocusGained>this:HighlightText(0);</OnEditFocusGained>
@@ -437,7 +454,9 @@
             </EdgeSize>
         </Backdrop>
         <Layers>
-            <Layer level="BACKGROUND">
+            <!-- ARTWORK, not BACKGROUND: see the same note on
+                 EventTraceFrame above. -->
+            <Layer level="ARTWORK">
                 <Texture name="$parentTitleBG" file="Interface\QuestFrame\UI-QuestLogTitleHighlight">
                     <Size x="454" y="20"/>
                     <Anchors>
