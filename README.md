@@ -88,7 +88,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [LootHistory](docs/API.md#loothistory) | `C_LootHistory.GetNumItems`, `C_LootHistory.GetItem`, `C_LootHistory.GetPlayerInfo`, `C_LootHistory.Clear` |
 | [LossOfControl](docs/API.md#lossofcontrol) | `C_LossOfControl.GetActiveLossOfControlData`, `C_LossOfControl.GetActiveLossOfControlDataCount` |
 | [Lua](docs/API.md#lua) | `collectgarbage` (5.1 options), `coroutine.create`, `coroutine.resume`, `coroutine.running`, `coroutine.status`, `coroutine.wrap`, `coroutine.yield`, `CreateFromMixins`, `math.fmod`, `math.huge`, `math.modf`, `Mixin`, `select`, `string.gmatch`, `string.gsub` (table replacement), `string.match`, `string.reverse`, `strjoin`, `strreplace`, `strrev`, `strsplit`, `strtrim`, `table.count`, `table.maxn`, `table.wipe`, `unpack` (range args), `xpcall` (argument forwarding) |
-| [Macros](docs/API.md#macros) | `C_Macro.CreateMacro`, `C_Macro.EditMacro`, `C_Macro.SetMacroDisplay`, `GetLooseMacroIcons`, `GetLooseMacroItemIcons`, `GetMacroIcons`, `GetMacroItem`, `GetMacroItemIcons`, `GetMacroSpell` |
+| [Macros](docs/API.md#macros) | `C_Macro.CreateMacro`, `C_Macro.EditMacro`, `C_Macro.SetMacroDisplay`, `GetLooseMacroIcons`, `GetLooseMacroItemIcons`, `GetMacroIcons`, `GetMacroItem`, `GetMacroItemIcons`, `GetMacroSpell`, `StopMacro` |
 | [Mail](docs/API.md#mail) | `GetInboxItemLink`, `GetSendMailItemLink` |
 | [Map](docs/API.md#map) | `C_Map.CanSetUserWaypointOnMap`, `C_Map.ClearUserWaypoint`, `C_Map.GetAreaInfo`, `C_Map.GetAreas`, `C_Map.GetAreaTriggerInfo`, `C_Map.GetAreaTriggers`, `C_Map.GetBestMapForUnit`, `C_Map.GetFallbackWorldMapID`, `C_Map.GetMapAreaIDs`, `C_Map.GetMapArtLayers`, `C_Map.GetMapArtLayerTextures`, `C_Map.GetMapChildrenInfo`, `C_Map.GetMapInfo`, `C_Map.GetMapInfoAtPosition`, `C_Map.GetMapOverlays`, `C_Map.GetMapPosFromWorldPos`, `C_Map.GetMapRectOnMap`, `C_Map.GetMapWorldSize`, `C_Map.GetPlayerMapPosition`, `C_Map.GetUserWaypoint`, `C_Map.GetUserWaypointFromHyperlink`, `C_Map.GetUserWaypointHyperlink`, `C_Map.GetUserWaypointPositionForMap`, `C_Map.GetWorldPosFromMapPos`, `C_Map.HasUserWaypoint`, `C_Map.MapHasArt`, `C_Map.SetUserWaypoint` |
 | [MapExplorationInfo](docs/API.md#mapexplorationinfo) | `C_MapExplorationInfo.GetExploredMapTextures`, `C_MapExplorationInfo.GetUnexploredMapTextures` |
@@ -150,7 +150,7 @@ details.
 | Form | What it does |
 |------|--------------|
 | `#showtooltip [conditions] Value` | First line of a macro. Sets what the button shows. Bare `#showtooltip` follows the first `/cast` or `/use` line instead. `#show` is the same form. |
-| `[conditions]` and `@unit` | Accepted by 38 commands. The slash-command list below names them. |
+| `[conditions]` and `@unit` | Accepted by 42 commands. The slash-command list below names them. |
 | `!Name` | Starts an ability but never turns it off. Use it for auto-repeat shots and for the self-buffs (stance, aspect, seal, form, tracking). |
 | A line that starts with `#` | A comment. The line never reaches chat. |
 | `/cast <spellID>` | For a spell you know, `/cast 5019` casts it by ID. The macro slot also tags correctly for an action-bar addon. |
@@ -160,17 +160,19 @@ details.
 </details>
 
 <details>
-<summary><b>Slash commands</b> — <code>[conditions]</code> on 38 commands</summary>
+<summary><b>Slash commands</b> — <code>[conditions]</code> on 42 commands</summary>
 
 The bundled addon registers these commands. Each one takes the same
 `[conditions]` and `@unit` syntax as `/cast`. Each client language has its
 own command names next to the English ones. See
 [More commands with `[conditions]`](docs/API.md#more-commands-with-conditions)
-for what each command does.
+for what each command does, and
+[`/castsequence`](docs/API.md#castsequence) and
+[`/castrandom`](docs/API.md#castrandom-and-userandom) for the list forms.
 
 | Group | Commands |
 |-------|----------|
-| Casting | `/cast`, `/use`, `/stopcasting`, `/cancelaura`, `/cancelform`, `/dismount` |
+| Casting | `/cast`, `/use`, `/castsequence`, `/castrandom`, `/userandom`, `/stopcasting`, `/stopmacro`, `/cancelaura`, `/cancelform`, `/dismount` |
 | Targeting | `/target`, `/targetexact`, `/cleartarget`, `/targetlasttarget`, `/targetlastenemy`, `/targetenemy`, `/targetfriend`, `/targetenemyplayer`, `/targetfriendplayer`, `/targetparty`, `/targetraid`, `/assist`, `/follow`, `/focus`, `/clearfocus`, `/startattack`, `/stopattack` |
 | Equipment | `/equip`, `/equipslot`, `/equipset` |
 | Action bars | `/changeactionbar`, `/swapactionbar`, `/click` |

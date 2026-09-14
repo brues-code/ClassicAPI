@@ -462,10 +462,13 @@ build instructions.
 
 - [Macros](#macros)
   - [`/cast` and `/use`](#cast-and-use)
+  - [`/castsequence`](#castsequence)
+  - [`/castrandom` and `/userandom`](#castrandom-and-userandom)
   - [More commands with `[conditions]`](#more-commands-with-conditions)
   - [`#showtooltip` and `#show`](#showtooltip-and-show)
   - [Numeric spellIDs in `/cast` and `CastSpellByName`](#numeric-spellids-in-cast-and-castspellbyname)
   - [`CastSpellNoToggle` as a macro cast line](#castspellnotoggle-as-a-macro-cast-line)
+  - [`StopMacro()`](#stopmacro)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
@@ -11200,6 +11203,76 @@ If SuperCleveRoidMacros is loaded, it handles `/cast` lines that contain
 conditions and all `/use` lines. Plain `/cast Name` lines still go through
 ClassicAPI.
 
+### `/castsequence`
+
+Casts one action from a list, and moves to the next one each time a cast
+succeeds. The list is separated by commas and takes the same
+`[conditions]` and `@unit` syntax as `/cast`.
+
+```
+/castsequence Insect Swarm, Moonfire, Wrath
+/castsequence [@focus] Insect Swarm, Moonfire, Wrath
+/castsequence reset=combat Immolate, Corruption, Shadow Bolt
+```
+
+Each step is read the same way a `/cast` value is, so a step can name a
+spell, an item you carry, a `bag slot`, or an inventory slot. A step that
+names an item you can equip, and are not wearing, equips it instead of
+using it.
+
+The sequence moves on only when a cast succeeds. A cast that fails or is
+interrupted leaves the sequence where it is, so the next press tries the
+same step again. A step that names nothing castable is stepped past.
+
+`reset=` restarts the sequence. It takes one or more of these, joined by
+`/`:
+
+| Value | Restarts when |
+|---|---|
+| `target` | Your target changes. |
+| `combat` | You leave combat. |
+| `shift`, `ctrl`, `alt` | You press the button with that key held. |
+| A number | That many seconds pass without a press. |
+
+```
+/castsequence reset=target/3 Rend, Thunder Clap
+```
+
+The sequence is keyed by its text. Two macros with the same list share one
+position and advance together, and the same list in one macro on two action
+bars is one sequence.
+
+With [`#showtooltip`](#showtooltip-and-show), the action button follows the
+step the sequence is on.
+
+### `/castrandom` and `/userandom`
+
+Casts one action picked at random from a comma-separated list. Both names
+are the same command, the way `/use` is `/cast` under a second name, so
+either one casts a spell or uses an item.
+
+```
+/castrandom Moonfire, Starfire, Wrath
+/userandom [@player] Healing Potion, Rejuvenation Potion
+```
+
+The pick is held until a cast succeeds. A cast that fails or is interrupted
+keeps the same pick, so the next press tries that action again rather than
+picking another one.
+
+A list names no single action, so these commands give the action button
+nothing to show. The button has no tooltip, no cooldown and no usable state
+from the list. Name a value on the
+[`#showtooltip`](#showtooltip-and-show) line to give it one:
+
+```
+#showtooltip Moonfire
+/castrandom Moonfire, Starfire, Wrath
+```
+
+A `/castrandom` line above a `/cast` line also takes the icon from it. Put
+the `/cast` line first, or name the value on the `#showtooltip` line.
+
 ### More commands with `[conditions]`
 
 These commands take the same `[conditions]` and `@unit` syntax as `/cast`.
@@ -11240,6 +11313,7 @@ The stepping commands treat their value as a reverse flag, so
 | Command | Does |
 |---|---|
 | `/stopcasting` | Stops the current cast. |
+| `/stopmacro` | Stops the rest of the macro. |
 | `/cancelaura` | Removes one of your buffs by name. |
 | `/cancelform` | Leaves your current shapeshift form. |
 | `/dismount` | Dismounts you. |
@@ -11248,6 +11322,16 @@ The stepping commands treat their value as a reverse flag, so
 /cancelaura Power Word: Shield
 /cancelform [stance:1]
 /stopcasting [mod:alt]
+```
+
+`/stopmacro` stops the macro that is running it. The lines after it do not
+run. A line that runs a second macro is not affected: a `/stopmacro` in that
+second macro stops the second one, and the first one goes on.
+
+```
+/cast Moonfire
+/stopmacro [mod:shift]
+/cast Wrath
 ```
 
 **Equipment.** `/equip` takes an item name, and `/equipslot` takes an
@@ -11431,6 +11515,21 @@ didn't find any of its own patterns).
 Macro tagging happens at macro edit/save time. Existing macros need
 to be opened in the Macro UI and re-saved once after dropping in the
 new DLL to pick up the new parser behavior.
+
+### `StopMacro()`
+
+Stops the macro body that is running right now. The lines after the call do
+not run. This is what [`/stopmacro`](#more-commands-with-conditions) calls
+once its conditions pass.
+
+```lua
+StopMacro()
+```
+
+The call applies to the macro that is running it. If a macro line runs a
+second macro, a `StopMacro` in that second macro stops the second one only,
+and the first one goes on. A call made while no macro is running does
+nothing, and leaves nothing behind for the next macro you press.
 
 ### `GetMacroSpell(macroSlot)`
 
