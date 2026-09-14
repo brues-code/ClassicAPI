@@ -11,47 +11,94 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Quest log delta events — polyfills two modern WoW events from one
-// pre-/post-rebuild diff:
+// `QUEST_ACCEPTED(questLogIndex, questID)` and `QUEST_REMOVED(questID)`,
+// sourced from the engine's own per-quest-slot accept/remove gate.
 //
-// `QUEST_ACCEPTED(questLogIndex, questID)` — fires once per new quest
-// entering the local quest log. Matches the Cata/WotLK signature,
-// 1-based log index (event added in 3.1.0).
+// Hook target: `FUN_QUEST_SLOT_ANNOUNCE_OBSERVER` — the bank-PLAYER
+// descriptor observer the engine registers once per quest slot
+// (`FUN_005DD8A0`, 20 nodes at OFF_DESC_PLAYER_QUEST_LOG_FIRST + N *
+// DESC_PLAYER_QUEST_LOG_SLOT_SIZE). It is where the engine decides a slot
+// just took a new quest — and announces "Quest accepted: <name>" — or lost
+// one.
 //
-// `QUEST_REMOVED(questID)` — fires once per quest leaving the local
-// quest log, for both turn-ins and abandons (event added in 8.0.1;
-// Classic-era signature is the bare questID). For turn-ins this fires
-// *after* `QUEST_TURNED_IN`, matching retail ordering: the 0x191
-// complete packet doesn't touch the log; the removal arrives in the
-// follow-up quest-log update packets, whose rebuild we diff here.
-// Observed turn-in sequence: QUEST_TURNED_IN → UNIT_QUEST_LOG_CHANGED
-// → QUEST_LOG_UPDATE (fired inside the rebuild) → QUEST_REMOVED.
+// ## Why this function and not the log rebuild
 //
-// Hook target: `FUN_QUEST_LOG_REBUILD` (`0x004DE510`) — the single
-// chokepoint the engine uses to refresh the Lua-visible quest log
-// from the player's authoritative slot data at `[CGPlayer + 0xE68 +
-// 0x28]`. Every state change that adds, removes, or updates a quest
-// flows through here. By snapshotting the log before and after the
-// original runs, we can compute the delta and fire only for genuine
-// additions / removals.
+// 3.3.5 fires QUEST_ACCEPTED from the exact analogue of this observer
+// (`FUN_006DF370` there; 25 slots x 0x14 instead of 20 x 0xC), in this
+// order:
 //
-// Login suppression: the same function handles the initial bulk-sync
-// at character entry, which appears as a single rebuild call adding
-// N quests at once. We suppress fires when more than one quest is
-// added in a single rebuild (which can only happen on login / reload
-// resync — human input speed can't accept multiple quests in the
-// same engine tick). A brand-new character's first accept is
-// `0 → 1` and fires correctly. Removals apply the same rule (a user
-// action removes at most one quest per rebuild) and are additionally
-// suppressed when the rebuild also added multiple quests — a
-// mixed-delta rebuild is a cross-character resync, not gameplay.
+//     FUN_005E6940(1)                      ; rebuild the quest log FIRST
+//     slot = (fieldOffset - 0x28) / 0x14
+//     if (accept gate) {
+//         rec = questCache(newID, cb)
+//         if (rec) {
+//             <announce "Quest accepted: <name>">
+//             idx = <add to watch list>     ; returns 1-based log index
+//             FireEvent(QUEST_ACCEPTED, "%d", idx)
+//         }
+//     }
+//     if (remove gate) <drop from watch list>   ; no event in 3.3.5
+//
+// Three things follow, and we mirror all three:
+//
+//   1. The message comes BEFORE the event. An addon filtering the accept
+//      line out of CHAT_MSG_SYSTEM sees a current quest log; an addon
+//      listening for QUEST_ACCEPTED sees the line already printed.
+//   2. The "is this a new quest" decision is the ENGINE's, read off the
+//      slot's old-vs-new bytes — not a set diff over the log. That gets
+//      the login bulk sync right for free (the observer's mirror is seeded
+//      from live, so a resync diffs to nothing and neither the engine nor
+//      we announce), and it catches the re-announce the engine does when a
+//      completed quest goes back to incomplete, which a questID set diff
+//      cannot see.
+//   3. The log must be current before the announce, and 3.3.5 guarantees
+//      that by calling the rebuild at the TOP of the observer rather than
+//      by ordering observer nodes. We do the same. On 1.12 this also fixes
+//      a real defect: the announcer's slot-0 node and the log-rebuild node
+//      share descriptor anchor OFF_DESC_PLAYER_QUEST_LOG_FIRST (the
+//      rebuild watches all 20 slots from that one anchor), and the
+//      announcer is registered first (both callers run FUN_005DD8A0 before
+//      FUN_004908C0, which registers the rebuild node). So for slot 0 —
+//      i.e. accepting into an EMPTY quest log — the engine announced a
+//      quest that no quest-log API could see yet. Slots 1..19 sit in later
+//      field buckets and were already fine. Rebuilding here is immune to
+//      that ordering, and to any other DLL perturbing it.
+//
+// We gate the rebuild on the accepted quest not already being in the log,
+// which makes it a no-op whenever the engine's own node already ran (the
+// common case) and self-correcting when it hasn't. 3.3.5 rebuilds
+// unconditionally; this is strictly cheaper and equally correct, since the
+// only thing the announce needs is that THIS quest is resolvable.
+//
+// ## Cold quest cache
+//
+// `FUN_QUEST_LOG_REBUILD` silently drops a quest whose static data is not
+// cached yet, and the announcer likewise announces nothing and queues a
+// deferred announce on the quest cache. So on a cold `questcache.wdb` the
+// first accept of a quest resolves a round trip later. We ride the same
+// queue: post-original we append our own cache callback, which lands
+// AFTER the engine's two (the rebuild's, queued by our pre-original call,
+// and the deferred announce's, queued by the original). When
+// SMSG_QUEST_QUERY_RESPONSE arrives the order is therefore rebuild ->
+// announce -> our event, matching the warm-cache order exactly.
+//
+// Known gap, not worth machinery: `FUN_QUEST_LOG_REBUILD` no-ops entirely
+// while a previous rebuild still has an outstanding query, so an accept
+// landing inside that window can be announced with the quest absent from
+// the log. The cache is a hit, so no callback is queued and we skip the
+// event rather than report a bogus index. It needs a quest accepted in the
+// few hundred ms after a cold-cache login resync; 3.3.5 has the same
+// window.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "object/Resolve.h"
+#include "quest/Cache.h"
+#include "quest/Log.h"
 
+#include <cstddef>
 #include <cstdint>
-#include <unordered_set>
 
 namespace Quest::LogEvents {
 
@@ -63,120 +110,146 @@ constexpr const char *kRemovedEventName = "QUEST_REMOVED";
 const Event::Custom::AutoReserve _reserveAccepted{kAcceptedEventName};
 const Event::Custom::AutoReserve _reserveRemoved{kRemovedEventName};
 
-// Walk the live quest log and collect questIDs of real (non-header)
-// entries. Headers are 16-byte rows with a non-NULL pointer at +0x8;
-// real quests have NULL there and the questID at +0x0.
-void SnapshotQuestIDs(std::unordered_set<int> &out) {
-    out.clear();
-    const int count = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    if (count <= 0)
+// One 12-byte quest slot, in both the live descriptor mirror at
+// `[CGPlayer + OFF_CGPLAYER_INFO] + OFF_CGPLAYER_INFO_QUEST_LIST` and the
+// observer's `oldValues` snapshot — same layout, which is what lets the
+// engine's gate compare them field for field.
+struct QuestSlot {
+    int32_t questID;
+    uint8_t pad[3];
+    uint8_t state; // +0x07, bit QUEST_SLOT_STATE_COMPLETE
+    uint8_t rest[4];
+};
+static_assert(sizeof(QuestSlot) == Offsets::CGPLAYER_INFO_QUEST_LIST_STRIDE,
+              "quest slot record must match the engine's stride");
+static_assert(offsetof(QuestSlot, state) == Offsets::OFF_QUEST_SLOT_STATE,
+              "quest slot state byte offset");
+
+bool IsComplete(const QuestSlot &s) {
+    return (s.state & Offsets::QUEST_SLOT_STATE_COMPLETE) != 0;
+}
+
+// The engine's own accept gate, verbatim: a slot that just took a quest,
+// or one whose quest went from complete back to incomplete (which the
+// engine re-announces).
+bool IsAccept(const QuestSlot &now, const QuestSlot &was) {
+    if (now.questID == 0)
+        return false;
+    if (was.questID == 0)
+        return true;
+    return now.questID == was.questID && !IsComplete(now) && IsComplete(was);
+}
+
+// The engine's own remove gate: the slot held a quest and no longer holds
+// that one (cleared, or replaced by a different quest).
+bool IsRemove(const QuestSlot &now, const QuestSlot &was) {
+    return was.questID != 0 && now.questID != was.questID;
+}
+
+// The slot record currently live on the player object. Resolved from the
+// GUID the observer hands us via the NON-THROWING object resolver, exactly
+// as the engine's sibling callbacks do — this runs inside
+// SMSG_UPDATE_OBJECT processing, where FUN_RESOLVE_UNIT_TOKEN's Lua raise
+// would unwind through raw engine code.
+const QuestSlot *LiveSlot(uint32_t guidLo, uint32_t guidHi, int slot) {
+    if (slot < 0 || slot >= Offsets::CGPLAYER_INFO_QUEST_LIST_MAX)
+        return nullptr;
+    auto *player = static_cast<const uint8_t *>(Object::ByGuid(
+        Offsets::TYPEMASK_PLAYER,
+        (static_cast<uint64_t>(guidHi) << 32) | guidLo, "ClassicAPI"));
+    if (player == nullptr)
+        return nullptr;
+    auto *info = *reinterpret_cast<const uint8_t *const *>(
+        player + Offsets::OFF_CGPLAYER_INFO);
+    if (info == nullptr)
+        return nullptr;
+    return reinterpret_cast<const QuestSlot *>(
+        info + Offsets::OFF_CGPLAYER_INFO_QUEST_LIST +
+        slot * Offsets::CGPLAYER_INFO_QUEST_LIST_STRIDE);
+}
+
+// Fire QUEST_ACCEPTED if the quest is resolvable in the log; report
+// whether it was. `Quest::Log::IndexForQuestID` succeeding is exactly
+// equivalent to the cache lookup the announcer just made — the rebuild
+// admits precisely the cache-resolved quests — so this doubles as "did
+// the engine actually announce".
+bool FireAcceptedIfInLog(int questID) {
+    const int index = Quest::Log::IndexForQuestID(questID);
+    if (index < 0)
+        return false;
+    const int slot = _reserveAccepted.Slot();
+    if (slot >= 0)
+        Event::Custom::Fire(slot, "%d%d", index + 1, questID);
+    return true;
+}
+
+// Deferred accept, for a quest whose static data had to be fetched. Shape
+// per `Quest::Data::QuestLoadCallback` — the engine invokes it as
+// `__stdcall(userData, success)` with `ret 8`; the questID rides in
+// `userData`.
+void __stdcall AcceptLoaded(void *userData, int success) {
+    if (success == 0)
         return;
-    const auto *entries = reinterpret_cast<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
-    out.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        const uint8_t *entry = entries + i * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-        const void *hdr = *reinterpret_cast<const void *const *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR);
-        if (hdr != nullptr)
-            continue;
-        const int questID = *reinterpret_cast<const int *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
-        if (questID > 0)
-            out.insert(questID);
+    FireAcceptedIfInLog(static_cast<int>(reinterpret_cast<uintptr_t>(userData)));
+}
+
+// Observer callback ABI per the FUN_DESC_OBSERVER_REGISTER block in
+// Offsets.h: __fastcall(fieldOffset /*ecx, as registered*/, size /*edx*/,
+// guidLo, guidHi, oldValues*, userArg), returns 1, callee cleans 0x10.
+using QuestSlotObserver_t = int(__fastcall *)(uint32_t fieldOffset, uint32_t size,
+                                              uint32_t guidLo, uint32_t guidHi,
+                                              const void *oldValues, void *userArg);
+using QuestLogRebuild_t = void(__fastcall *)(int mode);
+
+QuestSlotObserver_t g_origObserver = nullptr;
+
+int __fastcall QuestSlotObserver_h(uint32_t fieldOffset, uint32_t size,
+                                   uint32_t guidLo, uint32_t guidHi,
+                                   const void *oldValues, void *userArg) {
+    const int slot =
+        static_cast<int>(fieldOffset - Offsets::OFF_DESC_PLAYER_QUEST_LOG_FIRST) /
+        Offsets::DESC_PLAYER_QUEST_LOG_SLOT_SIZE;
+    const QuestSlot *live = LiveSlot(guidLo, guidHi, slot);
+    if (live == nullptr || oldValues == nullptr)
+        return g_origObserver(fieldOffset, size, guidLo, guidHi, oldValues, userArg);
+
+    // Copy both sides before the original runs — it is free to mutate the
+    // slot, and the mirror is re-synced out from under us afterwards.
+    const QuestSlot now = *live;
+    const QuestSlot was = *static_cast<const QuestSlot *>(oldValues);
+    const bool accepted = IsAccept(now, was);
+    const bool removed = IsRemove(now, was);
+
+    // Make the log current before the engine announces. No-op once this
+    // quest is already in it, which is the usual case.
+    if (accepted && Quest::Log::IndexForQuestID(now.questID) < 0) {
+        reinterpret_cast<QuestLogRebuild_t>(Offsets::FUN_QUEST_LOG_REBUILD)(1);
     }
+
+    const int rc = g_origObserver(fieldOffset, size, guidLo, guidHi, oldValues, userArg);
+
+    if (accepted && !FireAcceptedIfInLog(now.questID)) {
+        // Cold cache: the original announced nothing and queued a deferred
+        // announce. Append ours behind it so the event still trails the
+        // message when the response lands.
+        Quest::Cache::Lookup(
+            static_cast<uint32_t>(now.questID),
+            reinterpret_cast<void *>(&AcceptLoaded),
+            reinterpret_cast<void *>(static_cast<uintptr_t>(now.questID)));
+    }
+    if (removed) {
+        const int evt = _reserveRemoved.Slot();
+        if (evt >= 0)
+            Event::Custom::Fire(evt, "%d", was.questID);
+    }
+    return rc;
 }
 
 } // namespace
 
-using QuestLogRebuild_t = void(__fastcall *)(int param_1);
-QuestLogRebuild_t QuestLogRebuild_o = nullptr;
-
-void __fastcall QuestLogRebuild_h(int param_1) {
-    // `param_1 == 0` is the engine's "no-op rebuild" signal — just
-    // refires QUEST_LOG_UPDATE without touching the entry array.
-    // No diff possible, no accept/remove happening, pass through.
-    if (param_1 == 0) {
-        QuestLogRebuild_o(param_1);
-        return;
-    }
-
-    std::unordered_set<int> pre;
-    SnapshotQuestIDs(pre);
-
-    QuestLogRebuild_o(param_1);
-
-    // Walk the post-state in index order so the fired event's
-    // `questLogIndex` matches the 1-based slot the engine just
-    // assigned. Collect the full post-set on the way for the
-    // removal diff.
-    const int count = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    const auto *entries = reinterpret_cast<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES));
-
-    std::unordered_set<int> post;
-    if (count > 0)
-        post.reserve(static_cast<size_t>(count));
-
-    int newCount = 0;
-    int firstNewIdx = 0;
-    int firstNewID = 0;
-    for (int i = 0; i < count; ++i) {
-        const uint8_t *entry = entries + i * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-        const void *hdr = *reinterpret_cast<const void *const *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR);
-        if (hdr != nullptr)
-            continue;
-        const int questID = *reinterpret_cast<const int *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
-        if (questID <= 0)
-            continue;
-        post.insert(questID);
-        if (pre.count(questID) != 0)
-            continue;
-        ++newCount;
-        if (newCount == 1) {
-            firstNewIdx = i + 1;
-            firstNewID = questID;
-        }
-    }
-
-    int removedCount = 0;
-    int firstRemovedID = 0;
-    for (const int questID : pre) {
-        if (post.count(questID) != 0)
-            continue;
-        ++removedCount;
-        if (removedCount == 1)
-            firstRemovedID = questID;
-    }
-
-    // Single addition → user-driven accept. Multiple → bulk resync
-    // (login or post-reload). Modern WoW's QUEST_ACCEPTED doesn't
-    // fire on initial sync either; we match that.
-    if (newCount == 1) {
-        const int slot = _reserveAccepted.Slot();
-        if (slot >= 0)
-            Event::Custom::Fire(slot, "%d%d", firstNewIdx, firstNewID);
-    }
-
-    // Single removal → user-driven turn-in or abandon. The extra
-    // `newCount <= 1` gate rejects the one resync shape the removal
-    // count alone can't: switching to a character whose log shares
-    // all but one of the previous character's quests (1 removal, N
-    // additions in the same rebuild).
-    if (removedCount == 1 && newCount <= 1) {
-        const int slot = _reserveRemoved.Slot();
-        if (slot >= 0)
-            Event::Custom::Fire(slot, "%d", firstRemovedID);
-    }
-}
-
-static const Game::HookAutoRegister _hookreg{
-    Offsets::FUN_QUEST_LOG_REBUILD,
-    reinterpret_cast<void *>(&QuestLogRebuild_h),
-    reinterpret_cast<void **>(&QuestLogRebuild_o)};
+static const Game::HookAutoRegister _observerHook{
+    Offsets::FUN_QUEST_SLOT_ANNOUNCE_OBSERVER,
+    reinterpret_cast<void *>(&QuestSlotObserver_h),
+    reinterpret_cast<void **>(&g_origObserver)};
 
 } // namespace Quest::LogEvents

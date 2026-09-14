@@ -4264,19 +4264,26 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
-Fires for every path that adds a quest to the local log — NPC accept,
-party-shared quest accept, auto-grant from quest items — by hooking
-the single engine chokepoint (`FUN_QUEST_LOG_REBUILD` at `0x004DE510`)
-that rebuilds the Lua-visible quest log from the player's
-authoritative slot data after any quest state change.
+The event fires for every path that adds a quest to the local quest
+log. These paths include an accept from an NPC, a quest shared by a
+party member, and an auto-grant from a quest item. The quest is in the
+quest log before the event fires, so `GetQuestLogTitle(questLogIndex)`
+is valid inside the handler.
 
-**Does not fire on initial login / character entry**, even though the
-same engine function runs the bulk-sync there. Suppression is
-heuristic: if a single rebuild call adds more than one quest, it's
-treated as a resync and skipped. Human input speed can't accept two
-quests within the same engine tick, so single-add is always a real
-user accept. A brand-new character's very first quest accept
-(`0 → 1` entries) fires correctly.
+The client prints the "Quest accepted" system message first, then
+fires this event. A handler for `CHAT_MSG_SYSTEM` therefore also sees
+a current quest log.
+
+The event fires again when a quest returns from complete to
+incomplete, because the client announces that quest a second time.
+
+**Does not fire on login or character entry.** The bulk sync at that
+point is not an accept, and the client does not announce those quests
+either.
+
+When the static data for a quest is not in the client cache yet, the
+event waits for the server to answer. The delay is one round trip. The
+system message waits with it, so the order does not change.
 
 ### `QUEST_REMOVED` event
 
@@ -4296,20 +4303,17 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
-Synthesized from the same `FUN_QUEST_LOG_REBUILD` pre-/post-snapshot
-diff as `QUEST_ACCEPTED` — the removal side of the delta. For
-turn-ins, `QUEST_REMOVED` fires **after** `QUEST_TURNED_IN`: the
-SMSG_QUESTGIVER_QUEST_COMPLETE packet doesn't
-touch the log itself; the removal arrives in the follow-up quest-log
-update packets, whose rebuild triggers the diff. The observed turn-in
-sequence is `QUEST_TURNED_IN` → `UNIT_QUEST_LOG_CHANGED` →
-`QUEST_LOG_UPDATE` (fired inside the rebuild) → `QUEST_REMOVED`.
+A `QUEST_TURNED_IN` event for the same quest identifies a turn-in. An
+abandon has no such event. For a turn-in, `QUEST_TURNED_IN` fires
+first and `QUEST_REMOVED` follows, because the turn-in reply does not
+change the quest log by itself.
 
-**Does not fire on login / character-switch resyncs.** Same
-suppression rule as `QUEST_ACCEPTED` (a user action removes at most
-one quest per rebuild), plus one extra gate: a rebuild that removes
-one quest while adding several is a cross-character resync shape, not
-gameplay, and stays silent.
+When a quest log slot takes a different quest directly,
+`QUEST_REMOVED` fires for the old quest and `QUEST_ACCEPTED` fires for
+the new one.
+
+**Does not fire on login or character entry.** The bulk sync at that
+point is not a removal.
 
 ### `QUEST_TURNED_IN` event
 

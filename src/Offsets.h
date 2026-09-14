@@ -1492,6 +1492,17 @@ enum Offsets {
     // Lua inventory slot (GetInventoryItemLink etc.) = that + 1.
     OFF_DESC_PLAYER_EQUIP_FIRST = 0x4A8,
     DESC_PLAYER_EQUIP_SLOTS = 19,
+
+    // PLAYER_QUEST_LOG_1_1 — first of the 20 quest slots in the player
+    // descriptor, each 0xC bytes ({questID, ?, flags}). 0-based slot =
+    // (offset - 0x28) / 0xC, exactly what FUN_QUEST_SLOT_ANNOUNCE_OBSERVER
+    // computes from the field offset it was registered on. The CGPlayer
+    // sub-struct mirrors the same block at `[player + OFF_CGPLAYER_INFO] +
+    // OFF_CGPLAYER_INFO_QUEST_LIST` (same field and stride, different base —
+    // that's the copy FUN_QUEST_LOG_REBUILD walks).
+    OFF_DESC_PLAYER_QUEST_LOG_FIRST = 0x28,
+    DESC_PLAYER_QUEST_LOG_SLOT_SIZE = 0xC,
+
     DESC_OBSERVER_BANK_PLAYER = 4,
     DESC_OBSERVER_BANK_UNIT = 3, // CGUnit descriptor bank (FUN_0051bbb0's watch loop)
 
@@ -2699,6 +2710,13 @@ enum Offsets {
     OFF_CGPLAYER_INFO_QUEST_LIST = 0x28,
     CGPLAYER_INFO_QUEST_LIST_STRIDE = 0xC,
     CGPLAYER_INFO_QUEST_LIST_MAX = 20,
+    // Per-slot state byte and its "objectives complete" bit. Read by
+    // `FUN_QUEST_SLOT_ANNOUNCE_OBSERVER`, which compares it between the live
+    // slot and the observer's old-values snapshot (same 0xC layout) to decide
+    // whether to re-announce a quest that went from complete back to
+    // incomplete: `(live[7] & 2) == 0 && (old[7] & 2) != 0`.
+    OFF_QUEST_SLOT_STATE = 0x07,
+    QUEST_SLOT_STATE_COMPLETE = 0x02,
     OFF_PLAYER_INFO_FLAGS = 0x08,
     PLAYER_FLAG_AFK = 0x02,
     PLAYER_FLAG_DND = 0x04,
@@ -4734,6 +4752,25 @@ enum Offsets {
     // for the diff. Single quiet target in the `0x004DExxx` quest region —
     // no known DLL collisions.
     FUN_QUEST_LOG_REBUILD = 0x004DE510,
+
+    // The engine's per-quest-slot player-descriptor observer, registered 20
+    // times by FUN_005DD8A0 (once per slot, at OFF_DESC_PLAYER_QUEST_LOG_FIRST
+    // + N * DESC_PLAYER_QUEST_LOG_SLOT_SIZE, size DESC_PLAYER_QUEST_LOG_SLOT_SIZE).
+    // Standard observer callback ABI; resolves the player from the GUID it is
+    // handed via FUN_OBJECT_RESOLVE_BY_GUID(TYPEMASK_PLAYER, …) and returns 1.
+    //
+    // This is the engine's own accept/remove decision point. On a slot taking
+    // a quest — `new != 0 && (old == 0 || (new == old && !complete(new) &&
+    // complete(old)))` — it announces "Quest accepted: <name>" via
+    // `FUN_00496720(0x89, title)`, the game-message table at 0x00B4B498
+    // (stride 0x14), row 137 = { "ERR_QUEST_ACCEPTED_S", channel 0, sound
+    // "QUESTADDED" }. On `old != 0 && new != old` it drops the old quest
+    // (FUN_004DF0E0). The title comes from the QUEST CACHE, never from the
+    // quest log, so it can announce a quest the Lua-visible log hasn't picked
+    // up yet; on a cache miss it announces nothing and queues the deferred
+    // twin at 0x005DDEB0, which re-reads the cache once the query response
+    // lands. Hooked by `Quest::LogEvents` — see that file.
+    FUN_QUEST_SLOT_ANNOUNCE_OBSERVER = 0x005DDD80,
 
     // Player and pet spellbooks — flat int32 arrays indexed by 0-based slot.
     // Each entry is a spellID (0 for unused slots). Engine bounds-checks
