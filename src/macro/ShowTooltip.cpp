@@ -95,7 +95,11 @@ constexpr uint32_t kConditionalIntervalMs = 200;
 constexpr uint32_t kStaticIntervalMs = 1000;
 constexpr uint32_t kYieldCheckIntervalMs = 1000;
 
-constexpr int kMaxSlashNames = 16;
+// Five families, each with as many `SLASH_<NAME>%d` aliases as the locale
+// gives it. Sized well clear of that: the families load in order, so a table
+// that fills up drops the LAST ones — and `/castsequence` is third, which
+// would take its icon down with no error to show for it.
+constexpr int kMaxSlashNames = 32;
 constexpr size_t kSlashNameMax = 32;
 
 constexpr const char *kQuestionMarkIcon = "INV_Misc_QuestionMark";
@@ -125,6 +129,7 @@ struct Entry {
     bool matched = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
+    bool sequence[kMaxOptionLines] = {};
     Target target = Target::None;
     uint32_t spellID = 0;
     uint32_t isPet = 0;
@@ -158,6 +163,7 @@ WorldState g_lastState;
 bool g_busy = false;
 
 char g_slashNames[kMaxSlashNames][kSlashNameMax];
+bool g_slashNameIsSequence[kMaxSlashNames] = {};
 int g_slashNameCount = 0;
 bool g_slashNamesLoaded = false;
 
@@ -251,28 +257,53 @@ bool ReadGlobalString(void *L, const char *name, char *out, size_t outSize) {
 // parser reads them (`SLASH_CAST%d` for %d = 1.. until the first gap).
 void LoadSlashNames(void *L) {
     g_slashNameCount = 0;
-    const char *const kFamilies[] = {"SLASH_CAST%d", "SLASH_USE%d"};
-    for (const char *fmt : kFamilies) {
+    // The families 3.3.5's macro parser collects, in its order. `/castsequence`
+    // is the one whose args are a SEQUENCE rather than an action, so its step
+    // has to be asked for before it can be resolved.
+    //
+    // The random pair is collected for fidelity, and it behaves there exactly
+    // as it does in 3.3.5: the value reaches the resolver as the whole comma
+    // list, which names no spell and no item, so the button greys (the
+    // engine's "matched but unknown" case). 3.3.5 has no query for it — the
+    // binary defines `QueryCastSequence` and nothing else — so there is no
+    // current pick to show, and `#showtooltip <spell>` is the way to give one
+    // of these macros an icon. Being a static line, a `/castrandom` above a
+    // `/cast` also ends the collection and takes the icon, which is 3.3.5's
+    // behaviour too.
+    struct Family {
+        const char *fmt;
+        bool sequence;
+    };
+    static const Family kFamilies[] = {{"SLASH_CAST%d", false},
+                                       {"SLASH_USE%d", false},
+                                       {"SLASH_CASTSEQUENCE%d", true},
+                                       {"SLASH_CASTRANDOM%d", false},
+                                       {"SLASH_USERANDOM%d", false}};
+    for (const Family &f : kFamilies) {
         for (int i = 1; g_slashNameCount < kMaxSlashNames; ++i) {
             char key[32];
-            std::snprintf(key, sizeof(key), fmt, i);
+            std::snprintf(key, sizeof(key), f.fmt, i);
             if (!ReadGlobalString(L, key, g_slashNames[g_slashNameCount], kSlashNameMax))
                 break;
+            g_slashNameIsSequence[g_slashNameCount] = f.sequence;
             ++g_slashNameCount;
         }
     }
     g_slashNamesLoaded = true;
 }
 
-// The args after a cast/use command at the start of `line` — the engine's
-// rule: the command text followed by a space. `/castsequence x` does not
-// match `/cast`. Null when the line is not a cast/use command.
-const char *CastCommandArgs(const char *line) {
+// The args after a cast/use/castsequence command at the start of `line` — the
+// engine's rule: the command text followed by a space. Null when the line is
+// none of them. `*outSequence` reports which family matched; `/castsequence x`
+// cannot match `/cast` because the space has to follow the whole name.
+const char *CastCommandArgs(const char *line, bool *outSequence) {
     line = SkipBlanks(line); // an indented `/cast` line is still a cast line
     for (int i = 0; i < g_slashNameCount; ++i) {
         const size_t len = std::strlen(g_slashNames[i]);
-        if (_strnicmp(line, g_slashNames[i], len) == 0 && line[len] == ' ')
+        if (_strnicmp(line, g_slashNames[i], len) == 0 && line[len] == ' ') {
+            *outSequence = g_slashNameIsSequence[i];
             return SkipBlanks(line + len);
+        }
     }
     return nullptr;
 }
@@ -286,9 +317,12 @@ struct Parsed {
     bool explicitValue = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
+    // Per line: its value is a `/castsequence` sequence rather than a direct
+    // action, so the current step has to be asked for at evaluation time.
+    bool sequence[kMaxOptionLines] = {};
 };
 
-void AppendOptionLine(Parsed *out, const char *args) {
+void AppendOptionLine(Parsed *out, const char *args, bool sequence) {
     if (out->optionCount >= kMaxOptionLines)
         return;
     CopyTrimmed(args, out->options[out->optionCount], kOptionsMax);
@@ -296,6 +330,7 @@ void AppendOptionLine(Parsed *out, const char *args) {
         return; // an empty argument list contributes nothing (3.3.5 skips it too)
     if (std::strchr(out->options[out->optionCount], '[') != nullptr)
         out->conditional = true;
+    out->sequence[out->optionCount] = sequence;
     ++out->optionCount;
 }
 
@@ -315,7 +350,8 @@ void ParseBody(const char *body, Parsed *out) {
 
     if (*args != '\0') {
         out->explicitValue = true;
-        AppendOptionLine(out, args);
+        // `#showtooltip <value>` names the value itself, never a sequence.
+        AppendOptionLine(out, args, false);
         return;
     }
     // Bare form: collect cast/use lines until the first static one (its args
@@ -324,11 +360,12 @@ void ParseBody(const char *body, Parsed *out) {
         NextLine(&cursor, line, kLineBufferSize);
         if (line[0] == '\0')
             continue;
-        const char *rest = CastCommandArgs(line);
+        bool sequence = false;
+        const char *rest = CastCommandArgs(line, &sequence);
         if (rest == nullptr)
             continue;
         const int before = out->optionCount;
-        AppendOptionLine(out, rest);
+        AppendOptionLine(out, rest, sequence);
         if (out->optionCount > before && out->options[before][0] != '[')
             break;
     }
@@ -340,6 +377,8 @@ bool SameOptions(const Entry &e, const Parsed &p) {
     for (int i = 0; i < p.optionCount; ++i) {
         if (std::strcmp(e.options[i], p.options[i]) != 0)
             return false;
+        if (e.sequence[i] != p.sequence[i])
+            return false; // same text, different command — re-resolve it
     }
     return true;
 }
@@ -376,6 +415,7 @@ void Rescan(void *L) {
             e.explicitValue = parsed.explicitValue;
             e.optionCount = parsed.optionCount;
             std::memcpy(e.options, parsed.options, sizeof(e.options));
+            std::memcpy(e.sequence, parsed.sequence, sizeof(e.sequence));
         }
         // The engine parse that triggered this rescan rewrote `+0x564` —
         // every directive gets re-applied, changed or not. A macro in
@@ -630,6 +670,43 @@ void ApplyResolution(void *L, Entry &e, const Resolution &r, bool matched) {
         Repaint(L, e.macroID);
 }
 
+// The step a `/castsequence` is on, replacing the sequence text in `value`
+// with the action that step names. Mirrors what 3.3.5's macro code does at
+// `FUN_00564900`: call the Lua global `QueryCastSequence` with the sequence,
+// take three returns, and prefer the item over the spell. The index lives in
+// Lua because that is where the sequence advances, so asking is the only way
+// the icon and the cast can agree on which step is current.
+//
+// False when the global is missing or errored (the addon did not load, or an
+// addon replaced it with something that throws) — the caller then leaves the
+// line unresolved rather than showing a sequence string as a spell name.
+bool QuerySequenceStep(void *L, char *value, size_t valueSize) {
+    const int top = Game::Lua::GetTop(L);
+    if (!Game::Lua::PushGlobalFunction(L, "QueryCastSequence")) {
+        Game::Lua::SetTop(L, top);
+        return false;
+    }
+    Game::Lua::PushString(L, value);
+    bool ok = false;
+    if (Game::Lua::PCall(L, 1, 3, 0) == 0) {
+        // Returns are (index, item, spell); the item wins when the step names
+        // one, exactly as the engine's own reader picks.
+        const char *item = Game::Lua::Type(L, -2) == Game::Lua::TYPE_STRING
+                               ? Game::Lua::ToString(L, -2)
+                               : nullptr;
+        const char *spell = Game::Lua::Type(L, -1) == Game::Lua::TYPE_STRING
+                                ? Game::Lua::ToString(L, -1)
+                                : nullptr;
+        const char *pick = (item != nullptr && item[0] != '\0') ? item : spell;
+        if (pick != nullptr) {
+            CopyTrimmed(pick, value, valueSize);
+            ok = true;
+        }
+    }
+    Game::Lua::SetTop(L, top);
+    return ok;
+}
+
 void Evaluate(void *L, Entry &e, uint32_t nowMs) {
     BusyScope busy;
     e.dirty = false;
@@ -640,7 +717,12 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
     char value[kOptionsMax] = {};
     for (int i = 0; i < e.optionCount; ++i) {
         bool foreign = false;
-        const bool got = ResolveOptions(L, e.options[i], value, sizeof(value), &foreign);
+        bool got = ResolveOptions(L, e.options[i], value, sizeof(value), &foreign);
+        // A sequence line's value is the sequence, not an action. Swap in the
+        // step it is on before anything tries to resolve it. An empty step
+        // (nothing castable there) falls through to the next option line.
+        if (got && value[0] != '\0' && e.sequence[i])
+            got = QuerySequenceStep(L, value, sizeof(value));
         if (foreign) {
             // Another macro addon's dialect. Its conditions decide what this
             // macro does, and we cannot evaluate them, so the macro is not

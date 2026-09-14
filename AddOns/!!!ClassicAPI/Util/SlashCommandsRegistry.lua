@@ -127,32 +127,12 @@ function SecureCmdUseItem(name, bag, slot, target)
 	end
 end
 
-local function SecureCmdCast(msg)
-	local action, target = SecureCmdOptionParse(msg);
-	if ( not action or action == "" ) then
-		return;
-	end
-	-- `!Name` asks for the spell to be started but never turned off, for the
-	-- abilities that toggle: auto-repeat (Shoot, Auto Shot) and the self-auras
-	-- (stances, aspects, seals, forms, tracking). Strip the prefix here and
-	-- cast through `CastSpellNoToggle`, which asks the engine whether the
-	-- ability is already up before it casts.
-	local noToggle;
-	if ( string.sub(action, 1, 1) == "!" ) then
-		noToggle = true;
-		action = string.sub(action, 2);
-		if ( action == "" ) then
-			return;
-		end
-	end
-	target = SecureCmdNormalizeTarget(target);
-	if ( target == false ) then
-		return; -- a named unit with nobody around to match it
-	end
-	local name, bag, slot = SecureCmdItemParse(action);
-	if ( slot or (name and not IsBareNumber(action) and C_Item.GetItemCount(name) > 0) ) then
-		SecureCmdUseItem(name, bag, slot, target);
-	elseif ( target == "cursor" ) then
+-- Cast one resolved spell at one normalized target. Split out of
+-- `SecureCmdCast` so `/castsequence` performs its step under exactly the same
+-- rules: 1.12's `CastSpellByName` takes no unit, so every targeted form has to
+-- go through `C_Spell.CastAtUnit`, and a sequence must not reinvent that.
+local function SecureCmdPerformSpell(action, noToggle, target)
+	if ( target == "cursor" ) then
 		C_Spell.CastAtCursor(action);
 	elseif ( not target or target == "target" ) then
 		if ( noToggle ) then
@@ -174,6 +154,43 @@ local function SecureCmdCast(msg)
 		-- reticle comes up as usual.
 		C_Spell.CastAtUnit(action, target, false);
 	end
+end
+
+-- Perform one action at one normalized target: an item the line names, else a
+-- spell. `/cast`, `/use` and the random commands all land here, so the
+-- item-before-spell rule and the `!` prefix are decided in one place.
+local function SecureCmdPerformAction(action, target)
+	-- `!Name` asks for the spell to be started but never turned off, for the
+	-- abilities that toggle: auto-repeat (Shoot, Auto Shot) and the self-auras
+	-- (stances, aspects, seals, forms, tracking). Strip the prefix here and
+	-- cast through `CastSpellNoToggle`, which asks the engine whether the
+	-- ability is already up before it casts.
+	local noToggle;
+	if ( string.sub(action, 1, 1) == "!" ) then
+		noToggle = true;
+		action = string.sub(action, 2);
+		if ( action == "" ) then
+			return;
+		end
+	end
+	local name, bag, slot = SecureCmdItemParse(action);
+	if ( slot or (name and not IsBareNumber(action) and C_Item.GetItemCount(name) > 0) ) then
+		SecureCmdUseItem(name, bag, slot, target);
+	else
+		SecureCmdPerformSpell(action, noToggle, target);
+	end
+end
+
+local function SecureCmdCast(msg)
+	local action, target = SecureCmdOptionParse(msg);
+	if ( not action or action == "" ) then
+		return;
+	end
+	target = SecureCmdNormalizeTarget(target);
+	if ( target == false ) then
+		return; -- a named unit with nobody around to match it
+	end
+	SecureCmdPerformAction(action, target);
 end
 
 SlashCmdList["CAST"] = SecureCmdCast;
@@ -571,6 +588,400 @@ SlashCmdList["PET_AUTOCASTTOGGLE"] = function(msg)
 end
 
 -- ---------------------------------------------------------------------
+-- /castsequence
+--
+-- One entry per sequence STRING (the text after the conditions), holding the
+-- step index and the parsed action list. The string is the key on purpose:
+-- the same sequence typed in two macros advances as one, which is how
+-- FrameXML behaves and what lets the macro icon ask about a sequence it has
+-- only the text of.
+--
+-- The icon side reads this through `QueryCastSequence`, which the macro
+-- display calls whenever it needs the current step. That is Blizzard's own
+-- split -- there the C macro code calls the same global by name -- so the
+-- index lives here and nowhere else, and execution and display can never
+-- disagree about which step is current.
+
+local CastSequenceManager;
+local CastSequenceTable = {};
+local CastSequenceFreeList = {};
+
+-- Cleared by the command-surrender pass at the bottom of this file if another
+-- addon owns `/castsequence`. Our table only advances while OUR handler runs,
+-- so once the command is theirs every index we hold is frozen at step one --
+-- and the macro icon asks us, not them. Answering then would paint a
+-- confidently wrong step on a sequence somebody else is advancing, so stop
+-- answering instead and let the icon fall back to unresolved.
+local castSequenceOwned = true;
+
+local function Trim(text)
+	return (string.gsub(text or "", "^%s*(.-)%s*$", "%1"));
+end
+
+-- The comma-separated pieces of a sequence, empty pieces included: a step
+-- that resolves to nothing still occupies an index and is skipped at cast
+-- time, so dropping it here would renumber the sequence.
+local function SplitSequence(text)
+	local pieces = {};
+	for piece in string.gmatch(text..",", "([^,]*),") do
+		table.insert(pieces, Trim(piece));
+	end
+	return pieces;
+end
+
+-- An action is an item when it names a bag or inventory slot, or when the
+-- player is carrying one by that name. Same test `/cast` uses, and the same
+-- limit: 1.12 can only look an item up by name among the ones you hold.
+local function SequenceActionIsItem(action)
+	local name, _, slot = SecureCmdItemParse(action);
+	return slot ~= nil
+		or (name ~= nil and not IsBareNumber(action) and C_Item.GetItemCount(name) > 0);
+end
+
+local function CreateCanonicalActions(entry, actions)
+	entry.spells = {};
+	entry.spellNames = {};
+	entry.items = {};
+	for i = 1, table.getn(actions) do
+		local action = strlower(actions[i]);
+		if ( SequenceActionIsItem(action) ) then
+			entry.items[i] = action;
+			entry.spells[i] = strlower(C_Item.GetItemSpell(action) or "");
+			entry.spellNames[i] = entry.spells[i];
+		else
+			entry.spells[i] = action;
+			-- `!Name` is a cast rule, not part of the name the cast events
+			-- report back, so the matcher compares against the bare name.
+			entry.spellNames[i] = string.gsub(action, "^!*(.*)$", "%1");
+		end
+	end
+	entry.count = table.getn(actions);
+end
+
+local function SetCastSequenceIndex(entry, index)
+	entry.index = index;
+	entry.pending = nil;
+end
+
+local function ResetCastSequence(sequence, entry)
+	SetCastSequenceIndex(entry, 1);
+	CastSequenceFreeList[sequence] = entry;
+	CastSequenceTable[sequence] = nil;
+end
+
+local function SetNextCastSequence(sequence, entry)
+	if ( entry.index >= entry.count ) then
+		ResetCastSequence(sequence, entry);
+	else
+		SetCastSequenceIndex(entry, entry.index + 1);
+	end
+end
+
+-- A sequence restarts when the player holds the modifier its `reset=` names.
+local function CastSequenceModifierReset(entry)
+	return (IsShiftKeyDown() and string.find(entry.reset, "shift", 1, true))
+		or (IsControlKeyDown() and string.find(entry.reset, "ctrl", 1, true))
+		or (IsAltKeyDown() and string.find(entry.reset, "alt", 1, true));
+end
+
+local function ParseCastSequence(sequence)
+	local reset, spells = string.match(sequence, "^reset=([^%s]+)%s*(.*)$");
+	if ( not reset ) then
+		spells = sequence;
+	end
+	local entry = {};
+	CreateCanonicalActions(entry, SplitSequence(spells));
+	entry.reset = strlower(reset or "");
+	return entry;
+end
+
+-- The cast events carry the spell in different argument positions depending on
+-- the event, so read the name and rank per event rather than by one offset.
+local function CastEventSpell()
+	if ( event == "UNIT_SPELLCAST_SENT" ) then
+		return arg1, arg5, arg6; -- unit, target, castGUID, spellID, name, rank
+	end
+	return arg1, arg4, arg5;     -- unit, castGUID, spellID, name, rank
+end
+
+local function CastSequenceManager_OnEvent()
+	-- Death restarts every sequence.
+	if ( event == "PLAYER_DEAD" ) then
+		for sequence, entry in pairs(CastSequenceTable) do
+			ResetCastSequence(sequence, entry);
+		end
+		return;
+	end
+
+	if ( event == "UNIT_SPELLCAST_SENT"
+		or event == "UNIT_SPELLCAST_SUCCEEDED"
+		or event == "UNIT_SPELLCAST_INTERRUPTED"
+		or event == "UNIT_SPELLCAST_FAILED"
+		or event == "UNIT_SPELLCAST_FAILED_QUIET" ) then
+		local unit, name, rank = CastEventSpell();
+		if ( not name ) then
+			-- A server-side spell with no name of its own. Nothing in any
+			-- sequence can match it, so leave every index alone.
+			return;
+		end
+		if ( unit == "player" or unit == "pet" ) then
+			name, rank = strlower(name), strlower(rank or "");
+			local nameplus = name.."()";
+			local fullname = name.."("..rank..")";
+			for sequence, entry in pairs(CastSequenceTable) do
+				local entryName = entry.spellNames[entry.index];
+				if ( entryName == name or entryName == nameplus or entryName == fullname ) then
+					if ( event == "UNIT_SPELLCAST_SENT" ) then
+						-- In flight. Hold the index so a second press
+						-- cannot skip a step the server has not answered.
+						entry.pending = 1;
+					else
+						entry.pending = nil;
+						if ( event == "UNIT_SPELLCAST_SUCCEEDED" ) then
+							SetNextCastSequence(sequence, entry);
+						end
+					end
+				end
+			end
+		end
+		return;
+	end
+
+	local reset = "";
+	if ( event == "PLAYER_TARGET_CHANGED" ) then
+		reset = "target";
+	elseif ( event == "PLAYER_REGEN_ENABLED" ) then
+		reset = "combat";
+	end
+	for sequence, entry in pairs(CastSequenceTable) do
+		if ( string.find(entry.reset, reset, 1, true) ) then
+			ResetCastSequence(sequence, entry);
+		end
+	end
+end
+
+local function CastSequenceManager_OnUpdate()
+	local elapsed = CastSequenceManager.elapsed + (arg1 or 0);
+	if ( elapsed < 1 ) then
+		CastSequenceManager.elapsed = elapsed;
+		return;
+	end
+	for sequence, entry in pairs(CastSequenceTable) do
+		if ( entry.timeout ) then
+			if ( elapsed >= entry.timeout ) then
+				ResetCastSequence(sequence, entry);
+			else
+				entry.timeout = entry.timeout - elapsed;
+			end
+		end
+	end
+	CastSequenceManager.elapsed = 0;
+end
+
+local function CastSequenceEntry(sequence)
+	local entry = CastSequenceTable[sequence];
+	if ( entry ) then
+		return entry;
+	end
+	entry = CastSequenceFreeList[sequence] or ParseCastSequence(sequence);
+	CastSequenceTable[sequence] = entry;
+	entry.index = entry.index or 1;
+	return entry;
+end
+
+local function ExecuteCastSequence(sequence, target)
+	if ( not CastSequenceManager ) then
+		CastSequenceManager = CreateFrame("Frame");
+		CastSequenceManager.elapsed = 0;
+		CastSequenceManager:RegisterEvent("PLAYER_DEAD");
+		CastSequenceManager:RegisterEvent("UNIT_SPELLCAST_SENT");
+		CastSequenceManager:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED");
+		CastSequenceManager:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED");
+		CastSequenceManager:RegisterEvent("UNIT_SPELLCAST_FAILED");
+		CastSequenceManager:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET");
+		CastSequenceManager:RegisterEvent("PLAYER_TARGET_CHANGED");
+		CastSequenceManager:RegisterEvent("PLAYER_REGEN_ENABLED");
+		CastSequenceManager:SetScript("OnEvent", CastSequenceManager_OnEvent);
+		CastSequenceManager:SetScript("OnUpdate", CastSequenceManager_OnUpdate);
+	end
+
+	local entry = CastSequenceEntry(sequence);
+
+	-- A step already sent and not yet answered keeps the sequence where it is.
+	if ( entry.pending ) then
+		return;
+	end
+
+	if ( CastSequenceModifierReset(entry) ) then
+		SetCastSequenceIndex(entry, 1);
+	end
+
+	-- The timeout counts from the last use, so every press renews it.
+	local timeout = string.match(entry.reset, "(%d+)");
+	if ( timeout ) then
+		entry.timeout = CastSequenceManager.elapsed + tonumber(timeout);
+	end
+
+	local item, spell = entry.items[entry.index], entry.spells[entry.index];
+	if ( item ) then
+		local name, bag, slot = SecureCmdItemParse(item);
+		if ( slot ) then
+			-- A slot names whatever is in it right now, so the spell the
+			-- matcher waits for is re-read on every use.
+			spell = name and strlower(C_Item.GetItemSpell(name) or "") or "";
+			entry.spellNames[entry.index] = spell;
+		end
+		if ( C_Item.IsEquippableItem(name) and not C_Item.IsEquippedItem(name) ) then
+			C_Item.EquipItemByName(name);
+		else
+			SecureCmdUseItem(name, bag, slot, target);
+		end
+	else
+		local noToggle;
+		if ( string.sub(spell or "", 1, 1) == "!" ) then
+			noToggle = true;
+			spell = string.sub(spell, 2);
+		end
+		SecureCmdPerformSpell(spell, noToggle, target);
+	end
+	if ( spell == "" ) then
+		-- Nothing castable at this step: step past it so the sequence cannot
+		-- stall on an item the player no longer carries.
+		SetNextCastSequence(sequence, entry);
+	end
+end
+
+-- The step a sequence is on, without advancing it. Returns the index, the
+-- item the step names (nil for a spell), and the spell name. The macro
+-- display calls this by name.
+function QueryCastSequence(sequence)
+	if ( not castSequenceOwned ) then
+		return;
+	end
+	local index = 1;
+	local item, spell;
+	local entry = CastSequenceTable[sequence];
+	if ( entry ) then
+		if ( not CastSequenceModifierReset(entry) ) then
+			index = entry.index;
+		end
+		item, spell = entry.items[index], entry.spells[index];
+	else
+		entry = CastSequenceFreeList[sequence];
+		if ( not entry ) then
+			-- Never used yet: parse it so the icon shows step one instead of
+			-- the question mark, but do not make it live.
+			entry = ParseCastSequence(sequence);
+		end
+		item, spell = entry.items[index], entry.spells[index];
+	end
+	if ( item ) then
+		local name, _, slot = SecureCmdItemParse(item);
+		if ( slot ) then
+			spell = name and strlower(C_Item.GetItemSpell(name) or "") or "";
+		end
+	end
+	return index, item, spell;
+end
+
+SlashCmdList["CASTSEQUENCE"] = function(msg)
+	local sequence, target = SecureCmdOptionParse(msg);
+	if ( not sequence or sequence == "" ) then
+		return;
+	end
+	target = SecureCmdNormalizeTarget(target);
+	if ( target == false ) then
+		return; -- a named unit with nobody around to match it
+	end
+	ExecuteCastSequence(sequence, target);
+end
+SLASH_CASTSEQUENCE1 = "/castsequence";
+
+-- ---------------------------------------------------------------------
+-- /castrandom and /userandom
+--
+-- One pick per action list, held until a cast SUCCEEDS. A failed or
+-- interrupted cast keeps the same pick, so a spell that was out of range or
+-- out of mana is retried rather than swapped for another one -- pressing the
+-- button again means "try that again", not "roll again". `/userandom` is the
+-- same command as `/castrandom`, the way `/use` is the same as `/cast`: both
+-- perform whatever the chosen action turns out to be.
+
+local CastRandomManager;
+local CastRandomTable = {};
+
+local function CastRandomManager_OnEvent()
+	local unit, name, rank = CastEventSpell();
+	if ( not name or unit ~= "player" ) then
+		return;
+	end
+	name, rank = strlower(name), strlower(rank or "");
+	local nameplus = name.."()";
+	local fullname = name.."("..rank..")";
+	for _, entry in pairs(CastRandomTable) do
+		if ( entry.pending and entry.value ) then
+			local entryName = strlower(entry.value);
+			if ( entryName == name or entryName == nameplus or entryName == fullname ) then
+				entry.pending = nil;
+				if ( event == "UNIT_SPELLCAST_SUCCEEDED" ) then
+					entry.value = nil; -- rolled again on the next press
+				end
+			end
+		end
+	end
+end
+
+-- The action this press uses. Nil when the list holds nothing to pick from.
+local function ExecuteCastRandom(actions)
+	if ( not CastRandomManager ) then
+		CastRandomManager = CreateFrame("Frame");
+		CastRandomManager:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED");
+		CastRandomManager:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED");
+		CastRandomManager:RegisterEvent("UNIT_SPELLCAST_FAILED");
+		CastRandomManager:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET");
+		CastRandomManager:SetScript("OnEvent", CastRandomManager_OnEvent);
+	end
+
+	local entry = CastRandomTable[actions];
+	if ( not entry ) then
+		-- Only the raw pieces are kept. The matcher compares the chosen text
+		-- against the cast events, so the canonical item/spell split the
+		-- sequences build has nothing to do here.
+		entry = { list = SplitSequence(actions) };
+		CastRandomTable[actions] = entry;
+	end
+	if ( not entry.value ) then
+		local count = table.getn(entry.list);
+		if ( count == 0 ) then
+			return nil;
+		end
+		entry.value = entry.list[math.random(count)];
+	end
+	entry.pending = true;
+	return entry.value;
+end
+
+local function SecureCmdCastRandom(msg)
+	local actions, target = SecureCmdOptionParse(msg);
+	if ( not actions or actions == "" ) then
+		return;
+	end
+	target = SecureCmdNormalizeTarget(target);
+	if ( target == false ) then
+		return; -- a named unit with nobody around to match it
+	end
+	local action = ExecuteCastRandom(actions);
+	if ( action and action ~= "" ) then
+		SecureCmdPerformAction(action, target);
+	end
+end
+
+SlashCmdList["CASTRANDOM"] = SecureCmdCastRandom;
+SLASH_CASTRANDOM1 = "/castrandom";
+SlashCmdList["USERANDOM"] = SecureCmdCastRandom;
+SLASH_USERANDOM1 = "/userandom";
+
+-- ---------------------------------------------------------------------
 -- Give a contested command back to whoever already owned it
 --
 -- Vanilla has no `/petattack`, so the entry above ADDS it. A macro addon can
@@ -660,6 +1071,11 @@ RunNextFrame(function()
 		if ( SlashCmdList[key] == addedHandlers[key]
 			and ClaimedElsewhere(key, addedCommands[key]) ) then
 			SlashCmdList[key] = nil;
+			if ( key == "CASTSEQUENCE" ) then
+				-- The sequence is theirs to advance now, so stop reporting a
+				-- step to the macro icon that we no longer track.
+				castSequenceOwned = false;
+			end
 		end
 	end
 end)
