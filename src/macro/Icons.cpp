@@ -35,27 +35,43 @@
 // callbacks and tagging each captured filename by its callback
 // source and basename prefix.
 //
-// **Data source (vanilla 1.12 / Octo):**
+// **Data source (vanilla 1.12 / Octo).** `FUN_LOAD_MACRO_ICONS` runs
+// three enumeration passes; which WALKER the loader hands a callback
+// to is what makes it a loose or an MPQ source (see the block at
+// `VAR_MACRO_ICON_COUNT` in Offsets.h for the full trail):
 //
-// - `FUN_MACRO_ICON_CB_DISK` (`LAB_004f0220`) — engine's disk-scan
-//   per-file callback. Files the user has dropped loose into
-//   `Interface\Icons\`. Filename arg is the full
-//   `"Interface\Icons\<name>.blp"` path. Tagged as `loose`.
-// - `FUN_MACRO_ICON_CB_USER_MPQ` (`FUN_004f0350`) — user-mounted
-//   patch-MPQ callback. Already prefix-filtered to `Ability_*` /
-//   `Spell_*` by the engine. Tagged as `mpq`.
-// - `FUN_MACRO_ICON_CB_INSTALL_MPQ` (`LAB_004f04f0`) — install-MPQ
-//   callback. Accepts any `.blp`/`.tga` (no prefix filter in the
-//   engine), and is the only source that surfaces `INV_*` filenames
-//   in vanilla. Tagged as `mpq`.
+// - `FUN_MACRO_ICON_CB_MPQ` (`0x004F0220`) — pass 1, handed to
+//   `FUN_MPQ_ENUM_FILES`, so it walks every mounted ARCHIVE's
+//   `(listfile)`. Arg is the full `"Interface\Icons\<name>.blp"`
+//   archive path. Tagged `mpq`.
+// - `FUN_MACRO_ICON_CB_DISK_PREFIXED` (`0x004F0350`) — pass 2, handed
+//   to the DISK walker on `<basePath>Interface\Icons\`. Record arg.
+//   Tagged `loose`.
+// - `FUN_MACRO_ICON_CB_DISK_ANY` (`0x004F04F0`) — pass 3, the DISK
+//   walker again on the relative `Interface\Icons\`. Record arg.
+//   Tagged `loose`.
 //
-// Each callback gets a hook that examines the filename, classifies
-// it by prefix (`INV_` → item, `Ability_`/`Spell_` → spell, else
-// ignore), and appends to the matching side array. Capture-time
-// dedup via per-array `unordered_set` ensures each unique basename
-// only appears once per source even though most files flow through
-// multiple callbacks. The arrays are sorted lazily on first Lua
-// read so the output order matches modern engines.
+// Passes 2 and 3 address the same folder (absolute vs relative), so a
+// loose file reaches this module twice; the per-bucket dedup collapses
+// it. They differ only in the ENGINE's filter — pass 2 keeps just
+// `Ability_*`/`Spell_*`, pass 3 keeps any `.blp`/`.tga` — which is why
+// a loose `INV_*` icon reaches the engine's own list but an archive one
+// never does.
+//
+// We hook all three at ENTRY, before those filters, so every filename
+// the engine walks is seen — including the ~5,226 archive `INV_*` names
+// pass 1 rejects, which is what makes `GetMacroItemIcons` possible at
+// all. Each hook classifies by prefix (`INV_` → item,
+// `Ability_`/`Spell_` → spell, else ignore) and appends to the matching
+// side array; a per-array `unordered_set` dedups on insert. The arrays
+// are sorted lazily on first Lua read so output order matches modern
+// engines.
+//
+// The source tags were previously inverted — the archive pass was tagged
+// `loose` and both disk passes `mpq` — which swapped what
+// `GetMacroIcons` and `GetLooseMacroIcons` returned. It went unnoticed
+// because `IconDataProviderMixin` calls all four and concatenates, so
+// only the ordering within each list changed, not the content.
 //
 // Entry shape (all four functions): uppercase basename stripped of
 // the `Interface\Icons\` prefix and any `.blp`/`.tga` extension —
@@ -196,45 +212,45 @@ void EnsureSorted() {
 // Engine scan-callback hooks.
 // =============================================================
 
-// Disk-scan callback (`__fastcall(const char *fullPath)`). Path is
-// `"Interface\Icons\<NAME>"`-shaped — Basename() strips the prefix
-// before classification.
-using DiskCb_t = int (__fastcall *)(const char *path);
-DiskCb_t IconCbDisk_o = nullptr;
-int __fastcall IconCbDisk_h(const char *path) {
-    Capture(path, SRC_LOOSE);
-    return IconCbDisk_o(path);
+// Archive-scan callback (`__fastcall(const char *archivePath)`). Path
+// is `"Interface\Icons\<NAME>.blp"`-shaped — Basename() strips the
+// prefix before classification.
+using ArchiveCb_t = int (__fastcall *)(const char *path);
+ArchiveCb_t IconCbMpq_o = nullptr;
+int __fastcall IconCbMpq_h(const char *path) {
+    Capture(path, SRC_MPQ);
+    return IconCbMpq_o(path);
 }
 
-// MPQ-scan callbacks (`__fastcall(MpqRecord *)`). Record layout:
+// Disk-scan callbacks (`__fastcall(FindRecord *)`). Record layout:
 // `+0x04` = file flags (bit `0x10` = directory), `+0x08` = inline
 // null-terminated filename (no prefix, no extension stripped).
-using MpqCb_t = int (__fastcall *)(uint8_t *record);
-MpqCb_t IconCbUserMpq_o = nullptr;
-int __fastcall IconCbUserMpq_h(uint8_t *record) {
+using DiskCb_t = int (__fastcall *)(uint8_t *record);
+DiskCb_t IconCbDiskPrefixed_o = nullptr;
+int __fastcall IconCbDiskPrefixed_h(uint8_t *record) {
     if (record != nullptr && (record[4] & 0x10) == 0)
-        Capture(reinterpret_cast<const char *>(record + 8), SRC_MPQ);
-    return IconCbUserMpq_o(record);
+        Capture(reinterpret_cast<const char *>(record + 8), SRC_LOOSE);
+    return IconCbDiskPrefixed_o(record);
 }
-MpqCb_t IconCbInstallMpq_o = nullptr;
-int __fastcall IconCbInstallMpq_h(uint8_t *record) {
+DiskCb_t IconCbDiskAny_o = nullptr;
+int __fastcall IconCbDiskAny_h(uint8_t *record) {
     if (record != nullptr && (record[4] & 0x10) == 0)
-        Capture(reinterpret_cast<const char *>(record + 8), SRC_MPQ);
-    return IconCbInstallMpq_o(record);
+        Capture(reinterpret_cast<const char *>(record + 8), SRC_LOOSE);
+    return IconCbDiskAny_o(record);
 }
 
-const Game::HookAutoRegister _hookCbDisk{
-    Offsets::FUN_MACRO_ICON_CB_DISK,
-    reinterpret_cast<void *>(&IconCbDisk_h),
-    reinterpret_cast<void **>(&IconCbDisk_o)};
-const Game::HookAutoRegister _hookCbUserMpq{
-    Offsets::FUN_MACRO_ICON_CB_USER_MPQ,
-    reinterpret_cast<void *>(&IconCbUserMpq_h),
-    reinterpret_cast<void **>(&IconCbUserMpq_o)};
-const Game::HookAutoRegister _hookCbInstallMpq{
-    Offsets::FUN_MACRO_ICON_CB_INSTALL_MPQ,
-    reinterpret_cast<void *>(&IconCbInstallMpq_h),
-    reinterpret_cast<void **>(&IconCbInstallMpq_o)};
+const Game::HookAutoRegister _hookCbMpq{
+    Offsets::FUN_MACRO_ICON_CB_MPQ,
+    reinterpret_cast<void *>(&IconCbMpq_h),
+    reinterpret_cast<void **>(&IconCbMpq_o)};
+const Game::HookAutoRegister _hookCbDiskPrefixed{
+    Offsets::FUN_MACRO_ICON_CB_DISK_PREFIXED,
+    reinterpret_cast<void *>(&IconCbDiskPrefixed_h),
+    reinterpret_cast<void **>(&IconCbDiskPrefixed_o)};
+const Game::HookAutoRegister _hookCbDiskAny{
+    Offsets::FUN_MACRO_ICON_CB_DISK_ANY,
+    reinterpret_cast<void *>(&IconCbDiskAny_h),
+    reinterpret_cast<void **>(&IconCbDiskAny_o)};
 
 // =============================================================
 // Lua surface — four global mutators.

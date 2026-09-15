@@ -11708,21 +11708,20 @@ GetMacroItemIcons(itemList)
 -- itemList now has `INV_*` basenames.
 ```
 
-The split is `loose` (icons the user dropped into `Interface\Icons\`
-on disk) vs `mpq` (icons baked into the game's MPQ archives), crossed
-with `Spell` (basenames starting with `Ability_` / `Spell_`) vs
-`Item` (basenames starting with `INV_`). We hook
-the engine's three scan callbacks
-(`FUN_MACRO_ICON_CB_DISK` / `*_USER_MPQ` / `*_INSTALL_MPQ`) and tag
-each captured filename by source + prefix.
+The split is `loose` (icons you dropped into `Interface\Icons\` on
+disk) vs `mpq` (icons that ship inside the game's MPQ archives),
+crossed with `Spell` (basenames that start with `Ability_` or
+`Spell_`) vs `Item` (basenames that start with `INV_`).
 
-**Quirk worth noting**: the engine's main icon DB (what
-`GetMacroIconInfo(i)` returns) is filtered down to `Ability_*` /
-`Spell_*` only — `INV_*` filenames flow through the scan callbacks
-(~2,500+ per session in the Octo client) but never land in the DB
-because something downstream of the callbacks rejects them. We
-capture before that rejection, so `GetMacroItemIcons` works even
-though no engine-level `GetMacroItemIconInfo(i)` exists.
+**Quirk worth noting**: `GetMacroIconInfo(i)` lists only the
+`Ability_*` and `Spell_*` icons. The archives hold thousands of
+`INV_*` icons that it never shows. These four functions do return
+them, so `GetMacroItemIcons` gives you the item icons that
+`GetMacroIconInfo` cannot reach.
+
+An `INV_*` file that you put in `Interface\Icons\` yourself is
+different: `GetMacroIconInfo` does list it, after a restart of the
+client.
 
 Each appended entry is the uppercase basename stripped of the
 `Interface\Icons\` prefix and any `.blp`/`.tga` extension (e.g.

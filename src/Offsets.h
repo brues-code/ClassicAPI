@@ -4809,40 +4809,53 @@ enum Offsets {
     MACRO_LINE_BUFFER_SIZE = 0x400,
     EVENT_EXECUTE_CHAT_LINE = 0x188,     // fmt "%s", one macro body line
 
-    // Macro-icon database. Populated lazily by `FUN_LOAD_MACRO_ICONS`
-    // on the first `GetNumMacroIcons` call — enumerates `Interface\Icons\`
-    // for `*.blp` files plus a wildcard match, sorts, and de-dupes. Each
-    // entry is the basename (e.g. `"Ability_Kick"`) without the
-    // `Interface\Icons\` prefix; vanilla's `Script_GetMacroIconInfo`
-    // joins the prefix via sprintf before pushing. Verified by reading
-    // `Script_GetNumMacroIcons` (`0x004F19F0`) and
-    // `Script_GetMacroIconInfo` (`0x004F1A30`).
+    // Macro-icon database. One flat array of basenames, built lazily and
+    // cached for the process. Each entry is the basename with its extension
+    // truncated (e.g. `"Ability_Kick"`); `Script_GetMacroIconInfo`
+    // (`0x004F1A30`) re-joins the `Interface\Icons\` prefix with
+    // `SStrPrintf("%s%s", …)` before pushing, and pushes the EMPTY STRING
+    // (not nil) for an out-of-range index. Only `Script_GetNumMacroIcons`
+    // (`0x004F19F0`) triggers the lazy build, gated on `count == 0`.
     //
-    // Vanilla's loader has 3 enumeration passes, each with a per-file
-    // callback. The first two (`FUN_MACRO_ICON_CB_DISK`,
-    // `FUN_MACRO_ICON_CB_USER_MPQ`) prefix-filter on `"Ability_"` and
-    // `"Spell_"` — anything else (including `INV_*` item icons) is
-    // rejected. The third (`FUN_MACRO_ICON_CB_INSTALL_MPQ`) reads as
-    // extension-only filter in the disassembly (any `.blp`/`.tga` is
-    // accepted), but the engine's main icon DB ends up with zero
-    // `INV_*` entries regardless (`GetNumMacroIcons() == 746`, all
-    // `Ability_*`/`Spell_*`). Best guess: a check inside the
-    // `SStrDup`/array-append helpers downstream of all three callbacks
-    // filters them out — but the per-file callbacks themselves DO see
-    // `INV_*` filenames (verified by hook capture: 5,226 unique
-    // `INV_*` basenames flow through the callbacks per session).
+    // `FUN_LOAD_MACRO_ICONS` runs three enumeration passes, then
+    // `qsort(array, count, 4, 0x004F05E0)` + an adjacent case-insensitive
+    // `SStrCmpI` dedup (freeing the dupe and memmove-compacting), then
+    // shrinks the allocation. Every pass appends with the SAME inlined
+    // grow-and-append code — there is no shared downstream helper, so the
+    // ONLY filtering is what each callback does itself:
     //
-    // For `C_Macro::GetMacroItemIcons` we hook each callback at its
-    // entry, capture any `INV_*` filename into a DLL-owned side array,
-    // then forward to the original — dodges whichever downstream
-    // filter the engine applies and matches the parallel item-icon
-    // array 4.3.4 exposes (via `Script_GetMacroItemIcons`).
-    VAR_MACRO_ICON_COUNT = 0x00BDCC1C,          // uint32 count of loaded icons
-    VAR_MACRO_ICON_ARRAY = 0x00BDCC20,          // char ** — pointer to flat array of icon-name C strings (4-byte stride)
-    FUN_LOAD_MACRO_ICONS = 0x004F0090,          // `__cdecl()` lazy populate; no-op if already loaded
-    FUN_MACRO_ICON_CB_DISK = 0x004F0220,        // disk enumerator callback — `__fastcall(const char *fullPath)` — prefix-filtered
-    FUN_MACRO_ICON_CB_USER_MPQ = 0x004F0350,    // user-MPQ enumerator callback — `__fastcall(MpqRecord *r)` — prefix-filtered
-    FUN_MACRO_ICON_CB_INSTALL_MPQ = 0x004F04F0, // install-MPQ enumerator callback — `__fastcall(MpqRecord *r)` — extension-only filter
+    //   pass 1  FUN_MPQ_ENUM_FILES(6, "Interface\Icons\", cb, 0)
+    //           -> FUN_MACRO_ICON_CB_MPQ: skips the prefix, keeps only
+    //              `Ability_*` / `Spell_*` (SStrCmpI, length-bounded) with a
+    //              `.blp` / `.tga` extension.
+    //   pass 2  FUN_ADDON_SCAN_DISK_DIRS(<basePath>+"Interface\Icons\", "*", cb)
+    //           -> FUN_MACRO_ICON_CB_DISK_PREFIXED: same prefix + extension
+    //              test (plus a `.bz` sub-extension strip).
+    //   pass 3  FUN_ADDON_SCAN_DISK_DIRS("Interface\Icons\", "*", cb)
+    //           -> FUN_MACRO_ICON_CB_DISK_ANY: extension test ONLY.
+    //
+    // So the engine's list is all `Ability_*`/`Spell_*`
+    // (`GetNumMacroIcons() == 746`) for one reason: passes 1-2 prefix-filter,
+    // and pass 3 — the only one that doesn't — is a DISK walk over a folder
+    // that is empty on a stock install (every icon ships inside the MPQs).
+    // A loose `INV_*.blp` dropped into `Interface\Icons\` DOES enter the list,
+    // through pass 3 alone. (An earlier note here guessed a filter inside the
+    // `SStrDup`/array-append helpers downstream of all three callbacks; that
+    // was wrong — the append is inlined per callback and nothing runs between
+    // the filter and the array write.)
+    //
+    // `Macro::Icons` hooks all three at ENTRY, before each filter, so it sees
+    // every filename the engine walks — including the ~5,226 archive `INV_*`
+    // names pass 1 rejects — and sorts them into (loose|mpq) x (spell|item)
+    // buckets for the four modern `Get*MacroI*Icons` mutators. The bucket a
+    // callback feeds is therefore decided by WHICH WALKER the loader passed
+    // it to, which is what these names record.
+    VAR_MACRO_ICON_COUNT = 0x00BDCC1C,             // uint32 count of loaded icons
+    VAR_MACRO_ICON_ARRAY = 0x00BDCC20,             // char ** — flat array of icon-name C strings (4-byte stride)
+    FUN_LOAD_MACRO_ICONS = 0x004F0090,             // `__cdecl()` lazy populate; no-op once count != 0
+    FUN_MACRO_ICON_CB_MPQ = 0x004F0220,            // pass 1, ARCHIVE walk — `__fastcall(const char *archivePath)`, prefix + extension filtered; returns 1 to continue
+    FUN_MACRO_ICON_CB_DISK_PREFIXED = 0x004F0350,  // pass 2, DISK walk — `__fastcall(FindRecord *r)` (dir bit `r[4] & 0x10`, inline name at `r+8`), prefix + extension filtered
+    FUN_MACRO_ICON_CB_DISK_ANY = 0x004F04F0,       // pass 3, DISK walk — same record shape, EXTENSION ONLY (the sole route for a non-`Ability_`/`Spell_` icon)
 
     // Quest log: 16-byte-stride entry array and active count.
     // Field +0 of each entry is the questID for real quests (a category index
