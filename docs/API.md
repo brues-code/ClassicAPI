@@ -6230,7 +6230,7 @@ SecureCmdOptionParse("[nocombat] rest")      -- "rest" out of combat, else nil
 | `stance` / `stance:N` | you are shapeshifted / in bar form N (`form` is the same) |
 | `stealth` / `mounted` / `swimming` / `indoors` / `outdoors` | player state |
 | `mod` / `mod:shift` / `mod:ctrl` / `mod:alt` | a modifier key is held (`modifier` is the same) |
-| `button:N` | the current button is N (defaults to the left button; `btn` is the same) |
+| `button:N` | the click running now used button N — 1 left, 2 right, 3 middle, 4, 5 (`btn` is the same) |
 | `bar:N` / `actionbar:N` | the current action bar page is N |
 | `bonusbar` / `bonusbar:N` | a bonus bar is active / bonus bar N is active |
 | `pet` / `pet:name` | you have a pet / a pet with that name or family |
@@ -6250,6 +6250,15 @@ not.
 The `[stance:N]` number is the shapeshift bar slot, not the form ID that
 [`GetShapeshiftFormID()`](#getshapeshiftformid) returns. On a druid, bar slot 1
 is Bear and slot 3 is Cat.
+
+`[button:N]` reads the button of the click the macro is running inside, the
+same value [`GetMouseButtonClicked()`](#getmousebuttonclicked) returns. You can
+give a button name in place of the number: `[button:rightbutton]` and
+`[button:2]` are the same test, and names are not case-sensitive.
+
+When no click is running, `[button:N]` answers as if the left button were used.
+That is the case for a state driver poll and for the re-evaluation behind a
+macro's `#showtooltip` icon, neither of which comes from a click.
 
 `known` is a ClassicAPI extension, not a Blizzard conditional. A numeric
 argument uses [`IsPlayerSpell`](#isplayerspellspellid), so it matches any known

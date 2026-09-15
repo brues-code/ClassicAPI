@@ -24,8 +24,9 @@
 -- one ClassicAPI extension: [known:spellID] / [known:name].
 -- Where a keyword's underlying state does not exist on 1.12 (flying, flyable,
 -- vehicleui, unithasvehicleui) the condition is a constant false; where 1.12
--- only has a partial answer (spec is always primary, button/actionbar default
--- to the resting state) the closest honest mapping is used. An UNKNOWN keyword
+-- only has a partial answer (spec is always primary; actionbar defaults to the
+-- resting state, as does button when no click is running) the closest honest
+-- mapping is used. An UNKNOWN keyword
 -- is a hard false with a one-time warning -- never a silent pass -- so a typo
 -- can't wrongly show a frame. See docs/API.md for the full contract.
 --
@@ -234,12 +235,31 @@ CONDITIONS.modifier = function(target, args)
     return IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown();
 end
 
--- Outside a click context the "current" button is the left button.
+-- [button:N] numbers the mouse buttons the way the rest of the modern API
+-- does -- 1 left, 2 RIGHT, 3 middle, 4, 5. That is deliberately not the order
+-- of the engine's internal click bitmask (where 2 is the middle button), which
+-- never reaches Lua. A name is matched as written, so a button clicked with an
+-- explicit name (`someButton:Click("LeftButton")`) answers [button:leftbutton]
+-- as well as [button:1].
+local BUTTON_NUMBER_NAMES = {
+    ["1"] = "leftbutton",
+    ["2"] = "rightbutton",
+    ["3"] = "middlebutton",
+    ["4"] = "button4",
+    ["5"] = "button5",
+};
+
 CONDITIONS.button = function(target, args)
     if args then
+        -- GetMouseButtonClicked() is the button of the click this macro is
+        -- running inside. It reads nil when no click is running -- a state
+        -- driver poll, or the re-evaluation behind a macro's #showtooltip
+        -- display -- and the engine's own no-argument Button:Click() means the
+        -- left button, so that is the resting answer.
+        local current = strlower(GetMouseButtonClicked() or "LeftButton");
         for i = 1, args.n do
-            local a = args[i];
-            if a == "1" or strlower(a) == "leftbutton" then return true; end
+            local a = strlower(args[i]);
+            if (BUTTON_NUMBER_NAMES[a] or a) == current then return true; end
         end
         return false;
     end
