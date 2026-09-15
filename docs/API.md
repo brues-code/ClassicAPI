@@ -6328,19 +6328,28 @@ for addon compatibility.
 
 ### `PreClick` / `PostClick` button scripts
 
-Two button scripts that run immediately before and after `OnClick`. They are
+Two button scripts that run immediately before and after a click. They are
 real scripts: set them with `SetScript`, read them with `GetScript`, and hook
 them with `HookScript`.
 
-One click runs the three handlers in this order:
+One click runs the handlers in this order:
 
 ```
 PreClick  ->  OnClick  ->  PostClick
 ```
 
+`PreClick` and `PostClick` fire on every click. The button does not need an
+`OnClick` handler.
+
 Each handler gets `arg1` — the mouse button name (`"LeftButton"`,
 `"RightButton"`, …) — the same value `OnClick` gets. With positional
 arguments on (the default), the handler signature is `function(self, button)`.
+
+A `CheckButton` changes its checked state before `PreClick` runs, so
+`GetChecked()` inside `PreClick` already returns the new state.
+
+A double-click runs `OnDoubleClick` only. It does not run `PreClick` or
+`PostClick`.
 
 ```lua
 local btn = CreateFrame("Button", "MyButton", UIParent)
@@ -6348,10 +6357,6 @@ btn:SetScript("PreClick",  function() print("before the click:", arg1) end)
 btn:SetScript("OnClick",   function() print("the click") end)
 btn:SetScript("PostClick", function(self, button) print("after the click:", button) end)
 ```
-
-**The button must also have an `OnClick` handler.** `PreClick` and `PostClick`
-fire around `OnClick`. A button with no `OnClick` set fires neither. This serves
-the normal use: run code just before or after a button's click action.
 
 ### `GetClickFrame(name)`
 
@@ -7915,9 +7920,10 @@ end
 
 ### `GetMouseButtonClicked()`
 
-Returns the name of the mouse button that started the `OnClick` or
-`OnDoubleClick` handler that is now running. At any other time it
-returns `nil`.
+Returns the name of the mouse button that started the handler that is
+now running. It works inside these handlers, on any frame:
+`OnMouseDown`, `OnMouseUp`, `PreClick`, `OnClick`, `PostClick`, and
+`OnDoubleClick`. At any other time it returns `nil`.
 
 A helper function that the handler calls can also read the name.
 `arg1` is not in scope there.
@@ -7927,14 +7933,11 @@ The name is one of `"LeftButton"`, `"MiddleButton"`, `"RightButton"`,
 gives `"LeftButton"`. A `Button:Click(name)` call with any other name
 gives `"UNKNOWN"`.
 
-`PreClick` and `PostClick` handlers run inside the click, so they read
-the same name.
+`OnDragStart` is not in the list above. In `OnDragStart` this function
+returns `nil`, and `arg1` holds the button.
 
-The other mouse scripts are not clicks. In `OnMouseDown`, `OnMouseUp`,
-and `OnDragStart` this function returns `nil`, and `arg1` holds the
-button.
-
-The name is valid only while the handler runs. If a handler clicks a
+The name is valid only while the handler runs. A held mouse button does
+not keep it set. If a handler clicks a
 second button, the name of that inner click applies until the inner
 handler ends. Then the outer name comes back.
 

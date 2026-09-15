@@ -255,17 +255,93 @@ enum Offsets {
     // `Frame::ClickEvents` co-hooks this to hand out an external per-button cell
     // for those two names — same technique as FUN_GAMETOOLTIP_SCRIPT_RESOLVER.
     FUN_BUTTON_SCRIPT_RESOLVER = 0x00778C50,
-    // Button OnClick / OnDoubleClick script slot offsets (the resolver's
-    // returns for those two names). Used by `Frame::ClickEvents` to recognize a
-    // click fire at the runner hook below: the fire passes slotPtr == button +
-    // one of these. Each has exactly one fire site — the click vmethods
-    // FUN_00779540 (OnClick) and FUN_00779650 (OnDoubleClick), which take a
-    // button BITMASK (1 = Left, 2 = Middle, 4 = Right, 8 = Button4,
-    // 0x10 = Button5), map it through a jump table to the engine's own name
-    // literal (anything else -> "UNKNOWN" at 0x00838044) and fire
-    // FUN_007026F0(button, button + slot, "%s", name).
+    // Button OnClick / OnDoubleClick script slot offsets (the Button resolver's
+    // returns for those two names; each an 8-byte {handler ref, exec context}).
+    // `Frame::ClickEvents` matches a fire at the runner hook below against
+    // slotPtr == button + one of these to scope GetMouseButtonClicked.
     OFF_BUTTON_ONCLICK_HANDLER = 0x4CC,
     OFF_BUTTON_ONDOUBLECLICK_HANDLER = 0x4D4,
+    // CSimpleFrame script slots — the base-frame resolver FUN_0076A0D0's returns
+    // (it chains to CScriptObject FUN_00702590 first, OnEvent @ +0xC). Derived as
+    // one table, recorded as one: OnLoad +0x118, OnSizeChanged +0x120, OnUpdate
+    // +0x128, OnShow +0x130, OnHide +0x138, OnEnter +0x140, OnLeave +0x148,
+    // OnMouseDown +0x150, OnMouseUp +0x158, OnMouseWheel +0x160, OnDragStart
+    // +0x168, OnDragStop +0x170, OnReceiveDrag +0x178, OnChar +0x180, OnKeyDown
+    // +0x188, OnKeyUp +0x190. Only the two mouse-button slots are named:
+    // `Frame::ClickEvents` scopes GetMouseButtonClicked around their fires —
+    // the exact set 3.3.5's frame manager brackets (its CSimpleFrame::OnMouseDown
+    // FUN_0048fc30 and OnMouseUp FUN_0048fce0 write [frameMgr+0x1234]; its
+    // OnDragStart does not; confirmed live on 3.3.5, 2026-09-15). The dispatches
+    // are FUN_0076BF70 (mouse-down: records the drag candidate at +0xFC..+0x110,
+    // then fires) and FUN_0076C040 (mouse-up: dispatches OnDragStop/OnReceiveDrag
+    // instead when a drag was pending), each via FUN_FRAME_RUN_SCRIPT_VARIADIC
+    // (frame, frame + slot, "%s", name).
+    OFF_FRAME_ONMOUSEDOWN_SLOT = 0x150,
+    OFF_FRAME_ONMOUSEUP_SLOT = 0x158,
+    // Button::Click vmethod (Button vtable 0x0081C7F8 + 0x94) — __thiscall(button,
+    // buttonMask, fromScript), RET 8. Gate [+0x328] != 0 (enabled); runs the
+    // internal C++ click listener at +0x314 (vtable+0x10; set by FUN_00779740,
+    // never Lua-visible); iff [+0x4CC] is set, maps the mask through a jump
+    // table (targets @0x007795F4, index bytes @0x0077960C) to the engine's name
+    // literal and fires FUN_FRAME_RUN_SCRIPT_VARIADIC(button, button+0x4CC,
+    // "%s", name). Mask: 1 Left, 2 Middle, 4 Right, 8 Button4, 0x10 Button5,
+    // anything else "UNKNOWN". `fromScript` is 1 from Script_Click
+    // (FUN_007826C0 — folds its optional string to a mask: no arg -> 1,
+    // unrecognized or empty -> 0 -> "UNKNOWN") and 0 from both input handlers
+    // (mouse-down FUN_00779210 fires it for *Down registrations, mouse-up
+    // FUN_007792D0 for *Up, routing to +0x98 DoubleClick instead when [+0x4D4]
+    // is set and the previous click was <= 300 ms ago); the base ignores it.
+    // Every Lua-creatable button reaches this function: Button holds it in its
+    // vtable, CheckButton's override FUN_00785550 toggles +0x4DC then calls it;
+    // the nameplate button FUN_007CB910 and the game-UI button FUN_004C1820
+    // chain to it too. Only the hyperlink button FUN_007A3510 (vtable
+    // 0x0081D5B0) does not — it forwards to its owner's OnHyperlinkClick and
+    // never fires OnClick. `Frame::ClickEvents` co-hooks it to bracket EVERY
+    // click with PreClick/PostClick and the GetMouseButtonClicked scope, with
+    // or without an OnClick handler — the 3.3.5 shape (CSimpleButton::Click
+    // FUN_0096fd70 -> FUN_0096f090 fires PreClick, OnClick, PostClick as three
+    // independent `if (slot)` blocks).
+    //
+    // An earlier note here said SuperWoW inline-hooks this prologue and that a
+    // second MinHook faults (ERROR #132) — the reason PreClick/PostClick were
+    // first implemented at the runner and needed an OnClick handler to fire. A
+    // literal scan (2026-09-15) of every DLL the client loads — SuperWoWhook,
+    // nampower, perf_boost, pngscreenshots, regfix, transmogfix, UnitXP_SP3,
+    // VanillaHelpers, VanillaMultiMonitorFix, AuctionQueryThrottle,
+    // VanillaLooseLoader, VanillaMinimapTracking — finds NO reference to this
+    // address (absolute or RVA), while SuperWoWhook's real targets
+    // (SetEventCount, RebuildEventTable, SignalEventParam, ClearCastingSpell)
+    // all appear as plain literals, so the method would have found it. The #132
+    // sighting was real; this function was not its trigger. Prologue
+    // 55 8B EC 83 EC 14 56 8B CE — no relative branch in the first 6 bytes,
+    // internal jumps all target >= 0x7795B1: MinHook-safe.
+    FUN_BUTTON_CLICK = 0x00779540,
+    // Button::DoubleClick (vtable +0x98, shared by all five button-family
+    // vtables) — same shape, fires +0x4D4. NOT hooked: 3.3.5 fires no
+    // PreClick/PostClick around a double-click (FUN_0096f150 fires only
+    // OnDoubleClick), and its GetMouseButtonClicked scope comes from the runner
+    // gate on OFF_BUTTON_ONDOUBLECLICK_HANDLER. Reference only.
+    FUN_BUTTON_DOUBLECLICK = 0x00779650,
+    // Variadic front of the runner below — __cdecl(frame, slotPtr, fmt, ...),
+    // forwards &va as vaPtr to FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT. The entry
+    // every input-script fire in the engine uses (25 call sites, byte-scanned).
+    // `Frame::ClickEvents` fires PreClick/PostClick through it so they take the
+    // identical path to the engine's own OnClick fire.
+    FUN_FRAME_RUN_SCRIPT_VARIADIC = 0x007026F0,
+    // The engine's "%s" format literal — the fmt every mouse-button script fire
+    // passes (OnClick, OnDoubleClick, OnMouseDown, OnMouseUp, OnDragStart) and
+    // the per-token unit-event broadcast uses. Passed by pointer so our fires
+    // are byte-identical to the engine's.
+    VAR_SCRIPT_FMT_S = 0x0082E280,
+    // The engine's button-name literals, exactly as FUN_BUTTON_CLICK's jump
+    // table selects them — so a PreClick/PostClick arg1 built from these is
+    // pointer-identical to the arg1 the engine hands OnClick.
+    VAR_BUTTON_NAME_LEFT = 0x00878864,    // "LeftButton"    mask 0x01
+    VAR_BUTTON_NAME_MIDDLE = 0x00878854,  // "MiddleButton"  mask 0x02
+    VAR_BUTTON_NAME_RIGHT = 0x00878848,   // "RightButton"   mask 0x04
+    VAR_BUTTON_NAME_4 = 0x00878840,       // "Button4"       mask 0x08
+    VAR_BUTTON_NAME_5 = 0x00878838,       // "Button5"       mask 0x10
+    VAR_BUTTON_NAME_UNKNOWN = 0x00838044, // "UNKNOWN"       any other mask
     // Frame-script runner WITH exec-context stamping — __cdecl(void *frame,
     // int *slotPtr, const char *fmt, void *vaPtr). Saves DAT_00ceeac0, stamps
     // it from slotPtr[1] (the cell's context), then calls FUN_FRAME_RUN_SCRIPT_ARGS
@@ -274,16 +350,16 @@ enum Offsets {
     // forwarder); the event dispatcher FUN_00703F50 is the only other caller.
     // ONE hook, owned by `Frame::RunnerHook`, fans out to subscribers that each
     // claim a disjoint slot address (a second MinHook here would abort the
-    // whole install — subscribe instead): `Frame::ClickEvents` gates on
-    // `slotPtr == frame + OFF_BUTTON_ONCLICK_HANDLER` (an exact OnClick match —
-    // no other fire passes that slot) and brackets OnClick with PreClick /
-    // PostClick by re-invoking with the same (fmt, vaPtr) so the button-name
-    // arg is reused; `Frame::UnitEvent` gates on `slotPtr == frame +
-    // OFF_FRAME_ONEVENT_SLOT` (the dispatcher's per-frame OnEvent fire) and
-    // suppresses the call when a RegisterUnitEvent filter rejects arg1.
-    // Deliberately NOT the button click vmethod FUN_00779540, which SuperWoW
-    // inline-hooks for click-casting (a second hook there faults, ERROR #132 —
-    // see the note near FUN_SCRIPT_FRAME_GET_STRATA); this runner is uncontested.
+    // whole install — subscribe instead): `Frame::ClickEvents` gates on the
+    // four mouse-button script slots (OnClick/OnDoubleClick on buttons,
+    // OnMouseDown/OnMouseUp on every frame) and scopes GetMouseButtonClicked
+    // around the fire — the runner is where the engine hands over the button
+    // NAME, so it is the scope point by design; `Frame::UnitEvent` gates on
+    // `slotPtr == frame + OFF_FRAME_ONEVENT_SLOT` (the dispatcher's per-frame
+    // OnEvent fire) and suppresses the call when a RegisterUnitEvent filter
+    // rejects arg1. PreClick/PostClick themselves fire from a co-hook on
+    // FUN_BUTTON_CLICK (see there — an earlier note here claimed SuperWoW
+    // owned that vmethod, which a per-DLL literal scan disproved).
     FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT = 0x00702710,
 
     // The other per-object tooltip builders, co-hooked the same way as
@@ -2443,12 +2519,11 @@ enum Offsets {
     // `frame:GetFrameStrata()` — pushes the strata name string; ranked for
     // stack ordering (`Frame::MouseFoci`).
     FUN_SCRIPT_FRAME_GET_STRATA = 0x007742A0,
-    // Button OnClick dispatcher — `__thiscall(button, buttonCode)` at
-    // 0x00779540, invoking the button's OnClick slot `[button+0x4CC]`. NOTE: do
-    // NOT MinHook it — SuperWoW's click-casting inline-hooks the same prologue
-    // and a second hook corrupts the trampoline (ERROR #132). `Frame::Attributes`
-    // instead installs a normal chained OnClick on the opted-in frame. Kept as
-    // the verified dispatch reference only.
+    // (The button click dispatcher is FUN_BUTTON_CLICK, defined with the frame
+    // script slots near FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT. A note here used to
+    // forbid hooking it on a SuperWoW-collision theory that a per-DLL scan has
+    // since disproved — see that definition. `Frame::Attributes` chains a normal
+    // OnClick on its opted-in frames for its own reasons, not because of it.)
     // Frame GetAlpha (own alpha, 0..1) + Region GetParent — walked by
     // Frame::Modern's GetEffectiveAlpha up the parent chain.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
