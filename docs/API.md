@@ -265,6 +265,7 @@ build instructions.
   - [`RegisterUnitWatch` / `UnregisterUnitWatch` / `UnitWatchRegistered`](#registerunitwatch--unregisterunitwatch--unitwatchregistered)
   - [`SecureButton_GetAttribute` / `SecureButton_GetUnit`](#securebutton_getattribute--securebutton_getunit)
   - [`PreClick` / `PostClick` button scripts](#preclick--postclick-button-scripts)
+  - [`Button:RegisterForClicks("AnyUp" | "AnyDown" | ...)`](#buttonregisterforclicksanyup--anydown--)
   - [`GetClickFrame(name)`](#getclickframename)
 
 - [FriendList](#friendlist)
@@ -6357,6 +6358,30 @@ btn:SetScript("PreClick",  function() print("before the click:", arg1) end)
 btn:SetScript("OnClick",   function() print("the click") end)
 btn:SetScript("PostClick", function(self, button) print("after the click:", button) end)
 ```
+
+### `Button:RegisterForClicks("AnyUp" | "AnyDown" | ...)`
+
+`RegisterForClicks` accepts two collective names:
+
+- `"AnyUp"` — the button responds to the release of every mouse button.
+- `"AnyDown"` — the button responds to the press of every mouse button.
+
+`"AnyUp"` stands for the five `*Up` names and `"AnyDown"` for the five
+`*Down` names. You can mix them with the explicit names.
+
+```lua
+btn:RegisterForClicks("AnyUp")
+btn:RegisterForClicks("AnyDown", "LeftButtonUp")
+```
+
+The explicit names are `LeftButtonUp`, `LeftButtonDown`, `RightButtonUp`,
+`RightButtonDown`, `MiddleButtonUp`, `MiddleButtonDown`, `Button4Up`,
+`Button4Down`, `Button5Up`, and `Button5Down`. Names are not case-sensitive.
+
+A name that is not in this list counts as no click type. A call with only
+unknown names makes the button respond to no click at all. `Button:Click()`
+ignores the click types, so a button in that state still responds to
+`Click()`.
 
 ### `GetClickFrame(name)`
 

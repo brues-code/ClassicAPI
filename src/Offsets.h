@@ -2325,6 +2325,30 @@ enum Offsets {
     VAR_FRAME_METHOD_REGISTRY = 0x00CF4D38,
     VAR_TEXTURE_METHOD_REGISTRY = 0x00CF5434,
     VAR_FONTSTRING_METHOD_REGISTRY = 0x00CF5400,
+    // Button — 39 methods (table 0x00879D00), ctx per docs/raw_methods.txt.
+    // CheckButton inherits it through the dispatcher's type walk. `Frame::
+    // ClickMask` re-registers `RegisterForClicks` here (most recent
+    // registration wins — the Texture::Desaturation mechanism) to add AnyUp /
+    // AnyDown in front of the engine's entry.
+    VAR_BUTTON_METHOD_REGISTRY = 0x00CF4E14,
+    // The engine's `Button:RegisterForClicks(...)` (Button table entry 35) —
+    // standard `int __fastcall(void *L)`. Loops `lua_isstring(L, i)` from
+    // index 2 until the first non-string, SStrCmpI's each against exactly ten
+    // literals (LeftButtonDown 0x1 / LeftButtonUp 0x100, Middle 0x2 / 0x200,
+    // Right 0x4 / 0x400, Button4 0x8 / 0x800, Button5 0x10 / 0x1000 — low
+    // byte = press, high byte = release), an unknown name contributing 0, and
+    // ASSIGNS the OR to button+0x330 via FUN_BUTTON_SET_CLICK_MASK. So a call
+    // with only unknown names (e.g. the modern "AnyUp") zeroes the mask and
+    // the button stops responding to every real click, silently — Button:Click
+    // ignores the mask, so programmatic clicks still work and hide it.
+    // `Frame::ClickMask` appends the five expansions of AnyUp / AnyDown to the
+    // Lua stack and tail-calls this, so the engine's parser, setter and error
+    // text stay in force.
+    FUN_SCRIPT_BUTTON_REGISTERFORCLICKS = 0x00782490,
+    // Button::SetClickMask — __thiscall(button, mask): writes +0x330. The
+    // ctors call it with the type default (Button 0x100 = LeftButtonUp;
+    // hyperlink button 0x500). Reference only.
+    FUN_BUTTON_SET_CLICK_MASK = 0x00779730,
     // EditBox — 48 methods (table 0x0087BB68), ctx per
     // docs/BlizzardScriptAPI.md. Backs `EditBox:SetCursorPosition` /
     // `GetCursorPosition` (`EditBox::Methods`), the modern cursor / focus /
