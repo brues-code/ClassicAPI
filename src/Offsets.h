@@ -361,6 +361,23 @@ enum Offsets {
     OFF_FONTSTRING_FONT_HOLDER = 0xCC,            // font-reference sub-object (SetFont `this`)
     OFF_FONTSTRING_FONT_OBJECT = 0xD0,            // font object pointer (holder + 4)
     OFF_REGION_ANCHOR = 0x24,                     // LayoutFrame anchor sub-object (SetPoint `this` / relativeTo base)
+
+    // --- GetPoint dangling-anchor guard (Frame::GetPointGuard) ---
+    // `Script_GetPoint` walks a region's 9 anchor-node slots at
+    // region+0x28. Each node with vtable VAR_ANCHOR_VTABLE_WITH_RELATIVE
+    // carries a RAW `relativeTo` pointer at +0x0C (the anchor target's
+    // LayoutFrame inner = target CFrame base + OFF_REGION_ANCHOR). When the
+    // target frame is freed the pointer is never cleared; GetPoint then does
+    // `MOV EAX,[relativeTo-0x24+4]` at 0x007A2452 → ERROR #132. The rel-less
+    // anchor node type (vtable 0x0081C42C, 12 bytes) has NO relativeTo field
+    // and its readers never deref one, so only 0x44C nodes can dangle.
+    FUN_GET_POINT = 0x007A2340,                   // engine Script_GetPoint (Region registry idx 15); delegate target
+    FUN_REGION_CLEAR_POINT_BY_RELATIVE = 0x00767E70, // __thiscall(region+OFF_REGION_ANCHOR, relativeTo, doRelayout): frees+NULLs every anchor node on this region whose GetRelativeTo()==relativeTo (pointer compare, never derefs the target). The engine's own "my anchor target was removed" cleanup — the one NOT called on target destruction, which is the bug.
+    OFF_REGION_ANCHOR_ARRAY = 0x28,               // region base + 0x28 = anchor-node slot[0] (= OFF_REGION_ANCHOR + 4)
+    REGION_ANCHOR_SLOT_COUNT = 9,                 // one slot per FRAMEPOINT_* enum (0..8)
+    OFF_ANCHOR_NODE_RELATIVE_TO = 0x0C,           // raw relativeTo ptr within a 0x44C anchor node
+    VAR_ANCHOR_VTABLE_WITH_RELATIVE = 0x0081C44C, // .rdata vtable of anchor nodes that carry a relativeTo (vs rel-less 0x0081C42C)
+
     DRAWLAYER_ARTWORK = 2,
     FRAMEPOINT_TOPLEFT = 0,
     FRAMEPOINT_TOPRIGHT = 2,
