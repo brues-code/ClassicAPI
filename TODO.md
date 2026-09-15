@@ -3915,3 +3915,66 @@ registered like `ExportInterfaceFiles`, writing one Blizzard-format `.lua`
 per system plus `Undocumented.txt`), a CI diff of the committed copies to
 catch descriptor drift, and a Markdown/wiki generator to replace the
 hand-maintained `docs/API.md` — the reason the descriptors exist at all.
+
+## 101. `Frame:SetOnUpdateMode(mode)` + `Enum.OnUpdateMode` — medium
+
+```
+Frame:SetOnUpdateMode(onUpdateMode)      -- Enum.OnUpdateMode
+  0 Disabled            no OnUpdate, visible or not
+  1 RunWhenVisible      the vanilla behaviour (default)
+  2 RunWhenVisibleOnce  run once while visible; resets to Disabled BEFORE running
+  3 RunOnce             run once regardless of visibility; resets to Disabled BEFORE running
+  4 RunAlways           run regardless of visibility
+```
+
+"Resets before running" is load-bearing: the handler re-arms by calling
+`SetOnUpdateMode` again from inside itself.
+
+**Engine (verified 2026-09-15).** The per-frame dispatcher is `FUN_0076B2C0`,
+`__thiscall(frame, float elapsed)` at vtable `+0x38`, present in every frame
+vtable with subclass overrides chaining into it (same shape as the click
+vmethod `FUN_00779540`):
+
+```c
+if (frame[0x128] != 0)                                  // the OnUpdate slot
+    FUN_007026F0(frame, frame + 0x128, "%f", elapsed);  // fmt @0x00835160
+```
+
+The walk is `FUN_00765650`: nine strata buckets of an intrusive list
+(`frame+0x310` = next, saved into the bucket before each call so a handler may
+unlink itself), calling `vtable+0x38` per node — with **no visibility check in
+the loop and none in the dispatcher**. Visibility is therefore *list
+membership*, not a test, and that list is the per-strata render list, so a
+hidden frame is simply absent. Contention: a literal scan of every DLL in
+`dll\` + `dll_local\` finds no reference to `FUN_0076B2C0` or `FUN_00765650`.
+
+**Design.** Modes 0/1/2 need only a co-hook on `FUN_0076B2C0` — mode 0 returns
+without calling the original, mode 2 sets Disabled then calls it, mode 1 is the
+engine unchanged. Guard the detour on an empty mode map so non-users pay a
+compare.
+
+Modes 3/4 cannot come from that hook: the frame is not in the walk's list while
+hidden, and forcing membership would put it in the RENDER list (it would try to
+draw). Drive them from `Tick::WorldTick` instead — an already-owned hook, so no
+second MinHook — calling the engine's own `FUN_0076B2C0(frame, elapsed)` so the
+handler sees exactly the fire it normally would, with a per-tick mark set by the
+hook so a *visible* `RunAlways` frame is not dispatched twice.
+
+**Open question before writing it:** the `elapsed` for the self-driven modes.
+The walk receives it from its caller; cleanest is to capture it in the hook (one
+value per pass, shared by every frame) and reuse it, falling back to a
+`Time::Clock` delta when nothing visible ran that frame. Needs checking whether
+`Tick::WorldTick` (`FUN_0066FD50`, the world subsystem) runs before or after the
+UI pass, which decides whether the captured value is this frame's or last
+frame's.
+
+**Cost:** one new MinHook (uncontended, guarded to ~zero when unused), one
+WorldTick subscriber, a frame-keyed mode map, `Enum.OnUpdateMode`, and
+`SetOnUpdateMode` / `GetOnUpdateMode`.
+
+**Value, honestly.** `RunAlways` is the only genuinely new capability — a hidden
+frame currently cannot run OnUpdate at all, which is why addons keep a
+permanently-shown dummy frame for their tickers. `Disabled` duplicates
+`SetScript("OnUpdate", nil)` and `RunOnce` overlaps `C_Timer.After(0, …)`, so
+the rest is API parity. Worth it for the one capability plus a clean enum, not
+as a performance feature.
