@@ -46,6 +46,39 @@
 // fires them regardless; on this client that would require hooking the click
 // vmethod, which SuperWoW owns. Bracketing an existing OnClick is the common
 // case and the one this backport serves.
+//
+// `GetMouseButtonClicked()` — the button string of the innermost click dispatch
+// currently on the stack, nil outside one. It lives in this module because that
+// is precisely what it is. 3.3.5 keeps it in a frame-manager field (the getter
+// FUN_0050f950 pushes `[frameMgr + 0x1234]`, nil when null), and the ONLY code
+// that ever writes that field is the four click dispatches — button OnClick
+// FUN_0048fc30, OnDoubleClick FUN_0048fce0, and the two secure click paths
+// FUN_0096fd70 / FUN_0096fdd0 that wrap PreClick -> OnClick -> PostClick — each
+// with the same bracket around the handler:
+//
+//     saved = mgr->clickedButton;
+//     mgr->clickedButton = buttonName;   // this dispatch's own argument
+//     ... run the handler ...
+//     mgr->clickedButton = saved;
+//
+// Saving on the C stack is what makes a nested click shadow the outer one and
+// restore on unwind, so the innermost dispatch wins. Nothing captures the OS
+// mouse message and nothing evicts on a timer: outside a click dispatch the
+// answer is nil, and it is nil in OnMouseDown / OnMouseUp / OnDragStart too.
+//
+// 1.12 has no such field, but it has the same bracket point. Both click
+// dispatches (FUN_00779540 OnClick, FUN_00779650 OnDoubleClick) fire their
+// handler through the runner this module already intercepts, passing the button
+// name as the fire's only "%s" argument. So we mirror the engine's bracket
+// around that fire and read the name straight out of it — which also inherits
+// the engine's own naming for free: the vmethods take a button BITMASK, and
+// Button:Click (FUN_007826C0) folds its optional string argument down to one, so
+// a bare `Click()` arrives as "LeftButton" and an unrecognized name as
+// "UNKNOWN". (An earlier version captured the button from the WH_GETMESSAGE
+// hook behind GLOBAL_MOUSE_DOWN/UP and evicted it a couple of world ticks later
+// — which reported a button for as long as one was held, and for ~2 frames after
+// every click, making the value useless as the "am I in a click handler" test it
+// exists to be.)
 
 #include "frame/ClickEvents.h"
 
@@ -108,7 +141,58 @@ bool EqualsIgnoreCase(const char *s, const char *literal) {
 // click a button again. While bracketing, further OnClick fires pass straight
 // through (the nested click still runs — it just doesn't get its own nested
 // PreClick/PostClick), which prevents runaway from a self-clicking handler.
+// It guards ONLY the Pre/PostClick pair — a nested click still gets its own
+// clicked-button scope, since that one must track the innermost dispatch.
 int g_firing = 0;
+
+// --- clicked button (GetMouseButtonClicked) --------------------------------
+// The innermost click dispatch's button string, null outside one — and
+// Game::Lua::PushString tail-jumps to pushnil on null, so that surfaces as nil
+// with no extra branch. It always points at one of the engine's own static name
+// literals ("LeftButton" … "UNKNOWN"), which live for the process, so holding
+// the pointer across the dispatch — and across a /reload a click handler
+// triggers — can never dangle.
+const char *g_clickedButton = nullptr;
+
+// The fire's first "%s" argument — the button name. A click fire is always
+// exactly ("%s", name); any other shape isn't a name, so it reads null.
+const char *FirstStringArg(const char *fmt, const void *varargs) {
+    if (fmt == nullptr || varargs == nullptr)
+        return nullptr;
+    const char *p = fmt;
+    while (*p != '\0' && *p != '%')
+        ++p;
+    if (p[0] != '%' || p[1] != 's')
+        return nullptr;
+    return *reinterpret_cast<const char *const *>(varargs);
+}
+
+enum ClickKind { CK_NONE, CK_CLICK, CK_DOUBLECLICK };
+
+// Which click dispatch this fire is, by slot address. Exact: no other fire
+// passes a button's OnClick / OnDoubleClick slot.
+ClickKind ClickKindOf(void *frame, const uint32_t *slotPtr) {
+    const char *base = reinterpret_cast<const char *>(frame);
+    if (slotPtr == reinterpret_cast<const uint32_t *>(
+                       base + Offsets::OFF_BUTTON_ONCLICK_HANDLER))
+        return CK_CLICK;
+    if (slotPtr == reinterpret_cast<const uint32_t *>(
+                       base + Offsets::OFF_BUTTON_ONDOUBLECLICK_HANDLER))
+        return CK_DOUBLECLICK;
+    return CK_NONE;
+}
+
+int __fastcall Script_GetMouseButtonClicked(void *L) {
+    Game::Lua::PushString(L, g_clickedButton);
+    return 1;
+}
+
+void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("GetMouseButtonClicked",
+                                      &Script_GetMouseButtonClicked);
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 // --- Resolver co-hook (Button script-name -> slot) ---------------------
 using Resolver_t = int(__fastcall *)(void *self, void *edx, const char *name);
@@ -144,19 +228,30 @@ void FireCell(void *frame, int kind, const char *fmt, void *varargs) {
         Game::Lua::SetTop(L, savedTop);
 }
 
-// Falls through (false) for every fire that isn't a top-level OnClick;
-// otherwise runs the whole bracket itself and reports it handled (true).
+// Falls through (false) for every fire that isn't a click dispatch; otherwise
+// runs the dispatch itself, inside the engine's clicked-button bracket, and
+// reports it handled (true). A top-level OnClick additionally gets its
+// PreClick/PostClick pair, which run inside the same bracket so they read the
+// button too — exactly like the secure click path they mirror.
 bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
-    const auto onClickSlot = reinterpret_cast<uint32_t *>(
-        reinterpret_cast<char *>(frame) + Offsets::OFF_BUTTON_ONCLICK_HANDLER);
-    if (slotPtr != onClickSlot || g_firing > 0)
+    const ClickKind kind = ClickKindOf(frame, slotPtr);
+    if (kind == CK_NONE)
         return false;
 
-    ++g_firing;
-    FireCell(frame, SK_PRECLICK, fmt, varargs);
-    Frame::RunnerHook::Original(frame, slotPtr, fmt, varargs); // the button's OnClick
-    FireCell(frame, SK_POSTCLICK, fmt, varargs);
-    --g_firing;
+    const char *saved = g_clickedButton;
+    g_clickedButton = FirstStringArg(fmt, varargs);
+
+    if (kind == CK_CLICK && g_firing == 0) {
+        ++g_firing;
+        FireCell(frame, SK_PRECLICK, fmt, varargs);
+        Frame::RunnerHook::Original(frame, slotPtr, fmt, varargs); // the OnClick
+        FireCell(frame, SK_POSTCLICK, fmt, varargs);
+        --g_firing;
+    } else {
+        Frame::RunnerHook::Original(frame, slotPtr, fmt, varargs);
+    }
+
+    g_clickedButton = saved;
     return true;
 }
 

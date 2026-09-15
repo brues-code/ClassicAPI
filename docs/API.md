@@ -7915,27 +7915,28 @@ end
 
 ### `GetMouseButtonClicked()`
 
-Returns the name of the button responsible for the mouse handler
-currently running (`"LeftButton"`, `"RightButton"`, `"MiddleButton"`,
-`"Button4"`, `"Button5"`), or `nil` when no click is being handled.
+Returns the name of the mouse button that started the `OnClick` or
+`OnDoubleClick` handler that is now running. At any other time it
+returns `nil`.
 
-Addons call this inside a mouse handler (`OnClick`,
-`OnMouseDown`, `OnMouseUp`, `OnDragStart`, …) to learn which button
-drove it — an alternative to reading `arg1`, and readable
-from nested helper functions where `arg1` isn't in scope. The value
-is captured by the same `WH_GETMESSAGE` hook behind
-`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP`, then evicted a couple of
-frames later so — matching the real API — it reads `nil` outside a
-handler rather than lingering as the last click forever.
+A helper function that the handler calls can also read the name.
+`arg1` is not in scope there.
 
-The button stays readable for the whole frame its click lands in (so
-multiple addons hooking the same `OnClick` all see it), and while a
-button is physically held (so `OnDragStart` reads it). It is a
-best-effort replica: WoW dispatches these handlers deferred from the
-OS message, so eviction is time-based (per-frame) rather than exactly
-bracketed around the handler. Values can therefore
-linger ~2 frames past a click — harmless, since it's only meaningful
-inside a mouse handler.
+The name is one of `"LeftButton"`, `"MiddleButton"`, `"RightButton"`,
+`"Button4"`, or `"Button5"`. A `Button:Click()` call with no argument
+gives `"LeftButton"`. A `Button:Click(name)` call with any other name
+gives `"UNKNOWN"`.
+
+`PreClick` and `PostClick` handlers run inside the click, so they read
+the same name.
+
+The other mouse scripts are not clicks. In `OnMouseDown`, `OnMouseUp`,
+and `OnDragStart` this function returns `nil`, and `arg1` holds the
+button.
+
+The name is valid only while the handler runs. If a handler clicks a
+second button, the name of that inner click applies until the inner
+handler ends. Then the outer name comes back.
 
 ```lua
 button:SetScript("OnClick", function()

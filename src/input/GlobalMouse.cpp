@@ -24,25 +24,10 @@
 // as the events (single source of truth — events firing and the
 // state being readable happen at the same point in the pipeline).
 //
-// `GetMouseButtonClicked()` — the button name of the most recent
-// mouse button message (`"LeftButton"` / … / `"Button5"`), or nil
-// when no click is being handled. Modern addons call it inside a
-// mouse handler to learn which button drove it; the value is evicted
-// shortly after, so — like the real API — it reads nil outside a
-// handler rather than returning a stale last-click forever.
-//
-// Modern WoW backs this with a frame-manager field set right before a
-// mouse handler runs and cleared right after (verified in 3.3.5:
-// `GetMouseButtonClicked` pushes `[frameMgr + 0x1234]`, nil when that
-// field is null). We can't bracket the handler the same way here: the
-// `WH_GETMESSAGE` hook sees the button at message-dequeue, but WoW
-// dispatches the frame-script mouse handlers *deferred* (during the
-// frame update, not the message pump). So instead we capture the
-// button on the message and evict it from the per-frame `WorldTick`
-// once a couple of quiet ticks pass with no button held — the value
-// survives the whole frame its click lands in (so every handler,
-// including multiple addons hooking one `OnClick`, sees it) then
-// clears. A held button keeps it set so `OnDragStart` still reads it.
+// `GetMouseButtonClicked()` is NOT here — it is not a mouse-device
+// query at all. The engine scopes it to a click DISPATCH, bracketing
+// the value around the handler rather than tracking the device, so it
+// lives with that dispatch in [Frame::ClickEvents](../frame/ClickEvents.cpp).
 //
 // Same `WH_GETMESSAGE` thread-message hook pattern as
 // [Input::Modifier](Modifier.cpp): we intercept the WM_*BUTTON*
@@ -53,7 +38,6 @@
 
 #include "Game.h"
 #include "event/Custom.h"
-#include "tick/WorldTick.h"
 
 #include <cstdint>
 #include <cstring>
@@ -79,24 +63,6 @@ constexpr int BIT_BUTTON5       = 4;
 constexpr uint32_t MASK_ANY_BUTTON = 0x1F;
 
 uint32_t g_mouseButtonMask = 0;
-
-// Name of the button from the most recent mouse-button message, or
-// nullptr when no click is being handled. Points at one of
-// DecodeButton's string literals (stable for the process lifetime),
-// so storing the pointer is safe. `lua_pushstring(L, nullptr)`
-// tail-jumps to pushnil, so a null here surfaces as nil to the Lua
-// caller with no extra branch. Set on each button message; evicted by
-// EvictTick (see the header note on GetMouseButtonClicked).
-const char *g_lastButton = nullptr;
-
-// Set true whenever g_lastButton is (re)assigned, so EvictTick can
-// tell a just-clicked frame from a quiet one. Number of consecutive
-// quiet ticks (no activity, nothing held) required before eviction —
-// >1 so a handler dispatched a frame after its message still reads
-// the button.
-bool g_buttonActivity = false;
-int g_quietTicks = 0;
-constexpr int kQuietTicksToEvict = 2;
 
 HHOOK g_msgHook = nullptr;
 
@@ -140,13 +106,6 @@ void ProcessMouseMessage(UINT msg, WPARAM wParam) {
     if (name == nullptr)
         return;
 
-    // Capture for GetMouseButtonClicked on both press and release —
-    // during an OnClick / OnMouseUp handler the "clicked" button is the
-    // one just released, same as the press for a normal click.
-    g_lastButton = name;
-    g_buttonActivity = true;
-    g_quietTicks = 0;
-
     const int bitIdx = NameToBitIdx(name);
     if (bitIdx >= 0) {
         const uint32_t bit = 1u << bitIdx;
@@ -182,39 +141,6 @@ int __fastcall Script_IsMouseButtonDown(void *L) {
     return 1;
 }
 
-int __fastcall Script_GetMouseButtonClicked(void *L) {
-    // Null → pushnil (the engine's pushstring tail-jumps on NULL), so
-    // callers outside a mouse handler see nil, matching the modern API.
-    Game::Lua::PushString(L, g_lastButton);
-    return 1;
-}
-
-// Per-frame eviction of g_lastButton. Runs at the tail of each frame's
-// world tick. While a button is held we keep the value (drag handlers
-// still read it) and reset the quiet counter. A frame that saw a fresh
-// button message consumes its activity flag but doesn't yet evict —
-// that one-frame grace lets a handler dispatched the frame after its
-// message still read the button. Only after kQuietTicksToEvict ticks
-// with nothing held and no activity do we clear, so outside a click
-// GetMouseButtonClicked reads nil instead of a stale last-click.
-void EvictTick() {
-    if (g_lastButton == nullptr)
-        return;
-    if (g_mouseButtonMask != 0) {
-        g_quietTicks = 0;
-        return;
-    }
-    if (g_buttonActivity) {
-        g_buttonActivity = false;
-        g_quietTicks = 0;
-        return;
-    }
-    if (++g_quietTicks >= kQuietTicksToEvict) {
-        g_lastButton = nullptr;
-        g_quietTicks = 0;
-    }
-}
-
 LRESULT CALLBACK GetMsgHook(int code, WPARAM wParam, LPARAM lParam) {
     // Only process when the message is being removed from the queue
     // (`PM_REMOVE` / `GetMessage`); `PM_NOREMOVE` peeks would deliver
@@ -236,12 +162,9 @@ void InstallHook() {
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsMouseButtonDown",
                                       &Script_IsMouseButtonDown);
-    Game::Lua::RegisterGlobalFunction("GetMouseButtonClicked",
-                                      &Script_GetMouseButtonClicked);
     InstallHook();
 }
 
-const Tick::WorldTick::AutoSubscribe _evict{&EvictTick};
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace

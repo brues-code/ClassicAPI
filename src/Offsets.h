@@ -255,10 +255,17 @@ enum Offsets {
     // `Frame::ClickEvents` co-hooks this to hand out an external per-button cell
     // for those two names — same technique as FUN_GAMETOOLTIP_SCRIPT_RESOLVER.
     FUN_BUTTON_SCRIPT_RESOLVER = 0x00778C50,
-    // Button OnClick script slot offset (the resolver's OnClick return). Used
-    // by `Frame::ClickEvents` to recognize an OnClick fire at the runner hook
-    // below: the fire passes slotPtr == button + this offset.
+    // Button OnClick / OnDoubleClick script slot offsets (the resolver's
+    // returns for those two names). Used by `Frame::ClickEvents` to recognize a
+    // click fire at the runner hook below: the fire passes slotPtr == button +
+    // one of these. Each has exactly one fire site — the click vmethods
+    // FUN_00779540 (OnClick) and FUN_00779650 (OnDoubleClick), which take a
+    // button BITMASK (1 = Left, 2 = Middle, 4 = Right, 8 = Button4,
+    // 0x10 = Button5), map it through a jump table to the engine's own name
+    // literal (anything else -> "UNKNOWN" at 0x00838044) and fire
+    // FUN_007026F0(button, button + slot, "%s", name).
     OFF_BUTTON_ONCLICK_HANDLER = 0x4CC,
+    OFF_BUTTON_ONDOUBLECLICK_HANDLER = 0x4D4,
     // Frame-script runner WITH exec-context stamping — __cdecl(void *frame,
     // int *slotPtr, const char *fmt, void *vaPtr). Saves DAT_00ceeac0, stamps
     // it from slotPtr[1] (the cell's context), then calls FUN_FRAME_RUN_SCRIPT_ARGS
