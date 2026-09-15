@@ -431,6 +431,7 @@ build instructions.
 - [LossOfControl](#lossofcontrol)
   - [`C_LossOfControl.GetActiveLossOfControlDataCount()`](#c_lossofcontrolgetactivelossofcontroldatacount)
   - [`C_LossOfControl.GetActiveLossOfControlData(index)`](#c_lossofcontrolgetactivelossofcontroldataindex)
+  - [`C_LossOfControl.GetSchoolLockout([filterMask])`](#c_lossofcontrolgetschoollockoutfiltermask)
 
 - [Lua](#lua)
   - [Lua 5.1 syntax](#lua-51-syntax)
@@ -10505,8 +10506,49 @@ Fidelity notes:
   `Aura::Source` cache) and are `nil` otherwise. These fields are nullable.
 - **`auraInstanceID`** is omitted (`nil`) — no equivalent here.
 
+### `C_LossOfControl.GetSchoolLockout([filterMask])`
+
+Returns `lockedMask, secondsRemaining` for the school-interrupt lockout — the
+`SCHOOL_INTERRUPT` slice of the list above, without building the list.
+
+```lua
+local mask, remaining = C_LossOfControl.GetSchoolLockout()
+if mask ~= 0 then
+    print(C_Spell.GetSchoolString(mask), "locked for", remaining)
+end
+
+-- One school's own remaining time. Masks are 1 << schoolIndex:
+-- physical 1, holy 2, fire 4, nature 8, frost 16, shadow 32, arcane 64.
+local locked, fireRemaining = C_LossOfControl.GetSchoolLockout(4)
+if locked ~= 0 and fireRemaining < 0.5 then
+    -- fire clears within half a second
+end
+```
+
+| Return | Type | Notes |
+|---|---|---|
+| `lockedMask` | number | Every currently locked school OR'd together, as `1 << schoolIndex` — the same shape as `lockoutSchool`. `0` when nothing is locked. |
+| `secondsRemaining` | number? | Until every school in `lockedMask` is clear, i.e. the lockout ending last. `nil` when `lockedMask` is `0`. |
+
+`filterMask` narrows the scan to those schools, so one school's own remaining
+time is `GetSchoolLockout(1 << schoolIndex)`. Omitted or `0` means all schools.
+
+Two schools can be locked at the same time — each `SMSG_SPELL_COOLDOWN` batch
+locks one, so being kicked on fire and then on frost leaves both active. That is
+why this returns a mask rather than a single school, and why walking the list
+above and stopping at the first `SCHOOL_INTERRUPT` entry is wrong.
+
+Prefer this over the list walk whenever only the school lockout matters: it
+reads the lockout state directly, allocating no table and skipping the
+debuff scan that every `GetActiveLossOfControlData` call performs. Cheap enough
+to call per frame from a macro conditional.
+
 The `LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events fire as these
 effects change — see [Events](#loss_of_control_added--loss_of_control_update-events).
+Note that they are driven by a diff of *which* effects are active, so
+re-locking an already-locked school extends its lockout without firing either
+event. Read the remaining time when you need it rather than caching it on the
+events.
 
 For the effect that blocks one specific spell, shaped as a cooldown, see
 [`C_Spell.GetSpellLossOfControlCooldown`](#c_spellgetspelllossofcontrolcooldownspellidentifier)

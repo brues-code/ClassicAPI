@@ -359,6 +359,56 @@ int __fastcall Script_GetActiveLossOfControlData(void *L) {
     return 1;
 }
 
+// `C_LossOfControl.GetSchoolLockout([filterMask])` -> lockedMask, seconds.
+//
+// The school-interrupt slice of the active list, served without building the
+// list: reads `g_schoolLock` directly, so it allocates no table and skips the
+// 16-slot aura scan every `GetActiveLossOfControlData` call pays for. Sized for
+// per-frame conditional evaluation, where that scan and a table per call are
+// the whole cost.
+//
+// `lockedMask` ORs *every* currently locked school (`1 << schoolIndex`, the
+// same shape as `lockoutSchool`). Two schools can be locked at once — each
+// SMSG_SPELL_COOLDOWN batch locks one — so a caller that stops at the first
+// SCHOOL_INTERRUPT entry silently drops the rest.
+//
+// `seconds` runs until every school in `lockedMask` is clear, i.e. the lockout
+// ending last. It is absent (nil) when nothing is locked.
+//
+// `filterMask` narrows the scan to those schools, so one school's own remaining
+// time is `GetSchoolLockout(1 << schoolIndex)`. Omitted or 0 means all schools.
+int __fastcall Script_GetSchoolLockout(void *L) {
+    int filter = ~0; // every school
+    if (Game::Lua::IsNumber(L, 1)) {
+        const int arg = static_cast<int>(Game::Lua::ToNumber(L, 1));
+        if (arg != 0)
+            filter = arg;
+    }
+
+    const uint32_t now = NowMs();
+    int locked = 0;
+    uint32_t longest = 0;
+    for (int s = 0; s < Offsets::SPELL_SCHOOL_COUNT; ++s) {
+        const int bit = 1 << s;
+        if ((filter & bit) == 0)
+            continue;
+        const uint32_t endMs = g_schoolLock[s].endMs;
+        if (endMs == 0 || Reached(now, endMs))
+            continue;
+        locked |= bit;
+        // Compare durations, never raw ticks -- see `Time::Clock`.
+        const uint32_t remain = Time::Clock::Remaining(now, endMs);
+        if (remain > longest)
+            longest = remain;
+    }
+
+    Game::Lua::PushNumber(L, static_cast<double>(locked));
+    if (locked == 0)
+        return 1; // nothing locked -> no time to report
+    Game::Lua::PushNumber(L, static_cast<double>(longest) * 0.001);
+    return 2;
+}
+
 } // namespace
 
 bool LockoutForSpell(int spellID, uint32_t *startMs, uint32_t *endMs) {
@@ -396,6 +446,8 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_LossOfControl",
                                      "GetActiveLossOfControlData",
                                      &Script_GetActiveLossOfControlData);
+    Game::Lua::RegisterTableFunction("C_LossOfControl", "GetSchoolLockout",
+                                     &Script_GetSchoolLockout);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
