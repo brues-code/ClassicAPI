@@ -103,6 +103,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [Spell](docs/API.md#spell) | `C_Spell.CancelSpellByID`, `C_Spell.CastAtCursor`, `C_Spell.CastAtUnit`, `C_Spell.CastingInfo`, `C_Spell.ChannelInfo`, `C_Spell.DoesSpellExist`, `C_Spell.GetSchoolString`, `C_Spell.GetSpellCastCount`, `C_Spell.GetSpellCooldown`, `C_Spell.GetSpellDescription`, `C_Spell.GetSpellDispelType`, `C_Spell.GetSpellEffectInfo`, `C_Spell.GetSpellEffectMechanics`, `C_Spell.GetSpellInfo`, `C_Spell.GetSpellLevelInfo`, `C_Spell.GetSpellLink`, `C_Spell.GetSpellLossOfControlCooldown`, `C_Spell.GetSpellMechanicByID`, `C_Spell.GetSpellName`, `C_Spell.GetSpellPowerCost`, `C_Spell.GetSpellRadius`, `C_Spell.GetSpellReagents`, `C_Spell.GetSpellRequiredTargetLevel`, `C_Spell.GetSpellSubtext`, `C_Spell.GetSpellTexture`, `C_Spell.IsAutoAttackSpell`, `C_Spell.IsCurrentSpell`, `C_Spell.IsNextMeleeSpell`, `C_Spell.IsRangedAutoAttackSpell`, `C_Spell.IsSelfBuff`, `C_Spell.IsSpellHarmful`, `C_Spell.IsSpellHelpful`, `C_Spell.IsSpellInRange`, `C_Spell.IsSpellPassive`, `C_Spell.IsSpellUsable`, `C_Spell.ResetsMeleeSwing`, `C_Spell.SpellHasRange`, `C_Spell.UnitCastingInfo`, `C_Spell.UnitChannelInfo`, `CanDualWield`, `CancelSpellByName`, `CastSpellNoToggle`, `GetCraftSpellID`, `GetSpellBonusDamage`, `GetSpellBonusHealing`, `GetSpellInfo`, `GetSpellLink`, `GetSpellRadius`, `GetSpellRequiredTargetLevel`, `GetSpellSchool`, `IsHarmfulSpell`, `IsHelpfulSpell`, `IsPassiveSpell`, `IsPlayerSpell`, `IsSpellKnown`, `IsUsableSpell`, `SpellHasRange` |
 | [SpellBook](docs/API.md#spellbook) | `C_SpellBook.ContainsAnyDisenchantSpell`, `C_SpellBook.GetCurrentLevelSpells`, `C_SpellBook.GetNumSpellBookSkillLines`, `C_SpellBook.GetPlayerSpellsByAura`, `C_SpellBook.GetSkillLineIndexByID`, `C_SpellBook.GetSkillLineName`, `C_SpellBook.GetSkillLineRank`, `C_SpellBook.GetSpellBookItemCastCount`, `C_SpellBook.GetSpellBookItemInfo`, `C_SpellBook.GetSpellBookItemLossOfControlCooldownDuration`, `C_SpellBook.GetSpellBookItemLossOfControlCooldownInfo`, `C_SpellBook.GetSpellBookItemSkillLineIndex`, `C_SpellBook.GetSpellBookSkillLineInfo`, `C_SpellBook.GetSpellLevelLearned`, `C_SpellBook.GetSpellSkillLine`, `C_SpellBook.IsAutoAttackSpellBookItem`, `C_SpellBook.IsClassTalentSpellBookItem`, `C_SpellBook.IsRangedAutoAttackSpellBookItem`, `FindSpellBookSlotByID` |
 | [State](docs/API.md#state) | `CancelShapeshiftForm`, `Dismount`, `GetMirrorTimerInfo`, `GetMirrorTimerProgress`, `GetShapeshiftFormID`, `GetSheathState`, `IsAssistingRitual`, `IsFalling`, `IsIndoors`, `IsInGroup`, `IsInRaid`, `IsLoggedIn`, `IsMounted`, `IsOutdoors`, `IsStealthed`, `IsSwimming` |
+| [SwingTimer](docs/API.md#swingtimer) | `C_SwingTimer.EnableRangeCheck`, `C_SwingTimer.IsTargetWithinSwingRange` |
 | [System](docs/API.md#system) | `CopyToClipboard`, `GetPhysicalScreenSize` |
 | [Talent](docs/API.md#talent) | `GetTalentIDByIndex`, `GetTalentSpellID` |
 | [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer` |
@@ -231,6 +232,8 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_STOPPED_MOVING` | *(none)* |
 | `PLAYER_STARTED_TURNING` | *(none)* |
 | `PLAYER_STOPPED_TURNING` | *(none)* |
+| `PLAYER_SWING` | `swingDuration, swingType` |
+| `PLAYER_SWING_RANGE_UPDATE` | `swingType, isInRange, checksRange` |
 | `PLAYER_TOTEM_UPDATE` | `totemSlot` |
 | `QUEST_ACCEPTED` | `questLogIndex, questID` |
 | `QUEST_DATA_LOAD_RESULT` | `questID, success` |
@@ -277,6 +280,7 @@ when launching with `-console`), not as Lua functions. See the
 | Cursor type | `Enum.UICursorType.{Default,Item,Money,Spell,PetAction,Merchant,Macro,Pet,…}` (0–20; this client yields 0–5, 7 and 9) |
 | Spellbook bank | `Enum.SpellBookSpellBank.{Player,Pet}` (0–1) |
 | Spellbook item type | `Enum.SpellBookItemType.{None,Spell,FutureSpell,PetAction,Flyout}` (0–4; 1.12 only yields `Spell`/`PetAction`) |
+| Player swing type | `Enum.PlayerSwingType.{MainHand,OffHand,Ranged}` (0–2) |
 
 </details>
 

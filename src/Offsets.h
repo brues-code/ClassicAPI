@@ -1841,6 +1841,23 @@ enum Offsets {
     // any visible unit, not just the local player.
     OFF_UNIT_FIELD_CHANNEL_SPELL = 0x228,
 
+    // `UNIT_FIELD_BASEATTACKTIME` (main-hand @ field 0x78, off-hand @ field
+    // 0x79) and `UNIT_FIELD_RANGEDATTACKTIME` (field 0x7A) — byte offset =
+    // field index * 4. Verified two ways: (1) the in-binary UpdateField
+    // name table at VA `0x0083A6EC` gives field index 0x78 for the string
+    // "UNIT_FIELD_BASEATTACKTIME" and 0x7A for "UNIT_FIELD_RANGEDATTACKTIME";
+    // (2) `Script_UnitAttackSpeed` (`0x00518E50`) reads `[descriptor+0x1E0]`
+    // / `[+0x1E4]` and `Script_UnitRangedDamage` (`0x00518910`) reads
+    // `[descriptor+0x1E8]` — exactly `field*4`. These already carry the
+    // player's current (hasted) swing time; the server writes the modified
+    // value directly into the broadcast field rather than sending a
+    // separate haste multiplier, so there is no client-side way to recover
+    // the UNHASTED weapon delay from these — that has to come from the
+    // weapon's own `OFF_ITEMSTATS_DELAY`. Used by `Combat::Swing`.
+    OFF_UNIT_FIELD_BASEATTACKTIME = 0x1E0,     // main-hand swing time, ms
+    OFF_UNIT_FIELD_OFFHANDATTACKTIME = 0x1E4,  // off-hand swing time, ms
+    OFF_UNIT_FIELD_RANGEDATTACKTIME = 0x1E8,   // ranged swing time, ms
+
     // Aura arrays in the unit's `m_objectFields` descriptor (at `unit
     // + OFF_CGUNIT_OBJECT_FIELDS`). 48 total auras packed as two
     // parallel sub-ranges (32 buffs, then 16 debuffs) sharing the
@@ -2069,6 +2086,53 @@ enum Offsets {
     // nil cleanly).
     FUN_SPELL_RANGE_CHECK = 0x006E47B0,
 
+    // The two floats `FUN_006e3480`'s COMBAT-RANGE branch folds into its
+    // max-range output: `casterReach + targetReach + LEEWAY`, floored at
+    // MIN. Verified by a direct float dump of the image (1.33333 / 5.0);
+    // these are the same constants tortoise-wow's server uses for the
+    // identical formula (`BASE_MELEERANGE_OFFSET = 1.33f`,
+    // `ATTACK_DISTANCE = 5.0f`, `Unit::GetCombatReach`/
+    // `Unit::CanReachWithMeleeAutoAttackAtPosition`). Read live (not
+    // hardcoded) by `Combat::SwingRange`'s DEDICATED melee range check —
+    // see that module for why it can't reuse `FUN_SPELL_RANGE_CHECK`
+    // above: that core (and every other consumer of `FUN_006e3480`, e.g.
+    // the action-bar range glow) computes full 3D distance, but the
+    // SERVER'S actual melee-attack gate
+    // (`WorldObject::CanReachWithMeleeSpellAttack`,
+    // `Unit::CanReachWithMeleeAutoAttackAtPosition`) is explicitly 2D
+    // (X/Y only) — the tortoise-wow source even comments "melee spells
+    // ignore Z-axis checks". Any Z offset between the two units makes the
+    // client's blended 3D check reject a swing the server already allows
+    // (verified in-game: rejected at 5.08yd 3D distance from center while
+    // landing hits — the standing engine mechanism for the GENERIC
+    // spell-range check was simply never asked to gate a real auto-attack
+    // decision before this feature existed, so there's nothing "engine
+    // native" to mirror for that exact semantic; mirroring the SERVER'S
+    // formula with the engine's own live constants is the closest fit).
+    VAR_MELEE_REACH_LEEWAY = 0x0080B058,
+    VAR_MELEE_REACH_MIN = 0x0080A1E8,
+
+    // Pure attackability test: `bool __thiscall(void *attacker /*ecx*/,
+    // void *target /*one stack arg, callee pops it — RET 0x4*/)`.
+    // `Script_UnitCanAttack` (`0x00516C50`) is a thin Lua wrapper over
+    // exactly this call; `FUN_006e4440` (the melee swing resolver) consults
+    // the same helper before a white hit lands. NOT `__fastcall` — verified
+    // by disassembly (`MOV ESI,[EBP+8]` reads the second unit off the
+    // stack; `MOV EDI,ECX` takes the first off ECX; both `RET`s pop 4
+    // bytes). Ghidra's decompile of the one caller renders the call as
+    // plain `FUN_00606980(this,pvVar4)`, which reads as fastcall(ecx,edx)
+    // but isn't — trust the disassembly's prologue over that pseudocode
+    // (same trap `FUN_SET_CVAR_VALUE` bit us with). Declaring this
+    // `__fastcall` sends the second arg through EDX, which the callee never
+    // reads, so it dereferences whatever garbage sits at `[ebp+8]` instead
+    // — crashed in-game (ERROR #132, `[ecx+0xA0]` off a bogus `ecx=4`).
+    //
+    // No position/range check — purely faction/state (hostility, PvP flags,
+    // stealth-detection-independent attackability). Used by `Combat::SwingRange`
+    // to gate the "can I even attack the current target" case Blizzard's
+    // `IsTargetWithinSwingRange` reports as a nil (no-check) answer.
+    FUN_UNIT_CAN_ATTACK = 0x00606980,
+
     // Spell.dbc `m_durationIndex` field — pointer into SpellDuration.dbc.
     // Verified via `FUN_004E44B0` (`0x004e44b0`) and `FUN_006EA000`
     // (`0x006ea000`), both of which read `[spellRec + 0x78]` and use
@@ -2267,6 +2331,28 @@ enum Offsets {
     // u32 targetState, u32, u32 spellId, u32 blocked. `Aura::JudgementRefresh`
     // reads through totalDamage.
     SMSG_ATTACKERSTATEUPDATE = 0x14A,
+    // hitInfo bit 2 — the swing came from the OFF hand, not main hand
+    // (tortoise-wow `HITINFO_LEFTSWING`; `Unit::AttackerStateUpdate` sets
+    // `HITINFO_NORMALSWING`(0) for `BASE_ATTACK`, this for `OFF_ATTACK`).
+    // Read by `Combat::Swing` to pick which hand a white-hit packet resets.
+    HITINFO_LEFTSWING = 0x4,
+    // `SMSG_ATTACKERSTATEUPDATE`'s `targetState` field, value 3 — the swing
+    // was parried. `Unit::AttackerStateUpdate`'s parry-haste block (server)
+    // shortens the PARRYING unit's own next-swing timer by a fixed formula
+    // when this fires with `victim == local player`; `Combat::Swing` mirrors
+    // it (tortoise-wow `VictimState::VICTIMSTATE_PARRY`).
+    VICTIMSTATE_PARRY = 3,
+
+    // Attack-start broadcast — sent when a unit begins a *melee* auto-attack
+    // (`Unit::SendMeleeAttackStart`, called from `Unit::Attack`). Body:
+    // attackerGuid(u64), victimGuid(u64) — PLAIN 64-bit GUIDs, not packed
+    // (verified against the server's own writer: `ObjectGuid`'s `ByteBuffer`
+    // operator is a raw `buf << uint64(guid.GetRawValue())`, no pack-guid
+    // mask byte). `Unit::Attack` also unconditionally
+    // `ResetAttackTimer(OFF_ATTACK)`s here — the one
+    // off-hand reset that isn't itself a white-hit or a cast — so
+    // `Combat::Swing` treats this as an OffHand reset for the local player.
+    SMSG_ATTACKSTART = 0x143,
 
     // NetClient send — `__thiscall void(void *conn, CDataStore *packet)`.
     // The outgoing counterpart of FUN_NET_MESSAGE_DISPATCH: every CMSG the
@@ -8079,6 +8165,15 @@ enum Offsets {
     OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
+    // Attributes bits 2 (0x4) and 10 (0x400) — "on next melee swing" (the
+    // ability replaces the next white hit instead of sending its own attack,
+    // e.g. Heroic Strike / Maul / Raptor Strike). The CLIENT itself tests
+    // this exact combined mask: `FUN_006e3480`'s range resolver early-outs
+    // to a flat 100-yard max (`DAT_008118d4`) for any spell with `Attributes
+    // & 0x404` — verified in the disassembly. `Combat::Swing` uses the same
+    // mask on `SMSG_SPELL_GO` to know an on-next-swing cast replaced (and
+    // therefore reset) the main-hand white hit.
+    SPELL_ATTR_ON_NEXT_SWING = 0x4 | 0x400,
 
     // PreventionType (column 165) — which control-loss flag stops the cast:
     // 0 none, 1 SILENCE (UNIT_FLAG_SILENCED), 2 PACIFY (UNIT_FLAG_PACIFIED);
@@ -8111,6 +8206,12 @@ enum Offsets {
     // by more than one module, so kept here rather than redefined locally.
     SPELL_ATTR_EX_CHANNELED = 0x4 | 0x40,
     SPELL_ATTR_EX2_AUTOREPEAT_FLAG = 0x20,
+    // AttributesEx2 bit 17 — "don't reset the caster's melee/ranged
+    // auto-attack timers" (tortoise-wow `SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS`).
+    // Suppresses the InterruptFlags-driven swing reset below for spells like
+    // Slam / Aimed Shot that have a cast time but are meant to weave with
+    // the swing timer rather than restart it.
+    SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS = 0x20000,
     OFF_SPELL_RECORD_INTERRUPT_FLAGS = 0x54,          // u32 (column 21)
     // Bit 0 of InterruptFlags: the cast is interrupted when the caster moves.
     // Both the server (HandleMovementOpcodes → InterruptSpellsWithInterruptFlags,
@@ -8125,6 +8226,18 @@ enum Offsets {
     // Breath, …) cannot be interrupted by those abilities. Silence auras ignore
     // the flags (PreventionType only). Read by Spell::Interruptible.
     SPELL_INTERRUPT_FLAG_DAMAGE = 0x2,
+    // Bit 3 — server rule for "does casting this spell reset the caster's
+    // melee swing timer" (tortoise-wow `Spell::cast`:
+    // `IsMeleeAttackResetSpell() = !triggered && (InterruptFlags &
+    // SPELL_INTERRUPT_FLAG_AUTOATTACK)`, gated off by
+    // `SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS`). DBC-driven, so it tracks
+    // whatever spell data the server ships rather than a hardcoded spell
+    // list — verified against the client's own Spell.dbc: every plain
+    // cast-time spell (Fireball, …) carries it and resets the swing; the two
+    // vanilla exceptions that DON'T (Slam, Aimed Shot) both carry
+    // `SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS` instead. Read by
+    // `Combat::Swing`.
+    SPELL_INTERRUPT_FLAG_AUTOATTACK = 0x8,
     // ChannelInterruptFlags (column 23). Bit 2 is the channel analog of the
     // gate above (CHANNEL_FLAG_INTERRUPT in both cores). Verified in Spell.dbc:
     // Blizzard / Arcane Missiles 0x7C0C, non-channels 0.

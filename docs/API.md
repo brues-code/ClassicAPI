@@ -175,6 +175,8 @@ build instructions.
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
+  - [`PLAYER_SWING` event](#player_swing-event)
+  - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
   - [`QUEST_REMOVED` event](#quest_removed-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
@@ -316,6 +318,7 @@ build instructions.
   - [`Enum.InventoryType`](#enuminventorytype)
   - [`Enum.ItemClass`](#enumitemclass)
   - [`Enum.ItemQuality`](#enumitemquality)
+  - [`Enum.PlayerSwingType`](#enumplayerswingtype)
   - [`Enum.PowerType`](#enumpowertype)
   - [`Enum.SpellBookSpellBank`](#enumspellbookspellbank)
   - [`Enum.SpellBookItemType`](#enumspellbookitemtype)
@@ -668,6 +671,10 @@ build instructions.
   - [`GetShapeshiftFormID()`](#getshapeshiftformid)
   - [`CancelShapeshiftForm()`](#cancelshapeshiftform)
   - [`GetSheathState()`](#getsheathstate)
+
+- [SwingTimer](#swingtimer)
+  - [`C_SwingTimer.EnableRangeCheck(swingType, enable)`](#c_swingtimerenablerangecheckswingtype-enable)
+  - [`C_SwingTimer.IsTargetWithinSwingRange(swingType)`](#c_swingtimeristargetwithinswingrangeswingtype)
 
 - [System](#system)
   - [`GetPhysicalScreenSize()`](#getphysicalscreensize)
@@ -4279,6 +4286,59 @@ end)
 (no event refires). Fired whenever the player's focus target is
 changed, including when the focus target is lost or cleared.
 
+### `PLAYER_SWING` event
+
+Fires each time one of your attack timers resets.
+
+```
+PLAYER_SWING: swingDuration, swingType
+```
+
+- **`swingDuration`** (number) — the number of seconds from now until
+  the next swing of this type.
+- **`swingType`** — an
+  [`Enum.PlayerSwingType`](#enumplayerswingtype) value: which weapon
+  reset.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_SWING")
+f:SetScript("OnEvent", function()
+    if arg2 == Enum.PlayerSwingType.MainHand then
+        MainHandBar_Start(arg1)
+    end
+end)
+```
+
+A landed main-hand or off-hand hit resets that weapon's timer. An
+on-next-swing ability (Heroic Strike, Maul) resets the main-hand timer
+in its place. A ranged shot resets the ranged timer. Several melee hits
+can land at the same moment, such as an extra attack from Windfury.
+Even then, this event fires once per weapon, not once per hit. A
+parried hit can shorten `swingDuration` below the weapon's normal
+speed. Which spells interrupt the melee timers can differ by realm.
+
+`PLAYER_SWING` does not fire for an attack that you declare while out
+of melee range. It fires once a swing is close enough to be real.
+
+### `PLAYER_SWING_RANGE_UPDATE` event
+
+Fires when your current target moves into or out of range for a swing
+type that has range checking on. See
+[`C_SwingTimer.EnableRangeCheck`](#c_swingtimerenablerangecheckswingtype-enable).
+
+```
+PLAYER_SWING_RANGE_UPDATE: swingType, isInRange, checksRange
+```
+
+- **`swingType`** — the [`Enum.PlayerSwingType`](#enumplayerswingtype)
+  value this update is for.
+- **`isInRange`** — `1` when the target is in range, `nil` when it is
+  not. Ignore this value when `checksRange` is `nil`.
+- **`checksRange`** — `1` when a range check was possible, `nil` when
+  it was not: for example, there is no current target, the target
+  cannot be attacked, or no weapon is equipped for this swing type.
+
 ### `QUEST_ACCEPTED` event
 
 Fires once per quest the player just accepted, with two payload args:
@@ -7606,6 +7666,17 @@ no such items exist here.
 ```lua
 if select(3, GetItemInfo(id)) == Enum.ItemQuality.Epic then ...
 ```
+
+### `Enum.PlayerSwingType`
+
+The weapon that a [`PLAYER_SWING`](#player_swing-event) or
+[`C_SwingTimer`](#swingtimer) value applies to:
+
+| Value | Field      | Meaning |
+|------:|------------|---------|
+| `0`   | `MainHand` | The main-hand melee weapon. |
+| `1`   | `OffHand`  | The off-hand melee weapon, when one is equipped. |
+| `2`   | `Ranged`   | The ranged weapon: a bow, gun, crossbow, or wand. |
 
 ### `Enum.PowerType`
 
@@ -16431,6 +16502,42 @@ end
 The engine has `ToggleSheath()` but no matching getter. `GetSheathState`
 adds the query, with 1-based values. To change the state, use the
 built-in `ToggleSheath()`.
+
+## SwingTimer
+
+`C_SwingTimer` reports whether your current target is in range for a
+melee or ranged auto-attack. See
+[`PLAYER_SWING`](#player_swing-event) for the matching attack-timer
+event, and [`Enum.PlayerSwingType`](#enumplayerswingtype) for the
+weapon values both use.
+
+### `C_SwingTimer.EnableRangeCheck(swingType, enable)`
+
+Turns [`PLAYER_SWING_RANGE_UPDATE`](#player_swing_range_update-event)
+on or off for one swing type.
+
+```lua
+C_SwingTimer.EnableRangeCheck(Enum.PlayerSwingType.MainHand, true)
+```
+
+After you enable a swing type, call
+[`C_SwingTimer.IsTargetWithinSwingRange`](#c_swingtimeristargetwithinswingrangeswingtype)
+once to read the current range. The event fires only on a later change.
+
+### `C_SwingTimer.IsTargetWithinSwingRange(swingType)`
+
+Returns whether your current target is in range for a swing type
+(an [`Enum.PlayerSwingType`](#enumplayerswingtype) value).
+
+```lua
+local inRange = C_SwingTimer.IsTargetWithinSwingRange(Enum.PlayerSwingType.MainHand)
+```
+
+Returns `nil` when no range answer is possible. Reasons include no
+current target, an unattackable target, or no weapon equipped for that
+swing type. A `nil` value must not be read as out of range.
+Auto-attacks apply only to the current target, so no other unit can be
+queried.
 
 ## System
 
