@@ -4,14 +4,23 @@ name: Diagnose mirror auth
 # to the Gitea mirror under two different credential schemes -- both with
 # the identical client-side error, which is what a git client prints for
 # ANY non-git-protocol response (a 401, a 403, an error page all look the
-# same from outside). There is no way to tell which one it actually is, or
-# which scheme (if any) Gitea accepts here, without testing the real
-# server with the real token.
+# same from outside). A first round of this diagnostic checked only HTTP
+# status codes on the GET (info/refs) leg and every scheme came back 200 --
+# which does not actually clear anything: a curl status-code check can't
+# tell a real git advertisement body apart from a 200 that is something
+# else (a proxy/WAF page, a truncated response), and `git push` also does
+# a second POST leg that a GET-only probe never touches at all.
 #
-# This tests several candidate auth schemes against the git-http endpoint
-# with MIRROR_TOKEN and prints only the resulting HTTP status per scheme --
-# never the token, never a response body. Safe to paste the output back
-# anywhere.
+# This round runs the real thing: `git push --dry-run` end to end, with
+# the real MIRROR_TOKEN, against a disposable ref that nothing depends on
+# (refs/heads/_diagnose-mirror-auth) -- dry-run negotiates the full
+# exchange but updates nothing server-side. Captures git's own real
+# output this time instead of inferring from a client-side parse error.
+# Also dumps the raw Content-Type/body-prefix of the GET leg so a
+# malformed-200 can be told apart from a genuine advertisement.
+#
+# Safe to paste the output back anywhere -- no token or repo content
+# appears in it, only git's own diagnostic text and generic HTTP headers.
 #
 # Delete this file once the working scheme is found and applied to
 # mirror-release.yml.
@@ -26,7 +35,7 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe auth methods
+      - name: Probe the real push path
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
@@ -38,26 +47,35 @@ jobs:
           fi
 
           MIRROR=brues/ClassicAPI
-          API=https://octowow.st/git/api/v1
           GIT="https://octowow.st/git/$MIRROR.git"
+          REF=refs/heads/_diagnose-mirror-auth
 
-          code() { curl -sS -m 20 -o /dev/null -w '%{http_code}' "$@"; }
-
-          echo "control -- API with 'Authorization: token' header (expect 200; proves the token itself is valid and has API access):"
-          echo "  $(code -H "Authorization: token $MIRROR_TOKEN" "$API/repos/$MIRROR")"
+          echo "=== raw GET info/refs (receive-pack) -- headers + first 300 bytes of body ==="
+          curl -sS -m 20 -D - -H "Authorization: token ${MIRROR_TOKEN}" \
+            "$GIT/info/refs?service=git-receive-pack" 2>&1 | head -c 600
+          echo
           echo
 
-          echo "control -- git-http read (upload-pack), unauthenticated (expect 200; public repo):"
-          echo "  $(code "$GIT/info/refs?service=git-upload-pack")"
+          work=$(mktemp -d)
+          git init -q "$work"
+          git -C "$work" -c user.email=diag@example.invalid -c user.name=diag \
+            commit -q --allow-empty -m diag
+
+          echo "=== git push --dry-run: Authorization header (what push_tag currently uses) ==="
+          git -C "$work" -c http.extraHeader="Authorization: token ${MIRROR_TOKEN}" \
+            push --dry-run -v "$GIT" "HEAD:$REF" 2>&1
+          echo "exit: $?"
           echo
 
-          echo "git-http write (receive-pack) -- one status per credential scheme:"
-          echo "  Authorization: token <token>   -> $(code -H "Authorization: token $MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
-          echo "  Authorization: Bearer <token>  -> $(code -H "Authorization: Bearer $MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
-          echo "  Basic brues:<token>            -> $(code -u "brues:$MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
-          echo "  Basic <token>:(blank)          -> $(code -u "$MIRROR_TOKEN:" "$GIT/info/refs?service=git-receive-pack")"
-          echo "  Basic oauth2:<token>           -> $(code -u "oauth2:$MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
-          echo "  Basic <token>:x-oauth-basic    -> $(code -u "$MIRROR_TOKEN:x-oauth-basic" "$GIT/info/refs?service=git-receive-pack")"
-          echo "  query ?token=<token>           -> $(code "$GIT/info/refs?service=git-receive-pack&token=$MIRROR_TOKEN")"
+          echo "=== git push --dry-run: Basic auth, real username (brues:<token>) ==="
+          git -C "$work" push --dry-run -v \
+            "https://brues:${MIRROR_TOKEN}@octowow.st/git/$MIRROR.git" "HEAD:$REF" 2>&1
+          echo "exit: $?"
           echo
-          echo "200 = Gitea accepted it. Whichever line(s) show 200 is the scheme to use."
+
+          echo "=== git push --dry-run: Basic auth, token as username, blank password ==="
+          git -C "$work" push --dry-run -v \
+            "https://${MIRROR_TOKEN}@octowow.st/git/$MIRROR.git" "HEAD:$REF" 2>&1
+          echo "exit: $?"
+
+          rm -rf "$work"
