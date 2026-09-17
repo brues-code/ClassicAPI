@@ -38,7 +38,13 @@ namespace {
 // reservations meant a shifting handful (e.g. ITEM_DATA_LOAD_RESULT /
 // GET_ITEM_INFO_RECEIVED) never claimed a slot. Grep `AutoReserve` before
 // bumping the reservation count near this ceiling.
-constexpr int MAX_RESERVED = 64;
+//
+// Hit a SECOND time at 64: the codebase reached 65 reservations (60 at file
+// scope + the 5 lazy TTS ones), so on any client without VanillaTTS — where
+// the TTS five DO construct, and construct last — the 65th
+// (VOICE_CHAT_TTS_VOICES_UPDATE) was dropped and its event never fired.
+// Count as of the WEAPON_SLOT_CHANGED addition: 66.
+constexpr int MAX_RESERVED = 96;
 struct Reservation {
     const char *name;
     int slot;  // -1 until claimed
