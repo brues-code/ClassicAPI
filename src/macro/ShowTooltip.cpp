@@ -52,6 +52,11 @@
 //     `Util/SecureStateDriver.lua` already uses for the same evaluator);
 //     static ones every second (a newly learned rank / newly looted item —
 //     the engine never re-parses a resolved macro on its own).
+//   - Unlearn. The engine's own sweep clears any action slot whose spell was
+//     just unlearned, and it resolves macro slots through the cache above — so
+//     a display resolution could get a working macro permanently deleted off
+//     the bar (the clear is sent to the server). `PruneSpell_h` parks every
+//     managed macro's cache across the sweep; see it for the full trail.
 //   - One deliberate divergence from 3.3.5 (user decision), in the PARSER
 //     rather than here: a group whose only piece is `@unit` passes only while
 //     that unit exists (Util/MacroOptions.lua `GroupPasses`). 3.3.5 passes it
@@ -784,6 +789,70 @@ void MaintainExternal(void *L) {
     }
 }
 
+// Keep our resolution out of the engine's unlearn sweep.
+//
+// `FUN_ACTION_BAR_PRUNE_SPELL` runs straight after the unlearn writer and
+// walks every action slot, resolving each through the MACRO-AWARE
+// `FUN_ACTION_SLOT_TO_SPELL` — for a macro slot, the primary-spell cache this
+// module writes — and clears every slot whose spell is the one just unlearned.
+// The clear is `FUN_ACTION_SLOT_CLEAR`, which notifies with `sendToServer = 1`,
+// so a CMSG_SET_ACTION_BUTTON goes out and the removal is persisted: the macro
+// is gone for good, not until the next reload.
+//
+// That rule is sound for a cache the engine filled from a `/cast` line. It is
+// wrong for one we filled from a DISPLAY directive, which names an icon rather
+// than what the button does — `#showtooltip [known:18223] 18223` over a
+// `/cast` the player can still perform would lose the whole macro on a respec.
+// A conditional directive makes it arbitrary besides: the cached value is
+// whichever clause happened to match on the last evaluation.
+//
+// So for the length of the sweep every macro we describe shows a cache of `0`,
+// which no real spellID matches, and gets its value back afterwards. A macro
+// with no directive is never touched and keeps stock behaviour. The restore is
+// a plain field write with no repaint — it puts back exactly what was there a
+// moment earlier, and the slots the engine really did clear were announced by
+// the engine's own notify.
+//
+// The directive itself catches up on its own: the spellbook just changed, so
+// the next evaluation re-runs `[known:…]` against it and repaints if the
+// answer moved.
+using PruneSpell_t = void(__fastcall *)(uint32_t spellID);
+PruneSpell_t g_origPruneSpell = nullptr;
+
+void __fastcall PruneSpell_h(uint32_t spellID) {
+    // The sweep's ACTIONBAR_SLOT_CHANGED handlers run our action overrides,
+    // which reach `Lookup` — and its catch-up would re-apply the very values
+    // we just parked, mid-sweep, for every slot the loop has yet to reach.
+    BusyScope busy;
+
+    uint8_t *entries[kMaxMacros];
+    uint32_t saved[kMaxMacros];
+    int savedCount = 0;
+    for (Entry &e : g_entries) {
+        if (e.macroID == 0)
+            continue;
+        // Exactly the macros this module drives — the same test `CatchUp` uses
+        // to decide what it may evaluate, plus published ones.
+        const bool managed =
+            e.external || (e.kind != Kind::None && e.optionCount > 0 && !e.foreign);
+        if (!managed)
+            continue;
+        uint8_t *entry = EntryForID(e.macroID);
+        if (entry == nullptr)
+            continue;
+        auto &cache = Game::Ref<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL);
+        entries[savedCount] = entry;
+        saved[savedCount] = cache; // whatever is there, ours or the engine's
+        ++savedCount;
+        cache = 0;
+    }
+
+    g_origPruneSpell(spellID);
+
+    for (int i = 0; i < savedCount; ++i)
+        Game::Ref<uint32_t>(entries[i], Offsets::OFF_MACRO_PRIMARY_SPELL) = saved[i];
+}
+
 // Read `CleveRoids.<field>` as a boolean. The table is already at the top of
 // the stack; leaves the stack as it found it apart from what the caller pops.
 bool ReadCleveRoidsFlag(void *L, const char *field) {
@@ -1034,6 +1103,9 @@ bool LookupEntries(uint32_t macroID, Info *out) {
 const Tick::WorldTick::AutoSubscribe _tick{&Tick};
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
 const Spell::MacroPrimarySpell::PostParseAutoRegister _parsed{&OnMacroParsed};
+const Game::HookAutoRegister _hookPruneSpell{
+    Offsets::FUN_ACTION_BAR_PRUNE_SPELL, reinterpret_cast<void *>(&PruneSpell_h),
+    reinterpret_cast<void **>(&g_origPruneSpell)};
 
 } // namespace
 

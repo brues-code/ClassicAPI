@@ -4741,6 +4741,22 @@ enum Offsets {
     // packet (verified by disassembly: the packet build is the `edx != 0`
     // branch, the event fire the `[esp+4] == 0` branch).
     FUN_ACTION_SLOT_CHANGED_NOTIFY = 0x004E58E0,
+    // Single-slot clear — `__fastcall(uint slot0)`: writes
+    // `VAR_ACTION_TABLE[slot0] = 0` then FUN_ACTION_SLOT_CHANGED_NOTIFY(slot0,
+    // /*sendToServer=*/1, 0), so the removal goes out as CMSG_SET_ACTION_BUTTON
+    // and the server persists it.
+    FUN_ACTION_SLOT_CLEAR = 0x004E5DB0,
+    // The unlearn sweep — `__fastcall(uint spellID)`. Walks all
+    // ACTION_TABLE_MAX_SLOTS slots, resolves each through
+    // FUN_ACTION_SLOT_TO_SPELL, and FUN_ACTION_SLOT_CLEARs every slot whose
+    // spell equals `spellID`. Sole caller is the spell-removal handler
+    // FUN_005E9FE0, immediately after FUN_UNLEARN_SPELL (verified by
+    // disassembly + xrefs). Because the resolver is macro-aware — a macro slot
+    // answers with its primary-spell cache — a macro whose cache holds the
+    // unlearned spell is permanently removed from the action bar, which is why
+    // `Macro::ShowTooltip` co-hooks this to keep its DISPLAY resolution out of
+    // the comparison.
+    FUN_ACTION_BAR_PRUNE_SPELL = 0x004E5E20,
     // Count of `itemID` the player carries, as `UseAction` caches per
     // item-by-ID slot into VAR_ACTION_ITEM_COUNTS — `uint __fastcall(uint
     // itemID)`. Charged items (ItemStats `SPELL_CHARGES[0]` set) sum charges
