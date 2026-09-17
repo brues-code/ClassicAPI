@@ -23,7 +23,8 @@
 // mistaken for `PLAYER` and `!PLAYER` is a negation rather than a match.
 // Honored: `HELPFUL` / `HARMFUL` (the aura's real polarity, read however this
 // server encodes it — see `Aura::Data::IsSlotHarmful`), `PLAYER` /
-// `!PLAYER` (caster == / != the local player, from the Aura::Source cache),
+// `!PLAYER` (caster is / isn't the local player or their pet, from the
+// Aura::Source cache),
 // `DISPELLABLE` / `!DISPELLABLE` (dispel type is / isn't one a
 // dispel/purge/steal can remove — Spell.dbc Dispel ∈ Magic/Curse/Disease/
 // Poison, matching the server's DISPEL_ALL_MASK), and `CROWD_CONTROL` /

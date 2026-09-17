@@ -18563,12 +18563,10 @@ tokens (`"HELPFUL"`, `"HARMFUL"`,
 
 - **`HELPFUL`** (default) / **`HARMFUL`** — pick buffs or debuffs by each
   aura's polarity flag. In `GetUnitAuras`, supplying neither returns both.
-- **`PLAYER`** — restrict to auras the local player cast, via the
-  `Aura::Source` caster cache (`sourceGUID == ` player GUID). Combines with
-  the range tokens (`"HARMFUL|PLAYER"` = your debuffs only). Because the
-  caster is best-effort, an aura whose cast we didn't observe is treated as
-  not-player-cast and excluded — so `PLAYER` can under-report auras that
-  predate login.
+- **`PLAYER`** — restrict to auras that the player or the player's pet
+  cast. Combines with the range tokens (`"HARMFUL|PLAYER"` = your debuffs
+  only). The caster is known only for casts seen this session, so an aura
+  that predates login counts as not-player-cast and is excluded.
 
 Other tokens (`RAID` / `CANCELABLE` / `INCLUDE_NAME_PLATE_ONLY`) are
 accepted but no-op — they need engine systems (raid-dispel relevance,
@@ -18671,10 +18669,10 @@ leading `!`. This build honors:
 - `HELPFUL` / `HARMFUL` — buffs / debuffs, by each aura's polarity flag
   rather than its slot number. With neither token the query returns both
   (the indexed getter defaults to helpful).
-- `PLAYER` / `!PLAYER` — only auras the local player cast, or only
-  auras the player did not cast. Caster data comes from casts this
-  session, so an aura present before you saw it cast has no caster and
-  counts as not-player.
+- `PLAYER` / `!PLAYER` — only auras the player or the player's pet cast,
+  or only the auras neither of them cast. Caster data comes from casts
+  this session, so an aura present before you saw it cast has no caster
+  and counts as not-player.
 - `DISPELLABLE` / `!DISPELLABLE` — only auras that can be dispelled,
   purged, or stolen (dispel type Magic, Curse, Disease, or Poison), or
   only auras that cannot. This is "can it be removed at all", not "can

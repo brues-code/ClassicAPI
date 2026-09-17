@@ -361,16 +361,36 @@ int SlotInFilterOrder(Filter filter, int i) {
     return i;
 }
 
+// The caster set the `PLAYER` filter selects: the player AND the player's
+// pet. Modern defines the token as "auras that were cast by the player, or
+// by the player's pet or vehicle" (`AuraUtil.AuraFilters.Player`) — there
+// are no vehicles here, so the pair is player + pet. A pet's cast carries
+// the PET's guid in the Aura::Source cache (that is who SMSG_SPELL_GO
+// names), so a plain player compare drops e.g. a Hunter's own Serpent
+// Sting off a `HARMFUL|PLAYER` query. The pet guid is a live engine global,
+// so this stays two compares with no object resolve — it runs per slot.
+// A caster of 0 is a cache miss, never a match (see CasterMode).
+bool IsPlayerOrPetCaster(uint64_t casterGuid) {
+    if (casterGuid == 0)
+        return false;
+    if (casterGuid == Unit::Identity::PlayerGuid())
+        return true;
+    const uint64_t pet =
+        Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_PET_GUID));
+    return pet != 0 && casterGuid == pet;
+}
+
 bool IsPlayerCast(const uint8_t *unit, int slot) {
     const uint32_t spellID = ReadSpellID(unit, slot);
     if (spellID == 0)
         return false;
-    const uint64_t player = Unit::Identity::PlayerGuid();
-    return player != 0 && Attribute(UnitGuid(unit), spellID, slot).caster == player;
+    return IsPlayerOrPetCaster(
+        Attribute(UnitGuid(unit), spellID, slot).caster);
 }
 
 // Applies the PLAYER / !PLAYER caster restriction. `isPlayerCast` is the
-// per-aura "was this cast by the local player" answer (false on a cache miss).
+// per-aura "was this cast by the player or their pet" answer (false on a
+// cache miss).
 bool CasterMatches(CasterMode caster, bool isPlayerCast) {
     switch (caster) {
         case CasterMode::PlayerOnly: return isPlayerCast;
@@ -444,9 +464,8 @@ bool SlotMatchesFilter(const uint8_t *unit, int slot, Filter filter,
 // no slot to attribute by and the cache is consulted by (guid, spellID) alone.
 // A miss counts as "not the player" (same as IsPlayerCast).
 bool GroupIsPlayerCast(uint64_t guid, uint32_t spellID) {
-    const uint64_t player = Unit::Identity::PlayerGuid();
-    return player != 0 &&
-           Attribute(guid, spellID, Aura::Source::SLOT_UNBOUND).caster == player;
+    return IsPlayerOrPetCaster(
+        Attribute(guid, spellID, Aura::Source::SLOT_UNBOUND).caster);
 }
 
 int FindNthSlot(const uint8_t *unit, int oneBasedIndex, Filter filter,
@@ -847,8 +866,7 @@ bool FallbackEligible(const uint8_t *unit, const Aura::Source::CachedAura &c,
 // Applies `match` to a cache entry. The entry carries its caster, so the caster
 // test is a plain GUID compare — no scan, nothing to defer.
 bool CachedMatches(const Aura::Source::CachedAura &c, const Match &match) {
-    return MatchesAura(match, c.casterGuid == Unit::Identity::PlayerGuid(),
-                       c.spellId);
+    return MatchesAura(match, IsPlayerOrPetCaster(c.casterGuid), c.spellId);
 }
 
 // The eligible cache-fallback entries for `unit` under `filter`, in `Enumerate`

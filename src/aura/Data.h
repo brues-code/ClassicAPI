@@ -63,11 +63,13 @@ enum class Filter { Helpful, Harmful };
 enum class Emit { Table, Positional };
 
 // Caster restriction from the `PLAYER` / `!PLAYER` aura filter tokens.
-// `Any` = no restriction; `PlayerOnly` = only auras the local player cast
-// (`PLAYER`); `NotPlayer` = only auras NOT cast by the local player
-// (`!PLAYER`). Caster attribution comes from the `Aura::Source` cache; a
-// cache miss counts as "not the player" (so `PlayerOnly` excludes it and
-// `NotPlayer` includes it — matching `IsPlayerCast`'s miss semantics).
+// `Any` = no restriction; `PlayerOnly` = only auras the local player OR the
+// player's pet cast (`PLAYER`); `NotPlayer` = the complement (`!PLAYER`).
+// The pet is part of the set by definition — modern documents the token as
+// "cast by the player, or by the player's pet or vehicle". Caster
+// attribution comes from the `Aura::Source` cache; a cache miss counts as
+// "not the player" (so `PlayerOnly` excludes it and `NotPlayer` includes
+// it — matching `IsPlayerCast`'s miss semantics).
 enum class CasterMode { Any, PlayerOnly, NotPlayer };
 
 // Restriction from the `DISPELLABLE` / `!DISPELLABLE` aura filter tokens.
@@ -148,13 +150,15 @@ int FindSlotBySpellID(const uint8_t *unit, uint32_t spellID,
 int FindSlotBySpellName(const uint8_t *unit, const char *spellName,
                         const Filter *filter, Match match = {});
 
-// True iff the aura at `slot` was cast by the local player, per the
-// `Aura::Source` cache. False on a cache miss (caster unknown) — so a
-// PLAYER-filtered query excludes auras whose cast we didn't observe.
+// True iff the aura at `slot` was cast by the local player or by the
+// player's pet, per the `Aura::Source` cache. False on a cache miss (caster
+// unknown) — so a PLAYER-filtered query excludes auras whose cast we didn't
+// observe.
 bool IsPlayerCast(const uint8_t *unit, int slot);
 
-// Applies a `CasterMode` to a per-aura "was cast by the local player" answer.
-// `Any` → always true; `PlayerOnly` → the answer; `NotPlayer` → its negation.
+// Applies a `CasterMode` to a per-aura "was cast by the player or their pet"
+// answer. `Any` → always true; `PlayerOnly` → the answer; `NotPlayer` → its
+// negation.
 bool CasterMatches(CasterMode caster, bool isPlayerCast);
 
 // True iff the spell's dispel type is one a dispel/purge/steal can remove —
