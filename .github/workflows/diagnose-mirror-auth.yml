@@ -1,0 +1,63 @@
+name: Diagnose mirror auth
+
+# One-shot diagnostic. mirror-release.yml has now failed to git-push a tag
+# to the Gitea mirror under two different credential schemes -- both with
+# the identical client-side error, which is what a git client prints for
+# ANY non-git-protocol response (a 401, a 403, an error page all look the
+# same from outside). There is no way to tell which one it actually is, or
+# which scheme (if any) Gitea accepts here, without testing the real
+# server with the real token.
+#
+# This tests several candidate auth schemes against the git-http endpoint
+# with MIRROR_TOKEN and prints only the resulting HTTP status per scheme --
+# never the token, never a response body. Safe to paste the output back
+# anywhere.
+#
+# Delete this file once the working scheme is found and applied to
+# mirror-release.yml.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe auth methods
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${MIRROR_TOKEN:-}" ]; then
+            echo "::error::MIRROR_TOKEN is not set"
+            exit 1
+          fi
+
+          MIRROR=brues/ClassicAPI
+          API=https://octowow.st/git/api/v1
+          GIT="https://octowow.st/git/$MIRROR.git"
+
+          code() { curl -sS -m 20 -o /dev/null -w '%{http_code}' "$@"; }
+
+          echo "control -- API with 'Authorization: token' header (expect 200; proves the token itself is valid and has API access):"
+          echo "  $(code -H "Authorization: token $MIRROR_TOKEN" "$API/repos/$MIRROR")"
+          echo
+
+          echo "control -- git-http read (upload-pack), unauthenticated (expect 200; public repo):"
+          echo "  $(code "$GIT/info/refs?service=git-upload-pack")"
+          echo
+
+          echo "git-http write (receive-pack) -- one status per credential scheme:"
+          echo "  Authorization: token <token>   -> $(code -H "Authorization: token $MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
+          echo "  Authorization: Bearer <token>  -> $(code -H "Authorization: Bearer $MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
+          echo "  Basic brues:<token>            -> $(code -u "brues:$MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
+          echo "  Basic <token>:(blank)          -> $(code -u "$MIRROR_TOKEN:" "$GIT/info/refs?service=git-receive-pack")"
+          echo "  Basic oauth2:<token>           -> $(code -u "oauth2:$MIRROR_TOKEN" "$GIT/info/refs?service=git-receive-pack")"
+          echo "  Basic <token>:x-oauth-basic    -> $(code -u "$MIRROR_TOKEN:x-oauth-basic" "$GIT/info/refs?service=git-receive-pack")"
+          echo "  query ?token=<token>           -> $(code "$GIT/info/refs?service=git-receive-pack&token=$MIRROR_TOKEN")"
+          echo
+          echo "200 = Gitea accepted it. Whichever line(s) show 200 is the scheme to use."
