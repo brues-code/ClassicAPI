@@ -100,9 +100,16 @@ jobs:
               echo "::error::could not fetch tag $tag from GitHub"
               exit 1
             fi
-            if ! git -C "$work" push -q \
-                "https://oauth2:${MIRROR_TOKEN}@octowow.st/git/$MIRROR.git" \
-                "refs/tags/$tag"; then
+            # `oauth2:<token>` as HTTP Basic auth is GitLab's convention, not
+            # Gitea's, and Gitea's git-http endpoint rejects it (401 -- git
+            # renders any 401 here as the confusing "could not determine
+            # hash algorithm" message, not a clear auth error). Send the
+            # same `Authorization: token X` scheme the curl calls above
+            # already use successfully against this server, rather than
+            # guess at a Basic-auth username.
+            if ! git -C "$work" \
+                -c http.extraHeader="Authorization: token ${MIRROR_TOKEN}" \
+                push -q "https://octowow.st/git/$MIRROR.git" "refs/tags/$tag"; then
               echo "::error::could not push tag $tag to the mirror"
               exit 1
             fi
