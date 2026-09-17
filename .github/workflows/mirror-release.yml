@@ -8,6 +8,15 @@ name: Mirror release
 # Releases page shows bare tags with nothing to download. This workflow pushes
 # them over through Gitea's API.
 #
+# A release must hang off a tag that already exists on the mirror. Gitea's
+# own pull-mirror sync is supposed to keep tags current, but its background
+# fetch job can fail silently (stale credentials on Gitea's side, a stuck
+# queue) with nothing visible from the GitHub side — so instead of triggering
+# that sync and polling for the tag to show up, this workflow pushes the tag
+# there itself with MIRROR_TOKEN before touching the release. Gitea's pull
+# mirror can keep doing its own thing for everyday commits/branches; this
+# workflow no longer depends on it working.
+#
 # ONE-TIME SETUP: on the mirror, go to Settings -> Applications -> Generate New
 # Token, tick `repository` write, and copy the token. On GitHub, add it under
 # Settings -> Secrets and variables -> Actions as `MIRROR_TOKEN`. The token
@@ -74,25 +83,30 @@ jobs:
             exit 1
           }
 
-          # A release must hang off a tag that is already on the mirror. If the
-          # tag is missing the mirror has not pulled yet, so ask it to and wait.
-          # Attaching to a tag the mirror does not have would let its next sync
-          # turn our release back into a draft.
-          ensure_tag() {
-            local tag=$1 i
-            if [ "$(req GET "repos/$MIRROR/tags/$tag")" = 200 ]; then
-              return 0
+          # A release must hang off a tag that is already on the mirror. Push
+          # it there ourselves rather than asking Gitea's pull-mirror to go
+          # fetch it: that sync runs as a background queue job, and the POST
+          # below only enqueues it — a failure on Gitea's end (stale pull
+          # credentials, a stuck queue) is invisible here, so we would just
+          # poll until the timeout. A direct push is synchronous: it either
+          # lands or fails loudly on the spot.
+          push_tag() {
+            local tag=$1 work
+            work=$(mktemp -d)
+            git init -q "$work"
+            if ! git -C "$work" fetch -q --depth 1 \
+                "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" \
+                "refs/tags/$tag:refs/tags/$tag"; then
+              echo "::error::could not fetch tag $tag from GitHub"
+              exit 1
             fi
-            echo "  tag $tag is not on the mirror yet - asking it to sync"
-            req POST "repos/$MIRROR/mirror-sync" > /dev/null || true
-            for i in $(seq 1 30); do
-              sleep 10
-              if [ "$(req GET "repos/$MIRROR/tags/$tag")" = 200 ]; then
-                echo "  tag $tag arrived after $(( i * 10 ))s"
-                return 0
-              fi
-            done
-            fail "tag $tag never reached the mirror. Sync it, then run this workflow again."
+            if ! git -C "$work" push -q \
+                "https://oauth2:${MIRROR_TOKEN}@octowow.st/git/$MIRROR.git" \
+                "refs/tags/$tag"; then
+              echo "::error::could not push tag $tag to the mirror"
+              exit 1
+            fi
+            rm -rf "$work"
           }
 
           mirror_one() {
@@ -106,7 +120,7 @@ jobs:
               return 0
             fi
 
-            ensure_tag "$tag"
+            push_tag "$tag"
 
             jq '{tag_name: .tagName,
                  name: (.name // .tagName),
