@@ -59,7 +59,10 @@
 // most one fire per frame via a dirty flag drained on WorldTick, because
 // one action can change two weapon slots (a two-hander replacing a
 // one-hander plus an off-hand) and the per-slot observer would otherwise
-// fire twice for it. With no payload there's nothing to lose by merging.
+// fire twice for it. With no payload there's nothing to lose by merging —
+// and Blizzard's generated docs flag this event `UniqueEvent`, where the
+// two per-slot events above are `SynchronousEvent`, so coalescing is the
+// event's own shape rather than a local preference.
 // Slot 18 is exempted for the classes whose slot 18 is a RELIC slot
 // (Libram / Idol / Totem) — see IsWeaponSlot.
 
@@ -85,9 +88,13 @@ const Event::Custom::AutoReserve _r{kEvtEquipmentChanged};
 constexpr const char *kEvtDurability = "UPDATE_INVENTORY_DURABILITY";
 const Event::Custom::AutoReserve _r2{kEvtDurability};
 
+// System per Blizzard's own generated docs, where all three of this
+// file's events live (PaperDollInfoDocumentation.lua) — so documenting
+// PLAYER_EQUIPMENT_CHANGED / UPDATE_INVENTORY_DURABILITY later puts them
+// in the same place.
 constexpr const char *kEvtWeaponSlotChanged = "WEAPON_SLOT_CHANGED";
 const Game::Doc::Event kWeaponSlotChangedDoc{
-    "Item",
+    "PaperDollInfo",
     "Fires when the item in a weapon slot changes: main hand, off hand, or "
     "ranged.",
     {}};
