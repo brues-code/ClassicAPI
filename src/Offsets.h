@@ -3730,6 +3730,17 @@ enum Offsets {
     // matches a spell's OFF_SPELL_RECORD_FAMILY_NAME against. Read by
     // FUN_006e6ca0 (`DAT_00cecaac = ChrClasses[classID] + 0x3c`).
     OFF_CHRCLASSES_SPELL_FAMILY = 0x3C,
+    // Non-zero when the class's slot-18 is a RELIC slot (Libram / Idol /
+    // Totem) rather than a ranged-weapon slot. The whole of
+    // Script_UnitHasRelicSlot's answer — 0x00519EAE-0x00519EC0:
+    //   mov ecx, [0x00c0def4]       ; records
+    //   mov eax, [ecx + eax*4]      ; records[classID]
+    //   mov ecx, [eax + 0x40]
+    //   test ecx, ecx / jz push_nil ; non-zero => true
+    // Last column (16) of the 17-field record; parsing the client's own
+    // ChrClasses.dbc gives 1 for PALADIN / SHAMAN / DRUID and 0 for the
+    // other six, which is exactly the relic-slot set.
+    OFF_CHRCLASSES_RELIC_SLOT = 0x40,
 
     // ChrRaces.dbc — standard 5-DWORD class shape at 0x00C0DED8,
     // records-pointer at +0x08, count at +0x0C. 29 columns,

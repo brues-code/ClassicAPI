@@ -260,6 +260,7 @@ when launching with `-console`), not as Lua functions. See the
 | `VOICE_CHAT_TTS_PLAYBACK_FINISHED` | `numConsumers, utteranceID, destination` |
 | `VOICE_CHAT_TTS_PLAYBACK_FAILED` | `status, utteranceID, destination` |
 | `VOICE_CHAT_TTS_VOICES_UPDATE` | *(none)* |
+| `WEAPON_SLOT_CHANGED` | *(none)* |
 
 </details>
 

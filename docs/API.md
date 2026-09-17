@@ -185,6 +185,7 @@ build instructions.
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
   - [`UNIT_SPELLCAST_*` events](#unit_spellcast_-events)
+  - [`WEAPON_SLOT_CHANGED` event](#weapon_slot_changed-event)
 
 - [Expansion](#expansion)
   - [`GetClassicExpansionLevel()`](#getclassicexpansionlevel)
@@ -4746,6 +4747,32 @@ end)
 > these `UNIT_`-prefixed events sit on top. The empowered-cast events
 > (`UNIT_SPELLCAST_EMPOWER_*`) are not implemented — there are no empowered
 > casts here.
+
+### `WEAPON_SLOT_CHANGED` event
+
+Fires (with no payload) when the item in a weapon slot changes: main
+hand (16), off hand (17), or ranged (18). Equip, unequip, and swap all
+fire it.
+
+Slot 18 holds relics (Libram, Idol, Totem) for Paladins, Shamans, and
+Druids. A relic is not a weapon, so the event does not fire for one.
+`UnitHasRelicSlot("player")` reports which kind of slot 18 the player
+has.
+
+Use this instead of `PLAYER_EQUIPMENT_CHANGED` when only the weapons
+matter — a swing-timer bar, or any code that re-reads
+`UnitAttackSpeed` and `UnitRangedDamage`.
+
+The event collapses to one fire per frame. A single action that changes
+two weapon slots fires the event one time, not two.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("WEAPON_SLOT_CHANGED")
+f:SetScript("OnEvent", function()
+    SwingBars_ReadWeapons()
+end)
+```
 
 ## Expansion
 
