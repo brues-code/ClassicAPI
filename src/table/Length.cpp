@@ -49,7 +49,11 @@
 //      `n` field is the 5.0 vararg-table contract (`arg` = {n=3, holes}),
 //      where trailing nils are intentional — healing it would corrupt
 //      vararg counts.
-//   3. `t[n]` nil, no `t.n`: heal to a border below `n` (the 5.1 answer,
+//   3. `t[n]` nil in a weak-VALUED table (`__mode` mentions "v") → return n
+//      unchanged. The collector cleared that slot, so the nil says nothing
+//      about the length: the writer's `luaL_setn` is still current, and the
+//      holes below it come and go between reads. See HasWeakValues.
+//   4. `t[n]` nil, no `t.n`: heal to a border below `n` (the 5.1 answer,
 //      found by the same bisection 5.1's `#` uses — table/Border.h) — UNLESS
 //      the nil at slot `n` is a deliberate `table.insert(t, nil)` append
 //      slot, detected by the writer-side mark below, in which case keep the
@@ -73,7 +77,7 @@
 // nil hole at slot 1. Only the WRITER knows which dialect the table speaks,
 // and the write is observable: our replacement `table.insert` (registered
 // over the engine's — see RegisterLuaFunctions) records `t → storedN` in a weak-keyed registry
-// table whenever the two-arg form appends a literal nil. Rule 3 keeps the
+// table whenever the two-arg form appends a literal nil. Rule 4 keeps the
 // stored length only for a marked table whose mark still equals `n`; every
 // unmarked off-by-one table heals. A stale mark dies on its own: any later
 // append/remove moves the stored length away from the recorded value, and
@@ -92,6 +96,8 @@
 // `table.setn` itself still works for code that calls it — the heal only
 // changes the answer when the stored length points past the border and no
 // mark vouches for it, which is the same answer real 5.1 would give.
+
+#include <cstring>
 
 #include "Game.h"
 #include "Offsets.h"
@@ -151,9 +157,28 @@ bool HasTrailingNilMark(void *L, int absIdx, int n) {
     return match;
 }
 
+// True when the table at `absIdx` carries a metatable whose `__mode`
+// mentions "v" — a weak-VALUED table, the one shape whose array slots go
+// nil with no writer involved. Read with `RawGet`, the same raw fetch the
+// collector's own mode check uses. Balances the stack.
+bool HasWeakValues(void *L, int absIdx) {
+    if (!Game::Lua::GetMetatable(L, absIdx))
+        return false;                            // pushed nothing
+    Game::Lua::PushString(L, "__mode");
+    Game::Lua::RawGet(L, -2);                    // [meta, mode]
+    // Type-check before ToString: it converts a number in place, which would
+    // mutate somebody's metatable just by reading it.
+    const char *mode = Game::Lua::Type(L, -1) == Game::Lua::TYPE_STRING
+                           ? Game::Lua::ToString(L, -1)
+                           : nullptr;
+    const bool weakValues = mode != nullptr && std::strchr(mode, 'v') != nullptr;
+    Game::Lua::SetTop(L, -3);                    // pop mode + meta
+    return weakValues;
+}
+
 // Our `table.insert`: the engine's `luaB_tinsert` plus the writer-side mark.
 // The two-arg form appending a literal nil is the 5.0 idiom that must keep
-// its reserved slot; record it so rule 3 can tell it apart from an
+// its reserved slot; record it so rule 4 can tell it apart from an
 // identically-shaped stale table. The detection runs before the engine
 // function (the arg stack is caller-owned, so index 1 still holds the table
 // afterwards); the mark reads the raw stored length its `luaL_setn` just
@@ -198,6 +223,22 @@ int __fastcall LuaLGetN_h(void *L, int idx) {
     const bool hasExplicitN = Game::Lua::Type(L, -1) == Game::Lua::TYPE_NUMBER;
     Game::Lua::SetTop(L, -2);
     if (hasExplicitN)
+        return n;
+
+    // Weak-valued table: the COLLECTOR punched that nil, not a stale writer,
+    // so the heal's whole premise ("nil at the stored last slot ⇒ nobody
+    // maintained the length") is false here — `luaL_setn` is still exactly
+    // what the last append left, and the holes below it can appear between
+    // any two reads. Keep the stored length.
+    //
+    // Compost-2.0 is the case on record. `secondarycache` is `__mode = "v"`,
+    // filled with `table.insert`; `GetTable` walks it with `pairs` and calls
+    // `table.remove(cache, i)` on a live index. Once the GC clears slot 1 and
+    // the stored last slot, the heal bisects to border 0, `luaB_tremove`
+    // takes its `e == 0` empty-table early-out and returns NOTHING, and the
+    // caller's next line indexes with the nil it got back: "table index is
+    // nil" at Compost-2.0.lua:81, once per recycled table.
+    if (HasWeakValues(L, absIdx))
         return n;
 
     // Stored length exactly one past a populated slot: either a deliberate

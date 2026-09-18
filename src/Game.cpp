@@ -47,6 +47,7 @@ namespace Lua {
     F(RawGet,      lua_rawget,      LUA_RAW_GET)      \
     F(SetTable,    lua_settable,    LUA_SET_TABLE)    \
     F(RawSet,      lua_rawset,      LUA_RAW_SET)      \
+    F(GetMetatable,lua_getmetatable,LUA_GET_METATABLE)\
     F(SetMetatable,lua_setmetatable,LUA_SET_METATABLE)\
     F(Insert,      lua_insert,      LUA_INSERT)       \
     F(Remove,      lua_remove,      LUA_REMOVE)       \

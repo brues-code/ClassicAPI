@@ -231,6 +231,9 @@ using lua_gettable_t = void(__fastcall *)(void *L, int idx);
 using lua_rawget_t = void(__fastcall *)(void *L, int idx);
 using lua_settable_t = void(__fastcall *)(void *L, int idx);
 using lua_rawset_t = void(__fastcall *)(void *L, int idx);
+// Pushes the metatable of the value at idx and returns 1, or pushes
+// nothing and returns 0 when it has none.
+using lua_getmetatable_t = int(__fastcall *)(void *L, int idx);
 // Pops the table at the top and installs it as the metatable of the value
 // at idx; returns 1.
 using lua_setmetatable_t = int(__fastcall *)(void *L, int idx);
@@ -289,6 +292,7 @@ extern const lua_gettable_t GetTable;
 extern const lua_rawget_t RawGet;
 extern const lua_settable_t SetTable;
 extern const lua_rawset_t RawSet;
+extern const lua_getmetatable_t GetMetatable;
 extern const lua_setmetatable_t SetMetatable;
 extern const lua_insert_t Insert;
 extern const lua_remove_t Remove;

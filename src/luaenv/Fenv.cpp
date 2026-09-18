@@ -47,11 +47,11 @@ namespace LuaEnv {
 
 namespace {
 
-// Raw engine primitives not exposed via Game::Lua.
+// Raw engine primitive not exposed via Game::Lua.
 using GetFenv_t = void(__fastcall *)(void *L, int idx);
-using GetMetatable_t = int(__fastcall *)(void *L, int idx);
 const auto GetFenv = reinterpret_cast<GetFenv_t>(Offsets::LUA_GET_FENV);
-const auto GetMetatable = reinterpret_cast<GetMetatable_t>(Offsets::LUA_GET_METATABLE);
+
+using Game::Lua::GetMetatable;
 
 // Replacement for the shared getfenv/setfenv protection predicate
 // (FUN_LUA_ENV_PROTECT_PREDICATE). Contract mirrored exactly from the engine
