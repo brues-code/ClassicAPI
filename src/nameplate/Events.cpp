@@ -73,6 +73,11 @@ std::unordered_map<uint64_t, const void *> g_lastTickPlates;
 // cycle every frame — `clear()` keeps the existing bucket capacity.
 std::unordered_map<uint64_t, const void *> g_currentTickPlates;
 
+// GUIDs whose ADDED couldn't go out this tick (see `OnWorldTick`). Dropped
+// from the snapshot before the swap so the next tick sees them as new again.
+// File-static for the same reuse-the-capacity reason as the maps above.
+std::vector<uint64_t> g_deferredAdds;
+
 // Frame pointers we've ever surfaced as nameplate plates. First
 // sighting fires NAME_PLATE_CREATED; same pointer reappearing (pool
 // reuse) doesn't refire.
@@ -185,20 +190,23 @@ int __fastcall NamePlateFieldCb(uint32_t fieldOffset, uint32_t /*size*/,
 // fire so we don't leak our frame into unrelated global state.
 //
 // Lua-stack-clean: stack depth on entry == stack depth on exit.
+//
+// Returns whether the event went out. `false` when the slot isn't claimed yet
+// or there's no Lua state — the caller must not treat the plate as announced.
 using LuaRefRef_t = int(__fastcall *)(void *L, int t);
 using LuaRefUnref_t = void(__fastcall *)(void *L, int t, int ref);
 using LuaRawGetI_t = void(__fastcall *)(void *L, int t, int n);
 
-void FireWithFrame(const Event::Custom::AutoReserve &event, void *frame) {
+bool FireWithFrame(const Event::Custom::AutoReserve &event, void *frame) {
     if (frame == nullptr)
-        return;
+        return false;
     const int slot = event.Slot();
     if (slot < 0)
-        return;
+        return false;
 
     void *L = Game::Lua::State();
     if (L == nullptr)
-        return;
+        return false;
 
     auto refRef = reinterpret_cast<LuaRefRef_t>(
         static_cast<uintptr_t>(Offsets::LUA_REF_REF));
@@ -225,6 +233,7 @@ void FireWithFrame(const Event::Custom::AutoReserve &event, void *frame) {
     rawgeti(L, Game::Lua::REGISTRY_INDEX, savedRef);
     Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
     refUnref(L, Game::Lua::REGISTRY_INDEX, savedRef);
+    return true;
 }
 
 void OnWorldTick() {
@@ -244,10 +253,27 @@ void OnWorldTick() {
     // GUIDs not in last tick's snapshot. The slot is assigned *before*
     // firing so the token resolves to the newly-added plate during the
     // event handler.
+    //
+    // Neither event is recorded as sent until it actually goes out. A fire
+    // dropped because its slot isn't claimed yet retries next tick; otherwise
+    // the plate stays unannounced until /reload clears the diff state. ADDED
+    // also waits for its frame's CREATED, so a handler never gets a unit for a
+    // plate it hasn't been introduced to. A deferred GUID gets no token slot
+    // and no observers, and is kept out of the snapshot, so it produces no
+    // REMOVED for an ADDED that never fired.
+    g_deferredAdds.clear();
     for (const auto &kv : g_currentTickPlates) {
-        if (g_seenPlates.insert(kv.second).second)
-            FireWithFrame(_evtCreated, const_cast<void *>(kv.second));
+        bool announced = g_seenPlates.find(kv.second) != g_seenPlates.end();
+        if (!announced &&
+            FireWithFrame(_evtCreated, const_cast<void *>(kv.second))) {
+            g_seenPlates.insert(kv.second);
+            announced = true;
+        }
         if (g_lastTickPlates.find(kv.first) == g_lastTickPlates.end()) {
+            if (!announced || _evtUnitAdded.Slot() < 0) {
+                g_deferredAdds.push_back(kv.first);
+                continue;
+            }
             const int slot = AssignSlot(kv.first);
             // Watch this unit's fields so UNIT_HEALTH/UNIT_AURA/… fire with
             // its "nameplateN" token (the engine only watches its own
@@ -288,6 +314,11 @@ void OnWorldTick() {
                 g_slots.pop_back();
         }
     }
+
+    // After the REMOVED pass, which needs every bound frame for
+    // `PlateReassigned`.
+    for (uint64_t guid : g_deferredAdds)
+        g_currentTickPlates.erase(guid);
 
     g_lastTickPlates.swap(g_currentTickPlates);
 }
