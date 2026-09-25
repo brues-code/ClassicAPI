@@ -80,7 +80,12 @@ int GetInt(Handle cvar, int fallback = 0);
 
 // Set the cvar's value (fires its change callback). No-op if `cvar` is
 // null. `value` is copied by the engine into the cvar's inline buffer.
-void SetString(Handle cvar, const char *value);
+//
+// `persist` is the setter's last argument, the only thing that marks the
+// config dirty (FUN_0063E0B0 sets VAR_CVAR_CONFIG_DIRTY only when it is
+// nonzero). False applies the value for this session without asking the
+// config writer to run; `CVar::Temp` relies on that.
+void SetString(Handle cvar, const char *value, bool persist = true);
 
 // Convenience: set from an integer.
 //

@@ -1160,6 +1160,19 @@ enum Offsets {
     // Where `FUN_0063D380` stores that pointer. Read by the loader call above
     // and by the save.
     VAR_CONFIG_FILENAME_PTR = 0x00C4EDD4,
+    // The config writer, `"WTF\" + [VAR_CONFIG_FILENAME_PTR]`. `int(void)`
+    // (decompiled). Returns 1 at once unless VAR_CVAR_CONFIG_DIRTY is set;
+    // otherwise clears it and writes `SET name "value"` for every cvar with
+    // CVAR_FLAG_ARCHIVE, taking the value from OFF_CVAR_STAGED_STR, else
+    // OFF_CVAR_VALUE_STR, else OFF_CVAR_DEFAULT_STR, and skipping any that
+    // equals the default. Called from the /reload + logout teardown
+    // FUN_00490BD0, from FUN_0046B500 (glue), and from the cvar shutdown
+    // FUN_0063DAF0 — cold paths only.
+    FUN_CVAR_CONFIG_WRITE = 0x0063D980,
+    // u8 "config needs saving". Set by the inner setter FUN_0063E0B0 only when
+    // its last argument (a6) is nonzero, and by the staged-value path in
+    // FUN_SET_CVAR_VALUE; cleared by FUN_CVAR_CONFIG_WRITE.
+    VAR_CVAR_CONFIG_DIRTY = 0x00C4EDD8,
 
     // Internal CVar registrar — what `Script_RegisterCVar` calls after a
     // `FindCVar` miss (the call at `0x00488B8A`). `__fastcall`; ECX=name,
@@ -1192,6 +1205,9 @@ enum Offsets {
     // when they differ, which is what identifies each; +0x34 is the reset
     // value it prints the same way, and +0x38 holds a staged value (below).
     OFF_CVAR_DEFAULT_STR = 0x30,
+    // The staged value (CVAR_FLAG_STAGED below). FUN_CVAR_CONFIG_WRITE prefers
+    // it over the live value when non-null.
+    OFF_CVAR_STAGED_STR = 0x38,
     // Flag bits within OFF_CVAR_FLAGS, each from the code that acts on it:
     //   0x1  archive — the registrar forces it on, and the config writer
     //        (FUN_0063D980) skips any cvar without it.

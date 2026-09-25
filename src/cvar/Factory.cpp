@@ -91,11 +91,11 @@ int GetInt(Handle cvar, int fallback) {
     return std::atoi(value);
 }
 
-void SetString(Handle cvar, const char *value) {
+void SetString(Handle cvar, const char *value, bool persist) {
     if (cvar == nullptr || value == nullptr)
         return;
     auto set = reinterpret_cast<SetCVarValue_t>(Offsets::FUN_SET_CVAR_VALUE);
-    set(cvar, value, 1, 0, 0, 1);
+    set(cvar, value, 1, 0, 0, persist ? 1 : 0);
 }
 
 void SetInt(Handle cvar, int value) {

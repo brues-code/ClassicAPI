@@ -127,6 +127,7 @@ build instructions.
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
   - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
   - [`C_CVar.GetCVarBitfield(name, index)` / `C_CVar.SetCVarBitfield(name, index, value)`](#c_cvargetcvarbitfieldname-index--c_cvarsetcvarbitfieldname-index-value)
+  - [`C_CVar.SetTempCVar(name, value)` / `C_CVar.RemoveTempCVar(name)`](#c_cvarsettempcvarname-value--c_cvarremovetempcvarname)
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
   - [The interface memory limit](#the-interface-memory-limit)
 
@@ -3242,6 +3243,37 @@ for. A successful write saves the cvar the same way `SetCVar` does.
 
 Any cvar works, and a cvar you register yourself is the usual way to use
 these. Every bit is independent, so setting one leaves the rest alone.
+
+### `C_CVar.SetTempCVar(name, value)` / `C_CVar.RemoveTempCVar(name)`
+
+`SetTempCVar` changes a cvar for this session only. The game uses the new
+value at once, but it does not save the value to Config.wtf.
+`RemoveTempCVar` puts back the value that the cvar had before the first
+`SetTempCVar`. Neither function returns a value.
+
+```lua
+-- Saved value of cameraDistanceMax is "15".
+C_CVar.SetTempCVar("cameraDistanceMax", "40")
+GetCVar("cameraDistanceMax")      -- "40"
+-- After /reload or logout, Config.wtf still holds "15".
+C_CVar.RemoveTempCVar("cameraDistanceMax")
+GetCVar("cameraDistanceMax")      -- "15"
+```
+
+Use this pair for a mode that changes many cvars and later turns off, for
+example a gamepad mode. The saved settings of the user do not change.
+
+- If you call `SetTempCVar` two times on one cvar, `RemoveTempCVar` puts
+  back the value from before the first call.
+- If `SetCVar` changes a cvar that has a temp value, the `SetCVar` value
+  replaces the temp value. The game saves it, and `RemoveTempCVar` then does
+  not change the cvar.
+- If `value` is `nil`, the cvar gets an empty string, as with `SetCVar`.
+- `RemoveTempCVar` does nothing for a cvar that has no temp value.
+
+Both functions give the same errors as `SetCVar`: for a name that is not a
+cvar, and for a read-only cvar. Both are also available on the login and
+character-select screens.
 
 ### `C_CVar.GetCVarBool(cvar)`
 
