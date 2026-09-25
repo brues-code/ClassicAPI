@@ -2768,7 +2768,7 @@ Partial stacks are combined first. Then items are placed in this order,
 starting from the first slot:
 
 1. Hearthstone
-2. Weapons and armor, best quality first
+2. Weapons and armor
 3. Consumables
 4. Reagents
 5. Trade goods
@@ -2779,6 +2779,13 @@ starting from the first slot:
 Junk fills from the last slot backward, so it collects away from
 everything else. Within each group, items sort by type, then subtype,
 then name, and fuller stacks come first.
+
+Weapons and armor also sort by the slot that they go into. Weapons come
+first: one-hand and two-hand, then ranged. Armor follows. Shields and
+off-hand items come first, then head to feet, then neck, rings and
+trinkets. For example, all helms sit together, and then all
+shoulders. In one slot, items sort by subtype (cloth, leather, mail,
+plate), then best quality first, then name.
 
 A specialty bag keeps only what it accepts, so a quiver holds ammunition
 and nothing else. Items that do not fit a specialty bag go to your

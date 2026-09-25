@@ -41,10 +41,11 @@
 // THE ORDERING IS OURS. Retail computes it in code we cannot read, and
 // its categories (per-bag assignment flags, expansion filters) have no
 // counterpart here, so this is a defensible order rather than a
-// reproduction of Blizzard's: hearthstone, gear by descending quality,
-// consumables, reagents, trade goods, quest items, everything else by
-// quality, junk last. Within a category, by item class, subclass, name,
-// then fuller stacks first.
+// reproduction of Blizzard's: hearthstone, gear, consumables, reagents,
+// trade goods, quest items, everything else by quality, junk last. Within
+// a category, by item class, subclass, name, then fuller stacks first.
+// Gear adds two keys so like pieces sit together: the equip slot right
+// after the class (kSlotOrder), and quality, best first, before the name.
 //
 // An item whose data has NOT arrived is pinned: left where it is, with
 // its slot withheld from the destination pool so nothing else is planned
@@ -133,10 +134,7 @@ constexpr uint32_t kQualityEpic = 4;
 // Primary key. Lower sorts nearer the first slot.
 enum Category : uint8_t {
     kCatHearthstone = 0,
-    kCatGearEpic,
-    kCatGearRare,
-    kCatGearUncommon,
-    kCatGearPlain,
+    kCatGear,
     kCatConsumable,
     kCatReagent,
     kCatTradeGoods,
@@ -153,15 +151,8 @@ uint8_t CategoryFor(uint32_t itemID, uint32_t itemClass, uint32_t quality) {
         return kCatHearthstone;
     if (quality == kQualityPoor)
         return kCatJunk;
-    if (itemClass == kClassWeapon || itemClass == kClassArmor) {
-        if (quality >= kQualityEpic)
-            return kCatGearEpic;
-        if (quality == kQualityRare)
-            return kCatGearRare;
-        if (quality == kQualityUncommon)
-            return kCatGearUncommon;
-        return kCatGearPlain;
-    }
+    if (itemClass == kClassWeapon || itemClass == kClassArmor)
+        return kCatGear;
     if (itemClass == kClassConsumable)
         return kCatConsumable;
     if (itemClass == kClassReagent)
@@ -179,6 +170,26 @@ uint8_t CategoryFor(uint32_t itemID, uint32_t itemClass, uint32_t quality) {
     return kCatOtherPlain;
 }
 
+// Gear's slot key: Item.dbc `m_inventoryType` (INVTYPE_*) in the order its
+// pieces sort. Not the raw number, which does not follow the character
+// pane: robe (20) belongs beside chest (5), and cloak (16) beside
+// shoulder. Not the equipment slot either, which lumps shields, off-hand
+// weapons and held items into one. The order is Baganator's (its
+// Sorting/ItemFields.lua): weapons by hand, then ranged and ammo, then
+// armor head to foot, then jewelry, shirt and tabard.
+constexpr uint8_t kSlotOrder[] = {
+    17, 13, 21, 14, 23, 26, 22, 15, 25, 24, 27, 28, // weapons, ranged, relic
+    1, 3, 16, 5, 20, 9, 10, 6, 7, 8,                // head .. feet
+    2, 11, 12, 4, 19, 18, 0,                        // jewelry, shirt, tabard, bag, none
+};
+
+uint8_t SlotRank(uint32_t inventoryType) {
+    for (uint8_t i = 0; i < sizeof kSlotOrder; ++i)
+        if (kSlotOrder[i] == inventoryType)
+            return i;
+    return static_cast<uint8_t>(sizeof kSlotOrder); // unknown: after all known
+}
+
 struct Entry {
     const void *item;    // CGItem — stable across the swap batch
     int curBag, curSlot; // live position, updated as swaps fire
@@ -191,9 +202,10 @@ struct Entry {
     int destBag, destSlot;
     uint32_t itemID;
     uint32_t family; // the item's own bag family (0 = fits anywhere)
-    uint32_t itemClass, subClass, count;
+    uint32_t itemClass, subClass, quality, count;
     const char *name;
     uint8_t category;
+    uint8_t slotRank; // SlotRank(m_inventoryType)
 };
 
 struct Cell {
@@ -230,8 +242,13 @@ bool Precedes(const Entry &a, const Entry &b) {
         return a.category < b.category;
     if (a.itemClass != b.itemClass)
         return a.itemClass < b.itemClass;
+    const bool gear = a.category == kCatGear;
+    if (gear && a.slotRank != b.slotRank)
+        return a.slotRank < b.slotRank;
     if (a.subClass != b.subClass)
         return a.subClass < b.subClass;
+    if (gear && a.quality != b.quality)
+        return a.quality > b.quality; // best first
     const int byName = CompareNames(a.name, b.name);
     if (byName != 0)
         return byName < 0;
@@ -587,12 +604,13 @@ void Place(const int *bags, int bagCount) {
             e.family = Item::BagFamily::BitmaskForRecord(rec);
             e.itemClass = Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_CLASS);
             e.subClass = Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_SUBCLASS);
+            e.quality = Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_QUALITY);
+            e.slotRank = SlotRank(
+                Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE));
             e.count = StackCount(item);
             e.name = *reinterpret_cast<const char *const *>(
                 rec + Offsets::OFF_ITEMSTATS_NAME);
-            e.category = CategoryFor(
-                e.itemID, e.itemClass,
-                Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_QUALITY));
+            e.category = CategoryFor(e.itemID, e.itemClass, e.quality);
             items.push_back(e);
         }
     }
