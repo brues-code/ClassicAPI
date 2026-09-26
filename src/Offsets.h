@@ -4971,7 +4971,9 @@ enum Offsets {
     // through pass 3 alone. (An earlier note here guessed a filter inside the
     // `SStrDup`/array-append helpers downstream of all three callbacks; that
     // was wrong — the append is inlined per callback and nothing runs between
-    // the filter and the array write.)
+    // the filter and the array write.) `Macro::Icons` also co-hooks the
+    // loader itself to seed `INV_Misc_QuestionMark` and move it to index 0,
+    // mirroring 3.3.5's loader (so `#showtooltip` macros can pick the `?`).
     //
     // `Macro::Icons` hooks all three at ENTRY, before each filter, so it sees
     // every filename the engine walks — including the ~5,226 archive `INV_*`

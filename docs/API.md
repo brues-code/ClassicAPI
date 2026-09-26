@@ -11855,7 +11855,9 @@ crossed with `Spell` (basenames that start with `Ability_` or
 `Spell_`) vs `Item` (basenames that start with `INV_`).
 
 **Quirk worth noting**: `GetMacroIconInfo(i)` lists only the
-`Ability_*` and `Spell_*` icons. The archives hold thousands of
+`Ability_*` and `Spell_*` icons, plus the question-mark icon
+(`INV_Misc_QuestionMark`), which is always entry 1. A macro needs that
+icon for `#showtooltip` to show the spell or item icon. The archives hold thousands of
 `INV_*` icons that it never shows. These four functions do return
 them, so `GetMacroItemIcons` gives you the item icons that
 `GetMacroIconInfo` cannot reach.

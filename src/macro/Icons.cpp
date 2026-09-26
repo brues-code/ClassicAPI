@@ -239,6 +239,67 @@ int __fastcall IconCbDiskAny_h(uint8_t *record) {
     return IconCbDiskAny_o(record);
 }
 
+// =============================================================
+// The question-mark icon. `#showtooltip` / `#show` only take over a
+// macro whose icon is `INV_Misc_QuestionMark` (see Macro::IconPath),
+// but the engine list above is `Ability_*`/`Spell_*` only, so a stock
+// client's macro picker can't select it. 3.3.5 solves this in its own
+// loader (disassembly at `0x00565880`): before any walk it appends
+// `SStrDup("INV_Misc_QuestionMark")` to the list, and its sort
+// comparator (`0x00564A20`) ranks that name first — so
+// `GetMacroIconInfo(1)` is the question mark. We mirror both halves:
+// the seed goes through pass 3's own append (the callback reads only
+// the record's flags at `+4` and the inline name at `+8`, and takes
+// the SStrDup + array grow itself), called via the trampoline so our
+// capture hook doesn't file it as a loose icon; after the original
+// sorts and dedups, the entry is rotated to index 0. A client that
+// already ships the icon (Turtle) gets its copy collapsed by the
+// engine's own adjacent dedup, since both sort together.
+// =============================================================
+
+constexpr const char *kQuestionMarkIcon = "INV_Misc_QuestionMark";
+
+LoadIcons_t LoadIcons_o = nullptr;
+
+void SeedQuestionMark() {
+    constexpr char kFile[] = "INV_Misc_QuestionMark.blp";
+    uint8_t record[8 + sizeof(kFile)] = {};
+    std::memcpy(record + 8, kFile, sizeof(kFile));
+    IconCbDiskAny_o(record);
+}
+
+void MoveQuestionMarkFirst() {
+    const uint32_t count = *reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_MACRO_ICON_COUNT));
+    char **icons = *reinterpret_cast<char ***>(
+        static_cast<uintptr_t>(Offsets::VAR_MACRO_ICON_ARRAY));
+    if (icons == nullptr)
+        return;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (icons[i] == nullptr || _stricmp(icons[i], kQuestionMarkIcon) != 0)
+            continue;
+        char *found = icons[i];
+        std::memmove(icons + 1, icons, i * sizeof(char *));
+        icons[0] = found;
+        return;
+    }
+}
+
+void __cdecl LoadIcons_h() {
+    const bool empty = *reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_MACRO_ICON_COUNT)) == 0;
+    if (empty)
+        SeedQuestionMark();
+    LoadIcons_o();
+    if (empty)
+        MoveQuestionMarkFirst();
+}
+
+const Game::HookAutoRegister _hookLoadIcons{
+    Offsets::FUN_LOAD_MACRO_ICONS,
+    reinterpret_cast<void *>(&LoadIcons_h),
+    reinterpret_cast<void **>(&LoadIcons_o)};
+
 const Game::HookAutoRegister _hookCbMpq{
     Offsets::FUN_MACRO_ICON_CB_MPQ,
     reinterpret_cast<void *>(&IconCbMpq_h),
