@@ -137,6 +137,13 @@ enum Offsets {
     // Macro-slot tooltip: `__thiscall(tooltip, uint macroID)` — clear +
     // SetText(entry+OFF_MACRO_NAME) + Show. Internal, not a script entry.
     FUN_GAMETOOLTIP_SET_MACRO = 0x0052B040,
+    // `Script_GameTooltip_SetUnit` (slot 31): self typecheck, lua_isstring(2),
+    // FUN_TOKEN_TO_GUID (raises on an unknown token), then — only for a
+    // non-zero GUID — FUN_GAMETOOLTIP_BUILD_UNIT. Always pushes nil (the
+    // builder returns 0 on every path). The token string is discarded after
+    // the resolve; `Unit::Tooltip` re-registers the name in front of it to
+    // keep the token for `GetUnit` and tail-calls it with the untouched stack.
+    FUN_SCRIPT_GAMETOOLTIP_SET_UNIT = 0x005349B0,
     FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_BUFF = 0x00534AC0, // slot 32
     FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_DEBUFF = 0x00534E30, // slot 33
     FUN_SCRIPT_GAMETOOLTIP_SET_TALENT = 0x00535170, // slot 34
@@ -5665,6 +5672,11 @@ enum Offsets {
     OFF_GROUP_MEMBER_STATUS_FLAGS = 0x08,
     GROUP_MEMBER_STATUS_ONLINE = 0x1,
     FUN_GROUP_MEMBER_SLOT_LOOKUP = 0x00496420,
+    // Inline member name in the slot record — `Script_UnitName` (0x00517020)
+    // pushes `slot + 8` for a GUID with no live object, as does the unit
+    // tooltip builder's no-object branch (0x00529FE0). This is why
+    // `UnitName("partyN")` answers for an offline member.
+    OFF_GROUP_MEMBER_SLOT_NAME = 0x08,
 
     // Health/power fields within the two group-member blocks — the
     // out-of-range fallback the engine's UnitHealth/UnitMana (and their Max

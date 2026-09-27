@@ -306,7 +306,7 @@ build instructions.
   - [`GameTooltip:GetItem()`](#gametooltipgetitem)
   - [`GameTooltip:GetSpell()`](#gametooltipgetspell)
   - [`GameTooltip:HasItem()` / `GameTooltip:HasSpell()`](#gametooltiphasitem--gametooltiphasspell)
-  - [`GameTooltip:GetUnitGUID()` / `GameTooltip:HasUnit()`](#gametooltipgetunitguid--gametooltiphasunit)
+  - [`GameTooltip:GetUnit()` / `GameTooltip:GetUnitGUID()` / `GameTooltip:HasUnit()`](#gametooltipgetunit--gametooltipgetunitguid--gametooltiphasunit)
   - [`GameTooltip:GetGameObject()` / `GameTooltip:HasGameObject()`](#gametooltipgetgameobject--gametooltiphasgameobject)
   - [`GameTooltip:GetOwner()`](#gametooltipgetowner)
 
@@ -7118,44 +7118,46 @@ if GameTooltip:HasItem() then
 end
 ```
 
-### `GameTooltip:GetUnitGUID()` / `GameTooltip:HasUnit()`
+### `GameTooltip:GetUnit()` / `GameTooltip:GetUnitGUID()` / `GameTooltip:HasUnit()`
 
-`GetUnitGUID()` returns `(name, guidString)` for whichever unit the
-tooltip is currently displaying, or nothing if it isn't showing a
-unit. Return order mirrors `GameTooltip:GetUnit()` (name
-first) — so addons porting from
-`local name, unit = ttip:GetUnit()` can swap to `GetUnitGUID` and
-keep their existing destructuring. `name` is the unit's display name
-— the same string that appears in the tooltip header, or one of the
-engine's `"UNKNOWNOBJECT"` / `"Unknown Being"` fallbacks for a remote
-unit whose info hasn't been queried yet. `guidString` is the
-canonical `"0xHHHHHHHHLLLLLLLL"` format returned by
-[`UnitGUID(unit)`](#unitguidunit).
+`GetUnit()` returns `(name, unitToken)` for the unit that the tooltip
+shows. It returns nothing if the tooltip does not show a unit.
 
-`HasUnit()` is a boolean companion — returns `true` if the tooltip is
-currently displaying a unit.
+- `name` is the unit's display name. This is the same string that is
+  in the tooltip header. For a remote unit that is not in the cache
+  yet, it is `"UNKNOWNOBJECT"` or `"Unknown Being"`.
+- `unitToken` is the string that was given to `SetUnit`, as it was
+  given (for example `"target"`, `"party2"`, `"focus"`). For the
+  tooltip that shows when the cursor is on a unit in the world, it is
+  `"mouseover"`. For the tooltip that shows when the cursor is on a
+  unit frame with a `unit` attribute, it is the frame's unit (for
+  example `"party1"`). This token also works for a group member who
+  is offline or far away, but `"mouseover"` does not.
+
+`GetUnitGUID()` returns `(name, guidString)`. `guidString` has the
+`"0xHHHHHHHHLLLLLLLL"` format of [`UnitGUID(unit)`](#unitguidunit).
+Use it when you must identify the unit after its token changes. For
+example, `"mouseover"` does not point to the unit after the cursor
+moves away, but the GUID stays the same.
+
+`HasUnit()` returns `true` if the tooltip shows a unit.
 
 ```lua
 GameTooltip:SetUnit("target")
-local name, guid = GameTooltip:GetUnitGUID()
--- name = "Hogger"
+local name, unit = GameTooltip:GetUnit()
+-- name = "Hogger", unit = "target"
+
+local _, guid = GameTooltip:GetUnitGUID()
 -- guid = "0xF130001234..." (Creature) or "0x000000...ABC123" (Player)
 
 if GameTooltip:HasUnit() then
-    -- cheap predicate, no name-resolution work
+    -- fast check, no name lookup
 end
 ```
 
-> **Why `GetUnit()` returns a GUID, not a token.** A `(name, unitToken)`
-> form would return the exact `"target"` / `"focus"` / `"mouseover"` /
-> etc. string passed to `SetUnit`. But the engine drops the token at the
-> `Script_GameTooltip_SetUnit` boundary — it converts the token to a
-> 64-bit GUID and discards the original string. Reconstructing a
-> plausible token by walking known tokens and reverse-matching by
-> GUID is possible but lossy (multiple tokens can refer to the same
-> GUID — `"target"` and `"raid1"` simultaneously, for instance), so
-> we expose the GUID directly instead, which is what addons actually
-> need for cross-referencing with `UnitGUID`, the NameCache, etc.
+> **Note:** If a tooltip continues to show a unit from `SetUnit`, and
+> the cursor then moves onto the same unit in the world, `GetUnit()`
+> continues to return the `SetUnit` token, not `"mouseover"`.
 
 ### `GameTooltip:GetGameObject()` / `GameTooltip:HasGameObject()`
 

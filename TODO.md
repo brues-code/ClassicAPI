@@ -1740,7 +1740,14 @@ is a thin wrapper. If they're inlined, we'd either need to skip
 the clear ourselves (call after some no-op state setup) or
 manually call the line-emission primitives.
 
-## ~~61. `GameTooltip:GetItem()` / `GetSpell()` / `GetUnit()`~~ — `GetItem` + `GetSpell` DONE; `GetUnit` skipped
+## ~~61. `GameTooltip:GetItem()` / `GetSpell()` / `GetUnit()`~~ — DONE
+
+`GetUnit` shipped later in [src/unit/Tooltip.cpp](src/unit/Tooltip.cpp):
+`SetUnit` is re-registered in front of the engine's (no MinHook) to
+stage the token, and the token binds in the unit-builder co-hook that
+`Tooltip::SetEvents` already owned. The builder has three callers:
+SetUnit, the world-mouseover setter (→ `"mouseover"`), and an in-place
+refresh (keeps the token). The notes below are the original skip.
 
 Modern query methods that return what the tooltip is currently
 showing:

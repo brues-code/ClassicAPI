@@ -117,6 +117,7 @@
 #include "tick/WorldTick.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
+#include "unit/Tooltip.h"
 
 #include <cctype>
 #include <cstdint>
@@ -390,20 +391,30 @@ void MouseoverTick() {
     const void *focus = CurrentMouseFocus();
 
     uint64_t guid = 0;
+    std::string token; // a copy: handlers run below may rewrite the map
     if (focus != nullptr) {
         auto it = g_unitByFrame.find(focus);
-        if (it != g_unitByFrame.end())
-            guid = Unit::Identity::GuidForToken(
-                it->second.c_str()); // live — follows target changes
+        if (it != g_unitByFrame.end()) {
+            token = it->second;
+            guid = Unit::Identity::GuidForToken(token.c_str()); // live — follows target changes
+        }
     }
 
     if (guid != g_lastSet) {
+        // The tooltip built below is for the frame's unit, so `GetUnit()`
+        // answers with the frame's token — "mouseover" would not resolve for
+        // a member with no live object (see Unit::Tooltip).
+        if (guid != 0)
+            Unit::Tooltip::StageToken(
+                Game::Read<void *>(static_cast<uintptr_t>(Offsets::VAR_GAMETOOLTIP_OBJECT_PTR)),
+                token.c_str());
         CallEngineMouseover(guid); // sets slot + highlight + tooltip + event
         // Offline / far out-of-range party or raid member: the setter wrote the
         // GUID slot but skipped the tooltip (no live object). Build it from the
         // roster so hovering the frame still shows name / level / "Offline".
         if (guid != 0 && !GuidHasLiveUnit(guid))
             BuildRosterUnitTooltip(guid);
+        Unit::Tooltip::ClearStagedToken();
         g_lastSet = guid;
     }
 }

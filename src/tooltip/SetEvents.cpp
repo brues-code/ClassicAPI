@@ -42,6 +42,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "unit/Tooltip.h"
 
 #include <cstdint>
 
@@ -200,6 +201,7 @@ using BuildUnit_t = int(__fastcall *)(void *self, void *edx, const void *guid);
 BuildUnit_t g_buildUnitOriginal = nullptr;
 
 int __fastcall BuildUnit_h(void *self, void *edx, const void *guid) {
+    Unit::Tooltip::BeforeBuild(self, static_cast<const uint32_t *>(guid));
     const int ret = g_buildUnitOriginal(self, edx, guid);
     FireScript(self, SK_UNIT);
     return ret;
