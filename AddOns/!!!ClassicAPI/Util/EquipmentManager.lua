@@ -27,3 +27,18 @@ function EquipmentManager_GetLocationData(location)
 
 	return locationData;
 end
+
+function EquipmentManager_EquipSet(setID)
+	if ( C_EquipmentSet.EquipmentSetContainsLockedItems(setID) or C_Spell.UnitCastingInfo("player") ) then
+		UIErrorsFrame:AddMessage(ERR_CLIENT_LOCKED_OUT, 1.0, 0.1, 0.1, 1.0);
+		return;
+	end
+	C_EquipmentSet.UseEquipmentSet(setID);
+end
+
+-- An equipment-set action button fires WEAR_EQUIPMENT_SET; equipping is the UI's job.
+local EquipmentManagerFrame = CreateFrame("Frame");
+EquipmentManagerFrame:SetScript("OnEvent", function()
+	EquipmentManager_EquipSet(arg1);
+end);
+EquipmentManagerFrame:RegisterEvent("WEAR_EQUIPMENT_SET");

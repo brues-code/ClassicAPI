@@ -151,6 +151,7 @@ build instructions.
   - [`C_EquipmentSet.IgnoreSlotForSave(slot)` / `UnignoreSlotForSave` / `IsSlotIgnoredForSave` / `ClearIgnoredSlotsForSave`](#c_equipmentsetignoreslotforsaveslot--unignoreslotforsave--isslotignoredforsave--clearignoredslotsforsave)
   - [`C_EquipmentSet.EquipmentSetContainsLockedItems(setID)`](#c_equipmentsetequipmentsetcontainslockeditemssetid)
   - [`C_EquipmentSet.UseEquipmentSet(setID)`](#c_equipmentsetuseequipmentsetsetid)
+  - [`C_EquipmentSet.PickupEquipmentSet(setID)`](#c_equipmentsetpickupequipmentsetsetid)
 
 - [Events](#events)
   - [`C_EventUtils.IsEventValid(eventName)`](#c_eventutilsiseventvalideventname)
@@ -168,6 +169,7 @@ build instructions.
   - [`EQUIPMENT_SETS_CHANGED` event](#equipment_sets_changed-event)
   - [`EQUIPMENT_SWAP_PENDING` event](#equipment_swap_pending-event)
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
+  - [`WEAR_EQUIPMENT_SET` event](#wear_equipment_set-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
@@ -3649,6 +3651,37 @@ trinkets 13/14, weapons 16/17), all 2-cycles.
 > old cursor-based path actually fired more (one per pickup, one
 > per equip, one per cursor-clear).
 
+### `C_EquipmentSet.PickupEquipmentSet(setID)`
+
+Puts the set on the cursor. Drop it on an action button to make an
+equipment-set button. An unknown `setID` does nothing.
+
+An equipment-set button shows the icon and the name of the set. When
+the player uses the button, `WEAR_EQUIPMENT_SET` fires, and the
+built-in handler equips the set. The button is grayed out while an item
+of the set is locked. Its tooltip is the `GameTooltip:SetEquipmentSet`
+tooltip.
+
+The button works like other action buttons. Drag it off to put the set
+on the cursor again. Drop another action on it, and the set goes to the
+cursor.
+
+The game saves the button for each character. It comes back after the
+next login. If another client changes that action slot, the change of
+the other client is kept.
+
+Changes to the set go to its buttons:
+
+- `ModifyEquipmentSet` and `SaveEquipmentSet` update the name and the
+  icon.
+- `DeleteEquipmentSet` removes all buttons of the set.
+
+For an equipment-set button, `GetActionInfo(slot)` returns
+`"equipmentset", setName`, and `GetActionText(slot)` returns the set
+name. While the set is on the cursor, `GetCursorInfo()` returns
+`"equipmentset", setName`, and `CURSOR_CHANGED` reports
+`Enum.UICursorType.EquipmentSet`.
+
 ## Events
 
 ### `C_EventUtils.IsEventValid(eventName)`
@@ -4042,6 +4075,16 @@ dispatch" success — not "every item ended up in its target slot."
 Items that were in the bank or that couldn't complete a swap cycle
 in one pass still report success=1. Listen for this if you want to
 re-paint the character pane / refresh tooltips after a swap.
+
+### `WEAR_EQUIPMENT_SET` event
+
+Fires with one payload argument, `setID`, when the player uses an
+equipment-set action button. The event does not equip the set.
+
+The built-in handler equips the set with `UseEquipmentSet`. If an item
+of the set is locked, or the player is casting, the handler does not
+equip the set. Instead, it shows `ERR_CLIENT_LOCKED_OUT` ("You can't do
+that right now.") in the error frame.
 
 ### `FACTION_STANDING_CHANGED` event
 

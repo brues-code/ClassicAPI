@@ -229,6 +229,35 @@ bool Delete(uint32_t setID) {
     return true;
 }
 
+void SetActionSlot(int slot0, uint32_t setID) {
+    EnsureLoaded();
+    if (g_path.empty())
+        return;
+    bool changed = false;
+    for (Set &s : g_sets) {
+        auto &slots = s.actionSlots;
+        for (auto it = slots.begin(); it != slots.end();) {
+            if (*it == slot0 && s.setID != setID) {
+                it = slots.erase(it);
+                changed = true;
+            } else {
+                ++it;
+            }
+        }
+        if (s.setID == setID) {
+            bool present = false;
+            for (const int v : slots)
+                present = present || v == slot0;
+            if (!present) {
+                slots.push_back(slot0);
+                changed = true;
+            }
+        }
+    }
+    if (changed)
+        Persist();
+}
+
 void IgnoreSlot(int slot1Based) {
     if (slot1Based < 1 || slot1Based > SLOT_COUNT)
         return;

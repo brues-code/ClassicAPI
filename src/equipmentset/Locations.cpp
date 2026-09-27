@@ -158,4 +158,22 @@ void SnapshotPaperdoll(uint64_t *out) {
         out[i] = guids[i];
 }
 
+bool ContainsLockedItems(const Set &set) {
+    for (int i = 0; i < SLOT_COUNT; ++i) {
+        const uint64_t g = set.items[i];
+        if (g == GUID_EMPTY || g == GUID_IGNORED)
+            continue;
+        if (FindGUID(g) == 0)
+            continue;
+        const uint8_t *item = ResolveItemByGUID(g);
+        if (item == nullptr)
+            continue;
+        const uint32_t flags = *reinterpret_cast<const uint32_t *>(
+            item + Offsets::OFF_ITEM_CLIENT_LOCK);
+        if (flags & Offsets::ITEM_CLIENT_LOCK_BIT)
+            return true;
+    }
+    return false;
+}
+
 } // namespace EquipmentSet::Locations

@@ -26,7 +26,8 @@ struct State {
     // `PetAction` / `Pet` here while `GetCursorInfo` stays nil.
     int uiType;
     // The held content's identifying number: itemID, spellID, 1-based
-    // macro slot, 1-based merchant slot, or a money amount in copper. 0
+    // macro slot, 1-based merchant slot, equipment setID, or a money
+    // amount in copper. 0
     // for an empty cursor and for the two pet cursors, whose payload the
     // engine does not keep anywhere readable.
     uint32_t virtualID;
@@ -52,6 +53,7 @@ struct Raw {
     uint32_t money;
     uint32_t spellID;
     uint32_t macroID; // the stored macroID, not the slot — cheaper here
+    uint32_t equipmentSetID;
 };
 
 Raw ReadRaw();

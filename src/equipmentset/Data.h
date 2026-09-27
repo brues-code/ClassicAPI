@@ -52,6 +52,10 @@ bool SaveExisting(uint32_t setID, const char *icon);
 bool Rename(uint32_t setID, const char *newName);
 bool Delete(uint32_t setID);
 
+// Records that 0-based action slot `slot0` holds `setID` (0 = holds no
+// set). Drops the slot from whichever set had it; persists on change.
+void SetActionSlot(int slot0, uint32_t setID);
+
 // Per-session "skip this slot on next save" state. Survives until the
 // addon clears it or the game session ends; not persisted.
 void IgnoreSlot(int slot1Based);

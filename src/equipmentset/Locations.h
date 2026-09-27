@@ -54,4 +54,16 @@ const uint8_t *ResolveItemByGUID(uint64_t guid);
 // pre-swap locations. Tracking moves locally bypasses that lag.
 void SnapshotPaperdoll(uint64_t *out);
 
+// True when any item of `set` the player still carries sits in the
+// client-side in-transaction lock (a pending swap, mail / trade attach,
+// or cursor pickup that an equip would race). Reads the CGItem instance
+// flag `OFF_ITEM_CLIENT_LOCK` bit 0 — the bit `C_Item.IsLocked` checks.
+//
+// Gated on `FindGUID` BEFORE the lock flag: an item the player deleted,
+// mailed or traded away can linger in the engine's CGItem cache with
+// whatever lock bits it last had (often the in-transaction state of the
+// delete itself), so reading it would report the set locked forever. A
+// missing item is missing, not locked.
+bool ContainsLockedItems(const Set &set);
+
 } // namespace EquipmentSet::Locations

@@ -36,12 +36,19 @@
 //     `SetBagItem(bag, slot)`, an item no longer carried via `SetHyperlink`
 //     on a bare `item:` link. Same approach as `Item::Tooltip`'s
 //     `SetInventoryItemByID`.
+//   - Equipment set: `GameTooltip:SetEquipmentSet(name)`'s builder, as
+//     3.3.5's `SetAction` (`FUN_00631000`) calls the set builder
+//     `FUN_00622dd0` for an `0x20000000` slot. Always refreshes — the
+//     equipped / in-bags counts move while the pointer rests.
 //   - Refresh: truthy when the builder wants another pass (a ticking cooldown)
 //     or the directive is conditional — see `PushRefresh`.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
+#include "equipmentset/Action.h"
+#include "equipmentset/Data.h"
+#include "equipmentset/Tooltip.h"
 #include "item/Arg.h"
 #include "item/Location.h"
 #include "macro/ShowTooltip.h"
@@ -148,6 +155,18 @@ int __fastcall Script_SetAction(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE || !Game::Lua::IsNumber(L, 2))
         return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L); // engine's own errors
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1;
+
+    if (slot0 >= 0) {
+        if (const uint32_t setID = EquipmentSet::Action::SlotSetID(static_cast<uint32_t>(slot0))) {
+            const EquipmentSet::Set *set = EquipmentSet::Data::FindByID(setID);
+            if (set == nullptr)
+                return PushRefresh(L, false);
+            Game::Lua::SetTop(L, 1); // keep self at stack[1]
+            Game::Lua::PushString(L, set->name.c_str());
+            EquipmentSet::Tooltip::Script_GameTooltipSetEquipmentSet(L);
+            return PushRefresh(L, true);
+        }
+    }
 
     Macro::ShowTooltip::Info info;
     if (!Macro::ShowTooltip::ForSlot(slot0, &info))

@@ -29,6 +29,7 @@
 // has no fileDataID system. Same string-or-default fallback semantic
 // as 4.3.4's native `SaveEquipmentSet`.
 
+#include "Action.h"
 #include "Data.h"
 #include "Game.h"
 #include "Locations.h"
@@ -275,7 +276,8 @@ int __fastcall Script_SaveEquipmentSet(void *L) {
         return 0;
     }
     const char *icon = ArgString(L, 2);
-    Data::SaveExisting(setID, icon);
+    if (Data::SaveExisting(setID, icon))
+        Action::Repaint(setID); // the icon may have changed
     return 0;
 }
 
@@ -287,7 +289,8 @@ int __fastcall Script_ModifyEquipmentSet(void *L) {
                          "Usage: C_EquipmentSet.ModifyEquipmentSet(setID, newName)");
         return 0;
     }
-    Data::Rename(setID, newName);
+    if (Data::Rename(setID, newName))
+        Action::Repaint(setID); // buttons show the name
     return 0;
 }
 
@@ -297,7 +300,8 @@ int __fastcall Script_DeleteEquipmentSet(void *L) {
         Game::Lua::Error(L, "Usage: C_EquipmentSet.DeleteEquipmentSet(setID)");
         return 0;
     }
-    Data::Delete(setID);
+    if (Data::Delete(setID))
+        Action::ClearButtons(setID);
     return 0;
 }
 
@@ -325,46 +329,14 @@ int __fastcall Script_ClearIgnoredSlotsForSave(void *L) {
     return 0;
 }
 
-// Returns true if any item in the set currently sits in the
-// client-side "in-transaction" lock state (a pending swap, mail-
-// attach, trade-attach, or cursor pickup that our equip dispatch
-// would race with). Reads the per-CGItem instance flag at
-// `OFF_ITEM_CLIENT_LOCK` bit 0 — same bit `C_Item.IsLocked` checks
-// and the engine's own pickup/unlock paths manipulate.
-//
-// Gates on `Locations::FindGUID` BEFORE consulting the lock flag:
-// for items the player has deleted/mailed/traded away, the engine's
-// CGItem cache often retains a stale entry that `ResolveByGUID`
-// still hands back, but the inventory walk no longer finds the GUID
-// anywhere. Reading the lock flag off the stale CGItem reflects
-// whatever bits were last set on it (frequently the "locked"
-// in-transaction state from when it was being deleted/swapped),
-// which would falsely report the set as "contains locked items"
-// and prevent `UseEquipmentSet` from running through addon
-// wrappers that gate on this check. The inventory presence check
-// matches modern semantics: a missing item is *missing*, not
-// *locked*.
+// Whether a swap would race an item already in transit — see
+// `Locations::ContainsLockedItems`.
 int __fastcall Script_EquipmentSetContainsLockedItems(void *L) {
     const uint32_t setID = ArgSetID(L, 1);
     const Set *s = Data::FindByID(setID);
     if (s == nullptr)
         return 0;
-    bool any = false;
-    for (int i = 0; i < SLOT_COUNT && !any; ++i) {
-        const uint64_t g = s->items[i];
-        if (g == GUID_EMPTY || g == GUID_IGNORED)
-            continue;
-        if (Locations::FindGUID(g) == 0)
-            continue; // not in inventory — treat as missing, not locked
-        const uint8_t *item = Locations::ResolveItemByGUID(g);
-        if (item == nullptr)
-            continue;
-        const uint32_t flags = *reinterpret_cast<const uint32_t *>(
-            item + Offsets::OFF_ITEM_CLIENT_LOCK);
-        if (flags & Offsets::ITEM_CLIENT_LOCK_BIT)
-            any = true;
-    }
-    Game::Lua::PushBool(L, any);
+    Game::Lua::PushBool(L, Locations::ContainsLockedItems(*s));
     return 1;
 }
 

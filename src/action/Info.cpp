@@ -25,6 +25,7 @@
 //   macro:           "macro", macroIndex (1-based)
 //   bag item:        "item", nil           (see note below)
 //   item-by-id:      "item", itemID
+//   equipment set:   "equipmentset", setName
 //
 // The subType is always "spell" for spell-type entries — the engine
 // helper hardcodes pet=0 for entries on this table. Pet-bar actions
@@ -48,6 +49,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "action/Slot.h"
+#include "equipmentset/Data.h"
 
 #include <cstdint>
 
@@ -123,6 +125,20 @@ int __fastcall Script_GetActionInfo(void *L) {
         const uint32_t itemID = entry & Offsets::ACTION_PAYLOAD_MASK_ITEM_BY_ID;
         Game::Lua::PushString(L, "item");
         Game::Lua::PushNumber(L, static_cast<double>(itemID));
+        return 2;
+    }
+
+    if (type == Offsets::ACTION_TYPE_EQUIPMENT_SET) {
+        // 3.3.5 `Script_GetActionInfo` (`FUN_005a8f10`): the type and the
+        // set's name.
+        const EquipmentSet::Set *set = EquipmentSet::Data::FindByID(
+            entry & ~static_cast<uint32_t>(Offsets::ACTION_TYPE_EQUIPMENT_SET));
+        if (set == nullptr) {
+            Game::Lua::PushNil(L);
+            return 1;
+        }
+        Game::Lua::PushString(L, "equipmentset");
+        Game::Lua::PushString(L, set->name.c_str());
         return 2;
     }
 

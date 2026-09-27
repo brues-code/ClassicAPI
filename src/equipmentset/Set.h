@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace EquipmentSet {
 
@@ -48,6 +49,10 @@ struct Set {
     // and entries loaded from pre-itemID-format files (the slot line
     // had no `item=` field).
     uint32_t itemIDs[SLOT_COUNT];
+    // 0-based action-bar slots this set sits on. The server won't save an
+    // equipment-set button (see `Offsets::ACTION_TYPE_EQUIPMENT_SET`), so
+    // the placement lives here, with the set: deleting the set drops it.
+    std::vector<int> actionSlots;
 };
 
 // Engine convention for SaveEquipmentSet-style "no icon given": modern

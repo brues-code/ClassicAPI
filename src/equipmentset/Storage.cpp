@@ -13,6 +13,7 @@
 
 #include "Storage.h"
 
+#include "Offsets.h"
 #include "settings/Paths.h"
 
 #include <cstdint>
@@ -110,6 +111,14 @@ bool Load(const std::string &path, std::vector<Set> *outSets) {
             continue;
         }
 
+        // `action N` — the set sits on 1-based action-bar slot N.
+        if (line.rfind("action ", 0) == 0) {
+            const long slot1Based = std::strtol(line.c_str() + 7, nullptr, 10);
+            if (slot1Based >= 1 && slot1Based <= Offsets::ACTION_TABLE_MAX_SLOTS)
+                current->actionSlots.push_back(static_cast<int>(slot1Based) - 1);
+            continue;
+        }
+
         // Slot line: `slot N guid=0xHEX [item=ITEMID]` or `slot N ignored`.
         // The `item=` field is optional — pre-itemID files don't have it.
         // Backward compat: missing `item=` leaves itemIDs[idx] = 0, which
@@ -160,6 +169,8 @@ bool Save(const std::string &path, const std::vector<Set> &sets) {
             out << "set " << s.setID << "\n";
             out << "  name=" << s.name << "\n";
             out << "  icon=" << s.icon << "\n";
+            for (const int slot0 : s.actionSlots)
+                out << "  action " << (slot0 + 1) << "\n";
             for (int i = 0; i < SLOT_COUNT; ++i) {
                 const uint64_t g = s.items[i];
                 if (g == GUID_EMPTY)

@@ -4729,6 +4729,15 @@ enum Offsets {
     // walk and returns slot-index or -1.
     ACTION_TYPE_BAG_OR_MACRO = 0x40000000,
     ACTION_TYPE_ITEM_BY_ID = 0x80000000,
+    // Equipment-set action; payload (entry & ~ACTION_TYPE_EQUIPMENT_SET) is
+    // the setID. 1.12 has no such type — the tag is 3.3.5's (`FUN_005a78f0`
+    // tests `(entry & 0xF0000000) == 0x20000000`, `FUN_005a7950` masks it
+    // off). Every 1.12 reader falls through harmlessly on it: the spell
+    // resolver answers 0, the texture resolver NULL, `HasAction` true.
+    // `EquipmentSet::Action` owns it. The server drops type 0x20 without
+    // saving it (tortoise-wow `HandleSetActionButtonOpcode` whitelists
+    // spell / macro / item), so the placement is kept client-side.
+    ACTION_TYPE_EQUIPMENT_SET = 0x20000000,
     ACTION_PAYLOAD_MASK_BAG_OR_MACRO = 0xBFFFFFFF,
     ACTION_PAYLOAD_MASK_ITEM_BY_ID = 0x7FFFFFFF,
 
@@ -4769,6 +4778,46 @@ enum Offsets {
     // /*sendToServer=*/1, 0), so the removal goes out as CMSG_SET_ACTION_BUTTON
     // and the server persists it.
     FUN_ACTION_SLOT_CLEAR = 0x004E5DB0,
+    // Slot writer — `__fastcall(uint slot0, uint entry, int sendToServer,
+    // int quiet)`: `VAR_ACTION_TABLE[slot0] = entry` (+ the item-count cache
+    // for item-by-ID) then FUN_ACTION_SLOT_CHANGED_NOTIFY. The enter-world
+    // apply loop calls it `(slot, entry, 0, 1)` per buffered button.
+    FUN_ACTION_SLOT_SET = 0x004E5D60,
+    // Per-slot usable — `uint __fastcall(uint slot0, int *outNoMana)`,
+    // the value FUN_ACTION_SLOT_CHANGED_NOTIFY and the bulk recompute
+    // `FUN_004E5C00` (fires ACTIONBAR_UPDATE_USABLE) store into the uint[120]
+    // arrays at `0x00BC6B60` / `0x00BC67A0`, which `IsUsableAction` reads.
+    // Only those two callers; both are event-driven.
+    FUN_ACTION_SLOT_USABLE = 0x004E5050,
+    // Drop the cursor onto a slot — `__fastcall(uint slot0)`. Sole entry
+    // for `PlaceAction`, and the tail of both FUN_ACTION_PICKUP and
+    // nampower's detoured `CGActionBar_UseAction` (`0x004E5EE0`) when the
+    // cursor holds a spell / bag item / macro / type-7 action item. Gated
+    // on FUN_CURSOR_EDIT_ALLOWED(9); picks up whatever the slot held (the
+    // `FUN_CURSOR_PICKUP_*` for its type, or a plain cursor clear for a
+    // type it doesn't know), writes the new entry, and notifies with
+    // `sendToServer = 1`.
+    FUN_ACTION_PLACE = 0x004E62E0,
+    // Pick a slot up — `__fastcall(uint slot0)`. Sole entry for
+    // `PickupAction`. When the cursor already holds something the engine
+    // places (the gate in the note above) it tail-calls FUN_ACTION_PLACE;
+    // else it puts the slot's action on the cursor and FUN_ACTION_SLOT_CLEARs.
+    FUN_ACTION_PICKUP = 0x004E6130,
+    // `Script_UseAction(slot, checkCursor, onSelf)` — `__fastcall(L)`. Parses
+    // `slot - 1`, `checkCursor` = loose bool of arg 2, `onSelf` of arg 3, and
+    // calls `0x004E5EE0` — which nampower detours, so hook here, not there.
+    FUN_SCRIPT_USE_ACTION = 0x004E7140,
+    // `Script_GetActionText(slot)` — `__fastcall(L)`. Pushes the macro name
+    // for a macro slot, nil otherwise.
+    FUN_SCRIPT_GET_ACTION_TEXT = 0x004E7050,
+    // SMSG_ACTION_BUTTONS leaf — `__stdcall(?, CDataStore *)`, RET 8 (stack
+    // args at [ebp+8] / [ebp+0xC]; ECX/EDX unused). Reads 120 u32 into
+    // `VAR_ACTION_BUTTONS_PENDING`; the local-player enter-world init
+    // `FUN_005DEA50` then applies each through FUN_ACTION_SLOT_SET(slot,
+    // entry, 0, 1) — spells only when still known, every tagged entry
+    // unconditionally — and fires ACTIONBAR_SLOT_CHANGED(0).
+    FUN_SMSG_ACTION_BUTTONS = 0x005E6680,
+    VAR_ACTION_BUTTONS_PENDING = 0x00C4C2B4, // uint[120]
     // The unlearn sweep — `__fastcall(uint spellID)`. Walks all
     // ACTION_TABLE_MAX_SLOTS slots, resolves each through
     // FUN_ACTION_SLOT_TO_SPELL, and FUN_ACTION_SLOT_CLEARs every slot whose
@@ -8671,6 +8720,32 @@ enum Offsets {
     VAR_CURSOR_GENERIC_SLOT = 0x00B4B41C,
     VAR_CURSOR_GENERIC_DISPLAY = 0x00B4D8EC,
     VAR_CURSOR_GENERIC_SOURCE = 0x00B4B420,
+    // Equipment set — 3.3.5's cursor type for it (`FUN_00520dc0` writes
+    // 0xD). Free in 1.12 (the engine uses 1..10); the setID lives in
+    // `EquipmentSet::Action`, not an engine global. FUN_CURSOR_CLEAR's
+    // switch has no case for it, so a clear only resets the type — the
+    // payload must be read gated on this type.
+    CURSOR_TYPE_EQUIPMENT_SET = 13,
+
+    // Cursor clear — `__fastcall(int returnItem, int fireMoneyEvent)`. The
+    // macro pickup passes (1, 1). Zeroes the current type's payload, plays
+    // the drop sound for the types it knows, hides the action-bar grid when
+    // `VAR_CURSOR_SHOWS_ACTION_GRID` is set, sets the type to 0 and fires
+    // CURSOR_UPDATE.
+    FUN_CURSOR_CLEAR = 0x00495190,
+    // `__fastcall(const char *texturePath)` — the drag icon under the cursor.
+    FUN_CURSOR_SET_TEXTURE = 0x00523A30,
+    // `__fastcall(const char *soundName)` — plays a SoundEntries row by name
+    // (the pickups pass "INTERFACESOUND_CURSORGRABOBJECT").
+    FUN_PLAY_SOUND_BY_NAME = 0x00458030,
+    // Fires ACTIONBAR_SHOWGRID; every action-bar-capable pickup calls it and
+    // then sets `VAR_CURSOR_SHOWS_ACTION_GRID = 1`, which FUN_CURSOR_CLEAR
+    // turns back into ACTIONBAR_HIDEGRID.
+    FUN_ACTIONBAR_SHOW_GRID = 0x004E58C0,
+    VAR_CURSOR_SHOWS_ACTION_GRID = 0x00B4DA24,
+    // `int __fastcall(int kind)` — the protected-action gate FUN_ACTION_PLACE
+    // opens with (kind 9). Returns 0 to refuse.
+    FUN_CURSOR_EDIT_ALLOWED = 0x00494A50,
 
     // GUID → CGObject resolver. `__fastcall(type_filter, guid_lo,
     // guid_hi) → CGObject *` at `0x00468460`. Type filter 0x2 = item,

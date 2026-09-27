@@ -47,6 +47,8 @@
 // at the end (Script_Show), matching retail: PaperDollFrame.lua sets the
 // anchor then calls SetEquipmentSet with no trailing :Show().
 
+#include "equipmentset/Tooltip.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "equipmentset/Data.h"
@@ -142,6 +144,8 @@ Tally TallySet(const Set &s) {
     }
     return t;
 }
+
+} // namespace
 
 int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
@@ -243,6 +247,8 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     reinterpret_cast<ShowScript_t>(Offsets::FUN_SCRIPT_FRAME_SHOW)(L);
     return 0;
 }
+
+namespace {
 
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetEquipmentSet", &Script_GameTooltipSetEquipmentSet},

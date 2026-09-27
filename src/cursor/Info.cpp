@@ -49,6 +49,8 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "equipmentset/Action.h"
+#include "equipmentset/Data.h"
 #include "item/ID.h"
 #include "item/Link.h"
 #include "item/Location.h"
@@ -116,6 +118,7 @@ constexpr int UI_PET_ACTION = 4;
 constexpr int UI_MERCHANT = 5;
 constexpr int UI_MACRO = 7;
 constexpr int UI_PET = 9;
+constexpr int UI_EQUIPMENT_SET = 12;
 
 constexpr uint32_t GUID_TYPE_FILTER_ITEM = 0x2;
 
@@ -275,6 +278,18 @@ int PushMerchantCursor(void *L) {
     return 2;
 }
 
+// 3.3.5 `Script_GetCursorInfo` (`FUN_00515200`) case 0xD: the type and
+// the set's name.
+int PushEquipmentSetCursor(void *L) {
+    const EquipmentSet::Set *set =
+        EquipmentSet::Data::FindByID(EquipmentSet::Action::CursorSetID());
+    if (set == nullptr)
+        return 0;
+    Game::Lua::PushString(L, "equipmentset");
+    Game::Lua::PushString(L, set->name.c_str());
+    return 2;
+}
+
 int __fastcall Script_GetCursorInfo(void *L) {
     const uint32_t type = ReadVar(Offsets::VAR_CURSOR_TYPE);
     if (type >= TYPE_GENERIC_ITEM_LO && type <= TYPE_GENERIC_ITEM_HI)
@@ -286,6 +301,8 @@ int __fastcall Script_GetCursorInfo(void *L) {
         case TYPE_MONEY:          return PushMoneyCursor(L);
         case TYPE_SPELL:          return PushSpellCursor(L);
         case TYPE_MACRO:          return PushMacroCursor(L);
+        case Offsets::CURSOR_TYPE_EQUIPMENT_SET:
+                                  return PushEquipmentSetCursor(L);
         case TYPE_EMPTY:
         default:                  return 0;
     }
@@ -341,6 +358,8 @@ State Current() {
             return {UI_PET_ACTION, 0};
         case TYPE_STABLE_PET:
             return {UI_PET, 0};
+        case Offsets::CURSOR_TYPE_EQUIPMENT_SET:
+            return {UI_EQUIPMENT_SET, EquipmentSet::Action::CursorSetID()};
         case TYPE_EMPTY:
         default:
             break;
@@ -355,13 +374,15 @@ Raw ReadRaw() {
             ReadVar(Offsets::VAR_CURSOR_GENERIC_SLOT),
             ReadVar(Offsets::VAR_CURSOR_MONEY_COPPER),
             ReadVar(Offsets::VAR_CURSOR_SPELL_ID),
-            ReadVar(Offsets::VAR_CURSOR_MACRO_ID)};
+            ReadVar(Offsets::VAR_CURSOR_MACRO_ID),
+            EquipmentSet::Action::CursorSetID()};
 }
 
 bool Same(const Raw &a, const Raw &b) {
     return a.type == b.type && a.guidLo == b.guidLo && a.guidHi == b.guidHi &&
            a.genericSlot == b.genericSlot && a.money == b.money &&
-           a.spellID == b.spellID && a.macroID == b.macroID;
+           a.spellID == b.spellID && a.macroID == b.macroID &&
+           a.equipmentSetID == b.equipmentSetID;
 }
 
 } // namespace Cursor::Info
