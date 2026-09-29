@@ -8451,6 +8451,14 @@ enum Offsets {
     OFF_GOSSIP_QUEST_LEVEL = 0x004,          // i32 questLevel
     OFF_GOSSIP_QUEST_STATUS = 0x008,         // u32 status; 3|4 = active
     OFF_GOSSIP_QUEST_TITLE = 0x00C,          // char[0x200] inline
+    // The counts Script_GetGossipAvailableQuests (0x004E2930) and
+    // Script_GetGossipActiveQuests (0x004E29B0) size their (title, level)
+    // lists by — `uint32_t()`: walk VAR_GOSSIP_QUESTS until questID 0,
+    // counting status != 3/4 (available) or 3/4 (active). The lists then
+    // fetch entry i with 0x004E2460 / 0x004E25B0, so each has exactly that
+    // many pairs. Neither checks for a live gossip session.
+    FUN_GOSSIP_NUM_AVAILABLE_QUESTS = 0x004E2430,
+    FUN_GOSSIP_NUM_ACTIVE_QUESTS = 0x004E2580,
 
     // Inline greeting buffer pushed by Script_GetGossipText. Populated
     // by the engine after the NPC_TEXT.dbc query for the gossip giver

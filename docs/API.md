@@ -338,6 +338,7 @@ build instructions.
   - [`C_GossipInfo.GetAvailableQuests()`](#c_gossipinfogetavailablequests)
   - [`C_GossipInfo.GetActiveQuests()`](#c_gossipinfogetactivequests)
   - [`C_GossipInfo.GetNumOptions()` / `GetNumAvailableQuests()` / `GetNumActiveQuests()`](#c_gossipinfogetnumoptions--getnumavailablequests--getnumactivequests)
+  - [`GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`](#getnumgossipavailablequests--getnumgossipactivequests)
   - [`C_GossipInfo.SelectOption(gossipOptionID)` / `SelectOptionByIndex(orderIndex)`](#c_gossipinfoselectoptiongossipoptionid--selectoptionbyindexorderindex)
   - [`C_GossipInfo.SelectAvailableQuest(questID)`](#c_gossipinfoselectavailablequestquestid)
   - [`C_GossipInfo.SelectActiveQuest(questID)`](#c_gossipinfoselectactivequestquestid)
@@ -7993,6 +7994,21 @@ to turn in, in-progress or complete). Status field at `+0x008` in
 
 Convenience counters — return the length of each of the three lists
 above without building the table.
+
+### `GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`
+
+The 2.0+ globals: how many quests vanilla's `GetGossipAvailableQuests()` /
+`GetGossipActiveQuests()` return, one per (title, level) pair. They use the
+engine's own counters those lists are sized by, so the two always agree.
+Gossip menus only, as on later clients — a questgiver without a menu is
+counted by vanilla's `GetNumAvailableQuests()` / `GetNumActiveQuests()`.
+
+```lua
+local quests = { GetGossipAvailableQuests() }
+for i = 1, GetNumGossipAvailableQuests() do
+    local title, level = quests[i * 2 - 1], quests[i * 2]
+end
+```
 
 ### `C_GossipInfo.SelectOption(gossipOptionID)` / `SelectOptionByIndex(orderIndex)`
 

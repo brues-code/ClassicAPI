@@ -338,6 +338,26 @@ int __fastcall Script_C_GossipInfo_GetNumActiveQuests(void *L) {
     return 1;
 }
 
+// `GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()` — the 2.0+
+// globals: how many quests vanilla's GetGossipAvailableQuests /
+// GetGossipActiveQuests list, from the engine counters those two size their
+// lists by, so a loop over one always matches the other. Gossip menus only,
+// as on later clients; a questgiver without a menu is counted by vanilla's
+// own GetNumAvailableQuests / GetNumActiveQuests (QUEST_GREETING).
+using GossipCount_t = uint32_t(__cdecl *)();
+
+int __fastcall Script_GetNumGossipAvailableQuests(void *L) {
+    auto count = reinterpret_cast<GossipCount_t>(Offsets::FUN_GOSSIP_NUM_AVAILABLE_QUESTS);
+    Game::Lua::PushNumber(L, static_cast<double>(count()));
+    return 1;
+}
+
+int __fastcall Script_GetNumGossipActiveQuests(void *L) {
+    auto count = reinterpret_cast<GossipCount_t>(Offsets::FUN_GOSSIP_NUM_ACTIVE_QUESTS);
+    Game::Lua::PushNumber(L, static_cast<double>(count()));
+    return 1;
+}
+
 // Selectors — translate the retail-shape arg into the engine's
 // 0-based slot/index and call the engine helper directly. The helpers
 // are what the `Script_SelectGossip*` Lua wrappers tail-call after
@@ -499,6 +519,10 @@ void RegisterLuaFunctions() {
                                      &Script_C_GossipInfo_GetNumAvailableQuests);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetNumActiveQuests",
                                      &Script_C_GossipInfo_GetNumActiveQuests);
+    Game::Lua::RegisterGlobalFunction("GetNumGossipAvailableQuests",
+                                      &Script_GetNumGossipAvailableQuests);
+    Game::Lua::RegisterGlobalFunction("GetNumGossipActiveQuests",
+                                      &Script_GetNumGossipActiveQuests);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectOption",
                                      &Script_C_GossipInfo_SelectOption);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectOptionByIndex",
