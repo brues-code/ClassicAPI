@@ -121,6 +121,13 @@ enum Offsets {
     // engine's own macro branch (FUN_GAMETOOLTIP_SET_MACRO) runs, reachable
     // through an entry point no sibling DLL has detoured. Pushes nothing.
     FUN_SCRIPT_GAMETOOLTIP_SET_TEXT = 0x00531B90,      // slot 9
+    // `SetHyperlink(link)`: type-gates self, then SStrCmpI-prefix-matches the
+    // argument against "item:" (id:enchant:suffix:unique ->
+    // FUN_GAMETOOLTIP_BUILD_ITEM) and "enchant:" (a spellID in
+    // VAR_SPELL_RECORDS whose record has `+0x0C == 3` ->
+    // FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP), else raises "Unknown link type"
+    // (`0x00532269`). A full `|H...|h` link fails the prefix test. Co-hooked
+    // by `Tooltip::Hyperlink` for full links and `spell:` / `quest:`.
     FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK = 0x00531FD0, // slot 12
     // `SetAction(slot)`: cooldown via FUN_ACTION_SLOT_COOLDOWN, clear, then
     // attack → "ATTACK" text; item-by-ID → FUN_GAMETOOLTIP_BUILD_ITEM (owned
@@ -4627,6 +4634,14 @@ enum Offsets {
     //   `entry+0x18` and replays it without dereferencing).
     VAR_QUEST_CACHE = 0x00C0E1B0,
     FUN_DBCACHE_QUEST_GET_RECORD = 0x00562A40,
+    // Quest-text substituter — `void __fastcall(const char *src /*ECX*/, char
+    // *dst /*EDX*/, uint32_t size, const uint64_t *playerGuid)`, callee-cleans
+    // its two stack args. Expands the `$N`/`$C`-style tokens (player name,
+    // class, ...) for the player the GUID names, as the quest log shows quest
+    // text. `Script_GetQuestLogQuestText` (0x004DFF20) runs it over the cached
+    // description (+0xA9C) and objectives (+0x29C) with a 0x400-byte buffer
+    // and the active player's GUID (FUN_00468550).
+    FUN_QUEST_TEXT_SUBSTITUTE = 0x00506F70,
     VAR_QUEST_LOG_SELECTED_QUEST_ID = 0x00BB7480,
 
     // Creature cache (creaturecache.wdb, SMSG_CREATURE_QUERY_RESPONSE).

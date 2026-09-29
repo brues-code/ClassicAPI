@@ -299,6 +299,7 @@ build instructions.
   - [`GameTooltip:AddSpellByID(spellID)`](#gametooltipaddspellbyidspellid)
   - [`GameTooltip:SetTalentByID(talentID)`](#gametooltipsettalentbyidtalentid)
   - [`GameTooltip:SetInventoryItemByID(itemID)`](#gametooltipsetinventoryitembyiditemid)
+  - [`GameTooltip:SetHyperlink(link)`](#gametooltipsethyperlinklink)
   - [`GameTooltip:SetHyperlinkCompareItem("itemLink" [, offset, shiftButton, comparisonTooltip])`](#gametooltipsethyperlinkcompareitemitemlink--offset-shiftbutton-comparisontooltip)
   - [`GameTooltip:IsEquippedItem()`](#gametooltipisequippeditem)
   - [`OnTooltipSet*` scripts (Item / Spell / Unit / GameObject)](#ontooltipset-scripts)
@@ -7336,6 +7337,37 @@ end
 GameTooltip:Show()
 ```
 
+### `GameTooltip:SetHyperlink(link)`
+
+Takes a full chat link as well as its `item:...` payload, and shows
+`spell:` and `quest:` links, as on 3.x clients. Vanilla accepts only a bare
+`item:` or `enchant:` payload and raises "Unknown link type" for anything
+else, including the full links `GetContainerItemLink` and chat hand out.
+
+```lua
+GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
+GameTooltip:SetHyperlink("|cff9d9d9d|Hitem:7073:0:0:0|h[Broken Fang]|h|r")
+GameTooltip:SetHyperlink(C_Spell.GetSpellLink(133))   -- "spell:133:0" inside
+GameTooltip:SetHyperlink("quest:783")
+```
+
+| Link | Shows |
+| --- | --- |
+| `\|H<payload>\|h[text]\|h` | The payload, as below |
+| `item:`, `enchant:` | The engine's own tooltip, unchanged |
+| `spell:<spellID>` | The spell tooltip, as [`SetSpellByID`](#gametooltipsetspellbyidspellid) |
+| `quest:<questID>[:level]` | The quest's title, then its objectives text with `$N`-style tokens expanded, as the quest log shows it |
+
+Other link types (`achievement:`, `talent:`, ...) still raise "Unknown link
+type": vanilla has no data behind them.
+
+A quest link reads the quest cache. If the quest isn't cached yet, the
+tooltip stays empty (a scanning tooltip sees `NumLines() == 0`) and the
+client asks the server for it, the same query the quest log makes; a later
+`SetHyperlink` shows it. To know when it has arrived, request it with
+[`C_QuestLog.RequestLoadQuestByID`](#c_questlogrequestloadquestbyidquestid)
+and wait for `QUEST_DATA_LOAD_RESULT`.
+
 ### `GameTooltip:SetHyperlinkCompareItem("itemLink" [, offset, shiftButton, comparisonTooltip])`
 
 Fills the tooltip with the item **currently equipped** in the slot the
@@ -10566,10 +10598,9 @@ The `link` field is the engine's full hyperlink (color + payload +
 display name + reset). Random-suffix items like "Stringy Wolf Meat
 of the Bear" survive round-trip — the link encodes the per-instance
 enchant / suffix / unique fields, not just the base itemID. For
-tooltip display, extract the payload form via
-`string.match(link, "|H(item:[^|]+)|h")` — `SetHyperlink`
-requires the literal `"item:"` prefix and rejects full `|cff...|Hitem...|h`
-input.
+tooltip display, pass it to
+[`GameTooltip:SetHyperlink`](#gametooltipsethyperlinklink) as is — it takes
+the full link as well as the `item:...` payload.
 
 ## LootHistory
 

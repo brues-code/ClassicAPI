@@ -30,9 +30,15 @@ namespace Quest::Cache {
 // NOT invoke the callback — same as the item cache. Caller is responsible
 // for any "synthesise success=1 ourselves on cache hit" logic.
 //
+// With `unique`, a request for a record that is still pending does not
+// register `callback`/`userData` again when that pair is already queued, so
+// a caller that re-requests on every redraw waits on one callback instead of
+// adding one per call.
+//
 // Internal layout of the returned data block (offsets within the block):
 //   +0x9C  inline `char title[N]` — null-terminated, locale-applied
-const uint8_t *Lookup(uint32_t questID, void *callback, void *userData);
+const uint8_t *Lookup(uint32_t questID, void *callback, void *userData,
+                      bool unique = false);
 
 // Convenience: pure cache-state probe with no request side effect.
 inline const uint8_t *Peek(uint32_t questID) {
