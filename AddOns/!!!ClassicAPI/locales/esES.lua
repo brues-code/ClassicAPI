@@ -147,3 +147,7 @@ SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/use";
 SLASH_USE2 = "/usar";
 LINK_TRADESKILL_TOOLTIP = "Haz clic aquí para crear un vínculo a tu profesión.";
+FACTION_STANDING_DECREASED_GENERIC = "Reputación con %s reducida.";
+FACTION_STANDING_INCREASED_BONUS = "Reputación con %s aumentada %d p. (+%.1f de bonus de Recluta a un amigo)";
+FACTION_STANDING_INCREASED_GENERIC = "Reputación con %s aumentada.";
+RETRIEVING_ITEM_INFO = "Obteniendo información de objeto";

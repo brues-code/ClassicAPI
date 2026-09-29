@@ -147,3 +147,7 @@ SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/benutzen";
 SLASH_USE2 = "/use";
 LINK_TRADESKILL_TOOLTIP = "Hier klicken, um einen Link zu Eurem Beruf zu erstellen.";
+FACTION_STANDING_DECREASED_GENERIC = "Euer Ruf bei der Fraktion '%s' hat sich verschlechtert.";
+FACTION_STANDING_INCREASED_BONUS = "Euer Ruf bei der Fraktion '%s' hat sich um %d erhöht. (+%.1f Bonus durch 'Werbt einen Freund')";
+FACTION_STANDING_INCREASED_GENERIC = "Euer Ruf bei der Fraktion '%s' hat sich verbessert.";
+RETRIEVING_ITEM_INFO = "Frage Gegenstandsinformationen ab";

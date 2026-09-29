@@ -149,3 +149,7 @@ SLASH_USE1 = "/use";
 SLASH_USE2 = "/use";
 TARGETFOCUS = "Target Focus";
 LINK_TRADESKILL_TOOLTIP = "Click here to create a link to your profession.";
+FACTION_STANDING_DECREASED_GENERIC = "Reputation with %s decreased.";
+FACTION_STANDING_INCREASED_BONUS = "Reputation with %s increased by %d. (+%.1f Recruit A Friend bonus)";
+FACTION_STANDING_INCREASED_GENERIC = "Reputation with %s increased.";
+RETRIEVING_ITEM_INFO = "Retrieving item information";

@@ -147,3 +147,7 @@ SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/使用";
 SLASH_USE2 = "/use";
 LINK_TRADESKILL_TOOLTIP = "點擊這裡以製造一個你專業技能的連結。";
+FACTION_STANDING_DECREASED_GENERIC = "%s的聲望降低。";
+FACTION_STANDING_INCREASED_BONUS = "你於%s的聲望提高了%d點。(+%.1f點招兵買馬召集令獎勵)";
+FACTION_STANDING_INCREASED_GENERIC = "%s的聲望提高。";
+RETRIEVING_ITEM_INFO = "讀取物品資訊";

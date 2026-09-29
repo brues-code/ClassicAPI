@@ -147,3 +147,7 @@ SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/use";
 SLASH_USE2 = "/use";
 LINK_TRADESKILL_TOOLTIP = "点击这里以创建一个链接到你的专业的快捷方式。";
+FACTION_STANDING_DECREASED_GENERIC = "在%s中的声望降低了。";
+FACTION_STANDING_INCREASED_BONUS = "在%s中的声望提高%d点。（+%.1f战友招募奖励）";
+FACTION_STANDING_INCREASED_GENERIC = "在%s中的声望提升了。";
+RETRIEVING_ITEM_INFO = "正在获取物品信息";

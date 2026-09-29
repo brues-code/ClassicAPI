@@ -147,3 +147,7 @@ SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/use";
 SLASH_USE2 = "/использовать";
 LINK_TRADESKILL_TOOLTIP = "Щелкните здесь, чтобы создать ссылку на вашу профессию.";
+FACTION_STANDING_DECREASED_GENERIC = "Отношение фракции \"%s\" к вам ухудшилось.";
+FACTION_STANDING_INCREASED_BONUS = "Отношение фракции \"%s\" к вашему персонажу улучшилось на %d. (+%.1f за привлечение знакомого)";
+FACTION_STANDING_INCREASED_GENERIC = "Отношение фракции \"%s\" к вам улучшилось.";
+RETRIEVING_ITEM_INFO = "Получение сведений о предмете";
