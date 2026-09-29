@@ -745,6 +745,11 @@ build instructions.
 - [UIColor](#uicolor)
   - [`C_UIColor.GetColors()`](#c_uicolorgetcolors)
 
+- [UIDropDownMenu](#uidropdownmenu)
+  - [`EasyMenu(menuList, menuFrame, anchor, x, y, displayMode)`](#easymenumenulist-menuframe-anchor-x-y-displaymode)
+  - [3.x argument orders and button options](#3x-argument-orders-and-button-options)
+  - [Menus deeper than three levels](#menus-deeper-than-three-levels)
+
 - [Unit](#unit)
   - [`UnitGUID(unit)`](#unitguidunit)
   - [`UnitTokenFromGUID(guid)`](#unittokenfromguidguid)
@@ -17699,6 +17704,86 @@ If `CreateColor` happens not to be defined when `GetColors` is called
 loads), each `color` field falls back to a plain `{r,g,b,a}` table.
 The loop above tolerates both shapes — `dbColor.color.r` reads the
 same way either way — so consumers shouldn't notice.
+
+## UIDropDownMenu
+
+The 3.x dropdown surface on vanilla's dropdown code: `EasyMenu`, the 3.x
+argument orders, the functions 3.x added, and the 3.x button options. Vanilla
+callers are unaffected. Every addition either takes arguments vanilla never
+accepted or applies only to `EasyMenu`'s buttons.
+
+### `EasyMenu(menuList, menuFrame, anchor, x, y, displayMode)`
+
+Shows a menu built from a list of button tables. `menuFrame` is a frame
+that inherits `UIDropDownMenuTemplate`; `anchor` is a frame name, `"cursor"`,
+or `nil` to use the anchor set with `UIDropDownMenu_SetAnchor`. An entry
+with `hasArrow` and a `menuList` opens that list as a submenu.
+
+```lua
+local menuFrame = CreateFrame("Frame", "MyMenu", UIParent, "UIDropDownMenuTemplate")
+EasyMenu({
+    { text = "Options", isTitle = true, notCheckable = true },
+    { text = "Show minimap icon", keepShownOnClick = true,
+      checked = function() return MyDB.icon end,
+      func = function(self, arg1, arg2, checked) MyDB.icon = checked end },
+    { text = "Profiles", hasArrow = true, notCheckable = true, menuList = {
+        { text = "Default", func = function() MyAddon:SetProfile("Default") end },
+    } },
+}, menuFrame, "cursor", 0, 0, "MENU")
+```
+
+`EasyMenu`'s buttons click as on 3.x. The check toggles first, or the menu
+closes, and then `func(button, arg1, arg2, checked)` runs with the new
+state. `EasyMenu_Initialize(frame, level, menuList)` is the init function it
+installs; it also works when vanilla calls it as `init(level)`.
+
+### 3.x argument orders and button options
+
+These setters take the 3.x order as well as vanilla's. A frame as the first
+argument means the 3.x order:
+
+| 3.x | vanilla |
+| --- | --- |
+| `UIDropDownMenu_SetWidth(frame, width [, padding])` | `UIDropDownMenu_SetWidth(width [, frame])` |
+| `UIDropDownMenu_SetButtonWidth(frame, width)` | `UIDropDownMenu_SetButtonWidth(width [, frame])` |
+| `UIDropDownMenu_SetText(frame, text)` | `UIDropDownMenu_SetText(text [, frame])` |
+| `UIDropDownMenu_JustifyText(frame, justification)` | `UIDropDownMenu_JustifyText(justification [, frame])` |
+| `UIDropDownMenu_SetAnchor(dropdown, x, y, point, relativeTo, relativePoint)` | `UIDropDownMenu_SetAnchor(x, y [, dropdown], point, relativeTo, relativePoint)` |
+| `UIDropDownMenu_SetButtonText(level, id, text, colorCode)` | `UIDropDownMenu_SetButtonText(level, id, text, r, g, b)` |
+
+Added from 3.x: `UIDropDownMenu_EnableDropDown(dropDown)`,
+`UIDropDownMenu_DisableDropDown(dropDown)`, `UIDropDownMenu_IsEnabled(dropDown)`,
+`UIDropDownMenu_GetValue(id)`, `OpenColorPicker(info)` and
+`ColorPicker_GetPreviousValues()`. `UIDropDownMenuButton_GetChecked`,
+`UIDropDownMenuButton_GetName` and `UIDropDownMenuButton_OpenColorPicker`
+also take the button as their first argument. `UIDropDownMenu_Initialize`
+and `ToggleDropDownMenu` take 3.x's `menuList` argument, which
+`EasyMenu_Initialize` receives.
+
+`UIDropDownMenu_AddButton` honors the 3.x button options on any menu:
+
+| Option | Effect |
+| --- | --- |
+| `checked` as a function | Called when the button is drawn; its result sets the check |
+| `colorCode` | Wraps the text in that color, unless the button is disabled |
+| `fontObject` | The button's font |
+| `padding` | Extra width for the menu |
+| `tooltipOnButton` | Shows `tooltipTitle` / `tooltipText` as a tooltip at the button, rather than as a beginner tip |
+| `tooltipWhileDisabled` | Shows that tooltip on a disabled button too |
+| `noClickSound` | No click sound |
+
+A button added by your own init function keeps vanilla's click:
+`func(arg1, arg2)`, with the button as `this`, before the check toggles,
+and the init function is still called as `init(level)`, without the frame
+or a `menuList`. Only `EasyMenu`'s buttons are known to be written for 3.x.
+
+### Menus deeper than three levels
+
+A menu can nest any number of levels deep and hold any number of buttons, as on
+3.3.5. Vanilla has three menu lists of 40 buttons each. Past them its dropdown
+code refuses the button or fails on a missing list. `UIDropDownMenu_CreateFrames(level, index)`, 3.3.5's
+function, makes more lists and buttons when a menu needs them, and grows
+`UIDROPDOWNMENU_MAXLEVELS` and `UIDROPDOWNMENU_MAXBUTTONS` with them.
 
 ## Unit
 
