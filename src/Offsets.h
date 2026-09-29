@@ -858,6 +858,23 @@ enum Offsets {
     //     All 14 Set*/builder paths route through this clear, so the co-hook
     //     covers them uniformly. __fastcall(self).
     FUN_GAMETOOLTIP_CLEAR = 0x00530050,
+    // Vanilla's own, never-exposed "texture on the last line" — `void
+    // __thiscall(tooltip, const char *texturePath)`, `ret 4`. Unreferenced in
+    // the 1.12 binary (no calls, no pointers), but complete: it takes the next
+    // of the three textures the XML-OnLoad scan (FUN_00529650) binds from
+    // `<name>Texture1..3` into OFF_GAMETOOLTIP_TEXTURES (`%sTexture%d`,
+    // 0x0052987C; the loop stops at 3), sizes it to the last line's height,
+    // anchors it LEFT of that line and the line's text RIGHT of it, sets the
+    // file (FUN_SIMPLETEXTURE_SET_TEXTURE), shows it, records the line in
+    // OFF_GAMETOOLTIP_TEXTURE_LINES and bumps OFF_GAMETOOLTIP_NUM_TEXTURES.
+    // No-op with fewer than 2 lines or all 3 textures used. FUN_GAMETOOLTIP_CLEAR
+    // undoes it (0x005300F2..0x005301CF): re-anchors each such line and the
+    // one below, hides the texture, zeroes the count. Backs
+    // `GameTooltip:AddTexture` (`Tooltip::AddTexture`).
+    FUN_GAMETOOLTIP_ADD_TEXTURE = 0x005303D0,
+    OFF_GAMETOOLTIP_TEXTURES = 0x34C,       // CSimpleTexture *[3]
+    OFF_GAMETOOLTIP_TEXTURE_LINES = 0x358,  // uint32[3] — line index each texture sits on
+    OFF_GAMETOOLTIP_NUM_TEXTURES = 0x364,   // uint32 — textures in use
     OFF_TOOLTIP_ITEM_GUID_LO = 0x380, // 0 for SetItemByID (no CGItem); stale-safe via the clear co-hook
     OFF_TOOLTIP_ITEM_GUID_HI = 0x384,
     OFF_TOOLTIP_ITEM_ID = 0x398,
