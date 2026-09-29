@@ -259,6 +259,8 @@ build instructions.
   - [`editBox:GetHighlightColor()`](#editboxgethighlightcolor)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
+  - [`button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`](#buttonsetnormalfontobjectfont--buttongetnormalfontobject)
+  - [`frame:IsProtected()`](#frameisprotected)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
@@ -6048,6 +6050,24 @@ Does nothing when the box has no history.
 
 A rename of the `SetMinResize` / `SetMaxResize` pair.
 The max pair is applied only when both values are given.
+
+### `button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`
+
+3.0's names for vanilla's `button:SetTextFontObject(font)` /
+`button:GetTextFontObject()`: the font of the button's text in its normal
+state. The highlight and disabled pairs kept their names. They call the
+vanilla methods, so arguments, results and errors are the engine's own.
+
+```lua
+button:SetNormalFontObject(GameFontHighlight)   -- same as SetTextFontObject
+button:GetNormalFontObject()                    -- same as GetTextFontObject
+```
+
+### `frame:IsProtected()`
+
+Returns `false, false` (`isProtected`, `isProtectedExplicitly`) for every
+frame. The secure frame system arrived in 2.0, so no 1.12 frame is
+protected. Libraries ask before hooking a frame's scripts; AceHook-3.0 does.
 
 ### `frame:HookScript(scriptType, handler)`
 

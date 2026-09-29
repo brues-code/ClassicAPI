@@ -377,6 +377,34 @@ const Game::HookAutoRegister _setPointHook{
     reinterpret_cast<void *>(&SetPoint_h),
     reinterpret_cast<void **>(&g_origSetPoint)};
 
+// ---- Button normal-state font ------------------------------------------------
+
+// `button:SetNormalFontObject(font)` / `button:GetNormalFontObject()` - the
+// names 3.0 gave vanilla's SetTextFontObject / GetTextFontObject (the font of
+// the button's normal state; the Highlight / Disabled pair kept their names).
+// Pure delegation, so arguments, validation and errors are the engine's own.
+int __fastcall Script_SetNormalFontObject(void *L) {
+    return CallScript(Offsets::FUN_SCRIPT_BUTTON_SET_TEXT_FONT_OBJECT, L);
+}
+
+int __fastcall Script_GetNormalFontObject(void *L) {
+    return CallScript(Offsets::FUN_SCRIPT_BUTTON_GET_TEXT_FONT_OBJECT, L);
+}
+
+// ---- IsProtected (Frame) ------------------------------------------------------
+
+// `frame:IsProtected()` -> isProtected, isProtectedExplicitly. Vanilla has no
+// protected frames - the secure/taint system arrived in 2.0 - so no frame is
+// protected, explicitly or through a template. Libraries ask before hooking
+// scripts (AceHook-3.0's HookScript path).
+int __fastcall Script_IsProtected(void *L) {
+    if (Game::Lua::ResolveFrame(L) == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, false);
+    Game::Lua::PushBool(L, false);
+    return 2;
+}
+
 // ---- Registration ----------------------------------------------------------
 
 const Game::Lua::FrameMethodEntry g_regionMethods[] = {
@@ -393,6 +421,12 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
     {"SetResizeBounds", &Script_SetResizeBounds},
     {"HookScript", &Script_HookScript},
     {"GetEffectiveAlpha", &Script_GetEffectiveAlpha},
+    {"IsProtected", &Script_IsProtected},
+};
+
+const Game::Lua::FrameMethodEntry g_buttonMethods[] = {
+    {"SetNormalFontObject", &Script_SetNormalFontObject},
+    {"GetNormalFontObject", &Script_GetNormalFontObject},
 };
 
 const Game::Lua::FrameMethodEntry g_textureMethods[] = {
@@ -414,6 +448,10 @@ void RegisterLuaFunctions() {
         reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY),
         g_frameMethods,
         static_cast<int>(sizeof(g_frameMethods) / sizeof(g_frameMethods[0])));
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY),
+        g_buttonMethods,
+        static_cast<int>(sizeof(g_buttonMethods) / sizeof(g_buttonMethods[0])));
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY),
         g_textureMethods,

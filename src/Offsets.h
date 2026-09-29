@@ -2440,6 +2440,13 @@ enum Offsets {
     // registration wins — the Texture::Desaturation mechanism) to add AnyUp /
     // AnyDown in front of the engine's entry.
     VAR_BUTTON_METHOD_REGISTRY = 0x00CF4E14,
+    // The engine's Button:SetTextFontObject / GetTextFontObject - entries 5
+    // and 6 of the Button method table 0x00879D00 (ctx VAR_BUTTON_METHOD_REGISTRY,
+    // docs/raw_methods.txt). Standard `int __fastcall(void *L)`. 3.0 renamed
+    // them SetNormalFontObject / GetNormalFontObject; Frame::Modern
+    // registers those names over them.
+    FUN_SCRIPT_BUTTON_SET_TEXT_FONT_OBJECT = 0x00780400,
+    FUN_SCRIPT_BUTTON_GET_TEXT_FONT_OBJECT = 0x007804C0,
     // The engine's `Button:RegisterForClicks(...)` (Button table entry 35) —
     // standard `int __fastcall(void *L)`. Loops `lua_isstring(L, i)` from
     // index 2 until the first non-string, SStrCmpI's each against exactly ten
