@@ -260,6 +260,7 @@ build instructions.
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
+  - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
@@ -6066,6 +6067,18 @@ button:HookScript("OnEnter", function(self)
     GameTooltip:SetText("hello")
     GameTooltip:Show()
 end)
+```
+
+### `smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`
+
+On ScrollingMessageFrame and SimpleHTML frames, the two types 3.3.5 has
+them on. With hyperlinks off, the frame's `OnHyperlinkEnter`,
+`OnHyperlinkLeave` and `OnHyperlinkClick` scripts don't run; the links still
+show in the text. On by default, which is how vanilla always behaves.
+
+```lua
+ChatFrame1:SetHyperlinksEnabled(false)   -- links in this chat window stop reacting
+ChatFrame1:GetHyperlinksEnabled()        -- false
 ```
 
 ### `frame:IsEventRegistered(event)`
