@@ -6786,6 +6786,13 @@ enum Offsets {
     // while the `checkAddonVersion` cvar is on. `AddOns::TocRewrite` calls it
     // to recognize the client version inside a multi-flavor comma-list.
     FUN_ADDON_CLIENT_INTERFACE_VERSION = 0x0051D7D0,
+    // `Script_GetBuildInfo`, co-hooked by interface/Version.cpp to append
+    // `tocversion`. In-game: slot 1 of the main registration table 0x0083DE68
+    // (loop @ 0x00490282, next to FrameXML_Debug / ReloadUI). Glue: slot 0 of
+    // the glue main table 0x008373B8 (loop @ 0x0046DDFF). Both from
+    // docs/raw_globals.txt.
+    FUN_SCRIPT_GET_BUILD_INFO = 0x004884A0,
+    FUN_SCRIPT_GLUE_GET_BUILD_INFO = 0x0046CD70,
 
     // Per-addon file loader — `__fastcall(char *tocPath, int *bindingsCtx,
     // int *progress) -> uint32`. `FUN_0051f240` calls it once per addon with

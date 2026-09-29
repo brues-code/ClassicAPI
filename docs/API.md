@@ -683,6 +683,7 @@ build instructions.
 - [System](#system)
   - [`GetPhysicalScreenSize()`](#getphysicalscreensize)
   - [`CopyToClipboard(text [, removeMarkup])`](#copytoclipboardtext--removemarkup)
+  - [`GetBuildInfo()`](#getbuildinfo)
 
 - [Talent](#talent)
   - [`GetTalentSpellID(tabIndex, talentIndex, [rank[, classID]])`](#gettalentspellidtabindex-talentindex-rank-classid)
@@ -16727,6 +16728,23 @@ CopyToClipboard(link)                                       -- 15  (raw escapes 
 > into `||`, so a literal `|cff…` you type is no longer a color code by the
 > time it reaches Lua. Build real markup with `\124` (as above) to exercise
 > `removeMarkup`.
+
+### `GetBuildInfo()`
+
+Returns `version, build, date, tocversion`. Later clients add the interface
+(TOC) version as a fourth value; stock 1.12 stops at three. Ports test the
+expansion with it, and on stock 1.12 the common
+`select(4, GetBuildInfo()) >= 30000` compares `nil` and throws at file load.
+
+```lua
+local version, build, date, tocversion = GetBuildInfo()
+tocversion                           -- 11200 on this client
+select(4, GetBuildInfo()) >= 30000   -- false (stock 1.12: error)
+```
+
+`tocversion` is the engine's own interface version, the same number as
+[`INTERFACE_VERSION`](#interface_version). The first three values are
+unchanged, and the glue screens' `GetBuildInfo` returns the same four.
 
 ## Talent
 
