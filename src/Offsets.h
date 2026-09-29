@@ -6803,6 +6803,19 @@ enum Offsets {
     // engine loads each SavedVariables `.lua` (and how addon files run).
     FUN_LUA_LOAD_FILE = 0x00704BC0,
 
+    // XML file processor - `__fastcall(const char *path, void *ctx, void
+    // *status)` (RET 4); walks an XML file's top-level elements. Called by
+    // FUN_ADDON_LOAD_FILES for each .xml TOC line (0x006EDD51) and by itself
+    // for <Include> (0x006EE00D). <Include file> is always joined onto the
+    // including file's directory (0x006EDFBA..0x006EE00D); <Script file> only
+    // when the value contains no backslash (strchr(file, '\') at 0x006EE06E,
+    // jne 0x006EE0C7 on a hit), otherwise it is loaded as given, from the game
+    // root, through FUN_LUA_LOAD_FILE at 0x006EE0D4. Co-hooked by
+    // xml/ScriptPath.cpp to track the file being processed.
+    FUN_XML_LOAD_FILE = 0x006EDE10,
+    // Return address of that <Script file> call into FUN_LUA_LOAD_FILE.
+    RET_XML_SCRIPT_FILE_LOAD = 0x006EE0D9,
+
     // File-exists probe — `__stdcall(const char *path, int mode)` (RET 8);
     // nonzero when the file exists. `mode = 1` on the addon / SavedVariables
     // paths. Used to mirror the engine's SV path fallback (prefer the

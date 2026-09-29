@@ -25,6 +25,7 @@ build instructions.
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
   - [SavedVariables loaded first](#savedvariables-loaded-first)
+  - [`<Script file>` paths in XML files](#script-file-paths-in-xml-files)
 
 - [APIDocumentation](#apidocumentation)
   - [`/classicapi`](#classicapi)
@@ -1313,6 +1314,18 @@ ClassicAPI removes the restart requirement. On every `/reload`:
   it. `GetAddOnMetadata` returns the new values.
 - **Deleting an addon folder removes it from the addon list** on the
   next `/reload`.
+
+### `<Script file>` paths in XML files
+
+`<Script file="widgets\Button.lua"/>` in an addon's XML file loads relative
+to that XML file's folder, as on later clients. Stock 1.12 joins
+`<Include file>` onto the XML file's folder, but `<Script file>` only when
+the path has no backslash; a path with one is loaded from the game folder
+and fails ("Error loading widgets\Button.lua"). AceGUI-3.0 loads all of its
+widget files this way from `AceGUI-3.0.xml`.
+
+A path that exists as given still loads from there. The XML file's folder is
+tried only when it doesn't, and only when the file is there.
 
 ## APIDocumentation
 
