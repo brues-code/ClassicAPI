@@ -181,5 +181,5 @@ set(CMAKE_SHARED_LINKER_FLAGS
     # /DEF exports `Load` (VanillaFixes' post-injection entry point) undecorated
     # so its GetProcAddress(module, "Load") resolves. See src/ClassicAPI.def and
     # the loader-lock rationale in src/DllMain.cpp.
-    "/OPT:REF /OPT:ICF /MERGE:.rdata=.text /MERGE:.pdata=.text /SECTION:.text,EWR /NODEFAULTLIB:MSVCRT /MAP /DEBUG /DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/ClassicAPI.def"
+    "/OPT:REF /OPT:ICF /MERGE:.rdata=.text /MERGE:.pdata=.text /SECTION:.text,EWR /NODEFAULTLIB:MSVCRT /MAP /DEBUG /DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/src/ClassicAPI.def\""
 )
