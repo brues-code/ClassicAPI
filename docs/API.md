@@ -8389,7 +8389,8 @@ directly off the CGItem's m_objectFields descriptor at +0x20
 (`ITEM_FIELD_STACK_COUNT`, verified by decoding
 `Script_GetContainerItemInfo` at `0x004F9670`).
 
-Equivalent to the global `GetItemCount` and `C_Item.GetItemCount`.
+Also registered as the global `GetItemCount`, the 2.0+ name for the same
+call.
 
 ### `C_Item.GetItemData(itemLocation)` / `C_Item.GetItemDataByID(item)`
 

@@ -266,6 +266,10 @@ int InInventory(void *L, int itemID) {
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemCount",
                                      &Script_C_Item_GetItemCount);
+    // The 2.0+ global of the same name and arguments (itemID, name or link;
+    // includeBank; includeCharges) - this function mirrors 3.3.5's
+    // Script_GetItemCount, charge gate included.
+    Game::Lua::RegisterGlobalFunction("GetItemCount", &Script_C_Item_GetItemCount);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
