@@ -9952,6 +9952,10 @@ enum Offsets {
     // FUN_006f2cf0 (`__thiscall(node, name) -> value string`, null if absent).
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
+    // An element's text content (`const char *`, null when empty) - what the
+    // XML file processor compiles for an inline <Script> element
+    // (`mov esi, [esi+0xC]` at 0x006EE0D9, then "%s:<Scripts>").
+    OFF_XML_NODE_TEXT = 0xC,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
     // Attributes are a flat array of `{char *name, char *value}` pairs at
     // +0x14, count at +0x10: the getter above scans it with SStrCmpI and

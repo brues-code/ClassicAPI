@@ -69,11 +69,18 @@
 // with `style` and no `inherits` is applied through the engine's own setter
 // for that state (SetTextFontObject / SetHighlightFontObject /
 // SetDisabledFontObject) with `_G[style]`.
+//
+// Every loader also hands an <Animations> child to the Lua animation runtime
+// (Animation::Bridge): each <AnimationGroup> and its animations become a plain
+// descriptor table - known attributes as strings, <Scripts> bodies and
+// function= names, an <Origin> - and runtime.LoadXML(region, descriptors)
+// builds the groups, before the builder finalizes, so OnLoad sees them.
 
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "animation/Bridge.h"
 
 #include <cstdint>
 
@@ -219,6 +226,142 @@ void BindButtonFontStyles(void *self, const void *node) {
         Game::Lua::SetTop(L, top);
 }
 
+// ---- <Animations> -------------------------------------------------------------
+
+const char *const kGroupAttrs[] = {"name", "parentKey", "looping", "inherits"};
+const char *const kAnimAttrs[] = {
+    "name", "parentKey", "duration", "startDelay", "endDelay", "order", "smoothing",
+    "maxFramerate", "change", "scaleX", "scaleY", "degrees", "radians", "offsetX", "offsetY"};
+
+const void *FindChild(const void *node, const char *tag) {
+    for (const void *c = FirstChild(node); c != nullptr; c = NextSibling(c))
+        if (TagIs(c, tag))
+            return c;
+    return nullptr;
+}
+
+// [t, v] -> t[key] = v, leaving [t].
+void SetFieldTop(void *L, const char *key) {
+    Game::Lua::PushString(L, key);
+    Game::Lua::Insert(L, -2);
+    Game::Lua::SetTable(L, -3);
+}
+
+// [list, v] -> list[index] = v, leaving [list].
+void AppendTop(void *L, int index) {
+    Game::Lua::PushNumber(L, static_cast<double>(index));
+    Game::Lua::Insert(L, -2);
+    Game::Lua::SetTable(L, -3);
+}
+
+void PushAttrs(void *L, const void *node, const char *const *names, size_t count) {
+    Game::Lua::NewTable(L);
+    for (size_t i = 0; i < count; ++i) {
+        const char *v = Xml::Attr(node, names[i]);
+        if (v != nullptr)
+            Game::Lua::SetFieldString(L, names[i], v);
+    }
+}
+
+// { {name = "OnPlay", body = "...", func = "..."}, ... } for `node`'s <Scripts>.
+void PushScripts(void *L, const void *node) {
+    Game::Lua::NewTable(L);
+    const void *scripts = FindChild(node, "Scripts");
+    if (scripts == nullptr)
+        return;
+    int n = 0;
+    for (const void *s = FirstChild(scripts); s != nullptr; s = NextSibling(s)) {
+        const char *tag = Xml::Tag(s);
+        if (tag == nullptr)
+            continue;
+        Game::Lua::NewTable(L);
+        Game::Lua::SetFieldString(L, "name", tag);
+        const char *body = Game::Read<const char *>(s, Offsets::OFF_XML_NODE_TEXT);
+        if (body != nullptr)
+            Game::Lua::SetFieldString(L, "body", body);
+        const char *fn = Xml::Attr(s, "function");
+        if (fn != nullptr)
+            Game::Lua::SetFieldString(L, "func", fn);
+        AppendTop(L, ++n);
+    }
+}
+
+// Pushes {point=, x=, y=} for an <Origin> child, or nothing (returns false).
+bool PushOrigin(void *L, const void *node) {
+    const void *origin = FindChild(node, "Origin");
+    if (origin == nullptr)
+        return false;
+    Game::Lua::NewTable(L);
+    const char *point = Xml::Attr(origin, "point");
+    Game::Lua::SetFieldString(L, "point", point != nullptr ? point : "CENTER");
+    const void *offset = FindChild(origin, "Offset");
+    if (offset != nullptr) {
+        const void *abs = FindChild(offset, "AbsDimension");
+        const void *dim = abs != nullptr ? abs : offset;
+        const char *x = Xml::Attr(dim, "x");
+        const char *y = Xml::Attr(dim, "y");
+        if (x != nullptr)
+            Game::Lua::SetFieldString(L, "x", x);
+        if (y != nullptr)
+            Game::Lua::SetFieldString(L, "y", y);
+    }
+    return true;
+}
+
+void PushGroupDescriptor(void *L, const void *groupNode) {
+    Game::Lua::NewTable(L); // [desc]
+    PushAttrs(L, groupNode, kGroupAttrs, sizeof(kGroupAttrs) / sizeof(kGroupAttrs[0]));
+    SetFieldTop(L, "attr");
+    PushScripts(L, groupNode);
+    SetFieldTop(L, "scripts");
+    Game::Lua::NewTable(L); // [desc, anims]
+    int n = 0;
+    for (const void *a = FirstChild(groupNode); a != nullptr; a = NextSibling(a)) {
+        if (TagIs(a, "Scripts"))
+            continue;
+        const char *tag = Xml::Tag(a);
+        if (tag == nullptr)
+            continue;
+        Game::Lua::NewTable(L); // [desc, anims, anim]
+        Game::Lua::SetFieldString(L, "tag", tag);
+        PushAttrs(L, a, kAnimAttrs, sizeof(kAnimAttrs) / sizeof(kAnimAttrs[0]));
+        SetFieldTop(L, "attr");
+        PushScripts(L, a);
+        SetFieldTop(L, "scripts");
+        if (PushOrigin(L, a))
+            SetFieldTop(L, "origin");
+        AppendTop(L, ++n);
+    }
+    SetFieldTop(L, "anims"); // [desc]
+}
+
+// runtime.LoadXML(region, descriptors) for `node`'s <Animations>, if any.
+void LoadAnimations(void *object, const void *node) {
+    const void *animations = FindChild(node, "Animations");
+    if (animations == nullptr)
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    if (!Animation::Bridge::PushRuntimeFunction(L, "LoadXML")) // [LoadXML]
+        return;
+    if (!PushWrapper(L, object)) { // [LoadXML, region]
+        Game::Lua::SetTop(L, top);
+        return;
+    }
+    Game::Lua::NewTable(L); // [LoadXML, region, list]
+    int n = 0;
+    for (const void *g = FirstChild(animations); g != nullptr; g = NextSibling(g)) {
+        if (!TagIs(g, "AnimationGroup"))
+            continue;
+        PushGroupDescriptor(L, g);
+        AppendTop(L, ++n);
+    }
+    Game::Lua::PCall(L, 2, 0, 0); // LoadXML reports its own errors
+    Game::Lua::SetTop(L, top);
+}
+
 uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origButtonLoad(self, edx, node, status);
     BindButtonFontStyles(self, node);
@@ -228,6 +371,7 @@ uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void 
 void OnFrameNode(void *object, const void *node, void * /*status*/) {
     BindParentKey(object, node);
     BindScriptFunctions(object, node);
+    LoadAnimations(object, node);
 }
 
 const Xml::FrameLoad::AutoSubscribe _frameNode{&OnFrameNode};
@@ -239,15 +383,19 @@ void *RegionObject(void *self) {
 
 uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origTextureLoad(self, edx, node, status);
-    if (self != nullptr && node != nullptr)
+    if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
+        LoadAnimations(RegionObject(self), node);
+    }
     return r;
 }
 
 uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origFontStringLoad(self, edx, node, status);
-    if (self != nullptr && node != nullptr)
+    if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
+        LoadAnimations(RegionObject(self), node);
+    }
     return r;
 }
 
