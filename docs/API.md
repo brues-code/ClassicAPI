@@ -263,6 +263,7 @@ build instructions.
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
+  - [Frame alpha multiplies into child frames](#frame-alpha-multiplies-into-child-frames)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
   - [`SetModernScriptArgs(enable)` / `GetModernScriptArgs()`](#setmodernscriptargsenable--getmodernscriptargs)
   - [`SecureCmdOptionParse(options [, quiet])`](#securecmdoptionparseoptions--quiet)
@@ -6147,6 +6148,39 @@ UIParent:GetEffectiveAlpha()   -- 1
 -- with UIParent at 0.5 and Minimap's own alpha 1:
 Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
 ```
+
+### Frame alpha multiplies into child frames
+
+A frame draws at its own alpha times its parent's drawn alpha, as on 3.x.
+A child can't be more visible than its parent, and a frame built or
+parented inside a transparent frame is transparent too. `GetAlpha()`
+returns the frame's own alpha, and `GetEffectiveAlpha()` returns the
+product.
+
+Vanilla keeps one alpha per frame and copies it down. `SetAlpha` and the
+XML `alpha` attribute overwrite the alpha of every child frame that exists
+at that moment, and children created or parented later get nothing. So on
+vanilla:
+
+- a `<Frame alpha="0">` draws its `<Frames>` at full alpha, because the
+  attribute is applied before they are built;
+- a child's own alpha is lost when its parent's changes;
+- `child:GetAlpha()` returns whatever the parent last copied in.
+
+```lua
+local parent = CreateFrame("Frame", nil, UIParent)
+local child = CreateFrame("Frame", nil, parent)
+child:SetAlpha(0.5)
+parent:SetAlpha(0.2)
+child:GetAlpha()            -- ~0.498 (vanilla: 0.2)
+child:GetEffectiveAlpha()   -- ~0.1
+parent:SetAlpha(1)
+child:GetAlpha()            -- ~0.498 (vanilla: 1)
+```
+
+Vanilla code that shows a child under a transparent parent
+(`parent:SetAlpha(0); child:SetAlpha(1)`) now leaves the child hidden, as
+3.x does. A Model frame's 3D model follows the frame's drawn alpha.
 
 ### `frame:SetAttribute(name, value)` / `frame:SetAttributeNoHandler(name, value)` / `frame:ClearAttribute(name)` / `frame:GetAttribute(...)`
 

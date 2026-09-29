@@ -2658,9 +2658,55 @@ enum Offsets {
     // since disproved — see that definition. `Frame::Attributes` chains a normal
     // OnClick on its opted-in frames for its own reasons, not because of it.)
     // Frame GetAlpha (own alpha, 0..1) + Region GetParent — walked by
-    // Frame::Modern's GetEffectiveAlpha up the parent chain.
+    // Frame::Modern's GetEffectiveAlpha up the parent chain. `Frame::Alpha`
+    // co-hooks GetAlpha to return the own alpha it keeps, since the byte it
+    // reads holds the drawn alpha.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
     FUN_SCRIPT_REGION_GETPARENT = 0x007A1460,
+
+    // Frame alpha. The byte at OFF_FRAME_ALPHA (0..255) is what the frame's
+    // regions are drawn with (each region's recolor reads it) and what
+    // FUN_SCRIPT_FRAME_GETALPHA returns (`[frame+0xC8] / 255`); it has one
+    // writer, FUN_FRAME_SET_FRAME_ALPHA (0x0076A6A2). Script SetAlpha
+    // (0x00774E90: clamp to 0..1, * 255) and the XML `alpha` attribute (frame
+    // LoadXML, 0x00769A10..0x00769A8A) both reach it through the frame's
+    // vtable+VTBL_FRAME_SET_FRAME_ALPHA — `void __thiscall(frame, uint8)`,
+    // `ret 4`: `if (alpha == a) return; alpha = a;`, then vtable+0x20(0)
+    // (recolor) on each region in the OFF_FRAME_REGION_LIST list and
+    // vtable+0x28(a) on each child frame in the OFF_FRAME_CHILD_LIST list — the
+    // same value, copied down. FUN_FRAME_SET_PARENT doesn't touch alpha, so a
+    // frame parented after its parent's alpha was set keeps its own. Both lists
+    // are intrusive: node+4 next, node+8 object, a NULL or low-bit-1 link ends
+    // them. The Model family's vtables (0x00803960, 0x00808260, 0x008083A8,
+    // 0x008084F8, 0x0081C608) override the slot with 0x0076D120, which calls
+    // this setter and then hands the byte to its model (+0x318); every other
+    // frame vtable holds the setter itself. `Frame::Alpha` co-hooks the setter
+    // and SetParent for 3.x's model.
+    OFF_FRAME_ALPHA = 0xC8,
+    OFF_FRAME_REGION_LIST = 0x1B8,
+    OFF_FRAME_CHILD_LIST = 0x300,
+    VTBL_FRAME_SET_FRAME_ALPHA = 0x28,
+    VTBL_REGION_RECOLOR = 0x20,
+    FUN_FRAME_SET_FRAME_ALPHA = 0x0076A690,
+    // CSimpleFrame::SetParent — `void __thiscall(frame, CSimpleFrame *parent)`,
+    // `ret 4`; Script SetParent reaches it through vtable+0x14. No-op for the
+    // same parent; otherwise unlinks from the old parent's child list
+    // (0x0076AAB0), stores the parent at OFF_REGION_PARENT, takes the parent's
+    // strata (+0xC0), level + 1 (+0xC4), layout scale (OFF_LAYOUT_SCALE) and a
+    // flag bit, and links into the new parent's child list (0x0076AA20). Also
+    // what CreateFrame's parent argument and the XML frame factory go through:
+    // the frame constructor calls it directly (0x00769318, its only direct
+    // caller), after storing the alpha byte (0x007690D2), both list heads and
+    // the base vtable (0x007692E5).
+    FUN_FRAME_SET_PARENT = 0x0076AB10,
+    // CSimpleFrame destructor body — `void __thiscall(frame)`, plain `ret`.
+    // Called or tail-called by the base vtable's slot-0 deleting destructor
+    // (0x00769380) and every derived frame class's destructor (16 call sites,
+    // including the engine-pooled ChatBubbleFrame's at 0x004B0BB6). Deletes the
+    // frame's regions and child frames and unlinks it from its parent through
+    // 0x0076AAB0, never through SetParent or the alpha setter. `Frame::Alpha`
+    // hooks it to forget the frame's own alpha.
+    FUN_FRAME_DESTRUCTOR = 0x007693B0,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,
