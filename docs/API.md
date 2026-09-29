@@ -493,6 +493,7 @@ build instructions.
   - [`GetInboxItemLink(messageIndex[, attachmentIndex])`](#getinboxitemlinkmessageindex-attachmentindex)
 
 - [Map](#map)
+  - [The closed world map follows the player's zone](#the-closed-world-map-follows-the-players-zone)
   - [`C_Map.CanSetUserWaypointOnMap(uiMapID)`](#c_mapcansetuserwaypointonmapuimapid)
   - [`C_Map.GetAreaInfo(areaID)`](#c_mapgetareainfoareaid)
   - [`C_Map.GetAreas()`](#c_mapgetareas)
@@ -12115,6 +12116,25 @@ end
 ```
 
 ## Map
+
+### The closed world map follows the player's zone
+
+While the world map is closed, it stays on the zone you're in, as on 3.x
+clients: it's put back on your zone when you close it, when you enter the
+world, and when you move into a new zone. `GetPlayerMapPosition("player")`
+reads the map it's set to, so code written for 3.x gets your position
+without setting the map first:
+
+```lua
+-- world map closed, any time after zoning
+local x, y = GetPlayerMapPosition("player")   -- your position in this zone
+```
+
+On vanilla the closed map stayed on whatever zone it last showed, and that
+call returned `0, 0` in any other zone until the map was opened. The 3.x
+interface resets it in `WorldMapFrame_OnHide` and in the quest tracker's
+`PLAYER_ENTERING_WORLD` and `ZONE_CHANGED_NEW_AREA` handlers; ClassicAPI
+does the same.
 
 ### `C_Map.GetAreaInfo(areaID)`
 
