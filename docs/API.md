@@ -578,6 +578,7 @@ build instructions.
   - [`C_QuestLog.GetNumQuestObjectives(questID)`](#c_questloggetnumquestobjectivesquestid)
   - [`C_QuestLog.IsQuestDataCachedByID(questID)`](#c_questlogisquestdatacachedbyidquestid)
   - [`GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`](#getquestlogleaderboardidobjectiveindex--questindex)
+  - [A turn-in always prints "*quest* completed."](#a-turn-in-always-prints-quest-completed)
 
 - [Sound](#sound)
   - [`PlaySound(soundKitID)` / `PlaySound(soundName)`](#playsoundsoundkitid--playsoundsoundname)
@@ -14169,6 +14170,30 @@ A separate function keeps the existing call wire-compatible.
 > Iteration mirrors the engine at `0x004E0110`: walk the NPC/GO array
 > first, skip zero slots, then the item array. 1-based `objectiveIndex`
 > counts only non-empty slots.
+
+### A turn-in always prints "*quest* completed."
+
+Every quest turn-in puts `ERR_QUEST_COMPLETE_S` ("Bashal'Aran completed.")
+in chat as a `CHAT_MSG_SYSTEM` line, with its sound, ahead of the
+experience and money lines. `QUEST_TURNED_IN` follows with the quest's ID.
+
+Vanilla prints the line only for a quest with no follow-up. When the
+quest's data names a next quest in its chain, the client leaves the line
+out, so a turn-in in the middle of a chain prints only "Experience gained"
+and "Received". Addons that follow turn-ins through the line, such as Zygor
+Guides Viewer 2.0 and its 3.3.5a port, missed every quest with a follow-up.
+
+```lua
+local pattern = "^" .. string.gsub(ERR_QUEST_COMPLETE_S, "%%s", "(.+)")
+local f = CreateFrame("Frame")
+f:RegisterEvent("CHAT_MSG_SYSTEM")
+f:SetScript("OnEvent", function()
+    local _, _, title = string.find(arg1, pattern)
+    if title then
+        -- title was just turned in, chain quests included
+    end
+end)
+```
 
 ## Sound
 

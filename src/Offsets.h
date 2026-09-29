@@ -7640,6 +7640,24 @@ enum Offsets {
     // Hooked by `Quest::TurnedIn` to fire `QUEST_TURNED_IN(questID, xp, money)`.
     FUN_QUEST_GIVER_QUEST_COMPLETE_HANDLER = 0x005DC400,
 
+    // The two tests that keep "<quest> completed." out of chat for a quest in
+    // the middle of a chain. The handler above looks the quest up in the quest
+    // cache (FUN_00562A40 on 0x00C0E1B0; a record holds SMSG_QUEST_QUERY_
+    // RESPONSE's fields in packet order, so +0x24 is NextQuestInChain and +0x9C
+    // the title — questcache.wdb's records for 954/955/983/1001 hold
+    // 955/956/1001/1002 there). For a cached quest it runs `mov ecx,[eax+0x24];
+    // test ecx,ecx; jne` (`75 13`, at the address below) past `push title;
+    // push 0x8A; call FUN_00496720`. A quest not yet cached leaves callback
+    // 0x005DC710, which makes the same test when the record arrives (`75 14`).
+    // FUN_00496720 shows game message 0x8A from its 20-byte table at
+    // 0x00B4B498 (entry 0x00B4BF60, filled at 0x00485F4F): format
+    // ERR_QUEST_COMPLETE_S, display type 0 (chat), sound igQuestListComplete,
+    // chat type 0x0A, which FUN_0049B0B0 fires as event 238, CHAT_MSG_SYSTEM
+    // (name stored at 0x00BE1550 = 0x00BE1198 + 238 * 4). `Quest::
+    // CompleteMessage` NOPs both jumps.
+    PATCH_QUEST_COMPLETE_MSG_CHAIN_SKIP = 0x005DC4DC,
+    PATCH_QUEST_COMPLETE_MSG_CHAIN_SKIP_LATE = 0x005DC756,
+
     // Packet-stream uint32 reader. `__thiscall(stream, uint32 *out)` —
     // reads 4 bytes from `stream + base + cursor`, advances cursor by
     // 4. Cursor lives at `stream + OFF_PACKET_STREAM_CURSOR`; save and
