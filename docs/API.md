@@ -257,6 +257,7 @@ build instructions.
   - [`editBox:HasText()`](#editboxhastext)
   - [`editBox:SetHighlightColor(r, g, b [, a])`](#editboxsethighlightcolorr-g-b--a)
   - [`editBox:GetHighlightColor()`](#editboxgethighlightcolor)
+  - [`editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`](#editboxsetcountinvisibleletterscount--editboxiscountinvisibleletters)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
@@ -6040,6 +6041,25 @@ ChatFrameEditBox:SetHighlightColor(1, 0, 0)   -- red selection
 
 Returns the selection-highlight color as four numbers: `r, g, b, a`, each `0`
 to `1`.
+
+### `editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`
+
+Whether the edit box's `SetMaxLetters` limit counts the characters of color
+codes and a hyperlink's hidden part. Off by default, which is how vanilla
+counts: only the letters you see count. On is for text whose real limit is
+in bytes, such as a macro body; 3.3.5 turns it on for its macro text and
+friends broadcast boxes.
+
+```lua
+box:SetMaxLetters(12)
+box:SetText("|cffff0000abcdefg|r")   -- kept whole: 7 letters
+box:SetCountInvisibleLetters(true)
+box:SetText("|cffff0000abcdefg|r")   -- "|cffff0000ab": the code counts as 10
+```
+
+XML sets it with the EditBox attribute `countInvisibleLetters="true"`.
+Only the limit changes. `GetNumLetters` still returns the text's length
+in bytes, and the cursor moves over letters as before.
 
 ### `editBox:ClearHistory()`
 

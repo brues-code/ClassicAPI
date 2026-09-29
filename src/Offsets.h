@@ -9537,6 +9537,31 @@ enum Offsets {
     // backs GetUTF8CursorPosition. Verified from the arrow-key mover
     // FUN_0077cb20's own `FUN_0077bc80(this, byteOff, cursorByte - byteOff)`.
     FUN_EDITBOX_COUNT_CHARS = 0x0077bc80,
+    // The per-byte table it walks is at OFF_EDITBOX_CHAR_CLASS, rebuilt from
+    // the text by FUN_0077BA90 with FUN_TEXT_TOKENIZER: at each token's first
+    // byte, `length | class << 16` (bit 31 set inside a hyperlink), zero at
+    // the token's other bytes. Classes 2 (line break), 3 (character) and 6
+    // (a `|` that starts no code) are visible; the rest are markup - color
+    // codes, the hyperlink's `|H...|h` and closing `|h` - which it skips.
+    OFF_EDITBOX_CHAR_CLASS = 0x330,
+    // SetMaxLetters stores its limit here (Script 0x00799110); the insert
+    // path FUN_0077BEE0 enforces it after splicing text in: it counts the
+    // text with FUN_EDITBOX_COUNT_CHARS (calls at 0x0077C09A, 0x0077C0BC,
+    // 0x0077C0E4) and deletes from the end until the count fits. The byte
+    // cap SetMaxBytes (+0x33C, -1 = none) is enforced just before, by length.
+    OFF_EDITBOX_MAX_LETTERS = 0x340,
+    RET_EDITBOX_MAX_LETTERS_COUNT_1 = 0x0077C09F,
+    RET_EDITBOX_MAX_LETTERS_COUNT_2 = 0x0077C0C1,
+    RET_EDITBOX_MAX_LETTERS_COUNT_3 = 0x0077C0E9,
+    // The EditBox node loader (the FUN_XML_FRAME_LOAD sub-object convention:
+    // `__thiscall(loader, node, status)`, `ret 8`, object = loader -
+    // OFF_XML_LOADER_SUBOBJECT). It calls FUN_XML_FRAME_LOAD first
+    // (0x00779FC6), then reads its own attributes: "letters" (0x0077A046),
+    // "autoFocus" (0x0077A0A5), "multiLine", "numeric", "historyLines".
+    // Booleans go through FUN_XML_ATTR_TO_BOOL - `int __fastcall(const char *)`,
+    // 1 for text starting 1/t/y - as for autoFocus at 0x0077A0BC.
+    FUN_XML_EDITBOX_LOAD = 0x00779FB0,
+    FUN_XML_ATTR_TO_BOOL = 0x006F1B30,
     // Selection-highlight regions — three consecutive CSimpleTexture pointers
     // (start-line +0x350, middle-block +0x354, end-line +0x358) the editbox
     // shows/positions to paint the selection (FUN_0077d950). Their vertex
