@@ -493,6 +493,7 @@ build instructions.
   - [`GetInboxItemLink(messageIndex[, attachmentIndex])`](#getinboxitemlinkmessageindex-attachmentindex)
 
 - [Map](#map)
+  - [`WorldMapBlobFrame` and `WorldMapPOIFrame`](#worldmapblobframe-and-worldmappoiframe)
   - [`C_Map.CanSetUserWaypointOnMap(uiMapID)`](#c_mapcansetuserwaypointonmapuimapid)
   - [`C_Map.GetAreaInfo(areaID)`](#c_mapgetareainfoareaid)
   - [`C_Map.GetAreas()`](#c_mapgetareas)
@@ -12115,6 +12116,37 @@ end
 ```
 
 ## Map
+
+### `WorldMapBlobFrame` and `WorldMapPOIFrame`
+
+The 3.3 world map's two quest POI frames, laid over `WorldMapDetailFrame`
+(1002 x 668) as in 3.3.5:
+
+- `WorldMapPOIFrame` is a plain frame for quest POI buttons, stacked above the
+  map's own buttons, with the `allowBlobTooltip` flag (`true`).
+- `WorldMapBlobFrame` stands in for 3.3's `QuestPOIFrame` widget, which
+  shades each quest's objective areas from POI data the server sends. It is
+  a `Frame` with that widget's methods: `SetFillTexture`, `SetFillAlpha`,
+  `SetBorderTexture`, `SetBorderAlpha`, `SetBorderScalar`, `DrawQuestBlob`,
+  `EnableSmoothing`, `EnableMerging`, `SetMergeThreshold`,
+  `SetNumSplinePoints`, `UpdateQuestPOI`, `UpdateMouseOverTooltip`,
+  `GetTooltipIndex`, `GetNumTooltips`.
+
+A vanilla server sends no quest POI areas, so the blob frame never has one
+to draw: `DrawQuestBlob` draws nothing, `UpdateMouseOverTooltip` finds no
+quest under the cursor, and `GetNumTooltips()` is `0` - what a 3.3 client
+does for a quest without POI data. Code that shows, hides, re-parents or
+restacks the frames works as on 3.3.
+
+```lua
+-- a 3.3-era combat workaround, which now runs unchanged
+WorldMapBlobFrame:SetParent(nil)
+WorldMapBlobFrame:Hide()
+```
+
+3.3.5's `OnUpdate` for the blob frame, which hides `WorldMapTooltip` when no
+quest area is under the cursor, isn't installed: vanilla's own map tooltips
+don't clear `allowBlobTooltip`, so it would only hide theirs.
 
 ### `C_Map.GetAreaInfo(areaID)`
 
