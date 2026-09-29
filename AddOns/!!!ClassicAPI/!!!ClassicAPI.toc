@@ -52,6 +52,7 @@ Util\TextureUtil.lua
 Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
+Util\BattlefieldArena.lua
 
 APIDocumentation\BaseAPIMixin.lua
 APIDocumentation\FieldsAPIMixin.lua
