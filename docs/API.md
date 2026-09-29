@@ -562,6 +562,9 @@ build instructions.
   - [`C_NewItems.RemoveNewItem(bagID, slotIndex)`](#c_newitemsremovenewitembagid-slotindex)
   - [`C_NewItems.ClearAll()`](#c_newitemsclearall)
 
+- [Options](#options)
+  - [`VideoOptionsFrame` / `AudioOptionsFrame`](#videooptionsframe--audiooptionsframe)
+
 - [PlayerInfo](#playerinfo)
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
@@ -13710,6 +13713,32 @@ slot.
 
 Clears every new flag at once. Fires `BAG_NEW_ITEMS_UPDATED` if anything was
 flagged.
+
+## Options
+
+### `VideoOptionsFrame` / `AudioOptionsFrame`
+
+Later clients' names for the video and sound settings windows, given to the
+client's own windows. Later clients (3.3.5, Classic Era) replaced vanilla's
+`OptionsFrame` and `SoundOptionsFrame` with new windows, `VideoOptionsFrame` and
+`AudioOptionsFrame`, and code written for them uses those names, for example to
+make the windows movable. Here the names are the settings windows the client
+has, so that code acts on the settings UI the player uses:
+
+- `VideoOptionsFrame` is `OptionsFrame`.
+- `AudioOptionsFrame` is `SoundOptionsFrame`. On a client whose single options
+  window also holds the sound settings, such as OctoWoW's, it is `OptionsFrame`.
+
+`VideoOptionsFrame_Toggle()` and `AudioOptionsFrame_Toggle()` show the window,
+or hide it if it's shown.
+
+```lua
+VideoOptionsFrame:GetName()   -- "OptionsFrame"
+AudioOptionsFrame_Toggle()     -- opens the sound settings
+```
+
+The 3.x windows' own panels and buttons, such as `VideoOptionsFrameOkay` and
+the category list, don't exist. The client's windows have their own.
 
 ## PlayerInfo
 
