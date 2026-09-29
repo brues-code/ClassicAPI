@@ -40,6 +40,7 @@ The flagship feature: run modern Lua 5.1 addon code on 1.12's Lua 5.0 VM.
 | [Multi-flavor & conditional TOC](docs/API.md#conditional-and-multi-flavor-toc-loading) | Loads modern multi-flavor addons that ship one folder. Selects a version-specific TOC (`<Name>_ClassicAPI.toc` or `<Name>_Turtle.toc`) and the matching keybinding file (`Bindings_ClassicAPI.xml` / `Bindings_Turtle.xml`), accepts a comma-separated `## Interface:` version list (compatible when it includes the client version `11200`), and honors per-line `[AllowLoadGameType]` / `[AllowLoadTextLocale]` conditions and `[Family]` / `[Game]` / `[TextLocale]` path variables inside a TOC. |
 | [Launch switches](docs/API.md#launch) | Options you add to the shortcut that starts the game. `-config <name>` reads and writes `WTF\<name>` in place of `WTF\Config.wtf`, so one install can hold several settings profiles. `-gluescript` and `-gluescriptFile` run Lua at the login and character-select screens, every time those screens appear. `-gamescript` and `-gamescriptFile` run it one time, after you enter the world. Each script runs after the interface has loaded, so it can call interface functions and use frames. |
 | [Any texture size](docs/API.md#texture-size-and-shape) | Textures load at any size and any shape. Width and height do not need to be powers of two, and there is no fixed upper limit. The only limit is the maximum texture size of your graphics card. This applies to every texture path: `SetTexture`, sprite sheets, inline textures, tooltips, and masks. The client allocates memory for a large texture only when an addon loads one, so small textures cost nothing extra. |
+| [Chat settings window](docs/API.md#chatconfigframe) | A chat tab's menu gets later clients' **Settings** entry. It opens their chat settings window, which sets the chat window's message groups, channels, colors and class-colored sender names. It works on vanilla's own chat settings, and vanilla's submenus stay. |
 
 ## Full API reference
 
@@ -57,7 +58,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [APIDocumentation](docs/API.md#apidocumentation) | `/classicapi` in-game browser, `C_APIDocumentation.GetSystem`, `C_APIDocumentation.GetSystems` |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem` |
 | [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings` |
-| [Chat](docs/API.md#chat) | `GetCurrentChatGUID` |
+| [Chat](docs/API.md#chat) | `GetCurrentChatGUID`, `SetChatColorNameByClass`, `GetColoredName`, `ChatConfigFrame` (the chat settings window) |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |
 | [ClassColor](docs/API.md#classcolor) | `C_ClassColor.GetClassColor` |
@@ -253,6 +254,7 @@ when launching with `-console`), not as Lua functions. See the
 | `UNIT_SPELLCAST_CHANNEL_STOP` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_RETICLE_TARGET` | `"player", "", spellID, spellName, rank` |
 | `UNIT_SPELLCAST_RETICLE_CLEAR` | `"player", "", spellID, spellName, rank` |
+| `UPDATE_CHAT_COLOR_NAME_BY_CLASS` | `chatType, colorNameByClass` |
 | `UPDATE_INVENTORY_DURABILITY` | *(none)* |
 | `UPDATE_SHAPESHIFT_FORM` | *(none)* |
 | `USER_WAYPOINT_UPDATED` | *(none)* |

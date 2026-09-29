@@ -4,6 +4,7 @@
 ## Version: DEV
 ## Author: Brues
 ## X-Website: https://github.com/brues-code/ClassicAPI
+## SavedVariablesPerCharacter: ClassicAPI_ChatColorNameByClass
 
 locales\locales.xml
 
@@ -52,6 +53,8 @@ Util\TextureUtil.lua
 Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
+Util\ChatColorNameByClass.lua
+FrameXML\ChatConfigFrame.xml
 
 APIDocumentation\BaseAPIMixin.lua
 APIDocumentation\FieldsAPIMixin.lua

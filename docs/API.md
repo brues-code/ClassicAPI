@@ -46,6 +46,8 @@ build instructions.
 
 - [Chat](#chat)
   - [`GetCurrentChatGUID()`](#getcurrentchatguid)
+  - [`ChatConfigFrame`](#chatconfigframe)
+  - [`SetChatColorNameByClass(chatType, colorNameByClass)`](#setchatcolornamebyclasschattype-colornamebyclass)
 
 - [Class](#class)
   - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable--isfemale)
@@ -170,6 +172,7 @@ build instructions.
   - [`EQUIPMENT_SWAP_PENDING` event](#equipment_swap_pending-event)
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`WEAR_EQUIPMENT_SET` event](#wear_equipment_set-event)
+  - [`UPDATE_CHAT_COLOR_NAME_BY_CLASS` event](#update_chat_color_name_by_class-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
@@ -1637,6 +1640,68 @@ The function returns `nil` rather than `"0x0000000000000000"`
 for synthetic chat (system messages, login banners, etc.) where
 the GUID args are zero — matches the idiomatic
 `if GetCurrentChatGUID() then` check.
+
+### `ChatConfigFrame`
+
+The chat settings window of later clients. Right-click a chat tab and choose
+**Settings** at the end of the Filters section. The window edits that chat
+window: which message groups and channels it shows, their colors, and whether
+sender names show their class color. Vanilla's own chat tab submenus stay.
+
+The frames, templates and functions have 3.3.5's names (`ChatConfigFrame`,
+`ChatConfigCategoryFrame`, `ChatConfigChatSettingsLeft`,
+`ChatConfig_CreateCheckboxes`, `ToggleChatMessageGroup`,
+`IsListeningForMessageType`, `CHAT_CONFIG_CHAT_LEFT` and the rest), so code
+written for 3.3.5 or Classic Era finds them. The contents are vanilla's:
+
+- **Rows are vanilla's message groups**, taken from the lists the client's
+  own chat tab menu shows, so a client's own groups, such as Hardcore, appear
+  too. Vanilla's groups are coarser than later clients': Say also holds
+  emotes, Party holds raid, raid warning and battleground chat, and Guild
+  holds officer chat. A chat window takes or drops a group whole. A group with
+  several chat types lists them under its check box, each with its own color
+  and class color, as vanilla's menu does in a submenu.
+- **Combat** holds the four combat lists of vanilla's chat tab menu (Combat,
+  Spell, Spell (cont'd), Periodic) as tabs, for any chat window. On later
+  clients this category sets the filters of their newer combat log, which
+  vanilla doesn't have.
+- **Other** holds 3.3.5's Combat, System and Creature boxes. Its PvP box is
+  missing because vanilla's battleground messages belong to the System group.
+- **Chat Defaults** resets every chat window: position, name, font size,
+  colors and docking, as 3.3.5 does. Message groups go back to the client's
+  own defaults, read from the engine's default table: System through Loot in
+  the first window, the combat groups the engine enables by default in the
+  second. The joined channels go back into the first window. On
+  Turtle-lineage clients, Hardcore is on in every window except the combat
+  log, as their chat code sets it by default. **Combat Log Defaults** resets
+  only the edited window's combat groups.
+
+### `SetChatColorNameByClass(chatType, colorNameByClass)`
+
+Sets whether sender names of a chat type (`"SAY"`, `"RAID"`, `"CHANNEL1"`, ...)
+show in their class color, as on later clients. The setting is saved per
+character, is stored in `ChatTypeInfo[chatType].colorNameByClass`, and fires
+[`UPDATE_CHAT_COLOR_NAME_BY_CLASS`](#update_chat_color_name_by_class-event).
+The chat settings window's **Show Class Color** boxes call it.
+
+```lua
+SetChatColorNameByClass("GUILD", true)
+ChatTypeInfo["GUILD"].colorNameByClass   -- true
+```
+
+Vanilla's chat code writes each line itself, and its chat events carry no
+sender GUID. So the name is colored in the finished line as the chat window
+adds it: inside the sender's player link, or at the first mention of the name
+in an emote. The GUID comes from
+[`GetCurrentChatGUID()`](#getcurrentchatguid) and the class from
+[`GetPlayerInfoByGUID`](#getplayerinfobyguidguid). A sender whose class the
+client hasn't cached keeps the normal color, as on later clients. An outgoing
+whisper follows the `"WHISPER"` setting. Chat windows are unchanged until a
+chat type is set.
+
+`GetColoredName(event, arg1, ..., arg12)` is 3.3.5's helper that returns
+`arg2` (the sender) wrapped in its class color when that chat type is set.
+Without `arg12` it reads the GUID from `GetCurrentChatGUID()`.
 
 ## Class
 
@@ -4085,6 +4150,15 @@ The built-in handler equips the set with `UseEquipmentSet`. If an item
 of the set is locked, or the player is casting, the handler does not
 equip the set. Instead, it shows `ERR_CLIENT_LOCKED_OUT` ("You can't do
 that right now.") in the error frame.
+
+### `UPDATE_CHAT_COLOR_NAME_BY_CLASS` event
+
+Fires with `(chatType, colorNameByClass)` when
+[`SetChatColorNameByClass`](#setchatcolornamebyclasschattype-colornamebyclass)
+changes a chat type, and at login for each chat type saved as on. Later
+clients pass a boolean as the second argument. Here it is `"1"` or `nil`,
+because the engine's event arguments have no boolean. Both work in a truth
+test.
 
 ### `FACTION_STANDING_CHANGED` event
 
