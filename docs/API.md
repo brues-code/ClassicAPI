@@ -577,6 +577,7 @@ build instructions.
   - [`C_QuestLog.GetQuestDetails(questID)`](#c_questloggetquestdetailsquestid)
   - [`C_QuestLog.GetNumQuestObjectives(questID)`](#c_questloggetnumquestobjectivesquestid)
   - [`C_QuestLog.IsQuestDataCachedByID(questID)`](#c_questlogisquestdatacachedbyidquestid)
+  - [Completed quests on Turtle-lineage servers](#completed-quests-on-turtle-lineage-servers)
   - [`GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`](#getquestlogleaderboardidobjectiveindex--questindex)
 
 - [Sound](#sound)
@@ -14116,6 +14117,42 @@ if not C_QuestLog.IsQuestDataCachedByID(questID) then
     -- listen for QUEST_DATA_LOAD_RESULT, or re-check on a timer
 end
 ```
+
+### Completed quests on Turtle-lineage servers
+
+`QueryQuestsCompleted()`, `GetQuestsCompleted([table])` and the
+`QUEST_QUERY_COMPLETE` event (the 3.3 API), plus
+`C_QuestLog.IsQuestFlaggedCompleted(questID)` and
+`C_QuestLog.GetAllCompletedQuestIDs()`, on servers that can list a
+character's completed quests.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("QUEST_QUERY_COMPLETE")
+f:SetScript("OnEvent", function()
+    local done = GetQuestsCompleted()   -- { [questID] = true, ... }
+end)
+QueryQuestsCompleted()
+
+C_QuestLog.IsQuestFlaggedCompleted(questID)   -- from the last list
+```
+
+Vanilla's protocol has no completed-quests query, and the client keeps no
+quest history, so these exist only where the server offers the list another
+way: Turtle WoW, and servers built on it, answer the chat command
+`.queststatus` with hidden `TWQUEST` addon messages. The functions are
+defined only on a Turtle-lineage client (`TURTLE_WOW_VERSION` set). On
+other clients they stay absent.
+
+- `QueryQuestsCompleted()` sends `.queststatus` and returns at once, as on
+  3.3 clients. When the replies stop arriving, `GetQuestsCompleted()`
+  returns the list and `QUEST_QUERY_COMPLETE` fires. A query that gets no
+  reply within 5 seconds is dropped with no event, and the previous list
+  stays.
+- One query runs by itself 3 seconds after the world loads, so the
+  `C_QuestLog` functions, which answer at once from the last list, have
+  one. A quest turned in after that (`QUEST_TURNED_IN`) is added to it.
+- The list is not saved between sessions; each login queries again.
 
 ### `GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`
 
