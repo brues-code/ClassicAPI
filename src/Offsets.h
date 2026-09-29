@@ -2661,6 +2661,37 @@ enum Offsets {
     // Frame::Modern's GetEffectiveAlpha up the parent chain.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
     FUN_SCRIPT_REGION_GETPARENT = 0x007A1460,
+
+    // Clamp to screen. A region's layout object sits at OFF_REGION_LAYOUT
+    // (Script GetLeft: `lea ebx, [edi+0x24]` before the rect reader
+    // 0x00768320). SetClampedToScreen (0x00768CC0) sets LAYOUT_FLAG_CLAMPED in
+    // the layout flags at OFF_LAYOUT_FLAGS and calls
+    // FUN_FONTSTRING_LAYOUT_INVALIDATE(layout, 0).
+    //
+    // FUN_LAYOUT_CALC_RECT — `int __thiscall(layout, float rect[4])`, `ret 4`,
+    // rect = bottom, left, top, right in layout units (the order Script
+    // GetBottom/GetLeft/GetTop/GetRight read from 0x00768320's copy). It
+    // resolves the four edges from the anchors, returns 0 if any is
+    // unresolved, and for a clamped frame slides the rect onto the screen, in
+    // this order: right if left < 0, up if bottom < 0, left if right >
+    // FUN_SCREEN_WIDTH(1), down if top > FUN_SCREEN_HEIGHT(1) (so a frame
+    // bigger than the screen ends up flush with the top right). Its only caller is the layout
+    // update at 0x00768D20, which caches the result at layout+0x40..0x4C.
+    //
+    // Units: Script GetLeft returns rect.left * FUN_UI_UNIT_SCALE() *
+    // VAR_UI_UNITS_PER_SCALE / OFF_REGION_EFFECTIVE_SCALE, divided by
+    // FUN_SCREEN_WIDTH(1) (0x0041AE40), so a value in the frame's own units
+    // converts to layout units by the inverse.
+    // `Frame::ClampRectInsets` hooks FUN_LAYOUT_CALC_RECT to clamp the rect
+    // grown by the frame's insets instead.
+    OFF_REGION_LAYOUT = 0x24,
+    OFF_LAYOUT_FLAGS = 0x3C,
+    LAYOUT_FLAG_CLAMPED = 0x10,
+    FUN_LAYOUT_CALC_RECT = 0x00767A20,
+    FUN_UI_UNIT_SCALE = 0x0041AD70,     // float __cdecl(void): [0x00832A4C]
+    FUN_SCREEN_WIDTH = 0x0041AE60,      // float __stdcall(float s): [0x00832A44] * s
+    FUN_SCREEN_HEIGHT = 0x0041AE70,     // float __stdcall(float s): [0x00832A48] * s
+    VAR_UI_UNITS_PER_SCALE = 0x007FFD68, // float 1024.0
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,

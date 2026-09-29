@@ -259,6 +259,7 @@ build instructions.
   - [`editBox:GetHighlightColor()`](#editboxgethighlightcolor)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
+  - [`frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`](#framesetclamprectinsetsleft-right-top-bottom--framegetclamprectinsets)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
@@ -6048,6 +6049,26 @@ Does nothing when the box has no history.
 
 A rename of the `SetMinResize` / `SetMaxResize` pair.
 The max pair is applied only when both values are given.
+
+### `frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`
+
+For a frame clamped to the screen (`SetClampedToScreen`), the rectangle kept
+on screen is the frame's own rect with each edge moved by its inset, in the
+frame's units and screen directions. A negative `left` or `bottom`, or a
+positive `right` or `top`, grows that side: the frame stays that much further
+from the screen edge. The opposite sign lets that much of the frame go off
+screen. The clamp applies while the frame is moved, dragged or re-laid out.
+`GetClampRectInsets` returns the four values, `0, 0, 0, 0` when none are set.
+
+```lua
+frame:SetClampedToScreen(true)
+frame:SetClampRectInsets(0, 0, 0, -60)   -- keep 60 above the bottom (3.3.5's world map)
+frame:SetClampRectInsets(0, 0, -25, 0)   -- the top 25 may leave the screen
+```
+
+Vanilla clamps the frame's own rect only. The engine's clamp steps and
+order are kept: when the grown rect is larger than the screen, it ends up
+flush with the top right.
 
 ### `frame:HookScript(scriptType, handler)`
 
