@@ -228,6 +228,7 @@ build instructions.
   - [`GetMouseFoci()`](#getmousefoci)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [A frame moved to a new parent takes its children along](#a-frame-moved-to-a-new-parent-takes-its-children-along)
+  - [A ScrollFrame keeps clipping its content when it moves](#a-scrollframe-keeps-clipping-its-content-when-it-moves)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`fontstring:GetUnboundedStringWidth()`](#fontstringgetunboundedstringwidth)
   - [`fontstring:GetWrappedWidth()`](#fontstringgetwrappedwidth)
@@ -5646,6 +5647,28 @@ child:GetFrameLevel()   -- 22
 
 `frame:SetFrameLevel(level)` moves only `frame`. The frames under it keep
 the levels they have.
+
+### A ScrollFrame keeps clipping its content when it moves
+
+A ScrollFrame's scroll child, and everything in it, stays clipped to the
+ScrollFrame when the ScrollFrame or any frame above it gets a new parent.
+
+Vanilla loses the clipping in that case. A frame a ScrollFrame draws carries
+a flag that keeps it out of the normal drawing order, and `SetParent` resets
+that flag from the new parent for the moved frame and everything under it,
+through the ScrollFrame and into its content. Content moved that way draws
+at full size past the ScrollFrame's edges. AceGUI-3.0 builds every widget
+under `UIParent` and then moves it into its container, so its ScrollFrame
+widget spilled from the first use: AceConfigDialog-3.0's option pages drew
+below the Interface Options window.
+
+```lua
+local holder = CreateFrame("Frame", nil, UIParent)
+local scroll = CreateFrame("ScrollFrame", nil, holder)
+local content = CreateFrame("Frame", nil, scroll)
+scroll:SetScrollChild(content)
+holder:SetParent(SomeWindow)   -- content is still clipped to scroll (vanilla: not)
+```
 
 ### `fontstring:GetStringHeight()`
 
