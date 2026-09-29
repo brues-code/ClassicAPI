@@ -123,6 +123,7 @@ build instructions.
   - [`GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`](#getcointexturestringamount--fontheight--c_currencyinfogetcointexturestringamount--fontheight)
 
 - [CVar](#cvar)
+  - [`GetCVar(name)`](#getcvarname)
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
   - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
@@ -3147,6 +3148,20 @@ The per-denomination formats are the GlobalStrings
 addon's locale layer — a locale can override them.
 
 ## CVar
+
+### `GetCVar(name)`
+
+Returns `nil` for a name no cvar has, as later clients do. Stock 1.12 raises
+"Couldn't find CVar named '*name*'" instead, and ported code uses the `nil`
+as a feature test, often at file scope:
+
+```lua
+if not GetCVar("cameraYawE") then return end   -- stock 1.12: error at load
+```
+
+A cvar that exists returns its value as before, and a non-string argument
+still gets the engine's own error. The glue screens register the same
+function, so `GetCVar` behaves the same way there.
 
 ### `C_CVar.GetCVarInfo(name)`
 
