@@ -47,11 +47,13 @@
 #include "Offsets.h"
 #include "addons/EngineIO.h"
 #include "addons/Toc.h"
+#include "xml/ScriptPath.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <intrin.h> // _ReturnAddress
 #include <string>
 #include <vector>
 
@@ -243,6 +245,11 @@ uint32_t __fastcall LoadTocFiles_h(char *tocPath, int *a2, int *a3) {
 // (case-insensitive); a path is suppressed exactly once, so nothing else is
 // affected. Our own early load bypasses this via the trampoline.
 uint32_t __fastcall LuaLoad_h(const char *path, void *a2, void *a3) {
+    // XML <Script file="sub\dir\x.lua"/> relative to its XML file (see
+    // xml/ScriptPath.cpp); every other load passes through unchanged.
+    char resolved[0x208];
+    path = Xml::ScriptPath::Resolve(path, reinterpret_cast<uintptr_t>(_ReturnAddress()),
+                                    resolved, sizeof resolved);
     if (path != nullptr) {
         for (size_t i = 0; i < g_pendingSuppress.size(); ++i) {
             if (SamePathCI(g_pendingSuppress[i].c_str(), path)) {
