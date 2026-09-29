@@ -11124,7 +11124,9 @@ for word in string.gmatch("a,bb,ccc", "[^,]+") do print(word) end -- a / bb / cc
 ```
 
 Both call forms work: `string.match(s, p)` and `s:match(p)`. See
-[String methods](#string-methods-supper-sformat).
+[String methods](#string-methods-supper-sformat). `string.match` is also the
+global `strmatch`, as on 3.x clients, alongside 1.12's own `strfind`, `strsub`
+and the other globals for the 5.0 string functions.
 
 ### `string.gsub` table replacement
 

@@ -13,7 +13,8 @@
 
 // String helpers that 1.12's Lua 5.0 is missing:
 //
-//   - `string.match(s, pattern [, init])` — first-match extraction (5.1).
+//   - `string.match(s, pattern [, init])` — first-match extraction (5.1),
+//     also the global `strmatch`, as `string.find` is `strfind`.
 //   - `string.gmatch(s, pattern)`         — match iterator (5.1).
 //   - `string.gsub` TABLE replacement     — 5.1 form (see the shim below).
 //   - `strsplit(sep, str [, pieces])`     — WoW global; split on any char.
@@ -393,6 +394,10 @@ void RegisterFns() {
     // too) must match `string.gsub`, so addons calling either form get the
     // table-replacement upgrade.
     Game::Lua::RegisterGlobalFunction("gsub", &Script_string_gsub);
+    // 1.12's startup script makes globals of the 5.0 string functions
+    // (`strfind = str.find`, `strsub = str.sub`, ...); 3.x clients also have
+    // `strmatch`, which 3.3.5's FrameXML calls without defining.
+    Game::Lua::RegisterGlobalFunction("strmatch", &Script_string_match);
     Game::Lua::RegisterGlobalFunction("strsplit", &Script_strsplit);
     Game::Lua::RegisterGlobalFunction("strjoin", &Script_strjoin);
     Game::Lua::RegisterGlobalFunction("strtrim", &Script_strtrim);
