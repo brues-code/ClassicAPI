@@ -26,6 +26,7 @@ The flagship feature: run modern Lua 5.1 addon code on 1.12's Lua 5.0 VM.
 | [`for` loop variables](docs/API.md#for-loop-variables-per-pass) | Each pass of a `for` loop has its own loop variables, as in Lua 5.1, so a function made in the loop keeps that pass's values. On Lua 5.0 every such function sees the loop's last value, which is `nil` for a `for ... in` loop. |
 | [String methods](docs/API.md#string-methods-supper-sformat) | Every string value accepts method calls — `("asd"):upper()`, `("%d gold"):format(n)`, `msg:match("^!(%w+)")` — resolving through the `string` table, the way Lua 5.1 works. Works on literals and variables, in-world and on the login screen, and inside coroutines. |
 | [Script-handler arguments](docs/API.md#setmodernscriptargsenable--getmodernscriptargs) | Frame-script handlers receive their values as positional arguments — `OnMouseWheel(self, delta)`, `OnClick(self, button)`, `OnEvent(self, event, ...)`, etc. — so modern addon ports work unmodified. The `this` / `arg1` globals stay set. A handler that declares no parameters is unaffected. A handler that declared a parameter and expected nil now receives its real value. On by default. `SetModernScriptArgs(false)` restores exact vanilla dispatch. |
+| [XML script bodies](docs/API.md#xml-script-bodies-see-self-and-their-arguments) | An XML script body written for later clients, such as `<OnLoad>self:Init()</OnLoad>`, sees `self` and its script's arguments by name (`elapsed`, `button`, ...). Bodies that read `this` / `arg1` compile as before. |
 
 ### Modern client behaviors
 

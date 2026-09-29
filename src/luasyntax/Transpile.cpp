@@ -130,6 +130,7 @@ bool g_modEnabled = true;
 bool g_varargEnabled = true;
 bool g_hexEnabled = true;
 bool g_longBracketEnabled = true;
+bool g_xmlHandlerArgsEnabled = true;
 
 // Cumulative cost of the load hook since DLL load, read back by
 // `_classicapi_TranspileStats` — answers "what does the transpiler cost this
@@ -140,6 +141,7 @@ struct Stats {
     unsigned tokenizedChunks = 0;       // chunks that needed a token stream
     unsigned long long tokenizedBytes = 0;
     long long ticks = 0;                // QueryPerformanceCounter ticks inside RunPasses
+    unsigned xmlHandlersWrapped = 0;    // XML handler bodies given modern parameters
 };
 Stats g_stats;
 
@@ -1263,6 +1265,145 @@ using LoadBuffer_t = int(__fastcall *)(void *L, const char *buff, unsigned size,
                                        const char *name);
 LoadBuffer_t g_origLoadBuffer = nullptr;
 
+// ============================================================================
+// XML handler implicit parameters.
+// ============================================================================
+//
+// Later clients compile an XML handler body (<OnLoad>...</OnLoad>) as a
+// function whose parameters name the script's arguments: `self` always, then
+// e.g. `elapsed` for OnUpdate, `button, down` for OnClick, `event, ...` for
+// OnEvent. Vanilla compiles the body as a zero-parameter chunk and publishes
+// the frame and arguments only through the `this` / `arg1..argN` globals, so a
+// ported body that says `self:Hide()` indexes a nil global.
+//
+// A chunk compiled by the XML script funnel (return address
+// RET_LUA_SCRIPT_COMPILE, engine-built chunkname "<Frame>:<Script>") whose body
+// reads `self` -- or reads one of its script's parameter names and none of the
+// vanilla `this` / `argN` globals -- is wrapped as
+// `return function(self, <names>, ...) ... end`, the same
+// materialize-the-inner-function shape the vararg path uses. Frame::ScriptArgs
+// already pushes (self, arg1..argN) positionally (with `event` first for
+// OnEvent), which is exactly this parameter order. A vanilla body is left
+// alone: it keeps reading its globals and none of its names get shadowed.
+
+// Parameter names after `self`, per script, as later clients bind them.
+// Scripts not listed get `(self, ...)`.
+struct ScriptParams {
+    const char *script;
+    const char *params;
+};
+const ScriptParams kScriptParams[] = {
+    {"OnUpdate", "elapsed"},
+    {"OnEvent", "event"},
+    {"OnClick", "button,down"},
+    {"PreClick", "button,down"},
+    {"PostClick", "button,down"},
+    {"OnDoubleClick", "button"},
+    {"OnMouseDown", "button"},
+    {"OnMouseUp", "button"},
+    {"OnMouseWheel", "delta"},
+    {"OnEnter", "motion"},
+    {"OnLeave", "motion"},
+    {"OnDragStart", "button"},
+    {"OnSizeChanged", "width,height"},
+    {"OnValueChanged", "value"},
+    {"OnMinMaxChanged", "min,max"},
+    {"OnTextChanged", "userInput"},
+    {"OnChar", "text"},
+    {"OnKeyDown", "key"},
+    {"OnKeyUp", "key"},
+    {"OnHyperlinkClick", "link,text,button"},
+    {"OnHyperlinkEnter", "link,text"},
+    {"OnHyperlinkLeave", "link,text"},
+    {"OnVerticalScroll", "offset"},
+    {"OnHorizontalScroll", "offset"},
+    {"OnScrollRangeChanged", "xrange,yrange"},
+    {"OnCursorChanged", "x,y,w,h"},
+    {"OnAttributeChanged", "name,value"},
+    {"OnColorSelect", "r,g,b"},
+    {"OnInputLanguageChanged", "language"},
+};
+
+// The parameter list for an engine-built "<Frame>:<Script>" handler chunkname
+// ("" when the script takes only `self`), or nullptr when the chunkname does
+// not name a script.
+const char *HandlerParamsFor(const char *chunkname) {
+    if (chunkname == nullptr)
+        return nullptr;
+    const char *colon = std::strrchr(chunkname, ':');
+    if (colon == nullptr || colon == chunkname)
+        return nullptr;
+    const char *script = colon + 1;
+    if (std::strncmp(script, "On", 2) != 0 && std::strcmp(script, "PreClick") != 0 &&
+        std::strcmp(script, "PostClick") != 0)
+        return nullptr;
+    for (const char *c = script; *c != '\0'; ++c)
+        if (!IsNameCont(static_cast<unsigned char>(*c)))
+            return nullptr;
+    for (const auto &p : kScriptParams)
+        if (std::strcmp(script, p.script) == 0)
+            return p.params;
+    return "";
+}
+
+bool NameInList(const char *w, size_t n, const char *list) {
+    while (*list != '\0') {
+        const char *comma = std::strchr(list, ',');
+        const size_t len = comma ? static_cast<size_t>(comma - list) : std::strlen(list);
+        if (len == n && std::memcmp(w, list, n) == 0)
+            return true;
+        if (comma == nullptr)
+            break;
+        list = comma + 1;
+    }
+    return false;
+}
+
+// Does the body read `self` (or one of `params`) as a free name, and does it
+// read the vanilla `this` / `argN` globals? A name right after a single `.` or
+// `:` is a field or method (`obj.self`, `f:this`), not a variable. `event` is
+// never a signal: vanilla publishes it as a global too, so FrameXML's own
+// `<OnEvent>Foo_OnEvent(event)</OnEvent>` bodies stay unwrapped.
+struct HandlerNames {
+    bool self = false;
+    bool param = false;
+    bool vanilla = false;
+};
+HandlerNames ScanHandlerNames(const char *src, size_t len, const char *params) {
+    HandlerNames r;
+    std::vector<Token> toks;
+    Tokenize(src, len, toks);
+    for (size_t i = 0; i < toks.size(); ++i) {
+        const Token &t = toks[i];
+        if (t.kind != TK_NAME)
+            continue;
+        if (i > 0 && toks[i - 1].kind == TK_PUNCT && toks[i - 1].end - toks[i - 1].start == 1) {
+            const char prev = src[toks[i - 1].start];
+            if (prev == '.' || prev == ':')
+                continue;
+        }
+        const char *w = src + t.start;
+        const size_t n = t.end - t.start;
+        if (n == 4 && std::memcmp(w, "self", 4) == 0) {
+            r.self = true;
+        } else if (n == 4 && std::memcmp(w, "this", 4) == 0) {
+            r.vanilla = true;
+        } else if (n >= 4 && std::memcmp(w, "arg", 3) == 0) {
+            bool digits = true;
+            for (size_t k = 3; k < n; ++k)
+                digits = digits && IsDigit(static_cast<unsigned char>(w[k]));
+            if (digits)
+                r.vanilla = true;
+        } else if (n == 5 && std::memcmp(w, "event", 5) == 0) {
+            // Vanilla sets a global `event` during OnEvent dispatch, so a body
+            // that reads it works as-is: neither a modern nor a vanilla signal.
+        } else if (NameInList(w, n, params)) {
+            r.param = true;
+        }
+    }
+    return r;
+}
+
 int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char *name) {
     // Who called luaL_loadbuffer? The addon-args grant may be armed only for the
     // immediate-run file funnel (FUN_00704AE0 pcalls right after compiling), so
@@ -1308,6 +1449,22 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     g_stats.bytes += size;
     const char *body = changed ? transpiled.data() : buff;
     size_t bodyLen = changed ? transpiled.size() : size;
+
+    // XML handler body written for later clients (see ScanHandlerNames)?
+    const char *handlerParams = nullptr;
+    if (g_xmlHandlerArgsEnabled &&
+        reinterpret_cast<uintptr_t>(_ReturnAddress()) == Offsets::RET_LUA_SCRIPT_COMPILE) {
+        const char *params = HandlerParamsFor(name);
+        if (params != nullptr) {
+            try {
+                const HandlerNames hn = ScanHandlerNames(body, bodyLen, params);
+                if (hn.self || (hn.param && !hn.vanilla))
+                    handlerParams = params;
+            } catch (...) {
+                handlerParams = nullptr; // leave the body as vanilla compiles it
+            }
+        }
+    }
 
     // Assemble a newline-free preamble (line numbers preserved). Two parts:
     //  * Helper capture. `#`/`%`/`...` lower to `__len`/`__mod`/`unpack` CALLS;
@@ -1360,9 +1517,24 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
             // preserved (the inner binds them as upvalues). The prefix is
             // newline-free and the synthetic `end` rides on its own appended
             // final line, so existing line numbers are preserved.
-            pre += "return function(...) ";
-            wrapped = true;
+            if (handlerParams == nullptr) {
+                pre += "return function(...) ";
+                wrapped = true;
+            }
         }
+    }
+    // Modern XML handler: bind the script's named parameters. Takes over from
+    // the plain vararg wrap above; the trailing `...` keeps any `...` in the
+    // body meaning the remaining arguments, as it does on later clients.
+    if (handlerParams != nullptr) {
+        pre += "return function(self";
+        if (*handlerParams != '\0') {
+            pre += ",";
+            pre += handlerParams;
+        }
+        pre += ",...) ";
+        wrapped = true;
+        g_stats.xmlHandlersWrapped++;
     }
 
     if (pre.empty()) {
@@ -1448,7 +1620,8 @@ int __fastcall Script_TranspileStats(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(g_stats.tokenizedChunks));
     Game::Lua::PushNumber(L, static_cast<double>(g_stats.tokenizedBytes));
     Game::Lua::PushNumber(L, ms);
-    return 5;
+    Game::Lua::PushNumber(L, static_cast<double>(g_stats.xmlHandlersWrapped));
+    return 6;
 }
 
 // The transpiler's runtime switches, table-driven. These are diagnostics /
@@ -1464,6 +1637,7 @@ const Toggle kToggles[] = {
     {"VarargExpansion", &g_varargEnabled},
     {"HexLiterals", &g_hexEnabled},
     {"LongBrackets", &g_longBracketEnabled},
+    {"XmlHandlerArgs", &g_xmlHandlerArgsEnabled},
 };
 bool *FindToggle(const char *name) {
     if (name)
