@@ -216,6 +216,9 @@ build instructions.
   - [Unit token (`focus` / `focustarget`)](#unit-token-focus--focustarget)
   - [Bindings (`FOCUSTARGET` / `TARGETFOCUS`)](#predefined-focus-bindings-focustarget--targetfocus)
 
+- [Fonts](#fonts)
+  - [3.x font objects](#3x-font-objects)
+
 - [Frame](#frame)
   - [`region:SetPoint("point")` (one-argument form)](#regionsetpointpoint-one-argument-form)
   - [`region:SetSize(width, height)` / `region:GetSize()`](#regionsetsizewidth-height--regiongetsize)
@@ -5466,6 +5469,29 @@ insertion order and addons load after FrameXML. To land inside the
 TARGETING block, the DLL splices the two `<Binding>` entries into the
 engine's `Interface\FrameXML\Bindings.xml` at file-read time via a
 hook on `FUN_FILE_READ` — see [`src/bindings/Inject.cpp`](../src/bindings/Inject.cpp).
+
+## Fonts
+
+### 3.x font objects
+
+Font objects that 3.x FrameXML defines and vanilla's lacks, so XML written
+for 3.x can inherit them:
+
+| Font | 3.3.5 definition |
+| --- | --- |
+| `SystemFont_Tiny` | FRIZQT, 9, white, no shadow |
+| `SystemFont_Small` | FRIZQT, 10, white, no shadow |
+| `NumberFont_Shadow_Small` | ARIALN, 12, black shadow at (1, -1) |
+| `ChatFontSmall` | `NumberFont_Shadow_Small`, white |
+
+```xml
+<FontString name="$parentLabel" inherits="SystemFont_Small"/>
+```
+
+Each takes its typeface from the vanilla font it matches (`SystemFont`,
+`ChatFontNormal`), so a localized client's own font files carry over, and
+sets 3.3.5's size, color and shadow. Without them, a font string that
+inherits one has no font, and `SetText` on it raises "Font not set".
 
 ## Frame
 

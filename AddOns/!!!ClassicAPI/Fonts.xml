@@ -1,0 +1,49 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!-- Font objects 3.x FrameXML defines and vanilla's doesn't, with 3.3.5's
+	     values (Fonts.xml / FontStyles.xml). Addon XML inherits them; without
+	     them an inheriting font string has no font, and SetText on it raises
+	     "Font not set".
+
+	     Each takes its typeface from the vanilla font 3.3.5's is drawn with,
+	     so a client whose Fonts.xml maps SystemFont / ChatFontNormal to its
+	     own font files keeps them, and sets 3.3.5's size, color and shadow
+	     over the rest of that font's settings. -->
+
+	<!-- 3.3.5: FRIZQT__, 9 / 10, default (white) color, no shadow. Vanilla's
+	     SystemFont is FRIZQT__ 15, yellow, with MasterFont's shadow. -->
+	<Font name="SystemFont_Tiny" inherits="SystemFont" virtual="true">
+		<FontHeight>
+			<AbsValue val="9"/>
+		</FontHeight>
+		<Color r="1.0" g="1.0" b="1.0"/>
+		<Shadow>
+			<Offset>
+				<AbsDimension x="0" y="0"/>
+			</Offset>
+			<Color r="0" g="0" b="0" a="0"/>
+		</Shadow>
+	</Font>
+	<Font name="SystemFont_Small" inherits="SystemFont" virtual="true">
+		<FontHeight>
+			<AbsValue val="10"/>
+		</FontHeight>
+		<Color r="1.0" g="1.0" b="1.0"/>
+		<Shadow>
+			<Offset>
+				<AbsDimension x="0" y="0"/>
+			</Offset>
+			<Color r="0" g="0" b="0" a="0"/>
+		</Shadow>
+	</Font>
+
+	<!-- 3.3.5: ARIALN, 12, black shadow at (1, -1); ChatFontSmall is it in
+	     white. Vanilla's ChatFontNormal is the same font at 14, in white. -->
+	<Font name="NumberFont_Shadow_Small" inherits="ChatFontNormal" virtual="true">
+		<FontHeight>
+			<AbsValue val="12"/>
+		</FontHeight>
+	</Font>
+	<Font name="ChatFontSmall" inherits="NumberFont_Shadow_Small" virtual="true">
+		<Color r="1.0" g="1.0" b="1.0"/>
+	</Font>
+</Ui>
