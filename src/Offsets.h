@@ -4879,7 +4879,23 @@ enum Offsets {
     // `MacroPopupFrame.selectedIconTexture`), so a resolved `#showtooltip`
     // icon here would report a choice the player never made. The icon a macro
     // SHOWS is `C_Macro.GetMacroIcon` (`Macro::IconPath`) instead.
+    // `Macro::ByName` co-hooks it for the argument only (a macro name becomes
+    // its index); the returns are untouched.
     FUN_SCRIPT_GET_MACRO_INFO = 0x004F1760,
+
+    // The other index-only legacy macro functions — `int __fastcall(void *L)`,
+    // registered from the table at `0x0084C9A8`. Each gates on
+    // `lua_isnumber(L, 1)` ("Usage: DeleteMacro(index)" etc.), then turns
+    // `index - 1` into a macroID with the bounds-checked slot reader
+    // `0x004F0EB0` (`VAR_MACRO_SLOT_MAP[slot]`, 0 when `slot >= 36` or the
+    // slot is empty) and does nothing when that is 0 — so an out-of-range
+    // index is a silent no-op. Delete then calls the delete worker
+    // `0x004F1340(macroID)`, Pickup calls FUN_MACRO_PICKUP, and Edit goes on
+    // to its field writes. `Macro::ByName` co-hooks all three (plus
+    // FUN_SCRIPT_GET_MACRO_INFO) so a macro name works in place of the index.
+    FUN_SCRIPT_EDIT_MACRO = 0x004F18B0,
+    FUN_SCRIPT_DELETE_MACRO = 0x004F1850,
+    FUN_SCRIPT_PICKUP_MACRO = 0x004F1AE0,
 
     // Macro create/edit workers — back `C_Macro.CreateMacro` /
     // `C_Macro.EditMacro` (see [[src/macro/Edit.cpp]]). Both store the

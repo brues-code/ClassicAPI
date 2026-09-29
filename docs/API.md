@@ -481,6 +481,7 @@ build instructions.
   - [Numeric spellIDs in `/cast` and `CastSpellByName`](#numeric-spellids-in-cast-and-castspellbyname)
   - [`CastSpellNoToggle` as a macro cast line](#castspellnotoggle-as-a-macro-cast-line)
   - [`StopMacro()`](#stopmacro)
+  - [Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`](#macro-names-in-getmacroinfo--editmacro--pickupmacro--deletemacro)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
@@ -11824,6 +11825,21 @@ The call applies to the macro that is running it. If a macro line runs a
 second macro, a `StopMacro` in that second macro stops the second one only,
 and the first one goes on. A call made while no macro is running does
 nothing, and leaves nothing behind for the next macro you press.
+
+### Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`
+
+The four take a macro name wherever they take an index, as on 2.0+ clients.
+A name matches the macro that `GetMacroIndexByName` finds. An unknown name
+is treated like an index with no macro: `GetMacroInfo` returns nils and the
+other three do nothing, so code can clear macros that may not exist.
+
+```lua
+DeleteMacro("MyScratchMacro")              -- no error if it doesn't exist
+local name, texture, body = GetMacroInfo("MyMacro")
+PickupMacro("MyMacro")
+```
+
+Numbers and numeric strings (`"3"`) are still indexes.
 
 ### `GetMacroSpell(macroSlot)`
 
