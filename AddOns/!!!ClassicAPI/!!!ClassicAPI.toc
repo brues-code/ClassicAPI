@@ -7,6 +7,9 @@
 
 locales\locales.xml
 
+FrameXML\InterfaceOptions.xml
+FrameXML\InterfaceOptions.lua
+
 SecureTemplates.xml
 Compat.lua
 Util\Print.lua
