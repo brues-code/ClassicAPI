@@ -8785,6 +8785,50 @@ enum Offsets {
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
+    // Per-object XML node loaders. Each lives on the object's layout
+    // sub-object, OFF_XML_LOADER_SUBOBJECT bytes in, at that sub-object's
+    // vtable +8: `(object+0x24)->vtable[+8](node, status)`, __thiscall with
+    // `this` = object+0x24 (all end `ret 8`). The frame builder FUN_006EE280
+    // makes the call at 0x006EE4D9..E1 (between its main-vtable +0x20
+    // pre-load and +0x24 finalize/OnLoad); the region factory FUN_006F26F0
+    // at 0x006F2756..5E, right after the region pre-load FUN_0076FDF0 (which
+    // reads the name and registers the Lua object via FUN_0076C650 ->
+    // FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER). Confirmed by a crash stack:
+    // builder 0x006EE4E4 -> FRAME loader, factory 0x006F2761 -> TEXTURE
+    // loader. The addresses appear only in those sub-object vtables (8 frame
+    // classes, 1 texture, 2 font-string).
+    //   FRAME: the CSimpleFrame loader. Every derived frame type's loader
+    //     calls it first (10 direct callers - Button 0x007788C0, which then
+    //     reads "NormalTexture"; ScrollFrame 0x00786B50 "ScrollChild"; Slider
+    //     0x00789580 "ThumbTexture"; ...). Reads "inherits" (0x0076982E) and
+    //     "hidden" (0x00769881).
+    //   TEXTURE: reads "inherits", "hidden", "alphaMode" (0x00770179).
+    //   FONTSTRING: reads "inherits", "hidden", "justifyH" (0x00771308).
+    // Identified by the attribute-name strings each passes to
+    // FUN_XML_NODE_GET_ATTRIBUTE. Co-hooked by xml/ParentKey.cpp.
+    // (frame/CreateFrame.cpp's graft reaches the FRAME loader through its
+    // child-sub-object call, which is this same sub-object.)
+    // Script-region name: the resolved global name string, stored by SetName
+    // (FUN_0076C650, `mov [esi+0x98], eax` at 0x0076C6B2) right before it
+    // registers the object under that name via
+    // FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER. SetName is called by the frame,
+    // texture and font string pre-loads (0x00769770, FUN_0076FDF0, 0x00770F10)
+    // only when the element has a `name`, so an unnamed XML element keeps
+    // null here and stays unregistered until Lua first touches it. Shared by
+    // frames and regions, like OFF_REGION_PARENT (which GetParent, 0x007A1460,
+    // reads for both at 0x007A14FF).
+    OFF_SCRIPT_REGION_NAME = 0x98,
+    OFF_XML_LOADER_SUBOBJECT = 0x24,
+    FUN_XML_FRAME_LOAD = 0x00769820,
+    FUN_XML_TEXTURE_LOAD = 0x0076FE20,
+    FUN_XML_FONTSTRING_LOAD = 0x00770F40,
+    // The Button node loader (same sub-object convention). It calls
+    // FUN_XML_FRAME_LOAD first, then loads the button's own children: each
+    // font element into a font object embedded in the button - NormalFont
+    // (tag compare 0x007789EB) into +0x318, DisabledFont (0x00778A0D),
+    // HighlightFont (0x00778A28) into +0x394 - reading its `inherits`.
+    // In 4 loader vtables; CheckButton's loader 0x00785170 calls it first.
+    FUN_XML_BUTTON_LOAD = 0x007788C0,
     // By-name template lookup — the same one `inherits=` resolves through.
     // `__fastcall(const char *name) -> definition node`, 0 if unregistered
     // (case-insensitive, hashed). See FUN_006ee6f0 in Templates.cpp notes.

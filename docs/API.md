@@ -803,6 +803,9 @@ build instructions.
   - [`C_XMLUtil.GetTemplates()`](#c_xmlutilgettemplates)
   - [`C_XMLUtil.GetTemplateInfo(name)`](#c_xmlutilgettemplateinfoname)
   - [`C_XMLUtil.DoesTemplateExist(name)`](#c_xmlutildoestemplateexistname)
+  - [`parentKey` in XML](#parentkey-in-xml)
+  - [`function` on XML script handlers](#function-on-xml-script-handlers)
+  - [`style` on button font elements](#style-on-button-font-elements)
   - [`C_TTSSettings` — getters & setters](#c_ttssettings--getters--setters)
   - [TTS events](#tts-events)
   - [TTS CVars](#tts-cvars)
@@ -19237,3 +19240,72 @@ end
 ```
 
 Case-insensitive, resolved through the same registry as `inherits=`.
+
+### `parentKey` in XML
+
+`parentKey="Name"` on a frame, texture or font string element sets
+`parent.Name` to that object, as on later clients, so ported code reaches
+unnamed children as `self.Icon` or `self.Close`:
+
+```xml
+<Frame name="MyFrame">
+    <Layers>
+        <Layer level="ARTWORK">
+            <Texture parentKey="Icon" file="Interface\Icons\INV_Misc_QuestionMark"/>
+            <FontString parentKey="Label" inherits="GameFontNormal"/>
+        </Layer>
+    </Layers>
+    <Frames>
+        <Button parentKey="Close" inherits="UIPanelCloseButton"/>
+    </Frames>
+    <Scripts>
+        <OnLoad>this.Label:SetText("Hello")</OnLoad>
+    </Scripts>
+</Frame>
+```
+
+Stock 1.12's parser keeps the attribute on the element but nothing reads
+it. Keys are set while the parent is being built, so the parent's `OnLoad`
+already sees them, and a `parentKey` inside a virtual template is set on
+every frame built from it. A button's `<NormalTexture parentKey="...">`
+works the same way.
+
+### `function` on XML script handlers
+
+A script element with `function="Name"` uses the global function `Name` as
+that script's handler, as on later clients; it is the same as
+`frame:SetScript("OnLoad", MyFrame_OnLoad)`:
+
+```xml
+<Scripts>
+    <OnLoad function="MyFrame_OnLoad"/>
+    <OnEvent function="MyFrame_OnEvent"/>
+</Scripts>
+```
+
+Stock 1.12's schema has no such attribute, so the element compiled as an
+empty body and the handler never ran. The function is looked up when the
+element loads, so it must be defined by then. A bound `OnLoad` runs at the
+usual point, once the frame is built, and with
+[positional script arguments](#setmodernscriptargsenable--getmodernscriptargs)
+on (the default) the function gets `self` and the script's arguments like
+any other handler.
+
+### `style` on button font elements
+
+Later clients name a button's font for each state with `style`:
+
+```xml
+<Button name="MyButton" text="Click">
+    <NormalFont style="GameFontNormal"/>
+    <HighlightFont style="GameFontHighlight"/>
+    <DisabledFont style="GameFontDisable"/>
+</Button>
+```
+
+Stock 1.12 reads only `inherits` on these elements and, without it, leaves
+the button's text with no font. A `NormalFont`, `HighlightFont` or
+`DisabledFont` with `style` and no `inherits` now gets the named font object,
+through the same setters as `SetTextFontObject`, `SetHighlightFontObject`
+and `SetDisabledFontObject`. An element with `inherits` loads as before.
+CheckButtons get the same.
