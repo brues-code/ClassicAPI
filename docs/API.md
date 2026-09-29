@@ -741,6 +741,8 @@ build instructions.
   - [`C_TradeSkillUI.GetTradeSkillListLink()`](#c_tradeskilluigettradeskilllistlink)
   - [`C_TradeSkillUI.GetCraftListLink()`](#c_tradeskilluigetcraftlistlink)
   - [`C_TradeSkillUI.GetTradeSkillListRecipes(skillLineID, bits)`](#c_tradeskilluigettradeskilllistrecipesskilllineid-bits)
+  - [`GetTradeSkillRecipeLink(index)`](#gettradeskillrecipelinkindex)
+  - [`IsTradeSkillLinked()`](#istradeskilllinked)
 
 - [UIColor](#uicolor)
   - [`C_UIColor.GetColors()`](#c_uicolorgetcolors)
@@ -17649,6 +17651,37 @@ The array is in canonical recipe order (one entry per *possible* recipe in the
 skill line, not just the known ones). Turn a `spellID` into a name/icon with
 [`GetSpellInfo`](#getspellinfospellid--getspellinfoslot-booktype). Recipes past the end of a short/garbled
 `bits` string decode as not-known rather than erroring.
+
+### `GetTradeSkillRecipeLink(index)`
+
+Returns the link for the recipe in row `index` of the trade-skill window:
+the recipe spell as an `enchant:` link, the form the client's own
+`GetCraftItemLink` gives an enchanting formula. `GetTradeSkillItemLink`
+links only the item a recipe makes; this one carries the recipe's spell ID.
+A header row or an index outside the list returns nothing.
+
+```lua
+-- with Tailoring open, row 2 = Bolt of Linen Cloth
+GetTradeSkillRecipeLink(2)   -- "|cffffffff|Henchant:2963|h[Bolt of Linen Cloth]|h|r"
+local _, _, spellID = string.find(GetTradeSkillRecipeLink(2), "|Henchant:(%d+)")
+```
+
+The Craft window (Enchanting, pet training) already has this in
+`GetCraftItemLink`.
+
+### `IsTradeSkillLinked()`
+
+Whether the trade-skill window shows a profession opened from another
+player's link. It returns nil on this client: a received `trade:` link opens
+its own viewer, and the trade-skill window and its functions only ever
+describe the player's own professions. Addons check it to keep a linked
+profession out of the player's own records.
+
+```lua
+if not IsTradeSkillLinked() then
+    -- the rows are the player's own recipes
+end
+```
 
 ## UIColor
 
