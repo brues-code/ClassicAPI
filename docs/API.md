@@ -11595,6 +11595,8 @@ strjoin(",")                  -- ""   (no pieces)
 A `nil` / non-string-coercible piece is treated as an empty string (so the
 delimiters still line up) rather than erroring.
 
+Also registered as `string.join`, as on later clients.
+
 ### `strtrim(str [, chars])`
 
 Remove any of the characters in `chars` from both ends of `str`. `chars` is a
@@ -11606,6 +11608,9 @@ strtrim("  hello  ")        -- "hello"
 strtrim("xxhelloxx", "x")   -- "hello"
 strtrim("[a]", "[]")        -- "a"
 ```
+
+Also registered as `string.trim`, as on later clients, so it works as a
+string method: `("  hello  "):trim()` is `"hello"`.
 
 ### `strreplace(str, find, replace)`
 

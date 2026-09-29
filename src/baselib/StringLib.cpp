@@ -389,6 +389,11 @@ void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "gsub", &Script_string_gsub);
     Game::Lua::RegisterTableFunction("string", "reverse", &Script_string_reverse);
     Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit);
+    // Later clients expose strtrim / strjoin on the string table as well, so
+    // `(" x "):trim()` works and libraries can capture them from it at file
+    // scope (AceConfigCmd-3.0: `strtrim = string.trim`).
+    Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
+    Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
     // The bare `gsub` global (1.12 exposes the string functions as globals
     // too) must match `string.gsub`, so addons calling either form get the
     // table-replacement upgrade.
