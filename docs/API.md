@@ -295,6 +295,7 @@ build instructions.
   - [`ClosestGameObjectPosition(gameObjectID)`](#closestgameobjectpositiongameobjectid)
 
 - [GameTooltip](#gametooltip)
+  - [`GameTooltip:AddTexture(texture)`](#gametooltipaddtexturetexture)
   - [`GameTooltip:SetSpellByID(spellID)`](#gametooltipsetspellbyidspellid)
   - [`GameTooltip:AddSpellByID(spellID)`](#gametooltipaddspellbyidspellid)
   - [`GameTooltip:SetTalentByID(talentID)`](#gametooltipsettalentbyidtalentid)
@@ -7035,6 +7036,27 @@ The engine methods index their own slot ranges, which differ from the
 `C_UnitAuras` index space once a debuff sits in a buff slot. This method
 translates between the two, so you never need to
 without conditionally splitting on filter.
+
+### `GameTooltip:AddTexture(texture)`
+
+Puts a texture at the start of the tooltip's last line, and moves the line's
+text to the right of it, as on 3.x clients.
+
+```lua
+GameTooltip:AddLine("Hearthstone")
+GameTooltip:AddLine("Use: Returns you to your home inn.")
+GameTooltip:AddTexture("Interface\\Icons\\INV_Misc_Rune_01")
+GameTooltip:Show()
+```
+
+The layout is the game's own. Vanilla has the feature built in, never
+exposed to addons: `GameTooltipTemplate` declares `<name>Texture1` through
+`<name>Texture3`, the tooltip lays them out, and `ClearLines` (and every
+`Set*` call) removes them. So a tooltip holds up to three textures (the 3.x
+template has ten), and the first line doesn't take one: the call needs at
+least two lines. Past either limit it does nothing. The textures are the
+`<name>TextureN` regions, so an addon can resize or re-anchor one after
+adding it.
 
 ### `GameTooltip:SetSpellByID(spellID)`
 
