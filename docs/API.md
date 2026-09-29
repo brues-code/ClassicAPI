@@ -223,6 +223,7 @@ build instructions.
   - [`region:GetRect()`](#regiongetrect)
   - [`region:IsDragging()`](#regionisdragging)
   - [`GetMouseFoci()`](#getmousefoci)
+  - [`CreateFrame("Cooldown" [, name, parent, template])`](#createframecooldown--name-parent-template)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`fontstring:GetUnboundedStringWidth()`](#fontstringgetunboundedstringwidth)
@@ -5555,6 +5556,24 @@ for i = 1, table.getn(foci) do
     print(foci[i]:GetName() or "<anonymous>")
 end
 ```
+
+### `CreateFrame("Cooldown" [, name, parent, template])`
+
+Later clients have a `Cooldown` frame type. Stock 1.12 draws cooldown sweeps
+with a `Model` built from FrameXML's `CooldownFrameTemplate` and driven by
+`CooldownFrame_SetTimer`, and its `CreateFrame` rejects the type name
+("Unknown frame type 'Cooldown'"). A `"Cooldown"` request builds that
+`Model`, with `CooldownFrameTemplate` when no template is given, so ported
+code that drives it with `CooldownFrame_SetTimer` works:
+
+```lua
+local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+CooldownFrame_SetTimer(cd, start, duration, 1)
+cd:GetObjectType()   -- "Model"
+```
+
+The frame is vanilla's cooldown model, so it has the `Model` methods, not
+the later clients' Cooldown methods such as `SetCooldown`.
 
 ### `frame:SetShown(shown)`
 

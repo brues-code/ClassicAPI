@@ -11,7 +11,16 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Multi-template `CreateFrame` support.
+// Multi-template `CreateFrame` support, plus the "Cooldown" frame type.
+//
+// Cooldown: later clients have a native "Cooldown" frame type. Vanilla draws
+// cooldown sweeps with a Model built from FrameXML's CooldownFrameTemplate
+// (the UI-Cooldown-Indicator model, driven by CooldownFrame_SetTimer), and its
+// CreateFrame rejects the type name ("Unknown frame type 'Cooldown'"). Ported
+// code writes `CreateFrame("Cooldown", name, parent, "CooldownFrameTemplate")`
+// and then drives the frame through CooldownFrame_SetTimer, so a "Cooldown"
+// request is built as that Model: the type becomes "Model", and a missing
+// template defaults to CooldownFrameTemplate so the frame is a real cooldown.
 //
 // Modern WoW (2.0+) allows a comma-separated template list in CreateFrame's
 // 4th argument:
@@ -174,7 +183,32 @@ int SplitTemplates(char *buf, size_t bufLen, const char *input,
 
 // ---- the hook --------------------------------------------------------------
 
+// Case-insensitive, like the engine's own frame-type lookup.
+bool IsCooldownType(void *L) {
+    if (!Game::Lua::IsString(L, 1))
+        return false;
+    const char *type = Game::Lua::ToString(L, 1);
+    return type != nullptr && _stricmp(type, "Cooldown") == 0;
+}
+
+// Rewrites a "Cooldown" request in place as vanilla's cooldown Model.
+void RemapCooldown(void *L) {
+    Game::Lua::PushString(L, "Model");
+    Game::Lua::Insert(L, 1);
+    Game::Lua::Remove(L, 2); // drop the original "Cooldown"
+    if (Game::Lua::GetTop(L) < 4 || !Game::Lua::IsString(L, 4) ||
+        *Game::Lua::ToString(L, 4) == '\0') {
+        while (Game::Lua::GetTop(L) < 3)
+            Game::Lua::PushNil(L);
+        Game::Lua::SetTop(L, 3);
+        Game::Lua::PushString(L, "CooldownFrameTemplate");
+    }
+}
+
 int __fastcall CreateFrame_h(void *L) {
+    if (IsCooldownType(L))
+        RemapCooldown(L);
+
     // No 4th arg or not a string → pass through.
     if (Game::Lua::GetTop(L) < 4 || !Game::Lua::IsString(L, 4))
         return g_origCreateFrame(L);
