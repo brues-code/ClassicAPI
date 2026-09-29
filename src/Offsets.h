@@ -2661,6 +2661,22 @@ enum Offsets {
     // Frame::Modern's GetEffectiveAlpha up the parent chain.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
     FUN_SCRIPT_REGION_GETPARENT = 0x007A1460,
+
+    // Frame levels. CSimpleFrame's level setter — `void __thiscall(frame, int
+    // level, int children)`, `ret 8`: clamps a negative level to 0, returns
+    // early for an unchanged one, stores it at +0xC4, and with `children`
+    // nonzero moves each child frame (the +0x300 list) of the same strata
+    // (+0xC0) by the same amount, recursively. Script SetFrameLevel
+    // (0x00774560: `push 0; push level; call`) and SetParent (0x0076AB10) pass
+    // 0; a few engine callers pass 1 (0x004905F5, 0x007651D8). SetParent first
+    // gives the frame the parent's strata through the recursive strata setter
+    // 0x0076A470, then the parent's level + 1 (or level 0 for no parent), so a
+    // frame moved under a new parent lands above it while its children keep
+    // the levels they had. `Frame::Levels` hooks the setter to pass 1 on
+    // SetParent's two calls, recognized by their return addresses.
+    FUN_FRAME_SET_FRAME_LEVEL = 0x0076A4F0,
+    RET_SETPARENT_SET_FRAME_LEVEL = 0x0076AB76,     // after `call` at 0x0076AB71 (parent)
+    RET_SETPARENT_NIL_SET_FRAME_LEVEL = 0x0076ABB7, // after `call` at 0x0076ABB2 (no parent)
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,

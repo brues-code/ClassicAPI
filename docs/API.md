@@ -224,6 +224,7 @@ build instructions.
   - [`region:IsDragging()`](#regionisdragging)
   - [`GetMouseFoci()`](#getmousefoci)
   - [`frame:SetShown(shown)`](#framesetshownshown)
+  - [A frame moved to a new parent takes its children along](#a-frame-moved-to-a-new-parent-takes-its-children-along)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`fontstring:GetUnboundedStringWidth()`](#fontstringgetunboundedstringwidth)
   - [`fontstring:GetWrappedWidth()`](#fontstringgetwrappedwidth)
@@ -5561,6 +5562,32 @@ end
 `Show()` if `shown` is truthy, `Hide()` otherwise. Registered for
 frames, textures and fontstrings (each branch has its own engine
 Show/Hide implementation).
+
+### A frame moved to a new parent takes its children along
+
+`frame:SetParent(parent)` moves the frames under `frame` along with it.
+`frame` lands at the parent's level + 1 (level 0 with no parent), and each
+child frame of the same strata moves up or down by the same number of
+levels, recursively, so the subtree keeps its own layering and sits above
+its new parent.
+
+Vanilla gives the moved frame the parent's strata and level + 1 but leaves
+the frames under it at the levels they had. A panel built on its own and
+then moved into a raised window drew its contents behind that window: an
+AceConfigDialog-3.0 options panel shown in the Interface Options window
+had its widgets at levels 1-4 under a window at level 5.
+
+```lua
+local host = CreateFrame("Frame", nil, UIParent)
+host:SetFrameLevel(20)
+local panel = CreateFrame("Frame")               -- level 0
+local child = CreateFrame("Frame", nil, panel)   -- level 1
+panel:SetParent(host)
+panel:GetFrameLevel()   -- 21
+child:GetFrameLevel()   -- 22 (vanilla: 1)
+```
+
+`SetFrameLevel` from Lua still moves only the frame it's called on.
 
 ### `fontstring:GetStringHeight()`
 
