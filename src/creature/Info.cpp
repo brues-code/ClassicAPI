@@ -242,56 +242,15 @@ int __fastcall Script_GetFactionInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return 0; // nil
     const int raceID = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    if (raceID <= 0)
-        return 0;
+    const char *english = nullptr;
+    const char *localized = nullptr;
+    if (!FactionGroupForRace(raceID, &english, &localized))
+        return 0; // unknown race or no named group -> nil
 
-    const uint8_t *crRec = DBC::Record(Offsets::VAR_CHRRACES_RECORDS,
-                                       Offsets::VAR_CHRRACES_COUNT,
-                                       static_cast<uint32_t>(raceID));
-    if (crRec == nullptr)
-        return 0; // unknown race
-    const int ftId = Game::Read<int>(
-        crRec, Offsets::OFF_CHRRACES_FACTION_TEMPLATE);
-    if (ftId <= 0)
-        return 0;
-
-    const uint8_t *ftRec = DBC::Record(Offsets::VAR_FACTIONTEMPLATE_RECORDS,
-                                       Offsets::VAR_FACTIONTEMPLATE_COUNT,
-                                       static_cast<uint32_t>(ftId));
-    if (ftRec == nullptr)
-        return 0;
-    const uint32_t mask = Game::Read<uint32_t>(
-        ftRec, Offsets::OFF_FACTIONTEMPLATE_GROUP_MASK);
-
-    // FactionGroup is stored contiguously (records-base + i*stride), not as a
-    // pointer array — iterate by hand rather than via DBC::Record.
-    auto *fgBase = Game::Read<const uint8_t *>(
-        Offsets::VAR_FACTIONGROUP_RECORDS);
-    const int fgCount =
-        Game::Read<int>(Offsets::VAR_FACTIONGROUP_COUNT);
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    if (fgBase == nullptr)
-        return 0;
-
-    for (int i = 0; i < fgCount; ++i) {
-        const uint8_t *row = fgBase + i * Offsets::FACTIONGROUP_STRIDE;
-        const int bit = Game::Read<int>(
-            row, Offsets::OFF_FACTIONGROUP_BIT);
-        if ((mask & (1u << (bit & 0x1F))) == 0)
-            continue;
-        const char *loc = Game::Read<const char *>(
-            row, Offsets::OFF_FACTIONGROUP_NAMES + locale * 4);
-        if (loc == nullptr || *loc == '\0')
-            continue; // "Player" / "Monster" have empty localized names
-        const char *eng = Game::Read<const char *>(
-            row, Offsets::OFF_FACTIONGROUP_ENGLISH);
-
-        Game::Lua::NewTable(L);
-        Game::Lua::SetFieldString(L, "name", loc);
-        Game::Lua::SetFieldString(L, "groupTag", eng);
-        return 1;
-    }
-    return 0; // no named group -> nil
+    Game::Lua::NewTable(L);
+    Game::Lua::SetFieldString(L, "name", localized);
+    Game::Lua::SetFieldString(L, "groupTag", english);
+    return 1;
 }
 
 // `C_CreatureInfo.GetCreatureTypeInfo(creatureTypeID)` — CreatureTypeInfo
@@ -367,6 +326,56 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+bool FactionGroupForRace(int raceID, const char **english, const char **localized) {
+    if (raceID <= 0)
+        return false;
+
+    const uint8_t *crRec = DBC::Record(Offsets::VAR_CHRRACES_RECORDS,
+                                       Offsets::VAR_CHRRACES_COUNT,
+                                       static_cast<uint32_t>(raceID));
+    if (crRec == nullptr)
+        return false; // unknown race
+    const int ftId = Game::Read<int>(
+        crRec, Offsets::OFF_CHRRACES_FACTION_TEMPLATE);
+    if (ftId <= 0)
+        return false;
+
+    const uint8_t *ftRec = DBC::Record(Offsets::VAR_FACTIONTEMPLATE_RECORDS,
+                                       Offsets::VAR_FACTIONTEMPLATE_COUNT,
+                                       static_cast<uint32_t>(ftId));
+    if (ftRec == nullptr)
+        return false;
+    const uint32_t mask = Game::Read<uint32_t>(
+        ftRec, Offsets::OFF_FACTIONTEMPLATE_GROUP_MASK);
+
+    // FactionGroup is stored contiguously (records-base + i*stride), not as a
+    // pointer array — iterate by hand rather than via DBC::Record.
+    auto *fgBase = Game::Read<const uint8_t *>(
+        Offsets::VAR_FACTIONGROUP_RECORDS);
+    const int fgCount =
+        Game::Read<int>(Offsets::VAR_FACTIONGROUP_COUNT);
+    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
+    if (fgBase == nullptr)
+        return false;
+
+    for (int i = 0; i < fgCount; ++i) {
+        const uint8_t *row = fgBase + i * Offsets::FACTIONGROUP_STRIDE;
+        const int bit = Game::Read<int>(
+            row, Offsets::OFF_FACTIONGROUP_BIT);
+        if ((mask & (1u << (bit & 0x1F))) == 0)
+            continue;
+        const char *loc = Game::Read<const char *>(
+            row, Offsets::OFF_FACTIONGROUP_NAMES + locale * 4);
+        if (loc == nullptr || *loc == '\0')
+            continue; // "Player" / "Monster" have empty localized names
+        *english = Game::Read<const char *>(
+            row, Offsets::OFF_FACTIONGROUP_ENGLISH);
+        *localized = loc;
+        return true;
+    }
+    return false; // no named group
+}
 
 // Public accessor for Model::DisplayInfo's SetCreature — the same peek
 // GetCreatureInfoByID uses, reduced to the display-ID field. 0 = uncached.

@@ -3879,6 +3879,10 @@ enum Offsets {
     // records-base/count globals are the ones the engine actually
     // dereferences per the disassembly (0x00C0DD5C / 0x00C0DD60), which
     // differ from DBCs.md's standard-shape tabulation for this table.
+    // `Script_UnitFactionGroup` itself: slot 13 of the in-game registration
+    // table 0x00850438 (loop @ 0x0051BB74; docs/raw_globals.txt). Co-hooked by
+    // unit/FactionGroup.cpp so "player" resolves while addons load.
+    FUN_SCRIPT_UNIT_FACTION_GROUP = 0x00516630,
     OFF_CHRRACES_FACTION_TEMPLATE = 0x08,
     VAR_FACTIONTEMPLATE_RECORDS = 0x00C0DD3C,
     VAR_FACTIONTEMPLATE_COUNT = 0x00C0DD40,

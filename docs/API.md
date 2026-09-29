@@ -749,6 +749,7 @@ build instructions.
   - [`UnitGUID(unit)`](#unitguidunit)
   - [`UnitTokenFromGUID(guid)`](#unittokenfromguidguid)
   - [`UnitTokenFromName(name [, exactMatch])`](#unittokenfromnamename--exactmatch)
+  - [`UnitFactionGroup("player")` while addons load](#unitfactiongroupplayer-while-addons-load)
   - [`UnitSubName(unit)`](#unitsubnameunit)
   - [`UnitCreatureFamilyID(unit)`](#unitcreaturefamilyidunit)
   - [`UnitCreatureTypeID(unit)`](#unitcreaturetypeidunit)
@@ -17807,6 +17808,25 @@ Treat it as a snapshot. Which token names a unit changes as you retarget or
 as the group changes, so resolve it again rather than storing it.
 
 *ClassicAPI extension.*
+
+### `UnitFactionGroup("player")` while addons load
+
+`UnitFactionGroup("player")` answers while addons load (at file scope,
+`ADDON_LOADED` and `VARIABLES_LOADED`), as `UnitName`, `UnitRace` and
+`UnitClass` already do and as later clients do. Stock 1.12 returns `nil`
+until `PLAYER_LOGIN`, and AceDB-3.0 builds its `"<faction> - <realm>"`
+profile key from it at file scope.
+
+```lua
+-- at file scope, on a Human character
+UnitFactionGroup("player")   -- "Alliance", "Alliance" (stock 1.12: nil)
+```
+
+Until the player object exists, the answer comes from the character's race,
+through the same race-to-faction chain the engine uses for the player (and
+[`C_CreatureInfo.GetFactionInfo`](#c_creatureinfogetfactioninforaceid)
+uses for a race). From then on the engine answers by itself, and other units
+are unchanged.
 
 ### `UnitSubName(unit)`
 
