@@ -44,6 +44,20 @@ int IndexForQuestID(int questID) {
     return -1;
 }
 
+int QuestIDAt(int index) {
+    const int total = *reinterpret_cast<const int *>(
+        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
+    if (index < 0 || index >= total)
+        return -1;
+    auto *entry = reinterpret_cast<const uint8_t *>(
+                      static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) +
+                  index * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
+    if (*reinterpret_cast<const void *const *>(
+            entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr)
+        return 0; // header row
+    return *reinterpret_cast<const int *>(entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
+}
+
 namespace {
 
 // Walks the unit's `+0xE68` sub-struct quest list (20 slots, stride
@@ -82,27 +96,12 @@ static int __fastcall Script_GetQuestIDForLogIndex(void *L) {
         return 0;
     }
 
-    const int idx = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    const int total = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    if (idx < 0 || idx >= total)
-        return 0; // nil for out-of-range
-
-    auto *entry = reinterpret_cast<const uint8_t *>(
-                      static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) +
-                  idx * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-
     // Header rows report questID 0 rather than nil, so a caller walking
     // 1..GetNumQuestLogEntries() can tell "header" from "out of range".
     // See `IndexForQuestID` for the header gate's verification trail.
-    if (*reinterpret_cast<const void *const *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr) {
-        Game::Lua::PushNumber(L, 0.0);
-        return 1;
-    }
-
-    const int questID = *reinterpret_cast<const int *>(
-        entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
+    const int questID = QuestIDAt(static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1);
+    if (questID < 0)
+        return 0; // nil for out-of-range
     Game::Lua::PushNumber(L, static_cast<double>(questID));
     return 1;
 }

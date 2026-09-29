@@ -34,4 +34,8 @@ int IndexForQuestID(int questID);
 // ready to turn in, since the log holds both.
 inline bool IsOnQuest(int questID) { return IndexForQuestID(questID) >= 0; }
 
+// The questID of the row at 0-based `index` — the inverse of
+// `IndexForQuestID` — 0 for a header row, -1 when `index` is out of range.
+int QuestIDAt(int index);
+
 } // namespace Quest::Log

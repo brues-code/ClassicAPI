@@ -5054,6 +5054,13 @@ enum Offsets {
     OFF_QUEST_LOG_ENTRY_STRIDE = 0x10,
     OFF_QUEST_LOG_ENTRY_QUEST_ID = 0x0,
     OFF_QUEST_LOG_ENTRY_HEADER_PTR = 0x8,
+    // `Script_GetQuestLogTitle(index)` — `int __fastcall(void *L)`. Pushes six
+    // values for any numeric index, nils for an out-of-range one: title,
+    // level, questTag, isHeader (1 when +8 is set, 0x004DF9A9), isCollapsed,
+    // isComplete (-1 failed at 0x004DFA72, else 1 or nil), returning 6
+    // (0x004DFA81). A non-number raises the usage error (0x004DFAC1). Co-hooked by
+    // `Quest::LogTitle` for the 2.0 - 5.4 layout.
+    FUN_SCRIPT_GET_QUEST_LOG_TITLE = 0x004DF930,
 
     // The single chokepoint that rebuilds the quest log from the
     // player's authoritative quest-slot data at `[CGPlayer + 0xE68 +
@@ -5904,6 +5911,21 @@ enum Offsets {
     // `0x006FA2A0` internally.
     LUA_NEXT = 0x6F4450,
     LUA_ERROR = 0x6F4940,
+    // Lua 5.0 debug API, from `luaL_where` (0x006F48E0), which the error
+    // wrapper (LUA_ERROR) runs to prefix "file:line: ":
+    //   if (lua_getstack(L, level, &ar)) { lua_getinfo(L, "Snl", &ar);
+    //       if (ar.currentline > 0) lua_pushfstring("%s:%d: ", ar.short_src, ...) }
+    // Both `int __fastcall(L /*ecx*/, <int level | const char *what> /*edx*/,
+    // lua_Debug *ar)`, callee-cleaning `ar`. `lua_Debug` is the stock 5.0
+    // struct, 0x60 bytes: what +0x0C, source +0x10, currentline +0x14,
+    // short_src[60] +0x20, i_ci +0x5C (luaL_where reads currentline at
+    // ar+0x14 and short_src at ar+0x20). docs/LuaCAPI.md lists 0x006FBAA0 as
+    // an error format helper; it is lua_getstack - the CallInfo walk from
+    // `L->ci` (+0x14) down to `L->base_ci` (+0x28) in 0x18-byte steps,
+    // skipping `tailcalls` for non-CI_C frames, `ar->i_ci = 0` for a lost
+    // tail call.
+    LUA_GET_STACK = 0x6FBAA0,
+    LUA_GET_INFO = 0x6FBC70,
 
     // `lua_xmove(from, to, n)` — moves the top `n` TValues from one
     // thread to another. Decrements `from->top` by `n*16`, copies each

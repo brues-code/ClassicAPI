@@ -567,6 +567,7 @@ build instructions.
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
 - [Quest](#quest)
+  - [`GetQuestLogTitle(index)` for TBC-through-MoP addons](#getquestlogtitleindex-for-tbc-through-mop-addons)
   - [`C_QuestLog.GetQuestIDForLogIndex(index)`](#c_questloggetquestidforlogindexindex)
   - [`C_QuestLog.GetLogIndexForQuestID(questID)`](#c_questloggetlogindexforquestidquestid)
   - [`C_QuestLog.GetHeaderIndexForQuest(questID)`](#c_questloggetheaderindexforquestquestid)
@@ -13838,6 +13839,38 @@ local sex = C_PlayerInfo.GetSex(loc)
   `UnitName`/`UnitClass` directly.
 
 ## Quest
+
+### `GetQuestLogTitle(index)` for TBC-through-MoP addons
+
+An addon whose TOC declares the Interface of an original 2.0 - 5.4 client
+gets `GetQuestLogTitle` in that client's layout, with the questID the 3.3
+client added:
+
+| Caller's `## Interface:` | Returns |
+| --- | --- |
+| 20000-20400, 30000-30300, 40000-40300, 50000-50400 | `title, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily, questID` |
+| anything else | `title, level, questTag, isHeader, isCollapsed, isComplete` (vanilla) |
+
+```lua
+-- ## Interface: 30300
+local title, level, tag, group, isHeader, isCollapsed, isComplete, isDaily, questID =
+    GetQuestLogTitle(i)
+```
+
+The two layouts can't share one return list: `suggestedGroup` at position 4
+moves `isHeader`, `isCollapsed` and `isComplete`, so code written for one
+reads the other's values in the wrong places. Vanilla has no suggested group
+sizes and no dailies, so `suggestedGroup` is `0` and `isDaily` is `nil`, what
+those clients return for a quest without either. `questID` is `0` for a
+header row, as [`C_QuestLog.GetQuestIDForLogIndex`](#c_questloggetquestidforlogindexindex).
+
+The caller is the addon file the calling code is in: its folder under
+`Interface\AddOns\` names the addon, and that addon's TOC (the flavor TOC,
+when the client loaded one) gives the Interface. Code outside an addon file -
+FrameXML, XML handler bodies (`<OnLoad>` and the like), `RunScript` and
+`loadstring` chunks without an addon path - gets the vanilla layout, and so do
+addons written for the later layouts (6.0+ and the Classic re-releases, which
+dropped `questTag` and moved `questID`); this doesn't produce those.
 
 ### `C_QuestLog.GetQuestIDForLogIndex(index)`
 
