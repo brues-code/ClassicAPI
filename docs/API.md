@@ -32,6 +32,13 @@ build instructions.
   - [`C_APIDocumentation.GetSystem(system)`](#c_apidocumentationgetsystemsystem)
   - [`_classicapi_UndocumentedAPI()`](#_classicapi_undocumentedapi)
 
+- [Animation](#animation)
+  - [`region:CreateAnimationGroup([name])`](#regioncreateanimationgroupname)
+  - [AnimationGroup](#animationgroup)
+  - [Animation types: `Alpha`, `Scale`, `Rotation`, `Translation`](#animation-types-alpha-scale-rotation-translation)
+  - [`<Animations>` in XML](#animations-in-xml)
+  - [Limits on 1.12](#limits-on-112)
+
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
 
@@ -1408,6 +1415,110 @@ this list shrinks with each release.
 ```lua
 local missing, count = _classicapi_UndocumentedAPI()
 ```
+
+## Animation
+
+Later clients' animation system: animation groups on frames, textures and
+font strings, made in Lua or XML, with the `Alpha`, `Scale`, `Rotation` and
+`Translation` animation types. Stock 1.12 has none of it. The animations run
+in the bundled addon: one frame ticks every playing group and applies each
+effect through the region's own setters. As on later clients, an effect lasts
+only while its group plays; the region's own values are put back when the
+group stops or finishes.
+
+### `region:CreateAnimationGroup([name])`
+
+Creates an `AnimationGroup` on a frame, texture or font string.
+`region:GetAnimationGroups()` returns the region's groups, and
+`region:StopAnimating()` stops them all.
+
+```lua
+local group = frame:CreateAnimationGroup()
+local fade = group:CreateAnimation("Alpha")
+fade:SetChange(-1)            -- down to alpha 0
+fade:SetDuration(0.5)
+fade:SetSmoothing("OUT")
+group:SetScript("OnFinished", function(self) frame:Hide() end)
+group:Play()
+```
+
+### AnimationGroup
+
+`Play`, `Pause`, `Stop`, `Finish`, `IsPlaying`, `IsPaused`, `IsDone`,
+`IsPendingFinish`, `GetProgress`, `GetDuration`,
+`SetLooping("NONE" | "REPEAT" | "BOUNCE")`, `GetLooping`, `GetLoopState`,
+`CreateAnimation(type [, name])`, `GetAnimations`, `GetParent`, `GetName`,
+`GetObjectType`, `IsObjectType`, and `SetScript` / `GetScript` /
+`HasScript` for `OnPlay`, `OnPause`, `OnStop(self, requested)`,
+`OnFinished(self, requested)`, `OnLoop(self, loopState)` and
+`OnUpdate(self, elapsed)`.
+
+Animations with the same `order` play together, and orders play one after
+another; an order lasts as long as its longest
+`startDelay + duration + endDelay`. `BOUNCE` plays every other loop
+backwards.
+
+### Animation types: `Alpha`, `Scale`, `Rotation`, `Translation`
+
+`group:CreateAnimation(type [, name])` takes `"Alpha"`, `"Scale"`,
+`"Rotation"`, `"Translation"`, or `"Animation"` (timing and scripts only).
+Every animation has `SetDuration` / `GetDuration`, `SetStartDelay` /
+`GetStartDelay`, `SetEndDelay` / `GetEndDelay`, `SetOrder` / `GetOrder`,
+`SetSmoothing("NONE" | "IN" | "OUT" | "IN_OUT")` / `GetSmoothing`,
+`SetMaxFramerate` / `GetMaxFramerate`, `GetProgress`, `GetSmoothProgress`,
+`GetElapsed`, `IsPlaying`, `IsDelaying`, `IsPaused`, `IsStopped`, `IsDone`,
+`Play`, `Stop`, `Pause`, `GetParent` (its group), `GetRegionParent`, and
+the group's scripts except `OnLoop`.
+
+| Type | Methods | Effect |
+|---|---|---|
+| `Alpha` | `SetChange(change)` / `GetChange()` | Adds `change × progress` to the region's alpha. |
+| `Scale` | `SetScale(x, y)` / `GetScale()`, `SetOrigin(point, x, y)` / `GetOrigin()` | Multiplies the region's scale or size. |
+| `Rotation` | `SetDegrees` / `GetDegrees`, `SetRadians` / `GetRadians`, `SetOrigin` / `GetOrigin` | Turns a texture or font string about its origin, the center by default. |
+| `Translation` | `SetOffset(x, y)` / `GetOffset()` | Moves the region by `offset × progress`. |
+
+Several animations of one kind on a region combine: alphas and offsets add,
+scales multiply, and angles add.
+
+### `<Animations>` in XML
+
+```xml
+<Frame name="MyFrame">
+    <Animations>
+        <AnimationGroup parentKey="Pulse" looping="BOUNCE">
+            <Alpha change="-0.5" duration="0.4" smoothing="IN_OUT"/>
+            <Scale scaleX="1.2" scaleY="1.2" duration="0.4" order="1">
+                <Origin point="CENTER"/>
+            </Scale>
+            <Scripts>
+                <OnFinished>MyFrame_OnPulseDone(self)</OnFinished>
+            </Scripts>
+        </AnimationGroup>
+    </Animations>
+</Frame>
+```
+
+An `<Animations>` block on a frame, texture or font string builds its groups
+before the frame's `OnLoad`. Groups read `name`, `parentKey` and `looping`.
+Animations read `name`, `parentKey`, `duration`, `startDelay`, `endDelay`,
+`order`, `smoothing`, `maxFramerate` and their type's own attributes:
+`change`, `scaleX` / `scaleY`, `degrees` / `radians`, `offsetX` /
+`offsetY`, and `<Origin>`. `<Scripts>` bodies see `self` and their script's
+arguments (`elapsed`, `requested`, `loopState`), and a script element can
+name a global function with `function=`.
+
+### Limits on 1.12
+
+- `Scale` changes a frame's own scale, so the frame's anchor point is the
+  pivot, which is exact for a frame anchored by its center. A texture or
+  font string anchored by one point is resized instead.
+- `Rotation` goes through `SetRotation`, so it turns textures and font
+  strings, not frames.
+- A region's values are captured when a group starts and put back when it
+  ends, so a value the addon sets on the region while a group animates it
+  is overwritten.
+- Group templates aren't supported yet: `inherits` on an `AnimationGroup`
+  and a template argument to `CreateAnimationGroup` are ignored.
 
 ## AuctionHouse
 
