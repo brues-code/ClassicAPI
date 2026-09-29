@@ -265,6 +265,7 @@ build instructions.
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
   - [`SetModernScriptArgs(enable)` / `GetModernScriptArgs()`](#setmodernscriptargsenable--getmodernscriptargs)
+  - [XML script bodies see `self` and their arguments](#xml-script-bodies-see-self-and-their-arguments)
   - [`SecureCmdOptionParse(options [, quiet])`](#securecmdoptionparseoptions--quiet)
   - [`RegisterStateDriver` / `UnregisterStateDriver`](#registerstatedriver--unregisterstatedriver)
   - [`RegisterAttributeDriver` / `UnregisterAttributeDriver`](#registerattributedriver--unregisterattributedriver)
@@ -6332,6 +6333,33 @@ end)
 GetModernScriptArgs()       -- true (default)
 ```
 
+### XML script bodies see `self` and their arguments
+
+An XML script body written for later clients can use `self` and its script's
+arguments by name:
+
+```xml
+<Scripts>
+    <OnLoad>self:RegisterEvent("PLAYER_LOGIN")</OnLoad>
+    <OnUpdate>self.timer = (self.timer or 0) + elapsed</OnUpdate>
+    <OnClick>MyButton_OnClick(self, button, down)</OnClick>
+</Scripts>
+```
+
+Later clients compile a body as a function of `self` followed by its
+script's arguments: `elapsed` for `OnUpdate`, `button, down` for `OnClick`,
+`event, ...` for `OnEvent`, `delta` for `OnMouseWheel`, `value` for
+`OnValueChanged`, and so on for the other scripts. Stock 1.12 compiles it
+with no parameters and passes the frame and the arguments only as the
+`this` and `arg1`..`argN` globals, so such a body indexes a nil `self`.
+
+A body that reads `self`, or reads one of its script's argument names and
+none of `this` / `arg1`..`argN`, is compiled as
+`function(self, <names>, ...)`. Every other body, FrameXML's included, is
+compiled as before and keeps reading the globals. `event` alone doesn't
+count, because vanilla sets it as a global during `OnEvent`.
+`_classicapi_SetTranspileOption("XmlHandlerArgs", false)` turns this off.
+
 ### `SecureCmdOptionParse(options [, quiet])`
 
 Parses a macro conditional string. Returns the value of the first clause that
@@ -10818,9 +10846,11 @@ needs that addon's opt-in.
   `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
-- `_classicapi_TranspileStats()` returns five numbers: the chunks loaded,
-  their bytes, the chunks that needed a full token pass, those bytes, and
-  the milliseconds the rewrite has used since the client started.
+- `_classicapi_TranspileStats()` returns six numbers: the chunks loaded,
+  their bytes, the chunks that needed a full token pass, those bytes,
+  the milliseconds the rewrite has used since the client started, and the
+  number of [XML script bodies](#xml-script-bodies-see-self-and-their-arguments)
+  compiled with their parameters.
 
 ### Upvalue limit
 

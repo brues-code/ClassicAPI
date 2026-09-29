@@ -6036,6 +6036,16 @@ enum Offsets {
     // caller-forgeable chunkname, so it must NOT arm; the call-site check
     // excludes it even when nested inside a RunScript body.
     RET_LUA_FILE_COMPILE = 0x00704B11,
+    // Return address of the `call luaL_loadbuffer` inside the XML script
+    // compile funnel FUN_00704C70 (the CALL is at 0x00704C87, so the pushed
+    // return address is 0x00704C8C). That funnel compiles an XML handler body
+    // (<OnLoad>, <OnClick>, ...) into the function the frame stores, under an
+    // engine-built chunkname "<FrameName>:<ScriptName>". Found by scanning
+    // FUN_00704C70 for an `E8 rel32` whose target is FUN_LUAL_LOADBUFFER; the
+    // same scan reproduces RET_LUA_FILE_COMPILE (0x00704B11) for FUN_00704AE0
+    // and 0x007032B5 for loadstring's FUN_00703280. LuaSyntax uses it to give
+    // XML handler bodies their modern implicit parameters (self, elapsed, ...).
+    RET_LUA_SCRIPT_COMPILE = 0x00704C8C,
     // That funnel itself: `int __fastcall(const char *source, uint32_t size,
     // const char *chunkName, void *errCtx)`, returning 1 when the chunk both
     // compiled and ran and 0 otherwise. It resolves the Lua state through
