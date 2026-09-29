@@ -356,6 +356,7 @@ build instructions.
 
 - [Instance](#instance)
   - [`GetInstanceInfo()`](#getinstanceinfo)
+  - [`IsActiveBattlefieldArena()`](#isactivebattlefieldarena)
 
 - [Item](#item)
   - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexistitemlocation--c_itemdoesitemexistbyiditem)
@@ -8208,6 +8209,28 @@ their true `20`; non-AV battlegrounds (WSG `10`, AB `15`) return `40`
 instead of their true cap; any custom raid on a private server
 (e.g. Turtle WoW) returns `40` regardless of its real cap.** Addons
 that need exact caps must supply their own per-mapID table.
+
+### `IsActiveBattlefieldArena()`
+
+Returns `isArena, isRegistered`: `1` while the player is in an arena match,
+`nil` otherwise. Stock 1.12 has no arenas, so there it is always `nil`.
+
+Turtle-lineage clients (`TURTLE_WOW_VERSION`) add arena matches. They run in
+instances `IsInInstance` reports as `"pvp"`, like battlegrounds, and the
+client's own scoreboard learns it is in an arena from the server's hidden
+`TW_ARENA` scoreboard reply. `isArena` follows that same state
+(`WorldStateScoreFrame.arenaData`), so it is `1` exactly while the
+scoreboard shows its arena view.
+
+`isRegistered` (a rated match) is always `nil`: the reply carries no rated
+flag, and the client's arena queue window can only join skirmishes.
+
+```lua
+local isArena = IsActiveBattlefieldArena()
+if UnitIsDeadOrGhost("player") and not isArena then
+    -- not in an arena: point at the corpse
+end
+```
 
 ## Item
 
