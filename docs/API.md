@@ -443,6 +443,7 @@ build instructions.
 - [Lua](#lua)
   - [Lua 5.1 syntax](#lua-51-syntax)
   - [Upvalue limit](#upvalue-limit)
+  - [`for` loop variables per pass](#for-loop-variables-per-pass)
   - [String methods (`s:upper()`, `s:format(...)`)](#string-methods-supper-sformat)
   - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
@@ -10815,7 +10816,8 @@ needs that addon's opt-in.
 - To turn a rewrite off for diagnosis, call
   `_classicapi_SetTranspileOption(name, false)`, where `name` is
   `"Length"`, `"Modulo"`, `"VarargExpansion"`, `"HexLiterals"`, or
-  `"LongBrackets"`. This
+  `"LongBrackets"` (`"ForLoopScopes"` is the
+  [`for` loop rewrite](#for-loop-variables-per-pass)). This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
 - `_classicapi_TranspileStats()` returns five numbers: the chunks loaded,
@@ -10833,6 +10835,33 @@ reason alone. ClassicAPI raises the limit to the same 60.
 
 Nothing changes for a function within the old limit. Past 60 the error is
 the same message with the new number: `too many upvalues (limit=60)`.
+
+### `for` loop variables per pass
+
+Each pass of a `for` loop has its own loop variables, as in Lua 5.1, so a
+function made inside the loop keeps the values of the pass that made it.
+
+```lua
+local show = {}
+for i, name in ipairs({ "a", "b" }) do
+    show[i] = function() return name end
+end
+show[1]()   -- "a" (stock 1.12: nil)
+```
+
+Lua 5.0 has one set of loop variables for the whole loop, so every function
+made in the loop sees their last value: `nil` for a `for ... in` loop, and the
+value past the limit for a numeric loop. Code written for Lua 5.1 relies on
+the per-pass values, for example to give each menu entry its own `checked`
+function.
+
+ClassicAPI rewrites such a loop the way the Lua 5.1 manual defines it:
+`for i, v in e do` becomes `for __cf_i, __cf_v in e do local i, v = __cf_i,
+__cf_v;`, on the same line. Only a loop whose body makes a function changes.
+A loop whose body assigns to its own loop variable is left as it is, because
+Lua 5.0 carries that assignment into the next pass and Lua 5.1 doesn't.
+`_classicapi_SetTranspileOption("ForLoopScopes", false)` turns the rewrite
+off.
 
 ### String methods (`s:upper()`, `s:format(...)`)
 
