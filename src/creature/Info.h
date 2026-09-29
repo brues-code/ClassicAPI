@@ -24,4 +24,15 @@ namespace Creature::Info {
 // entry-ID → model mapping vanilla has no DBC for.
 uint32_t DisplayID(uint32_t creatureID);
 
+// The faction group a player race belongs to, resolved the way the player
+// branch of `Script_UnitFactionGroup` does it: ChrRaces -> FactionTemplate
+// group mask -> the first FactionGroup row whose bit is set and whose
+// localized name is non-empty (skipping "Player" / "Monster"). On success
+// `english` is the locale-independent tag ("Alliance") and `localized` the
+// display name; both point into DBC string storage. False for an unknown or
+// non-positive race, or a race with no named group. Backs
+// `C_CreatureInfo.GetFactionInfo` and `UnitFactionGroup("player")` before the
+// player object spawns.
+bool FactionGroupForRace(int raceID, const char **english, const char **localized);
+
 } // namespace Creature::Info
