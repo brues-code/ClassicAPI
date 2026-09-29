@@ -25,6 +25,9 @@
 //     ...           ->  unpack(arg)      (the `...` EXPRESSION, not the decl)
 //     0xHH...       ->  <decimal>        (5.0's lexer rejects hex literals)
 //     [=[ … ]=]     ->  [[ … ]] or "…"   (5.0 has no leveled long brackets)
+// One more pass fixes a difference in MEANING rather than syntax: a `for`
+// loop whose body makes a function gets per-pass copies of its variables, as
+// in 5.1 (see the for-loop scoping pass).
 // `__len` / `__mod` are C globals we register (see below); `unpack` and the
 // 5.0 `arg` table are already present. RunPasses lexes the chunk once WITHOUT
 // building tokens to learn whether any trigger (`[=[`, `0x`, `...`, `#`, `%`)
@@ -80,7 +83,7 @@
 //     count, bytes, tokenized chunks, tokenized bytes and milliseconds.
 //   * Toggles via `_classicapi_SetTranspileOption(name, bool)` /
 //     `_classicapi_GetTranspileOption(name)` (name = "Length" / "Modulo" /
-//     "VarargExpansion" / "HexLiterals" / "LongBrackets").
+//     "VarargExpansion" / "HexLiterals" / "LongBrackets" / "ForLoopScopes").
 //   * `...` expands to `unpack(arg)`, which is faithful in every position and
 //     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
 //     Only the `...` in a function's parameter list is left intact.
@@ -130,6 +133,9 @@ bool g_modEnabled = true;
 bool g_varargEnabled = true;
 bool g_hexEnabled = true;
 bool g_longBracketEnabled = true;
+// Also default ON, but unlike the others this one changes code that compiles
+// on 5.0: see the for-loop scoping pass for where the two versions differ.
+bool g_forScopeEnabled = true;
 
 // Cumulative cost of the load hook since DLL load, read back by
 // `_classicapi_TranspileStats` — answers "what does the transpiler cost this
@@ -360,6 +366,309 @@ struct TokenSink {
     void OnToken(TokKind kind, size_t start, size_t end) { out.push_back({kind, start, end}); }
 };
 
+// ============================================================================
+// For-loop scope scan: which `for` bodies each token sits in, for the for-loop
+// scoping pass (RewriteForScopes). It follows Lua's blocks and brackets:
+// `function`, `do`, `repeat`, an `if`'s `then`, and `(` `[` `{` open; `end`,
+// `until` and `)` `]` `}` close. An `elseif`'s `then` opens nothing. A `for`
+// header runs to the `do` at its own depth, and that `do` opens the loop body.
+// Flag mode (`loops` null, allocation-free) answers only "does a `function`
+// keyword sit in some `for` body"; record mode also keeps each loop's names,
+// its `do`, and whether its body assigns to a loop variable.
+// ============================================================================
+
+enum BlockKw : unsigned char {
+    BK_NONE, BK_DO, BK_END, BK_FOR, BK_FUNCTION, BK_IF, BK_THEN, BK_REPEAT, BK_UNTIL,
+    BK_IN, BK_LOCAL, BK_OTHER // BK_OTHER: a keyword the scan doesn't track
+};
+
+BlockKw ClassifyBlockKw(const char *p, size_t n) {
+    switch (n) {
+    case 2:
+        if (p[0] == 'd' && p[1] == 'o') return BK_DO;
+        if (p[0] == 'i' && p[1] == 'f') return BK_IF;
+        if (p[0] == 'i' && p[1] == 'n') return BK_IN;
+        if (p[0] == 'o' && p[1] == 'r') return BK_OTHER;
+        return BK_NONE;
+    case 3:
+        if (std::memcmp(p, "end", 3) == 0) return BK_END;
+        if (std::memcmp(p, "for", 3) == 0) return BK_FOR;
+        if (std::memcmp(p, "and", 3) == 0 || std::memcmp(p, "nil", 3) == 0 ||
+            std::memcmp(p, "not", 3) == 0)
+            return BK_OTHER;
+        return BK_NONE;
+    case 4:
+        if (std::memcmp(p, "then", 4) == 0) return BK_THEN;
+        if (std::memcmp(p, "else", 4) == 0 || std::memcmp(p, "true", 4) == 0) return BK_OTHER;
+        return BK_NONE;
+    case 5:
+        if (std::memcmp(p, "until", 5) == 0) return BK_UNTIL;
+        if (std::memcmp(p, "local", 5) == 0) return BK_LOCAL;
+        if (std::memcmp(p, "break", 5) == 0 || std::memcmp(p, "false", 5) == 0 ||
+            std::memcmp(p, "while", 5) == 0)
+            return BK_OTHER;
+        return BK_NONE;
+    case 6:
+        if (std::memcmp(p, "repeat", 6) == 0) return BK_REPEAT;
+        if (std::memcmp(p, "elseif", 6) == 0 || std::memcmp(p, "return", 6) == 0) return BK_OTHER;
+        return BK_NONE;
+    case 8:
+        return std::memcmp(p, "function", 8) == 0 ? BK_FUNCTION : BK_NONE;
+    default:
+        return BK_NONE;
+    }
+}
+
+struct NameSpan {
+    size_t start;
+    size_t end;
+};
+
+// One `for` loop, in record mode.
+struct ForLoop {
+    std::vector<NameSpan> names; // the declared loop variables
+    size_t doEnd = 0;            // just past the body's `do`; 0 until seen
+    bool capture = false;        // a `function` keyword inside the body
+    bool assigned = false;       // the body assigns to a loop variable
+};
+
+struct ForScopeScan {
+    static constexpr int kMaxDepth = 256;
+    static constexpr int kHistory = 32;
+    struct Tok {
+        TokKind kind;
+        size_t start;
+        size_t end;
+    };
+
+    std::vector<ForLoop> *loops = nullptr; // record mode when set
+    bool capture = false; // a `function` keyword sits in some `for` body
+    bool broken = false;  // unbalanced blocks or too deep: rewrite nothing
+
+    // Open blocks: 'L' loop body, 'F' function, 'D' do, 'T' if, 'R' repeat,
+    // or the bracket '(' '[' '{'. `loopOf` is the ForLoop of an 'L' block.
+    char blocks[kMaxDepth] = {};
+    int loopOf[kMaxDepth] = {};
+    int top = 0;
+    int openLoops = 0;
+    int pendingIf = 0; // `if`s whose `then` hasn't come yet
+    // `for` headers waiting for their `do`: the block depth at the `for`.
+    int headerDepth[kMaxDepth] = {};
+    int headerLoop[kMaxDepth] = {};
+    int headers = 0;
+    int collecting = -1; // record mode: the ForLoop whose names are being read
+
+    // Record mode: the last tokens, to recognize an assignment's targets.
+    Tok hist[kHistory] = {};
+    int seen = 0;          // tokens remembered so far
+    int pendingEq = -1;    // index of a `=` that may still be half of `==`
+    bool eqInField = false; // that `=` sits directly in a `{ }`: a table field
+
+    void Push(char b, int loop) {
+        if (top >= kMaxDepth) {
+            broken = true;
+            return;
+        }
+        blocks[top] = b;
+        loopOf[top] = loop;
+        top++;
+        if (b == 'L')
+            openLoops++;
+    }
+
+    void Close(const char *allowed) {
+        if (top == 0 || std::strchr(allowed, blocks[top - 1]) == nullptr) {
+            broken = true;
+            return;
+        }
+        top--;
+        if (blocks[top] == 'L')
+            openLoops--;
+    }
+
+    const Tok &At(int i) const { return hist[i % kHistory]; }
+    bool HasTok(int i) const { return i >= 0 && i >= seen - kHistory && i < seen; }
+    static bool IsPunct(const char *src, const Tok &t, char ch) {
+        return t.kind == TK_PUNCT && t.end - t.start == 1 && src[t.start] == ch;
+    }
+    static bool SameName(const char *src, NameSpan a, const Tok &b) {
+        return a.end - a.start == b.end - b.start &&
+               std::memcmp(src + a.start, src + b.start, a.end - a.start) == 0;
+    }
+
+    // The `=` at history index `eq` ends an assignment's target list
+    // (`name`, `a.b`, `name, name`...). Unless the list is a `local` or `for`
+    // declaration, mark each open loop one of whose variables is a target.
+    void Assignment(const char *src, int eq) {
+        constexpr int kMaxTargets = 16;
+        int targets[kMaxTargets];
+        int numTargets = 0;
+        int j = eq - 1;
+        for (;;) {
+            if (!HasTok(j))
+                return;
+            const Tok &t = At(j);
+            if (t.kind != TK_NAME || ClassifyBlockKw(src + t.start, t.end - t.start) != BK_NONE)
+                return; // `t[k] =`, `f() =`: no plain target to follow
+            // A dotted target (`a.b.c`) walks back to its base; it's a field.
+            int base = j;
+            bool field = false;
+            while (HasTok(base - 2) &&
+                   (IsPunct(src, At(base - 1), '.') || IsPunct(src, At(base - 1), ':')) &&
+                   At(base - 2).kind == TK_NAME) {
+                base -= 2;
+                field = true;
+            }
+            if (!field && numTargets < kMaxTargets)
+                targets[numTargets++] = j;
+            if (HasTok(base - 1) && IsPunct(src, At(base - 1), ',')) {
+                j = base - 2;
+                continue;
+            }
+            if (HasTok(base - 1)) {
+                const Tok &before = At(base - 1);
+                if (before.kind == TK_NAME) {
+                    const BlockKw kw = ClassifyBlockKw(src + before.start, before.end - before.start);
+                    if (kw == BK_LOCAL || kw == BK_FOR)
+                        return; // a declaration, not an assignment
+                }
+            }
+            break;
+        }
+        for (int b = 0; b < top; b++) {
+            if (blocks[b] != 'L')
+                continue;
+            ForLoop &loop = (*loops)[loopOf[b]];
+            for (int i = 0; i < numTargets; i++)
+                for (const NameSpan &n : loop.names)
+                    if (SameName(src, n, At(targets[i])))
+                        loop.assigned = true;
+        }
+    }
+
+    void Remember(const char *src, TokKind kind, size_t start, size_t end) {
+        if (pendingEq >= 0) {
+            const Tok &eqTok = At(pendingEq);
+            const bool doubled = kind == TK_PUNCT && end - start == 1 && src[start] == '=' &&
+                                 start == eqTok.end;
+            if (!doubled && !eqInField)
+                Assignment(src, pendingEq);
+            pendingEq = -1;
+            if (doubled) { // the second half of `==`
+                hist[seen % kHistory] = {kind, start, end};
+                seen++;
+                return;
+            }
+        }
+        const bool eq = kind == TK_PUNCT && end - start == 1 && src[start] == '=';
+        if (eq && HasTok(seen - 1)) {
+            const Tok &prev = At(seen - 1);
+            const bool compare = prev.kind == TK_PUNCT && prev.end == start &&
+                                 (src[prev.start] == '<' || src[prev.start] == '>' ||
+                                  src[prev.start] == '~' || src[prev.start] == '=');
+            if (!compare) {
+                pendingEq = seen;
+                eqInField = top > 0 && blocks[top - 1] == '{';
+            }
+        }
+        hist[seen % kHistory] = {kind, start, end};
+        seen++;
+    }
+
+    void OnToken(const char *src, TokKind kind, size_t start, size_t end) {
+        if (broken)
+            return;
+        if (loops != nullptr)
+            Remember(src, kind, start, end);
+        if (kind == TK_NAME) {
+            switch (ClassifyBlockKw(src + start, end - start)) {
+            case BK_FUNCTION:
+                if (openLoops > 0) {
+                    capture = true;
+                    if (loops != nullptr)
+                        for (int b = 0; b < top; b++)
+                            if (blocks[b] == 'L')
+                                (*loops)[loopOf[b]].capture = true;
+                }
+                Push('F', -1);
+                break;
+            case BK_FOR:
+                if (headers >= kMaxDepth) {
+                    broken = true;
+                    break;
+                }
+                headerDepth[headers] = top;
+                headerLoop[headers] = -1;
+                if (loops != nullptr) {
+                    loops->emplace_back();
+                    headerLoop[headers] = static_cast<int>(loops->size()) - 1;
+                    collecting = headerLoop[headers];
+                }
+                headers++;
+                break;
+            case BK_DO:
+                if (headers > 0 && headerDepth[headers - 1] == top) {
+                    headers--;
+                    const int loop = headerLoop[headers];
+                    if (loops != nullptr && loop >= 0)
+                        (*loops)[loop].doEnd = end;
+                    collecting = -1;
+                    Push('L', loop);
+                } else {
+                    Push('D', -1);
+                }
+                break;
+            case BK_IF:
+                pendingIf++;
+                break;
+            case BK_THEN:
+                if (pendingIf > 0) {
+                    pendingIf--;
+                    Push('T', -1);
+                }
+                break;
+            case BK_REPEAT:
+                Push('R', -1);
+                break;
+            case BK_UNTIL:
+                Close("R");
+                break;
+            case BK_END:
+                Close("LFDT");
+                break;
+            case BK_IN:
+                collecting = -1;
+                break;
+            case BK_NONE:
+                if (collecting >= 0)
+                    (*loops)[collecting].names.push_back({start, end});
+                break;
+            default:
+                break;
+            }
+        } else if (kind == TK_PUNCT && end - start == 1) {
+            switch (src[start]) {
+            case '(': Push('(', -1); break;
+            case '[': Push('[', -1); break;
+            case '{': Push('{', -1); break;
+            case ')': Close("("); break;
+            case ']': Close("["); break;
+            case '}': Close("{"); break;
+            case '=': collecting = -1; break; // a numeric `for`'s names end here
+            default: break;
+            }
+        }
+    }
+
+    void Finish(const char *src) {
+        if (pendingEq >= 0 && !eqInField && !broken && loops != nullptr)
+            Assignment(src, pendingEq);
+        pendingEq = -1;
+        if (top != 0 || headers != 0)
+            broken = true;
+    }
+};
+
 // Sink that records only whether each pass has any work. A trigger counts
 // only as a TOKEN: a `%` inside "%d", a `...` inside "Loading...", or a `#`
 // inside a comment sets nothing — those are exactly the bytes whole-buffer
@@ -371,8 +680,10 @@ struct FlagSink {
     bool vararg = false;  // `...` punct (param-list ones included; the pass sorts them out)
     bool hex = false;     // `0x…` number
     bool leveled = false; // `[=[`-style long bracket, string or comment
+    ForScopeScan forScan; // `forScan.capture`: a `function` inside a `for` body
     void OnLeveled() { leveled = true; }
     void OnToken(TokKind kind, size_t start, size_t end) {
+        forScan.OnToken(src, kind, start, end);
         const size_t n = end - start;
         if (kind == TK_PUNCT) {
             if (n == 3)
@@ -1069,6 +1380,85 @@ bool RewriteLongBrackets(const char *src, size_t len, std::string &out) {
     return any;
 }
 
+// ============================================================================
+// For-loop scoping pass: each pass of a `for` loop gets its own copies of the
+// loop variables, as in Lua 5.1.
+//
+// Lua 5.0 declares a `for` loop's variables once for the whole loop (its
+// parser's forbody activates them before entering the loop block), so every
+// function made in the body shares one variable, which holds nil once a
+// generic `for` ends and the value past the limit once a numeric one does.
+// 5.1 declares them inside the per-pass block, and code written for it relies
+// on that: Zygor Guides Viewer 2.0's recent-guides menu gives each entry
+// `checked = function() return ZGV.CurrentGuideName == guide.full end`, which
+// on 5.0 indexes a nil `guide` when the menu opens. The rewrite is the 5.1
+// manual's own equivalent code, on the same line so line numbers hold:
+//     for k, v in e do   ->  for __cf_k, __cf_v in e do local k, v = __cf_k, __cf_v;
+//     for i = a, b do    ->  for __cf_i = a, b do local i = __cf_i;
+// It applies only where the two versions differ in practice: a loop whose body
+// contains a `function` (the only way to capture a variable), and whose body
+// never assigns to a loop variable (5.0 carries such an assignment into the
+// next pass and 5.1 doesn't, so that loop keeps 5.0's behavior). A chunk whose
+// blocks don't balance is left alone; the engine reports it as before.
+// ============================================================================
+
+struct ForScopeLexSink {
+    const char *src;
+    ForScopeScan &scan;
+    void OnLeveled() {}
+    void OnToken(TokKind kind, size_t start, size_t end) { scan.OnToken(src, kind, start, end); }
+};
+
+bool RewriteForScopes(const char *src, size_t len, std::string &out) {
+    std::vector<ForLoop> loops;
+    ForScopeScan scan;
+    scan.loops = &loops;
+    ForScopeLexSink sink{src, scan};
+    Lex(src, len, sink);
+    scan.Finish(src);
+    if (scan.broken)
+        return false;
+
+    struct Edit {
+        size_t pos;
+        size_t end;
+        std::string text;
+    };
+    std::vector<Edit> edits;
+    for (const ForLoop &loop : loops) {
+        if (!loop.capture || loop.assigned || loop.doEnd == 0 || loop.names.empty())
+            continue;
+        std::string names, hidden;
+        for (size_t i = 0; i < loop.names.size(); i++) {
+            const NameSpan &n = loop.names[i];
+            const std::string name(src + n.start, n.end - n.start);
+            edits.push_back({n.start, n.end, "__cf_" + name});
+            if (i > 0) {
+                names += ", ";
+                hidden += ", ";
+            }
+            names += name;
+            hidden += "__cf_" + name;
+        }
+        edits.push_back({loop.doEnd, loop.doEnd, " local " + names + " = " + hidden + ";"});
+    }
+    if (edits.empty())
+        return false;
+    std::sort(edits.begin(), edits.end(),
+              [](const Edit &a, const Edit &b) { return a.pos < b.pos; });
+    std::string result;
+    result.reserve(len + edits.size() * 16);
+    size_t prev = 0;
+    for (const Edit &e : edits) {
+        result.append(src + prev, e.pos - prev);
+        result.append(e.text);
+        prev = e.end;
+    }
+    result.append(src + prev, len - prev);
+    out = std::move(result);
+    return true;
+}
+
 // Run every syntax rewrite over a chunk. One allocation-free lex (`FlagSink`)
 // decides which passes have work — a trigger counts only outside strings and
 // comments — so a chunk with none, or with `%` / `...` only inside strings
@@ -1089,18 +1479,20 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
     FlagSink flags{src};
     Lex(src, len, flags);
     const bool wantLong = g_longBracketEnabled && flags.leveled;
+    const bool wantFor = g_forScopeEnabled && flags.forScan.capture;
     const bool wantHex = g_hexEnabled && flags.hex;
     const bool wantVararg = g_varargEnabled && flags.vararg;
     const bool wantLen = g_lenEnabled && flags.hash;
     const bool wantMod = g_modEnabled && flags.mod;
     const bool wantTokens = wantHex || wantVararg || wantLen || wantMod;
-    if (!wantLong && !wantTokens)
+    if (!wantLong && !wantFor && !wantTokens)
         return false;
 
     const char *cur = src;
     size_t curLen = len;
-    std::string lb, hx, va, ops;
-    int last = 0; // owns the final buffer: 1 long-bracket, 2 hex, 3 vararg, 4 ops
+    std::string lb, fs, hx, va, ops;
+    // owns the final buffer: 1 long-bracket, 5 for-scope, 2 hex, 3 vararg, 4 ops
+    int last = 0;
 
     // Leveled long brackets first — this rewrites string/comment boundaries, so
     // it must run before the shared tokenization the other passes consume. The
@@ -1109,8 +1501,14 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
     if (wantLong && RewriteLongBrackets(cur, curLen, lb)) {
         cur = lb.data(); curLen = lb.size(); last = 1;
     }
+    // Loop scoping next. It lexes the buffer itself, and what it adds (names,
+    // `local`, `=`, `,`) holds no trigger of the passes after it.
+    if (wantFor && RewriteForScopes(cur, curLen, fs)) {
+        cur = fs.data(); curLen = fs.size(); last = 5;
+    }
     if (!wantTokens) {
         if (last == 1) { out = std::move(lb); return true; }
+        if (last == 5) { out = std::move(fs); return true; }
         return false;
     }
 
@@ -1135,6 +1533,7 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
 
     switch (last) {
     case 1: out = std::move(lb); return true;
+    case 5: out = std::move(fs); return true;
     case 2: out = std::move(hx); return true;
     case 3: out = std::move(va); return true;
     case 4: out = std::move(ops); return true;
@@ -1464,6 +1863,7 @@ const Toggle kToggles[] = {
     {"VarargExpansion", &g_varargEnabled},
     {"HexLiterals", &g_hexEnabled},
     {"LongBrackets", &g_longBracketEnabled},
+    {"ForLoopScopes", &g_forScopeEnabled},
 };
 bool *FindToggle(const char *name) {
     if (name)
