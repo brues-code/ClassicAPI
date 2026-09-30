@@ -84,21 +84,23 @@ constexpr int OFF_ZONE_OR_SORT = 0x0C;
 // quest-type tag string ("Dungeon", "Raid", "Group", "PvP", "Elite"
 // — modern WoW's `frequency`/`questTag`). Source: `FUN_004df2a0`.
 constexpr int OFF_QUEST_INFO_ROW = 0x10;
-// +0x14, +0x18, +0x1C, +0x20, +0x24 — five uint32 cache slots that
-// SMSG_QUEST_QUERY_RESPONSE in vanilla 1.12 doesn't populate. The
-// struct has them (the serializer at `0x006DBCEC` writes them as part
-// of the WDB save / network shape), but the response handler leaves
-// them zero-filled. Verified empirically across three diverse quests
-// (race-restricted starter, dungeon, authored-timer delivery) — all
-// five slots zero in every case.
-//
-// Wire-format docs (vmangos / cmangos emulator quest_template) name
-// them SuggestedPlayers, LimitTime, RequiredRaces, RequiredSkill,
-// RequiredSkillValue respectively, but the vanilla server *enforces*
-// these constraints server-side and filters quests before broadcasting
-// them, so the client never needs the data. Addons that want race /
-// class / skill / timer info must source from an external scraped DB
-// (pfQuest-style). Constants intentionally omitted — no use case.
+// +0x14, +0x18, +0x1C, +0x20, +0x24 — five uint32 slots that the
+// vanilla response writer (vmangos `Packets/Quest.cpp` and tortoise-wow
+// `QuestHandler.cpp` agree) fills, in wire order, with:
+//   +0x14  RepObjectiveFaction      — "reach <standing> with <faction>" objective
+//   +0x18  RepObjectiveValue
+//   +0x1C  RequiredOpositeRepFaction — both servers always send 0
+//   +0x20  RequiredOpositeRepValue   — both servers always send 0
+//   +0x24  NextQuestInChain         — follow-up questID, 0 = none
+// They read zero for most quests (three sampled — starter 3120, dungeon
+// 914, timed delivery 3364 — were all zero), which an earlier version of
+// this note misread as "never populated" and labelled with the later
+// clients' SuggestedPlayers / LimitTime / RequiredRaces / RequiredSkill /
+// RequiredSkillValue. None of those five is on the 1.12 wire: the
+// SuggestedPlayers write is commented out (`[-ZERO]`) in both servers,
+// and race / class / skill / timer gates are enforced server-side only.
+// Addons that want those must source them from an external DB
+// (pfQuest-style). Constants omitted until something reads the slots.
 //
 // Signed money delta — int32. Positive = reward copper, negative =
 // `-required` copper. The engine has two accessors that share this

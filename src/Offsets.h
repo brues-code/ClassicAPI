@@ -5054,6 +5054,12 @@ enum Offsets {
     OFF_QUEST_LOG_ENTRY_STRIDE = 0x10,
     OFF_QUEST_LOG_ENTRY_QUEST_ID = 0x0,
     OFF_QUEST_LOG_ENTRY_HEADER_PTR = 0x8,
+    // Script_GetQuestLogTitle — `int __fastcall(lua_State *L)`, the Lua entry
+    // itself. Reads L[1] (1-based index into the FULL entry array above) and
+    // pushes 6: title, level, questTag, isHeader (1/nil), isCollapsed
+    // (1/nil — header whose category bit in 0x00BB748C is clear), isComplete
+    // (1 = objectives done, -1 = failed, nil otherwise). Verified by decompile.
+    FUN_SCRIPT_GET_QUEST_LOG_TITLE = 0x004DF930,
 
     // The single chokepoint that rebuilds the quest log from the
     // player's authoritative quest-slot data at `[CGPlayer + 0xE68 +

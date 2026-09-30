@@ -567,6 +567,8 @@ build instructions.
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
 - [Quest](#quest)
+  - [`C_QuestLog.GetInfo(questLogIndex)`](#c_questloggetinfoquestlogindex)
+  - [`C_QuestLog.GetQuestLogTitle(questLogIndex)`](#c_questloggetquestlogtitlequestlogindex)
   - [`C_QuestLog.GetQuestIDForLogIndex(index)`](#c_questloggetquestidforlogindexindex)
   - [`C_QuestLog.GetLogIndexForQuestID(questID)`](#c_questloggetlogindexforquestidquestid)
   - [`C_QuestLog.GetHeaderIndexForQuest(questID)`](#c_questloggetheaderindexforquestquestid)
@@ -13838,6 +13840,61 @@ local sex = C_PlayerInfo.GetSex(loc)
   `UnitName`/`UnitClass` directly.
 
 ## Quest
+
+### `C_QuestLog.GetInfo(questLogIndex)`
+
+Returns a `QuestInfo` table for one row of the quest log, or `nil` if the
+index is not a row of the log. The index counts headers, the same as
+`GetQuestLogTitle(index)`.
+
+| Field | Value |
+|-------|-------|
+| `title` | Quest name. For a header row, the header text. |
+| `questLogIndex` | The index you gave. |
+| `questID` | The quest ID. `0` for a header row. |
+| `level`, `difficultyLevel` | Quest level. |
+| `suggestedGroup` | Always `0`. The server does not send it. |
+| `frequency` | Always `Enum.QuestFrequency.Default`. |
+| `isHeader` | `true` for a header row. |
+| `isCollapsed` | `true` for a collapsed header row. |
+| `questClassification` | Always `Enum.QuestClassification.Normal`. |
+| `readyForTranslation` | Always `true`. |
+| all other boolean fields | Always `false`. |
+| `campaignID`, `headerSortKey` | Always `nil`. |
+
+The table does not show if the quest is complete. Use
+`C_QuestLog.GetQuestLogTitle` for that.
+
+```lua
+for i = 1, GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    if info and not info.isHeader then
+        print(info.questID, info.title, info.level)
+    end
+end
+```
+
+### `C_QuestLog.GetQuestLogTitle(questLogIndex)`
+
+```lua
+title, level, suggestedGroup, isHeader, isCollapsed, isComplete, frequency,
+questID, startEvent, displayQuestID, isOnMap, hasLocalPOI, isTask, isBounty,
+isStory, isHidden, isScaling = C_QuestLog.GetQuestLogTitle(questLogIndex)
+```
+
+Returns the same row data as `C_QuestLog.GetInfo`, as a list of values.
+Returns nothing if the index is not a row of the log.
+
+- `isHeader` and `isCollapsed` are `true` or `false`.
+- `isComplete` is `1` when the objectives are done, `-1` when the quest
+  failed, and `nil` for all other cases.
+- `suggestedGroup` is always `0`. `frequency` is always
+  `Enum.QuestFrequency.Default`. `questID` is `0` for a header row.
+- `startEvent` and all values after `questID` are always `false`.
+
+The third value is `suggestedGroup`, not the quest tag. The global
+`GetQuestLogTitle(index)` still returns the tag (`"Elite"`, `"Dungeon"`, …)
+in its third value.
 
 ### `C_QuestLog.GetQuestIDForLogIndex(index)`
 
