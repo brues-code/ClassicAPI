@@ -127,6 +127,25 @@ if C_AddOns.DoesAddOnExist("LunaUnitFrames") then
     end)
 end
 
+-- Turtle's Options frame sets `GroupFrame_ToggleMovement(state)` as the
+-- "Toggle Movement" button's OnClick (FrameXML\OptionsFrame.lua), while the
+-- group dropdown and the addon itself call it directly with 0 or 1. As a
+-- handler it expects `state` to be nil so it toggles from the current mouse
+-- state. Given `self` instead, it does `1 - state` on the button and errors
+-- (Turtle_GroupUI.lua:409). The button is reused and its script re-set on every
+-- redraw, so wrap the global it reads rather than the frame: only a number
+-- passes through.
+if C_AddOns.DoesAddOnExist("Turtle_GroupUI") then
+    EventUtil.ContinueOnAddOnLoaded("Turtle_GroupUI", function()
+        local original = GroupFrame_ToggleMovement
+        if not original then return end
+        GroupFrame_ToggleMovement = function(state)
+            if type(state) ~= "number" then state = nil end
+            return original(state)
+        end
+    end)
+end
+
 if C_AddOns.DoesAddOnExist("Puppeteer") then
     EventUtil.ContinueOnAddOnLoaded("Puppeteer", function()
         CAPI_MouseoverClearedCompat(PTEnemyUpdater)
