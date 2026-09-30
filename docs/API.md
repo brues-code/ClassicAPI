@@ -5493,6 +5493,12 @@ Each takes its typeface from the vanilla font it matches (`SystemFont`,
 sets 3.3.5's size, color and shadow. Without them, a font string that
 inherits one has no font, and `SetText` on it raises "Font not set".
 
+The sizes are set from Lua (`Fonts.lua`) right after the fonts load, with
+`font:SetFont(file, size, flags)` on the typeface each already has. Vanilla's
+Font loader reads `<FontHeight>` only together with a font file (the `font`
+attribute), so in XML a font that inherits its typeface keeps the size it
+inherited.
+
 ## Frame
 
 Region/Frame method backports. Addon ports routinely call these methods

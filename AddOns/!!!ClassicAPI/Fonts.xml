@@ -6,15 +6,14 @@
 
 	     Each takes its typeface from the vanilla font 3.3.5's is drawn with,
 	     so a client whose Fonts.xml maps SystemFont / ChatFontNormal to its
-	     own font files keeps them, and sets 3.3.5's size, color and shadow
-	     over the rest of that font's settings. -->
+	     own font files keeps them, and sets 3.3.5's color and shadow here.
+	     Their sizes are set in Fonts.lua: vanilla's Font loader reads
+	     <FontHeight> only together with a font file (the `font` attribute),
+	     so on a font that inherits its typeface it would be ignored. -->
 
 	<!-- 3.3.5: FRIZQT__, 9 / 10, default (white) color, no shadow. Vanilla's
 	     SystemFont is FRIZQT__ 15, yellow, with MasterFont's shadow. -->
 	<Font name="SystemFont_Tiny" inherits="SystemFont" virtual="true">
-		<FontHeight>
-			<AbsValue val="9"/>
-		</FontHeight>
 		<Color r="1.0" g="1.0" b="1.0"/>
 		<Shadow>
 			<Offset>
@@ -24,9 +23,6 @@
 		</Shadow>
 	</Font>
 	<Font name="SystemFont_Small" inherits="SystemFont" virtual="true">
-		<FontHeight>
-			<AbsValue val="10"/>
-		</FontHeight>
 		<Color r="1.0" g="1.0" b="1.0"/>
 		<Shadow>
 			<Offset>
@@ -38,11 +34,7 @@
 
 	<!-- 3.3.5: ARIALN, 12, black shadow at (1, -1); ChatFontSmall is it in
 	     white. Vanilla's ChatFontNormal is the same font at 14, in white. -->
-	<Font name="NumberFont_Shadow_Small" inherits="ChatFontNormal" virtual="true">
-		<FontHeight>
-			<AbsValue val="12"/>
-		</FontHeight>
-	</Font>
+	<Font name="NumberFont_Shadow_Small" inherits="ChatFontNormal" virtual="true"/>
 	<Font name="ChatFontSmall" inherits="NumberFont_Shadow_Small" virtual="true">
 		<Color r="1.0" g="1.0" b="1.0"/>
 	</Font>
