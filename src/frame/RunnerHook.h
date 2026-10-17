@@ -27,7 +27,8 @@
 // MinHook allows ONE hook per address, and more than one feature needs this
 // runner: `Frame::ClickEvents` brackets OnClick with PreClick/PostClick, and
 // `Frame::UnitEvent` suppresses OnEvent fires that a RegisterUnitEvent filter
-// rejects. So — exactly like `Event::SignalHook` and `Tick::WorldTick` — this
+// rejects, `Frame::HyperlinksEnabled` suppresses OnHyperlinkEnter/Click on
+// frames with hyperlinks off. So — exactly like `Event::SignalHook` and `Tick::WorldTick` — this
 // module owns the single hook and fans out. Declare a file-scope
 //   static const Frame::RunnerHook::AutoSubscribe _sub{&interceptor};
 //

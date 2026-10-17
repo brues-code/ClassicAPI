@@ -2661,6 +2661,24 @@ enum Offsets {
     // Frame::Modern's GetEffectiveAlpha up the parent chain.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
     FUN_SCRIPT_REGION_GETPARENT = 0x007A1460,
+
+    // Hyperlink scripts. ScrollingMessageFrame and SimpleHTML share a base
+    // whose GetScriptByName override (0x007A3700, in the vtables at slots
+    // 0x0081D03C and 0x0081D68C) adds OnHyperlinkEnter / Leave / Click, held
+    // at +0x320 / +0x328 / +0x330. Each fires through its own vtable function
+    // (Enter 0x007A3780, Leave 0x007A37B0, Click 0x007A37E0), which runs the
+    // script through the input-script forwarder 0x007026F0 →
+    // FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT with slotPtr = frame + the slot below,
+    // only when one is set. `Frame::HyperlinksEnabled` gates them there, as a
+    // `Frame::RunnerHook` subscriber.
+    OFF_HYPERLINK_ENTER_SLOT = 0x320,
+    OFF_HYPERLINK_LEAVE_SLOT = 0x328,
+    OFF_HYPERLINK_CLICK_SLOT = 0x330,
+    // Method registries (the Ctx of each class's method table): the
+    // ScrollingMessageFrame table 0x0087B5C0 (AddMessage, ScrollUp, SetMaxLines,
+    // ...), the SimpleHTML table 0x0087BA80 (SetText, SetHyperlinkFormat, ...).
+    VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY = 0x00CF5294,
+    VAR_SIMPLEHTML_METHOD_REGISTRY = 0x00CF5328,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,
