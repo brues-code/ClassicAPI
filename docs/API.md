@@ -125,6 +125,7 @@ build instructions.
 
 - [CVar](#cvar)
   - [`GetCVar(name)`](#getcvarname)
+  - [`GetCVarDefault(name)`](#getcvardefaultname)
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
   - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
@@ -3188,17 +3189,23 @@ addon's locale layer — a locale can override them.
 
 ### `GetCVar(name)`
 
-Returns `nil` for a name no cvar has, as later clients do. Stock 1.12 raises
-"Couldn't find CVar named '*name*'" instead, and ported code uses the `nil`
-as a feature test, often at file scope:
+Returns the value of the cvar as a string. If no cvar has that name, it
+returns no values, so the result reads as `nil`. Use this to find out if a
+cvar exists:
 
 ```lua
-if not GetCVar("cameraYawE") then return end   -- stock 1.12: error at load
+if not GetCVar("cameraYawE") then return end
 ```
 
-A cvar that exists returns its value as before, and a non-string argument
-still gets the engine's own error. The glue screens register the same
-function, so `GetCVar` behaves the same way there.
+If `name` is not a string or a number, `GetCVar` raises an error. `GetCVar` works the
+same way on the glue screens.
+
+### `GetCVarDefault(name)`
+
+Returns the default value of the cvar as a string. If no cvar has that name,
+it returns no values. If `name` is not a string or a number,
+`GetCVarDefault` raises an error. `GetCVarDefault` works the same way on the
+glue screens.
 
 ### `C_CVar.GetCVarInfo(name)`
 
