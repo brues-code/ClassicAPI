@@ -6048,10 +6048,9 @@ to `1`.
 ### `editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`
 
 Whether the edit box's `SetMaxLetters` limit counts the characters of color
-codes and a hyperlink's hidden part. Off by default, which is how vanilla
-counts: only the letters you see count. On is for text whose real limit is
-in bytes, such as a macro body; 3.3.5 turns it on for its macro text and
-friends broadcast boxes.
+codes and a hyperlink's hidden part. Off by default: only the letters you
+see count. Turn it on for text whose real limit is in bytes, such as a
+macro body.
 
 ```lua
 box:SetMaxLetters(12)
@@ -6061,8 +6060,8 @@ box:SetText("|cffff0000abcdefg|r")   -- "|cffff0000ab": the code counts as 10
 ```
 
 XML sets it with the EditBox attribute `countInvisibleLetters="true"`.
-Only the limit changes. `GetNumLetters` still returns the text's length
-in bytes, and the cursor moves over letters as before.
+Only the limit changes. `GetNumLetters` still counts only the letters you
+see, and the cursor moves over letters as before.
 
 ### `editBox:ClearHistory()`
 
@@ -19336,8 +19335,8 @@ Case-insensitive, resolved through the same registry as `inherits=`.
 ### `parentKey` in XML
 
 `parentKey="Name"` on a frame, texture or font string element sets
-`parent.Name` to that object, as on later clients, so ported code reaches
-unnamed children as `self.Icon` or `self.Close`:
+`parent.Name` to that object, so code reaches unnamed children as
+`self.Icon` or `self.Close`:
 
 ```xml
 <Frame name="MyFrame">
@@ -19356,8 +19355,7 @@ unnamed children as `self.Icon` or `self.Close`:
 </Frame>
 ```
 
-Stock 1.12's parser keeps the attribute on the element but nothing reads
-it. Keys are set while the parent is being built, so the parent's `OnLoad`
+Keys are set while the parent is being built, so the parent's `OnLoad`
 already sees them, and a `parentKey` inside a virtual template is set on
 every frame built from it. A button's `<NormalTexture parentKey="...">`
 works the same way.
@@ -19365,7 +19363,7 @@ works the same way.
 ### `function` on XML script handlers
 
 A script element with `function="Name"` uses the global function `Name` as
-that script's handler, as on later clients; it is the same as
+that script's handler. It is the same as
 `frame:SetScript("OnLoad", MyFrame_OnLoad)`:
 
 ```xml
@@ -19375,9 +19373,7 @@ that script's handler, as on later clients; it is the same as
 </Scripts>
 ```
 
-Stock 1.12's schema has no such attribute, so the element compiled as an
-empty body and the handler never ran. The function is looked up when the
-element loads, so it must be defined by then. A bound `OnLoad` runs at the
+The function is looked up when the element loads, so it must be defined by then. A bound `OnLoad` runs at the
 usual point, once the frame is built, and with
 [positional script arguments](#setmodernscriptargsenable--getmodernscriptargs)
 on (the default) the function gets `self` and the script's arguments like
@@ -19385,7 +19381,7 @@ any other handler.
 
 ### `style` on button font elements
 
-Later clients name a button's font for each state with `style`:
+A button's font element can name its font with `style`:
 
 ```xml
 <Button name="MyButton" text="Click">
@@ -19395,9 +19391,8 @@ Later clients name a button's font for each state with `style`:
 </Button>
 ```
 
-Stock 1.12 reads only `inherits` on these elements and, without it, leaves
-the button's text with no font. A `NormalFont`, `HighlightFont` or
-`DisabledFont` with `style` and no `inherits` now gets the named font object,
+A `NormalFont`, `HighlightFont` or `DisabledFont` with `style` and no
+`inherits` gets the named font object,
 through the same setters as `SetTextFontObject`, `SetHighlightFontObject`
 and `SetDisabledFontObject`. An element with `inherits` loads as before.
 CheckButtons get the same.
