@@ -298,6 +298,7 @@ build instructions.
   - [`ClosestGameObjectPosition(gameObjectID)`](#closestgameobjectpositiongameobjectid)
 
 - [GameTooltip](#gametooltip)
+  - [`GameTooltip:AddTexture(texture)`](#gametooltipaddtexturetexture)
   - [`GameTooltip:SetSpellByID(spellID)`](#gametooltipsetspellbyidspellid)
   - [`GameTooltip:AddSpellByID(spellID)`](#gametooltipaddspellbyidspellid)
   - [`GameTooltip:SetTalentByID(talentID)`](#gametooltipsettalentbyidtalentid)
@@ -7094,6 +7095,31 @@ The engine methods index their own slot ranges, which differ from the
 `C_UnitAuras` index space once a debuff sits in a buff slot. This method
 translates between the two, so you never need to
 without conditionally splitting on filter.
+
+### `GameTooltip:AddTexture(texture)`
+
+Puts a texture at the start of the tooltip's last line and moves the text of
+that line to the right of the texture. Returns `true` when the texture was
+added, `false` when it was not.
+
+```lua
+GameTooltip:AddLine("Hearthstone")
+GameTooltip:AddLine("Use: Returns you to your home inn.")
+GameTooltip:AddTexture("Interface\\Icons\\INV_Misc_Rune_01")
+GameTooltip:Show()
+```
+
+The call adds no texture and returns `false` in these cases:
+
+- The tooltip has fewer than two lines. The first line cannot have a texture.
+- The tooltip already has three textures.
+- The last line already has a texture.
+- The line above the last line has a texture. Put at least one line without
+  a texture between two textured lines.
+
+`ClearLines` and every `Set*` call remove the textures. Each texture is
+12x12. Do not resize or move a texture after you add it: the text of the
+line does not move with it.
 
 ### `GameTooltip:SetSpellByID(spellID)`
 
