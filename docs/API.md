@@ -6487,30 +6487,55 @@ GetModernScriptArgs()       -- true (default)
 
 ### XML script bodies see `self` and their arguments
 
-An XML script body written for later clients can use `self` and its script's
-arguments by name:
+An XML script body can use `self` and its script's arguments by name:
 
 ```xml
 <Scripts>
     <OnLoad>self:RegisterEvent("PLAYER_LOGIN")</OnLoad>
     <OnUpdate>self.timer = (self.timer or 0) + elapsed</OnUpdate>
     <OnClick>MyButton_OnClick(self, button, down)</OnClick>
+    <OnEvent>MyAddon_OnEvent(self, event, ...)</OnEvent>
 </Scripts>
 ```
 
-Later clients compile a body as a function of `self` followed by its
-script's arguments: `elapsed` for `OnUpdate`, `button, down` for `OnClick`,
-`event, ...` for `OnEvent`, `delta` for `OnMouseWheel`, `value` for
-`OnValueChanged`, and so on for the other scripts. Stock 1.12 compiles it
-with no parameters and passes the frame and the arguments only as the
-`this` and `arg1`..`argN` globals, so such a body indexes a nil `self`.
+| Script | Names after `self` |
+| --- | --- |
+| `OnUpdate` | `elapsed` |
+| `OnEvent` | `event`, then `...` for the event's arguments |
+| `OnClick`, `PreClick`, `PostClick` | `button`, `down` |
+| `OnDoubleClick`, `OnMouseDown`, `OnMouseUp`, `OnDragStart` | `button` |
+| `OnMouseWheel` | `delta` |
+| `OnEnter`, `OnLeave` | `motion` |
+| `OnSizeChanged` | `w`, `h` |
+| `OnValueChanged` | `value` |
+| `OnMinMaxChanged` | `min`, `max` |
+| `OnTextChanged` | `userInput` |
+| `OnChar` | `text` |
+| `OnKeyDown`, `OnKeyUp` | `key` |
+| `OnHyperlinkClick` | `link`, `text`, `button` |
+| `OnHyperlinkEnter`, `OnHyperlinkLeave` | `link`, `text` |
+| `OnVerticalScroll`, `OnHorizontalScroll` | `offset` |
+| `OnScrollRangeChanged` | `xrange`, `yrange` |
+| `OnCursorChanged` | `x`, `y`, `w`, `h` |
+| `OnAttributeChanged` | `name`, `value` |
+| `OnColorSelect` | `r`, `g`, `b` |
+| `OnInputLanguageChanged` | `language` |
 
-A body that reads `self`, or reads one of its script's argument names and
-none of `this` / `arg1`..`argN`, is compiled as
-`function(self, <names>, ...)`. Every other body, FrameXML's included, is
-compiled as before and keeps reading the globals. `event` alone doesn't
-count, because vanilla sets it as a global during `OnEvent`.
-`_classicapi_SetTranspileOption("XmlHandlerArgs", false)` turns this off.
+Other scripts, such as `OnLoad` and `OnShow`, get `self` only.
+
+A body gets these names when it does one of these things:
+
+- It reads `self`.
+- It uses `...`.
+- It reads one of its script's names, and none of `this` / `arg1`..`argN`.
+
+Other bodies keep reading the `this` / `arg1`..`argN` and `event` globals,
+and nothing they read changes. `event` alone does not count.
+
+The values come from the positional script arguments, so they need
+[`SetModernScriptArgs`](#setmodernscriptargsenable--getmodernscriptargs) to
+be on (the default). `_classicapi_SetTranspileOption("XmlHandlerArgs", false)`
+turns this off.
 
 ### `SecureCmdOptionParse(options [, quiet])`
 

@@ -1278,16 +1278,20 @@ LoadBuffer_t g_origLoadBuffer = nullptr;
 //
 // A chunk compiled by the XML script funnel (return address
 // RET_LUA_SCRIPT_COMPILE, engine-built chunkname "<Frame>:<Script>") whose body
-// reads `self` -- or reads one of its script's parameter names and none of the
-// vanilla `this` / `argN` globals -- is wrapped as
-// `return function(self, <names>, ...) ... end`, the same
+// reads `self`, uses a `...` expression (a Lua 5.0 compile error, so only a
+// body written for later clients has one), or reads one of its script's
+// parameter names and none of the vanilla `this` / `argN` globals, is wrapped
+// as `return function(self, <names>, ...) ... end`, the same
 // materialize-the-inner-function shape the vararg path uses. Frame::ScriptArgs
 // already pushes (self, arg1..argN) positionally (with `event` first for
 // OnEvent), which is exactly this parameter order. A vanilla body is left
 // alone: it keeps reading its globals and none of its names get shadowed.
 
-// Parameter names after `self`, per script, as later clients bind them.
-// Scripts not listed get `(self, ...)`.
+// Parameter names after `self`, per script, as later clients bind them:
+// 3.3.5's per-script wrappers (`data.m_wrapper = "return function(self,...)
+// %s end"` in each CSimple* GetScriptByName; OnEvent's is
+// "self,event,..."). Scripts not listed take only `self` there; here they get
+// `(self, ...)`.
 struct ScriptParams {
     const char *script;
     const char *params;
@@ -1305,7 +1309,7 @@ const ScriptParams kScriptParams[] = {
     {"OnEnter", "motion"},
     {"OnLeave", "motion"},
     {"OnDragStart", "button"},
-    {"OnSizeChanged", "width,height"},
+    {"OnSizeChanged", "w,h"},
     {"OnValueChanged", "value"},
     {"OnMinMaxChanged", "min,max"},
     {"OnTextChanged", "userInput"},
@@ -1458,7 +1462,10 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
         if (params != nullptr) {
             try {
                 const HandlerNames hn = ScanHandlerNames(body, bodyLen, params);
-                if (hn.self || (hn.param && !hn.vanilla))
+                // `...` counts: left to the plain vararg wrap below, an
+                // OnEvent body's `...` would hold (self, event, args) rather
+                // than the arguments after `event`.
+                if (hn.self || didVararg || (hn.param && !hn.vanilla))
                     handlerParams = params;
             } catch (...) {
                 handlerParams = nullptr; // leave the body as vanilla compiles it
