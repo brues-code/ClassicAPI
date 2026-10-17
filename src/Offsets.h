@@ -853,28 +853,43 @@ enum Offsets {
     //     That omission means the item GUID goes stale across a switch to a
     //     tooltip that shows no item (SetUnitAura, SetEquipmentSet, …), so
     //     GameTooltip:GetItem would resolve the *previous* item. We co-hook
-    //     the clear (Tooltip::ClearItemGuid) to zero +0x380/+0x384 too, so
+    //     the clear (Tooltip::Clear) to zero +0x380/+0x384 too, so
     //     every fresh tooltip resets it and only the item builder re-sets it.
     //     All 14 Set*/builder paths route through this clear, so the co-hook
     //     covers them uniformly. __fastcall(self).
     FUN_GAMETOOLTIP_CLEAR = 0x00530050,
     // Vanilla's own, never-exposed "texture on the last line" — `void
     // __thiscall(tooltip, const char *texturePath)`, `ret 4`. Unreferenced in
-    // the 1.12 binary (no calls, no pointers), but complete: it takes the next
-    // of the three textures the XML-OnLoad scan (FUN_00529650) binds from
+    // the 1.12 binary (no calls, no pointers). It takes the next of the three
+    // textures the XML-OnLoad scan (FUN_00529650) binds from
     // `<name>Texture1..3` into OFF_GAMETOOLTIP_TEXTURES (`%sTexture%d`,
-    // 0x0052987C; the loop stops at 3), sizes it to the last line's height,
-    // anchors it LEFT of that line and the line's text RIGHT of it, sets the
-    // file (FUN_SIMPLETEXTURE_SET_TEXTURE), shows it, records the line in
-    // OFF_GAMETOOLTIP_TEXTURE_LINES and bumps OFF_GAMETOOLTIP_NUM_TEXTURES.
-    // No-op with fewer than 2 lines or all 3 textures used. FUN_GAMETOOLTIP_CLEAR
-    // undoes it (0x005300F2..0x005301CF): re-anchors each such line and the
-    // one below, hides the texture, zeroes the count. Backs
-    // `GameTooltip:AddTexture` (`Tooltip::AddTexture`).
+    // 0x0052987C; the loop stops at 3) and, for the last line N:
+    //   - re-anchors line N TOPLEFT → line N-1 BOTTOMLEFT at (texture width,
+    //     VAR_TOOLTIP_LINE_GAP), reading the width through the texture's
+    //     vtable +0x1C — it never sizes the texture (the template's 12x12);
+    //   - clears the texture's anchors (thunk_FUN_00767620) and anchors its
+    //     RIGHT to line N's LEFT;
+    //   - if line N+1 is in the pool, re-anchors it to line N at
+    //     (-width, gap), cancelling the shift for the lines below;
+    //   - sets the file (FUN_SIMPLETEXTURE_SET_TEXTURE), shows it, records N
+    //     in OFF_GAMETOOLTIP_TEXTURE_LINES and bumps
+    //     OFF_GAMETOOLTIP_NUM_TEXTURES.
+    // Every re-anchor REPLACES the line's offset, so a second texture on line
+    // N, or one on line N+1, breaks the layout (`Tooltip::AddTexture` refuses
+    // both). No-op with fewer than 2 lines or all 3 textures used.
+    // FUN_GAMETOOLTIP_CLEAR undoes it (0x005300F2..0x005301CF): re-anchors
+    // line N at (0, gap) but line N+1 at (0, 0), hides the texture and zeroes
+    // the count (not the line indices). `Tooltip::Clear` restores line N+1's
+    // gap.
     FUN_GAMETOOLTIP_ADD_TEXTURE = 0x005303D0,
     OFF_GAMETOOLTIP_TEXTURES = 0x34C,       // CSimpleTexture *[3]
     OFF_GAMETOOLTIP_TEXTURE_LINES = 0x358,  // uint32[3] — line index each texture sits on
     OFF_GAMETOOLTIP_NUM_TEXTURES = 0x364,   // uint32 — textures in use
+    // .rdata float -2.0 that the texture routine and the clear pass as the
+    // line gap in pixels (matching GameTooltipTemplate's TextLeftN y offset),
+    // converted with the SetPoint pixel → layout-unit chain
+    // (Game::PixelToInternal).
+    VAR_TOOLTIP_LINE_GAP = 0x008038DC,
     OFF_TOOLTIP_ITEM_GUID_LO = 0x380, // 0 for SetItemByID (no CGItem); stale-safe via the clear co-hook
     OFF_TOOLTIP_ITEM_GUID_HI = 0x384,
     OFF_TOOLTIP_ITEM_ID = 0x398,

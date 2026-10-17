@@ -7098,8 +7098,9 @@ without conditionally splitting on filter.
 
 ### `GameTooltip:AddTexture(texture)`
 
-Puts a texture at the start of the tooltip's last line, and moves the line's
-text to the right of it, as on 3.x clients.
+Puts a texture at the start of the tooltip's last line and moves the text of
+that line to the right of the texture. Returns `true` when the texture was
+added, `false` when it was not.
 
 ```lua
 GameTooltip:AddLine("Hearthstone")
@@ -7108,14 +7109,17 @@ GameTooltip:AddTexture("Interface\\Icons\\INV_Misc_Rune_01")
 GameTooltip:Show()
 ```
 
-The layout is the game's own. Vanilla has the feature built in, never
-exposed to addons: `GameTooltipTemplate` declares `<name>Texture1` through
-`<name>Texture3`, the tooltip lays them out, and `ClearLines` (and every
-`Set*` call) removes them. So a tooltip holds up to three textures (the 3.x
-template has ten), and the first line doesn't take one: the call needs at
-least two lines. Past either limit it does nothing. The textures are the
-`<name>TextureN` regions, so an addon can resize or re-anchor one after
-adding it.
+The call adds no texture and returns `false` in these cases:
+
+- The tooltip has fewer than two lines. The first line cannot have a texture.
+- The tooltip already has three textures.
+- The last line already has a texture.
+- The line above the last line has a texture. Put at least one line without
+  a texture between two textured lines.
+
+`ClearLines` and every `Set*` call remove the textures. Each texture is
+12x12. Do not resize or move a texture after you add it: the text of the
+line does not move with it.
 
 ### `GameTooltip:SetSpellByID(spellID)`
 
