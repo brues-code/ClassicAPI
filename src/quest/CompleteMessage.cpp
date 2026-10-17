@@ -31,8 +31,10 @@
 //
 // Both tests are dropped: each `jne` over the message becomes two NOPs. A
 // chain quest's turn-in then goes through the engine's own message path, with
-// the same text, sound and chat type, and in the same place before the
-// experience and money lines. Chain-end quests are unchanged. The bytes are
+// the same text, sound and chat type, in the same place a chain-end quest's
+// line goes: before the experience and money lines when the quest is cached,
+// after them (and after QUEST_TURNED_IN) when the callback prints it on the
+// record's arrival. Chain-end quests are unchanged. The bytes are
 // checked before they are written, so a client whose code differs there is
 // left alone.
 

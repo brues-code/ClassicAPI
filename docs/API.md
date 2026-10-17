@@ -14342,8 +14342,11 @@ A separate function keeps the existing call wire-compatible.
 ### A turn-in always prints "*quest* completed."
 
 Every quest turn-in puts `ERR_QUEST_COMPLETE_S` ("Bashal'Aran completed.")
-in chat as a `CHAT_MSG_SYSTEM` line, with its sound, ahead of the
-experience and money lines. `QUEST_TURNED_IN` follows with the quest's ID.
+in chat as a `CHAT_MSG_SYSTEM` line, with its sound. Usually the line
+comes before the experience and money lines, and `QUEST_TURNED_IN`
+follows it. If the client does not yet have the quest's data, the line
+comes when the data arrives: after the experience and money lines, and
+after `QUEST_TURNED_IN`. Do not depend on the order.
 
 Vanilla prints the line only for a quest with no follow-up. When the
 quest's data names a next quest in its chain, the client leaves the line
