@@ -755,6 +755,8 @@ build instructions.
   - [`C_TradeSkillUI.GetTradeSkillListLink()`](#c_tradeskilluigettradeskilllistlink)
   - [`C_TradeSkillUI.GetCraftListLink()`](#c_tradeskilluigetcraftlistlink)
   - [`C_TradeSkillUI.GetTradeSkillListRecipes(skillLineID, bits)`](#c_tradeskilluigettradeskilllistrecipesskilllineid-bits)
+  - [`GetTradeSkillRecipeLink(index)`](#gettradeskillrecipelinkindex)
+  - [`IsTradeSkillLinked()`](#istradeskilllinked)
 
 - [UIColor](#uicolor)
   - [`C_UIColor.GetColors()`](#c_uicolorgetcolors)
@@ -7512,7 +7514,8 @@ GameTooltip:SetHyperlink("quest:783")
 | Link | Shows |
 | --- | --- |
 | `\|H<payload>\|h[text]\|h` | The tooltip for the payload, as in the rows below |
-| `item:`, `enchant:` | The item or enchant tooltip |
+| `item:` | The item tooltip |
+| `enchant:<spellID>` | The spell tooltip, for an Enchanting formula or a trade-skill recipe (such as a [`GetTradeSkillRecipeLink`](#gettradeskillrecipelinkindex) link) |
 | `spell:<spellID>` | The spell tooltip, the same as [`SetSpellByID`](#gametooltipsetspellbyidspellid) |
 | `quest:<questID>[:level]` | The quest title, then the objectives text. Tokens such as `$N` are expanded, as in the quest log. |
 
@@ -17966,6 +17969,45 @@ The array is in canonical recipe order (one entry per *possible* recipe in the
 skill line, not just the known ones). Turn a `spellID` into a name/icon with
 [`GetSpellInfo`](#getspellinfospellid--getspellinfoslot-booktype). Recipes past the end of a short/garbled
 `bits` string decode as not-known rather than erroring.
+
+### `GetTradeSkillRecipeLink(index)`
+
+Returns the link for the recipe in row `index` of the trade-skill window.
+The link is an `enchant:` link to the recipe spell, so it carries the
+recipe's spell ID. `GetTradeSkillItemLink` links only the item that a
+recipe makes. The link text is `<profession>: <recipe>`. If the recipe
+has no profession for the player's race and class, the text is the
+recipe name only. A header row, or an index outside the list, returns
+nothing.
+
+Click the link in chat, or give it to
+[`GameTooltip:SetHyperlink`](#gametooltipsethyperlinklink), to see the
+recipe's spell tooltip.
+
+```lua
+-- with Tailoring open, row 2 = Bolt of Linen Cloth
+GetTradeSkillRecipeLink(2)   -- "|cffffd000|Henchant:2963|h[Tailoring: Bolt of Linen Cloth]|h|r"
+local _, _, spellID = string.find(GetTradeSkillRecipeLink(2), "|Henchant:(%d+)")
+```
+
+The Craft window (Enchanting, pet training) already has this in
+`GetCraftItemLink`.
+
+### `IsTradeSkillLinked()`
+
+Returns whether the trade-skill window shows a profession that was opened
+from another player's link. The second return value is that player's name.
+On this client, both return values are always nil. A received `trade:` link
+opens its own viewer, and the trade-skill window and its functions only
+show the player's own professions. Addons use this check to keep a linked
+profession out of the player's own records.
+
+```lua
+local isLinked, playerName = IsTradeSkillLinked()   -- nil, nil
+if not isLinked then
+    -- the rows are the player's own recipes
+end
+```
 
 ## UIColor
 
