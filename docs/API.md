@@ -271,8 +271,10 @@ build instructions.
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [Frame alpha multiplies into child frames](#frame-alpha-multiplies-into-child-frames)
+  - [`OnSizeChanged` sizes are in frame units](#onsizechanged-sizes-are-in-frame-units)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
   - [`SetModernScriptArgs(enable)` / `GetModernScriptArgs()`](#setmodernscriptargsenable--getmodernscriptargs)
+  - [XML script bodies see `self` and their arguments](#xml-script-bodies-see-self-and-their-arguments)
   - [`SecureCmdOptionParse(options [, quiet])`](#securecmdoptionparseoptions--quiet)
   - [`RegisterStateDriver` / `UnregisterStateDriver`](#registerstatedriver--unregisterstatedriver)
   - [`RegisterAttributeDriver` / `UnregisterAttributeDriver`](#registerattributedriver--unregisterattributedriver)
@@ -6271,6 +6273,18 @@ UIParent:GetEffectiveAlpha()   -- 1
 Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
 ```
 
+### `OnSizeChanged` sizes are in frame units
+
+An `OnSizeChanged` handler receives the frame's new width and height in the
+units that `GetWidth()` and `GetHeight()` return. A frame of size 20 x 10
+gets `(20, 10)`. `arg1` and `arg2` hold the same values.
+
+```lua
+frame:SetScript("OnSizeChanged", function(self, w, h)
+    label:SetWidth(w - 8)
+end)
+```
+
 ### Frame alpha multiplies into child frames
 
 A frame is drawn at its own alpha multiplied by the drawn alpha of its
@@ -6483,6 +6497,58 @@ end)
 
 GetModernScriptArgs()       -- true (default)
 ```
+
+### XML script bodies see `self` and their arguments
+
+An XML script body can use `self` and its script's arguments by name:
+
+```xml
+<Scripts>
+    <OnLoad>self:RegisterEvent("PLAYER_LOGIN")</OnLoad>
+    <OnUpdate>self.timer = (self.timer or 0) + elapsed</OnUpdate>
+    <OnClick>MyButton_OnClick(self, button, down)</OnClick>
+    <OnEvent>MyAddon_OnEvent(self, event, ...)</OnEvent>
+</Scripts>
+```
+
+| Script | Names after `self` |
+| --- | --- |
+| `OnUpdate` | `elapsed` |
+| `OnEvent` | `event`, then `...` for the event's arguments |
+| `OnClick`, `PreClick`, `PostClick` | `button`, `down` |
+| `OnDoubleClick`, `OnMouseDown`, `OnMouseUp`, `OnDragStart` | `button` |
+| `OnMouseWheel` | `delta` |
+| `OnEnter`, `OnLeave` | `motion` |
+| `OnSizeChanged` | `w`, `h` |
+| `OnValueChanged` | `value` |
+| `OnMinMaxChanged` | `min`, `max` |
+| `OnTextChanged` | `userInput` |
+| `OnChar` | `text` |
+| `OnKeyDown`, `OnKeyUp` | `key` |
+| `OnHyperlinkClick` | `link`, `text`, `button` |
+| `OnHyperlinkEnter`, `OnHyperlinkLeave` | `link`, `text` |
+| `OnVerticalScroll`, `OnHorizontalScroll` | `offset` |
+| `OnScrollRangeChanged` | `xrange`, `yrange` |
+| `OnCursorChanged` | `x`, `y`, `w`, `h` |
+| `OnAttributeChanged` | `name`, `value` |
+| `OnColorSelect` | `r`, `g`, `b` |
+| `OnInputLanguageChanged` | `language` |
+
+Other scripts, such as `OnLoad` and `OnShow`, get `self` only.
+
+A body gets these names when it does one of these things:
+
+- It reads `self`.
+- It uses `...`.
+- It reads one of its script's names, and none of `this` / `arg1`..`argN`.
+
+Other bodies keep reading the `this` / `arg1`..`argN` and `event` globals,
+and nothing they read changes. `event` alone does not count.
+
+The values come from the positional script arguments, so they need
+[`SetModernScriptArgs`](#setmodernscriptargsenable--getmodernscriptargs) to
+be on (the default). `_classicapi_SetTranspileOption("XmlHandlerArgs", false)`
+turns this off.
 
 ### `SecureCmdOptionParse(options [, quiet])`
 
@@ -11045,9 +11111,11 @@ needs that addon's opt-in.
   `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
-- `_classicapi_TranspileStats()` returns five numbers: the chunks loaded,
-  their bytes, the chunks that needed a full token pass, those bytes, and
-  the milliseconds the rewrite has used since the client started.
+- `_classicapi_TranspileStats()` returns six numbers: the chunks loaded,
+  their bytes, the chunks that needed a full token pass, those bytes,
+  the milliseconds the rewrite has used since the client started, and the
+  number of [XML script bodies](#xml-script-bodies-see-self-and-their-arguments)
+  compiled with their parameters.
 
 ### Upvalue limit
 

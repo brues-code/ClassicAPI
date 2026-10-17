@@ -2754,6 +2754,17 @@ enum Offsets {
     OFF_LAYOUT_FLAGS = 0x3C,
     LAYOUT_FLAG_CLAMPED = 0x10,
     FUN_LAYOUT_CALC_RECT = 0x00767A20,
+    // CSimpleFrame's size-changed vmethod: `void __thiscall(frame, float w,
+    // float h)`, `ret 8`, in 25 frame-type vtables (the EditBox and
+    // ScrollFrame overrides 0x0077A8D0 / 0x007871F0 call it). Its only work is
+    // firing the frame's OnSizeChanged script (slot +0x120) through the
+    // variadic forwarder with "%f%f" (0x00878830); it is the only code that
+    // fires that slot. `w` / `h` arrive as the screen rect's size in layout
+    // units (the frame's effective scale applied) and are pushed as they are;
+    // 3.3.5 divides out the scale and converts to UI units as GetWidth does
+    // (FUN_0041AE40(FUN_0041AD70() * DAT_007FFD68 * v) =
+    // Game::InternalToPixel). Co-hooked by frame/SizeChanged.cpp to do both.
+    FUN_FRAME_ON_SIZE_CHANGED = 0x0076B660,
     // Frame levels. CSimpleFrame's level setter 0x0076A4F0 — `void
     // __thiscall(frame, int level, int children)`, `ret 8`: clamps a negative
     // level to 0, returns early for an unchanged one, stores it at +0xC4, and
@@ -6248,6 +6259,16 @@ enum Offsets {
     // caller-forgeable chunkname, so it must NOT arm; the call-site check
     // excludes it even when nested inside a RunScript body.
     RET_LUA_FILE_COMPILE = 0x00704B11,
+    // Return address of the `call luaL_loadbuffer` inside the XML script
+    // compile funnel FUN_00704C70 (the CALL is at 0x00704C87, so the pushed
+    // return address is 0x00704C8C). That funnel compiles an XML handler body
+    // (<OnLoad>, <OnClick>, ...) into the function the frame stores, under an
+    // engine-built chunkname "<FrameName>:<ScriptName>". Found by scanning
+    // FUN_00704C70 for an `E8 rel32` whose target is FUN_LUAL_LOADBUFFER; the
+    // same scan reproduces RET_LUA_FILE_COMPILE (0x00704B11) for FUN_00704AE0
+    // and 0x007032B5 for loadstring's FUN_00703280. LuaSyntax uses it to give
+    // XML handler bodies their modern implicit parameters (self, elapsed, ...).
+    RET_LUA_SCRIPT_COMPILE = 0x00704C8C,
     // That funnel itself: `int __fastcall(const char *source, uint32_t size,
     // const char *chunkName, void *errCtx)`, returning 1 when the chunk both
     // compiled and ran and 0 otherwise. It resolves the Lua state through
