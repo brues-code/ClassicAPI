@@ -10901,8 +10901,7 @@ needs that addon's opt-in.
 - To turn a rewrite off for diagnosis, call
   `_classicapi_SetTranspileOption(name, false)`, where `name` is
   `"Length"`, `"Modulo"`, `"VarargExpansion"`, `"HexLiterals"`, or
-  `"LongBrackets"` (`"ForLoopScopes"` is the
-  [`for` loop rewrite](#for-loop-variables-per-pass)). This
+  `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
 - `_classicapi_TranspileStats()` returns five numbers: the chunks loaded,
@@ -10923,30 +10922,29 @@ the same message with the new number: `too many upvalues (limit=60)`.
 
 ### `for` loop variables per pass
 
-Each pass of a `for` loop has its own loop variables, as in Lua 5.1, so a
-function made inside the loop keeps the values of the pass that made it.
+Each pass of a `for` loop has its own loop variables, so a function made
+inside the loop keeps the values of the pass that made it.
 
 ```lua
 local show = {}
 for i, name in ipairs({ "a", "b" }) do
     show[i] = function() return name end
 end
-show[1]()   -- "a" (stock 1.12: nil)
+show[1]()   -- "a"
+show[2]()   -- "b"
 ```
 
-Lua 5.0 has one set of loop variables for the whole loop, so every function
-made in the loop sees their last value: `nil` for a `for ... in` loop, and the
-value past the limit for a numeric loop. Code written for Lua 5.1 relies on
-the per-pass values, for example to give each menu entry its own `checked`
-function.
+This applies to both `for ... in` loops and numeric loops, and to every
+function made in the loop body, at any depth.
 
-ClassicAPI rewrites such a loop the way the Lua 5.1 manual defines it:
-`for i, v in e do` becomes `for __cf_i, __cf_v in e do local i, v = __cf_i,
-__cf_v;`, on the same line. Only a loop whose body makes a function changes.
-A loop whose body assigns to its own loop variable is left as it is, because
-Lua 5.0 carries that assignment into the next pass and Lua 5.1 doesn't.
-`_classicapi_SetTranspileOption("ForLoopScopes", false)` turns the rewrite
-off.
+A function sees the value the variable has at the end of its pass. If the
+body changes a loop variable after it makes the function, the function sees
+the changed value.
+
+If the body assigns to a loop variable, the next pass starts from the new
+value. For example, `i = i + 1` in a numeric loop skips a pass. Lua 5.1 does
+not do this. Do not assign to loop variables in code that must work the same
+on every client.
 
 ### String methods (`s:upper()`, `s:format(...)`)
 

@@ -6200,6 +6200,46 @@ enum Offsets {
     OFF_LUA_PROTO_NUPS = 0x44,
     OFF_LUA_PROTO_NUMPARAMS = 0x45,
     OFF_LUA_PROTO_IS_VARARG = 0x46,
+
+    // --- Lua 5.0 parser internals: `for` loop scoping -------------------------
+    // forbody(ls, base, line, nvars, isnum) -- stock 5.0.2, decompiled:
+    // adjustlocalvars(nvars); check(TK_DO); enterblock(&bl, 1); prep =
+    // getlabel; block(ls); patchtohere(prep - 1); endfor = isnum ?
+    // codeABx(OP_FORLOOP, base, NO_JUMP) : codeABC(OP_TFORLOOP, base, 0,
+    // nvars - 3); fixline(line); patchlist(isnum ? endfor : jump(), prep);
+    // leaveblock. `__fastcall(ecx = LexState*, edx = base, [stack] line, nvars,
+    // isnum)`, RET 0xC. Sole callers: fornum 0x006FE380 and forlist 0x006FE540,
+    // both called from forstat 0x006FE300, which wraps the whole statement in
+    // its own non-breakable BlockCnt -- the one a captured loop variable marks.
+    // LuaSyntax::ForScopes replaces it.
+    FUN_LUA_PARSER_FORBODY = 0x006FE480,
+    // Helpers forbody calls, all `__fastcall`, register args only unless noted.
+    FUN_LUA_PARSER_ADJUSTLOCALVARS = 0x006FD870, // (ls, nvars)
+    FUN_LUA_PARSER_CHECK = 0x006FD140,           // (ls, token); raises on mismatch
+    FUN_LUA_PARSER_ENTERBLOCK = 0x006FCF50,      // (fs, BlockCnt*, [stack] isbreakable), RET 4
+    FUN_LUA_PARSER_BLOCK = 0x006FCF20,           // (ls)
+    FUN_LUA_PARSER_LEAVEBLOCK = 0x006FCF80,      // (fs); emits OP_CLOSE when bl->upval
+    FUN_LUA_K_GETLABEL = 0x00700850,             // (fs) -> pc; lasttarget = pc
+    FUN_LUA_K_PATCHTOHERE = 0x007009E0,          // (fs, list)
+    FUN_LUA_K_FIXLINE = 0x00701810,              // (fs, line)
+    FUN_LUA_K_JUMP = 0x00700810,                 // (fs) -> pc
+    FUN_LUA_K_PATCHLIST = 0x00700860,            // (fs, list, [stack] target), RET 4
+    // markupval 0x006FE080 walks fs->bl while bl->nactvar > level, then sets
+    // bl->upval = 1 (stock).
+    OFF_LUA_FUNCSTATE_BL = 0x14,
+    // BlockCnt (lparser.c), from enterblock / leaveblock: previous@+0,
+    // breaklist@+4, nactvar@+8, upval@+0xC (int), isbreakable@+0x10.
+    OFF_LUA_BLOCKCNT_PREVIOUS = 0x00,
+    OFF_LUA_BLOCKCNT_UPVAL = 0x0C,
+    SIZEOF_LUA_BLOCKCNT = 0x14,
+    LUA_TK_DO = 0x103, // the token forbody checks
+    // 5.0 opcodes, from forbody (0x1C/0x1D), forlist (TFORPREP 0x1E), leaveblock
+    // (OP_CLOSE 0x21) and pushclosure (OP_CLOSURE 0x22).
+    LUA_OP_FORLOOP = 0x1C,
+    LUA_OP_TFORLOOP = 0x1D,
+    LUA_OP_CLOSE = 0x21,
+    LUA_NO_JUMP_SBX = 0x1FFFE, // NO_JUMP (-1) biased by MAXARG_sBx
+
     // Shared environment-protection predicate for `getfenv`/`setfenv`
     // (`bool __fastcall(L /*ecx*/)`). Pushes the function-at-top's environment
     // via `lua_getfenv(L, -1)`, then pushes the protection marker
