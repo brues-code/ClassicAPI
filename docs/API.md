@@ -271,6 +271,7 @@ build instructions.
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [Frame alpha multiplies into child frames](#frame-alpha-multiplies-into-child-frames)
+  - [`OnSizeChanged` sizes are in frame units](#onsizechanged-sizes-are-in-frame-units)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
   - [`SetModernScriptArgs(enable)` / `GetModernScriptArgs()`](#setmodernscriptargsenable--getmodernscriptargs)
   - [XML script bodies see `self` and their arguments](#xml-script-bodies-see-self-and-their-arguments)
@@ -6270,6 +6271,18 @@ multiplication rounds down to a step.
 UIParent:GetEffectiveAlpha()   -- 1
 -- with UIParent at 0.5 and Minimap's own alpha 1:
 Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
+```
+
+### `OnSizeChanged` sizes are in frame units
+
+An `OnSizeChanged` handler receives the frame's new width and height in the
+units that `GetWidth()` and `GetHeight()` return. A frame of size 20 x 10
+gets `(20, 10)`. `arg1` and `arg2` hold the same values.
+
+```lua
+frame:SetScript("OnSizeChanged", function(self, w, h)
+    label:SetWidth(w - 8)
+end)
 ```
 
 ### Frame alpha multiplies into child frames

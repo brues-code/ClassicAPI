@@ -48,6 +48,7 @@ The flagship feature: run modern Lua 5.1 addon code on 1.12's Lua 5.0 VM.
 | [Quest completed line](docs/API.md#a-turn-in-always-prints-quest-completed) | Every quest turn-in prints "*quest* completed." in chat, chain quests included. Vanilla left the line out for a quest with a follow-up, so addons that track turn-ins through it, such as Zygor Guides Viewer, never saw those turn-ins. |
 | [Frame levels on SetParent](docs/API.md#a-frame-moved-to-a-new-parent-takes-its-children-along) | A frame moved to a new parent takes the frames under it along, so the whole subtree sits above its new parent. An options panel moved into the Interface Options window draws its widgets above the window. |
 | [Frame alpha](docs/API.md#frame-alpha-multiplies-into-child-frames) | A frame draws at its own alpha times its parent's, as on 3.x. A frame built or parented inside a transparent frame is transparent too, a child keeps its own alpha when its parent's changes, and `GetAlpha` returns the frame's own value. Vanilla copied a parent's alpha into the children that existed at that moment and nothing else, so a template with `alpha="0"` drew its child frames at full strength. |
+| [`OnSizeChanged` sizes](docs/API.md#onsizechanged-sizes-are-in-frame-units) | An `OnSizeChanged` handler receives the new width and height in the units `GetWidth` / `GetHeight` return, so a 20 x 10 frame gets `(20, 10)`. |
 
 ## Full API reference
 

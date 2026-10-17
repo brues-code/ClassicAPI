@@ -2754,6 +2754,17 @@ enum Offsets {
     OFF_LAYOUT_FLAGS = 0x3C,
     LAYOUT_FLAG_CLAMPED = 0x10,
     FUN_LAYOUT_CALC_RECT = 0x00767A20,
+    // CSimpleFrame's size-changed vmethod: `void __thiscall(frame, float w,
+    // float h)`, `ret 8`, in 25 frame-type vtables (the EditBox and
+    // ScrollFrame overrides 0x0077A8D0 / 0x007871F0 call it). Its only work is
+    // firing the frame's OnSizeChanged script (slot +0x120) through the
+    // variadic forwarder with "%f%f" (0x00878830); it is the only code that
+    // fires that slot. `w` / `h` arrive as the screen rect's size in layout
+    // units (the frame's effective scale applied) and are pushed as they are;
+    // 3.3.5 divides out the scale and converts to UI units as GetWidth does
+    // (FUN_0041AE40(FUN_0041AD70() * DAT_007FFD68 * v) =
+    // Game::InternalToPixel). Co-hooked by frame/SizeChanged.cpp to do both.
+    FUN_FRAME_ON_SIZE_CHANGED = 0x0076B660,
     // Frame levels. CSimpleFrame's level setter 0x0076A4F0 — `void
     // __thiscall(frame, int level, int children)`, `ret 8`: clamps a negative
     // level to 0, returns early for an unchanged one, stores it at +0xC4, and
