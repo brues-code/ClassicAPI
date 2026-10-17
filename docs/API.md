@@ -6222,13 +6222,11 @@ Behavior notes:
 
 ### `frame:GetEffectiveAlpha()`
 
-Returns the frame's **effective** alpha — its own `GetAlpha()` multiplied
-by every ancestor's, i.e. the opacity WoW actually composites at render
-time (fading `UIParent` fades all of its children). The engine exposes only
-`GetAlpha` (a frame's own alpha); this walks `self → parent → …` via the
-engine's own `GetAlpha`/`GetParent`, so it sees exactly what the engine
-does — including the 8-bit quantization of alpha (`SetAlpha(0.5)` stores
-`127/255 ≈ 0.498`, and effective alpha is the product of those).
+Returns the frame's **effective** alpha: the alpha that the frame is drawn
+with. This is its own `GetAlpha()` multiplied by the effective alpha of its
+parent, so a fade on `UIParent` fades all of its children. Alpha is stored
+in steps of 1/255: `SetAlpha(0.5)` stores `127/255 ≈ 0.498`, and each
+multiplication rounds down to a step.
 
 ```lua
 UIParent:GetEffectiveAlpha()   -- 1
@@ -6238,36 +6236,32 @@ Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
 
 ### Frame alpha multiplies into child frames
 
-A frame draws at its own alpha times its parent's drawn alpha, as on 3.x.
-A child can't be more visible than its parent, and a frame built or
-parented inside a transparent frame is transparent too. `GetAlpha()`
-returns the frame's own alpha, and `GetEffectiveAlpha()` returns the
-product.
+A frame is drawn at its own alpha multiplied by the drawn alpha of its
+parent. Thus a child frame is never more visible than its parent.
 
-Vanilla keeps one alpha per frame and copies it down. `SetAlpha` and the
-XML `alpha` attribute overwrite the alpha of every child frame that exists
-at that moment, and children created or parented later get nothing. So on
-vanilla:
-
-- a `<Frame alpha="0">` draws its `<Frames>` at full alpha, because the
-  attribute is applied before they are built;
-- a child's own alpha is lost when its parent's changes;
-- `child:GetAlpha()` returns whatever the parent last copied in.
+- Each frame keeps its own alpha. When the alpha of a parent changes, the
+  alpha of its children does not change.
+- A frame that you create or move into a transparent frame is also
+  transparent.
+- A `<Frame alpha="0">` hides the frames in its `<Frames>` element.
+- `GetAlpha()` returns the frame's own alpha. `GetEffectiveAlpha()`
+  returns the drawn alpha.
+- The 3D model of a Model frame uses the drawn alpha of the frame.
 
 ```lua
 local parent = CreateFrame("Frame", nil, UIParent)
 local child = CreateFrame("Frame", nil, parent)
 child:SetAlpha(0.5)
 parent:SetAlpha(0.2)
-child:GetAlpha()            -- ~0.498 (vanilla: 0.2)
-child:GetEffectiveAlpha()   -- ~0.1
+child:GetAlpha()            -- ~0.498
+child:GetEffectiveAlpha()   -- ~0.098
 parent:SetAlpha(1)
-child:GetAlpha()            -- ~0.498 (vanilla: 1)
+child:GetAlpha()            -- ~0.498
 ```
 
-Vanilla code that shows a child under a transparent parent
-(`parent:SetAlpha(0); child:SetAlpha(1)`) now leaves the child hidden, as
-3.x does. A Model frame's 3D model follows the frame's drawn alpha.
+A child that is under a transparent parent stays hidden, even if you set
+the alpha of the child to 1. To show the child, set the alpha of the
+parent.
 
 ### `frame:SetAttribute(name, value)` / `frame:SetAttributeNoHandler(name, value)` / `frame:ClearAttribute(name)` / `frame:GetAttribute(...)`
 

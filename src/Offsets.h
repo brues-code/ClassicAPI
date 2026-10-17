@@ -2696,12 +2696,12 @@ enum Offsets {
     // forbid hooking it on a SuperWoW-collision theory that a per-DLL scan has
     // since disproved — see that definition. `Frame::Attributes` chains a normal
     // OnClick on its opted-in frames for its own reasons, not because of it.)
-    // Frame GetAlpha (own alpha, 0..1) + Region GetParent — walked by
-    // Frame::Modern's GetEffectiveAlpha up the parent chain. `Frame::Alpha`
-    // co-hooks GetAlpha to return the own alpha it keeps, since the byte it
-    // reads holds the drawn alpha.
+    // Frame GetAlpha (`[frame+OFF_FRAME_ALPHA] / 255`).
+    // `Frame::Alpha` co-hooks GetAlpha to return the own alpha it keeps,
+    // since the byte it reads holds the drawn alpha; Frame::Modern's
+    // GetEffectiveAlpha calls it for its `self` type check, then reads the
+    // byte.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
-    FUN_SCRIPT_REGION_GETPARENT = 0x007A1460,
 
     // Hyperlink scripts. ScrollingMessageFrame and SimpleHTML share a base
     // whose GetScriptByName override (0x007A3700, in the vtables at slots

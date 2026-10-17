@@ -40,9 +40,9 @@
 //   - `frame:HookScript(scriptType, handler)` — absent in vanilla
 //     entirely. Chains after any existing handler and invokes `handler`
 //     with modern positional args (see the implementation comment).
-//   - `frame:GetEffectiveAlpha()` — own alpha × the parent chain's, the
-//     product WoW composites at render time. Frame-scoped (matches
-//     GetAlpha); walks the parents via the engine's own getters.
+//   - `frame:GetEffectiveAlpha()` — the alpha the frame is drawn with:
+//     the byte at OFF_FRAME_ALPHA, which `Frame::Alpha` keeps at own ×
+//     the parent's drawn alpha. Frame-scoped (matches GetAlpha).
 //
 // Implementation style: each new method delegates to the ENGINE's own
 // Script_* implementations by reshaping the Lua stack and calling them
@@ -237,28 +237,20 @@ int __fastcall Script_SetShown(void *L) {
 
 // ---- GetEffectiveAlpha (Frame) ---------------------------------------------
 
-// `frame:GetEffectiveAlpha()` — the frame's own alpha times every
-// ancestor's alpha, i.e. the product WoW composites at render time (fading
-// UIParent fades all children). Vanilla exposes only GetAlpha (own alpha);
-// we walk self → parent → … via the engine's own GetAlpha (Frame) and
-// GetParent (Region), so no field offsets or scale math are re-derived. The
-// iteration cap is a defensive guard against a pathological chain (WoW frame
-// trees are shallow; the loop normally ends when GetParent returns nil at
-// the top of the tree).
+// `frame:GetEffectiveAlpha()` — the alpha the frame is drawn with, the byte
+// its regions and model read (fading UIParent fades all children). With
+// `Frame::Alpha` that byte is own × the parent's drawn alpha, truncated per
+// level, so this is 3.3.5's Script_GetEffectiveAlpha (0x0049F900):
+// `(m_alpha * m_parentAlpha / 255) / 255.0`. The engine's GetAlpha runs first
+// for its `self` type check, which errors on a non-frame.
 int __fastcall Script_GetEffectiveAlpha(void *L) {
-    Game::Lua::SetTop(L, 1); // (obj) = self
-    double eff = 1.0;
-    for (int guard = 0; guard < 128; ++guard) {
-        CallScript(Offsets::FUN_SCRIPT_FRAME_GETALPHA, L); // (obj, alpha)
-        eff *= Game::Lua::ToNumber(L, 2);
-        Game::Lua::SetTop(L, 1);                             // (obj)
-        CallScript(Offsets::FUN_SCRIPT_REGION_GETPARENT, L); // (obj, parent|nil)
-        if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_NIL)
-            break;
-        Game::Lua::Remove(L, 1); // drop obj → (parent) becomes index 1
-    }
+    Game::Lua::SetTop(L, 1);                           // (self)
+    CallScript(Offsets::FUN_SCRIPT_FRAME_GETALPHA, L); // (self, own)
+    const void *frame = Game::Lua::ResolveObject(L, 1);
     Game::Lua::SetTop(L, 0);
-    Game::Lua::PushNumber(L, eff);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, Game::Read<uint8_t>(frame, Offsets::OFF_FRAME_ALPHA) / 255.0);
     return 1;
 }
 

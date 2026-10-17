@@ -66,8 +66,9 @@ SetParent_t g_origSetParent = nullptr;
 Destructor_t g_origDestructor = nullptr;
 ScriptFn_t g_origGetAlpha = nullptr;
 
-// Own alpha of every live frame that set one other than 255. The destructor
-// hook drops a frame's entry; the reload cleanup drops everything left.
+// Own alpha of every live frame that set one other than 255. Every frame
+// class's destructor runs FUN_FRAME_DESTRUCTOR, whose hook drops the frame's
+// entry, so a frame that outlives a /reload keeps its own alpha.
 std::unordered_map<const void *, uint8_t> g_own;
 
 // Set while a frame is being given its drawn alpha through its vtable setter.
@@ -93,8 +94,10 @@ void SetOwn(const void *frame, uint8_t alpha) {
         g_own[frame] = alpha;
 }
 
+// Truncating, as 3.3.5's CSimpleFrame::GetEffectiveAlpha (0x00482E60) and
+// UpdateAlpha (0x00491680) compute `m_alpha * m_parentAlpha / 255`.
 uint8_t Mul(uint8_t a, uint8_t b) {
-    return static_cast<uint8_t>((static_cast<uint32_t>(a) * b + 127) / 255);
+    return static_cast<uint8_t>(static_cast<uint32_t>(a) * b / 255);
 }
 
 uint8_t DrawnFor(void *frame, uint8_t own) {
@@ -181,10 +184,6 @@ int __fastcall GetAlpha_h(void *L) {
     return 1;
 }
 
-void PrepareForReload() {
-    g_own.clear();
-}
-
 const Game::HookAutoRegister _setAlphaHook{Offsets::FUN_FRAME_SET_FRAME_ALPHA,
                                            reinterpret_cast<void *>(&SetFrameAlpha_h),
                                            reinterpret_cast<void **>(&g_origSetAlpha)};
@@ -197,7 +196,6 @@ const Game::HookAutoRegister _destructorHook{Offsets::FUN_FRAME_DESTRUCTOR,
 const Game::HookAutoRegister _getAlphaHook{Offsets::FUN_SCRIPT_FRAME_GETALPHA,
                                            reinterpret_cast<void *>(&GetAlpha_h),
                                            reinterpret_cast<void **>(&g_origGetAlpha)};
-const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 } // namespace
 
