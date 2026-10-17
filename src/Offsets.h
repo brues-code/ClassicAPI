@@ -8809,6 +8809,59 @@ enum Offsets {
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
+    // Per-object XML node loaders. Each lives on the object's layout
+    // sub-object, OFF_XML_LOADER_SUBOBJECT bytes in, at that sub-object's
+    // vtable +8: `(object+0x24)->vtable[+8](node, status)`, __thiscall with
+    // `this` = object+0x24 (all end `ret 8`). The frame builder FUN_006EE280
+    // makes the call at 0x006EE4D9..E1 (between its main-vtable +0x20
+    // pre-load and +0x24 finalize/OnLoad); the region factory FUN_006F26F0
+    // at 0x006F2756..5E, right after the region pre-load FUN_0076FDF0 (which
+    // reads the name and registers the Lua object via FUN_0076C650 ->
+    // FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER). Confirmed by a crash stack:
+    // builder 0x006EE4E4 -> FRAME loader, factory 0x006F2761 -> TEXTURE
+    // loader. The addresses appear only in those sub-object vtables (8 frame
+    // classes, 1 texture, 2 font-string).
+    //   FRAME: the CSimpleFrame loader. Every derived frame type's loader
+    //     calls it first (10 direct callers - Button 0x007788C0, which then
+    //     reads "NormalTexture"; ScrollFrame 0x00786B50 "ScrollChild"; Slider
+    //     0x00789580 "ThumbTexture"; ...). Reads "inherits" (0x0076982E) and
+    //     "hidden" (0x00769881).
+    //   TEXTURE: reads "inherits", "hidden", "alphaMode" (0x00770179).
+    //   FONTSTRING: reads "inherits", "hidden", "justifyH" (0x00771308).
+    // Identified by the attribute-name strings each passes to
+    // FUN_XML_NODE_GET_ATTRIBUTE. Co-hooked by xml/ParentKey.cpp. The FRAME
+    // loader covers attributes, TitleRegion, ResizeBounds, Backdrop,
+    // HitRectInsets, Layers and Scripts - not <Frames>, which the finalize
+    // step builds (FUN_XML_FRAME_LOAD_CHILD_FRAMES).
+    // Script-region name: the resolved global name string, stored by SetName
+    // (FUN_0076C650, `mov [esi+0x98], eax` at 0x0076C6B2) right before it
+    // registers the object under that name via
+    // FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER. SetName is called by the frame,
+    // texture and font string pre-loads (0x00769770, FUN_0076FDF0, 0x00770F10)
+    // only when the element has a `name`, so an unnamed XML element keeps
+    // null here and stays unregistered until Lua first touches it. Shared by
+    // frames and regions, like OFF_REGION_PARENT (which GetParent, 0x007A1460,
+    // reads for both at 0x007A14FF).
+    OFF_SCRIPT_REGION_NAME = 0x98,
+    OFF_XML_LOADER_SUBOBJECT = 0x24,
+    FUN_XML_FRAME_LOAD = 0x00769820,
+    FUN_XML_TEXTURE_LOAD = 0x0076FE20,
+    FUN_XML_FONTSTRING_LOAD = 0x00770F40,
+    // Builds a node's <Frames> children. `__thiscall(frame, node, status)`,
+    // `ret 8`: recurses the node's `inherits` first (0x0076A092), then calls
+    // the builder FUN_006EE280 per child with EDX = frame as the parent
+    // (0x0076A0B5). In no vtable; its callers are itself and the frame
+    // finalize FUN_0076A2F0 (main vtable +0x24, the builder's last call),
+    // which runs it before firing OnLoad (+0x118) - so a parent's OnLoad
+    // sees its children built.
+    FUN_XML_FRAME_LOAD_CHILD_FRAMES = 0x0076A060,
+    // The Button node loader (same sub-object convention). It calls
+    // FUN_XML_FRAME_LOAD first, then loads the button's own children: each
+    // font element into a font object embedded in the button - NormalFont
+    // (tag compare 0x007789EB) into +0x318, DisabledFont (0x00778A0D),
+    // HighlightFont (0x00778A28) into +0x394 - reading its `inherits`.
+    // In 4 loader vtables; CheckButton's loader 0x00785170 calls it first.
+    FUN_XML_BUTTON_LOAD = 0x007788C0,
     // By-name template lookup — the same one `inherits=` resolves through.
     // `__fastcall(const char *name) -> definition node`, 0 if unregistered
     // (case-insensitive, hashed). See FUN_006ee6f0 in Templates.cpp notes.
@@ -8821,13 +8874,13 @@ enum Offsets {
     // multi-template calls work (e.g. "UIPanelButtonTemplate,
     // SecureActionButtonTemplate"). It builds the frame with the first
     // resolved template through the engine, then applies each remaining
-    // template onto the created object with the engine's OWN inherit
-    // primitive: `frameObj->vtable[+8](templateDefNode, status)` for content
-    // (FUN_00769820) and `(frameObj+0x24)->vtable[+8](...)` for the template's
-    // `<Frames>` children (FUN_0076a060) — exactly the two `__thiscall`
-    // recursion calls the builder FUN_006ee280 emits when resolving an
-    // `inherits=`. Finalize/OnLoad (`vtable[+0x24]`) runs once during the
-    // engine build and is NOT re-run.
+    // template onto the created object with the two steps the builder
+    // FUN_006ee280 itself runs for a node: the frame's node loader
+    // `(frameObj+0x24)->vtable[+8](templateDefNode, status)` for content
+    // (FUN_XML_FRAME_LOAD for a plain Frame, the derived loader otherwise),
+    // then FUN_XML_FRAME_LOAD_CHILD_FRAMES for the `<Frames>` children. Both
+    // recurse the template's own `inherits`. The rest of finalize/OnLoad
+    // (`vtable[+0x24]`) runs once during the engine build and is NOT re-run.
     FUN_SCRIPT_CREATEFRAME = 0x007060B0,
 
     // XML-build "status" object — a printf-style error/warning accumulator the
@@ -9517,6 +9570,31 @@ enum Offsets {
     // backs GetUTF8CursorPosition. Verified from the arrow-key mover
     // FUN_0077cb20's own `FUN_0077bc80(this, byteOff, cursorByte - byteOff)`.
     FUN_EDITBOX_COUNT_CHARS = 0x0077bc80,
+    // The per-byte table it walks is at OFF_EDITBOX_CHAR_CLASS, rebuilt from
+    // the text by FUN_0077BA90 with FUN_TEXT_TOKENIZER: at each token's first
+    // byte, `length | class << 16` (bit 31 set inside a hyperlink), zero at
+    // the token's other bytes. Classes 2 (line break), 3 (character) and 6
+    // (a `|` that starts no code) are visible; the rest are markup - color
+    // codes, the hyperlink's `|H...|h` and closing `|h` - which it skips.
+    OFF_EDITBOX_CHAR_CLASS = 0x330,
+    // SetMaxLetters stores its limit here (Script 0x00799110); the insert
+    // path FUN_0077BEE0 enforces it after splicing text in: it counts the
+    // text with FUN_EDITBOX_COUNT_CHARS (calls at 0x0077C09A, 0x0077C0BC,
+    // 0x0077C0E4) and deletes from the end until the count fits. The byte
+    // cap SetMaxBytes (+0x33C, -1 = none) is enforced just before, by length.
+    OFF_EDITBOX_MAX_LETTERS = 0x340,
+    RET_EDITBOX_MAX_LETTERS_COUNT_1 = 0x0077C09F,
+    RET_EDITBOX_MAX_LETTERS_COUNT_2 = 0x0077C0C1,
+    RET_EDITBOX_MAX_LETTERS_COUNT_3 = 0x0077C0E9,
+    // The EditBox node loader (the FUN_XML_FRAME_LOAD sub-object convention:
+    // `__thiscall(loader, node, status)`, `ret 8`, object = loader -
+    // OFF_XML_LOADER_SUBOBJECT). It calls FUN_XML_FRAME_LOAD first
+    // (0x00779FC6), then reads its own attributes: "letters" (0x0077A046),
+    // "autoFocus" (0x0077A0A5), "multiLine", "numeric", "historyLines".
+    // Booleans go through FUN_XML_ATTR_TO_BOOL - `int __fastcall(const char *)`,
+    // 1 for text starting 1/t/y - as for autoFocus at 0x0077A0BC.
+    FUN_XML_EDITBOX_LOAD = 0x00779FB0,
+    FUN_XML_ATTR_TO_BOOL = 0x006F1B30,
     // Selection-highlight regions — three consecutive CSimpleTexture pointers
     // (start-line +0x350, middle-block +0x354, end-line +0x358) the editbox
     // shows/positions to paint the selection (FUN_0077d950). Their vertex

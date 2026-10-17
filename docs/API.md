@@ -257,6 +257,7 @@ build instructions.
   - [`editBox:HasText()`](#editboxhastext)
   - [`editBox:SetHighlightColor(r, g, b [, a])`](#editboxsethighlightcolorr-g-b--a)
   - [`editBox:GetHighlightColor()`](#editboxgethighlightcolor)
+  - [`editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`](#editboxsetcountinvisibleletterscount--editboxiscountinvisibleletters)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
@@ -806,6 +807,9 @@ build instructions.
   - [`C_XMLUtil.GetTemplates()`](#c_xmlutilgettemplates)
   - [`C_XMLUtil.GetTemplateInfo(name)`](#c_xmlutilgettemplateinfoname)
   - [`C_XMLUtil.DoesTemplateExist(name)`](#c_xmlutildoestemplateexistname)
+  - [`parentKey` in XML](#parentkey-in-xml)
+  - [`function` on XML script handlers](#function-on-xml-script-handlers)
+  - [`style` on button font elements](#style-on-button-font-elements)
   - [`C_TTSSettings` — getters & setters](#c_ttssettings--getters--setters)
   - [TTS events](#tts-events)
   - [TTS CVars](#tts-cvars)
@@ -6040,6 +6044,24 @@ ChatFrameEditBox:SetHighlightColor(1, 0, 0)   -- red selection
 
 Returns the selection-highlight color as four numbers: `r, g, b, a`, each `0`
 to `1`.
+
+### `editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`
+
+Whether the edit box's `SetMaxLetters` limit counts the characters of color
+codes and a hyperlink's hidden part. Off by default: only the letters you
+see count. Turn it on for text whose real limit is in bytes, such as a
+macro body.
+
+```lua
+box:SetMaxLetters(12)
+box:SetText("|cffff0000abcdefg|r")   -- kept whole: 7 letters
+box:SetCountInvisibleLetters(true)
+box:SetText("|cffff0000abcdefg|r")   -- "|cffff0000ab": the code counts as 10
+```
+
+XML sets it with the EditBox attribute `countInvisibleLetters="true"`.
+Only the limit changes. `GetNumLetters` still counts only the letters you
+see, and the cursor moves over letters as before.
 
 ### `editBox:ClearHistory()`
 
@@ -19309,3 +19331,68 @@ end
 ```
 
 Case-insensitive, resolved through the same registry as `inherits=`.
+
+### `parentKey` in XML
+
+`parentKey="Name"` on a frame, texture or font string element sets
+`parent.Name` to that object, so code reaches unnamed children as
+`self.Icon` or `self.Close`:
+
+```xml
+<Frame name="MyFrame">
+    <Layers>
+        <Layer level="ARTWORK">
+            <Texture parentKey="Icon" file="Interface\Icons\INV_Misc_QuestionMark"/>
+            <FontString parentKey="Label" inherits="GameFontNormal"/>
+        </Layer>
+    </Layers>
+    <Frames>
+        <Button parentKey="Close" inherits="UIPanelCloseButton"/>
+    </Frames>
+    <Scripts>
+        <OnLoad>this.Label:SetText("Hello")</OnLoad>
+    </Scripts>
+</Frame>
+```
+
+Keys are set while the parent is being built, so the parent's `OnLoad`
+already sees them, and a `parentKey` inside a virtual template is set on
+every frame built from it. A button's `<NormalTexture parentKey="...">`
+works the same way.
+
+### `function` on XML script handlers
+
+A script element with `function="Name"` uses the global function `Name` as
+that script's handler. It is the same as
+`frame:SetScript("OnLoad", MyFrame_OnLoad)`:
+
+```xml
+<Scripts>
+    <OnLoad function="MyFrame_OnLoad"/>
+    <OnEvent function="MyFrame_OnEvent"/>
+</Scripts>
+```
+
+The function is looked up when the element loads, so it must be defined by then. A bound `OnLoad` runs at the
+usual point, once the frame is built, and with
+[positional script arguments](#setmodernscriptargsenable--getmodernscriptargs)
+on (the default) the function gets `self` and the script's arguments like
+any other handler.
+
+### `style` on button font elements
+
+A button's font element can name its font with `style`:
+
+```xml
+<Button name="MyButton" text="Click">
+    <NormalFont style="GameFontNormal"/>
+    <HighlightFont style="GameFontHighlight"/>
+    <DisabledFont style="GameFontDisable"/>
+</Button>
+```
+
+A `NormalFont`, `HighlightFont` or `DisabledFont` with `style` and no
+`inherits` gets the named font object,
+through the same setters as `SetTextFontObject`, `SetHighlightFontObject`
+and `SetDisabledFontObject`. An element with `inherits` loads as before.
+CheckButtons get the same.
