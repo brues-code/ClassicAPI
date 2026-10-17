@@ -360,6 +360,7 @@ build instructions.
 
 - [Instance](#instance)
   - [`GetInstanceInfo()`](#getinstanceinfo)
+  - [`IsActiveBattlefieldArena()`](#isactivebattlefieldarena)
 
 - [Item](#item)
   - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexistitemlocation--c_itemdoesitemexistbyiditem)
@@ -8296,6 +8297,23 @@ their true `20`; non-AV battlegrounds (WSG `10`, AB `15`) return `40`
 instead of their true cap; any custom raid on a private server
 (e.g. Turtle WoW) returns `40` regardless of its real cap.** Addons
 that need exact caps must supply their own per-mapID table.
+
+### `IsActiveBattlefieldArena()`
+
+Returns `isArena, isRegistered`, two booleans.
+
+- `isArena` is `true` while the player is in an arena match. It becomes
+  `true` when the arena map loads. The open-world free-for-all arenas (for
+  example the Gurubashi Arena) are not arena matches, and return `false`.
+- `isRegistered` (a rated match) is always `false`. The client gets no data
+  about rated matches.
+
+```lua
+local isArena = IsActiveBattlefieldArena()
+if UnitIsDeadOrGhost("player") and not isArena then
+    -- not in an arena: point at the corpse
+end
+```
 
 ## Item
 
