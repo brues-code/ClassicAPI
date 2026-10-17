@@ -21,39 +21,57 @@
 // window then draws its contents behind that window. Zygor Guides Viewer 2.0's
 // options panel, shown in the Interface Options window that
 // LibBetterBlizzOptions-1.0 raises to FULLSCREEN_DIALOG, sat at level 7 with
-// its Ace3 widgets at levels 1-4, behind the window's own level 5. 3.3.5
-// shows the same Ace3 panels, moved the same way, above their window.
+// its Ace3 widgets at levels 1-4, behind the window's own level 5.
 //
 // The engine's level setter already moves a frame's children when asked: each
 // child of the same strata goes up or down by the same amount, recursively,
-// so the layering inside the subtree is kept. The hook asks for that on
-// SetParent's two calls only (with a parent, and with none), recognized by
-// their return addresses. Script SetFrameLevel and the setter's other callers
-// behave as before.
+// so the layering inside the subtree is kept. 3.3.5's SetParent asks for that
+// on both of its calls (with a parent, and with none); here the `push 0` of
+// the flag at each call becomes `push 1`. Script SetFrameLevel and XML
+// frameLevel still pass 0. (3.3.5 passes 1 there too; left as vanilla so
+// addons that set child levels before the parent's keep working.) The bytes
+// are checked before they are written, so a client whose code differs there
+// is left alone.
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 
 #include <cstdint>
-#include <intrin.h> // _ReturnAddress
+#include <cstring>
 
 namespace Frame::Levels {
 
 namespace {
 
-using SetFrameLevel_t = void(__thiscall *)(void *frame, int level, int children);
-SetFrameLevel_t g_origSetFrameLevel = nullptr;
+// Each site: the `push 0` of the children flag and the instruction after it,
+// as the client has them. The push's immediate is what gets replaced.
+struct Site {
+    uintptr_t push;      // address of the `push 0`
+    uint8_t original[4]; // `push 0` + the next instruction
+};
 
-void __fastcall SetFrameLevel_h(void *frame, void * /*edx*/, int level, int children) {
-    const uintptr_t from = reinterpret_cast<uintptr_t>(_ReturnAddress());
-    if (from == Offsets::RET_SETPARENT_SET_FRAME_LEVEL || from == Offsets::RET_SETPARENT_NIL_SET_FRAME_LEVEL)
-        children = 1;
-    g_origSetFrameLevel(frame, level, children);
+constexpr Site kSites[] = {
+    // push 0; inc eax
+    {Offsets::PATCH_SETPARENT_LEVEL_CHILDREN, {0x6A, 0x00, 0x40, 0x50}},
+    // push 0; push 0
+    {Offsets::PATCH_SETPARENT_NIL_LEVEL_CHILDREN, {0x6A, 0x00, 0x6A, 0x00}},
+};
+
+constexpr uint8_t kOne = 0x01;
+
+// Runs on every in-game registration (each /reload too); a site already
+// patched no longer matches and is skipped.
+void Apply() {
+    for (const Site &site : kSites) {
+        const auto *code = reinterpret_cast<const uint8_t *>(site.push);
+        if (std::memcmp(code, site.original, sizeof site.original) != 0)
+            continue; // already applied, or not the code this was derived from
+        Common::PatchBytes(reinterpret_cast<void *>(site.push + 1), &kOne, sizeof kOne);
+    }
 }
 
-const Game::HookAutoRegister _hook{Offsets::FUN_FRAME_SET_FRAME_LEVEL,
-                                   reinterpret_cast<void *>(&SetFrameLevel_h),
-                                   reinterpret_cast<void **>(&g_origSetFrameLevel)};
+const Game::ModuleAutoRegister _autoreg{&Apply};
 
 } // namespace
 
