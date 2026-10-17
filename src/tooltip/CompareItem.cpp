@@ -64,6 +64,7 @@
 #include "item/Record.h"
 #include "item/StatAccum.h"
 #include "item/TooltipItem.h"
+#include "tooltip/Lines.h"
 #include "tooltip/SetEvents.h"
 #include "ui/ColorData.h"
 
@@ -84,9 +85,6 @@ using Item::StatAccum::Accum;
 using BuildItemTooltip_t = void(__thiscall *)(void *self, uint32_t itemID, const void *guid,
                                               const void *guid2, int a4, int a5, int a6,
                                               int headerFlag, int a8, int a9);
-// Raw add-line. Color args are pointers to a 4-byte packed {b,g,r,a}.
-using AddLine_t = void(__thiscall *)(void *self, const char *left, const char *right,
-                                     const void *leftColor, const void *rightColor, int wrap);
 using SetLineText_t = void(__thiscall *)(void *fontString, const char *text, int flag);
 using SetLineColor_t = void(__thiscall *)(void *fontString, const void *colorBGRA);
 
@@ -314,13 +312,6 @@ constexpr uint32_t kGain = UI::ColorData::ByTag("INCREASE_STAT_COLOR"); // green
 constexpr uint32_t kLoss = UI::ColorData::ByTag("DECREASE_STAT_COLOR"); // red
 constexpr uint32_t kHeader = UI::ColorData::ByTag("NORMAL_FONT_COLOR"); // header yellow
 
-// self:AddLine equivalent — left-aligned colored line via the engine's
-// raw add-line. `color` must outlive the call (we pass its address).
-void AddColoredLine(void *self, const char *text, const uint32_t &color) {
-    auto add = reinterpret_cast<AddLine_t>(Offsets::FUN_GAMETOOLTIP_ADD_LINE);
-    add(self, text, nullptr, &color, nullptr, 0);
-}
-
 // Appends the yellow ITEM_DELTA_DESCRIPTION header + one line per non-zero
 // stat and a DPS line. No-op when nothing differs (identical items /
 // self-compare add no delta section).
@@ -336,13 +327,13 @@ void RenderDeltas(void *self, void *L, const Accum *acc, double dpsDelta) {
     char line[256];
 
     LabelFor(L, "ITEM_DELTA_DESCRIPTION", label, sizeof(label));
-    AddColoredLine(self, label, kHeader);
+    Tooltip::Lines::Add(self, label, kHeader);
 
     if (hasDps) {
         LabelFor(L, "ITEM_MOD_DAMAGE_PER_SECOND_SHORT", label, sizeof(label));
         std::snprintf(line, sizeof(line), "%s%.1f %s", dpsDelta > 0 ? "+" : "",
                       dpsDelta, label);
-        AddColoredLine(self, line, dpsDelta > 0 ? kGain : kLoss);
+        Tooltip::Lines::Add(self, line, dpsDelta > 0 ? kGain : kLoss);
     }
 
     for (int i = 0; i < Item::StatAccum::kCount; ++i) {
@@ -358,7 +349,7 @@ void RenderDeltas(void *self, void *L, const Accum *acc, double dpsDelta) {
             std::snprintf(num, sizeof(num), "%s", pct);
         }
         std::snprintf(line, sizeof(line), "%s %s", num, label);
-        AddColoredLine(self, line, v > 0 ? kGain : kLoss);
+        Tooltip::Lines::Add(self, line, v > 0 ? kGain : kLoss);
     }
 }
 
