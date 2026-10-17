@@ -48,6 +48,7 @@
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
+#include "tooltip/Lines.h"
 #include "time/Clock.h"
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
@@ -484,23 +485,11 @@ int __fastcall Script_TargetTotem(void *L) {
 // does (no Lua method dispatch). Colors are the packed `{b,g,r,a}` values
 // `FUN_GAMETOOLTIP_ADD_LINE` wants, pulled straight from `UI::ColorData`.
 
-using AddLine_t = void(__thiscall *)(void *self, const char *left, const char *right,
-                                     const void *leftColor, const void *rightColor, int wrap);
-using ClearTooltip_t = void(__fastcall *)(void *self);
-using ShowScript_t = int(__fastcall *)(void *L); // engine's Script_Show
-
 // Retail's two line colors, read verbatim from the 3.3.5 binary's SetTotem
 // color data: name = NORMAL_FONT_COLOR (0xFFFFD200), time = white. Both are
 // already in the 0xAARRGGBB packing the line-color setter consumes.
 constexpr uint32_t kNameColor = UI::ColorData::ByTag("NORMAL_FONT_COLOR");
 constexpr uint32_t kTimeColor = UI::ColorData::ByTag("HIGHLIGHT_FONT_COLOR");
-
-// Left-aligned colored line via the engine's raw add-line. `color` must
-// outlive the call (its address is passed through).
-void AddColoredLine(void *self, const char *text, const uint32_t &color) {
-    reinterpret_cast<AddLine_t>(Offsets::FUN_GAMETOOLTIP_ADD_LINE)(
-        self, text, nullptr, &color, nullptr, 0);
-}
 
 // `GameTooltip:SetTotem(slot)` — a TBC (2.4.0) tooltip method backported to
 // 1.12. Fills the tooltip with the slot's active totem, mirroring retail's
@@ -549,8 +538,8 @@ int __fastcall Script_GameTooltipSetTotem(void *L) {
     if (t.durationMs != 0)
         msLeft = Time::Clock::Remaining(t.startMs + t.durationMs);
 
-    reinterpret_cast<ClearTooltip_t>(Offsets::FUN_GAMETOOLTIP_CLEAR)(self);
-    AddColoredLine(self, name, kNameColor);
+    Tooltip::Lines::Clear(self);
+    Tooltip::Lines::Add(self, name, kNameColor);
 
     if (msLeft > 0) {
         const int savedTop = Game::Lua::GetTop(L);
@@ -565,13 +554,13 @@ int __fastcall Script_GameTooltipSetTotem(void *L) {
         }
         const char *timeText = Game::Lua::ToString(L, -1);
         if (timeText != nullptr)
-            AddColoredLine(self, timeText, kTimeColor);
+            Tooltip::Lines::Add(self, timeText, kTimeColor);
         Game::Lua::SetTop(L, savedTop);
     }
 
     // Show ourselves — self is still at Lua stack index 1, which is what
     // Script_Show reads.
-    reinterpret_cast<ShowScript_t>(Offsets::FUN_SCRIPT_FRAME_SHOW)(L);
+    Tooltip::Lines::Show(L);
     return 0;
 }
 

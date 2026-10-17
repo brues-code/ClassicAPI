@@ -43,6 +43,8 @@
 #include "Offsets.h"
 #include "quest/Cache.h"
 #include "spell/Tooltip.h"
+#include "tooltip/Lines.h"
+#include "ui/ColorData.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -54,9 +56,6 @@ namespace Tooltip::Hyperlink {
 namespace {
 
 using ScriptFn_t = int(__fastcall *)(void *L);
-using AddLine_t = void(__thiscall *)(void *self, const char *left, const char *right,
-                                     const void *leftColor, const void *rightColor, int wrap);
-using ClearTooltip_t = void(__fastcall *)(void *self);
 using Substitute_t = void(__fastcall *)(const char *src, char *dst, uint32_t size,
                                         const uint64_t *playerGuid);
 
@@ -70,14 +69,17 @@ bool HasPrefix(const char *s, size_t len, const char *prefix) {
     return len > n && _strnicmp(s, prefix, n) == 0;
 }
 
-// Left-aligned line via the engine's raw add-line. Its color arg points at a
-// packed 0xAARRGGBB value (see FUN_GAMETOOLTIP_ADD_LINE); the local keeps the
-// address valid across the call.
-void AddLine(void *self, const char *text, double r, double g, double b, bool wrap) {
-    auto ch = [](double v) { return static_cast<uint32_t>(v * 255.0 + 0.5); };
-    const uint32_t color = 0xFF000000u | (ch(r) << 16) | (ch(g) << 8) | ch(b);
-    reinterpret_cast<AddLine_t>(Offsets::FUN_GAMETOOLTIP_ADD_LINE)(
-        self, text, nullptr, &color, nullptr, wrap ? 1 : 0);
+// Quest title in the white of a tooltip header, objectives in the gold of
+// tooltip body text. Both are already in the 0xAARRGGBB packing the
+// line-color setter consumes.
+constexpr uint32_t kTitleColor = UI::ColorData::ByTag("HIGHLIGHT_FONT_COLOR");
+constexpr uint32_t kTextColor = UI::ColorData::ByTag("NORMAL_FONT_COLOR");
+
+// Empties the tooltip at stack[1], so a link with no valid ID never leaves
+// the previous tooltip's lines behind.
+void ClearTooltip(void *L) {
+    if (void *self = Game::Lua::ResolveTooltip(L))
+        Tooltip::Lines::Clear(self);
 }
 
 // The quest query is only sent with a callback to run on the answer. The
@@ -88,13 +90,12 @@ void __stdcall QuestLoaded(void *userData, int success) {
     (void)success;
 }
 
-// `quest:<questID>[:level]`, self at stack[1]. Title in the white header
-// line, objectives in the gold of tooltip body text.
+// `quest:<questID>[:level]`, self at stack[1].
 void ShowQuest(void *L, uint32_t questID) {
     void *self = Game::Lua::ResolveTooltip(L);
     if (self == nullptr)
         return;
-    reinterpret_cast<ClearTooltip_t>(Offsets::FUN_GAMETOOLTIP_CLEAR)(self);
+    Tooltip::Lines::Clear(self);
     if (questID == 0)
         return;
 
@@ -108,7 +109,7 @@ void ShowQuest(void *L, uint32_t questID) {
     const char *title = reinterpret_cast<const char *>(quest + Quest::Cache::OFF_TITLE);
     if (title[0] == '\0')
         return;
-    AddLine(self, title, 1.0, 1.0, 1.0, false);
+    Tooltip::Lines::Add(self, title, kTitleColor);
 
     const char *objectives =
         reinterpret_cast<const char *>(quest + Quest::Cache::OFF_OBJECTIVES);
@@ -117,11 +118,10 @@ void ShowQuest(void *L, uint32_t questID) {
         const uint64_t guid = Unit::Identity::PlayerGuid();
         reinterpret_cast<Substitute_t>(Offsets::FUN_QUEST_TEXT_SUBSTITUTE)(
             objectives, text, sizeof(text), &guid);
-        AddLine(self, text, 1.0, 0.82, 0.0, true);
+        Tooltip::Lines::Add(self, text, kTextColor, /*wrap=*/true);
     }
 
-    // Script_Show reads self at stack[1].
-    reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_FRAME_SHOW)(L);
+    Tooltip::Lines::Show(L);
 }
 
 int __fastcall SetHyperlink_h(void *L) {
@@ -138,7 +138,13 @@ int __fastcall SetHyperlink_h(void *L) {
     }
 
     if (HasPrefix(payload, len, "spell:")) {
-        Spell::Tooltip::ShowByID(L, std::atoi(payload + 6));
+        // The spell builder clears the tooltip itself; ShowByID skips it
+        // for an ID <= 0.
+        const int spellID = std::atoi(payload + 6);
+        if (spellID > 0)
+            Spell::Tooltip::ShowByID(L, spellID);
+        else
+            ClearTooltip(L);
         return 0;
     }
     if (HasPrefix(payload, len, "quest:")) {

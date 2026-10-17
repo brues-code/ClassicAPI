@@ -55,6 +55,7 @@
 #include "equipmentset/Locations.h"
 #include "equipmentset/Set.h"
 #include "item/Record.h"
+#include "tooltip/Lines.h"
 
 #include <cstdint>
 
@@ -62,41 +63,23 @@ namespace EquipmentSet::Tooltip {
 
 namespace {
 
-using AddLine_t = void(__thiscall *)(void *self, const char *left, const char *right,
-                                     const void *leftColor, const void *rightColor, int wrap);
-using ClearTooltip_t = void(__fastcall *)(void *self);
-using ShowScript_t = int(__fastcall *)(void *L); // engine's Script_Show
-
-// Packs r,g,b (0..1) into the 0xAARRGGBB value FUN_GAMETOOLTIP_ADD_LINE's
-// color arg wants — its little-endian bytes are the {b,g,r,a} the engine's
-// line-color setter reads. Alpha is always opaque.
-uint32_t Pack(double r, double g, double b) {
-    auto ch = [](double v) {
-        const int i = static_cast<int>(v * 255.0 + 0.5);
-        return static_cast<uint32_t>(i < 0 ? 0 : (i > 255 ? 255 : i));
-    };
-    return 0xFF000000u | (ch(r) << 16) | (ch(g) << 8) | ch(b);
-}
-
-// Left-aligned colored line via the engine's raw add-line. The packed
-// color is a local so its address stays valid across the call.
-void AddColoredLine(void *self, const char *text, double r, double g, double b) {
-    const uint32_t color = Pack(r, g, b);
-    reinterpret_cast<AddLine_t>(Offsets::FUN_GAMETOOLTIP_ADD_LINE)(
-        self, text, nullptr, &color, nullptr, 0);
-}
+// Line colors, packed 0xAARRGGBB as ::Tooltip::Lines::Add wants.
+constexpr uint32_t kWhite = 0xFFFFFFFFu;
+constexpr uint32_t kGreen = 0xFF00FF00u;
+constexpr uint32_t kGray = 0xFF808080u;
+constexpr uint32_t kRed = 0xFFFF0000u;
 
 // Adds one localized "N unit" line: `string.format(_G[globalName] or
 // fallback, n)` (the project's GlobalString localize-or-fallback helper,
 // with the C `fallback` for servers stripped of the standard strings),
 // then the native colored add-line.
 void AddLocalizedLineInt(void *L, void *self, const char *globalName,
-                         const char *fallback, int n, double r, double g, double b) {
+                         const char *fallback, int n, const uint32_t &color) {
     const int savedTop = Game::Lua::GetTop(L);
     Game::Lua::PushLocalizedFormatInt(L, globalName, fallback, n);
     const char *text = Game::Lua::ToString(L, -1);
     if (text != nullptr)
-        AddColoredLine(self, text, r, g, b);
+        ::Tooltip::Lines::Add(self, text, color);
     Game::Lua::SetTop(L, savedTop);
 }
 
@@ -173,8 +156,8 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
 
     // Header — set name, white. Clear first so it lands as line 0
     // (the clear resets the line count the add-line body indexes from).
-    reinterpret_cast<ClearTooltip_t>(Offsets::FUN_GAMETOOLTIP_CLEAR)(self);
-    AddColoredLine(self, s->name.c_str(), 1.0, 1.0, 1.0);
+    ::Tooltip::Lines::Clear(self);
+    ::Tooltip::Lines::Add(self, s->name.c_str(), kWhite);
 
     // Body lines — try Blizzard's localized FORMAT_* globals first.
     // Same key names retail FrameXML uses (`ITEMS_VARIABLE_QUANTITY`,
@@ -182,19 +165,19 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     // override by reassigning `_G[name]` at runtime. The fallbacks
     // only fire on servers stripped of the standard GlobalStrings.
     AddLocalizedLineInt(L, self, "ITEMS_VARIABLE_QUANTITY", "%d items",
-                        totalSlots, 1.0, 1.0, 1.0);
+                        totalSlots, kWhite);
 
     if (t.equipped > 0) {
         AddLocalizedLineInt(L, self, "ITEMS_EQUIPPED", "%d equipped",
-                            t.equipped, 0.0, 1.0, 0.0); // green
+                            t.equipped, kGreen);
     }
     if (t.inInventory > 0) {
         AddLocalizedLineInt(L, self, "ITEMS_IN_INVENTORY", "%d in inventory",
-                            t.inInventory, 1.0, 1.0, 1.0);
+                            t.inInventory, kWhite);
     }
     if (t.ignored > 0) {
         AddLocalizedLineInt(L, self, "ITEM_SLOTS_IGNORED", "%d slots ignored",
-                            t.ignored, 0.5, 0.5, 0.5); // gray
+                            t.ignored, kGray);
     }
     // Missing slots: list each by name using the itemID we stored at
     // save time, then look the name up in the item cache. Matches the
@@ -231,7 +214,7 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
         Game::Lua::Call(L, 2, 1);
         const char *line = Game::Lua::ToString(L, -1);
         if (line != nullptr)
-            AddColoredLine(self, line, 1.0, 0.0, 0.0); // red
+            ::Tooltip::Lines::Add(self, line, kRed);
         Game::Lua::SetTop(L, savedTop);
     }
     if (unnamedMissing > 0) {
@@ -239,12 +222,12 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
         // No Blizzard format global maps cleanly here; addons can
         // override with `_G.CLASSICAPI_EQUIPMENTSET_MISSING`.
         AddLocalizedLineInt(L, self, "CLASSICAPI_EQUIPMENTSET_MISSING",
-                            "%d missing", unnamedMissing, 1.0, 0.0, 0.0);
+                            "%d missing", unnamedMissing, kRed);
     }
 
     // Show ourselves — self is still at Lua stack index 1 (Script_Show
     // reads it there). Retail's SetEquipmentSet shows internally too.
-    reinterpret_cast<ShowScript_t>(Offsets::FUN_SCRIPT_FRAME_SHOW)(L);
+    ::Tooltip::Lines::Show(L);
     return 0;
 }
 

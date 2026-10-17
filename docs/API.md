@@ -7428,10 +7428,9 @@ GameTooltip:Show()
 
 ### `GameTooltip:SetHyperlink(link)`
 
-Takes a full chat link as well as its `item:...` payload, and shows
-`spell:` and `quest:` links, as on 3.x clients. Vanilla accepts only a bare
-`item:` or `enchant:` payload and raises "Unknown link type" for anything
-else, including the full links `GetContainerItemLink` and chat hand out.
+Shows the tooltip for a link. The link can be a full chat link or only its
+payload (the text between `|H` and `|h`). The method also shows `spell:`
+and `quest:` links.
 
 ```lua
 GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
@@ -7442,18 +7441,21 @@ GameTooltip:SetHyperlink("quest:783")
 
 | Link | Shows |
 | --- | --- |
-| `\|H<payload>\|h[text]\|h` | The payload, as below |
-| `item:`, `enchant:` | The engine's own tooltip, unchanged |
-| `spell:<spellID>` | The spell tooltip, as [`SetSpellByID`](#gametooltipsetspellbyidspellid) |
-| `quest:<questID>[:level]` | The quest's title, then its objectives text with `$N`-style tokens expanded, as the quest log shows it |
+| `\|H<payload>\|h[text]\|h` | The tooltip for the payload, as in the rows below |
+| `item:`, `enchant:` | The item or enchant tooltip |
+| `spell:<spellID>` | The spell tooltip, the same as [`SetSpellByID`](#gametooltipsetspellbyidspellid) |
+| `quest:<questID>[:level]` | The quest title, then the objectives text. Tokens such as `$N` are expanded, as in the quest log. |
 
-Other link types (`achievement:`, `talent:`, ...) still raise "Unknown link
-type": vanilla has no data behind them.
+Other link types (for example `achievement:` and `talent:`) raise the error
+"Unknown link type".
 
-A quest link reads the quest cache. If the quest isn't cached yet, the
-tooltip stays empty (a scanning tooltip sees `NumLines() == 0`) and the
-client asks the server for it, the same query the quest log makes; a later
-`SetHyperlink` shows it. To know when it has arrived, request it with
+If the spell ID or quest ID is not valid, the tooltip is empty.
+
+A quest link reads the quest cache. If the quest is not in the cache, the
+tooltip is empty (a scanning tooltip gets `NumLines() == 0`). The client
+then asks the server for the quest, with the same query the quest log
+sends. Call `SetHyperlink` again after the data arrives. To know when the
+data arrives, call
 [`C_QuestLog.RequestLoadQuestByID`](#c_questlogrequestloadquestbyidquestid)
 and wait for `QUEST_DATA_LOAD_RESULT`.
 
