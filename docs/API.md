@@ -262,6 +262,8 @@ build instructions.
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`](#framesetclamprectinsetsleft-right-top-bottom--framegetclamprectinsets)
+  - [`button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`](#buttonsetnormalfontobjectfont--buttongetnormalfontobject)
+  - [`frame:IsProtected()`](#frameisprotected)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
@@ -6122,6 +6124,24 @@ frame:SetClampRectInsets(0, 0, -25, 0)   -- the top 25 may leave the screen
 
 When the grown rect is larger than the screen, it ends up flush with the
 top right.
+
+### `button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`
+
+Sets or gets the font of the button's text in its normal state. These
+methods are the same as `button:SetTextFontObject(font)` and
+`button:GetTextFontObject()`. The highlight and disabled font methods keep
+their names.
+
+```lua
+button:SetNormalFontObject(GameFontHighlight)   -- same as SetTextFontObject
+button:GetNormalFontObject()                    -- same as GetTextFontObject
+```
+
+### `frame:IsProtected()`
+
+Returns `isProtected, isProtectedExplicitly`. Both values are always
+`false`, for every frame. Libraries such as AceHook-3.0 call this method
+before they hook the scripts of a frame.
 
 ### `frame:HookScript(scriptType, handler)`
 
