@@ -6071,10 +6071,12 @@ end)
 
 ### `smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`
 
-On ScrollingMessageFrame and SimpleHTML frames, the two types 3.3.5 has
-them on. With hyperlinks off, the frame's `OnHyperlinkEnter`,
-`OnHyperlinkLeave` and `OnHyperlinkClick` scripts don't run; the links still
-show in the text. On by default, which is how vanilla always behaves.
+On ScrollingMessageFrame and SimpleHTML frames. With hyperlinks off, the
+frame's `OnHyperlinkEnter` and `OnHyperlinkClick` scripts don't run. The
+links still show in the text. `OnHyperlinkLeave` still runs, so a tooltip
+that was open when you turned hyperlinks off still closes. Hyperlinks are on
+by default. If you call `SetHyperlinksEnabled()` with no argument, it turns
+them on.
 
 ```lua
 ChatFrame1:SetHyperlinksEnabled(false)   -- links in this chat window stop reacting
