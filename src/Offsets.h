@@ -127,7 +127,9 @@ enum Offsets {
     // VAR_SPELL_RECORDS whose record has `+0x0C == 3` ->
     // FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP), else raises "Unknown link type"
     // (`0x00532269`). A full `|H...|h` link fails the prefix test. Co-hooked
-    // by `Tooltip::Hyperlink` for full links and `spell:` / `quest:`.
+    // by `Tooltip::Hyperlink` for full links, `spell:` / `quest:`, and
+    // trade-skill `enchant:` links. SuperWoW patches a jump at `0x00532210`
+    // (after the `item:` test) that adds `quest:` and resumes at `enchant:`.
     FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK = 0x00531FD0, // slot 12
     // `SetAction(slot)`: cooldown via FUN_ACTION_SLOT_COOLDOWN, clear, then
     // attack → "ATTACK" text; item-by-ID → FUN_GAMETOOLTIP_BUILD_ITEM (owned
@@ -4324,6 +4326,16 @@ enum Offsets {
     // `TradeSkill::Link` uses to build the canonical recipe universe.
     OFF_SLA_TRIVIAL_SKILL_HIGH = 0x28,
     OFF_SLA_TRIVIAL_SKILL_LOW = 0x2C,
+    // The engine's (race, class, spellID) -> SkillLineAbility record lookup:
+    // `const uint8_t *__fastcall(char race /*ecx*/, char classId /*edx*/,
+    // uint32_t spellID /*stack*/)`, RET 4, NULL on a miss (disassembly).
+    // Reads the hash FUN_006dda50 builds once at boot from every ChrBaseInfo
+    // race/class pair crossed with every SLA row that passes the
+    // SkillRaceClassInfo and race/class-mask gates (FUN_006ddbe0). The
+    // trade-skill rebuild FUN_004fca20 calls it per recipe with the player's
+    // descriptor race/class bytes (+0x78/+0x79). The 1.12 twin of 3.3.5's
+    // SpellTableLookupAbility (0x00812410).
+    FUN_SKILL_LINE_ABILITY_LOOKUP = 0x006DE040,
 
     // SkillLine.dbc — the skill/category each SLA row points into via
     // its `skillId` field. Each record carries a 9-locale localized
@@ -8513,6 +8525,13 @@ enum Offsets {
     OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
+    // Attributes bit 5 — a profession recipe (SPELL_ATTR_TRADESPELL). Set on
+    // all 1,733 trade-skill recipes in the extracted Spell.dbc and on none of
+    // Enchanting's craft spells (those have record +0x0C == 3 instead, the
+    // engine's `enchant:` link gate). 3.3.5 gates GetTradeSkillRecipeLink and
+    // SetHyperlink's `enchant:` on this bit, and its UnitCastingInfo reports
+    // it as isTradeskill.
+    SPELL_ATTR_TRADESPELL = 0x20,
     // Attributes bits 2 (0x4) and 10 (0x400) — "on next melee swing" (the
     // ability replaces the next white hit instead of sending its own attack,
     // e.g. Heroic Strike / Maul / Raptor Strike). The CLIENT itself tests

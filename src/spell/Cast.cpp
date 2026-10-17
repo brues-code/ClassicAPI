@@ -93,12 +93,6 @@ namespace {
 using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int unit, int flag);
 using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord, int unit, int skipMod);
 
-// SPELL_ATTR_TRADESPELL — set on profession recipe casts (enchant,
-// cooking with a cast, etc.). The version-stable `isTradeskill` source:
-// 3.3.5's Script_UnitCastingInfo reads bit 0x20 of Attributes (at +0x10
-// there, +0x18 here — the bit value is the same across builds).
-constexpr uint32_t SPELL_ATTR_TRADESPELL = 0x20;
-
 // SPELL_ATTR_RANGED — every ranged ability carries it; the server adds a
 // flat +500ms "aim time" to these (SpellEntry::GetCastTime). Auto-repeat
 // shots (Auto Shot / Shoot, AttributesEx2 bit 0x20) are the one exclusion.
@@ -276,7 +270,7 @@ const char *SpellName(const uint8_t *rec) {
 
 bool IsTradeskill(const uint8_t *rec) {
     return (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
-            SPELL_ATTR_TRADESPELL) != 0;
+            Offsets::SPELL_ATTR_TRADESPELL) != 0;
 }
 
 // Spell icon texture path, or "" if there's no icon record. SpellIcon.dbc

@@ -26,13 +26,24 @@
 // Co-hook:
 //   - A full link is reduced to its payload, the text between `|H` and `|h`.
 //   - `spell:<spellID>` builds the tooltip GameTooltip:SetSpellByID builds.
+//   - `enchant:<spellID>` for a trade-skill recipe (SPELL_ATTR_TRADESPELL)
+//     builds the same spell tooltip, as 3.3.5's SetHyperlink does. The
+//     engine's own `enchant:` test only takes Enchanting's craft spells
+//     (record +0x0C == 3, which no trade-skill recipe has) and raises
+//     "Unknown link type" for the rest, so the recipe links from
+//     GetTradeSkillRecipeLink, and from SuperWoW's
+//     `GetTradeSkillItemLink(index, 1)`, could not be shown. Craft spells
+//     still go to the engine. SuperWoW's own SetHyperlink patch is a jump
+//     at 0x00532210, after the engine's `item:` test, that adds `quest:`
+//     and otherwise resumes at the engine's `enchant:` test; this co-hook
+//     runs at the function's entry, before it.
 //   - `quest:<questID>[:level]` shows the quest's title, then its objectives
 //     text with the `$N`-style tokens expanded as the quest log shows them,
 //     both from the quest cache. A quest the cache doesn't hold yet leaves
 //     the tooltip empty and queues the server query the quest log would
 //     make (once per quest - see Quest::Cache::Lookup's `unique`); the next
 //     SetHyperlink after the answer shows it.
-//   - Everything else - `item:`, `enchant:`, and the error for link types
+//   - Everything else - `item:`, other `enchant:` links, and the error for link types
 //     vanilla has no data for (`achievement:`, `talent:`, ...) - is the
 //     engine's own, run on the payload.
 //
@@ -42,6 +53,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "quest/Cache.h"
+#include "spell/Lookup.h"
 #include "spell/Tooltip.h"
 #include "tooltip/Lines.h"
 #include "ui/ColorData.h"
@@ -146,6 +158,16 @@ int __fastcall SetHyperlink_h(void *L) {
         else
             ClearTooltip(L);
         return 0;
+    }
+    if (HasPrefix(payload, len, "enchant:")) {
+        const int spellID = std::atoi(payload + 8);
+        const uint8_t *record = Spell::Lookup::RecordForID(spellID);
+        if (record != nullptr &&
+            (Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+             Offsets::SPELL_ATTR_TRADESPELL) != 0) {
+            Spell::Tooltip::ShowByID(L, spellID);
+            return 0;
+        }
     }
     if (HasPrefix(payload, len, "quest:")) {
         ShowQuest(L, static_cast<uint32_t>(std::strtoul(payload + 6, nullptr, 10)));
