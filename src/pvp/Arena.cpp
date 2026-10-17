@@ -24,9 +24,11 @@
 // flag `Script_GetZonePVPInfo` reports as its isArena return. Verified against
 // the extracted DBCs: Turtle's arena maps 26 (Blood Ring) and 28 (Lordaeron
 // Arena) are type 3 with areas 4014 / 4013 flagged 0x80, and no battleground
-// area has the flag. The type-3 gate excludes the open-world free-for-all
-// rings (Gurubashi, The Maul, Rumble Cage), which are flagged but sit on
-// type-0 continents.
+// area has the flag. Server side (tortoise-wow SharedDefines.h,
+// GetBattleGrounMapIdByTypeId) the one arena type, BATTLEGROUND_BR, always
+// creates map 26; map 28 is client data only. The type-3 gate excludes the
+// open-world free-for-all rings (Gurubashi, The Maul, Rumble Cage), which are
+// flagged but sit on type-0 continents.
 //
 // Both the zone and the subzone are checked. `Script_GetZonePVPInfo` reads
 // only the subzone, which is 0 on the arena maps: their areas are top-level
