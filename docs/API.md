@@ -25,6 +25,7 @@ build instructions.
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
   - [SavedVariables loaded first](#savedvariables-loaded-first)
+  - [`<Script file>` paths in XML files](#script-file-paths-in-xml-files)
 
 - [APIDocumentation](#apidocumentation)
   - [`/classicapi`](#classicapi)
@@ -1334,6 +1335,19 @@ ClassicAPI removes the restart requirement. On every `/reload`:
   it. `GetAddOnMetadata` returns the new values.
 - **Deleting an addon folder removes it from the addon list** on the
   next `/reload`.
+
+### `<Script file>` paths in XML files
+
+A `<Script file>` path that has a folder in it, such as
+`<Script file="widgets\Button.lua"/>`, loads relative to the folder of its
+XML file, the same as `<Include file>`. Libraries such as AceGUI-3.0 load
+their files this way.
+
+A path that exists as given, such as
+`<Script file="Interface\AddOns\MyAddon\Button.lua"/>`, still loads from
+there. The XML file's folder is tried only when the path does not exist as
+given, and only when the file is in that folder. If the file is in neither
+place, `FrameXML.log` shows "Error loading" with the path.
 
 ## APIDocumentation
 

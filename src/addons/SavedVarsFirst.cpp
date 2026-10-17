@@ -35,18 +35,19 @@
 // The engine STILL runs its own SavedVariables load at the normal step, right
 // after the files. Left alone, that re-load would overwrite any value the
 // addon wrote to its SavedVariable at file scope before ADDON_LOADED. So we
-// also co-hook FUN_LUA_LOAD_FILE and suppress that one redundant re-load: each
-// path we pre-load is remembered, and the engine's imminent load of that exact
-// path is skipped once. This makes the behavior match true
-// LoadSavedVariablesFirst — file-scope reads AND writes both survive. Our own
-// early load calls the trampoline directly, so it is never self-suppressed.
-// FUN_LUA_LOAD_FILE loads FILES only (not RunScript string execution), so the
-// extra hook is a cold, addon-load-time path.
+// also suppress that one redundant re-load, through Script::LoadFile's shared
+// FUN_LUA_LOAD_FILE hook: each path we pre-load is remembered, and the
+// engine's imminent load of that exact path is skipped once. This makes the
+// behavior match true LoadSavedVariablesFirst — file-scope reads AND writes
+// both survive. Our own early load calls Script::LoadFile::Original, so it is
+// never self-suppressed. FUN_LUA_LOAD_FILE loads FILES only (not RunScript
+// string execution), so this is a cold, addon-load-time path.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/EngineIO.h"
 #include "addons/Toc.h"
+#include "script/LoadFile.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -67,14 +68,12 @@ using AddOns::EngineIO::FileExistsFn;
 using AddOns::EngineIO::FileReadFn;
 using AddOns::EngineIO::SMemFreeFn;
 using LoadTocFilesFn = uint32_t(__fastcall *)(char *tocPath, int *a2, int *a3);
-using LuaLoadFileFn = uint32_t(__fastcall *)(const char *path, void *a2, void *a3);
 using NameFn = const char *(*)(); // no-arg readers (return in EAX)
 
 LoadTocFilesFn g_orig = nullptr;
-LuaLoadFileFn g_origLuaLoad = nullptr;
 
 // Full SV paths we pre-loaded whose imminent engine re-load must be skipped
-// once. Populated in LoadSavedVarsEarly, drained by LuaLoad_h. Only ever holds
+// once. Populated in LoadSavedVarsEarly, drained by SuppressReload. Only ever holds
 // a handful of entries (one addon's SV files, briefly). Main-thread only.
 std::vector<std::string> g_pendingSuppress;
 
@@ -173,12 +172,10 @@ bool FileExists(const char *path) {
 
 // Load a SavedVariables file we found, then mark its path so the engine's own
 // re-load of it (right after the addon's files) is suppressed — preserving any
-// file-scope write. Calls the trampoline directly so this load is never itself
-// suppressed by our LuaLoad_h hook.
+// file-scope write. Calls the engine loader directly so this load is never
+// itself suppressed by SuppressReload.
 void RunLuaFile(const char *path) {
-    if (g_origLuaLoad == nullptr)
-        return;
-    g_origLuaLoad(path, nullptr, nullptr);
+    Script::LoadFile::Original(path, nullptr, nullptr);
     g_pendingSuppress.emplace_back(path);
 }
 
@@ -241,18 +238,16 @@ uint32_t __fastcall LoadTocFiles_h(char *tocPath, int *a2, int *a3) {
 // Skip the engine's one redundant SavedVariables re-load per pre-loaded path.
 // Every other file load passes straight through. Match is by full path
 // (case-insensitive); a path is suppressed exactly once, so nothing else is
-// affected. Our own early load bypasses this via the trampoline.
-uint32_t __fastcall LuaLoad_h(const char *path, void *a2, void *a3) {
-    if (path != nullptr) {
-        for (size_t i = 0; i < g_pendingSuppress.size(); ++i) {
-            if (SamePathCI(g_pendingSuppress[i].c_str(), path)) {
-                g_pendingSuppress.erase(g_pendingSuppress.begin() +
-                                        static_cast<std::ptrdiff_t>(i));
-                return 0; // suppress — the addon's file-scope SV writes survive
-            }
+// affected. Our own early load bypasses this through Original.
+bool SuppressReload(const char *path) {
+    for (size_t i = 0; i < g_pendingSuppress.size(); ++i) {
+        if (SamePathCI(g_pendingSuppress[i].c_str(), path)) {
+            g_pendingSuppress.erase(g_pendingSuppress.begin() +
+                                    static_cast<std::ptrdiff_t>(i));
+            return true; // suppress — the addon's file-scope SV writes survive
         }
     }
-    return g_origLuaLoad(path, a2, a3);
+    return false;
 }
 
 const Game::HookAutoRegister _hook{
@@ -260,10 +255,7 @@ const Game::HookAutoRegister _hook{
     reinterpret_cast<void *>(&LoadTocFiles_h),
     reinterpret_cast<void **>(&g_orig)};
 
-const Game::HookAutoRegister _hookLua{
-    Offsets::FUN_LUA_LOAD_FILE,
-    reinterpret_cast<void *>(&LuaLoad_h),
-    reinterpret_cast<void **>(&g_origLuaLoad)};
+const Script::LoadFile::AutoSuppress _suppress{&SuppressReload};
 
 } // namespace
 
