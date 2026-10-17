@@ -1406,6 +1406,114 @@ int32_t ConsumeTriggeredApplication(uint64_t victim, const uint8_t *rec,
 // keeps the parse short and robust.
 constexpr int kMaxTargets = 16;
 
+// ---- Triggered auras (SPELL_EFFECT_TRIGGER_SPELL) -------------------------
+//
+// An effect of type TRIGGER_SPELL makes the server cast EffectTriggerSpell[i]
+// as a side effect of the cast — Pounce 9005 → Pounce Bleed 9007 (Spell.dbc:
+// Effect = {6, 64, 80}, EffectTriggerSpell = {0, 9007, 0}). When the
+// triggered spell's own SMSG_SPELL_GO never reaches the client, its aura is
+// seated caster-less by OnAuraAdded. The trigger's SPELL_GO names the caster,
+// so attribution goes through it, read off the DBC link rather than a table.
+//
+// A hit by the TRIGGER doesn't prove the triggered aura landed: a target
+// immune to bleed takes Pounce's stun but not its bleed. So a fresh
+// application is ARMED, and only the application hook — the descriptor proof
+// that it landed — consumes the arm (same shape as the judgement arm above).
+// An instance this caster already holds on the target is refreshed in place
+// as well: the server's re-apply reuses the descriptor slot, so no
+// OnAuraAdded fires (the remove+add RefreshTriggeredExisting mirrors).
+//
+// Any caster: nothing here needs the caster's talents, and a remote caster
+// gets the base duration exactly as their directly cast auras do.
+
+struct TrigAuraArm {
+    uint64_t victim; // 0 = empty
+    uint64_t caster;
+    uint32_t spellId; // the triggered aura
+    uint32_t untilMs;
+};
+constexpr int kTrigAuraArmMax = 8;
+constexpr uint32_t kTrigAuraArmTtlMs = 2000;
+TrigAuraArm g_trigAuraArms[kTrigAuraArmMax];
+
+void ArmTriggeredAura(uint64_t victim, uint32_t spellId, uint64_t caster,
+                      uint32_t now) {
+    TrigAuraArm *slot = nullptr;
+    for (auto &a : g_trigAuraArms) {
+        if (a.victim == victim && a.spellId == spellId && a.caster == caster) {
+            slot = &a; // re-trigger inside the TTL — refresh in place
+            break;
+        }
+        if (slot == nullptr &&
+            (a.victim == 0 || Time::Clock::Reached(now, a.untilMs)))
+            slot = &a;
+    }
+    if (slot == nullptr)
+        slot = &g_trigAuraArms[0]; // all live — steal the first
+    *slot = {victim, caster, spellId, now + kTrigAuraArmTtlMs};
+}
+
+// The caster armed for `spellId` landing on `victim`, or 0. One-shot.
+uint64_t ConsumeTriggeredAura(uint64_t victim, uint32_t spellId, uint32_t now) {
+    if (victim == 0)
+        return 0;
+    for (auto &a : g_trigAuraArms) {
+        if (a.victim != victim || a.spellId != spellId ||
+            Time::Clock::Reached(now, a.untilMs))
+            continue;
+        const uint64_t caster = a.caster;
+        a = {};
+        return caster;
+    }
+    return 0;
+}
+
+// Duration of an aura cast by `caster`. Combo-point finishers (Rupture,
+// Kidney Shot, …) have their real duration computed at cast time from the
+// combo points spent — the base-duration helper can't know it.
+// ComboDuration mirrors the server's computation from the CP snapshot its
+// send hook captured; 0 means "not combo-scaled", fall through to the base
+// path. 0 overall = unknown.
+uint32_t CastDurationMs(const uint8_t *rec, uint32_t spellId,
+                        bool casterIsPlayer) {
+    const uint32_t comboMs =
+        casterIsPlayer ? ComboDuration::TryComboScaledMs(rec, spellId) : 0;
+    return comboMs != 0 ? comboMs : SpellDurationMs(rec, casterIsPlayer);
+}
+
+void ApplyTriggeredAuras(uint64_t caster, uint32_t spellId, const uint8_t *rec,
+                         const uint64_t *targets, int numTargets) {
+    if (rec == nullptr)
+        return;
+    const auto *effects = reinterpret_cast<const int32_t *>(
+        rec + Offsets::OFF_SPELL_RECORD_EFFECT);
+    const auto *triggered = reinterpret_cast<const int32_t *>(
+        rec + Offsets::OFF_SPELL_RECORD_EFFECT_TRIGGER_SPELL);
+    const bool casterIsPlayer = (caster == Unit::Identity::PlayerGuid());
+    const uint32_t now = NowMs();
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
+        if (effects[i] != Offsets::SPELL_EFFECT_TRIGGER_SPELL ||
+            triggered[i] <= 0)
+            continue;
+        const auto auraId = static_cast<uint32_t>(triggered[i]);
+        if (auraId == spellId)
+            continue;
+        const uint8_t *auraRec = Spell::Lookup::RecordForID(triggered[i]);
+        if (!SpellAppliesAura(auraRec))
+            continue;
+        const uint32_t durationMs =
+            CastDurationMs(auraRec, auraId, casterIsPlayer);
+        const uint32_t expirationMs = durationMs > 0 ? now + durationMs : 0;
+        for (int t = 0; t < numTargets; ++t) {
+            ArmTriggeredAura(targets[t], auraId, caster, now);
+            if (FindByCaster(targets[t], auraId, caster) != nullptr &&
+                DescriptorListsAura(targets[t], auraId))
+                StoreFromCast(targets[t], auraId, caster, expirationMs,
+                              durationMs);
+        }
+    }
+}
+
 // The self-contained SPELL_GO processing (succeeded events, server-side
 // duration edits, aura-source caching). None of it reads engine descriptor
 // state, so it's order-independent of the engine's own SPELL_GO handler —
@@ -1455,19 +1563,23 @@ void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
         for (int i = 0; i < numTargets; ++i)
             ArmTriggeredApplications(targets[i], spellId, rec);
 
+    // The units this cast's auras land on: the hit list, or the caster itself
+    // when the packet carries none (self-cast with a caster-implicit target).
+    // Shared by the triggered auras and the cast's own aura below.
+    const uint64_t *auraTargets = targets;
+    int numAuraTargets = numTargets;
+    if (numTargets == 0) {
+        auraTargets = &caster;
+        numAuraTargets = 1;
+    }
+
+    ApplyTriggeredAuras(caster, spellId, rec, auraTargets, numAuraTargets);
+
     if (!SpellAppliesAura(rec))
         return;
 
     const bool casterIsPlayer = (caster == Unit::Identity::PlayerGuid());
-    // Combo-point finishers (Rupture, Kidney Shot, …) have their real
-    // duration computed at cast time from the combo points spent — the
-    // base-duration helper can't know it. ComboDuration mirrors the
-    // server's computation from the CP snapshot its send hook captured;
-    // 0 means "not combo-scaled", fall through to the base path.
-    uint32_t durationMs =
-        casterIsPlayer ? ComboDuration::TryComboScaledMs(rec, spellId) : 0;
-    if (durationMs == 0)
-        durationMs = SpellDurationMs(rec, casterIsPlayer);
+    const uint32_t durationMs = CastDurationMs(rec, spellId, casterIsPlayer);
     const uint32_t expirationMs = durationMs > 0 ? NowMs() + durationMs : 0;
 
     // Let the application hooks recover the player-talented duration for this
@@ -1476,13 +1588,8 @@ void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
     if (casterIsPlayer)
         RememberPlayerCast(spellId);
 
-    if (numTargets == 0) {
-        // No explicit hit list (self-cast with caster-implicit target).
-        StoreFromCast(caster, spellId, caster, expirationMs, durationMs);
-        return;
-    }
-    for (int i = 0; i < numTargets; ++i)
-        StoreFromCast(targets[i], spellId, caster, expirationMs, durationMs);
+    for (int i = 0; i < numAuraTargets; ++i)
+        StoreFromCast(auraTargets[i], spellId, caster, expirationMs, durationMs);
 }
 
 // SMSG_SPELL_GO parse (funnel subscriber). At the leaf handler the engine has
@@ -1564,6 +1671,16 @@ void StampApplication(void *unit, uint32_t spellId, int slot) {
             if (durationMs == 0)
                 durationMs = 1;
         }
+    }
+    // A triggered-aura arm (Pounce → Pounce Bleed): the server cast this aura
+    // off a trigger whose SPELL_GO named the caster, and this application is
+    // the proof it landed. Target-scoped, so it goes before the spell-scoped
+    // recent-cast window below, for the same reason as the nettle arm.
+    if (caster == 0) {
+        caster = ConsumeTriggeredAura(unitGuid, spellId, NowMs());
+        if (caster != 0)
+            durationMs =
+                SpellDurationMs(rec, caster == Unit::Identity::PlayerGuid());
     }
     if (caster == 0) {
         const bool byPlayer = WasRecentPlayerCast(spellId);
