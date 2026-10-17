@@ -447,6 +447,7 @@ build instructions.
 - [Lua](#lua)
   - [Lua 5.1 syntax](#lua-51-syntax)
   - [Upvalue limit](#upvalue-limit)
+  - [`for` loop variables per pass](#for-loop-variables-per-pass)
   - [String methods (`s:upper()`, `s:format(...)`)](#string-methods-supper-sformat)
   - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
@@ -10918,6 +10919,32 @@ reason alone. ClassicAPI raises the limit to the same 60.
 
 Nothing changes for a function within the old limit. Past 60 the error is
 the same message with the new number: `too many upvalues (limit=60)`.
+
+### `for` loop variables per pass
+
+Each pass of a `for` loop has its own loop variables, so a function made
+inside the loop keeps the values of the pass that made it.
+
+```lua
+local show = {}
+for i, name in ipairs({ "a", "b" }) do
+    show[i] = function() return name end
+end
+show[1]()   -- "a"
+show[2]()   -- "b"
+```
+
+This applies to both `for ... in` loops and numeric loops, and to every
+function made in the loop body, at any depth.
+
+A function sees the value the variable has at the end of its pass. If the
+body changes a loop variable after it makes the function, the function sees
+the changed value.
+
+If the body assigns to a loop variable, the next pass starts from the new
+value. For example, `i = i + 1` in a numeric loop skips a pass. Lua 5.1 does
+not do this. Do not assign to loop variables in code that must work the same
+on every client.
 
 ### String methods (`s:upper()`, `s:format(...)`)
 
