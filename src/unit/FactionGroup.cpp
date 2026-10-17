@@ -13,11 +13,13 @@
 
 // `UnitFactionGroup("player")` while addons load.
 //
-// The engine's `Script_UnitFactionGroup` (0x00516630) resolves "player"
-// through the in-world unit descriptor, which does not exist until the player
-// object spawns. So during addon loading — file scope, ADDON_LOADED,
-// VARIABLES_LOADED — it returns nil, and it only starts answering at
-// PLAYER_LOGIN. UnitName, UnitRace and UnitClass already answer at that point
+// The engine's `Script_UnitFactionGroup` (0x00516630) has two branches. With
+// the unit's object in the world it reads the live faction template
+// (descriptor +0x74). Without it, it falls back to the name cache's race for
+// that GUID -> ChrRaces -> faction template. During addon loading — file
+// scope, ADDON_LOADED, VARIABLES_LOADED — the player object doesn't exist yet
+// and the name-cache lookup misses, so it returns nil, and it only starts
+// answering at PLAYER_LOGIN. UnitName, UnitRace and UnitClass already answer at that point
 // (UnitRace/UnitClass special-case "player" to the login-time race/class byte
 // globals, see VAR_PLAYER_RACE_BYTE), and later clients answer
 // UnitFactionGroup there too, so ported addons read it at file scope:
@@ -25,11 +27,12 @@
 // load on nil.
 //
 // Co-hook: run the engine function; when it answers nothing for the literal
-// "player" token, fall back to the login-time race byte and the same
-// race -> faction-group chain the engine's player branch uses
+// "player" token AND the player object doesn't exist — the engine's own
+// name-cache branch condition — run that branch ourselves, fed from the
+// login-time race byte instead of the cache
 // (Creature::Info::FactionGroupForRace). Once the player object exists the
-// engine answers by itself and this passes straight through, so in-world
-// results are unchanged.
+// engine's answer stands, nil included: a player whose live faction template
+// has no named group (e.g. while charmed by a monster) stays nil, as stock.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -55,6 +58,8 @@ int __fastcall UnitFactionGroup_h(void *L) {
     const char *token = Game::Lua::ToString(L, 1);
     if (token == nullptr || !Unit::Identity::IsPlayerToken(token))
         return n;
+    if (Unit::Identity::PlayerObject() != nullptr)
+        return n; // in world: the engine read the live faction template
 
     const uint8_t race = Game::Read<uint8_t>(Offsets::VAR_PLAYER_RACE_BYTE);
     const char *english = nullptr;

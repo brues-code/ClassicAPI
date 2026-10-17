@@ -17989,11 +17989,11 @@ profile key from it at file scope.
 UnitFactionGroup("player")   -- "Alliance", "Alliance" (stock 1.12: nil)
 ```
 
-Until the player object exists, the answer comes from the character's race,
-through the same race-to-faction chain the engine uses for the player (and
+Before you enter the world, the answer comes from the character's race. The
+engine uses the same race-to-faction chain for a player it cannot see, and
 [`C_CreatureInfo.GetFactionInfo`](#c_creatureinfogetfactioninforaceid)
-uses for a race). From then on the engine answers by itself, and other units
-are unchanged.
+uses it for a race. After you enter the world, the result is the same as
+stock, `nil` included. Results for other units do not change.
 
 ### `UnitSubName(unit)`
 
