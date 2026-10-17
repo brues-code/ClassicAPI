@@ -8829,9 +8829,10 @@ enum Offsets {
     //   TEXTURE: reads "inherits", "hidden", "alphaMode" (0x00770179).
     //   FONTSTRING: reads "inherits", "hidden", "justifyH" (0x00771308).
     // Identified by the attribute-name strings each passes to
-    // FUN_XML_NODE_GET_ATTRIBUTE. Co-hooked by xml/ParentKey.cpp.
-    // (frame/CreateFrame.cpp's graft reaches the FRAME loader through its
-    // child-sub-object call, which is this same sub-object.)
+    // FUN_XML_NODE_GET_ATTRIBUTE. Co-hooked by xml/ParentKey.cpp. The FRAME
+    // loader covers attributes, TitleRegion, ResizeBounds, Backdrop,
+    // HitRectInsets, Layers and Scripts - not <Frames>, which the finalize
+    // step builds (FUN_XML_FRAME_LOAD_CHILD_FRAMES).
     // Script-region name: the resolved global name string, stored by SetName
     // (FUN_0076C650, `mov [esi+0x98], eax` at 0x0076C6B2) right before it
     // registers the object under that name via
@@ -8846,6 +8847,14 @@ enum Offsets {
     FUN_XML_FRAME_LOAD = 0x00769820,
     FUN_XML_TEXTURE_LOAD = 0x0076FE20,
     FUN_XML_FONTSTRING_LOAD = 0x00770F40,
+    // Builds a node's <Frames> children. `__thiscall(frame, node, status)`,
+    // `ret 8`: recurses the node's `inherits` first (0x0076A092), then calls
+    // the builder FUN_006EE280 per child with EDX = frame as the parent
+    // (0x0076A0B5). In no vtable; its callers are itself and the frame
+    // finalize FUN_0076A2F0 (main vtable +0x24, the builder's last call),
+    // which runs it before firing OnLoad (+0x118) - so a parent's OnLoad
+    // sees its children built.
+    FUN_XML_FRAME_LOAD_CHILD_FRAMES = 0x0076A060,
     // The Button node loader (same sub-object convention). It calls
     // FUN_XML_FRAME_LOAD first, then loads the button's own children: each
     // font element into a font object embedded in the button - NormalFont
@@ -8865,13 +8874,13 @@ enum Offsets {
     // multi-template calls work (e.g. "UIPanelButtonTemplate,
     // SecureActionButtonTemplate"). It builds the frame with the first
     // resolved template through the engine, then applies each remaining
-    // template onto the created object with the engine's OWN inherit
-    // primitive: `frameObj->vtable[+8](templateDefNode, status)` for content
-    // (FUN_00769820) and `(frameObj+0x24)->vtable[+8](...)` for the template's
-    // `<Frames>` children (FUN_0076a060) — exactly the two `__thiscall`
-    // recursion calls the builder FUN_006ee280 emits when resolving an
-    // `inherits=`. Finalize/OnLoad (`vtable[+0x24]`) runs once during the
-    // engine build and is NOT re-run.
+    // template onto the created object with the two steps the builder
+    // FUN_006ee280 itself runs for a node: the frame's node loader
+    // `(frameObj+0x24)->vtable[+8](templateDefNode, status)` for content
+    // (FUN_XML_FRAME_LOAD for a plain Frame, the derived loader otherwise),
+    // then FUN_XML_FRAME_LOAD_CHILD_FRAMES for the `<Frames>` children. Both
+    // recurse the template's own `inherits`. The rest of finalize/OnLoad
+    // (`vtable[+0x24]`) runs once during the engine build and is NOT re-run.
     FUN_SCRIPT_CREATEFRAME = 0x007060B0,
 
     // XML-build "status" object — a printf-style error/warning accumulator the

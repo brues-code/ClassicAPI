@@ -33,14 +33,15 @@
 //      FIRST resolved template — the engine does the object creation, that
 //      template's full inherit chain, ref/name setup, and OnLoad.
 //   4. Grafts each REMAINING resolved template onto the created frame with the
-//      two `__thiscall` calls the builder `FUN_006ee280` emits per inherited
-//      node (verified at 0x006ee4ca):
-//        content        : frameObj->vtable[+8](templateDefNode, status)        (FUN_00769820)
-//        child <Frames> : (frameObj+0x24)->vtable[+8](templateDefNode, status) (FUN_0076a060)
-//      Both recurse the grafted template's own `inherits`, add its regions /
-//      backdrop / attributes / script handlers, and create its child frames —
-//      exactly as if the frame had inherited it. Later templates override
-//      earlier ones, matching modern left-to-right inherit order.
+//      two `__thiscall` steps the builder `FUN_006ee280` runs for a node:
+//        content        : (frameObj+0x24)->vtable[+8](templateDefNode, status)
+//                         (FUN_XML_FRAME_LOAD, or the derived type's loader)
+//        child <Frames> : FUN_XML_FRAME_LOAD_CHILD_FRAMES(frameObj, templateDefNode, status)
+//      The first adds the template's attributes, regions, backdrop and script
+//      handlers; the second creates its child frames, parented to frameObj.
+//      Both recurse the grafted template's own `inherits`, exactly as if the
+//      frame had inherited it. Later templates override earlier ones, matching
+//      modern left-to-right inherit order.
 //
 // OnLoad runs once, during the engine build of the first template (step 3).
 // Secondary templates' `<OnLoad>` handlers are registered (they fire on the
@@ -61,10 +62,9 @@ namespace {
 using ScriptFn_t = int(__fastcall *)(void *L);
 using TemplateLookup_t = const uint8_t *(__fastcall *)(const char *name);
 
-// XML-node applier vmethod: applies `node` (and its `inherits` chain) to
-// `self`. __thiscall(self /*ecx*/, node, status). Reached at vtable byte
-// offset +8 on both the frame's main object (content applier, FUN_00769820)
-// and its child-<Frames> sub-object at frame+0x24 (FUN_0076a060).
+// Applies `node` (and its `inherits` chain) to `self`:
+// __thiscall(self /*ecx*/, node, status). Both the frame's node loader (its
+// sub-object's vtable +8) and FUN_XML_FRAME_LOAD_CHILD_FRAMES have this shape.
 using ApplyNodeFn = void(__thiscall *)(void *self, const void *node, void *status);
 
 // Empties / re-initializes the XML-build status object. __thiscall(this).
@@ -82,16 +82,17 @@ const uint8_t *LookupTemplate(const char *name) {
         static_cast<uintptr_t>(Offsets::FUN_XML_TEMPLATE_LOOKUP))(name);
 }
 
-// Byte offset of the child-<Frames> applier sub-object within a frame object,
-// and the vtable slot of the "apply XML node" vmethod. Both read straight from
-// the builder FUN_006ee280's apply sequence at 0x006ee4ca:
-//   MOV EDX,[EDI]      CALL [EDX+0x20]                    ; top-level content
-//   MOV EAX,[EDI+0x24] LEA ECX,[EDI+0x24] CALL [EAX+0x8]  ; child <Frames>
-//   MOV EDX,[EDI]      CALL [EDX+0x24]                    ; finalize / OnLoad
-// The inherit-recursion inside FUN_00769820 / FUN_0076a060 uses vtable[+8] —
-// that is the applier we invoke to graft an extra template.
-constexpr int kChildApplierSubObj = 0x24;
-constexpr int kApplyNodeVtableSlot = 2;  // byte offset +8 / sizeof(void*)
+// The builder FUN_006ee280's sequence per node (from 0x006ee4ca):
+//   MOV EDX,[EDI]      CALL [EDX+0x20]                    ; pre-load (name, id)
+//   MOV EAX,[EDI+0x24] LEA ECX,[EDI+0x24] CALL [EAX+0x8]  ; node loader (content)
+//   MOV EDX,[EDI]      CALL [EDX+0x24]                    ; finalize: child <Frames>, OnLoad
+// The node loader is the vmethod at vtable +8 of the sub-object at
+// OFF_XML_LOADER_SUBOBJECT; its `inherits` recursion calls the same slot.
+// Finalize (FUN_0076a2f0) builds the children through
+// FUN_XML_FRAME_LOAD_CHILD_FRAMES before firing OnLoad; the graft calls that
+// directly so OnLoad is not re-run. (The MAIN vtable's +8 is the Lua method
+// lookup FUN_00778590, not a node applier.)
+constexpr int kNodeLoaderVtableSlot = 2;  // byte offset +8 / sizeof(void*)
 
 // The XML-build status object: the 5-dword error accumulator Script_CreateFrame
 // stack-builds ({vtable, 8, &self+8, (&self+8)|1, 0}). The appliers only ever
@@ -124,12 +125,12 @@ void ResetStatus(BuildStatus *s) {
 // applying its content and its child <Frames> the same way the engine applies
 // an inherited node.
 void ApplyTemplateNode(void *frameObj, const void *node, void *status) {
-    void **vtbl = *reinterpret_cast<void ***>(frameObj);
-    reinterpret_cast<ApplyNodeFn>(vtbl[kApplyNodeVtableSlot])(frameObj, node, status);
+    void *loader = reinterpret_cast<char *>(frameObj) + Offsets::OFF_XML_LOADER_SUBOBJECT;
+    void **loaderVtbl = *reinterpret_cast<void ***>(loader);
+    reinterpret_cast<ApplyNodeFn>(loaderVtbl[kNodeLoaderVtableSlot])(loader, node, status);
 
-    void *childSub = reinterpret_cast<char *>(frameObj) + kChildApplierSubObj;
-    void **childVtbl = *reinterpret_cast<void ***>(childSub);
-    reinterpret_cast<ApplyNodeFn>(childVtbl[kApplyNodeVtableSlot])(childSub, node, status);
+    reinterpret_cast<ApplyNodeFn>(
+        static_cast<uintptr_t>(Offsets::FUN_XML_FRAME_LOAD_CHILD_FRAMES))(frameObj, node, status);
 }
 
 // Maximum templates in a single comma-separated list.
