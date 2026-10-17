@@ -140,6 +140,12 @@ configure_file(
     @ONLY)
 target_sources(${PROJECT_NAME} PRIVATE "${CLASSICAPI_VERSION_RC}")
 
+# The .def exports `Load` (VanillaFixes' post-injection entry point)
+# undecorated so its GetProcAddress(module, "Load") resolves. See the
+# loader-lock rationale in src/DllMain.cpp. Listed as a source so CMake emits
+# a quoted /DEF: on every generator and relinks when the file changes.
+target_sources(${PROJECT_NAME} PRIVATE src/ClassicAPI.def)
+
 # ole32: COM (CoInitializeEx / CoCreateInstance / CoTaskMemFree) for the
 # SAPI text-to-speech backend in src/voicechat/Tts.cpp. The SAPI GUIDs are
 # instantiated in that TU via <initguid.h>, so no sapi.lib is needed.
@@ -178,8 +184,5 @@ set(CMAKE_SHARED_LINKER_FLAGS
     # identical-COMDAT fold); they are listed explicitly below so they stay ON
     # and the shipped DLL does not grow. (/OPT:ICF folds identical functions, so
     # a few map symbols share an address — harmless.)
-    # /DEF exports `Load` (VanillaFixes' post-injection entry point) undecorated
-    # so its GetProcAddress(module, "Load") resolves. See src/ClassicAPI.def and
-    # the loader-lock rationale in src/DllMain.cpp.
-    "/OPT:REF /OPT:ICF /MERGE:.rdata=.text /MERGE:.pdata=.text /SECTION:.text,EWR /NODEFAULTLIB:MSVCRT /MAP /DEBUG /DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/src/ClassicAPI.def\""
+    "/OPT:REF /OPT:ICF /MERGE:.rdata=.text /MERGE:.pdata=.text /SECTION:.text,EWR /NODEFAULTLIB:MSVCRT /MAP /DEBUG"
 )
