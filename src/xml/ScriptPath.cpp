@@ -24,22 +24,29 @@
 // which does not exist, and FrameXML.log reports "Error loading
 // widgets\AceGUIWidget-Button.lua" - every AceGUI-3.0 widget in every addon
 // that embeds it, plus embeds.xml lines like `libs\LibStub\LibStub.lua`.
+// 3.3.5's FrameXML_ProcessFile (0x00813EE0) joins `<Script file>` onto the
+// XML file's directory exactly as it joins `<Include file>`, always.
 //
 // Track the XML file being processed (co-hook of FUN_XML_LOAD_FILE, which
 // recurses for <Include>, hence a stack) and, at the <Script> call into
-// FUN_LUA_LOAD_FILE (return address RET_XML_SCRIPT_FILE_LOAD), retry a
-// backslash path that does not exist as given against that file's directory.
-// The retry is used only when the joined file exists, so a root-relative
+// FUN_LUA_LOAD_FILE (return address RET_XML_SCRIPT_FILE_LOAD, seen through
+// Script::LoadFile's shared hook), retry a backslash path that does not exist
+// as given against that file's directory. The retry is used only when the
+// joined file exists, so a root-relative
 // `<Script file="Interface\AddOns\X\y.lua"/>` that works on vanilla keeps
 // working, and a genuinely missing file still fails with the engine's own
-// message. FUN_LUA_LOAD_FILE itself is co-hooked by AddOns::SavedVarsFirst,
-// which calls Resolve() first.
-
-#include "xml/ScriptPath.h"
+// message.
+//
+// The directory is taken from the XML path the way the engine takes it for
+// its own joins: FUN_XML_LOAD_FILE first collapses each `\..\` in the path
+// (dropping the directory before it) into a local copy, and joins onto that.
+// The tracked pointer is the caller's uncollapsed path, so Resolve runs the
+// same collapse on the directory before joining.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/EngineIO.h"
+#include "script/LoadFile.h"
 
 #include <cstring>
 
@@ -63,6 +70,23 @@ bool FileExists(const char *path) {
                static_cast<uintptr_t>(Offsets::FUN_FILE_EXISTS))(path, 1) != 0;
 }
 
+bool IsSep(char c) { return c == '\\' || c == '/'; }
+
+// The engine's `..` collapse (FUN_XML_LOAD_FILE's prologue; 3.3.5's
+// FrameXML_ProcessFile is the same loop): while the path holds a `..` with a
+// separator on both sides, drop it and the directory before it. A `..` not
+// between separators ends the loop, as in the engine.
+void CollapseDotDot(char *s) {
+    for (char *dots = std::strstr(s, ".."); dots != nullptr; dots = std::strstr(s, "..")) {
+        if (dots == s || !IsSep(dots[-1]) || !IsSep(dots[2]))
+            break;
+        char *dir = dots - 2;
+        while (dir >= s && !IsSep(*dir))
+            --dir;
+        std::memmove(dir + 1, dots + 3, std::strlen(dots + 3) + 1);
+    }
+}
+
 uintptr_t __fastcall XmlLoadFile_h(const char *path, void *ctx, void *status) {
     if (g_depth < kMaxDepth)
         g_xmlStack[g_depth] = path;
@@ -77,10 +101,11 @@ const Game::HookAutoRegister _xmlLoadFileHook{
     reinterpret_cast<void *>(&XmlLoadFile_h),
     reinterpret_cast<void **>(&g_origXmlLoadFile)};
 
-} // namespace
-
+// For the XML `<Script file>` call site only: a `file=` value that contains a
+// subdirectory and does not exist as given is retried relative to the XML
+// file being processed; the joined path is returned when that file exists.
 const char *Resolve(const char *path, uintptr_t retAddr, char *buf, size_t bufSize) {
-    if (path == nullptr || retAddr != Offsets::RET_XML_SCRIPT_FILE_LOAD)
+    if (retAddr != Offsets::RET_XML_SCRIPT_FILE_LOAD || path == buf)
         return path;
     if (g_depth <= 0 || g_depth > kMaxDepth)
         return path;
@@ -98,8 +123,14 @@ const char *Resolve(const char *path, uintptr_t retAddr, char *buf, size_t bufSi
     if (dirLen + pathLen + 1 > bufSize)
         return path;
     std::memcpy(buf, xml, dirLen);
-    std::memcpy(buf + dirLen, path, pathLen + 1);
+    buf[dirLen] = '\0';
+    CollapseDotDot(buf);
+    std::memcpy(buf + std::strlen(buf), path, pathLen + 1);
     return FileExists(buf) ? buf : path;
 }
+
+const Script::LoadFile::AutoRewrite _rewrite{&Resolve};
+
+} // namespace
 
 } // namespace Xml::ScriptPath

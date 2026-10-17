@@ -1338,15 +1338,16 @@ ClassicAPI removes the restart requirement. On every `/reload`:
 
 ### `<Script file>` paths in XML files
 
-`<Script file="widgets\Button.lua"/>` in an addon's XML file loads relative
-to that XML file's folder, as on later clients. Stock 1.12 joins
-`<Include file>` onto the XML file's folder, but `<Script file>` only when
-the path has no backslash; a path with one is loaded from the game folder
-and fails ("Error loading widgets\Button.lua"). AceGUI-3.0 loads all of its
-widget files this way from `AceGUI-3.0.xml`.
+A `<Script file>` path that has a folder in it, such as
+`<Script file="widgets\Button.lua"/>`, loads relative to the folder of its
+XML file, the same as `<Include file>`. Libraries such as AceGUI-3.0 load
+their files this way.
 
-A path that exists as given still loads from there. The XML file's folder is
-tried only when it doesn't, and only when the file is there.
+A path that exists as given, such as
+`<Script file="Interface\AddOns\MyAddon\Button.lua"/>`, still loads from
+there. The XML file's folder is tried only when the path does not exist as
+given, and only when the file is in that folder. If the file is in neither
+place, `FrameXML.log` shows "Error loading" with the path.
 
 ## APIDocumentation
 
