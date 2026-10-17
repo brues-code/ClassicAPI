@@ -2743,6 +2743,21 @@ enum Offsets {
     OFF_LAYOUT_FLAGS = 0x3C,
     LAYOUT_FLAG_CLAMPED = 0x10,
     FUN_LAYOUT_CALC_RECT = 0x00767A20,
+    // Frame levels. CSimpleFrame's level setter 0x0076A4F0 — `void
+    // __thiscall(frame, int level, int children)`, `ret 8`: clamps a negative
+    // level to 0, returns early for an unchanged one, stores it at +0xC4, and
+    // with `children` nonzero moves each child frame (the +0x300 list) of the
+    // same strata (+0xC0) by the same amount, recursively. Script
+    // SetFrameLevel (0x00774560) and XML frameLevel (0x00769820) pass 0; a few
+    // engine callers pass 1 (0x004905F5, 0x007651D8). SetParent (0x0076AB10)
+    // first gives the frame the parent's strata through the recursive strata
+    // setter 0x0076A470, then the parent's level + 1 (or level 0 for no
+    // parent), passing 0, so the frame's children keep the levels they had.
+    // 3.3.5 passes 1 at both SetParent calls. These are the `push 0` of that
+    // argument (`6A 00`) at each call; `Frame::Levels` rewrites the immediate
+    // to 1.
+    PATCH_SETPARENT_LEVEL_CHILDREN = 0x0076AB6B,     // before `call` at 0x0076AB71 (parent)
+    PATCH_SETPARENT_NIL_LEVEL_CHILDREN = 0x0076ABAC, // before `call` at 0x0076ABB2 (no parent)
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,
