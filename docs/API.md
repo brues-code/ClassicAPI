@@ -8300,18 +8300,13 @@ that need exact caps must supply their own per-mapID table.
 
 ### `IsActiveBattlefieldArena()`
 
-Returns `isArena, isRegistered`: `1` while the player is in an arena match,
-`nil` otherwise. Stock 1.12 has no arenas, so there it is always `nil`.
+Returns `isArena, isRegistered`, two booleans.
 
-Turtle-lineage clients (`TURTLE_WOW_VERSION`) add arena matches. They run in
-instances `IsInInstance` reports as `"pvp"`, like battlegrounds, and the
-client's own scoreboard learns it is in an arena from the server's hidden
-`TW_ARENA` scoreboard reply. `isArena` follows that same state
-(`WorldStateScoreFrame.arenaData`), so it is `1` exactly while the
-scoreboard shows its arena view.
-
-`isRegistered` (a rated match) is always `nil`: the reply carries no rated
-flag, and the client's arena queue window can only join skirmishes.
+- `isArena` is `true` while the player is in an arena match. It becomes
+  `true` when the arena map loads. The open-world free-for-all arenas (for
+  example the Gurubashi Arena) are not arena matches, and return `false`.
+- `isRegistered` (a rated match) is always `false`. The client gets no data
+  about rated matches.
 
 ```lua
 local isArena = IsActiveBattlefieldArena()

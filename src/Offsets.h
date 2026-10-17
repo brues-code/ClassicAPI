@@ -3990,6 +3990,13 @@ enum Offsets {
     // applies. Source: the discovered-overlay rebuild FUN_004a67a0.
     OFF_AREATABLE_AREA_BIT = 0x0C,
     OFF_AREATABLE_EXPLORE_GATE = 0x28,
+    // Flags @ +0x10 (column 4). Bit 0x80 = arena: `Script_GetZonePVPInfo`
+    // (0x0048D540) pushes its isArena return from
+    // `*(char *)(rec + 0x10) < 0` on the current subzone. Set on the
+    // open-world free-for-all rings (Gurubashi, The Maul) and on the
+    // instanced arena maps' areas (Turtle: 4013, 4014).
+    OFF_AREATABLE_FLAGS = 0x10,
+    AREA_FLAG_ARENA = 0x80,
 
     // TaxiNodes.dbc (16 fields, 0x40 bytes) — flight points. records/count
     // per docs/DBCs.md. mapID @ +0x04 is the Map.dbc continent; x/y/z floats;
@@ -5776,13 +5783,19 @@ enum Offsets {
     // "recently left an instance" 90-second check in `FUN_00495c90`.)
     VAR_IN_WORLD = 0x00B4B424,
 
-    // Local player's current AreaTable.dbc area ID (u32 storage; only
+    // Local player's current AreaTable.dbc ZONE ID (u32 storage; only
     // the low 16 bits are used — the value is broadcast over the wire
     // as a u16 in `SMSG_PARTY_MEMBER_STATS`). Written by the zone-change
-    // handler `FUN_00494780(areaID, parentAreaID, zoneName, subzone,
+    // handler `FUN_00494780(zoneID, subzoneID, zoneName, subzone,
     // realZone, eventID)`; read by `Script_GetRealZoneText` and the
     // outbound party-stats builder `FUN_005f0880`.
     VAR_PLAYER_AREA_ID = 0x00B4E314,
+    // Local player's current SUBZONE AreaTable.dbc ID, 0 when the area
+    // under the player is itself a top-level zone. Second arg of the same
+    // handler: its sole caller `FUN_0067e510` resolves the area at the
+    // player's position and passes (zone, area) when the area has a parent,
+    // else (area, 0). `Script_GetZonePVPInfo` reads the arena flag here.
+    VAR_PLAYER_SUBZONE_AREA_ID = 0x00B4E318,
 
     // Unified party/raid member stats lookup —
     // `__fastcall(GUID *guidPair) -> uint8_t *`. Returns a pointer to
