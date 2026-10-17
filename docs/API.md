@@ -6127,10 +6127,10 @@ top right.
 
 ### `button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`
 
-3.0's names for vanilla's `button:SetTextFontObject(font)` /
-`button:GetTextFontObject()`: the font of the button's text in its normal
-state. The highlight and disabled pairs kept their names. They call the
-vanilla methods, so arguments, results and errors are the engine's own.
+Sets or gets the font of the button's text in its normal state. These
+methods are the same as `button:SetTextFontObject(font)` and
+`button:GetTextFontObject()`. The highlight and disabled font methods keep
+their names.
 
 ```lua
 button:SetNormalFontObject(GameFontHighlight)   -- same as SetTextFontObject
@@ -6139,9 +6139,9 @@ button:GetNormalFontObject()                    -- same as GetTextFontObject
 
 ### `frame:IsProtected()`
 
-Returns `false, false` (`isProtected`, `isProtectedExplicitly`) for every
-frame. The secure frame system arrived in 2.0, so no 1.12 frame is
-protected. Libraries ask before hooking a frame's scripts; AceHook-3.0 does.
+Returns `isProtected, isProtectedExplicitly`. Both values are always
+`false`, for every frame. Libraries such as AceHook-3.0 call this method
+before they hook the scripts of a frame.
 
 ### `frame:HookScript(scriptType, handler)`
 
