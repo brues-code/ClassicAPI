@@ -12066,10 +12066,14 @@ nothing, and leaves nothing behind for the next macro you press.
 
 ### Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`
 
-The four take a macro name wherever they take an index, as on 2.0+ clients.
-A name matches the macro that `GetMacroIndexByName` finds. An unknown name
-is treated like an index with no macro: `GetMacroInfo` returns nils and the
-other three do nothing, so code can clear macros that may not exist.
+The four take a macro name wherever they take an index. A name matches the
+macro that `GetMacroIndexByName` finds. An unknown name is treated like an
+index with no macro, so code can clear macros that may not exist:
+
+- `GetMacroInfo` returns nils.
+- `PickupMacro` and `DeleteMacro` do nothing.
+- `EditMacro` changes no macro. It returns the index of the first empty
+  macro slot, or 0 when all slots are full.
 
 ```lua
 DeleteMacro("MyScratchMacro")              -- no error if it doesn't exist
