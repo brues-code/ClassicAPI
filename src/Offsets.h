@@ -2679,6 +2679,31 @@ enum Offsets {
     // ...), the SimpleHTML table 0x0087BA80 (SetText, SetHyperlinkFormat, ...).
     VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY = 0x00CF5294,
     VAR_SIMPLEHTML_METHOD_REGISTRY = 0x00CF5328,
+    // Clamp to screen. A region's layout object is its anchor sub-object at
+    // OFF_REGION_ANCHOR (Script GetLeft: `lea ebx, [edi+0x24]` before the rect
+    // reader 0x00768320). SetClampedToScreen (0x00768CC0) sets
+    // LAYOUT_FLAG_CLAMPED in the layout flags at OFF_LAYOUT_FLAGS and calls
+    // FUN_FONTSTRING_LAYOUT_INVALIDATE(layout, 0).
+    //
+    // FUN_LAYOUT_CALC_RECT — `int __thiscall(layout, float rect[4])`, `ret 4`,
+    // rect = bottom, left, top, right in layout units (the order Script
+    // GetBottom/GetLeft/GetTop/GetRight read from 0x00768320's copy). It
+    // resolves the four edges from the anchors, returns 0 if any is
+    // unresolved, and for a clamped frame slides the rect onto the screen, in
+    // this order: right if left < 0, up if bottom < 0, left if right >
+    // FUN_0041AE60(1) = [VAR_UI_COORD_SCALE_MUL], down if top >
+    // FUN_0041AE70(1) = [VAR_UI_ANCHOR_SCREEN_H] (so a frame bigger than the
+    // screen ends up flush with the top right). Its only caller is the layout
+    // update at 0x00768D20, which caches the result at layout+0x40..0x4C.
+    //
+    // Units: Script GetLeft pushes Game::InternalToPixel(rect.left) divided by
+    // OFF_REGION_EFFECTIVE_SCALE, so a length in the frame's own units is
+    // Game::PixelToInternal(length * effectiveScale) in layout units.
+    // `Frame::ClampRectInsets` hooks FUN_LAYOUT_CALC_RECT to clamp the rect
+    // grown by the frame's insets instead.
+    OFF_LAYOUT_FLAGS = 0x3C,
+    LAYOUT_FLAG_CLAMPED = 0x10,
+    FUN_LAYOUT_CALC_RECT = 0x00767A20,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,

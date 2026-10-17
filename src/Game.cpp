@@ -24,6 +24,22 @@ void *ResolveUnitToken(const char *token) {
     return fn(token);
 }
 
+float PixelToInternal(float px) {
+    const float mul = Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
+    const float div = Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
+    if (div == 0.0f)
+        return 0.0f;
+    return px * mul / (div * static_cast<float>(Offsets::UI_COORD_SCALE_UNIT));
+}
+
+double InternalToPixel(float internal) {
+    const float mul = Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
+    const float div = Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
+    if (mul == 0.0f)
+        return 0.0;
+    return static_cast<double>(internal) * div * Offsets::UI_COORD_SCALE_UNIT / mul;
+}
+
 namespace Lua {
 // Each entry binds a typed function pointer in `Game::Lua::` to the
 // corresponding raw VA in `Offsets`. The X-macro keeps the column-aligned

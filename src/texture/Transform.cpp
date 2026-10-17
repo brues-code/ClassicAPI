@@ -89,18 +89,6 @@ using GetRect_t = int(__fastcall *)(void *anchor, void *edx, float *outRect);
 // FUN_REGION_TEXCOORD_CROP — __thiscall(region, float rect[4]) (rect in/out).
 using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 
-// 1024-normalized UI pixels → internal layout (anchor) units — the same
-// conversion Tooltip::LinePool applies before calling engine SetPoint. A
-// region's LOCAL pixels must be folded through its effective scale (+0x7C)
-// before this factor applies; WriteCorners does that.
-float PixelToInternal(float px) {
-    const float mul = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
-    const float div = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
-    if (div == 0.0f)
-        return 0.0f;
-    return px * mul / (div * Offsets::UI_COORD_SCALE_UNIT);
-}
-
 // Retail vertex index → our +0xD4 corner slot (BL=0, TL=1, BR=2, TR=3). The
 // index values (UPPER_LEFT_VERTEX = 1, …) are the FrameXML-style globals defined
 // in the embedded addon's Util/Constants.lua; keep the two in sync. -1 = unknown.
@@ -128,7 +116,7 @@ int VertexSlot(int vertexIndex) {
 //   - the retail contract is "+offsetY = up on screen", which is numerically
 //     NEGATIVE here.
 // Offsets are stored in the caller's LOCAL pixels and converted at write time:
-// PixelToInternal maps 1024-normalized UI pixels to anchor units, so the
+// Game::PixelToInternal maps 1024-normalized UI pixels to anchor units, so the
 // region's live effective-scale chain (+0x7C) folds local px into that space
 // first. Without it a region scaled 0.9 got every offset 1/0.9 too large
 // (verified in-game: a 24px offset landed at 26.7px). Reading the scale at
@@ -150,8 +138,8 @@ void WriteCorners(void *region, float left, float right, float top, float bottom
     for (int i = 0; i < 4; ++i) {
         const float dx = xs[i] - cx;
         const float dy = ys[i] - cy;
-        tx[i] = cx + dx * c + dy * s + PixelToInternal(xf.offX[i] * scale);
-        ty[i] = cy - dx * s + dy * c - PixelToInternal(xf.offY[i] * scale);
+        tx[i] = cx + dx * c + dy * s + Game::PixelToInternal(xf.offX[i] * scale);
+        ty[i] = cy - dx * s + dy * c - Game::PixelToInternal(xf.offY[i] * scale);
     }
     // The draw consumes this array with y INVERTED about the rect's horizontal
     // midline (a vertex stored at rect-space y renders at (top+bottom)-y), and
