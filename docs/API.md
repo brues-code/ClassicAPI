@@ -6087,13 +6087,12 @@ screen. The clamp applies while the frame is moved, dragged or re-laid out.
 
 ```lua
 frame:SetClampedToScreen(true)
-frame:SetClampRectInsets(0, 0, 0, -60)   -- keep 60 above the bottom (3.3.5's world map)
+frame:SetClampRectInsets(0, 0, 0, -60)   -- keep 60 above the bottom
 frame:SetClampRectInsets(0, 0, -25, 0)   -- the top 25 may leave the screen
 ```
 
-Vanilla clamps the frame's own rect only. The engine's clamp steps and
-order are kept: when the grown rect is larger than the screen, it ends up
-flush with the top right.
+When the grown rect is larger than the screen, it ends up flush with the
+top right.
 
 ### `frame:HookScript(scriptType, handler)`
 

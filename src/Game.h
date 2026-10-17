@@ -71,6 +71,15 @@ inline T &Ref(uintptr_t address) {
 // across a dozen modules.
 void *ResolveUnitToken(const char *token);
 
+// UI pixels <-> internal layout (anchor) units. Script_SetPoint converts its
+// pixel offsets with `px * [VAR_UI_COORD_SCALE_MUL] / ([VAR_UI_COORD_SCALE_DIV]
+// * UI_COORD_SCALE_UNIT)`; Script_GetLeft and Script_GetStringWidth push the
+// inverse. A region's LOCAL pixels must be multiplied by its effective scale
+// (OFF_REGION_EFFECTIVE_SCALE) first. Both return 0 while the scale globals
+// are unset, so an early caller gets a zero offset rather than a wild one.
+float PixelToInternal(float px);
+double InternalToPixel(float internal);
+
 using FrameScript_Initialize_t = bool(__fastcall *)();
 using LoadScriptFunctions_t = void(__fastcall *)();
 

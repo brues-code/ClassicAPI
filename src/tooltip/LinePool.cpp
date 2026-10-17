@@ -71,19 +71,6 @@ uint8_t *DescData(uint8_t *tooltip, int descOffset) {
     return *reinterpret_cast<uint8_t **>(tooltip + descOffset + 8);
 }
 
-// FUN_REGION_SET_POINT stores offsets in internal coordinates, so a pixel
-// offset must be scaled the way Script_SetPoint does before being passed —
-// otherwise a -2px gap lands ~1000px off. Returns 0 if the scale globals
-// aren't populated yet (degrades to a 0-offset anchor, not a wild one).
-float PixelToInternal(float pixels) {
-    const float mul = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
-    const float divBase = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
-    const float denom = divBase * static_cast<float>(Offsets::UI_COORD_SCALE_UNIT);
-    if (denom == 0.0f)
-        return 0.0f;
-    return pixels * mul / denom;
-}
-
 // Reads a FontString's current font object (holder+4). Used to copy the
 // previous line's font onto a new one so it renders identically.
 void *FontObjectOf(void *fontString) {
@@ -123,7 +110,7 @@ void *CreateLine(void *parent, const char *name, void *fontSource, int point,
         auto setPoint = reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT);
         setPoint(fsBytes + Offsets::OFF_REGION_ANCHOR, point,
                  reinterpret_cast<uint8_t *>(relRegion) + Offsets::OFF_REGION_ANCHOR,
-                 relPoint, PixelToInternal(x), PixelToInternal(y), 1);
+                 relPoint, Game::PixelToInternal(x), Game::PixelToInternal(y), 1);
     }
     return fs;
 }

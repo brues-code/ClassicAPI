@@ -113,18 +113,6 @@ void InvalidateLayout(void *fs) {
         region, nullptr, 0);
 }
 
-// Anchor units → UI pixels: `FUN_0041AE40(FUN_0041AD70() × DAT_007FFD68 × v)`
-// = v × [VAR_UI_COORD_SCALE_DIV] × 1024 / [VAR_UI_COORD_SCALE_MUL] — the exact
-// push chain Script_GetStringWidth uses (the inverse of
-// Tooltip::LinePool::PixelToInternal).
-double InternalToPixel(float v) {
-    const float mul = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
-    const float div = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
-    if (mul == 0.0f)
-        return 0.0;
-    return static_cast<double>(v) * div * Offsets::UI_COORD_SCALE_UNIT / mul;
-}
-
 // The fs's wrap budget in the units FUN_FONTSTRING_BREAK_ARRAY expects
 // (width-getter units — it multiplies by fs+0x7C itself before gxu, verified
 // decompile), or 0 when the rect is unresolved. rectWidth ÷ scale, calibrated
@@ -163,7 +151,7 @@ int __fastcall Script_GetStringHeight(void *L) {
         return 0;
     const float h = reinterpret_cast<StringHeightInternal_t>(
         Offsets::FUN_FONTSTRING_STRING_HEIGHT)(fs);
-    Game::Lua::PushNumber(L, InternalToPixel(h));
+    Game::Lua::PushNumber(L, Game::InternalToPixel(h));
     return 1;
 }
 
@@ -178,7 +166,7 @@ int __fastcall Script_GetUnboundedStringWidth(void *L) {
     }
     const float w = reinterpret_cast<MeasureSubstring_t>(
         Offsets::FUN_FONTSTRING_MEASURE_SUBSTRING)(fs, nullptr, text, 0);
-    Game::Lua::PushNumber(L, InternalToPixel(w));
+    Game::Lua::PushNumber(L, Game::InternalToPixel(w));
     return 1;
 }
 
@@ -240,7 +228,7 @@ int __fastcall Script_GetWrappedWidth(void *L) {
     // one-line width.
     const float budget = WrapBudget(fs);
     if (budget <= 0.0f) {
-        Game::Lua::PushNumber(L, InternalToPixel(measure(fs, nullptr, text, 0)));
+        Game::Lua::PushNumber(L, Game::InternalToPixel(measure(fs, nullptr, text, 0)));
         return 1;
     }
     // The tooltip auto-size's own recipe (FUN_00530640): break positions from
@@ -254,7 +242,7 @@ int __fastcall Script_GetWrappedWidth(void *L) {
     if (segs > 64u)
         segs = 64u;
     if (segs <= 1u) {
-        Game::Lua::PushNumber(L, InternalToPixel(measure(fs, nullptr, text, 0)));
+        Game::Lua::PushNumber(L, Game::InternalToPixel(measure(fs, nullptr, text, 0)));
         return 1;
     }
     int len = 0;
@@ -279,7 +267,7 @@ int __fastcall Script_GetWrappedWidth(void *L) {
         if (w > widest)
             widest = w;
     }
-    Game::Lua::PushNumber(L, InternalToPixel(widest));
+    Game::Lua::PushNumber(L, Game::InternalToPixel(widest));
     return 1;
 }
 
@@ -289,7 +277,7 @@ int __fastcall Script_GetLineHeight(void *L) {
         return 0;
     const float h = reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(
         fs, nullptr, 1);
-    Game::Lua::PushNumber(L, InternalToPixel(h));
+    Game::Lua::PushNumber(L, Game::InternalToPixel(h));
     return 1;
 }
 

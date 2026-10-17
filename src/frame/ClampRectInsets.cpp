@@ -55,22 +55,15 @@ using CalcRect_t = int(__thiscall *)(void *layout, float *rect);
 CalcRect_t g_origCalcRect = nullptr;
 
 using Invalidate_t = void(__thiscall *)(void *layout, int arg);
-using UnitScale_t = float(__cdecl *)();
-using ScreenExtent_t = float(__stdcall *)(float scale);
 
-void *LayoutOf(void *frame) { return static_cast<uint8_t *>(frame) + Offsets::OFF_REGION_LAYOUT; }
-void *FrameOf(void *layout) { return static_cast<uint8_t *>(layout) - Offsets::OFF_REGION_LAYOUT; }
+void *LayoutOf(void *frame) { return static_cast<uint8_t *>(frame) + Offsets::OFF_REGION_ANCHOR; }
+void *FrameOf(void *layout) { return static_cast<uint8_t *>(layout) - Offsets::OFF_REGION_ANCHOR; }
 
 // A length in the frame's own units (what GetLeft returns) in layout units:
 // the inverse of Script GetLeft's conversion.
 float ToLayoutUnits(double length, void *frame) {
     const float effScale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    const float unit = reinterpret_cast<UnitScale_t>(Offsets::FUN_UI_UNIT_SCALE)();
-    const float perUnit = Game::Read<float>(Offsets::VAR_UI_UNITS_PER_SCALE);
-    const float width = reinterpret_cast<ScreenExtent_t>(Offsets::FUN_SCREEN_WIDTH)(1.0f);
-    if (unit == 0.0f || perUnit == 0.0f)
-        return 0.0f;
-    return static_cast<float>(length) * effScale * width / (unit * perUnit);
+    return Game::PixelToInternal(static_cast<float>(length) * effScale);
 }
 
 int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
@@ -82,10 +75,11 @@ int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
     if (it == g_insets.end())
         return g_origCalcRect(layout, rect);
 
-    // The frame's own rect, before any clamping.
-    Game::Ref<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS) = flags & ~static_cast<uint32_t>(Offsets::LAYOUT_FLAG_CLAMPED);
+    // The frame's own rect, before any clamping. Only the clamp bit is
+    // toggled, so other flag bits the calculation changes survive.
+    Game::Ref<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS) &= ~static_cast<uint32_t>(Offsets::LAYOUT_FLAG_CLAMPED);
     const int resolved = g_origCalcRect(layout, rect);
-    Game::Ref<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS) = flags;
+    Game::Ref<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS) |= Offsets::LAYOUT_FLAG_CLAMPED;
     if (!resolved)
         return resolved;
 
@@ -107,13 +101,14 @@ int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
         top -= bottom;
         bottom = 0.0f;
     }
-    const float width = reinterpret_cast<ScreenExtent_t>(Offsets::FUN_SCREEN_WIDTH)(1.0f);
+    // The screen's extent in layout units, the bounds the engine's clamp uses.
+    const float width = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
     if (right > width) {
         dx -= right - width;
         left -= right - width;
         right = width;
     }
-    const float height = reinterpret_cast<ScreenExtent_t>(Offsets::FUN_SCREEN_HEIGHT)(1.0f);
+    const float height = Game::Read<float>(Offsets::VAR_UI_ANCHOR_SCREEN_H);
     if (top > height) {
         dy -= top - height;
         bottom -= top - height;
@@ -173,10 +168,27 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetClampRectInsets", &Script_GetClampRectInsets},
 };
 
+const Game::Doc::Field kInsets[] = {
+    Game::Doc::Req("left", "number", "Moves the left edge; negative grows the rect."),
+    Game::Doc::Req("right", "number", "Moves the right edge; positive grows the rect."),
+    Game::Doc::Req("top", "number", "Moves the top edge; positive grows the rect."),
+    Game::Doc::Req("bottom", "number", "Moves the bottom edge; negative grows the rect."),
+};
+const Game::Doc::Function kSetClampRectInsets{
+    "Sets the rect, relative to the frame, that the screen clamp keeps on screen.", kInsets, {}};
+const Game::Doc::Function kGetClampRectInsets{
+    "Returns the frame's clamp rect insets; all zero when none are set.", {}, kInsets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetClampRectInsets", &kSetClampRectInsets},
+    {"GetClampRectInsets", &kGetClampRectInsets},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
+        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
