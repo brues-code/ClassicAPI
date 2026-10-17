@@ -7542,54 +7542,39 @@ enum Offsets {
     // that touches the registry outside the login path.
     VAR_ADDON_INITIALIZED = 0x00BE1C08,
 
-    // ── The frozen loose-file index (why new files need a restart) ────
+    // ── The loose-file index ───────────────────────────────────────────
     //
-    // Every relative-path file open resolves through `FUN_00647E60`,
-    // which consults a HASH TABLE OF LOOSE FILES built ONCE per process:
-    // `FUN_00646EA0` (lazy, latched by `VAR_VFS_INDEX_READY`) walks the
-    // whole game directory tree via `FUN_VFS_INDEX_SUBTREE`, keying each
-    // file by its base-relative path and storing the joined on-disk path.
-    // Index hits open the mapped path LIVE from disk (edits to existing
-    // files take effect on /reload); index misses fall through to the
-    // MPQ search ONLY — the archive layer's live disk probe
-    // (`FUN_00654DD0` → GetFileAttributesA) is dead code at runtime
-    // because its enable global `DAT_00865B44` (ships as 1 in the image)
-    // is unconditionally cleared by early boot (`FUN_00402210` →
-    // `FUN_00648C20`). File WRITES (`FUN_0042A460` = raw CreateFileW)
-    // never register in the index either. Net effect on a stock client:
-    // any file created after boot — a new addon's TOC, a new .lua in an
-    // existing addon, even a freshly written SavedVariables file — is
-    // INVISIBLE to every relative-path read until the client restarts.
+    // Every relative-path file open resolves through `FUN_00647E60`
+    // (callers: the open dispatcher `FUN_006477C0` and the exists-check
+    // `FUN_FILE_EXISTS`), which consults a HASH TABLE OF LOOSE FILES.
+    // `FUN_00646EA0` builds it lazily on the first lookup after the
+    // "built" latch `0x00C5251C` is 0: it walks the whole game directory
+    // tree (`FUN_00646910`), keying each file by its base-relative path
+    // and storing the joined on-disk path. Index hits open the mapped
+    // path LIVE from disk (edits to existing files take effect on
+    // /reload); index misses fall through to the MPQ search ONLY — the
+    // archive layer's live disk probe (`FUN_00654DD0` →
+    // GetFileAttributesA) is dead code at runtime because its enable
+    // global `DAT_00865B44` (ships as 1 in the image) is unconditionally
+    // cleared by early boot (`FUN_00402210` → `FUN_00648C20`). So a file
+    // created after the index was built is invisible until it is rebuilt.
     //
-    // `FUN_VFS_INDEX_SUBTREE` — the recursive indexer itself:
-    //   void __fastcall IndexSubtree(
-    //       const char *basePath,   // ecx — index keys are relative to
-    //                               //       this (the game dir)
-    //       const char *relSubdir,  // edx — subtree below basePath; ""
-    //                               //       for the boot-time full walk
-    //       void       *findHandle);// stack — from FUN_VFS_FIND_OPEN on
-    //                               //       join(basePath, relSubdir)
-    //   Dedup-safe: every insert is preceded by a hash lookup, so
-    //   re-running it on a subtree registers only genuinely new files —
-    //   which is exactly what `Addons::Rescan` does per /reload for
-    //   `Interface\AddOns` and `WTF\Account`.
-    //
-    // `FUN_VFS_FIND_OPEN` — `__stdcall(const char *dirPath) -> void*`
-    //   (RET 4). Allocates a find block, strips trailing backslashes,
-    //   requires the path to be an EXISTING DIRECTORY
-    //   (GetFileAttributes & 0x10) — returns NULL otherwise — then arms
-    //   it with "\*". Release with `FUN_VFS_FIND_CLOSE`
-    //   (`__stdcall(void*)`, RET 4; NULL-safe).
-    //
-    // `VAR_VFS_BASE_PATH` — the game base dir recorded at boot
-    //   (`FUN_006488B0`); `FUN_00646EA0` uses it as the walk base when
-    //   `FUN_VFS_FIND_OPEN` accepts it, else falls back to ".".
-    // `VAR_VFS_INDEX_READY` — `u8` latch; nonzero once the boot walk ran.
-    FUN_VFS_INDEX_SUBTREE = 0x00646910,
-    FUN_VFS_FIND_OPEN = 0x006674A0,
-    FUN_VFS_FIND_CLOSE = 0x006676A0,
-    VAR_VFS_BASE_PATH = 0x00C52418,
-    VAR_VFS_INDEX_READY = 0x00C5251C,
+    // `FUN_VFS_INDEX_CLEAR` — `void __cdecl()`, no args. Frees every index
+    // node and zeroes the latch, so the NEXT lookup rebuilds the index
+    // from disk exactly as boot does — new files appear, deleted files
+    // drop out. The analog of 3.3.5's `SFile::RebuildHash`. The engine
+    // calls it mid-session itself, after creating or deleting a file it
+    // will later read back (decompiled):
+    //   - `FUN_0051F650` — the /reload/logout SavedVariables unload pass,
+    //     when it created or deleted any SV file;
+    //   - `FUN_0051EF20` — the AddOns.txt writer, when it created the file;
+    //   - `FUN_00491730` — another WTF writer, when it created its file;
+    //   - `FUN_0051FB50` — after renaming loose GlueXML/FrameXML to `.old`.
+    // So a freshly written SavedVariables file IS readable on the same
+    // /reload — the engine handles that itself. Neither the clear, the
+    // builder, nor the lookup takes a lock (unlike 3.3.5); the engine runs
+    // all of them on the main thread.
+    FUN_VFS_INDEX_CLEAR = 0x00646FC0,
 
     // ── Login scan walk #2 (loose-addon discovery) — replayed per /reload
     //

@@ -16,16 +16,15 @@
 // a stock 1.12 client, each fixed here with the engine's own machinery:
 //
 //   1. FILE VISIBILITY. Every relative-path read resolves through a
-//      loose-file hash index built ONCE at boot (see Offsets.h,
-//      `FUN_VFS_INDEX_SUBTREE`); files created after boot — a new
-//      addon's TOC, a new .lua in an existing addon, a freshly written
-//      SavedVariables file — are invisible until restart. The boot
-//      indexer is dedup-safe and works on subtrees, so we re-run it per
-//      /reload on the only two subtrees whose contents can change what
-//      a /reload loads: `Interface\AddOns` and `WTF\Account`. New files
-//      in EXISTING addons need nothing more — the per-addon loader
-//      `FUN_0051F240` re-reads the TOC from disk on every load pass, so
-//      once the files are visible they load.
+//      loose-file hash index (see Offsets.h, `FUN_VFS_INDEX_CLEAR`);
+//      a file created after the index was built — a new addon's TOC, a
+//      new .lua in an existing addon — is invisible until it is rebuilt.
+//      We call the engine's own clear, the same one the engine calls
+//      after writing a new SavedVariables file: the next lookup rebuilds
+//      the index from disk as boot does, so new files appear and deleted
+//      ones drop out. New files in EXISTING addons need nothing more —
+//      the per-addon loader `FUN_0051F240` re-reads the TOC from disk on
+//      every load pass, so once the files are visible they load.
 //
 //   2. REGISTRY MEMBERSHIP. The addon registry is built once at login;
 //      new folders are never walked. We replay the login scan's disk
@@ -78,10 +77,9 @@
 // registration gets. New entries come from the same parser call
 // `Addons::Embedded` has exercised every login.
 //
-// Thread note: the loose-file index has no lock, but the engine itself
-// builds it lazily on first access and we mutate it only during the
-// reload loading screen on the main thread — the same context in which
-// the engine does all its own file work.
+// Thread note: the loose-file index has no lock in 1.12. We clear it on
+// the main thread during the reload loading screen — the same context
+// in which the engine's own unload pass clears it.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -102,11 +100,7 @@ namespace {
 
 // ── Engine entry points (all verified by disassembly; see Offsets.h) ──
 
-using FindOpen_t = void *(__stdcall *)(const char *dirPath);
-using FindClose_t = void(__stdcall *)(void *findBlock);
-using IndexSubtree_t = void(__fastcall *)(const char *basePath,
-                                          const char *relSubdir,
-                                          void *findHandle);
+using IndexClear_t = void(__cdecl *)();
 using ScanDiskDirs_t = int(__fastcall *)(const char *basePath,
                                          const char *pattern, void *callback,
                                          void *userParam, int includeHidden);
@@ -163,45 +157,9 @@ uintptr_t ResolveEntryByName(const char *name) {
 
 // ── Step 1: loose-file index refresh ──────────────────────────────────
 
-// Register new on-disk files under `relSubdir` with the frozen index,
-// exactly as the boot walk would have (the indexer skips every file
-// already present). No-op when the directory doesn't exist —
-// `FUN_VFS_FIND_OPEN` requires an existing directory and returns NULL.
-void ReindexSubtree(const char *base, const char *relSubdir) {
-    char dir[260];
-    std::snprintf(dir, sizeof(dir), "%s\\%s", base, relSubdir);
-    auto findOpen = reinterpret_cast<FindOpen_t>(Offsets::FUN_VFS_FIND_OPEN);
-    auto findClose = reinterpret_cast<FindClose_t>(Offsets::FUN_VFS_FIND_CLOSE);
-    void *handle = findOpen(dir);
-    if (handle == nullptr)
-        return;
-    auto index =
-        reinterpret_cast<IndexSubtree_t>(Offsets::FUN_VFS_INDEX_SUBTREE);
-    index(base, relSubdir, handle);
-    findClose(handle);
-}
-
+// Drop the loose-file index; the next file lookup rebuilds it from disk.
 void RefreshLooseFileIndex() {
-    // The boot walk's base choice (`FUN_00646EA0`): the recorded game
-    // dir if it opens as a directory, else ".". Index keys are relative
-    // to this, so it must match or the new keys would never be hit.
-    auto findOpen = reinterpret_cast<FindOpen_t>(Offsets::FUN_VFS_FIND_OPEN);
-    auto findClose = reinterpret_cast<FindClose_t>(Offsets::FUN_VFS_FIND_CLOSE);
-    const char *base =
-        reinterpret_cast<const char *>(Offsets::VAR_VFS_BASE_PATH);
-    void *probe = findOpen(base);
-    if (probe != nullptr)
-        findClose(probe);
-    else
-        base = ".";
-
-    // The only subtrees whose post-boot changes affect what a /reload
-    // loads: addon content, and the SavedVariables the unload pass
-    // wrote moments ago (a first-ever SV file is otherwise invisible —
-    // the stock client loses a freshly installed addon's settings on
-    // /reload for exactly this reason).
-    ReindexSubtree(base, "Interface\\AddOns");
-    ReindexSubtree(base, "WTF\\Account");
+    reinterpret_cast<IndexClear_t>(Offsets::FUN_VFS_INDEX_CLEAR)();
 }
 
 // ── Step 1.5: `##` metadata refresh (evict + re-register on change) ──
@@ -437,13 +395,13 @@ void RebuildDisplayArray() {
 }
 
 void Run() {
-    // Registry populated (login scan ran) and loose index built — both
-    // always true by the first in-world LoadScriptFunctions, but these
-    // are the states the steps below mutate, so gate explicitly.
+    // Registry populated (login scan ran) — always true by the first
+    // in-world LoadScriptFunctions, but it is the state the steps below
+    // mutate, so gate explicitly. No gate on the index being built: the
+    // unload pass clears it whenever it wrote a new SV file, and the
+    // clear below is safe either way.
     if (*reinterpret_cast<const uint8_t *>(
-            static_cast<uintptr_t>(Offsets::VAR_ADDON_INITIALIZED)) == 0 ||
-        *reinterpret_cast<const uint8_t *>(
-            static_cast<uintptr_t>(Offsets::VAR_VFS_INDEX_READY)) == 0)
+            static_cast<uintptr_t>(Offsets::VAR_ADDON_INITIALIZED)) == 0)
         return;
 
     RefreshLooseFileIndex();

@@ -77,7 +77,7 @@ bool TocAllowsTableAccess(const char *name) {
     size_t n = 0;
     bool allowed = false;
     if (AddOns::Toc::FindValue(static_cast<const char *>(buf), size,
-                               "## AllowAddOnTableAccess:", &v, &n)) {
+                               "AllowAddOnTableAccess", &v, &n)) {
         int value = 0;
         bool anyDigit = false;
         for (size_t k = 0; k < n && v[k] >= '0' && v[k] <= '9'; ++k) {

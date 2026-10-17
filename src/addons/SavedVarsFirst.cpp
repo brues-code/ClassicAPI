@@ -147,18 +147,18 @@ SvFlags ReadSvFlags(const char *tocPath) {
 
     const char *v = nullptr;
     size_t n = 0;
-    if (AddOns::Toc::FindValue(b, size, "## LoadSavedVariablesFirst:", &v, &n))
+    if (AddOns::Toc::FindValue(b, size, "LoadSavedVariablesFirst", &v, &n))
         f.first = NonzeroFlag(v, n);
     // Gate each SV file on the DECLARATION, not mere file existence — mirroring
     // the engine, which loads the account file iff `## SavedVariables` is
     // declared and the per-char file iff `## SavedVariablesPerCharacter` is.
-    // (The trailing `:` keeps "## SavedVariables:" from matching the
-    // "## SavedVariablesPerCharacter:" line.) Otherwise a stale SV file from a
+    // (FindValue requires `:` right after the key, so "SavedVariables" never
+    // matches the "## SavedVariablesPerCharacter:" line.) Otherwise a stale SV file from a
     // scope the addon no longer declares would be executed early — Lua the
     // engine never runs — and queued for a suppression the engine never drains.
-    f.account = AddOns::Toc::FindValue(b, size, "## SavedVariables:", &v, &n) && n > 0;
+    f.account = AddOns::Toc::FindValue(b, size, "SavedVariables", &v, &n) && n > 0;
     f.perChar =
-        AddOns::Toc::FindValue(b, size, "## SavedVariablesPerCharacter:", &v, &n) && n > 0;
+        AddOns::Toc::FindValue(b, size, "SavedVariablesPerCharacter", &v, &n) && n > 0;
 
     reinterpret_cast<SMemFreeFn>(static_cast<uintptr_t>(Offsets::FUN_STORM_SMEM_FREE))(
         buf, __FILE__, __LINE__, 0);

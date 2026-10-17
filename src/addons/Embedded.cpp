@@ -137,7 +137,7 @@ bool ExtractTocVersion(const char *content, size_t size,
     size_t n = 0;
     if (outSize == 0)
         return false;
-    if (!AddOns::Toc::FindValue(content, size, "## Version:", &v, &n) || n == 0) {
+    if (!AddOns::Toc::FindValue(content, size, "Version", &v, &n) || n == 0) {
         out[0] = '\0';
         return false;
     }

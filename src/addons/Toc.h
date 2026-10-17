@@ -33,35 +33,58 @@ inline bool EqCI(const char *s, size_t n, const char *lit) {
     return lit[n] == '\0';
 }
 
-// Scans an in-memory TOC buffer for `directive` (the full line prefix, e.g.
-// "## Version:") at a line start, case-insensitively, and returns the value
-// that follows via out-params: [*valStart, *valStart + *valLen), trimmed of
-// leading and trailing spaces/tabs and excluding the CR/LF/EOF terminator.
-// Returns false (out-params untouched) when the directive is absent. Pure —
-// reads no files; the caller owns the buffer (via FUN_FILE_READ, or an embedded
-// copy). Shared by addons/LocalTable.cpp (AllowAddOnTableAccess) and
-// addons/Embedded.cpp (Version) so the line-scan lives in one place.
-inline bool FindValue(const char *buf, size_t size, const char *directive,
+// Scans an in-memory TOC buffer for the `## <key>:` directive and returns the
+// first one's value via out-params: [*valStart, *valStart + *valLen), trimmed
+// of leading and trailing spaces/tabs and excluding the CR/LF/EOF terminator.
+// `key` is the bare name ("Version", "SavedVariables"). Returns false
+// (out-params untouched) when the directive is absent.
+//
+// Matches lines the way the engine's TOC parser `FUN_TOC_PARSER` (0x0051C9B0)
+// does, so a directive the engine reads is never one we miss: a UTF-8 BOM at
+// the start of the file is skipped; lines break at CR or LF; a line counts
+// when it starts with "##", then any number of spaces, then `key`
+// case-insensitively, IMMEDIATELY followed by ':' (the engine compares
+// against literals like "SavedVariables:", which is also why
+// "SavedVariables" never matches a "SavedVariablesPerCharacter:" line).
+//
+// Pure — reads no files; the caller owns the buffer (via FUN_FILE_READ, or an
+// embedded copy). Shared by every addon module that reads a TOC directive so
+// the line-scan lives in one place.
+inline bool FindValue(const char *buf, size_t size, const char *key,
                       const char **valStart, size_t *valLen) {
-    const size_t dlen = std::strlen(directive);
-    if (dlen == 0)
+    const size_t klen = std::strlen(key);
+    if (klen == 0)
         return false;
-    for (size_t i = 0; i + dlen <= size; ++i) {
-        const bool atLineStart = (i == 0) || buf[i - 1] == '\n';
-        if (!atLineStart || _strnicmp(buf + i, directive, dlen) != 0)
-            continue;
-        const char *p = buf + i + dlen;
-        const char *end = buf + size;
-        while (p < end && (*p == ' ' || *p == '\t'))
-            ++p;
-        const char *v = p;
-        while (p < end && *p != '\r' && *p != '\n')
-            ++p;
-        while (p > v && (p[-1] == ' ' || p[-1] == '\t'))
-            --p;
-        *valStart = v;
-        *valLen = static_cast<size_t>(p - v);
-        return true;
+    const char *end = buf + size;
+    const char *line = buf;
+    if (size >= 3 && static_cast<unsigned char>(buf[0]) == 0xEF &&
+        static_cast<unsigned char>(buf[1]) == 0xBB &&
+        static_cast<unsigned char>(buf[2]) == 0xBF)
+        line += 3;
+    while (line < end) {
+        const char *eol = line;
+        while (eol < end && *eol != '\r' && *eol != '\n')
+            ++eol;
+        const char *p = line;
+        if (eol - p >= 2 && p[0] == '#' && p[1] == '#') {
+            p += 2;
+            while (p < eol && *p == ' ')
+                ++p;
+            if (static_cast<size_t>(eol - p) > klen && EqCI(p, klen, key) &&
+                p[klen] == ':') {
+                p += klen + 1;
+                while (p < eol && (*p == ' ' || *p == '\t'))
+                    ++p;
+                const char *v = p;
+                p = eol;
+                while (p > v && (p[-1] == ' ' || p[-1] == '\t'))
+                    --p;
+                *valStart = v;
+                *valLen = static_cast<size_t>(p - v);
+                return true;
+            }
+        }
+        line = eol + 1;
     }
     return false;
 }

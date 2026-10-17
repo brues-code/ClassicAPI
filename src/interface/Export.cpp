@@ -49,7 +49,7 @@
 //     (`Kill3.wac`, `PVPFlagTaken.Mono`) that an extension whitelist
 //     would drop. `extCount == 0` means "take everything".
 //   * The destination is `BlizzardSound\`, NOT `Sound\`. The engine's
-//     loose-file VFS index (see the frozen-index note in CLAUDE.md)
+//     loose-file VFS index (see FUN_VFS_INDEX_CLEAR in Offsets.h)
 //     resolves loose files ahead of archives, so writing ~1 GB back into
 //     `Sound\` would shadow the MPQs and be re-indexed at every launch.
 //     `ExportDBCFiles` writing to `DBFilesClient\` shadows on purpose
