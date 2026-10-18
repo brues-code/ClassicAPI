@@ -2464,6 +2464,15 @@ enum Offsets {
     // `Combat::Swing` treats this as an OffHand reset for the local player.
     SMSG_ATTACKSTART = 0x143,
 
+    // An inventory move the server refused. Routed to the shared handler
+    // `FUN_005E38C0` (registered at `0x005E3039`), whose 0x112 case reads:
+    // u8 error (0 = no error, nothing follows); u32 required level only when
+    // error == 1; u64 item1; u64 item2; u8 bag. It shows the message itself
+    // (`FUN_00622630` maps the code to a game-message row, then
+    // `FUN_00496720`) and unlocks both items. `EquipmentSet::Pending` reads it
+    // to fail a set swap that touched either item.
+    SMSG_INVENTORY_CHANGE_FAILURE = 0x112,
+
     // NetClient send — `__thiscall void(void *conn, CDataStore *packet)`.
     // The outgoing counterpart of FUN_NET_MESSAGE_DISPATCH: every CMSG the
     // client sends funnels through it (the argless wrapper `FUN_005AB630`,
@@ -5056,6 +5065,11 @@ enum Offsets {
     // arrays at `0x00BC6B60` / `0x00BC67A0`, which `IsUsableAction` reads.
     // Only those two callers; both are event-driven.
     FUN_ACTION_SLOT_USABLE = 0x004E5050,
+    // The bulk recompute above — `void __cdecl()`: FUN_ACTION_SLOT_USABLE for
+    // slots 0..0x77, store any changed value into both arrays, and fire
+    // ACTIONBAR_UPDATE_USABLE (0xD7, via FUN_FIRE_EVENT_NO_ARGS) when one did.
+    // Disassembled; it is 4.3.4's `CGActionBar::UpdateUsable` line for line.
+    FUN_ACTION_UPDATE_USABLE = 0x004E5C00,
     // Drop the cursor onto a slot — `__fastcall(uint slot0)`. Sole entry
     // for `PlaceAction`, and the tail of both FUN_ACTION_PICKUP and
     // nampower's detoured `CGActionBar_UseAction` (`0x004E5EE0`) when the

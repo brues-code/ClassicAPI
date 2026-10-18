@@ -43,10 +43,17 @@ int IndexOf(uint32_t setID); // 0-based; -1 if missing
 // until the next mutation.
 std::vector<const Set *> SetsContainingItem(uint64_t itemGuid);
 
+// 4.3.4 `ScrubString(src, dest, MAX_NAME_CHARS, …, flags 1)`: drops `|`,
+// cuts at the first line break (`\r`, `\n`, or a literal `\n` / `|n`), and
+// cuts at the MAX_NAME_CHARS-th character. Writes what survives to `out`
+// and returns false when anything was cut or `src` isn't valid UTF-8 —
+// the caller's "Invalid string for setName" error.
+bool ScrubName(const char *src, std::string *out);
+
 // Mutations — bump-and-save semantics. Each returns the affected
 // set's ID (or 0 on failure), persists to disk, and fires
 // `EQUIPMENT_SETS_CHANGED`. Callers don't need to manage the file
-// directly.
+// directly. Names must already be scrubbed (`ScrubName`).
 uint32_t Create(const char *name, const char *icon);
 bool SaveExisting(uint32_t setID, const char *icon);
 bool Rename(uint32_t setID, const char *newName);

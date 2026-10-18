@@ -19,23 +19,45 @@
 
 namespace EquipmentSet::Locations {
 
-// Searches every location the local player owns for an item whose
-// GUID matches `targetGuid`, and returns the packed location code
-// (see Set.h's `PackEquipped`/`PackBag`/`PackMainBank`/`PackBankBag`).
-// Returns 0 if the GUID isn't found anywhere.
+// True while the bank window is open (the engine's banker GUID at
+// `VAR_BANK_GATE_GUID` is set) — 4.3.4's `CGBankInfo::m_banker`. The
+// server only lets an item leave the bank while a banker is in range
+// (`HandleSwapItem`'s `CanUseBank`), so a set treats bank items as
+// usable only then.
+bool BankerOpen();
+
+// Searches the local player's paperdoll, backpack and bags — and the
+// bank when `includeBank` — for an item whose GUID matches `targetGuid`,
+// and returns the packed location code (see Set.h's
+// `PackEquipped`/`PackBag`/`PackMainBank`/`PackBankBag`). Returns 0 if
+// the GUID isn't found.
 //
-// Coverage — ALL locations are read via the player invMgr's flat
-// GUID array at `+0x04` and (for bag contents) via each bag's own
-// invMgr reached through the bag's vtable `+0x10`. None of this
-// goes through the engine's `GetItemBySlot` / `PackBagSlot` path,
-// so:
-//   - no Lua stack is touched (safe to call from any callback)
-//   - bank items resolve without the bank window ever being open
-//     (the GUIDs are populated from server data at login; only
-//     `GetItemBySlot` is gated by `VAR_BANK_GATE_GUID`, the
-//     underlying data is always present — same trick
-//     `C_Item.GetItemCount` uses)
-int FindGUID(uint64_t targetGuid);
+// Every location is read via the player invMgr's flat GUID array at
+// `+0x04` and (for bag contents) via each bag's own invMgr reached
+// through the bag's vtable `+0x10`. None of this goes through the
+// engine's `GetItemBySlot` / `PackBagSlot` path, so no Lua stack is
+// touched (safe to call from any callback), and bank GUIDs read even
+// with the window closed (populated from server data at login).
+int FindGUID(uint64_t targetGuid, bool includeBank);
+
+// 4.3.4 `CGEquipmentManager::GetSetStatus`. Each non-empty slot counts
+// once: ignored, worn (in ANY equipment slot), carried (bags, and the
+// bank only while `BankerOpen`), else missing. `total` excludes
+// ignored slots. `missingSlots[0..missing)` are 1-based slots.
+struct Status {
+    int total;
+    int equipped;
+    int inInventory;
+    int missing;
+    int ignored;
+    int missingSlots[SLOT_COUNT];
+};
+Status GetStatus(const Set &set);
+
+// 4.3.4 `CGEquipmentManager::IsSetEquipped`: every slot the set doesn't
+// ignore holds exactly what the set saved — including empty for a slot
+// saved empty.
+bool IsEquipped(const Set &set);
 
 // Resolves a GUID to a `CGItem*` via the engine's GUID→CObject
 // resolver (`FUN_OBJECT_RESOLVE_BY_GUID`). Returns null if the item
@@ -65,5 +87,10 @@ void SnapshotPaperdoll(uint64_t *out);
 // delete itself), so reading it would report the set locked forever. A
 // missing item is missing, not locked.
 bool ContainsLockedItems(const Set &set);
+
+// 4.3.4 `CGEquipmentManager::SetUsesLockedSlots`: whether an item worn in
+// a slot the set would change (any slot it doesn't ignore) is locked. The
+// action bar greys a set button on this as well as `ContainsLockedItems`.
+bool UsesLockedSlots(const Set &set);
 
 } // namespace EquipmentSet::Locations

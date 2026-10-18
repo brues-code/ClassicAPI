@@ -13,6 +13,7 @@
 
 #include "Locations.h"
 
+#include "Game.h"
 #include "Offsets.h"
 #include "item/Location.h"
 #include "object/Resolve.h"
@@ -88,7 +89,11 @@ int WalkBagContents(uint64_t bagGuid, uint64_t targetGuid) {
 
 } // namespace
 
-int FindGUID(uint64_t targetGuid) {
+bool BankerOpen() {
+    return Game::Read<uint64_t>(Offsets::VAR_BANK_GATE_GUID) != 0;
+}
+
+int FindGUID(uint64_t targetGuid, bool includeBank) {
     if (targetGuid == GUID_EMPTY || targetGuid == GUID_IGNORED)
         return 0;
 
@@ -110,14 +115,6 @@ int FindGUID(uint64_t targetGuid) {
             return PackBag(0, s - LINEAR_BACKPACK_FIRST + 1);
     }
 
-    // Main bank (linear 39..62 → slots 1..24). Direct read; the bank
-    // gate at `VAR_BANK_GATE_GUID` doesn't affect the underlying data.
-    for (int s = Offsets::INVMGR_BANK_MAIN_FIRST_SLOT;
-         s <= Offsets::INVMGR_BANK_MAIN_LAST_SLOT; ++s) {
-        if (guids[s] == targetGuid)
-            return PackMainBank(s - Offsets::INVMGR_BANK_MAIN_FIRST_SLOT + 1);
-    }
-
     // Player bags 1..4 — bag containers live at linear 19..22 of the
     // player invMgr; their contents live in each bag's own invMgr.
     for (int bag = 1; bag <= 4; ++bag) {
@@ -125,6 +122,17 @@ int FindGUID(uint64_t targetGuid) {
         const int slot = WalkBagContents(guids[linear], targetGuid);
         if (slot > 0)
             return PackBag(bag, slot);
+    }
+
+    if (!includeBank)
+        return 0;
+
+    // Main bank (linear 39..62 → slots 1..24). Direct read; the bank
+    // gate at `VAR_BANK_GATE_GUID` doesn't affect the underlying data.
+    for (int s = Offsets::INVMGR_BANK_MAIN_FIRST_SLOT;
+         s <= Offsets::INVMGR_BANK_MAIN_LAST_SLOT; ++s) {
+        if (guids[s] == targetGuid)
+            return PackMainBank(s - Offsets::INVMGR_BANK_MAIN_FIRST_SLOT + 1);
     }
 
     // Bank bags 5..10 — bag containers at linear 63..68. Same walk as
@@ -158,19 +166,68 @@ void SnapshotPaperdoll(uint64_t *out) {
         out[i] = guids[i];
 }
 
+Status GetStatus(const Set &set) {
+    Status st{};
+    const bool bank = BankerOpen();
+    for (int i = 0; i < SLOT_COUNT; ++i) {
+        const uint64_t g = set.items[i];
+        if (g == GUID_EMPTY)
+            continue;
+        if (g == GUID_IGNORED) {
+            ++st.ignored;
+            continue;
+        }
+        const int loc = FindGUID(g, bank);
+        if (loc == 0)
+            st.missingSlots[st.missing++] = i + 1;
+        else if ((loc & (LOC_BAGS | LOC_BANK)) == 0)
+            ++st.equipped;
+        else
+            ++st.inInventory;
+    }
+    st.total = st.equipped + st.inInventory + st.missing;
+    return st;
+}
+
+bool IsEquipped(const Set &set) {
+    uint64_t worn[SLOT_COUNT];
+    SnapshotPaperdoll(worn);
+    for (int i = 0; i < SLOT_COUNT; ++i) {
+        if (set.items[i] != GUID_IGNORED && set.items[i] != worn[i])
+            return false;
+    }
+    return true;
+}
+
+namespace {
+
+bool IsLocked(uint64_t guid) {
+    const uint8_t *item = ResolveItemByGUID(guid);
+    if (item == nullptr)
+        return false;
+    const uint32_t flags = *reinterpret_cast<const uint32_t *>(
+        item + Offsets::OFF_ITEM_CLIENT_LOCK);
+    return (flags & Offsets::ITEM_CLIENT_LOCK_BIT) != 0;
+}
+
+} // namespace
+
 bool ContainsLockedItems(const Set &set) {
     for (int i = 0; i < SLOT_COUNT; ++i) {
         const uint64_t g = set.items[i];
         if (g == GUID_EMPTY || g == GUID_IGNORED)
             continue;
-        if (FindGUID(g) == 0)
-            continue;
-        const uint8_t *item = ResolveItemByGUID(g);
-        if (item == nullptr)
-            continue;
-        const uint32_t flags = *reinterpret_cast<const uint32_t *>(
-            item + Offsets::OFF_ITEM_CLIENT_LOCK);
-        if (flags & Offsets::ITEM_CLIENT_LOCK_BIT)
+        if (FindGUID(g, true) != 0 && IsLocked(g))
+            return true;
+    }
+    return false;
+}
+
+bool UsesLockedSlots(const Set &set) {
+    uint64_t worn[SLOT_COUNT];
+    SnapshotPaperdoll(worn);
+    for (int i = 0; i < SLOT_COUNT; ++i) {
+        if (set.items[i] != GUID_IGNORED && worn[i] != 0 && IsLocked(worn[i]))
             return true;
     }
     return false;

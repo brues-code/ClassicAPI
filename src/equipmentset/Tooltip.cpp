@@ -26,10 +26,8 @@
 //
 // We back the implementation with the same equipment-set storage
 // `C_EquipmentSet.*` already uses (`EquipmentSet::Data`) — no new data
-// model needed. Item classification reuses `Locations::FindGUID`,
-// which walks the player's flat inventory + bag invMgrs the same way
-// `GetItemCount` does, so bank items count as "in inventory" without
-// needing the bank window open.
+// model needed. The counts are `Locations::GetStatus`, 4.3.4's
+// `GetSetStatus`, shared with `C_EquipmentSet.GetEquipmentSetInfo`.
 //
 // Stock 4.3.4 enumerates each missing item by name (looks up the
 // itemID via the engine's full item-cache name resolver). Our storage
@@ -51,13 +49,17 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cvar/Factory.h"
 #include "equipmentset/Data.h"
 #include "equipmentset/Locations.h"
 #include "equipmentset/Set.h"
+#include "equipmentset/Text.h"
 #include "item/Record.h"
 #include "tooltip/Lines.h"
+#include "ui/ColorData.h"
 
 #include <cstdint>
+#include <string>
 
 namespace EquipmentSet::Tooltip {
 
@@ -68,6 +70,8 @@ constexpr uint32_t kWhite = 0xFFFFFFFFu;
 constexpr uint32_t kGreen = 0xFF00FF00u;
 constexpr uint32_t kGray = 0xFF808080u;
 constexpr uint32_t kRed = 0xFFFF0000u;
+// 4.3.4's tooltip title color, which its "Equipment Sets:" line uses.
+constexpr uint32_t kNormal = UI::ColorData::ByTag("NORMAL_FONT_COLOR");
 
 // Adds one localized "N unit" line: `string.format(_G[globalName] or
 // fallback, n)` (the project's GlobalString localize-or-fallback helper,
@@ -81,51 +85,6 @@ void AddLocalizedLineInt(void *L, void *self, const char *globalName,
     if (text != nullptr)
         ::Tooltip::Lines::Add(self, text, color);
     Game::Lua::SetTop(L, savedTop);
-}
-
-struct Tally {
-    int equipped;
-    int inInventory;
-    int ignored;
-    int missing;
-    // ItemIDs of slots classified as missing. Indexed 0..missing-1.
-    // Capacity matches SLOT_COUNT (worst case: every slot is missing).
-    // Stays 0 for entries loaded from pre-itemID-format files.
-    uint32_t missingItemIDs[SLOT_COUNT];
-};
-
-// Walks a set's slots, classifying each non-empty entry into the
-// equipped / in-inventory / ignored / missing buckets via
-// `Locations::FindGUID`. For missing slots, also records the saved
-// itemID so the tooltip can resolve names. Stack-free.
-Tally TallySet(const Set &s) {
-    Tally t{};
-    for (int i = 0; i < SLOT_COUNT; ++i) {
-        const uint64_t g = s.items[i];
-        if (g == GUID_IGNORED) {
-            t.ignored++;
-            continue;
-        }
-        if (g == GUID_EMPTY)
-            continue;
-        const int loc = Locations::FindGUID(g);
-        if (loc == 0) {
-            // Live GUID isn't in the player's object map. The saved
-            // itemID (if any) is the only handle we have for naming.
-            t.missingItemIDs[t.missing++] = s.itemIDs[i];
-            continue;
-        }
-        // LOC_BAGS covers backpack / player bags / bank bags; LOC_BANK
-        // alone (no LOC_BAGS) covers main bank slots. Both count as
-        // "in inventory" for the tooltip summary — matches the modern
-        // category where everything-but-equipped is one bucket.
-        if ((loc & (LOC_BAGS | LOC_BANK)) != 0) {
-            t.inInventory++;
-        } else {
-            t.equipped++;
-        }
-    }
-    return t;
 }
 
 } // namespace
@@ -151,8 +110,8 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     if (self == nullptr)
         return 0;
 
-    const Tally t = TallySet(*s);
-    const int totalSlots = t.equipped + t.inInventory + t.missing;
+    const Locations::Status t = Locations::GetStatus(*s);
+    const int totalSlots = t.total;
 
     // Header — set name, white. Clear first so it lands as line 0
     // (the clear resets the line count the add-line body indexes from).
@@ -187,7 +146,7 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     // a `(N unnamed missing)` line below.
     int unnamedMissing = 0;
     for (int i = 0; i < t.missing; ++i) {
-        const uint32_t id = t.missingItemIDs[i];
+        const uint32_t id = s->itemIDs[t.missingSlots[i] - 1];
         if (id == 0) {
             unnamedMissing++;
             continue;
@@ -233,6 +192,28 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
 
 namespace {
 
+CVar::Factory::Handle g_hideSetsCVar = nullptr;
+
+} // namespace
+
+void AfterItemBuild(void *self, const void *itemGuidPtr) {
+    if (itemGuidPtr == nullptr || CVar::Factory::GetInt(g_hideSetsCVar) != 0)
+        return;
+    const uint64_t itemGuid = *static_cast<const uint64_t *>(itemGuidPtr);
+    // The builder adds no lines when it bailed on an item-cache miss; it
+    // runs again once the item arrives.
+    if (itemGuid == 0 || Game::Read<int>(self, Offsets::OFF_GAMETOOLTIP_NUM_LINES) == 0)
+        return;
+    const std::string list = Text::SetList(itemGuid);
+    if (list.empty())
+        return;
+    const std::string line = Text::FormatS(
+        Text::Global("EQUIPMENT_SETS", "Equipment Sets: |cFFFFFFFF%s|r"), list);
+    ::Tooltip::Lines::Add(self, line.c_str(), kNormal, /*wrap*/ true);
+}
+
+namespace {
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetEquipmentSet", &Script_GameTooltipSetEquipmentSet},
 };
@@ -240,6 +221,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 } // namespace
 
 static void RegisterLuaFunctions() {
+    // 4.3.4's switch for the item-tooltip line; dedups by name on /reload.
+    g_hideSetsCVar = CVar::Factory::Register("dontShowEquipmentSetsOnItems", "0");
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
         g_methods,

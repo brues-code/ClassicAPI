@@ -20,4 +20,11 @@ namespace EquipmentSet::Tooltip {
 // button the same way.
 int __fastcall Script_GameTooltipSetEquipmentSet(void *L);
 
+// 4.3.4 `CGTooltip::SetItem`'s "Equipment Sets: A, B" line: appended to an
+// item tooltip just built for the item instance at `itemGuidPtr` (the item
+// builder's second GUID argument; may be null), unless the
+// `dontShowEquipmentSetsOnItems` cvar is set. Called by
+// `Tooltip::SetEvents`' item-builder co-hook, before OnTooltipSetItem.
+void AfterItemBuild(void *self, const void *itemGuidPtr);
+
 } // namespace EquipmentSet::Tooltip

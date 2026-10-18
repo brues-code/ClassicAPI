@@ -42,6 +42,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "equipmentset/Tooltip.h"
 #include "unit/Tooltip.h"
 
 #include <cstdint>
@@ -170,7 +171,8 @@ int __fastcall Resolver_h(void *self, void *edx, const char *name) {
 // Builders whose callers use the return value (spell, unit) are declared to
 // return it so the co-hook forwards it.
 
-// Item — FUN_GAMETOOLTIP_BUILD_ITEM, 9 stack args, return unused.
+// Item — FUN_GAMETOOLTIP_BUILD_ITEM, 9 stack args, return unused. `guid2`
+// (stack +0x10) is the item instance GUID the builder stores at +0x380.
 using BuildItem_t = void(__fastcall *)(void *self, void *edx, uint32_t itemID,
                                        const void *guid, const void *guid2, int a4,
                                        int a5, int a6, int headerFlag, int a8, int a9);
@@ -180,6 +182,7 @@ void __fastcall BuildItem_h(void *self, void *edx, uint32_t itemID, const void *
                             const void *guid2, int a4, int a5, int a6, int headerFlag,
                             int a8, int a9) {
     g_buildItemOriginal(self, edx, itemID, guid, guid2, a4, a5, a6, headerFlag, a8, a9);
+    EquipmentSet::Tooltip::AfterItemBuild(self, guid2);
     FireScript(self, SK_ITEM);
 }
 

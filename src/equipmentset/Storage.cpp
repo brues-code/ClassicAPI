@@ -101,8 +101,6 @@ bool Load(const std::string &path, std::vector<Set> *outSets) {
 
         std::string value;
         if (ParseField(line, "name", &value)) {
-            if (value.size() > MAX_NAME_LEN)
-                value.resize(MAX_NAME_LEN);
             current->name = std::move(value);
             continue;
         }

@@ -319,6 +319,7 @@ build instructions.
   - [`OnTooltipSet*` scripts (Item / Spell / Unit / GameObject)](#ontooltipset-scripts)
   - [`GameTooltip:SetItemByGUID(itemGUID)`](#gametooltipsetitembyguiditemguid)
   - [`GameTooltip:SetEquipmentSet(name)`](#gametooltipsetequipmentsetname)
+  - [Equipment sets on item tooltips](#equipment-sets-on-item-tooltips)
   - [`GameTooltip:SetTotem(slot)`](#gametooltipsettotemslot)
   - [`GameTooltip:GetItem()`](#gametooltipgetitem)
   - [`GameTooltip:GetSpell()`](#gametooltipgetspell)
@@ -2504,8 +2505,9 @@ inSet, setList = C_Container.GetContainerItemEquipmentSetInfo(containerIndex, sl
 ```
 
 - `inSet` — `true` when the item is part of at least one equipment set.
-- `setList` — the set names joined with `", "`, in the order the sets
-  are stored. `nil` when the item is in no set.
+- `setList` — the set names, in the order the sets are stored, joined
+  with `PLAYER_LIST_DELIMITER` (`", "` in English). `nil` when the item
+  is in no set.
 
 ```lua
 local inSet, setList = C_Container.GetContainerItemEquipmentSetInfo(bag, slot)
@@ -3521,21 +3523,14 @@ set 2
   ...
 ```
 
-Identity is by **item GUID**, snapshotted at `CreateEquipmentSet` /
-`SaveEquipmentSet` time. `UseEquipmentSet` searches every player-owned
-container for those GUIDs and dispatches pickup→equip pairs for items
-that aren't already where they belong. The search reads the
-underlying GUID arrays directly (same trick `C_Item.GetItemCount`
-uses for its `includeBank=true` path), so bank items resolve **even
-without the bank window being open** — the bank gate at
-`VAR_BANK_GATE_GUID` only suppresses `GetItemBySlot`, not the
-underlying data.
+Identity is by **item GUID**, saved at `CreateEquipmentSet` /
+`SaveEquipmentSet` time. A set remembers the exact items you wore, not
+the kind of item. `UseEquipmentSet` finds those items in your bags and
+moves each one that is not already in its slot.
 
-One limitation worth knowing about:
-
-- **Equipping from the bank** is not supported by the protocol
-  — `UseEquipmentSet` skips bank items rather than try and fail.
-  Retrieve the items first, then re-run.
+Items in the bank count only while the bank window is open. Then
+`UseEquipmentSet` can equip them directly from the bank. When the bank
+is closed, a set item in the bank counts as missing.
 
 We accept icon path strings (e.g. `"INV_Shield_06"`), since there is no
 fileDataID system here. Missing or unknown icons fall back to a default.
@@ -3552,8 +3547,8 @@ file from scratch).
 
 ### `C_EquipmentSet.CanUseEquipmentSets()`
 
-Returns `true` unconditionally. There is no banker/feature gate on
-equipment-set storage; the feature ships for every character.
+Returns `false` while a swap from `UseEquipmentSet` is in progress, and
+`true` at all other times.
 
 ### `C_EquipmentSet.GetNumEquipmentSets()`
 
@@ -3581,11 +3576,22 @@ name, icon, setID, isEquipped,
 numItems, numEquipped, numInInventory, numMissing, numIgnored
 ```
 
-`isEquipped` is `true` when every resolvable item in the set is in
-its target slot (missing items don't disqualify — useful so a set
-that includes a bank-stored cloak still shows as equipped after you
-swap in the rest). `numItems` excludes ignored slots; `numIgnored`
-counts them separately. Returns nothing for an unknown setID.
+Each slot of the set that holds an item counts one time:
+
+- `numEquipped` — you wear the item, in any equipment slot.
+- `numInInventory` — the item is in your bags, or in the bank while the
+  bank window is open.
+- `numMissing` — the item is in none of these places.
+- `numIgnored` — the slot is ignored.
+
+`numItems` is `numEquipped + numInInventory + numMissing`. Slots that
+the set saved as empty are not counted.
+
+`isEquipped` is `true` only when every slot that is not ignored holds
+exactly what the set saved. A slot that the set saved as empty must be
+empty. A missing item makes `isEquipped` `false`.
+
+Returns nothing for an unknown setID.
 
 ### `C_EquipmentSet.GetIgnoredSlots(setID)`
 
@@ -3596,14 +3602,20 @@ slots are recorded **per-set at save time**, by reading the global
 
 ### `C_EquipmentSet.GetItemIDs(setID)`
 
-Returns a hash table `{ [slot] = itemID }` for every set slot whose
-item is currently resolvable. Missing items (GUID stored but client
-can't find a CGItem) are omitted because the engine doesn't keep an
-itemID separate from the live CGItem record.
+Returns a table `{ [slot] = value }` with an entry for each of the 19
+slots:
+
+- `0` — the set saved the slot as empty.
+- `1` — the slot is ignored.
+- the itemID — for an item slot. The set saves the itemID with the item,
+  so you get it also when the item is gone.
+- `-1` — the itemID is not known. This occurs only for sets that were
+  saved before ClassicAPI saved itemIDs.
 
 ### `C_EquipmentSet.GetItemLocations(setID)`
 
-Returns a hash table `{ [slot] = locationCode }`. Location codes use
+Returns a table `{ [slot] = locationCode }` with an entry for each of
+the 19 slots. Location codes use
 the same bit-packed encoding Blizzard's FrameXML
 `EquipmentManager_UnpackLocation` decodes (constants in
 `Blizzard_FrameXMLBase/Classic/Constants.lua`):
@@ -3629,8 +3641,12 @@ to give back bag IDs 5..10. Composition:
 | Bank bag 5..10 | `BANK | BAGS | ((bag-4)<<8) | slot` | `0x600101` = bank bag 5 slot 1 |
 
 Special values returned in the table entry:
+- `0` — the set saved the slot as empty
 - `1` — slot is ignored (`GetIgnoredSlots` lists these)
 - `-1` — item is missing (was in the set, can't find now)
+
+Bank locations are returned only while the bank window is open. When
+the bank is closed, an item in the bank is `-1`.
 
 The packed codes pass cleanly through Blizzard's
 `EquipmentManager_UnpackLocation` if you want to use the
@@ -3646,6 +3662,10 @@ GUID.
 Returns the new setID on success. Returns nothing if the name is
 empty or already in use.
 
+The name must be valid UTF-8, have no line break, and be shorter than 32
+characters. If not, the call raises the error `Invalid string for
+setName`. The `|` character is removed from the name.
+
 `icon` defaults to `"INV_Misc_QuestionMark"` if omitted.
 
 ### `C_EquipmentSet.SaveEquipmentSet(setID [, icon])`
@@ -3658,7 +3678,8 @@ the icon is left unchanged.
 ### `C_EquipmentSet.ModifyEquipmentSet(setID, newName)`
 
 Renames an existing set. Fails silently if the new name is empty,
-already in use by a different set, or the setID doesn't exist.
+already in use by a different set, or the setID doesn't exist. The new
+name follows the same rules as in `CreateEquipmentSet`.
 
 ### `C_EquipmentSet.DeleteEquipmentSet(setID)`
 
@@ -3683,38 +3704,34 @@ by the engine — a pending pickup or use is in flight that
 
 ### `C_EquipmentSet.UseEquipmentSet(setID)`
 
-Walks the set and dispatches one **atomic server-side swap** per item
-that isn't already in its target slot. Items in the bank are skipped
-silently (the protocol can't equip from bank). Missing items are skipped
-silently. Returns `true` if the call ran (the set existed), `false`
-otherwise.
+Equips the set. Each item that is not in its slot moves with one
+server-side swap. Slots that the set saved as empty are emptied into
+free bag slots. The cursor is not used.
 
-Implementation uses the same `FUN_INVENTORY_SWAP` primitive
-[`C_Item.EquipItemByName`](#c_itemequipitembynameitem--dstslot)
-uses for its explicit-slot path. Each swap is a single
-CMSG_SWAP_INV_ITEM (or CMSG_AUTOEQUIP_ITEM) packet that the server
-applies atomically — the two-cycle "ring A in slot 11, ring B in
-slot 12, set swaps them" case resolves in one packet because the
-opcode swaps both slots in a single server transaction. The cursor
-is never touched; an item held on the cursor when
-`UseEquipmentSet` is called stays on the cursor.
+Returns `true` when the swap starts. Returns `false` when the setID is
+unknown, or when the swap cannot start. The result of the swap comes
+later, in `EQUIPMENT_SWAP_FINISHED`.
 
-Longer dependency chains (3+ items rotating) are rare with 1.12's
-slot set — the realistic conflicts are paired slots (rings 11/12,
-trinkets 13/14, weapons 16/17), all 2-cycles.
+The swap does not start when another swap from `UseEquipmentSet` is in
+progress, or when the cursor holds an item. Then the error frame shows
+`ERR_CLIENT_LOCKED_OUT` ("You can't do that right now.").
 
-> **`CURSOR_UPDATE` fires per item moved.** The engine's swap
-> primitive (`FUN_005E0C40`) runs a generic cursor-state cleanup at
-> the end of each call, which fires `CURSOR_UPDATE` regardless of
-> whether the cursor was actually touched. So one
-> `UseEquipmentSet` call that moves N items will fire N
-> `CURSOR_UPDATE` events in quick succession. Addons that react to
-> `CURSOR_UPDATE` (cursor-attached tooltips, drag-state tracking)
-> should debounce — or check `CursorHasItem()` before doing work —
-> since most of those fires won't reflect a real cursor change.
-> This is engine behavior, not a bug in the implementation; the
-> old cursor-based path actually fired more (one per pickup, one
-> per equip, one per cursor-clear).
+Rules for each slot:
+
+- **In combat**, only the main hand, off hand, and ranged slots change.
+  If a different slot had to change, the error frame shows
+  `ERR_EQUIPMENT_MANAGER_COMBAT_SWAP_S` one time.
+- **A missing item** is skipped. The error frame shows
+  `ERR_EQUIPMENT_MANAGER_MISSING_ITEM_S` one time.
+- **Items in the bank** are equipped only while the bank window is open.
+- **No free bag slot** for an item that the set takes off: that slot
+  keeps its item. When the swap ends, `EQUIPMENT_SWAP_FINISHED` reports
+  a failure, and the error frame shows `ERR_EQUIPMENT_MANAGER_BAGS_FULL`.
+
+> **`CURSOR_UPDATE` fires one time for each item that moves.** The
+> game's swap does a cursor cleanup after each move, also when the
+> cursor did not change. Addons that react to `CURSOR_UPDATE` should
+> check `CursorHasItem()` before they do work.
 
 ### `C_EquipmentSet.PickupEquipmentSet(setID)`
 
@@ -3723,8 +3740,9 @@ equipment-set button. An unknown `setID` does nothing.
 
 An equipment-set button shows the icon and the name of the set. When
 the player uses the button, `WEAR_EQUIPMENT_SET` fires, and the
-built-in handler equips the set. The button is grayed out while an item
-of the set is locked. Its tooltip is the `GameTooltip:SetEquipmentSet`
+built-in handler equips the set. The button is grayed out while a swap
+is in progress, while an item of the set is locked, and while an item
+that the set would replace is locked. Its tooltip is the `GameTooltip:SetEquipmentSet`
 tooltip.
 
 The button works like other action buttons. Drag it off to put the set
@@ -4118,25 +4136,27 @@ should re-read its set list / button state when this fires.
 
 ### `EQUIPMENT_SWAP_PENDING` event
 
-Fires with a single payload arg — `setID` — at the **start** of
-`UseEquipmentSet`, right after the set-exists check passes and
-before any pickup/equip work begins. Addons use this to
-gate "swap in progress" UI state (grey out the set button, show
-a spinner, etc.) until `EQUIPMENT_SWAP_FINISHED` arrives.
-
-Doesn't fire if `UseEquipmentSet` is called with an unknown
-setID — in that case only `EQUIPMENT_SWAP_FINISHED(false, setID)`
-fires.
+Fires with one payload argument, `setID`, when `UseEquipmentSet` starts
+a swap. Until `EQUIPMENT_SWAP_FINISHED` fires, `CanUseEquipmentSets()`
+returns `false` and equipment-set buttons are grayed out.
 
 ### `EQUIPMENT_SWAP_FINISHED` event
 
-Fires at the end of every `UseEquipmentSet` call with two payload
-args: `success` (1 if the set existed and we dispatched the swap, 0
-if the setID was unknown) and `setID`. Note this is "we ran the
-dispatch" success — not "every item ended up in its target slot."
-Items that were in the bank or that couldn't complete a swap cycle
-in one pass still report success=1. Listen for this if you want to
-re-paint the character pane / refresh tooltips after a swap.
+Fires with two payload arguments, `success` and `setID`, when a swap
+from `UseEquipmentSet` ends. It always comes after
+`EQUIPMENT_SWAP_PENDING`, and never during the `UseEquipmentSet` call.
+
+`success` is `1` when every slot that the swap changed holds its set
+item. `success` is `nil` when:
+
+- the server refused a move of a set item, or
+- an item could not be taken off because the bags were full, or
+- the equipped items stopped changing before the swap was complete.
+  This occurs, for example, when you cancel the bind-on-equip
+  confirmation for a set item.
+
+Slots that the swap skipped (missing items, combat, a closed bank) do
+not make the swap fail.
 
 ### `WEAR_EQUIPMENT_SET` event
 
@@ -7803,9 +7823,10 @@ Silent no-op if no set with that name exists. The owner anchor must
 be set before the call — `SetEquipmentSet` only fills the lines, it
 doesn't re-anchor the tooltip frame.
 
-Item classification reuses `Locations::FindGUID` (the same walk
-`GetItemCount` uses), so items in the bank count as "in inventory"
-without requiring the bank window to be open.
+The counts are the same as in
+[`C_EquipmentSet.GetEquipmentSetInfo`](#c_equipmentsetgetequipmentsetinfosetid).
+An item in the bank counts as "in inventory" only while the bank window
+is open.
 
 **Localization.** The count lines are formatted through
 [`Game::Lua::PushLocalizedFormatInt`](#) — Blizzard's `ITEMS_VARIABLE_QUANTITY`,
@@ -7836,6 +7857,18 @@ it we couldn't recover the name for missing items. Sets saved
 before the itemID field was added load fine but render their
 missing slots with the count summary `%d missing` instead of named
 lines; re-saving a set repopulates itemIDs.
+
+### Equipment sets on item tooltips
+
+An item tooltip shows the line `Equipment Sets: <names>` when the item
+belongs to one or more sets. The line uses `EQUIPMENT_SETS` and
+`PLAYER_LIST_DELIMITER`, and is added before `OnTooltipSetItem` runs.
+
+Set the cvar `dontShowEquipmentSetsOnItems` to `1` to hide the line:
+
+```lua
+SetCVar("dontShowEquipmentSetsOnItems", "1")
+```
 
 ### `GameTooltip:SetTotem(slot)`
 

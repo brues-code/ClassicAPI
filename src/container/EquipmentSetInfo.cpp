@@ -24,29 +24,24 @@
 // reserved empty / ignored slot markers can never match a real GUID,
 // and `Data::SetsContainingItem` rejects them outright.
 //
-// `setList` is the set names joined with `", "`, in set order, which is
-// the shape a caller formats straight into a tooltip line. It is `nil`
+// `setList` is 4.3.4's `GetSetList`: the set names in set order, joined by
+// PLAYER_LIST_DELIMITER — the shape a caller formats straight into a
+// tooltip line. It is `nil`
 // rather than an empty string when the item is in no set, so the usual
 // `if inSet then … setList … end` guard is all a caller needs.
 
 #include "Game.h"
 #include "Offsets.h"
-#include "equipmentset/Data.h"
-#include "equipmentset/Set.h"
+#include "equipmentset/Text.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace Container::EquipmentSetInfo {
 
 namespace {
-
-// The separator between names in `setList`. One place, so the string a
-// caller splits on is stated once.
-constexpr const char *kSeparator = ", ";
 
 uint64_t ItemGuid(const uint8_t *cgItem) {
     auto *instance = Item::InstanceBlock(cgItem);
@@ -71,21 +66,13 @@ int __fastcall Script_C_Container_GetContainerItemEquipmentSetInfo(void *L) {
     const uint64_t guid =
         ItemGuid(Item::Location::ResolveBag(L, bagID, slotIndex));
 
-    const std::vector<const EquipmentSet::Set *> sets =
-        EquipmentSet::Data::SetsContainingItem(guid);
+    const std::string setList = EquipmentSet::Text::SetList(guid);
 
     Game::Lua::SetTop(L, 0);
-    if (sets.empty()) {
+    if (setList.empty()) {
         Game::Lua::PushBool(L, false);
         Game::Lua::PushNil(L);
         return 2;
-    }
-
-    std::string setList;
-    for (size_t i = 0; i < sets.size(); ++i) {
-        if (i > 0)
-            setList += kSeparator;
-        setList += sets[i]->name;
     }
 
     Game::Lua::PushBool(L, true);

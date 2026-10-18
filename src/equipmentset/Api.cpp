@@ -19,10 +19,9 @@
 // the same way `VanillaMinimapTracking` keeps its tracking config.
 //
 // Identity is by item GUID — `SaveEquipmentSet` snapshots the GUIDs
-// currently worn, and `UseEquipmentSet` searches every player-owned
-// container for those GUIDs at use time. The GUID search reads
-// invMgr GUID arrays directly (same trick `C_Item.GetItemCount`
-// uses), so bank items resolve without the bank window being open.
+// currently worn, and `UseEquipmentSet` searches the player's bags (and
+// the bank, while it is open) for those GUIDs at use time. Behavior
+// follows 4.3.4's native equipment manager (`CGEquipmentManager`).
 //
 // Modern Classic Era's signatures use a numeric `iconFileID`; we
 // accept icon paths (e.g. `"INV_Shield_06"`) instead because vanilla
@@ -34,14 +33,17 @@
 #include "Game.h"
 #include "Locations.h"
 #include "Offsets.h"
+#include "Pending.h"
 #include "Set.h"
-#include "event/Custom.h"
+#include "Text.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
 #include "item/Swap.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 namespace EquipmentSet::Api {
 
@@ -87,11 +89,9 @@ void PushTableEntry(void *L, int key, double value) {
     Game::Lua::SetTable(L, -3);
 }
 
-// 1.12 has no concept of "uncomingable equipment-set support", so
-// `CanUseEquipmentSets` is always true (we mirror what Classic Era
-// 1.15 does — it returns true unconditionally there as well).
+// 4.3.4 `CanUseEquipmentSets`: false while a swap is in flight.
 int __fastcall Script_CanUseEquipmentSets(void *L) {
-    Game::Lua::PushBool(L, 1);
+    Game::Lua::PushBool(L, Pending::CanUse());
     return 1;
 }
 
@@ -131,55 +131,25 @@ int __fastcall Script_GetEquipmentSetID(void *L) {
 // Returns the 9-tuple Blizzard ships:
 //   name, icon, setID, isEquipped, numItems, numEquipped,
 //   numInInventory, numMissing, numIgnored
-//
-// `numItems` excludes ignored slots — matches modern semantics where
-// an ignored slot is "not part of the set", not "part of the set but
-// unfilled". `isEquipped` is the boolean equivalent of
-// `numEquipped == numItems`; modern flips it true even when missing
-// items exist, as long as everything currently *resolvable* is in its
-// target slot. We follow that — strict-equipped semantics break in
-// useful cases (e.g. you're at a bank without your bank-stored cloak).
+// — 4.3.4 `Script_GetEquipmentSetInfo`: the counts are
+// `Locations::GetStatus`, `isEquipped` is the strict
+// `Locations::IsEquipped`.
 int __fastcall Script_GetEquipmentSetInfo(void *L) {
     const uint32_t setID = ArgSetID(L, 1);
     const Set *s = Data::FindByID(setID);
     if (s == nullptr)
         return 0;
 
-    int numItems = 0;
-    int numEquipped = 0;
-    int numInInventory = 0;
-    int numMissing = 0;
-    int numIgnored = 0;
-    for (int i = 0; i < SLOT_COUNT; ++i) {
-        const uint64_t g = s->items[i];
-        if (g == GUID_IGNORED) {
-            ++numIgnored;
-            continue;
-        }
-        if (g == GUID_EMPTY)
-            continue;
-        ++numItems;
-        const int loc = Locations::FindGUID(g);
-        if (loc == 0) {
-            ++numMissing;
-        } else if ((loc & LOC_BAGS) == 0 && (loc & LOC_BANK) == 0 &&
-                   (loc & LOC_SLOT_MASK) == (i + 1)) {
-            ++numEquipped;
-        } else {
-            ++numInInventory;
-        }
-    }
-
+    const Locations::Status st = Locations::GetStatus(*s);
     Game::Lua::PushString(L, s->name.c_str());
     Game::Lua::PushString(L, s->icon.c_str());
     Game::Lua::PushNumber(L, static_cast<double>(s->setID));
-    Game::Lua::PushBoolean(L, (numItems > 0 && numEquipped + numMissing == numItems &&
-                               numInInventory == 0));
-    Game::Lua::PushNumber(L, static_cast<double>(numItems));
-    Game::Lua::PushNumber(L, static_cast<double>(numEquipped));
-    Game::Lua::PushNumber(L, static_cast<double>(numInInventory));
-    Game::Lua::PushNumber(L, static_cast<double>(numMissing));
-    Game::Lua::PushNumber(L, static_cast<double>(numIgnored));
+    Game::Lua::PushBoolean(L, Locations::IsEquipped(*s) ? 1 : 0);
+    Game::Lua::PushNumber(L, static_cast<double>(st.total));
+    Game::Lua::PushNumber(L, static_cast<double>(st.equipped));
+    Game::Lua::PushNumber(L, static_cast<double>(st.inInventory));
+    Game::Lua::PushNumber(L, static_cast<double>(st.missing));
+    Game::Lua::PushNumber(L, static_cast<double>(st.ignored));
     return 9;
 }
 
@@ -201,10 +171,10 @@ int __fastcall Script_GetIgnoredSlots(void *L) {
     return 1;
 }
 
-// Modern returns a hash table { [slot] = itemID } with one entry per
-// non-empty, non-ignored slot. Missing items still get an entry — but
-// since we can't recover an itemID from a GUID alone after the item
-// has left the client (e.g. mailed away), missing slots are omitted.
+// 4.3.4 `Script_GetEquipmentSetItemIDs`: { [slot] = value } for all 19
+// slots — 0 empty, 1 ignored, else the itemID, or -1 when it can't be
+// resolved. An item no longer in the client still has the itemID saved
+// with the set, so -1 is left for sets saved before that was recorded.
 int __fastcall Script_GetItemIDs(void *L) {
     const uint32_t setID = ArgSetID(L, 1);
     const Set *s = Data::FindByID(setID);
@@ -214,39 +184,39 @@ int __fastcall Script_GetItemIDs(void *L) {
     Game::Lua::NewTable(L);
     for (int i = 0; i < SLOT_COUNT; ++i) {
         const uint64_t g = s->items[i];
-        if (g == GUID_EMPTY || g == GUID_IGNORED)
-            continue;
-        const uint8_t *item = Locations::ResolveItemByGUID(g);
-        const int itemID = ResolveItemID(item);
-        if (itemID == 0)
-            continue;
-        PushTableEntry(L, i + 1, static_cast<double>(itemID));
+        int value = static_cast<int>(g); // GUID_EMPTY 0 / GUID_IGNORED 1
+        if (g != GUID_EMPTY && g != GUID_IGNORED) {
+            value = ResolveItemID(Locations::ResolveItemByGUID(g));
+            if (value == 0)
+                value = static_cast<int>(s->itemIDs[i]);
+            if (value == 0)
+                value = -1;
+        }
+        PushTableEntry(L, i + 1, static_cast<double>(value));
     }
     return 1;
 }
 
-// Hash table { [slot] = locationCode } — same encoding modern uses,
-// see Set.h's pack helpers. Ignored slots produce `LOC_IGNORED`,
-// missing items produce `LOC_MISSING`, found items produce the
-// packed `LOC_PLAYER|...|slot` code. Empty (uninitialized) slots
-// don't appear in the table.
+// 4.3.4 `Script_GetEquipmentSetLocations`: { [slot] = locationCode } for
+// all 19 slots — 0 empty, `LOC_IGNORED`, the packed location (see Set.h),
+// or `LOC_MISSING`. Bank items count only while the bank is open, the
+// same rule `UseEquipmentSet` swaps by.
 int __fastcall Script_GetItemLocations(void *L) {
     const uint32_t setID = ArgSetID(L, 1);
     const Set *s = Data::FindByID(setID);
     if (s == nullptr)
         return 0;
 
+    const bool bank = Locations::BankerOpen();
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
     for (int i = 0; i < SLOT_COUNT; ++i) {
         const uint64_t g = s->items[i];
-        if (g == GUID_EMPTY)
-            continue;
-        int loc;
+        int loc = 0;
         if (g == GUID_IGNORED) {
             loc = LOC_IGNORED;
-        } else {
-            loc = Locations::FindGUID(g);
+        } else if (g != GUID_EMPTY) {
+            loc = Locations::FindGUID(g, bank);
             if (loc == 0)
                 loc = LOC_MISSING;
         }
@@ -255,14 +225,27 @@ int __fastcall Script_GetItemLocations(void *L) {
     return 1;
 }
 
+// The name argument at `idx`, scrubbed as 4.3.4 does. Raises its
+// "Invalid string for setName" error and returns false when the scrub
+// rejects it.
+bool ArgName(void *L, int idx, std::string *out) {
+    if (Data::ScrubName(ArgString(L, idx), out))
+        return true;
+    Game::Lua::Error(L, "Invalid string for setName");
+    return false;
+}
+
 int __fastcall Script_CreateEquipmentSet(void *L) {
-    const char *name = ArgString(L, 1);
-    if (name == nullptr || name[0] == '\0') {
+    const char *raw = ArgString(L, 1);
+    if (raw == nullptr || raw[0] == '\0') {
         Game::Lua::Error(L, "Usage: C_EquipmentSet.CreateEquipmentSet(name [, icon])");
         return 0;
     }
+    std::string name;
+    if (!ArgName(L, 1, &name))
+        return 0;
     const char *icon = ArgString(L, 2);
-    const uint32_t setID = Data::Create(name, icon);
+    const uint32_t setID = Data::Create(name.c_str(), icon);
     if (setID == 0)
         return 0;
     Game::Lua::PushNumber(L, static_cast<double>(setID));
@@ -283,13 +266,16 @@ int __fastcall Script_SaveEquipmentSet(void *L) {
 
 int __fastcall Script_ModifyEquipmentSet(void *L) {
     const uint32_t setID = ArgSetID(L, 1);
-    const char *newName = ArgString(L, 2);
-    if (setID == 0 || newName == nullptr || newName[0] == '\0') {
+    const char *raw = ArgString(L, 2);
+    if (setID == 0 || raw == nullptr || raw[0] == '\0') {
         Game::Lua::Error(L,
                          "Usage: C_EquipmentSet.ModifyEquipmentSet(setID, newName)");
         return 0;
     }
-    if (Data::Rename(setID, newName))
+    std::string name;
+    if (!ArgName(L, 2, &name))
+        return 0;
+    if (Data::Rename(setID, name.c_str()))
         Action::Repaint(setID); // buttons show the name
     return 0;
 }
@@ -340,211 +326,215 @@ int __fastcall Script_EquipmentSetContainsLockedItems(void *L) {
     return 1;
 }
 
-// Walks the set and dispatches one atomic server-side swap per item
-// that isn't already in its target slot. Items currently in the main
-// bank or bank bags are skipped silently — vanilla rejects equip
-// from bank slots server-side, so the user needs to retrieve them
-// first.
+// 4.3.4 `CGEquipmentManager::UseEquipmentSet`, over 1.12's per-item swap
+// packets instead of its single CMSG_EQUIPMENT_SET_USE:
+//   - refused (ERR_CLIENT_LOCKED_OUT, the same "You can't do that right
+//     now." text as 4.3.4's SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW) while a
+//     swap is in flight or the cursor holds a bag item;
+//   - in combat only the weapon slots swap, with one COMBAT_SWAP message
+//     when another slot would have changed;
+//   - an item that can't be found is skipped, with one MISSING_ITEM
+//     message;
+//   - bank items are used only while the bank is open (the server refuses
+//     them otherwise);
+//   - the result arrives later as EQUIPMENT_SWAP_FINISHED (see
+//     `EquipmentSet::Pending`).
 //
-// Cycle handling: with cursor-based pickup+equip, swap cycles (e.g.
-// rings A↔B wanting each other's slots) needed a temp-bag-slot
-// shuffle. We now call the engine's own `FUN_INVENTORY_SWAP` per
-// item, which sends opcode 0x10D / 0x10C through the engine's
-// packet pipeline — an atomic server-side swap. A two-cycle resolves
-// in one call (server swaps both slots from one packet); the cursor
-// is never touched. See TODO #59 for the primitive's decoding and
-// TODO #73 for the cycle-resolution rationale.
+// Each move is the engine's own `FUN_INVENTORY_SWAP` (opcodes 0x10D /
+// 0x10C), an atomic server-side swap that never touches the cursor, so a
+// two-item cycle (rings A<->B) resolves in one packet. Sources are resolved
+// against the state BEFORE anything is sent: the engine's inventory only
+// changes when the server answers, so a lookup between packets would see
+// stale locations. A virtual paperdoll tracks the moves instead.
+
+bool CursorHoldsBagItem() {
+    return Game::Read<uint32_t>(Offsets::VAR_CURSOR_TYPE) == 1 &&
+           (Game::Read<uint32_t>(Offsets::VAR_CURSOR_ITEM_GUID_LO) != 0 ||
+            Game::Read<uint32_t>(Offsets::VAR_CURSOR_ITEM_GUID_HI) != 0);
+}
+
+bool PlayerInCombat() {
+    const uint8_t *desc = Unit::Identity::PlayerDescriptor();
+    return desc != nullptr &&
+           (Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_FLAGS) &
+            Offsets::UNIT_FLAG_IN_COMBAT) != 0;
+}
+
+// The Lua bagID and 1-based slot of a bag or bank location code (see
+// Set.h's pack helpers): 0..4 player bags, -1 main bank, 5..10 bank bags.
+void UnpackContainer(int loc, int *bagID, int *slot) {
+    *slot = loc & LOC_SLOT_MASK;
+    const int bag = (loc >> LOC_BAG_SHIFT) & 0xFF;
+    if ((loc & LOC_BANK) == 0)
+        *bagID = bag;
+    else if ((loc & LOC_BAGS) == 0)
+        *bagID = -1;
+    else
+        *bagID = bag + BANK_BAG_OFFSET;
+}
+
 int __fastcall Script_UseEquipmentSet(void *L) {
     const uint32_t setID = ArgSetID(L, 1);
     const Set *s = Data::FindByID(setID);
     if (s == nullptr) {
-        const int evt = kEvtSwapFinished.Slot();
-        if (evt >= 0)
-            Event::Custom::Fire(evt, "%d%d", 0, static_cast<int>(setID));
+        Game::Lua::PushBoolean(L, 0);
+        return 1;
+    }
+    if (!Pending::CanUse() || CursorHoldsBagItem()) {
+        Text::UIError("ERR_CLIENT_LOCKED_OUT", "You can't do that right now.");
         Game::Lua::PushBoolean(L, 0);
         return 1;
     }
 
-    // Fire PENDING right after the set-exists check, before any of
-    // the swap work. Addon UI can use this to gate swap-in-progress
-    // visuals.
-    const int pendingEvt = kEvtSwapPending.Slot();
-    if (pendingEvt >= 0)
-        Event::Custom::Fire(pendingEvt, "%d", static_cast<int>(setID));
-
-    // If the cursor is holding anything, return it to its source slot
-    // and unlock it server-side BEFORE our swap chain runs. The
-    // engine's FUN_INVENTORY_SWAP ends each call with a cursor-state
-    // cleanup that clears the LOCAL cursor view, but never sends the
-    // server-side cancel-pickup packet — so a held item would stay
-    // server-locked until relog. ClearCursor sends the right packet.
-    // No-op when the cursor is idle (still fires one CURSOR_UPDATE,
-    // negligible).
-    Game::Lua::SetTop(L, 0);
-    reinterpret_cast<int(__fastcall *)(void *)>(
-        Offsets::FUN_SCRIPT_CLEAR_CURSOR)(L);
-
-    // Snapshot the set's items into a local — Locations::FindGUID
-    // can shuffle the Lua stack, and we've already passed validation.
+    // Copy what the swap needs: the free-slot scan below stomps the Lua
+    // stack, and the error messages run Lua handlers.
+    const std::string name = s->name;
     uint64_t guids[SLOT_COUNT];
     std::memcpy(guids, s->items, sizeof(guids));
 
-    // Snapshot empty bag slots up front. The CGItem state doesn't
-    // update between packet sends (server has to acknowledge each
-    // swap), so iterating the bag walk fresh per unequip would
-    // repeatedly pick the same "first empty" slot — second packet
-    // collides with what packet 1 just put there, and the server
-    // tries to swap that item back onto the wrong paperdoll slot
-    // → "This item cannot be equipped".
+    Pending::Request req{};
+    req.setID = setID;
+    auto noteMoved = [&req](uint64_t g) {
+        if (g != 0)
+            req.moved[req.movedCount++] = g;
+    };
+
+    uint64_t virtualPaperdoll[SLOT_COUNT];
+    Locations::SnapshotPaperdoll(virtualPaperdoll);
+
+    // Decide every slot against the original state.
+    const bool inCombat = PlayerInCombat();
+    const bool bank = Locations::BankerOpen();
+    bool combatWarned = false;
+    bool missingWarned = false;
+    int sourceLoc[SLOT_COUNT] = {};
+    for (int i = 0; i < SLOT_COUNT; ++i) {
+        const uint64_t g = guids[i];
+        if (g == GUID_IGNORED)
+            continue;
+        if (inCombat && !SwapsInCombat(i + 1)) {
+            if (!combatWarned && g != virtualPaperdoll[i]) {
+                Text::UIError("ERR_EQUIPMENT_MANAGER_COMBAT_SWAP_S",
+                              "Some items from set %s cannot be swapped because "
+                              "you are in combat.",
+                              name.c_str());
+                combatWarned = true;
+            }
+            continue;
+        }
+        if (g != GUID_EMPTY) {
+            sourceLoc[i] = Locations::FindGUID(g, bank);
+            if (sourceLoc[i] == 0) {
+                if (!missingWarned) {
+                    Text::UIError("ERR_EQUIPMENT_MANAGER_MISSING_ITEM_S",
+                                  "One or more items from set %s were missing and "
+                                  "could not be equipped.",
+                                  name.c_str());
+                    missingWarned = true;
+                }
+                continue;
+            }
+        }
+        req.want[i] = g;
+        req.cares[i] = true;
+    }
+
+    // Free bag slots for phase 3, snapshotted up front for the same
+    // stale-state reason: a fresh scan per unequip would keep finding the
+    // same "first empty" slot. At most every slot comes off.
     struct FreeSlot {
         int bag;
         int slot;
     };
-    FreeSlot freeSlots[64];
+    FreeSlot freeSlots[SLOT_COUNT];
     int freeSlotCount = 0;
-    for (int bag = 0; bag <= 4 && freeSlotCount < 64; ++bag) {
+    for (int bag = 0; bag <= 4 && freeSlotCount < SLOT_COUNT; ++bag) {
         const int slots = Item::Location::GetBagSlotCount(bag);
-        for (int slot = 1; slot <= slots && freeSlotCount < 64; ++slot) {
+        for (int slot = 1; slot <= slots && freeSlotCount < SLOT_COUNT; ++slot) {
             if (Item::Location::ResolveBag(L, bag, slot) == nullptr)
                 freeSlots[freeSlotCount++] = {bag, slot};
         }
     }
     int nextFreeSlot = 0;
 
-    // Pre-snapshot each set item's location against the ORIGINAL
-    // state, before any swap packets fly. This mirrors how 4.3.4's
-    // `Script_UseEquipmentSet` (`0x009A15D0`) builds its action list:
-    // resolve all 19 source locations up front, then execute. The
-    // engine's CGItem / InvMgr state lags behind our packet sends
-    // (waits for server ACK), so any `FindGUID` mid-execution would
-    // return stale answers and we'd re-resolve items into the wrong
-    // place.
-    int sourceLoc[SLOT_COUNT];
-    for (int i = 0; i < SLOT_COUNT; ++i) {
-        const uint64_t g = guids[i];
-        if (g == GUID_EMPTY || g == GUID_IGNORED) {
-            sourceLoc[i] = 0;
-            continue;
-        }
-        sourceLoc[i] = Locations::FindGUID(g);
-    }
-
-    // Virtual paperdoll occupant model — seeded from the engine's
-    // initial paperdoll GUID array, then updated in-place after each
-    // swap so phase 1 can chain rotations and phase 3 can spot
-    // already-empty slots.
-    uint64_t virtualPaperdoll[SLOT_COUNT];
-    Locations::SnapshotPaperdoll(virtualPaperdoll);
-
-    // Locates the current virtual slot of a GUID on the paperdoll,
-    // or 0 if it's not currently there. Used during phase 1 so
-    // chained paperdoll-to-paperdoll moves operate on the *current*
-    // virtual position, not the stale pre-snapshot.
     auto currentPaperdollSlot = [&](uint64_t g) -> int {
-        if (g == 0)
-            return 0;
-        for (int slot = 1; slot <= SLOT_COUNT; ++slot) {
+        for (int slot = 1; slot <= SLOT_COUNT; ++slot)
             if (virtualPaperdoll[slot - 1] == g)
                 return slot;
-        }
         return 0;
     };
 
-    // ── Phase 1: paperdoll → paperdoll ─────────────────────────────
-    // Move items already on the paperdoll into their target slots.
-    // Source and destination are both paperdoll, so atomic swaps
-    // never touch bag state — phase 2's bag lookups stay accurate.
+    // Phase 1: paperdoll -> paperdoll. Neither side is a bag, so phase 2's
+    // bag sources stay valid.
     for (int i = 0; i < SLOT_COUNT; ++i) {
         const int targetSlot = i + 1;
         const uint64_t g = guids[i];
-        if (g == GUID_EMPTY || g == GUID_IGNORED)
+        if (!req.cares[i] || g == GUID_EMPTY ||
+            (sourceLoc[i] & (LOC_BAGS | LOC_BANK)) != 0)
             continue;
-
-        const int loc = sourceLoc[i];
-        if (loc == 0)
-            continue;
-        if (loc & LOC_BANK)
-            continue; // server rejects equip-from-bank
-        if (loc & LOC_BAGS)
-            continue; // phase 2
-
         const int srcSlot = currentPaperdollSlot(g);
         if (srcSlot == 0 || srcSlot == targetSlot)
-            continue; // missing or already there
-
-        const uint8_t *item = Locations::ResolveItemByGUID(g);
-        if (item == nullptr)
             continue;
-
         const uint64_t displaced = virtualPaperdoll[targetSlot - 1];
-        if (Item::Swap::FromPaperdoll(item, srcSlot, targetSlot)) {
+        if (Item::Swap::FromPaperdoll(Locations::ResolveItemByGUID(g), srcSlot,
+                                      targetSlot)) {
             virtualPaperdoll[targetSlot - 1] = g;
             virtualPaperdoll[srcSlot - 1] = displaced;
+            noteMoved(g);
+            noteMoved(displaced);
+        } else {
+            req.cares[i] = false;
         }
     }
 
-    // ── Phase 2: bag → paperdoll ───────────────────────────────────
-    // Move items from bag slots onto the paperdoll. Each atomic swap
-    // displaces the current paperdoll occupant into the bag slot the
-    // incoming item vacated. Anything we still wanted on the paperdoll
-    // was already placed by phase 1, so phase 2 displacements can't
-    // strand a future set item in a bag.
+    // Phase 2: bag / bank -> paperdoll. The paperdoll occupant lands where
+    // the incoming item was. Anything the set still wanted worn was placed
+    // by phase 1, so a displacement here can't strand a set item.
     for (int i = 0; i < SLOT_COUNT; ++i) {
         const int targetSlot = i + 1;
         const uint64_t g = guids[i];
-        if (g == GUID_EMPTY || g == GUID_IGNORED)
+        if (!req.cares[i] || g == GUID_EMPTY ||
+            (sourceLoc[i] & (LOC_BAGS | LOC_BANK)) == 0)
             continue;
-        if (virtualPaperdoll[targetSlot - 1] == g)
-            continue; // already at target (probably by phase 1)
-
-        const int loc = sourceLoc[i];
-        if (loc == 0)
-            continue;
-        if (loc & LOC_BANK)
-            continue;
-        if ((loc & LOC_BAGS) == 0)
-            continue; // not from a bag — phase 1 handled, or item missing
-
-        const uint8_t *item = Locations::ResolveItemByGUID(g);
-        if (item == nullptr)
-            continue;
-
-        const int srcBag = (loc >> LOC_BAG_SHIFT) & 0xFF;
-        const int srcSlot = loc & LOC_SLOT_MASK;
-        if (Item::Swap::FromBag(item, srcBag, srcSlot, targetSlot)) {
+        int bagID = 0;
+        int slot = 0;
+        UnpackContainer(sourceLoc[i], &bagID, &slot);
+        const uint64_t displaced = virtualPaperdoll[targetSlot - 1];
+        if (Item::Swap::FromBag(Locations::ResolveItemByGUID(g), bagID, slot,
+                                targetSlot)) {
             virtualPaperdoll[targetSlot - 1] = g;
-            // The displaced item lands in (srcBag, srcSlot). We
-            // don't track bag-side virtual state — by phase 3 we
-            // only care about the paperdoll occupant.
+            noteMoved(g);
+            noteMoved(displaced);
+        } else {
+            req.cares[i] = false;
         }
     }
 
-    // ── Phase 3: unequip slots the set wants empty ─────────────────
-    // For each `GUID_EMPTY` slot, send the current paperdoll occupant
-    // (if any) to a pre-snapshotted free bag slot. Runs last so any
-    // displaced items from phases 1/2 that landed in the slot get
-    // unequipped here too.
+    // Phase 3: take off what the set wants empty. Runs last so an item
+    // phases 1/2 displaced into such a slot comes off too. No free bag slot
+    // is 4.3.4's bags-full result.
     for (int i = 0; i < SLOT_COUNT; ++i) {
         const int targetSlot = i + 1;
-        if (guids[i] != GUID_EMPTY)
-            continue;
         const uint64_t occupant = virtualPaperdoll[targetSlot - 1];
-        if (occupant == 0)
+        if (!req.cares[i] || guids[i] != GUID_EMPTY || occupant == 0)
             continue;
-        if (nextFreeSlot >= freeSlotCount)
+        if (nextFreeSlot >= freeSlotCount) {
+            req.bagsFull = true;
+            req.cares[i] = false;
             continue;
-        const uint8_t *equipped = Locations::ResolveItemByGUID(occupant);
-        if (equipped == nullptr)
-            continue;
+        }
         const FreeSlot &fs = freeSlots[nextFreeSlot++];
-        if (Item::Swap::ToBag(equipped, targetSlot, fs.bag, fs.slot))
+        if (Item::Swap::ToBag(Locations::ResolveItemByGUID(occupant), targetSlot,
+                              fs.bag, fs.slot)) {
             virtualPaperdoll[targetSlot - 1] = 0;
+            noteMoved(occupant);
+        } else {
+            req.cares[i] = false;
+        }
     }
 
-    const int evt = kEvtSwapFinished.Slot();
-    if (evt >= 0)
-        Event::Custom::Fire(evt, "%d%d", 1, static_cast<int>(setID));
-
+    Pending::Begin(req);
+    Game::Lua::SetTop(L, 0);
     Game::Lua::PushBoolean(L, 1);
     return 1;
 }

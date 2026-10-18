@@ -59,9 +59,16 @@ struct Set {
 // FrameXML defaults to the question-mark icon when callers pass nil.
 inline const char *DefaultIcon() { return "INV_Misc_QuestionMark"; }
 
-// Vanilla 1.12 engine accepts equipment-set names up to 32 chars
-// (1.15.x is also 32). 4.3.4 used the same buffer size.
-constexpr int MAX_NAME_LEN = 31;
+// 4.3.4's `Script_SaveEquipmentSet` / `Script_ModifyEquipmentSet` scrub the
+// name with `ScrubString(name, dest, 32, …)`, which rejects a name that
+// reaches 32 characters (so 31 is the longest that passes). Its 10-set cap
+// (`CanCreateSet`) sized a server-side buffer we don't have, so there is
+// no set limit here.
+constexpr int MAX_NAME_CHARS = 32;
+
+// 4.3.4 `UseEquipmentSet`: in combat only these slots swap (0-based 15..17 —
+// main hand, off hand, ranged); every other slot keeps what it wears.
+inline bool SwapsInCombat(int slot1Based) { return slot1Based >= 16 && slot1Based <= 18; }
 
 // `GetItemLocations` encoding — matches Blizzard FrameXML's
 // `EquipmentManager_UnpackLocation` (constants are in
@@ -124,20 +131,12 @@ constexpr int LOC_IGNORED = 1;
 //                              (create / save / modify / delete /
 //                              ignore-slot change). Addon UI re-reads
 //                              its list / button state on this.
-//   EQUIPMENT_SWAP_PENDING   — `(setID: int)`; fires at the START of
-//                              `UseEquipmentSet`, right after the set
-//                              exists check passes. Modern addons
-//                              gate "swap-in-progress" UI state on
-//                              this (grey out the set button until
-//                              FINISHED arrives).
+//   EQUIPMENT_SWAP_PENDING   — `(setID: int)`; fires once
+//                              `UseEquipmentSet` has sent its swaps.
 //   EQUIPMENT_SWAP_FINISHED  — `(success: bool, setID: int)`; fires
-//                              at the end of `UseEquipmentSet`.
-//                              `success` is false when the set
-//                              doesn't exist, true otherwise (we
-//                              don't probe whether each individual
-//                              pickup→equip pair actually completed,
-//                              matching modern's "we dispatched"
-//                              definition of success).
+//                              when the swap settles — see
+//                              `EquipmentSet::Pending`. `success` is
+//                              1 or nil, never 0 (a Lua 0 is true).
 inline const Event::Custom::AutoReserve kEvtSetsChanged{"EQUIPMENT_SETS_CHANGED"};
 inline const Event::Custom::AutoReserve kEvtSwapPending{"EQUIPMENT_SWAP_PENDING"};
 inline const Event::Custom::AutoReserve kEvtSwapFinished{"EQUIPMENT_SWAP_FINISHED"};

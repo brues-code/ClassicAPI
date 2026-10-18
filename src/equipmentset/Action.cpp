@@ -56,6 +56,7 @@
 #include "Game.h"
 #include "Locations.h"
 #include "Offsets.h"
+#include "Pending.h"
 #include "event/Custom.h"
 
 #include <cstdio>
@@ -236,15 +237,21 @@ int __fastcall GetActionText_h(void *L) {
     return 1;
 }
 
-// 3.3.5 `FUN_005a9e20`'s set branch: unusable while the set is gone or
-// holds an item mid-transaction.
+// 4.3.4 `CGActionBar::UpdateUsableAction`'s set branch: unusable while a
+// swap is in flight, the set is gone, one of its items is mid-transaction,
+// or an item it would replace is.
 uint32_t __fastcall Usable_h(uint32_t slot0, int *outNoMana) {
     const uint32_t setID = SetIDAt(slot0);
     if (setID == 0)
         return g_origUsable(slot0, outNoMana);
     *outNoMana = 0;
+    if (!Pending::CanUse())
+        return 0;
     const Set *s = Data::FindByID(setID);
-    return (s != nullptr && !Locations::ContainsLockedItems(*s)) ? 1 : 0;
+    return (s != nullptr && !Locations::ContainsLockedItems(*s) &&
+            !Locations::UsesLockedSlots(*s))
+               ? 1
+               : 0;
 }
 
 void __fastcall Notify_h(uint32_t slot0, int sendToServer, int quiet) {

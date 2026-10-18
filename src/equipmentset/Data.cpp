@@ -85,6 +85,29 @@ void Persist() {
         Storage::Save(g_path, g_sets);
 }
 
+// 4.3.4's `ValidateStringIsUTF8` rejects a malformed sequence: a lead
+// byte without its continuation bytes, or a stray continuation byte.
+bool ValidUtf8(const char *s) {
+    for (auto *p = reinterpret_cast<const unsigned char *>(s); *p != 0;) {
+        int extra = 0;
+        if (*p < 0x80)
+            extra = 0;
+        else if ((*p & 0xE0) == 0xC0)
+            extra = 1;
+        else if ((*p & 0xF0) == 0xE0)
+            extra = 2;
+        else if ((*p & 0xF8) == 0xF0)
+            extra = 3;
+        else
+            return false;
+        ++p;
+        for (int i = 0; i < extra; ++i, ++p)
+            if ((*p & 0xC0) != 0x80)
+                return false;
+    }
+    return true;
+}
+
 } // namespace
 
 void EnsureLoaded() {
@@ -162,6 +185,28 @@ std::vector<const Set *> SetsContainingItem(uint64_t itemGuid) {
     return found;
 }
 
+bool ScrubName(const char *src, std::string *out) {
+    out->clear();
+    if (src == nullptr)
+        return true;
+    bool valid = ValidUtf8(src);
+    for (const char *c = src; *c != '\0'; ++c) {
+        // Line break: a real CR/LF, or the escaped `\n` / `|n` forms.
+        if (*c == '\r' || *c == '\n' || ((*c == '\\' || *c == '|') && c[1] == 'n'))
+            return false;
+        if (*c != '|')
+            out->push_back(*c);
+    }
+    int chars = 0;
+    for (size_t i = 0; i < out->size(); ++i) {
+        if ((static_cast<unsigned char>((*out)[i]) & 0xC0) != 0x80 && ++chars == MAX_NAME_CHARS) {
+            out->resize(i);
+            return false;
+        }
+    }
+    return valid;
+}
+
 uint32_t Create(const char *name, const char *icon) {
     EnsureLoaded();
     if (g_path.empty() || name == nullptr || name[0] == '\0')
@@ -171,8 +216,6 @@ uint32_t Create(const char *name, const char *icon) {
     Set s;
     s.setID = NextAvailableID();
     s.name = name;
-    if (s.name.size() > MAX_NAME_LEN)
-        s.name.resize(MAX_NAME_LEN);
     s.icon = (icon != nullptr && icon[0] != '\0') ? icon : DefaultIcon();
     PopulateFromEquipped(&s);
     g_sets.push_back(std::move(s));
@@ -209,8 +252,6 @@ bool Rename(uint32_t setID, const char *newName) {
     if (clash != nullptr && clash->setID != setID)
         return false;
     g_sets[idx].name = newName;
-    if (g_sets[idx].name.size() > MAX_NAME_LEN)
-        g_sets[idx].name.resize(MAX_NAME_LEN);
     Persist();
     FireChanged();
     return true;
