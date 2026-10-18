@@ -38,8 +38,8 @@
 //   - `frame:SetResizeBounds(minW, minH [, maxW, maxH])` — the modern
 //     rename of vanilla's SetMinResize/SetMaxResize pair.
 //   - `frame:HookScript(scriptType, handler)` — absent in vanilla
-//     entirely. Chains after any existing handler and invokes `handler`
-//     with modern positional args (see the implementation comment).
+//     entirely. 4.3.4's: chains after any existing handler through the
+//     same wrapper `hooksecurefunc` installs.
 //   - `frame:GetEffectiveAlpha()` — the alpha the frame is drawn with:
 //     the byte at OFF_FRAME_ALPHA, which `Frame::Alpha` keeps at own ×
 //     the parent's drawn alpha. Frame-scoped (matches GetAlpha).
@@ -52,10 +52,10 @@
 // reshaping.
 
 #include "Game.h"
+#include "HookSecureFunc.h"
 #include "Offsets.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace Frame::Modern {
 
@@ -280,67 +280,50 @@ int __fastcall Script_SetResizeBounds(void *L) {
 
 // ---- HookScript (Frame) ----------------------------------------------------
 
-// `frame:HookScript(scriptType, handler)` — vanilla has no HookScript at
-// all. Chains onto any existing handler: the old handler runs first,
-// vanilla-style (no args — it reads the `this`/`event`/`argN` globals like
-// every 1.12 handler), then `handler` is invoked MODERN-style with
-// positional arguments `(frame, event, arg1..arg9)` for OnEvent and
-// `(frame, arg1..arg9)` otherwise — mirroring the compat convention
-// modern addon ports expect (and ship themselves when they detect a
-// legacy client). The chain is a C closure over (handler, old, isOnEvent).
+// `frame:HookScript("type", function)` — 4.3.4's
+// FrameScript_Object::HookScript, less taint:
+//   * no script set: the hook becomes the script itself, so GetScript
+//     returns it;
+//   * otherwise the script becomes the hooksecurefunc wrapper over (old,
+//     hook) — 4.3.4 installs the same FrameScript_HookWrapper for both. The
+//     old handler runs first with the script's arguments, then the hook with
+//     the same arguments under the engine's script error handler.
+// The arguments are whatever the dispatch passes. Frame::ScriptArgs looks
+// inside the wrapper and passes positional args when either side declares
+// parameters; the engine sets the this/event/argN globals for vanilla
+// handlers either way. Script lookup, the unknown-script error and storage
+// stay the engine's own GetScript / SetScript, whose texts match 4.3.4's.
 
-// Pushes _G[name].
-void PushGlobal(void *L, const char *name) {
-    Game::Lua::PushString(L, name);
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-}
-
-// The chained handler the engine actually invokes (with no args, like any
-// vanilla script handler). Upvalues: 1 = hook handler, 2 = old handler
-// (or nil), 3 = isOnEvent (number). Errors inside lua_call propagate to
-// the engine's own protected script dispatch.
-int __fastcall HookThunk(void *L) {
-    if (Game::Lua::Type(L, Game::Lua::UpvalueIndex(2)) ==
-        Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(2));
-        Game::Lua::Call(L, 0, 0);
-    }
-    const bool isOnEvent =
-        Game::Lua::ToNumber(L, Game::Lua::UpvalueIndex(3)) != 0;
-    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
-    PushGlobal(L, "this");
-    if (isOnEvent)
-        PushGlobal(L, "event");
-    static const char *const kArgs[] = {"arg1", "arg2", "arg3", "arg4",
-                                        "arg5", "arg6", "arg7", "arg8",
-                                        "arg9"};
-    for (const char *a : kArgs)
-        PushGlobal(L, a);
-    Game::Lua::Call(L, (isOnEvent ? 2 : 1) + 9, 0);
-    return 0;
+// `GetName() ?: "<unnamed>"` — how the engine names an object in its
+// frame-script usage errors (VTBL_SCRIPTOBJECT_GET_NAME).
+const char *DisplayName(void *object) {
+    using GetName_t = const char *(__thiscall *)(void *);
+    const void *vtable = Game::Read<const void *>(object, 0);
+    const char *name = Game::Read<GetName_t>(
+        vtable, Offsets::VTBL_SCRIPTOBJECT_GET_NAME)(object);
+    return name != nullptr ? name
+                           : reinterpret_cast<const char *>(Offsets::VAR_STR_UNNAMED);
 }
 
 int __fastcall Script_HookScript(void *L) {
+    void *frame = Game::Lua::ResolveFrame(L);
+    if (frame == nullptr)
+        return 0;
     if (!Game::Lua::IsString(L, 2) ||
         Game::Lua::Type(L, 3) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Error(L, "Usage: frame:HookScript(\"type\", function)");
+        Game::Lua::Error(L, "Usage: %s:HookScript(\"type\", function)",
+                         DisplayName(frame));
         return 0;
     }
-    const char *scriptName = Game::Lua::ToString(L, 2);
-    const bool isOnEvent =
-        scriptName != nullptr && std::strcmp(scriptName, "OnEvent") == 0;
 
-    Game::Lua::SetTop(L, 3); // (self, name, handler)
-    // GetScript reads self/name at 1/2 and pushes the current handler
-    // (or nil) — extra stack entries above are ignored by its reads.
-    CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L); // (.., old)
-    // Closure upvalues, in upvalue order: handler, old, isOnEvent.
-    Game::Lua::PushValue(L, 3);                       // handler
-    Game::Lua::PushValue(L, 4);                       // old
-    Game::Lua::PushNumber(L, isOnEvent ? 1.0 : 0.0);  // flag
-    Game::Lua::PushCClosure(L, &HookThunk, 3); // (self,name,handler,old,closure)
-    Game::Lua::Remove(L, 4);                   // drop old
-    Game::Lua::Remove(L, 3);                   // drop handler → (self,name,closure)
+    Game::Lua::SetTop(L, 3);                            // (self, type, hook)
+    CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L); // (.., old or nil)
+    if (Game::Lua::Type(L, 4) == Game::Lua::TYPE_FUNCTION) {
+        Game::Lua::Insert(L, 3);         // (self, type, old, hook)
+        HookSecureFunc::PushWrapper(L);  // (self, type, wrapper)
+    } else {
+        Game::Lua::SetTop(L, 3);         // (self, type, hook)
+    }
     CallScript(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT, L);
     return 0;
 }

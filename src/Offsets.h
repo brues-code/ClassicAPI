@@ -1452,6 +1452,7 @@ enum Offsets {
     UNIT_EVENT_UNIT_COMBAT = 0xB6,
     VAR_STR_UNIT_COMBAT_FORMAT = 0x0084333C, // "%s%s%s%d%d"
     VAR_STR_EMPTY = 0x00882748,              // ""
+    VAR_STR_UNNAMED = 0x0084C7F0,            // "<unnamed>" — the display name of a frame with no name (see VTBL_SCRIPTOBJECT_GET_NAME)
     VAR_STR_COMBAT_CRITICAL = 0x00843370,
     VAR_STR_COMBAT_GLANCING = 0x00843364,
     VAR_STR_COMBAT_CRUSHING = 0x00843358,
@@ -2954,6 +2955,12 @@ enum Offsets {
     OFF_FRAME_CHILD_LIST = 0x300,
     VTBL_FRAME_SET_FRAME_ALPHA = 0x28,
     VTBL_REGION_RECOLOR = 0x20,
+    // CScriptObject vtable+0x04 — `const char *__thiscall GetName()`, NULL for
+    // an unnamed object. The frame-script usage errors (Script_GetScript
+    // 0x00774780, Script_SetScript 0x007748D0, ~90 more sites) format the
+    // object as `GetName() ?: VAR_STR_UNNAMED` — 4.3.4's
+    // FrameScript_Object::GetDisplayName, inlined.
+    VTBL_SCRIPTOBJECT_GET_NAME = 0x04,
     FUN_FRAME_SET_FRAME_ALPHA = 0x0076A690,
     // CSimpleFrame::SetParent — `void __thiscall(frame, CSimpleFrame *parent)`,
     // `ret 4`; Script SetParent reaches it through vtable+0x14. No-op for the

@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "HookSecureFunc.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
@@ -51,6 +53,8 @@ bool IsUnhookable(const char *name) {
     return false;
 }
 
+} // namespace
+
 // Wrapper closure body — called when the hooked function is invoked.
 // Stack contains the wrapper's args (`[arg1..argN]`); the closure's
 // upvalues hold `(orig, callback)`. 4.3.4's FrameScript_HookWrapper, less
@@ -64,7 +68,7 @@ bool IsUnhookable(const char *name) {
 //      message handler as errfunc: a broken hook is REPORTED the way any
 //      script error is (the error frame / geterrorhandler), and the
 //      original's results still reach the caller.
-int __fastcall HookWrapper(void *L) {
+int __fastcall Wrapper(void *L) {
     const int nargs = Game::Lua::GetTop(L);
 
     // (1) Stack after: `[arg1..argN, res1..resM]`.
@@ -100,6 +104,12 @@ int __fastcall HookWrapper(void *L) {
     Game::Lua::SetTop(L, nresults);
     return nresults;
 }
+
+void PushWrapper(void *L) {
+    Game::Lua::PushCClosure(L, &Wrapper, 2);
+}
+
+namespace {
 
 // `hooksecurefunc([table,] "function", hookfunc)` — replaces
 // `table[name]` (default `_G`) with a wrapper that runs the original, then
@@ -148,7 +158,7 @@ int __fastcall Script_HookSecureFunc(void *L) {
     }
 
     Game::Lua::Insert(L, 3);                    // [t, name, orig, hookfunc]
-    Game::Lua::PushCClosure(L, &HookWrapper, 2); // [t, name, wrapper]
+    PushWrapper(L);                             // [t, name, wrapper]
     Game::Lua::RawSet(L, 1);                    // t[name] = wrapper
     return 0;
 }

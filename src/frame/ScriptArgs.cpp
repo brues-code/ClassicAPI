@@ -50,7 +50,7 @@
 //
 // Convention: `(self, arg1..argN)` for every script, plus `event` inserted as
 // the first positional for OnEvent — `(self, event, arg1..argN)` — matching
-// retail (and Frame::Modern's HookScript). An OnEvent dispatch is detected
+// retail. An OnEvent dispatch is detected
 // structurally at the runner: the handler ref being invoked equals the frame's
 // OnEvent slot handler (frame+OFF_FRAME_ONEVENT_SLOT). This is exact — each
 // SetScript creates a distinct ref, so a function bound to two scripts still
@@ -65,6 +65,7 @@
 // (FUN_FRAME_RUN_SCRIPT_ARGS fires for every OnUpdate frame).
 
 #include "Game.h"
+#include "HookSecureFunc.h"
 #include "Offsets.h"
 
 #include <cstdint>
@@ -283,6 +284,8 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
 //   lua_State: top @ +0x08 (TValue *, next free slot)
 //   TValue:    tag @ +0x00 (int); GC/closure pointer @ +0x08  (16-byte TValue)
 //   Closure:   isC byte @ +0x06; union member (C func / Proto) @ +0x0C
+//   CClosure:  C function @ +0x0C (same union slot); upvalue[i] (TValue) @
+//              +0x10 + i*0x10 — lua_pushcclosure (0x006F3920) copies them there
 // Single-use here, so kept local (like the lua_State field offsets elsewhere).
 // The Proto fields this reads (numparams @ +0x45, is_vararg @ +0x46) are shared
 // with LuaSyntax::Upvalues and live in Offsets.h as OFF_LUA_PROTO_*.
@@ -290,37 +293,60 @@ constexpr uintptr_t OFF_LUASTATE_TOP = 0x08;
 constexpr uintptr_t OFF_TVALUE_GC = 0x08;
 constexpr uintptr_t OFF_CLOSURE_ISC = 0x06;
 constexpr uintptr_t OFF_LCLOSURE_PROTO = 0x0C;
+constexpr uintptr_t OFF_CCLOSURE_FN = 0x0C;
+constexpr uintptr_t OFF_CCLOSURE_UPVALUES = 0x10;
 constexpr int kLuaTFunction = 6;
 constexpr uintptr_t kTValueSize = 0x10;
+
+// A HookScript chain nests one wrapper per hook. Past this depth, answer
+// "yes": positional args are harmless to a handler that ignores them, so
+// erring that way costs only the slower path.
+constexpr int kMaxWrapperDepth = 32;
+
+// Does the function in TValue `tv` observe positional args? A Lua closure
+// does when it declares a parameter or is vararg — a modern
+// `function(self, delta)` / `function(self, ...)`. The hook wrapper
+// (`HookSecureFunc::Wrapper`, what HookScript installs) forwards its args to
+// both functions it holds, so it does when either of them does. Any other C
+// closure reads globals/upvalues, never positional args.
+bool FunctionWantsArgs(const void *tv, int depth) {
+    if (Game::Read<int>(tv, 0) != kLuaTFunction)
+        return false;
+    const void *cl =
+        reinterpret_cast<const void *>(Game::Read<uintptr_t>(tv, OFF_TVALUE_GC));
+    if (cl == nullptr)
+        return false;
+    if (Game::Read<uint8_t>(cl, OFF_CLOSURE_ISC) == 0) { // Lua closure
+        const void *proto = reinterpret_cast<const void *>(
+            Game::Read<uintptr_t>(cl, OFF_LCLOSURE_PROTO));
+        return proto != nullptr &&
+               (Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_NUMPARAMS) > 0 ||
+                Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_IS_VARARG) != 0);
+    }
+    if (Game::Read<uintptr_t>(cl, OFF_CCLOSURE_FN) !=
+        reinterpret_cast<uintptr_t>(&HookSecureFunc::Wrapper))
+        return false;
+    if (depth >= kMaxWrapperDepth)
+        return true;
+    const auto *upvalues = static_cast<const uint8_t *>(cl) + OFF_CCLOSURE_UPVALUES;
+    return FunctionWantsArgs(upvalues, depth + 1) ||              // original
+           FunctionWantsArgs(upvalues + kTValueSize, depth + 1);  // hook
+}
 
 // Does this handler actually observe positional args? A vanilla handler reads
 // this/arg1 globals and declares NO parameters, so pushing positional args to
 // it is observably identical to vanilla — those route through the original
 // engine runner instead (exact vanilla, and off the hottest Lua path). Only a
-// Lua closure that declares a parameter or is vararg — a modern
-// `function(self, delta)` / `function(self, ...)` — takes the reimplemented
-// positional path. A C-closure handler (HookScript's thunk, say) reads
-// globals/upvalues, never positional args, so it counts as "no" too.
+// handler FunctionWantsArgs accepts takes the reimplemented positional path.
 //
-// Reads the handler's Proto directly (the engine exposes no arity via the C
-// API); every read is bounded — a non-function ref, a C closure, or a null
+// Reads the closures directly (the engine exposes no arity via the C API);
+// every read is bounded — a non-function ref, a foreign C closure, or a null
 // Proto all fall through to "no".
 bool HandlerWantsArgs(void *L, int handlerRef) {
     RawGetI(L, Game::Lua::REGISTRY_INDEX, handlerRef); // push registry[handlerRef]
-    bool wants = false;
     const void *tv = reinterpret_cast<const void *>(
         Game::Read<uintptr_t>(L, OFF_LUASTATE_TOP) - kTValueSize);
-    if (Game::Read<int>(tv, 0) == kLuaTFunction) {
-        const void *cl =
-            reinterpret_cast<const void *>(Game::Read<uintptr_t>(tv, OFF_TVALUE_GC));
-        if (cl != nullptr && Game::Read<uint8_t>(cl, OFF_CLOSURE_ISC) == 0) { // Lua closure
-            const void *proto = reinterpret_cast<const void *>(
-                Game::Read<uintptr_t>(cl, OFF_LCLOSURE_PROTO));
-            if (proto != nullptr)
-                wants = Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_NUMPARAMS) > 0 ||
-                        Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_IS_VARARG) != 0;
-        }
-    }
+    const bool wants = FunctionWantsArgs(tv, 0);
     Game::Lua::SetTop(L, -2); // pop the handler
     return wants;
 }

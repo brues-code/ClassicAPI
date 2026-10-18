@@ -6239,14 +6239,19 @@ before they hook the scripts of a frame.
 
 ### `frame:HookScript(scriptType, handler)`
 
-Adds `HookScript` to every frame. It chains: the previously-set handler
-runs first, globals-style (no arguments — it reads the
-`this`/`event`/`argN` globals like every handler), then `handler` is
-invoked with positional arguments: `(frame, event, arg1..arg9)` for
-`OnEvent` scripts and `(frame, arg1..arg9)` for everything else. So
-handlers written as `function(self, ...) ... end` work unmodified.
-Globals-style handlers passed to `HookScript` also keep working — the
-globals are set as usual and extra arguments are simply ignored.
+Adds `HookScript` to every frame. The previously-set handler runs first,
+then `handler`. Both get the same arguments: `(self, event, ...)` for
+`OnEvent` and `(self, ...)` for every other script, with every argument
+the script has. Handlers that read the `this` / `event` / `argN` globals
+keep working too.
+
+- When the script has no handler yet, `handler` becomes the handler, and
+  `GetScript` returns it.
+- An error in `handler` is shown like any other script error, through the
+  error handler (`geterrorhandler()`). The previous handler still runs.
+- Errors: `Usage: <name>:HookScript("type", function)` for bad arguments
+  (`<unnamed>` for a frame with no name), and the same `doesn't have a
+  "<type>" script` error as `SetScript` for an unknown script type.
 
 ```lua
 button:HookScript("OnEnter", function(self)
