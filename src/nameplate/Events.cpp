@@ -46,7 +46,7 @@
 #include "event/Custom.h"
 #include "nameplate/Walk.h"
 #include "tick/WorldTick.h"
-#include "unit/TokenObserver.h"
+#include "unit/TokenEvents.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -153,32 +153,6 @@ const char *FormatNamePlateToken(char *buf, size_t bufSize, int oneBasedIndex) {
     return buf;
 }
 
-// Descriptor-field observer callback — makes unit events (UNIT_HEALTH,
-// UNIT_AURA, …) fire with the `"nameplateN"` token, so a nameplated unit is a
-// first-class unit-event source exactly like a party member. Registered per
-// nameplate GUID via `Unit::TokenObserver` on UNIT_ADDED, unregistered on
-// UNIT_REMOVED. We reverse-look-up the changed GUID's slot at fire time
-// (cheap; the array is small) so the token reflects its current assignment.
-// The event id is the field index (`fieldOffset >> 2`); the engine fires every
-// unit event as "%s" + token, so we match. A GUID no longer in any slot
-// (removal raced this field change) simply drops the fire.
-int __fastcall NamePlateFieldCb(uint32_t fieldOffset, uint32_t /*size*/,
-                                uint32_t guidLo, uint32_t guidHi,
-                                const uint32_t * /*oldValue*/, void * /*userArg*/) {
-    const uint64_t guid =
-        (static_cast<uint64_t>(guidHi) << 32) | static_cast<uint64_t>(guidLo);
-    auto it = std::find(g_slots.begin(), g_slots.end(), guid);
-    if (it == g_slots.end())
-        return 1;
-    const int oneBased = static_cast<int>(it - g_slots.begin()) + 1;
-    char tokenBuf[24];
-    FormatNamePlateToken(tokenBuf, sizeof tokenBuf, oneBased);
-    using Fire_t = void(__cdecl *)(int eventId, const char *fmt, ...);
-    reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT))(
-        static_cast<int>(fieldOffset >> 2), "%s", tokenBuf);
-    return 1;
-}
-
 // Fire `eventName` with the nameplate `Frame` set as `_G.arg1`.
 // `FUN_FIRE_EVENT`'s format-string parser only handles primitive
 // types, but it only mutates `_G.arg<N>` for codes it actually
@@ -268,10 +242,9 @@ void OnWorldTick() {
                 continue;
             }
             const int slot = AssignSlot(kv.first);
-            // Watch this unit's fields so UNIT_HEALTH/UNIT_AURA/… fire with
-            // its "nameplateN" token (the engine only watches its own
-            // target/party/raid tokens, not nameplates).
-            Unit::TokenObserver::Register(kv.first, &NamePlateFieldCb);
+            // The unit now has a "nameplateN" token: every unit event the
+            // engine fires for it fires for that token too.
+            Unit::TokenEvents::Refresh(kv.first);
             char tokenBuf[24];
             FireWithString(_evtUnitAdded,
                 FormatNamePlateToken(tokenBuf, sizeof tokenBuf, slot + 1));
@@ -301,8 +274,8 @@ void OnWorldTick() {
                 FormatNamePlateToken(tokenBuf, sizeof tokenBuf, oneBased));
             g_removingGuid = 0;
             g_removingPlate = nullptr;
-            Unit::TokenObserver::Unregister(kv.first, &NamePlateFieldCb);
             *it = 0; // free the slot (no shift of survivors)
+            Unit::TokenEvents::Refresh(kv.first);
             while (!g_slots.empty() && g_slots.back() == 0)
                 g_slots.pop_back();
         }
@@ -333,14 +306,13 @@ static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 void PrepareForReload() {
     g_seenPlates.clear();
     g_lastTickPlates.clear();
-    // Objects survive a /reload, so their observer nodes do too. The first
-    // post-reload tick re-fires ADDED and re-registers, which would stack a
-    // second observer per field (the registrar never dedups) → double events.
-    // Tear ours down here so re-registration starts clean (skip free slots).
-    for (uint64_t guid : g_slots)
-        if (guid != 0)
-            Unit::TokenObserver::Unregister(guid, &NamePlateFieldCb);
-    g_slots.clear();
+    // Objects survive a /reload, and so does the engine's watch on them; drop
+    // it with the tokens. The first post-reload tick re-fires ADDED, which
+    // gives the tokens back.
+    std::vector<uint64_t> slotted;
+    slotted.swap(g_slots);
+    for (uint64_t guid : slotted)
+        Unit::TokenEvents::Refresh(guid);
 }
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};

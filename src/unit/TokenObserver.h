@@ -34,11 +34,11 @@ using FieldCallback = int(__fastcall *)(uint32_t fieldOffset, uint32_t size,
 // engine treats as token-scoped unit events (`UNIT_HEALTH`, `UNIT_MANA`,
 // `UNIT_AURA`, `UNIT_LEVEL`, …).
 //
-// This makes a synthetic token (focus, nameplateN) a first-class unit-event
-// source: the engine only registers these observers for its own tokens
-// (target/party/raid/pet/mouseover via the `unit+0xc90` watch mask), so a
-// focused mob that isn't otherwise one of them fires no unit events until we
-// watch it ourselves. The registrar appends a fresh node per (guid, field)
+// For a token no engine token map can name — today only `focustarget`. The
+// tokens a unit can hold (focus, nameplateN, markN) are NOT observed here:
+// `Unit::TokenEvents` routes the engine's own events to them, and with
+// SuperWoW watching every unit, an observer of ours would fire their field
+// events a second time. The registrar appends a fresh node per (guid, field)
 // with no dedup, so our observer coexists with the engine's — a unit that is
 // simultaneously the target keeps firing `"target"` while ours fires its own
 // token. Unregister is a safe no-op once the object is gone (the engine frees

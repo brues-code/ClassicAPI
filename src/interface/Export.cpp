@@ -267,12 +267,10 @@ void EnumAllArchives(const char *pathPrefix) {
 // immediate points at a `.dbc` string. This catches every loaded table,
 // including the ~18 the MPQ `(listfile)` doesn't index.
 
-// Build-specific bounds (this 1.12.1 client). `.text` per CLAUDE.md; the
-// image range bounds candidate string pointers so the suffix check never
-// dereferences unmapped memory. Getter strings live in `.data` (e.g.
-// Spell.dbc at 0x00859E30), comfortably inside the image.
-constexpr uintptr_t kTextStart = 0x00401000;
-constexpr uintptr_t kTextEnd = 0x007FEDAC;
+// Build-specific bounds (this 1.12.1 client). The image range bounds
+// candidate string pointers so the suffix check never dereferences unmapped
+// memory. Getter strings live in `.data` (e.g. Spell.dbc at 0x00859E30),
+// comfortably inside the image.
 constexpr uintptr_t kImageStart = 0x00400000;
 constexpr uintptr_t kImageEnd = 0x00D26000;
 
@@ -290,8 +288,8 @@ bool LooksLikeDbcString(const uint8_t *s) {
 // Scan .text for the DBC path-getter pattern and add each referenced
 // ".dbc" path to the collector. Synchronous, reads only our own image.
 void ScanPathGetters(Collector &c) {
-    const uint8_t *p = reinterpret_cast<const uint8_t *>(kTextStart);
-    const uint8_t *end = reinterpret_cast<const uint8_t *>(kTextEnd) - 6;
+    const uint8_t *p = reinterpret_cast<const uint8_t *>(Offsets::SECTION_TEXT_START);
+    const uint8_t *end = reinterpret_cast<const uint8_t *>(Offsets::SECTION_TEXT_END) - 6;
     for (; p <= end; ++p) {
         if (p[0] != 0xB8 || p[5] != 0xC3) // mov eax, imm32 ; ret
             continue;

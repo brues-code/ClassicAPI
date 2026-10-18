@@ -28,6 +28,7 @@
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "totem/Tracker.h"
+#include "unit/TokenEvents.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -638,11 +639,9 @@ void SignalAuraChanged(uint64_t guid) {
 }
 
 void FlushAuraSignals() {
-    using Broadcast_t = void(__fastcall *)(uint64_t *guid, uint32_t eventCode);
-    auto broadcast = reinterpret_cast<Broadcast_t>(
-        static_cast<uintptr_t>(Offsets::FUN_UNIT_EVENT_BROADCAST));
+    // The engine broadcast plus ClassicAPI's tokens (see Unit::TokenEvents).
     for (int i = 0; i < g_pendingSignalCount; ++i)
-        broadcast(&g_pendingSignals[i], Offsets::UNIT_EVENT_UNIT_AURA);
+        Unit::TokenEvents::Broadcast(&g_pendingSignals[i], Offsets::UNIT_EVENT_UNIT_AURA);
     g_pendingSignalCount = 0;
 }
 

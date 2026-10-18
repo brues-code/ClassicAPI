@@ -5336,22 +5336,33 @@ from `FACTION_STANDING_CHANGED` directly.
 
 ## Focus
 
-A focus-target system: a single sticky GUID that addons can pin to a
-unit and address via the `"focus"` unit token across the entire `UnitX`
-API surface. Backed by a hook on `FUN_TOKEN_TO_GUID` (shared with the
-[`nameplateN`](#unit-tokens-nameplaten) tokens — see
-`unit/TokenExtensions.cpp`).
+The focus is one unit that you keep as a second target. Use the
+`"focus"` unit token to address it in every `UnitX` function.
 
-State is **session-only** — drops on `/reload`, `/logout`, and zone
-loads that recreate Lua state. Addons that want persistence have to
-re-`FocusUnit` from `SavedVariables` at `ADDON_LOADED`.
+The focus stays through `/reload`. It clears when you log out.
 
-**Auto-clear on despawn.** When the focused unit leaves the client's
-object table — out of rendering range, full despawn, dies and
-decays — focus drops and [`PLAYER_FOCUS_CHANGED`](#player_focus_changed-event)
-fires. The unit re-entering range does NOT auto-refocus.
-Implementation: per-tick `ObjectByGUID(g_focusGUID)` probe; on null
-result, `Set(0)`.
+**When the focus clears.** The focus clears, and
+[`PLAYER_FOCUS_CHANGED`](#player_focus_changed-event) fires, when one of
+these occurs:
+
+- The unit goes out of range or despawns. The focus stays when the unit is
+  you, your pet, a party or raid member, or the pet of one. When that unit
+  comes back into range, it is the focus again.
+- The unit dies and it is not friendly to you.
+- The unit comes back into range dead, and it is not friendly to you.
+- The unit changes so that you cannot select it.
+
+You can focus a unit that is already dead or that you cannot select. The
+focus clears only when the unit changes to that state.
+
+**`%f` in chat.** In a chat message that you send, `%f` changes to the name
+of your focus, as `%t` changes to the name of your target. When the focus
+has a raid marker, the name starts with that marker (`{rt8}Name`). With no
+focus, `%f` changes to `FOCUS_TOKEN_NOT_FOUND` (`"<no focus>"`).
+
+```lua
+SendChatMessage("Sheep on %f", "PARTY")   -- "Sheep on {rt5}Defias Thug"
+```
 
 ### `FocusUnit(unit)`
 
@@ -5402,16 +5413,19 @@ so addons get the engine semantics they expect.
 Returns `nil` cleanly when no focus is set; doesn't raise the
 "Unknown unit name" error.
 
-**Unit events fire for `"focus"`.** `UNIT_HEALTH`, `UNIT_MANA`,
-`UNIT_AURA`, `UNIT_LEVEL`, `UNIT_MODEL_CHANGED`, … fire with
-`arg1 == "focus"` whenever the focused unit's corresponding descriptor
-field changes — even when it isn't your target, so a focus frame keeps
-updating while you fight something else. Backed by `Unit::TokenObserver`,
-which registers the engine's own unit-event descriptor-field observers
-for the focus unit (the exact watch the engine gives target/party/raid).
-A unit that is simultaneously your target and focus fires both
-`"target"` and `"focus"`. (`OnEvent` handlers read the `arg1`
-global, not a function parameter.)
+**Unit events fire for `"focus"`.** Every unit event fires with
+`arg1 == "focus"` for the focused unit, as it does for `"target"`. This
+includes `UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, `UNIT_NAME_UPDATE`,
+`UNIT_PORTRAIT_UPDATE`, and `UNIT_MODEL_CHANGED`. The events fire also when
+the focus is not your target, and for a focused groupmate out of range.
+A unit that is your target and your focus fires each event two times: one
+time with `"target"` and one time with `"focus"`. (`OnEvent` handlers read
+the `arg1` global, not a function parameter.)
+
+**Unit events for `"focustarget"`.** The unit that your focus targets also
+fires its unit events, with `arg1 == "focustarget"`. This is a ClassicAPI
+extension. When the focus changes its target, the events follow the new
+target within one frame.
 
 [`UnitTokenFromGUID`](#unittokenfromguidguid) scans `"focus"` right
 after `"target"`, so a focused unit's GUID
@@ -13648,14 +13662,11 @@ own walker either, so they don't compose.
 Out-of-range indices return `nil` cleanly without raising "Unknown
 unit name" — `UnitExists("nameplate99")` just returns `false`.
 
-**Unit events fire for `"nameplateN"`.** Like party/raid tokens,
-`UNIT_HEALTH` / `UNIT_AURA` / `UNIT_LEVEL` / … fire with
-`arg1 == "nameplateN"` when a nameplated unit's descriptor field changes
-(the engine only watched its own target/party/raid units). Backed by
-`Unit::TokenObserver` — observers are registered per plate on
-`NAME_PLATE_UNIT_ADDED` and torn down on `_REMOVED`; the changed GUID is
-resolved to its *current* index at fire time, since indices shift as
-plates vanish. Note the per-plate observer cost in very large scenes.
+**Unit events fire for `"nameplateN"`.** Every unit event fires with
+`arg1 == "nameplateN"` for a unit that has a nameplate, as it does for a
+party token. This includes `UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, and
+`UNIT_NAME_UPDATE`. The events start after `NAME_PLATE_UNIT_ADDED` and stop
+after `NAME_PLATE_UNIT_REMOVED`.
 
 **Implementation note.** We hook `FUN_TOKEN_TO_GUID` (the central
 token→GUID resolver) so the entire `Script_Unit*` surface gains the
@@ -13685,11 +13696,9 @@ non-unit (a marked corpse, gameobject, or loot). Token chains compose —
 `"mark1target"`, `"mark1targettarget"` — via the same suffix walker as the
 other families.
 
-**Unit events fire for `"markN"`.** `UNIT_HEALTH` / `UNIT_MANA` /
-`UNIT_AURA` / `UNIT_LEVEL` / … fire with `arg1 == "markN"` when the marked
-unit's descriptor field changes — the engine only watched its own
-target/party/raid units, so a marked mob that isn't otherwise one of those
-fired nothing:
+**Unit events fire for `"markN"`.** Every unit event fires with
+`arg1 == "markN"` for the marked unit, as it does for `"target"`. This
+includes `UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, and `UNIT_NAME_UPDATE`:
 
 ```lua
 local f = CreateFrame("Frame")
@@ -13701,13 +13710,9 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
-Backed by `Unit::TokenObserver` (the same mechanism as `focus` /
-`nameplateN`). A per-frame watcher diffs the engine's 8-slot marker table
-and attaches/detaches an observer per marked *unit* — deferring until the
-unit is in range, since observers can only bind to a live object and a
-marked unit may be marked while out of range and enter later. The idle
-case (no markers set) costs a handful of comparisons per frame and no
-object lookups. A marker on a non-unit is simply never observed.
+A unit that you mark while it is out of range fires its events when it
+comes into range. A marker on something that is not a unit fires no
+events.
 
 ### Unit tokens (GUID literals)
 

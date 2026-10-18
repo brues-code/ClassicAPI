@@ -28,6 +28,7 @@ ERR_EQUIPMENT_MANAGER_COMBAT_SWAP_S = "Some items from set %s cannot be swapped 
 ERR_EQUIPMENT_MANAGER_MISSING_ITEM_S = "One or more items from set %s were missing and could not be equipped.";
 CLEAR_FOCUS = "Clear Focus";
 SET_FOCUS = "Set Focus";
+FOCUS_TOKEN_NOT_FOUND = "<no focus>";
 FOCUSTARGET = "Focus Target";
 GEARSETS_POPUP_TEXT = "Enter Set Name (Max 16 Characters):";
 GENERIC_FRACTION_STRING = "%d/%d";

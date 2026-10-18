@@ -14,6 +14,11 @@
 #pragma once
 
 enum Offsets {
+    // `.text` section bounds of this client (VA; see CLAUDE.md "Target
+    // binary"). Code scans read only inside them.
+    SECTION_TEXT_START = 0x00401000,
+    SECTION_TEXT_END = 0x007FEDAC,
+
     FUN_FRAME_SCRIPT_INITIALIZE = 0x7039E0,
     FUN_INVALID_FUNCTION_PTR_CHECK = 0x42A320,
     FUN_LOAD_SCRIPT_FUNCTIONS = 0x490250,
@@ -1381,6 +1386,91 @@ enum Offsets {
     VAR_CURRENT_SELECTION_GUID_LO = 0x00B4E2D8,
     VAR_CURRENT_SELECTION_GUID_HI = 0x00B4E2DC,
 
+    // ── Unit script registration (which units fire unit events) ──────────
+    // 4.3.4's CGUnit_C::m_scriptRegistration: a mask at unit+0xC90 of the
+    // reasons the UI watches this unit. FUN_UNIT_SCRIPT_RECOMPUTE rebuilds it
+    // from scratch: 0x1 player, 0x2 pet, 0x10 party, 0x20 party pet, 0x100
+    // raid, 0x200 raid pet, 0x1000 target (4.3.4's UpdateScriptRegistration,
+    // same bits). Only 0 ↔ nonzero is read: the first bit starts watching the
+    // unit's descriptor fields (FUN_0051bbb0), the last one stops it
+    // (FUN_0051bdb0), and a watched unit's field changes fire unit events
+    // through FUN_UNIT_EVENT_BROADCAST. Callers of the recompute: the target
+    // setter, the pet-change handler FUN_005e2660, the party/raid update
+    // FUN_005e5720, and the unit post-init FUN_005fbe00 (vtable 0x0080C504),
+    // so a unit that comes back into range is recomputed. The unit disable
+    // FUN_UNIT_DISABLE clears the whole mask. SuperWoW and WeirdUtils patch
+    // the recompute's initial value (0x0060C560) to 0x2000 for every unit
+    // (loot sparkle), so bit 0x2000 (4.3.4's focus bit) is taken here, and
+    // UnitXP references 0x0060C578 in its body. Unit::TokenEvents co-hooks
+    // the recompute to keep UNIT_SCRIPT_REG_TOKENS on units that have a
+    // ClassicAPI token (focus, nameplateN, markN).
+    OFF_CGUNIT_SCRIPT_REGISTRATION = 0xC90,
+    // ClassicAPI's bit for those units (4.3.4's focus bit is 0x2000, taken
+    // here — see above; 0x4000 is 4.3.4's arena bit).
+    UNIT_SCRIPT_REG_TOKENS = 0x8000,
+    FUN_UNIT_SCRIPT_RECOMPUTE = 0x0060C520,  // void __fastcall(unit)
+    // `void __thiscall(unit, uint32_t bits)`, RET 4 — 4.3.4's RegisterScript
+    // (OR the bits, starting the watch on 0 → nonzero) / UnregisterScript
+    // (clear them, stopping it at → 0). The target clear uses the latter
+    // with 0x1000.
+    FUN_UNIT_SCRIPT_REGISTER = 0x0060C4A0,
+    FUN_UNIT_SCRIPT_UNREGISTER = 0x0060C4F0,
+    // `int __fastcall(const uint64_t *guid)` — 4.3.4's IsRaidMemberOrPet:
+    // you, your pet, a party member or their pet (FUN_004e80a0), a raid
+    // member or their pet (FUN_004bafd0). The engine keeps the target on a
+    // unit leaving the object table only when this is true.
+    FUN_UNIT_IS_GROUP_MEMBER_OR_PET = 0x00491900,
+    // CGUnit_C::Disable — `void __fastcall(unit)`, run as a unit leaves the
+    // object table: ClearTarget(guid) unless FUN_UNIT_IS_GROUP_MEMBER_OR_PET,
+    // then UnregisterScript(0xFFFFFFFF). 4.3.4's version (via BreakTarget)
+    // also drops the focus, and also when the unit is dueling you; 1.12's
+    // has no duel exception.
+    FUN_UNIT_DISABLE = 0x005FBB60,
+    // ClearTarget — `void __fastcall(int sendPacket /*ecx*/, int /*edx*/,
+    // uint32_t guidLo, uint32_t guidHi)`, RET 8: clears the target when it is
+    // that GUID (or any target for 0), UnregisterScript(0x1000) on the unit,
+    // and with sendPacket set sends CMSG_SET_SELECTION and fires event 0xC3.
+    FUN_CLEAR_TARGET = 0x00493910,
+    // CGUnit_C::UnitReaction — `int __thiscall(unit, other)` → reaction
+    // 0..7; Script_UnitIsFriend (0x00516930) reads above 3 as friendly.
+    FUN_UNIT_REACTION = 0x006061E0,
+    // Combat-feedback fire — `void __fastcall(const uint64_t *guid /*ecx*/,
+    // const char *action /*edx*/, int amount, int school, uint32_t hitInfo)`,
+    // RET 0xC. Picks a modifier from the amount's sign and hitInfo (amount >
+    // 0: 0x80 CRITICAL, else 0x4000 GLANCING, else 0x8000 CRUSHING; else 0x20
+    // ABSORB, else 0x800 BLOCK, else 0x40 RESIST; none → "") and fires
+    // UNIT_COMBAT (0xB6) (token, action, modifier, amount, school) for each
+    // token of FUN_UNIT_TOKENS_FROM_GUID. The second caller of that map.
+    // nampower REPLACES this function (CGGameUI_ShowCombatFeedback, a
+    // hadesmem detour that never calls the original and fires for its own
+    // token list) — do not co-hook it. Its direct call sites are the four
+    // wrappers' CALLs (0x004946C2 spell damage "WOUND", 0x00494711 attack
+    // round, 0x00494736 spell miss, 0x00494758 heal); Unit::TokenEvents
+    // redirects them (see FUN_UNIT_EVENT_BROADCAST).
+    FUN_UNIT_COMBAT_FEEDBACK = 0x00494600,
+    UNIT_COMBAT_FEEDBACK_CALL_SITES = 4,
+    UNIT_EVENT_UNIT_COMBAT = 0xB6,
+    VAR_STR_UNIT_COMBAT_FORMAT = 0x0084333C, // "%s%s%s%d%d"
+    VAR_STR_EMPTY = 0x00882748,              // ""
+    VAR_STR_COMBAT_CRITICAL = 0x00843370,
+    VAR_STR_COMBAT_GLANCING = 0x00843364,
+    VAR_STR_COMBAT_CRUSHING = 0x00843358,
+    VAR_STR_COMBAT_ABSORB = 0x00843350,
+    VAR_STR_COMBAT_BLOCK = 0x0083F300,
+    VAR_STR_COMBAT_RESIST = 0x00843348,
+    // The chat-send text parser — `bool __fastcall(const char *text, char
+    // *out, int size)`, 4.3.4's ChatParserParseText; only caller
+    // Script_SendChatMessage (0x0049F60F), before the drunk filter. Replaces
+    // `%t`/`%n` (either case) with the target's name (object name, else the
+    // name cache, else TARGET_TOKEN_NOT_FOUND); any other `%x` writes a
+    // placeholder and makes it return false. 4.3.4 adds `%f` for the focus.
+    // Prologue 53 8B DC 83 EC 08.
+    FUN_CHAT_PARSE_TEXT = 0x005083A0,
+    // FrameScript_GetText — `const char *__fastcall(const char *name, int
+    // edx /*-1*/, int gender /*stack, 0*/)`, RET 4. With (-1, 0) it returns
+    // the global string `name`, or "" when unset.
+    FUN_FRAMESCRIPT_GET_TEXT = 0x00703BF0,
+
     // Local-player CGObject-like global. Not the same pointer as
     // ResolveUnitToken("player") returns — that one's the canonical
     // CGPlayer_C used by inventory etc. This pointer's +0xC0 field
@@ -1929,6 +2019,10 @@ enum Offsets {
     // Standard vanilla `UNIT_FLAG_POSSESSED = 0x01000000` per emulator
     // source (CMaNGOS/TrinityCore). Read by `UnitIsPossessed(unit)`.
     UNIT_FLAG_POSSESSED = 0x01000000,
+    // Bit 25 of UNIT_FIELD_FLAGS — the unit can't be selected (tortoise-wow
+    // and vmangos UnitDefines.h agree). 4.3.4 drops the focus when a unit
+    // gains it (CGUnit_C::OnFlagChanged → BreakTarget); 1.12 has no reader.
+    UNIT_FLAG_NOT_SELECTABLE = 0x02000000,
 
     // `UNIT_FIELD_CHANNEL_OBJECT` lo/hi (64-bit GUID of the object the
     // unit is currently channeling onto — bobber for fishing, lock for
@@ -6708,13 +6802,27 @@ enum Offsets {
     // bool concept here. No bounds check on eventID; pass valid indices.
     FUN_FIRE_EVENT = 0x00703F50,
     // Per-token unit-event broadcast. Fires unit event `eventCode` for every
-    // unit token currently mapping to `*guid` (target / party / raid /
-    // nameplateN / mouseover / focus), via the engine's own GUID->token reverse
-    // map -- the same path the descriptor-field observers drive on a real field
-    // change. `void __fastcall(uint64_t *guid, uint32_t eventCode)`; verified
-    // against nampower's SendUnitSignal (0x00515e50). `eventCode` is the unit
-    // field index, which doubles as the event id (see UNIT_EVENT_UNIT_AURA).
+    // unit token currently mapping to `*guid` (player / pet / target / party /
+    // raid / npc / mouseover), via the engine's own GUID->token reverse map
+    // FUN_UNIT_TOKENS_FROM_GUID -- the same path the descriptor-field
+    // observers drive on a real field change. nampower REPLACES this function
+    // (SendUnitSignal, a hadesmem detour that never calls the original; it
+    // fires for its own token list from GetUnitNames, gated by its settings)
+    // — do not co-hook it: the last DLL to patch wins. A co-hook here that
+    // re-fired with "focus" never ran (pfUI's focus frame lost UNIT_HEALTH).
+    // SuperWoW patches the map itself. What no other DLL touches is the
+    // callers' CALL/JMP instructions: 37 `E8` and one tail `E9` (in the
+    // UNIT_NAME_UPDATE fire FUN_00491a00, at 0x00491A3C), matching Ghidra's
+    // xref list. Unit::TokenEvents points each at its own function, which
+    // calls this address (running whatever is installed there) and then
+    // fires the event for the unit's ClassicAPI tokens. Scanned all loaded
+    // DLLs for absolute references near the sites: none.
+    // `void __fastcall(uint64_t *guid, uint32_t eventCode)`;
+    // verified against nampower's SendUnitSignal (0x00515e50). `eventCode` is
+    // the unit field index, which doubles as the event id (see
+    // UNIT_EVENT_UNIT_AURA).
     FUN_UNIT_EVENT_BROADCAST = 0x00515E50,
+    UNIT_EVENT_BROADCAST_CALL_SITES = 38,
     // Event name strings live in `.data` (mostly clustered around
     // 0x00851000..0x00855000); event-name string pointers also reach into
     // `.rdata` (starts at 0x007FF000) for some entries. Bound the dereference
