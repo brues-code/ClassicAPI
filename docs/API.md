@@ -11702,13 +11702,9 @@ for _, v in ipairs(costs) do best = math.min(best, v) end
 
 ### `coroutine.*`
 
-Restores Lua 5.0's stripped `coroutine.*` library. The C-level
-coroutine machinery (`lua_resume`, `lua_yield`, `lua_newthread`,
-and the `thread` type at tag 8) is linked into the engine, but
-the script-facing library was never registered as a global table.
-ClassicAPI rewires the standard five entries on `coroutine`, plus
-Lua 5.1's `coroutine.running`, matching Lua 5.0 semantics with two
-WoW-specific quirks called out below.
+The Lua 5.1 `coroutine` library: `create`, `resume`, `running`,
+`status`, `wrap` and `yield`. It works in the world and on the login
+screen. One WoW-specific quirk, with `error()`, is called out below.
 
 #### `coroutine.create(fn)`
 
@@ -11732,10 +11728,15 @@ Returns:
 - `true, ...values` on success, where `values` are whatever the
   coroutine yielded (mid-execution) or returned (on completion).
 - `false, errMsg` on error. Two error sources:
-  - Coroutine isn't suspended — e.g. resuming a dead one;
-    `errMsg` is a fixed string like `"cannot resume dead coroutine"`.
-  - The body hit a Lua VM error; `errMsg` is the formatted error
+  - The coroutine isn't suspended. `errMsg` is
+    `"cannot resume <status> coroutine"`, where `<status>` is
+    `running`, `normal` or `dead`.
+  - The body hit a Lua VM error. `errMsg` is the formatted error
     string with file:line prefix.
+
+Passing more arguments, or getting back more results, than the stack
+can hold raises `too many arguments to resume` /
+`too many results to resume`.
 
 **Caveat — `error()` doesn't propagate.** WoW replaces Lua's
 `error()` global with a soft handler that calls
@@ -11765,21 +11766,17 @@ Returns the coroutine's state as a string:
 |-------|---------|
 | `"running"` | `co` is the currently-running coroutine (i.e. the same thread that called `status`). |
 | `"suspended"` | `co` is paused — either initial (never resumed) or mid-yield. |
+| `"normal"` | `co` is active but not running: it resumed another coroutine, which is running now. |
 | `"dead"` | `co`'s body has returned or errored. |
-
-The standard Lua `"normal"` state — a coroutine that resumed a
-deeper coroutine and is now an ancestor on the call chain — is
-collapsed into `"suspended"`. Detecting it cleanly requires
-walking the global thread list, and the case is near-useless for
-addon-level logic.
 
 #### `coroutine.wrap(fn)`
 
 Equivalent to `coroutine.create(fn)` followed by returning a
 closure that calls `coroutine.resume(co, ...)` on each invocation
-— but propagates errors as raised exceptions (via `lua_error`)
-instead of returning `false, msg`. Lets you use a coroutine as
-if it were an ordinary function:
+— but raises errors instead of returning `false, msg`. A string
+error gets the caller's file:line added in front; any other error
+value is raised unchanged. Lets you use a coroutine as if it were an
+ordinary function:
 
 ```lua
 local gen = coroutine.wrap(function()

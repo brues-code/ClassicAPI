@@ -6323,7 +6323,13 @@ enum Offsets {
     // done. Documented in `docs/LuaCAPI.md`; calls `luaH_next` at
     // `0x006FA2A0` internally.
     LUA_NEXT = 0x6F4450,
+    // Despite the name, `luaL_error(L, fmt, ...)` (__cdecl): luaL_where(L, 1)
+    // (0x006F48E0), pushvfstring, concat 2 (0x006F44E0), then LUA_RAW_ERROR.
     LUA_ERROR = 0x6F4940,
+    // `lua_error(L)` proper — __fastcall(L), raises the value on top of the
+    // stack as is (luaG_errormsg 0x006FC780), so a non-string error object
+    // survives. The tail of LUA_ERROR.
+    LUA_RAW_ERROR = 0x6F4440,
 
     // `lua_xmove(from, to, n)` — moves the top `n` TValues from one
     // thread to another. Decrements `from->top` by `n*16`, copies each
