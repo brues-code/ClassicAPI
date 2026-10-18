@@ -11581,6 +11581,9 @@ local zone, x, y = strsplit(":", "Durotar:52:38")
 Errors `strsplit(): Stack overflow` if a string splits into more pieces than
 the Lua stack can grow to hold (`lua_checkstack` guards every push).
 
+Also registered as `string.split`. The separator comes first, so as a
+string method it is called on the separator: `(","):split("a,b")`.
+
 ### `strjoin(delimiter, ...)`
 
 The inverse of `strsplit`: concatenate the vararg pieces with `delimiter`
@@ -11595,6 +11598,8 @@ strjoin(",")                  -- ""   (no pieces)
 A `nil` / non-string-coercible piece is treated as an empty string (so the
 delimiters still line up) rather than erroring.
 
+Also registered as `string.join`.
+
 ### `strtrim(str [, chars])`
 
 Remove any of the characters in `chars` from both ends of `str`. `chars` is a
@@ -11606,6 +11611,9 @@ strtrim("  hello  ")        -- "hello"
 strtrim("xxhelloxx", "x")   -- "hello"
 strtrim("[a]", "[]")        -- "a"
 ```
+
+Also registered as `string.trim`, so it works as a
+string method: `("  hello  "):trim()` is `"hello"`.
 
 ### `strreplace(str, find, replace)`
 
