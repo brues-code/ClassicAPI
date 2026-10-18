@@ -118,6 +118,27 @@ void *ResolveObject(void *L, int idx) {
     return result;
 }
 
+int ObjectLuaRef(void *object) {
+    using ScriptRegister_t = void(__thiscall *)(void *object, void *nameOrNull);
+    if (Game::Read<int>(object, Offsets::OFF_COBJECT_LUA_REFCOUNT) == 0)
+        reinterpret_cast<ScriptRegister_t>(
+            Offsets::FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER)(object, nullptr);
+    return Game::Read<int>(object, Offsets::OFF_COBJECT_LUA_REF);
+}
+
+void PushObject(void *L, void *object) {
+    RawGetI(L, REGISTRY_INDEX, ObjectLuaRef(object));
+}
+
+const char *ObjectDisplayName(void *object) {
+    using GetName_t = const char *(__thiscall *)(void *);
+    const void *vtable = Game::Read<const void *>(object, 0);
+    const char *name = Game::Read<GetName_t>(
+        vtable, Offsets::VTBL_SCRIPTOBJECT_GET_NAME)(object);
+    return name != nullptr ? name
+                           : reinterpret_cast<const char *>(Offsets::VAR_STR_UNNAMED);
+}
+
 namespace {
 using FrameScriptIsA_t = char(__thiscall *)(void *self, int typeId);
 

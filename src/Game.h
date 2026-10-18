@@ -341,6 +341,17 @@ void *State();
 // the `self` slot of any `frame:method(...)` invocation.
 void *ResolveObject(void *L, int idx);
 
+// The inverse: the object's Lua-registry ref, created on first use exactly as
+// the engine does it (GetMouseFocus and the script runners register an
+// object with FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER when its refcount is 0).
+int ObjectLuaRef(void *object);
+// Pushes the object's Lua table (registry[ObjectLuaRef(object)]).
+void PushObject(void *L, void *object);
+
+// How the engine names an object in its frame-script usage errors:
+// `GetName() ?: "<unnamed>"` (VTBL_SCRIPTOBJECT_GET_NAME).
+const char *ObjectDisplayName(void *object);
+
 // Same resolve, then the type gate every engine frame method applies to its
 // `self` before touching it: `lua_type == table`, resolve to the object, then
 // the `IsA(typeId)` vmethod at vtable+0x10. `ResolveObject` alone is not

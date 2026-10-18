@@ -294,17 +294,6 @@ int __fastcall Script_SetResizeBounds(void *L) {
 // handlers either way. Script lookup, the unknown-script error and storage
 // stay the engine's own GetScript / SetScript, whose texts match 4.3.4's.
 
-// `GetName() ?: "<unnamed>"` — how the engine names an object in its
-// frame-script usage errors (VTBL_SCRIPTOBJECT_GET_NAME).
-const char *DisplayName(void *object) {
-    using GetName_t = const char *(__thiscall *)(void *);
-    const void *vtable = Game::Read<const void *>(object, 0);
-    const char *name = Game::Read<GetName_t>(
-        vtable, Offsets::VTBL_SCRIPTOBJECT_GET_NAME)(object);
-    return name != nullptr ? name
-                           : reinterpret_cast<const char *>(Offsets::VAR_STR_UNNAMED);
-}
-
 int __fastcall Script_HookScript(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
@@ -312,7 +301,7 @@ int __fastcall Script_HookScript(void *L) {
     if (!Game::Lua::IsString(L, 2) ||
         Game::Lua::Type(L, 3) != Game::Lua::TYPE_FUNCTION) {
         Game::Lua::Error(L, "Usage: %s:HookScript(\"type\", function)",
-                         DisplayName(frame));
+                         Game::Lua::ObjectDisplayName(frame));
         return 0;
     }
 

@@ -64,6 +64,8 @@
 // valve, since this lands on the hottest Lua path in the engine
 // (FUN_FRAME_RUN_SCRIPT_ARGS fires for every OnUpdate frame).
 
+#include "frame/ScriptArgs.h"
+
 #include "Game.h"
 #include "HookSecureFunc.h"
 #include "Offsets.h"
@@ -82,21 +84,7 @@ bool g_enabled = true;
 // Engine cap: the runner stops setting arg globals at index 19 (arg1..arg19).
 constexpr int kMaxArgs = 19;
 
-// --- raw engine primitives not exposed via Game::Lua -----------------------
-// FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER — __thiscall(frame, nameOrNull);
-// lazily materializes the frame's Lua-registry ref at frame+OFF_COBJECT_LUA_REF.
-using ScriptRegister_t = void(__thiscall *)(void *frame, void *nameOrNull);
-
 using Game::Lua::RawGetI;
-
-// Returns the frame's Lua object ref (frame+0x08), lazily creating it exactly
-// as the engine runner does (`if (refcount == 0) ScriptRegister(frame, 0)`).
-int EnsureLuaRef(void *frame) {
-    if (Game::Read<int>(frame, Offsets::OFF_COBJECT_LUA_REFCOUNT) == 0)
-        reinterpret_cast<ScriptRegister_t>(
-            Offsets::FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER)(frame, nullptr);
-    return Game::Read<int>(frame, Offsets::OFF_COBJECT_LUA_REF);
-}
 
 // Writes "arg" + k (k in 1..19) into buf; buf must hold at least 6 bytes.
 void ArgName(char *buf, int k) {
@@ -117,7 +105,6 @@ void ArgName(char *buf, int k) {
 // Numbers ('d'/'u'/'f') land in `num`; strings ('s') keep the char* the engine
 // handed us (stable for the duration of the call).
 struct Arg {
-    char name[6]; // "arg1".."arg19"
     char kind;    // 'd' | 'u' | 'f' | 's'
     double num;
     const char *str;
@@ -161,7 +148,6 @@ int ParseArgs(const char *fmt, const void *vaPtr, Arg *out) {
             continue; // unknown spec — consume nothing
         }
         a.kind = *p;
-        ArgName(a.name, n + 1);
         ++n;
     }
     return n;
@@ -174,6 +160,21 @@ void PushArg(void *L, const Arg &a) {
     else
         Game::Lua::PushNumber(L, a.num);
 }
+
+// Where RunCore's arguments come from: the runner's parsed printf-style
+// list, or `n` Lua values already on the stack from absolute index
+// `stackBase` (they sit below everything RunCore pushes, so the index holds).
+struct ArgSource {
+    const Arg *parsed = nullptr;
+    int stackBase = 0;
+    int n = 0;
+    void Push(void *L, int k) const {
+        if (parsed != nullptr)
+            PushArg(L, parsed[k]);
+        else
+            Game::Lua::PushValue(L, stackBase + k);
+    }
+};
 
 // Reimplements the runner tail: set the `this`/`arg1..argN` globals, invoke the
 // handler with modern positional args `(self, [event,] arg1..argN)` under the
@@ -191,13 +192,14 @@ void PushArg(void *L, const Arg &a) {
 // Returns false WITHOUT side effects when it declines (no Lua state, or the
 // stack can't grow); the caller then runs the original. Every false path is
 // before the first push, so falling back never double-runs the handler.
-bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) {
+//
+// `positional` false sets the globals but calls the handler with no
+// arguments — the vanilla shape, for RunWithValues while the switch is off.
+bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
+             bool positional) {
     using namespace Game::Lua;
-    void *L = State();
-    if (L == nullptr)
-        return false;
     // Headroom for the saved-old block plus the transient set/call pushes.
-    if (CheckStack(L, 2 * kMaxArgs + 16) == 0)
+    if (CheckStack(L, 2 * src.n + 16) == 0)
         return false;
 
     const bool haveThis = frame != nullptr;
@@ -208,10 +210,10 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
     const bool isOnEvent =
         haveThis &&
         Game::Read<int>(frame, Offsets::OFF_FRAME_ONEVENT_SLOT) == handlerRef;
-    const int selfRef = haveThis ? EnsureLuaRef(frame) : 0;
+    const int selfRef = haveThis ? Game::Lua::ObjectLuaRef(frame) : 0;
 
-    Arg args[kMaxArgs];
-    const int n = ParseArgs(fmt, vaPtr, args);
+    const int n = src.n;
+    char argName[6];
 
     // --- save the globals we're about to clobber, onto the stack ------------
     // Absolute indices, live until the closing SetTop(base):
@@ -224,7 +226,8 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
     }
     const int savedArgBase = base + (haveThis ? 1 : 0);
     for (int k = 0; k < n; ++k) {
-        PushString(L, args[k].name);
+        ArgName(argName, k + 1);
+        PushString(L, argName);
         GetTable(L, GLOBALS_INDEX); // [.. oldArgk]
     }
 
@@ -235,8 +238,9 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
         SetTable(L, GLOBALS_INDEX);
     }
     for (int k = 0; k < n; ++k) {
-        PushString(L, args[k].name);
-        PushArg(L, args[k]);
+        ArgName(argName, k + 1);
+        PushString(L, argName);
+        src.Push(L, k);
         SetTable(L, GLOBALS_INDEX);
     }
 
@@ -250,22 +254,27 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
         errIdx = callBase + 1;              // absolute index of the errfunc
     }
     RawGetI(L, REGISTRY_INDEX, handlerRef); // handler
-    if (haveThis)
-        RawGetI(L, REGISTRY_INDEX, selfRef); // self
-    else
-        PushNil(L);
-    if (isOnEvent) { // event goes before the args, retail-style
-        PushString(L, "event");
-        GetTable(L, GLOBALS_INDEX);
+    int nargs = 0;
+    if (positional) {
+        if (haveThis)
+            RawGetI(L, REGISTRY_INDEX, selfRef); // self
+        else
+            PushNil(L);
+        if (isOnEvent) { // event goes before the args, retail-style
+            PushString(L, "event");
+            GetTable(L, GLOBALS_INDEX);
+        }
+        for (int k = 0; k < n; ++k)
+            src.Push(L, k);
+        nargs = 1 + (isOnEvent ? 1 : 0) + n;
     }
-    for (int k = 0; k < n; ++k)
-        PushArg(L, args[k]);
-    PCall(L, 1 + (isOnEvent ? 1 : 0) + n, 0, errIdx);
+    PCall(L, nargs, 0, errIdx);
     SetTop(L, callBase); // drop the message handler + any leftover error object
 
     // --- restore globals from the saved block, then drop it -----------------
     for (int k = 0; k < n; ++k) {
-        PushString(L, args[k].name);
+        ArgName(argName, k + 1);
+        PushString(L, argName);
         PushValue(L, savedArgBase + 1 + k);
         SetTable(L, GLOBALS_INDEX);
     }
@@ -276,6 +285,18 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
     }
     SetTop(L, base);
     return true;
+}
+
+// The runner path: arguments from the engine's printf-style format.
+bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) {
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return false;
+    Arg args[kMaxArgs];
+    ArgSource src;
+    src.parsed = args;
+    src.n = ParseArgs(fmt, vaPtr, args);
+    return RunCore(L, handlerRef, frame, src, /*positional*/ true);
 }
 
 // Lua 5.0 internal offsets for reading a handler's arity — verified against the
@@ -415,5 +436,14 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int nargs) {
+    if (handlerRef == 0 || frame == nullptr)
+        return;
+    ArgSource src;
+    src.stackBase = firstArgIdx;
+    src.n = nargs;
+    RunCore(L, handlerRef, frame, src, /*positional*/ g_enabled);
+}
 
 } // namespace Frame::ScriptArgs

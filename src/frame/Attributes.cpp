@@ -34,12 +34,15 @@
 // Installing OnEnter/OnLeave would be clobbered by an addon's own
 // `SetScript("OnEnter", …)` (pfUI sets `unit` before its scripts), and there's
 // nothing to read from Lua anyway — the mouseover unit is an engine global. So
-// we mirror retail / SuperWoW's `SetMouseoverUnit`: watch the engine's
-// mouse-focus frame (`*(*VAR_UI_CONTEXT_PTR + OFF_UI_CONTEXT_MOUSE_FOCUS)`, the
-// CFrameScriptObject* `GetMouseFocus` returns) once per frame on the shared
-// WorldTick, and when it's a `unit`-attributed frame call the engine's FULL
-// mouseover setter (FUN_00492890) — 1:1 with hovering the unit's 3D model:
-// model highlight, mouseover tooltip, UPDATE_MOUSEOVER_UNIT, and the GUID slot.
+// we mirror 4.3.4's CGWorldFrame::OnLayerUpdate: once per frame (the shared
+// WorldTick) read the engine's mouse-focus frame
+// (`*(*VAR_UI_CONTEXT_PTR + OFF_UI_CONTEXT_MOUSE_FOCUS)`, the
+// CFrameScriptObject* `GetMouseFocus` returns), ask FrameXML's
+// `SecureButton_GetModifiedUnit` for its unit (see ModifiedUnit), and hand
+// that to the engine's FULL mouseover setter (FUN_00492890) — 1:1 with
+// hovering the unit's 3D model: model highlight, UPDATE_MOUSEOVER_UNIT, the
+// GUID slot, and the mouseover tooltip. The tooltip is a deliberate
+// difference: 4.3.4 shows it only when the world frame has the focus.
 // Stomp-proof: the engine's own 3D-hover setter is event-driven, so nothing
 // overwrites the slot while the cursor is over UI.
 //
@@ -98,12 +101,13 @@
 // `RegisterForClicks("RightButtonUp")`, which real unit frames do.
 //
 // `OnAttributeChanged` is a real SetScript-able handler: SetAttribute (not
-// SetAttributeNoHandler) fires it with `this` = frame, `arg1` = name, `arg2` =
-// value. Implemented by co-hooking the base-frame script-name resolver
+// SetAttributeNoHandler) fires it as `(self, name, value)` with the vanilla
+// `this` / `arg1` / `arg2` globals set too (see FireAttributeChanged). Implemented by co-hooking the base-frame script-name resolver
 // (`FUN_FRAME_SCRIPT_RESOLVER`) and handing out an external per-frame cell for
 // that name — the `Tooltip::SetEvents` analog, applied to every frame.
 
 #include "frame/Attributes.h"
+#include "frame/ScriptArgs.h"
 
 #include "Common.h"
 #include "Game.h"
@@ -125,6 +129,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Frame::Attributes {
 
@@ -314,10 +319,10 @@ bool CallTableFunc2Str(void *L, const char *table, const char *method,
 
 // ---- mouse-focus poll (drives the native mouseover slot) -------------------
 
-// frame CFrameScriptObject* → current `unit` token, for the mouse-focus poll.
-// Keyed by the same pointer the engine stores at the mouse-focus slot. Single-
-// threaded (Lua + WorldTick on the main thread), so no synchronization needed.
-std::unordered_map<const void *, std::string> g_unitByFrame;
+// Frames whose mouse we enabled when their `unit` attribute was first set
+// (a bare frame never becomes the mouse focus otherwise). Keyed by the C
+// object. Single-threaded (Lua + WorldTick on the main thread).
+std::unordered_set<const void *> g_unitFrames;
 
 // The last GUID *we* wrote into the mouseover slot. We only touch the slot on a
 // change of our own value, so when the cursor isn't over a unit frame (guid 0)
@@ -387,16 +392,51 @@ void BuildRosterUnitTooltip(uint64_t guid) {
         static_cast<uintptr_t>(Offsets::FUN_GAMETOOLTIP_BUILD_UNIT))(tooltip, packed);
 }
 
+// The unit a hovered frame stands for — 4.3.4's CGWorldFrame::OnLayerUpdate:
+// for the mouse-focus frame it pcalls the FrameXML function
+// `SecureButton_GetModifiedUnit(frame, macroRunning)` under the engine's
+// script error handler and uses the token it returns, so `unitsuffix` and
+// modifier-qualified `unit` attributes count. 4.3.4 asks protected frames;
+// 1.12 has no protection, so the analog is a frame that has attributes at
+// all. macroRunning is nil while hovering (no macro is executing), so the
+// call passes the frame alone. Returns "" for no unit.
+std::string ModifiedUnit(void *L, void *frame) {
+    std::string token;
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushObject(L, frame);                     // [frame]
+    const int fi = Game::Lua::GetTop(L);
+    if (PushSub(L, fi, /*create*/ false)) {               // [frame, attrs]
+        Game::Lua::SetTop(L, fi);
+        int errIdx = 0;
+        const int errRef = Game::Read<int>(
+            static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
+        if (errRef > 0) {
+            Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, errRef);
+            errIdx = Game::Lua::GetTop(L);
+        }
+        Game::Lua::PushString(L, "SecureButton_GetModifiedUnit");
+        Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
+            Game::Lua::PushValue(L, fi);
+            if (Game::Lua::PCall(L, 1, 1, errIdx) == 0 &&
+                Game::Lua::Type(L, -1) == Game::Lua::TYPE_STRING)
+                token = Game::Lua::ToString(L, -1);
+        }
+    }
+    Game::Lua::SetTop(L, top);
+    return token;
+}
+
 void MouseoverTick() {
-    const void *focus = CurrentMouseFocus();
+    void *focus = const_cast<void *>(CurrentMouseFocus());
 
     uint64_t guid = 0;
-    std::string token; // a copy: handlers run below may rewrite the map
+    std::string token;
     if (focus != nullptr) {
-        auto it = g_unitByFrame.find(focus);
-        if (it != g_unitByFrame.end()) {
-            token = it->second;
-            guid = Unit::Identity::GuidForToken(token.c_str()); // live — follows target changes
+        if (void *L = Game::Lua::State()) {
+            token = ModifiedUnit(L, focus);
+            if (!token.empty())
+                guid = Unit::Identity::GuidForToken(token.c_str()); // live — follows target changes
         }
     }
 
@@ -894,60 +934,31 @@ const Game::HookAutoRegister _attrResolverHook{
     reinterpret_cast<void *>(&FrameResolver_h),
     reinterpret_cast<void **>(&g_frameResolverOriginal)};
 
-// Fire OnAttributeChanged on `frame`, with arg1 = name and arg2 = the new value
-// (still at stack[3] in DoSet). Recursion-guarded so a handler that itself calls
-// SetAttribute doesn't loop. The invoker (FUN_FRAME_INVOKE_SCRIPT) binds `this`
-// and runs the handler under its own protected pcall; it doesn't restore the
-// stack top, so snapshot/restore around it (as Tooltip::SetEvents does).
-int g_firingAttr = 0;
-
-using InvokeAttrScript_t = void(__fastcall *)(uint32_t handler, void *frame);
-
+// Fire OnAttributeChanged on `frame` — 4.3.4's
+// CSimpleFrame::RunOnAttributeChangedScript: the handler gets the lowercased
+// name and the new value (still at stack[3] in DoSet) as real arguments,
+// `(self, name, value)`, plus the vanilla `this`/`arg1`/`arg2` globals.
+// RunWithValues carries arbitrary Lua values, which the engine's
+// printf-style runners cannot, and restores the stack and globals.
+//
+// No recursion guard, as in 4.3.4: a handler that sets attributes — its own
+// or another frame's — fires their handlers too. Secure headers and the
+// state driver depend on that. A runaway loop ends at Lua's C-call limit as
+// an ordinary, reported script error.
 void FireAttributeChanged(void *L, void *frame, const char *name) {
-    if (frame == nullptr || g_firingAttr > 0)
+    if (frame == nullptr)
         return;
     uint32_t *slot = AttrSlotFor(frame, /*create*/ false);
     if (slot == nullptr || slot[0] == 0)
         return;
-
-    const int savedTop = Game::Lua::GetTop(L);
-
-    // Snapshot the caller's arg1/arg2 first. SetAttribute can be called from
-    // inside a running script handler that still needs them, and the invoker
-    // below neither saves the globals nor restores the stack top — so we save
-    // (onto the stack, below anything the invoker pushes), overwrite, fire,
-    // then put them back. 1.12 passes handler args as globals, not params.
-    Game::Lua::PushString(L, "arg1");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);        // [.., oldArg1]
-    Game::Lua::PushString(L, "arg2");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);        // [.., oldArg1, oldArg2]
-    const int oldArg1 = savedTop + 1;
-    const int oldArg2 = savedTop + 2;
-
-    Game::Lua::PushString(L, "arg1");
+    const int top = Game::Lua::GetTop(L);
     Game::Lua::PushString(L, name);
-    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);          // _G.arg1 = name
-    Game::Lua::PushString(L, "arg2");
-    if (savedTop >= 3)
-        Game::Lua::PushValue(L, 3);                          // the new value
+    if (top >= 3)
+        Game::Lua::PushValue(L, 3); // the new value
     else
         Game::Lua::PushNil(L);
-    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);          // _G.arg2 = value
-
-    ++g_firingAttr;
-    reinterpret_cast<InvokeAttrScript_t>(Offsets::FUN_FRAME_INVOKE_SCRIPT)(slot[0], frame);
-    --g_firingAttr;
-
-    // Restore arg1/arg2 from the snapshot (the fired handler may also have
-    // written them; the caller's values win).
-    Game::Lua::PushString(L, "arg1");
-    Game::Lua::PushValue(L, oldArg1);
-    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);
-    Game::Lua::PushString(L, "arg2");
-    Game::Lua::PushValue(L, oldArg2);
-    Game::Lua::RawSet(L, Game::Lua::GLOBALS_INDEX);
-
-    Game::Lua::SetTop(L, savedTop);
+    Frame::ScriptArgs::RunWithValues(L, static_cast<int>(slot[0]), frame, top + 1, 2);
+    Game::Lua::SetTop(L, top);
 }
 
 // ---- the methods -----------------------------------------------------------
@@ -979,11 +990,18 @@ void EnableFrameMouse(void *L) {
     Game::Lua::SetTop(L, top);    // restore the caller's stack
 }
 
-int DoSet(void *L, bool fireHandler) { // (self, name, value)
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: frame:SetAttribute(\"name\", value)");
+// (self, name, value). `usage` is the method's error text; 4.3.4 requires
+// the value argument to be present (`lua_type(L, 3) != LUA_TNONE`), so
+// `SetAttribute("x")` is an error while `SetAttribute("x", nil)` clears.
+int DoSet(void *L, bool fireHandler, const char *usage) {
+    void *frame = Game::Lua::ResolveFrame(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsString(L, 2) || Game::Lua::GetTop(L) < 3) {
+        Game::Lua::Error(L, usage, Game::Lua::ObjectDisplayName(frame));
         return 0;
     }
+    Game::Lua::SetTop(L, 3);
     char lname[256];
     LowerCopy(lname, Game::Lua::ToString(L, 2), sizeof lname);
 
@@ -1001,17 +1019,11 @@ int DoSet(void *L, bool fireHandler) { // (self, name, value)
     // (the key the mouse-focus poll uses) and enable its mouse so it can be
     // hovered.
     if (std::strcmp(lname, "unit") == 0) {
-        void *obj = Game::Lua::ResolveFrame(L);
-        if (obj != nullptr) {
-            if (isString) {
-                const char *tok = Game::Lua::ToString(L, 3);
-                const bool isNew = g_unitByFrame.find(obj) == g_unitByFrame.end();
-                g_unitByFrame[obj] = tok ? tok : "";
-                if (isNew)
-                    EnableFrameMouse(L);
-            } else {
-                g_unitByFrame.erase(obj);
-            }
+        if (isString) {
+            if (g_unitFrames.insert(frame).second)
+                EnableFrameMouse(L);
+        } else {
+            g_unitFrames.erase(frame);
         }
     }
     // A `type*` attribute makes the frame a clickable unit button: (re)install
@@ -1029,12 +1041,17 @@ int DoSet(void *L, bool fireHandler) { // (self, name, value)
     }
 
     if (fireHandler)
-        FireAttributeChanged(L, Game::Lua::ResolveFrame(L), lname);
+        FireAttributeChanged(L, frame, lname);
     return 0;
 }
 
-int __fastcall Script_SetAttribute(void *L) { return DoSet(L, /*fireHandler*/ true); }
-int __fastcall Script_SetAttributeNoHandler(void *L) { return DoSet(L, /*fireHandler*/ false); }
+int __fastcall Script_SetAttribute(void *L) {
+    return DoSet(L, /*fireHandler*/ true, "Usage: %s:SetAttribute(\"name\", value)");
+}
+int __fastcall Script_SetAttributeNoHandler(void *L) {
+    return DoSet(L, /*fireHandler*/ false,
+                 "Usage: %s:SetAttributeNoHandler(\"name\", value)");
+}
 
 // `cleared = frame:ClearAttribute("name")` — retail (11.2.0) attribute removal;
 // `cleared` is true iff the attribute was set (and is now gone). Routes through
@@ -1042,8 +1059,12 @@ int __fastcall Script_SetAttributeNoHandler(void *L) { return DoSet(L, /*fireHan
 // NOT fire OnAttributeChanged — verified against retail (a live 12.0 test showed
 // ClearAttribute firing no handler, unlike SetAttribute).
 int __fastcall Script_ClearAttribute(void *L) {
+    void *frame = Game::Lua::ResolveFrame(L);
+    if (frame == nullptr)
+        return 0;
     if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: frame:ClearAttribute(\"name\")");
+        Game::Lua::Error(L, "Usage: %s:ClearAttribute(\"name\")",
+                         Game::Lua::ObjectDisplayName(frame));
         return 0;
     }
     char lname[256];
@@ -1055,19 +1076,21 @@ int __fastcall Script_ClearAttribute(void *L) {
 
     Game::Lua::SetTop(L, 2);   // (self, name)
     Game::Lua::PushNil(L);     // (self, name, nil) → value = nil clears the key
-    DoSet(L, /*fireHandler*/ false); // retail ClearAttribute fires no OnAttributeChanged
+    DoSet(L, /*fireHandler*/ false, ""); // retail ClearAttribute fires no OnAttributeChanged
 
     Game::Lua::PushBool(L, existed);
     return 1;
 }
 
+// 4.3.4's Script_GetAttribute. The 3-arg form `(prefix, name, suffix)` is
+// taken only with exactly those three arguments and a string name; a nil
+// prefix or suffix counts as empty. Lookup order: prefix..name..suffix,
+// "*"..name..suffix, prefix..name.."*", "*"..name.."*", then name.
 int __fastcall Script_GetAttribute(void *L) {
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: frame:GetAttribute(\"name\")");
+    void *frame = Game::Lua::ResolveFrame(L);
+    if (frame == nullptr)
         return 0;
-    }
-    // 3-arg form: (prefix, name, suffix) with wildcard precedence.
-    if (Game::Lua::GetTop(L) >= 4 && Game::Lua::IsString(L, 3)) {
+    if (Game::Lua::GetTop(L) == 4 && Game::Lua::IsString(L, 3)) {
         const char *pfx = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : "";
         const char *nm = Game::Lua::ToString(L, 3);
         const char *sfx = Game::Lua::IsString(L, 4) ? Game::Lua::ToString(L, 4) : "";
@@ -1084,6 +1107,11 @@ int __fastcall Script_GetAttribute(void *L) {
         if (TryPushValue(L, 1, key)) return 1;
         Game::Lua::PushNil(L);
         return 1;
+    }
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:GetAttribute(\"name\")",
+                         Game::Lua::ObjectDisplayName(frame));
+        return 0;
     }
 
     char lname[256];
@@ -1126,12 +1154,11 @@ const Tick::WorldTick::AutoSubscribe _tick{&MouseoverTick};
 //     session, so there's always at least one entry to go stale). This was the
 //     "SetAttribute occasionally errors after /reload" report; same class of
 //     bug as Tooltip::SetEvents issue #33.
-//   * g_unitByFrame maps a frame to its `unit` token for the mouse-focus poll;
-//     a stale entry at a reused address would point the mouseover at the wrong
-//     unit and mislead the isNew mouse-enable gate.
+//   * g_unitFrames records which frames already had their mouse enabled; a
+//     stale entry at a reused address would skip enabling a new frame's.
 void PrepareForReload() {
     g_attrHandlers.clear();
-    g_unitByFrame.clear();
+    g_unitFrames.clear();
 }
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
