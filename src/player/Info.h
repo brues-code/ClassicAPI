@@ -13,9 +13,9 @@
 
 #pragma once
 
-// Shared GUID -> name resolution, factored out of `UnitNameFromGUID` so other
-// modules (e.g. `Spell::Cast`'s `UnitSpellTargetName`) can turn a GUID into a
-// display name without a Lua round-trip.
+// Shared GUID <-> name resolution, factored out of `UnitNameFromGUID` /
+// `C_PlayerCache.GetPlayerInfoByName` so other modules (e.g. `Spell::Cast`'s
+// `UnitSpellTargetName`) can convert without a Lua round-trip.
 
 #include <cstddef>
 #include <cstdint>
@@ -29,5 +29,12 @@ namespace Player::Info {
 // object, or an unknown / uncached GUID. Passive -- never triggers a name
 // query.
 bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize);
+
+// Resolve a player's character name to their GUID, or 0. Chain: the engine's
+// by-name search (party and raid members, including out-of-range ones, then
+// visible players; whole name, case-insensitive) -> friends list ->
+// persistent NameCache. Players only, never creatures. Passive -- never
+// triggers a name query.
+uint64_t GuidFromName(const char *name);
 
 } // namespace Player::Info

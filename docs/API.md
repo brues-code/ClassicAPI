@@ -13932,42 +13932,42 @@ explicitly.
 
 Returns
 `localizedClass, englishClass, localizedRace, englishRace, sex, name, realm, guid`
-for a player in the persistent NameCache, or `nil` if the name
-isn't cached. Companion to `GetPlayerInfoByGUID` for the case where
-an addon has a player's name but not their GUID — e.g., when
-`GetCurrentChatGUID()` returns nil for a chat event the engine
-didn't tag with the sender GUID (system notifications, some channel
-messages, etc.).
+for a player, or `nil` if the name is not known. Use it when you have a
+player's name but not the GUID. For example, `GetCurrentChatGUID()`
+returns nil for some chat events (system messages, some channel
+messages).
 
 ```lua
 local _, class, _, race, _, _, _, guid = C_PlayerCache.GetPlayerInfoByName("Gedwyr")
 -- "MAGE", "Human", "0x000000003B9ADAA7"
 
-C_PlayerCache.GetPlayerInfoByName("NeverSeen")  -- nil (not cached)
+C_PlayerCache.GetPlayerInfoByName("NeverSeen")  -- nil (not known)
 ```
 
-Match is **case-sensitive, exact** — server-stored names
-are case-stable (`"Gedwyr"` won't match `"gedwyr"`).
+The function looks for the name in this order:
+
+1. Your party and raid members. This includes members that are out of
+   range or in a different zone.
+2. Players near you.
+3. Your friends list, including offline friends.
+4. The persistent NameCache, if you enabled it with
+   `C_PlayerCache.SetEnabled(true)`.
+
+Steps 1–3 work when the persistent NameCache is off.
+
+The name must be the full name. Steps 1–3 ignore case (`"gedwyr"`
+finds `"Gedwyr"`). Step 4 is case-sensitive. The `name` return is the
+name as the server stores it, not the text you passed in.
+
+The function only finds players, never NPCs. It does not send a query
+to the server.
 
 Returns (vs. `GetPlayerInfoByGUID`):
 
 | Slot | Value | Notes |
 |------|-------|-------|
 | 1–7  | same as `GetPlayerInfoByGUID` | see above |
-| 8    | `guid` | `"0xHHHHHHHHLLLLLLLL"` — the cached player's full GUID, so name-based callers can chain into GUID-keyed APIs. Absent from `GetPlayerInfoByGUID` since the caller already has it. |
-
-Only reads from the **persistent NameCache** — does *not* hit the
-engine's in-memory NAME_QUERY cache (that's keyed by GUID and has
-no name index). So this requires `C_PlayerCache.SetEnabled(true)`
-to have been opted into; entries get there via the engine's
-NAME_QUERY response hook, the visible-object scan, and
-`C_PlayerCache.RememberPlayer`.
-
-**Implementation**: O(1) lookup via a `name → guid` index map
-maintained in lockstep with the GUID-keyed entry map. Eviction
-keeps the index consistent: when a name's character is deleted and
-the name is recycled to a different GUID, the prior entry is
-removed from both maps.
+| 8    | `guid` | `"0xHHHHHHHHLLLLLLLL"` — the player's full GUID, so you can pass it to GUID-keyed functions. `GetPlayerInfoByGUID` does not return it, because you already have it. |
 
 ### `C_PlayerCache.RememberPlayer(guid, name, classToken)`
 

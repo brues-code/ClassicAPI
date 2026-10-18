@@ -395,6 +395,13 @@ static int __fastcall Script_UnitTokenFromGUID(void *L) {
     return 1;
 }
 
+uint64_t FindGuidByName(const char *name, uint32_t typeMask, bool exact) {
+    if (name == nullptr || name[0] == '\0')
+        return 0;
+    auto find = reinterpret_cast<FindUnitByName_t>(Offsets::FUN_UNIT_FIND_BY_NAME);
+    return find(name, typeMask, /*mode*/ 0, exact ? 1 : 0, kMaxDistanceFltMax);
+}
+
 // `UnitTokenFromName(name [, exactMatch])` -> unit token, or nothing.
 //
 // The macro `@unit` / `target=unit` piece accepts a character name as well
@@ -416,10 +423,8 @@ static int __fastcall Script_UnitTokenFromName(void *L) {
     if (name == nullptr || name[0] == '\0')
         return 0;
 
-    const int exact = Game::Lua::ToBoolean(L, 2);
-    auto find = reinterpret_cast<FindUnitByName_t>(Offsets::FUN_UNIT_FIND_BY_NAME);
-    const uint64_t guid = find(name, Offsets::TYPEMASK_UNIT, /*mode*/ 0, exact,
-                               kMaxDistanceFltMax);
+    const uint64_t guid =
+        FindGuidByName(name, Offsets::TYPEMASK_UNIT, Game::Lua::ToBoolean(L, 2) != 0);
     if (guid == 0)
         return 0;
 

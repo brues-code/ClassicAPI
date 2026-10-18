@@ -79,6 +79,14 @@ bool IsPlayerToken(const char *token);
 // pass known unit tokens.
 uint64_t GuidForToken(const char *token);
 
+// The engine's by-name unit search (`FUN_UNIT_FIND_BY_NAME`, behind
+// `TargetByName`): party members, then raid members — both including ones
+// out of range, matched through the name cache — then every visible object
+// of `typeMask` (TYPEMASK_UNIT or TYPEMASK_PLAYER). `exact` false takes the
+// longest case-insensitive prefix match; true needs the whole name. Returns
+// 0 on no match, or before the local player object exists.
+uint64_t FindGuidByName(const char *name, uint32_t typeMask, bool exact);
+
 // Best-effort reverse lookup: given a unit GUID, writes the first unit
 // token currently mapped to it into `buf` and returns `buf`, or returns
 // nullptr if no known token points at it (or `guid` is 0). The mapping is

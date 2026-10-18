@@ -16,6 +16,7 @@
 #include "Offsets.h"
 
 #include <cstdint>
+#include <cstring>
 
 // Shared access to the client's friend list. The friend entries live inline
 // in the social singleton (`VAR_SOCIAL_SYSTEM`, shared with the ignore list
@@ -96,6 +97,25 @@ inline const char *NameForGuid(uint64_t guid) {
         }
     }
     return nullptr;
+}
+
+// The GUID of the friend named `name` (case-insensitive, like the engine's
+// own name compares), or 0 if no friend has that name. The reverse of
+// `NameForGuid` — offline friends resolve too.
+inline uint64_t GuidForName(const char *name) {
+    if (name == nullptr || *name == '\0')
+        return 0;
+    const int count = Count();
+    for (int i = 0; i < count; ++i) {
+        const uint8_t *entry = EntryByIndex(i);
+        if (entry == nullptr)
+            break;
+        const char *fname =
+            *reinterpret_cast<const char *const *>(entry + OFF_FRIEND_NAME);
+        if (fname != nullptr && _stricmp(fname, name) == 0)
+            return *reinterpret_cast<const uint64_t *>(entry + OFF_FRIEND_GUID);
+    }
+    return 0;
 }
 
 // The ignore-list GUID at 0-based `index`, or 0 if there is no list or the
