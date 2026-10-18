@@ -228,6 +228,7 @@ build instructions.
   - [`GetMouseFoci()`](#getmousefoci)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [A frame moved to a new parent takes its children along](#a-frame-moved-to-a-new-parent-takes-its-children-along)
+  - [A ScrollFrame keeps clipping its content when it moves](#a-scrollframe-keeps-clipping-its-content-when-it-moves)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`fontstring:GetUnboundedStringWidth()`](#fontstringgetunboundedstringwidth)
   - [`fontstring:GetWrappedWidth()`](#fontstringgetwrappedwidth)
@@ -5646,6 +5647,22 @@ child:GetFrameLevel()   -- 22
 
 `frame:SetFrameLevel(level)` moves only `frame`. The frames under it keep
 the levels they have.
+
+### A ScrollFrame keeps clipping its content when it moves
+
+A ScrollFrame's scroll child, and all the frames in it, stay clipped to the
+ScrollFrame. This is also true when the ScrollFrame, or a frame above it,
+gets a new parent. As a result, a ScrollFrame that an addon builds in one
+place and then moves into a window still clips its content to its edges.
+AceGUI-3.0 widgets work this way.
+
+```lua
+local holder = CreateFrame("Frame", nil, UIParent)
+local scroll = CreateFrame("ScrollFrame", nil, holder)
+local content = CreateFrame("Frame", nil, scroll)
+scroll:SetScrollChild(content)
+holder:SetParent(SomeWindow)   -- content stays clipped to scroll
+```
 
 ### `fontstring:GetStringHeight()`
 

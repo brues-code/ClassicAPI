@@ -2869,6 +2869,32 @@ enum Offsets {
     // 0x0076AAB0, never through SetParent or the alpha setter. `Frame::Alpha`
     // hooks it to forget the frame's own alpha.
     FUN_FRAME_DESTRUCTOR = 0x007693B0,
+
+    // Scroll clipping. A frame a ScrollFrame draws carries FRAME_FLAG_SCROLLED
+    // in its flags (OFF_FRAME_FLAGS): the strata pass leaves it out when it
+    // builds a level's layers (`test ah, 0x20` at 0x007659DF), and the
+    // ScrollFrame draws it instead, from the render callback it queues after
+    // its last layer (0x007871C0 -> 0x00787220). That callback narrows the
+    // viewport to the ScrollFrame's rect and calls the scroll child's
+    // vtable+0x40 (0x0076B3F0), which draws the frame's layers and then each
+    // shown child frame without FRAME_FLAG_SCROLL_CHILD, recursively.
+    //
+    // FUN_FRAME_SET_SCROLLED — `void __thiscall(frame, int scrolled, int
+    // scrollChild)`, `ret 8` — sets or clears FRAME_FLAG_SCROLLED, sets or
+    // clears FRAME_FLAG_SCROLL_CHILD when `scrollChild` >= 0, marks the
+    // frame's five layers for a rebuild when scrolled (0x0076B530), and calls
+    // itself on each child frame with (scrolled, -1). Its only callers:
+    // SetScrollChild (0x00786CE0: the old child (0, 0), the new one (1, 1)),
+    // SetParent (0x0076ABCB: the new parent's FRAME_FLAG_SCROLLED bit, or 0
+    // with no parent, and -1) and its own recursion (0x0076A45F). So a value
+    // SetParent passes down reaches a scroll child and everything in it.
+    // 3.3.5's setter (0x00490F60) skips child frames that carry
+    // FRAME_FLAG_SCROLL_CHILD; `Frame::ScrollChildren` hooks this one to do
+    // the same.
+    FUN_FRAME_SET_SCROLLED = 0x0076A400,
+    OFF_FRAME_FLAGS = 0xB4,
+    FRAME_FLAG_SCROLLED = 0x2000,
+    FRAME_FLAG_SCROLL_CHILD = 0x4000,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,
