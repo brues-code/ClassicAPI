@@ -389,21 +389,23 @@ void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "gsub", &Script_string_gsub);
     Game::Lua::RegisterTableFunction("string", "reverse", &Script_string_reverse);
     Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit);
-    // 4.3.4's compat.lua aliases the str* globals onto the string table
-    // (`str.trim = strtrim`, `str.split = strsplit`, `str.join = strjoin`), so
-    // `(" x "):trim()` works and libraries capture them at file scope
-    // (AceConfigCmd-3.0: `strtrim = string.trim`).
     Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
     Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
-    // The bare `gsub` global (1.12 exposes the string functions as globals
-    // too) must match `string.gsub`, so addons calling either form get the
-    // table-replacement upgrade.
-    Game::Lua::RegisterGlobalFunction("gsub", &Script_string_gsub);
-    Game::Lua::RegisterGlobalFunction("strsplit", &Script_strsplit);
-    Game::Lua::RegisterGlobalFunction("strjoin", &Script_strjoin);
-    Game::Lua::RegisterGlobalFunction("strtrim", &Script_strtrim);
+    // 4.3.4's compat.lua binds each short global and its string-table twin
+    // to ONE function by assignment (`gsub = str.gsub`, `strrev =
+    // str.reverse`, `str.trim = strtrim`, `str.split = strsplit`, `str.join =
+    // strjoin`), so `strtrim == string.trim`. A second Register* call would
+    // mint a second closure over the same C function, so the globals alias
+    // the table entries by value instead. The string-table half is what lets
+    // `(" x "):trim()` work and libraries capture it at file scope
+    // (AceConfigCmd-3.0: `strtrim = string.trim`); the bare `gsub` gets the
+    // table-replacement upgrade by being the same function.
+    Game::Lua::RegisterGlobalAlias("gsub", "string", "gsub");
+    Game::Lua::RegisterGlobalAlias("strsplit", "string", "split");
+    Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
+    Game::Lua::RegisterGlobalAlias("strtrim", "string", "trim");
+    Game::Lua::RegisterGlobalAlias("strrev", "string", "reverse");
     Game::Lua::RegisterGlobalFunction("strreplace", &Script_strreplace);
-    Game::Lua::RegisterGlobalFunction("strrev", &Script_string_reverse);
 }
 
 // Both states are Lua 5.0 and equally missing these; RegisterTableFunction
