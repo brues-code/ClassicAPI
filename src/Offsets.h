@@ -6283,6 +6283,14 @@ enum Offsets {
     // objindex and returns 1, or pushes nothing and returns 0 when it has none.
     // Verified in docs/LuaCAPI.md and by the getfenv/getmetatable base-lib
     // functions that call it. Used by the `__environment` env-protection hook.
+    // __fastcall(L, idx) -> int. Body: index2adr; table/userdata → mt at
+    // `value+0x08`, rejected when it is the default sentinel `*(L+0x10)+
+    // 0x48`; pushes `{tt=5, ctx=[VAR_FRAMESCRIPT_EXEC_CONTEXT], mt}` at
+    // L->top (`L+0x08`) and adds 0x10. Every other type returns 0. Engine
+    // callers: luaL_checkudata 0x006F4A90, luaL_getmetafield 0x006F4D00
+    // (→ luaL_callmeta 0x006F4D60 → `tostring` 0x00702F40 for __tostring),
+    // luaB_getmetatable 0x007029F0. Co-hooked by LuaSyntax::StringMethods
+    // to return strings' 5.1 shared metatable.
     LUA_GET_METATABLE = 0x6F3CF0,
     // `lua_setmetatable(L, objindex)` — pops the table at the top of the
     // stack and installs it as the metatable of the value at objindex;
@@ -6408,12 +6416,31 @@ enum Offsets {
     // FUN_006F8720) — so it fires ONLY when code indexes a non-table,
     // which in stock 5.0 is always about to raise "attempt to index"
     // (table `__index` dispatch goes through FUN_006F7D60's fasttm and
-    // never lands here). A cold, uncontested hook site. Prologue is
-    // plain PUSH/MOV — MinHook-relocatable. Co-hooked by
-    // LuaSyntax::StringMethods to backport Lua 5.1 string methods
-    // (`("x"):upper()`): strings get the `string` library table as their
-    // __index, exactly 5.1's shared-string-metatable mechanism.
+    // never lands here). Not hooked: string methods ride
+    // FUN_LUAT_GETTMBYOBJ below, which this continuation calls.
     FUN_LUA_INDEX_NONTABLE = 0x006F7EE0,
+    // `luaT_gettmbyobj(L, o, event)` — the tag-method lookup for a value
+    // that has no fasttm path. __fastcall(L /*ecx*/, const TValue *o
+    // /*edx*/, int event /*stack*/), RET 4, returns const TValue* (eax;
+    // &nilobject 0x00811BC0 on a miss). Reads the event name from
+    // `G(L)->tmname` at `*(L+0x10) + 0x80 + event*4`, then for a table or
+    // userdata calls FUN_LUAH_GETSTR on its metatable (`hvalue+0x08`, no
+    // null check — 5.0's default-metatable sentinel is never NULL). Every
+    // other type hardcodes &nilobject: this is the ONE line where 5.1
+    // reads the per-type slot `G(L)->mt[ttype(o)]` instead. Callers (7):
+    // luaD_tryfuncTM 0x006F6370, index/newindex non-table continuations
+    // 0x006F7EE0 / 0x006F7F40, call_binTM 0x006F8670 (x2), call_orderTM
+    // 0x006F8210 (x2) — all fallbacks for values with no native
+    // operation, so cold. Prologue PUSH EBP / MOV EBP,ESP / MOV ECX,[ECX+
+    // 0x10] — MinHook-relocatable. Co-hooked by LuaSyntax::StringMethods
+    // to give strings 5.1's shared metatable.
+    FUN_LUAT_GETTMBYOBJ = 0x006F7BD0,
+    // `luaH_getstr(Table *t, TString *key)` — raw hash lookup of an
+    // interned string key. __fastcall(t /*ecx*/, key /*edx*/), returns
+    // const TValue* (eax; &nilobject on a miss). Node stride 0x28, key tt
+    // at +0, key ptr at +8, value at +0x10, next at +0x20. Called by
+    // FUN_LUAT_GETTMBYOBJ.
+    FUN_LUAH_GETSTR = 0x006FA760,
     // `luaL_loadbuffer(L, buff, size, chunkname)` — compiles a source
     // buffer into a Lua function on the stack (does NOT run it). Returns
     // an int status (0 = ok) in eax; Ghidra types it void because the

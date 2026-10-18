@@ -11268,11 +11268,21 @@ link:sub(1, 5)
   `nil`, and `("x"):nope()` fails with `attempt to call`, not `attempt to
   index`.
 - Writing to a string (`("x").y = 1`) still fails, the same as Lua 5.1.
+- `getmetatable("")` returns the shared string metatable, the same table
+  for every string. Its `__index` is the `string` table. You can change the
+  metatable, but `setmetatable` cannot replace it:
+
+  ```lua
+  getmetatable("").__index == string                -- true
+  getmetatable("").__index.shout = function(s) return s:upper() .. "!" end
+  ("hi"):shout()                                    -- "HI!"
+  ```
+
 - Works everywhere strings do: in the world, on the login screen, and
   inside coroutines.
 - To turn method resolution off for diagnosis, call
-  `_classicapi_SetStringMethods(false)`. Strings then error on index, the
-  stock 1.12 behavior. Use it only to answer "is this backport breaking
+  `_classicapi_SetStringMethods(false)`. Strings then have no metatable
+  and error on index, the stock 1.12 behavior. Use it only to answer "is this backport breaking
   this addon?".
 
 ### `getfenv` / `setfenv` environment protection
