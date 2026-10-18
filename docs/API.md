@@ -510,6 +510,7 @@ build instructions.
   - [`GetInboxItemLink(messageIndex[, attachmentIndex])`](#getinboxitemlinkmessageindex-attachmentindex)
 
 - [Map](#map)
+  - [The closed world map follows the player's zone](#the-closed-world-map-follows-the-players-zone)
   - [`C_Map.CanSetUserWaypointOnMap(uiMapID)`](#c_mapcansetuserwaypointonmapuimapid)
   - [`C_Map.GetAreaInfo(areaID)`](#c_mapgetareainfoareaid)
   - [`C_Map.GetAreas()`](#c_mapgetareas)
@@ -12486,6 +12487,26 @@ end
 ```
 
 ## Map
+
+### The closed world map follows the player's zone
+
+While the world map is closed, it stays on the zone that you are in. The
+map goes back to your zone at these times:
+
+- when you close the map
+- when you enter the world
+- when you go into a new zone
+
+`GetPlayerMapPosition("player")` reads the zone that the map is set to. As a
+result, code can read your position without setting the map first:
+
+```lua
+-- world map closed, after you go into a new zone
+local x, y = GetPlayerMapPosition("player")   -- your position in this zone
+```
+
+While the map is open, a zone change does not move it. The map stays on the
+zone that you look at.
 
 ### `C_Map.GetAreaInfo(areaID)`
 
