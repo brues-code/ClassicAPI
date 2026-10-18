@@ -32,11 +32,15 @@
 // frames under the scroll child had lost the flag. 3.3.5 draws the same
 // pages clipped to their box.
 //
-// The hook keeps a scroll child scrolled whenever the setter is only passing
-// a value down: SetParent's call and the setter's own recursion, which comes
-// back through the hooked entry, so a scroll child at any depth is caught.
-// SetScrollChild's own calls, which make a frame the scroll child or stop it
-// being one, go through unchanged.
+// 3.3.5's setter (CSimpleFrame::SetBeingScrolled, 0x00490F60) doesn't pass
+// the value into a child frame marked as the scroll child, so a scroll child
+// and everything in it keep the flag their ScrollFrame gave them. The direct
+// call is not gated there: a scroll child that is itself given a new parent
+// takes the new parent's value. The hook mirrors that. It skips a scroll
+// child only when the setter reaches it through its own recursion, which
+// comes back through the hooked entry, so a scroll child at any depth is
+// skipped. SetParent's and SetScrollChild's direct calls go through
+// unchanged.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -52,11 +56,17 @@ namespace {
 using SetScrolled_t = void(__thiscall *)(void *frame, int scrolled, int scrollChild);
 SetScrolled_t g_origSetScrolled = nullptr;
 
+// Nonzero while the original runs, so a nested call is the setter's own
+// recursion into a child frame (its only caller from inside).
+int g_depth = 0;
+
 void __fastcall SetScrolled_h(void *frame, void * /*edx*/, int scrolled, int scrollChild) {
-    if (scrollChild < 0 &&
+    if (g_depth > 0 &&
         (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_SCROLL_CHILD) != 0)
-        scrolled = 1; // its ScrollFrame draws it, whatever its ancestors are
+        return; // its ScrollFrame draws it, whatever its ancestors are
+    ++g_depth;
     g_origSetScrolled(frame, scrolled, scrollChild);
+    --g_depth;
 }
 
 const Game::HookAutoRegister _hook{Offsets::FUN_FRAME_SET_SCROLLED,

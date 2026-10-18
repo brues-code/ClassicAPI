@@ -2888,8 +2888,9 @@ enum Offsets {
     // SetParent (0x0076ABCB: the new parent's FRAME_FLAG_SCROLLED bit, or 0
     // with no parent, and -1) and its own recursion (0x0076A45F). So a value
     // SetParent passes down reaches a scroll child and everything in it.
-    // `Frame::ScrollChildren` hooks the setter to keep a scroll child scrolled
-    // when a value is only being passed down.
+    // 3.3.5's setter (0x00490F60) skips child frames that carry
+    // FRAME_FLAG_SCROLL_CHILD; `Frame::ScrollChildren` hooks this one to do
+    // the same.
     FUN_FRAME_SET_SCROLLED = 0x0076A400,
     OFF_FRAME_FLAGS = 0xB4,
     FRAME_FLAG_SCROLLED = 0x2000,
