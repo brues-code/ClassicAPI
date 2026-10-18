@@ -646,13 +646,24 @@ void ParseChannelUpdate(Net::CDataStore *packet) {
 // `SMSG_SPELL_FAILED_OTHER` from Spell::SendInterrupted, but which one a
 // given core emits per abort path varies — so both handlers are co-hooked
 // and both feed this. Idempotent, so the both-arrive case is harmless.
-void HandleCastAborted(uint64_t guid, int spellID) {
+//
+// `castSlotOnly` is set for the ClearCastingSpell route: that method clears
+// the unit's CAST slot (+0xC8C), which the engine's own SPELL_GO handler does
+// for every spell — including a channel at the moment it STARTS (it passes
+// notify = `+0x228 == 0`, i.e. "not a stop while the channel field is set").
+// A channel's lifetime is the broadcast +0x228 field, which UnitChannelInfo
+// already gates on, so this route must leave channel entries alone; evicting
+// them killed the times of every remote instant channel (bandages, issue
+// #102). The failure packets are real aborts and still evict channels.
+void HandleCastAborted(uint64_t guid, int spellID, bool castSlotOnly = false) {
     if (guid == 0 || spellID == 0)
         return;
     // Remote units: invalidate the cached cast/channel so
     // UnitCastingInfo/UnitChannelInfo stop reporting it this tick.
     for (auto &e : g_remoteCasts) {
         if (e.used && e.casterGuid == guid && e.spellID == spellID) {
+            if (castSlotOnly && e.isChannel)
+                break;
             e.used = false;
             break;
         }
@@ -719,7 +730,8 @@ void __fastcall ClearCastingSpell_h(void *unit, void *edx, int spellID,
     if (unit != nullptr && spellID != 0) {
         const int current = Game::Read<int>(unit, Offsets::OFF_UNIT_CAST_SPELL);
         if (current != 0 && current == spellID)
-            HandleCastAborted(Unit::Identity::GuidForObject(unit), spellID);
+            HandleCastAborted(Unit::Identity::GuidForObject(unit), spellID,
+                              /*castSlotOnly*/ true);
     }
     g_origClearCastingSpell(unit, edx, spellID, notify, cleanup);
 }
