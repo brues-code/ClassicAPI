@@ -14,9 +14,7 @@
 // `GetPlayerFacing()` → facing angle of the player in radians (0 =
 // north/+Y in WoW's world convention, increasing counter-clockwise), or
 // nothing when there's no player (glue / loading). Vanilla 1.12 doesn't
-// ship it (only character-create/select facing exist), but it's the
-// missing half that makes our backported `TargetDirectionEnemy/Friend`
-// usable — a caller passes `GetPlayerFacing()` to target what's in front.
+// ship it (only character-create/select facing exist).
 //
 // The orientation is a field in the player's CGUnit movement block
 // (`OFF_UNIT_FACING` = +0x9C4), sitting just past the {x,y,z} position at

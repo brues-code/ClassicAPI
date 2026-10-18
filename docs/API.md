@@ -714,8 +714,9 @@ build instructions.
 
 - [Targeting](#targeting)
   - [`GetPlayerFacing()`](#getplayerfacing)
-  - [`TargetDirectionEnemy(facing [, coneAngle])`](#targetdirectionenemyfacing--coneangle)
-  - [`TargetDirectionFriend(facing [, coneAngle])`](#targetdirectionfriendfacing--coneangle)
+  - [`TargetDirectionEnemy(facing [, angle])`](#targetdirectionenemyfacing--angle)
+  - [`TargetDirectionFriend(facing [, angle])`](#targetdirectionfriendfacing--angle)
+  - [`TargetDirectionFinished()`](#targetdirectionfinished)
   - [`TargetNearest([reverse])`](#targetnearestreverse)
   - [`TargetNearestEnemyPlayer([reverse])`](#targetnearestenemyplayerreverse)
   - [`TargetNearestFriendPlayer([reverse])`](#targetnearestfriendplayerreverse)
@@ -17448,13 +17449,10 @@ stock client doesn't expose).
 
 ## Targeting
 
-Additional `TargetScript` selection functions. The engine
-already ships `TargetNearestEnemy/Friend/PartyMember/RaidMember`,
-`TargetLastEnemy/Target`, `AssistUnit`, `TargetUnit`, `ClearTarget`; these
-fill in the rest. They're built on the engine's own
-tab-targeting core — the same visible-unit enumeration, per-mode validity
-predicate (reaction/attackability/alive), and selection commit the native
-`TargetNearestEnemy` uses — so hostility semantics match the client exactly.
+More target-selection functions, next to `TargetNearestEnemy`,
+`TargetNearestFriend`, `TargetNearestPartyMember`, `TargetNearestRaidMember`,
+`TargetLastEnemy`, `TargetLastTarget`, `AssistUnit`, `TargetUnit` and
+`ClearTarget`.
 
 Not backported (no equivalent here — soft-target / action-camera features):
 `TargetPriorityHighlightStart/End`, `IsTargetLoose`, `TargetToggle`.
@@ -17463,56 +17461,78 @@ Not backported (no equivalent here — soft-target / action-camera features):
 
 Returns the player's facing as an angle in radians (`0` … `2*pi`,
 increasing counter-clockwise), or nothing off-world (glue / loading).
-The stock client doesn't ship this (only character-create/select facing
-exist), but it's the companion the direction-target functions below need
-— pass it to aim "in front of me."
 
 ```lua
 local facing = GetPlayerFacing()   -- e.g. 1.65
 ```
 
-Read from the player unit's movement-block orientation field
-(`player + 0x9C4`).
+### `TargetDirectionEnemy(facing [, angle])`
 
-### `TargetDirectionEnemy(facing [, coneAngle])`
+Targets the enemy in a direction on the screen. Use it for keys or a
+gamepad stick that move the target left, right, up or down.
 
-Targets the nearest **attackable** unit within a cone centered on `facing`
-(an absolute world angle in radians, as returned by `GetPlayerFacing()`).
-`coneAngle` is the full cone width in radians; omitted, it defaults to
-`pi/2` (90° — 45° to either side).
+- `facing` is the direction in radians, measured clockwise on the
+  screen. `0` is up (ahead of the camera), `math.pi / 2` is right,
+  `math.pi` is down and `3 * math.pi / 2` is left.
+- `angle` is the width of the cone in radians. The cone is never
+  narrower than 22.5°.
 
 ```lua
--- Target whatever enemy you're looking at:
-TargetDirectionEnemy(GetPlayerFacing())
-
--- Wider 180° sweep in front:
-TargetDirectionEnemy(GetPlayerFacing(), math.pi)
+TargetDirectionEnemy(math.pi / 2)  -- the next enemy to the right of the target
 ```
 
-Does nothing if no enemy falls inside the cone. "Attackable" uses the
-engine's own reaction check, so it matches what `TargetNearestEnemy` would
-consider a valid enemy (hostile, alive, not a critter).
+The search starts at your target when your target is on the screen,
+else at you. It picks the enemy closest on the screen inside the cone.
+When no enemy is inside the cone, it picks the one closest to the
+direction. The enemy must be on the screen, within
+`targetNearestDistance` yards of you (default 41), and not a critter.
 
-### `TargetDirectionFriend(facing [, coneAngle])`
+After a call selects a target, later calls do nothing until you call
+`TargetDirectionFinished()`. The lock also ends when the selected unit
+leaves your view or you can no longer select it.
 
-Same as `TargetDirectionEnemy`, but selects the nearest **friendly**
-(assistable) unit in the cone.
+```lua
+-- One step per key press:
+TargetDirectionEnemy(math.pi / 2)
+TargetDirectionFinished()
+```
+
+### `TargetDirectionFriend(facing [, angle])`
+
+Same as `TargetDirectionEnemy`, but for friendly units that you can
+assist.
+
+### `TargetDirectionFinished()`
+
+Ends the lock from `TargetDirectionEnemy` or `TargetDirectionFriend`, so
+the next call can select a target again.
 
 ### `TargetNearest([reverse])`
 
-Cycles the nearest unit you can attack or assist. Repeated calls within ~1s
-step through candidates nearest→farthest (a frozen snapshot, so the order
-is stable mid-cycle); a longer gap or an externally-changed target rebuilds
-and re-targets the nearest. `reverse` (truthy) steps the other way.
+Cycles through the nearest units, of any kind. It works like
+`TargetNearestEnemy`:
+
+- Units in front of you come first, then units nearer to you.
+- Units in front count up to `targetNearestDistance` yards (default 41).
+  Units behind you count up to `targetNearestDistanceRadius` yards
+  (default 10).
+- Critters and units you cannot see are skipped.
+- Each call selects the next unit. `reverse` (a true value) goes the
+  other way.
+- After 3 seconds without a call, the list is made again and the
+  nearest unit is selected first.
+
+`TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`,
+`TargetNearestEnemy` and `TargetNearestFriend` use one list together. A
+call to a different function makes the list again.
 
 ### `TargetNearestEnemyPlayer([reverse])`
 
-Like `TargetNearest`, but restricted to hostile **players** (PvP targeting).
-Same cycle behavior and `reverse` flag.
+Like `TargetNearest`, but only enemy **players**.
 
 ### `TargetNearestFriendPlayer([reverse])`
 
-Like `TargetNearestEnemyPlayer`, but restricted to friendly **players**.
+Like `TargetNearest`, but only friendly **players** that you can assist.
 
 ## TaxiMap
 

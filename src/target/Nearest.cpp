@@ -11,42 +11,40 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Backports the post-vanilla TargetScript selection functions that 1.12.1
-// doesn't ship, built on the engine's own tab-targeting internals:
+// The TargetNearest / TargetDirection functions 1.12 lacks, following 4.3.4
+// (decomp GameUI.cpp / GameUI_Scripts.cpp):
 //
-//   TargetNearest()                  — cycle nearest attackable/assistable unit
-//   TargetNearestEnemyPlayer([rev])  — cycle nearest hostile player (PvP)
-//   TargetNearestFriendPlayer([rev]) — cycle nearest friendly player
-//   TargetDirectionEnemy(facing[,cone])  — nearest hostile in a facing cone
-//   TargetDirectionFriend(facing[,cone]) — nearest friendly in a facing cone
+//   TargetNearest([reverse])              TargetDirectionEnemy(facing [, angle])
+//   TargetNearestEnemyPlayer([reverse])   TargetDirectionFriend(facing [, angle])
+//   TargetNearestFriendPlayer([reverse])  TargetDirectionFinished()
 //
-// Vanilla already ships `TargetNearestEnemy/Friend/PartyMember/RaidMember`;
-// they run through `FUN_00493f60(reverse, mode)` — enumerate visible units,
-// keep those `FUN_00493e40(player, cand, mode)` accepts, sort by distance,
-// cycle, and commit via `FUN_00493540(guidLo, guidHi)`. We reuse the two
-// load-bearing pieces of that machinery directly:
+// TargetNearest*: 4.3.4 runs all seven through one routine,
+// TargetNearestEnemy(reverse, type). 1.12 has that routine whole —
+// FUN_TARGET_NEAREST_CYCLE with the same snapshot, timers, ranges, sort and
+// predicate (see Offsets.h) — and its natives call it with modes 1..4. The
+// three missing types become three more predicate modes: a co-hook on
+// FUN_TARGET_CANDIDATE_VALID answers them (4.3.4's UnitMatchesTargetType
+// cases 0 / 2 / 4) and passes every engine mode through. The cycle state is
+// the engine's, shared with the natives, as 4.3.4's is.
 //
-//   * `FUN_00493e40` (Offsets::FUN_TARGET_CANDIDATE_VALID) — the exact
-//     per-mode validity predicate (mode 1 = enemy: attackable + alive +
-//     not-critter; mode 2 = friend: assistable + alive). Calling it gives
-//     us the engine's real reaction/hostility semantics with zero
-//     reimplementation.
-//   * `FUN_00493540` (Offsets::FUN_SET_SELECTION_BY_GUID) — the canonical
-//     setter the native cycle commits through (CMSG_SET_SELECTION + client
-//     target + event 0xC3), which also maintains the current-selection
-//     globals we read back for cycle continuity.
-//
-// So the only genuinely new logic here is (a) an extra player-GUID filter
-// for the `*Player` variants and (b) the cone geometry for the direction
-// variants — everything reaction-related defers to the engine.
+// TargetDirection*: 4.3.4's CGGameUI::TargetDirection, which 1.12 lacks, built
+// on 1.12's own pieces — the world frame's GetScreenCoordinates, the camera's
+// forward vector, the predicate, and the tab search's range / creature-type /
+// visibility tests. `facing` is a direction on screen relative to the camera
+// (0 = ahead, pi/2 = right); the start point is the current target when it is
+// on screen, else the player. A hit sets the target and locks further calls
+// until TargetDirectionFinished, or until the locked unit leaves (4.3.4's
+// BreakTarget: out of the object table unless a group member or pet, or
+// unselectable) or the player logs out (LeaveWorld).
 
 #include "Game.h"
 #include "Offsets.h"
-#include "guid/Guid.h"
 #include "object/Resolve.h"
-#include "time/Clock.h"
+#include "tick/WorldTick.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
 
@@ -54,262 +52,325 @@ namespace Target::Nearest {
 
 namespace {
 
-// Candidate class each function selects from.
-enum class Filter { Enemy, Friend, EnemyPlayer, FriendPlayer, Any };
-constexpr int kFilterCount = 5;
-
-// Default cone (full width, radians) when `coneAngle` is omitted — 90°, so
-// 45° to either side of the facing. The engine's own default constant
-// wasn't cleanly recoverable from the 3.3.5 reference binary; this is a
-// deliberate, documented choice that matches the "roughly in front of me"
-// intent of a direction-target keybind.
-constexpr float kDefaultConeAngle = 1.5707963f; // pi/2
-
-// Re-cycle window: repeated presses within this many ms advance through the
-// frozen candidate snapshot (no ping-pong as distances shift); a longer gap
-// rebuilds and re-targets the nearest. Mirrors the ~1s reset the native
-// cycle uses.
-constexpr uint32_t kCycleWindowMs = 1000;
-
-constexpr int kMaxCandidates = 64;
-
-// Engine entry points ─────────────────────────────────────────────────
-using Predicate_t = int(__fastcall *)(void *player, void *cand, int mode);
-using SetTargetByGuid_t = void(__fastcall *)(const uint64_t *guid);
+using Cycle_t = void(__fastcall *)(int reverse, int mode);
+using Valid_t = int(__fastcall *)(void *player, void *cand, int mode);
+using ToBool_t = int(__fastcall *)(void *L, int idx, int dflt);
+using SetSelection_t = void(__cdecl *)(uint32_t guidLo, uint32_t guidHi);
 using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx, uint64_t guid);
 using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
-using Time::Clock::NowMs;
+using ScreenCoords_t = bool(__thiscall *)(void *worldFrame, const float *world, float *screen);
+using Transform_t = float *(__fastcall *)(float *out, const float *v, const float *m);
+using Forward_t = void(__thiscall *)(void *camera, float *out);
+using Visible_t = bool(__fastcall *)(void *worldObject);
+using CreatureType_t = int(__fastcall *)(void *unit);
+using GroupMember_t = int(__fastcall *)(const uint64_t *guid);
 
-bool PassesFilter(void *player, void *cand, uint64_t guid, Filter f) {
-    auto valid = reinterpret_cast<Predicate_t>(Offsets::FUN_TARGET_CANDIDATE_VALID);
-    switch (f) {
-    case Filter::Enemy:        return valid(player, cand, 1) != 0;
-    case Filter::Friend:       return valid(player, cand, 2) != 0;
-    case Filter::EnemyPlayer:  return Guid::IsPlayer(guid) && valid(player, cand, 1) != 0;
-    case Filter::FriendPlayer: return Guid::IsPlayer(guid) && valid(player, cand, 2) != 0;
-    case Filter::Any:          return valid(player, cand, 1) != 0 ||
-                                      valid(player, cand, 2) != 0;
-    }
-    return false;
+// 4.3.4's minimum direction cone (22.5°); `angle` can only widen it.
+constexpr float kMinConeAngle = 0.39269909f;
+constexpr float kTwoPi = 6.2831855f;
+
+Valid_t g_validOriginal = nullptr;
+
+bool IsPlayerObject(void *unit) {
+    return Game::Read<int>(unit, Offsets::OFF_CGOBJECT_TYPE_ID) == Offsets::OBJECT_TYPE_PLAYER;
 }
 
-struct Candidate {
-    uint64_t guid;
-    float x, y;   // world XY (for the direction cone)
-    float distSq; // 3D squared distance from the player (for nearest)
+// 4.3.4's UnitMatchesTargetType for the types 1.12 lacks. The searcher is
+// never its own candidate (4.3.4's enumeration skips it); the engine's modes
+// already exclude it where it matters.
+int __fastcall Valid_h(void *player, void *cand, int mode) {
+    switch (mode) {
+    case Offsets::TARGET_MODE_ANY:
+        return cand != player;
+    case Offsets::TARGET_MODE_ENEMY_PLAYER:
+        return cand != player && IsPlayerObject(cand) &&
+               g_validOriginal(player, cand, Offsets::TARGET_MODE_ENEMY);
+    case Offsets::TARGET_MODE_FRIEND_PLAYER:
+        return cand != player && IsPlayerObject(cand) &&
+               g_validOriginal(player, cand, Offsets::TARGET_MODE_FRIEND);
+    default:
+        return g_validOriginal(player, cand, mode);
+    }
+}
+
+const Game::HookAutoRegister _validHook{Offsets::FUN_TARGET_CANDIDATE_VALID,
+                                        reinterpret_cast<void *>(&Valid_h),
+                                        reinterpret_cast<void **>(&g_validOriginal)};
+
+void Cycle(void *L, int mode) {
+    const int reverse =
+        reinterpret_cast<ToBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 1, 0);
+    reinterpret_cast<Cycle_t>(Offsets::FUN_TARGET_NEAREST_CYCLE)(reverse, mode);
+}
+
+void SetSelection(uint64_t guid) {
+    reinterpret_cast<SetSelection_t>(Offsets::FUN_SET_SELECTION_BY_GUID)(
+        static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32));
+}
+
+uint64_t CurrentSelection() { return Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO); }
+
+// --- TargetDirection ------------------------------------------------------
+
+// 4.3.4's m_directionalTarget.
+uint64_t g_directional = 0;
+
+float CVarFloat(uintptr_t slot) {
+    const void *cvar = Game::Read<void *>(slot);
+    return cvar != nullptr ? Game::Read<float>(cvar, Offsets::OFF_CVAR_VALUE_FLOAT) : 0.0f;
+}
+
+// C2Vector::NormalizeSafe.
+void NormalizeSafe(float &x, float &y) {
+    const float len = std::sqrt(x * x + y * y);
+    if (len > 0.0f) {
+        x /= len;
+        y /= len;
+    }
+}
+
+// CGWorldFrame::GetScreenCoordinates with 4.3.4's depth: x / y and the result
+// from the engine's projection, z the view-projected depth it computes on the
+// way. Like 4.3.4's, the point is filled even when the result is false.
+bool ScreenCoords(void *worldFrame, const float *world, float *screen) {
+    screen[0] = screen[1] = screen[2] = 0.0f;
+    const bool onScreen = reinterpret_cast<ScreenCoords_t>(
+        Offsets::FUN_WORLDFRAME_GET_SCREEN_COORDS)(worldFrame, world, screen);
+    const void *camera = Game::Read<void *>(worldFrame, Offsets::OFF_GAME_STATE_CAMERA_PTR);
+    const float *camPos = Game::Ptr<float>(camera, Offsets::OFF_CAMERA_POSITION);
+    const float rel[4] = {world[0] - camPos[0], world[1] - camPos[1], world[2] - camPos[2], 0.0f};
+    float out[4];
+    reinterpret_cast<Transform_t>(Offsets::FUN_C44_TRANSFORM)(
+        out, rel, Game::Ptr<float>(worldFrame, Offsets::OFF_WORLDFRAME_VIEW_PROJECTION));
+    screen[2] = out[2];
+    return onScreen;
+}
+
+// 4.3.4's TargetDirectionData.
+struct DirectionData {
+    void *worldFrame;
+    void *unit;
+    void *origin;
+    float originPosition[2];
+    float facing[2];
+    float originScreen[3];
+    float screenDirection[2];
+    int mode;
+    uint64_t bestGuid;
+    float cosHalfAngle;
+    bool bestInCone;
+    float bestDistance;
+    float playerPosition[3];
+    float maxDistanceSq;
 };
 
-struct CollectCtx {
-    void *player;
-    Filter filter;
-    float px, py, pz;
-    Candidate list[kMaxCandidates];
-    int count;
-};
+// The tab search's creature-type test: skip types flagged never-tab-target.
+bool NotTabTarget(void *unit) {
+    const int type = reinterpret_cast<CreatureType_t>(Offsets::FUN_UNIT_CREATURE_TYPE)(unit);
+    if (type < 0 || type > Game::Read<int>(Offsets::VAR_CREATURETYPE_COUNT))
+        return false;
+    const auto *const *records = Game::Read<const uint8_t *const *>(Offsets::VAR_CREATURETYPE_RECORDS);
+    const uint8_t *rec = records != nullptr ? records[type] : nullptr;
+    return rec != nullptr && (Game::Read<uint32_t>(rec, Offsets::OFF_CREATURETYPE_FLAGS) &
+                              Offsets::CREATURETYPE_FLAG_NOT_TAB_TARGET) != 0;
+}
 
-int __fastcall CollectCb(CollectCtx *ctx, void * /*edx*/, uint64_t guid) {
-    if (ctx->count >= kMaxCandidates)
-        return 1;
-    // Players and creatures both resolve under TYPEMASK_UNIT (CGPlayer
-    // derives from CGUnit); non-unit objects resolve to null and drop out.
-    void *cand = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-    if (cand == nullptr || cand == ctx->player)
-        return 1;
-    if (!PassesFilter(ctx->player, cand, guid, ctx->filter))
+// 4.3.4's TargetDirectionProc.
+int __fastcall DirectionProc(DirectionData *data, void * /*edx*/, uint64_t guid) {
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
+    if (unit == nullptr || unit == data->unit || unit == data->origin ||
+        !reinterpret_cast<Valid_t>(Offsets::FUN_TARGET_CANDIDATE_VALID)(data->unit, unit,
+                                                                         data->mode))
         return 1;
 
-    float pos[3];
-    if (!Unit::Position::Read(cand, pos))
+    float position[3];
+    if (!Unit::Position::Read(unit, position))
         return 1;
-    const float dx = pos[0] - ctx->px;
-    const float dy = pos[1] - ctx->py;
-    const float dz = pos[2] - ctx->pz;
-    Candidate &c = ctx->list[ctx->count++];
-    c.guid = guid;
-    c.x = pos[0];
-    c.y = pos[1];
-    c.distSq = dx * dx + dy * dy + dz * dz;
+    const float dx = position[0] - data->playerPosition[0];
+    const float dy = position[1] - data->playerPosition[1];
+    const float dz = position[2] - data->playerPosition[2];
+    if (dx * dx + dy * dy + dz * dz > data->maxDistanceSq)
+        return 1;
+    if (NotTabTarget(unit) ||
+        !reinterpret_cast<Visible_t>(Offsets::FUN_WORLD_OBJECT_VISIBLE)(
+            Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_WORLD_OBJECT)))
+        return 1;
+
+    float screen[3];
+    if (!ScreenCoords(data->worldFrame, position, screen))
+        return 1;
+
+    bool inCone = true;
+    float dirX = position[0] - data->originPosition[0];
+    float dirY = position[1] - data->originPosition[1];
+    NormalizeSafe(dirX, dirY);
+    const float dot = data->facing[1] * dirY + data->facing[0] * dirX;
+    float sdX = screen[0] - data->originScreen[0];
+    float sdY = screen[1] - data->originScreen[1];
+    NormalizeSafe(sdX, sdY);
+    if (data->screenDirection[1] * sdY + data->screenDirection[0] * sdX < 0.0f)
+        return 1;
+
+    if (data->cosHalfAngle <= dot) {
+        if (!data->bestInCone)
+            data->bestDistance = FLT_MAX;
+    } else {
+        if (data->bestInCone)
+            return 1;
+        inCone = false;
+    }
+
+    const float ex = screen[0] - data->originScreen[0];
+    const float ey = screen[1] - data->originScreen[1];
+    const float ez = screen[2] - data->originScreen[2];
+    float distance = ez * ez + ey * ey + ex * ex;
+    if (!inCone)
+        distance = distance * ((1.0f - dot) * (1.0f - dot));
+    if (distance > data->bestDistance)
+        return 1;
+
+    data->bestDistance = distance;
+    data->bestGuid = guid;
+    data->bestInCone = inCone;
     return 1;
 }
 
-// Enumerate visible units matching `f` into `out`. Returns false (empty)
-// pre-world or on a player-position miss.
-bool Collect(Filter f, CollectCtx *out) {
-    out->count = 0;
-    // The enumerator derefs the object manager unconditionally; null on the
-    // glue / character-select screen.
-    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) ==
-        nullptr)
-        return false;
-    void *player = Unit::Position::ResolveToken("player");
-    float ppos[3];
-    if (!Unit::Position::Read(player, ppos))
-        return false;
+// 4.3.4's CGGameUI::TargetDirection.
+void TargetDirection(float facing, float angle, int mode) {
+    if (g_directional != 0)
+        return;
+    if (Game::Read<void *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr)
+        return;
+    void *unit = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+    if (unit == nullptr)
+        return;
+    void *worldFrame = Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR);
+    if (worldFrame == nullptr)
+        return;
+    void *camera = Game::Read<void *>(worldFrame, Offsets::OFF_GAME_STATE_CAMERA_PTR);
+    if (camera == nullptr)
+        return;
 
-    out->player = player;
-    out->filter = f;
-    out->px = ppos[0];
-    out->py = ppos[1];
-    out->pz = ppos[2];
-    auto Enum = reinterpret_cast<EnumVisibleObjects_t>(
-        Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-    Enum(reinterpret_cast<EnumCallback_t>(&CollectCb), out);
-    return true;
-}
-
-// Commit the selection through the engine's `Script_TargetUnit` helper
-// rather than the tab-cycle's raw `FUN_00493540`: this one first checks the
-// GUID resolves to a live unit and bails otherwise, so a stale GUID left in
-// a cycle snapshot (unit despawned / went out of range between presses)
-// gets rejected instead of committed. Committing a dead GUID would leave
-// `"target"` pointing at freed unit data and crash the next handler that
-// reads it. `FUN_TARGET_BY_GUID` still routes through `FUN_00493540`
-// internally, so the current-selection globals we read back are maintained.
-void SetTarget(uint64_t guid) {
-    reinterpret_cast<SetTargetByGuid_t>(Offsets::FUN_TARGET_BY_GUID)(&guid);
-}
-
-uint64_t CurrentSelection() {
-    const uint32_t lo = *reinterpret_cast<volatile uint32_t *>(
-        Offsets::VAR_CURRENT_SELECTION_GUID_LO);
-    const uint32_t hi = *reinterpret_cast<volatile uint32_t *>(
-        Offsets::VAR_CURRENT_SELECTION_GUID_HI);
-    return (static_cast<uint64_t>(hi) << 32) | lo;
-}
-
-// Ascending insertion sort by 3D distance (candidate counts are tiny).
-void SortByDistance(Candidate *a, int n) {
-    for (int i = 1; i < n; ++i) {
-        Candidate key = a[i];
-        int j = i - 1;
-        while (j >= 0 && a[j].distSq > key.distSq) {
-            a[j + 1] = a[j];
-            --j;
-        }
-        a[j + 1] = key;
-    }
-}
-
-// Per-filter tab-cycle state. A frozen snapshot of GUIDs (sorted nearest→
-// farthest) plus a cursor; presses within `kCycleWindowMs` that haven't had
-// the target changed out from under them advance the cursor over the frozen
-// list, so the order stays stable through a cycle burst.
-struct CycleState {
-    bool valid = false;
-    uint64_t snapshot[kMaxCandidates];
-    int count = 0;
-    int index = 0;
-    uint32_t lastPressMs = 0;
-    uint64_t lastSetGuid = 0;
-};
-CycleState g_cycle[kFilterCount];
-
-void DoCycle(void *L, Filter f) {
-    const bool reverse = Game::Lua::ToBoolean(L, 1) != 0;
-    CycleState &st = g_cycle[static_cast<int>(f)];
-    const uint32_t now = NowMs();
-
-    const bool cont = st.valid && st.count > 0 &&
-                      (now - st.lastPressMs) <= kCycleWindowMs &&
-                      CurrentSelection() == st.lastSetGuid;
-
-    if (cont) {
-        st.index = reverse ? (st.index + st.count - 1) % st.count
-                           : (st.index + 1) % st.count;
-    } else {
-        CollectCtx c;
-        if (!Collect(f, &c) || c.count == 0) {
-            st.valid = false;
+    void *origin = Object::ByGuid(Offsets::TYPEMASK_UNIT, CurrentSelection(), nullptr, 0);
+    if (origin == nullptr)
+        origin = unit;
+    float position[3];
+    float screen[3];
+    if (!Unit::Position::Read(origin, position) || !ScreenCoords(worldFrame, position, screen)) {
+        origin = unit;
+        if (!Unit::Position::Read(unit, position))
             return;
-        }
-        SortByDistance(c.list, c.count);
-        st.count = c.count;
-        for (int i = 0; i < c.count; ++i)
-            st.snapshot[i] = c.list[i].guid;
-        st.index = 0;
-        st.valid = true;
+        ScreenCoords(worldFrame, position, screen);
     }
 
-    const uint64_t guid = st.snapshot[st.index];
-    SetTarget(guid);
-    st.lastSetGuid = guid;
-    st.lastPressMs = now;
+    // Camera forward × C33Matrix::Rotation(2pi - facing), row vector.
+    float forward[3];
+    auto *vtable = Game::Read<uintptr_t *>(camera, 0);
+    reinterpret_cast<Forward_t>(vtable[Offsets::VTBL_CAMERA_FORWARD / sizeof(uintptr_t)])(camera,
+                                                                                         forward);
+    const float c = std::cos(kTwoPi - facing);
+    const float s = std::sin(kTwoPi - facing);
+
+    DirectionData data{};
+    data.worldFrame = worldFrame;
+    data.unit = unit;
+    data.origin = origin;
+    data.originPosition[0] = position[0];
+    data.originPosition[1] = position[1];
+    data.facing[0] = forward[0] * c - forward[1] * s;
+    data.facing[1] = forward[0] * s + forward[1] * c;
+    data.originScreen[0] = screen[0];
+    data.originScreen[1] = screen[1];
+    data.originScreen[2] = screen[2];
+    data.screenDirection[0] = std::sin(facing);
+    data.screenDirection[1] = std::cos(facing);
+    data.mode = mode;
+    data.bestGuid = 0;
+    data.cosHalfAngle = std::cos((angle > kMinConeAngle ? angle : kMinConeAngle) * 0.5f);
+    data.bestInCone = false;
+    data.bestDistance = FLT_MAX;
+    if (!Unit::Position::Read(unit, data.playerPosition))
+        return;
+    // 4.3.4's 41 yd; 1.12's tab search reads it from targetNearestDistance.
+    const float range = CVarFloat(Offsets::VAR_CVAR_TARGET_NEAREST_DISTANCE);
+    data.maxDistanceSq = range * range;
+
+    reinterpret_cast<EnumVisibleObjects_t>(Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS)(
+        reinterpret_cast<EnumCallback_t>(&DirectionProc), &data);
+
+    if (data.bestGuid != 0) {
+        SetSelection(data.bestGuid);
+        g_directional = data.bestGuid;
+    }
 }
 
-void DoDirection(void *L, bool hostile, const char *usage) {
+// 4.3.4 clears the lock in BreakTarget; these are the 1.12 cases it has.
+void OnWorldTick() {
+    if (g_directional == 0)
+        return;
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, g_directional, nullptr, 0);
+    if (unit == nullptr) {
+        const uint64_t guid = g_directional;
+        if (!reinterpret_cast<GroupMember_t>(Offsets::FUN_UNIT_IS_GROUP_MEMBER_OR_PET)(&guid))
+            g_directional = 0;
+        return;
+    }
+    const auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+    if (fields != nullptr && (Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) &
+                              Offsets::UNIT_FLAG_NOT_SELECTABLE) != 0)
+        g_directional = 0;
+}
+
+const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
+
+// LeaveWorld: the world→glue return.
+void ClearOnLogout() { g_directional = 0; }
+const Game::GlueModuleAutoRegister _clearOnLogout{&ClearOnLogout};
+
+int DirectionScript(void *L, int mode, const char *usage) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, usage);
-        return;
+        return 0;
     }
     const float facing = static_cast<float>(Game::Lua::ToNumber(L, 1));
-    float cone = Game::Lua::IsNumber(L, 2)
-                     ? static_cast<float>(Game::Lua::ToNumber(L, 2))
-                     : kDefaultConeAngle;
-    if (cone <= 0.0f)
-        cone = kDefaultConeAngle;
-    const float cosHalf = std::cos(cone * 0.5f);
-    const float dirX = std::cos(facing);
-    const float dirY = std::sin(facing);
-
-    CollectCtx c;
-    if (!Collect(hostile ? Filter::Enemy : Filter::Friend, &c) || c.count == 0)
-        return;
-
-    int best = -1;
-    float bestDistSq = 0.0f;
-    for (int i = 0; i < c.count; ++i) {
-        const float vx = c.list[i].x - c.px;
-        const float vy = c.list[i].y - c.py;
-        const float horizSq = vx * vx + vy * vy;
-        if (horizSq <= 0.0001f)
-            continue;
-        // cos(angle between facing and the horizontal vector to the unit).
-        const float cosAngle = (dirX * vx + dirY * vy) / std::sqrt(horizSq);
-        if (cosAngle < cosHalf)
-            continue; // outside the cone
-        if (best < 0 || c.list[i].distSq < bestDistSq) {
-            best = i;
-            bestDistSq = c.list[i].distSq;
-        }
-    }
-    if (best >= 0)
-        SetTarget(c.list[best].guid);
+    const float angle =
+        Game::Lua::IsNumber(L, 2) ? static_cast<float>(Game::Lua::ToNumber(L, 2)) : 0.0f;
+    TargetDirection(facing, angle, mode);
+    return 0;
 }
 
-// Lua entry points ─────────────────────────────────────────────────────
+// --- Lua entry points -------------------------------------------------------
+
 int __fastcall Script_TargetNearest(void *L) {
-    DoCycle(L, Filter::Any);
+    Cycle(L, Offsets::TARGET_MODE_ANY);
     return 0;
 }
 int __fastcall Script_TargetNearestEnemyPlayer(void *L) {
-    DoCycle(L, Filter::EnemyPlayer);
+    Cycle(L, Offsets::TARGET_MODE_ENEMY_PLAYER);
     return 0;
 }
 int __fastcall Script_TargetNearestFriendPlayer(void *L) {
-    DoCycle(L, Filter::FriendPlayer);
+    Cycle(L, Offsets::TARGET_MODE_FRIEND_PLAYER);
     return 0;
 }
 int __fastcall Script_TargetDirectionEnemy(void *L) {
-    DoDirection(L, /*hostile*/ true,
-                "Usage: TargetDirectionEnemy(facing [, coneAngle])");
-    return 0;
+    return DirectionScript(L, Offsets::TARGET_MODE_ENEMY, "Usage: TargetDirectionEnemy(facing)");
 }
 int __fastcall Script_TargetDirectionFriend(void *L) {
-    DoDirection(L, /*hostile*/ false,
-                "Usage: TargetDirectionFriend(facing [, coneAngle])");
+    return DirectionScript(L, Offsets::TARGET_MODE_FRIEND, "Usage: TargetDirectionFriend(facing)");
+}
+int __fastcall Script_TargetDirectionFinished(void * /*L*/) {
+    g_directional = 0;
     return 0;
 }
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("TargetNearest", &Script_TargetNearest);
-    Game::Lua::RegisterGlobalFunction("TargetNearestEnemyPlayer",
-                                      &Script_TargetNearestEnemyPlayer);
-    Game::Lua::RegisterGlobalFunction("TargetNearestFriendPlayer",
-                                      &Script_TargetNearestFriendPlayer);
-    Game::Lua::RegisterGlobalFunction("TargetDirectionEnemy",
-                                      &Script_TargetDirectionEnemy);
-    Game::Lua::RegisterGlobalFunction("TargetDirectionFriend",
-                                      &Script_TargetDirectionFriend);
+    Game::Lua::RegisterGlobalFunction("TargetNearestEnemyPlayer", &Script_TargetNearestEnemyPlayer);
+    Game::Lua::RegisterGlobalFunction("TargetNearestFriendPlayer", &Script_TargetNearestFriendPlayer);
+    Game::Lua::RegisterGlobalFunction("TargetDirectionEnemy", &Script_TargetDirectionEnemy);
+    Game::Lua::RegisterGlobalFunction("TargetDirectionFriend", &Script_TargetDirectionFriend);
+    Game::Lua::RegisterGlobalFunction("TargetDirectionFinished", &Script_TargetDirectionFinished);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

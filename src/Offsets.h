@@ -1195,6 +1195,10 @@ enum Offsets {
     // set` flows, which we don't race here).
     FUN_FIND_CVAR = 0x0063DEC0,
     OFF_CVAR_VALUE_STR = 0x20,
+    // The value parsed as a float — a cache the setter maintains, next to the
+    // int at +0x28. The tab-target search FUN_00494200 reads its range cvars
+    // through it (`fld [cvar+0x24]`).
+    OFF_CVAR_VALUE_FLOAT = 0x24,
 
     // The config filename, as an immediate operand. Boot calls
     // `FUN_0063D380("Config.wtf")` from `FUN_00402350` at `0x00402370`
@@ -1359,18 +1363,69 @@ enum Offsets {
     // walk immediately.
     FUN_UNIT_FIND_BY_NAME = 0x00493AA0,
 
-    // Tab-targeting internals, shared with our backported TargetNearest* /
-    // TargetDirection* family (`target/Nearest.cpp`).
+    // Tab targeting — 4.3.4's TargetNearestEnemy(reverse, type), which 1.12
+    // has whole: `FUN_TARGET_NEAREST_CYCLE` (0x00493F60),
+    // `void __fastcall(int reverse, int mode)`. The native TargetNearestEnemy
+    // / Friend / PartyMember / RaidMember (0x00489A80..0x00489AE0) are
+    // `FUN_TARGET_NEAREST_CYCLE(FUN_LUA_TO_BOOLEAN_LOOSE(L, 1, 0), mode)`.
+    // It keeps one snapshot (array 0x00B4B428: cap / +4 count / +8 data,
+    // 16-byte {guidLo, guidHi, distSq, inFront} entries; cursor 0x00B4E3AC,
+    // sort time 0x00B4E3B0, last press 0x00B4E3B4, mode 0x00B4E3B8), rebuilt
+    // after 3000 ms, on a mode change, or when the cursor wraps 1000 ms after
+    // the sort. The rebuild enumerates visible objects through FUN_00494200:
+    // keep a unit FUN_TARGET_CANDIDATE_VALID accepts that is within
+    // targetNearestDistance in front (a 60° arc) or targetNearestDistanceRadius
+    // anywhere, is not a CREATURETYPE_FLAG_NOT_TAB_TARGET type, and is visible
+    // (FUN_WORLD_OBJECT_VISIBLE); sorted in-front first, then nearest
+    // (FUN_00494450). Commits through FUN_SET_SELECTION_BY_GUID.
+    FUN_TARGET_NEAREST_CYCLE = 0x00493F60,
     //
-    // `FUN_TARGET_CANDIDATE_VALID` (0x00493E40) — the engine's per-mode
-    // candidate validity predicate used by the native `TargetNearestEnemy`
-    // / `TargetNearestFriend` cycle. `__fastcall(CGUnit *player /*ecx*/,
-    // CGUnit *candidate /*edx*/, int mode) → int` (nonzero = valid). Modes:
-    // 1 = enemy (attackable + alive + not-critter), 2 = friend (assistable +
-    // alive), 3 = party, 4 = raid. Wraps the reaction cores
-    // `FUN_00606980` (can-attack) / `FUN_006066f0` (can-assist), so calling
-    // it gives us the engine's exact hostility semantics for free.
+    // `FUN_TARGET_CANDIDATE_VALID` (0x00493E40) — the cycle's per-mode
+    // predicate, 4.3.4's UnitMatchesTargetType.
+    // `__fastcall(CGUnit *player /*ecx*/, CGUnit *candidate /*edx*/, int
+    // mode) → int` (nonzero = valid). Modes: 1 = enemy (attackable, alive,
+    // not UNIT_DYNFLAG 0x20, stand state != 7 — 4.3.4's type 1), 2 = friend
+    // (assistable, health > 0 — 4.3.4's type 3), 3 = party, 4 = raid; any
+    // other mode → 1 (4.3.4's `default:`). `Target::Nearest` co-hooks it to
+    // add TARGET_MODE_ANY / _ENEMY_PLAYER / _FRIEND_PLAYER.
     FUN_TARGET_CANDIDATE_VALID = 0x00493E40,
+    TARGET_MODE_ENEMY = 1,
+    TARGET_MODE_FRIEND = 2,
+    // ClassicAPI modes (4.3.4's types 0 / 2 / 4); values past the engine's.
+    TARGET_MODE_ANY = 5,
+    TARGET_MODE_ENEMY_PLAYER = 6,
+    TARGET_MODE_FRIEND_PLAYER = 7,
+    // CVar* slots of the tab-target ranges (4.3.4 hard-codes 41 / 10),
+    // registered in FUN_0048FBF0's cvar block: targetNearestDistance
+    // (default 41, 0x0048FDBE) and targetNearestDistanceRadius (default 10,
+    // 0x0048FD7F). Read the float at OFF_CVAR_VALUE_FLOAT.
+    VAR_CVAR_TARGET_NEAREST_DISTANCE = 0x00B4E2A8,
+    VAR_CVAR_TARGET_NEAREST_DISTANCE_RADIUS = 0x00B4D8FC,
+    // World::QueryObjectVisible — `bool __fastcall(worldObject)`: non-null
+    // and `[+0x94] == 0`. A unit's world object is at OFF_CGOBJECT_WORLD_OBJECT
+    // (the tab search passes `unit[0x38]`).
+    FUN_WORLD_OBJECT_VISIBLE = 0x006704C0,
+    OFF_CGOBJECT_WORLD_OBJECT = 0xE0,
+    // CGWorldFrame::GetScreenCoordinates — `bool __thiscall(worldFrame, const
+    // float world[3], float screen[2])`, `ret 8`: true when the point is in
+    // the world frame's rect. Mirrors 4.3.4's (WorldFrame.cpp): camera
+    // position `[frame+OFF_GAME_STATE_CAMERA_PTR]+0x08`, near clip `+0x38`,
+    // view-projection at OFF_WORLDFRAME_VIEW_PROJECTION through
+    // FUN_C44_TRANSFORM, then NDCToDDC less the frame's negative rect origin.
+    // 1.12 writes x / y only; 4.3.4 also returns the depth (the transformed z).
+    // The world frame is `*VAR_GAME_STATE_PTR`.
+    FUN_WORLDFRAME_GET_SCREEN_COORDS = 0x00483EE0,
+    OFF_WORLDFRAME_VIEW_PROJECTION = 0x3B0,
+    // C4Vector × C44Matrix — `C4Vector *__fastcall(C4Vector *out /*ecx*/,
+    // const C4Vector *v /*edx*/, const C44Matrix *m)`, `ret 4`.
+    FUN_C44_TRANSFORM = 0x007BCB40,
+    // CGCamera::Forward — vtable slot, `void __thiscall(camera, float out[3])`:
+    // the camera's forward vector (the matrix row at camera+0x14, turned by
+    // the transport when on one). 4.3.4's CGWorldFrame::GetCameraFacing. The
+    // world frame's camera update adds it to the position for the look-at
+    // point (0x004830CA). Camera vtable 0x00808A9C, slot 0x00511F40.
+    VTBL_CAMERA_FORWARD = 0x04,
+    OFF_CAMERA_POSITION = 0x08,
     // `FUN_SET_SELECTION_BY_GUID` (0x00493540) — canonical target setter the
     // native tab-cycle commits through. `__cdecl(uint32_t guidLo, uint32_t
     // guidHi)`. Validates + fires CMSG_SET_SELECTION + client target +
@@ -1378,8 +1433,8 @@ enum Offsets {
     // Passing {0,0} clears the target.
     FUN_SET_SELECTION_BY_GUID = 0x00493540,
     // Current target-selection GUID (lo/hi), written by
-    // `FUN_SET_SELECTION_BY_GUID`. We read it to detect whether the player's
-    // target changed out from under an in-progress tab-cycle.
+    // `FUN_SET_SELECTION_BY_GUID` — 4.3.4's CGGameUI::m_lockedTarget. The tab
+    // cycle compares it with its cursor entry; TargetDirection starts from it.
     VAR_CURRENT_SELECTION_GUID_LO = 0x00B4E2D8,
     VAR_CURRENT_SELECTION_GUID_HI = 0x00B4E2DC,
 
@@ -4195,6 +4250,10 @@ enum Offsets {
     VAR_CREATURETYPE_RECORDS = 0x00C0DE2C,
     VAR_CREATURETYPE_COUNT = 0x00C0DE30,
     OFF_CREATURETYPE_NAMES = 0x04,
+    // Flags, column 10. Bit 1 = never tab-targeted (set only on Critter in
+    // the extracted DBC); the tab search FUN_00494200 skips such units.
+    OFF_CREATURETYPE_FLAGS = 0x28,
+    CREATURETYPE_FLAG_NOT_TAB_TARGET = 0x1,
 
     // CreatureDisplayInfo.dbc / CreatureModelData.dbc — the
     // creatureDisplayID → model-file chain behind `Model:SetDisplayInfo`.
