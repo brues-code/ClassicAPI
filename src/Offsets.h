@@ -1751,6 +1751,37 @@ enum Offsets {
     // every one of them carries 5236 in its GUID. Read by `Unit::CreatureID`.
     OFF_UNIT_INSTANCE_ENTRY = 0x0C,
 
+    // ── Nameplates (CGNamePlateFrame) ──────────────────────────────────
+    //
+    // The same machinery as 3.3.5's (decomp: WoW/Source/Ui/NamePlateFrame.h,
+    // Object/ObjectClient/Unit_C.cpp), verified function by function:
+    //   FUN_006086E0 = CGUnit_C::NamePlateAddOrUpdate — acquire (FUN_006087F0,
+    //     the recycle-or-allocate GetNewNameplateFrame), bind (FUN_007CB6D0 =
+    //     CGNamePlateFrame::Initialize, which copies the unit's GUID into the
+    //     plate), then sort it onto the shown list (FUN_00608870 =
+    //     NamePlateSort);
+    //   FUN_00608A10 = CGUnit_C::DestroyNamePlate — unlink from the shown
+    //     list, link onto the recycle list (head 0x00C4D920 / tail 0x00C4D91C),
+    //     hide, zero unit+0xE60. Its callers are all real releases: the unit
+    //     destructor FUN_005FB5E0, the despawn reset FUN_005FBB60, the name
+    //     cache callback FUN_005FB840 (drops the plate so it rebuilds with the
+    //     name), the show/hide decision, and FUN_0060F890 =
+    //     NamePlateClearAll, which walks the shown list itself and resolves
+    //     each plate's unit by GUID with FUN_00468460 — the model
+    //     NamePlate::Walk follows.
+    //
+    // VAR_NAMEPLATE_LIST_HEAD is the shown list's first plate (0 or a
+    // low-bit-tagged sentinel ends it); each plate's next is at
+    // OFF_NAMEPLATE_LINK_NEXT. Sorted by NamePlateSort, which inserts a plate
+    // before the first one at the same or a nearer screen-centre distance —
+    // so the list runs FARTHEST first. A recycled plate keeps its old GUID
+    // until Initialize rebinds it; a plate on the shown list is always bound.
+    // unit+0xE60 is the unit's plate (CGUnit_C::m_namePlateFrame).
+    VAR_NAMEPLATE_LIST_HEAD = 0x00C4D92C,
+    OFF_NAMEPLATE_LINK_NEXT = 0x4E0,
+    OFF_NAMEPLATE_GUID = 0x4E8,
+    OFF_UNIT_NAMEPLATE = 0xE60,
+
     // CGCreature client-side creature-data cache row. Populated by the
     // engine when an NPC GUID becomes visible (the same row the
     // `CreatureCache` SMSG fills with the templated NPC's name,

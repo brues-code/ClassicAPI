@@ -14,12 +14,12 @@
 // Nameplate lifecycle events: NAME_PLATE_CREATED, NAME_PLATE_UNIT_ADDED,
 // NAME_PLATE_UNIT_REMOVED.
 //
-// Per-frame poll: walk visible CGUnits with allocated nameplates, diff
-// against last frame's snapshot, fire events on real transitions only.
-// The engine's internal hide/show cycle (z-order rebuilds, anchor
-// changes, ~7 callers of `FUN_00608A10` that transiently zero `+0xE60`)
-// is absorbed because we only compare with the previous *frame's*
-// state, not every transient `unit + 0xE60` write.
+// Per-frame poll: walk the engine's shown-plate list (`NamePlate::Walk`),
+// diff against last frame's snapshot, fire events on real transitions only.
+// Comparing frame to frame (instead of hooking acquire / release) keeps the
+// hot per-unit `FUN_006086E0` un-hooked and folds a release and re-acquire
+// inside one frame — the name-cache callback `FUN_005FB840` drops a plate so
+// it rebuilds with the name — into no event at all.
 //
 // Payload shape (matches modern WoW exactly):
 // - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame**. The
@@ -107,17 +107,14 @@ std::vector<uint64_t> g_slots;
 uint64_t g_removingGuid = 0;
 const void *g_removingPlate = nullptr;
 
-// True iff `plate` is bound to some unit in THIS tick's walk — i.e. the engine
-// pulled the frame off its freelist and rebound it to another unit in the gap
-// between the tick that last saw it and the tick that noticed it was gone.
-// Frames are pooled and reused (`FUN_006087F0`), so the pointer stays valid
-// memory either way; what makes it unservable is that it now belongs to
-// somebody else.
-bool PlateReassigned(const void *plate) {
-    for (const auto &kv : g_currentTickPlates)
-        if (kv.second == plate)
-            return true;
-    return false;
+// True iff the engine has rebound `plate` to a unit other than `guid` since
+// the tick that last saw it. Frames are pooled and reused (`FUN_006087F0`), so
+// the pointer stays valid memory either way; the plate's own GUID
+// (OFF_NAMEPLATE_GUID — kept on a recycled plate until `Initialize` rebinds
+// it) says whose it is now.
+bool PlateReassigned(const void *plate, uint64_t guid) {
+    const auto *p = static_cast<const uint8_t *>(plate);
+    return *reinterpret_cast<const uint64_t *>(p + Offsets::OFF_NAMEPLATE_GUID) != guid;
 }
 
 // Assign `guid` the lowest free slot, reusing a vacated one when present and
@@ -240,11 +237,7 @@ void OnWorldTick() {
     g_currentTickPlates.clear();
     g_currentTickPlates.reserve(64); // typical visible-nameplate ceiling
     NamePlate::Walk::ForEachNamePlatedUnit(
-        [](const uint8_t *, const uint8_t *nameplate,
-           const uint8_t *instance) {
-            const uint64_t guid = *reinterpret_cast<const uint64_t *>(instance);
-            if (guid == 0)
-                return;
+        [](const uint8_t *, const uint8_t *nameplate, uint64_t guid) {
             g_currentTickPlates.emplace(guid, nameplate);
         });
 
@@ -299,7 +292,7 @@ void OnWorldTick() {
             // Let the handler reach the frame it is being told about; live
             // state can no longer answer for it. Skipped once the engine has
             // rebound the frame to another unit.
-            if (!PlateReassigned(kv.second)) {
+            if (!PlateReassigned(kv.second, kv.first)) {
                 g_removingGuid = kv.first;
                 g_removingPlate = kv.second;
             }
@@ -315,8 +308,7 @@ void OnWorldTick() {
         }
     }
 
-    // After the REMOVED pass, which needs every bound frame for
-    // `PlateReassigned`.
+    // Deferred ADDs leave the snapshot so the next tick sees them as new.
     for (uint64_t guid : g_deferredAdds)
         g_currentTickPlates.erase(guid);
 

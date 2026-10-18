@@ -13,12 +13,13 @@
 
 #pragma once
 
+#include "Offsets.h"
+#include "object/Resolve.h"
+
 #include <cstdint>
 
-// Shared nameplate enumeration — walks the local-player-anchored
-// object hash table for visible `TYPEMASK_UNIT` entries and invokes
-// `emit(unit, nameplate, instance)` for each unit that currently has
-// an allocated nameplate (`unit + 0xE60` non-null).
+// Shared nameplate enumeration — walks the engine's list of shown
+// nameplates and invokes `emit(unit, nameplate, guid)` for each.
 //
 // Header-only template — used by both the Lua-facing accessors in
 // `nameplate/Info.cpp` and the per-tick differ in `nameplate/Events.cpp`.
@@ -74,66 +75,41 @@ void PrepareForReload();
 
 namespace NamePlate::Walk {
 
-// `0x00B41414` is a player-related global that overlays multiple
-// sub-objects at different offsets. We read the object-hash-table
-// fields at `+0x1C` (bucket array) and `+0x24` (bucket mask) — that
-// sub-struct is safe to walk for any unit the engine knows about.
-// **Do not feed this pointer to inventory routines** (`GetItemBySlot`
-// etc.); the CGPlayer_C inventory manager lives at a different
-// offset (`+0x1D38`) and is sourced via `ResolveUnitToken("player")`,
-// not via this global. See CLAUDE.md "Resolving an item-location"
-// for the inventory-crash story.
-constexpr uintptr_t kLocalPlayerGlobal = 0x00B41414;
-constexpr int kOffPlayerBucketArray = 0x1C;
-constexpr int kOffPlayerBucketMask = 0x24;
-constexpr int kBucketStride = 12;
-constexpr int kBucketLinkOffsetField = 0;
-constexpr int kBucketChainHeadField = 8;
-constexpr int kOffEntryInstanceBlock = 0x08;
-constexpr int kOffInstanceTypeMask = 0x08;
-constexpr uint32_t kTypeMaskUnit = 0x08;
-constexpr int kOffUnitNamePlate = 0xE60;
-
+// Calls `emit(unit, nameplate, guid)` for every shown nameplate, in the
+// engine's own list order (farthest from the screen centre first). Returns
+// the count.
+//
+// Walks the engine's shown-plate list (VAR_NAMEPLATE_LIST_HEAD) — a dozen
+// or so entries — and resolves each plate's unit by the GUID the plate
+// carries, exactly as the engine's NamePlateClearAll (FUN_0060F890) does. A
+// plate counts only while that unit still points back at it
+// (unit+0xE60 == plate), the binding the engine itself reads. The list is
+// re-sorted as plates move, but only by plain engine code on the main
+// thread, so it is consistent whenever a WorldTick handler or a Lua call
+// reads it.
 template <typename F>
 int ForEachNamePlatedUnit(F &&emit) {
-    auto *player = *reinterpret_cast<uint8_t *const *>(kLocalPlayerGlobal);
-    if (player == nullptr)
-        return 0;
-
-    auto *buckets = *reinterpret_cast<uint8_t *const *>(
-        player + kOffPlayerBucketArray);
-    const uint32_t mask = *reinterpret_cast<const uint32_t *>(
-        player + kOffPlayerBucketMask);
-    if (buckets == nullptr || mask == 0xFFFFFFFFu)
-        return 0;
-
+    // A corrupt link must not spin forever; the engine shows a few dozen
+    // plates at most.
+    constexpr int kMaxPlates = 1024;
+    uintptr_t entry = *reinterpret_cast<const uintptr_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_NAMEPLATE_LIST_HEAD));
     int count = 0;
-    for (uint32_t b = 0; b <= mask; ++b) {
-        const uint8_t *bucket = buckets + b * kBucketStride;
-        const uint32_t linkOffset = *reinterpret_cast<const uint32_t *>(
-            bucket + kBucketLinkOffsetField);
-        uintptr_t entry = *reinterpret_cast<const uintptr_t *>(
-            bucket + kBucketChainHeadField);
-
-        while (entry != 0 && (entry & 1) == 0) {
-            auto *obj = reinterpret_cast<const uint8_t *>(entry);
-            auto *instance = *reinterpret_cast<const uint8_t *const *>(
-                obj + kOffEntryInstanceBlock);
-            if (instance != nullptr) {
-                const uint32_t typeMask = *reinterpret_cast<const uint32_t *>(
-                    instance + kOffInstanceTypeMask);
-                if ((typeMask & kTypeMaskUnit) != 0) {
-                    const auto *nameplate = *reinterpret_cast<const uint8_t *const *>(
-                        obj + kOffUnitNamePlate);
-                    if (nameplate != nullptr) {
-                        emit(obj, nameplate, instance);
-                        ++count;
-                    }
-                }
-            }
-            entry = *reinterpret_cast<const uintptr_t *>(
-                obj + linkOffset + 4);
-        }
+    for (int guard = 0; entry != 0 && (entry & 1) == 0 && guard < kMaxPlates; ++guard) {
+        const auto *plate = reinterpret_cast<const uint8_t *>(entry);
+        entry = *reinterpret_cast<const uintptr_t *>(plate + Offsets::OFF_NAMEPLATE_LINK_NEXT);
+        const uint64_t guid =
+            *reinterpret_cast<const uint64_t *>(plate + Offsets::OFF_NAMEPLATE_GUID);
+        if (guid == 0)
+            continue;
+        const auto *unit = static_cast<const uint8_t *>(
+            Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0));
+        if (unit == nullptr ||
+            *reinterpret_cast<const uint8_t *const *>(unit + Offsets::OFF_UNIT_NAMEPLATE) !=
+                plate)
+            continue;
+        emit(unit, plate, guid);
+        ++count;
     }
     return count;
 }

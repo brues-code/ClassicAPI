@@ -28,32 +28,12 @@
 // strings of the same set of units. Cheapest enumeration when an addon
 // only needs the GUIDs.
 //
-// Vanilla 1.12 stores each unit's nameplate pointer at `CGUnit + 0xE60`
-// (verified via `FUN_006086E0`'s "ensure nameplate exists" path). The
-// nameplate caches the unit's GUID at `+0x4E8` for back-lookup and
-// carries a Storm link node at `+0x4DC`/`+0x4E0` (prev link-address /
-// next base-address).
-//
-// There IS a central list of live nameplates — header `{0x00C4D928,
-// 0x00C4D92C}`, with a free/recycle list at `{0x00C4D91C, 0x00C4D920}`
-// — but we deliberately don't enumerate through it:
-//
-// - `FUN_00608870` re-sorts that list by screen depth on EVERY plate's
-//   position update, unlinking and reinserting the node. It is in
-//   motion throughout the render, whereas no nameplate code touches
-//   the object hash table.
-// - `FUN_006087F0` recycles a pooled node without clearing `+0x4E8`,
-//   so a node's cached GUID is stale until `FUN_007CB6D0` rebinds it.
-//   `unit + 0xE60` is the only authoritative live binding.
-// - We need the unit and its instance block for the GUID regardless,
-//   and the hash walk yields all three together.
-//
-// So we enumerate by walking the local-player-anchored object hash
-// table instead (`player + 0x1C` = bucket array, `player + 0x24` =
-// mask). Each bucket header stores the link-field offset at byte 0 and
-// the chain-head pointer at byte 8 — Storm's intrusive-hash pattern.
-// Filter by `TYPEMASK_UNIT` (`flags & 0x08` at `*(entry+8) + 8`) and
-// check `+0xE60` for a non-null nameplate pointer.
+// Enumeration walks the engine's list of shown nameplates and resolves each
+// plate's unit by the GUID it carries (`NamePlate::Walk`, see Offsets.h
+// `VAR_NAMEPLATE_LIST_HEAD` for the engine functions behind it). An earlier
+// version walked the whole object hash table every call instead, on the
+// belief that the list was unsafe to read; it is re-sorted only by plain
+// engine code on the main thread, and every plate on it is bound.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -69,7 +49,6 @@ namespace NamePlate::Info {
 namespace {
 
 using NamePlate::Walk::ForEachNamePlatedUnit;
-using NamePlate::Walk::kOffUnitNamePlate;
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 
@@ -79,8 +58,7 @@ static int __fastcall Script_GetNamePlates(void *L) {
     Game::Lua::NewTable(L);
     int nextIndex = 1;
     ForEachNamePlatedUnit(
-        [L, &nextIndex](const uint8_t *, const uint8_t *nameplate,
-                         const uint8_t *) {
+        [L, &nextIndex](const uint8_t *, const uint8_t *nameplate, uint64_t) {
             Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
             // Shared helper validates refkey freshness (defensive vs.
             // stale-across-reload) and falls back to a fresh wrapper
@@ -96,11 +74,7 @@ static int __fastcall Script_GetNamePlateGUIDs(void *L) {
     Game::Lua::NewTable(L);
     int nextIndex = 1;
     ForEachNamePlatedUnit(
-        [L, &nextIndex](const uint8_t *, const uint8_t *,
-                         const uint8_t *instance) {
-            const uint64_t guid = *reinterpret_cast<const uint64_t *>(instance);
-            if (guid == 0)
-                return;
+        [L, &nextIndex](const uint8_t *, const uint8_t *, uint64_t guid) {
             char buf[Guid::STRING_SIZE];
             Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
             Game::Lua::PushString(L,
@@ -135,7 +109,7 @@ static void PushNamePlateForGUID(void *L, uint64_t guid) {
     auto *unit = static_cast<uint8_t *>(
         Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, "NamePlate", 0x172));
     if (unit != nullptr)
-        nameplate = *reinterpret_cast<uint8_t *const *>(unit + kOffUnitNamePlate);
+        nameplate = *reinterpret_cast<uint8_t *const *>(unit + Offsets::OFF_UNIT_NAMEPLATE);
 
     // Neither read can answer during `NAME_PLATE_UNIT_REMOVED`: the event
     // reports that the unit→plate binding is gone, and the unit itself is
