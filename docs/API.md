@@ -3949,10 +3949,7 @@ hearthstone at an innkeeper — including a rebind at the same inn.
 Addons listen to `HEARTHSTONE_BOUND` and re-read `GetBindLocation()`
 to refresh whatever bind-location UI they show.
 
-> Note: the server re-sends the bind packet on map/zone transitions
-> (behind the loading screen). Those resyncs are suppressed by gating
-> on the engine's in-world flag, so the event fires only for an actual
-> innkeeper bind, never on a map change.
+It never fires on login or on a map change.
 
 ```lua
 local f = CreateFrame("Frame")

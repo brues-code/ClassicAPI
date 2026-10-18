@@ -7942,31 +7942,15 @@ enum Offsets {
     // target for the other Octo DLLs.
     FUN_UI_RENDER_ROOT = 0x00764330,
 
-    // SMSG_BINDPOINTUPDATE handler. The server sends this packet on
-    // initial login (to sync the player's current bind) and again
-    // every time the player binds at a new innkeeper. The handler
-    // deserializes `float x, y, z; uint32 mapID; uint32 areaID` into
-    // the corresponding globals below and sets `VAR_BIND_POINT_VALID`
-    // to 1.
-    //
-    //   __fastcall(void *packetBuffer)
-    //
-    // Single caller (the packet dispatcher's jump table for opcode
-    // 0x155) — quiet hook target, no contention with other DLLs.
-    // Hooked by `Player::HearthstoneBound` to fire `HEARTHSTONE_BOUND`.
-    // Two packets must be suppressed so the event reflects only a real
-    // innkeeper bind: (1) the initial post-login/char-switch sync
-    // (gated on VAR_BIND_POINT_VALID being 0 before the handler runs),
-    // and (2) Turtle's per-map-transition resync, which re-sends the
-    // packet behind a loading screen — gated on VAR_IN_WORLD (the
-    // player can't bind mid-load). See `Player::HearthstoneBound`.
-    FUN_BINDPOINT_UPDATE_HANDLER = 0x005ED3C0,
-    // "Bind point is valid" flag. Set to 1 by the BINDPOINTUPDATE
-    // handler after the packet has been fully parsed. Zeroed by
-    // `FUN_005E2510` (the per-character-entry init routine).
-    // Reading this BEFORE the handler runs distinguishes initial
-    // sync (`== 0`) from a later packet (`== 1`).
-    VAR_BIND_POINT_VALID = 0x00C4D4E0,
+    // SMSG_PLAYERBOUND. Handled inline by the shared player packet handler
+    // FUN_005E38C0 (registered for ~40 opcodes at 0x005E3013..; opcode in
+    // EDX, jump table at 0x005E3BEA covers 0x155..0x16E): its 0x158 case
+    // (0x005E3D3F) reads u64 binder GUID + u32 areaID, plays sound 0x475
+    // and prints game message 0x138 ("<area> is now your home."). Both
+    // tortoise-wow and vmangos send it ONLY from the bind spell effect,
+    // right after the SMSG_BINDPOINTUPDATE (0x155) carrying the new bind —
+    // never on the login / map-change resync. `Player::HearthstoneBound`.
+    SMSG_PLAYERBOUND = 0x158,
 
     // SMSG_QUESTGIVER_QUEST_COMPLETE handler (opcode 0x191). Server
     // sends this after the client claims a quest reward via CMSG_QUESTGIVER_CHOOSE_REWARD
