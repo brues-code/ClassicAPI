@@ -3840,9 +3840,10 @@ private namespace table **only** when BOTH hold, else `nil`:
    boolean flag; approach (a) from the notes below — no parser hook).
 
 The two paths stay separate, as required:
-- **Internal** `__addonns` (the `local name, ns = ...` preamble) stays
-  **ungated** — an addon always gets its own namespace. Still in
-  `luasyntax/Transpile.cpp`.
+- **Internal**: each addon file is called with `(name, ns)` as real
+  arguments, as 4.3.4 does (`Script_RunAddonFile` in
+  `luasyntax/Transpile.cpp`) — **ungated**, an addon always gets its own
+  namespace. (Replaced the `__addonns` global preamble.)
 - **Public** `C_AddOns.GetAddOnLocalTable` carries the gate, in
   `addons/LocalTable.cpp`.
 

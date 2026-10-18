@@ -17,8 +17,8 @@ namespace LuaSyntax {
 
 // Pushes the per-addon shared namespace table for `name` onto the Lua stack,
 // creating it on first use. The same table object is returned on every call
-// for a given name, so the internal addon-args preamble (which hands a file
-// its `(addonName, addonTable)` varargs) and the public gated accessor
+// for a given name, so the addon-file loader (which calls each file with
+// `(addonName, addonTable)`) and the public gated accessor
 // `C_AddOns.GetAddOnLocalTable` share one table per addon. Backed by a map in
 // the Lua registry, hidden from addons. Net stack effect: +1. `name` must be
 // non-null.

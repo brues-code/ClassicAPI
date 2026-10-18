@@ -12,17 +12,17 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `C_AddOns.GetAddOnLocalTable(name)` — the public, gated view of an addon's
-// private namespace table (the `local _, addonTable = ...` second vararg the
-// transpiler injects; see luasyntax/AddonNamespace.h).
+// private namespace table (the `local _, addonTable = ...` second vararg each
+// addon file is called with; see luasyntax/AddonNamespace.h).
 //
 // Retail added this in 11.0 alongside the `## AllowAddOnTableAccess` TOC
 // directive: one addon can read another's local table ONLY when the target
 // opts in. We mirror that gate:
 //   1. the named addon is currently LOADED, and
 //   2. its `.toc` declares `## AllowAddOnTableAccess: 1`.
-// Either check failing returns nil. The internal preamble path (an addon
-// receiving its OWN table) is a different, ungated function (`__addonns`) —
-// an addon never needs permission for its own namespace.
+// Either check failing returns nil. An addon receiving its OWN table is a
+// different, ungated path (its files are called with it at load) — an addon
+// never needs permission for its own namespace.
 //
 // Directive spelling verified against the 1.15.8 Classic Era binary (both the
 // `AllowAddOnTableAccess:` TOC key and the `GetAddOnLocalTable` name are

@@ -86,22 +86,25 @@
 //     Only the `...` in a function's parameter list is left intact.
 //   * Addon-args: vanilla never passed `(addonName, addonTable)` to addon
 //     chunks (1.12's main chunk has no `arg`), so the modern file-scope
-//     `local name, ns = ...` idiom would resolve to `unpack(nil)`. For addon
-//     files (chunkname `@Interface\AddOns\<Name>\...`) that use a real `...`,
-//     we prepend a chunk-local `arg = {"<Name>", __addonns("<Name>"), n=2}` so
-//     `...` yields the name + a per-addon shared table. `__addonns` returns the
-//     same table for every file of an addon (registry-backed). The preamble is
-//     newline-free (line numbers preserved).
+//     `local name, ns = ...` idiom would resolve to `unpack(nil)`. 4.3.4 passes
+//     them as real call arguments (FrameScript_ExecuteBuffer's `wrapper`:
+//     LoadAddOn puts one table on the stack and every file of the addon is
+//     pcalled with the name and that table). Here an addon file (chunkname
+//     `@Interface\AddOns\<Name>\...`) that uses `...` compiles as a vararg
+//     function, and the loader gets a C closure that calls it with the name
+//     and the addon's table (`Script_RunAddonFile`) — the same table for
+//     every file of the addon (registry-backed, see PushAddonNamespace).
 //   * Non-addon vararg chunks (RunScript `/run`, XML handler bodies,
 //     `loadstring`) compile as a REAL 5.0 vararg closure: the body is wrapped
 //     `return function(...) … end` and the main is called once at load, so
 //     the caller receives the inner function whose own `arg` carries real
 //     call args — `loadstring("return ...")(a, b)` yields a, b, matching 5.1
 //     called-chunk semantics (the old `local arg={n=0}` fallback lost them).
-//     The `__addonns` global is CONTEXT-GATED (see `Script_AddonNS`): it only
-//     answers for the addon mid-load, for its own name — so it cannot be used
-//     at runtime to read another addon's private table. Cross-addon access is
-//     the separate, TOC-opt-in `C_AddOns.GetAddOnLocalTable`.
+//     Only the engine's file loader gets an addon's table: the closure is
+//     built only when luaL_loadbuffer was called from the immediate-run file
+//     funnel (`RET_LUA_FILE_COMPILE`), never for `loadstring`, whose
+//     chunkname a caller can forge. Cross-addon access is the separate,
+//     TOC-opt-in `C_AddOns.GetAddOnLocalTable`.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -1145,7 +1148,7 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
 }
 
 // Diagnostic entry: the full operator/vararg/hex rewrite of a chunk, without the
-// load-time addon-args/helper preamble (that is LoadBuffer_h's concern).
+// load-time helper preamble and vararg wrap (that is LoadBuffer_h's concern).
 bool RewriteChunk(const char *src, size_t len, std::string &out) {
     return RunPasses(src, len, out, nullptr, nullptr);
 }
@@ -1182,47 +1185,19 @@ int __fastcall Script_Mod(void *L) {
     return 1;
 }
 
-// Name of the addon whose chunk is currently being loaded — set by
-// `LoadBuffer_h` when it injects the addon-args preamble, and ONLY when the
-// loadbuffer call came from the immediate-run file funnel (see the
-// `_ReturnAddress` gate there). Consumed once by that chunk's `__addonns(...)`
-// call — the first thing the chunk runs — so it is empty except during that
-// single-chunk window. This is what makes `__addonns` safe to expose as a `_G`
-// global: see `Script_AddonNS`.
-char g_loadingAddon[128] = "";
-
-// __addonns(name) -> the per-addon shared table (the modern second vararg),
-// but ONLY for the addon currently mid-load, and only for its OWN name.
-//
-// The map itself lives in the Lua registry (unreachable from Lua — this build
-// has no debug.getregistry / debug introspection), so `__addonns` is the sole
-// Lua-visible door to it. Left ungated, any addon could read another addon's
-// private table by name at runtime. So it is context-gated: it answers only
-// while `g_loadingAddon` names the caller's own chunk and returns nil otherwise.
-// The name arg must also match, so a mid-load chunk cannot ask for a different
-// addon's table. The gate is one-shot (cleared on the answer) — the preamble
-// calls this exactly once, and nothing else legitimately does.
-//
-// The grant is armed by `LoadBuffer_h` ONLY when the loadbuffer call comes from
-// the immediate-run file funnel (its `_ReturnAddress` is `RET_LUA_FILE_COMPILE`,
-// which pcalls the chunk right after compiling). That is the load-bearing
-// defense: `loadstring` takes a caller-controlled chunkname (arg 2) and compiles
-// WITHOUT running, so without the call-site gate a
-// `loadstring("...","@Interface\\AddOns\\Victim\\x")` would arm the grant and
-// leak Victim's table. loadstring's loadbuffer call has a different return
-// address (it is NOT the file funnel), so it never arms — even when nested
-// inside a RunScript body that itself runs through the file funnel. Cross-addon
-// runtime access goes through the TOC-gated `C_AddOns.GetAddOnLocalTable`, which
-// calls `PushAddonNamespace` directly (not this global) after its own checks.
-int __fastcall Script_AddonNS(void *L) {
-    const char *name = Game::Lua::ToString(L, 1);
-    if (name == nullptr || g_loadingAddon[0] == '\0' || _stricmp(name, g_loadingAddon) != 0) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
-    g_loadingAddon[0] = '\0'; // one-shot: consume the load-time grant
-    PushAddonNamespace(L, name); // LuaSyntax::PushAddonNamespace (defined below)
-    return 1;
+// What the file loader runs for an addon file: the file's body with 4.3.4's
+// file arguments, `(addonName, addonTable)`, as real call arguments
+// (FrameScript_ExecuteBuffer's `wrapper` path pcalls the chunk with those two).
+// Upvalues: 1 = the body, compiled as a vararg function; 2 = the name;
+// 3 = the addon's table. The loader calls this with no arguments. An error in
+// the body unwinds through this frame to the loader's pcall, so nothing here
+// may need destruction.
+int __fastcall Script_RunAddonFile(void *L) {
+    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
+    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(2));
+    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(3));
+    Game::Lua::Call(L, 2, 0);
+    return 0;
 }
 
 // ============================================================================
@@ -1249,11 +1224,6 @@ bool AddonNameFromChunk(const char *chunk, char *out, size_t outSize) {
             ++k;
         if (k == 0 || k + 1 > outSize)
             return false;
-        for (size_t j = 0; j < k; ++j) {
-            char c = ns[j];
-            if (c == '"' || c == '\\' || c == '\n' || c == '\r')
-                return false; // would break the injected string literal
-        }
         std::memcpy(out, ns, k);
         out[k] = '\0';
         return true;
@@ -1409,11 +1379,10 @@ HandlerNames ScanHandlerNames(const char *src, size_t len, const char *params) {
 }
 
 int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char *name) {
-    // Who called luaL_loadbuffer? The addon-args grant may be armed only for the
-    // immediate-run file funnel (FUN_00704AE0 pcalls right after compiling), so
-    // the preamble consumes the grant before anything else runs. `loadstring`
-    // compiles WITHOUT running and takes a caller-forgeable chunkname — its call
-    // has a different return address, so it can never arm the grant (even nested
+    // Who called luaL_loadbuffer? Only the immediate-run file funnel
+    // (FUN_00704AE0 pcalls right after compiling) may receive an addon's
+    // (name, table): `loadstring` takes a caller-forgeable chunkname, and its
+    // call has a different return address, so it never gets them (even nested
     // inside a RunScript that itself runs through the file funnel).
     const bool fromFileFunnel =
         reinterpret_cast<uintptr_t>(_ReturnAddress()) == Offsets::RET_LUA_FILE_COMPILE;
@@ -1480,30 +1449,29 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     //    independent. Capturing them at chunk top — default env, before any
     //    setfenv the chunk runs — into chunk-locals restores that: nested
     //    functions bind them as upvalues, unaffected by their own environment.
-    //  * Addon-args. For an addon FILE chunk, hand it the modern (addonName,
-    //    addonTable) varargs via a chunk-local `arg`, so file-scope
-    //    `local name, ns = ...` (now `unpack(arg)`) resolves. Vanilla never
-    //    passed these — 1.12's main chunk has no `arg`. Only when a real `...`
-    //    is present (didVararg), the compile is the file funnel's own
-    //    (fromFileFunnel — NOT loadstring, whose chunkname is caller-forgeable),
-    //    and the chunkname is an addon path.
+    //  * The vararg wrap. For an addon FILE chunk it is what lets the loader
+    //    pass the modern (addonName, addonTable) as real arguments, so
+    //    file-scope `local name, ns = ...` (now `unpack(arg)` of the wrap's own
+    //    `arg`) resolves. Only when a real `...` is present (didVararg), the
+    //    compile is the file funnel's own (fromFileFunnel — NOT loadstring,
+    //    whose chunkname is caller-forgeable), and the chunkname is an addon
+    //    path.
     std::string pre;
     if (didOps)
         pre += "local __len,__mod=__len,__mod;";
     if (didVararg)
         pre += "local unpack=unpack;";
 
-    bool armed = false;
+    bool addonFile = false;
     bool wrapped = false;
     char addon[128];
     if (didVararg) {
         if (fromFileFunnel && AddonNameFromChunk(name, addon, sizeof addon)) {
-            pre += "local arg={\"";
-            pre += addon;
-            pre += "\",__addonns(\"";
-            pre += addon;
-            pre += "\"),n=2};";
-            armed = true;
+            // An addon file: compile the body as a vararg function, and below
+            // hand the loader a closure that calls it with (name, table).
+            pre += "return function(...) ";
+            wrapped = true;
+            addonFile = true;
         } else {
             // Top-level `...` OUTSIDE the addon file funnel — RunScript (`/run`),
             // XML handler bodies, or loadstring. Vanilla's main chunk is NOT
@@ -1567,23 +1535,22 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     if (wrapped)
         full += "\nend";
 
-    // Grant this chunk (and only this chunk) the right to fetch its own
-    // namespace via `__addonns`; the preamble consumes the grant as the chunk's
-    // first act, so the window is a single uninterrupted chunk. Revoke on
-    // compile failure so no stale grant leaks to a later runtime call. `addon`
-    // is a validated name <= 127 chars, so it fits g_loadingAddon exactly.
-    if (armed)
-        std::memcpy(g_loadingAddon, addon, std::strlen(addon) + 1);
     const int rc =
         g_origLoadBuffer(L, full.data(), static_cast<unsigned>(full.size()), name);
-    if (armed && rc != 0)
-        g_loadingAddon[0] = '\0';
     // Materialize the wrapped chunk's inner function. The main is helper-local
     // binds plus `return function(...) … end` — closure creation only, it
     // cannot raise — so a plain lua_call is safe, and it leaves the inner
     // function exactly where the engine expects the compiled chunk.
-    if (wrapped && rc == 0)
+    if (wrapped && rc == 0) {
         Game::Lua::Call(L, 0, 1);
+        // An addon file: bind its (name, table) and hand the loader the
+        // closure in the inner function's place (see Script_RunAddonFile).
+        if (addonFile) {
+            Game::Lua::PushString(L, addon);
+            PushAddonNamespace(L, addon); // LuaSyntax::PushAddonNamespace (defined below)
+            Game::Lua::PushCClosure(L, &Script_RunAddonFile, 3);
+        }
+    }
     return rc;
 }
 
@@ -1680,7 +1647,6 @@ int __fastcall Script_GetTranspileOption(void *L) {
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__len", &Script_Len);
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
-    Game::Lua::RegisterGlobalFunction("__addonns", &Script_AddonNS);
     Game::Lua::RegisterGlobalFunction("_classicapi_Transpile", &Script_Transpile);
     Game::Lua::RegisterGlobalFunction("_classicapi_TranspileStats", &Script_TranspileStats);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetTranspileOption", &Script_SetTranspileOption);
@@ -1704,7 +1670,7 @@ const Game::HookAutoRegister _loadHook{
 
 // The one place the per-addon namespace map is read/created (see
 // AddonNamespace.h). Registry key is local — nothing else may touch this map,
-// so both callers (the `__addonns` preamble global and the gated
+// so both callers (the addon-file closure in LoadBuffer_h and the gated
 // `C_AddOns.GetAddOnLocalTable`) resolve to the same table per addon.
 void PushAddonNamespace(void *L, const char *name) {
     static constexpr const char *kAddonNsRegKey = "__classicapi_addon_ns";
