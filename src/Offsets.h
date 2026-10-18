@@ -567,6 +567,8 @@ enum Offsets {
     // the wrap stepper, so it is icon-aware via the stepper co-hook. Verified
     // from the GameTooltip auto-size (FUN_00530640), which fills a 20-entry
     // array and measures each segment via FUN_FONTSTRING_MEASURE_SUBSTRING.
+    // Prologue 55 8B EC 56 8B F1, RET 0x10. Co-hooked by Text::InlineTexture
+    // to give the wrap stepper the fontstring's layout scale.
     FUN_FONTSTRING_BREAK_ARRAY = 0x00772B60,
     // Substring width measure: `__thiscall(fs, const char *text, int len)` →
     // ST0 (len 0 = strlen). Same measure-core call + `out / fs+0x7C` shape as
@@ -9710,6 +9712,21 @@ enum Offsets {
     // node-local pen coords is drawn at (localX + originX, localY + originY).
     OFF_TEXT_NODE_ORIGIN_X = 0x70,
     OFF_TEXT_NODE_ORIGIN_Y = 0x74,
+    // Node position y (float, node units: × [VAR_TEXT_RASTER_Y] = render px)
+    // — the {x, y, z} at +0x20 the position setter FUN_005ccb10 writes. The
+    // origin finalize copies it into the origin and adds the vertical-justify
+    // term (see FUN_TEXT_NODE_FINALIZE_ORIGIN).
+    OFF_TEXT_NODE_POSITION_Y = 0x24,
+    // Node origin finalize: `void __fastcall(node)`. Copies the position
+    // (+0x20..+0x28) into the origin (+0x70..+0x78); when the node has built
+    // lines and flags bit 7 is clear it adds the horizontal justify (+0x54) and
+    // the vertical one (+0x50: 0 → block height +0x40; 1 → (block − T)/2 + T;
+    // 2 → T, with T = lines × fontH + (lines − 1) × spacing), then floors both
+    // to render px (× raster X/Y). 4.3.4's CGxString::InitializeViewTranslation
+    // without its m_extraLineHeight term. Callers: the draw builder's exit
+    // (0x005CDEBE) and the position setter FUN_005ccb10. Prologue
+    // 55 8B EC 83 EC 10. Co-hooked by Text::InlineTexture.
+    FUN_TEXT_NODE_FINALIZE_ORIGIN = 0x005CDF70,
     // Node → per-font-page vertex buffers. The glyph emitter (FUN_TEXT_EMITTER)
     // bakes each glyph as a 4-vertex quad into one of up to TEXT_NODE_PAGE_COUNT
     // font-page buffers hanging off the node; the paint copy-out (FUN_005c8710)
@@ -9799,6 +9816,11 @@ enum Offsets {
     // The flags&0x10 variant of the pair advance (same shape; the emitter
     // selects it when node flags bit 4 is set). See FUN_005ca4b0.
     FUN_TEXT_GLYPH_PAIR_ADVANCE_ALT = 0x005CA4B0,
+    // Glyph BASE advance: `__thiscall(void *fontFace, uint ch) -> float (ST0)`,
+    // native-font units — the pair advance's first term, a glyph's advance
+    // with no following kern. The width a measure counts for a glyph, so the
+    // emitter co-hook caps an inline icon's start at it. See FUN_005ca240.
+    FUN_TEXT_GLYPH_BASE_ADVANCE = 0x005CA240,
     // CGxFont::NewCodeDesc — `__thiscall(void *fontFace, uint ch) ->
     // CHARCODEDESC*` (NULL when the face has no such glyph). Hash lookup, and
     // on a miss rasterizes the glyph into the face's pages; the emitter calls

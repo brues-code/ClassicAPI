@@ -78,9 +78,10 @@ The DLL hooks the engine's own text pipeline — no companion addon:
   drawn result: width (`FUN_00772890`), height (`FUN_007729B0`), and wrap
   (`FUN_005C7260`). `GetStringWidth`, `fontstring:GetStringHeight`, wrap
   breaks, and line height all count the icon.
-- **Tall icons** — an icon taller than the font grows its line height, so it
-  does not overlap its neighbors, and it aligns by the line's vertical
-  justification (below). A hyperlink
+- **Tall icons** — a line holding an icon taller than the font moves itself
+  and the lines after it down by the overflow, as 4.3.4 does, so it does not
+  overlap its neighbors; the icon aligns by the line's vertical justification
+  (below). A hyperlink
   that contains a tall icon is hoverable across the whole icon
   (`49934b0`, `b9d0705`).
 - **Chat fade** — icons fade in lockstep with their chat line (`3ca3b7e`).
@@ -269,16 +270,19 @@ ddcWidthScale in the same Coordinate static (`VAR_COORD_DDC_WIDTH_SCALE`,
 values). On top of that, every size multiplies by the fontstring's layout
 scale (`fs+0x7C`) — 3.3.5's `CGxString::m_scale`, applied again although the
 font height already includes it. 4.3.4 dropped this factor; 3.3.5's was kept
-after a side-by-side look in game. The fs-level wrap callers can't see the
-fontstring, so they budget icons at scale 1 (`WrapLayoutScale`); closing that
-needs the fontstring at `FUN_0044d670`. Size cases: height ≤ 0 → font height; width absent → the height;
+after a side-by-side look in game. Every wrap gets the same scale, as 4.3.4
+passes `m_layoutScale` to every `CalcWrapPoint`: the draw builder through the
+node's owner, and the three fs-level callers (the height getter, the
+display-text truncation inside the rebuild, the break array) through a
+fontstring scope their co-hooks set (`WrapLayoutScale`). Size cases: height ≤ 0 → font height; width absent → the height;
 width > 0 → width × scale, or a RATIO of the height when the height came from
 the font (`:0:2` is twice as wide); width ≤ 0 → the font height. Offsets are
 screen pixels and move only the drawn texture (+x right, +y UP), never the
 layout. `ResolveIconSize` is the one implementation.
 
 **Spacing** (`InitializeTextLine`, case CODE_TEXTURESTART). An icon starts at
-the previous glyph's INK edge — bearing + cell width, clamped to ≥ 0 — plus
+the previous glyph's INK edge — bearing + cell width, clamped to ≥ 0 and
+capped at the glyph's own advance (`FUN_TEXT_GLYPH_BASE_ADVANCE`) — plus
 the face's outline ink (4 × scale thick / 2 × scale thin, `face+0x180` bits 3 /
 0; the same constants the 1.12 emitter grows its line by); with no glyph
 since the line start or the last icon it starts at the pen, no gap. The next
@@ -290,7 +294,11 @@ pair advance, the snap rounding (`FADD 0.5; __ftol`), `FUN_TEXT_GLYPH_DESC`
 width in snap mode exactly as the emitter draws the quad. Measures count an
 icon as its width plus the outline gap when a glyph precedes it
 (`SumIconAdvances`); the engine measures width alone, but counting the gap
-keeps measure and render in step for tooltips and right-justified text.
+keeps measure and render in step for tooltips and right-justified text. The
+advance cap is ClassicAPI's: every measure counts the preceding glyph by its
+advance, so an ink edge past the advance (a glyph cell wider than its step —
+seen on "[" in chat) pushed each following icon and the rest of the line past
+the measured width, and wrapped chat lines overran the frame edge.
 
 **Vertical** (same case + `CreateGeometry`). By the node's vertical justify
 (`OFF_TEXT_NODE_JUSTIFY_V`, node+0x50: 0 top / 1 middle / 2 bottom — the
@@ -298,10 +306,27 @@ branch of the origin finalize `FUN_005cdf70`): top → the icon's top on the lin
 top; bottom → its bottom on the baseline; middle → centred on the font height
 below the line top. The baseline is `penXYZ[1]` and the line top is the draw
 builder's `linkState[1]` (baseline + font height + spacing), 4.3.4's
-m_baseLineHeight / m_lineHeight. 4.3.4 shifts each line's TEXT by the
-overflow to make room; 1.12 grows the fontstring instead (the string-height
-co-hook) and places the text in it by the same justify, which matches for a
-single line.
+m_baseLineHeight / m_lineHeight.
+
+**Tall lines** (`CGxString::InitializeText` + `InitializeViewTranslation` +
+`GxuFontGetWrappedTextHeight`), mirrored step for step:
+- A line whose tallest icon reaches past the font height moves down by that
+  overflow, and every later line with it: all of it before the line for
+  bottom justify, all after for top, `floor(overflow / 2)` before and after
+  for middle. The emitter co-hook moves the builder's pen y and link band
+  (`penXYZ[1]` = its `local_48`, `linkState[1]/[3]` = its `local_74[0]/[2]`),
+  which the builder lowers per line, so the move carries forward.
+- The node's summed overflow (`m_extraLineHeight`) joins the text height the
+  origin finalize justifies by: the `FUN_TEXT_NODE_FINALIZE_ORIGIN` co-hook
+  raises the node position y (`+0x24`) by half / all of it for middle /
+  bottom justify for the call, so the engine's own math and rounding produce
+  4.3.4's origin. It also runs on every reposition (`FUN_005ccb10`).
+- `GetStringHeight` adds the same per-line overflows, summed. The wrap
+  stepper reports each line's overflow during the engine's own height pass,
+  so the lines are the engine's breaks; the sum is kept per fontstring while
+  the engine serves its cached height.
+A link's hit band grows toward where its icon reaches (below for top, above
+for bottom, half each way for middle); 4.3.4 keeps the band at the text.
 
 ### Measure / wrap — co-hook the tokenizer
 

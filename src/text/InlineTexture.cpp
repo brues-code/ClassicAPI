@@ -60,9 +60,9 @@
 // re-adds the same per-icon advances the emitter reserves — so GetStringWidth,
 // the tooltip auto-size, and auto-width layout match the rendered width — a
 // co-hook on the internal string-height getter (FUN_FONTSTRING_STRING_HEIGHT)
-// adds the tallest icon's overflow past the font height — so a tall icon's
-// LINE grows to fit it (chat stacking + auto-height rects; the icon aligns by
-// the line's vertical justify, as the text does in the grown rect) — and a
+// adds each wrapped line's icon overflow past the font height, summed — while
+// the emitter moves those lines down and the origin finalize justifies the
+// taller block, 4.3.4's layout (chat stacking + auto-height rects) — and a
 // co-hook on the shared wrap-stepper dispatcher (FUN_TEXT_WRAP_STEPPER)
 // shrinks the wrap width by the line's icon advances so wrapped lines break at
 // the visible edge instead of overflowing. Still icon-blind (documented,
@@ -334,30 +334,65 @@ void *OwningFontStringOf(void *node) {
     return (cur == node) ? ow->second : nullptr;
 }
 
-// The owning fontstring's layout scale (fs+0x7C), or 1 when the node's owner
-// isn't known. Feeds 3.3.5's extra size factor (see ResolveIconSize).
-float NodeLayoutScale(void *node) {
-    void *fs = OwningFontStringOf(node);
-    if (fs == nullptr)
-        return 1.0f;
+// A fontstring's layout scale (fs+0x7C), 1 when unset. Feeds 3.3.5's extra
+// size factor (see ResolveIconSize).
+float FsLayoutScale(void *fs) {
     const float scale = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
     return (scale > 0.0f) ? scale : 1.0f;
 }
 
-// The layout scale for a wrap-stepper call: the node being built when the draw
-// builder is the caller. The fs-level callers (height, fit, break arrays) pass
-// no fontstring down, so they get 1. Below a UI scale of 1 that over-budgets
-// the icons and a line holding several can wrap a word early (never
-// overflow); above 1 it under-budgets. Known gap — closing it needs the
-// fontstring at the fs-level layout helper FUN_0044d670.
-float WrapLayoutScale() {
-    return (g_buildNode != nullptr) ? NodeLayoutScale(g_buildNode) : 1.0f;
+// The owning fontstring's layout scale, or 1 when the node's owner isn't known.
+float NodeLayoutScale(void *node) {
+    void *fs = OwningFontStringOf(node);
+    return (fs != nullptr) ? FsLayoutScale(fs) : 1.0f;
 }
+
+// The fontstring whose fs-level layout is running. The fs-level wrap callers —
+// the height getter, the display-text truncation (run by the rebuild) and the
+// break array — hand gxu a font handle, never the fontstring, so the hooks on
+// those three set this around the original for the wrap stepper to read.
+// 4.3.4 gets the same value to every wrap the same way: each caller passes
+// m_layoutScale as CalcWrapPoint's `scale`.
+void *g_scopeFs = nullptr;
+
+struct FsScope {
+    void *prev;
+    explicit FsScope(void *fs) : prev(g_scopeFs) { g_scopeFs = fs; }
+    ~FsScope() { g_scopeFs = prev; }
+    FsScope(const FsScope &) = delete;
+    FsScope &operator=(const FsScope &) = delete;
+};
+
+// The layout scale for a wrap-stepper call: the node being built when the draw
+// builder is the caller, else the fontstring of the running fs-level layout.
+// Every line break therefore sizes icons exactly as the render does.
+float WrapLayoutScale() {
+    if (g_buildNode != nullptr) {
+        if (void *fs = OwningFontStringOf(g_buildNode))
+            return FsLayoutScale(fs);
+    }
+    return (g_scopeFs != nullptr) ? FsLayoutScale(g_scopeFs) : 1.0f;
+}
+
+// Per node: the summed overflow of its tall-icon lines this build, in pen px —
+// 4.3.4's CGxString::m_extraLineHeight. The emitter adds each line's overflow
+// as it moves the lines down; the origin finalize adds the total to the text
+// height it justifies. Reset at each real build, erased with the node.
+std::unordered_map<void *, float> g_nodeExtra;
+
+// Set by the string-height co-hook around the engine's wrapped-height pass:
+// the wrap stepper adds each wrapped line's icon overflow here, in font
+// heights — GxuFontGetWrappedTextHeight's extraHeight sum.
+float *g_heightExtra = nullptr;
 
 using DrawBuilder_t = void(__fastcall *)(void *node);
 DrawBuilder_t g_builderOriginal = nullptr;
 
 void __fastcall DrawBuilder_h(void *node) {
+    // The builder lays the node out only when its built-line count is 0 (else
+    // it returns at once); only then does its extra height start over.
+    if (node != nullptr && Game::Read<int>(node, Offsets::OFF_TEXT_NODE_BUILT_LINES) == 0)
+        g_nodeExtra.erase(node);
     g_buildNode = node;
     g_buildEmitSeq = 0;
     g_builderOriginal(node);
@@ -399,6 +434,7 @@ void __fastcall NodeFree_h(void *node) {
         g_nodeIcons.erase(node);
         g_nodeOwner.erase(node);
         g_nodeBakedColor.erase(node);
+        g_nodeExtra.erase(node);
     }
     g_nodeFreeOriginal(node);
 }
@@ -414,7 +450,11 @@ using RebuildString_t = void(__fastcall *)(void *fs);
 RebuildString_t g_rebuildOriginal = nullptr;
 
 void __fastcall RebuildString_h(void *fs) {
-    g_rebuildOriginal(fs);
+    {
+        // The rebuild runs the display-text truncation, an fs-level wrap.
+        FsScope scope(fs);
+        g_rebuildOriginal(fs);
+    }
     if (!LooksReadable(fs))
         return;
     void *block = Game::Read<void *>(fs, Offsets::OFF_FONTSTRING_TEXT_BLOCK);
@@ -428,6 +468,46 @@ void __fastcall RebuildString_h(void *fs) {
 static const Game::HookAutoRegister _rebuildHook{Offsets::FUN_FONTSTRING_REBUILD_STRING,
                                                  reinterpret_cast<void *>(&RebuildString_h),
                                                  reinterpret_cast<void **>(&g_rebuildOriginal)};
+
+// Origin-finalize co-hook: tall-icon lines count in the vertical justify.
+// FUN_TEXT_NODE_FINALIZE_ORIGIN places the text block in its rect by a text
+// height of lines × fontH + spacing — 4.3.4's InitializeViewTranslation, less
+// the m_extraLineHeight term 4.3.4 adds. Middle justify centres by half the
+// text height and bottom justify adds all of it, both on top of the node's
+// position y, so raising that position by half / all of the node's extra
+// height for the call gives 4.3.4's result through the engine's own math and
+// rounding. Top justify ignores the text height, as in 4.3.4. Runs after every
+// build and on every reposition (FUN_005ccb10), so it reads the node's stored
+// extra rather than fixing the origin once.
+using FinalizeOrigin_t = void(__fastcall *)(void *node);
+FinalizeOrigin_t g_finalizeOriginOriginal = nullptr;
+
+void __fastcall FinalizeOrigin_h(void *node) {
+    auto it = g_nodeExtra.find(node);
+    if (it == g_nodeExtra.end() || !(it->second > 0.0f)) {
+        g_finalizeOriginOriginal(node);
+        return;
+    }
+    const int lines = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_BUILT_LINES);
+    const uint32_t flags = Game::Read<uint32_t>(node, Offsets::OFF_TEXT_NODE_FLAGS);
+    const int justifyV = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_JUSTIFY_V);
+    const int rasterY = Game::Read<int>(Offsets::VAR_TEXT_RASTER_Y);
+    // The same gates the original takes before it justifies.
+    if (lines == 0 || (flags & 0x80u) != 0 || rasterY <= 0 || (justifyV != 1 && justifyV != 2)) {
+        g_finalizeOriginOriginal(node);
+        return;
+    }
+    float &posY = Game::Ref<float>(node, Offsets::OFF_TEXT_NODE_POSITION_Y);
+    const float saved = posY;
+    const float extra = it->second / static_cast<float>(rasterY); // pen px → node units
+    posY = saved + ((justifyV == 1) ? extra * 0.5f : extra);
+    g_finalizeOriginOriginal(node);
+    posY = saved;
+}
+
+static const Game::HookAutoRegister _finalizeOriginHook{
+    Offsets::FUN_TEXT_NODE_FINALIZE_ORIGIN, reinterpret_cast<void *>(&FinalizeOrigin_h),
+    reinterpret_cast<void **>(&g_finalizeOriginOriginal)};
 
 // Pen-units-per-anchor-unit scale (K), per axis — the ENGINE'S OWN conversion,
 // read live from the same four globals the text pipeline uses. Verified by
@@ -829,11 +909,13 @@ float SumIconAdvances(const uint8_t *text, int len, float fontPx, float outlineP
     return sum;
 }
 
-// The tallest icon's VERTICAL OVERFLOW past the font height, in the unit of
-// `fontPx` — 0 when every icon fits the line. 4.3.4 grows the line by exactly
-// this (GxuFontGetWrappedTextHeight's extraHeight, fed by CalcWrapPoint's
-// line-height out-param), which is what the string-height co-hook adds.
-float MaxIconOverflowPx(const uint8_t *text, int len, float fontPx, float layoutScale) {
+// How far the tallest icon in [text, text+len) reaches past the font height, in
+// the unit of `fontPx` — 0 when every icon fits. Called per WRAPPED LINE: it is
+// 4.3.4's `lineHeightUsed − fontPixelHeight` (CalcWrapPoint's height out-param
+// is the tallest icon that fits on the line), which InitializeText uses to move
+// the line and everything after it down, and GxuFontGetWrappedTextHeight sums
+// over the lines.
+float IconOverflowPx(const uint8_t *text, int len, float fontPx, float layoutScale) {
     float maxH = 0.0f;
     ForEachIconSpan(text, len, [&](const IconDesc &d, bool) {
         const float h = ResolveIconSize(d, fontPx, layoutScale).h;
@@ -1029,46 +1111,63 @@ static const Game::HookAutoRegister _stringWidthHook{
 //     with THIS and anchors each line to the previous line's rect.
 //   • FUN_0077D4D0 — the multi-line EDITBOX self-size (excluded below; editbox
 //     text renders raw markup, so its height must stay literal).
-// Adding the tallest icon's overflow past the font height therefore grows the
-// line's rect AND the chat stack's spacing in one place — a 24px emote in 15px
-// chat takes real vertical room instead of overlapping its neighbours. This is
-// the 4.3.4 model: its measure/wrap loops export a max-texture-height out-param
-// and the layout grows the line (FUN_00618b90/FUN_00618e40 case 7).
+// Adding the icons' overflow therefore grows the line's rect AND the chat
+// stack's spacing in one place — a 24px emote in 15px chat takes real vertical
+// room instead of overlapping its neighbours.
 //
-// The draw side aligns a tall icon by the line's vertical justify (the
-// emitter's icon loop, 4.3.4's three cases), and the engine places the text
-// in the grown rect by the same justify, so the overflow lands in the room
-// this adds.
+// The amount is 4.3.4's GxuFontGetWrappedTextHeight extraHeight: for each
+// wrapped line, how far its tallest icon reaches past the font height, summed
+// over the lines. The original's own wrap pass calls the wrap stepper once per
+// line, and the stepper co-hook adds each line's overflow (g_heightExtra), so
+// the lines are exactly the engine's breaks. The render moves each such line
+// and the lines after it down by the same amounts (the emitter co-hook) and
+// justifies the taller block (the origin-finalize co-hook), as 4.3.4 does.
 //
-// Same rules as the width hook: NEVER write the fs+0x100 cache (the delta is
-// re-derived and re-added per call — idempotent); overflow computed in pen px
-// and bridged by the font-height ratio, never /fs+0x7C. v1 limit (documented):
-// the delta is the WHOLE text's max overflow, exact when the tall icons sit on
-// one wrapped line (the emote case); two tall icons on different wrapped lines
-// of one message under-grow.
+// The original serves fs+0x100 when it is set and runs no wrap pass, so the
+// sum from the last real pass is kept per fontstring and reused while the
+// cache holds. Whenever the engine invalidates its cache the next call
+// recomputes both, so the sum is never staler than the engine's own height. The fs+0x100 cache
+// itself is NEVER written here — it keeps the engine's icon-free value and the
+// sum is added per call. The sum is in font heights, bridged by the fs font
+// height in the getter's units (never /fs+0x7C). Editbox text measures raw: the
+// stepper's InlineInterceptActive gate never adds for it.
 using StringHeightInternal_t = float(__fastcall *)(void *fs);
 StringHeightInternal_t g_stringHeightOriginal = nullptr;
 
+// Per fontstring: the summed line overflow (font heights) from the engine's
+// last real wrapped-height pass, reused while it serves its cached height.
+std::unordered_map<void *, float> g_fsHeightExtra;
+
 float __fastcall StringHeight_h(void *fs) {
-    const float base = g_stringHeightOriginal(fs);
     if (!LooksReadable(fs))
-        return base;
-    const bool editable =
-        (Game::Read<uint32_t>(fs, Offsets::OFF_FONTSTRING_MEASURE_FLAGS) & 0x1000u) != 0;
-    const uint8_t *text = Game::Read<const uint8_t *>(fs, Offsets::OFF_FONTSTRING_TEXT);
-    if (!LooksReadable(text) || !InlineInterceptActive(text, editable))
-        return base;
-    int len = 0;
-    while (len < 0x4000 && text[len] != '\0')
-        ++len;
-    if (!HasInlineTexture(text, len))
+        return g_stringHeightOriginal(fs);
+    // A zero cache means the original runs its wrapped-height pass, calling the
+    // wrap stepper once per line; the stepper adds each line's overflow here.
+    const bool fresh = Game::Read<float>(fs, Offsets::OFF_FONTSTRING_HEIGHT_CACHE) == 0.0f;
+    float extra = 0.0f;
+    float *const prevExtra = g_heightExtra;
+    g_heightExtra = &extra;
+    float base;
+    {
+        FsScope scope(fs);
+        base = g_stringHeightOriginal(fs);
+    }
+    g_heightExtra = prevExtra;
+    if (fresh) {
+        if (extra > 0.0f)
+            g_fsHeightExtra[fs] = extra;
+        else
+            g_fsHeightExtra.erase(fs);
+    } else {
+        auto it = g_fsHeightExtra.find(fs);
+        extra = (it != g_fsHeightExtra.end()) ? it->second : 0.0f;
+    }
+    if (!(extra > 0.0f))
         return base;
     FsPenFont pf;
     if (!ResolveFsPenFont(fs, pf))
         return base;
-    // Overflow computed in pen px — the space the render compares icon height
-    // against the font in — then bridged like the width hook.
-    return base + MaxIconOverflowPx(text, len, pf.fontHPen, pf.layoutScale) * (pf.fontHInt / pf.fontHPen);
+    return base + extra * pf.fontHInt;
 }
 
 static const Game::HookAutoRegister _stringHeightHook{
@@ -1133,25 +1232,22 @@ static const Game::HookAutoRegister _measureSubstringHook{
 // (|H…|h with a |T…:32|t emote) centres on the line and pokes past that band,
 // so only its text-high middle slice was hoverable.
 //
-// The consumer geometry (FUN_00788c00 → FUN_007a3350 + two in-game
-// experiments): the SMF rebuilds a HIT REGION per record, anchored to the
-// LINE FONTSTRING's TOP-LEFT with the record's y band as offset/height. The
-// band's y values are Y-UP (numeric max = screen top; extending the max
-// visibly grew the region into the line ABOVE), and the band is TEXT-relative
-// — but the string-height co-hook grew the fs rect by the icon overflow and
-// the text centres in the grown rect, so the anchor (rect top) already sits
-// HALF the overflow above the text top, pre-shifting the whole hit band up.
-// Net: the unmodified band covers [iconTop .. textBottom − half] — the
-// original "only the top half hovers" symptom — and the ONLY correction
-// needed is pushing the screen BOTTOM down by the FULL overflow, i.e.
-// DECREASING the numeric MIN edge. (Symmetric ± expansion moved the bottom
-// edge UP — bottom third dead; extending the max grew the top into the line
-// above — both verified in-game and both consistent with this model.)
-// escStart/escLen span the whole |H…|h escape, so any |T inside is found; the
-// InlineInterceptActive gate keeps raw-rendered contexts (suppressed editbox
-// delegation) literal. Known v1 rough edge: a tall icon OUTSIDE the link but
-// on the same line grows the line without this hook firing for the link,
-// leaving that link's band half-overflow high.
+// The consumer geometry (FUN_00788c00 → FUN_007a3350 + in-game experiments):
+// the SMF rebuilds a HIT REGION per record, anchored to the LINE FONTSTRING's
+// TOP-LEFT with the record's y band as offset/height. The band's y values are
+// Y-UP (numeric max = screen top; extending the max visibly grew the region
+// into the line ABOVE) and node-local, like the glyphs. The emitter has
+// already moved the line to make room for its tall icons and the origin
+// finalize justifies the taller block (4.3.4's layout), so the band sits on
+// the text; it only has to grow toward where the icon reaches past it, which
+// is the emitter's vertical alignment: below for top justify, above for
+// bottom, half each way for middle. (An earlier version pushed only the
+// bottom down by the full overflow — that compensated for text centred in a
+// grown rect, the offset the finalize co-hook now removes.) 4.3.4 itself keeps
+// the band at the text line; covering the icon is ClassicAPI's addition so a
+// tall icon inside a link hovers over its whole height. escStart/escLen span
+// the whole |H…|h escape, so any |T inside is found; the InlineInterceptActive
+// gate keeps raw-rendered contexts (suppressed editbox delegation) literal.
 using LinkRectAdd_t = void(__fastcall *)(void *node, void *edx, float yA, float xLeft, float yB,
                                          float xRight, const char *linkStart, uint32_t linkLen,
                                          const uint8_t *escStart, uint32_t escLen);
@@ -1170,14 +1266,17 @@ void __fastcall LinkRectAdd_h(void *node, void *edx, float yA, float xLeft, floa
             const float fontSize = Game::Read<float>(node, Offsets::OFF_TEXT_NODE_FONT_SIZE);
             const float fontH = reinterpret_cast<float(__fastcall *)(int, float)>(
                 Offsets::FUN_TEXT_FONT_HEIGHT)(static_cast<int>((nodeFlags >> 7) & 1u), fontSize);
-            const float overflow = MaxIconOverflowPx(escStart, len, fontH, NodeLayoutScale(node));
+            const float overflow = IconOverflowPx(escStart, len, fontH, NodeLayoutScale(node));
             if (overflow > 0.0f) {
-                // Push the SCREEN BOTTOM down: decrease the numeric MIN edge
-                // (y-up band) — see the anchor-shift analysis above.
-                if (yA <= yB)
-                    yA -= overflow;
-                else
-                    yB -= overflow;
+                // y-up band: the numeric min edge is the screen bottom.
+                const int justifyV = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_JUSTIFY_V);
+                const float below =
+                    (justifyV == 0) ? overflow : (justifyV == 2) ? 0.0f : overflow * 0.5f;
+                const float above = overflow - below;
+                float &lo = (yA <= yB) ? yA : yB;
+                float &hi = (yA <= yB) ? yB : yA;
+                lo -= below;
+                hi += above;
             }
         }
     }
@@ -1211,7 +1310,7 @@ static const Game::HookAutoRegister _linkRectAddHook{Offsets::FUN_TEXT_LINK_RECT
 // wrapWidth/outWidth are normalized-X (× rasterX = pen px). Both caller
 // flavors land there: the draw builder passes node+0x1C/+0x3C (normalized at
 // block creation via FUN_0041ae50/ae40), and the fs-level callers (height,
-// fit, break arrays — the path CHAT wraps through) x-normalize their widths
+// truncation, break arrays) x-normalize their widths
 // inside FUN_0044d670 before gxu. First flight subtracted raw pixels and
 // annihilated the small normalized widths (2-glyph chat fragments); the
 // second used fontH/fontHPx — a Y-axis factor on an X-axis width —
@@ -1222,6 +1321,36 @@ using WrapStepper_t = void(__fastcall *)(void *font, uint8_t *text, float fontH,
                                          void *outNext, float indent, uint32_t flags,
                                          uint8_t *p10);
 WrapStepper_t g_wrapStepperOriginal = nullptr;
+
+// Inside the string-height pass (g_heightExtra set): add this wrapped line's
+// icon overflow, in font heights. The line is [text, break) as the stepper
+// just reported it, so only icons that landed on it count — CalcWrapPoint's
+// height out-param, which GxuFontGetWrappedTextHeight sums.
+void AddLineOverflow(const uint8_t *text, float fontH, uint32_t flags, const int *outBreak,
+                     void *outNext) {
+    if (!(fontH > 0.0f) || !InlineInterceptActive(text, (flags & 0x40u) != 0))
+        return;
+    int len = 0;
+    while (len < 2048 && text[len] != '\0' && text[len] != '\n')
+        ++len;
+    if (!HasInlineTexture(text, len))
+        return;
+    int lineLen = len;
+    const int brk = (outBreak != nullptr) ? *outBreak : 0;
+    const uint8_t *next =
+        (outNext != nullptr) ? *static_cast<const uint8_t *const *>(outNext) : nullptr;
+    if (brk > 0 && brk < len)
+        lineLen = brk;
+    else if (next > text && next - text < len)
+        lineLen = static_cast<int>(next - text);
+    const float fontHPx = reinterpret_cast<float(__fastcall *)(int, float)>(
+        Offsets::FUN_TEXT_FONT_HEIGHT)(static_cast<int>((flags >> 7) & 1u), fontH);
+    if (!(fontHPx > 0.0f))
+        return;
+    const float overflow = IconOverflowPx(text, lineLen, fontHPx, WrapLayoutScale());
+    if (overflow > 0.0f)
+        *g_heightExtra += overflow / fontHPx;
+}
 
 void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrapWidth,
                               int *outBreak, float *outWidth, void *outNext, float indent,
@@ -1378,11 +1507,31 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
     }
     g_wrapStepperOriginal(font, text, fontH, wrapWidth, outBreak, outWidth, outNext, indent,
                           flags, p10);
+    if (g_heightExtra != nullptr && text != nullptr)
+        AddLineOverflow(text, fontH, flags, outBreak, outNext);
 }
 
 static const Game::HookAutoRegister _wrapStepperHook{
     Offsets::FUN_TEXT_WRAP_STEPPER, reinterpret_cast<void *>(&WrapStepper_h),
     reinterpret_cast<void **>(&g_wrapStepperOriginal)};
+
+// Break-array co-hook: the third fs-level wrap caller (the tooltip auto-size's
+// segment breaks, FontString:GetNumLines / GetWrappedWidth). It passes gxu the
+// font handle only, so the fontstring's layout scale reaches the stepper
+// through the scope — see g_scopeFs.
+using BreakArray_t = uint32_t(__fastcall *)(void *fs, void *edx, const char *text, float width,
+                                            int *outBreaks, int cap);
+BreakArray_t g_breakArrayOriginal = nullptr;
+
+uint32_t __fastcall BreakArray_h(void *fs, void *edx, const char *text, float width,
+                                 int *outBreaks, int cap) {
+    FsScope scope(fs);
+    return g_breakArrayOriginal(fs, edx, text, width, outBreaks, cap);
+}
+
+static const Game::HookAutoRegister _breakArrayHook{
+    Offsets::FUN_FONTSTRING_BREAK_ARRAY, reinterpret_cast<void *>(&BreakArray_h),
+    reinterpret_cast<void **>(&g_breakArrayOriginal)};
 
 // --- emitter co-hook (positioning) -----------------------------------------
 
@@ -1543,11 +1692,36 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // baseline, right} — FUN_005cdc20 passes &local_78 with local_74[0] =
     // baseline + font height + line spacing). These are exactly 4.3.4's
     // m_baseLineHeight / m_lineHeight for the line.
+    //
+    // A line whose tallest icon reaches past the font height moves down by
+    // that overflow, and every later line with it — 4.3.4's InitializeText:
+    // all of it before the line for bottom justify, all after for top, and
+    // floor(overflow / 2) before and after for middle. The builder keeps the
+    // pen y and the band in locals it hands over by pointer and lowers per
+    // line (penXYZ[1] = local_48, linkState[1]/[3] = local_74[0]/[2]), so
+    // moving them here carries into the lines that follow. The node's extra
+    // height (m_extraLineHeight) feeds the origin finalize. Only inside a
+    // tracked build — that is where the builder owns those locals.
+    const int justifyV = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_JUSTIFY_V);
+    const float lineOverflow =
+        (node == g_buildNode) ? IconOverflowPx(text, len, fontH, layoutScale) : 0.0f;
+    float lineShift = lineOverflow;
+    if (justifyV == 1)
+        lineShift = std::floor(lineShift * 0.5f);
+    auto shiftLine = [&]() {
+        penXYZ[1] -= lineShift;
+        *reinterpret_cast<float *>(&linkState[1]) -= lineShift;
+        *reinterpret_cast<float *>(&linkState[3]) -= lineShift;
+    };
+    if (lineOverflow > 0.0f) {
+        g_nodeExtra[node] += lineOverflow;
+        if (justifyV != 0)
+            shiftLine();
+    }
     const float baseline = penXYZ[1];
     float lineTop = *reinterpret_cast<const float *>(&linkState[1]);
     if (!(lineTop > baseline))
         lineTop = baseline + fontH;
-    const int justifyV = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_JUSTIFY_V);
 
     // Centre/right-justify correction. The engine positioned the pen (penXYZ[0])
     // using this line's MEASURED width, which counts inline icons as ~zero (the
@@ -1583,6 +1757,7 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
     // same skip for glyphs the face can't produce — to find the last glyph's
     // x, and its quad is measured with the helpers the emitter draws it with.
     using GlyphPairAdvance_t = float(__thiscall *)(void *font, uint32_t prevCh, uint32_t curCh);
+    using GlyphBaseAdvance_t = float(__thiscall *)(void *font, uint32_t ch);
     using GlyphDesc_t = uint8_t *(__thiscall *)(void *font, uint32_t ch);
     using GlyphBearing_t = float(__thiscall *)(void *font, uint8_t *desc, char scaled,
                                                float fontSize);
@@ -1643,6 +1818,18 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         float ink = bearing + cell;
         if (ink < 0.0f)
             ink = 0.0f;
+        // Never past the glyph's own advance. Every measure — the wrap stepper
+        // and the width hooks — counts the glyph by its advance and the icon
+        // by its width, so an ink edge beyond the advance (a glyph cell wider
+        // than its step) pushed each following icon, and the rest of the line,
+        // past the measured width: wrapped chat lines overran the frame edge.
+        float advance = reinterpret_cast<GlyphBaseAdvance_t>(
+                            Offsets::FUN_TEXT_GLYPH_BASE_ADVANCE)(fontFace, prevCh) *
+                        penScale;
+        if (snapNode)
+            advance = std::floor(advance + 0.5f);
+        if (ink > advance)
+            ink = advance;
         return lastX + ink + outlinePad;
     };
 
@@ -1683,9 +1870,8 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             // Vertical alignment by the node's justify-V, 4.3.4's three cases
             // (y-up): top → the icon's top on the line top; bottom → its
             // bottom on the baseline; middle → centred on the font height
-            // below the line top. The string-height co-hook grows the line by
-            // any overflow and the engine places the text in that taller rect
-            // by the same justify, so the overflow lands where the icon reaches.
+            // below the line top. The line has already moved down to make room
+            // (lineShift), so the overflow lands in space no other line uses.
             float bottom;
             if (justifyV == 0)
                 bottom = lineTop - sz.h;
@@ -1720,6 +1906,11 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
 
     // Trailing plain run (also finalizes pen/link state for the builder).
     drawRun(runStart, len - static_cast<int>(runStart));
+
+    // The rest of the tall line's move (see lineShift): after it for top and
+    // middle justify.
+    if (lineOverflow > 0.0f && justifyV != 2)
+        shiftLine();
 
     // Restore the pen origin to match the engine's own post-call invariant, and the
     // node flags (bit 3) we cleared for the segmented append.
