@@ -12,6 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 #include "Game.h"
+#include "Offsets.h"
 
 #include <cstring>
 
@@ -52,136 +53,103 @@ bool IsUnhookable(const char *name) {
 
 // Wrapper closure body — called when the hooked function is invoked.
 // Stack contains the wrapper's args (`[arg1..argN]`); the closure's
-// upvalues hold `(orig, callback)`.
+// upvalues hold `(orig, callback)`. 4.3.4's FrameScript_HookWrapper, less
+// its taint bookkeeping (1.12 has no taint):
 //
-// Modern `hooksecurefunc` semantics: original runs first, callback
-// runs after with the same args (returns ignored), original's
-// results propagate to the caller. No cap on return count. A buggy
-// callback must NOT prevent the original's results from reaching
-// the caller — that's why step (3) uses pcall.
-//
-// Stack-shuffling mirrors 3.3.5's `FUN_00817050` so the args sit at
-// the top for both calls without copying them twice; results sink
-// to the bottom and end up as the wrapper's natural return frame.
+//   1. orig(...) with lua_call — an error in the original propagates to
+//      the caller, as it would unhooked.
+//   2. Results sink below the args, so they end up as the wrapper's
+//      return frame without being copied again.
+//   3. callback(...) through lua_pcall with the engine's frame-script
+//      message handler as errfunc: a broken hook is REPORTED the way any
+//      script error is (the error frame / geterrorhandler), and the
+//      original's results still reach the caller.
 int __fastcall HookWrapper(void *L) {
     const int nargs = Game::Lua::GetTop(L);
 
-    // (1) orig(...) — pops orig + nargs args (copies), pushes results.
-    //     Stack after: `[arg1..argN, res1..resM]`.
-    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
+    // (1) Stack after: `[arg1..argN, res1..resM]`.
     for (int i = 1; i <= nargs; ++i)
         Game::Lua::PushValue(L, i);
+    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
+    Game::Lua::Insert(L, nargs + 1);
     Game::Lua::Call(L, nargs, Game::Lua::MULTRET);
     const int nresults = Game::Lua::GetTop(L) - nargs;
 
-    // (2) Shuffle results below the saved args. Each `Insert(L, 1)`
-    //     moves the current top down to position 1; running it
-    //     nresults times rotates the results block beneath the args.
+    // (2) Each `Insert(L, 1)` moves the top value to the bottom; nresults
+    //     of them rotate the results block beneath the args.
     //     Stack after: `[res1..resM, arg1..argN]`.
     for (int i = 0; i < nresults; ++i)
         Game::Lua::Insert(L, 1);
 
-    // (3) callback(...) via pcall — errors are caught and dropped so
-    //     the original's return values always reach the caller. This
-    //     is the load-bearing safety property of hooksecurefunc on
-    //     3.x; on 1.12 it just means a buggy hook can't break the
-    //     hooked path. errfunc=0 → no traceback (3.3.5 uses
-    //     `registry["_TRACEBACK"]`, not a 1.12 convention; we'd be
-    //     discarding the formatted message anyway).
+    // (3) Stack: `[res1..resM, errfunc, callback, arg1..argN]`. The
+    //     handler ref is the one every engine script pcall passes; 0 (not
+    //     yet set) falls back to no handler rather than a bad index.
     Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(2));
     Game::Lua::Insert(L, nresults + 1);
-    if (Game::Lua::PCall(L, nargs, 0, 0) != 0) {
-        // pcall failure leaves the error message on top; drop it.
-        Game::Lua::Remove(L, -1);
+    int errIdx = 0;
+    const int errRef = Game::Read<int>(
+        static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
+    if (errRef > 0) {
+        Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, errRef);
+        Game::Lua::Insert(L, nresults + 1);
+        errIdx = nresults + 1;
     }
+    Game::Lua::PCall(L, nargs, 0, errIdx);
 
-    // Stack: `[res1..resM]` — return the original's results verbatim.
+    // Drop the handler and any error value — `[res1..resM]` remains.
+    Game::Lua::SetTop(L, nresults);
     return nresults;
 }
 
-// `hooksecurefunc(name, callback)` — hooks a global by name, target
-// table is `_G`.
-// `hooksecurefunc(table, name, callback)` — hooks `table[name]`.
-//
-// In both cases the original function runs first and its results
-// propagate; `callback` runs after with the same args (returns
-// discarded). The "secure" label refers to taint propagation in
-// 3.x+; on 1.12 it's just a post-hook with return preservation.
+// `hooksecurefunc([table,] "function", hookfunc)` — replaces
+// `table[name]` (default `_G`) with a wrapper that runs the original, then
+// `hookfunc` with the same args, and returns the original's results.
+// 4.3.4's Script_hooksecurefunc, less taint:
+//   * a non-table first argument means `_G` is inserted at index 1, so
+//     both forms share one index layout;
+//   * the name only has to pass lua_isstring, so a number works (and is
+//     looked up as its string, the same as lua_tostring makes it);
+//   * the original is read with lua_gettable (inherited methods resolve
+//     through __index) but the wrapper is written with lua_rawset, so a
+//     target's __newindex never runs;
+//   * the error texts are 4.3.4's.
+// The one addition is the 11.0 unhookable-name check for the `_G` form.
 int __fastcall Script_HookSecureFunc(void *L) {
-    int targetIdx, nameIdx, callbackIdx;
-    const int t1 = Game::Lua::Type(L, 1);
+    const bool implicitGlobals = Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE;
+    if (implicitGlobals) {
+        Game::Lua::PushValue(L, Game::Lua::GLOBALS_INDEX);
+        Game::Lua::Insert(L, 1);
+    }
 
-    if (t1 == Game::Lua::TYPE_TABLE) {
-        // Three-arg form: (table, name, callback)
-        targetIdx = 1;
-        nameIdx = 2;
-        callbackIdx = 3;
-    } else if (t1 == Game::Lua::TYPE_STRING) {
-        // Two-arg form: (name, callback) — target = _G via pseudo-
-        // index. Don't push _G with `lua_pushvalue(GLOBALS_INDEX)`:
-        // it crashes (the pushvalue → setobj2s chain dereferences a
-        // bad TValue pointer for that pseudo-index). `lua_gettable` /
-        // `lua_settable` accept GLOBALS_INDEX as the table arg
-        // directly, so we use it that way without pushing.
-        targetIdx = Game::Lua::GLOBALS_INDEX;
-        nameIdx = 1;
-        callbackIdx = 2;
-    } else {
-        Game::Lua::Error(L,
-            "hooksecurefunc(table, name, callback) or hooksecurefunc(name, callback)");
+    if (!Game::Lua::IsString(L, 2) ||
+        Game::Lua::Type(L, 3) != Game::Lua::TYPE_FUNCTION) {
+        Game::Lua::Error(L, "Usage: hooksecurefunc([table,] \"function\", hookfunc)");
+        return 0;
+    }
+    Game::Lua::SetTop(L, 3);                    // [t, name, hookfunc]
+    // Converts a number name to its string in place; the string stays on
+    // the stack, so the pointer outlives every use below.
+    const char *name = Game::Lua::ToString(L, 2);
+
+    // Block the hook when targeting `_G` implicitly and the name is in the
+    // unhookable set. Not applied to the three-arg form (table targets):
+    // hooking `MyLib.pairs` is fine even if Lua's global `pairs` is not,
+    // and a caller who passes `_G` explicitly is opting in deliberately.
+    if (implicitGlobals && IsUnhookable(name)) {
+        Game::Lua::Error(L, "hooksecurefunc: function is unhookable");
         return 0;
     }
 
-    if (Game::Lua::Type(L, nameIdx) != Game::Lua::TYPE_STRING) {
-        Game::Lua::Error(L, "hooksecurefunc: name must be a string");
-        return 0;
-    }
-    if (Game::Lua::Type(L, callbackIdx) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Error(L, "hooksecurefunc: callback must be a function");
-        return 0;
-    }
-
-    // Block the hook when targeting `_G` and the name is in the unhookable
-    // set. We don't apply this to the three-arg form (table targets):
-    // hooking `MyLib.pairs` is fine even if Lua's global `pairs` is not —
-    // the blacklist is specifically about `_G[name]`. A user who passes
-    // `_G` explicitly as the table target is opting in deliberately and we
-    // don't second-guess it.
-    if (targetIdx == Game::Lua::GLOBALS_INDEX) {
-        const char *name = Game::Lua::ToString(L, nameIdx);
-        if (IsUnhookable(name)) {
-            Game::Lua::Error(L,
-                "hooksecurefunc: function is unhookable");
-            return 0;
-        }
-    }
-
-    // Fetch target[name] — the original function. `gettable` uses
-    // metamethods, so frame methods (resolved via the frame
-    // metatable's __index) come back as callable closures, exactly
-    // what we want to wrap.
-    Game::Lua::PushValue(L, nameIdx);
-    Game::Lua::GetTable(L, targetIdx);
+    Game::Lua::PushValue(L, 2);
+    Game::Lua::GetTable(L, 1);                  // [t, name, hookfunc, orig]
     if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Error(L, "hooksecurefunc: target field is not a function");
+        Game::Lua::Error(L, "hooksecurefunc(): %s is not a function", name);
         return 0;
     }
 
-    // Push callback as the second upvalue; orig is already on top
-    // from the GetTable above.
-    Game::Lua::PushValue(L, callbackIdx);
-
-    // Build the wrapper as a C closure with (orig, callback) as the
-    // two upvalues. PushCClosure pops the upvalues from the stack
-    // and pushes the closure.
-    Game::Lua::PushCClosure(L, &HookWrapper, 2);
-
-    // Install: target[name] = wrapper. SetTable expects the value
-    // on top and the key just below; push them in that order.
-    Game::Lua::PushValue(L, nameIdx);
-    Game::Lua::PushValue(L, -2);  // duplicate the closure
-    Game::Lua::SetTable(L, targetIdx);
-
+    Game::Lua::Insert(L, 3);                    // [t, name, orig, hookfunc]
+    Game::Lua::PushCClosure(L, &HookWrapper, 2); // [t, name, wrapper]
+    Game::Lua::RawSet(L, 1);                    // t[name] = wrapper
     return 0;
 }
 
@@ -190,7 +158,13 @@ int __fastcall Script_HookSecureFunc(void *L) {
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("hooksecurefunc", &Script_HookSecureFunc);
 }
+// 4.3.4 registers it from FrameScript_Initialize, which runs for the glue
+// state (Client.cpp) as well as the world (GameUI.cpp).
+static void RegisterGlueFunctions() {
+    Game::Lua::RegisterGlueFunction("hooksecurefunc", &Script_HookSecureFunc);
+}
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+static const Game::GlueModuleAutoRegister _autoregGlue{&RegisterGlueFunctions};
 
 } // namespace HookSecureFunc

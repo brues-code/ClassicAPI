@@ -238,6 +238,9 @@ using lua_pushcclosure_t = void(__fastcall *)(void *L, CFunction fn, int upvals)
 using lua_newtable_t = void(__fastcall *)(void *L);
 using lua_gettable_t = void(__fastcall *)(void *L, int idx);
 using lua_rawget_t = void(__fastcall *)(void *L, int idx);
+// Pushes t[n] for the table at idx, raw (no metamethods). With idx =
+// REGISTRY_INDEX it pushes a value stored under an integer ref.
+using lua_rawgeti_t = void(__fastcall *)(void *L, int idx, int n);
 using lua_settable_t = void(__fastcall *)(void *L, int idx);
 using lua_rawset_t = void(__fastcall *)(void *L, int idx);
 // Pushes the metatable of the value at idx and returns 1, or pushes
@@ -299,6 +302,7 @@ extern const lua_pushcclosure_t PushCClosure;
 extern const lua_newtable_t NewTable;
 extern const lua_gettable_t GetTable;
 extern const lua_rawget_t RawGet;
+extern const lua_rawgeti_t RawGetI;
 extern const lua_settable_t SetTable;
 extern const lua_rawset_t RawSet;
 extern const lua_getmetatable_t GetMetatable;

@@ -61,6 +61,7 @@ namespace Lua {
     F(NewTable,    lua_newtable,    LUA_NEW_TABLE)    \
     F(GetTable,    lua_gettable,    LUA_GET_TABLE)    \
     F(RawGet,      lua_rawget,      LUA_RAW_GET)      \
+    F(RawGetI,     lua_rawgeti,     LUA_RAWGETI)      \
     F(SetTable,    lua_settable,    LUA_SET_TABLE)    \
     F(RawSet,      lua_rawset,      LUA_RAW_SET)      \
     F(GetMetatable,lua_getmetatable,LUA_GET_METATABLE)\

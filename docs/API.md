@@ -8418,16 +8418,24 @@ protected-frame manipulation. There is no taint system here, so the
 function is equivalent to a plain "after-hook" — the name is kept for
 API parity.
 
-Implemented in pure C: builds a Lua C closure with `(orig, callback)`
-as upvalues; the wrapper calls orig with `LUA_MULTRET`, then callback,
-then returns orig's full result list. No return-count cap — works
-correctly for functions returning any number of values.
+- All of the original's return values reach the caller, however many
+  there are.
+- An error in the original reaches the caller, the same as without the
+  hook.
+- An error in `callback` is shown like any other script error, through
+  the error handler (`geterrorhandler()`). The original's return values
+  still reach the caller.
+- `name` can be a number. It is looked up as its string form.
+- The hook is written directly into the table. A `__newindex` metamethod
+  on the table does not run. The original is read normally, so a method
+  the table inherits through `__index` can be hooked.
+- Works in the world and on the login screen.
 
-Errors via `lua_error` on:
-- Non-string `name`
-- Non-function `callback`
-- `target[name]` not resolvable to a function (covers typos and
-  hooking unknown frame methods)
+Errors:
+- `Usage: hooksecurefunc([table,] "function", hookfunc)` when `name` is
+  not a string or number, or `callback` is not a function.
+- `hooksecurefunc(): <name> is not a function` when `table[name]` is not
+  a function (a typo, or an unknown frame method).
 - The two-argument form naming a function that cannot be hooked on `_G`
   (error `hooksecurefunc: function is unhookable`): `getfenv`,
   `getmetatable`, `hooksecurefunc`, `ipairs`, `issecurevalue`,

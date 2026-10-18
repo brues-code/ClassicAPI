@@ -82,15 +82,11 @@ bool g_enabled = true;
 constexpr int kMaxArgs = 19;
 
 // --- raw engine primitives not exposed via Game::Lua -----------------------
-// lua_rawgeti(L, idx, n) — push table_at_idx[n]. Used with idx = REGISTRY to
-// push a value stored under an integer ref (handler / frame object / message
-// handler / luaL_ref'd saved globals).
-using RawGetI_t = void(__fastcall *)(void *L, int idx, int ref);
 // FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER — __thiscall(frame, nameOrNull);
 // lazily materializes the frame's Lua-registry ref at frame+OFF_COBJECT_LUA_REF.
 using ScriptRegister_t = void(__thiscall *)(void *frame, void *nameOrNull);
 
-const auto RawGetI = reinterpret_cast<RawGetI_t>(Offsets::LUA_RAWGETI);
+using Game::Lua::RawGetI;
 
 // Returns the frame's Lua object ref (frame+0x08), lazily creating it exactly
 // as the engine runner does (`if (refcount == 0) ScriptRegister(frame, 0)`).
