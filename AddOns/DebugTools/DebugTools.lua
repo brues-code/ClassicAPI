@@ -6,10 +6,8 @@
 --    explicit (this, event, arg1..arg9) parameters from XML inline scripts.
 --  * RegisterAllEvents is used when available; the curated default list is
 --    a fallback if the client doesn't expose it.
---  * No GameTooltip:SetFrameStack -- /framestack walks the engine's
---    frame list via EnumerateFrames(prev) and renders into our own
---    FrameStackTooltip instead. Catches anonymous frames the modern
---    engine method shows but a _G walk would miss.
+--  * /fstack accepts "true" (as on 3.3.5) or "hidden" to list hidden
+--    frames too.
 --  * No UIPanelDialogTemplate, no parentKey, no clampedToScreen, no
 --    OnSizeChanged in vanilla -- frames have fixed dimensions.
 --  * No debuglocals
@@ -980,70 +978,6 @@ function DebugTooltip_OnLoad(self)
     end
 end
 
-local _STRATA_RANK = {
-    BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4,
-    DIALOG = 5, FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8,
-};
-
--- Walks every frame the engine knows about via EnumerateFrames (the
--- engine-internal frame iterator). Beats a getfenv(0) walk on two
--- counts: faster (the engine list is much shorter than _G), and
--- includes anonymous frames that never appear in globals (parented
--- templates, runtime `CreateFrame` with no `name` arg, etc.). The
--- iteration order itself is engine-implementation detail; we re-
--- sort by strata + level below either way.
-local function _CollectFramesUnderMouse(showHidden)
-    local matches = {};
-    local frame = EnumerateFrames(nil);
-    while (frame) do
-        local visOK, visible = pcall(frame.IsVisible, frame);
-        local overOK, mouseOver = pcall(frame.IsMouseOver, frame);
-        if (overOK and mouseOver and (showHidden or (visOK and visible))) then
-            local nameOK, name = pcall(frame.GetName, frame);
-            if (not nameOK or not name) then name = "<anonymous>"; end
-            table.insert(matches, { name = name, frame = frame });
-        end
-        frame = EnumerateFrames(frame);
-    end
-    table.sort(matches, function(a, b)
-        local sa = _STRATA_RANK[a.frame:GetFrameStrata()] or 0;
-        local sb = _STRATA_RANK[b.frame:GetFrameStrata()] or 0;
-        if (sa ~= sb) then return sa > sb; end
-        local la = a.frame:GetFrameLevel() or 0;
-        local lb = b.frame:GetFrameLevel() or 0;
-        return la > lb;
-    end);
-    return matches;
-end
-
-local function _UpdateFrameStackTooltip(tooltip, showHidden)
-    tooltip:ClearLines();
-    tooltip:AddLine(DEBUG_FRAMESTACK or "Frame Stack", 1, 1, 1);
-    local matches = _CollectFramesUnderMouse(showHidden);
-    local count = table.getn(matches);
-    if (count == 0) then
-        tooltip:AddLine("(no frames under cursor)", .7, .7, .7);
-    else
-        local shown = 0;
-        for i = 1, count do
-            local m = matches[i];
-            local strata = m.frame:GetFrameStrata() or "?";
-            local level  = m.frame:GetFrameLevel() or 0;
-            local label = string.format("%s |cff888888[%s:%d]|r",
-                                        m.name, strata, level);
-            tooltip:AddLine(label, 1, .82, 0);
-            shown = shown + 1;
-            if (shown >= 30) then
-                tooltip:AddLine(string.format("|cffff8888...%d more|r",
-                                              count - shown),
-                                1, 1, 1);
-                break;
-            end
-        end
-    end
-    tooltip:Show();
-end
-
 function FrameStackTooltip_Toggle(showHidden)
     local tooltip = FrameStackTooltip;
     if (tooltip:IsVisible()) then
@@ -1053,7 +987,7 @@ function FrameStackTooltip_Toggle(showHidden)
         tooltip:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -32, 96);
         tooltip.default = 1;
         tooltip.showHidden = showHidden;
-        _UpdateFrameStackTooltip(tooltip, showHidden);
+        tooltip:SetFrameStack(showHidden);
     end
 end
 
@@ -1064,7 +998,7 @@ function FrameStackTooltip_OnUpdate(self, elapsed)
     _frameStackAccum = _frameStackAccum + elapsed;
     if (_frameStackAccum >= FRAMESTACK_UPDATE_TIME) then
         _frameStackAccum = 0;
-        _UpdateFrameStackTooltip(self, self.showHidden);
+        self:SetFrameStack(self.showHidden);
     end
 end
 
@@ -1095,7 +1029,7 @@ FrameStackTooltip_OnEnter = FrameStackTooltip_OnShow;
 
 function FrameStackTooltip_HandleSlashCmd(msg)
     if (msg == nil) then msg = ""; end
-    local showHidden = (string.find(msg, "hidden") ~= nil);
+    local showHidden = (msg == "true" or string.find(msg, "hidden") ~= nil);
     FrameStackTooltip_Toggle(showHidden);
 end
 
