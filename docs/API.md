@@ -12490,22 +12490,23 @@ end
 
 ### The closed world map follows the player's zone
 
-While the world map is closed, it stays on the zone you're in, as on 3.x
-clients: it's put back on your zone when you close it, when you enter the
-world, and when you move into a new zone. `GetPlayerMapPosition("player")`
-reads the map it's set to, so code written for 3.x gets your position
-without setting the map first:
+While the world map is closed, it stays on the zone that you are in. The
+map goes back to your zone at these times:
+
+- when you close the map
+- when you enter the world
+- when you go into a new zone
+
+`GetPlayerMapPosition("player")` reads the zone that the map is set to. As a
+result, code can read your position without setting the map first:
 
 ```lua
--- world map closed, any time after zoning
+-- world map closed, after you go into a new zone
 local x, y = GetPlayerMapPosition("player")   -- your position in this zone
 ```
 
-On vanilla the closed map stayed on whatever zone it last showed, and that
-call returned `0, 0` in any other zone until the map was opened. The 3.x
-interface resets it in `WorldMapFrame_OnHide` and in the quest tracker's
-`PLAYER_ENTERING_WORLD` and `ZONE_CHANGED_NEW_AREA` handlers; ClassicAPI
-does the same.
+While the map is open, a zone change does not move it. The map stays on the
+zone that you look at.
 
 ### `C_Map.GetAreaInfo(areaID)`
 
