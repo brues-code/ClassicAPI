@@ -102,13 +102,13 @@ int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
         bottom = 0.0f;
     }
     // The screen's extent in layout units, the bounds the engine's clamp uses.
-    const float width = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
+    const float width = Game::Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
     if (right > width) {
         dx -= right - width;
         left -= right - width;
         right = width;
     }
-    const float height = Game::Read<float>(Offsets::VAR_UI_ANCHOR_SCREEN_H);
+    const float height = Game::Read<float>(Offsets::VAR_COORD_DDC_HEIGHT_SCALE);
     if (top > height) {
         dy -= top - height;
         bottom -= top - height;

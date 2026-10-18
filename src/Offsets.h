@@ -494,18 +494,24 @@ enum Offsets {
     // measure getters push: Script_GetStringWidth (0x0079E510) — and our
     // GetStringHeight backport — compute `px = internal * [0x00832A4C] *
     // 1024 / [0x00832A44]` (FUN_0041AE40(FUN_0041AD70() × DAT_007FFD68 × v)).
-    VAR_UI_COORD_SCALE_MUL = 0x00832A44,   // float numerator
-    VAR_UI_COORD_SCALE_DIV = 0x00832A4C,   // float denominator base
-    UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
-    // Semantically, [0x832A44] is the SCREEN WIDTH IN ANCHOR UNITS (the
-    // full-screen x extent of the internal layout space) — that's why it's
-    // the px→internal numerator above — and [0x832A48] is its Y sibling
-    // (screen HEIGHT in anchor units). Verified via the gxu text position
+    //
+    // These four floats are the engine's Coordinate statics — the same block
+    // 3.3.5/4.3.4 keep as s_aspectRatio / s_ddcWidthScale / s_ddcHeightScale /
+    // s_aspectCompensation (Base/Coordinate.cpp in the 4.3.4 decomp; the 1.12
+    // image carries the identical static initializers 4/3, 0.8, 0.6, 1.0 at
+    // 0x00832A40). The anchor ("DDC", diagonal-normalized) space spans
+    // ddcWidthScale × ddcHeightScale across the screen, so the width scale IS
+    // the screen width in anchor units — the px→internal numerator above —
+    // and the height scale its Y sibling. Set together by the engine's
+    // CoordinateSetAspectRatio: comp = aspect × 0.75, s = 1/√(aspect²+1),
+    // height = s, width = aspect × s. Verified via the gxu text position
     // converter FUN_0041ade0: block/node positions are stored NORMALIZED,
-    // x = anchor/[0x832A44], y = anchor/[0x832A48] (the y global was
-    // previously unmapped — the x/y pair sits at +0x00/+0x04, the SetPoint
-    // denominator base at +0x08).
-    VAR_UI_ANCHOR_SCREEN_H = 0x00832A48,
+    // x = anchor / width scale, y = anchor / height scale.
+    VAR_COORD_ASPECT_RATIO = 0x00832A40,
+    VAR_COORD_DDC_WIDTH_SCALE = 0x00832A44,
+    VAR_COORD_DDC_HEIGHT_SCALE = 0x00832A48,
+    VAR_COORD_ASPECT_COMPENSATION = 0x00832A4C,
+    UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
     // gxu text-raster dimensions — INT dwords holding the live render-target
     // size in PIXELS ({0,0,640,480} fallback), written by FUN_005c2b50 from
     // the render-target rect (FUN_0058a240) whenever it changes; every font
@@ -516,7 +522,7 @@ enum Offsets {
     // vertical align; the emitter's font-height helper FUN_005C6FA0 is
     // round(fontSize × [VAR_TEXT_RASTER_Y]) the same way (x sibling
     // FUN_005C7010 uses _X). So TEXT PEN UNITS ARE RENDER-TARGET PIXELS, and
-    // pen-per-anchor = [VAR_TEXT_RASTER_*] / [VAR_UI_ANCHOR_SCREEN_*] per
+    // pen-per-anchor = [VAR_TEXT_RASTER_*] / [VAR_COORD_DDC_*_SCALE] per
     // axis — the exact conversion Text::InlineTexture's flush uses to place
     // icon regions (verified against a live probe: rasterX/anchorW matched
     // the measured origin÷rect-edge quotient to four digits).
@@ -2741,8 +2747,8 @@ enum Offsets {
     // resolves the four edges from the anchors, returns 0 if any is
     // unresolved, and for a clamped frame slides the rect onto the screen, in
     // this order: right if left < 0, up if bottom < 0, left if right >
-    // FUN_0041AE60(1) = [VAR_UI_COORD_SCALE_MUL], down if top >
-    // FUN_0041AE70(1) = [VAR_UI_ANCHOR_SCREEN_H] (so a frame bigger than the
+    // FUN_0041AE60(1) = [VAR_COORD_DDC_WIDTH_SCALE], down if top >
+    // FUN_0041AE70(1) = [VAR_COORD_DDC_HEIGHT_SCALE] (so a frame bigger than the
     // screen ends up flush with the top right). Its only caller is the layout
     // update at 0x00768D20, which caches the result at layout+0x40..0x4C.
     //
@@ -9629,6 +9635,12 @@ enum Offsets {
     // line's justify offset for centre/right nodes (left needs no shift).
     // Verified in-game against centred/right-aligned text layout.
     OFF_TEXT_NODE_JUSTIFY = 0x54,
+    // Node vertical justify (int): 0 = top, 1 = middle, 2 = bottom. Read by the
+    // origin finalize FUN_005cdf70 (0 → origin y += block height, 1 → centred
+    // on the text height, else → += text height) — the same three-way branch
+    // as 4.3.4's CGxString::InitializeViewTranslation over m_vertJust. Inline
+    // icons align to the line by it, as 4.3.4's InitializeTextLine does.
+    OFF_TEXT_NODE_JUSTIFY_V = 0x50,
     // Node screen origin (float x, float y). The paint pass translates the
     // node's node-local glyph verts by this; an inline icon recorded in
     // node-local pen coords is drawn at (localX + originX, localY + originY).
@@ -9713,26 +9725,33 @@ enum Offsets {
     // kern(prevCh,curCh)·[font+0x188], memoized per pair. The emitter computes
     // this at the top of each token iteration and places the CURRENT glyph at
     // pen + pairAdvance(prev, cur) — i.e. the pen is LAZY: a glyph's own
-    // advance is only consumed when the NEXT token lands. Consequence
-    // (verified in FUN_005ccbe0's tail): the emitter's final pen write
-    // (linkState[4]) is x(lastGlyph) + pairAdvance(secondLast, last) — the
-    // last pair RE-ADDED as a stand-in for the last glyph's own advance. For a
-    // single-glyph run that stand-in is 0 (no pair ever computed) → the
-    // read-back reports the run as zero-width (the money-string "coin sits on
-    // the lone digit" bug). The emitter co-hook corrects the read-back with
-    // these helpers: pen = linkState[4] − pairAdvance(prev,last)·scale +
-    // baseAdvance(last)·scale. See FUN_005ca2d0.
+    // advance is only consumed when the NEXT token lands, so the final pen
+    // write (linkState[4]) is NOT the end of the last glyph. The emitter
+    // co-hook therefore replays the run's glyph placements itself to find
+    // the last glyph's x (see FUN_TEXT_GLYPH_DESC). In snap mode (node flags
+    // bit 7 clear) the emitter rounds each step: `FADD 0.5; __ftol`.
+    // See FUN_005ca2d0.
     FUN_TEXT_GLYPH_PAIR_ADVANCE = 0x005CA2D0,
     // The flags&0x10 variant of the pair advance (same shape; the emitter
     // selects it when node flags bit 4 is set). See FUN_005ca4b0.
     FUN_TEXT_GLYPH_PAIR_ADVANCE_ALT = 0x005CA4B0,
-    // Glyph BASE advance: `__thiscall(void *fontFace, uint ch) -> float (ST0)`,
-    // native-font units, from the font's glyph cache (present for any glyph the
-    // emitter just drew; returns a default for uncached). This is the pair
-    // advance's first term — the terminal-glyph advance with no following
-    // kern, exactly what an inline icon following the glyph needs. See
-    // FUN_005ca240.
-    FUN_TEXT_GLYPH_BASE_ADVANCE = 0x005CA240,
+    // CGxFont::NewCodeDesc — `__thiscall(void *fontFace, uint ch) ->
+    // CHARCODEDESC*` (NULL when the face has no such glyph). Hash lookup, and
+    // on a miss rasterizes the glyph into the face's pages; the emitter calls
+    // it for every glyph it draws, so a just-drawn glyph is always a hit. The
+    // descriptor layout matches 4.3.4's (Gxu/GxuFontMiscClasses.h):
+    // GLYPHBITMAPDATA at +0x38, so its m_glyphCellWidth (u32) is +0x48, its
+    // m_glyphAdvance (float) +0x4C and m_glyphBearing (float) +0x50. The
+    // emitter draws a glyph's quad from x + bearing to
+    // x + bearing + cellWidth × scale, flooring the width in snap mode
+    // (FUN_0073ff3f with the round-down control word at 0x00875F00).
+    FUN_TEXT_GLYPH_DESC = 0x005CABD0,
+    OFF_GLYPH_DESC_CELL_WIDTH = 0x48,
+    // CGxFont::GetGlyphBearing — `__thiscall(void *fontFace, CHARCODEDESC
+    // *desc, char scaled, float fontSize) -> float (ST0)`: ceil(bearing)
+    // when `scaled` is 0, else bearing × (fontPx ÷ native height). The emitter
+    // passes (nodeFlags >> 7) & 1 and the node's font size. See FUN_005cb080.
+    FUN_TEXT_GLYPH_BEARING = 0x005CB080,
     // Hyperlink hit-rect registration (the GXUFONTHYPERLINKINFO append).
     // `__thiscall(node, float yA, float xLeft, float yB, float xRight,
     // char *linkStart, uint linkLen, char *escStart, uint escLen)` — 8 stack
@@ -9918,8 +9937,8 @@ enum Offsets {
     // 0x007728F4) → declare `__fastcall(fs, edx_unused, int mode)`. The ENGINE's
     // width path multiplies its return by [fs+0x7C] (the layout UI SCALE) before
     // handing it to the measure core. Our width hook instead converts it to UI
-    // PIXELS (× the anchor→px push factor VAR_UI_COORD_SCALE_DIV × 1024 /
-    // VAR_UI_COORD_SCALE_MUL, ≈1468) to resolve `:0` auto-sized icon dims —
+    // PIXELS (× the anchor→px push factor VAR_COORD_ASPECT_COMPENSATION × 1024 /
+    // VAR_COORD_DDC_WIDTH_SCALE, ≈1468) to resolve `:0` auto-sized icon dims —
     // escape sizes are PIXELS, not fs+0x7C-scaled pen units; dividing a pixel
     // advance by fs+0x7C (~0.68) inflated a 16px icon to +44k measured px on
     // first flight. Distinct from FUN_TEXT_FONT_HEIGHT (0x005C6FA0), the

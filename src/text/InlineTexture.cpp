@@ -51,7 +51,9 @@
 //
 // Supports the full positional payload
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
-// (size, pen offset, sprite-sheet texcoord crop, and r:g:b vertex tint). MEASURE
+// (size, pen offset, sprite-sheet texcoord crop, and r:g:b vertex tint). Size,
+// spacing and vertical alignment follow 4.3.4's rules exactly — see the "icon
+// geometry" block and docs/InlineTextureEscapes.md "Icon geometry". MEASURE
 // is corrected at the fs-level chokes: the tokenizer still reports an icon as
 // ~zero to every measure/wrap loop (the token contract has no size fields), but
 // a co-hook on the internal string-width getter (FUN_FONTSTRING_STRING_WIDTH)
@@ -59,8 +61,8 @@
 // the tooltip auto-size, and auto-width layout match the rendered width — a
 // co-hook on the internal string-height getter (FUN_FONTSTRING_STRING_HEIGHT)
 // adds the tallest icon's overflow past the font height — so a tall icon's
-// LINE grows to fit it (chat stacking + auto-height rects; tall icons
-// bottom-align at draw so the overflow points into the grown space) — and a
+// LINE grows to fit it (chat stacking + auto-height rects; the icon aligns by
+// the line's vertical justify, as the text does in the grown rect) — and a
 // co-hook on the shared wrap-stepper dispatcher (FUN_TEXT_WRAP_STEPPER)
 // shrinks the wrap width by the line's icon advances so wrapped lines break at
 // the visible edge instead of overflowing. Still icon-blind (documented,
@@ -97,12 +99,15 @@ namespace {
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
 // payload. Trailing fields are optional; texcoords crop a sprite sheet (e.g. the
 // raid-target icons) to one cell, and r:g:b (0-255) tint the icon.
+// Sizes stay as WRITTEN here; ResolveIconSize turns them into pixels against
+// the line's font, which is only known at the emitter/measure site.
 struct IconDesc {
     std::string path;
-    float height = 0.0f;
-    float width = 0.0f;   // defaults to height when the width field is absent/0
-    float offsetX = 0.0f; // pen-relative pixel shift
-    float offsetY = 0.0f;
+    float height = 0.0f;     // <= 0 → the line's font height
+    float width = 0.0f;      // see ResolveIconSize for the three cases
+    bool widthGiven = false; // the width field was present (even as 0)
+    float offsetX = 0.0f;    // screen pixels, right; never scaled
+    float offsetY = 0.0f;    // screen pixels, up; never scaled
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f; // full texture by default
     // Vertex colour (modulates the texture). Packed 0xAARRGGBB — the same order
     // the engine builds for `|cAARRGGBB` text (verified in the tokenizer's colour
@@ -157,10 +162,9 @@ bool ParseIcon(const char *payload, size_t len, IconDesc &out) {
     }
     if (nf < 1)
         return false; // need at least the height field
-    // height/width of 0 means "auto" — resolved to the line's font height at emit
-    // time (retail's `:0:0` convention, e.g. GetCoinTextureString coins).
     out.height = f[0];
-    out.width = (nf >= 2 && f[1] > 0.0f) ? f[1] : out.height;
+    out.widthGiven = (nf >= 2);
+    out.width = out.widthGiven ? f[1] : 0.0f;
     out.offsetX = (nf >= 3) ? f[2] : 0.0f;
     out.offsetY = (nf >= 4) ? f[3] : 0.0f;
     // texW=f[4] texH=f[5] left=f[6] right=f[7] top=f[8] bottom=f[9] -> normalized
@@ -228,13 +232,15 @@ bool ParseAtlasIcon(const char *payload, size_t len, IconDesc &out) {
         p = nx;
     }
     // An omitted or 0 height means "the atlas's own pixel size" — resolved HERE,
-    // not deferred to the line font height the `|T` path falls back to. Doing it
-    // at parse time is what keeps the rest of the pipeline identical for both.
+    // not deferred to the line font height the `|T` path falls back to. The
+    // result is an explicit size, so ResolveIconSize scales it exactly like a
+    // written `|T` size.
     const float nativeH = info->height;
     const float nativeW = info->width;
     out.height = (nf >= 1 && f[0] > 0.0f) ? f[0] : nativeH;
     if (out.height <= 0.0f)
         return false; // no usable size anywhere → nothing to draw
+    out.widthGiven = true;
     if (nf >= 2 && f[1] > 0.0f)
         out.width = f[1];
     else if (nativeH > 0.0f && nativeW > 0.0f)
@@ -255,15 +261,14 @@ bool ParseIconSpan(const char *payload, size_t len, char kind, IconDesc &out) {
 
 // One icon to draw, in the render node's node-local coordinate space (the same
 // space glyph verts live in — the paint pass translates it by the node origin).
+// Y is UP, as in the engine's own text layout (the pen descends per line).
 struct IconRecord {
     std::string path;       // texture path
-    float x;                // node-local pen x at the icon
-    float y;                // node-local pen reference (penXYZ[1]) — near the text top
-    float fontH;            // font pixel height of the line, for vertical centering
+    float left;             // node-local x of the icon's left edge
+    float bottom;           // node-local y of the icon's bottom edge
     float w;
     float h;
-    float offsetX, offsetY; // pen-relative pixel shift
-    float outlineInk;       // OutlineInkPen of the line's face — half leads the icon
+    float offsetX, offsetY; // screen-pixel shift (right, up)
     float u0, v0, u1, v1;   // texture crop
     uint32_t color;         // vertex tint (0xAARRGGBB; white = untinted)
 };
@@ -297,13 +302,6 @@ std::unordered_map<void *, void *> g_nodeOwner;
 // place because every baked glyph carries the node alpha).
 std::unordered_map<void *, uint32_t> g_nodeBakedColor;
 
-// Region calibration, PEN units added to the region's position. x needs no
-// constant — the +3 once calibrated here turned out to be the missing lead pad,
-// now applied at draw. y keeps a 1px residual (the pen→anchor map's one true
-// constant). Calibrated in-game during bring-up; fixed now.
-constexpr float g_regionCalX = 0.0f;
-constexpr float g_regionCalY = -1.0f;
-
 // Draw-builder co-hook: exact build boundaries for first-line detection. The
 // builder runs once per node build and calls the emitter per wrapped line;
 // stamping the node + zeroing the emit counter here lets the emitter know
@@ -334,6 +332,26 @@ void *OwningFontStringOf(void *node) {
         return nullptr;
     void *cur = Game::Read<void *>(block, Offsets::OFF_TEXTBLOCK_NODE);
     return (cur == node) ? ow->second : nullptr;
+}
+
+// The owning fontstring's layout scale (fs+0x7C), or 1 when the node's owner
+// isn't known. Feeds 3.3.5's extra size factor (see ResolveIconSize).
+float NodeLayoutScale(void *node) {
+    void *fs = OwningFontStringOf(node);
+    if (fs == nullptr)
+        return 1.0f;
+    const float scale = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
+    return (scale > 0.0f) ? scale : 1.0f;
+}
+
+// The layout scale for a wrap-stepper call: the node being built when the draw
+// builder is the caller. The fs-level callers (height, fit, break arrays) pass
+// no fontstring down, so they get 1. Below a UI scale of 1 that over-budgets
+// the icons and a line holding several can wrap a word early (never
+// overflow); above 1 it under-budgets. Known gap — closing it needs the
+// fontstring at the fs-level layout helper FUN_0044d670.
+float WrapLayoutScale() {
+    return (g_buildNode != nullptr) ? NodeLayoutScale(g_buildNode) : 1.0f;
 }
 
 using DrawBuilder_t = void(__fastcall *)(void *node);
@@ -415,8 +433,8 @@ static const Game::HookAutoRegister _rebuildHook{Offsets::FUN_FONTSTRING_REBUILD
 // read live from the same four globals the text pipeline uses. Verified by
 // decompiling the whole chain this session:
 //   FUN_0041ade0: block/node positions are stored NORMALIZED — fs-local anchor
-//     x ÷ [VAR_UI_COORD_SCALE_MUL] (= screen width in anchor units), y ÷
-//     [VAR_UI_ANCHOR_SCREEN_H];
+//     x ÷ [VAR_COORD_DDC_WIDTH_SCALE] (= screen width in anchor units), y ÷
+//     [VAR_COORD_DDC_HEIGHT_SCALE];
 //   FUN_005cdf70 (origin finalize): node origin (+0x70/+0x74) =
 //     round(normalized × [VAR_TEXT_RASTER_X/Y]) — render-target PIXELS, with
 //     the justify shift and vertical align folded in.
@@ -437,8 +455,8 @@ struct PenScale {
     float x = 0.0f, y = 0.0f;
 };
 PenScale PenPerAnchor() {
-    const float aw = Game::Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
-    const float ah = Game::Read<float>(Offsets::VAR_UI_ANCHOR_SCREEN_H);
+    const float aw = Game::Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
+    const float ah = Game::Read<float>(Offsets::VAR_COORD_DDC_HEIGHT_SCALE);
     const int rx = Game::Read<int>(Offsets::VAR_TEXT_RASTER_X);
     const int ry = Game::Read<int>(Offsets::VAR_TEXT_RASTER_Y);
     PenScale k;
@@ -566,28 +584,6 @@ inline bool NodeEditable(const void *node) {
     return (Game::Read<uint32_t>(node, Offsets::OFF_TEXT_NODE_FLAGS) & 0x40u) != 0;
 }
 
-// Geometry constants, calibrated in-game during bring-up (via a since-removed
-// live-tune surface) and now fixed.
-constexpr float g_vBias = 0.0f;     // extra node-local Y added to the icon centre
-constexpr float g_sizeScale = 1.0f; // multiplies the parsed icon size
-// Icon vertical centre = penY + fontHeight * centerFrac. penY sits near the text
-// top; ~0.6 centres the icon on the line across the fonts we render into (chat +
-// pfUI's bubble).
-constexpr float g_centerFrac = 0.6f;
-// Horizontal breathing room around every inline icon, as a fraction of the LINE'S
-// FONT HEIGHT — a text-relative gap, like the space between words. It is NOT a
-// fraction of the icon's own width: that made the gap scale with icon size, so a
-// small icon (e.g. a font-height coin next to a digit) jammed its neighbour while a
-// huge icon floated away from it. Keying off the font height makes the gap constant
-// for a given text size regardless of how big the icon is drawn — and a font-height
-// icon is unchanged, so marks / default coins / default emotes keep their spacing.
-// Applied FULL on the lead (left) and HALF on the trail (right): the preceding
-// glyph's right-side bearing extends past the reported pen and eats into the left
-// gap visually, so a lead-heavy split makes the left and right gaps LOOK even.
-// Without any pad an icon crowds the char before it. 0.18 ≈ 2.7px lead / 1.35px
-// trail at a 15px font.
-constexpr float g_iconPadFrac = 0.18f;
-
 // The 1.12 FontString text sanitizer DOUBLES any pipe that doesn't begin a
 // recognized escape (so it renders as a literal `|`). Since 1.12 doesn't know
 // `|T`, a caller's `|Tpath:h|t` arrives at the emitter as `||Tpath:h||t`
@@ -677,137 +673,126 @@ int InlineSpanLen(const uint8_t *text) {
     return 0; // unterminated → let the engine treat it as ordinary text
 }
 
-// THE per-icon pen advance the emitter reserves: icon width + full lead pad +
-// half trail pad + any positive offsetX (a negative offsetX — deliberate
-// leftward overlap — doesn't shrink the advance). Each pad is
-// `fontHPen * g_iconPadFrac` — a font-relative gap, NOT icon-width-relative (see
-// g_iconPadFrac). Single source shared by the emitter's icon loop, its
-// centre/right-justify pre-shift, and the string-width co-hook — the three MUST
-// agree or measured and rendered width drift. `fontHPen` resolves the retail `:0`
-// auto-size (icon dims default to the line's font height); pen units in, out.
-// The engine's outline-ink allowance for a gxu font face, in pen px (total,
-// both sides). Outlined faces draw INK past the glyph advance metrics; the
-// emitter itself grows the line height by exactly these constants
-// (FUN_005CCBE0 prologue: face+0x180 bit 3 → 4.0, bit 0 → 2.0). An inline icon
-// placed at the raw pen would sit inside that ink (the coin-into-outlined-
-// digits clip), so the advance and the drawn lead each absorb half.
-float OutlineInkPen(const void *fontFace) {
+// --- icon geometry: 4.3.4's ParseEmbeddedTexture + InitializeTextLine -------
+//
+// Every size and spacing rule below is the 4.3.4 client's (verified against
+// the decompiled source in the 15595 tree and, for the size formula, against
+// the apwow.exe call list of ParseEmbeddedTexture 0x00617BA0: it calls
+// CoordinateGetAspectCompensation and NDCToDDCWidth). 3.3.5 has the same rules.
+
+// ParseEmbeddedTexture's reference font: 14 UI units.
+constexpr float kReferenceFontUnits = 14.0f;
+
+// What a WRITTEN size multiplies by, in the same unit as `fontPx`:
+//   pixelScale = windowPx / (aspectComp × 1024) × fontHeight / NDCToDDCWidth(14 / (aspectComp × 1024))
+// which reduces to fontPx / (14 × ddcWidthScale). So a written size is
+// relative to a 14-unit font and follows the text's size, the UI scale and
+// the resolution — `:16` is not 16 pixels. 1.12 holds ddcWidthScale in the
+// same Coordinate static as 4.3.4 (VAR_COORD_DDC_WIDTH_SCALE).
+float WrittenSizeScale(float fontPx) {
+    const float ddcW = Game::Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
+    if (!(ddcW > 0.0f))
+        return 0.0f;
+    return fontPx / (kReferenceFontUnits * ddcW);
+}
+
+struct IconSize {
+    float w = 0.0f;
+    float h = 0.0f;
+};
+
+// ParseEmbeddedTexture's size cases, in the unit of `fontPx` — 3.3.5's
+// version, which multiplies by the fontstring's layout scale `L`
+// (CGxString::m_scale = CSimpleFontString::m_layoutScale, passed by
+// TextBlockCreate) on top of a font height that already includes it. 4.3.4
+// dropped that extra factor; 3.3.5's was kept on a side-by-side look in game
+// (below a UI scale of 1 its coins sit closer to digit height). `L` = 1
+// reproduces 4.3.4.
+//   height > 0 → height × L × scale; else L × the font height.
+//   width absent → the height.
+//   width × L > 0 → that × scale, or, when the height came from the font,
+//                   that × the height (a ratio: `:0:2` is twice as wide).
+//   otherwise  → L × the font height (`:20:0` is font-wide, not 20 wide).
+IconSize ResolveIconSize(const IconDesc &d, float fontPx, float layoutScale) {
+    const float scale = WrittenSizeScale(fontPx);
+    const float L = (layoutScale > 0.0f) ? layoutScale : 1.0f;
+    IconSize s;
+    const bool heightFromFont = !(d.height > 0.0f) || !(scale > 0.0f);
+    s.h = heightFromFont ? L * fontPx : d.height * L * scale;
+    const float width = d.width * L;
+    if (!d.widthGiven)
+        s.w = s.h;
+    else if (width > 0.0f)
+        s.w = heightFromFont ? width * s.h : width * scale;
+    else
+        s.w = L * fontPx;
+    return s;
+}
+
+// The gap 4.3.4 leaves between a glyph and a following icon: the face's
+// outline ink, 4 × scale for a thick outline and 2 × scale for a thin one
+// (InitializeTextLine case CODE_TEXTURESTART), where scale is the face's
+// raster scale (font pixel height ÷ native height). 1.12 stores the same two
+// constants and the same face flags (face+0x180 bit 3 / bit 0) — its emitter
+// grows the line height by them. No gap when no glyph precedes the icon.
+float OutlinePadPen(const void *fontFace, float fontPx) {
     if (fontFace == nullptr)
         return 0.0f;
     const uint32_t flags = Game::Read<uint32_t>(fontFace, Offsets::OFF_FONTFACE_FLAGS);
+    float ink = 0.0f;
     if ((flags & 8u) != 0)
-        return Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THICK);
-    if ((flags & 1u) != 0)
-        return Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THIN);
-    return 0.0f;
-}
-
-// `outlineInk` is OutlineInkPen for the line's face — half of it leads, half
-// trails, keeping the icon clear of outlined neighbours' ink on both sides.
-// `snap` truncates the advance to whole pen px, mirroring the engine's own
-// per-glyph __ftol (FUN_005CCBE0, node bit-7 clear). Native glyphs always sit
-// on INTEGER pen pixels — rounded origin (FUN_005cdf70) + truncated advances —
-// so a fractional icon advance shifted every glyph AFTER an icon onto
-// half-pixel positions: bilinear-filtered, fuzzy/ghosted post-icon text, with
-// visibility depending on the machine's filtering config (the "artifacting
-// only on the text after the icon" report).
-float IconAdvancePen(const IconDesc &d, float fontHPen, float outlineInk, bool snap) {
-    const float baseH = (d.height > 0.0f) ? d.height : fontHPen;
-    const float baseW = (d.width > 0.0f) ? d.width : baseH;
-    const float w = baseW * g_sizeScale;
-    const float offX = d.offsetX * g_sizeScale;
-    float adv = w + 1.5f * (fontHPen * g_iconPadFrac) + outlineInk + (offX > 0.0f ? offX : 0.0f);
-    if (snap)
-        adv = static_cast<float>(static_cast<int>(adv));
-    return adv;
-}
-
-// Sum of IconAdvancePen over every well-formed `|T…|t` (or sanitizer-doubled
-// `||T…||t`) span in [text, text+len). Malformed/unterminated spans contribute
-// nothing — mirroring the emitter, which renders them as plain text.
-float SumIconAdvances(const uint8_t *text, int len, float fontHPen, float outlineInk, bool snap) {
-    float sum = 0.0f;
-    int i = 0;
-    while (i < len) {
-        char kind = 'T';
-        const int ml = IconStartLen(text, len, i, &kind);
-        if (ml == 0) {
-            // Skip an escaped pipe as a pair so its 2nd `|` isn't re-read as a
-            // clean `|T` next iteration (same walk the emitter does).
-            if (text[i] == '|' && i + 1 < len && text[i + 1] == '|')
-                i += 2;
-            else
-                ++i;
-            continue;
-        }
-        int cl = 0;
-        const size_t ce =
-            FindIconClose(text, len, static_cast<size_t>(i) + ml, ml == 3, &cl, kind);
-        if (ce == static_cast<size_t>(-1))
-            break; // unterminated → the rest is plain text
-        IconDesc d;
-        if (ParseIconSpan(reinterpret_cast<const char *>(text) + i + ml,
-                          ce - (static_cast<size_t>(i) + ml), kind, d))
-            sum += IconAdvancePen(d, fontHPen, outlineInk, snap);
-        i = static_cast<int>(ce) + cl;
-    }
-    return sum;
-}
-
-// The TRAIL half of the last icon's advance — 0.5×pad + 0.5×outline ink —
-// when the measured text ENDS in a well-formed icon span, else 0. The engine's
-// width convention stops at the last content's INK (the measure loop ends on
-// the last glyph's ink width, not its advance); an icon's "ink" is its drawn
-// art (lead + w), and the advance's trail exists purely to space a FOLLOWING
-// glyph that a string-final icon doesn't have. The measure-REPORTING hooks
-// (GetStringWidth + the substring measure) subtract this so a trailing icon —
-// the money-string shape, "…|TCoin:0|t" — reports its true right edge; the
-// render/justify/wrap paths keep the full advance (the pen genuinely moves).
-// Strict end-at-len only: trailing spaces after the icon make the SPACE the
-// last content, and the engine handles that itself.
-float TrailingIconTrimPen(const uint8_t *text, int len, float fontHPen, float outlineInk) {
-    int i = 0;
-    bool endsInIcon = false;
-    while (i < len) {
-        char kind = 'T';
-        const int ml = IconStartLen(text, len, i, &kind);
-        if (ml == 0) {
-            if (text[i] == '|' && i + 1 < len && text[i + 1] == '|')
-                i += 2;
-            else
-                ++i;
-            endsInIcon = false;
-            continue;
-        }
-        int cl = 0;
-        const size_t ce =
-            FindIconClose(text, len, static_cast<size_t>(i) + ml, ml == 3, &cl, kind);
-        if (ce == static_cast<size_t>(-1))
-            return 0.0f; // unterminated → the tail renders as plain text
-        IconDesc d;
-        endsInIcon = ParseIconSpan(reinterpret_cast<const char *>(text) + i + ml,
-                                   ce - (static_cast<size_t>(i) + ml), kind, d);
-        i = static_cast<int>(ce) + cl;
-    }
-    if (!endsInIcon)
+        ink = Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THICK);
+    else if ((flags & 1u) != 0)
+        ink = Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THIN);
+    if (ink == 0.0f)
         return 0.0f;
-    return 0.5f * (fontHPen * g_iconPadFrac) + 0.5f * outlineInk;
+    using FontNativeHeight_t = int(__fastcall *)(const void *font);
+    const int native =
+        reinterpret_cast<FontNativeHeight_t>(Offsets::FUN_TEXT_FONT_NATIVE_HEIGHT)(fontFace);
+    return (native > 0) ? ink * (fontPx / static_cast<float>(native)) : ink;
 }
 
-// The tallest icon's VERTICAL OVERFLOW past the font height, in px, over every
-// well-formed span in [text, text+len) — 0 when every icon fits the line.
-// Only explicit `|T…:H|t` heights can overflow (the `:0` default IS the font
-// height). Drives the line-height growth: the string-height co-hook adds this
-// so a tall icon's line takes real vertical room (the 4.3.4 model, whose wrap
-// and measure loops export a max-texture-height for exactly this), and the
-// draw bottom-aligns tall icons so the overflow points INTO the grown space.
-float MaxIconOverflowPx(const uint8_t *text, int len, float fontHPx) {
-    float maxH = 0.0f;
+// Length of a non-drawing text code at text[i] (`|c` + 8 hex, `|r`, `|H…|h`,
+// `|h`), or 0 when text[i] starts something that draws. A doubled `||` is a
+// drawn pipe. Used to tell whether an icon follows a glyph.
+int NonDrawingCodeLen(const uint8_t *text, int len, int i) {
+    if (text[i] != '|' || i + 1 >= len)
+        return 0;
+    const uint8_t c = text[i + 1];
+    if (c == 'c' || c == 'C')
+        return (i + 10 <= len) ? 10 : 0;
+    if (c == 'r' || c == 'R' || c == 'h')
+        return 2;
+    if (c == 'H') {
+        for (int j = i + 2; j + 1 < len; ++j)
+            if (text[j] == '|' && text[j + 1] == 'h')
+                return j + 2 - i;
+    }
+    return 0;
+}
+
+// Calls `fn(desc, precededByGlyph)` for every well-formed `|T…|t` / `|A…|a`
+// span (or its sanitizer-doubled form) in [text, text+len). precededByGlyph is
+// whether anything drawn sits between the span and the previous icon or the
+// text start — 4.3.4 adds the outline gap only then. Malformed and
+// unterminated spans are skipped, mirroring the emitter, which renders them as
+// plain text.
+template <typename Fn>
+void ForEachIconSpan(const uint8_t *text, int len, Fn fn) {
+    bool glyphSince = false;
     int i = 0;
     while (i < len) {
         char kind = 'T';
         const int ml = IconStartLen(text, len, i, &kind);
         if (ml == 0) {
+            const int code = NonDrawingCodeLen(text, len, i);
+            if (code > 0) {
+                i += code;
+                continue;
+            }
+            glyphSince = true;
+            // An escaped pipe is one drawn pipe; skip it as a pair so its 2nd
+            // `|` isn't re-read as a clean `|T`.
             if (text[i] == '|' && i + 1 < len && text[i + 1] == '|')
                 i += 2;
             else
@@ -818,17 +803,44 @@ float MaxIconOverflowPx(const uint8_t *text, int len, float fontHPx) {
         const size_t ce =
             FindIconClose(text, len, static_cast<size_t>(i) + ml, ml == 3, &cl, kind);
         if (ce == static_cast<size_t>(-1))
-            break;
+            return; // unterminated → the rest is plain text
         IconDesc d;
         if (ParseIconSpan(reinterpret_cast<const char *>(text) + i + ml,
                           ce - (static_cast<size_t>(i) + ml), kind, d)) {
-            const float h = ((d.height > 0.0f) ? d.height : fontHPx) * g_sizeScale;
-            if (h > maxH)
-                maxH = h;
+            fn(d, glyphSince);
+            glyphSince = false;
         }
         i = static_cast<int>(ce) + cl;
     }
-    return (maxH > fontHPx) ? (maxH - fontHPx) : 0.0f;
+}
+
+// The width the icons in [text, text+len) add to a MEASURE: each icon's width,
+// plus the outline gap when a glyph precedes it. The engine measures an icon
+// as its width alone (4.3.4 InternalGetTextExtent / CalcWrapPoint) but lays
+// it out after the outline gap; counting the gap keeps measure and render in
+// step, which the tooltip and right-justified layouts depend on. offsetX is
+// left out: 4.3.4 applies it to the drawn texture only, never to the layout.
+float SumIconAdvances(const uint8_t *text, int len, float fontPx, float outlinePad,
+                      float layoutScale) {
+    float sum = 0.0f;
+    ForEachIconSpan(text, len, [&](const IconDesc &d, bool afterGlyph) {
+        sum += ResolveIconSize(d, fontPx, layoutScale).w + (afterGlyph ? outlinePad : 0.0f);
+    });
+    return sum;
+}
+
+// The tallest icon's VERTICAL OVERFLOW past the font height, in the unit of
+// `fontPx` — 0 when every icon fits the line. 4.3.4 grows the line by exactly
+// this (GxuFontGetWrappedTextHeight's extraHeight, fed by CalcWrapPoint's
+// line-height out-param), which is what the string-height co-hook adds.
+float MaxIconOverflowPx(const uint8_t *text, int len, float fontPx, float layoutScale) {
+    float maxH = 0.0f;
+    ForEachIconSpan(text, len, [&](const IconDesc &d, bool) {
+        const float h = ResolveIconSize(d, fontPx, layoutScale).h;
+        if (h > maxH)
+            maxH = h;
+    });
+    return (maxH > fontPx) ? (maxH - fontPx) : 0.0f;
 }
 
 // --- tokenizer co-hook (measure/wrap correction) ---------------------------
@@ -888,12 +900,11 @@ static const Game::HookAutoRegister _tokenizerHook{Offsets::FUN_TEXT_TOKENIZER,
 // advance — so GetStringWidth, the GameTooltip auto-size, and auto-width layout
 // undercount by the icons' widths. Fix at the single fs-level choke: call the
 // original, then, when the tokenizer WOULD have eaten the spans (the shared
-// InlineInterceptActive predicate) and the fs isn't an editbox, add the same
-// per-icon advances the emitter reserves (the shared IconAdvancePen math).
+// InlineInterceptActive predicate) and the fs isn't an editbox, add the
+// icons' measured widths (the shared SumIconAdvances math).
 //
-// UNITS: the icon sum is computed in true PEN px — the exact numbers the
-// emitter reserves (outline ink, snap truncation and all; see ResolveFsPenFont)
-// — and bridged into the getter's return space via the font height known in
+// UNITS: the icon sum is computed in true PEN px — the numbers the emitter
+// lays out (sizes and outline gap; see ResolveFsPenFont) — and bridged into the getter's return space via the font height known in
 // both spaces: `sumPen × (fontHInt / fontHPen)`. Do NOT divide by fs+0x7C —
 // that's the layout UI SCALE (~0.68-1.0), and the original's own
 // `out / fs+0x7C` applies to a value FUN_0044D670 already ran through the
@@ -906,9 +917,10 @@ static const Game::HookAutoRegister _tokenizerHook{Offsets::FUN_TEXT_TOKENIZER,
 // Idempotence: the original may serve the cached fs+0xFC — the icon sum is
 // re-derived and re-added on EVERY call, and the cache is NEVER written.
 //
-// Residuals (documented in docs/InlineTextureEscapes.md): the measure loop ends
-// on the last glyph's INK width rather than its advance, so a trailing icon
-// leaves a ~≤1px artifact; the hyperlink hit-test past a tall icon OUTSIDE the
+// Residuals (documented in docs/InlineTextureEscapes.md): an icon after a
+// glyph is laid out from that glyph's ink edge but measured from its advance,
+// so the two differ by the glyph's right bearing (≤1px, the engine's own
+// discrepancy too); the hyperlink hit-test past a tall icon OUTSIDE the
 // link stays icon-blind. (Wrap breaks route through the stepper hook, and the
 // substring measure has its own co-hook below.) The focused chat editbox's own
 // display fontstring (editable bit CLEAR — only multi-line editors carry it)
@@ -939,13 +951,14 @@ StringWidthInternal_t g_stringWidthOriginal = nullptr;
 struct FsPenFont {
     float fontHInt = 0.0f; // getter units — the hook-return space
     float fontHPen = 0.0f; // render pen px (rounded + min-clamped like the node)
-    float outlineInk = 0.0f;
+    float outlinePad = 0.0f; // OutlinePadPen of the fs's face, pen px
+    float layoutScale = 1.0f; // fs+0x7C, for ResolveIconSize
 };
 bool ResolveFsPenFont(void *fs, FsPenFont &out) {
     out.fontHInt =
         reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(fs, nullptr, 1);
     const float scale = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
-    const float anchorH = Game::Read<float>(Offsets::VAR_UI_ANCHOR_SCREEN_H);
+    const float anchorH = Game::Read<float>(Offsets::VAR_COORD_DDC_HEIGHT_SCALE);
     const int rasterY = Game::Read<int>(Offsets::VAR_TEXT_RASTER_Y);
     if (!(out.fontHInt > 0.0f) || !(scale > 0.0f) || !(anchorH > 0.0f) || rasterY <= 0)
         return false;
@@ -969,7 +982,8 @@ bool ResolveFsPenFont(void *fs, FsPenFont &out) {
     const void *face =
         LooksReadable(handle) ? Game::Read<const void *>(handle, Offsets::OFF_FONT_HANDLE_FACE)
                               : nullptr;
-    out.outlineInk = LooksReadable(face) ? OutlineInkPen(face) : 0.0f;
+    out.outlinePad = LooksReadable(face) ? OutlinePadPen(face, out.fontHPen) : 0.0f;
+    out.layoutScale = scale;
     return true;
 }
 
@@ -993,14 +1007,9 @@ float __fastcall StringWidth_h(void *fs) {
     FsPenFont pf;
     if (!ResolveFsPenFont(fs, pf))
         return base;
-    // The icon advances EXACTLY as the emitter reserves them — pen px, outline
-    // ink included, snap-truncated — bridged into the return space by the
-    // font height known in both spaces. A string-final icon reports its ink
-    // edge rather than its full advance (see TrailingIconTrimPen).
-    float sumPen = SumIconAdvances(text, len, pf.fontHPen, pf.outlineInk, true) -
-                   TrailingIconTrimPen(text, len, pf.fontHPen, pf.outlineInk);
-    if (sumPen < 0.0f)
-        sumPen = 0.0f;
+    // The icons' widths in pen px, outline gap included, bridged into the
+    // return space by the font height known in both spaces.
+    const float sumPen = SumIconAdvances(text, len, pf.fontHPen, pf.outlinePad, pf.layoutScale);
     return base + sumPen * (pf.fontHInt / pf.fontHPen);
 }
 
@@ -1026,9 +1035,10 @@ static const Game::HookAutoRegister _stringWidthHook{
 // the 4.3.4 model: its measure/wrap loops export a max-texture-height out-param
 // and the layout grows the line (FUN_00618b90/FUN_00618e40 case 7).
 //
-// The draw side bottom-aligns tall icons (see FlushLayout's cy), so the
-// overflow points UP — into the grown space — which matches the SMF's
-// bottom-anchored stacking (older lines shift up by the growth).
+// The draw side aligns a tall icon by the line's vertical justify (the
+// emitter's icon loop, 4.3.4's three cases), and the engine places the text
+// in the grown rect by the same justify, so the overflow lands in the room
+// this adds.
 //
 // Same rules as the width hook: NEVER write the fs+0x100 cache (the delta is
 // re-derived and re-added per call — idempotent); overflow computed in pen px
@@ -1058,7 +1068,7 @@ float __fastcall StringHeight_h(void *fs) {
         return base;
     // Overflow computed in pen px — the space the render compares icon height
     // against the font in — then bridged like the width hook.
-    return base + MaxIconOverflowPx(text, len, pf.fontHPen) * (pf.fontHInt / pf.fontHPen);
+    return base + MaxIconOverflowPx(text, len, pf.fontHPen, pf.layoutScale) * (pf.fontHInt / pf.fontHPen);
 }
 
 static const Game::HookAutoRegister _stringHeightHook{
@@ -1108,11 +1118,7 @@ float __fastcall MeasureSubstring_h(void *fs, void *edx, const uint8_t *text, in
     FsPenFont pf;
     if (!ResolveFsPenFont(fs, pf))
         return base;
-    // Segment-final icons report their ink edge, like the width hook.
-    float sumPen = SumIconAdvances(text, n, pf.fontHPen, pf.outlineInk, true) -
-                   TrailingIconTrimPen(text, n, pf.fontHPen, pf.outlineInk);
-    if (sumPen < 0.0f)
-        sumPen = 0.0f;
+    const float sumPen = SumIconAdvances(text, n, pf.fontHPen, pf.outlinePad, pf.layoutScale);
     return base + sumPen * (pf.fontHInt / pf.fontHPen);
 }
 
@@ -1164,7 +1170,7 @@ void __fastcall LinkRectAdd_h(void *node, void *edx, float yA, float xLeft, floa
             const float fontSize = Game::Read<float>(node, Offsets::OFF_TEXT_NODE_FONT_SIZE);
             const float fontH = reinterpret_cast<float(__fastcall *)(int, float)>(
                 Offsets::FUN_TEXT_FONT_HEIGHT)(static_cast<int>((nodeFlags >> 7) & 1u), fontSize);
-            const float overflow = MaxIconOverflowPx(escStart, len, fontH);
+            const float overflow = MaxIconOverflowPx(escStart, len, fontH, NodeLayoutScale(node));
             if (overflow > 0.0f) {
                 // Push the SCREEN BOTTOM down: decrease the numeric MIN edge
                 // (y-up band) — see the anchor-shift analysis above.
@@ -1189,8 +1195,8 @@ static const Game::HookAutoRegister _linkRectAddHook{Offsets::FUN_TEXT_LINK_RECT
 // ~zero width — so the break lands as if the icons weren't there, and the
 // emitter's real advances then overflow the right edge (chat lines with
 // prefix icons ran past the frame). Fix: shrink the wrapWidth argument by the
-// advances of the icons in the remaining text (same IconAdvancePen math the
-// emitter reserves), then call the original. `text` always points at the
+// measured widths of the icons in the remaining text (the SumIconAdvances
+// math the width hook uses), then call the original. `text` always points at the
 // REMAINING text, so a continuation line whose icons are already behind it
 // gets sum = 0 — chat prefix icons come out exact. An icon that would land on
 // a LATER wrapped line still shrinks the earlier calls' width, wrapping those
@@ -1316,8 +1322,8 @@ void __fastcall WrapStepper_h(void *font, uint8_t *text, float fontH, float wrap
                     else if (pNext > text && pNext - text < len)
                         lineLen = static_cast<int>(pNext - text);
                     const float sumPx = SumIconAdvances(text, lineLen, fontHPx,
-                                                        OutlineInkPen(font),
-                                                        (flags & 0x80u) == 0);
+                                                        OutlinePadPen(font, fontHPx),
+                                                        WrapLayoutScale());
                     const float iconUnits = sumPx * penToUnits;
                     float slack = probeW - pWidth;
                     if (slack < 0.0f)
@@ -1502,17 +1508,16 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
         // opaque while its icons and iconless siblings faded.)
     }
 
-    // Font pixel height of this line — used to centre icons vertically (penY sits
-    // near the text top). Mirrors the emitter's own call: ecx = (nodeFlags>>7)&1,
-    // stack = the node's font size [node+0x1c].
+    // Font pixel height of this line. Mirrors the emitter's own call: ecx =
+    // (nodeFlags>>7)&1, stack = the node's font size [node+0x1c].
     const int fontFlag = static_cast<int>((savedFlags >> 7) & 1u);
     const float fontSize = Game::Read<float>(node, Offsets::OFF_TEXT_NODE_FONT_SIZE);
     const float fontH = reinterpret_cast<float(__fastcall *)(int, float)>(
         Offsets::FUN_TEXT_FONT_HEIGHT)(fontFlag, fontSize);
 
-    // Font face + native→pen advance scale, mirroring the emitter's own
-    // `local_10 = fontH / (float)nativeHeight`. Used by drawRun's terminal-
-    // advance correction (glyph-record advances are native-font units).
+    // Font face + native→pen scale, mirroring the emitter's own
+    // `local_10 = fontH / (float)nativeHeight` (glyph-record metrics are in
+    // native-font units).
     void *const fontFace = Game::Read<void *>(node, Offsets::OFF_TEXT_NODE_FONT_FACE);
     using FontNativeHeight_t = int(__fastcall *)(void *font);
     const int fontNativeH =
@@ -1520,125 +1525,125 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             ? reinterpret_cast<FontNativeHeight_t>(Offsets::FUN_TEXT_FONT_NATIVE_HEIGHT)(fontFace)
             : 0;
     const float penScale = (fontNativeH > 0) ? fontH / static_cast<float>(fontNativeH) : 0.0f;
+    const float outlinePad = OutlinePadPen(fontFace, fontH);
+    const float layoutScale = NodeLayoutScale(node);
+    // The node's pixel-snap mode (bit 7 clear): the emitter rounds every glyph
+    // step and floors every glyph width in this mode.
+    const bool snapNode = (savedFlags & 0x80u) == 0;
 
     // The original emitter never writes penXYZ[0]; we mutate it to thread the pen
     // across segments, so snapshot and restore it. The draw builder does NOT reset
     // penXYZ[0] between left-justified lines, so leaving it mutated would cascade-
     // shift every following line.
     const float startX = penXYZ[0];
-    const float penY = penXYZ[1];
     float penX = penXYZ[0];
+
+    // The line's vertical band, y-up: the pen y is its baseline and the draw
+    // builder hands each line's top in the link state ({state, top, left,
+    // baseline, right} — FUN_005cdc20 passes &local_78 with local_74[0] =
+    // baseline + font height + line spacing). These are exactly 4.3.4's
+    // m_baseLineHeight / m_lineHeight for the line.
+    const float baseline = penXYZ[1];
+    float lineTop = *reinterpret_cast<const float *>(&linkState[1]);
+    if (!(lineTop > baseline))
+        lineTop = baseline + fontH;
+    const int justifyV = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_JUSTIFY_V);
 
     // Centre/right-justify correction. The engine positioned the pen (penXYZ[0])
     // using this line's MEASURED width, which counts inline icons as ~zero (the
-    // tokenizer measure gap). The rendered line is wider by the icons' reserved
-    // width, so a centred line overflows its box to the right (empty space on the
-    // left) and a right-aligned line overflows past the right edge. Pre-sum this
-    // line's icon widths and shift the pen left by half that (centre) or all of it
-    // (right) so the whole text+icons block is justified as a unit. Left-justify
-    // (chat, justify 0) needs no shift. node+0x54: 1 = centre, 2 = right (verified
-    // in the draw builder FUN_005cdc20's justify branch).
-    // Outline faces draw ink past the glyph advances; the icon pads absorb it
-    // (see OutlineInkPen). Computed once per line from the node's face.
-    const float outlineInk = OutlineInkPen(fontFace);
-    // The node's pixel-snap mode (bit-7 clear) — the engine truncates every
-    // glyph advance and rounds the origin in this mode, so our icon advances
-    // and pen shifts must stay integral too (see IconAdvancePen's snap note).
-    const bool snapNode = (savedFlags & 0x80u) == 0;
-
+    // tokenizer measure gap). Pre-sum this line's icon widths and shift the pen
+    // left by half that (centre) or all of it (right) so the whole text+icons
+    // block is justified as a unit. Left-justify (chat, justify 0) needs no
+    // shift. node+0x54: 1 = centre, 2 = right (verified in the draw builder
+    // FUN_005cdc20's justify branch).
     const int justify = Game::Read<int>(node, Offsets::OFF_TEXT_NODE_JUSTIFY);
     if (justify == 1 || justify == 2) {
-        // Shared helper so the pre-shift matches the real advances exactly
-        // (including the positive-offsetX term an earlier inline copy omitted).
-        const float iconW = SumIconAdvances(text, len, fontH, outlineInk, snapNode);
-        float shift = (justify == 1) ? iconW * 0.5f : iconW;
+        float shift = SumIconAdvances(text, len, fontH, outlinePad, layoutScale);
+        if (justify == 1)
+            shift *= 0.5f;
         if (snapNode)
-            shift = static_cast<float>(static_cast<int>(shift));
+            shift = std::floor(shift + 0.5f);
         penX -= shift;
     }
 
-    // Draws a plain run [start,start+n) via the original emitter, threading the
-    // pen: the original starts at penXYZ[0] and leaves its final pen x in
-    // linkState[4] (a FLOAT bit pattern — `FSTP dword`; an int-cast yields
-    // garbage). n == 0 is a safe no-op that just finalizes linkState.
+    // Draws a plain run [start,start+n) via the original emitter and returns
+    // where an icon that follows it starts.
     //
-    // THE READ-BACK IS LAZY AND NEEDS CORRECTION (verified in FUN_005ccbe0):
-    // the emitter's pen consumes a glyph's advance only when the NEXT token
-    // lands (each glyph is placed at pen + pairAdvance(prev, cur)), and its
-    // final write is `linkState[4] = x(lastGlyph) + pairAdvance(secondLast,
-    // last)` — the last PAIR re-added as a stand-in for the LAST glyph's own
-    // advance. For a 1-glyph run the stand-in is 0 (no pair exists), so the
-    // run reads as zero-width — the money-string "coin sits on the lone digit"
-    // bug ("|cffffffff0" → penAfter 0). For "…] 1" the stand-in is the SPACE's
-    // advance (narrower than the digit's) — the single-digit clip. Fix: walk
-    // the run with the engine's own tokenizer, and when it ends in a glyph
-    // replace the stand-in with the truth:
-    //   pen = linkState[4] − pairAdvance(prev, last)·scale + baseAdvance(last)·scale
-    // (both terms truncated to int when node-flags bit 7 is clear, mirroring
-    // the emitter's per-placement __ftol snap). Runs ending in a NON-glyph
-    // token (trailing |c/|r) need no correction: the trailing iteration's
-    // recompute already folded pairAdvance(lastGlyph, junkPayload) ≈
-    // baseAdvance(lastGlyph) into the write. This mirrors 4.3.4's texture case,
-    // which computes the pending last-glyph advance explicitly at the icon
-    // (FUN_0061ea10 case 7) instead of trusting a stored pen.
+    // 4.3.4 starts an icon at the previous glyph's INK edge — its bearing plus
+    // its cell width, never less than its own x — plus the outline gap
+    // (InitializeTextLine case CODE_TEXTURESTART). With no glyph in the run
+    // the icon starts at the run's pen, with no gap.
+    //
+    // 1.12's emitter does not report where its last glyph sits: its pen is
+    // LAZY (each glyph lands at pen + pairAdvance(prev, cur), so the final
+    // write in linkState[4] carries a stand-in step, not the glyph's end). So
+    // the run's glyph placements are replayed with the emitter's own math —
+    // the original tokenizer (runs never contain icon spans), the same
+    // pair-advance variant, the same snap rounding (`FADD 0.5; __ftol`), the
+    // same skip for glyphs the face can't produce — to find the last glyph's
+    // x, and its quad is measured with the helpers the emitter draws it with.
     using GlyphPairAdvance_t = float(__thiscall *)(void *font, uint32_t prevCh, uint32_t curCh);
-    using GlyphBaseAdvance_t = float(__thiscall *)(void *font, uint32_t ch);
-    auto drawRun = [&](size_t start, int n) {
+    using GlyphDesc_t = uint8_t *(__thiscall *)(void *font, uint32_t ch);
+    using GlyphBearing_t = float(__thiscall *)(void *font, uint8_t *desc, char scaled,
+                                               float fontSize);
+    auto drawRun = [&](size_t start, int n) -> float {
+        const float runPen = penX;
         penXYZ[0] = penX;
         g_emitterOriginal(node, edx, text + start, n, colorState, penXYZ, pageMask, linkState);
-        penX = *reinterpret_cast<float *>(&linkState[4]);
         if (n <= 0 || penScale <= 0.0f || fontFace == nullptr)
-            return;
-        // Token-walk the run (the ORIGINAL tokenizer — our co-hook would eat
-        // |T spans, but runs never contain them by construction) for its last
-        // two glyph payloads.
-        uint32_t prevCh = 0, lastCh = 0;
-        int glyphCount = 0;
-        bool endsInGlyph = false;
+            return runPen;
+        const auto glyphDesc = reinterpret_cast<GlyphDesc_t>(Offsets::FUN_TEXT_GLYPH_DESC);
+        const uintptr_t pairFn = ((savedFlags & 0x10u) != 0)
+                                     ? Offsets::FUN_TEXT_GLYPH_PAIR_ADVANCE_ALT
+                                     : Offsets::FUN_TEXT_GLYPH_PAIR_ADVANCE;
+        float x = runPen;
+        uint32_t prevCh = 0; // the emitter's local_8: last glyph DRAWN
+        uint8_t *lastDesc = nullptr;
+        float lastX = 0.0f;
+        uint32_t payload = 0; // persists across tokens, like the emitter's local_c
         const uint8_t *p = text + start;
         int rem = n;
         while (rem > 0 && *p != 0) {
             int consumed = 0;
-            uint32_t colorOut = 0, payload = 0;
+            uint32_t colorOut = 0;
             const uint32_t tok = g_tokenizerOriginal(const_cast<uint8_t *>(p), &consumed,
                                                      &colorOut, savedFlags, &payload);
             if (consumed <= 0 || consumed > rem)
                 break;
             p += consumed;
             rem -= consumed;
-            // Emitter switch handles 0(color)/1(reset)/2(break)/4(|H)/5(|h)
-            // specially; everything else (6 = glyph, 3 = literal ||) draws.
-            if (tok != 0 && tok != 1 && tok != 2 && tok != 4 && tok != 5) {
-                prevCh = lastCh;
-                lastCh = payload;
-                ++glyphCount;
-                endsInGlyph = true;
-            } else {
-                endsInGlyph = false;
+            // Emitter switch: 0 colour / 1 reset / 2 break / 4 |H / 5 |h; every
+            // other token (6 glyph, 3 literal ||) draws.
+            if (tok == 0 || tok == 1 || tok == 2 || tok == 4 || tok == 5)
+                continue;
+            uint8_t *desc = glyphDesc(fontFace, payload);
+            if (desc == nullptr)
+                continue; // the emitter draws nothing and keeps its previous glyph
+            float step = 0.0f;
+            if (prevCh != 0) {
+                step = reinterpret_cast<GlyphPairAdvance_t>(pairFn)(fontFace, prevCh, payload) *
+                       penScale;
+                if (snapNode)
+                    step = static_cast<float>(static_cast<int>(step + 0.5f));
             }
+            x += step;
+            lastX = x;
+            lastDesc = desc;
+            prevCh = payload;
         }
-        if (!endsInGlyph)
-            return;
-        const bool snap = (savedFlags & 0x80u) == 0;
-        // The stand-in the engine's final write added: pairAdvance(prev, last),
-        // 0 for a 1-glyph run (never computed). Same kerning variant the
-        // emitter picks (flags bit 4).
-        float standIn = 0.0f;
-        if (glyphCount >= 2) {
-            const uintptr_t pairFn = ((savedFlags & 0x10u) != 0)
-                                         ? Offsets::FUN_TEXT_GLYPH_PAIR_ADVANCE_ALT
-                                         : Offsets::FUN_TEXT_GLYPH_PAIR_ADVANCE;
-            standIn =
-                reinterpret_cast<GlyphPairAdvance_t>(pairFn)(fontFace, prevCh, lastCh) * penScale;
-            if (snap)
-                standIn = static_cast<float>(static_cast<int>(standIn));
-        }
-        float terminal = reinterpret_cast<GlyphBaseAdvance_t>(
-                             Offsets::FUN_TEXT_GLYPH_BASE_ADVANCE)(fontFace, lastCh) *
-                         penScale;
-        if (snap)
-            terminal = static_cast<float>(static_cast<int>(terminal));
-        penX += terminal - standIn;
+        if (lastDesc == nullptr)
+            return runPen;
+        const float bearing = reinterpret_cast<GlyphBearing_t>(Offsets::FUN_TEXT_GLYPH_BEARING)(
+            fontFace, lastDesc, static_cast<char>(fontFlag), fontSize);
+        float cell = static_cast<float>(
+                         Game::Read<uint32_t>(lastDesc, Offsets::OFF_GLYPH_DESC_CELL_WIDTH)) *
+                     penScale;
+        if (snapNode)
+            cell = std::floor(cell);
+        float ink = bearing + cell;
+        if (ink < 0.0f)
+            ink = 0.0f;
+        return lastX + ink + outlinePad;
     };
 
     size_t runStart = 0;
@@ -1667,43 +1672,46 @@ void __fastcall Emitter_h(void *node, void *edx, uint8_t *text, int len, uint32_
             // Unterminated on this line — treat the rest as plain text.
             break;
         }
-        // Render the plain run before the icon (finalizes pen at the icon).
-        drawRun(runStart, i - static_cast<int>(runStart));
+        // Render the plain run before the icon; it reports where the icon starts.
+        const float left = drawRun(runStart, i - static_cast<int>(runStart));
 
         IconDesc d;
         const char *payload = reinterpret_cast<const char *>(text) + i + mlen;
         size_t payloadLen = close - (static_cast<size_t>(i) + mlen);
         if (ParseIconSpan(payload, payloadLen, kind, d)) {
-            // height/width of 0 => size to the line's font (retail :0:0). An
-            // atlas span has already resolved its own size at parse time.
-            const float baseH = (d.height > 0.0f) ? d.height : fontH;
-            const float baseW = (d.width > 0.0f) ? d.width : baseH;
-            const float w = baseW * g_sizeScale;
-            const float h = baseH * g_sizeScale;
+            const IconSize sz = ResolveIconSize(d, fontH, layoutScale);
+            // Vertical alignment by the node's justify-V, 4.3.4's three cases
+            // (y-up): top → the icon's top on the line top; bottom → its
+            // bottom on the baseline; middle → centred on the font height
+            // below the line top. The string-height co-hook grows the line by
+            // any overflow and the engine places the text in that taller rect
+            // by the same justify, so the overflow lands where the icon reaches.
+            float bottom;
+            if (justifyV == 0)
+                bottom = lineTop - sz.h;
+            else if (justifyV == 2)
+                bottom = baseline;
+            else
+                bottom = lineTop + (sz.h - fontH) * 0.5f - sz.h;
             IconRecord r;
             r.path = d.path;
-            r.x = penX;
-            r.y = penY;
-            r.fontH = fontH;
-            r.w = w;
-            r.h = h;
-            r.offsetX = d.offsetX * g_sizeScale;
-            r.offsetY = d.offsetY * g_sizeScale;
-            r.outlineInk = outlineInk;
+            r.left = left;
+            r.bottom = bottom;
+            r.w = sz.w;
+            r.h = sz.h;
+            r.offsetX = d.offsetX;
+            r.offsetY = d.offsetY;
             r.u0 = d.u0;
             r.v0 = d.v0;
             r.u1 = d.u1;
             r.v1 = d.v1;
             r.color = d.color;
             icons.push_back(std::move(r));
-            // Reserve the icon width + a LEAD pad (full) and a TRAIL pad (half) so
-            // it never jams against adjacent text. Lead-heavy on purpose: the
-            // preceding glyph's right-side bearing eats into the left gap visually,
-            // so a symmetric layout pad looks tighter on the left / looser on the
-            // right — a half trail balances that. The lead pad is applied to the
-            // draw position in FlushLayout. Shared with the justify pre-shift and
-            // the string-width co-hook — never inline this math.
-            penX += IconAdvancePen(d, fontH, outlineInk, snapNode);
+            // The next glyph starts at the icon's right edge, rounded — 4.3.4
+            // `pos.x = floor(right + 0.5)`, with no kerning against the icon.
+            penX = std::floor(left + sz.w + 0.5f);
+        } else {
+            penX = left;
         }
         penXYZ[0] = penX;
         i = static_cast<int>(close) + closeLen; // skip past the closing marker
@@ -1738,7 +1746,7 @@ Paint_t g_paintOriginal = nullptr;
 // would freeze them hidden — the scroll-landing bug's second head). Shared by
 // the paint flush and the SMF-refresh early apply so both produce
 // bit-identical placements (the pool's dedup depends on that). The per-icon
-// geometry mirrors exactly what the emitter reserves — see IconAdvancePen.
+// geometry is what the emitter recorded — see its icon loop.
 bool ComputePlacementsForNode(void *node, void *fs,
                               std::vector<Text::InlineTexturePool::Placement> &out) {
     if (!LooksReadable(node) || !LooksReadable(fs))
@@ -1761,21 +1769,16 @@ bool ComputePlacementsForNode(void *node, void *fs,
     if (rc[1] == rc[3])
         return false; // unresolved rect reads 0-width
     for (const IconRecord &r : itIcons->second) {
-        // Screen left = pen + the FULL lead pad (the emitter reserves
-        // w + 1.5×pad in the advance: lead 1×, trail 0.5×). Pad is
-        // fontH-relative — must match IconAdvancePen exactly.
-        const float cx = r.x + ox + r.offsetX + r.fontH * g_iconPadFrac + r.outlineInk * 0.5f;
-        // Centre on the line: penY sits near the text top. offsetY shifts up
-        // (WoW convention), so subtract it. Tall icons centre in the grown line
-        // (the string-height co-hook added the overflow).
-        const float cy = r.y + r.fontH * g_centerFrac + oy + g_vBias - r.offsetY;
-        float rx = cx + g_regionCalX;
-        float y0 = cy + g_regionCalY - r.h * 0.5f;
+        // The emitter recorded the icon's left and bottom edges node-local
+        // (y-up); the offsets move only the drawn texture, right and up, as
+        // 4.3.4's InitEmbeddedTexture adds them to its SetPoint offsets.
+        float rx = r.left + ox + r.offsetX;
+        float y0 = r.bottom + oy + r.offsetY;
         float w = r.w, h = r.h;
         if (snapNode) {
             // Land the drawn rect on WHOLE render-target pixels, like the
             // engine's own glyphs (crisp texel sampling). Size snaps
-            // independently of position so a :16 icon is EXACTLY 16px.
+            // independently of position so the icon keeps its rounded size.
             rx = std::floor(rx + 0.5f);
             y0 = std::floor(y0 + 0.5f);
             w = std::floor(w + 0.5f);

@@ -15,10 +15,11 @@
 // money string (e.g. "12<gold> 34<silver> 56<copper>"), a C++ backport of the
 // retail C function.
 //
-// Behaviour derived from 3.3.5's `Script_GetCoinTextureString` (FUN_00510d00 →
-// formatter FUN_007e7e10): split the copper amount into gold / silver / copper,
-// emit only the non-zero denominations in that order, space-separated; a zero
-// amount shows "0" copper. Each denomination is built from a localized
+// Behaviour mirrors 3.3.5's `Script_GetCoinTextureString` (FUN_00510d00 →
+// formatter FUN_007e7e10, `GetCurrencyTextureString` in the decomp): the icon
+// height defaults to 14 and is taken as given otherwise; split the copper
+// amount into gold / silver / copper, emit only the non-zero denominations in
+// that order, separated by one space; a zero amount shows "0" copper. Each denomination is built from a localized
 // GlobalString — `GOLD_AMOUNT_TEXTURE` / `SILVER_AMOUNT_TEXTURE` /
 // `COPPER_AMOUNT_TEXTURE` — exactly as the engine does (its formatter
 // `FUN_0076f070` is a C-format over the same GlobalString). Those strings don't
@@ -43,38 +44,36 @@ namespace Currency::CoinText {
 
 namespace {
 
-// Icon size. Retail defaults fontHeight to 0 = "use the display font's height",
-// and the inline-texture renderer now honours 0 (it resolves the coin to the
-// line's font height at draw time), so coins match the surrounding text instead
-// of a fixed size. Callers may still pass an explicit height.
-constexpr int kDefaultHeight = 0;
+// Icon size when the caller passes none — 3.3.5's `int32_t height = 14`. The
+// inline-texture renderer scales a written size by the line's font against a
+// 14-unit reference (4.3.4's ParseEmbeddedTexture), so this follows the text.
+constexpr int kDefaultHeight = 14;
 
 // Fallbacks byte-identical to the backported GlobalStrings, used only if the
 // locale layer somehow isn't loaded when this is first called.
-// Format: count |T sheet : height=0 : width=0 : offsetX=0 : offsetY=0 : texW=4 :
+// Format: count |T sheet : height : width : offsetX=2 : offsetY=0 : texW=4 :
 // texH=1 : left : right : top=0 : bottom=1 |t  (left:right selects the coin cell).
-// height/width 0 = size to the font. offsetX stays 0: the inline-texture
-// renderer's font-relative pad spaces the coin from its digits (the historical
-// "coin sits on the digit" bug was the emitter's lazy pen read-back, fixed in
-// the DLL). Never grow a per-coin offset here.
+// offsetX 2 is retail's (3.3.5 / 4.3.4 GlobalStrings: `UI-GoldIcon:%d:%d:2:0`):
+// it shifts only the drawn coin, leaving room against the digits before it.
 constexpr const char *kGoldFallback =
-    "%d|TInterface\\MoneyFrame\\UI-MoneyIcons:%d:%d:0:0:4:1:0:1:0:1|t";
+    "%d|TInterface\\MoneyFrame\\UI-MoneyIcons:%d:%d:2:0:4:1:0:1:0:1|t";
 constexpr const char *kSilverFallback =
-    "%d|TInterface\\MoneyFrame\\UI-MoneyIcons:%d:%d:0:0:4:1:1:2:0:1|t";
+    "%d|TInterface\\MoneyFrame\\UI-MoneyIcons:%d:%d:2:0:4:1:1:2:0:1|t";
 // The three coin arts occupy IDENTICAL pixels within their sheet cells (x 0-14,
 // y 1-14 of 16 — confirmed by decoding the DXT3 alpha of the exported
 // UI-MoneyIcons.blp); only the left:right cell select differs (gold 0:1,
 // silver 1:2, copper 2:3).
 constexpr const char *kCopperFallback =
-    "%d|TInterface\\MoneyFrame\\UI-MoneyIcons:%d:%d:0:0:4:1:2:3:0:1|t";
+    "%d|TInterface\\MoneyFrame\\UI-MoneyIcons:%d:%d:2:0:4:1:2:3:0:1|t";
 
 // Formats one denomination from its localized GlobalString and appends it to
 // `out`. Reads `_G[globalName]` the way retail reads the coin GlobalStrings; the
-// format consumes (count, iconHeight, iconWidth). No separator between
-// denominations — the renderer's symmetric per-icon pad already spaces each coin
-// from the surrounding digits, so a space here would double the gap.
+// format consumes (count, iconHeight, iconWidth). Denominations are separated
+// by one space, as the engine's formatter packs them.
 void AppendDenom(void *L, std::string &out, const char *globalName, const char *fallback,
                  int count, int height) {
+    if (!out.empty())
+        out += ' ';
     const int top = Game::Lua::GetTop(L);
     Game::Lua::PushLocalizedString(L, globalName, fallback); // [.., fmt]
     const char *fmt = Game::Lua::ToString(L, -1);
@@ -105,11 +104,8 @@ int __fastcall Script_GetCoinTextureString(void *L) {
         amount = kMaxCopper;
 
     int height = kDefaultHeight;
-    if (Game::Lua::IsNumber(L, 2)) {
-        const int h = static_cast<int>(Game::Lua::ToNumber(L, 2));
-        if (h > 0)
-            height = h;
-    }
+    if (Game::Lua::IsNumber(L, 2))
+        height = static_cast<int>(Game::Lua::ToNumber(L, 2));
 
     const int gold = static_cast<int>(amount / 10000);
     const int silver = static_cast<int>((amount % 10000) / 100);

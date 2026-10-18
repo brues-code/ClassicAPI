@@ -69,20 +69,18 @@ The DLL hooks the engine's own text pipeline — no companion addon:
   earlier `0xFF` alpha force at emit was a misdiagnosis of a bubble that built
   while faded out; it froze icon-line text fully opaque while everything
   around it faded.
-- **Outlined fonts** — outline ink extends past the glyph advances; the
-  engine itself grows line height by exactly 4.0 / 2.0 pen px for thick / thin
-  outline (`face+0x180` bits 3 / 0, `.rdata` constants). `OutlineInkPen` reads
-  the same flags and constants, and half the ink leads each icon, half trails
-  — threaded through the shared advance helper so the emitter advance, the
-  justify pre-shift, and the wrap-stepper probes all agree. Without it, coins
-  clipped into outlined digits the moment the exact K removed the old
-  miscalibration's accidental slack (`968335d`).
+- **Size, spacing and alignment are 4.3.4's rules** (decompiled source in
+  `C:\Git\wowdecomp15595`; 3.3.5 has the same). See "Icon geometry" below.
+  Every hand-tuned constant this module once carried (a 0.18 × font lead/trail
+  pad, a 0.6 × font vertical centre, a −1px region nudge, a size multiplier)
+  is gone.
 - **Measure** — three cold FontString-level co-hooks make measure match the
   drawn result: width (`FUN_00772890`), height (`FUN_007729B0`), and wrap
   (`FUN_005C7260`). `GetStringWidth`, `fontstring:GetStringHeight`, wrap
   breaks, and line height all count the icon.
 - **Tall icons** — an icon taller than the font grows its line height, so it
-  does not overlap its neighbors, and it centers in the grown line. A hyperlink
+  does not overlap its neighbors, and it aligns by the line's vertical
+  justification (below). A hyperlink
   that contains a tall icon is hoverable across the whole icon
   (`49934b0`, `b9d0705`).
 - **Chat fade** — icons fade in lockstep with their chat line (`3ca3b7e`).
@@ -258,15 +256,52 @@ per build — on the first wrapped line, detected by `text == [node+0x48]` (the
 node's text start) — and icons ACCUMULATE across lines. Multiple icons per line
 fall out of the segmentation loop naturally.
 
-### Vertical centring — font-relative
+### Icon geometry — 4.3.4's rules, ported
 
-`penXYZ[1]` sits near the text TOP, so the icon centre = `penY + fontHeight *
-g_centerFrac` (0.6, calibrated in-game across chat + pfUI's bubble). Font height
-comes from the engine's own `FUN_005c6fa0(flag, [node+0x1c])` (the emitter's
-glyph-sizing call), so centring holds across font sizes without a fixed pixel
-nudge. A TALL icon (height > font) centres in its GROWN line (see the tall-icon
-sections in Current design) — the string-height co-hook adds the overflow, so
-the extra room sits half above and half below the text.
+**Size** (`ParseEmbeddedTexture`, 0x00617BA0 in 4.3.4). A WRITTEN size is not
+pixels: it multiplies by `fontPx / (14 × ddcWidthScale)`, the reduction of the
+engine's `windowPx / (aspectComp × 1024) × fontHeight / NDCToDDCWidth(14 /
+(aspectComp × 1024))` (the call list of the real apwow.exe function confirms
+`CoordinateGetAspectCompensation` + `NDCToDDCWidth`). So sizes are relative to
+a 14-unit font and follow the text's size, UI scale and resolution. 1.12 holds
+ddcWidthScale in the same Coordinate static (`VAR_COORD_DDC_WIDTH_SCALE`,
+0x00832A44 — the four statics sit at 0x00832A40 with 4.3.4's exact initial
+values). On top of that, every size multiplies by the fontstring's layout
+scale (`fs+0x7C`) — 3.3.5's `CGxString::m_scale`, applied again although the
+font height already includes it. 4.3.4 dropped this factor; 3.3.5's was kept
+after a side-by-side look in game. The fs-level wrap callers can't see the
+fontstring, so they budget icons at scale 1 (`WrapLayoutScale`); closing that
+needs the fontstring at `FUN_0044d670`. Size cases: height ≤ 0 → font height; width absent → the height;
+width > 0 → width × scale, or a RATIO of the height when the height came from
+the font (`:0:2` is twice as wide); width ≤ 0 → the font height. Offsets are
+screen pixels and move only the drawn texture (+x right, +y UP), never the
+layout. `ResolveIconSize` is the one implementation.
+
+**Spacing** (`InitializeTextLine`, case CODE_TEXTURESTART). An icon starts at
+the previous glyph's INK edge — bearing + cell width, clamped to ≥ 0 — plus
+the face's outline ink (4 × scale thick / 2 × scale thin, `face+0x180` bits 3 /
+0; the same constants the 1.12 emitter grows its line by); with no glyph
+since the line start or the last icon it starts at the pen, no gap. The next
+glyph starts at `floor(iconRight + 0.5)` with no kerning against the icon.
+1.12's emitter doesn't report its last glyph's position (its pen is lazy), so
+`drawRun` replays the run's placements with the emitter's own helpers — the
+pair advance, the snap rounding (`FADD 0.5; __ftol`), `FUN_TEXT_GLYPH_DESC`
+(`CGxFont::NewCodeDesc`) and `FUN_TEXT_GLYPH_BEARING` — and floors the cell
+width in snap mode exactly as the emitter draws the quad. Measures count an
+icon as its width plus the outline gap when a glyph precedes it
+(`SumIconAdvances`); the engine measures width alone, but counting the gap
+keeps measure and render in step for tooltips and right-justified text.
+
+**Vertical** (same case + `CreateGeometry`). By the node's vertical justify
+(`OFF_TEXT_NODE_JUSTIFY_V`, node+0x50: 0 top / 1 middle / 2 bottom — the
+branch of the origin finalize `FUN_005cdf70`): top → the icon's top on the line
+top; bottom → its bottom on the baseline; middle → centred on the font height
+below the line top. The baseline is `penXYZ[1]` and the line top is the draw
+builder's `linkState[1]` (baseline + font height + spacing), 4.3.4's
+m_baseLineHeight / m_lineHeight. 4.3.4 shifts each line's TEXT by the
+overflow to make room; 1.12 grows the fontstring instead (the string-height
+co-hook) and places the text in it by the same justify, which matches for a
+single line.
 
 ### Measure / wrap — co-hook the tokenizer
 
@@ -417,11 +452,11 @@ formula.)
 
 **Still icon-blind (accepted residuals):**
 
-- Sub-pixel only for a string-final icon: the width hooks report its INK edge
-  (advance minus the trail half-pad/ink — `TrailingIconTrimPen`), matching the
-  engine's own last-glyph convention (the gxu width loop ends on ink, not
-  advance — the source of the old −0.8px measurement, whose previous-glyph
-  advance treatment is semantically CORRECT once an icon renders after it).
+- Sub-pixel only for an icon after a glyph: layout starts it at that glyph's
+  INK edge while measures count the glyph's advance, so the two differ by the
+  glyph's right bearing — the same discrepancy 4.3.4 has between its own
+  layout and measure loops. A string-final icon measures exactly (the gxu
+  width loop ends on the last glyph's ink, which is where the icon starts).
   What remains is the icon region's ±0.5px placement rounding and the base
   loop's ~0 contribution for the payload-0 icon token.
 - An fs whose `fs+0xFC` cache was filled while the feature was toggled
@@ -544,9 +579,7 @@ backend note.)
 - **Still icon-blind** (accepted): the hyperlink hit-test past a tall icon
   OUTSIDE the link on the same line. The substring measure `FUN_00772AE0` was
   hooked once its real consumer surfaced (the tooltip auto-size measures
-  wrapped SEGMENTS with it), and the trailing-icon width residual is trimmed
-  to sub-pixel (`TrailingIconTrimPen` — a string-final icon reports its ink
-  edge, not its advance, per the engine's own last-glyph convention).
+  wrapped SEGMENTS with it).
 
 ## Goal & spec
 

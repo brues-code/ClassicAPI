@@ -25,16 +25,16 @@ void *ResolveUnitToken(const char *token) {
 }
 
 float PixelToInternal(float px) {
-    const float mul = Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
-    const float div = Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
+    const float mul = Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
+    const float div = Read<float>(Offsets::VAR_COORD_ASPECT_COMPENSATION);
     if (div == 0.0f)
         return 0.0f;
     return px * mul / (div * static_cast<float>(Offsets::UI_COORD_SCALE_UNIT));
 }
 
 double InternalToPixel(float internal) {
-    const float mul = Read<float>(Offsets::VAR_UI_COORD_SCALE_MUL);
-    const float div = Read<float>(Offsets::VAR_UI_COORD_SCALE_DIV);
+    const float mul = Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
+    const float div = Read<float>(Offsets::VAR_COORD_ASPECT_COMPENSATION);
     if (mul == 0.0f)
         return 0.0;
     return static_cast<double>(internal) * div * Offsets::UI_COORD_SCALE_UNIT / mul;

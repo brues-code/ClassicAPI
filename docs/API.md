@@ -3170,14 +3170,18 @@ Only the non-zero denominations appear, in gold → silver → copper
 order. An `amount` of `0` returns `"0<copper>"`. A negative or
 fractional `amount` is clamped to `0` / rounded.
 
-`fontHeight` sets the icon height in UI pixels. When omitted (or `0`),
-each coin sizes itself to the font of the fontstring that shows the
-string — the default.
+A space separates the denominations.
+
+`fontHeight` sets the icon size. The default is `14`. Like every size in
+`|T…|t` markup, the value is relative to a 14-point font: the coin grows and
+shrinks with the text of the fontstring that shows it. A `fontHeight` of `0`
+makes each coin as tall as that text. Below a UI scale of 1, icons are drawn
+smaller than the text by the UI scale.
 
 ```lua
 GetCoinTextureString(123456)   -- "12g 34s 56c" with coin icons
 GetCoinTextureString(5)        -- "5c" with a copper icon
-GetCoinTextureString(5, 24)    -- same, with a 24px coin
+GetCoinTextureString(5, 28)    -- same, with a coin twice the default size
 ```
 
 The per-denomination formats are the GlobalStrings
@@ -17624,7 +17628,11 @@ and font strings.
 
 - A `height` of `0` uses the atlas's own pixel height.
 - A `width` of `0` keeps the atlas's own shape at the height you asked for.
+- Sizes are relative to a 14-point font, as in `|T…|t` markup: the art grows
+  and shrinks with the text. Below a UI scale of 1, the art is drawn smaller
+  than the text by the UI scale.
 - Two more fields shift the art from the text, as `|A:name:h:w:offsetX:offsetY|a`.
+  The values are screen pixels. A positive `offsetY` moves the art up.
 
 ```lua
 print("Repair cost: |A:Repair:0:0|a")
