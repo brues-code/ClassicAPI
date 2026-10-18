@@ -42,6 +42,14 @@ build instructions.
   - [`AuraUtil.FindAuraByName`](#aurautilfindaurabyname)
   - [`AuraUtil.UnpackAuraData`](#aurautilunpackauradata)
 
+- [Bindings](#bindings)
+  - [Direct-action bindings](#direct-action-bindings)
+  - [Modifier keys during a binding](#modifier-keys-during-a-binding)
+  - [Override bindings](#override-bindings)
+  - [`GetBindingAction(key [, checkOverride])`](#getbindingactionkey--checkoverride)
+  - [Modified clicks](#modified-clicks)
+  - [`ActionButtonUseKeyDown`](#actionbuttonusekeydown)
+
 - [CharacterList](#characterlist)
   - [`GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only](#getsavedcharacterorderrealm--setsavedcharacterorderrealm-order--gluexml-only)
 
@@ -5438,111 +5446,150 @@ as `"player"` / `"party*"` / `"raid*"` / `"nameplate*"` / `"target"`.
 
 ## Bindings
 
-The direct-action and temporary override binding APIs. The permanent helpers
-write action command strings into the native binding table; the override
-helpers add a separate, session-only layer in front of that table.
+Key bindings that cast a spell, use an item, run a macro or click a button;
+temporary override bindings; and modified clicks.
 
-### Permanent direct-action bindings
+### Direct-action bindings
 
-| Function | Equivalent command |
-|----------|--------------------|
-| `ok = SetBindingSpell(key, spell)` | `SetBinding(key, "SPELL " .. spell)` |
-| `ok = SetBindingItem(key, item)` | `SetBinding(key, "ITEM " .. item)` |
-| `ok = SetBindingMacro(key, macroNameOrIndex)` | `SetBinding(key, "MACRO " .. macroNameOrIndex)` |
-| `ok = SetBindingClick(key, buttonName [, mouseButton])` | `SetBinding(key, "CLICK " .. buttonName .. (mouseButton and ":" .. mouseButton or ""))` |
+| Function | Command it binds |
+|----------|------------------|
+| `ok = SetBindingSpell(key, spell)` | `"SPELL " .. spell` |
+| `ok = SetBindingItem(key, item)` | `"ITEM " .. item` |
+| `ok = SetBindingMacro(key, macro)` | `"MACRO " .. macro` |
+| `ok = SetBindingClick(key, buttonName [, mouseButton])` | `"CLICK " .. buttonName .. ":" .. (mouseButton or "LeftButton")` |
 
-`key` is any binding string accepted by the client, such as `"CTRL-F"`,
-`"SHIFT-BUTTON4"`, or `"F8"`. `spell`, `item`, `macroNameOrIndex`, and
-`buttonName` identify the action to perform. `macroNameOrIndex` accepts either
-a saved macro's name or its decimal index. `mouseButton` is passed to the
-button's click handler and defaults to `"LeftButton"`; when supplied, it is
-stored as the `:MouseButton` suffix of the `CLICK` command.
+Each function binds `key` in the current binding set, as `SetBinding` does.
+It returns `1` when the binding changed, else `nil`, and fires
+`UPDATE_BINDINGS`. Call `SaveBindings` to keep the change.
 
-Each helper returns `1` if the stock `SetBinding` changed the binding and
-`nil` otherwise. It changes whichever binding set is currently loaded, fires
-the normal `UPDATE_BINDINGS` notification, and is not persisted until
-the addon calls `SaveBindings`. Use `SetBinding(key)` to unbind a key;
-the typed helpers always require an action argument.
+A key bound to one of these commands does this:
 
-The command hook also understands manually constructed `SPELL`, `ITEM`,
-`MACRO`, and `CLICK` strings passed directly to `SetBinding`.
+| Command | When | What |
+|---------|------|------|
+| `SPELL name` | Key release | Casts the spell from your spellbook. |
+| `ITEM name` | Key release | Uses the item with that name that you carry. |
+| `MACRO macro` | Key release | Runs the macro. A number is a macro index; other text is a macro name. |
+| `CLICK name:button` | Key press and key release | Sends the frame a mouse down on press and a mouse up on release. |
 
-### Temporary override bindings
+`SPELL` and `ITEM` cast at you when the `SELFCAST` modified click is held,
+and at your focus when `FOCUSCAST` is held. Otherwise they use your target.
+
+For `CLICK`, a button acts as if it was clicked with the mouse. It clicks
+on press when it is registered for any `...Down` click, and on release when
+it is registered for any `...Up` click. Its pushed look, `OnMouseDown`,
+`OnMouseUp`, `PreClick`, `OnClick`, `PostClick` and `OnDoubleClick` all run.
+The cursor does not have to be over the button.
+
+`RunBinding` does not run these four commands.
+
+### Modifier keys during a binding
+
+While a key binding runs, the modifier keys that are part of its key do
+not count as held. For a binding on `ALT-1`:
+
+- `IsAltKeyDown()`, `IsLeftAltKeyDown()` and the other modifier functions
+  return `nil` for ALT.
+- `IsModifiedClick("SELFCAST")` is false when SELFCAST is ALT, so the binding
+  does not cast at you.
+- `[mod:alt]` does not pass.
+
+This applies to every key binding, including ones that run Lua.
+
+### Override bindings
 
 ```lua
 SetOverrideBinding(owner, isPriority, key [, command])
 SetOverrideBindingSpell(owner, isPriority, key, spell)
 SetOverrideBindingItem(owner, isPriority, key, item)
-SetOverrideBindingMacro(owner, isPriority, key, macroNameOrIndex)
+SetOverrideBindingMacro(owner, isPriority, key, macro)
 SetOverrideBindingClick(owner, isPriority, key, buttonName [, mouseButton])
 ClearOverrideBindings(owner)
 ```
 
-`owner` must be a frame and `isPriority` must be a Boolean. The typed helpers
-construct the same four action strings shown above. The generic
-`SetOverrideBinding` also accepts ordinary Bindings.xml command names, which
-are delegated to the engine's command executor. Override setters and
-`ClearOverrideBindings` return no values.
+An override binding replaces the saved binding of `key` until it is
+removed. It is never saved.
 
-Passing no `command` (or `nil`) to `SetOverrideBinding` removes that owner's
-override for `key`. `ClearOverrideBindings(owner)` removes every override
-belonging to that owner. Overrides never change or save the native binding
-table and are cleared whenever the FrameScript Lua state is recreated, such
-as on `/reload` or logout.
+- `owner` must be a frame.
+- `isPriority` is any value. A true value makes a priority override.
+- `key` is matched without regard to case. Write the modifiers in the order
+  the game uses: `ALT-CTRL-SHIFT-X`.
+- A `command` of `nil` or `""` removes the owner's override for `key`.
+- `ClearOverrideBindings(owner)` removes all of the owner's overrides.
 
-Resolution order is:
+For each key, the newest priority override wins. With no priority override,
+the newest normal override wins. With no override, the saved binding is
+used. When you remove an override, the next one is used again.
 
-1. Priority override bindings.
-2. Non-priority override bindings.
-3. The normal native binding.
+When no binding matches a key with modifiers, the game tries the key without
+its first modifier. Overrides follow the same rule: with no binding on
+`ALT-SHIFT-1`, an override on `SHIFT-1` is used.
 
-When multiple owners set the same key at the same priority, the most recently
-set override wins. Removing it immediately reveals the next matching override
-or the unchanged native binding.
+All overrides are removed on `/reload` and logout.
 
-`key` is matched case-insensitively, and its modifiers are accepted in any
-order: `"ctrl-alt-F"`, `"ALT-CTRL-F"`, and `"Alt-Ctrl-F"` all bind the same
-key. The override layer normalizes the key to the engine's own keypress form
-(`ALT-CTRL-SHIFT-` before the base key) before matching, so the override fires
-regardless of how the caller spelled it.
+### `GetBindingAction(key [, checkOverride])`
 
-A generic `SetOverrideBinding` command that is an ordinary Bindings.xml command
-runs through the engine's own command executor with the same execution context
-a native keypress establishes, so it behaves like the equivalent permanent
-binding.
+Returns the command bound to `key`. With `checkOverride` true, an override
+binding is returned first when one is active.
 
-### Action execution
+### Modified clicks
 
-| Command | Execution path |
-|---------|----------------|
-| `SPELL name` | Calls the stock `CastSpellByName(name)`. The usual `/cast` spell-name syntax is accepted. |
-| `ITEM item` | Calls `C_Item.UseItemByName(item)`, accepting the names, item strings, and item IDs supported by that API. |
-| `MACRO nameOrIndex` | Resolves a saved macro by name or decimal index. An addon-provided `RunMacro` is used when available; otherwise ClassicAPI resolves it with `GetMacroInfo` and dispatches its body through `ChatEdit_ParseText`. |
-| `CLICK ButtonName[:MouseButton]` | Resolves the named global frame and calls its ordinary `:Click(mouseButton)` method. The default is `LeftButton`. |
-
-`SetBindingMacro` and `SetOverrideBindingMacro` take a saved macro identifier,
-not literal macro text. To bind literal macro text, bind a named button whose
-ClassicAPI attributes describe a macro action:
+A modified click is an action that is active while a set of modifier keys,
+and optionally a mouse button, is held.
 
 ```lua
-local button = CreateFrame("Button", "MyMacroTextBindingButton")
-button:SetAttribute("type", "macro")
-button:SetAttribute("macrotext", "/say Bound macro text")
-
-SetBindingClick("CTRL-F7", button:GetName())
+IsModifiedClick([action])            -- 1 or nil
+GetModifiedClick(action)             -- "ALT", "SHIFT-BUTTON1", "NONE", ...
+SetModifiedClick(action, binding)
+GetNumModifiedClickActions()
+GetModifiedClickAction(index)
 ```
 
-### 1.12 compatibility notes
+- `IsModifiedClick(action)` returns `1` when the action's keys are held. It
+  also takes modifier names: `IsModifiedClick("SHIFT")`,
+  `IsModifiedClick("LCTRL")`. With no argument, it returns `1` when any
+  modifier key is held.
+- `SetModifiedClick` changes the current binding set. Call `SaveBindings` to
+  keep the change. `binding` is modifier names joined with `-`, optionally
+  followed by `BUTTON1` to `BUTTON5`, or `"NONE"`. An unknown action or
+  binding raises an error.
+- A `<ModifiedClick action="NAME" default="BINDING"/>` line in an addon's
+  `Bindings.xml` adds an action.
 
-- There is no combat lockdown or secure execution. These functions remain
-  callable in combat, and `CLICK` invokes the frame's ordinary click path.
-- Direct actions run on key-down. The corresponding key-up is consumed; a
-  click binding does not deliver separate mouse-down and mouse-up events.
-- The override layer is not reflected by `GetBindingAction`.
-  The `GetBindingAction(key, true)` override query is not backported.
-- Override ownership is explicit. Call `ClearOverrideBindings(owner)` when the
-  addon's owner is no longer needed; all remaining overrides are also cleared
-  when the Lua state is recreated.
+The actions and their defaults:
+
+| Action | Default |
+|--------|---------|
+| `SELFCAST` | `ALT` |
+| `FOCUSCAST` | `NONE` |
+| `AUTOLOOTTOGGLE` | `SHIFT` |
+| `MAILAUTOLOOTTOGGLE` | `SHIFT` |
+| `STICKYCAMERA` | `CTRL` |
+| `CHATLINK` | `SHIFT-BUTTON1` |
+| `DRESSUP` | `CTRL-BUTTON1` |
+| `SOCKETITEM` | `SHIFT-BUTTON2` |
+| `SPLITSTACK` | `SHIFT` |
+| `PICKUPACTION` | `SHIFT` |
+| `PICKUPITEM` | `SHIFT` |
+| `COMPAREITEMS` | `SHIFT` |
+| `OPENALLBAGS` | `SHIFT` |
+| `QUESTWATCHTOGGLE` | `SHIFT` |
+| `TOKENWATCHTOGGLE` | `SHIFT` |
+| `SHOWITEMFLYOUT` | `ALT` |
+| `SHOWMULTICASTFLYOUT` | `ALT` |
+| `TRADESEARCHADD` | `SHIFT` |
+
+The `[mod:...]` macro condition takes the same values as `IsModifiedClick`:
+`[mod:shift]`, `[mod:lctrl]`, `[mod:SELFCAST]`.
+
+### `ActionButtonUseKeyDown`
+
+A setting for the action-bar key bindings (main bar, side bars, pet bar).
+`1` uses the action when the key is pressed. `0` (the default) uses it when
+the key is released.
+
+```
+/console ActionButtonUseKeyDown 1
+```
 
 ### Predefined focus bindings (`FOCUSTARGET` / `TARGETFOCUS`)
 

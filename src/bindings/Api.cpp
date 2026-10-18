@@ -12,391 +12,189 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Backports the direct-action and override binding APIs introduced in 2.0.
-// Normal bindings are stored by vanilla's SetBinding implementation using the
-// later-client SPELL/ITEM/MACRO/CLICK command strings. The resolved-command
-// hook executes those four command families; every native binding command is
-// passed through unchanged.
+// The binding API 4.3.4 has and 1.12 lacks (decomp Ui/UIBindings.cpp,
+// UIBindings_Scripts.cpp):
 //
-// Override bindings live in a separate owner-scoped layer in front of the
-// native key lookup. They are deliberately never written to the saved binding
-// table, so clearing an owner immediately reveals the next override or the
-// unchanged native binding underneath it.
+//   SetBindingSpell / Item / Macro / Click     — "SPELL x" etc. into the
+//       current set through the engine's own SetBinding.
+//   SetOverrideBinding[Spell / Item / Macro / Click], ClearOverrideBindings
+//       — owner-scoped bindings in front of the saved ones, never saved.
+//   GetBindingAction(key [, checkOverride])   — sees overrides when asked.
+//
+// Overrides — 4.3.4's OVERRIDEKEYBINDING: per key (case-insensitive), two
+// lists (normal, priority) of {owner, command}; setting an owner's binding
+// unlinks its old one from both and links the new one at the head of its
+// priority's list, so the newest priority binding wins, then the newest
+// normal one. 4.3.4 consults them inside its key lookup, before the saved
+// binding, for every key it tries. 1.12's key dispatch (FUN_BINDING_KEY_DISPATCH)
+// tries two keys — the pressed one, then the pressed one minus its first
+// modifier — so the co-hook tries an override, then the saved binding
+// (FUN_BINDINGS_GET_COMMAND_ACTION), for each in turn, and lets the engine
+// run a saved binding it finds.
+//
+// Around whatever runs, the key-state override (Input::Modifier) hides the
+// matched key's own modifiers, as 4.3.4's ExecKey does. Direct actions
+// (Bindings::Command) run only for a key: the command co-hook acts while the
+// manager's executing flag — set by the key dispatch, not by RunBinding — is
+// up, which is 4.3.4's ExecKey / ExecCommand split.
 
 #include "Game.h"
 #include "Offsets.h"
-#include "macro/Execute.h"
+#include "bindings/Command.h"
+#include "input/Modifier.h"
 
-#include <algorithm>
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <list>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace Bindings::Api {
 
 namespace {
 
-constexpr const char kSpellPrefix[] = "SPELL ";
-constexpr const char kItemPrefix[] = "ITEM ";
-constexpr const char kMacroPrefix[] = "MACRO ";
-constexpr const char kClickPrefix[] = "CLICK ";
-constexpr const char kDefaultMouseButton[] = "LeftButton";
+using KeyDispatch_t = int(__fastcall *)(void *mgr, void *edx, const char *key, int isDown);
+using CommandExecute_t = int(__fastcall *)(void *mgr, void *edx, const char *cmd, int isDown);
+using GetCommandAction_t = const char *(__thiscall *)(void *mgr, const char *key);
+using ScriptFn_t = int(__fastcall *)(void *L);
+using ToBool_t = int(__fastcall *)(void *L, int idx, int dflt);
 
-using ScriptSetBinding_t = int(__fastcall *)(void *L);
-using KeyDispatch_t = int(__thiscall *)(void *mgr, const char *key, int isDown);
-using CommandExecute_t = int(__thiscall *)(void *mgr, const char *cmd, int isDown);
+KeyDispatch_t g_keyDispatchOriginal = nullptr;
+CommandExecute_t g_commandExecuteOriginal = nullptr;
 
-KeyDispatch_t KeyDispatch_o = nullptr;
-CommandExecute_t CommandExecute_o = nullptr;
+// --- override table (OVERRIDEKEYBINDING) ------------------------------------
 
-enum class CommandType {
-    None,
-    Spell,
-    Item,
-    Macro,
-    Click,
-};
-
-struct ParsedCommand {
-    CommandType type = CommandType::None;
-    const char *argument = nullptr;
-};
-
-struct OverrideEntry {
-    const void *owner = nullptr;
-    std::string key;
+struct Entry {
+    const void *owner;
     std::string command;
-    bool priority = false;
-    uint64_t sequence = 0;
 };
 
-std::vector<OverrideEntry> g_overrides;
-std::unordered_map<std::string, std::string> g_activeOverrides;
-uint64_t g_nextSequence = 0;
+struct OverrideKey {
+    std::string key;
+    std::list<Entry> lists[2]; // [0] normal, [1] priority; head = newest
+};
 
-// Normalizes a binding key to the engine's own canonical form so a stored
-// override matches the string FUN_BINDING_KEY_DISPATCH builds at keypress. The
-// engine's key-string builder (FUN_004b6630) always emits modifiers in the
-// fixed order ALT-CTRL-SHIFT- ahead of the base key, regardless of the order
-// the caller passed them; vanilla SetBinding never reorders, so the override
-// layer does it here. Both the store and the lookup run through this, so they
-// stay consistent while also matching the engine's keypress form.
-std::string CanonicalKey(const char *key) {
-    std::string result = key ? key : "";
-    for (char &character : result) {
-        if (character >= 'a' && character <= 'z')
-            character = static_cast<char>(character - 'a' + 'A');
+std::vector<OverrideKey> g_overrides;
+
+OverrideKey *FindKey(const char *key) {
+    for (OverrideKey &entry : g_overrides)
+        if (_stricmp(entry.key.c_str(), key) == 0)
+            return &entry;
+    return nullptr;
+}
+
+// OVERRIDEKEYBINDING::SetOverrideBinding.
+void SetOverride(OverrideKey &binding, const void *owner, bool priority, const char *command) {
+    for (auto &list : binding.lists)
+        list.remove_if([owner](const Entry &entry) { return entry.owner == owner; });
+    if (command != nullptr && *command != '\0')
+        binding.lists[priority ? 1 : 0].push_front(Entry{owner, command});
+}
+
+// OVERRIDEKEYBINDING::GetActiveBinding.
+const char *ActiveOverride(const char *key) {
+    const OverrideKey *binding = FindKey(key);
+    if (binding == nullptr)
+        return nullptr;
+    for (int i = 1; i >= 0; --i)
+        if (!binding->lists[i].empty())
+            return binding->lists[i].front().command.c_str();
+    return nullptr;
+}
+
+// CGUIBindings::SetOverrideBinding.
+void SetOverrideBinding(const void *owner, bool priority, const char *key, const char *command) {
+    OverrideKey *binding = FindKey(key);
+    if (binding == nullptr) {
+        g_overrides.push_back(OverrideKey{key, {}});
+        binding = &g_overrides.back();
     }
-
-    // Strip the three modifier prefixes in whatever order/repetition they
-    // appear, then re-emit them in the engine's fixed order. Prefix-stripping
-    // (rather than splitting on '-') keeps the minus base key correct, e.g.
-    // "SHIFT--" -> modifier SHIFT + base "-".
-    bool alt = false, ctrl = false, shift = false;
-    size_t base = 0;
-    for (bool matched = true; matched;) {
-        matched = false;
-        if (result.compare(base, 4, "ALT-") == 0) {
-            alt = true;
-            base += 4;
-            matched = true;
-        } else if (result.compare(base, 5, "CTRL-") == 0) {
-            ctrl = true;
-            base += 5;
-            matched = true;
-        } else if (result.compare(base, 6, "SHIFT-") == 0) {
-            shift = true;
-            base += 6;
-            matched = true;
-        }
-    }
-
-    if (!alt && !ctrl && !shift)
-        return result;
-
-    std::string canonical;
-    if (alt)
-        canonical += "ALT-";
-    if (ctrl)
-        canonical += "CTRL-";
-    if (shift)
-        canonical += "SHIFT-";
-    canonical += result.substr(base);
-
-    return canonical;
+    SetOverride(*binding, owner, priority, command);
 }
 
-std::string MakeCommand(const char *prefix, const char *arg) {
-    std::string cmd = prefix;
-    cmd += arg;
-    return cmd;
+// --- key dispatch -------------------------------------------------------------
+
+void *Manager() { return Game::Read<void *>(Offsets::VAR_BINDINGS_MANAGER); }
+
+const char *SavedCommand(void *mgr, const char *key) {
+    return reinterpret_cast<GetCommandAction_t>(Offsets::FUN_BINDINGS_GET_COMMAND_ACTION)(mgr,
+                                                                                          key);
 }
 
-std::string MakeClickCommand(const char *btnName, const char *mouseBtn) {
-    std::string cmd = MakeCommand(kClickPrefix, btnName);
-    if (mouseBtn != nullptr) {
-        cmd += ':';
-        cmd += mouseBtn;
-    }
-
-    return cmd;
+int ExecuteCommand(void *mgr, const char *command, int isDown) {
+    if (Command::IsDirectAction(command))
+        return Command::RunKey(command, isDown);
+    return g_commandExecuteOriginal(mgr, nullptr, command, isDown);
 }
 
-ParsedCommand ParseCommand(const char *cmd) {
-    if (cmd == nullptr)
-        return {};
-
-    struct PrefixEntry {
-        const char *prefix;
-        size_t length;
-        CommandType type;
-    };
-
-    static constexpr PrefixEntry prefixes[] = {
-        {kSpellPrefix, sizeof(kSpellPrefix) - 1, CommandType::Spell},
-        {kItemPrefix, sizeof(kItemPrefix) - 1, CommandType::Item},
-        {kMacroPrefix, sizeof(kMacroPrefix) - 1, CommandType::Macro},
-        {kClickPrefix, sizeof(kClickPrefix) - 1, CommandType::Click},
-    };
-
-    for (const PrefixEntry &entry : prefixes) {
-        if (std::strncmp(cmd, entry.prefix, entry.length) == 0)
-            return {entry.type, cmd + entry.length};
-    }
-
-    return {};
-}
-
-bool CallGlobalString(void *L, const char *func, const char *arg) {
-    const int top = Game::Lua::GetTop(L);
-    if (!Game::Lua::PushGlobalFunction(L, func)) {
-        Game::Lua::SetTop(L, top);
-        return false;
-    }
-
-    Game::Lua::PushString(L, arg);
-    const bool ok = Game::Lua::PCall(L, 1, 0, 0) == 0;
-    Game::Lua::SetTop(L, top);
-
-    return ok;
-}
-
-bool CallTableString(void *L, const char *table, const char *func, const char *arg) {
-    const int top = Game::Lua::GetTop(L);
-
-    Game::Lua::PushString(L, table);
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::SetTop(L, top);
-        return false;
-    }
-
-    const int tableIndex = Game::Lua::GetTop(L);
-
-    Game::Lua::PushString(L, func);
-    Game::Lua::GetTable(L, tableIndex);
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::SetTop(L, top);
-        return false;
-    }
-
-    Game::Lua::PushString(L, arg);
-    const bool ok = Game::Lua::PCall(L, 1, 0, 0) == 0;
-    Game::Lua::SetTop(L, top);
-
-    return ok;
-}
-
-void InvokeButtonClick(void *L, const char *btnName, size_t btnNameLength, const char *mouseBtn) {
-    const int top = Game::Lua::GetTop(L);
-
-    Game::Lua::PushLString(L, btnName, static_cast<unsigned int>(btnNameLength));
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::SetTop(L, top);
-        return;
-    }
-
-    const int frameIndex = Game::Lua::GetTop(L);
-    Game::Lua::PushString(L, "Click");
-    Game::Lua::GetTable(L, frameIndex);
-    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::PushValue(L, frameIndex);
-        Game::Lua::PushString(L, mouseBtn);
-        Game::Lua::PCall(L, 2, 0, 0);
-    }
-
-    Game::Lua::SetTop(L, top);
-}
-
-void ExecuteClick(void *L, const char *arg) {
-    const char *separator = std::strrchr(arg, ':');
-    if (separator == arg || (separator != nullptr && separator[1] == '\0'))
-        return;
-
-    const char *mouseBtn = kDefaultMouseButton;
-    size_t btnNameLength = std::strlen(arg);
-    if (separator != nullptr) {
-        btnNameLength = static_cast<size_t>(separator - arg);
-        mouseBtn = separator + 1;
-    }
-
-    if (btnNameLength == 0)
-        return;
-
-    InvokeButtonClick(L, arg, btnNameLength, mouseBtn);
-}
-
-// Returns true for every recognized direct-action command, including malformed
-// or stale commands. Vanilla cannot execute these namespaces, so a bad command
-// is consumed as a no-op instead of falling through to an unrelated handler.
-bool ExecuteSpecialCommand(const char *cmd, int isDown) {
-    const ParsedCommand parsed = ParseCommand(cmd);
-    if (parsed.type == CommandType::None)
-        return false;
-
-    if (!isDown || parsed.argument == nullptr || *parsed.argument == '\0')
-        return true;
-
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return true;
-
-    switch (parsed.type) {
-    case CommandType::Spell:
-        CallGlobalString(L, "CastSpellByName", parsed.argument);
-        break;
-    case CommandType::Item:
-        CallTableString(L, "C_Item", "UseItemByName", parsed.argument);
-        break;
-    case CommandType::Macro:
-        Macro::Execute::Saved(L, parsed.argument);
-        break;
-    case CommandType::Click:
-        ExecuteClick(L, parsed.argument);
-        break;
-    default:
-        break;
-    }
-
-    return true;
-}
-
-const OverrideEntry *FindEffectiveOverride(const std::string &key) {
-    const OverrideEntry *best = nullptr;
-    for (const OverrideEntry &entry : g_overrides) {
-        if (entry.key != key)
-            continue;
-
-        if (best == nullptr || entry.priority > best->priority ||
-            (entry.priority == best->priority && entry.sequence > best->sequence))
-            best = &entry;
-    }
-
-    return best;
-}
-
-void SetOverride(const void *owner, bool priority, const std::string &key, const std::string &cmd) {
-    auto existing =
-        std::find_if(g_overrides.begin(), g_overrides.end(),
-                     [&](const OverrideEntry &entry) {
-                         return entry.owner == owner && entry.key == key;
-                     });
-
-    if (existing == g_overrides.end()) {
-        g_overrides.push_back(
-            {owner, key, cmd, priority, ++g_nextSequence});
-        return;
-    }
-
-    existing->command = cmd;
-    existing->priority = priority;
-    existing->sequence = ++g_nextSequence;
-}
-
-void RemoveOverride(const void *owner, const std::string &key) {
-    g_overrides.erase(std::remove_if(g_overrides.begin(), g_overrides.end(),
-                                     [&](const OverrideEntry &entry) {
-                                         return entry.owner == owner &&
-                                                entry.key == key;
-                                     }),
-                      g_overrides.end());
-}
-
-int ExecuteCommand(void *mgr, const char *cmd, int isDown) {
-    if (ExecuteSpecialCommand(cmd, isDown))
-        return 1;
-
-    return CommandExecute_o(mgr, cmd, isDown);
-}
-
-int __fastcall CommandExecute_h(void *mgr, void *, const char *cmd, int isDown) {
-    return ExecuteCommand(mgr, cmd, isDown);
-}
-
-// Runs an override-resolved command with the same execution context the engine
-// wraps around a native keypress. FUN_BINDING_KEY_DISPATCH saves the frame-
-// script exec-context, zeroes it for the nested command, marks the manager as
-// mid-command (`+0xD8`), then restores the context and floors the nesting
-// depth. Native-table bindings already run inside this (the engine sets it up
-// before calling FUN_BINDING_COMMAND_EXECUTE, which we co-hook); overrides
-// bypass that path, so we mirror it here. Without it, a native Bindings.xml
-// command dispatched through an override would run without the context its
-// handler expects. Special SPELL/ITEM/MACRO/CLICK commands run harmlessly
-// inside the same wrapper.
-int DispatchOverrideCommand(void *mgr, const char *cmd, int isDown) {
-    volatile uint32_t *context =
-        reinterpret_cast<volatile uint32_t *>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
-    volatile uint32_t *depth = reinterpret_cast<volatile uint32_t *>(
-        Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
-    volatile uint32_t *executing =
-        Game::Ptr<volatile uint32_t>(mgr, Offsets::OFF_BINDING_MANAGER_EXECUTING);
-
-    const uint32_t savedContext = *context;
-    *depth = *depth + 1;
-    if (*depth != 0)
-        *context = 0;
-
-    *executing = 1;
-    const int result = ExecuteCommand(mgr, cmd, isDown);
-    *executing = 0;
-
-    if (*depth != 0)
-        *context = savedContext;
-    if (static_cast<int32_t>(*depth) - 1 > 0)
-        *depth = *depth - 1;
-    else
-        *depth = 0;
-
+// An override's command, run in the frame the engine dispatch gives a saved
+// one: exec context saved and cleared, depth bumped, the manager's executing
+// flag up (FUN_BINDING_KEY_DISPATCH, see Offsets.h).
+int RunOverride(void *mgr, const char *command, int isDown) {
+    const std::string copy = command; // the command may clear its own override
+    auto &context = Game::Ref<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+    auto &depth = Game::Ref<int32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
+    auto &executing = Game::Ref<uint32_t>(mgr, Offsets::OFF_BINDING_MANAGER_EXECUTING);
+    const uint32_t saved = context;
+    if (++depth != 0)
+        context = 0;
+    executing = 1;
+    const int result = ExecuteCommand(mgr, copy.c_str(), isDown);
+    executing = 0;
+    if (depth != 0)
+        context = saved;
+    depth = depth - 1 > 0 ? depth - 1 : 0;
     return result;
 }
 
-int __fastcall KeyDispatch_h(void *mgr, void *, const char *key, int isDown) {
-    const std::string canonicalKey = CanonicalKey(key);
+int __fastcall KeyDispatch_h(void *mgr, void *edx, const char *key, int isDown) {
+    if (key == nullptr || *key == '\0')
+        return g_keyDispatchOriginal(mgr, edx, key, isDown);
 
-    // Keep a key-down paired with its override command even if that override is
-    // cleared while the command executes. The newly revealed native binding
-    // must not receive only the key-up half of the same physical press.
-    if (!isDown) {
-        auto active = g_activeOverrides.find(canonicalKey);
-        if (active != g_activeOverrides.end()) {
-            DispatchOverrideCommand(mgr, active->second.c_str(), 0);
-            g_activeOverrides.erase(active);
-            return 1;
+    // The engine's two keys: as pressed, then without its first modifier.
+    const char *dash = std::strchr(key, '-');
+    const char *candidates[2] = {key, (dash != nullptr && dash[1] != '\0') ? dash + 1 : nullptr};
+    for (const char *candidate : candidates) {
+        if (candidate == nullptr)
+            break;
+        if (const char *command = ActiveOverride(candidate)) {
+            const Input::Modifier::KeyStateOverride keyState(candidate);
+            return RunOverride(mgr, command, isDown);
+        }
+        if (SavedCommand(mgr, candidate) != nullptr) {
+            const Input::Modifier::KeyStateOverride keyState(candidate);
+            return g_keyDispatchOriginal(mgr, edx, key, isDown);
         }
     }
+    return g_keyDispatchOriginal(mgr, edx, key, isDown);
+}
 
-    const OverrideEntry *entry = FindEffectiveOverride(canonicalKey);
-    if (entry == nullptr)
-        return KeyDispatch_o(mgr, key, isDown);
+// Direct actions only for a key (executing flag up); RunBinding reaches the
+// engine's command table, which has none of them — as in 4.3.4.
+int __fastcall CommandExecute_h(void *mgr, void *edx, const char *command, int isDown) {
+    if (Game::Read<uint32_t>(mgr, Offsets::OFF_BINDING_MANAGER_EXECUTING) != 0 &&
+        Command::IsDirectAction(command))
+        return Command::RunKey(command, isDown);
+    return g_commandExecuteOriginal(mgr, edx, command, isDown);
+}
 
-    if (isDown)
-        g_activeOverrides[canonicalKey] = entry->command;
+// --- Lua ----------------------------------------------------------------------
 
-    return DispatchOverrideCommand(mgr, entry->command.c_str(), isDown);
+bool LooseBool(void *L, int idx) {
+    return reinterpret_cast<ToBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, idx, 0) != 0;
+}
+
+const char *OptString(void *L, int idx) {
+    return Game::Lua::IsString(L, idx) ? Game::Lua::ToString(L, idx) : nullptr;
+}
+
+// SetBinding(key, command) through the engine's own Script_SetBinding: its
+// key normalization, current-set write, UPDATE_BINDINGS and 1/nil result.
+int SetBinding(void *L, const std::string &key, const std::string &command) {
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::PushString(L, key.c_str());
+    Game::Lua::PushString(L, command.c_str());
+    return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_SET_BINDING)(L);
 }
 
 int SetBindingCommand(void *L, const char *prefix, const char *usage) {
@@ -404,216 +202,136 @@ int SetBindingCommand(void *L, const char *prefix, const char *usage) {
         Game::Lua::Error(L, usage);
         return 0;
     }
-
-    const std::string key = Game::Lua::ToString(L, 1);
-    const std::string command = MakeCommand(prefix, Game::Lua::ToString(L, 2));
-
-    // Preserve the stock SetBinding return value, binding-set selection,
-    // key normalization, UPDATE_BINDINGS event, and SaveBindings behavior.
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::PushString(L, key.c_str());
-    Game::Lua::PushString(L, command.c_str());
-    auto setBinding =
-        reinterpret_cast<ScriptSetBinding_t>(Offsets::FUN_SCRIPT_SET_BINDING);
-
-    return setBinding(L);
-}
-
-const char *OptionalMouseButton(void *L, int index, const char *usage) {
-    if (Game::Lua::GetTop(L) < index || Game::Lua::Type(L, index) == Game::Lua::TYPE_NIL)
-        return nullptr;
-
-    if (!Game::Lua::IsString(L, index)) {
-        Game::Lua::Error(L, usage);
-        return nullptr;
-    }
-
-    return Game::Lua::ToString(L, index);
+    return SetBinding(L, Game::Lua::ToString(L, 1),
+                      std::string(prefix) + Game::Lua::ToString(L, 2));
 }
 
 int __fastcall Script_SetBindingSpell(void *L) {
-    return SetBindingCommand(L, kSpellPrefix, "Usage: SetBindingSpell(key, spell)");
+    return SetBindingCommand(L, "SPELL ", "Usage: SetBindingSpell(\"KEY\", \"spellname\")");
 }
-
 int __fastcall Script_SetBindingItem(void *L) {
-    return SetBindingCommand(L, kItemPrefix, "Usage: SetBindingItem(key, item)");
+    return SetBindingCommand(L, "ITEM ", "Usage: SetBindingItem(\"KEY\", \"itemname\")");
+}
+int __fastcall Script_SetBindingMacro(void *L) {
+    return SetBindingCommand(L, "MACRO ",
+                             "Usage: SetBindingMacro(\"KEY\", \"macroname\"|macroid)");
 }
 
-int __fastcall Script_SetBindingMacro(void *L) {
-    return SetBindingCommand(L, kMacroPrefix, "Usage: SetBindingMacro(key, macro)");
+std::string ClickCommand(const char *button, const char *mouseButton) {
+    return std::string("CLICK ") + button + ":" +
+           (mouseButton != nullptr ? mouseButton : "LeftButton");
 }
 
 int __fastcall Script_SetBindingClick(void *L) {
-    constexpr const char *usage = "Usage: SetBindingClick(key, buttonName [, mouseButton])";
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, usage);
+        Game::Lua::Error(
+            L, "Usage: SetBindingClick(\"KEY\", \"buttonName\"[, \"mouseButton\"])");
         return 0;
     }
-
-    const std::string key = Game::Lua::ToString(L, 1);
-    const char *buttonName = Game::Lua::ToString(L, 2);
-    const char *mouseButton = OptionalMouseButton(L, 3, usage);
-    const std::string command = MakeClickCommand(buttonName, mouseButton);
-
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::PushString(L, key.c_str());
-    Game::Lua::PushString(L, command.c_str());
-    auto setBinding =
-        reinterpret_cast<ScriptSetBinding_t>(Offsets::FUN_SCRIPT_SET_BINDING);
-
-    return setBinding(L);
+    return SetBinding(L, Game::Lua::ToString(L, 1),
+                      ClickCommand(Game::Lua::ToString(L, 2), OptString(L, 3)));
 }
 
-bool ReadOverrideHeader(void *L, const char *usage, const void **owner,
-                        bool *priority, std::string *key) {
-    *owner = Game::Lua::ResolveObject(L, 1);
-    if (*owner == nullptr || Game::Lua::Type(L, 2) != Game::Lua::TYPE_BOOLEAN ||
-        !Game::Lua::IsString(L, 3)) {
-        Game::Lua::Error(L, usage);
-        return false;
-    }
+// The owner argument: a frame, as 4.3.4 requires.
+const void *Owner(void *L) { return Game::Lua::ResolveFrame(L, 1, /*raiseError*/ false); }
 
-    *priority = Game::Lua::ToBoolean(L, 2) != 0;
-    *key = CanonicalKey(Game::Lua::ToString(L, 3));
-    return true;
-}
-
-int SetOverrideBindingCommand(void *L, const char *prefix, const char *usage) {
-    const void *owner = nullptr;
-    bool priority = false;
-
-    std::string key;
-    if (!ReadOverrideHeader(L, usage, &owner, &priority, &key))
-        return 0;
-
-    if (!Game::Lua::IsString(L, 4)) {
-        Game::Lua::Error(L, usage);
+int __fastcall Script_SetOverrideBinding(void *L) {
+    const void *owner = Owner(L);
+    if (owner == nullptr || !Game::Lua::IsString(L, 3)) {
+        Game::Lua::Error(L, "Usage: SetOverrideBinding(owner, isPriority, \"KEY\"[, \"COMMAND\"])");
         return 0;
     }
-
-    SetOverride(owner, priority, key,
-                MakeCommand(prefix, Game::Lua::ToString(L, 4)));
-
+    SetOverrideBinding(owner, LooseBool(L, 2), Game::Lua::ToString(L, 3), OptString(L, 4));
     return 0;
 }
 
-int __fastcall Script_SetOverrideBinding(void *L) {
-    constexpr const char *usage = "Usage: SetOverrideBinding(owner, isPriority, key [, command])";
-    const void *owner = nullptr;
-    bool priority = false;
-
-    std::string key;
-    if (!ReadOverrideHeader(L, usage, &owner, &priority, &key))
-        return 0;
-
-    if (Game::Lua::GetTop(L) < 4 ||
-        Game::Lua::Type(L, 4) == Game::Lua::TYPE_NIL) {
-        RemoveOverride(owner, key);
-        return 0;
-    }
-
-    if (!Game::Lua::IsString(L, 4)) {
+int SetOverrideCommand(void *L, const char *prefix, const char *usage) {
+    const void *owner = Owner(L);
+    if (owner == nullptr || !Game::Lua::IsString(L, 3) || !Game::Lua::IsString(L, 4)) {
         Game::Lua::Error(L, usage);
         return 0;
     }
-
-    SetOverride(owner, priority, key, Game::Lua::ToString(L, 4));
+    const std::string command = std::string(prefix) + Game::Lua::ToString(L, 4);
+    SetOverrideBinding(owner, LooseBool(L, 2), Game::Lua::ToString(L, 3), command.c_str());
     return 0;
 }
 
 int __fastcall Script_SetOverrideBindingSpell(void *L) {
-    return SetOverrideBindingCommand(
-        L, kSpellPrefix,
-        "Usage: SetOverrideBindingSpell(owner, isPriority, key, spell)");
+    return SetOverrideCommand(
+        L, "SPELL ", "Usage: SetOverrideBindingSpell(owner, isPriority, \"KEY\", \"spellname\")");
 }
-
 int __fastcall Script_SetOverrideBindingItem(void *L) {
-    return SetOverrideBindingCommand(
-        L, kItemPrefix,
-        "Usage: SetOverrideBindingItem(owner, isPriority, key, item)");
+    return SetOverrideCommand(
+        L, "ITEM ", "Usage: SetOverrideBindingItem(owner, isPriority, \"KEY\", \"itemname\")");
 }
-
 int __fastcall Script_SetOverrideBindingMacro(void *L) {
-    return SetOverrideBindingCommand(
-        L, kMacroPrefix,
-        "Usage: SetOverrideBindingMacro(owner, isPriority, key, macro)");
+    return SetOverrideCommand(
+        L, "MACRO ",
+        "Usage: SetOverrideBindingMacro(owner, isPriority, \"KEY\", \"macroname\"|macroid)");
 }
 
 int __fastcall Script_SetOverrideBindingClick(void *L) {
-    constexpr const char *usage =
-        "Usage: SetOverrideBindingClick(owner, "
-        "isPriority, key, buttonName [, mouseButton])";
-
-    const void *owner = nullptr;
-    bool priority = false;
-
-    std::string key;
-    if (!ReadOverrideHeader(L, usage, &owner, &priority, &key))
-        return 0;
-
-    if (!Game::Lua::IsString(L, 4)) {
-        Game::Lua::Error(L, usage);
+    const void *owner = Owner(L);
+    if (owner == nullptr || !Game::Lua::IsString(L, 3) || !Game::Lua::IsString(L, 4)) {
+        Game::Lua::Error(L, "Usage: SetOverrideBindingClick(owner, isPriority, \"KEY\", "
+                            "\"buttonName\"[, \"mouseButton\"])");
         return 0;
     }
-
-    const char *buttonName = Game::Lua::ToString(L, 4);
-    const char *mouseButton = OptionalMouseButton(L, 5, usage);
-    SetOverride(owner, priority, key,
-                MakeClickCommand(buttonName, mouseButton));
-
+    const std::string command = ClickCommand(Game::Lua::ToString(L, 4), OptString(L, 5));
+    SetOverrideBinding(owner, LooseBool(L, 2), Game::Lua::ToString(L, 3), command.c_str());
     return 0;
 }
 
 int __fastcall Script_ClearOverrideBindings(void *L) {
-    const void *owner = Game::Lua::ResolveObject(L, 1);
+    const void *owner = Owner(L);
     if (owner == nullptr) {
         Game::Lua::Error(L, "Usage: ClearOverrideBindings(owner)");
         return 0;
     }
-
-    g_overrides.erase(std::remove_if(g_overrides.begin(), g_overrides.end(),
-                                     [&](const OverrideEntry &entry) {
-                                         return entry.owner == owner;
-                                     }),
-                      g_overrides.end());
+    for (OverrideKey &binding : g_overrides)
+        SetOverride(binding, owner, false, nullptr);
     return 0;
 }
 
-void RegisterLuaFunctions() {
-    // A fresh FrameScript state makes every owner pointer from the previous
-    // state stale. Permanent bindings remain in vanilla's binding table.
-    g_overrides.clear();
-    g_activeOverrides.clear();
-    g_nextSequence = 0;
+// GetBindingAction(key [, checkOverride]): 4.3.4's GetCommandAction checks the
+// override first when asked; the saved binding is the engine's own answer.
+int __fastcall Script_GetBindingAction(void *L) {
+    if (Game::Lua::IsString(L, 1) && LooseBool(L, 2)) {
+        if (const char *command = ActiveOverride(Game::Lua::ToString(L, 1))) {
+            Game::Lua::PushString(L, command);
+            return 1;
+        }
+    }
+    return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_GET_BINDING_ACTION)(L);
+}
 
+void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("SetBindingSpell", &Script_SetBindingSpell);
     Game::Lua::RegisterGlobalFunction("SetBindingItem", &Script_SetBindingItem);
     Game::Lua::RegisterGlobalFunction("SetBindingMacro", &Script_SetBindingMacro);
     Game::Lua::RegisterGlobalFunction("SetBindingClick", &Script_SetBindingClick);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBinding",
-                                      &Script_SetOverrideBinding);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingSpell",
-                                      &Script_SetOverrideBindingSpell);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingItem",
-                                      &Script_SetOverrideBindingItem);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingMacro",
-                                      &Script_SetOverrideBindingMacro);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingClick",
-                                      &Script_SetOverrideBindingClick);
-    Game::Lua::RegisterGlobalFunction("ClearOverrideBindings",
-                                      &Script_ClearOverrideBindings);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBinding", &Script_SetOverrideBinding);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingSpell", &Script_SetOverrideBindingSpell);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingItem", &Script_SetOverrideBindingItem);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingMacro", &Script_SetOverrideBindingMacro);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingClick", &Script_SetOverrideBindingClick);
+    Game::Lua::RegisterGlobalFunction("ClearOverrideBindings", &Script_ClearOverrideBindings);
+    Game::Lua::RegisterGlobalFunction("GetBindingAction", &Script_GetBindingAction);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
-const Game::HookAutoRegister _hookKeyDispatch{
-    Offsets::FUN_BINDING_KEY_DISPATCH, reinterpret_cast<void *>(&KeyDispatch_h),
-    reinterpret_cast<void **>(&KeyDispatch_o)};
+// Owners are frames of the Lua state being torn down; their overrides go with it.
+void PrepareForReload() { g_overrides.clear(); }
+const Game::ReloadAutoRegister _reload{&PrepareForReload};
+
+const Game::HookAutoRegister _hookKeyDispatch{Offsets::FUN_BINDING_KEY_DISPATCH,
+                                              reinterpret_cast<void *>(&KeyDispatch_h),
+                                              reinterpret_cast<void **>(&g_keyDispatchOriginal)};
 
 const Game::HookAutoRegister _hookCommandExecute{
-    Offsets::FUN_BINDING_COMMAND_EXECUTE,
-    reinterpret_cast<void *>(&CommandExecute_h),
-    reinterpret_cast<void **>(&CommandExecute_o)};
+    Offsets::FUN_BINDING_COMMAND_EXECUTE, reinterpret_cast<void *>(&CommandExecute_h),
+    reinterpret_cast<void **>(&g_commandExecuteOriginal)};
 
 } // namespace
 

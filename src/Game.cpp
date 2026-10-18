@@ -161,11 +161,8 @@ void *ResolveChecked(void *L, int idx, const uintptr_t *typeIdVars, int count,
             Error(L, EngineString(Offsets::STR_FS_THIS_NON_OBJECT));
         return nullptr;
     }
-    auto **vtable = *reinterpret_cast<void ***>(obj);
-    auto IsA = reinterpret_cast<FrameScriptIsA_t>(
-        vtable[Offsets::OFF_VMT_FRAMESCRIPT_ISA / sizeof(void *)]);
     for (int i = 0; i < count; ++i) {
-        if (IsA(obj, FrameScriptTypeId(typeIdVars[i])))
+        if (IsA(obj, typeIdVars[i]))
             return obj;
     }
     if (raiseError)
@@ -182,6 +179,13 @@ int FrameScriptTypeId(uintptr_t typeIdVar) {
         typeId = counter;
     }
     return typeId;
+}
+
+bool IsA(void *object, uintptr_t typeIdVar) {
+    auto **vtable = *reinterpret_cast<void ***>(object);
+    auto isA = reinterpret_cast<FrameScriptIsA_t>(
+        vtable[Offsets::OFF_VMT_FRAMESCRIPT_ISA / sizeof(void *)]);
+    return isA(object, FrameScriptTypeId(typeIdVar)) != 0;
 }
 
 void *ResolveTypedObject(void *L, int idx, uintptr_t typeIdVar, bool raiseError) {

@@ -14,9 +14,11 @@
 #include "input/Modifier.h"
 
 #include "Game.h"
+#include "Offsets.h"
 #include "event/Custom.h"
 
 #include <cstdint>
+#include <cstring>
 
 #include <windows.h>
 
@@ -81,6 +83,11 @@ constexpr const char *kModifierStateChanged = "MODIFIER_STATE_CHANGED";
 const Event::Custom::AutoReserve _reserveModifierStateChanged{kModifierStateChanged};
 
 uint32_t g_modifierMask = 0;
+
+// 4.3.4's m_keyStateOverride / m_heldModifiers (see KeyStateOverride).
+bool g_overrideActive = false;
+uint32_t g_overrideMask = 0;
+
 HHOOK g_msgHook = nullptr;
 HHOOK g_wndProcHook = nullptr;
 
@@ -113,16 +120,37 @@ void SetBit(int bitIdx, bool down) {
 
 template <int BitIdx>
 int __fastcall Script_IsKeyDown(void *L) {
-    const bool down = (g_modifierMask & (1u << BitIdx)) != 0;
+    const bool down = (CurrentMask() & (1u << BitIdx)) != 0;
     PushDown(L, down);
     return 1;
 }
 
 int __fastcall Script_IsModifierKeyDown(void *L) {
-    const bool down = (g_modifierMask & MASK_ANY_MODIFIER) != 0;
+    const bool down = (CurrentMask() & MASK_ANY_MODIFIER) != 0;
     PushDown(L, down);
     return 1;
 }
+
+// The engine's IsKeyDown for shift / ctrl / alt (0 / 1 / 2) answers from the
+// override while a binding runs, as 4.3.4's does — so IsShiftKeyDown & co. and
+// every engine modifier read agree with the L/R functions above.
+using IsKeyDown_t = int(__fastcall *)(int which);
+IsKeyDown_t g_isKeyDownOriginal = nullptr;
+
+int __fastcall IsKeyDown_h(int which) {
+    if (!g_overrideActive)
+        return g_isKeyDownOriginal(which);
+    static const uint32_t kPairs[3] = {(1u << BIT_LSHIFT) | (1u << BIT_RSHIFT),
+                                       (1u << BIT_LCTRL) | (1u << BIT_RCTRL),
+                                       (1u << BIT_LALT) | (1u << BIT_RALT)};
+    if (which < 0 || which > 2)
+        return g_isKeyDownOriginal(which);
+    return (g_overrideMask & kPairs[which]) != 0;
+}
+
+const Game::HookAutoRegister _isKeyDownHook{Offsets::FUN_GAMEUI_IS_KEY_DOWN,
+                                            reinterpret_cast<void *>(&IsKeyDown_h),
+                                            reinterpret_cast<void **>(&g_isKeyDownOriginal)};
 
 // Decode the L/R bit position from a key message.
 //   - `VK_SHIFT` (the merged virtual key the OS sends for either key)
@@ -244,7 +272,54 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 } // namespace
 
 uint32_t CurrentMask() {
-    return g_modifierMask;
+    return g_overrideActive ? g_overrideMask : g_modifierMask;
+}
+
+uint32_t ParseModifiers(const char *&text) {
+    static const struct {
+        const char *name;
+        uint32_t bits;
+    } kNames[] = {
+        {"LSHIFT", 1u << BIT_LSHIFT},
+        {"RSHIFT", 1u << BIT_RSHIFT},
+        {"SHIFT", (1u << BIT_LSHIFT) | (1u << BIT_RSHIFT)},
+        {"LCTRL", 1u << BIT_LCTRL},
+        {"RCTRL", 1u << BIT_RCTRL},
+        {"CTRL", (1u << BIT_LCTRL) | (1u << BIT_RCTRL)},
+        {"LALT", 1u << BIT_LALT},
+        {"RALT", 1u << BIT_RALT},
+        {"ALT", (1u << BIT_LALT) | (1u << BIT_RALT)},
+    };
+    uint32_t modifiers = 0;
+    while (*text != '\0') {
+        bool matched = false;
+        for (const auto &entry : kNames) {
+            const size_t length = std::strlen(entry.name);
+            if (_strnicmp(text, entry.name, length) == 0) {
+                modifiers |= entry.bits;
+                text += length;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched)
+            break;
+        if (*text == '-')
+            ++text;
+    }
+    return modifiers;
+}
+
+KeyStateOverride::KeyStateOverride(const char *boundKey)
+    : m_wasActive(g_overrideActive), m_previousMask(g_overrideMask) {
+    const char *rest = boundKey != nullptr ? boundKey : "";
+    g_overrideMask = g_modifierMask & ~ParseModifiers(rest);
+    g_overrideActive = true;
+}
+
+KeyStateOverride::~KeyStateOverride() {
+    g_overrideActive = m_wasActive;
+    g_overrideMask = m_previousMask;
 }
 
 } // namespace Input::Modifier

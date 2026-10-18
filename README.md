@@ -62,7 +62,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [AddOns](docs/API.md#addons) | `C_AddOns.DoesAddOnExist`, `C_AddOns.GetAddOnLocalTable`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded`, `C_AddOns.LoadAddOn` |
 | [APIDocumentation](docs/API.md#apidocumentation) | `/classicapi` in-game browser, `C_APIDocumentation.GetSystem`, `C_APIDocumentation.GetSystems` |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem` |
-| [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings` |
+| [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings`, `GetBindingAction` (`checkOverride`), `IsModifiedClick`, `GetModifiedClick`, `SetModifiedClick`, `GetNumModifiedClickActions`, `GetModifiedClickAction`, `ActionButtonUseKeyDown` (cvar) |
 | [Chat](docs/API.md#chat) | `GetCurrentChatGUID` |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |

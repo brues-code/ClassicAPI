@@ -218,21 +218,19 @@ CONDITIONS.spec = function(target, args)
     return true;
 end
 
+-- [mod:X/Y] passes when any value is a held modified click: a modifier string
+-- ("shift", "lctrl", "alt-shift") or a modified-click action ("SELFCAST"), as
+-- 4.3.4's EvaluateModifier asks IsModifiedClick. Bare [mod] is any of them.
+local IsModifiedClick = ClassicAPI.IsModifiedClick;
+
 CONDITIONS.modifier = function(target, args)
     if args then
         for i = 1, args.n do
-            local a = strlower(args[i]);
-            if a == "shift" then
-                if IsShiftKeyDown() then return true; end
-            elseif a == "ctrl" then
-                if IsControlKeyDown() then return true; end
-            elseif a == "alt" then
-                if IsAltKeyDown() then return true; end
-            end
+            if IsModifiedClick(args[i]) then return true; end
         end
         return false;
     end
-    return IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown();
+    return IsModifiedClick() ~= nil;
 end
 
 -- [button:N] numbers the mouse buttons the way the rest of the modern API

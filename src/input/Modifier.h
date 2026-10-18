@@ -24,6 +24,32 @@ namespace Input::Modifier {
 // evaluator) compare it across ticks to re-evaluate `[mod:...]`
 // conditionals the frame a modifier changes, instead of waiting for the
 // periodic pass.
+//
+// While a KeyStateOverride is in scope this returns the held mask minus the
+// binding key's own modifiers instead — 4.3.4's CGGameUI::IsKeyDown under
+// CGUIBindings::m_keyStateOverride.
 uint32_t CurrentMask();
+
+// CGUIBindings::AddModifiers: consumes leading modifier names from `text`
+// ("SHIFT", "LCTRL", "RALT", … each optionally followed by '-') and returns
+// their bits. `text` is left at the first character that is not one.
+uint32_t ParseModifiers(const char *&text);
+
+// 4.3.4's key-state override around a key binding's command
+// (CGUIBindings::ExecKey): for its lifetime every modifier read — CurrentMask,
+// the Is*KeyDown functions, and the engine's own IsKeyDown — sees the keys
+// held now minus the modifiers named in `boundKey`, the binding that matched
+// (StripModifiers). Nestable; restores the previous state.
+class KeyStateOverride {
+  public:
+    explicit KeyStateOverride(const char *boundKey);
+    ~KeyStateOverride();
+    KeyStateOverride(const KeyStateOverride &) = delete;
+    KeyStateOverride &operator=(const KeyStateOverride &) = delete;
+
+  private:
+    bool m_wasActive;
+    uint32_t m_previousMask;
+};
 
 } // namespace Input::Modifier

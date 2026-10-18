@@ -15,4 +15,24 @@
 	<Binding name="AOELOOT">
 		C_Loot.LootAllCorpses()
 	</Binding>
+	<!-- 4.3.4's modified-click actions and defaults (FrameXML\Bindings.xml).
+	     Read by src/bindings/ModifiedClick.cpp. -->
+	<ModifiedClick action="SELFCAST" default="ALT"/>
+	<ModifiedClick action="FOCUSCAST" default="NONE"/>
+	<ModifiedClick action="AUTOLOOTTOGGLE" default="SHIFT"/>
+	<ModifiedClick action="MAILAUTOLOOTTOGGLE" default="SHIFT"/>
+	<ModifiedClick action="STICKYCAMERA" default="CTRL"/>
+	<ModifiedClick action="CHATLINK" default="SHIFT-BUTTON1"/>
+	<ModifiedClick action="DRESSUP" default="CTRL-BUTTON1"/>
+	<ModifiedClick action="SOCKETITEM" default="SHIFT-BUTTON2"/>
+	<ModifiedClick action="SPLITSTACK" default="SHIFT"/>
+	<ModifiedClick action="PICKUPACTION" default="SHIFT"/>
+	<ModifiedClick action="PICKUPITEM" default="SHIFT"/>
+	<ModifiedClick action="COMPAREITEMS" default="SHIFT"/>
+	<ModifiedClick action="OPENALLBAGS" default="SHIFT"/>
+	<ModifiedClick action="QUESTWATCHTOGGLE" default="SHIFT"/>
+	<ModifiedClick action="TOKENWATCHTOGGLE" default="SHIFT"/>
+	<ModifiedClick action="SHOWITEMFLYOUT" default="ALT"/>
+	<ModifiedClick action="SHOWMULTICASTFLYOUT" default="ALT"/>
+	<ModifiedClick action="TRADESEARCHADD" default="SHIFT"/>
 </Bindings>

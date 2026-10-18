@@ -387,6 +387,9 @@ void *ResolveTypedObjectAny(void *L, int idx, const uintptr_t *typeIdVars,
 // directly only when calling a type-specific vtable slot.
 int FrameScriptTypeId(uintptr_t typeIdVar);
 
+// The object's `IsA(typeId)` vmethod for a class's `VAR_*_LUA_TYPE_ID`.
+bool IsA(void *object, uintptr_t typeIdVar);
+
 // Per-type sugar over `ResolveTypedObject`, so a call site cannot pair a
 // method with the wrong class's id. `idx` defaults to the `self` slot.
 void *ResolveTooltip(void *L, int idx = 1, bool raiseError = true);

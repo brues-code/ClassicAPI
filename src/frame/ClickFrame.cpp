@@ -38,10 +38,13 @@
 // `CFrameScriptObject` subtype, so calling it after `ResolveObject` is
 // safe without the RTTI subtype gate `Script_GetName` does first.
 
+#include "frame/ClickFrame.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
 #include <cstring>
+#include <string>
 
 namespace Frame::ClickFrame {
 
@@ -95,5 +98,26 @@ static void RegisterLuaFunctions() {
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+
+void *Find(void *L, const char *name, size_t length) {
+    using namespace Game::Lua;
+    if (L == nullptr || name == nullptr || length == 0)
+        return nullptr;
+    const std::string key(name, length);
+    const int top = GetTop(L);
+    PushString(L, key.c_str());
+    RawGet(L, GLOBALS_INDEX);
+    void *frame = nullptr;
+    if (Type(L, -1) == TYPE_TABLE) {
+        void *obj = ResolveObject(L, -1);
+        if (obj != nullptr && IsA(obj, Offsets::VAR_FRAME_LUA_TYPE_ID)) {
+            const char *objName = ObjectName(obj);
+            if (std::strcmp(objName != nullptr ? objName : "<unnamed>", key.c_str()) == 0)
+                frame = obj;
+        }
+    }
+    SetTop(L, top);
+    return frame;
+}
 
 } // namespace Frame::ClickFrame

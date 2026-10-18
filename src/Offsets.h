@@ -86,6 +86,63 @@ enum Offsets {
     VAR_FRAMESCRIPT_EXEC_CONTEXT = 0x00CEEAC0,
     VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH = 0x00CEEAC4,
 
+    // The binding manager — 4.3.4's CGUIBindings, minus its modified clicks.
+    // `*VAR_BINDINGS_MANAGER`, a 0xDC-byte object made by FUN_004B6050 (FrameXML
+    // init FUN_0048FBF0) and destroyed by FUN_004B6100 (UI teardown
+    // FUN_00490BD0), so it is rebuilt on every world load and /reload. Binding
+    // sets as 4.3.4 numbers them: 0 default, 1 account, 2 character, 3 current;
+    // set N's table is at `mgr + 0x30 + N*0x28` (list head at +0x3C).
+    // OFF_BINDINGS_SAVE_SET (+0xD0) is m_saveSet (1 or 2, what
+    // GetCurrentBindingSet returns); +0xD4 the dirty-set mask.
+    VAR_BINDINGS_MANAGER = 0x00B71290,
+    OFF_BINDINGS_SAVE_SET = 0xD0,
+    BINDING_SET_DEFAULT = 0,
+    BINDING_SET_ACCOUNT = 1,
+    BINDING_SET_CHARACTER = 2,
+    BINDING_SET_CURRENT = 3,
+    BINDING_SET_COUNT = 4,
+    // CGUIBindings::Load — `int __thiscall(mgr, const char *path, MD5_CTX *md5,
+    // CStatus *status)`, `ret 0xC` (the caller at 0x00490006 loads ECX from
+    // VAR_BINDINGS_MANAGER; the prologue saves it); a null status means
+    // VAR_BINDINGS_LOAD_STATUS. Reads the file with FUN_FILE_READ, builds a tree
+    // with FUN_XML_TREE_LOAD and loads every root `<Binding>`; any other node
+    // gets "Unknown node type %s in %s". Called for FrameXML's Bindings.xml
+    // (0x00490018) and for each addon's (FUN_0051F240).
+    FUN_BINDINGS_LOAD_FILE = 0x004B6F70,
+    VAR_BINDINGS_LOAD_STATUS = 0x00B7124C,
+    // CGUIBindings::LoadBindings — `void __fastcall(int set, const char *text)`:
+    // clears the set, then binds every `bind KEY COMMAND` line. Sources:
+    // WTF\DefaultBindings.wtf into set 0 (FUN_004B62B0), then the account /
+    // character binding files into sets 1 / 2 (FUN_004B6240, which finishes
+    // with FUN_004B64B0 — 4.3.4's FinishLoadBindings).
+    FUN_BINDINGS_LOAD_SET = 0x004B6140,
+    // CGUIBindings::SaveBindings — `void __thiscall(mgr, int set, HANDLE file)`,
+    // `ret 8`: writes the set's `bind %s %s\r\n` lines through
+    // FUN_OS_WRITE_FILE. Called by the binding-file writer FUN_004B65B0.
+    FUN_BINDINGS_SAVE_SET = 0x004B6520,
+    // CGUIBindings::CopyBindings — `void __thiscall(mgr, int source, int dest)`,
+    // `ret 8`. Its gate FUN_00494A50(8) always passes (only actions 0, 2, 4,
+    // 10 and 11 are gated). Fires UPDATE_BINDINGS (0x182) when dest is current.
+    FUN_BINDINGS_COPY_SET = 0x004B6310,
+    // CGUIBindings::GetCommandAction for the current set — `const char
+    // *__thiscall(mgr, const char *key)`: the command bound to exactly `key`,
+    // or null. Script_GetBindingAction (FUN_SCRIPT_GET_BINDING_ACTION, which
+    // pushes "" for null) is its only Lua caller.
+    FUN_BINDINGS_GET_COMMAND_ACTION = 0x004B7DA0,
+    FUN_SCRIPT_GET_BINDING_ACTION = 0x004B8120,
+    // CGGameUI::IsKeyDown for the merged modifiers — `int __fastcall(int
+    // which)`: 0 shift, 1 ctrl, 2 alt. IsShiftKeyDown / IsControlKeyDown /
+    // IsAltKeyDown (0x00488590..0x00488600) and the engine's own modifier
+    // reads (edit boxes, world clicks, mouse events, action use) call it.
+    // 4.3.4's version answers from the binding manager's held-modifier mask
+    // while a key binding runs; `Input::Modifier` co-hooks it to do the same.
+    FUN_GAMEUI_IS_KEY_DOWN = 0x0041F8F0,
+    // OsWriteFile — `int __fastcall(HANDLE /*ecx*/, const void *buffer /*edx*/,
+    // uint32_t size, uint32_t *written)`, `ret 8`.
+    FUN_OS_WRITE_FILE = 0x0042A5D0,
+    // " " — the token delimiter LoadBindings splits a `bind` line's key with.
+    VAR_STR_SPACE_DELIM = 0x0082EE00,
+
     // GameTooltip script-method prologue helpers (used to resolve self → CFrameScriptObject*).
     // Underlying Lua C API names per [[docs/LuaCAPI.md]] are `lua_rawgeti`
     // (0x6F3BC0) and `lua_touserdata` (0x6F3740). The Set* method prologue's
@@ -2707,6 +2764,31 @@ enum Offsets {
     // Lua stack and tail-calls this, so the engine's parser, setter and error
     // text stay in force.
     FUN_SCRIPT_BUTTON_REGISTERFORCLICKS = 0x00782490,
+    // CSimpleButton's mouse handlers, Button vtable 0x0081C7F8 (ctor 0x00778733)
+    // slots +0x68 OnLayerMouseDown (0x00779210) / +0x6C OnLayerMouseUp
+    // (0x007792D0), each `__thiscall(button, CMouseEvent *)` over the base
+    // frame's (0x0076BF70 / 0x0076C040: drag, then OnMouseDown / OnMouseUp with
+    // the button name). Same logic as 4.3.4's, minus its `btn` argument (the
+    // virtual click that skips the hit test): a button not disabled clicks on
+    // press when the press bit of the mouse button is in OFF_BUTTON_CLICK_MASK
+    // and the cursor is in the hit rect, then goes pushed unless locked; on
+    // release, a pushed button clicks for the release bit (or double-clicks
+    // when OnDoubleClick is set and the last click is within 300 ms), then
+    // goes normal unless locked. VAR_BUTTON_IN_CLICK is set around the click.
+    OFF_BUTTON_STATE = 0x328,        // 0 disabled, 1 normal, 2 pushed
+    OFF_BUTTON_STATE_LOCKED = 0x32C,
+    OFF_BUTTON_CLICK_MASK = 0x330,   // press bits low byte, release bits << 8
+    OFF_BUTTON_LAST_CLICK_MS = 0x334,
+    BUTTON_STATE_DISABLED = 0,
+    BUTTON_STATE_NORMAL = 1,
+    BUTTON_STATE_PUSHED = 2,
+    // Button vmethods: Click(mask, 0) — FUN_BUTTON_CLICK — DoubleClick(mask,
+    // 0) and SetButtonState(state, 0).
+    VTBL_BUTTON_CLICK = 0x94,
+    VTBL_BUTTON_DOUBLE_CLICK = 0x98,
+    VTBL_BUTTON_SET_STATE = 0x9C,
+    VAR_BUTTON_IN_CLICK = 0x00CF4DA0,
+    BUTTON_DOUBLE_CLICK_MS = 300,
     // Button::SetClickMask — __thiscall(button, mask): writes +0x330. The
     // ctors call it with the type default (Button 0x100 = LeftButtonUp;
     // hyperlink button 0x500). Reference only.
@@ -2746,6 +2828,8 @@ enum Offsets {
     // VAR_*_METHOD_REGISTRY values above.
     VAR_GAMETOOLTIP_LUA_TYPE_ID = 0x00C0D414,
     VAR_FRAME_LUA_TYPE_ID = 0x00CF0C10,
+    // Button's (Button:RegisterForClicks reads it at 0x00782496).
+    VAR_BUTTON_LUA_TYPE_ID = 0x00CF4D88,
     VAR_REGION_LUA_TYPE_ID = 0x00CF0C3C,
     VAR_TEXTURE_LUA_TYPE_ID = 0x00CF4CDC,
     VAR_FONTSTRING_LUA_TYPE_ID = 0x00CF2CCC,
@@ -9413,6 +9497,12 @@ enum Offsets {
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
+    // XMLTree_Load — `XMLTree *__fastcall(const char *data, uint32_t size)`,
+    // null when the text does not parse; the root node is `*(XMLNode **)tree`.
+    // XMLTree_Free — `void __fastcall(XMLTree *)`. The bindings loader's own
+    // pair (0x004B6FDE / its exit).
+    FUN_XML_TREE_LOAD = 0x006F2A30,
+    FUN_XML_TREE_FREE = 0x006F2AC0,
     // The loaders' status sink (their `status` argument): vtable +0xC is
     // `Add(status, level, fmt, ...)` (__cdecl, variadic) — e.g. the frame
     // loader's "Couldn't find inherited node: %s" at level 1. Levels as 4.3.4

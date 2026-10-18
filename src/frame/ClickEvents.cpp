@@ -331,4 +331,6 @@ void PrepareForReload() {
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
+const char *CurrentButton() { return g_clickedButton; }
+
 } // namespace Frame::ClickEvents

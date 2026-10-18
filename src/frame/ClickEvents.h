@@ -22,4 +22,9 @@ namespace Frame::ClickEvents {
 // the other per-reload cleaners.
 void PrepareForReload();
 
+// The button name of the innermost click / mouse dispatch running now (one of
+// the engine's static name literals), or null outside one — what
+// GetMouseButtonClicked returns; 4.3.4's CSimpleTop::m_mouseButtonName.
+const char *CurrentButton();
+
 } // namespace Frame::ClickEvents
