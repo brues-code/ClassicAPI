@@ -1777,6 +1777,15 @@ enum Offsets {
     // so the list runs FARTHEST first. A recycled plate keeps its old GUID
     // until Initialize rebinds it; a plate on the shown list is always bound.
     // unit+0xE60 is the unit's plate (CGUnit_C::m_namePlateFrame).
+    // Chat bubbles: the active CGChatBubbleFrames sit on one intrusive Storm
+    // TSList — 3.3.5's CGChatBubbleFrame list (decomp: Ui/ChatBubbleFrame.h).
+    // VAR_CHAT_BUBBLE_LIST_HEAD is the first bubble (0 or a low-bit-tagged
+    // sentinel ends it); each bubble's next is at OFF_CHAT_BUBBLE_LINK_NEXT.
+    // The same walk as the engine's per-frame update FUN_004B1060 and
+    // teardown FUN_004B0F80.
+    VAR_CHAT_BUBBLE_LIST_HEAD = 0x00B6F038,
+    OFF_CHAT_BUBBLE_LINK_NEXT = 0x318,
+
     VAR_NAMEPLATE_LIST_HEAD = 0x00C4D92C,
     OFF_NAMEPLATE_LINK_NEXT = 0x4E0,
     OFF_NAMEPLATE_GUID = 0x4E8,

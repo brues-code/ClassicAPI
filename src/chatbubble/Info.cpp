@@ -29,10 +29,9 @@
 // unchanged. This is the pre-7.2.5 "walk WorldFrame children" pattern the
 // wiki describes, but handed the exact set instead of the whole world.
 //
-// The engine keeps active bubbles on an intrusive Storm `TSList` whose
-// head is `VAR_CHAT_BUBBLE_LIST_HEAD` (`0x00B6F038`); each node's forward
-// link sits at `+0x318` and the list terminator carries the low-bit
-// sentinel. We mirror the engine's own walk in the per-frame update
+// The engine keeps active bubbles on an intrusive Storm `TSList`
+// (`VAR_CHAT_BUBBLE_LIST_HEAD` / `OFF_CHAT_BUBBLE_LINK_NEXT` in Offsets.h);
+// the list terminator carries the low-bit sentinel. We mirror the engine's own walk in the per-frame update
 // `FUN_004b1060` / teardown `FUN_004b0f80` verbatim. Bubbles whose owner
 // unit has despawned are pruned on the engine's next update tick, so a
 // just-orphaned bubble can linger one frame — harmless, and addons that
@@ -42,32 +41,24 @@
 // frames, so every bubble is returned regardless.
 
 #include "Game.h"
+#include "Offsets.h"
 #include "ui/FrameObject.h"
 
 #include <cstdint>
 
 namespace ChatBubble::Info {
 
-namespace {
-
-// Storm TSList of live CGChatBubbleFrames. Head pointer, per-node
-// forward link, and the end-of-list low-bit sentinel — see the engine
-// walks at 0x004b1060 / 0x004b0f80.
-constexpr uintptr_t kListHead = 0x00B6F038;
-constexpr int kOffNextLink = 0x318;
-
-} // namespace
-
 static int __fastcall Script_GetAllChatBubbles(void *L) {
     Game::Lua::NewTable(L);
 
-    uintptr_t node = *reinterpret_cast<const uintptr_t *>(kListHead);
+    uintptr_t node = *reinterpret_cast<const uintptr_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_CHAT_BUBBLE_LIST_HEAD));
     int nextIndex = 1;
     while (node != 0 && (node & 1) == 0) {
         Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
         UI::FrameObject::Push(L, reinterpret_cast<void *>(node));
         Game::Lua::SetTable(L, -3);
-        node = *reinterpret_cast<const uintptr_t *>(node + kOffNextLink);
+        node = *reinterpret_cast<const uintptr_t *>(node + Offsets::OFF_CHAT_BUBBLE_LINK_NEXT);
     }
     return 1;
 }
