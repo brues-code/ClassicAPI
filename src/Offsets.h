@@ -96,15 +96,10 @@ enum Offsets {
     //                             // the raw CFrameScriptObject *
     // is the canonical "Lua frame table → C++ object" path. The reverse
     // (`GameTooltip:GetOwner` etc.) is just `lua_rawgeti(L, REGISTRY,
-    // [cobj+OFF_COBJECT_LUA_REGISTRY_REF])` — the engine pre-allocates
+    // [cobj+OFF_COBJECT_LUA_REF])` — the engine pre-allocates
     // the registry handle when the frame is created from Lua.
     FUN_FRAMESCRIPT_PUSH_OBJECT = 0x6F3BC0,
     FUN_FRAMESCRIPT_GET_OBJECT = 0x6F3740,
-
-    // CFrameScriptObject layout: the registry refkey allocated when the
-    // engine first exposes the C++ object to Lua. Pushing a frame back
-    // to Lua is `lua_rawgeti(L, LUA_REGISTRYINDEX, [cobj+0x08])`.
-    OFF_COBJECT_LUA_REGISTRY_REF = 0x08,
 
     // Within a CGFrame, the embedded LayoutFrame sub-object starts here.
     // Engine code that wants to invoke LayoutFrame methods polymorphically
@@ -9304,6 +9299,15 @@ enum Offsets {
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
+    // The loaders' status sink (their `status` argument): vtable +0xC is
+    // `Add(status, level, fmt, ...)` (__cdecl, variadic) — e.g. the frame
+    // loader's "Couldn't find inherited node: %s" at level 1. Levels as 4.3.4
+    // names them: 0 info, 1 warning, 2 error, 3 fatal.
+    VTBL_XML_STATUS_ADD = 0x0C,
+    XML_STATUS_WARNING = 1,
+    // `float __stdcall SStrToFloat(const char *)` (RET 4, x87 result) — the
+    // frame loader's `alpha` conversion (0x00769A10).
+    FUN_SSTR_TO_FLOAT = 0x0064AAA0,
     // Per-object XML node loaders. Each lives on the object's layout
     // sub-object, OFF_XML_LOADER_SUBOBJECT bytes in, at that sub-object's
     // vtable +8: `(object+0x24)->vtable[+8](node, status)`, __thiscall with

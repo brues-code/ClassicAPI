@@ -30,7 +30,9 @@
 //                all frame types
 //   textures     FUN_0076FE20 - reads "alphaMode" (0x00770179)
 //   font strings FUN_00770F40 - reads "justifyH" (0x00771308)
-// Co-hook all three: after the engine has loaded the node, read `parentKey`
+// After the engine has loaded the node (frames through the shared
+// Xml::FrameLoad observer, which owns that loader's hook; textures and font
+// strings through co-hooks here), read `parentKey`
 // with the engine's own attribute getter and, when present, set
 // `parent[key] = object` on the Lua wrappers, where parent is the object's
 // script-region parent (OFF_REGION_PARENT, which GetParent reads for frames
@@ -68,6 +70,8 @@
 // for that state (SetTextFontObject / SetHighlightFontObject /
 // SetDisabledFontObject) with `_G[style]`.
 
+#include "xml/FrameLoad.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
@@ -77,63 +81,26 @@ namespace Xml::ParentKey {
 
 namespace {
 
-using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
 using Loader_t = uintptr_t(__fastcall *)(void *self, void *edx, const void *node, void *status);
-using RawGetI_t = void(__fastcall *)(void *L, int idx, int n);
-using ScriptRegister_t = void(__fastcall *)(void *object, void *edx, const char *name);
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 
-Loader_t g_origFrameLoad = nullptr;
 Loader_t g_origTextureLoad = nullptr;
 Loader_t g_origFontStringLoad = nullptr;
 Loader_t g_origButtonLoad = nullptr;
 
-// Pushes `object`'s Lua wrapper and returns true, registering an unnamed,
-// never-exposed object the way the engine's own lazy path does. Pushes
-// nothing and returns false for a named object the engine has not registered
-// yet, or when the wrapper's [0] does not point back at `object`.
-bool PushWrapper(void *L, void *object) {
-    if (Game::Read<int>(object, Offsets::OFF_COBJECT_LUA_REFCOUNT) == 0) {
-        if (Game::Read<const char *>(object, Offsets::OFF_SCRIPT_REGION_NAME) != nullptr)
-            return false;
-        reinterpret_cast<ScriptRegister_t>(
-            static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER))(
-            object, nullptr, nullptr);
-    }
-    const int ref = Game::Read<int>(object, Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
-    if (ref <= 0)
-        return false;
-    auto rawgeti = reinterpret_cast<RawGetI_t>(Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
-    rawgeti(L, Game::Lua::REGISTRY_INDEX, ref); // [wrapper]
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::SetTop(L, -2);
-        return false;
-    }
-    rawgeti(L, -1, 0); // [wrapper, wrapper[0]]
-    const bool same = Game::Lua::Type(L, -1) == Game::Lua::TYPE_LIGHTUSERDATA &&
-                      Game::Lua::ToPointer(L, -1) == object;
-    Game::Lua::SetTop(L, -2); // [wrapper]
-    if (!same) {
-        Game::Lua::SetTop(L, -2);
-        return false;
-    }
-    return true;
-}
+using Xml::FirstChild;
+using Xml::NextSibling;
+using Xml::PushWrapper;
+using Xml::TagIs;
 
-// parent[key] = object. `self` is the loader's `this`, the layout sub-object
-// inside the object. Leaves the stack as it found it; anything unexpected
-// just skips the bind.
-void BindParentKey(void *self, const void *node) {
-    if (self == nullptr || node == nullptr)
-        return;
-    const char *key = reinterpret_cast<GetAttr_t>(Offsets::FUN_XML_NODE_GET_ATTRIBUTE)(
-        node, "parentKey");
+// parent[key] = object. Leaves the stack as it found it; anything
+// unexpected just skips the bind.
+void BindParentKey(void *object, const void *node) {
+    const char *key = Xml::Attr(node, "parentKey");
     if (key == nullptr || *key == '\0')
         return;
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
-    void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     void *parent = Game::Read<void *>(object, Offsets::OFF_REGION_PARENT);
     if (parent == nullptr)
         return;
@@ -149,26 +116,12 @@ void BindParentKey(void *self, const void *node) {
 
 // ---- <Scripts> function= ---------------------------------------------------
 
-const uint8_t *FirstChild(const void *node) {
-    return Game::Read<const uint8_t *>(node, Offsets::OFF_XML_NODE_CHILD);
-}
-const uint8_t *NextSibling(const void *node) {
-    return Game::Read<const uint8_t *>(node, Offsets::OFF_XML_NODE_SIBLING);
-}
-bool TagIs(const void *node, const char *tag) {
-    const char *t = Game::Read<const char *>(node, Offsets::OFF_XML_NODE_TAG);
-    return t != nullptr &&
-           reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I)(t, tag, 0x7FFFFFFF) == 0;
-}
-
 // frame:SetScript(<element>, _G[function]) for every <Scripts> child of `node`
 // that carries a `function` attribute. A name that is not a global function,
 // or a script the frame type does not have, is skipped.
-void BindScriptFunctions(void *self, const void *node) {
-    if (self == nullptr || node == nullptr)
-        return;
-    const uint8_t *scripts = nullptr;
-    for (const uint8_t *c = FirstChild(node); c != nullptr; c = NextSibling(c)) {
+void BindScriptFunctions(void *object, const void *node) {
+    const void *scripts = nullptr;
+    for (const void *c = FirstChild(node); c != nullptr; c = NextSibling(c)) {
         if (TagIs(c, "Scripts")) {
             scripts = c;
             break;
@@ -179,14 +132,12 @@ void BindScriptFunctions(void *self, const void *node) {
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
-    void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
-    auto attr = reinterpret_cast<GetAttr_t>(Offsets::FUN_XML_NODE_GET_ATTRIBUTE);
 
     const int top = Game::Lua::GetTop(L);
     bool havePushed = false;
-    for (const uint8_t *e = FirstChild(scripts); e != nullptr; e = NextSibling(e)) {
-        const char *fn = attr(e, "function");
-        const char *script = Game::Read<const char *>(e, Offsets::OFF_XML_NODE_TAG);
+    for (const void *e = FirstChild(scripts); e != nullptr; e = NextSibling(e)) {
+        const char *fn = Xml::Attr(e, "function");
+        const char *script = Xml::Tag(e);
         if (fn == nullptr || *fn == '\0' || script == nullptr)
             continue;
         if (!havePushed) {
@@ -226,12 +177,11 @@ const ButtonFontSlot kButtonFontSlots[] = {
 void BindButtonFontStyles(void *self, const void *node) {
     if (self == nullptr || node == nullptr)
         return;
-    auto attr = reinterpret_cast<GetAttr_t>(Offsets::FUN_XML_NODE_GET_ATTRIBUTE);
     void *L = nullptr;
     void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     int top = 0;
     bool havePushed = false;
-    for (const uint8_t *c = FirstChild(node); c != nullptr; c = NextSibling(c)) {
+    for (const void *c = FirstChild(node); c != nullptr; c = NextSibling(c)) {
         const ButtonFontSlot *slot = nullptr;
         for (const auto &s : kButtonFontSlots) {
             if (TagIs(c, s.element)) {
@@ -241,8 +191,8 @@ void BindButtonFontStyles(void *self, const void *node) {
         }
         if (slot == nullptr)
             continue;
-        const char *style = attr(c, "style");
-        const char *inherits = attr(c, "inherits");
+        const char *style = Xml::Attr(c, "style");
+        const char *inherits = Xml::Attr(c, "inherits");
         if (style == nullptr || *style == 0 || (inherits != nullptr && *inherits != 0))
             continue;
         if (!havePushed) {
@@ -275,29 +225,31 @@ uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void 
     return r;
 }
 
-uintptr_t __fastcall FrameLoad_h(void *self, void *edx, const void *node, void *status) {
-    const uintptr_t r = g_origFrameLoad(self, edx, node, status);
-    BindParentKey(self, node);
-    BindScriptFunctions(self, node);
-    return r;
+void OnFrameNode(void *object, const void *node, void * /*status*/) {
+    BindParentKey(object, node);
+    BindScriptFunctions(object, node);
+}
+
+const Xml::FrameLoad::AutoSubscribe _frameNode{&OnFrameNode};
+
+// Region loaders: `self` is the layout sub-object inside the object.
+void *RegionObject(void *self) {
+    return static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
 }
 
 uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origTextureLoad(self, edx, node, status);
-    BindParentKey(self, node);
+    if (self != nullptr && node != nullptr)
+        BindParentKey(RegionObject(self), node);
     return r;
 }
 
 uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origFontStringLoad(self, edx, node, status);
-    BindParentKey(self, node);
+    if (self != nullptr && node != nullptr)
+        BindParentKey(RegionObject(self), node);
     return r;
 }
-
-const Game::HookAutoRegister _frameHook{
-    Offsets::FUN_XML_FRAME_LOAD,
-    reinterpret_cast<void *>(&FrameLoad_h),
-    reinterpret_cast<void **>(&g_origFrameLoad)};
 
 const Game::HookAutoRegister _buttonHook{
     Offsets::FUN_XML_BUTTON_LOAD,

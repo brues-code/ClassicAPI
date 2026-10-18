@@ -6431,6 +6431,27 @@ passed. A `nil` prefix or suffix counts as an empty string.
 `SetAttribute` fires it (see below). `SetAttribute(name, nil)` clears an
 attribute; leaving the value out (`SetAttribute(name)`) is an error.
 
+Attributes can also be set in XML, with an `<Attributes>` element inside a
+frame:
+
+```xml
+<Button name="MyUnitButton" inherits="SecureUnitButtonTemplate">
+    <Attributes>
+        <Attribute name="unit" value="player"/>
+        <Attribute name="count" type="number" value="3"/>
+        <Attribute name="enabled" type="boolean" value="true"/>
+    </Attributes>
+</Button>
+```
+
+- `type` is `string` (the default), `number`, `boolean` or `nil`. Every type
+  except `nil` needs a `value`.
+- The attributes are set before the frame's `OnLoad` runs, and they do not
+  fire `OnAttributeChanged`.
+- Attributes in an inherited template are set first, so the frame's own
+  values replace them.
+- A malformed entry is skipped with a warning in `Logs\FrameXML.log`.
+
 **Unit-frame mouseover — the headline use.** While the cursor is over a frame
 that has attributes, the `mouseover` unit token resolves to the frame's unit,
 as `SecureButton_GetModifiedUnit(frame)` returns it: the `unit` attribute,

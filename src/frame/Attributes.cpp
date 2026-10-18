@@ -122,6 +122,7 @@
 #include "unit/Focus.h"
 #include "unit/Identity.h"
 #include "unit/Tooltip.h"
+#include "xml/FrameLoad.h"
 
 #include <cctype>
 #include <cstdint>
@@ -1121,6 +1122,87 @@ int __fastcall Script_GetAttribute(void *L) {
     Game::Lua::PushNil(L);
     return 1;
 }
+
+// ---- XML <Attributes> --------------------------------------------------------
+
+// 4.3.4's CSimpleFrame::LoadXML_Attributes, for each `<Attributes>` child of
+// a frame element:
+//
+//     <Attributes>
+//         <Attribute name="unit" value="player"/>
+//         <Attribute name="count" type="number" value="3"/>
+//     </Attributes>
+//
+// `type` is nil / boolean / number / string (the default), converted with the
+// loader's own helpers (FUN_XML_ATTR_TO_BOOL, FUN_SSTR_TO_FLOAT). Like 4.3.4
+// it stores without firing OnAttributeChanged — here by calling our own
+// SetAttributeNoHandler, so a `unit` or `type*` set from XML has the same
+// effect as one set from Lua. It runs after the engine has loaded the whole
+// node (Xml::FrameLoad), so the element's <Scripts> are already in place, and
+// inherited templates are loaded first, so the frame's own values win.
+// Problems are the engine's load warnings, with 4.3.4's texts.
+void LoadXmlAttributes(void *L, void *frame, const void *attributes, void *status) {
+    using ToBool_t = int(__fastcall *)(const char *);
+    using ToFloat_t = float(__stdcall *)(const char *);
+
+    const int top = Game::Lua::GetTop(L);
+    int frameIdx = 0;
+    for (const void *e = Xml::FirstChild(attributes); e != nullptr; e = Xml::NextSibling(e)) {
+        const char *frameName = Game::Lua::ObjectDisplayName(frame);
+        if (!Xml::TagIs(e, "Attribute")) {
+            Xml::Warn(status, "Frame %s: Unknown attributes element %s", frameName, Xml::Tag(e));
+            continue;
+        }
+        const char *name = Xml::Attr(e, "name");
+        if (name == nullptr) {
+            Xml::Warn(status, "Frame %s: unnamed attribute element", frameName);
+            continue;
+        }
+        const char *type = Xml::Attr(e, "type");
+        if (type == nullptr)
+            type = "string";
+        const char *value = Xml::Attr(e, "value");
+        const bool isNil = Ascii::EqualCI(type, "nil");
+        if (value == nullptr && !isNil) {
+            Xml::Warn(status, "Frame %s: attribute element named %s missing value",
+                      frameName, name);
+            continue;
+        }
+
+        if (frameIdx == 0) {
+            if (!Xml::PushWrapper(L, frame))
+                break;
+            frameIdx = Game::Lua::GetTop(L);
+        }
+        Game::Lua::PushCClosure(L, &Script_SetAttributeNoHandler, 0);
+        Game::Lua::PushValue(L, frameIdx);
+        Game::Lua::PushString(L, name);
+        if (isNil)
+            Game::Lua::PushNil(L);
+        else if (Ascii::EqualCI(type, "boolean"))
+            Game::Lua::PushBool(L, reinterpret_cast<ToBool_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(value) != 0);
+        else if (Ascii::EqualCI(type, "number"))
+            Game::Lua::PushNumber(L, reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(value));
+        else
+            Game::Lua::PushString(L, value);
+        Game::Lua::PCall(L, 3, 0, 0);
+        Game::Lua::SetTop(L, frameIdx);
+    }
+    Game::Lua::SetTop(L, top);
+}
+
+void OnFrameNode(void *frame, const void *node, void *status) {
+    void *L = nullptr;
+    for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
+        if (!Xml::TagIs(c, "Attributes"))
+            continue;
+        if (L == nullptr && (L = Game::Lua::State()) == nullptr)
+            return;
+        LoadXmlAttributes(L, frame, c, status);
+    }
+}
+
+const Xml::FrameLoad::AutoSubscribe _frameNode{&OnFrameNode};
 
 // ---- registration ----------------------------------------------------------
 

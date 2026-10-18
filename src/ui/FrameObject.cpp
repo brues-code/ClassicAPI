@@ -32,7 +32,7 @@ using ScriptRegister_t = void(__fastcall *)(void *this_, void *edx_unused,
 // `FrameScript_Object::ScriptRegister`. First call for a never-seen frame
 // builds a `{[0] = lightuserdata}` table with the framescript metatable,
 // `luaL_ref`s it into the registry, and writes the refkey to `frame +
-// 0x08` (`OFF_COBJECT_LUA_REGISTRY_REF`). Subsequent calls find a
+// 0x08` (`OFF_COBJECT_LUA_REF`). Subsequent calls find a
 // populated refkey and just rawgeti.
 //
 // Why delegate instead of building our own wrapper: single source of
@@ -60,10 +60,10 @@ void Push(void *L, void *frame) {
         static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER));
 
     auto *cobj = static_cast<uint8_t *>(frame);
-    int refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
+    int refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REF);
     if (refKey <= 0) {
         scriptRegister(frame, nullptr, nullptr);
-        refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
+        refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REF);
     }
 
     rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
@@ -76,7 +76,7 @@ void Push(void *L, void *frame) {
     // branch.
     Game::Ref<int>(cobj, Offsets::OFF_COBJECT_LUA_REFCOUNT) = 0;
     scriptRegister(frame, nullptr, nullptr);
-    refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REGISTRY_REF);
+    refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REF);
     rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
 }
 
