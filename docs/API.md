@@ -5356,13 +5356,15 @@ these occurs:
 You can focus a unit that is already dead or that you cannot select. The
 focus clears only when the unit changes to that state.
 
-**`%f` in chat.** In a chat message that you send, `%f` changes to the name
-of your focus, as `%t` changes to the name of your target. When the focus
-has a raid marker, the name starts with that marker (`{rt8}Name`). With no
-focus, `%f` changes to `FOCUS_TOKEN_NOT_FOUND` (`"<no focus>"`).
+**`%f` and `%t` in chat.** In a chat message that you send, `%f` changes to
+the name of your focus, and `%t` (also `%n`) changes to the name of your
+target. When the unit has a raid marker, the name starts with that marker
+(`{rt8}Name`). With no focus, `%f` changes to `FOCUS_TOKEN_NOT_FOUND`
+(`"<no focus>"`). With no target, `%t` changes to `TARGET_TOKEN_NOT_FOUND`.
 
 ```lua
 SendChatMessage("Sheep on %f", "PARTY")   -- "Sheep on {rt5}Defias Thug"
+SendChatMessage("Kill %t first", "RAID")  -- "Kill {rt8}Defias Pillager first"
 ```
 
 ### `FocusUnit(unit)`

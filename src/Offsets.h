@@ -1461,7 +1461,8 @@ enum Offsets {
     // Script_SendChatMessage (0x0049F60F), before the drunk filter. Replaces
     // `%t`/`%n` (either case) with the target's name (object name, else the
     // name cache, else TARGET_TOKEN_NOT_FOUND); any other `%x` writes a
-    // placeholder and makes it return false. 4.3.4 adds `%f` for the focus.
+    // placeholder and makes it return false. 4.3.4 adds `%f` for the focus
+    // and a `{rtN}` prefix on both names (Chat::ChatTokens).
     // Prologue 53 8B DC 83 EC 08.
     FUN_CHAT_PARSE_TEXT = 0x005083A0,
     // FrameScript_GetText — `const char *__fastcall(const char *name, int
