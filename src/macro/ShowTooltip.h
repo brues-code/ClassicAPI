@@ -24,9 +24,9 @@
 // usable, range, current and auto-repeat state for a macro button all follow
 // that one field. Vanilla only ever fills it from the first `/cast` line.
 //
-// This module resolves a macro's `#showtooltip [conditions] value` (or `#show`,
-// or the bare form that reads the first `/cast` / `/use` line) on the world
-// tick — conditionals evaluated by the Lua `SecureCmdOptionParse`, the value
+// This module resolves what a macro shows — its `#showtooltip [conditions]
+// value` or `#show`, else its first action line, 3.3.5's rule for every
+// macro — on the world tick — conditionals evaluated by the Lua `SecureCmdOptionParse`, the value
 // resolved to a spell (the engine's own name resolver) or an item (inventory
 // walk) — writes the spell into that same engine field, and repaints the
 // affected slots through the engine's own slot-changed notifier. The icon
@@ -54,7 +54,11 @@
 
 namespace Macro::ShowTooltip {
 
-enum class Kind : uint8_t { None, Show, ShowTooltip };
+// Show / ShowTooltip: the body has a `#show` / `#showtooltip` line. Implicit:
+// no directive, but action lines to show — 3.3.5 resolves every macro's first
+// action, so a question-mark macro shows its icon and its button follows its
+// cooldown, count and usable state, while the tooltip stays the engine's.
+enum class Kind : uint8_t { None, Implicit, Show, ShowTooltip };
 enum class Target : uint8_t { None, Spell, Item };
 
 struct Info {
@@ -91,9 +95,9 @@ bool Publish(int macroSlot, const char *value);
 // it. No-op for a macro that was never published.
 void Release(int macroSlot);
 
-// The directive resolution for a macro (by macroID — what the action table
-// stores) or for an action slot (0-based). False when the macro has no
-// directive, nothing resolved, or the module is yielding. A pending rescan
+// The resolution for a macro (by macroID — what the action table stores) or
+// for an action slot (0-based). False when the macro has nothing to show,
+// nothing resolved, or the module is yielding. A pending rescan
 // / dirty entry is processed on the spot (the engine repaints buttons and
 // the Macro UI in the same frame it re-parses an edited macro, before the
 // next tick), so readers never see a stale resolution.

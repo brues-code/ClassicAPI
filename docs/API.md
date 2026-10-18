@@ -11901,18 +11901,14 @@ The pick is held until a cast succeeds. A cast that fails or is interrupted
 keeps the same pick, so the next press tries that action again rather than
 picking another one.
 
-A list names no single action, so these commands give the action button
-nothing to show. The button has no tooltip, no cooldown and no usable state
-from the list. Name a value on the
-[`#showtooltip`](#showtooltip-and-show) line to give it one:
+The action button shows the first action in the list: its icon, cooldown and
+usable state, and with [`#showtooltip`](#showtooltip-and-show) its tooltip.
+Name a value on the `#showtooltip` line to show a different one:
 
 ```
-#showtooltip Moonfire
+#showtooltip Starfire
 /castrandom Moonfire, Starfire, Wrath
 ```
-
-A `/castrandom` line above a `/cast` line also takes the icon from it. Put
-the `/cast` line first, or name the value on the `#showtooltip` line.
 
 ### More commands with `[conditions]`
 
@@ -12008,7 +12004,7 @@ mouseover.
 
 ### `#showtooltip` and `#show`
 
-Put `#showtooltip` on the first line of a macro. The action button then shows
+Put `#showtooltip` in a macro, usually on the first line. The action button then shows
 the spell or item that the macro is about: its tooltip, cooldown, usable
 state, count, range, and auto-repeat highlight. If the macro icon is the
 question mark, the button, the macro window, and the cursor while you drag
@@ -12038,7 +12034,7 @@ does the same, but keeps the macro name as the tooltip.
 
 - `#showtooltip <value>` shows that value. The value takes the same forms
   as `/cast`: a spell name, a spellID, an item name, `item:N`, an item
-  link, an inventory slot, or `bag slot`. It also takes `spell:N`, which
+  link, an inventory slot (`1` to `23`), or `bag slot`. It also takes `spell:N`, which
   names a spell by ID and nothing else. It accepts the same
   `[conditions]`. An item that you carry wins over a spell of the same
   name, as in `/cast`. A spell name can carry the `!` prefix, and the
@@ -12052,10 +12048,14 @@ does the same, but keeps the macro name as the tooltip.
 - An item named by ID shows even when you carry none of it, since the icon
   and tooltip come from the item itself. An item named by name has to be on
   you or equipped for the button to find it.
-- `#showtooltip` with no value reads the `/cast` and `/use` lines of the
-  macro, in order, up to the first line without conditions. It shows the
-  first line whose clause matches. The line without conditions is the
-  default.
+- `#showtooltip` with no value reads the action lines of the macro, in
+  order, up to the first line without conditions. It shows the first line
+  whose clause matches. The line without conditions is the default. The
+  action lines are `/cast`, `/use`, `/castsequence` (the step it is on),
+  `/castrandom` and `/userandom` (the first entry), and `/equip` and
+  `/equipslot` (items only).
+- `#showtooltip none` or `#show none` shows nothing. The button keeps the
+  macro's own icon and name, and has no cooldown or usable state.
 - Conditions are evaluated again when a modifier key, your target, your
   mouseover unit, or your combat state changes, and about five times per
   second otherwise. So the button follows `[mod:...]`, `[combat]`,
@@ -12066,6 +12066,11 @@ does the same, but keeps the macro name as the tooltip.
   the cursor, and `[@mouseover][] Rejuvenation` shows the spell and casts on
   your target instead. If the value names a spell by name that you do not
   know, nothing shows. Name it by ID to show it anyway.
+
+A macro without `#showtooltip` or `#show` works the same way as `#show`
+with no value. If its icon is the question mark, it shows the icon of its
+first action, and its button follows that action's cooldown, count and
+usable state. The tooltip stays the macro name.
 
 Lines that start with `#` are comments. They never run, and they never
 reach chat.
@@ -12229,10 +12234,10 @@ section tags them with the same spellID a `/cast` line would, so
 
 ### `GetMacroItem(macroSlot)`
 
-Returns `(name, link)` for the item that a macro's
-[`#showtooltip` or `#show`](#showtooltip-and-show) directive resolved to.
-Returns nothing when the macro has no directive, or when the directive
-resolved to a spell. If you carry the item, the name and the link are those
+Returns `(name, link)` for the item that a macro shows: the item its
+[`#showtooltip` or `#show`](#showtooltip-and-show) line resolved to, or else
+its first action line. Returns nothing when the macro shows a spell or
+nothing. If you carry the item, the name and the link are those
 of your item, with its suffix and enchant.
 
 ```lua
@@ -12355,9 +12360,9 @@ Returns nothing when the slot is empty.
 C_Macro.GetMacroIcon(1)   -- "Interface\\Icons\\Spell_Nature_Rejuvenation"
 ```
 
-This is the icon on the action button: the spell's or item's when a
-[`#showtooltip`](#showtooltip-and-show) resolved and the macro's own icon is
-the question mark, and the macro's own icon otherwise.
+This is the icon on the action button: the spell's or item's when the macro
+[shows one](#showtooltip-and-show) and the macro's own icon is the question
+mark, and the macro's own icon otherwise.
 
 `GetMacroInfo` returns the icon the macro stores, which is the icon its icon
 selector edits. Use this function when you want the icon a macro shows, and
@@ -12392,7 +12397,7 @@ each macro's spell, which is the field its own buttons read. So cooldown,
 range, usable, out-of-mana greying, the current-cast highlight and
 auto-repeat all follow, with no function replaced. The count, cooldown and
 consumable state for an item follow too. The tooltip follows only when the
-first line of the macro is `#showtooltip`. A macro with `#show`, or with no
+macro has a `#showtooltip` line. A macro with `#show`, or with no
 directive, keeps its own name as the tooltip. The icon appears on the action
 button, on the cursor while you drag the macro, and in the macro window.
 [`C_Macro.GetMacroIcon`](#c_macrogetmacroiconmacroslot) reads it back.

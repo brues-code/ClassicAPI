@@ -12,22 +12,23 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // See ShowTooltip.h for the design. Mechanics — mirrored from 3.3.5's macro
-// system (parser `FUN_00565c40`, evaluator `FUN_005650c0`, icon rule
-// `FUN_00566ac0`, decompiled on the 3.3.5 binary; see CLAUDE.md):
+// system (decomp: WoW/Source/Ui/UIMacros.cpp — `MACRONODE::Parse` 0x00565C40,
+// `MACRONODE::FindSpellID` 0x005650C0, `CGUIMacros::GetFullIconPath`
+// 0x00566AC0):
 //
-//   - Parse. Line 1 of the body must be `#showtooltip [args]` or `#show
-//     [args]`. With args, that single line is the option list. Bare form: the
-//     args of every later line that starts with a live `SLASH_CAST%d` /
-//     `SLASH_USE%d` command followed by a space, in order, up to and
-//     including the first line whose args do NOT start with `[` — a static
-//     line ends the list and acts as the default (3.3.5 collects exactly
-//     this way). Lines come from `FUN_STORM_STR_TOKENIZE`, like the engine's
-//     own parser and runner tokenize them.
+//   - Parse. Every macro body, directive or not, is read into option lines by
+//     `ParseBody` — see it for 3.3.5's exact rules (`#show` anywhere, the seven
+//     action families, `none`, the sticky dynamic flag). A body with a `#show`
+//     line is Show / ShowTooltip; one with only action lines is Implicit.
+//     Lines come from `FUN_STORM_STR_TOKENIZE`, like the engine's own parser
+//     and runner tokenize them.
 //   - Evaluate. Each option line with `[` or `;` goes through the Lua
 //     `SecureCmdOptionParse` (pcall, stack restored — Timer.cpp is the
 //     precedent for Lua from the world tick); a plain line is used as is. The
-//     first line whose clause matches with a non-empty value is resolved:
-//     `bag slot` / equipment slot 1..19 → item; else an item the player
+//     first line whose clause matches with a non-empty value is resolved, as
+//     its type says (`/castsequence` asks for its step, `/castrandom` takes
+//     its first entry, `/equip` resolves items only):
+//     `bag slot` / inventory slot 1..23 → item; else an item the player
 //     carries by that name (3.3.5 is item-first too, and so is our `/cast`);
 //     else the engine's name → spellbook resolver (rank suffixes and numeric
 //     spellIDs and a `!` prefix included, the latter two via the
@@ -100,7 +101,7 @@ constexpr uint32_t kConditionalIntervalMs = 200;
 constexpr uint32_t kStaticIntervalMs = 1000;
 constexpr uint32_t kYieldCheckIntervalMs = 1000;
 
-// Five families, each with as many `SLASH_<NAME>%d` aliases as the locale
+// Seven families, each with as many `SLASH_<NAME>%d` aliases as the locale
 // gives it. Sized well clear of that: the families load in order, so a table
 // that fills up drops the LAST ones — and `/castsequence` is third, which
 // would take its icon down with no error to show for it.
@@ -109,15 +110,29 @@ constexpr size_t kSlashNameMax = 32;
 
 constexpr const char *kQuestionMarkIcon = "INV_Misc_QuestionMark";
 
+// What an option line came from — 3.3.5's MacroCommand::m_type, which decides
+// how its value resolves (`FindSpellID`).
+enum class LineType : uint8_t {
+    Directive, // `#show` / `#showtooltip <value>` (type 1)
+    Action,    // `/cast`, `/use` (type 2)
+    Random,    // `/castrandom`, `/userandom` (type 3): the first entry shows
+    Sequence,  // `/castsequence` (type 4): the current step shows
+    Equip,     // `/equip` (type 5): items only
+    EquipSlot, // `/equipslot` (type 6): items only, after the slot number
+};
+
 struct Entry {
     uint32_t macroID = 0;
     Kind kind = Kind::None;
     bool conditional = false;
-    // The directive named its own value, so an explicitly named spellID is
-    // ours to describe whether or not the player has learned it. See
-    // `ResolveValue`.
-    bool explicitValue = false;
+    // The body stopped collecting at a `none` argument: the macro shows its own
+    // icon and holds no spell, whatever lines precede it.
+    bool none = false;
     bool dirty = false;
+    // The macro's buttons must be repainted on the next tick: its body was
+    // re-parsed, or a reader's catch-up changed its resolution while a button
+    // handler was running. See `FlushRepaints`.
+    bool needRepaint = false;
     // The option lines use a condition our parser does not own, so another
     // macro addon owns this macro. Set once per parse of the body.
     bool foreign = false;
@@ -134,7 +149,7 @@ struct Entry {
     bool matched = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
-    bool sequence[kMaxOptionLines] = {};
+    LineType lineType[kMaxOptionLines] = {};
     Target target = Target::None;
     uint32_t spellID = 0;
     uint32_t isPet = 0;
@@ -166,9 +181,15 @@ WorldState g_lastState;
 // whose Lua handlers call our overrides → `Lookup`; the lazy catch-up in
 // `Lookup` must not re-enter the evaluator from there.
 bool g_busy = false;
+// Set while a READER's catch-up runs (`CatchUpIfPending`). Readers are button
+// handlers in the middle of their own update, often inside the engine's own
+// ACTIONBAR_SLOT_CHANGED dispatch, so a repaint from there would fire that
+// event again from inside its handler. Such repaints are marked and done by
+// the next tick instead.
+bool g_inReaderCatchUp = false;
 
 char g_slashNames[kMaxSlashNames][kSlashNameMax];
-bool g_slashNameIsSequence[kMaxSlashNames] = {};
+LineType g_slashNameType[kMaxSlashNames] = {};
 int g_slashNameCount = 0;
 bool g_slashNamesLoaded = false;
 
@@ -258,55 +279,46 @@ bool ReadGlobalString(void *L, const char *name, char *out, size_t outSize) {
     return ok;
 }
 
-// The live `/cast`-family and `/use` command names, read the way the engine
-// parser reads them (`SLASH_CAST%d` for %d = 1.. until the first gap).
+// The live action-command names, read the way the engine parser reads them
+// (`SLASH_CAST%d` for %d = 1.. until the first gap).
 void LoadSlashNames(void *L) {
     g_slashNameCount = 0;
-    // The families 3.3.5's macro parser collects, in its order. `/castsequence`
-    // is the one whose args are a SEQUENCE rather than an action, so its step
-    // has to be asked for before it can be resolved.
-    //
-    // The random pair is collected for fidelity, and it behaves there exactly
-    // as it does in 3.3.5: the value reaches the resolver as the whole comma
-    // list, which names no spell and no item, so the button greys (the
-    // engine's "matched but unknown" case). 3.3.5 has no query for it — the
-    // binary defines `QueryCastSequence` and nothing else — so there is no
-    // current pick to show, and `#showtooltip <spell>` is the way to give one
-    // of these macros an icon. Being a static line, a `/castrandom` above a
-    // `/cast` also ends the collection and takes the icon, which is 3.3.5's
-    // behaviour too.
+    // The families 3.3.5's macro parser collects, in its order and with its
+    // types (`MACRONODE::Parse`'s s_slashCommands table).
     struct Family {
         const char *fmt;
-        bool sequence;
+        LineType type;
     };
-    static const Family kFamilies[] = {{"SLASH_CAST%d", false},
-                                       {"SLASH_USE%d", false},
-                                       {"SLASH_CASTSEQUENCE%d", true},
-                                       {"SLASH_CASTRANDOM%d", false},
-                                       {"SLASH_USERANDOM%d", false}};
+    static const Family kFamilies[] = {{"SLASH_CAST%d", LineType::Action},
+                                       {"SLASH_CASTRANDOM%d", LineType::Random},
+                                       {"SLASH_CASTSEQUENCE%d", LineType::Sequence},
+                                       {"SLASH_USE%d", LineType::Action},
+                                       {"SLASH_USERANDOM%d", LineType::Random},
+                                       {"SLASH_EQUIP%d", LineType::Equip},
+                                       {"SLASH_EQUIP_TO_SLOT%d", LineType::EquipSlot}};
     for (const Family &f : kFamilies) {
         for (int i = 1; g_slashNameCount < kMaxSlashNames; ++i) {
             char key[32];
             std::snprintf(key, sizeof(key), f.fmt, i);
             if (!ReadGlobalString(L, key, g_slashNames[g_slashNameCount], kSlashNameMax))
                 break;
-            g_slashNameIsSequence[g_slashNameCount] = f.sequence;
+            g_slashNameType[g_slashNameCount] = f.type;
             ++g_slashNameCount;
         }
     }
     g_slashNamesLoaded = true;
 }
 
-// The args after a cast/use/castsequence command at the start of `line` — the
-// engine's rule: the command text followed by a space. Null when the line is
-// none of them. `*outSequence` reports which family matched; `/castsequence x`
-// cannot match `/cast` because the space has to follow the whole name.
-const char *CastCommandArgs(const char *line, bool *outSequence) {
+// The args after an action command at the start of `line` — the engine's
+// rule: the command text followed by a space. Null when the line is none of
+// them. `*outType` reports which family matched; `/castsequence x` cannot
+// match `/cast` because the space has to follow the whole name.
+const char *CastCommandArgs(const char *line, LineType *outType) {
     line = SkipBlanks(line); // an indented `/cast` line is still a cast line
     for (int i = 0; i < g_slashNameCount; ++i) {
         const size_t len = std::strlen(g_slashNames[i]);
         if (_strnicmp(line, g_slashNames[i], len) == 0 && line[len] == ' ') {
-            *outSequence = g_slashNameIsSequence[i];
+            *outType = g_slashNameType[i];
             return SkipBlanks(line + len);
         }
     }
@@ -315,77 +327,104 @@ const char *CastCommandArgs(const char *line, bool *outSequence) {
 
 struct Parsed {
     Kind kind = Kind::None;
+    // Some line's value can change on its own — conditions, a sequence step, a
+    // slot number (3.3.5's m_dynamic) — so it needs the conditional cadence.
     bool conditional = false;
-    // The directive carried the value itself (`#showtooltip <value>`) rather
-    // than the bare form reading the macro's `/cast` and `/use` lines. See
-    // `ResolveValue` for what it buys.
-    bool explicitValue = false;
+    bool none = false;
     int optionCount = 0;
     char options[kMaxOptionLines][kOptionsMax] = {};
-    // Per line: its value is a `/castsequence` sequence rather than a direct
-    // action, so the current step has to be asked for at evaluation time.
-    bool sequence[kMaxOptionLines] = {};
+    LineType lineType[kMaxOptionLines] = {};
 };
 
-void AppendOptionLine(Parsed *out, const char *args, bool sequence) {
-    if (out->optionCount >= kMaxOptionLines)
-        return;
-    CopyTrimmed(args, out->options[out->optionCount], kOptionsMax);
-    if (out->options[out->optionCount][0] == '\0')
-        return; // an empty argument list contributes nothing (3.3.5 skips it too)
-    if (std::strchr(out->options[out->optionCount], '[') != nullptr)
-        out->conditional = true;
-    out->sequence[out->optionCount] = sequence;
-    ++out->optionCount;
+// The value an EquipSlot line names, past its slot number (3.3.5 skips the
+// digits and the spaces after them). Returns `args` itself for other lines.
+const char *SkipEquipSlotNumber(const char *args, LineType type) {
+    if (type != LineType::EquipSlot)
+        return args;
+    while (*args >= '0' && *args <= '9')
+        ++args;
+    return SkipBlanks(args);
 }
 
+// 3.3.5's `MACRONODE::Parse` (0x00565C40), line by line:
+//   - A `/` line counts when it is one of the seven action families; a `#`
+//     line when it is `#show` / `#showtooltip` (anywhere in the body, not only
+//     line 1). Anything else is skipped.
+//   - A line with no args is skipped, so a bare `#show` keeps reading the
+//     action lines below it. An arg of `none` stops the whole parse.
+//   - A line is DYNAMIC when it is a `/castsequence`, its args start with `[`,
+//     or (past an `/equipslot` slot number) they start with a digit. Dynamic
+//     is sticky for the rest of the body.
+//   - Every counted line joins the list; the list ends after a `#show` line
+//     with args, or after any line while nothing has been dynamic yet.
+// Every macro gets this list, directive or not — 3.3.5 shows the first
+// action's icon on any question-mark macro, and `#show` only picks the value
+// while `#showtooltip` also hands over the tooltip.
 void ParseBody(const char *body, Parsed *out) {
     *out = Parsed{};
+    bool sawShow = false, sawShowTooltip = false, dynamic = false;
     const char *cursor = body;
     char line[kLineBufferSize];
-    NextLine(&cursor, line, kLineBufferSize);
-    if (line[0] == '\0')
-        return;
-
-    const char *args = nullptr;
-    const Kind kind = ParseDirective(line, &args);
-    if (kind == Kind::None)
-        return;
-    out->kind = kind;
-
-    if (*args != '\0') {
-        out->explicitValue = true;
-        // `#showtooltip <value>` names the value itself, never a sequence.
-        AppendOptionLine(out, args, false);
-        return;
-    }
-    // Bare form: collect cast/use lines until the first static one (its args
-    // don't start with `[`), which is the default and ends the list.
     while (cursor != nullptr && *cursor != '\0' && out->optionCount < kMaxOptionLines) {
         NextLine(&cursor, line, kLineBufferSize);
         if (line[0] == '\0')
             continue;
-        bool sequence = false;
-        const char *rest = CastCommandArgs(line, &sequence);
-        if (rest == nullptr)
+        LineType type = LineType::Action;
+        const char *args = nullptr;
+        const Kind directive = ParseDirective(line, &args);
+        if (directive != Kind::None) {
+            type = LineType::Directive;
+            sawShow = true;
+            if (directive == Kind::ShowTooltip)
+                sawShowTooltip = true;
+        } else {
+            args = CastCommandArgs(line, &type);
+            if (args == nullptr)
+                continue;
+        }
+        char value[kOptionsMax];
+        CopyTrimmed(args, value, sizeof(value));
+        if (value[0] == '\0')
             continue;
-        const int before = out->optionCount;
-        AppendOptionLine(out, rest, sequence);
-        if (out->optionCount > before && out->options[before][0] != '[')
+        if (_stricmp(value, "none") == 0) {
+            out->none = true;
+            break;
+        }
+        const char *v = SkipEquipSlotNumber(value, type);
+        if (type == LineType::Sequence || value[0] == '[' || (*v >= '0' && *v <= '9'))
+            dynamic = true;
+        std::memcpy(out->options[out->optionCount], value, sizeof(value));
+        out->lineType[out->optionCount] = type;
+        ++out->optionCount;
+        if (type == LineType::Directive || !dynamic)
             break;
     }
+    out->conditional = dynamic;
+    if (sawShowTooltip)
+        out->kind = Kind::ShowTooltip;
+    else if (sawShow)
+        out->kind = Kind::Show;
+    else if (out->optionCount > 0)
+        out->kind = Kind::Implicit;
 }
 
 bool SameOptions(const Entry &e, const Parsed &p) {
-    if (e.optionCount != p.optionCount)
+    if (e.optionCount != p.optionCount || e.none != p.none)
         return false;
     for (int i = 0; i < p.optionCount; ++i) {
         if (std::strcmp(e.options[i], p.options[i]) != 0)
             return false;
-        if (e.sequence[i] != p.sequence[i])
+        if (e.lineType[i] != p.lineType[i])
             return false; // same text, different command — re-resolve it
     }
     return true;
+}
+
+// The entry has a resolution of ours to keep in the engine's cache: a body we
+// parsed into option lines (or a `none` that says "nothing"), in our own
+// dialect. Published entries are handled separately.
+bool Drives(const Entry &e) {
+    return e.kind != Kind::None && !e.foreign && (e.optionCount > 0 || e.none);
 }
 
 void Rescan(void *L) {
@@ -413,21 +452,28 @@ void Rescan(void *L) {
         Parsed parsed;
         ParseBody(reinterpret_cast<const char *>(entry + Offsets::OFF_MACRO_BODY), &parsed);
         if (e.macroID != macroID || e.kind != parsed.kind || !SameOptions(e, parsed)) {
+            // The engine repainted this macro's buttons straight after its
+            // parse (the edit worker FUN_MACRO_EDIT ends in the slot refresh
+            // FUN_004E5CC0, 3.3.5's CGActionBar::UpdateMacro) — before this
+            // rescan, so they read the resolution being replaced. Repaint
+            // again once ours is current, whatever it turns out to be. 3.3.5
+            // repaints after every edit the same way.
             e = Entry{};
             e.macroID = macroID;
+            e.needRepaint = true;
             e.kind = parsed.kind;
             e.conditional = parsed.conditional;
-            e.explicitValue = parsed.explicitValue;
+            e.none = parsed.none;
             e.optionCount = parsed.optionCount;
             std::memcpy(e.options, parsed.options, sizeof(e.options));
-            std::memcpy(e.sequence, parsed.sequence, sizeof(e.sequence));
+            std::memcpy(e.lineType, parsed.lineType, sizeof(e.lineType));
         }
         // The engine parse that triggered this rescan rewrote `+0x564` —
         // every directive gets re-applied, changed or not. A macro in
         // another addon's dialect is not ours to re-apply, and leaving it
         // dirty would keep `HasPendingWork` true and re-run the catch-up on
         // every reader.
-        e.dirty = (e.kind != Kind::None && e.optionCount > 0 && !e.foreign);
+        e.dirty = Drives(e);
     }
 }
 
@@ -551,15 +597,19 @@ int ParseSpellRef(const char *value) {
 // evaluator's order, and the order our `/cast` handler uses.
 //
 // `explicitValue` is set when the directive carried the value itself
-// (`#showtooltip <value>`) or a publisher handed it over, as opposed to the
-// bare form reading the macro's `/cast` and `/use` lines. Only then does a
-// bare spellID skip the spellbook: an explicit value is the author naming what
-// to display, while a value lifted off a cast line should resolve exactly as
-// far as that cast would. `spell:N` skips it either way — nobody writes that
-// form except to name a spell for display.
-void ResolveValue(const char *value, Resolution *r, bool explicitValue) {
+// (`#showtooltip <value>`) or a publisher handed it over, as opposed to a
+// value read off the macro's action lines. Only then does a bare spellID skip
+// the spellbook: an explicit value is the author naming what to display, while
+// a value lifted off a cast line should resolve exactly as far as that cast
+// would. `spell:N` skips it either way — nobody writes that form except to name
+// a spell for display.
+//
+// `itemOnly` is an `/equip` / `/equipslot` value, which 3.3.5 never resolves
+// to a spell.
+void ResolveValue(const char *value, Resolution *r, bool explicitValue, bool itemOnly) {
     if (const int spellRef = ParseSpellRef(value)) {
-        SetSpellByID(spellRef, r);
+        if (!itemOnly)
+            SetSpellByID(spellRef, r);
         return;
     }
     int bag = 0, slot = 0;
@@ -569,14 +619,15 @@ void ResolveValue(const char *value, Resolution *r, bool explicitValue) {
     }
     int n = 0;
     const bool numeric = ParseInt(value, &n);
-    if (numeric && n >= Offsets::EQUIPMENT_SLOT_FIRST &&
-        n <= Offsets::EQUIPMENT_SLOT_LAST) {
+    // An inventory slot: the 19 equipment slots and the four equipped bags
+    // (INVSLOT_BAG1..+3) — 3.3.5's player-bag range, 1..23.
+    if (numeric && n >= Offsets::EQUIPMENT_SLOT_FIRST && n <= Offsets::INVSLOT_BAG1 + 3) {
         SetItem(Item::Location::ResolveEquipmentSlot(n), r);
         return;
     }
-    // A bare number that is not an equipment slot stays a spellID, which is
-    // the documented `/cast 5019` rule, so it must not reach the item
-    // lookup — `Item::Arg::ResolveString` would read it as an itemID.
+    // A bare number past the slots stays a spellID, which is the documented
+    // `/cast 5019` rule, so it must not reach the item lookup —
+    // `Item::Arg::ResolveString` would read it as an itemID.
     // Everything else goes through the shared parser, so an `item:N` value
     // or a pasted item link resolves by ID and anything else by name.
     if (!numeric) {
@@ -598,6 +649,8 @@ void ResolveValue(const char *value, Resolution *r, bool explicitValue) {
             return;
         }
     }
+    if (itemOnly)
+        return;
     int isPet = 0;
     const int spellID = reinterpret_cast<ResolveSpellName_t>(
         Offsets::FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID)(value, &isPet);
@@ -671,8 +724,28 @@ void ApplyResolution(void *L, Entry &e, const Resolution &r, bool matched) {
     cache = cacheSpell;
     pet = cachePet;
 
-    if (changed)
+    if (!changed && !e.needRepaint)
+        return;
+    if (g_inReaderCatchUp) {
+        e.needRepaint = true;
+        return;
+    }
+    e.needRepaint = false;
+    Repaint(L, e.macroID);
+}
+
+// Repaint every macro marked for it — re-parsed bodies, including ones that are
+// no longer ours to drive, and changes a reader's catch-up deferred.
+void FlushRepaints(void *L) {
+    for (Entry &e : g_entries) {
+        if (!e.needRepaint)
+            continue;
+        e.needRepaint = false;
+        if (e.macroID == 0)
+            continue;
+        BusyScope busy;
         Repaint(L, e.macroID);
+    }
 }
 
 // The step a `/castsequence` is on, replacing the sequence text in `value`
@@ -719,15 +792,38 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
 
     // First option line whose clause matches with a non-empty value.
     bool matched = false;
+    int matchedLine = -1;
     char value[kOptionsMax] = {};
     for (int i = 0; i < e.optionCount; ++i) {
         bool foreign = false;
         bool got = ResolveOptions(L, e.options[i], value, sizeof(value), &foreign);
-        // A sequence line's value is the sequence, not an action. Swap in the
-        // step it is on before anything tries to resolve it. An empty step
-        // (nothing castable there) falls through to the next option line.
-        if (got && value[0] != '\0' && e.sequence[i])
-            got = QuerySequenceStep(L, value, sizeof(value));
+        if (got && value[0] != '\0') {
+            switch (e.lineType[i]) {
+            case LineType::Sequence:
+                // The value is the sequence, not an action. Swap in the step
+                // it is on before anything tries to resolve it. An empty step
+                // (nothing castable there) falls through to the next line.
+                got = QuerySequenceStep(L, value, sizeof(value));
+                break;
+            case LineType::Random: {
+                // 3.3.5 shows the FIRST entry of the list (`FindSpellID` cuts
+                // the value at its first comma).
+                if (char *comma = std::strchr(value, ','))
+                    *comma = '\0';
+                char first[kOptionsMax];
+                CopyTrimmed(value, first, sizeof(first));
+                std::memcpy(value, first, sizeof(first));
+                break;
+            }
+            case LineType::EquipSlot: {
+                const char *named = SkipEquipSlotNumber(value, LineType::EquipSlot);
+                std::memmove(value, named, std::strlen(named) + 1);
+                break;
+            }
+            default:
+                break;
+            }
+        }
         if (foreign) {
             // Another macro addon's dialect. Its conditions decide what this
             // macro does, and we cannot evaluate them, so the macro is not
@@ -740,12 +836,16 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
         }
         if (got && value[0] != '\0') {
             matched = true;
+            matchedLine = i;
             break;
         }
     }
     Resolution r;
-    if (matched)
-        ResolveValue(value, &r, e.explicitValue);
+    if (matched) {
+        const LineType type = e.lineType[matchedLine];
+        ResolveValue(value, &r, type == LineType::Directive,
+                     type == LineType::Equip || type == LineType::EquipSlot);
+    }
     ApplyResolution(L, e, r, matched);
 }
 
@@ -807,8 +907,10 @@ void MaintainExternal(void *L) {
 // whichever clause happened to match on the last evaluation.
 //
 // So for the length of the sweep every macro we describe shows a cache of `0`,
-// which no real spellID matches, and gets its value back afterwards. A macro
-// with no directive is never touched and keeps stock behaviour. The restore is
+// which no real spellID matches, and gets its value back afterwards. That
+// includes Implicit macros: their value comes from an action line, but which
+// line depends on whichever condition matched last, so the sweep would delete
+// a macro over a clause it isn't even on. The restore is
 // a plain field write with no repaint — it puts back exactly what was there a
 // moment earlier, and the slots the engine really did clear were announced by
 // the engine's own notify.
@@ -833,8 +935,7 @@ void __fastcall PruneSpell_h(uint32_t spellID) {
             continue;
         // Exactly the macros this module drives — the same test `CatchUp` uses
         // to decide what it may evaluate, plus published ones.
-        const bool managed =
-            e.external || (e.kind != Kind::None && e.optionCount > 0 && !e.foreign);
+        const bool managed = e.external || Drives(e);
         if (!managed)
             continue;
         uint8_t *entry = EntryForID(e.macroID);
@@ -943,7 +1044,7 @@ bool CatchUp(void *L, uint32_t now) {
         g_rescanPending = false;
     }
     for (Entry &e : g_entries) {
-        if (e.dirty && e.kind != Kind::None && e.optionCount > 0 && !e.foreign)
+        if (e.dirty && Drives(e))
             Evaluate(L, e, now);
     }
     return true;
@@ -969,7 +1070,7 @@ void Tick() {
     g_lastState = state;
 
     for (Entry &e : g_entries) {
-        if (e.kind == Kind::None || e.optionCount == 0 || e.foreign)
+        if (!Drives(e))
             continue;
         const uint32_t interval = e.conditional ? kConditionalIntervalMs : kStaticIntervalMs;
         if ((e.conditional && stateChanged) ||
@@ -977,6 +1078,7 @@ void Tick() {
             Evaluate(L, e, now);
         }
     }
+    FlushRepaints(L);
 }
 
 // Lazy half of the cadence: a reader (button repaint, Macro UI update)
@@ -991,8 +1093,11 @@ void CatchUpIfPending() {
         return;
     const uint32_t now = Time::Clock::NowMs();
     RefreshYield(L, now);
-    if (!g_yielding)
-        CatchUp(L, now);
+    if (g_yielding)
+        return;
+    g_inReaderCatchUp = true;
+    CatchUp(L, now);
+    g_inReaderCatchUp = false;
 }
 
 void OnMacroParsed(int /*macroEntry*/) {
@@ -1078,7 +1183,7 @@ bool LookupEntries(uint32_t macroID, Info *out) {
         out->conditional = e.conditional;
         return true;
     }
-    if (e.optionCount == 0) {
+    if (e.optionCount == 0 && !e.none) {
         // Bare directive with no `/cast` or `/use` line to draw from: show
         // whatever the engine's own parse resolved (a `CastSpellByName("...")`
         // line, for instance).
@@ -1145,7 +1250,7 @@ bool Publish(int macroSlot, const char *value) {
     // A publisher naming a value is naming it explicitly, the same as a
     // directive that carries one.
     if (matched)
-        ResolveValue(value, &r, /*explicitValue=*/true);
+        ResolveValue(value, &r, /*explicitValue=*/true, /*itemOnly=*/false);
 
     BusyScope busy;
     ApplyResolution(L, e, r, matched);
