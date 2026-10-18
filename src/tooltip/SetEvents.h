@@ -29,6 +29,10 @@ struct Suppressor {
     Suppressor &operator=(const Suppressor &) = delete;
 };
 
+// Runs the tooltip's OnTooltipSetFrameStack handler, if it has one.
+// Tooltip::FrameStack calls it after it adds the frame-stack lines.
+void FireFrameStack(void *tooltip);
+
 // Drop every per-tooltip handler cell. Must run at each UI teardown
 // (FrameScript_Initialize_h — /reload and /logout): the engine destroys and
 // recreates the tooltip objects, so the cells' tooltip pointers go stale and

@@ -690,8 +690,10 @@ enum Offsets {
     OFF_SIMPLETEXTURE_SHADER = 0x128,
     // Get the region's resolved screen rect: `__thiscall(region+OFF_REGION_ANCHOR,
     // float out[4]) -> int` (1 = valid, 0 = not laid out yet). Reads the anchor
-    // sub-object's +0x40..+0x4C = {top, left, bottom, right}, gated on the
-    // rect-valid bit [+0x3c]&1. This is the engine's own source for the corner
+    // sub-object's +0x40..+0x4C = {bottom, left, top, right} — 4.3.4's
+    // CLayoutFrame::GetRect and its CRect {minY, minX, maxY, maxX}, in DDC
+    // (Script_GetBottom 0x007A1CE0 reads out[0], Script_GetTop 0x007A1BC0
+    // out[2]) — gated on the rect-valid bit [+0x3c]&1. This is the engine's own source for the corner
     // rect (see FUN_00770410's SetTexCoord path); texture/Rotation.cpp reads it to
     // rebuild axis-aligned corners before rotating.
     FUN_REGION_GET_RECT = 0x00768320,
@@ -2812,13 +2814,70 @@ enum Offsets {
     // Head of the engine's frame list (`*(*VAR_UI_CONTEXT_PTR + 0xCC4)`),
     // and each frame CObject's next-in-enumeration pointer at +0x308 — the
     // list `Script_EnumerateFrames` (0x00705F60) walks. A node with its low
-    // bit set (or null) is the end sentinel. `Frame::MouseFoci` walks it to
-    // build the GetMouseFoci stack.
+    // bit set (or null) is the end sentinel. `Tooltip::FrameStack` walks it
+    // (4.3.4's CSimpleTop::m_frames).
     OFF_UI_CONTEXT_FRAME_LIST_HEAD = 0xCC4,
     OFF_FRAME_ENUM_NEXT = 0x308,
     // Frame level, a plain int at CObject +0xC4 (the value `Script_GetFrameLevel`
     // at 0x007744A0 pushes as `frame[0x31]`). Read directly for stack ordering.
     OFF_FRAME_LEVEL = 0xC4,
+    // Frame strata, an int at +0xC0: `Script_GetFrameStrata` (0x007742A0)
+    // pushes FUN_FRAME_STRATA_TO_STRING([frame+0xC0]).
+    OFF_FRAME_STRATA = 0xC0,
+    // `int` — nonzero when the frame is effectively shown (4.3.4's
+    // CSimpleFrame::m_visible). `Script_IsVisible` (0x007758D0) pushes
+    // `[frame+0xD4] != 0`.
+    OFF_FRAME_VISIBLE = 0xD4,
+    // Enabled-input bitmask (4.3.4's m_enabledEventsBitmask), one bit per
+    // input event type: bit `1 << SIMPLE_EVENT_*`. `Script_IsMouseEnabled`
+    // (0x00777130) pushes `([frame+0xCC] >> 2) & 1`.
+    OFF_FRAME_ENABLED_EVENTS = 0xCC,
+    // Input event types (4.3.4's CSimpleEventType). EnableMouse (0x00777070)
+    // enables / disables type 2 through FUN_0076AF00 / FUN_0076AF50.
+    SIMPLE_EVENT_MOUSE = 2,
+    // The UI context's input queues (4.3.4's CSimpleTop::m_eventqueue[type]
+    // [strata]): `ctx + OFF_UI_CONTEXT_EVENT_QUEUES + (strata +
+    // FRAME_STRATA_COUNT * type) * EVENT_QUEUE_STRIDE`. Each holds node
+    // pointers at +OFF_EVENT_QUEUE_DATA (count at +OFF_EVENT_QUEUE_COUNT);
+    // a node is `{frame, priority}`, kept sorted by priority high to low
+    // (default priority = frame level). FUN_0076AF00 adds a frame only while
+    // it is visible (OFF_FRAME_VISIBLE) — via the register routine
+    // FUN_00764AA0 — so a queue holds exactly the shown frames with that input
+    // enabled. The mouse-focus pass FUN_007660D0 walks the mouse queues from
+    // strata 8 down to 0 and makes the first frame whose mouse handler
+    // (vtable+0x3C, base 0x0076B320 → FUN_FRAME_HIT_TEST) hits the focus.
+    OFF_UI_CONTEXT_EVENT_QUEUES = 0xD10,
+    FRAME_STRATA_COUNT = 9,
+    EVENT_QUEUE_STRIDE = 0x1C,
+    OFF_EVENT_QUEUE_DATA = 0x08,
+    OFF_EVENT_QUEUE_COUNT = 0x10,
+    // The mouse hit test — `int __thiscall(frame, const float point[2])`,
+    // point {x, y} in DDC. Needs the frame's rect valid, then tests the hit
+    // rect at +0xD8..+0xE4 (layout rect less the hit-rect insets); a frame
+    // with FRAME_FLAG_SCROLLED tests it clipped to its nearest ancestor
+    // without that flag. No side effects (the vtable+0x3C wrapper adds the
+    // drag-start check before calling it).
+    FUN_FRAME_HIT_TEST = 0x0076B020,
+    // FrameStrataToString — `const char *__fastcall(int strata /*ecx*/)`.
+    // Scans the 8-entry `{int strata, const char *name}` table at 0x008119F8
+    // (BACKGROUND = 1 … TOOLTIP = 8); anything else → "UNKNOWN" (0x00838044).
+    FUN_FRAME_STRATA_TO_STRING = 0x006F1820,
+    // The cursor in NDC: two floats {x, y} at `*VAR_UI_CONTEXT_PTR + 0x1118`
+    // (4.3.4's CSimpleTop::m_mousePosition). GetCursorPosition (0x0048B820)
+    // and the mouse hit test FUN_007664F0 both read it and convert it with
+    // FUN_COORD_NDC_TO_DDC.
+    OFF_UI_CONTEXT_MOUSE_POSITION = 0x1118,
+    // NDCToDDC — `void __fastcall(float *outX /*ecx*/, float *outY /*edx*/,
+    // float x, float y)`, `ret 8`: x × VAR_COORD_DDC_WIDTH_SCALE,
+    // y × VAR_COORD_DDC_HEIGHT_SCALE. Either out pointer may be null. DDC is
+    // the space frame rects (FUN_REGION_GET_RECT) are stored in.
+    FUN_COORD_NDC_TO_DDC = 0x0041AD80,
+    // The two default tooltip line colors, packed {b,g,r,a} like every
+    // FUN_GAMETOOLTIP_ADD_LINE color: text 0xFFFFFFFF (static init 0x00528E90)
+    // and title 0xFFFFD200 (static init 0x00528E50) — 4.3.4's
+    // s_tooltipTextColor / s_tooltipTitleColor.
+    VAR_TOOLTIP_TEXT_COLOR = 0x00C0CF60,
+    VAR_TOOLTIP_TITLE_COLOR = 0x00C0D3E8,
     FUN_SCRIPT_FRAME_SHOW = 0x00775750,
     FUN_SCRIPT_FRAME_HIDE = 0x00775810,
     FUN_SCRIPT_FRAME_SETMINRESIZE = 0x00776020,
@@ -2839,14 +2898,6 @@ enum Offsets {
     // it so a unit-attributed frame registers as the mouse-focus (bare frames
     // otherwise never hover). Standard `int __fastcall(void *L)` Script_* shape.
     FUN_SCRIPT_FRAME_ENABLEMOUSE = 0x00777070,
-    // Frame predicates used by `Frame::MouseFoci` to filter the enumeration to
-    // the interactive stack (visible + mouse-enabled). Standard Script_* shape
-    // `int __fastcall(void *L)`, self at Lua idx 1, result pushed at idx 2.
-    FUN_SCRIPT_FRAME_IS_VISIBLE = 0x007758D0,
-    FUN_SCRIPT_FRAME_IS_MOUSE_ENABLED = 0x00777130,
-    // `frame:GetFrameStrata()` — pushes the strata name string; ranked for
-    // stack ordering (`Frame::MouseFoci`).
-    FUN_SCRIPT_FRAME_GET_STRATA = 0x007742A0,
     // (The button click dispatcher is FUN_BUTTON_CLICK, defined with the frame
     // script slots near FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT. A note here used to
     // forbid hooking it on a SuperWoW-collision theory that a per-DLL scan has
@@ -6309,6 +6360,9 @@ enum Offsets {
     LUA_REMOVE = 0x6F30D0,        // (was 0x6F32B0, which is lua_replace)
     LUA_REPLACE = 0x6F32B0,
     LUA_TYPE = 0x6F3400,
+    // `lua_typename(L, type)` — `const char *__fastcall`; indexes the name
+    // array at 0x00811CD0, `-1` → "no value" (0x00871624).
+    LUA_TYPE_NAME = 0x6F3480,
     LUA_GET_TOP = 0x6F3070,
     LUA_SET_TOP = 0x6F3080,
     LUA_CALL = 0x6F4180,

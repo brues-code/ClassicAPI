@@ -41,6 +41,18 @@ inline void Add(void *self, const char *text, const uint32_t &color, bool wrap =
         self, text, nullptr, &color, nullptr, wrap ? 1 : 0);
 }
 
+// Appends a two-column line (FUN_GAMETOOLTIP_ADD_LINE): `left` in
+// `leftColor`, `right` (may be null) in `rightColor`. Same color packing and
+// lifetime rule as Add.
+inline void AddDouble(void *self, const char *left, const char *right,
+                      const uint32_t &leftColor, const uint32_t &rightColor) {
+    using AddLine_t = void(__thiscall *)(void *self, const char *left, const char *right,
+                                         const void *leftColor, const void *rightColor,
+                                         int wrap);
+    reinterpret_cast<AddLine_t>(Offsets::FUN_GAMETOOLTIP_ADD_LINE)(
+        self, left, right, &leftColor, &rightColor, 0);
+}
+
 // Shows the tooltip at Lua stack[1] (the engine's Script_Show reads self
 // there).
 inline void Show(void *L) {

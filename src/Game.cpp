@@ -74,6 +74,7 @@ namespace Lua {
     F(PCall,       lua_pcall,       LUA_PCALL)        \
     F(Next,        lua_next,        LUA_NEXT)         \
     F(Type,        lua_type,        LUA_TYPE)         \
+    F(TypeName,    lua_typename,    LUA_TYPE_NAME)    \
     F(Error,       lua_error,       LUA_ERROR)        \
     F(ToPointer,   lua_topointer,   LUA_TO_POINTER)   \
     F(ToThread,    lua_tothread,    LUA_TO_THREAD)    \

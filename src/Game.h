@@ -257,6 +257,7 @@ using lua_call_t = void(__fastcall *)(void *L, int nargs, int nresults);
 using lua_pcall_t = int(__fastcall *)(void *L, int nargs, int nresults, int errfunc);
 using lua_next_t = int(__fastcall *)(void *L, int idx);
 using lua_type_t = int(__fastcall *)(void *L, int index);
+using lua_typename_t = const char *(__fastcall *)(void *L, int type);
 // The 1.12 `lua_error` wrapper at `0x6F4940` is actually variadic —
 // it does `lua_pushvfstring(L, fmt, args)` then prepends `luaL_where`
 // and throws. Existing callers pass a single literal (no `%`), which
@@ -315,6 +316,7 @@ extern const lua_call_t Call;
 extern const lua_pcall_t PCall;
 extern const lua_next_t Next;
 extern const lua_type_t Type;
+extern const lua_typename_t TypeName;
 extern const lua_error_t Error;
 extern const lua_topointer_t ToPointer;
 extern const lua_tothread_t ToThread;

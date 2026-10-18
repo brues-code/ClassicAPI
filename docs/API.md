@@ -316,7 +316,8 @@ build instructions.
   - [`GameTooltip:SetHyperlink(link)`](#gametooltipsethyperlinklink)
   - [`GameTooltip:SetHyperlinkCompareItem("itemLink" [, offset, shiftButton, comparisonTooltip])`](#gametooltipsethyperlinkcompareitemitemlink--offset-shiftbutton-comparisontooltip)
   - [`GameTooltip:IsEquippedItem()`](#gametooltipisequippeditem)
-  - [`OnTooltipSet*` scripts (Item / Spell / Unit / GameObject)](#ontooltipset-scripts)
+  - [`GameTooltip:SetFrameStack([showHidden])`](#gametooltipsetframestackshowhidden)
+  - [`OnTooltipSet*` scripts (Item / Spell / Unit / GameObject / FrameStack)](#ontooltipset-scripts)
   - [`GameTooltip:SetItemByGUID(itemGUID)`](#gametooltipsetitembyguiditemguid)
   - [`GameTooltip:SetEquipmentSet(name)`](#gametooltipsetequipmentsetname)
   - [Equipment sets on item tooltips](#equipment-sets-on-item-tooltips)
@@ -5644,6 +5645,11 @@ Returns a table of the mouse-enabled frames under the cursor, from top
 to bottom. Index 1 is the frame that `GetMouseFocus()` returns, so
 `GetMouseFocus() == GetMouseFoci()[1]` is always true.
 
+A frame is in the table when it can get mouse input at the cursor
+position, the same test that sets the mouse focus. Hit-rect insets
+(`SetHitRectInsets`) apply, and a frame in a scroll frame counts only
+inside the visible part of the scroll frame.
+
 ```lua
 local foci = GetMouseFoci()
 -- foci[1] == GetMouseFocus()
@@ -7774,6 +7780,46 @@ GameTooltip:SetBagItem(0, 1)
 if GameTooltip:IsEquippedItem() then ... end  -- false unless that item is also worn
 ```
 
+### `GameTooltip:SetFrameStack([showHidden])`
+
+Fills the tooltip with the frames under the cursor. This is the method that
+`/fstack` uses. The method also shows the tooltip, so set an owner first.
+
+```lua
+GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+GameTooltip:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -20, 20)
+GameTooltip:SetFrameStack()      -- shown frames only
+GameTooltip:SetFrameStack(true)  -- also hidden frames
+```
+
+The first line shows the text `DEBUG_FRAMESTACK` and the cursor position, in
+the same units as `GetCursorPosition()`. Below it, the frames are in groups by
+strata, from the top strata down. Each group starts with the strata name. In a
+group, frames go from the highest frame level down. Each frame line shows
+` <level> name`:
+
+- A frame with a name shows that name.
+- A frame with no name shows its Lua table, for example `table: 1A2B3C4D`.
+- When the global variable with the frame's name is not that frame, the line
+  shows the table and the name, for example `table: 1A2B3C4D (MyFrame)`.
+
+The color of a line tells you the state of the frame:
+
+| Color | Frame |
+|---|---|
+| Orange | Shown, and the mouse is enabled |
+| Blue | Shown, and the mouse is not enabled |
+| Grey | Hidden (only with `showHidden`) |
+
+The color has two shades. The shade changes when the frame level changes.
+
+A frame is in the list when the cursor is in its rectangle. Hit-rect insets
+and clipping by a parent frame have no effect on the list. The list also
+includes frames that do not get mouse input.
+
+The method runs the `OnTooltipSetFrameStack` script before it shows the
+tooltip.
+
 ### `OnTooltipSet*` scripts
 
 `OnTooltipSetItem` / `OnTooltipSetSpell` / `OnTooltipSetUnit` /
@@ -7791,9 +7837,10 @@ tooltips by hooking one script per object type instead of wrapping every
 | `OnTooltipSetSpell` | `SetSpell`, `SetSpellByID`, `SetTalent`, `SetShapeshift` |
 | `OnTooltipSetUnit` | `SetUnit` and unit mouseover |
 | `OnTooltipSetGameObject` | gameobject mouseover (herb/ore nodes, chests, mailboxes, signs) |
+| `OnTooltipSetFrameStack` | [`SetFrameStack`](#gametooltipsetframestackshowhidden) |
 
 The engine ships only `OnTooltipAddMoney` / `OnTooltipCleared` /
-`OnTooltipSetDefaultAnchor`; these four are added.
+`OnTooltipSetDefaultAnchor`; these five are added.
 
 The handler receives the tooltip as the **global `this`**, the
 frame-script convention — *not* a `self` argument (like every built-in

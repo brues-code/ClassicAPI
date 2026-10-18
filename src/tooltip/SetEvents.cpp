@@ -28,6 +28,10 @@
 //     resolver's only contract is "return the address the script lives at", so
 //     external storage works exactly like an in-object slot.
 //
+//   - OnTooltipSetFrameStack has no engine builder: Tooltip::FrameStack builds
+//     the frame stack itself and fires it through FireFrameStack, right before
+//     Show, where 4.3.4's CGTooltip::SetFrameStack fires it.
+//
 //   - Each object type has a single builder funnel that every Set*/mouseover
 //     path converges on (item FUN_GAMETOOLTIP_BUILD_ITEM, spell _BUILD_SPELL,
 //     unit _BUILD_UNIT, gameobject _BUILD_GAMEOBJECT). We co-hook each and,
@@ -53,7 +57,7 @@ namespace {
 
 // One entry per script kind. Order is arbitrary but the cell slot array and
 // the builder hooks index by it.
-enum ScriptKind { SK_ITEM = 0, SK_SPELL, SK_UNIT, SK_GAMEOBJECT, SK_COUNT };
+enum ScriptKind { SK_ITEM = 0, SK_SPELL, SK_UNIT, SK_GAMEOBJECT, SK_FRAMESTACK, SK_COUNT };
 
 // Script names, matched case-insensitively against the resolver's input.
 constexpr const char *kNamesLower[SK_COUNT] = {
@@ -61,6 +65,7 @@ constexpr const char *kNamesLower[SK_COUNT] = {
     "ontooltipsetspell",
     "ontooltipsetunit",
     "ontooltipsetgameobject",
+    "ontooltipsetframestack",
 };
 
 // Per-tooltip storage: one 8-byte {handler, context} slot per script kind.
@@ -245,6 +250,8 @@ static const Game::HookAutoRegister _buildGOHook{
     reinterpret_cast<void **>(&g_buildGOOriginal)};
 
 } // namespace
+
+void FireFrameStack(void *tooltip) { FireScript(tooltip, SK_FRAMESTACK); }
 
 Suppressor::Suppressor() { ++g_suppress; }
 Suppressor::~Suppressor() {
