@@ -6424,12 +6424,18 @@ which tries, in order, and returns the first match (the precedence used for
 4. `"*"..name.."*"`
 5. `name`
 
-`SetAttributeNoHandler` sets the value **without** firing `OnAttributeChanged`;
-`SetAttribute` fires it (see below).
+The modifier form is used only when exactly these three arguments are
+passed. A `nil` prefix or suffix counts as an empty string.
 
-**Unit-frame mouseover — the headline use.** Setting a **string `unit`
-attribute** makes the frame a mouseover source: while the cursor is over it,
-the `mouseover` unit token resolves to that frame's unit. This is the piece of
+`SetAttributeNoHandler` sets the value **without** firing `OnAttributeChanged`;
+`SetAttribute` fires it (see below). `SetAttribute(name, nil)` clears an
+attribute; leaving the value out (`SetAttribute(name)`) is an error.
+
+**Unit-frame mouseover — the headline use.** While the cursor is over a frame
+that has attributes, the `mouseover` unit token resolves to the frame's unit,
+as `SecureButton_GetModifiedUnit(frame)` returns it: the `unit` attribute,
+or a modifier-qualified one such as `shift-unit` while Shift is held, with
+`unitsuffix` added. This is the piece of
 SecureUnitButton behavior unit-frame addons rely on — and there is no combat
 lockdown or taint here, so no secure machinery is needed to provide it.
 
@@ -6443,21 +6449,13 @@ f:SetAttribute("unit", "party1")
 --   mouseover-cast, and UPDATE_MOUSEOVER_UNIT all work.
 ```
 
-How it works, and why it's robust: rather than installing `OnEnter`/`OnLeave`
-on the frame (which an addon's own `SetScript("OnEnter", …)` would overwrite —
-pfUI sets `unit` *before* its scripts, for instance), this mirrors SuperWoW's
-`SetMouseoverUnit`. The engine's mouse-focus frame is watched once
-per frame; when a hovered frame carries a `unit` attribute, the engine's **real
-mouseover setter** is invoked for that unit — **1:1 with hovering the unit's 3D
-model**: the model highlights, the mouseover tooltip builds, and
-`UPDATE_MOUSEOVER_UNIT` fires, in addition to the GUID slot being set. So
-everything that reads mouseover — the resolver's `mouseover` branch,
-`GameTooltip:SetUnit("mouseover")`, `UnitX("mouseover")`, mouseover-cast — sees
-it natively. Because nothing touches the frame's scripts, an addon setting its
-own handlers can't break it; and it's stomp-proof (the engine's 3D-hover setter
-is event-driven, so while the cursor is over UI nothing overwrites the slot). It
-follows live token changes (a `unit="target"` frame tracks your current target
-while hovered). Setting a string `unit` also `EnableMouse`s the frame so a bare
+The frame's own scripts are not touched, so an addon that sets its own
+`OnEnter` / `OnLeave` cannot break it. Hovering the frame is the same as
+hovering the unit's 3D model: the model highlights, the mouseover tooltip
+shows, and `UPDATE_MOUSEOVER_UNIT` fires. The unit is read again every frame,
+so a `unit="target"` frame follows your current target while hovered, and
+pressing a modifier switches to the matching `unit` attribute. Setting a
+string `unit` also `EnableMouse`s the frame so a bare
 frame becomes hoverable at all (real unit frames already are). The `unit` value
 may be any token the resolver understands — `"party1"`, `"target"`, `"focus"`,
 `"nameplateN"`, or a raw GUID literal. Set `unit` to a non-string (e.g. `nil`)
@@ -6515,25 +6513,22 @@ double-chains.
 
 **`OnAttributeChanged`** is a real `SetScript` / `GetScript` / `HookScript`-able
 frame script, on **every** frame — `SetAttribute` fires it after setting the
-value, `SetAttributeNoHandler` doesn't. As with all frame scripts, the
-handler takes no parameters and reads its context from globals: `this` = the
-frame, `arg1` = the (lowercased) attribute name, `arg2` = the new value.
+value, `SetAttributeNoHandler` doesn't. The handler gets
+`(self, name, value)`, where `name` is the lowercased attribute name. The
+`this` / `arg1` / `arg2` globals are set to the same values.
 
 ```lua
-f:SetScript("OnAttributeChanged", function()
-    if arg1 == "unit" then
-        MyFrame_Update(this, arg2)   -- react to unit changes
+f:SetScript("OnAttributeChanged", function(self, name, value)
+    if name == "unit" then
+        MyFrame_Update(self, value)   -- react to unit changes
     end
 end)
-f:SetAttribute("unit", "party1")     -- fires the handler (arg1="unit", arg2="party1")
+f:SetAttribute("unit", "party1")     -- fires the handler (name="unit", value="party1")
 f:SetAttributeNoHandler("unit", "party2")  -- sets it silently, no handler
 ```
 
-It's implemented the same way as the tooltip-side `OnTooltipSet*` scripts — a
-co-hook on the base-frame script-name resolver that hands out an external
-per-frame handler slot for this one name (frames are never destroyed, so
-the slot never goes stale). Recursion-guarded, so a handler may itself call
-`SetAttribute`.
+A handler can set attributes itself, on its own frame or another one. Those
+changes fire their `OnAttributeChanged` handlers too.
 
 ### `SetModernScriptArgs(enable)` / `GetModernScriptArgs()`
 
