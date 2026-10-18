@@ -3049,6 +3049,16 @@ enum Offsets {
     // GetEffectiveAlpha calls it for its `self` type check, then reads the
     // byte.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
+    // Region GetObjectType / IsObjectType (Region table 0x0087C9B8 entries
+    // 0/1, ctx VAR_REGION_METHOD_REGISTRY) and Frame GetFrameType /
+    // IsFrameType (Frame table 0x00878EC0 entries 0/1, ctx
+    // VAR_FRAME_METHOD_REGISTRY), per docs/raw_methods.txt.
+    // `Frame::Cooldown` re-registers these names on the Model registry and
+    // delegates to them for every frame that is not a marked Cooldown.
+    FUN_SCRIPT_REGION_GETOBJECTTYPE = 0x007A11D0,
+    FUN_SCRIPT_REGION_ISOBJECTTYPE = 0x007A1290,
+    FUN_SCRIPT_FRAME_GETFRAMETYPE = 0x00773640,
+    FUN_SCRIPT_FRAME_ISFRAMETYPE = 0x00773700,
 
     // Hyperlink scripts. ScrollingMessageFrame and SimpleHTML share a base
     // whose GetScriptByName override (0x007A3700, in the vtables at slots

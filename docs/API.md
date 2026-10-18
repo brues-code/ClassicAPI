@@ -234,6 +234,7 @@ build instructions.
   - [`region:GetRect()`](#regiongetrect)
   - [`region:IsDragging()`](#regionisdragging)
   - [`GetMouseFoci()`](#getmousefoci)
+  - [`CreateFrame("Cooldown" [, name, parent, template])`](#createframecooldown--name-parent-template)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [A frame moved to a new parent takes its children along](#a-frame-moved-to-a-new-parent-takes-its-children-along)
   - [A ScrollFrame keeps clipping its content when it moves](#a-scrollframe-keeps-clipping-its-content-when-it-moves)
@@ -5707,6 +5708,40 @@ for i = 1, table.getn(foci) do
     print(foci[i]:GetName() or "<anonymous>")
 end
 ```
+
+### `CreateFrame("Cooldown" [, name, parent, template])`
+
+Creates a cooldown frame. The frame shows a cooldown sweep.
+
+```lua
+local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+cd:GetObjectType()              -- "Cooldown"
+cd:IsObjectType("Cooldown")     -- true
+cd:SetCooldown(GetTime(), 10)   -- start, duration in seconds
+cd:SetReverse(false)
+cd:GetReverse()                 -- false
+cd:SetDrawEdge(false)
+cd:GetDrawEdge()                -- false
+```
+
+| Method | Notes |
+| --- | --- |
+| `cooldown:SetCooldown(start, duration)` | Sets the sweep. `start` and `duration` are numbers in seconds. `start` is a time value, for example the value that `GetTime()` returns. The frame shows the sweep. If `start` or `duration` is not positive, the frame hides. |
+| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. The flag is `false` when the frame is created. |
+| `cooldown:SetDrawEdge(drawEdge)` / `cooldown:GetDrawEdge()` | Sets and returns the draw-edge flag. The flag is `false` when the frame is created. |
+
+If `start` or `duration` is not a number, `SetCooldown` gives the error
+`Usage: <name>:SetCooldown(start, duration)`.
+
+You can also use `CooldownFrame_SetTimer(cd, start, duration, 1)` to set
+the sweep.
+
+The reverse flag and the draw-edge flag do not change the sweep picture.
+The getter methods return the values that the setter methods set.
+
+Use these methods on a cooldown frame. A call on a frame of another type
+gives an error. XML files cannot create this frame type. Use
+`CreateFrame` to create it.
 
 ### `frame:SetShown(shown)`
 

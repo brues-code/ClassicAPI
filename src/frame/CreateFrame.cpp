@@ -11,7 +11,18 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Multi-template `CreateFrame` support.
+// Multi-template `CreateFrame` support, plus the "Cooldown" frame type.
+//
+// Cooldown: 4.3.4 has a native "Cooldown" frame type (CGCooldown) with
+// SetCooldown / SetReverse / GetReverse / SetDrawEdge / GetDrawEdge.
+// Vanilla draws cooldown sweeps with a Model built from FrameXML's
+// CooldownFrameTemplate (the UI-Cooldown-Indicator model, driven by
+// CooldownFrame_SetTimer), and its CreateFrame rejects the type name
+// ("Unknown frame type 'Cooldown'"). So a "Cooldown" request is built as
+// that Model -- the type becomes "Model", and a missing template defaults
+// to CooldownFrameTemplate -- and then marked with
+// `Frame::Cooldown::Mark`, which gives it 4.3.4's five methods and makes
+// it report its type as "Cooldown". See src/frame/Cooldown.cpp.
 //
 // Modern WoW (2.0+) allows a comma-separated template list in CreateFrame's
 // 4th argument:
@@ -51,6 +62,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Cooldown.h"
 
 #include <cstdint>
 #include <cstring>
@@ -175,18 +187,54 @@ int SplitTemplates(char *buf, size_t bufLen, const char *input,
 
 // ---- the hook --------------------------------------------------------------
 
+// Case-insensitive, like the engine's own frame-type lookup.
+bool IsCooldownType(void *L) {
+    if (!Game::Lua::IsString(L, 1))
+        return false;
+    const char *type = Game::Lua::ToString(L, 1);
+    return type != nullptr && _stricmp(type, "Cooldown") == 0;
+}
+
+// Rewrites a "Cooldown" request in place as vanilla's cooldown Model.
+void RemapCooldown(void *L) {
+    Game::Lua::PushString(L, "Model");
+    Game::Lua::Insert(L, 1);
+    Game::Lua::Remove(L, 2); // drop the original "Cooldown"
+    if (Game::Lua::GetTop(L) < 4 || !Game::Lua::IsString(L, 4) ||
+        *Game::Lua::ToString(L, 4) == '\0') {
+        while (Game::Lua::GetTop(L) < 3)
+            Game::Lua::PushNil(L);
+        Game::Lua::SetTop(L, 3);
+        Game::Lua::PushString(L, "CooldownFrameTemplate");
+    }
+}
+
+// Marks the frame a successful Cooldown build left on top of the stack.
+int FinishCreate(void *L, int rc, bool isCooldown) {
+    if (isCooldown && rc == 1) {
+        void *frameObj = Game::Lua::ResolveObject(L, Game::Lua::GetTop(L));
+        if (frameObj != nullptr)
+            Frame::Cooldown::Mark(frameObj);
+    }
+    return rc;
+}
+
 int __fastcall CreateFrame_h(void *L) {
+    const bool isCooldown = IsCooldownType(L);
+    if (isCooldown)
+        RemapCooldown(L);
+
     // No 4th arg or not a string → pass through.
     if (Game::Lua::GetTop(L) < 4 || !Game::Lua::IsString(L, 4))
-        return g_origCreateFrame(L);
+        return FinishCreate(L, g_origCreateFrame(L), isCooldown);
 
     const char *inherits = Game::Lua::ToString(L, 4);
     if (inherits == nullptr || *inherits == '\0')
-        return g_origCreateFrame(L);
+        return FinishCreate(L, g_origCreateFrame(L), isCooldown);
 
     // Fast path: no comma → single template, engine handles it natively.
     if (std::strchr(inherits, ',') == nullptr)
-        return g_origCreateFrame(L);
+        return FinishCreate(L, g_origCreateFrame(L), isCooldown);
 
     // ---- comma-delimited: split, resolve, combine --------------------------
 
@@ -194,7 +242,7 @@ int __fastcall CreateFrame_h(void *L) {
     const char *names[kMaxTemplates];
     const int count = SplitTemplates(buf, sizeof buf, inherits, names);
     if (count == 0)
-        return g_origCreateFrame(L);
+        return FinishCreate(L, g_origCreateFrame(L), isCooldown);
 
     // Resolve each token; keep the resolvable definition nodes in list order.
     const char *resolvedNames[kMaxTemplates];
@@ -216,7 +264,7 @@ int __fastcall CreateFrame_h(void *L) {
     if (resolved <= 1) {
         Game::Lua::SetTop(L, 3);
         Game::Lua::PushString(L, resolved == 1 ? resolvedNames[0] : names[0]);
-        return g_origCreateFrame(L);
+        return FinishCreate(L, g_origCreateFrame(L), isCooldown);
     }
 
     // Build with the first resolved template through the engine (object
@@ -236,6 +284,8 @@ int __fastcall CreateFrame_h(void *L) {
     // which matters in this hook-saturated environment.
     const int savedTop = Game::Lua::GetTop(L);
     void *frameObj = Game::Lua::ResolveObject(L, savedTop);
+    if (isCooldown && frameObj != nullptr)
+        Frame::Cooldown::Mark(frameObj);
     if (frameObj != nullptr) {
         BuildStatus status;
         InitStatus(&status);
