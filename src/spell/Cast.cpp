@@ -56,9 +56,12 @@
 //     cancel) evict the entry the moment the engine stops the unit's cast
 //     — the CGUnit_C::ClearCastingSpell co-hook below, backstopped by
 //     co-hooks on both failure packets — so no lingering ghost bar.
-//   - Other units' CHANNELS: the broadcast +0x228 field gates "channeling
-//     now"; the SpellStart cache adds real start/end times when we observed
-//     the channel begin (else spellID/name/texture with nil times).
+//   - Other units' CHANNELS: the SpellStart cache gives real start/end times
+//     from the moment the channel begins. The broadcast +0x228 field lags
+//     that start by up to ~1 s, so it is latched like the player's (see
+//     PollRemoteChannels): trusted only once it has shown the spell, after
+//     which its clearing is the channel's early end. A channel we didn't see
+//     begin reports spellID/name/texture from +0x228 with nil times.
 //   - Other units' PUSHBACK is invisible: SMSG_SPELL_DELAYED goes only to
 //     the affected caster (empirically confirmed — during a melee-pushback
 //     test only the victim's client received it), so a remote bar can't
@@ -76,6 +79,7 @@
 #include "dbc/Lookup.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
+#include "object/Resolve.h"
 #include "player/Info.h"
 #include "spell/Interruptible.h"
 #include "spell/Lookup.h"
@@ -425,6 +429,7 @@ struct RemoteCast {
     int endMs;
     bool isChannel;
     bool used;
+    bool confirmed; // channel: +0x228 has shown spellID (PollRemoteChannels)
 };
 
 constexpr int kRemoteCastSlots = 64;
@@ -764,6 +769,38 @@ void SpellPacketSub(uint32_t opcode, Net::CDataStore *packet) {
 
 const Net::PacketDispatch::AutoSubscribe _spellPacketSub{&SpellPacketSub};
 
+// The remote analog of the player's +0x228 latch in OnWorldTick (see there).
+// The field lags the channel start by up to ~1 s, so until it has shown the
+// spell the SMSG_SPELL_START stamp is the truth — UnitChannelInfo reporting
+// nothing in that window made it disagree with the CHANNEL_START event
+// observers had just received. Once confirmed, the field leaving the spell
+// before endMs is the channel ending early (interrupt, cancel, movement),
+// which no packet reports to observers on Turtle: drop the entry and let the
+// events poll fire CHANNEL_STOP. Past endMs the entry is left to the natural
+// end, since the field's own clear trails it. Casters out of view are
+// skipped and self-expire at endMs.
+void PollRemoteChannels() {
+    const int now = NowMs();
+    for (auto &e : g_remoteCasts) {
+        if (!e.used || !e.isChannel || now - e.endMs >= 0)
+            continue;
+        const auto *unit = static_cast<const uint8_t *>(
+            Object::ByGuid(Offsets::TYPEMASK_UNIT, e.casterGuid));
+        if (unit == nullptr)
+            continue;
+        const auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+        if (desc == nullptr)
+            continue;
+        const int chan = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
+        if (chan == e.spellID) {
+            e.confirmed = true;
+        } else if (e.confirmed) {
+            e.used = false;
+            Spell::CastEvents::OnRemoteAborted(e.casterGuid, e.spellID);
+        }
+    }
+}
+
 } // namespace
 
 // Per-frame upkeep for the player. The regular cast is stamped by the
@@ -866,6 +903,7 @@ void OnWorldTick() {
     // listener-gated (near-free when no addon uses these).
     Spell::CastEvents::PollPlayer(g_cast.spellID, g_cast.startMs, g_cast.endMs,
                                   g_channel.spellID, g_channel.startMs);
+    PollRemoteChannels();
     Spell::CastEvents::PollRemote();
     Spell::CastEvents::PollReticle();
 }
@@ -909,8 +947,9 @@ static int __fastcall Script_ChannelInfo(void *L) {
                            Unit::Identity::PlayerObject());
 }
 
-// `UnitChannelInfo(unit)` — full timing for the player; spellID/name/
-// texture (no times) for other units via the broadcast +0x228 field.
+// `UnitChannelInfo(unit)` — full timing for the player; for other units, full
+// timing from the SpellStart cache, else spellID/name/texture (no times) from
+// the broadcast +0x228 field.
 static int __fastcall Script_UnitChannelInfo(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: C_Spell.UnitChannelInfo(\"unit\")");
@@ -928,15 +967,16 @@ static int __fastcall Script_UnitChannelInfo(void *L) {
     auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
     if (desc == nullptr)
         return 0;
-    // The live +0x228 field is authoritative for "is this unit channeling
-    // right now"; the SMSG_SPELL_START cache adds real start/end times when
-    // we observed the channel begin (and still matches the current spell).
+    // A cached channel stands while +0x228 shows it, or reads 0 because it
+    // hasn't caught up yet (unconfirmed — PollRemoteChannels drops the entry
+    // once a confirmed field clears). Otherwise the field alone answers.
     const int spellID = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
+    const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(unit));
+    if (rc != nullptr && rc->isChannel && NowMs() < rc->endMs &&
+        (spellID == rc->spellID || (spellID == 0 && !rc->confirmed)))
+        return PushChannelInfo(L, rc->spellID, rc->startMs, rc->endMs, /*haveTimes*/ true, unit);
     if (spellID == 0)
         return 0;
-    const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(unit));
-    if (rc != nullptr && rc->isChannel && rc->spellID == spellID && NowMs() < rc->endMs)
-        return PushChannelInfo(L, spellID, rc->startMs, rc->endMs, /*haveTimes*/ true, unit);
     return PushChannelInfo(L, spellID, 0, 0, /*haveTimes*/ false, unit);
 }
 
