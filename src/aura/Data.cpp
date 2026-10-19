@@ -768,6 +768,99 @@ static bool CanApplyAura(const uint8_t *spellRecord, uint32_t spellID) {
     return false;
 }
 
+// The dispel types the player can remove from an enemy, as a `1 << type` mask.
+// 4.3.4 builds this in `CGSpellBook` when a spell is learned: every Dispel
+// effect (38) aimed at an enemy adds its type (SpellDispelType's mask column,
+// else `1 << type`; vanilla's table has no mask column). 1.12 builds only the
+// friendly half (`AddSpellToBook` -> the list `FUN_DISPEL_TYPE_KNOWN` reads), so
+// this applies 4.3.4's rule to the spells the player and pet know. The targets
+// are TARGET_UNIT_ENEMY (Purge, Shield Slam, Tranquilizing Shot) and
+// TARGET_UNIT, which reaches enemies too (Dispel Magic, Devour Magic) -- the
+// case 4.3.4 special-cases for Dispel Magic. Rebuilt when `KnowledgeKey`
+// changes.
+static uint32_t SpellOffensiveDispels(const uint8_t *rec) {
+    uint32_t mask = 0;
+    for (int i = 0; i < 3; ++i) {
+        if (Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) !=
+            Offsets::SPELL_EFFECT_DISPEL)
+            continue;
+        const int target =
+            Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A + i * 4);
+        const int type =
+            Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_EFFECT_MISC_VALUE + i * 4);
+        if ((target == Offsets::TARGET_UNIT_ENEMY || target == Offsets::TARGET_UNIT) &&
+            type > 0 && type < 32)
+            mask |= 1u << type;
+    }
+    return mask;
+}
+
+static uint32_t OffensiveDispelMask() {
+    static uint64_t s_key = ~0ull;
+    static uint32_t s_mask = 0;
+    const uint64_t key = KnowledgeKey();
+    if (key == s_key)
+        return s_mask;
+    uint32_t mask = 0;
+    const int spellCount = Game::Read<int>(
+        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
+    auto *bitmap = Game::Read<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
+    if (bitmap != nullptr) {
+        for (int word = 0; word <= (spellCount >> 5); ++word) {
+            for (uint32_t bits = bitmap[word]; bits != 0; bits &= bits - 1) {
+                int bit = 0;
+                while (((bits >> bit) & 1u) == 0)
+                    ++bit;
+                const uint8_t *rec = SpellRecord(static_cast<uint32_t>(word * 32 + bit));
+                if (rec != nullptr)
+                    mask |= SpellOffensiveDispels(rec);
+            }
+        }
+    }
+    auto *petBook = reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PET_SPELLBOOK));
+    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; ++i) {
+        const uint8_t *rec = petBook[i] != 0 ? SpellRecord(petBook[i]) : nullptr;
+        if (rec != nullptr)
+            mask |= SpellOffensiveDispels(rec);
+    }
+    s_key = key;
+    s_mask = mask;
+    return mask;
+}
+
+// 4.3.4's `CGSpellBook::CanStealAura` without its Spellsteal half (vanilla has
+// none): the player can attack the unit, the aura is helpful, its spell is not
+// passive, not an area aura and not channeled (AttributesEx 0x44), and its
+// dispel type is one the player can remove from an enemy.
+static bool IsStealable(uint64_t unitGuid, const uint8_t *spellRecord, bool isHelpful) {
+    if (!isHelpful || spellRecord == nullptr || unitGuid == 0)
+        return false;
+    const uint32_t mask = OffensiveDispelMask();
+    const uint32_t type = Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_DISPEL_TYPE);
+    if (type >= 32 || (mask & (1u << type)) == 0)
+        return false;
+    if ((Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+         Offsets::SPELL_ATTR_PASSIVE) != 0 ||
+        (Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX) &
+         Offsets::SPELL_ATTR_EX_CHANNELED) != 0)
+        return false;
+    for (int i = 0; i < 3; ++i) {
+        const int effect = Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4);
+        if (effect == Offsets::SPELL_EFFECT_PERSISTENT_AREA_AURA ||
+            effect == Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY)
+            return false;
+    }
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, unitGuid);
+    if (player == nullptr || unit == nullptr)
+        return false;
+    using CanAttack_t = bool(__thiscall *)(void *attacker, void *target);
+    return reinterpret_cast<CanAttack_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_CAN_ATTACK))(
+        player, unit);
+}
+
 // The display fields resolved from a spell record + caster, shared by the table
 // emitter (`BuildTable`) and the positional emitter (`PushPositional`) so the
 // name / icon / dispel-name lookups live in exactly one place.
@@ -788,9 +881,11 @@ struct Display {
     bool fromPlayerOrPet;
     bool canApplyAura;
     bool isRaid;
+    bool isStealable;
 };
 
-static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelpful) {
+static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelpful,
+                              uint64_t unitGuid) {
     const uint8_t *spellRecord = SpellRecord(spellID);
     uint32_t dispelTypeID = 0;
     if (spellRecord != nullptr) {
@@ -805,16 +900,17 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelp
     d.fromPlayerOrPet = d.castByPlayer || Guid::IsPet(casterGuid);
     d.canApplyAura = CanApplyAura(spellRecord, spellID);
     d.isRaid = IsRaidAura(spellID, !isHelpful);
+    d.isStealable = IsStealable(unitGuid, spellRecord, isHelpful);
     return d;
 }
 
 // Writes the full modern AuraData table on top of the Lua stack from
 // already-resolved values. Shared by the descriptor path (`Push`) and the
 // cache-fallback path (`PushFromCache`). Net stack effect: +1 (the table).
-static void BuildTable(void *L, uint32_t spellID, int applications,
+static void BuildTable(void *L, uint64_t unitGuid, uint32_t spellID, int applications,
                        bool isHelpful, double duration, double expirationTime,
                        uint64_t casterGuid) {
-    const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful);
+    const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful, unitGuid);
     const char *name = disp.name;
     const char *icon = disp.icon;
     const char *dispel = disp.dispelName;
@@ -857,9 +953,9 @@ static void BuildTable(void *L, uint32_t spellID, int applications,
     Game::Lua::SetFieldBool(L, "isFromPlayerOrPlayerPet", disp.fromPlayerOrPet);
     Game::Lua::SetFieldBool(L, "canApplyAura", disp.canApplyAura);
     Game::Lua::SetFieldBool(L, "isRaid", disp.isRaid);
+    Game::Lua::SetFieldBool(L, "isStealable", disp.isStealable);
 
     // Boolean fields whose modern semantics don't apply in vanilla.
-    Game::Lua::SetFieldBool(L, "isStealable", false);
     Game::Lua::SetFieldBool(L, "isBossAura", false);
     Game::Lua::SetFieldBool(L, "isNameplateOnly", false);
     Game::Lua::SetFieldBool(L, "nameplateShowAll", false);
@@ -880,10 +976,10 @@ static void BuildTable(void *L, uint32_t spellID, int applications,
 // mirror the AuraData table exactly so packed / non-packed callers agree: name /
 // icon / dispelType push `""` when absent (as `SetFieldString` does), while
 // `source` pushes nil when there's no caster (as the table omits `sourceUnit`).
-static void PushPositional(void *L, uint32_t spellID, int applications,
+static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int applications,
                            bool isHelpful, double duration,
                            double expirationTime, uint64_t casterGuid) {
-    const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful);
+    const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful, unitGuid);
 
     const char *source = nullptr;
     char tokenBuf[32];
@@ -898,7 +994,7 @@ static void PushPositional(void *L, uint32_t spellID, int applications,
     Game::Lua::PushNumber(L, duration);                              // 5  duration
     Game::Lua::PushNumber(L, expirationTime);                        // 6  expirationTime
     Game::Lua::PushString(L, source);                                // 7  source (nil if none)
-    Game::Lua::PushBool(L, false);                                   // 8  isStealable
+    Game::Lua::PushBool(L, disp.isStealable);                        // 8  isStealable
     Game::Lua::PushBool(L, false);                                   // 9  nameplateShowPersonal
     Game::Lua::PushNumber(L, static_cast<double>(spellID));          // 10 spellId
     Game::Lua::PushBool(L, disp.canApplyAura);                       // 11 canApplyAura
@@ -979,10 +1075,10 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
         expirationTime = 0.0;
     }
     if (emit == Emit::Positional)
-        PushPositional(L, spellID, applications, isHelpful, duration,
+        PushPositional(L, guid, spellID, applications, isHelpful, duration,
                        expirationTime, casterGuid);
     else
-        BuildTable(L, spellID, applications, isHelpful, duration, expirationTime,
+        BuildTable(L, guid, spellID, applications, isHelpful, duration, expirationTime,
                    casterGuid);
 }
 

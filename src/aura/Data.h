@@ -235,13 +235,15 @@ const char *DispelName(uint32_t dispelTypeID);
 // And these from the spell and the player's spells:
 //   isFromPlayerOrPlayerPet (caster GUID is a player or a pet),
 //   canApplyAura (the player or pet knows the spell and it applies an aura),
-//   isRaid (the aura passes the RAID filter, `IsRaidAura`)
+//   isRaid (the aura passes the RAID filter, `IsRaidAura`),
+//   isStealable (4.3.4's CanStealAura: a buff on an attackable unit whose
+//                dispel type a spell the player or pet knows removes from
+//                an enemy)
 //
 // And these with vanilla-truthful defaults (matches modern's
 // "field present but inapplicable" semantics):
 //   charges=0, maxCharges=0, auraInstanceID=nil, points=nil,
-//   isStealable=false, isBossAura=false,
-//   isNameplateOnly=false, nameplateShowAll=false,
+//   isBossAura=false, isNameplateOnly=false, nameplateShowAll=false,
 //   nameplateShowPersonal=false, shouldConsolidate=false
 //
 // Net stack effect: +1 for `Emit::Table` (the table), +15 for `Emit::Positional`

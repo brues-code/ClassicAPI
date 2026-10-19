@@ -9474,6 +9474,12 @@ enum Offsets {
     OFF_SPELL_RECORD_MANA_COST = 0x80,                // u32 base cost
     OFF_SPELL_RECORD_RANGE_INDEX = 0x90,              // u32 → SpellRange.dbc
     OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A = 0x148,// i32[3] implicit target A
+    // Implicit target ids (vmangos SpellDefines.h). A Dispel effect (38) aimed
+    // at one of these can remove an aura from an enemy: Purge, Shield Slam,
+    // Tranquilizing Shot (6); Dispel Magic, Devour Magic (25, any unit).
+    TARGET_UNIT_ENEMY = 6,
+    TARGET_UNIT = 25,
+    SPELL_EFFECT_DISPEL = 38,
     OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_B = 0x154,// i32[3] implicit target B
     OFF_SPELL_RECORD_MANA_COST_PERCENT = 0x270,       // i32 % of base resource (0 = flat)
     OFF_SPELL_RECORD_RANK = 0x204,                    // char*[9] localized rank text

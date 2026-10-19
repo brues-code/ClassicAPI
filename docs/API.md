@@ -19674,7 +19674,8 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `isFromPlayerOrPlayerPet` | boolean | true when a player — any player, not only you — or a player's pet applied the aura. Read from the cached caster GUID, so it is `false` when the cast was not seen this session. Totem buffs read `false`: a totem is a creature, not a pet |
 | `canApplyAura` | boolean | true when you or your pet know the aura's spell, and the spell applies an aura |
 | `isRaid` | boolean | true when the aura passes the `RAID` filter: a buff that you can cast on other players, or a debuff that you can dispel |
-| `isStealable`, `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal`, `shouldConsolidate` | boolean | always `false` — UI concepts not present here |
+| `isStealable` | boolean | true when you can remove the buff from an enemy: you can attack the unit, the aura is a buff that is not passive, not an area aura and not channeled, and you or your pet know a spell that removes its dispel type from an enemy (for example Purge, Dispel Magic, Tranquilizing Shot, Devour Magic) |
+| `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal`, `shouldConsolidate` | boolean | always `false` — UI concepts not present here |
 | `auraInstanceID`, `points` | (absent) | omitted from the table — Lua read yields nil for "field doesn't apply" |
 
 ### Filter parsing
