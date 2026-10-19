@@ -1790,6 +1790,42 @@ bool Get(uint64_t unitGuid, uint32_t spellId, int slot, uint64_t *outCaster,
     return true;
 }
 
+void CastersForSlots(uint64_t unitGuid, const uint32_t *slotSpellIds,
+                     uint64_t *outCaster) {
+    constexpr int kSlots = Offsets::UNIT_AURA_TOTAL;
+    const Entry *seated[kSlots] = {};
+    const Entry *sole[kSlots] = {};
+    int soleCount[kSlots] = {};
+    for (int i = 0; i < kSlots; ++i)
+        outCaster[i] = 0;
+    if (unitGuid == 0)
+        return;
+    // `FindInstance` for all slots in one pass: the entry seated in the slot
+    // (FindBySlot), else the unit's only entry for the slot's spell (FindSole).
+    for (int i = 0; i < g_usedHigh; ++i) {
+        const Entry &e = g_cache[i];
+        if (!e.used || e.targetGuid != unitGuid)
+            continue;
+        if (e.slot >= 0 && e.slot < kSlots && slotSpellIds[e.slot] == e.spellId &&
+            seated[e.slot] == nullptr)
+            seated[e.slot] = &e;
+        for (int s = 0; s < kSlots; ++s) {
+            if (slotSpellIds[s] == e.spellId) {
+                sole[s] = &e;
+                ++soleCount[s];
+            }
+        }
+    }
+    for (int s = 0; s < kSlots; ++s) {
+        if (slotSpellIds[s] == 0)
+            continue;
+        if (seated[s] != nullptr)
+            outCaster[s] = seated[s]->casterGuid;
+        else if (soleCount[s] == 1)
+            outCaster[s] = sole[s]->casterGuid;
+    }
+}
+
 bool AddDurationMod(uint32_t triggerSpellId, uint32_t affectedFamily,
                     uint64_t affectedMask, uint32_t affectedIcon, int op,
                     int32_t valueMs) {

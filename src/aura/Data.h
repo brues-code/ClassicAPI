@@ -128,11 +128,18 @@ bool IsSlotHarmful(const uint8_t *unit, int slot);
 // the index the engine's tooltip methods expect for a given slot.
 bool IsSlotTooltipVisible(const uint8_t *unit, int slot);
 
-// The i-th slot (0..UNIT_AURA_TOTAL-1) in the order a `filter` walk visits the
-// descriptor: the polarity's home range first (helpful 0..31, harmful 32..47),
-// then the other range, where spilled debuffs live. Every enumeration that
-// hands out indices or slot lists uses this so they agree on order.
-int SlotInFilterOrder(Filter filter, int i);
+// Fills `out` with all UNIT_AURA_TOTAL absolute slots of `unit` in the order a
+// `filter` walk visits them, the order 4.3.4's sorted aura list gives
+// (`CGUnit_C::InsertSortedAura`):
+//   1. auras the player, or a unit the player owns, cast (`IsPlayerCast`);
+//   2. auras the player could apply (`canApplyAura`);
+//   3. the rest.
+// Within each group, the polarity's home range comes first (helpful 0..31,
+// harmful 32..47), then the other range, where spilled debuffs live. Every
+// enumeration that hands out indices or slot lists uses this so they agree on
+// order. The groups are cached per unit and rebuilt when its aura array changes
+// or a new frame starts, so a by-index loop pays for them once.
+void WalkOrder(const uint8_t *unit, Filter filter, int *out);
 
 // `SlotMatches` plus the polarity test: populated, of `filter`'s polarity, and
 // passing `match`.
@@ -141,7 +148,7 @@ bool SlotMatchesFilter(const uint8_t *unit, int slot, Filter filter,
 
 // Finds the absolute slot of the `oneBasedIndex`-th populated aura of
 // `filter`'s polarity that passes `match`. Returns -1 if no such aura. Walks
-// all 48 slots in `SlotInFilterOrder`.
+// all 48 slots in `WalkOrder`.
 int FindNthSlot(const uint8_t *unit, int oneBasedIndex, Filter filter,
                 Match match = {});
 

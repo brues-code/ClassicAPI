@@ -486,14 +486,16 @@ int __fastcall Script_UnitAuraBySlot(void *L) {
     return PushAuraBySlot(L, Data::Emit::Positional);
 }
 
-// Iterates the auras of one polarity (in `SlotInFilterOrder`, the same order
-// the by-index getters use) and pushes AuraData tables into `outer` at
+// Iterates the auras of one polarity (in `WalkOrder`, the same order the
+// by-index getters use) and pushes AuraData tables into `outer` at
 // sequential keys starting from `nextKey`. Updates `nextKey` so a follow-up
 // call can append to the same outer table.
 void AppendRangeToArray(void *L, const uint8_t *unit, int outerIdx,
                        Data::Filter filter, int &nextKey, Data::Match match) {
+    int order[Offsets::UNIT_AURA_TOTAL];
+    Data::WalkOrder(unit, filter, order);
     for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
-        const int slot = Data::SlotInFilterOrder(filter, i);
+        const int slot = order[i];
         if (!Data::SlotMatchesFilter(unit, slot, filter, match))
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(nextKey++));

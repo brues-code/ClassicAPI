@@ -19631,8 +19631,22 @@ Some servers, Turtle among them, put extra debuffs into free buff slots
 once the 16 debuff slots are full. `HELPFUL` and `HARMFUL` still select on
 the aura's real polarity there, so a debuff in a buff slot is still a
 debuff. The native `UnitBuff` and `UnitDebuff` split by slot range and
-report that debuff as a buff. Indices stay stable either way. A `HARMFUL`
-walk visits slots 32 to 47 first, then any spilled debuffs in 0 to 31.
+report that debuff as a buff.
+
+**Aura order.** The functions that count auras by index, or list them,
+put your own auras first. The order has three groups:
+
+1. Auras that you cast, or that a unit you control cast (your pet, a
+   guardian, a totem, or a charmed creature).
+2. Auras that you could apply yourself (`canApplyAura` is true).
+3. All other auras.
+
+In each group, the auras are in slot order. A `HARMFUL` walk visits
+slots 32 to 47 first, then any spilled debuffs in 0 to 31. Because of
+this order, an index is not the same index that the native `UnitBuff` or
+`UnitDebuff` uses. Pass a `C_UnitAuras` index only to the `C_UnitAuras`
+functions and to `GameTooltip:SetUnitAura`. For a party or raid member
+with no live unit object, the auras stay in slot order.
 
 When a party/raid member has **no live unit object at all** (a
 different map, far out of range), there is no descriptor to read — but
@@ -19755,7 +19769,8 @@ Returns the `AuraData` table for the `index`-th aura (1-based)
 matching `filter`, or `nil` if the unit has fewer than `index`
 matching auras. Empty / non-visible descriptor slots are skipped
 during iteration, so consecutive indices return consecutive *active*
-auras the same way `UnitBuff` does.
+auras. The order puts your own auras first. See
+[Aura order](#unitauras).
 
 ```lua
 local d = C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL")
@@ -19901,10 +19916,10 @@ end
 
 ### `C_UnitAuras.GetUnitAuraBySpellID(unit, spellID [, filter])`
 
-Linear-searches `unit`'s aura array for the first populated slot
-whose `spellId` matches and returns its `AuraData`, or `nil` if not
-found. Without a filter, searches both ranges (helpful first, then
-harmful).
+Searches `unit`'s auras for one whose `spellId` matches and returns
+its `AuraData`, or `nil` if not found. If more than one aura matches,
+your own aura comes first (see [Aura order](#unitauras)). Without a
+filter, searches both ranges (helpful first, then harmful).
 
 ```lua
 -- Is the player blessed with Wisdom right now?
@@ -19919,8 +19934,9 @@ common consumer pattern (WeakAuras-style aura tracking).
 
 ### `C_UnitAuras.GetAuraDataBySpellName(unit, spellName [, filter])`
 
-Linear-searches `unit`'s aura array for the first populated slot
-whose locale-resolved `name` matches `spellName`. Case is not
+Searches `unit`'s auras for one whose locale-resolved `name` matches
+`spellName`. If more than one aura matches, your own aura comes first.
+Case is not
 important: `"inner fire"` finds Inner Fire. Returns the `AuraData` for
 that slot or `nil` if not found. Without a filter, searches both
 ranges (helpful first, then harmful).

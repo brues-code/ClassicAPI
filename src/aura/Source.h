@@ -60,6 +60,15 @@ constexpr int SLOT_UNBOUND = -1;
 bool Get(uint64_t unitGuid, uint32_t spellId, int slot, uint64_t *outCaster,
          uint32_t *outExpirationMs, uint32_t *outDurationMs);
 
+// `Get`'s caster for every descriptor slot at once, in one pass over the
+// cache: `outCaster[slot]` is the caster `Get(unitGuid, slotSpellIds[slot],
+// slot, ...)` would report, or 0. `slotSpellIds` and `outCaster` hold
+// `Offsets::UNIT_AURA_TOTAL` entries. For walks that need every slot's caster
+// (the own-auras-first sort), where 48 separate `Get` scans would cost 48
+// passes.
+void CastersForSlots(uint64_t unitGuid, const uint32_t *slotSpellIds,
+                     uint64_t *outCaster);
+
 // Refreshes `casterGuid`'s aura on `unitGuid` matching the same selector the
 // duration rules use — SpellFamilyName plus a family-flag overlap and/or a
 // SpellIconID, at least one of the two — to a full duration from now. Returns

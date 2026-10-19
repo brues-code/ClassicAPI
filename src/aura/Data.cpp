@@ -16,12 +16,13 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Source.h"
-#include "object/Resolve.h"
 #include "dbc/Lookup.h"
 #include "group/MemberStats.h"
 #include "guid/Guid.h"
+#include "object/Resolve.h"
 #include "spell/CrowdControl.h"
 #include "spell/IsSelfBuff.h"
+#include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "turtle/Detect.h"
 #include "unit/Identity.h"
@@ -530,13 +531,108 @@ bool GroupIsPlayerCast(uint64_t guid, uint32_t spellID) {
         Attribute(guid, spellID, Aura::Source::SLOT_UNBOUND).caster);
 }
 
+// ── Own-auras-first order ──────────────────────────────────────────────────
+
+static bool CanApplyAura(const uint8_t *spellRecord, uint32_t spellID);
+
+namespace {
+
+// A slot's group in the walk order (see `WalkOrder`).
+enum Rank : uint8_t { RANK_OWN = 0, RANK_CAN_APPLY = 1, RANK_OTHER = 2 };
+constexpr int kRanks = 3;
+
+// One unit's cached groups. `spell` is the aura array the groups were built
+// from; `canApply` keeps each slot's `CanApplyAura` answer, which depends only
+// on the spell and on what the player and pet know (`knowledge`), so a rebuild
+// reuses it for every slot whose spell did not change. Caster groups are
+// rebuilt every time: the cache can learn a caster after the aura appears.
+struct SortedUnit {
+    uint64_t guid;
+    uint32_t frame;
+    uint64_t knowledge;
+    uint32_t spell[Offsets::UNIT_AURA_TOTAL];
+    bool canApply[Offsets::UNIT_AURA_TOTAL];
+    uint8_t rank[Offsets::UNIT_AURA_TOTAL];
+};
+
+// Direct-mapped by GUID: a raid's 40 members plus target, focus and nameplates
+// mostly land in their own entries, and a collision only costs a rebuild.
+constexpr int kSortedUnits = 64;
+SortedUnit g_sorted[kSortedUnits];
+
+// Bumped once per world frame, so groups built in one frame are reused by every
+// walk in that frame (a by-index loop) and rebuilt in the next.
+uint32_t g_frame = 1;
+void OnWorldTick() { ++g_frame; }
+const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
+
+// What the player and pet know, as far as `CanApplyAura` reads it: the
+// spellbook count changes on learn and unlearn, the pet GUID on a new pet.
+uint64_t KnowledgeKey() {
+    const uint64_t pet =
+        Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_PET_GUID));
+    const uint32_t book =
+        Game::Read<uint32_t>(static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT));
+    return pet ^ (static_cast<uint64_t>(book) << 32);
+}
+
+const uint8_t *SlotRanks(const uint8_t *unit) {
+    const uint64_t guid = UnitGuid(unit);
+    SortedUnit &su = g_sorted[(guid ^ (guid >> 32)) % kSortedUnits];
+    uint32_t spell[Offsets::UNIT_AURA_TOTAL];
+    for (int s = 0; s < Offsets::UNIT_AURA_TOTAL; ++s)
+        spell[s] = ReadSpellID(unit, s);
+    const bool sameUnit = su.guid == guid;
+    if (sameUnit && su.frame == g_frame &&
+        std::memcmp(su.spell, spell, sizeof spell) == 0)
+        return su.rank;
+
+    const uint64_t knowledge = KnowledgeKey();
+    const bool reuseCanApply = sameUnit && su.knowledge == knowledge;
+    uint64_t caster[Offsets::UNIT_AURA_TOTAL];
+    Aura::Source::CastersForSlots(guid, spell, caster);
+    for (int s = 0; s < Offsets::UNIT_AURA_TOTAL; ++s) {
+        if (!reuseCanApply || su.spell[s] != spell[s])
+            su.canApply[s] = spell[s] != 0 && CanApplyAura(SpellRecord(spell[s]), spell[s]);
+        // The self-buff inference `Attribute` makes, so the order agrees with
+        // the PLAYER filter.
+        uint64_t c = caster[s];
+        if (c == 0 && spell[s] != 0 && Spell::IsSelfBuff::IsSelfBuff(spell[s]))
+            c = guid;
+        su.rank[s] = IsPlayerOwnedCaster(c) ? RANK_OWN
+                     : su.canApply[s]      ? RANK_CAN_APPLY
+                                           : RANK_OTHER;
+    }
+    su.guid = guid;
+    su.frame = g_frame;
+    su.knowledge = knowledge;
+    std::memcpy(su.spell, spell, sizeof spell);
+    return su.rank;
+}
+
+} // namespace
+
+void WalkOrder(const uint8_t *unit, Filter filter, int *out) {
+    const uint8_t *rank = SlotRanks(unit);
+    int n = 0;
+    for (int r = 0; r < kRanks; ++r) {
+        for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
+            const int slot = SlotInFilterOrder(filter, i);
+            if (rank[slot] == r)
+                out[n++] = slot;
+        }
+    }
+}
+
 int FindNthSlot(const uint8_t *unit, int oneBasedIndex, Filter filter,
                 Match match) {
     if (unit == nullptr || oneBasedIndex < 1)
         return -1;
+    int order[Offsets::UNIT_AURA_TOTAL];
+    WalkOrder(unit, filter, order);
     int matches = 0;
     for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
-        const int slot = SlotInFilterOrder(filter, i);
+        const int slot = order[i];
         if (!SlotMatchesFilter(unit, slot, filter, match))
             continue;
         if (++matches == oneBasedIndex)
@@ -549,8 +645,12 @@ int FindSlotBySpellID(const uint8_t *unit, uint32_t spellID,
                       const Filter *filter, Match match) {
     if (unit == nullptr || spellID == 0)
         return -1;
+    // Own auras first, as 4.3.4's name lookup walks its sorted list; with no
+    // filter, the helpful walk, which visits every slot.
+    int order[Offsets::UNIT_AURA_TOTAL];
+    WalkOrder(unit, filter != nullptr ? *filter : Filter::Helpful, order);
     for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
-        const int slot = (filter != nullptr) ? SlotInFilterOrder(*filter, i) : i;
+        const int slot = order[i];
         if (!IsSlotPopulated(unit, slot))
             continue;
         if (ReadSpellID(unit, slot) != spellID)
@@ -569,8 +669,12 @@ int FindSlotBySpellName(const uint8_t *unit, const char *spellName,
                         const Filter *filter, Match match) {
     if (unit == nullptr || spellName == nullptr || *spellName == '\0')
         return -1;
+    // Own auras first, as 4.3.4's name lookup walks its sorted list; with no
+    // filter, the helpful walk, which visits every slot.
+    int order[Offsets::UNIT_AURA_TOTAL];
+    WalkOrder(unit, filter != nullptr ? *filter : Filter::Helpful, order);
     for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
-        const int slot = (filter != nullptr) ? SlotInFilterOrder(*filter, i) : i;
+        const int slot = order[i];
         if (!IsSlotPopulated(unit, slot))
             continue;
         if (!SpellNameMatches(SpellRecord(ReadSpellID(unit, slot)), spellName))
@@ -1052,7 +1156,7 @@ namespace {
 // Absolute slot range [start, end) for a filter in the GROUP ARRAY (helpful
 // 0..31, harmful 32..47). The array carries spell IDs only — no flag nibble —
 // so the seating range is the only polarity the out-of-range path has. (The
-// descriptor path reads the nibble instead; see SlotInFilterOrder.)
+// descriptor path reads the nibble instead; see WalkOrder.)
 void GroupRange(Filter filter, int &start, int &end) {
     start = (filter == Filter::Harmful) ? Offsets::UNIT_AURA_BUFF_COUNT : 0;
     end = (filter == Filter::Harmful) ? Offsets::UNIT_AURA_TOTAL
@@ -1349,8 +1453,10 @@ int CollectSlots(const uint8_t *unit, uint64_t guid, Filter filter, Match match,
                  int *out, int cap) {
     int n = 0;
     if (unit != nullptr) {
+        int order[Offsets::UNIT_AURA_TOTAL];
+        WalkOrder(unit, filter, order);
         for (int i = 0; i < Offsets::UNIT_AURA_TOTAL && n < cap; ++i) {
-            const int slot = SlotInFilterOrder(filter, i);
+            const int slot = order[i];
             if (SlotMatchesFilter(unit, slot, filter, match))
                 out[n++] = slot;
         }
