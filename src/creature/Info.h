@@ -17,12 +17,12 @@
 
 namespace Creature::Info {
 
-// The cached model display ID for a creature/NPC entry, or 0 when the creature
-// is not in the client creature cache (creaturecache.wdb, or queried this
-// session). A synchronous peek — no network query. Backs `Model:SetCreature`:
-// the cache being keyed by entry ID and carrying a display ID is exactly the
-// entry-ID → model mapping vanilla has no DBC for.
-uint32_t DisplayID(uint32_t creatureID);
+// The client creature-cache record for a creature/NPC entry, or null when the
+// creature is not cached (creaturecache.wdb, or queried this session). A
+// synchronous peek — no network query. The record outlives the session's
+// frames, which is why PlayerModel panes keep a pointer to it: it is what the
+// engine's SetDisplay takes, and `PlayerModel:SetCreature` passes it there.
+const uint8_t *CacheRecord(uint32_t creatureID);
 
 // The faction group a player race belongs to, resolved the way
 // `Script_UnitFactionGroup` does it for a player whose object isn't in the

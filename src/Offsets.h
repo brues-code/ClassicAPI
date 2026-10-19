@@ -2921,9 +2921,9 @@ enum Offsets {
     // text-state methods vanilla's EditBox lacks.
     VAR_EDITBOX_METHOD_REGISTRY = 0x00CF5378,
 
-    // Model frame — backs `Model:SetDisplayInfo(creatureDisplayID)`
-    // (`Model::DisplayInfo`). Registry ctx per docs/raw_methods.txt (table
-    // 0x00878948, 23 methods: SetModel/SetSequence/ReplaceIconTexture/…).
+    // Model frame — backs `Model:SetGlow` (`Model::Glow`). Registry ctx per
+    // docs/raw_methods.txt (table 0x00878948, 23 methods: SetModel/
+    // SetSequence/ReplaceIconTexture/…).
     VAR_MODEL_METHOD_REGISTRY = 0x00CF0C8C,
     // Model frame-script type id, lazily assigned by the engine on the first
     // Model method call (`Script_SetModel` FUN_0076d950 prologue:
@@ -2969,16 +2969,113 @@ enum Offsets {
     STR_FS_THIS_NON_TABLE = 0x00847EF8,
     STR_FS_THIS_NON_OBJECT = 0x00847EC0,
     STR_FS_WRONG_OBJECT_TYPE = 0x00847E98,
-    // FUN_0076cfe0(model /*ecx*/, int replaceableType, const char *path) —
-    // loads `path` as a texture and binds it to the model's replaceable-texture
-    // slot `replaceableType`. Worker behind `Model:ReplaceIconTexture` (which
-    // passes type 14); creature skins use MONSTER_1/2/3 = 11/12/13.
-    FUN_MODEL_SET_REPLACEABLE_TEXTURE = 0x0076CFE0,
     // The loaded model instance a CSimpleModelFFX keeps at +0x318. It is the
     // SAME CModel class CGUnits keep at unit+0xD8 — verified via
     // FUN_007110d0 (the geoset-range setter), whose submesh walk and +0x98
     // visibility-array writes match the instance layout probed in-game.
     OFF_SIMPLEMODELFFX_MODEL_INSTANCE = 0x318,
+    // The frame's installed camera (a handle; SimpleModelInstallCamera
+    // 0x0076CE80 AddRefs what it stores) and its facing in radians.
+    OFF_SIMPLEMODEL_CAMERA = 0x31C,
+    OFF_SIMPLEMODEL_FACING = 0x39C,
+    // vtable slot 38: the per-paint root-transform rebuild (PlayerModel's
+    // 0x00505C50 also ends a turn). `__thiscall(frame)`.
+    VTBL_SIMPLEMODEL_UPDATE_MODEL = 0x98,
+    // `CM2Scene *__thiscall(frame)` — the frame's scene, made on first use.
+    FUN_SIMPLEMODEL_GET_SCENE = 0x0076CFC0,
+
+    // ---- PlayerModel / DressUpModel / TabardModel (benilla ui/playermodel) --
+    // CGCharacterModelBase: a Model frame (0x3F8 bytes) that shows a copy of a
+    // unit's model or a creature display. DressUpModel and TabardModel extend
+    // it (0x410 bytes). Type ids from the prologues of Script_SetUnit
+    // (0x00505D70) and DressUpModel Script_Undress (0x00504C00); registry ctx
+    // per docs/BlizzardScriptAPI.md. The dispatcher walks the type hierarchy,
+    // so a PlayerModel method reaches DressUpModel and TabardModel too.
+    VAR_PLAYERMODEL_METHOD_REGISTRY = 0x00BE09D8,
+    VAR_PLAYERMODEL_LUA_TYPE_ID = 0x00BE0A24,
+    VAR_DRESSUPMODEL_METHOD_REGISTRY = 0x00BE0938,
+    VAR_DRESSUPMODEL_LUA_TYPE_ID = 0x00BE0920,
+    // The pane's creature display record: a creature-cache record whose
+    // +0x2C (OFF_CREATURE_DISPLAYID) is the only field read, by
+    // AttachDisplayModel. The constructor, SetUnit (0x00505B50) and SetDisplay
+    // write it; the show hook (0x00505D49) reads it to rebuild the model.
+    // Those four are the only accesses in 0x00500000..0x00507000.
+    OFF_PLAYERMODEL_DISPLAY_RECORD = 0x3F0,
+    // SetDisplay — `__thiscall(pane, record)`: clears the unit GUID, stores
+    // the record and, if the frame is visible, builds the model.
+    FUN_PLAYERMODEL_SET_DISPLAY = 0x00505CB0,
+    // AttachDisplayModel — `__thiscall(pane, record)`: creates the display's
+    // model in the pane's scene, applies its skins (ApplyCreatureDisplay
+    // 0x004797B0), installs it (vtable +0x90), registers the done callback
+    // and arms Stand. No character compositor: 4.3.4's SetUpModel adds it.
+    FUN_PLAYERMODEL_ATTACH_DISPLAY_MODEL = 0x00505A70,
+    // ConfigureCamera — `__thiscall(pane)`, run by the model-ready hook
+    // (0x00505B30): a frozen copy of the model's camera index 1, or a fixed
+    // camera at the bounding-box centre. 4.3.4's ConfigureCamera is this plus
+    // the portrait-zoom and distance-scale steps.
+    FUN_PLAYERMODEL_CONFIGURE_CAMERA = 0x00505890,
+    // The engine's Lua PlayerModel:SetRotation(angle) — `int __fastcall(L)`.
+    FUN_SCRIPT_PLAYERMODEL_SET_ROTATION = 0x00505F00,
+
+    // DressUpModel fields (benilla ui/dressup): the character component, and
+    // the main- and off-hand lanes, 8 bytes each: byte 0 item class (0 =
+    // empty), byte 3 inventory type, byte 4 sheathe type.
+    OFF_DRESSUPMODEL_COMPONENT = 0x3F8,
+    OFF_DRESSUPMODEL_MAIN_HAND_LANE = 0x3FC,
+    OFF_DRESSUPMODEL_OFF_HAND_LANE = 0x404,
+    // UnequipCharacterSlot — `__thiscall(component, slot 0..11)`.
+    FUN_CHARCOMP_UNEQUIP_SLOT = 0x00478960,
+    // DetachHeldItemSlot — `__fastcall(model, bodySlot 0xF/0x10,
+    // sheatheType, bool shield)`; Undress passes `invType == 14` as shield.
+    FUN_DETACH_HELD_ITEM_SLOT = 0x0047A310,
+    // TryOnItem — `__thiscall(pane, itemID)`: the worker behind TryOn.
+    FUN_DRESSUPMODEL_TRY_ON_ITEM = 0x00504540,
+    // CGGameUI::DisplayError — `__cdecl(id, ...)`: shows a catalogue game
+    // error. TryOnItem shows 0x13 (ERR_NOT_EQUIPPABLE) at 0x00504B2F.
+    FUN_GAMEUI_DISPLAY_ERROR = 0x00496720,
+    GAME_ERROR_NOT_EQUIPPABLE = 0x13,
+
+    // ---- M2 model cameras --------------------------------------------------
+    // GetCameraCount — `__thiscall(model)`: data +0x124 after waiting for the
+    // shared data. GetCamera — `__thiscall(model, index)`, unchecked.
+    // GetCameraById (0x00713540) indexes with M2LookupIndex's result
+    // unchecked, so a model without that id reads past the array; we look the
+    // id up ourselves and bound it by the count. M2LookupIndex is
+    // `__fastcall(id, table)` → uint16, 0xFFFF past the table's end; the
+    // camera-id table is {count, uint16 *} at `[model+0x30]+0x130` + 0x12C.
+    FUN_M2MODEL_GET_CAMERA_COUNT = 0x007134D0,
+    FUN_M2MODEL_GET_CAMERA = 0x00713590,
+    FUN_M2_LOOKUP_INDEX = 0x00710310,
+    OFF_M2MODEL_SHARED = 0x30,
+    OFF_M2SHARED_DATA = 0x130,
+    OFF_M2DATA_CAMERA_ID_LOOKUP = 0x12C,
+    // SetAnimated — `__thiscall(model, bool)`; M2SceneAnimateAndCollect —
+    // `__thiscall(scene, const float *cameraPos)`. ConfigureCamera runs both
+    // (with the frame's facing zeroed) before it copies a model camera.
+    FUN_M2MODEL_SET_ANIMATED = 0x00710B90,
+    FUN_M2SCENE_ANIMATE = 0x00707680,
+
+    // ---- Camera properties (benilla camera#properties) -------------------
+    // Get/SetVectorProperty `__fastcall(camera, id, float[3] [, keep])`,
+    // Get/SetScalarProperty `__fastcall(camera, id [, float])`. Ids: 7 eye,
+    // 8 target, 4 field of view.
+    FUN_CAMERA_GET_VECTOR = 0x007ABF80,
+    FUN_CAMERA_GET_SCALAR = 0x007AC0B0,
+    FUN_CAMERA_SET_VECTOR = 0x007AC250,
+    FUN_CAMERA_SET_SCALAR = 0x007AC3A0,
+    CAMERA_PROP_FOV = 4,
+    CAMERA_PROP_EYE = 7,
+    CAMERA_PROP_TARGET = 8,
+
+    // ---- ModelFFX glow (benilla glue/select#the-modelffx-frame) ----------
+    // The glue ModelFFX frame's show (vtable slot 12, 0x0046FA60) writes the
+    // glow strength 0.30 (0x008380B4) to the light state's +0x110 and makes
+    // ffxGlow current; the effect reads it per draw. GetLightState is
+    // `__stdcall()`. ModelFFX's vtable is 0x00803960.
+    FUN_MODELFFX_ON_SHOW = 0x0046FA60,
+    FUN_GET_LIGHT_STATE = 0x006D48B0,
+    OFF_LIGHT_STATE_GLOW = 0x110,
+    VTBL_MODELFFX = 0x00803960,
 
     // --- Character-model compositor ("CharComponent", `Model::DisplayInfo`) --
     // The engine object that dresses a character-based model: resolves the
@@ -9154,6 +9251,9 @@ enum Offsets {
     // mechanic on an effect rather than the spell-level Mechanic (0x14), so
     // bleed / DoT detection needs this array in addition to that field.
     OFF_SPELL_RECORD_EFFECT_MECHANIC = 0x13C,         // int32[3]
+    // EffectItemType[3] (column 103): the item a CREATE_ITEM effect makes.
+    // Verified on recipes 2660 / 3275 / 2963 → items 2862 / 1251 / 2996.
+    OFF_SPELL_RECORD_EFFECT_ITEM_TYPE = 0x19C,        // int32[3]
     SPELL_RECORD_EFFECT_COUNT = 3,
 
     // SPELL_EFFECT_* id array (`Effect[3]`) — five arrays before

@@ -11,28 +11,40 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `Model:SetDisplayInfo(creatureDisplayID)` — backport of the modern Model
-// method that points a Model frame at a creature by its display ID, instead of
-// requiring a `.mdx` file path (`Model:SetModel`). Vanilla already loads models
-// by path; this just prepends the DBC resolution modern clients do internally:
+// `PlayerModel:SetDisplayInfo(displayID)` and `PlayerModel:SetCreature(creatureID)`
+// — 4.3.4's CGCharacterModelBase methods (CharacterModelBase_Scripts.cpp), on
+// vanilla's own pane path.
 //
-//   creatureDisplayID → CreatureDisplayInfo[id] +0x04 ModelID
-//                     → CreatureModelData[ModelID] +0x08 ModelPath
-//                     → Model:SetModel's worker (vtable +0x94)
-//                     → apply the display's TextureVariation skins
-//                     → character displays: dress via the engine compositor
-//                       (baked skin, hair, geosets, equipment — see the
-//                       "Character-display dressing" section below)
+// Vanilla's PlayerModel already shows a creature display: SetDisplay
+// (FUN_PLAYERMODEL_SET_DISPLAY) stores a creature-cache record in the pane and
+// AttachDisplayModel (FUN_PLAYERMODEL_ATTACH_DISPLAY_MODEL) builds the model
+// from the record's display ID — skins via ApplyCreatureDisplay, Stand armed,
+// the done callback, the pane camera, and a rebuild every time the pane is
+// shown again. The pet stable drives it. What it lacks is 4.3.4's character
+// step: SetUpModel dresses a display with a CreatureDisplayInfoExtra record
+// through the character compositor, where vanilla leaves a humanoid NPC
+// white-skinned with every geoset on.
 //
-// The load path is the engine's own (`Script_SetModel` FUN_0076d950 calls the
-// same vtable +0x94 worker); we add the display-ID front end and the same
-// dressing a spawned unit gets. It is the foundational "display ID → loaded
-// model" step — a rendered portrait-by-display-ID
-// (SetPortraitTextureFromCreatureDisplayID) would build render-to-texture on
-// top of this, but a live Model frame needs neither.
+// So:
+//   - AttachDisplayModel is co-hooked to add that step: after the original
+//     builds the model, a character display is dressed through the engine
+//     compositor (the DressJob below, a field-for-field mirror of the unit
+//     path CGUnit_C::UpdateCharacterCustomization).
+//   - SetCreature passes the creature's cache record straight to SetDisplay —
+//     the same record 4.3.4 passes (CreatureStats_C) and the stable passes.
+//   - SetDisplayInfo has a display ID and no cache record. The pane only ever
+//     reads the record's display-ID field (OFF_PLAYERMODEL_DISPLAY_RECORD), so
+//     each pane gets a record of its own holding just that field, which lives
+//     as long as the pane can point at it.
 //
-// SetCreature(creatureID) is the entry-ID cousin: it resolves through the client
-// creature cache to a display ID, then runs the same load — see its note below.
+// SetCreature only resolves creatures already in the cache (creaturecache.wdb
+// or queried this session); an uncached entry is a no-op. A caller can
+// `C_CreatureInfo.RequestLoadCreatureByID` first and call this after
+// `CREATURE_DATA_LOAD_RESULT`.
+//
+// Still not shown: weapons. NPC weapons come from the server-pushed
+// UNIT_VIRTUAL_ITEM_SLOT_DISPLAY fields on live units, not from any client
+// DBC, so a display ID alone can't produce them.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -44,71 +56,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <string>
+#include <unordered_map>
 
 namespace Model::DisplayInfo {
 namespace {
-
-// The Model model-load worker at vtable +0x94 — the one Script_SetModel
-// invokes after resolving self. Single-use here, so kept local.
-constexpr int kVmtLoadModel = 0x94;
-
-using LoadModel_t = void(__thiscall *)(void *self, const char *path);
-using SetReplaceableTexture_t = void(__thiscall *)(void *model, int type, const char *path);
-
-template <typename Fn>
-Fn Vmethod(void *obj, int byteOffset) {
-    auto *vtbl = *reinterpret_cast<uint8_t **>(obj);
-    return *reinterpret_cast<Fn *>(vtbl + byteOffset);
-}
-
-// Resolve arg1 to a Model object, or nullptr if it is not a Model. The
-// type-check matters especially here because we call a Model vtable slot
-// directly — a non-Model region would dispatch a wrong method. Non-raising,
-// which is the contract the callers below already had.
-void *ResolveModel(void *L) {
-    return Game::Lua::ResolveModel(L, 1, /*raiseError=*/false);
-}
-
-// Apply a creature display's TextureVariation skins to the just-loaded model.
-// The variation columns are bare filenames that live in the model's own
-// directory; they fill the model's MONSTER_1/2/3 replaceable-texture slots
-// (M2/MDX texture types 11/12/13). FUN_0076cfe0 no-ops when no model is loaded,
-// so this is safe to call unconditionally after the load.
-void ApplySkins(void *model, const char *modelPath, const uint8_t *displayRec) {
-    std::string dir(modelPath);
-    const auto slash = dir.find_last_of("\\/");
-    dir = (slash == std::string::npos) ? std::string() : dir.substr(0, slash + 1);
-
-    auto setTexture = reinterpret_cast<SetReplaceableTexture_t>(
-        Offsets::FUN_MODEL_SET_REPLACEABLE_TEXTURE);
-    constexpr int kMonsterSlot[3] = {11, 12, 13};
-    for (int i = 0; i < 3; ++i) {
-        const char *variation = Game::Read<const char *>(
-            displayRec, Offsets::OFF_CREATUREDISPLAYINFO_TEXTURE_VARIATION + i * 4);
-        if (variation == nullptr || variation[0] == '\0')
-            continue;
-        const std::string skin = dir + variation;
-        setTexture(model, kMonsterSlot[i], skin.c_str());
-    }
-}
-
-// --- Character-display dressing via the engine compositor -------------------
-//
-// Character-based displays (CreatureDisplayInfo.extendedDisplayInfoID != 0) use
-// a shared Character\Race\Sex base model that the engine "dresses" per display:
-// baked body texture, hair texture, hair / facial-hair geosets (beards,
-// earrings, teeth), and equipment geosets (sleeves, robe→trousers, boots,
-// tabard, cape). Units run this through a compositor object
-// (CGUnit_C::UpdateCharacterCustomization, FUN_005fb200) once their model
-// loads; SetPortraitTexture waits on the same compositor, which is why
-// portraits always look right. We drive the identical compositor for the
-// Model frame, mirroring the unit flow field for field — see the
-// FUN_CHARCOMP_* notes in Offsets.h.
-//
-// Still not shown: weapons. NPC weapons come from the server-pushed
-// UNIT_VIRTUAL_ITEM_SLOT_DISPLAY fields on live units, not from any client
-// DBC, so a display ID alone can't produce them.
 
 // The compositor info struct FUN_CHARCOMP_SET_INFO copies (0x5B dwords).
 // Layout read straight out of FUN_005fb200's NPC branch.
@@ -306,88 +257,89 @@ void OnWorldTick() {
 
 const Tick::WorldTick::AutoSubscribe g_tick{&OnWorldTick};
 
-// Resolve a creature display ID to its model file and skins, and load it into
-// the Model frame. Shared by SetDisplayInfo (display ID direct) and SetCreature
-// (creature entry ID -> cache -> display ID). No-op for an unknown display ID.
-void LoadDisplay(void *model, int displayID) {
-    if (displayID <= 0)
-        return;
-    const uint8_t *displayRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                            Offsets::VAR_CREATUREDISPLAYINFO_COUNT,
-                                            static_cast<uint32_t>(displayID));
-    if (displayRec == nullptr)
-        return;
-    const uint32_t modelID = Game::Read<uint32_t>(
-        displayRec, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID);
+// ---- AttachDisplayModel co-hook ---------------------------------------------
 
-    const char *modelPath = DBC::StringField(Offsets::VAR_CREATUREMODELDATA_RECORDS,
-                                             Offsets::VAR_CREATUREMODELDATA_COUNT,
-                                             modelID,
-                                             Offsets::OFF_CREATUREMODELDATA_MODEL_PATH);
-    if (modelPath == nullptr)
-        return;
+using AttachDisplayModel_t = void(__thiscall *)(void *pane, const uint8_t *record);
+AttachDisplayModel_t g_origAttach = nullptr;
 
-    // Any pending or kept dress for this frame is about to point at the
-    // wrong model — drop it before the load swaps the instance.
-    if (DressJob *job = FindJob(model))
+// 4.3.4's SetUpModel order: build the model, then dress it when the display
+// has an Extra record.
+void __fastcall AttachDisplayModel_h(void *pane, void * /*edx*/, const uint8_t *record) {
+    // Any pending or kept dress for this pane is about to point at the wrong
+    // model — drop it before the original swaps the instance.
+    if (DressJob *job = FindJob(pane))
         CancelJob(*job);
 
-    Vmethod<LoadModel_t>(model, kVmtLoadModel)(model, modelPath);
-    ApplySkins(model, modelPath, displayRec);
+    g_origAttach(pane, record);
 
-    // Character-based display (Character\Race\Sex base): dress it through the
-    // engine compositor, else body and hair render white with every geoset on.
-    const uint32_t extID = Game::Read<uint32_t>(
-        displayRec, Offsets::OFF_CREATUREDISPLAYINFO_EXTENDED_ID);
-    if (extID != 0) {
-        const uint8_t *extraRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFOEXTRA_RECORDS,
-                                              Offsets::VAR_CREATUREDISPLAYINFOEXTRA_COUNT, extID);
-        if (extraRec != nullptr)
-            ScheduleDress(model, extraRec);
-    }
+    if (record == nullptr)
+        return;
+    const uint8_t *displayRec = DBC::Record(
+        Offsets::VAR_CREATUREDISPLAYINFO_RECORDS, Offsets::VAR_CREATUREDISPLAYINFO_COUNT,
+        Game::Read<uint32_t>(record, Offsets::OFF_CREATURE_DISPLAYID));
+    if (displayRec == nullptr)
+        return;
+    const uint32_t extID =
+        Game::Read<uint32_t>(displayRec, Offsets::OFF_CREATUREDISPLAYINFO_EXTENDED_ID);
+    if (extID == 0)
+        return;
+    const uint8_t *extraRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFOEXTRA_RECORDS,
+                                          Offsets::VAR_CREATUREDISPLAYINFOEXTRA_COUNT, extID);
+    if (extraRec != nullptr)
+        ScheduleDress(pane, extraRec);
 }
 
+const Game::HookAutoRegister _attachHook{
+    Offsets::FUN_PLAYERMODEL_ATTACH_DISPLAY_MODEL,
+    reinterpret_cast<void *>(&AttachDisplayModel_h),
+    reinterpret_cast<void **>(&g_origAttach)};
+
+// ---- Lua methods --------------------------------------------------------------
+
+using SetDisplay_t = void(__thiscall *)(void *pane, const uint8_t *record);
+
+void SetDisplay(void *pane, const uint8_t *record) {
+    reinterpret_cast<SetDisplay_t>(Offsets::FUN_PLAYERMODEL_SET_DISPLAY)(pane, record);
+}
+
+// The record a pane shows for SetDisplayInfo: only the display-ID field is
+// ever read. One per pane, never freed — the pane keeps the pointer and
+// rebuilds from it on every show, and panes live as long as the UI.
+struct DisplayRecord {
+    uint8_t bytes[Offsets::OFF_CREATURE_DISPLAYID + sizeof(uint32_t)];
+};
+std::unordered_map<void *, DisplayRecord> g_displayRecords;
+
 int __fastcall Script_SetDisplayInfo(void *L) {
-    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE || !Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: Model:SetDisplayInfo(creatureDisplayID)");
+    void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+    if (pane == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: SetDisplayInfo(displayID)");
         return 0;
     }
-    void *model = ResolveModel(L);
-    if (model == nullptr) {
-        Game::Lua::Error(L, "Model:SetDisplayInfo(): self is not a Model");
+    const auto displayID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    if (displayID == 0)
         return 0;
-    }
-    LoadDisplay(model, static_cast<int>(Game::Lua::ToNumber(L, 2)));
+    DisplayRecord &rec = g_displayRecords[pane];
+    std::memset(rec.bytes, 0, sizeof(rec.bytes));
+    std::memcpy(rec.bytes + Offsets::OFF_CREATURE_DISPLAYID, &displayID, sizeof(displayID));
+    SetDisplay(pane, rec.bytes);
     return 0;
 }
 
-// `Model:SetCreature(creatureID)` — the creature-entry cousin of SetDisplayInfo.
-// Vanilla has no client-side creature-entry -> display table in a DBC; that
-// mapping lives in the creature cache (creaturecache.wdb / SMSG_CREATURE_QUERY_
-// RESPONSE), keyed by entry ID and carrying the display ID. So this resolves the
-// entry through the cache, then loads exactly as SetDisplayInfo does.
-//
-// Limitation: only creatures already cached (queried this session or loaded from
-// the WDB at login) resolve; an uncached entry is a no-op. A caller that needs an
-// uncached creature can `C_CreatureInfo.RequestLoadCreatureByID` first, then call
-// this after `CREATURE_DATA_LOAD_RESULT`.
 int __fastcall Script_SetCreature(void *L) {
-    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE || !Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: Model:SetCreature(creatureID)");
+    void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+    if (pane == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: SetCreature(creatureID)");
         return 0;
     }
-    void *model = ResolveModel(L);
-    if (model == nullptr) {
-        Game::Lua::Error(L, "Model:SetCreature(): self is not a Model");
-        return 0;
-    }
-    const int creatureID = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    if (creatureID <= 0)
-        return 0;
-    const uint32_t displayID = Creature::Info::DisplayID(static_cast<uint32_t>(creatureID));
-    if (displayID == 0)
-        return 0; // not cached -> no-op (see limitation above)
-    LoadDisplay(model, static_cast<int>(displayID));
+    const uint8_t *record =
+        Creature::Info::CacheRecord(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
+    if (record != nullptr)
+        SetDisplay(pane, record);
     return 0;
 }
 
@@ -396,11 +348,26 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetCreature", &Script_SetCreature},
 };
 
+const Game::Doc::Field kDisplayArgs[] = {
+    Game::Doc::Req("displayID", "number", "A CreatureDisplayInfo ID."),
+};
+const Game::Doc::Function kSetDisplayInfo{
+    "Shows a creature display on the model, dressed like the creature.", kDisplayArgs, {}};
+const Game::Doc::Field kCreatureArgs[] = {
+    Game::Doc::Req("creatureID", "number", "A creature ID that is in the creature cache."),
+};
+const Game::Doc::Function kSetCreature{
+    "Shows a creature on the model by its creature ID.", kCreatureArgs, {}};
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetDisplayInfo", &kSetDisplayInfo},
+    {"SetCreature", &kSetCreature},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_MODEL_METHOD_REGISTRY),
-        g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_PLAYERMODEL_METHOD_REGISTRY), g_methods,
+        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
+        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -377,15 +377,8 @@ bool FactionGroupForRace(int raceID, const char **english, const char **localize
     return false; // no named group
 }
 
-// Public accessor for Model::DisplayInfo's SetCreature — the same peek
-// GetCreatureInfoByID uses, reduced to the display-ID field. 0 = uncached.
-uint32_t DisplayID(uint32_t creatureID) {
-    if (creatureID == 0)
-        return 0;
-    const uint8_t *rec = PeekCreature(creatureID);
-    if (rec == nullptr)
-        return 0;
-    return Game::Read<uint32_t>(rec, Offsets::OFF_CREATURE_DISPLAYID);
+const uint8_t *CacheRecord(uint32_t creatureID) {
+    return creatureID != 0 ? PeekCreature(creatureID) : nullptr;
 }
 
 } // namespace Creature::Info

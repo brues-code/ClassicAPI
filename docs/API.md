@@ -571,8 +571,15 @@ build instructions.
   - [`C_MerchantFrame.IsSellAllJunkEnabled()`](#c_merchantframeissellalljunkenabled)
 
 - [Model](#model)
-  - [`model:SetDisplayInfo(creatureDisplayID)`](#modelsetdisplayinfocreaturedisplayid)
+  - [`model:SetDisplayInfo(displayID)`](#modelsetdisplayinfodisplayid)
   - [`model:SetCreature(creatureID)`](#modelsetcreaturecreatureid)
+  - [`model:SetPortraitZoom(zoom)`](#modelsetportraitzoomzoom)
+  - [`model:SetCamDistanceScale(scale)`](#modelsetcamdistancescalescale)
+  - [`model:RefreshCamera()`](#modelrefreshcamera)
+  - [`model:SetRotation(rotation [, animate])`](#modelsetrotationrotation--animate)
+  - [`DressUpModel:UndressSlot(slot)`](#dressupmodelundressslotslot)
+  - [`DressUpModel:TryOn(item)`](#dressupmodeltryonitem)
+  - [`Model:SetGlow(value)`](#modelsetglowvalue)
 
 - [ChatBubbles](#chatbubbles)
   - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
@@ -13716,75 +13723,139 @@ local name = ids and C_Map.GetAreaInfo(ids[1])
 
 ## Model
 
-### `model:SetDisplayInfo(creatureDisplayID)`
+These methods are on `PlayerModel` frames unless the heading says
+otherwise. `DressUpModel` and `TabardModel` frames are `PlayerModel`
+frames too, so they have the same methods. A `PlayerModel` sets its own
+light and camera, so a model shows correctly without `SetLight` or
+`SetCamera`.
 
-Points a Model frame at a creature by its display ID. This is the
-alternative to `Model:SetModel(path)`, which needs a raw model file path.
+### `model:SetDisplayInfo(displayID)`
 
-The engine resolves the display ID to a model file through two DBC tables:
-`CreatureDisplayInfo`, then `CreatureModelData`. It loads the model the same
-way `SetModel` does, then applies the creature's skin textures. So the model
-shows the correct look for that display, not an untextured base.
-
-A Model frame provides no light of its own. Call `SetLight` after
-`SetDisplayInfo`, or the model renders as a black silhouette. Call
-`SetCamera(0)` to frame it.
-
-An unknown or missing display ID falls back to the engine's placeholder
-model.
+Shows a creature on the model by its display ID (a `CreatureDisplayInfo`
+ID). The model gets the creature's skin textures.
 
 A character-based display (an NPC on the shared `Character\<Race>\<Sex>`
-base model) is dressed the same way a spawned NPC is: baked body texture,
-hair, face, facial hair, and equipment, including the attached helm and
-shoulder models. The dressing runs when the model file finishes loading,
-a moment after the call. Weapons do not show: the server sends NPC
-weapons only for spawned units, and no client table carries them.
+model) is dressed the same way a spawned NPC is: baked body texture, hair,
+face, facial hair, and equipment, with the attached helm and shoulder
+models. The dressing starts when the model file finishes loading, a short
+time after the call. Weapons do not show: the server sends NPC weapons only
+for spawned units, and no client table holds them.
 
-This is the single-creature form. An optional second argument
-`mountDisplayID` that shows the creature on a mount is not supported
-here: a mount needs a second, attached model, and the Model frame holds
-one model.
+A display ID of 0, or an ID that is not in `CreatureDisplayInfo`, does not
+change the model. The model stays on the display until the next
+`SetDisplayInfo`, `SetCreature`, or `SetUnit` call. This is also true when
+you hide the frame and show it again.
 
 ```lua
-local m = CreateFrame("Model", "PreviewModel", UIParent)
-m:SetSize(200, 260)
-m:SetPoint("CENTER")
+local m = CreateFrame("PlayerModel", "PreviewModel", UIParent)
+m:SetWidth(200)
+m:SetHeight(260)
+m:SetPoint("CENTER", 0, 0)
 m:SetDisplayInfo(330)   -- a human NPC
-m:SetCamera(0)
-m:SetLight(1, 0, 0, -1, -1, 1, 1, 1, 1)  -- else it is a black silhouette
 ```
 
 ### `model:SetCreature(creatureID)`
 
-Points a Model frame at a creature by its **entry ID** — the creature's
-database ID, not a display ID. This is the companion to `SetDisplayInfo`.
+Shows a creature on the model by its creature ID (the creature's database
+ID, not a display ID). The model is the same as `SetDisplayInfo` with the
+creature's display ID.
 
-The engine looks the entry ID up in the client creature cache, reads the display
-ID, then loads the model exactly like `SetDisplayInfo`. The same light and camera
-notes apply.
-
-**Limitation.** The lookup only works for a creature the client has cached. A
-creature caches after you see it, target it, or mouse over it, or from
-`creaturecache.wdb` at login. There is no client-side entry-to-display table,
-so an uncached creature ID is a no-op — the frame keeps its previous model.
-
-For an uncached creature, request its data first, then set it when the data
-arrives:
+The creature must be in the client creature cache. The client adds a
+creature to the cache when you see it, target it, or put the mouse on it.
+The client also loads the cache from `creaturecache.wdb` at login. If the
+creature is not in the cache, the call does not change the model. To show
+such a creature, request its data. When the data arrives, call
+`SetCreature`:
 
 ```lua
-local creatureID = 448  -- the creature's entry (database) ID
+local creatureID = 448
 C_CreatureInfo.RequestLoadCreatureByID(creatureID)
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("CREATURE_DATA_LOAD_RESULT")
 f:SetScript("OnEvent", function()
     if arg1 == creatureID and arg2 then   -- (creatureID, success)
-        model:SetCreature(creatureID)
-        model:SetCamera(0)
-        model:SetLight(1, 0, 0, -1, -1, 1, 1, 1, 1)
+        PreviewModel:SetCreature(creatureID)
     end
 end)
 ```
+
+### `model:SetPortraitZoom(zoom)`
+
+Moves the camera between the full-body view and the model's portrait view.
+`0` is the full-body view (the default). `1` is the portrait view: the head
+and shoulders, as in a unit-frame portrait. A value between 0 and 1 gives a
+view between the two.
+
+A model that has no portrait camera keeps the full-body view.
+
+```lua
+-- a 3D portrait for a unit frame
+local p = CreateFrame("PlayerModel", nil, PlayerFrame)
+p:SetWidth(64)
+p:SetHeight(64)
+p:SetPoint("TOPLEFT", PlayerFrame, "TOPLEFT", 0, 0)
+p:SetUnit("player")
+p:SetPortraitZoom(1)
+```
+
+### `model:SetCamDistanceScale(scale)`
+
+Changes the distance of the camera from the model. `1` is the default
+distance. `2` moves the camera two times farther away. `0.5` moves it half
+the distance. The method uses 0.1 for a value less than 0.1. A value of 0 or
+less is an error.
+
+This works together with `SetPortraitZoom`: the scale applies to the view
+that `SetPortraitZoom` selects.
+
+### `model:RefreshCamera()`
+
+Configures the camera again for the current model. The model configures
+its camera when it finishes loading. Usually, you do not need this method.
+
+### `model:SetRotation(rotation [, animate])`
+
+Turns the model to a facing, in radians. By default the model turns with a
+short step animation. If `animate` is `false`, the model turns at once,
+with no animation.
+
+```lua
+PreviewModel:SetRotation(math.pi / 2, false)
+```
+
+### `DressUpModel:UndressSlot(slot)`
+
+Removes the item in one inventory slot from a `DressUpModel`. `slot` is an
+inventory slot number: 1 head, 3 shoulder, 4 shirt, 5 chest, 6 waist,
+7 legs, 8 feet, 9 wrist, 10 hands, 15 back, 16 main hand, 17 off hand,
+19 tabard. Other slot numbers do nothing.
+
+```lua
+DressUpModel:UndressSlot(1)   -- remove the helm
+```
+
+### `DressUpModel:TryOn(item)`
+
+Puts an item on a `DressUpModel`. `item` is one of these:
+
+- An item ID.
+- An item link, or an `item:` string.
+- A trade-skill recipe link (`enchant:`). The model tries on the item that
+  the recipe makes.
+- The name of an item that you carry, equipped or in your bags.
+
+If `item` is none of these, the game shows the error "That item can't be
+equipped". The model chooses the hand for a weapon itself.
+
+```lua
+DressUpModel:TryOn("|cff1eff00|Hitem:2077:0:0:0|h[Magician Staff]|h|r")
+```
+
+### `Model:SetGlow(value)`
+
+This method exists on every `Model` frame, for code from later clients. It
+has no effect in the game.
 
 ## ChatBubbles
 
