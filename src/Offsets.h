@@ -10778,6 +10778,96 @@ enum Offsets {
     // scale uses exactly that call), so the ratio is valid in every caller's
     // space.
     FUN_TEXT_WRAP_STEPPER = 0x005C7260,
+    // The stepper's four calls, one per wrap loop: the draw builder, the
+    // block height 0x005C2070, the fit-to-height count 0x005C21C0 and the
+    // line enumeration 0x005C2430 (4.3.4's string layout,
+    // GxuFontGetWrappedTextHeight, GxuFontGetMaxCharsWithinWidthAndHeight
+    // and GxuFontWrapText - the four loops 4.3.4 indents in). In the draw
+    // builder the node is in EBX and the line's x lives at [ebp-0x48]
+    // (DRAW_BUILDER_FRAME_LINE_X); it is copied into a wrapped link's rect
+    // (-0x6C) before the emitter call, so the x has to be set before then.
+    CALL_TEXT_DRAW_BUILDER_STEP = 0x005CDDD3,
+    CALL_TEXT_BLOCK_HEIGHT_STEP = 0x005C210A,
+    CALL_TEXT_FIT_HEIGHT_STEP = 0x005C22B1,
+    CALL_TEXT_ENUMERATE_LINES_STEP = 0x005C24F9,
+    DRAW_BUILDER_FRAME_LINE_X = 0x48,
+    // The draw builder's right / centre x: `FUN_TEXT_SCREEN_TO_PIXEL_WIDTH(raw,
+    // -width)` (or -width / 2), `float __fastcall(int raw, float)`, `ret 4`,
+    // result in ST0, stored to the line x at 0x005CDE28.
+    CALL_TEXT_DRAW_BUILDER_JUSTIFY_X = 0x005CDE23,
+    FUN_TEXT_SCREEN_TO_PIXEL_WIDTH = 0x005C7010,
+    // The font string's text-engine entry points. Each builds the engine's
+    // flag word from the font string's flags (OFF_FONTSTRING_FLAGS, one of
+    // its arguments) inline, keeping only the bits it knows, and passes the
+    // text (edx) through unchanged:
+    //   FUN_FS_TEXT_BLOCK_CREATE `__fastcall(..., 8 stack args)`, ret 0x20,
+    //     flags = stack arg 5; its one caller is RebuildString (0x00772693).
+    //     It creates the node through FUN_TEXT_CREATE_STRING (CALL_...): `__fastcall(font,
+    //     text, 11 stack args)`, ret 0x2C, engine flags = stack arg 8
+    //     (stored to OFF_TEXT_NODE_FLAGS).
+    //   FUN_FS_TEXT_BLOCK_HEIGHT ret 0x14, flags = stack arg 4 -> 0x005C2070.
+    //   FUN_FS_TEXT_FIT_HEIGHT ret 0x1C, flags = stack arg 6 -> 0x005C21C0.
+    //   FUN_FS_TEXT_WRAP_LINES ret 0x1C, flags = stack arg 6 -> 0x005C2430;
+    //     its one caller is the font string's WrapText (0x00772BAD).
+    FUN_FS_TEXT_BLOCK_CREATE = 0x0044D420,
+    CALL_FS_TEXT_BLOCK_CREATE_STRING = 0x0044D597,
+    FUN_TEXT_CREATE_STRING = 0x005C1C30,
+    FUN_FS_TEXT_BLOCK_HEIGHT = 0x0044D750,
+    FUN_FS_TEXT_FIT_HEIGHT = 0x0044D960,
+    FUN_FS_TEXT_WRAP_LINES = 0x0044DB50,
+    // Their only calls, all in the font string, each passing its flags
+    // (+0x120, RebuildString with 0x400 or'd in): RebuildString's create,
+    // the cached height's measure, the two fits of FitText, and WrapText.
+    CALL_FONTSTRING_BLOCK_CREATE = 0x00772693,
+    CALL_FONTSTRING_BLOCK_HEIGHT = 0x00772A42,
+    CALL_FONTSTRING_FIT_HEIGHT_1 = 0x00772034,
+    CALL_FONTSTRING_FIT_HEIGHT_2 = 0x007720D5,
+    CALL_FONTSTRING_WRAP_LINES = 0x00772BAD,
+    // IndentedWordWrap. 4.3.4's style bit 0x20000 (font and font string);
+    // its text engine flag is 0x2000. Neither is used by 1.12 (no test or
+    // store of either in the font, font string or text engine code).
+    FONT_STYLE_INDENTED_WORD_WRAP = 0x20000,
+    TEXT_FLAG_INDENTED_WORD_WRAP = 0x2000,
+    // A font string's own style setter: `void __thiscall(fs, uint32 flags)`,
+    // `ret 4` - stores OFF_FONTSTRING_FLAGS and rebuilds its text when it has
+    // a block (4.3.4's inline `if (changed) { m_styleFlags = ...;
+    // UpdateString(); }`). SetNonSpaceWrap (0x00771089) calls it.
+    FUN_FONTSTRING_SET_STYLE_FLAGS = 0x00773500,
+    // The style bits a font string takes from its font object (4.3.4's
+    // m_settableStyleFlags): applying a font's style does `(fontStyle &
+    // settable) | (own & ~settable)` (0x00770859), and a script setter clears
+    // its bits here so the explicit value wins. The constructor stores 0x3F
+    // (justification only) with `mov dword [esi+0x124], 0x3F` at
+    // PATCH_FONTSTRING_SETTABLE_STYLE_INIT (imm32 at +6); 4.3.4's is 0x2107F.
+    OFF_FONTSTRING_SETTABLE_STYLE = 0x124,
+    PATCH_FONTSTRING_SETTABLE_STYLE_INIT = 0x00770DDD,
+    // CSimpleFont (Font objects, and the font every EditBox, MessageFrame,
+    // ScrollingMessageFrame and SimpleHTML element holds). Its style setters
+    // (SetJustifyH: 0x0079FC20, called by all five classes) are 4.3.4's
+    // CSimpleFont_Set*: change the style dword at OFF_SIMPLEFONT_STYLE_FLAGS,
+    // `|= 0x202` the attribute flags at OFF_SIMPLEFONT_ATTR_FLAGS, `&= ~2`
+    // the fontable flags at OFF_SIMPLEFONT_FONTABLE_FLAGS, then vtable+0x14
+    // (UpdateObjects) copies the style to every font string that follows it
+    // (the block merge 0x00770910 copies the whole dword).
+    OFF_SIMPLEFONT_FONTABLE_FLAGS = 0x2C,
+    OFF_SIMPLEFONT_ATTR_FLAGS = 0x38,
+    OFF_SIMPLEFONT_STYLE_FLAGS = 0x54,
+    VTBL_SIMPLEFONT_UPDATE_OBJECTS = 0x14,
+    // Each class's font, as its SetJustifyH passes it to 0x0079FC20, and the
+    // class's Lua type id and method registry. A Font object is its own font;
+    // SimpleHTML has one per text type, `fonts[FUN_SIMPLEHTML_READ_TEXT_TYPE(L)]`
+    // (`int __fastcall(L)`, which reads and removes an optional "h1".."p").
+    VAR_FONT_LUA_TYPE_ID = 0x00CF4EA8,
+    VAR_FONT_METHOD_REGISTRY = 0x00CF546C,
+    OFF_EDITBOX_FONT = 0x324,
+    OFF_MESSAGEFRAME_FONT = 0x344,
+    VAR_MESSAGEFRAME_LUA_TYPE_ID = 0x00CF4EEC,
+    VAR_MESSAGEFRAME_METHOD_REGISTRY = 0x00CF52DC,
+    OFF_SCROLLINGMESSAGEFRAME_FONT = 0x35C,
+    VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID = 0x00CF4F2C,
+    OFF_SIMPLEHTML_FONTS = 0x350,
+    VAR_SIMPLEHTML_LUA_TYPE_ID = 0x00CF4F64,
+    FUN_SIMPLEHTML_READ_TEXT_TYPE = 0x00795D80,
 
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is

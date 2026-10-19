@@ -252,6 +252,7 @@ build instructions.
   - [`fontstring:GetLineHeight()`](#fontstringgetlineheight)
   - [`fontstring:IsTruncated()`](#fontstringistruncated)
   - [`fontstring:SetMaxLines(maxLines)` / `fontstring:GetMaxLines()`](#fontstringsetmaxlinesmaxlines--fontstringgetmaxlines)
+  - [`fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`](#fontstringsetindentedwordwrapindent--fontstringgetindentedwordwrap)
   - [`fontstring:SetFormattedText(format [, ...])`](#fontstringsetformattedtextformat--)
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
@@ -6030,6 +6031,27 @@ f:SetWidth(120)
 f:SetMaxLines(1)                 -- one line, then "..."
 f:SetText("a really long guild or player name that will not fit")
 -- draws "a really long gu..."   ; f:IsTruncated() -> true
+```
+
+### `fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`
+
+When `indent` is true, every line of the text after the first starts 15
+screen pixels in. This applies to wrapped lines and to lines after a line
+break. The text also wraps 15 pixels earlier on those lines, and the
+string height counts the narrower lines.
+
+- `indent` is `true` when you omit it.
+- `GetIndentedWordWrap` returns `1` or `nil`.
+- A right-justified line moves 15 pixels to the left. A centered line does
+  not move.
+- Font objects, edit boxes, message frames, scrolling message frames and
+  SimpleHTML frames have the same pair. On those, the setting goes to the
+  font, and every font string that uses the font follows it. A font string
+  that has its own setting keeps it. SimpleHTML takes an optional element
+  first: `html:SetIndentedWordWrap("h1", true)`.
+
+```lua
+ChatFrame1:SetIndentedWordWrap(true)   -- wrapped chat lines start 15 px in
 ```
 
 ### `fontstring:SetFormattedText(format [, ...])`
