@@ -2935,6 +2935,12 @@ enum Offsets {
     BUTTON_STATE_DISABLED = 0,
     BUTTON_STATE_NORMAL = 1,
     BUTTON_STATE_PUSHED = 2,
+    // CSimpleButton::Enable — `void __thiscall(button, int enable)`, `ret 4`,
+    // vtable+0x90 of the four button-family vtables; Script Enable / Disable
+    // and the constructor reach it, and CheckButton's override 0x00785490
+    // calls it first. Like 4.3.4's, it returns at once when the state would
+    // not change (enable with OFF_BUTTON_STATE nonzero, disable with it 0).
+    FUN_BUTTON_ENABLE = 0x00779160,
     // Button vmethods: Click(mask, 0) — FUN_BUTTON_CLICK — DoubleClick(mask,
     // 0) and SetButtonState(state, 0).
     VTBL_BUTTON_CLICK = 0x94,
@@ -3457,8 +3463,11 @@ enum Offsets {
     // on)`, `ret 8`: sets or clears `mask` in OFF_FRAME_FLAGS. Every write of
     // the word goes through it (benilla-re ui/layoutcache). Its 14 callers
     // pass only 0x1, 0x10, 0x100, 0x200, 0x1000, 0x2000 and 0x4000, so the
-    // two 4.3.4 bits below are free in 1.12.
+    // 4.3.4 bits below are free in 1.12.
     FUN_FRAME_SET_FRAME_FLAG = 0x0076A3C0,
+    // 4.3.4's disabled bit: CSimpleFrame::RunOnEnableScript sets it for a
+    // disabled Button or EditBox, and EditBox:IsEnabled reads it.
+    FRAME_FLAG_DISABLED = 0x400,
     // 4.3.4's SetDontSavePosition bit: its layout-cache writer
     // (PlacedFrameCallback) skips a frame that has it.
     FRAME_FLAG_DONT_SAVE_POSITION = 0x80000,
@@ -10776,6 +10785,10 @@ enum Offsets {
     // cleared by ClearFocus (FUN_0077e410). See the editbox vtable at
     // 0x0081c8c0 / FUN_0077e410.
     VAR_FOCUSED_EDITBOX = 0x00CF4DC8,
+    // 4.3.4's CSimpleEditBox::ClearKeyboardFocus — `void __thiscall(editbox)`:
+    // when the box holds the focus, runs its focus change (0x0077AF50) and
+    // clears VAR_FOCUSED_EDITBOX. What Script ClearFocus (0x00798F1A) calls.
+    FUN_EDITBOX_CLEAR_FOCUS = 0x0077E410,
 
     // CSimpleEditBox cursor / selection internals (backs EditBox::Methods'
     // SetCursorPosition / GetCursorPosition). Verified from the engine's own
@@ -10814,6 +10827,27 @@ enum Offsets {
     // (a `|` that starts no code) are visible; the rest are markup - color
     // codes, the hyperlink's `|H...|h` and closing `|h` - which it skips.
     OFF_EDITBOX_CHAR_CLASS = 0x330,
+    // 4.3.4's CSimpleEditBox::GetNumToLen — `int __thiscall(editbox, int
+    // byteOffset, int steps, int atomic)`, `ret 0xC`: the bytes from
+    // byteOffset that `steps` cursor steps cover (backwards for a negative
+    // count), walking OFF_EDITBOX_CHAR_CLASS. A forward step skips leading
+    // colour (class 0) and link-start (4) tokens, with `atomic` the whole of
+    // a link, then absorbs trailing colour-restore (1) and link-stop (5)
+    // tokens. Every keyboard move and delete goes through it (benilla-re
+    // ui/editboxmarkup "Steps").
+    FUN_EDITBOX_STEP_BYTES = 0x0077BB30,
+    // The visible lines (4.3.4's m_visibleLines): a count at +0x37C and an
+    // array at +0x380 of each line's first byte, the last entry the end. The
+    // hit test 0x0077D0D0 picks line i by the click's y and reads entries i
+    // and i + 1.
+    OFF_EDITBOX_LINE_COUNT = 0x37C,
+    OFF_EDITBOX_LINE_STARTS = 0x380,
+    // The right-justified hit test's conversion (0x0077D29B): it measures how
+    // many glyphs fit from the line's right end, then turns them into bytes
+    // with `FUN_EDITBOX_STEP_BYTES(lineStart, glyphs, 0)` - counted from the
+    // line's start - and takes the index as lineEnd minus that. 4.3.4's
+    // ConvertCoordinateToIndex does the same.
+    CALL_EDITBOX_HIT_RIGHT_STEP = 0x0077D29B,
     // SetMaxLetters stores its limit here (Script 0x00799110); the insert
     // path FUN_0077BEE0 enforces it after splicing text in: it counts the
     // text with FUN_EDITBOX_COUNT_CHARS (calls at 0x0077C09A, 0x0077C0BC,
@@ -10844,6 +10878,61 @@ enum Offsets {
     // {size@+0x390, alloc@+0x394, data@+0x398} of {char* text, int exec}
     // entries. AddHistoryLine writes at +0x38c and advances modulo +0x388.
     OFF_EDITBOX_HISTORY_MAX = 0x388,
+    // 4.3.4's m_imeComposition: nonzero while an input method composes text.
+    // The input-method slot 0x0077AFC0 sets it on composition start (action 1,
+    // 0x0077B0F9) and clears it on end (actions 5 and 6, 0x0077B118), at the
+    // same points as 4.3.4's OnLayerIme; mouse-down reads it (0x0077B81E).
+    OFF_EDITBOX_IME_COMPOSITION = 0x3CC,
+    // 4.3.4's CSimpleEditBox::Insert without its `script` argument —
+    // `void __thiscall(editbox, const char *text, const char *context, int
+    // runScripts, int highlight)`, `ret 0x10`. Script Insert passes (text,
+    // context, 1, 0), SetText's internal (text, context, 0, 0).
+    FUN_EDITBOX_INSERT = 0x0077BEE0,
+    // The input-method slot's insert of the composition string: `call
+    // FUN_EDITBOX_INSERT` with (buffer, 0, 0, 1), where 4.3.4's OnLayerIme
+    // then runs OnCharComposition with the same buffer.
+    CALL_EDITBOX_IME_COMPOSITION_INSERT = 0x0077B097,
+    // Text-change bookkeeping (4.3.4's dirty bit 0x8, OnTextChanged's
+    // `userInput`). FUN_EDITBOX_REBUILD_CHAR_CLASS (4.3.4's UpdateTextInfo,
+    // `void __thiscall(editbox)`) has one caller, FUN_EDITBOX_INSERT's tail
+    // (0x0077C022), so it runs once per insert that went ahead (the insert
+    // returns early for a cursor inside a link or a non-digit in a numeric
+    // box). FUN_EDITBOX_DELETE_RANGE (4.3.4's DeleteSubstring, `void
+    // __thiscall(editbox, int from, int to)`, `ret 8`) is every deletion: the
+    // character deletes (0x0077C2B8, 0x0077C2C8), the selection delete
+    // (0x0077CD7E) and FUN_EDITBOX_CLEAR (`void __thiscall(editbox)`, delete
+    // all, 0x0077C509). SetText's internal 0x0077BE00 clears with
+    // FUN_EDITBOX_CLEAR and inserts with FUN_EDITBOX_INSERT; these are its two
+    // return addresses, the calls 4.3.4 makes with `script` = 1.
+    FUN_EDITBOX_REBUILD_CHAR_CLASS = 0x0077BA90,
+    CALL_EDITBOX_INSERT_REBUILD_CHAR_CLASS = 0x0077C022,
+    // What the rebuild reads: the text (+0x32C), the class table's size in
+    // dwords (+0x344, zeroed first) and OFF_EDITBOX_CHAR_CLASS. It walks the
+    // text with FUN_TEXT_TOKENIZER and a decoder flag word of 0 (0x0077BAD9).
+    OFF_EDITBOX_TEXT = 0x32C,
+    OFF_EDITBOX_CHAR_CLASS_SIZE = 0x344,
+    // The box's own font string - SetMultiLine (0x0077A5C3) sets flag 0x4000
+    // (no |n) in its OFF_FONTSTRING_FLAGS for a single-line box, clears it
+    // for a multi-line one.
+    OFF_EDITBOX_FONTSTRING = 0x328,
+    // A font string's flags (the constructor sets 0x212, 0x00770DD3). Its
+    // measure and draw hand FUN_TEXT_TOKENIZER the decoder flag word built
+    // from them (0x0044D6A9..0x0044D6FC); the escape bits map 0x2000 -> 0x100
+    // (no |c |r), 0x4000 -> 0x200 (no |n), 0x8000 -> 0x400 (no |H |h),
+    // 0x0080 -> 0x800 (none) (benilla-re ui/editboxmarkup "Which escapes are
+    // on").
+    OFF_FONTSTRING_FLAGS = 0x120,
+    FUN_EDITBOX_DELETE_RANGE = 0x0077C510,
+    FUN_EDITBOX_CLEAR = 0x0077C500,
+    RET_EDITBOX_SET_TEXT_CLEAR = 0x0077BE5B,
+    RET_EDITBOX_SET_TEXT_INSERT = 0x0077BE6B,
+    // The edit box's text update 0x0077D3E0 fires OnTextChanged (slot at
+    // OFF_EDITBOX_ONTEXTCHANGED_SLOT) when the text changed, with the 24
+    // bytes at PATCH_EDITBOX_TEXT_CHANGED_FIRE: load the handler, skip when 0,
+    // `push &slot; mov ecx, esi; call 0x00702690` (the no-argument fire),
+    // ending at 0x0077D49D.
+    PATCH_EDITBOX_TEXT_CHANGED_FIRE = 0x0077D485,
+    OFF_EDITBOX_ONTEXTCHANGED_SLOT = 0x418,
     // `void __thiscall(editbox, int maxLines)` — the SetHistoryLines internal
     // (FUN_0077cd90). Reallocates the history ring to maxLines; maxLines == 0
     // frees the whole buffer and zeroes the container. ClearHistory calls it

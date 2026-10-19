@@ -280,6 +280,12 @@ build instructions.
   - [`editBox:GetHighlightColor()`](#editboxgethighlightcolor)
   - [`editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`](#editboxsetcountinvisibleletterscount--editboxiscountinvisibleletters)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
+  - [`editBox:Enable()` / `editBox:Disable()` / `editBox:IsEnabled()`](#editboxenable--editboxdisable--editboxisenabled)
+  - [`OnEnable` and `OnDisable` (scripts)](#onenable-and-ondisable-scripts)
+  - [`editBox:IsInIMECompositionMode()`](#editboxisinimecompositionmode)
+  - [`OnCharComposition(self, text)` (script)](#oncharcompositionself-text-script)
+  - [`OnTextChanged(self, userInput)` (script)](#ontextchangedself-userinput-script)
+  - [Edit box caret fixes](#edit-box-caret-fixes)
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`](#framesetclamprectinsetsleft-right-top-bottom--framegetclamprectinsets)
   - [`button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`](#buttonsetnormalfontobjectfont--buttongetnormalfontobject)
@@ -6420,6 +6426,64 @@ see, and the cursor moves over letters as before.
 Removes every line from the up/down input history. The history line limit
 (`SetHistoryLines`) stays, so the box keeps recording new lines afterward.
 Does nothing when the box has no history.
+
+### `editBox:Enable()` / `editBox:Disable()` / `editBox:IsEnabled()`
+
+`editBox:Disable()` removes the keyboard focus from the box and runs its
+`OnDisable` script. `editBox:Enable()` runs its `OnEnable` script.
+`editBox:IsEnabled()` returns `true` or `false`.
+
+- A disabled box still gets the focus when the user clicks it, or when you
+  call `editBox:SetFocus()`.
+- Each call runs the script, also when the box is already in that state.
+
+### `OnEnable` and `OnDisable` (scripts)
+
+Every frame can have an `OnEnable` and an `OnDisable` script. Set them with
+`SetScript`, `HookScript`, or in XML. A button runs `OnEnable` when
+`button:Enable()` enables it, and `OnDisable` when `button:Disable()`
+disables it. A button does not run them when its state does not change. An
+edit box runs them from `editBox:Enable()` and `editBox:Disable()`.
+
+```lua
+button:SetScript("OnDisable", function(self) self:SetAlpha(0.5) end)
+button:SetScript("OnEnable", function(self) self:SetAlpha(1) end)
+```
+
+### `editBox:IsInIMECompositionMode()`
+
+Returns `1` while an input method (for example, one for Chinese, Japanese,
+or Korean) composes text in the box. Returns `nil` at other times.
+
+### `OnCharComposition(self, text)` (script)
+
+An edit box runs this script each time an input method changes the text
+that it composes. `text` is the composed text at that time.
+
+### `OnTextChanged(self, userInput)` (script)
+
+The `OnTextChanged` script gets one argument. `userInput` is `true` when the
+user changed the text: by typing, deleting, pasting, with an input method,
+or with `editBox:Insert`. It is `false` when `SetText` or `SetNumber`
+changed the text. Handlers that read globals find the same value in `arg1`.
+
+```lua
+searchBox:SetScript("OnTextChanged", function(self, userInput)
+    if userInput then
+        RunSearch(self:GetText())
+    end
+end)
+```
+
+### Edit box caret fixes
+
+- A text that ends with a color code (`|cffffffff`), or that has a link with
+  no end, does not freeze the client when the user presses Right or Delete.
+  `SetText` can give a box such a text.
+- In a single-line box, the caret moves over `|n` as two characters, as the
+  box shows them.
+- In a right-justified box, a click puts the caret on the correct character
+  when the line has color codes, links, or characters that are not ASCII.
 
 ### `frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`
 
