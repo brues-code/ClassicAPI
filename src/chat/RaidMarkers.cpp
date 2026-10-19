@@ -19,10 +19,15 @@
 // a `|T` escape that crops the shared raid-target sprite sheet
 // `Interface\TargetingFrame\UI-RaidTargetingIcons` to the matching 64×64 cell.
 //
-// Runs in Chat::Dispatch AFTER Chat::IconFilter::Sanitize. Order is deliberate:
-// sanitize first defangs any player-typed raw `|T` spoof, then we add ONLY the
-// fixed, known-safe marker escapes — so players get the markers without a path to
-// inject arbitrary textures.
+// Two consumers, as in 4.3.4, both AFTER Chat::Dispatch's
+// Chat::IconFilter::Sanitize (which defangs a smuggled `|T`, so only these
+// fixed, known-safe marker escapes are added):
+//   - the CHAT_MSG_* event text (ForChatEvent, at Chat::EventArgs' fire site)
+//     — 4.3.4's chat frame expands the tags for display;
+//   - the speech bubble, after the bubble's own escape strip
+//     (chatbubble/RaidIcons.cpp) — 4.3.4's CGChatBubbleFrame::ParseRaidIcons.
+// The message buffer itself keeps the `{rt1}` text: the bubble builder drops
+// every `|` code it does not know, so it must see the tags, not the markup.
 //
 // Icon→texcoord mapping verified against the client's own UnitPopup.lua
 // (RAID_TARGET_1..8): the sheet is 256×256 with 64-pixel cells, marker N at
@@ -113,13 +118,6 @@ const char *Substitute(const char *msg, char *buf, size_t bufSize) {
                     const int col = (marker - 1) % 4;
                     const int row = (marker - 1) / 4;
                     const int l = col * 64, r = l + 64, t = row * 64, b = t + 64;
-                    // Emit the pipe-DOUBLED form `||T…||t`. The inline emitter
-                    // renders both `|T` and `||T`, but the vanilla speech-bubble
-                    // text builder (FUN_004b1600) TRUNCATES at a lone `|T` while
-                    // PRESERVING `||` — so the doubled form is what survives into
-                    // the bubble's FontString (which pfUI's bubble reskin copies
-                    // and renders). Anti-spoof Sanitize runs before this, so these
-                    // are the only `||T` openers a player can produce.
                     char markup[128];
                     // `:0:0` = auto-size. The inline emitter resolves height/width
                     // to the target line's font pixel height at draw time, so a
@@ -128,8 +126,8 @@ const char *Substitute(const char *msg, char *buf, size_t bufSize) {
                     // payload crops the 256x256 sheet to the cell (l,r,t,b).
                     const int m = std::snprintf(
                         markup, sizeof markup,
-                        "||TInterface\\TargetingFrame\\UI-RaidTargetingIcons:0:0:0:0:256:256:"
-                        "%d:%d:%d:%d||t",
+                        "|TInterface\\TargetingFrame\\UI-RaidTargetingIcons:0:0:0:0:256:256:"
+                        "%d:%d:%d:%d|t",
                         l, r, t, b);
                     // Reserve room for the literal tail after this token
                     // (msg[k+1..]) so the rest of the message always fits.
@@ -149,6 +147,18 @@ const char *Substitute(const char *msg, char *buf, size_t bufSize) {
     }
     buf[j] = '\0';
     return buf;
+}
+
+namespace {
+bool g_inDispatch = false;
+} // namespace
+
+EventScope::EventScope() : prev_(g_inDispatch) { g_inDispatch = true; }
+
+EventScope::~EventScope() { g_inDispatch = prev_; }
+
+const char *ForChatEvent(const char *text, char *buf, size_t bufSize) {
+    return g_inDispatch ? Substitute(text, buf, bufSize) : text;
 }
 
 } // namespace Chat::RaidMarkers

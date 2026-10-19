@@ -13,27 +13,19 @@
 
 // Inline-texture (`|T`, `|A`) chat anti-spoof.
 //
-// Vanilla neutralizes player-*typed* escapes in chat (a typed `|cff…|r`,
-// `|Hitem…|h` or `|T…|t` shows as raw text) — only *trusted* text renders them
-// (addon `AddMessage`, shift-clicked links). Our Text::InlineTexture backport
-// breaks that parity for the two texture markers: it detects the neutralized
-// `||T` / `||A` form and draws the art anyway, so a player could `/say`
-// `|Tpath|t` and have a real icon appear in everyone's chat AND in the speech
-// bubble over their head.
+// A player-typed escape never renders: the edit box stores a typed `|` as `||`,
+// the escaped pipe, which every text path draws as a literal `|`. That alone
+// keeps a typed `|Tpath|t` literal. The send-side escape check
+// (SendChatMessage) also rejects a `|` followed by anything but `|` or `c` —
+// but it skips from a `|c` to the next `|r` unchecked, so a modified client
+// or an addon can still smuggle a real `|T` inside a colour run, and it would
+// render as art in everyone's chat and in the bubble over the sender.
 //
-// This restores vanilla's behavior for both markers by defanging them in the
-// chat path, while leaving `|c`/`|r`/`|H`/`|h` exactly as vanilla (already raw
-// for typed input). It CANNOT be done in the text emitter: addon `|T` and player
-// `|T` reach the emitter as byte-identical `||T` (vanilla doubles the
-// unrecognized escape for both), so the only place they're distinguishable is
-// the source — server-delivered chat flows through the chat dispatcher, addon
-// `print` does not. Chat::Dispatch owns that hook and calls this on the message.
-//
-// Defang = replace the `|` of each opener with a space, breaking the pipe→letter
-// adjacency the inline-texture detector keys on (`|T` and `||T` both contain the
-// `|T` substring, so this catches the doubled form too). The payload text stays
-// readable, the closer is inert without an opener, and every other escape is
-// untouched.
+// So server-delivered chat is checked once at the source — Chat::Dispatch
+// owns the dispatch hook and calls this on the message — and each real opener
+// gets the engine's own neutralization: its `|` is doubled, the bytes a typed
+// one has, so it shows as the literal text the sender typed. `||` pairs are
+// already literal and are left alone, as is every other escape.
 //
 // ANY new marker the emitter learns MUST be added here in the same change, or it
 // becomes a chat-spoof vector.
@@ -44,17 +36,19 @@ namespace Chat::IconFilter {
 
 namespace {
 
-// True if `s` contains an inline-texture opener anywhere. Both markers count:
-// `|T` names a texture path and `|A` names an atlas, and either one would render
-// art from player-typed text if it survived to the fontstring.
-bool IsIconOpener(const char *s) {
-    return s[0] == '|' && (s[1] == 'T' || s[1] == 'A');
-}
+// A real inline-texture opener at `s`: `|T` names a texture path and `|A` an
+// atlas. Callers step over `||` pairs, so `s` is always at a token start.
+bool IsIconOpener(const char *s) { return s[0] == '|' && (s[1] == 'T' || s[1] == 'A'); }
 
 bool HasIconEscape(const char *s) {
-    for (; *s != '\0'; ++s)
+    for (; *s != '\0'; ++s) {
+        if (s[0] == '|' && s[1] == '|') {
+            ++s; // escaped pipe
+            continue;
+        }
         if (IsIconOpener(s))
             return true;
+    }
     return false;
 }
 
@@ -66,27 +60,35 @@ const char *Sanitize(const char *msg, char *buf, size_t bufSize) {
 
     // NEVER write `msg` in place: several of the chat handler's ~50 callers pass
     // read-only `.rdata` literals (system notifications), so an in-place edit
-    // would fault. We copy only when a `|T` is actually present.
+    // would fault. We copy only when an opener is actually present.
     //
-    // Defanging must not leave a LONE `|` followed by a non-escape char — that's
-    // an invalid escape, which the chat frame tolerates but the speech-bubble
-    // text setter chokes on, producing an empty bubble (verified in-game). By the
-    // time chat reaches us the escape is usually the doubled `||T` (vanilla's own
-    // neutralization of typed escapes), where `||` is a VALID literal-pipe escape.
-    // So: keep the pipe(s) and blank the `T` when the pipe completes a `||`; blank
-    // BOTH chars for a lone `|T`. Either way no dangling `|` remains, and no `|T`
-    // opener survives for the inline-texture detector to fire on.
+    // Never leave a lone `|` before a non-escape character: the chat frame
+    // tolerates it, but the speech-bubble builder ends the text there (it drops
+    // a `|` with everything up to the next `[`). A doubled `||` is the valid
+    // literal-pipe escape; when the buffer has no room for the extra byte, the
+    // opener is blanked instead.
     size_t j = 0;
     for (size_t i = 0; msg[i] != '\0' && j + 1 < bufSize;) {
-        if (IsIconOpener(msg + i)) {
-            const bool doubledPipe = (i > 0 && msg[i - 1] == '|');
-            buf[j++] = doubledPipe ? '|' : ' '; // keep pipe only if it completes `||`
-            if (j + 1 < bufSize)
-                buf[j++] = ' '; // blank the `T` / `A`
-            i += 2;             // consumed the opener
-        } else {
+        if (msg[i] == '|' && msg[i + 1] == '|') {
             buf[j++] = msg[i++];
+            if (j + 1 < bufSize)
+                buf[j++] = msg[i++];
+            continue;
         }
+        if (IsIconOpener(msg + i)) {
+            if (j + 3 < bufSize) {
+                buf[j++] = '|';
+                buf[j++] = '|';
+                buf[j++] = msg[i + 1];
+            } else {
+                buf[j++] = ' ';
+                if (j + 1 < bufSize)
+                    buf[j++] = ' ';
+            }
+            i += 2;
+            continue;
+        }
+        buf[j++] = msg[i++];
     }
     buf[j] = '\0';
     return buf;

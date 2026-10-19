@@ -5872,7 +5872,7 @@ frame:SetHeight(f:GetStringHeight() + 16)  -- size the box to the text
 
 Related: the stock `fontstring:GetStringWidth()` **includes inline
 `|T…|t` icon widths**, so the measured width matches the rendered width.
-Editbox text is not adjusted — an editbox shows and measures raw markup.
+This includes edit boxes: icons in edit-box text show as icons.
 
 ### `fontstring:GetUnboundedStringWidth()`
 
@@ -17511,10 +17511,11 @@ and login/character-select screens.
 
 - `text` — the string to copy (numbers are coerced, like Lua does).
 - `removeMarkup` — optional; when truthy, strip WoW UI escape sequences
-  before copying so the clipboard gets plain text:
+  before copying so the clipboard gets plain text. The result is the same
+  as Ctrl+C in an edit box:
   - `|cAARRGGBB … |r` color codes → removed
   - `|H…|h text |h` hyperlinks → keeps only the visible text
-  - `|T…|t` textures → removed
+  - `|T…|t` textures and `|A…|a` atlases → removed
   - `|n` → newline, `||` → literal `|`
   - unknown `|x` sequences are left verbatim, so real text that merely
     contains a pipe survives

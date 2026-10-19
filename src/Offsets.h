@@ -647,10 +647,18 @@ enum Offsets {
     // FUN_00772B60 break positions and takes the max as the tooltip width —
     // the icon-relevant consumer (an earlier note claimed nothing consumed
     // this function; the xref list refutes it) — plus the editbox
-    // caret/selection cluster (FUN_0077DA80, FUN_0077DE70, FUN_0077D0D0),
-    // which must stay raw and is excluded by the editable/focused-buffer
-    // gates in the co-hook.
+    // caret/selection cluster (FUN_0077DA80, FUN_0077DE70, FUN_0077D0D0).
     FUN_FONTSTRING_MEASURE_SUBSTRING = 0x00772AE0,
+    // Fit-to-width: `int __thiscall(fs, const char *text, uint32_t bytes,
+    // float width)` → how many characters of `text` fit `width` (fs units;
+    // bytes 0 = strlen), RET 0xC. Calls FUN_0044d860 → GxuFontGetMaxChars-
+    // WithinWidth (0x5c2190 → 0x5c6c50) and returns its EAX count (benilla
+    // names it MeasureText and types it float — the disassembly returns the
+    // kernel's int). Callers (xrefs): CSimpleEditBox::RebuildLabel 0x77d71a
+    // (the single-line visible window), MeasureWindow 0x77d38a and
+    // GetIndexAtPoint 0x77d2e0 (mouse → cursor). Co-hooked by
+    // Text::InlineTexture so icons take their width.
+    FUN_FONTSTRING_FIT_TEXT = 0x00772BC0,
     // FontString → gxu face resolution, for fs-level (measure-hook) callers
     // that need the face the RENDER will use. The rebuild (FUN_007724a0)
     // passes [fs+0xE0] (the font HANDLE) to the block creator FUN_0044d420,
@@ -2095,6 +2103,13 @@ enum Offsets {
     // teardown FUN_004B0F80.
     VAR_CHAT_BUBBLE_LIST_HEAD = 0x00B6F038,
     OFF_CHAT_BUBBLE_LINK_NEXT = 0x318,
+    // The bubble text builder FUN_004B1600 (benilla ui/chatbubble "Bubble
+    // text") strips the line's escapes into a 0x800-byte stack buffer, then
+    // sets it on the bubble's FontString (bubble+0x31C) with this
+    // `CALL FUN_FONTSTRING_SET_TEXT` (E8 rel32; ECX = fs, stack = buffer, 1).
+    // 4.3.4's CGChatBubbleFrame::Initialize runs ParseRaidIcons at the same
+    // point (strip → raid icons → SetText); ChatBubble::RaidIcons redirects it.
+    PATCH_CHAT_BUBBLE_SET_TEXT_CALL = 0x004B16C0,
 
     VAR_NAMEPLATE_LIST_HEAD = 0x00C4D92C,
     OFF_NAMEPLATE_LINK_NEXT = 0x4E0,
@@ -10307,11 +10322,8 @@ enum Offsets {
     FUN_TEXT_EMITTER = 0x005CCBE0,
     // Node flags. Bit 3 (0x08) gates the emitter's per-call batch-clear (set
     // only in a rebuild mode we don't take); we segment only when it's clear.
-    // Bit 6 (0x40) = EDITABLE text (set on editbox content; verified in-game:
-    // the macro editbox is 0x4D, chat display 0x20D, FontStrings 0x0D). It rides
-    // in the tokenizer's flags argument, so we suppress inline rendering per node
-    // for editboxes — they show raw, editable `|T…|t` markup. This is the 1.12
-    // analog of 4.3.4's per-render texture-disable flag (tokenizer bit 0x1000).
+    // Bit 6 (0x40) is NON-SPACE-WRAP (fs+0x120 bit 0x1000 via FUN_0044d420;
+    // the macro editbox is 0x4D, chat display 0x20D, FontStrings 0x0D).
     OFF_TEXT_NODE_FLAGS = 0x5C,
     // Node horizontal justify (int): 0 = left, 1 = centre, 2 = right — the draw
     // builder's encoding. The emitter pre-shifts an inline icon's pen by the
@@ -10473,14 +10485,32 @@ enum Offsets {
     // Shared `|`-escape tokenizer. `__fastcall(byte *text /*ecx*/, int
     // *bytesConsumed /*edx*/, uint *colorOut, uint flags, uint *payloadOut) ->
     // tokenType`. ~11 callers (measure loops, line-fit/wrap, the emitter, the
-    // draw builder). It has NO `|T` case, so `|T` falls through to a literal
-    // `|`. We co-hook it so an inline-texture span (`||T…||t` after the
-    // FontString pipe-doubling, or a clean `|T…|t`) is consumed as ONE
-    // near-zero-width token — this stops every measure/wrap caller from
-    // counting the path text and wrapping early. The emitter detects icons on
-    // its own (and delegates plain segments that never contain `|T`), so the
-    // draw path is unaffected by this hook. See FUN_005c2810.
+    // draw builder, the edit box's class array 0x77ba90). It has NO `|T` case,
+    // so `|T` falls through to a literal `|`. We co-hook it so an
+    // inline-texture span `|T…|t` is consumed as ONE near-zero-width token —
+    // this stops every measure/wrap caller from counting the path text and
+    // wrapping early. `||` stays the escaped pipe (class 3), so `||T` is
+    // literal text, as in the stock engine and 4.3.4. The emitter detects
+    // icons on its own (and delegates plain segments that never contain `|T`),
+    // so the draw path is unaffected by this hook. See FUN_005c2810.
     FUN_TEXT_TOKENIZER = 0x005C2810,
+    // GxuStripControlCodes `int __fastcall(const char *text /*ecx*/, int
+    // length /*edx*/, uint32_t mask, char *out, int capacity)`, RET 0xC
+    // (benilla font/markup "Stripping"): copies the text with the codes the
+    // mask names removed and always terminates `out`. It returns `out` (or
+    // `text` for an empty one) — NOT the byte count benilla lists (Ghidra:
+    // `return (int)pcVar2`). Stops when `written + tokenLen >= capacity`.
+    // 4.3.4 adds mask bit 0x1000 for `|T…|t`; co-hooked by Text::InlineTexture
+    // to honour it.
+    FUN_GXU_STRIP_CONTROL_CODES = 0x005C2590,
+    // CSimpleEditBox::CopySelection (0x77e1d0) `push 0x500` (68 00 05 00 00) —
+    // the strip mask for Ctrl+C: colours and links. 4.3.4's CopyToClipboard
+    // passes 0x1500 (textures too); Text::InlineTexture patches the immediate.
+    PATCH_EDITBOX_COPY_STRIP_MASK = 0x0077E230,
+    // 4.3.4's copy strip mask for FUN_GXU_STRIP_CONTROL_CODES: 0x100 colours,
+    // 0x400 links, 0x1000 textures (newlines become `\n`, `||` becomes `|`).
+    // The patched Ctrl+C mask and CopyToClipboard's removeMarkup.
+    GXU_STRIP_MASK_COPY = 0x1500,
 
     // Shared wrap-stepper dispatcher — lays out ONE wrapped line per call.
     // `__fastcall(gxuFont /*ecx*/, byte *text /*edx*/, float fontH, float
@@ -10511,31 +10541,9 @@ enum Offsets {
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is
     // active. Written by EditBox SetFocus (`mov [0xcf4dc8],esi` @0x0077e3f8),
-    // cleared by ClearFocus (FUN_0077e410). We read it (plus the buffer offsets
-    // below) to identify the focused editbox's OWN text and suppress inline-icon
-    // rendering for JUST that text, so the input field shows raw, editable
-    // `|T…|t` markup while everything else (chat history icons/emotes) keeps
-    // rendering. See the editbox vtable at 0x0081c8c0 / FUN_0077e410.
+    // cleared by ClearFocus (FUN_0077e410). See the editbox vtable at
+    // 0x0081c8c0 / FUN_0077e410.
     VAR_FOCUSED_EDITBOX = 0x00CF4DC8,
-    // CSimpleEditBox text-buffer layout — the editbox lays out and measures its
-    // text IN PLACE from these buffers (no internal copy), so its layout node's
-    // text pointer ([node+0x48]) and every wrapped-line text pointer point INTO
-    // this buffer. Verified from the caret positioner FUN_0077da80: it selects
-    // the buffer via `(*(byte*)(fe+0x318) & 8) ? *(char**)(fe+0x334) :
-    // *(char**)(fe+0x32C)` and measures substrings of it directly with
-    // FUN_00772ae0(fs, feBuf+off, n). Used by Text::InlineTexture to correlate a
-    // node/token to the focused editbox by pointer range.
-    OFF_EDITBOX_BUFFER_SELECT = 0x318, // byte; bit 3 (0x08) picks the masked buffer
-    OFF_EDITBOX_BUFFER = 0x32C,        // char* — normal text buffer
-    OFF_EDITBOX_BUFFER_MASKED = 0x334, // char* — masked/password variant buffer
-    // The editbox's DISPLAY FontString ([fe+0x328], param_1[0xca] in FUN_0077da80).
-    // Its rendered text is a COPY of the input buffer, stored at
-    // *(fs + OFF_FONTSTRING_TEXT) — the editbox lays out (renders) from this copy,
-    // NOT from the input buffer above (which only the caret/measure path reads in
-    // place). So identifying the focused editbox's own render nodes needs BOTH
-    // buffers. Verified: FUN_00771d80 (FontString SetText) writes the copy to
-    // *(this+0xF0) via SStrDup.
-    OFF_EDITBOX_TEXT_FONTSTRING = 0x328, // CSimpleFontString* — the display text object
 
     // CSimpleEditBox cursor / selection internals (backs EditBox::Methods'
     // SetCursorPosition / GetCursorPosition). Verified from the engine's own
@@ -10647,24 +10655,6 @@ enum Offsets {
     // first flight. Distinct from FUN_TEXT_FONT_HEIGHT (0x005C6FA0), the
     // node-level gxu helper.
     FUN_FONTSTRING_FONT_HEIGHT = 0x007727B0,
-    // FontString measure-flags word (the `flags` arg the measure paths pass to
-    // FUN_0044D670/FUN_0044D750, and the justify field: bits 0-2). The measure
-    // core translates fs-level bits to gxu/tokenizer flags; bit 0x1000 → gxu
-    // bit 0x40 (OFF_TEXT_NODE_FLAGS bit 6 — the bit the tokenizer co-hook stands
-    // down on and the width hook tests).
-    //
-    // NOTE — bit 0x1000 is NON-SPACE-WRAP, not a dedicated "editable" flag: it is
-    // exactly what FontString:SetNonSpaceWrap toggles (verified in its setter
-    // FUN_0079E9F0: `fs+0x120 ^= 0x1000`). Text::InlineTexture uses gxu 0x40 as an
-    // EDITBOX PROXY — it works because the macro editor (the multi-line editbox
-    // the focused-buffer pointer test misses) enables non-space-wrap while chat/
-    // display text does not (observed node flags: macro editor 0x4D, chat 0x20D/
-    // 0x205). The correlation is not a guarantee: a DISPLAY fontstring with
-    // SetNonSpaceWrap(true) + inline |T icons would have its icons wrongly
-    // suppressed. Rare and never observed; the focused-buffer pointer test remains
-    // the primary editbox guard.
-    OFF_FONTSTRING_MEASURE_FLAGS = 0x120,
-
     // CSimpleFontString::GetDisplayText — the engine's truncation MECHANISM (the
     // reason FontString:IsTruncated has anything to detect). `char* __thiscall(fs
     // /*ecx*/, float availW, float availH)` (dummy-EDX __fastcall form; RET 0x8).

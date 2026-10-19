@@ -47,6 +47,7 @@
 #include "EventArgs.h"
 
 #include "Common.h"
+#include "RaidMarkers.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
@@ -81,6 +82,10 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
                       const char *flags, int zoneChannelID, int channelNumber,
                       const char *channelName, int channelUnk) {
     const auto fire = reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT));
+    // `{rt1}` → marker icon in the event text only; the engine's buffer keeps
+    // the tag for the bubble. 0x800 matches the engine's message-buffer cap.
+    char markerBuf[0x800];
+    text = Chat::RaidMarkers::ForChatEvent(text, markerBuf, sizeof markerBuf);
     // Another loader passing its own format: the arguments may not be ours to
     // extend, so fire exactly what was asked.
     if (fmt != reinterpret_cast<const char *>(Offsets::VAR_STR_CHAT_EVENT_FORMAT)) {

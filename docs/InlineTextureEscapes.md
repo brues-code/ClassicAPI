@@ -85,13 +85,19 @@ The DLL hooks the engine's own text pipeline — no companion addon:
   that contains a tall icon is hoverable across the whole icon
   (`49934b0`, `b9d0705`).
 - **Chat fade** — icons fade in lockstep with their chat line (`3ca3b7e`).
-- **Editboxes** — an editbox keeps the raw markup, so the caret stays aligned
-  (two complementary signals, below).
+- **Edit boxes** — render the icons in their text, as 4.3.4 does; the caret,
+  the mouse and the arrow keys treat an icon as one character, and Ctrl+C
+  drops icons (4.3.4's 0x1500 strip mask). Typed markup stays literal by the
+  engine's own input escape (below).
 - **Payload** — the full
   `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`:
   size, pen offset, sprite-sheet crop, and vertex tint. BLP and uncompressed
   TGA.
-- **Anti-spoof** — chat strips player-injected `|T` icons.
+- **Anti-spoof** — chat neutralizes a player-injected `|T` the way the edit
+  box neutralizes a typed one (the `|` is doubled).
+- **Raid markers** — `{rt1}`/`{skull}`/… become icons in the CHAT_MSG text and,
+  separately, in the speech bubble after its escape strip (4.3.4's
+  `CGChatBubbleFrame::ParseRaidIcons`).
 
 Every fs-level measure path now counts icons: width (`FUN_00772890`), height
 (`FUN_007729B0`), wrap (`FUN_005C7260`), and the substring measure
@@ -170,7 +176,7 @@ SetTexture `+0x104`). Selector map (shared across GL/D3D backends): 7=blend,
 0x10=depthtest, 0x14=cullface, 0x17-0x1e=texture bind (8 units),
 0x1f-0x26=colorop/alphaop preset (unit 0-7).
 
-## SOLVED — positioning, measure/wrap, editbox exclusion, texcoords
+## SOLVED — positioning, measure/wrap, edit boxes, texcoords
 
 The primitive draws at arbitrary coords; the rest is knowing WHERE and WHEN.
 Everything is in [src/text/InlineTexture.cpp](../src/text/InlineTexture.cpp);
@@ -195,8 +201,7 @@ frame → renderNode [frame+0x118] → group [renderNode+0x18]
 - The **emitter** `FUN_005ccbe0(line, text, len, colorState, penXYZ, pageMask,
   linkState)` builds one wrapped line's glyph quads. `this` (the "line"/node the
   icon list keys on) owns batches `[+0xa0+page*4]` and origin `[+0x70]`. **Note
-  the render node the emitter sees has NO back-pointer up to the frame** — the
-  editbox discriminator had to be found another way (see below).
+  the render node the emitter sees has NO back-pointer up to the frame.**
 
 ### Positioning — segmented delegation (co-hook the emitter)
 
@@ -223,14 +228,27 @@ We do NOT reimplement the emitter's intricate glyph vertex math. Instead, in the
    does NOT reset it between left-justified lines, so leaving it mutated
    cascade-shifts every following line).
 
-### FontString pipe-doubling — the escape arrives as `||T…||t`
+### The span rule — `|T…|t` only, `||` is always a literal pipe
 
-The FontString text sanitizer **doubles any pipe that doesn't begin a recognized
-escape** so it renders as a literal `|`. 1.12 doesn't know `|T`, so a caller's
-`|Tpath:h|t` reaches the emitter as `||Tpath:h||t` (verified: emitter text length
-+2, pipes doubled). The detector therefore matches BOTH the doubled form (the
-real-world case) and a clean `|T` (should one ever arrive undoubled). Normal
-doubled pipes (`|| `) never match because the next char must be `T`.
+One scanner, `IconSpanAt`, decides what a span is, with 4.3.4's
+`GxuDetermineQuotedCode` CODE_TEXTURESTART rule: after `|T` (or `|A`), the
+FIRST `|` must be followed by `t` (`a`), and an empty `|T|t` is literal.
+Anything else is not a span and draws as text. Every walker steps over `||`
+as a pair, because `||` is the escaped pipe in both engines.
+
+That is what keeps typed markup literal everywhere — chat display, edit
+boxes, macros: the edit box stores a typed `|` as `||` (`0x77c254`; Paste
+goes through the same `InsertChar`, as in 4.3.4), so a typed `|Tpath|t` is
+`||Tpath||t` in every buffer it reaches.
+
+(An earlier version matched a "doubled" `||T…||t` form too, on the belief
+that the FontString sanitizer doubled unknown escapes. Stock 1.12 has no
+such sanitizer — not SetText `0x771d80`, its grammar pass `0x7716f0`,
+FitText `0x771ec0`, nor the edit box's RebuildLabel `0x77d4d0`. The `||T`
+seen in chat lines was typed text, and our own `{rt1}` expansion emitted it
+on purpose to survive the bubble's escape strip. Matching it turned every
+typed `|T` into an icon, which is why the edit box needed the suppression
+gates the span rule replaced.)
 
 ### bit-3 batch-clear mode
 
@@ -368,13 +386,9 @@ the measure core `FUN_0044D670`, then divides the pen-space result by
 `fs+0x7C`.
 
 The co-hook lives in `src/text/InlineTexture.cpp`. It calls the original,
-then adds `SumIconAdvances(text) / K` when two gates pass:
-
-- `InlineInterceptActive(text)` is true — the **same predicate** the tokenizer
-  hook stands down on, factored into one function so measure and render can
-  never disagree.
-- The fs is not an editbox: `fs+0x120 & 0x1000` is clear (the fs-level bit
-  `FUN_0044D670` translates into the gxu editbox flag 0x40).
+then adds the icons' advances (`SumIconAdvances`) whenever the feature is
+on — the same condition the tokenizer hook intercepts on, so measure and
+render never disagree.
 
 The icon sum is computed in TRUE PEN PX — the exact numbers the emitter
 reserves — and bridged into the getter's return space by the font height
@@ -415,8 +429,7 @@ measure `FUN_005C2070`, the chars-that-fit counter `FUN_005C21C0` (ellipsis),
 and the break-array computer `FUN_005C2430` (behind `FUN_00772B60`).
 
 The co-hook shrinks the `wrapWidth` argument by a **minimal feasible
-shrink**, gated on the same `InlineInterceptActive` predicate plus the flags
-editbox bit 0x40 the dispatcher already carries. The stepper reports each
+shrink** whenever the feature is on. The stepper reports each
 probe's measured (icons-at-zero) line width in `outWidth`, which gives a
 direct feasibility check: the line renders inside the frame iff its icons
 fit in the shrink plus the spare the break left (`iconSum ≤ s + (probeW −
@@ -470,10 +483,11 @@ line through our co-hooked tokenizer (`FUN_005c2810`) and wrap-stepper
 (`FUN_005c7260`). So the recorded rect rides the same icon-aware position
 accounting the wrap fix installs; the icon lands inside the hover region for free,
 and hovering it fires the frame's `OnHyperlinkEnter`. This is a consequence of the
-wrap fix, not a separate feature. (Ghidra caveat: the decompile of the
-`FUN_005cd310` call args is mangled — a pointer-as-float + an uninitialized temp —
-so this is confirmed by the call path plus in-game test, not the byte-level
-formula.)
+wrap fix, not a separate feature. (`FUN_005cd310` itself, from benilla
+font/string "Hyperlink regions", difftested: it multiplies the rect's y fields
+`+0x08`/`+0x10` by 1/H and its x fields `+0x0c`/`+0x14` by 1/W and appends the
+32-byte record to the array at `+0x7c`. Ghidra's own decompile of the call
+args is mangled.)
 
 **Still icon-blind (accepted residuals):**
 
@@ -488,69 +502,46 @@ formula.)
   differently (`_classicapi_InlineTexEnable`) keeps its old base width until
   the next `SetText`/font change re-dirties it. Debug-toggle-only.
 
-**Editbox measure stays raw (by design).** The caret/measure path reads the
-focused editbox's INPUT buffer in place, and the tokenizer stands down on it
-per-editbox (`TextInFocusedEditbox` pointer-range test — not a global focus
-check), so caret math measures the raw `|T…|t` literal the editbox renders.
-The width hook mirrors that with the `fs+0x120 & 0x1000` editable gate. One
-marginal wobble: the focused single-line chat editbox's display fontstring
-carries editable=0 (only multi-line editors set the bit), so the caret
-positioner's line-boundary branch (multi-line-only in practice) can see an
-icon-adjusted `FUN_00772890` on it. Closing that costs a per-token content
-compare, which is not worth it.
+### Edit boxes — 4.3.4's model, no special case
 
-### Editbox exclusion — two COMPLEMENTARY signals (bit 6 + focus global)
+4.3.4's edit box renders `|T…|t` in its text: no frame code ever sets the
+FontString style bit 0x10000 that `ConvertStringFlags` maps to the gxu
+texture-off flag 0x1000. Its cursor treats the span as one markup token
+(`UpdateTextInfo` / `GetNumToLen`), and its `CopyToClipboard` strips with
+0x1500 — colours, links AND textures. Typed markup never renders because a
+typed `|` is stored as `||` (`CSimpleEditBox.cpp`, `ch == '|'`). 1.12 does
+the same input escape, so ClassicAPI's edit boxes need no special case:
 
-Editable text must show raw, editable `|T…|t` markup, not rendered icons — you
-edit macros, tweak icon fields, copy/paste texture strings. **This is
-retail-correct, verified in-game on a modern client:** typing
-`|TInterface\Icons\INV_Misc_Coin_01:16|t` into the chat entry box OR a macro body
-shows it **raw** (no icon) — Blizzard neutralizes player-*typed* escape sequences
-as anti-abuse — while addon/system text (`AddMessage`, `GetCoinTextureString`)
-renders. Retail's discriminator is the text's SOURCE (trusted vs player-typed),
-not editbox-vs-display; a shift-clicked item link renders in the chat box because
-it's inserted through the trusted path, but a typed `|T`/`|c` does not. Our
-editbox-raw + display-renders split reproduces the same observable outcome. (One
-mechanism-level divergence we accept: our editbox-raw uses the GLOBAL focus signal
-below, so while an editbox is focused OTHER display text that rebuilds also
-briefly shows raw; retail suppresses per-source. Cosmetic, and a per-editbox fix
-would need hot-path text-buffer matching — not worth it.) 1.12's tokenizer,
-unlike 4.3.4's, has no per-render texture-disable bit (4.3.4 uses tokenizer flag
-**0x1000** to kill only `|T`, **0x800** to kill all escapes), and editbox text
-nodes are NOT distinguishable by class from the render node — the emitter can't
-reach the owning frame. It takes **two signals together**, not one (an earlier
-version of this note wrongly called the focus global a redundant "belt-and-
-suspenders fallback" — removing it renders the chat/copy boxes' `|T` as icons):
+- **Render** — the label FontString (`RebuildLabel` `0x77d4d0`,
+  `SetText(buffer + scroll, 0)`, no pipe doubling) renders like any other,
+  and its regions parent to the edit box, so a ScrollFrame clips them.
+- **Cursor** — the class array (`0x77ba90`) tokenizes through our tokenizer
+  hook, so a span is one class-6 letter: Left/Right cross it in one step,
+  Backspace deletes it whole, and an insert can never land inside it.
+  Class 6 is also the safe class — a skip class (0/4) as the last token
+  hangs the step loop (benilla ui/editboxmarkup "Faults"). 4.3.4 joins an
+  icon with the following character into one step; ours is its own step.
+- **Caret x** — `FUN_0077DA80` measures the line through
+  `FUN_00772AE0`, whose co-hook adds the icons.
+- **Click → cursor, single-line window** — `GetIndexAtPoint` (`0x77d0d0`),
+  `RebuildLabel` and `MeasureWindow` count characters with
+  `FUN_FONTSTRING_FIT_TEXT` (`0x772bc0` → `0x44d860` → `0x5c6c50`), whose
+  kernel counts an icon as one character of no width. Its co-hook mirrors
+  4.3.4's `GxuFontGetMaxCharsWithinWidth`: the run before each icon is fitted
+  by the original with the budget the earlier icons left, and an icon fits
+  when the icon-aware width through its end does.
+- **Ctrl+C** — `CopySelection` (`0x77e1d0`) pushes 0x500; patched to 4.3.4's
+  0x1500, and the `GxuStripControlCodes` (`0x5c2590`) co-hook honours 0x1000
+  by dropping spans and stray `|t`. Paste re-escapes every `|`
+  (`InsertChar` per character), as in 4.3.4.
 
-- **Node flag `[node+0x5c]` bit 6 (0x40) = EDITABLE** — catches the **macro
-  editor** (`MacroFrameText`, flags `0x4D`), which builds its layout once,
-  **un-focused**, so the focus global never sees it. But single-line inputs
-  (chat entry box, `pfChatCopyBox`) have bit 6 **CLEAR** — their nodes are
-  `0x0D`/`0x20D`, identical to display FontStrings — so bit 6 can't catch them.
-- **Focused-editbox global `DAT_00cf4dc8`** (`InputFocused()`; holds the editbox
-  with keyboard focus, cleared by `ClearFocus` = `FUN_0077e410`) — catches those
-  single-line inputs. It's GLOBAL (true UI-wide, not per-node), which is why,
-  while an editbox is focused, other display text that *rebuilds* also briefly
-  renders raw. That's an accepted tradeoff: there is no per-node signal for
-  single-line inputs, and when you're in an editbox seeing raw markup is what you
-  want anyway.
-
-**Why the tokenizer's bit-6 gate is load-bearing for RENDER, not just measure:**
-when the emitter suppresses an editbox it delegates to the ORIGINAL emitter,
-which **re-enters the tokenizer** to lay out glyphs (`FUN_005ccbe0` →
-`FUN_005c2810`). On that render path `flags` is the node's own flags, so bit
-0x40 makes the tokenizer stand down and the `|T` draws as literal text. Drop the
-bit-6 gate and the (un-focused) macro editor draws **BLANK** — the tokenizer eats
-the span as a zero-width token and the original emitter renders nothing (verified
-in-game). Focused single-line inputs get the same "don't intercept" via
-`Suppressed()` → `InputFocused()`. So both the emitter and the tokenizer consult
-`Suppressed() || bit-6`; the two must agree or you get blank-vs-raw mismatches.
-
-(Dead end: **monochrome render flag `DAT_00c2b9dc`** (`FUN_005c8b70` sets it per
-group) — un-set at MacroFrameText's build time and flickered as a flush gate.
-Dropped. The editbox class vtable is `0x0081c8c0`, its script-slot resolver
-`FUN_0077a310` with focus slots at `+0x438`/`+0x440` — useful if a frame-level
-hook is ever needed.)
+(History: before the span rule, every typed `|T` reached the emitter as a
+matching `||T`, so edit boxes were special-cased with three gates — node
+flag bit 6, a focused-buffer pointer test, and a content compare of the
+render line against the focused input — plus a re-entry bracket so the
+delegated raw layout did not draw blank. All removed. Node flag bit 6 is
+NON-SPACE-WRAP, not "editable"; the gate only worked because the macro
+editor sets it.)
 
 ### Descriptor fields + the vertical flip
 

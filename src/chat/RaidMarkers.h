@@ -21,10 +21,28 @@ namespace Chat::RaidMarkers {
 // icon textures — the modern `{rt1}`..`{rt8}` / `{star}` / `{circle}` / `{skull}`
 // (etc.) chat substitutions, backported onto the inline-texture renderer. Returns
 // `msg` unchanged when it contains no `{` (the common case — no copy), otherwise a
-// rewritten copy in `buf`. Called by Chat::Dispatch AFTER the `|T` anti-spoof
-// sanitize, so a player can use the fixed, safe marker icons but still can't
-// inject an arbitrary texture path. See RaidMarkers.cpp for the token table and
-// the icon→texcoord mapping.
+// rewritten copy in `buf`. Only ever applied to text that went through the `|T`
+// anti-spoof sanitize, so a player can use the fixed, safe marker icons but
+// still can't inject an arbitrary texture path. See RaidMarkers.cpp for the
+// token table, the icon→texcoord mapping and the two consumers.
 const char *Substitute(const char *msg, char *buf, size_t bufSize);
+
+// Marks a server chat message being dispatched (Chat::Dispatch opens it around
+// the engine's dispatch). Only its CHAT_MSG_* event gets the markers; client
+// notices and text emotes fire outside one. Restores the prior state.
+class EventScope {
+public:
+    EventScope();
+    ~EventScope();
+    EventScope(const EventScope &) = delete;
+    EventScope &operator=(const EventScope &) = delete;
+
+private:
+    bool prev_;
+};
+
+// The CHAT_MSG_* event text: Substitute inside an EventScope, else `text`.
+// Called from Chat::EventArgs' fire site.
+const char *ForChatEvent(const char *text, char *buf, size_t bufSize);
 
 } // namespace Chat::RaidMarkers

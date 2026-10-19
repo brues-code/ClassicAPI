@@ -23,9 +23,10 @@
 //   - Chat::IconFilter::Sanitize — strip player-injected `|T` icon spoofs from
 //     the message before the engine builds the chat line AND the speech bubble
 //     (both come from the same buffer, so one sanitize covers both).
-//   - Chat::RaidMarkers::Substitute — expand `{rt1}`/`{skull}`/… raid-target
-//     tokens into inline marker icons. Runs AFTER Sanitize so a player gets the
-//     fixed marker icons but still can't inject an arbitrary `|T` path.
+//   - Chat::RaidMarkers::EventScope — mark the message whose CHAT_MSG_* text
+//     gets `{rt1}`/`{skull}`/… expanded into marker icons (at the event fire;
+//     the bubble expands its own). AFTER Sanitize, so a player gets the fixed
+//     marker icons but still can't inject an arbitrary `|T` path.
 //   - Chat::EventArgs::SenderScope — name the sender for the CHAT_MSG_* event
 //     the original fires synchronously: its arg12 and `GetCurrentChatGUID()`.
 //
@@ -151,10 +152,11 @@ void __fastcall ChatDispatch_h(
     char iconBuf[0x800];
     const char *msg = Chat::IconFilter::Sanitize(message, iconBuf, sizeof iconBuf);
 
-    // Expand raid-target tokens ({rt1}/{skull}/…) into inline marker icons —
-    // after the sanitize, so only these fixed, safe escapes are added.
-    char markerBuf[0x800];
-    msg = Chat::RaidMarkers::Substitute(msg, markerBuf, sizeof markerBuf);
+    // Raid-target tokens ({rt1}/{skull}/…) become marker icons in the CHAT_MSG_*
+    // text the original fires (and, separately, in the bubble after its strip);
+    // the buffer keeps the tags. After the sanitize, so only these fixed, safe
+    // escapes are added.
+    Chat::RaidMarkers::EventScope markers;
 
     // The sender for the CHAT_MSG_* event the original fires synchronously;
     // restored when this scope ends (after the original returns).

@@ -18,9 +18,13 @@
 //
 //   - `text`         the string to copy (numbers are coerced, like Lua does).
 //   - `removeMarkup` optional; when truthy, strip WoW UI escape sequences
-//                    (|cAARRGGBB..|r color, |H..|h..|h hyperlinks keeping the
-//                    visible text, |T..|t textures, |n newline, || → |) before
-//                    copying, so the clipboard gets plain text.
+//                    before copying, so the clipboard gets plain text. This is
+//                    the engine's own GxuStripControlCodes with 4.3.4's copy
+//                    mask — exactly what an edit box's Ctrl+C does: colours
+//                    and hyperlink markers go (the visible text stays),
+//                    `|T..|t` / `|A..|a` icons go (the strip co-hook in
+//                    Text::InlineTexture), `|n` becomes a newline and `||` a
+//                    single `|`.
 //   - returns        byte length of the copied (possibly stripped) string —
 //                    consistent with Lua's `#s`. 0 on an empty string or if
 //                    the clipboard couldn't be opened.
@@ -30,7 +34,10 @@
 // synthesizes CF_TEXT for legacy consumers.
 
 #include "Game.h"
+#include "Offsets.h"
 
+#include <cstdint>
+#include <cstring>
 #include <string>
 
 #include <windows.h>
@@ -39,71 +46,18 @@ namespace Clipboard::Copy {
 
 namespace {
 
-// Strip WoW UI escape sequences, leaving readable text. See header comment for
-// the set handled; unknown `|x` sequences are left verbatim so real text that
-// merely contains a pipe survives.
+using StripCodes_t = int(__fastcall *)(const char *text, int length, uint32_t mask, char *out,
+                                       int capacity);
+
+// The engine's strip never lengthens a text (every code it rewrites gets
+// shorter), so the input length plus the terminator is enough room. It
+// returns a pointer, not a count, and always terminates `out`.
 std::string StripMarkup(const char *s, unsigned len) {
-    std::string out;
-    out.reserve(len);
-    unsigned i = 0;
-    while (i < len) {
-        const char c = s[i];
-        if (c != '|') {
-            out.push_back(c);
-            ++i;
-            continue;
-        }
-        const char n = (i + 1 < len) ? s[i + 1] : '\0';
-        switch (n) {
-        case '|': // escaped pipe
-            out.push_back('|');
-            i += 2;
-            break;
-        case 'n': // newline token
-            out.push_back('\n');
-            i += 2;
-            break;
-        case 'r': // color reset
-            i += 2;
-            break;
-        case 'c': // color open: |c + up to 8 hex digits
-            i += 2;
-            for (int k = 0; k < 8 && i < len; ++k) {
-                const char h = s[i];
-                const bool isHex = (h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') ||
-                                   (h >= 'A' && h <= 'F');
-                if (!isHex)
-                    break;
-                ++i;
-            }
-            break;
-        case 'h': // hyperlink boundary (text separator or closer) — drop
-            i += 2;
-            break;
-        case 'H': // hyperlink data opener — skip through to the next |h
-            i += 2;
-            while (i < len && !(s[i] == '|' && i + 1 < len && s[i + 1] == 'h'))
-                ++i;
-            break; // the |h is dropped by the 'h' case on the next iteration
-        case 't': // stray texture closer — drop
-        case 'a': // stray atlas closer — drop
-            i += 2;
-            break;
-        case 'T': // texture opener — skip through to the next |t
-        case 'A': // atlas opener — skip through to the next |a
-        {
-            const char closer = (s[i + 1] == 'A') ? 'a' : 't';
-            i += 2;
-            while (i < len && !(s[i] == '|' && i + 1 < len && s[i + 1] == closer))
-                ++i;
-            break; // the closer is dropped by the 't'/'a' case next iteration
-        }
-        default: // unknown sequence — keep the pipe literally
-            out.push_back('|');
-            ++i;
-            break;
-        }
-    }
+    std::string out(static_cast<size_t>(len) + 1, '\0');
+    reinterpret_cast<StripCodes_t>(static_cast<uintptr_t>(Offsets::FUN_GXU_STRIP_CONTROL_CODES))(
+        s, static_cast<int>(len), Offsets::GXU_STRIP_MASK_COPY, out.data(),
+        static_cast<int>(out.size()));
+    out.resize(std::strlen(out.c_str()));
     return out;
 }
 

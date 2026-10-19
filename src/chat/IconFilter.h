@@ -17,12 +17,12 @@
 
 namespace Chat::IconFilter {
 
-// Strips player-injected inline-texture (`|T…|t`) escapes from a chat message.
-// Returns `msg` unchanged when it contains no `|T` (the common case — no copy),
-// otherwise a sanitized copy written into `buf`. Called by Chat::Dispatch on the
-// message the engine's chat handler is about to display. See IconFilter.cpp for
-// the anti-spoof rationale and why sanitizing here (not in the text emitter) is
-// the only place player-typed and addon `|T` are distinguishable.
+// Neutralizes player-injected inline-texture (`|T…|t`, `|A…|a`) openers in a
+// chat message, as the edit box neutralizes typed ones: the `|` is doubled.
+// Returns `msg` unchanged when it contains no opener (the common case — no
+// copy), otherwise a sanitized copy written into `buf`. Called by
+// Chat::Dispatch on the message the engine's chat handler is about to display.
+// See IconFilter.cpp for how a real opener can reach chat at all.
 const char *Sanitize(const char *msg, char *buf, size_t bufSize);
 
 } // namespace Chat::IconFilter
