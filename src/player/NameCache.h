@@ -69,8 +69,8 @@ const Entry *Lookup(uint64_t guid, const std::string **outName);
 // Used by `C_PlayerCache.GetPlayerInfoByName` for the case where
 // an addon has a player's name (e.g., from a `|Hplayer:Name|h`
 // chat link or `CHAT_MSG_SYSTEM` string) but no GUID —
-// `GetCurrentChatGUID()` returns nil for several chat event paths
-// the engine doesn't tag with the sender's GUID.
+// a CHAT_MSG_* event's arg12 is "" whenever the name sits in the
+// message text rather than being the sender.
 const Entry *LookupByName(const char *name);
 
 // Adds or updates an entry. Zero values for classID/raceID/sex are

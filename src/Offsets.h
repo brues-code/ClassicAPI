@@ -1760,32 +1760,70 @@ enum Offsets {
     VAR_RAID_MEMBER_COUNT = 0x00B713E0,
     RAID_MAX_SLOTS = 40,
 
-    // Chat-event dispatcher — single choke point through which all
-    // CHAT_MSG_* events fire after the SMSG_MESSAGECHAT packet handler
-    // (opcode 0x96 → FUN_0049D560) parses the wire data. Called with
-    // the sender GUID as stack args 9 and 10 (lo, hi).
+    // Chat-message dispatcher — builds the chat line and the speech bubble
+    // and fires the CHAT_MSG_* event (through FUN_0049B0B0).
     //
     // Calling convention: `__fastcall`, `RET 0x28` — ECX = the MESSAGE
-    // text, EDX = chat type, then 10 stack args ending in the sender
-    // GUID pair (lo, hi). (ECX was previously mislabeled "sender name";
-    // verified from the call-site disassembly in FUN_0049D560 —
-    // `MOV ECX,[EBP-0x10]` is the raw/processed message. The message is
-    // copied into one buffer that feeds BOTH the chat frame and the
-    // say/yell bubble spawn FUN_00608AC0.) Called from:
-    //   - FUN_0049D560 directly for live (non-throttled) chat
-    //   - The pending-chat queue processor (`__AUPENDINGCHAT`) for
-    //     messages buffered via FUN_0049CAE0 when the engine flag at
-    //     0x008435FC is set
-    //   - Many synthetic chat synthesizers throughout the codebase
-    //     (system notifications, arena team membership changes, etc.)
-    //     which pass 0 / NULL for the GUID args
+    // text, EDX = chat type, then 10 stack args: senderName, languageID,
+    // channel, targetName, flags ("AFK"/"DND"/"GM"), speaker GUID (lo, hi),
+    // rank, GUID (lo, hi). The speaker GUID is what the bubble spawn
+    // FUN_00608AC0 resolves; the last pair is the GUID read right before
+    // the message text. (ECX was previously mislabeled "sender name";
+    // `MOV ECX,[EBP-0x10]` in FUN_0049D560 is the message.) Called from:
+    //   - FUN_0049D560, the SMSG_MESSAGECHAT handler (return address
+    //     CHAT_DISPATCH_RET_PACKET)
+    //   - the two pending-chat callers (`__AUPENDINGCHAT` entries queued by
+    //     FUN_0049CAE0): FUN_0049CCC0, the name-query callback, dispatches a
+    //     sender's queued messages once that name arrives (return address
+    //     CHAT_DISPATCH_RET_PENDING_NAME) — the normal path for a sender the
+    //     name cache did not know; FUN_0049D230 drains what was queued out of
+    //     world (0x008435FC set; FUN_004908C0 clears it on entering the world
+    //     and drains, return address CHAT_DISPATCH_RET_PENDING_DRAIN)
+    //   - many client-made messages (system notices, channel notices, …)
+    //     that pass 0 for both GUID pairs
+    //
+    // Which pair holds the sender depends on the packet layout (vmangos
+    // ChatHandler::BuildChatPacket, matching FUN_0049D560's reads): say/
+    // party/yell send the sender twice; monster say/yell send sender, name,
+    // TARGET; monster emote/whisper and raid boss emote/whisper send name,
+    // TARGET; everything else sends the sender once. So the last pair is the
+    // sender for player chat and the monster's TARGET for monster chat.
     //
     // Hooked (once) by `Chat::Dispatch`, which orchestrates the concerns
-    // sharing this choke point: `Chat::CurrentGUID` (publish the sender
-    // GUID for `GetCurrentChatGUID()`), `Chat::IconFilter` (strip
-    // player-injected `|T` icon spoofs from chat + speech bubbles), and
-    // `Chat::RaidMarkers` (expand `{rtN}`/`{skull}`/… into inline markers).
+    // sharing this choke point: `Chat::EventArgs` (the sender GUID behind
+    // the event's arg12 and `GetCurrentChatGUID()`), `Chat::IconFilter` (strip player-injected `|T`
+    // icon spoofs from chat + speech bubbles), and `Chat::RaidMarkers`
+    // (expand `{rtN}`/`{skull}`/… into inline markers).
     FUN_CHAT_DISPATCH = 0x0049A870,
+    CHAT_DISPATCH_RET_PACKET = 0x0049DBD0,  // after the CALL at 0x0049DBCB
+    CHAT_DISPATCH_RET_PENDING_NAME = 0x0049CFC6,  // after the CALL at 0x0049CFC1
+    CHAT_DISPATCH_RET_PENDING_DRAIN = 0x0049D437, // after the CALL at 0x0049D432
+    // Pending-chat entry (200 bytes, allocated by FUN_0049CAE0). Both pending
+    // callers pass entry+OFF_PENDING_CHAT_CHANNEL as dispatch arg 5 and
+    // entry+OFF_PENDING_CHAT_FLAGS as arg 7, but zeros for both GUID pairs;
+    // the GUID the entry waits on (the dispatch's last pair) stays at
+    // OFF_PENDING_CHAT_GUID.
+    OFF_PENDING_CHAT_GUID = 0x10,    // u64
+    OFF_PENDING_CHAT_CHANNEL = 0x2C, // char[0x80]
+    OFF_PENDING_CHAT_FLAGS = 0xB8,   // char[5]
+    SMSG_MESSAGECHAT = 0x96,
+    // CHAT_MSG_* event fire, `__fastcall(text, chatType)` + 6 stack args
+    // (senderName, languageID, channelString, targetName, flags, channel
+    // record), RET 0x18. Three callers: FUN_CHAT_DISPATCH, FUN_0049B1B0
+    // (client-made messages) and FUN_CHAT_TEXT_EMOTE. Its one FUN_FIRE_EVENT
+    // call is PATCH_CHAT_EVENT_FIRE_CALL, 10 args after the format:
+    // text, sender, language, channelString, target, flags, zoneChannelID,
+    // channelNumber, channelName, (channel record +0x98). Turtle sends chat
+    // type 0x5E through .tdata (0x00D06040) to change the event id, which
+    // jumps back to the PUSH ECX right before that CALL.
+    FUN_CHAT_EVENT_FIRE = 0x0049B0B0,
+    PATCH_CHAT_EVENT_FIRE_CALL = 0x0049B199, // E8 rel32 → FUN_FIRE_EVENT
+    VAR_STR_CHAT_EVENT_FORMAT = 0x00844608,  // "%s%s%s%s%s%s%d%d%s%d"
+    // CHAT_MSG_TEXT_EMOTE builder, `__fastcall(const u64 *senderGuid, emote,
+    // const char *target, emoteNum)`, RET 8. Called by the SMSG_TEXT_EMOTE
+    // handler and its pending-emote queue; fires through FUN_CHAT_EVENT_FIRE
+    // without passing the GUID on.
+    FUN_CHAT_TEXT_EMOTE = 0x0049B200,
     // Per-player inventory manager lives at this offset on the player object.
     // +0x00 = u32 slot count (OFF_INVMGR_SLOT_COUNT), +0x04 = u64* GUID
     // array (see OFF_INVMGR_GUID_ARRAY below for the slot-range map).

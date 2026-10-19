@@ -168,6 +168,7 @@ build instructions.
   - [`C_EventUtils.IsEventValid(eventName)`](#c_eventutilsiseventvalideventname)
   - [`GetFramesRegisteredForEvent(event)`](#getframesregisteredforeventevent)
   - [`PLAYER_ENTERING_WORLD` payload (`isInitialLogin`, `isReloadingUi`)](#player_entering_world-payload-isinitiallogin-isreloadingui)
+  - [`CHAT_MSG_*` arguments `lineID` (`arg11`) and `guid` (`arg12`)](#chat_msg_-arguments-lineid-arg11-and-guid-arg12)
   - [`PLAYER_TOTEM_UPDATE` event](#player_totem_update-event)
   - [`BAG_UPDATE_DELAYED` event](#bag_update_delayed-event)
   - [`PLAYER_EQUIPMENT_CHANGED` event](#player_equipment_changed-event)
@@ -1645,51 +1646,28 @@ end
 
 ### `GetCurrentChatGUID()`
 
-Returns the sender's GUID for whichever `CHAT_MSG_*` event is
-currently being dispatched, or `nil` if called outside a chat
-event or for a synthetic chat with no real sender (e.g.
-`CHAT_MSG_SYSTEM`).
+Returns the sender's GUID for the `CHAT_MSG_*` event that is being handled
+now, or `nil`. It gives the same sender as the event's `arg12` (see
+[`CHAT_MSG_*` arguments](#chat_msg_-arguments-lineid-arg11-and-guid-arg12)),
+with `nil` where `arg12` is `""`. It is also `nil` when you call it outside a chat event.
 
-Format matches `UnitGUID`: `"0xHHHHHHHHLLLLLLLL"` (16 hex digits,
-hi dword first).
+The format is the same as `UnitGUID`: `"0xHHHHHHHHLLLLLLLL"`.
 
 ```lua
 local f = CreateFrame("Frame")
 f:RegisterEvent("CHAT_MSG_CHANNEL")
-f:RegisterEvent("CHAT_MSG_SAY")
-f:RegisterEvent("CHAT_MSG_WHISPER")
 f:SetScript("OnEvent", function()
     local guid = GetCurrentChatGUID()
     if guid then
         local _, class, _, race = GetPlayerInfoByGUID(guid)
-        DEFAULT_CHAT_FRAME:AddMessage(string.format(
-            "%s: %s [%s %s]", arg2, arg1, class or "?", race or "?"))
+        print(string.format("%s: %s [%s %s]", arg2, arg1, class or "?", race or "?"))
     end
 end)
 ```
 
-The `CHAT_MSG_*` events don't include the sender GUID in their
-payload. Addons that need to identify chatters reliably (rather than by
-sender name,
-which is locale-fragile and ambiguous across realms) currently
-strcmp against an addon-maintained name cache. This function lets
-them skip that work.
-
-**Implementation**: hooks the engine's chat dispatcher at
-`FUN_CHAT_DISPATCH` (`0x0049A870`), which receives the sender
-GUID as args 11/12 of a 12-arg `__fastcall`. The hook stashes the
-GUID into a static global before forwarding to the original
-function; the engine then fires the appropriate `CHAT_MSG_*`
-event synchronously inside that window, so `GetCurrentChatGUID()`
-called from the addon's OnEvent sees the right GUID. The global
-is restored to its prior value (not cleared) on hook return, so
-nested chat dispatch (e.g. an addon calling `SendChatMessage`
-from its handler) doesn't lose the outer context's GUID.
-
-The function returns `nil` rather than `"0x0000000000000000"`
-for synthetic chat (system messages, login banners, etc.) where
-the GUID args are zero — matches the idiomatic
-`if GetCurrentChatGUID() then` check.
+If a chat event handler causes another chat event, the function gives the
+inner event's sender while that handler runs. When the inner handler
+returns, it gives the outer event's sender again.
 
 ## Class
 
@@ -3852,6 +3830,34 @@ PEW is a no-arg event, so the engine broadcasts it through the
 the payload. The flags are derived from whether the in-game Lua state was
 just (re)built (login/`reload`) and whether we just came through the
 glue/login screen — no `PLAYER_ENTERING_WORLD`-specific engine hook.
+
+### `CHAT_MSG_*` arguments `lineID` (`arg11`) and `guid` (`arg12`)
+
+Every `CHAT_MSG_*` event has two more arguments after the usual ten:
+
+- `arg11` — `lineID`. A number that identifies the message. Each message
+  gets the next number, and all frames that get the message see the same
+  number. Text emotes (`CHAT_MSG_TEXT_EMOTE`) always have `0`.
+- `arg12` — `guid`. The sender's GUID, in the same format as `UnitGUID`
+  (`"0xHHHHHHHHLLLLLLLL"`). It is an empty string `""` when the sender is
+  not a player: monster chat, system messages and channel notices. It is
+  also `""` for messages from a GM.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("CHAT_MSG_SAY")
+f:RegisterEvent("CHAT_MSG_WHISPER")
+f:SetScript("OnEvent", function()
+    local lineID, guid = arg11, arg12
+    if guid ~= "" then
+        local _, class = GetPlayerInfoByGUID(guid)
+        print(arg2 .. " is a " .. (class or "?"))
+    end
+end)
+```
+
+Use `lineID` when several handlers see the same message and you want to
+act on it only one time.
 
 ### `PLAYER_TOTEM_UPDATE` event
 
@@ -14091,9 +14097,8 @@ explicitly.
 Returns
 `localizedClass, englishClass, localizedRace, englishRace, sex, name, realm, guid`
 for a player, or `nil` if the name is not known. Use it when you have a
-player's name but not the GUID. For example, `GetCurrentChatGUID()`
-returns nil for some chat events (system messages, some channel
-messages).
+player's name but not the GUID. For example, a system message names a
+player in its text, and its `arg12` is `""`.
 
 ```lua
 local _, class, _, race, _, _, _, guid = C_PlayerCache.GetPlayerInfoByName("Gedwyr")

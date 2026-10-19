@@ -26,53 +26,124 @@
 //   - Chat::RaidMarkers::Substitute — expand `{rt1}`/`{skull}`/… raid-target
 //     tokens into inline marker icons. Runs AFTER Sanitize so a player gets the
 //     fixed marker icons but still can't inject an arbitrary `|T` path.
-//   - Chat::CurrentGUID::DispatchScope — publish the sender GUID for the
-//     synchronous CHAT_MSG_* event so `GetCurrentChatGUID()` can read it.
+//   - Chat::EventArgs::SenderScope — name the sender for the CHAT_MSG_* event
+//     the original fires synchronously: its arg12 and `GetCurrentChatGUID()`.
 //
-// Signature — `__fastcall`, `RET 0x28`:
-//   ECX  = arg1  — the MESSAGE text (verified from the call site in FUN_0049D560:
-//                  `MOV ECX,[EBP-0x10]` = the raw/processed message. An older
-//                  note mislabeled this "sender name".) Copied into one buffer
-//                  fed to both the chat frame and the bubble spawn FUN_00608AC0.
-//   EDX  = arg2  — chat type byte
-//   [esp+04] = arg3      [esp+08] = arg4      [esp+0c] = arg5
-//   [esp+10] = arg6      [esp+14] = arg7
-//   [esp+18] = arg8  — target GUID lo (whisper/channel target)
-//   [esp+1c] = arg9  — target GUID hi
-//   [esp+20] = arg10
-//   [esp+24] = arg11 — sender GUID lo   ← published
-//   [esp+28] = arg12 — sender GUID hi   ← published
+// Signature — `__fastcall`, `RET 0x28` (stack args at entry):
+//   ECX  = the MESSAGE text (`MOV ECX,[EBP-0x10]` in FUN_0049D560; copied into
+//          one buffer that feeds both the chat frame and the bubble spawn
+//          FUN_00608AC0)
+//   EDX  = chat type
+//   [esp+04] senderName   [esp+08] languageID   [esp+0c] channel
+//   [esp+10] targetName   [esp+14] flags ("AFK"/"DND"/"GM")
+//   [esp+18] / [esp+1c]  speaker GUID lo/hi — the unit the bubble goes on
+//   [esp+20] rank
+//   [esp+24] / [esp+28]  GUID lo/hi read right before the message text
 //
 // The `RET 0x28` cleanup (40 bytes = 10 stack args) MUST match the declared
 // signature exactly; an earlier 10-arg / `ret 0x20` version left 8 bytes
 // uncleaned per call and crashed the engine on a later indirect call.
+//
+// WHICH GUID IS THE SENDER. Neither pair is the sender for every caller, so
+// Sender() picks per caller and chat type (packet layouts in Offsets.h at
+// FUN_CHAT_DISPATCH):
+//   - Monster say/yell/emote/whisper and raid boss emote: the last pair is the
+//     monster's TARGET — often the local player — and the speaker pair, where
+//     the packet has one, is a creature. 4.3.4 reports no GUID for a creature
+//     sender, so these report none.
+//   - Raid boss whisper (wire type 0x59): FUN_0049D560 reads name + TARGET and
+//     dispatches it as a plain whisper (type 6), so the chat type no longer
+//     shows it. The SMSG_MESSAGECHAT subscriber below keeps the wire type for
+//     the dispatch the handler is about to make.
+//   - The two pending-chat callers pass zeros for both pairs: the name-query
+//     callback that sends a sender's queued messages once the name arrives
+//     (every message from a sender the name cache did not know yet), and the
+//     enter-world drain. The entry keeps the GUID it was waiting on, and
+//     arg 5 / arg 7 point into that entry.
+//   - Everything else: the last pair.
 
-#include "CurrentGUID.h"
+#include "EventArgs.h"
 #include "IconFilter.h"
 #include "RaidMarkers.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "net/PacketDispatch.h"
+#include "net/PacketReader.h"
 
 #include <cstdint>
+#include <intrin.h>
 
 namespace Chat::Dispatch {
 
 namespace {
 
+constexpr int CHAT_MSG_MONSTER_SAY = 0x0B;
+constexpr int CHAT_MSG_MONSTER_YELL = 0x0C;
+constexpr int CHAT_MSG_MONSTER_EMOTE = 0x0D;
+constexpr int CHAT_MSG_MONSTER_WHISPER = 0x1A;
+constexpr int CHAT_MSG_RAID_BOSS_WHISPER = 0x59;
+constexpr int CHAT_MSG_RAID_BOSS_EMOTE = 0x5A;
+
 using ChatDispatch_t = void(__fastcall *)(
     const char *message, int chatType,
-    int arg3, int arg4, int arg5, int arg6, int arg7,
-    int targetGuidLo, int targetGuidHi, int arg10,
-    int senderGuidLo, int senderGuidHi);
+    const char *senderName, int languageID, const char *channel, const char *targetName,
+    const char *flags, int speakerGuidLo, int speakerGuidHi, int rank,
+    int guidLo, int guidHi);
 
 ChatDispatch_t g_original = nullptr;
 
+// Wire chat type of the SMSG_MESSAGECHAT being handled. Set before the engine's
+// handler runs, which is the only caller that returns to
+// CHAT_DISPATCH_RET_PACKET, so it is always that packet's type there.
+int g_packetChatType = -1;
+
+void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode == Offsets::SMSG_MESSAGECHAT && packet != nullptr)
+        g_packetChatType = Net::Read<uint8_t>(packet);
+}
+
+const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
+
+bool IsMonsterChat(int chatType) {
+    switch (chatType) {
+    case CHAT_MSG_MONSTER_SAY:
+    case CHAT_MSG_MONSTER_YELL:
+    case CHAT_MSG_MONSTER_EMOTE:
+    case CHAT_MSG_MONSTER_WHISPER:
+    case CHAT_MSG_RAID_BOSS_EMOTE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+uint64_t Sender(const void *caller, int chatType, const char *channel, const char *flags,
+                int guidLo, int guidHi) {
+    if (IsMonsterChat(chatType))
+        return 0;
+    const auto at = reinterpret_cast<uintptr_t>(caller);
+    if (at == Offsets::CHAT_DISPATCH_RET_PENDING_NAME ||
+        at == Offsets::CHAT_DISPATCH_RET_PENDING_DRAIN) {
+        const auto *entry =
+            reinterpret_cast<const uint8_t *>(channel) - Offsets::OFF_PENDING_CHAT_CHANNEL;
+        // Both pointers must land in one entry, or this is not the layout the
+        // drain is known to pass.
+        if (reinterpret_cast<const uint8_t *>(flags) != entry + Offsets::OFF_PENDING_CHAT_FLAGS)
+            return 0;
+        return *reinterpret_cast<const uint64_t *>(entry + Offsets::OFF_PENDING_CHAT_GUID);
+    }
+    if (at == Offsets::CHAT_DISPATCH_RET_PACKET && g_packetChatType == CHAT_MSG_RAID_BOSS_WHISPER)
+        return 0;
+    return (static_cast<uint64_t>(static_cast<uint32_t>(guidHi)) << 32) |
+           static_cast<uint32_t>(guidLo);
+}
+
 void __fastcall ChatDispatch_h(
     const char *message, int chatType,
-    int arg3, int arg4, int arg5, int arg6, int arg7,
-    int targetGuidLo, int targetGuidHi, int arg10,
-    int senderGuidLo, int senderGuidHi)
+    const char *senderName, int languageID, const char *channel, const char *targetName,
+    const char *flags, int speakerGuidLo, int speakerGuidHi, int rank,
+    int guidLo, int guidHi)
 {
     // Strip player-injected `|T` icon escapes (covers chat line + speech bubble;
     // both build from this message). The 0x800 buffer matches the engine's own
@@ -85,14 +156,13 @@ void __fastcall ChatDispatch_h(
     char markerBuf[0x800];
     msg = Chat::RaidMarkers::Substitute(msg, markerBuf, sizeof markerBuf);
 
-    // Publish the sender GUID for the CHAT_MSG_* event the original fires
-    // synchronously; restored when this scope ends (after the original returns).
-    Chat::CurrentGUID::DispatchScope guid(static_cast<uint32_t>(senderGuidLo),
-                                          static_cast<uint32_t>(senderGuidHi));
+    // The sender for the CHAT_MSG_* event the original fires synchronously;
+    // restored when this scope ends (after the original returns).
+    Chat::EventArgs::SenderScope sender(
+        Sender(_ReturnAddress(), chatType, channel, flags, guidLo, guidHi), flags, true);
 
-    g_original(msg, chatType, arg3, arg4, arg5, arg6, arg7,
-               targetGuidLo, targetGuidHi, arg10,
-               senderGuidLo, senderGuidHi);
+    g_original(msg, chatType, senderName, languageID, channel, targetName, flags,
+               speakerGuidLo, speakerGuidHi, rank, guidLo, guidHi);
 }
 
 static const Game::HookAutoRegister _hookreg{

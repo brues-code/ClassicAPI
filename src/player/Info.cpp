@@ -201,8 +201,8 @@ int __fastcall Script_UnitNameFromGUID(void *L) {
 //
 // Companion to `GetPlayerInfoByGUID` for the case where an addon has
 // a player's name from a `|Hplayer:Name|h` chat link or
-// CHAT_MSG_SYSTEM string but `GetCurrentChatGUID()` returns nil (the
-// engine doesn't propagate the sender GUID for every chat path).
+// CHAT_MSG_SYSTEM string, where the event's arg12 sender GUID is ""
+// (the name is in the message text, not the sender).
 // The 8th `guid` return — absent from `GetPlayerInfoByGUID` since
 // the caller already has it — lets name-based callers chain into
 // any GUID-keyed API (e.g., friend list, ignore list).
