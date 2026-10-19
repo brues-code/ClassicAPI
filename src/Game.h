@@ -543,16 +543,17 @@ bool CallGlobalString(void *L, const char *name, const char *arg);
 // section in CLAUDE.md for the underlying offsets and ABI.
 namespace Console {
 
-// Console-command handler ABI: `args` is the command-line text after
-// the command name (empty string when invoked bare). The engine
-// ignores the return value; return 1 by convention.
-using CommandHandler = int(__fastcall *)(void *unused, const char *args);
+// Console-command handler ABI — 4.3.4's `COMMANDHANDLER(command,
+// arguments)`. `command` is the name the command was invoked by, which
+// is how one handler serves several names: every CVar is registered with
+// the shared FUN_CONSOLE_CVAR_COMMAND_HANDLER, which looks the CVar up by
+// `command`. `args` is the text after the name (empty string when
+// invoked bare). The engine ignores the return value; return 1.
+using CommandHandler = int(__fastcall *)(const char *command, const char *args);
 
-// Help-grouping categories — the engine's `help` enumerates these nine
-// (in this order). Cosmetic: the value only affects which group `help`
-// lists the command under; the engine doesn't validate it. Values are
-// sequential table indices (graphics=1 confirmed via FUN_0066F6C0, the
-// rest follow the displayed order).
+// Help-grouping categories — 4.3.4's `CATEGORY` enum, which matches the
+// nine-entry table the 1.12 `help` command lists (VAR_CONSOLE_CATEGORY_TABLE).
+// Cosmetic: only `help` grouping reads it; the registrar doesn't validate it.
 enum Category {
     CATEGORY_DEBUG = 0,
     CATEGORY_GRAPHICS = 1,
@@ -574,9 +575,30 @@ enum Category {
 void RegisterCommand(const char *name, CommandHandler handler, int category,
                      const char *description);
 
+// Line colour types — 4.3.4's `COLOR_T`, indexing the nine-entry
+// VAR_CONSOLE_COLORS table. The engine's `help` writes WARNING (yellow),
+// its failures ERROR (red), and its plain output DEFAULT.
+enum Color {
+    COLOR_DEFAULT = 0,
+    COLOR_INPUT = 1,
+    COLOR_ECHO = 2,
+    COLOR_ERROR = 3,
+    COLOR_WARNING = 4,
+    COLOR_GLOBAL = 5,
+    COLOR_ADMIN = 6,
+    COLOR_HIGHLIGHT = 7,
+    COLOR_BACKGROUND = 8,
+};
+
 // Writes a line to the console output buffer. No-ops cleanly when the
 // console isn't active, so it's always safe to call.
-void Write(const char *line);
+void Write(const char *line, Color color = COLOR_DEFAULT);
+
+// The engine's own `ConsolePrintf` (FUN_CONSOLE_PRINTF): formats with
+// Storm's printf into a 1024-byte buffer, then writes it in
+// COLOR_DEFAULT. Exposed as the engine's entry itself rather than a
+// wrapper, because a cdecl varargs call cannot be forwarded.
+extern void(__cdecl *const Printf)(const char *format, ...);
 
 } // namespace Console
 

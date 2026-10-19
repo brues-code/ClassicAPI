@@ -134,6 +134,9 @@ enum Offsets {
     // which)`: 0 shift, 1 ctrl, 2 alt. IsShiftKeyDown / IsControlKeyDown /
     // IsAltKeyDown (0x00488590..0x00488600) and the engine's own modifier
     // reads (edit boxes, world clicks, mouse events, action use) call it.
+    // It is 4.3.4's EventIsKeyDown, taking any KEY code — 0..2 are 1.12's
+    // merged meta keys — and the console's key handler asks it whether the
+    // console toggle key is held.
     // 4.3.4's version answers from the binding manager's held-modifier mask
     // while a key binding runs; `Input::Modifier` co-hooks it to do the same.
     FUN_GAMEUI_IS_KEY_DOWN = 0x0041F8F0,
@@ -7421,12 +7424,17 @@ enum Offsets {
     //   command node is never freed for a static-literal name, so we
     //   don't need SStrDup the way the event table does.
     //
-    // The handler is `int __fastcall(void *unused /*ecx*/, const char
-    // *args /*edx*/)`; `args` is the text after the command name
-    // (`*args == '\0'` when invoked bare). Return 1. Categories seen in
-    // the binary: graphics=1, help=2, misc=5 (we use 5, matching
-    // 4.3.4's `ExportInterfaceFiles`); the value is cosmetic (only
-    // affects `help` grouping) and unvalidated by the registrar.
+    // The handler is `int __fastcall(const char *command /*ecx*/, const
+    // char *args /*edx*/)` — 4.3.4's COMMANDHANDLER. `command` is the
+    // invoked name (the shared CVar handler FUN_CONSOLE_CVAR_COMMAND_HANDLER
+    // looks its CVar up by it); `args` is the text after the name
+    // (`*args == '\0'` when invoked bare). Return 1. The category is
+    // 4.3.4's CATEGORY enum (see VAR_CONSOLE_CATEGORY_TABLE); cosmetic,
+    // only `help` grouping reads it, and the registrar doesn't validate it.
+    //
+    // The node layout is 4.3.4's CONSOLECOMMAND up to +0x20. 4.3.4 adds a
+    // +0x24 argument-completion callback this registrar has no slot for —
+    // and no 4.3.4 command fills it (every registration passes NULL).
     //
     // Self-initializes the command hash table on first use, so it is
     // safe to call any time after the engine's own console subsystem
@@ -7512,6 +7520,68 @@ enum Offsets {
     // Console font height as a fraction of screen height, 0.02 by default.
     VAR_CONSOLE_FONT_HEIGHT = 0x0086455C,
 
+    // --- Console input: key handling and Tab completion -----------------------
+    // EventRegisterEx — `void __fastcall(int eventId /*ecx*/, Handler handler
+    // /*edx*/, void *param, float priority)`, into the current event context.
+    // Handlers are `int __fastcall(const void *data, void *param)`; returning 0
+    // stops the dispatch. The list is kept in DESCENDING priority, and a new
+    // handler is linked in front of the first one whose priority is <= its own
+    // (FUN_00424F00, 4.3.4's IEvtQueueRegister) — so a handler registered
+    // later at an EQUAL priority runs first. Does not dedup.
+    FUN_EVENT_REGISTER_EX = 0x0041FCA0,
+    // Event id of a key press. The console's RegisterHandlers (FUN_0063BC90)
+    // registers ids 1, 5, 8, 9, 10, 11, 14, 12 in 4.3.4's order CHAR, IDLE,
+    // KEYDOWN, KEYUP, KEYDOWN_REPEATING, MOUSEDOWN, MOUSEUP, MOUSEMOVE; id 8's
+    // handler FUN_CONSOLE_ON_KEY_DOWN is the one with the Tab/Enter/Escape
+    // switch. Its data is 4.3.4's EVENT_DATA_KEY: `{ int key; uint32_t meta; }`.
+    EVENT_ID_KEYDOWN = 8,
+    // Every console input handler is registered at priority 7.0 (stored here
+    // as the integer; the registrar takes it as a float).
+    CONSOLE_EVENT_PRIORITY = 7,
+    FUN_CONSOLE_ON_KEY_DOWN = 0x0063C480,
+    // 4.3.4's KEY enum, unchanged in 1.12: the console's switch tests 0x200
+    // Escape, 0x201 Enter, 0x203 Tab.
+    KEY_TAB = 0x203,
+    // The key event's modifier mask is 4.3.4's `1 << key` over the meta keys,
+    // but 1.12 has three merged meta keys (KEY 0 SHIFT, 1 CTRL, 2 ALT — the
+    // FUN_GAMEUI_IS_KEY_DOWN codes) where 4.3.4 has six per-side ones. So:
+    // SHIFT 1, CTRL 2, ALT 4. Read off the binding-prefix builder FUN_004B6630
+    // (bit 0 "SHIFT-", 1 "CTRL-", 2 "ALT-"), and consistent with the console
+    // handler's own tests (`meta == 1` reverses Tab completion, `meta == 2` is
+    // Ctrl+C / Ctrl+V).
+    EVENT_META_SHIFT = 0x1,
+    EVENT_META_CTRL = 0x2,
+    // The line being typed — 4.3.4's GetInputLine; makes one if the head line
+    // is not an input line. `CONSOLELINE *__fastcall()`.
+    FUN_CONSOLE_GET_INPUT_LINE = 0x0063BAA0,
+    // 4.3.4's MakeCommandCurrent: `void __fastcall(CONSOLELINE *line, const
+    // char *text)` — replaces the typed text (from m_inputstart) with `text`,
+    // growing the buffer as needed, and leaves the caret at its end.
+    FUN_CONSOLE_MAKE_COMMAND_CURRENT = 0x00638E40,
+    // 4.3.4's SetInputString: `void __fastcall(const char *wholeLine)` —
+    // rebuilds the drawn input string. The key handler calls it with the
+    // line's whole buffer after every edit.
+    FUN_CONSOLE_SET_INPUT_STRING = 0x00638D10,
+    // 4.3.4's s_completionMode: set by the first Tab of a completion run, and
+    // cleared by the key handler on any key but Tab, Shift (KEY 0), Alt (KEY
+    // 2) or a Ctrl chord — 4.3.4's exact rule with merged meta keys. Read by
+    // Console::Completion to tell when a run has ended.
+    VAR_CONSOLE_COMPLETION_MODE = 0x00C4EC28,
+    // 4.3.4's CONSOLELINE (0x24 bytes, allocated as "CONSOLELINE"): link at
+    // +0, m_buffer +0x08, m_chars +0x0C, m_inputpos +0x14, m_inputstart +0x18,
+    // m_colorType +0x1C. Matches the key handler's and ConsoleWrite's reads.
+    OFF_CONSOLE_LINE_BUFFER = 0x08,
+    OFF_CONSOLE_LINE_INPUT_POS = 0x14,
+    OFF_CONSOLE_LINE_INPUT_START = 0x18,
+    // The output lines (4.3.4's s_linelist): newest first, the same tagged
+    // Storm list as the command registry — link offset, then the head's
+    // `next` pointer. A head with a non-zero m_inputpos is the line being
+    // typed. ConsoleWrite (FUN_CONSOLE_WRITE) holds the critical section at
+    // VAR_CONSOLE_LINE_LOCK while it links a line in.
+    VAR_CONSOLE_LINE_LIST_LINK_OFFSET = 0x00C4E9A4,
+    VAR_CONSOLE_LINE_LIST_HEAD = 0x00C4E9AC,
+    VAR_CONSOLE_LINE_LOCK = 0x00C4E64C,
+
     // `ConsoleWrite(const char *line /*ecx*/, int colorFlag /*edx*/)` —
     // appends a line to the developer console's output buffer. No-ops
     // cleanly when the console isn't active (gated on the console-init
@@ -7519,6 +7589,12 @@ enum Offsets {
     // unconditionally from a console-command handler. `colorFlag` 0 =
     // default. Used by `Interface::Export` for "wrote N files" feedback.
     FUN_CONSOLE_WRITE = 0x0063CB50,
+    // `void __cdecl ConsolePrintf(const char *format, ...)` — formats via
+    // Storm's vsnprintf (FUN_0064A8B0) into a 1024-byte stack buffer and
+    // passes it to FUN_CONSOLE_WRITE in colour 0. Gated on DAT_00C4EC1C (the
+    // console being initialised). The shared CVar handler prints
+    // `CVar "%s" is "%s"` through it. Matches 4.3.4's ConsolePrintf.
+    FUN_CONSOLE_PRINTF = 0x0063CD50,
 
     // TOC parser — `__fastcall(this=addonName)`. Already documented in
     // CLAUDE.md under "AddOn registry & hot-reload". Dedup-safe: if
@@ -8439,6 +8515,17 @@ enum Offsets {
     // `0` to `~π`. Mirrored at `+0x210` and `+0x214` (smoothing /
     // last-applied buffers); we read the primary at `+0xF0`.
     OFF_CAMERA_RELATIVE_YAW = 0xF0,
+
+    // Camera pitch clamp, radians: +/-1.55334306 (89 degrees). 4.3.4's
+    // MAX_PITCH_ANGLE / MIN_PITCH_ANGLE, which its `pitchLimit` console
+    // command writes. In 1.12 they are the same two floats but sit in
+    // .rdata, so writing them needs the page unprotected. Every one of their
+    // 31 readers is camera code (0x0050B380..0x005115B8) — the pitch clamps,
+    // the smooth-pitch target clamp, and FUN_0050B380, the cameraPitch CVar
+    // range check that 4.3.4 calls ValidateCameraPitch — so no unrelated
+    // constant shares the slot.
+    VAR_CAMERA_MAX_PITCH = 0x008089D8,
+    VAR_CAMERA_MIN_PITCH = 0x008089DC,
 
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /

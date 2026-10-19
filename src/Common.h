@@ -23,4 +23,9 @@ bool PatchBytes(void *dst, const void *src, size_t len);
 // (C4996) and which does not terminate on truncation.
 void BoundedCopy(char *dst, const char *src, size_t n);
 
+// Creates every parent directory of `relPath` (backslash- or slash-separated,
+// e.g. "BlizzardInterfaceCode\FrameXML\Foo.lua"), relative to the working
+// directory. Directories that already exist are a no-op.
+void EnsureParentDirs(const char *relPath);
+
 } // namespace Common

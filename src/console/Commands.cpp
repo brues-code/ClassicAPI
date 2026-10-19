@@ -44,9 +44,7 @@
 // so it needs no translation.
 
 #include "Game.h"
-#include "Offsets.h"
-
-#include <cstdint>
+#include "console/Registry.h"
 
 namespace Console::Commands {
 
@@ -56,12 +54,6 @@ namespace {
 // cannot occur here.
 constexpr int kCommandTypeCvar = 0;
 constexpr int kCommandTypeCommand = 1;
-
-using ConsoleWrite_t = void(__fastcall *)(const char *line, int colorType);
-
-// A list node, or 0 once the walk reaches the end. The low bit tags the
-// sentinel, the same convention the addon registry and the parser lists use.
-bool IsNode(uintptr_t node) { return node != 0 && (node & 1) == 0; }
 
 char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; }
 
@@ -90,41 +82,19 @@ int __fastcall Script_GetAllCommands(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
 
-    const uintptr_t linkOffset =
-        Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LINK_OFFSET);
-    uintptr_t node = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LIST_HEAD);
-
     int count = 0;
-    while (IsNode(node)) {
-        const auto *name =
-            Game::Read<const char *>(node + Offsets::OFF_CONSOLE_COMMAND_NAME);
-        const auto *help =
-            Game::Read<const char *>(node + Offsets::OFF_CONSOLE_COMMAND_HELP);
-        const uintptr_t handler =
-            Game::Read<uint32_t>(node + Offsets::OFF_CONSOLE_COMMAND_HANDLER);
-        const int category =
-            Game::Read<int32_t>(node + Offsets::OFF_CONSOLE_COMMAND_CATEGORY);
-
-        // Step before building the entry: the walk stays correct even if a
-        // field read below is skipped.
-        node = Game::Read<uint32_t>(node + linkOffset + 4);
-
-        if (name == nullptr)
-            continue; // a node the registrar never finished; nothing to report
-
+    Console::Registry::ForEach([&](const Console::Registry::Command &command) {
         Game::Lua::PushNumber(L, ++count);
         Game::Lua::NewTable(L);
-        SetStringField(L, "command", name);
-        SetStringField(L, "help", help);
-        SetIntField(L, "category", category);
+        SetStringField(L, "command", command.name);
+        SetStringField(L, "help", command.help);
+        SetIntField(L, "category", command.category);
         SetIntField(L, "commandType",
-                    handler == Offsets::FUN_CONSOLE_CVAR_COMMAND_HANDLER
-                        ? kCommandTypeCvar
-                        : kCommandTypeCommand);
+                    command.IsCvar() ? kCommandTypeCvar : kCommandTypeCommand);
         SetStringField(L, "scriptContents", "");
         SetStringField(L, "scriptParameters", "");
         Game::Lua::SetTable(L, -3);
-    }
+    });
     return 1;
 }
 
@@ -148,17 +118,10 @@ int __fastcall Script_ConsolePrintAllMatchingCommands(void *L) {
     if (prefix == nullptr || prefix[0] == '\0')
         return 0;
 
-    auto write = reinterpret_cast<ConsoleWrite_t>(Offsets::FUN_CONSOLE_WRITE);
-    const uintptr_t linkOffset =
-        Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LINK_OFFSET);
-    uintptr_t node = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LIST_HEAD);
-    while (IsNode(node)) {
-        const auto *name =
-            Game::Read<const char *>(node + Offsets::OFF_CONSOLE_COMMAND_NAME);
-        node = Game::Read<uint32_t>(node + linkOffset + 4);
-        if (name != nullptr && StartsWithIgnoreCase(name, prefix))
-            write(name, 0);
-    }
+    Console::Registry::ForEach([&](const Console::Registry::Command &command) {
+        if (StartsWithIgnoreCase(command.name, prefix))
+            Game::Console::Write(command.name);
+    });
     return 0;
 }
 

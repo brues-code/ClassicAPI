@@ -505,7 +505,7 @@ namespace Console {
 namespace {
 using RegisterCommand_t = int(__fastcall *)(const char *name, void *handler,
                                             int category, const char *description);
-using Write_t = void(__fastcall *)(const char *line, int colorFlag);
+using Write_t = void(__fastcall *)(const char *line, int color);
 } // namespace
 
 void RegisterCommand(const char *name, CommandHandler handler, int category,
@@ -514,10 +514,13 @@ void RegisterCommand(const char *name, CommandHandler handler, int category,
     fn(name, reinterpret_cast<void *>(handler), category, description);
 }
 
-void Write(const char *line) {
+void Write(const char *line, Color color) {
     auto fn = reinterpret_cast<Write_t>(Offsets::FUN_CONSOLE_WRITE);
-    fn(line, 0);
+    fn(line, color);
 }
+
+void(__cdecl *const Printf)(const char *format, ...) =
+    reinterpret_cast<void(__cdecl *)(const char *, ...)>(Offsets::FUN_CONSOLE_PRINTF);
 } // namespace Console
 
 namespace {

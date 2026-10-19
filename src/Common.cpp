@@ -14,6 +14,7 @@
 #include "Common.h"
 
 #include <cstring>
+#include <string>
 #include <windows.h>
 
 namespace Common {
@@ -38,6 +39,19 @@ void BoundedCopy(char *dst, const char *src, size_t n) {
     for (; src != nullptr && src[i] != '\0' && i + 1 < n; ++i)
         dst[i] = src[i];
     dst[i] = '\0';
+}
+
+void EnsureParentDirs(const char *relPath) {
+    std::string accum;
+    for (const char *p = relPath; *p != '\0'; ++p) {
+        if (*p == '\\' || *p == '/') {
+            if (!accum.empty())
+                CreateDirectoryA(accum.c_str(), nullptr);
+            accum.push_back('\\');
+        } else {
+            accum.push_back(*p);
+        }
+    }
 }
 
 } // namespace Common

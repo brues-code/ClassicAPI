@@ -201,6 +201,9 @@ when launching with `-console`), not as Lua functions. See the
 | `ExportInterfaceFiles art` | Extracts Blizzard's UI art (`.blp`/`.tga`) from the MPQs to `BlizzardInterfaceArt\` |
 | `ExportDBCFiles` | Extracts the client's `.dbc` tables from the MPQs to `DBFilesClient\` |
 | `ExportSoundFiles [subpath]` | Extracts the client's sound files from the MPQs to `BlizzardSound\`; the optional subpath narrows it (the full tree is ~1 GB) |
+| `pitchLimit degrees` | Sets how far the camera can tilt up and down (default 89) |
+| `AppendLogToFile [filename] [numLines]` | Writes the console output to a text file (default `ConsoleLogs\Log<Timestamp>.txt`) |
+| Tab / Ctrl+Tab | Tab completes CVar names after `set`, `cvar_reset` and `cvar_default`; Ctrl+Tab lists every command that contains the typed text |
 
 </details>
 

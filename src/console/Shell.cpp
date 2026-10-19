@@ -45,7 +45,6 @@ namespace Console::Shell {
 namespace {
 
 using ConsoleExec_t = void(__fastcall *)(const char *line, int addToHistory);
-using ConsoleWrite_t = void(__fastcall *)(const char *line, int colorType);
 using ConsoleSetKey_t = void(__fastcall *)(int keyCode);
 
 // `ConsoleExec(command)` — run a console command line.
@@ -74,8 +73,8 @@ int __fastcall Script_ConsoleEcho(void *L) {
         if (colorType < 0 || colorType >= Offsets::CONSOLE_COLOR_COUNT)
             colorType = 0;
     }
-    reinterpret_cast<ConsoleWrite_t>(Offsets::FUN_CONSOLE_WRITE)(Game::Lua::ToString(L, 1),
-                                                                 colorType);
+    Game::Console::Write(Game::Lua::ToString(L, 1),
+                         static_cast<Game::Console::Color>(colorType));
     return 0;
 }
 

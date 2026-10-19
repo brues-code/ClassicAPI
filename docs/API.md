@@ -90,6 +90,9 @@ build instructions.
   - [`ExportInterfaceFiles art|code` (console command)](#exportinterfacefiles-artcode-console-command)
   - [`ExportDBCFiles` (console command)](#exportdbcfiles-console-command)
   - [`ExportSoundFiles [subpath]` (console command)](#exportsoundfiles-subpath-console-command)
+  - [`pitchLimit degrees` (console command)](#pitchlimit-degrees-console-command)
+  - [`AppendLogToFile [filename] [numLines]` (console command)](#appendlogtofile-filename-numlines-console-command)
+  - [Tab completion in the console](#tab-completion-in-the-console)
 
 - [Container](#container)
   - [`C_Container.GetContainerItemID(bagIndex, slotIndex)`](#c_containergetcontaineritemidbagindex-slotindex)
@@ -2129,6 +2132,51 @@ Notes:
   client prefers a loose file over the archived copy of the same path,
   so exporting into `Sound\` would shadow the archives with a gigabyte
   of duplicates that get re-indexed at every launch.
+
+### `pitchLimit degrees` (console command)
+
+Sets how far the camera can tilt up and down. The limit is in degrees and
+applies in both directions. The default limit is 89 degrees.
+
+```
+> pitchLimit 60
+```
+
+The command does not validate the value. A bare `pitchLimit` sets the limit
+to 0, which holds the camera level. The limit stays until you change it or
+restart the client.
+
+### `AppendLogToFile [filename] [numLines]` (console command)
+
+Writes the console output to a text file. This is a ClassicAPI extension.
+
+- `filename` is relative to the client's working directory (next to
+  `WoW.exe`). The default is `ConsoleLogs\Log<Timestamp>.txt`. The command
+  makes missing folders. If the file exists, the command adds the lines to
+  the end of it.
+- `numLines` limits the output to the most recent lines. Without it, the
+  command writes all lines.
+
+The file has the oldest line first. The line that you type at the time is
+not part of the output.
+
+```
+> AppendLogToFile
+AppendLogToFile: wrote 212 line(s) to ConsoleLogs\Log20261019_143022.txt
+```
+
+### Tab completion in the console
+
+The console has three Tab functions:
+
+- **Tab** on a command name completes the name. Press Tab again for the
+  next match. Press Shift+Tab for the previous match.
+- **Tab** after `set`, `cvar_reset` or `cvar_default` completes the CVar
+  name. Matches cycle in alphabetical order, the same as for command names.
+  This is a ClassicAPI extension.
+- **Ctrl+Tab** lists every command whose name contains the typed text, in
+  alphabetical order. Case is not important. After `set`, `cvar_reset` or
+  `cvar_default`, it lists the CVar names that start with the typed text.
 
 ## Container
 

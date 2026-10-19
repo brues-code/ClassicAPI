@@ -89,6 +89,7 @@
 // on-disk addons live in no archive's listfile, so they're never
 // enumerated and never re-exported.
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
@@ -154,26 +155,8 @@ bool HasExtension(const char *name, const char *const *exts, int count) {
     return false;
 }
 
-// Create every parent directory of `relPath` (a backslash-separated
-// path, e.g. "BlizzardInterfaceCode\FrameXML\Foo.lua"). Each component
-// is created relative to the working directory; existing dirs are a
-// no-op.
-void EnsureParentDirs(const std::string &relPath) {
-    std::string accum;
-    for (size_t i = 0; i < relPath.size(); ++i) {
-        const char c = relPath[i];
-        if (c == '\\' || c == '/') {
-            if (!accum.empty())
-                CreateDirectoryA(accum.c_str(), nullptr);
-            accum.push_back('\\');
-        } else {
-            accum.push_back(c);
-        }
-    }
-}
-
 bool WriteFileToDisk(const std::string &relPath, const void *data, unsigned int size) {
-    EnsureParentDirs(relPath);
+    Common::EnsureParentDirs(relPath.c_str());
     HANDLE h = CreateFileA(relPath.c_str(), GENERIC_WRITE, 0, nullptr,
                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE)
@@ -516,7 +499,7 @@ bool FirstTokenEquals(const char *s, const char *token) {
     return end == '\0' || end == ' ' || end == '\t';
 }
 
-int __fastcall Console_ExportInterfaceFiles(void * /*unused*/, const char *args) {
+int __fastcall Console_ExportInterfaceFiles(const char * /*command*/, const char *args) {
     const char *p = (args != nullptr) ? args : "";
     while (*p == ' ' || *p == '\t')
         ++p;
@@ -553,7 +536,7 @@ int __fastcall Console_ExportInterfaceFiles(void * /*unused*/, const char *args)
 // working directory. No subcommand — there's only one thing to export.
 // Unions the MPQ (listfile) with a `.text` path-getter scan so it gets
 // the complete set the client loads, including DBCs the listfile omits.
-int __fastcall Console_ExportDBCFiles(void * /*unused*/, const char * /*args*/) {
+int __fastcall Console_ExportDBCFiles(const char * /*command*/, const char * /*args*/) {
     int skipped = 0;
     const int written = ExportDBC("DBFilesClient", &skipped);
 
@@ -572,7 +555,7 @@ int __fastcall Console_ExportDBCFiles(void * /*unused*/, const char * /*args*/) 
 // the order of a gigabyte and takes a while. The argument can only
 // restrict which archive entries match — every written path comes from
 // the listfile, never from the argument.
-int __fastcall Console_ExportSoundFiles(void * /*unused*/, const char *args) {
+int __fastcall Console_ExportSoundFiles(const char * /*command*/, const char *args) {
     static const char kRoot[] = "Sound\\";
     constexpr size_t kRootLen = sizeof(kRoot) - 1;
 
