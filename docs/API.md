@@ -17582,35 +17582,20 @@ Host/OS-level helpers that aren't tied to a game domain.
 
 ### `GetPhysicalScreenSize()`
 
-Returns `(widthPixels, heightPixels)` — the display's physical
-resolution in pixels. FrameXML's `PixelUtil` builds its entire
-pixel↔UI-unit conversion on it (`768.0 / physicalHeight`), which is what
-lets addons snap frames to whole pixels for crisp borders at fractional
-UI scales.
+Returns `(widthPixels, heightPixels)`: the size of the game window in
+pixels. In a window, this is the size of the window, and it changes when
+you resize the window. `PixelUtil` uses this function to convert pixels to
+UI units (`768.0 / physicalHeight`). With this conversion, addons can put
+frames on whole pixels, so borders stay sharp at all UI scales.
 
 ```lua
-local w, h = GetPhysicalScreenSize()   -- e.g. 1920, 1080
+local w, h = GetPhysicalScreenSize()   -- for example 1920, 1080
 ```
 
-The stock client has no such native — and no pre-parsed pixel-dimension
-global. `GetScreenWidth()`/`GetScreenHeight()` return UI-space units
-(derived from the UIParent aspect ratio at `[UIParent + 0x7c]`), not
-pixels. The engine only ever holds the current mode as the
-`gxResolution` CVar string (`"WIDTHxHEIGHT"`); both `SetScreenResolution`
-(`0x0048bfd0`) and the display-init path sscanf it on demand rather
-than caching dimensions anywhere. So we read the `gxResolution` CVar
-directly through the engine's by-name lookup (`FUN_FIND_CVAR`, value at
-`+0x20`) and parse it — the same source of truth the engine uses.
+`GetScreenWidth()` and `GetScreenHeight()` return UI units, not pixels.
 
-Returns `1024, 768` (→ factor 1.0, making PixelUtil a 1:1 no-op) when
-the CVar is missing or unparseable. Caveat: in windowed mode
-`gxResolution` reflects the configured render resolution, which may
-differ from the OS window's client size — there is no separate
-window-pixel query.
-
-The companion `PixelUtil` table (`PixelUtil.SetPoint`/`SetSize`/
-`SetStatusBarValue`/…) is provided Lua-side by the ClassicAPI addon and
-consumes this function.
+The ClassicAPI addon supplies the `PixelUtil` table (`PixelUtil.SetPoint`,
+`SetSize`, `SetStatusBarValue`, and more), which uses this function.
 
 ### `CopyToClipboard(text [, removeMarkup])`
 

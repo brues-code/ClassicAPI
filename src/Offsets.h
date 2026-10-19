@@ -597,6 +597,14 @@ enum Offsets {
     // the measured origin÷rect-edge quotient to four digits).
     VAR_TEXT_RASTER_Y = 0x00C2B9A0,
     VAR_TEXT_RASTER_X = 0x00C2B9A4,
+    // GxCapsWindowSize — `__fastcall(float rect[4])`: the graphics device's
+    // live render-window rectangle (device vtable +0x5C), the source the
+    // two globals above are read from by GxuFontUpdateViewport
+    // (0x005C2B50). Layout {y0, x0, y1, x1}: width = r[3] - r[1], height =
+    // r[2] - r[0] — the font code's fallback writes {0, 0, 480, 640}, and
+    // BakePortrait takes its width from r[3] - r[1] of the sibling
+    // GxCapsScreenSize (0x0058A250).
+    FUN_GX_CAPS_WINDOW_SIZE = 0x0058A240,
     // gxu text-node invalidate/reset — `__fastcall(node)`. Zeroes the
     // built-line count (+0x9C, the draw builder's early-out gate), resets the
     // link-rect state (+0x80/+0x90) and wrap cache (+0x68/+0x6C), and frees
