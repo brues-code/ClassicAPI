@@ -77,7 +77,7 @@ reference in **[docs/API.md](docs/API.md)**.
 | [Currency](docs/API.md#currency) | `GetCoinTextureString`, `C_CurrencyInfo.GetCoinTextureString` |
 | EncodingUtil | `C_EncodingUtil.CompressString`, `C_EncodingUtil.DecompressString`, `C_EncodingUtil.EncodeBase64`, `C_EncodingUtil.DecodeBase64`, `C_EncodingUtil.EncodeHex`, `C_EncodingUtil.DecodeHex`, `C_EncodingUtil.SerializeJSON`, `C_EncodingUtil.DeserializeJSON`, `C_EncodingUtil.SerializeCBOR`, `C_EncodingUtil.DeserializeCBOR` |
 | [EquipmentSet](docs/API.md#equipmentset) | `C_EquipmentSet.CanUseEquipmentSets`, `C_EquipmentSet.ClearIgnoredSlotsForSave`, `C_EquipmentSet.CreateEquipmentSet`, `C_EquipmentSet.DeleteEquipmentSet`, `C_EquipmentSet.EquipmentSetContainsLockedItems`, `C_EquipmentSet.GetEquipmentSetID`, `C_EquipmentSet.GetEquipmentSetIDs`, `C_EquipmentSet.GetEquipmentSetInfo`, `C_EquipmentSet.GetIgnoredSlots`, `C_EquipmentSet.GetItemIDs`, `C_EquipmentSet.GetItemLocations`, `C_EquipmentSet.GetNumEquipmentSets`, `C_EquipmentSet.IgnoreSlotForSave`, `C_EquipmentSet.IsSlotIgnoredForSave`, `C_EquipmentSet.ModifyEquipmentSet`, `C_EquipmentSet.PickupEquipmentSet`, `C_EquipmentSet.SaveEquipmentSet`, `C_EquipmentSet.UnignoreSlotForSave`, `C_EquipmentSet.UseEquipmentSet` |
-| [Events](docs/API.md#events) | `C_EventUtils.IsEventValid`, `GetFramesRegisteredForEvent`, `CHAT_MSG_*` `lineID` / `guid` (arg11 / arg12) |
+| [Events](docs/API.md#events) | `C_EventUtils.IsEventValid`, `GetFramesRegisteredForEvent` |
 | [Expansion](docs/API.md#expansion) | `ClassicExpansionAtLeast`, `ClassicExpansionAtMost`, `GetClassicExpansionLevel` |
 | [Faction](docs/API.md#faction) | `C_Reputation.GetFactionDataByID`, `C_Reputation.GetFactionDataByIndex`, `C_Reputation.GetFactionStandings`, `C_Reputation.GetLastStandingChange`, `C_Reputation.GetWatchedFactionData`, `C_Reputation.IsFactionActive`, `C_Reputation.IsFactionActiveByID`, `C_Reputation.IsFactionInactive`, `C_Reputation.SetFactionActive`, `C_Reputation.SetFactionActiveByID`, `C_Reputation.SetFactionInactive`, `C_Reputation.SetFactionInactiveByID`, `C_Reputation.SetSelectedFaction`, `C_Reputation.SetSelectedFactionByID`, `C_Reputation.SetWatchedFactionByID`, `C_Reputation.ToggleFactionAtWar`, `C_Reputation.ToggleFactionAtWarByID`, `GetFactionIDByIndex`, `GetFactionInfoByID`, `GetFactionParentID` |
 | [Focus](docs/API.md#focus) | `ClearFocus`, `FocusUnit` |
@@ -211,6 +211,7 @@ when launching with `-console`), not as Lua functions. See the
 |-------|---------|
 | `BAG_NEW_ITEMS_UPDATED` | *(none)* |
 | `BAG_UPDATE_DELAYED` | *(none)* |
+| `CHAT_MSG_*` | adds `lineID, guid` as `arg11, arg12` after the existing ten ([details](docs/API.md#chat_msg_-arguments-lineid-arg11-and-guid-arg12)) |
 | `CURSOR_CHANGED` | `isDefault, newCursorType, oldCursorType, oldCursorVirtualID` |
 | `EQUIPMENT_SETS_CHANGED` | *(none)* |
 | `EQUIPMENT_SWAP_PENDING` | `setID` |
