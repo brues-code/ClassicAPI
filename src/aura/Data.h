@@ -63,14 +63,19 @@ enum class Filter { Helpful, Harmful };
 enum class Emit { Table, Positional };
 
 // Caster restriction from the `PLAYER` / `!PLAYER` aura filter tokens.
-// `Any` = no restriction; `PlayerOnly` = only auras the local player OR the
-// player's pet cast (`PLAYER`); `NotPlayer` = the complement (`!PLAYER`).
-// The pet is part of the set by definition — modern documents the token as
-// "cast by the player, or by the player's pet or vehicle". Caster
-// attribution comes from the `Aura::Source` cache; a cache miss counts as
-// "not the player" (so `PlayerOnly` excludes it and `NotPlayer` includes
-// it — matching `IsPlayerCast`'s miss semantics).
+// `Any` = no restriction; `PlayerOnly` = only auras the local player cast,
+// or a unit the player owns cast — pet, guardian, totem, charmed unit
+// (`PLAYER`); `NotPlayer` = the complement (`!PLAYER`). This is 4.3.4's
+// `CGSpellBook::IsAuraCaster`. Caster attribution comes from the
+// `Aura::Source` cache; a cache miss counts as "not the player" (so
+// `PlayerOnly` excludes it and `NotPlayer` includes it — matching
+// `IsPlayerCast`'s miss semantics).
 enum class CasterMode { Any, PlayerOnly, NotPlayer };
+
+// Restriction from the `CANCELABLE` / `NOT_CANCELABLE` aura filter tokens:
+// the descriptor nibble's cancelable bit, the test `GetPlayerBuff`'s own
+// filter makes (and 4.3.4's GetSortedAuraSlot).
+enum class CancelMode { Any, CancelableOnly, NotCancelable };
 
 // Restriction from the `DISPELLABLE` / `!DISPELLABLE` aura filter tokens.
 // `Any` = no restriction; `DispellableOnly` = only auras that can be
@@ -93,6 +98,10 @@ struct Match {
     CasterMode caster = CasterMode::Any;
     DispelMode dispel = DispelMode::Any;
     CcMode cc = CcMode::Any;
+    CancelMode cancel = CancelMode::Any;
+    // `RAID`: a helpful aura the player can cast on others, a harmful one the
+    // player can dispel — the engine's raid filter (see `IsRaidAura`).
+    bool raid = false;
 };
 
 // Reads the spell ID at the given absolute slot (0..47). Returns 0
@@ -144,22 +153,29 @@ int FindSlotBySpellID(const uint8_t *unit, uint32_t spellID,
                       const Filter *filter, Match match = {});
 
 // Finds the absolute slot of a populated aura whose locale-resolved
-// spell name exactly matches `spellName`. Case-sensitive. Otherwise
+// spell name matches `spellName`, ignoring case (Storm's SStrCmpI, as
+// 4.3.4's GetSortedAuraSlot compares names). Otherwise
 // same semantics as `FindSlotBySpellID`. Returns -1 if not found
 // or if `spellName` is null/empty.
 int FindSlotBySpellName(const uint8_t *unit, const char *spellName,
                         const Filter *filter, Match match = {});
 
-// True iff the aura at `slot` was cast by the local player or by the
-// player's pet, per the `Aura::Source` cache. False on a cache miss (caster
-// unknown) — so a PLAYER-filtered query excludes auras whose cast we didn't
-// observe.
+// True iff the aura at `slot` was cast by the local player or by a unit the
+// player owns (see `CasterMode`), per the `Aura::Source` cache. False on a
+// cache miss (caster unknown) — so a PLAYER-filtered query excludes auras
+// whose cast we didn't observe.
 bool IsPlayerCast(const uint8_t *unit, int slot);
 
-// Applies a `CasterMode` to a per-aura "was cast by the player or their pet"
-// answer. `Any` → always true; `PlayerOnly` → the answer; `NotPlayer` → its
-// negation.
+// Applies a `CasterMode` to a per-aura "was cast by the player or a unit
+// they own" answer. `Any` → always true; `PlayerOnly` → the answer;
+// `NotPlayer` → its negation.
 bool CasterMatches(CasterMode caster, bool isPlayerCast);
+
+// The engine's raid filter — UnitBuff/UnitDebuff's third argument, and
+// 4.3.4's `RAID` token: a helpful aura passes when the player can cast its
+// spell on others (`FUN_SPELL_IS_CASTABLE_AURA`), a harmful one when its
+// dispel type is in the player's dispel list (`FUN_DISPEL_TYPE_KNOWN`).
+bool IsRaidAura(uint32_t spellID, bool harmful);
 
 // True iff the spell's dispel type is one a dispel/purge/steal can remove —
 // Magic, Curse, Disease, or Poison (`Spell.dbc` Dispel ∈ 1..4). None,
@@ -167,9 +183,11 @@ bool CasterMatches(CasterMode caster, bool isPlayerCast);
 // the server's DISPEL_ALL_MASK.
 bool IsDispellable(uint32_t spellID);
 
-// Applies a full `Match` (caster + dispel predicates) to one aura, given the
-// per-aura "was cast by the local player" answer and its spell ID.
-bool MatchesAura(const Match &match, bool isPlayerCast, uint32_t spellID);
+// Applies a full `Match` to one aura, given the per-aura "was cast by the
+// local player" answer, its spell ID, its polarity, and whether it is
+// cancelable.
+bool MatchesAura(const Match &match, bool isPlayerCast, uint32_t spellID,
+                 bool harmful, bool cancelable);
 
 // True iff descriptor `slot` on `unit` is populated (per `IsSlotPopulated`) AND
 // passes `match`. The caster answer (`IsPlayerCast` — a scan of the
@@ -207,13 +225,17 @@ const char *DispelName(uint32_t dispelTypeID);
 //   sourceGUID     (caster "0x..." GUID string; nil on miss — a ClassicAPI
 //                   extension, not in retail AuraData)
 //
+// And these from the spell and the player's spells:
+//   isFromPlayerOrPlayerPet (caster GUID is a player or a pet),
+//   canApplyAura (the player or pet knows the spell and it applies an aura),
+//   isRaid (the aura passes the RAID filter, `IsRaidAura`)
+//
 // And these with vanilla-truthful defaults (matches modern's
 // "field present but inapplicable" semantics):
 //   charges=0, maxCharges=0, auraInstanceID=nil, points=nil,
-//   isStealable=false, isBossAura=false, isFromPlayerOrPlayerPet=false,
+//   isStealable=false, isBossAura=false,
 //   isNameplateOnly=false, nameplateShowAll=false,
-//   nameplateShowPersonal=false, canApplyAura=false,
-//   shouldConsolidate=false, isRaid=false
+//   nameplateShowPersonal=false, shouldConsolidate=false
 //
 // Net stack effect: +1 for `Emit::Table` (the table), +15 for `Emit::Positional`
 // (the Classic-Era `UnitAura` tuple — see `Emit`).
@@ -273,7 +295,7 @@ bool PushGroupAuraBySpellID(void *L, uint64_t guid, uint32_t spellID,
                             const Filter *filter, Match match = {});
 
 // As `PushGroupAuraBySpellID` but matched by locale-resolved spell name
-// (case-sensitive exact match), mirroring `FindSlotBySpellName`.
+// (ignoring case), mirroring `FindSlotBySpellName`.
 bool PushGroupAuraBySpellName(void *L, uint64_t guid, const char *spellName,
                               const Filter *filter, Match match = {});
 

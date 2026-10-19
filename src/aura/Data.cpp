@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Source.h"
+#include "object/Resolve.h"
 #include "dbc/Lookup.h"
 #include "group/MemberStats.h"
 #include "guid/Guid.h"
@@ -65,6 +66,18 @@ const char *LocalizedSpellName(const uint8_t *spellRecord) {
     return (s == nullptr || *s == '\0') ? nullptr : s;
 }
 
+// True when the spell's locale-resolved name equals `query`, ignoring case:
+// Storm's SStrCmpI, the compare 4.3.4's GetSortedAuraSlot makes for UnitAura's
+// name form. `int __stdcall(a, b, n)` — see `FUN_SSTR_CMP_I`.
+bool SpellNameMatches(const uint8_t *spellRecord, const char *query) {
+    const char *name = LocalizedSpellName(spellRecord);
+    if (name == nullptr || query == nullptr)
+        return false;
+    using SStrCmpI_t = int(__stdcall *)(const char *, const char *, int);
+    auto cmp = reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I));
+    return cmp(name, query, 0x7FFFFFFF) == 0;
+}
+
 const char *SpellIconPath(const uint8_t *spellRecord) {
     if (spellRecord == nullptr)
         return nullptr;
@@ -83,35 +96,35 @@ const uint8_t *LocalPlayer() {
     return static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
 }
 
-// Looks up the player-buff-table entry for a given spellID. The table
-// at `VAR_PLAYER_BUFF_TABLE` mirrors the local player's auras with
-// timing data (which UNIT_FIELD_AURA lacks for all units). Returns
-// nullptr when the spell isn't in any populated entry.
-//
-// Only meaningful when the caller is building data for the local
-// player — every entry here belongs to "player". Caller is expected
-// to gate on that.
-const uint8_t *FindPlayerBuffEntry(uint32_t spellID) {
+// The player-buff-table record the engine built for absolute aura `slot`,
+// or nullptr. The table at `VAR_PLAYER_BUFF_TABLE` mirrors the local
+// player's auras (packed in insertion order, each record naming its slot);
+// looking up by slot rather than spell ID keeps two copies of one spell
+// apart. Only meaningful for the local player — caller gates on that.
+const uint8_t *FindPlayerBuffRecord(int slot) {
     auto *base = reinterpret_cast<const uint8_t *>(
         static_cast<uintptr_t>(Offsets::VAR_PLAYER_BUFF_TABLE));
     for (int i = 0; i < Offsets::PLAYER_BUFF_TABLE_COUNT; ++i) {
-        const uint8_t *entry = base + i * Offsets::PLAYER_BUFF_ENTRY_STRIDE;
-        const int slotCode = *reinterpret_cast<const int *>(
-            entry + Offsets::OFF_PLAYER_BUFF_SLOT_CODE);
-        if (slotCode < 0)
-            continue;
-        const uint32_t entrySpell = *reinterpret_cast<const uint32_t *>(
-            entry + Offsets::OFF_PLAYER_BUFF_SPELL_ID);
-        if (entrySpell == spellID)
-            return entry;
+        const uint8_t *record = base + i * Offsets::PLAYER_BUFF_ENTRY_STRIDE;
+        if (Game::Read<int>(record, Offsets::OFF_PLAYER_BUFF_SLOT_CODE) == slot)
+            return record;
     }
     return nullptr;
 }
 
+// True when the engine marked the record's aura as lasting until cancelled
+// (`FUN_004E44B0`'s flag at +0x0C). `GameTooltip:SetPlayerBuff` shows no
+// time left for such an aura, and neither do we: the expiration table keeps
+// a slot's previous expiry after its aura ends, so a permanent aura that
+// takes over the slot would otherwise read the old aura's time.
+bool PlayerBuffUntilCancelled(const uint8_t *record) {
+    return Game::Read<int>(record, Offsets::OFF_PLAYER_BUFF_UNTIL_CANCELLED) != 0;
+}
+
 // Reads the absolute expiration timestamp (in seconds, GetTime-epoch)
-// for a player-buff entry, or 0 if the entry has expired / has no
-// timing. The engine stores ms-since-tickcount-epoch which matches
-// what Lua's `GetTime()` returns (engineMs * 0.001), so converting
+// for a player-buff record, or 0 if it has expired / has no timing. The
+// engine stores ms-since-tickcount-epoch which matches what Lua's
+// `GetTime()` returns (engineMs * 0.001), so converting
 // `expirationMs * 0.001` lands directly on the same timeline addons
 // compare against on the Lua side. No epoch reconciliation needed.
 //
@@ -121,32 +134,23 @@ const uint8_t *FindPlayerBuffEntry(uint32_t spellID) {
 // only the "no timing" (0) sentinel. The engine's own arithmetic
 // works on the unsigned tick because both sides of `expiration -
 // currentMs` wrap together.
-double PlayerBuffExpirationSeconds(const uint8_t *entry) {
-    if (entry == nullptr)
+double PlayerBuffExpirationSeconds(const uint8_t *record) {
+    if (record == nullptr || PlayerBuffUntilCancelled(record))
         return 0.0;
-    const int slotCode = *reinterpret_cast<const int *>(
-        entry + Offsets::OFF_PLAYER_BUFF_SLOT_CODE);
-    if (slotCode < 0)
+    const int slotCode = Game::Read<int>(record, Offsets::OFF_PLAYER_BUFF_SLOT_CODE);
+    if (slotCode < 0 || slotCode >= Offsets::UNIT_AURA_TOTAL)
         return 0.0;
     auto *expirationTable = reinterpret_cast<const uint32_t *>(
         static_cast<uintptr_t>(Offsets::VAR_PLAYER_BUFF_EXPIRATION_TABLE));
     const uint32_t expirationMs = expirationTable[slotCode];
     if (expirationMs == 0)
         return 0.0;
-    // Report "no timer" once the stored expiration has elapsed — this is not a
-    // heuristic, it's exactly what the engine's own GetPlayerBuffTimeLeft does.
-    // Script_GetPlayerBuffTimeLeft (0x004e4930) → FUN_004e4450 reads this same
-    // expiration table and returns:
-    //     if ((int)(now - expiration[slot]) >= 0) return 0;  // elapsed -> 0
-    //     return expiration[slot] - now;                      // else remaining
-    // Permanent auras (paladin auras, passives, racials) carry an infinite
-    // Spell.dbc duration (SpellDuration base -1); the server stores the fixed
-    // cast-time in this slot for them, so it's always "already elapsed" and the
-    // engine shows no countdown. `Time::Clock::Reached` takes the signed diff, so
-    // it also absorbs the ~24.86-day GetTickCount wrap (both operands wrap
-    // together).
+    // An elapsed expiry reads as "no timer", as the engine's own
+    // GetPlayerBuffTimeLeft (0x004e4930 → FUN_004e4450) returns 0 once
+    // `(int)(now - expiration[slot]) >= 0`. `Time::Clock::Reached` takes the
+    // same signed diff, so it also absorbs the ~24.86-day GetTickCount wrap.
     if (Time::Clock::Reached(expirationMs))
-        return 0.0; // expiration reached/passed → permanent or no timer
+        return 0.0;
     return static_cast<double>(expirationMs) * 0.001;
 }
 
@@ -361,36 +365,66 @@ int SlotInFilterOrder(Filter filter, int i) {
     return i;
 }
 
-// The caster set the `PLAYER` filter selects: the player AND the player's
-// pet. Modern defines the token as "auras that were cast by the player, or
-// by the player's pet or vehicle" (`AuraUtil.AuraFilters.Player`) — there
-// are no vehicles here, so the pair is player + pet. A pet's cast carries
-// the PET's guid in the Aura::Source cache (that is who SMSG_SPELL_GO
-// names), so a plain player compare drops e.g. a Hunter's own Serpent
-// Sting off a `HARMFUL|PLAYER` query. The pet guid is a live engine global,
-// so this stays two compares with no object resolve — it runs per slot.
-// A caster of 0 is a cache miss, never a match (see CasterMode).
-bool IsPlayerOrPetCaster(uint64_t casterGuid) {
+// The caster set the `PLAYER` filter selects, 4.3.4's
+// `CGSpellBook::IsAuraCaster`: the player, or a unit whose charmer-or-creator
+// is the player — the pet, a guardian, a totem, a charmed creature. A minion's
+// cast carries the MINION's guid in the Aura::Source cache (that is who
+// SMSG_SPELL_GO names), so a plain player compare drops e.g. a Hunter's own
+// Serpent Sting or a Shaman's totem buff off a `PLAYER` query. The pet guid is
+// a live engine global and answers the common case without resolving an
+// object; any other caster is resolved and its owner read, as 4.3.4 does — an
+// owner unit out of sight reads as not the player. A caster of 0 is a cache
+// miss, never a match (see CasterMode).
+bool IsPlayerOwnedCaster(uint64_t casterGuid) {
     if (casterGuid == 0)
         return false;
-    if (casterGuid == Unit::Identity::PlayerGuid())
+    const uint64_t player = Unit::Identity::PlayerGuid();
+    if (casterGuid == player)
         return true;
     const uint64_t pet =
         Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_PET_GUID));
-    return pet != 0 && casterGuid == pet;
+    if (pet != 0 && casterGuid == pet)
+        return true;
+    if (Guid::IsPlayer(casterGuid))
+        return false; // another player is never the local player's minion
+    const void *caster = Object::ByGuid(Offsets::TYPEMASK_UNIT, casterGuid);
+    return player != 0 && Unit::Identity::OwnerGuid(caster) == player;
 }
 
 bool IsPlayerCast(const uint8_t *unit, int slot) {
     const uint32_t spellID = ReadSpellID(unit, slot);
     if (spellID == 0)
         return false;
-    return IsPlayerOrPetCaster(
+    return IsPlayerOwnedCaster(
         Attribute(UnitGuid(unit), spellID, slot).caster);
 }
 
+// The slot's descriptor flag nibble. Bit 0x01 is the cancelable bit on every
+// server (the other bits differ — see `IsSlotHarmful`).
+uint8_t SlotNibble(const uint8_t *unit, int slot) {
+    auto *desc = Descriptor(unit);
+    if (desc == nullptr || slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
+        return 0;
+    const uint8_t byte = *(desc + Offsets::OFF_UNIT_FIELD_AURAFLAGS + slot / 2);
+    return (byte >> ((slot & 1) * 4)) & 0xF;
+}
+
+// Cancelable for an aura with no descriptor nibble to read (the cache
+// fallback, the out-of-range group array): the rule both servers'
+// SetAuraFlag write into that bit — a helpful aura without
+// SPELL_ATTR_CANT_CANCEL.
+bool SpellCancelable(uint32_t spellID, bool harmful) {
+    if (harmful)
+        return false;
+    const uint8_t *rec = SpellRecord(spellID);
+    return rec != nullptr &&
+           (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+            Offsets::SPELL_ATTR_CANT_CANCEL) == 0;
+}
+
 // Applies the PLAYER / !PLAYER caster restriction. `isPlayerCast` is the
-// per-aura "was this cast by the player or their pet" answer (false on a
-// cache miss).
+// per-aura "was this cast by the player or a unit they own" answer (false on
+// a cache miss).
 bool CasterMatches(CasterMode caster, bool isPlayerCast) {
     switch (caster) {
         case CasterMode::PlayerOnly: return isPlayerCast;
@@ -430,10 +464,35 @@ bool CcMatches(CcMode cc, uint32_t spellID) {
     }
 }
 
-bool MatchesAura(const Match &match, bool isPlayerCast, uint32_t spellID) {
+bool IsRaidAura(uint32_t spellID, bool harmful) {
+    if (harmful) {
+        const uint8_t *rec = SpellRecord(spellID);
+        if (rec == nullptr)
+            return false;
+        using Fn = uint32_t(__fastcall *)(uint32_t dispelType);
+        return reinterpret_cast<Fn>(static_cast<uintptr_t>(Offsets::FUN_DISPEL_TYPE_KNOWN))(
+                   Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_DISPEL_TYPE)) != 0;
+    }
+    using Fn = uint32_t(__fastcall *)(uint32_t spellID);
+    return reinterpret_cast<Fn>(static_cast<uintptr_t>(Offsets::FUN_SPELL_IS_CASTABLE_AURA))(
+               spellID) != 0;
+}
+
+bool CancelMatches(CancelMode cancel, bool cancelable) {
+    switch (cancel) {
+        case CancelMode::CancelableOnly: return cancelable;
+        case CancelMode::NotCancelable:  return !cancelable;
+        default:                         return true; // Any
+    }
+}
+
+bool MatchesAura(const Match &match, bool isPlayerCast, uint32_t spellID,
+                 bool harmful, bool cancelable) {
     return CasterMatches(match.caster, isPlayerCast) &&
            DispelMatches(match.dispel, spellID) &&
-           CcMatches(match.cc, spellID);
+           CcMatches(match.cc, spellID) &&
+           CancelMatches(match.cancel, cancelable) &&
+           (!match.raid || IsRaidAura(spellID, harmful));
 }
 
 // `MatchesAura` for a descriptor slot the caller has ALREADY established is
@@ -444,7 +503,10 @@ static bool PopulatedSlotMatches(const uint8_t *unit, int slot,
                                  const Match &match) {
     const bool castByPlayer =
         match.caster != CasterMode::Any && IsPlayerCast(unit, slot);
-    return MatchesAura(match, castByPlayer, ReadSpellID(unit, slot));
+    const bool cancelable =
+        (SlotNibble(unit, slot) & Offsets::UNIT_AURA_FLAG_CANCELABLE) != 0;
+    return MatchesAura(match, castByPlayer, ReadSpellID(unit, slot),
+                       IsSlotHarmful(unit, slot), cancelable);
 }
 
 bool SlotMatches(const uint8_t *unit, int slot, const Match &match) {
@@ -464,7 +526,7 @@ bool SlotMatchesFilter(const uint8_t *unit, int slot, Filter filter,
 // no slot to attribute by and the cache is consulted by (guid, spellID) alone.
 // A miss counts as "not the player" (same as IsPlayerCast).
 bool GroupIsPlayerCast(uint64_t guid, uint32_t spellID) {
-    return IsPlayerOrPetCaster(
+    return IsPlayerOwnedCaster(
         Attribute(guid, spellID, Aura::Source::SLOT_UNBOUND).caster);
 }
 
@@ -511,8 +573,7 @@ int FindSlotBySpellName(const uint8_t *unit, const char *spellName,
         const int slot = (filter != nullptr) ? SlotInFilterOrder(*filter, i) : i;
         if (!IsSlotPopulated(unit, slot))
             continue;
-        const char *name = LocalizedSpellName(SpellRecord(ReadSpellID(unit, slot)));
-        if (name == nullptr || std::strcmp(name, spellName) != 0)
+        if (!SpellNameMatches(SpellRecord(ReadSpellID(unit, slot)), spellName))
             continue;
         if (filter != nullptr &&
             IsSlotHarmful(unit, slot) != (*filter == Filter::Harmful))
@@ -566,25 +627,66 @@ const char *DispelName(uint32_t dispelTypeID) {
     return (name == nullptr || *name == '\0') ? nullptr : name;
 }
 
+// True when the player or their pet knows `spellID`: the known-spell bitmap,
+// else the pet spellbook — the same two sources the engine's raid-buff test
+// (`FUN_SPELL_IS_CASTABLE_AURA`) reads.
+static bool PlayerOrPetKnowsSpell(uint32_t spellID) {
+    const int spellCount = Game::Read<int>(
+        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
+    if (spellID == 0 || static_cast<int>(spellID) > spellCount)
+        return false;
+    auto *bitmap = Game::Read<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
+    if (bitmap != nullptr && (bitmap[spellID >> 5] & (1u << (spellID & 31))) != 0)
+        return true;
+    auto *petBook = reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PET_SPELLBOOK));
+    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; ++i) {
+        if (petBook[i] == spellID)
+            return true;
+    }
+    return false;
+}
+
+// 4.3.4's `CGSpellBook::CanApplyAura`: the player or their pet knows the
+// spell and one of its effects applies an aura. (4.3.4 also consults the
+// CastableRaidBuffs table and its summon list, neither of which exists here.)
+static bool CanApplyAura(const uint8_t *spellRecord, uint32_t spellID) {
+    if (spellRecord == nullptr || !PlayerOrPetKnowsSpell(spellID))
+        return false;
+    for (int i = 0; i < 3; ++i) {
+        const int effect = Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4);
+        if (effect == Offsets::SPELL_EFFECT_APPLY_AURA ||
+            effect == Offsets::SPELL_EFFECT_PERSISTENT_AREA_AURA ||
+            effect == Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY)
+            return true;
+    }
+    return false;
+}
+
 // The display fields resolved from a spell record + caster, shared by the table
 // emitter (`BuildTable`) and the positional emitter (`PushPositional`) so the
-// name / icon / dispel-name lookups live in exactly one place. `castByPlayer`
-// is the positional tuple's field #13 and the table's
-// `isFromPlayerOrPlayerPet` — same value, retail's two names for the two aura
-// shapes. Both mean "applied by ANY player or a player's pet" (Era
-// semantics), not the local player — that's the `PLAYER` filter's job. The
-// answer is the caster GUID's HIGHGUID prefix: player 0x0000 / pet 0xF140
-// (server-confirmed in tortoise-wow ObjectGuid.h). Vanilla totems carry the
-// creature prefix, so totem buffs read false. False on a cache miss (cast not
-// observed), since a GUID of 0 classifies as neither.
+// name / icon / dispel-name lookups live in exactly one place.
+//
+// The two "who cast it" answers are about ANY player, not the local player —
+// that is the `PLAYER` filter's job — and read the caster GUID's HIGHGUID
+// prefix (player 0x0000 / pet 0xF140, tortoise-wow ObjectGuid.h). Both are
+// false on a cache miss, since a GUID of 0 classifies as neither:
+//   castByPlayer — the positional tuple's field #13: a player cast it, as
+//     4.3.4's UnitAura computes it (a pet's GUID reads false).
+//   fromPlayerOrPet — the table's `isFromPlayerOrPlayerPet`: a player or a
+//     pet cast it. Totems carry the creature prefix, so they read false.
 struct Display {
     const char *name;
     const char *icon;
     const char *dispelName;
     bool castByPlayer;
+    bool fromPlayerOrPet;
+    bool canApplyAura;
+    bool isRaid;
 };
 
-static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid) {
+static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelpful) {
     const uint8_t *spellRecord = SpellRecord(spellID);
     uint32_t dispelTypeID = 0;
     if (spellRecord != nullptr) {
@@ -595,7 +697,10 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid) {
     d.name = LocalizedSpellName(spellRecord);
     d.icon = SpellIconPath(spellRecord);
     d.dispelName = DispelName(dispelTypeID);
-    d.castByPlayer = Guid::IsPlayer(casterGuid) || Guid::IsPet(casterGuid);
+    d.castByPlayer = Guid::IsPlayer(casterGuid);
+    d.fromPlayerOrPet = d.castByPlayer || Guid::IsPet(casterGuid);
+    d.canApplyAura = CanApplyAura(spellRecord, spellID);
+    d.isRaid = IsRaidAura(spellID, !isHelpful);
     return d;
 }
 
@@ -605,7 +710,7 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid) {
 static void BuildTable(void *L, uint32_t spellID, int applications,
                        bool isHelpful, double duration, double expirationTime,
                        uint64_t casterGuid) {
-    const Display disp = ResolveDisplay(spellID, casterGuid);
+    const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful);
     const char *name = disp.name;
     const char *icon = disp.icon;
     const char *dispel = disp.dispelName;
@@ -645,7 +750,9 @@ static void BuildTable(void *L, uint32_t spellID, int applications,
     Game::Lua::SetFieldNumber(L, "maxCharges", 0);
     Game::Lua::SetFieldNumber(L, "timeMod", 1);
 
-    Game::Lua::SetFieldBool(L, "isFromPlayerOrPlayerPet", disp.castByPlayer);
+    Game::Lua::SetFieldBool(L, "isFromPlayerOrPlayerPet", disp.fromPlayerOrPet);
+    Game::Lua::SetFieldBool(L, "canApplyAura", disp.canApplyAura);
+    Game::Lua::SetFieldBool(L, "isRaid", disp.isRaid);
 
     // Boolean fields whose modern semantics don't apply in vanilla.
     Game::Lua::SetFieldBool(L, "isStealable", false);
@@ -653,9 +760,7 @@ static void BuildTable(void *L, uint32_t spellID, int applications,
     Game::Lua::SetFieldBool(L, "isNameplateOnly", false);
     Game::Lua::SetFieldBool(L, "nameplateShowAll", false);
     Game::Lua::SetFieldBool(L, "nameplateShowPersonal", false);
-    Game::Lua::SetFieldBool(L, "canApplyAura", false);
     Game::Lua::SetFieldBool(L, "shouldConsolidate", false);
-    Game::Lua::SetFieldBool(L, "isRaid", false);
 
     // `auraInstanceID` and `points` are deliberately omitted — modern returns
     // nil for those when they don't apply, and Lua reading a missing key
@@ -671,12 +776,10 @@ static void BuildTable(void *L, uint32_t spellID, int applications,
 // mirror the AuraData table exactly so packed / non-packed callers agree: name /
 // icon / dispelType push `""` when absent (as `SetFieldString` does), while
 // `source` pushes nil when there's no caster (as the table omits `sourceUnit`).
-// `isHelpful` is unused (the tuple has no isHelpful/isHarmful) — kept so the leaf
-// dispatch calls either emitter with a uniform arg list.
 static void PushPositional(void *L, uint32_t spellID, int applications,
-                           bool /*isHelpful*/, double duration,
+                           bool isHelpful, double duration,
                            double expirationTime, uint64_t casterGuid) {
-    const Display disp = ResolveDisplay(spellID, casterGuid);
+    const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful);
 
     const char *source = nullptr;
     char tokenBuf[32];
@@ -694,7 +797,7 @@ static void PushPositional(void *L, uint32_t spellID, int applications,
     Game::Lua::PushBool(L, false);                                   // 8  isStealable
     Game::Lua::PushBool(L, false);                                   // 9  nameplateShowPersonal
     Game::Lua::PushNumber(L, static_cast<double>(spellID));          // 10 spellId
-    Game::Lua::PushBool(L, false);                                   // 11 canApplyAura
+    Game::Lua::PushBool(L, disp.canApplyAura);                       // 11 canApplyAura
     Game::Lua::PushBool(L, false);                                   // 12 isBossDebuff
     Game::Lua::PushBool(L, disp.castByPlayer);                       // 13 castByPlayer
     Game::Lua::PushBool(L, false);                                   // 14 nameplateShowAll
@@ -734,12 +837,15 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
     double duration = 0.0;
     double expirationTime = 0.0;
     uint64_t casterGuid = 0;
+    bool untilCancelled = false;
     if (spellID != 0)
         duration = SpellBaseDurationSeconds(spellID, unitLevel);
     if (isPlayer && spellID != 0) {
-        const uint8_t *entry = FindPlayerBuffEntry(spellID);
-        if (entry != nullptr)
-            expirationTime = PlayerBuffExpirationSeconds(entry);
+        const uint8_t *record = FindPlayerBuffRecord(slot);
+        if (record != nullptr) {
+            untilCancelled = PlayerBuffUntilCancelled(record);
+            expirationTime = PlayerBuffExpirationSeconds(record);
+        }
     }
     if (spellID != 0 && guid != 0) {
         // Caster (sourceGUID/sourceUnit) and timing resolved together, so a
@@ -761,6 +867,12 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
         if (a.durationMs != 0)
             duration = static_cast<double>(a.durationMs) * 0.001;
         casterGuid = a.caster;
+    }
+    // The engine's own word that the player's aura has no end wins over
+    // every other source of timing.
+    if (untilCancelled) {
+        duration = 0.0;
+        expirationTime = 0.0;
     }
     if (emit == Emit::Positional)
         PushPositional(L, spellID, applications, isHelpful, duration,
@@ -865,8 +977,10 @@ bool FallbackEligible(const uint8_t *unit, const Aura::Source::CachedAura &c,
 
 // Applies `match` to a cache entry. The entry carries its caster, so the caster
 // test is a plain GUID compare — no scan, nothing to defer.
-bool CachedMatches(const Aura::Source::CachedAura &c, const Match &match) {
-    return MatchesAura(match, IsPlayerOrPetCaster(c.casterGuid), c.spellId);
+bool CachedMatches(const Aura::Source::CachedAura &c, const Match &match,
+                   bool harmful) {
+    return MatchesAura(match, IsPlayerOwnedCaster(c.casterGuid), c.spellId,
+                       harmful, SpellCancelable(c.spellId, harmful));
 }
 
 // The eligible cache-fallback entries for `unit` under `filter`, in `Enumerate`
@@ -908,7 +1022,7 @@ bool PushNthCacheFallback(void *L, const uint8_t *unit, int oneBasedIndex,
     const int n = EligibleFallbacks(unit, filter, buf);
     int seen = 0;
     for (int i = 0; i < n; ++i) {
-        if (!CachedMatches(buf[i], match))
+        if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
             continue;
         if (++seen == oneBasedIndex) {
             PushFromCache(L, unit, buf[i], filter == Filter::Helpful, emit);
@@ -923,7 +1037,7 @@ void AppendCacheFallbacks(void *L, const uint8_t *unit, Filter filter,
     Aura::Source::CachedAura buf[kFallbackMax];
     const int n = EligibleFallbacks(unit, filter, buf);
     for (int i = 0; i < n; ++i) {
-        if (!CachedMatches(buf[i], match))
+        if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
         PushFromCache(L, unit, buf[i], filter == Filter::Helpful);
@@ -972,7 +1086,9 @@ bool GroupSlotMatches(uint64_t guid, const uint16_t *arr, int slot,
     const uint32_t id = GroupSpellID(arr, slot);
     const bool castByPlayer =
         match.caster != CasterMode::Any && GroupIsPlayerCast(guid, id);
-    return MatchesAura(match, castByPlayer, id);
+    const bool harmful = slot >= Offsets::UNIT_AURA_BUFF_COUNT;
+    return MatchesAura(match, castByPlayer, id, harmful,
+                       SpellCancelable(id, harmful));
 }
 
 // The groupmate's level, for Spell.dbc duration scaling (0 = skip). Cheap
@@ -1048,7 +1164,7 @@ bool PushNthGroupCacheFallback(void *L, uint64_t guid, const uint16_t *arr,
         EligibleGroupFallbacks(arr, guid, filter == Filter::Harmful, buf);
     int seen = 0;
     for (int i = 0; i < n; ++i) {
-        if (!CachedMatches(buf[i], match))
+        if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
             continue;
         if (++seen == oneBasedIndex) {
             const Attribution a = CachedAttribution(buf[i]);
@@ -1069,7 +1185,7 @@ void AppendGroupCacheFallbacks(void *L, uint64_t guid, const uint16_t *arr,
         EligibleGroupFallbacks(arr, guid, filter == Filter::Harmful, buf);
     const int level = GroupMemberLevel(guid);
     for (int i = 0; i < n; ++i) {
-        if (!CachedMatches(buf[i], match))
+        if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
         const Attribution a = CachedAttribution(buf[i]);
@@ -1090,11 +1206,10 @@ bool PushGroupCacheFallbackMatch(void *L, uint64_t guid, const uint16_t *arr,
         if (spellID != 0 && buf[i].spellId != spellID)
             continue;
         if (spellName != nullptr) {
-            const char *nm = LocalizedSpellName(SpellRecord(buf[i].spellId));
-            if (nm == nullptr || std::strcmp(nm, spellName) != 0)
+            if (!SpellNameMatches(SpellRecord(buf[i].spellId), spellName))
                 continue;
         }
-        if (!CachedMatches(buf[i], match))
+        if (!CachedMatches(buf[i], match, harmful))
             continue;
         const Attribution a = CachedAttribution(buf[i]);
         PushEnriched(L, guid, buf[i].spellId, !harmful, 1, GroupMemberLevel(guid),
@@ -1185,8 +1300,7 @@ bool PushGroupAuraBySpellName(void *L, uint64_t guid, const char *spellName,
         const uint32_t id = GroupSpellID(arr, slot);
         if (id == 0)
             continue;
-        const char *name = LocalizedSpellName(SpellRecord(id));
-        if (name == nullptr || std::strcmp(name, spellName) != 0)
+        if (!SpellNameMatches(SpellRecord(id), spellName))
             continue;
         if (!GroupSlotMatches(guid, arr, slot, match))
             continue;
@@ -1248,7 +1362,7 @@ int CollectSlots(const uint8_t *unit, uint64_t guid, Filter filter, Match match,
         const int base = (filter == Filter::Harmful) ? OPAQUE_CACHE_HARMFUL
                                                      : OPAQUE_CACHE_HELPFUL;
         for (int k = 0; k < m && n < cap; ++k) {
-            if (CachedMatches(buf[k], match))
+            if (CachedMatches(buf[k], match, filter == Filter::Harmful))
                 out[n++] = base + k;
         }
         return n;
@@ -1271,7 +1385,7 @@ int CollectSlots(const uint8_t *unit, uint64_t guid, Filter filter, Match match,
     const int base = (filter == Filter::Harmful) ? OPAQUE_GROUP_CACHE_HARMFUL
                                                  : OPAQUE_GROUP_CACHE_HELPFUL;
     for (int k = 0; k < m && n < cap; ++k) {
-        if (CachedMatches(buf[k], match))
+        if (CachedMatches(buf[k], match, filter == Filter::Harmful))
             out[n++] = base + k;
     }
     return n;

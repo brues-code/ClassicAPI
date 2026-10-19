@@ -2381,14 +2381,30 @@ enum Offsets {
     OFF_PLAYER_FIELD_MOD_DAMAGE_DONE_NEG = 0xFF0,
 
     // Reusable "is this spell record a user-visible aura" predicate.
-    // `__fastcall(spellRecord*) -> bool`. Checks Spell.dbc Attributes
-    // (high bit of byte at +0x18 must be clear), AttributesEx bit
-    // 0x10000000 must be clear, has a non-trivial effect (effects at
-    // +0x16C..+0x174 must contain at least one not in {0x2C, 0x2D,
-    // 0x97}), and a mechanic-vs-player-immunity-bitmap gate via
-    // `+0x2B0`. Both `Script_UnitBuff` and `Script_UnitDebuff` call
-    // it to filter their aura iteration; we call it the same way.
+    // `__fastcall(spellRecord*) -> bool`. Hides a spell whose Attributes
+    // has bit 7 (the high bit of the byte at +0x18), whose AttributesEx
+    // has 0x10000000, or any of whose three EffectApplyAuraName values
+    // (+0x16C..+0x174) is a tracking aura (0x2C, 0x2D, 0x97). A spell with
+    // a nonzero aura-vision requirement at +0x2B0 shows only when bit
+    // (vision - 1) of the active player's `[player+0xE68]+0x10C1` byte is
+    // set (verified by decompile; benilla-re ui/auradisplay). Both
+    // `Script_UnitBuff` and `Script_UnitDebuff` call it to filter their
+    // aura iteration; we call it the same way.
     FUN_SPELL_IS_VISIBLE_AURA = 0x00519860,
+    // The two tests behind UnitBuff/UnitDebuff's third (raid filter)
+    // argument, both `__fastcall -> uint` (verified by decompile of
+    // `Script_UnitDebuff` 0x005198F0 and benilla-re ui/auradisplay):
+    //   CASTABLE_AURA(spellID): the player knows the spell (known-spell
+    //     bitmap, else the pet spellbook) and its record has
+    //     AttributesEx3 (+0x24) 0x4000 clear, effect 0's implicit target A
+    //     (+0x148) not 1 (self),
+    //     and no effect 0x1B/0x23/0x77/0x80/0x81 — "a buff you can cast on
+    //     others". UnitBuff passes the aura's spell ID.
+    //   DISPEL_TYPE_KNOWN(dispelType): the dispel type is in the player's
+    //     dispel list. UnitDebuff passes the aura's Spell.dbc Dispel
+    //     (`OFF_SPELL_DISPEL_TYPE`), not a spell ID.
+    FUN_SPELL_IS_CASTABLE_AURA = 0x004B3870,
+    FUN_DISPEL_TYPE_KNOWN = 0x004B3920,
     // The TOOLTIP variant of the gate: what `Script_GameTooltip_SetUnitBuff`
     // (0x00534AC0) / `SetUnitDebuff` (0x00534E30) apply per slot while
     // turning a Lua index into a slot. `__fastcall(spellRecord) -> bool`:
@@ -2404,34 +2420,42 @@ enum Offsets {
     // local player's own buffs/debuffs with full duration data — the
     // server broadcasts cast/duration only for the player's own auras.
     //
-    // VAR_PLAYER_BUFF_TABLE: 48-entry array, 16 bytes each.
-    //   +0x00 (int)   slotCode: -1 = empty; 0..31 = buff entry;
-    //                 32..47 = debuff entry. Doubles as the index
-    //                 into the expiration table.
-    //   +0x04 (int)   spellID — verified via `Script_GetPlayerBuffTexture`
-    //                 at `0x004E4740`, which reads `[entry+0x4]` and
-    //                 bounds-checks against `[VAR_SPELL_RECORD_COUNT]`.
-    //   +0x0A (byte)  flags: bit 0x1 = cancelable
-    //   +0x0C (int)   untalented rank — the value `GetPlayerBuff`
-    //                 returns as its second result. Not the spellID.
+    // VAR_PLAYER_BUFF_TABLE: 48-entry array, 16 bytes each, packed from
+    // the front in insertion order (a record's position is NOT its slot).
+    // Filled by `FUN_004E44B0` from the descriptor (verified by decompile):
+    //   +0x00 (int)   slotCode: -1 = empty, else the absolute aura slot
+    //                 0..47. Doubles as the index into the expiration table.
+    //   +0x04 (int)   spellID.
+    //   +0x08 (byte)  caster level (UNIT_FIELD_AURALEVELS).
+    //   +0x09 (byte)  stack count (applications byte + 1).
+    //   +0x0A (byte)  the slot's flag nibble; bit 0x1 = cancelable.
+    //   +0x0C (int)   until-cancelled: 1 when the spell has no finite
+    //                 duration (missing SpellDuration row, or base < 0 and
+    //                 per-level <= 0), or when the nibble lacks the
+    //                 cancelable bit and an effect is 0x23/0x77/0x80/0x81.
+    //                 `GameTooltip:SetPlayerBuff` (0x00532B00) skips the
+    //                 time-left line when it is set, and `GetPlayerBuff`
+    //                 returns it as its second result.
     //
-    // VAR_PLAYER_BUFF_EXPIRATION_TABLE: parallel `int[]` of absolute
-    // expiration timestamps in ms. Same epoch as `FUN_OS_TICKCOUNT_MS`
-    // and (verified) Lua's `GetTime()` (which multiplies tickcount by
-    // 0.001) — so converting `expirationMs * 0.001` gives an absolute
-    // seconds-value that's directly comparable to `GetTime()` on the
-    // Lua side. No epoch reconciliation needed.
+    // VAR_PLAYER_BUFF_EXPIRATION_TABLE: `uint32[48]` of absolute
+    // expiration timestamps in ms, indexed by SLOT (not record position).
+    // Same epoch as `FUN_OS_TICKCOUNT_MS` and Lua's `GetTime()` (which
+    // multiplies tickcount by 0.001). Written only by the duration packet
+    // handler `FUN_004E4390` (SMSG 0x137: slot, ms) and zeroed only at
+    // interface setup, so a slot KEEPS its last expiry after its aura ends
+    // (benilla-re ui/auradisplay#the-duration-packet): an aura that never
+    // gets a duration reads the previous occupant's. The until-cancelled
+    // flag above is what tells those apart.
     //
-    // Sourced from `Script_GetPlayerBuff` (`0x004E45D0`) /
-    // `Script_GetPlayerBuffTimeLeft` (`0x004E4930`); the
-    // `FUN_004E4450(buffID)` inner helper does the
-    // `expirationTable[entry.slotCode] - currentMs` math we mirror.
+    // `FUN_004E4450(position)` does the `expirationTable[slotCode] -
+    // currentMs` math (0 once elapsed) for `GetPlayerBuffTimeLeft`.
     VAR_PLAYER_BUFF_TABLE = 0x00BC6040,
     VAR_PLAYER_BUFF_EXPIRATION_TABLE = 0x00BC5F68,
     PLAYER_BUFF_TABLE_COUNT = 48,
     PLAYER_BUFF_ENTRY_STRIDE = 16,
     OFF_PLAYER_BUFF_SLOT_CODE = 0x00,
     OFF_PLAYER_BUFF_SPELL_ID = 0x04,
+    OFF_PLAYER_BUFF_UNTIL_CANCELLED = 0x0C,
 
     // CMSG_CANCEL_AURA sender — `__fastcall(int spellID)`. Builds an
     // opcode-0x136 packet (`{opcode=0x136, spellID}`) and ships it.
@@ -9273,6 +9297,8 @@ enum Offsets {
     OFF_SPELL_RECORD_EFFECT = 0xF4,                   // int32[3]
     SPELL_EFFECT_SCHOOL_DAMAGE = 2,                    // direct damage (verified vs server SpellDefines.h)
     SPELL_EFFECT_APPLY_AURA = 6,                       // EffectApplyAuraName[i] then names the aura type
+    SPELL_EFFECT_PERSISTENT_AREA_AURA = 27,            // vmangos SpellDefines.h
+    SPELL_EFFECT_APPLY_AREA_AURA_PARTY = 35,           // vmangos SpellDefines.h
     SPELL_EFFECT_TRIGGER_SPELL = 64,                   // casts EffectTriggerSpell[i] (Feral Charge 16979 → 19675)
     // Kick / Pummel / Shield Bash / Counterspell / Earth Shock — 57 Spell.dbc
     // rows carry it. The server's Spell::EffectInterruptCast is its handler.
@@ -9343,6 +9369,10 @@ enum Offsets {
     OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
+    // Attributes bit 31 — the player cannot cancel the aura. Both servers'
+    // SpellAuraHolder::SetAuraFlag (vmangos, tortoise-wow) give a positive
+    // aura the descriptor's cancelable bit exactly when this is clear.
+    SPELL_ATTR_CANT_CANCEL = 0x80000000,
     // Attributes bit 5 — a profession recipe (SPELL_ATTR_TRADESPELL). Set on
     // all 1,733 trade-skill recipes in the extracted Spell.dbc and on none of
     // Enchanting's craft spells (those have record +0x0C == 3 instead, the

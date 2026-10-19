@@ -19,20 +19,22 @@
 //
 // Filter parsing (`ParseFilters`) tokenizes the modern AuraFilters string:
 // tokens separated by `|` and/or whitespace, each optionally negated with a
-// leading `!`. Whole-token matching, so `RAID_PLAYER_DISPELLABLE` is not
-// mistaken for `PLAYER` and `!PLAYER` is a negation rather than a match.
+// leading `!`, compared ignoring case as 4.3.4's parser does. Whole-token
+// matching, so `RAID_PLAYER_DISPELLABLE` is not mistaken for `PLAYER` and
+// `!PLAYER` is a negation rather than a match.
 // Honored: `HELPFUL` / `HARMFUL` (the aura's real polarity, read however this
 // server encodes it — see `Aura::Data::IsSlotHarmful`), `PLAYER` /
-// `!PLAYER` (caster is / isn't the local player or their pet, from the
-// Aura::Source cache),
+// `!PLAYER` (caster is / isn't the local player or a unit they own, from the
+// Aura::Source cache), `RAID` (the engine's raid filter — see
+// `Aura::Data::IsRaidAura`), `CANCELABLE` / `NOT_CANCELABLE` (the descriptor's
+// cancelable bit),
 // `DISPELLABLE` / `!DISPELLABLE` (dispel type is / isn't one a
 // dispel/purge/steal can remove — Spell.dbc Dispel ∈ Magic/Curse/Disease/
 // Poison, matching the server's DISPEL_ALL_MASK), and `CROWD_CONTROL` /
 // `!CROWD_CONTROL` (is / isn't a hard control effect, via the shared
 // `Spell::CrowdControl` classifier that also backs C_LossOfControl). Every
-// other modern token (`RAID`, `CANCELABLE`, `INCLUDE_NAME_PLATE_ONLY`, `MAW`,
-// …) is accepted and ignored — they need a class-dispel matrix or systems
-// vanilla has no data for.
+// other modern token (`INCLUDE_NAME_PLATE_ONLY`, `MAW`, …) is accepted and
+// ignored — vanilla has no data for them.
 
 #include "Data.h"
 
@@ -75,8 +77,10 @@ struct ParsedFilter {
     Data::CasterMode caster = Data::CasterMode::Any;
     Data::DispelMode dispel = Data::DispelMode::Any;
     Data::CcMode cc = Data::CcMode::Any;
+    Data::CancelMode cancel = Data::CancelMode::Any;
+    bool raid = false;
 
-    Data::Match ToMatch() const { return Data::Match{caster, dispel, cc}; }
+    Data::Match ToMatch() const { return Data::Match{caster, dispel, cc, cancel, raid}; }
 };
 
 // Reduces the parsed range tokens to the single `Data::Filter` the indexed /
@@ -88,8 +92,8 @@ Data::Filter RangeFilter(const ParsedFilter &pf) {
                                      : Data::Filter::Helpful;
 }
 
-// Tokenizes the filter string. Case-sensitive (modern documents the tokens as
-// upper-case constants). `HELPFUL`/`HARMFUL` are positive range selectors;
+// Tokenizes the filter string, ignoring case (4.3.4's Script_GetAuraInfo
+// compares tokens with SStrCmpI). `HELPFUL`/`HARMFUL` are positive range selectors;
 // negating them is meaningless for our slot-based ranges, so a leading `!` is
 // ignored on those. `PLAYER` honors negation (`!PLAYER` → NotPlayer). Any
 // unrecognized token is accepted and skipped.
@@ -116,17 +120,25 @@ ParsedFilter ParseFilters(const char *filter) {
         }
         tok[n] = '\0';
 
-        if (strcmp(tok, "HELPFUL") == 0)
+        if (_stricmp(tok, "HELPFUL") == 0)
             out.helpful = true;
-        else if (strcmp(tok, "HARMFUL") == 0)
+        else if (_stricmp(tok, "HARMFUL") == 0)
             out.harmful = true;
-        else if (strcmp(tok, "PLAYER") == 0)
+        else if (_stricmp(tok, "PLAYER") == 0)
             out.caster = negate ? Data::CasterMode::NotPlayer
                                 : Data::CasterMode::PlayerOnly;
-        else if (strcmp(tok, "DISPELLABLE") == 0)
+        else if (_stricmp(tok, "RAID") == 0)
+            out.raid = !negate;
+        else if (_stricmp(tok, "CANCELABLE") == 0)
+            out.cancel = negate ? Data::CancelMode::NotCancelable
+                                : Data::CancelMode::CancelableOnly;
+        else if (_stricmp(tok, "NOT_CANCELABLE") == 0)
+            out.cancel = negate ? Data::CancelMode::CancelableOnly
+                                : Data::CancelMode::NotCancelable;
+        else if (_stricmp(tok, "DISPELLABLE") == 0)
             out.dispel = negate ? Data::DispelMode::NotDispellable
                                 : Data::DispelMode::DispellableOnly;
-        else if (strcmp(tok, "CROWD_CONTROL") == 0)
+        else if (_stricmp(tok, "CROWD_CONTROL") == 0)
             out.cc = negate ? Data::CcMode::NotCrowdControl
                             : Data::CcMode::CrowdControlOnly;
         // else: accepted and ignored (retail-only / unimplemented token).

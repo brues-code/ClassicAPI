@@ -19652,31 +19652,27 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `isHelpful` | boolean | true when the aura is a buff |
 | `isHarmful` | boolean | true when the aura is a debuff. This is the aura's real polarity, so a debuff parked in a buff slot still reads harmful |
 | `duration` | number | applied duration in seconds. When the aura's cast was observed (in the `Aura::Source` cache), this is the caster-modified duration — talent/glyph extensions like Improved Shadow Word: Pain included — so it stays consistent with `expirationTime` (`remaining ≤ duration`). On a cache miss it falls back to the base `Spell.dbc → SpellDuration.dbc` value with level scaling. Returns 0 for spells flagged "no duration" (passives, paladin auras, infinite buffs) |
-| `expirationTime` | number | for `unit == "player"`, read from the engine's player-buff table at `0x00BC6040` (same data `GetPlayerBuffTimeLeft` returns). For any other unit, taken from the `Aura::Source` cache (cast time + duration captured from `SMSG_SPELL_GO`; see below). `0` when neither source has it. `expirationTime - GetTime()` gives the true remaining time |
+| `expirationTime` | number | for `unit == "player"`, read from the engine's player-buff table at `0x00BC6040` (same data `GetPlayerBuffTimeLeft` returns). For any other unit, taken from the `Aura::Source` cache (cast time + duration captured from `SMSG_SPELL_GO`; see below). `0` when neither source has it, and `0` for one of your auras that lasts until you cancel it. `expirationTime - GetTime()` gives the true remaining time |
 | `sourceUnit` | string | unit token of the caster (`"player"`, `"raid7"`, `"nameplate1"`, …), resolved from the `Aura::Source` cache. `nil` if the cast wasn't observed or the caster maps to no current token |
 | `sourceGUID` | string | caster's `"0x…"` GUID string from the same cache. **A ClassicAPI extension — not a standard `AuraData` field.** Set whenever a caster is known, including when `sourceUnit` is `nil` (caster left token range). Stable for the session, unlike the volatile nameplate token; doubles as a unit token under SuperWoW. `nil` on a cache miss |
 | `charges` / `maxCharges` | number | always `0` — there are stacks, not charges |
 | `timeMod` | number | always `1` — there are no haste-affected auras |
 | `isFromPlayerOrPlayerPet` | boolean | true when a player — any player, not only you — or a player's pet applied the aura. Read from the cached caster GUID, so it is `false` when the cast was not seen this session. Totem buffs read `false`: a totem is a creature, not a pet |
-| `isStealable`, `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal`, `canApplyAura`, `shouldConsolidate`, `isRaid` | boolean | always `false` — UI concepts not present here |
+| `canApplyAura` | boolean | true when you or your pet know the aura's spell, and the spell applies an aura |
+| `isRaid` | boolean | true when the aura passes the `RAID` filter: a buff that you can cast on other players, or a debuff that you can dispel |
+| `isStealable`, `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal`, `shouldConsolidate` | boolean | always `false` — UI concepts not present here |
 | `auraInstanceID`, `points` | (absent) | omitted from the table — Lua read yields nil for "field doesn't apply" |
 
 ### Filter parsing
 
-The optional `filter` string is a pipe-separated set of upper-case
-tokens (`"HELPFUL"`, `"HARMFUL"`,
-`"HELPFUL|PLAYER"`, etc.). Honored:
+The optional `filter` string is a pipe-separated set of tokens
+(`"HELPFUL"`, `"HARMFUL"`, `"HELPFUL|PLAYER"`, and more). Case is not
+important. The full list of tokens is in
+[`GetAuraDataByIndex`](#c_unitaurasgetauradatabyindexunit-index--filter).
+The range tokens work as follows:
 
 - **`HELPFUL`** (default) / **`HARMFUL`** — pick buffs or debuffs by each
   aura's polarity flag. In `GetUnitAuras`, supplying neither returns both.
-- **`PLAYER`** — restrict to auras that the player or the player's pet
-  cast. Combines with the range tokens (`"HARMFUL|PLAYER"` = your debuffs
-  only). The caster is known only for casts seen this session, so an aura
-  that predates login counts as not-player-cast and is excluded.
-
-Other tokens (`RAID` / `CANCELABLE` / `INCLUDE_NAME_PLATE_ONLY`) are
-accepted but no-op — they need engine systems (raid-dispel relevance,
-nameplate visibility flags) not present here.
 
 ### Caster & timing (`Aura::Source`)
 
@@ -19770,15 +19766,24 @@ end
 
 **Filter tokens.** `filter` uses the AuraFilters format: tokens
 separated by `|` or spaces, each token optionally negated with a
-leading `!`. This build honors:
+leading `!`. Case is not important: `"harmful"` is the same as
+`"HARMFUL"`. This build honors:
 
 - `HELPFUL` / `HARMFUL` — buffs / debuffs, by each aura's polarity flag
   rather than its slot number. With neither token the query returns both
   (the indexed getter defaults to helpful).
-- `PLAYER` / `!PLAYER` — only auras the player or the player's pet cast,
-  or only the auras neither of them cast. Caster data comes from casts
-  this session, so an aura present before you saw it cast has no caster
-  and counts as not-player.
+- `PLAYER` / `!PLAYER` — only auras that you cast, or that a unit you
+  control cast (your pet, a guardian, a totem, or a charmed creature). With
+  `!`, only the other auras. Caster data comes from casts this session, so
+  an aura present before you saw it cast has no caster and counts as
+  not-player. A totem or guardian aura counts only while that unit is in
+  sight.
+- `RAID` — for buffs, only buffs that you can cast on other players. For
+  debuffs, only debuffs that you can dispel. This is the same test that
+  the third argument of `UnitBuff` and `UnitDebuff` makes.
+- `CANCELABLE` / `NOT_CANCELABLE` — only auras that the player can cancel,
+  or only auras that the player cannot cancel. Debuffs are never
+  cancelable.
 - `DISPELLABLE` / `!DISPELLABLE` — only auras that can be dispelled,
   purged, or stolen (dispel type Magic, Curse, Disease, or Poison), or
   only auras that cannot. This is "can it be removed at all", not "can
@@ -19789,10 +19794,10 @@ leading `!`. This build honors:
   classifier with `C_LossOfControl`, plus snares (which are crowd
   control but not loss of control).
 
-All other AuraFilters tokens (`RAID`, `CANCELABLE`,
-`INCLUDE_NAME_PLATE_ONLY`, `MAW`, and the rest) are accepted and
-ignored — there is no data for them. Token matching is whole-token,
-so `RAID_PLAYER_DISPELLABLE` is not read as `PLAYER`.
+All other AuraFilters tokens (`INCLUDE_NAME_PLATE_ONLY`, `MAW`, and the
+rest) are accepted and ignored — there is no data for them. Token
+matching is whole-token, so `RAID_PLAYER_DISPELLABLE` is not read as
+`PLAYER`.
 
 ### `C_UnitAuras.GetBuffDataByIndex(unit, index)` / `GetDebuffDataByIndex(unit, index)`
 
@@ -19818,21 +19823,22 @@ nameplateShowAll, timeMod
 Returns a single `nil` when the unit has fewer than `index` matching auras.
 `dispelType` is the dispel-type string (`"Magic"`, `"Curse"`, `"Disease"`,
 `"Poison"`, or `nil`). `source` is the caster's unit token, or `nil` when the cast
-was not seen this session. `castByPlayer` is true when a player — any player, not
-only you — or a player's pet applied the aura, and false when the cast was not
-seen this session. `filter` takes the same tokens as `GetAuraDataByIndex`.
+was not seen this session. `castByPlayer` is true when a player (any player,
+not only you) applied the aura. It is false for an aura from a pet, and false
+when the cast was not seen this session. `filter` takes the same tokens as
+`GetAuraDataByIndex`.
 
 The values are the `GetAuraDataByIndex` fields in the classic `UnitAura` order,
-with two field-name differences from the table: position 12 is `isBossDebuff`
-(the table field is `isBossAura`) and position 13 is `castByPlayer` (the table
-field is `isFromPlayerOrPlayerPet`, the same value). The boss field is
-always false; `castByPlayer` is reported truthfully.
+with two differences from the table. Position 12 is `isBossDebuff` (the table
+field is `isBossAura`), and it is always false. Position 13 is `castByPlayer`.
+The table has `isFromPlayerOrPlayerPet` in its place, which is also true for an
+aura from a pet.
 
 ### `C_UnitAuras.UnitBuff(unit, index [, filter])` / `UnitDebuff(unit, index [, filter])`
 
 The `UnitAura` positional form with the range locked to `HELPFUL` or `HARMFUL`.
-The `filter` still honors the `PLAYER`, `DISPELLABLE`, and `CROWD_CONTROL`
-predicates. Namespaced under `C_UnitAuras` so they never clash with the native
+The `filter` still honors all the other tokens, for example `PLAYER` and
+`RAID`. Namespaced under `C_UnitAuras` so they never clash with the native
 global `UnitBuff` / `UnitDebuff` (which keep their texture-first return).
 
 ### `C_UnitAuras.GetAuraSlots(unit [, filter [, maxSlots [, continuationToken]]])`
@@ -19914,9 +19920,9 @@ common consumer pattern (WeakAuras-style aura tracking).
 ### `C_UnitAuras.GetAuraDataBySpellName(unit, spellName [, filter])`
 
 Linear-searches `unit`'s aura array for the first populated slot
-whose locale-resolved `name` matches `spellName` exactly. Returns
-the `AuraData` for that slot or `nil` if not found. Case-sensitive.
-Without a filter, searches both
+whose locale-resolved `name` matches `spellName`. Case is not
+important: `"inner fire"` finds Inner Fire. Returns the `AuraData` for
+that slot or `nil` if not found. Without a filter, searches both
 ranges (helpful first, then harmful).
 
 ```lua

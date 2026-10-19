@@ -72,8 +72,9 @@ end
 -- Returns the AuraData table's fields in the classic `UnitAura` positional order,
 -- for code written against that shape. Retail appends `unpack(auraData.points)`;
 -- vanilla auras carry no points, so the tuple ends at timeMod (15 values). Field
--- #13 is `isFromPlayerOrPlayerPet` (the table's field) -- note the positional
--- C_UnitAuras.UnitAura reports the higher-fidelity `castByPlayer` at #13 instead.
+-- #13 is `isFromPlayerOrPlayerPet` (the table's field), as retail's UnpackAuraData
+-- does -- the positional C_UnitAuras.UnitAura reports `castByPlayer` there
+-- instead, which is false for a pet's aura.
 function AuraUtil.UnpackAuraData(auraData)
     if not auraData then
         return nil;

@@ -63,6 +63,13 @@ const uint8_t *PlayerInventoryManager();
 // caster cache keys on it from both the lookup and the OnAuraAdded hook).
 uint64_t GuidForObject(const void *unitObject);
 
+// A unit's owner or controller: UNIT_FIELD_CHARMEDBY, else
+// UNIT_FIELD_CREATEDBY — the charmer-or-creator pair the engine itself reads
+// for ownership (a pet, guardian or totem names its summoner in CREATEDBY; a
+// charmed unit its charmer in CHARMEDBY). 0 for players, world creatures,
+// anything unowned, and a null object or descriptor.
+uint64_t OwnerGuid(const void *unitObject);
+
 // Case-insensitive match against the literal `"player"` token, mirroring
 // the engine's `SStrCmpI(token, "player")` fast-path tests (e.g.
 // `Script_UnitClass`/`Script_UnitRace`, which special-case `"player"` to

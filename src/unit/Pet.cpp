@@ -70,25 +70,6 @@ const uint8_t *ResolveUnit(void *L) {
     return static_cast<const uint8_t *>(Game::ResolveUnitToken(token));
 }
 
-// The unit's owner/controller GUID: CharmedBy, else CreatedBy (the two
-// fields the engine itself uses for ownership). 0 for players, world
-// creatures, and anything unowned.
-uint64_t OwnerGuid(const uint8_t *unit) {
-    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
-    if (desc == nullptr)
-        return 0;
-    const int owners[] = {
-        Offsets::OFF_UNIT_FIELD_CHARMEDBY,
-        Offsets::OFF_UNIT_FIELD_CREATEDBY,
-    };
-    for (int off : owners) {
-        const uint64_t g = Game::Read<uint64_t>(desc, off);
-        if (g != 0)
-            return g;
-    }
-    return 0;
-}
-
 // The spell that summoned this unit (its UNIT_CREATED_BY_SPELL descriptor
 // field): the totem-drop spell for a totem, the summon spell for a
 // pet/guardian, etc. 0 for a unit not summoned by a spell (players, world
@@ -112,7 +93,7 @@ int __fastcall Script_UnitIsMinion(void *L) {
         return 1;
     }
     // Primary: owned by a player (pet, guardian, totem, charmed).
-    bool minion = Guid::IsPlayer(OwnerGuid(unit));
+    bool minion = Guid::IsPlayer(Unit::Identity::OwnerGuid(unit));
     // Fallback: a player-controlled non-player with no owner GUID.
     if (!minion && Unit::Flags::IsPlayerControlled(unit))
         minion = !Guid::IsPlayer(Unit::Identity::GuidForObject(unit));
@@ -143,7 +124,7 @@ int __fastcall Script_UnitIsPet(void *L) {
     // not the GUID, not the player-controlled flag — is what the engine
     // uses to title "X's Pet" vs "X's Minion".
     bool pet = false;
-    if (Guid::IsPlayer(OwnerGuid(unit))) {
+    if (Guid::IsPlayer(Unit::Identity::OwnerGuid(unit))) {
         auto classify = reinterpret_cast<PetMinionClass_t>(
             Offsets::FUN_UNIT_PET_MINION_CLASS);
         pet = (classify(unit) == 1);
@@ -164,7 +145,7 @@ int __fastcall Script_UnitIsOtherPlayersPet(void *L) {
         Game::Lua::PushBool(L, 0);
         return 1;
     }
-    const uint64_t owner = OwnerGuid(unit);
+    const uint64_t owner = Unit::Identity::OwnerGuid(unit);
     const bool otherPlayers = Guid::IsPlayer(owner) &&
                               owner != Unit::Identity::PlayerGuid();
     Game::Lua::PushBool(L, otherPlayers);
@@ -182,7 +163,7 @@ int __fastcall Script_UnitOwnerGUID(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const uint64_t owner = OwnerGuid(unit);
+    const uint64_t owner = Unit::Identity::OwnerGuid(unit);
     if (owner == 0) {
         Game::Lua::PushNil(L);
         return 1;

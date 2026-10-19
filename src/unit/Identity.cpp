@@ -142,6 +142,18 @@ uint64_t GuidForObject(const void *unitObject) {
     return *reinterpret_cast<const uint64_t *>(block);
 }
 
+uint64_t OwnerGuid(const void *unitObject) {
+    if (unitObject == nullptr)
+        return 0;
+    auto *desc = Game::Read<const uint8_t *>(unitObject, Offsets::OFF_UNIT_DESCRIPTOR);
+    if (desc == nullptr)
+        return 0;
+    const uint64_t charmer = Game::Read<uint64_t>(desc, Offsets::OFF_UNIT_FIELD_CHARMEDBY);
+    if (charmer != 0)
+        return charmer;
+    return Game::Read<uint64_t>(desc, Offsets::OFF_UNIT_FIELD_CREATEDBY);
+}
+
 bool IsPlayerToken(const char *token) {
     if (token == nullptr)
         return false;
