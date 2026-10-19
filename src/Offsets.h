@@ -1538,10 +1538,11 @@ enum Offsets {
     VTBL_CAMERA_FORWARD = 0x04,
     OFF_CAMERA_POSITION = 0x08,
     // `FUN_SET_SELECTION_BY_GUID` (0x00493540) — canonical target setter the
-    // native tab-cycle commits through. `__cdecl(uint32_t guidLo, uint32_t
-    // guidHi)`. Validates + fires CMSG_SET_SELECTION + client target +
-    // event 0xC3, and maintains the current-selection globals below.
-    // Passing {0,0} clears the target.
+    // native tab-cycle commits through. `__stdcall(uint32_t guidLo, uint32_t
+    // guidHi)` — `ret 8` at 0x004935E0; TargetByName (0x00489D60) and
+    // OnSpriteRightClick push the pair and never clean it. Validates + fires
+    // CMSG_SET_SELECTION + client target + event 0xC3, and maintains the
+    // current-selection globals below. Passing {0,0} clears the target.
     FUN_SET_SELECTION_BY_GUID = 0x00493540,
     // Current target-selection GUID (lo/hi), written by
     // `FUN_SET_SELECTION_BY_GUID` — 4.3.4's CGGameUI::m_lockedTarget. The tab

@@ -55,7 +55,7 @@ namespace {
 using Cycle_t = void(__fastcall *)(int reverse, int mode);
 using Valid_t = int(__fastcall *)(void *player, void *cand, int mode);
 using ToBool_t = int(__fastcall *)(void *L, int idx, int dflt);
-using SetSelection_t = void(__cdecl *)(uint32_t guidLo, uint32_t guidHi);
+using SetSelection_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
 using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx, uint64_t guid);
 using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
 using ScreenCoords_t = bool(__thiscall *)(void *worldFrame, const float *world, float *screen);
