@@ -58,6 +58,22 @@ inline T &Ref(uintptr_t address) {
     return *reinterpret_cast<T *>(address);
 }
 
+// Calls `fn(object)` for each object of one of a frame's intrusive lists,
+// OFF_FRAME_REGION_LIST or OFF_FRAME_CHILD_LIST: node+4 next, node+8 object,
+// a NULL or low-bit-1 link ends it - the walk the engine's own frame code
+// does (the alpha setter, the bounds walk 0x00786F80).
+template <typename Fn>
+void ForEachFrameListObject(void *frame, uintptr_t listOffset, Fn fn) {
+    uintptr_t link = Read<uintptr_t>(frame, listOffset);
+    while (link != 0 && (link & 1) == 0) {
+        void *obj = *reinterpret_cast<void *const *>(link + 8);
+        const uintptr_t next = *reinterpret_cast<const uintptr_t *>(link + 4);
+        if (obj != nullptr)
+            fn(obj);
+        link = next;
+    }
+}
+
 // --- Engine primitives ------------------------------------------------------
 
 // Resolve a unit token (`"player"`, `"target"`, `"party3"`, `"nameplate1"`,

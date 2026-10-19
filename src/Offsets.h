@@ -3332,7 +3332,7 @@ enum Offsets {
     // OFF_REGION_ANCHOR (Script GetLeft: `lea ebx, [edi+0x24]` before the rect
     // reader 0x00768320). SetClampedToScreen (0x00768CC0) sets
     // LAYOUT_FLAG_CLAMPED in the layout flags at OFF_LAYOUT_FLAGS and calls
-    // FUN_FONTSTRING_LAYOUT_INVALIDATE(layout, 0).
+    // FUN_LAYOUT_RESIZE(layout, 0).
     //
     // FUN_LAYOUT_CALC_RECT — `int __thiscall(layout, float rect[4])`, `ret 4`,
     // rect = bottom, left, top, right in layout units (the order Script
@@ -10894,9 +10894,12 @@ enum Offsets {
     // (fs+0xF8) through it before nulling the field; SetMaxLines does the same to
     // force a fresh node rebuild with the new line cap.
     FUN_HANDLE_RELEASE = 0x0041AED0,
-    // VisibleRegion layout invalidate — marks the region (the fs+0x24 layout
-    // subobject) dirty and propagates to parent/children so it re-lays-out.
-    // SetText's tail calls it `FUN_007680e0(fs+0x24, 0)`. `__thiscall(region,
-    // int)` (dummy-EDX form; the int arg is on the stack).
-    FUN_FONTSTRING_LAYOUT_INVALIDATE = 0x007680E0,
+    // 4.3.4's CLayoutFrame::Resize(force) — `__thiscall(layout, int force)`
+    // on a region's layout sub-object (region+OFF_REGION_ANCHOR), `ret 4`.
+    // force 0 marks the region dirty and propagates to parent/children so it
+    // re-lays-out later (SetText's tail: `FUN_007680e0(fs+0x24, 0)`); force 1
+    // resolves it now (Script GetLeft 0x007A1A19: `if
+    // (FUN_REGION_LAYOUT_DIRTY(layout)) FUN_007680e0(layout, 1)`, 4.3.4's
+    // `if (IsResizePending()) Resize(1)`).
+    FUN_LAYOUT_RESIZE = 0x007680E0,
 };

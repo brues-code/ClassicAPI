@@ -105,19 +105,6 @@ uint8_t DrawnFor(void *frame, uint8_t own) {
     return parent != nullptr ? Mul(own, *DrawnByte(parent)) : own;
 }
 
-// Walks one of the frame's intrusive lists (node+4 next, node+8 object; a NULL
-// or low-bit-1 link ends it), as the engine's setter does.
-template <typename Fn> void ForEachLink(void *frame, uintptr_t listOffset, Fn fn) {
-    uintptr_t link = Game::Read<uintptr_t>(frame, listOffset);
-    while (link != 0 && (link & 1) == 0) {
-        void *obj = *reinterpret_cast<void *const *>(link + 8);
-        const uintptr_t next = *reinterpret_cast<const uintptr_t *>(link + 4);
-        if (obj != nullptr)
-            fn(obj);
-        link = next;
-    }
-}
-
 // Gives `frame` its drawn alpha through its own vtable setter.
 void ApplyDrawn(void *frame, uint8_t drawn) {
     if (*DrawnByte(frame) == drawn || g_depth >= kMaxDepth)
@@ -141,12 +128,12 @@ void Draw(void *frame, uint8_t drawn) {
     if (*byte == drawn)
         return;
     *byte = drawn;
-    ForEachLink(frame, Offsets::OFF_FRAME_REGION_LIST, [](void *region) {
+    Game::ForEachFrameListObject(frame, Offsets::OFF_FRAME_REGION_LIST, [](void *region) {
         void **vtable = *static_cast<void ***>(region);
         reinterpret_cast<Recolor_t>(
             vtable[Offsets::VTBL_REGION_RECOLOR / sizeof(void *)])(region, 0);
     });
-    ForEachLink(frame, Offsets::OFF_FRAME_CHILD_LIST,
+    Game::ForEachFrameListObject(frame, Offsets::OFF_FRAME_CHILD_LIST,
                 [drawn](void *child) { ApplyDrawn(child, Mul(Own(child), drawn)); });
 }
 

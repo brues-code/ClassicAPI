@@ -155,7 +155,7 @@ void *AnchorOf(void *region) {
 bool RegionRect(void *region, float outTLBR[4]) {
     void *anchor = AnchorOf(region);
     if (reinterpret_cast<RegionDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(anchor) != 0)
-        reinterpret_cast<RegionResolve_t>(Offsets::FUN_FONTSTRING_LAYOUT_INVALIDATE)(anchor, 1);
+        reinterpret_cast<RegionResolve_t>(Offsets::FUN_LAYOUT_RESIZE)(anchor, 1);
     return reinterpret_cast<RegionGetRect_t>(Offsets::FUN_REGION_GET_RECT)(anchor, outTLBR) != 0;
 }
 

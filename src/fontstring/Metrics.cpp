@@ -90,7 +90,7 @@ using BreakArray_t = uint32_t(__fastcall *)(void *fs, void *edx, const char *tex
 using FsSetText_t = void(__fastcall *)(void *fs, void *edx, const char *text, int flag);
 // FUN_HANDLE_RELEASE — DecRef a ref-counted handle. __fastcall(handle).
 using HandleRelease_t = void(__fastcall *)(void *handle);
-// FUN_FONTSTRING_LAYOUT_INVALIDATE — region layout invalidate. __thiscall(region,
+// FUN_LAYOUT_RESIZE — region layout resize (0 = invalidate). __thiscall(region,
 // int); dummy-EDX form.
 using LayoutInvalidate_t = void(__fastcall *)(void *region, void *edx, int arg);
 
@@ -109,7 +109,7 @@ void InvalidateLayout(void *fs) {
     }
     Game::Ref<uint32_t>(fs, Offsets::OFF_FONTSTRING_DIRTY_FLAGS) &= ~1u;
     void *region = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(fs) + 0x24);
-    reinterpret_cast<LayoutInvalidate_t>(Offsets::FUN_FONTSTRING_LAYOUT_INVALIDATE)(
+    reinterpret_cast<LayoutInvalidate_t>(Offsets::FUN_LAYOUT_RESIZE)(
         region, nullptr, 0);
 }
 

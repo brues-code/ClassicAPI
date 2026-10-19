@@ -144,7 +144,7 @@ int __fastcall Script_SetClampRectInsets(void *L) {
     else
         g_insets[frame] = in;
     // Re-lay the frame out, as SetClampedToScreen does after changing the clamp.
-    reinterpret_cast<Invalidate_t>(Offsets::FUN_FONTSTRING_LAYOUT_INVALIDATE)(LayoutOf(frame), 0);
+    reinterpret_cast<Invalidate_t>(Offsets::FUN_LAYOUT_RESIZE)(LayoutOf(frame), 0);
     return 0;
 }
 
