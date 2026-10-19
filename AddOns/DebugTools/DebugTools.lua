@@ -3,7 +3,7 @@
 --
 -- Major changes from the 3.3.5 source:
 --  * Lua 5.0 has no "..." varargs and no select(); script handlers take
---    explicit (this, event, arg1..arg9) parameters from XML inline scripts.
+--    explicit (this, event, arg1..arg19) parameters from XML inline scripts.
 --  * RegisterAllEvents is used when available; the curated default list is
 --    a fallback if the client doesn't expose it.
 --  * /fstack accepts "true" (as on 3.3.5) or "hidden" to list hidden
@@ -168,12 +168,17 @@ end);
 -- EventTraceFrame
 ------------------------------------------------------------------------------
 
+-- The engine sets at most arg1..arg19 for an event, so the XML OnEvent passes
+-- all 19 globals and trailing nils mark the end.
+EVENT_TRACE_MAX_ARGS = 19;
+
 function EventTraceFrame_OnLoad(self)
     self.buttons          = {};
     self.events           = {};
     self.times            = {};
     self.rawtimes         = {};
-    self.args             = { {}, {}, {}, {}, {}, {}, {}, {}, {} };
+    self.args             = {};
+    for i = 1, EVENT_TRACE_MAX_ARGS do self.args[i] = {}; end
     self.ignoredEvents    = {};
     self.lastIndex        = 0;
     self.visibleButtons   = EVENT_TRACE_NUM_BUTTONS;
@@ -205,7 +210,8 @@ function EventTraceFrame_OnLoad(self)
     end
 end
 
-function EventTraceFrame_OnEvent(self, event, a1, a2, a3, a4, a5, a6, a7, a8, a9)
+function EventTraceFrame_OnEvent(self, event, a1, a2, a3, a4, a5, a6, a7, a8, a9,
+                                 a10, a11, a12, a13, a14, a15, a16, a17, a18, a19)
     if (self.ignoredEvents[event]) then return; end
     -- Pause swallows real engine events but lets the synthetic
     -- "Begin Capture"/"End Capture"/"On Update" markers through so the
@@ -258,9 +264,10 @@ function EventTraceFrame_OnEvent(self, event, a1, a2, a3, a4, a5, a6, a7, a8, a9
         hours = math.mod(hours, 1000);
         self.times[nextIndex] = string.format("%.2d:%.2d:%06.3f", hours, minutes, seconds);
 
-        local packed = { a1, a2, a3, a4, a5, a6, a7, a8, a9 };
+        local packed = { a1, a2, a3, a4, a5, a6, a7, a8, a9, a10,
+                         a11, a12, a13, a14, a15, a16, a17, a18, a19 };
         local numArgs = 0;
-        for i = 9, 1, -1 do
+        for i = EVENT_TRACE_MAX_ARGS, 1, -1 do
             if (packed[i] ~= nil) then
                 numArgs = i;
                 break;
@@ -374,7 +381,7 @@ function _EventTrace_FormatRow(index)
     if (not _EventTraceFrame.showArguments) then return ev; end
     if (EVENT_TRACE_SYSTEM_TIMES[_EventTraceFrame.times[index]]) then return ev; end
     local parts = {};
-    for i = 1, 9 do
+    for i = 1, EVENT_TRACE_MAX_ARGS do
         local argList = _EventTraceFrame.args[i];
         if (argList and argList[index] ~= nil) then
             table.insert(parts, EventTrace_FormatArgValue(argList[index]));
