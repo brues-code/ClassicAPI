@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Map::Overlays {
 
 // Which overlays of a zone to include, by the local player's exploration.
@@ -32,5 +34,23 @@ enum class Filter {
 // Explored/Unexplored read the player's explored-areas bitfield; before the
 // player is resident (character select) every overlay reads as unexplored.
 void PushZoneOverlays(void *L, int wmaRow, Filter filter);
+
+// Whether the local player has explored AreaTable `areaID`, by the engine's
+// own test (an area whose ExplorationLevel is < 0 always counts). `player`
+// is `Unit::Identity::PlayerObject()`; null counts nothing as explored
+// except those always-explored areas.
+bool IsAreaExplored(int areaID, const uint8_t *player);
+
+// Whether the local player has explored a WorldMapOverlay row: any of its
+// four areas explored, as the engine's map rebuild decides. False with no
+// player.
+bool IsOverlayExplored(const uint8_t *overlayRec, const uint8_t *player);
+
+// The alpha (0..255) of a WorldMapOverlay row's art at a point on its zone
+// canvas (kMapCanvasWidth x kMapCanvasHeight px), placed exactly as
+// `GetMapOverlays` tiles draw it. 0 off the art and for a row with no art.
+// The art is decoded through the engine's BLP reader on the first query
+// that lands on it and cached for the session.
+int ArtAlphaAt(const uint8_t *overlayRec, double canvasX, double canvasY);
 
 } // namespace Map::Overlays

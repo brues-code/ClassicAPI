@@ -3376,10 +3376,12 @@ enum Offsets {
     //    mapPointX@+0x18, mapPointY@+0x1C, textureName@+0x20 (char*,
     //    bare name), textureWidth@+0x24, textureHeight@+0x28,
     //    offsetX@+0x2C, offsetY@+0x30, hitRect@+0x34..+0x40}
-    // The engine's Lua surface only exposes EXPLORED overlays: the
-    // discovered-overlay ID list at 0x00B6E630 (count 0x00B6E6B4) gates
-    // Script_GetMapOverlayInfo. Reading the DBC directly bypasses the
-    // exploration gate — every overlay of a zone, explored or not.
+    // The engine's Lua surface only exposes EXPLORED overlays: the map
+    // rebuild FUN_004a67a0 keeps a row when one of its four areaIDs passes
+    // the exploration test (FUN_IS_AREA_EXPLORED below), into the list at
+    // 0x00B6E630 (count 0x00B6E6B4) that Script_GetMapOverlayInfo reads.
+    // Reading the DBC directly gives every overlay of a zone, explored or
+    // not. Verified: benilla-re ui/worldmap#the-overlays.
     VAR_WORLDMAP_OVERLAY_RECORDS = 0x00C0D594,
     VAR_WORLDMAP_OVERLAY_COUNT = 0x00C0D598,
     OFF_WMO_WORLDMAP_AREA = 0x04,
@@ -3522,11 +3524,24 @@ enum Offsets {
     // (see OFF_UNIT_FIELD_CHANNEL_SPELL below); PLAYER_FLAGS only
     // exists on the +0xE68 sub-struct here.
     OFF_CGPLAYER_INFO = 0xE68,
-    // Explored-areas bitfield inside the CGPlayer info sub-struct
-    // (`[player+0xE68] + 0xE6C`): bit `AreaBit` set == that AreaTable area
-    // is explored. 0x100 bytes. Read by the discovered-overlay rebuild
-    // FUN_004a67a0 as `bits[AreaBit>>3] & (1 << (AreaBit&7))`.
-    OFF_PLAYER_EXPLORED_BITS = 0xE6C,
+    // The engine's explored-area bit test (benilla `IsAreaExplored`):
+    // __thiscall(this = player + OFF_CGPLAYER_INFO, int areaBit) → nonzero
+    // when explored, ret 4. Reads `[this] + 0xE6C` (the 0x100-byte
+    // explored bitfield, PLAYER_EXPLORED_ZONES). The byte index is
+    // compared UNSIGNED against 0x100, so a bit number >= 2048 OR negative
+    // counts as explored. Callers test the AreaTable gate first
+    // (OFF_AREATABLE_EXPLORE_GATE). Disassembled 0x004A9A40.
+    FUN_IS_AREA_EXPLORED = 0x004A9A40,
+    // The engine's explored-bits watcher (benilla `OnExploredBitsChanged`):
+    // a descriptor-observer callback (ABI per FUN_DESC_OBSERVER_REGISTER,
+    // ret 0x10) on the player's 0x100 explored bytes (bank 4, field 0xE6C).
+    // Armed by ArmExploredWatcher 0x004A6430 from EnterWorldUI and cleared
+    // by ClearExploredWatcher 0x004A6490 from LeaveWorldUI (the pair shares
+    // the s_worldEntered latch, so it never stacks). The dispatcher calls it
+    // only when the bytes really changed; it re-selects the current map
+    // (FUN_004a67a0 → WORLD_MAP_UPDATE). Its only references are those two
+    // DATA xrefs. Map::Exploration co-hooks it for MAP_EXPLORATION_UPDATED.
+    FUN_EXPLORED_BITS_CHANGED = 0x004A6460,
 
     // PvP rank fields within the CGPlayer +0xE68 sub-struct (siblings of
     // the combo-point byte at +0x1029). Read by the item tooltip's
@@ -4577,10 +4592,10 @@ enum Offsets {
     // → Elwynn Forest). GetFriendInfo resolves it to name the zone, not the
     // sub-area. 0 for a top-level zone.
     OFF_AREATABLE_PARENT_ID = 0x08,
-    // AreaBit @ +0x0C: index into the player's explored-areas bitfield
-    // (OFF_PLAYER_EXPLORED_BITS). Gate @ +0x28: when < 0 the area needs no
-    // exploration (always counts explored); when >= 0 the AreaBit check
-    // applies. Source: the discovered-overlay rebuild FUN_004a67a0.
+    // AreaBit @ +0x0C: the bit number FUN_IS_AREA_EXPLORED tests. Gate
+    // @ +0x28 (ExplorationLevel): when < 0 the area needs no exploration
+    // (always counts explored); when >= 0 the AreaBit test applies. Source:
+    // the overlay and landmark loops of FUN_004a67a0.
     OFF_AREATABLE_AREA_BIT = 0x0C,
     OFF_AREATABLE_EXPLORE_GATE = 0x28,
     // Flags @ +0x10 (column 4). Bit 0x80 = arena: `Script_GetZonePVPInfo`
@@ -7242,6 +7257,38 @@ enum Offsets {
     // the same Storm allocator the engine uses means the caller's
     // normal `SMemFree` works without us tracking lifetime.
     FUN_FILE_READ = 0x00648620,
+
+    // ---- BLP2 reader (benilla-re image/blp, verified) -------------------
+    // The engine's synchronous BLP reader, as GetPortraitAlphaMask
+    // (0x005258A0) drives it: a 0x4B4-byte record on the stack, initialised
+    // to zero except magic 'BLP2' @+0x04, version 1 @+0x08, alpha type 2
+    // @+0x0E and 100 @+0x4A4 (its meaning is unread; mirrored as the
+    // engine stores it), then Open → DecodeLevel → FreeScratch → Reset.
+    // Open reads the whole file (patch MPQs honoured) into ONE module-static
+    // buffer, so only the record opened last is valid — decode before the
+    // next open. All __thiscall.
+    //   Open(this, path, flag=1) → nonzero on success          (ret 8)
+    //   DecodeLevel(this, gxFmt, level, void **out, uint32_t *size)
+    //     → nonzero; *out is the level in gxFmt                (ret 0x10)
+    //   FreeScratch(this, level) — frees DecodeLevel's buffer  (ret 4)
+    //   Reset(this) — drops the file pointer and the chain
+    // Header fields sit at file offset + 4: width @+0x10, height @+0x14.
+    FUN_BLP_OPEN = 0x005A7B40,
+    FUN_BLP_DECODE_LEVEL = 0x005A7F00,
+    FUN_BLP_FREE_SCRATCH = 0x005A8100,
+    FUN_BLP_RESET = 0x005A7AA0,
+    BLP_RECORD_SIZE = 0x4B4,
+    OFF_BLP_MAGIC = 0x04,
+    OFF_BLP_VERSION = 0x08,
+    OFF_BLP_ALPHA_TYPE = 0x0E,
+    OFF_BLP_WIDTH = 0x10,
+    OFF_BLP_HEIGHT = 0x14,
+    OFF_BLP_INIT_4A4 = 0x4A4,
+    // GxTex format 2: BGRA8888, four bytes per texel, alpha in byte 3
+    // (palette expansion keeps the palette dword's alpha byte there;
+    // benilla image/convert#palette-to-bgra). GetPortraitAlphaMask decodes
+    // to this format.
+    GX_TEX_FORMAT_BGRA8888 = 2,
 
     // MPQ file enumerator — walks every mounted archive's `(listfile)`
     // and invokes a callback for each entry whose path begins with a

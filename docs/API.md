@@ -190,6 +190,7 @@ build instructions.
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
   - [`LOOT_SCAN_COMPLETED` event](#loot_scan_completed-event)
   - [`LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events](#loss_of_control_added--loss_of_control_update-events)
+  - [`MAP_EXPLORATION_UPDATED` event](#map_exploration_updated-event)
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
@@ -557,6 +558,7 @@ build instructions.
   - [`USER_WAYPOINT_UPDATED` event](#user_waypoint_updated-event)
 
 - [MapExplorationInfo](#mapexplorationinfo)
+  - [`C_MapExplorationInfo.GetExploredAreaIDsAtPosition(uiMapID, normalizedPosition)`](#c_mapexplorationinfogetexploredareaidsatpositionuimapid-normalizedposition)
   - [`C_MapExplorationInfo.GetExploredMapTextures([areaID])`](#c_mapexplorationinfogetexploredmaptexturesareaid)
   - [`C_MapExplorationInfo.GetUnexploredMapTextures([areaID])`](#c_mapexplorationinfogetunexploredmaptexturesareaid)
 
@@ -4346,6 +4348,21 @@ multiple simultaneous changes into a single `LOSS_OF_CONTROL_UPDATE`. A
 counterspelled cast, for instance, fires two `ADDED` (the school lockout and,
 with Improved Counterspell, the silence) then an `UPDATE` as each expires.
 See the [LossOfControl](#lossofcontrol) section for the effect data.
+
+### `MAP_EXPLORATION_UPDATED` event
+
+Fires (with no payload) when the player explores a new area. When it
+fires, [`C_MapExplorationInfo`](#mapexplorationinfo) already returns
+the new state. Use it to redraw a map-reveal layer only when the
+explored areas change.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("MAP_EXPLORATION_UPDATED")
+f:SetScript("OnEvent", function()
+    MyMapReveal_Refresh()
+end)
+```
 
 ### `MODIFIER_STATE_CHANGED` event
 
@@ -13645,12 +13662,12 @@ returns **all** overlays) they form the three-way split:
 | `C_MapExplorationInfo.GetUnexploredMapTextures(areaID)` | only overlays **not** yet discovered |
 | `C_Map.GetMapOverlays(areaID)` | **all** overlays, explored or not |
 
-All three return the identical per-overlay table shape (see
-`GetMapOverlays`); these two just filter it. "Explored" is computed
-per-areaID from the player's explored-areas bitfield (the same source the
-engine's own `GetNumMapOverlays`/`GetMapOverlayInfo` gate on), so the
-`areaID` argument works for any zone — not only the one currently on the
-world map. With no argument, both default to the current map view.
+All three return the same per-overlay table shape (see
+`GetMapOverlays`). These two only filter it. An overlay counts as
+explored when the player has explored one of its areas. This is the same
+rule that `GetNumMapOverlays` and `GetMapOverlayInfo` use. The `areaID`
+argument works for any zone, not only the zone on the world map. With no
+argument, both functions use the current map view.
 
 ### `C_MapExplorationInfo.GetExploredMapTextures([areaID])`
 
@@ -13674,6 +13691,28 @@ discovered, the pieces a map-reveal addon draws over the fogged base map.
 The related [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid) returns
 *everything*. Same table shape and
 `areaID` semantics as the explored getter.
+
+### `C_MapExplorationInfo.GetExploredAreaIDsAtPosition(uiMapID, normalizedPosition)`
+
+Returns the explored areas at a point on a map, as an array of AreaTable
+IDs. Returns nil when there are none.
+
+- `uiMapID` — the map to look on.
+- `normalizedPosition` — a `CreateVector2D(x, y)` value (or a `{x = …, y
+  = …}` table). Both values go from 0 to 1 across the map.
+
+An area is at the point when its revealed map art covers the point. The
+match follows the exact shape of the art, not a rectangle around it. A
+point on bare base map gives nil, even inside the bounds of an area's art.
+When art overlaps, the most visible area comes first. Unexplored areas are
+never in the result.
+
+Use the first ID that has a name to label the map under the cursor:
+
+```lua
+local ids = C_MapExplorationInfo.GetExploredAreaIDsAtPosition(mapID, CreateVector2D(x, y))
+local name = ids and C_Map.GetAreaInfo(ids[1])
+```
 
 ## Model
 
