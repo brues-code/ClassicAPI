@@ -13,7 +13,8 @@
 
 // String helpers that 1.12's Lua 5.0 is missing:
 //
-//   - `string.match(s, pattern [, init])` — first-match extraction (5.1).
+//   - `string.match(s, pattern [, init])` — first-match extraction (5.1),
+//     also the global `strmatch`, as `string.find` is `strfind`.
 //   - `string.gmatch(s, pattern)`         — match iterator (5.1).
 //   - `string.gsub` TABLE replacement     — 5.1 form (see the shim below).
 //   - `strsplit(sep, str [, pieces])`     — WoW global; split on any char.
@@ -392,15 +393,16 @@ void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
     Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
     // 4.3.4's compat.lua binds each short global and its string-table twin
-    // to ONE function by assignment (`gsub = str.gsub`, `strrev =
-    // str.reverse`, `str.trim = strtrim`, `str.split = strsplit`, `str.join =
-    // strjoin`), so `strtrim == string.trim`. A second Register* call would
-    // mint a second closure over the same C function, so the globals alias
-    // the table entries by value instead. The string-table half is what lets
-    // `(" x "):trim()` work and libraries capture it at file scope
-    // (AceConfigCmd-3.0: `strtrim = string.trim`); the bare `gsub` gets the
-    // table-replacement upgrade by being the same function.
+    // to ONE function by assignment (`gsub = str.gsub`, `strmatch =
+    // str.match`, `strrev = str.reverse`, `str.trim = strtrim`, `str.split =
+    // strsplit`, `str.join = strjoin`), so `strtrim == string.trim`. A second
+    // Register* call would mint a second closure over the same C function, so
+    // the globals alias the table entries by value instead. The string-table
+    // half is what lets `(" x "):trim()` work and libraries capture it at
+    // file scope (AceConfigCmd-3.0: `strtrim = string.trim`); the bare `gsub`
+    // gets the table-replacement upgrade by being the same function.
     Game::Lua::RegisterGlobalAlias("gsub", "string", "gsub");
+    Game::Lua::RegisterGlobalAlias("strmatch", "string", "match");
     Game::Lua::RegisterGlobalAlias("strsplit", "string", "split");
     Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
     Game::Lua::RegisterGlobalAlias("strtrim", "string", "trim");
