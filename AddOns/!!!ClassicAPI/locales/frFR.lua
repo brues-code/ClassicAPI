@@ -1,6 +1,8 @@
 if GetLocale() ~= "frFR" then return end
 
 BINDING_NAME_FOCUSTARGET = "Définir cible";
+BINDING_NAME_INTERACTMOUSEOVER = "Interagir par survol de la souris";
+BINDING_NAME_INTERACTTARGET = "Interagir avec la cible";
 BINDING_NAME_TARGETFOCUS = "Reprendre cible";
 CONFIRM_DELETE_EQUIPMENT_SET = "Voulez-vous vraiment supprimer l'ensemble d'équipement %s ?";
 CONFIRM_SAVE_EQUIPMENT_SET = "Voulez-vous sauvegarder l'ensemble d'équipement %s ?";

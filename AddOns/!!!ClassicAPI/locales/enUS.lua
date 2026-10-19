@@ -1,5 +1,7 @@
 BINDING_NAME_AOELOOT = "AoE Loot";
 BINDING_NAME_FOCUSTARGET = "Focus Target";
+BINDING_NAME_INTERACTMOUSEOVER = "Interact With Mouseover";
+BINDING_NAME_INTERACTTARGET = "Interact With Target";
 BINDING_NAME_TARGETFOCUS = "Target Focus";
 CONFIRM_DELETE_EQUIPMENT_SET = "Are you sure you want to delete the equipment set %s?";
 CONFIRM_SAVE_EQUIPMENT_SET = "Would you like to save the equipment set \"%s\"?";

@@ -1,6 +1,8 @@
 if GetLocale() ~= "deDE" then return end
 
 BINDING_NAME_FOCUSTARGET = "Fokus setzen";
+BINDING_NAME_INTERACTMOUSEOVER = "Mit Mouseover interagieren";
+BINDING_NAME_INTERACTTARGET = "Mit Ziel interagieren";
 BINDING_NAME_TARGETFOCUS = "Fokus anvisieren";
 CONFIRM_DELETE_EQUIPMENT_SET = "Seid Ihr sicher, dass Ihr das Ausrüstungsset \"%s\" löschen wollt?";
 CONFIRM_SAVE_EQUIPMENT_SET = "Möchtet Ihr das Ausrüstungsset \"%s\" speichern?";

@@ -12,6 +12,12 @@
 	<Binding name="TARGETFOCUS">
 		TargetUnit("focus");
 	</Binding>
+	<Binding name="INTERACTMOUSEOVER">
+		InteractUnit("mouseover");
+	</Binding>
+	<Binding name="INTERACTTARGET">
+		InteractUnit("target");
+	</Binding>
 	<Binding name="AOELOOT">
 		C_Loot.LootAllCorpses()
 	</Binding>

@@ -1,6 +1,8 @@
 if GetLocale() ~= "esES" then return end
 
 BINDING_NAME_FOCUSTARGET = "Establecer objetivo";
+BINDING_NAME_INTERACTMOUSEOVER = "Interactuar al pasar el ratón";
+BINDING_NAME_INTERACTTARGET = "Interactuar con objetivo";
 BINDING_NAME_TARGETFOCUS = "Seleccionar enfocado";
 CONFIRM_DELETE_EQUIPMENT_SET = "¿Seguro que quieres eliminar el equipamiento %s?";
 CONFIRM_SAVE_EQUIPMENT_SET = "¿Quieres guardar el conjunto de equipamiento \"%s\"?";

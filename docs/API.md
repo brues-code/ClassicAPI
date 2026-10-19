@@ -737,6 +737,7 @@ build instructions.
   - [`TargetNearest([reverse])`](#targetnearestreverse)
   - [`TargetNearestEnemyPlayer([reverse])`](#targetnearestenemyplayerreverse)
   - [`TargetNearestFriendPlayer([reverse])`](#targetnearestfriendplayerreverse)
+  - [`InteractUnit(unit [, exactMatch])`](#interactunitunit--exactmatch)
 
 - [TaxiMap](#taximap)
   - [`C_TaxiMap.GetTaxiNodesForMap([mapID])`](#c_taximapgettaxinodesformapmapid)
@@ -17722,6 +17723,35 @@ Like `TargetNearest`, but only enemy **players**.
 ### `TargetNearestFriendPlayer([reverse])`
 
 Like `TargetNearest`, but only friendly **players** that you can assist.
+
+### `InteractUnit(unit [, exactMatch])`
+
+Targets a unit or object and interacts with it. The result is the same
+as a right-click on it in the world. For example, it opens a vendor,
+loots a corpse, or opens a mailbox.
+
+- `unit` is a unit token, `"mouseover"` or a name.
+- `"mouseover"` is the unit or object under the cursor. This includes
+  game objects and corpses, not only units.
+- A unit token that points at nothing finds nothing. The function does
+  not search for that text as a name.
+- For any other text, the function finds the nearest unit or object with
+  that name. A name that starts with the text is a match. If
+  `exactMatch` is true, only the full name is a match.
+
+Returns `1` if the interaction ran, or `nil` if nothing matched. The
+interaction can still fail, for example if you are too far away.
+
+```lua
+InteractUnit("target")
+InteractUnit("mouseover")
+```
+
+#### Bindings (`INTERACTTARGET` / `INTERACTMOUSEOVER`)
+
+The Key Bindings window shows **Interact With Target** and **Interact
+With Mouseover** in the Targeting group. They call
+`InteractUnit("target")` and `InteractUnit("mouseover")`.
 
 ## TaxiMap
 

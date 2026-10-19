@@ -1,6 +1,8 @@
 if GetLocale() ~= "ruRU" then return end
 
 BINDING_NAME_FOCUSTARGET = "Запомненная цель";
+BINDING_NAME_INTERACTMOUSEOVER = "Взаимодействовать указателем мыши";
+BINDING_NAME_INTERACTTARGET = "Взаимодействовать с целью";
 BINDING_NAME_TARGETFOCUS = "Восстановить цель";
 CONFIRM_DELETE_EQUIPMENT_SET = "Вы действительно хотите удалить комплект экипировки \"%s\"?";
 CONFIRM_SAVE_EQUIPMENT_SET = "Хотите сохранить комплект экипировки \"%s\"?";

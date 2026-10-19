@@ -1544,6 +1544,16 @@ enum Offsets {
     // CMSG_SET_SELECTION + client target + event 0xC3, and maintains the
     // current-selection globals below. Passing {0,0} clears the target.
     FUN_SET_SELECTION_BY_GUID = 0x00493540,
+    // CGGameUI::OnSpriteRightClick — the world right-click on an object:
+    // `int __stdcall(uint32_t guidLo, uint32_t guidHi)`, `ret 8`. No active
+    // player → 1; GUID not an object → 0; else targets it
+    // (FUN_SET_SELECTION_BY_GUID) and calls the object's right-click (vtable
+    // +0x60, passing the autoloot-modifier state from FUN_0041F8F0) → 1.
+    // Callers: the sprite-click handler 0x00492CE0 (4.3.4's
+    // HandleSpriteClick, byte-for-byte) and 0x004949F0. 4.3.4's version adds
+    // an aura-334 gate and skips the target for creatures with type flag
+    // 0x20000000; 1.12 has neither. nampower detours it (its offsets.hpp).
+    FUN_ON_SPRITE_RIGHT_CLICK = 0x00492820,
     // Current target-selection GUID (lo/hi), written by
     // `FUN_SET_SELECTION_BY_GUID` — 4.3.4's CGGameUI::m_lockedTarget. The tab
     // cycle compares it with its cursor entry; TargetDirection starts from it.
@@ -1706,10 +1716,14 @@ enum Offsets {
     // the phase-2 `UNIT_SPELLCAST_*` remote-unit fan-out.
     FUN_UNIT_TOKENS_FROM_GUID = 0x00515C50,
 
-    // Mouseover-unit GUID globals — the `"mouseover"` token resolves to
-    // these (see the token-dispatch list above). Written ONLY by
-    // `FUN_SET_MOUSEOVER_UNIT`; zero when nothing is moused over. Used by
-    // `Unit::Mouseover` to detect the loss transition.
+    // Mouseover GUID globals — the `"mouseover"` token resolves to these
+    // (see the token-dispatch list above). Written ONLY by
+    // `FUN_SET_MOUSEOVER_UNIT`; zero when nothing is moused over. Holds the
+    // hovered OBJECT of any type (its setter switches on unit / player /
+    // game object 0x21 / corpse 0x81), so it is 4.3.4's
+    // CGGameUI::m_currentObjectTrack, not just a unit. Used by
+    // `Unit::Mouseover` to detect the loss transition and by
+    // `Unit::Interact` for InteractUnit("mouseover").
     VAR_MOUSEOVER_GUID_LO = 0x00B4E2C8,
     VAR_MOUSEOVER_GUID_HI = 0x00B4E2CC,
 

@@ -1,6 +1,8 @@
 if GetLocale() ~= "zhTW" then return end
 
 BINDING_NAME_FOCUSTARGET = "鎖定目標";
+BINDING_NAME_INTERACTMOUSEOVER = "與滑鼠指定的目標互動";
+BINDING_NAME_INTERACTTARGET = "與目標互動";
 BINDING_NAME_TARGETFOCUS = "選定鎖定目標";
 CONFIRM_DELETE_EQUIPMENT_SET = "你確定要刪除裝備設定：%s嗎？";
 CONFIRM_SAVE_EQUIPMENT_SET = "你想要儲存裝備設定「%s」嗎？";

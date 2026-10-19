@@ -1,6 +1,8 @@
 if GetLocale() ~= "zhCN" then return end
 
 BINDING_NAME_FOCUSTARGET = "焦点目标";
+BINDING_NAME_INTERACTMOUSEOVER = "与鼠标悬停处互动";
+BINDING_NAME_INTERACTTARGET = "与目标互动";
 BINDING_NAME_TARGETFOCUS = "目标焦点";
 CONFIRM_DELETE_EQUIPMENT_SET = "你确认要删除装备方案%s吗？";
 CONFIRM_SAVE_EQUIPMENT_SET = "你想要保存装备方案\"%s\"吗？";
