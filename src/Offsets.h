@@ -9410,6 +9410,12 @@ enum Offsets {
     // SPELL_ATTR_EX3_IGNORE_CASTER_MODIFIERS (verified via disassembly; the
     // server enum agrees). NOT AttributesEx2's bit 29 (that's CANT_CRIT).
     SPELL_ATTR_EX3_IGNORE_CASTER_MODIFIERS = 0x20000000,
+    // AttributesEx3 bit 13 (vmangos SPELL_ATTR_EX3_HIDE_CHANNEL_BAR): the
+    // client shows no channel bar. MSG_CHANNEL_START's handler (0x006E7550,
+    // `test ch,0x20` on +0x24 at 0x006E7595; benilla-re spell/handlers) skips
+    // SPELLCAST_CHANNEL_START for it, and 4.3.4's Packet_MSG_CHANNEL_START
+    // also skips SetUIChannelSpell, so UnitChannelInfo reports nothing.
+    SPELL_ATTR_EX3_HIDE_CHANNEL_BAR = 0x00002000,
     // AttributesEx3 bit 18 — the paladin judgement-debuff marker. The server's
     // melee-swing judgement refresh selects auras by SPELLFAMILY_PALADIN +
     // this bit (tortoise-wow SpellDefines.h SPELL_ATTR_EX3_ALWAYS_HIT,

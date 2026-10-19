@@ -62,8 +62,9 @@
 //
 // Evaluation is lazy — at query time, from the caster's live aura slots — rather
 // than stamped at cast start and re-evaluated on aura updates like 3.3.5. Same
-// answer, no extra hooks; the 3.3.5 UNIT_SPELLCAST_INTERRUPTIBLE /
-// _NOT_INTERRUPTIBLE change events are not fired (yet).
+// answer, no extra hooks. The UNIT_SPELLCAST_INTERRUPTIBLE / _NOT_INTERRUPTIBLE
+// change events come from `Spell::Cast`'s target/focus watch, which compares
+// this answer for one cast from frame to frame.
 
 #include "Game.h"
 #include "Offsets.h"

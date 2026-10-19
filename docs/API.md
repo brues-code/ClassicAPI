@@ -4865,8 +4865,9 @@ don't get misread as leaving a form.
 
 Cast/channel events for the **local player and other units**. Cast-bar /
 rotation addons register these instead of the arg-less `SPELLCAST_*` events
-and read `unit, castGUID, spellID` directly. Thirteen events are provided;
-six also fire for non-player units:
+and read `unit, castGUID, spellID` directly. Fifteen events are provided;
+six also fire for non-player units, and two fire only for your target and
+focus:
 
 | Event | Fires when | Units | Args |
 |-------|-----------|-------|------|
@@ -4875,14 +4876,16 @@ six also fire for non-player units:
 | `UNIT_SPELLCAST_STOP` | a cast-time spell ends (any reason) | all | same |
 | `UNIT_SPELLCAST_DELAYED` | pushback extends the cast | player | same |
 | `UNIT_SPELLCAST_SUCCEEDED` | the spell goes off (`SMSG_SPELL_GO`) — incl. instants | all | same |
-| `UNIT_SPELLCAST_INTERRUPTED` | a started **cast** is interrupted (kick, movement, LoS) — never for channels | all | same |
-| `UNIT_SPELLCAST_FAILED` | a cast is rejected before it starts (range, mana, cooldown) with an error shown | player | same |
+| `UNIT_SPELLCAST_INTERRUPTED` | a started **cast** is interrupted (a kick, or a cancel by moving or jumping) — never for channels | all | same |
+| `UNIT_SPELLCAST_FAILED` | a cast fails with an error shown: it is refused before it starts (range, mana, cooldown, moving), or a started cast fails (line of sight, target died) | player | same |
 | `UNIT_SPELLCAST_FAILED_QUIET` | a cast fails with **no** error shown (spammy retry, reticle cancel, …) | player | same |
 | `UNIT_SPELLCAST_CHANNEL_START` | a channel begins | all | same |
 | `UNIT_SPELLCAST_CHANNEL_UPDATE` | pushback shortens a channel | player | same |
 | `UNIT_SPELLCAST_CHANNEL_STOP` | a channel ends | all | same |
 | `UNIT_SPELLCAST_RETICLE_TARGET` | a ground-target reticle appears (AoE placement — Blizzard, Flare, …) | player | `unit, "", spellID, spellName, rank` |
 | `UNIT_SPELLCAST_RETICLE_CLEAR` | the reticle is placed or cancelled | player | `unit, "", spellID, spellName, rank` |
+| `UNIT_SPELLCAST_INTERRUPTIBLE` | the unit's current cast can be interrupted again | target, focus | `unit` |
+| `UNIT_SPELLCAST_NOT_INTERRUPTIBLE` | the unit's current cast can no longer be interrupted | target, focus | `unit` |
 
 `unit` (arg1) is the token of the casting unit — `"player"` for your own
 casts, or a unit token (`"target"`, `"focus"`, `"party3"`, `"nameplate2"`,
@@ -4911,6 +4914,17 @@ they're **best-effort** — driven purely by the packets an observer receives:
 **Channels never fire `INTERRUPTED`.** Only `CHANNEL_STOP` fires when a
 channel ends, whether it completed or was cut short, for both the player and
 other units. `INTERRUPTED` is a cast-only event.
+
+**Channels without a bar.** Some channels are flagged to show no channel bar
+(Hakkar's Blood Siphon, for example). They fire no channel events, and
+`C_Spell.UnitChannelInfo` returns nothing for them.
+
+**Interruptible events.** `NOT_INTERRUPTIBLE` and `INTERRUPTIBLE` fire when
+the `notInterruptible` value of your target's or your focus's current cast
+changes during that cast. For example, the caster gains or loses an aura
+that blocks your interrupts. The first value of a cast fires no event: read it
+from `C_Spell.UnitCastingInfo` or `C_Spell.UnitChannelInfo` at `START`. The
+only argument is the unit token.
 
 **Reticle events** fire for ground-targeted (AoE) spells only, always for the
 player: `RETICLE_TARGET` when the placement reticle comes up, `RETICLE_CLEAR`
@@ -4942,15 +4956,21 @@ recast gets its own castUID. The `type` and `castUID` follow the
   before SUCCEEDED).
 - Instant: `SENT → SUCCEEDED`.
 
-**INTERRUPTED vs FAILED vs FAILED_QUIET:** a spell that never started (out of
-range, not enough mana, on cooldown, LoS to a target) fires `FAILED`, except
-for a fixed whitelist of "quiet" `SpellCastResult` codes that fire
-`FAILED_QUIET` instead — `SPELL_IN_PROGRESS` (casting while already casting /
-a spell-queue rejection), `DONT_REPORT` (fake fails, a cancelled ground
-reticle), and `CHARMED`. A spell that was *already casting* and gets stopped
-(an enemy kick, moving to cancel, breaking LoS mid-cast) fires `INTERRUPTED`.
-Holding the cast key while running fires `INTERRUPTED` repeatedly (once per
-retry), each reusing the interrupted cast's castGUID.
+**INTERRUPTED vs FAILED vs FAILED_QUIET:** the reason that the game gives
+for the failure decides the event:
+
+- `INTERRUPTED`: the reason is an interrupt. This includes an enemy kick, and
+  a cast that you cancel by moving, jumping or pressing Escape.
+- `FAILED_QUIET`: the reason is one of three that show no error:
+  `SPELL_IN_PROGRESS` (casting while already casting, or a spell-queue
+  rejection), `DONT_REPORT` (fake fails, a cancelled ground reticle) and
+  `CHARMED`.
+- `FAILED`: any other reason. This includes a spell that never started (out
+  of range, not enough mana, on cooldown, moving) and a started cast that
+  fails at the end (line of sight, target died).
+
+A started cast that fails then fires `STOP`. Holding the cast key while
+running fires `FAILED` once for each new attempt.
 
 **Channel pushback (player).** Taking damage while channeling shortens the
 channel; `CHANNEL_UPDATE` fires on each hit and
@@ -16720,7 +16740,10 @@ so progress is `(GetTime()*1000 - startTimeMs) / (endTimeMs - startTimeMs)`.
 > Ice Block, or Banish). If you know no interrupt and no silence, the value is
 > always `false`. Limits: a creature's built-in interrupt immunity is
 > server-side data that the client never receives, so a boss with that
-> immunity reads `false` while your interrupt still fails on it.
+> immunity reads `false` while your interrupt still fails on it. When the
+> value changes during the cast of your target or focus,
+> [`UNIT_SPELLCAST_INTERRUPTIBLE` or `UNIT_SPELLCAST_NOT_INTERRUPTIBLE`](#unit_spellcast_-events)
+> fires.
 
 ### `C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`
 

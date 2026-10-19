@@ -104,6 +104,15 @@ bool CurrentCastGuid(uint64_t casterGuid, int spellID, char *out, size_t outSize
 // there threads forward: the matching START / SUCCEEDED / FAILED reuse it,
 // so all of a cast's events share one guid.
 
+// `UNIT_SPELLCAST_INTERRUPTIBLE` / `UNIT_SPELLCAST_NOT_INTERRUPTIBLE`, payload
+// `(unitTarget)`, fired for every token naming `casterGuid`. `Spell::Cast`
+// watches its target and focus and calls this when the `notInterruptible`
+// answer for the SAME cast flips (an immunity aura gained or lost mid-cast),
+// as 4.3.4 does from the unit's aura update. `InterruptibleWatched` is the
+// listener gate, so the watch costs nothing when no addon registers.
+bool InterruptibleWatched();
+void OnInterruptibleChanged(uint64_t casterGuid, bool notInterruptible);
+
 // ---- Phase 2: non-player (remote) units --------------------------------
 //
 // Remote casts have a narrower data surface than the player's: vanilla only

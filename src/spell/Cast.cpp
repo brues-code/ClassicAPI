@@ -86,6 +86,7 @@
 #include "spell/CastEvents.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
+#include "unit/Focus.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -146,11 +147,27 @@ bool g_castMoveDropped = false;
 // ~1-tick start lag can't false-clear a channel we just stamped.
 bool g_channelConfirmed = false;
 
+// True for a channel the client shows no bar for (SPELL_ATTR_EX3_HIDE_CHANNEL_BAR).
+// The engine fires no SPELLCAST_CHANNEL_START for it, and 4.3.4 records no UI
+// channel, so neither do we: no channel info and no channel events.
+bool HidesChannelBar(int spellID) {
+    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
+    return rec != nullptr &&
+           (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX3) &
+            Offsets::SPELL_ATTR_EX3_HIDE_CHANNEL_BAR) != 0;
+}
+
 // Stamp the player's channel and re-arm the stop latch. A channel supersedes
 // any in-flight cast. Both channel-stamp sites (SMSG_SPELL_START's instant-
 // channel path and the MSG_CHANNEL_START handler) route through here so
 // neither can forget to reset the latch.
 void StampChannel(int spellID, int startMs, int endMs) {
+    if (HidesChannelBar(spellID)) {
+        // No channel bar, so no channel info or events — as the engine does.
+        g_channel.spellID = 0;
+        g_cast.spellID = 0;
+        return;
+    }
     g_channel = TrackedSpell{spellID, startMs, endMs, 0};
     g_channelConfirmed = false;
     g_cast.spellID = 0;
@@ -337,7 +354,7 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
 // immunity-aura half of `notInterruptible`.
 int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes,
                     const uint8_t *casterUnit) {
-    if (spellID == 0)
+    if (spellID == 0 || HidesChannelBar(spellID))
         return 0;
     // Self-expire a timed channel once its window elapses (mirrors
     // PushCastInfo) — this is how the player's channel clears, since we no
@@ -553,6 +570,8 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
     // remote channel phase has no packet (MSG_CHANNEL_START is caster-only);
     // it surfaces through the unit's broadcast +0x228 field as usual.
     const bool instantChannel = channel && castTime == 0;
+    if (instantChannel && HidesChannelBar(spellID))
+        return; // no channel bar — see HidesChannelBar
     const int endMs = instantChannel ? now + RemoteChannelDurationMs(rec)
                                      : now + static_cast<int>(castTime);
     StoreRemoteCast(caster, targetGuid, spellID, now, endMs, instantChannel);
@@ -801,6 +820,87 @@ void PollRemoteChannels() {
     }
 }
 
+// UNIT_SPELLCAST_INTERRUPTIBLE / _NOT_INTERRUPTIBLE. 4.3.4 re-runs its
+// not-interruptible test when the target's or focus's auras change mid-cast and
+// signals when the answer flips (CGUnit_C aura update → ProcessCastNotInterruptible
+// → Script_SendUnitSignal). `Spell::Interruptible` answers lazily from the
+// caster's live auras, so the same flip is seen by comparing the answer for one
+// cast from frame to frame. A new cast only sets the baseline: its first answer
+// is read from UnitCastingInfo at START, not signalled.
+struct InterruptWatch {
+    uint64_t guid;
+    int spellID;
+    int startMs;
+    bool notInterruptible;
+};
+InterruptWatch g_interruptWatch[2]; // target, focus
+
+// The cast or channel `guid` is in now: spell, start (the cast's identity) and
+// whether it is a channel. False when it isn't casting.
+bool CurrentCastOf(uint64_t guid, const uint8_t *unit, int *spellID, int *startMs,
+                   bool *isChannel) {
+    const int now = NowMs();
+    if (guid == Unit::Identity::PlayerGuid()) {
+        if (g_cast.spellID != 0 && now < g_cast.endMs) {
+            *spellID = g_cast.spellID, *startMs = g_cast.startMs, *isChannel = false;
+            return true;
+        }
+        if (g_channel.spellID != 0 && (g_channel.endMs == 0 || now < g_channel.endMs)) {
+            *spellID = g_channel.spellID, *startMs = g_channel.startMs, *isChannel = true;
+            return true;
+        }
+        return false;
+    }
+    if (const RemoteCast *rc = FindRemoteCast(guid); rc != nullptr && now < rc->endMs) {
+        *spellID = rc->spellID, *startMs = rc->startMs, *isChannel = rc->isChannel;
+        return true;
+    }
+    // A channel seen only through the broadcast field: no start time, so the
+    // spell alone identifies it.
+    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const int chan =
+        desc != nullptr ? Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL) : 0;
+    if (chan == 0)
+        return false;
+    *spellID = chan, *startMs = 0, *isChannel = true;
+    return true;
+}
+
+void PollInterruptible() {
+    if (!Spell::CastEvents::InterruptibleWatched()) {
+        for (auto &w : g_interruptWatch)
+            w = InterruptWatch{};
+        return;
+    }
+    const uint64_t guids[2] = {
+        Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO)),
+        Unit::Focus::Get()};
+    for (int i = 0; i < 2; ++i) {
+        InterruptWatch &w = g_interruptWatch[i];
+        const uint64_t guid = guids[i];
+        // A focus that is also the target is watched once, under the target.
+        const auto *unit = (guid != 0 && !(i == 1 && guid == guids[0]))
+                               ? static_cast<const uint8_t *>(
+                                     Object::ByGuid(Offsets::TYPEMASK_UNIT, guid))
+                               : nullptr;
+        int spellID = 0, startMs = 0;
+        bool isChannel = false;
+        const uint8_t *rec = nullptr;
+        if (unit != nullptr && CurrentCastOf(guid, unit, &spellID, &startMs, &isChannel))
+            rec = Spell::Lookup::RecordForID(spellID);
+        if (rec == nullptr) {
+            w = InterruptWatch{};
+            continue;
+        }
+        const bool notInterruptible =
+            Spell::Interruptible::NotInterruptible(unit, rec, isChannel);
+        const bool sameCast = w.guid == guid && w.spellID == spellID && w.startMs == startMs;
+        if (sameCast && w.notInterruptible != notInterruptible)
+            Spell::CastEvents::OnInterruptibleChanged(guid, notInterruptible);
+        w = InterruptWatch{guid, spellID, startMs, notInterruptible};
+    }
+}
+
 } // namespace
 
 // Per-frame upkeep for the player. The regular cast is stamped by the
@@ -906,6 +1006,7 @@ void OnWorldTick() {
     PollRemoteChannels();
     Spell::CastEvents::PollRemote();
     Spell::CastEvents::PollReticle();
+    PollInterruptible();
 }
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};

@@ -109,6 +109,19 @@ const Event::Custom::AutoReserve kSent{"UNIT_SPELLCAST_SENT", &kSentDoc};
 const Event::Custom::AutoReserve kReticleTarget{"UNIT_SPELLCAST_RETICLE_TARGET", &kReticleTargetDoc};
 const Event::Custom::AutoReserve kReticleClear{"UNIT_SPELLCAST_RETICLE_CLEAR", &kReticleClearDoc};
 
+const Game::Doc::Field kUnitPayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken", "The unit that is casting."),
+};
+const Game::Doc::Event kInterruptibleDoc{"Spell",
+    "The unit's current cast can be interrupted again. Read UnitCastingInfo or UnitChannelInfo.",
+    kUnitPayload};
+const Game::Doc::Event kNotInterruptibleDoc{"Spell",
+    "The unit's current cast can no longer be interrupted. Read UnitCastingInfo or UnitChannelInfo.",
+    kUnitPayload};
+const Event::Custom::AutoReserve kInterruptible{"UNIT_SPELLCAST_INTERRUPTIBLE", &kInterruptibleDoc};
+const Event::Custom::AutoReserve kNotInterruptible{"UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
+                                                   &kNotInterruptibleDoc};
+
 // Autoshot spams client-side failures while ramping — nampower filters it
 // out of its failure event, so do we.
 constexpr uint32_t kAutoShotSpellId = 75;
@@ -229,17 +242,11 @@ int g_castStart = 0;   // startMs of the tracked cast (detects same-spell recast
 int g_castGuid = 0;    // castGUID counter value for the tracked cast
 int g_castEnd = 0;     // last-seen endMs (any movement fires DELAYED)
 bool g_castSucceeded = false; // SPELL_GO seen for the tracked cast this cast
-
-// UNIT_SPELLCAST_INTERRUPTED de-dup. SpellFailed_h and PollPlayer can both
-// surface the same interrupt: the client fires Spell_C_SpellFailed AND drops the
-// tracked cast (e.g. an Esc cancel of a normal spell, or a movement interrupt).
-// SpellFailed_h stamps here when it fires INTERRUPTED; PollPlayer skips its own
-// for the same spell within the window, so one interrupt = one event. A
-// SuperWoW-style kick clears the cast WITHOUT a Spell_C_SpellFailed, so no stamp
-// is made and PollPlayer still owns those.
-int g_lastInterruptSpell = 0;
-int g_lastInterruptTMs = 0;
-constexpr int kInterruptDedupMs = 1000;
+// The engine reported why the tracked cast ended (SpellFailed_h fired its
+// FAILED or INTERRUPTED), so PollPlayer fires only STOP for it. A
+// SuperWoW-style kick clears the cast WITHOUT a Spell_C_SpellFailed, so this
+// stays false and PollPlayer reports the cut-short cast as INTERRUPTED.
+bool g_castEndReported = false;
 
 int g_chanSpell = 0;
 int g_chanGuid = 0;
@@ -265,28 +272,29 @@ int NextCastGuid(int spellID) {
     return MakeCastUID();
 }
 
-// Last cast that ended (fired STOP) + when, so SpellFailed_h can tell a
-// mid-cast interruption (a started cast that's now aborting — the poll owns
-// its INTERRUPTED) from a genuine pre-cast failure. The window covers the
-// race where the poll's cast-end runs a frame before the engine's
-// Spell_C_SpellFailed for the same cancel.
+// Last cast that ended (fired STOP) + when, and whether PollPlayer reported it
+// as INTERRUPTED. A cancel ends the cast on the client first (Esc, a jump: the
+// engine's cancel fires SPELLCAST_STOP), and the server's INTERRUPTED reply
+// reaches Spell_C_SpellFailed a round trip later, when nothing is in flight.
+// That reply is the same interrupt the poll already reported, so it is dropped
+// while it falls inside the window; it reuses the ended cast's guid otherwise.
 int g_endedSpell = 0;
 int g_endedTMs = 0;
 int g_endedGuid = 0;
+bool g_endedInterrupted = false;
 constexpr int kEndWindowMs = 1000;
 
-// SpellCastResult codes (nampower's game::SpellCastResult) that mean the
-// cast is being INTERRUPTED rather than failing to start. Movement is the
-// common one: while you hold the cast key and keep moving, the client
-// retries and hits Spell_C_SpellFailed(MOVING) each time — modern surfaces
-// each as a repeated UNIT_SPELLCAST_INTERRUPTED reusing the cast's guid.
+// The SpellCastResult codes that mean INTERRUPTED: SPELL_FAILED_INTERRUPTED and
+// SPELL_FAILED_INTERRUPTED_COMBAT. Both clients decide by exactly these two.
+// 1.12's cancel (0x006E4940) and failure reporter (0x006E2238) pick
+// SPELLCAST_INTERRUPTED for them and SPELLCAST_FAILED for every other reason
+// (benilla-re spell/cancel, spell/failures), and 4.3.4's HandleSpellFailedOrGo
+// does the same. Casting while moving (MOVING, 0x2E) is a FAILED attempt.
 constexpr int kSpellFailedInterrupted = 35;       // 0x23
 constexpr int kSpellFailedInterruptedCombat = 36; // 0x24
-constexpr int kSpellFailedMoving = 46;            // 0x2E
 
 bool IsInterruptResult(int code) {
-    return code == kSpellFailedInterrupted ||
-           code == kSpellFailedInterruptedCombat || code == kSpellFailedMoving;
+    return code == kSpellFailedInterrupted || code == kSpellFailedInterruptedCombat;
 }
 
 // SpellCastResult codes that modern surfaces as UNIT_SPELLCAST_FAILED_QUIET (a
@@ -342,47 +350,63 @@ SpellFailed_t g_origSpellFailed = nullptr;
 
 void __fastcall SpellFailed_h(uint32_t spellId, int result, int unk1, int unk2,
                               int failedByServer) {
+    // The engine's own test (0x006E2201): a failure for the in-flight spell
+    // ends that cast. Read before the original, which pops the slot.
+    const bool inFlight =
+        Game::Read<uint32_t>(Offsets::VAR_CURRENT_CAST_SPELL) == spellId;
     g_origSpellFailed(spellId, result, unk1, unk2, failedByServer);
     if (spellId == kAutoShotSpellId)
         return; // autoshot ramp spams client failures — filter (like nampower)
     const int sid = static_cast<int>(spellId);
+    const int code = result & 0xFF;
     // A "quiet" failure the engine shows NO error text for (already casting,
     // charmed, spammy retries, reticle cancels, Unleashed-Potential-style fake
     // fails, …). Modern surfaces those as UNIT_SPELLCAST_FAILED_QUIET rather
     // than FAILED — see IsQuietResult for the verified 3-code whitelist. Same
     // type-2 (local-only) castGUID as FAILED.
-    if (IsQuietResult(result & 0xFF)) {
+    if (IsQuietResult(code)) {
         Fire(kFailedQuiet, sid, ++g_guidCounter, /*type=*/2);
         return;
     }
-    const int now = NowMs();
-    const bool recentCast =
-        g_endedSpell == sid && now - g_endedTMs < kEndWindowMs;
+    const auto &event = IsInterruptResult(code) ? kInterrupted : kFailed;
 
-    // Interrupt-class result (moving / kicked): this is the cast being
-    // INTERRUPTED, not failing to start. Modern re-fires INTERRUPTED for
-    // each such retry while you hold the cast key + keep moving, all reusing
-    // the interrupted cast's castGUID. Match that: fire INTERRUPTED with the
-    // in-progress guid, or the just-ended cast's guid, or a fresh one.
-    if (IsInterruptResult(result & 0xFF)) {
-        int guid = g_castSpell == sid ? g_castGuid
-                   : recentCast       ? g_endedGuid
-                                      : NextCastGuid(sid);
-        g_lastInterruptSpell = sid;
-        g_lastInterruptTMs = now;
-        Fire(kInterrupted, sid, guid);
+    // The cast in progress failed: report why, with its guid, and leave its
+    // STOP to PollPlayer (FAILED or INTERRUPTED, then STOP — 4.3.4's order). A
+    // chained same-spell recast never set the in-flight slot, so the tracked
+    // spell counts too; the engine never fails a same-spell retry mid-cast (it
+    // ignores it), so a failure naming the tracked spell is that cast.
+    if (inFlight || g_castSpell == sid) {
+        int guid;
+        int type = 3;
+        if (g_castSpell == sid) {
+            guid = g_castGuid;
+            g_castEndReported = true;
+        } else if (failedByServer != 0) {
+            guid = NextCastGuid(sid); // an instant the server refused
+        } else {
+            guid = ++g_guidCounter; // never reached the server
+            type = 2;
+        }
+        Fire(event, sid, guid, type);
         return;
     }
 
-    // Non-interrupt failure. If it's for a cast that was started (in
-    // progress, or just ended), that cast's end is already reported by the
-    // poll's INTERRUPTED — don't also fire FAILED. Only a failure with NO
-    // started cast is a genuine pre-cast rejection (out of range, no mana,
-    // on cooldown) → UNIT_SPELLCAST_FAILED. This is the spec's Type 2: a
-    // local-only cast that never reached the server, so it gets a plain
-    // incrementing-integer UID (not the time-based real-cast UID).
-    if (g_castSpell == sid || recentCast)
+    // Nothing in flight for this spell. An INTERRUPTED here is the server's
+    // reply to a cast the client already ended (see g_endedInterrupted): drop
+    // it when the poll reported that interrupt, else report it on that cast.
+    if (&event == &kInterrupted) {
+        const bool recentCast =
+            g_endedSpell == sid && NowMs() - g_endedTMs < kEndWindowMs;
+        if (recentCast && g_endedInterrupted)
+            return;
+        Fire(kInterrupted, sid, recentCast ? g_endedGuid : NextCastGuid(sid));
         return;
+    }
+
+    // A cast attempt that failed before it began (out of range, no mana, on
+    // cooldown, moving). This is the spec's Type 2: a local-only cast that
+    // never reached the server, so it gets a plain incrementing-integer UID
+    // (not the time-based real-cast UID).
     Fire(kFailed, sid, ++g_guidCounter, /*type=*/2);
 }
 
@@ -503,22 +527,19 @@ void PollPlayer(int castSpellID, int castStartMs, int castEndMs,
     const bool newCast = castSpellID != 0 &&
                          (castSpellID != g_castSpell || castStartMs != g_castStart);
     if (g_castSpell != 0 && (castSpellID == 0 || newCast)) {
-        // A cast that ended without a SPELL_GO for it was interrupted /
-        // cancelled — fire INTERRUPTED before STOP. By this tick, a natural
-        // completion's SPELL_GO (and thus OnPlayerSucceeded) has already run
-        // a frame earlier, so the flag reliably tells the two apart even
-        // though the engine routes both through the same abort choke point.
-        // Skip if SpellFailed_h already fired INTERRUPTED for this cast (de-dup
-        // — see g_lastInterruptSpell); still fire STOP.
-        const bool alreadyInterrupted =
-            g_lastInterruptSpell == g_castSpell &&
-            Time::Clock::Elapsed(static_cast<uint32_t>(g_lastInterruptTMs)) <
-                static_cast<uint32_t>(kInterruptDedupMs);
-        if (!g_castSucceeded && !alreadyInterrupted)
+        // A cast that ended without a SPELL_GO and without a reason from the
+        // engine (SpellFailed_h sets g_castEndReported) was cut short some
+        // other way — a cancel, or a SuperWoW-style kick — so fire INTERRUPTED
+        // before STOP. By this tick, a natural completion's SPELL_GO (and thus
+        // OnPlayerSucceeded) has already run a frame earlier, so the flag
+        // reliably tells the two apart.
+        const bool interrupted = !g_castSucceeded && !g_castEndReported;
+        if (interrupted)
             Fire(kInterrupted, g_castSpell, g_castGuid);
         Fire(kStop, g_castSpell, g_castGuid);
-        g_endedSpell = g_castSpell; // for SpellFailed_h's interrupt-vs-fail gate
-        g_endedGuid = g_castGuid;   // repeated movement-interrupts reuse it
+        g_endedSpell = g_castSpell; // for SpellFailed_h's late-reply gate
+        g_endedGuid = g_castGuid;
+        g_endedInterrupted = interrupted;
         g_endedTMs = NowMs();
         g_castSpell = 0;
     }
@@ -528,6 +549,7 @@ void PollPlayer(int castSpellID, int castStartMs, int castEndMs,
         g_castStart = castStartMs;
         g_castEnd = castEndMs;
         g_castSucceeded = false;
+        g_castEndReported = false;
         Fire(kStart, castSpellID, g_castGuid);
     } else if (g_castSpell != 0 && castEndMs != g_castEnd) {
         // The cast's end moved: pushback (SMSG_SPELL_DELAYED extends it) or
@@ -660,6 +682,22 @@ void OnPlayerChannelUpdate(int spellID) {
     if (spellID == 0 || g_chanSpell != spellID)
         return;
     Fire(kChannelUpdate, spellID, g_chanGuid);
+}
+
+bool InterruptibleWatched() {
+    return Event::Custom::HasListeners(kInterruptible.Slot()) ||
+           Event::Custom::HasListeners(kNotInterruptible.Slot());
+}
+
+void OnInterruptibleChanged(uint64_t casterGuid, bool notInterruptible) {
+    const int slot = (notInterruptible ? kNotInterruptible : kInterruptible).Slot();
+    if (casterGuid == 0 || !Event::Custom::HasListeners(slot))
+        return;
+    // Every token naming the unit, as 4.3.4's Script_SendUnitSignal does.
+    char tokens[16][32];
+    const int n = Unit::Identity::TokensForGUID(casterGuid, tokens, 16);
+    for (int i = 0; i < n; ++i)
+        Event::Custom::Fire(slot, "%s", tokens[i]);
 }
 
 // ---- Remote unit entry points ------------------------------------------
