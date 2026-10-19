@@ -24,7 +24,8 @@
 // `Frame::Attributes`' `<Attributes>`), so — like `Frame::RunnerHook` and
 // `Tick::WorldTick` — this module owns the hook and fans out. Subscribers run
 // after the engine has loaded the node, in static-init order, which must not
-// matter. Declare a file-scope
+// matter. The hook also runs the loader through `Xml::Inherits::LoadFrame`,
+// which reads `inherits` as a list. Declare a file-scope
 //   static const Xml::FrameLoad::AutoSubscribe _sub{&OnFrameNode};
 
 namespace Xml {
@@ -36,6 +37,9 @@ const char *Tag(const void *node);
 bool TagIs(const void *node, const char *tag); // case-insensitive, like the engine's
 // The engine's attribute getter; nullptr when the attribute is absent.
 const char *Attr(const void *node, const char *name);
+// The template definition node `inherits=` resolves `name` to
+// (FUN_XML_TEMPLATE_LOOKUP); nullptr when no template has that name.
+const void *Template(const char *name);
 
 // The engine's load-status sink: `status->Add(STATUS_WARNING, fmt, ...)`,
 // the same warning the loaders log ("Couldn't find inherited node: %s").

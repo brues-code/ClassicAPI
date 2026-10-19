@@ -235,6 +235,7 @@ build instructions.
   - [`region:GetRect()`](#regiongetrect)
   - [`region:IsDragging()`](#regionisdragging)
   - [`GetMouseFoci()`](#getmousefoci)
+  - [`CreateFrame(frameType [, name, parent, template, id])`](#createframeframetype--name-parent-template-id)
   - [`CreateFrame("Cooldown" [, name, parent, template])`](#createframecooldown--name-parent-template)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [A frame moved to a new parent takes its children along](#a-frame-moved-to-a-new-parent-takes-its-children-along)
@@ -841,6 +842,7 @@ build instructions.
   - [`C_XMLUtil.GetTemplates()`](#c_xmlutilgettemplates)
   - [`C_XMLUtil.GetTemplateInfo(name)`](#c_xmlutilgettemplateinfoname)
   - [`C_XMLUtil.DoesTemplateExist(name)`](#c_xmlutildoestemplateexistname)
+  - [`inherits` with more than one template](#inherits-with-more-than-one-template)
   - [`parentKey` in XML](#parentkey-in-xml)
   - [`function` on XML script handlers](#function-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
@@ -5714,6 +5716,26 @@ for i = 1, table.getn(foci) do
     print(foci[i]:GetName() or "<anonymous>")
 end
 ```
+
+### `CreateFrame(frameType [, name, parent, template, id])`
+
+`template` can be a list of templates. Commas or spaces divide the names.
+The templates apply from left to right, so a later template overrides an
+earlier one. All of the templates apply before the frame's `OnLoad` runs.
+
+```lua
+local b = CreateFrame("Button", nil, UIParent,
+                      "UIPanelButtonTemplate, MyButtonTemplate", 3)
+b:GetID()   -- 3
+```
+
+Each name in the list must be a template. If one name is not a template,
+`CreateFrame` gives the error
+`CreateFrame(): Couldn't find inherited node "<name>"`.
+
+`id` is a number or a string. It sets the frame ID before `OnLoad` runs.
+As a result, `self:GetID()` in `OnLoad` returns this value. The frame
+ignores a negative `id`.
 
 ### `CreateFrame("Cooldown" [, name, parent, template])`
 
@@ -20025,6 +20047,25 @@ end
 ```
 
 Case-insensitive, resolved through the same registry as `inherits=`.
+
+### `inherits` with more than one template
+
+A frame element can name a list of templates in `inherits`. Commas or
+spaces divide the names. The templates apply from left to right, so a
+later template overrides an earlier one. The element's own attributes and
+children apply last.
+
+```xml
+<Button name="MyButton" inherits="UIPanelButtonTemplate, MyButtonTemplate"/>
+```
+
+If a name in the list is not a template, `FrameXML.log` gets the line
+`Couldn't find inherited node: <name>`. The other templates still apply.
+
+A frame element without a `parent` attribute gets its parent from the
+templates. The first template in the list that names a parent gives it.
+
+Textures and font strings use only one template.
 
 ### `parentKey` in XML
 

@@ -9545,6 +9545,28 @@ enum Offsets {
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
+    // Attributes are a flat array of `{char *name, char *value}` pairs at
+    // +0x14, count at +0x10: the getter above scans it with SStrCmpI and
+    // returns the first match's value; the setter replaces that value (or
+    // appends a pair). Both strings are heap copies the destructor frees.
+    OFF_XML_NODE_ATTR_COUNT = 0x10,
+    OFF_XML_NODE_ATTRS = 0x14,
+    XML_NODE_ATTR_STRIDE = 0x8,
+    // `XMLNode *__thiscall(node, XMLNode *parent, const char *tag)` — the
+    // node constructor (copies `tag`); the node is XML_NODE_SIZE bytes.
+    // `void __fastcall(node)` — the destructor (frees tag, attributes, the
+    // child and sibling subtrees). `void __thiscall(node, name, value)`,
+    // ret 8 — the attribute setter (copies both). Script_CreateFrame builds
+    // its request node with exactly these three (0x00706211, 0x0070622D..55,
+    // 0x0070630C).
+    FUN_XML_NODE_CTOR = 0x006F2B10,
+    FUN_XML_NODE_DTOR = 0x006F2B70,
+    FUN_XML_NODE_SET_ATTRIBUTE = 0x006F2D40,
+    XML_NODE_SIZE = 0x20,
+    // `XMLNode *__thiscall(node, const char *tag)` — the first child whose
+    // tag matches (SStrCmpI), or null. The child-frames builder finds
+    // `<Frames>` with it (0x0076A09E).
+    FUN_XML_NODE_GET_CHILD = 0x006F2C50,
     // XMLTree_Load — `XMLTree *__fastcall(const char *data, uint32_t size)`,
     // null when the text does not parse; the root node is `*(XMLNode **)tree`.
     // XMLTree_Free — `void __fastcall(XMLTree *)`. The bindings loader's own
@@ -9606,6 +9628,23 @@ enum Offsets {
     // which runs it before firing OnLoad (+0x118) - so a parent's OnLoad
     // sees its children built.
     FUN_XML_FRAME_LOAD_CHILD_FRAMES = 0x0076A060,
+    // The frame builder — `CSimpleFrame *__fastcall(node, parent, status)`,
+    // ret 4 (disassembly: ECX = node, EDX = parent saved to [ebp-8]). Looks
+    // the node's tag up in the frame-type factory table, picks the parent,
+    // calls the factory, then pre-load (vtable +0x20), the node loader
+    // (sub-object vtable +8) and finalize (+0x24: child <Frames>, OnLoad).
+    // Parent: the node's `parent` attribute; with none, it follows the
+    // `inherits` chain (one name per node, FUN_XML_TEMPLATE_LOOKUP) until a
+    // template has one. A non-empty name resolves through
+    // FUN_FRAMESCRIPT_OBJECT_BY_NAME; a miss logs "Couldn't find frame
+    // parent: %s" and builds unparented. No name keeps EDX.
+    FUN_XML_FRAME_BUILD = 0x006EE280,
+    // `CFrameScriptObject *__fastcall(const char *name, int typeId)` —
+    // `_G[name][0]`, kept only when its IsA(typeId) passes. The builder's
+    // parent resolver (0x006EE3E8, EDX = the Frame type id).
+    FUN_FRAMESCRIPT_OBJECT_BY_NAME = 0x0076C760,
+    // The node-loader slot on the layout sub-object's vtable (see above).
+    VTBL_XML_NODE_LOADER = 0x08,
     // The Button node loader (same sub-object convention). It calls
     // FUN_XML_FRAME_LOAD first, then loads the button's own children: each
     // font element into a font object embedded in the button - NormalFont
@@ -9620,19 +9659,20 @@ enum Offsets {
 
     // `CreateFrame(type [, name, parent, template])` — the global FrameScript
     // function at table 0x00872E74 slot 3. Standard `int __fastcall(void *L)`
-    // shape. Vanilla accepts only a SINGLE template name; the hook in
-    // `Frame::CreateFrame` splits comma-separated inherits strings so modern
-    // multi-template calls work (e.g. "UIPanelButtonTemplate,
-    // SecureActionButtonTemplate"). It builds the frame with the first
-    // resolved template through the engine, then applies each remaining
-    // template onto the created object with the two steps the builder
-    // FUN_006ee280 itself runs for a node: the frame's node loader
-    // `(frameObj+0x24)->vtable[+8](templateDefNode, status)` for content
-    // (FUN_XML_FRAME_LOAD for a plain Frame, the derived loader otherwise),
-    // then FUN_XML_FRAME_LOAD_CHILD_FRAMES for the `<Frames>` children. Both
-    // recurse the template's own `inherits`. The rest of finalize/OnLoad
-    // (`vtable[+0x24]`) runs once during the engine build and is NOT re-run.
+    // shape. Checks args 1/3, resolves the parent (rawgeti [0] + IsA Frame),
+    // checks arg 4 as ONE template name, then builds an XMLNode with `name`,
+    // `parent` "" and `inherits` (FUN_XML_NODE_CTOR / _SET_ATTRIBUTE), runs
+    // FUN_XML_FRAME_BUILD(node, parent, status), script-registers the frame
+    // if needed, and pushes its wrapper. Replaced by `Frame::CreateFrame`
+    // with 4.3.4's version (0x0083FB40): list templates and the 5th `id`.
     FUN_SCRIPT_CREATEFRAME = 0x007060B0,
+    // Its error strings, and the builder's / frame loader's warnings.
+    STR_CREATEFRAME_UNKNOWN_TYPE = 0x00872FA8,     // "CreateFrame: Unknown frame type '%s'"
+    STR_CREATEFRAME_NO_INHERITED = 0x00872FD0,     // "CreateFrame(): Couldn't find inherited node \"%s\""
+    STR_CREATEFRAME_WRONG_PARENT = 0x00873004,     // "CreateFrame: Wrong parent object type, expected frame"
+    STR_CREATEFRAME_PARENT_NO_THIS = 0x0087303C,   // "CreateFrame: Couldn't find 'this' in parent object"
+    STR_XML_NO_INHERITED_NODE = 0x008786A8,        // "Couldn't find inherited node: %s"
+    STR_XML_NO_FRAME_PARENT = 0x008710F0,          // "Couldn't find frame parent: %s"
 
     // XML-build "status" object — a printf-style error/warning accumulator the
     // appliers log through (`status->vtable[+0xc](status, level, fmt, ...)`,

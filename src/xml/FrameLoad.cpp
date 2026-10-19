@@ -14,6 +14,7 @@
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
+#include "xml/Inherits.h"
 #include "Offsets.h"
 
 #include <cstdint>
@@ -23,6 +24,7 @@ namespace Xml {
 namespace {
 
 using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
+using TemplateLookup_t = const void *(__fastcall *)(const char *name);
 using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using StatusAdd_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
 
@@ -48,6 +50,10 @@ bool TagIs(const void *node, const char *tag) {
 
 const char *Attr(const void *node, const char *name) {
     return reinterpret_cast<GetAttr_t>(Offsets::FUN_XML_NODE_GET_ATTRIBUTE)(node, name);
+}
+
+const void *Template(const char *name) {
+    return reinterpret_cast<TemplateLookup_t>(Offsets::FUN_XML_TEMPLATE_LOOKUP)(name);
 }
 
 void Warn(void *status, const char *fmt, const char *a, const char *b) {
@@ -94,7 +100,7 @@ Loader_t g_orig = nullptr;
 
 // `__thiscall` modelled as `__fastcall` with a dummy edx.
 uintptr_t __fastcall Hook(void *self, void *edx, const void *node, void *status) {
-    const uintptr_t r = g_orig(self, edx, node, status);
+    const uintptr_t r = Inherits::LoadFrame(g_orig, self, edx, node, status);
     if (self != nullptr && node != nullptr) {
         void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
         for (AutoSubscribe *s = g_head; s != nullptr; s = s->next)
