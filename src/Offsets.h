@@ -5316,14 +5316,13 @@ enum Offsets {
     // tag, low 28 bits are the payload. Tags:
     //
     //   0x00000000  spell action; payload = spellID
-    //   0x40000000  bag-item or macro action; payload `entry & 0xBFFFFFFF`
-    //               is a 36-entry slot key. Disambiguate by checking the
-    //               macro-slot map at `VAR_MACRO_SLOT_MAP` — if the
-    //               payload matches any entry there, the slot is a macro
-    //               (and the matching index is its 1-based macro slot);
-    //               otherwise it's a bag-item reference. SuperWoWhook's
-    //               modified `GetActionText` uses exactly this walk to
-    //               surface macros to Lua.
+    //   0x40000000  macro action (the server's ACTION_BUTTON_MACRO, 0x40);
+    //               payload `entry & 0xBFFFFFFF` is a macroID. It names a
+    //               live macro only while the macro-slot map at
+    //               `VAR_MACRO_SLOT_MAP` holds it (the match's index is the
+    //               macro slot); a miss is a button whose macro is gone,
+    //               which every engine reader treats as nothing. There is no
+    //               bag-item tag — items are 0x80000000 below.
     //   0x80000000  item-by-ID action; payload (entry & 0x7FFFFFFF) IS
     //               the itemID. Queries the global item cache directly.
     //
@@ -5341,12 +5340,9 @@ enum Offsets {
     FUN_ACTION_SLOT_TO_SPELL = 0x004E5A50,
     ACTION_TYPE_MASK = 0xF0000000,
     ACTION_TYPE_SPELL = 0x00000000,
-    // 0x40000000 entries are ambiguous: they're either a bag item or a
-    // macro. Discriminator: walk the 36-entry macro-slot map and check
-    // whether `entry & 0xBFFFFFFF` matches one of those macro IDs. This
-    // is exactly what SuperWoWhook's modified `GetActionText` does to
-    // surface macros to Lua. Engine helper `FUN_004F0EC0` does the same
-    // walk and returns slot-index or -1.
+    // 0x40000000 entries are macros — live only while `entry & 0xBFFFFFFF`
+    // is in the 36-entry macro-slot map. Engine helper `FUN_004F0EC0`
+    // (FUN_MACRO_ID_TO_SLOT) does the walk and returns slot-index or -1.
     ACTION_TYPE_BAG_OR_MACRO = 0x40000000,
     ACTION_TYPE_ITEM_BY_ID = 0x80000000,
     // Equipment-set action; payload (entry & ~ACTION_TYPE_EQUIPMENT_SET) is

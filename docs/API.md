@@ -972,7 +972,7 @@ DeleteAccount("OLDACCT")
 ### `GetActionInfo(slot)`
 
 Returns the action descriptor for a 1-based action-bar slot, in the
-shape `actionType, id, subType`. Returns `nil` for empty slots.
+shape `actionType, id, subType`. Returns nothing when the slot is empty.
 
 ```lua
 local actionType, id, subType = GetActionInfo(1)
@@ -980,41 +980,17 @@ local actionType, id, subType = GetActionInfo(1)
 
 | Slot contents             | Returns                            |
 |---------------------------|------------------------------------|
-| empty                     | `nil`                              |
+| empty                     | nothing                            |
 | spell                     | `"spell", spellID, "spell"`        |
 | macro                     | `"macro", macroSlot`               |
-| item (by-itemID)          | `"item", itemID`                   |
-| item (by bag-instance)    | `"item", nil`                      |
+| item                      | `"item", itemID`                   |
+| equipment set             | `"equipmentset", setName`          |
 
-The 120-slot action table at `0x00BC6980` packs each entry as a
-`uint32` where the top 4 bits are the type tag:
+A button whose macro no longer exists also returns nothing.
 
-- **`0x0` — spell action.** Entry is the spellID. The third return is
-  always `"spell"` for entries on this table; the engine helper
-  hardcodes pet flag to 0 here. Pet-bar actions live in a separate
-  table — use `PetHasActionBar` + the pet-action helpers for pet
-  slots.
-- **`0x4` — macro or bag-item.** Ambiguous tag, disambiguated by
-  walking the 36-entry macro-slot map at `0x00BDCC60` and checking
-  whether `entry & 0xBFFFFFFF` matches any of those macro IDs. On a
-  hit, the slot is a macro and the matching index becomes the
-  1-based `macroSlot` return. On a miss, the slot is a bag-item
-  reference; we surface the type as `"item"` but return `nil` for
-  the `id` — extracting the itemID from the bag-action hash struct
-  needs more reversing than we've done.
-- **`0x8` — item by itemID.** `entry & 0x7FFFFFFF` is the itemID.
-
-This is the same discrimination [SuperWoWhook][superwowhook] uses in
-its replacement of `GetActionText` (which returns `name, type, id`).
-Without SuperWoWhook the engine's stock `GetActionText` only handles
-items in bags; ClassicAPI's `GetActionInfo` provides the full
-`name, type, id` shape independently of any other DLL patches.
-
-Subtype is always `"spell"` for spell entries (no pet differentiation on this
-table) and the bag-item itemID path is currently incomplete — see
-the comment in [src/action/Info.cpp](../src/action/Info.cpp).
-
-[superwowhook]: https://github.com/balakethelock/SuperWoW
+The third return is always `"spell"` for a spell. Pet-bar actions are
+not in this table. Use `PetHasActionBar` and the pet-action functions for
+pet slots.
 
 ## AddOns
 

@@ -18,8 +18,9 @@
 // Action-slot ↔ macro decoding shared by every module that has to answer
 // "which macro sits in this action slot" (`GetActionInfo`, the
 // `#showtooltip` display overrides). The action table stores macroIDs under
-// the ambiguous `0x40000000` tag; the macro-slot map says which of those ids
-// are macros (the rest are bag items). Pure C — no Lua stack.
+// the `0x40000000` tag; the macro-slot map says which of those ids still
+// name a macro (the rest are buttons whose macro is gone). Pure C — no Lua
+// stack.
 
 namespace Action::Slot {
 
@@ -29,8 +30,7 @@ namespace Action::Slot {
 int MacroSlotForID(uint32_t macroID);
 
 // The macroID in action slot `slot0` (0-based, `< ACTION_TABLE_MAX_SLOTS`),
-// or 0 when the slot is empty, isn't `0x40000000`-tagged, or holds a bag
-// item rather than a macro.
+// or 0 when the slot is empty, isn't `0x40000000`-tagged, or its macro is gone.
 uint32_t MacroIDForSlot(int slot0);
 
 } // namespace Action::Slot

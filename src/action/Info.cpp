@@ -12,19 +12,18 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `GetActionInfo(slot)` — modern-WoW-style action descriptor lookup.
-// Returns `actionType, id, subType` for the slot, or nil if empty.
+// Returns `actionType, id, subType` for the slot, or nothing if the slot
+// holds nothing the descriptor can describe (4.3.4 returns nothing there
+// too, rather than a nil).
 //
 // The vanilla 1.12.1 engine stores action descriptors as packed
 // uint32s in `VAR_ACTION_TABLE` (`0x00BC6980`, 120 slots). Top 4 bits
-// are the type tag; the `0x40000000` tag is ambiguous between
-// macros and bag-items and is disambiguated by checking the per-
-// character macro-slot map at `VAR_MACRO_SLOT_MAP` (36 entries).
+// are the type tag — the server's ACTION_BUTTON_* values shifted into the
+// top byte: 0x00 spell, 0x40 macro, 0x80 item.
 //
-//   empty slot:      nil
 //   spell action:    "spell", spellID, "spell"
 //   macro:           "macro", macroIndex (1-based)
-//   bag item:        "item", nil           (see note below)
-//   item-by-id:      "item", itemID
+//   item:            "item", itemID
 //   equipment set:   "equipmentset", setName
 //
 // The subType is always "spell" for spell-type entries — the engine
@@ -32,19 +31,13 @@
 // live in a separate table; that's `PetHasActionBar` + the pet-action
 // helpers, not this function.
 //
-// The macro discriminator is the same trick SuperWoWhook uses in its
-// modified `GetActionText`: walk the 36-entry macro-slot map and check
-// whether `entry & 0xBFFFFFFF` matches one of those macro IDs. If yes,
-// the slot holds a macro; if no, it's a bag-item.
-//
-// **Bag-item itemID note.** For real bag items (top-4 bits = `0x4`
-// and the payload isn't in the macro-slot map), the engine stores a
-// bag-instance key, not the itemID. Resolving to itemID requires
-// walking the per-character action-item hash table at `[0x00BDCC54]`
-// and reading a struct field whose offset we haven't fully derived
-// yet. For now we report the action *type* ("item") but return nil
-// for the id. Callers that need it can fall back to
-// `GetActionTexture` + Lua-side item lookups.
+// A 0x40 entry is a macro only while its macroID is in the macro-slot map
+// (`FUN_ACTION_IS_MACRO`, which every engine reader gates its macro branch
+// on). One that is not — a macro deleted out from under its button — is
+// nothing, as in 4.3.4: its IsItem and IsMacro are both false, so it falls
+// through to an empty return. There is no bag-item tag: items are always
+// by-itemID (0x80), and an earlier reading of the 0x40 "miss" as a bag item
+// was wrong.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -72,16 +65,12 @@ int __fastcall Script_GetActionInfo(void *L) {
     }
 
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
+        return 0;
 
     const uint32_t entry = ReadEntry(slot0);
-    if (entry == 0) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    if (entry == 0)
+        return 0;
 
     const uint32_t type = entry & Offsets::ACTION_TYPE_MASK;
 
@@ -94,10 +83,8 @@ int __fastcall Script_GetActionInfo(void *L) {
             static_cast<uintptr_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL));
         uint32_t petFlag = 0;
         const uint32_t spellID = fn(static_cast<uint32_t>(slot0), &petFlag);
-        if (spellID == 0) {
-            Game::Lua::PushNil(L);
-            return 1;
-        }
+        if (spellID == 0)
+            return 0;
         (void)petFlag; // hardcoded 0 in the engine helper for this table
         Game::Lua::PushString(L, "spell");
         Game::Lua::PushNumber(L, static_cast<double>(spellID));
@@ -113,12 +100,7 @@ int __fastcall Script_GetActionInfo(void *L) {
             Game::Lua::PushNumber(L, static_cast<double>(macroSlot));
             return 2;
         }
-        // Not a macro — it's a bag item. We know the type but extracting
-        // the itemID from the bag-instance hash needs more reversing;
-        // see the file-level comment.
-        Game::Lua::PushString(L, "item");
-        Game::Lua::PushNil(L);
-        return 2;
+        return 0; // a macro button whose macro is gone — see the file comment
     }
 
     if (type == Offsets::ACTION_TYPE_ITEM_BY_ID) {
@@ -133,18 +115,15 @@ int __fastcall Script_GetActionInfo(void *L) {
         // set's name.
         const EquipmentSet::Set *set = EquipmentSet::Data::FindByID(
             entry & ~static_cast<uint32_t>(Offsets::ACTION_TYPE_EQUIPMENT_SET));
-        if (set == nullptr) {
-            Game::Lua::PushNil(L);
-            return 1;
-        }
+        if (set == nullptr)
+            return 0;
         Game::Lua::PushString(L, "equipmentset");
         Game::Lua::PushString(L, set->name.c_str());
         return 2;
     }
 
-    // Unknown type tag — surface as nil so callers don't get garbage.
-    Game::Lua::PushNil(L);
-    return 1;
+    // Unknown type tag — nothing, so callers don't get garbage.
+    return 0;
 }
 
 } // namespace

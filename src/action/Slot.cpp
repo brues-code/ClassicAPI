@@ -20,13 +20,11 @@ namespace Action::Slot {
 int MacroSlotForID(uint32_t macroID) {
     if (macroID == 0)
         return 0;
-    auto *map = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_MACRO_SLOT_MAP));
-    for (int i = 0; i < Offsets::MACRO_SLOT_MAP_COUNT; ++i) {
-        if (map[i] == macroID)
-            return i + 1;
-    }
-    return 0;
+    // The engine's own scan: the 0-based slot, or 0xFFFFFFFF on a miss.
+    using IdToSlot_t = uint32_t(__fastcall *)(int macroID);
+    const uint32_t slot0 = reinterpret_cast<IdToSlot_t>(
+        static_cast<uintptr_t>(Offsets::FUN_MACRO_ID_TO_SLOT))(static_cast<int>(macroID));
+    return slot0 == 0xFFFFFFFFu ? 0 : static_cast<int>(slot0) + 1;
 }
 
 uint32_t MacroIDForSlot(int slot0) {
