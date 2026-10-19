@@ -3454,6 +3454,42 @@ enum Offsets {
     OFF_FRAME_FLAGS = 0xB4,
     FRAME_FLAG_SCROLLED = 0x2000,
     FRAME_FLAG_SCROLL_CHILD = 0x4000,
+    // CSimpleFrame::SetFrameFlag — `void __thiscall(frame, uint32 mask, int
+    // on)`, `ret 8`: sets or clears `mask` in OFF_FRAME_FLAGS. Every write of
+    // the word goes through it (benilla-re ui/layoutcache). Its 14 callers
+    // pass only 0x1, 0x10, 0x100, 0x200, 0x1000, 0x2000 and 0x4000, so the
+    // two 4.3.4 bits below are free in 1.12.
+    FUN_FRAME_SET_FRAME_FLAG = 0x0076A3C0,
+    // 4.3.4's SetDontSavePosition bit: its layout-cache writer
+    // (PlacedFrameCallback) skips a frame that has it.
+    FRAME_FLAG_DONT_SAVE_POSITION = 0x80000,
+    // 4.3.4's SetPropagateKeyboardInput bit: a frame's key-down and character
+    // slots run the script and then answer "not handled", so the key goes on.
+    FRAME_FLAG_PROPAGATE_KEYBOARD = 0x200000,
+    // `int` — nonzero when the frame is shown (4.3.4's m_shown).
+    // Script_IsShown (0x00775990) pushes `[frame+0xD0] != 0`.
+    OFF_FRAME_SHOWN = 0xD0,
+    // The frame key slots — `int __thiscall(frame, const CKeyEvent *)`,
+    // `ret 4`, nonzero = the frame takes the input. CSimpleTop's character
+    // and key-down walks (0x00765DF0, 0x00765F10) stop at the first frame that
+    // answers nonzero and record it as the key's owner; the key-up and repeat
+    // handlers discard the slot's answer. Every frame vtable holds the base
+    // slots below except CGWorldFrame's and CSimpleEditBox's (vtable
+    // 0x0081C910: char 0x0077A900, key down 0x0077B160, key up 0x0077B7C0).
+    FUN_FRAME_ON_CHAR = 0x0076B760,     // vtable+0x5C
+    FUN_FRAME_ON_KEY_DOWN = 0x0076B7D0, // vtable+0x60
+    FUN_EDITBOX_ON_KEY_DOWN = 0x0077B160,
+    // Layout cache (layout-cache.txt). The writer 0x00490E10 calls this on
+    // each frame of the top's list: `void __fastcall(frame, file)`. It writes
+    // a record only for a named frame with the user-placed bit 0x1000 that is
+    // movable or resizable (benilla-re ui/layoutcache).
+    FUN_LAYOUT_CACHE_SAVE_FRAME = 0x00490E60,
+    // ScrollFrame: its scroll child (0x00786E30 reads it; SetScrollChild
+    // 0x00786CE0 stores it) and its class's Lua type id (read by Script
+    // UpdateScrollChildRect 0x007918B0, as VAR_FRAME_LUA_TYPE_ID is by the
+    // Frame methods).
+    OFF_SCROLLFRAME_SCROLL_CHILD = 0x318,
+    VAR_SCROLLFRAME_LUA_TYPE_ID = 0x00CF4F14,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,

@@ -355,20 +355,6 @@ int __fastcall Script_GetNormalFontObject(void *L) {
     return CallScript(Offsets::FUN_SCRIPT_BUTTON_GET_TEXT_FONT_OBJECT, L);
 }
 
-// ---- IsProtected (Frame) ------------------------------------------------------
-
-// `frame:IsProtected()` -> isProtected, isProtectedExplicitly. Vanilla has no
-// protected frames - the secure/taint system arrived in 2.0 - so no frame is
-// protected, explicitly or through a template. Libraries ask before hooking
-// scripts (AceHook-3.0's HookScript path).
-int __fastcall Script_IsProtected(void *L) {
-    if (Game::Lua::ResolveFrame(L) == nullptr)
-        return 0;
-    Game::Lua::PushBool(L, false);
-    Game::Lua::PushBool(L, false);
-    return 2;
-}
-
 // ---- Registration ----------------------------------------------------------
 
 const Game::Lua::FrameMethodEntry g_regionMethods[] = {
@@ -385,7 +371,6 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
     {"SetResizeBounds", &Script_SetResizeBounds},
     {"HookScript", &Script_HookScript},
     {"GetEffectiveAlpha", &Script_GetEffectiveAlpha},
-    {"IsProtected", &Script_IsProtected},
 };
 
 const Game::Lua::FrameMethodEntry g_buttonMethods[] = {

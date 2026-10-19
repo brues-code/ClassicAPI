@@ -283,7 +283,11 @@ build instructions.
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`](#framesetclamprectinsetsleft-right-top-bottom--framegetclamprectinsets)
   - [`button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`](#buttonsetnormalfontobjectfont--buttongetnormalfontobject)
-  - [`frame:IsProtected()`](#frameisprotected)
+  - [`region:IsProtected()` / `region:CanChangeProtectedState()`](#regionisprotected--regioncanchangeprotectedstate)
+  - [`frame:CanChangeAttribute()` / `frame:AllowAttributeChanges()`](#framecanchangeattribute--frameallowattributechanges)
+  - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
+  - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
+  - [`frame:GetBoundsRect()`](#framegetboundsrect)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
@@ -6453,11 +6457,61 @@ button:SetNormalFontObject(GameFontHighlight)   -- same as SetTextFontObject
 button:GetNormalFontObject()                    -- same as GetTextFontObject
 ```
 
-### `frame:IsProtected()`
+### `region:IsProtected()` / `region:CanChangeProtectedState()`
 
-Returns `isProtected, isProtectedExplicitly`. Both values are always
-`false`, for every frame. Libraries such as AceHook-3.0 call this method
-before they hook the scripts of a frame.
+No frame is protected. `region:IsProtected()` returns `isProtected,
+isProtectedExplicitly`, and both values are always `nil`.
+`region:CanChangeProtectedState()` always returns `1`. Libraries such as
+AceHook-3.0 call these methods before they hook the scripts of a frame.
+You can call both methods on frames, textures, and font strings.
+
+### `frame:CanChangeAttribute()` / `frame:AllowAttributeChanges()`
+
+Code can always change the attributes of a frame.
+`frame:CanChangeAttribute()` always returns `1`.
+`frame:AllowAttributeChanges()` does nothing.
+
+### `frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`
+
+Sets or gets whether the frame passes keys on to the frames below it.
+
+A frame with an `OnKeyDown` or `OnKeyUp` script takes each key that it
+gets. The frames below it and the key bindings do not get that key. When
+`propagate` is true, the `OnKeyDown` and `OnChar` scripts of the frame
+run, and then the key goes on to the frames below and to the key bindings.
+
+- `propagate` is `false` when you omit it.
+- `GetPropagateKeyboardInput` returns `true` or `false`.
+- A frame that passes a key on does not get the `OnKeyUp` script for that
+  key. The frame that takes the key gets it.
+
+```lua
+-- Print each key without blocking movement or key bindings.
+local f = CreateFrame("Frame", nil, UIParent)
+f:EnableKeyboard(true)
+f:SetPropagateKeyboardInput(true)
+f:SetScript("OnKeyDown", function() print(arg1) end)
+```
+
+### `frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`
+
+Sets or gets whether the client saves the position of the frame.
+
+The client saves the position and size of each named frame that the user
+moved or sized to `layout-cache.txt`. At the next login, the client puts
+the frame back there. When `dontSave` is true, the client does not save the
+frame. Use this for a frame whose position your addon saves itself.
+
+- `dontSave` is `true` when you omit it.
+- `GetDontSavePosition` returns `1` or `nil`.
+
+### `frame:GetBoundsRect()`
+
+Returns `left, bottom, width, height` of the smallest rectangle that holds
+the frame, its shown textures and font strings, and its shown child frames
+with their contents. The values use the scale of the frame, as
+`region:GetRect()` does. A scroll frame does not include its scroll child.
+If the rectangle is empty, the method returns nothing.
 
 ### `frame:HookScript(scriptType, handler)`
 
