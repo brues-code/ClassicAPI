@@ -12,10 +12,17 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 #include <cstddef>
+#include <cstdint>
 
 namespace Common {
 
 bool PatchBytes(void *dst, const void *src, size_t len);
+
+// Points the `E8 rel32` call at `site` to `target` when it still calls
+// `expected`; true when the call now reaches `target`. A call that reaches
+// anything else (another DLL's patch, a different build) is left alone.
+// Idempotent, so it can run on every registration pass.
+bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target);
 
 // Bounded, always-terminated string copy: writes at most `n - 1`
 // characters plus the terminator, and treats a null `src` as empty. `n`

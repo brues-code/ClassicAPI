@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Frame::ScriptArgs {
 
 // Runs a frame-script handler with arbitrary Lua values as its arguments —
@@ -23,5 +25,12 @@ namespace Frame::ScriptArgs {
 // and leaves the stack as it found it. For scripts the engine itself never
 // fires, such as OnAttributeChanged (4.3.4: RunScript with 2 stack args).
 void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int nargs);
+
+// RunWithValues for a script slot {handler, context}, inside the slot's
+// execution context: VAR_FRAMESCRIPT_EXEC_CONTEXT is set from slot[1] for the
+// call and restored after, with the depth count kept, as the engine's own
+// fire wrapper 0x00702690 does for OnTextChanged, OnTextSet and the other
+// scripts it runs. Does nothing for an empty slot.
+void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs);
 
 } // namespace Frame::ScriptArgs

@@ -322,11 +322,10 @@ enum Offsets {
     // OnUpdate@+0x128, OnEnter@+0x140, … OnKeyUp@+0x190) after delegating to the
     // ScriptObject base FUN_00702590 (OnEvent@+0xC). Every frame TYPE's resolver
     // chains through this (the tooltip resolver above calls it first), so
-    // co-hooking it here lets `Frame::Attributes` make `OnAttributeChanged`
-    // SetScript/GetScript/HookScript-able on ALL frames — for that one name the
-    // co-hook hands back an external per-frame cell (frames are immortal in 1.12,
-    // so a pointer-keyed cell never goes stale). Same pattern + ABI modeling as
-    // FUN_GAMETOOLTIP_SCRIPT_RESOLVER.
+    // `Frame::ExtraScripts` co-hooks it to make the scripts 1.12 lacks
+    // (OnAttributeChanged, OnEnable, ...) SetScript/GetScript/HookScript-able:
+    // for those names the co-hook hands back an external per-frame cell. Same
+    // pattern + ABI modeling as FUN_GAMETOOLTIP_SCRIPT_RESOLVER.
     FUN_FRAME_SCRIPT_RESOLVER = 0x0076A0D0,
 
     // Button widget script-name resolver — __thiscall(button, const char *name)

@@ -446,4 +446,21 @@ void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int na
     RunCore(L, handlerRef, frame, src, /*positional*/ g_enabled);
 }
 
+void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs) {
+    if (slot == nullptr || slot[0] == 0)
+        return;
+    // 0x00702690: depth up, context from the slot, run, restore the context
+    // while the depth is still nonzero, depth down and floored at 0.
+    auto &context = Game::Ref<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+    auto &depth = Game::Ref<int32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
+    const uint32_t saved = context;
+    ++depth;
+    context = slot[1];
+    RunWithValues(L, static_cast<int>(slot[0]), frame, firstArgIdx, nargs);
+    if (depth != 0)
+        context = saved;
+    if (--depth <= 0)
+        depth = 0;
+}
+
 } // namespace Frame::ScriptArgs

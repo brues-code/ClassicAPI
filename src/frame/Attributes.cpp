@@ -102,11 +102,11 @@
 //
 // `OnAttributeChanged` is a real SetScript-able handler: SetAttribute (not
 // SetAttributeNoHandler) fires it as `(self, name, value)` with the vanilla
-// `this` / `arg1` / `arg2` globals set too (see FireAttributeChanged). Implemented by co-hooking the base-frame script-name resolver
-// (`FUN_FRAME_SCRIPT_RESOLVER`) and handing out an external per-frame cell for
-// that name — the `Tooltip::SetEvents` analog, applied to every frame.
+// `this` / `arg1` / `arg2` globals set too (see FireAttributeChanged). The
+// script itself is a `Frame::ExtraScripts` script.
 
 #include "frame/Attributes.h"
+#include "frame/ExtraScripts.h"
 #include "frame/ScriptArgs.h"
 
 #include "Common.h"
@@ -888,52 +888,10 @@ int __fastcall WireOnClick(void *L) {
 //
 // Backport of the modern `OnAttributeChanged` widget script: SetAttribute (but
 // NOT SetAttributeNoHandler) fires the frame's OnAttributeChanged handler. 1.12
-// has no such script, so we make it SetScript/GetScript/HookScript-able the same
-// way Tooltip::SetEvents adds OnTooltipSet* — co-hook the frame script-name
-// resolver (FUN_FRAME_SCRIPT_RESOLVER, the base every frame type delegates to)
-// and, for the one name the engine doesn't know, hand back an external 8-byte
-// {handler, context} cell. Frames are immortal in 1.12 (no destroy), so a cell
-// keyed by the frame's C object pointer never goes stale.
-//
-// 1.12 passes script args as globals, not params (see OnClick_c reading arg1),
-// so we fire with `this` = frame (bound by the invoker), `arg1` = name and
-// `arg2` = the new value: `function() local name, value = arg1, arg2 … end`.
+// has no such script; Frame::ExtraScripts makes it SetScript/GetScript/
+// HookScript-able on every frame.
 
-struct AttrScriptSlot { uint32_t v[2]; }; // {handler, exec context}
-std::unordered_map<const void *, AttrScriptSlot> g_attrHandlers;
-
-uint32_t *AttrSlotFor(const void *frame, bool create) {
-    auto it = g_attrHandlers.find(frame);
-    if (it != g_attrHandlers.end())
-        return it->second.v;
-    if (!create)
-        return nullptr;
-    AttrScriptSlot &s = g_attrHandlers[frame]; // node-based → stable address
-    s.v[0] = 0;
-    s.v[1] = 0;
-    return s.v;
-}
-
-// Resolver co-hook. The engine's __thiscall(frame, name) is modelled as
-// __fastcall with a dummy edx — `name` lands on the first stack slot either way
-// (same trick as Tooltip::SetEvents). The original returns 0 for a name it
-// doesn't know; we then claim "OnAttributeChanged".
-using FrameResolver_t = int(__fastcall *)(void *frame, void *edx, const char *name);
-FrameResolver_t g_frameResolverOriginal = nullptr;
-
-int __fastcall FrameResolver_h(void *frame, void *edx, const char *name) {
-    const int slot = g_frameResolverOriginal(frame, edx, name);
-    if (slot != 0) // a real base-frame / subtype script — leave it
-        return slot;
-    if (Ascii::EqualCI(name, "onattributechanged"))
-        return reinterpret_cast<int>(AttrSlotFor(frame, /*create*/ true));
-    return 0;
-}
-
-const Game::HookAutoRegister _attrResolverHook{
-    Offsets::FUN_FRAME_SCRIPT_RESOLVER,
-    reinterpret_cast<void *>(&FrameResolver_h),
-    reinterpret_cast<void **>(&g_frameResolverOriginal)};
+const Frame::ExtraScripts::Script g_onAttributeChanged{"onattributechanged", Offsets::VAR_FRAME_LUA_TYPE_ID};
 
 // Fire OnAttributeChanged on `frame` — 4.3.4's
 // CSimpleFrame::RunOnAttributeChangedScript: the handler gets the lowercased
@@ -949,7 +907,7 @@ const Game::HookAutoRegister _attrResolverHook{
 void FireAttributeChanged(void *L, void *frame, const char *name) {
     if (frame == nullptr)
         return;
-    uint32_t *slot = AttrSlotFor(frame, /*create*/ false);
+    uint32_t *slot = g_onAttributeChanged.Slot(frame);
     if (slot == nullptr || slot[0] == 0)
         return;
     const int top = Game::Lua::GetTop(L);
@@ -1225,21 +1183,12 @@ const Tick::WorldTick::AutoSubscribe _tick{&MouseoverTick};
 
 } // namespace
 
-// Drop every per-frame map before a /reload (or logout) resets the Lua state.
-// Both are keyed by the frame's C object pointer, which the allocator recycles
-// across a reload:
-//   * g_attrHandlers holds OnAttributeChanged handler refs. The refs die with
-//     the Lua reset, so a stale entry whose address a new frame reuses would
-//     fire a DEAD ref from FireAttributeChanged — the invoker's protected pcall
-//     catches it, but the engine error handler still prints it as an error "in
-//     SetAttribute" (SecureStateDriverManager sets OnAttributeChanged every
-//     session, so there's always at least one entry to go stale). This was the
-//     "SetAttribute occasionally errors after /reload" report; same class of
-//     bug as Tooltip::SetEvents issue #33.
-//   * g_unitFrames records which frames already had their mouse enabled; a
-//     stale entry at a reused address would skip enabling a new frame's.
+// Drop the per-frame map before a /reload (or logout) resets the Lua state.
+// It is keyed by the frame's C object pointer, which the allocator recycles
+// across a reload: g_unitFrames records which frames already had their mouse
+// enabled, and a stale entry at a reused address would skip enabling a new
+// frame's. (The OnAttributeChanged cells are dropped by Frame::ExtraScripts.)
 void PrepareForReload() {
-    g_attrHandlers.clear();
     g_unitFrames.clear();
 }
 
