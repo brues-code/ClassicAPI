@@ -381,19 +381,72 @@ static int __fastcall Script_GameTooltipHasUnit(void *L) {
     return 1;
 }
 
+// `GameTooltip:IsUnit(unit)` — 1 when `unit` names the unit the tooltip shows,
+// nil otherwise (4.3.4's convention, and the one `IsOwned` already uses here).
+// It compares GUIDs, so any token naming that unit matches, whichever one the
+// tooltip was built from.
+//
+// 4.3.4's token resolver answers 0 for a string that names nothing; 1.12's
+// raises "Unknown unit name", so the string is probed first (see
+// `Unit::TokenResolve::IsUnitToken`) and an unusable one is simply no match.
+// A token that names no unit right now resolves to 0 and never matches, even
+// on a tooltip showing nothing.
+static int __fastcall Script_GameTooltipIsUnit(void *L) {
+    void *tooltipObj = Game::Lua::ResolveTooltip(L);
+    if (tooltipObj == nullptr)
+        return 0;
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: GameTooltip:IsUnit(\"unit\")");
+        return 0;
+    }
+
+    const char *token = Game::Lua::ToString(L, 2);
+    uint64_t guid = 0;
+    if (Unit::TokenResolve::IsUnitToken(token)) {
+        using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
+        guid = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID)(token);
+    }
+
+    const auto *base = static_cast<const uint8_t *>(tooltipObj);
+    const uint64_t shown =
+        (static_cast<uint64_t>(Game::Read<uint32_t>(base, Offsets::OFF_TOOLTIP_UNIT_GUID_HI))
+         << 32) |
+        Game::Read<uint32_t>(base, Offsets::OFF_TOOLTIP_UNIT_GUID_LO);
+    if (guid != 0 && guid == shown)
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
 static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetUnitAura", &Script_GameTooltipSetUnitAura},
     {"SetUnit", &Script_GameTooltipSetUnit},
     {"GetUnit", &Script_GameTooltipGetUnit},
     {"GetUnitGUID", &Script_GameTooltipGetUnitGUID},
     {"HasUnit", &Script_GameTooltipHasUnit},
+    {"IsUnit", &Script_GameTooltipIsUnit},
+};
+
+static const Game::Doc::Field kIsUnitArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+static const Game::Doc::Field kIsUnitRets[] = {
+    Game::Doc::Opt("isUnit", "number", nullptr, "1 when the tooltip shows that unit, nil otherwise."),
+};
+static const Game::Doc::Function kIsUnit{"Returns whether the tooltip shows the given unit.",
+                                         kIsUnitArgs, kIsUnitRets};
+
+static const Game::Doc::Method g_methodDocs[] = {
+    {"IsUnit", &kIsUnit},
 };
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
         g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
+        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -342,6 +342,9 @@ build instructions.
   - [`GameTooltip:GetUnit()` / `GameTooltip:GetUnitGUID()` / `GameTooltip:HasUnit()`](#gametooltipgetunit--gametooltipgetunitguid--gametooltiphasunit)
   - [`GameTooltip:GetGameObject()` / `GameTooltip:HasGameObject()`](#gametooltipgetgameobject--gametooltiphasgameobject)
   - [`GameTooltip:GetOwner()`](#gametooltipgetowner)
+  - [`GameTooltip:SetAnchorType(anchorType [, xOffset [, yOffset]])`](#gametooltipsetanchortypeanchortype--xoffset--yoffset)
+  - [`ANCHOR_TOP` and `ANCHOR_BOTTOM`](#anchor_top-and-anchor_bottom)
+  - [`GameTooltip:GetMinimumWidth()` / `GameTooltip:GetPadding()`](#gametooltipgetminimumwidth--gametooltipgetpadding)
 
 - [Globals](#globals)
   - [`CLASSIC_API_VERSION`](#classic_api_version)
@@ -7680,6 +7683,12 @@ moves away, but the GUID stays the same.
 
 `HasUnit()` returns `true` if the tooltip shows a unit.
 
+`IsUnit(unit)` returns `1` if `unit` names the unit that the tooltip
+shows, and `nil` if not. It compares units, not token strings. For
+example, if the tooltip shows your target and your target is you, then
+`IsUnit("target")` and `IsUnit("player")` both return `1`. A string that
+is not a unit token gives `nil`.
+
 ```lua
 GameTooltip:SetUnit("target")
 local name, unit = GameTooltip:GetUnit()
@@ -7690,6 +7699,10 @@ local _, guid = GameTooltip:GetUnitGUID()
 
 if GameTooltip:HasUnit() then
     -- fast check, no name lookup
+end
+
+if GameTooltip:IsUnit("mouseover") then
+    -- the tooltip shows the unit under the cursor
 end
 ```
 
@@ -7755,6 +7768,37 @@ Returns only the owner frame, not `(owner, anchorPoint)`. The anchor
 string is reachable via the stock
 [`GameTooltip:GetAnchorType()`](https://wowwiki-archive.fandom.com/wiki/API_GameTooltip_GetAnchorType)
 (slot 5 in the GameTooltip method registry).
+
+### `GameTooltip:SetAnchorType(anchorType [, xOffset [, yOffset]])`
+
+Changes how the tooltip is anchored to its owner, and moves the tooltip
+there. It takes the same anchor names as `SetOwner`. The offsets are in
+pixels, and both default to `0`.
+
+```lua
+GameTooltip:SetAnchorType("ANCHOR_RIGHT", 10, 0)
+```
+
+A tooltip that has no owner keeps its anchor type. An anchor name that
+is not known means `ANCHOR_LEFT`.
+
+### `ANCHOR_TOP` and `ANCHOR_BOTTOM`
+
+`SetOwner` and `SetAnchorType` accept these two anchor names, and
+`GetAnchorType` returns them.
+
+- `ANCHOR_TOP` puts the bottom edge of the tooltip on the top edge of
+  the owner.
+- `ANCHOR_BOTTOM` puts the top edge of the tooltip on the bottom edge
+  of the owner.
+
+### `GameTooltip:GetMinimumWidth()` / `GameTooltip:GetPadding()`
+
+`GetMinimumWidth()` returns the width that `SetMinimumWidth` set. It
+returns a second value, which is always `nil`.
+
+`GetPadding()` returns the padding of the tooltip in layout units, not
+in the pixels that `SetPadding` takes.
 
 ### `GameTooltip:SetTalentByID(talentID)`
 

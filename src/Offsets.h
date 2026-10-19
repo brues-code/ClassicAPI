@@ -181,6 +181,13 @@ enum Offsets {
     // engine's own macro branch (FUN_GAMETOOLTIP_SET_MACRO) runs, reachable
     // through an entry point no sibling DLL has detoured. Pushes nothing.
     FUN_SCRIPT_GAMETOOLTIP_SET_TEXT = 0x00531B90,      // slot 9
+    // `SetOwner(frame [, anchor [, x [, y]]])` and `GetAnchorType()`: the engine's
+    // own methods (slots 4 and 5). SetOwner reads the anchor NAME from Lua
+    // argument 3 with a case-insensitive chain (see TOOLTIP_ANCHOR_*); GetAnchorType
+    // maps the stored code back, sending any code it does not know to
+    // "ANCHOR_NONE".
+    FUN_SCRIPT_GAMETOOLTIP_SET_OWNER = 0x005310D0,
+    FUN_SCRIPT_GAMETOOLTIP_GET_ANCHOR_TYPE = 0x005313E0,
     // `SetHyperlink(link)`: type-gates self, then SStrCmpI-prefix-matches the
     // argument against "item:" (id:enchant:suffix:unique ->
     // FUN_GAMETOOLTIP_BUILD_ITEM) and "enchant:" (a spellID in
@@ -539,10 +546,12 @@ enum Offsets {
 
     DRAWLAYER_ARTWORK = 2,
     FRAMEPOINT_TOPLEFT = 0,
+    FRAMEPOINT_TOP = 1,
     FRAMEPOINT_TOPRIGHT = 2,
     FRAMEPOINT_LEFT = 3,
     FRAMEPOINT_RIGHT = 5,
     FRAMEPOINT_BOTTOMLEFT = 6,
+    FRAMEPOINT_BOTTOM = 7,
     FRAMEPOINT_BOTTOMRIGHT = 8,
 
     // FUN_REGION_SET_POINT stores offsets in *internal* coordinates, not
@@ -1008,6 +1017,48 @@ enum Offsets {
     // at 0x00530FE0 (reads `[edi+0x314]` and compares against the same
     // `+0x24`-offset value).
     OFF_TOOLTIP_OWNER = 0x314,
+
+    // Tooltip layout state — 4.3.4's CGTooltip m_anchorType / m_offsetX /
+    // m_offsetY / m_padding / m_minimumWidth. Offsets and padding are stored
+    // in internal units (Game::PixelToInternal), not pixels. Verified from the
+    // setters: FUN_0052FFE0 (SetOwner's tail) writes owner +0x314, anchor
+    // +0x318, offsets +0x3C4/+0x3C8; Script_SetPadding writes +0x3BC through
+    // FUN_00530630; Script_SetMinimumWidth writes the raw width to +0x3C0.
+    OFF_TOOLTIP_ANCHOR_TYPE = 0x318,
+    OFF_TOOLTIP_PADDING = 0x3BC,
+    OFF_TOOLTIP_MIN_WIDTH = 0x3C0,
+    OFF_TOOLTIP_OFFSET_X = 0x3C4,
+    OFF_TOOLTIP_OFFSET_Y = 0x3C8,
+    // The anchor codes `OFF_TOOLTIP_ANCHOR_TYPE` holds. 1.12's own numbering
+    // (4.3.4's differs: it has ANCHOR_BOTTOM and ANCHOR_TOP in it), read off
+    // Script_SetOwner's name chain (FUN_005310D0) and the position routine's
+    // switch (FUN_0052FE90): LEFT 0, RIGHT 1, BOTTOMLEFT 2, BOTTOMRIGHT 3,
+    // TOPLEFT 4, TOPRIGHT 5, CURSOR 6, NONE 7, PRESERVE 8. That name chain
+    // is case-insensitive and sends any other name to LEFT.
+    TOOLTIP_ANCHOR_LEFT = 0,
+    TOOLTIP_ANCHOR_RIGHT = 1,
+    TOOLTIP_ANCHOR_BOTTOMLEFT = 2,
+    TOOLTIP_ANCHOR_BOTTOMRIGHT = 3,
+    TOOLTIP_ANCHOR_TOPLEFT = 4,
+    TOOLTIP_ANCHOR_TOPRIGHT = 5,
+    TOOLTIP_ANCHOR_CURSOR = 6,
+    TOOLTIP_ANCHOR_NONE = 7,
+    TOOLTIP_ANCHOR_PRESERVE = 8,
+    // ClassicAPI's own codes for the two names 4.3.4 has and 1.12 does not.
+    // The engine never stores them; its position routine falls out of its
+    // switch for any code above 5, which is why `Tooltip::Layout` hooks it. Its
+    // fade code treats every code but CURSOR as "fade" (FadeOut, 0x00530AE0),
+    // and GetAnchorType's default is "ANCHOR_NONE".
+    TOOLTIP_ANCHOR_TOP = 9,
+    TOOLTIP_ANCHOR_BOTTOM = 10,
+    // The position routine — `__thiscall(tooltip, int force)`, `ret 4`; 4.3.4's
+    // CGTooltip::ResetPosition. Does nothing without an owner or for PRESERVE.
+    // Unless the type is NONE (or `force` is 0), it first clears the frame's
+    // points (FUN_00767ED0), then re-anchors for the six corner types with
+    // FUN_00767C70(this + 0x24, point, owner, ownerPoint, x, y, 1). CURSOR
+    // gets no anchor here — it follows the mouse elsewhere. The same switch
+    // runs on every SetOwner.
+    FUN_TOOLTIP_RESET_POSITION = 0x0052FE90,
 
     // CGItem → fully-dressed item link string. __fastcall(ecx = CGItem *)
     // → const char *. Reads the item's itemID, quality, permanent
