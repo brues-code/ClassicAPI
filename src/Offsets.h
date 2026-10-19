@@ -9545,9 +9545,12 @@ enum Offsets {
     //      `VAR_CURSOR_GENERIC_SLOT`. Bare itemID rather than a GUID
     //      because the item is out of the descriptor stream while
     //      on the cursor.
-    //   10 stable pet — 1-based index at `VAR_CURSOR_STABLEPET_INDEX`.
-    //      Written by `Script_ClickStablePet` (`FUN_004CB420`) →
-    //      `FUN_00495010(slot)`.
+    //   10 stable pet — 0-based slot at `VAR_CURSOR_STABLEPET_INDEX`.
+    //      Written by `Script_ClickStablePet` (`FUN_004CB420`), which
+    //      computes `slot = ftol(arg1) - 1` and passes it to
+    //      `FUN_00495010(slot)`; it also compares the stored value against
+    //      that 0-based slot. Lua's 1-based index is the stored value + 1,
+    //      as 4.3.4 pushes `m_cursorPet + 1`.
     //
     // `CursorHasItem` returns true for types 1 *and* 9 only.
     VAR_CURSOR_TYPE = 0x00B4D900,

@@ -3459,7 +3459,7 @@ That asks for a 64 MB limit, and any value above 0 turns the check back on.
 ### `GetCursorInfo()`
 
 Returns a tuple describing whatever the player has picked up on the
-cursor (item, money, spell, macro, merchant slot), or nothing when
+cursor (item, money, spell, macro, merchant slot, pet), or nothing when
 the cursor is empty. Reads the same engine globals `CursorHasItem` /
 `CursorHasSpell` / `GetCursorMoney` consult, so the answer always
 matches what the rest of the engine sees.
@@ -3470,11 +3470,14 @@ Return shape per cursor state:
 |---|---|
 | nothing | *nil* |
 | a bag item (PickupContainerItem, mail/trade detach with GUID) | `"item"`, `itemID`, `itemLink` |
-| a drag-source item (equipment slot, action bar, trade, mail) | `"item"`, `itemID` |
+| a drag-source item (action bar, auction slot) | `"item"`, `itemID`, `itemLink` |
 | money (gold-split UI, `PickupPlayerMoney`) | `"money"`, `copperAmount` |
 | a spell from the spellbook | `"spell"`, `spellbookSlot`, `bookType`, `spellID` |
 | a macro | `"macro"`, `macroIndex` |
 | a merchant slot | `"merchant"`, `merchantIndex` |
+| a pet action | `"petaction"` |
+| a pet dragged in the stable | `"pet"`, `stableIndex` |
+| an equipment set | `"equipmentset"`, `setName` |
 
 `bookType` is `"spell"` for player spells, `"pet"` for pet spells.
 `spellbookSlot` is the 1-based slot the spell lives at in the
@@ -3494,41 +3497,35 @@ elseif kind == "macro" then
 end
 ```
 
-#### `itemLink` availability
+#### `itemLink`
 
-Returned only when the cursor holds a **bag item** (type 1) —
-`PickupContainerItem` / `PickupInventoryItem` from a bag slot, mail
-or trade detach. The cursor stores the item's GUID in this case, so
-we resolve back to the live `CGItem *` and feed it to the engine's
-link builder, which produces the full per-instance form including
-enchant ID and random-suffix decoration:
+The link always matches the item on the cursor.
+
+- **A bag item** keeps its identity on the cursor, so the link is the full
+  form for that exact item, with its enchant and random suffix:
 
 ```
 |cff1eff00|Hitem:16791:255:0:0|h[Silkstream Cuffs]|h|r
 |cff1eff00|Hitem:9877:0:767:0|h[Sorcerer Cloak of the Owl]|h|r
 ```
 
-Not returned for drag-source items (equipment slot, action bar
-slot, trade slot, mail attachment — types 5/6/7/9). In those cases
-the cursor only stores the itemID (no GUID, no live `CGItem *`), so
-the engine's link builder isn't reachable. Derive a basic link from
-the itemID via `GetItemInfo` if you need one for display:
+- **A drag-source item** (action bar, auction slot) keeps only its item
+  ID on the cursor. The link is the plain link for that ID, without an
+  enchant or a suffix. The client does not know which copy you mean, and
+  the call does not guess.
 
-```lua
-local kind, itemID, link = GetCursorInfo()
-if kind == "item" and not link then
-    link = (select(2, GetItemInfo(itemID))) or ("item:" .. itemID)
-end
-```
+If the item is not in the item cache, no name is available. In that case
+a drag-source item returns only `"item"` and `itemID`.
 
-#### Types we don't surface
+#### `stableIndex`
 
-The engine has cursor types beyond what `GetCursorInfo` advertises —
-pet action drag, trade-slot drag, mail-attach drag, ability-bar drag
-from `PickupAction`, etc. These don't map cleanly to any `GetCursorInfo`
-string, so we return `nil` for them. Consumers needing to detect those
-can use the engine-native `CursorHasItem` / `CursorHasSpell` /
-`CursorHasMoney` and the source-side `PickupX` calls.
+The 1-based slot of the pet in the stable, as `ClickStablePet` takes it.
+
+#### Types we do not return
+
+Some engine cursor types return nothing, for example a trade slot or mail
+attachment. These carry no object that `GetCursorInfo` can describe.
+Consumers can use `CursorHasItem`, `CursorHasSpell` and `CursorHasMoney`.
 
 Changes to what the cursor holds are reported by the
 [`CURSOR_CHANGED` event](#cursor_changed-event).
@@ -4164,8 +4161,9 @@ CURSOR_CHANGED: isDefault, newCursorType, oldCursorType, oldCursorVirtualID
   [`Enum.UICursorType`](#enumuicursortype) value.
 - **`oldCursorType`** (number) — what it held before, same enum.
 - **`oldCursorVirtualID`** (number) — the previous content's
-  identifying number: itemID, spellID, macro slot, merchant slot, or a
-  money amount in copper. `0` when the cursor was empty.
+  identifying number: itemID, spellID, macro slot, merchant slot, stable
+  slot, or a money amount in copper. `0` when the cursor was empty, and
+  for a pet action.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -8467,9 +8465,8 @@ What the cursor is holding. Reported as the `newCursorType` and
 The values marked "never occur" name content this client does not have.
 They are still defined, so comparing against any field is valid.
 
-`PetAction` and `Pet` are the two types
-[`GetCursorInfo`](#getcursorinfo) returns `nil` for — no type string
-fits them, but the enum names them, so the event reports them.
+`PetAction` and `Pet` are reported with the same meaning as the
+`"petaction"` and `"pet"` strings of [`GetCursorInfo`](#getcursorinfo).
 
 ## Glue
 

@@ -13,37 +13,37 @@
 
 // `GetCursorInfo()` — backport of the modern WoW global. Surfaces
 // whatever the player has picked up (item, money, spell, macro,
-// merchant slot) as a tuple. Read from the same cursor-state globals
+// merchant slot, pet) as a tuple. Read from the same cursor-state globals
 // the engine's `CursorHasItem` / `CursorHasSpell` / `GetCursorMoney`
-// consult — see the cursor type table in [[src/Offsets.h]].
+// consult — see the cursor type table in [[src/Offsets.h]], and 4.3.4's
+// `Script_GetCursorInfo` for the return shapes.
 //
-// Return shape per type (matches modern Lua API where it makes sense
-// for 1.12's actual storage):
+// Return shape per type:
 //
-//   nothing on cursor       — nil
+//   nothing on cursor       — nothing
 //   "item", itemID, link    — bag item (type 1; link is the full
 //                             per-instance form via the engine's link
 //                             builder, including enchantID and
 //                             random-suffix decoration)
-//   "item", itemID          — drag-source item (types 5/6/7 trade /
-//                             mail / action bar; type 9 equipment
-//                             slot) — only the itemID is in cursor
-//                             storage, no live CGItem to feed the
-//                             link builder
+//   "item", itemID, link    — drag-source item (types 6/7 and 9 — action
+//                             bar, auction slot and the like). The cursor
+//                             keeps ONLY the itemID for these — no GUID, no
+//                             live CGItem — so the link is the plain itemID
+//                             one, exactly what 4.3.4 builds for its own
+//                             virtual-item cursor. Looking a matching item up
+//                             in the bags would be a guess: with two copies
+//                             carrying different enchants it can describe the
+//                             wrong one. Without a cached item record there
+//                             is no name to build a link from, and only the
+//                             itemID is returned.
 //   "money", amount         — type 2; amount in copper
 //   "spell", slot, bookType, spellID
 //                           — type 3; bookType is "spell" or "pet"
-//                             (1.12 only writes player-spell IDs to
-//                             this slot, so bookType is always
-//                             "spell" here; the cursor's "pet
-//                             action" path is a distinct type)
 //   "macro", index          — type 8; 1-based macro index
-//   "merchant", index       — type 10; 1-based merchant-roster index
-//
-// Type 4 (pet action) is not surfaced — doesn't map cleanly to a
-// modern `GetCursorInfo` string. Consumers can fall back to
-// `CursorHasItem` / engine `PickupX` calls when they need to detect
-// that.
+//   "merchant", index       — type 5; 1-based merchant-roster index
+//   "petaction"             — type 4; 4.3.4 returns the type alone
+//   "pet", index            — type 10 (a pet dragged in the stable); 1-based
+//   "equipmentset", name    — the equipment-set cursor
 
 #include "cursor/Info.h"
 
@@ -53,13 +53,9 @@
 #include "equipmentset/Data.h"
 #include "item/ID.h"
 #include "item/Link.h"
-#include "item/Location.h"
-#include "item/QualityColor.h"
-#include "item/Record.h"
 #include "spell/Lookup.h"
 
 #include <cstdint>
-#include <cstdio>
 
 namespace Cursor::Info {
 
@@ -101,9 +97,7 @@ constexpr uint32_t TYPE_MACRO = 8;
 constexpr uint32_t TYPE_INVENTORY_ITEM = 9;
 // Type 4 is pet-action pickup and type 10 is stable-pet pickup
 // (`FUN_00495010`, the source of the earlier misidentification as
-// "merchant"). Neither has an equivalent `GetCursorInfo` return, so
-// that function leaves both as nil — but `Enum.UICursorType` does name
-// them, so `Current()` below reports them.
+// "merchant"). 4.3.4 returns `"petaction"` and `"pet", index` for them.
 constexpr uint32_t TYPE_PET_ACTION = 4;
 constexpr uint32_t TYPE_STABLE_PET = 10;
 
@@ -176,38 +170,10 @@ int PushBagItemCursor(void *L) {
     return PushItem(L, cgItem);
 }
 
-// Builds a basic `"|cffRRGGBB|Hitem:N:0:0:0|h[Name]|h|r"` link from
-// the cached ItemStats record for `itemID`. No enchant / random-
-// suffix decoration — the cursor only stores the bare itemID for
-// drag-source items (types 6/7/9) with no live `CGItem *` to read
-// instance state from. Returns true and writes into `out` (size
-// `outSize`) on success; returns false if the item isn't cached.
-bool BuildBasicItemLink(uint32_t itemID, char *out, size_t outSize) {
-    const uint8_t *record = Item::PeekRecord(itemID);
-    if (record == nullptr) return false;
-    const char *name = *reinterpret_cast<const char *const *>(
-        record + Offsets::OFF_ITEMSTATS_NAME);
-    if (name == nullptr || *name == '\0') return false;
-    const uint32_t quality = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_ITEMSTATS_QUALITY);
-    const int n = std::snprintf(out, outSize,
-        "%s|Hitem:%u:0:0:0|h[%s]|h|r",
-        Item::QualityColor::Prefix(static_cast<int>(quality)),
-        itemID, name);
-    return n > 0 && static_cast<size_t>(n) < outSize;
-}
-
-// Shared path for types 6/7 (action bar / mail drag) and type 9
-// (equipment slot). All three write the itemID at
-// `VAR_CURSOR_GENERIC_SLOT` — see the type-table notes in
-// [[src/Offsets.h]]. The cursor doesn't preserve a GUID for these,
-// so the live CGItem isn't directly addressable here. To recover
-// enchant / random-suffix decoration we walk the player's
-// equipment + bags looking for the first CGItem with a matching
-// itemID — same trick the action-bar tooltip uses to display
-// enchanted bracers correctly when they're on an action bar. Falls
-// back to a basic ID-only link when no instance is found (item was
-// deleted, or it's a vendor-roster reference with no local copy).
+// Types 6/7 and 9 (action bar, auction slot and the like). All write the
+// itemID at `VAR_CURSOR_GENERIC_SLOT` — see the type-table notes in
+// [[src/Offsets.h]]. That ID is ALL the cursor holds, so the plain itemID link
+// is the whole truth: 4.3.4 builds the same one for its virtual-item cursor.
 int PushGenericItemCursor(void *L) {
     const uint32_t itemID = ReadVar(Offsets::VAR_CURSOR_GENERIC_SLOT);
     if (itemID == 0)
@@ -215,18 +181,9 @@ int PushGenericItemCursor(void *L) {
     Game::Lua::PushString(L, "item");
     Game::Lua::PushNumber(L, static_cast<double>(itemID));
 
-    Item::Location::ByGUIDResult found;
-    if (Item::Location::FindByItemID(L, static_cast<int>(itemID), &found)) {
-        const char *link = Item::Link::FromCGItem(found.item);
-        if (link != nullptr && *link != '\0') {
-            Game::Lua::PushString(L, link);
-            return 3;
-        }
-    }
-
-    char linkBuf[256];
-    if (BuildBasicItemLink(itemID, linkBuf, sizeof(linkBuf))) {
-        Game::Lua::PushString(L, linkBuf);
+    char link[256];
+    if (Item::Link::BasicFromItemID(itemID, link, sizeof(link))) {
+        Game::Lua::PushString(L, link);
         return 3;
     }
     return 2;
@@ -290,6 +247,21 @@ int PushEquipmentSetCursor(void *L) {
     return 2;
 }
 
+// 4.3.4 returns the type alone for a pet action.
+int PushPetActionCursor(void *L) {
+    Game::Lua::PushString(L, "petaction");
+    return 1;
+}
+
+// The engine stores the 0-based stable slot (`Script_ClickStablePet` stores
+// its argument minus one); Lua gets 1-based, as 4.3.4 pushes `m_cursorPet + 1`.
+int PushStablePetCursor(void *L) {
+    Game::Lua::PushString(L, "pet");
+    Game::Lua::PushNumber(
+        L, static_cast<double>(ReadVar(Offsets::VAR_CURSOR_STABLEPET_INDEX) + 1));
+    return 2;
+}
+
 int __fastcall Script_GetCursorInfo(void *L) {
     const uint32_t type = ReadVar(Offsets::VAR_CURSOR_TYPE);
     if (type >= TYPE_GENERIC_ITEM_LO && type <= TYPE_GENERIC_ITEM_HI)
@@ -301,6 +273,8 @@ int __fastcall Script_GetCursorInfo(void *L) {
         case TYPE_MONEY:          return PushMoneyCursor(L);
         case TYPE_SPELL:          return PushSpellCursor(L);
         case TYPE_MACRO:          return PushMacroCursor(L);
+        case TYPE_PET_ACTION:     return PushPetActionCursor(L);
+        case TYPE_STABLE_PET:     return PushStablePetCursor(L);
         case Offsets::CURSOR_TYPE_EQUIPMENT_SET:
                                   return PushEquipmentSetCursor(L);
         case TYPE_EMPTY:
@@ -357,7 +331,8 @@ State Current() {
         case TYPE_PET_ACTION:
             return {UI_PET_ACTION, 0};
         case TYPE_STABLE_PET:
-            return {UI_PET, 0};
+            // 1-based, as `GetCursorInfo` pushes it.
+            return {UI_PET, ReadVar(Offsets::VAR_CURSOR_STABLEPET_INDEX) + 1};
         case Offsets::CURSOR_TYPE_EQUIPMENT_SET:
             return {UI_EQUIPMENT_SET, EquipmentSet::Action::CursorSetID()};
         case TYPE_EMPTY:
@@ -375,14 +350,18 @@ Raw ReadRaw() {
             ReadVar(Offsets::VAR_CURSOR_MONEY_COPPER),
             ReadVar(Offsets::VAR_CURSOR_SPELL_ID),
             ReadVar(Offsets::VAR_CURSOR_MACRO_ID),
-            EquipmentSet::Action::CursorSetID()};
+            EquipmentSet::Action::CursorSetID(),
+            ReadVar(Offsets::VAR_CURSOR_PETACTION_PACKED),
+            ReadVar(Offsets::VAR_CURSOR_STABLEPET_INDEX)};
 }
 
 bool Same(const Raw &a, const Raw &b) {
     return a.type == b.type && a.guidLo == b.guidLo && a.guidHi == b.guidHi &&
            a.genericSlot == b.genericSlot && a.money == b.money &&
            a.spellID == b.spellID && a.macroID == b.macroID &&
-           a.equipmentSetID == b.equipmentSetID;
+           a.equipmentSetID == b.equipmentSetID &&
+           a.petActionPacked == b.petActionPacked &&
+           a.stablePetIndex == b.stablePetIndex;
 }
 
 } // namespace Cursor::Info

@@ -20,16 +20,12 @@ namespace Cursor::Info {
 // What the cursor is holding, in the terms `CURSOR_CHANGED` reports.
 struct State {
     // `Enum.UICursorType` value — `Default` (0) when the cursor is empty.
-    // Agrees with the type string `GetCursorInfo` returns wherever that
-    // function returns one; the pet-action and stable-pet cursors have no
-    // `GetCursorInfo` string but do have an enum value, so they report
-    // `PetAction` / `Pet` here while `GetCursorInfo` stays nil.
+    // Agrees with the type string `GetCursorInfo` returns.
     int uiType;
     // The held content's identifying number: itemID, spellID, 1-based
-    // macro slot, 1-based merchant slot, equipment setID, or a money
-    // amount in copper. 0
-    // for an empty cursor and for the two pet cursors, whose payload the
-    // engine does not keep anywhere readable.
+    // macro slot, 1-based merchant slot, 1-based stable-pet slot, equipment
+    // setID, or a money amount in copper. 0 for an empty cursor and for a
+    // pet action, which `GetCursorInfo` reports without a payload.
     uint32_t virtualID;
 };
 
@@ -54,6 +50,8 @@ struct Raw {
     uint32_t spellID;
     uint32_t macroID; // the stored macroID, not the slot — cheaper here
     uint32_t equipmentSetID;
+    uint32_t petActionPacked;
+    uint32_t stablePetIndex; // the stored 0-based slot
 };
 
 Raw ReadRaw();
