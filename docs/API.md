@@ -204,6 +204,7 @@ build instructions.
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
   - [`UNIT_SPELLCAST_*` events](#unit_spellcast_-events)
+  - [`USER_WAYPOINT_UPDATED` event](#user_waypoint_updated-event)
   - [`WEAPON_SLOT_CHANGED` event](#weapon_slot_changed-event)
 
 - [Expansion](#expansion)
@@ -555,7 +556,6 @@ build instructions.
   - [`C_Map.GetWorldPosFromMapPos(uiMapID, mapPosition)`](#c_mapgetworldposfrommapposuimapid-mapposition)
   - [`C_Map.MapHasArt(uiMapID)`](#c_mapmaphasartuimapid)
   - [`C_Map.SetUserWaypoint(uiMapPoint)`](#c_mapsetuserwaypointuimappoint)
-  - [`USER_WAYPOINT_UPDATED` event](#user_waypoint_updated-event)
 
 - [MapExplorationInfo](#mapexplorationinfo)
   - [`C_MapExplorationInfo.GetExploredAreaIDsAtPosition(uiMapID, normalizedPosition)`](#c_mapexplorationinfogetexploredareaidsatpositionuimapid-normalizedposition)
@@ -4973,6 +4973,24 @@ end)
 > these `UNIT_`-prefixed events sit on top. The empowered-cast events
 > (`UNIT_SPELLCAST_EMPOWER_*`) are not implemented — there are no empowered
 > casts here.
+
+### `USER_WAYPOINT_UPDATED` event
+
+Fires (with no payload) whenever the user waypoint changes — when
+[`C_Map.SetUserWaypoint`](#c_mapsetuserwaypointuimappoint) places one, and
+when [`C_Map.ClearUserWaypoint`](#c_mapgetuserwaypoint--c_maphasuserwaypoint--c_mapclearuserwaypoint)
+removes one. Re-read the pin with `C_Map.GetUserWaypoint` when it fires.
+
+Clearing while no pin is set changes nothing, so it fires nothing.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("USER_WAYPOINT_UPDATED")
+f:SetScript("OnEvent", function()
+    local point = C_Map.GetUserWaypoint()
+    -- redraw the pin, or hide it when point is nil
+end)
+```
 
 ### `WEAPON_SLOT_CHANGED` event
 
@@ -13412,24 +13430,6 @@ the whole-world map does not.
 ```lua
 C_Map.CanSetUserWaypointOnMap(14)    -- true  (Durotar)
 C_Map.CanSetUserWaypointOnMap(-694)  -- false (the world map)
-```
-
-### `USER_WAYPOINT_UPDATED` event
-
-Fires (with no payload) whenever the user waypoint changes — when
-[`C_Map.SetUserWaypoint`](#c_mapsetuserwaypointuimappoint) places one, and
-when [`C_Map.ClearUserWaypoint`](#c_mapgetuserwaypoint--c_maphasuserwaypoint--c_mapclearuserwaypoint)
-removes one. Re-read the pin with `C_Map.GetUserWaypoint` when it fires.
-
-Clearing while no pin is set changes nothing, so it fires nothing.
-
-```lua
-local f = CreateFrame("Frame")
-f:RegisterEvent("USER_WAYPOINT_UPDATED")
-f:SetScript("OnEvent", function()
-    local point = C_Map.GetUserWaypoint()
-    -- redraw the pin, or hide it when point is nil
-end)
 ```
 
 ### `C_Map.GetAreaTriggerInfo(triggerID)` / `C_Map.GetAreaTriggers([mapID])`
