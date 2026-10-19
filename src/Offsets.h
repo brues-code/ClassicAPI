@@ -9645,6 +9645,27 @@ enum Offsets {
     FUN_FRAMESCRIPT_OBJECT_BY_NAME = 0x0076C760,
     // The node-loader slot on the layout sub-object's vtable (see above).
     VTBL_XML_NODE_LOADER = 0x08,
+    // FrameXML_RegisterFactory — `int __fastcall(const char *type,
+    // CSimpleFrame *(__fastcall *factory)(CSimpleFrame *parent), uint8_t
+    // unique)`, callee pops the byte (pushed as a dword). Adds `type` to the
+    // hash table FUN_XML_FRAME_BUILD looks tags up in (SStrCmpI), returning 0
+    // when the name is already there. Nothing else writes the table, so a
+    // registration lasts for the process. Callers: the defaults
+    // FUN_006EF070 (Button .. MovieFrame), the game UI's FUN_00495940
+    // (WorldFrame, GameTooltip, Minimap, PlayerModel, DressUpModel,
+    // TabardModel, LootButton, TaxiRouteFrame) — run by CGGameUI::Initialize
+    // FUN_0048FBF0 after LoadScriptFunctions and before FrameXML loads — and
+    // the glue UI's FUN_0046A400.
+    FUN_FRAMEXML_REGISTER_FACTORY = 0x006EE880,
+    // The "Model" factory from that default list: allocates the 0x3DC-byte
+    // CSimpleModel and constructs it on `parent` (0x0076C8E0).
+    // `CSimpleFrame *__fastcall(CSimpleFrame *parent)`.
+    FUN_FRAMEXML_CREATE_MODEL = 0x006EECF0,
+    // CLayoutFrame::ClearAllPoints — `void __fastcall(layout)`, layout =
+    // object + OFF_FRAME_LAYOUT_SUBOBJECT. Frees all 9 anchor slots and
+    // unlinks the frame from each relative frame. Script ClearAllPoints
+    // (0x007A2B70) calls it through the thunk 0x00767ED0 after resolving self.
+    FUN_LAYOUT_CLEAR_ALL_POINTS = 0x00767620,
     // The Button node loader (same sub-object convention). It calls
     // FUN_XML_FRAME_LOAD first, then loads the button's own children: each
     // font element into a font object embedded in the button - NormalFont

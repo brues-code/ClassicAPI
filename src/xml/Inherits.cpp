@@ -68,7 +68,6 @@ namespace {
 
 using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
                                      const char *delims, int *outQuoted);
-using NodeLoader_t = uintptr_t(__thiscall *)(void *self, const void *node, void *status);
 using ChildFrames_t = void(__fastcall *)(void *frame, void *edx, const void *node, void *status);
 using Build_t = void *(__fastcall *)(const void *node, void *parent, void *status);
 using GetChild_t = const void *(__thiscall *)(const void *node, const char *tag);
@@ -79,13 +78,6 @@ constexpr const char *kSeparators = " ,";
 
 ChildFrames_t g_origChildFrames = nullptr;
 Build_t g_origBuild = nullptr;
-
-// Loads `node` (with its own `inherits`) onto the object whose layout
-// sub-object is `self`, the call the frame loader makes for an inherited node.
-void ApplyNode(void *self, const void *node, void *status) {
-    const void *vtable = Game::Read<const void *>(self, 0);
-    Game::Read<NodeLoader_t>(vtable, Offsets::VTBL_XML_NODE_LOADER)(self, node, status);
-}
 
 // The node's first `inherits` value swapped to "" for the guard's lifetime —
 // the pair the attribute getter returns, compared the way it compares.
@@ -202,9 +194,10 @@ uintptr_t LoadFrame(Loader original, void *self, void *edx, const void *node, vo
     const char *inherits = node != nullptr ? Attr(node, "inherits") : nullptr;
     if (inherits == nullptr || !IsList(inherits))
         return original(self, edx, node, status);
+    void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     ForEach(inherits, [&](const char *name) {
         if (const void *t = Template(name))
-            ApplyNode(self, t, status);
+            LoadNode(object, t, status);
         else
             Warn(status, reinterpret_cast<const char *>(Offsets::STR_XML_NO_INHERITED_NODE), name);
     });

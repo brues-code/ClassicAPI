@@ -24,7 +24,8 @@
 // `Frame::Attributes`' `<Attributes>`), so — like `Frame::RunnerHook` and
 // `Tick::WorldTick` — this module owns the hook and fans out. Subscribers run
 // after the engine has loaded the node, in static-init order, which must not
-// matter. The hook also runs the loader through `Xml::Inherits::LoadFrame`,
+// matter; `AutoSubscribeBefore` ones run before it (`Frame::Cooldown` loads
+// its base template there). The hook also runs the loader through `Xml::Inherits::LoadFrame`,
 // which reads `inherits` as a list. Declare a file-scope
 //   static const Xml::FrameLoad::AutoSubscribe _sub{&OnFrameNode};
 
@@ -40,6 +41,10 @@ const char *Attr(const void *node, const char *name);
 // The template definition node `inherits=` resolves `name` to
 // (FUN_XML_TEMPLATE_LOOKUP); nullptr when no template has that name.
 const void *Template(const char *name);
+// Loads `node` (with its own `inherits`) onto the frame `object` through the
+// object's node loader `(object+0x24)->vtable[+8]` — the call the frame
+// loader makes for an inherited node.
+void LoadNode(void *object, const void *node, void *status);
 
 // The engine's load-status sink: `status->Add(STATUS_WARNING, fmt, ...)`,
 // the same warning the loaders log ("Couldn't find inherited node: %s").
@@ -60,6 +65,13 @@ struct AutoSubscribe {
     explicit AutoSubscribe(Observer fn);
     Observer fn;
     AutoSubscribe *next;
+};
+
+// The same, run BEFORE the engine loads the node (and its inherits).
+struct AutoSubscribeBefore {
+    explicit AutoSubscribeBefore(Observer fn);
+    Observer fn;
+    AutoSubscribeBefore *next;
 };
 
 } // namespace FrameLoad

@@ -28,12 +28,18 @@
 // FrameXML's CooldownFrameTemplate (the UI-Cooldown-Indicator model),
 // whose OnUpdateModel script plays sequence 0 as the sweep and sequence 1
 // as the end flash, then hides -- the same sweep-then-flash state machine
-// CGCooldown::OnLayerUpdate runs in C++. So a Cooldown here is that Model
-// (built by the CreateFrame hook in CreateFrame.cpp, which marks it with
-// Mark() below), plus this module's five methods with 4.3.4's signatures,
-// argument checks, and defaults, driving the model through FrameXML's own
+// CGCooldown::OnLayerUpdate runs in C++. So a Cooldown here is that Model,
+// plus this module's five methods with 4.3.4's signatures, argument
+// checks, and defaults, driving the model through FrameXML's own
 // CooldownFrame_SetTimer -- the exact call 4.3.4's Cooldown.lua makes on
 // top of SetCooldown.
+//
+// "Cooldown" is a real frame type: this module registers it in the
+// engine's frame-type table (FUN_FRAMEXML_REGISTER_FACTORY), so XML
+// `<Cooldown>` and CreateFrame("Cooldown") both reach CreateCooldown
+// through the builder. The factory builds the engine's Model and marks it;
+// the frame then loads CooldownFrameTemplate ahead of its own templates
+// (BeforeFrameNode), because every 4.3.4 Cooldown draws a sweep.
 //
 // Two 4.3.4 rendering flags have no counterpart in the indicator model,
 // which has neither a reversed sweep nor an edge texture: SetReverse and
@@ -52,10 +58,9 @@
 // implementations for every frame that is not a marked Cooldown, so a
 // Cooldown reports "Cooldown" while a plain Model is untouched.
 
-#include "frame/Cooldown.h"
-
 #include "Game.h"
 #include "Offsets.h"
+#include "xml/FrameLoad.h"
 
 #include <cstdint>
 #include <cstring>
@@ -79,6 +84,8 @@ struct State {
     uint32_t durationMs = 0;
     bool reverse = false;
     bool drawEdge = false;
+    // CooldownFrameTemplate has been loaded under the frame's first node.
+    bool templateLoaded = false;
 };
 
 // Keyed by the frame object. Frames live until the UI is torn down, and
@@ -88,6 +95,11 @@ std::unordered_map<void *, State> g_states;
 State *Find(void *frameObject) {
     const auto it = g_states.find(frameObject);
     return it != g_states.end() ? &it->second : nullptr;
+}
+
+// True for a frame the Cooldown factory built in this UI session.
+bool IsMarked(void *frameObject) {
+    return frameObject != nullptr && Find(frameObject) != nullptr;
 }
 
 // Resolves `self` as a Model, then requires the Cooldown mark. A Model
@@ -311,7 +323,58 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetDrawEdge", &kGetDrawEdge},
 };
 
+// ---- the frame type ---------------------------------------------------------
+
+using Factory_t = void *(__fastcall *)(void *parent);
+using RegisterFactory_t = int(__fastcall *)(const char *type, Factory_t factory, int unique);
+
+// 4.3.4's CGCooldown::Create, as vanilla can build it: the engine's own
+// Model, marked as a Cooldown.
+void *__fastcall CreateCooldown(void *parent) {
+    void *frame = reinterpret_cast<Factory_t>(Offsets::FUN_FRAMEXML_CREATE_MODEL)(parent);
+    if (frame != nullptr)
+        g_states[frame] = State{};
+    return frame;
+}
+
+// Every 4.3.4 Cooldown draws the sweep; here the sweep is
+// CooldownFrameTemplate. So a Cooldown loads it under its first node, as the
+// first template it inherits, before the node's own templates and content
+// (which can then override it). The template's own load re-enters the frame
+// loader with `templateLoaded` already set.
+//
+// The template is also `setAllPoints`, which pins the frame to its parent; a
+// 4.3.4 Cooldown starts unanchored and draws wherever it is put. A Cooldown
+// with its own Size + CENTER anchor kept the template's TOPLEFT/BOTTOMRIGHT
+// on UIParent too and stretched across the screen (in-game probe: left 0,
+// right 2000, three points), so the sweep never showed. A new frame has no
+// anchors when its first node loads (the builder's factory and pre-load set
+// none), so clearing them after the template restores exactly that. An
+// explicit `inherits="CooldownFrameTemplate"` still anchors as vanilla does.
+void BeforeFrameNode(void *object, const void * /*node*/, void *status) {
+    using ClearAllPoints_t = void(__fastcall *)(void *layout);
+    State *state = Find(object);
+    if (state == nullptr || state->templateLoaded)
+        return;
+    state->templateLoaded = true;
+    const void *t = Xml::Template("CooldownFrameTemplate");
+    if (t == nullptr)
+        return;
+    Xml::LoadNode(object, t, status);
+    reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(
+        static_cast<uint8_t *>(object) + Offsets::OFF_FRAME_LAYOUT_SUBOBJECT);
+}
+
+const Xml::FrameLoad::AutoSubscribeBefore _beforeFrameNode{&BeforeFrameNode};
+
 void RegisterLuaFunctions() {
+    // The engine's frame-type table outlives the Lua state, so on a /reload
+    // the name is already there and the registrar keeps the first one. This
+    // pass runs before FrameXML loads (CGGameUI::Initialize calls
+    // LoadScriptFunctions first), like the engine's own game-UI list
+    // FUN_00495940, where 4.3.4 registers "Cooldown".
+    reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(
+        "Cooldown", &CreateCooldown, 0);
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_MODEL_METHOD_REGISTRY), g_methods,
         static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
@@ -324,14 +387,5 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 } // namespace
-
-void Mark(void *frameObject) {
-    if (frameObject != nullptr)
-        g_states[frameObject] = State{};
-}
-
-bool IsMarked(void *frameObject) {
-    return frameObject != nullptr && Find(frameObject) != nullptr;
-}
 
 } // namespace Frame::Cooldown

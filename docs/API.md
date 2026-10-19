@@ -5768,8 +5768,23 @@ The reverse flag and the draw-edge flag do not change the sweep picture.
 The getter methods return the values that the setter methods set.
 
 Use these methods on a cooldown frame. A call on a frame of another type
-gives an error. XML files cannot create this frame type. Use
-`CreateFrame` to create it.
+gives an error.
+
+XML files can also create a cooldown frame with a `<Cooldown>` element:
+
+```xml
+<Frames>
+    <Cooldown name="$parentCooldown" inherits="CooldownFrameTemplate"/>
+</Frames>
+```
+
+Every cooldown frame shows the sweep, also without a template. Its
+`template` and `inherits` templates apply after the sweep, so they can
+change it.
+
+A cooldown frame starts without anchors. Give it a position with
+`SetPoint`, `SetAllPoints`, or `<Anchors>`. `CooldownFrameTemplate` sets
+the frame to the full size of its parent.
 
 ### `frame:SetShown(shown)`
 

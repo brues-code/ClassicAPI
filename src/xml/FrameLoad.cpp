@@ -56,6 +56,13 @@ const void *Template(const char *name) {
     return reinterpret_cast<TemplateLookup_t>(Offsets::FUN_XML_TEMPLATE_LOOKUP)(name);
 }
 
+void LoadNode(void *object, const void *node, void *status) {
+    using NodeLoader_t = uintptr_t(__thiscall *)(void *self, const void *node, void *status);
+    void *self = static_cast<uint8_t *>(object) + Offsets::OFF_XML_LOADER_SUBOBJECT;
+    const void *vtable = Game::Read<const void *>(self, 0);
+    Game::Read<NodeLoader_t>(vtable, Offsets::VTBL_XML_NODE_LOADER)(self, node, status);
+}
+
 void Warn(void *status, const char *fmt, const char *a, const char *b) {
     if (status == nullptr)
         return;
@@ -94,18 +101,21 @@ namespace {
 // Chained at static-init time by each `AutoSubscribe` constructor, before
 // `DllMain`; zero-initialized ahead of any dynamic init.
 AutoSubscribe *g_head = nullptr;
+AutoSubscribeBefore *g_beforeHead = nullptr;
 
 using Loader_t = uintptr_t(__fastcall *)(void *self, void *edx, const void *node, void *status);
 Loader_t g_orig = nullptr;
 
 // `__thiscall` modelled as `__fastcall` with a dummy edx.
 uintptr_t __fastcall Hook(void *self, void *edx, const void *node, void *status) {
+    if (self == nullptr || node == nullptr)
+        return Inherits::LoadFrame(g_orig, self, edx, node, status);
+    void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
+    for (AutoSubscribeBefore *s = g_beforeHead; s != nullptr; s = s->next)
+        s->fn(object, node, status);
     const uintptr_t r = Inherits::LoadFrame(g_orig, self, edx, node, status);
-    if (self != nullptr && node != nullptr) {
-        void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
-        for (AutoSubscribe *s = g_head; s != nullptr; s = s->next)
-            s->fn(object, node, status);
-    }
+    for (AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+        s->fn(object, node, status);
     return r;
 }
 
@@ -116,6 +126,10 @@ const Game::HookAutoRegister _hook{
 } // namespace
 
 AutoSubscribe::AutoSubscribe(Observer f) : fn(f), next(g_head) { g_head = this; }
+
+AutoSubscribeBefore::AutoSubscribeBefore(Observer f) : fn(f), next(g_beforeHead) {
+    g_beforeHead = this;
+}
 
 } // namespace FrameLoad
 

@@ -28,21 +28,11 @@
 // function rather than wrapping it: the same steps, in the same order, with
 // the engine's own node constructor, attribute setter, builder, status
 // object and script registration (Offsets FUN_SCRIPT_CREATEFRAME).
-//
-// Cooldown: 4.3.4 has a native "Cooldown" frame type (CGCooldown) with
-// SetCooldown / SetReverse / GetReverse / SetDrawEdge / GetDrawEdge.
-// Vanilla draws cooldown sweeps with a Model built from FrameXML's
-// CooldownFrameTemplate (the UI-Cooldown-Indicator model, driven by
-// CooldownFrame_SetTimer), and its frame factory has no "Cooldown"
-// ("Unknown frame type 'Cooldown'"). So a "Cooldown" request is built as
-// that Model -- the node's tag is "Model", and a missing template defaults
-// to CooldownFrameTemplate -- and then marked with
-// `Frame::Cooldown::Mark`, which gives it 4.3.4's five methods and makes
-// it report its type as "Cooldown". See src/frame/Cooldown.cpp.
+// "Cooldown" needs nothing here: it is a registered frame type
+// (src/frame/Cooldown.cpp).
 
 #include "Game.h"
 #include "Offsets.h"
-#include "frame/Cooldown.h"
 #include "xml/FrameLoad.h"
 #include "xml/Inherits.h"
 
@@ -142,14 +132,10 @@ int __fastcall CreateFrame_h(void *L) {
         }
     }
 
-    const bool isCooldown = _stricmp(frameType, "Cooldown") == 0;
-    if (isCooldown && (inherits == nullptr || *inherits == '\0'))
-        inherits = "CooldownFrameTemplate";
     const char *id = IsString(L, 5) ? ToString(L, 5) : nullptr;
 
     alignas(4) uint8_t node[Offsets::XML_NODE_SIZE];
-    reinterpret_cast<NodeCtor_t>(Offsets::FUN_XML_NODE_CTOR)(node, nullptr,
-                                                            isCooldown ? "Model" : frameType);
+    reinterpret_cast<NodeCtor_t>(Offsets::FUN_XML_NODE_CTOR)(node, nullptr, frameType);
     if (name != nullptr)
         SetAttr(node, "name", name);
     if (parent != nullptr)
@@ -162,11 +148,8 @@ int __fastcall CreateFrame_h(void *L) {
     BuildStatus status;
     InitStatus(&status);
     void *frame = reinterpret_cast<Build_t>(Offsets::FUN_XML_FRAME_BUILD)(node, parent, &status);
-    if (frame != nullptr) {
+    if (frame != nullptr)
         PushObject(L, frame);
-        if (isCooldown)
-            Frame::Cooldown::Mark(frame);
-    }
     ResetStatus(&status);
     reinterpret_cast<NodeDtor_t>(Offsets::FUN_XML_NODE_DTOR)(node);
 
