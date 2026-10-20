@@ -380,6 +380,11 @@ enum Offsets {
     // relative branch, and no other client DLL names either address.
     FUN_BUTTON_ON_ENTER = 0x00779490,
     FUN_BUTTON_ON_LEAVE = 0x007794E0,
+    // CSimpleButton::SetText: `void __thiscall(button, const char *text)`,
+    // `ret 4`. Null text does nothing. With no label it creates one
+    // (0x00770D30(this, 2, 1)), then FUN_FONTSTRING_SET_TEXT(label, text, 1).
+    // Lua Button:SetText (0x00780D20) and 4.3.4's SetFormattedText call it.
+    FUN_BUTTON_SET_TEXT = 0x00778DC0,
     // Button::Click vmethod (Button vtable 0x0081C7F8 + 0x94) — __thiscall(button,
     // buttonMask, fromScript), RET 8. Gate [+0x328] != 0 (enabled); runs the
     // internal C++ click listener at +0x314 (vtable+0x10; set by FUN_00779740,
@@ -507,7 +512,9 @@ enum Offsets {
     // its text buffer pointer at +0xF0 and its 4-byte {b,g,r,a} color behind
     // the pointer at +0xB8 (both verified from the setters below). We read a
     // line's text/color and re-apply them one slot down, then set line 0.
-    FUN_FONTSTRING_SET_TEXT = 0x00771D80,         // __thiscall(fs, text, flag=0)
+    // __thiscall(fs, text, expand), ret 8. expand = 1 (Lua SetText 0x0079D829,
+    // CSimpleButton::SetText) rewrites the |1 / |2 grammar escapes first.
+    FUN_FONTSTRING_SET_TEXT = 0x00771D80,
     FUN_FONTSTRING_SET_COLOR = 0x0077F750,        // __thiscall(region, colorBGRA*) — generic region color setter (fontstrings + textures)
     // Generic region color GETTER — `void __thiscall(region, uint32* outBGRA)`,
     // writes the packed {b,g,r,a} (0xFFFFFFFF when the region has no explicit
@@ -7264,7 +7271,7 @@ enum Offsets {
     // __fastcall(void *L)`), strlib entry at `0x00822dc0`. Verified by decode:
     // reads the format at arg 1, handles `%%`, `%d/i/c`, `%e/E/f/g/G`,
     // `%o/u/x/X`, `%s`, `%q`, with the "invalid option to 'format'" / "invalid
-    // format (width or precision too long)" errors. FontString:SetFormattedText
+    // format (width or precision too long)" errors. Frame::FormattedText
     // pushes THIS directly and pcalls it, rather than resolving `_G.string.format`
     // — so an addon replacing `string.format` cannot hijack or break it (matches
     // retail, whose SetFormattedText formats in C).

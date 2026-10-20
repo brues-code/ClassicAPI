@@ -52,14 +52,6 @@
 //                               re-invalidates the layout like SetText does.
 //                               SetMaxLines(1) is how you get a single-line,
 //                               ellipsized label.
-//   SetFormattedText(fmt,...) — string.format + SetText convenience. The format
-//                               runs through the engine's OWN str_format C
-//                               function (FUN_LUA_STR_FORMAT) under pcall — NOT
-//                               _G.string.format, so an addon replacing
-//                               string.format can't hijack it (matches retail).
-//                               The set goes through FUN_FONTSTRING_SET_TEXT,
-//                               keeping the sanitizer/pipe handling identical to
-//                               SetText.
 //   GetFieldSize()            — how many bytes of text the string holds. 4.3.4
 //                               answers its own constant 8191; 1.12's truth is
 //                               the fixed text size (XML `bytes`) less the one
@@ -94,8 +86,6 @@ using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 // FUN_FONTSTRING_BREAK_ARRAY — __thiscall(fs, text, wrapWidth, outBreaks, cap).
 using BreakArray_t = uint32_t(__fastcall *)(void *fs, void *edx, const char *text, float width,
                                             int *outBreaks, int cap);
-// FUN_FONTSTRING_SET_TEXT — __thiscall(fs, text, flag = 0); dummy-EDX form.
-using FsSetText_t = void(__fastcall *)(void *fs, void *edx, const char *text, int flag);
 // The fs's wrap budget in the units FUN_FONTSTRING_BREAK_ARRAY expects
 // (width-getter units — it multiplies by fs+0x7C itself before gxu, verified
 // decompile), or 0 when the rect is unresolved. rectWidth ÷ scale, calibrated
@@ -330,32 +320,6 @@ int __fastcall Script_GetMaxLines(void *L) {
     return 1;
 }
 
-int __fastcall Script_SetFormattedText(void *L) {
-    void *fs = nullptr;
-    if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
-    if (fs == nullptr || !Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: fontstring:SetFormattedText(\"format\"[, ...])");
-        return 0;
-    }
-    const int top = Game::Lua::GetTop(L);
-    Game::Lua::CheckStack(L, top + 4);
-    Game::Lua::PushCClosure(
-        L, reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_LUA_STR_FORMAT), 0);
-    for (int i = 2; i <= top; ++i)
-        Game::Lua::PushValue(L, i);
-    if (Game::Lua::PCall(L, top - 1, 1, 0) != 0) {
-        const char *msg = Game::Lua::ToString(L, -1);
-        Game::Lua::Error(L, "%s", (msg != nullptr) ? msg : "SetFormattedText: format failed");
-        return 0;
-    }
-    const char *result = Game::Lua::ToString(L, -1);
-    reinterpret_cast<FsSetText_t>(Offsets::FUN_FONTSTRING_SET_TEXT)(
-        fs, nullptr, (result != nullptr) ? result : "", 0);
-    Game::Lua::SetTop(L, top);
-    return 0;
-}
-
 int __fastcall Script_GetFieldSize(void *L) {
     void *fs = ResolveSelf(L, "Usage: fontstring:GetFieldSize()");
     if (fs == nullptr)
@@ -374,7 +338,6 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"IsTruncated", &Script_IsTruncated},
     {"SetMaxLines", &Script_SetMaxLines},
     {"GetMaxLines", &Script_GetMaxLines},
-    {"SetFormattedText", &Script_SetFormattedText},
     {"GetFieldSize", &Script_GetFieldSize},
 };
 

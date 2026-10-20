@@ -4037,7 +4037,9 @@ over 1.12 (`CSimpleButton_Scripts.cpp`); retail's `SimpleButtonAPIDocumentation`
   `0x76B6A0`), what 1.12 has for `m_hoverFrame`, and the XML attribute
   `motionScriptsWhileDisabled` (4.3.4 `m_buttonFlags` bits 0x4 set / 0x8 value,
   `CSimpleButton.cpp:1058`). Default false.
-- `button:SetFormattedText(fmt, ...)` — 4.3.4 formats into a 4096-byte buffer
+- **DONE** (`src/frame/FormattedText.cpp`, shared with the font string's;
+  verified in-game 2026-10-19).
+  `button:SetFormattedText(fmt, ...)` — 4.3.4 formats into a 4096-byte buffer
   and calls the button's `SetText`. We have it on font strings only
   (`src/fontstring/Metrics.cpp`, engine `str_format` under pcall); register the
   same on the Button registry with the button's own SetText.

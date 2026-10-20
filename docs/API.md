@@ -263,7 +263,7 @@ build instructions.
   - [`fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`](#fontstringsetindentedwordwrapindent--fontstringgetindentedwordwrap)
   - [`fontstring:SetWordWrap([wrap])` / `fontstring:CanWordWrap()`](#fontstringsetwordwrapwrap--fontstringcanwordwrap)
   - [`fontstring:GetFieldSize()`](#fontstringgetfieldsize)
-  - [`fontstring:SetFormattedText(format [, ...])`](#fontstringsetformattedtextformat--)
+  - [`fontstring:SetFormattedText(format [, ...])` / `button:SetFormattedText(format [, ...])`](#fontstringsetformattedtextformat----buttonsetformattedtextformat--)
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
   - [`texture:SetMask(path)`](#texturesetmaskpath)
@@ -6286,15 +6286,16 @@ Returns the number of bytes of text that the string can hold. A string
 with no size limit returns infinity (`1.#INF`). A string from XML with
 `bytes="n"` holds `n - 1` bytes, and `SetText` cuts longer text.
 
-### `fontstring:SetFormattedText(format [, ...])`
+### `fontstring:SetFormattedText(format [, ...])` / `button:SetFormattedText(format [, ...])`
 
-Sets the text to `string.format(format, ...)` — a convenience over
-`SetText(format(...))`. A bad format string raises a normal Lua error.
-The set goes through the same engine path as `SetText`, so escape
-handling is identical.
+Sets the text to `string.format(format, ...)`. The result is the same as
+`SetText(string.format(format, ...))`, and the text gets the same escape
+handling as `SetText`. A bad format string raises a Lua error. On a font
+string with no font, the method raises `Font not set`, as `SetText` does.
 
 ```lua
-f:SetFormattedText("%d/%d (%.1f%%)", cur, max, cur / max * 100)
+bar.text:SetFormattedText("%d/%d (%.1f%%)", cur, max, cur / max * 100)
+button:SetFormattedText("Buy (%d)", count)
 ```
 
 ### `texture:SetRotation(angle [, cx, cy])`
