@@ -325,6 +325,7 @@ build instructions.
   - [`SecureButton_GetAttribute` / `SecureButton_GetUnit`](#securebutton_getattribute--securebutton_getunit)
   - [`PreClick` / `PostClick` button scripts](#preclick--postclick-button-scripts)
   - [`Button:RegisterForClicks("AnyUp" | "AnyDown" | ...)`](#buttonregisterforclicksanyup--anydown--)
+  - [`button:RegisterForMouse(...)`](#buttonregisterformouse)
   - [`GetClickFrame(name)`](#getclickframename)
 
 - [FriendList](#friendlist)
@@ -7544,6 +7545,29 @@ A name that is not in this list counts as no click type. A call with only
 unknown names makes the button respond to no click at all. `Button:Click()`
 ignores the click types, so a button in that state still responds to
 `Click()`.
+
+### `button:RegisterForMouse(...)`
+
+Sets which mouse buttons run the `OnMouseDown` and `OnMouseUp` scripts of the
+button. Each argument is a mouse button and an action: `LeftButtonDown`,
+`LeftButtonUp`, `RightButtonDown`, `RightButtonUp`, `MiddleButtonDown`,
+`MiddleButtonUp`, `Button4Down`, `Button4Up`, `Button5Down`, or `Button5Up`.
+`AnyDown` and `AnyUp` stand for all five buttons. Names are not case-sensitive,
+and a name that is not in this list counts as no button.
+
+- A new button responds to `AnyDown` and `AnyUp`.
+- Each call replaces the previous one. A call with no argument removes all
+  buttons.
+- `OnMouseUp` runs only when the down action of the same button is also
+  registered.
+- This method changes only `OnMouseDown` and `OnMouseUp`. Clicks still follow
+  `RegisterForClicks`, and drags still follow `RegisterForDrag`.
+
+```lua
+btn:RegisterForMouse("RightButtonDown", "RightButtonUp")
+btn:SetScript("OnMouseDown", function() print("down", arg1) end)  -- right button only
+btn:SetScript("OnMouseUp",   function() print("up", arg1) end)    -- right button only
+```
 
 ### `GetClickFrame(name)`
 

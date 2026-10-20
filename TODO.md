@@ -4060,8 +4060,10 @@ over 1.12 (`CSimpleButton_Scripts.cpp`); retail's `SimpleButtonAPIDocumentation`
   `ClearHighlightTexture` — remove the state texture. Check what 1.12's
   `SetNormalTexture(nil)` does first (`CSimpleButton::SetStateTexture`
   `0x778FD0` deletes the old one).
-- `RegisterForMouse(buttons...)` — which mouse buttons fire OnMouseDown/Up.
-  Semantics unverified, and so is how 1.12 filters OnMouseDown/Up today.
+- **DONE** (`src/frame/MouseRegistration.cpp`). `RegisterForMouse(buttons...)`
+  — which mouse buttons fire OnMouseDown/Up. 1.12 filters nothing: the base
+  frame pair 0x76BF70 / 0x76C040 fire both for any button through the runner,
+  where `Frame::ClickEvents`' gate now refuses unregistered ones.
 
 ## 106. Script-object API sweep — remaining methods, globals and scripts
 

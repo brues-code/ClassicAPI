@@ -104,6 +104,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/MouseRegistration.h"
 #include "frame/RunnerHook.h"
 
 #include <cstdint>
@@ -227,12 +228,23 @@ bool IsBracketedSlot(void *frame, const uint32_t *slotPtr) {
 }
 
 // Falls through (false) for every fire 3.3.5 doesn't bracket; otherwise runs it
-// inside the clicked-button scope and reports it handled (true).
+// inside the clicked-button scope and reports it handled (true). An
+// OnMouseDown / OnMouseUp fire for a button its RegisterForMouse excludes is
+// handled by not running it — this module owns those slots on the runner.
 bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     if (!IsBracketedSlot(frame, slotPtr))
         return false;
+    const char *name = FirstStringArg(fmt, varargs);
+    const char *base = reinterpret_cast<const char *>(frame);
+    const auto *slot = reinterpret_cast<const char *>(slotPtr);
+    if (slot == base + Offsets::OFF_FRAME_ONMOUSEDOWN_SLOT ||
+        slot == base + Offsets::OFF_FRAME_ONMOUSEUP_SLOT) {
+        const bool down = slot == base + Offsets::OFF_FRAME_ONMOUSEDOWN_SLOT;
+        if (!Frame::MouseRegistration::Accepts(frame, down, name))
+            return true;
+    }
     const char *saved = g_clickedButton;
-    g_clickedButton = FirstStringArg(fmt, varargs);
+    g_clickedButton = name;
     Frame::RunnerHook::Original(frame, slotPtr, fmt, varargs);
     g_clickedButton = saved;
     return true;
