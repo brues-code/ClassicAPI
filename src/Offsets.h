@@ -4372,6 +4372,13 @@ enum Offsets {
     // Signature: `__thiscall(void *cache, void *packetReader, int flag)`.
     // `cache` is the same `VAR_ITEMDB_CACHE` we already use.
     FUN_ITEMSTATS_CACHE_RESPONSE = 0x0055BDB0,
+    // DBCache<T> object fields (benilla-re dbcache#cache-objects-and-nodes,
+    // read by the query send in FUN_DBCACHE_ITEMSTATS_GET_RECORD at
+    // 0x0055BB18 / 0x0055BB49): the query opcode the cache sends for a miss
+    // (0x56 CMSG_ITEM_QUERY_SINGLE for the item cache), and the owner flag
+    // that appends the caller's GUID to that query.
+    OFF_DBCACHE_QUERY_OPCODE = 0x30,
+    OFF_DBCACHE_OWNER_FLAG = 0x38,
     // ItemStats_C field offsets we read. Full struct layout in
     // VanillaHelpers's `Game.h` (`struct ItemStats_C`); we only need these.
     OFF_ITEMSTATS_CLASS = 0x00,
@@ -9829,6 +9836,20 @@ enum Offsets {
     FUN_DATASTORE_READ_U32 = 0x00418E30,
     FUN_DATASTORE_READ_U8 = 0x00418CB0,
     OFF_DATASTORE_CURSOR = 0x14,
+    // CDataStore writers and the stack-packet shape the DBCache query send
+    // builds (FUN_DBCACHE_ITEMSTATS_GET_RECORD, 0x0055BB18..0x0055BB89):
+    // {vtable, buffer, base, alloc, size, read} with buffer/base/alloc/size 0
+    // and read -1, PutUInt32 (`__thiscall(this, u32)`), PutGuid
+    // (`__thiscall(this, lo, hi)`), read = 0, ClientServices::Send, then the
+    // vtable's slot 1 (`__thiscall(this, &buffer, &base, &alloc)`) frees the
+    // buffer unless alloc is -1. Verified by disassembly of that send.
+    FUN_DATASTORE_PUT_U32 = 0x00418190,
+    FUN_DATASTORE_PUT_GUID = 0x00418370,
+    VTABLE_CDATASTORE = 0x007FF9E4,
+    // ClientServices::Send — `__thiscall void(CDataStore *packet)`: sends on
+    // the current connection through FUN_NET_SEND when one exists (benilla-re
+    // net/connection#sending-a-packet).
+    FUN_CLIENT_SERVICES_SEND = 0x005AB630,
 
     // Engine millisecond tick (returns `ulonglong` but truncating to
     // `uint32_t` is fine for the time deltas we need — the high

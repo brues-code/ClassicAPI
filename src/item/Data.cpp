@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cache/Query.h"
 #include "event/Custom.h"
 #include "item/Arg.h"
 #include "item/CGItem.h"
@@ -139,56 +140,56 @@ static int __fastcall Script_IsItemDataCached(void *L) {
     return 1;
 }
 
-// Pending-request tracking. We deliberately do NOT eagerly create cache
-// entries during the startup window — empirically (pfQuest), pre-creating
-// the entry at addon-load / PLAYER_ENTERING_WORLD time, before the
-// engine's network/opcode dispatch has settled, blocks the engine's
-// natural prefetch from issuing a fresh `SMSG_ITEM_QUERY_SINGLE`. The
-// entry stays permanently pending because nothing ever sends the query.
-// This applies to BOTH paths into the cache:
+// Pending-request tracking. The server drops CMSG_ITEM_QUERY_SINGLE (a
+// STATUS_LOGGEDIN opcode) while the player is not in the world: before
+// login completes and behind every loading screen. The cache sends its
+// query only when it creates the pending node and never again, so a query
+// sent then leaves the node pending for the rest of the session (see
+// Cache::Query). So no query goes out until the world has been live for
+// `kSettleMs`, and a query that crossed a loading screen, or went
+// unanswered for `kResendMs`, is sent again.
+//
+// Both paths into the cache route through `Track`, which records the item
+// without touching the cache:
 //   - explicit `C_Item.RequestLoadItemData(ByID)`
 //   - implicit `WarmCache` (the `GetItemInfo` hook + every `GetItem*`
 //     getter's cache-miss warmup) — see `WarmCache`.
 //
-// Both route through `Track`, which records the item without touching
-// the cache while `g_settled` is false. We hook the engine's item-cache
-// response handler at `FUN_ITEMSTATS_CACHE_RESPONSE` (the function that
-// fills cache entries on `SMSG_ITEM_QUERY_SINGLE_RESPONSE`); after the
-// engine finishes filling entries and walking its own callback lists, we
-// sweep our pending set and fire the per-item completion event for any
-// tracked item that now resolves. The engine's natural prefetch (for
-// player-inventory items) takes care of the actual query for us.
-//
-// For items the engine *doesn't* naturally prefetch (e.g. quest reward
-// IDs the player has never owned), `OnWorldTick` escalates once the
-// startup gate has settled by issuing our own `CacheFetch` with a no-op
-// callback — that creates the entry and queues the query, and the
-// response handler hook still fires our event when the data lands.
-// `kMaxWaitTicks` is the hard timeout that gives up and fires the
-// completion event with failure.
+// `OnWorldTick` sends the queries. The first goes through `CacheFetch` with
+// the escalation callback, which creates the node and sends; a node that
+// already exists (someone else's query) gets the callback and no packet.
+// Every later send is `Cache::Query::Send`, since the node exists by then.
+// We hook the engine's item-cache response handler at
+// `FUN_ITEMSTATS_CACHE_RESPONSE` (the function that fills cache entries on
+// `SMSG_ITEM_QUERY_SINGLE_RESPONSE`); after the engine fills entries and
+// walks its own callback lists, we sweep our pending set and fire the
+// per-item completion event for any tracked item that now resolves.
 struct Pending {
     uint32_t itemID;
-    int ticksWaiting;
+    uint32_t sentMs;   // when the last query went out (valid while requestIssued)
+    int timeouts;      // sends that went unanswered for kResendMs in the world
     bool requestIssued;
+    bool sentOnce;     // the escalation callback is on the node; resend directly
     bool implicit; // true: fire GET_ITEM_INFO_RECEIVED; false: ITEM_DATA_LOAD_RESULT
     bool failed;   // set by the escalation callback on a server "no such item" reply
 };
 
 constexpr int kMaxPending = 512;
-constexpr int kMaxWaitTicks = 1200;
-// Wall-clock delay past world-live before we assume the engine's startup
-// network/opcode-dispatch state has settled and eager queries are safe.
-// Anchored to VAR_IN_WORLD (set to 1 by the enter-world initializer
-// FUN_004908C0, cleared on every transition — the same flag
-// bag/UpdateDelayed trusts), NOT a raw frame count: a fixed tick count is
-// FPS-dependent, so it could fire before dispatch was ready on a fast
-// machine (orphan risk — see the block comment above) yet leave bag icons
-// as "?" far longer than intended on a slow login. World-live alone is
-// still PLAYER_ENTERING_WORLD's first frame — inside the orphan window —
-// so we wait this long past it. Also latched the instant the engine's own
-// item-response handler fires (a response proves dispatch is live, so a
-// warm WDB settles with no delay) — see `ItemStatsCacheResponse_h`.
-// One-way latch; see the relog note in `WarmCache`.
+// A query unanswered this long in the world is sent again, up to
+// kMaxTimeouts times, then the item fails. The server answers a query or
+// refuses it; only a dropped one goes silent, so the timeout only has to
+// outlast a slow round trip.
+constexpr uint32_t kResendMs = 5000;
+constexpr int kMaxTimeouts = 3;
+// Wall-clock delay past each world entry before queries go out. VAR_IN_WORLD
+// (set by the enter-world initializer FUN_004908C0, cleared at the start of
+// every transition) rises when the client has loaded, which can be before
+// the server has put the player back in the world (a transfer completes on
+// the server's receipt of the client's world-port ack). Queries sent in that
+// gap are dropped; waiting keeps them out of it, and the resend recovers
+// any that still land there. Also latched the instant an item response
+// arrives in the world (a response proves the server answers) — see
+// `ItemStatsCacheResponse_h`.
 constexpr uint32_t kSettleMs = 1000;
 
 // Minimum spacing between outgoing *background* SMSG_ITEM_QUERY_SINGLE
@@ -216,12 +217,18 @@ constexpr uint32_t kOwnedRefreshMs = 1000; // carried set changes slowly
 
 static Pending g_pending[kMaxPending];
 static int g_pendingCount = 0;
+// Queries may go out: in the world, and settled since the last entry.
+// Cleared whenever the world is not live.
 static bool g_settled = false;
-// Tick timestamp when we first saw the world go live (VAR_IN_WORLD == 1);
-// 0 = not yet. Anchors the kSettleMs delay. Only meaningful until the
-// one-way g_settled latch flips, so it is never reset.
+// Tick timestamp when we saw the world go live (VAR_IN_WORLD == 1); 0 = not
+// in the world. Anchors the kSettleMs delay.
 static uint32_t g_inWorldSinceMs = 0;
 static uint32_t g_lastRequestMs = 0;
+
+static bool InWorld() {
+    return *reinterpret_cast<const volatile uint8_t *>(
+               static_cast<uintptr_t>(Offsets::VAR_IN_WORLD)) != 0;
+}
 
 // Snapshot of the itemIDs the player currently carries. Rebuilt by a
 // pure-C inventory walk (no Lua stack — safe at world-tick time) at most
@@ -307,8 +314,10 @@ static bool Track(uint32_t itemID, bool implicit) {
     if (g_pendingCount >= kMaxPending)
         return false;
     g_pending[g_pendingCount].itemID = itemID;
-    g_pending[g_pendingCount].ticksWaiting = 0;
+    g_pending[g_pendingCount].sentMs = 0;
+    g_pending[g_pendingCount].timeouts = 0;
     g_pending[g_pendingCount].requestIssued = false;
+    g_pending[g_pendingCount].sentOnce = false;
     g_pending[g_pendingCount].implicit = implicit;
     g_pending[g_pendingCount].failed = false;
     ++g_pendingCount;
@@ -354,10 +363,11 @@ static void __fastcall ItemStatsCacheResponse_h(void *cache, void * /*edx_unused
                                                  void *packetReader, int flag) {
     using Trampoline_t = void(__fastcall *)(void *cache, void *edx, void *packetReader, int flag);
     reinterpret_cast<Trampoline_t>(ItemStatsCacheResponse_o)(cache, nullptr, packetReader, flag);
-    // The engine just processed an item-query response, which proves its
-    // network/opcode dispatch is live — eager queries are safe from here
-    // on. Latch the startup gate so `WarmCache` stops deferring.
-    g_settled = true;
+    // A response in the world proves the server is answering queries, so
+    // they may go out now. One that arrives behind a loading screen was
+    // answered before the transfer, which proves nothing about now.
+    if (InWorld())
+        g_settled = true;
     // Sweep pending — the engine just finished filling any matching
     // entries (and, on the failure branch, invoked our escalation
     // callback which marked any rejected items `failed`). Fire whatever
@@ -442,32 +452,36 @@ static bool IsOwned(uint32_t itemID) {
 // Escalation + timeout — and the ONE place any item query is issued, so
 // the rate limiter here governs every path into the cache. This tick is
 // responsible for:
-//   1. Latching the startup gate via a tick-count fallback, in case no
-//      engine response arrives early enough to latch it first.
+//   1. The world gate: out of the world nothing is sent, and every query
+//      in flight is queued to go again, since the server may have dropped
+//      it. Back in the world, queries wait `kSettleMs` (or the first item
+//      response) before going out.
 //   2. Issuing queries — for items the engine doesn't naturally prefetch
-//      (quest rewards) AND for every `WarmCache` miss — but only once
-//      `g_settled` (don't race the engine's startup state machine). The
-//      player's carried items go out first, up to `kOwnedPerTick` per
-//      tick; everything else is background, one per `kMinRequestSpacingMs`
-//      (don't flood the network; issue #25). The engine sends the SMSG;
-//      the response handler hook fires the event when the response lands.
+//      (quest rewards) AND for every `WarmCache` miss. The player's carried
+//      items go out first, up to `kOwnedPerTick` per tick; everything else
+//      is background, one per `kMinRequestSpacingMs` (don't flood the
+//      network; issue #25). The response handler hook fires the event when
+//      the response lands.
 //   3. Firing failure immediately for items the server rejected (the
-//      escalation callback marked them `failed`), and as a last resort
-//      giving up after `kMaxWaitTicks` for items whose query was already
-//      sent but never resolved (lost query, server silent).
+//      escalation callback marked them `failed`), resending a query that
+//      went unanswered for `kResendMs`, and giving up after `kMaxTimeouts`.
 static void OnWorldTick() {
     const uint32_t now = Time::Clock::NowMs();
 
-    // Settle the startup gate a fixed wall-clock delay past world-live —
-    // or leave it to ItemStatsCacheResponse_h to latch the instant a real
-    // item response arrives, whichever comes first. See kSettleMs.
+    if (!InWorld()) {
+        g_settled = false;
+        g_inWorldSinceMs = 0;
+        for (int i = 0; i < g_pendingCount; ++i)
+            g_pending[i].requestIssued = false;
+        return;
+    }
+    // Settle a fixed wall-clock delay past world-live — or leave it to
+    // ItemStatsCacheResponse_h to latch the instant a real item response
+    // arrives, whichever comes first. See kSettleMs.
     if (!g_settled) {
-        const bool inWorld = *reinterpret_cast<const volatile uint8_t *>(
-                                 static_cast<uintptr_t>(Offsets::VAR_IN_WORLD)) != 0;
-        if (inWorld && g_inWorldSinceMs == 0)
+        if (g_inWorldSinceMs == 0)
             g_inWorldSinceMs = now;
-        if (g_inWorldSinceMs != 0 &&
-            Time::Clock::Elapsed(g_inWorldSinceMs, now) >= kSettleMs)
+        if (Time::Clock::Elapsed(g_inWorldSinceMs, now) >= kSettleMs)
             g_settled = true;
     }
 
@@ -529,8 +543,14 @@ static void OnWorldTick() {
                 g_lastRequestMs = now;
             }
             if (issue) {
-                CacheFetch(g_pending[i].itemID, &ItemLoadCallback_Escalated);
+                if (g_pending[i].sentOnce)
+                    Cache::Query::Send(reinterpret_cast<void *>(Offsets::VAR_ITEMDB_CACHE),
+                                       g_pending[i].itemID);
+                else
+                    CacheFetch(g_pending[i].itemID, &ItemLoadCallback_Escalated);
                 g_pending[i].requestIssued = true;
+                g_pending[i].sentOnce = true;
+                g_pending[i].sentMs = now;
             }
         }
         // A fill (engine response) or a server rejection (escalation
@@ -540,15 +560,16 @@ static void OnWorldTick() {
         // Only time out items whose query is actually in flight. Counting
         // from track-time would fire spurious failures for items still
         // waiting their turn behind the rate limiter.
-        if (g_pending[i].requestIssued) {
-            if (g_pending[i].ticksWaiting >= kMaxWaitTicks) {
+        if (g_pending[i].requestIssued &&
+            Time::Clock::Elapsed(g_pending[i].sentMs, now) >= kResendMs) {
+            if (++g_pending[i].timeouts >= kMaxTimeouts) {
                 const uint32_t itemID = g_pending[i].itemID;
                 const bool implicit = g_pending[i].implicit;
                 RemovePendingAt(i);
                 FireByTag(itemID, false, implicit);
                 continue;
             }
-            ++g_pending[i].ticksWaiting;
+            g_pending[i].requestIssued = false; // send again
         }
         ++i;
     }
@@ -568,12 +589,11 @@ void WarmCache(uint32_t itemID) {
     //   - Network: a post-settle immediate CacheFetch let a reload-time
     //     lookup burst fire one SMSG per item in a single frame and flood
     //     the network (issue #25). The queue's rate limiter prevents it.
-    //   - Startup race: eagerly creating the cache entry before the engine
-    //     settles orphans it — the engine's prefetch skips already-existing
-    //     entries and our SMSG goes into a hole while dispatch isn't ready,
-    //     leaving the item permanently nil. This broke pfQuest/Questie
-    //     scanning at PLAYER_ENTERING_WORLD. OnWorldTick issues only once
-    //     `g_settled`, so deferring here fixes that too.
+    //   - World gate: a query sent before the server has the player in the
+    //     world is dropped, and the node it created stays pending, leaving
+    //     the item permanently nil. This broke pfQuest/Questie scanning at
+    //     PLAYER_ENTERING_WORLD. OnWorldTick issues only once `g_settled`,
+    //     and resends what was lost, so deferring here fixes that too.
     Track(itemID, /*implicit=*/true);
 }
 
@@ -620,9 +640,9 @@ static int __fastcall Script_RequestLoadItemData(void *L) {
 static void RegisterLuaFunctions() {
     // Re-arm the proactive carried-item prefetch for this enter-world
     // session. Fires on login and /reload (this callback runs per in-game
-    // Lua init). g_settled is deliberately NOT reset — it is a one-way
-    // process latch (see WarmCache); on a /reload the cache is warm, so the
-    // re-run resolves as cache hits and does nothing.
+    // Lua init). g_settled is left to the world gate in OnWorldTick; on a
+    // /reload the cache is warm, so the re-run resolves as cache hits and
+    // does nothing.
     g_ownedPrefetched = false;
     Game::Lua::RegisterTableFunction("C_Item", "IsItemDataCachedByID",
                                      &Script_IsItemDataCachedByID);
