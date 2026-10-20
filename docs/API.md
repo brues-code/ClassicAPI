@@ -4325,38 +4325,36 @@ spurious STOPPED transitions.
 
 ### `GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events
 
-Fires on every raw mouse-button press or release while WoW has
-focus. Payload is the button identifier string.
+`GLOBAL_MOUSE_DOWN` fires when you press a mouse button, and
+`GLOBAL_MOUSE_UP` fires when you release one. The events fire when a
+frame takes the click, and when the click is not on a frame. The
+payload is the name of the button.
 
 ```lua
 local f = CreateFrame("Frame")
 f:RegisterEvent("GLOBAL_MOUSE_DOWN")
 f:RegisterEvent("GLOBAL_MOUSE_UP")
-f:SetScript("OnEvent", function(_, event, button)
-    print(event, button)  -- "GLOBAL_MOUSE_DOWN", "LeftButton"
+f:SetScript("OnEvent", function()
+    print(event, arg1)  -- "GLOBAL_MOUSE_DOWN", "LeftButton"
 end)
 ```
 
-| Payload | Source |
+| Payload | Button |
 |---------|--------|
-| `"LeftButton"` | `VK_LBUTTON` |
-| `"RightButton"` | `VK_RBUTTON` |
-| `"MiddleButton"` | `VK_MBUTTON` |
-| `"Button4"` | `VK_XBUTTON1` |
-| `"Button5"` | `VK_XBUTTON2` |
+| `"LeftButton"` | Left button |
+| `"RightButton"` | Right button |
+| `"MiddleButton"` | Middle button |
+| `"Button4"` | First side button |
+| `"Button5"` | Second side button |
 
-Distinct from per-frame `OnMouseDown` scripts — these fire even
-when the click misses every UI frame (clicks in the world / on
-nothing). Distinct from `PLAYER_STARTED_LOOKING` /
-`PLAYER_STARTED_TURNING` — those are camera-rotation events;
-these are raw input events.
+Behavior notes:
 
-**Focus-gated.** Polls Win32 `GetAsyncKeyState` per frame on the
-shared `Tick::WorldTick` registry. DOWN transitions are only
-honored when WoW is the foreground window — clicking in another
-app while alt-tabbed doesn't fire. UP transitions always fire,
-even if the user alt-tabbed mid-click, so an addon never gets
-left in a "button is held" state.
+- The events fire before the frame under the cursor gets its
+  `OnMouseDown` or `OnMouseUp`.
+- If the game window loses the mouse while you hold a button,
+  `GLOBAL_MOUSE_UP` fires for each held button.
+- Clicks during a loading screen or a screen fade do not fire the
+  events. Clicks that the open console takes also do not fire them.
 
 ### `CURSOR_CHANGED` event
 
@@ -9253,14 +9251,8 @@ mouse button is held.
 Unrecognized IDs / names return `false` (the named button just isn't
 held — bad input doesn't fall through to the any-button check).
 
-State is maintained from the same `WH_GETMESSAGE` hook that drives
-`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP`, so press/release transitions
-register at exactly the moment the corresponding event fires. Hook
-scopes to WoW's message queue — clicks made while the game is
-alt-tabbed out don't deliver, which means the state can stay
-"down" if a button was held while focus left the window. Most uses
-of `IsMouseButtonDown` are gated behind a frame that just received
-mouse focus, so this rarely matters in practice.
+The state is the same state that the game uses for mouse input. When
+the game window loses focus, no button stays held.
 
 ```lua
 if IsMouseButtonDown("RightButton") then

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Frame::ClickEvents {
 
 // Drop every per-button PreClick/PostClick handler cell before a `/reload` (or
@@ -26,5 +28,10 @@ void PrepareForReload();
 // the engine's static name literals), or null outside one — what
 // GetMouseButtonClicked returns; 4.3.4's CSimpleTop::m_mouseButtonName.
 const char *CurrentButton();
+
+// The engine's own name literal for a mouse button bit (left 1, middle 2,
+// right 4, X1 8, X2 0x10) — the pointer FUN_BUTTON_CLICK hands OnClick;
+// "UNKNOWN" for any other mask.
+const char *ButtonNameForMask(uint32_t mask);
 
 } // namespace Frame::ClickEvents

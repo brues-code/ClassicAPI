@@ -7997,6 +7997,26 @@ enum Offsets {
     // as the integer; the registrar takes it as a float).
     CONSOLE_EVENT_PRIORITY = 7,
     FUN_CONSOLE_ON_KEY_DOWN = 0x0063C480,
+    // Mouse button press / release event ids, sent by PostMouseDownEvent
+    // (0x00423DB0, `mov edx,0xb`) and PostMouseUpEvent (0x004240B0, 0xe). The
+    // payload is nine dwords: mouse mode, the button's bit, the held mask
+    // after the change, modifiers, flags (+1 for a synthetic release on lost
+    // capture), x, y, wheel delta, time (benilla-re core/input "Payloads").
+    // The button bits are left 1, middle 2, right 4, X1 8, X2 0x10 — the same
+    // masks as VAR_BUTTON_NAME_*.
+    EVENT_ID_MOUSEDOWN = 0xB,
+    EVENT_ID_MOUSEUP = 0xE,
+    OFF_MOUSE_EVENT_BUTTON = 0x04,
+    // The engine's held-button mask, same bits. PostMouseDownEvent ORs the
+    // button in (`0x00423DB6`..`0x00423DCF`), PostMouseUpEvent clears it, a
+    // window deactivation clears it whole, and a lost capture releases every
+    // held button through PostMouseUpEvent.
+    VAR_HELD_MOUSE_BUTTONS = 0x00883F40,
+    // `Input::GlobalMouse`'s handler priority: above the interface's mouse
+    // handlers (1.0, CSimpleTop's registrar 0x00765BF0) so it sees clicks a
+    // frame takes; below the console (CONSOLE_EVENT_PRIORITY) and the
+    // loading-screen and screen-fade vetoes (8.0, 0x004069E0 / 0x004C0E00).
+    GLOBAL_MOUSE_EVENT_PRIORITY = 2,
     // 4.3.4's KEY enum, unchanged in 1.12: the console's switch tests 0x200
     // Escape, 0x201 Enter, 0x203 Tab.
     KEY_TAB = 0x203,

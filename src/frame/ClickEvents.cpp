@@ -183,21 +183,6 @@ const char *FirstStringArg(const char *fmt, const void *varargs) {
     return *reinterpret_cast<const char *const *>(varargs);
 }
 
-// The engine's own name literal for a click-vmethod button mask — the exact
-// pointer FUN_BUTTON_CLICK's jump table hands OnClick.
-const char *NameForMask(uint32_t mask) {
-    uintptr_t va;
-    switch (mask) {
-    case 0x01: va = Offsets::VAR_BUTTON_NAME_LEFT; break;
-    case 0x02: va = Offsets::VAR_BUTTON_NAME_MIDDLE; break;
-    case 0x04: va = Offsets::VAR_BUTTON_NAME_RIGHT; break;
-    case 0x08: va = Offsets::VAR_BUTTON_NAME_4; break;
-    case 0x10: va = Offsets::VAR_BUTTON_NAME_5; break;
-    default:   va = Offsets::VAR_BUTTON_NAME_UNKNOWN; break;
-    }
-    return reinterpret_cast<const char *>(va);
-}
-
 int __fastcall Script_GetMouseButtonClicked(void *L) {
     Game::Lua::PushString(L, g_clickedButton);
     return 1;
@@ -293,7 +278,7 @@ void __fastcall Click_h(void *self, void *edx, uint32_t mask, int fromScript) {
         return;
     }
 
-    const char *name = NameForMask(mask);
+    const char *name = ButtonNameForMask(mask);
     const char *saved = g_clickedButton;
     g_clickedButton = name;
     cell->firing = true;
@@ -332,5 +317,18 @@ void PrepareForReload() {
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 const char *CurrentButton() { return g_clickedButton; }
+
+const char *ButtonNameForMask(uint32_t mask) {
+    uintptr_t va;
+    switch (mask) {
+    case 0x01: va = Offsets::VAR_BUTTON_NAME_LEFT; break;
+    case 0x02: va = Offsets::VAR_BUTTON_NAME_MIDDLE; break;
+    case 0x04: va = Offsets::VAR_BUTTON_NAME_RIGHT; break;
+    case 0x08: va = Offsets::VAR_BUTTON_NAME_4; break;
+    case 0x10: va = Offsets::VAR_BUTTON_NAME_5; break;
+    default:   va = Offsets::VAR_BUTTON_NAME_UNKNOWN; break;
+    }
+    return reinterpret_cast<const char *>(va);
+}
 
 } // namespace Frame::ClickEvents
