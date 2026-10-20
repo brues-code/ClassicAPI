@@ -2363,6 +2363,10 @@ enum Offsets {
     // and vmangos UnitDefines.h agree). 4.3.4 drops the focus when a unit
     // gains it (CGUnit_C::OnFlagChanged → BreakTarget); 1.12 has no reader.
     UNIT_FLAG_NOT_SELECTABLE = 0x02000000,
+    // Bit 20 of UNIT_FIELD_FLAGS — on a flight path (vmangos
+    // UNIT_FLAG_TAXI_FLIGHT). The stand setter FUN_PLAYER_SEND_STAND_STATE
+    // refuses while it is set (benilla-re objectlayer/standstate#the-sit-gate).
+    UNIT_FLAG_TAXI_FLIGHT = 0x00100000,
 
     // `UNIT_FIELD_CHANNEL_OBJECT` lo/hi (64-bit GUID of the object the
     // unit is currently channeling onto — bobber for fishing, lock for
@@ -2643,6 +2647,41 @@ enum Offsets {
     // 4.3.4's Spell_C_NeedsCooldownEvent. Verified by decompile (benilla-re
     // spell/cooldowns#held-records).
     FUN_ITEM_SPELL_HELD = 0x006E2FC0,
+
+    // CheckCasterStateForSpell — the cast request's last refusal check:
+    // `char __fastcall(void *caster /*ecx*/, int /*edx unused*/,
+    //                  const uint8_t *spellRecord, void *item)`, ret 8;
+    // 1 = every rung passed. A refusal reports through FUN_006E1A00 and
+    // returns 0, so nothing is sent. Its one caller is the cast request
+    // (FUN_006E4B60) at CALL_TRY_CAST_CHECK_CASTER_STATE (benilla-re
+    // spell/castgates; xrefs confirm the single call).
+    FUN_CHECK_CASTER_STATE_FOR_SPELL = 0x006094F0,
+    CALL_TRY_CAST_CHECK_CASTER_STATE = 0x006E4F3B,
+    // Inside it: the mounted rung's `mov edx,[ecx+0x1FC]` (8B 91 FC 01 00
+    // 00, then `test edx,edx; jle pass`; refuses 0x39) and the stand rung's
+    // `call [edx+0xA4]` (FF 92 A4 00 00 00, GetStandState, then `test
+    // eax,eax; jz pass`; refuses 0x3E). Both 6 bytes; EDI = caster at both.
+    SITE_CASTER_STATE_MOUNT_READ = 0x00609C7C,
+    SITE_CASTER_STATE_STAND_CALL = 0x00609CAD,
+    // CheckSpellShapeshiftForm — `char __thiscall(void *unit,
+    // const uint8_t *spellRecord, int *outReason)`, ret 8. Refuses with
+    // SPELL_FAILED_NOT_SHAPESHIFT when StancesNot (+0x30) covers the form,
+    // or the unit is shapeshifted and Attributes has 0x10000; with
+    // SPELL_FAILED_ONLY_SHAPESHIFT when Stances (+0x2C) misses it
+    // (decompiled). Called from the caster-state check and from
+    // FUN_SPELL_IS_USABLE only (xrefs).
+    FUN_CHECK_SPELL_SHAPESHIFT_FORM = 0x00612480,
+    CALL_CASTER_STATE_SHAPESHIFT_FORM = 0x00609E50,
+    CALL_SPELL_USABLE_SHAPESHIFT_FORM = 0x006E3EBF,
+    // Vanilla SpellCastResult codes (vmangos SpellDefines.h order, matching
+    // the rung reasons above).
+    SPELL_FAILED_NOT_SHAPESHIFT = 0x3D,
+    SPELL_FAILED_ONLY_SHAPESHIFT = 0x56,
+    // CGPlayer_C::SendStandStateChange — `void __thiscall(void *player,
+    // uint32_t state)`, ret 4. Sends CMSG_STANDSTATECHANGE and applies the
+    // state locally; a no-op while mounted, on a taxi, dead, channeling or
+    // moving (benilla-re objectlayer/standstate#the-sit-gate).
+    FUN_PLAYER_SEND_STAND_STATE = 0x005ED430,
 
     // Effective spell/channel duration (ms):
     // `__fastcall int(const void *spellRecord, int unit /*0 = player,
@@ -9805,6 +9844,16 @@ enum Offsets {
     SPELL_AURA_MOD_STEALTH = 16,
     SPELL_AURA_MOD_SHAPESHIFT = 36,
     SPELL_AURA_MOUNTED = 78,
+
+    // SpellShapeshiftForm.dbc (docs/DBCs.md row; 14 columns). Flags is
+    // column 11: the parsed 1.12 DBC gives 0x7 for the warrior stances, 0x1
+    // Stealth, 0x9 Shadowform, matching 3.3.5's column. 0x100 is the form
+    // flag 3.3.5 / 4.3.4 `CGUnit_C::CanAutoUnshift` refuses on (set there
+    // only on Spirit of Redemption and the Ghoul forms); no 1.12 row has it.
+    VAR_SPELL_SHAPESHIFT_FORM_RECORDS = 0x00C0D774,
+    VAR_SPELL_SHAPESHIFT_FORM_COUNT = 0x00C0D778,
+    OFF_SPELL_SHAPESHIFT_FORM_FLAGS = 0x2C,
+    SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT = 0x100,
 
     // Control-loss aura effect types (EffectApplyAuraName values), used by
     // C_LossOfControl to classify a debuff. Values are authoritative from the

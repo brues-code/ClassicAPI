@@ -726,6 +726,7 @@ build instructions.
   - [`C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`](#c_spellunitchannelinfounit--c_spellchannelinfo)
   - [`C_Spell.GetSpellLevelInfo(spellID)`](#c_spellgetspelllevelinfospellid)
   - [`GetSpellRequiredTargetLevel(spellID)`](#getspellrequiredtargetlevelspellid)
+  - [Cast settings (`autoStand`, `autoDismount`, `autoUnshift`)](#cast-settings-autostand-autodismount-autounshift)
 
 - [SpellBook](#spellbook)
   - [`FindSpellBookSlotByID(spellID)`](#findspellbookslotbyidspellid)
@@ -17458,6 +17459,29 @@ with `SPELL_FAILED_LOWLEVEL`; higher ranks auto-downrank.
 > also enforces are **server-only** columns — they aren't present in the
 > 1.12 client's `Spell.dbc`, so the `spellLevel` rule is the only
 > client-readable target-level mechanism.
+
+### Cast settings (`autoStand`, `autoDismount`, `autoUnshift`)
+
+Three settings change what occurs when your state blocks a cast. Each one is
+`0` (the default) or `1`. At `0`, the cast fails with the usual error.
+
+| Setting | At `1`, before the cast |
+|---|---|
+| `autoStand` | If you sit, you stand up. |
+| `autoDismount` | If you are mounted, you dismount. |
+| `autoUnshift` | If the spell fails with "You are in shapeshift form", you leave the form. |
+
+Each action occurs only when nothing else blocks the cast. `autoDismount` and
+`autoUnshift` do nothing on a flight path.
+
+When `autoUnshift` is `1`, an action button stays usable in a form that the
+cast can leave. For example, Healing Touch in Bear Form and Renew in
+Shadowform. A spell that needs a different form or stance ("Must be in ...")
+still fails, and you stay in your form.
+
+```
+/console autoDismount 1
+```
 
 ## SpellBook
 

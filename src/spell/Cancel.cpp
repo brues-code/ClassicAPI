@@ -23,6 +23,7 @@
 // auras, so there's no `unit` parameter — matches what these modern
 // functions actually do.
 
+#include "Cancel.h"
 #include "Lookup.h"
 
 #include "Game.h"
@@ -104,6 +105,33 @@ const Game::Doc::Function kCancelSpellByName{
     kByNameArgs, {}, "SpellGlobals"};
 
 } // namespace
+
+bool CancelPlayerAura(int auraType, int miscValue) {
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    if (player == nullptr)
+        return false;
+    for (int slot = 0; slot < Offsets::UNIT_AURA_BUFF_COUNT; ++slot) {
+        if (!Aura::Data::IsSlotPopulated(player, slot))
+            continue;
+        const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
+        const uint8_t *record = Spell::Lookup::RecordForID(static_cast<int>(spellID));
+        if (record == nullptr)
+            continue;
+        auto *auraTypes = reinterpret_cast<const int32_t *>(
+            record + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
+        auto *miscValues = reinterpret_cast<const int32_t *>(
+            record + Offsets::OFF_SPELL_RECORD_EFFECT_MISC_VALUE);
+        for (int eff = 0; eff < Offsets::SPELL_RECORD_EFFECT_COUNT; ++eff) {
+            if (auraTypes[eff] != auraType)
+                continue;
+            if (miscValue >= 0 && miscValues[eff] != miscValue)
+                continue;
+            SendCancel(static_cast<int>(spellID));
+            return true;
+        }
+    }
+    return false;
+}
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "CancelSpellByID",

@@ -13,17 +13,14 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "aura/Data.h"
 #include "event/Custom.h"
-#include "spell/Lookup.h"
+#include "spell/Cancel.h"
 
 #include <cstdint>
 
 namespace Unit::ShapeshiftForm {
 
 namespace {
-
-using CancelAuraSend_t = void(__fastcall *)(int spellID);
 
 // Read the local player's current shapeshift form byte. Returns
 // `-1` if the player CGUnit / descriptor isn't resolvable (yet) —
@@ -96,36 +93,8 @@ int __fastcall Script_GetShapeshiftFormID(void *L) {
 // matching aura is found.
 int __fastcall Script_CancelShapeshiftForm(void *L) {
     const int form = ReadCurrentForm();
-    if (form <= 0)
-        return 0;
-
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (player == nullptr)
-        return 0;
-
-    for (int slot = 0; slot < Offsets::UNIT_AURA_BUFF_COUNT; ++slot) {
-        if (!Aura::Data::IsSlotPopulated(player, slot))
-            continue;
-        const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
-        const uint8_t *record = Spell::Lookup::RecordForID(static_cast<int>(spellID));
-        if (record == nullptr)
-            continue;
-
-        auto *auraTypes = reinterpret_cast<const int32_t *>(
-            record + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
-        auto *miscValues = reinterpret_cast<const int32_t *>(
-            record + Offsets::OFF_SPELL_RECORD_EFFECT_MISC_VALUE);
-        for (int eff = 0; eff < Offsets::SPELL_RECORD_EFFECT_COUNT; ++eff) {
-            if (auraTypes[eff] != Offsets::SPELL_AURA_MOD_SHAPESHIFT)
-                continue;
-            if (miscValues[eff] != form)
-                continue;
-            auto fn = reinterpret_cast<CancelAuraSend_t>(
-                static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND));
-            fn(static_cast<int>(spellID));
-            return 0;
-        }
-    }
+    if (form > 0)
+        Spell::Cancel::CancelPlayerAura(Offsets::SPELL_AURA_MOD_SHAPESHIFT, form);
     return 0;
 }
 
