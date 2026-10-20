@@ -1296,6 +1296,10 @@ const ScriptParams kScriptParams[] = {
     {"OnAttributeChanged", "name,value"},
     {"OnColorSelect", "r,g,b"},
     {"OnInputLanguageChanged", "language"},
+    // Animation groups and animations (4.3.4's GetScriptByName wrappers).
+    {"OnStop", "requested"},
+    {"OnFinished", "requested"},
+    {"OnLoop", "loopState"},
 };
 
 // The parameter list for an engine-built "<Frame>:<Script>" handler chunkname

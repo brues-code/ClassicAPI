@@ -54,6 +54,8 @@
 #include "Offsets.h"
 #include "texture/Transform.h"
 
+#include "animation/Region.h"
+
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
@@ -104,7 +106,8 @@ int VertexSlot(int vertexIndex) {
 
 // Given the region's axis-aligned edges, compute the four transformed corner
 // positions (rotate about the pivot, then add the per-corner offsets) and write
-// them to region+0xD4. Corner order: BL, TL, BR, TR.
+// them to `base` (region+0xD4, or the corners an animation draws on top of).
+// Corner order: BL, TL, BR, TR.
 //
 // The corner/anchor space is Y-DOWN — a box's rect reads top NUMERICALLY
 // SMALLER than bottom (verified in-game via the GetCorners probe: t=0.222,
@@ -121,7 +124,7 @@ int VertexSlot(int vertexIndex) {
 // first. Without it a region scaled 0.9 got every offset 1/0.9 too large
 // (verified in-game: a 24px offset landed at 26.7px). Reading the scale at
 // write time keeps offsets correct across later scale changes.
-void WriteCorners(void *region, float left, float right, float top, float bottom,
+void WriteCorners(void *region, float *base, float left, float right, float top, float bottom,
                   const Xf &xf) {
     const float cx = left + xf.cxN * (right - left);
     const float cy = bottom + xf.cyN * (top - bottom);
@@ -132,7 +135,6 @@ void WriteCorners(void *region, float left, float right, float top, float bottom
         scale = 1.0f;
     const float xs[4] = {left, left, right, right};
     const float ys[4] = {bottom, top, bottom, top};
-    float *base = Game::Ptr<float>(region, Offsets::OFF_SIMPLETEXTURE_CORNERS);
     // Compute each corner's TARGET rect-space position first.
     float tx[4], ty[4];
     for (int i = 0; i < 4; ++i) {
@@ -192,8 +194,13 @@ bool ApplyFromRect(void *region, const Xf &xf) {
     // disagree about the base rect.
     if (Game::Read<int>(region, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
         reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, nullptr, rect);
-    // rect = {top, left, bottom, right}
-    WriteCorners(region, rect[1], rect[3], rect[0], rect[2], xf);
+    // rect = {top, left, bottom, right}. While a position animation plays,
+    // each update draws it on top of the corners it stored, so the new shape
+    // goes there and shows from the next update on.
+    float *base = Animation::Region::TextureBaseCorners(region);
+    if (base == nullptr)
+        base = Game::Ptr<float>(region, Offsets::OFF_SIMPLETEXTURE_CORNERS);
+    WriteCorners(region, base, rect[1], rect[3], rect[0], rect[2], xf);
     return true;
 }
 
@@ -228,7 +235,8 @@ void __fastcall StoreCorners_h(void *region, void *edx, float *rect) {
     const float bottom = base[1]; // corner0 BL.y
     const float top = base[4];    // corner1 TL.y
     const float right = base[6];  // corner2 BR.x
-    WriteCorners(region, left, right, top, bottom, it->second);
+    WriteCorners(region, Game::Ptr<float>(region, Offsets::OFF_SIMPLETEXTURE_CORNERS), left, right, top, bottom,
+                 it->second);
 }
 
 int __fastcall Script_SetRotation(void *L) {
@@ -514,6 +522,13 @@ int __fastcall Script_SetRotationFS(void *L) {
         g_xf[fs] = xf;
     else
         g_xf.erase(fs); // SetRotation(0) → ReapplyFontStringRotation restores axis-aligned
+    // Glyphs an animation turned or scaled are not this rotation over the
+    // baseline: bake them again, and the bake applies both.
+    if (Animation::Region::StringAnimated(fs)) {
+        if (void *node = FontStringNode(fs))
+            reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_TEXT_NODE_INVALIDATE)(node);
+        return 0;
+    }
     ReapplyFontStringRotation(fs);
     return 0;
 }
@@ -679,6 +694,22 @@ static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 // baked axis-aligned verts, so capture the baseline and apply the rotation. See
 // ApplyToNode / Transform.h for the timing contract.
 void RotateFontStringNode(void *node, void *fs) { ApplyToNode(node, fs, /*fresh=*/true); }
+
+void ScaleRotateFontStringNode(void *node, float scale, float angle) {
+    if (node == nullptr)
+        return;
+    auto *n = reinterpret_cast<uint8_t *>(node);
+    const float c = std::cos(angle) * scale;
+    const float s = std::sin(angle) * scale;
+    ForEachVert(n, [c, s](float *v) {
+        const float x = v[0];
+        const float y = v[1];
+        v[0] = x * c - y * s;
+        v[1] = x * s + y * c;
+    });
+    if (angle != 0.0f)
+        InsetGlyphUVs(n);
+}
 
 bool GetRotation(void *region, float *angleRad, float *cxN, float *cyN) {
     auto it = g_xf.find(region);

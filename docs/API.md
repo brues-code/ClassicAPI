@@ -33,6 +33,14 @@ build instructions.
   - [`C_APIDocumentation.GetSystem(system)`](#c_apidocumentationgetsystemsystem)
   - [`_classicapi_UndocumentedAPI()`](#_classicapi_undocumentedapi)
 
+- [Animation](#animation)
+  - [`region:CreateAnimationGroup([name [, templateName]])`](#regioncreateanimationgroupname--templatename)
+  - [AnimationGroup](#animationgroup)
+  - [Animation](#animation-1)
+  - [Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`](#animation-types-alpha-translation-scale-rotation)
+  - [`Path` and `ControlPoint`](#path-and-controlpoint)
+  - [`<Animations>` in XML](#animations-in-xml)
+
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
 
@@ -1464,6 +1472,203 @@ this list shrinks with each release.
 ```lua
 local missing, count = _classicapi_UndocumentedAPI()
 ```
+
+## Animation
+
+Animation groups on frames, textures and font strings, made in Lua or XML.
+Groups and animations are real UI objects: `GetObjectType`,
+`IsObjectType`, `GetName`, `GetParent` and named globals work as they do
+for frames.
+
+A group updates once per frame, after its frame's `OnUpdate`. A group on a
+hidden frame does not advance until the frame shows again.
+
+### `region:CreateAnimationGroup([name [, templateName]])`
+
+Creates an `AnimationGroup` on a frame, texture or font string and returns
+it. `name` can start with `$parent`. `templateName` names a virtual
+`<AnimationGroup>` to inherit. `region:GetAnimationGroups()` returns the
+region's groups. `region:StopAnimating()` stops every playing group of the
+region and, for a frame, of every frame, texture and font string inside it.
+
+```lua
+local group = frame:CreateAnimationGroup()
+local fade = group:CreateAnimation("Alpha")
+fade:SetChange(-1)            -- down to alpha 0
+fade:SetDuration(0.5)
+fade:SetSmoothing("OUT")
+group:SetScript("OnFinished", function(self) frame:Hide() end)
+group:Play()
+```
+
+### AnimationGroup
+
+`Play([reverse])`, `Pause`, `Stop`, `Finish`, `IsPlaying`, `IsPaused`,
+`IsDone`, `IsPendingFinish`, `GetProgress`, `GetDuration`,
+`SetLooping("NONE" | "REPEAT" | "BOUNCE")`, `GetLooping`, `GetLoopState`,
+`GetMaxOrder`, `SetInitialOffset(x, y)` / `GetInitialOffset`,
+`SetIgnoreFramerateThrottle` / `GetIgnoreFramerateThrottle`,
+`CreateAnimation([type [, name [, templateName]]])`, `GetAnimations`, and
+`SetScript` / `GetScript` / `HookScript` / `HasScript` for `OnLoad`,
+`OnPlay`, `OnPause`, `OnStop(self, requested)`,
+`OnFinished(self, requested)`, `OnLoop(self, loopState)` and
+`OnUpdate(self, elapsed)`.
+
+When a group ends, its progress goes back to 0. After the end, `IsDone`
+returns false. To find out when a group ends, use `OnFinished`.
+
+Animations with the same order play together, and the orders play one
+after another. An order lasts as long as its longest
+`startDelay + duration + endDelay`. `BOUNCE` plays every other loop
+backwards.
+
+### Animation
+
+`group:CreateAnimation(type)` takes `"Animation"` (timing and scripts
+only), `"Alpha"`, `"Translation"`, `"Scale"`, `"Rotation"` or `"Path"`. Any other
+type makes an `"Animation"`. An animation made in Lua joins the highest
+order the group already has.
+
+Every animation has `Play`, `Pause`, `Stop`, `IsPlaying`, `IsPaused`,
+`IsStopped`, `IsDelaying`, `IsDone`, `GetElapsed`, `GetProgress`,
+`GetProgressWithDelay`, `GetSmoothProgress` / `SetSmoothProgress`,
+`SetDuration` / `GetDuration`, `SetStartDelay` / `GetStartDelay`,
+`SetEndDelay` / `GetEndDelay`, `SetOrder` / `GetOrder` (1 to 100),
+`SetSmoothing("NONE" | "IN" | "OUT" | "IN_OUT")` / `GetSmoothing`,
+`SetParent(group [, order])`, `GetRegionParent`, and the group's scripts
+except `OnLoop`.
+
+- Smoothing follows a cosine curve: `IN` starts slow, `OUT` ends slow and
+  `IN_OUT` does both.
+- Progress steps at most 30 times a second, unless the group ignores the
+  framerate throttle.
+
+### Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`
+
+| Type | Methods |
+|---|---|
+| `Alpha` | `SetChange(change)` / `GetChange()`, `change` from -1 to 1 |
+| `Translation` | `SetOffset(x, y)` / `GetOffset()` |
+| `Scale` | `SetScale(x, y)` / `GetScale()`, `SetOrigin(point, x, y)` / `GetOrigin()` |
+| `Rotation` | `SetDegrees` / `GetDegrees`, `SetRadians` / `GetRadians`, `SetOrigin(point, x, y)` / `GetOrigin()` |
+
+`Alpha` changes the region's alpha while its group plays:
+
+- When a group with an `Alpha` animation starts, the region's alpha is
+  stored. On a frame, the alpha of every frame, texture and font string
+  inside it is stored too.
+- On each update the alpha goes back to the stored value, and then each
+  `Alpha` animation adds `change × progress`. While the group plays,
+  `GetAlpha` returns the animated value.
+- When the last group with an `Alpha` animation on the region, or on a
+  frame around it, stops or finishes, the stored alpha comes back.
+- A value you set with `SetAlpha` while the group plays is replaced on the
+  next update.
+
+`Translation` moves what the region draws:
+
+- The offset is in UI pixels at a scale of 1. The scale of the region does
+  not change it.
+- On a texture or font string, the texture or the text moves. On a frame,
+  every texture and font string inside it moves, also those of the frames
+  inside it. The frame itself does not move.
+- The rect of the region does not move. `GetLeft`, `GetRect`, anchors and
+  mouse clicks stay where the layout puts them.
+- If the layout moves the region while the group plays, the drawing moves
+  with it and keeps the offset.
+- When the last group with a `Translation`, `Scale` or `Rotation` animation
+  stops or finishes, the drawing goes back to its place.
+
+`Scale` and `Rotation` change the drawing in the same way:
+
+- On a texture, they scale or turn it around the origin from `SetOrigin`. The
+  default origin is the center. The origin offset follows the direction of
+  the texture's bottom edge.
+- A positive angle turns counter-clockwise.
+- More than one animation adds up in the order they apply. For example, a
+  `Rotation` after a `Translation` turns around the moved texture.
+- On a font string, the text scales and turns around the point where its
+  first line starts, and `SetOrigin` does not change that point. A font
+  string uses only the x value of `SetScale`. When more than one `Scale`
+  or `Rotation` animation applies to one font string, the last one wins.
+- Scaled text is stretched. It is not drawn again at the larger font size.
+
+### `Path` and `ControlPoint`
+
+A `Path` moves the region through its control points. Each point is an
+offset from where the region is, in the same units as a `Translation`.
+
+```lua
+local path = group:CreateAnimation("Path")
+path:SetDuration(2)
+path:SetCurve("SMOOTH")
+path:CreateControlPoint():SetOffset(50, 20)
+path:CreateControlPoint():SetOffset(100, 0)
+```
+
+- The path starts at offset 0 and ends at its last point.
+- The points are spread evenly over the animation: with 4 points, the
+  region is at point 1 at a quarter of the progress, at point 2 at half,
+  and so on.
+- `SetCurve("NONE")` (the default) moves in straight lines between the
+  points. `SetCurve("SMOOTH")` moves along a smooth curve through them.
+- The drawing moves as with a `Translation`: the rect of the region does
+  not move, and the drawing goes back to its place when the group ends.
+
+| Object | Methods |
+|---|---|
+| `Path` | `SetCurve("NONE" \| "SMOOTH")` / `GetCurve()`, `CreateControlPoint([name [, templateName [, order]]])`, `GetControlPoints()`, `GetMaxOrder()` |
+| `ControlPoint` | `SetOffset(x, y)` / `GetOffset()`, `SetOrder(order)` / `GetOrder()`, `SetParent(path [, order])`, `GetParent()`, `GetName()`, `GetObjectType()`, `IsObjectType(type)` |
+
+- The points go in the order of their `order`, from 1 to 100. A point
+  without an order goes after the last one.
+- If you give a point an order that another point already has, the new
+  point takes it, and the other points move up by one.
+- `SetParent` moves a point to another path. The point keeps its order.
+
+### `<Animations>` in XML
+
+```xml
+<Frame name="MyFrame">
+    <Animations>
+        <AnimationGroup parentKey="Pulse" looping="BOUNCE">
+            <Alpha change="-0.5" duration="0.4" smoothing="IN_OUT"/>
+            <Scripts>
+                <OnFinished>MyFrame_OnPulseDone(self)</OnFinished>
+            </Scripts>
+        </AnimationGroup>
+    </Animations>
+</Frame>
+```
+
+An `<Animations>` block on a frame, texture or font string builds its
+groups before the frame's `OnLoad`, and each group's `OnLoad` runs when it
+is built. Groups read `name`, `inherits`, `parentKey`, `looping` and
+`initialOffsetX` / `initialOffsetY`. Animations read `name`, `inherits`,
+`parentKey`, `target`, `duration`, `startDelay`, `endDelay`, `order`,
+`smoothing`, and their type's own attributes: `change`, `offsetX` /
+`offsetY`, `scaleX` / `scaleY`, `degrees` / `radians`, and `<Origin>`.
+A `<Path>` reads `curve` and a `<ControlPoints>` block:
+
+```xml
+<Path curve="SMOOTH" duration="2">
+    <ControlPoints>
+        <ControlPoint offsetX="50" offsetY="20"/>
+        <ControlPoint parentKey="End" offsetX="100" offsetY="0"/>
+    </ControlPoints>
+</Path>
+```
+
+A `<ControlPoint>` reads `name`, `inherits`, `parentKey` (set on the path)
+and `offsetX` / `offsetY`.
+
+- A virtual `<AnimationGroup>`, animation element or `<ControlPoint>` at
+  the top level of a file is a template for `inherits` and for the
+  `templateName` arguments.
+- Animations without an `order` play one after another.
+- `<Scripts>` bodies see `self` and their script's arguments (`elapsed`,
+  `requested`, `loopState`). A script element can name a global function
+  with `function=`.
 
 ## AuctionHouse
 

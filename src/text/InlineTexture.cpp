@@ -75,6 +75,7 @@
 
 #include "text/InlineTexture.h"
 
+#include "animation/Region.h"
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
@@ -414,6 +415,7 @@ void __fastcall DrawBuilder_h(void *node) {
         if (fs != nullptr) {
             __try {
                 Texture::Transform::RotateFontStringNode(node, fs);
+                Animation::Region::FontStringBaked(node, fs);
             } __except (EXCEPTION_EXECUTE_HANDLER) {
                 g_inlineEnabled = false;
             }

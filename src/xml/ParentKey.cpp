@@ -69,11 +69,15 @@
 // with `style` and no `inherits` is applied through the engine's own setter
 // for that state (SetTextFontObject / SetHighlightFontObject /
 // SetDisabledFontObject) with `_G[style]`.
+//
+// Every loader also loads an <Animations> child (Animation::Xml), before the
+// builder finalizes, so OnLoad sees the groups.
 
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "animation/Xml.h"
 
 #include <cstdint>
 
@@ -225,9 +229,10 @@ uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void 
     return r;
 }
 
-void OnFrameNode(void *object, const void *node, void * /*status*/) {
+void OnFrameNode(void *object, const void *node, void *status) {
     BindParentKey(object, node);
     BindScriptFunctions(object, node);
+    Animation::Xml::LoadAnimations(object, node, status);
 }
 
 const Xml::FrameLoad::AutoSubscribe _frameNode{&OnFrameNode};
@@ -239,15 +244,19 @@ void *RegionObject(void *self) {
 
 uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origTextureLoad(self, edx, node, status);
-    if (self != nullptr && node != nullptr)
+    if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
+        Animation::Xml::LoadAnimations(RegionObject(self), node, status);
+    }
     return r;
 }
 
 uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origFontStringLoad(self, edx, node, status);
-    if (self != nullptr && node != nullptr)
+    if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
+        Animation::Xml::LoadAnimations(RegionObject(self), node, status);
+    }
     return r;
 }
 

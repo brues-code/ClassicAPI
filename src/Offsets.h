@@ -543,11 +543,19 @@ enum Offsets {
     OFF_ANCHOR_NODE_RELATIVE_TO = 0x0C,           // raw relativeTo ptr within a 0x44C anchor node
     VAR_ANCHOR_VTABLE_WITH_RELATIVE = 0x0081C44C, // .rdata vtable of anchor nodes that carry a relativeTo (vs rel-less 0x0081C42C)
 
+    // The point names the XML loader and SetPoint share (benilla-re
+    // ui/anchors "Point slots and point names"), 4.3.4's StringToFramePoint /
+    // FramePointToString: `int __fastcall(const char *name, int *point)` (1 when
+    // known, case-insensitive) and `const char *__fastcall(int point)`
+    // ("UNKNOWN" for none).
+    FUN_STRING_TO_FRAME_POINT = 0x006F1840,
+    FUN_FRAME_POINT_TO_STRING = 0x006F1890,
     DRAWLAYER_ARTWORK = 2,
     FRAMEPOINT_TOPLEFT = 0,
     FRAMEPOINT_TOP = 1,
     FRAMEPOINT_TOPRIGHT = 2,
     FRAMEPOINT_LEFT = 3,
+    FRAMEPOINT_CENTER = 4,
     FRAMEPOINT_RIGHT = 5,
     FRAMEPOINT_BOTTOMLEFT = 6,
     FRAMEPOINT_BOTTOM = 7,
@@ -744,6 +752,13 @@ enum Offsets {
     // texture/Rotation.cpp, which re-applies rotation right after the engine
     // restores the axis-aligned corners (layout resolve / SetTexCoord).
     FUN_REGION_STORE_CORNERS = 0x007705B0,
+    // CSimpleTexture::OnFrameSizeChanged — `__thiscall(texture+OFF_REGION_ANCHOR,
+    // const float *oldRect)`, the layout callback: lays out dependents, then
+    // writes the corners from the new rect (cropped when +0x124 is set) with
+    // FUN_REGION_STORE_CORNERS. 4.3.4's CSimpleTexture::OnFrameSizeChanged
+    // (0x004F8E30), less its playing-animation leg, which Animation::Region
+    // adds back with a co-hook. Verified by decompile (benilla-re regions.md).
+    FUN_TEXTURE_ON_FRAME_SIZE_CHANGED = 0x00770670,
     // Texcoord crop applied to a {top,left,bottom,right} screen rect before the
     // corner-store: shrinks right→left and bottom→top by the region's per-corner
     // texcoord span (ABS of the +0x104 U/V differences). No-op for full 0..1
@@ -898,6 +913,20 @@ enum Offsets {
     OFF_LAYOUT_SCALE = 0x7C,          // float: anchor units per text/pen unit
     OFF_FONTSTRING_INSET_X = 0x110,   // float, text units (RebuildString posX term)
     OFF_FONTSTRING_INSET_Y = 0x114,   // float, text units (RebuildString posY term)
+    // CSimpleFontString::OnFrameSizeChanged — `__thiscall(fs+OFF_REGION_ANCHOR,
+    // const float *oldRect)`: rebuilds the string when the rect's size changed,
+    // else moves it to inset × OFF_LAYOUT_SCALE + the rect's min corner
+    // (rect[1] x, rect[0] y) with FUN_TEXTBLOCK_SET_STRING_POS. 4.3.4's
+    // CSimpleFontString::OnFrameSizeChanged (0x004FE350), less its
+    // playing-animation leg, which Animation::Region adds back with a co-hook.
+    // Verified by decompile.
+    FUN_FONTSTRING_ON_FRAME_SIZE_CHANGED = 0x00772D40,
+    // TextBlockSetStringPos — `void __fastcall(HTEXTBLOCK, const float pos[3])`:
+    // divides the DDC x/y by the screen scale (UnscaleScreenXY 0x0041ADE0) and
+    // stores them with GxuStringSetPosition (0x005C2770 → CGxString::SetPosition
+    // 0x005CCB10, which writes OFF_TEXT_NODE_POSITION and refinalizes the
+    // origin). The call SetTextOffset (0x00772100) and OnFrameSizeChanged use.
+    FUN_TEXTBLOCK_SET_STRING_POS = 0x0044D600,
     // CSimpleRegion::SetParentAndLayer — __thiscall(region, parentFrame, layer,
     // show). Handles old-parent unlink + new-parent region-registry insert +
     // conditional Show. Verified from the region base ctor FUN_0077F640 and the
@@ -1293,6 +1322,34 @@ enum Offsets {
     // refcount; for pool-managed nameplates the engine never
     // un-registers them anyway, so the pin is benign.
     FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER = 0x00701BD0,
+    // The rest of the script-object life cycle (benilla-re ui/script, ui/frames):
+    //   FUN_SCRIPT_OBJECT_CONSTRUCT `__fastcall(object)` fills the 0x24-byte
+    //     header: base vtable, holder count 0 (+4), table ref -2 (+8), OnEvent
+    //     slot (+0xC), event index (+0x14..+0x20).
+    //   FUN_SCRIPT_OBJECT_DESTRUCT `__fastcall(object)` unregisters its events,
+    //     releases OnEvent and frees the index array.
+    //   FUN_SCRIPT_OBJECT_UNLOCK `__thiscall(object, name)` - the inverse of
+    //     FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER: counts a holder down, at zero
+    //     clears the table's [0] and frees its ref; a non-null name's global
+    //     is set to nil.
+    //   FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT `__thiscall(object, name)` - the
+    //     base vtable+0x0C: the OnEvent slot for "OnEvent", else 0.
+    //   FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT `bool __thiscall(object, name, text)`,
+    //     `ret 8` - compiles an XML script body into the slot vtable+0x0C
+    //     gives (chunk name "<name>:<script>", context 0), releasing the old.
+    //   FUN_SCRIPT_RELEASE `void __stdcall(uint32_t *slot)` - frees a slot's
+    //     handler ref.
+    // An object's methods are found through its vtable+0x08, `int
+    // __thiscall(object, L, name)` (`ret 8`, push and return 1, or 0), which
+    // the shared metatable's __index (0x007020B0) calls with t[0]. Base
+    // vtable 0x00811F4C; subclasses add IsA(name) at +0x18 and the type name at
+    // +0x1C (Font's 0x0081C8BC).
+    FUN_SCRIPT_OBJECT_CONSTRUCT = 0x00701AE0,
+    FUN_SCRIPT_OBJECT_DESTRUCT = 0x00701B40,
+    FUN_SCRIPT_OBJECT_UNLOCK = 0x00701CD0,
+    FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT = 0x00702590,
+    FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT = 0x007025C0,
+    FUN_SCRIPT_RELEASE = 0x00702670,
 
     // `this+0x04` Lua refcount, incremented by `ScriptRegister`. We
     // read it as a "has the engine ever exposed this CObject to Lua"
@@ -3430,8 +3487,8 @@ enum Offsets {
     // (0x00769380) and every derived frame class's destructor (16 call sites,
     // including the engine-pooled ChatBubbleFrame's at 0x004B0BB6). Deletes the
     // frame's regions and child frames and unlinks it from its parent through
-    // 0x0076AAB0, never through SetParent or the alpha setter. `Frame::Alpha`
-    // hooks it to forget the frame's own alpha.
+    // 0x0076AAB0, never through SetParent or the alpha setter. `Frame::Destruction`
+    // hooks it and fans out (Frame::Alpha, the animation groups).
     FUN_FRAME_DESTRUCTOR = 0x007693B0,
 
     // Scroll clipping. A frame a ScrollFrame draws carries FRAME_FLAG_SCROLLED
@@ -3485,6 +3542,14 @@ enum Offsets {
     // slots below except CGWorldFrame's and CSimpleEditBox's (vtable
     // 0x0081C910: char 0x0077A900, key down 0x0077B160, key up 0x0077B7C0).
     FUN_FRAME_ON_CHAR = 0x0076B760,     // vtable+0x5C
+    // CSimpleFrame::OnFrameUpdate - `void __thiscall(frame, float elapsed)`,
+    // `ret 4`, vtable+0x38: runs OnUpdate (+0x128). The top's update pass
+    // (0x00765650) calls slot 0x38 on every frame of every level list - every
+    // shown frame - once per frame; each override (EditBox 0x0077A790,
+    // message frames 0x00788460, Model 0x0076D7F0, ...) calls it first. 4.3.4's
+    // CSimpleFrame::OnLayerUpdate runs OnUpdate, then the frame's animation
+    // groups, then its regions'.
+    FUN_FRAME_ON_UPDATE = 0x0076B2C0,
     FUN_FRAME_ON_KEY_DOWN = 0x0076B7D0, // vtable+0x60
     FUN_EDITBOX_ON_KEY_DOWN = 0x0077B160,
     // Layout cache (layout-cache.txt). The writer 0x00490E10 calls this on
@@ -9952,6 +10017,10 @@ enum Offsets {
     // FUN_006f2cf0 (`__thiscall(node, name) -> value string`, null if absent).
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
+    // An element's text content (`const char *`, null when empty) - what the
+    // XML file processor compiles for an inline <Script> element
+    // (`mov esi, [esi+0xC]` at 0x006EE0D9, then "%s:<Scripts>").
+    OFF_XML_NODE_TEXT = 0xC,
     FUN_XML_NODE_GET_ATTRIBUTE = 0x006F2CF0,
     // Attributes are a flat array of `{char *name, char *value}` pairs at
     // +0x14, count at +0x10: the getter above scans it with SStrCmpI and
@@ -10587,6 +10656,9 @@ enum Offsets {
     // origin finalize copies it into the origin and adds the vertical-justify
     // term (see FUN_TEXT_NODE_FINALIZE_ORIGIN).
     OFF_TEXT_NODE_POSITION_Y = 0x24,
+    // The whole position {x, y, z} (x, y in DDC ÷ screen scale; back to DDC
+    // with FUN_COORD_NDC_TO_DDC). 4.3.4's TextBlockGetStringPos reads it.
+    OFF_TEXT_NODE_POSITION = 0x20,
     // Node origin finalize: `void __fastcall(node)`. Copies the position
     // (+0x20..+0x28) into the origin (+0x70..+0x78); when the node has built
     // lines and flags bit 7 is clear it adds the horizontal justify (+0x54) and

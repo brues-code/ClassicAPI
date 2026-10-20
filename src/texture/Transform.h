@@ -34,6 +34,14 @@ void PrepareForReload();
 // Offsets.h (OFF_TEXT_NODE_PAGE_BUFFERS …).
 void RotateFontStringNode(void *node, void *fs);
 
+// Scales, then turns (radians, counter-clockwise), a freshly baked text node's
+// glyph vertices about the node origin (0, 0) - where 4.3.4's
+// CGxString::InitializeTextLine turns them for a string's rotation, and the
+// point a larger font height grows from. Shrinks the glyph UVs by the
+// engine's half-texel inset when it turns them. Same timing contract as
+// RotateFontStringNode: only right after a fresh bake.
+void ScaleRotateFontStringNode(void *node, float scale, float angle);
+
 // The stored rotation for `region` (from SetRotation), if any: writes the angle
 // (radians, positive = counter-clockwise on screen) and the normalized pivot,
 // returns true. False when the region has no rotation. Texture::Mask reads a
