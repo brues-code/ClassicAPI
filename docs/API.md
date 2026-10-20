@@ -1578,8 +1578,15 @@ except `OnLoop`.
 - When the last group with a `Translation`, `Scale` or `Rotation` animation
   stops or finishes, the drawing goes back to its place.
 
-`Scale` and `Rotation` keep their timing, scripts and values, but do not
-change the drawing yet.
+`Scale` and `Rotation` change the drawing of textures in the same way:
+
+- They scale or turn the texture around the origin from `SetOrigin`. The
+  default origin is the center. The origin offset follows the direction of
+  the texture's bottom edge.
+- A positive angle turns counter-clockwise.
+- More than one animation adds up in the order they apply. For example, a
+  `Rotation` after a `Translation` turns around the moved texture.
+- Font strings do not scale or turn yet.
 
 ### `<Animations>` in XML
 

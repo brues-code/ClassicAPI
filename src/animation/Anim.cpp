@@ -201,9 +201,13 @@ void Anim::Apply(float p) {
     case KIND_TRANSLATION:
         Region::AddAnimTranslation(region, target, offsetX * p, offsetY * p);
         break;
+    case KIND_SCALE:
+        Region::AddAnimScale(region, target, originPoint, originX, originY, scaleChangeX * p, scaleChangeY * p);
+        break;
+    case KIND_ROTATION:
+        Region::AddAnimRotation(region, target, originPoint, originX, originY, radians * p);
+        break;
     default:
-        // Scale and Rotation (4.3.4's AddAnimScale / AddAnimRotation) are not
-        // applied yet: they keep their timing, scripts and values.
         break;
     }
 }

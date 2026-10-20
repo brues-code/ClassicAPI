@@ -31,7 +31,7 @@
 //     ancestor ends, the stored state goes back (AnimDeactivated).
 // So, as in 4.3.4, GetAlpha returns the animated alpha while it plays.
 //
-// Position animations (Translation; Scale and Rotation later) move only what
+// Position animations (Translation, Scale, Rotation) move only what
 // is DRAWN, never a frame's rect: a frame hands them to every texture and font
 // string below it. A texture moves the four corners its draw record points at
 // (+0xD4, TL BL TR BR, the order of 4.3.4's m_positions); a font string moves
@@ -61,6 +61,7 @@
 #include "frame/Destruction.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -621,6 +622,103 @@ void AddAnimAlpha(void *region, void *target, int16_t alpha) {
         return;
     const int value = alpha + static_cast<int>(VertexColor(region) >> 24);
     SetVertexAlpha(region, static_cast<uint8_t>(value > 255 ? 255 : (value < 0 ? 0 : value)));
+}
+
+namespace {
+
+// The corners (TL, BL, TR, BR) as 2D points.
+float CornerX(const float *corners, int i) { return corners[i * 3 + 0]; }
+float CornerY(const float *corners, int i) { return corners[i * 3 + 1]; }
+
+// GetOriginOffset (4.3.4 CSimpleRegion.cpp): the origin point on the drawn
+// quad, then the offset along the quad's bottom edge direction, so the
+// offset turns with a quad that is already turned.
+void GetOriginOffset(int origin, const float *c, float offsetX, float offsetY, float &x, float &y) {
+    const auto mid = [c](int a, int b, float &mx, float &my) {
+        mx = (CornerX(c, b) - CornerX(c, a)) * 0.5f + CornerX(c, a);
+        my = (CornerY(c, b) - CornerY(c, a)) * 0.5f + CornerY(c, a);
+    };
+    switch (origin) {
+    case Offsets::FRAMEPOINT_TOPLEFT: x = CornerX(c, 0); y = CornerY(c, 0); break;
+    case Offsets::FRAMEPOINT_TOP: mid(0, 2, x, y); break;
+    case Offsets::FRAMEPOINT_TOPRIGHT: x = CornerX(c, 2); y = CornerY(c, 2); break;
+    case Offsets::FRAMEPOINT_LEFT: mid(0, 1, x, y); break;
+    case Offsets::FRAMEPOINT_CENTER: mid(0, 3, x, y); break;
+    case Offsets::FRAMEPOINT_RIGHT: mid(2, 3, x, y); break;
+    case Offsets::FRAMEPOINT_BOTTOMLEFT: x = CornerX(c, 1); y = CornerY(c, 1); break;
+    case Offsets::FRAMEPOINT_BOTTOM: mid(1, 3, x, y); break;
+    case Offsets::FRAMEPOINT_BOTTOMRIGHT: x = CornerX(c, 3); y = CornerY(c, 3); break;
+    default: x = 0.0f; y = 0.0f; break;
+    }
+    if (offsetX * offsetX + offsetY * offsetY > 0.00000011920929f) {
+        float dx = CornerX(c, 3) - CornerX(c, 1);
+        float dy = CornerY(c, 3) - CornerY(c, 1);
+        const float length = dy * dy + dx * dx;
+        if (length > 0.00000023841858f) {
+            const float scale = 1.0f / std::sqrt(length);
+            dx *= scale;
+            dy *= scale;
+        }
+        x = offsetX * dx - offsetY * dy + x;
+        y = offsetY * dx + offsetX * dy + y;
+    }
+}
+
+// The texture that takes a position animation (the target filter of the
+// region overrides), or nullptr.
+float *AnimatedCorners(void *region, void *target) {
+    if (target != nullptr && target != region)
+        return nullptr;
+    const AnimData *data = DataOf(region);
+    if (data == nullptr || !data->hasPosition || !IsTexture(region))
+        return nullptr;
+    return Corners(region);
+}
+
+} // namespace
+
+void AddAnimScale(void *region, void *target, int origin, float offsetX, float offsetY, float x, float y) {
+    if (IsFrame(region)) {
+        // CSimpleFrame::AddAnimScale.
+        if (target == region)
+            target = nullptr;
+        ForEachChild(region, [=](void *child) { AddAnimScale(child, target, origin, offsetX, offsetY, x, y); });
+        return;
+    }
+    // CSimpleTexture::AddAnimScale -> ApplyScaleAnim. Font strings: not yet.
+    float *c = AnimatedCorners(region, target);
+    if (c == nullptr)
+        return;
+    float cx, cy;
+    GetOriginOffset(origin, c, offsetX, offsetY, cx, cy);
+    for (int i = 0; i < 4; ++i) {
+        c[i * 3 + 0] = (cx - c[i * 3 + 0]) * x + c[i * 3 + 0];
+        c[i * 3 + 1] = (cy - c[i * 3 + 1]) * y + c[i * 3 + 1];
+    }
+}
+
+void AddAnimRotation(void *region, void *target, int origin, float offsetX, float offsetY, float radians) {
+    if (IsFrame(region)) {
+        // CSimpleFrame::AddAnimRotation.
+        if (target == region)
+            target = nullptr;
+        ForEachChild(region, [=](void *child) { AddAnimRotation(child, target, origin, offsetX, offsetY, radians); });
+        return;
+    }
+    // CSimpleTexture::AddAnimRotation -> ApplyRotationAnim. Font strings: not yet.
+    float *c = AnimatedCorners(region, target);
+    if (c == nullptr)
+        return;
+    float cx, cy;
+    GetOriginOffset(origin, c, offsetX, offsetY, cx, cy);
+    const float cs = std::cos(radians);
+    const float sn = std::sin(radians);
+    for (int i = 0; i < 4; ++i) {
+        const float x = c[i * 3 + 0] - cx;
+        const float y = c[i * 3 + 1] - cy;
+        c[i * 3 + 0] = x * cs - y * sn + cx;
+        c[i * 3 + 1] = x * sn + y * cs + cy;
+    }
 }
 
 void *FindRegionByName(const char *name) {

@@ -38,6 +38,12 @@ void AddAnimAlpha(void *region, void *target, int16_t alpha);
 // CScriptRegion::AddAnimTranslation(target, translation), in layout units:
 // moves the drawn textures and font strings, never a rect.
 void AddAnimTranslation(void *region, void *target, float x, float y);
+// CScriptRegion::AddAnimScale(target, origin, offset, scale): `x`/`y` are the
+// share of the way to the origin (1 - scale at full progress).
+void AddAnimScale(void *region, void *target, int origin, float offsetX, float offsetY, float x, float y);
+// CScriptRegion::AddAnimRotation(target, origin, offset, radians),
+// counter-clockwise.
+void AddAnimRotation(void *region, void *target, int origin, float offsetX, float offsetY, float radians);
 // CScriptObject::GetScriptObjectByName for a region (Animation:Play's
 // target lookup): the region named `name`, or nullptr.
 void *FindRegionByName(const char *name);
