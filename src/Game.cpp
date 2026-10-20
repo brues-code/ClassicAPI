@@ -459,45 +459,14 @@ void PushLocalizedString(void *L, const char *globalName, const char *fallback) 
     }
 }
 
-// In-place `string.gsub(stack[-1], pattern, replacement)` — replaces
-// the string at the top of the stack with the substitution result.
-// Discards gsub's second return (the substitution count) by
-// requesting only one return from `Call`.
-static void GsubInPlace(void *L, const char *pattern, const char *replacement) {
-    PushString(L, "string");
-    GetTable(L, GLOBALS_INDEX);
-    PushString(L, "gsub");
-    GetTable(L, -2);             // [..., str, string, gsub]
-    Remove(L, -2);                // [..., str, gsub]
-    Insert(L, -2);                // [..., gsub, str]
-    PushString(L, pattern);
-    PushString(L, replacement);
-    Call(L, 3, 1);                // [..., result]
-}
-
 void PushLocalizedFormatInt(void *L, const char *globalName,
                             const char *fallback, int n) {
     // Resolve `string.format` from _G.
     PushString(L, "format");
     GetTable(L, GLOBALS_INDEX);
     PushLocalizedString(L, globalName, fallback);
-
-    // Expand WoW's `|4singular:plural;` (and 3-form
-    // `|4nom:gen_sing:plural;`) pluralization template by piggybacking
-    // on Lua's `string.gsub`. The 2- vs 3-form distinction is locale
-    // grammar (Slavic counting has a separate genitive-singular form
-    // for 2..4); we collapse to nominative/plural since vanilla has
-    // no proper locale-aware counting rules. 3-form pattern runs
-    // first because it's more specific. Vanilla's `string.format`
-    // doesn't process `|4` natively, so without this the template
-    // would render literally.
-    const char *picker3 = (n == 1) ? "%1" : "%3";
-    const char *picker2 = (n == 1) ? "%1" : "%2";
-    GsubInPlace(L, "|4([^:;]+):([^:;]+):([^;]+);", picker3);
-    GsubInPlace(L, "|4([^:;]+):([^;]+);", picker2);
-
     PushNumber(L, static_cast<double>(n));
-    Call(L, 2, 1);                // format(expandedFmt, n) → string
+    Call(L, 2, 1);                // format(fmt, n) → string
 }
 } // namespace Lua
 

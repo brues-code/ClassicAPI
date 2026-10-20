@@ -532,6 +532,8 @@ void PushLocalizedString(void *L, const char *globalName, const char *fallback);
 // `ITEM_SLOTS_IGNORED = "%d slot(s) ignored"`, etc.). Callers that
 // need string or float args, or multiple args, can build their own
 // using `PushLocalizedString` + manual `string.format` invocation.
+// A `|4singular:plural;` in the string stays; the engine's grammar pass
+// (Text::Grammar) expands it when the text is set.
 void PushLocalizedFormatInt(void *L, const char *globalName,
                             const char *fallback, int n);
 

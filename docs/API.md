@@ -264,6 +264,7 @@ build instructions.
   - [`fontstring:SetWordWrap([wrap])` / `fontstring:CanWordWrap()`](#fontstringsetwordwrapwrap--fontstringcanwordwrap)
   - [`fontstring:GetFieldSize()`](#fontstringgetfieldsize)
   - [`fontstring:SetFormattedText(format [, ...])` / `button:SetFormattedText(format [, ...])`](#fontstringsetformattedtextformat----buttonsetformattedtextformat--)
+  - [The `|4` plural code](#the-4-plural-code)
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
   - [`texture:SetMask(path)`](#texturesetmaskpath)
@@ -6297,6 +6298,25 @@ string with no font, the method raises `Font not set`, as `SetText` does.
 bar.text:SetFormattedText("%d/%d (%.1f%%)", cur, max, cur / max * 100)
 button:SetFormattedText("Buy (%d)", count)
 ```
+
+### The `|4` plural code
+
+Text can pick a singular or a plural word with `|4singular:plural;`. The
+choice uses the last number before the code in the same text. The code works
+in the same places as the `|1` and `|2` grammar codes: `SetText`,
+`SetFormattedText`, button text, tooltip lines, chat lines, chat bubbles and
+name plates.
+
+```lua
+label:SetFormattedText("%d |4item:items; left", n) -- "1 item left", "3 items left"
+```
+
+The rule for the choice depends on the client language:
+
+- English, German and Spanish use the singular for 1 and the plural for all
+  other numbers.
+- French, Korean and Chinese use the singular for 0 and 1 and the plural for
+  all other numbers.
 
 ### `texture:SetRotation(angle [, cx, cy])`
 

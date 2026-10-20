@@ -515,6 +515,15 @@ enum Offsets {
     // __thiscall(fs, text, expand), ret 8. expand = 1 (Lua SetText 0x0079D829,
     // CSimpleButton::SetText) rewrites the |1 / |2 grammar escapes first.
     FUN_FONTSTRING_SET_TEXT = 0x00771D80,
+    // The grammar pass, 4.3.4's LanguageProcess with only its rules 1 and 2:
+    // `char *__fastcall(text)`, returns the text or a static rewrite of it.
+    // Callers: AddChatLine 0x0049AF18, StartChatBubble 0x004B1611,
+    // FUN_FONTSTRING_SET_TEXT 0x00771D98 (expand = 1), UpdatePlate 0x006C703F.
+    FUN_EXPAND_GRAMMAR_ESCAPES = 0x007716F0,
+    // Its rules, `char *__thiscall(text)`, each output to the static
+    // 0x00CF1CC8 (0x1000 bytes): |1 Korean particles, |2 French articles.
+    FUN_EXPAND_KOREAN_PARTICLES = 0x00771770,
+    FUN_EXPAND_FRENCH_ARTICLES = 0x007719A0,
     FUN_FONTSTRING_SET_COLOR = 0x0077F750,        // __thiscall(region, colorBGRA*) — generic region color setter (fontstrings + textures)
     // Generic region color GETTER — `void __thiscall(region, uint32* outBGRA)`,
     // writes the packed {b,g,r,a} (0xFFFFFFFF when the region has no explicit
