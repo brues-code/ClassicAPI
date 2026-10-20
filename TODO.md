@@ -4082,7 +4082,9 @@ Each entry still needs the usual check of how the engine does it before building
 - **DONE** (`src/frame/MinMaxChanged.cpp`). **OnMinMaxChanged** (Slider, StatusBar): `SetMinMaxValues` runs it with
   `(min, max)` when the range changes (`CSimpleStatusBar.cpp:39/141`). 1.12 has
   no such script.
-- **StatusBar** `SetReverseFill` / `GetReverseFill`, `SetRotatesTexture` /
+- **DONE** (`src/statusbar/Fill.cpp`, `src/statusbar/BarTexture.cpp`; XML
+  `reverseFill` / `rotatesTexture` / `fillStyle` attributes not backported).
+  **StatusBar** `SetReverseFill` / `GetReverseFill`, `SetRotatesTexture` /
   `GetRotatesTexture` (`CSimpleStatusBar.cpp:135`, the vertical texcoord path
   at `:285`). Retail adds `SetFillStyle` (STANDARD / CENTER / REVERSE),
   `SetColorFill`, `SetStatusBarDesaturated` / `Desaturation`.

@@ -3170,6 +3170,37 @@ enum Offsets {
     // CSimpleStatusBar::SetValue's vtable slot (0x007832D0), `void
     // __thiscall(bar, float)`, as FUN_STATUSBAR_SET_MIN_MAX_VALUES calls it.
     OFF_VMT_STATUSBAR_SET_VALUE = 0x90,
+    // The method hash StatusBar's 10 methods (table 0x0087B010) register into
+    // (RegisterStatusBarMethods 0x007900A0).
+    VAR_STATUSBAR_METHOD_REGISTRY = 0x00CF51CC,
+    // The bar texture (CSimpleTexture *) and the orientation (0 HORIZONTAL,
+    // 1 VERTICAL), as CSimpleStatusBar::OnFrameUpdate reads them.
+    OFF_STATUSBAR_BAR_TEXTURE = 0x324,
+    OFF_STATUSBAR_ORIENTATION = 0x328,
+    // Flags bit 0: the fill needs laying out. SetValue, SetMinMaxValues and
+    // FUN_STATUSBAR_INSTALL_BAR_TEXTURE set it; OnFrameUpdate clears it.
+    VALUE_FLAG_CHANGED = 0x1,
+    // CSimpleStatusBar::OnFrameUpdate — `void __thiscall(bar, float
+    // elapsed)`, `ret 4` (the decompile hides the argument), vtable slot 14:
+    // passes `elapsed` to FUN_FRAME_ON_UPDATE, then with VALUE_FLAG_CHANGED, a range, a
+    // value and a bar texture sets the texture's coordinates to {0, 0, 1,
+    // fill} (horizontal) or {0, 0, fill, 1} (vertical) through
+    // FUN_SIMPLETEXTURE_SET_TEXCOORD and clears the bit. The texture's
+    // OFF_REGION_TEXCOORD_MODIFIES_RECT crop draws the filled part.
+    FUN_STATUSBAR_ON_FRAME_UPDATE = 0x007833C0,
+    // CSimpleStatusBar::InstallBarTexture — `void __thiscall(bar, texture,
+    // int drawLayer)`, `ret 8`: deletes the old bar texture, parents the new
+    // one to the bar in the layer, sets its OFF_REGION_TEXCOORD_MODIFIES_RECT
+    // to 1 and sets VALUE_FLAG_CHANGED. Pins no points.
+    FUN_STATUSBAR_INSTALL_BAR_TEXTURE = 0x007831F0,
+    // CLayoutFrame::SetAllPoints — `void __thiscall(region+OFF_REGION_ANCHOR,
+    // relative+OFF_REGION_ANCHOR, int doResize)`, `ret 8`. The bar's
+    // SetBarTexture-by-path (0x00783140) pins a new texture with (bar, 1).
+    FUN_LAYOUT_SET_ALL_POINTS = 0x00767DB0,
+    // CSimpleTexture::SetTexCoord, corner form — `void __thiscall(tex, const
+    // float[8])`: UL, LL, UR, LR (x, y) pairs into +0x104, crop and store only
+    // with OFF_REGION_TEXCOORD_MODIFIES_RECT. The 8-argument SetTexCoord.
+    FUN_SIMPLETEXTURE_SET_TEXCOORD_CORNERS = 0x007704C0,
 
     // CFrameScriptObject vtable slot 4 — the `IsA(typeId)` predicate every
     // frame class implements, and the gate every engine method applies to its

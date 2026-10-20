@@ -43,6 +43,8 @@
 // the first call inside FUN_LOAD_SCRIPT_FUNCTIONS and ModuleAutoRegister runs
 // after the original, so ours wins on every /reload. No hook is involved.
 
+#include "texture/Desaturation.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
@@ -308,6 +310,28 @@ int LevelOf(void *region) {
     return kFull;
 }
 
+} // namespace
+
+void SetAmount(void *region, double amount) {
+    if (amount != amount) // NaN
+        amount = 0.0;
+    if (amount < 0.0)
+        amount = 0.0;
+    else if (amount > 1.0)
+        amount = 1.0;
+    const int level = static_cast<int>(amount * kFull + 0.5);
+
+    if (!g_enabled || !Available()) {
+        ApplyStock(region, level > 0);
+        return;
+    }
+    Apply(region, level);
+}
+
+double GetAmount(void *region) { return static_cast<double>(LevelOf(region)) / kFull; }
+
+namespace {
+
 void *ResolveSelf(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE)
         return nullptr;
@@ -323,20 +347,7 @@ int __fastcall Script_SetDesaturation(void *L) {
         Game::Lua::Error(L, "Usage: texture:SetDesaturation(amount)");
         return 0;
     }
-    double amount = Game::Lua::ToNumber(L, 2);
-    if (amount != amount) // NaN
-        amount = 0.0;
-    if (amount < 0.0)
-        amount = 0.0;
-    else if (amount > 1.0)
-        amount = 1.0;
-    const int level = static_cast<int>(amount * kFull + 0.5);
-
-    if (!g_enabled || !Available()) {
-        ApplyStock(region, level > 0);
-        return 0;
-    }
-    Apply(region, level);
+    SetAmount(region, Game::Lua::ToNumber(L, 2));
     return 0;
 }
 
@@ -347,7 +358,7 @@ int __fastcall Script_GetDesaturation(void *L) {
         Game::Lua::Error(L, "Usage: texture:GetDesaturation()");
         return 0;
     }
-    Game::Lua::PushNumber(L, static_cast<double>(LevelOf(region)) / kFull);
+    Game::Lua::PushNumber(L, GetAmount(region));
     return 1;
 }
 

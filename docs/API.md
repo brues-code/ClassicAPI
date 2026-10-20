@@ -296,6 +296,11 @@ build instructions.
   - [`slider:Enable()` / `slider:Disable()` / `slider:IsEnabled()`](#sliderenable--sliderdisable--sliderisenabled)
   - [`OnEnable` and `OnDisable` (scripts)](#onenable-and-ondisable-scripts)
   - [`OnMinMaxChanged(self, min, max)` (script)](#onminmaxchangedself-min-max-script)
+  - [`statusBar:SetReverseFill(isReverseFill)` / `statusBar:GetReverseFill()`](#statusbarsetreversefillisreversefill--statusbargetreversefill)
+  - [`statusBar:SetRotatesTexture(rotatesTexture)` / `statusBar:GetRotatesTexture()`](#statusbarsetrotatestexturerotatestexture--statusbargetrotatestexture)
+  - [`statusBar:SetFillStyle(fillStyle)` / `statusBar:GetFillStyle()`](#statusbarsetfillstylefillstyle--statusbargetfillstyle)
+  - [`statusBar:SetColorFill(colorR, colorG, colorB [, a])`](#statusbarsetcolorfillcolorr-colorg-colorb--a)
+  - [`statusBar:SetStatusBarDesaturation(desaturation)` / `statusBar:GetStatusBarDesaturation()`](#statusbarsetstatusbardesaturationdesaturation--statusbargetstatusbardesaturation)
   - [`editBox:IsInIMECompositionMode()`](#editboxisinimecompositionmode)
   - [`OnCharComposition(self, text)` (script)](#oncharcompositionself-text-script)
   - [`OnTextChanged(self, userInput)` (script)](#ontextchangedself-userinput-script)
@@ -6772,6 +6777,68 @@ bar:SetScript("OnMinMaxChanged", function(self, min, max)
     self.text:SetText(min .. " - " .. max)
 end)
 ```
+
+### `statusBar:SetReverseFill(isReverseFill)` / `statusBar:GetReverseFill()`
+
+`statusBar:SetReverseFill(true)` makes the bar fill from the right edge. A
+vertical bar fills from the top edge. `statusBar:GetReverseFill()` returns
+`true` or `false`.
+
+- The bar texture shows the same part of its image as in a normal fill. Only
+  the side that the fill grows from changes.
+- The fill style `Enum.StatusBarFillStyle.Reverse` has the same result.
+
+### `statusBar:SetRotatesTexture(rotatesTexture)` / `statusBar:GetRotatesTexture()`
+
+`statusBar:SetRotatesTexture(true)` turns the image of the bar texture by a
+quarter turn. Use it to put a horizontal bar image on a vertical bar.
+`statusBar:GetRotatesTexture()` returns `true` or `false`.
+
+### `statusBar:SetFillStyle(fillStyle)` / `statusBar:GetFillStyle()`
+
+Sets how the bar fills as its value increases. `fillStyle` is a value of
+`Enum.StatusBarFillStyle`, or its name as a string:
+
+| Value | String | Fill |
+|---|---|---|
+| `Enum.StatusBarFillStyle.Standard` (0) | `"STANDARD"` | From the left edge, or from the bottom edge of a vertical bar. This is the default. |
+| `Enum.StatusBarFillStyle.StandardNoRangeFill` (1) | `"STANDARD_NO_RANGE_FILL"` | As `Standard`. A bar whose `min` and `max` are equal shows full, but a bar whose `min` and `max` are both 0 shows empty. |
+| `Enum.StatusBarFillStyle.Center` (2) | `"CENTER"` | From the center to the two edges. |
+| `Enum.StatusBarFillStyle.Reverse` (3) | `"REVERSE"` | From the right edge, or from the top edge of a vertical bar. |
+
+`statusBar:GetFillStyle()` returns the number.
+
+- A string is not case-sensitive. Any other value is an error.
+- The `Center` style ignores `statusBar:SetReverseFill()`.
+
+```lua
+bar:SetFillStyle(Enum.StatusBarFillStyle.Center)
+```
+
+### `statusBar:SetColorFill(colorR, colorG, colorB [, a])`
+
+Fills the bar texture with one color. The values go from 0 to 1, and `a` is
+1 when you do not give it. If the bar has no bar texture, the method makes
+one in the `ARTWORK` layer.
+
+```lua
+bar:SetColorFill(0, 0.8, 0)
+```
+
+### `statusBar:SetStatusBarDesaturation(desaturation)` / `statusBar:GetStatusBarDesaturation()`
+
+Sets how much color the bar texture loses, from 0 (full color) to 1 (gray).
+This is `texture:SetDesaturation()` on the bar texture.
+`statusBar:GetStatusBarDesaturation()` returns the value.
+
+`statusBar:SetStatusBarDesaturated(desaturated)` sets the value to 1 when
+`desaturated` is `true`, and to 0 when it is `false`.
+`statusBar:IsStatusBarDesaturated()` returns `true` when the value is more
+than 0.
+
+- The value belongs to the bar texture. A new bar texture starts with full
+  color.
+- A bar with no bar texture ignores the setters and returns 0 or `false`.
 
 ### `editBox:IsInIMECompositionMode()`
 
