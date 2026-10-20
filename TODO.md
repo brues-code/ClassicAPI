@@ -3972,3 +3972,44 @@ The only FontString methods 4.3.4 has that 1.12 + ClassicAPI lacked
   fixed text size `+0xE8` (XML `bytes="n"`) keeps `n − 1` bytes (`SetText`'s
   `SStrCopy(text, src, n)`, `0x771E0F`); without one the buffer grows to any
   length, so it returns infinity.
+
+## 104. XML `<KeyValues>` — medium
+
+Not in 4.3.4 (no decomp); the contract comes from retail's `UI.xsd`
+(`_classic_era_/BlizzardInterfaceCode/.../Blizzard_SharedXML/UI.xsd`) and
+`XMLUtilDocumentation.lua`. Blizzard's classic-era UI uses it in 356 files.
+
+- `<KeyValues><KeyValue key= value= type= keyType=/></KeyValues>`; `type` and
+  `keyType` are `nil` / `boolean` / `number` / `string` (default) / `global`
+  (`_G[value]`). Sets `object[key] = value` on the Lua wrapper.
+- A LayoutField: frames, textures, font strings. Also a child of
+  `AnimationGroup` and `Animation`.
+- `C_XMLUtil.GetTemplateInfo(name).keyValues` is a list of
+  `{key, keyType, type, value}` (all strings); ours always returns `{}`
+  (`src/xml/Templates.cpp`).
+
+**Ordering.** `NineSlicePanelMixin:OnLoad` reads `self:GetParent().layoutType`
+— a parent's KeyValue must be set before its child frames load. 1.12's frame
+load (benilla-re `ui/frames#loading-from-xml`): `0x769820` loads the inherited
+node first, then attributes, `Layers`, `Scripts`; `0x76A060` then loads the
+child `<Frames>` and the load ends (OnLoad). So the existing
+`Xml::FrameLoad::AutoSubscribe` (after `0x769820`, as `<Attributes>` uses) is
+the right point: template values first, the node's own win, before children
+and OnLoad.
+
+**Plan.**
+1. Textures / font strings: `ParentKey.cpp` owns the `0x76FE20` / `0x770F40`
+   loader hooks and calls `Animation::Xml::LoadAnimations` from them by hand.
+   Turn them into a shared `Xml::RegionLoad::AutoSubscribe` fan-out (like
+   `FrameLoad`) and subscribe ParentKey, Animations and KeyValues.
+2. `Xml::PushTypedValue(L, type, value)` shared with `<Attributes>`
+   (`Frame::Attributes::LoadXmlAttributes`, engine `FUN_XML_ATTR_TO_BOOL` /
+   `FUN_SSTR_TO_FLOAT`), plus `global`.
+3. `src/xml/KeyValues.cpp` for frames + regions; the animation loader
+   (`src/animation/Xml.cpp`) reads it for groups and animations.
+4. Fill `GetTemplateInfo`'s `keyValues` from the template node.
+
+**Unverifiable without a retail binary** — follow `<Attributes>` and say so in
+the code: a `boolean` value other than true/false, a `number` that fails to
+parse, and whether `GetTemplateInfo` includes inherited templates' entries
+(plan: the node's own only).
