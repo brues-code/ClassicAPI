@@ -73,7 +73,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |
 | [ClassColor](docs/API.md#classcolor) | `C_ClassColor.GetClassColor` |
 | [ColorUtil](docs/API.md#colorutil) | `C_ColorUtil.ConvertRGBToHSV`, `C_ColorUtil.ConvertHSVToRGB`, `C_ColorUtil.ConvertHSVToHSL`, `C_ColorUtil.ConvertHSLToHSV`, `C_ColorUtil.ConvertHSLToRGB`, `C_ColorUtil.GenerateTextColorCode`, `C_ColorUtil.WrapTextInColor`, `C_ColorUtil.WrapTextInColorCode` |
-| [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack` |
+| [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack`, `stopAutoAttackOnTargetChange` (cvar) |
 | [Console](docs/API.md#console) | `CalculateStringEditDistance`, `ConsoleEcho`, `ConsoleExec`, `ConsoleGetAllCommands`, `ConsoleGetColorFromType`, `ConsoleGetFontHeight`, `ConsoleIsActive`, `ConsolePrintAllMatchingCommands`, `SetConsoleKey` |
 | [CVar](docs/API.md#cvar) | `C_CVar.AreCVarsLoaded`, `C_CVar.DoesCVarExist`, `C_CVar.GetCVarBitfield`, `C_CVar.GetCVarBool`, `C_CVar.GetCVarInfo`, `C_CVar.RemoveTempCVar`, `C_CVar.SetCVarBitfield`, `C_CVar.SetTempCVar`, `GetCVar`, `GetCVarDefault` |
 | [Cursor](docs/API.md#cursor) | `GetCursorInfo` |

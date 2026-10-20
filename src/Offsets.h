@@ -1659,6 +1659,15 @@ enum Offsets {
     // CMSG_SET_SELECTION + client target + event 0xC3, and maintains the
     // current-selection globals below. Passing {0,0} clears the target.
     FUN_SET_SELECTION_BY_GUID = 0x00493540,
+    // Inside it, after CMSG_SET_SELECTION and the usable refresh: the
+    // PLAYER_TARGET_CHANGED fire (`call FUN_FIRE_EVENT_NO_ARGS`, ecx 0xC3),
+    // then — when the player was attacking an attackable target — the melee
+    // restart on the new one (`call FUN_ATTACK_START`, ecx player, arg
+    // &VAR target GUID). 4.3.4 CGGameUI::Target runs its
+    // stopAutoAttackOnTargetChange test at the same point. Both E8 calls,
+    // targets checked against the exe.
+    CALL_SET_SELECTION_FIRE_TARGET_CHANGED = 0x0049389C,
+    CALL_SET_SELECTION_ATTACK_START = 0x004938C8,
     // CGGameUI::OnSpriteRightClick — the world right-click on an object:
     // `int __stdcall(uint32_t guidLo, uint32_t guidHi)`, `ret 8`. No active
     // player → 1; GUID not an object → 0; else targets it
@@ -6487,6 +6496,12 @@ enum Offsets {
     // `Script_IsAutoRepeatAction`'s inner helper at `0x004E55B0` and
     // exposed as a 1-line getter at `0x006E9FD0`.
     VAR_ACTIVE_AUTO_REPEAT_SPELL = 0x00CEAC30,
+    // StopAutoRepeatSpell — `void __cdecl(void)`. With an auto-repeat spell
+    // set: sends CMSG_CANCEL_AUTO_REPEAT_SPELL (0x26D), ends the ranged
+    // pose, clears VAR_ACTIVE_AUTO_REPEAT_SPELL and fires
+    // STOP_AUTOREPEAT_SPELL; nothing without one (decompiled; 4.3.4's
+    // Spell_C_CancelAutoRepeat(true)).
+    FUN_STOP_AUTO_REPEAT_SPELL = 0x006EA080,
 
     // Currently-casting spellID. Written by the cast-start helper at
     // `FUN_006E4AD0` (`__fastcall(spellID, targetState)`) — when a

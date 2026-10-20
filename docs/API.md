@@ -85,6 +85,7 @@ build instructions.
   - [`InCombatLockdown()`](#incombatlockdown)
   - [`StartAttack([target])`](#startattacktarget)
   - [`StopAttack()`](#stopattack)
+  - [`stopAutoAttackOnTargetChange`](#stopautoattackontargetchange)
 
 - [Console](#console)
   - [`ConsoleExec(command)`](#consoleexeccommand)
@@ -2135,6 +2136,16 @@ client).
 /startattack focus
 /startattack [harm] target
 /stopattack
+```
+
+### `stopAutoAttackOnTargetChange`
+
+A setting for your attacks when you change target. At `0` (the default),
+melee auto-attack continues on the new target if you can attack it. At `1`,
+a target change stops melee auto-attack, Auto Shot and wand shots.
+
+```
+/console stopAutoAttackOnTargetChange 1
 ```
 
 ## Console
