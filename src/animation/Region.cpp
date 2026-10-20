@@ -31,6 +31,17 @@
 //     ancestor ends, the stored state goes back (AnimDeactivated).
 // So, as in 4.3.4, GetAlpha returns the animated alpha while it plays.
 //
+// Position animations (Translation; Scale and Rotation later) move only what
+// is DRAWN, never a frame's rect: a frame hands them to every texture and font
+// string below it. A texture moves the four corners its draw record points at
+// (+0xD4, TL BL TR BR, the order of 4.3.4's m_positions); a font string moves
+// its text block's string position. Their stored base is what the engine
+// itself lays out (4.3.4's StoreAnimPosition): a texture's corners from its
+// rect through the engine's corner store, a font string's inset x layout
+// scale + its rect's min corner. When the layout moves a region mid-animation,
+// the co-hooks on the two OnFrameSizeChanged callbacks move the base and keep
+// the animation's offset, as 4.3.4's own OnFrameSizeChanged legs do.
+//
 // 1.12's regions have no room for these, so they are kept here, keyed by the
 // region. A frame's own alpha is Frame::Alpha's (3.x's m_alpha), set through
 // the frame's vtable setter as SetAlpha sets it; a region's vertex alpha is the
@@ -50,6 +61,7 @@
 #include "frame/Destruction.h"
 
 #include <algorithm>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -67,6 +79,9 @@ struct AnimData {
     bool hasAlpha = false;
     uint8_t alpha = 0xFF;
     bool hasPosition = false;
+    // m_position[4]: a texture's four corners {x, y, z}; a font string uses
+    // the first as its string position.
+    float position[12] = {};
 };
 
 std::unordered_map<void *, State> g_states;
@@ -79,10 +94,19 @@ using FrameUpdate_t = void(__fastcall *)(void *frame, void *edx, float elapsed);
 using SetFrameAlpha_t = void(__fastcall *)(void *frame, void *edx, uint32_t alpha);
 using GetColor_t = void(__fastcall *)(void *region, void *edx, uint32_t *bgra);
 using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *bgra);
+using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
+using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
+using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
+using NdcToDdc_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
+using SizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
 
 FrameUpdate_t g_origFrameUpdate = nullptr;
+SizeChanged_t g_origTextureSizeChanged = nullptr;
+SizeChanged_t g_origFontStringSizeChanged = nullptr;
 
 bool IsFrame(void *region) { return Game::Lua::IsA(region, Offsets::VAR_FRAME_LUA_TYPE_ID); }
+bool IsTexture(void *region) { return Game::Lua::IsA(region, Offsets::VAR_TEXTURE_LUA_TYPE_ID); }
+bool IsFontString(void *region) { return Game::Lua::IsA(region, Offsets::VAR_FONTSTRING_LUA_TYPE_ID); }
 void *ParentOf(void *region) { return Game::Read<void *>(region, Offsets::OFF_REGION_PARENT); }
 
 State *Find(void *region) {
@@ -126,6 +150,78 @@ void SetVertexAlpha(void *region, uint8_t alpha) {
     reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(region, nullptr, &bgra);
 }
 
+// ---- The state position animations change --------------------------------------
+
+float *Corners(void *texture) { return Game::Ptr<float>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS); }
+
+// CSimpleTexture::SetPosition(m_rect, m_positions): the corners from the rect,
+// written the way the texture's layout callback (FUN_TEXTURE_ON_FRAME_SIZE_CHANGED)
+// writes them - cropped when SetTexCoordModifiesRect is on - so the corner
+// store's co-hooks (Texture::Transform) shape them as they do on a layout.
+void StoreTextureCorners(void *texture) {
+    float rect[4];
+    std::memcpy(rect, Game::Ptr<float>(texture, Offsets::OFF_REGION_RECT), sizeof(rect));
+    if (Game::Read<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
+        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(texture, nullptr, rect);
+    reinterpret_cast<StoreCorners_t>(Offsets::FUN_REGION_STORE_CORNERS)(texture, nullptr, rect);
+}
+
+void *StringBlock(void *fontString) { return Game::Read<void *>(fontString, Offsets::OFF_FONTSTRING_TEXT_BLOCK); }
+
+// Where the engine lays the string out: inset x layout scale + the rect's min
+// corner (the position FUN_FONTSTRING_ON_FRAME_SIZE_CHANGED and SetTextOffset
+// pass), as 4.3.4's StoreAnimPosition computes it.
+void StringBase(void *fontString, float out[3]) {
+    const float *rect = Game::Ptr<const float>(fontString, Offsets::OFF_REGION_RECT);
+    const float scale = Game::Read<float>(fontString, Offsets::OFF_LAYOUT_SCALE);
+    out[0] = Game::Read<float>(fontString, Offsets::OFF_FONTSTRING_INSET_X) * scale + rect[1];
+    out[1] = Game::Read<float>(fontString, Offsets::OFF_FONTSTRING_INSET_Y) * scale + rect[0];
+    out[2] = 0.0f;
+}
+
+// TextBlockGetStringPos: the string node's position, back in DDC.
+bool GetStringPos(void *block, float out[3]) {
+    const void *node = Game::Read<void *>(block, Offsets::OFF_TEXTBLOCK_NODE);
+    if (node == nullptr)
+        return false;
+    const float *position = Game::Ptr<const float>(node, Offsets::OFF_TEXT_NODE_POSITION);
+    reinterpret_cast<NdcToDdc_t>(Offsets::FUN_COORD_NDC_TO_DDC)(&out[0], &out[1], position[0], position[1]);
+    out[2] = position[2];
+    return true;
+}
+
+void SetStringPos(void *block, const float position[3]) {
+    reinterpret_cast<SetStringPos_t>(Offsets::FUN_TEXTBLOCK_SET_STRING_POS)(block, position);
+}
+
+// CSimpleTexture / CSimpleFontString::StoreAnimPosition.
+void StoreAnimPosition(void *region, AnimData &data) {
+    if (IsTexture(region)) {
+        StoreTextureCorners(region);
+        std::memcpy(data.position, Corners(region), sizeof(data.position));
+        data.hasPosition = true;
+    } else if (IsFontString(region)) {
+        StringBase(region, data.position);
+        data.hasPosition = true;
+    }
+}
+
+// AnimData_ResetPositionData: the region goes back to where the layout puts it.
+void ResetPosition(void *region, AnimData &data) {
+    data.hasPosition = false;
+    if (IsTexture(region)) {
+        StoreTextureCorners(region);
+    } else if (IsFontString(region)) {
+        // 4.3.4 leaves the string where the last update put it until the next
+        // layout; it goes back now, as the corners of a texture do.
+        if (void *block = StringBlock(region)) {
+            float base[3];
+            StringBase(region, base);
+            SetStringPos(block, base);
+        }
+    }
+}
+
 // CSimpleFrame / CSimpleRegion::AnimActivated.
 void AnimActivated(void *region, bool alpha, bool position) {
     const bool frame = IsFrame(region);
@@ -134,7 +230,15 @@ void AnimActivated(void *region, bool alpha, bool position) {
         data.hasAlpha = true;
         data.alpha = frame ? OwnAlpha(region) : static_cast<uint8_t>(VertexColor(region) >> 24);
     }
-    (void)position; // Translation, Scale and Rotation are not applied yet.
+    // A frame stores no position of its own, but it is marked, so the end of
+    // its last position group resets everything below it (NotifyEnd reads
+    // the mark), as the end of an alpha group does.
+    if (position) {
+        if (frame)
+            data.hasPosition = true;
+        else
+            StoreAnimPosition(region, data);
+    }
     if (frame)
         ForEachChild(region, [alpha, position](void *child) { AnimActivated(child, alpha, position); });
 }
@@ -156,8 +260,12 @@ void AnimDeactivated(void *region, bool alpha, bool position) {
             data->alpha = 0xFF;
         }
     }
-    if (position && data != nullptr)
-        data->hasPosition = false;
+    if (position && data != nullptr) {
+        if (frame)
+            data->hasPosition = false;
+        else
+            ResetPosition(region, *data);
+    }
     if (frame)
         ForEachChild(region, [alpha, position](void *child) { AnimDeactivated(child, alpha, position); });
 }
@@ -199,6 +307,67 @@ void __fastcall FrameUpdate_h(void *frame, void *edx, float elapsed) {
 
 const Game::HookAutoRegister _frameUpdateHook{Offsets::FUN_FRAME_ON_UPDATE, reinterpret_cast<void *>(&FrameUpdate_h),
                                               reinterpret_cast<void **>(&g_origFrameUpdate)};
+
+// ---- A layout during a position animation -----------------------------------------
+//
+// The layout writes the region's unanimated position. As in 4.3.4's
+// OnFrameSizeChanged legs, the stored base becomes that new position and the
+// drawn position keeps the animation's offset from it.
+
+AnimData *PositionData(void *region) {
+    if (g_data.empty())
+        return nullptr;
+    AnimData *data = DataOf(region);
+    return data != nullptr && data->hasPosition ? data : nullptr;
+}
+
+void __fastcall TextureSizeChanged_h(void *layout, void *edx, const float *oldRect) {
+    void *texture = static_cast<char *>(layout) - Offsets::OFF_REGION_ANCHOR;
+    AnimData *data = PositionData(texture);
+    if (data == nullptr) {
+        g_origTextureSizeChanged(layout, edx, oldRect);
+        return;
+    }
+    float animated[12];
+    std::memcpy(animated, Corners(texture), sizeof(animated));
+    g_origTextureSizeChanged(layout, edx, oldRect);
+    float *corners = Corners(texture);
+    for (int i = 0; i < 12; ++i) {
+        const float base = corners[i];
+        corners[i] = animated[i] + (base - data->position[i]);
+        data->position[i] = base;
+    }
+}
+
+void __fastcall FontStringSizeChanged_h(void *layout, void *edx, const float *oldRect) {
+    void *fontString = static_cast<char *>(layout) - Offsets::OFF_REGION_ANCHOR;
+    AnimData *data = PositionData(fontString);
+    if (data == nullptr) {
+        g_origFontStringSizeChanged(layout, edx, oldRect);
+        return;
+    }
+    float animated[3];
+    void *before = StringBlock(fontString);
+    const bool hadString = before != nullptr && GetStringPos(before, animated);
+    g_origFontStringSizeChanged(layout, edx, oldRect);
+    float base[3];
+    StringBase(fontString, base);
+    void *block = StringBlock(fontString);
+    if (hadString && block != nullptr) {
+        float position[3];
+        for (int i = 0; i < 3; ++i)
+            position[i] = animated[i] + (base[i] - data->position[i]);
+        SetStringPos(block, position);
+    }
+    std::memcpy(data->position, base, sizeof(base));
+}
+
+const Game::HookAutoRegister _textureSizeHook{Offsets::FUN_TEXTURE_ON_FRAME_SIZE_CHANGED,
+                                              reinterpret_cast<void *>(&TextureSizeChanged_h),
+                                              reinterpret_cast<void **>(&g_origTextureSizeChanged)};
+const Game::HookAutoRegister _fontStringSizeHook{Offsets::FUN_FONTSTRING_ON_FRAME_SIZE_CHANGED,
+                                                 reinterpret_cast<void *>(&FontStringSizeChanged_h),
+                                                 reinterpret_cast<void **>(&g_origFontStringSizeChanged)};
 
 // ---- Lifetime ------------------------------------------------------------------------
 
@@ -388,8 +557,49 @@ void PreOnAnimUpdate(void *region) {
             SetVertexAlpha(region, data->alpha);
         }
     }
+    if (data != nullptr && data->hasPosition) {
+        if (IsTexture(region)) {
+            std::memcpy(Corners(region), data->position, sizeof(data->position));
+        } else if (IsFontString(region)) {
+            if (void *block = StringBlock(region))
+                SetStringPos(block, data->position);
+        }
+    }
     if (frame)
         ForEachChild(region, [](void *child) { PreOnAnimUpdate(child); });
+}
+
+void AddAnimTranslation(void *region, void *target, float x, float y) {
+    if (IsFrame(region)) {
+        // CSimpleFrame::AddAnimTranslation: the frame itself does not move;
+        // everything below it does, or only the target below it.
+        if (target == region)
+            target = nullptr;
+        ForEachChild(region, [target, x, y](void *child) { AddAnimTranslation(child, target, x, y); });
+        return;
+    }
+    if (target != nullptr && target != region)
+        return;
+    // Only a region whose base is stored: PreOnAnimUpdate puts it back before
+    // the next add, so nothing builds up.
+    const AnimData *data = DataOf(region);
+    if (data == nullptr || !data->hasPosition)
+        return;
+    if (IsTexture(region)) {
+        // ApplyTranslationAnim(m_positions, translation).
+        float *corners = Corners(region);
+        for (int i = 0; i < 4; ++i) {
+            corners[i * 3 + 0] += x;
+            corners[i * 3 + 1] += y;
+        }
+    } else if (void *block = StringBlock(region)) {
+        float position[3];
+        if (!GetStringPos(block, position))
+            return;
+        position[0] += x;
+        position[1] += y;
+        SetStringPos(block, position);
+    }
 }
 
 void AddAnimAlpha(void *region, void *target, int16_t alpha) {

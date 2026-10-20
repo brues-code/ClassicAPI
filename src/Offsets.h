@@ -752,6 +752,13 @@ enum Offsets {
     // texture/Rotation.cpp, which re-applies rotation right after the engine
     // restores the axis-aligned corners (layout resolve / SetTexCoord).
     FUN_REGION_STORE_CORNERS = 0x007705B0,
+    // CSimpleTexture::OnFrameSizeChanged — `__thiscall(texture+OFF_REGION_ANCHOR,
+    // const float *oldRect)`, the layout callback: lays out dependents, then
+    // writes the corners from the new rect (cropped when +0x124 is set) with
+    // FUN_REGION_STORE_CORNERS. 4.3.4's CSimpleTexture::OnFrameSizeChanged
+    // (0x004F8E30), less its playing-animation leg, which Animation::Region
+    // adds back with a co-hook. Verified by decompile (benilla-re regions.md).
+    FUN_TEXTURE_ON_FRAME_SIZE_CHANGED = 0x00770670,
     // Texcoord crop applied to a {top,left,bottom,right} screen rect before the
     // corner-store: shrinks right→left and bottom→top by the region's per-corner
     // texcoord span (ABS of the +0x104 U/V differences). No-op for full 0..1
@@ -906,6 +913,20 @@ enum Offsets {
     OFF_LAYOUT_SCALE = 0x7C,          // float: anchor units per text/pen unit
     OFF_FONTSTRING_INSET_X = 0x110,   // float, text units (RebuildString posX term)
     OFF_FONTSTRING_INSET_Y = 0x114,   // float, text units (RebuildString posY term)
+    // CSimpleFontString::OnFrameSizeChanged — `__thiscall(fs+OFF_REGION_ANCHOR,
+    // const float *oldRect)`: rebuilds the string when the rect's size changed,
+    // else moves it to inset × OFF_LAYOUT_SCALE + the rect's min corner
+    // (rect[1] x, rect[0] y) with FUN_TEXTBLOCK_SET_STRING_POS. 4.3.4's
+    // CSimpleFontString::OnFrameSizeChanged (0x004FE350), less its
+    // playing-animation leg, which Animation::Region adds back with a co-hook.
+    // Verified by decompile.
+    FUN_FONTSTRING_ON_FRAME_SIZE_CHANGED = 0x00772D40,
+    // TextBlockSetStringPos — `void __fastcall(HTEXTBLOCK, const float pos[3])`:
+    // divides the DDC x/y by the screen scale (UnscaleScreenXY 0x0041ADE0) and
+    // stores them with GxuStringSetPosition (0x005C2770 → CGxString::SetPosition
+    // 0x005CCB10, which writes OFF_TEXT_NODE_POSITION and refinalizes the
+    // origin). The call SetTextOffset (0x00772100) and OnFrameSizeChanged use.
+    FUN_TEXTBLOCK_SET_STRING_POS = 0x0044D600,
     // CSimpleRegion::SetParentAndLayer — __thiscall(region, parentFrame, layer,
     // show). Handles old-parent unlink + new-parent region-registry insert +
     // conditional Show. Verified from the region base ctor FUN_0077F640 and the
@@ -10635,6 +10656,9 @@ enum Offsets {
     // origin finalize copies it into the origin and adds the vertical-justify
     // term (see FUN_TEXT_NODE_FINALIZE_ORIGIN).
     OFF_TEXT_NODE_POSITION_Y = 0x24,
+    // The whole position {x, y, z} (x, y in DDC ÷ screen scale; back to DDC
+    // with FUN_COORD_NDC_TO_DDC). 4.3.4's TextBlockGetStringPos reads it.
+    OFF_TEXT_NODE_POSITION = 0x20,
     // Node origin finalize: `void __fastcall(node)`. Copies the position
     // (+0x20..+0x28) into the origin (+0x70..+0x78); when the node has built
     // lines and flags bit 7 is clear it adds the horizontal justify (+0x54) and

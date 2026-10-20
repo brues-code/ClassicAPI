@@ -35,6 +35,9 @@ void NotifyEnd(void *region, Group *group);
 void PreOnAnimUpdate(void *region);
 // CScriptRegion::AddAnimAlpha(target, alpha) on the group's region.
 void AddAnimAlpha(void *region, void *target, int16_t alpha);
+// CScriptRegion::AddAnimTranslation(target, translation), in layout units:
+// moves the drawn textures and font strings, never a rect.
+void AddAnimTranslation(void *region, void *target, float x, float y);
 // CScriptObject::GetScriptObjectByName for a region (Animation:Play's
 // target lookup): the region named `name`, or nullptr.
 void *FindRegionByName(const char *name);

@@ -1564,8 +1564,22 @@ except `OnLoop`.
 - A value you set with `SetAlpha` while the group plays is replaced on the
   next update.
 
-`Translation`, `Scale` and `Rotation` keep their timing, scripts and
-values, but do not move the region yet.
+`Translation` moves what the region draws:
+
+- The offset is in UI pixels at a scale of 1. The scale of the region does
+  not change it.
+- On a texture or font string, the texture or the text moves. On a frame,
+  every texture and font string inside it moves, also those of the frames
+  inside it. The frame itself does not move.
+- The rect of the region does not move. `GetLeft`, `GetRect`, anchors and
+  mouse clicks stay where the layout puts them.
+- If the layout moves the region while the group plays, the drawing moves
+  with it and keeps the offset.
+- When the last group with a `Translation`, `Scale` or `Rotation` animation
+  stops or finishes, the drawing goes back to its place.
+
+`Scale` and `Rotation` keep their timing, scripts and values, but do not
+change the drawing yet.
 
 ### `<Animations>` in XML
 

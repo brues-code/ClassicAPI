@@ -198,10 +198,12 @@ void Anim::Apply(float p) {
     case KIND_ALPHA:
         Region::AddAnimAlpha(region, target, static_cast<int16_t>(change * p));
         break;
+    case KIND_TRANSLATION:
+        Region::AddAnimTranslation(region, target, offsetX * p, offsetY * p);
+        break;
     default:
-        // Translation, Scale and Rotation move the region's drawn position
-        // (4.3.4's AddAnimTranslation / AddAnimScale / AddAnimRotation).
-        // Not applied yet: they keep their timing, scripts and values.
+        // Scale and Rotation (4.3.4's AddAnimScale / AddAnimRotation) are not
+        // applied yet: they keep their timing, scripts and values.
         break;
     }
 }
