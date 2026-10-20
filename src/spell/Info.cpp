@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "spell/Known.h"
 #include "spell/Arg.h"
 #include "spell/Lookup.h"
 
@@ -442,43 +443,6 @@ static int __fastcall Script_C_IsSpellPassive(void *L) {
     return PushIsPassive(L, Spell::Arg::ResolveSpellID(L, 1));
 }
 
-// `IsPlayerSpell(spellID)` — returns true if the player currently
-// "knows" the given spellID. Covers everything: trained class abilities,
-// racials, talent passives, profession recipes (including ones learned
-// from vendors / discovered tradeskill recipes), and anything else
-// granted by SMSG_LEARNED_SPELL.
-//
-// Implementation: single bitmap lookup at `[VAR_PLAYER_SPELL_BITMAP]`.
-// The engine maintains a dword bitmap of every spellID the player
-// knows (one bit per spellID, indexed by `spellID`); learning/unlearning
-// updates this bitmap. We just consult the same bit the engine itself
-// reads via the helper at `0x0060C740` — no walks, no profession
-// caching, no per-source data structure.
-//
-// Trade-offs vs. the older spellbook+talent walk implementation:
-//   - Faster (one memory access vs hundreds of comparisons).
-//   - Broader (covers profession recipes that are not in the spellbook
-//     arrays and not in the talent tree).
-//   - Same shape modern WoW (5.4.8+) uses for the same function — see
-//     `[0x011C25D8]` in 5.4.8's `Wow.exe`.
-// Shared read of the engine's known-spell bitmap (the same bit the helper
-// at `0x0060C740` consults): true iff the local player knows `spellID`.
-// Bounds-checked; false for out-of-range IDs or before the bitmap exists.
-static bool PlayerKnowsSpell(int spellID) {
-    if (spellID < 1)
-        return false;
-    const int spellCount = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    if (spellID > spellCount)
-        return false;
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    if (bitmap == nullptr)
-        return false;
-    const uint32_t mask = 1u << (spellID & 31);
-    return (bitmap[spellID >> 5] & mask) != 0;
-}
-
 // Walks the known-spell bitmap and calls `fn(spellID, record)` for every
 // set bit that has a Spell.dbc row, in ascending spellID order, until `fn`
 // returns false. This is `IsPlayerSpell` turned around: only a set bit ever
@@ -587,28 +551,40 @@ static int __fastcall Script_ContainsAnyDisenchantSpell(void *L) {
     return 1;
 }
 
+// `IsPlayerSpell(spellID)` — returns true if the player currently
+// "knows" the given spellID. Covers everything: trained class abilities,
+// racials, talent passives, profession recipes (including ones learned
+// from vendors / discovered tradeskill recipes), and anything else
+// granted by SMSG_LEARNED_SPELL.
+//
+// Implementation: single bitmap lookup at `[VAR_PLAYER_SPELL_BITMAP]`.
+// The engine maintains a dword bitmap of every spellID the player
+// knows (one bit per spellID, indexed by `spellID`); learning/unlearning
+// updates this bitmap. We just consult the same bit the engine itself
+// reads via the helper at `0x0060C740` — no walks, no profession
+// caching, no per-source data structure.
+//
+// Trade-offs vs. the older spellbook+talent walk implementation:
+//   - Faster (one memory access vs hundreds of comparisons).
+//   - Broader (covers profession recipes that are not in the spellbook
+//     arrays and not in the talent tree).
+//   - Same shape modern WoW (5.4.8+) uses for the same function — see
+//     `[0x011C25D8]` in 5.4.8's `Wow.exe`.
 static int __fastcall Script_IsPlayerSpell(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: IsPlayerSpell(spellID)");
         return 0;
     }
     const int spellID = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    Game::Lua::PushBoolean(L, PlayerKnowsSpell(spellID));
+    Game::Lua::PushBoolean(L, Spell::Known::IsKnown(static_cast<uint32_t>(spellID)));
     return 1;
 }
 
 // `CanDualWield()` — true if the local player can equip a weapon in the off
-// hand. The server tracks this as a plain bool (`Player::m_canDualWield`)
-// flipped on only by `SPELL_EFFECT_DUAL_WIELD` (effect 40); no class has it
-// innately. Verified against the client Spell.dbc: exactly ONE spell carries
-// that effect — 674 "Dual Wield", the trained warrior/rogue/hunter passive —
-// and it lands in the known-spell bitmap like any learned spell. So there's
-// no separate client-visible capability flag to read; `IsPlayerSpell(674)`
-// is the exact equivalent of the server's `CanDualWield()`.
-static constexpr int kDualWieldSpellID = 674;
-
+// hand. See Spell::Known::CanDualWield for why this is not the engine's own
+// CGPlayer_C::CanDualWield.
 static int __fastcall Script_CanDualWield(void *L) {
-    Game::Lua::PushBoolean(L, PlayerKnowsSpell(kDualWieldSpellID));
+    Game::Lua::PushBoolean(L, Spell::Known::CanDualWield());
     return 1;
 }
 

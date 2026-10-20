@@ -24,6 +24,7 @@
 #include "object/Resolve.h"
 #include "player/StatSignal.h"
 #include "spell/CastEvents.h"
+#include "spell/Known.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
@@ -1262,23 +1263,6 @@ constexpr int kTrigAppMax = 32;
 TriggeredApplication g_trigApps[kTrigAppMax];
 int g_trigAppCount = 0;
 
-// Talent gate: does the player currently know `spellID`? The engine's
-// spell-knowledge bitmap (same store IsPlayerSpell reads — covers talent
-// passives), checked live at trigger time so respecs are honored.
-bool PlayerKnowsSpell(uint32_t spellID) {
-    if (spellID == 0)
-        return false;
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    if (bitmap == nullptr)
-        return false;
-    const uint32_t spellCount = Game::Read<uint32_t>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    if (spellID > spellCount)
-        return false;
-    return (bitmap[spellID >> 5] & (1u << (spellID & 31))) != 0;
-}
-
 // Armed rule instance awaiting its application on `victim`. Caster is
 // implicitly the local player (only player triggers arm).
 struct TrigAppArm {
@@ -1354,7 +1338,7 @@ void ArmTriggeredApplications(uint64_t victim, uint32_t triggerSpellId,
                 : !Spell::Lookup::IsFitToFamily(triggerRec, r.triggerFamily,
                                                 r.triggerMask))
             continue;
-        if (r.gateSpellId != 0 && !PlayerKnowsSpell(r.gateSpellId))
+        if (r.gateSpellId != 0 && !Spell::Known::IsKnown(r.gateSpellId))
             continue;
         const uint32_t now = NowMs();
         RefreshTriggeredExisting(victim, r, now);

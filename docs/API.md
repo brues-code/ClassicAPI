@@ -16597,17 +16597,11 @@ no talent walk, no profession-window dependency.
 Returns `true` if the player can equip a weapon in the off hand.
 
 ```lua
-if CanDualWield() then ... end   -- true for a warrior/rogue past level 10, etc.
+if CanDualWield() then ... end
 ```
 
-Server-side this is a plain flag (`Player::m_canDualWield`) that starts
-`false` and is turned on **only** by the `SPELL_EFFECT_DUAL_WIELD` spell
-effect — no class has it innately. Exactly one spell in the 1.12 client's
-`Spell.dbc` carries that effect: `674` ("Dual Wield"), the trained
-warrior / rogue / hunter passive, which lands in the known-spell bitmap
-like any learned spell. So `CanDualWield()` is precisely
-`IsPlayerSpell(674)` — there is no separate client-visible capability
-field to read.
+The value is `true` after the player learns Dual Wield. It is `false`
+again if the player unlearns it.
 
 ### `IsSpellKnown(spellID, [isPet])`
 

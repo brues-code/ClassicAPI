@@ -41,6 +41,7 @@
 #include "Offsets.h"
 #include "object/Resolve.h"
 #include "spell/Arg.h"
+#include "spell/Known.h"
 #include "spell/Lookup.h"
 
 #include <cstdint>
@@ -53,25 +54,6 @@ using SpellIsUsable_t = int(__fastcall *)(const uint8_t *spellRecord, int *outNo
 using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int unit);
 using PetActionsUsable_t = int(__cdecl *)();
 
-// Returns true if the player knows `spellID` per the engine's spell-
-// knowledge bitmap at `[VAR_PLAYER_SPELL_BITMAP]`. Same check
-// `IsPlayerSpell` (`src/spell/Info.cpp`) uses — covers trained
-// abilities, talents, racials, profession recipes, and spells that are
-// not on any action bar.
-bool PlayerKnowsSpell(int spellID) {
-    if (spellID <= 0)
-        return false;
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    if (bitmap == nullptr)
-        return false;
-    const int spellCount = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    if (spellID > spellCount)
-        return false;
-    return (bitmap[spellID >> 5] & (1u << (spellID & 31))) != 0;
-}
-
 struct Usability {
     bool usable;
     bool noMana;
@@ -81,7 +63,7 @@ struct Usability {
 // the record, `noMana` from its out-param.
 Usability ComputePlayer(int spellID) {
     Usability r{false, false};
-    if (!PlayerKnowsSpell(spellID))
+    if (!Spell::Known::IsKnown(static_cast<uint32_t>(spellID)))
         return r;
     auto *record = Spell::Lookup::RecordForID(spellID);
     if (record == nullptr)
@@ -145,7 +127,7 @@ Usability ComputePet(int spellID) {
 Usability Compute(int spellID, int bookType) {
     if (bookType == 1)
         return ComputePet(spellID);
-    if (PlayerKnowsSpell(spellID))
+    if (Spell::Known::IsKnown(static_cast<uint32_t>(spellID)))
         return ComputePlayer(spellID);
     int foundBook = 0;
     if (Spell::Lookup::FindSpellbookSlot(spellID, &foundBook) != 0 && foundBook == 1)

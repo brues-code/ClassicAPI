@@ -32,10 +32,9 @@
 //
 // 1.12 differences, each the vanilla form of the same rule:
 //   - Dual wield: 4.3.4 hard-codes the classes that learn Dual Wield (and
-//     adds two two-handers for a Titan's Grip warrior). We ask the engine's
-//     own "can dual wield" (FUN_PLAYER_CAN_DUAL_WIELD), the test its dress-up
-//     and tooltip code make. No Titan's Grip, so the second-two-hander
-//     bucket is gone.
+//     adds two two-handers for a Titan's Grip warrior). We ask whether this
+//     character has learned Dual Wield (Spell::Known::CanDualWield). No
+//     Titan's Grip, so the second-two-hander bucket is gone.
 //   - The everything walk ends at INVMGR_BANK_BAG_LAST_SLOT (68), 1.12's last
 //     bank-bag slot (4.3.4: 73). Reading the GUID array directly reaches the
 //     bank without the bank window open, as 4.3.4's walk does.
@@ -69,6 +68,7 @@
 #include "item/Record.h"
 #include "object/Resolve.h"
 #include "player/CanUseItem.h"
+#include "spell/Known.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
@@ -271,7 +271,7 @@ float Calculate(bool equippedOnly, bool &complete) {
     const int32_t twoHand = lv[kType2HWeapon];
     int32_t mainHand;
     int32_t offHand;
-    if (reinterpret_cast<uint32_t(__cdecl *)()>(Offsets::FUN_PLAYER_CAN_DUAL_WIELD)() != 0) {
+    if (Spell::Known::CanDualWield()) {
         int32_t weapons[4] = {
             lv[kTypeWeaponMainHand],
             std::max({lv[kTypeShield], lv[kTypeWeaponOffHand], lv[kTypeHoldable]}),
