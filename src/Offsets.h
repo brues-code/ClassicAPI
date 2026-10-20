@@ -5330,6 +5330,13 @@ enum Offsets {
     // 4.3.4: CGPlayer_C::CanUseItem (Player_C.cpp). Verified by decompile
     // (benilla-re objectlayer/playercombat#using-an-item).
     FUN_PLAYER_CAN_USE_ITEM = 0x005EA930,
+    // `uint32_t __cdecl ()` — nonzero iff the player knows a spell with
+    // SPELL_EFFECT_DUAL_WIELD (effect 0x28): returns `[0x00C4D770] != 0`,
+    // the slot the spell-learn path fills. The engine's own "may hold a
+    // weapon in the off hand" test (dress-up held items, the type-22
+    // off-hand tooltip exception). Verified by decompile (benilla-re
+    // objectlayer/playercombat#learning-a-spell, ui/dressup#held-items).
+    FUN_PLAYER_CAN_DUAL_WIELD = 0x005EAB70,
 
     // Spell.dbc `BaseLevel` — the level a spell becomes available
     // (trainer offers it, quest reward grants it, etc.). Distinct

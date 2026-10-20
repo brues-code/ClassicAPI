@@ -185,6 +185,7 @@ build instructions.
   - [`BAG_UPDATE_DELAYED` event](#bag_update_delayed-event)
   - [`PLAYER_EQUIPMENT_CHANGED` event](#player_equipment_changed-event)
   - [`UPDATE_INVENTORY_DURABILITY` event](#update_inventory_durability-event)
+  - [`PLAYER_AVG_ITEM_LEVEL_READY` event](#player_avg_item_level_ready-event)
   - [`HEARTHSTONE_BOUND` event](#hearthstone_bound-event)
   - [Player input-state events (`PLAYER_STARTED_MOVING` / `LOOKING` / `TURNING` + `STOPPED_*`)](#player-input-state-events)
   - [`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events](#global_mouse_down--global_mouse_up-events)
@@ -4263,6 +4264,24 @@ not nineteen. Also fires when the *set* of equipped items changes
 (swapping to a differently-damaged item updates durability UI, so
 consumers want the refresh anyway). Bag-carried items don't trigger
 it: durability UI is for equipped gear only.
+
+### `PLAYER_AVG_ITEM_LEVEL_READY` event
+
+Fires (with no payload) when the item data that `GetAverageItemLevel`
+requested has loaded. The next call to `GetAverageItemLevel` returns
+the new result.
+
+If an item does not load, the event also fires, and the next call
+requests the item again.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_AVG_ITEM_LEVEL_READY")
+f:SetScript("OnEvent", function()
+    local overall, equipped = GetAverageItemLevel()
+    print(overall, equipped)
+end)
+```
 
 ### `HEARTHSTONE_BOUND` event
 
@@ -11310,54 +11329,45 @@ end
 
 ### `GetAverageItemLevel()`
 
-Returns `(avgItemLevel, avgItemLevelEquipped)`.
-`avgItemLevelEquipped` is the arithmetic mean over
-the player's currently-worn equipment slots; `avgItemLevel` is the
-same metric but extended to include best-per-slot upgrades found
-anywhere in the player's bags and bank.
+Returns `avgItemLevel, avgItemLevelEquipped`.
 
-Slots considered: `INVSLOT_HEAD..INVSLOT_TABARD` (1..19) minus
-shirt (4) and tabard (19) = 17 candidate slots. Bag-walk uses the
-same `invType → slotMask` mapping as `GetInventoryItemsForSlot`.
+- `avgItemLevel` is the average item level of the best gear that the
+  player owns and can use. The function looks at equipped items, the
+  bags, the bank and the bank bags. The bank window does not have to be
+  open.
+- `avgItemLevelEquipped` is the average item level of the items that
+  the player wears.
 
 ```lua
 local overall, equipped = GetAverageItemLevel()
--- overall:  best-per-slot ilvl across equipped + bags + bank
--- equipped: ilvl of currently-worn items only
 ```
 
-**Fixed denominator.** Empty slots count toward the denominator
-(contributing 0 to the sum). Removing a piece of gear always
-lowers `avgItemLevelEquipped`. (A populated-only count would keep the
-average up when a slot empties; this implementation deliberately
-differs.)
+The function counts an item only if the player can use it. An item that
+is red in its tooltip does not count. Shirts, tabards, bags, quivers and
+ammo do not count.
 
-**Max-of-two-divisors fairness.** A 2H weapon wielder has an
-intentionally empty offhand (slot 17) — counting it as 0 in a
-17-divisor sum would unfairly penalize them. We compute a second
-candidate excluding slot 17 from both numerator and denominator
-(16 slots), and return the max. Sword+shield characters typically
-win the all-17 path; 2H wielders win the no-OH path.
+The function keeps the best item for each kind of slot. For rings,
+trinkets and one-hand weapons it also keeps the second best, because
+the player can wear two of them. An item counts in one slot only.
 
-**No double-counting.** Each bag/bank item is assigned to **one**
-candidate slot via greedy fit — a trinket in your bag fills one
-trinket slot (the empty/lower-best one), not both. Without this
-gate, moving a trinket from equipped to bag would inflate the
-"overall" count and drag the average down (because the same item
-would count for both trinket slots).
+The average uses the better of two weapon choices:
 
-**Bank is walked** even if the bank window has never been opened
-this session — the GUID array at `invMgr + 0x04` is populated
-from server data at login. Bypasses the bank-window gate on
-`GetItemBySlot` the same way `C_Item.GetItemCount` does.
+- One-hand: the main hand and the off hand, divided over 17 slots.
+- Two-hand: the best two-hand weapon, divided over 16 slots.
 
-Limitations:
-- Items not yet in the ItemStats cache are skipped from the
-  running totals and a warmup is queued; the next call after
-  `ITEM_DATA_LOAD_RESULT` lands picks them up.
-- A full weapon `qsort` dance — handling 2H-equipped vs.
-  1H + OH-in-bag comparisons — is not replicated. The edge case
-  where you'd notice a difference is narrow.
+The main hand and the off hand come from the weapons that the player
+can hold together. If the player can dual wield, the off hand can be a
+second one-hand weapon. If not, the off hand is a shield or an off-hand
+item.
+
+An empty slot counts as item level 0. When you remove an item, the
+average goes down.
+
+**Item data that is not loaded.** If the data for an item is not
+loaded, the function requests it. Until all requested data loads, the
+function returns the last full result, or `0, 0` before the first one.
+When the data loads, [`PLAYER_AVG_ITEM_LEVEL_READY`](#player_avg_item_level_ready-event)
+fires. Call the function again then.
 
 ### `GetInventoryItemDurability(invSlot)`
 

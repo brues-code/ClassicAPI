@@ -32,7 +32,23 @@ namespace Item::Data {
 // only. For modern explicit-request semantics (fires
 // ITEM_DATA_LOAD_RESULT), use `C_Item.RequestLoadItemData(ByID)` from
 // Lua.
-void WarmCache(uint32_t itemID);
+//
+// Returns true when the item is cached or its load is queued, false when
+// the queue is full and nothing will report on it.
+bool WarmCache(uint32_t itemID);
+
+// C++ observer of every queued load's completion: called with the itemID
+// and the outcome each time this module fires GET_ITEM_INFO_RECEIVED or
+// ITEM_DATA_LOAD_RESULT for it, after the cache holds the record (success)
+// or the server refused it / every resend went unanswered (failure). Place
+// a file-scope `static const Item::Data::LoadSubscriber`; order across
+// subscribers is unspecified.
+struct LoadSubscriber {
+    using Callback = void (*)(uint32_t itemID, bool success);
+    explicit LoadSubscriber(Callback cb);
+    Callback cb;
+    LoadSubscriber *next;
+};
 
 // Hook for `Script_GetItemInfo` (`0x0048E070`). Pre-warms the cache
 // from arg 1 (number or `"item:NNN..."` string), then runs the

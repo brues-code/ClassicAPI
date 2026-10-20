@@ -274,11 +274,19 @@ static void __stdcall ItemLoadCallback_Escalated(void *userData, int success) {
         g_pending[idx].failed = true;
 }
 
+static LoadSubscriber *g_loadSubs = nullptr;
+
+LoadSubscriber::LoadSubscriber(Callback cb) : cb(cb), next(g_loadSubs) {
+    g_loadSubs = this;
+}
+
 static void FireByTag(uint32_t itemID, bool success, bool implicit) {
     if (implicit)
         FireGetItemInfoReceived(static_cast<int>(itemID), success);
     else
         FireItemDataLoadResult(static_cast<int>(itemID), success);
+    for (auto *sub = g_loadSubs; sub != nullptr; sub = sub->next)
+        sub->cb(itemID, success);
 }
 
 // Records an item we owe a completion event for, WITHOUT eagerly
@@ -584,7 +592,7 @@ static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 // resolves an already-cached item for free (a pure lookup, no SMSG) and
 // queues only a genuine miss; the response-handler sweep then fires
 // `GET_ITEM_INFO_RECEIVED` (implicit), never `ITEM_DATA_LOAD_RESULT`.
-void WarmCache(uint32_t itemID) {
+bool WarmCache(uint32_t itemID) {
     // Do NOT issue the query here. Two reasons converge on the queue:
     //   - Network: a post-settle immediate CacheFetch let a reload-time
     //     lookup burst fire one SMSG per item in a single frame and flood
@@ -594,7 +602,7 @@ void WarmCache(uint32_t itemID) {
     //     the item permanently nil. This broke pfQuest/Questie scanning at
     //     PLAYER_ENTERING_WORLD. OnWorldTick issues only once `g_settled`,
     //     and resends what was lost, so deferring here fixes that too.
-    Track(itemID, /*implicit=*/true);
+    return Track(itemID, /*implicit=*/true);
 }
 
 // Hook for `Script_GetItemInfo`. Pre-warms the cache from arg 1, then

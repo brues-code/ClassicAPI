@@ -33,16 +33,23 @@
 #include "Offsets.h"
 #include "item/Arg.h"
 #include "item/Record.h"
+#include "player/CanUseItem.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
 
 namespace Player::CanUseItem {
 
-namespace {
-
 using CanUseItem_t = int(__thiscall *)(const uint8_t *player, const uint8_t *record,
                                        uint32_t *error);
+
+bool Check(const uint8_t *player, const uint8_t *record) {
+    uint32_t error = 0;
+    return reinterpret_cast<CanUseItem_t>(Offsets::FUN_PLAYER_CAN_USE_ITEM)(player, record,
+                                                                            &error) != 0;
+}
+
+namespace {
 
 bool ComputeCanUse(int itemID) {
     if (itemID <= 0)
@@ -53,9 +60,7 @@ bool ComputeCanUse(int itemID) {
     auto *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return false; // pre-login / no player
-    uint32_t error = 0;
-    return reinterpret_cast<CanUseItem_t>(Offsets::FUN_PLAYER_CAN_USE_ITEM)(player, record,
-                                                                            &error) != 0;
+    return Check(player, record);
 }
 
 int __fastcall Script_CanUseItem(void *L) {

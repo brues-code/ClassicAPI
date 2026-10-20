@@ -8,355 +8,348 @@
 // WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 // PURPOSE. See the GNU General Public License for more details.
 
-// `GetAverageItemLevel()` → `(avgItemLevel, avgItemLevelEquipped)` —
-// polyfills the modern 2.4+ global with the same 2-tuple shape as
-// 4.3.4's `Script_GetAverageItemLevel` (`FUN_0097EE60` in the
-// Proudmoore client).
+// `GetAverageItemLevel()` → `(avgItemLevel, avgItemLevelEquipped)` and the
+// `PLAYER_AVG_ITEM_LEVEL_READY` event. A line-for-line port of 4.3.4's
+// `CGCharacterInfo::CalculateAverageItemLevel` (0x0097E0F0) and
+// `Script_GetAverageItemLevel` (0x0097EE60) — wowdecomp15595
+// Ui/PaperDollInfoFrame.cpp, PaperDollInfoFrame_Scripts.cpp.
 //
-//   avgItemLevelEquipped — mean of `m_itemLevel` over currently-worn
-//                          slots 1..19 (skipping shirt and tabard).
-//                          Empty slots count as 0, denominator is
-//                          fixed at the considered-slot count, so
-//                          removing gear always lowers this value.
+// The calculation:
+//   - Walks player inventory slots 0..18 (equipped only) or 0..last bank bag
+//     (everything). An item that is a container contributes its CONTENTS,
+//     not itself, so equipped bags, bank bags and quivers are looked inside
+//     and an empty bag in the backpack adds nothing.
+//   - Skips any item the player cannot use (`CGPlayer_C::CanUseItem`) and
+//     any with inventory type 0.
+//   - Keeps the best item level per INVENTORY TYPE, plus the second best for
+//     rings, trinkets and one-hand weapons (the types that fill two slots).
+//   - Merges chest + robe, and ranged + thrown + ranged-right + relic.
+//   - Weapons: a player who can dual wield takes the two best of {main-hand
+//     only, best of shield / off-hand / held-in-off-hand, best one-hand,
+//     second one-hand}; anyone else takes max(main-hand only, one-hand) and
+//     max(held-in-off-hand, shield). The answer is the better of
+//     (rest + mainHand + offHand) / 17 and (rest + twoHand) / 16, in float.
 //
-//   avgItemLevel         — same denominator, but each per-slot ilvl
-//                          is built up by greedy single-assignment:
-//                          equipped items seed each slot, then
-//                          bag + bank items are sorted by ilvl
-//                          descending and each gets assigned to ONE
-//                          candidate slot (the one with the lowest
-//                          current best). A trinket in your bag
-//                          fills one trinket slot, not both —
-//                          without that, an item with a multi-slot
-//                          invType would double-count and drag the
-//                          mean down when moved off the body.
+// 1.12 differences, each the vanilla form of the same rule:
+//   - Dual wield: 4.3.4 hard-codes the classes that learn Dual Wield (and
+//     adds two two-handers for a Titan's Grip warrior). We ask the engine's
+//     own "can dual wield" (FUN_PLAYER_CAN_DUAL_WIELD), the test its dress-up
+//     and tooltip code make. No Titan's Grip, so the second-two-hander
+//     bucket is gone.
+//   - The everything walk ends at INVMGR_BANK_BAG_LAST_SLOT (68), 1.12's last
+//     bank-bag slot (4.3.4: 73). Reading the GUID array directly reaches the
+//     bank without the bank window open, as 4.3.4's walk does.
+//   - A container whose own record is missing is still looked inside, so
+//     one pass requests every missing record (see Calculate).
+//   - Quiver (type 27) is zeroed with the other non-slot types. 1.12's
+//     quivers are containers, so the walk already looks inside them; 4.3.4
+//     had no quivers to zero.
 //
-// Bank IS walked. Vanilla's `GetItemBySlot` gates bank slots on a
-// banker-GUID that's only set while the bank window is open, but
-// the underlying GUID array at `invMgr + OFF_INVMGR_GUID_ARRAY` is
-// populated from server data at login. We bypass the gate the same
-// way `C_Item.GetItemCount` does — read the GUID array directly,
-// resolve each via `FUN_OBJECT_RESOLVE_BY_GUID`. Works without the
-// bank window ever being opened.
+// Missing records. 4.3.4 requests each uncached record with a callback,
+// counts the outstanding ones, returns 0 from the calculation while any
+// are out, and when the last arrives fires PLAYER_AVG_ITEM_LEVEL_READY. The
+// script keeps the last complete answer and pushes that meanwhile. We do
+// the same through `Item::Data::WarmCache` (the module that owns every
+// item query and its world gate / rate limit), waiting on the set of
+// itemIDs and observing completions with a `LoadSubscriber`. One change: a
+// FAILED load also leaves the set. 4.3.4 only counts successes down, which
+// strands the answer until logout; here a query lost to a loading screen
+// fails after its resends, and the next call asks again.
 //
-// Max-of-two-divisors fairness. A 2H-weapon wielder has an
-// intentionally empty offhand (slot 17); the fixed-denominator
-// approach would penalize them. We compute a second average
-// excluding slot 17 from both numerator and denominator, and
-// return whichever is higher — same trick the 4.3.4 client uses
-// at `FUN_0097E0F0`'s tail.
-//
-// Slot-mask table below mirrors the one in
-// `GetInventoryItemsForSlot` — vanilla rules: 2H/MAINHAND confined
-// to slot 16, no Titan's Grip.
+// 4.3.4 also caches the answer behind a dirty flag set on container
+// updates; we recompute on every call (same answer, always current, no
+// container hook).
 
 #include "Game.h"
 #include "Offsets.h"
+#include "event/Custom.h"
 #include "item/Data.h"
 #include "item/ID.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "object/Resolve.h"
+#include "player/CanUseItem.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace Item::AverageLevel {
 
 namespace {
 
-// 1-based slot range used by both walks.
-constexpr int kFirstSlot = 1;
-constexpr int kLastSlot = 19;
+constexpr const char *kReadyEvent = "PLAYER_AVG_ITEM_LEVEL_READY";
+const Game::Doc::Event kReadyDoc{
+    "PaperDollInfo",
+    "Fires when the item data that GetAverageItemLevel was waiting for has loaded.",
+    {}};
+const Event::Custom::AutoReserve _reserveReady{kReadyEvent, &kReadyDoc};
 
-// Excluded from the average — shirt (4) and tabard (19) have ilvl 1
-// and would drag the mean. Modern `GetAverageItemLevel` excludes
-// these too.
-bool IsExcludedSlot(int slot) {
-    return slot == 4 || slot == 19;
+// Inventory types (ItemRecord InventoryType).
+constexpr uint32_t kTypeBody = 4;
+constexpr uint32_t kTypeChest = 5;
+constexpr uint32_t kTypeFinger = 11;
+constexpr uint32_t kTypeTrinket = 12;
+constexpr uint32_t kTypeWeapon = 13;
+constexpr uint32_t kTypeShield = 14;
+constexpr uint32_t kTypeRanged = 15;
+constexpr uint32_t kType2HWeapon = 17;
+constexpr uint32_t kTypeBag = 18;
+constexpr uint32_t kTypeTabard = 19;
+constexpr uint32_t kTypeRobe = 20;
+constexpr uint32_t kTypeWeaponMainHand = 21;
+constexpr uint32_t kTypeWeaponOffHand = 22;
+constexpr uint32_t kTypeHoldable = 23;
+constexpr uint32_t kTypeAmmo = 24;
+constexpr uint32_t kTypeThrown = 25;
+constexpr uint32_t kTypeRangedRight = 26;
+constexpr uint32_t kTypeQuiver = 27;
+constexpr uint32_t kTypeRelic = 28;
+constexpr int kTypeCount = 29;
+
+constexpr int kLastEquippedSlot = 18; // 0-based: INVSLOT_TABARD
+
+// Item IDs whose records the last calculation asked for and that have not
+// loaded yet (4.3.4's m_avgItemLevelPending, as a set so each completion
+// is matched to its item).
+std::vector<uint32_t> g_waiting;
+// The last complete answer (m_avgItemLevel / m_avgItemLevelEquipped).
+float g_avgItemLevel = 0.0f;
+float g_avgItemLevelEquipped = 0.0f;
+
+struct Levels {
+    int32_t byType[kTypeCount] = {};
+    int32_t secondFinger = 0;
+    int32_t secondTrinket = 0;
+    int32_t secondWeapon = 0;
+};
+
+// UpdateBestItemLevel (0x0097B360).
+void UpdateBest(int32_t level, int32_t *best, int32_t *second) {
+    if (second == nullptr) {
+        *best = std::max(*best, level);
+    } else if (level > *best) {
+        *second = *best;
+        *best = level;
+    } else if (level > *second) {
+        *second = level;
+    }
 }
 
-// invType → bitmask of equipment slots the item can occupy (bit N =
-// 1-based slot N+1). Mirrors `kSlotMaskByInvType` in
-// `InventoryItemsForSlot.cpp`; kept private here to avoid coupling
-// two modules through a header that only carries one table.
-constexpr uint32_t kSlotMaskByInvType[29] = {
-    0x00000000, // 0  NON_EQUIP
-    0x00000001, // 1  HEAD         → slot 1
-    0x00000002, // 2  NECK         → slot 2
-    0x00000004, // 3  SHOULDER     → slot 3
-    0x00000008, // 4  BODY (shirt)
-    0x00000010, // 5  CHEST        → slot 5
-    0x00000020, // 6  WAIST        → slot 6
-    0x00000040, // 7  LEGS         → slot 7
-    0x00000080, // 8  FEET         → slot 8
-    0x00000100, // 9  WRIST        → slot 9
-    0x00000200, // 10 HANDS        → slot 10
-    0x00000C00, // 11 FINGER       → slots 11, 12
-    0x00003000, // 12 TRINKET      → slots 13, 14
-    0x00018000, // 13 WEAPON (1H)  → slots 16, 17
-    0x00010000, // 14 SHIELD       → slot 17
-    0x00020000, // 15 RANGED       → slot 18
-    0x00004000, // 16 CLOAK        → slot 15
-    0x00008000, // 17 2HWEAPON     → slot 16 (vanilla — no Titan's Grip)
-    0x00780000, // 18 BAG          → slots 20..23
-    0x00040000, // 19 TABARD
-    0x00000010, // 20 ROBE         → slot 5
-    0x00008000, // 21 WEAPONMAINHAND
-    0x00010000, // 22 WEAPONOFFHAND
-    0x00010000, // 23 HOLDABLE
-    0x00000000, // 24 AMMO
-    0x00020000, // 25 THROWN       → slot 18
-    0x00020000, // 26 RANGEDRIGHT  → slot 18
-    0x00000000, // 27 QUIVER
-    0x00020000, // 28 RELIC        → slot 18
+struct Walk {
+    const uint8_t *player;
+    Levels levels;
+    bool incomplete = false; // a record is missing
 };
 
-constexpr int kInvTypeMax = static_cast<int>(sizeof(kSlotMaskByInvType) /
-                                              sizeof(kSlotMaskByInvType[0])) - 1;
-
-// Returns (itemLevel, inventoryType) for the CGItem, or (0, 0) if
-// the itemID is unresolvable or the cache record hasn't loaded.
-struct ItemInfo {
-    uint32_t itemLevel;
-    uint32_t invType;
-};
-
-ItemInfo ReadItemInfo(const uint8_t *cgItem) {
-    if (cgItem == nullptr)
-        return {0, 0};
-    const int itemID = Item::ID::FromCGItem(cgItem);
+// The record for `item`, or nullptr after queuing its load and noting the
+// wait.
+const uint8_t *RecordOrWait(Walk &walk, const uint8_t *item) {
+    const int itemID = Item::ID::FromCGItem(item);
     if (itemID <= 0)
-        return {0, 0};
-    const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr) {
-        // Equipped or bagged item with no cache record yet — queue a
-        // warmup so the next call gets populated data. Cheap on cache
-        // hit; fires CMSG_ITEM_QUERY_SINGLE on miss.
-        Item::Data::WarmCache(static_cast<uint32_t>(itemID));
-        return {0, 0};
-    }
-    return {Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_ITEM_LEVEL),
-            Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE)};
-}
-
-// Bank-walk helpers — bypass the bank-window gate on `GetItemBySlot`
-// by reading the player's invMgr GUID array directly. Same shape as
-// `C_Item.GetItemCount`'s bank path.
-const uint8_t *ResolveByGuid(int type, uint64_t guid) {
-    if (guid == 0)
         return nullptr;
-    return static_cast<const uint8_t *>(
-        Object::ByGuid(type, guid, "AverageLevel", 0x172));
+    if (const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID)))
+        return record;
+    walk.incomplete = true;
+    if (Item::Data::WarmCache(static_cast<uint32_t>(itemID)) &&
+        std::find(g_waiting.begin(), g_waiting.end(), static_cast<uint32_t>(itemID)) ==
+            g_waiting.end())
+        g_waiting.push_back(static_cast<uint32_t>(itemID));
+    return nullptr;
 }
 
-// Collects a single CGItem into `candidates` if it could equip in
-// any non-excluded slot. Each item is added once and assigned to a
-// single slot later (greedy fit) — keeps trinkets/fingers/1H
-// weapons from double-counting across their two candidate slots.
-struct Candidate {
-    uint32_t ilvl;
-    uint32_t mask; // bitmask of candidate slots (1-based bit positions)
-};
+// The player can use the item and it has an inventory type.
+bool IsUsable(const Walk &walk, const uint8_t *record) {
+    return Player::CanUseItem::Check(walk.player, record) &&
+           Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE) != 0;
+}
 
-void CollectBagOrBankItem(const uint8_t *cgItem, std::vector<Candidate> &candidates) {
-    const ItemInfo info = ReadItemInfo(cgItem);
-    if (info.itemLevel == 0)
+// The record of a usable, equippable item, else nullptr.
+const uint8_t *UsableRecord(Walk &walk, const uint8_t *item) {
+    const uint8_t *record = RecordOrWait(walk, item);
+    return record != nullptr && IsUsable(walk, record) ? record : nullptr;
+}
+
+void Bucket(Levels &levels, const uint8_t *record) {
+    const uint32_t type = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
+    if (type >= static_cast<uint32_t>(kTypeCount))
         return;
-    if (info.invType > static_cast<uint32_t>(kInvTypeMax))
-        return;
-    uint32_t mask = kSlotMaskByInvType[info.invType];
-    // Strip excluded slots (shirt, tabard) from the mask up front.
-    for (int s = kFirstSlot; s <= kLastSlot; ++s) {
-        if (IsExcludedSlot(s))
-            mask &= ~(1u << (s - 1));
+    int32_t *second = nullptr;
+    switch (type) {
+    case kTypeFinger:
+        second = &levels.secondFinger;
+        break;
+    case kTypeTrinket:
+        second = &levels.secondTrinket;
+        break;
+    case kTypeWeapon:
+        second = &levels.secondWeapon;
+        break;
+    default:
+        break;
     }
-    if (mask == 0)
-        return;
-    candidates.push_back({info.itemLevel, mask});
+    UpdateBest(static_cast<int32_t>(
+                   Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_ITEM_LEVEL)),
+               &levels.byType[type], second);
 }
 
-// Walks a contiguous GUID-array range and feeds each resolved item
-// through `CollectBagOrBankItem`.
-void WalkGuidArrayRange(const uint8_t *invMgr, int firstSlot, int lastSlot,
-                        std::vector<Candidate> &candidates) {
+const uint64_t *GuidArray(const uint8_t *invMgr, int &count) {
+    count = static_cast<int>(Game::Read<uint32_t>(invMgr, Offsets::OFF_INVMGR_SLOT_COUNT));
+    return Game::Read<const uint64_t *>(invMgr, Offsets::OFF_INVMGR_GUID_ARRAY);
+}
+
+void WalkContainer(Walk &walk, const uint8_t *container) {
+    auto *invMgr = static_cast<const uint8_t *>(Item::Location::ContainerInventory(container));
     if (invMgr == nullptr)
         return;
-    auto *guidArray = Game::Read<const uint64_t *>(
-        invMgr, Offsets::OFF_INVMGR_GUID_ARRAY);
-    if (guidArray == nullptr)
+    int count = 0;
+    const uint64_t *guids = GuidArray(invMgr, count);
+    if (guids == nullptr)
         return;
-    for (int slot = firstSlot; slot <= lastSlot; ++slot) {
-        const uint8_t *item = ResolveByGuid(Offsets::TYPEMASK_ITEM, guidArray[slot]);
+    for (int i = 0; i < count; ++i) {
+        const uint8_t *item = Item::Location::ResolveByGUID(guids[i]);
         if (item == nullptr)
             continue;
-        CollectBagOrBankItem(item, candidates);
+        if (const uint8_t *record = UsableRecord(walk, item))
+            Bucket(walk.levels, record);
     }
 }
 
-// Walks each equipped bank bag's contents (slots 63..68 in the
-// player invMgr hold the bank bags themselves; each bag has its own
-// invMgr accessed via the bag CGContainer's vtable+0x10 method).
-void WalkBankBags(std::vector<Candidate> &candidates) {
-    auto *playerInvMgr = Unit::Identity::PlayerInventoryManager();
-    if (playerInvMgr == nullptr)
-        return;
-    auto *playerGuidArray = Game::Read<const uint64_t *>(
-        playerInvMgr, Offsets::OFF_INVMGR_GUID_ARRAY);
-    if (playerGuidArray == nullptr)
-        return;
-    for (int slot = Offsets::INVMGR_BANK_BAG_FIRST_SLOT;
-         slot <= Offsets::INVMGR_BANK_BAG_LAST_SLOT; ++slot) {
-        const uint8_t *bag = ResolveByGuid(Offsets::TYPEMASK_CONTAINER,
-                                            playerGuidArray[slot]);
-        if (bag == nullptr)
-            continue;
-        auto *bagInvMgr =
-            static_cast<const uint8_t *>(Item::Location::ContainerInventory(bag));
-        if (bagInvMgr == nullptr)
-            continue;
-        const int bagSlots =
-            static_cast<int>(*reinterpret_cast<const uint32_t *>(bagInvMgr));
-        if (bagSlots <= 0)
-            continue;
-        WalkGuidArrayRange(bagInvMgr, 0, bagSlots - 1, candidates);
+// `complete` is cleared when a record was missing (its load queued, or the
+// queue full); the 0 returned then is not an answer.
+float Calculate(bool equippedOnly, bool &complete) {
+    if (!g_waiting.empty()) {
+        complete = false;
+        return 0.0f;
     }
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    const uint8_t *invMgr = Unit::Identity::PlayerInventoryManager();
+    if (player == nullptr || invMgr == nullptr)
+        return 0.0f;
+
+    Walk walk{player};
+    int count = 0;
+    const uint64_t *guids = GuidArray(invMgr, count);
+    if (guids == nullptr)
+        return 0.0f;
+    const int lastSlot =
+        std::min(equippedOnly ? kLastEquippedSlot : Offsets::INVMGR_BANK_BAG_LAST_SLOT, count - 1);
+    for (int slot = 0; slot <= lastSlot; ++slot) {
+        const uint8_t *item = Item::Location::ResolveByGUID(guids[slot]);
+        if (item == nullptr)
+            continue;
+        const uint8_t *record = RecordOrWait(walk, item);
+        const auto *container = static_cast<const uint8_t *>(
+            Object::ByGuid(Offsets::TYPEMASK_CONTAINER, guids[slot], "AverageLevel"));
+        // A container whose own record is still loading is walked anyway,
+        // only to queue its contents' loads in this same pass; the walk is
+        // already incomplete, so nothing it buckets is used. 4.3.4 skips
+        // it, which costs a second round (and a READY fired before the
+        // answer is) once the bag's record arrives.
+        if (record == nullptr) {
+            if (container != nullptr)
+                WalkContainer(walk, container);
+            continue;
+        }
+        if (!IsUsable(walk, record))
+            continue;
+        if (container != nullptr)
+            WalkContainer(walk, container);
+        else
+            Bucket(walk.levels, record);
+    }
+    if (walk.incomplete) {
+        complete = false;
+        return 0.0f;
+    }
+
+    int32_t *lv = walk.levels.byType;
+    const int32_t ranged =
+        std::max({lv[kTypeRangedRight], lv[kTypeRelic], lv[kTypeThrown], lv[kTypeRanged]});
+    const int32_t twoHand = lv[kType2HWeapon];
+    int32_t mainHand;
+    int32_t offHand;
+    if (reinterpret_cast<uint32_t(__cdecl *)()>(Offsets::FUN_PLAYER_CAN_DUAL_WIELD)() != 0) {
+        int32_t weapons[4] = {
+            lv[kTypeWeaponMainHand],
+            std::max({lv[kTypeShield], lv[kTypeWeaponOffHand], lv[kTypeHoldable]}),
+            lv[kTypeWeapon],
+            walk.levels.secondWeapon,
+        };
+        std::sort(std::begin(weapons), std::end(weapons), std::greater<int32_t>());
+        mainHand = weapons[0];
+        offHand = weapons[1];
+    } else {
+        mainHand = std::max(lv[kTypeWeaponMainHand], lv[kTypeWeapon]);
+        offHand = std::max(lv[kTypeHoldable], lv[kTypeShield]);
+    }
+
+    for (uint32_t type : {0u, kTypeBody, kTypeRelic, kType2HWeapon, kTypeBag, kTypeTabard,
+                          kTypeWeapon, kTypeShield, kTypeRanged, kTypeWeaponMainHand,
+                          kTypeWeaponOffHand, kTypeHoldable, kTypeAmmo, kTypeThrown,
+                          kTypeRangedRight, kTypeQuiver})
+        lv[type] = 0;
+    lv[kTypeChest] = std::max(lv[kTypeChest], lv[kTypeRobe]);
+    lv[kTypeRobe] = 0;
+
+    int32_t total = 0;
+    for (int type = 1; type < kTypeCount; ++type)
+        total += lv[type];
+    total += walk.levels.secondFinger + walk.levels.secondTrinket + ranged;
+    const float oneHanded = static_cast<float>(total + mainHand + offHand) * (1.0f / 17.0f);
+    const float twoHanded = static_cast<float>(total + twoHand) * (1.0f / 16.0f);
+    return oneHanded > twoHanded ? oneHanded : twoHanded;
 }
 
-static int __fastcall Script_GetAverageItemLevel(void *L) {
-    // Per-slot best ilvl found anywhere in the player's inventory.
-    // Equipped slot ilvls are tracked separately so the second return
-    // value can sum only the equipped path.
-    uint32_t bestPerSlot[20] = {0};
-    uint32_t equippedIlvl[20] = {0};
+void OnItemLoaded(uint32_t itemID, bool /*success*/) {
+    const auto it = std::find(g_waiting.begin(), g_waiting.end(), itemID);
+    if (it == g_waiting.end())
+        return;
+    g_waiting.erase(it);
+    if (g_waiting.empty())
+        Event::Custom::Fire(_reserveReady.Slot(), "");
+}
 
-    // First pass: equipped items. Direct path via `ResolveEquipmentSlot`
-    // — no Lua stack interaction.
-    for (int slot = kFirstSlot; slot <= kLastSlot; ++slot) {
-        if (IsExcludedSlot(slot))
-            continue;
-        const uint8_t *cgItem = Item::Location::ResolveEquipmentSlot(slot);
-        if (cgItem == nullptr)
-            continue;
-        const ItemInfo info = ReadItemInfo(cgItem);
-        if (info.itemLevel == 0)
-            continue;
-        equippedIlvl[slot] = info.itemLevel;
-        bestPerSlot[slot] = info.itemLevel;
+const Item::Data::LoadSubscriber _loadSub{&OnItemLoaded};
+
+int __fastcall Script_GetAverageItemLevel(void *L) {
+    bool complete = true;
+    const float total = Calculate(false, complete);
+    const float equipped = Calculate(true, complete);
+    if (complete) {
+        g_avgItemLevel = total;
+        g_avgItemLevelEquipped = equipped;
     }
-
-    // Second pass: collect bag + bank items as candidates. `ResolveBag`
-    // stomps the Lua stack on every call — we don't have anything on
-    // the stack we need to keep yet (return-value pushes happen at
-    // the very end).
-    std::vector<Candidate> candidates;
-    for (int bag = 0; bag <= 4; ++bag) {
-        const int slotCount = Item::Location::GetBagSlotCount(bag);
-        for (int bs = 1; bs <= slotCount; ++bs) {
-            CollectBagOrBankItem(Item::Location::ResolveBag(L, bag, bs), candidates);
-        }
-    }
-    // Bank — direct GUID-array reads bypass the bank-window gate so
-    // this works without the player ever having opened the bank this
-    // session — GUIDs are populated from server data at login. Main
-    // bank first (linear slots 39..62 in the player invMgr), then
-    // each equipped bank bag's contents via the per-bag CGContainer.
-    const uint8_t *playerInvMgr = Unit::Identity::PlayerInventoryManager();
-    WalkGuidArrayRange(playerInvMgr,
-                       Offsets::INVMGR_BANK_MAIN_FIRST_SLOT,
-                       Offsets::INVMGR_BANK_MAIN_LAST_SLOT,
-                       candidates);
-    WalkBankBags(candidates);
-
-    // Third pass: greedy assignment. Sort candidates by ilvl
-    // descending; for each, find its candidate slot with the LOWEST
-    // current `bestPerSlot` value and update if the candidate beats
-    // it. Each item is assigned at most once — a trinket in the bag
-    // fills one trinket slot, not both.
-    //
-    // Note on weapons: a 2H weapon (`invType=17`) is masked to slot
-    // 16 only, while a 1H (`invType=13`) gets both slots 16 and 17.
-    // If the player has a 2H equipped and a 1H in the bag, the 1H
-    // will land in slot 17 — effectively "available offhand". Modern
-    // WoW's full assignment includes a 2H-vs-1H+OH comparison; we
-    // skip that optimization (vanilla had no Titan's Grip and the
-    // rare cases where it'd matter aren't worth the complexity).
-    std::sort(candidates.begin(), candidates.end(),
-              [](const Candidate &a, const Candidate &b) {
-                  return a.ilvl > b.ilvl;
-              });
-    for (const auto &c : candidates) {
-        int bestSlot = -1;
-        uint32_t bestSlotVal = 0;
-        for (int s = kFirstSlot; s <= kLastSlot; ++s) {
-            if ((c.mask & (1u << (s - 1))) == 0)
-                continue;
-            if (bestSlot < 0 || bestPerSlot[s] < bestSlotVal) {
-                bestSlot = s;
-                bestSlotVal = bestPerSlot[s];
-            }
-        }
-        if (bestSlot >= 0 && c.ilvl > bestSlotVal)
-            bestPerSlot[bestSlot] = c.ilvl;
-    }
-
-    // Fixed denominator = all considered equipment slots (1..19 minus
-    // shirt + tabard = 17 slots). Empty slots contribute 0 to the
-    // sum but still count toward the denominator — matches modern's
-    // fixed-slot-count behavior (verified against retail Wow.exe:
-    // `552.4375 * 16 = 8839` exactly, regardless of populated count).
-    //
-    // Max-of-two-divisors fairness trick: a 2H-weapon wielder has an
-    // intentionally empty offhand (slot 17). Counting that empty
-    // slot as 0 in a 17-divisor sum unfairly penalizes them vs a
-    // sword+shield wielder. We compute a second candidate excluding
-    // slot 17 from both numerator and denominator (16 slots), and
-    // return the max — same trick the 4.3.4 client uses at
-    // `FUN_0097E0F0`'s tail. For sword+shield the OH ilvl is
-    // typically near average so the all-17 path wins; for 2H wielders
-    // the no-OH path wins.
-    uint64_t equippedSum = 0;
-    uint64_t overallSum = 0;
-    int slotCount = 0;
-    for (int s = kFirstSlot; s <= kLastSlot; ++s) {
-        if (IsExcludedSlot(s))
-            continue;
-        equippedSum += equippedIlvl[s];
-        overallSum += bestPerSlot[s];
-        ++slotCount;
-    }
-
-    constexpr int kOffhandSlot = 17;
-
-    auto bestAvg = [&](uint64_t sumAll, uint32_t ohContribution) {
-        if (slotCount <= 0)
-            return 0.0;
-        const double allAvg = static_cast<double>(sumAll) / slotCount;
-        const int reducedCount = slotCount - 1;
-        if (reducedCount <= 0)
-            return allAvg;
-        const double noOhAvg =
-            static_cast<double>(sumAll - ohContribution) / reducedCount;
-        return (noOhAvg > allAvg) ? noOhAvg : allAvg;
-    };
-
-    const double equippedAvg = bestAvg(equippedSum, equippedIlvl[kOffhandSlot]);
-    const double overallAvg = bestAvg(overallSum, bestPerSlot[kOffhandSlot]);
-
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::PushNumber(L, overallAvg);
-    Game::Lua::PushNumber(L, equippedAvg);
+    Game::Lua::PushNumber(L, g_avgItemLevel);
+    Game::Lua::PushNumber(L, g_avgItemLevelEquipped);
     return 2;
 }
 
-} // namespace
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("avgItemLevel", "number"),
+    Game::Doc::Req("avgItemLevelEquipped", "number"),
+};
+const Game::Doc::Function kGetAverageItemLevel{
+    "Returns the average item level of the best gear the player owns and can use, and of the "
+    "gear the player wears.",
+    {},
+    kRets,
+    "PaperDollInfo"};
 
-static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetAverageItemLevel", &Script_GetAverageItemLevel);
+void RegisterLuaFunctions() {
+    // A new world session (login, /reload): 4.3.4 clears the wait when the
+    // character UI is destroyed.
+    g_waiting.clear();
+    g_avgItemLevel = 0.0f;
+    g_avgItemLevelEquipped = 0.0f;
+    Game::Lua::RegisterGlobalFunction("GetAverageItemLevel", &Script_GetAverageItemLevel,
+                                      &kGetAverageItemLevel);
 }
 
-static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+
+} // namespace
 
 } // namespace Item::AverageLevel
