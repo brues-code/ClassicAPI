@@ -3973,7 +3973,13 @@ The only FontString methods 4.3.4 has that 1.12 + ClassicAPI lacked
   `SStrCopy(text, src, n)`, `0x771E0F`); without one the buffer grows to any
   length, so it returns infinity.
 
-## 104. XML `<KeyValues>` — medium
+## ~~104. XML `<KeyValues>`~~ — DONE
+
+Shipped in a2e3eed (`mixin=` and `method=` followed in 2cab0dc). Code:
+`src/xml/KeyValues.cpp`; the texture / font string hooks in
+`src/xml/ParentKey.cpp` call it directly (no `RegionLoad` fan-out), and
+`src/animation/Xml.cpp` reads it for groups and animations. Notes below
+are the original plan.
 
 Not in 4.3.4 (no decomp); the contract comes from retail's `UI.xsd`
 (`_classic_era_/BlizzardInterfaceCode/.../Blizzard_SharedXML/UI.xsd`) and
