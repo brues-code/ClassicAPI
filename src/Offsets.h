@@ -2963,6 +2963,19 @@ enum Offsets {
     // targetFlags(u16), <target per flags>`.
     OP_CMSG_CAST_SPELL = 0x12E,
 
+    // Outgoing opcode: CMSG_SPLIT_ITEM, built by FUN_INVENTORY_SPLIT (body
+    // documented there): u8 srcBag, u8 srcSlot, u8 dstBag, u8 dstSlot,
+    // u8 count. The server answers a successful split with a NEW item
+    // object for the split-off half (tortoise-wow `Player::SplitItem` →
+    // `CloneItem`), or SMSG_INVENTORY_CHANGE_FAILURE.
+    OP_CMSG_SPLIT_ITEM = 0x10E,
+
+    // The bag byte the item packets use for the player's own inventory
+    // (paperdoll, backpack, bank main slots); any other bag byte is the
+    // player slot that holds the container (19..22 bags, 63..68 bank
+    // bags). Seen in FUN_INVENTORY_SWAP's `FUN_005e13b0` conversion.
+    INVENTORY_SLOT_BAG_0 = 0xFF,
+
     // Spell.dbc DurationIndex (column 30) — row into SpellDuration.dbc.
     // Offset = 30*4, consistent with the verified neighbors
     // (CastingTimeIndex col 18 = +0x48, PowerType col 31 = +0x7C).

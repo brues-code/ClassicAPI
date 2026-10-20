@@ -14958,25 +14958,22 @@ end
 
 ## NewItems
 
-The "new item glow" bookkeeping — the sparkle a bag UI shows on items
-you've just picked up but haven't looked at yet. There is no DBC, server
-data, or engine bit for it; it's pure client-side tracking over your bag
-contents, so ClassicAPI adds it.
+Bag interfaces use these functions to show a glow on items that are new.
 
-Newness is keyed on each item's **instance GUID** (read off the CGItem),
-not on `(bagID, slotIndex)`. A flag therefore survives the player
-rearranging a bag, and is impossible for a pure-Lua
-addon (no per-instance GUID is exposed to Lua). Only **bag** items are
-tracked (bags 0–4); equipment and bank are out of scope.
+An item is new when you get it after login. Items that you loot, create,
+buy, get as a quest reward, take from mail, or get in a trade are new.
+These items do not become new:
 
-The feed is entirely client-side C++ (no addon Lua), and
-event-driven rather than polled: it hangs off the engine's own `BAG_UPDATE`
-fire sites, so a bag rescan runs only on frames where a bag actually
-changed. Each rescan diffs the resident item GUIDs against the previous one,
-flags anything newly acquired, and prunes flags for items that leave.
-`BAG_NEW_ITEMS_UPDATED` (no payload) fires whenever the new-item set
-changes. A one-time baseline taken ~1.5s after login (re-armed on character
-switch) means items already owned at login aren't flagged.
+- Items that you had at login.
+- Items that you move between bags, the bank, and your equipment.
+- Loot that goes onto a stack that you already have.
+- The new stack that you make when you split a stack.
+
+The flag stays with the item when it moves to a different slot. Only items
+in your bags (bags 0 to 4) can be new.
+
+`BAG_NEW_ITEMS_UPDATED` fires when an item gets or loses the flag. The
+event has no arguments.
 
 ### `C_NewItems.IsNewItem(bagID, slotIndex)`
 
@@ -14993,8 +14990,8 @@ end
 
 ### `C_NewItems.RemoveNewItem(bagID, slotIndex)`
 
-Clears the new flag for the item in that slot (e.g. once the player has
-seen it). No-op if the slot is empty or the item wasn't flagged. Fires
+Clears the new flag for the item in that slot, for example after the
+player sees the item. No-op if the slot is empty or the item wasn't flagged. Fires
 `BAG_NEW_ITEMS_UPDATED` when it actually removes a flag. Because the flag is
 GUID-keyed, the item stays un-flagged even if it's later moved to another
 slot.

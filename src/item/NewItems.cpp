@@ -36,6 +36,12 @@
 // genuinely left. `BAG_NEW_ITEMS_UPDATED` (no payload — matching retail) fires
 // whenever the new-item set changes. Nothing runs on quiet frames.
 //
+// "New" is therefore "an item object you did not own before": loot, crafts,
+// purchases, rewards, mail and trades all qualify, and loot that lands on an
+// existing stack does not (the stack keeps its GUID). The one object that is
+// unowned but not acquired is the half of a split stack; see the split
+// section below.
+//
 // The seen-set is deliberately NOT rebuilt from each scan: a bag update in
 // progress transiently drops items from the read — sometimes the entire
 // backpack at once, for a frame or two — and a naive "seen = this scan"
@@ -77,6 +83,8 @@
 #include "event/Custom.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "net/PacketDispatch.h"
+#include "net/SendObserver.h"
 #include "object/Resolve.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
@@ -89,7 +97,9 @@ namespace Item::NewItems {
 namespace {
 
 constexpr const char *kEvtNewItems = "BAG_NEW_ITEMS_UPDATED";
-const Event::Custom::AutoReserve _r{kEvtNewItems};
+const Game::Doc::Event kNewItemsDoc{
+    "NewItems", "Fires when an item gains or loses its new flag.", {}};
+const Event::Custom::AutoReserve _r{kEvtNewItems, &kNewItemsDoc};
 
 // Sized for the whole owned universe the baseline tracks — backpack + four
 // bags + 19 worn slots + 4 equipped bags + main bank (24) + six bank bags.
@@ -317,6 +327,115 @@ void AppendNonBagOwned(uint64_t *out, int *count) {
     }
 }
 
+// --- split stacks -----------------------------------------------------------
+//
+// Splitting a stack gives the split-off half a NEW item GUID (the server
+// clones the item), so the seen-set alone would flag it as a fresh
+// acquisition. Splits are the client's own requests, so the source stack is
+// recorded as CMSG_SPLIT_ITEM leaves; in the scan that shows the half, an
+// unseen bag GUID with the source's item ID is that half, not a new item.
+//
+// A pending split retires when its source stack shrinks or disappears: the
+// server sends the source's new count in the same update that places the
+// half, so after that scan the half has either been claimed or the split
+// went onto an existing stack (no new GUID). A refused split
+// (SMSG_INVENTORY_CHANGE_FAILURE) changes nothing, so failures clear the list.
+
+constexpr int kMaxPendingSplits = 8;
+
+struct PendingSplit {
+    uint64_t source; // GUID of the stack being split
+    uint32_t itemID;
+    uint32_t count; // the source's stack count when the request left
+};
+PendingSplit g_splits[kMaxPendingSplits];
+int g_splitCount = 0;
+
+uint32_t ItemID(const uint8_t *item) {
+    auto *instance = Item::InstanceBlock(item);
+    if (instance == nullptr)
+        return 0;
+    return *reinterpret_cast<const uint32_t *>(instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID);
+}
+
+uint32_t StackCount(const uint8_t *item) {
+    auto *fields = Item::ObjectFields(item);
+    if (fields == nullptr)
+        return 0;
+    return *reinterpret_cast<const uint32_t *>(fields + Offsets::OFF_DESCRIPTOR_STACK_COUNT);
+}
+
+// The GUID in `slot` of an inventory manager's GUID array, bounded by its
+// own slot count.
+uint64_t GuidAt(const uint8_t *invMgr, int slot) {
+    if (invMgr == nullptr)
+        return 0;
+    const uint32_t count =
+        *reinterpret_cast<const uint32_t *>(invMgr + Offsets::OFF_INVMGR_SLOT_COUNT);
+    auto *arr = *reinterpret_cast<const uint64_t *const *>(invMgr + Offsets::OFF_INVMGR_GUID_ARRAY);
+    if (arr == nullptr || slot < 0 || static_cast<uint32_t>(slot) >= count)
+        return 0;
+    return arr[slot];
+}
+
+// The item at a packet-format (bag, slot) address: bag 0xFF is the player's
+// own inventory, any other bag byte is the player slot holding the container.
+const uint8_t *PacketSlotItem(uint8_t bag, uint8_t slot) {
+    const uint8_t *invMgr = Unit::Identity::PlayerInventoryManager();
+    if (invMgr != nullptr && bag != Offsets::INVENTORY_SLOT_BAG_0) {
+        const uint8_t *container = ResolveByGuid(Offsets::TYPEMASK_CONTAINER, GuidAt(invMgr, bag));
+        invMgr = container != nullptr
+                     ? static_cast<const uint8_t *>(Item::Location::ContainerInventory(container))
+                     : nullptr;
+    }
+    return ResolveByGuid(Offsets::TYPEMASK_ITEM, GuidAt(invMgr, slot));
+}
+
+void OnSend(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode != Offsets::OP_CMSG_SPLIT_ITEM || g_splitCount >= kMaxPendingSplits)
+        return;
+    const uint8_t srcBag = Net::Read<uint8_t>(packet);
+    const uint8_t srcSlot = Net::Read<uint8_t>(packet);
+    const uint8_t *source = PacketSlotItem(srcBag, srcSlot);
+    if (source == nullptr)
+        return;
+    g_splits[g_splitCount++] = {ItemGUID(source), ItemID(source), StackCount(source)};
+}
+
+void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode == Offsets::SMSG_INVENTORY_CHANGE_FAILURE && Net::Read<uint8_t>(packet) != 0)
+        g_splitCount = 0;
+}
+
+const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+const Net::PacketDispatch::AutoSubscribe _packetSub{&OnPacket};
+
+// True when an unseen bag GUID is the half of a pending split, which it
+// claims.
+bool ClaimSplitHalf(uint64_t guid) {
+    if (g_splitCount == 0)
+        return false;
+    const uint32_t itemID = ItemID(ResolveByGuid(Offsets::TYPEMASK_ITEM, guid));
+    for (int i = 0; i < g_splitCount; ++i) {
+        if (g_splits[i].itemID == itemID) {
+            g_splits[i] = g_splits[--g_splitCount];
+            return true;
+        }
+    }
+    return false;
+}
+
+// Drops pending splits whose source has already shrunk or gone.
+void RetireSplits() {
+    for (int i = 0; i < g_splitCount;) {
+        const uint8_t *source = ResolveByGuid(Offsets::TYPEMASK_ITEM, g_splits[i].source);
+        if (source == nullptr || StackCount(source) < g_splits[i].count)
+            g_splits[i] = g_splits[--g_splitCount];
+        else
+            ++i;
+    }
+}
+
 void FireChanged() {
     Event::Custom::Fire(_r.Slot(), "");
 }
@@ -335,6 +454,7 @@ void OnTick() {
         g_playerGuid = guid;
         g_newCount = 0;
         g_seenCount = 0;
+        g_splitCount = 0;
         g_seeded = false;
         g_loginMs = NowMs();
     }
@@ -381,11 +501,13 @@ void OnBagChanged() {
     // scan (bag update mid-swap) is still in the seen-set (its miss streak is
     // below the threshold), so it is NOT re-flagged when it reappears — that
     // was the false-"new" bug. Checked before the reconcile so a genuinely new
-    // item isn't inserted first.
+    // item isn't inserted first. The half of a split stack is unseen too, but
+    // it is not an acquisition.
     for (int i = 0; i < bagCount; ++i) {
-        if (!SeenContains(currentBags[i]))
+        if (!SeenContains(currentBags[i]) && !ClaimSplitHalf(currentBags[i]))
             changed |= AddUnique(g_new, &g_newCount, currentBags[i]);
     }
+    RetireSplits();
 
     // Reconcile the seen-set against everything owned now (bags + equipment +
     // bank): resets present items, ages absent ones, evicts long-gone ones.
@@ -449,10 +571,26 @@ int __fastcall Script_ClearAll(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("containerIndex", "number", "The bag, 0 to 4."),
+    Game::Doc::Req("slotIndex", "number", "The slot in that bag."),
+};
+const Game::Doc::Field kIsNewItemRets[] = {
+    Game::Doc::Req("isNew", "bool", "True when the item in the slot is flagged new."),
+};
+const Game::Doc::Function kIsNewItem{
+    "Whether the item in a bag slot is new: looted, created, bought, rewarded, taken "
+    "from mail or traded since login, and not yet cleared.",
+    kSlotArgs, kIsNewItemRets};
+const Game::Doc::Function kRemoveNewItem{
+    "Clears the new flag of the item in a bag slot.", kSlotArgs, {}};
+const Game::Doc::Function kClearAll{"Clears every new flag.", {}, {}};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_NewItems", "IsNewItem", &Script_IsNewItem);
-    Game::Lua::RegisterTableFunction("C_NewItems", "RemoveNewItem", &Script_RemoveNewItem);
-    Game::Lua::RegisterTableFunction("C_NewItems", "ClearAll", &Script_ClearAll);
+    Game::Lua::RegisterTableFunction("C_NewItems", "IsNewItem", &Script_IsNewItem, &kIsNewItem);
+    Game::Lua::RegisterTableFunction("C_NewItems", "RemoveNewItem", &Script_RemoveNewItem,
+                                     &kRemoveNewItem);
+    Game::Lua::RegisterTableFunction("C_NewItems", "ClearAll", &Script_ClearAll, &kClearAll);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
