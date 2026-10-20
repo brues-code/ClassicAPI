@@ -70,6 +70,9 @@
 // for that state (SetTextFontObject / SetHighlightFontObject /
 // SetDisabledFontObject) with `_G[style]`.
 //
+// The texture and font string loaders also apply <KeyValues>
+// (Xml::KeyValues, which reads frames itself).
+//
 // Every loader also loads an <Animations> child (Animation::Xml), before the
 // builder finalizes, so OnLoad sees the groups.
 //
@@ -82,6 +85,7 @@
 #include "Offsets.h"
 #include "animation/Xml.h"
 #include "texture/Mask.h"
+#include "xml/KeyValues.h"
 
 #include <cstdint>
 
@@ -250,6 +254,7 @@ uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void
     const uintptr_t r = g_origTextureLoad(self, edx, node, status);
     if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
+        Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
         if (const char *mask = Xml::Attr(node, "mask"); mask != nullptr && *mask != '\0')
             Texture::Mask::SetPath(RegionObject(self), mask);
@@ -261,6 +266,7 @@ uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, v
     const uintptr_t r = g_origFontStringLoad(self, edx, node, status);
     if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
+        Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
     }
     return r;

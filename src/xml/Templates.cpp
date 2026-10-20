@@ -31,6 +31,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "xml/KeyValues.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -179,10 +180,9 @@ int __fastcall Script_GetTemplateInfo(void *L) {
     Game::Lua::SetFieldNumber(L, "width", w);
     Game::Lua::SetFieldNumber(L, "height", h);
 
-    // keyValues: vanilla's XML schema has no <KeyValues> element, so this is
-    // always an empty table (parity with retail's "empty if none defined").
+    // keyValues: the template's own <KeyValues> entries, as written.
     Game::Lua::PushString(L, "keyValues");
-    Game::Lua::NewTable(L);
+    Xml::KeyValues::PushInfo(L, node);
     Game::Lua::SetTable(L, -3);
 
     // inherits: the comma-delimited `inherits=` attribute, or nil (field left

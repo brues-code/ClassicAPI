@@ -20736,7 +20736,7 @@ local info = C_XMLUtil.GetTemplateInfo("StatFrameTemplate")
 |---|---|---|
 | `type` | string | The template's frame type — its XML element tag (`"Frame"`, `"Button"`, …). |
 | `width` / `height` | number | The size **statically declared on the template itself** via a `<Size>` element, or `0` if it declares none (including when the size comes from an inherited template rather than a direct `<Size>`). |
-| `keyValues` | table | Always an **empty table** — the XML schema has no `<KeyValues>` element, so no template can carry key/value pairs. Present for API parity. |
+| `keyValues` | table | The template's own [`<KeyValues>`](#keyvalues-in-xml) entries, in file order. Each entry is `{ key, keyType, type, value }`, with the text as written in the file. `keyType` and `type` are `"string"` when the file leaves them out. Entries from inherited templates are not included. The table is empty when the template has no entries. |
 | `inherits` | string? | The template's `inherits=` attribute (a comma-delimited list), or `nil` if it inherits nothing. |
 
 Lookup is by name through the engine's own template registry — the same
@@ -20806,6 +20806,50 @@ Keys are set while the parent is being built, so the parent's `OnLoad`
 already sees them, and a `parentKey` inside a virtual template is set on
 every frame built from it. A button's `<NormalTexture parentKey="...">`
 works the same way.
+
+### `KeyValues` in XML
+
+A `<KeyValues>` element sets fields on the Lua table of the element that
+holds it. Each `<KeyValue>` inside it is the same as `object[key] = value`:
+
+```xml
+<Frame name="MyFrame">
+    <KeyValues>
+        <KeyValue key="layoutIndex" value="3" type="number"/>
+        <KeyValue key="title" value="Options"/>
+        <KeyValue key="tooltipFrame" value="GameTooltip" type="global"/>
+    </KeyValues>
+    <Scripts>
+        <OnLoad>print(this.layoutIndex, this.title, this.tooltipFrame:GetName())</OnLoad>
+    </Scripts>
+</Frame>
+```
+
+Frames, textures, font strings, `<AnimationGroup>` and animation elements
+can hold a `<KeyValues>` element.
+
+`type` sets how `value` is read. `keyType` sets how `key` is read. Both
+are `string` if you leave them out:
+
+| Type | Result |
+|---|---|
+| `string` | The text as written. |
+| `number` | The text as a number. |
+| `boolean` | `true` if the text starts with `t`, `y` or a digit from `1` to `9` (any case), or is `on` or `enabled`. Otherwise `false`. |
+| `nil` | `nil`. This type clears a field that a template set. |
+| `global` | The global variable with that name, `_G[value]`. |
+
+Numbers keep about seven significant digits, so integers up to 16777216
+are exact.
+
+A template's entries apply first, so an element's own entries replace
+entries with the same key. The fields are set before `OnLoad` runs, and a
+`<KeyValues>` element inside a virtual template applies to every frame
+built from it. A `global` value reads the global when the element loads, so
+the global must exist by then.
+
+If an entry has no `key`, has no `value`, or has an unknown type,
+`FrameXML.log` gets a warning and the entry is skipped.
 
 ### Masks in XML
 

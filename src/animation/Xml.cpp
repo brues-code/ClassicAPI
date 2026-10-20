@@ -25,6 +25,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "xml/FrameLoad.h"
+#include "xml/KeyValues.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -102,6 +103,17 @@ void LoadScripts(Object *object, const void *node) {
     }
 }
 
+// <KeyValues> on a group or an animation, as on later clients' schema.
+void LoadKeyValues(Object *object, const void *node, void *status) {
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    Push(L, object);
+    ::Xml::KeyValues::Apply(L, top + 1, node, status, object->DisplayName());
+    Game::Lua::SetTop(L, top);
+}
+
 // LoadXML_AnimOrigin: <Origin point="..."><Offset x= y=/></Origin>.
 void LoadOrigin(Anim *anim, const void *node) {
     const void *origin = FindChild(node, "Origin");
@@ -176,6 +188,7 @@ void LoadGroup(Group *group, const void *node, void *status) {
         group->initialOffsetY = y;
     }
     LoadScripts(group, node);
+    LoadKeyValues(group, node, status);
     LoadAnimChildren(group, node, status);
 }
 
@@ -255,6 +268,7 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
         anim->order = value < 0 ? 0 : (value > 99 ? 99 : value);
     }
     LoadScripts(anim, node);
+    LoadKeyValues(anim, node, status);
 
     // The subclasses' reads after the base.
     // CSimpleAlphaAnim::LoadXML sets the change, 0 when it is missing.
