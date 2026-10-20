@@ -74,13 +74,25 @@ struct State {
 };
 State g_swing[3];
 
-void MarkReset(SwingType type, uint32_t durationMs) {
+// `notify` false records the server's new timer without firing PLAYER_SWING:
+// the reset is real, but no swing is coming yet (see OnSpellGo).
+void MarkReset(SwingType type, uint32_t durationMs, bool notify = true) {
     if (durationMs == 0)
         return; // no weapon for this hand right now -- nothing to report
     State &s = g_swing[type];
     s.endMs = NowMs() + durationMs;
     s.active = true;
-    s.dirty = true;
+    s.dirty = s.dirty || notify;
+}
+
+using HasAttackTarget_t = int(__fastcall *)(const void *unit);
+
+// The engine's own "is the player auto-attacking" test (CGUnit_C::
+// HasAttackTarget, the victim GUID the attack start stamps).
+bool PlayerAttacking() {
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    return player != nullptr &&
+           reinterpret_cast<HasAttackTarget_t>(Offsets::FUN_UNIT_HAS_ATTACK_TARGET)(player) != 0;
 }
 
 bool PlayerInCombat() {
@@ -335,8 +347,13 @@ void OnSpellGo(uint32_t spellId) {
         (ForcedSwingReset(spellId) ||
          !(attrEx2 & Offsets::SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS)) &&
         WasNonTriggeredCast(spellId)) {
-        MarkReset(MAIN_HAND, AttackTimeMs(MAIN_HAND));
-        MarkReset(OFF_HAND, AttackTimeMs(OFF_HAND));
+        // The server resets both timers on every such cast, attacking or
+        // not (Spell::cast). Out of an attack no swing follows, so a buff
+        // cast must not start a bar; the attack start below reports a reset
+        // that is still running when the first swing becomes real.
+        const bool attacking = PlayerAttacking();
+        MarkReset(MAIN_HAND, AttackTimeMs(MAIN_HAND), attacking);
+        MarkReset(OFF_HAND, AttackTimeMs(OFF_HAND), attacking);
     }
 }
 
@@ -390,8 +407,14 @@ void OnPacket(uint32_t opcode, CDataStore *packet) {
             auto *victimObj = Object::ByGuid(
                 Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_PLAYER, victim);
             auto *playerObj = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
-            if (InMeleeRange(playerObj, victimObj))
+            if (InMeleeRange(playerObj, victimObj)) {
                 MarkReset(OFF_HAND, AttackTimeMs(OFF_HAND));
+                // A cast reset made before the attack still holds the
+                // main-hand swing back; report it now that one is coming.
+                State &main = g_swing[MAIN_HAND];
+                if (main.active && Time::Clock::Remaining(NowMs(), main.endMs) > 0)
+                    main.dirty = true;
+            }
         }
         return;
     }

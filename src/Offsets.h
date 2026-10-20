@@ -9347,6 +9347,11 @@ enum Offsets {
     FUN_ATTACK_START = 0x005ECB70,
     FUN_ATTACK_STOP = 0x005ECAC0,
     FUN_ATTACK_RESOLVE_TARGET = 0x00612DF0,
+    //   HAS_ATTACK_TARGET: __fastcall(unit) -> int. Nonzero while the
+    //     melee-victim GUID at [unit+0xC48] is set: the engine's own "is
+    //     attacking" test (the cast request's auto-attack start and STOP's
+    //     guard both call it). CGUnit_C::HasAttackTarget, verified in Ghidra.
+    FUN_UNIT_HAS_ATTACK_TARGET = 0x0060ECB0,
 
     // Inbox — array of mail-entry pointers behind a slot indirection.
     // The address itself holds a heap pointer (`MOV ECX, [imm32]` in

@@ -4776,6 +4776,10 @@ speed. Which spells interrupt the melee timers can differ by realm.
 `PLAYER_SWING` does not fire for an attack that you declare while out
 of melee range. It fires once a swing is close enough to be real.
 
+A spell that interrupts the melee timers fires `PLAYER_SWING` only while
+you auto-attack. If you cast it before you attack, the event fires when
+the attack starts, with the time that is left.
+
 ### `PLAYER_SWING_RANGE_UPDATE` event
 
 Fires when your current target moves into or out of range for a swing
