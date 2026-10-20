@@ -3913,3 +3913,41 @@ permanently-shown dummy frame for their tickers. `Disabled` duplicates
 `SetScript("OnUpdate", nil)` and `RunOnce` overlaps `C_Timer.After(0, …)`, so
 the rest is API parity. Worth it for the one capability plus a clean enum, not
 as a performance feature.
+
+## 102. Texture tiling: `SetHorizTile` / `SetVertTile` (+ `SetNonBlocking`) — medium
+
+The only texture methods 4.3.4 has that 1.12 + ClassicAPI lack
+(`wowdecomp15595/Engine/Source/Frame/CSimpleTexture_Scripts.cpp`): six
+setter/getter pairs on `m_textureFlags`. Getters answer 1 or nil.
+
+| Methods | 4.3.4 flag | Effect |
+|---|---|---|
+| `SetHorizTile` / `GetHorizTile` | `0x4` | repeat on U |
+| `SetVertTile` / `GetVertTile` | `0x8` | repeat on V |
+| `SetNonBlocking` / `GetNonBlocking` | `0x1` | skip drawing an unloaded image this frame instead of force-loading it |
+
+**How 4.3.4 tiles.** `CRenderBatch::QueueTexture` (`CRenderBatch.cpp:164`):
+while the dirty flag `0x2` is set, every non-zero U texcoord becomes
+`rectWidthInPixels / gxTex->m_width` (V likewise with height), using
+`DDCToNDCWidth(aspect × 1024 × (right − left)) / m_layoutScale` from the drawn
+corners. A layout change (`CSimpleRender.cpp:2391`) sets `0x2` again when either
+tile flag is on. Repeat only shows if the image was loaded with wrap.
+
+**Wrap on 1.12.** `CSimpleTexture::SetTexture` `0x770200` already takes
+`(name, wrap, filter, shader)` (benilla-re `ui/texture#settexture`); the Lua
+`SetTexture` always passes wrap 0. 4.3.4's Lua `SetTexture(file, tile)` reads
+arg 3 as wrap for both axes — add that. To verify: vanilla has one wrap flag,
+4.3.4 has `wrapU`/`wrapV`; check whether `CGxTexFlags` `0x58A980` can wrap one
+axis alone.
+
+**Where to hook.** The rescale belongs where the drawn corners are built — the
+texture `OnFrameSizeChanged` co-hook `0x770670` the animation system already
+owns (`src/animation/Region.cpp`).
+
+**XML.** `<Texture horizTile= vertTile= nonBlocking=>`; 4.3.4's loader also
+turns wrap on when `<TexCoords>` leave 0..1 and errors
+`Texture %s: Invalid TexCoords value (horizTile is on)` (`CSimpleRender.cpp:3024`).
+
+**NonBlocking.** Only meaningful if 1.12 has a lazy texture-load path (4.3.4:
+`TextureForceLoadForDiskOnly` vs `NotifyDelayedLoad`). Not checked — if 1.12
+always loads synchronously it is a stored flag with no effect.
