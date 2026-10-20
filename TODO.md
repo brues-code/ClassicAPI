@@ -4051,7 +4051,8 @@ over 1.12 (`CSimpleButton_Scripts.cpp`); retail's `SimpleButtonAPIDocumentation`
   same on the Button registry with the button's own SetText.
 
 **From later clients (contract from retail docs only — no decomp).**
-- `SetEnabled(enabled)` — `Enable()` / `Disable()` by a bool.
+- **DONE** (`src/frame/SetEnabled.cpp`). `SetEnabled(enabled)` — `Enable()` /
+  `Disable()` by a bool, through the button's Enable vmethod as they do.
 - `SetNormalAtlas` / `SetPushedAtlas` / `SetDisabledAtlas` /
   `SetHighlightAtlas(atlas[, blendMode])` — the state texture made or reused
   through `SetNormalTexture` etc., then `Texture::Atlas`'s `SetAtlas`.

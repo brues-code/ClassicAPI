@@ -302,6 +302,7 @@ build instructions.
   - [`frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`](#framesetclamprectinsetsleft-right-top-bottom--framegetclamprectinsets)
   - [`button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`](#buttonsetnormalfontobjectfont--buttongetnormalfontobject)
   - [`button:SetMotionScriptsWhileDisabled(enabled)` / `button:GetMotionScriptsWhileDisabled()`](#buttonsetmotionscriptswhiledisabledenabled--buttongetmotionscriptswhiledisabled)
+  - [`button:SetEnabled(enabled)`](#buttonsetenabledenabled)
   - [`region:IsProtected()` / `region:CanChangeProtectedState()`](#regionisprotected--regioncanchangeprotectedstate)
   - [`frame:CanChangeAttribute()` / `frame:AllowAttributeChanges()`](#framecanchangeattribute--frameallowattributechanges)
   - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
@@ -6837,6 +6838,16 @@ button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ```xml
 <Button name="MyButton" motionScriptsWhileDisabled="true"/>
+```
+
+### `button:SetEnabled(enabled)`
+
+If `enabled` is true, the button is enabled, the same as `button:Enable()`.
+If `enabled` is false or `nil`, the button is disabled, the same as
+`button:Disable()`. You can call this method on buttons and check buttons.
+
+```lua
+button:SetEnabled(GetMoney() >= cost)
 ```
 
 ### `region:IsProtected()` / `region:CanChangeProtectedState()`

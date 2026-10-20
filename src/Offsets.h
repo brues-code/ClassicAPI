@@ -3070,6 +3070,10 @@ enum Offsets {
     // calls it first. Like 4.3.4's, it returns at once when the state would
     // not change (enable with OFF_BUTTON_STATE nonzero, disable with it 0).
     FUN_BUTTON_ENABLE = 0x00779160,
+    // Button vmethod Enable(enable) — FUN_BUTTON_ENABLE, or CheckButton's
+    // override. Script Enable / Disable (0x0077FEF0 / 0x0077FFD0) call it
+    // through this slot with 1 / 0 (Ghidra).
+    VTBL_BUTTON_ENABLE = 0x90,
     // Button vmethods: Click(mask, 0) — FUN_BUTTON_CLICK — DoubleClick(mask,
     // 0) and SetButtonState(state, 0).
     VTBL_BUTTON_CLICK = 0x94,
