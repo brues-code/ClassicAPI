@@ -10566,50 +10566,47 @@ C_Item.IsEquippableItem(6948)   -- Hearthstone → false
 
 ### `IsUsableItem(item)` / `C_Item.IsUsableItem(item)`
 
-Returns `(usable, noMana)` for an item's **on-use** ability — the item
-analog of [`IsUsableSpell`](#isusablespellspell--isusablespellslot-booktype).
-This asks "can I click this item right now?", **not** "can I equip it".
-Armor proficiency, class-restricted gear, and the like are *not* this
-function's concern (that's the tooltip's red requirement lines); only an
-item's usable/right-click effect matters here.
+Returns `(usable, noMana)`: can the player use the item now? This is
+the item version of
+[`IsUsableSpell`](#isusablespellspell--isusablespellslot-booktype). It
+answers "can I click this item now", not "can I equip it". For equip
+requirements, use [`C_PlayerInfo.CanUseItem`](#c_playerinfocanuseitemitemid).
 
-The global `IsUsableItem(item)` returns `1`/`nil` pairs (matching stock
-`IsUsableAction`); `C_Item.IsUsableItem(item)` returns proper booleans
-per the `C_Item.*` convention. `item` is an itemID number or
-`"item:N..."` link.
+The global `IsUsableItem(item)` returns `1` or `nil` for each value, like
+`IsUsableAction`. `C_Item.IsUsableItem(item)` returns booleans. `item`
+is an itemID number or an `"item:N..."` link.
 
 ```lua
-IsUsableItem(6948)                     -- Hearthstone → 1, nil
+IsUsableItem(6948)                     -- Hearthstone in your bags → 1, nil
 local usable, noMana = C_Item.IsUsableItem(13446)  -- Major Healing Potion
--- usable=true,  noMana=false → click it
--- usable=false, noMana=false → no on-use effect, below required level,
---                              class/race-restricted, dead, on a form
---                              that blocks it, etc.
+-- usable=true,  noMana=false → you can use it now
+-- usable=false, noMana=true  → only the power cost is missing
+-- usable=false, noMana=false → not carried, effect still active,
+--                              dead, in a form that blocks it, and more
 ```
 
-> **What this function checks:**
+> **The function makes these checks, in this order:**
 >
-> 1. The item has an **on-use** spell (an `ItemStats` spell slot with
->    trigger `ON_USE`). Items with no usable effect — plain gear,
->    materials, on-equip procs — return `(nil, nil)`.
-> 2. The item's **use requirements** are met: RequiredLevel, and the
->    AllowableClass / AllowableRace masks. (These gate *activation* —
->    a too-low-level potion, a class-specific trinket — so they belong
->    here, unlike equip-only requirements.)
-> 3. The on-use spell is castable now — delegated to the engine's own
->    spell-castability helper (`FUN_SPELL_IS_USABLE`, `0x006E3D60`),
->    which folds in shapeshift/form, mechanic immunities, aura state,
->    and the power check. Insufficient power is the *only* condition
->    that sets `noMana=true`.
+> 1. You carry the item: equipped or in bags 0 to 4. An item that you do
+>    not have is not usable.
+> 2. The on-use effect is not held. Some effects stay unusable while they
+>    are active, and their cooldown starts only when the effect ends. A
+>    cooldown that is running does not make the item unusable.
+> 3. If the item has no on-use effect, it is usable while you control
+>    your character.
+> 4. Otherwise, the result is the same test that `IsUsableSpell` uses for
+>    the on-use spell. `noMana` is `true` only when the power cost is the
+>    one requirement that fails.
 >
-> Like `C_Item.IsEquippableItem`, this is a synchronous cache peek:
-> uncached items return `(nil/false, nil/false)` with no async load
-> fired. Call `C_Item.RequestLoadItemDataByID` first and re-check on
-> `ITEM_DATA_LOAD_RESULT` if you need it to wait.
+> The item's level, class and race requirements are not part of this
+> test. If you use an item that you cannot use, the game shows its usual
+> error.
 >
-> The on-use spell lookup is shared with
-> [`C_Item.GetItemSpell`](#c_itemgetitemspellitem)
-> (`Item::Spell::FindOnUseSpellIDInRecord`).
+> Like `C_Item.IsEquippableItem`, this function only reads the item
+> cache. An item that is not cached returns `(nil/false, nil/false)`, and
+> the function does not load it. To wait for the data, call
+> `C_Item.RequestLoadItemDataByID` first, then check again on
+> `ITEM_DATA_LOAD_RESULT`.
 
 ### `C_Item.IsEquippedItem(item)`
 

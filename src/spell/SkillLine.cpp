@@ -217,8 +217,8 @@ int __fastcall Script_GetSkillLineName(void *L) {
 // Returns `nil` (nothing) when the player hasn't learned the line
 // (`FUN_SKILL_LINE_TO_SLOT` reports no slot), for bad input, or before
 // the player object / skill sub-struct is resident (character select).
-// Reads the same CGPlayer `+0xE68` skill table `Player::CanUseItem`'s
-// RequiredSkill gate uses; ranks verified there (Tailoring 261/300, …).
+// Reads the CGPlayer `+0xE68` skill table; ranks verified in-game against
+// Script_GetTradeSkillLine / Script_GetSkillLineInfo (Tailoring 261/300).
 int __fastcall Script_GetSkillLineRank(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::PushNil(L);

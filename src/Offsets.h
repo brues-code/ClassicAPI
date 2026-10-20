@@ -2624,6 +2624,22 @@ enum Offsets {
     // "knows"). Read by `Spell::Usable` (IsUsableSpell) and `Item::Usable`
     // (item on-use spells). Returns 0 cleanly pre-world (no player).
     FUN_SPELL_IS_USABLE = 0x006E3D60,
+    // The player-control flag: nonzero while the player controls the
+    // character, cleared with PLAYER_CONTROL_LOST (fear, charm, taxi).
+    // FUN_SPELL_IS_USABLE reads it for spells; the action bar's per-slot
+    // usable recompute (FUN_004E5050) reads it for a slot with no spell, so
+    // an item with no on-use spell is usable only with control (benilla-re
+    // ui/actionbar#slots-with-no-spell).
+    VAR_PLAYER_HAS_CONTROL = 0x00B4B3E4,
+    // IsItemSpellHeld — `uint32_t __fastcall(int itemID)`: nonzero when the
+    // spell history holds a disabled-while-active record for the item's
+    // first on-use spell (a spell marked disabled while active, whose
+    // cooldown waits for its effect to end).
+    // Looks the record up with a callback, so call it only for a cached item
+    // or it queries. The action bar's item gate (FUN_004E5050, 0x004E50D7);
+    // 4.3.4's Spell_C_NeedsCooldownEvent. Verified by decompile (benilla-re
+    // spell/cooldowns#held-records).
+    FUN_ITEM_SPELL_HELD = 0x006E2FC0,
 
     // Effective spell/channel duration (ms):
     // `__fastcall int(const void *spellRecord, int unit /*0 = player,
@@ -3820,17 +3836,6 @@ enum Offsets {
     // (FUN_004a67a0 → WORLD_MAP_UPDATE). Its only references are those two
     // DATA xrefs. Map::Exploration co-hooks it for MAP_EXPLORATION_UPDATED.
     FUN_EXPLORED_BITS_CHANGED = 0x004A6460,
-
-    // PvP rank fields within the CGPlayer +0xE68 sub-struct (siblings of
-    // the combo-point byte at +0x1029). Read by the item tooltip's
-    // "Requires <rank>" / PVP_MEDAL red-text logic (FUN_0052B650) and
-    // mirrored by C_PlayerInfo.CanUseItem:
-    //   +0x102B  u8   current PvP honor rank (compared >= item
-    //                 RequiredHonorRank).
-    //   +0x1034  u32  earned PvP-medal/rank bitmask (item RequiredCityRank
-    //                 R passes when bit (R-1) is set).
-    OFF_CGPLAYER_HONOR_RANK = 0x102B,
-    OFF_CGPLAYER_PVP_MEDALS = 0x1034,
 
     // CGObject's `GetPosition` virtual — vtable slot 5 (offset 0x14).
     // Signature: `__thiscall(this, float outBuf[3]) → float *position`.
@@ -5130,7 +5135,7 @@ enum Offsets {
     // Fireball 133's row and the ENTIRE Mind Flay chain (15407, 17311..
     // 17314, 18807) hold 0 — so treat it as "known next rank", not as a
     // complete rank graph. The engine's own rank-chain walk
-    // (`FUN_SPELL_RANK_CHAIN_KNOWN`) reads this same field and has the same
+    // (CGUnit_C::KnowsHigherRank, 0x0060C8D0) reads this same field and has the same
     // gap. `Talent::SpellSet` follows it to extend a talent's rank-1 spell
     // to its trained higher ranks, then falls back to a shared spell name.
     OFF_SLA_SUPERCEDED_BY_SPELL = 0x20,
@@ -5219,6 +5224,17 @@ enum Offsets {
     // general than walking the per-skill-line table for individual
     // armor proficiencies.
     VAR_PROFICIENCY_TABLE = 0x00C4D4A0,
+    // CGPlayer_C::CanUseItem — `__thiscall(player, ItemStats_C *record,
+    // uint32_t *error) -> int`, `ret 8`. Nonzero when the player meets the
+    // record's level, class/race masks, proficiency (VAR_PROFICIENCY_TABLE,
+    // mask 0 passes), required skill, required spell or a higher rank, honor
+    // rank, PvP medal bit and reputation. On refusal `error` is 0x17
+    // ERR_ITEM_NOT_FOUND (null record), 7 ERR_PROFICIENCY_NEEDED or 0x9C
+    // ERR_CANT_USE_ITEM. The engine's "can use" for loot, quest rewards,
+    // merchant, auction, mail and trade, and the Bind on Equip confirmation.
+    // 4.3.4: CGPlayer_C::CanUseItem (Player_C.cpp). Verified by decompile
+    // (benilla-re objectlayer/playercombat#using-an-item).
+    FUN_PLAYER_CAN_USE_ITEM = 0x005EA930,
 
     // Spell.dbc `BaseLevel` — the level a spell becomes available
     // (trainer offers it, quest reward grants it, etc.). Distinct
@@ -6234,17 +6250,6 @@ enum Offsets {
     // bar, so SPELL_PUSHED_TO_ACTIONBAR has no engine source.
     FUN_LEARN_SPELL = 0x004B25B0,
     FUN_UNLEARN_SPELL = 0x004B2C50,
-
-    // Spell-rank-chain knowledge check — `char __thiscall(player /*ecx*/,
-    // spellID)`. Walks `spellID`'s forward rank chain (the class/race-
-    // resolved chain via `0x0060C7C0`) and returns nonzero if the player
-    // knows any *higher* rank than `spellID` (each node tested through the
-    // bitmap helper `0x0060C740`). The item tooltip's "Requires <spell>"
-    // gate is `bitmap(spellID) OR this(spellID)`; C_PlayerInfo.CanUseItem
-    // mirrors that so a RequiredSpell satisfied by a higher known rank
-    // still passes. Does NOT test `spellID` itself — that's the caller's
-    // direct bitmap check.
-    FUN_SPELL_RANK_CHAIN_KNOWN = 0x0060C8D0,
 
     // Per-spell cooldown query. `__fastcall(int spellID, int bookType,
     // int *outDuration, int *outStart, int *outEnable)`. Same path
