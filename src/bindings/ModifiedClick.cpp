@@ -21,8 +21,11 @@
 // gains the modified-click half 4.3.4 has, through a co-hook on the step:
 //
 //   - Load (Bindings.xml): `<ModifiedClick action="X" default="Y"/>` defines
-//     an action and its default. The engine loader warns on the node it does
-//     not know; we register the actions from the same file first.
+//     an action and its default. We register the actions from the same file
+//     first. The engine's loop tests each root tag inline and logs "Unknown
+//     node type" for anything but <Binding>; 4.3.4's loop has a ModifiedClick
+//     branch there, so the loader runs with a status that drops exactly that
+//     warning for a ModifiedClick node and forwards everything else.
 //   - LoadBindings (a binding file into a set): the set starts from the
 //     defaults, then `modifiedclick BINDING ACTION` lines apply.
 //   - SaveBindings: `modifiedclick` lines for every action not left at its
@@ -40,6 +43,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/EngineIO.h"
+#include "baselib/Ascii.h"
 #include "frame/ClickEvents.h"
 #include "input/Modifier.h"
 #include "xml/FrameLoad.h"
@@ -241,12 +245,36 @@ void LoadModifiedClicks(const char *path, void *status) {
     reinterpret_cast<TreeFree_t>(Offsets::FUN_XML_TREE_FREE)(tree);
 }
 
+// The status the engine loader is given: a CStatus whose only used slot,
+// Add (vtable +0xC), forwards to the real status. Load passes at most two
+// string arguments after the format, and Add is __cdecl, so taking exactly
+// two is safe whatever the format consumes.
+struct LoadStatus {
+    const void *const *vtable;
+    void *real;
+};
+
+void __cdecl LoadStatusAdd(LoadStatus *self, int level, const char *fmt, const char *a,
+                           const char *b) {
+    if (fmt == reinterpret_cast<const char *>(Offsets::STR_BINDINGS_UNKNOWN_NODE) &&
+        a != nullptr && Ascii::EqualCI(a, "ModifiedClick"))
+        return; // a node this loader now knows (LoadModifiedClicks)
+    using Add_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
+    const void *vtable = Game::Read<const void *>(self->real, 0);
+    Game::Read<Add_t>(vtable, Offsets::VTBL_XML_STATUS_ADD)(self->real, level, fmt, a, b);
+}
+
+static_assert(Offsets::VTBL_XML_STATUS_ADD == 3 * sizeof(void *));
+const void *const kLoadStatusVtable[4] = {nullptr, nullptr, nullptr,
+                                          reinterpret_cast<const void *>(&LoadStatusAdd)};
+
 int __fastcall LoadFile_h(void *mgr, void *edx, const char *path, void *md5, void *status) {
+    if (status == nullptr)
+        status = reinterpret_cast<void *>(Offsets::VAR_BINDINGS_LOAD_STATUS);
     if (path != nullptr)
-        LoadModifiedClicks(path, status != nullptr
-                                     ? status
-                                     : reinterpret_cast<void *>(Offsets::VAR_BINDINGS_LOAD_STATUS));
-    return g_loadFileOriginal(mgr, edx, path, md5, status);
+        LoadModifiedClicks(path, status);
+    LoadStatus filtered{kLoadStatusVtable, status};
+    return g_loadFileOriginal(mgr, edx, path, md5, &filtered);
 }
 
 // --- binding files: modifiedclick lines -----------------------------------

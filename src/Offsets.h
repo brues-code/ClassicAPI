@@ -108,8 +108,11 @@ enum Offsets {
     // with FUN_XML_TREE_LOAD and loads every root `<Binding>`; any other node
     // gets "Unknown node type %s in %s". Called for FrameXML's Bindings.xml
     // (0x00490018) and for each addon's (FUN_0051F240).
+    // The status is used only through `Add` (vtable +0xC), with at most two
+    // string arguments after the format.
     FUN_BINDINGS_LOAD_FILE = 0x004B6F70,
     VAR_BINDINGS_LOAD_STATUS = 0x00B7124C,
+    STR_BINDINGS_UNKNOWN_NODE = 0x00846FB4, // "Unknown node type %s in %s" (file bytes)
     // CGUIBindings::LoadBindings — `void __fastcall(int set, const char *text)`:
     // clears the set, then binds every `bind KEY COMMAND` line. Sources:
     // WTF\DefaultBindings.wtf into set 0 (FUN_004B62B0), then the account /
