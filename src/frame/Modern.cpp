@@ -125,8 +125,8 @@ bool CallRegionNumber(void *L, uintptr_t fn, double *out) {
 // callers the base registration exists to serve. Accepting the four ids
 // states that set directly instead of resting on an assumption about which
 // classes the engine's `IsA` treats as Regions. Both methods only read
-// Region-base state, so the wider set is sound. Non-raising: each reports
-// false for an unusable self, the contract they already had.
+// Region-base state, so the wider set is sound. A bad self raises the
+// engine's own "this" errors, as 4.3.4's FrameScript_GetObjectThis does.
 constexpr uintptr_t kRegionFamilyTypeIds[] = {
     Offsets::VAR_REGION_LUA_TYPE_ID,
     Offsets::VAR_FRAME_LUA_TYPE_ID,
@@ -138,7 +138,7 @@ void *ResolveRegionFamily(void *L) {
     return Game::Lua::ResolveTypedObjectAny(
         L, 1, kRegionFamilyTypeIds,
         static_cast<int>(sizeof(kRegionFamilyTypeIds) / sizeof(kRegionFamilyTypeIds[0])),
-        /*raiseError=*/false);
+        /*raiseError=*/true);
 }
 
 int __fastcall Script_IsMouseOver(void *L) {
@@ -149,10 +149,6 @@ int __fastcall Script_IsMouseOver(void *L) {
     const double offRight = Game::Lua::IsNumber(L, 5) ? Game::Lua::ToNumber(L, 5) : 0.0;
 
     void *obj = ResolveRegionFamily(L);
-    if (obj == nullptr) {
-        Game::Lua::PushBool(L, false);
-        return 1;
-    }
     const float effScale = Game::Read<float>(obj, Offsets::OFF_REGION_EFFECTIVE_SCALE);
 
     double left, right, top, bottom;
@@ -175,7 +171,8 @@ int __fastcall Script_IsMouseOver(void *L) {
     top += offTop;
     bottom += offBottom;
 
-    const bool inside = x >= left && x <= right && y >= bottom && y <= top;
+    // Strict, as 4.3.4's CScriptRegion::IsMouseOver: an edge is outside.
+    const bool inside = x > left && x < right && y > bottom && y < top;
     Game::Lua::PushBool(L, inside);
     return 1;
 }
@@ -219,7 +216,7 @@ int __fastcall Script_IsDragging(void *L) {
         ctx != nullptr
             ? Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_DRAG_TARGET)
             : nullptr;
-    Game::Lua::PushBool(L, self != nullptr && self == dragTarget);
+    Game::Lua::PushBool(L, self == dragTarget);
     return 1;
 }
 

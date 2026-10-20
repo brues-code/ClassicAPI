@@ -5970,10 +5970,9 @@ negative `bottomOffset` / `leftOffset` enlarge the hit area). Registered
 on the Region base, so it works on any
 region type — frames, buttons, textures, fontstrings.
 
-Uses the engine's own rect getters and cursor position, dividing the
-cursor by the region's effective scale — the exact computation addons
-have long open-coded as `MouseIsOver()`. Returns `false` for a
-region with no resolved rect (unpositioned / zero-size).
+The test uses the scale of the region. A cursor exactly on an edge is
+outside the rectangle. A region with no position or no size returns
+`false`.
 
 ```lua
 ItemRefTooltip:IsMouseOver()                 -- true while hovering the tooltip
