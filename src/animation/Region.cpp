@@ -35,7 +35,11 @@
 // is DRAWN, never a frame's rect: a frame hands them to every texture and font
 // string below it. A texture moves the four corners its draw record points at
 // (+0xD4, TL BL TR BR, the order of 4.3.4's m_positions); a font string moves
-// its text block's string position. Their stored base is what the engine
+// its text block's string position, and is turned and scaled about its origin
+// when its glyphs are baked (4.3.4 bakes them again whenever the string's
+// rotation or scale changes; so does this, through the engine's node
+// invalidate). The glyphs are scaled, not drawn at a larger font size: one
+// size per update would fill the glyph cache. Their stored base is what the engine
 // itself lays out (4.3.4's StoreAnimPosition): a texture's corners from its
 // rect through the engine's corner store, a font string's inset x layout
 // scale + its rect's min corner. When the layout moves a region mid-animation,
@@ -59,6 +63,7 @@
 #include "Offsets.h"
 #include "frame/Alpha.h"
 #include "frame/Destruction.h"
+#include "texture/Transform.h"
 
 #include <algorithm>
 #include <cmath>
@@ -83,10 +88,20 @@ struct AnimData {
     // m_position[4]: a texture's four corners {x, y, z}; a font string uses
     // the first as its string position.
     float position[12] = {};
+    // A font string's animated rotation and scale (4.3.4's m_rotation /
+    // m_scale over the animation base), and what its glyphs were last baked
+    // with.
+    float rotation = 0.0f;
+    float scale = 1.0f;
+    float bakedRotation = 0.0f;
+    float bakedScale = 1.0f;
 };
 
 std::unordered_map<void *, State> g_states;
 std::unordered_map<void *, AnimData> g_data;
+// Font strings whose rotation or scale an update reset: checked against what
+// they were baked with once the update has run.
+std::vector<void *> g_touchedStrings;
 // Regions (not frames) with groups: their frame's update has to look at its
 // regions.
 int g_regionsWithGroups = 0;
@@ -100,6 +115,7 @@ using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
 using NdcToDdc_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 using SizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
+using InvalidateNode_t = void(__fastcall *)(void *node);
 
 FrameUpdate_t g_origFrameUpdate = nullptr;
 SizeChanged_t g_origTextureSizeChanged = nullptr;
@@ -207,6 +223,21 @@ void StoreAnimPosition(void *region, AnimData &data) {
     }
 }
 
+void *StringNode(void *fontString) {
+    void *block = StringBlock(fontString);
+    return block != nullptr ? Game::Read<void *>(block, Offsets::OFF_TEXTBLOCK_NODE) : nullptr;
+}
+
+// GxuFontStringInvalidate after GxuFontSetRotation / GxuFontSetScale: the
+// glyphs are baked again on the next paint, where FontStringBaked turns and
+// scales them. Only when the values differ from the baked ones.
+void RebakeIfChanged(void *fontString, const AnimData &data) {
+    if (data.rotation == data.bakedRotation && data.scale == data.bakedScale)
+        return;
+    if (void *node = StringNode(fontString))
+        reinterpret_cast<InvalidateNode_t>(Offsets::FUN_TEXT_NODE_INVALIDATE)(node);
+}
+
 // AnimData_ResetPositionData: the region goes back to where the layout puts it.
 void ResetPosition(void *region, AnimData &data) {
     data.hasPosition = false;
@@ -220,6 +251,9 @@ void ResetPosition(void *region, AnimData &data) {
             StringBase(region, base);
             SetStringPos(block, base);
         }
+        data.rotation = 0.0f;
+        data.scale = 1.0f;
+        RebakeIfChanged(region, data);
     }
 }
 
@@ -304,6 +338,11 @@ void __fastcall FrameUpdate_h(void *frame, void *edx, float elapsed) {
     if (g_regionsWithGroups > 0)
         Game::ForEachFrameListObject(frame, Offsets::OFF_FRAME_REGION_LIST,
                                      [elapsed](void *region) { UpdateGroups(region, elapsed); });
+    // The font strings this update turned or scaled, or put back.
+    for (void *fontString : g_touchedStrings)
+        if (const AnimData *data = DataOf(fontString))
+            RebakeIfChanged(fontString, *data);
+    g_touchedStrings.clear();
 }
 
 const Game::HookAutoRegister _frameUpdateHook{Offsets::FUN_FRAME_ON_UPDATE, reinterpret_cast<void *>(&FrameUpdate_h),
@@ -564,6 +603,12 @@ void PreOnAnimUpdate(void *region) {
         } else if (IsFontString(region)) {
             if (void *block = StringBlock(region))
                 SetStringPos(block, data->position);
+            // CSimpleFontString::PreOnAnimUpdate: back to the base rotation
+            // and scale.
+            AnimData *own = DataOf(region);
+            own->rotation = 0.0f;
+            own->scale = 1.0f;
+            g_touchedStrings.push_back(region);
         }
     }
     if (frame)
@@ -664,6 +709,16 @@ void GetOriginOffset(int origin, const float *c, float offsetX, float offsetY, f
     }
 }
 
+// The font string that takes a position animation, or nullptr.
+AnimData *AnimatedString(void *region, void *target) {
+    if (target != nullptr && target != region)
+        return nullptr;
+    AnimData *data = DataOf(region);
+    if (data == nullptr || !data->hasPosition || !IsFontString(region))
+        return nullptr;
+    return data;
+}
+
 // The texture that takes a position animation (the target filter of the
 // region overrides), or nullptr.
 float *AnimatedCorners(void *region, void *target) {
@@ -685,7 +740,13 @@ void AddAnimScale(void *region, void *target, int origin, float offsetX, float o
         ForEachChild(region, [=](void *child) { AddAnimScale(child, target, origin, offsetX, offsetY, x, y); });
         return;
     }
-    // CSimpleTexture::AddAnimScale -> ApplyScaleAnim. Font strings: not yet.
+    // CSimpleFontString::AddAnimScale: the text grows from its origin by the
+    // x scale; the last scale animation of the update wins.
+    if (AnimData *data = AnimatedString(region, target)) {
+        data->scale = 1.0f - x;
+        return;
+    }
+    // CSimpleTexture::AddAnimScale -> ApplyScaleAnim.
     float *c = AnimatedCorners(region, target);
     if (c == nullptr)
         return;
@@ -705,7 +766,13 @@ void AddAnimRotation(void *region, void *target, int origin, float offsetX, floa
         ForEachChild(region, [=](void *child) { AddAnimRotation(child, target, origin, offsetX, offsetY, radians); });
         return;
     }
-    // CSimpleTexture::AddAnimRotation -> ApplyRotationAnim. Font strings: not yet.
+    // CSimpleFontString::AddAnimRotation: the text turns about its origin;
+    // the last rotation animation of the update wins.
+    if (AnimData *data = AnimatedString(region, target)) {
+        data->rotation = radians;
+        return;
+    }
+    // CSimpleTexture::AddAnimRotation -> ApplyRotationAnim.
     float *c = AnimatedCorners(region, target);
     if (c == nullptr)
         return;
@@ -719,6 +786,18 @@ void AddAnimRotation(void *region, void *target, int origin, float offsetX, floa
         c[i * 3 + 0] = x * cs - y * sn + cx;
         c[i * 3 + 1] = x * sn + y * cs + cy;
     }
+}
+
+void FontStringBaked(void *node, void *fontString) {
+    if (g_data.empty())
+        return;
+    AnimData *data = DataOf(fontString);
+    if (data == nullptr)
+        return;
+    if (data->rotation != 0.0f || data->scale != 1.0f)
+        Texture::Transform::ScaleRotateFontStringNode(node, data->scale, data->rotation);
+    data->bakedRotation = data->rotation;
+    data->bakedScale = data->scale;
 }
 
 void *FindRegionByName(const char *name) {

@@ -1578,15 +1578,19 @@ except `OnLoop`.
 - When the last group with a `Translation`, `Scale` or `Rotation` animation
   stops or finishes, the drawing goes back to its place.
 
-`Scale` and `Rotation` change the drawing of textures in the same way:
+`Scale` and `Rotation` change the drawing in the same way:
 
-- They scale or turn the texture around the origin from `SetOrigin`. The
+- On a texture, they scale or turn it around the origin from `SetOrigin`. The
   default origin is the center. The origin offset follows the direction of
   the texture's bottom edge.
 - A positive angle turns counter-clockwise.
 - More than one animation adds up in the order they apply. For example, a
   `Rotation` after a `Translation` turns around the moved texture.
-- Font strings do not scale or turn yet.
+- On a font string, the text scales and turns around the point where its
+  first line starts, and `SetOrigin` does not change that point. A font
+  string uses only the x value of `SetScale`. When more than one `Scale`
+  or `Rotation` animation applies to one font string, the last one wins.
+- Scaled text is stretched. It is not drawn again at the larger font size.
 
 ### `<Animations>` in XML
 

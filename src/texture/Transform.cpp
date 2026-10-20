@@ -680,6 +680,22 @@ static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 // ApplyToNode / Transform.h for the timing contract.
 void RotateFontStringNode(void *node, void *fs) { ApplyToNode(node, fs, /*fresh=*/true); }
 
+void ScaleRotateFontStringNode(void *node, float scale, float angle) {
+    if (node == nullptr)
+        return;
+    auto *n = reinterpret_cast<uint8_t *>(node);
+    const float c = std::cos(angle) * scale;
+    const float s = std::sin(angle) * scale;
+    ForEachVert(n, [c, s](float *v) {
+        const float x = v[0];
+        const float y = v[1];
+        v[0] = x * c - y * s;
+        v[1] = x * s + y * c;
+    });
+    if (angle != 0.0f)
+        InsetGlyphUVs(n);
+}
+
 bool GetRotation(void *region, float *angleRad, float *cxN, float *cyN) {
     auto it = g_xf.find(region);
     if (it == g_xf.end() || it->second.angle == 0.0f)

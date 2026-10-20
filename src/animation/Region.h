@@ -44,6 +44,9 @@ void AddAnimScale(void *region, void *target, int origin, float offsetX, float o
 // CScriptRegion::AddAnimRotation(target, origin, offset, radians),
 // counter-clockwise.
 void AddAnimRotation(void *region, void *target, int origin, float offsetX, float offsetY, float radians);
+// A font string's glyphs were just baked (the draw builder): turn and scale
+// them by its animation, and remember what they were baked with.
+void FontStringBaked(void *node, void *fontString);
 // CScriptObject::GetScriptObjectByName for a region (Animation:Play's
 // target lookup): the region named `name`, or nullptr.
 void *FindRegionByName(const char *name);
