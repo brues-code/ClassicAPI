@@ -281,6 +281,7 @@ build instructions.
   - [`texture:SetSpriteSheetCell(cell, numRows, numColumns)`](#texturesetspritesheetcellcell-numrows-numcolumns)
   - [`texture:SetDesaturation(amount)`](#texturesetdesaturationamount)
   - [`texture:GetDesaturation()`](#texturegetdesaturation)
+  - [`IsDesaturateSupported()`](#isdesaturatesupported)
   - [Texture size and shape](#texture-size-and-shape)
   - [`fontstring:SetRotation(angle [, cx, cy])`](#fontstringsetrotationangle--cx-cy)
   - [`editBox:SetCursorPosition(position)`](#editboxsetcursorpositionposition)
@@ -6605,6 +6606,17 @@ that `SetDesaturated(true)` made gray returns `1`.
 The texture stores the amount in 255 steps, so the value that you read back can
 differ a little from the value that you set. For example, `0.5` reads back as
 `0.50196`.
+
+### `IsDesaturateSupported()`
+
+Returns `1` when the graphics card can draw desaturated textures. Returns
+nothing (`nil`) when it cannot.
+
+```lua
+if not IsDesaturateSupported() then
+  icon:SetVertexColor(0.5, 0.5, 0.5)   -- gray it by hand
+end
+```
 
 ### Texture size and shape
 

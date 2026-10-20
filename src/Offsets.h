@@ -10589,6 +10589,7 @@ enum Offsets {
     // data only exercises that for vertex shaders, which is why the backport
     // bakes the amount into a `def` constant instead of a param.
     FUN_SIMPLETEXTURE_SET_SHADER = 0x00770650, // __thiscall(region, CGxShader*): writes the slot, FUN_0077FDF0 re-batch iff changed
+    FUN_UI_GET_PIXEL_SHADER = 0x00770620,      // __fastcall(index): s_uiPixelShaders[index] iff loaded and valid (FUN_0058B360), else 0; 1 = Desaturate (Script_SetDesaturated's gate; 3.3.5 GetImageModePixelShader)
     VAR_UI_SHADER_DESATURATE = 0x00CF4CD4,     // DAT_00CF4CD0[1]: stock Desaturate.bls CGxShader*; released by FUN_0076FDD0 at shutdown
     FUN_SCRIPT_TEXTURE_SET_DESATURATED = 0x0079C1E0, // Texture method batch entry 20; flag via FUN_LUA_TO_BOOLEAN_LOOSE(L, 2, 1)
     FUN_GX_SHADER_CREATE = 0x0058B2B0,         // __fastcall(type /*ecx*/, CGxShader **out /*edx*/, const char *path)

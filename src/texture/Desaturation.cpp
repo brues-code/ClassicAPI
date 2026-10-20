@@ -68,6 +68,7 @@ using CompilePs_t = void(__thiscall *)(void *device, void *shader);
 using SetShader_t = void(__thiscall *)(void *region, void *shader);
 using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 using ScriptFn_t = int(__fastcall *)(void *L);
+using GetUiPixelShader_t = void *(__fastcall *)(int index);
 
 // --- shader bytecode --------------------------------------------------------
 // D3D9 shader tokens, one dword each, decoded against the stock Desaturate.bls
@@ -388,6 +389,22 @@ int __fastcall Script_SetDesaturated(void *L) {
     return 1;
 }
 
+// IsDesaturateSupported() -> 1, or nothing. The engine's own support test, as
+// 3.3.5's Script_IsDesaturateSupported (0x00511FB0) makes it: the stock UI
+// Desaturate shader (index 1) is loaded and valid - the same gate the engine's
+// Script_SetDesaturated applies.
+int __fastcall Script_IsDesaturateSupported(void *L) {
+    if (reinterpret_cast<GetUiPixelShader_t>(Offsets::FUN_UI_GET_PIXEL_SHADER)(1) == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, 1.0);
+    return 1;
+}
+
+const Game::Doc::Field kIsDesaturateSupportedRets[] = {Game::Doc::Opt("supported", "number")};
+const Game::Doc::Function kIsDesaturateSupported{
+    "Returns 1 when textures can be desaturated, and nothing when they cannot.", {}, kIsDesaturateSupportedRets,
+    "TextureGlobals"};
+
 // --- diagnostics ------------------------------------------------------------
 
 // _classicapi_DesaturationInfo() -> profile, isD3d, created, failed, enabled
@@ -440,6 +457,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods,
         static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+    Game::Lua::RegisterGlobalFunction("IsDesaturateSupported", &Script_IsDesaturateSupported,
+                                      &kIsDesaturateSupported);
     Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationInfo", &Script_DesaturationInfo);
     Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationEnable",
                                       &Script_DesaturationEnable);
