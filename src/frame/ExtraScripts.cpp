@@ -36,8 +36,8 @@ int __fastcall Resolver_h(void *frame, void *edx, const char *name) {
     for (const Script *s = g_head; s != nullptr; s = s->next) {
         if (!Ascii::EqualCI(name, s->nameLower))
             continue;
-        if (!Game::Lua::IsA(frame, s->typeIdVar))
-            return 0;
+        if (!Game::Lua::IsA(frame, s->typeIdVar)) // another class may have the name
+            continue;
         Script::Cell &cell = s->cells[frame];
         return reinterpret_cast<int>(cell.v);
     }

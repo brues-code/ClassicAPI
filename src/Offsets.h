@@ -3140,6 +3140,37 @@ enum Offsets {
     // `ret 4`: drag arming, then the OnMouseDown script with the button name.
     FUN_FRAME_ON_MOUSE_DOWN = 0x0076BF70,
 
+    // StatusBar's (Script StatusBar:SetMinMaxValues reads it at 0x0078F4B6).
+    VAR_STATUSBAR_LUA_TYPE_ID = 0x00CF4E5C,
+    // The value block a Slider (vtable 0x0081CF60) and a StatusBar (0x0081CA68)
+    // share in shape: flags, then min, then the slider's span (max - min) or
+    // the bar's max, then the value. Read and written by both classes'
+    // SetMinMaxValues / SetValue below.
+    OFF_VALUE_FLAGS = 0x314,
+    OFF_VALUE_MIN = 0x318,
+    OFF_SLIDER_SPAN = 0x31C,
+    OFF_STATUSBAR_MAX = 0x31C,
+    OFF_VALUE_VALUE = 0x320,
+    VALUE_FLAG_RANGE_SET = 0x2,
+    VALUE_FLAG_VALUE_SET = 0x4,
+    // CSimpleSlider::SetMinMaxValues — `void __thiscall(slider, float min,
+    // float max)`, `ret 8`: stores min and max - min, ORs 0x3 into the flags,
+    // then with VALUE_FLAG_VALUE_SET calls FUN_SLIDER_SET_VALUE on the value.
+    // Called by Slider:SetMinMaxValues (0x00790874), LoadXML and SetValueStep.
+    FUN_SLIDER_SET_MIN_MAX_VALUES = 0x007898F0,
+    // CSimpleSlider::SetValue — `void __thiscall(slider, float)`, `ret 4`.
+    FUN_SLIDER_SET_VALUE = 0x00789930,
+    // CSimpleStatusBar::SetMinMaxValues — `void __thiscall(bar, float min,
+    // float max)`, `ret 8`: stores min (max when min > max) and max, ORs 0x3
+    // into the flags, then with VALUE_FLAG_VALUE_SET clears it and calls the
+    // bar's SetValue (vtable OFF_VMT_STATUSBAR_SET_VALUE) on the value. Called
+    // by StatusBar:SetMinMaxValues (0x0078F584), LoadXML and the unit-frame /
+    // nameplate health bars.
+    FUN_STATUSBAR_SET_MIN_MAX_VALUES = 0x00783270,
+    // CSimpleStatusBar::SetValue's vtable slot (0x007832D0), `void
+    // __thiscall(bar, float)`, as FUN_STATUSBAR_SET_MIN_MAX_VALUES calls it.
+    OFF_VMT_STATUSBAR_SET_VALUE = 0x90,
+
     // CFrameScriptObject vtable slot 4 — the `IsA(typeId)` predicate every
     // frame class implements, and the gate every engine method applies to its
     // `self` before touching it. `char __thiscall(void *self, int typeId)`.

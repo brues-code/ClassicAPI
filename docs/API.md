@@ -295,6 +295,7 @@ build instructions.
   - [`editBox:Enable()` / `editBox:Disable()` / `editBox:IsEnabled()`](#editboxenable--editboxdisable--editboxisenabled)
   - [`slider:Enable()` / `slider:Disable()` / `slider:IsEnabled()`](#sliderenable--sliderdisable--sliderisenabled)
   - [`OnEnable` and `OnDisable` (scripts)](#onenable-and-ondisable-scripts)
+  - [`OnMinMaxChanged(self, min, max)` (script)](#onminmaxchangedself-min-max-script)
   - [`editBox:IsInIMECompositionMode()`](#editboxisinimecompositionmode)
   - [`OnCharComposition(self, text)` (script)](#oncharcompositionself-text-script)
   - [`OnTextChanged(self, userInput)` (script)](#ontextchangedself-userinput-script)
@@ -6752,6 +6753,24 @@ edit box or a slider runs them from its `Enable()` and `Disable()`.
 ```lua
 button:SetScript("OnDisable", function(self) self:SetAlpha(0.5) end)
 button:SetScript("OnEnable", function(self) self:SetAlpha(1) end)
+```
+
+### `OnMinMaxChanged(self, min, max)` (script)
+
+A slider or a status bar runs this script when `SetMinMaxValues` changes
+its range. `min` and `max` are the new range. Set it with `SetScript`,
+`HookScript`, or in XML.
+
+- A call that does not change the range does not run the script.
+- The script runs before the frame applies its value to the new range, so
+  `OnValueChanged` runs after it.
+- A status bar whose `min` is more than its `max` gets `max` for both.
+- The range in the frame's XML also runs the script when the frame loads.
+
+```lua
+bar:SetScript("OnMinMaxChanged", function(self, min, max)
+    self.text:SetText(min .. " - " .. max)
+end)
 ```
 
 ### `editBox:IsInIMECompositionMode()`

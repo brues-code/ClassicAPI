@@ -4079,7 +4079,7 @@ Each entry still needs the usual check of how the engine does it before building
 - **DONE** (`src/slider/Enable.cpp`). **Slider** `Enable` / `Disable` / `IsEnabled`: frame flag `0x400`, read by the
   thumb-drag path (`CSimpleSlider.cpp:317`); `Disable` runs OnDisable unless
   loading (we have OnEnable/OnDisable in `src/frame/EnableScripts.cpp`).
-- **OnMinMaxChanged** (Slider, StatusBar): `SetMinMaxValues` runs it with
+- **DONE** (`src/frame/MinMaxChanged.cpp`). **OnMinMaxChanged** (Slider, StatusBar): `SetMinMaxValues` runs it with
   `(min, max)` when the range changes (`CSimpleStatusBar.cpp:39/141`). 1.12 has
   no such script.
 - **StatusBar** `SetReverseFill` / `GetReverseFill`, `SetRotatesTexture` /
