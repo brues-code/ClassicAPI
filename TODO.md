@@ -4013,3 +4013,104 @@ and OnLoad.
 the code: a `boolean` value other than true/false, a `number` that fails to
 parse, and whether `GetTemplateInfo` includes inherited templates' entries
 (plan: the node's own only).
+
+## 105. Button methods — small to medium
+
+Button methods later clients have that 1.12 + ClassicAPI lack. 4.3.4 adds three
+over 1.12 (`CSimpleButton_Scripts.cpp`); retail's `SimpleButtonAPIDocumentation`
+(`_classic_era_` install) lists the rest. `Get/SetNormalFontObject` are done
+(`src/frame/Modern.cpp`).
+
+**From 4.3.4 (decomp available).**
+- `SetMotionScriptsWhileDisabled(enabled)` / `GetMotionScriptsWhileDisabled()`
+  — the one real new capability: tooltips on disabled buttons. 4.3.4
+  `CSimpleButton::OnLayerCursorEnter/Exit` (`CSimpleButton.cpp:827/844`): an
+  enabled button runs the frame's enter/leave and the label refresh; a disabled
+  one does nothing unless the flag is set, then shows `m_hoverFrame` and runs
+  ONLY the OnEnter/OnLeave script (no highlight, no label refresh). 1.12 is
+  4.3.4 without the flag: `0x779490` (slot 19) / `0x7794E0` (slot 20) skip the
+  frame's enter/leave (`0x76B6A0` / `0x76B6F0`, scripts + highlight) and the
+  label refresh `0x779810` for state 0 (benilla-re `ui/button#entering-and-leaving`).
+  Needs: a per-button flag (side map, reset on reload), co-hooks on the two
+  slots, a way to run just the script (find the script runner inside
+  `0x76B6A0`), what 1.12 has for `m_hoverFrame`, and the XML attribute
+  `motionScriptsWhileDisabled` (4.3.4 `m_buttonFlags` bits 0x4 set / 0x8 value,
+  `CSimpleButton.cpp:1058`). Default false.
+- `button:SetFormattedText(fmt, ...)` — 4.3.4 formats into a 4096-byte buffer
+  and calls the button's `SetText`. We have it on font strings only
+  (`src/fontstring/Metrics.cpp`, engine `str_format` under pcall); register the
+  same on the Button registry with the button's own SetText.
+
+**From later clients (contract from retail docs only — no decomp).**
+- `SetEnabled(enabled)` — `Enable()` / `Disable()` by a bool.
+- `SetNormalAtlas` / `SetPushedAtlas` / `SetDisabledAtlas` /
+  `SetHighlightAtlas(atlas[, blendMode])` — the state texture made or reused
+  through `SetNormalTexture` etc., then `Texture::Atlas`'s `SetAtlas`.
+- `ClearNormalTexture` / `ClearPushedTexture` / `ClearDisabledTexture` /
+  `ClearHighlightTexture` — remove the state texture. Check what 1.12's
+  `SetNormalTexture(nil)` does first (`CSimpleButton::SetStateTexture`
+  `0x778FD0` deletes the old one).
+- `RegisterForMouse(buttons...)` — which mouse buttons fire OnMouseDown/Up.
+  Semantics unverified, and so is how 1.12 filters OnMouseDown/Up today.
+
+## 106. Script-object API sweep — remaining methods, globals and scripts
+
+A name-level diff, 2026-10-19: every 4.3.4 method table
+(`wowdecomp15595/Engine/Source/Frame/*_Scripts.cpp`) and retail's
+`Blizzard_APIDocumentationGenerated/Simple*APIDocumentation.lua` (`_classic_era_`
+install) against 1.12 (`docs/BlizzardScriptAPI.md`) and what `src/` registers.
+Texture (#102), FontString (#103 done) and Button (#105) have their own items.
+Each entry still needs the usual check of how the engine does it before building.
+
+### From 4.3.4 (decomp available)
+
+- **Slider** `Enable` / `Disable` / `IsEnabled`: frame flag `0x400`, read by the
+  thumb-drag path (`CSimpleSlider.cpp:317`); `Disable` runs OnDisable unless
+  loading (we have OnEnable/OnDisable in `src/frame/EnableScripts.cpp`).
+- **OnMinMaxChanged** (Slider, StatusBar): `SetMinMaxValues` runs it with
+  `(min, max)` when the range changes (`CSimpleStatusBar.cpp:39/141`). 1.12 has
+  no such script.
+- **StatusBar** `SetReverseFill` / `GetReverseFill`, `SetRotatesTexture` /
+  `GetRotatesTexture` (`CSimpleStatusBar.cpp:135`, the vertical texcoord path
+  at `:285`). Retail adds `SetFillStyle` (STANDARD / CENTER / REVERSE),
+  `SetColorFill`, `SetStatusBarDesaturated` / `Desaturation`.
+- **ScrollingMessageFrame** `SetInsertMode` / `GetInsertMode`,
+  `GetMessageInfo`, `RemoveMessagesByAccessID`, `RemoveMessagesByExtraData`,
+  `SetScrollOffset` — in C in 4.3.4 (retail moved the type to Lua).
+- **Globals** (`SimpleFrameScript_Scripts.cpp`): `GetCurrentKeyBoardFocus()`
+  (the focused edit box's wrapper, or nil); `SetMaxAnimFramerate(fps)` /
+  `GetMaxAnimFramerate()` — 4.3.4's `CSimpleAnim::s_frameInterval`, the 1/30 s
+  throttle our animation port already has; `GetText(token[, gender[, ordinal]])`
+  — gendered global-string lookup (find 1.12's `FrameScript_GetText` first).
+- Not worth it: Frame `EnableJoystick` / `IsJoystickEnabled`; the stereo-depth
+  set `SetDepth` / `GetDepth` / `GetEffectiveDepth` / `IgnoreDepth` /
+  `IsIgnoringDepth`.
+
+### From later clients (retail docs only — contract, no decomp)
+
+Likely worth it (small, ported code uses them):
+- Object: `GetParentKey` / `SetParentKey` / `ClearParentKey`, `GetDebugName`.
+- Region: `SetIgnoreParentAlpha` / `IsIgnoringParentAlpha` (4.3.4 has it
+  internally: its texture XML load calls `SetIgnoreParentAlpha` from
+  `m_regionFlags 0x10/0x20`, `CSimpleRender.cpp`),
+  `SetIgnoreParentScale` / `IsIgnoringParentScale`.
+- ScriptRegion: `GetScaledRect`, `IsRectValid`, `Intersects`.
+- Frame: `GetResizeBounds` (we have `SetResizeBounds`), `SetFixedFrameStrata` /
+  `SetFixedFrameLevel` / `HasFixed*`, `GetHighestFrameLevel` /
+  `GetRaisedFrameLevel`, `SetUsingParentLevel`, `ClearAttributes`,
+  `IsObjectLoaded`, `RotateTextures` (on `Texture::Transform`), `AbortDrag`.
+- Slider: `SetObeyStepOnDrag`, `SetStepsPerPage`, `IsDraggingThumb`,
+  `SetEnabled` (also EditBox `SetEnabled`).
+- FontString / Font: `SetFontHeight` / `GetFontHeight`, `SetTextScale` /
+  `GetTextScale`, `ClearText`, `SetTextToFit`,
+  `GetUnboundedStringWidthForText`, `FindCharacterIndexAtCoordinate`.
+- Texture: `GetTextureFilePath`, `ClearVertexOffsets`.
+- SimpleHTML `GetContentHeight`; ColorSelect alpha (`SetColorAlpha` + its
+  textures).
+
+Larger, decide separately: mouse-motion / click split and propagation
+(`SetMouseMotionEnabled`, `SetMouseClickEnabled`, `SetPropagateMouseClicks`,
+`SetPassThroughButtons`); `SetClipsChildren` (scissoring); `CreateLine` (the
+Line region type); texture slicing (`SetTextureSliceMargins` / `Mode`); Model
+camera / transform / alpha (~40 methods); `RegisterEventCallback`; EditBox
+secure-text and byte-limit options; MessageFrame fade power and message IDs.
