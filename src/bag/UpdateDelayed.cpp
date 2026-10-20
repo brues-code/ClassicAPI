@@ -16,21 +16,37 @@
 // (added 5.4.x) with exact same-semantic coalescing: addons listen
 // to DELAYED instead of BAG_UPDATE and rescan once per frame.
 //
-// See TODO #67 for the full investigation history.
+// Architecture: three MinHooks on the engine's three BAG_UPDATE
+// emitters, plus one tick subscription. Names are benilla-re's.
 //
-// Architecture: three MinHooks plus one tick subscription.
-//
-//   1. `FUN_004F91A0` — bag-slot diff loop. Hook just sets the
-//      `g_pending` flag.
-//   2. `FUN_004F9370` — item→bag resolver (most common path). Hook
-//      just sets the `g_pending` flag.
-//   3. `FUN_004F8DB0` — bag-descriptor change callback. Covers the
-//      keyring `BAG_UPDATE(slot)` direct-fire branch that doesn't
-//      route through `FUN_004F9370`.
+//   1. `RaiseBagEvents` (`0x004F91A0`) — compares the ten bag slots
+//      (4 bags, 6 bank bags) with the cached container GUIDs and
+//      fires BAG_CLOSED / BAG_UPDATE per changed slot. Called by the
+//      bag-slot field watcher and once at login.
+//   2. `RaiseBagUpdate` (`0x004F9370`) — fires BAG_UPDATE for the
+//      player or one of the ten cached containers; the most common
+//      path. Its callers are the backpack and container slot
+//      watchers, and the item-field watcher `0x004F9480`, which
+//      passes an item's container — the PLAYER for equipped gear, so
+//      a durability change on worn gear fires BAG_UPDATE(0) and
+//      therefore DELAYED. That is the engine's behaviour, kept.
+//   3. `OnBackpackSlotChanged` (`0x004F8DB0`) — the field watcher on
+//      backpack slots 23..38 and keyring slots 81..112. Keyring
+//      changes fire BAG_UPDATE directly here; backpack changes go
+//      through `RaiseBagUpdate`. Standard watcher ABI
+//      `__fastcall(offset, unused, guidLo, guidHi, previous*, user)`,
+//      ret 0x10 — the same shape as `OnContainerSlotChanged`.
 //   4. `Tick::WorldTick::AutoSubscribe` — shared per-frame
 //      subscription (the engine's world-subsystem update at
 //      `FUN_0066FD50`, single-hooked in `src/tick/WorldTick.cpp`).
 //      Our callback drains `g_pending` and fires DELAYED if set.
+//
+// The hooks set `g_pending` after every call rather than only when
+// an event fired. The one call that fires nothing is
+// `RaiseBagUpdate` for a container outside the cache, which does not
+// occur in practice; mirroring that check here would be a parallel
+// copy of the engine's test. The bank's main slots 39..62 have no
+// engine watcher, so they never fire BAG_UPDATE or DELAYED.
 //
 // All hook targets are quiet (≤3 callers each, in code regions
 // other DLLs don't touch). The previous attempt at this feature
@@ -68,7 +84,12 @@ namespace {
 
 constexpr const char *kEventName = "BAG_UPDATE_DELAYED";
 
-const Event::Custom::AutoReserve _reserve{kEventName};
+const Game::Doc::Event kUpdateDelayedDoc{
+    "Container",
+    "Fires once in each frame in which one or more BAG_UPDATE events fired, "
+    "after all of them.",
+    {}};
+const Event::Custom::AutoReserve _reserve{kEventName, &kUpdateDelayedDoc};
 
 // Set by the bag-update hooks, drained by the world-tick hook.
 // Single bool, no atomics needed — the engine is single-threaded.
@@ -83,40 +104,31 @@ AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_subs) {
     g_subs = this;
 }
 
-// `FUN_004F91A0` — `__cdecl void()`. Bag-slot diff loop. Walks the
-// 10 bag slots, fires BAG_UPDATE for each that changed.
-using BagSlotDiff_t = void(__cdecl *)();
-BagSlotDiff_t BagSlotDiff_o = nullptr;
-void __cdecl BagSlotDiff_h() {
-    BagSlotDiff_o();
+// `RaiseBagEvents` — `__cdecl void()`.
+using RaiseBagEvents_t = void(__cdecl *)();
+RaiseBagEvents_t RaiseBagEvents_o = nullptr;
+void __cdecl RaiseBagEvents_h() {
+    RaiseBagEvents_o();
     g_pending = true;
 }
 
-// `FUN_004F9370` — `__stdcall void(int guidLo, int guidHi)`. Most
-// common BAG_UPDATE path — fires from every per-item descriptor
-// field change.
-using BagItemToBag_t = void(__stdcall *)(int guidLo, int guidHi);
-BagItemToBag_t BagItemToBag_o = nullptr;
-void __stdcall BagItemToBag_h(int guidLo, int guidHi) {
-    BagItemToBag_o(guidLo, guidHi);
+// `RaiseBagUpdate` — `__stdcall void(containerGuidLo, containerGuidHi)`.
+using RaiseBagUpdate_t = void(__stdcall *)(int guidLo, int guidHi);
+RaiseBagUpdate_t RaiseBagUpdate_o = nullptr;
+void __stdcall RaiseBagUpdate_h(int guidLo, int guidHi) {
+    RaiseBagUpdate_o(guidLo, guidHi);
     g_pending = true;
 }
 
-// `FUN_004F8DB0` — `__thiscall unsigned(this, a1, a2, a3, a4)` in the
-// Octo build. Wired with `__fastcall` + dummy EDX to match the
-// thiscall ABI: ECX takes `this`, EDX unused, stack takes the four
-// dword args, callee cleans 16 bytes (`RET 0x10`). Same trick
-// `Frame::RegisterEvent` uses in DllMain, just with four stack args
-// instead of one — the Octo function is wider than the vanilla
-// signature Ghidra showed when this hook was first written.
-using KeyringDescChange_t = unsigned(__fastcall *)(void *bagDesc, void *edx_unused,
-                                                    unsigned a1, unsigned a2,
-                                                    unsigned a3, unsigned a4);
-KeyringDescChange_t KeyringDescChange_o = nullptr;
-unsigned __fastcall KeyringDescChange_h(void *bagDesc, void *edx,
-                                         unsigned a1, unsigned a2,
-                                         unsigned a3, unsigned a4) {
-    const unsigned result = KeyringDescChange_o(bagDesc, edx, a1, a2, a3, a4);
+// `OnBackpackSlotChanged` — field-watcher ABI, `__fastcall(offset,
+// unused, guidLo, guidHi, previous*, user)`, callee cleans 0x10.
+using BackpackSlotChanged_t = unsigned(__fastcall *)(unsigned offset, unsigned unused,
+                                                      unsigned guidLo, unsigned guidHi,
+                                                      const void *previous, void *user);
+BackpackSlotChanged_t BackpackSlotChanged_o = nullptr;
+unsigned __fastcall BackpackSlotChanged_h(unsigned offset, unsigned unused, unsigned guidLo,
+                                          unsigned guidHi, const void *previous, void *user) {
+    const unsigned result = BackpackSlotChanged_o(offset, unused, guidLo, guidHi, previous, user);
     g_pending = true;
     return result;
 }
@@ -151,20 +163,20 @@ void OnWorldTick() {
         node->cb();
 }
 
-static const Game::HookAutoRegister _hookSlotDiff{
-    Offsets::FUN_BAG_SLOT_DIFF,
-    reinterpret_cast<void *>(&BagSlotDiff_h),
-    reinterpret_cast<void **>(&BagSlotDiff_o)};
+static const Game::HookAutoRegister _hookRaiseBagEvents{
+    Offsets::FUN_RAISE_BAG_EVENTS,
+    reinterpret_cast<void *>(&RaiseBagEvents_h),
+    reinterpret_cast<void **>(&RaiseBagEvents_o)};
 
-static const Game::HookAutoRegister _hookItemToBag{
-    Offsets::FUN_BAG_ITEM_TO_BAG,
-    reinterpret_cast<void *>(&BagItemToBag_h),
-    reinterpret_cast<void **>(&BagItemToBag_o)};
+static const Game::HookAutoRegister _hookRaiseBagUpdate{
+    Offsets::FUN_RAISE_BAG_UPDATE,
+    reinterpret_cast<void *>(&RaiseBagUpdate_h),
+    reinterpret_cast<void **>(&RaiseBagUpdate_o)};
 
-static const Game::HookAutoRegister _hookKeyringDesc{
-    Offsets::FUN_BAG_KEYRING_DESC_CHANGE,
-    reinterpret_cast<void *>(&KeyringDescChange_h),
-    reinterpret_cast<void **>(&KeyringDescChange_o)};
+static const Game::HookAutoRegister _hookBackpackSlot{
+    Offsets::FUN_ON_BACKPACK_SLOT_CHANGED,
+    reinterpret_cast<void *>(&BackpackSlotChanged_h),
+    reinterpret_cast<void **>(&BackpackSlotChanged_o)};
 
 static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 

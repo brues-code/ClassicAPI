@@ -8802,48 +8802,37 @@ enum Offsets {
     // `equipmentSlotIndex` is 1-based, so pass `equipmentSlotIndex - 1`.
     FUN_PICKUP_INVENTORY_SLOT = 0x004C7300,
 
-    // Bag-update fire sites — see TODO #67 for the full Ghidra
-    // investigation. Hook these three to detect BAG_UPDATE fires and
-    // emit BAG_UPDATE_DELAYED once per frame in which any fired.
-    // Pattern-search confirms only three fire sites for `0x148`
-    // (the BAG_UPDATE event ID) exist in 1.12.1's `.text`, and we
-    // cover all three.
+    // The engine's three BAG_UPDATE emitters (names from benilla-re
+    // systems/ui/bags.md). A pattern search finds exactly three fire
+    // sites for event 0x148 (BAG_UPDATE) in .text, one in each.
+    // `Bag::UpdateDelayed` hooks all three to drive BAG_UPDATE_DELAYED.
     //
-    //   FUN_BAG_SLOT_DIFF (`0x004F91A0`) — __cdecl `void()` (zero
-    //   args, ends with plain `RET`). Walks linear slots `0x13..0x16`
-    //   (player bags 1..4) and `0x3B..0x44` (bank bags 5..10),
-    //   comparing each against a cached GUID snapshot at
-    //   `DAT_00BDD060`. Fires `BAG_UPDATE(bagID)` for each slot
-    //   whose GUID changed. Called from per-session init
-    //   (FUN_004F8CC0) and a packet handler (FUN_004F8EC0) — 2
-    //   callers total, very quiet hook target.
+    //   FUN_RAISE_BAG_EVENTS — `RaiseBagEvents`, __cdecl `void()`, plain
+    //   RET. Compares player slots 19..22 (bags 1..4) and 63..68 (bank
+    //   bags) with the cached container GUIDs at `0x00BDD060` and fires
+    //   BAG_CLOSED / BAG_UPDATE for each changed slot. Callers: the
+    //   bag-slot field watcher `OnBagSlotChanged` (0x004F8EC0) and
+    //   `RegisterBagWatchers` (0x004F8CC0) at login.
     //
-    //   FUN_BAG_ITEM_TO_BAG (`0x004F9370`) — __stdcall
-    //   `void(int guidLo, int guidHi)` (ends with `RET 0x8`).
-    //   Given an item GUID, searches the bag cache for which bag
-    //   contains it. Fires `BAG_UPDATE(0)` for backpack,
-    //   `BAG_UPDATE(N)` for bag N, returns silently if not in any
-    //   bag. **Most common BAG_UPDATE path** — every per-item
-    //   field-change goes through here. 3 callers, all within the
-    //   bag subsystem at `0x004F9xxx`.
+    //   FUN_RAISE_BAG_UPDATE — `RaiseBagUpdate`, __stdcall
+    //   `void(int guidLo, int guidHi)`, RET 8. The argument is a
+    //   CONTAINER GUID: fires BAG_UPDATE(0) for the player, BAG_UPDATE(N)
+    //   for cached container N, and returns silently for any other
+    //   container. Callers: `OnBackpackSlotChanged`,
+    //   `OnContainerSlotChanged` (0x004F90D0) and the item-field watcher
+    //   0x004F9480, which passes the item's ITEM_FIELD_CONTAINED (the
+    //   player for worn gear).
     //
-    //   FUN_BAG_KEYRING_DESC_CHANGE (`0x004F8DB0`) — __thiscall
-    //   `unsigned(void *bagDesc, uint a1, uint a2, uint a3, uint a4)`.
-    //   Ends with `RET 0x10` — four 4-byte stack args, callee cleans
-    //   16 bytes. (Ghidra showed three stack args; the Octo binary
-    //   actually uses four. Mismatching this leaks 4 bytes of stack
-    //   per call and crashes after a few descriptor updates.)
-    //   Bag descriptor update callback. Computes the slot index
-    //   from `((int)this - 0x4a8) >> 3`; for slots `0x51..0x70` (the
-    //   keyring range) fires `BAG_UPDATE` directly. For non-keyring
-    //   slots it delegates to `FUN_BAG_ITEM_TO_BAG`, so we'd
-    //   double-count if we naively hooked both — the keyring branch
-    //   is the only path here that doesn't already go through our
-    //   other hook. Hooking is safe because the `g_pending` drain
-    //   is idempotent (the flag stays true until WorldTick clears it).
-    FUN_BAG_SLOT_DIFF = 0x004F91A0,
-    FUN_BAG_ITEM_TO_BAG = 0x004F9370,
-    FUN_BAG_KEYRING_DESC_CHANGE = 0x004F8DB0,
+    //   FUN_ON_BACKPACK_SLOT_CHANGED — `OnBackpackSlotChanged`, the field
+    //   watcher on player slots 23..38 (backpack) and 81..112 (keyring).
+    //   Watcher ABI `__fastcall(offset, unused, guidLo, guidHi,
+    //   previous*, user)`, RET 0x10 — four stack args; declaring three
+    //   leaks 4 bytes of stack per call and crashes after a few updates.
+    //   Slot = (offset - 0x4A8) >> 3. Keyring slots fire BAG_UPDATE
+    //   directly; backpack slots call `RaiseBagUpdate(player)`.
+    FUN_RAISE_BAG_EVENTS = 0x004F91A0,
+    FUN_RAISE_BAG_UPDATE = 0x004F9370,
+    FUN_ON_BACKPACK_SLOT_CHANGED = 0x004F8DB0,
     // World-subsystem per-frame update — runs exactly once per frame
     // as part of the main world tick (`FUN_00482EA0`). Only one caller
     // in the entire binary; deep in the rendering/world pipeline,
@@ -8926,14 +8915,6 @@ enum Offsets {
     // CompleteMessage` NOPs both jumps.
     PATCH_QUEST_COMPLETE_MSG_CHAIN_SKIP = 0x005DC4DC,
     PATCH_QUEST_COMPLETE_MSG_CHAIN_SKIP_LATE = 0x005DC756,
-
-    // Packet-stream uint32 reader. `__thiscall(stream, uint32 *out)` —
-    // reads 4 bytes from `stream + base + cursor`, advances cursor by
-    // 4. Cursor lives at `stream + OFF_PACKET_STREAM_CURSOR`; save and
-    // restore it to peek without consuming. Same reader the engine's
-    // own packet handlers (FUN_005DC400, FUN_005ED3C0, etc.) use.
-    FUN_PACKET_READ_UINT32 = 0x00418E30,
-    OFF_PACKET_STREAM_CURSOR = 0x14,
 
     // Engine session globals used by `EquipmentSet::Storage` to build
     // the per-character WTF path. Same layout VanillaMinimapTracking

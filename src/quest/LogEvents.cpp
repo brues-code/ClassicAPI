@@ -107,8 +107,24 @@ namespace {
 constexpr const char *kAcceptedEventName = "QUEST_ACCEPTED";
 constexpr const char *kRemovedEventName = "QUEST_REMOVED";
 
-const Event::Custom::AutoReserve _reserveAccepted{kAcceptedEventName};
-const Event::Custom::AutoReserve _reserveRemoved{kRemovedEventName};
+const Game::Doc::Field kAcceptedPayload[] = {
+    Game::Doc::Req("questLogIndex", "number", "The quest's index in the quest log."),
+    Game::Doc::Req("questID", "number"),
+};
+const Game::Doc::Event kAcceptedDoc{
+    "QuestLog",
+    "Fires when a quest enters the quest log, after the \"Quest accepted\" message. "
+    "It fires again when a completed quest becomes incomplete.",
+    kAcceptedPayload};
+const Game::Doc::Field kRemovedPayload[] = {
+    Game::Doc::Req("questID", "number"),
+};
+const Game::Doc::Event kRemovedDoc{
+    "QuestLog", "Fires when a quest leaves the quest log, for example on turn-in or abandon.",
+    kRemovedPayload};
+
+const Event::Custom::AutoReserve _reserveAccepted{kAcceptedEventName, &kAcceptedDoc};
+const Event::Custom::AutoReserve _reserveRemoved{kRemovedEventName, &kRemovedDoc};
 
 // One 12-byte quest slot, in both the live descriptor mirror at
 // `[CGPlayer + OFF_CGPLAYER_INFO] + OFF_CGPLAYER_INFO_QUEST_LIST` and the
