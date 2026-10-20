@@ -13,11 +13,13 @@
 
 #pragma once
 
-namespace Animation::Bridge {
+#include <cstdint>
 
-// Pushes `runtime[name]` - a function of the Lua animation runtime the bundled
-// addon registered (Util/Animation.lua) - and returns true. Pushes nothing and
-// returns false when no runtime is registered or it has no such function.
-bool PushRuntimeFunction(void *L, const char *name);
+namespace Frame::Alpha {
 
-} // namespace Animation::Bridge
+// A frame's own alpha byte (3.x's m_alpha, what GetAlpha returns): 255 for a
+// frame that never set one. Set it with the frame's vtable alpha setter
+// (VTBL_FRAME_SET_FRAME_ALPHA), as SetAlpha does.
+uint8_t OwnAlpha(const void *frame);
+
+} // namespace Frame::Alpha

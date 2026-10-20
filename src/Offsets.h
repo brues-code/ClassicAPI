@@ -543,11 +543,19 @@ enum Offsets {
     OFF_ANCHOR_NODE_RELATIVE_TO = 0x0C,           // raw relativeTo ptr within a 0x44C anchor node
     VAR_ANCHOR_VTABLE_WITH_RELATIVE = 0x0081C44C, // .rdata vtable of anchor nodes that carry a relativeTo (vs rel-less 0x0081C42C)
 
+    // The point names the XML loader and SetPoint share (benilla-re
+    // ui/anchors "Point slots and point names"), 4.3.4's StringToFramePoint /
+    // FramePointToString: `int __fastcall(const char *name, int *point)` (1 when
+    // known, case-insensitive) and `const char *__fastcall(int point)`
+    // ("UNKNOWN" for none).
+    FUN_STRING_TO_FRAME_POINT = 0x006F1840,
+    FUN_FRAME_POINT_TO_STRING = 0x006F1890,
     DRAWLAYER_ARTWORK = 2,
     FRAMEPOINT_TOPLEFT = 0,
     FRAMEPOINT_TOP = 1,
     FRAMEPOINT_TOPRIGHT = 2,
     FRAMEPOINT_LEFT = 3,
+    FRAMEPOINT_CENTER = 4,
     FRAMEPOINT_RIGHT = 5,
     FRAMEPOINT_BOTTOMLEFT = 6,
     FRAMEPOINT_BOTTOM = 7,
@@ -1293,6 +1301,34 @@ enum Offsets {
     // refcount; for pool-managed nameplates the engine never
     // un-registers them anyway, so the pin is benign.
     FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER = 0x00701BD0,
+    // The rest of the script-object life cycle (benilla-re ui/script, ui/frames):
+    //   FUN_SCRIPT_OBJECT_CONSTRUCT `__fastcall(object)` fills the 0x24-byte
+    //     header: base vtable, holder count 0 (+4), table ref -2 (+8), OnEvent
+    //     slot (+0xC), event index (+0x14..+0x20).
+    //   FUN_SCRIPT_OBJECT_DESTRUCT `__fastcall(object)` unregisters its events,
+    //     releases OnEvent and frees the index array.
+    //   FUN_SCRIPT_OBJECT_UNLOCK `__thiscall(object, name)` - the inverse of
+    //     FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER: counts a holder down, at zero
+    //     clears the table's [0] and frees its ref; a non-null name's global
+    //     is set to nil.
+    //   FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT `__thiscall(object, name)` - the
+    //     base vtable+0x0C: the OnEvent slot for "OnEvent", else 0.
+    //   FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT `bool __thiscall(object, name, text)`,
+    //     `ret 8` - compiles an XML script body into the slot vtable+0x0C
+    //     gives (chunk name "<name>:<script>", context 0), releasing the old.
+    //   FUN_SCRIPT_RELEASE `void __stdcall(uint32_t *slot)` - frees a slot's
+    //     handler ref.
+    // An object's methods are found through its vtable+0x08, `int
+    // __thiscall(object, L, name)` (`ret 8`, push and return 1, or 0), which
+    // the shared metatable's __index (0x007020B0) calls with t[0]. Base
+    // vtable 0x00811F4C; subclasses add IsA(name) at +0x18 and the type name at
+    // +0x1C (Font's 0x0081C8BC).
+    FUN_SCRIPT_OBJECT_CONSTRUCT = 0x00701AE0,
+    FUN_SCRIPT_OBJECT_DESTRUCT = 0x00701B40,
+    FUN_SCRIPT_OBJECT_UNLOCK = 0x00701CD0,
+    FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT = 0x00702590,
+    FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT = 0x007025C0,
+    FUN_SCRIPT_RELEASE = 0x00702670,
 
     // `this+0x04` Lua refcount, incremented by `ScriptRegister`. We
     // read it as a "has the engine ever exposed this CObject to Lua"
@@ -3430,8 +3466,8 @@ enum Offsets {
     // (0x00769380) and every derived frame class's destructor (16 call sites,
     // including the engine-pooled ChatBubbleFrame's at 0x004B0BB6). Deletes the
     // frame's regions and child frames and unlinks it from its parent through
-    // 0x0076AAB0, never through SetParent or the alpha setter. `Frame::Alpha`
-    // hooks it to forget the frame's own alpha.
+    // 0x0076AAB0, never through SetParent or the alpha setter. `Frame::Destruction`
+    // hooks it and fans out (Frame::Alpha, the animation groups).
     FUN_FRAME_DESTRUCTOR = 0x007693B0,
 
     // Scroll clipping. A frame a ScrollFrame draws carries FRAME_FLAG_SCROLLED
@@ -3485,6 +3521,14 @@ enum Offsets {
     // slots below except CGWorldFrame's and CSimpleEditBox's (vtable
     // 0x0081C910: char 0x0077A900, key down 0x0077B160, key up 0x0077B7C0).
     FUN_FRAME_ON_CHAR = 0x0076B760,     // vtable+0x5C
+    // CSimpleFrame::OnFrameUpdate - `void __thiscall(frame, float elapsed)`,
+    // `ret 4`, vtable+0x38: runs OnUpdate (+0x128). The top's update pass
+    // (0x00765650) calls slot 0x38 on every frame of every level list - every
+    // shown frame - once per frame; each override (EditBox 0x0077A790,
+    // message frames 0x00788460, Model 0x0076D7F0, ...) calls it first. 4.3.4's
+    // CSimpleFrame::OnLayerUpdate runs OnUpdate, then the frame's animation
+    // groups, then its regions'.
+    FUN_FRAME_ON_UPDATE = 0x0076B2C0,
     FUN_FRAME_ON_KEY_DOWN = 0x0076B7D0, // vtable+0x60
     FUN_EDITBOX_ON_KEY_DOWN = 0x0077B160,
     // Layout cache (layout-cache.txt). The writer 0x00490E10 calls this on

@@ -27,7 +27,7 @@
 // 3.x keeps each frame's own alpha and draws it multiplied by its parent's.
 //
 // Co-hooks of the setter (FUN_FRAME_SET_FRAME_ALPHA), SetParent
-// (FUN_FRAME_SET_PARENT), the frame destructor and frame GetAlpha:
+// (FUN_FRAME_SET_PARENT) and frame GetAlpha, and a Frame::Destruction listener:
 //   - SetAlpha and XML `alpha` record the frame's own alpha;
 //   - the byte holds own x the parent's drawn alpha. When it changes, the
 //     frame's regions recolor and each child is recomputed from its own alpha,
@@ -45,8 +45,11 @@
 // compare it with their own targets. They're WorldFrame children, where drawn
 // and own are the same while WorldFrame is opaque.
 
+#include "frame/Alpha.h"
+
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Destruction.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -57,18 +60,16 @@ namespace {
 
 using SetFrameAlpha_t = void(__thiscall *)(void *frame, uint32_t alpha);
 using SetParent_t = void(__thiscall *)(void *frame, void *parent);
-using Destructor_t = void(__thiscall *)(void *frame);
 using Recolor_t = void(__thiscall *)(void *region, int arg);
 using ScriptFn_t = int(__fastcall *)(void *L);
 
 SetFrameAlpha_t g_origSetAlpha = nullptr;
 SetParent_t g_origSetParent = nullptr;
-Destructor_t g_origDestructor = nullptr;
 ScriptFn_t g_origGetAlpha = nullptr;
 
 // Own alpha of every live frame that set one other than 255. Every frame
-// class's destructor runs FUN_FRAME_DESTRUCTOR, whose hook drops the frame's
-// entry, so a frame that outlives a /reload keeps its own alpha.
+// class's destructor runs FUN_FRAME_DESTRUCTOR, whose listener drops the
+// frame's entry, so a frame that outlives a /reload keeps its own alpha.
 std::unordered_map<const void *, uint8_t> g_own;
 
 // Set while a frame is being given its drawn alpha through its vtable setter.
@@ -153,10 +154,9 @@ void __fastcall SetParent_h(void *frame, void * /*edx*/, void *parent) {
     ApplyDrawn(frame, DrawnFor(frame, Own(frame)));
 }
 
-void __fastcall Destructor_h(void *frame, void * /*edx*/) {
-    g_own.erase(frame);
-    g_origDestructor(frame);
-}
+void OnFrameDestroyed(void *frame) { g_own.erase(frame); }
+
+const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
 // frame:GetAlpha() - the own alpha, not the drawn one.
 int __fastcall GetAlpha_h(void *L) {
@@ -177,13 +177,12 @@ const Game::HookAutoRegister _setAlphaHook{Offsets::FUN_FRAME_SET_FRAME_ALPHA,
 const Game::HookAutoRegister _setParentHook{Offsets::FUN_FRAME_SET_PARENT,
                                             reinterpret_cast<void *>(&SetParent_h),
                                             reinterpret_cast<void **>(&g_origSetParent)};
-const Game::HookAutoRegister _destructorHook{Offsets::FUN_FRAME_DESTRUCTOR,
-                                             reinterpret_cast<void *>(&Destructor_h),
-                                             reinterpret_cast<void **>(&g_origDestructor)};
 const Game::HookAutoRegister _getAlphaHook{Offsets::FUN_SCRIPT_FRAME_GETALPHA,
                                            reinterpret_cast<void *>(&GetAlpha_h),
                                            reinterpret_cast<void **>(&g_origGetAlpha)};
 
 } // namespace
+
+uint8_t OwnAlpha(const void *frame) { return Own(frame); }
 
 } // namespace Frame::Alpha
