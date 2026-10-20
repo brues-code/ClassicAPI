@@ -14,6 +14,7 @@
 // 4.3.4's CSimpleAnim and its Alpha, Translation, Scale and Rotation
 // subclasses (wowdecomp15595 CSimpleAnim.cpp, CSimple*Anim.cpp and their
 // _Scripts.cpp), on Animation::Object, and the group's CreateAnimation.
+// Path and its control points are in Path.cpp.
 
 #include "animation/Classes.h"
 #include "animation/Region.h"
@@ -38,6 +39,7 @@ Class &ClassOf(AnimKind kind) {
     case KIND_TRANSLATION: return Anim::s_translationClass;
     case KIND_SCALE: return Anim::s_scaleClass;
     case KIND_ROTATION: return Anim::s_rotationClass;
+    case KIND_PATH: return Anim::s_pathClass;
     default: return Anim::s_class;
     }
 }
@@ -55,6 +57,8 @@ AnimKind Anim::KindOf(const char *typeName) {
         return KIND_SCALE;
     if (Ascii::EqualCI(typeName, "Rotation"))
         return KIND_ROTATION;
+    if (Ascii::EqualCI(typeName, "Path"))
+        return KIND_PATH;
     return KIND_ANIMATION;
 }
 
@@ -67,7 +71,11 @@ Anim::Anim(Group *group, AnimKind kind, const char *name) : Object(ClassOf(kind)
         group->animations.push_back(this);
 }
 
-Anim::~Anim() = default;
+// ~CSimplePathAnim: a path's control points go with it.
+Anim::~Anim() {
+    for (ControlPoint *point : controlPoints)
+        delete point;
+}
 
 // ---- Playback --------------------------------------------------------------------
 
@@ -207,6 +215,9 @@ void Anim::Apply(float p) {
     case KIND_ROTATION:
         Region::AddAnimRotation(region, target, originPoint, originX, originY, radians * p);
         break;
+    case KIND_PATH:
+        ApplyPath(p);
+        break;
     default:
         break;
     }
@@ -268,6 +279,11 @@ bool Anim::ChangeParent(Group *group) {
 
 void Anim::PostLoadXML() {
     flags &= ~1;
+    if (kind == KIND_PATH) {
+        // CSimplePathAnim::PostLoadXML: the points' orders and positions.
+        BuildSpline();
+        UpdateControlPointPositions();
+    }
     RunScript(A_ONLOAD, 0);
 }
 

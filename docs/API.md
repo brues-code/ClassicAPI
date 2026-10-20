@@ -38,6 +38,7 @@ build instructions.
   - [AnimationGroup](#animationgroup)
   - [Animation](#animation-1)
   - [Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`](#animation-types-alpha-translation-scale-rotation)
+  - [`Path` and `ControlPoint`](#path-and-controlpoint)
   - [`<Animations>` in XML](#animations-in-xml)
 
 - [AuctionHouse](#auctionhouse)
@@ -1524,7 +1525,7 @@ backwards.
 ### Animation
 
 `group:CreateAnimation(type)` takes `"Animation"` (timing and scripts
-only), `"Alpha"`, `"Translation"`, `"Scale"` or `"Rotation"`. Any other
+only), `"Alpha"`, `"Translation"`, `"Scale"`, `"Rotation"` or `"Path"`. Any other
 type makes an `"Animation"`. An animation made in Lua joins the highest
 order the group already has.
 
@@ -1592,6 +1593,39 @@ except `OnLoop`.
   or `Rotation` animation applies to one font string, the last one wins.
 - Scaled text is stretched. It is not drawn again at the larger font size.
 
+### `Path` and `ControlPoint`
+
+A `Path` moves the region through its control points. Each point is an
+offset from where the region is, in the same units as a `Translation`.
+
+```lua
+local path = group:CreateAnimation("Path")
+path:SetDuration(2)
+path:SetCurve("SMOOTH")
+path:CreateControlPoint():SetOffset(50, 20)
+path:CreateControlPoint():SetOffset(100, 0)
+```
+
+- The path starts at offset 0 and ends at its last point.
+- The points are spread evenly over the animation: with 4 points, the
+  region is at point 1 at a quarter of the progress, at point 2 at half,
+  and so on.
+- `SetCurve("NONE")` (the default) moves in straight lines between the
+  points. `SetCurve("SMOOTH")` moves along a smooth curve through them.
+- The drawing moves as with a `Translation`: the rect of the region does
+  not move, and the drawing goes back to its place when the group ends.
+
+| Object | Methods |
+|---|---|
+| `Path` | `SetCurve("NONE" \| "SMOOTH")` / `GetCurve()`, `CreateControlPoint([name [, templateName [, order]]])`, `GetControlPoints()`, `GetMaxOrder()` |
+| `ControlPoint` | `SetOffset(x, y)` / `GetOffset()`, `SetOrder(order)` / `GetOrder()`, `SetParent(path [, order])`, `GetParent()`, `GetName()`, `GetObjectType()`, `IsObjectType(type)` |
+
+- The points go in the order of their `order`, from 1 to 100. A point
+  without an order goes after the last one.
+- If you give a point an order that another point already has, the new
+  point takes it, and the other points move up by one.
+- `SetParent` moves a point to another path. The point keeps its order.
+
 ### `<Animations>` in XML
 
 ```xml
@@ -1614,9 +1648,23 @@ is built. Groups read `name`, `inherits`, `parentKey`, `looping` and
 `parentKey`, `target`, `duration`, `startDelay`, `endDelay`, `order`,
 `smoothing`, and their type's own attributes: `change`, `offsetX` /
 `offsetY`, `scaleX` / `scaleY`, `degrees` / `radians`, and `<Origin>`.
+A `<Path>` reads `curve` and a `<ControlPoints>` block:
 
-- A virtual `<AnimationGroup>` or animation element at the top level of a
-  file is a template for `inherits` and for the `templateName` arguments.
+```xml
+<Path curve="SMOOTH" duration="2">
+    <ControlPoints>
+        <ControlPoint offsetX="50" offsetY="20"/>
+        <ControlPoint parentKey="End" offsetX="100" offsetY="0"/>
+    </ControlPoints>
+</Path>
+```
+
+A `<ControlPoint>` reads `name`, `inherits`, `parentKey` (set on the path)
+and `offsetX` / `offsetY`.
+
+- A virtual `<AnimationGroup>`, animation element or `<ControlPoint>` at
+  the top level of a file is a template for `inherits` and for the
+  `templateName` arguments.
 - Animations without an `order` play one after another.
 - `<Scripts>` bodies see `self` and their script's arguments (`elapsed`,
   `requested`, `loopState`). A script element can name a global function

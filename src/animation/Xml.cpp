@@ -23,6 +23,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdio>
@@ -132,7 +133,8 @@ void LoadAnimChildren(Group *group, const void *node, void *status) {
             continue;
         // 4.3.4 knows Animation, Translation, Rotation, Scale, Path and Alpha.
         if (!::Xml::TagIs(child, "Animation") && !::Xml::TagIs(child, "Translation") &&
-            !::Xml::TagIs(child, "Rotation") && !::Xml::TagIs(child, "Scale") && !::Xml::TagIs(child, "Alpha"))
+            !::Xml::TagIs(child, "Rotation") && !::Xml::TagIs(child, "Scale") && !::Xml::TagIs(child, "Alpha") &&
+            !::Xml::TagIs(child, "Path"))
             continue;
         Anim *anim = new Anim(group, Anim::KindOf(tag), ::Xml::Attr(child, "name"));
         anim->flags |= 1;
@@ -267,6 +269,43 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
     }
     if (anim->kind == KIND_SCALE || anim->kind == KIND_ROTATION)
         LoadOrigin(anim, node);
+    // CSimplePathAnim::LoadXML: the curve, then <ControlPoints>.
+    if (anim->kind == KIND_PATH) {
+        if (const char *curve = ::Xml::Attr(node, "curve"); curve != nullptr && *curve != '\0') {
+            if (Ascii::EqualCI(curve, "NONE"))
+                anim->curve = false;
+            else if (Ascii::EqualCI(curve, "SMOOTH"))
+                anim->curve = true;
+            else
+                ::Xml::Warn(status, "Path %s: Invalid curve value: %s", anim->DisplayName(), curve);
+        }
+        if (const void *points = FindChild(node, "ControlPoints")) {
+            for (const void *child = ::Xml::FirstChild(points); child != nullptr; child = ::Xml::NextSibling(child)) {
+                if (!::Xml::TagIs(child, "ControlPoint")) {
+                    ::Xml::Warn(status, "Path %s: Error loading Origin element", anim->DisplayName());
+                    continue;
+                }
+                LoadControlPoint(new ControlPoint(anim, ::Xml::Attr(child, "name")), child, status);
+            }
+        }
+    }
+}
+
+void LoadControlPoint(ControlPoint *point, const void *node, void *status) {
+    // CSimpleControlPoint::LoadXML: inherits first, then parentKey (on the
+    // path), then the offset - 0 on an axis the node does not give.
+    if (const char *inherits = ::Xml::Attr(node, "inherits"); inherits != nullptr && *inherits != '\0') {
+        const void *base = ::Xml::Template(inherits);
+        if (base == nullptr)
+            ::Xml::Warn(status, "Couldn't find inherited node: %s", inherits);
+        else
+            LoadControlPoint(point, base, status);
+    }
+    BindParentKey(point->GetPath(), point, ::Xml::Attr(node, "parentKey"));
+    float x = 0.0f, y = 0.0f;
+    FloatAttr(node, "offsetX", x);
+    FloatAttr(node, "offsetY", y);
+    point->SetOffset(Game::PixelToInternal(x), Game::PixelToInternal(y));
 }
 
 void LoadAnimations(void *region, const void *node, void *status) {

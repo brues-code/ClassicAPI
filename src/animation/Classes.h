@@ -19,12 +19,13 @@
 #include <vector>
 
 // 4.3.4's CSimpleAnimGroup and CSimpleAnim (and its Alpha, Translation,
-// Scale and Rotation subclasses), ported from the decompiled client
+// Scale, Rotation and Path subclasses, and Path's CSimpleControlPoint), ported from the decompiled client
 // (wowdecomp15595 Engine/Source/Frame/CSimpleAnimGroup.cpp, CSimpleAnim.cpp).
 // Field and function names follow it; the comments say where 1.12 differs.
 namespace Animation {
 
 class Anim;
+class ControlPoint;
 
 enum LoopType { LOOP_NONE = 0, LOOP_REPEAT = 1, LOOP_BOUNCE = 2 };
 enum LoopState { STATE_NONE = 0, STATE_FORWARD = 1, STATE_REVERSE = 2 };
@@ -90,7 +91,7 @@ class Group : public Object {
     void ResetAnims();
 };
 
-enum AnimKind { KIND_ANIMATION, KIND_ALPHA, KIND_TRANSLATION, KIND_SCALE, KIND_ROTATION };
+enum AnimKind { KIND_ANIMATION, KIND_ALPHA, KIND_TRANSLATION, KIND_SCALE, KIND_ROTATION, KIND_PATH };
 
 class Anim : public Object {
   public:
@@ -99,6 +100,7 @@ class Anim : public Object {
     static Class s_translationClass; // "Translation"
     static Class s_scaleClass;       // "Scale"
     static Class s_rotationClass;    // "Rotation"
+    static Class s_pathClass;        // "Path"
     // The class of a CreateAnimation / XML type name; Animation for any
     // other (4.3.4's CreateAnimation falls back to it).
     static AnimKind KindOf(const char *typeName);
@@ -154,8 +156,44 @@ class Anim : public Object {
     int originPoint = 4; // FRAMEPOINT_CENTER
     float originX = 0.0f, originY = 0.0f;
 
+    // Path (CSimplePathAnim, Path.cpp): the control points it owns in link
+    // order (m_controlPoints), the same sorted by order (m_sortedPoints),
+    // and m_curve (false NONE, true SMOOTH).
+    std::vector<ControlPoint *> controlPoints;
+    std::vector<ControlPoint *> sortedPoints;
+    bool curve = false;
+    void BuildSpline();
+    void UpdateControlPointPositions();
+    int FindControlPoint(int order) const;
+    int GetMaxControlPointOrder() const;
+    int RegisterSplineControlPoint(ControlPoint *point);
+    void NotifyControlPointAdded(ControlPoint *point);
+    void NotifyControlPointRemoved(ControlPoint *point);
+    void NotifyControlPointOrderChanged(ControlPoint *point);
+    void ApplyPath(float progress);
+
   private:
     float UpdateProgress(float elapsedSec);
+};
+
+// CSimpleControlPoint: a point of a Path, an offset from where the region
+// is, in layout units.
+class ControlPoint : public Object {
+  public:
+    static Class s_class; // "ControlPoint"
+
+    // Links the point at the end of the path's points.
+    ControlPoint(Anim *path, const char *name);
+    ~ControlPoint();
+
+    Anim *GetPath() const { return static_cast<Anim *>(parent); }
+    bool ChangeParent(Anim *path);
+    void SetOffset(float x, float y);
+    void SetOrder(int value, bool notify, bool wrap);
+
+    float offsetX = 0.0f, offsetY = 0.0f;
+    float position = 0.0f; // m_position: the path progress the point is at
+    int order = -1;
 };
 
 // 4.3.4's s_frameInterval: progress steps at most this often unless the

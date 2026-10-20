@@ -23,6 +23,7 @@
 namespace Animation {
 class Group;
 class Anim;
+class ControlPoint;
 } // namespace Animation
 
 namespace Animation::Xml {
@@ -34,6 +35,7 @@ void LoadAnimations(void *region, const void *node, void *status);
 // `inherits` first.
 void LoadGroup(Group *group, const void *node, void *status);
 void LoadAnim(Anim *anim, const void *node, void *status);
+void LoadControlPoint(ControlPoint *point, const void *node, void *status);
 // The template node `name` resolves to, or nullptr.
 const void *Template(const char *name);
 
