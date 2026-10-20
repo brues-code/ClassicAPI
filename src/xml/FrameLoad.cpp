@@ -63,12 +63,12 @@ void LoadNode(void *object, const void *node, void *status) {
     Game::Read<NodeLoader_t>(vtable, Offsets::VTBL_XML_NODE_LOADER)(self, node, status);
 }
 
-void Warn(void *status, const char *fmt, const char *a, const char *b) {
+void Warn(void *status, const char *fmt, const char *a, const char *b, const char *c) {
     if (status == nullptr)
         return;
     const void *vtable = Game::Read<const void *>(status, 0);
     Game::Read<StatusAdd_t>(vtable, Offsets::VTBL_XML_STATUS_ADD)(
-        status, Offsets::XML_STATUS_WARNING, fmt, a, b);
+        status, Offsets::XML_STATUS_WARNING, fmt, a, b, c);
 }
 
 bool PushWrapper(void *L, void *object) {

@@ -72,12 +72,16 @@
 //
 // Every loader also loads an <Animations> child (Animation::Xml), before the
 // builder finalizes, so OnLoad sees the groups.
+//
+// The texture loader also reads `mask="path"` (`<Texture file=".." mask=".."/>`,
+// the later-client attribute) and applies it as texture:SetMask(path).
 
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "animation/Xml.h"
+#include "texture/Mask.h"
 
 #include <cstdint>
 
@@ -247,6 +251,8 @@ uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void
     if (self != nullptr && node != nullptr) {
         BindParentKey(RegionObject(self), node);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
+        if (const char *mask = Xml::Attr(node, "mask"); mask != nullptr && *mask != '\0')
+            Texture::Mask::SetPath(RegionObject(self), mask);
     }
     return r;
 }

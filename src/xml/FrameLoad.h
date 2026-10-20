@@ -48,7 +48,8 @@ void LoadNode(void *object, const void *node, void *status);
 
 // The engine's load-status sink: `status->Add(STATUS_WARNING, fmt, ...)`,
 // the same warning the loaders log ("Couldn't find inherited node: %s").
-void Warn(void *status, const char *fmt, const char *a, const char *b = nullptr);
+void Warn(void *status, const char *fmt, const char *a, const char *b = nullptr,
+          const char *c = nullptr);
 
 // Pushes `object`'s Lua wrapper and returns true, registering an unnamed,
 // never-exposed object the way the engine's own lazy path does. Pushes

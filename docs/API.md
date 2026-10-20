@@ -883,6 +883,7 @@ build instructions.
   - [`C_XMLUtil.DoesTemplateExist(name)`](#c_xmlutildoestemplateexistname)
   - [`inherits` with more than one template](#inherits-with-more-than-one-template)
   - [`parentKey` in XML](#parentkey-in-xml)
+  - [Masks in XML](#masks-in-xml)
   - [`function` on XML script handlers](#function-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
   - [`C_TTSSettings` — getters & setters](#c_ttssettings--getters--setters)
@@ -6392,7 +6393,8 @@ buttons, and other shaped art.
 is opaque the texture shows, where the mask is transparent the texture is
 hidden. The mask stretches across the texture's full display area, so it always
 lines up with the texture. Pass `nil` or `""` to remove the mask; the texture
-returns to its full rectangle.
+returns to its full rectangle. If the file does not load, the texture keeps the
+mask it had.
 
 A mask file must be one the client can load and must hold its shape in the alpha
 channel:
@@ -6459,6 +6461,12 @@ subtract, so you cannot cut a hole with this.
 A mask honors [`texture:SetRotation`](#texturesetrotationangle--cx-cy): rotate
 the mask and its clip shape turns with it. The mask can also move or resize each
 frame (drive it from an `OnUpdate`), so the clip animates.
+
+> Outside its own rectangle, a mask repeats the alpha of its nearest edge
+> pixel. A mask whose outer edge is transparent, like a circle, hides the
+> texture outside the mask. A mask with an opaque edge does not clip the
+> texture past its rectangle. To clip only part of a texture, use a mask with
+> a transparent border.
 
 ### `texture:RemoveMaskTexture([mask])`
 
@@ -20765,6 +20773,51 @@ Keys are set while the parent is being built, so the parent's `OnLoad`
 already sees them, and a `parentKey` inside a virtual template is set on
 every frame built from it. A button's `<NormalTexture parentKey="...">`
 works the same way.
+
+### Masks in XML
+
+A `<Texture>` element takes a `mask` attribute. It is the same as
+[`texture:SetMask(path)`](#texturesetmaskpath):
+
+```xml
+<Texture parentKey="Portrait" file="Interface\Icons\INV_Misc_QuestionMark"
+         mask="Interface\CharacterFrame\TempPortraitAlphaMask"/>
+```
+
+A `<Layer>` also takes a `<MaskTexture>` element. It is the same as
+[`frame:CreateMaskTexture`](#framecreatemasktexturename-layer-): the mask
+loads like a texture (`file`, `inherits`, `parentKey`, `<Size>`, `<Anchors>`)
+and never draws itself. Each `<MaskedTexture>` inside `<MaskedTextures>`
+attaches the mask to one texture, the same as
+[`texture:AddMaskTexture(mask)`](#textureaddmasktexturemask):
+
+- `childKey="Icon"` names the texture at `parent.Icon`, where `parent` is the
+  frame that holds the layer.
+- `target="$parentIcon"` names a texture by its global name. `$parent` at the
+  start stands for the name of that frame.
+
+```xml
+<Frame name="MyFrame">
+    <Layers>
+        <Layer level="ARTWORK">
+            <Texture parentKey="Icon" file="Interface\Icons\INV_Misc_QuestionMark"/>
+            <MaskTexture file="Interface\CharacterFrame\TempPortraitAlphaMask">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" x="4" y="-4"/>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" x="-4" y="4"/>
+                </Anchors>
+                <MaskedTextures>
+                    <MaskedTexture childKey="Icon"/>
+                </MaskedTextures>
+            </MaskTexture>
+        </Layer>
+    </Layers>
+</Frame>
+```
+
+A `<MaskedTexture>` can name a texture from any layer of the same frame. If
+it names no texture, the load log gets a warning and the mask is not
+attached.
 
 ### `function` on XML script handlers
 

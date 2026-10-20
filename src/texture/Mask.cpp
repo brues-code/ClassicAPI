@@ -54,6 +54,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "texture/Mask.h"
 #include "texture/Transform.h"
 #include "ui/FrameObject.h"
 
@@ -74,7 +75,9 @@ namespace {
 bool g_enabled = true;
 
 // A region's mask: the loaded HTEXTURE plus the path (so a re-SetMask with the
-// same path is a cheap no-op and the value is inspectable). Keyed by the
+// same path is a cheap no-op and the value is inspectable). The entry owns one
+// reference on the handle, closed when the entry is replaced or dropped, the
+// way SetTexture closes the handle it held. Keyed by the
 // CSimpleTexture object pointer — the same pointer the Lua object resolves to
 // AND the base of the corner array the draw hook recovers.
 struct MaskEntry {
@@ -95,6 +98,15 @@ std::unordered_set<void *> g_maskRegions;
 
 // --- path -> HTEXTURE loader (mirrors FUN_00770200's SetTexture load) --------
 
+using HandleRelease_t = void(__fastcall *)(void *handle);
+using SysMsgAdd_t = int(__fastcall *)(void *status, uint32_t level);
+using StatusDestroy_t = void(__thiscall *)(void *status);
+
+void ReleaseHandle(void *handle) {
+    if (handle != nullptr)
+        reinterpret_cast<HandleRelease_t>(Offsets::FUN_HANDLE_RELEASE)(handle);
+}
+
 using TexFlagsInit_t = void *(__thiscall *)(void *self, uint32_t blend, int, int, int, int, int,
                                             uint32_t, int);
 using TextureLoad_t = uint32_t(__fastcall *)(const char *path, void *desc, uint32_t flags, int,
@@ -109,6 +121,10 @@ struct TexLoadDesc {
     int32_t field10;
 };
 
+// The loaded handle, or nullptr when the file does not load. Same failure
+// test and cleanup as SetTexture: a status level of 2 or more closes the
+// green fallback and passes the status to the (silent) system-message
+// printer; the status is destroyed either way.
 void *LoadByPath(const char *path) {
     TexLoadDesc desc;
     desc.vtbl = reinterpret_cast<void *>(Offsets::PTR_TEXLOAD_DESC_VTBL);
@@ -120,9 +136,63 @@ void *LoadByPath(const char *path) {
     const uint32_t blend = Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
     reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0,
                                                                     1, 0);
-    return reinterpret_cast<void *>(reinterpret_cast<TextureLoad_t>(
+    void *handle = reinterpret_cast<void *>(reinterpret_cast<TextureLoad_t>(
         Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, flags, 0, 1));
+    if (desc.field10 >= 2) {
+        ReleaseHandle(handle);
+        handle = nullptr;
+        reinterpret_cast<SysMsgAdd_t>(Offsets::FUN_SYSMSG_ADD_STATUS)(&desc, 4);
+    }
+    reinterpret_cast<StatusDestroy_t>(Offsets::FUN_FRAMESCRIPT_STATUS_RESET)(&desc);
+    return handle;
 }
+
+// Drops a region's path mask and its handle reference.
+void ClearPathMask(void *region) {
+    auto it = g_regionMask.find(region);
+    if (it == g_regionMask.end())
+        return;
+    ReleaseHandle(it->second.handle);
+    g_regionMask.erase(it);
+}
+
+} // namespace
+
+bool SetPath(void *region, const char *path) {
+    if (path == nullptr || path[0] == '\0') {
+        ClearPathMask(region);
+        return true;
+    }
+    auto it = g_regionMask.find(region);
+    if (it != g_regionMask.end() && it->second.path == path)
+        return true; // unchanged
+    void *handle = LoadByPath(path);
+    if (handle == nullptr)
+        return false; // keeps the mask it had, as SetTexture keeps its texture
+    ClearPathMask(region);
+    g_regionMask[region] = MaskEntry{handle, path};
+    return true;
+}
+
+using RegionHide_t = void(__fastcall *)(void *region);
+
+void MakeSource(void *region) {
+    Game::Ref<uint32_t>(region, Offsets::OFF_REGION_DESIRED_SHOWN) = 0;
+    reinterpret_cast<RegionHide_t>(Offsets::FUN_FONTSTRING_HIDE)(region);
+    g_maskRegions.insert(region);
+}
+
+void Add(void *base, void *mask) {
+    if (base == mask)
+        return;
+    auto &v = g_baseMasks[base];
+    for (void *m : v)
+        if (m == mask)
+            return;
+    v.push_back(mask);
+}
+
+namespace {
 
 // --- stream-primitive co-hook: apply the mask on unit 1 ----------------------
 
@@ -414,7 +484,7 @@ Ctor_t g_ctorOriginal = nullptr;
 void *__fastcall Ctor_h(void *mem, void *edx, void *parent, int layer, int sublayer) {
     if (mem != nullptr) {
         // A (re)constructed region owns no mask and is no longer a mask source.
-        g_regionMask.erase(mem);
+        ClearPathMask(mem);
         g_baseMasks.erase(mem);
         // If the recycled memory WAS a mask region, detach it from every base
         // still holding it — otherwise the draw hook would read the recycled
@@ -447,22 +517,11 @@ int __fastcall Script_SetMask(void *L) {
     const char *path = (Game::Lua::GetTop(L) >= 2 && Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING)
                            ? Game::Lua::ToString(L, 2)
                            : nullptr;
-    if (path == nullptr || path[0] == '\0') {
-        g_regionMask.erase(region);
-        return 0;
-    }
-    auto it = g_regionMask.find(region);
-    if (it != g_regionMask.end() && it->second.path == path)
-        return 0; // unchanged
-    MaskEntry e;
-    e.handle = LoadByPath(path); // never null (engine substitutes a fallback)
-    e.path = path;
-    g_regionMask[region] = std::move(e);
+    SetPath(region, path);
     return 0;
 }
 
 using ScriptFn_t = int(__fastcall *)(void *L);
-using RegionHide_t = void(__fastcall *)(void *region);
 
 // frame:CreateMaskTexture([name, layer, ...]) — mint a MaskTexture. Delegates to
 // the engine's own CreateTexture (it reads the args off this same stack and
@@ -473,11 +532,8 @@ int __fastcall Script_CreateMaskTexture(void *L) {
     if (rc != 1)
         return rc; // engine raised an error, or pushed nothing
     void *region = Game::Lua::ResolveObject(L, Game::Lua::GetTop(L));
-    if (region != nullptr) {
-        Game::Ref<uint32_t>(region, Offsets::OFF_REGION_DESIRED_SHOWN) = 0;
-        reinterpret_cast<RegionHide_t>(Offsets::FUN_FONTSTRING_HIDE)(region);
-        g_maskRegions.insert(region);
-    }
+    if (region != nullptr)
+        MakeSource(region);
     return 1; // the region object the engine pushed is our return value
 }
 
@@ -487,13 +543,8 @@ int __fastcall Script_CreateMaskTexture(void *L) {
 int __fastcall Script_AddMaskTexture(void *L) {
     void *base = Game::Lua::ResolveTexture(L);
     void *mask = Game::Lua::ResolveTexture(L, 2, /*raiseError=*/false);
-    if (base == nullptr || mask == nullptr || base == mask)
-        return 0;
-    auto &v = g_baseMasks[base];
-    for (void *m : v)
-        if (m == mask)
-            return 0;
-    v.push_back(mask);
+    if (base != nullptr && mask != nullptr)
+        Add(base, mask);
     return 0;
 }
 
@@ -586,6 +637,8 @@ static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 void PrepareForReload() {
     // /reload frees every region; forget the mask maps so a recycled address
     // can't be mistaken for a still-masked region before its ctor re-clears it.
+    for (auto &entry : g_regionMask)
+        ReleaseHandle(entry.second.handle);
     g_regionMask.clear();
     g_baseMasks.clear();
     g_maskRegions.clear();

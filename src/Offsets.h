@@ -10163,6 +10163,26 @@ enum Offsets {
     FUN_XML_FRAME_LOAD = 0x00769820,
     FUN_XML_TEXTURE_LOAD = 0x0076FE20,
     FUN_XML_FONTSTRING_LOAD = 0x00770F40,
+    // CSimpleFrame::LoadXMLLayers — `__thiscall(frame, layersNode, status)`,
+    // `ret 8`, called by FUN_XML_FRAME_LOAD for each <Layers>. For each
+    // <Layer> it reads `level` (default ARTWORK, FUN_XML_DRAW_LAYER_FROM_NAME)
+    // and builds each <Texture> (FUN_XML_ADD_TEXTURE_ELEMENT) and <FontString>
+    // (FUN_XML_ADD_FONTSTRING_ELEMENT), then places it with
+    // FUN_REGION_SET_PARENT_AND_LAYER(region, frame, level, [region+0xC4]).
+    // Any other tag is warned with STR_XML_FRAME_UNKNOWN_CHILD (frame name or
+    // VAR_STR_UNNAMED, parent tag, child tag). Replaced by xml/Layers.cpp.
+    FUN_XML_LOAD_LAYERS = 0x00769D70,
+    // `CSimpleTexture *__fastcall(xmlNode, frame, status)`, `ret 4`: allocates
+    // a texture parented to the frame, runs its pre-load (name), its node
+    // loader (FUN_XML_TEXTURE_LOAD) and the implicit anchor.
+    FUN_XML_ADD_TEXTURE_ELEMENT = 0x006F26F0,
+    // The font string twin of FUN_XML_ADD_TEXTURE_ELEMENT, same convention.
+    FUN_XML_ADD_FONTSTRING_ELEMENT = 0x006F2780,
+    // `bool __fastcall(const char *name, int *outLayer)`: case-insensitive
+    // BACKGROUND..HIGHLIGHT -> 0..4; leaves *outLayer alone on a miss.
+    FUN_XML_DRAW_LAYER_FROM_NAME = 0x006F18B0,
+    // "Frame %s: Unknown child node in %s element: %s"
+    STR_XML_FRAME_UNKNOWN_CHILD = 0x008786E0,
     // Builds a node's <Frames> children. `__thiscall(frame, node, status)`,
     // `ret 8`: recurses the node's `inherits` first (0x0076A092), then calls
     // the builder FUN_006EE280 per child with EDX = frame as the parent
@@ -10378,8 +10398,13 @@ enum Offsets {
     // FUN_TEXTURE_LOAD_BY_PATH(path, &desc, flags, 0, 1) __fastcall, desc =
     // the 5-dword {PTR_TEXLOAD_DESC_VTBL, 8, &self8, (&self8)|1, 0} on-stack
     // node FUN_00770200 builds; flags via FUN_GX_TEXFLAGS_INIT(&flags, blend,
-    // 0,0, 0,0,0, 1, 0) __thiscall. Never returns null (engine substitutes a
-    // fallback texture). FUN_TEXTURE_GET_RENDERABLE(hTex, 1, 0) __fastcall
+    // 0,0, 0,0,0, 1, 0) __thiscall. Never returns null: a file that does not
+    // load returns the solid green fallback and sets the desc's severity
+    // (+0x10, the CStatus level) to 2 or more. SetTexture (0x00770288) tests
+    // that, then closes the handle (FUN_HANDLE_RELEASE), passes the status to
+    // FUN_SYSMSG_ADD_STATUS with 4 (shows nothing) and destroys it
+    // (FUN_FRAMESCRIPT_STATUS_RESET, also run on success at 0x007702C6).
+    // FUN_TEXTURE_GET_RENDERABLE(hTex, 1, 0) __fastcall
     // returns the bindable CGxTex at [hTex+0x140] and drives the streaming
     // load — calling it each frame IS the residency reference (what the
     // minimap's masked draw does for its mask at 0x004ec65c).
@@ -10387,6 +10412,12 @@ enum Offsets {
     PTR_TEXLOAD_DESC_VTBL = 0x007FFA10,
     FUN_GX_TEXFLAGS_INIT = 0x0058A980,
     FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,
+    // SysMsgAdd — `int __fastcall(CStatus *status, uint32_t level)`: hands a
+    // status's error text to the system-message printer 0x0044CB20, which in
+    // this build formats it and drops it (nothing reaches the screen; seen
+    // in-game: a bad SetTexture/SetMask path prints nothing). SetTexture's
+    // failure path (0x0077029D) calls it with 4; mirrored for parity.
+    FUN_SYSMSG_ADD_STATUS = 0x0044CB40,
 
     // --- Texture desaturation (`Texture:SetDesaturation` backport) --------------
     // The engine desaturates by binding ONE pixel shader per region: the UI

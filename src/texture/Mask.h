@@ -30,4 +30,15 @@ void PrepareForReload();
 // zero-dimension texture without anyone having to reproduce the freeze.
 bool AnyMaskActive();
 
+// texture:SetMask(path) on `region`. nullptr or "" clears the mask. Returns
+// false, keeping the mask it had, when the file does not load.
+bool SetPath(void *region, const char *path);
+
+// Turns a texture region into a MaskTexture: hidden, never drawn, and
+// accepted as a mask source.
+void MakeSource(void *region);
+
+// base:AddMaskTexture(mask). Adding the same mask twice is a no-op.
+void Add(void *base, void *mask);
+
 } // namespace Texture::Mask
