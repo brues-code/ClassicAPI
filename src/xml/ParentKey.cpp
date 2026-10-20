@@ -60,7 +60,9 @@
 // binds its whole OnLoad this way). After the engine has loaded the node, each
 // script element carrying `function` becomes `frame:SetScript(<element>,
 // _G[function])`. The loader runs before the builder's finalize, so a bound
-// OnLoad still fires at the usual point.
+// OnLoad still fires at the usual point. `method="Name"` does the same with
+// `frame[Name]`, the frame's own field - usually a function from its mixin
+// (Xml::Mixin), which is in place before any node of the frame loads.
 //
 // A button's font elements take their font from `style` on later clients
 // (`<NormalFont style="GameFontNormal"/>`) where vanilla reads `inherits`; the
@@ -86,6 +88,7 @@
 #include "animation/Xml.h"
 #include "texture/Mask.h"
 #include "xml/KeyValues.h"
+#include "xml/Mixin.h"
 
 #include <cstdint>
 
@@ -126,11 +129,12 @@ void BindParentKey(void *object, const void *node) {
     Game::Lua::SetTop(L, top);
 }
 
-// ---- <Scripts> function= ---------------------------------------------------
+// ---- <Scripts> function= / method= -----------------------------------------
 
 // frame:SetScript(<element>, _G[function]) for every <Scripts> child of `node`
-// that carries a `function` attribute. A name that is not a global function,
-// or a script the frame type does not have, is skipped.
+// that carries a `function` attribute, or frame:SetScript(<element>,
+// frame[method]) for one that carries `method`. A name that is not a
+// function, or a script the frame type does not have, is skipped.
 void BindScriptFunctions(void *object, const void *node) {
     const void *scripts = nullptr;
     for (const void *c = FirstChild(node); c != nullptr; c = NextSibling(c)) {
@@ -149,8 +153,10 @@ void BindScriptFunctions(void *object, const void *node) {
     bool havePushed = false;
     for (const void *e = FirstChild(scripts); e != nullptr; e = NextSibling(e)) {
         const char *fn = Xml::Attr(e, "function");
+        const char *method = Xml::Attr(e, "method");
         const char *script = Xml::Tag(e);
-        if (fn == nullptr || *fn == '\0' || script == nullptr)
+        const bool byFunction = fn != nullptr && *fn != '\0';
+        if (script == nullptr || (!byFunction && (method == nullptr || *method == '\0')))
             continue;
         if (!havePushed) {
             if (!PushWrapper(L, object)) // [frame]
@@ -163,8 +169,9 @@ void BindScriptFunctions(void *object, const void *node) {
             break;
         Game::Lua::PushValue(L, top + 1); // [frame, SetScript, frame]
         Game::Lua::PushString(L, script); // [.., frame, script]
-        Game::Lua::PushString(L, fn);
-        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX); // [.., frame, script, _G[fn]]
+        Game::Lua::PushString(L, byFunction ? fn : method);
+        Game::Lua::GetTable(L, byFunction ? Game::Lua::GLOBALS_INDEX
+                                          : top + 1); // [.., frame, script, handler]
         if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION)
             Game::Lua::PCall(L, 3, 0, 0);
         Game::Lua::SetTop(L, top + 1); // [frame]
@@ -251,8 +258,12 @@ void *RegionObject(void *self) {
 }
 
 uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void *status) {
+    if (self == nullptr || node == nullptr)
+        return g_origTextureLoad(self, edx, node, status);
+    Xml::Mixin::Begin(RegionObject(self), node, status, false);
     const uintptr_t r = g_origTextureLoad(self, edx, node, status);
-    if (self != nullptr && node != nullptr) {
+    Xml::Mixin::End(RegionObject(self));
+    {
         BindParentKey(RegionObject(self), node);
         Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
@@ -263,8 +274,12 @@ uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void
 }
 
 uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, void *status) {
+    if (self == nullptr || node == nullptr)
+        return g_origFontStringLoad(self, edx, node, status);
+    Xml::Mixin::Begin(RegionObject(self), node, status, false);
     const uintptr_t r = g_origFontStringLoad(self, edx, node, status);
-    if (self != nullptr && node != nullptr) {
+    Xml::Mixin::End(RegionObject(self));
+    {
         BindParentKey(RegionObject(self), node);
         Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);

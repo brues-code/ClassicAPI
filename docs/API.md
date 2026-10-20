@@ -885,8 +885,10 @@ build instructions.
   - [`C_XMLUtil.DoesTemplateExist(name)`](#c_xmlutildoestemplateexistname)
   - [`inherits` with more than one template](#inherits-with-more-than-one-template)
   - [`parentKey` in XML](#parentkey-in-xml)
+  - [`KeyValues` in XML](#keyvalues-in-xml)
+  - [`mixin` in XML](#mixin-in-xml)
   - [Masks in XML](#masks-in-xml)
-  - [`function` on XML script handlers](#function-on-xml-script-handlers)
+  - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
   - [`C_TTSSettings` — getters & setters](#c_ttssettings--getters--setters)
   - [TTS events](#tts-events)
@@ -20851,6 +20853,35 @@ the global must exist by then.
 If an entry has no `key`, has no `value`, or has an unknown type,
 `FrameXML.log` gets a warning and the entry is skipped.
 
+### `mixin` in XML
+
+A `mixin` attribute names one or more global tables. Commas or spaces
+divide the names. Each table's fields are copied onto the element's Lua
+table, the same as `Mixin(object, ...)`:
+
+```xml
+<Frame name="MyFrame" mixin="MyFrameMixin">
+    <Scripts>
+        <OnLoad method="OnLoad"/>
+        <OnEvent method="OnEvent"/>
+    </Scripts>
+</Frame>
+```
+
+Frames, textures, font strings and `<AnimationGroup>` elements take a
+`mixin` attribute. The tables must exist when the XML loads, so define them
+in a Lua file that loads before the XML file.
+
+The mixins of the templates in `inherits` apply first, in template order.
+Then the element's own mixins apply, so a later mixin replaces fields of an
+earlier one. All mixins apply before the element's
+[`<KeyValues>`](#keyvalues-in-xml) and scripts load, so a `<KeyValue>`
+replaces a default that a mixin gives. Frames from `CreateFrame` with a
+template get the template's mixins too.
+
+If a name is not a global table, `FrameXML.log` gets the warning
+`Couldn't find mixin` and the other names still apply.
+
 ### Masks in XML
 
 A `<Texture>` element takes a `mask` attribute. It is the same as
@@ -20896,7 +20927,7 @@ A `<MaskedTexture>` can name a texture from any layer of the same frame. If
 it names no texture, the load log gets a warning and the mask is not
 attached.
 
-### `function` on XML script handlers
+### `function` and `method` on XML script handlers
 
 A script element with `function="Name"` uses the global function `Name` as
 that script's handler. It is the same as
@@ -20908,6 +20939,18 @@ that script's handler. It is the same as
     <OnEvent function="MyFrame_OnEvent"/>
 </Scripts>
 ```
+
+A script element with `method="Name"` uses the frame's own field
+`self.Name` as the handler. The field usually comes from a
+[mixin](#mixin-in-xml):
+
+```xml
+<Scripts>
+    <OnLoad method="OnLoad"/>
+</Scripts>
+```
+
+Animation groups and animations take `function` and `method` the same way.
 
 The function is looked up when the element loads, so it must be defined by then. A bound `OnLoad` runs at the
 usual point, once the frame is built, and with

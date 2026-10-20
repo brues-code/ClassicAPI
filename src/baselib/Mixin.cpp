@@ -24,15 +24,15 @@
 //   CreateFromMixins(...)   -- Mixin({}, ...); returns the new table.
 // Non-table extra arguments are skipped (the Lua form guards nil the same way).
 
+#include "baselib/Mixin.h"
+
 #include "Game.h"
 
 namespace BaseLib::Mixin {
 
-namespace {
-
 // Shallow-copy every pair from the table at `srcIdx` onto the table at
 // `dstIdx` (both absolute, positive stack indices). Stack-balanced.
-void MixinInto(void *L, int dstIdx, int srcIdx) {
+void Into(void *L, int dstIdx, int srcIdx) {
     Game::Lua::PushNil(L);
     while (Game::Lua::Next(L, srcIdx) != 0) {
         // stack top: ..., key (-2), value (-1). Copy both so the originals
@@ -44,6 +44,8 @@ void MixinInto(void *L, int dstIdx, int srcIdx) {
     }
 }
 
+namespace {
+
 int __fastcall Script_Mixin(void *L) {
     const int top = Game::Lua::GetTop(L);
     if (top < 1 || Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
@@ -52,7 +54,7 @@ int __fastcall Script_Mixin(void *L) {
     }
     for (int i = 2; i <= top; ++i)
         if (Game::Lua::Type(L, i) == Game::Lua::TYPE_TABLE)
-            MixinInto(L, 1, i);
+            Into(L, 1, i);
     Game::Lua::PushValue(L, 1); // return object
     return 1;
 }
@@ -63,7 +65,7 @@ int __fastcall Script_CreateFromMixins(void *L) {
     const int objIdx = top + 1;
     for (int i = 1; i <= top; ++i)
         if (Game::Lua::Type(L, i) == Game::Lua::TYPE_TABLE)
-            MixinInto(L, objIdx, i);
+            Into(L, objIdx, i);
     Game::Lua::SetTop(L, objIdx); // the new table is the sole result
     return 1;
 }

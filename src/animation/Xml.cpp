@@ -26,6 +26,7 @@
 #include "baselib/Ascii.h"
 #include "xml/FrameLoad.h"
 #include "xml/KeyValues.h"
+#include "xml/Mixin.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -70,7 +71,8 @@ void BindParentKey(void *object, Object *child, const char *key) {
     Game::Lua::SetTop(L, top);
 }
 
-// <Scripts>: each element's body, or its `function` global.
+// <Scripts>: each element's body, its `function` global, or its `method`
+// field on the object.
 void LoadScripts(Object *object, const void *node) {
     const void *scripts = FindChild(node, "Scripts");
     if (scripts == nullptr)
@@ -80,13 +82,22 @@ void LoadScripts(Object *object, const void *node) {
         if (script == nullptr)
             continue;
         const char *function = ::Xml::Attr(s, "function");
-        if (function != nullptr && *function != '\0') {
+        const char *method = ::Xml::Attr(s, "method");
+        const bool byFunction = function != nullptr && *function != '\0';
+        if (byFunction || (method != nullptr && *method != '\0')) {
             uint32_t *slot = object->ScriptSlot(script);
             void *L = Game::Lua::State();
             if (slot == nullptr || L == nullptr)
                 continue;
-            Game::Lua::PushString(L, function);
-            Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+            if (byFunction) {
+                Game::Lua::PushString(L, function);
+                Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+            } else {
+                Push(L, object);
+                Game::Lua::PushString(L, method);
+                Game::Lua::GetTable(L, -2);
+                Game::Lua::Remove(L, -2);
+            }
             if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_FUNCTION) {
                 Game::Lua::SetTop(L, -2);
                 continue;
@@ -158,14 +169,41 @@ void LoadAnimChildren(Group *group, const void *node, void *status) {
 
 const void *Template(const char *name) { return ::Xml::Template(name); }
 
+namespace {
+
+// LoadGroup re-enters itself for each inherited template; the mixins of the
+// whole chain go in once, from the outermost call, before any node's
+// KeyValues or scripts (see Xml::Mixin).
+int g_groupDepth = 0;
+
+void LoadGroupNode(Group *group, const void *node, void *status);
+
+} // namespace
+
 void LoadGroup(Group *group, const void *node, void *status) {
+    if (g_groupDepth == 0) {
+        if (void *L = Game::Lua::State()) {
+            const int top = Game::Lua::GetTop(L);
+            Push(L, group);
+            ::Xml::Mixin::ApplyChain(L, top + 1, node, status, group->DisplayName(), false);
+            Game::Lua::SetTop(L, top);
+        }
+    }
+    ++g_groupDepth;
+    LoadGroupNode(group, node, status);
+    --g_groupDepth;
+}
+
+namespace {
+
+void LoadGroupNode(Group *group, const void *node, void *status) {
     group->flags |= GROUP_LOADING;
     if (const char *inherits = ::Xml::Attr(node, "inherits"); inherits != nullptr && *inherits != '\0') {
         const void *base = ::Xml::Template(inherits);
         if (base == nullptr)
             ::Xml::Warn(status, "Couldn't find inherited node: %s", inherits);
         else
-            LoadGroup(group, base, status);
+            LoadGroupNode(group, base, status);
     }
     BindParentKey(group->RegionObject(), group, ::Xml::Attr(node, "parentKey"));
     if (const char *looping = ::Xml::Attr(node, "looping"); looping != nullptr && *looping != '\0') {
@@ -191,6 +229,8 @@ void LoadGroup(Group *group, const void *node, void *status) {
     LoadKeyValues(group, node, status);
     LoadAnimChildren(group, node, status);
 }
+
+} // namespace
 
 void LoadAnim(Anim *anim, const void *node, void *status) {
     // The subclass reads its values, then CSimpleAnim::LoadXML (inherits
