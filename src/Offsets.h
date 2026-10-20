@@ -3126,6 +3126,19 @@ enum Offsets {
     VAR_TEXTURE_LUA_TYPE_ID = 0x00CF4CDC,
     VAR_FONTSTRING_LUA_TYPE_ID = 0x00CF2CCC,
     VAR_EDITBOX_LUA_TYPE_ID = 0x00CF4DB4,
+    // Slider's (Script Slider:GetValue reads it at 0x007908C0); its method
+    // table 0x0087B260 registers into VAR_SLIDER_METHOD_REGISTRY.
+    VAR_SLIDER_LUA_TYPE_ID = 0x00CF4F48,
+    VAR_SLIDER_METHOD_REGISTRY = 0x00CF5208,
+    // CSimpleSlider::OnLayerMouseDown — `void __thiscall(slider, CMouseEvent
+    // *)`, `ret 4`, slot +0x68 of the Slider vtable 0x0081CF60 (its only
+    // reference): sets the drag bit 0x8 of +0x314, applies the press as a
+    // move (vtable +0x3C), then calls the base frame's FUN_FRAME_ON_MOUSE_DOWN.
+    // Unlike 4.3.4's (CSimpleSlider.cpp:317) it reads no disabled flag.
+    FUN_SLIDER_ON_MOUSE_DOWN = 0x00789CA0,
+    // CSimpleFrame::OnLayerMouseDown — `void __thiscall(frame, CMouseEvent *)`,
+    // `ret 4`: drag arming, then the OnMouseDown script with the button name.
+    FUN_FRAME_ON_MOUSE_DOWN = 0x0076BF70,
 
     // CFrameScriptObject vtable slot 4 — the `IsA(typeId)` predicate every
     // frame class implements, and the gate every engine method applies to its

@@ -4076,7 +4076,7 @@ Each entry still needs the usual check of how the engine does it before building
 
 ### From 4.3.4 (decomp available)
 
-- **Slider** `Enable` / `Disable` / `IsEnabled`: frame flag `0x400`, read by the
+- **DONE** (`src/slider/Enable.cpp`). **Slider** `Enable` / `Disable` / `IsEnabled`: frame flag `0x400`, read by the
   thumb-drag path (`CSimpleSlider.cpp:317`); `Disable` runs OnDisable unless
   loading (we have OnEnable/OnDisable in `src/frame/EnableScripts.cpp`).
 - **OnMinMaxChanged** (Slider, StatusBar): `SetMinMaxValues` runs it with

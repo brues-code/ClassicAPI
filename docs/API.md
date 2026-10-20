@@ -293,6 +293,7 @@ build instructions.
   - [`editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`](#editboxsetcountinvisibleletterscount--editboxiscountinvisibleletters)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`editBox:Enable()` / `editBox:Disable()` / `editBox:IsEnabled()`](#editboxenable--editboxdisable--editboxisenabled)
+  - [`slider:Enable()` / `slider:Disable()` / `slider:IsEnabled()`](#sliderenable--sliderdisable--sliderisenabled)
   - [`OnEnable` and `OnDisable` (scripts)](#onenable-and-ondisable-scripts)
   - [`editBox:IsInIMECompositionMode()`](#editboxisinimecompositionmode)
   - [`OnCharComposition(self, text)` (script)](#oncharcompositionself-text-script)
@@ -6730,13 +6731,23 @@ Does nothing when the box has no history.
   call `editBox:SetFocus()`.
 - Each call runs the script, also when the box is already in that state.
 
+### `slider:Enable()` / `slider:Disable()` / `slider:IsEnabled()`
+
+`slider:Disable()` stops the mouse from moving the slider and runs its
+`OnDisable` script. `slider:Enable()` lets the mouse move it again and runs
+its `OnEnable` script. `slider:IsEnabled()` returns `true` or `false`.
+
+- A disabled slider still runs its `OnMouseDown` and `OnMouseUp` scripts,
+  and `slider:SetValue()` still changes its value.
+- Each call runs the script, also when the slider is already in that state.
+
 ### `OnEnable` and `OnDisable` (scripts)
 
 Every frame can have an `OnEnable` and an `OnDisable` script. Set them with
 `SetScript`, `HookScript`, or in XML. A button runs `OnEnable` when
 `button:Enable()` enables it, and `OnDisable` when `button:Disable()`
 disables it. A button does not run them when its state does not change. An
-edit box runs them from `editBox:Enable()` and `editBox:Disable()`.
+edit box or a slider runs them from its `Enable()` and `Disable()`.
 
 ```lua
 button:SetScript("OnDisable", function(self) self:SetAlpha(0.5) end)
