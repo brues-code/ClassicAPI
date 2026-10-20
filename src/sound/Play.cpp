@@ -12,9 +12,11 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `C_Sound.PlaySound(soundKitID [, channel [, forceNoDuplicates
-// [, runFinishCallback]]])`, `C_Sound.IsPlaying(soundHandle)`, the
-// `SOUNDKIT_FINISHED` event, and the global `PlaySound` widened to take a
-// SoundKitID as well as the row name it has always taken.
+// [, runFinishCallback]]])`, `C_Sound.PlaySoundWithOptions`,
+// `C_Sound.IsPlaying`, `C_Sound.GetSoundScaledVolume`, `StopSound`, the
+// `SOUNDKIT_FINISHED` event, the global `PlaySound` widened to take a
+// SoundKitID as well as the row name it has always taken, and
+// `PlaySoundFile` widened to take a channel and return a handle.
 //
 // A SoundKitID is a SoundEntries.dbc row id — the same ids the modern
 // client's SOUNDKIT constants carry, because it is the same table under a
@@ -28,13 +30,20 @@
 // SOUNDKIT ids could not play a single sound here, even though every id was
 // already valid.
 //
-// `FUN_SOUND_PLAY_ENTRY` does the work and returns the stream object, which
-// is the handle. See Offsets.h for its ABI, which was taken from the
-// disassembly rather than the decompile (Ghidra maps its arguments
-// inconsistently against the call site). We pass variantIndex -1 so a row
-// with several files picks one the same weighted-random way the engine does
-// for its own sounds, and leave all three flag bytes clear, matching
-// `PlaySound`.
+// `FUN_SOUND_PLAY_ENTRY` (InternalPlaySound) does the work and returns the
+// Sound record, which is the handle. See Offsets.h for its ABI, which was
+// taken from the disassembly rather than the decompile. We pass
+// variantIndex -1 so a row with several files picks one the same
+// weighted-random way the engine does for its own sounds.
+//
+// CHANNELS are the volume categories, picked the way 4.3.4's
+// `_PickScriptSoundBus` picks them: "Master", "Music" and "Ambience"
+// (case-insensitive), anything else or nothing is "SFX". Here a category
+// is a flag on the sound (Offsets.h, SOUND_FLAG_*), not the bus, which only
+// caps concurrency. InternalPlaySound takes the Music and Master flags as
+// arguments but has no Ambience argument, so a SoundKit on "Ambience"
+// plays on the Sound slider; a FILE on "Ambience" is exact, because
+// Play2D takes the flags whole.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -42,22 +51,24 @@
 #include "tick/WorldTick.h"
 
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace Sound::Play {
 
 namespace {
 
-// `void *__fastcall(char orFlag4, char orFlag10, int category,
-//                   int soundEntryID, int variantIndex, int orFlag2)`
-using PlaySoundEntry_t = void *(__fastcall *)(char, char, int, int, int, int);
+using PlaySoundEntry_t = void *(__fastcall *)(char keep, char noCategory, int bus,
+                                              int soundEntryID, int variantIndex, int music);
+using Play2D_t = void *(__fastcall *)(int bus, const char *path, unsigned flags, char held);
+using Stop_t = void(__thiscall *)(void *sound, float seconds);
 using ScriptFn_t = int(__fastcall *)(void *L);
 
 constexpr int kVariantRandom = -1; // the engine's own weighted pick
 
-// A stream object is freed once the sound ends, so a stale handle must
-// never be dereferenced. Membership of the engine's live stream list is the
-// safe test — the same list its dedup pass walks (`FUN_007A66A0`): an
+// A Sound record is freed once the sound ends, so a stale handle must
+// never be dereferenced. Membership of the engine's live list is the safe
+// test — the same list its dedup pass walks (`FUN_007A66A0`): an
 // intrusive list whose `next` sits at +0x04, ended by a null or a
 // low-bit-tagged sentinel. Returns the node so a caller that needs a field
 // off it reads only a node that is provably still there.
@@ -77,150 +88,170 @@ uintptr_t FindStreamNode(uintptr_t handle) {
     return 0; // cycle or corruption — never spin inside a Lua call
 }
 
-bool HandleAlive(uintptr_t handle) { return FindStreamNode(handle) != 0; }
-
 uint32_t PathHash(uintptr_t node) {
     return *reinterpret_cast<const uint32_t *>(
         node + Offsets::OFF_SOUND_STREAM_PATH_HASH);
 }
 
-// Re-apply a row's volume to a already-started stream at `scale`. The by-id
-// player runs this with 1.0 as it starts the sound, and the setter writes
-// rather than accumulates, so a second call simply replaces the volume.
-using SoundEntryForID_t = void *(__fastcall *)(unsigned soundEntryID);
-using ApplyRowVolume_t = void(__thiscall *)(void *row, void *stream, float scale);
-
-void ApplyVolumeScale(int soundKitID, void *handle, float scale) {
-    void *row = reinterpret_cast<SoundEntryForID_t>(Offsets::FUN_SOUND_ENTRY_FOR_ID)(
-        static_cast<unsigned>(soundKitID));
-    if (row == nullptr)
-        return;
-    reinterpret_cast<ApplyRowVolume_t>(Offsets::FUN_SOUND_APPLY_ROW_VOLUME)(row, handle, scale);
-}
-
-// ---- SOUNDKIT_FINISHED ------------------------------------------------
+// ---- Sounds we started -------------------------------------------------
 //
-// Fires with the sound handle once that sound stops, and ONLY for sounds
-// started with `runFinishCallback` — which is both the documented contract
-// and the reason this is affordable. Without the opt-in every footstep and
-// UI click would dispatch a Lua event.
+// Every sound one of our play functions starts is remembered with its
+// path hash until it ends. Two things need it:
 //
-// Detected on the world tick rather than from FMOD's end callback: that
-// callback (`FUN_007A53C0`) runs on the STREAMER thread and only defers the
-// stream onto a list under a critical section. Firing a Lua event from
-// there would call into the VM off the main thread. The engine notices
-// completion on its own side in `FUN_007A4B60`, from the per-frame sound
-// update — so a main-thread check is what the engine itself does.
+// - StopSound may only stop these. Stopping releases the Sound record, and
+//   the engine keeps records of its own in slots (music, ambience, kept
+//   sounds with flag 0x4); freeing one of those under its slot would be a
+//   use-after-free. A handle we returned was started with no keep flag and
+//   is held by nobody but the caller.
+// - SOUNDKIT_FINISHED fires for the ones started with `runFinishCallback`.
 //
-// A tracked entry keeps the stream's path hash alongside the handle.
-// Stream objects are pooled and their addresses reused, so "the handle is
+// Sound records are pooled and their addresses reused, so "the handle is
 // still in the list" is not enough on its own: a later sound can land on
-// the same address. Comparing the hash too means only the same file
-// replaying at the same address can be mistaken for the original, and that
-// costs one extra dword read of a node we have already found alive.
-const Event::Custom::AutoReserve _soundkitFinished{"SOUNDKIT_FINISHED"};
-
-struct Tracked {
+// the same address. Comparing the path hash too means only the same file
+// replaying at the same address can be mistaken for the original.
+//
+// Ends are detected on the world tick rather than from FMOD's end
+// callback: that callback (`FUN_007A53C0`) runs on the STREAMER thread and
+// only defers the stream onto a list under a critical section. The engine
+// notices completion in `FUN_007A4B60`, from the per-frame sound update —
+// so a main-thread check is what the engine itself does.
+struct Owned {
     uintptr_t handle;
     uint32_t pathHash;
+    bool notifyFinish;
 };
 
-// Only ever holds sounds a caller opted in for, so it is empty almost
-// always and never needs a cap.
-std::vector<Tracked> g_tracked;
+// Holds only sounds an addon started that are still playing, so it is a
+// handful of entries at most.
+std::vector<Owned> g_owned;
 
-void TrackForFinish(uintptr_t handle) {
-    const uintptr_t node = FindStreamNode(handle);
+void Own(void *sound, bool notifyFinish) {
+    const uintptr_t node = FindStreamNode(reinterpret_cast<uintptr_t>(sound));
     if (node == 0)
-        return; // already over, or never started — nothing to report
-    g_tracked.push_back({handle, PathHash(node)});
+        return; // already over — nothing to stop or report
+    g_owned.push_back({node, PathHash(node), notifyFinish});
 }
 
+bool StillPlaying(const Owned &o) {
+    const uintptr_t node = FindStreamNode(o.handle);
+    return node != 0 && PathHash(node) == o.pathHash;
+}
+
+const Event::Custom::AutoReserve _soundkitFinished{"SOUNDKIT_FINISHED"};
+
 void OnWorldTick() {
-    if (g_tracked.empty())
+    if (g_owned.empty())
         return;
     const int slot = _soundkitFinished.Slot();
     size_t keep = 0;
-    for (size_t i = 0; i < g_tracked.size(); ++i) {
-        const Tracked &t = g_tracked[i];
-        const uintptr_t node = FindStreamNode(t.handle);
-        if (node != 0 && PathHash(node) == t.pathHash) {
-            g_tracked[keep++] = t; // still playing
+    for (size_t i = 0; i < g_owned.size(); ++i) {
+        const Owned &o = g_owned[i];
+        if (StillPlaying(o)) {
+            g_owned[keep++] = o;
             continue;
         }
-        if (slot >= 0)
-            Event::Custom::Fire(slot, "%u", static_cast<unsigned>(t.handle));
+        if (o.notifyFinish && slot >= 0)
+            Event::Custom::Fire(slot, "%u", static_cast<unsigned>(o.handle));
     }
-    g_tracked.resize(keep);
+    g_owned.resize(keep);
 }
 
 const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
 
-// Play a row by id and push `willPlay, soundHandle`.
-//
-// `optionalBase` is the 1-based stack index of the `channel` argument, with
-// `forceNoDuplicates` and `runFinishCallback` after it — or 0 for a caller
-// that takes none of them. The global `PlaySound` passes 0: it gains only
-// the id form, and the fuller argument list belongs to `C_Sound.PlaySound`.
-//
-// `channel` is the engine's sound category (0..12; 0 is what the engine
-// itself uses for UI sounds and music, 3 for a file played by path). A
-// channel NAME is accepted and ignored, so code written against the modern
-// string form still runs — the categories here do not correspond to it.
-//
-// `forceNoDuplicates` is likewise accepted and does nothing. The engine
-// does have a by-path dedup, but it is bit 0 of a flag word the row itself
-// supplies; the by-id player ORs in only bits 1, 2 and 4 from its
-// arguments, so there is no way to ask for it without bypassing that
-// player and re-deriving its weighted file pick, which would be a worse
-// trade than the missing flag.
-//
-// `runFinishCallback` opts the sound in to SOUNDKIT_FINISHED.
+// ---- Channels ----------------------------------------------------------
+
+enum class Channel { SFX, Master, Music, Ambience };
+
+// 4.3.4 `_PickScriptSoundBus`: a string argument picks by name, anything
+// else is SFX.
+Channel ChannelArg(void *L, int idx) {
+    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_STRING)
+        return Channel::SFX;
+    const char *name = Game::Lua::ToString(L, idx);
+    if (name == nullptr)
+        return Channel::SFX;
+    if (_stricmp(name, "Master") == 0)
+        return Channel::Master;
+    if (_stricmp(name, "Music") == 0)
+        return Channel::Music;
+    if (_stricmp(name, "Ambience") == 0)
+        return Channel::Ambience;
+    return Channel::SFX;
+}
+
+unsigned ChannelFlags(Channel c) {
+    switch (c) {
+    case Channel::Master:
+        return Offsets::SOUND_FLAG_NO_CATEGORY;
+    case Channel::Music:
+        return Offsets::SOUND_FLAG_MUSIC;
+    case Channel::Ambience:
+        return Offsets::SOUND_FLAG_AMBIENCE;
+    default:
+        return 0;
+    }
+}
+
+// ---- Playing a SoundKit ------------------------------------------------
+
+using SoundEntryForID_t = void *(__fastcall *)(unsigned soundEntryID);
+using ApplyRowVolume_t = void(__thiscall *)(void *def, void *sound, float scale);
+
 // The options every play path shares, however they were spelled at the
-// Lua edge. `volumeScale < 0` means "leave the row's own volume alone".
+// Lua edge. `volumeScale < 0` means "leave the definition's own volume".
 struct PlayOptions {
-    int category = 0;
+    Channel channel = Channel::SFX;
+    bool noDuplicates = false;
     bool runFinishCallback = false;
     float volumeScale = -1.0f;
 };
 
-// Start `soundKitID` with `opts` and push `willPlay, soundHandle`.
-int PlayWithOptions(void *L, int soundKitID, const PlayOptions &opts) {
-    if (soundKitID <= 0) {
-        Game::Lua::PushBool(L, false);
-        Game::Lua::PushNil(L);
-        return 2;
-    }
+void *PlayKit(int soundKitID, const PlayOptions &opts) {
+    if (soundKitID <= 0)
+        return nullptr;
+    // `PlaySound(name)` plays nothing while the UI loads or the world is
+    // entered or left; the id form keeps the same quiet.
+    if (Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_INTERFACE_SOUND_SUPPRESS)) > 0)
+        return nullptr;
+    auto *def = static_cast<uint8_t *>(reinterpret_cast<SoundEntryForID_t>(
+        Offsets::FUN_SOUND_ENTRY_FOR_ID)(static_cast<unsigned>(soundKitID)));
+    if (def == nullptr)
+        return nullptr;
 
-    auto play = reinterpret_cast<PlaySoundEntry_t>(Offsets::FUN_SOUND_PLAY_ENTRY);
-    void *handle = play(0, 0, opts.category, soundKitID, kVariantRandom, 0);
+    // The duplicate check is the definition's own bit, which the player
+    // turns into the open's flag 0x1. Lend it for this one call. The check
+    // compares the picked FILE, so a kit with several files can still
+    // start a second copy on a different pick.
+    auto &defFlags = *reinterpret_cast<uint32_t *>(def + Offsets::OFF_SOUND_DEFINITION_FLAGS);
+    const uint32_t savedFlags = defFlags;
+    if (opts.noDuplicates)
+        defFlags |= Offsets::SOUND_DEFINITION_FLAG_NO_DUPLICATES;
 
-    if (handle != nullptr) {
-        if (opts.volumeScale >= 0.0f)
-            ApplyVolumeScale(soundKitID, handle, opts.volumeScale);
-        if (opts.runFinishCallback)
-            TrackForFinish(reinterpret_cast<uintptr_t>(handle));
-    }
+    void *sound = reinterpret_cast<PlaySoundEntry_t>(Offsets::FUN_SOUND_PLAY_ENTRY)(
+        0, opts.channel == Channel::Master ? 1 : 0, 0, soundKitID, kVariantRandom,
+        opts.channel == Channel::Music ? 1 : 0);
+    defFlags = savedFlags;
 
-    Game::Lua::PushBool(L, handle != nullptr);
-    if (handle != nullptr)
-        Game::Lua::PushNumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(handle)));
+    if (sound == nullptr)
+        return nullptr;
+    // The player applies the definition's volume at scale 1.0 as it
+    // starts; the applicator writes rather than accumulates, so a second
+    // call replaces it.
+    if (opts.volumeScale >= 0.0f)
+        reinterpret_cast<ApplyRowVolume_t>(Offsets::FUN_SOUND_APPLY_ROW_VOLUME)(
+            def, sound, opts.volumeScale);
+    Own(sound, opts.runFinishCallback);
+    return sound;
+}
+
+// Push `willPlay, soundHandle`.
+int PushResult(void *L, void *sound) {
+    Game::Lua::PushBool(L, sound != nullptr);
+    if (sound != nullptr)
+        Game::Lua::PushNumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(sound)));
     else
         Game::Lua::PushNil(L);
     return 2;
-}
-
-int PlayById(void *L, int soundKitID, int optionalBase) {
-    PlayOptions opts;
-    if (optionalBase > 0) {
-        if (Game::Lua::Type(L, optionalBase) == Game::Lua::TYPE_NUMBER) {
-            opts.category = static_cast<int>(Game::Lua::ToNumber(L, optionalBase));
-            if (opts.category < 0 || opts.category > Offsets::SOUND_CATEGORY_MAX)
-                opts.category = 0; // the engine rejects the rest outright
-        }
-        opts.runFinishCallback = Game::Lua::ToBoolean(L, optionalBase + 2) != 0;
-    }
-    return PlayWithOptions(L, soundKitID, opts);
 }
 
 // C_Sound.PlaySound(soundKitID [, channel [, forceNoDuplicates
@@ -232,7 +263,11 @@ int __fastcall Script_C_Sound_PlaySound(void *L) {
             "[, runFinishCallback]]])");
         return 0;
     }
-    return PlayById(L, static_cast<int>(Game::Lua::ToNumber(L, 1)), 2);
+    PlayOptions opts;
+    opts.channel = ChannelArg(L, 2);
+    opts.noDuplicates = Game::Lua::ToBoolean(L, 3) != 0;
+    opts.runFinishCallback = Game::Lua::ToBoolean(L, 4) != 0;
+    return PushResult(L, PlayKit(static_cast<int>(Game::Lua::ToNumber(L, 1)), opts));
 }
 
 // The global `PlaySound(soundKitID | soundName)`.
@@ -243,32 +278,25 @@ int __fastcall Script_C_Sound_PlaySound(void *L) {
 // else tail-calls the engine with the stack untouched, so the name form
 // behaves exactly as it always has (it pushes no return values).
 //
-// The id form is the ONLY thing added here — the optional channel /
-// forceNoDuplicates / runFinishCallback arguments live on
-// `C_Sound.PlaySound` instead, which keeps this global as close to the
+// The id form is the ONLY thing added here — the optional arguments live
+// on `C_Sound.PlaySound` instead, which keeps this global as close to the
 // one it replaces as the extension allows.
 //
 // Discriminating on `lua_type`, not `lua_isnumber`: the latter also
 // accepts a numeric STRING, which would quietly reroute `PlaySound("123")`
-// away from the name lookup. No row in this table is named with digits, so
-// nothing real is lost, but the type test is the honest rule.
+// away from the name lookup.
 int __fastcall Script_PlaySound(void *L) {
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_NUMBER)
-        return PlayById(L, static_cast<int>(Game::Lua::ToNumber(L, 1)), 0);
+        return PushResult(L, PlayKit(static_cast<int>(Game::Lua::ToNumber(L, 1)), {}));
     return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_PLAY_SOUND)(L);
 }
 
 // Read `name` from the params table at stack index `idx`. Uses GetTable
 // rather than a raw read so a params table built from a mixin still works.
 // Leaves the stack as it found it.
-bool Field(void *L, int idx, const char *name) {
+double FieldNumber(void *L, int idx, const char *name, double fallback) {
     Game::Lua::PushString(L, name);
     Game::Lua::GetTable(L, idx);
-    return true; // value is on the stack; caller pops
-}
-
-double FieldNumber(void *L, int idx, const char *name, double fallback) {
-    Field(L, idx, name);
     const double v = (Game::Lua::Type(L, -1) == Game::Lua::TYPE_NUMBER)
                          ? Game::Lua::ToNumber(L, -1)
                          : fallback;
@@ -277,7 +305,8 @@ double FieldNumber(void *L, int idx, const char *name, double fallback) {
 }
 
 bool FieldBool(void *L, int idx, const char *name) {
-    Field(L, idx, name);
+    Game::Lua::PushString(L, name);
+    Game::Lua::GetTable(L, idx);
     const bool v = Game::Lua::ToBoolean(L, -1) != 0;
     Game::Lua::SetTop(L, -2);
     return v;
@@ -285,34 +314,73 @@ bool FieldBool(void *L, int idx, const char *name) {
 
 // C_Sound.PlaySoundWithOptions(params) -> success, soundHandle
 //
-// The table form of PlaySound. Honors `soundKitID`, `runFinishCallback`
-// and `volumeOverride`; accepts and ignores `uiSoundSubType`,
-// `forceNoDuplicates` and `overridePriority`, which have nothing behind
-// them here (see PlayById for why forceNoDuplicates cannot be asked for).
-//
-// `volumeOverride` scales the sound's own volume, so 1.0 is unchanged and
-// 0 is silent.
+// The table form of PlaySound. Honors `soundKitID`, `forceNoDuplicates`,
+// `runFinishCallback` and `volumeOverride`; accepts and ignores
+// `uiSoundSubType` and `overridePriority`, which have nothing behind them
+// here. `volumeOverride` scales the sound's own volume, so 1.0 is
+// unchanged and 0 is silent.
 int __fastcall Script_PlaySoundWithOptions(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
         Game::Lua::Error(L, "Usage: C_Sound.PlaySoundWithOptions(params)");
         return 0;
     }
     const int soundKitID = static_cast<int>(FieldNumber(L, 1, "soundKitID", 0));
-
     PlayOptions opts;
+    opts.noDuplicates = FieldBool(L, 1, "forceNoDuplicates");
     opts.runFinishCallback = FieldBool(L, 1, "runFinishCallback");
     const double volume = FieldNumber(L, 1, "volumeOverride", -1.0);
     if (volume >= 0.0)
         opts.volumeScale = static_cast<float>(volume);
+    return PushResult(L, PlayKit(soundKitID, opts));
+}
 
-    return PlayWithOptions(L, soundKitID, opts);
+// PlaySoundFile(file [, channel]) -> willPlay, soundHandle
+//
+// The engine's own (`0x00458780`) is `Play2D(3, file, 0, 0)` returning
+// 1 or nil. This is the same open on the same bus (its cap of 2 still
+// refuses a third file at once), with the channel's category flag and
+// the handle returned so StopSound can end it.
+int __fastcall Script_PlaySoundFile(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L,
+            "Usage: PlaySoundFile(\"soundfile\", optional[\"SFX\",\"Music\",\"Ambience\" "
+            "or \"Master\"])");
+        return 0;
+    }
+    const unsigned flags = ChannelFlags(ChannelArg(L, 2));
+    void *sound = reinterpret_cast<Play2D_t>(Offsets::FUN_SOUND_PLAY_2D)(
+        Offsets::SOUND_BUS_PLAY_SOUND_FILE, Game::Lua::ToString(L, 1), flags, 0);
+    if (sound != nullptr)
+        Own(sound, false);
+    return PushResult(L, sound);
+}
+
+// StopSound(soundHandle [, fadeoutTime])
+//
+// `fadeoutTime` is in milliseconds. Sound::Stop2 fades the sound out and
+// releases it at silence, or releases it at once below 0.1 s. Only a
+// handle one of our play functions returned is stopped (see Owned).
+int __fastcall Script_StopSound(void *L) {
+    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_NUMBER)
+        return 0;
+    const auto handle = static_cast<uintptr_t>(Game::Lua::ToNumber(L, 1));
+    const double fadeMs =
+        Game::Lua::Type(L, 2) == Game::Lua::TYPE_NUMBER ? Game::Lua::ToNumber(L, 2) : 0.0;
+    for (const Owned &o : g_owned) {
+        if (o.handle != handle || !StillPlaying(o))
+            continue;
+        reinterpret_cast<Stop_t>(Offsets::FUN_SOUND_STOP)(
+            reinterpret_cast<void *>(handle), static_cast<float>(fadeMs * 0.001));
+        break;
+    }
+    return 0;
 }
 
 // C_Sound.GetSoundScaledVolume(soundHandle) -> number
 //
 // The volume the sound is playing at: the sound's own volume after any
-// scaling. Reads the field only off a stream still in the live list, since
-// a finished stream's memory goes back to a pool.
+// scaling. Reads the field only off a sound still in the live list, since
+// a finished sound's memory goes back to a pool.
 int __fastcall Script_GetSoundScaledVolume(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::PushNil(L);
@@ -338,7 +406,7 @@ int __fastcall Script_IsPlaying(void *L) {
     }
     const uintptr_t handle =
         static_cast<uintptr_t>(Game::Lua::ToNumber(L, 1));
-    Game::Lua::PushBool(L, HandleAlive(handle));
+    Game::Lua::PushBool(L, FindStreamNode(handle) != 0);
     return 1;
 }
 
@@ -349,8 +417,10 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Sound", "GetSoundScaledVolume",
                                      &Script_GetSoundScaledVolume);
     Game::Lua::RegisterTableFunction("C_Sound", "IsPlaying", &Script_IsPlaying);
-    // A strict superset of the engine's own global — see Script_PlaySound.
+    // Strict supersets of the engine's own globals — see each Script_*.
     Game::Lua::RegisterGlobalFunction("PlaySound", &Script_PlaySound);
+    Game::Lua::RegisterGlobalFunction("PlaySoundFile", &Script_PlaySoundFile);
+    Game::Lua::RegisterGlobalFunction("StopSound", &Script_StopSound);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

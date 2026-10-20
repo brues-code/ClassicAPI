@@ -658,6 +658,8 @@ build instructions.
   - [`C_Sound.PlaySoundWithOptions(params)`](#c_soundplaysoundwithoptionsparams)
   - [`C_Sound.GetSoundScaledVolume(soundHandle)`](#c_soundgetsoundscaledvolumesoundhandle)
   - [`C_Sound.IsPlaying(soundHandle)`](#c_soundisplayingsoundhandle)
+  - [`StopSound(soundHandle [, fadeoutTime])`](#stopsoundsoundhandle--fadeouttime)
+  - [`PlaySoundFile(file [, channel])`](#playsoundfilefile--channel)
   - [`C_Sound.PlayItemSound(soundType, item)`](#c_soundplayitemsoundsoundtype-item)
   - [`C_Sound.PlayVocalErrorSound(vocalErrorSoundID)`](#c_soundplayvocalerrorsoundvocalerrorsoundid)
   - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
@@ -4925,6 +4927,9 @@ C_Sound.PlaySound(8959, nil, nil, true)
 | Argument | Meaning |
 |---|---|
 | `arg1` | `soundHandle` — the handle [`C_Sound.PlaySound`](#c_soundplaysoundsoundkitid--channel-forcenoduplicates-runfinishcallback) returned for the sound that just ended. |
+
+A sound stopped with [`StopSound`](#stopsoundsoundhandle--fadeouttime)
+also sends the event.
 
 It fires **only** for sounds played with `runFinishCallback` set to `true`.
 Sounds played any other way report nothing — every footstep and button
@@ -15578,16 +15583,18 @@ local willPlay, handle = C_Sound.PlaySound(8959)
 ```
 
 `willPlay` is `false` when the sound cannot start. That happens when the
-file is muted, when the id names no entry, or when the category already
-has as many sounds as it allows.
+file is muted, when the id names no entry, or when a duplicate is
+refused. It is also `false` while the interface loads, and while you
+enter or leave the world. `PlaySound` with a sound name is silent at
+those times too.
 
 An entry can hold several files. The client picks one of them, with the
 same weighting it uses for its own sounds.
 
 | Argument | Meaning |
 |---|---|
-| `channel` | The sound category, `0` to `12`. Leave it out for `0`, which is what the client uses for interface sounds and music. A channel **name** such as `"SFX"` is accepted and ignored: the categories here do not match those names. |
-| `forceNoDuplicates` | Accepted and ignored. |
+| `channel` | The volume slider that applies: `"SFX"`, `"Music"`, `"Ambience"` or `"Master"`. Upper and lower case do not matter. Leave it out, or give another value, for `"SFX"`. `"Master"` uses only the master volume. `"Ambience"` uses the sound volume for a SoundKitID. |
+| `forceNoDuplicates` | Pass `true` to play nothing while the same file is already playing. An entry with several files can still play a second copy if the client picks a different file. |
 | `runFinishCallback` | Pass `true` to get the [`SOUNDKIT_FINISHED`](#soundkit_finished-event) event when this sound ends. |
 
 ### `C_Sound.PlaySoundWithOptions(params)`
@@ -15608,8 +15615,8 @@ local ok, handle = C_Sound.PlaySoundWithOptions({
 | `soundKitID` | The sound to play. |
 | `volumeOverride` | Scales the sound's volume. `1` leaves it alone, `0` is silent. Leave it out to play at the sound's own volume. |
 | `runFinishCallback` | Pass `true` to get the [`SOUNDKIT_FINISHED`](#soundkit_finished-event) event when this sound ends. |
+| `forceNoDuplicates` | Pass `true` to play nothing while the same file is already playing. |
 | `uiSoundSubType` | Accepted and ignored. |
-| `forceNoDuplicates` | Accepted and ignored. |
 | `overridePriority` | Accepted and ignored. |
 
 ### `C_Sound.GetSoundScaledVolume(soundHandle)`
@@ -15635,6 +15642,40 @@ A handle is only meaningful while its sound plays. After the sound ends
 the client can give the same handle value to a later sound, so a handle
 you have held for a while can report `true` for a different sound. Read it
 soon after you get it.
+
+### `StopSound(soundHandle [, fadeoutTime])`
+
+Stops a sound that one of the play functions on this page started.
+
+```lua
+local _, handle = C_Sound.PlaySound(8959)
+StopSound(handle)          -- stops at once
+StopSound(handle, 1500)    -- fades out over 1.5 seconds
+```
+
+`fadeoutTime` is in milliseconds. A fade shorter than 100 ms stops the
+sound at once. `StopSound` does nothing when the sound has already ended.
+It also does nothing for a sound that the client started itself, such as
+music or ambience.
+
+A stopped sound with `runFinishCallback` set sends
+[`SOUNDKIT_FINISHED`](#soundkit_finished-event) when it ends.
+
+### `PlaySoundFile(file [, channel])`
+
+Plays an audio file by its path. Returns `willPlay, soundHandle`.
+
+```lua
+local willPlay, handle = PlaySoundFile("Sound\\Interface\\RaidWarning.wav", "Master")
+```
+
+`channel` takes the same values as in
+[`C_Sound.PlaySound`](#c_soundplaysoundsoundkitid--channel-forcenoduplicates-runfinishcallback).
+For a file, `"Ambience"` uses the ambience volume.
+
+Only two files from `PlaySoundFile` can play at the same time. While two
+play, a third returns `false`. Give the handle to
+[`StopSound`](#stopsoundsoundhandle--fadeouttime) to stop the file before it ends.
 
 ### `C_Sound.PlayItemSound(soundType, item)`
 

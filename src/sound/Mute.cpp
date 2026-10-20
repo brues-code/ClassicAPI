@@ -19,19 +19,18 @@
 // meaningful here, since file ids are a later scheme. The path is the one
 // the engine itself uses, e.g. "Sound\Creature\Ragnaros\RagnarosAggro01.wav".
 //
-// HOW: one co-hook on FUN_SOUND_PLAY_BY_PATH, the single funnel every sound
-// passes through (see Offsets.h for why there is no second route — this
-// client links only FMOD's streaming API, so even a one-shot UI click is a
-// stream opened by path). A muted path returns NULL, which is the engine's
-// OWN "this did not play" answer: its pre-play gate `FUN_007A66A0` already
-// produces NULL for a category that is at its concurrency cap, so every
-// caller in the binary already handles it, and `PlaySoundFile` already
-// reports it to Lua as nil. Muting therefore needs no new failure path.
+// HOW: co-hooks on the two engine functions every sound open ends in —
+// Sound::Play (FUN_SOUND_OPEN, behind both the 2D and the 3D opener) and
+// Sound::PlayLooped (FUN_SOUND_OPEN_LOOPED, ambience and emitters). See
+// Offsets.h for why there is no third route. A muted path returns NULL,
+// which is the engine's OWN "this did not play" answer: its pre-play gate
+// `0x007A66A0` already produces NULL for a bus at its cap, and a failed
+// stream open does the same in both functions, so every caller in the
+// binary already handles it. Muting therefore needs no new failure path.
 //
 // Suppressing the open rather than muting the opened stream is deliberate:
 // nothing is decoded for a sound nobody hears. The one visible difference
-// from a true mute is that `PlaySoundFile` returns nil for a muted file
-// instead of 1.
+// from a true mute is that a play call reports a muted file as not played.
 //
 // WHY THE RECENT LIST IS ALWAYS ON: the hook exists for muting regardless,
 // and recording costs one bounded copy into a preallocated slot on a call
@@ -147,19 +146,33 @@ void Record(const char *path, bool muted) {
     r.muted = muted;
 }
 
-using PlayByPath_t = void *(__fastcall *)(int category, const char *path,
-                                          unsigned flags, char deferStart);
-PlayByPath_t g_playByPath = nullptr;
+// Records the open and answers whether it must be refused.
+bool Refuse(const char *path) {
+    if (path == nullptr || *path == '\0')
+        return false;
+    const bool muted = IsMuted(path);
+    Record(path, muted);
+    return muted;
+}
 
-void *__fastcall PlayByPath_h(int category, const char *path, unsigned flags,
-                              char deferStart) {
-    if (path != nullptr && *path != '\0') {
-        const bool muted = IsMuted(path);
-        Record(path, muted);
-        if (muted)
-            return nullptr; // exactly what the engine's own gate returns
-    }
-    return g_playByPath(category, path, flags, deferStart);
+using Open_t = void *(__fastcall *)(int bus, const char *path, unsigned mode, char held,
+                                    unsigned flags);
+using OpenLooped_t = void *(__fastcall *)(int bus, const char *path, int loopCount,
+                                          unsigned mode, char held, unsigned flags);
+Open_t g_open = nullptr;
+OpenLooped_t g_openLooped = nullptr;
+
+void *__fastcall Open_h(int bus, const char *path, unsigned mode, char held, unsigned flags) {
+    if (Refuse(path))
+        return nullptr; // exactly what the engine's own failures return
+    return g_open(bus, path, mode, held, flags);
+}
+
+void *__fastcall OpenLooped_h(int bus, const char *path, int loopCount, unsigned mode,
+                              char held, unsigned flags) {
+    if (Refuse(path))
+        return nullptr;
+    return g_openLooped(bus, path, loopCount, mode, held, flags);
 }
 
 // MuteSoundFile(path) -> true when the path is now muted, false for a bad
@@ -233,9 +246,12 @@ void RegisterLuaFunctions() {
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
-const Game::HookAutoRegister _hook{Offsets::FUN_SOUND_PLAY_BY_PATH,
-                                   reinterpret_cast<void *>(&PlayByPath_h),
-                                   reinterpret_cast<void **>(&g_playByPath)};
+const Game::HookAutoRegister _openHook{Offsets::FUN_SOUND_OPEN,
+                                       reinterpret_cast<void *>(&Open_h),
+                                       reinterpret_cast<void **>(&g_open)};
+const Game::HookAutoRegister _openLoopedHook{Offsets::FUN_SOUND_OPEN_LOOPED,
+                                             reinterpret_cast<void *>(&OpenLooped_h),
+                                             reinterpret_cast<void **>(&g_openLooped)};
 
 } // namespace
 

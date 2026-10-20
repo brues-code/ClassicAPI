@@ -7680,37 +7680,68 @@ enum Offsets {
 
     // ---- Sound playback ------------------------------------------------
     //
-    // `FUN_007A5450` is the ONE funnel every sound in this client passes
-    // through: `int *__fastcall(int category /*ecx*/, const char *path
-    // /*edx*/, uint flags, char deferStart)`. It returns the stream object,
-    // or NULL when the sound did not start — the engine's own "didn't
-    // play" answer, produced by its pre-play gate `FUN_007A66A0` (per
-    // category active-count limit, plus a by-path-hash dedup when
-    // `flags & 1`). Every caller already handles NULL, which is what makes
-    // muting expressible here: return NULL and nothing else changes.
+    // Every sound in this client is an FMOD stream opened by path (the
+    // binary links only FSOUND_Stream_*), and every open ends in one of
+    // TWO engine functions (benilla-re sound/engine, xrefs confirmed in
+    // Ghidra):
+    //   Sound::Play       `int *__fastcall(int bus, const char *path,
+    //                      uint mode, char held, uint flags)`, RET 0xC.
+    //                     Reached only from Play2D (`FUN_SOUND_PLAY_2D`)
+    //                     and Play3D (`0x007A5490`, every positional sound:
+    //                     creature voices, spell impacts, server sounds).
+    //   Sound::PlayLooped `int *__fastcall(int bus, const char *path,
+    //                      int loopCount, uint mode, char held, uint flags)`,
+    //                     RET 0x10. Ambience, emitters, 2D/3D loops.
+    // Both return the Sound record, or NULL when nothing started — the
+    // engine's own "didn't play" answer (Play2D/Play3D also return NULL
+    // from their pre-play gate `0x007A66A0`: the bus cap, and the by-path
+    // duplicate check when `flags & 1`), which every caller handles. That
+    // is what makes muting expressible: return NULL and nothing else
+    // changes. Play2D alone is NOT a funnel — it misses every 3D and
+    // looped sound.
     //
-    // Six callers, and they are the whole surface: Script_PlaySoundFile
-    // (`FUN_00458780`, category 3), the SoundEntries player
-    // `FUN_SOUND_PLAY_ENTRY` (which is where `PlaySound` and every
-    // DBC-driven spell/creature/UI sound lands), and four music/ambience
-    // paths (`FUN_0045AE50`, `FUN_00460240`, `FUN_00461290`,
-    // `FUN_007A5620`, all category 0). There is no second route: the
-    // binary links only FMOD's FSOUND_Stream_* API — no
-    // FSOUND_Sample_Load, no FSOUND_PlaySound — so every sound, however
-    // short, is a stream opened by path.
-    //
-    // `category` indexes per-category state (`0x00CF553C[c]` active count
-    // against the cap at `0x0087CE60[c]`), and `FUN_007A66A0` rejects
-    // `c > 0xC`, so the valid range is 0..12.
-    FUN_SOUND_PLAY_BY_PATH = 0x007A5450,
-    SOUND_CATEGORY_MAX = 0x0C,
+    // `flags` low byte picks the volume category: 0x2 Music (also exempt
+    // from the sound-effects switch), 0x8 Ambience, 0x10 Master only,
+    // otherwise Sound. `bus` is one of 13 concurrency buses (caps at
+    // `0x0087CE60`: 2^31-1, 1, 2, 2, 1, 1, 2, 2, 1, 6, 4, 1, 2); bus 3 is
+    // the one Script_PlaySoundFile (`0x00458780`) uses.
+    FUN_SOUND_OPEN = 0x007A5290,
+    FUN_SOUND_OPEN_LOOPED = 0x007A54D0,
+    // Sound::Play2D — `int *__fastcall(int bus, const char *path, uint
+    // flags, char held)`, RET 0x8: the pre-play gate, then FUN_SOUND_OPEN
+    // with mode 0x82000.
+    FUN_SOUND_PLAY_2D = 0x007A5450,
+    SOUND_BUS_PLAY_SOUND_FILE = 3,
+    SOUND_FLAG_MUSIC = 0x02,
+    SOUND_FLAG_AMBIENCE = 0x08,
+    SOUND_FLAG_NO_CATEGORY = 0x10,
 
-    // SoundEntries player — `void *__fastcall(char orFlag4 /*ecx*/, char
-    // orFlag10 /*edx*/, int category, int soundEntryID, int variantIndex,
-    // int orFlag2)`, RET 0x10, returning the stream object or NULL.
-    // Resolves the row (`FUN_0045CDA0`), picks one of its up-to-10 file
-    // variants (`FUN_0045BB70`; `variantIndex = -1` takes the weighted
-    // random pick the engine uses), then calls FUN_SOUND_PLAY_BY_PATH.
+    // Sound::Stop2 — `void __thiscall(Sound *, float seconds)`, RET 0x4.
+    // Fades the sound out and releases it at silence, or releases it at
+    // once below 0.1 s (benilla-re sound/engine#fades). Releasing frees
+    // the record, so only a sound no engine slot holds may be stopped.
+    FUN_SOUND_STOP = 0x007A5A10,
+
+    // Interface-sound suppression count: `PlaySound(name)`
+    // (SndInterfacePlayInterfaceSound `0x00458030`) plays nothing while it
+    // is above 0. The UI load and the world enter/leave paths raise it
+    // around themselves (`0x00458F50` / `0x00458F60`).
+    VAR_INTERFACE_SOUND_SUPPRESS = 0x00B05FA0,
+
+    // Sound definition (`FUN_SOUND_ENTRY_FOR_ID`'s result) flags, copied
+    // from the SoundEntries row. Bit 0x20 asks the play for the by-path
+    // duplicate check (`0x00458F40`: `([def+0x7C] >> 5) & 1`).
+    OFF_SOUND_DEFINITION_FLAGS = 0x7C,
+    SOUND_DEFINITION_FLAG_NO_DUPLICATES = 0x20,
+
+    // SoundEntries player (InternalPlaySound) — `void *__fastcall(char keep
+    // /*ecx, flag 0x4*/, char noCategory /*edx, flag 0x10*/, int bus, int
+    // soundEntryID, int variantIndex, int music /*flag 0x2*/)`, RET 0x10,
+    // returning the Sound record or NULL. Resolves the definition
+    // (`FUN_0045CDA0`), picks one of its up-to-10 file variants
+    // (`FUN_0045BB70`; `variantIndex = -1` takes the weighted random pick
+    // the engine uses), then calls FUN_SOUND_PLAY_2D with the definition's
+    // duplicate bit as flag 0x1.
     //
     // ABI verified by disassembly, NOT the decompile — Ghidra maps the
     // arguments inconsistently against the call site. `FUN_00458850`, the
