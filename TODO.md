@@ -4022,7 +4022,8 @@ over 1.12 (`CSimpleButton_Scripts.cpp`); retail's `SimpleButtonAPIDocumentation`
 (`src/frame/Modern.cpp`).
 
 **From 4.3.4 (decomp available).**
-- `SetMotionScriptsWhileDisabled(enabled)` / `GetMotionScriptsWhileDisabled()`
+- **DONE** (`src/frame/MotionScriptsWhileDisabled.cpp`, verified in-game
+  2026-10-19). `SetMotionScriptsWhileDisabled(enabled)` / `GetMotionScriptsWhileDisabled()`
   — the one real new capability: tooltips on disabled buttons. 4.3.4
   `CSimpleButton::OnLayerCursorEnter/Exit` (`CSimpleButton.cpp:827/844`): an
   enabled button runs the frame's enter/leave and the label refresh; a disabled

@@ -360,6 +360,26 @@ enum Offsets {
     // (frame, frame + slot, "%s", name).
     OFF_FRAME_ONMOUSEDOWN_SLOT = 0x150,
     OFF_FRAME_ONMOUSEUP_SLOT = 0x158,
+    // The OnEnter / OnLeave slots. The frame's enter (0x0076B6A0) and leave
+    // (0x0076B6F0) fire them, when set, with FUN_FRAME_FIRE_SCRIPT (0x0076B6E5,
+    // 0x0076B753).
+    OFF_FRAME_ONENTER_SLOT = 0x140,
+    OFF_FRAME_ONLEAVE_SLOT = 0x148,
+    // The no-argument script fire: `void __thiscall(frame, int *slot)`, `ret 4`.
+    // It stamps the exec context from slot[1] and calls FUN_FRAME_INVOKE_SCRIPT
+    // with slot[0]. The caller tests slot[0] first.
+    FUN_FRAME_FIRE_SCRIPT = 0x00702690,
+    // CSimpleButton's cursor enter (vtable slot +0x4C, `__thiscall(button)`,
+    // `ret`) and leave (+0x50, `__thiscall(button, int removed)`, `ret 4`).
+    // For a button that is not disabled, they run the frame's enter/leave
+    // (0x0076B6A0 / 0x0076B6F0: companion frame, highlight, OnEnter/OnLeave)
+    // and the label refresh 0x00779810. Then they always notify the C++
+    // listener at +0x31C. Button 0x0081C7F8, CheckButton 0x0081CB80 and the
+    // vtable at 0x008045C0 hold them. The nameplate and hyperlink buttons
+    // have their own. Prologues 56 8B F1 8B 86 / 55 8B EC 56 8B F1: no
+    // relative branch, and no other client DLL names either address.
+    FUN_BUTTON_ON_ENTER = 0x00779490,
+    FUN_BUTTON_ON_LEAVE = 0x007794E0,
     // Button::Click vmethod (Button vtable 0x0081C7F8 + 0x94) — __thiscall(button,
     // buttonMask, fromScript), RET 8. Gate [+0x328] != 0 (enabled); runs the
     // internal C++ click listener at +0x314 (vtable+0x10; set by FUN_00779740,

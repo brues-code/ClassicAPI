@@ -300,6 +300,7 @@ build instructions.
   - [`frame:SetResizeBounds(minWidth, minHeight [, maxWidth, maxHeight])`](#framesetresizeboundsminwidth-minheight--maxwidth-maxheight)
   - [`frame:SetClampRectInsets(left, right, top, bottom)` / `frame:GetClampRectInsets()`](#framesetclamprectinsetsleft-right-top-bottom--framegetclamprectinsets)
   - [`button:SetNormalFontObject(font)` / `button:GetNormalFontObject()`](#buttonsetnormalfontobjectfont--buttongetnormalfontobject)
+  - [`button:SetMotionScriptsWhileDisabled(enabled)` / `button:GetMotionScriptsWhileDisabled()`](#buttonsetmotionscriptswhiledisabledenabled--buttongetmotionscriptswhiledisabled)
   - [`region:IsProtected()` / `region:CanChangeProtectedState()`](#regionisprotected--regioncanchangeprotectedstate)
   - [`frame:CanChangeAttribute()` / `frame:AllowAttributeChanges()`](#framecanchangeattribute--frameallowattributechanges)
   - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
@@ -6772,6 +6773,33 @@ their names.
 ```lua
 button:SetNormalFontObject(GameFontHighlight)   -- same as SetTextFontObject
 button:GetNormalFontObject()                    -- same as GetTextFontObject
+```
+
+### `button:SetMotionScriptsWhileDisabled(enabled)` / `button:GetMotionScriptsWhileDisabled()`
+
+A disabled button does not run its `OnEnter` and `OnLeave` scripts, so it
+cannot show a tooltip. When `enabled` is true, the disabled button runs
+these two scripts when the mouse enters and leaves it. The button does not
+show its highlight and does not change its text font. With no argument,
+`SetMotionScriptsWhileDisabled` sets the value to false.
+`GetMotionScriptsWhileDisabled()` returns `true` or `false`. The default
+is `false`.
+
+You can also set the value in XML with the `motionScriptsWhileDisabled`
+attribute on a `Button` or `CheckButton`.
+
+```lua
+button:Disable()
+button:SetMotionScriptsWhileDisabled(true)
+button:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Not available yet")
+end)
+button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+```
+
+```xml
+<Button name="MyButton" motionScriptsWhileDisabled="true"/>
 ```
 
 ### `region:IsProtected()` / `region:CanChangeProtectedState()`
