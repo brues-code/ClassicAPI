@@ -145,7 +145,7 @@ float Anim::UpdateProgress(float elapsedSec) {
             progress = 1.0f;
         } else {
             frameElapsed += elapsedSec;
-            if ((GetGroup()->flags & GROUP_IGNORE_THROTTLE) || frameElapsed >= kFrameInterval) {
+            if ((GetGroup()->flags & GROUP_IGNORE_THROTTLE) || frameElapsed >= g_frameInterval) {
                 const float delay = loopState == STATE_REVERSE ? orderPadding + endDelay : startDelay;
                 progress = (now - delay) / duration;
                 if (progress < 0.0f)

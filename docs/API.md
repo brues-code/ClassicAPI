@@ -40,6 +40,7 @@ build instructions.
   - [Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`](#animation-types-alpha-translation-scale-rotation)
   - [`Path` and `ControlPoint`](#path-and-controlpoint)
   - [`<Animations>` in XML](#animations-in-xml)
+  - [`SetMaxAnimFramerate(framesPerSec)` / `GetMaxAnimFramerate()`](#setmaxanimframerateframespersec--getmaxanimframerate)
 
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
@@ -287,6 +288,7 @@ build instructions.
   - [`editBox:GetUTF8CursorPosition()`](#editboxgetutf8cursorposition)
   - [`editBox:ClearHighlightText()`](#editboxclearhighlighttext)
   - [`editBox:HasFocus()`](#editboxhasfocus)
+  - [`GetCurrentKeyBoardFocus()`](#getcurrentkeyboardfocus)
   - [`editBox:HasText()`](#editboxhastext)
   - [`editBox:SetHighlightColor(r, g, b [, a])`](#editboxsethighlightcolorr-g-b--a)
   - [`editBox:GetHighlightColor()`](#editboxgethighlightcolor)
@@ -1687,6 +1689,20 @@ and `offsetX` / `offsetY`.
 - `<Scripts>` bodies see `self` and their script's arguments (`elapsed`,
   `requested`, `loopState`). A script element can name a global function
   with `function=`.
+
+### `SetMaxAnimFramerate(framesPerSec)` / `GetMaxAnimFramerate()`
+
+Animations change what they show at most this many times per second. The
+default is `30`. A group with `SetIgnoreFramerateThrottle(true)` changes
+on every frame.
+
+```lua
+SetMaxAnimFramerate(60)
+print(GetMaxAnimFramerate())   -- 60
+```
+
+- The value is for all animations.
+- `0` stops the animations from changing until they finish.
 
 ## AuctionHouse
 
@@ -6683,6 +6699,16 @@ Clears the selected text, leaving the cursor where it is.
 ### `editBox:HasFocus()`
 
 Returns `true` if this edit box has keyboard focus.
+
+### `GetCurrentKeyBoardFocus()`
+
+Returns the edit box that has keyboard focus. If no edit box has focus, it
+returns `nil`.
+
+```lua
+local box = GetCurrentKeyBoardFocus()
+if box then print(box:GetName()) end
+```
 
 ### `editBox:HasText()`
 

@@ -4091,14 +4091,15 @@ Each entry still needs the usual check of how the engine does it before building
 - **ScrollingMessageFrame** `SetInsertMode` / `GetInsertMode`,
   `GetMessageInfo`, `RemoveMessagesByAccessID`, `RemoveMessagesByExtraData`,
   `SetScrollOffset` — in C in 4.3.4 (retail moved the type to Lua).
-- **Globals** (`SimpleFrameScript_Scripts.cpp`): `GetCurrentKeyBoardFocus()`
+- **DONE** (`src/editbox/Focus.cpp`, `src/animation/Framerate.cpp`).
+  **Globals** (`SimpleFrameScript_Scripts.cpp`): `GetCurrentKeyBoardFocus()`
   (the focused edit box's wrapper, or nil); `SetMaxAnimFramerate(fps)` /
   `GetMaxAnimFramerate()` — 4.3.4's `CSimpleAnim::s_frameInterval`, the 1/30 s
-  throttle our animation port already has; `GetText(token[, gender[, ordinal]])`
-  — gendered global-string lookup (find 1.12's `FrameScript_GetText` first).
+  throttle our animation port already has.
 - Not worth it: Frame `EnableJoystick` / `IsJoystickEnabled`; the stereo-depth
   set `SetDepth` / `GetDepth` / `GetEffectiveDepth` / `IgnoreDepth` /
-  `IsIgnoringDepth`.
+  `IsIgnoringDepth`; `GetText(token[, gender[, ordinal]])` — gendered
+  global-string lookup, little use on 1.12.
 
 ### From later clients (retail docs only — contract, no decomp)
 

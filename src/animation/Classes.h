@@ -197,8 +197,9 @@ class ControlPoint : public Object {
 };
 
 // 4.3.4's s_frameInterval: progress steps at most this often unless the
-// group ignores the framerate throttle.
-constexpr float kFrameInterval = 1.0f / 30.0f;
+// group ignores the framerate throttle. 1/30 s until SetMaxAnimFramerate
+// (Framerate.cpp) changes it.
+extern float g_frameInterval;
 
 // AnimationGroup:CreateAnimation (Anim.cpp, where the animation classes are).
 int __fastcall Script_CreateAnimation(void *L);
