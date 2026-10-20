@@ -3951,3 +3951,24 @@ turns wrap on when `<TexCoords>` leave 0..1 and errors
 **NonBlocking.** Only meaningful if 1.12 has a lazy texture-load path (4.3.4:
 `TextureForceLoadForDiskOnly` vs `NotifyDelayedLoad`). Not checked — if 1.12
 always loads synchronously it is a stored flag with no effect.
+
+## ~~103. FontString `SetWordWrap` / `CanWordWrap` / `GetFieldSize`~~ — DONE
+
+The only FontString methods 4.3.4 has that 1.12 + ClassicAPI lacked
+(`CSimpleFontString_Scripts.cpp`). Code: `src/fontstring/WordWrap.cpp`,
+`GetFieldSize` in `src/fontstring/Metrics.cpp`.
+
+- **SetWordWrap / CanWordWrap.** 4.3.4 style bit `0x40` (set = no wrap). The
+  setter is 1.12's own `SetNonSpaceWrap` (`0x79E9F0`, identical body on bit
+  `0x1000`) with `0x40` inverted. `TextBlockCreate` `0x44D420` already maps
+  `0x40` to text flag `0x2` exactly as 4.3.4's `ConvertStringFlags`, and 1.12's
+  layout `0x5CDC20` / line count `0x5C2070` stop after one line on it.
+  Verified in-game: one line, `...` at the width (the fit `0x771EC0`), lines
+  after `\n` dropped, no width = the whole line. A change must lay the string
+  out again (`FontString::Layout::Invalidate`, as `SetText`), not only rebuild
+  it: a text-sized string kept its two-line height and the fit cut at a whole
+  word with no `...`.
+- **GetFieldSize.** 4.3.4 returns a constant 8191. 1.12's truth: a string with a
+  fixed text size `+0xE8` (XML `bytes="n"`) keeps `n − 1` bytes (`SetText`'s
+  `SStrCopy(text, src, n)`, `0x771E0F`); without one the buffer grows to any
+  length, so it returns infinity.

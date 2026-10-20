@@ -50,8 +50,8 @@
 //                               own per-fontstring maxLines field (fs+0x128,
 //                               already honored by the truncation resolver) and
 //                               re-invalidates the layout like SetText does.
-//                               1.12 has no SetWordWrap, so SetMaxLines(1) is
-//                               how you get a single-line, ellipsized label.
+//                               SetMaxLines(1) is how you get a single-line,
+//                               ellipsized label.
 //   SetFormattedText(fmt,...) — string.format + SetText convenience. The format
 //                               runs through the engine's OWN str_format C
 //                               function (FUN_LUA_STR_FORMAT) under pcall — NOT
@@ -60,6 +60,12 @@
 //                               The set goes through FUN_FONTSTRING_SET_TEXT,
 //                               keeping the sanitizer/pipe handling identical to
 //                               SetText.
+//   GetFieldSize()            — how many bytes of text the string holds. 4.3.4
+//                               answers its own constant 8191; 1.12's truth is
+//                               the fixed text size (XML `bytes`) less the one
+//                               SStrCopy keeps for the terminator, or no limit
+//                               (infinity) when there is none — SetText then
+//                               grows the buffer to any length.
 //
 // Push conversion mirrors Script_GetStringWidth (0x0079E510): resolve self,
 // call the internal getter, convert anchor units → UI pixels, push.
@@ -70,9 +76,11 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "fontstring/Layout.h"
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 namespace FontString::Metrics {
 namespace {
@@ -88,31 +96,6 @@ using BreakArray_t = uint32_t(__fastcall *)(void *fs, void *edx, const char *tex
                                             int *outBreaks, int cap);
 // FUN_FONTSTRING_SET_TEXT — __thiscall(fs, text, flag = 0); dummy-EDX form.
 using FsSetText_t = void(__fastcall *)(void *fs, void *edx, const char *text, int flag);
-// FUN_HANDLE_RELEASE — DecRef a ref-counted handle. __fastcall(handle).
-using HandleRelease_t = void(__fastcall *)(void *handle);
-// FUN_LAYOUT_RESIZE — region layout resize (0 = invalidate). __thiscall(region,
-// int); dummy-EDX form.
-using LayoutInvalidate_t = void(__fastcall *)(void *region, void *edx, int arg);
-
-// Invalidate a fontstring's layout exactly as SetText (FUN_00771D80) does after
-// a content change, so a layout-affecting property change (max lines) takes
-// effect on the next draw: drop the cached measures, release the built node,
-// clear the layout-dirty bit, and notify the region to re-lay-out. Re-calling
-// SetText would NOT work — it early-outs when the text string is unchanged.
-void InvalidateLayout(void *fs) {
-    Game::Ref<float>(fs, Offsets::OFF_FONTSTRING_WIDTH_CACHE) = 0.0f;
-    Game::Ref<float>(fs, Offsets::OFF_FONTSTRING_HEIGHT_CACHE) = 0.0f;
-    void *block = Game::Read<void *>(fs, Offsets::OFF_FONTSTRING_TEXT_BLOCK);
-    if (block != nullptr) {
-        reinterpret_cast<HandleRelease_t>(Offsets::FUN_HANDLE_RELEASE)(block);
-        Game::Ref<void *>(fs, Offsets::OFF_FONTSTRING_TEXT_BLOCK) = nullptr;
-    }
-    Game::Ref<uint32_t>(fs, Offsets::OFF_FONTSTRING_DIRTY_FLAGS) &= ~1u;
-    void *region = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(fs) + 0x24);
-    reinterpret_cast<LayoutInvalidate_t>(Offsets::FUN_LAYOUT_RESIZE)(
-        region, nullptr, 0);
-}
-
 // The fs's wrap budget in the units FUN_FONTSTRING_BREAK_ARRAY expects
 // (width-getter units — it multiplies by fs+0x7C itself before gxu, verified
 // decompile), or 0 when the rect is unresolved. rectWidth ÷ scale, calibrated
@@ -333,7 +316,7 @@ int __fastcall Script_SetMaxLines(void *L) {
     }
     if (maxLines != Game::Read<int>(fs, Offsets::OFF_FONTSTRING_MAX_LINES)) {
         Game::Ref<int>(fs, Offsets::OFF_FONTSTRING_MAX_LINES) = maxLines;
-        InvalidateLayout(fs);
+        FontString::Layout::Invalidate(fs);
     }
     return 0;
 }
@@ -373,6 +356,15 @@ int __fastcall Script_SetFormattedText(void *L) {
     return 0;
 }
 
+int __fastcall Script_GetFieldSize(void *L) {
+    void *fs = ResolveSelf(L, "Usage: fontstring:GetFieldSize()");
+    if (fs == nullptr)
+        return 0;
+    const int size = Game::Read<int>(fs, Offsets::OFF_FONTSTRING_FIXED_TEXT_SIZE);
+    Game::Lua::PushNumber(L, size > 0 ? static_cast<double>(size - 1) : std::numeric_limits<double>::infinity());
+    return 1;
+}
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetStringHeight", &Script_GetStringHeight},
     {"GetUnboundedStringWidth", &Script_GetUnboundedStringWidth},
@@ -383,6 +375,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetMaxLines", &Script_SetMaxLines},
     {"GetMaxLines", &Script_GetMaxLines},
     {"SetFormattedText", &Script_SetFormattedText},
+    {"GetFieldSize", &Script_GetFieldSize},
 };
 
 void RegisterLuaFunctions() {

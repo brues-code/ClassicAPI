@@ -495,6 +495,10 @@ enum Offsets {
     // with FUN_FONTSTRING_SET_COLOR above. Backs EditBox:GetHighlightColor.
     FUN_REGION_GET_COLOR = 0x0077F8C0,
     OFF_FONTSTRING_TEXT = 0xF0,                   // char* — current text buffer
+    // The fixed text size (XML `bytes`, 0 = none): SetText (FUN_FONTSTRING_SET_TEXT)
+    // copies with SStrCopy(text, src, n), which keeps n − 1 bytes; with 0 the
+    // buffer grows to any length (0x00771E0F / 0x00771E4D). 0x00771680 sets it.
+    OFF_FONTSTRING_FIXED_TEXT_SIZE = 0xE8,
     OFF_FONTSTRING_COLOR_PTR = 0xB8,              // ptr → 4-byte {b,g,r,a} color storage
     // A line's FontString is only positioned once shown: set the desired
     // flag at +0xC4 then call SHOW (FUN_0077fcb0) / HIDE (FUN_0077fc60) —
@@ -10899,6 +10903,11 @@ enum Offsets {
     // its text engine flag is 0x2000. Neither is used by 1.12 (no test or
     // store of either in the font, font string or text engine code).
     FONT_STYLE_INDENTED_WORD_WRAP = 0x20000,
+    // 4.3.4's style bit 0x40 (no word wrap; Set/CanWordWrap). TextBlockCreate
+    // (0x0044D420) turns it into text flag 0x2, as 4.3.4's ConvertStringFlags
+    // does, and 1.12's layout (0x005CDC20) and line count (0x005C2070) stop
+    // after one line on that flag (benilla-re font/string, font/measure).
+    FONT_STYLE_NO_WORD_WRAP = 0x40,
     TEXT_FLAG_INDENTED_WORD_WRAP = 0x2000,
     // A font string's own style setter: `void __thiscall(fs, uint32 flags)`,
     // `ret 4` - stores OFF_FONTSTRING_FLAGS and rebuilds its text when it has

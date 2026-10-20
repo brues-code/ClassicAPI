@@ -261,6 +261,8 @@ build instructions.
   - [`fontstring:IsTruncated()`](#fontstringistruncated)
   - [`fontstring:SetMaxLines(maxLines)` / `fontstring:GetMaxLines()`](#fontstringsetmaxlinesmaxlines--fontstringgetmaxlines)
   - [`fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`](#fontstringsetindentedwordwrapindent--fontstringgetindentedwordwrap)
+  - [`fontstring:SetWordWrap([wrap])` / `fontstring:CanWordWrap()`](#fontstringsetwordwrapwrap--fontstringcanwordwrap)
+  - [`fontstring:GetFieldSize()`](#fontstringgetfieldsize)
   - [`fontstring:SetFormattedText(format [, ...])`](#fontstringsetformattedtextformat--)
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
@@ -6221,10 +6223,9 @@ Caps the fontstring to `maxLines` wrapped lines. Text past the cap
 is cut off with an ellipsis (`...`). Pass `0` (or nothing) for no
 cap.
 
-This is the way to make a truncating label. Fontstrings always wrap
-at spaces, and there is no `SetWordWrap`. So `SetMaxLines(1)` gives a
-single-line label that ends in `...` when the text is too wide, even
-inside a tall box.
+`SetMaxLines(1)` gives a single-line label that ends in `...` when the
+text is too wide, even inside a tall box. `SetWordWrap(false)` does the
+same and also drops the lines after a line break.
 
 The cap needs a width to take effect: the text must have an edge to
 overflow. `GetMaxLines` returns the current cap (`0` when unset). Use
@@ -6258,6 +6259,31 @@ string height counts the narrower lines.
 ```lua
 ChatFrame1:SetIndentedWordWrap(true)   -- wrapped chat lines start 15 px in
 ```
+
+### `fontstring:SetWordWrap([wrap])` / `fontstring:CanWordWrap()`
+
+When `wrap` is false, the text does not wrap. The string shows only its
+first line. When the line is wider than the string, it ends in `...`.
+Lines after a line break (`
+`) do not show.
+
+- `wrap` is `true` when you omit it.
+- `CanWordWrap` returns `1` when the text wraps, else `nil`.
+- The string needs a width for the `...` cut. Without a width, the line
+  shows in full.
+
+```lua
+local f = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+f:SetWidth(100)
+f:SetWordWrap(false)
+f:SetText("one two three four five six")   -- draws "one two three four fi..."
+```
+
+### `fontstring:GetFieldSize()`
+
+Returns the number of bytes of text that the string can hold. A string
+with no size limit returns infinity (`1.#INF`). A string from XML with
+`bytes="n"` holds `n - 1` bytes, and `SetText` cuts longer text.
 
 ### `fontstring:SetFormattedText(format [, ...])`
 
