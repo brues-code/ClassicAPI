@@ -802,6 +802,21 @@ void FontStringBaked(void *node, void *fontString) {
     data->bakedScale = data->scale;
 }
 
+float *TextureBaseCorners(void *texture) {
+    if (g_data.empty())
+        return nullptr;
+    AnimData *data = DataOf(texture);
+    return data != nullptr && data->hasPosition && IsTexture(texture) ? data->position : nullptr;
+}
+
+bool StringAnimated(void *fontString) {
+    if (g_data.empty())
+        return false;
+    const AnimData *data = DataOf(fontString);
+    return data != nullptr && (data->rotation != 0.0f || data->scale != 1.0f || data->bakedRotation != 0.0f ||
+                               data->bakedScale != 1.0f);
+}
+
 void *FindRegionByName(const char *name) {
     void *L = Game::Lua::State();
     if (L == nullptr || name == nullptr)

@@ -47,6 +47,14 @@ void AddAnimRotation(void *region, void *target, int origin, float offsetX, floa
 // A font string's glyphs were just baked (the draw builder): turn and scale
 // them by its animation, and remember what they were baked with.
 void FontStringBaked(void *node, void *fontString);
+// The stored corners (TL BL TR BR {x, y, z}) of a texture a position group
+// is playing on, or nullptr. Each update draws the animation on top of them,
+// so a change to the texture's own shape (Texture::Transform) goes here, not
+// to the drawn corners.
+float *TextureBaseCorners(void *texture);
+// Whether the font string's glyphs carry an animation's rotation or scale:
+// then a change to its own rotation has to bake them again.
+bool StringAnimated(void *fontString);
 // CScriptObject::GetScriptObjectByName for a region (Animation:Play's
 // target lookup): the region named `name`, or nullptr.
 void *FindRegionByName(const char *name);
