@@ -2789,6 +2789,28 @@ enum Offsets {
     // spell/castgates; xrefs confirm the single call).
     FUN_CHECK_CASTER_STATE_FOR_SPELL = 0x006094F0,
     CALL_TRY_CAST_CHECK_CASTER_STATE = 0x006E4F3B,
+    // The cast request's (FUN_006E4B60) two reads of its target GUID, the
+    // argument halves at [ebx+0xC] / [ebx+0x10] (Ghidra):
+    //   CheckSpellTargetRange — `uint8_t __fastcall(void *caster, const
+    //     uint8_t *record, uint64_t guid, uint8_t report)`, ret 0xC. A zero
+    //     GUID takes the selection. Range-checks only a unit the spell's target
+    //     word admits (attackable for 0x80, assistable for 0x100 / party 0x8 /
+    //     raid 0x4, ...), refusing out of range (0x59) or too close (0x76);
+    //     anything else passes. Called with report 1.
+    //   The targeting arm (Spell_C_TargetSpell) — `uint8_t __fastcall(void
+    //     *caster, const uint8_t *record, uint64_t guid)`, ret 8. Binds the
+    //     main-hand item (Attributes 0x200), else the GUID, else the selection;
+    //     with none bound, the player when autoSelfCast is on; a zero target
+    //     word sends at once. 0 = nothing bound: the request then refuses
+    //     (word 0x80: 0x0A / 0x09) or raises the targeting cursor.
+    FUN_CHECK_SPELL_TARGET_RANGE = 0x006E4440,
+    CALL_CAST_CHECK_TARGET_RANGE = 0x006E4F26,
+    FUN_SPELL_TARGET_ARM = 0x006E5250,
+    CALL_CAST_TARGET_ARM = 0x006E5038,
+    // GetSpellHostility — `int __thiscall(const uint8_t *record)`: 2 harmful,
+    // 1 helpful, 0 neither, from the Targets word and the implicit targets
+    // (benilla-re spell/handlers#hostility-classifier).
+    FUN_SPELL_HOSTILITY = 0x006EA280,
     // Inside it: the mounted rung's `mov edx,[ecx+0x1FC]` (8B 91 FC 01 00
     // 00, then `test edx,edx; jle pass`; refuses 0x39) and the stand rung's
     // `call [edx+0xA4]` (FF 92 A4 00 00 00, GetStandState, then `test

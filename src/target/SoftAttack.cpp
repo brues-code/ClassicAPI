@@ -28,7 +28,10 @@
 //   - in the start, the select is skipped for the soft enemy the resolve
 //     just settled while there is still no target.
 // Everything else — the state errors, the friendly-target tab, the final
-// alive / CanAttack test, the swing packet — is the engine's own.
+// alive / CanAttack test, the swing packet — is the engine's own. Neither
+// select locks a loose target: attacking it is not choosing it (retail's
+// SoftTargetMatchLocked 2, "for targets you attack", is the opt-in that
+// treats it as locked).
 //
 // Applies to AttackTarget (its toggle's resolve call is redirected here) and
 // StartAttack. With soft enemy off, or no soft enemy, the engine's resolve
@@ -39,6 +42,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "target/Loose.h"
 #include "target/SoftUnit.h"
 
 namespace Target::SoftAttack {
@@ -46,7 +50,6 @@ namespace Target::SoftAttack {
 namespace {
 
 using Resolve_t = int(__fastcall *)(void *player, void *edx, uint64_t *guid);
-using Select_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
 
 uint64_t g_settling = 0; // the soft enemy the resolve is settling, or 0
 bool g_stood = false;    // the select call stood it in the selection slot
@@ -64,7 +67,7 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
         g_stood = true;
         return;
     }
-    reinterpret_cast<Select_t>(Offsets::FUN_SET_SELECTION_BY_GUID)(guidLo, guidHi);
+    Loose::SelectKeepingLoose(guid);
 }
 
 void __stdcall StartSelect_h(uint32_t guidLo, uint32_t guidHi) {
@@ -73,7 +76,7 @@ void __stdcall StartSelect_h(uint32_t guidLo, uint32_t guidHi) {
         g_settled = 0;
         return;
     }
-    reinterpret_cast<Select_t>(Offsets::FUN_SET_SELECTION_BY_GUID)(guidLo, guidHi);
+    Loose::SelectKeepingLoose(guid);
 }
 
 int Resolve(void *player, uint64_t *guid) {

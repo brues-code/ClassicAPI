@@ -47,6 +47,7 @@
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "object/Resolve.h"
+#include "target/Loose.h"
 #include "target/Nearest.h"
 #include "target/SoftTarget.h"
 #include "tick/FrameTick.h"
@@ -90,8 +91,6 @@ bool Accept(const SoftTarget::Area &area, void *object, float distSq, void *ctx)
            !Nearest::NotTabTarget(object);
 }
 
-uint64_t LockedTarget() { return Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO); }
-
 // The target, when it passes the side's whole test.
 bool Qualifies(const State &st, const SoftTarget::Area &area, uint64_t guid) {
     if (guid == 0)
@@ -105,7 +104,9 @@ bool Qualifies(const State &st, const SoftTarget::Area &area, uint64_t guid) {
 uint64_t Pick(State &st) {
     if (!SoftTarget::Enabled(st.enable))
         return 0;
-    const uint64_t target = LockedTarget();
+    // A loose target is not a locked one: it neither stops the pick nor is
+    // matched (retail: the loose target follows the nearer soft enemy).
+    const uint64_t target = Loose::Locked();
     if (target != 0 && CVar::Factory::GetInt(g_withLocked) == 0)
         return 0;
     SoftTarget::Area area;
@@ -171,12 +172,14 @@ uint64_t Get(Side side) {
 // friendly NPC the friend test rejects), else `softenemy` (no target, no
 // friend near). `anyenemy` takes the same order with the sides swapped; its
 // last two steps are by symmetry, not probed.
+bool Enabled(Side side) { return SoftTarget::Enabled(Of(side).enable); }
+
 uint64_t GetAny(Side side) {
     if (!Object::RegistryReady())
         return 0;
     State &st = Of(side);
     SoftTarget::Area area;
-    const uint64_t target = LockedTarget();
+    const uint64_t target = Loose::Selection();
     if (SoftTarget::Enabled(st.enable) &&
         SoftTarget::Begin(area, st.arc, st.range, kDefaultRange) && Qualifies(st, area, target))
         return target;

@@ -799,6 +799,7 @@ build instructions.
   - [`C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
   - [Soft interact (`softinteract` / `anyinteract`)](#soft-interact-softinteract--anyinteract)
   - [Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend)
+  - [`IsTargetLoose()`](#istargetloose)
 
 - [TaxiMap](#taximap)
   - [`C_TaxiMap.GetTaxiNodesForMap([mapID])`](#c_taximapgettaxinodesformapmapid)
@@ -18957,15 +18958,33 @@ unit that you can assist, for example a party member. Neither picks you.
 The unit must be on the screen, and inside the arc and the range of the
 settings below. If more than one unit qualifies, it picks the nearest one.
 
-**Your target.** When `SoftTargetMatchLocked` is `1`, your target is the
-soft unit when it qualifies. For example, when you target an enemy inside
-the range, `"softenemy"` is that enemy, also when another enemy is nearer.
-When `SoftTargetWithLocked` is `0`, there is no soft enemy and no soft
-friend while you have a target.
+**Locked and loose targets.** A target that you choose (with a click,
+Tab, `/target` or `TargetUnit`) is a locked target. A target that soft
+targeting sets is a loose target. A click on a loose target makes it
+locked. [`IsTargetLoose()`](#istargetloose) tells the two apart.
+
+**Your target.** When `SoftTargetMatchLocked` is `1`, a locked target is
+the soft unit when it qualifies. For example, when you target an enemy
+inside the range, `"softenemy"` is that enemy, also when another enemy is
+nearer. When `SoftTargetWithLocked` is `0`, there is no soft enemy and no
+soft friend while you have a locked target. A loose target counts for
+neither setting.
 
 **Attacks.** When you have no target, **Attack Target**, `/startattack`,
 `AttackTarget()` and `StartAttack()` attack `"softenemy"`. Your target
 stays empty.
+
+**Spells.** When you have no target, a harmful spell goes to
+`"softenemy"` and a helpful spell goes to `"softfriend"`. A spell that
+only you can receive still goes to you. If the soft unit is out of the
+spell's range, the cast fails with "Out of range". When a harmful spell
+goes off, its unit becomes your loose target.
+
+**Loose targets follow.** When `SoftTargetForce` is `1` and your target
+is loose, your target changes to each new `"softenemy"`. When there is no
+soft enemy, the loose target is cleared. When `SoftTargetForce` is `2`,
+the same happens with `"softfriend"`. Soft targeting never changes a
+locked target, and it never selects a target when you have none.
 
 **Unit tokens.**
 
@@ -18991,7 +19010,8 @@ A `target` suffix also works, for example `"softenemytarget"`.
 | `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `2` | The same values as `SoftTargetInteractArc`. |
 | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
 | `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
-| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a target. `1` and `2`: they are picked also while you have a target. |
+| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a locked target. `1` and `2`: they are picked also while you have a locked target. |
+| `SoftTargetForce` | `1` | `1`: a loose target follows `"softenemy"`. `2`: a loose target follows `"softfriend"`. `0`: a loose target stays. |
 
 When a picked unit changes,
 [`PLAYER_SOFT_ENEMY_CHANGED` or `PLAYER_SOFT_FRIEND_CHANGED`](#player_soft_enemy_changed--player_soft_friend_changed-events)
@@ -18999,6 +19019,23 @@ fires.
 
 ```
 /dump UnitName("softenemy"), UnitName("anyenemy"), UnitName("softfriend")
+```
+
+### `IsTargetLoose()`
+
+Returns `true` when your target is loose, and `false` when it is locked.
+See [Soft enemy and soft friend](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend).
+
+- A spell that goes off on `"softenemy"` makes a loose target.
+- A target that you choose is locked.
+- After `/cleartarget`, the result is `true` while `SoftTargetForce` is
+  `1` and soft enemy is on, or `2` and soft friend is on. Otherwise it is
+  `false`.
+
+```lua
+if UnitExists("target") and IsTargetLoose() then
+    print("soft targeting picked", UnitName("target"))
+end
 ```
 
 ## TaxiMap
