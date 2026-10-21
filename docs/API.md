@@ -153,6 +153,7 @@ build instructions.
 - [CVar](#cvar)
   - [`GetCVar(name)`](#getcvarname)
   - [`GetCVarDefault(name)`](#getcvardefaultname)
+  - [`C_CVar.SetCVar(name [, value])`](#c_cvarsetcvarname--value)
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
   - [`C_CVar.AreCVarsLoaded()`](#c_cvararecvarsloaded)
@@ -3636,6 +3637,28 @@ Returns the default value of the cvar as a string. If no cvar has that name,
 it returns no values. If `name` is not a string or a number,
 `GetCVarDefault` raises an error. `GetCVarDefault` works the same way on the
 glue screens.
+
+### `C_CVar.SetCVar(name [, value])`
+
+Sets a cvar and saves it to Config.wtf, as `SetCVar` does. Returns `true`
+when the cvar is set.
+
+```lua
+C_CVar.SetCVar("SoftTargetFriend", 2)     -- true, GetCVar gives "2"
+C_CVar.SetCVar("SoftTargetFriend")        -- true, GetCVar gives "0"
+C_CVar.SetCVar("realmList", "x")          -- false: read-only
+C_CVar.SetCVar("doesNotExist", 1)         -- nothing
+```
+
+- A number value is set as its text, so `1.5` becomes `"1.5"`.
+- If `value` is `nil` or missing, the cvar gets `"0"`.
+- For a read-only cvar, it returns `false` and the value does not change.
+- If no cvar has that name, it returns no values, so the result reads as
+  `nil`.
+- If `name` is not a string or a number, or `value` is a boolean or a table,
+  it raises an error.
+
+It also works on the glue screens.
 
 ### `C_CVar.GetCVarInfo(name)`
 
