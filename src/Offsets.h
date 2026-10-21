@@ -1702,6 +1702,16 @@ enum Offsets {
     CURSOR_MODE_LAST_NAMED = 20,
     CURSOR_MODE_UNABLE_OFFSET = 20,
     CURSOR_MODE_CUSTOM = 0x29,
+    // s_cursorNames: `const char *[42]`, mode -> image name (0 and 41 null;
+    // 21..40 carry their own "Unable…" names). The loader formats
+    // `Interface\Cursor\%s.blp` from it (0x5236C0); dumped from the exe.
+    VAR_CURSOR_NAMES = 0x00853B88,
+    // FormatGameObjectCursorFile — `void __thiscall(go, char *buf, uint32_t
+    // size)`, ret 8: the record-named cursor's file, `Interface\Cursor\
+    // Unable%s.blp` when not usable (IsUsable); writes nothing without a
+    // record. ClassifyHoveredGameObject passes a 0x104-byte buffer.
+    FUN_GAMEOBJECT_FORMAT_CURSOR_FILE = 0x005F8790,
+    CURSOR_FILE_SIZE = 0x104,
     // CGWorldFrame::ClassifyHoveredUnit / ClassifyHoveredCorpse —
     // `void __thiscall(CGWorldFrame *, object)` (the frame is
     // `*VAR_GAME_STATE_PTR`); set the cursor mode for a
@@ -1725,6 +1735,26 @@ enum Offsets {
     OBJECT_TYPE_WORD_PLAYER = 0x19,
     OBJECT_TYPE_WORD_GAMEOBJECT = 0x21,
     OBJECT_TYPE_WORD_CORPSE = 0x81,
+    // CGUnit_C::GetNamePlateScreenPos — `bool __fastcall(unit, worldFrame,
+    // float screen[2])`, ret 4: the unit's name position (GetNamePosition
+    // 0x608640: head attachment 18, 29 mounted, else 1.25 × scale × box
+    // height above the feet) raised by VAR_NAMEPLATE_LIFT, projected with
+    // FUN_WORLDFRAME_GET_SCREEN_COORDS — where a nameplate is seated.
+    FUN_UNIT_GET_NAMEPLATE_SCREEN_POS = 0x0060F7F0,
+    // GetNamePosition's no-attachment factor (1.25) and the plate lift (2/3
+    // yard), both floats.
+    VAR_NAME_HEIGHT_FACTOR = 0x0080C5D0,
+    VAR_NAMEPLATE_LIFT = 0x0080ABFC,
+    // CGObject scale (+0x90, float, 1.0 at construction) and box height
+    // (+0xBC, float, max.z - min.z of the model box) — GetNamePosition's
+    // no-attachment inputs (benilla-re objectbase / unitnames).
+    OFF_CGOBJECT_SCALE = 0x90,
+    OFF_CGOBJECT_BOX_HEIGHT = 0xBC,
+    // CLayoutFrame::SetWidth / SetHeight — `void __thiscall(region +
+    // OFF_REGION_ANCHOR, float internal)`, ret 4: store +0x50 / +0x54 and
+    // lay the frame out.
+    FUN_LAYOUT_SET_WIDTH = 0x007683D0,
+    FUN_LAYOUT_SET_HEIGHT = 0x007683F0,
     // Front-cone half angle of the tab-target collector (0x494200): pi times
     // 1/6, both read from these floats (stored into 0xB4D8F4 on first use).
     VAR_TARGETING_PI = 0x00804488,

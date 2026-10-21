@@ -26,11 +26,17 @@
 //     classifier adds only a custom-cursor texture load for mode 41).
 // The spell-targeting and mouselook legs of 0x4828D0 are left out: they
 // answer for the mouse, not for the object.
+//
+// The images are the engine's own: `Interface\Cursor\<name>.blp` from its
+// cursor name table, and a game object's named cursor from its record
+// (FormatGameObjectCursorFile, `Unable` when not usable).
 
 #include "cursor/Hover.h"
 
 #include "Game.h"
 #include "Offsets.h"
+
+#include <cstdio>
 
 namespace Cursor::Hover {
 
@@ -40,6 +46,8 @@ using SetCursorMode_t = void(__fastcall *)(uint32_t mode);
 using Classify_t = void(__fastcall *)(void *worldFrame, void *edx, void *object);
 using ObjectQuery_t = uint32_t(__fastcall *)(void *object, void *edx);
 using IsUsable_t = uint8_t(__fastcall *)(void *object, void *edx);
+using FormatCursorFile_t = void(__fastcall *)(void *object, void *edx, char *buf,
+                                              uint32_t size);
 
 SetCursorMode_t SetCursorMode_o = nullptr;
 bool g_capturing = false;
@@ -99,6 +107,27 @@ uint32_t Mode(void *object) {
 
 bool IsUsable(void *object) {
     return reinterpret_cast<IsUsable_t>(Offsets::FUN_GAMEOBJECT_IS_USABLE)(object, nullptr) != 0;
+}
+
+bool ImagePath(void *object, uint32_t mode, char *buf, std::size_t size) {
+    if (mode == 0 || mode == Game::Read<uint32_t>(Offsets::VAR_CURSOR_BASE_MODE))
+        return false;
+    if (mode == Offsets::CURSOR_MODE_CUSTOM) {
+        char file[Offsets::CURSOR_FILE_SIZE] = {};
+        reinterpret_cast<FormatCursorFile_t>(Offsets::FUN_GAMEOBJECT_FORMAT_CURSOR_FILE)(
+            object, nullptr, file, sizeof file);
+        if (file[0] == '\0')
+            return false;
+        std::snprintf(buf, size, "%s", file);
+        return true;
+    }
+    if (mode >= Offsets::CURSOR_MODE_CUSTOM)
+        return false;
+    const char *name = Game::Read<const char *>(Offsets::VAR_CURSOR_NAMES + 4 * mode);
+    if (name == nullptr)
+        return false;
+    std::snprintf(buf, size, "Interface\\Cursor\\%s.blp", name);
+    return true;
 }
 
 } // namespace Cursor::Hover

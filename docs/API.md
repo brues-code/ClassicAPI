@@ -846,6 +846,7 @@ build instructions.
   - [`UnitGUID(unit)`](#unitguidunit)
   - [`UnitTokenFromGUID(guid)`](#unittokenfromguidguid)
   - [`UnitTokenFromName(name [, exactMatch])`](#unittokenfromnamename--exactmatch)
+  - [`SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])`](#setunitcursortexturetexture-unit--style--includelowpriority)
   - [`UnitFactionGroup("player")` while addons load](#unitfactiongroupplayer-while-addons-load)
   - [`UnitSubName(unit)`](#unitsubnameunit)
   - [`UnitCreatureFamilyID(unit)`](#unitcreaturefamilyidunit)
@@ -18630,6 +18631,18 @@ the GUID of that object. Functions that read unit data, such as
 | `SoftTargetInteractRange` | `10` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
+**The icon.** An icon shows over the picked object. The icon is the cursor
+image that the mouse shows over the object (see
+[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
+For a unit, the icon is above its name. For a game object or a corpse, the
+icon is above the top of the object. When you are too far away, the icon is
+the grey "Unable" form. The icon is hidden when the object is off the screen.
+
+| cvar | default | values |
+|---|---|---|
+| `SoftTargetIconInteract` | `1` | `1` shows the icon, `0` hides it. |
+| `SoftTargetNameplateSize` | `19` | The size of the icon. |
+
 When the picked object changes,
 [`PLAYER_SOFT_INTERACT_CHANGED`](#player_soft_interact_changed-event)
 fires.
@@ -19593,6 +19606,33 @@ Treat it as a snapshot. Which token names a unit changes as you retarget or
 as the group changes, so resolve it again rather than storing it.
 
 *ClassicAPI extension.*
+
+### `SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])`
+
+Sets `texture` to the cursor image that the mouse shows when it is over the
+unit. For example: the speak bubble for an NPC with gossip, the mail icon
+for a mailbox, or the attack sword for an enemy. When you are too far away,
+the image is the grey "Unable" form.
+
+- `texture` is a Texture object.
+- `unit` is any unit token. `"softinteract"` and `"anyinteract"` can also
+  point at a game object or a corpse.
+- `style` and `includeLowPriority` have no effect.
+
+Returns `true` if the unit shows a cursor other than the normal pointer.
+Otherwise it returns `false` and does not change the texture.
+
+```lua
+local icon = UIParent:CreateTexture(nil, "OVERLAY")
+icon:SetWidth(24)
+icon:SetHeight(24)
+icon:SetPoint("CENTER", 0, 100)
+if SetUnitCursorTexture(icon, "softinteract") then
+    icon:Show()
+else
+    icon:Hide()
+end
+```
 
 ### `UnitFactionGroup("player")` while addons load
 

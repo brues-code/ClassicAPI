@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Cursor::Hover {
@@ -25,5 +26,9 @@ uint32_t Mode(void *object);
 // For a game object's named cursor (CURSOR_MODE_CUSTOM): whether the player
 // may use the object now.
 bool IsUsable(void *object);
+
+// Writes the image file of `mode` over `object` into `buf`. False, with
+// `buf` untouched, for no mode and for the base (resting) mode.
+bool ImagePath(void *object, uint32_t mode, char *buf, std::size_t size);
 
 } // namespace Cursor::Hover
