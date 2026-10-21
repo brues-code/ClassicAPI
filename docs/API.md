@@ -88,7 +88,6 @@ build instructions.
   - [`stopAutoAttackOnTargetChange`](#stopautoattackontargetchange)
 
 - [CombatLog](#combatlog)
-  - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
   - [`CombatLogGetCurrentEventInfo()`](#combatloggetcurrenteventinfo)
   - [`CombatLogAddFilter([events [, source [, dest [, spell]]]])` / `CombatLogResetFilter()`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)
   - [`CombatLog_Object_IsA(flags, mask)`](#combatlog_object_isaflags-mask)
@@ -198,6 +197,7 @@ build instructions.
   - [Player input-state events (`PLAYER_STARTED_MOVING` / `LOOKING` / `TURNING` + `STOPPED_*`)](#player-input-state-events)
   - [`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events](#global_mouse_down--global_mouse_up-events)
   - [`AUCTION_MULTISELL_START` / `AUCTION_MULTISELL_UPDATE` / `AUCTION_MULTISELL_FAILURE` events](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
+  - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
   - [`CURSOR_CHANGED` event](#cursor_changed-event)
   - [`EQUIPMENT_SETS_CHANGED` event](#equipment_sets_changed-event)
   - [`EQUIPMENT_SWAP_PENDING` event](#equipment_swap_pending-event)
@@ -2161,150 +2161,11 @@ a target change stops melee auto-attack, Auto Shot and wand shots.
 
 ## CombatLog
 
-### `COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events
-
-`COMBAT_LOG_EVENT_UNFILTERED` fires once for each combat log event: a hit, a
-miss, a heal, a power gain, damage from the environment, a cast, an aura that
-starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires only for the
-events that match the combat log filter (see
-[`CombatLogAddFilter`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)).
-With no filter, it fires for each event. The text lines in the chat frames
-(`CHAT_MSG_COMBAT_*`, `CHAT_MSG_SPELL_*`) do not change.
-
-The values identify units by GUID, not by name, and do not depend on the
-client language. Events come only for what the server sends, which is the
-area near you.
-
-The first 11 values are the same for each event:
-
-| # | Value | Description |
-|---|-------|-------------|
-| 1 | `timestamp` | The Unix time of the event, in seconds, with milliseconds. |
-| 2 | `subevent` | What happened, for example `"SPELL_DAMAGE"`. |
-| 3 | `hideCaster` | `true` when the event has no source, else `false`. |
-| 4 | `sourceGUID` | The GUID of the unit that did it, in the `UnitGUID` format. |
-| 5 | `sourceName` | The name of that unit. `nil` when there is no source. |
-| 6 | `sourceFlags` | `COMBATLOG_OBJECT_*` bits that describe the source. |
-| 7 | `sourceRaidFlags` | The `COMBATLOG_OBJECT_RAIDTARGET*` bit of the raid mark on the source. |
-| 8 | `destGUID` | The GUID of the unit it happened to. |
-| 9 | `destName` | The name of that unit. |
-| 10 | `destFlags` | `COMBATLOG_OBJECT_*` bits that describe the target. |
-| 11 | `destRaidFlags` | The raid mark bit of the target. |
-
-A name that is not known yet is the `UNKNOWNOBJECT` text ("Unknown").
-
-The values after these depend on the subevent. First comes the prefix:
-
-| Subevent starts with | Prefix values |
-|----------------------|---------------|
-| `SWING_`, `UNIT_`, `PARTY_KILL` | *(none)* |
-| `ENVIRONMENTAL_` | `environmentalType`: `"FATIGUE"`, `"DROWNING"`, `"FALLING"`, `"LAVA"`, `"SLIME"` or `"FIRE"` |
-| `SPELL_`, `SPELL_PERIODIC_`, `RANGE_`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `spellId`, `spellName`, `spellSchool` |
-
-Then comes the suffix:
-
-| Subevent ends with | Suffix values |
-|--------------------|---------------|
-| `_DAMAGE`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `amount`, `overkill`, `school`, `resisted`, `blocked`, `absorbed`, `critical`, `glancing`, `crushing`, `isOffHand` |
-| `_MISSED` | `missType`, `isOffHand`, then `amountMissed` for an `"ABSORB"`, `"BLOCK"` or `"RESIST"` |
-| `_HEAL` | `amount`, `overhealing`, `absorbed`, `critical` |
-| `_ENERGIZE` | `amount`, `powerType`, `alternatePowerType` |
-| `_DRAIN`, `_LEECH` | `amount`, `powerType`, `extraAmount`, `alternatePowerType` |
-| `_CAST_FAILED` | `failedType`: the error text that the client showed |
-| `_INTERRUPT`, `_DISPEL_FAILED` | `extraSpellId`, `extraSpellName`, `extraSchool` |
-| `_DISPEL` | `extraSpellId`, `extraSpellName`, `extraSchool`, `auraType` |
-| `_EXTRA_ATTACKS` | `amount` |
-| `_DURABILITY_DAMAGE` | `itemId`, `itemName` |
-| `_AURA_APPLIED`, `_AURA_REMOVED` | `auraType`: `"BUFF"` or `"DEBUFF"` |
-| `_AURA_APPLIED_DOSE`, `_AURA_REMOVED_DOSE` | `auraType`, `amount` |
-| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
-
-The subevents that fire:
-
-- `SWING_DAMAGE`, `SWING_MISSED`
-- `RANGE_DAMAGE`, `RANGE_MISSED` (Auto Shot, Shoot, Throw)
-- `SPELL_DAMAGE`, `SPELL_MISSED`, `SPELL_HEAL`, `SPELL_ENERGIZE`
-- `SPELL_PERIODIC_DAMAGE`, `SPELL_PERIODIC_MISSED`, `SPELL_PERIODIC_HEAL`,
-  `SPELL_PERIODIC_ENERGIZE`, `SPELL_PERIODIC_DRAIN`, `SPELL_PERIODIC_LEECH`
-- `DAMAGE_SHIELD`, `DAMAGE_SHIELD_MISSED`, `DAMAGE_SPLIT`
-- `ENVIRONMENTAL_DAMAGE`
-- `SPELL_CAST_START`, `SPELL_CAST_SUCCESS`, `SPELL_CAST_FAILED`
-- `SPELL_DRAIN`, `SPELL_LEECH`, `SPELL_INTERRUPT`, `SPELL_EXTRA_ATTACKS`,
-  `SPELL_INSTAKILL`, `SPELL_RESURRECT`, `SPELL_DURABILITY_DAMAGE`,
-  `SPELL_DURABILITY_DAMAGE_ALL`
-- `SPELL_AURA_APPLIED`, `SPELL_AURA_REMOVED`, `SPELL_AURA_APPLIED_DOSE`,
-  `SPELL_AURA_REMOVED_DOSE`
-- `SPELL_DISPEL`, `SPELL_DISPEL_FAILED`
-- `UNIT_DIED`, `UNIT_DESTROYED` (a totem or another summoned unit),
-  `PARTY_KILL`
-
-Some values have fixed contents:
-
-- `critical`, `glancing`, `crushing` and `isOffHand` are `1` or `nil`.
-- `resisted`, `blocked` and `absorbed` in a damage suffix are `nil` when
-  they are 0.
-- `missType` is one of `"MISS"`, `"RESIST"`, `"DODGE"`, `"PARRY"`,
-  `"BLOCK"`, `"EVADE"`, `"IMMUNE"`, `"DEFLECT"`, `"ABSORB"` or `"REFLECT"`.
-- Schools are bit masks: 1 physical, 2 holy, 4 fire, 8 nature, 16 frost,
-  32 shadow, 64 arcane.
-- `overkill`, `overhealing` and the `absorbed` of a heal are always 0.
-- `alternatePowerType` is always `nil`.
-- `DAMAGE_SHIELD` does not name its spell: `spellId` is 0, `spellName` is
-  `nil`, and `spellSchool` is the school of the damage.
-- The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
-  never set.
-- `SPELL_CAST_START` fires for a spell with a cast time, and has no target.
-  `SPELL_CAST_SUCCESS` fires for an instant spell. A spell with a cast time
-  gets no `SPELL_CAST_SUCCESS`.
-- `SPELL_CAST_FAILED` fires only for your own casts.
-- The `amount` of an `_AURA_APPLIED_DOSE` or `_AURA_REMOVED_DOSE` is the
-  number of stacks after the change.
-- `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` do not name the dispelling spell:
-  `spellId` is 0 and `spellName` is `nil`. The extra spell is the aura that
-  the dispel removed, or did not remove.
-- These events have no source: `ENVIRONMENTAL_DAMAGE`, `SPELL_INSTAKILL`,
-  `UNIT_DIED`, `UNIT_DESTROYED`, and an aura event when the caster of the
-  aura is not known.
-- `SPELL_AURA_REFRESH`, `SPELL_SUMMON` and `SPELL_CREATE` do not fire.
-- On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
-  does direct damage, for example Pummel, Kick or Earth Shock. These servers
-  do not send the interrupt for such a spell.
-
-The flag constants are globals:
-
-| Constant | Value |
-|----------|-------|
-| `COMBATLOG_OBJECT_AFFILIATION_MINE` / `_PARTY` / `_RAID` / `_OUTSIDER` | `0x1` / `0x2` / `0x4` / `0x8` |
-| `COMBATLOG_OBJECT_REACTION_FRIENDLY` / `_NEUTRAL` / `_HOSTILE` | `0x10` / `0x20` / `0x40` |
-| `COMBATLOG_OBJECT_CONTROL_PLAYER` / `_NPC` | `0x100` / `0x200` |
-| `COMBATLOG_OBJECT_TYPE_PLAYER` / `_NPC` / `_PET` / `_GUARDIAN` / `_OBJECT` | `0x400` / `0x800` / `0x1000` / `0x2000` / `0x4000` |
-| `COMBATLOG_OBJECT_TARGET` / `_FOCUS` | `0x10000` / `0x20000` |
-| `COMBATLOG_OBJECT_MAINTANK` / `_MAINASSIST` | `0x40000` / `0x80000` |
-| `COMBATLOG_OBJECT_NONE` | `0x80000000` (no unit) |
-| `COMBATLOG_OBJECT_RAIDTARGET1` … `_RAIDTARGET8` | `0x1` … `0x80` (star … skull) |
-
-Each group also has a `_MASK` constant, for example
-`COMBATLOG_OBJECT_AFFILIATION_MASK`.
-
-```lua
-local f = CreateFrame("Frame")
-f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-f:SetScript("OnEvent", function(self, event, timestamp, subevent, hideCaster,
-        sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-        destGUID, destName, destFlags, destRaidFlags, ...)
-    if subevent == "SPELL_DAMAGE" and sourceGUID == UnitGUID("player") then
-        local spellName, amount = arg[2], arg[4]
-        print(spellName, "hit", destName, "for", amount)
-    end
-end)
-```
-
-A handler that reads the vanilla `arg1` … `argN` globals gets the same
-values: `arg1` is the timestamp, `arg2` the subevent, and so on.
-
 ### `CombatLogGetCurrentEventInfo()`
 
-Returns the same values as the `COMBAT_LOG_EVENT_UNFILTERED` arguments, for
+Returns the same values as the
+[`COMBAT_LOG_EVENT_UNFILTERED`](#combat_log_event_unfiltered--combat_log_event-events)
+arguments, for
 the event that is being sent. It returns values only while a
 `COMBAT_LOG_EVENT_UNFILTERED` or `COMBAT_LOG_EVENT` handler runs. At other
 times it returns nothing.
@@ -4675,6 +4536,147 @@ Behavior notes:
   `GLOBAL_MOUSE_UP` fires for each held button.
 - Clicks during a loading screen or a screen fade do not fire the
   events. Clicks that the open console takes also do not fire them.
+
+### `COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events
+
+`COMBAT_LOG_EVENT_UNFILTERED` fires once for each combat log event: a hit, a
+miss, a heal, a power gain, damage from the environment, a cast, an aura that
+starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires only for the
+events that match the combat log filter (see
+[`CombatLogAddFilter`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)).
+With no filter, it fires for each event. The text lines in the chat frames
+(`CHAT_MSG_COMBAT_*`, `CHAT_MSG_SPELL_*`) do not change.
+
+The values identify units by GUID, not by name, and do not depend on the
+client language. Events come only for what the server sends, which is the
+area near you.
+
+The first 11 values are the same for each event:
+
+| # | Value | Description |
+|---|-------|-------------|
+| 1 | `timestamp` | The Unix time of the event, in seconds, with milliseconds. |
+| 2 | `subevent` | What happened, for example `"SPELL_DAMAGE"`. |
+| 3 | `hideCaster` | `true` when the event has no source, else `false`. |
+| 4 | `sourceGUID` | The GUID of the unit that did it, in the `UnitGUID` format. |
+| 5 | `sourceName` | The name of that unit. `nil` when there is no source. |
+| 6 | `sourceFlags` | `COMBATLOG_OBJECT_*` bits that describe the source. |
+| 7 | `sourceRaidFlags` | The `COMBATLOG_OBJECT_RAIDTARGET*` bit of the raid mark on the source. |
+| 8 | `destGUID` | The GUID of the unit it happened to. |
+| 9 | `destName` | The name of that unit. |
+| 10 | `destFlags` | `COMBATLOG_OBJECT_*` bits that describe the target. |
+| 11 | `destRaidFlags` | The raid mark bit of the target. |
+
+A name that is not known yet is the `UNKNOWNOBJECT` text ("Unknown").
+
+The values after these depend on the subevent. First comes the prefix:
+
+| Subevent starts with | Prefix values |
+|----------------------|---------------|
+| `SWING_`, `UNIT_`, `PARTY_KILL` | *(none)* |
+| `ENVIRONMENTAL_` | `environmentalType`: `"FATIGUE"`, `"DROWNING"`, `"FALLING"`, `"LAVA"`, `"SLIME"` or `"FIRE"` |
+| `SPELL_`, `SPELL_PERIODIC_`, `RANGE_`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `spellId`, `spellName`, `spellSchool` |
+
+Then comes the suffix:
+
+| Subevent ends with | Suffix values |
+|--------------------|---------------|
+| `_DAMAGE`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `amount`, `overkill`, `school`, `resisted`, `blocked`, `absorbed`, `critical`, `glancing`, `crushing`, `isOffHand` |
+| `_MISSED` | `missType`, `isOffHand`, then `amountMissed` for an `"ABSORB"`, `"BLOCK"` or `"RESIST"` |
+| `_HEAL` | `amount`, `overhealing`, `absorbed`, `critical` |
+| `_ENERGIZE` | `amount`, `powerType`, `alternatePowerType` |
+| `_DRAIN`, `_LEECH` | `amount`, `powerType`, `extraAmount`, `alternatePowerType` |
+| `_CAST_FAILED` | `failedType`: the error text that the client showed |
+| `_INTERRUPT`, `_DISPEL_FAILED` | `extraSpellId`, `extraSpellName`, `extraSchool` |
+| `_DISPEL` | `extraSpellId`, `extraSpellName`, `extraSchool`, `auraType` |
+| `_EXTRA_ATTACKS` | `amount` |
+| `_DURABILITY_DAMAGE` | `itemId`, `itemName` |
+| `_AURA_APPLIED`, `_AURA_REMOVED` | `auraType`: `"BUFF"` or `"DEBUFF"` |
+| `_AURA_APPLIED_DOSE`, `_AURA_REMOVED_DOSE` | `auraType`, `amount` |
+| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
+
+The subevents that fire:
+
+- `SWING_DAMAGE`, `SWING_MISSED`
+- `RANGE_DAMAGE`, `RANGE_MISSED` (Auto Shot, Shoot, Throw)
+- `SPELL_DAMAGE`, `SPELL_MISSED`, `SPELL_HEAL`, `SPELL_ENERGIZE`
+- `SPELL_PERIODIC_DAMAGE`, `SPELL_PERIODIC_MISSED`, `SPELL_PERIODIC_HEAL`,
+  `SPELL_PERIODIC_ENERGIZE`, `SPELL_PERIODIC_DRAIN`, `SPELL_PERIODIC_LEECH`
+- `DAMAGE_SHIELD`, `DAMAGE_SHIELD_MISSED`, `DAMAGE_SPLIT`
+- `ENVIRONMENTAL_DAMAGE`
+- `SPELL_CAST_START`, `SPELL_CAST_SUCCESS`, `SPELL_CAST_FAILED`
+- `SPELL_DRAIN`, `SPELL_LEECH`, `SPELL_INTERRUPT`, `SPELL_EXTRA_ATTACKS`,
+  `SPELL_INSTAKILL`, `SPELL_RESURRECT`, `SPELL_DURABILITY_DAMAGE`,
+  `SPELL_DURABILITY_DAMAGE_ALL`
+- `SPELL_AURA_APPLIED`, `SPELL_AURA_REMOVED`, `SPELL_AURA_APPLIED_DOSE`,
+  `SPELL_AURA_REMOVED_DOSE`
+- `SPELL_DISPEL`, `SPELL_DISPEL_FAILED`
+- `UNIT_DIED`, `UNIT_DESTROYED` (a totem or another summoned unit),
+  `PARTY_KILL`
+
+Some values have fixed contents:
+
+- `critical`, `glancing`, `crushing` and `isOffHand` are `1` or `nil`.
+- `resisted`, `blocked` and `absorbed` in a damage suffix are `nil` when
+  they are 0.
+- `missType` is one of `"MISS"`, `"RESIST"`, `"DODGE"`, `"PARRY"`,
+  `"BLOCK"`, `"EVADE"`, `"IMMUNE"`, `"DEFLECT"`, `"ABSORB"` or `"REFLECT"`.
+- Schools are bit masks: 1 physical, 2 holy, 4 fire, 8 nature, 16 frost,
+  32 shadow, 64 arcane.
+- `overkill`, `overhealing` and the `absorbed` of a heal are always 0.
+- `alternatePowerType` is always `nil`.
+- `DAMAGE_SHIELD` does not name its spell: `spellId` is 0, `spellName` is
+  `nil`, and `spellSchool` is the school of the damage.
+- The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
+  never set.
+- `SPELL_CAST_START` fires for a spell with a cast time, and has no target.
+  `SPELL_CAST_SUCCESS` fires for an instant spell. A spell with a cast time
+  gets no `SPELL_CAST_SUCCESS`.
+- `SPELL_CAST_FAILED` fires only for your own casts.
+- The `amount` of an `_AURA_APPLIED_DOSE` or `_AURA_REMOVED_DOSE` is the
+  number of stacks after the change.
+- `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` do not name the dispelling spell:
+  `spellId` is 0 and `spellName` is `nil`. The extra spell is the aura that
+  the dispel removed, or did not remove.
+- These events have no source: `ENVIRONMENTAL_DAMAGE`, `SPELL_INSTAKILL`,
+  `UNIT_DIED`, `UNIT_DESTROYED`, and an aura event when the caster of the
+  aura is not known.
+- `SPELL_AURA_REFRESH`, `SPELL_SUMMON` and `SPELL_CREATE` do not fire.
+- On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
+  does direct damage, for example Pummel, Kick or Earth Shock. These servers
+  do not send the interrupt for such a spell.
+
+The flag constants are globals:
+
+| Constant | Value |
+|----------|-------|
+| `COMBATLOG_OBJECT_AFFILIATION_MINE` / `_PARTY` / `_RAID` / `_OUTSIDER` | `0x1` / `0x2` / `0x4` / `0x8` |
+| `COMBATLOG_OBJECT_REACTION_FRIENDLY` / `_NEUTRAL` / `_HOSTILE` | `0x10` / `0x20` / `0x40` |
+| `COMBATLOG_OBJECT_CONTROL_PLAYER` / `_NPC` | `0x100` / `0x200` |
+| `COMBATLOG_OBJECT_TYPE_PLAYER` / `_NPC` / `_PET` / `_GUARDIAN` / `_OBJECT` | `0x400` / `0x800` / `0x1000` / `0x2000` / `0x4000` |
+| `COMBATLOG_OBJECT_TARGET` / `_FOCUS` | `0x10000` / `0x20000` |
+| `COMBATLOG_OBJECT_MAINTANK` / `_MAINASSIST` | `0x40000` / `0x80000` |
+| `COMBATLOG_OBJECT_NONE` | `0x80000000` (no unit) |
+| `COMBATLOG_OBJECT_RAIDTARGET1` … `_RAIDTARGET8` | `0x1` … `0x80` (star … skull) |
+
+Each group also has a `_MASK` constant, for example
+`COMBATLOG_OBJECT_AFFILIATION_MASK`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+f:SetScript("OnEvent", function(self, event, timestamp, subevent, hideCaster,
+        sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
+        destGUID, destName, destFlags, destRaidFlags, ...)
+    if subevent == "SPELL_DAMAGE" and sourceGUID == UnitGUID("player") then
+        local spellName, amount = arg[2], arg[4]
+        print(spellName, "hit", destName, "for", amount)
+    end
+end)
+```
+
+A handler that reads the vanilla `arg1` … `argN` globals gets the same
+values: `arg1` is the timestamp, `arg2` the subevent, and so on.
 
 ### `CURSOR_CHANGED` event
 
