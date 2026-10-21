@@ -18596,10 +18596,11 @@ Soft interact picks the nearest object in front of you that you can
 interact with. Bind **Interact With Target** to a key, then press it to
 interact with that object. This is the Interact Key.
 
-Soft interact is off by default. To turn it on:
+Soft interact is on by default. It does nothing until you bind the key.
+To turn it off:
 
 ```
-/console SoftTargetInteract 3
+/console SoftTargetInteract 0
 ```
 
 **What it picks.** It picks only an object that shows an interact cursor
@@ -18626,12 +18627,13 @@ the GUID of that object. Functions that read unit data, such as
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetInteract` | `0` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
+| `SoftTargetInteract` | `3` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
 | `SoftTargetInteractArc` | `0` | `0`: the object must be directly in front of you, within about 1.2 yards of your forward line. `1`: the object must be within 30 degrees of your facing, on each side. `2`: the object can be in any direction. |
 | `SoftTargetInteractRange` | `10` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
-**The icon.** An icon shows over the picked object. The icon is the cursor
+**The icon.** When `SoftTargetIconInteract` is `1`, an icon shows over the
+picked object. The icon is the cursor
 image that the mouse shows over the object (see
 [`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
 For a unit, the icon is above its name. For a game object or a corpse, the
@@ -18640,7 +18642,7 @@ the grey "Unable" form. The icon is hidden when the object is off the screen.
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetIconInteract` | `1` | `1` shows the icon, `0` hides it. |
+| `SoftTargetIconInteract` | `0` | `1` shows the icon, `0` hides it. |
 | `SoftTargetNameplateSize` | `19` | The size of the icon. |
 
 When the picked object changes,

@@ -36,14 +36,20 @@
 //     range targetNearestDistance ("limited to tab targeting ... ranges").
 //     With SoftTargetInteractRangeIsHard 0 something interactable right now
 //     (in reach / usable) still counts past it.
-//   - The closest candidate wins. Re-picked every UI frame while enabled;
-//     nothing runs while SoftTargetInteract is off. Not on the world tick:
-//     there every world node reads as culled (probe: 3 drawn from Lua, 0 on
-//     the world tick), while the UI pass — where the engine's own hover
-//     classification runs, CGWorldFrame::OnUpdate — sees the drawn state.
+//   - The closest candidate wins. It is picked when something asks: a read
+//     of the token (the key's InteractUnit("anyinteract"), UnitGUID, the
+//     icon's per-frame read while SoftTargetIconInteract is on), and on the
+//     UI frame tick only while a frame is registered for
+//     PLAYER_SOFT_INTERACT_CHANGED — so with no icon and no listener nothing
+//     runs per frame. Never on the world tick: there every world node reads
+//     as culled (probe: 3 drawn from Lua, 0 on the world tick), while the UI
+//     pass — where the engine's own hover classification runs,
+//     CGWorldFrame::OnUpdate — and Lua see the drawn state.
 //
 // SoftTargetInteract's 1 is "gamepad"; 1.12 has no gamepad, so only 2 (KBM)
-// and 3 (always) turn it on. Defaults are Classic Era's (0, 0, 10, 0).
+// and 3 (always) turn it on. It defaults to 3, what the "Enable Interact
+// Key" setting writes: the key does nothing until bound. The other defaults
+// are Classic Era's (0, 10, 0).
 
 #include "target/SoftInteract.h"
 
@@ -231,18 +237,23 @@ void Set(uint64_t guid) {
                         guid ? Guid::FormatAsString(guid, newBuf, sizeof newBuf) : nullptr);
 }
 
+void Refresh() { Set(Enabled() ? Pick() : 0); }
+
+bool Watched() { return Event::Custom::HasListeners(_changed.Slot()); }
+
 void OnFrameTick() {
     if (!Object::RegistryReady()) {
         g_soft = 0;
         return;
     }
-    Set(Enabled() ? Pick() : 0);
+    if (Watched())
+        Refresh();
 }
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
 void Register() {
-    g_enable = CVar::Factory::Register("SoftTargetInteract", "0");
+    g_enable = CVar::Factory::Register("SoftTargetInteract", "3");
     g_arc = CVar::Factory::Register("SoftTargetInteractArc", "0");
     g_range = CVar::Factory::Register("SoftTargetInteractRange", "10");
     g_rangeIsHard = CVar::Factory::Register("SoftTargetInteractRangeIsHard", "0");
@@ -252,7 +263,15 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-uint64_t Get() { return g_soft; }
+// Fresh when nothing watches; the frame tick's pick (this frame's) when a
+// listener does.
+uint64_t Get() {
+    if (!Object::RegistryReady())
+        return 0;
+    if (!Watched())
+        Refresh();
+    return g_soft;
+}
 
 // Retail 12.1.5 probe, camera still, a soft-interact game object in front:
 // with an interactable NPC targeted `anyinteract` is the NPC, with no
@@ -266,7 +285,7 @@ uint64_t GetAny() {
         if (object != nullptr && ReachOf(object) != Reach::None)
             return target;
     }
-    return g_soft;
+    return Get();
 }
 
 } // namespace Target::SoftInteract

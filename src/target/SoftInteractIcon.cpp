@@ -11,7 +11,9 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The soft-interact icon (`SoftTargetIconInteract`, retail default 1): the
+// The soft-interact icon (`SoftTargetIconInteract`; retail defaults it to 1,
+// here it is 0 so the icon is opted into, and the pick does not run every
+// frame for players who never look at it): the
 // cursor image of the `softinteract` object, drawn over it — a unit's above
 // its name, an object's above its top (retail screenshots: the speak bubble
 // over an NPC's name, the mail icon over a mailbox, grey then coloured as the
@@ -117,11 +119,10 @@ void Update() {
         g_shownSize = 0.0f;
         g_shown = false;
     }
-    const uint64_t guid = Target::SoftInteract::Get();
-    void *object = guid != 0 && worldFrame != nullptr && CVar::Factory::GetInt(g_enable) != 0 &&
-                           Object::RegistryReady()
-                       ? Object::ByGuid(kTypeMask, guid)
-                       : nullptr;
+    // The cvar first: reading the token is what runs the pick.
+    const bool enabled = worldFrame != nullptr && CVar::Factory::GetInt(g_enable) != 0;
+    const uint64_t guid = enabled ? Target::SoftInteract::Get() : 0;
+    void *object = guid != 0 ? Object::ByGuid(kTypeMask, guid) : nullptr;
     char path[Offsets::CURSOR_FILE_SIZE];
     float screen[2];
     if (object == nullptr ||
@@ -163,7 +164,7 @@ void PrepareForReload() {
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 void Register() {
-    g_enable = CVar::Factory::Register("SoftTargetIconInteract", "1");
+    g_enable = CVar::Factory::Register("SoftTargetIconInteract", "0");
     g_size = CVar::Factory::Register("SoftTargetNameplateSize", "19");
 }
 
