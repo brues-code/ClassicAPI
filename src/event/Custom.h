@@ -92,6 +92,18 @@ int LookupByName(const char *name);
 // past the live table.
 bool HasListeners(int slot);
 
+// Fires the event in `slot` with `nargs` Lua values at absolute stack index
+// `firstArgIdx` as its payload — booleans and nils included, which the
+// printf-style `Fire` cannot carry. Mirrors the engine dispatcher
+// (`FUN_FIRE_EVENT`, 0x00703F50): `event` is set for the dispatch and
+// restored after, and each listener's OnEvent runs through
+// `Frame::ScriptArgs::RunSlotWithValues` (so `arg1..argN`, `this` and the
+// modern positional arguments are set the way the engine's runner sets
+// them). The values stay on the stack; the caller pops them. No-op for
+// `slot < 0` or an event nobody listens to. 4.3.4's equivalent is
+// `FrameScript_SignalEvent(id, L, count)`.
+void FireValues(int slot, void *L, int firstArgIdx, int nargs);
+
 // Dispatches a custom event via the engine's printf-style event
 // dispatcher at `FUN_FIRE_EVENT` (`0x00703F50`). `format` is a
 // concatenation of `%d` (int), `%u` (uint), `%f` (double), `%s`

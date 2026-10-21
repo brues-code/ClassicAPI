@@ -87,6 +87,10 @@ build instructions.
   - [`StopAttack()`](#stopattack)
   - [`stopAutoAttackOnTargetChange`](#stopautoattackontargetchange)
 
+- [CombatLog](#combatlog)
+  - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
+  - [`CombatLogGetCurrentEventInfo()`](#combatloggetcurrenteventinfo)
+
 - [Console](#console)
   - [`ConsoleExec(command)`](#consoleexeccommand)
   - [`ConsoleEcho(message [, colorType])`](#consoleechomessage--colortype)
@@ -2150,6 +2154,126 @@ a target change stops melee auto-attack, Auto Shot and wand shots.
 
 ```
 /console stopAutoAttackOnTargetChange 1
+```
+
+## CombatLog
+
+### `COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events
+
+`COMBAT_LOG_EVENT_UNFILTERED` fires once for each combat log event: a hit, a
+miss, a heal, a power gain, damage from the environment. `COMBAT_LOG_EVENT`
+fires for the same events. The text lines in the chat frames
+(`CHAT_MSG_COMBAT_*`, `CHAT_MSG_SPELL_*`) do not change.
+
+The values identify units by GUID, not by name, and do not depend on the
+client language. Events come only for what the server sends, which is the
+area near you.
+
+The first 11 values are the same for each event:
+
+| # | Value | Description |
+|---|-------|-------------|
+| 1 | `timestamp` | The Unix time of the event, in seconds, with milliseconds. |
+| 2 | `subevent` | What happened, for example `"SPELL_DAMAGE"`. |
+| 3 | `hideCaster` | `true` when the event has no source (`ENVIRONMENTAL_DAMAGE`), else `false`. |
+| 4 | `sourceGUID` | The GUID of the unit that did it, in the `UnitGUID` format. |
+| 5 | `sourceName` | The name of that unit. `nil` when there is no source. |
+| 6 | `sourceFlags` | `COMBATLOG_OBJECT_*` bits that describe the source. |
+| 7 | `sourceRaidFlags` | The `COMBATLOG_OBJECT_RAIDTARGET*` bit of the raid mark on the source. |
+| 8 | `destGUID` | The GUID of the unit it happened to. |
+| 9 | `destName` | The name of that unit. |
+| 10 | `destFlags` | `COMBATLOG_OBJECT_*` bits that describe the target. |
+| 11 | `destRaidFlags` | The raid mark bit of the target. |
+
+A name that is not known yet is the `UNKNOWNOBJECT` text ("Unknown").
+
+The values after these depend on the subevent. First comes the prefix:
+
+| Subevent starts with | Prefix values |
+|----------------------|---------------|
+| `SWING_` | *(none)* |
+| `ENVIRONMENTAL_` | `environmentalType`: `"FATIGUE"`, `"DROWNING"`, `"FALLING"`, `"LAVA"`, `"SLIME"` or `"FIRE"` |
+| `SPELL_`, `SPELL_PERIODIC_`, `RANGE_`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `spellId`, `spellName`, `spellSchool` |
+
+Then comes the suffix:
+
+| Subevent ends with | Suffix values |
+|--------------------|---------------|
+| `_DAMAGE`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `amount`, `overkill`, `school`, `resisted`, `blocked`, `absorbed`, `critical`, `glancing`, `crushing`, `isOffHand` |
+| `_MISSED` | `missType`, `isOffHand`, then `amountMissed` for an `"ABSORB"`, `"BLOCK"` or `"RESIST"` |
+| `_HEAL` | `amount`, `overhealing`, `absorbed`, `critical` |
+| `_ENERGIZE` | `amount`, `powerType`, `alternatePowerType` |
+| `_DRAIN`, `_LEECH` | `amount`, `powerType`, `extraAmount`, `alternatePowerType` |
+
+The subevents that fire:
+
+- `SWING_DAMAGE`, `SWING_MISSED`
+- `RANGE_DAMAGE`, `RANGE_MISSED` (Auto Shot, Shoot, Throw)
+- `SPELL_DAMAGE`, `SPELL_MISSED`, `SPELL_HEAL`, `SPELL_ENERGIZE`
+- `SPELL_PERIODIC_DAMAGE`, `SPELL_PERIODIC_MISSED`, `SPELL_PERIODIC_HEAL`,
+  `SPELL_PERIODIC_ENERGIZE`, `SPELL_PERIODIC_DRAIN`, `SPELL_PERIODIC_LEECH`
+- `DAMAGE_SHIELD`, `DAMAGE_SHIELD_MISSED`, `DAMAGE_SPLIT`
+- `ENVIRONMENTAL_DAMAGE`
+
+Some values have fixed contents:
+
+- `critical`, `glancing`, `crushing` and `isOffHand` are `1` or `nil`.
+- `resisted`, `blocked` and `absorbed` in a damage suffix are `nil` when
+  they are 0.
+- `missType` is one of `"MISS"`, `"RESIST"`, `"DODGE"`, `"PARRY"`,
+  `"BLOCK"`, `"EVADE"`, `"IMMUNE"`, `"DEFLECT"`, `"ABSORB"` or `"REFLECT"`.
+- Schools are bit masks: 1 physical, 2 holy, 4 fire, 8 nature, 16 frost,
+  32 shadow, 64 arcane.
+- `overkill`, `overhealing` and the `absorbed` of a heal are always 0.
+- `alternatePowerType` is always `nil`.
+- `DAMAGE_SHIELD` does not name its spell: `spellId` is 0, `spellName` is
+  `nil`, and `spellSchool` is the school of the damage.
+- The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
+  never set.
+
+The flag constants are globals:
+
+| Constant | Value |
+|----------|-------|
+| `COMBATLOG_OBJECT_AFFILIATION_MINE` / `_PARTY` / `_RAID` / `_OUTSIDER` | `0x1` / `0x2` / `0x4` / `0x8` |
+| `COMBATLOG_OBJECT_REACTION_FRIENDLY` / `_NEUTRAL` / `_HOSTILE` | `0x10` / `0x20` / `0x40` |
+| `COMBATLOG_OBJECT_CONTROL_PLAYER` / `_NPC` | `0x100` / `0x200` |
+| `COMBATLOG_OBJECT_TYPE_PLAYER` / `_NPC` / `_PET` / `_GUARDIAN` / `_OBJECT` | `0x400` / `0x800` / `0x1000` / `0x2000` / `0x4000` |
+| `COMBATLOG_OBJECT_TARGET` / `_FOCUS` | `0x10000` / `0x20000` |
+| `COMBATLOG_OBJECT_MAINTANK` / `_MAINASSIST` | `0x40000` / `0x80000` |
+| `COMBATLOG_OBJECT_NONE` | `0x80000000` (no unit) |
+| `COMBATLOG_OBJECT_RAIDTARGET1` … `_RAIDTARGET8` | `0x1` … `0x80` (star … skull) |
+
+Each group also has a `_MASK` constant, for example
+`COMBATLOG_OBJECT_AFFILIATION_MASK`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+f:SetScript("OnEvent", function(self, event, timestamp, subevent, hideCaster,
+        sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
+        destGUID, destName, destFlags, destRaidFlags, ...)
+    if subevent == "SPELL_DAMAGE" and sourceGUID == UnitGUID("player") then
+        local spellName, amount = arg[2], arg[4]
+        print(spellName, "hit", destName, "for", amount)
+    end
+end)
+```
+
+A handler that reads the vanilla `arg1` … `argN` globals gets the same
+values: `arg1` is the timestamp, `arg2` the subevent, and so on.
+
+### `CombatLogGetCurrentEventInfo()`
+
+Returns the same values as the `COMBAT_LOG_EVENT_UNFILTERED` arguments, for
+the event that is being sent. It returns values only while a
+`COMBAT_LOG_EVENT_UNFILTERED` or `COMBAT_LOG_EVENT` handler runs. At other
+times it returns nothing.
+
+```lua
+f:SetScript("OnEvent", function()
+    local timestamp, subevent, _, sourceGUID = CombatLogGetCurrentEventInfo()
+end)
 ```
 
 ## Console
@@ -15272,10 +15396,10 @@ if C_PlayerInfo.GUIDIsPlayer(UnitGUID("target")) then
     -- target is a player
 end
 
--- Combat-log row triage: was that a player kill or a mob kill?
-local function OnCombatLogEvent(_, _, eventType, srcGUID, ...)
-    if eventType == "PARTY_KILL" then
-        if C_PlayerInfo.GUIDIsPlayer(srcGUID) then ... end
+-- Combat log triage: did a player or a creature land that hit?
+local function OnCombatLogEvent(self, event, timestamp, subevent, hideCaster, sourceGUID)
+    if subevent == "SWING_DAMAGE" then
+        if C_PlayerInfo.GUIDIsPlayer(sourceGUID) then ... end
     end
 end
 ```

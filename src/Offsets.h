@@ -1812,6 +1812,21 @@ enum Offsets {
     // CGUnit_C::UnitReaction — `int __thiscall(unit, other)` → reaction
     // 0..7; Script_UnitIsFriend (0x00516930) reads above 3 as friendly.
     FUN_UNIT_REACTION = 0x006061E0,
+    // The combat log's object namer (0x006264E0) asks the name and creature
+    // caches with this empty callback, so a miss sends the query and the
+    // next line has the name. `void __stdcall(void *, int)`, returns at once.
+    // (The namer itself is not called: in game, with the Octo DLL set, it
+    // returns the GUID's hex string instead of a name. combatlog/Entry.cpp
+    // makes its steps.)
+    FUN_COMBAT_LOG_NAME_QUERY_DONE = 0x00626620,
+    // The combat log's spell-miss line — `void __fastcall(int missType /*ecx*/,
+    // int spellId /*edx*/, uint32 casterLo, casterHi, targetLo, targetHi,
+    // uint8 damageShield)`, RET 0x14. Every spell miss reaches it: the
+    // SMSG_SPELL_GO miss list, a missile's arrival (0x0061D870 / 0x0061DD50),
+    // and SMSG_SPELLLOGMISS (0x005E7E00, the only caller that passes
+    // damageShield = 1). Drops missType 0 and spells with Attributes 0x180 or
+    // an empty name itself (disassembly, 0x0062BAB9-0x0062BB07).
+    FUN_COMBAT_LOG_SPELL_MISS = 0x0062BAB0,
     // Combat-feedback fire — `void __fastcall(const uint64_t *guid /*ecx*/,
     // const char *action /*edx*/, int amount, int school, uint32_t hitInfo)`,
     // RET 0xC. Picks a modifier from the amount's sign and hitInfo (amount >
@@ -1979,10 +1994,17 @@ enum Offsets {
     //                     reads `[desc+0x20]`/`[+0x24]` as the summoner GUID.
     // A pet/guardian/totem's owner lives in CREATEDBY; a charmed unit's in
     // CHARMEDBY. `Unit::Pet` reads these to find a minion's player owner.
-    // (The engine uses only these two for ownership — there's a GUID slot
-    // at +0x18 too, but nothing reads it as an owner, so it's left out.)
+    // (The engine uses only these two for ownership.) UNIT_FIELD_SUMMONEDBY
+    // sits between them at +0x18 (the binary's UpdateField table at
+    // 0x0083D940: index 6, count 2); the combat log reads it to tell a pet
+    // from a guardian, as 4.3.4's GetCombatLogObjectFlags does.
     OFF_UNIT_FIELD_CHARMEDBY = 0x10,
+    OFF_UNIT_FIELD_SUMMONEDBY = 0x18,
     OFF_UNIT_FIELD_CREATEDBY = 0x20,
+    // A game object's OBJECT_FIELD_CREATED_BY (UpdateField table 0x0083BEB0:
+    // index 0, count 2), the first field of the block a CGGameObject_C holds
+    // at `+0x110` — the same slot as a unit's descriptor (OFF_UNIT_DESCRIPTOR).
+    OFF_GAMEOBJECT_FIELD_CREATED_BY = 0x00,
 
     // UNIT_CREATED_BY_SPELL — the spell that summoned this unit (descriptor
     // byte +0x230, field index 0x8C). Set for every spell-summoned unit:
@@ -2408,6 +2430,9 @@ enum Offsets {
     //   [3] = 1     ENERGY
     //   [4] = 1000  HAPPINESS
     VAR_UNIT_POWER_DIVISOR_TABLE = 0x0086F978,
+    // GetPowerDisplayDivisor — `int __fastcall(int powerType)`, the reader of
+    // the table above (1 for a negative type). benilla-re spell symbols.
+    FUN_POWER_DISPLAY_DIVISOR = 0x006E7130,
     OFF_UNIT_FIELD_LEVEL = 0x70,
     // UNIT_FIELD_BYTES_0 dword at +0x78; byte 3 (= +0x7B) is the unit's
     // primary power type (one of UNIT_POWER_MIN_TYPE..MAX_TYPE).
@@ -4097,6 +4122,10 @@ enum Offsets {
     // OBJECT_FIELD_TYPE, the type word, in the block at OFF_UNIT_GUID_PTR
     // (the GUID is its +0): the hover dispatch reads `[[obj+8]+8]`.
     OFF_OBJECT_FIELD_TYPE = 0x08,
+    // OBJECT_FIELD_ENTRY in the same block (UpdateField table 0x0083DB64:
+    // index 3): an item's template id, read by the combat log namer as
+    // `[[obj+8]+0xC]`.
+    OFF_OBJECT_FIELD_ENTRY = 0x0C,
 
     // World line-segment collision test (client-side LoS core):
     // `char __fastcall(const Vec3 *start /*ecx*/, const Vec3 *end /*edx*/,
