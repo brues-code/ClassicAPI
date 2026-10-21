@@ -8493,16 +8493,6 @@ enum Offsets {
     // from `SMemAlloc` (which it requires).
     FUN_STORM_SSTRDUP = 0x0064A620,
 
-    // Storm allocator/free — the pair the engine uses for the event-table
-    // buffer, so its reload teardown `SMemFree`s our grown buffer as its own.
-    // Both `__stdcall`, 4 args (`ret 0x10`); SMemAlloc flag bit 8 (`& 8`)
-    // zero-fills. `Event::Custom::Grow` uses them to reallocate the event
-    // buffer. (Same addresses as FUN_STORM_SMEM_ALLOC / _FREE above.)
-    //   void*  __stdcall SMemAlloc(uint size, const char *file, int line, int flags)
-    //   char   __stdcall SMemFree (void *ptr, const char *file, int line, int flags)
-    FUN_STORM_SMEMALLOC = 0x006462E0,
-    FUN_STORM_SMEMFREE = 0x00646430,
-
     // Talent system — per-player talent state populated at login from
     // (class, race) + Talent.dbc / TalentTab.dbc. The engine maintains
     // one `TabInfo *` per talent tab in the array at

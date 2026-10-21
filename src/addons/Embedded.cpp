@@ -208,7 +208,7 @@ void EnsureEmbeddedVersionExtracted() {
 }
 
 // True iff the on-disk addon folder contains the `.classicapi-dev`
-// marker. Read via the ORIGINAL `FUN_FILE_READ` (bypassing our embed
+// marker. Asked of the ORIGINAL `FUN_FILE_EXISTS` (bypassing our embed
 // hook), so it reflects a real file on disk / in an MPQ — never an
 // embedded copy. That makes it a clean "is this a developer working
 // tree" signal: the marker is gitignored + excluded from the embed and
@@ -218,14 +218,7 @@ bool DiskHasDevMarker() {
     char fullPath[256];
     std::snprintf(fullPath, sizeof(fullPath), "%s%s",
                   kAddonPathPrefix, kDevMarkerFile);
-    void *buf = nullptr;
-    size_t size = 0;
-    const int ok = FileRead_o(0, fullPath, &buf, &size, 1, 1, 0);
-    if (ok == 0 || buf == nullptr)
-        return false;
-    auto SMemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
-    SMemFree(buf, __FILE__, __LINE__, 0);
-    return true;
+    return FileExists_o(fullPath, 1) != 0;
 }
 
 // Decide whether disk or embedded should serve all reads for this
@@ -401,17 +394,14 @@ using TocParser_t = void(__fastcall *)(const char *name);
 // loading (the load pass `FUN_0051f600` never reads `+0x29`) and does
 // NOT break dependency resolution or by-name queries (those use the
 // addon hash table, which keeps the entry regardless).
-
-// `entry+0x2b` — DefaultState (`## DefaultState: enabled/disabled`).
-// The enable resolver `FUN_ADDON_ENABLE_RESOLVE` falls back to this
-// when the player has no per-character override. Belt-and-suspenders
-// alongside the resolver co-hook below (which forces enabled anyway).
-constexpr int OFF_ADDON_ENTRY_DEFAULT_STATE = 0x2b;
+//
+// DefaultState (`+0x2b`) needs no write: the entry constructor
+// `FUN_00520550` stores 1 there, our toc has no `## DefaultState:`, and
+// the resolver co-hook below forces enabled anyway.
 
 // Post-registration finalize for the embedded entry: hide it from the
-// addon list and mark it default-enabled. Combined with the
-// `FUN_ADDON_ENABLE_RESOLVE` co-hook, `!!!ClassicAPI` always loads and
-// never appears as a toggleable entry.
+// addon list. Combined with the `FUN_ADDON_ENABLE_RESOLVE` co-hook,
+// `!!!ClassicAPI` always loads and never appears as a toggleable entry.
 void FinalizeEmbeddedEntry() {
     Addons::ForEachEntry([](uintptr_t entry) -> bool {
         const char *name = *reinterpret_cast<const char *const *>(
@@ -421,7 +411,6 @@ void FinalizeEmbeddedEntry() {
 
         *reinterpret_cast<uint8_t *>(
             entry + Offsets::OFF_ADDON_ENTRY_FILTER_OUT) = 1;
-        *reinterpret_cast<uint8_t *>(entry + OFF_ADDON_ENTRY_DEFAULT_STATE) = 1;
         return false;
     });
 }

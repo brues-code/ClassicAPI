@@ -92,13 +92,13 @@ char *SStrDup(const char *s) {
 void *SMemAlloc(unsigned size) {
     using SMemAlloc_t = void *(__stdcall *)(unsigned size, const char *file,
                                             int line, int flags);
-    auto fn = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEMALLOC);
+    auto fn = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC);
     return fn(size, __FILE__, __LINE__, 8 /* zero-fill */);
 }
 void SMemFree(void *ptr) {
     using SMemFree_t = int(__stdcall *)(void *ptr, const char *file, int line,
                                         int flags);
-    auto fn = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEMFREE);
+    auto fn = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
     fn(ptr, __FILE__, __LINE__, 0);
 }
 
