@@ -71,7 +71,7 @@ jobs:
       # is_release=true when a vX.Y.Z tag is in play (pushed tag,
       # dispatched-from-tag, or a `tag` input); the embedded addon's
       # `## Version:` and the compiled CLASSIC_API_VERSION are both
-      # stamped from it at embed/compile time (see cmake/embed_addon.cmake)
+      # stamped from it at embed/compile time (see cmake/embed_resources.cmake)
       # — no source edit.
       - name: Resolve version
         id: ver

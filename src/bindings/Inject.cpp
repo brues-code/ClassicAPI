@@ -49,7 +49,8 @@
 #include "Inject.h"
 #include "Offsets.h"
 
-#include "embedded_bindings.h"
+#include "embed/Resource.h"
+#include "embedded_resources.h"
 
 #include <cstdio>
 #include <cstring>
@@ -132,8 +133,10 @@ bool ExtractHeaderAttr(const char *tagStart, const char *tagEnd,
 
 EmbeddedConfig ResolveEmbeddedConfig() {
     EmbeddedConfig out = {};
-    const char *content = reinterpret_cast<const char *>(kEmbeddedBindingsXml);
-    const char *end = content + kEmbeddedBindingsXmlSize;
+    const Embed::Bytes xml = Embed::Resource(Embed::Ids::kBindingsXml);
+    if (xml.data == nullptr) return out;
+    const char *content = reinterpret_cast<const char *>(xml.data);
+    const char *end = content + xml.size;
 
     // Locate `<Bindings` opening tag (skipping any comment blocks
     // that mention the tag literally for documentation purposes).

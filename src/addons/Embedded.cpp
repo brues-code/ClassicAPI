@@ -18,8 +18,8 @@
 // How:
 //
 //   1. The CMake build embeds every file under `AddOns/!!!ClassicAPI/`
-//      into a generated header (`embedded_classicapi.h`) as a byte
-//      array per file plus a `{path, data, size}` manifest.
+//      as an RCDATA resource, plus a generated `{path, resourceId}`
+//      manifest (`embedded_resources.h`).
 //
 //   2. We hook the engine's file-read function at `FUN_FILE_READ`.
 //      When the engine asks for a path under
@@ -49,7 +49,7 @@
 // `Compat.lua`, `Util\Print.lua`, etc. all surface from
 // embedded buffers.
 
-#include "embedded_classicapi.h"
+#include "embedded_resources.h"
 
 #include "Game.h"
 #include "Offsets.h"
@@ -60,6 +60,7 @@
 #include "addons/Toc.h"
 #include "addons/TocRewrite.h"
 #include "bindings/Inject.h"
+#include "embed/Resource.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -115,12 +116,13 @@ const char *StripAddonPrefix(const char *path) {
     return p;
 }
 
-const ClassicAPIFiles::File *LookupEmbedded(const char *suffix) {
+// The embedded bytes for `suffix`; `data` is NULL when it is not embedded.
+Embed::Bytes LookupEmbedded(const char *suffix) {
     for (size_t i = 0; i < ClassicAPIFiles::kFileCount; ++i) {
         if (PathEqualsCI(suffix, ClassicAPIFiles::kFiles[i].path))
-            return &ClassicAPIFiles::kFiles[i];
+            return Embed::Resource(ClassicAPIFiles::kFiles[i].resourceId);
     }
-    return nullptr;
+    return {nullptr, 0};
 }
 
 // Engine file I/O + Storm allocator — see addons/EngineIO.h for the shapes and
@@ -196,15 +198,10 @@ Source g_source = Source::Undecided;
 
 void EnsureEmbeddedVersionExtracted() {
     if (g_embeddedVersion[0] != '\0') return;
-    for (size_t i = 0; i < ClassicAPIFiles::kFileCount; ++i) {
-        if (PathEqualsCI(kAddonTocFile, ClassicAPIFiles::kFiles[i].path)) {
-            ExtractTocVersion(
-                reinterpret_cast<const char *>(ClassicAPIFiles::kFiles[i].data),
-                ClassicAPIFiles::kFiles[i].size,
-                g_embeddedVersion, sizeof(g_embeddedVersion));
-            return;
-        }
-    }
+    const Embed::Bytes toc = LookupEmbedded(kAddonTocFile);
+    if (toc.data != nullptr)
+        ExtractTocVersion(reinterpret_cast<const char *>(toc.data), toc.size,
+                          g_embeddedVersion, sizeof(g_embeddedVersion));
 }
 
 // True iff the on-disk addon folder contains the `.classicapi-dev`
@@ -331,8 +328,8 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
     // Source::Embedded path, OR Source::Disk-but-file-missing fallback.
     // Look up the embedded version and synthesize a Storm buffer the
     // caller can free normally.
-    const auto *entry = LookupEmbedded(suffix);
-    if (entry == nullptr) {
+    const Embed::Bytes entry = LookupEmbedded(suffix);
+    if (entry.data == nullptr) {
         // Not in our embedded set either — let the engine try disk
         // one more time (returns 0 if that also fails). Covers
         // pathological cases like an empty disk install + embedded
@@ -343,15 +340,15 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
 
     auto SMemAlloc = reinterpret_cast<SMemAllocFn>(
         Offsets::FUN_STORM_SMEM_ALLOC);
-    const size_t totalSize = entry->size + extraBytes;
+    const size_t totalSize = entry.size + extraBytes;
     void *buf = SMemAlloc(totalSize, __FILE__, __LINE__, 0);
     if (buf == nullptr) return 0;
-    std::memcpy(buf, entry->data, entry->size);
+    std::memcpy(buf, entry.data, entry.size);
     if (extraBytes > 0) {
-        std::memset(static_cast<uint8_t *>(buf) + entry->size, 0, extraBytes);
+        std::memset(static_cast<uint8_t *>(buf) + entry.size, 0, extraBytes);
     }
     if (outBuf != nullptr) *outBuf = buf;
-    if (outSize != nullptr) *outSize = entry->size;
+    if (outSize != nullptr) *outSize = entry.size;
     return 1;
 }
 
@@ -370,7 +367,7 @@ int __stdcall FileExists_h(const char *path, int mode) {
     DecideSource();
     if (g_source == Source::Disk && FileExists_o(path, mode) != 0)
         return 1;
-    if (LookupEmbedded(suffix) != nullptr)
+    if (LookupEmbedded(suffix).data != nullptr)
         return 1;
     return FileExists_o(path, mode);
 }
