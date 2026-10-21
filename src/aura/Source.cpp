@@ -1690,6 +1690,30 @@ void NotifyIfPlayer(void *unit) {
         Player::StatSignal::Notify();
 }
 
+const AutoObserve *g_observers = nullptr;
+
+void NotifyObservers(const Change &change) {
+    for (const AutoObserve *o = g_observers; o != nullptr; o = o->next)
+        o->callback(change);
+}
+
+// The change for the aura in `slot`, with the caster and polarity of the
+// instance this cache binds to it. A removed aura's slot already holds the
+// next aura's flags, so its polarity is the one recorded when it landed.
+Change MakeChange(ChangeType type, void *unit, int slot, uint32_t spellId) {
+    Change c{type, unit, slot, spellId, 0, false, 0, 0};
+    const Entry *e = FindInstance(Unit::Identity::GuidForObject(unit), spellId, slot);
+    if (e != nullptr)
+        c.caster = e->casterGuid;
+    if (type != ChangeType::Removed)
+        c.harmful = KindForSlot(unit, slot) == KIND_HARMFUL;
+    else if (e != nullptr && e->kind != KIND_UNKNOWN)
+        c.harmful = e->kind == KIND_HARMFUL;
+    else
+        c.harmful = slot >= Offsets::UNIT_AURA_BUFF_COUNT;
+    return c;
+}
+
 // OnAuraAdded — a new aura occupies a slot (gives the spellId directly).
 using OnAuraAdded_t = void(__fastcall *)(void *unit, void *edx, uint32_t slot,
                                          uint32_t spellId);
@@ -1700,6 +1724,7 @@ void __fastcall OnAuraAdded_h(void *unit, void *edx, uint32_t slot,
     g_origOnAuraAdded(unit, edx, slot, spellId);
     StampApplication(unit, spellId, static_cast<int>(slot));
     NotifyIfPlayer(unit);
+    NotifyObservers(MakeChange(ChangeType::Added, unit, static_cast<int>(slot), spellId));
 }
 
 const Game::HookAutoRegister _hookAuraAdded{
@@ -1709,17 +1734,24 @@ const Game::HookAutoRegister _hookAuraAdded{
 // OnAuraStacksChanged — an existing aura's stack count changed (e.g. Shadow
 // Weaving climbing). Only the slot is given, so read the spellID back from
 // the unit's aura array. Re-stamps expiration so stacking refreshes count.
+// The byte argument is the slot's OLD applications byte: the engine compares
+// it with the descriptor's new one and logs a stack line when the new is
+// higher (0x00612450).
 using OnAuraStacksChanged_t = void(__fastcall *)(void *unit, void *edx,
-                                                 int slot, uint8_t stackCount);
+                                                 int slot, uint8_t oldApplications);
 OnAuraStacksChanged_t g_origOnAuraStacksChanged = nullptr;
 
 void __fastcall OnAuraStacksChanged_h(void *unit, void *edx, int slot,
-                                      uint8_t stackCount) {
-    g_origOnAuraStacksChanged(unit, edx, slot, stackCount);
-    StampApplication(
-        unit,
-        Aura::Data::ReadSpellID(static_cast<const uint8_t *>(unit), slot), slot);
+                                      uint8_t oldApplications) {
+    g_origOnAuraStacksChanged(unit, edx, slot, oldApplications);
+    const auto *u = static_cast<const uint8_t *>(unit);
+    const uint32_t spellId = Aura::Data::ReadSpellID(u, slot);
+    StampApplication(unit, spellId, slot);
     NotifyIfPlayer(unit);
+    Change c = MakeChange(ChangeType::Stacks, unit, slot, spellId);
+    c.oldStacks = static_cast<int>(oldApplications) + 1;
+    c.newStacks = Aura::Data::ReadStacks(u, slot);
+    NotifyObservers(c);
 }
 
 const Game::HookAutoRegister _hookAuraStacks{
@@ -1747,6 +1779,7 @@ OnAuraRemoved_t g_origOnAuraRemoved = nullptr;
 void __fastcall OnAuraRemoved_h(void *unit, void *edx, uint32_t slot,
                                 uint32_t spellId) {
     g_origOnAuraRemoved(unit, edx, slot, spellId);
+    NotifyObservers(MakeChange(ChangeType::Removed, unit, static_cast<int>(slot), spellId));
     Evict(Unit::Identity::GuidForObject(unit), spellId, static_cast<int>(slot));
     NotifyIfPlayer(unit);
 }
@@ -2058,6 +2091,10 @@ void ObserveGroupAuras(uint64_t guid, const uint16_t *auraArray) {
     for (int i = 0; i < total; ++i)
         snap->ids[i] = auraArray[i];
     snap->touchMs = now;
+}
+
+AutoObserve::AutoObserve(ChangeCallback cb) : callback(cb), next(g_observers) {
+    g_observers = this;
 }
 
 } // namespace Aura::Source

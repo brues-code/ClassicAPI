@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "frame/ScriptArgs.h"
 
 #include <cstdint>
 #include <cstring>
@@ -319,6 +320,40 @@ bool HasListeners(int slot) {
     const uint32_t head = Game::Read<uint32_t>(
         base + slot * Offsets::EVENT_ENTRY_STRIDE, Offsets::OFF_EVENT_ENTRY_HEAD);
     return head != 0 && (head & 1) == 0;
+}
+
+void FireValues(int slot, void *L, int firstArgIdx, int nargs) {
+    if (L == nullptr || !HasListeners(slot))
+        return;
+    using namespace Game::Lua;
+    const uint8_t *entry = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR) +
+                           slot * Offsets::EVENT_ENTRY_STRIDE;
+    const char *name = Game::Read<const char *>(entry, Offsets::OFF_EVENT_ENTRY_NAME);
+    if (name == nullptr || CheckStack(L, 4) == 0)
+        return;
+    // 0x00703F50: save `event`, set it to the event's name, run each
+    // listener's OnEvent slot (frame + 0xC) reading the next node before the
+    // call, then restore `event`. The saved value lives on the stack.
+    const int top = GetTop(L);
+    PushString(L, "event");
+    RawGet(L, GLOBALS_INDEX); // [.. oldEvent]
+    PushString(L, "event");
+    PushString(L, name);
+    SetTable(L, GLOBALS_INDEX);
+    uintptr_t node = Game::Read<uintptr_t>(entry, Offsets::OFF_EVENT_ENTRY_HEAD);
+    while (node != 0 && (node & 1) == 0) {
+        const uintptr_t next = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT);
+        auto *frame = Game::Read<uint8_t *>(node + Offsets::OFF_EVENT_NODE_FRAME);
+        if (frame != nullptr)
+            Frame::ScriptArgs::RunSlotWithValues(
+                L, reinterpret_cast<const uint32_t *>(frame + Offsets::OFF_FRAME_ONEVENT_SLOT),
+                frame, firstArgIdx, nargs);
+        node = next;
+    }
+    PushString(L, "event");
+    PushValue(L, top + 1);
+    SetTable(L, GLOBALS_INDEX);
+    SetTop(L, top);
 }
 
 void RetryClaims() {

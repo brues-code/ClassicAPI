@@ -74,6 +74,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [ClassColor](docs/API.md#classcolor) | `C_ClassColor.GetClassColor` |
 | [ColorUtil](docs/API.md#colorutil) | `C_ColorUtil.ConvertRGBToHSV`, `C_ColorUtil.ConvertHSVToRGB`, `C_ColorUtil.ConvertHSVToHSL`, `C_ColorUtil.ConvertHSLToHSV`, `C_ColorUtil.ConvertHSLToRGB`, `C_ColorUtil.GenerateTextColorCode`, `C_ColorUtil.WrapTextInColor`, `C_ColorUtil.WrapTextInColorCode` |
 | [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack`, `stopAutoAttackOnTargetChange` (cvar) |
+| [CombatLog](docs/API.md#combatlog) | `CombatLogGetCurrentEventInfo`, `COMBATLOG_OBJECT_*` (constants) |
 | [Console](docs/API.md#console) | `CalculateStringEditDistance`, `ConsoleEcho`, `ConsoleExec`, `ConsoleGetAllCommands`, `ConsoleGetColorFromType`, `ConsoleGetFontHeight`, `ConsoleIsActive`, `ConsolePrintAllMatchingCommands`, `SetConsoleKey` |
 | [CVar](docs/API.md#cvar) | `C_CVar.AreCVarsLoaded`, `C_CVar.DoesCVarExist`, `C_CVar.GetCVarBitfield`, `C_CVar.GetCVarBool`, `C_CVar.GetCVarInfo`, `C_CVar.RemoveTempCVar`, `C_CVar.SetCVarBitfield`, `C_CVar.SetTempCVar`, `GetCVar`, `GetCVarDefault` |
 | [Cursor](docs/API.md#cursor) | `GetCursorInfo` |
@@ -234,6 +235,8 @@ when launching with `-console`), not as Lua functions. See the
 | `BAG_NEW_ITEMS_UPDATED` | *(none)* |
 | `BAG_UPDATE_DELAYED` | *(none)* |
 | `CHAT_MSG_*` | adds `lineID, guid` as `arg11, arg12` after the existing ten ([details](docs/API.md#chat_msg_-arguments-lineid-arg11-and-guid-arg12)) |
+| `COMBAT_LOG_EVENT` | `timestamp, subevent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags, ...` ([details](docs/API.md#combat_log_event_unfiltered--combat_log_event-events)) |
+| `COMBAT_LOG_EVENT_UNFILTERED` | same as `COMBAT_LOG_EVENT` |
 | `CURSOR_CHANGED` | `isDefault, newCursorType, oldCursorType, oldCursorVirtualID` |
 | `EQUIPMENT_SETS_CHANGED` | *(none)* |
 | `EQUIPMENT_SWAP_PENDING` | `setID` |

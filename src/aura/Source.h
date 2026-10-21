@@ -237,4 +237,31 @@ int Enumerate(uint64_t unitGuid, bool harmful, CachedAura *out, int maxOut);
 // any real SpellGo timing we already hold, so this never downgrades better data.
 void ObserveGroupAuras(uint64_t guid, const uint16_t *auraArray);
 
+// An aura arriving on a unit, leaving it, or changing its stack count, as the
+// engine's own handlers see it (`OnAuraAdded`, `OnAuraRemoved`,
+// `OnAuraStacksChanged`), with the caster this cache binds to it.
+enum class ChangeType { Added, Removed, Stacks };
+
+struct Change {
+    ChangeType type;
+    void *unit;
+    int slot;
+    uint32_t spellId;
+    uint64_t caster; // 0 when unknown
+    bool harmful;
+    int oldStacks; // Stacks only: the count before the change
+    int newStacks; // Stacks only: the count now
+};
+
+using ChangeCallback = void (*)(const Change &change);
+
+// Declare a file-scope `static const Aura::Source::AutoObserve _obs{&fn};`.
+// Added and Stacks reach the callback after the cache has stamped the aura,
+// Removed before the cache evicts it, so `caster` is the cache's in all three.
+struct AutoObserve {
+    explicit AutoObserve(ChangeCallback cb);
+    ChangeCallback callback;
+    const AutoObserve *next;
+};
+
 } // namespace Aura::Source
