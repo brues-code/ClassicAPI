@@ -155,8 +155,8 @@ end);
 
 local _EventTraceFrame;
 
-_framesSinceLast = 0;
-_timeSinceLast   = 0;
+local _framesSinceLast = 0;
+local _timeSinceLast   = 0;
 
 local _timer = CreateFrame("Frame");
 _timer:SetScript("OnUpdate", function()
@@ -172,11 +172,49 @@ end);
 -- all 19 globals and trailing nils mark the end.
 EVENT_TRACE_MAX_ARGS = 19;
 
+-- Entries keep an ever-growing index (lastIndex, filteredIndices,
+-- button.index), but are stored in a ring of EVENT_TRACE_MAX_ENTRIES fixed
+-- slots. Keys that only grow would make every column table rehash, and
+-- reallocate, every few events.
+local function _Slot(index)
+    local f = _EventTraceFrame;
+    if (not index or index < 1 or index > f.lastIndex
+        or index <= f.lastIndex - EVENT_TRACE_MAX_ENTRIES) then
+        return nil;
+    end
+    return math.mod(index - 1, EVENT_TRACE_MAX_ENTRIES) + 1;
+end
+
+-- An event row stores only its GetTime(); the text is built when the row
+-- is drawn, so a closed window builds no strings.
+local function _TimeText(slot)
+    local f = _EventTraceFrame;
+    local kind = f.times[slot];
+    if (kind) then return kind; end
+    local seconds = f.rawtimes[slot];
+    local minutes = math.floor(math.floor(seconds) / 60);
+    local hours   = math.floor(minutes / 60);
+    seconds = seconds - 60 * minutes;
+    minutes = minutes - 60 * hours;
+    hours = math.mod(hours, 1000);
+    return string.format("%.2d:%.2d:%06.3f", hours, minutes, seconds);
+end
+
+local function _EventText(slot)
+    local f = _EventTraceFrame;
+    if (f.times[slot] == "Elapsed") then
+        return string.format("%.3f sec - %d frame(s)", f.elapsed[slot], f.frames[slot]);
+    end
+    return f.events[slot];
+end
+
 function EventTraceFrame_OnLoad(self)
     self.buttons          = {};
     self.events           = {};
     self.times            = {};
     self.rawtimes         = {};
+    self.elapsed          = {};
+    self.frames           = {};
     self.args             = {};
     for i = 1, EVENT_TRACE_MAX_ARGS do self.args[i] = {}; end
     self.ignoredEvents    = {};
@@ -228,68 +266,54 @@ function EventTraceFrame_OnEvent(self, event, a1, a2, a3, a4, a5, a6, a7, a8, a9
     end
 
     local nextIndex = self.lastIndex + 1;
-    if (nextIndex > EVENT_TRACE_MAX_ENTRIES) then
-        local staleIndex = nextIndex - EVENT_TRACE_MAX_ENTRIES;
-        self.events[staleIndex]   = nil;
-        self.times[staleIndex]    = nil;
-        self.rawtimes[staleIndex] = nil;
-        for k, v in pairs(self.args) do
-            self.args[k][staleIndex] = nil;
-        end
-    end
+    local slot = math.mod(nextIndex - 1, EVENT_TRACE_MAX_ENTRIES) + 1;
 
+    -- Every column of the slot is written, so nothing from the entry it
+    -- replaces is left behind.
+    self.times[slot]   = nil;
+    self.elapsed[slot] = nil;
+    self.frames[slot]  = nil;
     if (string.find(event, "Begin Capture", 1, true) or
         string.find(event, "End Capture", 1, true)) then
-        self.times[nextIndex] = "System";
+        self.times[slot] = "System";
         if (self.eventsToCapture) then
-            self.events[nextIndex] = string.format("%s (%s events)", event,
-                                                   tostring(self.eventsToCapture));
+            self.events[slot] = string.format("%s (%s events)", event,
+                                              tostring(self.eventsToCapture));
         else
-            self.events[nextIndex] = event;
+            self.events[slot] = event;
         end
     elseif (event == "On Update") then
-        self.times[nextIndex] = "Elapsed";
-        self.events[nextIndex] = string.format(
-            string.format("%.3f sec", _timeSinceLast) .. " - %d frame(s)",
-            _framesSinceLast);
+        self.times[slot]   = "Elapsed";
+        self.events[slot]  = event;
+        self.elapsed[slot] = _timeSinceLast;
+        self.frames[slot]  = _framesSinceLast;
         _timeSinceLast   = 0;
         _framesSinceLast = 0;
     else
-        self.events[nextIndex] = event;
-        local seconds = GetTime();
-        local minutes = math.floor(math.floor(seconds) / 60);
-        local hours   = math.floor(minutes / 60);
-        seconds = seconds - 60 * minutes;
-        minutes = minutes - 60 * hours;
-        hours = math.mod(hours, 1000);
-        self.times[nextIndex] = string.format("%.2d:%.2d:%06.3f", hours, minutes, seconds);
-
-        local packed = { a1, a2, a3, a4, a5, a6, a7, a8, a9, a10,
-                         a11, a12, a13, a14, a15, a16, a17, a18, a19 };
-        local numArgs = 0;
-        for i = EVENT_TRACE_MAX_ARGS, 1, -1 do
-            if (packed[i] ~= nil) then
-                numArgs = i;
-                break;
-            end
-        end
-        for i = 1, numArgs do
-            if (not self.args[i]) then self.args[i] = {}; end
-            self.args[i][nextIndex] = packed[i];
-        end
-
+        self.events[slot] = event;
         if (self.eventsToCapture) then
             self.eventsToCapture = self.eventsToCapture - 1;
         end
     end
 
-    self.rawtimes[nextIndex] = GetTime();
+    -- Stored straight into the per-argument columns: a table to pack them
+    -- would be one more allocation per event. The markers pass none.
+    local args = self.args;
+    args[1][slot]  = a1;  args[2][slot]  = a2;  args[3][slot]  = a3;
+    args[4][slot]  = a4;  args[5][slot]  = a5;  args[6][slot]  = a6;
+    args[7][slot]  = a7;  args[8][slot]  = a8;  args[9][slot]  = a9;
+    args[10][slot] = a10; args[11][slot] = a11; args[12][slot] = a12;
+    args[13][slot] = a13; args[14][slot] = a14; args[15][slot] = a15;
+    args[16][slot] = a16; args[17][slot] = a17; args[18][slot] = a18;
+    args[19][slot] = a19;
+
+    self.rawtimes[slot] = GetTime();
     self.lastIndex = nextIndex;
     -- Keep the filtered view in sync if a search is active. We append-
     -- on-match here rather than re-walking the whole event list each
     -- tick (would be O(n) per event for the most common case where
     -- the search matches none / many).
-    if (self.filteredIndices and _EventTrace_MatchesSearch(self.events[nextIndex])) then
+    if (self.filteredIndices and _EventTrace_MatchesSearch(self.events[slot])) then
         table.insert(self.filteredIndices, nextIndex);
         -- Bound the filtered list to the same MAX_ENTRIES window the
         -- raw store enforces. Drop the head when we overflow.
@@ -298,7 +322,8 @@ function EventTraceFrame_OnEvent(self, event, a1, a2, a3, a4, a5, a6, a7, a8, a9
             table.remove(self.filteredIndices, 1);
         end
     end
-    EventTraceFrame_Update();
+    -- No redraw here: OnUpdate redraws once per frame while the window is
+    -- shown, and a hidden window needs none.
     if (self.eventsToCapture and self.eventsToCapture <= 0) then
         self.eventsToCapture = nil;
         EventTraceFrame_StopEventCapture();
@@ -338,7 +363,7 @@ function _EventTrace_RebuildFilter()
     local indices = {};
     local first = math.max(1, (_EventTraceFrame.lastIndex or 0) - EVENT_TRACE_MAX_ENTRIES + 1);
     for i = first, (_EventTraceFrame.lastIndex or 0) do
-        local ev = _EventTraceFrame.events[i];
+        local ev = _EventTraceFrame.events[_Slot(i)];
         if (ev and string.find(string.lower(ev), needle, 1, true)) then
             table.insert(indices, i);
         end
@@ -375,16 +400,16 @@ end
 -- on, appends a comma-separated rendering of the captured args after
 -- the event name. System rows (Begin/End Capture, On Update markers)
 -- never get args.
-function _EventTrace_FormatRow(index)
-    local ev = _EventTraceFrame.events[index];
+function _EventTrace_FormatRow(slot)
+    local ev = _EventText(slot);
     if (not ev) then return nil; end
     if (not _EventTraceFrame.showArguments) then return ev; end
-    if (EVENT_TRACE_SYSTEM_TIMES[_EventTraceFrame.times[index]]) then return ev; end
+    if (EVENT_TRACE_SYSTEM_TIMES[_EventTraceFrame.times[slot]]) then return ev; end
     local parts = {};
     for i = 1, EVENT_TRACE_MAX_ARGS do
         local argList = _EventTraceFrame.args[i];
-        if (argList and argList[index] ~= nil) then
-            table.insert(parts, EventTrace_FormatArgValue(argList[index]));
+        if (argList and argList[slot] ~= nil) then
+            table.insert(parts, EventTrace_FormatArgValue(argList[slot]));
         end
     end
     if (table.getn(parts) == 0) then return ev; end
@@ -509,9 +534,10 @@ function EventTraceFrame_Update()
         local button = _EventTraceFrame.buttons[i];
         if (button) then
             local index = _EventTrace_ResolveIndex(scrollBarValue, i - 1);
-            local event = index and _EventTraceFrame.events[index];
+            local slot = _Slot(index);
+            local event = slot and _EventTraceFrame.events[slot];
             if (event) then
-                local timeString = _EventTraceFrame.times[index];
+                local timeString = _EventTraceFrame.times[slot];
                 button.index = index;
                 local timeFS  = getglobal(button:GetName() .. "Time");
                 local eventFS = getglobal(button:GetName() .. "Event");
@@ -520,11 +546,11 @@ function EventTraceFrame_Update()
                 -- left edge stable, which matters when toggling on/off
                 -- mid-session.
                 if (_EventTraceFrame.showTimestamp) then
-                    timeFS:SetText(timeString);
+                    timeFS:SetText(_TimeText(slot));
                 else
                     timeFS:SetText("");
                 end
-                eventFS:SetText(_EventTrace_FormatRow(index));
+                eventFS:SetText(_EventTrace_FormatRow(slot));
                 local color = EVENT_TRACE_EVENT_COLORS[event]
                               or EVENT_TRACE_EVENT_COLORS[timeString];
                 if (color) then
@@ -656,7 +682,10 @@ function EventTraceFrame_HandleSlashCmd(msg)
         _EventTraceFrame.events   = {};
         _EventTraceFrame.times    = {};
         _EventTraceFrame.rawtimes = {};
-        _EventTraceFrame.args     = { {}, {}, {}, {}, {}, {}, {}, {}, {} };
+        _EventTraceFrame.elapsed  = {};
+        _EventTraceFrame.frames   = {};
+        _EventTraceFrame.args     = {};
+        for i = 1, EVENT_TRACE_MAX_ARGS do _EventTraceFrame.args[i] = {}; end
         _EventTraceFrame.lastIndex = 0;
         _EventTraceFrame.filteredIndices = nil;
         EventTraceFrame_Update();
@@ -737,30 +766,30 @@ function EventTrace_FormatArgValue(val)
 end
 
 function EventTraceFrameEvent_DisplayTooltip(eventButton)
-    local index = eventButton.index;
-    if (not index) then return; end
+    local slot = _Slot(eventButton.index);
+    if (not slot) then return; end
 
     local tooltip = EventTraceTooltip;
     tooltip:SetOwner(eventButton, "ANCHOR_NONE");
     tooltip:SetPoint("TOPLEFT", eventButton, "TOPRIGHT", 24, 2);
-    local timeString = _EventTraceFrame.times[index];
+    local timeString = _EventTraceFrame.times[slot];
     if (EVENT_TRACE_SYSTEM_TIMES[timeString]) then
         tooltip:AddLine(timeString, 1, 1, 1);
         tooltip:AddDoubleLine(TIME_ENTRY_FORMAT,
-                              tostring(_EventTraceFrame.rawtimes[index]),
+                              tostring(_EventTraceFrame.rawtimes[slot]),
                               1, .82, 0, 1, 1, 1);
         tooltip:AddDoubleLine(DETAILS_ENTRY_FORMAT,
-                              _EventTraceFrame.events[index],
+                              _EventText(slot),
                               1, .82, 0, 1, 1, 1);
     else
-        tooltip:AddLine(_EventTraceFrame.events[index], 1, 1, 1);
+        tooltip:AddLine(_EventTraceFrame.events[slot], 1, 1, 1);
         tooltip:AddDoubleLine(TIME_ENTRY_FORMAT,
-                              tostring(_EventTraceFrame.rawtimes[index]),
+                              tostring(_EventTraceFrame.rawtimes[slot]),
                               1, .82, 0, 1, 1, 1);
         for k, v in ipairs(_EventTraceFrame.args) do
-            if (v[index] ~= nil) then
+            if (v[slot] ~= nil) then
                 tooltip:AddDoubleLine(string.format(ARGUMENT_ENTRY_FORMAT, k),
-                                      EventTrace_FormatArgValue(v[index]),
+                                      EventTrace_FormatArgValue(v[slot]),
                                       1, .82, 0, 1, 1, 1);
             end
         end
