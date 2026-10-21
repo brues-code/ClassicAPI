@@ -109,8 +109,9 @@ bool IsUsable(void *object) {
     return reinterpret_cast<IsUsable_t>(Offsets::FUN_GAMEOBJECT_IS_USABLE)(object, nullptr) != 0;
 }
 
-bool ImagePath(void *object, uint32_t mode, char *buf, std::size_t size) {
-    if (mode == 0 || mode == Game::Read<uint32_t>(Offsets::VAR_CURSOR_BASE_MODE))
+bool ImagePath(void *object, uint32_t mode, bool lowPriority, char *buf, std::size_t size) {
+    if (mode == 0 ||
+        (!lowPriority && mode == Game::Read<uint32_t>(Offsets::VAR_CURSOR_BASE_MODE)))
         return false;
     if (mode == Offsets::CURSOR_MODE_CUSTOM) {
         char file[Offsets::CURSOR_FILE_SIZE] = {};

@@ -18929,7 +18929,7 @@ the grey "Unable" form. The icon is hidden when the object is off the screen.
 |---|---|---|
 | `SoftTargetIconInteract` | `0` | `1` shows the icon, `0` hides it. |
 | `SoftTargetIconGameObject` | `0` | `1` shows the icon over a game object, `0` hides it. The icon also needs `SoftTargetIconInteract`. |
-| `SoftTargetNameplateSize` | `19` | The size of the icon. |
+| `SoftTargetNameplateSize` | `19` | The size of the icon, and of the soft enemy and soft friend icons. |
 
 When the picked object changes,
 [`PLAYER_SOFT_INTERACT_CHANGED`](#player_soft_interact_changed-event)
@@ -19012,6 +19012,23 @@ A `target` suffix also works, for example `"softenemytarget"`.
 | `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
 | `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a locked target. `1` and `2`: they are picked also while you have a locked target. |
 | `SoftTargetForce` | `1` | `1`: a loose target follows `"softenemy"`. `2`: a loose target follows `"softfriend"`. `0`: a loose target stays. |
+
+**The icons.** When `SoftTargetIconEnemy` is `1`, an icon shows above the
+name of `"softenemy"`. When `SoftTargetIconFriend` is `1`, an icon shows
+above the name of `"softfriend"`. The icon is the cursor image that the
+mouse shows over the unit, the same as the
+[soft interact icon](#soft-interact-softinteract--anyinteract). A unit
+gets one icon, also when it is more than one soft unit.
+When the mouse shows only the normal pointer over the unit, for example
+over a party member, the icon is low priority. A low-priority icon shows
+only when `SoftTargetLowPriorityIcons` is `1`.
+`SoftTargetNameplateSize` sets the size of the icons.
+
+| cvar | default | values |
+|---|---|---|
+| `SoftTargetIconEnemy` | `0` | `1` shows the icon over `"softenemy"`, `0` hides it. |
+| `SoftTargetIconFriend` | `0` | `1` shows the icon over `"softfriend"`, `0` hides it. |
+| `SoftTargetLowPriorityIcons` | `0` | `1` shows the normal pointer as the icon, `0` shows no icon for it. This applies to all soft-target icons. |
 
 When a picked unit changes,
 [`PLAYER_SOFT_ENEMY_CHANGED` or `PLAYER_SOFT_FRIEND_CHANGED`](#player_soft_enemy_changed--player_soft_friend_changed-events)
@@ -20003,9 +20020,13 @@ the image is the grey "Unable" form.
 - `texture` is a Texture object.
 - `unit` is any unit token. `"softinteract"` and `"anyinteract"` can also
   point at a game object or a corpse.
-- `style` and `includeLowPriority` have no effect.
+- `style` has no effect.
+- When `includeLowPriority` is `true`, the normal pointer also counts as an
+  image. When you do not give it, the `SoftTargetLowPriorityIcons` cvar
+  sets it.
 
-Returns `true` if the unit shows a cursor other than the normal pointer.
+Returns `true` when it sets the texture. When the unit has no image, it
+returns `false` and clears the texture.
 Otherwise it returns `false` and does not change the texture.
 
 ```lua

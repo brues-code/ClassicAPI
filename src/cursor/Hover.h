@@ -28,7 +28,9 @@ uint32_t Mode(void *object);
 bool IsUsable(void *object);
 
 // Writes the image file of `mode` over `object` into `buf`. False, with
-// `buf` untouched, for no mode and for the base (resting) mode.
-bool ImagePath(void *object, uint32_t mode, char *buf, std::size_t size);
+// `buf` untouched, for no mode, and for the base (resting) mode unless
+// `lowPriority` — retail's low-priority image, the plain pointer over a unit
+// with nothing to do (SetUnitCursorTexture's includeLowPriority).
+bool ImagePath(void *object, uint32_t mode, bool lowPriority, char *buf, std::size_t size);
 
 } // namespace Cursor::Hover

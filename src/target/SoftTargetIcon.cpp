@@ -11,15 +11,26 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The soft-interact icon (`SoftTargetIconInteract`; retail defaults it to 1,
-// here it is 0 so the icon is opted into, and the pick does not run every
-// frame for players who never look at it). A game object's icon also needs
-// `SoftTargetIconGameObject` (retail's Accessibility "Interact Key Icons"
-// option: Default sets it 0, Show All 1). The
-// cursor image of the `softinteract` object, drawn over it — a unit's above
-// its name, an object's above its top (retail screenshots: the speak bubble
-// over an NPC's name, the mail icon over a mailbox, grey then coloured as the
-// object comes into reach).
+// The soft-target icons: `SoftTargetIconEnemy` over `softenemy`,
+// `SoftTargetIconFriend` over `softfriend`, `SoftTargetIconInteract` over
+// `softinteract`. Retail defaults Interact to 1, here it is 0 so the icon is
+// opted into, and the pick does not run every frame for players who never
+// look at it; Enemy and Friend are 0 in retail too. A game object's icon also
+// needs `SoftTargetIconGameObject` (retail's Accessibility "Interact Key
+// Icons" option: Default sets Enemy 0, Interact 1, GameObject 0; Show All
+// sets all three 1).
+//
+// Retail's nameplate driver (Blizzard_NamePlates.lua,
+// UpdateSoftTargetIconInternal) gives a unit's plate the icon when the unit is
+// softenemy, softfriend or softinteract with that side's cvar on, and the
+// image is SetUnitCursorTexture's: the cursor the mouse shows over the unit.
+// So one unit gets one icon whatever roles it holds, and each soft unit gets
+// its own. The plain pointer (a party member: nothing to do with it) is a
+// low-priority image, shown only with `SoftTargetLowPriorityIcons` 1 (retail
+// probe: no icon over a party member as softfriend until it was 1; the
+// Accessibility option's Show All sets it). The interact icon for an object with no plate is the engine's
+// (retail screenshots: the speak bubble over an NPC's name, the mail icon over
+// a mailbox, grey then coloured as the object comes into reach).
 //
 // The engine pieces:
 //   - the image is the hover cursor's (Cursor::Hover), Unable form included;
@@ -28,12 +39,12 @@
 //     name position gets GetNamePosition's own no-attachment rule (1.25 x
 //     scale x box height above its base) and the same lift, projected the
 //     same way;
-//   - the icon is a texture on the world frame anchored to the world frame's
+//   - each icon is a texture on the world frame anchored to the world frame's
 //     BOTTOMLEFT at that point, the anchor SeatNamePlate (0x509EC0) gives a
-//     plate (without its overlap solving — there is one icon);
+//     plate (without its overlap solving);
 //   - its size is SoftTargetNameplateSize (retail default 19), the size of
 //     the icon the nameplate shows.
-// Off screen (the projection fails) the icon hides, as a plate is dropped.
+// Off screen (the projection fails) an icon hides, as a plate is dropped.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -41,13 +52,14 @@
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
 #include "target/SoftInteract.h"
+#include "target/SoftUnit.h"
 #include "tick/FrameTick.h"
 #include "unit/Position.h"
 
 #include <cstdint>
 #include <cstring>
 
-namespace Target::SoftInteractIcon {
+namespace Target::SoftTargetIcon {
 
 namespace {
 
@@ -65,15 +77,24 @@ using ScreenCoords_t = bool(__thiscall *)(void *worldFrame, const float *world, 
 constexpr int kTypeMask =
     Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT | Offsets::TYPEMASK_CORPSE;
 
-CVar::Factory::Handle g_enable = nullptr;
+CVar::Factory::Handle g_enemy = nullptr;
+CVar::Factory::Handle g_friend = nullptr;
+CVar::Factory::Handle g_interact = nullptr;
 CVar::Factory::Handle g_gameObject = nullptr;
+CVar::Factory::Handle g_lowPriority = nullptr;
 CVar::Factory::Handle g_size = nullptr;
 
-void *g_parent = nullptr; // the world frame g_tex belongs to
-void *g_tex = nullptr;
-char g_path[Offsets::CURSOR_FILE_SIZE] = {};
-float g_shownSize = 0.0f;
-bool g_shown = false;
+struct Icon {
+    void *tex;
+    char path[Offsets::CURSOR_FILE_SIZE];
+    float shownSize;
+    bool shown;
+};
+
+// One per soft unit: enemy, friend, interact.
+constexpr int kIcons = 3;
+Icon g_icons[kIcons] = {};
+void *g_parent = nullptr; // the world frame the icons' textures belong to
 
 void *Anchor(void *region) { return static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR; }
 
@@ -87,14 +108,14 @@ void *CreateTexture(void *parent) {
         mem, parent, Offsets::DRAWLAYER_ARTWORK, 0);
 }
 
-void SetShown(bool shown) {
-    if (g_tex == nullptr || shown == g_shown)
+void SetShown(Icon &icon, bool shown) {
+    if (icon.tex == nullptr || shown == icon.shown)
         return;
-    g_shown = shown;
-    *reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(g_tex) +
+    icon.shown = shown;
+    *reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(icon.tex) +
                                   Offsets::OFF_REGION_DESIRED_SHOWN) = shown ? 1 : 0;
     reinterpret_cast<ShowHide_t>(shown ? Offsets::FUN_FONTSTRING_SHOW
-                                       : Offsets::FUN_FONTSTRING_HIDE)(g_tex);
+                                       : Offsets::FUN_FONTSTRING_HIDE)(icon.tex);
 }
 
 // The screen point the icon's bottom sits on, false when it is off screen.
@@ -113,65 +134,91 @@ bool Project(uint64_t guid, void *object, void *worldFrame, float screen[2]) {
         worldFrame, world, screen);
 }
 
+void Show(Icon &icon, uint64_t guid, void *worldFrame) {
+    void *object = guid != 0 ? Object::ByGuid(kTypeMask, guid) : nullptr;
+    char path[Offsets::CURSOR_FILE_SIZE];
+    float screen[2];
+    if (object == nullptr ||
+        !Cursor::Hover::ImagePath(object, Cursor::Hover::Mode(object),
+                                  CVar::Factory::GetInt(g_lowPriority) != 0, path, sizeof path) ||
+        !Project(guid, object, worldFrame, screen)) {
+        SetShown(icon, false);
+        return;
+    }
+    if (icon.tex == nullptr && (icon.tex = CreateTexture(worldFrame)) == nullptr)
+        return;
+    if (std::strcmp(path, icon.path) != 0) {
+        reinterpret_cast<SetTexture_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXTURE)(
+            icon.tex, path, 0, Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), 0);
+        std::memcpy(icon.path, path, sizeof icon.path);
+    }
+    const float size = Game::PixelToInternal(static_cast<float>(CVar::Factory::GetInt(g_size)));
+    if (size != icon.shownSize) {
+        reinterpret_cast<SetSize_t>(Offsets::FUN_LAYOUT_SET_WIDTH)(Anchor(icon.tex), size);
+        reinterpret_cast<SetSize_t>(Offsets::FUN_LAYOUT_SET_HEIGHT)(Anchor(icon.tex), size);
+        icon.shownSize = size;
+    }
+    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
+        Anchor(icon.tex), Offsets::FRAMEPOINT_BOTTOM, Anchor(worldFrame),
+        Offsets::FRAMEPOINT_BOTTOMLEFT, screen[0], screen[1], 1);
+    SetShown(icon, true);
+}
+
+uint64_t InteractGuid() {
+    const uint64_t guid = Target::SoftInteract::Get();
+    if (guid != 0 && CVar::Factory::GetInt(g_gameObject) == 0 &&
+        Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid) != nullptr)
+        return 0;
+    return guid;
+}
+
 void Update() {
     void *worldFrame = Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR);
     if (worldFrame != g_parent) {
         g_parent = worldFrame;
-        g_tex = nullptr;
-        g_path[0] = '\0';
-        g_shownSize = 0.0f;
-        g_shown = false;
+        for (Icon &icon : g_icons)
+            icon = {};
     }
-    // The cvar first: reading the token is what runs the pick.
-    const bool enabled = worldFrame != nullptr && CVar::Factory::GetInt(g_enable) != 0;
-    const uint64_t guid = enabled ? Target::SoftInteract::Get() : 0;
-    void *object = guid != 0 ? Object::ByGuid(kTypeMask, guid) : nullptr;
-    if (object != nullptr && CVar::Factory::GetInt(g_gameObject) == 0 &&
-        Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid) != nullptr)
-        object = nullptr;
-    char path[Offsets::CURSOR_FILE_SIZE];
-    float screen[2];
-    if (object == nullptr ||
-        !Cursor::Hover::ImagePath(object, Cursor::Hover::Mode(object), path, sizeof path) ||
-        !Project(guid, object, worldFrame, screen)) {
-        SetShown(false);
-        return;
+    // The cvars first: reading a token is what runs its pick.
+    uint64_t guids[kIcons] = {};
+    if (worldFrame != nullptr) {
+        if (CVar::Factory::GetInt(g_enemy) != 0)
+            guids[0] = SoftUnit::Get(SoftUnit::Side::Enemy);
+        if (CVar::Factory::GetInt(g_friend) != 0)
+            guids[1] = SoftUnit::Get(SoftUnit::Side::Friend);
+        if (CVar::Factory::GetInt(g_interact) != 0)
+            guids[2] = InteractGuid();
     }
-    if (g_tex == nullptr && (g_tex = CreateTexture(worldFrame)) == nullptr)
-        return;
-    if (std::strcmp(path, g_path) != 0) {
-        reinterpret_cast<SetTexture_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXTURE)(
-            g_tex, path, 0, Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), 0);
-        std::memcpy(g_path, path, sizeof g_path);
-    }
-    const float size = Game::PixelToInternal(static_cast<float>(CVar::Factory::GetInt(g_size)));
-    if (size != g_shownSize) {
-        reinterpret_cast<SetSize_t>(Offsets::FUN_LAYOUT_SET_WIDTH)(Anchor(g_tex), size);
-        reinterpret_cast<SetSize_t>(Offsets::FUN_LAYOUT_SET_HEIGHT)(Anchor(g_tex), size);
-        g_shownSize = size;
-    }
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        Anchor(g_tex), Offsets::FRAMEPOINT_BOTTOM, Anchor(worldFrame),
-        Offsets::FRAMEPOINT_BOTTOMLEFT, screen[0], screen[1], 1);
-    SetShown(true);
+    // One icon per unit, in the plate's order: enemy, friend, interact.
+    for (int i = 1; i < kIcons; ++i)
+        for (int j = 0; j < i; ++j)
+            if (guids[i] == guids[j])
+                guids[i] = 0;
+    for (int i = 0; i < kIcons; ++i)
+        Show(g_icons[i], guids[i], worldFrame);
 }
 
 const Tick::FrameTick::AutoSubscribe _tick{&Update};
 
-// Before /reload tears the interface down: hide the icon while its world
-// frame is still alive, and let the next one get a texture of its own.
+// Before /reload tears the interface down: hide the icons while their world
+// frame is still alive, and let the next one get textures of its own.
 void PrepareForReload() {
     if (g_parent == Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR))
-        SetShown(false);
+        for (Icon &icon : g_icons)
+            SetShown(icon, false);
     g_parent = nullptr;
-    g_tex = nullptr;
+    for (Icon &icon : g_icons)
+        icon = {};
 }
 
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 void Register() {
-    g_enable = CVar::Factory::Register("SoftTargetIconInteract", "0");
+    g_enemy = CVar::Factory::Register("SoftTargetIconEnemy", "0");
+    g_friend = CVar::Factory::Register("SoftTargetIconFriend", "0");
+    g_interact = CVar::Factory::Register("SoftTargetIconInteract", "0");
     g_gameObject = CVar::Factory::Register("SoftTargetIconGameObject", "0");
+    g_lowPriority = CVar::Factory::Register("SoftTargetLowPriorityIcons", "0");
     g_size = CVar::Factory::Register("SoftTargetNameplateSize", "19");
 }
 
@@ -179,4 +226,4 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-} // namespace Target::SoftInteractIcon
+} // namespace Target::SoftTargetIcon
