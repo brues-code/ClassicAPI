@@ -2161,8 +2161,9 @@ a target change stops melee auto-attack, Auto Shot and wand shots.
 ### `COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events
 
 `COMBAT_LOG_EVENT_UNFILTERED` fires once for each combat log event: a hit, a
-miss, a heal, a power gain, damage from the environment. `COMBAT_LOG_EVENT`
-fires for the same events. The text lines in the chat frames
+miss, a heal, a power gain, damage from the environment, a cast, an aura that
+starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires for the same
+events. The text lines in the chat frames
 (`CHAT_MSG_COMBAT_*`, `CHAT_MSG_SPELL_*`) do not change.
 
 The values identify units by GUID, not by name, and do not depend on the
@@ -2175,7 +2176,7 @@ The first 11 values are the same for each event:
 |---|-------|-------------|
 | 1 | `timestamp` | The Unix time of the event, in seconds, with milliseconds. |
 | 2 | `subevent` | What happened, for example `"SPELL_DAMAGE"`. |
-| 3 | `hideCaster` | `true` when the event has no source (`ENVIRONMENTAL_DAMAGE`), else `false`. |
+| 3 | `hideCaster` | `true` when the event has no source, else `false`. |
 | 4 | `sourceGUID` | The GUID of the unit that did it, in the `UnitGUID` format. |
 | 5 | `sourceName` | The name of that unit. `nil` when there is no source. |
 | 6 | `sourceFlags` | `COMBATLOG_OBJECT_*` bits that describe the source. |
@@ -2191,7 +2192,7 @@ The values after these depend on the subevent. First comes the prefix:
 
 | Subevent starts with | Prefix values |
 |----------------------|---------------|
-| `SWING_` | *(none)* |
+| `SWING_`, `UNIT_`, `PARTY_KILL` | *(none)* |
 | `ENVIRONMENTAL_` | `environmentalType`: `"FATIGUE"`, `"DROWNING"`, `"FALLING"`, `"LAVA"`, `"SLIME"` or `"FIRE"` |
 | `SPELL_`, `SPELL_PERIODIC_`, `RANGE_`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `spellId`, `spellName`, `spellSchool` |
 
@@ -2204,6 +2205,14 @@ Then comes the suffix:
 | `_HEAL` | `amount`, `overhealing`, `absorbed`, `critical` |
 | `_ENERGIZE` | `amount`, `powerType`, `alternatePowerType` |
 | `_DRAIN`, `_LEECH` | `amount`, `powerType`, `extraAmount`, `alternatePowerType` |
+| `_CAST_FAILED` | `failedType`: the error text that the client showed |
+| `_INTERRUPT`, `_DISPEL_FAILED` | `extraSpellId`, `extraSpellName`, `extraSchool` |
+| `_DISPEL` | `extraSpellId`, `extraSpellName`, `extraSchool`, `auraType` |
+| `_EXTRA_ATTACKS` | `amount` |
+| `_DURABILITY_DAMAGE` | `itemId`, `itemName` |
+| `_AURA_APPLIED`, `_AURA_REMOVED` | `auraType`: `"BUFF"` or `"DEBUFF"` |
+| `_AURA_APPLIED_DOSE`, `_AURA_REMOVED_DOSE` | `auraType`, `amount` |
+| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
 
 The subevents that fire:
 
@@ -2214,6 +2223,15 @@ The subevents that fire:
   `SPELL_PERIODIC_ENERGIZE`, `SPELL_PERIODIC_DRAIN`, `SPELL_PERIODIC_LEECH`
 - `DAMAGE_SHIELD`, `DAMAGE_SHIELD_MISSED`, `DAMAGE_SPLIT`
 - `ENVIRONMENTAL_DAMAGE`
+- `SPELL_CAST_START`, `SPELL_CAST_SUCCESS`, `SPELL_CAST_FAILED`
+- `SPELL_DRAIN`, `SPELL_LEECH`, `SPELL_INTERRUPT`, `SPELL_EXTRA_ATTACKS`,
+  `SPELL_INSTAKILL`, `SPELL_RESURRECT`, `SPELL_DURABILITY_DAMAGE`,
+  `SPELL_DURABILITY_DAMAGE_ALL`
+- `SPELL_AURA_APPLIED`, `SPELL_AURA_REMOVED`, `SPELL_AURA_APPLIED_DOSE`,
+  `SPELL_AURA_REMOVED_DOSE`
+- `SPELL_DISPEL`, `SPELL_DISPEL_FAILED`
+- `UNIT_DIED`, `UNIT_DESTROYED` (a totem or another summoned unit),
+  `PARTY_KILL`
 
 Some values have fixed contents:
 
@@ -2230,6 +2248,22 @@ Some values have fixed contents:
   `nil`, and `spellSchool` is the school of the damage.
 - The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
   never set.
+- `SPELL_CAST_START` fires for a spell with a cast time, and has no target.
+  `SPELL_CAST_SUCCESS` fires for an instant spell. A spell with a cast time
+  gets no `SPELL_CAST_SUCCESS`.
+- `SPELL_CAST_FAILED` fires only for your own casts.
+- The `amount` of an `_AURA_APPLIED_DOSE` or `_AURA_REMOVED_DOSE` is the
+  number of stacks after the change.
+- `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` do not name the dispelling spell:
+  `spellId` is 0 and `spellName` is `nil`. The extra spell is the aura that
+  the dispel removed, or did not remove.
+- These events have no source: `ENVIRONMENTAL_DAMAGE`, `SPELL_INSTAKILL`,
+  `UNIT_DIED`, `UNIT_DESTROYED`, and an aura event when the caster of the
+  aura is not known.
+- `SPELL_AURA_REFRESH`, `SPELL_SUMMON` and `SPELL_CREATE` do not fire.
+- On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
+  does direct damage, for example Pummel, Kick or Earth Shock. These servers
+  do not send the interrupt for such a spell.
 
 The flag constants are globals:
 

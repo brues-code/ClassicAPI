@@ -1827,6 +1827,24 @@ enum Offsets {
     // damageShield = 1). Drops missType 0 and spells with Attributes 0x180 or
     // an empty name itself (disassembly, 0x0062BAB9-0x0062BB07).
     FUN_COMBAT_LOG_SPELL_MISS = 0x0062BAB0,
+    // The combat log's cast-failure line — `void __fastcall(void *player
+    // /*ecx*/, int spellId /*edx*/, const char *text)`, RET 4. The failure
+    // reporter Spell_C_SpellFailed (0x006E21FC) calls it with the active
+    // player's object and the error text just shown (the shown error when its
+    // own text is empty), as 4.3.4 calls UnitCombatLogSpellFail. Returns for a
+    // null player or spell (disassembly, 0x0062C37C-0x0062C38E).
+    FUN_COMBAT_LOG_SPELL_FAIL = 0x0062C360,
+    // A unit's death — `void __fastcall(CGUnit *unit)`: writes the death
+    // line (0x0062C160), shows the pending XP gain, plays the death animation
+    // and sound. Its one caller is CGUnit_C::OnDied (0x006058AE), from the
+    // health field's watcher; 4.3.4's OnDeathAnimate, which logs UNIT_DIED.
+    FUN_PRESENT_UNIT_DEATH = 0x00625190,
+    // Whether the spell that created a unit (UNIT_CREATED_BY_SPELL) has a
+    // summoning or totem first effect (50, 74, 87-90, 104-107) — `bool
+    // __thiscall(CGUnit *unit)`. The death line uses it to write
+    // UNITDESTROYEDOTHER instead of UNITDIESOTHER (benilla-re
+    // objectlayer/combatlogmessages, Deaths).
+    FUN_UNIT_IS_SUMMONED = 0x0062C2D0,
     // Combat-feedback fire — `void __fastcall(const uint64_t *guid /*ecx*/,
     // const char *action /*edx*/, int amount, int school, uint32_t hitInfo)`,
     // RET 0xC. Picks a modifier from the amount's sign and hitInfo (amount >
@@ -4119,6 +4137,11 @@ enum Offsets {
     // `int __thiscall()` (slot 21, the hover dispatch's gate at 0x482982).
     OFF_CGOBJECT_VTBL_GET_FACING = 0x18,
     OFF_CGOBJECT_VTBL_IS_MOUSEOVERABLE = 0x54,
+    // CGUnit vtable slot (byte offset): GetSpellCastingTime `int __thiscall(int
+    // spellId)`, the unit's cast time for the spell in ms. The combat log's
+    // cast-start line drops a spell it gives 0 (0x0062B460 pushes the
+    // record's id and calls [vtbl+0xB4]); 4.3.4's GetSpellCastingTime.
+    OFF_CGUNIT_VTBL_GET_SPELL_CASTING_TIME = 0xB4,
     // OBJECT_FIELD_TYPE, the type word, in the block at OFF_UNIT_GUID_PTR
     // (the GUID is its +0): the hover dispatch reads `[[obj+8]+8]`.
     OFF_OBJECT_FIELD_TYPE = 0x08,
@@ -9870,6 +9893,14 @@ enum Offsets {
     OFF_SPELL_RECORD_ATTRIBUTES_EX = 0x1C,            // u32 (column 7)
     OFF_SPELL_RECORD_ATTRIBUTES_EX2 = 0x20,           // u32 (column 8)
     OFF_SPELL_RECORD_ATTRIBUTES_EX3 = 0x24,           // u32 (column 9)
+    // AttributesEx4 (column 10). The combat log's cast-start line tests bit
+    // 0x1 (`test byte ptr [esi+0x28],1` at 0x0062B30D): the cast writes no
+    // line. Set on 100 records, all proc spells (Holy Strike, Winter's
+    // Chill, Shadow Weaving).
+    OFF_SPELL_RECORD_ATTRIBUTES_EX4 = 0x28,           // u32 (column 10)
+    // StackAmount (column 39): the most applications an aura holds. The
+    // combat log's stack line needs it above 1 (0x0062B800 reads +0x9C).
+    OFF_SPELL_RECORD_STACK_AMOUNT = 0x9C,             // u32 (column 39)
     // The client's spell-mod core (FUN_006e6b30) skips all mods when this bit
     // is set: it reads [record + 0x24] & 0x20000000 — AttributesEx3 bit 29,
     // SPELL_ATTR_EX3_IGNORE_CASTER_MODIFIERS (verified via disassembly; the

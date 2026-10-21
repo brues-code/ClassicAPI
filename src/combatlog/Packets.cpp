@@ -34,6 +34,8 @@
 //   0x24f SPELLDAMAGESHIELD     shield owner, victim (u64), damage, school
 //   0x1fc ENVIRONMENTALDAMAGELOG victim (u64), u8 type, damage, absorbed,
 //                               resisted
+//   0x260 PROCRESIST            caster, target (u64), spell, u8 debug (two
+//                               floats follow when it is set)
 // What 1.12 does not send is filled as 4.3.4 fills "none": overkill and
 // overhealing 0, healing absorbed 0, no periodic critical. Schools are
 // indexes here and masks in the event. A damage shield names no spell, so
@@ -64,6 +66,7 @@ constexpr uint32_t SMSG_SPELLHEALLOG = 0x150;
 constexpr uint32_t SMSG_SPELLENERGIZELOG = 0x151;
 constexpr uint32_t SMSG_ATTACKERSTATEUPDATE = 0x14a;
 constexpr uint32_t SMSG_ENVIRONMENTALDAMAGELOG = 0x1fc;
+constexpr uint32_t SMSG_PROCRESIST = 0x260;
 constexpr uint32_t SMSG_PERIODICAURALOG = 0x24e;
 constexpr uint32_t SMSG_SPELLDAMAGESHIELD = 0x24f;
 constexpr uint32_t SMSG_SPELLNONMELEEDAMAGELOG = 0x250;
@@ -109,13 +112,6 @@ bool PlayerControlled(const void *unit) {
     const auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
     return fields != nullptr && (Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) &
                                  Offsets::UNIT_FLAG_PLAYER_CONTROLLED) != 0;
-}
-
-int DisplayAmount(int amount, int powerType) {
-    using Divisor_t = int(__fastcall *)(int powerType);
-    const int divisor = reinterpret_cast<Divisor_t>(
-        static_cast<uintptr_t>(Offsets::FUN_POWER_DISPLAY_DIVISOR))(powerType);
-    return divisor != 0 ? amount / divisor : amount;
 }
 
 // SendDamageEvent.
@@ -200,14 +196,8 @@ void Drain(uint64_t caster, uint64_t target, const uint8_t *spell, int powerType
     if (amount == 0 || Hidden(spell))
         return;
     const int extra = static_cast<int>(static_cast<float>(amount) * multiplier);
-    Entry e = Begin(caster, target, extra != 0 ? SPELL_PERIODIC_LEECH : SPELL_PERIODIC_DRAIN,
-                    spell);
-    e.info |= INFO_DRAIN;
-    e.v[0] = DisplayAmount(amount, powerType);
-    e.v[1] = powerType;
-    e.v[2] = DisplayAmount(extra, powerType);
-    e.v[3] = -1;
-    Queue(e);
+    PowerDrain(caster, target, extra != 0 ? SPELL_PERIODIC_LEECH : SPELL_PERIODIC_DRAIN, spell,
+               amount, powerType, extra);
 }
 
 // SMSG_ATTACKERSTATEUPDATE → UnitCombatLog(ATTACKROUNDINFO).
@@ -438,6 +428,19 @@ void EnvironmentalDamage(CDataStore *p) {
     Queue(e);
 }
 
+// SMSG_PROCRESIST → Packet_SMSG_PROC_RESIST: a resisted proc is a spell miss.
+void ProcResist(CDataStore *p) {
+    const uint64_t caster = Read<uint64_t>(p);
+    const uint64_t target = Read<uint64_t>(p);
+    const int spellId = Read<int32_t>(p);
+    if (Overrun(p))
+        return;
+    const uint8_t *spell = SpellRecord(spellId);
+    if (Hidden(spell))
+        return;
+    SendMiss(caster, target, SPELL_MISSED, spell, MISS_RESIST, 0, false);
+}
+
 void OnPacket(uint32_t opcode, CDataStore *p) {
     switch (opcode) {
     case SMSG_ATTACKERSTATEUPDATE:
@@ -460,6 +463,9 @@ void OnPacket(uint32_t opcode, CDataStore *p) {
         break;
     case SMSG_ENVIRONMENTALDAMAGELOG:
         EnvironmentalDamage(p);
+        break;
+    case SMSG_PROCRESIST:
+        ProcResist(p);
         break;
     default:
         break;

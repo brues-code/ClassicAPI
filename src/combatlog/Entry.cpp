@@ -18,7 +18,7 @@
 // events are being sent and nothing otherwise.
 //
 // The engine pieces:
-//   - names are the 1.12 combat log's own (FUN_COMBAT_LOG_NAME): the object,
+//   - names follow the 1.12 combat log namer's steps (0x006264E0): the object,
 //     else the name or creature cache, else UNKNOWNOBJECT — what 4.3.4's
 //     GetObjectName resolves, without its wait for a name still in flight;
 //   - flags read the same fields 4.3.4 reads (charmer / creator / summoner,
@@ -302,6 +302,14 @@ using GameObjectName_t = const char *(__fastcall *)(void *object);
 
 void *QueryDone() { return reinterpret_cast<void *>(Offsets::FUN_COMBAT_LOG_NAME_QUERY_DONE); }
 
+// An item's name from the item cache, asked so a miss sends the query.
+const char *ItemName(uint32_t itemId) {
+    const uint64_t none = 0;
+    const uint8_t *rec = reinterpret_cast<CacheRecord_t>(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD)(
+        reinterpret_cast<void *>(Offsets::VAR_ITEMDB_CACHE), itemId, &none, nullptr, nullptr, 0);
+    return rec != nullptr ? Game::Read<const char *>(rec, Offsets::OFF_ITEMSTATS_NAME) : nullptr;
+}
+
 // The combat log namer's steps (0x006264E0): the object's own name (a unit,
 // a game object, an item's record), else a player's from the name cache or a
 // creature's from the creature cache, each asked so a miss sends the query.
@@ -316,16 +324,8 @@ const char *ObjectName(uint64_t guid) {
             return reinterpret_cast<ObjectName_t>(Offsets::FUN_OBJECT_GET_NAME)(object, nullptr);
         if (type & Offsets::TYPEMASK_GAMEOBJECT)
             return reinterpret_cast<GameObjectName_t>(Offsets::FUN_GAMEOBJECT_GET_NAME)(object);
-        if (type & Offsets::TYPEMASK_ITEM) {
-            const uint64_t none = 0;
-            const uint8_t *rec = reinterpret_cast<CacheRecord_t>(
-                Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD)(
-                reinterpret_cast<void *>(Offsets::VAR_ITEMDB_CACHE),
-                Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_ENTRY), &none, nullptr,
-                nullptr, 0);
-            return rec != nullptr ? Game::Read<const char *>(rec, Offsets::OFF_ITEMSTATS_NAME)
-                                  : nullptr;
-        }
+        if (type & Offsets::TYPEMASK_ITEM)
+            return ItemName(Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_ENTRY));
         return nullptr;
     }
     if (Guid::IsPlayer(guid)) {
@@ -355,14 +355,6 @@ void SetName(uint64_t guid, bool &named, std::string &name) {
     }
     named = true;
     name = n;
-}
-
-const char *SpellName(const uint8_t *spell) {
-    if (spell == nullptr)
-        return nullptr;
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *n = Game::Read<const char *>(spell, Offsets::OFF_SPELL_NAMES + locale * 4);
-    return (n == nullptr || *n == '\0') ? nullptr : n;
 }
 
 void PushNumberOrNil(void *L, int value) {
@@ -417,6 +409,14 @@ int Push(void *L, const Entry &e) {
                           ? SchoolMask(Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_SCHOOL))
                           : e.spellSchool);
         count += 3;
+    }
+    if (e.info & INFO_COUNT) {
+        PushNumber(L, e.v[0]);
+        ++count;
+    }
+    if (e.info & INFO_TEXT) {
+        PushString(L, e.text.c_str());
+        ++count;
     }
     if (e.info & INFO_MISS) {
         const int miss = e.v[0];
@@ -480,6 +480,32 @@ int Push(void *L, const Entry &e) {
             PushNumber(L, e.v[3]);
         count += 4;
     }
+    if (e.info & INFO_EXTRA_SPELL) {
+        const uint8_t *extra = SpellRecord(e.v[0]);
+        PushNumber(L, e.v[0]);
+        const char *name = SpellName(extra);
+        if (name != nullptr)
+            PushString(L, name);
+        else
+            PushNil(L);
+        PushNumber(L, extra != nullptr ? SchoolMask(Game::Read<uint32_t>(
+                                             extra, Offsets::OFF_SPELL_RECORD_SCHOOL))
+                                       : 0);
+        count += 3;
+    }
+    if (e.info & INFO_ITEM) {
+        PushNumber(L, e.v[0]);
+        PushName(L, e.itemNamed, e.itemName);
+        count += 2;
+    }
+    if (e.info & INFO_AURA_TYPE) {
+        PushString(L, e.harmful ? "DEBUFF" : "BUFF");
+        ++count;
+    }
+    if (e.info & INFO_AURA_AMOUNT) {
+        PushNumber(L, e.v[2]);
+        ++count;
+    }
     return count;
 }
 
@@ -505,7 +531,7 @@ const Game::Doc::Event kUnfilteredDoc{"CombatLog", "Fires for each combat log ev
 const Event::Custom::AutoReserve _filtered{"COMBAT_LOG_EVENT", &kFilteredDoc};
 const Event::Custom::AutoReserve _unfiltered{"COMBAT_LOG_EVENT_UNFILTERED", &kUnfilteredDoc};
 
-// The most values Push makes: 11 + 3 + 10 + 3.
+// The most values Push makes: 11 + 3 + 10 + 3 (a damage event).
 constexpr int kMaxValues = 32;
 
 void Send(const Entry &e) {
@@ -561,6 +587,14 @@ const char *Name(int event) {
 
 const uint8_t *SpellRecord(int spellId) { return Spell::Lookup::RecordForID(spellId); }
 
+const char *SpellName(const uint8_t *spell) {
+    if (spell == nullptr)
+        return nullptr;
+    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
+    const char *n = Game::Read<const char *>(spell, Offsets::OFF_SPELL_NAMES + locale * 4);
+    return (n == nullptr || *n == '\0') ? nullptr : n;
+}
+
 bool Hidden(const uint8_t *spell) {
     return spell == nullptr ||
            (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & kHiddenAttributes) !=
@@ -575,6 +609,16 @@ bool Ranged(const uint8_t *spell) {
 }
 
 uint32_t SchoolMask(uint32_t school) { return school < kSchoolCount ? 1u << school : 0; }
+
+bool HasEffect(const uint8_t *spell, int effect) {
+    if (spell == nullptr)
+        return false;
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
+        if (Game::Read<int>(spell, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) == effect)
+            return true;
+    }
+    return false;
+}
 
 Entry Begin(uint64_t source, uint64_t dest, int event, const uint8_t *spell) {
     Entry e;
@@ -619,6 +663,34 @@ void SetMissInfo(Entry &e, int missType, int amount, bool offHand) {
     default:
         break;
     }
+}
+
+void SetItem(Entry &e, int itemId) {
+    e.info |= INFO_ITEM;
+    e.v[0] = itemId;
+    const char *name = ItemName(static_cast<uint32_t>(itemId));
+    if (name != nullptr && *name != '\0') {
+        e.itemNamed = true;
+        e.itemName = name;
+    }
+}
+
+int DisplayAmount(int amount, int powerType) {
+    using Divisor_t = int(__fastcall *)(int powerType);
+    const int divisor = reinterpret_cast<Divisor_t>(
+        static_cast<uintptr_t>(Offsets::FUN_POWER_DISPLAY_DIVISOR))(powerType);
+    return divisor != 0 ? amount / divisor : amount;
+}
+
+void PowerDrain(uint64_t source, uint64_t dest, int event, const uint8_t *spell, int amount,
+                int powerType, int extra) {
+    Entry e = Begin(source, dest, event, spell);
+    e.info |= INFO_DRAIN;
+    e.v[0] = DisplayAmount(amount, powerType);
+    e.v[1] = powerType;
+    e.v[2] = DisplayAmount(extra, powerType);
+    e.v[3] = -1; // alternate power: none in 1.12
+    Queue(e);
 }
 
 void Queue(Entry &e) {
