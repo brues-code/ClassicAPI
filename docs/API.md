@@ -212,6 +212,7 @@ build instructions.
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
+  - [`PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events](#player_soft_enemy_changed--player_soft_friend_changed-events)
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
@@ -797,6 +798,7 @@ build instructions.
   - [`InteractUnit(unit [, exactMatch])`](#interactunitunit--exactmatch)
   - [`C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
   - [Soft interact (`softinteract` / `anyinteract`)](#soft-interact-softinteract--anyinteract)
+  - [Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend)
 
 - [TaxiMap](#taximap)
   - [`C_TaxiMap.GetTaxiNodesForMap([mapID])`](#c_taximapgettaxinodesformapmapid)
@@ -5063,6 +5065,21 @@ end)
 **Identity-checked**: assigning the same GUID twice is a no-op
 (no event refires). Fired whenever the player's focus target is
 changed, including when the focus target is lost or cleared.
+
+### `PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events
+
+Fires when the `"softenemy"` or the `"softfriend"` unit changes to a
+different unit, or to nothing. The events have no arguments. Read the new
+unit through its token. See
+[Soft enemy and soft friend](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend).
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
+f:SetScript("OnEvent", function()
+    print("soft enemy:", UnitName("softenemy"))
+end)
+```
 
 ### `PLAYER_SOFT_INTERACT_CHANGED` event
 
@@ -18878,6 +18895,7 @@ If more than one object qualifies, it picks the nearest one.
   true also when the target is behind you or too far away. If you cannot
   interact with your target, `"anyinteract"` is the same as
   `"softinteract"`.
+- `"anyleftinteract"` is the same as `"anyinteract"`.
 
 Both tokens can point at a game object or a corpse. `UnitGUID` returns
 the GUID of that object. Functions that read unit data, such as
@@ -18888,7 +18906,7 @@ the GUID of that object. Functions that read unit data, such as
 | cvar | default | values |
 |---|---|---|
 | `SoftTargetInteract` | `3` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
-| `SoftTargetInteractArc` | `0` | `0`: the object must be directly in front of you, within about 1.2 yards of your forward line. `1`: the object must be within 30 degrees of your facing, on each side. `2`: the object can be in any direction. |
+| `SoftTargetInteractArc` | `0` | `0`: the object must be directly in front of the camera, within about 1.2 yards of a line from you in the direction of the camera. `1`: the object must be within 30 degrees of the direction of the camera, on each side. `2`: the object can be in any direction. The arc follows the camera, not the direction that your character faces. |
 | `SoftTargetInteractRange` | `10` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
@@ -18913,6 +18931,62 @@ fires.
 
 ```
 /dump UnitGUID("softinteract"), UnitGUID("anyinteract")
+```
+
+### Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)
+
+Soft enemy picks the nearest enemy near you, and soft friend picks the
+nearest friendly unit. They do not change your target. An addon or a
+macro uses the picked unit through its token.
+
+Both are off by default. To turn them on:
+
+```
+/console SoftTargetEnemy 3
+/console SoftTargetFriend 3
+```
+
+**What they pick.** Soft enemy picks a unit that Tab targeting can select
+as an enemy: a living unit that you can attack. Soft friend picks a living
+unit that you can assist, for example a party member. Neither picks you.
+The unit must be on the screen, and inside the arc and the range of the
+settings below. If more than one unit qualifies, it picks the nearest one.
+
+**Your target.** When `SoftTargetMatchLocked` is `1`, your target is the
+soft unit when it qualifies. For example, when you target an enemy inside
+the range, `"softenemy"` is that enemy, also when another enemy is nearer.
+
+**Unit tokens.**
+
+- `"softenemy"` is the unit that soft enemy picked. It is empty when
+  nothing qualifies or when soft enemy is off.
+- `"softfriend"` is the unit that soft friend picked, in the same way.
+- `"anyenemy"` is the first of these that exists:
+  1. your target, when it qualifies as a soft enemy
+  2. `"softenemy"`
+  3. your target
+  4. `"softfriend"`
+- `"anyfriend"` is the same as `"anyenemy"`, with enemy and friend
+  changed around.
+
+A `target` suffix also works, for example `"softenemytarget"`.
+
+**Settings.**
+
+| cvar | default | values |
+|---|---|---|
+| `SoftTargetEnemy` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
+| `SoftTargetFriend` | `0` | The same values, for soft friend. |
+| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `2` | The same values as `SoftTargetInteractArc`. |
+| `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
+| `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
+
+When a picked unit changes,
+[`PLAYER_SOFT_ENEMY_CHANGED` or `PLAYER_SOFT_FRIEND_CHANGED`](#player_soft_enemy_changed--player_soft_friend_changed-events)
+fires.
+
+```
+/dump UnitName("softenemy"), UnitName("anyenemy"), UnitName("softfriend")
 ```
 
 ## TaxiMap
@@ -19810,9 +19884,8 @@ known unit tokens and return the first one currently mapped to that
 GUID, or `nil` if none of them point at it.
 
 The search order omits tokens the engine's resolver doesn't recognize
-(`vehicle`, `arenaN`, `arenapetN`, `bossN`, `softenemy`,
-`softfriend`). `nameplateN`, `focus` and `softinteract` are
-included — we hook the resolver so the engine recognizes these token
+(`vehicle`, `arenaN`, `arenapetN`, `bossN`). `nameplateN`, `focus`,
+`softenemy`, `softfriend` and `softinteract` are included — we hook the resolver so the engine recognizes these token
 forms. As with the other positional tokens, a returned
 `"nameplate3"` result is only valid at that instant; the slot may
 shift to a different unit between calls, so re-verify with
@@ -19821,7 +19894,7 @@ shift to a different unit between calls, so re-verify with
 ```
 player → pet → party1..4 → partypet1..4 → raid1..40
        → raidpet1..40 → nameplate1..N → target → focus
-       → npc → mouseover → softinteract
+       → npc → mouseover → softenemy → softfriend → softinteract
 ```
 
 ```lua

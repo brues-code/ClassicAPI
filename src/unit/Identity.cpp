@@ -248,18 +248,20 @@ static int __fastcall Script_UnitGUID(void *L) {
 // nil if none of the known tokens point at it.
 //
 // The search walks the modern retail token order with post-vanilla
-// tokens dropped (no `vehicle`, `arenaN`, `arenapetN`, `bossN`,
-// `softenemy`, `softfriend` — those post-date 1.12 and
-// `FUN_TOKEN_TO_GUID` would raise "Unknown unit name" for them).
-// `nameplateN`, `focus` and `softinteract` are included — we hook the
-// token resolver so the engine recognizes them (see
-// `unit/TokenExtensions.cpp`, `unit/Focus.cpp` and
-// `target/SoftInteract.cpp`). Order matches retail with the dropped
+// tokens dropped (no `vehicle`, `arenaN`, `arenapetN`, `bossN` — those
+// post-date 1.12 and `FUN_TOKEN_TO_GUID` would raise "Unknown unit name"
+// for them). `nameplateN`, `focus` and the soft targets are included — we
+// hook the token resolver so the engine recognizes them (see
+// `unit/TokenExtensions.cpp`, `unit/Focus.cpp`, `target/SoftInteract.cpp`
+// and `target/SoftUnit.cpp`). Order matches retail with the dropped
 // tokens skipped in place:
 //
 //   player → pet → party1..4 → partypet1..4 → raid1..40
 //          → raidpet1..40 → nameplate1..N → target → focus
-//          → npc → mouseover → softinteract
+//          → npc → mouseover → softenemy → softfriend → softinteract
+//
+// (retail's place for the three soft targets is not verified; they go
+// last).
 //
 // The result is inherently unstable — multiple tokens can map to the
 // same GUID at once (your target IS your mouseover IS your party1), and
@@ -341,6 +343,8 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
     if (check("focus")) return set("focus");
     if (check("npc")) return set("npc");
     if (check("mouseover")) return set("mouseover");
+    if (check("softenemy")) return set("softenemy");
+    if (check("softfriend")) return set("softfriend");
     if (check("softinteract")) return set("softinteract");
 
     return nullptr;

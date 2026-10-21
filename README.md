@@ -34,6 +34,7 @@ The flagship feature: run modern Lua 5.1 addon code on 1.12's Lua 5.0 VM.
 |---------|--------|
 | Inline textures | Draws inline texture markup (`\|T…\|t`) and atlas markup (`\|A…\|a`) as icons in FontStrings, chat, and tooltips. This covers item and spell icons, raid-target markers, and the coin icons in money strings. `GetStringWidth` and `GetStringHeight` count the icons, so measured width and text wrapping stay correct. Done in pure C++ by hooking the engine's text pipeline — no addon. |
 | [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract) | The Interact Key. After you bind **Interact With Target** to a key, the key interacts with the nearest object in front of you. This object can be an NPC with a service, a corpse that you can loot or skin, a mailbox, a chest, or an herb or mining node. The `softinteract` and `anyinteract` unit tokens point at the object, and `PLAYER_SOFT_INTERACT_CHANGED` fires when it changes. When `SoftTargetIconInteract` is `1`, an icon over the object shows the cursor that the mouse shows over it. |
+| [Soft enemy and soft friend](docs/API.md#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend) | The `softenemy` and `softfriend` unit tokens point at the nearest enemy and the nearest friendly unit, and your target does not change. When your target qualifies, they point at your target. `anyenemy` and `anyfriend` use your target first. `PLAYER_SOFT_ENEMY_CHANGED` and `PLAYER_SOFT_FRIEND_CHANGED` fire when the units change. Turn them on with `SoftTargetEnemy` and `SoftTargetFriend`. |
 | [Animations](docs/API.md#animation) | Animation groups on frames, textures and font strings, made in Lua or XML: `CreateAnimationGroup`, looping, smoothing, scripts and templates, with `Alpha`, `Translation`, `Scale`, `Rotation` and `Path` applied. |
 | Tooltip line cap | Lifts `GameTooltip`'s hard 30-line limit to 60 for every `GameTooltipTemplate` frame (`GameTooltip`, `ShoppingTooltip1/2`, `ItemRefTooltip`, AtlasLoot, …). Stat-heavy tooltips and comparison blocks (e.g. pfUI's eqcompare) no longer have their extra lines silently dropped. Done in pure C++ by growing the engine's FontString pool at tooltip-creation time. |
 | [XML attributes](docs/API.md#parentkey-in-xml) | More XML attributes work: `parentKey="Name"` makes `parent.Name` point to a frame, texture or font string, `<OnLoad function="Name"/>` uses a global function as a script handler, `<OnLoad method="Name"/>` uses the frame's own function, `mixin="A, B"` copies mixins onto the object, `<KeyValues>` sets fields on the object, a button's `<NormalFont style="..."/>` sets its font, and `inherits="A, B"` applies more than one template. |
@@ -132,7 +133,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [SwingTimer](docs/API.md#swingtimer) | `C_SwingTimer.EnableRangeCheck`, `C_SwingTimer.IsTargetWithinSwingRange` |
 | [System](docs/API.md#system) | `CopyToClipboard`, `GetPhysicalScreenSize` |
 | [Talent](docs/API.md#talent) | `GetTalentIDByIndex`, `GetTalentSpellID` |
-| [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`, `InteractUnit`, `C_PlayerInteractionManager.InteractUnit`, `SoftTargetInteract` / `SoftTargetInteractArc` / `SoftTargetInteractRange` / `SoftTargetInteractRangeIsHard` / `SoftTargetIconInteract` / `SoftTargetIconGameObject` / `SoftTargetNameplateSize` (cvars) |
+| [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`, `InteractUnit`, `C_PlayerInteractionManager.InteractUnit`, `SoftTargetInteract` / `SoftTargetInteractArc` / `SoftTargetInteractRange` / `SoftTargetInteractRangeIsHard` / `SoftTargetIconInteract` / `SoftTargetIconGameObject` / `SoftTargetNameplateSize` / `SoftTargetEnemy` / `SoftTargetEnemyArc` / `SoftTargetEnemyRange` / `SoftTargetFriend` / `SoftTargetFriendArc` / `SoftTargetFriendRange` / `SoftTargetMatchLocked` (cvars) |
 | [TaxiMap](docs/API.md#taximap) | `C_TaxiMap.GetTaxiNodesForMap`, `C_TaxiMap.GetAllTaxiNodes`, `C_TaxiMap.GetTaxiPaths`, `C_TaxiMap.GetTaxiPathWaypoints`, `C_TaxiMap.GetTaxiRoute` |
 | [Texture](docs/API.md#texture) | `C_Texture.GetAtlasElementID`, `C_Texture.GetAtlasElements`, `C_Texture.GetAtlasExists`, `C_Texture.GetAtlasID`, `C_Texture.GetAtlasInfo`, `C_Texture.RegisterAtlas` |
 | [Time](docs/API.md#time) | `C_DateAndTime.AdjustTimeByDays`, `C_DateAndTime.AdjustTimeByMinutes`, `C_DateAndTime.CompareCalendarTime`, `C_DateAndTime.GetCalendarTimeFromEpoch`, `C_DateAndTime.GetCurrentCalendarTime`, `C_DateAndTime.GetSecondsUntilDailyReset`, `C_DateAndTime.GetServerTimeLocal`, `C_Timer.After`, `C_Timer.NewTicker`, `C_Timer.NewTimer`, `GetServerTime`, `GetTimeCached` |
@@ -260,6 +261,8 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_AVG_ITEM_LEVEL_READY` | *(none)* |
 | `PLAYER_EQUIPMENT_CHANGED` | `equipmentSlot, hasCurrent` |
 | `PLAYER_FOCUS_CHANGED` | *(none)* |
+| `PLAYER_SOFT_ENEMY_CHANGED` | *(none)* |
+| `PLAYER_SOFT_FRIEND_CHANGED` | *(none)* |
 | `PLAYER_SOFT_INTERACT_CHANGED` | `oldTarget, newTarget` |
 | `PLAYER_STARTED_LOOKING` | *(none)* |
 | `PLAYER_STOPPED_LOOKING` | *(none)* |
@@ -324,14 +327,15 @@ when launching with `-console`), not as Lua functions. See the
 </details>
 
 <details>
-<summary><b>Unit tokens</b> — <code>nameplateN</code>, <code>focus</code>, <code>markN</code>, <code>softinteract</code>, <code>anyinteract</code></summary>
+<summary><b>Unit tokens</b> — <code>nameplateN</code>, <code>focus</code>, <code>markN</code>, <code>softinteract</code>, <code>softenemy</code>, <code>softfriend</code>, <code>anyinteract</code>, <code>anyenemy</code>, <code>anyfriend</code></summary>
 
 | Token | Resolves to |
 |-------|-------------|
 | `nameplate1`..`nameplateN` | Unit behind the Nth visible nameplate, in creation-order. Works with every `UnitX` function — `UnitName`, `UnitGUID`, `UnitClass`, `UnitHealth`, etc. Suffix chains (`nameplate1target`, `nameplate1targettarget`) compose. See [NamePlate / Unit tokens](docs/API.md#unit-tokens-nameplaten). |
 | `focus` / `focustarget` | Sticky target set via [`FocusUnit`](docs/API.md#focusunitunit), cleared via [`ClearFocus`](docs/API.md#clearfocus). Same `UnitX` coverage as `nameplateN`. Fires [`PLAYER_FOCUS_CHANGED`](docs/API.md#player_focus_changed-event) on transition. See [Focus](docs/API.md#focus). |
 | `mark1`..`mark8` | Unit currently wearing the Nth raid-target marker (`mark1` = star … `mark8` = skull). Same `UnitX` coverage as `nameplateN`, and fires unit events (`UNIT_HEALTH`, `UNIT_AURA`, …) with `arg1 == "markN"`. `UnitExists("markN")` is `false` when the marker is unset, out of range, or on a non-unit. Suffix chains (`mark1target`) compose. See [Unit tokens (`markN`)](docs/API.md#unit-tokens-markn). |
-| `softinteract` / `anyinteract` | The object that the Interact Key uses. `softinteract` is the nearest object in front of you that you can interact with. `anyinteract` is your target when you can interact with it, else `softinteract`. Both can be a game object or a corpse, which only `UnitGUID` reads. See [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract). |
+| `softinteract` / `anyinteract` / `anyleftinteract` | The object that the Interact Key uses. `softinteract` is the nearest object in front of you that you can interact with. `anyinteract` is your target when you can interact with it, else `softinteract`. Both can be a game object or a corpse, which only `UnitGUID` reads. See [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract). |
+| `softenemy` / `softfriend` / `anyenemy` / `anyfriend` | The nearest enemy and the nearest friendly unit, or your target when it qualifies. `anyenemy` and `anyfriend` use your target first. See [Soft enemy and soft friend](docs/API.md#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend). |
 
 </details>
 

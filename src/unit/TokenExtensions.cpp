@@ -32,9 +32,13 @@
 //   also fires per-`markN` unit events (`UNIT_HEALTH`, …) through the
 //   same `TokenObserver` path as `focus`/`nameplateN`.
 //
-// - `softinteract` / `anyinteract` — the interact key's object, backed by
-//   `Target::SoftInteract`. Either can be a game object or a corpse, so
-//   only GUID readers (UnitGUID) see those; unit readers resolve nil.
+// - `softinteract` / `anyinteract` / `anyleftinteract` — the interact
+//   key's object, backed by `Target::SoftInteract`. Any can be a game object
+//   or a corpse, so only GUID readers (UnitGUID) see those; unit readers
+//   resolve nil. `anyleftinteract` is retail's alias of `anyinteract`.
+//
+// - `softenemy` / `softfriend` / `anyenemy` / `anyfriend` — the soft
+//   enemy and soft friend, backed by `Target::SoftUnit`.
 //
 // - `0x<hex>` — a raw 64-bit GUID literal (SuperWoW's format:
 //   `"0x"` + up to 16 hex digits). Lets every `Unit*` accept a GUID
@@ -59,6 +63,7 @@
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
 #include "target/SoftInteract.h"
+#include "target/SoftUnit.h"
 #include "unit/Focus.h"
 #include "unit/RaidTarget.h"
 
@@ -110,6 +115,16 @@ constexpr const char kSoftInteractPrefix[] = "softinteract";
 constexpr int kSoftInteractPrefixLen = static_cast<int>(sizeof(kSoftInteractPrefix) - 1);
 constexpr const char kAnyInteractPrefix[] = "anyinteract";
 constexpr int kAnyInteractPrefixLen = static_cast<int>(sizeof(kAnyInteractPrefix) - 1);
+constexpr const char kAnyLeftInteractPrefix[] = "anyleftinteract";
+constexpr int kAnyLeftInteractPrefixLen = static_cast<int>(sizeof(kAnyLeftInteractPrefix) - 1);
+constexpr const char kSoftEnemyPrefix[] = "softenemy";
+constexpr int kSoftEnemyPrefixLen = static_cast<int>(sizeof(kSoftEnemyPrefix) - 1);
+constexpr const char kSoftFriendPrefix[] = "softfriend";
+constexpr int kSoftFriendPrefixLen = static_cast<int>(sizeof(kSoftFriendPrefix) - 1);
+constexpr const char kAnyEnemyPrefix[] = "anyenemy";
+constexpr int kAnyEnemyPrefixLen = static_cast<int>(sizeof(kAnyEnemyPrefix) - 1);
+constexpr const char kAnyFriendPrefix[] = "anyfriend";
+constexpr int kAnyFriendPrefixLen = static_cast<int>(sizeof(kAnyFriendPrefix) - 1);
 constexpr const char kMarkPrefix[] = "mark";
 constexpr int kMarkPrefixLen = static_cast<int>(sizeof(kMarkPrefix) - 1);
 constexpr const char kSuffixTarget[] = "target";
@@ -185,15 +200,32 @@ uint64_t __fastcall Hook_h(const char *token) {
         return WalkSuffix(guid, token + kFocusPrefixLen);
     }
 
-    // `softinteract*` / `anyinteract*`. Neither prefix starts any engine
-    // token, so a match is ours.
-    if (sstrcmpi(token, kSoftInteractPrefix, kSoftInteractPrefixLen) == 0) {
-        const uint64_t guid = Target::SoftInteract::Get();
-        return guid == 0 ? 0 : WalkSuffix(guid, token + kSoftInteractPrefixLen);
-    }
-    if (sstrcmpi(token, kAnyInteractPrefix, kAnyInteractPrefixLen) == 0) {
-        const uint64_t guid = Target::SoftInteract::GetAny();
-        return guid == 0 ? 0 : WalkSuffix(guid, token + kAnyInteractPrefixLen);
+    // The soft targets: `softinteract*` / `anyinteract*` /
+    // `anyleftinteract*`, `softenemy*` / `anyenemy*`, `softfriend*` /
+    // `anyfriend*`. None of these prefixes starts any engine token, so a
+    // match is ours.
+    using Target::SoftUnit::Side;
+    struct Soft {
+        const char *prefix;
+        int len;
+        uint64_t (*guid)();
+    };
+    static const Soft kSoft[] = {
+        {kSoftInteractPrefix, kSoftInteractPrefixLen, &Target::SoftInteract::Get},
+        {kAnyInteractPrefix, kAnyInteractPrefixLen, &Target::SoftInteract::GetAny},
+        {kAnyLeftInteractPrefix, kAnyLeftInteractPrefixLen, &Target::SoftInteract::GetAny},
+        {kSoftEnemyPrefix, kSoftEnemyPrefixLen, [] { return Target::SoftUnit::Get(Side::Enemy); }},
+        {kAnyEnemyPrefix, kAnyEnemyPrefixLen, [] { return Target::SoftUnit::GetAny(Side::Enemy); }},
+        {kSoftFriendPrefix, kSoftFriendPrefixLen,
+         [] { return Target::SoftUnit::Get(Side::Friend); }},
+        {kAnyFriendPrefix, kAnyFriendPrefixLen,
+         [] { return Target::SoftUnit::GetAny(Side::Friend); }},
+    };
+    for (const Soft &soft : kSoft) {
+        if (sstrcmpi(token, soft.prefix, soft.len) == 0) {
+            const uint64_t guid = soft.guid();
+            return guid == 0 ? 0 : WalkSuffix(guid, token + soft.len);
+        }
     }
 
     // `nameplateN` / `nameplate1target*`. Requires a digit after the

@@ -40,6 +40,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "object/Resolve.h"
+#include "target/Nearest.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
@@ -49,6 +50,17 @@
 #include <cstdint>
 
 namespace Target::Nearest {
+
+bool NotTabTarget(void *unit) {
+    using CreatureType_t = int(__fastcall *)(void *unit);
+    const int type = reinterpret_cast<CreatureType_t>(Offsets::FUN_UNIT_CREATURE_TYPE)(unit);
+    if (type < 0 || type > Game::Read<int>(Offsets::VAR_CREATURETYPE_COUNT))
+        return false;
+    const auto *const *records = Game::Read<const uint8_t *const *>(Offsets::VAR_CREATURETYPE_RECORDS);
+    const uint8_t *rec = records != nullptr ? records[type] : nullptr;
+    return rec != nullptr && (Game::Read<uint32_t>(rec, Offsets::OFF_CREATURETYPE_FLAGS) &
+                              Offsets::CREATURETYPE_FLAG_NOT_TAB_TARGET) != 0;
+}
 
 namespace {
 
@@ -62,7 +74,6 @@ using ScreenCoords_t = bool(__thiscall *)(void *worldFrame, const float *world, 
 using Transform_t = float *(__fastcall *)(float *out, const float *v, const float *m);
 using Forward_t = void(__thiscall *)(void *camera, float *out);
 using Visible_t = bool(__fastcall *)(void *worldObject);
-using CreatureType_t = int(__fastcall *)(void *unit);
 using GroupMember_t = int(__fastcall *)(const uint64_t *guid);
 
 // 4.3.4's minimum direction cone (22.5°); `angle` can only widen it.
@@ -163,17 +174,6 @@ struct DirectionData {
     float playerPosition[3];
     float maxDistanceSq;
 };
-
-// The tab search's creature-type test: skip types flagged never-tab-target.
-bool NotTabTarget(void *unit) {
-    const int type = reinterpret_cast<CreatureType_t>(Offsets::FUN_UNIT_CREATURE_TYPE)(unit);
-    if (type < 0 || type > Game::Read<int>(Offsets::VAR_CREATURETYPE_COUNT))
-        return false;
-    const auto *const *records = Game::Read<const uint8_t *const *>(Offsets::VAR_CREATURETYPE_RECORDS);
-    const uint8_t *rec = records != nullptr ? records[type] : nullptr;
-    return rec != nullptr && (Game::Read<uint32_t>(rec, Offsets::OFF_CREATURETYPE_FLAGS) &
-                              Offsets::CREATURETYPE_FLAG_NOT_TAB_TARGET) != 0;
-}
 
 // 4.3.4's TargetDirectionProc.
 int __fastcall DirectionProc(DirectionData *data, void * /*edx*/, uint64_t guid) {
