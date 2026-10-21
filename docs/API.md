@@ -4641,7 +4641,8 @@ Some values have fixed contents:
 - These events have no source: `ENVIRONMENTAL_DAMAGE`, `SPELL_INSTAKILL`,
   `UNIT_DIED`, `UNIT_DESTROYED`, and an aura event when the caster of the
   aura is not known.
-- `SPELL_AURA_REFRESH`, `SPELL_SUMMON` and `SPELL_CREATE` do not fire.
+- `SPELL_AURA_REFRESH`, `SPELL_SUMMON`, `SPELL_CREATE`, `ENCHANT_APPLIED`
+  and `ENCHANT_REMOVED` do not fire.
 - On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
   does direct damage, for example Pummel, Kick or Earth Shock. These servers
   do not send the interrupt for such a spell.

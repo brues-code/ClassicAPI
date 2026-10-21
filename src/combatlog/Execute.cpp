@@ -143,7 +143,9 @@ void Durability(uint64_t caster, uint64_t target, const uint8_t *spell, int item
 }
 
 // One target of one effect: reads what 1.12 reads, logs what 4.3.4 logs.
-void Target(CDataStore *p, uint32_t effect, uint64_t caster, const uint8_t *spell) {
+// False for an effect that carries nothing, whose other targets read nothing
+// either.
+bool Target(CDataStore *p, uint32_t effect, uint64_t caster, const uint8_t *spell) {
     switch (effect) {
     case EFFECT_POWER_DRAIN: {
         const uint64_t target = Read<uint64_t>(p);
@@ -204,8 +206,9 @@ void Target(CDataStore *p, uint32_t effect, uint64_t caster, const uint8_t *spel
         Read<uint64_t>(p);
         break;
     default:
-        break;
+        return false;
     }
+    return true;
 }
 
 void SpellLogExecute(CDataStore *p) {
@@ -218,8 +221,10 @@ void SpellLogExecute(CDataStore *p) {
     for (uint32_t i = 0; i < effects && !Overrun(p); ++i) {
         const uint32_t effect = Read<uint32_t>(p);
         const uint32_t targets = Read<uint32_t>(p);
-        for (uint32_t j = 0; j < targets && !Overrun(p); ++j)
-            Target(p, effect, caster, spell);
+        for (uint32_t j = 0; j < targets && !Overrun(p); ++j) {
+            if (!Target(p, effect, caster, spell))
+                break;
+        }
     }
 }
 

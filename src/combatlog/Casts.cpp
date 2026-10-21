@@ -62,6 +62,8 @@ constexpr uint16_t CAST_FLAG_HIDDEN_COMBATLOG = 0x1;
 constexpr uint16_t TARGET_FLAG_OBJECT = 0x8A02;
 constexpr uint8_t SPELL_MISS_REFLECT = 11;
 
+// 4.3.4's SpellHasOpenLockEffect tests 33 alone; 1.12's success line also
+// drops 59 (0x0062AD90), which 4.3.4 logs.
 constexpr int SPELL_EFFECT_OPEN_LOCK = 33;
 constexpr int SPELL_EFFECT_LEARN_SPELL = 36;
 // AttributesEx4 0x1: the cast writes no line (the 1.12 start line tests it,

@@ -36,6 +36,7 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -75,6 +76,8 @@ std::vector<Filter> g_filters;
 CVar::Factory::Handle g_retention = nullptr;
 
 constexpr int kDefaultRetention = 300;
+// The longest retention, in seconds, that the wrap-safe age test can measure.
+constexpr int kMaxRetention = 0x7FFFFFFF / 1000;
 
 using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using Tokenize_t = void(__stdcall *)(char **cursor, char *out, unsigned outSize,
@@ -305,7 +308,8 @@ int __fastcall Script_CombatLogSetCurrentEntry(void *L) {
 }
 
 int __fastcall Script_CombatLogGetCurrentEntry(void *L) {
-    if (g_current < 0 || Game::Lua::CheckStack(L, MAX_EVENT_VALUES) == 0)
+    if (g_current < 0 || g_current >= Count() ||
+        Game::Lua::CheckStack(L, MAX_EVENT_VALUES) == 0)
         return 0;
     return PushEvent(L, g_entries[g_current]);
 }
@@ -453,9 +457,9 @@ const Game::GlueModuleAutoRegister _gluereg{&Reset};
 } // namespace
 
 void Record(const Entry &entry) {
+    const auto window = 1000u * static_cast<uint32_t>(std::clamp(Retention(), 0, kMaxRetention));
     if (!g_entries.empty() &&
-        static_cast<int32_t>(entry.timeMs - 1000u * static_cast<uint32_t>(Retention()) -
-                             g_entries.front().timeMs) >= 0)
+        static_cast<int32_t>(entry.timeMs - window - g_entries.front().timeMs) >= 0)
         DropOldest();
     g_entries.push_back(entry);
 }
