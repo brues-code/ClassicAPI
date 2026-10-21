@@ -205,6 +205,7 @@ build instructions.
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
+  - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
@@ -787,6 +788,8 @@ build instructions.
   - [`TargetNearestEnemyPlayer([reverse])`](#targetnearestenemyplayerreverse)
   - [`TargetNearestFriendPlayer([reverse])`](#targetnearestfriendplayerreverse)
   - [`InteractUnit(unit [, exactMatch])`](#interactunitunit--exactmatch)
+  - [`C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
+  - [Soft interact (`softinteract` / `anyinteract`)](#soft-interact-softinteract--anyinteract)
 
 - [TaxiMap](#taximap)
   - [`C_TaxiMap.GetTaxiNodesForMap([mapID])`](#c_taximapgettaxinodesformapmapid)
@@ -4799,6 +4802,24 @@ end)
 **Identity-checked**: assigning the same GUID twice is a no-op
 (no event refires). Fired whenever the player's focus target is
 changed, including when the focus target is lost or cleared.
+
+### `PLAYER_SOFT_INTERACT_CHANGED` event
+
+Fires when the `"softinteract"` object changes to a different object, or
+to nothing. See [Soft interact](#soft-interact-softinteract--anyinteract).
+
+- `arg1` is the GUID of the previous object, or `nil`.
+- `arg2` is the GUID of the new object, or `nil`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_SOFT_INTERACT_CHANGED")
+f:SetScript("OnEvent", function()
+    if arg2 then
+        print("can interact with", arg2)
+    end
+end)
+```
 
 ### `PLAYER_SWING` event
 
@@ -18540,8 +18561,82 @@ InteractUnit("mouseover")
 #### Bindings (`INTERACTTARGET` / `INTERACTMOUSEOVER`)
 
 The Key Bindings window shows **Interact With Target** and **Interact
-With Mouseover** in the Targeting group. They call
-`InteractUnit("target")` and `InteractUnit("mouseover")`.
+With Mouseover** in the Targeting group.
+
+- **Interact With Target** interacts with `"anyinteract"`. This is the
+  Interact Key. See [Soft interact](#soft-interact-softinteract--anyinteract).
+- **Interact With Mouseover** interacts with the unit or object under the
+  cursor. If there is nothing under the cursor, it interacts with
+  `"anyinteract"`.
+
+**Interact With Target** does not attack a hostile target. Use **Attack
+Target** for that.
+
+### `C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`
+
+Does the same as [`InteractUnit`](#interactunitunit--exactmatch), but
+returns a boolean.
+
+- `unit` and `exactMatch` are the same as for `InteractUnit`. Use
+  `"anyinteract"` for the object that the Interact Key uses.
+- `looseTargeting` has no effect.
+
+Returns `true` if the interaction ran, or `false` if nothing matched.
+
+```lua
+if not C_PlayerInteractionManager.InteractUnit("mouseover", false, false) then
+    C_PlayerInteractionManager.InteractUnit("anyinteract")
+end
+```
+
+### Soft interact (`softinteract` / `anyinteract`)
+
+Soft interact picks the nearest object in front of you that you can
+interact with. Bind **Interact With Target** to a key, then press it to
+interact with that object. This is the Interact Key.
+
+Soft interact is off by default. To turn it on:
+
+```
+/console SoftTargetInteract 3
+```
+
+**What it picks.** It picks only an object that shows an interact cursor
+when you put the mouse over it. For example: an NPC with a service, a
+corpse that you can loot or skin, a mailbox, a chest, or an herb or mining
+node. It does not pick an enemy that you can only attack. The object must
+be on the screen, and inside the arc and the range of the settings below.
+If more than one object qualifies, it picks the nearest one.
+
+**Unit tokens.**
+
+- `"softinteract"` is the object that soft interact picked. It is empty
+  when nothing qualifies or when soft interact is off.
+- `"anyinteract"` is your target when you can interact with it. This is
+  true also when the target is behind you or too far away. If you cannot
+  interact with your target, `"anyinteract"` is the same as
+  `"softinteract"`.
+
+Both tokens can point at a game object or a corpse. `UnitGUID` returns
+the GUID of that object. Functions that read unit data, such as
+`UnitName`, return nothing for a game object or a corpse.
+
+**Settings.**
+
+| cvar | default | values |
+|---|---|---|
+| `SoftTargetInteract` | `0` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
+| `SoftTargetInteractArc` | `0` | `0`: the object must be directly in front of you, within about 1.2 yards of your forward line. `1`: the object must be within 30 degrees of your facing, on each side. `2`: the object can be in any direction. |
+| `SoftTargetInteractRange` | `10` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
+| `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
+
+When the picked object changes,
+[`PLAYER_SOFT_INTERACT_CHANGED`](#player_soft_interact_changed-event)
+fires.
+
+```
+/dump UnitGUID("softinteract"), UnitGUID("anyinteract")
+```
 
 ## TaxiMap
 
@@ -19439,8 +19534,8 @@ GUID, or `nil` if none of them point at it.
 
 The search order omits tokens the engine's resolver doesn't recognize
 (`vehicle`, `arenaN`, `arenapetN`, `bossN`, `softenemy`,
-`softfriend`, `softinteract`). `nameplateN` and `focus` are
-included — we hook the resolver so the engine recognizes both token
+`softfriend`). `nameplateN`, `focus` and `softinteract` are
+included — we hook the resolver so the engine recognizes these token
 forms. As with the other positional tokens, a returned
 `"nameplate3"` result is only valid at that instant; the slot may
 shift to a different unit between calls, so re-verify with
@@ -19449,7 +19544,7 @@ shift to a different unit between calls, so re-verify with
 ```
 player → pet → party1..4 → partypet1..4 → raid1..40
        → raidpet1..40 → nameplate1..N → target → focus
-       → npc → mouseover
+       → npc → mouseover → softinteract
 ```
 
 ```lua

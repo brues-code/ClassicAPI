@@ -131,7 +131,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [SwingTimer](docs/API.md#swingtimer) | `C_SwingTimer.EnableRangeCheck`, `C_SwingTimer.IsTargetWithinSwingRange` |
 | [System](docs/API.md#system) | `CopyToClipboard`, `GetPhysicalScreenSize` |
 | [Talent](docs/API.md#talent) | `GetTalentIDByIndex`, `GetTalentSpellID` |
-| [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer` |
+| [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`, `InteractUnit`, `C_PlayerInteractionManager.InteractUnit`, `SoftTargetInteract` / `SoftTargetInteractArc` / `SoftTargetInteractRange` / `SoftTargetInteractRangeIsHard` (cvars) |
 | [TaxiMap](docs/API.md#taximap) | `C_TaxiMap.GetTaxiNodesForMap`, `C_TaxiMap.GetAllTaxiNodes`, `C_TaxiMap.GetTaxiPaths`, `C_TaxiMap.GetTaxiPathWaypoints`, `C_TaxiMap.GetTaxiRoute` |
 | [Texture](docs/API.md#texture) | `C_Texture.GetAtlasElementID`, `C_Texture.GetAtlasElements`, `C_Texture.GetAtlasExists`, `C_Texture.GetAtlasID`, `C_Texture.GetAtlasInfo`, `C_Texture.RegisterAtlas` |
 | [Time](docs/API.md#time) | `C_DateAndTime.AdjustTimeByDays`, `C_DateAndTime.AdjustTimeByMinutes`, `C_DateAndTime.CompareCalendarTime`, `C_DateAndTime.GetCalendarTimeFromEpoch`, `C_DateAndTime.GetCurrentCalendarTime`, `C_DateAndTime.GetSecondsUntilDailyReset`, `C_DateAndTime.GetServerTimeLocal`, `C_Timer.After`, `C_Timer.NewTicker`, `C_Timer.NewTimer`, `GetServerTime`, `GetTimeCached` |
@@ -257,6 +257,7 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_AVG_ITEM_LEVEL_READY` | *(none)* |
 | `PLAYER_EQUIPMENT_CHANGED` | `equipmentSlot, hasCurrent` |
 | `PLAYER_FOCUS_CHANGED` | *(none)* |
+| `PLAYER_SOFT_INTERACT_CHANGED` | `oldTarget, newTarget` |
 | `PLAYER_STARTED_LOOKING` | *(none)* |
 | `PLAYER_STOPPED_LOOKING` | *(none)* |
 | `PLAYER_STARTED_MOVING` | *(none)* |
@@ -320,13 +321,14 @@ when launching with `-console`), not as Lua functions. See the
 </details>
 
 <details>
-<summary><b>Unit tokens</b> — <code>nameplateN</code>, <code>focus</code>, <code>markN</code></summary>
+<summary><b>Unit tokens</b> — <code>nameplateN</code>, <code>focus</code>, <code>markN</code>, <code>softinteract</code>, <code>anyinteract</code></summary>
 
 | Token | Resolves to |
 |-------|-------------|
 | `nameplate1`..`nameplateN` | Unit behind the Nth visible nameplate, in creation-order. Works with every `UnitX` function — `UnitName`, `UnitGUID`, `UnitClass`, `UnitHealth`, etc. Suffix chains (`nameplate1target`, `nameplate1targettarget`) compose. See [NamePlate / Unit tokens](docs/API.md#unit-tokens-nameplaten). |
 | `focus` / `focustarget` | Sticky target set via [`FocusUnit`](docs/API.md#focusunitunit), cleared via [`ClearFocus`](docs/API.md#clearfocus). Same `UnitX` coverage as `nameplateN`. Fires [`PLAYER_FOCUS_CHANGED`](docs/API.md#player_focus_changed-event) on transition. See [Focus](docs/API.md#focus). |
 | `mark1`..`mark8` | Unit currently wearing the Nth raid-target marker (`mark1` = star … `mark8` = skull). Same `UnitX` coverage as `nameplateN`, and fires unit events (`UNIT_HEALTH`, `UNIT_AURA`, …) with `arg1 == "markN"`. `UnitExists("markN")` is `false` when the marker is unset, out of range, or on a non-unit. Suffix chains (`mark1target`) compose. See [Unit tokens (`markN`)](docs/API.md#unit-tokens-markn). |
+| `softinteract` / `anyinteract` | The object that the Interact Key uses. `softinteract` is the nearest object in front of you that you can interact with. `anyinteract` is your target when you can interact with it, else `softinteract`. Both can be a game object or a corpse, which only `UnitGUID` reads. See [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract). |
 
 </details>
 

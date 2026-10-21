@@ -1684,6 +1684,56 @@ enum Offsets {
     VAR_CURRENT_SELECTION_GUID_LO = 0x00B4E2D8,
     VAR_CURRENT_SELECTION_GUID_HI = 0x00B4E2DC,
 
+    // ── Hover cursor (the engine's "can I interact with this" verdict) ───
+    // SetCursorMode: `void __fastcall(uint32_t mode)` — `cmp [0xBE2C2C],ecx;
+    // jz ret; mov [0xBE2C2C],ecx; jmp send`. Every world-cursor classifier
+    // ends in it (ShowBaseCursor 0x523D30 tail-jumps into it with the base
+    // mode). Modes index `Interface\Cursor\<name>.blp`: 1 Point, 2 Cast,
+    // 3 Buy, 4 Attack, 5 Interact, 6 Speak, 7 Inspect, 8 Pickup, 9 Taxi,
+    // 10 Trainer, 11 Mine, 12 Skin, 13 GatherHerbs, 14 PickLock, 15 Mail,
+    // 16 LootAll, 17 Repair, 18 Item, 19 SkinHorde, 20 SkinAlliance;
+    // mode + 20 is the `Unable` form; 41 a game object's named cursor
+    // (benilla-re ui/worldcursor).
+    FUN_SET_CURSOR_MODE = 0x00523C20,
+    VAR_CURSOR_BASE_MODE = 0x00BE2C4C,
+    CURSOR_MODE_POINT = 1,
+    CURSOR_MODE_CAST = 2,
+    CURSOR_MODE_ATTACK = 4,
+    CURSOR_MODE_LAST_NAMED = 20,
+    CURSOR_MODE_UNABLE_OFFSET = 20,
+    CURSOR_MODE_CUSTOM = 0x29,
+    // CGWorldFrame::ClassifyHoveredUnit / ClassifyHoveredCorpse —
+    // `void __thiscall(CGWorldFrame *, object)` (the frame is
+    // `*VAR_GAME_STATE_PTR`); set the cursor mode for a
+    // hovered unit / corpse and do nothing else (decompiled: the unit one
+    // reads `this` only for the frame clock +0x65BC, the corpse one not at
+    // all). Called by ClassifyHoveredObject (0x4828D0) on type word
+    // 9 / 0x19 and 0x81 after the object's IsMouseoverable answers nonzero.
+    FUN_WORLD_FRAME_CLASSIFY_UNIT = 0x00482200,
+    FUN_WORLD_FRAME_CLASSIFY_CORPSE = 0x00482740,
+    // CGGameObject_C::GetCursor — `uint32_t __thiscall(go)`: 0 when not
+    // interactable, CURSOR_MODE_CUSTOM for a record-named cursor, else the
+    // handler's mode (+20 when not usable). IsUsable — `bool __thiscall(go)`,
+    // the same usability the named cursor's `Unable` prefix reads (0x5F8790).
+    // ClassifyHoveredGameObject (0x4826E0) is GetCursor + SetCursorMode plus
+    // a custom-cursor texture load for 41.
+    FUN_GAMEOBJECT_GET_CURSOR = 0x005F8760,
+    FUN_GAMEOBJECT_IS_USABLE = 0x005F8810,
+    // Object type words (descriptor OBJECT_FIELD_TYPE) the hover dispatch
+    // switches on, exactly (0x4828D0): unit, player, game object, corpse.
+    OBJECT_TYPE_WORD_UNIT = 0x09,
+    OBJECT_TYPE_WORD_PLAYER = 0x19,
+    OBJECT_TYPE_WORD_GAMEOBJECT = 0x21,
+    OBJECT_TYPE_WORD_CORPSE = 0x81,
+    // Front-cone half angle of the tab-target collector (0x494200): pi times
+    // 1/6, both read from these floats (stored into 0xB4D8F4 on first use).
+    VAR_TARGETING_PI = 0x00804488,
+    VAR_TARGETING_ONE_SIXTH = 0x00803568,
+    // HeadingBetweenPoints — `float __fastcall(const float *from, const
+    // float *to)`: atan2 of the y and x differences (the tab collector's
+    // heading).
+    FUN_HEADING_BETWEEN_POINTS = 0x0047F220,
+
     // ── Unit script registration (which units fire unit events) ──────────
     // 4.3.4's CGUnit_C::m_scriptRegistration: a mask at unit+0xC90 of the
     // reasons the UI watches this unit. FUN_UNIT_SCRIPT_RECOMPUTE rebuilds it
@@ -4008,6 +4058,15 @@ enum Offsets {
     OFF_CGOBJECT_TYPE_ID = 0x14,
     OBJECT_TYPE_UNIT = 3,
     OBJECT_TYPE_PLAYER = 4,
+
+    // CGObject vtable slots (byte offsets): GetFacing `float __thiscall()`
+    // (slot 6, the tab collector's player facing), IsMouseoverable
+    // `int __thiscall()` (slot 21, the hover dispatch's gate at 0x482982).
+    OFF_CGOBJECT_VTBL_GET_FACING = 0x18,
+    OFF_CGOBJECT_VTBL_IS_MOUSEOVERABLE = 0x54,
+    // OBJECT_FIELD_TYPE, the type word, in the block at OFF_UNIT_GUID_PTR
+    // (the GUID is its +0): the hover dispatch reads `[[obj+8]+8]`.
+    OFF_OBJECT_FIELD_TYPE = 0x08,
 
     // World line-segment collision test (client-side LoS core):
     // `char __fastcall(const Vec3 *start /*ecx*/, const Vec3 *end /*edx*/,

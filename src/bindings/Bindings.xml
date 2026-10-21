@@ -13,10 +13,12 @@
 		TargetUnit("focus");
 	</Binding>
 	<Binding name="INTERACTMOUSEOVER">
-		InteractUnit("mouseover");
+		if ( not C_PlayerInteractionManager.InteractUnit("mouseover", false, false) ) then
+			C_PlayerInteractionManager.InteractUnit("anyinteract");
+		end
 	</Binding>
 	<Binding name="INTERACTTARGET">
-		InteractUnit("target");
+		C_PlayerInteractionManager.InteractUnit("anyinteract");
 	</Binding>
 	<Binding name="AOELOOT">
 		C_Loot.LootAllCorpses()

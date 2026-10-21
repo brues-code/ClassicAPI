@@ -34,6 +34,12 @@
 //     (FUN_UNIT_FIND_BY_NAME) lacks 4.3.4's leading token step, so the
 //     token step is IsUnitToken + FUN_TOKEN_TO_GUID here.
 //
+// `C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [,
+// looseTargeting]])` is the modern name the INTERACTTARGET /
+// INTERACTMOUSEOVER bindings call (with "anyinteract", see
+// target/SoftInteract.cpp): the same resolve and right-click, returning a
+// boolean. looseTargeting has no 1.12 counterpart and is read by nothing.
+//
 // 4.3.4's taint gate is dropped: 1.12 has no secure environment, and every
 // vanilla action function (TargetUnit, CastSpellByName, …) is callable.
 
@@ -62,19 +68,31 @@ uint64_t ResolveGuid(void *L, const char *token) {
     return Unit::Identity::FindGuidByName(token, Offsets::TYPEMASK_OBJECT, exact != 0);
 }
 
+bool Interact(void *L) {
+    const uint64_t guid = ResolveGuid(L, Game::Lua::ToString(L, 1));
+    return reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
+               static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)) != 0;
+}
+
 int __fastcall Script_InteractUnit(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: InteractUnit(unitToken[, exactMatch])");
         return 0;
     }
-
-    const uint64_t guid = ResolveGuid(L, Game::Lua::ToString(L, 1));
-    const int handled = reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
-        static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32));
-    if (handled)
+    if (Interact(L))
         Game::Lua::PushNumber(L, 1.0);
     else
         Game::Lua::PushNil(L);
+    return 1;
+}
+
+int __fastcall Script_C_InteractUnit(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_PlayerInteractionManager.InteractUnit(unit[, exactMatch[, "
+                            "looseTargeting]])");
+        return 0;
+    }
+    Game::Lua::PushBool(L, Interact(L));
     return 1;
 }
 
@@ -92,8 +110,25 @@ const Game::Doc::Function kInteractUnit{
     "Targets the unit or object and interacts with it, as a right-click in the world does.",
     kArgs, kRets, "UnitGlobals"};
 
+const Game::Doc::Field kManagerArgs[] = {
+    Game::Doc::Req("unit", "UnitToken",
+                   "A unit token, \"mouseover\" for whatever the cursor is over, or a name. "
+                   "\"anyinteract\" is what the Interact Key uses."),
+    Game::Doc::Opt("exactMatch", "bool", "false",
+                   "When a name is given, require the whole name instead of a prefix."),
+    Game::Doc::Opt("looseTargeting", "bool", "true", "Has no effect."),
+};
+const Game::Doc::Field kManagerRets[] = {
+    Game::Doc::Req("success", "bool", "True when the interaction ran."),
+};
+const Game::Doc::Function kManagerInteractUnit{
+    "Targets the unit or object and interacts with it, as a right-click in the world does.",
+    kManagerArgs, kManagerRets, "PlayerInteractionManager"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("InteractUnit", &Script_InteractUnit, &kInteractUnit);
+    Game::Lua::RegisterTableFunction("C_PlayerInteractionManager", "InteractUnit",
+                                     &Script_C_InteractUnit, &kManagerInteractUnit);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

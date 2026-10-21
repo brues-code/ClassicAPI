@@ -32,6 +32,10 @@
 //   also fires per-`markN` unit events (`UNIT_HEALTH`, …) through the
 //   same `TokenObserver` path as `focus`/`nameplateN`.
 //
+// - `softinteract` / `anyinteract` — the interact key's object, backed by
+//   `Target::SoftInteract`. Either can be a game object or a corpse, so
+//   only GUID readers (UnitGUID) see those; unit readers resolve nil.
+//
 // - `0x<hex>` — a raw 64-bit GUID literal (SuperWoW's format:
 //   `"0x"` + up to 16 hex digits). Lets every `Unit*` accept a GUID
 //   in place of a token, which is SuperWoW's headline "hard
@@ -54,6 +58,7 @@
 #include "Offsets.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "target/SoftInteract.h"
 #include "unit/Focus.h"
 #include "unit/RaidTarget.h"
 
@@ -101,6 +106,10 @@ constexpr const char kNamePlatePrefix[] = "nameplate";
 constexpr int kNamePlatePrefixLen = static_cast<int>(sizeof(kNamePlatePrefix) - 1);
 constexpr const char kFocusPrefix[] = "focus";
 constexpr int kFocusPrefixLen = static_cast<int>(sizeof(kFocusPrefix) - 1);
+constexpr const char kSoftInteractPrefix[] = "softinteract";
+constexpr int kSoftInteractPrefixLen = static_cast<int>(sizeof(kSoftInteractPrefix) - 1);
+constexpr const char kAnyInteractPrefix[] = "anyinteract";
+constexpr int kAnyInteractPrefixLen = static_cast<int>(sizeof(kAnyInteractPrefix) - 1);
 constexpr const char kMarkPrefix[] = "mark";
 constexpr int kMarkPrefixLen = static_cast<int>(sizeof(kMarkPrefix) - 1);
 constexpr const char kSuffixTarget[] = "target";
@@ -174,6 +183,17 @@ uint64_t __fastcall Hook_h(const char *token) {
         if (guid == 0)
             return 0;
         return WalkSuffix(guid, token + kFocusPrefixLen);
+    }
+
+    // `softinteract*` / `anyinteract*`. Neither prefix starts any engine
+    // token, so a match is ours.
+    if (sstrcmpi(token, kSoftInteractPrefix, kSoftInteractPrefixLen) == 0) {
+        const uint64_t guid = Target::SoftInteract::Get();
+        return guid == 0 ? 0 : WalkSuffix(guid, token + kSoftInteractPrefixLen);
+    }
+    if (sstrcmpi(token, kAnyInteractPrefix, kAnyInteractPrefixLen) == 0) {
+        const uint64_t guid = Target::SoftInteract::GetAny();
+        return guid == 0 ? 0 : WalkSuffix(guid, token + kAnyInteractPrefixLen);
     }
 
     // `nameplateN` / `nameplate1target*`. Requires a digit after the
