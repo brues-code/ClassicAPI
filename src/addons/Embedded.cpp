@@ -28,14 +28,20 @@
 //      embedded content in, and hand it back. The caller's normal
 //      `SMemFree` reclaims it on completion — no special lifetime.
 //
-//   3. We post-hook the engine's `FUN_ADDON_INIT`. After the engine's
-//      own `Interface\AddOns\` scan finishes, we call the TOC parser
-//      directly with `"!!!ClassicAPI"`. The parser opens its TOC via
-//      our hooked read function and registers the addon as a normal
-//      entry. The TOC parser is dedup-safe: if the user already has
-//      the addon on disk, the engine's scan picked it up, the
-//      hash-table lookup hits, and our call is a no-op. So the
-//      conditional "only if not on disk" behavior is free.
+//   3. We hook the exists-check `FUN_FILE_EXISTS` so it answers the same
+//      way for the same paths. Without it every embedded file reads fine
+//      but reports as missing — the per-addon loader would skip an
+//      embedded `Bindings.xml`, and `Xml::ScriptPath` would never find an
+//      embedded `<Script file="sub\x.lua">`.
+//
+//   4. We pre-hook the engine's `FUN_ADDON_SCAN_FULL` and call the TOC
+//      parser with `"!!!ClassicAPI"` before the scan runs. The registry
+//      is empty there (the login init resets it just before), so our
+//      entry is the first record and the load pass — which walks the
+//      records in registration order — loads it first. The scan's own
+//      `## LoadWith:` pass then sees it like any disk addon. The parser
+//      is dedup-safe: when the user also has the addon on disk, the
+//      scan's call for that folder hits the hash table and is a no-op.
 //
 // Same pattern WeirdUtils.dll uses (we reverse-engineered it from
 // `0x10015A74` while figuring this out). The addon load pass then
@@ -120,12 +126,15 @@ const ClassicAPIFiles::File *LookupEmbedded(const char *suffix) {
 // Engine file I/O + Storm allocator — see addons/EngineIO.h for the shapes and
 // the __stdcall / ESP-drift hazard. A buffer we SMemAlloc here is freed cleanly
 // by the caller's standard SMemFree in turn.
+using AddOns::EngineIO::FileExistsFn;
 using AddOns::EngineIO::FileReadFn;
 using AddOns::EngineIO::SMemAllocFn;
 using AddOns::EngineIO::SMemFreeFn;
 
-// The trampoline to the original FUN_FILE_READ (installed by the co-hook below).
+// The trampolines to the original FUN_FILE_READ / FUN_FILE_EXISTS (installed
+// by the co-hooks below).
 FileReadFn FileRead_o = nullptr;
+FileExistsFn FileExists_o = nullptr;
 
 // Extracts the value of the `## Version: X` line from a TOC byte
 // buffer. Writes into `out` (size `outSize`) and returns true on
@@ -353,36 +362,34 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
     return 1;
 }
 
-// `FUN_ADDON_INIT` — `__fastcall(accountName)`. We post-hook it: let
-// the engine's normal `Interface\AddOns\` scan run first, then call
-// the TOC parser with `"!!!ClassicAPI"`. Dedup-safe — see file header.
-using AddonInit_t = void(__fastcall *)(const char *accountName);
-AddonInit_t AddonInit_o = nullptr;
+// The exists-check counterpart of FileRead_h: the same source decision and
+// the same fallbacks, so a path reports as existing exactly when FileRead_h
+// would serve it. Other paths go to FlavorBindings (flavor-only addon
+// Bindings.xml), then to the original.
+int __stdcall FileExists_h(const char *path, int mode) {
+    const char *suffix = StripAddonPrefix(path);
+    if (suffix == nullptr) {
+        if (FileExists_o(path, mode) != 0)
+            return 1;
+        return AddOns::FlavorBindings::TryExists(path, mode, FileExists_o) ? 1 : 0;
+    }
+
+    DecideSource();
+    if (g_source == Source::Disk && FileExists_o(path, mode) != 0)
+        return 1;
+    if (LookupEmbedded(suffix) != nullptr)
+        return 1;
+    return FileExists_o(path, mode);
+}
+
+// `FUN_ADDON_SCAN_FULL` — `void __cdecl()`. We pre-hook it: register
+// `"!!!ClassicAPI"` into the empty registry, then let the engine's scan
+// run. Dedup-safe — see file header.
+using AddonScan_t = void(__cdecl *)();
+AddonScan_t AddonScan_o = nullptr;
 
 using TocParser_t = void(__fastcall *)(const char *name);
-using ListInsert_t = void(__thiscall *)(void *listCtrl, void *entry,
-                                         int position, int anchor);
 
-// `FUN_TOC_PARSER` appends new entries to the *tail* of the addon
-// registry's linked list, and the engine's addon-load pass at
-// `FUN_0051F600` walks that list in *insertion order* (NOT
-// alphabetical order — the alphabetical sort only applies to the
-// flat array `GetAddOnInfo(i)` reads from). So our post-hook
-// injection lands at the very end of the load order, after every
-// disk-scanned addon. Addons that consume our globals from their
-// main chunk (idTip's `FrameWatcher`, etc.) would see `nil` and
-// hard-error during their boot.
-//
-// Fix: walk the linked list, find our entry by name, and re-link
-// it to the head via `FUN_INTRUSIVE_LIST_INSERT(position=1)`. The
-// engine's own insert helper handles remove-then-insert atomically,
-// so it's safe to call on an entry that's already in the list.
-//
-// The list is walked via the shared `Addons::ForEachEntry`
-// (`addons/Registry.h`); the callback stops the walk once it finds and
-// re-links our entry, since the re-link invalidates the current
-// next-pointer.
-//
 // `entry + OFF_ADDON_ENTRY_FILTER_OUT` is the "filter-out" byte. The
 // flat display-array builder `FUN_0051da70` walks the linked list and
 // copies an entry into `GetNumAddOns`/`GetAddOnInfo`'s array ONLY when
@@ -401,12 +408,10 @@ using ListInsert_t = void(__thiscall *)(void *listCtrl, void *entry,
 // alongside the resolver co-hook below (which forces enabled anyway).
 constexpr int OFF_ADDON_ENTRY_DEFAULT_STATE = 0x2b;
 
-// Post-registration finalize for the embedded entry: move it to the
-// head of the load-order list (so consumers that read our globals from
-// their main chunk see them — see the block comment above the offsets),
-// hide it from the addon list, and mark it default-enabled. Combined
-// with the `FUN_ADDON_ENABLE_RESOLVE` co-hook, `!!!ClassicAPI` always
-// loads and never appears as a toggleable entry.
+// Post-registration finalize for the embedded entry: hide it from the
+// addon list and mark it default-enabled. Combined with the
+// `FUN_ADDON_ENABLE_RESOLVE` co-hook, `!!!ClassicAPI` always loads and
+// never appears as a toggleable entry.
 void FinalizeEmbeddedEntry() {
     Addons::ForEachEntry([](uintptr_t entry) -> bool {
         const char *name = *reinterpret_cast<const char *const *>(
@@ -414,27 +419,18 @@ void FinalizeEmbeddedEntry() {
         if (name == nullptr || std::strcmp(name, kAddonName) != 0)
             return true; // keep walking
 
-        // Hide from the character-select AddOns list and default it to
-        // enabled, then move it to the head of the load order.
         *reinterpret_cast<uint8_t *>(
             entry + Offsets::OFF_ADDON_ENTRY_FILTER_OUT) = 1;
         *reinterpret_cast<uint8_t *>(entry + OFF_ADDON_ENTRY_DEFAULT_STATE) = 1;
-
-        auto fn = reinterpret_cast<ListInsert_t>(
-            Offsets::FUN_INTRUSIVE_LIST_INSERT);
-        fn(reinterpret_cast<void *>(
-               static_cast<uintptr_t>(Offsets::VAR_ADDON_LIST_CTRL)),
-           reinterpret_cast<void *>(entry),
-           /*position=*/ 1, /*anchor=*/ 0);
-        return false; // stop — the re-link invalidated our next-pointer
+        return false;
     });
 }
 
-void __fastcall AddonInit_h(const char *accountName) {
-    AddonInit_o(accountName);
+void __cdecl AddonScan_h() {
     auto TocParser = reinterpret_cast<TocParser_t>(Offsets::FUN_TOC_PARSER);
     TocParser(kAddonName);
     FinalizeEmbeddedEntry();
+    AddonScan_o();
 }
 
 // `FUN_ADDON_ENABLE_RESOLVE` — per-character enable resolver. We
@@ -459,10 +455,15 @@ const Game::HookAutoRegister _hookFileRead{
     reinterpret_cast<void *>(&FileRead_h),
     reinterpret_cast<void **>(&FileRead_o)};
 
-const Game::HookAutoRegister _hookAddonInit{
-    Offsets::FUN_ADDON_INIT,
-    reinterpret_cast<void *>(&AddonInit_h),
-    reinterpret_cast<void **>(&AddonInit_o)};
+const Game::HookAutoRegister _hookFileExists{
+    Offsets::FUN_FILE_EXISTS,
+    reinterpret_cast<void *>(&FileExists_h),
+    reinterpret_cast<void **>(&FileExists_o)};
+
+const Game::HookAutoRegister _hookAddonScan{
+    Offsets::FUN_ADDON_SCAN_FULL,
+    reinterpret_cast<void *>(&AddonScan_h),
+    reinterpret_cast<void **>(&AddonScan_o)};
 
 const Game::HookAutoRegister _hookEnableResolve{
     Offsets::FUN_ADDON_ENABLE_RESOLVE,

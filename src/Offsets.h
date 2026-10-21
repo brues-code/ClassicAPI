@@ -8395,9 +8395,9 @@ enum Offsets {
     // CLAUDE.md under "AddOn registry & hot-reload". Dedup-safe: if
     // the addon is already in the hash table, returns immediately
     // without re-parsing. Reads the TOC file via `FUN_FILE_READ`. We
-    // call this from the post-`FUN_ADDON_INIT` hook to register the
-    // embedded `!!!ClassicAPI` addon — the dedup behavior means our
-    // call is a no-op when the user has the addon installed on disk.
+    // call this from the `FUN_ADDON_SCAN_FULL` pre-hook to register the
+    // embedded `!!!ClassicAPI` addon — the dedup behavior makes the
+    // scan's own call a no-op when the user has the addon on disk.
     FUN_TOC_PARSER = 0x0051C9B0,
 
     // Client interface version — `__cdecl() -> uint32` (no args), a bare
@@ -8443,7 +8443,9 @@ enum Offsets {
     // File-exists probe — `__stdcall(const char *path, int mode)` (RET 8);
     // nonzero when the file exists. `mode = 1` on the addon / SavedVariables
     // paths. Used to mirror the engine's SV path fallback (prefer the
-    // realm-scoped per-character file, else the realm-less one).
+    // realm-scoped per-character file, else the realm-less one). Hooked
+    // once, by `Addons::Embedded`, which answers for the embedded addon's
+    // files and chains `AddOns::FlavorBindings::TryExists`.
     FUN_FILE_EXISTS = 0x00648A30,
 
     // `realmName` CVar value reader — no-arg, `-> const char *` (last-connected
@@ -8453,35 +8455,15 @@ enum Offsets {
     // 0x00C27D88 buffer, NULL until a character is logged in.)
     FUN_GET_REALM_NAME = 0x005AB7D0,
 
-    // AddOn registry init — `__fastcall(accountName)`. Documented in
-    // CLAUDE.md ("AddOn registry & hot-reload"). Hooked post-call so
-    // we can splice the embedded addon entry into the freshly-populated
-    // registry before the load pass.
-    FUN_ADDON_INIT = 0x0051C740,
-
-    // Generic intrusive-list insert/move helper used by `FUN_TOC_PARSER`
-    // to thread new addon entries into the registry's doubly-linked
-    // list. Signature (`__thiscall`):
-    //   `(ListCtrl *this, void *entry, int position, int anchor)`
-    // Where:
-    //   - `this`        — list-control struct (for the addon registry,
-    //                      this is `&VAR_ADDON_LIST_CTRL`).
-    //   - `entry`       — entry to insert. If already linked, the
-    //                      function removes it from its current
-    //                      position first.
-    //   - `position`    — `1` = insert at head, anything else (engine
-    //                      passes `2`) = insert at tail.
-    //   - `anchor`      — `0` = anchor against the list sentinel
-    //                      (default), nonzero = anchor relative to
-    //                      another entry's link field at that offset.
-    //
-    // Used by `Addons::Embedded` to move our injected `!!!ClassicAPI`
-    // entry from the tail (where `FUN_TOC_PARSER` puts it) to the head
-    // — vanilla's addon load pass at `FUN_0051F600` walks the linked
-    // list in insertion order, so without this fix our addon would
-    // load *last*, breaking dependent addons that expect our globals
-    // to be ready in their main chunk.
-    FUN_INTRUSIVE_LIST_INSERT = 0x00521AD0,
+    // AddOn scan — `void __cdecl()`, no args, plain RET (benilla-re
+    // `ScanAddOns`). Registers the archives' listfile addons, then the
+    // loose folders, then links every `## LoadWith:` list. Its one caller
+    // is the login init `LoadAddOnsForAccount` (`0x0051C740`, call at
+    // `0x0051C74E`), right after the registry reset `FUN_0051FA40` and the
+    // account-name store, so the registry is empty on entry. Records join
+    // the list at its tail, and the load pass walks it in that order.
+    // `Addons::Embedded` pre-hooks it to register `!!!ClassicAPI` first.
+    FUN_ADDON_SCAN_FULL = 0x0051C760,
 
     // Addon-registry intrusive-list control. Layout
     // (`__thiscall`-friendly, generic across all intrusive lists in the
@@ -8497,8 +8479,7 @@ enum Offsets {
     //                              when treated as circular).
     //
     // `VAR_ADDON_LIST_CTRL` is just the address of the control struct
-    // (i.e., `0x00BE1B64`). Pass `&VAR_ADDON_LIST_CTRL` as the `this`
-    // arg to `FUN_INTRUSIVE_LIST_INSERT`. `VAR_ADDON_LIST_HEAD` is the
+    // (i.e., `0x00BE1B64`). `VAR_ADDON_LIST_HEAD` is the
     // control's +0x08 head slot; walk entries via
     // `next = *(entry + [VAR_ADDON_LIST_CTRL] + 4)` (= `entry+0x10`),
     // stopping on a low-bit-1 sentinel or NULL.
@@ -8885,7 +8866,8 @@ enum Offsets {
     // +0x14) reads freed memory.
     FUN_ADDON_ENTRY_DESTROY = 0x005200A0,
 
-    // `u8` set to 1 by `FUN_ADDON_INIT` after the login scan completes,
+    // `u8` set to 1 by `LoadAddOnsForAccount` (`0x0051C740`) after the login
+    // scan completes,
     // cleared by the registry teardown `FUN_0051FA40`. Gates anything
     // that touches the registry outside the login path.
     VAR_ADDON_INITIALIZED = 0x00BE1C08,

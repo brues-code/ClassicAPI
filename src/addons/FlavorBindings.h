@@ -19,6 +19,7 @@
 
 namespace AddOns::FlavorBindings {
 
+using EngineIO::FileExistsFn;
 using EngineIO::FileReadFn;
 
 // Flavor-specific addon Bindings selection — the Bindings.xml analog of
@@ -36,10 +37,10 @@ using EngineIO::FileReadFn;
 //      place if one exists (a selected flavor wins over a plain `Bindings.xml`,
 //      matching FlavorToc). Probe order `Bindings_Turtle.xml` (only when
 //      Turtle::Detected) then `Bindings_ClassicAPI.xml`.
-//   2. A co-hook on the exists-check `FUN_00648a30` (inside FlavorBindings.cpp):
-//      report `Bindings.xml` as existing when the base is absent but a flavor
-//      variant is present — otherwise the loader is never called for a
-//      flavor-only addon.
+//   2. TryExists, called from the exists-check `FUN_FILE_EXISTS` hook: report
+//      `Bindings.xml` as existing when the base is absent but a flavor variant
+//      is present — otherwise the loader is never called for a flavor-only
+//      addon.
 //
 // Only `_Turtle` / `_ClassicAPI` are selected — never `_Vanilla` / `_Classic`
 // (which target the 1.15 Classic Era build; its bindings reference handlers
@@ -51,5 +52,10 @@ using EngineIO::FileReadFn;
 // variant exists — the caller then performs the normal base read.
 bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
                size_t extraBytes, int flag1, int flag2, FileReadFn orig);
+
+// True when `path` is an addon `…\AddOns\<Name>\Bindings.xml` and a flavor
+// variant exists through `orig` (the original exists-check). The caller asks
+// `orig` about the base path itself; this answers only the flavor case.
+bool TryExists(const char *path, int mode, FileExistsFn orig);
 
 } // namespace AddOns::FlavorBindings

@@ -27,10 +27,10 @@ namespace Addons {
 // engine's own load pass (`FUN_0051F600`) and scan tail loop use.
 //
 // `fn` may return `void` (always continue) or `bool` (return `false` to STOP
-// early). Early stop is load-bearing for a visitor that mutates the list —
-// e.g. re-linking an entry to the head invalidates the current next-pointer,
-// so the walk must not follow it. Shared by `Addons::Embedded` (find + re-link
-// the embedded entry) and `Addons::Rescan` (snapshot / diff / fix-up passes).
+// early, e.g. once a by-name search finds its entry). A visitor must not
+// unlink the entry it is given and then continue: the walk reads that
+// entry's next-pointer after the call. Shared by `Addons::Embedded` (find the
+// embedded entry) and `Addons::Rescan` (snapshot / diff / fix-up passes).
 template <typename Fn> void ForEachEntry(Fn fn) {
     const int linkOffset = *reinterpret_cast<const int *>(
         static_cast<uintptr_t>(Offsets::VAR_ADDON_LIST_CTRL));

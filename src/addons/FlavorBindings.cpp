@@ -15,8 +15,6 @@
 #include "addons/FlavorBindings.h"
 #include "addons/Toc.h"
 
-#include "Game.h"
-#include "Offsets.h"
 #include "turtle/Detect.h"
 
 #include <cstddef>
@@ -72,39 +70,23 @@ int FlavorOrder(const char *(&order)[2]) {
     return count;
 }
 
-// Engine file-exists probe FUN_00648a30 — __stdcall(path, mode) (RET 8).
-using EngineIO::FileExistsFn;
-FileExistsFn g_origExists = nullptr;
+} // namespace
 
-// Co-hook the exists-check so `Interface\AddOns\<Name>\Bindings.xml` reports as
-// existing when the base file is absent but a flavor variant is present — so
-// the loader (`FUN_004b6f70`, then our TryHandle redirect) runs for a
-// flavor-only addon. Every non-Bindings path passes straight through.
-int __stdcall FileExists_h(const char *path, int mode) {
+bool TryExists(const char *path, int mode, FileExistsFn orig) {
     const size_t prefixLen = AddonBindingsPrefix(path);
     if (prefixLen == NPOS)
-        return g_origExists(path, mode);
-
-    if (g_origExists(path, mode) != 0)
-        return 1; // the plain Bindings.xml exists
+        return false;
 
     const char *order[2];
     const int count = FlavorOrder(order);
     char cand[512];
     for (int i = 0; i < count; ++i) {
         if (BuildFlavorPath(path, prefixLen, order[i], cand, sizeof cand) &&
-            g_origExists(cand, mode) != 0)
-            return 1;
+            orig(cand, mode) != 0)
+            return true;
     }
-    return 0;
+    return false;
 }
-
-const Game::HookAutoRegister _hookExists{
-    Offsets::FUN_FILE_EXISTS,
-    reinterpret_cast<void *>(&FileExists_h),
-    reinterpret_cast<void **>(&g_origExists)};
-
-} // namespace
 
 bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
                size_t extraBytes, int flag1, int flag2, FileReadFn orig) {

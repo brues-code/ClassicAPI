@@ -62,13 +62,13 @@
 //
 // Excluded from the evict path (everything else is fair game):
 //   - `!!!ClassicAPI` — embedded; `Addons::Embedded` owns its entry
-//     (head re-link + filter byte);
+//     (registered first + filter byte);
 //   - `## Secure:` / SMSG-managed entries — the parser cannot restore
 //     packet-delivered state (see OFF_ADDON_ENTRY_SECURE).
 //
 // NOTE the surgical discipline. A previous attempt re-invoked the
-// login-only teardown+rescan (`FUN_ADDON_INIT`) mid-/reload and
-// corrupted the registry (duplicate loads + Lua memory explosion on the
+// login-only teardown+rescan (`LoadAddOnsForAccount`, `0x0051C740`)
+// mid-/reload and corrupted the registry (duplicate loads + Lua memory explosion on the
 // NEXT login). This module never runs bulk teardown; the only entry
 // mutation beyond what a login scan produces is the per-entry evict
 // above, which is (a) the engine's own complete destructor, (b) always
@@ -165,7 +165,7 @@ void RefreshLooseFileIndex() {
 // ── Step 1.5: `##` metadata refresh (evict + re-register on change) ──
 
 // The embedded addon's name — its entry is owned by `Addons::Embedded`
-// (head re-link + filter byte) and never refreshed here.
+// (registered first + filter byte) and never refreshed here.
 constexpr const char *kEmbeddedAddon = "!!!ClassicAPI";
 
 // name → FNV-1a hash of the addon's `##` lines, as last parsed.
