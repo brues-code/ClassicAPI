@@ -35,6 +35,7 @@
 #include "combatlog/Entry.h"
 
 #include "Game.h"
+#include "combatlog/History.h"
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "guid/Guid.h"
@@ -531,9 +532,6 @@ const Game::Doc::Event kUnfilteredDoc{"CombatLog", "Fires for each combat log ev
 const Event::Custom::AutoReserve _filtered{"COMBAT_LOG_EVENT", &kFilteredDoc};
 const Event::Custom::AutoReserve _unfiltered{"COMBAT_LOG_EVENT_UNFILTERED", &kUnfilteredDoc};
 
-// The most values Push makes: 11 + 3 + 10 + 3 (a damage event).
-constexpr int kMaxValues = 32;
-
 void Send(const Entry &e) {
     const int filtered = _filtered.Slot();
     const int unfiltered = _unfiltered.Slot();
@@ -542,14 +540,13 @@ void Send(const Entry &e) {
     if (!toFiltered && !toUnfiltered)
         return;
     void *L = Game::Lua::State();
-    if (L == nullptr || Game::Lua::CheckStack(L, kMaxValues) == 0)
+    if (L == nullptr || Game::Lua::CheckStack(L, MAX_EVENT_VALUES) == 0)
         return;
     const int top = Game::Lua::GetTop(L);
     const int count = Push(L, e);
     const Entry *outer = g_sending; // a handler's own action can log again
     g_sending = &e;
-    // With no filter set every entry matches, so COMBAT_LOG_EVENT gets all.
-    if (toFiltered)
+    if (toFiltered && History::MatchesFilter(e))
         Event::Custom::FireValues(filtered, L, top + 1, count);
     if (toUnfiltered)
         Event::Custom::FireValues(unfiltered, L, top + 1, count);
@@ -558,7 +555,7 @@ void Send(const Entry &e) {
 }
 
 int __fastcall Script_CombatLogGetCurrentEventInfo(void *L) {
-    if (g_sending == nullptr || Game::Lua::CheckStack(L, kMaxValues) == 0)
+    if (g_sending == nullptr || Game::Lua::CheckStack(L, MAX_EVENT_VALUES) == 0)
         return 0;
     return Push(L, *g_sending);
 }
@@ -584,6 +581,8 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const char *Name(int event) {
     return (event >= 0 && event < EVENT_COUNT) ? kEventNames[event] : "";
 }
+
+int PushEvent(void *L, const Entry &entry) { return Push(L, entry); }
 
 const uint8_t *SpellRecord(int spellId) { return Spell::Lookup::RecordForID(spellId); }
 
@@ -700,6 +699,7 @@ void Queue(Entry &e) {
         g_startTime = static_cast<uint32_t>(std::time(nullptr));
         g_startTimeMs = e.timeMs;
     }
+    History::Record(e);
     Send(e);
 }
 

@@ -178,7 +178,15 @@ int DisplayAmount(int amount, int powerType);
 void PowerDrain(uint64_t source, uint64_t dest, int event, const uint8_t *spell, int amount,
                 int powerType, int extra);
 
-// QueueCombatLogEntry + SendCombatLogEvents: stamps the entry and sends it.
+// The most values PushEvent makes: 11 + 3 + 10 + 3 (a damage event).
+constexpr int MAX_EVENT_VALUES = 32;
+
+// CombatLogEntry::PushEvent: pushes the entry's values in 4.3.4's layout and
+// returns their count. The stack must have room for MAX_EVENT_VALUES.
+int PushEvent(void *L, const Entry &entry);
+
+// QueueCombatLogEntry + SendCombatLogEvents: stamps the entry, keeps it and
+// sends it.
 void Queue(Entry &entry);
 
 } // namespace CombatLog

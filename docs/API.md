@@ -90,6 +90,9 @@ build instructions.
 - [CombatLog](#combatlog)
   - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
   - [`CombatLogGetCurrentEventInfo()`](#combatloggetcurrenteventinfo)
+  - [`CombatLogAddFilter([events [, source [, dest [, spell]]]])` / `CombatLogResetFilter()`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)
+  - [`CombatLog_Object_IsA(flags, mask)`](#combatlog_object_isaflags-mask)
+  - [Kept entries](#kept-entries)
 
 - [Console](#console)
   - [`ConsoleExec(command)`](#consoleexeccommand)
@@ -2162,8 +2165,10 @@ a target change stops melee auto-attack, Auto Shot and wand shots.
 
 `COMBAT_LOG_EVENT_UNFILTERED` fires once for each combat log event: a hit, a
 miss, a heal, a power gain, damage from the environment, a cast, an aura that
-starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires for the same
-events. The text lines in the chat frames
+starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires only for the
+events that match the combat log filter (see
+[`CombatLogAddFilter`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)).
+With no filter, it fires for each event. The text lines in the chat frames
 (`CHAT_MSG_COMBAT_*`, `CHAT_MSG_SPELL_*`) do not change.
 
 The values identify units by GUID, not by name, and do not depend on the
@@ -2308,6 +2313,100 @@ times it returns nothing.
 f:SetScript("OnEvent", function()
     local timestamp, subevent, _, sourceGUID = CombatLogGetCurrentEventInfo()
 end)
+```
+
+### `CombatLogAddFilter([events [, source [, dest [, spell]]]])` / `CombatLogResetFilter()`
+
+`CombatLogAddFilter` adds a filter. `CombatLogResetFilter` removes all
+filters. An event matches when it matches one of the filters, or when there
+is no filter. The filter controls `COMBAT_LOG_EVENT` and the kept-entry
+functions. `COMBAT_LOG_EVENT_UNFILTERED` does not use it.
+
+An event matches a filter only when each of its four parts matches:
+
+| Argument | Value | Matches |
+|---|---|---|
+| `events` | string | The subevent names in the string, divided by spaces or commas. The case of the letters is not important. |
+| `events` | nil | Each subevent. |
+| `source` | number | A source whose flags match this `COMBATLOG_OBJECT_*` mask (see below). |
+| `source` | string | The source with this GUID. |
+| `source` | nil | Each source. |
+| `dest` | number, string, nil | The target, in the same way as `source`. |
+| `spell` | number | The spell with this spell ID. |
+| `spell` | string | The spell with this name. The case of A to Z is not important. |
+| `spell` | nil | Each spell, and events with no spell. |
+
+A unit's flags match a mask when they have a `COMBATLOG_OBJECT_TARGET`,
+`FOCUS`, `MAINTANK` or `MAINASSIST` bit of the mask. Otherwise, the flags
+must have one affiliation bit, one reaction bit, one control bit and one
+type bit of the mask. A mask that does not name all four groups and has none
+of these special bits causes the error
+`CombatLogAddFilter(): incomplete filter for srcMask` (or `dstMask`).
+
+The `COMBATLOG_FILTER_*` constants are complete masks:
+
+| Constant | Matches |
+|---|---|
+| `COMBATLOG_FILTER_ME` | You. |
+| `COMBATLOG_FILTER_MINE` | You, and the objects that you control. |
+| `COMBATLOG_FILTER_MY_PET` | Your pets and guardians. |
+| `COMBATLOG_FILTER_FRIENDLY_UNITS` | Friendly units that are not yours. |
+| `COMBATLOG_FILTER_HOSTILE_PLAYERS` | Hostile units that a player controls. |
+| `COMBATLOG_FILTER_HOSTILE_UNITS` | Hostile units that an NPC controls. |
+| `COMBATLOG_FILTER_NEUTRAL_UNITS` | Neutral units that are not yours. |
+| `COMBATLOG_FILTER_UNKNOWN_UNITS` | No unit: the flags of an event with no source or no target. |
+| `COMBATLOG_FILTER_EVERYTHING` | All units. |
+
+```lua
+-- Your own damage.
+CombatLogResetFilter()
+CombatLogAddFilter("SWING_DAMAGE,SPELL_DAMAGE,SPELL_PERIODIC_DAMAGE", COMBATLOG_FILTER_MINE)
+```
+
+The filters stay after `/reload`. They are removed when you log out.
+
+### `CombatLog_Object_IsA(flags, mask)`
+
+Returns `1` when `flags` match `mask` by the rule of
+[`CombatLogAddFilter`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter).
+Otherwise, returns nil.
+
+```lua
+if CombatLog_Object_IsA(sourceFlags, COMBATLOG_FILTER_ME) then
+    -- The source is you.
+end
+```
+
+### Kept entries
+
+The combat log keeps each event as an entry, oldest first. An entry older
+than the retention time is removed when a new entry comes. The entries stay
+after `/reload`. They are removed when you log out.
+
+| Function | Description |
+|---|---|
+| `CombatLogGetRetentionTime()` | Returns the retention time, in seconds. The default is 300. |
+| `CombatLogSetRetentionTime(seconds)` | Sets the retention time. The `combatLogRetentionTime` CVar keeps the value. |
+| `CombatLogGetNumEntries([ignoreFilter])` | Returns the number of entries that match the filter. With `ignoreFilter`, returns the number of all entries. |
+| `CombatLogSetCurrentEntry(index [, ignoreFilter])` | Selects an entry. Index 1 is the oldest entry that matches the filter. Index 0 is the newest, and -1 is the entry before it. Returns `1` when the entry exists, else nil. |
+| `CombatLogAdvanceEntry(count [, ignoreFilter])` | Moves the selection by `count` entries that match the filter. A negative count moves to older entries. Returns `1` when an entry is selected, else nil. |
+| `CombatLogGetCurrentEntry()` | Returns the values of the selected entry, in the same layout as `CombatLogGetCurrentEventInfo`. Returns nothing when no entry is selected. |
+| `CombatLogClearEntries()` | Removes all entries. |
+
+When the selected entry is removed, the selection moves to the next entry.
+
+`CombatLogAdvanceEntry` counts the selected entry when it matches the
+filter. Thus, after `CombatLogSetCurrentEntry(1)`, a count of 1 moves to the
+second entry that matches.
+
+```lua
+-- Print the last 5 entries.
+if CombatLogSetCurrentEntry(-4) then
+    repeat
+        local timestamp, subevent, _, _, sourceName = CombatLogGetCurrentEntry()
+        print(subevent, sourceName)
+    until not CombatLogAdvanceEntry(1)
+end
 ```
 
 ## Console
