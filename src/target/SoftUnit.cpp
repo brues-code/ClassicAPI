@@ -27,12 +27,16 @@
 //     with a nearer enemy; past the range the nearer enemy stays;
 //   - SoftTargetMatchLocked 0: `softenemy` stays the nearest enemy, and
 //     `anyenemy` is the target that qualifies;
+//   - SoftTargetWithLocked 0: no `softenemy` and no `softfriend` while
+//     there is a target, hostile or friendly; 1 and 2 pick as usual (no
+//     probe told them apart);
 //   - `softfriend` picked a party member, not the player;
 //   - a friendly target is never `softenemy`, a hostile one never
 //     `softfriend` — the match keeps to the side's test.
 //
 // Defaults are Classic Era's: SoftTargetEnemy 1 (gamepad, so off here),
-// SoftTargetFriend 0, both arcs 2, both ranges 45, SoftTargetMatchLocked 1.
+// SoftTargetFriend 0, both arcs 2, both ranges 45, SoftTargetMatchLocked 1,
+// SoftTargetWithLocked 1.
 // Picked when something asks (a read of a token) and on the UI frame tick
 // only while a frame is registered for the side's event.
 
@@ -72,6 +76,7 @@ State g_enemy{Offsets::TARGET_MODE_ENEMY, &_enemyChanged};
 State g_friend{Offsets::TARGET_MODE_FRIEND, &_friendChanged};
 
 CVar::Factory::Handle g_matchLocked = nullptr;
+CVar::Factory::Handle g_withLocked = nullptr;
 
 constexpr float kDefaultRange = 45.0f;
 
@@ -100,10 +105,12 @@ bool Qualifies(const State &st, const SoftTarget::Area &area, uint64_t guid) {
 uint64_t Pick(State &st) {
     if (!SoftTarget::Enabled(st.enable))
         return 0;
+    const uint64_t target = LockedTarget();
+    if (target != 0 && CVar::Factory::GetInt(g_withLocked) == 0)
+        return 0;
     SoftTarget::Area area;
     if (!SoftTarget::Begin(area, st.arc, st.range, kDefaultRange))
         return 0;
-    const uint64_t target = LockedTarget();
     if (CVar::Factory::GetInt(g_matchLocked) != 0 && Qualifies(st, area, target))
         return target;
     return SoftTarget::Nearest(area, Offsets::TYPEMASK_UNIT, &Accept, &st);
@@ -141,6 +148,7 @@ void Register() {
     g_friend.arc = CVar::Factory::Register("SoftTargetFriendArc", "2");
     g_friend.range = CVar::Factory::Register("SoftTargetFriendRange", "45");
     g_matchLocked = CVar::Factory::Register("SoftTargetMatchLocked", "1");
+    g_withLocked = CVar::Factory::Register("SoftTargetWithLocked", "1");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

@@ -9669,6 +9669,20 @@ enum Offsets {
     FUN_ATTACK_START = 0x005ECB70,
     FUN_ATTACK_STOP = 0x005ECAC0,
     FUN_ATTACK_RESOLVE_TARGET = 0x00612DF0,
+    // How RESOLVE_TARGET settles the GUID (Ghidra, CGUnit_C::CanStartMeleeAttack):
+    // after the state ladder, an empty in-GUID takes the selection (0x0061306B);
+    // a friendly one (reaction >= 4) or none tab-targets via TargetNearest(0, 1)
+    // (0x006130BC); any other is selected through FUN_SET_SELECTION_BY_GUID at
+    // this call, and the GUID is then READ BACK from VAR_CURRENT_SELECTION_GUID_LO
+    // (0x006130C1) before the final alive / CanAttack test.
+    CALL_ATTACK_RESOLVE_SELECT = 0x00613100,
+    // FUN_ATTACK_TOGGLE (0x006131A0, CGUnit_C::StartAttack, behind 1.12's
+    // AttackTarget): `__thiscall(player, uint64_t guid)`, `ret 8`. Its call to
+    // RESOLVE_TARGET with &guid; then stop when attacking, else START.
+    CALL_ATTACK_TOGGLE_RESOLVE = 0x006131AA,
+    // FUN_ATTACK_START's own select of the victim (CGPlayer_C::StartMeleeAttack
+    // selects it through FUN_SET_SELECTION_BY_GUID before CMSG_ATTACKSWING).
+    CALL_ATTACK_START_SELECT = 0x005ECCAA,
     //   HAS_ATTACK_TARGET: __fastcall(unit) -> int. Nonzero while the
     //     melee-victim GUID at [unit+0xC48] is set: the engine's own "is
     //     attacking" test (the cast request's auto-attack start and STOP's

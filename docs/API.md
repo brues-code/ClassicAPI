@@ -2127,7 +2127,12 @@ can use it safely.
 
 With no argument, it attacks your current target. With a unit token (`"target"`,
 `"focus"`, `"party1"`), it attacks that unit. A name or an unknown token uses the
-current target instead. If there is no valid target, nothing happens.
+current target instead.
+
+When you have no target, it attacks `"softenemy"` and your target stays
+empty. `AttackTarget()` does the same. If there is no soft enemy, the nearest
+enemy becomes your target and you attack it. See
+[Soft enemy and soft friend](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend).
 
 ```lua
 StartAttack()            -- attack the current target; never cancels an attack
@@ -18955,6 +18960,12 @@ settings below. If more than one unit qualifies, it picks the nearest one.
 **Your target.** When `SoftTargetMatchLocked` is `1`, your target is the
 soft unit when it qualifies. For example, when you target an enemy inside
 the range, `"softenemy"` is that enemy, also when another enemy is nearer.
+When `SoftTargetWithLocked` is `0`, there is no soft enemy and no soft
+friend while you have a target.
+
+**Attacks.** When you have no target, **Attack Target**, `/startattack`,
+`AttackTarget()` and `StartAttack()` attack `"softenemy"`. Your target
+stays empty.
 
 **Unit tokens.**
 
@@ -18980,6 +18991,7 @@ A `target` suffix also works, for example `"softenemytarget"`.
 | `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `2` | The same values as `SoftTargetInteractArc`. |
 | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
 | `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
+| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a target. `1` and `2`: they are picked also while you have a target. |
 
 When a picked unit changes,
 [`PLAYER_SOFT_ENEMY_CHANGED` or `PLAYER_SOFT_FRIEND_CHANGED`](#player_soft_enemy_changed--player_soft_friend_changed-events)

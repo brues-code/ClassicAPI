@@ -26,6 +26,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "target/SoftAttack.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -36,7 +37,6 @@ namespace {
 
 using Start_t = void(__thiscall *)(void *player, const uint64_t *targetGuid);
 using Stop_t = void(__fastcall *)(void *player);
-using ResolveTarget_t = int(__thiscall *)(void *player, uint64_t *outGuid);
 
 // Resolve an optional unit-token argument to a GUID without raising.
 // `Unit::Identity::GuidForToken` raises for non-token strings (a name or
@@ -79,11 +79,10 @@ static int __fastcall Script_StartAttack(void *L) {
     uint64_t target = SafeResolveToken(L, Game::Lua::ToString(L, 1));
     if (target == 0) {
         // No explicit target given (or unresolvable): validate and take the
-        // current target. Returns 0 — and posts the engine's own UI error —
-        // when there's nothing valid to attack.
-        auto resolve =
-            reinterpret_cast<ResolveTarget_t>(Offsets::FUN_ATTACK_RESOLVE_TARGET);
-        if (resolve(player, &target) == 0)
+        // current target, or with none the soft enemy (action targeting).
+        // Returns 0 — and posts the engine's own UI error — when there's
+        // nothing valid to attack.
+        if (Target::SoftAttack::ResolveMelee(player, &target) == 0)
             return 0;
     }
 
