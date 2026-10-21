@@ -56,6 +56,8 @@ build instructions.
   - [Modifier keys during a binding](#modifier-keys-during-a-binding)
   - [Override bindings](#override-bindings)
   - [`GetBindingAction(key [, checkOverride])`](#getbindingactionkey--checkoverride)
+  - [Keys with modifiers](#keys-with-modifiers)
+  - [`GetBindingByKey(key)`](#getbindingbykeykey)
   - [Modified clicks](#modified-clicks)
   - [`ActionButtonUseKeyDown`](#actionbuttonusekeydown)
 
@@ -6232,9 +6234,8 @@ For each key, the newest priority override wins. With no priority override,
 the newest normal override wins. With no override, the saved binding is
 used. When you remove an override, the next one is used again.
 
-When no binding matches a key with modifiers, the game tries the key without
-its first modifier. Overrides follow the same rule: with no binding on
-`ALT-SHIFT-1`, an override on `SHIFT-1` is used.
+Overrides also apply to keys with fewer modifiers. See
+[Keys with modifiers](#keys-with-modifiers).
 
 All overrides are removed on `/reload` and logout.
 
@@ -6242,6 +6243,29 @@ All overrides are removed on `/reload` and logout.
 
 Returns the command bound to `key`. With `checkOverride` true, an override
 binding is returned first when one is active.
+
+### Keys with modifiers
+
+If a key with modifiers has no binding, the game tries the same key with
+fewer modifiers. The game uses the first key in the list that has a binding.
+
+| Key pressed | Keys that the game tries, in this order |
+|-------------|------------------------------------------|
+| `SHIFT-1` | `SHIFT-1`, `1` |
+| `ALT-SHIFT-1` | `ALT-SHIFT-1`, `SHIFT-1`, `ALT-1`, `1` |
+| `ALT-CTRL-SHIFT-1` | `ALT-CTRL-SHIFT-1`, `CTRL-SHIFT-1`, `ALT-SHIFT-1`, `ALT-CTRL-1`, `SHIFT-1`, `CTRL-1`, `ALT-1`, `1` |
+
+For each key, the game uses an override before the saved binding. The game
+ignores a binding to a command that does not exist, and tries the next key.
+
+A modifier that is not part of the matched key counts as held. For example,
+`ALT-SHIFT-1` runs the binding on `ALT-1`. In that binding, `IsShiftKeyDown()`
+returns `1` and `[mod:shift]` passes.
+
+### `GetBindingByKey(key)`
+
+Returns the command that a press of `key` runs, or `nil`. It uses the order
+in [Keys with modifiers](#keys-with-modifiers), and includes overrides.
 
 ### Modified clicks
 

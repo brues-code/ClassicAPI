@@ -133,6 +133,24 @@ enum Offsets {
     // pushes "" for null) is its only Lua caller.
     FUN_BINDINGS_GET_COMMAND_ACTION = 0x004B7DA0,
     FUN_SCRIPT_GET_BINDING_ACTION = 0x004B8120,
+    // The manager's command table (4.3.4's m_commands), a Storm
+    // TSHashTable<_, HASHKEY_STRI> keyed by command name, filled from
+    // Bindings.xml. The engine inlines its lookup (FUN_BINDING_COMMAND_EXECUTE):
+    // hash = FUN_SSTR_HASH_HT(name); bucket = slots[hash & mask] (12 bytes:
+    // +0 link offset, +8 first node); a node is +0 hash, +0x14 name, and
+    // `*(node + linkOffset + 4)` is the next; a null or odd pointer ends the
+    // chain. Same layout as each binding set's key table (set N at
+    // `mgr + 0x30 + N*0x28`: slots +0xC4, mask +0xCC for set 3 in
+    // FUN_BINDINGS_GET_COMMAND_ACTION), so slots/mask are table +0x1C/+0x24.
+    // Verified in both disassemblies.
+    OFF_BINDINGS_COMMAND_TABLE = 0x08,
+    OFF_HASHTABLE_SLOTS = 0x1C,
+    OFF_HASHTABLE_MASK = 0x24,
+    OFF_HASHTABLE_NODE_NAME = 0x14,
+    // Storm SStrHashHT — `uint32_t __stdcall(const char *)` (callee pops its
+    // one argument; FUN_BINDINGS_GET_COMMAND_ACTION calls it with no cleanup).
+    // The case-insensitive string hash of HASHKEY_STRI tables.
+    FUN_SSTR_HASH_HT = 0x0064B3F0,
     // CGGameUI::IsKeyDown for the merged modifiers — `int __fastcall(int
     // which)`: 0 shift, 1 ctrl, 2 alt. IsShiftKeyDown / IsControlKeyDown /
     // IsAltKeyDown (0x00488590..0x00488600) and the engine's own modifier

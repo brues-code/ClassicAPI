@@ -20,17 +20,23 @@
 //   SetOverrideBinding[Spell / Item / Macro / Click], ClearOverrideBindings
 //       — owner-scoped bindings in front of the saved ones, never saved.
 //   GetBindingAction(key [, checkOverride])   — sees overrides when asked.
+//   GetBindingByKey(key)                      — what a press of the key runs.
 //
 // Overrides — 4.3.4's OVERRIDEKEYBINDING: per key (case-insensitive), two
 // lists (normal, priority) of {owner, command}; setting an owner's binding
 // unlinks its old one from both and links the new one at the head of its
 // priority's list, so the newest priority binding wins, then the newest
 // normal one. 4.3.4 consults them inside its key lookup, before the saved
-// binding, for every key it tries. 1.12's key dispatch (FUN_BINDING_KEY_DISPATCH)
-// tries two keys — the pressed one, then the pressed one minus its first
-// modifier — so the co-hook tries an override, then the saved binding
-// (FUN_BINDINGS_GET_COMMAND_ACTION), for each in turn, and lets the engine
-// run a saved binding it finds.
+// binding, for every key it tries.
+//
+// Reduced keys — 4.3.4's GetReducedKeyBinding. 1.12's key dispatch
+// (FUN_BINDING_KEY_DISPATCH) tries only two keys: the pressed one, then the
+// pressed one minus its first modifier. 4.3.4 tries every subset of the
+// modifiers (ALT-SHIFT-Q: ALT-SHIFT-Q, SHIFT-Q, ALT-Q, Q). The co-hook walks
+// 4.3.4's list, tries an override, then the saved binding
+// (FUN_BINDINGS_GET_COMMAND_ACTION), for each key in turn — skipping one whose
+// command is unknown, as 4.3.4 does — and lets the engine run a saved binding
+// it finds.
 //
 // Around whatever runs, the key-state override (Input::Modifier) hides the
 // matched key's own modifiers, as 4.3.4's ExecKey does. Direct actions
@@ -121,6 +127,85 @@ const char *SavedCommand(void *mgr, const char *key) {
                                                                                           key);
 }
 
+// Whether the command table has `command` — the walk the engine inlines in
+// FUN_BINDING_COMMAND_EXECUTE (see OFF_BINDINGS_COMMAND_TABLE).
+bool IsKnownCommand(void *mgr, const char *command) {
+    using HashHT_t = uint32_t(__stdcall *)(const char *);
+    using CmpI_t = int(__stdcall *)(const char *, const char *, int);
+    const uintptr_t table = reinterpret_cast<uintptr_t>(mgr) + Offsets::OFF_BINDINGS_COMMAND_TABLE;
+    const uint32_t mask = Game::Read<uint32_t>(table + Offsets::OFF_HASHTABLE_MASK);
+    if (*command == '\0' || mask == 0xFFFFFFFF)
+        return false;
+    const uint32_t hash = reinterpret_cast<HashHT_t>(Offsets::FUN_SSTR_HASH_HT)(command);
+    const uintptr_t bucket =
+        Game::Read<uintptr_t>(table + Offsets::OFF_HASHTABLE_SLOTS) + (hash & mask) * 12;
+    const uint32_t link = Game::Read<uint32_t>(bucket);
+    for (uintptr_t node = Game::Read<uintptr_t>(bucket + 8); node != 0 && (node & 1) == 0;
+         node = Game::Read<uintptr_t>(node + link + 4)) {
+        if (Game::Read<uint32_t>(node) == hash &&
+            reinterpret_cast<CmpI_t>(Offsets::FUN_SSTR_CMP_I)(
+                Game::Read<const char *>(node + Offsets::OFF_HASHTABLE_NODE_NAME), command,
+                0x7FFFFFFF) == 0)
+            return true;
+    }
+    return false;
+}
+
+// CGUIBindings::GetKeyBinding: the key's active override, else its saved
+// binding — and none when that command is neither a direct action nor a known
+// command (a saved one is never checked when set). 4.3.4's retry under the
+// generic modifier names (LSHIFT- → SHIFT-) is left out: 1.12 builds chords
+// from ALT-, CTRL- and SHIFT- only, so a pressed key is already generic.
+struct KeyBinding {
+    const char *command = nullptr;
+    bool isOverride = false;
+};
+
+KeyBinding FindKeyBinding(void *mgr, const char *key) {
+    KeyBinding binding{ActiveOverride(key), true};
+    if (binding.command == nullptr)
+        binding = {SavedCommand(mgr, key), false};
+    if (binding.command == nullptr ||
+        !(Command::IsDirectAction(binding.command) || IsKnownCommand(mgr, binding.command)))
+        return {};
+    return binding;
+}
+
+// CGUIBindings::GetReducedKeyBinding: up to three leading modifiers split off
+// at '-', then the key with each subset of them in 4.3.4's fixed order (bit j
+// keeps modifier j) — ALT-SHIFT-Q tries ALT-SHIFT-Q, SHIFT-Q, ALT-Q, Q. The
+// first reduced key with a binding wins and is left in `reduced`.
+KeyBinding FindReducedKeyBinding(void *mgr, const char *key, std::string &reduced) {
+    std::string modifiers[3];
+    size_t count = 0;
+    const char *rest = key;
+    while (count < 3) {
+        const char *separator = std::strchr(rest, '-');
+        if (separator == nullptr || separator == rest)
+            break;
+        modifiers[count++].assign(rest, separator - rest + 1);
+        rest = separator + 1;
+    }
+
+    static constexpr uint8_t kCombinations[4][9] = {
+        {1, 0},
+        {2, 1, 0},
+        {4, 3, 2, 1, 0},
+        {8, 7, 6, 5, 3, 4, 2, 1, 0},
+    };
+    for (uint8_t i = 0; i < kCombinations[count][0]; ++i) {
+        reduced.clear();
+        for (size_t j = 0; j < count; ++j)
+            if ((1u << j) & kCombinations[count][i + 1])
+                reduced += modifiers[j];
+        reduced += rest;
+        const KeyBinding binding = FindKeyBinding(mgr, reduced.c_str());
+        if (binding.command != nullptr)
+            return binding;
+    }
+    return {};
+}
+
 int ExecuteCommand(void *mgr, const char *command, int isDown) {
     if (Command::IsDirectAction(command))
         return Command::RunKey(command, isDown);
@@ -147,26 +232,21 @@ int RunOverride(void *mgr, const char *command, int isDown) {
     return result;
 }
 
+// CGUIBindings::ExecKey. A saved binding is run by the engine, handed the
+// reduced key: it uses the key only for its table lookup, and finds it as the
+// first of its own two. No binding runs nothing, as in 4.3.4.
 int __fastcall KeyDispatch_h(void *mgr, void *edx, const char *key, int isDown) {
     if (key == nullptr || *key == '\0')
         return g_keyDispatchOriginal(mgr, edx, key, isDown);
 
-    // The engine's two keys: as pressed, then without its first modifier.
-    const char *dash = std::strchr(key, '-');
-    const char *candidates[2] = {key, (dash != nullptr && dash[1] != '\0') ? dash + 1 : nullptr};
-    for (const char *candidate : candidates) {
-        if (candidate == nullptr)
-            break;
-        if (const char *command = ActiveOverride(candidate)) {
-            const Input::Modifier::KeyStateOverride keyState(candidate);
-            return RunOverride(mgr, command, isDown);
-        }
-        if (SavedCommand(mgr, candidate) != nullptr) {
-            const Input::Modifier::KeyStateOverride keyState(candidate);
-            return g_keyDispatchOriginal(mgr, edx, key, isDown);
-        }
-    }
-    return g_keyDispatchOriginal(mgr, edx, key, isDown);
+    std::string reduced;
+    const KeyBinding binding = FindReducedKeyBinding(mgr, key, reduced);
+    if (binding.command == nullptr)
+        return 0;
+    const Input::Modifier::KeyStateOverride keyState(reduced.c_str());
+    if (binding.isOverride)
+        return RunOverride(mgr, binding.command, isDown);
+    return g_keyDispatchOriginal(mgr, edx, reduced.c_str(), isDown);
 }
 
 // Direct actions only for a key (executing flag up); RunBinding reaches the
@@ -305,7 +385,36 @@ int __fastcall Script_GetBindingAction(void *L) {
     return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_GET_BINDING_ACTION)(L);
 }
 
+// GetBindingByKey(key): the command a press of `key` runs — the reduced-key
+// lookup ExecKey makes, overrides included.
+int __fastcall Script_GetBindingByKey(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: GetBindingByKey(\"action\"[, mode])");
+        return 0;
+    }
+    std::string reduced;
+    const KeyBinding binding = FindReducedKeyBinding(Manager(), Game::Lua::ToString(L, 1), reduced);
+    if (binding.command == nullptr)
+        return 0;
+    Game::Lua::PushString(L, binding.command);
+    return 1;
+}
+
+const Game::Doc::Field kGetBindingByKeyArgs[] = {
+    Game::Doc::Req("key", "string", "A key with its modifiers, such as \"ALT-SHIFT-Q\"."),
+};
+const Game::Doc::Field kGetBindingByKeyRets[] = {
+    Game::Doc::Opt("command", "string", nullptr,
+                   "The command a press of the key runs, else nil. When the key itself has no "
+                   "binding, the key with fewer modifiers is tried."),
+};
+const Game::Doc::Function kGetBindingByKey{"Returns the command that a key press runs.",
+                                           kGetBindingByKeyArgs, kGetBindingByKeyRets,
+                                           "BindingsGlobals"};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("GetBindingByKey", &Script_GetBindingByKey,
+                                      &kGetBindingByKey);
     Game::Lua::RegisterGlobalFunction("SetBindingSpell", &Script_SetBindingSpell);
     Game::Lua::RegisterGlobalFunction("SetBindingItem", &Script_SetBindingItem);
     Game::Lua::RegisterGlobalFunction("SetBindingMacro", &Script_SetBindingMacro);
