@@ -13,7 +13,9 @@
 
 // The soft-interact icon (`SoftTargetIconInteract`; retail defaults it to 1,
 // here it is 0 so the icon is opted into, and the pick does not run every
-// frame for players who never look at it): the
+// frame for players who never look at it). A game object's icon also needs
+// `SoftTargetIconGameObject` (retail's Accessibility "Interact Key Icons"
+// option: Default sets it 0, Show All 1). The
 // cursor image of the `softinteract` object, drawn over it — a unit's above
 // its name, an object's above its top (retail screenshots: the speak bubble
 // over an NPC's name, the mail icon over a mailbox, grey then coloured as the
@@ -64,6 +66,7 @@ constexpr int kTypeMask =
     Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT | Offsets::TYPEMASK_CORPSE;
 
 CVar::Factory::Handle g_enable = nullptr;
+CVar::Factory::Handle g_gameObject = nullptr;
 CVar::Factory::Handle g_size = nullptr;
 
 void *g_parent = nullptr; // the world frame g_tex belongs to
@@ -123,6 +126,9 @@ void Update() {
     const bool enabled = worldFrame != nullptr && CVar::Factory::GetInt(g_enable) != 0;
     const uint64_t guid = enabled ? Target::SoftInteract::Get() : 0;
     void *object = guid != 0 ? Object::ByGuid(kTypeMask, guid) : nullptr;
+    if (object != nullptr && CVar::Factory::GetInt(g_gameObject) == 0 &&
+        Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid) != nullptr)
+        object = nullptr;
     char path[Offsets::CURSOR_FILE_SIZE];
     float screen[2];
     if (object == nullptr ||
@@ -165,6 +171,7 @@ const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 void Register() {
     g_enable = CVar::Factory::Register("SoftTargetIconInteract", "0");
+    g_gameObject = CVar::Factory::Register("SoftTargetIconGameObject", "0");
     g_size = CVar::Factory::Register("SoftTargetNameplateSize", "19");
 }
 

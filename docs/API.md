@@ -18893,7 +18893,8 @@ the GUID of that object. Functions that read unit data, such as
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
 **The icon.** When `SoftTargetIconInteract` is `1`, an icon shows over the
-picked object. The icon is the cursor
+picked object. For a game object, such as a mailbox, a chest or a node,
+`SoftTargetIconGameObject` must also be `1`. The icon is the cursor
 image that the mouse shows over the object (see
 [`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
 For a unit, the icon is above its name. For a game object or a corpse, the
@@ -18903,6 +18904,7 @@ the grey "Unable" form. The icon is hidden when the object is off the screen.
 | cvar | default | values |
 |---|---|---|
 | `SoftTargetIconInteract` | `0` | `1` shows the icon, `0` hides it. |
+| `SoftTargetIconGameObject` | `0` | `1` shows the icon over a game object, `0` hides it. The icon also needs `SoftTargetIconInteract`. |
 | `SoftTargetNameplateSize` | `19` | The size of the icon. |
 
 When the picked object changes,
