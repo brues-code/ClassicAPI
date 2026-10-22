@@ -479,7 +479,7 @@ build instructions.
   - [`C_Item.GetEnchantInfo(enchantID)`](#c_itemgetenchantinfoenchantid)
   - [`C_Item.IsBound(itemLocation)`](#c_itemisbounditemlocation)
   - [`IsConsumableItem(item)` / `C_Item.IsConsumableItem(item)`](#isconsumableitemitem--c_itemisconsumableitemitem)
-  - [`C_Item.IsEquippableItem(item)`](#c_itemisequippableitemitem)
+  - [`IsEquippableItem(item)` / `C_Item.IsEquippableItem(item)`](#isequippableitemitem--c_itemisequippableitemitem)
   - [`IsUsableItem(item)` / `C_Item.IsUsableItem(item)`](#isusableitemitem--c_itemisusableitemitem)
   - [`C_Item.IsEquippedItem(item)`](#c_itemisequippeditemitem)
   - [`C_Item.IsItemDataCachedByID(item)` / `C_Item.IsItemDataCached(itemLocation)`](#c_itemisitemdatacachedbyiditem--c_itemisitemdatacacheditemlocation)
@@ -11171,25 +11171,23 @@ C_Item.IsConsumableItem(6948)    -- Hearthstone → false
 C_Item.IsConsumableItem(18820)   -- Talisman of Ephemeral Power → false
 ```
 
-### `C_Item.IsEquippableItem(item)`
+### `IsEquippableItem(item)` / `C_Item.IsEquippableItem(item)`
 
-Returns `true` if `item` can be equipped in any character-pane slot,
-`false` otherwise. Reads `m_inventoryType` from the cached ItemStats
-record — INVTYPE_NON_EQUIP (value `0`) is the only "not equippable"
-value, so any non-zero inventory type passes (head, neck, weapon,
-shield, holdable, …).
+Tells if the item goes in an equipment slot. Bags, ammo, thrown weapons,
+and relics also count as equippable. The result does not tell if your
+character can use the item.
 
-`item` is an itemID number or `"item:N..."` link. Item names aren't
-accepted — there is no name→ID resolver, and equippability is an
-itemID-keyed property anyway.
+`item` is an item ID, an item link, or the name of an item that you carry.
+An item that is not in the item cache is not equippable. The function does
+not start a load for that item.
 
-Returns `false` for uncached items (no async load fired). If you
-need it to wait for the cache, call `C_Item.RequestLoadItemDataByID`
-first and re-check on `ITEM_DATA_LOAD_RESULT`.
+The two forms return different types. `IsEquippableItem` returns `1` or
+`nil`. `C_Item.IsEquippableItem` returns `true` or `false`.
 
 ```lua
-C_Item.IsEquippableItem(12640)  -- Lionheart Helm → true
-C_Item.IsEquippableItem(6948)   -- Hearthstone → false
+IsEquippableItem(12640)          -- Lionheart Helm → 1
+C_Item.IsEquippableItem(2512)    -- Rough Arrow → true (ammo)
+C_Item.IsEquippableItem(6948)    -- Hearthstone → false
 ```
 
 ### `IsUsableItem(item)` / `C_Item.IsUsableItem(item)`

@@ -65,38 +65,38 @@ int __fastcall Script_OffhandHasWeapon(void *L) {
     return 1;
 }
 
-// `C_Item.IsEquippableItem(item)` — true iff `item` can be equipped
-// in *some* character-pane slot. Reads `m_inventoryType` off the
-// cached ItemStats record and treats any non-zero value as
-// equippable (INVTYPE_NON_EQUIP = 0, everything else 1..23 fits some
-// slot). Modern signature accepts itemID number, `"item:N..."` link,
-// or item name; we delegate input resolution to `Item::Arg::Resolve`.
+// `IsEquippableItem(item)` / `C_Item.IsEquippableItem(item)` — whether the
+// item goes in some equipment slot. A port of 3.3.5's
+// `Script_IsEquippableItem`: any non-zero `m_inventoryType` counts
+// (INVTYPE_NON_EQUIP = 0), so bags, ammo, thrown weapons and relics do too.
 //
-// Cache-miss handling: returns false without firing a load (sync
-// call, matches modern semantics). Callers that want auto-warm
-// behavior should run `C_Item.RequestLoadItemDataByID` first and
-// re-check on `ITEM_DATA_LOAD_RESULT`.
+// The argument is resolved as 3.3.5's `GetItemIDByName` does: a number, an
+// `item:` string or link, or the name of a carried item (`IDForName` stands
+// in for 3.3.5's `s_itemByName`). An uncached item is not equippable and
+// fires no load — call `C_Item.RequestLoadItemDataByID` first if needed.
 //
-// Name-only inputs aren't supported because vanilla has no item-name
-// → itemID resolver (`Item::Arg::Resolve` returns just a name string,
-// no itemID, and we'd need to scan the entire ItemStats cache to
-// match a name back — slow, and the engine doesn't ship that map).
-// Modern WoW only resolves names for items currently in inventory;
-// `C_Item.IsEquippedItem` covers that exact niche already.
+// The global keeps 3.3.5's 1/nil; `C_Item.IsEquippableItem` returns a bool.
+bool IsEquippable(void *L) {
+    const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);
+    int itemID = arg.itemID;
+    if (itemID <= 0)
+        itemID = Item::Location::IDForName(arg.name, Offsets::INVMGR_SEARCH_BANK);
+    const uint8_t *record =
+        itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+    return record != nullptr &&
+           Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE) != 0;
+}
+
+int __fastcall Script_IsEquippableItem(void *L) {
+    if (IsEquippable(L))
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
 int __fastcall Script_C_Item_IsEquippableItem(void *L) {
-    const int itemID = Item::Arg::ResolveItemID(L, 1);
-    if (itemID <= 0) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
-    }
-    auto *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
-    }
-    const uint32_t invType = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
-    Game::Lua::PushBoolean(L, invType > 0);
+    Game::Lua::PushBool(L, IsEquippable(L));
     return 1;
 }
 
@@ -222,12 +222,37 @@ int __fastcall Script_C_Item_EquipItemByName(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kIsEquippableLegacyArgs[] = {
+    Game::Doc::Req("item", "number", "An item ID, an item link, or the name of a carried item."),
+};
+const Game::Doc::Field kIsEquippableLegacyRets[] = {
+    Game::Doc::Opt("isEquippable", "number", nullptr,
+                   "1 when the item goes in an equipment slot, else nil."),
+};
+const Game::Doc::Function kIsEquippableItem{
+    "Whether the item goes in an equipment slot, bag slots and the ammo slot included.",
+    kIsEquippableLegacyArgs, kIsEquippableLegacyRets, "ItemGlobals"};
+
+const Game::Doc::Field kIsEquippableArgs[] = {
+    Game::Doc::Req("item", "ItemInfo", "An item ID, an item link, or the name of a carried item."),
+};
+const Game::Doc::Field kIsEquippableRets[] = {
+    Game::Doc::Req("isEquippable", "bool", "True when the item goes in an equipment slot."),
+};
+const Game::Doc::Function kCIsEquippableItem{
+    "Whether the item goes in an equipment slot, bag slots and the ammo slot included.",
+    kIsEquippableArgs, kIsEquippableRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("OffhandHasWeapon", &Script_OffhandHasWeapon);
+    Game::Lua::RegisterGlobalFunction("IsEquippableItem", &Script_IsEquippableItem,
+                                      &kIsEquippableItem);
     Game::Lua::RegisterTableFunction("C_Item", "IsEquippableItem",
-                                     &Script_C_Item_IsEquippableItem);
+                                     &Script_C_Item_IsEquippableItem, &kCIsEquippableItem);
     Game::Lua::RegisterTableFunction("C_Item", "IsEquippedItem", &Script_C_Item_IsEquippedItem);
     Game::Lua::RegisterTableFunction("C_Item", "EquipItemByName", &Script_C_Item_EquipItemByName);
 }
