@@ -175,15 +175,18 @@ int BuildList(LocEntry *out, int maxOut) {
         }
     }
 
-    // CC debuffs on the player.
+    // CC debuffs on the player, in UnitDebuff's order: one walk of the
+    // harmful order, the slots FindNthSlot would hand out for 1, 2, ...
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player != nullptr) {
         const uint64_t playerGuid = Unit::Identity::PlayerGuid();
-        for (int i = 1; n < maxOut; ++i) {
-            const int slot = Aura::Data::FindNthSlot(
-                player, i, Aura::Data::Filter::Harmful, Aura::Data::Match{});
-            if (slot < 0)
-                break;
+        int order[Offsets::UNIT_AURA_TOTAL];
+        Aura::Data::WalkOrder(player, Aura::Data::Filter::Harmful, order);
+        for (int i = 0; i < Offsets::UNIT_AURA_TOTAL && n < maxOut; ++i) {
+            const int slot = order[i];
+            if (!Aura::Data::SlotMatchesFilter(player, slot, Aura::Data::Filter::Harmful,
+                                               Aura::Data::Match{}))
+                continue;
             const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
             if (spellID == 0)
                 continue;
