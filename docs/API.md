@@ -19081,6 +19081,12 @@ A `target` suffix also works, for example `"softenemytarget"`.
 | `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a locked target. `1` and `2`: they are picked also while you have a locked target. |
 | `SoftTargetForce` | `1` | `1`: a loose target follows `"softenemy"`. `2`: a loose target follows `"softfriend"`. `0`: a loose target stays. |
 
+**The circles.** A selection circle shows under `"softenemy"` and under
+`"softfriend"`. It has the same color as the circle under your target, but
+it is smaller and dimmer. When the soft unit is also your target, the unit shows only
+the target circle. `ObjectSelectionCircle` `0` hides the soft circles with
+the target circle.
+
 **The icons.** When `SoftTargetIconEnemy` is `1`, an icon shows above the
 name of `"softenemy"`. When `SoftTargetIconFriend` is `1`, an icon shows
 above the name of `"softfriend"`. The icon is the cursor image that the

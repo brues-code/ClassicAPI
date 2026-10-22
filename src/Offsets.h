@@ -4203,6 +4203,29 @@ enum Offsets {
     // `int __thiscall()` (slot 21, the hover dispatch's gate at 0x482982).
     OFF_CGOBJECT_VTBL_GET_FACING = 0x18,
     OFF_CGOBJECT_VTBL_IS_MOUSEOVERABLE = 0x54,
+
+    // The selection circle (benilla-re objectlayer/unitdisplay.md, verified
+    // against the bytes of 0x608E00 / 0x614A90). The base per-frame step
+    // FUN_CGOBJECT_FRAME_UPDATE `void __thiscall(obj, int)` (every class's
+    // slot 14 runs it, inside DrawEntityModels' per-entity callback) draws the
+    // target's circle through vtable slot 12 when VAR_CVAR_OBJECT_SELECTION_CIRCLE
+    // is on. A unit's slot 12 (0x608E00): box = position -/+ (r, r, 2r) with
+    // r = OFF_CGUNIT_SELECTION_RADIUS x the descriptor scale; ARGB colour from
+    // slot 11 OFF_CGOBJECT_VTBL_SELECTION_COLOR `__thiscall(obj, uint32 *argb)`;
+    // FUN_BUILD_YAW_MATRIX `__thiscall(obj, float m[16], const float pt[3])`;
+    // then inside a Gx state push/pop FUN_SELECTION_CIRCLE_STATE
+    // `__thiscall(obj)` and FUN_DRAW_DECAL `__fastcall(const float box[6],
+    // const uint32 *argb, const float m[16], float, uint32 flags)` with
+    // (0.5, 0x200122). The decal's vertices carry the full ARGB, and the
+    // circle blends (source alpha, one), so the alpha byte is its brightness.
+    FUN_CGOBJECT_FRAME_UPDATE = 0x00614A90,
+    OFF_CGOBJECT_VTBL_SELECTION_COLOR = 0x2C,
+    OFF_CGUNIT_SELECTION_RADIUS = 0xCF0,
+    OFF_OBJECT_FIELD_SCALE_X = 0x10, // in the block at OFF_UNIT_GUID_PTR
+    FUN_BUILD_YAW_MATRIX = 0x00615070,
+    FUN_SELECTION_CIRCLE_STATE = 0x00614E00,
+    FUN_DRAW_DECAL = 0x006D7330,
+    VAR_CVAR_OBJECT_SELECTION_CIRCLE = 0x00C4DAF8, // CVar* of ObjectSelectionCircle
     // CGUnit vtable slot (byte offset): GetSpellCastingTime `int __thiscall(int
     // spellId)`, the unit's cast time for the spell in ms. The combat log's
     // cast-start line drops a spell it gives 0 (0x0062B460 pushes the
