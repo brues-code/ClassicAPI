@@ -68,13 +68,13 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [APIDocumentation](docs/API.md#apidocumentation) | `/classicapi` in-game browser, `C_APIDocumentation.GetSystem`, `C_APIDocumentation.GetSystems` |
 | [Animation](docs/API.md#animation) | `region:CreateAnimationGroup`, `region:GetAnimationGroups`, `region:StopAnimating`, `SetMaxAnimFramerate`, `GetMaxAnimFramerate`, `AnimationGroup` and `Animation` / `Alpha` / `Translation` / `Scale` / `Rotation` / `Path` / `ControlPoint` methods |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem` |
-| [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings`, `GetBindingAction` (`checkOverride`), `GetBindingByKey`, `IsModifiedClick`, `GetModifiedClick`, `SetModifiedClick`, `GetNumModifiedClickActions`, `GetModifiedClickAction`, `ActionButtonUseKeyDown` (cvar) |
+| [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings`, `GetBindingAction` (`checkOverride`), `GetBindingByKey`, `IsModifiedClick`, `GetModifiedClick`, `SetModifiedClick`, `GetNumModifiedClickActions`, `GetModifiedClickAction` |
 | [Chat](docs/API.md#chat) | `GetCurrentChatGUID` |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |
 | [ClassColor](docs/API.md#classcolor) | `C_ClassColor.GetClassColor` |
 | [ColorUtil](docs/API.md#colorutil) | `C_ColorUtil.ConvertRGBToHSV`, `C_ColorUtil.ConvertHSVToRGB`, `C_ColorUtil.ConvertHSVToHSL`, `C_ColorUtil.ConvertHSLToHSV`, `C_ColorUtil.ConvertHSLToRGB`, `C_ColorUtil.GenerateTextColorCode`, `C_ColorUtil.WrapTextInColor`, `C_ColorUtil.WrapTextInColorCode` |
-| [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack`, `stopAutoAttackOnTargetChange` (cvar) |
+| [Combat](docs/API.md#combat) | `InCombatLockdown`, `StartAttack`, `StopAttack` |
 | [CombatLog](docs/API.md#combatlog) | `CombatLogGetCurrentEventInfo`, `COMBATLOG_OBJECT_*` (constants) |
 | [Console](docs/API.md#console) | `CalculateStringEditDistance`, `ConsoleEcho`, `ConsoleExec`, `ConsoleGetAllCommands`, `ConsoleGetColorFromType`, `ConsoleGetFontHeight`, `ConsoleIsActive`, `ConsolePrintAllMatchingCommands`, `SetConsoleKey` |
 | [CVar](docs/API.md#cvar) | `C_CVar.AreCVarsLoaded`, `C_CVar.DoesCVarExist`, `C_CVar.GetCVarBitfield`, `C_CVar.GetCVarBool`, `C_CVar.GetCVarInfo`, `C_CVar.RemoveTempCVar`, `C_CVar.SetCVar`, `C_CVar.SetCVarBitfield`, `C_CVar.SetTempCVar`, `GetCVar`, `GetCVarDefault` |
@@ -127,13 +127,13 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [PlayerInfo](docs/API.md#playerinfo) | `C_PlayerInfo.CanUseItem`, `C_PlayerInfo.GetClass`, `C_PlayerInfo.GetName`, `C_PlayerInfo.GetRace`, `C_PlayerInfo.GetSex`, `C_PlayerInfo.GUIDIsCreature`, `C_PlayerInfo.GUIDIsGameObject`, `C_PlayerInfo.GUIDIsPet`, `C_PlayerInfo.GUIDIsPlayer`, `C_PlayerInfo.IsConnected` |
 | [Quest](docs/API.md#quest) | `C_QuestLog.GetInfo`, `C_QuestLog.GetNumQuestObjectives`, `C_QuestLog.GetQuestDetails`, `C_QuestLog.GetQuestLogTitle`, `C_QuestLog.GetHeaderIndexForQuest`, `C_QuestLog.GetLogIndexForQuestID`, `C_QuestLog.GetQuestIDForLogIndex`, `C_QuestLog.GetTitleForQuestID`, `C_QuestLog.IsOnQuest`, `C_QuestLog.IsQuestDataCachedByID`, `C_QuestLog.IsUnitOnQuest`, `C_QuestLog.RequestLoadQuestByID`, `GetQuestLogLeaderBoardID` |
 | [Sound](docs/API.md#sound) | `C_Sound.GetRecentSoundFiles`, `C_Sound.GetSoundScaledVolume`, `C_Sound.IsPlaying`, `C_Sound.PlayItemSound`, `C_Sound.PlaySound`, `C_Sound.PlaySoundWithOptions`, `C_Sound.PlayVocalErrorSound`, `MuteSoundFile`, `PlaySound`, `UnmuteSoundFile` |
-| [Spell](docs/API.md#spell) | `C_Spell.CancelSpellByID`, `C_Spell.CastAtCursor`, `C_Spell.CastAtUnit`, `C_Spell.CastingInfo`, `C_Spell.ChannelInfo`, `C_Spell.DoesSpellExist`, `C_Spell.GetSchoolString`, `C_Spell.GetSpellCastCount`, `C_Spell.GetSpellCooldown`, `C_Spell.GetSpellDescription`, `C_Spell.GetSpellDispelType`, `C_Spell.GetSpellEffectInfo`, `C_Spell.GetSpellEffectMechanics`, `C_Spell.GetSpellInfo`, `C_Spell.GetSpellLevelInfo`, `C_Spell.GetSpellLink`, `C_Spell.GetSpellLossOfControlCooldown`, `C_Spell.GetSpellMechanicByID`, `C_Spell.GetSpellName`, `C_Spell.GetSpellPowerCost`, `C_Spell.GetSpellRadius`, `C_Spell.GetSpellReagents`, `C_Spell.GetSpellRequiredTargetLevel`, `C_Spell.GetSpellSubtext`, `C_Spell.GetSpellTexture`, `C_Spell.IsAutoAttackSpell`, `C_Spell.IsCurrentSpell`, `C_Spell.IsNextMeleeSpell`, `C_Spell.IsRangedAutoAttackSpell`, `C_Spell.IsSelfBuff`, `C_Spell.IsSpellHarmful`, `C_Spell.IsSpellHelpful`, `C_Spell.IsSpellInRange`, `C_Spell.IsSpellPassive`, `C_Spell.IsSpellUsable`, `C_Spell.ResetsMeleeSwing`, `C_Spell.SpellHasRange`, `C_Spell.UnitCastingInfo`, `C_Spell.UnitChannelInfo`, `CanDualWield`, `CancelSpellByName`, `CastSpellNoToggle`, `GetCraftSpellID`, `GetSpellBonusDamage`, `GetSpellBonusHealing`, `GetSpellInfo`, `GetSpellLink`, `GetSpellRadius`, `GetSpellRequiredTargetLevel`, `GetSpellSchool`, `IsHarmfulSpell`, `IsHelpfulSpell`, `IsPassiveSpell`, `IsPlayerSpell`, `IsSpellKnown`, `IsUsableSpell`, `SpellHasRange`, `autoStand`, `autoDismount`, `autoUnshift` (cvars) |
+| [Spell](docs/API.md#spell) | `C_Spell.CancelSpellByID`, `C_Spell.CastAtCursor`, `C_Spell.CastAtUnit`, `C_Spell.CastingInfo`, `C_Spell.ChannelInfo`, `C_Spell.DoesSpellExist`, `C_Spell.GetSchoolString`, `C_Spell.GetSpellCastCount`, `C_Spell.GetSpellCooldown`, `C_Spell.GetSpellDescription`, `C_Spell.GetSpellDispelType`, `C_Spell.GetSpellEffectInfo`, `C_Spell.GetSpellEffectMechanics`, `C_Spell.GetSpellInfo`, `C_Spell.GetSpellLevelInfo`, `C_Spell.GetSpellLink`, `C_Spell.GetSpellLossOfControlCooldown`, `C_Spell.GetSpellMechanicByID`, `C_Spell.GetSpellName`, `C_Spell.GetSpellPowerCost`, `C_Spell.GetSpellRadius`, `C_Spell.GetSpellReagents`, `C_Spell.GetSpellRequiredTargetLevel`, `C_Spell.GetSpellSubtext`, `C_Spell.GetSpellTexture`, `C_Spell.IsAutoAttackSpell`, `C_Spell.IsCurrentSpell`, `C_Spell.IsNextMeleeSpell`, `C_Spell.IsRangedAutoAttackSpell`, `C_Spell.IsSelfBuff`, `C_Spell.IsSpellHarmful`, `C_Spell.IsSpellHelpful`, `C_Spell.IsSpellInRange`, `C_Spell.IsSpellPassive`, `C_Spell.IsSpellUsable`, `C_Spell.ResetsMeleeSwing`, `C_Spell.SpellHasRange`, `C_Spell.UnitCastingInfo`, `C_Spell.UnitChannelInfo`, `CanDualWield`, `CancelSpellByName`, `CastSpellNoToggle`, `GetCraftSpellID`, `GetSpellBonusDamage`, `GetSpellBonusHealing`, `GetSpellInfo`, `GetSpellLink`, `GetSpellRadius`, `GetSpellRequiredTargetLevel`, `GetSpellSchool`, `IsHarmfulSpell`, `IsHelpfulSpell`, `IsPassiveSpell`, `IsPlayerSpell`, `IsSpellKnown`, `IsUsableSpell`, `SpellHasRange` |
 | [SpellBook](docs/API.md#spellbook) | `C_SpellBook.ContainsAnyDisenchantSpell`, `C_SpellBook.GetCurrentLevelSpells`, `C_SpellBook.GetNumSpellBookSkillLines`, `C_SpellBook.GetPlayerSpellsByAura`, `C_SpellBook.GetSkillLineIndexByID`, `C_SpellBook.GetSkillLineName`, `C_SpellBook.GetSkillLineRank`, `C_SpellBook.GetSpellBookItemCastCount`, `C_SpellBook.GetSpellBookItemInfo`, `C_SpellBook.GetSpellBookItemLossOfControlCooldownDuration`, `C_SpellBook.GetSpellBookItemLossOfControlCooldownInfo`, `C_SpellBook.GetSpellBookItemSkillLineIndex`, `C_SpellBook.GetSpellBookSkillLineInfo`, `C_SpellBook.GetSpellLevelLearned`, `C_SpellBook.GetSpellSkillLine`, `C_SpellBook.IsAutoAttackSpellBookItem`, `C_SpellBook.IsClassTalentSpellBookItem`, `C_SpellBook.IsRangedAutoAttackSpellBookItem`, `FindSpellBookSlotByID` |
 | [State](docs/API.md#state) | `CancelShapeshiftForm`, `Dismount`, `GetMirrorTimerInfo`, `GetMirrorTimerProgress`, `GetShapeshiftFormID`, `GetSheathState`, `IsAssistingRitual`, `IsFalling`, `IsIndoors`, `IsInGroup`, `IsInRaid`, `IsLoggedIn`, `IsMounted`, `IsOutdoors`, `IsStealthed`, `IsSwimming` |
 | [SwingTimer](docs/API.md#swingtimer) | `C_SwingTimer.EnableRangeCheck`, `C_SwingTimer.IsTargetWithinSwingRange` |
 | [System](docs/API.md#system) | `CopyToClipboard`, `GetPhysicalScreenSize` |
 | [Talent](docs/API.md#talent) | `GetTalentIDByIndex`, `GetTalentSpellID` |
-| [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`, `InteractUnit`, `C_PlayerInteractionManager.InteractUnit`, `SoftTargetInteract` / `SoftTargetInteractArc` / `SoftTargetInteractRange` / `SoftTargetInteractRangeIsHard` / `SoftTargetIconInteract` / `SoftTargetIconGameObject` / `SoftTargetNameplateSize` / `SoftTargetEnemy` / `SoftTargetEnemyArc` / `SoftTargetEnemyRange` / `SoftTargetFriend` / `SoftTargetFriendArc` / `SoftTargetFriendRange` / `SoftTargetMatchLocked` / `SoftTargetWithLocked` / `SoftTargetForce` (cvars), `IsTargetLoose` |
+| [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`, `InteractUnit`, `C_PlayerInteractionManager.InteractUnit`, `IsTargetLoose` |
 | [TaxiMap](docs/API.md#taximap) | `C_TaxiMap.GetTaxiNodesForMap`, `C_TaxiMap.GetAllTaxiNodes`, `C_TaxiMap.GetTaxiPaths`, `C_TaxiMap.GetTaxiPathWaypoints`, `C_TaxiMap.GetTaxiRoute` |
 | [Texture](docs/API.md#texture) | `C_Texture.GetAtlasElementID`, `C_Texture.GetAtlasElements`, `C_Texture.GetAtlasExists`, `C_Texture.GetAtlasID`, `C_Texture.GetAtlasInfo`, `C_Texture.RegisterAtlas` |
 | [Time](docs/API.md#time) | `C_DateAndTime.AdjustTimeByDays`, `C_DateAndTime.AdjustTimeByMinutes`, `C_DateAndTime.CompareCalendarTime`, `C_DateAndTime.GetCalendarTimeFromEpoch`, `C_DateAndTime.GetCurrentCalendarTime`, `C_DateAndTime.GetSecondsUntilDailyReset`, `C_DateAndTime.GetServerTimeLocal`, `C_Timer.After`, `C_Timer.NewTicker`, `C_Timer.NewTimer`, `GetServerTime`, `GetTimeCached` |
@@ -206,6 +206,40 @@ for what each command does, and
 | Equipment | `/equip`, `/equipslot`, `/equipset` |
 | Action bars | `/changeactionbar`, `/swapactionbar`, `/click` |
 | Pet | `/petattack`, `/petfollow`, `/petstay`, `/petpassive`, `/petdefensive`, `/petaggressive`, `/petautocaston`, `/petautocastoff`, `/petautocasttoggle` |
+
+</details>
+
+<details>
+<summary><b>CVars</b> — new settings, set with <code>/console name value</code></summary>
+
+Each setting is saved in `WTF\Config.wtf`. Read and write them with `GetCVar`
+/ `SetCVar` or `/console`. Click a group name for the full rules.
+
+| Group | CVar | Default | What it does |
+|-------|------|---------|--------------|
+| [Bindings](docs/API.md#actionbuttonusekeydown) | `ActionButtonUseKeyDown` | `0` | `1` uses an action-bar key binding when you press the key. `0` uses it when you release the key. |
+| [Combat](docs/API.md#stopautoattackontargetchange) | `stopAutoAttackOnTargetChange` | `0` | `1` stops melee auto-attack, Auto Shot and wand shots when you change target. |
+| [Cast settings](docs/API.md#cast-settings-autostand-autodismount-autounshift) | `autoStand` | `0` | `1` makes you stand up when you cast while you sit. |
+| | `autoDismount` | `0` | `1` makes you dismount when you cast while you are mounted. |
+| | `autoUnshift` | `0` | `1` makes you leave your form when a spell cannot be cast in it. |
+| [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract) | `SoftTargetInteract` | `3` | Turns `softinteract` on: `2` keyboard and mouse, `3` always, `0` / `1` off. |
+| | `SoftTargetInteractArc` | `0` | Where the object can be: `0` straight ahead of the camera, `1` within 30° of it, `2` any direction. |
+| | `SoftTargetInteractRange` | `10` | Maximum distance in yards. |
+| | `SoftTargetInteractRangeIsHard` | `0` | `1` always applies the range. `0` also picks an object past it that you can use now. |
+| | `SoftTargetIconInteract` | `0` | `1` shows an icon over the soft-interact object. |
+| | `SoftTargetIconGameObject` | `0` | `1` also shows that icon over game objects. |
+| [Soft enemy / friend](docs/API.md#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend) | `SoftTargetEnemy` / `SoftTargetFriend` | `1` / `0` | Turns `softenemy` / `softfriend` on: `2` keyboard and mouse, `3` always, `0` / `1` off. |
+| | `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | The same values as `SoftTargetInteractArc`. |
+| | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | Maximum distance in yards. |
+| | `SoftTargetMatchLocked` | `1` | `1` uses your target as the soft unit when it qualifies. `0` always uses the nearest unit. |
+| | `SoftTargetWithLocked` | `1` | `0` turns soft enemy and soft friend off while you have a locked target. |
+| | `SoftTargetForce` | `1` | A loose target follows `softenemy` (`1`) or `softfriend` (`2`). `0` keeps it. |
+| | `SoftTargetIconEnemy` / `SoftTargetIconFriend` | `0` | `1` shows an icon over `softenemy` / `softfriend`. |
+| | `SoftTargetLowPriorityIcons` | `0` | `1` also shows the normal pointer as an icon. |
+| | `SoftTargetNameplateSize` | `19` | Size of all soft-target icons. |
+| [Text to speech](docs/API.md#tts-cvars) | `ttsVoice` | `0` | The voice that `C_VoiceChat.SpeakText` uses. |
+| | `ttsSpeed` | `0` | Speech rate, `-10` to `10`. |
+| | `ttsVolume` | `100` | Speech volume, `0` to `100`. |
 
 </details>
 
