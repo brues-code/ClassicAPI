@@ -3267,9 +3267,16 @@ C_Container.SortBags()
 
 > **An item that is still loading stays put.** Until an item's data
 > arrives from the server, it has no type, quality or name to group it
-> by. The sort leaves such an item alone, and keeps other items out of
-> its slot. Call `C_Container.SortBags()` again once the data arrives.
-> This is most likely just after you log in.
+> by, and no max stack size. The sort does not move such an item or
+> combine its stacks, and keeps other items out of its slot. Call
+> `C_Container.SortBags()` again once the data arrives. This is most
+> likely just after you log in.
+>
+> **A locked item stays put.** An item on the cursor, in the trade
+> window, or in a move that the server has not answered yet is locked.
+> The sort does not move it, and keeps other items out of its slot.
+> While the sort runs, the items that it moves are locked, the same as
+> an item that you drag by hand.
 
 This order is ClassicAPI's own. To sort a different way, build it from
 `C_Container.SwapItems`, `C_Container.MoveItem` and
@@ -3290,11 +3297,8 @@ bank sort is still running is ignored.
 C_Container.SortBankBags()
 ```
 
-> **Stacks combine less reliably here than in your bags.** To combine
-> stacks inside the bank, the client has to work out what fits, and that
-> needs each item's max stack size. Until an item's data arrives from
-> the server that number is unknown, so a stack the client cannot
-> measure is left alone. Sorting your bags does not have this limit.
+Items that are still loading or locked stay put, as in
+`C_Container.SortBags()`.
 
 ### `C_Container.GetSortBagsRightToLeft()` / `C_Container.SetSortBagsRightToLeft(enable)`
 

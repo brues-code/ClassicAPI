@@ -16,27 +16,31 @@
 // Two phases, because every item move is a server round trip and the
 // second phase has to read slot contents the first phase changed.
 //
-// PHASE ONE consolidates partial stacks, and hands that entirely to the
-// server: one `CMSG_AUTOSTORE_BAG_ITEM` per redundant stack, which
-// merges into existing stacks of the same item and splits across several
-// of them when that is what fits. Nothing here computes what fits, so
-// nothing here needs an item's max stack size — which matters, because
-// that number is unavailable until the item's data has arrived from the
-// server, and a merge that sizes stacks first silently skips the ones it
-// could not size.
+// PHASE ONE consolidates partial stacks: per item, the stacks are poured
+// fullest-first with an explicit swap or split per transfer (see
+// Consolidate for why the server's autostore cannot do this). Sizing a
+// transfer needs the item's max stack, so an item whose data has not
+// arrived is left alone this pass.
 //
-// PHASE TWO places items. It runs on the next `Bag::UpdateDelayed` — the
-// engine's own "a bag changed this frame" signal — so the merges are
-// settled before anything is read. It plans the whole layout up front
-// and then tracks each item's live position as swaps fire, rather than
-// re-reading a layout it is in the middle of mutating. Our swap is
-// fire-and-forget and sets no client-side item lock, so the whole batch
-// goes out in one frame.
+// PHASE TWO places items. It plans the whole layout up front and then
+// tracks each item's live position as swaps fire, rather than re-reading
+// a layout it is in the middle of mutating, so the whole batch goes out
+// in one frame.
 //
-// Neither phase may touch the Lua stack: phase two runs from a bag-update
-// callback, outside any Lua call, where the engine may have its own
-// values on the stack. Hence the `*From` senders and the direct invMgr
-// walk rather than `ResolveBag`.
+// Both phases wait on the ENGINE'S ITEM LOCK, the bit its own move
+// senders set: every item a phase relocates is locked once the batch is
+// sent, and the engine clears that lock itself when the server answers —
+// the item's slot GUID changing (an inventory or container slot watcher),
+// a refusal naming it (SMSG_INVENTORY_CHANGE_FAILURE), or the item being
+// destroyed by a merge. A phase is over when none of its items is still
+// locked; a deadline that restarts on every answer releases the stragglers
+// if the server goes quiet. The locks also grey the icons and stop the
+// player picking an item up mid-sort, exactly as a hand-dragged move does.
+//
+// Neither phase may touch the Lua stack: everything after the initial call
+// runs from the world tick, outside any Lua call, where the engine may
+// have its own values on the stack. Hence the `*From` senders and the
+// direct invMgr walk rather than `ResolveBag`.
 //
 // THE ORDERING IS OURS. Retail computes it in code we cannot read, and
 // its categories (per-bag assignment flags, expansion filters) have no
@@ -47,16 +51,17 @@
 // Gear adds two keys so like pieces sit together: the equip slot right
 // after the class (kSlotOrder), and quality, best first, before the name.
 //
-// An item whose data has NOT arrived is pinned: left where it is, with
-// its slot withheld from the destination pool so nothing else is planned
-// into it. It cannot be ranked without a class, quality and name, and
-// guessing scatters it. A later call places it once the data lands. Phase
-// one is unaffected, since it needs only the item ID.
+// An item whose data has NOT arrived, or that is locked (on the cursor,
+// in the trade window, mid-move), is pinned: left where it is, with its
+// slot withheld from the destination pool so nothing else is planned into
+// it. An unrankable item cannot be placed and a locked one cannot be
+// moved — the server refuses it, and one refused swap invalidates every
+// later move in the batch. A later call places it.
 
 #include "Game.h"
 #include "Offsets.h"
-#include "bag/UpdateDelayed.h"
 #include "cvar/Factory.h"
+#include "equipmentset/Locations.h"
 #include "item/BagFamily.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
@@ -64,19 +69,21 @@
 #include "item/Record.h"
 #include "item/Swap.h"
 #include "object/Resolve.h"
+#include "tick/WorldTick.h"
+#include "time/Clock.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace Container::SortBags {
 
 namespace {
 
-// The two sets this can arrange. Both go through the same snapshot,
-// comparator and placement; they differ only in how phase one merges
-// (see ConsolidateViaServer / ConsolidateLocally).
+// The two sets this can arrange. Both go through the same merge,
+// snapshot, comparator and placement.
 constexpr int kInventoryBags[] = {0, 1, 2, 3, 4};
 constexpr int kBankBags[] = {-1, 5, 6, 7, 8, 9, 10};
 
@@ -107,15 +114,6 @@ bool BankAutosortDisabled() {
 
 // Merge packets sent by the most recent phase one, reset per sort.
 int g_mergePackets = 0;
-
-// The source slots phase one asked the server to empty. Phase two counts
-// how many are still occupied when it runs: any at all means it is
-// planning against a half-merged snapshot, because the server's replies
-// did not all arrive in the bag update that woke it.
-struct SourceSlot {
-    int bag, slot;
-};
-std::vector<SourceSlot> g_mergeSources;
 
 // Item.dbc `m_class` values we rank on. Per-module codes, the way
 // `Item::BagFamily` keeps its own.
@@ -192,6 +190,8 @@ uint8_t SlotRank(uint32_t inventoryType) {
 
 struct Entry {
     const void *item;    // CGItem — stable across the swap batch
+    uint64_t guid;
+    int startBag, startSlot;
     int curBag, curSlot; // live position, updated as swaps fire
 
     // Destination, or unassigned. The unassigned sentinel is destSLOT,
@@ -271,7 +271,15 @@ struct BagView {
 // The backpack and the main bank both live inside the player's own
 // invMgr, at different linear bases. Equipped bags and bank bags each
 // have an invMgr of their own, reached through the bag item.
+//
+// The bank resolves only while a banker is open: the server refuses every
+// bank move without one, and the engine's own slot reader (`0x6228a0`)
+// hides slots 39..68 on the same banker-GUID test. The main bank's GUIDs
+// sit in the player's invMgr from login, so without this gate a closed-
+// bank sort would plan and send moves the server rejects one by one.
 bool ViewForBag(int bagID, BagView *out) {
+    if ((bagID == -1 || bagID >= 5) && !EquipmentSet::Locations::BankerOpen())
+        return false;
     if (bagID == 0) {
         auto *inv = Unit::Identity::PlayerInventoryManager();
         if (inv == nullptr)
@@ -291,11 +299,7 @@ bool ViewForBag(int bagID, BagView *out) {
         return true;
     }
 
-    // Resolve the bag item that owns the container. Bank bags resolve
-    // only once the bank window has been opened this session, which is
-    // the right gate: the server refuses bank moves without it anyway,
-    // so a bank sort attempted with the bank closed finds no cells and
-    // does nothing rather than firing moves that would all be rejected.
+    // Resolve the bag item that owns the container.
     int equipSlot = 0;
     if (bagID >= 1 && bagID <= 4)
         equipSlot = Offsets::INVSLOT_BAG1 + bagID - 1;
@@ -332,7 +336,12 @@ bool ViewForBag(int bagID, BagView *out) {
     return true;
 }
 
-const uint8_t *ItemAt(const BagView &v, int slotIndex0) {
+const uint8_t *ItemByGuid(uint64_t guid) {
+    return static_cast<const uint8_t *>(
+        Object::ByGuid(Offsets::TYPEMASK_ITEM, guid, "SortBags", 0));
+}
+
+const uint8_t *ItemAt(const BagView &v, int slotIndex0, uint64_t *guidOut) {
     auto *guids = *reinterpret_cast<const uint64_t *const *>(
         v.invMgr + Offsets::OFF_INVMGR_GUID_ARRAY);
     if (guids == nullptr)
@@ -340,8 +349,38 @@ const uint8_t *ItemAt(const BagView &v, int slotIndex0) {
     const uint64_t guid = guids[v.firstLinear + slotIndex0];
     if (guid == 0)
         return nullptr;
-    return static_cast<const uint8_t *>(
-        Object::ByGuid(Offsets::TYPEMASK_ITEM, guid, "SortBags", 0));
+    *guidOut = guid;
+    return ItemByGuid(guid);
+}
+
+bool IsLocked(const uint8_t *item) {
+    return (Game::Read<uint32_t>(item, Offsets::OFF_ITEM_CLIENT_LOCK) &
+            Offsets::ITEM_CLIENT_LOCK_BIT) != 0;
+}
+
+// An item gone from the object manager is settled too: a whole-stack
+// merge destroys its source.
+bool StillLocked(uint64_t guid) {
+    const uint8_t *item = ItemByGuid(guid);
+    return item != nullptr && IsLocked(item);
+}
+
+// The engine's own lock setter / clearer (`0x4953e0` / `0x495420`): each
+// flips bit 0 of `+0x314` and signals ITEM_LOCK_CHANGED.
+using LockByGuid_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
+
+void CallLockFn(uintptr_t fn, uint64_t guid) {
+    reinterpret_cast<LockByGuid_t>(fn)(static_cast<uint32_t>(guid),
+                                       static_cast<uint32_t>(guid >> 32));
+}
+
+// Items the running phase relocated and locked; the phase is over once
+// none of them is still locked.
+std::vector<uint64_t> g_waiting;
+
+void Lock(uint64_t guid) {
+    CallLockFn(Offsets::FUN_ITEM_LOCK_BY_GUID, guid);
+    g_waiting.push_back(guid);
 }
 
 uint32_t StackCount(const uint8_t *item) {
@@ -353,31 +392,25 @@ uint32_t StackCount(const uint8_t *item) {
     return n == 0 ? 1 : n;
 }
 
-// --- phase one: ask the server to consolidate -------------------------------
+// --- phase one: consolidate stacks ------------------------------------------
 
-// Returns true if any packet went out. Every stack after the first of
-// its item ID is offered to the server, which merges what fits and
-// rehomes the rest.
-//
-// When the item's record is cached we skip the ones that provably cannot
-// stack, purely to save a packet. When it is NOT cached we send anyway:
-// the alternative is silently skipping a merge we could not size, which
-// is the failure this whole design avoids.
-// One stack per group of the same item, as gathered for either merge.
+// One stack per group of the same item.
 struct Stack {
     const uint8_t *item;
+    uint64_t guid;
     int bag, slot;
     uint32_t count;
 };
 struct Group {
     uint32_t itemID;
-    uint32_t maxStack; // 0 when the item's data has not arrived
+    uint32_t maxStack;
     std::vector<Stack> stacks;
 };
 
-// Collects every stackable item across `bags`, grouped by item ID.
-// `maxStack` is 0 for an item whose data has not arrived; the callers
-// differ in what they do about that.
+// Collects every stackable item across `bags`, grouped by item ID. An
+// item whose data has not arrived is skipped — its max stack is unknown,
+// so no transfer into or out of it can be sized — and so is a locked one,
+// which the server would refuse to move.
 std::vector<Group> GatherGroups(const int *bags, int bagCount) {
     std::vector<Group> groups;
     for (int b = 0; b < bagCount; ++b) {
@@ -386,22 +419,22 @@ std::vector<Group> GatherGroups(const int *bags, int bagCount) {
         if (!ViewForBag(bag, &view))
             continue;
         for (int i = 0; i < view.slotCount; ++i) {
-            const uint8_t *item = ItemAt(view, i);
-            if (item == nullptr)
+            uint64_t guid = 0;
+            const uint8_t *item = ItemAt(view, i, &guid);
+            if (item == nullptr || IsLocked(item))
                 continue;
             const int itemID = Item::ID::FromCGItem(item);
             if (itemID <= 0)
                 continue;
             const uint32_t id = static_cast<uint32_t>(itemID);
 
-            uint32_t maxStack = 0;
             auto *rec = Item::PeekRecord(id);
-            if (rec != nullptr) {
-                maxStack =
-                    Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_STACKABLE);
-                if (maxStack <= 1)
-                    continue; // cannot stack at all, so never a merge candidate
-            }
+            if (rec == nullptr)
+                continue;
+            const uint32_t maxStack =
+                Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_STACKABLE);
+            if (maxStack <= 1)
+                continue; // cannot stack at all, so never a merge candidate
 
             Group *group = nullptr;
             for (auto &candidate : groups) {
@@ -414,15 +447,15 @@ std::vector<Group> GatherGroups(const int *bags, int bagCount) {
                 groups.push_back({id, maxStack, {}});
                 group = &groups.back();
             }
-            group->stacks.push_back({item, bag, i + 1, StackCount(item)});
+            group->stacks.push_back({item, guid, bag, i + 1, StackCount(item)});
         }
     }
     return groups;
 }
 
-// Why this is computed here rather than delegated to the server's own
-// autostore, which can merge a stack into several destinations for one
-// packet and would otherwise be cheaper:
+// Why every transfer is addressed explicitly rather than delegated to the
+// server's autostore, which can merge a stack into several destinations
+// for one packet:
 //
 // `CMSG_AUTOSTORE_BAG_ITEM` names its destination with a container byte,
 // and the only value the engine's builder will emit for "the player" is
@@ -431,27 +464,20 @@ std::vector<Group> GatherGroups(const int *bags, int bagCount) {
 // express. 255 takes the specific-container branch, which searches the
 // keyring and the backpack and nothing else. So autostore can never
 // merge a stack in one equipped bag with a stack in another, which is
-// most of the real cases.
+// most of the real cases. And `CMSG_AUTOSTORE_BANK_ITEM` always CROSSES
+// the inventory/bank boundary, so the bank has no such packet at all.
 //
 // Addressing both endpoints explicitly costs a packet per transfer
 // instead of per emptied source — occasionally one more, when a stack
 // has to be split across several destinations — and works everywhere.
-
-// Bank consolidation has to be computed here. `CMSG_AUTOSTORE_BANK_ITEM`
-// always CROSSES the inventory/bank boundary — a bank-sourced item
-// travels out to the bags — so there is no "find this a fuller stack
-// inside the bank" packet to delegate to. This is the one place the
-// protocol forces a client-side merge, and it carries the cost that
-// comes with that: it needs each item's max stack size, which is
-// unavailable until that item's data has arrived, so a stack we cannot
-// size is left alone.
 //
 // Two rolling pointers per item: stacks fullest-first, then poured from
-// the back into the front until they meet.
-bool Consolidate(const int *bags, int bagCount) {
+// the back into the front until they meet. Each source a transfer empties
+// is locked once the batch is out, so phase two can wait for it.
+void Consolidate(const int *bags, int bagCount) {
     std::vector<Group> groups = GatherGroups(bags, bagCount);
+    std::vector<uint64_t> emptied;
 
-    bool fired = false;
     for (auto &group : groups) {
         if (group.stacks.size() < 2)
             continue;
@@ -468,7 +494,9 @@ bool Consolidate(const int *bags, int bagCount) {
                   [](const Stack &a, const Stack &b) { return a.count > b.count; });
         size_t lo = 0, hi = group.stacks.size() - 1;
         while (lo < hi) {
-            const uint32_t space = group.maxStack - group.stacks[lo].count;
+            const uint32_t space = group.maxStack > group.stacks[lo].count
+                                       ? group.maxStack - group.stacks[lo].count
+                                       : 0;
             if (space == 0) {
                 ++lo;
                 continue;
@@ -495,14 +523,13 @@ bool Consolidate(const int *bags, int bagCount) {
                           group.stacks[hi].slot, group.stacks[lo].bag,
                           group.stacks[lo].slot, static_cast<int>(moved));
             if (sent) {
-                fired = true;
                 ++g_mergePackets;
-                // Only a whole-stack transfer empties its source, and
-                // `mergesPending` means "sources that should be empty by
-                // now but are not".
+                // Only a whole-stack transfer changes which slots are
+                // occupied, which is all phase two's plan depends on. A
+                // partial split changes no slot GUID, so nothing would
+                // ever clear a lock on it.
                 if (wholeStack)
-                    g_mergeSources.push_back(
-                        {group.stacks[hi].bag, group.stacks[hi].slot});
+                    emptied.push_back(group.stacks[hi].guid);
             }
             group.stacks[lo].count += moved;
             group.stacks[hi].count -= moved;
@@ -512,7 +539,10 @@ bool Consolidate(const int *bags, int bagCount) {
                 ++lo; // this one is full
         }
     }
-    return fired;
+
+    // Locked only after the batch is out, so no sender sees a lock it set.
+    for (const uint64_t guid : emptied)
+        Lock(guid);
 }
 
 // --- phase two: plan a layout and fire the swaps ----------------------------
@@ -535,12 +565,15 @@ struct Stats {
     int generalCells;   // destination cells in general-purpose containers
     int specialtyCells; // cells confined to one bag family
     int familyItems;    // items that want a specialty bag
-    int mergesPending;  // phase-one sources still occupied at plan time
+    int mergesPending;  // phase-one sources unanswered when placement ran
+    int locksReleased;  // phase-two items unanswered at the deadline
 };
 Stats g_lastRun{};
 
-void Place(const int *bags, int bagCount) {
+// Returns true when it relocated anything, i.e. there are locks to wait on.
+bool Place(const int *bags, int bagCount, int mergesPending) {
     Stats stats{};
+    stats.mergesPending = mergesPending;
     std::vector<Entry> items;
     std::vector<Cell> general;
 
@@ -560,17 +593,18 @@ void Place(const int *bags, int bagCount) {
             continue;
         for (int i = 0; i < view.slotCount; ++i) {
             const int slot = i + 1;
-            const uint8_t *item = ItemAt(view, i);
+            uint64_t guid = 0;
+            const uint8_t *item = ItemAt(view, i, &guid);
 
             const uint8_t *rec = nullptr;
             int itemID = 0;
             if (item != nullptr) {
                 itemID = Item::ID::FromCGItem(item);
-                if (itemID > 0)
+                if (itemID > 0 && !IsLocked(item))
                     rec = Item::PeekRecord(static_cast<uint32_t>(itemID));
                 if (rec == nullptr) {
                     ++stats.pinned;
-                    continue; // pinned: unrankable, and its slot is withheld
+                    continue; // pinned: unrankable or immovable, slot withheld
                 }
             }
 
@@ -596,8 +630,9 @@ void Place(const int *bags, int bagCount) {
 
             Entry e{};
             e.item = item;
-            e.curBag = bag;
-            e.curSlot = slot;
+            e.guid = guid;
+            e.startBag = e.curBag = bag;
+            e.startSlot = e.curSlot = slot;
             e.destBag = -1;
             e.destSlot = -1;
             e.itemID = static_cast<uint32_t>(itemID);
@@ -624,20 +659,9 @@ void Place(const int *bags, int bagCount) {
         if (e.family != 0)
             ++stats.familyItems;
 
-    // Any source phase one asked the server to empty that is still
-    // occupied means this snapshot predates some of the merges.
-    for (const auto &src : g_mergeSources) {
-        for (const auto &e : items) {
-            if (e.curBag == src.bag && e.curSlot == src.slot) {
-                ++stats.mergesPending;
-                break;
-            }
-        }
-    }
-
     if (items.empty()) {
         g_lastRun = stats;
-        return;
+        return false;
     }
 
     std::sort(items.begin(), items.end(), Precedes);
@@ -755,88 +779,152 @@ void Place(const int *bags, int bagCount) {
             occupant->curSlot = fromSlot;
         }
     }
+
+    // Lock what ended up somewhere else. Its final slot held a different
+    // GUID before, so the slot watcher's answer is guaranteed to change it
+    // and clear the lock. An item that moved and came back is left
+    // unlocked: its slot never changes, and nothing would clear it.
+    bool moved = false;
+    for (const auto &e : items) {
+        if (e.curBag != e.startBag || e.curSlot != e.startSlot) {
+            Lock(e.guid);
+            moved = true;
+        }
+    }
     g_lastRun = stats;
+    return moved;
 }
 
 // --- sequencing -------------------------------------------------------------
 
-enum Phase { kIdle, kAwaitingMerge };
+// How long the locks may sit with no answer before the phase gives up on
+// the rest. Each answer restarts the wait, so this only has to cover one
+// server round trip, not the whole batch.
+constexpr uint32_t kSettleMs = 3000;
+
+enum Phase { kIdle, kMerging, kPlacing };
 Phase g_phase = kIdle;
+size_t g_lastPending = 0;
+uint32_t g_deadline = 0;
 
 // Which set the in-flight sort is arranging, so the deferred placement
-// pass knows what to walk. Points at one of the two static lists, so
-// there is nothing to own or free.
-const int *g_activeBags = nullptr;
-int g_activeBagCount = 0;
+// pass knows what to walk. Owned, since the autosort exclusions hand in
+// a filtered list that does not outlive the call.
+std::vector<int> g_activeBags;
 
-void OnBagUpdate() {
-    if (g_phase != kAwaitingMerge)
-        return;
-    // Clear the phase BEFORE placing: the swaps we are about to fire will
-    // signal this callback again next frame, and we must be idle by then
-    // or the sort would restart forever.
-    g_phase = kIdle;
-    Place(g_activeBags, g_activeBagCount);
+void BeginWait(Phase phase) {
+    g_phase = phase;
+    g_lastPending = g_waiting.size();
+    g_deadline = Time::Clock::NowMs() + kSettleMs;
 }
 
-const Bag::UpdateDelayed::AutoSubscribe _bagSub{&OnBagUpdate};
-
-// Shared entry point. Bags and bank differ only in the list.
-void StartSort(const int *bags, int bagCount) {
-    if (g_phase != kIdle)
-        return; // a sort is already in flight
-    g_activeBags = bags;
-    g_activeBagCount = bagCount;
-    g_mergePackets = 0;
-    g_mergeSources.clear();
-    if (Consolidate(bags, bagCount))
-        g_phase = kAwaitingMerge; // let the merges land, then place
+void RunPlacement(int mergesPending) {
+    if (Place(g_activeBags.data(), static_cast<int>(g_activeBags.size()),
+              mergesPending))
+        BeginWait(kPlacing);
     else
-        Place(bags, bagCount); // nothing to merge; the layout reads clean
+        g_phase = kIdle;
 }
 
-// `C_Container.SortBags()` / `C_Container.SortBankBags()` — no
-// arguments, no return, matching the modern signatures. Fire-and-forget:
-// the work spans at least two frames. A call while a sort is already in
-// flight is ignored rather than queued, so a held-down keybind cannot
-// stack them up — and neither can sorting bags and bank at once.
+// Ends the running phase once none of its items is still locked, or when
+// the server has gone quiet past the deadline — then the stragglers are
+// released through the engine's own clearer, so nothing stays greyed out
+// and unusable on a lost reply.
+void OnTick() {
+    if (g_phase == kIdle)
+        return;
+
+    size_t pending = 0;
+    for (const uint64_t guid : g_waiting)
+        if (StillLocked(guid))
+            ++pending;
+
+    if (pending != 0) {
+        const uint32_t now = Time::Clock::NowMs();
+        if (pending != g_lastPending) {
+            g_lastPending = pending;
+            g_deadline = now + kSettleMs;
+            return;
+        }
+        if (!Time::Clock::Reached(now, g_deadline))
+            return;
+        for (const uint64_t guid : g_waiting)
+            if (StillLocked(guid))
+                CallLockFn(Offsets::FUN_ITEM_UNLOCK_BY_GUID, guid);
+    }
+    g_waiting.clear();
+
+    if (g_phase == kMerging)
+        RunPlacement(static_cast<int>(pending));
+    else {
+        g_lastRun.locksReleased = static_cast<int>(pending);
+        g_phase = kIdle;
+    }
+}
+
+const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
+
+// A login or /reload ends whatever was in flight: after a logout the
+// waited-on items are gone, which would read as settled and run the
+// placement over the next character's bags.
+void OnInGameInit() {
+    g_phase = kIdle;
+    g_waiting.clear();
+}
+
+const Game::ModuleAutoRegister _init{&OnInGameInit};
+
+// Shared entry point. Bags and bank differ only in the list. A call while
+// a sort is in flight — merging, placing, or waiting on the server for
+// either — is ignored rather than queued, so a held-down keybind cannot
+// stack them up, and neither can sorting bags and bank at once.
+void StartSort(std::vector<int> bags) {
+    if (g_phase != kIdle)
+        return;
+    g_activeBags = std::move(bags);
+    g_mergePackets = 0;
+    g_waiting.clear();
+    Consolidate(g_activeBags.data(), static_cast<int>(g_activeBags.size()));
+    if (!g_waiting.empty())
+        BeginWait(kMerging); // let the merges land, then place
+    else
+        RunPlacement(0); // nothing changes occupancy; the layout reads clean
+}
+
 // Runs a sort over `bags`, dropping `excluded` when its autosort setting
 // says to leave that container alone. Dropping a bag from the set is all
 // it takes: the snapshot, the comparator and the placement only ever see
 // the bags they are handed, so an excluded bag is neither read from nor
 // written to.
-void StartSortExcluding(const int *bags, int count, int excluded,
-                        bool excludeIt) {
-    if (!excludeIt) {
-        StartSort(bags, count);
-        return;
-    }
+template <size_t N>
+void StartSortExcluding(const int (&bags)[N], int excluded, bool excludeIt) {
     std::vector<int> kept;
-    kept.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        if (bags[i] != excluded)
-            kept.push_back(bags[i]);
+    kept.reserve(N);
+    for (const int bag : bags) {
+        if (!excludeIt || bag != excluded)
+            kept.push_back(bag);
     }
     if (!kept.empty())
-        StartSort(kept.data(), static_cast<int>(kept.size()));
+        StartSort(std::move(kept));
 }
 
+// `C_Container.SortBags()` / `C_Container.SortBankBags()` — no
+// arguments, no return, matching the modern signatures. Fire-and-forget:
+// the work spans several frames.
 int __fastcall Script_C_Container_SortBags(void * /*L*/) {
-    StartSortExcluding(kInventoryBags,
-                       sizeof(kInventoryBags) / sizeof(kInventoryBags[0]),
-                       /*excluded*/ 0, BackpackAutosortDisabled());
+    StartSortExcluding(kInventoryBags, /*excluded*/ 0, BackpackAutosortDisabled());
     return 0;
 }
 
 int __fastcall Script_C_Container_SortBankBags(void * /*L*/) {
-    StartSortExcluding(kBankBags, sizeof(kBankBags) / sizeof(kBankBags[0]),
-                       /*excluded*/ -1, BankAutosortDisabled());
+    StartSortExcluding(kBankBags, /*excluded*/ -1, BankAutosortDisabled());
     return 0;
 }
 
 // `_classicapi_SortBagsStats()` -> entries, cells, pinned, planned,
-// unplanned, swapsSent, swapsFailed, sameItemAvoided — from the last
-// placement pass. Diagnostic only; not part of the API surface.
+// unplanned, swapsSent, swapsFailed, sameItemAvoided, generalCells,
+// specialtyCells, familyItems, mergePackets, mergesPending, locksReleased —
+// from the last sort. Diagnostic only; not part of the API surface.
 int __fastcall Script_SortBagsStats(void *L) {
     Game::Lua::PushNumber(L, g_lastRun.entries);
     Game::Lua::PushNumber(L, g_lastRun.cells);
@@ -851,7 +939,8 @@ int __fastcall Script_SortBagsStats(void *L) {
     Game::Lua::PushNumber(L, g_lastRun.familyItems);
     Game::Lua::PushNumber(L, g_mergePackets);
     Game::Lua::PushNumber(L, g_lastRun.mergesPending);
-    return 13;
+    Game::Lua::PushNumber(L, g_lastRun.locksReleased);
+    return 14;
 }
 
 // `_classicapi_SortBagsBags(which)` -> bagID, slotCount, family for each
@@ -918,6 +1007,39 @@ int __fastcall Script_GetBankAutosortDisabled(void *L) {
     return 1;
 }
 
+const Game::Doc::Function kSortBags{
+    "Sorts the items in the backpack and the equipped bags.", {}, {}};
+const Game::Doc::Function kSortBankBags{
+    "Sorts the items in the bank and the bank bags; does nothing while the bank is closed.",
+    {}, {}};
+
+const Game::Doc::Field kRightToLeftArgs[] = {
+    Game::Doc::Req("enable", "bool", "True to fill from the last slot of the last bag."),
+};
+const Game::Doc::Field kRightToLeftRets[] = {
+    Game::Doc::Req("isEnabled", "bool"),
+};
+const Game::Doc::Function kSetSortBagsRightToLeft{
+    "Sets the direction in which a sort fills the bags.", kRightToLeftArgs, {}};
+const Game::Doc::Function kGetSortBagsRightToLeft{
+    "Whether a sort fills the bags from the last slot of the last bag.", {},
+    kRightToLeftRets};
+
+const Game::Doc::Field kDisableArgs[] = {
+    Game::Doc::Req("disable", "bool", "True to leave the container out of sorts."),
+};
+const Game::Doc::Field kDisableRets[] = {
+    Game::Doc::Req("isDisabled", "bool"),
+};
+const Game::Doc::Function kSetBackpackAutosortDisabled{
+    "Sets whether SortBags leaves the backpack alone.", kDisableArgs, {}};
+const Game::Doc::Function kGetBackpackAutosortDisabled{
+    "Whether SortBags leaves the backpack alone.", {}, kDisableRets};
+const Game::Doc::Function kSetBankAutosortDisabled{
+    "Sets whether SortBankBags leaves the main bank container alone.", kDisableArgs, {}};
+const Game::Doc::Function kGetBankAutosortDisabled{
+    "Whether SortBankBags leaves the main bank container alone.", {}, kDisableRets};
+
 void RegisterLuaFunctions() {
     // Dedups by name, so re-registering each reload is harmless.
     g_rightToLeftCVar = CVar::Factory::Register("sortBagsRightToLeft", "0");
@@ -926,21 +1048,27 @@ void RegisterLuaFunctions() {
     g_bankAutosortCVar = CVar::Factory::Register("bankAutosortDisabled", "0");
 
     Game::Lua::RegisterTableFunction("C_Container", "SortBags",
-                                     &Script_C_Container_SortBags);
+                                     &Script_C_Container_SortBags, &kSortBags);
     Game::Lua::RegisterTableFunction("C_Container", "SetSortBagsRightToLeft",
-                                     &Script_SetSortBagsRightToLeft);
+                                     &Script_SetSortBagsRightToLeft,
+                                     &kSetSortBagsRightToLeft);
     Game::Lua::RegisterTableFunction("C_Container", "GetSortBagsRightToLeft",
-                                     &Script_GetSortBagsRightToLeft);
+                                     &Script_GetSortBagsRightToLeft,
+                                     &kGetSortBagsRightToLeft);
     Game::Lua::RegisterTableFunction("C_Container", "SortBankBags",
-                                     &Script_C_Container_SortBankBags);
+                                     &Script_C_Container_SortBankBags, &kSortBankBags);
     Game::Lua::RegisterTableFunction("C_Container", "SetBackpackAutosortDisabled",
-                                     &Script_SetBackpackAutosortDisabled);
+                                     &Script_SetBackpackAutosortDisabled,
+                                     &kSetBackpackAutosortDisabled);
     Game::Lua::RegisterTableFunction("C_Container", "GetBackpackAutosortDisabled",
-                                     &Script_GetBackpackAutosortDisabled);
+                                     &Script_GetBackpackAutosortDisabled,
+                                     &kGetBackpackAutosortDisabled);
     Game::Lua::RegisterTableFunction("C_Container", "SetBankAutosortDisabled",
-                                     &Script_SetBankAutosortDisabled);
+                                     &Script_SetBankAutosortDisabled,
+                                     &kSetBankAutosortDisabled);
     Game::Lua::RegisterTableFunction("C_Container", "GetBankAutosortDisabled",
-                                     &Script_GetBankAutosortDisabled);
+                                     &Script_GetBankAutosortDisabled,
+                                     &kGetBankAutosortDisabled);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsStats",
                                       &Script_SortBagsStats);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsBags",
