@@ -32,17 +32,44 @@
 // there every world node reads as culled (probe: 3 drawn from Lua, 0 on the
 // world tick), while the UI pass — where the engine's own hover
 // classification runs, CGWorldFrame::OnUpdate — and Lua see the drawn state.
+//
+// The candidates are the scene's entities in sight, not the whole object
+// manager. DrawEntityModels (0x683DD0) calls each entity's render callback
+// WorldObjectRenderCallback (0x481540) once a frame — pass 1 for those in
+// sight, pass 2 for the rest of the scene's bands, whose models it hides —
+// so hooking the callback collects the in-sight GUIDs as the scene draws
+// them, and hooking the drain publishes them when it returns: a scan reads a
+// finished drain's list, never one still filling. Stormwind probe, 34 s:
+// ~200 pass-1 and ~360 pass-2 entities a frame, no pass-2 entity ever
+// IsEntityDrawn, and no IsEntityDrawn object missing from the list (checked
+// by a full ClntObjMgrEnumObjects walk beside it). That walk is what this
+// replaces: it visits every live object, bag items included — ~870 a scan.
+//
+// The drain also hands over each entity's object: WorldObjectRenderCallback
+// resolves the GUID and passes the object to AddPickCandidate (0x4815D0, its
+// only caller), so hooking that saves the pointer beside the GUID. The
+// pointer is used only while it is certain to be live: objects are released
+// and freed only by the destroy message, by pool reuse when a new object is
+// created, and by the manager's teardown (benilla-re objectlayer/manager.md)
+// — the first two only while an incoming packet is handled, the last with a
+// new manager. So the pointers hold from the drain until the next packet (a
+// Net::PacketDispatch subscriber, which runs before the engine's handler)
+// and only under the manager that drew them. The frame tick's picks run in
+// the drain's own render, inside that window; a read after a packet (a Lua
+// event, an OnUpdate) looks each GUID up as before.
 
 #include "target/SoftTarget.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "net/PacketDispatch.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
 
 #include <cmath>
 #include <cstdlib>
+#include <vector>
 
 namespace Target::SoftTarget {
 
@@ -51,8 +78,73 @@ namespace {
 using Forward_t = void(__thiscall *)(void *camera, float *out);
 using Heading_t = float(__fastcall *)(const float *from, const float *to);
 using IsDrawn_t = uint32_t(__fastcall *)(void *node, void *edx);
-using EnumCallback_t = int(__fastcall *)(void *ctx, void *edx, uint64_t guid);
-using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
+// `ctx` (the node's callback argument) is unused; the object comes from the
+// GUID. RET 0xC.
+using EntityRender_t = int(__fastcall *)(void *ctx, int pass, uint32_t guidLo, uint32_t guidHi,
+                                         int unused);
+using DrawEntityModels_t = void(__cdecl *)();
+using AddPickCandidate_t = void(__thiscall *)(void *worldFrame, void *object, int pass);
+
+// An entity in sight: its GUID, and its object when the drain resolved one
+// (a released object or one with no model ready is not handed over).
+struct Entity {
+    uint64_t guid;
+    void *object;
+};
+
+// `g_drawing` fills while a drain runs; `g_entities` is the last finished
+// drain's, which scans read. A GUID gone since resolves to nothing and is
+// skipped.
+std::vector<Entity> g_drawing;
+std::vector<Entity> g_entities;
+bool g_inDrain = false;
+bool g_inEntity = false; // inside a pass-1 callback, whose entity is g_drawing.back()
+// The window the objects in `g_entities` are live in: closed by the next
+// incoming packet, and only under the manager the drain ran with.
+bool g_objectsLive = false;
+const void *g_objectsManager = nullptr;
+EntityRender_t g_origEntityRender = nullptr;
+DrawEntityModels_t g_origDrawEntityModels = nullptr;
+AddPickCandidate_t g_origAddPickCandidate = nullptr;
+
+int __fastcall EntityRender_h(void *ctx, int pass, uint32_t guidLo, uint32_t guidHi, int unused) {
+    if (!g_inDrain || pass != 1)
+        return g_origEntityRender(ctx, pass, guidLo, guidHi, unused);
+    g_drawing.push_back({static_cast<uint64_t>(guidHi) << 32 | guidLo, nullptr});
+    g_inEntity = true;
+    const int result = g_origEntityRender(ctx, pass, guidLo, guidHi, unused);
+    g_inEntity = false;
+    return result;
+}
+
+void __fastcall AddPickCandidate_h(void *worldFrame, void *, void *object, int pass) {
+    if (g_inEntity)
+        g_drawing.back().object = object;
+    g_origAddPickCandidate(worldFrame, object, pass);
+}
+
+void __cdecl DrawEntityModels_h() {
+    g_drawing.clear();
+    g_inDrain = true;
+    g_origDrawEntityModels();
+    g_inDrain = false;
+    g_entities.swap(g_drawing);
+    g_objectsLive = true;
+    g_objectsManager = Game::Read<void *>(Offsets::VAR_LOCAL_PLAYER_PTR);
+}
+
+void OnPacket(uint32_t, Net::CDataStore *) { g_objectsLive = false; }
+
+const Game::HookAutoRegister _entityRenderHook{
+    Offsets::FUN_WORLD_OBJECT_RENDER_CALLBACK, reinterpret_cast<void *>(&EntityRender_h),
+    reinterpret_cast<void **>(&g_origEntityRender)};
+const Game::HookAutoRegister _addPickCandidateHook{
+    Offsets::FUN_ADD_PICK_CANDIDATE, reinterpret_cast<void *>(&AddPickCandidate_h),
+    reinterpret_cast<void **>(&g_origAddPickCandidate)};
+const Game::HookAutoRegister _drawEntityModelsHook{
+    Offsets::FUN_DRAW_ENTITY_MODELS, reinterpret_cast<void *>(&DrawEntityModels_h),
+    reinterpret_cast<void **>(&g_origDrawEntityModels)};
+const Net::PacketDispatch::AutoSubscribe _packetSub{&OnPacket};
 
 // Arc 0's strip: how far beside the forward line an object may sit, in
 // yards. Classic Era 1.15.9 probe, a mailbox, view swept until
@@ -126,17 +218,29 @@ struct Scan {
     float bestSq;
 };
 
-int __fastcall ScanCallback(void *ctx, void *, uint64_t guid) {
-    auto &s = *static_cast<Scan *>(ctx);
-    void *object = Object::ByGuid(s.typeMask, guid, nullptr, 0);
+// The entity's object, filtered by `typeMask`: the drain's own pointer while
+// it is live, with the typed lookup's test (the type word, field 2, shares a
+// bit with the mask); otherwise the lookup itself.
+void *Resolve(const Entity &e, int typeMask, bool live) {
+    if (!live || e.object == nullptr)
+        return Object::ByGuid(typeMask, e.guid, nullptr, 0);
+    const auto *fields = Game::Read<const uint8_t *>(e.object, Offsets::OFF_UNIT_GUID_PTR);
+    return fields != nullptr &&
+                   (Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_TYPE) & typeMask) != 0
+               ? e.object
+               : nullptr;
+}
+
+void Consider(Scan &s, const Entity &e, bool live) {
+    const uint64_t guid = e.guid;
+    void *object = Resolve(e, s.typeMask, live);
     float pos[3];
     float distSq;
     if (!Locate(*s.area, object, pos, distSq) || distSq >= s.bestSq || !InArc(*s.area, pos) ||
         !s.accept(*s.area, object, distSq, s.ctx))
-        return 1;
+        return;
     s.best = guid;
     s.bestSq = distSq;
-    return 1;
 }
 
 } // namespace
@@ -173,8 +277,10 @@ bool InView(const Area &area, void *object, float &distSq) {
 
 uint64_t Nearest(const Area &area, int typeMask, Accept accept, void *ctx) {
     Scan s{&area, typeMask, accept, ctx, 0, HUGE_VALF};
-    reinterpret_cast<EnumVisibleObjects_t>(Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS)(
-        &ScanCallback, &s);
+    const bool live =
+        g_objectsLive && g_objectsManager == Game::Read<void *>(Offsets::VAR_LOCAL_PLAYER_PTR);
+    for (const Entity &e : g_entities)
+        Consider(s, e, live);
     return s.best;
 }
 

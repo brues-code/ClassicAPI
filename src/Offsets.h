@@ -1675,6 +1675,23 @@ enum Offsets {
     // and `[+0x94] == 0`. A unit's world object is at OFF_CGOBJECT_WORLD_OBJECT
     // (the tab search passes `unit[0x38]`).
     FUN_WORLD_OBJECT_VISIBLE = 0x006704C0,
+    // WorldObjectRenderCallback — every entity node's render callback
+    // (`node+0xB4`). DrawEntityModels (0x00683DD0) calls it once a frame per
+    // scene entity: edx = pass (1 in sight, 2 the rest of the bands), stack =
+    // guidLo, guidHi, one unused word; ecx (the node's argument) is
+    // overwritten unread. `int __fastcall(ctx, pass, lo, hi, unused)`, RET 0xC,
+    // returns 1 (disassembly of 0x00481540; benilla-re terrain/scene.md).
+    FUN_WORLD_OBJECT_RENDER_CALLBACK = 0x00481540,
+    // AddPickCandidate — FUN_WORLD_OBJECT_RENDER_CALLBACK's only callee for
+    // the resolved object (call at 0x0048158A), skipped when the object is
+    // released or its slot 0x78 is 0. `void __thiscall(worldFrame, object,
+    // pass)`, RET 0x8 (disassembly of 0x004815D0).
+    FUN_ADD_PICK_CANDIDATE = 0x004815D0,
+    // DrawEntityModels — the scene's entity drain: walks the in-sight list
+    // calling each node's callback with pass 1, then the rest with pass 2.
+    // `void __cdecl()`, plain RET (disassembly of 0x00683DD0; benilla-re
+    // terrain/scene.md "Entity draw").
+    FUN_DRAW_ENTITY_MODELS = 0x00683DD0,
     OFF_CGOBJECT_WORLD_OBJECT = 0xE0,
     // CGWorldFrame::GetScreenCoordinates — `bool __thiscall(worldFrame, const
     // float world[3], float screen[2])`, `ret 8`: true when the point is in
@@ -9234,6 +9251,13 @@ enum Offsets {
     // Calling convention: `__fastcall(int ecx, int edx, int stackArg)`,
     // `RET 0x4` (callee cleans the one stack arg).
     FUN_WORLD_TICK = 0x0066FD50,
+
+    // The world frame counter (`s_frameCounter`): FUN_WORLD_TICK increments it
+    // once a frame (`inc dword [0xC7B2C8]` at 0x0066FDFC, bytes verified in
+    // WoW.exe), before the scene draws. The engine's scene code compares a
+    // per-object stamp against it to do work once per frame (0x00683747);
+    // use it the same way to reuse a result within one frame. uint32, wraps.
+    VAR_WORLD_FRAME_COUNTER = 0x00C7B2C8,
 
     // UI render root — the CSimpleTop singleton's (`DAT_00cf0bd8`) per-frame
     // render callback. Registered at priority 1.0 into the global HLAYER list

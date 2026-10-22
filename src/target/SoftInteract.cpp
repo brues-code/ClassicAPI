@@ -73,6 +73,10 @@ CVar::Factory::Handle g_range = nullptr;
 CVar::Factory::Handle g_rangeIsHard = nullptr;
 
 uint64_t g_soft = 0;
+// The frame of the last pick; `g_picked` false forces the next read to pick
+// (a cvar changed). See Refresh.
+bool g_picked = false;
+uint32_t g_pickedFrame = 0;
 
 // ── The hover cursor's verdict ───────────────────────────────────────────
 
@@ -122,7 +126,18 @@ void Set(uint64_t guid) {
                         guid ? Guid::FormatAsString(guid, newBuf, sizeof newBuf) : nullptr);
 }
 
-void Refresh() { Set(SoftTarget::Enabled(g_enable) ? Pick() : 0); }
+// One pick per frame, shared by every read in it (the icon, Lua's token
+// reads, the listener tick): the scan reads what the scene drew, which changes
+// only when the next frame draws — the counter the engine's scene code keys
+// its own per-frame work on.
+void Refresh() {
+    const uint32_t frame = Game::Read<uint32_t>(Offsets::VAR_WORLD_FRAME_COUNTER);
+    if (g_picked && g_pickedFrame == frame)
+        return;
+    g_picked = true;
+    g_pickedFrame = frame;
+    Set(SoftTarget::Enabled(g_enable) ? Pick() : 0);
+}
 
 bool Watched() { return Event::Custom::HasListeners(_changed.Slot()); }
 
@@ -137,11 +152,19 @@ void OnFrameTick() {
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
+int __fastcall SettingChanged(CVar::Factory::Handle, const char *, const char *, void *) {
+    g_picked = false;
+    return 1;
+}
+
 void Register() {
-    g_enable = CVar::Factory::Register("SoftTargetInteract", "3");
-    g_arc = CVar::Factory::Register("SoftTargetInteractArc", "0");
-    g_range = CVar::Factory::Register("SoftTargetInteractRange", "10");
-    g_rangeIsHard = CVar::Factory::Register("SoftTargetInteractRangeIsHard", "0");
+    const auto reg = [](const char *name, const char *value) {
+        return CVar::Factory::Register(name, value, 0, &SettingChanged);
+    };
+    g_enable = reg("SoftTargetInteract", "3");
+    g_arc = reg("SoftTargetInteractArc", "0");
+    g_range = reg("SoftTargetInteractRange", "10");
+    g_rangeIsHard = reg("SoftTargetInteractRangeIsHard", "0");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

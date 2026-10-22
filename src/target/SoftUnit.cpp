@@ -73,6 +73,11 @@ struct State {
     CVar::Factory::Handle arc;
     CVar::Factory::Handle range;
     uint64_t soft;
+    // The last pick's inputs: the frame it ran in and the locked target it
+    // saw. `picked` false forces the next read to pick (a cvar changed).
+    bool picked;
+    uint32_t pickedFrame;
+    uint64_t pickedTarget;
 };
 
 State g_enemy{Offsets::TARGET_MODE_ENEMY, &_enemyChanged};
@@ -121,7 +126,19 @@ uint64_t Pick(State &st) {
 
 bool Watched(const State &st) { return Event::Custom::HasListeners(st.changed->Slot()); }
 
+// One pick per side per frame. The scan reads what the scene drew, which
+// changes only when the next frame draws, so every read in a frame — the
+// circles, the icons, Lua's token reads — shares the first one's answer, as
+// the engine's scene code keys per-frame work on the same counter. The locked
+// target and the cvars are the other inputs; changing either repicks at once.
 void Refresh(State &st) {
+    const uint32_t frame = Game::Read<uint32_t>(Offsets::VAR_WORLD_FRAME_COUNTER);
+    const uint64_t target = Loose::Locked();
+    if (st.picked && st.pickedFrame == frame && st.pickedTarget == target)
+        return;
+    st.picked = true;
+    st.pickedFrame = frame;
+    st.pickedTarget = target;
     const uint64_t guid = Pick(st);
     if (guid == st.soft)
         return;
@@ -143,15 +160,24 @@ void OnFrameTick() {
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
+int __fastcall SettingChanged(CVar::Factory::Handle, const char *, const char *, void *) {
+    g_enemy.picked = false;
+    g_friend.picked = false;
+    return 1;
+}
+
 void Register() {
-    g_enemy.enable = CVar::Factory::Register("SoftTargetEnemy", "1");
-    g_enemy.arc = CVar::Factory::Register("SoftTargetEnemyArc", "0");
-    g_enemy.range = CVar::Factory::Register("SoftTargetEnemyRange", "45");
-    g_friend.enable = CVar::Factory::Register("SoftTargetFriend", "0");
-    g_friend.arc = CVar::Factory::Register("SoftTargetFriendArc", "0");
-    g_friend.range = CVar::Factory::Register("SoftTargetFriendRange", "45");
-    g_matchLocked = CVar::Factory::Register("SoftTargetMatchLocked", "1");
-    g_withLocked = CVar::Factory::Register("SoftTargetWithLocked", "1");
+    const auto reg = [](const char *name, const char *value) {
+        return CVar::Factory::Register(name, value, 0, &SettingChanged);
+    };
+    g_enemy.enable = reg("SoftTargetEnemy", "1");
+    g_enemy.arc = reg("SoftTargetEnemyArc", "0");
+    g_enemy.range = reg("SoftTargetEnemyRange", "45");
+    g_friend.enable = reg("SoftTargetFriend", "0");
+    g_friend.arc = reg("SoftTargetFriendArc", "0");
+    g_friend.range = reg("SoftTargetFriendRange", "45");
+    g_matchLocked = reg("SoftTargetMatchLocked", "1");
+    g_withLocked = reg("SoftTargetWithLocked", "1");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};
