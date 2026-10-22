@@ -49,7 +49,6 @@
 #include "Offsets.h"
 #include "dbc/Names.h"
 #include "event/Custom.h"
-#include "time/Clock.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -64,17 +63,15 @@ T Read(const void *base, int off) {
     return *reinterpret_cast<const T *>(static_cast<const uint8_t *>(base) + off);
 }
 
-using Time::Clock::NowMs;
-
 // Modern rollType constants (what C_LootHistory.GetPlayerInfo returns).
 constexpr int ROLL_PASS = 0;
 constexpr int ROLL_NEED = 1;
 constexpr int ROLL_GREED = 2;
 
-// The SMSG_LOOT_ROLL packet encodes rollType as 0 = need, 2 = greed; map to
-// the modern convention. A "didn't actually roll" (pass) is flagged by the
-// high bit of the roll-number byte, handled by the caller.
-int MapRollType(int packetType) {
+// A dice result's type: 2 = greed, anything else = need. The same rule
+// WriteRollLine (FUN_0061C0B0) uses for its ROLLED_* lines and
+// WriteRollWonLine (FUN_0061B9E0) for its _NO_SPAM_* lines.
+int DiceRollType(int packetType) {
     return packetType == 2 ? ROLL_GREED : ROLL_NEED;
 }
 
@@ -120,7 +117,7 @@ struct PlayerRoll {
     char name[kNameLen];
     uint32_t classId; // ChrClasses.dbc ID (0 = unknown)
     int rollType;     // ROLL_* (modern); ROLL_PASS when the player passed
-    int roll;         // 1..100, or 0 if they passed / didn't roll
+    int roll;         // 1..100 dice result, 0 = no dice rolled (a vote / pass)
 };
 
 constexpr int kMaxPlayers = 40;
@@ -135,7 +132,6 @@ struct HistItem {
     uint64_t winnerGuid; // winner's roller GUID (0 if undecided)
     bool hasWinner;
     bool isDone;
-    uint32_t createdMs;  // engine tick at creation (GetTime()*1000 epoch)
     PlayerRoll players[kMaxPlayers];
     int playerCount;
     bool used;
@@ -158,24 +154,29 @@ uint32_t g_nextRollId = 1; // 0 is reserved as "invalid" (never assigned)
 bool g_createdNew = false;
 bool g_evicted = false;
 
+// 1-based access in oldest→newest order (matching GetNumItems' count).
+HistItem *GetEntry(int index1Based) {
+    if (index1Based < 1 || index1Based > g_count)
+        return nullptr;
+    const int start = (g_write - g_count + kMaxItems) % kMaxItems;
+    return &g_items[(start + index1Based - 1) % kMaxItems];
+}
+
+// The newest entry for (sourceGuid, slot). Creature and chest GUIDs repeat
+// across respawns, so an earlier, finished roll on the same slot can still be
+// in the ring; the newest one is the roll the packet belongs to.
 HistItem *Find(uint64_t sourceGuid, uint32_t slot) {
-    for (auto &e : g_items) {
-        if (e.used && e.sourceGuid == sourceGuid && e.slot == slot)
-            return &e;
+    for (int i = g_count; i >= 1; --i) {
+        HistItem *e = GetEntry(i);
+        if (e->sourceGuid == sourceGuid && e->slot == slot)
+            return e;
     }
     return nullptr;
 }
 
-HistItem *FindOrCreate(uint64_t sourceGuid, uint32_t slot, uint32_t itemId) {
-    g_createdNew = false;
-    g_evicted = false;
-    HistItem *e = Find(sourceGuid, slot);
-    if (e != nullptr) {
-        if (itemId != 0)
-            e->itemId = itemId;
-        return e;
-    }
-    e = &g_items[g_write];
+// Append a fresh entry at the ring head, evicting the oldest when full.
+HistItem *Create(uint64_t sourceGuid, uint32_t slot, uint32_t itemId) {
+    HistItem *e = &g_items[g_write];
     g_evicted = e->used; // overwriting a live slot => ring full => eviction
     g_write = (g_write + 1) % kMaxItems;
     if (g_count < kMaxItems)
@@ -183,11 +184,21 @@ HistItem *FindOrCreate(uint64_t sourceGuid, uint32_t slot, uint32_t itemId) {
     *e = HistItem{};
     e->used = true;
     e->rollID = g_nextRollId++;
-    e->createdMs = NowMs();
     e->sourceGuid = sourceGuid;
     e->slot = slot;
     e->itemId = itemId;
     g_createdNew = true;
+    return e;
+}
+
+HistItem *FindOrCreate(uint64_t sourceGuid, uint32_t slot, uint32_t itemId) {
+    g_createdNew = false;
+    g_evicted = false;
+    HistItem *e = Find(sourceGuid, slot);
+    if (e == nullptr)
+        return Create(sourceGuid, slot, itemId);
+    if (itemId != 0)
+        e->itemId = itemId;
     return e;
 }
 
@@ -224,14 +235,6 @@ int WinnerIndex(const HistItem *e) {
     return 0;
 }
 
-// 1-based access in oldest→newest order (matching GetNumItems' count).
-HistItem *GetEntry(int index1Based) {
-    if (index1Based < 1 || index1Based > g_count)
-        return nullptr;
-    const int start = (g_write - g_count + kMaxItems) % kMaxItems;
-    return &g_items[(start + index1Based - 1) % kMaxItems];
-}
-
 // The 1-based index of an entry in oldest→newest order (0 if not live).
 int IndexOf(const HistItem *e) {
     const int start = (g_write - g_count + kMaxItems) % kMaxItems;
@@ -264,9 +267,19 @@ int RecordRoll(const void *msg, int *outPlayerIdx) {
     const uint8_t rollByte = Read<uint8_t>(msg, Offsets::OFF_LOOTROLL_ROLL_NUM);
     const int packetType = Read<int32_t>(msg, Offsets::OFF_LOOTROLL_ROLL_TYPE);
 
-    const bool didRoll = (rollByte & 0x80) == 0;
-    const int rollNum = didRoll ? (rollByte & 0x7F) : 0;
-    const int rollType = didRoll ? MapRollType(packetType) : ROLL_PASS;
+    // WriteRollLine's (FUN_0061C0B0) four cases: a negative byte is a vote,
+    // greed for type 2 else pass; a non-negative byte with type 0 is a need
+    // vote; anything else is a dice result carrying the number.
+    int rollType;
+    int rollNum = 0;
+    if (static_cast<int8_t>(rollByte) < 0) {
+        rollType = packetType == 2 ? ROLL_GREED : ROLL_PASS;
+    } else if (packetType == 0) {
+        rollType = ROLL_NEED;
+    } else {
+        rollType = DiceRollType(packetType);
+        rollNum = rollByte;
+    }
 
     HistItem *e = FindOrCreate(src, slot, itemId);
     if (roller == 0)
@@ -291,8 +304,17 @@ int RecordWinner(const void *msg) {
     e->winnerGuid = winner;
     e->hasWinner = true;
     e->isDone = true;
-    if (winner != 0)
-        FindOrAddPlayer(e, winner); // so GetItem's winnerIdx resolves
+    if (winner != 0) {
+        // Add the winner so GetItem's winnerIdx resolves, and take their roll
+        // from this message (HandleLootRollWon FUN_0061B870 stores it in the
+        // same fields), in case their own SMSG_LOOT_ROLL never arrived.
+        const int idx = FindOrAddPlayer(e, winner);
+        if (idx >= 0) {
+            e->players[idx].rollType =
+                DiceRollType(Read<int32_t>(msg, Offsets::OFF_LOOTROLL_ROLL_TYPE));
+            e->players[idx].roll = Read<uint8_t>(msg, Offsets::OFF_LOOTROLL_ROLL_NUM);
+        }
+    }
     return IndexOf(e);
 }
 
@@ -311,17 +333,22 @@ int RecordAllPassed(const void *msg) {
 // than the packet) right after the START_ROLL handler runs — the node has
 // the same field offsets as the message. This is the only place the random
 // fields are populated, so the result recorders leave them alone.
-void RecordStart() {
+//
+// A START_ROLL always opens a new entry, as the engine always allocates a new
+// record for it: the same GUID + slot can roll again after a respawn. Returns
+// whether an entry was added.
+bool RecordStart() {
     const uint8_t *node = Game::Read<const uint8_t *>(
         static_cast<uintptr_t>(Offsets::VAR_LOOTROLL_STORE_HEAD));
     if (node == nullptr)
-        return;
+        return false;
     const uint64_t src = Read<uint64_t>(node, Offsets::OFF_LOOTROLL_SOURCE_GUID);
     const uint32_t slot = Read<uint32_t>(node, Offsets::OFF_LOOTROLL_SLOT);
     const uint32_t itemId = Read<uint32_t>(node, Offsets::OFF_LOOTROLL_ITEM_ID);
-    HistItem *e = FindOrCreate(src, slot, itemId);
+    HistItem *e = Create(src, slot, itemId);
     e->itemSuffix = Read<int32_t>(node, Offsets::OFF_LOOTROLL_ITEM_SUFFIX);
     e->itemSeed = Read<uint32_t>(node, Offsets::OFF_LOOTROLL_ITEM_SEED);
+    return true;
 }
 
 // ---- Packet co-hooks -------------------------------------------------------
@@ -332,7 +359,7 @@ void RecordStart() {
 using RollFn_t = void(__fastcall *)(void *msg, void *ctx, int a3);   // RET 4
 using WonFn_t = void(__fastcall *)(void *ctx, void *msg, int a3);    // RET 4
 using PassedFn_t = void(__fastcall *)(void *ctx, void *msg);         // RET 0
-using StartFn_t = void(__fastcall *)(void *packet);                 // RET 0
+using StartFn_t = int(__fastcall *)(void *packet);                  // RET 0, returns 1
 
 RollFn_t g_origRoll = nullptr;
 WonFn_t g_origWon = nullptr;
@@ -350,11 +377,11 @@ void FireFullUpdate() {
 // START_ROLL: let the original build the store node, then read the item's
 // random suffix off it. Adds the item to the history so a UI can show it as
 // soon as the roll opens (before any roll comes in) — hence the FULL_UPDATE.
-void __fastcall Start_h(void *packet) {
-    g_origStart(packet);
-    RecordStart();
-    if (g_createdNew || g_evicted)
+int __fastcall Start_h(void *packet) {
+    const int handled = g_origStart(packet);
+    if (RecordStart())
         FireFullUpdate();
+    return handled;
 }
 
 // Record fields (message is freed by the original), run the original, THEN
@@ -426,14 +453,14 @@ int __fastcall Script_GetNumItems(void *L) {
 }
 
 // `C_LootHistory.GetItem(itemIndex)` ->
-//   rollID, itemLink, numPlayers, isDone, winnerIdx, timestamp
-// Matches the MoP signature: `rollID` is a stable ID (unlike itemIndex, which
-// shifts as the ring saturates — key expanded/highlighted rows on it);
-// `itemLink` is the `item:id:enchant:suffix:unique` form (valid for
-// GetItemInfo / SetHyperlink), carrying the roll's random suffix so "of the X"
-// items keep their affix; `winnerIdx` is the winner's 1-based playerIndex for
-// GetPlayerInfo(itemIndex, winnerIdx) (nil if undecided). `timestamp` is a
-// ClassicAPI extension: the `GetTime()`-comparable creation time in seconds.
+//   rollID, itemLink, numPlayers, isDone, winnerIdx, isMasterLoot, isCurrency
+// Matches 5.4.8: `rollID` is a stable ID (unlike itemIndex, which shifts as
+// the ring saturates — key expanded/highlighted rows on it); `itemLink` is the
+// `item:id:enchant:suffix:unique` form (valid for GetItemInfo / SetHyperlink),
+// carrying the roll's random suffix so "of the X" items keep their affix;
+// `winnerIdx` is the winner's 1-based playerIndex for
+// GetPlayerInfo(itemIndex, winnerIdx) (nil if undecided). Every entry comes
+// from a group-loot roll on an item, so isMasterLoot and isCurrency are false.
 int __fastcall Script_GetItem(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetItem(itemIndex)");
@@ -456,15 +483,18 @@ int __fastcall Script_GetItem(void *L) {
         Game::Lua::PushNumber(L, static_cast<double>(winnerIdx));   // 5 winnerIdx
     else
         Game::Lua::PushNil(L);
-    Game::Lua::PushNumber(L, e->createdMs / 1000.0);                // 6 timestamp
-    return 6;
+    Game::Lua::PushBool(L, false);                                  // 6 isMasterLoot
+    Game::Lua::PushBool(L, false);                                  // 7 isCurrency
+    return 7;
 }
 
 // `C_LootHistory.GetPlayerInfo(itemIndex, playerIndex)` ->
 // name, classToken, rollType, roll, isWinner, isMe. classToken is the
 // ChrClasses filename ("WARRIOR", …) for RAID_CLASS_COLORS-style coloring;
 // both name and class come from the engine NameCache captured at roll time.
-// isMe compares the roller GUID to the local player's.
+// roll is nil until a dice result arrives (5.4.8's UI tests it for truth, so
+// a 0 would show as "0" and keep passers listed). isMe compares the roller
+// GUID to the local player's.
 int __fastcall Script_GetPlayerInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1) || !Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: GetPlayerInfo(itemIndex, playerIndex)");
@@ -487,7 +517,10 @@ int __fastcall Script_GetPlayerInfo(void *L) {
     else
         Game::Lua::PushNil(L);
     Game::Lua::PushNumber(L, static_cast<double>(r.rollType)); // 3 rollType
-    Game::Lua::PushNumber(L, static_cast<double>(r.roll));     // 4 roll
+    if (r.roll != 0)
+        Game::Lua::PushNumber(L, static_cast<double>(r.roll)); // 4 roll
+    else
+        Game::Lua::PushNil(L);
     Game::Lua::PushBool(L, e->hasWinner && e->winnerGuid == r.guid); // 5 isWinner
     Game::Lua::PushBool(L, r.guid == Unit::Identity::PlayerGuid());  // 6 isMe
     return 6;

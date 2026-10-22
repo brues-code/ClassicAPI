@@ -4123,7 +4123,8 @@ enum Offsets {
     FUN_LOOT_ALL_PASSED_HANDLER = 0x0061B640, // SMSG_LOOT_ALL_PASSED (msg=EDX)
 
     // SMSG_LOOT_START_ROLL (opcode 0x2A1) handler — `__fastcall(ECX = packet)`,
-    // RET 0. The result packets (ROLL/WON/PASSED) carry 0 for the item's
+    // RET 0, returns 1 (the dispatcher passes EAX up). The result packets
+    // (ROLL/WON/PASSED) carry 0 for the item's
     // random suffix/seed; only START_ROLL does. It deserializes a fresh
     // PendingLootRoll node (same 0x20/0x24 field offsets as the message) and
     // publishes it as the store head at VAR_LOOTROLL_STORE_HEAD, so we read
@@ -4143,8 +4144,13 @@ enum Offsets {
     OFF_LOOTROLL_ITEM_SUFFIX = 0x20, // i32 random suffix / property ID
     OFF_LOOTROLL_ITEM_SEED = 0x24,   // u32 random seed (link unique field)
     OFF_LOOTROLL_ROLLER_GUID = 0x30, // u64 roller / winner GUID
-    OFF_LOOTROLL_ROLL_NUM = 0x38,    // u8 roll (1..100); high bit = didn't roll
-    OFF_LOOTROLL_ROLL_TYPE = 0x40,   // u32 rollType: 0 = need, 2 = greed
+    // Roll byte + type, decoded as WriteRollLine (FUN_0061C0B0) does: a
+    // negative (signed) byte is a vote — greed for type 2, else pass; a
+    // non-negative byte with type 0 is a need vote; anything else is a dice
+    // result (the byte) of type 2 = greed, else need. SMSG_LOOT_ROLL_WON
+    // (FUN_0061B870) stores the winner's dice byte and type (1 / 2) here too.
+    OFF_LOOTROLL_ROLL_NUM = 0x38,    // u8 roll byte (see above)
+    OFF_LOOTROLL_ROLL_TYPE = 0x40,   // u32 roll type (see above)
 
     // CGPlayer-side sub-struct, allocated for any player-controlled
     // unit (local self, target, party, raid, inspect targets — all of

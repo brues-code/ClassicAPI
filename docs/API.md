@@ -4865,11 +4865,11 @@ polling. Register like any engine event
 
 | Event | Args | When |
 |---|---|---|
-| `LOOT_HISTORY_ROLL_CHANGED` | `itemIndex`, `playerIndex` (numbers) | A player rolled or passed on an item. |
+| `LOOT_HISTORY_ROLL_CHANGED` | `itemIndex`, `playerIndex` (numbers) | A player selected need, greed, or pass, or rolled the dice. |
 | `LOOT_HISTORY_ROLL_COMPLETE` | `itemIndex` (number) | The item was decided — won or all-passed. |
 | `LOOT_HISTORY_FULL_UPDATE` | — | The item set changed structurally — a new item appeared (roll opened) or the 128-item ring evicted the oldest (every index shifted). Re-read the whole list. Also fired by `C_LootHistory.Clear()`. |
 
-See the [LootHistory](#loothistory) section for the reconstruction and read API.
+See the [LootHistory](#loothistory) section for the read API.
 
 ### `LEARNED_SPELL_IN_SKILL_LINE` event
 
@@ -12302,70 +12302,68 @@ the full link as well as the `item:...` payload.
 
 ## LootHistory
 
-The `C_LootHistory` namespace — group-loot roll history. There is no
-loot-history store, but the client does receive the live group-loot roll
-traffic (`SMSG_LOOT_ROLL` per player, `SMSG_LOOT_ROLL_WON`,
-`SMSG_LOOT_ALL_PASSED`) — which the stock UI only turns into chat lines. This
-reconstructs the history client-side: packet co-hooks accumulate a ring of
-rolled items with per-player Need/Greed/Pass results and the winner, exposed
-through the namespace. Rollers' **name and class come from the engine
-NameCache** captured at roll time, so they resolve even for a player who has
-left the group by the time their roll arrives.
+The `C_LootHistory` namespace gives the history of group-loot rolls. Each item
+in the history has the vote and roll of each player, and the winner.
 
-History is in-memory (last 128 rolled items) and resets on `/reload` or logout.
-The master-loot management functions (`SetExpiration` / `GiveMasterLoot` /
-`CanMasterLoot`) are intentionally omitted — they drive server support this
-build doesn't have.
+The name and class of each player are kept from the time of the roll. They
+stay correct after that player leaves the group.
 
-Progress is signalled by the `LOOT_HISTORY_ROLL_CHANGED` /
-`LOOT_HISTORY_ROLL_COMPLETE` events — see the
+The history keeps the last 128 rolled items. It stays through `/reload` and
+clears at logout. `C_LootHistory.Clear()` clears it at any time. The
+master-loot functions (`SetExpiration`, `GiveMasterLoot`, `CanMasterLoot`) are
+not available.
+
+The `LOOT_HISTORY_ROLL_CHANGED`, `LOOT_HISTORY_ROLL_COMPLETE`, and
+`LOOT_HISTORY_FULL_UPDATE` events tell you when the history changes. Refer to
+the
 [Events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
 section.
 
 ### `C_LootHistory.GetNumItems()`
 
-Returns the number of rolled items currently in the history.
+Returns the number of rolled items in the history.
 
 ### `C_LootHistory.GetItem(itemIndex)`
 
-`1`-based. Returns `rollID, itemLink, numPlayers, isDone, winnerIdx, timestamp`
-(`timestamp` is a ClassicAPI extension):
-- `rollID` — a **stable** monotonic ID for the roll. Unlike `itemIndex` (which
-  shifts as the 128-item ring saturates), `rollID` never changes, so key
-  "keep this row expanded" / "highlight this roll" state on it.
-- `itemLink` — `item:<id>:0:<suffix>:<unique>` (valid for `GetItemInfo` /
-  `GameTooltip:SetHyperlink`), carrying the roll's random suffix so
-  "of the X" items keep their affix.
-- `numPlayers` — how many players have rolled/passed so far.
-- `isDone` — `true` once the item is decided (won or all-passed).
-- `winnerIdx` — the winner's `1`-based **player index**, for
-  `C_LootHistory.GetPlayerInfo(itemIndex, winnerIdx)` (name, class token,
-  winning roll). `nil` if undecided / all passed. The winner is guaranteed to
-  be in the player list even if their individual roll packet never arrived.
-- `timestamp` — the roll's creation time in seconds, directly comparable to
-  `GetTime()` (e.g. `GetTime() - timestamp` for "N seconds ago"). A ClassicAPI
-  extension.
+`itemIndex` starts at `1`. The oldest item is `1`. Returns
+`rollID, itemLink, numPlayers, isDone, winnerIdx, isMasterLoot, isCurrency`:
+- `rollID` — a stable ID for the roll. The `itemIndex` of an item changes when
+  the history is full and drops its oldest item. The `rollID` does not change.
+  Use it as the key for data about a row, for example "this row is expanded".
+- `itemLink` — `item:<id>:0:<suffix>:<unique>`. You can give it to
+  `GetItemInfo` and `GameTooltip:SetHyperlink`. It has the random suffix of
+  the item, so an "of the X" item keeps its suffix.
+- `numPlayers` — the number of players in the list for this item.
+- `isDone` — `true` when the item has a winner, or when all players passed.
+- `winnerIdx` — the player index of the winner, for
+  `C_LootHistory.GetPlayerInfo(itemIndex, winnerIdx)`. `nil` when the item has
+  no winner yet, or when all players passed. The winner is always in the
+  player list.
+- `isMasterLoot` — always `false`.
+- `isCurrency` — always `false`.
 
-Returns nothing for an out-of-range index.
+Returns nothing when `itemIndex` is out of range.
 
 ### `C_LootHistory.GetPlayerInfo(itemIndex, playerIndex)`
 
-Both `1`-based. Returns `name, class, rollType, roll, isWinner, isMe`:
-- `name` — the roller's name (from the NameCache).
-- `class` — the class token (`"WARRIOR"`, `"MAGE"`, …) for
-  `RAID_CLASS_COLORS`, or `nil` if unknown.
+Both indexes start at `1`. Returns `name, class, rollType, roll, isWinner, isMe`:
+- `name` — the name of the player.
+- `class` — the class token (`"WARRIOR"`, `"MAGE"`, and more) for
+  `RAID_CLASS_COLORS`. `nil` when the class is not known.
 - `rollType` — `0` = pass, `1` = need, `2` = greed.
-- `roll` — the `1`–`100` roll, or `0` if they passed.
-- `isWinner` — `true` if this player won the item.
-- `isMe` — `true` if this roller is the local player.
+- `roll` — the dice roll, `1` to `100`. `nil` when the player has no roll.
+  For example, a player who passed has no roll. A greed voter has no roll when
+  a need voter wins.
+- `isWinner` — `true` when this player won the item.
+- `isMe` — `true` when this player is you.
 
-Returns nothing for an out-of-range item or player index.
+Returns nothing when `itemIndex` or `playerIndex` is out of range.
 
 ### `C_LootHistory.Clear()`
 
-Wipes the accumulated roll history (returns nothing). A ClassicAPI extension,
-for a "clear history" button. Fires `LOOT_HISTORY_FULL_UPDATE` so any open
-display rebuilds empty.
+Clears the history. Returns nothing. A ClassicAPI extension, for a "clear
+history" button. Fires `LOOT_HISTORY_FULL_UPDATE`, so an open display shows
+the empty history.
 
 ## LossOfControl
 
