@@ -862,6 +862,7 @@ build instructions.
   - [`SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])`](#setunitcursortexturetexture-unit--style--includelowpriority)
   - [`UnitFactionGroup("player")` while addons load](#unitfactiongroupplayer-while-addons-load)
   - [`UnitSubName(unit)`](#unitsubnameunit)
+  - [`UnitSelectionColor(unit [, useExtendedColors])` / `UnitSelectionType(unit [, useExtendedColors])`](#unitselectioncolorunit--useextendedcolors--unitselectiontypeunit--useextendedcolors)
   - [`UnitCreatureFamilyID(unit)`](#unitcreaturefamilyidunit)
   - [`UnitCreatureTypeID(unit)`](#unitcreaturetypeidunit)
   - [`UnitCreatureID(unit)`](#unitcreatureidunit)
@@ -20172,6 +20173,40 @@ becomes visible to the client AND the server has sent its
 `CMSG_CREATURE_QUERY_RESPONSE`. The first time a fresh NPC appears
 the row may be briefly NULL — usually only one or two frames.
 Subsequent calls succeed once the response lands.
+
+### `UnitSelectionColor(unit [, useExtendedColors])` / `UnitSelectionType(unit [, useExtendedColors])`
+
+`UnitSelectionColor` returns the colour of the selection circle of the
+unit as `red, green, blue, alpha`, each from 0 to 1. `UnitSelectionType`
+returns the number of that colour:
+
+| Type | Colour | Unit |
+|---|---|---|
+| `0` | red | Hostile |
+| `1` | orange | Unfriendly |
+| `2` | yellow | Neutral |
+| `3` | green | Friendly, or a player flagged for PvP |
+| `4` | blue | A player that is not flagged for PvP |
+| `5` | light blue `#6060FF` | Same as `4`, with extended colours |
+| `6` | lavender `#AAAAFF` | A party member, with extended colours |
+| `7` | light green `#AAFFAA` | A party member flagged for PvP, with extended colours |
+| `8` | sky blue `#53C8FF` | A player on your friends list, with extended colours |
+| `9` | grey | A dead NPC, with extended colours |
+
+When `useExtendedColors` is `true`, the result is the colour of the name
+above the head and the selection circle. When it is `false` or absent,
+party members and friends get the player colour, and a dead NPC gets
+its reaction colour.
+
+```lua
+/dump UnitSelectionColor("target")        -- 0, 1, 0, 1 (a friendly NPC)
+/dump UnitSelectionType("party1", true)   -- 6
+/dump UnitSelectionType("target", true)   -- 8 (a friend)
+```
+
+A party or raid member out of range also returns a colour. For this
+unit, the PvP flag comes from the group data. A token with no unit,
+for example `"target"` with no target, returns the player colour.
 
 ### `UnitCreatureFamilyID(unit)`
 

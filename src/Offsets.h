@@ -1890,6 +1890,15 @@ enum Offsets {
     // name re-asks FUN_UNIT_SELECTION_COLOR on its next draw. `void __cdecl()`;
     // 4.3.4's PlayerNameTriggerColorUpdateAll.
     FUN_PLAYER_NAME_MARK_ALL_COLOR_DIRTY = 0x006C7800,
+    // CGUnit_C::IsPVPUI — `bool __thiscall(unit)`: the PvP flag of the unit's
+    // charmer or creator, else its own. FUN_UNIT_SELECTION_COLOR's PvP test
+    // (and Script_UnitIsPVP's for a unit object). Verified by disassembly.
+    FUN_UNIT_IS_PVP_UI = 0x00605FF0,
+    // CGPartyInfo::IsMember — `int __thiscall(const uint64_t *guid)`: 1 for
+    // the active player or one of the four party members. The party test
+    // FUN_UNIT_SELECTION_COLOR makes after skipping the player. Verified by
+    // disassembly.
+    FUN_PARTY_IS_MEMBER = 0x004E7F70,
     // The combat log's object namer (0x006264E0) asks the name and creature
     // caches with this empty callback, so a miss sends the query and the
     // next line has the name. `void __stdcall(void *, int)`, returns at once.
@@ -7192,6 +7201,9 @@ enum Offsets {
     // present (and thus connected). Both take a pointer to the 64-bit GUID.
     OFF_GROUP_MEMBER_STATUS_FLAGS = 0x08,
     GROUP_MEMBER_STATUS_ONLINE = 0x1,
+    // Bit 1: flagged for PvP — Script_UnitIsPVP's test (0x00516502) for a
+    // token with no unit object.
+    GROUP_MEMBER_STATUS_PVP = 0x2,
     FUN_GROUP_MEMBER_SLOT_LOOKUP = 0x00496420,
     // Inline member name in the slot record — `Script_UnitName` (0x00517020)
     // pushes `slot + 8` for a GUID with no live object, as does the unit
