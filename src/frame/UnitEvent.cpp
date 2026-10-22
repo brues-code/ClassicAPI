@@ -20,8 +20,9 @@
 //   - Chain membership stays the engine's. RegisterUnitEvent delegates to the
 //     engine's own `Script_RegisterEvent` (stack cut to (self, event)), so the
 //     frame lands on the event's subscriber chain through the same code every
-//     RegisterEvent uses — self typecheck, error text, and DllMain's
-//     RegisterEvent hook included.
+//     RegisterEvent uses — DllMain's RegisterEvent hook included. Membership
+//     is read back from the frame's own registered-event list, the one
+//     Frame::UnregisterEvent searches.
 //   - The filter is stored here, keyed by frame, and dropped exactly where the
 //     engine drops the frame's subscriber node: co-hooks on the C++ helpers
 //     `Frame::UnregisterEvent` (FUN_FRAME_UNREGISTER_EVENT) and
@@ -106,37 +107,33 @@ struct Filter {
 // unregister co-hooks) and on /reload (PrepareForReload).
 std::unordered_map<const void *, std::vector<Filter>> g_filters;
 
-// ---- event table -----------------------------------------------------------
+// ---- the frame's own event list ----------------------------------------------
+//
+// Membership is read from the script object's registered-event list (the
+// event-table indices it listens to), the structure Frame::UnregisterEvent
+// searches — a walk over the frame's handful of registrations instead of the
+// ~400-entry event table plus a subscriber chain.
 
-// The live event-table entry whose name matches `eventName` (case-insensitive,
-// as Frame::RegisterEvent matches), or nullptr for an unknown event.
-const uint8_t *FindEventEntry(const char *eventName) {
-    if (eventName == nullptr)
-        return nullptr;
-    const uint32_t count = Game::Read<uint32_t>(
-        static_cast<uintptr_t>(Offsets::VAR_EVENT_TABLE_COUNT));
-    auto *base = Game::Read<const uint8_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_EVENT_TABLE_BASE_PTR));
-    if (count == 0 || base == nullptr)
-        return nullptr;
-    for (uint32_t i = 0; i < count; ++i) {
-        const uint8_t *entry = base + i * Offsets::EVENT_ENTRY_STRIDE;
-        const char *name = Game::Read<const char *>(entry, Offsets::OFF_EVENT_ENTRY_NAME);
-        if (name != nullptr && EqualsIgnoreCase(name, eventName))
-            return entry; // names are unique
-    }
-    return nullptr;
+uint32_t EventCount(const void *frame) {
+    return Game::Read<uint32_t>(frame, Offsets::OFF_SCRIPTOBJECT_EVENT_COUNT);
 }
 
-// Is `frame` on `entry`'s subscriber chain — the membership walk
-// Frame::RegisterEvent performs before appending.
-bool ChainHas(const uint8_t *entry, const void *frame) {
-    uintptr_t node = Game::Read<uintptr_t>(entry, Offsets::OFF_EVENT_ENTRY_HEAD);
-    while ((node & 1) == 0 && node != 0) {
-        if (Game::Read<const void *>(node + Offsets::OFF_EVENT_NODE_FRAME) == frame)
+// Name of the frame's `i`-th registration.
+const char *EventNameAt(const void *frame, uint32_t i) {
+    const uint32_t *indices =
+        Game::Read<const uint32_t *>(frame, Offsets::OFF_SCRIPTOBJECT_EVENT_INDICES);
+    auto *base = Game::Read<const uint8_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_EVENT_TABLE_BASE_PTR));
+    return Game::Read<const char *>(base + indices[i] * Offsets::EVENT_ENTRY_STRIDE,
+                                    Offsets::OFF_EVENT_ENTRY_NAME);
+}
+
+// Does `frame` listen to `eventName` (case-insensitive, as the engine
+// matches)? Walked from the end, as Frame::UnregisterEvent walks it.
+bool ListensTo(const void *frame, const char *eventName) {
+    for (uint32_t i = EventCount(frame); i-- > 0;)
+        if (EqualsIgnoreCase(EventNameAt(frame, i), eventName))
             return true;
-        node = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT);
-    }
     return false;
 }
 
@@ -171,22 +168,19 @@ void EraseFilter(const void *frame, const char *eventName) {
 
 // `frame:RegisterUnitEvent(event, ...units)` → registered.
 int __fastcall Script_RegisterUnitEvent(void *L) {
+    // Self first, as Script_RegisterEvent checks it: ResolveFrame raises the
+    // engine's own error strings.
+    void *frame = Game::Lua::ResolveFrame(L);
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: frame:RegisterUnitEvent(\"event\" [, \"unit1\", ...])");
         return 0;
     }
-    void *frame = Game::Lua::ResolveFrame(L);
-    if (frame == nullptr) {
-        // Not a frame — hand it to the engine so it raises its own error, so
-        // the message stays the engine's rather than a copy of it.
-        Game::Lua::SetTop(L, 2);
-        return CallScript(Offsets::FUN_SCRIPT_FRAME_REGISTEREVENT, L);
-    }
 
-    // Read everything BEFORE reshaping the stack for the delegate — including
-    // the top, which the reshape destroys. Like 5.4.8 we take only real strings
-    // as units (a number is not coerced) and silently skip anything else.
-    const std::string eventName = Game::Lua::ToString(L, 2);
+    // Read the units BEFORE reshaping the stack for the delegate. Like 5.4.8
+    // we take only real strings as units (a number is not coerced) and
+    // silently skip anything else. The event name stays valid: index 2
+    // survives the reshape.
+    const char *eventName = Game::Lua::ToString(L, 2);
     const int argTop = Game::Lua::GetTop(L);
     std::vector<std::string> units;
     for (int idx = 3; idx <= argTop; ++idx) {
@@ -194,47 +188,53 @@ int __fastcall Script_RegisterUnitEvent(void *L) {
             continue;
         const char *s = Game::Lua::ToString(L, idx);
         if (s != nullptr && *s != '\0')
-            units.push_back(s);
+            units.emplace_back(s);
     }
-    const uint8_t *entry = FindEventEntry(eventName.c_str());
-    const bool wasRegistered = entry != nullptr && ChainHas(entry, frame);
+    const bool wasRegistered = ListensTo(frame, eventName);
+    const uint32_t countBefore = EventCount(frame);
 
     // Chain membership is the engine's: (self, event) → Script_RegisterEvent.
+    // Nothing about the event table is cached across this call — the
+    // RegisterEvent hook in DllMain runs Event::Custom::RetryClaims inside it,
+    // which can claim this very name into a free slot or move the table.
     Game::Lua::SetTop(L, 2);
     CallScript(Offsets::FUN_SCRIPT_FRAME_REGISTEREVENT, L);
+
+    // The engine appends to the frame's list exactly when it joins a chain,
+    // so a longer list is a fresh registration and its last index is this
+    // event; an unchanged list on a non-member means an unknown event.
+    const bool appended = EventCount(frame) != countBefore;
 
     // 5.4.8 node semantics (see the header). No usable unit → this was a plain
     // RegisterEvent and an existing filter is left alone; an unknown event has
     // no node to attach a filter to.
-    if (entry != nullptr && !units.empty()) {
-        if (Filter *f = FindFilter(frame, eventName.c_str())) {
-            f->units = units; // filtered → replace the units
-        } else if (!wasRegistered) {
-            Filter fresh;
-            fresh.event = Game::Read<const char *>(entry, Offsets::OFF_EVENT_ENTRY_NAME);
-            fresh.units = units;
-            g_filters[frame].push_back(fresh);
+    if (!units.empty()) {
+        if (appended) {
+            // Canonical name, so the fire-time compare is a plain strcmp.
+            g_filters[frame].push_back(
+                Filter{EventNameAt(frame, EventCount(frame) - 1), std::move(units)});
+        } else if (Filter *f = FindFilter(frame, eventName)) {
+            f->units = std::move(units); // filtered → replace the units
         }
         // else: already registered plainly → stays plain
     }
 
-    Game::Lua::PushBool(L, entry != nullptr && ChainHas(entry, frame));
+    Game::Lua::PushBool(L, wasRegistered || appended);
     return 1;
 }
 
 // `frame:IsEventRegistered(event)` → registered [, unit…]. Vanilla has
-// RegisterEvent / UnregisterEvent but not the query; the membership check is
-// the same chain walk Frame::RegisterEvent performs, so the answer is exactly
-// what the dispatcher sees. Units come back in registration order.
+// RegisterEvent / UnregisterEvent but not the query; the membership check
+// reads the frame's own event list, which the engine keeps in step with the
+// subscriber chains. Units come back in registration order.
 int __fastcall Script_IsEventRegistered(void *L) {
+    void *frame = Game::Lua::ResolveFrame(L);
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: frame:IsEventRegistered(\"event\")");
         return 0;
     }
-    void *frame = Game::Lua::ResolveFrame(L);
     const char *eventName = Game::Lua::ToString(L, 2);
-    const uint8_t *entry = (frame != nullptr) ? FindEventEntry(eventName) : nullptr;
-    const bool registered = entry != nullptr && ChainHas(entry, frame);
+    const bool registered = ListensTo(frame, eventName);
     Game::Lua::PushBool(L, registered);
     if (!registered)
         return 1;
@@ -283,6 +283,11 @@ bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     auto it = g_filters.find(frame);
     if (it == g_filters.end())
         return false;
+    // The filter applies only when arg1 is a string — checked before touching
+    // Lua, since it costs nothing.
+    const char *arg1 = nullptr;
+    if (!FirstArgIsString(fmt, varargs, &arg1))
+        return false;
 
     // Which event? The dispatcher has just set `_G.event` to the entry's name.
     void *L = Game::Lua::State();
@@ -302,11 +307,6 @@ bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     }
     Game::Lua::SetTop(L, -2);
     if (match == nullptr)
-        return false;
-
-    // The filter applies only when arg1 is a string.
-    const char *arg1 = nullptr;
-    if (!FirstArgIsString(fmt, varargs, &arg1))
         return false;
     if (arg1 != nullptr) {
         for (const std::string &u : match->units)

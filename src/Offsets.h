@@ -7826,7 +7826,7 @@ enum Offsets {
     // (FUN_00702140): each node is `{ ?, next@+0x04, frame@+0x08 }`, where
     // `frame` is the CFrameScriptObject* subscriber. A node value with its
     // low bit set (or null) is the end/empty sentinel. Walked by
-    // Frame:IsEventRegistered to test membership.
+    // GetFramesRegisteredForEvent and the custom-event listener check.
     OFF_EVENT_NODE_NEXT = 0x04,
     OFF_EVENT_NODE_FRAME = 0x08,
 
@@ -7840,6 +7840,14 @@ enum Offsets {
     // `+0x18` count, `+0x1C` int[]). Returns 1 when the frame was ALREADY on
     // that chain (no-op), 0 after appending.
     FUN_FRAME_REGISTER_EVENT = 0x00702140,
+    // The script object's own registered-event list — the event-table
+    // indices it listens to, appended by RegisterEvent (0x00702140) and
+    // RegisterAllEvents (0x007023E0), walked backwards by UnregisterEvent
+    // (0x00702280) to find a name, emptied by UnregisterAllEvents. Indices
+    // survive `Event::Custom::Grow` (entries keep their positions). Verified
+    // from the decomps + benilla-re systems/ui/script.md "The script object".
+    OFF_SCRIPTOBJECT_EVENT_COUNT = 0x18,   // u32
+    OFF_SCRIPTOBJECT_EVENT_INDICES = 0x1C, // u32 *
     // `Frame::UnregisterEvent` — `__thiscall(this=frame, eventName)`. Walks
     // the frame's registered-event list backwards for the entry whose name
     // matches (SStrCmpI), unlinks + frees the frame's `__AUEVENTLISTENERNODE__`
