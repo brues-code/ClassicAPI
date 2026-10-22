@@ -213,8 +213,11 @@ int __fastcall LuaLGetN_h(void *L, int idx) {
     if (idx < 0 && idx > -10000)
         absIdx = Game::Lua::GetTop(L) + idx + 1;
 
-    if (!SlotIsNil(L, absIdx, n))
-        return n; // healthy — the reported last slot is populated
+    // The Table* stays valid across the API calls below: 5.0's collector
+    // never moves objects, and nothing here writes to the table.
+    void *t = Table::Border::TableAt(L, absIdx);
+    if (t == nullptr || !SlotIsNil(t, n))
+        return n; // healthy (reported last slot populated), or not a table
 
     // Explicit `t.n` count (vararg-table contract): trailing nils are
     // intentional, keep the stored length.
@@ -249,7 +252,7 @@ int __fastcall LuaLGetN_h(void *L, int idx) {
     // populated) — one probe, the same condition the former walk-down
     // expressed as `n - b == 1` — and it is tested before the mark so the
     // common stale case never touches the registry.
-    const bool onePast = n == 1 || !SlotIsNil(L, absIdx, n - 1);
+    const bool onePast = n == 1 || !SlotIsNil(t, n - 1);
     if (onePast && HasTrailingNilMark(L, absIdx, n))
         return n;
 
@@ -261,7 +264,7 @@ int __fastcall LuaLGetN_h(void *L, int idx) {
     // table, a table stale by one — the answer is the same 0 / n-1; a stale
     // table WITH holes gets some border rather than the highest, which is
     // what 5.1 itself returns for that table.
-    return static_cast<int>(Table::Border::Bisect(L, absIdx, 0, static_cast<unsigned>(n)));
+    return static_cast<int>(Table::Border::Bisect(t, 0, static_cast<unsigned>(n)));
 }
 
 // `Script_TableInsert` is registered OVER the engine's `table.insert` rather

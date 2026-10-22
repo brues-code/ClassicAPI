@@ -1165,7 +1165,7 @@ int __fastcall Script_Len(void *L) {
     }
     if (ty == Game::Lua::TYPE_TABLE) {
         // 5.1's `#` on a table: a border, by luaH_getn's search (table/Border.h).
-        Game::Lua::PushNumber(L, static_cast<double>(Table::Border::Find(L, 1)));
+        Game::Lua::PushNumber(L, static_cast<double>(Table::Border::Find(Table::Border::TableAt(L, 1))));
         return 1;
     }
     Game::Lua::Error(L, "attempt to get length of a non-table, non-string value");

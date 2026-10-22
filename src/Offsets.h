@@ -7265,6 +7265,17 @@ enum Offsets {
     // CObjects — which is exactly why the engine pushes handler/frame
     // through it rather than a plain rawget.
     LUA_RAWGETI = 0x6F3BC0,
+    // `luaA_indexAcceptable(L, idx)` — the API's index walk: stack, pseudo
+    // (registry / globals) or upvalue index → TObject*, or NULL for a
+    // positive index at or past the top. __fastcall(L /*ecx*/, idx /*edx*/),
+    // plain RET; pushes nothing (disassembled 0x006F3410; lua_type calls it).
+    LUA_INDEX_ACCEPTABLE = 0x6F3410,
+    // `luaH_getnum(Table *t, int key)` — raw integer-key read: the array part
+    // for 1..sizearray (`[t+0x0C] + key*16 - 16`), else the node chain by
+    // hashnum. __fastcall(t /*ecx*/, key /*edx*/), plain RET; returns const
+    // TObject* (&nilobject 0x00811BC0 on a miss). No metamethods, no
+    // allocation, no stack traffic (disassembled 0x006FA700).
+    FUN_LUAH_GETNUM = 0x6FA700,
     // `lua_getmetatable(L, objindex)` — pushes the metatable of the value at
     // objindex and returns 1, or pushes nothing and returns 0 when it has none.
     // Verified in docs/LuaCAPI.md and by the getfenv/getmetatable base-lib
@@ -7556,6 +7567,14 @@ enum Offsets {
     OFF_LUA_PROTO_NUPS = 0x44,
     OFF_LUA_PROTO_NUMPARAMS = 0x45,
     OFF_LUA_PROTO_IS_VARARG = 0x46,
+    // TObject (16 bytes): type tag at +0 (`TYPE_*`), payload at +8 (a
+    // Table* / TString* / double). luaH_getnum's node walk reads both
+    // (`CMP [ECX],3` / `FLD [ECX+8]` at 0x006FA736 / 0x006FA73B).
+    OFF_LUA_TVALUE_TT = 0x00,
+    OFF_LUA_TVALUE_VALUE = 0x08,
+    // Table: array size (int). luaH_getnum's array-part bound test
+    // `CMP EDX,[ECX+0x1C]` at 0x006FA70E (array pointer at +0x0C).
+    OFF_LUA_TABLE_SIZEARRAY = 0x1C,
 
     // --- Lua 5.0 parser internals: `for` loop scoping -------------------------
     // forbody(ls, base, line, nvars, isnum) -- stock 5.0.2, decompiled:
