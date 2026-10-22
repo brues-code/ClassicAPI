@@ -45,7 +45,6 @@
 #include "unit/Identity.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace Spell::AutoPrepare {
 
@@ -194,21 +193,6 @@ char __fastcall CheckCasterState(void *caster, void *, const uint8_t *record, vo
     return 1;
 }
 
-// Writes `call target; nop` over the 6-byte instruction at `site` when it
-// still holds `original`. True when the site now calls `target`; a site
-// holding anything else (another DLL's patch) is left alone.
-bool PatchCall6(uintptr_t site, const uint8_t (&original)[6], const void *target) {
-    uint8_t code[6] = {0xE8, 0, 0, 0, 0, 0x90};
-    const int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(target) - (site + 5));
-    std::memcpy(code + 1, &rel, sizeof(rel));
-    const void *at = reinterpret_cast<const void *>(site);
-    if (std::memcmp(at, code, sizeof(code)) == 0)
-        return true;
-    if (std::memcmp(at, original, sizeof(original)) != 0)
-        return false;
-    return Common::PatchBytes(reinterpret_cast<void *>(site), code, sizeof(code));
-}
-
 void Register() {
     // 4.3.4 defaults all three to 1. Here they default to 0, 1.12's own
     // behavior: autoUnshift drops a form the player may want to keep
@@ -225,10 +209,10 @@ void Register() {
         return;
     static const uint8_t kMountRead[6] = {0x8B, 0x91, 0xFC, 0x01, 0x00, 0x00};
     static const uint8_t kStandCall[6] = {0xFF, 0x92, 0xA4, 0x00, 0x00, 0x00};
-    PatchCall6(Offsets::SITE_CASTER_STATE_MOUNT_READ, kMountRead,
-               reinterpret_cast<const void *>(&MountReadThunk));
-    PatchCall6(Offsets::SITE_CASTER_STATE_STAND_CALL, kStandCall,
-               reinterpret_cast<const void *>(&StandStateForCast));
+    Common::ReplaceWithCall(Offsets::SITE_CASTER_STATE_MOUNT_READ, kMountRead,
+                            sizeof kMountRead, reinterpret_cast<const void *>(&MountReadThunk));
+    Common::ReplaceWithCall(Offsets::SITE_CASTER_STATE_STAND_CALL, kStandCall,
+                            sizeof kStandCall, reinterpret_cast<const void *>(&StandStateForCast));
     if (Common::RedirectCall(Offsets::CALL_CASTER_STATE_SHAPESHIFT_FORM,
                              Offsets::FUN_CHECK_SPELL_SHAPESHIFT_FORM,
                              reinterpret_cast<const void *>(&CheckFormForCast)))

@@ -1873,6 +1873,23 @@ enum Offsets {
     // CGUnit_C::UnitReaction — `int __thiscall(unit, other)` → reaction
     // 0..7; Script_UnitIsFriend (0x00516930) reads above 3 as friendly.
     FUN_UNIT_REACTION = 0x006061E0,
+    // CGUnit_C::GetSelectionHighlightColor — vtable slot 11, `int __thiscall
+    // (unit, uint32_t *argb)`, EDI = unit throughout. Colours the name above
+    // the head (PLAYERNAMEDESC refetch) and the selection circle. Its
+    // player-controlled, non-hostile, not-in-party exits are where 4.3.4
+    // checks the friends list: the PvP one loads green (`mov eax,[0xC4D8B4]`,
+    // A1 B4 D8 C4 00, 5 bytes; ECX/EDX free after) and the unflagged one blue
+    // (`mov ecx,[0xC4DA4C]`, 8B 0D 4C DA C4 00, 6 bytes; EAX = the out
+    // pointer, EDX free after). Verified by disassembly.
+    FUN_UNIT_SELECTION_COLOR = 0x00605960,
+    SITE_SELECTION_COLOR_PVP_EXIT = 0x00605C84,
+    SITE_SELECTION_COLOR_UNFLAGGED_EXIT = 0x00605CE7,
+    VAR_SELECTION_COLOR_PVP = 0x00C4D8B4,
+    VAR_SELECTION_COLOR_UNFLAGGED = 0x00C4DA4C,
+    // Sets the refetch-colour bit (+0x18 bit 1) on every name record, so each
+    // name re-asks FUN_UNIT_SELECTION_COLOR on its next draw. `void __cdecl()`;
+    // 4.3.4's PlayerNameTriggerColorUpdateAll.
+    FUN_PLAYER_NAME_MARK_ALL_COLOR_DIRTY = 0x006C7800,
     // The combat log's object namer (0x006264E0) asks the name and creature
     // caches with this empty callback, so a miss sends the query and the
     // next line has the name. `void __stdcall(void *, int)`, returns at once.
@@ -5784,6 +5801,9 @@ enum Offsets {
     // entries and returns the number of populated friend slots. Backs
     // GetNumFriends and C_FriendList.IsFriend.
     FUN_FRIEND_LIST_COUNT = 0x005AE490,
+    // FriendList::IsFriend — `bool __thiscall(socialSingleton, uint64_t guid)`
+    // (RET 8): true when one of the 50 slots holds the GUID.
+    FUN_FRIEND_LIST_IS_FRIEND = 0x005AE810,
 
     // SMSG_WHO opcode handler — opcode 0x63 (99) per the registration
     // in `FUN_005adc50`: `FUN_005ab650(99, FUN_005adf60, 0)`. Reads

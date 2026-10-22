@@ -48,6 +48,22 @@ bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target) {
     return PatchBytes(reinterpret_cast<uint8_t *>(site) + 1, &rel, sizeof rel);
 }
 
+bool ReplaceWithCall(uintptr_t site, const uint8_t *original, size_t len, const void *target) {
+    uint8_t code[16];
+    if (len < 5 || len > sizeof code)
+        return false;
+    code[0] = 0xE8;
+    const int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(target) - (site + 5));
+    std::memcpy(code + 1, &rel, sizeof rel);
+    std::memset(code + 5, 0x90, len - 5);
+    const void *at = reinterpret_cast<const void *>(site);
+    if (std::memcmp(at, code, len) == 0)
+        return true;
+    if (std::memcmp(at, original, len) != 0)
+        return false;
+    return PatchBytes(reinterpret_cast<void *>(site), code, len);
+}
+
 void BoundedCopy(char *dst, const char *src, size_t n) {
     if (dst == nullptr || n == 0)
         return;

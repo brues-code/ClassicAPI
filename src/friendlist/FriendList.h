@@ -68,6 +68,17 @@ inline int Count() {
     return static_cast<int>(fn(social));
 }
 
+// True if `guid` is on the friends list — the engine's own FriendList::IsFriend.
+inline bool IsGuidFriend(uint64_t guid) {
+    const uint8_t *social = Social();
+    if (social == nullptr || guid == 0)
+        return false;
+    using IsFriendFn = bool(__fastcall *)(const void *social, void *edx, uint64_t guid);
+    auto fn = reinterpret_cast<IsFriendFn>(
+        static_cast<uintptr_t>(Offsets::FUN_FRIEND_LIST_IS_FRIEND));
+    return fn(social, nullptr, guid);
+}
+
 // Friend entry at 0-based `index`, or null if there is no list or the index
 // is out of the fixed slot range. Does not bounds-check against the live
 // count — callers that iterate should use `Count()`.
