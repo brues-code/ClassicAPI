@@ -39,11 +39,10 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "time/Clock.h"
 
 #include <cstdint>
 #include <cstring>
-
-#include <windows.h>
 
 namespace FriendList::Who {
 
@@ -53,16 +52,16 @@ namespace {
 // silent-dropped. We mirror that on the client to avoid wasting
 // queries that won't get a response, and to give addons a clean
 // "did my query get sent?" signal via the bool return.
-constexpr DWORD kCooldownMs = 5000;
+constexpr uint32_t kCooldownMs = 5000;
 
 // Lost-response safety net. If a query's SMSG_WHO somehow never
 // arrives (network blip, server drop), `g_inFlight` would otherwise
 // stay positive forever and we'd never restore the routing flag.
 // On every new send we check this window first and force-reset if
 // the last send is older than this and the counter's still up.
-constexpr DWORD kPendingWindowMs = 10000;
+constexpr uint32_t kPendingWindowMs = 10000;
 
-DWORD g_lastSendTick = 0;
+uint32_t g_lastSendTick = 0;
 bool g_haveSent = false;
 
 // Count of /who queries we've initiated whose SMSG_WHO response we
@@ -80,8 +79,7 @@ bool g_flagOverridden = false;
 bool OnCooldown() {
     if (!g_haveSent)
         return false;
-    const DWORD now = GetTickCount();
-    return (now - g_lastSendTick) < kCooldownMs;
+    return Time::Clock::Elapsed(g_lastSendTick) < kCooldownMs;
 }
 
 void RestoreFlagIfOwned() {
@@ -103,7 +101,7 @@ void ResetIfStuck() {
         return;
     if (!g_haveSent)
         return;
-    if ((GetTickCount() - g_lastSendTick) < kPendingWindowMs)
+    if (Time::Clock::Elapsed(g_lastSendTick) < kPendingWindowMs)
         return;
     g_inFlight = 0;
     RestoreFlagIfOwned();
@@ -253,7 +251,7 @@ int __fastcall Script_C_FriendList_SendWhoQueryByName(void *L) {
         Game::Lua::PushBoolean(L, 0);
         return 1;
     }
-    g_lastSendTick = GetTickCount();
+    g_lastSendTick = Time::Clock::NowMs();
     g_haveSent = true;
     g_inFlight++;
     Game::Lua::PushBoolean(L, 1);

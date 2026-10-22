@@ -78,8 +78,11 @@ void PushFriendInfo(void *L, const uint8_t *entry) {
     }
     if (const char *note = Notes::Get(guid)) // client-side note (see Notes.h)
         Game::Lua::SetFieldString(L, "notes", note);
-    Game::Lua::SetFieldBool(L, "afk", (status & FRIEND_STATUS_AFK) != 0);
-    Game::Lua::SetFieldBool(L, "dnd", (status & FRIEND_STATUS_DND) != 0);
+    // A logoff (SMSG_FRIEND_STATUS result 3 → SetFriendStatus, 0x005AEB30)
+    // clears only the online byte and leaves the status byte, so gate on
+    // `connected` — as the engine's GetFriendInfo does for its status text.
+    Game::Lua::SetFieldBool(L, "afk", connected && (status & FRIEND_STATUS_AFK) != 0);
+    Game::Lua::SetFieldBool(L, "dnd", connected && (status & FRIEND_STATUS_DND) != 0);
     Game::Lua::SetFieldBool(L, "mobile", false);
     Game::Lua::SetFieldBool(L, "referAFriend", false);
     Game::Lua::SetFieldNumber(L, "rafLinkType", 0);

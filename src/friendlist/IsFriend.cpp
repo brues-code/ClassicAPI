@@ -13,47 +13,20 @@
 
 // `C_FriendList.IsFriend(guid)` — is the given player on the friends list?
 //
-// Matches the input GUID against each friend entry's GUID (+0x08) — the same
-// GUID `SMSG_FRIEND_LIST` populates for online AND offline friends — and also
-// falls back to a name compare (resolving the GUID through the NameCache) so
-// the answer holds even if a build stores the GUID differently. As a
-// ClassicAPI convenience the arg may also be a bare character name, since
-// vanilla's friends list is fundamentally name-keyed (AddFriend(name)). See
-// `FriendList.h` for the entry layout.
+// A GUID goes to the engine's own FriendList::IsFriend (`IsGuidFriend`). The
+// friend list keeps the GUID at +0x08 for online AND offline friends, so no
+// name fallback is needed for GUID input. As a ClassicAPI convenience the arg
+// may also be a bare character name, since vanilla's friends list is
+// fundamentally name-keyed (AddFriend(name)). See `FriendList.h`.
 
 #include "FriendList.h"
 
 #include "Game.h"
 #include "guid/Guid.h"
-#include "unit/Identity.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace FriendList::IsFriend {
-
-namespace {
-
-bool IsFriendByGuidOrName(uint64_t guid, const char *name) {
-    const int count = FriendList::Count();
-    for (int i = 0; i < count; ++i) {
-        const uint8_t *entry = FriendList::EntryByIndex(i);
-        if (entry == nullptr)
-            break;
-        if (guid != 0 &&
-            *reinterpret_cast<const uint64_t *>(entry + FriendList::OFF_FRIEND_GUID) == guid)
-            return true;
-        if (name != nullptr) {
-            const char *fname = *reinterpret_cast<const char *const *>(
-                entry + FriendList::OFF_FRIEND_NAME);
-            if (fname != nullptr && _stricmp(fname, name) == 0)
-                return true;
-        }
-    }
-    return false;
-}
-
-} // namespace
 
 int __fastcall Script_IsFriend(void *L) {
     const char *arg = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
@@ -63,13 +36,10 @@ int __fastcall Script_IsFriend(void *L) {
     }
 
     uint64_t guid = 0;
-    const char *name = nullptr;
-    if (Guid::Parse(arg, &guid) && guid != 0)
-        name = Unit::Identity::NameForGuid(guid); // GUID input → name for the fallback compare
-    else
-        name = arg; // not a GUID → treat the string as a character name
+    if (!Guid::Parse(arg, &guid) || guid == 0)
+        guid = FriendList::GuidForName(arg); // not a GUID → treat it as a character name
 
-    Game::Lua::PushBool(L, IsFriendByGuidOrName(guid, name));
+    Game::Lua::PushBool(L, FriendList::IsGuidFriend(guid));
     return 1;
 }
 

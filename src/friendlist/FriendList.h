@@ -25,11 +25,13 @@
 // (FUN_005AD060), and the count walker FUN_005AE490.
 //
 // The ignore list lives in the same singleton: a flat array of u64 GUIDs at
-// `+0x650`, stride 8, up to 25 entries, terminated by the first zero GUID.
-// Vanilla ignores are GUID-keyed, not name-keyed — GetIgnoreName (0x005AD460)
-// reads the GUID via FUN_005AE570 (`social + 0x650 + index*8`) and resolves it
-// to a name through the NameCache, and GetNumIgnores (0x005AD400 → the count
-// walker FUN_005AE550) stops at the first zero GUID and caps at 25.
+// `+0x650`, stride 8, up to 25 entries. Vanilla ignores are GUID-keyed, not
+// name-keyed — GetIgnoreName (0x005AD460) reads the GUID via FUN_005AE570
+// (`social + 0x650 + index*8`) and resolves it to a name through the
+// NameCache. GetNumIgnores (0x005AD400 → FUN_005AE550) stops at the first zero
+// GUID, but the array is NOT always contiguous: removing an ignore zeroes its
+// slot and re-sorts only when no ignore name lookup is pending, so membership
+// checks must scan all 25 slots (as the engine's IsIgnored, 0x005AE5A0, does).
 
 namespace FriendList {
 
@@ -139,20 +141,16 @@ inline uint64_t IgnoreGuidByIndex(int index) {
         social + OFF_IGNORE_LIST + index * IGNORE_ENTRY_STRIDE);
 }
 
-// True if `guid` is on the ignore list. Walks the GUID array, stopping at the
-// first zero entry (the list is contiguous — same terminate-on-zero contract
-// GetNumIgnores relies on).
+// True if `guid` is on the ignore list — the engine's own FriendList::IsIgnored,
+// which scans all 25 slots because the list can hold zero-GUID holes.
 inline bool IsGuidIgnored(uint64_t guid) {
-    if (guid == 0)
+    const uint8_t *social = Social();
+    if (social == nullptr || guid == 0)
         return false;
-    for (int i = 0; i < MAX_IGNORES; ++i) {
-        const uint64_t entry = IgnoreGuidByIndex(i);
-        if (entry == 0)
-            break;
-        if (entry == guid)
-            return true;
-    }
-    return false;
+    using IsIgnoredFn = bool(__fastcall *)(const void *social, void *edx, uint64_t guid);
+    auto fn = reinterpret_cast<IsIgnoredFn>(
+        static_cast<uintptr_t>(Offsets::FUN_FRIEND_LIST_IS_IGNORED));
+    return fn(social, nullptr, guid);
 }
 
 } // namespace FriendList

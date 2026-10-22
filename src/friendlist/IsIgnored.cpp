@@ -37,12 +37,13 @@ namespace FriendList::IsIgnored {
 namespace {
 
 // True if any ignored GUID matches `guid`, or (when `name` is given) resolves
-// to `name`. Single walk of the GUID array.
+// to `name`. Single walk of all 25 slots, skipping zero holes (see
+// `FriendList.h` — the array is not always contiguous).
 bool IgnoredByGuidOrName(uint64_t guid, const char *name) {
     for (int i = 0; i < FriendList::MAX_IGNORES; ++i) {
         const uint64_t entry = FriendList::IgnoreGuidByIndex(i);
         if (entry == 0)
-            break; // contiguous list — first zero is the end
+            continue;
         if (guid != 0 && entry == guid)
             return true;
         if (name != nullptr) {

@@ -5804,6 +5804,12 @@ enum Offsets {
     // FriendList::IsFriend — `bool __thiscall(socialSingleton, uint64_t guid)`
     // (RET 8): true when one of the 50 slots holds the GUID.
     FUN_FRIEND_LIST_IS_FRIEND = 0x005AE810,
+    // FriendList::IsIgnored — `bool __thiscall(socialSingleton, uint64_t guid)`
+    // (RET 8): false for guid 0, else true when any of the 25 ignore slots at
+    // +0x650 holds the GUID. Scans all 25 (no stop at a zero slot): removing
+    // an ignore (0x005AF650) zeroes its slot and only re-sorts when no ignore
+    // name lookup is pending (+0x718 == 0), so the list can have holes.
+    FUN_FRIEND_LIST_IS_IGNORED = 0x005AE5A0,
 
     // SMSG_WHO opcode handler — opcode 0x63 (99) per the registration
     // in `FUN_005adc50`: `FUN_005ab650(99, FUN_005adf60, 0)`. Reads
