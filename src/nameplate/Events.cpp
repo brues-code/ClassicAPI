@@ -51,8 +51,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace NamePlate::Events {
@@ -63,15 +61,21 @@ const Event::Custom::AutoReserve _evtCreated{"NAME_PLATE_CREATED"};
 const Event::Custom::AutoReserve _evtUnitAdded{"NAME_PLATE_UNIT_ADDED"};
 const Event::Custom::AutoReserve _evtUnitRemoved{"NAME_PLATE_UNIT_REMOVED"};
 
-// Previous tick's snapshot — GUID → nameplate-frame pointer for each
-// nameplated unit. Compared against the next tick's walk to compute
-// ADDED/REMOVED diffs.
-std::unordered_map<uint64_t, const void *> g_lastTickPlates;
+// A nameplated unit and its nameplate frame.
+struct Plate {
+    uint64_t guid;
+    const void *plate;
+};
 
-// Scratch map reused each tick, swapped into `g_lastTickPlates` at
-// the end. File-static so we don't pay the constructor/destructor
-// cycle every frame — `clear()` keeps the existing bucket capacity.
-std::unordered_map<uint64_t, const void *> g_currentTickPlates;
+// Previous tick's snapshot, in walk order. Compared against the next tick's
+// walk to compute ADDED/REMOVED diffs. Flat arrays searched linearly: the
+// engine shows a few dozen plates at most, and a hash container allocated a
+// node per plate every frame.
+std::vector<Plate> g_lastTickPlates;
+
+// Scratch snapshot reused each tick, swapped into `g_lastTickPlates` at the
+// end; `clear()` keeps the capacity, so steady state allocates nothing.
+std::vector<Plate> g_currentTickPlates;
 
 // GUIDs whose ADDED couldn't go out this tick (see `OnWorldTick`). Dropped
 // from the snapshot before the swap so the next tick sees them as new again.
@@ -87,9 +91,20 @@ std::vector<uint64_t> g_deferredAdds;
 // `DAT_00c4d920` and recycles any waiting frame before falling back
 // to `SMemAlloc(0x518)`. So the set grows only up to the peak
 // simultaneous-visible-plate count for the session — typically
-// <80 even in AV-scale scenes (matching the `reserve(64)` below) —
-// then tops out as pool reuse covers all subsequent shows.
-std::unordered_set<const void *> g_seenPlates;
+// <80 even in AV-scale scenes — then tops out as pool reuse covers all
+// subsequent shows.
+std::vector<const void *> g_seenPlates;
+
+bool HasGuid(const std::vector<Plate> &plates, uint64_t guid) {
+    for (const Plate &p : plates)
+        if (p.guid == guid)
+            return true;
+    return false;
+}
+
+bool Seen(const void *plate) {
+    return std::find(g_seenPlates.begin(), g_seenPlates.end(), plate) != g_seenPlates.end();
+}
 
 // Nameplate token slots: slot `i` (0-based) holds the GUID assigned to
 // `nameplate(i+1)`, or 0 when free. Retail-exact slot assignment — a plate
@@ -209,10 +224,9 @@ bool FireWithFrame(const Event::Custom::AutoReserve &event, void *frame) {
 
 void OnWorldTick() {
     g_currentTickPlates.clear();
-    g_currentTickPlates.reserve(64); // typical visible-nameplate ceiling
     NamePlate::Walk::ForEachNamePlatedUnit(
         [](const uint8_t *, const uint8_t *nameplate, uint64_t guid) {
-            g_currentTickPlates.emplace(guid, nameplate);
+            g_currentTickPlates.push_back({guid, nameplate});
         });
 
     // Fire CREATED (with the Frame as arg1) for never-before-seen
@@ -229,22 +243,22 @@ void OnWorldTick() {
     // and no observers, and is kept out of the snapshot, so it produces no
     // REMOVED for an ADDED that never fired.
     g_deferredAdds.clear();
-    for (const auto &kv : g_currentTickPlates) {
-        bool announced = g_seenPlates.find(kv.second) != g_seenPlates.end();
+    for (const Plate &cur : g_currentTickPlates) {
+        bool announced = Seen(cur.plate);
         if (!announced &&
-            FireWithFrame(_evtCreated, const_cast<void *>(kv.second))) {
-            g_seenPlates.insert(kv.second);
+            FireWithFrame(_evtCreated, const_cast<void *>(cur.plate))) {
+            g_seenPlates.push_back(cur.plate);
             announced = true;
         }
-        if (g_lastTickPlates.find(kv.first) == g_lastTickPlates.end()) {
+        if (!HasGuid(g_lastTickPlates, cur.guid)) {
             if (!announced || _evtUnitAdded.Slot() < 0) {
-                g_deferredAdds.push_back(kv.first);
+                g_deferredAdds.push_back(cur.guid);
                 continue;
             }
-            const int slot = AssignSlot(kv.first);
+            const int slot = AssignSlot(cur.guid);
             // The unit now has a "nameplateN" token: every unit event the
             // engine fires for it fires for that token too.
-            Unit::TokenEvents::Refresh(kv.first);
+            Unit::TokenEvents::Refresh(cur.guid);
             char tokenBuf[24];
             FireWithString(_evtUnitAdded,
                 FormatNamePlateToken(tokenBuf, sizeof tokenBuf, slot + 1));
@@ -256,18 +270,18 @@ void OnWorldTick() {
     // index (retail-exact — no shift); the next ADD reuses it. Token is
     // computed before freeing so the payload names the slot just vacated.
     // Trailing empties are trimmed so the array tracks the high-water mark.
-    for (const auto &kv : g_lastTickPlates) {
-        if (g_currentTickPlates.find(kv.first) == g_currentTickPlates.end()) {
-            auto it = std::find(g_slots.begin(), g_slots.end(), kv.first);
+    for (const Plate &last : g_lastTickPlates) {
+        if (!HasGuid(g_currentTickPlates, last.guid)) {
+            auto it = std::find(g_slots.begin(), g_slots.end(), last.guid);
             if (it == g_slots.end())
                 continue;
             const int oneBased = static_cast<int>(it - g_slots.begin()) + 1;
             // Let the handler reach the frame it is being told about; live
             // state can no longer answer for it. Skipped once the engine has
             // rebound the frame to another unit.
-            if (!PlateReassigned(kv.second, kv.first)) {
-                g_removingGuid = kv.first;
-                g_removingPlate = kv.second;
+            if (!PlateReassigned(last.plate, last.guid)) {
+                g_removingGuid = last.guid;
+                g_removingPlate = last.plate;
             }
             char tokenBuf[24];
             FireWithString(_evtUnitRemoved,
@@ -275,15 +289,21 @@ void OnWorldTick() {
             g_removingGuid = 0;
             g_removingPlate = nullptr;
             *it = 0; // free the slot (no shift of survivors)
-            Unit::TokenEvents::Refresh(kv.first);
+            Unit::TokenEvents::Refresh(last.guid);
             while (!g_slots.empty() && g_slots.back() == 0)
                 g_slots.pop_back();
         }
     }
 
     // Deferred ADDs leave the snapshot so the next tick sees them as new.
-    for (uint64_t guid : g_deferredAdds)
-        g_currentTickPlates.erase(guid);
+    if (!g_deferredAdds.empty())
+        g_currentTickPlates.erase(
+            std::remove_if(g_currentTickPlates.begin(), g_currentTickPlates.end(),
+                           [](const Plate &p) {
+                               return std::find(g_deferredAdds.begin(), g_deferredAdds.end(),
+                                                p.guid) != g_deferredAdds.end();
+                           }),
+            g_currentTickPlates.end());
 
     g_lastTickPlates.swap(g_currentTickPlates);
 }
