@@ -22,13 +22,10 @@
 // it rebuilds with the name — into no event at all.
 //
 // Payload shape (matches modern WoW exactly):
-// - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame**. The
-//   engine's printf-style dispatcher (`FUN_FIRE_EVENT`) only knows
-//   `%s`/`%d`/`%u`/`%f` format codes with no "push Lua value" option,
-//   so we route this event through a pre-set path: save current
-//   `_G.arg1`, set it to the frame, fire with empty format
-//   (dispatcher leaves `_G.arg<N>` alone when no codes are parsed),
-//   restore.
+// - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame**, the
+//   engine's canonical wrapper table. The printf-style dispatcher
+//   (`FUN_FIRE_EVENT`) has no code for a Lua object, so it goes out
+//   through `Event::Custom::FireValues` (see `FireWithFrame`).
 // - `NAME_PLATE_UNIT_ADDED` / `_REMOVED` — `arg1` is the
 //   `"nameplateN"` unit token (`N` = the plate's assigned slot). The token
 //   resolves to the unit via the `nameplateN`-aware token resolver in
@@ -168,21 +165,16 @@ const char *FormatNamePlateToken(char *buf, size_t bufSize, int oneBasedIndex) {
     return buf;
 }
 
-// Fire `eventName` with the nameplate `Frame` set as `_G.arg1`.
-// `FUN_FIRE_EVENT`'s format-string parser only handles primitive
-// types, but it only mutates `_G.arg<N>` for codes it actually
-// parses. With an empty format we pre-set `_G.arg1` and the
-// dispatcher leaves it alone. Restore the previous value after
-// fire so we don't leak our frame into unrelated global state.
-//
-// Lua-stack-clean: stack depth on entry == stack depth on exit.
+// Fire `event` with the nameplate Frame as its one payload value. The engine's
+// printf-style dispatcher has no code for a Lua object, so the frame goes out
+// through `Event::Custom::FireValues`, the value form of the same dispatch: each
+// listener's OnEvent gets `arg1` set and restored by the argument runner, and a
+// modern `function(self, event, namePlate)` gets it positionally. Setting
+// `_G.arg1` around an empty-format fire instead reached only the global — the
+// positional `namePlate` was nil.
 //
 // Returns whether the event went out. `false` when the slot isn't claimed yet
 // or there's no Lua state — the caller must not treat the plate as announced.
-using LuaRefRef_t = int(__fastcall *)(void *L, int t);
-using LuaRefUnref_t = void(__fastcall *)(void *L, int t, int ref);
-using LuaRawGetI_t = void(__fastcall *)(void *L, int t, int n);
-
 bool FireWithFrame(const Event::Custom::AutoReserve &event, void *frame) {
     if (frame == nullptr)
         return false;
@@ -194,31 +186,10 @@ bool FireWithFrame(const Event::Custom::AutoReserve &event, void *frame) {
     if (L == nullptr)
         return false;
 
-    auto refRef = reinterpret_cast<LuaRefRef_t>(
-        static_cast<uintptr_t>(Offsets::LUA_REF_REF));
-    auto refUnref = reinterpret_cast<LuaRefUnref_t>(
-        static_cast<uintptr_t>(Offsets::LUA_REF_UNREF));
-    auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
-        Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
-
-    // Save current `_G.arg1` to the registry.
-    Game::Lua::PushString(L, "arg1");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    const int savedRef = refRef(L, Game::Lua::REGISTRY_INDEX);
-
-    // Set `_G.arg1 = frame`.
-    Game::Lua::PushString(L, "arg1");
+    const int top = Game::Lua::GetTop(L);
     NamePlate::Info::PushNamePlateFrame(L, frame);
-    Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
-
-    // Fire — empty format, so the dispatcher doesn't touch `arg1`.
-    Event::Custom::Fire(slot, "");
-
-    // Restore previous `_G.arg1` from the saved registry ref.
-    Game::Lua::PushString(L, "arg1");
-    rawgeti(L, Game::Lua::REGISTRY_INDEX, savedRef);
-    Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
-    refUnref(L, Game::Lua::REGISTRY_INDEX, savedRef);
+    Event::Custom::FireValues(slot, L, top + 1, 1);
+    Game::Lua::SetTop(L, top);
     return true;
 }
 
