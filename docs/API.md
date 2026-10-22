@@ -12609,7 +12609,7 @@ link:sub(1, 5)
 
 ### `getfenv` / `setfenv` environment protection
 
-A sandbox can protect the environment table it gives to restricted code.
+A sandbox can hide the environment table that it gives to restricted code.
 Put a metatable on that table with an `__environment` field:
 
 ```lua
@@ -12617,17 +12617,19 @@ local view = setmetatable({}, { __environment = "protected" })
 setfenv(restrictedFn, view)
 ```
 
-From then on, code inside the sandbox sees the protection:
+After this, `getfenv()` in the sandbox returns the `__environment` value.
+It does not return the real table, so the restricted code cannot get the
+true environment.
 
-- `getfenv()` returns the `__environment` value, not the real table. The
-  restricted code cannot reach or change the true environment.
-- `setfenv()` on that environment raises `cannot change a protected
-  environment`.
+`__environment` has no effect on `setfenv`. `setfenv` returns the function
+that it changed, so you can write it on one line:
 
-This is the Lua 5.1 form. 1.12 already protected environments, but it read
-a raw `__fenv` field on the table itself. ClassicAPI adds the 5.1
-metatable form and keeps `__fenv` as a fallback. The change is additive:
-an environment with neither marker behaves as before.
+```lua
+local f = setfenv(loadstring(source), env)
+```
+
+`setfenv(0, env)` changes the environment of the running thread and
+returns nothing.
 
 ### `select(index, ...)`
 

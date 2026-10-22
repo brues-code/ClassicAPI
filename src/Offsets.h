@@ -7712,14 +7712,31 @@ enum Offsets {
     // (`bool __fastcall(L /*ecx*/)`). Pushes the function-at-top's environment
     // via `lua_getfenv(L, -1)`, then pushes the protection marker
     // `env["__fenv"]` (a RAW field on the env table) and returns whether it is
-    // non-nil — net stack effect +2 (env, marker). `getfenv` (`0x00702AC0`)
-    // returns the marker in place of the real env when set; `setfenv`
-    // (`0x00702BF8`) raises "cannot change a protected environment" when set.
-    // We co-hook this ONE predicate to read `getmetatable(env).__environment`
-    // (raw) instead — the Lua 5.1 form (verified against 3.3.5's
-    // `FUN_0084F2F0`) — with the raw `__fenv` field kept as a fallback, so both
-    // consumers gain the 5.1 semantics with the 1.12 behavior preserved.
+    // non-nil — net stack effect +2 (env, marker). Its only callers (Ghidra
+    // xrefs) are `getfenv` (`0x00702AC0`), which returns the marker in place
+    // of the real env when set, and `setfenv` (`FUN_SCRIPT_SETFENV`), which
+    // raises "cannot change a protected environment". LuaEnv::Fenv replaces it
+    // with the 5.1 `luaL_getmetafield(env, "__environment")` read.
     FUN_LUA_ENV_PROTECT_PREDICATE = 0x00702BA0,
+    // The base library's `getfunc(L)` (`void __fastcall(L /*ecx*/)`): pushes
+    // arg 1 when it is a function, else the function at level
+    // `luaL_optnumber(L, 1, 1)` — erroring "level must be non-negative",
+    // "invalid level", or "no function environment for tail call at level
+    // %d" (bytes at 0x00702AF0..0x00702B97).
+    FUN_LUA_BASE_GETFUNC = 0x00702AF0,
+    // `setfenv` (`int __fastcall(L)`): luaL_checktype(2, table), getfunc,
+    // the protection predicate, then `lua_replace(GLOBALSINDEX)` for level 0
+    // or `lua_setfenv(-2)`; returns 0 (bytes at 0x00702BE0..0x00702C83).
+    FUN_SCRIPT_SETFENV = 0x00702BE0,
+    // `lua_setfenv(L, idx)` — `int __fastcall`; pops the table at the top
+    // into the environment of the Lua function at idx and returns 1; for any
+    // other value (C functions included, `isC` byte at closure+6) it still
+    // pops and returns 0 (decompiled 0x006F40D0).
+    LUA_SET_FENV = 0x006F40D0,
+    // `luaL_checktype(L, narg, t)` — `void __fastcall(L /*ecx*/, narg /*edx*/,
+    // t /*stack, callee-popped*/)`; tag_error unless lua_type(narg) == t
+    // (decompiled 0x006F4B50; setfenv pushes 5 then calls it with no esp fixup).
+    LUAL_CHECK_TYPE = 0x006F4B50,
     // `lua_checkstack(L, n)` — `int __fastcall(L /*ecx*/, n /*edx*/)`.
     // Ensures room for `n` more stack values, growing if needed; returns 0
     // (without growing) when `(top-base)/16 + n` would exceed LUA_MAXCSTACK
