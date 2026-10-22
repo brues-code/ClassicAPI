@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "tick/WorldTick.h"
 
+#include <cmath>
 #include <cstdio>
 #include <vector>
 #include <windows.h>
@@ -54,6 +55,15 @@ struct Entry {
 
 std::vector<Entry> g_timers;
 int g_nextID = 1;
+
+// The earliest deadline of a live timer: a frame before it has nothing to
+// fire and returns at once. Scheduling lowers it; the sweep at the end of a
+// firing frame recomputes it. A timer cancelled first only costs one early
+// pass that fires nothing.
+double g_nextDeadline = 0.0;
+
+// IDs due this frame (Tick pass 1), kept for its capacity.
+std::vector<int> g_toFire;
 
 // ----- Monotonic clock -------------------------------------------------
 
@@ -152,25 +162,25 @@ void PushCancelHandle(void *L, int id) {
 void Tick() {
     if (g_timers.empty())
         return;
+    const double now = Now();
+    if (now < g_nextDeadline)
+        return;
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
 
-    const double now = Now();
-
     // Pass 1: snapshot IDs of timers due to fire. Walking by index
     // would invalidate on re-entrant scheduling; capture IDs and
     // re-lookup inside the fire pass.
-    std::vector<int> toFire;
-    toFire.reserve(g_timers.size());
+    g_toFire.clear();
     for (const auto &t : g_timers) {
         if (!t.cancelled && t.iterationsLeft != 0 && t.deadline <= now)
-            toFire.push_back(t.id);
+            g_toFire.push_back(t.id);
     }
 
     // Pass 2: fire each. Re-check cancellation per timer in case a
     // prior callback in this tick cancelled it.
-    for (int id : toFire) {
+    for (int id : g_toFire) {
         Entry *t = FindByID(id);
         if (t == nullptr || t->cancelled)
             continue;
@@ -207,15 +217,20 @@ void Tick() {
         }
     }
 
-    // Pass 3: sweep cancelled entries and release their registry refs.
-    for (auto it = g_timers.begin(); it != g_timers.end();) {
-        if (it->cancelled) {
-            ReleaseCallback(L, it->id);
-            it = g_timers.erase(it);
-        } else {
-            ++it;
+    // Pass 3: sweep cancelled entries and release their registry refs, in
+    // one compacting pass, and find the next deadline among the rest.
+    size_t keep = 0;
+    g_nextDeadline = HUGE_VAL;
+    for (const Entry &t : g_timers) {
+        if (t.cancelled) {
+            ReleaseCallback(L, t.id);
+            continue;
         }
+        if (t.deadline < g_nextDeadline)
+            g_nextDeadline = t.deadline;
+        g_timers[keep++] = t;
     }
+    g_timers.resize(keep);
 }
 
 // ----- Scheduling --------------------------------------------------------
@@ -233,6 +248,8 @@ int Schedule(void *L, int callbackStackIdx, double seconds, double period,
     e.iterationsLeft = iterations;
     e.cancelled = false;
     g_timers.push_back(e);
+    if (g_timers.size() == 1 || e.deadline < g_nextDeadline)
+        g_nextDeadline = e.deadline;
     return id;
 }
 
