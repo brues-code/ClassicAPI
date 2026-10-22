@@ -8883,6 +8883,11 @@ enum Offsets {
     // required desc@+0x48 confirmed by `FUN_ADDON_RESOLVE_REQ_DEPS`'s
     // `lea eax,[rec+0x48]` return.
     OFF_ADDON_REQDEPS_DESC = 0x48,
+    // `## Interface:` value (uint32, the parser's first-number atoi).
+    // Verified in `FUN_ADDON_CAN_LOAD`: `rec[7] != FUN_0051d7d0()` → status
+    // 7 (INTERFACE_VERSION), on the same record whose name is `rec[5]`
+    // (+0x14) and required-dep count `rec[0x13]` (+0x4C).
+    OFF_ADDON_INTERFACE_VERSION = 0x1C,
     OFF_ADDON_OPTIONALDEPS_COUNT = 0x3C,
     OFF_ADDON_OPTIONALDEPS_ARRAY = 0x40,
 

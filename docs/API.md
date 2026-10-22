@@ -22,6 +22,7 @@ build instructions.
   - [`C_AddOns.GetAddOnSecurity(indexOrName)`](#c_addonsgetaddonsecurityindexorname)
   - [`C_AddOns.DoesAddOnExist(indexOrName)`](#c_addonsdoesaddonexistindexorname)
   - [`C_AddOns.GetAddOnOptionalDependencies(indexOrName)`](#c_addonsgetaddonoptionaldependenciesindexorname)
+  - [`C_AddOns.GetAddOnInterfaceVersion(indexOrName)`](#c_addonsgetaddoninterfaceversionindexorname)
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
   - [SavedVariables loaded first](#savedvariables-loaded-first)
@@ -1236,6 +1237,24 @@ without erroring.
 -- ## OptionalDeps: Atlas, pfQuest
 C_AddOns.GetAddOnOptionalDependencies("MyAddon")  -- "Atlas", "pfQuest"
 C_AddOns.GetAddOnOptionalDependencies("Atlas")    -- (nothing — no OptionalDeps)
+```
+
+### `C_AddOns.GetAddOnInterfaceVersion(indexOrName)`
+
+Returns the `## Interface:` value of the addon TOC as a number.
+
+If the TOC lists more than one value, separated by commas, the
+function returns the largest value that is not more than the client
+interface version. Errors for bad arguments are the same as for
+`GetAddOnOptionalDependencies`. An unknown name returns nil.
+
+```lua
+-- ## Interface: 11200
+C_AddOns.GetAddOnInterfaceVersion("MyAddon")  -- 11200
+-- ## Interface: 120100, 50504, 11200
+C_AddOns.GetAddOnInterfaceVersion("Multi")    -- 11200
+-- ## Interface: 20504, 11100, 11000
+C_AddOns.GetAddOnInterfaceVersion("Old")      -- 11100
 ```
 
 ### `C_AddOns.GetAddOnLocalTable(name)`

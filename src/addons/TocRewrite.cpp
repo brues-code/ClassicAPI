@@ -78,13 +78,18 @@ uint32_t ClientInterfaceVersion() {
         static_cast<uintptr_t>(Offsets::FUN_ADDON_CLIENT_INTERFACE_VERSION))();
 }
 
-// If `line` is a `## Interface:` directive whose value is a comma-list that
-// contains the client version but does NOT lead with it, append a normalized
-// `<prefix>: <clientVersion>` line to `out` and return true. Vanilla's parser
-// reads only the first number, so without this a later 11200 is never seen and
-// the addon is marked out of date. Returns false for any other line, and for
-// an interface line that needs no change (single value, no client version, or
-// client version already first) — the caller then copies the line verbatim.
+// If `line` is a `## Interface:` directive whose value is a comma-list, pick
+// the retail value — the closest entry at or below the client version — and,
+// when that is not already the first entry, append a normalized
+// `<prefix>: <value>` line to `out` and return true. Vanilla's parser reads
+// only the first number, so without this a later 11200 is never seen and the
+// addon is marked out of date. Loadability stays an exact match on the client
+// version, and the pick equals it iff it is in the list, so this only changes
+// the stored value (what GetAddOnInterfaceVersion reads) for lists that were
+// out of date anyway. Returns false for any other line, and for an interface
+// line that needs no change (single value, nothing at or below the client
+// version, or the pick already first) — the caller then copies the line
+// verbatim.
 bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     size_t s = 0;
     while (s < len && IsSpace(line[s])) ++s;
@@ -103,8 +108,8 @@ bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     const size_t prefixEnd = p; // "## Interface:" (author spacing preserved)
 
     const uint32_t client = ClientInterfaceVersion();
-    long first = -1;
-    bool hasComma = false, hasClient = false;
+    long first = -1, best = -1;
+    bool hasComma = false;
     size_t q = p;
     while (q < len) {
         while (q < len && (IsSpace(line[q]) || line[q] == ',')) {
@@ -120,17 +125,17 @@ bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
         }
         if (digit) {
             if (first < 0) first = v;
-            if (static_cast<uint32_t>(v) == client) hasClient = true;
+            if (static_cast<uint32_t>(v) <= client && v > best) best = v;
         } else if (q < len) {
             ++q; // skip a stray non-digit so the scan always advances
         }
     }
-    if (!hasComma || !hasClient || first == static_cast<long>(client))
-        return false; // single value / no client version / already first
+    if (!hasComma || best < 0 || first == best)
+        return false; // single value / nothing at or below client / already first
 
     out.append(line, prefixEnd);
     out.push_back(' ');
-    out += std::to_string(client);
+    out += std::to_string(best);
     return true;
 }
 

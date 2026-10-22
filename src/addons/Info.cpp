@@ -309,34 +309,22 @@ int __fastcall Script_DoesAddOnExist(void *L) {
     return 1;
 }
 
-// `C_AddOns.GetAddOnOptionalDependencies(indexOrName)` — the addon's
-// `## OptionalDeps:` names as multiple return values, in declared order.
-// The exact shape of the stock `GetAddOnDependencies`, but reading the
-// *optional* dep array instead of the required one. No optional deps →
-// returns nothing.
-//
-// Vanilla parses `## OptionalDeps:` in the TOC parser `FUN_0051c9b0`
-// into a `{cap, count, data, quantum}` name-array descriptor at
-// `record+0x38` (count@+0x3C, data@+0x40), but ships no getter for it.
-//
-// Arg handling is stock `Script_GetAddOnDependencies` (`0x0048E5E0`,
-// identical to 4.3.4's `Script_GetAddOnOptionalDependencies`), not
-// `ResolveAddOnName`: `lua_isnumber` first (so a numeric string like
-// `"3"` is an index), an out-of-range index raises the engine's own
-// range error with the addon count, anything else non-string raises the
-// usage error, and an unknown *name* returns nothing.
+// Resolves arg 1 to the addon's registry record, with the arg handling
+// of stock `Script_GetAddOnDependencies` (`0x0048E5E0`, identical to
+// 4.3.4's `Script_GetAddOnOptionalDependencies`), not `ResolveAddOnName`:
+// `lua_isnumber` first (so a numeric string like `"3"` is an index), an
+// out-of-range index raises the engine's own range error with the addon
+// count, anything else non-string raises `usage`, and an unknown *name*
+// returns nullptr with no error.
 //
 // Either input is then routed through the by-name hash lookup
-// `FUN_ADDON_RESOLVE_REQ_DEPS` to reach the deps-bearing record.
+// `FUN_ADDON_RESOLVE_REQ_DEPS` to reach the record.
 // `FUN_ADDON_GET_BY_INDEX` returns a *name pointer*, NOT the record —
-// reading dep offsets off it lands in string memory and crashes (a
+// reading record offsets off it lands in string memory and crashes (a
 // numeric-path caller like pfUI's addon list hit exactly that). The
 // resolver returns the RequiredDeps descriptor at `record+0x48`;
 // subtract to recover the base.
-//
-// Like stock, `lua_checkstack(count)` before the pushes — a C function
-// is only guaranteed LUA_MINSTACK (20) free slots.
-int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
+const uint8_t *ResolveRecord(void *L, const char *usage) {
     const char *name;
     if (Game::Lua::IsNumber(L, 1)) {
         const int idx = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
@@ -347,22 +335,40 @@ int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
             Game::Lua::Error(L, reinterpret_cast<const char *>(static_cast<uintptr_t>(
                                     Offsets::VAR_ADDON_INDEX_RANGE_ERROR_FMT)),
                              count());
-            return 0;
+            return nullptr;
         }
     } else if (Game::Lua::IsString(L, 1)) {
         name = Game::Lua::ToString(L, 1);
     } else {
-        Game::Lua::Error(
-            L, "Usage: C_AddOns.GetAddOnOptionalDependencies(index or \"name\")");
-        return 0;
+        Game::Lua::Error(L, usage);
+        return nullptr;
     }
 
     auto resolve = reinterpret_cast<ResolveReqDeps_t>(
         Offsets::FUN_ADDON_RESOLVE_REQ_DEPS);
     uint8_t *reqDesc = resolve(name);
     if (reqDesc == nullptr)
-        return 0; // unknown addon name — no error, push nothing
-    const uint8_t *record = reqDesc - Offsets::OFF_ADDON_REQDEPS_DESC;
+        return nullptr;
+    return reqDesc - Offsets::OFF_ADDON_REQDEPS_DESC;
+}
+
+// `C_AddOns.GetAddOnOptionalDependencies(indexOrName)` — the addon's
+// `## OptionalDeps:` names as multiple return values, in declared order.
+// The exact shape of the stock `GetAddOnDependencies`, but reading the
+// *optional* dep array instead of the required one. No optional deps or
+// an unknown name → returns nothing.
+//
+// Vanilla parses `## OptionalDeps:` in the TOC parser `FUN_0051c9b0`
+// into a `{cap, count, data, quantum}` name-array descriptor at
+// `record+0x38` (count@+0x3C, data@+0x40), but ships no getter for it.
+//
+// Like stock, `lua_checkstack(count)` before the pushes — a C function
+// is only guaranteed LUA_MINSTACK (20) free slots.
+int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
+    const uint8_t *record = ResolveRecord(
+        L, "Usage: C_AddOns.GetAddOnOptionalDependencies(index or \"name\")");
+    if (record == nullptr)
+        return 0;
 
     const uint32_t count = *reinterpret_cast<const uint32_t *>(
         record + Offsets::OFF_ADDON_OPTIONALDEPS_COUNT);
@@ -378,6 +384,24 @@ int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
     return static_cast<int>(count);
 }
 
+// `C_AddOns.GetAddOnInterfaceVersion(indexOrName)` — the `## Interface:`
+// number the engine parsed into `record+0x1C`, the same value its
+// loadability check compares against the client version. A comma-list
+// is already reduced to retail's pick (closest value at or below the
+// client version) by `AddOns::TocRewrite` before the parser sees it.
+// nil for an unknown name.
+int __fastcall Script_GetAddOnInterfaceVersion(void *L) {
+    const uint8_t *record = ResolveRecord(
+        L, "Usage: C_AddOns.GetAddOnInterfaceVersion(index or \"name\")");
+    if (record == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    Game::Lua::PushNumber(L, static_cast<double>(*reinterpret_cast<const uint32_t *>(
+                                 record + Offsets::OFF_ADDON_INTERFACE_VERSION)));
+    return 1;
+}
+
 // `Enum.AddOnSecurityStatus` — what `C_AddOns.GetAddOnSecurity`
 // returns. Slots 0..2 match the engine's own ordering at
 // `VAR_ADDON_SECURITY_TABLE`; slot 3 is our addition for
@@ -388,6 +412,18 @@ constexpr Game::Lua::EnumIntegerEntry kAddOnSecurityStatusEntries[] = {
     {"Banned",       2},
     {"NotAvailable", 3},
 };
+
+const Game::Doc::Field kInterfaceVersionArgs[] = {
+    Game::Doc::Req("name", "uiAddon", "An addon index or folder name."),
+};
+const Game::Doc::Field kInterfaceVersionRets[] = {
+    Game::Doc::Opt("interfaceVersion", "number", nullptr,
+                   "The ## Interface: value from the TOC, or nil for an unknown name."),
+};
+const Game::Doc::Function kGetAddOnInterfaceVersion{
+    "Returns the Interface directive of an addon TOC. For a comma-separated list, "
+    "returns the closest value at or below the client interface version.",
+    kInterfaceVersionArgs, kInterfaceVersionRets};
 
 } // namespace
 
@@ -414,6 +450,9 @@ static void RegisterLuaFunctions() {
             static_cast<uintptr_t>(Offsets::FUN_SCRIPT_LOAD_ADDON)));
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnOptionalDependencies",
                                      &Script_GetAddOnOptionalDependencies);
+    Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnInterfaceVersion",
+                                     &Script_GetAddOnInterfaceVersion,
+                                     &kGetAddOnInterfaceVersion);
     Game::Lua::RegisterIntegerEnum(
         "Enum", "AddOnSecurityStatus",
         kAddOnSecurityStatusEntries,

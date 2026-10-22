@@ -59,12 +59,13 @@ namespace AddOns::TocRewrite {
 // Multi-flavor `## Interface:` list. Retail lets a TOC list several
 // interface versions (`## Interface: 120100, 50504, 11200`). Vanilla's
 // parser is a plain atoi that reads only the FIRST number, so it never
-// sees a later 11200 and marks the addon out of date. When the client
-// version (FUN_ADDON_CLIENT_INTERFACE_VERSION, 11200) appears anywhere in
-// the list but is not first, the `## Interface:` line is rewritten to that
-// single value so the engine marks the addon compatible. A list WITHOUT
-// the client version is left unchanged — it still parses to its first
-// value and stays out of date, exactly as before.
+// sees a later 11200 and marks the addon out of date. The line is rewritten
+// to retail's pick — the closest value at or below the client version
+// (FUN_ADDON_CLIENT_INTERFACE_VERSION, 11200) — when that is not already
+// first. If 11200 is listed the pick is 11200 and the addon loads; if not,
+// the addon stays out of date exactly as before, but the stored value
+// (`GetAddOnInterfaceVersion`) matches retail. A list with nothing at or
+// below the client version is left unchanged.
 //
 // Called from the FUN_FILE_READ hook after the read succeeds. Does
 // nothing unless `path` is an addon `.toc` read AND its content contains a
