@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cursor/Info.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
 #include "unit/Identity.h"
@@ -33,6 +34,31 @@ using SwapFn_t = void(__thiscall *)(
     uint32_t dstContainerLo, uint32_t dstContainerHi,
     uint32_t dstLinearSlot,
     int flag);
+
+using CursorClear_t = void(__fastcall *)(int returnItem, int fireMoneyEvent);
+
+// Every swap goes through here, never straight to `FUN_INVENTORY_SWAP`.
+// That sender is the drag-drop path's: after sending it clears the cursor
+// with `returnItem = 0`, which drops a held item WITHOUT releasing its
+// lock — right when the held item is the one being dropped, since the
+// server's answer clears the lock, but our swaps never move the held
+// item, so nothing ever answers for it and it stays greyed out and
+// unpickable. Releasing it first through the clear's `returnItem = 1`
+// form (the one `ClearCursor()` uses) leaves the sender's own clear an
+// empty cursor.
+void SendSwapPacket(void *player,
+                    uint32_t itemLo, uint32_t itemHi,
+                    uint32_t srcContainerLo, uint32_t srcContainerHi,
+                    uint32_t srcLinearSlot,
+                    uint32_t dstContainerLo, uint32_t dstContainerHi,
+                    uint32_t dstLinearSlot,
+                    int flag) {
+    if (Cursor::Info::HasItem())
+        reinterpret_cast<CursorClear_t>(Offsets::FUN_CURSOR_CLEAR)(1, 1);
+    reinterpret_cast<SwapFn_t>(Offsets::FUN_INVENTORY_SWAP)(
+        player, itemLo, itemHi, srcContainerLo, srcContainerHi, srcLinearSlot,
+        dstContainerLo, dstContainerHi, dstLinearSlot, flag);
+}
 
 // Reads the 64-bit GUID stored at instance-block offset 0 of any
 // CGObject-derived pointer (CGItem, CGPlayer, CGContainer all use
@@ -221,8 +247,7 @@ bool SendSwap(const void *srcItem,
     if (!ReadGuid(srcItem, &itemLo, &itemHi))
         return false;
 
-    auto fn = reinterpret_cast<SwapFn_t>(Offsets::FUN_INVENTORY_SWAP);
-    fn(player,
+    SendSwapPacket(player,
        itemLo, itemHi,
        srcContainerLo, srcContainerHi, srcLinearSlot,
        playerLo, playerHi,
@@ -278,8 +303,7 @@ bool ToBag(const void *cgItem, int srcPaperdollSlot, int dstBagID, int dstSlotIn
     if (!ReadGuid(cgItem, &itemLo, &itemHi))
         return false;
 
-    auto fn = reinterpret_cast<SwapFn_t>(Offsets::FUN_INVENTORY_SWAP);
-    fn(player,
+    SendSwapPacket(player,
        itemLo, itemHi,
        playerLo, playerHi,
        static_cast<uint32_t>(srcPaperdollSlot - 1),
@@ -476,8 +500,7 @@ bool ContainersFrom(const void *srcItem, int srcBag, int srcSlot,
     // `FromPaperdoll` and which pass 0. The engine sets this same flag
     // itself when it re-issues a swap after the player accepts the
     // dialog.
-    auto fn = reinterpret_cast<SwapFn_t>(Offsets::FUN_INVENTORY_SWAP);
-    fn(player,
+    SendSwapPacket(player,
        itemLo, itemHi,
        srcContainerLo, srcContainerHi, srcLinear,
        dstContainerLo, dstContainerHi, dstLinear,
