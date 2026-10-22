@@ -8965,47 +8965,54 @@ and wait for `QUEST_DATA_LOAD_RESULT`.
 
 ### `GameTooltip:SetHyperlinkCompareItem("itemLink" [, offset, shiftButton, comparisonTooltip])`
 
-Fills the tooltip with the item **currently equipped** in the slot the
-given item would occupy — a grey `Currently Equipped` header, the
-equipped item's own tooltip, then (when `shiftButton` is set) a
-green/red per-stat delta breakdown of how the given item compares.
-This is the method behind item-comparison ("shopping") tooltips;
-`FrameXML`'s `GameTooltip_ShowCompareItem` drives it.
+Fills the tooltip with an item that the player has **equipped** in the
+slot of the given item. The tooltip shows a grey `Currently Equipped`
+header, then the tooltip of the equipped item. If you give
+`comparisonTooltip`, a green and red list of stat changes comes after it.
+This is the method behind item-comparison ("shopping") tooltips.
+`FrameXML`'s `GameTooltip_ShowCompareItem` uses it.
 
-Call it on the tooltip that should show the comparison (typically
-`ShoppingTooltip1`/`ShoppingTooltip2`, but any `GameTooltipTemplate`
-frame works).
+Call it on the tooltip that shows the comparison. This is usually
+`ShoppingTooltip1` or `ShoppingTooltip2`, but any `GameTooltipTemplate`
+frame works.
 
 | Arg | Meaning |
 |-----|---------|
-| `itemLink` | The item being compared (chat link, `item:` string, or bare itemID). Optional if `comparisonTooltip` is given. |
-| `offset` | 1-based slot selector for two-slot items — rings, trinkets, and one-hand weapons expose `offset` 1 and 2 (Finger1/2, Trinket1/2, MainHand/OffHand). Default 1. |
-| `shiftButton` | Gates the stat-change breakdown. Deltas show by default (`true`/`1`/`nil`/omitted) and are hidden only for an explicit `false`/`0` (header + equipped item only). Both the boolean and `1`/`nil` conventions are accepted. |
-| `comparisonTooltip` | Optional. When `itemLink` is omitted, the compared item is taken from whatever this tooltip is displaying (a tooltip-to-tooltip call). |
+| `itemLink` | Required. The item to compare (chat link, `item:` string, or itemID). Its slot selects the equipped item. |
+| `offset` | Optional, 1-based, default 1. Selects which equipped item to show when the slot holds more than one. See the list below. |
+| `shiftButton` | Accepted, with no effect. |
+| `comparisonTooltip` | Optional. A tooltip that shows the compared item, usually the tooltip that the player hovers. If it shows an item, the stat changes of that item against the equipped item come after the equipped item. If you do not give it, no stat changes show. |
 
-**Returns** the number of comparison slots for the item (1, or 2 for
-rings/trinkets/one-hand weapons; 0 if it isn't equippable, isn't
-cached, or nothing is equipped in the chosen slot) — so a caller knows
-whether a second `offset` is worth querying.
+How `offset` selects the equipped item:
 
-The stat deltas cover the same keys as
+- Rings and trinkets: `offset` counts only the filled slots. If only the second ring slot has a ring, `offset` 1 shows that ring.
+- One-hand weapons and two-hand weapons: if both hands hold an item, `offset` 1 shows the off hand and `offset` 2 shows the main hand. If only one hand holds an item, `offset` 1 shows it.
+- Main-hand-only weapons: `offset` 1 shows the main hand.
+- Shields, off-hand weapons, and held items: `offset` 1 shows the off hand. If the off hand is empty and the main hand holds a two-hand weapon, `offset` 1 shows that weapon.
+- All other items: `offset` 1 shows the item in the one slot.
+
+**Returns** `1` when the method filled the tooltip. It returns `nil` when
+the link is not valid, the item is not cached, the item does not go in an
+equipment slot, or no equipped item matches `offset`. When it returns
+`nil`, the tooltip does not change.
+
+The stat changes cover the same keys as
 [`C_Item.GetItemStats`](#c_itemgetitemstatsitemlink--stattable) (base stats,
-resistances, weapon DPS, and on-equip-spell bonuses like crit / attack
-power / spell power), colored with the client's
-`INCREASE_STAT_COLOR` / `DECREASE_STAT_COLOR`. The method only
-populates the tooltip; the caller shows/anchors it (as
-`SetHyperlinkCompareItem` does).
+resistances, weapon DPS, and on-equip-spell bonuses like crit, attack
+power, and spell power). The compared item includes its random suffix.
+The colors are the `INCREASE_STAT_COLOR` and `DECREASE_STAT_COLOR` of the
+client. The method only fills the tooltip. The caller anchors and shows it.
 
 ```lua
--- Compare a hovered bag item against what's equipped:
-local link = GetContainerItemLink(bag, slot)
+-- Compare the hovered item against what's equipped:
+local _, link = GameTooltip:GetItem()
 ShoppingTooltip1:SetOwner(GameTooltip, "ANCHOR_NONE")
-local slots = ShoppingTooltip1:SetHyperlinkCompareItem(link, 1, true)
-ShoppingTooltip1:Show()
-if slots == 2 then  -- ring/trinket/1H: also compare the other slot
-    ShoppingTooltip2:SetOwner(GameTooltip, "ANCHOR_NONE")
-    ShoppingTooltip2:SetHyperlinkCompareItem(link, 2, true)
-    ShoppingTooltip2:Show()
+if ShoppingTooltip1:SetHyperlinkCompareItem(link, 1, nil, GameTooltip) then
+    ShoppingTooltip1:Show()
+end
+ShoppingTooltip2:SetOwner(GameTooltip, "ANCHOR_NONE")
+if ShoppingTooltip2:SetHyperlinkCompareItem(link, 2, nil, GameTooltip) then
+    ShoppingTooltip2:Show()  -- second ring, trinket, or hand
 end
 ```
 

@@ -5055,6 +5055,13 @@ enum Offsets {
     VAR_INVTYPE_STRING_TABLE = 0x0083DDB0,
     INVTYPE_TABLE_MAX_INDEX = 28,
 
+    // Equipment-slot mask per `m_inventoryType` — uint32[29], same indexing
+    // as the string table above; bit n = 0-based equipment slot n (INVSLOT
+    // n + 1). Read by CGItem_C::FitsSlot (0x5DA1D0); values dumped from
+    // WoW.exe. Differs from the 3.3.5/4.3.4 copy: 2H (17) and main-hand-only
+    // (21) set only the main-hand bit, off-hand-only (22) only the off-hand.
+    VAR_INVTYPE_SLOT_MASKS = 0x00809200,
+
     // The two `m_inventoryType` values that mean "consumed when used", so
     // both the item-consumable test (`C_Item.IsConsumableItem`) and the
     // action-slot one (`IsConsumableAction`) single them out. Indices into
@@ -9168,6 +9175,7 @@ enum Offsets {
     // the off-hand slot the engine uses when looking up shields,
     // off-hand weapons, and held items via `ItemMgr::GetItemBySlot`.
     INVSLOT_OFFHAND = 17,
+    INVSLOT_MAINHAND = 16,
 
     // INVTYPE values that count as "weapon" for `OffhandHasWeapon`.
     // INVTYPE_WEAPON (13) covers any one-handed weapon equippable in
@@ -9178,6 +9186,7 @@ enum Offsets {
     // occupy the main-hand slot exclusively.
     INVTYPE_WEAPON = 13,
     INVTYPE_WEAPONOFFHAND = 22,
+    INVTYPE_2HWEAPON = 17,
 
     // Character-pane equipment slot range: 1..19 (head=1, neck=2, …,
     // tabard=19). Used by `C_Item.IsEquippedItem` to walk every slot

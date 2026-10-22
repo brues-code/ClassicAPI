@@ -12,48 +12,32 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `GameTooltip:SetHyperlinkCompareItem("itemLink" [, offset, shiftButton, comparisonTooltip])`
-// — a backport of the 3.3.5+ tooltip method that powers item-comparison
-// ("shopping") tooltips. The compared item comes from `itemLink` when
-// given; otherwise it's taken from the item the `comparisonTooltip` (4th
-// positional arg — the tooltip FrameXML's GameTooltip_ShowCompareItem
-// passes) is displaying, so the method works purely tooltip-to-tooltip
-// with no link, matching the retail call. Called on a tooltip frame (typically
-// ShoppingTooltip1/2, but works on any GameTooltip-type frame), it:
+// — the tooltip method behind item-comparison ("shopping") tooltips,
+// mirroring 4.3.4's Script_SetHyperlinkCompareItem / SetCompareItem
+// (0x00481320 / 0x00481010). Called on a tooltip frame (typically
+// ShoppingTooltip1/2), it:
 //
-//   1. Parses the hovered item link and finds which equipment slot(s)
-//      that item would occupy (via its inventoryType).
-//   2. Picks the slot indicated by `offset` (1-based; two-slot items —
-//      rings, trinkets, one-hand weapons — expose slots at offset 1 and
-//      2, so a caller iterates offset = 1 .. returnValue).
-//   3. Fills the tooltip with the item currently EQUIPPED in that slot,
-//      led by a grey "Currently Equipped" header — done by calling the
-//      engine's own item-tooltip builder (FUN_GAMETOOLTIP_BUILD_ITEM) in
-//      its header mode. No Lua roundtrip.
-//   4. Appends colored per-stat delta lines — yellow ITEM_DELTA_DESCRIPTION
-//      header, then green for a gain / red for a loss — showing how the
-//      hovered item compares to the equipped one. The delta is
-//      `hovered − equipped`, computed by the shared `Item::StatAccum`
-//      engine (the same one behind `C_Item.GetItemStatDelta`); the lines
-//      are added with the engine's raw add-line (FUN_GAMETOOLTIP_ADD_LINE).
+//   1. Reads the linked item's inventoryType and its equipment-slot mask
+//      from the engine's own table (VAR_INVTYPE_SLOT_MASKS).
+//   2. Picks the equipped item `offset` names, by 4.3.4's rules
+//      (PickEquipped): multi-slot types count FILLED slots, weapons
+//      follow the main/off-hand rules, offset 3 is the merchant
+//      scaling-item case vanilla has no items for.
+//   3. Fills the tooltip with that item via the engine's item-tooltip
+//      builder (FUN_GAMETOOLTIP_BUILD_ITEM), led by a grey "Currently
+//      Equipped" header.
+//   4. When `comparisonTooltip` is a tooltip showing an item, appends the
+//      delta section — blank spacer, wrapped ITEM_DELTA_DESCRIPTION, then
+//      green gains / red losses of `compared − equipped`. The compared
+//      item is that tooltip's live CGItem when it has one, else its itemID
+//      with the link's random suffix (4.3.4's CreateFromTooltip order).
+//      Stats come from the shared `Item::StatAccum`.
 //
-// Returns the number of comparison slots for the hovered item (0 if it
-// isn't equippable, isn't cached yet, the tooltip object can't be
-// resolved, or nothing is equipped in the chosen slot) — a ClassicAPI
-// extension over the retail signature, so a caller knows whether a second
-// offset is worth querying.
-//
-// Everything is done with direct engine calls (the builder, clear, and
-// add-line functions the engine uses itself) — no `lua_pcall` into
-// registered Lua methods. The tooltip's final size/show is left to the
-// caller (matching retail `SetHyperlinkCompareItem`, which populates but
-// doesn't show). The 60-line pool from Tooltip::LinePool keeps the
-// appended deltas under the AddLine cap.
-//
-// `shiftButton`: gates the stat-change breakdown. Deltas show by default
-// (`true`, `1`, `nil`, or omitted) and are hidden only for an explicit
-// `false` or `0` — just the grey header + the equipped item's tooltip.
-// Both the boolean and the vanilla 1/nil convention are accepted —
-// mirroring FrameXML's GameTooltip_ShowCompareItem.
+// Returns 1 when the tooltip was filled, nil otherwise (tooltip left
+// untouched). Size/show is left to the caller, as in retail. The 60-line
+// pool from Tooltip::LinePool keeps the appended deltas under the AddLine
+// cap. `shiftButton` only matters for the offset-3 merchant case, so it is
+// accepted and ignored.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -88,39 +72,67 @@ using BuildItemTooltip_t = void(__thiscall *)(void *self, uint32_t itemID, const
 using SetLineText_t = void(__thiscall *)(void *fontString, const char *text, int flag);
 using SetLineColor_t = void(__thiscall *)(void *fontString, const void *colorBGRA);
 
-// inventoryType (ItemStats_C m_inventoryType) → equipment slot ID(s).
-// Slot IDs are the engine's canonical INVSLOT values (1 = Head … 19 =
-// Tabard). Two-slot types (finger, trinket, one-hand weapon) fill both
-// entries and return 2. Returns 0 for non-equippable types (bag, ammo,
-// quiver, non-equip). `out` must hold 2 ints.
-int SlotsForInvType(int invType, int *out) {
-    switch (invType) {
-    case 1:  out[0] = 1;  return 1;              // HEAD
-    case 2:  out[0] = 2;  return 1;              // NECK
-    case 3:  out[0] = 3;  return 1;              // SHOULDER
-    case 4:  out[0] = 4;  return 1;              // BODY (shirt)
-    case 5:  case 20: out[0] = 5; return 1;      // CHEST / ROBE
-    case 6:  out[0] = 6;  return 1;              // WAIST
-    case 7:  out[0] = 7;  return 1;              // LEGS
-    case 8:  out[0] = 8;  return 1;              // FEET
-    case 9:  out[0] = 9;  return 1;              // WRIST
-    case 10: out[0] = 10; return 1;              // HANDS
-    case 11: out[0] = 11; out[1] = 12; return 2; // FINGER
-    case 12: out[0] = 13; out[1] = 14; return 2; // TRINKET
-    case 16: out[0] = 15; return 1;              // CLOAK (back)
-    case 13: out[0] = 16; out[1] = 17; return 2; // ONE-HAND WEAPON (main/off)
-    case 17: out[0] = 16; return 1;              // TWO-HAND WEAPON
-    case 21: out[0] = 16; return 1;              // WEAPONMAINHAND
-    case 14: out[0] = 17; return 1;              // SHIELD (off hand)
-    case 22: out[0] = 17; return 1;              // WEAPONOFFHAND
-    case 23: out[0] = 17; return 1;              // HOLDABLE (off hand)
-    case 15: out[0] = 18; return 1;              // RANGED
-    case 25: out[0] = 18; return 1;              // THROWN
-    case 26: out[0] = 18; return 1;              // RANGEDRIGHT (wands)
-    case 28: out[0] = 18; return 1;              // RELIC
-    case 19: out[0] = 19; return 1;              // TABARD
-    default: return 0;                           // 0 non-equip, 18 bag, 24 ammo, 27 quiver
+int InvTypeOf(const uint8_t *rec) {
+    return static_cast<int>(Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE));
+}
+
+// The engine's equipment-slot mask for an inventoryType (bit n = 0-based
+// slot n). 0 for out-of-range types.
+uint32_t SlotMask(int invType) {
+    if (invType < 0 || invType > Offsets::INVTYPE_TABLE_MAX_INDEX)
+        return 0;
+    return reinterpret_cast<const uint32_t *>(Offsets::VAR_INVTYPE_SLOT_MASKS)[invType];
+}
+
+constexpr uint32_t kMainHandBit = 1u << (Offsets::INVSLOT_MAINHAND - 1);
+constexpr uint32_t kOffHandBit = 1u << (Offsets::INVSLOT_OFFHAND - 1);
+
+bool IsTwoHander(const uint8_t *item) {
+    const int id = Item::ID::FromCGItem(item);
+    const uint8_t *rec = id > 0 ? Item::PeekRecord(static_cast<uint32_t>(id)) : nullptr;
+    return rec != nullptr && InvTypeOf(rec) == Offsets::INVTYPE_2HWEAPON;
+}
+
+// The equipped item a 0-based `offset` compares against — 4.3.4
+// SetCompareItem's selection, line for line. Weapons: a type that fits
+// either hand (or a two-hander) compares against both hands when both are
+// filled (offset 0 = off hand, 1 = main hand, as 4.3.4 orders them), else
+// against whichever is filled at offset 0; a one-hand-only type compares
+// against that hand, and an off-hand type falls back to an equipped
+// two-hander. Everything else walks the mask's slots counting only filled
+// ones, so a ring in slot 12 is offset 0 when slot 11 is empty.
+const uint8_t *PickEquipped(uint32_t slots, int invType, int offset) {
+    using Item::Location::ResolveEquipmentSlot;
+    if (slots & (kMainHandBit | kOffHandBit)) {
+        const uint8_t *mainHand = ResolveEquipmentSlot(Offsets::INVSLOT_MAINHAND);
+        const uint8_t *offHand = ResolveEquipmentSlot(Offsets::INVSLOT_OFFHAND);
+        if (((slots & kMainHandBit) && (slots & kOffHandBit)) ||
+            invType == Offsets::INVTYPE_2HWEAPON) {
+            if (mainHand != nullptr && offHand != nullptr && mainHand != offHand)
+                return offset != 0 ? mainHand : offHand;
+            if (offset != 0)
+                return nullptr;
+            return mainHand != nullptr ? mainHand : offHand;
+        }
+        if (offset != 0)
+            return nullptr;
+        if (slots & kMainHandBit)
+            return mainHand;
+        if (offHand != nullptr)
+            return offHand;
+        return (mainHand != nullptr && IsTwoHander(mainHand)) ? mainHand : nullptr;
     }
+    for (int slot = 0; slot < Offsets::EQUIPMENT_SLOT_LAST; ++slot) {
+        if (!(slots & (1u << slot)))
+            continue;
+        const uint8_t *candidate = ResolveEquipmentSlot(slot + 1);
+        if (candidate == nullptr)
+            continue;
+        if (offset == 0)
+            return candidate;
+        --offset;
+    }
+    return nullptr;
 }
 
 // English fallback labels, used when the client doesn't define the
@@ -321,9 +333,10 @@ constexpr uint32_t kGain = UI::ColorData::ByTag("INCREASE_STAT_COLOR"); // green
 constexpr uint32_t kLoss = UI::ColorData::ByTag("DECREASE_STAT_COLOR"); // red
 constexpr uint32_t kHeader = UI::ColorData::ByTag("NORMAL_FONT_COLOR"); // header yellow
 
-// Appends the yellow ITEM_DELTA_DESCRIPTION header + one line per non-zero
-// stat and a DPS line. No-op when nothing differs (identical items /
-// self-compare add no delta section).
+// Appends 4.3.4's delta header (AddDeltaHeader: a blank spacer, then the
+// wrapped yellow ITEM_DELTA_DESCRIPTION) + a DPS line and one line per
+// non-zero stat. No-op when nothing differs (identical items / self-compare
+// add no delta section).
 void RenderDeltas(void *self, void *L, const Accum *acc, double dpsDelta) {
     const bool hasDps = (dpsDelta > 1e-4 || dpsDelta < -1e-4);
     bool hasAny = hasDps;
@@ -336,7 +349,8 @@ void RenderDeltas(void *self, void *L, const Accum *acc, double dpsDelta) {
     char line[256];
 
     LabelFor(L, "ITEM_DELTA_DESCRIPTION", label, sizeof(label));
-    Tooltip::Lines::Add(self, label, kHeader);
+    Tooltip::Lines::Add(self, " ", kHeader);
+    Tooltip::Lines::Add(self, label, kHeader, /*wrap=*/true);
 
     if (hasDps) {
         LabelFor(L, "ITEM_MOD_DAMAGE_PER_SECOND_SHORT", label, sizeof(label));
@@ -484,10 +498,10 @@ void PrependCurrentlyEquipped(void *self, void *L) {
     *numLines = n + 1;
 }
 
-// Reads the live random-property (suffix) index off an equipped CGItem's
-// descriptor — the same index ItemRandomProperties.dbc / ApplyRandomSuffix
-// use. 0 for a plain item or a null descriptor.
-int EquippedSuffix(const uint8_t *item) {
+// Reads the live random-property (suffix) index off a CGItem's descriptor
+// — the same index ItemRandomProperties.dbc / ApplyRandomSuffix use. 0 for
+// a plain item or a null descriptor.
+int ItemSuffix(const uint8_t *item) {
     auto *desc = Item::ObjectFields(item);
     if (desc == nullptr)
         return 0;
@@ -508,85 +522,75 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
             L, "Usage: GameTooltip:SetHyperlinkCompareItem(\"itemLink\" [, offset, shiftButton, comparisonTooltip])");
         return 0;
     }
+    const int linkType = Game::Lua::Type(L, 2);
+    if (linkType != Game::Lua::TYPE_STRING && linkType != Game::Lua::TYPE_NUMBER) {
+        Game::Lua::Error(
+            L, "Usage: GameTooltip:SetHyperlinkCompareItem(\"itemLink\" [, offset, shiftButton, comparisonTooltip])");
+        return 0;
+    }
     const int argc = Game::Lua::GetTop(L);
 
-    auto bail = [&](int n) -> int {
+    auto result = [&](bool filled) -> int {
         Game::Lua::SetTop(L, argc);
-        Game::Lua::PushNumber(L, static_cast<double>(n));
+        if (filled)
+            Game::Lua::PushNumber(L, 1.0);
+        else
+            Game::Lua::PushNil(L);
         return 1;
     };
 
-    // Compared ("hovered") item: prefer the explicit link (arg 2). When
-    // it's absent, fall back to whatever the comparisonTooltip (arg 5) is
-    // displaying — the builder stashes that tooltip's itemID/GUID, so we
-    // recover the itemID directly and the suffix via the GUID's live
-    // CGItem. This makes the method 1:1 with the retail call, which can be
-    // driven purely tooltip-to-tooltip.
-    int hoveredID = Item::Arg::ResolveItemID(L, 2);
-    int hoveredSuffix = Item::StatAccum::ParseRandomSuffixFromLink(L, 2);
-    if (hoveredID <= 0 && Game::Lua::Type(L, 5) == Game::Lua::TYPE_TABLE) {
-        // Typed: `CurrentID` reads tooltip fields off this object, so a
-        // non-tooltip here would read them out of unrelated memory. Silent —
-        // the argument is optional and we already fall through without it.
-        if (void *cmp = Game::Lua::ResolveTooltip(L, 5, /*raiseError=*/false)) {
-            uint64_t g = 0;
-            hoveredID = Item::TooltipItem::CurrentID(cmp, &g);
-            if (g != 0) {
-                const uint8_t *cg = Item::Location::ResolveByGUID(g);
-                if (cg != nullptr)
-                    hoveredSuffix = EquippedSuffix(cg);
-            }
-        }
-    }
-    const uint8_t *hoveredRec =
-        hoveredID > 0 ? Item::PeekRecord(static_cast<uint32_t>(hoveredID)) : nullptr;
-    if (hoveredRec == nullptr)
-        return bail(0); // no link and no comparisonTooltip item, or not cached yet
+    // The link decides which slot(s) to compare against.
+    const int linkID = Item::Arg::ResolveItemID(L, 2);
+    const uint8_t *linkRec =
+        linkID > 0 ? Item::PeekRecord(static_cast<uint32_t>(linkID)) : nullptr;
+    if (linkRec == nullptr)
+        return result(false); // bad link, or not cached yet
 
-    const int invType = static_cast<int>(
-        Game::Read<uint32_t>(hoveredRec, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE));
-    int slots[2] = {0, 0};
-    const int nSlots = SlotsForInvType(invType, slots);
-    if (nSlots == 0)
-        return bail(0); // non-equippable
+    // 0-based, as 4.3.4 converts it. Offset 3 is 4.3.4's merchant
+    // scaling-item comparison; vanilla has no scaling items, so it never
+    // fills (4.3.4 returns nil there for any other item too).
+    const int offset = (Game::Lua::Type(L, 3) == Game::Lua::TYPE_NUMBER)
+                           ? static_cast<int>(Game::Lua::ToNumber(L, 3)) - 1
+                           : 0;
+    if (offset == 2)
+        return result(false);
 
-    int offset = (Game::Lua::Type(L, 3) == Game::Lua::TYPE_NUMBER)
-                     ? static_cast<int>(Game::Lua::ToNumber(L, 3))
-                     : 1;
-    if (offset < 1)
-        offset = 1;
-    if (offset > nSlots)
-        return bail(nSlots);
-    const int slotID = slots[offset - 1];
-
-    // shiftButton: gates the stat-change breakdown. Deltas show by default
-    // — for `true`, `1`, `nil`, or omitted — and are hidden ONLY for an
-    // explicit `false` or `0`. Accepting both the boolean and the vanilla
-    // 1/nil convention matches how callers (and FrameXML's
-    // GameTooltip_ShowCompareItem) forward the modified-click state.
-    bool showDeltas = true;
-    const int shiftType = Game::Lua::Type(L, 4);
-    if (shiftType == Game::Lua::TYPE_BOOLEAN)
-        showDeltas = Game::Lua::ToBoolean(L, 4) != 0;
-    else if (shiftType == Game::Lua::TYPE_NUMBER)
-        showDeltas = Game::Lua::ToNumber(L, 4) != 0.0;
-
-    // What's equipped there? Nothing → no comparison; leave the tooltip
-    // as the caller had it.
-    const uint8_t *eqItem = Item::Location::ResolveEquipmentSlot(slotID);
+    const int invType = InvTypeOf(linkRec);
+    const uint8_t *eqItem = PickEquipped(SlotMask(invType), invType, offset);
     if (eqItem == nullptr)
-        return bail(nSlots);
+        return result(false);
     const int equippedID = Item::ID::FromCGItem(eqItem);
     if (equippedID <= 0)
-        return bail(nSlots);
-    const int equippedSuffix = EquippedSuffix(eqItem);
+        return result(false);
     uint64_t equippedGUID = EquippedGUID(eqItem);
 
     // The tooltip's underlying CFrameScriptObject — the `this` for the
     // engine's builder / add-line thiscalls.
     void *self = Game::Lua::ResolveTooltip(L);
     if (self == nullptr)
-        return bail(0);
+        return result(false);
+
+    // The compared item for the delta section: comparisonTooltip's live
+    // CGItem when it has one, else its itemID with the link's suffix (only
+    // when the link names that item). No item on it → no deltas. Typed
+    // resolve: `CurrentID` reads tooltip fields, so a non-tooltip would
+    // read unrelated memory.
+    const uint8_t *comparedRec = nullptr;
+    int comparedSuffix = 0;
+    if (Game::Lua::Type(L, 5) == Game::Lua::TYPE_TABLE) {
+        if (void *cmp = Game::Lua::ResolveTooltip(L, 5, /*raiseError=*/false)) {
+            uint64_t g = 0;
+            const int cmpID = Item::TooltipItem::CurrentID(cmp, &g);
+            if (cmpID > 0) {
+                comparedRec = Item::PeekRecord(static_cast<uint32_t>(cmpID));
+                const uint8_t *live = g != 0 ? Item::Location::ResolveByGUID(g) : nullptr;
+                if (live != nullptr)
+                    comparedSuffix = ItemSuffix(live);
+                else if (cmpID == linkID)
+                    comparedSuffix = Item::StatAccum::ParseRandomSuffixFromLink(L, 2);
+            }
+        }
+    }
 
     // Build the equipped item into the tooltip via the engine's own
     // item-tooltip builder (the call SetInventoryItem/SetHyperlink use),
@@ -602,23 +606,20 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
     }
     PrependCurrentlyEquipped(self, L);
 
-    // Delta = hovered − equipped, then render (unless suppressed).
-    if (showDeltas) {
+    // Delta = compared − equipped (4.3.4 GetItemComparison(compare, tooltip)).
+    const uint8_t *equippedRec = Item::PeekRecord(static_cast<uint32_t>(equippedID));
+    if (comparedRec != nullptr && equippedRec != nullptr) {
         Accum acc[Item::StatAccum::kCount];
         Item::StatAccum::Init(acc);
-        Item::StatAccum::AccumulateRecord(acc, hoveredRec, +1);
-        Item::StatAccum::ApplyRandomSuffix(acc, hoveredSuffix, +1);
-        const uint8_t *equippedRec =
-            Item::PeekRecord(static_cast<uint32_t>(equippedID));
-        if (equippedRec != nullptr) {
-            Item::StatAccum::AccumulateRecord(acc, equippedRec, -1);
-            Item::StatAccum::ApplyRandomSuffix(acc, equippedSuffix, -1);
-        }
-        const double dpsDelta = Item::StatAccum::ComputeDPS(hoveredRec) -
-                                (equippedRec ? Item::StatAccum::ComputeDPS(equippedRec) : 0.0);
+        Item::StatAccum::AccumulateRecord(acc, comparedRec, +1);
+        Item::StatAccum::ApplyRandomSuffix(acc, comparedSuffix, +1);
+        Item::StatAccum::AccumulateRecord(acc, equippedRec, -1);
+        Item::StatAccum::ApplyRandomSuffix(acc, ItemSuffix(eqItem), -1);
+        const double dpsDelta = Item::StatAccum::ComputeDPS(comparedRec) -
+                                Item::StatAccum::ComputeDPS(equippedRec);
         RenderDeltas(self, L, acc, dpsDelta);
     }
-    return bail(nSlots);
+    return result(true);
 }
 
 // `GameTooltip:IsEquippedItem()` → bool. True when the item the tooltip is
