@@ -4320,9 +4320,8 @@ act on it only one time.
 
 ### `PLAYER_TOTEM_UPDATE` event
 
-Fires with `arg1 = totemSlot` (1 Fire, 2 Earth, 3 Water,
-4 Air) whenever a totem is dropped, expires, or is destroyed early
-(killed / Totemic Recall) — the companion event to
+Fires with `arg1 = totemSlot` (1 Fire, 2 Earth, 3 Water, 4 Air) when the
+state of a totem slot changes. This is the companion event to
 [`GetTotemInfo`](#gettoteminfoslot).
 
 ```lua
@@ -4331,15 +4330,20 @@ f:RegisterEvent("PLAYER_TOTEM_UPDATE")
 f:SetScript("OnEvent", function()
     local slot = arg1
     local have, name, start, duration, icon = GetTotemInfo(slot)
-    -- re-read the changed slot
+    -- read the changed slot again
 end)
 ```
 
-Driven by the same [`GetTotemInfo`](#gettoteminfoslot) tracker: the drop
-is detected from `SMSG_SPELL_GO`, removal from the WorldTick object-manager
-scan, and the event is flushed from the tick (so handlers run in a safe
-context, not mid-packet). Removal detection carries up to the tracker's
-scan interval (~250 ms) of latency; drops fire on the next frame.
+The event fires in these cases:
+
+- You drop a totem into the slot.
+- The client finds the totem creature, or the name of the totem changes.
+  Until then, `GetTotemInfo` returns `nil` for the name.
+- The totem goes away: it dies, it expires, you recall it, or it moves
+  out of view.
+
+A drop fires on the next frame. Other changes can come up to 250 ms
+later.
 
 ### `BAG_UPDATE_DELAYED` event
 
@@ -9198,8 +9202,8 @@ SetCVar("dontShowEquipmentSetsOnItems", "1")
 
 ### `GameTooltip:SetTotem(slot)`
 
-Fills the tooltip with the shaman totem currently active in `slot`
-(`1` Fire, `2` Earth, `3` Water, `4` Air).
+Fills the tooltip with the active shaman totem in `slot` (`1` Fire,
+`2` Earth, `3` Water, `4` Air).
 
 ```lua
 GameTooltip:SetOwner(TotemButton, "ANCHOR_BOTTOMRIGHT")
@@ -9211,22 +9215,22 @@ Searing Totem              (name, yellow)
 45 Sec                     (time remaining, white)
 ```
 
-Two lines: the totem name (`NORMAL_FONT_COLOR`) and the time remaining
-(white). Built natively with the engine's own per-tooltip clear and raw
-add-line — the same path `SetSpellByID` and `SetHyperlinkCompareItem`
-use — and **shows itself** at the end, so no trailing `:Show()` is
-required. Set the owner/anchor before the call.
+The tooltip has two lines. The first line is the name of the totem in
+`NORMAL_FONT_COLOR`. The second line is the time remaining, in white.
+The method **shows the tooltip itself**, so a `:Show()` after it is not
+necessary. Set the owner and the anchor before the call.
 
-Silent no-op when the slot has no active totem, so a totem-button
-`OnEnter` can call it unconditionally.
+If the slot has no active totem, or the slot is not 1 to 4, the method
+does nothing. Thus a totem button can call it from `OnEnter` without a
+test.
 
-**Localization.** The time line mirrors `SecondsToTimeAbbrev`
-(raw seconds under a minute, minutes rounded up above) and formats
-through the FrameXML GlobalStrings `SPELL_TIME_REMAINING_SEC` /
-`SPELL_TIME_REMAINING_MIN` (English `%d Sec` / `%d Min` fallbacks for
-servers stripped of those keys). The totem name comes from the summon
-spell's localized `Spell.dbc` name. Slot data is the same tracker behind
-[`GetTotemInfo`](#gettoteminfoslot).
+**Time line.** Under one minute, the line shows whole seconds, rounded
+down. From one minute, it shows minutes, rounded up. When the time is
+over, the line shows `0 Sec` until the totem goes away. The text comes
+from the GlobalStrings `SPELL_TIME_REMAINING_SEC` and
+`SPELL_TIME_REMAINING_MIN`. If a client does not have these keys, the
+English `%d Sec` and `%d Min` are used. The data comes from the same
+source as [`GetTotemInfo`](#gettoteminfoslot).
 
 ## Globals
 
@@ -19640,92 +19644,98 @@ wall-clock time). Returns 0 if called before login.
 
 ### `GetTotemInfo(slot)`
 
-Returns `haveTotem, totemName, startTime, duration, icon, modRate, spellID`
-for one of the four shaman totem slots (`1` Fire, `2` Earth, `3` Water,
-`4` Air).
+Returns `haveTotem, totemName, startTime, duration, icon, modRate,
+spellID` for one of the four shaman totem slots (`1` Fire, `2` Earth, `3` Water, `4` Air).
 
 ```lua
-local _, name, start, duration, icon = GetTotemInfo(1)   -- Fire slot
-if name ~= "" then                                       -- a totem IS active
+local have, name, start, duration, icon = GetTotemInfo(1)   -- Fire slot
+if start > 0 then                                          -- a totem is active
     local remaining = duration - (GetTime() - start)
-    -- name = "Searing Totem", icon = "Interface\\Icons\\...", etc.
 end
 ```
 
+When a totem is active in the slot:
+
 | Return | Meaning |
 |--------|---------|
-| `haveTotem` | `true` if the player carries the slot's **totem tool** (Fire/Earth/Water/Air Totem item) — the documented meaning, **not** whether a totem is summoned. |
-| `totemName` | The active totem spell's localized name (`""` when no totem is out — this is how you test "is a totem active"). |
-| `startTime` | `GetTime()` value when the totem was cast (`0` when none). |
-| `duration` | Total duration in seconds (`0` when none). |
-| `icon` | The active totem spell's icon texture path, or `nil` when none. |
-| `modRate` | Always `1` — there is no per-totem haste. |
-| `spellID` | The active summon spell's ID (`0` when none). |
+| `haveTotem` | `true`. |
+| `totemName` | The localized name of the totem creature. This is `nil` until the client sees the creature. [`PLAYER_TOTEM_UPDATE`](#player_totem_update-event) fires when the name arrives. |
+| `startTime` | The `GetTime()` value when you dropped the totem, in whole seconds. |
+| `duration` | The full duration of the totem, in whole seconds. |
+| `icon` | The icon texture path of the summon spell. |
+| `modRate` | Always `1`. Totems have no haste. |
+| `spellID` | The ID of the summon spell. |
 
-> **`haveTotem` is tool presence, not summon state.** Matching the live
-> API: `haveTotem` reflects whether you hold the slot's totem **tool** item
-> (`Fire Totem` 5176, `Earth Totem` 5175, `Water Totem` 5177, `Air Totem`
-> 5178) in bags/equipped, independent of whether a totem is currently
-> deployed. The tool item is the totem spell's `Totem[0]` requirement (a
-> *tool*, not a consumed reagent), read from the spell — not hardcoded. To
-> check for an *active* totem, test `totemName ~= ""` (or `startTime > 0`).
+When no totem is active in the slot:
 
-There is no client-side totem tracking here (no totem bar,
-`PLAYER_TOTEM_UPDATE`, or `GetTotemInfo`), so this is self-tracked but
-**data-driven**: the slot is read from the summon spell's `Spell.dbc`
-effect (`SUMMON_TOTEM_SLOT1..4` = Fire/Earth/Water/Air),
-duration from `SpellDuration.dbc`, the totem's creature entry (for death
-detection) from the effect's `EffectMiscValue`, and the `haveTotem` tool
-item from the spell's `Totem` field (the totem the spell requires) —
-resolved from the player's spellbook, not a hardcoded table. Casts are observed
-via the `SMSG_SPELL_GO` hook; a slot clears when its duration elapses OR
-when the totem creature disappears early (killed, Totemic Recall, or
-destroyed) — detected by scanning the object manager for the player-owned
-totem creature. Because it's data-driven, Turtle-custom totems are tracked
-automatically. Slot changes fire
+| Return | Meaning |
+|--------|---------|
+| `haveTotem` | `true` if you carry the totem tool of the slot (`Fire Totem` 5176, `Earth Totem` 5175, `Water Totem` 5177, `Air Totem` 5178). |
+| `totemName` | `""` |
+| `startTime` | `0` |
+| `duration` | `0` |
+| `icon` | `""` |
+| `modRate` | `1` |
+| `spellID` | `0` |
+
+To find out if a totem is active, test `startTime > 0`. Do not use
+`haveTotem` for this test, because it is also `true` when you only
+carry the tool.
+
+`startTime` and `duration` are whole seconds. Thus, `startTime + duration`
+can be up to one second different from the real end time. For an exact
+countdown, use [`GetTotemTimeLeft`](#gettotemtimeleftslot).
+
+A slot that is not a number causes the error `Usage: GetTotemInfo(slot)`.
+A number that is not 1 to 4 causes the error
+`Totem slot must be in range of 1 to 4`.
+
+All totems are found from their spell data, so custom totems also work.
+The slot becomes empty when the totem creature goes away (it dies,
+expires, is recalled, or moves out of view). The slot also becomes empty
+when you leave the world, but not on a UI reload. Slot changes fire
 [`PLAYER_TOTEM_UPDATE`](#player_totem_update-event).
 
 ### `GetTotemTimeLeft(slot)`
 
-Returns the seconds remaining before the slot's totem is auto-destroyed,
-or `0` when no totem is active in that slot. Slots: `1` Fire, `2` Earth,
-`3` Water, `4` Air.
+Returns the time, in whole seconds, until the totem in the slot expires.
+Returns `0` when the slot has no active totem. Slots: `1` Fire,
+`2` Earth, `3` Water, `4` Air.
 
 ```lua
-local remaining = GetTotemTimeLeft(1)   -- Fire slot, e.g. 12.4
+local remaining = GetTotemTimeLeft(1)   -- Fire slot, e.g. 12
 ```
 
-Computed from the same tracker as [`GetTotemInfo`](#gettoteminfoslot)
-(`startTime + duration − now`), so it shares that data's caveats — most
-notably it reflects the totem's *full* duration from cast, unaffected by
-any server-side early expiry the client isn't told about (the WorldTick
-scan still clears the slot when the totem creature actually disappears).
+The value counts down from the full duration of the totem. It is `0`
+after the duration ends, until the totem goes away. The slot errors are
+the same as for [`GetTotemInfo`](#gettoteminfoslot).
 
 ### `GetTotemDuration(slot)`
 
-Returns the slot's active totem's **total** duration in seconds (its full
-lifetime from cast), or `0` when no totem is active. The companion to
-[`GetTotemTimeLeft`](#gettotemtimeleftslot) (remaining time) — same value
-as `GetTotemInfo`'s 4th return.
+Returns the full duration of the active totem in the slot, in whole
+seconds. Returns `0` when the slot has no active totem. This is the same
+value as the 4th return of `GetTotemInfo`. It is the companion to
+[`GetTotemTimeLeft`](#gettotemtimeleftslot).
 
 ```lua
 local total = GetTotemDuration(1)                       -- e.g. 60
 local frac  = GetTotemTimeLeft(1) / GetTotemDuration(1) -- bar fill
 ```
 
+The slot errors are the same as for [`GetTotemInfo`](#gettoteminfoslot).
+
 ### `TargetTotem(slot)`
 
-Targets the player's totem in the given slot (`1` Fire, `2` Earth, `3`
-Water, `4` Air). No-op when the slot has no active totem or the totem
-creature isn't currently visible in the client.
+Targets your totem in the slot (`1` Fire, `2` Earth, `3` Water, `4`
+Air).
 
 ```lua
 TargetTotem(2)   -- target your Earth totem
 ```
 
-Looks up the totem creature's live GUID (object-manager scan for the
-player-owned creature of the slot's tracked entry) and sets the target
-through the same engine path `TargetUnit` uses (`CMSG_SET_SELECTION`).
+If the slot has no active totem, the function does nothing. It also does
+nothing until the client sees the totem creature. The slot errors are
+the same as for [`GetTotemInfo`](#gettoteminfoslot).
 
 ## Tracking
 
