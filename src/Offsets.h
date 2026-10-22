@@ -4605,9 +4605,8 @@ enum Offsets {
     // on the CGItem instance.
     OFF_ITEM_DESCRIPTOR = 0x114,
     // Within the descriptor, ITEM_FIELD_FLAGS is at +0x3C (a single dword).
-    // Bit 0 = soulbound, bit 3 = broken (see GetInventoryItemBroken at 0x4C8626
-    // which tests `[descriptor+0x3C] & 0x08`). Confirmed empirically by dumping
-    // descriptor bytes for a worn-and-bound item.
+    // Bit 0 = soulbound. Confirmed empirically by dumping descriptor bytes
+    // for a worn-and-bound item.
     OFF_DESCRIPTOR_FLAGS = 0x3C,
     ITEM_FLAG_SOULBOUND = 0x01,
     // Within the descriptor, the item's random-property index
@@ -4625,6 +4624,11 @@ enum Offsets {
     // lockbox has it set. Items with `LockID == 0` (clams, simple
     // sacks) never need the bit.
     ITEM_FLAG_UNLOCKED = 0x04,
+    // Bit 3 — instance is gift-wrapped. The tooltip builder pairs it with
+    // `ITEM_FLAG_WRAPPER` (`0x52E31D`) for `<Right Click to Open>`;
+    // GetInventoryItemBroken (`0x4C8628`) excludes it from "broken", and
+    // the auction-sell check (`0x4CE4B1`) rejects it.
+    ITEM_FLAG_WRAPPED = 0x08,
 
     // Client-side "in-transaction" lock — set when the engine puts an
     // item on the cursor / mail-attaches it / trade-attaches it, cleared
@@ -4867,13 +4871,12 @@ enum Offsets {
     //     openable container (sack, clam, simple chest, quest box).
     //     The tooltip line `<Right Click to Open>` (`ITEM_OPENABLE`
     //     string) renders for items with this bit set, gated on the
-    //     player's lock skill when the item also carries a non-zero
-    //     LockID. Same bit modern WoW's `C_Item.IsItemOpenable`
-    //     surfaces.
+    //     instance's `ITEM_FLAG_UNLOCKED` bit when the item also
+    //     carries a non-zero LockID.
+    //   `ITEM_FLAG_WRAPPER` (`0x200`) is the tooltip's second openable
+    //     arm, gated on the instance's `ITEM_FLAG_WRAPPED` bit.
     //   Other documented bits (`0x1` = BIND_ON_PICKUP, `0x2` = CONJURED,
-    //     `0x10` = LOOTABLE, `0x200` = WRAPPER, etc.) live in the same
-    //     field but we don't read them here. Add named constants as
-    //     consumers materialize.
+    //     `0x10` = LOOTABLE, etc.) live in the same field.
     // Reader at `0x0052E323` (the tooltip-builder's openable branch in
     // `FUN_0052B650`) does `(ItemStats[+0x20] & 0x4)` against this
     // field; verified by checking the field offset matches the
@@ -5022,8 +5025,8 @@ enum Offsets {
     OFF_ITEMSTATS_AREA = 0x1C8,            // u32 — bound area (AreaTable.dbc)
     OFF_ITEMSTATS_MAP = 0x1CC,             // u32 — bound map (Map.dbc)
 
-    // `m_flags` bits we surface as decoded booleans. The OPENABLE bit
-    // (0x4) is verified by the tooltip-builder's reader at 0x0052E323;
+    // `m_flags` bits we surface as decoded booleans. WRAPPER (0x200) is
+    // verified by the tooltip-builder's openable test at 0x0052E312;
     // the others are documented in the standard 1.12 protocol
     // (CMaNGOS / TrinityCore `ITEM_FLAG_*`) and exposed as-is. Add
     // verification anchors as consumers materialize.

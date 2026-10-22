@@ -10173,7 +10173,7 @@ Returned table:
 | `bindType` | number | `m_bonding` — 0=none, 1=BoP, 2=BoE, 3=BoU, 4=Quest. |
 | `flags` | number | Raw `m_flags` u32. |
 | `isConjured` | bool | Flag bit `0x2`. |
-| `isOpenable` | bool | Flag bit `0x4`. Same bit `C_Item.IsItemOpenable` reads. |
+| `isOpenable` | bool | Flag bit `0x4`. |
 | `isLootable` | bool | Flag bit `0x10` — has loot generators (right-click loot). |
 | `isWrapper` | bool | Flag bit `0x200` — gift-wrappable. |
 | `maxStackSize` | number | `m_stackable`. |
@@ -11342,17 +11342,18 @@ token string raises a Lua error, same contract as `C_Spell.IsSpellInRange`.
 
 Returns two values: `(isOpenable, canOpen)`.
 
-- **`isOpenable`** — `true` if the item type is right-click-openable
-  (sack, clam, simple chest, quest box, lockbox, etc. — anything
-  whose tooltip *could* show `<Right Click to Open>`). Intrinsic to
-  the item type. From `ItemStats.Flags & 0x4`.
+- **`isOpenable`** — `true` if the item is right-click-openable
+  (sack, clam, simple chest, quest box, lockbox, wrapped gift —
+  anything whose tooltip *could* show `<Right Click to Open>`).
+  Unused wrapping paper is not openable.
 - **`canOpen`** — `true` if the player can right-click *this specific
   instance* and trigger the open action right now. For unlocked-by-
   default items (clams, sacks) this matches `isOpenable`. For items
   with a lock (lockboxes), it's only true after the lock has been
   removed (rogue Pick Lock, key item, etc.) — so a priest looking at
   a fresh lockbox sees `(true, false)`, while a rogue who just
-  picked it sees `(true, true)`.
+  picked it sees `(true, true)`. A wrapped gift is always
+  `(true, true)`.
 
 Both values are `nil` when the item data isn't cached yet (background
 `SMSG_ITEM_QUERY_SINGLE` fired) or when the location is empty /
@@ -11379,13 +11380,6 @@ if isOpenable and not canOpen then
     print("This item is locked.")
 end
 ```
-
-Implementation: `isOpenable` reads `ItemStats.Flags & 0x4` from the
-client-side ItemSparse cache. `canOpen` adds a check that either
-`ItemStats.LockID == 0` (no lock) or the CGItem instance's
-`ITEM_FIELD_FLAGS & 0x4` (UNLOCKED) bit is set. Same conditions the
-engine's tooltip builder uses at `0x0052E323` to gate the
-`ITEM_OPENABLE` line.
 
 ### `C_Item.IsLocked(itemLocation)`
 

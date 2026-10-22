@@ -13,17 +13,17 @@
 
 // `C_Item.IsItemOpenable(itemLocation)` — backport of the modern WoW
 // accessor that says "right-clicking this item triggers an open/loot
-// interaction" (clams, sacks, simple chests, quest boxes, lockboxes).
-// Returns two values: `(isOpenable, canOpen)` — the first is the
-// item-type-intrinsic openable flag, the second is whether the
-// player can right-click *this specific instance* right now (lock
-// is gone or never existed).
+// interaction" (clams, sacks, simple chests, quest boxes, lockboxes,
+// wrapped gifts).
+// Returns two values: `(isOpenable, canOpen)` — the first is whether
+// the item is an openable (container type or wrapped gift), the
+// second is whether the player can right-click *this specific
+// instance* right now (lock is gone or never existed).
 //
-// Vanilla 1.12's tooltip builder gates the `<Right Click to Open>`
-// string (`ITEM_OPENABLE`) on `ItemStats.Flags & 0x4` AND
-// (`LockID == 0` OR `ITEM_FIELD_FLAGS & 0x4`). We mirror both checks
-// — see `Offsets::ITEMSTATS_FLAG_OPENABLE`, `ITEMSTATS_LOCK_ID`, and
-// `ITEM_FLAG_UNLOCKED`.
+// Mirrors the tooltip builder's `<Right Click to Open>` test
+// (`0x52E2F8`–`0x52E323`), which has two arms:
+//   `ItemStats.Flags & 0x4` AND (`LockID == 0` OR instance UNLOCKED), or
+//   `ItemStats.Flags & 0x200` (wrapper) AND instance WRAPPED.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -68,10 +68,15 @@ int PushIsItemOpenable(void *L, const uint8_t *cgItem) {
         record + Offsets::OFF_ITEMSTATS_FLAGS);
     const uint32_t lockID = *reinterpret_cast<const uint32_t *>(
         record + Offsets::OFF_ITEMSTATS_LOCK_ID);
-    const bool isOpenable = (typeFlags & Offsets::ITEMSTATS_FLAG_OPENABLE) != 0;
     const uint32_t instFlags = InstanceFlags(cgItem);
-    const bool canOpen = isOpenable && (lockID == 0 ||
-                                        (instFlags & Offsets::ITEM_FLAG_UNLOCKED) != 0);
+    const bool openable = (typeFlags & Offsets::ITEMSTATS_FLAG_OPENABLE) != 0;
+    // WRAPPER is also set on unused wrapping paper, so the gift arm
+    // needs the instance's WRAPPED bit to count at all.
+    const bool gift = (typeFlags & Offsets::ITEM_FLAG_WRAPPER) != 0 &&
+                      (instFlags & Offsets::ITEM_FLAG_WRAPPED) != 0;
+    const bool isOpenable = openable || gift;
+    const bool canOpen =
+        gift || (openable && (lockID == 0 || (instFlags & Offsets::ITEM_FLAG_UNLOCKED) != 0));
     Game::Lua::PushBool(L, isOpenable);
     Game::Lua::PushBool(L, canOpen);
     return 2;
