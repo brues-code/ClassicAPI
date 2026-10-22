@@ -2207,7 +2207,8 @@ enum Offsets {
     //   bag's CGContainer); `fieldOffset` is BANK-relative (container
     //   SLOT_1 = 8, not its descriptor-absolute 0x20). The engine's
     //   inventory setup FUN_004F8CC0 registers the player's bag/backpack/
-    //   bank/keyring GUID ranges this way — but NOT equipment.
+    //   bank/keyring GUID ranges this way; AddActiveWatchers (0x005DD8A0)
+    //   covers the equipment slots (FUN_INV_SLOT_CHANGED_OBSERVER).
     FUN_DESC_OBSERVER_REGISTER = 0x00467E70,
 
     // Unregister — __fastcall(int bank /*ecx*/, uint32_t fieldOffset
@@ -2246,13 +2247,14 @@ enum Offsets {
     VAR_EVENT_NAME_TABLE_STATIC = 0x00BE1198, // char*[] boot name array; slot i (base+i*4) non-null ⇒ real event i
     EVENT_NAME_UNIT_MAX = 0xB6,               // FUN_0051bbb0's loop bound
 
-    // The engine's inventory observer setup — registers the bag-slot
-    // GUID-field observers above, once per enter-world (sole caller is the
-    // enter-world initializer FUN_004908C0, latched by DAT_00B4B424).
-    // Player::Equipment co-hooks it to register the equipment-slot
-    // observers the engine never installs; the co-hook inherits the exact
-    // engine timing + lifetime (nodes die with the player object).
-    FUN_INV_OBSERVER_SETUP = 0x004F8CC0,
+    // CGPlayer_C::AddActiveWatchers' inventory-slot observer
+    // (OnInventorySlotChanged) — registered on the active player's inv slots
+    // 0..22 (equipment INCLUDED), bank and keys; observer ABI above, RET
+    // 0x10. Unlocks the arriving item (UnlockItem 0x495420) and signals
+    // PLAYERBANKSLOTS_CHANGED for bank slots. The ancestor of 4.3.4's
+    // InventoryUpdate (0x0056DBD0), which fires PLAYER_EQUIPMENT_CHANGED
+    // right after that same unlock — Player::Equipment co-hooks it to do so.
+    FUN_INV_SLOT_CHANGED_OBSERVER = 0x005DDCF0,
 
     // PLAYER_FIELD_INV_SLOT_HEAD — first of the 19 equipment-slot u64 GUID
     // fields in the player descriptor (0x4A8..0x538, stride 8; 0x540 is

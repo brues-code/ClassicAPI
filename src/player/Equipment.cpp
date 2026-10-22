@@ -16,19 +16,16 @@
 // the player, which doesn't say WHICH slot changed; gear trackers and stat
 // sheets built against 3.3+ gate their refresh on this event.
 //
-// Fully event-driven via the engine's own descriptor-field observer system
-// (see the FUN_DESC_OBSERVER_REGISTER block in Offsets.h). The engine's
-// inventory setup (FUN_INV_OBSERVER_SETUP, once per enter-world) registers
-// change observers for the bag/backpack/bank/keyring GUID fields of the
-// player descriptor — but never for the 19 equipment slots (0x4A8..0x538).
-// We co-hook that setup and register our own observer per equipment field,
-// mirroring the engine's registration shape exactly (bank 4, size 8). The
-// dispatcher invokes us only when a slot's item GUID actually changed
-// (per-node mirror memcmp), so there's no polling and no diff bookkeeping
-// on our side. The setup re-runs each enter-world; on logout/login the
-// player object is recreated so old nodes die with it, but /reload REUSES
-// the object, so we unregister-then-register per slot to avoid stacking a
-// duplicate observer each reload (see ObserverSetup_h).
+// Fired from the engine's own inventory-slot observer
+// (FUN_INV_SLOT_CHANGED_OBSERVER), which CGPlayer_C::AddActiveWatchers
+// registers on the active player's equipment GUID fields among others.
+// The descriptor-observer dispatcher (see the FUN_DESC_OBSERVER_REGISTER
+// block in Offsets.h) invokes it only when a slot's item GUID actually
+// changed, so there's no polling and no diff bookkeeping on our side.
+// That handler is exactly where 4.3.4 fires this event (its descendant
+// InventoryUpdate, 0x0056DBD0): after the original has unlocked the
+// arriving item, for 0-based slots 0..18. We co-hook it post-original, so
+// the engine owns the observer's registration and lifetime.
 //
 // `equipmentSlot` is the 1-based Lua inventory slot (1 = head … 19 =
 // tabard), matching modern. `hasCurrent` is 1 when the slot now holds an
@@ -75,7 +72,6 @@
 #include "object/Resolve.h"
 #include "player/StatSignal.h"
 #include "tick/WorldTick.h"
-#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -134,19 +130,8 @@ bool IsWeaponSlot(int slot0) {
 // Whether the slot currently holds an item — read from the player's
 // inventory-manager GUID array, the same source the engine's own bag
 // observer (FUN_004F8DB0) treats as the post-change truth when its field
-// observer fires. The player is resolved from the GUID the observer
-// callback receives, via the NON-THROWING object resolver — the same call
-// FUN_004F8DB0 makes. NOT via FUN_RESOLVE_UNIT_TOKEN("player"): that's the
-// assert-frame helper that raises a Lua error when the token doesn't
-// resolve, and this runs inside SMSG_UPDATE_OBJECT processing, where the
-// player object can be mid-create and momentarily unresolvable — a Lua
-// error thrown from there unwinds through raw engine code.
-bool SlotHasItem(uint32_t guidLo, uint32_t guidHi, int slot0Based) {
-    auto *player = static_cast<const uint8_t *>(Object::ByGuid(
-        Offsets::TYPEMASK_PLAYER,
-        (static_cast<uint64_t>(guidHi) << 32) | guidLo, "ClassicAPI", 0x172));
-    if (player == nullptr)
-        return false;
+// observer fires.
+bool SlotHasItem(const uint8_t *player, int slot0Based) {
     const uint8_t *invMgr = player + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
     const uint32_t count = *reinterpret_cast<const uint32_t *>(
         invMgr + Offsets::OFF_INVMGR_SLOT_COUNT);
@@ -157,31 +142,55 @@ bool SlotHasItem(uint32_t guidLo, uint32_t guidHi, int slot0Based) {
     return guids != nullptr && guids[slot0Based] != 0;
 }
 
-// --- PLAYER_EQUIPMENT_CHANGED (player-descriptor observers) -------------
+// --- PLAYER_EQUIPMENT_CHANGED (inventory-slot observer co-hook) ---------
 
-// Descriptor-field observer callback — ABI per the Offsets.h note:
-// __fastcall(fieldOffset /*ecx*/, size /*edx*/, guidLo, guidHi, oldValue*,
-// userArg), return 1, callee cleans 0x10. Invoked by the dispatcher only
-// when the watched equipment GUID field actually changed.
-int __fastcall EquipSlotChanged_cb(uint32_t fieldOffset, uint32_t /*size*/,
-                                   uint32_t guidLo, uint32_t guidHi,
-                                   const uint32_t * /*oldValue*/,
-                                   void * /*userArg*/) {
+// ABI per the observer-callback note in Offsets.h: __fastcall(fieldOffset
+// /*ecx*/, size /*edx*/, guidLo, guidHi, oldValue*, userArg), return 1,
+// callee cleans 0x10.
+using SlotChanged_t = int(__fastcall *)(uint32_t fieldOffset, uint32_t size,
+                                        uint32_t guidLo, uint32_t guidHi,
+                                        const uint32_t *oldValue, void *userArg);
+SlotChanged_t g_origSlotChanged = nullptr;
+
+// The player is resolved from the GUID the observer receives, via the
+// NON-THROWING object resolver — the same call the original makes, and the
+// same early-out 4.3.4's InventoryUpdate takes: no player, no event. NOT via
+// FUN_RESOLVE_UNIT_TOKEN("player"): that's the assert-frame helper that
+// raises a Lua error when the token doesn't resolve, and this runs inside
+// SMSG_UPDATE_OBJECT processing, where the player object can be mid-create
+// and momentarily unresolvable — a Lua error thrown from there unwinds
+// through raw engine code.
+int __fastcall SlotChanged_h(uint32_t fieldOffset, uint32_t size,
+                             uint32_t guidLo, uint32_t guidHi,
+                             const uint32_t *oldValue, void *userArg) {
+    const int ret =
+        g_origSlotChanged(fieldOffset, size, guidLo, guidHi, oldValue, userArg);
+
     const int slot0 =
         static_cast<int>(fieldOffset - Offsets::OFF_DESC_PLAYER_EQUIP_FIRST) >> 3;
-    if (slot0 >= 0 && slot0 < Offsets::DESC_PLAYER_EQUIP_SLOTS) {
-        Event::Custom::FireIdSuccess(_r.Slot(), slot0 + 1,
-                                     SlotHasItem(guidLo, guidHi, slot0));
-        // Gear swap changes item +healing and Spirit/Armor — invalidate the
-        // GetSpellBonusHealing cache.
-        Player::StatSignal::Notify();
-        // Mark only; the fire is merged onto the next WorldTick so one
-        // action that changes two weapon slots yields one event.
-        if (IsWeaponSlot(slot0))
-            g_weaponDirty = true;
-    }
-    return 1;
+    if (slot0 < 0 || slot0 >= Offsets::DESC_PLAYER_EQUIP_SLOTS)
+        return ret;
+    auto *player = static_cast<const uint8_t *>(Object::ByGuid(
+        Offsets::TYPEMASK_PLAYER,
+        (static_cast<uint64_t>(guidHi) << 32) | guidLo, "ClassicAPI", 0x172));
+    if (player == nullptr)
+        return ret;
+
+    Event::Custom::FireIdSuccess(_r.Slot(), slot0 + 1, SlotHasItem(player, slot0));
+    // Gear swap changes item +healing and Spirit/Armor — invalidate the
+    // GetSpellBonusHealing cache.
+    Player::StatSignal::Notify();
+    // Mark only; the fire is merged onto the next WorldTick so one action
+    // that changes two weapon slots yields one event.
+    if (IsWeaponSlot(slot0))
+        g_weaponDirty = true;
+    return ret;
 }
+
+static const Game::HookAutoRegister _slotChangedHook{
+    Offsets::FUN_INV_SLOT_CHANGED_OBSERVER,
+    reinterpret_cast<void *>(&SlotChanged_h),
+    reinterpret_cast<void **>(&g_origSlotChanged)};
 
 // Drain for WEAPON_SLOT_CHANGED. The slot check runs BEFORE clearing the
 // flag: while the reservation is unclaimed (`Slot()` -1, between static
@@ -199,68 +208,19 @@ void OnWorldTick() {
 
 const Tick::WorldTick::AutoSubscribe _weaponTick{&OnWorldTick};
 
-// Co-hook on the engine's inventory observer setup: after it registers the
-// bag-range observers, register ours for the equipment range it skips.
-// Same registrar, same shape — only the field offsets differ.
-using RegisterObserver_t = void(__fastcall *)(
-    int bank, uint32_t fieldOffset, uint32_t guidLo, uint32_t guidHi, int size,
-    const void *callback, void *userArg1, void *userArg2);
-using UnregisterObserver_t = void(__fastcall *)(int bank, uint32_t fieldOffset,
-                                                uint32_t guidLo, uint32_t guidHi,
-                                                const void *callback,
-                                                void *userArg1);
-using ObserverSetup_t = void(__fastcall *)();
-ObserverSetup_t g_origSetup = nullptr;
+// --- UPDATE_INVENTORY_DURABILITY (alerts-recompute co-hook) --------------
 
 // One-time (per process) seed latch for the durability diff below — the
 // very first recompute seeds the snapshot silently instead of firing for
 // the initial gear population. Deliberately NOT reset per enter-world:
-// death/release/graveyard teleports re-run the setup, and a per-setup
-// reset made the post-teleport recompute re-seed silently — swallowing
-// the death's own durability loss (verified in-game: repairs fired,
-// deaths didn't). Keeping the snapshot across loading screens means
+// death/release/graveyard teleports re-run the enter-world setup, and a
+// per-setup reset made the post-teleport recompute re-seed silently —
+// swallowing the death's own durability loss (verified in-game: repairs
+// fired, deaths didn't). Keeping the snapshot across loading screens means
 // changes that land around them diff normally; the cost is at most one
 // spurious fire on relog to a different character, which matches
 // modern's login-time fire anyway.
 bool g_durSnapValid = false;
-
-void __fastcall ObserverSetup_h() {
-    g_origSetup();
-
-    const uint64_t guid = Unit::Identity::PlayerGuid();
-    if (guid == 0)
-        return;
-    const uint32_t lo = static_cast<uint32_t>(guid);
-    const uint32_t hi = static_cast<uint32_t>(guid >> 32);
-    auto reg = reinterpret_cast<RegisterObserver_t>(
-        Offsets::FUN_DESC_OBSERVER_REGISTER);
-    auto unreg = reinterpret_cast<UnregisterObserver_t>(
-        Offsets::FUN_DESC_OBSERVER_UNREGISTER);
-    for (int slot = 0; slot < Offsets::DESC_PLAYER_EQUIP_SLOTS; ++slot) {
-        const uint32_t field = Offsets::OFF_DESC_PLAYER_EQUIP_FIRST + slot * 8;
-        // Drop any observer we already registered for this field before adding
-        // a fresh one. The setup re-runs on every enter-world, including
-        // /reload — but /reload does NOT destroy the CGPlayer object, so our
-        // previous nodes are still attached and the registrar always APPENDS
-        // (no dedup by callback). Without this, each /reload stacks another
-        // observer per slot → PLAYER_EQUIPMENT_CHANGED fires N times after N
-        // reloads. On logout/login the object is recreated and the old nodes
-        // died with it, so the unregister no-ops there. Same objects-survive-
-        // /reload hazard `Unit::TokenObserver` guards against for nameplates.
-        unreg(Offsets::DESC_OBSERVER_BANK_PLAYER, field, lo, hi,
-              reinterpret_cast<const void *>(&EquipSlotChanged_cb), nullptr);
-        reg(Offsets::DESC_OBSERVER_BANK_PLAYER, field, lo, hi,
-            /*size*/ 8, reinterpret_cast<const void *>(&EquipSlotChanged_cb),
-            nullptr, nullptr);
-    }
-}
-
-static const Game::HookAutoRegister _setupHook{
-    Offsets::FUN_INV_OBSERVER_SETUP,
-    reinterpret_cast<void *>(&ObserverSetup_h),
-    reinterpret_cast<void **>(&g_origSetup)};
-
-// --- UPDATE_INVENTORY_DURABILITY (alerts-recompute co-hook) --------------
 
 struct SlotDurability {
     uint64_t guid;       // equipped item, 0 = empty slot

@@ -436,11 +436,11 @@ const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
 // A weapon equipped while `IsInCombat()` resets that hand's timer
 // server-side (`Player::_ApplyWeaponDependentAuraMods` -> `SetAttackTime`
 // with `resetTimer = IsInCombat()`). There's no dedicated packet for this;
-// `Player::Equipment` already tracks the same invMgr GUIDs via a real
-// descriptor observer for `PLAYER_EQUIPMENT_CHANGED`, but that's a one-way
-// Lua event fire with nothing to subscribe to in C++. Only 3 slots matter
-// here, so a plain 3-GUID compare on the existing WorldTick pass is simpler
-// than standing up a second observer registration for the same fields.
+// `Player::Equipment` already sees the same invMgr GUIDs change via the
+// engine's inventory-slot observer for `PLAYER_EQUIPMENT_CHANGED`, but
+// that's a one-way Lua event fire with nothing to subscribe to in C++. Only
+// 3 slots matter here, so a plain 3-GUID compare on the existing WorldTick
+// pass is simpler than a second hook on the same observer.
 
 uint64_t g_lastMainGuid = 0;
 uint64_t g_lastOffGuid = 0;
