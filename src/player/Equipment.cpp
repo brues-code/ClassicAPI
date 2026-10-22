@@ -32,20 +32,14 @@
 // item and nil when it's empty (the engine dispatcher has no `%b`; 1/nil
 // keeps the idiomatic `if hasCurrent then` working — see FireIdSuccess).
 //
-// Also `UPDATE_INVENTORY_DURABILITY` (no payload) — fires when any
-// equipped item's durability changes (combat damage, death, repairs) —
-// via a co-hook on the engine's inventory-alerts recompute
-// (FUN_INVENTORY_ALERTS_RECOMPUTE): the engine itself calls that whenever
-// an owned item's fields change (its item post-update handler FUN_005D9A90
-// routes every item values-update through it) and on equip/enter-world
-// paths, so it IS the engine's own "durability may have changed" signal.
-// Post-original we diff a per-slot {itemGuid, durability} snapshot and
-// fire only on a real change. NOT done with bank-1 (ITEM field) descriptor
-// observers: those register without error but are never invoked — the
-// registrar's internal wrapper lookup (FUN_00464890, the observer
-// registry, distinct from the object manager) silently no-ops for item
-// objects, verified empirically (item values-updates arrive and the
-// player-bank observers fire, item-bank ones never do).
+// Also `UPDATE_INVENTORY_DURABILITY` (no payload), fired after every run
+// of the engine's inventory-alerts recompute
+// (FUN_INVENTORY_ALERTS_RECOMPUTE) — exactly where 4.3.4 fires it, at the
+// end of its descendant CGCharacterInfo::UpdateInventoryAlerts, with no
+// change check. Vanilla's callers mirror 4.3.4's (see Offsets.h), so the
+// event fires on the same triggers: any owned item's durability change,
+// broken-flag / enchantment / visible-item changes, player setup, and Lua
+// UpdateInventoryAlertStatus().
 //
 // Also `WEAPON_SLOT_CHANGED` (no payload) — the narrow sibling of
 // PLAYER_EQUIPMENT_CHANGED that swing-timer consumers want: it fires only
@@ -66,9 +60,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
-#include "equipmentset/Locations.h"
 #include "event/Custom.h"
-#include "item/CGItem.h"
 #include "object/Resolve.h"
 #include "player/StatSignal.h"
 #include "tick/WorldTick.h"
@@ -210,62 +202,12 @@ const Tick::WorldTick::AutoSubscribe _weaponTick{&OnWorldTick};
 
 // --- UPDATE_INVENTORY_DURABILITY (alerts-recompute co-hook) --------------
 
-// One-time (per process) seed latch for the durability diff below — the
-// very first recompute seeds the snapshot silently instead of firing for
-// the initial gear population. Deliberately NOT reset per enter-world:
-// death/release/graveyard teleports re-run the enter-world setup, and a
-// per-setup reset made the post-teleport recompute re-seed silently —
-// swallowing the death's own durability loss (verified in-game: repairs
-// fired, deaths didn't). Keeping the snapshot across loading screens means
-// changes that land around them diff normally; the cost is at most one
-// spurious fire on relog to a different character, which matches
-// modern's login-time fire anyway.
-bool g_durSnapValid = false;
-
-struct SlotDurability {
-    uint64_t guid;       // equipped item, 0 = empty slot
-    uint32_t durability; // ITEM_FIELD_DURABILITY, 0 when empty/unresolved
-};
-SlotDurability g_durSnap[EquipmentSet::SLOT_COUNT];
-
-uint32_t ItemDurability(uint64_t guid) {
-    if (guid == 0)
-        return 0;
-    const uint8_t *item = EquipmentSet::Locations::ResolveItemByGUID(guid);
-    if (item == nullptr)
-        return 0;
-    const uint8_t *descriptor = Item::ObjectFields(item);
-    if (descriptor == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint32_t *>(
-        descriptor + Offsets::OFF_DESCRIPTOR_DURABILITY);
-}
-
 using AlertsRecompute_t = void(__fastcall *)();
 AlertsRecompute_t g_origAlertsRecompute = nullptr;
 
 void __fastcall AlertsRecompute_h() {
     g_origAlertsRecompute();
-
-    uint64_t paperdoll[EquipmentSet::SLOT_COUNT];
-    EquipmentSet::Locations::SnapshotPaperdoll(paperdoll);
-
-    bool changed = false;
-    for (int i = 0; i < EquipmentSet::SLOT_COUNT; ++i) {
-        const SlotDurability cur{paperdoll[i], ItemDurability(paperdoll[i])};
-        if (g_durSnap[i].guid != cur.guid ||
-            g_durSnap[i].durability != cur.durability) {
-            changed = true;
-            g_durSnap[i] = cur;
-        }
-    }
-
-    if (!g_durSnapValid) {
-        g_durSnapValid = true; // first recompute of the session seeds only
-        return;
-    }
-    if (changed)
-        Event::Custom::Fire(_r2.Slot(), "");
+    Event::Custom::Fire(_r2.Slot(), "");
 }
 
 static const Game::HookAutoRegister _alertsHook{

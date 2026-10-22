@@ -4413,10 +4413,9 @@ affected equipment slot.
 
 ### `UPDATE_INVENTORY_DURABILITY` event
 
-Fires — with no payload — when an equipped item's durability changes:
-combat damage, resurrection penalty, repairs. The standard consumer
-pattern works unchanged: rescan the 19 slots with
-`GetInventoryItemDurability` on each fire.
+Fires with no payload when the durability of an item changes. Examples
+are combat damage, the resurrection penalty, and repairs. To update your
+display, read each slot again with `GetInventoryItemDurability`.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -4424,17 +4423,12 @@ f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 f:SetScript("OnEvent", RefreshMyDurabilityHUD)
 ```
 
-Event-driven, no polling: piggybacks on the engine's own
-inventory-alerts recompute — the routine behind
-`UPDATE_INVENTORY_ALERTS` (the red/yellow "broken armor man"), which
-the engine runs whenever an owned item's fields change, on equip
-changes, and at enter-world. On each recompute the DLL diffs a
-per-slot `{item, durability}` snapshot and fires once when anything
-actually changed — a death dinging all your armor produces one event,
-not nineteen. Also fires when the *set* of equipped items changes
-(swapping to a differently-damaged item updates durability UI, so
-consumers want the refresh anyway). Bag-carried items don't trigger
-it: durability UI is for equipped gear only.
+The event also fires at login, when your equipment or the equipment of
+a player near you changes, when an item
+breaks or is enchanted, and when you call `UpdateInventoryAlertStatus()`.
+It does not tell you what changed, and one action can make it fire
+more than one time. For example, a death fires it once for each damaged
+item. Keep the handler fast.
 
 ### `PLAYER_AVG_ITEM_LEVEL_READY` event
 

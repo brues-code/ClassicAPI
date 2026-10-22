@@ -2276,37 +2276,20 @@ enum Offsets {
     DESC_OBSERVER_BANK_PLAYER = 4,
     DESC_OBSERVER_BANK_UNIT = 3, // CGUnit descriptor bank (FUN_0051bbb0's watch loop)
 
-    // ITEM_FIELD_DURABILITY, ITEM-bank-relative: descriptor-absolute
-    // +0xA0 (field index 0x28, which counts the 6 OBJECT fields) minus
-    // the 0x18-byte OBJECT prefix. u32.
-    //
-    // DEAD END — bank-1 (ITEM field) observers register without error but
-    // are NEVER invoked: item values-updates demonstrably arrive
-    // (verified by probing the values pre-pass FUN_00465330) and
-    // player-bank observers fire in the same session, yet item-bank
-    // callbacks stay silent. Registration arithmetic was fully verified
-    // (bank base FUN_00465690(1)=0x18, next-bank walk FUN_004656E0
-    // item: 0→1→2, anchors match dispatch), so the suspect is the
-    // registrar's internal wrapper lookup (FUN_00464890 — the observer
-    // registry, NOT the object manager) silently no-op'ing for item
-    // objects. UPDATE_INVENTORY_DURABILITY is instead backed by
-    // FUN_INVENTORY_ALERTS_RECOMPUTE below. Constants kept for the
-    // investigation trail.
-    DESC_OBSERVER_BANK_ITEM = 1,
-    OFF_DESC_ITEM_DURABILITY = 0x88,
-
-    // The engine's inventory-alerts recompute — walks the equipment
-    // slots, reads each item's ITEM_FIELD_DURABILITY / MAXDURABILITY /
-    // broken flag from the descriptor, fills the per-slot alert table at
-    // [DAT_00B71F60], and UNCONDITIONALLY fires UPDATE_INVENTORY_ALERTS
-    // (event 501) at the end. The engine calls it whenever an owned
-    // item's fields change (the item post-update handler FUN_005D9A90 —
-    // which also fires UNIT_INVENTORY_CHANGED and the bag-update chain —
-    // routes every item values-update through it) plus equip and
-    // enter-world paths. That makes it the engine's own "durability may
-    // have changed" signal: Player::Equipment co-hooks it and diffs a
-    // {guid, durability} snapshot per slot to back
-    // UPDATE_INVENTORY_DURABILITY. void __fastcall(), no args.
+    // The engine's inventory-alerts recompute (4.3.4's
+    // CGCharacterInfo::UpdateInventoryAlerts) — walks the equipment slots,
+    // reads each item's durability / max durability / broken flag, fills
+    // the per-slot alert table at [DAT_00B71F60], and fires
+    // UPDATE_INVENTORY_ALERTS (event 501). Its seven callers (Ghidra xrefs)
+    // mirror 4.3.4's set: the type-wide item-field watchers registered by
+    // 0x005D9360 via 0x00468070 — ITEM_FIELD_DURABILITY (0x005D97C0, calls
+    // it unconditionally, like 4.3.4's OnUpdateDurability), flags bit 0x10
+    // on equipped slots (0x005D96E0), enchantment (via 0x005D9A90), ammo
+    // stack count (0x005D9400) — plus the visible-item change of ANY player
+    // (0x005DEE30, before its active-player check), player setup
+    // (0x004C6D30) and Lua UpdateInventoryAlertStatus (0x004C9560).
+    // Player::Equipment co-hooks it to fire UPDATE_INVENTORY_DURABILITY,
+    // exactly where 4.3.4 does. void __fastcall(), no args.
     FUN_INVENTORY_ALERTS_RECOMPUTE = 0x004C7EE0,
     // ItemMgr::GetItemBySlot — __thiscall(this, slot) → CGItem* (NULL if empty).
     // Slot is the engine's linearized slot index, not bagID/slot tuple.
