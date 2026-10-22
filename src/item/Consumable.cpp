@@ -11,30 +11,34 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_Item.IsConsumableItem(item)` — true iff the item is a consumable:
-// item class `Consumable` (0), or an inventory type of `INVTYPE_AMMO`
-// (24) / `INVTYPE_THROWN` (25) — ammo and thrown weapons being consumed
-// in use. `item` is an itemID, `"item:NNN"` string, or item link (names
-// aren't resolvable in vanilla → false).
+// `IsConsumableItem(item)` / `C_Item.IsConsumableItem(item)` — whether using
+// the item uses it up. A port of 3.3.5's `Script_IsConsumableItem`
+// (0x005173E0); 4.3.4's (0x008DA710) is the same minus ammo, which Cata
+// removed. An item is consumable when it is ammo or thrown (inventory type 24
+// or 25), or when one of its on-use spells (trigger 0) either has negative
+// charges, so the item goes when they run out, or uses reagents. Item class
+// plays no part: Rough Dynamite (Trade Goods) is consumable and an on-use
+// trinket is not.
 //
-// Definition established by decoding 3.3.5's `Script_IsConsumableItem`
-// (`0x005173E0`) and then verifying the surviving contract against a
-// modern client with `/dump`: it is NOT 3.3.5's on-use-spell-effect walk
-// (an on-use trinket like Talisman of Ephemeral Power returns *false*),
-// but a plain class-or-ammo/thrown check. Confirmed true: Minor Healing
-// Potion / Linen Bandage / Faintly Glowing Skull (all class 0), Rough
-// Arrow (Ammo). Confirmed false: Hearthstone (class Misc, valueless
-// teleport), on-use trinkets, plain armor.
+// This binary has the same test without the reagent half, in
+// `ActionSlotIsConsumable` (0x004E5250) behind `IsConsumableAction`.
 //
-// Cache-miss handling mirrors `C_Item.IsEquippableItem`: returns false
-// without firing a load (sync call, matches modern semantics). Callers
-// that want auto-warm behavior should run `C_Item.RequestLoadItemDataByID`
-// first and re-check on `ITEM_DATA_LOAD_RESULT`.
+// The retail client is no oracle for this one: its IsConsumableItem is
+// currently broken and returns false even for potions.
+//
+// The argument is resolved as 3.3.5's `GetItemIDByName` does: a number, an
+// `item:` string or link, or the name of a carried item (`IDForName` stands
+// in for 3.3.5's `s_itemByName`). An uncached item is not consumable and
+// fires no load — call `C_Item.RequestLoadItemDataByID` first if needed.
+//
+// The global keeps 3.3.5's 1/nil; `C_Item.IsConsumableItem` returns a bool.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "item/Arg.h"
+#include "item/Location.h"
 #include "item/Record.h"
+#include "spell/Lookup.h"
 
 #include <cstdint>
 
@@ -42,39 +46,87 @@ namespace Item::Consumable {
 
 namespace {
 
-constexpr uint32_t kItemClassConsumable = 0;
-
-int __fastcall Script_C_Item_IsConsumableItem(void *L) {
-    const int itemID = Item::Arg::ResolveItemID(L, 1);
-    if (itemID <= 0) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
+bool UsesReagents(const uint8_t *spell) {
+    for (int i = 0; i < Offsets::SPELL_MAX_REAGENTS; ++i) {
+        if (Game::Read<int>(spell, Offsets::OFF_SPELL_REAGENT_ID + i * 4) != 0 &&
+            Game::Read<int>(spell, Offsets::OFF_SPELL_REAGENT_COUNT + i * 4) > 0)
+            return true;
     }
-    const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
-    }
-    const uint32_t classID = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_ITEMSTATS_CLASS);
-    const uint32_t invType = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
+    return false;
+}
 
-    const bool consumable = classID == kItemClassConsumable ||
-                            invType == Offsets::INVTYPE_AMMO ||
-                            invType == Offsets::INVTYPE_THROWN;
-    Game::Lua::PushBoolean(L, consumable);
+bool IsConsumable(void *L) {
+    const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);
+    int itemID = arg.itemID;
+    if (itemID <= 0)
+        itemID = Item::Location::IDForName(arg.name, Offsets::INVMGR_SEARCH_BANK);
+    const uint8_t *record =
+        itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+    if (record == nullptr)
+        return false;
+
+    const uint32_t invType = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
+    if (invType == Offsets::INVTYPE_AMMO || invType == Offsets::INVTYPE_THROWN)
+        return true;
+
+    for (int i = 0; i < Offsets::ITEMSTATS_SPELL_SLOT_COUNT; ++i) {
+        const int spellID = Game::Read<int>(record, Offsets::OFF_ITEMSTATS_SPELL_ID + i * 4);
+        if (spellID == 0 ||
+            Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_TRIGGER + i * 4) !=
+                Offsets::ITEM_SPELLTRIGGER_ON_USE)
+            continue;
+        const uint8_t *spell = Spell::Lookup::RecordForID(spellID);
+        if (spell == nullptr)
+            continue;
+        if (Game::Read<int>(record, Offsets::OFF_ITEMSTATS_SPELL_CHARGES + i * 4) < 0 ||
+            UsesReagents(spell))
+            return true;
+    }
+    return false;
+}
+
+int __fastcall Script_IsConsumableItem(void *L) {
+    if (IsConsumable(L))
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
     return 1;
 }
 
+int __fastcall Script_C_Item_IsConsumableItem(void *L) {
+    Game::Lua::PushBool(L, IsConsumable(L));
+    return 1;
+}
+
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kLegacyArgs[] = {
+    Game::Doc::Req("item", "number", "An item ID, an item link, or the name of a carried item."),
+};
+const Game::Doc::Field kLegacyRets[] = {
+    Game::Doc::Opt("isConsumable", "number", nullptr, "1 when using the item uses it up, else nil."),
+};
+const Game::Doc::Function kIsConsumableItem{
+    "Whether using the item uses it up: ammo, thrown weapons, and items whose use has charges "
+    "that run out or costs reagents.",
+    kLegacyArgs, kLegacyRets, "ItemGlobals"};
+
+const Game::Doc::Field kModernArgs[] = {
+    Game::Doc::Req("item", "ItemInfo", "An item ID, an item link, or the name of a carried item."),
+};
+const Game::Doc::Field kModernRets[] = {
+    Game::Doc::Req("isConsumable", "bool", "True when using the item uses it up."),
+};
+const Game::Doc::Function kCIsConsumableItem{
+    "Whether using the item uses it up: ammo, thrown weapons, and items whose use has charges "
+    "that run out or costs reagents.",
+    kModernArgs, kModernRets};
+
 void RegisterLuaFunctions() {
-    // Modern exposes both the namespaced `C_Item.IsConsumableItem` and the
-    // bare global `IsConsumableItem` (the older, still-live form); register
-    // both against the same handler, like `IsUsableItem`.
+    Game::Lua::RegisterGlobalFunction("IsConsumableItem", &Script_IsConsumableItem,
+                                      &kIsConsumableItem);
     Game::Lua::RegisterTableFunction("C_Item", "IsConsumableItem",
-                                     &Script_C_Item_IsConsumableItem);
-    Game::Lua::RegisterGlobalFunction("IsConsumableItem",
-                                      &Script_C_Item_IsConsumableItem);
+                                     &Script_C_Item_IsConsumableItem, &kCIsConsumableItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

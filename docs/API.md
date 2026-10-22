@@ -11146,29 +11146,30 @@ if C_Item.IsBound(itemGUID) then ... end
 
 ### `IsConsumableItem(item)` / `C_Item.IsConsumableItem(item)`
 
-Returns `true` if the item is a consumable, `false` otherwise. An item
-counts as consumable when its **class is `Consumable` (0)** *or* its
-**inventory type is `INVTYPE_AMMO` (24) or `INVTYPE_THROWN` (25)** — ammo
-and thrown weapons being consumed in use. Registered as both the bare
-global and the namespaced `C_Item` form, like `IsUsableItem`.
+Tells if the item is used up when you use it. An item is consumable in
+these conditions:
 
-`item` is an itemID number or `"item:N..."` link. Item names aren't
-accepted (there is no name→ID resolver). Returns `false` for uncached
-items (no async load fired) — same cache contract as
-`C_Item.IsEquippableItem`.
+- The item is ammo or a thrown weapon.
+- The item has a use effect with charges that run out.
+- The item has a use effect that costs reagents.
+
+The item class has no effect on the result. For example, Rough Dynamite is
+a trade good and it is consumable. An on-use trinket is not consumable.
+
+`item` is an item ID, an item link, or the name of an item that you carry.
+An item that is not in the item cache is not consumable. The function does
+not start a load for that item.
+
+The two forms return different types. `IsConsumableItem` returns `1` or
+`nil`. `C_Item.IsConsumableItem` returns `true` or `false`.
 
 ```lua
-IsConsumableItem(118)              -- Minor Healing Potion → true  (class Consumable)
-C_Item.IsConsumableItem(1251)     -- Linen Bandage → true          (class Consumable)
-C_Item.IsConsumableItem(2512)     -- Rough Arrow → true            (INVTYPE_AMMO)
-C_Item.IsConsumableItem(6948)     -- Hearthstone → false
-C_Item.IsConsumableItem(18820)    -- Talisman of Ephemeral Power → false (on-use trinket)
+IsConsumableItem(118)            -- Minor Healing Potion → 1
+C_Item.IsConsumableItem(2512)    -- Rough Arrow → true (ammo)
+C_Item.IsConsumableItem(4358)    -- Rough Dynamite → true
+C_Item.IsConsumableItem(6948)    -- Hearthstone → false
+C_Item.IsConsumableItem(18820)   -- Talisman of Ephemeral Power → false
 ```
-
-This is a class/ammo check, **not** a "has a usable effect" check. An
-on-use trinket with a numeric `Use:` effect (Talisman of Ephemeral
-Power) returns `false`, while class-`Consumable` items (potions, bandages,
-the class-0 "Faintly Glowing Skull") and ammo return `true`.
 
 ### `C_Item.IsEquippableItem(item)`
 

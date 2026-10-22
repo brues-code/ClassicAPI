@@ -34,7 +34,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "item/Arg.h"
-#include "item/ID.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "spell/CastCount.h"
@@ -47,9 +46,6 @@ namespace Item::Count {
 namespace {
 
 using CountByID_t = int(__thiscall *)(const void *invMgr, int itemID, uint32_t flags);
-using WalkCallback_t = int(__fastcall *)(const uint8_t *item, void *ctx);
-using Walk_t = const uint8_t *(__thiscall *)(const void *invMgr, WalkCallback_t cb, void *ctx,
-                                             uint32_t flags);
 using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 int CountByID(uintptr_t fn, int itemID, uint32_t flags) {
@@ -57,24 +53,6 @@ int CountByID(uintptr_t fn, int itemID, uint32_t flags) {
     if (invMgr == nullptr)
         return 0;
     return reinterpret_cast<CountByID_t>(fn)(invMgr, itemID, flags);
-}
-
-int __fastcall MatchesName(const uint8_t *item, void *ctx) {
-    return Item::Location::MatchesArg(item, *static_cast<const Item::Arg::Resolved *>(ctx)) ? 1
-                                                                                          : 0;
-}
-
-// 3.3.5 resolves a name through `s_itemByName`, filled with each item
-// object's decorated name as it is created; 1.12 has no such map. The first
-// item carried under that name (same walk, same flags) gives the same ID.
-int IDForName(const char *name, uint32_t flags) {
-    const uint8_t *invMgr = Unit::Identity::PlayerInventoryManager();
-    if (invMgr == nullptr)
-        return 0;
-    Item::Arg::Resolved arg{0, 0, name};
-    const uint8_t *item =
-        reinterpret_cast<Walk_t>(Offsets::FUN_INVMGR_WALK)(invMgr, &MatchesName, &arg, flags);
-    return item != nullptr ? Item::ID::FromCGItem(item) : 0;
 }
 
 // 3.3.5's `CGItem_C::NumBaseCharges` / `GetUseSpell`: the first on-use
@@ -115,8 +93,8 @@ int __fastcall Script_C_Item_GetItemCount(void *L) {
 
     const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);
     int itemID = arg.itemID;
-    if (itemID <= 0 && arg.name != nullptr && arg.name[0] != '\0')
-        itemID = IDForName(arg.name, flags);
+    if (itemID <= 0)
+        itemID = Item::Location::IDForName(arg.name, flags);
 
     int total = itemID > 0 ? CountByID(Offsets::FUN_INVMGR_COUNT_STACKS_BY_ID, itemID, flags) : 0;
     if (total != 0 && includeUses)

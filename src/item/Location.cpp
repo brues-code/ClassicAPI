@@ -190,6 +190,28 @@ bool MatchesArg(const uint8_t *cgItem, const Item::Arg::Resolved &arg) {
     return _stricmp(name, arg.name) == 0;
 }
 
+namespace {
+
+using WalkCallback_t = int(__fastcall *)(const uint8_t *item, void *ctx);
+using Walk_t = const uint8_t *(__thiscall *)(const void *invMgr, WalkCallback_t cb, void *ctx,
+                                             uint32_t flags);
+
+int __fastcall MatchesName(const uint8_t *item, void *ctx) {
+    return MatchesArg(item, *static_cast<const Item::Arg::Resolved *>(ctx)) ? 1 : 0;
+}
+
+} // namespace
+
+int IDForName(const char *name, uint32_t flags) {
+    const uint8_t *invMgr = Unit::Identity::PlayerInventoryManager();
+    if (invMgr == nullptr || name == nullptr || name[0] == '\0')
+        return 0;
+    Item::Arg::Resolved arg{0, 0, name};
+    const uint8_t *item =
+        reinterpret_cast<Walk_t>(Offsets::FUN_INVMGR_WALK)(invMgr, &MatchesName, &arg, flags);
+    return item != nullptr ? Item::ID::FromCGItem(item) : 0;
+}
+
 bool FindByArgInBags(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out) {
     if (arg.itemID <= 0 && arg.name == nullptr)
         return false;

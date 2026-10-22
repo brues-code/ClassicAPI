@@ -152,6 +152,14 @@ namespace Item::Location {
 // in exactly one place.
 bool MatchesArg(const uint8_t *cgItem, const Item::Arg::Resolved &arg);
 
+// The itemID of the first carried item whose decorated name is `name`
+// (`MatchesArg`), or 0. 3.3.5's `GetItemIDByName` reads `s_itemByName`, a map
+// filled with each item object's name as it is created; 1.12 has no such map,
+// so this walks the engine's own inventory search (FUN_INVMGR_WALK) with
+// `flags` (0 = equipment, bags, keyring; `INVMGR_SEARCH_BANK` adds the bank).
+// No Lua stack — safe from any context.
+int IDForName(const char *name, uint32_t flags);
+
 // Walks the player's bags (0..4 only — no equipment) looking for the
 // first item matching `arg` (via `MatchesArg`). On hit, populates
 // `out->bagID` / `out->slotIndex` / `out->item` and sets

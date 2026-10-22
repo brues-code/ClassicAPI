@@ -4952,7 +4952,7 @@ enum Offsets {
     // always at index 0 (some Turtle WoW custom items put it later).
     OFF_ITEMSTATS_SPELL_ID = 0x11C,        // u32[5] — spell ID per slot
     OFF_ITEMSTATS_SPELL_TRIGGER = 0x130,   // u32[5] — trigger code per slot
-    OFF_ITEMSTATS_SPELL_CHARGES = 0x144,   // i32[5] — charges per slot (-1 = infinite)
+    OFF_ITEMSTATS_SPELL_CHARGES = 0x144,   // i32[5] — charges per slot; negative = item is used up when they run out (ActionSlotIsConsumable 0x004E5250)
     OFF_ITEMSTATS_SPELL_COOLDOWN = 0x158,  // u32[5] — cooldown ms per slot
     OFF_ITEMSTATS_SPELL_CATEGORY = 0x16C,  // u32[5] — category (groups shared cooldowns)
     OFF_ITEMSTATS_SPELL_CATEGORY_CD = 0x180, // u32[5] — category cooldown ms
