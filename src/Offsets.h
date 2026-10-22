@@ -6248,6 +6248,11 @@ enum Offsets {
     // type it doesn't know), writes the new entry, and notifies with
     // `sendToServer = 1`.
     FUN_ACTION_PLACE = 0x004E62E0,
+    // FUN_ACTION_PLACE's spell arm: `call FUN_ACTION_SLOT_TO_SPELL` (ecx
+    // slot0, edx &[ebp-0x14]) whose result `0x004E63D0 cmp esi, eax` tests
+    // against the cursor spell, clearing the cursor on a match. E8 call,
+    // target checked against the exe.
+    CALL_ACTION_PLACE_SAME_SPELL = 0x004E63C8,
     // Pick a slot up — `__fastcall(uint slot0)`. Sole entry for
     // `PickupAction`. When the cursor already holds something the engine
     // places (the gate in the note above) it tail-calls FUN_ACTION_PLACE;
