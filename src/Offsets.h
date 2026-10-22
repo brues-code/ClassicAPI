@@ -1444,26 +1444,52 @@ enum Offsets {
     // through it (`fld [cvar+0x24]`).
     OFF_CVAR_VALUE_FLOAT = 0x24,
 
-    // The config filename, as an immediate operand. Boot calls
-    // `FUN_0063D380("Config.wtf")` from `FUN_00402350` at `0x00402370`
-    // (`B9 80 E5 82 00` = `MOV ECX, 0x0082E580`), and that function keeps the
-    // pointer at `VAR_CONFIG_FILENAME_PTR`, which then drives BOTH sides:
+    // Launch switches — Storm's SCmd registry (benilla-re storm/scmd; same
+    // code as 4.3.4's SCmd.cpp). Boot, in `InitializeGlobal` (`FUN_00402350`):
+    //   0x0040235C  CALL FUN_REGISTER_CLIENT_SWITCHES
+    //               -> registers the client's 17 switches (table 0x007FF8B8),
+    //                  then JMPs to 0x00419C70, which registers the 15 base
+    //                  switches and parses GetCommandLineA() against them all
+    //   0x00402370  MOV ECX, "Config.wtf"
+    //   0x00402375  CALL FUN_CVAR_CONFIG_INITIALIZE
+    // The parse STOPS at the first switch it does not know (ProcessFlags
+    // returns 0, the token loop breaks), so every switch after an unregistered
+    // one is silently ignored. Ours must therefore be registered before
+    // 0x00419C70 runs. DllMain is too early for that: the switch-list heads are
+    // built by a CRT static initializer (0x0064EEE0 -> 0x0064EEF0 writes
+    // 0x00C53F24..2C), which runs after every injected DllMain, and the
+    // registrar dereferences the head. So `Config::CommandLine` redirects the
+    // call at 0x0040235C and registers there, which is 4.3.4's order
+    // (`InitializeGlobal`: SCmdRegisterArgList(s_wowArgList), CmdLineProcess()).
+    //
+    // Both call sites run during boot, BEFORE VanillaFixes calls our `Load`
+    // export, so they are redirected from DllMain (VF injects every dlls.txt
+    // DLL while the process is still CREATE_SUSPENDED). A rel32 store needs no
+    // trampoline.
+    CALL_INIT_REGISTER_CLIENT_SWITCHES = 0x0040235C,
+    // `void __cdecl(void)` — see above.
+    FUN_REGISTER_CLIENT_SWITCHES = 0x00403BA0,
+    // `int __stdcall(const record *list, uint32_t count)`; each 16-byte record
+    // is {flags, id, name, callback}. Flag 0x20000 = takes a string value.
+    // Names must be shorter than 16 characters (the registrar's
+    // `strlen < 0x10` gate at 0x0064FE20).
+    FUN_SCMD_REGISTER_ARG_LIST = 0x0064FDC0,
+    // `int __stdcall(uint32_t id, char *buffer, uint32_t size)`. Writes "" first;
+    // returns 1 when a switch with `id` is registered (given or not), 0 otherwise.
+    // A value is at most 255 bytes: the tokenizer's buffer is 256.
+    FUN_SCMD_GET_STRING = 0x0064F270,
+
+    // The config initializer, `void __fastcall(const char *filename)`. It keeps
+    // the pointer at `VAR_CONFIG_FILENAME_PTR`, which then drives BOTH sides:
     //   load — `0x0063D428`: `MOV ECX,[0x00C4EDD4]; CALL 0x0063D820`
     //   save — `FUN_0063D980` builds `"WTF\"` + the same pointer
-    // So one pointer names the file for reading and writing, and swapping it
-    // redirects both consistently. This constant is the 4-byte OPERAND (the
-    // instruction VA + 1), which `Config::FileSwitch` overwrites with its own
-    // string to implement the `-config` switch.
-    //
-    // It is patched rather than hooked because the call happens during boot,
-    // BEFORE VanillaFixes calls our `Load` export — VF hooks GetCPUFrequency
-    // (`0x0042C060`), reached via `FUN_00641260` from the `FUN_0063A230()`
-    // that `FUN_00402350` runs several calls AFTER the config is already read.
-    // Our DllMain does run in time (VF injects every dlls.txt DLL while the
-    // process is still CREATE_SUSPENDED, resuming only afterwards), and a
-    // 4-byte store needs no trampoline.
-    PATCH_CONFIG_FILENAME_PTR = 0x00402371,
-    // Where `FUN_0063D380` stores that pointer. Read by the loader call above
+    // So one pointer names the file for reading and writing. `Config::FileSwitch`
+    // redirects the boot call to pass the `-config` value instead of
+    // "Config.wtf", which is 4.3.4's `InitializeGlobal`:
+    // `ConsoleInitializeClientCVar(CmdLineGetString(CMD_CONFIG) or "Config.wtf")`.
+    CALL_INIT_CONFIG_INITIALIZE = 0x00402375,
+    FUN_CVAR_CONFIG_INITIALIZE = 0x0063D380,
+    // Where `FUN_CVAR_CONFIG_INITIALIZE` stores that pointer. Read by the loader call above
     // and by the save.
     VAR_CONFIG_FILENAME_PTR = 0x00C4EDD4,
     // The config writer, `"WTF\" + [VAR_CONFIG_FILENAME_PTR]`. `int(void)`

@@ -18,10 +18,11 @@
 //   -gamescript      <code>   run once in-game
 //   -gamescriptFile  <path>   the file's contents, run once in-game
 //
-// None of these exist in 1.12: the strings do not appear anywhere in the
-// binary, so there is nothing to parse them and nothing to un-gate. The whole
-// feature is therefore ours -- read the command line, and hand the source to
-// the engine's own compile-and-run funnel at the right moment.
+// None of these exist in 1.12 (or 4.3.4): the strings do not appear anywhere in
+// the binary, so there is nothing to un-gate. The switches are registered with
+// the engine's parser by `Config::CommandLine`; the rest is ours -- read the
+// value, and hand the source to the engine's own compile-and-run funnel at the
+// right moment.
 //
 // WHEN. Registration time is too early for either state. The in-game module
 // callback runs from FUN_LOAD_SCRIPT_FUNCTIONS, before FrameXML is loaded, and
@@ -126,20 +127,25 @@ bool ReadWholeFile(const char *path, std::string &out) {
 
 // Runs the inline switch and then the file switch, so a launch that passes both
 // gets both, in the order they are written above.
-void RunPair(const char *codeSwitch, const char *fileSwitch) {
+//
+// The code is read from the raw command line, not through the engine: the
+// engine keeps at most 255 bytes of a value, and a script can be longer. The
+// path fits, so it is read through the engine like every other switch value.
+void RunPair(const char *codeSwitch, Config::CommandLine::Switch fileSwitch,
+             const char *fileSwitchName) {
     std::string code;
-    if (Config::CommandLine::Value(codeSwitch, code))
+    if (Config::CommandLine::RawValue(codeSwitch, code))
         Run(code, std::string("=-") + codeSwitch); // `=` shows the switch, not the source
 
-    std::string path;
-    if (!Config::CommandLine::Value(fileSwitch, path))
+    char path[260];
+    if (!Config::CommandLine::Value(fileSwitch, path, sizeof path))
         return;
     std::string contents;
-    if (!ReadWholeFile(path.c_str(), contents)) {
-        Debug::Log::Printf("[launchscript] -%s could not read '%s'", fileSwitch, path.c_str());
+    if (!ReadWholeFile(path, contents)) {
+        Debug::Log::Printf("[launchscript] -%s could not read '%s'", fileSwitchName, path);
         return;
     }
-    Run(contents, "@" + path); // `@` shows the path, so errors carry line numbers
+    Run(contents, std::string("@") + path); // `@` shows the path, so errors carry line numbers
 }
 
 bool g_glueArmed = false;
@@ -149,14 +155,14 @@ void OnFrameTick() {
     if (!g_glueArmed)
         return;
     g_glueArmed = false;
-    RunPair("gluescript", "gluescriptFile");
+    RunPair("gluescript", Config::CommandLine::Switch::GlueScriptFile, "gluescriptFile");
 }
 
 void OnWorldTick() {
     if (g_gameRan)
         return;
     g_gameRan = true;
-    RunPair("gamescript", "gamescriptFile");
+    RunPair("gamescript", Config::CommandLine::Switch::GameScriptFile, "gamescriptFile");
 }
 
 void ArmGlue() { g_glueArmed = true; }

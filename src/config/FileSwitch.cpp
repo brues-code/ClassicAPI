@@ -15,25 +15,27 @@
 // `"Config.wtf"` to the config initializer, which keeps it and uses it to both
 // read the file at startup and write it at exit. Supplying a different string is
 // therefore the whole feature — no second code path, and no way for reading and
-// writing to disagree. See `Offsets::PATCH_CONFIG_FILENAME_PTR`.
+// writing to disagree. It is 4.3.4's `InitializeGlobal`, which passes
+// `CmdLineGetString(CMD_CONFIG)` there when the switch is given. See
+// `Offsets::CALL_INIT_CONFIG_INITIALIZE`.
 
 #include "FileSwitch.h"
 
 #include "CommandLine.h"
+#include "Common.h"
 #include "Offsets.h"
-
-#include <windows.h>
-
-#include <cstddef>
 
 namespace Config::FileSwitch {
 
 namespace {
 
+using ConfigInitialize_t = void(__fastcall *)(const char *filename);
+
 // The engine holds this pointer for the life of the process and reads through it
 // again at exit to save, so the storage has to outlive everything — hence a
-// file-static buffer rather than anything owned by a scope.
-char g_configName[64];
+// file-static buffer rather than anything owned by a scope. 260 is 4.3.4's
+// `CmdLineGetString` buffer.
+char g_configName[260];
 
 // A filename is required to be a plain name. The engine builds the save path as
 // `WTF\` + this, and a subdirectory that does not exist makes the save fail
@@ -49,20 +51,22 @@ bool IsPlainFilename(const char *name) {
     return true;
 }
 
+// Replaces the boot call. Runs after the command line is parsed, so the switch
+// value is read through the engine.
+void __fastcall InitializeConfig(const char *defaultName) {
+    const char *name = defaultName;
+    if (Config::CommandLine::Value(Config::CommandLine::Switch::Config, g_configName,
+                                   sizeof g_configName) &&
+        IsPlainFilename(g_configName))
+        name = g_configName;
+    reinterpret_cast<ConfigInitialize_t>(Offsets::FUN_CVAR_CONFIG_INITIALIZE)(name);
+}
+
 } // namespace
 
-void Apply() {
-    if (!Config::CommandLine::Value("config", g_configName, sizeof g_configName))
-        return;
-    if (!IsPlainFilename(g_configName))
-        return;
-
-    void *target = reinterpret_cast<void *>(Offsets::PATCH_CONFIG_FILENAME_PTR);
-    DWORD previous = 0;
-    if (!::VirtualProtect(target, sizeof(const char *), PAGE_EXECUTE_READWRITE, &previous))
-        return;
-    *reinterpret_cast<const char **>(target) = g_configName;
-    ::VirtualProtect(target, sizeof(const char *), previous, &previous);
+void Install() {
+    Common::RedirectCall(Offsets::CALL_INIT_CONFIG_INITIALIZE,
+                         Offsets::FUN_CVAR_CONFIG_INITIALIZE, &InitializeConfig);
 }
 
 } // namespace Config::FileSwitch

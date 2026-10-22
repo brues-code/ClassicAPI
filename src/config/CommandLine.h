@@ -14,29 +14,43 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
-// Launch-switch parsing, shared by every module that reads one.
+// Our launch switches, as entries in the engine's own switch registry (Storm
+// SCmd), the way 4.3.4 adds `-config` to its `s_wowArgList`.
 //
-// A switch is written `-name value` or `-name=value`, and the `/name` form
-// Windows tools also accept is honored. The value may be double-quoted so it can
-// contain spaces, which a Lua snippet passed on the command line always will.
-// The name is matched case-insensitively and only at a token boundary, so a path
-// that happens to contain it cannot be mistaken for the switch itself.
-//
-// One parser for all of them on purpose: a second copy would drift, and the
-// quoting and boundary rules are exactly where that drift would go unnoticed.
+// Registering is not optional. The engine's parser stops at the first switch
+// it does not know, so an unregistered `-config x` would make the engine ignore
+// every switch written after it (`-console`, `-windowed`, ...). Once registered,
+// the engine parses our switches with the same tokenizer as its own, and the
+// values are read back through SCmd. See `Offsets::CALL_INIT_REGISTER_CLIENT_SWITCHES`.
 
 namespace Config::CommandLine {
 
-// Copies the value of `-name` into `out`. False when the switch is absent, its
-// value is empty, or the value does not fit -- a value too long to hold is a
-// failure rather than a silent truncation, since a half-copied filename or
-// snippet would be acted on as though it were complete.
-bool Value(const char *name, char *out, size_t outSize);
+enum class Switch : uint32_t {
+    // Past the engine's own ids (0..38).
+    Config = 0x100,
+    GlueScript,
+    GlueScriptFile,
+    GameScript,
+    GameScriptFile,
+};
 
-// Same, bounded only by the command line itself. For values with no natural
-// length, such as a script body.
-bool Value(const char *name, std::string &out);
+// Redirects the boot call that registers and parses the switches, so ours are
+// registered first. MUST be called from DllMain: boot parses the command line
+// before VanillaFixes calls our `Load` export.
+void Install();
+
+// The value of a string switch, through the engine. False when the switch is
+// absent or empty. Values are at most 255 bytes (the engine's token buffer).
+bool Value(Switch id, char *out, size_t outSize);
+
+// The value of `-name`, read from the raw command line with no length bound.
+// Only for inline Lua code (`-gluescript`, `-gamescript`), which can be longer
+// than the engine keeps. It honors the same forms the engine accepts
+// (`-name value`, `-name=value`, `-name:value`, `/name`) and skips quoted text,
+// so a switch name inside a quoted script is not a match.
+bool RawValue(const char *name, std::string &out);
 
 } // namespace Config::CommandLine

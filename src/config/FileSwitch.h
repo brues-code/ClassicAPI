@@ -17,21 +17,17 @@
 // `WTF\Config.wtf`, so several settings profiles can live side by side.
 namespace Config::FileSwitch {
 
-// Reads the switch from the process command line and, when present, points the
-// engine's config filename at it.
+// Redirects the boot call that initializes the config, so it receives the
+// `-config` value instead of "Config.wtf".
 //
-// MUST be called from DllMain, and is the one thing in this project that is.
-// The engine loads the config during boot, several calls before the point where
-// VanillaFixes invokes our `Load` export, so by the time the normal
-// initialization path runs the file has already been read — see
-// `Offsets::PATCH_CONFIG_FILENAME_PTR` for the full call ordering. DllMain is
-// early enough because VanillaFixes injects every DLL while the game process is
-// still suspended and resumes it only afterwards.
+// MUST be called from DllMain. The engine loads the config during boot,
+// several calls before the point where VanillaFixes invokes our `Load` export
+// — see `Offsets::CALL_INIT_CONFIG_INITIALIZE`. DllMain is early enough because
+// VanillaFixes injects every DLL while the game process is still suspended and
+// resumes it only afterwards.
 //
-// This does not install a hook. It is a single 4-byte store into an immediate
-// operand, so it costs none of what makes hooking from DllMain a problem: no
-// trampoline, no thread suspension, no loader-lock work, and nothing for another
-// DLL's hook to collide with.
-void Apply();
+// This is a single rel32 store, so it costs none of what makes hooking from
+// DllMain a problem: no trampoline, no thread suspension, and no loader-lock work.
+void Install();
 
 } // namespace Config::FileSwitch

@@ -13,11 +13,43 @@
 
 #include "CommandLine.h"
 
+#include "Common.h"
+#include "Offsets.h"
+
 #include <windows.h>
 
 namespace Config::CommandLine {
 
 namespace {
+
+// Storm's `_ARGLIST` record.
+struct ArgList {
+    uint32_t flags;
+    uint32_t id;
+    const char *name;
+    void *callback;
+};
+
+constexpr uint32_t SCMD_TYPE_STRING = 0x20000;
+
+constexpr ArgList kSwitches[] = {
+    {SCMD_TYPE_STRING, static_cast<uint32_t>(Switch::Config), "config", nullptr},
+    {SCMD_TYPE_STRING, static_cast<uint32_t>(Switch::GlueScript), "gluescript", nullptr},
+    {SCMD_TYPE_STRING, static_cast<uint32_t>(Switch::GlueScriptFile), "gluescriptFile", nullptr},
+    {SCMD_TYPE_STRING, static_cast<uint32_t>(Switch::GameScript), "gamescript", nullptr},
+    {SCMD_TYPE_STRING, static_cast<uint32_t>(Switch::GameScriptFile), "gamescriptFile", nullptr},
+};
+
+using RegisterArgList_t = int(__stdcall *)(const ArgList *list, uint32_t count);
+using GetString_t = int(__stdcall *)(uint32_t id, char *buffer, uint32_t size);
+
+// Replaces the boot call to the client-switch registrar, which also runs the
+// parse. Ours go on the list first, then the engine does what it always did.
+void __cdecl RegisterThenParse() {
+    reinterpret_cast<RegisterArgList_t>(Offsets::FUN_SCMD_REGISTER_ARG_LIST)(
+        kSwitches, static_cast<uint32_t>(sizeof kSwitches / sizeof kSwitches[0]));
+    reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_REGISTER_CLIENT_SWITCHES)();
+}
 
 bool IsSpace(char c) { return c == ' ' || c == '\t'; }
 
@@ -49,17 +81,24 @@ const char *FindValue(const char *name) {
     if (nameLen == 0)
         return nullptr;
 
+    bool quoted = false;
     for (const char *p = cmdLine; *p != '\0'; ++p) {
-        if (*p != '-' && *p != '/')
+        if (*p == '"') {
+            quoted = !quoted;
+            continue;
+        }
+        if (quoted || (*p != '-' && *p != '/'))
             continue;
         // Only at a token boundary, so a path containing the name cannot match.
+        // A closing quote is a boundary too: the engine's tokenizer ends a
+        // token there.
         if (p != cmdLine && !IsSpace(p[-1]) && p[-1] != '"')
             continue;
         if (!EqualsIgnoreCase(p + 1, name, nameLen))
             continue;
 
         const char *after = p + 1 + nameLen;
-        if (*after == '=') {
+        if (*after == '=' || *after == ':') {
             ++after;
         } else if (IsSpace(*after)) {
             while (IsSpace(*after))
@@ -72,52 +111,34 @@ const char *FindValue(const char *name) {
     return nullptr;
 }
 
-// Walks the token at `p`, honoring double quotes so a value containing spaces
-// arrives whole. `emit` takes each character and returns whether it was kept;
-// the walk stops as a failure the moment one is not.
-template <typename Emit> bool ReadToken(const char *p, Emit emit) {
-    const bool quoted = (*p == '"');
-    if (quoted)
-        ++p;
-    size_t n = 0;
-    while (*p != '\0' && (quoted ? (*p != '"') : !IsSpace(*p))) {
-        if (!emit(*p++))
-            return false;
-        ++n;
-    }
-    return n > 0;
-}
-
 } // namespace
 
-bool Value(const char *name, char *out, size_t outSize) {
+void Install() {
+    Common::RedirectCall(Offsets::CALL_INIT_REGISTER_CLIENT_SWITCHES,
+                         Offsets::FUN_REGISTER_CLIENT_SWITCHES, &RegisterThenParse);
+}
+
+bool Value(Switch id, char *out, size_t outSize) {
     if (out == nullptr || outSize == 0)
         return false;
     out[0] = '\0';
-    const char *p = FindValue(name);
-    if (p == nullptr)
-        return false;
-
-    size_t n = 0;
-    const bool ok = ReadToken(p, [&](char c) {
-        if (n + 1 >= outSize)
-            return false;
-        out[n++] = c;
-        return true;
-    });
-    out[n] = '\0';
-    return ok;
+    reinterpret_cast<GetString_t>(Offsets::FUN_SCMD_GET_STRING)(
+        static_cast<uint32_t>(id), out, static_cast<uint32_t>(outSize));
+    return out[0] != '\0';
 }
 
-bool Value(const char *name, std::string &out) {
+bool RawValue(const char *name, std::string &out) {
     out.clear();
     const char *p = FindValue(name);
     if (p == nullptr)
         return false;
-    return ReadToken(p, [&](char c) {
-        out.push_back(c);
-        return true;
-    });
+    // Honor double quotes so a value containing spaces arrives whole.
+    const bool quoted = (*p == '"');
+    if (quoted)
+        ++p;
+    while (*p != '\0' && (quoted ? (*p != '"') : !IsSpace(*p)))
+        out.push_back(*p++);
+    return !out.empty();
 }
 
 } // namespace Config::CommandLine
