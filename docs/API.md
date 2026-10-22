@@ -845,7 +845,7 @@ build instructions.
 - [Tracking](#tracking)
   - [`GetNumTrackingTypes()`](#getnumtrackingtypes)
   - [`GetTrackingInfo(index)`](#gettrackinginfoindex)
-  - [`SetTracking(index)`](#settrackingindex)
+  - [`SetTracking([index])`](#settrackingindex)
 
 - [TradeSkillUI](#tradeskillui)
   - [`C_TradeSkillUI.GetTradeSkillListLink()`](#c_tradeskilluigettradeskilllistlink)
@@ -19832,8 +19832,8 @@ these five values, or `nil` if `index` is out of range:
 | # | Value | Type | Notes |
 |---|-------|------|-------|
 | 1 | `name` | string | Localized spell name. |
-| 2 | `texture` | string | Icon path. Give it to `texture:SetTexture(...)`. `nil` if the icon is missing. |
-| 3 | `active` | boolean | `true` when this tracker is the one now in effect. |
+| 2 | `texture` | string | Icon path. Give it to `texture:SetTexture(...)`. The active tracker shows its "active" icon if the spell has one. `nil` if the icon is missing. |
+| 3 | `active` | number | `1` when this tracker is the one now in effect, otherwise `nil`. |
 | 4 | `category` | string | Always `"spell"`. There are no non-spell trackers here. |
 | 5 | `spellID` | number | The tracking spell's ID. This is a ClassicAPI extra. |
 
@@ -19841,12 +19841,15 @@ these five values, or `nil` if `index` is out of range:
 local name, texture, active, category, spellID = GetTrackingInfo(1)
 ```
 
-### `SetTracking(index)`
+### `SetTracking([index])`
 
 Turns on the tracking spell at `index`. You select a tracker
 when you cast its spell. This function casts it. For an out-of-range
-index, it does nothing. To turn tracking off, use the built-in
-`CancelTrackingBuff()`.
+index, it does nothing.
+
+If you do not give a number, the function turns off the active tracker.
+This is the same as `CancelTrackingBuff()`. When the tracker turns off,
+`PLAYER_AURAS_CHANGED` fires.
 
 ```lua
 for i = 1, GetNumTrackingTypes() do

@@ -96,8 +96,11 @@ static int __fastcall Script_GetNumTrackingTypes(void *L) {
 
 // `GetTrackingInfo(index)` -> name, texture, active, category, spellID.
 //   - index is 1-based into the tracking list (spellbook order).
-//   - texture is the SpellIcon.dbc path (nil if the icon is missing).
-//   - active is a boolean: the tracker currently in effect.
+//   - texture is the SpellIcon.dbc path (nil if the icon is missing); the
+//     active tracker shows its `activeIconID` when it has one, exactly as
+//     3.3.5's `Script_GetTrackingInfo` picks it.
+//   - active is 1 for the tracker currently in effect, nil otherwise (3.3.5
+//     pushes the number, not a boolean).
 //   - category is always "spell" — vanilla has no non-spell ("other")
 //     trackers, unlike 3.3.5's class-masked table.
 //   - spellID is a ClassicAPI extension (the modern 5th return is `nested`,
@@ -123,21 +126,28 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
     const char *name =
         Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
 
+    const bool active =
+        Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_TRACKING_SPELL)) ==
+        spellID;
+
     const char *texture = nullptr;
-    const int iconID = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ICON_ID);
+    const int activeIconID =
+        Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ACTIVE_ICON_ID);
+    const int iconID = active && activeIconID != 0
+                           ? activeIconID
+                           : Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ICON_ID);
     if (auto *iconRec = DBC::Record(Offsets::VAR_SPELL_ICON_RECORDS,
                                     Offsets::VAR_SPELL_ICON_COUNT,
                                     static_cast<uint32_t>(iconID))) {
         texture = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
     }
 
-    const bool active =
-        Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_TRACKING_SPELL)) ==
-        spellID;
-
     Game::Lua::PushString(L, name);    // 1. name (PushString handles NULL -> nil)
     Game::Lua::PushString(L, texture); // 2. texture (icon path) or nil
-    Game::Lua::PushBool(L, active);    // 3. active
+    if (active)                        // 3. active: 1 or nil
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
     Game::Lua::PushString(L, "spell"); // 4. category
     Game::Lua::PushNumber(L, static_cast<double>(spellID)); // 5. spellID (extension)
     return 5;
@@ -150,9 +160,22 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
 // "spell")` — reusing its slot bounds-check, target resolution, and error
 // handling rather than reconstructing the cast path. Returns nil for an
 // out-of-range index.
+//
+// With no number, 3.3.5 cancels the active tracking aura. That is vanilla's
+// `CancelTrackingBuff()` (`0x004E4A80`): send CMSG_CANCEL_AURA for the
+// tracking word when it is set. The word only ever holds a spell the aura
+// rebuild found in Spell.dbc, so it needs no record check. The engine then
+// does the rest: its aura rebuild (`0x004E4170`) zeroes the word, re-derives
+// it from the live aura slots, and fires PLAYER_AURAS_CHANGED.
 static int __fastcall Script_SetTracking(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
-        Game::Lua::Error(L, "Usage: SetTracking(index)");
+        const int tracking =
+            Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_TRACKING_SPELL));
+        if (tracking != 0) {
+            using CancelAuraSend_t = void(__fastcall *)(int);
+            reinterpret_cast<CancelAuraSend_t>(
+                static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND))(tracking);
+        }
         return 0;
     }
     const int index = static_cast<int>(Game::Lua::ToNumber(L, 1));
