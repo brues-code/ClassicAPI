@@ -162,6 +162,7 @@ const WidgetSystem kWidgetSystems[] = {
     {Offsets::VAR_FRAME_METHOD_REGISTRY, "SimpleFrameAPI"},
     {Offsets::VAR_TEXTURE_METHOD_REGISTRY, "SimpleTextureAPI"},
     {Offsets::VAR_FONTSTRING_METHOD_REGISTRY, "SimpleFontStringAPI"},
+    {Offsets::VAR_FONT_METHOD_REGISTRY, "SimpleFontAPI"},
     {Offsets::VAR_EDITBOX_METHOD_REGISTRY, "SimpleEditBoxAPI"},
     {Offsets::VAR_MODEL_METHOD_REGISTRY, "SimpleModelAPI"},
 };

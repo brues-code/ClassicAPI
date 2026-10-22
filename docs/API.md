@@ -273,6 +273,7 @@ build instructions.
   - [`fontstring:GetWrappedWidth()`](#fontstringgetwrappedwidth)
   - [`fontstring:GetNumLines()`](#fontstringgetnumlines)
   - [`fontstring:GetLineHeight()`](#fontstringgetlineheight)
+  - [`fontstring:GetFontHeight([calculated])` / `fontstring:SetFontHeight(height)`](#fontstringgetfontheightcalculated--fontstringsetfontheightheight)
   - [`fontstring:IsTruncated()`](#fontstringistruncated)
   - [`fontstring:SetMaxLines(maxLines)` / `fontstring:GetMaxLines()`](#fontstringsetmaxlinesmaxlines--fontstringgetmaxlines)
   - [`fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`](#fontstringsetindentedwordwrapindent--fontstringgetindentedwordwrap)
@@ -6618,6 +6619,31 @@ whether or not the text has rendered yet. Empty or unset text returns
 Returns the height of one text line in UI pixels — the font height,
 without the `SetSpacing` value. Use it with `GetNumLines` and
 `GetSpacing` to reconstruct `GetStringHeight` per line.
+
+### `fontstring:GetFontHeight([calculated])` / `fontstring:SetFontHeight(height)`
+
+`GetFontHeight` returns the height of the font, in the same units as the
+second return value of `GetFont`.
+
+- `calculated` is `true` when you omit it. A string that draws at the pixel
+  size of its font then returns that pixel size.
+- When `calculated` is `false`, the result is always equal to the second
+  return value of `GetFont`.
+
+`SetFontHeight` changes only the height. The font file and the flags
+(`OUTLINE`, `THICKOUTLINE`, `MONOCHROME`) stay the same, as in a `SetFont`
+call with the current file and flags. A height of `0` or less has no effect.
+If the string has no font, `SetFontHeight` raises an error.
+
+Font objects have the same pair. On a Font object, `GetFontHeight` takes no
+argument. The font strings that use the font change with it.
+
+```lua
+local f = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+f:SetFontHeight(18)               -- same file and flags, new height
+print(f:GetFontHeight(false) == select(2, f:GetFont()))   -- true
+GameFontNormal:SetFontHeight(14)  -- strings that use GameFontNormal change too
+```
 
 ### `fontstring:IsTruncated()`
 

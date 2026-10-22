@@ -11569,6 +11569,26 @@ enum Offsets {
     OFF_SIMPLEFONT_ATTR_FLAGS = 0x38,
     OFF_SIMPLEFONT_STYLE_FLAGS = 0x54,
     VTBL_SIMPLEFONT_UPDATE_OBJECTS = 0x14,
+    // The font height, internal units; the shared Font/EditBox/... GetFont
+    // body 0x0079F3B0 pushes it as its second value (`mov eax,[esi+0x48]`),
+    // and the shared SetFont 0x0079F210 stores it at 0x0079F329.
+    OFF_SIMPLEFONT_HEIGHT = 0x48,
+    // The engine's own GetFont / SetFont Lua methods of FontString (table
+    // 0x0087C1D8) and Font (table 0x0087C7C8), `int __fastcall(L)`. Each
+    // resolves its own self; SetFont reads (file, height[, flags]) from stack
+    // slots 2-4, GetFont pushes (file, height, flagsText).
+    FUN_SCRIPT_FONTSTRING_GET_FONT = 0x0079D400,
+    FUN_SCRIPT_FONTSTRING_SET_FONT = 0x0079D4F0,
+    FUN_SCRIPT_FONT_GET_FONT = 0x007A0330,
+    FUN_SCRIPT_FONT_SET_FONT = 0x007A0270,
+    // The two engine calls of every font-height push (GetFont 0x0079D4A5 /
+    // 0x0079F3D1): `DivideByScreenScaleX(GetScaledScreenAspect() * 1024 * h)`.
+    // GetScaledScreenAspect: `float __cdecl()`, returns
+    // [VAR_COORD_ASPECT_COMPENSATION] in ST0. DivideByScreenScaleX:
+    // `float __stdcall(float)`, ST0 = arg / [VAR_COORD_DDC_WIDTH_SCALE], left
+    // at x87 precision (the caller stores it with `fstp qword`).
+    FUN_COORD_GET_SCALED_SCREEN_ASPECT = 0x0041AD70,
+    FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X = 0x0041AE40,
     // Each class's font, as its SetJustifyH passes it to 0x0079FC20, and the
     // class's Lua type id and method registry. A Font object is its own font;
     // SimpleHTML has one per text type, `fonts[FUN_SIMPLEHTML_READ_TEXT_TYPE(L)]`

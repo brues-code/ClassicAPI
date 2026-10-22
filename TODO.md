@@ -4116,7 +4116,7 @@ Likely worth it (small, ported code uses them):
   `IsObjectLoaded`, `RotateTextures` (on `Texture::Transform`), `AbortDrag`.
 - Slider: `SetObeyStepOnDrag`, `SetStepsPerPage`, `IsDraggingThumb`,
   `SetEnabled` (also EditBox `SetEnabled`).
-- FontString / Font: `SetFontHeight` / `GetFontHeight`, `SetTextScale` /
+- FontString / Font: `SetTextScale` /
   `GetTextScale`, `ClearText`, `SetTextToFit`,
   `GetUnboundedStringWidthForText`, `FindCharacterIndexAtCoordinate`.
 - Texture: `GetTextureFilePath`, `ClearVertexOffsets`.
