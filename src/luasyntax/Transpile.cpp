@@ -1147,10 +1147,37 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
     }
 }
 
+// Length of the chunk's leading bytes the engine never parses: a UTF-8 BOM
+// (luaL_loadbuffer drops it), then a first line starting with `#`, which
+// luaX_setinput skips up to its `\n` (`CMP EAX,0x23` at 0x006FF5CD, then a
+// read loop until 0x0A or EOF). The span includes that `\n`, so a preamble
+// placed after it starts line 2 — inside the skipped line it would be
+// skipped too — and the transpiler never reads the line's `#` as `__len`.
+size_t SkippedHead(const char *src, size_t len) {
+    size_t i = (len >= 3 && static_cast<unsigned char>(src[0]) == 0xEF &&
+                static_cast<unsigned char>(src[1]) == 0xBB &&
+                static_cast<unsigned char>(src[2]) == 0xBF)
+                   ? 3
+                   : 0;
+    if (i < len && src[i] == '#') {
+        while (i < len && src[i] != '\n')
+            i++;
+        if (i < len)
+            i++; // the `\n`
+    }
+    return i;
+}
+
 // Diagnostic entry: the full operator/vararg/hex rewrite of a chunk, without the
 // load-time helper preamble and vararg wrap (that is LoadBuffer_h's concern).
 bool RewriteChunk(const char *src, size_t len, std::string &out) {
-    return RunPasses(src, len, out, nullptr, nullptr);
+    const size_t head = SkippedHead(src, len);
+    std::string rest;
+    if (!RunPasses(src + head, len - head, rest, nullptr, nullptr))
+        return false;
+    out.assign(src, head);
+    out += rest;
+    return true;
 }
 
 // ============================================================================
@@ -1394,11 +1421,12 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     if (buff == nullptr || size == 0)
         return g_origLoadBuffer(L, buff, size, name);
 
-    // Precompiled bytecode (Lua's ESC "Lua" chunk signature) is NOT source —
-    // the rewrite passes would tokenize its bytes as text and corrupt it, and
-    // the 5.0 undump is unhardened. Pass it straight through untouched.
-    if (static_cast<unsigned char>(buff[0]) == 0x1B)
-        return g_origLoadBuffer(L, buff, size, name);
+    // Everything below works on the bytes after the BOM and a skipped `#`
+    // first line (SkippedHead); they are put back verbatim ahead of the
+    // preamble.
+    const size_t head = SkippedHead(buff, size);
+    const char *src = buff + head;
+    const size_t srcLen = size - head;
 
     // Syntax transpile: hex literals first, then vararg, then # / % — one shared
     // tokenization (see RunPasses). `didVararg` / `didOps` drive the preamble.
@@ -1416,7 +1444,7 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
     try {
-        changed = RunPasses(buff, size, transpiled, &didVararg, &didOps);
+        changed = RunPasses(src, srcLen, transpiled, &didVararg, &didOps);
     } catch (...) {
         return g_origLoadBuffer(L, buff, size, name);
     }
@@ -1424,8 +1452,8 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     g_stats.ticks += t1.QuadPart - t0.QuadPart;
     g_stats.chunks++;
     g_stats.bytes += size;
-    const char *body = changed ? transpiled.data() : buff;
-    size_t bodyLen = changed ? transpiled.size() : size;
+    const char *body = changed ? transpiled.data() : src;
+    size_t bodyLen = changed ? transpiled.size() : srcLen;
 
     // XML handler body written for later clients (see ScanHandlerNames)?
     const char *handlerParams = nullptr;
@@ -1516,23 +1544,14 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
         g_stats.xmlHandlersWrapped++;
     }
 
-    if (pre.empty()) {
-        // No operator/vararg rewrite needing a preamble (hex-only, or nothing).
-        if (body != buff)
-            return g_origLoadBuffer(L, body, static_cast<unsigned>(bodyLen), name);
+    if (!changed && pre.empty())
         return g_origLoadBuffer(L, buff, size, name);
-    }
 
-    const size_t bom = (bodyLen >= 3 && static_cast<unsigned char>(body[0]) == 0xEF &&
-                        static_cast<unsigned char>(body[1]) == 0xBB &&
-                        static_cast<unsigned char>(body[2]) == 0xBF)
-                           ? 3
-                           : 0;
     std::string full;
-    full.reserve(bodyLen + pre.size() + 8);
-    full.append(body, bom); // keep a leading BOM ahead of the preamble
+    full.reserve(head + pre.size() + bodyLen + 8);
+    full.append(buff, head); // BOM and skipped `#` line stay ahead of the preamble
     full += pre;
-    full.append(body + bom, bodyLen - bom);
+    full.append(body, bodyLen);
     // Close the vararg wrap on its OWN line: a body ending in a line comment
     // (`-- foo` with no trailing newline) would otherwise swallow the `end`.
     // Appending a final line shifts no existing line numbers.
