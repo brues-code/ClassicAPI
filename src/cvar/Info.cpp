@@ -46,6 +46,8 @@
 // a console COMMAND's name finds nothing and returns nil — which is the
 // contract's "only accepts console variables" without needing a test for it.
 
+#include "Factory.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
@@ -55,8 +57,6 @@ namespace CVar::Info {
 
 namespace {
 
-using FindCVar_t = const uint8_t *(__fastcall *)(const char *name);
-
 int __fastcall Script_C_CVar_GetCVarInfo(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: C_CVar.GetCVarInfo(\"cvar\")");
@@ -64,19 +64,14 @@ int __fastcall Script_C_CVar_GetCVarInfo(void *L) {
     }
     const char *name = Game::Lua::ToString(L, 1);
 
-    auto findCVar = reinterpret_cast<FindCVar_t>(Offsets::FUN_FIND_CVAR);
-    const uint8_t *cvar = findCVar(name);
+    CVar::Factory::Handle cvar = CVar::Factory::Find(name);
     if (cvar == nullptr) {
         Game::Lua::PushNil(L);
         return 1;
     }
 
-    const char *value =
-        *reinterpret_cast<const char *const *>(cvar + Offsets::OFF_CVAR_VALUE_STR);
-    const char *defaultValue =
-        *reinterpret_cast<const char *const *>(cvar + Offsets::OFF_CVAR_DEFAULT_STR);
-    const uint32_t flags =
-        *reinterpret_cast<const uint32_t *>(cvar + Offsets::OFF_CVAR_FLAGS);
+    const char *value = CVar::Factory::GetString(cvar);
+    const char *defaultValue = CVar::Factory::GetDefaultString(cvar);
 
     // A cvar registered with no default leaves the pointer null; report the
     // empty string so every return keeps its declared type.
@@ -86,7 +81,7 @@ int __fastcall Script_C_CVar_GetCVarInfo(void *L) {
     Game::Lua::PushBool(L, false); // isStoredServerCharacter
     Game::Lua::PushBool(L, false); // isLockedFromUser
     Game::Lua::PushBool(L, false); // isSecure
-    Game::Lua::PushBool(L, (flags & Offsets::CVAR_FLAG_READ_ONLY) != 0);
+    Game::Lua::PushBool(L, CVar::Factory::IsReadOnly(cvar));
     return 7;
 }
 
@@ -110,8 +105,7 @@ int __fastcall Script_C_CVar_DoesCVarExist(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    auto findCVar = reinterpret_cast<FindCVar_t>(Offsets::FUN_FIND_CVAR);
-    Game::Lua::PushBool(L, findCVar(Game::Lua::ToString(L, 1)) != nullptr);
+    Game::Lua::PushBool(L, CVar::Factory::Find(Game::Lua::ToString(L, 1)) != nullptr);
     return 1;
 }
 

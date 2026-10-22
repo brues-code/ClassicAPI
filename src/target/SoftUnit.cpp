@@ -167,17 +167,26 @@ int __fastcall SettingChanged(CVar::Factory::Handle, const char *, const char *,
 }
 
 void Register() {
-    const auto reg = [](const char *name, const char *value) {
-        return CVar::Factory::Register(name, value, 0, &SettingChanged);
+    const auto reg = [](const char *name, const char *help, const char *value) {
+        return CVar::Factory::Register(name, help, Offsets::CVAR_CATEGORY_GAME, value,
+                                       &SettingChanged);
     };
-    g_enemy.enable = reg("SoftTargetEnemy", "1");
-    g_enemy.arc = reg("SoftTargetEnemyArc", "0");
-    g_enemy.range = reg("SoftTargetEnemyRange", "45");
-    g_friend.enable = reg("SoftTargetFriend", "0");
-    g_friend.arc = reg("SoftTargetFriendArc", "0");
-    g_friend.range = reg("SoftTargetFriendRange", "45");
-    g_matchLocked = reg("SoftTargetMatchLocked", "1");
-    g_withLocked = reg("SoftTargetWithLocked", "1");
+    g_enemy.enable = reg("SoftTargetEnemy",
+        "Sets when enemy soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "1");
+    g_enemy.arc = reg("SoftTargetEnemyArc",
+        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in tab targeting area.", "0");
+    g_enemy.range = reg("SoftTargetEnemyRange",
+        "Max range to soft target enemies (limited to tab targeting range)", "45");
+    g_friend.enable = reg("SoftTargetFriend",
+        "Sets when friend soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "0");
+    g_friend.arc = reg("SoftTargetFriendArc",
+        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in targeting area.", "0");
+    g_friend.range = reg("SoftTargetFriendRange",
+        "Max range to soft target friends (limited to tab targeting range)", "45");
+    g_matchLocked = reg("SoftTargetMatchLocked",
+        "Match appropriate soft target to locked target. 1 = hard locked target only, 2 = for targets you attack", "1");
+    g_withLocked = reg("SoftTargetWithLocked",
+        "Allows soft target selection while player has a locked target. 2 = always do soft targeting", "1");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

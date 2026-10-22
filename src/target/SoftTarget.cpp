@@ -72,7 +72,6 @@
 #include "unit/Position.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <vector>
 
 namespace Target::SoftTarget {
@@ -156,11 +155,6 @@ const Net::PacketDispatch::AutoSubscribe _packetSub{&OnPacket};
 // `softinteract` dropped: ON span ~33 deg close in and ~15 deg at ~9 yd,
 // both a half-width of ~1.2 yd — a strip, not a cone.
 constexpr float kArc0HalfWidth = 1.2f;
-
-float FloatCVar(CVar::Factory::Handle cvar, float fallback) {
-    const char *s = cvar ? CVar::Factory::GetString(cvar) : nullptr;
-    return s ? static_cast<float>(std::atof(s)) : fallback;
-}
 
 // The camera's yaw, in the heading convention FUN_HEADING_BETWEEN_POINTS
 // uses (atan2 of the y and x deltas). False before the world frame has a
@@ -259,9 +253,10 @@ bool Begin(Area &area, CVar::Factory::Handle arc, CVar::Factory::Handle range,
     area.arc = CVar::Factory::GetInt(arc);
     area.coneHalf = Game::Read<float>(Offsets::VAR_TARGETING_PI) *
                     Game::Read<float>(Offsets::VAR_TARGETING_ONE_SIXTH);
-    float r = FloatCVar(range, defaultRange);
-    if (const void *tabRange = Game::Read<void *>(Offsets::VAR_CVAR_TARGET_NEAREST_DISTANCE)) {
-        const float cap = Game::Read<float>(tabRange, Offsets::OFF_CVAR_VALUE_FLOAT);
+    float r = CVar::Factory::GetFloat(range, defaultRange);
+    if (CVar::Factory::Handle tabRange =
+            Game::Read<void *>(Offsets::VAR_CVAR_TARGET_NEAREST_DISTANCE)) {
+        const float cap = CVar::Factory::GetFloat(tabRange);
         if (cap < r)
             r = cap;
     }

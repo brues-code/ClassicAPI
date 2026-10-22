@@ -1443,6 +1443,10 @@ enum Offsets {
     // int at +0x28. The tab-target search FUN_00494200 reads its range cvars
     // through it (`fld [cvar+0x24]`).
     OFF_CVAR_VALUE_FLOAT = 0x24,
+    // The value parsed as an integer (SStrToInt), stored by the inner setter
+    // FUN_0063E0B0 beside the float at 0x0063E127. The scriptMemory watchdog
+    // FUN_00495590 reads the cvar through it.
+    OFF_CVAR_VALUE_INT = 0x28,
 
     // Launch switches — Storm's SCmd registry (benilla-re storm/scmd; same
     // code as 4.3.4's SCmd.cpp). Boot, in `InitializeGlobal` (`FUN_00402350`):
@@ -1506,23 +1510,45 @@ enum Offsets {
     // FUN_SET_CVAR_VALUE; cleared by FUN_CVAR_CONFIG_WRITE.
     VAR_CVAR_CONFIG_DIRTY = 0x00C4EDD8,
 
-    // Internal CVar registrar — what `Script_RegisterCVar` calls after a
-    // `FindCVar` miss (the call at `0x00488B8A`). `__fastcall`; ECX=name,
-    // EDX is a second string slot the script path leaves 0, then six
-    // stack args: flags, defaultValue, changeCallback, categoryId,
-    // hiddenBool, userData. Dedups by name (re-registering OR-merges
-    // flags + updates the callback), so it's idempotent across `/reload`.
-    // The new-cvar branch forces flags bit 0 on (`puVar3[7] = flags | 1`),
-    // which is what makes script-registered cvars persist to Config.wtf.
-    // See `CVar::Factory` for the wrapper.
+    // `CVar::Register` — what `Script_RegisterCVar` calls after a `FindCVar`
+    // miss (the call at `0x00488B8A`). `__fastcall`; ECX = name, EDX = help
+    // line, then six stack args: flags, defaultValue, changeCallback,
+    // category, scriptHidden, userData (the boot registrations at
+    // FUN_00402BA0 settle the EDX/default slots: `("scriptMemory", "Memory
+    // used by the scripting system", 0, "49152", 0, 4, 0, 0)`).
+    //   new name — copies the help into the record (+0x3C, 0x80 bytes), runs
+    //     the default through FUN_SET_CVAR_VALUE with apply 1 (so the callback
+    //     sees it, and a rejection leaves the value EMPTY), ORs in archive
+    //     (bit 0) and, for scriptHidden 0, bit 31; then registers a console
+    //     command of the cvar's name with the category and help.
+    //   existing name — ORs the flags, replaces callback and userData, calls
+    //     the callback with the current value (result ignored), offers the
+    //     default with apply 0 (fills only an empty default/reset slot), and
+    //     sets bit 31 for scriptHidden 0. Help and category are NOT updated.
+    // Config.wtf loads before any registration, so a cvar with a saved line
+    // always takes the existing-name path, keeping the `set` command's
+    // category 5 and no help — the engine's own cvars included. Idempotent
+    // across `/reload`. See `CVar::Factory` for the wrapper.
     FUN_REGISTER_CVAR = 0x0063DB90,
-    // Internal "apply value" — `__fastcall(cvar /*ecx*/, value, a3, a4,
-    // a5, a6)`, called by `Script_SetCVar` at `0x00488CA8`. Fires the
-    // change callback at `[cvar+0xBC]` as
-    // `char __fastcall(cvar /*ecx*/, prevValue /*edx*/, newValue /*stack*/,
-    // userData /*stack*/)` — return 0 to REJECT the change, nonzero to
-    // accept (verified at `0x0063DF7D`).
+    // `CVar::Set` — `__thiscall(cvar /*ecx*/, value, apply, setReset,
+    // setDefault, force)`: ECX = cvar and all FIVE others on the stack
+    // (`RET 0x14`). NOT `__fastcall`, which would put `value` in EDX and
+    // corrupt ESP (see `CVar::Factory`). With apply it first fires the change
+    // callback at `[cvar+0xBC]` as `char __fastcall(cvar /*ecx*/, prevValue
+    // /*edx*/, newValue /*stack*/, userData /*stack*/)` — 0 REJECTS the
+    // change (verified at `0x0063DF7D`). force is what marks the config
+    // dirty. Every caller outside the registrar passes 1, 0, 0, 1
+    // (`Script_SetCVar` at `0x00488CA8`). Always returns 1.
     FUN_SET_CVAR_VALUE = 0x0063DF50,
+    // `CVar::SetReadOnly` — `void __thiscall(cvar /*ecx*/, char readOnly)`,
+    // `RET 4`: ORs CVAR_FLAG_READ_ONLY in for nonzero, clears it for zero.
+    // Its only two callers set it on `realmList`, `realmName` and
+    // `scriptMemory` (the name table at 0x0083DE4C): `CGGameUI::InitializeGame`
+    // (FUN_0048F480) at 0x0048F579 sets the bit on entering the world, before
+    // it jumps to the interface build that runs FUN_LOAD_SCRIPT_FUNCTIONS, and
+    // `CGGameUI::ShutdownGame` at 0x00491252 clears it on leaving. So those
+    // three are writable on the glue screens and read-only in the world.
+    FUN_CVAR_SET_READ_ONLY = 0x0063E030,
     // CVar struct fields (beyond the value string at +0x20 above).
     OFF_CVAR_FLAGS = 0x1C,
     // Hash mask of the cvar registry, and its initialised/not sentinel. Every
@@ -1547,7 +1573,9 @@ enum Offsets {
     //        marks the config dirty INSTEAD of applying it, so the change
     //        lands on a later run rather than now.
     //   0x4  read only — Script_SetCVar (FUN_00488C10) tests this before
-    //        doing anything else and raises `"%s" is read only`.
+    //        doing anything else and raises `"%s" is read only`, and the inner
+    //        setter FUN_0063E0B0 silently ignores the write. Toggled only by
+    //        FUN_CVAR_SET_READ_ONLY.
     //   0x80000000  visible to Lua. FUN_FIND_CVAR rejects any cvar without it
     //        (`if (-1 < (int)flags) return 0` — the flags read as SIGNED), and
     //        GetCVar / SetCVar / C_CVar.* all go through that lookup, so a cvar
@@ -1574,10 +1602,20 @@ enum Offsets {
     CVAR_FLAG_READ_ONLY = 0x4,
     OFF_CVAR_CALLBACK = 0xBC,
     OFF_CVAR_USERDATA = 0xC0,
-    // The categoryId the script path passes as the registrar's 6th stack
-    // arg (the `PUSH 9` in `Script_RegisterCVar`). Cosmetic console
-    // grouping; we reuse it so our cvars behave like script-registered ones.
-    CVAR_SCRIPT_CATEGORY = 9,
+    // Console categories — the registrar's category argument, an index into
+    // the nine 0x18-byte {id, name} entries at 0x008653A0 that `help
+    // <category>` (FUN_0063FDC0) matches by name. Same ids as 3.3.5/4.3.4's
+    // CATEGORY_* enum. `Script_RegisterCVar` passes 9, which matches no
+    // entry, so a Lua-registered cvar is listed under no category.
+    CVAR_CATEGORY_DEBUG = 0,
+    CVAR_CATEGORY_GRAPHICS = 1,
+    CVAR_CATEGORY_CONSOLE = 2,
+    CVAR_CATEGORY_COMBAT = 3,
+    CVAR_CATEGORY_GAME = 4,
+    CVAR_CATEGORY_DEFAULT = 5,
+    CVAR_CATEGORY_NET = 6,
+    CVAR_CATEGORY_SOUND = 7,
+    CVAR_CATEGORY_GM = 8,
 
     // Engine-side Lua C functions backing the in-game CVar globals.
     // Standard `int __fastcall(void *L)` ABI. We don't register them

@@ -13,60 +13,49 @@
 
 #include "cvar/Factory.h"
 
+#include "Game.h"
 #include "Offsets.h"
 
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 
 namespace CVar::Factory {
 
 namespace {
 
-// `FUN_REGISTER_CVAR` — verified ABI (see Offsets.h and the calibration
-// against the engine's own call site at 0x005E2490 / the Lua
-// Script_RegisterCVar path). MSVC `__fastcall` places the first two args in
-// ECX/EDX and pushes the rest right-to-left, which reproduces the engine's
-// exact push order: flags, defaultValue, callback, categoryId, hiddenBool,
-// userData (with flags as the first stack arg / last push).
-using RegisterCVar_t = void *(__fastcall *)(const char *name, int edxZero,
+// `FUN_REGISTER_CVAR` — `__fastcall`, so MSVC puts name/help in ECX/EDX and
+// pushes the rest right-to-left, which is the engine's own push order (see
+// the boot registrations at FUN_00402BA0). `scriptHidden` 0 sets bit 31, the
+// bit FUN_FIND_CVAR requires, so the cvar is reachable from Lua.
+using RegisterCVar_t = void *(__fastcall *)(const char *name, const char *help,
                                             uint32_t flags,
                                             const char *defaultValue,
                                             ChangeCallback callback,
-                                            int categoryId, int hiddenBool,
+                                            int category, int scriptHidden,
                                             void *userData);
 
 using FindCVar_t = void *(__fastcall *)(const char *name);
 
-// `FUN_SET_CVAR_VALUE` — `__thiscall(cvar /*ecx*/, value, a3, a4, a5, a6)`,
-// i.e. ECX=cvar with `value` AND a3..a6 all passed on the stack (5 stack
-// args; the function cleans 20 bytes / `RET 0x14`). NOT __fastcall — that
-// would route `value` through EDX, push only 4 args, and leave the callee
-// popping 4 bytes too many → ESP corruption → silent crash. Mirror the
-// Script_SetCVar invocation (0x00488CA8): a3..a6 = 1, 0, 0, 1.
+// `FUN_SET_CVAR_VALUE` — `__thiscall(cvar /*ecx*/, value, apply, setReset,
+// setDefault, force)`: ECX = cvar with `value` AND the four flags all on the
+// stack (5 stack args; the function cleans 20 bytes / `RET 0x14`). NOT
+// __fastcall — that would route `value` through EDX, push only 4 args, and
+// leave the callee popping 4 bytes too many → ESP corruption → silent crash.
+// Mirror the Script_SetCVar invocation (0x00488CA8): 1, 0, 0, 1.
 using SetCVarValue_t = char(__thiscall *)(void *cvar, const char *value,
-                                          int a3, int a4, int a5, int a6);
-
-const char *ReadStringField(void *cvar, uintptr_t offset) {
-    if (cvar == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const char *const *>(
-        static_cast<const uint8_t *>(cvar) + offset);
-}
-
-const char *ReadValue(void *cvar) {
-    return ReadStringField(cvar, Offsets::OFF_CVAR_VALUE_STR);
-}
+                                          int apply, int setReset,
+                                          int setDefault, int force);
 
 } // namespace
 
-Handle Register(const char *name, const char *defaultValue, uint32_t flags,
-                ChangeCallback callback, void *userData) {
+Handle Register(const char *name, const char *help, int category,
+                const char *defaultValue, ChangeCallback callback,
+                void *userData) {
     if (name == nullptr)
         return nullptr;
     auto reg = reinterpret_cast<RegisterCVar_t>(Offsets::FUN_REGISTER_CVAR);
-    return reg(name, /*edxZero*/ 0, flags, defaultValue, callback,
-               Offsets::CVAR_SCRIPT_CATEGORY, /*hiddenBool*/ 0, userData);
+    return reg(name, help, /*flags*/ 0, defaultValue, callback, category,
+               /*scriptHidden*/ 0, userData);
 }
 
 Handle Find(const char *name) {
@@ -77,18 +66,25 @@ Handle Find(const char *name) {
 }
 
 const char *GetString(Handle cvar) {
-    return ReadValue(cvar);
+    return cvar ? Game::Read<const char *>(cvar, Offsets::OFF_CVAR_VALUE_STR) : nullptr;
 }
 
 const char *GetDefaultString(Handle cvar) {
-    return ReadStringField(cvar, Offsets::OFF_CVAR_DEFAULT_STR);
+    return cvar ? Game::Read<const char *>(cvar, Offsets::OFF_CVAR_DEFAULT_STR) : nullptr;
 }
 
 int GetInt(Handle cvar, int fallback) {
-    const char *value = ReadValue(cvar);
-    if (value == nullptr || value[0] == '\0')
-        return fallback;
-    return std::atoi(value);
+    return cvar ? Game::Read<int>(cvar, Offsets::OFF_CVAR_VALUE_INT) : fallback;
+}
+
+float GetFloat(Handle cvar, float fallback) {
+    return cvar ? Game::Read<float>(cvar, Offsets::OFF_CVAR_VALUE_FLOAT) : fallback;
+}
+
+bool IsReadOnly(Handle cvar) {
+    return cvar != nullptr &&
+           (Game::Read<uint32_t>(cvar, Offsets::OFF_CVAR_FLAGS) &
+            Offsets::CVAR_FLAG_READ_ONLY) != 0;
 }
 
 void SetString(Handle cvar, const char *value, bool persist) {
@@ -99,9 +95,7 @@ void SetString(Handle cvar, const char *value, bool persist) {
 }
 
 void SetInt(Handle cvar, int value) {
-    char buf[16];
-    // Hand-format to avoid pulling in a locale-aware path; value range for
-    // our cvars is small, 16 bytes is ample for a 32-bit int + sign + NUL.
+    char buf[16]; // a 32-bit int, its sign and the terminator
     std::snprintf(buf, sizeof buf, "%d", value);
     SetString(cvar, buf);
 }

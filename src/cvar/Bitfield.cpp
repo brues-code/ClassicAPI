@@ -42,7 +42,6 @@
 #include "Factory.h"
 
 #include "Game.h"
-#include "Offsets.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -112,9 +111,7 @@ int __fastcall Script_SetCVarBitfield(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    const uint32_t flags = *reinterpret_cast<const uint32_t *>(
-        static_cast<const uint8_t *>(cvar) + Offsets::OFF_CVAR_FLAGS);
-    if ((flags & Offsets::CVAR_FLAG_READ_ONLY) != 0) {
+    if (CVar::Factory::IsReadOnly(cvar)) {
         Game::Lua::PushBool(L, false);
         return 1;
     }

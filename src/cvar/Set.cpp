@@ -37,9 +37,6 @@
 #include "Factory.h"
 
 #include "Game.h"
-#include "Offsets.h"
-
-#include <cstdint>
 
 namespace CVar::Set {
 
@@ -63,9 +60,7 @@ int __fastcall Script_SetCVar(void *L) {
     CVar::Factory::Handle cvar = CVar::Factory::Find(Game::Lua::ToString(L, 1));
     if (cvar == nullptr)
         return 0;
-    const uint32_t flags = *reinterpret_cast<const uint32_t *>(
-        static_cast<const uint8_t *>(cvar) + Offsets::OFF_CVAR_FLAGS);
-    if ((flags & Offsets::CVAR_FLAG_READ_ONLY) != 0) {
+    if (CVar::Factory::IsReadOnly(cvar)) {
         Game::Lua::PushBool(L, false);
         return 1;
     }

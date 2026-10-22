@@ -18,13 +18,17 @@
 // is 0, keeping 1.12's action buttons firing on key release; 4.3.4 shipped 1.
 
 #include "Game.h"
+#include "Offsets.h"
 #include "cvar/Factory.h"
 
 namespace Action::UseKeyDown {
 
 namespace {
 
-void Register() { CVar::Factory::Register("ActionButtonUseKeyDown", "0"); }
+void Register() {
+    CVar::Factory::Register("ActionButtonUseKeyDown", "Activate the action button on a keydown",
+                            Offsets::CVAR_CATEGORY_GAME, "0");
+}
 
 const Game::ModuleAutoRegister _autoreg{&Register};
 

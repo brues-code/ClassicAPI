@@ -44,23 +44,17 @@
 // (this client is Large Address Aware) rather than to a number picked in
 // 2006 — the engine's real limit instead of an invented one.
 //
-// TIMING IS THE WHOLE TRICK. The cvar becomes READ-ONLY partway through boot:
-// in the world, `SetCVar("scriptMemory", "49152")` raises `"scriptMemory" is
-// read only` and `GetCVarInfo` reports `isReadOnly`, which is bit
-// `CVAR_FLAG_READ_ONLY` at `+0x1C` — and the innermost setter
-// (`FUN_0063E0B0`) opens with `if (flags & 4) return;`, so a write then is a
-// silent no-op. But the bit is NOT set yet on the glue state, where the write
-// below lands: verified in game by deleting the Config.wtf line, launching,
-// and finding 0 in the AddOns dialog and back in Config.wtf on exit.
-//
-// The bit is not set at registration either: the disassembly at `0x00402E24`
-// pushes flags 0 and registerConsole 0, so the registrar computes
-// `0 | 1 | 0x80000000`, and nothing in the binary ORs bit 2 into a cvar's
-// flags. Something between the glue screen and the world sets it; the
-// mechanism is still unidentified. Practical consequence: this must keep
-// running from the GLUE registration. Do not "simplify" it to the in-game
-// hook alone — the write would silently stop working, and the in-game hook
-// stays only as a second chance for a boot that somehow skips glue.
+// TIMING IS THE WHOLE TRICK. The cvar is READ-ONLY in the world: on entering
+// it, `CGGameUI::InitializeGame` sets `CVAR_FLAG_READ_ONLY` on `realmList`,
+// `realmName` and `scriptMemory` (`FUN_CVAR_SET_READ_ONLY` at 0x0048F579),
+// and `ShutdownGame` clears it again on the way out (0x00491252). With the bit
+// set, `SetCVar` raises `"scriptMemory" is read only` and the innermost setter
+// (`FUN_0063E0B0`) silently drops any C-side write. InitializeGame sets the
+// bit BEFORE it jumps to the interface build that runs our in-game
+// registrations, and `/reload` never clears it, so this only works from the
+// GLUE registration — which every boot and every logout passes through.
+// Verified in game: delete the Config.wtf line, launch, and the AddOns dialog
+// shows 0, which saves back to Config.wtf on exit.
 //
 // We override the DEFAULT ONLY: if the live value differs from the value the
 // cvar was registered with, someone chose it and we leave it alone. The cvar
@@ -70,11 +64,8 @@
 // exactly the default in Config.wtf, which reads as untouched; recovering the
 // watchdog means choosing any other value.
 //
-// Runs from both the glue and in-game registration flows. Cvar storage is
-// process-global and the write is idempotent by construction (afterwards the
-// value no longer equals the default), so whichever fires first wins and the
-// other is a no-op. Glue fires earliest, which also means the AddOns dialog
-// shows 0 rather than 48 on a first launch.
+// Running on glue also means the AddOns dialog shows 0 rather than 48 on a
+// first launch.
 
 #include "cvar/Factory.h"
 
@@ -98,10 +89,9 @@ void ApplyDefaultOverride() {
         return;
     if (std::strcmp(value, fallback) != 0)
         return; // deliberately set — the user's choice stands
-    Factory::SetInt(cvar, 0); // lands on the glue state; see the timing note
+    Factory::SetInt(cvar, 0); // writable here only; see the timing note
 }
 
-const Game::ModuleAutoRegister _autoreg{&ApplyDefaultOverride};
 const Game::GlueModuleAutoRegister _glueAutoreg{&ApplyDefaultOverride};
 
 } // namespace

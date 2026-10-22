@@ -222,7 +222,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 
 static void RegisterLuaFunctions() {
     // 4.3.4's switch for the item-tooltip line; dedups by name on /reload.
-    g_hideSetsCVar = CVar::Factory::Register("dontShowEquipmentSetsOnItems", "0");
+    g_hideSetsCVar = CVar::Factory::Register("dontShowEquipmentSetsOnItems", "Don't show which equipment sets an item is associated with", Offsets::CVAR_CATEGORY_GAME, "0");
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
         g_methods,

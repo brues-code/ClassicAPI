@@ -39,6 +39,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cvar/Factory.h"
 #include "object/Resolve.h"
 #include "target/Nearest.h"
 #include "tick/WorldTick.h"
@@ -127,8 +128,7 @@ uint64_t CurrentSelection() { return Game::Read<uint64_t>(Offsets::VAR_CURRENT_S
 uint64_t g_directional = 0;
 
 float CVarFloat(uintptr_t slot) {
-    const void *cvar = Game::Read<void *>(slot);
-    return cvar != nullptr ? Game::Read<float>(cvar, Offsets::OFF_CVAR_VALUE_FLOAT) : 0.0f;
+    return CVar::Factory::GetFloat(Game::Read<void *>(slot));
 }
 
 // C2Vector::NormalizeSafe.

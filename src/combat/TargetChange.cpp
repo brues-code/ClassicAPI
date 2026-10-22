@@ -55,7 +55,7 @@ void __fastcall RestartMelee(void *player, void *, const uint64_t *guid) {
 }
 
 void Register() {
-    g_stopOnChange = CVar::Factory::Register("stopAutoAttackOnTargetChange", "0");
+    g_stopOnChange = CVar::Factory::Register("stopAutoAttackOnTargetChange", "Whether to stop attacking when changing targets", Offsets::CVAR_CATEGORY_GAME, "0");
     Common::RedirectCall(Offsets::CALL_SET_SELECTION_FIRE_TARGET_CHANGED,
                          Offsets::FUN_FIRE_EVENT_NO_ARGS,
                          reinterpret_cast<const void *>(&FireTargetChanged));

@@ -11,16 +11,13 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-#include "Game.h"
-#include "Offsets.h"
+#include "Factory.h"
 
-#include <cstdint>
+#include "Game.h"
 
 namespace CVar::Bool {
 
 namespace {
-
-using FindCVar_t = const uint8_t *(__fastcall *)(const char *name);
 
 // Case-insensitive "true" check for the string-form match. Bounded
 // 4-char comparison + null terminator — same shape `BookTypeIsPet`
@@ -79,16 +76,12 @@ int __fastcall Script_C_CVar_GetCVarBool(void *L) {
     }
     const char *name = Game::Lua::ToString(L, 1);
 
-    auto findCVar = reinterpret_cast<FindCVar_t>(Offsets::FUN_FIND_CVAR);
-    const uint8_t *cvar = findCVar(name);
+    CVar::Factory::Handle cvar = CVar::Factory::Find(name);
     if (cvar == nullptr) {
         Game::Lua::PushNil(L);
         return 1;
     }
-
-    const char *value = *reinterpret_cast<const char *const *>(
-        cvar + Offsets::OFF_CVAR_VALUE_STR);
-    Game::Lua::PushBool(L, StringToBool(value));
+    Game::Lua::PushBool(L, StringToBool(CVar::Factory::GetString(cvar)));
     return 1;
 }
 

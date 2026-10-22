@@ -197,9 +197,9 @@ void Register() {
     // 4.3.4 defaults all three to 1. Here they default to 0, 1.12's own
     // behavior: autoUnshift drops a form the player may want to keep
     // (Shadowform on a Renew, Bear Form on a heal), so it is opted into.
-    g_autoStand = CVar::Factory::Register("autoStand", "0");
-    g_autoDismount = CVar::Factory::Register("autoDismount", "0");
-    g_autoUnshift = CVar::Factory::Register("autoUnshift", "0");
+    g_autoStand = CVar::Factory::Register("autoStand", "Automatically stand when needed", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_autoDismount = CVar::Factory::Register("autoDismount", "Automatically dismount when needed", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_autoUnshift = CVar::Factory::Register("autoUnshift", "Automatically leave shapeshift form when needed", Offsets::CVAR_CATEGORY_GAME, "0");
 
     // The rungs only note what to do; the caster-check call runs it. Without
     // that call a passed rung would send the cast still mounted or seated.

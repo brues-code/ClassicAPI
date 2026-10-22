@@ -157,13 +157,18 @@ int __fastcall SettingChanged(CVar::Factory::Handle, const char *, const char *,
 }
 
 void Register() {
-    const auto reg = [](const char *name, const char *value) {
-        return CVar::Factory::Register(name, value, 0, &SettingChanged);
+    const auto reg = [](const char *name, const char *help, const char *value) {
+        return CVar::Factory::Register(name, help, Offsets::CVAR_CATEGORY_GAME, value,
+                                       &SettingChanged);
     };
-    g_enable = reg("SoftTargetInteract", "3");
-    g_arc = reg("SoftTargetInteractArc", "0");
-    g_range = reg("SoftTargetInteractRange", "10");
-    g_rangeIsHard = reg("SoftTargetInteractRangeIsHard", "0");
+    g_enable = reg("SoftTargetInteract",
+        "Sets when soft interact should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "3");
+    g_arc = reg("SoftTargetInteractArc",
+        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in targeting area.", "0");
+    g_range = reg("SoftTargetInteractRange",
+        "Max range to soft target interacts (limited to tab targeting and individual interact ranges)", "10");
+    g_rangeIsHard = reg("SoftTargetInteractRangeIsHard",
+        "Sets if it should be a hard range cutoff, even for something you can interact with right now.", "0");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

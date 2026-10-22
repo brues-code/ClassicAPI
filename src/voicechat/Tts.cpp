@@ -49,6 +49,7 @@
 // StandaloneTtsPresent below.
 
 #include "Game.h"
+#include "Offsets.h"
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 
@@ -583,9 +584,11 @@ void RegisterLuaFunctions() {
     g_evtPlaybackStarted = &_r3;
     g_evtVoicesUpdate = &_r5;
 
-    g_cvarVoice  = CVar::Factory::Register(kCVarVoice,  "0",   0, &OnVoiceChanged);
-    g_cvarSpeed  = CVar::Factory::Register(kCVarSpeed,  "0",   0, &OnSpeedChanged);
-    g_cvarVolume = CVar::Factory::Register(kCVarVolume, "100", 0, &OnVolumeChanged);
+    // Retail has no cvars by these names, so there is no help line to copy.
+    constexpr int kCategory = Offsets::CVAR_CATEGORY_SOUND;
+    g_cvarVoice  = CVar::Factory::Register(kCVarVoice,  nullptr, kCategory, "0",   &OnVoiceChanged);
+    g_cvarSpeed  = CVar::Factory::Register(kCVarSpeed,  nullptr, kCategory, "0",   &OnSpeedChanged);
+    g_cvarVolume = CVar::Factory::Register(kCVarVolume, nullptr, kCategory, "100", &OnVolumeChanged);
 
     Game::Lua::RegisterTableFunction("C_VoiceChat", "GetTtsVoices", &Script_GetTtsVoices);
     Game::Lua::RegisterTableFunction("C_VoiceChat", "GetRemoteTtsVoices", &Script_GetRemoteTtsVoices);

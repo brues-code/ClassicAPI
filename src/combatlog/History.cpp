@@ -423,7 +423,7 @@ const Game::Doc::Function kIsADoc{"Returns whether a unit's flags match a mask."
                                   kIsARet, kSystem};
 
 void RegisterLuaFunctions() {
-    g_retention = CVar::Factory::Register("combatLogRetentionTime", "300");
+    g_retention = CVar::Factory::Register("combatLogRetentionTime", "The maximum duration in seconds to retain combat log entries", Offsets::CVAR_CATEGORY_GAME, "300");
     using Game::Lua::RegisterGlobalFunction;
     RegisterGlobalFunction("CombatLogResetFilter", &Script_CombatLogResetFilter, &kResetFilterDoc);
     RegisterGlobalFunction("CombatLogAddFilter", &Script_CombatLogAddFilter, &kAddFilterDoc);

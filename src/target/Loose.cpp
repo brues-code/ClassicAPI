@@ -145,7 +145,7 @@ const Game::Doc::Function kIsTargetLoose{
     {}, kIsTargetLooseRets, "TargetScript"};
 
 void Register() {
-    g_force = CVar::Factory::Register("SoftTargetForce", "1");
+    g_force = CVar::Factory::Register("SoftTargetForce", "Auto-set target to match soft target. 1 = for enemies, 2 = for friends", Offsets::CVAR_CATEGORY_GAME, "1");
     Game::Lua::RegisterGlobalFunction("IsTargetLoose", &Script_IsTargetLoose, &kIsTargetLoose);
 }
 

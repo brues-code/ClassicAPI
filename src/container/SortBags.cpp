@@ -1042,10 +1042,12 @@ const Game::Doc::Function kGetBankAutosortDisabled{
 
 void RegisterLuaFunctions() {
     // Dedups by name, so re-registering each reload is harmless.
-    g_rightToLeftCVar = CVar::Factory::Register("sortBagsRightToLeft", "0");
+    // Retail has no cvars by these names, so there is no help line to copy.
+    constexpr int kCategory = Offsets::CVAR_CATEGORY_GAME;
+    g_rightToLeftCVar = CVar::Factory::Register("sortBagsRightToLeft", nullptr, kCategory, "0");
     g_backpackAutosortCVar =
-        CVar::Factory::Register("backpackAutosortDisabled", "0");
-    g_bankAutosortCVar = CVar::Factory::Register("bankAutosortDisabled", "0");
+        CVar::Factory::Register("backpackAutosortDisabled", nullptr, kCategory, "0");
+    g_bankAutosortCVar = CVar::Factory::Register("bankAutosortDisabled", nullptr, kCategory, "0");
 
     Game::Lua::RegisterTableFunction("C_Container", "SortBags",
                                      &Script_C_Container_SortBags, &kSortBags);

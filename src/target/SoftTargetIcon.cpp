@@ -214,12 +214,12 @@ void PrepareForReload() {
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 void Register() {
-    g_enemy = CVar::Factory::Register("SoftTargetIconEnemy", "0");
-    g_friend = CVar::Factory::Register("SoftTargetIconFriend", "0");
-    g_interact = CVar::Factory::Register("SoftTargetIconInteract", "0");
-    g_gameObject = CVar::Factory::Register("SoftTargetIconGameObject", "0");
-    g_lowPriority = CVar::Factory::Register("SoftTargetLowPriorityIcons", "0");
-    g_size = CVar::Factory::Register("SoftTargetNameplateSize", "19");
+    g_enemy = CVar::Factory::Register("SoftTargetIconEnemy", "Show icon for soft enemy target", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_friend = CVar::Factory::Register("SoftTargetIconFriend", "Show icon for soft friend target", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_interact = CVar::Factory::Register("SoftTargetIconInteract", "Show icon for soft interact target", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_gameObject = CVar::Factory::Register("SoftTargetIconGameObject", "Show icon for sot interact game objects (interactable objects you cannot normally target)", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_lowPriority = CVar::Factory::Register("SoftTargetLowPriorityIcons", "Show interact icons even when there is other visual indicators, such as quest or loot effects", Offsets::CVAR_CATEGORY_GAME, "0");
+    g_size = CVar::Factory::Register("SoftTargetNameplateSize", "Size of soft target icon on nameplate (0 to disable)", Offsets::CVAR_CATEGORY_GAME, "19");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};
