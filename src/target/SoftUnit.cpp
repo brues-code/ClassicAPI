@@ -73,10 +73,10 @@ struct State {
     CVar::Factory::Handle arc;
     CVar::Factory::Handle range;
     uint64_t soft;
-    // The last pick's inputs: the frame it ran in and the locked target it
+    // The last pick's inputs: the drain it read and the locked target it
     // saw. `picked` false forces the next read to pick (a cvar changed).
     bool picked;
-    uint32_t pickedFrame;
+    uint32_t pickedDrain;
     uint64_t pickedTarget;
 };
 
@@ -104,7 +104,7 @@ bool Qualifies(const State &st, const SoftTarget::Area &area, uint64_t guid) {
         return false;
     void *object = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
     float distSq;
-    return object != nullptr && SoftTarget::InView(area, object, distSq) &&
+    return object != nullptr && SoftTarget::InView(area, guid, object, distSq) &&
            Accept(area, object, distSq, const_cast<State *>(&st));
 }
 
@@ -126,18 +126,18 @@ uint64_t Pick(State &st) {
 
 bool Watched(const State &st) { return Event::Custom::HasListeners(st.changed->Slot()); }
 
-// One pick per side per frame. The scan reads what the scene drew, which
-// changes only when the next frame draws, so every read in a frame — the
-// circles, the icons, Lua's token reads — shares the first one's answer, as
-// the engine's scene code keys per-frame work on the same counter. The locked
-// target and the cvars are the other inputs; changing either repicks at once.
+// One pick per side per scene drain. The scan reads what the last drain drew,
+// which changes only when the next one does, so every read until then — the
+// circles, the icons, Lua's token reads — shares the first one's answer. The
+// locked target and the cvars are the other inputs; changing either repicks
+// at once.
 void Refresh(State &st) {
-    const uint32_t frame = Game::Read<uint32_t>(Offsets::VAR_WORLD_FRAME_COUNTER);
+    const uint32_t drain = SoftTarget::Drains();
     const uint64_t target = Loose::Locked();
-    if (st.picked && st.pickedFrame == frame && st.pickedTarget == target)
+    if (st.picked && st.pickedDrain == drain && st.pickedTarget == target)
         return;
     st.picked = true;
-    st.pickedFrame = frame;
+    st.pickedDrain = drain;
     st.pickedTarget = target;
     const uint64_t guid = Pick(st);
     if (guid == st.soft)

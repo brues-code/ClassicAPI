@@ -9269,13 +9269,6 @@ enum Offsets {
     // `RET 0x4` (callee cleans the one stack arg).
     FUN_WORLD_TICK = 0x0066FD50,
 
-    // The world frame counter (`s_frameCounter`): FUN_WORLD_TICK increments it
-    // once a frame (`inc dword [0xC7B2C8]` at 0x0066FDFC, bytes verified in
-    // WoW.exe), before the scene draws. The engine's scene code compares a
-    // per-object stamp against it to do work once per frame (0x00683747);
-    // use it the same way to reuse a result within one frame. uint32, wraps.
-    VAR_WORLD_FRAME_COUNTER = 0x00C7B2C8,
-
     // UI render root — the CSimpleTop singleton's (`DAT_00cf0bd8`) per-frame
     // render callback. Registered at priority 1.0 into the global HLAYER list
     // (`FUN_00442800`) and drained every frame by the master scene-render pump

@@ -73,10 +73,10 @@ CVar::Factory::Handle g_range = nullptr;
 CVar::Factory::Handle g_rangeIsHard = nullptr;
 
 uint64_t g_soft = 0;
-// The frame of the last pick; `g_picked` false forces the next read to pick
+// The drain of the last pick; `g_picked` false forces the next read to pick
 // (a cvar changed). See Refresh.
 bool g_picked = false;
-uint32_t g_pickedFrame = 0;
+uint32_t g_pickedDrain = 0;
 
 // ── The hover cursor's verdict ───────────────────────────────────────────
 
@@ -126,16 +126,15 @@ void Set(uint64_t guid) {
                         guid ? Guid::FormatAsString(guid, newBuf, sizeof newBuf) : nullptr);
 }
 
-// One pick per frame, shared by every read in it (the icon, Lua's token
-// reads, the listener tick): the scan reads what the scene drew, which changes
-// only when the next frame draws — the counter the engine's scene code keys
-// its own per-frame work on.
+// One pick per scene drain, shared by every read until the next (the icon,
+// Lua's token reads, the listener tick): the scan reads what the last drain
+// drew, which changes only when the next one does.
 void Refresh() {
-    const uint32_t frame = Game::Read<uint32_t>(Offsets::VAR_WORLD_FRAME_COUNTER);
-    if (g_picked && g_pickedFrame == frame)
+    const uint32_t drain = SoftTarget::Drains();
+    if (g_picked && g_pickedDrain == drain)
         return;
     g_picked = true;
-    g_pickedFrame = frame;
+    g_pickedDrain = drain;
     Set(SoftTarget::Enabled(g_enable) ? Pick() : 0);
 }
 

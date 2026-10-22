@@ -13,8 +13,8 @@
 
 // The soft-target scan, from 1.12's own pieces:
 //
-//   - "On screen" is the tab-target collector's IsEntityDrawn on the
-//     object's world node.
+//   - "On screen" is the scene's own election: an entity the last drain
+//     drew in pass 1 (below).
 //   - The arc (SoftTarget<Kind>Arc: 0 = directly in front, 1 = in the front
 //     yaw arc, 2 = anywhere in the targeting area): 1 is the tab collector's
 //     front cone (pi/6 either side, from the engine's own floats); 0 is a
@@ -28,18 +28,22 @@
 //   - The closest candidate wins — Classic Era 1.15 probes for interact,
 //     enemy and friend alike, not the one nearest the forward line.
 //
-// Scan only on the UI frame tick or from Lua, never on the world tick:
-// there every world node reads as culled (probe: 3 drawn from Lua, 0 on the
-// world tick), while the UI pass — where the engine's own hover
-// classification runs, CGWorldFrame::OnUpdate — and Lua see the drawn state.
-//
 // The candidates are the scene's entities in sight, not the whole object
 // manager. DrawEntityModels (0x683DD0) calls each entity's render callback
 // WorldObjectRenderCallback (0x481540) once a frame — pass 1 for those in
 // sight, pass 2 for the rest of the scene's bands, whose models it hides —
 // so hooking the callback collects the in-sight GUIDs as the scene draws
 // them, and hooking the drain publishes them when it returns: a scan reads a
-// finished drain's list, never one still filling. Stormwind probe, 34 s:
+// finished drain's list, never one still filling. Pass 1 is the drawn set
+// itself: the cull walk clears bit 0 of an entity's cull state `+0x94` — what
+// IsEntityDrawn (0x6704C0) reads — exactly as it moves the entity to the draw
+// list the drain calls with pass 1 (benilla-re terrain/scene.md "Entity
+// cull", "Object election"). The list is that verdict kept, so it holds until
+// the next drain; asking IsEntityDrawn instead is right only between the
+// drain and the next paint, which resets every node to culled after the
+// world tick. A read in that window — a Lua UnitBuff naming its caster's
+// token before the scene draws — found nothing drawn, and the pick it cached
+// hid the soft-target icons for that frame. Stormwind probe, 34 s:
 // ~200 pass-1 and ~360 pass-2 entities a frame, no pass-2 entity ever
 // IsEntityDrawn, and no IsEntityDrawn object missing from the list (checked
 // by a full ClntObjMgrEnumObjects walk beside it). That walk is what this
@@ -77,7 +81,6 @@ namespace {
 
 using Forward_t = void(__thiscall *)(void *camera, float *out);
 using Heading_t = float(__fastcall *)(const float *from, const float *to);
-using IsDrawn_t = uint32_t(__fastcall *)(void *node, void *edx);
 // `ctx` (the node's callback argument) is unused; the object comes from the
 // GUID. RET 0xC.
 using EntityRender_t = int(__fastcall *)(void *ctx, int pass, uint32_t guidLo, uint32_t guidHi,
@@ -98,6 +101,7 @@ struct Entity {
 std::vector<Entity> g_drawing;
 std::vector<Entity> g_entities;
 bool g_inDrain = false;
+uint32_t g_drains = 0; // finished drains, each a new g_entities
 bool g_inEntity = false; // inside a pass-1 callback, whose entity is g_drawing.back()
 // The window the objects in `g_entities` are live in: closed by the next
 // incoming packet, and only under the manager the drain ran with.
@@ -129,6 +133,7 @@ void __cdecl DrawEntityModels_h() {
     g_origDrawEntityModels();
     g_inDrain = false;
     g_entities.swap(g_drawing);
+    ++g_drains;
     g_objectsLive = true;
     g_objectsManager = Game::Read<void *>(Offsets::VAR_LOCAL_PLAYER_PTR);
 }
@@ -176,11 +181,6 @@ bool CameraYaw(float &yaw) {
     return true;
 }
 
-bool IsDrawn(const void *object) {
-    void *node = Game::Read<void *>(object, Offsets::OFF_CGOBJECT_WORLD_OBJECT);
-    return reinterpret_cast<IsDrawn_t>(Offsets::FUN_WORLD_OBJECT_VISIBLE)(node, nullptr) != 0;
-}
-
 bool InArc(const Area &a, const float pos[3]) {
     if (a.arc >= 2)
         return true;
@@ -197,10 +197,9 @@ bool InArc(const Area &a, const float pos[3]) {
     return std::cos(angle) > 0.0f && std::fabs(flat * std::sin(angle)) <= kArc0HalfWidth;
 }
 
-// Drawn, and where: the checks before the arc, which needs the position.
+// Where: the checks before the arc, which needs the position.
 bool Locate(const Area &a, void *object, float pos[3], float &distSq) {
-    if (object == nullptr || object == a.player || !IsDrawn(object) ||
-        !Unit::Position::Read(object, pos))
+    if (object == nullptr || object == a.player || !Unit::Position::Read(object, pos))
         return false;
     const float dx = pos[0] - a.pos[0];
     const float dy = pos[1] - a.pos[1];
@@ -270,9 +269,14 @@ bool Begin(Area &area, CVar::Factory::Handle arc, CVar::Factory::Handle range,
     return true;
 }
 
-bool InView(const Area &area, void *object, float &distSq) {
+uint32_t Drains() { return g_drains; }
+
+bool InView(const Area &area, uint64_t guid, void *object, float &distSq) {
     float pos[3];
-    return Locate(area, object, pos, distSq) && InArc(area, pos);
+    for (const Entity &e : g_entities)
+        if (e.guid == guid)
+            return Locate(area, object, pos, distSq) && InArc(area, pos);
+    return false;
 }
 
 uint64_t Nearest(const Area &area, int typeMask, Accept accept, void *ctx) {

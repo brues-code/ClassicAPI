@@ -42,9 +42,14 @@ struct Area {
 bool Begin(Area &area, CVar::Factory::Handle arc, CVar::Factory::Handle range,
            float defaultRange);
 
-// True when `object` is drawn and inside the arc; `distSq` is its squared
-// distance from the player. The range is the caller's test.
-bool InView(const Area &area, void *object, float &distSq);
+// Counts the scene's entity drains. What is on screen changes only when it
+// does, so a pick holds until then.
+uint32_t Drains();
+
+// True when `guid`, whose object is `object`, is drawn and inside the arc;
+// `distSq` is its squared distance from the player. The range is the
+// caller's test.
+bool InView(const Area &area, uint64_t guid, void *object, float &distSq);
 
 // A kind's test for an object in view.
 using Accept = bool (*)(const Area &area, void *object, float distSq, void *ctx);
