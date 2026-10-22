@@ -21,24 +21,32 @@
 //   1. The setter only marks the config dirty when its last argument is
 //      nonzero (FUN_0063E0B0: `if (a6) VAR_CVAR_CONFIG_DIRTY = 1`). A temp set
 //      passes 0, so it applies the value and fires the change callback exactly
-//      as SetCVar does, but never asks the config writer to run.
-//   2. The config writer (FUN_CVAR_CONFIG_WRITE) reads each cvar's live value
-//      pointer and nothing else of ours. When something ELSE dirtied the config
-//      and the writer does run, a co-hook points each temp cvar's value back at
-//      its saved string for the duration of the write and restores it after. So
-//      the file gets exactly the line the engine would have written had the
-//      temp value never been set — including no line at all when the saved
-//      value is the default.
+//      as SetCVar does, but never asks the config writer to run. The one
+//      exception is a CVAR_FLAG_STAGED cvar (the gx* and Sound* device cvars,
+//      all Lua-visible): the setter parks the text at OFF_CVAR_STAGED_STR and
+//      marks the config dirty unconditionally (0x0063DFC4).
+//   2. The config writer (FUN_CVAR_CONFIG_WRITE) reads each cvar's staged
+//      pointer, else its live value pointer, and nothing else of ours. When
+//      the writer runs with a temp cvar set, a co-hook clears the staged slot
+//      and points the value back at the saved string for the duration of the
+//      write and restores both after. So the file gets exactly the line the
+//      engine would have written had the temp value never been set — including
+//      no line at all when the saved value is the default.
+//
+// "Value" throughout means what the writer would pick — staged, else live —
+// so a staged cvar's temp set is tracked even though GetCVar still shows the
+// old live value until the engine applies the staged one.
 //
 // A plain SetCVar on a temp cvar wins: the entry notices the live value is no
 // longer the one it set and drops itself, both in the writer hook and in
 // RemoveTempCVar, so the user's own set is saved and never rolled back.
 //
 // Validation mirrors Script_SetCVar (FUN_00488C10) word for word: a usage
-// error, `Couldn't find CVar named '%s'`, and `"%s" is read only`. The lookup
+// error, `Couldn't find CVar named '%s'`, and `"%s" is read-only`. The lookup
 // is FUN_FIND_CVAR, so a cvar Lua cannot see is refused as unknown, which is
 // the contract's "valid and public". Nothing here is secure, the remaining
-// documented requirement. A nil value becomes "", as it does for SetCVar.
+// documented requirement. A value lua_tostring cannot convert (nil, a boolean,
+// a table) becomes "0", as it does for SetCVar (0x00488C98).
 
 #include "Factory.h"
 
@@ -73,19 +81,27 @@ void EraseEntry(const Entry *entry) {
     g_entries.erase(g_entries.begin() + (entry - g_entries.data()));
 }
 
+const char **ValueSlot(CVar::Factory::Handle cvar) {
+    return reinterpret_cast<const char **>(static_cast<uint8_t *>(cvar) +
+                                           Offsets::OFF_CVAR_VALUE_STR);
+}
+
+const char **StagedSlot(CVar::Factory::Handle cvar) {
+    return reinterpret_cast<const char **>(static_cast<uint8_t *>(cvar) +
+                                           Offsets::OFF_CVAR_STAGED_STR);
+}
+
+// The value the config writer would save: the staged text, else the live one.
 const char *LiveValue(CVar::Factory::Handle cvar) {
-    const char *value = CVar::Factory::GetString(cvar);
+    const char *value = *StagedSlot(cvar);
+    if (value == nullptr)
+        value = CVar::Factory::GetString(cvar);
     return value != nullptr ? value : "";
 }
 
 // True while the live value is still the one SetTempCVar put there.
 bool StillTemp(const Entry &e) {
     return e.temp == LiveValue(e.cvar);
-}
-
-const char **ValueSlot(CVar::Factory::Handle cvar) {
-    return reinterpret_cast<const char **>(static_cast<uint8_t *>(cvar) +
-                                           Offsets::OFF_CVAR_VALUE_STR);
 }
 
 // Script_SetCVar's own lookup and checks, with its error text.
@@ -103,7 +119,7 @@ CVar::Factory::Handle Resolve(void *L, const char *usage) {
     const uint32_t flags = *reinterpret_cast<const uint32_t *>(
         static_cast<const uint8_t *>(cvar) + Offsets::OFF_CVAR_FLAGS);
     if ((flags & Offsets::CVAR_FLAG_READ_ONLY) != 0) {
-        Game::Lua::Error(L, "\"%s\" is read only", name);
+        Game::Lua::Error(L, "\"%s\" is read-only", name);
         return nullptr;
     }
     return cvar;
@@ -114,7 +130,9 @@ int __fastcall Script_SetTempCVar(void *L) {
         Resolve(L, "Usage: C_CVar.SetTempCVar(\"cvar\", value)");
     if (cvar == nullptr)
         return 0;
-    const char *value = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : "";
+    const char *value = Game::Lua::ToString(L, 2);
+    if (value == nullptr)
+        value = "0";
 
     Entry *entry = FindEntry(cvar);
     if (entry != nullptr && !StillTemp(*entry)) {
@@ -167,15 +185,23 @@ int __cdecl ConfigWrite_h() {
         if (!StillTemp(g_entries[i]))
             g_entries.erase(g_entries.begin() + i);
 
-    std::vector<const char *> live(g_entries.size());
+    struct Swapped {
+        const char *value;
+        const char *staged;
+    };
+    std::vector<Swapped> live(g_entries.size());
     for (size_t i = 0; i < g_entries.size(); ++i) {
-        const char **slot = ValueSlot(g_entries[i].cvar);
-        live[i] = *slot;
-        *slot = g_entries[i].saved.c_str();
+        const char **value = ValueSlot(g_entries[i].cvar);
+        const char **staged = StagedSlot(g_entries[i].cvar);
+        live[i] = {*value, *staged};
+        *value = g_entries[i].saved.c_str();
+        *staged = nullptr;
     }
     const int result = s_configWrite_o();
-    for (size_t i = 0; i < g_entries.size(); ++i)
-        *ValueSlot(g_entries[i].cvar) = live[i];
+    for (size_t i = 0; i < g_entries.size(); ++i) {
+        *ValueSlot(g_entries[i].cvar) = live[i].value;
+        *StagedSlot(g_entries[i].cvar) = live[i].staged;
+    }
     return result;
 }
 

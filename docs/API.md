@@ -3816,7 +3816,11 @@ example a gamepad mode. The saved settings of the user do not change.
 - If `SetCVar` changes a cvar that has a temp value, the `SetCVar` value
   replaces the temp value. The game saves it, and `RemoveTempCVar` then does
   not change the cvar.
-- If `value` is `nil`, the cvar gets an empty string, as with `SetCVar`.
+- If `value` is `nil` (or another value that is not a string or a number),
+  the cvar gets `"0"`, as with `SetCVar`.
+- Some graphics and sound cvars (for example `gxVSync`) change only when
+  the game restarts that system. A temp value on such a cvar starts to
+  work at the same time as a `SetCVar` value would. It is not saved.
 - `RemoveTempCVar` does nothing for a cvar that has no temp value.
 
 Both functions give the same errors as `SetCVar`: for a name that is not a
