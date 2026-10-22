@@ -9996,11 +9996,14 @@ InterfaceOptionsFrame_OpenToCategory(panel)   -- or the category's name
 ```
 
 The window lists addon panels under AddOns; a category with children starts
-collapsed. Okay and Cancel call `okay` / `cancel` on every panel, Defaults
-calls `default` on the panel shown, and Escape closes the window.
-`InterfaceOptionsFrame_Show()` toggles it. The names match later clients
-(`InterfaceOptionsFrameAddOns` with its `buttons`, `buttonHeight` and
+collapsed. To open the window, click AddOn Options in the game menu (above
+Key Bindings). When you close a window that you opened from the game menu, the
+game menu opens again. Okay and Cancel call `okay` / `cancel` on every panel.
+Escape does the same as Cancel. Defaults calls `default` on the panel shown.
+`InterfaceOptionsFrame_Show()` toggles the window. The names match later
+clients (`InterfaceOptionsFrameAddOns` with its `buttons`, `buttonHeight` and
 `update` fields, the `InterfaceOptionsFrameAddOnsList` scroll frame,
+`InterfaceOptionsFramePanelContainer.displayedPanel`,
 `InterfaceOptionsListButtonTemplate`, `INTERFACEOPTIONS_ADDONCATEGORIES`),
 because addons and libraries use them directly.
 

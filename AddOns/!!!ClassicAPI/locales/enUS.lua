@@ -1,3 +1,4 @@
+ADDON_OPTIONS = "AddOn Options";
 BINDING_NAME_AOELOOT = "AoE Loot";
 BINDING_NAME_FOCUSTARGET = "Focus Target";
 BINDING_NAME_INTERACTMOUSEOVER = "Interact With Mouseover";

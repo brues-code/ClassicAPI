@@ -18,7 +18,10 @@
 --     (name of the category to nest under), and optional okay / cancel /
 --     default / refresh, each called with the panel. Categories with children
 --     start collapsed. Okay and Cancel call okay / cancel on every panel;
---     Defaults calls default on the one shown; Escape just closes.
+--     Defaults calls default on the one shown; Escape is Cancel.
+--   - The game-menu entry is an extra AddOn Options button: the client's own
+--     options keep their buttons, so the addon list gets one of its own.
+--     Not "AddOns" - on later clients that button opens the addon list.
 --   - Lua 5.0: no `...` expression or select().
 
 if InterfaceOptionsFrame then return end -- a real implementation wins
@@ -75,13 +78,16 @@ header:SetHeight(64)
 header:SetPoint("TOP", frame, "TOP", 0, 12)
 local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 title:SetPoint("TOP", header, "TOP", 0, -14)
-title:SetText(ADDON_OPTIONS or "AddOn Options")
+title:SetText(ADDON_OPTIONS)
 
 frame:SetScript("OnMouseDown", function()
 	if arg1 == "LeftButton" then this:StartMoving() end
 end)
 frame:SetScript("OnMouseUp", function() this:StopMovingOrSizing() end)
-tinsert(UISpecialFrames, "InterfaceOptionsFrame")
+
+-- A native center panel, as on later clients: ShowUIPanel swaps it with the
+-- game menu, CloseAllWindows closes it, and closing returns to lastFrame.
+UIPanelWindows["InterfaceOptionsFrame"] = { area = "center", pushable = 0, whileDead = 1 }
 
 -- ---------------------------------------------------------------------------
 -- Category lists and the panel container
@@ -131,8 +137,6 @@ container:SetBackdropBorderColor(0.6, 0.6, 0.6)
 -- ---------------------------------------------------------------------------
 -- Categories
 -- ---------------------------------------------------------------------------
-
-local displayed -- panel shown in the container
 
 local function FindCategory(name)
 	for _, panel in ipairs(categories) do
@@ -189,7 +193,7 @@ function InterfaceAddOnsList_Update()
 					toggle:Hide()
 				end
 			end
-			if panel == displayed then button:LockHighlight() else button:UnlockHighlight() end
+			if panel == container.displayedPanel then button:LockHighlight() else button:UnlockHighlight() end
 			button:Show()
 		else
 			button.element = nil
@@ -205,9 +209,12 @@ scroll:SetScript("OnVerticalScroll", function()
 	FauxScrollFrame_OnVerticalScroll(BUTTON_HEIGHT, InterfaceAddOnsList_Update)
 end)
 
+-- The shown panel lives in container.displayedPanel, as on later clients:
+-- addons read it there.
 local function DisplayPanel(panel)
-	if displayed and displayed ~= panel then displayed:Hide() end
-	displayed = panel
+	local shown = container.displayedPanel
+	if shown and shown ~= panel then shown:Hide() end
+	container.displayedPanel = panel
 	panel:SetParent(container)
 	panel:ClearAllPoints()
 	panel:SetPoint("TOPLEFT", container, "TOPLEFT", 4, -4)
@@ -258,19 +265,26 @@ function InterfaceOptionsFrame_OpenToCategory(panel)
 		if parent then parent.collapsed = false end
 		p = parent
 	end
-	frame:Show()
+	ShowUIPanel(frame)
 	DisplayPanel(panel)
 end
 
 function InterfaceOptionsFrame_Show()
-	if frame:IsShown() then frame:Hide() else frame:Show() end
+	if frame:IsShown() then HideUIPanel(frame) else ShowUIPanel(frame) end
 end
 
 frame:SetScript("OnShow", function()
-	if not displayed and categories[1] then
+	if not container.displayedPanel and categories[1] then
 		DisplayPanel(categories[1])
 	else
 		InterfaceAddOnsList_Update()
+	end
+end)
+
+frame:SetScript("OnHide", function()
+	if this.lastFrame then
+		ShowUIPanel(this.lastFrame)
+		this.lastFrame = nil
 	end
 end)
 
@@ -297,17 +311,52 @@ local function PanelButton(name, label, point, x)
 	return b
 end
 
-PanelButton("InterfaceOptionsFrameCancel", CANCEL or "Cancel", "BOTTOMRIGHT", -16):SetScript("OnClick", function()
+PanelButton("InterfaceOptionsFrameCancel", CANCEL, "BOTTOMRIGHT", -16):SetScript("OnClick", function()
 	CallAll("cancel")
-	frame:Hide()
+	HideUIPanel(frame)
 end)
-PanelButton("InterfaceOptionsFrameOkay", OKAY or "Okay", "BOTTOMRIGHT", -114):SetScript("OnClick", function()
+PanelButton("InterfaceOptionsFrameOkay", OKAY, "BOTTOMRIGHT", -114):SetScript("OnClick", function()
 	CallAll("okay")
-	frame:Hide()
+	HideUIPanel(frame)
 end)
-PanelButton("InterfaceOptionsFrameDefaults", DEFAULTS or "Defaults", "BOTTOMLEFT", 22):SetScript("OnClick", function()
-	if displayed and type(displayed.default) == "function" then
-		local ok, err = pcall(displayed.default, displayed)
+PanelButton("InterfaceOptionsFrameDefaults", DEFAULTS, "BOTTOMLEFT", 22):SetScript("OnClick", function()
+	local panel = container.displayedPanel
+	if panel and type(panel.default) == "function" then
+		local ok, err = pcall(panel.default, panel)
 		if not ok then report(err) end
 	end
+end)
+
+-- Escape is Cancel, as on later clients: their ToggleGameMenu clicks
+-- InterfaceOptionsFrameCancel right after dismissing a static popup.
+-- Without this, Escape reaches CloseAllWindows, which closes the window
+-- without calling any panel's cancel.
+local ToggleGameMenu_Orig = ToggleGameMenu
+function ToggleGameMenu(clicked)
+	if not clicked and frame:IsVisible() then
+		if not StaticPopup_EscapePressed() then InterfaceOptionsFrameCancel:Click() end
+		return
+	end
+	ToggleGameMenu_Orig(clicked)
+end
+
+-- ---------------------------------------------------------------------------
+-- Game menu entry
+-- ---------------------------------------------------------------------------
+
+-- Goes right above Key Bindings. Stock anchors Key Bindings under Interface
+-- Options and Turtle under its single Options button, so the new button takes
+-- over whatever anchor Key Bindings has and Key Bindings moves under it.
+-- Buttons other addons add at the top of the menu are unaffected.
+local menuButton = CreateFrame("Button", "GameMenuButtonAddOnOptions", GameMenuFrame, "GameMenuButtonTemplate")
+menuButton:SetText(ADDON_OPTIONS)
+local point, relativeTo, relativePoint, x, y = GameMenuButtonKeybindings:GetPoint()
+menuButton:SetPoint(point, relativeTo, relativePoint, x, y)
+GameMenuButtonKeybindings:ClearAllPoints()
+GameMenuButtonKeybindings:SetPoint(point, menuButton, relativePoint, x, y)
+GameMenuFrame:SetHeight(GameMenuFrame:GetHeight() + menuButton:GetHeight() - y)
+menuButton:SetScript("OnClick", function()
+	PlaySound("igMainMenuOption")
+	ShowUIPanel(frame)
+	frame.lastFrame = GameMenuFrame
 end)
