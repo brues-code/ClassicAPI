@@ -413,11 +413,11 @@ static int __fastcall Script_UnitTokenFromGUID(void *L) {
     return 1;
 }
 
-uint64_t FindGuidByName(const char *name, uint32_t typeMask, bool exact) {
+uint64_t FindGuidByName(const char *name, uint32_t typeMask, bool exact, int mode) {
     if (name == nullptr || name[0] == '\0')
         return 0;
     auto find = reinterpret_cast<FindUnitByName_t>(Offsets::FUN_UNIT_FIND_BY_NAME);
-    return find(name, typeMask, /*mode*/ 0, exact ? 1 : 0, kMaxDistanceFltMax);
+    return find(name, typeMask, mode, exact ? 1 : 0, kMaxDistanceFltMax);
 }
 
 // `UnitTokenFromName(name [, exactMatch])` -> unit token, or nothing.

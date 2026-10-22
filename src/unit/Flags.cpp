@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "object/Resolve.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -157,25 +158,19 @@ uint32_t ReadGuildKey(const uint8_t *unit) {
 }
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
+// Storm SStrCmpI — `__stdcall`, RET 0xC (see Offsets.h).
+using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using PlayerInfoLookup_t = const uint8_t *(__thiscall *)(
     void *cache, uint32_t guidLo, uint32_t guidHi, uint64_t *cookie,
     void *callback, void *userData, int retryFlag);
 
-// Resolve a GUID to its live CGUnit / CGPlayer object, or nullptr if
-// the object isn't currently loaded. Unlike a unit-*token* resolve
-// (`FUN_RESOLVE_UNIT_TOKEN`), this takes the GUID directly, so it works
-// for any GUID `FUN_TOKEN_TO_GUID` produced — including `focus` /
-// `nameplateN` — and never raises. The type arg is a bitmask of
-// `(1 << objectType)`; `FUN_OBJECT_RESOLVE_BY_GUID` keeps the object
-// only if its type flags intersect the mask, so unit|player matches a
-// player, a pet, or an MC'd creature in one call.
-const uint8_t *ResolveUnitOrPlayerByGuid(uint64_t guid) {
+// Resolve a GUID to its live CGPlayer object, or nullptr if no player
+// object with that GUID is loaded. Never raises.
+const uint8_t *ResolvePlayerByGuid(uint64_t guid) {
     if (guid == 0)
         return nullptr;
-    constexpr int kUnitOrPlayerMask =
-        (1 << Offsets::OBJECT_TYPE_UNIT) | (1 << Offsets::OBJECT_TYPE_PLAYER);
     return static_cast<const uint8_t *>(
-        Object::ByGuid(kUnitOrPlayerMask, guid, "UnitIsInMyGuild", 0));
+        Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid, "UnitIsInMyGuild", 0));
 }
 
 // Resolves a player GUID to its character name via
@@ -211,48 +206,38 @@ const char *NameFromGuid(uint64_t guid, char (&nameBuf)[64]) {
 }
 
 // `UnitIsInMyGuild(unitOrName)` — returns `1` if the unit/character
-// shares the player's guild, `nil` otherwise. Accepts either a unit
-// token (e.g. `"player"`, `"target"`, `"party1"`) or a literal
-// character name (e.g. `"Bob"`), matching 3.3.5's
-// `Script_UnitIsInMyGuild` (`0x0060C4B0`).
+// shares the player's guild, `nil` otherwise. Accepts a character name
+// (e.g. `"Bob"`) or a unit token (e.g. `"target"`, `"party1"`).
 //
-// Resolution strategy, in order:
+// Mirrors 4.3.4's `Script_UnitIsInMyGuild` step for step:
 //
-// 1. Get the local player's guild key. If 0, the player isn't in any
-//    guild — short-circuit to nil.
+// 1. Name match: the engine's by-name search (`FUN_UNIT_FIND_BY_NAME`,
+//    4.3.4's `ClosestObjectMatch(name, TYPEMASK_PLAYER, 3, exact=1)`):
+//    party members, then every loaded player, whole name, ignoring case.
+//    A loaded hit is decided on the guild key alone — no roster needed,
+//    and no roster fallback (4.3.4 returns here either way).
 //
-// 2. Fast path: if the input resolves to a `CGUnit *` (visible/loaded
-//    unit) and that unit has a synced guild-key field, compare
-//    directly. Works without a populated roster — `GetGuildInfo`
-//    reads the same field. Covers the most common cases (player,
-//    target, party/raid members in range, etc.).
+// 2. Token: `FUN_TOKEN_TO_GUID` (the non-throwing resolver, which also
+//    knows `focus` / `nameplateN`) turns a token into a GUID, and the
+//    engine NameCache (`FUN_PLAYER_INFO_LOOKUP`, 4.3.4's
+//    `g_nameDBCache.GetRecord`) turns that into a name. A loaded player's
+//    name comes from the same cache. If either step finds nothing, the
+//    input itself is the name, as in 4.3.4.
 //
-// 3. Slow path: resolve the input to a name and walk the engine's
-//    guild roster array comparing names. For tokens, the name comes
-//    from `FUN_TOKEN_TO_GUID` + the engine's player NameCache
-//    (`FUN_PLAYER_INFO_LOOKUP`) — handles OOR raid members in
-//    another zone. For literal names, the input is used directly.
-//    Requires `GuildRoster()` to have been called.
+// 3. Roster: walk every guild member (`VAR_GUILD_ROSTER_TOTAL_COUNT`,
+//    offline ones too) comparing names ignoring case. 4.3.4 uses
+//    SStrCmpUTF8I; 1.12 has only SStrCmpI (ASCII folding). Needs
+//    `GuildRoster()` to have filled the roster.
 //
-// In 3.3.5 the engine resolves the input to a 64-bit GUID via
-// `0x0060ABF0` (token-prefix dispatch with NameCache fallback) and
-// then checks GUID membership via `0x00512A00`. 1.12's guild roster
-// entries don't store GUIDs — they're name-keyed — so the slow path
-// falls back to strcmp. Same end result in vanilla since character
-// names are unique per-realm.
+// One deliberate addition: when the player's own guild key is 0 (no
+// guild), the answer is nil before any lookup, so a stale roster can't
+// answer for a guild the player has left.
 //
-// Return convention matches 3.3.5: `1.0`/`nil`, not boolean —
-// 3.3.5's `Script_UnitIsInMyGuild` pushes via `lua_pushnumber(1.0)`
-// (`0x0060C530`) and `lua_pushnil` (`0x0060C515`), never
-// `lua_pushboolean`.
-//
-// The slow path reads `VAR_GUILD_ROSTER_TOTAL_COUNT` (the same
-// underlying global `GetNumGuildMembers(true)` returns), not the
-// online-only count, so offline guildmates resolve too —
-// the "show offline" UI toggle doesn't affect lookup.
+// Returns `1.0`/`nil`, never a boolean — 4.3.4 pushes
+// `lua_pushnumber(1.0)` / `lua_pushnil`.
 int __fastcall Script_UnitIsInMyGuild(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: UnitIsInMyGuild(\"unitOrName\")");
+        Game::Lua::Error(L, "Usage: UnitIsInMyGuild(\"name\")");
         return 0;
     }
     const char *input = Game::Lua::ToString(L, 1);
@@ -264,70 +249,44 @@ int __fastcall Script_UnitIsInMyGuild(void *L) {
     const uint32_t playerKey = ReadGuildKey(
         static_cast<const uint8_t *>(Game::ResolveUnitToken("player")));
     if (playerKey == 0) {
-        // Player isn't in a guild — nobody is.
         Game::Lua::PushNil(L);
         return 1;
     }
 
-    // Resolve the input to a GUID via the non-throwing token resolver
-    // (`FUN_TOKEN_TO_GUID`, which our `Unit::TokenExtensions` hook also
-    // teaches `focus` / `nameplateN`). A recognized unit token yields
-    // its GUID; a literal character name — or an empty token slot like
-    // `"party6"` — yields 0, in which case the input is treated as a
-    // name for the roster strcmp. This replaces a hand-rolled mirror of
-    // the engine's token grammar: the engine already knows the grammar,
-    // and unlike its throwing sibling `FUN_RESOLVE_UNIT_TOKEN` this one
-    // just returns 0 on anything it doesn't recognize. (It's also what
-    // 3.3.5's `Script_UnitIsInMyGuild` does — resolve to a GUID first.)
-    auto toGuid = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID);
-    const uint64_t guid = toGuid(input);
-
-    const char *nameToFind;
-    char nameBuf[64];
-    if (guid != 0) {
-        // Fast path: GUID → live object → direct guild-key comparison.
-        // Covers visible/loaded units without touching the roster.
-        const uint8_t *unit = ResolveUnitOrPlayerByGuid(guid);
-        if (unit != nullptr) {
-            const uint32_t unitKey = ReadGuildKey(unit);
-            if (unitKey == playerKey) {
-                Game::Lua::PushNumber(L, 1.0);
-                return 1;
-            }
-            if (unitKey != 0) {
-                // Definitively a different guild.
-                Game::Lua::PushNil(L);
-                return 1;
-            }
-            // unitKey == 0: data not synced. Fall through to roster.
-        }
-        // Slow path: GUID → name via the player NameCache → roster
-        // strcmp (handles OOR raid members in another zone).
-        nameToFind = NameFromGuid(guid, nameBuf);
-        if (nameToFind == nullptr) {
-            // Empty slot, an NPC GUID, or a player not yet name-queried
-            // — not a guildmate we can identify.
+    // 1. A loaded player matched by name — decided on the guild key.
+    constexpr int kPartyThenObjects = 3;
+    const uint8_t *match = ResolvePlayerByGuid(Unit::Identity::FindGuidByName(
+        input, Offsets::TYPEMASK_PLAYER, /*exact*/ true, kPartyThenObjects));
+    if (match != nullptr) {
+        if (ReadGuildKey(match) == playerKey)
+            Game::Lua::PushNumber(L, 1.0);
+        else
             Game::Lua::PushNil(L);
-            return 1;
-        }
-    } else {
-        // Not a recognized token — treat as a literal character name.
-        nameToFind = input;
+        return 1;
     }
 
+    // 2. A unit token — its name, from the engine NameCache.
+    const char *nameToFind = input;
+    char nameBuf[64];
+    auto toGuid = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID);
+    if (const char *tokenName = NameFromGuid(toGuid(input), nameBuf))
+        nameToFind = tokenName;
+
+    // 3. The roster, by name.
     auto **roster = Game::Read<uint8_t **>(Offsets::VAR_GUILD_ROSTER_PTR);
     const int total = Game::Read<int>(Offsets::VAR_GUILD_ROSTER_TOTAL_COUNT);
     if (roster == nullptr || total <= 0) {
         Game::Lua::PushNil(L);
         return 1;
     }
+    auto cmp = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
     for (int i = 0; i < total; ++i) {
         const uint8_t *entry = roster[i];
         if (entry == nullptr)
             continue;
         const char *name =
             Game::Ptr<const char>(entry, Offsets::OFF_GUILD_MEMBER_NAME);
-        if (std::strcmp(name, nameToFind) == 0) {
+        if (cmp(name, nameToFind, 0x7FFFFFFF) == 0) {
             Game::Lua::PushNumber(L, 1.0);
             return 1;
         }
