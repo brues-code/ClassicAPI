@@ -30,8 +30,8 @@
 //     nothing.
 //   - A lost mouse capture makes the engine release every held button through
 //     PostMouseUpEvent, so GLOBAL_MOUSE_UP fires for those too.
-//   - IsMouseButtonDown reads the engine's mask, which a window deactivation
-//     clears — no button stays "held" after an alt-tab.
+//   - IsMouseButtonDown reads the engine's mask, which every window
+//     activation change clears — no button stays "held" after an alt-tab.
 //
 // The payload names come from the engine's own literals through
 // Frame::ClickEvents::ButtonNameForMask, whose masks are the same bits.

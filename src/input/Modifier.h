@@ -17,10 +17,10 @@
 
 namespace Input::Modifier {
 
-// The cached left/right modifier bitmap the `Is*KeyDown` globals read (bit
-// 0 LSHIFT, 1 RSHIFT, 2 LCTRL, 3 RCTRL, 4 LALT, 5 RALT). Maintained by the
-// thread message hook in Modifier.cpp, so it changes exactly when
-// `MODIFIER_STATE_CHANGED` fires. C++ pollers (the `#showtooltip`
+// The held left/right modifier bitmap the `Is*KeyDown` globals read (bit
+// 0 LSHIFT, 1 RSHIFT, 2 LCTRL, 3 RCTRL, 4 LALT, 5 RALT): the engine's own
+// held-key state for shift / ctrl / alt, split by the side the thread message
+// hook in Modifier.cpp saw. C++ pollers (the `#showtooltip`
 // evaluator) compare it across ticks to re-evaluate `[mod:...]`
 // conditionals the frame a modifier changes, instead of waiting for the
 // periodic pass.

@@ -17,6 +17,7 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 
+#include <cfloat>
 #include <cstdint>
 #include <cstring>
 
@@ -26,22 +27,31 @@
 // `IsLeft/RightAltKeyDown` / `IsModifierKeyDown` and the
 // `MODIFIER_STATE_CHANGED(key, down)` event.
 //
-// 1.12's own modifier-key path collapses left and right into a single
-// shift/ctrl/alt boolean (the engine's `IsShiftKeyDown` chain queries
-// `GetKeyState(VK_SHIFT)` — `0x10`, the L+R-merged virtual key — at
-// `0x00436024`, never the L/R-distinguishing `VK_LSHIFT` / `VK_RSHIFT`
-// virtual keys). The information physically exists at the OS level but
-// the engine doesn't expose it.
+// 1.12 keeps one merged shift / ctrl / alt state. `IsShiftKeyDown`,
+// `IsControlKeyDown` and `IsAltKeyDown` (0x00488590 / 0x004885C0 /
+// 0x00488600) ask EventIsKeyDown (FUN_GAMEUI_IS_KEY_DOWN) for key 0 / 1 / 2,
+// which looks the code up in the event context's held-key list. The window
+// procedure translates VK_SHIFT / VK_CONTROL / VK_MENU to those codes and
+// never reads the scan code, so the side is lost before the list is built
+// (benilla-re core/input "Key codes", core/events "Held keys and repeats").
 //
-// We capture L/R distinction by installing a `WH_GETMESSAGE` hook on
-// our thread (which is the engine's main message-pump thread). The
-// hook intercepts every message dequeued by `GetMessage` /
-// `PeekMessage` *before* it's dispatched — including
-// `WM_KEY{,SYS}{DOWN,UP}`. The VK code in `wParam` plus the scancode +
-// extended-key bit in `lParam` uniquely identify L vs R for each
-// modifier; we maintain a cached 6-bit bitmap that the seven query
-// functions read, and a transition (old != new) fires
-// `MODIFIER_STATE_CHANGED`.
+// 4.3.4 answers the per-side functions from that same list, with six keys.
+// We keep the engine's list as the truth and add only the side it drops:
+//
+//   - A `WH_GETMESSAGE` hook on the engine's message thread sees each
+//     `WM_KEY{,SYS}{DOWN,UP}` as it is dequeued and records which side moved
+//     (the scan code / extended bit in `lParam`). It fires nothing: at that
+//     point the engine has not seen the key yet — it only queues it for the
+//     tick's input drain.
+//   - Every read is the side bits gated by EventIsKeyDown for the merged key,
+//     so IsLeftShiftKeyDown() can never be true while IsShiftKeyDown() is nil.
+//   - `MODIFIER_STATE_CHANGED` fires from handlers on the engine's own key and
+//     activation events (Reconcile). The dispatch updates the held-key list
+//     before any handler runs, so each fired state is exactly what the query
+//     functions return in that handler. The same pass drops side bits whose
+//     merged key the engine no longer holds — including the whole list an
+//     activation change empties — so a modifier released while WoW was in the
+//     background does not come back as stale when the other side is pressed.
 //
 // Why a thread-message hook instead of a `SetWindowLongPtr` subclass:
 // the engine recreates its main window on some renderer state changes
@@ -67,13 +77,10 @@ const char *const kKeyName[6] = {
     "LSHIFT", "RSHIFT", "LCTRL", "RCTRL", "LALT", "RALT",
 };
 
-// L/R-specific virtual keys, one per bit, for the focus-regain resync.
-// `GetAsyncKeyState` accepts the L/R-distinguishing VKs directly (unlike
-// the keyboard-message path, where `VK_SHIFT` arrives merged and has to be
-// disambiguated via the scancode).
-const int kBitVk[6] = {
-    VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU,
-};
+// The two side bits of the engine's merged key 0 / 1 / 2 (shift, ctrl, alt).
+constexpr uint32_t kPairs[3] = {(1u << BIT_LSHIFT) | (1u << BIT_RSHIFT),
+                                (1u << BIT_LCTRL) | (1u << BIT_RCTRL),
+                                (1u << BIT_LALT) | (1u << BIT_RALT)};
 
 constexpr const char *kModifierStateChanged = "MODIFIER_STATE_CHANGED";
 
@@ -82,14 +89,17 @@ constexpr const char *kModifierStateChanged = "MODIFIER_STATE_CHANGED";
 // table input when the engine populates it.
 const Event::Custom::AutoReserve _reserveModifierStateChanged{kModifierStateChanged};
 
-uint32_t g_modifierMask = 0;
+// Which side of each modifier the message hook last saw go down. Only
+// meaningful under the engine's held-key list (see HeldMask).
+uint32_t g_sideMask = 0;
+// The held mask `MODIFIER_STATE_CHANGED` last reported (see Reconcile).
+uint32_t g_reportedMask = 0;
 
 // 4.3.4's m_keyStateOverride / m_heldModifiers (see KeyStateOverride).
 bool g_overrideActive = false;
 uint32_t g_overrideMask = 0;
 
 HHOOK g_msgHook = nullptr;
-HHOOK g_wndProcHook = nullptr;
 
 void PushDown(void *L, bool down) {
     if (down)
@@ -98,24 +108,53 @@ void PushDown(void *L, bool down) {
         Game::Lua::PushNil(L);
 }
 
-// Apply a single modifier bit transition: update the cached mask and, on a
-// genuine change, fire `MODIFIER_STATE_CHANGED`. Both the keyboard-message
-// path and the focus-regain resync funnel through here so the "only
-// transitions fire" invariant holds regardless of source.
-void SetBit(int bitIdx, bool down) {
-    const uint32_t bit = 1u << bitIdx;
-    const bool wasDown = (g_modifierMask & bit) != 0;
-    if (down == wasDown)
+// The engine's IsKeyDown for shift / ctrl / alt (0 / 1 / 2) answers from the
+// override while a binding runs, as 4.3.4's does — so IsShiftKeyDown & co. and
+// every engine modifier read agree with the L/R functions below.
+using IsKeyDown_t = int(__fastcall *)(int which);
+IsKeyDown_t g_isKeyDownOriginal = nullptr;
+
+int __fastcall IsKeyDown_h(int which) {
+    if (!g_overrideActive || which < 0 || which > 2)
+        return g_isKeyDownOriginal(which);
+    return (g_overrideMask & kPairs[which]) != 0;
+}
+
+const Game::HookAutoRegister _isKeyDownHook{Offsets::FUN_GAMEUI_IS_KEY_DOWN,
+                                            reinterpret_cast<void *>(&IsKeyDown_h),
+                                            reinterpret_cast<void **>(&g_isKeyDownOriginal)};
+
+// The held modifiers by side: the engine's held-key list says WHETHER each
+// merged key is down (the original EventIsKeyDown, not the override), the
+// side mask says WHICH side.
+uint32_t HeldMask() {
+    uint32_t mask = 0;
+    for (int key = 0; key < 3; ++key)
+        if (g_isKeyDownOriginal(key))
+            mask |= g_sideMask & kPairs[key];
+    return mask;
+}
+
+// Run from the engine's key / activation handlers, after the dispatch has
+// updated the held-key list: drop side bits the engine no longer holds, and
+// fire `MODIFIER_STATE_CHANGED` for each bit that differs from the last
+// report.
+void Reconcile() {
+    const uint32_t held = HeldMask();
+    g_sideMask = held;
+    const uint32_t changed = held ^ g_reportedMask;
+    g_reportedMask = held;
+    if (changed == 0)
         return;
-
-    if (down) g_modifierMask |= bit;
-    else      g_modifierMask &= ~bit;
-
     // Read the slot at fire time (never cache it) — `/reload` rebuilds the
     // event table and the reservation re-claims, which may shift the index.
     const int slot = _reserveModifierStateChanged.Slot();
-    if (slot >= 0)
-        Event::Custom::Fire(slot, "%s%d", kKeyName[bitIdx], static_cast<int>(down));
+    if (slot < 0)
+        return;
+    for (int b = 0; b < 6; ++b)
+        if (changed & (1u << b))
+            Event::Custom::Fire(slot, "%s%d", kKeyName[b],
+                                static_cast<int>((held >> b) & 1));
 }
 
 template <int BitIdx>
@@ -130,27 +169,6 @@ int __fastcall Script_IsModifierKeyDown(void *L) {
     PushDown(L, down);
     return 1;
 }
-
-// The engine's IsKeyDown for shift / ctrl / alt (0 / 1 / 2) answers from the
-// override while a binding runs, as 4.3.4's does — so IsShiftKeyDown & co. and
-// every engine modifier read agree with the L/R functions above.
-using IsKeyDown_t = int(__fastcall *)(int which);
-IsKeyDown_t g_isKeyDownOriginal = nullptr;
-
-int __fastcall IsKeyDown_h(int which) {
-    if (!g_overrideActive)
-        return g_isKeyDownOriginal(which);
-    static const uint32_t kPairs[3] = {(1u << BIT_LSHIFT) | (1u << BIT_RSHIFT),
-                                       (1u << BIT_LCTRL) | (1u << BIT_RCTRL),
-                                       (1u << BIT_LALT) | (1u << BIT_RALT)};
-    if (which < 0 || which > 2)
-        return g_isKeyDownOriginal(which);
-    return (g_overrideMask & kPairs[which]) != 0;
-}
-
-const Game::HookAutoRegister _isKeyDownHook{Offsets::FUN_GAMEUI_IS_KEY_DOWN,
-                                            reinterpret_cast<void *>(&IsKeyDown_h),
-                                            reinterpret_cast<void **>(&g_isKeyDownOriginal)};
 
 // Decode the L/R bit position from a key message.
 //   - `VK_SHIFT` (the merged virtual key the OS sends for either key)
@@ -190,22 +208,10 @@ void ProcessKeyMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     const int bitIdx = VkToBitIdx(wParam, lParam);
     if (bitIdx < 0)
         return;
-    const bool nowDown = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
-    SetBit(bitIdx, nowDown);
-}
-
-// Reconcile the cached mask with the true physical key state. Needed on
-// focus regain: keyboard messages only arrive while WoW has focus, so a
-// modifier released while WoW was in the background is never seen by the
-// `WH_GETMESSAGE` hook and the bit stays stuck down (and the release event
-// never fires). `GetAsyncKeyState` reads global async keyboard state
-// regardless of focus, so polling it on activation recovers the missed
-// transitions — `SetBit` fires `MODIFIER_STATE_CHANGED` for each drift.
-void ResyncFromPhysicalState() {
-    for (int b = 0; b < 6; ++b) {
-        const bool down = (GetAsyncKeyState(kBitVk[b]) & 0x8000) != 0;
-        SetBit(b, down);
-    }
+    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+        g_sideMask |= 1u << bitIdx;
+    else
+        g_sideMask &= ~(1u << bitIdx);
 }
 
 LRESULT CALLBACK GetMsgHook(int code, WPARAM wParam, LPARAM lParam) {
@@ -222,30 +228,36 @@ LRESULT CALLBACK GetMsgHook(int code, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(nullptr, code, wParam, lParam);
 }
 
-// `WM_ACTIVATEAPP` is *sent* (via the window manager), not *posted* to the
-// queue, so `WH_GETMESSAGE` never sees it — a `WH_CALLWNDPROC` hook catches
-// sent messages before the target WNDPROC runs. On app activation
-// (`wParam != FALSE`) we resync from physical key state to recover any
-// modifier released while WoW was in the background. Like the message hook,
-// this is thread-level (not per-`HWND`), so it survives window recreation.
-LRESULT CALLBACK CallWndProcHook(int code, WPARAM wParam, LPARAM lParam) {
-    if (code == HC_ACTION) {
-        const CWPSTRUCT *cwp = reinterpret_cast<const CWPSTRUCT *>(lParam);
-        if (cwp->message == WM_ACTIVATEAPP && cwp->wParam != FALSE)
-            ResyncFromPhysicalState();
-    }
-    return CallNextHookEx(nullptr, code, wParam, lParam);
+// Event-bus handlers; each returns 1 so the dispatch goes on. A key event's
+// payload starts with the key code, and only 0 / 1 / 2 are modifiers.
+int __fastcall OnKey(const void *payload, void * /*param*/) {
+    if (static_cast<uint32_t>(*static_cast<const int *>(payload)) <= 2)
+        Reconcile();
+    return 1;
 }
 
+int __fastcall OnActivate(const void * /*payload*/, void * /*param*/) {
+    Reconcile();
+    return 1;
+}
+
+using Handler_t = int(__fastcall *)(const void *payload, void *param);
+using RegisterEx_t = void(__fastcall *)(int eventId, Handler_t handler, void *param,
+                                        float priority);
+
 void InstallHook() {
-    if (g_msgHook == nullptr) {
-        g_msgHook = SetWindowsHookExA(WH_GETMESSAGE, &GetMsgHook, nullptr,
-                                       GetCurrentThreadId());
-    }
-    if (g_wndProcHook == nullptr) {
-        g_wndProcHook = SetWindowsHookExA(WH_CALLWNDPROC, &CallWndProcHook,
-                                          nullptr, GetCurrentThreadId());
-    }
+    if (g_msgHook != nullptr)
+        return;
+    g_msgHook = SetWindowsHookExA(WH_GETMESSAGE, &GetMsgHook, nullptr,
+                                  GetCurrentThreadId());
+    // The bus does not dedup, so these share the once-only guard. Highest
+    // priority: the engine's held-key update runs before every handler, so
+    // no other handler's veto (the open console swallows keys) may skip ours.
+    auto registerEx = reinterpret_cast<RegisterEx_t>(Offsets::FUN_EVENT_REGISTER_EX);
+    registerEx(Offsets::EVENT_ID_KEYDOWN, &OnKey, nullptr, FLT_MAX);
+    registerEx(Offsets::EVENT_ID_KEYUP, &OnKey, nullptr, FLT_MAX);
+    registerEx(Offsets::EVENT_ID_KEYDOWN_REPEATING, &OnKey, nullptr, FLT_MAX);
+    registerEx(Offsets::EVENT_ID_ACTIVATE, &OnActivate, nullptr, FLT_MAX);
 }
 
 void RegisterLuaFunctions() {
@@ -272,7 +284,7 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 } // namespace
 
 uint32_t CurrentMask() {
-    return g_overrideActive ? g_overrideMask : g_modifierMask;
+    return g_overrideActive ? g_overrideMask : HeldMask();
 }
 
 uint32_t ParseModifiers(const char *&text) {
@@ -313,7 +325,7 @@ uint32_t ParseModifiers(const char *&text) {
 KeyStateOverride::KeyStateOverride(const char *boundKey)
     : m_wasActive(g_overrideActive), m_previousMask(g_overrideMask) {
     const char *rest = boundKey != nullptr ? boundKey : "";
-    g_overrideMask = g_modifierMask & ~ParseModifiers(rest);
+    g_overrideMask = HeldMask() & ~ParseModifiers(rest);
     g_overrideActive = true;
 }
 

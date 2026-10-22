@@ -8473,6 +8473,12 @@ enum Offsets {
     // handler FUN_CONSOLE_ON_KEY_DOWN is the one with the Tab/Enter/Escape
     // switch. Its data is 4.3.4's EVENT_DATA_KEY: `{ int key; uint32_t meta; }`.
     EVENT_ID_KEYDOWN = 8,
+    // Key release, and a key-down for a key already on the held-key list
+    // (the dispatch turns 8 into 0xA before any handler runs — so pressing
+    // the second side of a held merged modifier arrives as 0xA). Same
+    // EVENT_DATA_KEY payload (benilla-re core/events "Held keys and repeats").
+    EVENT_ID_KEYUP = 9,
+    EVENT_ID_KEYDOWN_REPEATING = 0xA,
     // Every console input handler is registered at priority 7.0 (stored here
     // as the integer; the registrar takes it as a float).
     CONSOLE_EVENT_PRIORITY = 7,
@@ -8484,12 +8490,20 @@ enum Offsets {
     // capture), x, y, wheel delta, time (benilla-re core/input "Payloads").
     // The button bits are left 1, middle 2, right 4, X1 8, X2 0x10 — the same
     // masks as VAR_BUTTON_NAME_*.
+    // Window activation change, sent by PostActivateEvent (0x00423CB0, `mov
+    // edx,2`) for every WM_ACTIVATE, either direction; payload `{ uint32_t
+    // active; }`. Before any handler runs, the dispatch (0x004245B0 →
+    // 0x00424790) empties the context's held-key list, so EventIsKeyDown
+    // answers 0 for every key until its next key-down (benilla-re
+    // core/events "Held keys and repeats").
+    EVENT_ID_ACTIVATE = 2,
     EVENT_ID_MOUSEDOWN = 0xB,
     EVENT_ID_MOUSEUP = 0xE,
     OFF_MOUSE_EVENT_BUTTON = 0x04,
     // The engine's held-button mask, same bits. PostMouseDownEvent ORs the
-    // button in (`0x00423DB6`..`0x00423DCF`), PostMouseUpEvent clears it, a
-    // window deactivation clears it whole, and a lost capture releases every
+    // button in (`0x00423DB6`..`0x00423DCF`), PostMouseUpEvent clears it, every
+    // activation change clears it whole (ClearInputMasks 0x00423900 from
+    // PostActivateEvent), and a lost capture releases every
     // held button through PostMouseUpEvent.
     VAR_HELD_MOUSE_BUTTONS = 0x00883F40,
     // `Input::GlobalMouse`'s handler priority: above the interface's mouse
