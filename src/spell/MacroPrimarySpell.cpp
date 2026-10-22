@@ -37,6 +37,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "spell/Arg.h"
 
 #include <cstdint>
 #include <cstring>
@@ -140,6 +141,39 @@ const Game::HookAutoRegister _hookreg{
     reinterpret_cast<void **>(&MacroParse_o)};
 
 } // namespace
+
+int ExtractSpellArg(const char *p, const char *end) {
+    while (p < end && (*p == ' ' || *p == '\t'))
+        ++p;
+    if (p >= end)
+        return 0;
+
+    if (*p == '"' || *p == '\'') {
+        const char quote = *p++;
+        const char *q = p;
+        while (q < end && *q != quote)
+            ++q;
+        if (q >= end)
+            return 0;
+        const size_t n = static_cast<size_t>(q - p);
+        if (n == 0 || n >= 128)
+            return 0;
+        char name[128];
+        std::memcpy(name, p, n);
+        name[n] = '\0';
+        return Spell::Arg::NameToSpellID(name);
+    }
+
+    int value = 0;
+    const char *digitStart = p;
+    while (p < end && *p >= '0' && *p <= '9') {
+        if (value > 100000000) // sanity cap before overflow
+            return 0;
+        value = value * 10 + (*p - '0');
+        ++p;
+    }
+    return (p > digitStart && value > 0) ? value : 0;
+}
 
 PatternAutoRegister::PatternAutoRegister(const char *p, ArgExtractor e)
     : prefix(p),

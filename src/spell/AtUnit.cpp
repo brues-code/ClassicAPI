@@ -24,18 +24,23 @@
 //
 // Mechanism: resolve the token once to the unit object, read its position
 // and GUID, then dispatch the cast WITH that GUID
-// (`Spell::AtCursor::DispatchSpellCast(spell, guid)`). The engine's
+// (`Spell::Placement::DispatchSpellCast(spell, guid)`). The engine's
 // dispatcher substitutes the GUID exactly where it would the current
 // selection, so a unit-target spell fires immediately at that unit. A
 // ground spell ignores the GUID and enters placement mode instead — so we
-// branch on `IsPlacementActive()`:
+// branch on `Spell::Placement::IsActive()` (`FinishAtUnit`):
 //
 //   - No placement after dispatch → the cast already went out on the unit
 //     (unit-target / normal). Success.
 //   - Ground placement active     → commit at the unit's feet. Success.
 //   - Other placement still active → the engine didn't accept the unit as a
-//     target (e.g. wrong faction / out of range); `CommitAtCoords` cancels
-//     it. Failure.
+//     target (e.g. wrong faction / out of range); it is cancelled. Failure.
+//
+// When the call is going to place a ground spell, any placement already up
+// is cancelled before the dispatch, so the one committed is this call's own.
+// With `placeGroundSpell` false nothing is cancelled first: the reticle is
+// the player's to click, and pressing the spell again while it is up stops
+// targeting, as it does by hand.
 //
 // Returns `true` when the spell was cast at the unit; `false` when the
 // spell isn't in the spellbook, the unit has no resolvable position, or the
@@ -44,9 +49,9 @@
 // `UnitHealth("garbage")`.
 
 #include "Game.h"
-#include "spell/AtCursor.h"
 #include "spell/AtUnit.h"
 #include "spell/MacroPrimarySpell.h"
+#include "spell/Placement.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
 
@@ -69,26 +74,14 @@ bool CastCore(const char *token, bool byNumber, int spellID, const char *spellNa
         return false;
     const uint64_t targetGuid = Unit::Identity::GuidForObject(unitObj);
 
+    if (allowGroundPlacement)
+        Spell::Placement::Stop();
     const bool dispatched =
-        byNumber ? Spell::AtCursor::DispatchSpellCast(spellID, targetGuid)
-                 : Spell::AtCursor::DispatchSpellCastByName(spellName, targetGuid);
+        byNumber ? Spell::Placement::DispatchSpellCast(spellID, targetGuid)
+                 : Spell::Placement::DispatchSpellCastByName(spellName, targetGuid);
     if (!dispatched)
         return false;
-
-    // Unit-target / normal spells fired straight at the GUID — no placement.
-    // Ground spells are now sitting in placement mode; commit at the unit's
-    // feet (CommitAtCoords cancels + fails for a non-ground placement, i.e.
-    // an unaccepted unit target).
-    if (!Spell::AtCursor::IsPlacementActive())
-        return true;
-    if (!allowGroundPlacement) {
-        // Caller wants the unit as the cast target but not the aim that
-        // comes with placing a ground spell there. Leave a ground reticle
-        // up for the player to click, which is what casting it by hand
-        // does; anything else still has to be cancelled.
-        return Spell::AtCursor::GroundPlacementPending();
-    }
-    return Spell::AtCursor::CommitAtCoords(pos);
+    return Spell::Placement::FinishAtUnit(pos, allowGroundPlacement);
 }
 
 int __fastcall Script_C_Spell_CastAtUnit(void *L) {
@@ -145,27 +138,10 @@ void RegisterLuaFunctions() {
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
-// Macro-parser pattern: tag macros calling
-// `C_Spell.CastAtUnit(<spellID>, ...)` with the spellID so action-bar
-// UIs highlight the slot. The first arg is the numeric spellID, so the
-// extractor just reads the leading numeric literal — same shape as
-// `CastAtCursor`'s.
-int ExtractCastAtUnitArg(const char *p, const char *end) {
-    while (p < end && (*p == ' ' || *p == '\t'))
-        ++p;
-    int value = 0;
-    const char *digitStart = p;
-    while (p < end && *p >= '0' && *p <= '9') {
-        if (value > 100000000) // sanity cap before overflow
-            return 0;
-        value = value * 10 + (*p - '0');
-        ++p;
-    }
-    return (p > digitStart && value > 0) ? value : 0;
-}
-
+// Tag macros calling `C_Spell.CastAtUnit(<spell>, ...)` with the spellID
+// so action-bar UIs highlight the slot.
 const Spell::MacroPrimarySpell::PatternAutoRegister _patreg{
-    "C_Spell.CastAtUnit(", &ExtractCastAtUnitArg};
+    "C_Spell.CastAtUnit(", &Spell::MacroPrimarySpell::ExtractSpellArg};
 
 } // namespace
 

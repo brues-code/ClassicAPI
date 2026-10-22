@@ -22,6 +22,12 @@ namespace Spell::MacroPrimarySpell {
 // extraction failed (malformed args, unknown spell, etc.).
 using ArgExtractor = int(*)(const char *p, const char *end);
 
+// The extractor for a call whose first argument is a spell identifier: a
+// numeric literal is the spellID itself; a quoted name (`"…"` or `'…'`,
+// `(Rank N)`-aware) resolves through the player's spellbook. Shared by every
+// pattern whose Lua function takes a spellID or a name.
+int ExtractSpellArg(const char *p, const char *end);
+
 // File-scope static auto-registers a `(prefix, extractor)` pair. Each
 // feature module that wants its Lua wrapper to tag macros declares:
 //

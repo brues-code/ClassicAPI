@@ -16,6 +16,7 @@
 #include "item/ID.h"
 #include "item/Location.h"
 #include "item/Spell.h"
+#include "item/Use.h"
 
 #include <cstdint>
 
@@ -110,11 +111,7 @@ int __fastcall Script_C_Container_UseHearthstone(void *L) {
         return 1;
     }
 
-    using UseItem_t = unsigned(__thiscall *)(const void *item,
-                                              const uint64_t *targetGuid, int flag);
-    const uint64_t zeroTarget = 0;
-    auto useItem = reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE);
-    useItem(item, &zeroTarget, 0);
+    Item::Use::UseItem(item, 0);
 
     Game::Lua::PushBoolean(L, 1);
     return 1;

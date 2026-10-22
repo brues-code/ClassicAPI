@@ -23,30 +23,27 @@
 // `Item::Location::ResolveItemArgOrLocation`. A location names one exact
 // item, which is what a caller holding two stacks of the same thing needs.
 //
-// Mirrors `C_Item.UseItemByName`'s resolve + `FUN_ITEM_USE` dispatch
-// — the engine's item-use path eventually hands the on-use spell to
-// the same cast dispatcher that ground-target spells go through, so
-// placement-mode activation works identically. After firing the
-// item, `Spell::AtCursor::Resolve()` commits the placement at cursor.
+// Same chain as `C_Spell.CastAtCursor`: cancel any placement already up,
+// use the item (`Item::Use::UseItem`, whose on-use spell goes through the
+// same cast attempt a ground spell does), then commit the placement at the
+// cursor. The commit runs only when the engine reports the item's spell
+// began, so a refused use never lands anything.
 //
-// Returns `true` when the cursor-placement leg landed; `false` for
+// Returns whether the item's spell went out at the cursor; `false` for
 // items that aren't ground-target (the item still fires, just with
 // no implicit target), unparseable input, an item the player doesn't
 // have, etc.
 
 #include "Game.h"
-#include "Offsets.h"
 #include "item/Location.h"
-#include "spell/AtCursor.h"
+#include "item/Use.h"
+#include "spell/Placement.h"
 
 #include <cstdint>
 
 namespace Item::UseAtCursor {
 
 namespace {
-
-using UseItem_t = unsigned(__thiscall *)(const void *item, const uint64_t *targetGuid,
-                                          int flag);
 
 int __fastcall Script_C_Item_UseAtCursor(void *L) {
     const uint8_t *item = Item::Location::ResolveItemArgOrLocation(L, 1);
@@ -55,18 +52,30 @@ int __fastcall Script_C_Item_UseAtCursor(void *L) {
         return 1;
     }
 
-    const uint64_t zeroTarget = 0;
-    auto useItem = reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE);
-    useItem(item, &zeroTarget, 0);
-
-    const bool placed = Spell::AtCursor::Resolve();
-    Game::Lua::PushBool(L, placed);
+    Spell::Placement::Stop();
+    const bool used = Item::Use::UseItem(item, 0);
+    Game::Lua::PushBool(L, used && Spell::Placement::CommitAtCursor());
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kUseAtCursorArgs[] = {
+    Game::Doc::Req("item", "ItemInfo",
+                   "An item ID, an item link, the name of a carried item, or an item location."),
+};
+const Game::Doc::Field kUseAtCursorRets[] = {
+    Game::Doc::Req("placed", "bool",
+                   "True when the item's effect landed at the cursor; false when the cursor "
+                   "was not on the ground, or the item needs no ground target."),
+};
+const Game::Doc::Function kUseAtCursor{
+    "Uses a ground-target item at the cursor's world position, with no reticle click.",
+    kUseAtCursorArgs, kUseAtCursorRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "UseAtCursor",
-                                     &Script_C_Item_UseAtCursor);
+                                     &Script_C_Item_UseAtCursor, &kUseAtCursor);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

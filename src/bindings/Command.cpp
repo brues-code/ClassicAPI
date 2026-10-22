@@ -45,6 +45,8 @@
 #include "frame/ClickFrame.h"
 #include "item/Arg.h"
 #include "item/Location.h"
+#include "item/Use.h"
+#include "spell/Placement.h"
 #include "time/Clock.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
@@ -77,29 +79,15 @@ uint64_t ModifiedTarget() {
 }
 
 void CastSpell(const char *name) {
-    using NameToSlot_t = int(__fastcall *)(const char *name, int *outBookType);
-    using CastDispatch_t = void(__fastcall *)(unsigned slot, int bookType, unsigned guidLo,
-                                               unsigned guidHi);
-    int book = 0;
-    const int slot =
-        reinterpret_cast<NameToSlot_t>(Offsets::FUN_RESOLVE_SPELL_NAME_TO_SLOT)(name, &book);
-    if (slot < 0)
-        return;
-    const uint64_t target = ModifiedTarget();
-    reinterpret_cast<CastDispatch_t>(Offsets::FUN_SPELL_CAST_DISPATCH)(
-        static_cast<unsigned>(slot), book, static_cast<unsigned>(target),
-        static_cast<unsigned>(target >> 32));
+    Spell::Placement::DispatchSpellCastByName(name, ModifiedTarget());
 }
 
 void UseItem(const char *name) {
-    using UseItem_t = unsigned(__thiscall *)(const void *item, const uint64_t *targetGuid,
-                                              int flag);
     const Item::Arg::Resolved byName{0, 0, name};
     Item::Location::ByGUIDResult found{};
     if (!Item::Location::FindByArgNoLua(byName, &found) || found.item == nullptr)
         return;
-    const uint64_t target = ModifiedTarget();
-    reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE)(found.item, &target, 0);
+    Item::Use::UseItem(found.item, ModifiedTarget());
 }
 
 void RunMacro(const char *name) {

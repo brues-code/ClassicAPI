@@ -267,35 +267,15 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 // ---------------------------------------------------------------------------
 // Macro parser pattern
 //
-// Tags macros containing `CastSpellNoToggle("Name")` with the
+// Tags macros containing `CastSpellNoToggle("Name")` (or a spellID) with the
 // resolved spellID, so `IsAutoRepeatAction(macroSlot)` reports
 // correctly and action-bar UIs (pfUI etc.) highlight the slot for
 // auto-repeat spells. `Spell::MacroPrimarySpell` owns the parser
 // hook and the line walk; we just declare our `(prefix, extractor)`.
 // ---------------------------------------------------------------------------
 
-int ExtractCastSpellNoToggleArg(const char *p, const char *end) {
-    while (p < end && (*p == ' ' || *p == '\t'))
-        ++p;
-    if (p >= end || *p != '"')
-        return 0;
-    ++p;
-    const char *q = p;
-    while (q < end && *q != '"')
-        ++q;
-    if (q >= end)
-        return 0;
-    const size_t n = static_cast<size_t>(q - p);
-    if (n == 0 || n >= 128)
-        return 0;
-    char name[128];
-    std::memcpy(name, p, n);
-    name[n] = '\0';
-    return Spell::Arg::NameToSpellID(name);
-}
-
 const Spell::MacroPrimarySpell::PatternAutoRegister _patreg{
-    "CastSpellNoToggle(", &ExtractCastSpellNoToggleArg};
+    "CastSpellNoToggle(", &Spell::MacroPrimarySpell::ExtractSpellArg};
 
 } // namespace
 

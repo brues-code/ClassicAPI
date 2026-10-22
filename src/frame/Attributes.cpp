@@ -116,8 +116,8 @@
 #include "cursor/Info.h"
 #include "macro/Execute.h"
 #include "object/Resolve.h"
-#include "spell/AtCursor.h"
 #include "spell/AtUnit.h"
+#include "spell/Placement.h"
 #include "tick/WorldTick.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
@@ -660,7 +660,7 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         // instead of switching target. The two predicates are ours (direct C++);
         // the actions are engine-only, so they go through the Lua globals (which
         // are the engine's own entries, with token→GUID resolution).
-        if (Spell::AtCursor::IsPlacementActive())
+        if (Spell::Placement::IsActive())
             Game::Lua::CallGlobalString(L, "SpellTargetUnit", unit);
         else if (Cursor::Info::HasItem())
             Game::Lua::CallGlobalString(L, "DropItemOnUnit", unit);
@@ -690,7 +690,7 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
             if (unit)
                 Spell::AtUnit::CastByID(spellID, unit);
             else
-                Spell::AtCursor::DispatchSpellCast(spellID);
+                Spell::Placement::DispatchSpellCast(spellID);
             return true;
         }
         // Otherwise a spell name. With a `unit`, cast straight at it (GUID →

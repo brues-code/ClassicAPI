@@ -49,16 +49,20 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "item/Location.h"
+#include "item/Use.h"
 #include "unit/TokenResolve.h"
 
 #include <cstdint>
 
 namespace Item::Use {
 
-namespace {
+bool UseItem(const uint8_t *item, uint64_t targetGuid) {
+    using UseItem_t = uint8_t(__thiscall *)(const void *item, const uint64_t *targetGuid,
+                                             int confirmed);
+    return reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE)(item, &targetGuid, 0) != 0;
+}
 
-using UseItem_t = unsigned(__thiscall *)(const void *item, const uint64_t *targetGuid,
-                                          int flag);
+namespace {
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 
@@ -86,8 +90,7 @@ int __fastcall Script_C_Item_UseItemByName(void *L) {
         return 0;
     }
 
-    auto useItem = reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE);
-    useItem(item, &targetGuid, 0);
+    UseItem(item, targetGuid);
     return 0;
 }
 

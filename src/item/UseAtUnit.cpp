@@ -11,10 +11,14 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_Item.UseAtUnit(item, unit)` — use the given item at the given unit's
-// feet. For items whose on-use spell is ground-target (Iron Grenade,
-// demolition charges, etc.), bypasses the manual click on the AoE reticle.
-// `UseAtUnit(item, "target")` drops the reticle at the target's position.
+// `C_Item.UseAtUnit(item, unit [, placeGroundSpell])` — the item analog of
+// `C_Spell.CastAtUnit`, and the same flow:
+//
+//   - A ground-target item (Iron Grenade, demolition charges, etc.) is
+//     placed at the unit's feet, no reticle click — or, with
+//     `placeGroundSpell` false, its reticle is left for the player.
+//   - A unit-target item (a bandage, a scroll) fires straight at the unit,
+//     whatever is selected.
 //
 // `item` is an item location (`{bagID=B, slotIndex=S}`,
 // `{equipmentSlotIndex=N}`, an item GUID) or an item reference (itemID,
@@ -22,19 +26,20 @@
 // `Item::Location::ResolveItemArgOrLocation`. A location names one exact
 // item, which is what a caller holding two stacks of the same thing needs.
 //
-// Unit-position analog of `C_Item.UseAtCursor` — same resolve +
-// `FUN_ITEM_USE` dispatch, but the placement is committed at the
-// unit's world position (via `Spell::AtCursor::CommitAtCoords`)
-// instead of the cursor raycast.
+// The token resolves once to the unit object, read for both its position and
+// its GUID; the GUID is the implicit target of the use. After a use the
+// engine reports as begun, `Spell::Placement::FinishAtUnit` handles the
+// placement branch exactly as it does for a spell.
 //
-// Returns `true` when the placement landed at the unit; `false` for
-// non-ground-target items (which still fire, at the unit), unparseable
-// input, an item the player doesn't have, or an unresolvable unit.
+// Returns true when the item went out at the unit (fired, placed, or its
+// reticle left up on request); false for unparseable input, an item the
+// player doesn't have, a use the engine refuses, an absent unit, or a unit
+// the item's spell won't accept.
 
 #include "Game.h"
-#include "Offsets.h"
 #include "item/Location.h"
-#include "spell/AtCursor.h"
+#include "item/Use.h"
+#include "spell/Placement.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
 
@@ -44,31 +49,30 @@ namespace Item::UseAtUnit {
 
 namespace {
 
-using UseItem_t = unsigned(__thiscall *)(const void *item, const uint64_t *targetGuid,
-                                          int flag);
-
 int __fastcall Script_C_Item_UseAtUnit(void *L) {
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    const char *token = Game::Lua::ToString(L, 2);
 
-    // Resolve the unit position first — fail fast before firing the
-    // item if the unit is absent. (The item resolve below stomps the
-    // Lua stack, so read the token argument before that runs.)
+    // Read every argument before the item resolve, which stomps the Lua
+    // stack. Omitted or nil `placeGroundSpell` means place it; only an
+    // explicit false holds the reticle (`lua_type` reports NONE, not nil,
+    // past the top of the stack, so test the top first).
+    const bool placeGround = Game::Lua::GetTop(L) < 3 ||
+                             Game::Lua::Type(L, 3) == Game::Lua::TYPE_NIL ||
+                             Game::Lua::ToBoolean(L, 3) != 0;
+
+    // Resolve the unit first — fail fast before firing the item if the unit
+    // is absent. A string that is no unit token raises "Unknown unit", as
+    // `C_Spell.CastAtUnit` does.
+    void *unitObj = Unit::Position::ResolveToken(Game::Lua::ToString(L, 2));
     float pos[3];
-    if (!Unit::Position::ReadToken(token, pos)) {
+    if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos)) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-
-    // Dispatch with the unit's GUID as the implicit target, exactly as
-    // `C_Spell.CastAtUnit` does. A ground-target item ignores it and enters
-    // placement, committed below; a unit-target one (a bandage, a scroll)
-    // fires straight at the unit instead of at whatever is selected. Read
-    // before the item resolve, which stomps the Lua stack.
-    const uint64_t targetGuid = Unit::Identity::GuidForToken(token);
+    const uint64_t targetGuid = Unit::Identity::GuidForObject(unitObj);
 
     const uint8_t *item = Item::Location::ResolveItemArgOrLocation(L, 1);
     if (item == nullptr) {
@@ -76,17 +80,37 @@ int __fastcall Script_C_Item_UseAtUnit(void *L) {
         return 1;
     }
 
-    auto useItem = reinterpret_cast<UseItem_t>(Offsets::FUN_ITEM_USE);
-    useItem(item, &targetGuid, 0);
-
-    const bool placed = Spell::AtCursor::CommitAtCoords(pos);
-    Game::Lua::PushBool(L, placed);
+    // Only a placing call clears an older reticle first — see
+    // `C_Spell.CastAtUnit`.
+    if (placeGround)
+        Spell::Placement::Stop();
+    const bool ok = Item::Use::UseItem(item, targetGuid) &&
+                    Spell::Placement::FinishAtUnit(pos, placeGround);
+    Game::Lua::PushBool(L, ok);
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kUseAtUnitArgs[] = {
+    Game::Doc::Req("item", "ItemInfo",
+                   "An item ID, an item link, the name of a carried item, or an item location."),
+    Game::Doc::Req("unit", "UnitToken", "The unit to use the item at."),
+    Game::Doc::Opt("placeGroundSpell", "bool", "true",
+                   "False leaves a ground-target item's reticle for you to click."),
+};
+const Game::Doc::Field kUseAtUnitRets[] = {
+    Game::Doc::Req("used", "bool",
+                   "True when the item went out at the unit; false when you do not carry "
+                   "it, it cannot be used now, or the unit is not a target it accepts."),
+};
+const Game::Doc::Function kUseAtUnit{
+    "Uses an item at a unit, dropping a ground-target item at that unit's feet.",
+    kUseAtUnitArgs, kUseAtUnitRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "UseAtUnit",
-                                     &Script_C_Item_UseAtUnit);
+                                     &Script_C_Item_UseAtUnit, &kUseAtUnit);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

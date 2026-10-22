@@ -6910,7 +6910,7 @@ enum Offsets {
     //   - `0x20` source world location needed
     //   - `0x40` dest world location needed
     // The `0x60` mask therefore identifies "ground-target placement"
-    // (vs. unit-target, trade-target, etc.). See `Spell::AtCursor`.
+    // (vs. unit-target, trade-target, etc.). See `Spell::Placement`.
     VAR_SPELL_PLACEMENT_STATE = 0x00CECAC0,
     SPELL_PLACEMENT_GROUND_MASK = 0x60,
 

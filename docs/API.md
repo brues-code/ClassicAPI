@@ -494,7 +494,7 @@ build instructions.
   - [`C_Item.UnlockAllItems()`](#c_itemunlockallitems)
   - [`C_Item.UnlockItem(itemLocation)`](#c_itemunlockitemitemlocation)
   - [`C_Item.UseAtCursor(item)`](#c_itemuseatcursoritem)
-  - [`C_Item.UseAtUnit(item, unit)`](#c_itemuseatunititem-unit)
+  - [`C_Item.UseAtUnit(item, unit [, placeGroundSpell])`](#c_itemuseatunititem-unit--placegroundspell)
   - [`C_Item.UseItemByName(item [, unit])`](#c_itemuseitembynameitem--unit)
   - [`Get*ItemID` — companions to the engine's `Get*ItemLink` family](#getitemid--companions-to-the-engines-getitemlink-family)
   - [`GetAverageItemLevel()`](#getaverageitemlevel)
@@ -11573,13 +11573,9 @@ sweep is logout). This call gives you an in-session escape hatch.
 
 ### `C_Item.UseAtCursor(item)`
 
-Uses `item` at the player's current cursor world position —
-ClassicAPI's `[@cursor]` analog for ground-target on-use items
-(Iron Grenade, Bombling, demolition charges, etc.). Returns `true`
-when the cursor-placement leg landed (the item fires at terrain);
-`false` for items that aren't ground-target (the item still fires
-normally with no implicit target), unparseable input, items you do
-not have, cursor over UI / off-screen, etc.
+Uses `item` at the world position under your cursor. This is the
+ClassicAPI form of `[@cursor]` for on-use items with a ground target, for
+example Iron Grenade or a demolition charge. You do not click the reticle.
 
 `item` takes either of two forms:
 
@@ -11599,46 +11595,69 @@ C_Item.UseAtCursor("Iron Grenade")
 C_Item.UseAtCursor({ bagID = 0, slotIndex = 1 })
 ```
 
-When the item fires a non-ground-target spell, the cursor leg no-ops
-and returns `false`; the item still uses normally (any implicit
-target — current selection, etc. — applies).
+Returns `true` when the effect of the item lands at the cursor. Returns
+`false` when:
 
-Cancels placement automatically when the cursor isn't on terrain —
-the item-use packet is never sent, so an off-screen click doesn't
-waste the grenade.
+- the cursor is not on the ground, for example over a frame or off the screen
+- the item has no ground target
+- the item needs another target in addition to the ground position
+- you do not carry the item, or the argument is not an item
+- the game refuses the use, for example while you are shapeshifted
 
-### `C_Item.UseAtUnit(item, unit)`
+If the cursor is not on the ground, the reticle is cancelled and the item is
+not used, so an off-screen call does not waste a grenade. An item with no
+ground target is used normally, on your current target.
 
-Unit-position analog of
-[`C_Item.UseAtCursor`](#c_itemuseatcursoritem): uses `item` at
-`unit`'s feet rather than the cursor. ClassicAPI's `[@unit]` for
-ground-target on-use items. `item` accepts the same two forms as
-`UseAtCursor` — an item reference or an item location; `unit` is any
-unit token (`"player"`, `"target"`, `"mouseover"`, `"party1"`, …).
+A reticle that is already up when you call this function is cancelled first.
+The function only places the reticle that its own call opens.
+
+### `C_Item.UseAtUnit(item, unit [, placeGroundSpell])`
+
+Uses `item` at `unit`. This is the item form of
+[`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell),
+and it covers both kinds of on-use item:
+
+- An item with a ground target, for example Iron Grenade, lands at the feet
+  of the unit. You do not click the reticle.
+- An item with a unit target, for example a bandage, is used on the unit.
+  Your current target does not change.
+
+`item` accepts the same two forms as
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem). `unit` is any unit token
+(`"player"`, `"target"`, `"mouseover"`, `"party1"`, and more).
 
 ```lua
 C_Item.UseAtUnit(4068, "target")            -- Iron Grenade at the target's feet
 C_Item.UseAtUnit("Iron Grenade", "player")
 C_Item.UseAtUnit({ bagID = 0, slotIndex = 1 }, "player")
+C_Item.UseAtUnit("Linen Bandage", "party1") -- bandage party1
 ```
 
-Returns `true` when the placement landed at the unit. Returns `false` for
-unparseable input, an item you do not carry, or a unit that cannot be
-resolved. The unit is resolved before the item fires, so an absent unit
-fails without consuming the item.
+`placeGroundSpell` is `true` by default. If it is `false`, an item with a
+ground target opens its reticle for you to click, and the function does not
+place it.
 
-An item with no ground effect also returns `false`, and is used **on the
-unit**: the item fires with that unit as its target rather than with
-whatever you have selected. So this covers both kinds of on-use item, the
-same way [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell) covers
-both kinds of spell.
+Returns `true` when the item went out at the unit. With `placeGroundSpell`
+set to `false`, a reticle left up for you also returns `true`. Returns
+`false` when:
 
-A unit token that names nothing right now, such as `"party3"` while solo,
-returns `false`. A string that is not a unit token at all raises the
-engine's standard "Unknown unit" error, as `UnitHealth("garbage")` does and
-as `C_Spell.CastAtUnit` does. That differs from
-[`C_Item.UseItemByName`](#c_itemuseitembynameitem--unit), whose contract
-is to no-op on anything it cannot use.
+- you do not carry the item, or the argument is not an item
+- the game refuses the use
+- the unit is absent
+- the unit is not a target that the item accepts
+
+The function reads the unit before it uses the item. As a result, an absent
+unit fails and the item is not used.
+
+When `placeGroundSpell` is `true`, a reticle that is already up is cancelled
+first. The function only places the reticle that its own call opens.
+
+A unit token that names nothing at the moment, such as `"party3"` while you
+are solo, returns `false`. A string that is not a unit token raises the
+standard "Unknown unit" error, as `UnitHealth("garbage")` and
+`C_Spell.CastAtUnit` do. That differs from
+[`C_Item.UseItemByName`](#c_itemuseitembynameitem--unit), which does nothing
+for an argument it cannot use.
 
 ### `C_Item.UseItemByName(item [, unit])`
 
@@ -13578,13 +13597,8 @@ Recognized forms in a macro body:
 ```
 CastSpellNoToggle("Shoot")        -- by name (string)
 CastSpellNoToggle("Cat Form")     -- shapeshift / aspect / stance all tag the same way
-CastSpellNoToggle(5019)           -- not yet — macro parser only recognizes the string form
+CastSpellNoToggle(5019)           -- by spellID
 ```
-
-The numeric form **works for the cast itself** (via the function's
-runtime resolution), but the macro parser only scans for the string
-form when tagging. To get the slot to highlight when using the
-spellID, write `CastSpellNoToggle("Shoot")` instead.
 
 The engine's first-match-wins rule still applies — if your macro is:
 
@@ -17591,13 +17605,9 @@ parser support that makes the slot tag correctly for action-bar UIs.
 
 ### `C_Spell.CastAtCursor(spellIDOrName)`
 
-Casts a ground-target spell at the player's current cursor world
-position, bypassing the manual click on the AoE reticle the engine
-would otherwise require. ClassicAPI's analog of
-`/cast [@cursor] Blizzard`. Returns `true` when the cursor-placement
-leg landed; `false` for non-ground-target spells (cast still fires
-normally on the current target), unknown spells, cursor over UI /
-off-screen, etc.
+Casts a ground-target spell at the world position under your cursor. This
+is the ClassicAPI form of `/cast [@cursor] Blizzard`. You do not click the
+reticle.
 
 Accepts a **spellID** or a **spell name**:
 
@@ -17608,35 +17618,30 @@ C_Spell.CastAtCursor("Blizzard")          -- highest known rank
 C_Spell.CastAtCursor("Blizzard(Rank 6)")  -- that specific rank
 ```
 
-A **numeric** spellID casts that *exact* spell — every rank is its own
-spellID, so `10` casts Blizzard Rank 1 (not the highest known rank). A
-**name** goes through the engine's own resolver, which parses a trailing
-`(Rank N)`; a bare name casts the highest rank you know.
+A **numeric** spellID casts that *exact* spell. Every rank has its own
+spellID, so `10` casts Blizzard Rank 1, not the highest rank you know. A
+**name** can end in `(Rank N)`. A name with no rank casts the highest rank
+you know.
 
-Two-stage internally:
+Returns `true` when the spell lands at the cursor. Returns `false` when:
 
-1. Initiates the cast: a numeric spellID resolves to its exact spellbook
-   slot (`Spell::Lookup::FindSpellbookSlot`, so the requested rank is the one
-   that fires), a name goes through `FUN_RESOLVE_SPELL_NAME_TO_SLOT`; either
-   way it dispatches through the engine's cast dispatcher. If the spell needs
-   a ground target, the engine enters placement mode and arms the AoE reticle.
+- the cursor is not on the ground, for example over a frame or off the screen
+- the spell has no ground target
+- the spell needs another target in addition to the ground position
+- the spell is not in your spellbook
 
-2. Refreshes the cursor's screen→world raycast via
-   `FUN_REFRESH_CURSOR_RAYCAST` (the same internal the engine fires
-   on every mouse move when placement is active), confirms the
-   cursor hit terrain (not a UI frame or a unit), and commits
-   placement via `FUN_COMMIT_PLACEMENT_COORDS` with the resolved
-   `(x, y, z)`. Cancels placement cleanly via `FUN_STOP_PLACEMENT`
-   when the cursor isn't on terrain or when the spell wanted a
-   unit-target rather than ground.
+If the cursor is not on the ground, the reticle is cancelled and the spell is
+not cast. A spell with no ground target is cast normally, on your current
+target.
 
-For non-placement spells (regular target casts, self-buffs, etc.)
-the cast fires normally; the placement-resolve no-ops since the
-engine never set the placement flag, and we return `false`.
+A reticle that is already up when you call this function is cancelled first.
+The function only places the reticle that its own call opens.
+
+In a macro, `C_Spell.CastAtCursor(10)` or `C_Spell.CastAtCursor("Blizzard")`
+tags the action button with the spell, the same as `/cast Blizzard`.
 
 The companion item version is
-[`C_Item.UseAtCursor`](#c_itemuseatcursoritem) — same chain via
-the item-use path for grenades / on-use ground-target items.
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem).
 
 ### `C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`
 
@@ -17674,21 +17679,22 @@ C_Spell.CastAtUnit("Renew", "player")         -- heal yourself mid-fight
 C_Spell.CastAtUnit("Power Word: Fortitude", "party1")
 ```
 
-The unit is resolved once to its object; the cast is dispatched with the
-unit's **GUID** as the implicit target (the engine substitutes it exactly
-where it would the current selection), so a unit-target spell fires
-immediately at that unit. A ground spell ignores the GUID and enters
-placement mode instead, which is then committed at the unit's world
-position (read from its `GetPosition` virtual — the same one
-`CheckInteractDistance` / `UnitInRange` use) via
-`FUN_COMMIT_PLACEMENT_COORDS`. The engine can't be left armed in placement
-mode on failure: if no placement is active after dispatch the cast already
-went out, and a non-ground placement (an unaccepted unit target) is
-cancelled. A genuinely unrecognized unit-token string raises the engine's
-standard "Unknown unit" error, matching `UnitHealth("garbage")`.
+If the unit is not a target that the spell accepts, the reticle is
+cancelled and the function returns `false`.
+
+When `placeGroundSpell` is `true`, a reticle that is already up is cancelled
+first, so the function only places the reticle that its own call opens. When
+it is `false`, nothing is cancelled first. A second call while the reticle is
+up then closes it, as a second key press does.
+
+A string that is not a unit token raises the standard "Unknown unit" error,
+as `UnitHealth("garbage")` does.
+
+In a macro, `C_Spell.CastAtUnit(...)` tags the action button with its spell,
+for a spellID or a quoted name.
 
 The companion item version is
-[`C_Item.UseAtUnit`](#c_itemuseatunititem-unit).
+[`C_Item.UseAtUnit`](#c_itemuseatunititem-unit--placegroundspell).
 
 ### `C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`
 
