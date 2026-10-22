@@ -35,6 +35,7 @@ namespace AddOns::Info {
 namespace {
 
 using GetByIndex_t = void *(__fastcall *)(int idx0Based);
+using GetAddOnCount_t = int(__fastcall *)();
 using FieldByName_t = const char *(__fastcall *)(const char *name);
 using EntryByteFn_t = uint8_t(__fastcall *)(const uint8_t *entry);
 using GetSecurityIndex_t = uint32_t(__fastcall *)(const uint8_t *entry);
@@ -45,7 +46,7 @@ using GetAccountName_t = const char *(*)();
 // Hash-lookup by name → the matched record's RequiredDeps descriptor
 // (`record + 0x48`), NULL on miss. Accepts an entry pointer too (its
 // first bytes are the inline name). We use it only to recover the
-// record base for string input; see `Script_GetAddOnOptionalDependencies`.
+// record base; see `Script_GetAddOnOptionalDependencies`.
 using ResolveReqDeps_t = uint8_t *(__fastcall *)(const char *nameOrEntry);
 
 // Resolves the user's arg to a `const uint8_t *` that the engine's
@@ -318,36 +319,47 @@ int __fastcall Script_DoesAddOnExist(void *L) {
 // into a `{cap, count, data, quantum}` name-array descriptor at
 // `record+0x38` (count@+0x3C, data@+0x40), but ships no getter for it.
 //
-// Arg/error handling mirrors stock `Script_GetAddOnDependencies`
-// (`0x0048E5E0`): numeric out-of-range or a non-string/non-number arg
-// raises the usage error; an unknown *name* string returns nothing
-// (no error), matching the engine's own not-found path.
+// Arg handling is stock `Script_GetAddOnDependencies` (`0x0048E5E0`,
+// identical to 4.3.4's `Script_GetAddOnOptionalDependencies`), not
+// `ResolveAddOnName`: `lua_isnumber` first (so a numeric string like
+// `"3"` is an index), an out-of-range index raises the engine's own
+// range error with the addon count, anything else non-string raises the
+// usage error, and an unknown *name* returns nothing.
 //
-// Resolution mirrors stock `Script_GetAddOnDependencies` exactly: the
-// arg is first turned into a name-usable pointer (`ResolveAddOnName` —
-// numeric via `FUN_ADDON_GET_BY_INDEX`, string is the raw string), then
-// routed through the by-name hash lookup `FUN_ADDON_RESOLVE_REQ_DEPS`
-// to reach the deps-bearing record. `FUN_ADDON_GET_BY_INDEX` returns a
-// *name pointer*, NOT the record — reading dep offsets off it lands in
-// string memory and crashes (a numeric-path caller like pfUI's addon
-// list hit exactly that). The resolver returns the RequiredDeps
-// descriptor at `record+0x48`; subtract to recover the base. An unknown
-// name yields NULL → return nothing (no error), like stock.
+// Either input is then routed through the by-name hash lookup
+// `FUN_ADDON_RESOLVE_REQ_DEPS` to reach the deps-bearing record.
+// `FUN_ADDON_GET_BY_INDEX` returns a *name pointer*, NOT the record —
+// reading dep offsets off it lands in string memory and crashes (a
+// numeric-path caller like pfUI's addon list hit exactly that). The
+// resolver returns the RequiredDeps descriptor at `record+0x48`;
+// subtract to recover the base.
+//
+// Like stock, `lua_checkstack(count)` before the pushes — a C function
+// is only guaranteed LUA_MINSTACK (20) free slots.
 int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
-    static constexpr const char *kUsage =
-        "Usage: C_AddOns.GetAddOnOptionalDependencies(index or \"name\")";
-
-    // NULL ⇒ out-of-range numeric index or a non-string/non-number arg;
-    // stock raises the usage error in both cases.
-    const uint8_t *nameOrEntry = ResolveAddOnName(L);
-    if (nameOrEntry == nullptr) {
-        Game::Lua::Error(L, "%s", kUsage);
+    const char *name;
+    if (Game::Lua::IsNumber(L, 1)) {
+        const int idx = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
+        auto byIndex = reinterpret_cast<GetByIndex_t>(Offsets::FUN_ADDON_GET_BY_INDEX);
+        name = static_cast<const char *>(byIndex(idx));
+        if (name == nullptr) {
+            auto count = reinterpret_cast<GetAddOnCount_t>(Offsets::FUN_ADDON_GET_COUNT);
+            Game::Lua::Error(L, reinterpret_cast<const char *>(static_cast<uintptr_t>(
+                                    Offsets::VAR_ADDON_INDEX_RANGE_ERROR_FMT)),
+                             count());
+            return 0;
+        }
+    } else if (Game::Lua::IsString(L, 1)) {
+        name = Game::Lua::ToString(L, 1);
+    } else {
+        Game::Lua::Error(
+            L, "Usage: C_AddOns.GetAddOnOptionalDependencies(index or \"name\")");
         return 0;
     }
 
     auto resolve = reinterpret_cast<ResolveReqDeps_t>(
         Offsets::FUN_ADDON_RESOLVE_REQ_DEPS);
-    uint8_t *reqDesc = resolve(reinterpret_cast<const char *>(nameOrEntry));
+    uint8_t *reqDesc = resolve(name);
     if (reqDesc == nullptr)
         return 0; // unknown addon name — no error, push nothing
     const uint8_t *record = reqDesc - Offsets::OFF_ADDON_REQDEPS_DESC;
@@ -360,6 +372,7 @@ int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
         record + Offsets::OFF_ADDON_OPTIONALDEPS_ARRAY);
     if (names == nullptr)
         return 0;
+    Game::Lua::CheckStack(L, static_cast<int>(count));
     for (uint32_t i = 0; i < count; ++i)
         Game::Lua::PushString(L, names[i]); // NULL → pushnil, per engine
     return static_cast<int>(count);

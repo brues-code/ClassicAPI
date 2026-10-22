@@ -8741,6 +8741,11 @@ enum Offsets {
     // when we only want one field, and worse, errors via `lua_error`
     // for out-of-range numeric indices).
     FUN_ADDON_GET_BY_INDEX = 0x0051DF00,        // (idx0Based) → AddOnEntry* or NULL
+    FUN_ADDON_GET_COUNT = 0x0051DEF0,           // () → [VAR_ADDON_COUNT]; the engine's GetNumAddOns read
+    // `"AddOn index must be in the range of 1 to %d"` — the luaL_error
+    // format stock `Script_GetAddOnDependencies` (`0x0048E5E0`) raises with
+    // `FUN_ADDON_GET_COUNT()` on an out-of-range numeric index.
+    VAR_ADDON_INDEX_RANGE_ERROR_FMT = 0x00837D70,
     FUN_ADDON_GET_TITLE_BY_NAME = 0x0051DF20,   // (name) → title string or NULL
     FUN_ADDON_GET_NOTES_BY_NAME = 0x0051E050,   // (name) → notes string or NULL
 
