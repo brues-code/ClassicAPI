@@ -95,8 +95,8 @@ namespace Spell::Cast {
 
 namespace {
 
-using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int unit, int flag);
-using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord, int unit, int skipMod);
+using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int pet, int allowNegative);
+using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord, int pet, int skipMod);
 
 // SPELL_ATTR_RANGED — every ranged ability carries it; the server adds a
 // flat +500ms "aim time" to these (SpellEntry::GetCastTime). Auto-repeat
@@ -179,6 +179,15 @@ void StampChannel(int spellID, int startMs, int endMs) {
 // still comes from the one canonical source.
 int NowMs() { return static_cast<int>(Time::Clock::NowMs()); }
 
+// Wrap-safe "has `endMs` arrived?" on the int-stored ticks — `Time::Clock`'s
+// signed-difference compare. A raw `now >= endMs` inverts for a cast that
+// straddles 2^31, where `endMs` reads negative and `now` does not.
+bool Ended(int nowMs, int endMs) {
+    return Time::Clock::Reached(static_cast<uint32_t>(nowMs),
+                                static_cast<uint32_t>(endMs));
+}
+bool Ended(int endMs) { return Ended(NowMs(), endMs); }
+
 // A cast is interrupted by the caster moving only if its Spell.dbc InterruptFlags
 // carry SPELL_INTERRUPT_FLAG_MOVEMENT (the server's HandleMovementOpcodes and the
 // client's own CheckCast both gate the movement interrupt on this bit). Thrown
@@ -244,7 +253,7 @@ void *Resolve(const char *token) {
 // engine's own cast-time helper (base + level scaling + cast-time SpellMod
 // op 10 + the caster's haste/cast-speed multiplier), so our end time
 // matches the engine's cast bar exactly — including talents like a Mage's
-// faster casts. Unit arg 0 = local player; flag 0 clamps negatives to 0.
+// faster casts. Pet arg 0 = local player; allowNegative 0 clamps negatives to 0.
 int CastTimeMs(int spellID) {
     int ms = static_cast<int>(
         reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME)(spellID, 0, 0));
@@ -275,7 +284,7 @@ int CastTimeMs(int spellID) {
 // Effective channel duration (ms) for the local player, 0 if none. Uses
 // the engine's own duration helper (SpellDuration base + level scaling +
 // duration SpellMod op 1), mirroring how the cast time is sourced, so the
-// channel end time matches the engine. Unit arg 0 = local player.
+// channel end time matches the engine. Pet arg 0 = local player.
 int ChannelDurationMs(int spellID) {
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
@@ -322,7 +331,7 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
     // the slot wasn't explicitly cleared. Keeps a stale cast (e.g. one whose
     // clear we missed) from lingering on an addon's cast bar, and lets a
     // fresh stamp for the next cast take over cleanly.
-    if (NowMs() >= c.endMs)
+    if (Ended(c.endMs))
         return 0;
     const uint8_t *rec = Spell::Lookup::RecordForID(c.spellID);
     if (rec == nullptr)
@@ -360,7 +369,7 @@ int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes
     // PushCastInfo) — this is how the player's channel clears, since we no
     // longer poll the +0x228 field. Remote callers gate on endMs before
     // passing haveTimes, so this is a no-op for them.
-    if (haveTimes && endMs != 0 && NowMs() >= endMs)
+    if (haveTimes && endMs != 0 && Ended(endMs))
         return 0;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
@@ -466,7 +475,7 @@ void StoreRemoteCast(uint64_t caster, uint64_t targetGuid, int spellID,
     }
     const int now = NowMs();
     for (auto &e : g_remoteCasts) {
-        if (!e.used || now >= e.endMs) {
+        if (!e.used || Ended(now, e.endMs)) {
             e = entry;
             return;
         }
@@ -537,7 +546,7 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
         // packet mustn't RESTART its bar; otherwise it's a chained recast the
         // client bailed on — take it, and flag it so the VAR==0 poll (which
         // never saw it) won't clear it.
-        if (g_cast.spellID == spellID && now < g_cast.endMs &&
+        if (g_cast.spellID == spellID && !Ended(now, g_cast.endMs) &&
             now - g_cast.startMs < kCastStartDedupMs) {
             // Confirming packet. Keep startMs (no visual restart), but SNAP the
             // end time to the server's authoritative castTime. The client stamp
@@ -841,17 +850,17 @@ bool CurrentCastOf(uint64_t guid, const uint8_t *unit, int *spellID, int *startM
                    bool *isChannel) {
     const int now = NowMs();
     if (guid == Unit::Identity::PlayerGuid()) {
-        if (g_cast.spellID != 0 && now < g_cast.endMs) {
+        if (g_cast.spellID != 0 && !Ended(now, g_cast.endMs)) {
             *spellID = g_cast.spellID, *startMs = g_cast.startMs, *isChannel = false;
             return true;
         }
-        if (g_channel.spellID != 0 && (g_channel.endMs == 0 || now < g_channel.endMs)) {
+        if (g_channel.spellID != 0 && (g_channel.endMs == 0 || !Ended(now, g_channel.endMs))) {
             *spellID = g_channel.spellID, *startMs = g_channel.startMs, *isChannel = true;
             return true;
         }
         return false;
     }
-    if (const RemoteCast *rc = FindRemoteCast(guid); rc != nullptr && now < rc->endMs) {
+    if (const RemoteCast *rc = FindRemoteCast(guid); rc != nullptr && !Ended(now, rc->endMs)) {
         *spellID = rc->spellID, *startMs = rc->startMs, *isChannel = rc->isChannel;
         return true;
     }
@@ -985,14 +994,8 @@ void OnWorldTick() {
         // case). Mirrors PushChannelInfo's endMs guard, which already hides
         // the channel from UnitChannelInfo at this same instant.
         //
-        // Wrap-safe compare: the ms tick (rdtsc-backed, survives reboots) can
-        // sit past 2^31, where a stored endMs reads NEGATIVE as a signed int.
-        // A direct `now >= endMs` would then misfire for a channel straddling
-        // the boundary. The signed DELTA cancels the wrap (correct for any
-        // interval < ~24.8 days — a channel is always far shorter), so test
-        // `now - endMs >= 0` instead.
         if (g_channel.spellID != 0 && g_channel.endMs != 0 &&
-            NowMs() - g_channel.endMs >= 0)
+            Ended(g_channel.endMs))
             g_channel.spellID = 0;
     }
 
@@ -1036,7 +1039,7 @@ static int __fastcall Script_UnitCastingInfo(void *L) {
 
     const uint64_t guid = Unit::Identity::GuidForObject(u);
     const RemoteCast *rc = FindRemoteCast(guid);
-    if (rc != nullptr && !rc->isChannel && NowMs() < rc->endMs)
+    if (rc != nullptr && !rc->isChannel && !Ended(rc->endMs))
         return PushCastInfo(L, TrackedSpell{rc->spellID, rc->startMs, rc->endMs},
                             guid, static_cast<const uint8_t *>(u));
     return 0;
@@ -1073,7 +1076,7 @@ static int __fastcall Script_UnitChannelInfo(void *L) {
     // once a confirmed field clears). Otherwise the field alone answers.
     const int spellID = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
     const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(unit));
-    if (rc != nullptr && rc->isChannel && NowMs() < rc->endMs &&
+    if (rc != nullptr && rc->isChannel && !Ended(rc->endMs) &&
         (spellID == rc->spellID || (spellID == 0 && !rc->confirmed)))
         return PushChannelInfo(L, rc->spellID, rc->startMs, rc->endMs, /*haveTimes*/ true, unit);
     if (spellID == 0)
@@ -1091,13 +1094,13 @@ static uint64_t TargetGuidForCaster(uint64_t caster) {
         return 0;
     if (caster == Unit::Identity::PlayerGuid()) {
         const int now = NowMs();
-        const bool casting = g_cast.spellID != 0 && now < g_cast.endMs;
+        const bool casting = g_cast.spellID != 0 && !Ended(now, g_cast.endMs);
         const bool channeling =
-            g_channel.spellID != 0 && (g_channel.endMs == 0 || now < g_channel.endMs);
+            g_channel.spellID != 0 && (g_channel.endMs == 0 || !Ended(now, g_channel.endMs));
         return (casting || channeling) ? g_castTargetGuid : 0;
     }
     const RemoteCast *rc = FindRemoteCast(caster);
-    return (rc != nullptr && NowMs() < rc->endMs) ? rc->targetGuid : 0;
+    return (rc != nullptr && !Ended(rc->endMs)) ? rc->targetGuid : 0;
 }
 
 // `UnitSpellTargetName(unit)` — name of the unit that `unit` is currently

@@ -155,70 +155,45 @@ double PlayerBuffExpirationSeconds(const uint8_t *record) {
     return static_cast<double>(expirationMs) * 0.001;
 }
 
-// Computes the spell's base duration in seconds via Spell.dbc →
-// SpellDuration.dbc lookup with level scaling. Returns 0 for spells
-// without a real duration (the sentinel `base < 0 && perLevel == 0`
-// path the engine uses for infinite auras like passives, paladin
-// auras, racials).
+// The spell's base duration in seconds, as the server computes it before
+// combo points and caster modifiers: the SpellDuration row's base, with
+// −1 meaning infinite (returned as 0) and any other negative taken as its
+// absolute value. Both vmangos and tortoise-wow (`SpellEntry::GetDuration`)
+// ignore the row's per-level term, so this does too — the client's own
+// helper (`FUN_GET_SPELL_DURATION`) scales by the PLAYER's level and would
+// disagree with the expiration the server actually applies. Mirrors the
+// engine's lookup bounds (`0x006EA000`): an index outside the store or an
+// empty row gives 0.
 //
-// Doesn't include talent / glyph / aura-extension modifiers — those
-// are caster-side and the engine applies them when computing the
-// expiration timestamp. So `expirationTime - GetTime()` reflects the
-// *true* remaining time; this `duration` is the base value modern
-// addons use for "X / Y" timer rendering.
-double SpellBaseDurationSeconds(uint32_t spellID, int unitLevel) {
+// Caster-side modifiers are baked into the expiration, so
+// `expirationTime - GetTime()` stays the true remaining time even where
+// this base omits them.
+double SpellBaseDurationSeconds(uint32_t spellID) {
     const uint8_t *spell = SpellRecord(spellID);
     if (spell == nullptr)
         return 0.0;
     const int durIdx = *reinterpret_cast<const int *>(
-        spell + Offsets::OFF_SPELL_DURATION_INDEX);
-    if (durIdx <= 0)
+        spell + Offsets::OFF_SPELL_RECORD_DURATION_INDEX);
+    if (durIdx < 0)
         return 0.0;
-    const uint8_t *durRec = DBC::Record(Offsets::VAR_SPELLDURATION_RECORDS,
-                                        Offsets::VAR_SPELLDURATION_COUNT,
+    const uint8_t *durRec = DBC::Record(Offsets::VAR_SPELL_DURATION_RECORDS,
+                                        Offsets::VAR_SPELL_DURATION_COUNT,
                                         static_cast<uint32_t>(durIdx));
     if (durRec == nullptr)
         return 0.0;
     const int base = *reinterpret_cast<const int *>(
         durRec + Offsets::OFF_SPELLDURATION_BASE_MS);
-    const int perLevel = *reinterpret_cast<const int *>(
-        durRec + Offsets::OFF_SPELLDURATION_PER_LEVEL_MS);
-    const int maxMs = *reinterpret_cast<const int *>(
-        durRec + Offsets::OFF_SPELLDURATION_MAX_MS);
-    // Engine's "infinite duration" sentinel — matches the check in
-    // `FUN_004E44B0`'s "no real duration" branch at `0x004e455c`.
-    if (base < 0 && perLevel < 1)
+    if (base == -1)
         return 0.0;
-    const int spellBaseLevel = *reinterpret_cast<const int *>(
-        spell + Offsets::OFF_SPELL_BASE_LEVEL);
-    int effLevel = unitLevel;
-    if (effLevel < spellBaseLevel)
-        effLevel = spellBaseLevel;
-    int durationMs = (effLevel - spellBaseLevel) * perLevel + base;
-    if (maxMs > 0 && durationMs > maxMs)
-        durationMs = maxMs;
-    if (durationMs <= 0)
-        return 0.0;
-    return static_cast<double>(durationMs) * 0.001;
+    return static_cast<double>(base < 0 ? -base : base) * 0.001;
 }
 
-// Reads the player's level from UNIT_FIELD_LEVEL. Returns 0 when
-// unresolved (pre-login, no descriptor) — caller should treat that
-// as "skip level scaling".
 // True if the engine-tick expiration `expMs` has already reached/passed now.
 // Same signed-wrap-safe compare `PlayerBuffExpirationSeconds` uses (absorbs
 // the ~24.86-day GetTickCount wrap). An already-elapsed cached expiration is
 // not meaningful — the caster is kept regardless, but the time is reported as
 // unknown rather than as a negative remaining.
 bool ExpirationElapsed(uint32_t expMs) { return Time::Clock::Reached(expMs); }
-
-int PlayerLevel(const uint8_t *player) {
-    auto *desc = Descriptor(player);
-    if (desc == nullptr)
-        return 0;
-    return *reinterpret_cast<const int *>(
-        desc + Offsets::OFF_UNIT_FIELD_LEVEL);
-}
 
 // Caster + timing attributed to ONE aura instance — the aura `spellID` sitting
 // in absolute descriptor `slot` on `guid` (`Aura::Source::SLOT_UNBOUND` when
@@ -1007,11 +982,11 @@ static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int app
 // Enriches a bare `(guid, spellID)` into a full AuraData table — the shared
 // core behind every push path (descriptor, cache fallback, group-array). No
 // dependence on a live descriptor: the descriptor path passes what it read
-// (stacks, level, is-this-the-player), the others pass their known-or-default
+// (stacks, is-this-the-player), the others pass their known-or-default
 // values.
 //
-// Timing rules (identical across paths): `duration` is the Spell.dbc →
-// SpellDuration.dbc base scaled by `unitLevel` (0 skips scaling); talent/glyph
+// Timing rules (identical across paths): `duration` is the server's base
+// (`SpellBaseDurationSeconds`); talent/glyph
 // duration modifiers are baked into the caster-side expiration, so
 // `expirationTime - GetTime()` is the true remaining time even when `duration`
 // omits the boost. `expirationTime` for the local player comes from the engine
@@ -1021,7 +996,10 @@ static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int app
 // (expiration 0, no sourceUnit/GUID). `slot` is the absolute descriptor slot
 // the aura occupies, which is what attributes it to the right caster when two
 // of them hold the same spell on the unit; `Aura::Source::SLOT_UNBOUND` for the
-// paths with no descriptor to read one from.
+// paths with no descriptor to read one from. `duration` and `expirationTime`
+// are reported together or not at all — 4.3.4's `PushUnitAura` pushes
+// `m_duration·0.001, m_endTime·0.001` or `0, 0`, so a known base with no
+// expiration to pair it with reads as 0, 0.
 //
 // `known` short-circuits the by-(guid,spell,slot) resolve: the cache-fallback
 // paths already hold the exact entry's attribution (Enumerate copied it out),
@@ -1030,7 +1008,7 @@ static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int app
 // return a miss — dropping a caster Enumerate already knew. Null for the
 // descriptor / group-array paths, which have no per-entry attribution in hand.
 static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
-                         bool isHelpful, int applications, int unitLevel,
+                         bool isHelpful, int applications,
                          bool isPlayer, int slot,
                          const Attribution *known = nullptr,
                          Emit emit = Emit::Table) {
@@ -1039,7 +1017,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
     uint64_t casterGuid = 0;
     bool untilCancelled = false;
     if (spellID != 0)
-        duration = SpellBaseDurationSeconds(spellID, unitLevel);
+        duration = SpellBaseDurationSeconds(spellID);
     if (isPlayer && spellID != 0) {
         const uint8_t *record = FindPlayerBuffRecord(slot);
         if (record != nullptr) {
@@ -1070,7 +1048,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
     }
     // The engine's own word that the player's aura has no end wins over
     // every other source of timing.
-    if (untilCancelled) {
+    if (untilCancelled || expirationTime == 0.0) {
         duration = 0.0;
         expirationTime = 0.0;
     }
@@ -1091,9 +1069,8 @@ static Attribution CachedAttribution(const Aura::Source::CachedAura &c) {
 void Push(void *L, const uint8_t *unit, int slot, Emit emit) {
     const uint32_t spellID = ReadSpellID(unit, slot);
     const bool isHelpful = !IsSlotHarmful(unit, slot); // nibble, not slot range
-    const int unitLevel = (unit != nullptr) ? PlayerLevel(unit) : 0;
     PushEnriched(L, UnitGuid(unit), spellID, isHelpful, ReadStacks(unit, slot),
-                 unitLevel, unit != nullptr && unit == LocalPlayer(), slot,
+                 unit != nullptr && unit == LocalPlayer(), slot,
                  /*known*/ nullptr, emit);
 }
 
@@ -1111,9 +1088,8 @@ void PushFromCache(void *L, const uint8_t *unit,
     // re-resolving by (guid, spell, slot) — an unbound entry sharing its spell
     // with another caster's would otherwise resolve to a miss and drop the
     // caster. Stacks aren't in SMSG_SPELL_GO, so `applications` is 1.
-    const int unitLevel = (unit != nullptr) ? PlayerLevel(unit) : 0;
     const Attribution a = CachedAttribution(c);
-    PushEnriched(L, UnitGuid(unit), c.spellId, isHelpful, 1, unitLevel, false,
+    PushEnriched(L, UnitGuid(unit), c.spellId, isHelpful, 1, false,
                  c.slot, &a, emit);
 }
 
@@ -1291,12 +1267,6 @@ bool GroupSlotMatches(uint64_t guid, const uint16_t *arr, int slot,
                        SpellCancelable(id, harmful));
 }
 
-// The groupmate's level, for Spell.dbc duration scaling (0 = skip). Cheap
-// roster lookup; only hit on the out-of-range path.
-int GroupMemberLevel(uint64_t guid) {
-    return Group::MemberStats::Lookup(guid).level;
-}
-
 // True if the group array exposes ANY visible aura (either kind). When it
 // does, the server's out-of-range aura data is present and authoritative, so
 // we do NOT supplement from the Aura::Source cache — mirroring how the
@@ -1369,7 +1339,7 @@ bool PushNthGroupCacheFallback(void *L, uint64_t guid, const uint16_t *arr,
         if (++seen == oneBasedIndex) {
             const Attribution a = CachedAttribution(buf[i]);
             PushEnriched(L, guid, buf[i].spellId, filter == Filter::Helpful, 1,
-                         GroupMemberLevel(guid), false, buf[i].slot, &a, emit);
+                         false, buf[i].slot, &a, emit);
             return true;
         }
     }
@@ -1383,13 +1353,12 @@ void AppendGroupCacheFallbacks(void *L, uint64_t guid, const uint16_t *arr,
     Aura::Source::CachedAura buf[kFallbackMax];
     const int n =
         EligibleGroupFallbacks(arr, guid, filter == Filter::Harmful, buf);
-    const int level = GroupMemberLevel(guid);
     for (int i = 0; i < n; ++i) {
         if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
         const Attribution a = CachedAttribution(buf[i]);
-        PushEnriched(L, guid, buf[i].spellId, filter == Filter::Helpful, 1, level,
+        PushEnriched(L, guid, buf[i].spellId, filter == Filter::Helpful, 1,
                      false, buf[i].slot, &a);
         Game::Lua::SetTable(L, outerIdx);
     }
@@ -1412,7 +1381,7 @@ bool PushGroupCacheFallbackMatch(void *L, uint64_t guid, const uint16_t *arr,
         if (!CachedMatches(buf[i], match, harmful))
             continue;
         const Attribution a = CachedAttribution(buf[i]);
-        PushEnriched(L, guid, buf[i].spellId, !harmful, 1, GroupMemberLevel(guid),
+        PushEnriched(L, guid, buf[i].spellId, !harmful, 1,
                      false, buf[i].slot, &a);
         return true;
     }
@@ -1437,7 +1406,7 @@ bool PushNthGroupAura(void *L, uint64_t guid, int oneBasedIndex, Filter filter,
             continue;
         if (++matches == oneBasedIndex) {
             PushEnriched(L, guid, GroupSpellID(arr, slot),
-                         filter == Filter::Helpful, 1, GroupMemberLevel(guid),
+                         filter == Filter::Helpful, 1,
                          false, Aura::Source::SLOT_UNBOUND, /*known*/ nullptr,
                          emit);
             return true;
@@ -1468,7 +1437,7 @@ bool PushGroupAuraBySpellID(void *L, uint64_t guid, uint32_t spellID,
         if (!GroupSlotMatches(guid, arr, slot, match))
             continue;
         PushEnriched(L, guid, spellID, slot < Offsets::UNIT_AURA_BUFF_COUNT, 1,
-                     GroupMemberLevel(guid), false, Aura::Source::SLOT_UNBOUND);
+                     false, Aura::Source::SLOT_UNBOUND);
         return true;
     }
     // Empty array (server delta-resend gap): supplement from the cache.
@@ -1505,7 +1474,7 @@ bool PushGroupAuraBySpellName(void *L, uint64_t guid, const char *spellName,
         if (!GroupSlotMatches(guid, arr, slot, match))
             continue;
         PushEnriched(L, guid, id, slot < Offsets::UNIT_AURA_BUFF_COUNT, 1,
-                     GroupMemberLevel(guid), false, Aura::Source::SLOT_UNBOUND);
+                     false, Aura::Source::SLOT_UNBOUND);
         return true;
     }
     // Empty array (server delta-resend gap): supplement from the cache.
@@ -1529,13 +1498,12 @@ void AppendGroupAuras(void *L, uint64_t guid, Filter filter, Match match,
     Aura::Source::ObserveGroupAuras(guid, arr);
     int start, end;
     GroupRange(filter, start, end);
-    const int level = GroupMemberLevel(guid);
     for (int slot = start; slot < end; ++slot) {
         if (!GroupSlotMatches(guid, arr, slot, match))
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
         PushEnriched(L, guid, GroupSpellID(arr, slot),
-                     filter == Filter::Helpful, 1, level, false,
+                     filter == Filter::Helpful, 1, false,
                      Aura::Source::SLOT_UNBOUND);
         Game::Lua::SetTable(L, outerIdx);
     }
@@ -1625,7 +1593,7 @@ bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit
         if (!GroupSlotVisible(arr, k))
             return false;
         PushEnriched(L, guid, GroupSpellID(arr, k),
-                     k < Offsets::UNIT_AURA_BUFF_COUNT, 1, GroupMemberLevel(guid),
+                     k < Offsets::UNIT_AURA_BUFF_COUNT, 1,
                      false, Aura::Source::SLOT_UNBOUND, /*known*/ nullptr, emit);
         return true;
     }
@@ -1641,7 +1609,7 @@ bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit
         if (k >= EligibleGroupFallbacks(arr, guid, harmful, buf))
             return false;
         const Attribution a = CachedAttribution(buf[k]);
-        PushEnriched(L, guid, buf[k].spellId, !harmful, 1, GroupMemberLevel(guid),
+        PushEnriched(L, guid, buf[k].spellId, !harmful, 1,
                      false, buf[k].slot, &a, emit);
         return true;
     }

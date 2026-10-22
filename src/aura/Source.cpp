@@ -62,11 +62,11 @@ using Time::Clock::NowMs;
 // Server-authoritative duration (ms). When the local player is the caster
 // we let the engine fold in the player's duration modifiers (skipMod = 0);
 // for any other caster we take the unmodified base (skipMod = 1) since we
-// only have the local player's mod tables. `unit = 0` selects the player
-// mod context per FUN_GET_SPELL_DURATION's signature.
+// only have the local player's mod tables. `pet = 0` selects the player
+// as the caster per FUN_GET_SPELL_DURATION's signature.
 uint32_t SpellDurationMs(const uint8_t *spellRecord, bool casterIsPlayer) {
     using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord,
-                                            int unit, char skipMod);
+                                            int pet, char skipMod);
     const int ms = reinterpret_cast<GetDuration_t>(
         static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_DURATION))(
         spellRecord, 0, casterIsPlayer ? 0 : 1);
@@ -326,7 +326,7 @@ Entry *Register(Entry *e) {
 Entry *Claim(uint32_t now) {
     for (auto &e : g_cache) {
         if (!e.used ||
-            (e.expirationMs != 0 && now >= e.expirationMs &&
+            (e.expirationMs != 0 && Time::Clock::Reached(now, e.expirationMs) &&
              !DescriptorListsAura(e.targetGuid, e.spellId)))
             return Register(&e);
     }
@@ -661,7 +661,8 @@ void ApplyModOp(Entry &e, int32_t op, int32_t valueMs, uint32_t now) {
         break;
     case MOD_REDUCE:
         if (e.expirationMs != 0) {
-            if (e.expirationMs > now + static_cast<uint32_t>(valueMs)) {
+            if (Time::Clock::Remaining(now, e.expirationMs) >
+                static_cast<uint32_t>(valueMs)) {
                 e.expirationMs -= static_cast<uint32_t>(valueMs);
                 SignalAuraChanged(e.targetGuid);
             } else {
@@ -2034,7 +2035,7 @@ int Enumerate(uint64_t unitGuid, bool harmful, CachedAura *out, int maxOut) {
         const Entry &e = g_cache[i];
         if (!e.used || e.targetGuid != unitGuid || e.kind != want)
             continue;
-        if (e.expirationMs != 0 && now >= e.expirationMs)
+        if (e.expirationMs != 0 && Time::Clock::Reached(now, e.expirationMs))
             continue; // expired (infinite-duration entries pass)
         out[n++] = {e.spellId, e.casterGuid, e.expirationMs, e.durationMs,
                     e.slot};

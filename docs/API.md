@@ -10943,19 +10943,21 @@ hasRanged, rangedExpire, rangedCharges, rangedEnchantID
 ```lua
 -- Apply Brilliant Mana Oil to mainhand, then:
 local has, expireMs, charges, enchantID = C_Item.GetWeaponEnchantInfo()
--- has = true, expireMs = 1800000, charges = 0, enchantID = 2629
+-- has = true, expireMs = 1799850, charges = 0, enchantID = 2629
 
 -- Apply Instant Poison instead:
--- has = true, expireMs = 1800000, charges = 40, enchantID = 323
+-- has = true, expireMs = 1799850, charges = 40, enchantID = 323
 ```
+
+The expiration value is the time left in milliseconds. It counts down
+continuously, the same value the stock `GetWeaponEnchantInfo` gives.
+An enchant with no time limit reports `0`.
 
 An oil runs on time alone and reports `charges = 0`. A poison reports a
 charge count as well as a time.
 
-Reads the **temporary** enchant slot (`ITEM_FIELD_ENCHANTMENT`
-slot 1 at descriptor `+0x4C`) — the same slot oils, sharpening
-stones, and poisons populate and the engine drains as they expire.
-This is what `GetWeaponEnchantInfo` measures.
+These values come from the **temporary** enchant: oils, sharpening
+stones, poisons, and shaman weapon imbues.
 
 The permanent enchant (Crusader, Mongoose, etc., in slot 0 at
 `+0x40`) is **not** reported here — that's a separate field and
@@ -16408,11 +16410,18 @@ need spell metadata for arbitrary IDs (raid frames, debuff trackers, aura
 libraries) currently can't get it.
 
 Returns `name, rank, icon, cost, isFunnel, powerType, castTime,
-minRange, maxRange, spellID`. All read directly from `Spell.dbc` (with
-`SpellIcon.dbc`, `SpellCastTimes.dbc`, and `SpellRange.dbc` for the
-indirected fields). Cast time is in milliseconds; ranges are floats in
-yards. `isFunnel` is a real boolean (`true`/`false`). Returns `nil` if
-the spell ID is out of range.
+minRange, maxRange, spellID`. Returns `nil` if the spell ID is out of
+range.
+
+- `cost` is the cost you pay, with your talents and gear. Rage is in
+  whole points (Heroic Strike reports `15`).
+- `isFunnel` is `true` when the spell costs power every second, such as
+  Health Funnel or Drain Soul. Then `cost` is the cost per second.
+- `castTime` is your cast time in milliseconds, with your talents and
+  cast speed. It is `0` for an instant or passive spell.
+- `minRange` and `maxRange` are in yards.
+
+For a `"pet"` book slot, `cost` and `castTime` are your pet's values.
 
 Four input forms are accepted:
 
@@ -16469,13 +16478,13 @@ Table fields:
 |--------------|---------|-------|
 | `name`       | string  | Localized name |
 | `iconID`     | string  | Icon **path** (e.g. `"Interface\\Icons\\Spell_Fire_FlameBolt"`). See note below. |
-| `castTime`   | number  | Base cast time in milliseconds, or 0 for instant |
+| `castTime`   | number  | Your cast time in milliseconds, with talents and cast speed; 0 for an instant or passive spell |
 | `minRange`   | number  | Yards, or 0 if not applicable |
 | `maxRange`   | number  | Yards, or 0 if not applicable |
 | `spellID`    | number  | Echo of the input |
 | `rank`       | string  | Localized rank (e.g. `"Rank 1"`) — an extra field |
-| `cost`       | number  | Base ManaCost — an extra field |
-| `isFunnel`   | boolean | True for funnel-channeled spells — an extra field |
+| `cost`       | number  | The cost you pay, with talents and gear; rage in whole points; per second when `isFunnel` — an extra field |
+| `isFunnel`   | boolean | True when the spell costs power every second — an extra field |
 | `powerType`  | number  | 0=mana, 1=rage, 2=focus, 3=energy, 4=happiness — an extra field |
 
 ```lua
@@ -17148,6 +17157,9 @@ local info = C_Spell.GetSpellCooldown(1953)   -- Blink
 
 The `activeCategory`, `timeUntilEndOfStartRecovery`, and
 `isOnGCD` fields read as `nil` since they have no source here.
+
+A spell in your pet's spellbook, and not in yours, reports your pet's
+cooldown.
 
 Returns `nil` if the resolved spellID is `0` or doesn't have a
 `Spell.dbc` row.
@@ -20969,7 +20981,7 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `dispelName` | string | `"Magic"` / `"Curse"` / `"Disease"` / `"Poison"` (from `SpellDispelType.dbc`), or `""` if non-dispellable |
 | `isHelpful` | boolean | true when the aura is a buff |
 | `isHarmful` | boolean | true when the aura is a debuff. This is the aura's real polarity, so a debuff parked in a buff slot still reads harmful |
-| `duration` | number | applied duration in seconds. When the aura's cast was observed (in the `Aura::Source` cache), this is the caster-modified duration — talent/glyph extensions like Improved Shadow Word: Pain included — so it stays consistent with `expirationTime` (`remaining ≤ duration`). On a cache miss it falls back to the base `Spell.dbc → SpellDuration.dbc` value with level scaling. Returns 0 for spells flagged "no duration" (passives, paladin auras, infinite buffs) |
+| `duration` | number | applied duration in seconds. When the aura's cast was observed (in the `Aura::Source` cache), this is the caster-modified duration — talent/glyph extensions like Improved Shadow Word: Pain included — so it stays consistent with `expirationTime` (`remaining ≤ duration`). When no expiration time is known, `duration` is 0 too, so the two values are always given together. Returns 0 for spells flagged "no duration" (passives, paladin auras, infinite buffs) |
 | `expirationTime` | number | for `unit == "player"`, read from the engine's player-buff table at `0x00BC6040` (same data `GetPlayerBuffTimeLeft` returns). For any other unit, taken from the `Aura::Source` cache (cast time + duration captured from `SMSG_SPELL_GO`; see below). `0` when neither source has it, and `0` for one of your auras that lasts until you cancel it. `expirationTime - GetTime()` gives the true remaining time |
 | `sourceUnit` | string | unit token of the caster (`"player"`, `"raid7"`, `"nameplate1"`, …), resolved from the `Aura::Source` cache. `nil` if the cast wasn't observed or the caster maps to no current token |
 | `sourceGUID` | string | caster's `"0x…"` GUID string from the same cache. **A ClassicAPI extension — not a standard `AuraData` field.** Set whenever a caster is known, including when `sourceUnit` is `nil` (caster left token range). Stable for the session, unlike the volatile nameplate token; doubles as a unit token under SuperWoW. `nil` on a cache miss |
@@ -21059,7 +21071,7 @@ This path is **spell-ID only**, because that is all the packet carries:
 - `expirationTime` / `sourceUnit` / `sourceGUID` are present only if *you*
   cast the aura (the `Aura::Source` `SMSG_SPELL_GO` entry is merged in when
   it matches); otherwise the usual defaults.
-- `duration` is the `Spell.dbc` base with level scaling.
+- `duration` is 0 unless the expiration time is known too.
 - Spell IDs are truncated to 16 bits on the wire, so a custom aura with a
   spell ID above 65535 comes through wrong — an inherent limitation of the
   packet that `UnitBuff` shares.

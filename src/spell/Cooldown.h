@@ -17,8 +17,10 @@
 
 namespace Spell::Cooldown {
 
-// The engine's own cooldown query (`FUN_SPELL_QUERY_COOLDOWN`) for the
-// local player's `spellID`: start tick and duration in engine milliseconds
+// The engine's own cooldown query (`FUN_SPELL_QUERY_COOLDOWN`) for
+// `spellID`, read from the pet's spell history when the spell is in the
+// pet's book and not the player's (4.3.4's by-ID `GetSpellCooldown` picks
+// the history the same way), else the player's: start tick and duration in engine milliseconds
 // (unsigned, `GetTime()` epoch — see `Time::Clock`), and whether the
 // cooldown is enabled (false = "on hold"). Both times are 0 when no
 // cooldown is active. Returns false without touching the outputs when

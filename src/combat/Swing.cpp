@@ -288,7 +288,7 @@ void ApplyParryHaste() {
 
 // ---- Ranged wind-up compensation ------------------------------------------
 
-using GetCastTime_t = int(__fastcall *)(int spellID, int unit, int flag);
+using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
 
 // Auto Shot / Shoot are re-cast by the server as TRIGGERED spells, so the
 // per-shot SMSG_SPELL_START is skipped and SMSG_SPELL_GO is the only packet

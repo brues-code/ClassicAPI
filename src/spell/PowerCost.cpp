@@ -47,7 +47,7 @@ namespace Spell::PowerCost {
 
 namespace {
 
-using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int unit);
+using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int pet);
 
 
 uint32_t EffectiveCost(int spellID) {

@@ -163,7 +163,7 @@ bool OnSignal(int eventID) {
 const Event::SignalHook::AutoSubscribe _spellsChanged{&OnSignal};
 
 uint32_t SpellDurationMs(const uint8_t *rec) {
-    using GetDuration_t = int(__fastcall *)(const uint8_t *rec, int unit,
+    using GetDuration_t = int(__fastcall *)(const uint8_t *rec, int pet,
                                             char skipMod);
     const int ms = reinterpret_cast<GetDuration_t>(
         static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_DURATION))(rec, 0, 0);

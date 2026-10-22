@@ -227,8 +227,10 @@ uint32_t TryComboScaledMs(const uint8_t *spellRecord, uint32_t spellId) {
                         Offsets::VAR_SPELL_DURATION_COUNT,
                         static_cast<uint32_t>(idx));
         if (row != nullptr) {
-            baseMs = *reinterpret_cast<const int32_t *>(row + 0x4);
-            maxMs = *reinterpret_cast<const int32_t *>(row + 0xC);
+            baseMs = *reinterpret_cast<const int32_t *>(
+                row + Offsets::OFF_SPELLDURATION_BASE_MS);
+            maxMs = *reinterpret_cast<const int32_t *>(
+                row + Offsets::OFF_SPELLDURATION_MAX_MS);
         } else if (idx != 0) {
             // Dangling duration index — the client data is broken for this
             // spell. Defer to a registered resolver (the known values are

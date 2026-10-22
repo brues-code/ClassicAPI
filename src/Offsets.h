@@ -2743,8 +2743,8 @@ enum Offsets {
     FUN_OS_TICKCOUNT_MS = 0x0042B790,
 
     // Effective cast time (ms) for a spell, fully resolved:
-    // `__fastcall uint32_t(int spellID, int unit /*0 = local player*/,
-    // int flag /*0 = clamp negatives to 0*/)`. Computes
+    // `__fastcall int32_t(int spellID, int pet /*0 = local player, 1 = pet*/,
+    // int allowNegative /*0 = clamp negatives to 0*/)`. Computes
     // SpellCastTimes base + level scaling, applies the cast-time
     // SpellMod (op 10, via FUN_006e6af0), then multiplies by the
     // caster's cast-speed/haste mod (descriptor +0x22c). This is the
@@ -2755,7 +2755,7 @@ enum Offsets {
     FUN_GET_CAST_TIME = 0x006E3340,
 
     // Effective power cost (mana/rage/energy/…) for a spell:
-    // `__fastcall uint32_t(int spellID, int unit /*0 = local player*/)`.
+    // `__fastcall uint32_t(int spellID, int pet /*0 = local player, 1 = pet*/)`.
     // Computes ManaCost base + per-level + ManaCostPercent-of-resource,
     // applies the descriptor power-cost modifiers, then the cost
     // SpellMod (op 0xE / 14). 0xFFFFFFFF on invalid input / no player.
@@ -2763,6 +2763,18 @@ enum Offsets {
     // time one — beats replicating op 14 via Spell::Mod since it also
     // folds in the descriptor cost mods).
     FUN_GET_SPELL_COST = 0x006E31B0,
+    // Power per second of a channel/funnel: `__fastcall int32_t(int spellID,
+    // int pet)` → `(L − baseLevel)·ManaPerSecondPerLevel + ManaPerSecond`,
+    // no modifier; −1 without a record (benilla-re spell/records#power-cost).
+    // 4.3.4 `GetSpellInfo` reports this instead of the cost (with
+    // isFunnel = true) when it is positive.
+    FUN_GET_SPELL_POWER_PER_SECOND = 0x006E3300,
+    // Divisor that turns a stored power amount into its displayed units:
+    // `__fastcall uint32_t(int powerType)` → `[0x0086F978 + 4·type]`, 1 for a
+    // negative type. Table {1, 10, 1, 1, 1000} — rage is stored in tenths
+    // (Heroic Strike's 15 rage is 150 in Spell.dbc). Verified by disassembly;
+    // same table as 3.3.5's `s_powerDisplayMod`.
+    FUN_GET_POWER_DISPLAY_DIVISOR = 0x006E7130,
 
     // The engine's spell-castability verdict for the LOCAL player — the
     // function behind `IsUsableAction` for a player spell slot (the spell
@@ -2867,10 +2879,14 @@ enum Offsets {
     FUN_PLAYER_SEND_STAND_STATE = 0x005ED430,
 
     // Effective spell/channel duration (ms):
-    // `__fastcall int(const void *spellRecord, int unit /*0 = player,
-    // nonzero = pet*/, int skipMod /*0 = apply mods*/)`. SpellDuration
-    // base + level scaling (capped at the row's max), then the duration
-    // SpellMod (op 1). Same `unit` selector as the cast-time/cost helpers.
+    // `__fastcall int(const void *spellRecord, int pet /*0 = player,
+    // nonzero = pet*/, int skipMod /*0 = apply mods*/)`. Verified by
+    // disassembly: `d = (L − BaseLevel)·perLevel + base`, replaced by the
+    // row's max once `d >= max` (no `max > 0` guard, no floor on the level
+    // term), then the duration SpellMod (op 1) unless skipMod. `L` is
+    // `FUN_SPELL_CASTER_LEVEL`'s — the player's or pet's level capped at the
+    // spell's MaxLevel. The "infinite" rows (base −1, max −1) come back −1.
+    // Same `pet` selector as the cast-time/cost helpers.
     // Used for UnitChannelInfo's channel end time. Note: takes the spell
     // RECORD pointer, not a spellID.
     FUN_GET_SPELL_DURATION = 0x006EA000,
@@ -2940,30 +2956,6 @@ enum Offsets {
     // to gate the "can I even attack the current target" case Blizzard's
     // `IsTargetWithinSwingRange` reports as a nil (no-check) answer.
     FUN_UNIT_CAN_ATTACK = 0x00606980,
-
-    // Spell.dbc `m_durationIndex` field — pointer into SpellDuration.dbc.
-    // Verified via `FUN_004E44B0` (`0x004e44b0`) and `FUN_006EA000`
-    // (`0x006ea000`), both of which read `[spellRec + 0x78]` and use
-    // the result as a SpellDuration.dbc index.
-    OFF_SPELL_DURATION_INDEX = 0x78,
-    // Spell.dbc `m_baseLevel` — the spell level used as the anchor in
-    // `(effLevel - baseLevel) * perLevel + base` scaling. Same offset
-    // `0x70` as CGUnit's UNIT_FIELD_LEVEL but in a different struct.
-    OFF_SPELL_BASE_LEVEL = 0x70,
-
-    // SpellDuration.dbc — class instance at `0x00C0D820`, records at
-    // `0x00C0D828`, count at `0x00C0D82C`. Record layout matches the
-    // SpellCastTimes.dbc shape:
-    //   +0x00 (int)  id
-    //   +0x04 (int)  base duration ms (signed; negative + perLevel=0
-    //                means "no real duration" / infinite aura)
-    //   +0x08 (int)  per-level duration scaling ms
-    //   +0x0C (int)  max duration ms (cap)
-    VAR_SPELLDURATION_RECORDS = 0x00C0D828,
-    VAR_SPELLDURATION_COUNT = 0x00C0D82C,
-    OFF_SPELLDURATION_BASE_MS = 0x04,
-    OFF_SPELLDURATION_PER_LEVEL_MS = 0x08,
-    OFF_SPELLDURATION_MAX_MS = 0x0C,
 
     // `SMSG_SPELL_GO` inner handler — `void __fastcall(uint64_t *itemGUID,
     // uint64_t *casterGUID, uint32_t spellId, CDataStore *packet)`. The
@@ -3206,8 +3198,14 @@ enum Offsets {
     // (CastingTimeIndex col 18 = +0x48, PowerType col 31 = +0x7C).
     OFF_SPELL_RECORD_DURATION_INDEX = 0x78,
 
-    // SpellDuration.dbc — records/count slots per docs/DBCs.md. Record:
-    // `{id@+0, baseMs@+4 (i32), perLevelMs@+8 (i32), maxMs@+0xC (i32)}`.
+    // SpellDuration.dbc — records/count slots per docs/DBCs.md (the
+    // engine's own reader `FUN_GET_SPELL_DURATION` bounds-checks the index
+    // against `[0x00C0D82C]` and loads `[0x00C0D828]`). Record:
+    // `{id@+0, baseMs@+4 (i32), perLevelMs@+8 (i32), maxMs@+0xC (i32)}`
+    // (`OFF_SPELLDURATION_*`). Base −1 is infinite — the only such row is
+    // 21 {−1, 0, −1}; the engine's until-cancelled test (`0x004E44B0`) is
+    // `base < 0 && perLevel < 1`. Row 427 (Resurrection Sickness) is
+    // {−600000, +60000/level, 600000}: the servers take `abs(base)`.
     // Combo-point finishers are exactly the rows with base != max: the
     // server computes `base + (max - base) * comboPoints / 5`
     // ((v)mangos CalculateSpellDuration — verified against the DBC:
@@ -3218,6 +3216,9 @@ enum Offsets {
     // Rip reads duration 0 client-side there.
     VAR_SPELL_DURATION_RECORDS = 0x00C0D828,
     VAR_SPELL_DURATION_COUNT = 0x00C0D82C,
+    OFF_SPELLDURATION_BASE_MS = 0x04,
+    OFF_SPELLDURATION_PER_LEVEL_MS = 0x08,
+    OFF_SPELLDURATION_MAX_MS = 0x0C,
 
     // Combo points, within the CGPlayer `+0xE68` sub-struct (see
     // OFF_CGPLAYER_INFO). Verified from Script_GetComboPoints
@@ -4625,6 +4626,15 @@ enum Offsets {
     // Slot 1 of the block — poisons, weapon oils, sharpening stones, the
     // shaman imbues. The timed enchant `GetWeaponEnchantInfo` measures.
     DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY = 1,
+    // The CGItem's client-side enchantment expiry clock, set from
+    // SMSG_ITEM_ENCHANT_TIME_UPDATE: `uint32_t __thiscall(CGItem *item,
+    // int slot)` → ms left (`expiry − now` while positive, 0 for an unset or
+    // reached expiry, wrap-safe `sub; jns`). Expiries live at
+    // `item+0x324 + 4·slot`. Verified by disassembly. 1.12's own
+    // `Script_GetWeaponEnchantInfo` (`0x4c9790`) reads the time left here and
+    // uses the descriptor duration field only as a nil gate — the field is
+    // not a live countdown (4.3.4's `GetEnchantmentTimeLeft` is the same).
+    FUN_ITEM_ENCHANTMENT_TIME_LEFT = 0x005D9D00,
     // ITEM_FIELD_DURABILITY (current) and ITEM_FIELD_MAXDURABILITY (max) live
     // adjacent to each other in the descriptor as plain dwords. Verified in
     // `Script_GetInventoryItemBroken` (`0x004C8590`): after resolving the
@@ -6622,14 +6632,14 @@ enum Offsets {
     FUN_LEARN_SPELL = 0x004B25B0,
     FUN_UNLEARN_SPELL = 0x004B2C50,
 
-    // Per-spell cooldown query. `__fastcall(int spellID, int bookType,
+    // Per-spell cooldown query. `__fastcall(int spellID, int pet,
     // int *outDuration, int *outStart, int *outEnable)`. Same path
     // `Script_GetSpellCooldown` (`0x004B40A0`) uses internally after
-    // resolving the (slot, bookType) Lua args to a spellID — we
-    // bypass the slot resolution and pass spellID directly with
-    // `bookType=0` (player) since that's the standard
-    // `IsUsableSpell(spellID)` use case. `outDuration > 0` means the
-    // spell is currently on cooldown.
+    // resolving the (slot, bookType) Lua args to a spellID. `pet` picks the
+    // spell history: 0 = the player's (`0xCECAEC`), 1 = the pet's
+    // (`0xCECB04`) — 4.3.4's by-ID `GetSpellCooldown` picks 1 when the spell
+    // is in the pet's book. `outDuration > 0` means the spell is currently
+    // on cooldown.
     //
     // **Argument order**: verified via `Script_C_Spell_GetSpellCooldown`
     // round-trip test (Blink, spellID 1953) — the third arg receives

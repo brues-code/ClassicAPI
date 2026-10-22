@@ -23,14 +23,6 @@
 
 namespace Spell::Info {
 
-// GetSpellInfo's isFunnel means a health-funnel spell — AttributesEx2 (+0x20)
-// bit 11 = SPELL_ATTR_EX2_HEALTH_FUNNEL. Verified from Spell.dbc: Health
-// Funnel (755) Ex2=0x808 and Hellfire (1949) Ex2=0x800 carry it, while
-// channeled non-funnels (Drain Life, Mind Flay, Arcane Missiles, Rain of
-// Fire) do not. An earlier version read AttributesEx bit 6, which is
-// CHANNELED_2 — false for Health Funnel itself and true for unrelated
-// channels, so it never actually detected funnel spells.
-static constexpr uint32_t SPELL_ATTR_EX2_HEALTH_FUNNEL = 0x800;
 // Spell.dbc effect-target arrays. Each spell has 3 effects, each
 // with an implicit target A and an implicit target B (the latter
 // often 0). Used by IsSpellHarmful / IsSpellHelpful — vanilla has
@@ -114,15 +106,23 @@ struct SpellInfoData {
     const char *name;       // localized; nullable if record's locale slot is unset
     const char *rank;       // localized; same nullability as name
     const char *iconPath;   // SpellIcon.dbc path; null if icon record missing
-    int cost;               // base ManaCost (no per-level scaling)
-    bool isFunnel;
+    int cost;               // effective cost, or power per second for a funnel
+    bool isFunnel;          // the cost is per second
     int powerType;          // 0=mana, 1=rage, 2=focus, 3=energy, 4=happiness
-    int castTimeMs;         // base time from SpellCastTimes.dbc
+    int castTimeMs;         // effective cast time; 0 for a passive
     float minRange;
     float maxRange;
 };
 
-static bool ReadSpellInfo(int spellID, SpellInfoData &out) {
+// Cost and cast time are the caster's EFFECTIVE values, read through the
+// engine's own helpers exactly as 3.3.5's and 4.3.4's `Script_GetSpellInfo`
+// do: the cost helper (level scaling, %-of-base, school mods, op 14) and the
+// power-per-second helper, each divided by the power type's display divisor
+// (rage is stored in tenths); a positive per-second cost replaces the cost
+// and sets isFunnel. The cast time is the cast-time helper (level scaling,
+// op 10, cast speed) with allowNegative, and 0 for a passive. `pet` selects
+// the pet as the caster, as a "pet" book slot does in retail.
+static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
     if (record == nullptr)
         return false;
@@ -140,20 +140,26 @@ static bool ReadSpellInfo(int spellID, SpellInfoData &out) {
         out.iconPath = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
     }
 
-    out.cost = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_MANA_COST);
-
-    const uint32_t attrEx2 = Game::Read<uint32_t>(
-        record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2);
-    out.isFunnel = (attrEx2 & SPELL_ATTR_EX2_HEALTH_FUNNEL) != 0;
-
     out.powerType = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
 
+    using PowerHelper_t = int32_t(__fastcall *)(int spellID, int pet);
+    using DisplayDivisor_t = uint32_t(__fastcall *)(int powerType);
+    using CastTime_t = int32_t(__fastcall *)(int spellID, int pet, int allowNegative);
+    const auto divisor = static_cast<int32_t>(reinterpret_cast<DisplayDivisor_t>(
+        static_cast<uintptr_t>(Offsets::FUN_GET_POWER_DISPLAY_DIVISOR))(out.powerType));
+    const int32_t cost = reinterpret_cast<PowerHelper_t>(
+        static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_COST))(spellID, pet) / divisor;
+    const int32_t costPerSecond = reinterpret_cast<PowerHelper_t>(
+        static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_POWER_PER_SECOND))(spellID, pet) / divisor;
+    out.isFunnel = costPerSecond > 0;
+    // The cost helper answers −1 with no caster (a pet slot with no pet).
+    out.cost = out.isFunnel ? costPerSecond : (cost > 0 ? cost : 0);
+
     out.castTimeMs = 0;
-    const int castIndex = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_CASTING_TIME_INDEX);
-    if (auto *castRec = LookupSubRecord(Offsets::VAR_SPELL_CAST_TIMES_RECORDS,
-                                        Offsets::VAR_SPELL_CAST_TIMES_COUNT, castIndex)) {
-        out.castTimeMs = *reinterpret_cast<const int *>(castRec + 4);
-    }
+    if (!(Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+          Offsets::SPELL_ATTR_PASSIVE))
+        out.castTimeMs = reinterpret_cast<CastTime_t>(
+            static_cast<uintptr_t>(Offsets::FUN_GET_CAST_TIME))(spellID, pet, 1);
 
     out.minRange = 0.0f;
     out.maxRange = 0.0f;
@@ -209,7 +215,9 @@ static int SpellIDFromLink(const char *s) {
 // for invalid/empty inputs (Lua side surfaces 0 as nil since spellID 0 is
 // never valid). Only a non-string, non-number arg1 raises `lua_error` —
 // a name retail doesn't recognize returns nil, it does not error.
-static int ResolveLuaArgsToSpellID(void *L) {
+static int ResolveLuaArgsToSpellID(void *L, int *outPet = nullptr) {
+    if (outPet != nullptr)
+        *outPet = 0;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_STRING) {
         const char *s = Game::Lua::ToString(L, 1);
         const int fromLink = SpellIDFromLink(s);
@@ -225,18 +233,21 @@ static int ResolveLuaArgsToSpellID(void *L) {
     if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING) {
         const char *book = Game::Lua::ToString(L, 2);
         const int bookType = static_cast<int>(BookTypeIsPet(book));
+        if (outPet != nullptr)
+            *outPet = bookType;
         return Spell::Lookup::SpellbookSlotToID(arg1, bookType);
     }
     return arg1;
 }
 
 static int __fastcall Script_GetSpellInfo(void *L) {
-    const int spellID = ResolveLuaArgsToSpellID(L);
+    int pet = 0;
+    const int spellID = ResolveLuaArgsToSpellID(L, &pet);
     if (spellID <= 0)
         return 0;
 
     SpellInfoData info;
-    if (!ReadSpellInfo(spellID, info))
+    if (!ReadSpellInfo(spellID, pet, info))
         return 0;
 
     // PushString tail-calls PushNil for null pointers, so unset locale
@@ -276,7 +287,7 @@ static void SetFieldBool(void *L, const char *key, bool value) {
 static int __fastcall Script_C_GetSpellInfo(void *L) {
     const int spellID = Spell::Arg::ResolveSpellID(L, 1);
     SpellInfoData info;
-    if (!ReadSpellInfo(spellID, info))
+    if (!ReadSpellInfo(spellID, 0, info))
         return 0; // nil for unknown spellID
 
     Game::Lua::NewTable(L);
@@ -740,7 +751,7 @@ static int __fastcall Script_C_SpellBook_GetSpellBookItemInfo(void *L) {
         return 0; // empty slot / out of range -> nil
 
     SpellInfoData info;
-    if (!ReadSpellInfo(spellID, info))
+    if (!ReadSpellInfo(spellID, bookType, info))
         return 0;
 
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
@@ -785,12 +796,13 @@ static const Game::Doc::Field kGetSpellInfoRets[] = {
                    "Localized spell name; all returns are nil for an unknown spell."),
     Game::Doc::Opt("rank", "string", nullptr, "Localized rank text, such as \"Rank 2\"."),
     Game::Doc::Opt("icon", "string", nullptr, "Icon texture path."),
-    Game::Doc::Opt("cost", "number", nullptr, "Base power cost."),
-    Game::Doc::Opt("isFunnel", "bool", nullptr, "True for a health funnel spell."),
+    Game::Doc::Opt("cost", "number", nullptr,
+                   "Power cost for the caster, with talents; per second when isFunnel."),
+    Game::Doc::Opt("isFunnel", "bool", nullptr, "True when the cost is paid per second."),
     Game::Doc::Opt("powerType", "number", nullptr,
                    "0 mana, 1 rage, 2 focus, 3 energy, 4 happiness."),
     Game::Doc::Opt("castTime", "number", nullptr,
-                   "Base cast time in milliseconds; 0 when instant."),
+                   "Cast time for the caster in milliseconds, with talents and cast speed; 0 when instant or passive."),
     Game::Doc::Opt("minRange", "number", nullptr, "Minimum range in yards."),
     Game::Doc::Opt("maxRange", "number", nullptr, "Maximum range in yards."),
     Game::Doc::Opt("spellID", "number", nullptr, "The spell ID the arguments resolved to."),
@@ -803,13 +815,15 @@ static const Game::Doc::Field kSpellInfoFields[] = {
     Game::Doc::Opt("name", "string", nullptr, "Localized spell name."),
     Game::Doc::Opt("iconID", "string", nullptr,
                    "Icon texture path; give it to texture:SetTexture."),
-    Game::Doc::Req("castTime", "number", "Base cast time in milliseconds; 0 when instant."),
+    Game::Doc::Req("castTime", "number",
+                   "Cast time for the player in milliseconds, with talents and cast speed; 0 when instant or passive."),
     Game::Doc::Req("minRange", "number", "Minimum range in yards."),
     Game::Doc::Req("maxRange", "number", "Maximum range in yards."),
     Game::Doc::Req("spellID", "number", "The spell ID."),
     Game::Doc::Opt("rank", "string", nullptr, "Localized rank text, such as \"Rank 2\"."),
-    Game::Doc::Req("cost", "number", "Base power cost."),
-    Game::Doc::Req("isFunnel", "bool", "True for a health funnel spell."),
+    Game::Doc::Req("cost", "number",
+                   "Power cost for the player, with talents; per second when isFunnel."),
+    Game::Doc::Req("isFunnel", "bool", "True when the cost is paid per second."),
     Game::Doc::Req("powerType", "number", "0 mana, 1 rage, 2 focus, 3 energy, 4 happiness."),
 };
 static const Game::Doc::Structure kSpellInfoStruct{

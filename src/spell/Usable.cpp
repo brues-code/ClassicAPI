@@ -51,7 +51,7 @@ namespace Spell::Usable {
 namespace {
 
 using SpellIsUsable_t = int(__fastcall *)(const uint8_t *spellRecord, int *outNoMana);
-using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int unit);
+using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int pet);
 using PetActionsUsable_t = int(__cdecl *)();
 
 struct Usability {
@@ -79,7 +79,7 @@ Usability ComputePlayer(int spellID) {
 // Pet spell — the pet branch of `FUN_004E5050`, mirrored step for step:
 // the pet must be able to act (`FUN_PET_ACTIONS_USABLE`), then the pet's
 // current power of the spell's PowerType (-2 = health) is compared against
-// the cost from `FUN_GET_SPELL_COST(spellID, 0)` — the engine passes unit
+// the cost from `FUN_GET_SPELL_COST(spellID, 0)` — the engine passes pet
 // 0 here too. `cost <= power` is a signed compare, as in the engine.
 Usability ComputePet(int spellID) {
     Usability r{false, false};

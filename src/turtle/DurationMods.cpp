@@ -91,7 +91,7 @@ int32_t BestialWrathDurationMs() {
     if (rec == nullptr)
         return kBestialWrathFallbackMs;
     using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord,
-                                            int unit, char skipMod);
+                                            int pet, char skipMod);
     const int ms = reinterpret_cast<GetDuration_t>(
         static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_DURATION))(
         rec, 0, /*skipMod*/ 1);

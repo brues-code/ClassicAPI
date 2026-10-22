@@ -39,7 +39,7 @@ namespace {
 // past 2^31 ms (~24.9 days) — `startTime + duration` then lands a month in the
 // past and callers see every cooldown as already elapsed. Keep them unsigned;
 // see `Time::Clock` for the full rationale.
-using QueryCooldown_t = void(__fastcall *)(int spellID, int bookType,
+using QueryCooldown_t = void(__fastcall *)(int spellID, int pet,
                                             uint32_t *outDuration,
                                             uint32_t *outStart,
                                             uint32_t *outEnable);
@@ -102,8 +102,10 @@ bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
         return false;
     auto fn = reinterpret_cast<QueryCooldown_t>(
         static_cast<uintptr_t>(Offsets::FUN_SPELL_QUERY_COOLDOWN));
+    int pet = 0;
+    Spell::Lookup::FindSpellbookSlot(spellID, &pet);
     uint32_t duration = 0, start = 0, enable = 0;
-    fn(spellID, 0 /* bookType=player */, &duration, &start, &enable);
+    fn(spellID, pet, &duration, &start, &enable);
     *startMs = start;
     *durationMs = duration;
     *enabled = enable != 0;

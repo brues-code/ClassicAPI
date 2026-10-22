@@ -33,9 +33,13 @@ struct EnchantInfo {
     uint32_t enchantID;
 };
 
-// Reads the temporary-enchant slot of `cgItem`. `has` is true iff an
-// enchant is currently active (id non-zero AND non-expired) — matches
-// modern `GetWeaponEnchantInfo`'s hasMainHandEnchant semantic. Returns
+// Reads the temporary-enchant slot of `cgItem`. `has` is true iff the
+// slot holds an enchant id — the engine's own gate (1.12's
+// `Script_GetWeaponEnchantInfo` and 4.3.4's both test the id alone). The
+// time left comes from the item's expiry clock, which the enchant time
+// update sets and which counts down between server updates; the
+// descriptor duration field only gates it (0 → no time), exactly as the
+// engine reads it. Returns
 // a zeroed struct for an empty slot, a missing item, or a missing
 // descriptor, so every caller can report "no enchant" uniformly.
 //
@@ -55,11 +59,18 @@ EnchantInfo ReadTempEnchant(const uint8_t *cgItem) {
         Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY *
             Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_STRIDE;
     r.enchantID = Game::Read<uint32_t>(desc, kSlot);
-    r.expirationMs = Game::Read<uint32_t>(
-        desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_DURATION_DELTA);
+    if (r.enchantID == 0)
+        return r;
+    r.has = true;
     r.charges = Game::Read<uint32_t>(
         desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_CHARGES_DELTA);
-    r.has = (r.enchantID != 0 && r.expirationMs > 0);
+    if (Game::Read<uint32_t>(
+            desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_DURATION_DELTA) != 0) {
+        using TimeLeft_t = uint32_t(__fastcall *)(const uint8_t *item, void *edx, int slot);
+        r.expirationMs = reinterpret_cast<TimeLeft_t>(
+            static_cast<uintptr_t>(Offsets::FUN_ITEM_ENCHANTMENT_TIME_LEFT))(
+            cgItem, nullptr, Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY);
+    }
     return r;
 }
 
