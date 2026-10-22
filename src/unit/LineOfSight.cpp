@@ -17,15 +17,27 @@
 // extension — retail has no such global — implemented natively on the
 // engine's world-collision core so it works without UnitXP_SP3.
 //
-// Mechanism: trace a ray between the two units through the client's world
-// geometry via `CWorld::Intersect` (`FUN_CWORLD_INTERSECT`). Endpoints are
-// raised by each unit's collision-box height so a foot-to-foot ray doesn't
-// false-block on terrain, and the trace runs in two passes (level look,
-// then look up/down) exactly as UnitXP_SP3 does — this file mirrors that
-// proven implementation (same VA, flags `0x100111` = terrain + WMO, and the
-// 150yd guard against a long-segment crash it documented). We *call* the
-// intersect; if UnitXP_SP3 is loaded it has that function hooked, but a
-// call routes through its detour harmlessly (our flag isn't one it acts on).
+// Mechanism: trace one segment between the two units through the client's
+// world geometry via `CWorld::Intersect` (`FUN_CWORLD_INTERSECT`). The
+// question the caller is really asking is "will the server reject my cast
+// with SPELL_FAILED_LINE_OF_SIGHT", so the segment mirrors the server's
+// `WorldObject::IsWithinLOSInMap`: ONE trace, each end raised by its own
+// unit's collision height (`Unit::GetLosCheckPosition`). The client's
+// `CMovement+0xB4` is that same height — CreatureModelData collision height
+// × scale, set by `0x6174b0` from `0x60b270`. An earlier version (copied
+// from UnitXP_SP3) first traced both ends at the SHORTER unit's height and
+// returned "in sight" if that cleared; the server has no such pass, so a
+// segment that slipped under an overhang or ledge read as clear while the
+// cast still failed.
+//
+// Class word `0x100111` is the engine's own (walk-to-attack `0x60fe18`,
+// corpse `0x5d6a9d`). It runs terrain (0xf00), WMO groups (0x10), the cell /
+// group doodad queue + M2 ray (0xf0000f → `0x69cdb0`, `0x7089c0`) and game
+// object entities (0xf00000 → `0x69ce90`). Its WMO face mask is `0x84`
+// (rejects detail faces, MOPY 0x04), which matches the server's vmap
+// extractor dropping the same faces; the camera's `0x100171` (mask `0x82`)
+// would keep detail faces the server ignores. If UnitXP_SP3 is loaded it has
+// the intersect hooked, but a call routes through its detour harmlessly.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -95,36 +107,20 @@ bool SegmentClear(const Vec3 &a, const Vec3 &b) {
 }
 
 // Player↔unit LoS. Returns 1 = in sight, 0 = blocked, -1 = unknown
-// (position unavailable). Two-pass eye-height handling: trace both
-// endpoints at the shorter unit's eye height first (level look), then —
-// only if that's blocked and the two heights differ — retry with each at
-// its own eye height (look up/down).
+// (position unavailable). One segment, each end at its own unit's
+// collision height — the server's check (see the file header).
 int InSight(void *a, void *b) {
     if (a == b)
         return 1;
-    if (EyeHeight(a) > EyeHeight(b)) {
-        void *tmp = a;
-        a = b;
-        b = tmp;
-    }
 
     float pa[3];
     float pb[3];
     if (!Unit::Position::Read(a, pa) || !Unit::Position::Read(b, pb))
         return -1;
 
-    const float shortEye = EyeHeight(a);
-    const Vec3 la{pa[0], pa[1], pa[2] + shortEye};
-    const Vec3 lb{pb[0], pb[1], pb[2] + shortEye};
-    if (SegmentClear(la, lb))
-        return 1;
-
-    if (EyeHeight(a) == EyeHeight(b))
-        return 0;
-
-    const Vec3 ua{pa[0], pa[1], pa[2] + EyeHeight(a)};
-    const Vec3 ub{pb[0], pb[1], pb[2] + EyeHeight(b)};
-    return SegmentClear(ua, ub) ? 1 : 0;
+    const Vec3 ea{pa[0], pa[1], pa[2] + EyeHeight(a)};
+    const Vec3 eb{pb[0], pb[1], pb[2] + EyeHeight(b)};
+    return SegmentClear(ea, eb) ? 1 : 0;
 }
 
 int __fastcall Script_UnitInLineOfSight(void *L) {

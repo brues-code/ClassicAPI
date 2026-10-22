@@ -20718,18 +20718,18 @@ if UnitInLineOfSight("target") then
 end
 ```
 
-Traces a ray between the two units through the client's world-collision
-geometry (`CWorld::Intersect`, flags `terrain + WMO`). Endpoints are
-raised by each unit's collision-box height so a foot-to-foot ray doesn't
-false-block on terrain, and the trace runs in two passes (level look,
-then look up/down) for height mismatches — the same approach UnitXP_SP3
-uses, implemented natively so it works with or without that addon (a
-call routes harmlessly through UnitXP_SP3's hook when present).
+The check uses one line from your unit to the other unit. Each end of
+the line is at the height of that unit's collision box. The server uses
+the same line for its line-of-sight check on spells. Works with or
+without UnitXP_SP3.
 
 Notes and limits:
-- **Terrain + buildings (WMO) only** — M2 *doodads* (trees, small props)
-  are not tested (that flag combination crashes in some dungeons). This
-  matches server-side LoS, which also ignores most doodads.
+- Terrain, buildings, doodads (trees, rocks, props) and game objects
+  can block the line. The client tests only geometry that it has
+  loaded.
+- The server can block a line that the client sees as clear when its
+  position for a unit is different from your client's (for example,
+  while the unit moves).
 - **Center/eye-line**, not a volume — a sliver of a unit peeking past a
   corner reads as blocked if the eye-line itself is occluded.
 - Pairs beyond ~150 yards report `false` (a guard against a
