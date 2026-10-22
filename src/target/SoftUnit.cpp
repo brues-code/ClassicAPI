@@ -35,8 +35,10 @@
 //     `softfriend` — the match keeps to the side's test.
 //
 // Defaults are Classic Era's: SoftTargetEnemy 1 (gamepad, so off here),
-// SoftTargetFriend 0, both arcs 2, both ranges 45, SoftTargetMatchLocked 1,
-// SoftTargetWithLocked 1.
+// SoftTargetFriend 0, both ranges 45, SoftTargetMatchLocked 1,
+// SoftTargetWithLocked 1. The arcs are not: Classic Era's 2 picks the
+// nearest unit wherever the camera looks, so both default to 0, the
+// interact arc's (the unit in front of the camera).
 // Picked when something asks (a read of a token) and on the UI frame tick
 // only while a frame is registered for the side's event.
 
@@ -143,10 +145,10 @@ const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
 void Register() {
     g_enemy.enable = CVar::Factory::Register("SoftTargetEnemy", "1");
-    g_enemy.arc = CVar::Factory::Register("SoftTargetEnemyArc", "2");
+    g_enemy.arc = CVar::Factory::Register("SoftTargetEnemyArc", "0");
     g_enemy.range = CVar::Factory::Register("SoftTargetEnemyRange", "45");
     g_friend.enable = CVar::Factory::Register("SoftTargetFriend", "0");
-    g_friend.arc = CVar::Factory::Register("SoftTargetFriendArc", "2");
+    g_friend.arc = CVar::Factory::Register("SoftTargetFriendArc", "0");
     g_friend.range = CVar::Factory::Register("SoftTargetFriendRange", "45");
     g_matchLocked = CVar::Factory::Register("SoftTargetMatchLocked", "1");
     g_withLocked = CVar::Factory::Register("SoftTargetWithLocked", "1");

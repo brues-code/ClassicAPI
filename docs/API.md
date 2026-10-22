@@ -19075,7 +19075,7 @@ A `target` suffix also works, for example `"softenemytarget"`.
 |---|---|---|
 | `SoftTargetEnemy` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
 | `SoftTargetFriend` | `0` | The same values, for soft friend. |
-| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `2` | The same values as `SoftTargetInteractArc`. |
+| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | The same values as `SoftTargetInteractArc`. |
 | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
 | `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
 | `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a locked target. `1` and `2`: they are picked also while you have a locked target. |
