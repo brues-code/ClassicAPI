@@ -4814,8 +4814,7 @@ enum Offsets {
     // `m_stackable` — max stack size for this item type (1 for non-
     // stackable; 5/20/200/etc. for stackable). The instance-level
     // current stack count is a different field (`OFF_DESCRIPTOR_STACK_COUNT`
-    // at +0x20 on the CGItem's m_objectFields descriptor — see
-    // `Item::Count.cpp`).
+    // at +0x20 on the CGItem's m_objectFields descriptor).
     OFF_ITEMSTATS_STACKABLE = 0x60,
     // Bag-only fields. `m_containerSlots` (slot count) and `m_bagFamily`
     // (the BagFamily bitfield — quiver=1, ammo pouch=2, soul bag=4 in
@@ -6224,20 +6223,34 @@ enum Offsets {
     FUN_ACTION_BAR_PRUNE_SPELL = 0x004E5E20,
     // Count of `itemID` the player carries, as `UseAction` caches per
     // item-by-ID slot into VAR_ACTION_ITEM_COUNTS — `uint __fastcall(uint
-    // itemID)`. Charged items (ItemStats `SPELL_CHARGES[0]` set) sum charges
-    // via FUN_INVMGR_COUNT_ITEM_BY_ID, everything else sums stacks
-    // (`FUN_00622130`). The inner GetActionCount (`0x004E6C70`) only reads
-    // the cached array, item-by-ID slots only.
+    // itemID)`. Charged items (ItemStats `SPELL_CHARGES[0]` not 0 / -1) sum
+    // charges via FUN_INVMGR_COUNT_CHARGES_BY_ID, everything else sums stacks
+    // via FUN_INVMGR_COUNT_STACKS_BY_ID. The inner GetActionCount
+    // (`0x004E6C70`) only reads the cached array, item-by-ID slots only.
     FUN_ACTION_ITEM_COUNT = 0x004E6D20,
     VAR_ACTION_ITEM_COUNTS = 0x00BC6390, // uint[120]
-    // Inventory-manager searches behind the action-bar item branches —
-    // `__thiscall(invMgr, uint itemID, uint flags)`. Both drive the slot
-    // visitor `FUN_00622420`, which with `flags == 0` on the player
-    // inventory manager walks equipment (linear 0..18), bag slots (19..22),
-    // backpack (23..38), keyring (81..112) and recurses into each equipped
-    // bag — never the bank.
-    FUN_INVMGR_FIND_ITEM_BY_ID = 0x00622270,  // → CGItem *, first match
-    FUN_INVMGR_COUNT_ITEM_BY_ID = 0x00622180, // → summed charges of the matches
+    // Inventory-manager searches (3.3.5/4.3.4 `CGBag_C::FindItem` family) —
+    // `__thiscall(invMgr, uint itemID, uint flags)`. All drive the slot
+    // visitor `FUN_00622420`, which skips broken items (max durability set,
+    // durability 0, ITEM_FIELD_FLAGS 0x8 clear) and items with field flag
+    // 0x10 — there is no 3.3.5 `BAG_SEARCH_IGNORE_ITEM_STATE` (0x80) bypass.
+    // On the player inventory manager a `flags` with none of 0x47 set gets
+    // 0x47 ORed in: equipment (linear 0..18), bag slots (19..22), backpack
+    // (23..38), keyring (81..112), recursing into each bag — 3.3.5's
+    // `BAG_SEARCH_DEFAULT_LOCATIONS` minus currency. The bag items in 19..22
+    // reach the callback themselves before their contents.
+    FUN_INVMGR_FIND_ITEM_BY_ID = 0x00622270,     // → CGItem *, first match
+    FUN_INVMGR_COUNT_STACKS_BY_ID = 0x00622130,  // → summed ITEM_FIELD_STACK_COUNT (3.3.5 GetItemTypeCount)
+    FUN_INVMGR_COUNT_CHARGES_BY_ID = 0x00622180, // → summed abs(SPELL_CHARGES[0]) (3.3.5 GetItemTypeCharges)
+    // The walk with a caller callback — `CGItem *__thiscall(invMgr,
+    // int (__fastcall *cb)(CGItem *item, void *ctx), void *ctx, uint flags)`,
+    // returning the first item `cb` answered nonzero for (null = none).
+    // `cb` gets the item in ECX and `ctx` in EDX (`0x0062253C`).
+    FUN_INVMGR_WALK = 0x006223F0,
+    // `flags` bit adding the bank: main bank (39..62) and the bank-bag slots
+    // (63..68), recursing into each bag. Reads the GUID array directly, so
+    // unlike FUN_ITEMMGR_GET_ITEM_BY_SLOT it needs no open bank window.
+    INVMGR_SEARCH_BANK = 0x08,
     // The registered action-bar Lua C functions that `Action::ItemState`
     // re-registers in front of. Tail-call these with the untouched stack for
     // every slot we don't own (they raise their own usage errors).

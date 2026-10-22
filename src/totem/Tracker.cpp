@@ -373,11 +373,10 @@ int __fastcall Script_GetTotemInfo(void *L) {
 
     // Tool presence — independent of the summoned state. The tool item
     // (resolved from the totem spell's Totem[0] on SPELLS_CHANGED, not
-    // hardcoded) is checked against the bag. The bag walk reads the Lua
-    // stack, so it runs before we push any return values (`slot` captured).
+    // hardcoded) is checked against the bag.
     const uint32_t tool = g_toolItem[slot - 1];
     const bool haveTotem =
-        tool != 0 && Item::Count::InInventory(L, static_cast<int>(tool)) > 0;
+        tool != 0 && Item::Count::InInventory(static_cast<int>(tool)) > 0;
 
     const Slot &t = g_slots[slot - 1];
     if (!t.active) {

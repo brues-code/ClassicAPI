@@ -18,13 +18,12 @@
 namespace Item::Charges {
 
 // Pushes the total uses available in this single slot — the
-// per-slot equivalent of `GetItemCount(_, _, includeCharges=true)`.
+// per-slot counterpart of `GetItemCount(_, _, includeCharges=true)`.
 // Returns `1` (pushed one value) on success, `0` (pushes nothing,
 // caller surfaces as `nil`) when the item is missing or the
 // descriptor is null.
 //
-// Math is `stack * usesPerItem` where `usesPerItem` follows
-// `Item::Count::GetUsesPerItem`:
+// Math is `stack * usesPerItem` where `usesPerItem` is:
 //   - `SPELL_CHARGES[0] >= 0` → `1` (no destroy-on-zero behavior;
 //     stack count alone reflects "how many uses").
 //   - `SPELL_CHARGES[0] < 0`  → `abs(value)` (consume-on-use items;

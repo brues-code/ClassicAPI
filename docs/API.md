@@ -2743,7 +2743,7 @@ without scanning tooltips. A ClassicAPI extension.
 
 ### `C_Container.GetContainerItemCharges(containerIndex, slotIndex)`
 
-Per-slot equivalent of
+Per-slot counterpart of
 [`C_Item.GetItemCount`](#c_itemgetitemcountiteminfo-includebank-includeuses)'s
 `includeCharges=true` mode — returns the total uses available in
 *this single slot*, where `GetItemCount` totals the same value
@@ -2780,7 +2780,7 @@ Returns `nil` only when the slot is empty.
 local charges = C_Container.GetContainerItemCharges(0, 1)
 print("Wand charges remaining: " .. charges)
 
--- "how many drinks across the bags?" — same as GetItemCount(water, false, true)
+-- "how many drinks across the bags?"
 local total = 0
 for bag = 0, 4 do
     for slot = 1, GetContainerNumSlots(bag) do
@@ -10038,59 +10038,49 @@ local ilvl = C_Item.GetCurrentItemLevel({equipmentSlotIndex = INVSLOT_HEAD})
 
 ### `C_Item.GetItemCount(itemInfo, [includeBank], [includeUses])`
 
-Returns the player's total count of `itemInfo` — equipped items +
-bags, and optionally bank.
+Returns the number of `itemInfo` that the player carries.
 
 ```
 count = C_Item.GetItemCount(itemInfo [, includeBank [, includeUses]])
 ```
 
 - `itemInfo` — a numeric `itemID`, a string that contains `"item:NNN"`
-  (full chat links work), or an item name. A name is compared, without
-  regard to case, with the full name of each item that you carry (the
-  suffix included, so `"Foo of the Owl"` matches and `"Foo"` does not).
-- `includeBank` *(optional, default false)* — also walk bank slots
-  (bag `-1` for the main bank, bags `5..10` for bank-bag slots).
-- `includeUses` *(optional, default false)* — when `true`, multiplies
-  each match by the item's spell-charges count. A wand with 50 charges
-  contributes 50 instead of 1. Items without charges pass their plain
-  stack count through unchanged, so the flag is a no-op for them.
+  (full chat links work), or an item name. The name must match the
+  full name of an item that you carry, with the suffix (`"Foo of the
+  Owl"`). Case is not important. The count is for the item ID of the
+  first match.
+- `includeBank` *(optional, default false)* — also count the bank and
+  the bank bags. The bank does not have to be open.
+- `includeUses` *(optional, default false)* — for an item that does
+  not stack and that has charges, return the total charges instead of
+  the item count. If the item's use spell needs reagents, return the
+  number of casts that the carried reagents allow. For all other
+  items, this flag has no effect.
+
+The count includes:
+
+- equipped items
+- equipped bags (the bag items themselves)
+- the backpack, the contents of the equipped bags, and the keyring
+- the bank and the bank bags, if `includeBank` is true
+
+Broken items (durability 0) are not counted. `includeUses` does not
+count bank items.
 
 ```lua
-local n = C_Item.GetItemCount(2589)               -- Linen Cloth in bags + equipped
-local n = C_Item.GetItemCount(2589, true)         -- + bank
-local n = C_Item.GetItemCount("item:2589")        -- string form works too
+local n = C_Item.GetItemCount(2589)               -- Linen Cloth that you carry
+local n = C_Item.GetItemCount(2589, true)         -- also the bank
+local n = C_Item.GetItemCount("item:2589")        -- string form
 local n = C_Item.GetItemCount("Linen Cloth")      -- by name
 
--- Equipped items count toward the total:
+-- Equipped items count:
 local trinketID = GetInventoryItemID("player", INVSLOT_TRINKET1)
 C_Item.GetItemCount(trinketID)                    -- 1
 
--- includeUses multiplies by charges for charged items:
-C_Item.GetItemCount(wandID, false, true)          -- 50 for one 50-charge wand
-C_Item.GetItemCount(linenID, false, true)         -- same as stack count (no charges)
+-- includeUses returns the total charges of an item with charges:
+C_Item.GetItemCount(chargedItemID, false, true)   -- the sum of the charges
+C_Item.GetItemCount(linenID, false, true)         -- the stack count (no charges)
 ```
-
-> **Bank works cold — no banker visit required.** The server
-> sends bank inventory at login alongside the rest of the player's
-> data; only the engine's own `GetItemBySlot` gates bank slots until
-> the window opens. We bypass that gate by reading the GUID array
-> directly out of the player invMgr and resolving each entry via the
-> engine's object resolver — same path `GetItemBySlot` would take
-> internally if the gate let us through. Counts are correct from
-> session start.
-
-Walks the 19 equipment slots via
-`Item::Location::ResolveEquipmentSlot`, then bags via the same
-`Item::Location::ResolveBag` chain
-[`C_Container.GetContainerItemID`](#c_containergetcontaineritemidbagindex-slotindex)
-uses. Slot counts come from the engine's `Script_GetContainerNumSlots`
-so custom server bag sizes work transparently. Stack counts read
-directly off the CGItem's m_objectFields descriptor at +0x20
-(`ITEM_FIELD_STACK_COUNT`, verified by decoding
-`Script_GetContainerItemInfo` at `0x004F9670`).
-
-Equivalent to the global `GetItemCount` and `C_Item.GetItemCount`.
 
 ### `C_Item.GetItemData(itemLocation)` / `C_Item.GetItemDataByID(item)`
 

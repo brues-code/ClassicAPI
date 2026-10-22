@@ -15,11 +15,10 @@
 
 namespace Item::Count {
 
-// Total plain stack count of `itemID` across the player's equipped slots
-// and bags 0..4 (no bank, no charge multiplier) — the "carried on me"
-// count. Needs the Lua state `L`: the bag walk uses the engine's slot
-// packer, which reads and clears the Lua stack, so the caller must have
-// already consumed any stack arguments it still needs before calling.
-int InInventory(void *L, int itemID);
+// Total stack count of `itemID` the player carries, through the engine's
+// own search (FUN_INVMGR_COUNT_STACKS_BY_ID, flags 0): equipment, equipped
+// bags, backpack, keyring and bag contents, no bank, broken items skipped —
+// the count the engine's reagent and totem gate uses.
+int InInventory(int itemID);
 
 } // namespace Item::Count

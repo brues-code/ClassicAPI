@@ -60,9 +60,7 @@ struct Usability {
     bool noMana;
 };
 
-// `L` is needed for the carried count (see Item::Count::InInventory); the
-// caller has already read its arguments.
-Usability ComputeUsability(void *L, int itemID) {
+Usability ComputeUsability(int itemID) {
     Usability r{false, false};
     if (itemID <= 0 || Unit::Identity::PlayerObject() == nullptr)
         return r;
@@ -71,7 +69,7 @@ Usability ComputeUsability(void *L, int itemID) {
     if (record == nullptr)
         return r; // not cached → sync "false", no load fired
 
-    if (Item::Count::InInventory(L, itemID) <= 0)
+    if (Item::Count::InInventory(itemID) <= 0)
         return r;
     if (reinterpret_cast<ItemSpellHeld_t>(Offsets::FUN_ITEM_SPELL_HELD)(itemID) != 0)
         return r;
@@ -101,7 +99,7 @@ Usability ComputeUsability(void *L, int itemID) {
 // `IsUsableSpell` convention.
 int __fastcall Script_IsUsableItem(void *L) {
     const int itemID = Item::Arg::ResolveItemID(L, 1);
-    const Usability r = ComputeUsability(L, itemID);
+    const Usability r = ComputeUsability(itemID);
     Game::Lua::SetTop(L, 0);
     if (r.usable)
         Game::Lua::PushNumber(L, 1.0);
@@ -118,7 +116,7 @@ int __fastcall Script_IsUsableItem(void *L) {
 // proper booleans (`usable`, `noMana`) per the `C_Item.*` convention.
 int __fastcall Script_C_Item_IsUsableItem(void *L) {
     const int itemID = Item::Arg::ResolveItemID(L, 1);
-    const Usability r = ComputeUsability(L, itemID);
+    const Usability r = ComputeUsability(itemID);
     Game::Lua::SetTop(L, 0);
     Game::Lua::PushBool(L, r.usable);
     Game::Lua::PushBool(L, r.noMana);
