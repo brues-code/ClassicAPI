@@ -35,16 +35,27 @@ namespace {
 
 using StatAccum::Accum;
 
-// Pushes a fresh Lua table with each non-zero accumulator entry as
-// `t[key] = value`, plus the weapon DPS under
-// `ITEM_MOD_DAMAGE_PER_SECOND_SHORT` when `dps` is non-zero; leaves the
-// table on the stack top for the caller to return. Zero entries are
-// omitted (matches GetItemStats' sparse output and GetItemStatDelta
-// showing only differences). DPS is a float, kept separate from the
-// integer accumulator. The epsilon guards against float-subtraction
-// noise producing a spurious near-zero delta.
-void PushAccumTable(void *L, const Accum *acc, double dps) {
-    Game::Lua::NewTable(L);
+// True when the optional `statTable` argument at `idx` is absent, nil, or
+// a table — the engine's own `[, statTable]` check.
+bool IsStatTableArg(void *L, int idx) {
+    const int type = Game::Lua::Type(L, idx);
+    return type <= Game::Lua::TYPE_NIL || type == Game::Lua::TYPE_TABLE;
+}
+
+// Leaves the result table on the stack top: the caller's `statTable` at
+// `tableIdx` when one was passed (filled in place and not wiped, as the
+// engine does — a reused table keeps keys from earlier calls), else a
+// fresh one. Writes each non-zero accumulator entry as `t[key] = value`,
+// plus the weapon DPS under `ITEM_MOD_DAMAGE_PER_SECOND_SHORT` when `dps`
+// is non-zero. Zero entries are omitted (matches GetItemStats' sparse
+// output and GetItemStatDelta showing only differences). DPS is a float,
+// kept separate from the integer accumulator. The epsilon guards against
+// float-subtraction noise producing a spurious near-zero delta.
+void PushAccumTable(void *L, int tableIdx, const Accum *acc, double dps) {
+    if (Game::Lua::Type(L, tableIdx) == Game::Lua::TYPE_TABLE)
+        Game::Lua::SetTop(L, tableIdx);
+    else
+        Game::Lua::NewTable(L);
     for (int i = 0; i < StatAccum::kCount; ++i)
         if (acc[i].value != 0)
             Game::Lua::SetFieldNumber(L, acc[i].key,
@@ -55,64 +66,64 @@ void PushAccumTable(void *L, const Accum *acc, double dps) {
 
 } // namespace
 
-// `C_Item.GetItemStats(itemLink)` → statTable. Keys are FrameXML
-// global-string names; values are the item's stat magnitudes including
-// on-equip-spell bonuses (crit/AP/spell power/…) and any random-suffix
-// bonus. Only stats the item actually carries are present.
+// `C_Item.GetItemStats(itemLink[, statTable])` → statTable. Keys are
+// FrameXML global-string names; values are the item's stat magnitudes
+// including on-equip-spell bonuses (crit/AP/spell power/…) and any
+// random-suffix bonus. Only stats the item actually carries are present.
+// A passed `statTable` is filled instead of allocating one.
 //
 // Accepts a full chat link, an `item:N…` string, or a bare itemID (a
 // superset of retail, which is link-only). A bare itemID or a link with
-// no suffix field yields the item's stats without a suffix. Returns nil
-// if the item isn't cached yet — warm it via GetItemInfo and retry.
+// no suffix field yields the item's stats without a suffix. Returns
+// nothing if the item isn't cached yet (the engine's own uncached
+// return) — warm it via GetItemInfo and retry.
 int __fastcall Script_GetItemStats(void *L) {
     const int itemID = Item::Arg::ResolveItemID(L, 1);
-    if (itemID <= 0) {
-        Game::Lua::Error(L, "Usage: C_Item.GetItemStats(itemLink)");
+    if (itemID <= 0 || !IsStatTableArg(L, 2)) {
+        Game::Lua::Error(L, "Usage: C_Item.GetItemStats(itemLink[, statTable])");
         return 0;
     }
     const int suffixID = StatAccum::ParseRandomSuffixFromLink(L, 1);
     const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    if (record == nullptr)
+        return 0;
     Accum acc[StatAccum::kCount];
     StatAccum::Init(acc);
     StatAccum::AccumulateRecord(acc, record, +1);
     StatAccum::ApplyRandomSuffix(acc, suffixID, +1);
-    PushAccumTable(L, acc, StatAccum::ComputeDPS(record));
+    PushAccumTable(L, 2, acc, StatAccum::ComputeDPS(record));
     return 1;
 }
 
-// `C_Item.GetItemStatDelta(itemLink1, itemLink2)` → statTable of the
-// per-stat difference `item2 - item1` (positive = item2 has more of that
-// stat). On-equip-spell and random-suffix bonuses on either link are
-// included. Only stats whose delta is non-zero appear. Same key set,
-// input forms, and caching caveat as `C_Item.GetItemStats`. Returns nil
-// if either item is uncached.
+// `C_Item.GetItemStatDelta(itemLink1, itemLink2[, statTable])` →
+// statTable of the per-stat difference `item1 - item2` (positive = item1
+// has more of that stat) — the engine's `first - second`, verified in the
+// 3.3.5 (`0x00608760`) and 4.3.4 binaries. On-equip-spell and
+// random-suffix bonuses on either link are included. Only stats whose
+// delta is non-zero appear. Same key set, input forms, `statTable`, and
+// caching caveat as `C_Item.GetItemStats`; returns nothing if either item
+// is uncached.
 int __fastcall Script_GetItemStatDelta(void *L) {
     const int id1 = Item::Arg::ResolveItemID(L, 1);
     const int id2 = Item::Arg::ResolveItemID(L, 2);
-    if (id1 <= 0 || id2 <= 0) {
+    if (id1 <= 0 || id2 <= 0 || !IsStatTableArg(L, 3)) {
         Game::Lua::Error(
-            L, "Usage: C_Item.GetItemStatDelta(itemLink1, itemLink2)");
+            L, "Usage: C_Item.GetItemStatDelta(itemLink1, itemLink2[, statTable])");
         return 0;
     }
     const int suffix1 = StatAccum::ParseRandomSuffixFromLink(L, 1);
     const int suffix2 = StatAccum::ParseRandomSuffixFromLink(L, 2);
     const uint8_t *r1 = Item::PeekRecord(static_cast<uint32_t>(id1));
     const uint8_t *r2 = Item::PeekRecord(static_cast<uint32_t>(id2));
-    if (r1 == nullptr || r2 == nullptr) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    if (r1 == nullptr || r2 == nullptr)
+        return 0;
     Accum acc[StatAccum::kCount];
     StatAccum::Init(acc);
-    StatAccum::AccumulateRecord(acc, r2, +1);
-    StatAccum::ApplyRandomSuffix(acc, suffix2, +1);
-    StatAccum::AccumulateRecord(acc, r1, -1);
-    StatAccum::ApplyRandomSuffix(acc, suffix1, -1);
-    PushAccumTable(L, acc, StatAccum::ComputeDPS(r2) - StatAccum::ComputeDPS(r1));
+    StatAccum::AccumulateRecord(acc, r1, +1);
+    StatAccum::ApplyRandomSuffix(acc, suffix1, +1);
+    StatAccum::AccumulateRecord(acc, r2, -1);
+    StatAccum::ApplyRandomSuffix(acc, suffix2, -1);
+    PushAccumTable(L, 3, acc, StatAccum::ComputeDPS(r1) - StatAccum::ComputeDPS(r2));
     return 1;
 }
 

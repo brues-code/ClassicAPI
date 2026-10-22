@@ -41,7 +41,7 @@ struct Accum {
 // Number of distinct keys an item can touch (base stats + armor + six
 // resistances + the equip-spell "special" stats). Compile-time so
 // callers can stack-allocate `Accum acc[kCount]`.
-inline constexpr int kCount = 30;
+inline constexpr int kCount = 39;
 
 // Fill `acc` (kCount entries) with the canonical key list and zero
 // values. Call once before accumulating.

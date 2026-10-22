@@ -466,8 +466,8 @@ build instructions.
   - [`C_Item.GetItemSetID(itemLocation)` / `C_Item.GetItemSetIDByID(item)`](#c_itemgetitemsetiditemlocation--c_itemgetitemsetidbyiditem)
   - [`C_Item.GetItemSetInfo(setID)`](#c_itemgetitemsetinfosetid)
   - [`C_Item.GetItemSpell(item)`](#c_itemgetitemspellitem)
-  - [`C_Item.GetItemStatDelta(itemLink1, itemLink2)`](#c_itemgetitemstatdeltaitemlink1-itemlink2)
-  - [`C_Item.GetItemStats(itemLink)`](#c_itemgetitemstatsitemlink)
+  - [`C_Item.GetItemStatDelta(itemLink1, itemLink2 [, statTable])`](#c_itemgetitemstatdeltaitemlink1-itemlink2--stattable)
+  - [`C_Item.GetItemStats(itemLink [, statTable])`](#c_itemgetitemstatsitemlink--stattable)
   - [`GetItemClassInfo(classID)`](#getitemclassinfoclassid)
   - [`GetItemSubClassInfo(classID, subClassID)` / `C_Item.GetItemSubClassInfo(classID, subClassID)`](#getitemsubclassinfoclassid-subclassid--c_itemgetitemsubclassinfoclassid-subclassid)
   - [`C_Item.GetItemUniqueness(itemLocation)` / `C_Item.GetItemUniquenessByID(item)`](#c_itemgetitemuniquenessitemlocation--c_itemgetitemuniquenessbyiditem)
@@ -8991,7 +8991,7 @@ cached, or nothing is equipped in the chosen slot) — so a caller knows
 whether a second `offset` is worth querying.
 
 The stat deltas cover the same keys as
-[`C_Item.GetItemStats`](#c_itemgetitemstatsitemlink) (base stats,
+[`C_Item.GetItemStats`](#c_itemgetitemstatsitemlink--stattable) (base stats,
 resistances, weapon DPS, and on-equip-spell bonuses like crit / attack
 power / spell power), colored with the client's
 `INCREASE_STAT_COLOR` / `DECREASE_STAT_COLOR`. The method only
@@ -10738,31 +10738,37 @@ request. A second call after `GET_ITEM_INFO_RECEIVED` lands the
 data. Same warmup pattern as `C_Item.GetItemFamily` and the rest of
 our cache-backed accessors.
 
-### `C_Item.GetItemStatDelta(itemLink1, itemLink2)`
+### `C_Item.GetItemStatDelta(itemLink1, itemLink2 [, statTable])`
 
 Returns a table of the per-stat **difference** between two items,
-computed as `item2 - item1` — a positive value means the second item has
-more of that stat. Only stats whose delta is non-zero appear.
+computed as `item1 - item2`. A positive value means the first item has
+more of that stat. Only stats whose delta is not zero appear.
 
 ```lua
--- Compare an equipped ring against one in your bags:
+-- Compare a ring in your bags against the equipped one:
 local delta = C_Item.GetItemStatDelta(
-    C_Item.GetItemLink({equipmentSlotIndex = 11}),
-    C_Item.GetItemLink({bagID = 0, slotIndex = 3}))
+    C_Item.GetItemLink({bagID = 0, slotIndex = 3}),
+    C_Item.GetItemLink({equipmentSlotIndex = 11}))
 -- delta = { ITEM_MOD_INTELLECT_SHORT = 6, ITEM_MOD_SPIRIT_SHORT = 2 }
--- (the bag ring has +6 Int / +2 Spirit relative to the equipped one)
+-- (the bag ring has +6 Int / +2 Spirit more than the equipped one)
 ```
 
-Same key set, accepted input forms, random-suffix handling, and caching
-caveat as [`C_Item.GetItemStats`](#c_itemgetitemstatsitemlink) — see
-there for the details. Returns `nil` if **either** item is uncached.
+The key set, the input forms, random-suffix handling, `statTable`, and
+the cache behavior are the same as for
+[`C_Item.GetItemStats`](#c_itemgetitemstatsitemlink--stattable). Returns
+nothing if **either** item is not cached.
 
-### `C_Item.GetItemStats(itemLink)`
+### `C_Item.GetItemStats(itemLink [, statTable])`
 
 Returns a table of an item's stats, keyed by the FrameXML global-string
 names WoW's own `GetItemStats` uses (so `_G[key]` yields the display
 label — `_G["ITEM_MOD_STRENGTH_SHORT"]` → `"Strength"`). Only stats the
 item actually carries are present.
+
+**`statTable`.** If you give a table, the function writes the stats into
+that table and returns it, so it does not make a new table. The function
+does not clear the table first. Clear it yourself before you use it
+again, or keys from the last item stay in it.
 
 ```lua
 C_Item.GetItemStats("item:2244")            -- Krol Blade
@@ -10804,14 +10810,25 @@ what the item actually grants — not just its stored stat slots:
 | `ITEM_MOD_HIT_MELEE_RATING` + `ITEM_MOD_HIT_RANGED_RATING` | Hit % | hit aura (54) |
 | `ITEM_MOD_HIT_SPELL_RATING` | Spell hit % | spell-hit aura (55) |
 | `ITEM_MOD_CRIT_SPELL_RATING` | Spell crit % | spell-crit aura (57 / 71) |
-| `ITEM_MOD_SPELL_DAMAGE_DONE_SHORT` | Spell damage | `MOD_DAMAGE_DONE` (13) |
+| `ITEM_MOD_SPELL_DAMAGE_DONE_SHORT` | Spell damage, all schools | `MOD_DAMAGE_DONE` (13), all magic schools |
+| `ITEM_MOD_HOLY_SPELL_DAMAGE_DONE_SHORT` / `_FIRE_` / `_NATURE_` / `_FROST_` / `_SHADOW_` / `_ARCANE_SPELL_DAMAGE_DONE_SHORT` | Spell damage for one school only (ClassicAPI extension) | `MOD_DAMAGE_DONE` (13), school mask |
 | `ITEM_MOD_SPELL_HEALING_DONE_SHORT` | Healing | `MOD_HEALING_DONE` (135) |
+| `ITEM_MOD_SPELL_PENETRATION` | Target spell resistance ignored | `MOD_TARGET_RESISTANCE` (123), magic schools |
+| `ITEM_MOD_ARMOR_PENETRATION_RATING` | Target armor ignored (flat) | `MOD_TARGET_RESISTANCE` (123), armor |
 | `ITEM_MOD_MANA_REGENERATION` | mp5 (mana) | `MOD_POWER_REGEN` (85) |
+| `ITEM_MOD_HEALTH_REGEN` | hp5 | `MOD_HEALTH_REGEN_IN_COMBAT` (161) |
 | `ITEM_MOD_DEFENSE_SKILL_RATING` | Defense skill | `MOD_SKILL` (30, misc 95) |
 | `ITEM_MOD_DODGE_RATING` | Dodge % | `MOD_DODGE_PERCENT` (49) |
 | `ITEM_MOD_PARRY_RATING` | Parry % | `MOD_PARRY_PERCENT` (47) |
 | `ITEM_MOD_BLOCK_RATING` | Block chance % | `MOD_BLOCK_PERCENT` (51) |
-| `ITEM_MOD_BLOCK_VALUE` | Shield block value | record (`m_block`) |
+| `ITEM_MOD_BLOCK_VALUE` | Shield block value | record (`m_block`) / `MOD_SHIELD_BLOCKVALUE` (158) |
+
+> **Spell damage and healing are separate.** An item with "+N damage and
+> healing" reports `ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = N` **and**
+> `ITEM_MOD_SPELL_HEALING_DONE_SHORT = N`. An item with "+N Fire damage"
+> reports only `ITEM_MOD_FIRE_SPELL_DAMAGE_DONE_SHORT = N`, because that
+> bonus applies to Fire spells only. To get an item's total bonus for one
+> school, add the all-schools key and that school's key.
 
 > **Values are native percentages, not ratings.** There is no rating
 > system here, so the percent-based stats (crit / hit / defense) report the
@@ -10830,8 +10847,8 @@ what the item actually grants — not just its stored stat slots:
 > on-use procs — are skipped.
 
 **Input.** Accepts a full chat hyperlink, an `item:N…` link string, or a
-bare itemID. Returns `nil` if the item isn't cached yet — warm it via
-`GetItemInfo` and retry.
+bare itemID. Returns nothing if the item is not cached yet. Call
+`GetItemInfo` to load it, then try again.
 
 ### `GetItemClassInfo(classID)`
 

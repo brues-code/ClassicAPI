@@ -37,6 +37,14 @@
 // level-dependent and doesn't exist in this client), so a native percent
 // is the only honest, level-independent value.
 //
+// **Spell damage stays split the vanilla way.** The server sums healing
+// from aura 135 alone and spell damage from aura 13 filtered by school
+// (tortoise-wow `SpellBaseHealingBonusDone` / `SpellBaseDamageBonusDone`),
+// so 3.3.5's spell-power merge does not apply: "+N damage and healing"
+// stays two keys, and a single-school "+N Fire damage" lands on a
+// per-school key (a ClassicAPI extension — no client ships one) instead
+// of reading as generic spell damage.
+//
 // The aura → key map (below) covers the common gear stats. Rarer auras
 // (percent attack power, weapon-skill-per-line, damage-taken, procs) are
 // intentionally skipped — they either lack a clean single key or aren't
@@ -97,6 +105,23 @@ const char *ResistKey(int school) {
     return (school >= 0 && school <= 6) ? kKeys[school] : nullptr;
 }
 
+// Single-school spell damage key, same 1..6 school order as ResistKey.
+const char *SchoolDamageKey(int school) {
+    static const char *const kKeys[7] = {
+        nullptr,
+        "ITEM_MOD_HOLY_SPELL_DAMAGE_DONE_SHORT",
+        "ITEM_MOD_FIRE_SPELL_DAMAGE_DONE_SHORT",
+        "ITEM_MOD_NATURE_SPELL_DAMAGE_DONE_SHORT",
+        "ITEM_MOD_FROST_SPELL_DAMAGE_DONE_SHORT",
+        "ITEM_MOD_SHADOW_SPELL_DAMAGE_DONE_SHORT",
+        "ITEM_MOD_ARCANE_SPELL_DAMAGE_DONE_SHORT",
+    };
+    return (school >= 1 && school <= 6) ? kKeys[school] : nullptr;
+}
+
+// School-mask bits 1..6 — every magic school.
+constexpr int kMagicSchools = 0x7E;
+
 // Keys in this list are the ones AddByKey ever writes: the base stats +
 // armor + six resistances, plus the equip-spell "special" stats. The
 // equip-spell keys past the resistances are best-effort names verified
@@ -126,8 +151,17 @@ constexpr const char *kKeys[] = {
     "ITEM_MOD_HIT_SPELL_RATING",
     "ITEM_MOD_CRIT_SPELL_RATING",
     "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_HOLY_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_FIRE_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_NATURE_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_FROST_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_SHADOW_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_ARCANE_SPELL_DAMAGE_DONE_SHORT",
     "ITEM_MOD_SPELL_HEALING_DONE_SHORT",
+    "ITEM_MOD_SPELL_PENETRATION",
+    "ITEM_MOD_ARMOR_PENETRATION_RATING",
     "ITEM_MOD_MANA_REGENERATION",
+    "ITEM_MOD_HEALTH_REGEN",
     "ITEM_MOD_DEFENSE_SKILL_RATING",
     "ITEM_MOD_DODGE_RATING",
     "ITEM_MOD_PARRY_RATING",
@@ -221,16 +255,40 @@ void AddSpellStatAuras(Accum *acc, int spellID, long sign) {
         case 51: // SPELL_AURA_MOD_BLOCK_PERCENT (block chance)
             AddByKey(acc, "ITEM_MOD_BLOCK_RATING", sign * v);
             break;
-        case 13: // SPELL_AURA_MOD_DAMAGE_DONE — misc = school mask
-            if (misc[i] & 0x7E) // any magic school (bits 1..6)
+        case 13: { // SPELL_AURA_MOD_DAMAGE_DONE — misc = school mask
+            // All magic schools → generic spell damage; a partial mask
+            // goes to each school it names. Physical (bit 0) is skipped.
+            const int magic = misc[i] & kMagicSchools;
+            if (magic == kMagicSchools) {
                 AddByKey(acc, "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT", sign * v);
+                break;
+            }
+            for (int school = 1; school <= 6; ++school)
+                if (magic & (1 << school))
+                    AddByKey(acc, SchoolDamageKey(school), sign * v);
             break;
+        }
         case 135: // SPELL_AURA_MOD_HEALING_DONE
             AddByKey(acc, "ITEM_MOD_SPELL_HEALING_DONE_SHORT", sign * v);
+            break;
+        case 123: // SPELL_AURA_MOD_TARGET_RESISTANCE — misc = school mask
+            // Stored negative (it lowers the target's resistance). Bit 0 is
+            // armor ("Armor Penetration N" gear), the magic bits are spell
+            // penetration — the same aura, two different stats.
+            if (misc[i] & 1)
+                AddByKey(acc, "ITEM_MOD_ARMOR_PENETRATION_RATING", sign * -v);
+            if (misc[i] & kMagicSchools)
+                AddByKey(acc, "ITEM_MOD_SPELL_PENETRATION", sign * -v);
             break;
         case 85: // SPELL_AURA_MOD_POWER_REGEN (mp5) — misc = power type
             if (misc[i] == 0) // mana
                 AddByKey(acc, "ITEM_MOD_MANA_REGENERATION", sign * v);
+            break;
+        case 161: // SPELL_AURA_MOD_HEALTH_REGEN_IN_COMBAT (hp5)
+            AddByKey(acc, "ITEM_MOD_HEALTH_REGEN", sign * v);
+            break;
+        case 158: // SPELL_AURA_MOD_SHIELD_BLOCKVALUE — adds to the record's m_block
+            AddByKey(acc, "ITEM_MOD_BLOCK_VALUE", sign * v);
             break;
         case 30: // SPELL_AURA_MOD_SKILL — misc = skill line (95 = Defense)
             if (misc[i] == 95)
