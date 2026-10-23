@@ -9769,11 +9769,11 @@ Closes the gossip window. Direct passthrough to the engine's
 
 ### `GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`
 
-The 2.0+ globals: how many quests vanilla's `GetGossipAvailableQuests()` /
-`GetGossipActiveQuests()` return, one per (title, level) pair. They use the
-engine's own counters those lists are sized by, so the two always agree.
-Gossip menus only, as on later clients — a questgiver without a menu is
-counted by vanilla's `GetNumAvailableQuests()` / `GetNumActiveQuests()`.
+Returns the number of quests that `GetGossipAvailableQuests()` /
+`GetGossipActiveQuests()` return. Each quest is one (title, level) pair, so
+the count always agrees with the list. These functions count quests in
+gossip menus only. For a questgiver that has no gossip menu, use
+`GetNumAvailableQuests()` / `GetNumActiveQuests()`.
 
 ```lua
 local quests = { GetGossipAvailableQuests() }
