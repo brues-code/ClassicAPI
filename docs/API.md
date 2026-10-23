@@ -429,6 +429,7 @@ build instructions.
   - [`C_GossipInfo.SelectAvailableQuest(questID)`](#c_gossipinfoselectavailablequestquestid)
   - [`C_GossipInfo.SelectActiveQuest(questID)`](#c_gossipinfoselectactivequestquestid)
   - [`C_GossipInfo.CloseGossip()`](#c_gossipinfoclosegossip)
+  - [`GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`](#getnumgossipavailablequests--getnumgossipactivequests)
 
 - [Hooks](#hooks)
   - [`hooksecurefunc(name, callback)` / `hooksecurefunc(table, name, callback)`](#hooksecurefuncname-callback--hooksecurefunctable-name-callback)
@@ -9768,6 +9769,21 @@ Picks an in-progress quest by `questID`. Same shape as
 
 Closes the gossip window. Direct passthrough to the engine's
 `CloseGossip`. Returns nothing.
+
+### `GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`
+
+Returns the number of quests that `GetGossipAvailableQuests()` /
+`GetGossipActiveQuests()` return. Each quest is one (title, level) pair, so
+the count always agrees with the list. These functions count quests in
+gossip menus only. For a questgiver that has no gossip menu, use
+`GetNumAvailableQuests()` / `GetNumActiveQuests()`.
+
+```lua
+local quests = { GetGossipAvailableQuests() }
+for i = 1, GetNumGossipAvailableQuests() do
+    local title, level = quests[i * 2 - 1], quests[i * 2]
+end
+```
 
 ## Hooks
 
