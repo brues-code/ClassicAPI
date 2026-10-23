@@ -7,6 +7,9 @@
 
 locales\locales.xml
 
+FrameXML\InterfaceOptions.xml
+FrameXML\InterfaceOptions.lua
+
 SecureTemplates.xml
 Compat.lua
 Util\Print.lua
@@ -54,6 +57,8 @@ Util\TextureUtil.lua
 Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
+
+Options\Panel.lua
 
 APIDocumentation\BaseAPIMixin.lua
 APIDocumentation\FieldsAPIMixin.lua

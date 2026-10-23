@@ -445,6 +445,9 @@ build instructions.
   - [`GetInstanceInfo()`](#getinstanceinfo)
   - [`IsActiveBattlefieldArena()`](#isactivebattlefieldarena)
 
+- [InterfaceOptions](#interfaceoptions)
+  - [`InterfaceOptionsFrame` and addon option panels](#interfaceoptionsframe-and-addon-option-panels)
+
 - [Item](#item)
   - [`C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`](#c_itemdoesitemexistitemlocation--c_itemdoesitemexistbyiditem)
   - [`C_Item.EquipItemByName(item [, dstSlot])`](#c_itemequipitembynameitem--dstslot)
@@ -9964,6 +9967,49 @@ if UnitIsDeadOrGhost("player") and not isArena then
     -- not in an arena: point at the corpse
 end
 ```
+
+## InterfaceOptions
+
+### `InterfaceOptionsFrame` and addon option panels
+
+Later clients list addon option panels in the Interface Options window,
+`InterfaceOptionsFrame`. An addon adds its panel with
+`InterfaceOptions_AddCategory(panel)` (Ace3's `AddToBlizOptions` does this
+for every Ace3 addon) and opens it with
+`InterfaceOptionsFrame_OpenToCategory(panel)`. Stock 1.12 has neither, so
+Ace3 addons stop while they initialize.
+
+```lua
+local panel = CreateFrame("Frame")
+panel.name = "MyAddon"                   -- required: the list entry
+panel.okay = function(self) end          -- optional: Okay pressed
+panel.cancel = function(self) end        -- optional: Cancel pressed
+panel.default = function(self) end       -- optional: Defaults pressed
+panel.refresh = function(self) end       -- optional: panel shown
+InterfaceOptions_AddCategory(panel)
+
+local sub = CreateFrame("Frame")
+sub.name, sub.parent = "Display", "MyAddon"   -- listed under MyAddon
+InterfaceOptions_AddCategory(sub)
+
+InterfaceOptionsFrame_OpenToCategory(panel)   -- or the category's name
+```
+
+The window lists addon panels under AddOns; a category with children starts
+collapsed. To open the window, click AddOn Options in the game menu (above
+Key Bindings). When you close a window that you opened from the game menu, the
+game menu opens again. Okay and Cancel call `okay` / `cancel` on every panel.
+Escape does the same as Cancel. Defaults calls `default` on the panel shown.
+`InterfaceOptionsFrame_Show()` toggles the window. The names match later
+clients (`InterfaceOptionsFrameAddOns` with its `buttons`, `buttonHeight` and
+`update` fields, the `InterfaceOptionsFrameAddOnsList` scroll frame,
+`InterfaceOptionsFramePanelContainer.displayedPanel`,
+`InterfaceOptionsListButtonTemplate`, `INTERFACEOPTIONS_ADDONCATEGORIES`),
+because addons and libraries use them directly.
+
+This is the addon side only. The client's own settings stay in their own
+windows, and the Categories list, which later clients fill with the game's
+settings, exists but stays empty.
 
 ## Item
 
