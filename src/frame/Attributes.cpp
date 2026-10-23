@@ -1100,7 +1100,6 @@ int __fastcall Script_GetAttribute(void *L) {
 // inherited templates are loaded first, so the frame's own values win.
 // Problems are the engine's load warnings, with 4.3.4's texts.
 void LoadXmlAttributes(void *L, void *frame, const void *attributes, void *status) {
-    using ToBool_t = int(__fastcall *)(const char *);
     using ToFloat_t = float(__stdcall *)(const char *);
 
     const int top = Game::Lua::GetTop(L);
@@ -1138,7 +1137,7 @@ void LoadXmlAttributes(void *L, void *frame, const void *attributes, void *statu
         if (isNil)
             Game::Lua::PushNil(L);
         else if (Ascii::EqualCI(type, "boolean"))
-            Game::Lua::PushBool(L, reinterpret_cast<ToBool_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(value) != 0);
+            Game::Lua::PushBool(L, Game::StringToFlag(value));
         else if (Ascii::EqualCI(type, "number"))
             Game::Lua::PushNumber(L, reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(value));
         else

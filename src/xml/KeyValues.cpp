@@ -64,11 +64,10 @@ Kind KindOf(const char *type) {
 }
 
 void Push(void *L, Kind kind, const char *text) {
-    using ToBool_t = int(__fastcall *)(const char *);
     using ToFloat_t = float(__stdcall *)(const char *);
     switch (kind) {
     case Kind::Boolean:
-        Game::Lua::PushBool(L, reinterpret_cast<ToBool_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(text) != 0);
+        Game::Lua::PushBool(L, Game::StringToFlag(text));
         break;
     case Kind::Number:
         Game::Lua::PushNumber(L, reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(text));

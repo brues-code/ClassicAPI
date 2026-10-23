@@ -82,17 +82,12 @@ constexpr int kMaxRetention = 0x7FFFFFFF / 1000;
 using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using Tokenize_t = void(__stdcall *)(char **cursor, char *out, unsigned outSize,
                                      const char *delims, int *outQuoted);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int dflt);
 
 int StrCmpI(const char *a, const char *b) {
     return reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I))(
         a, b, kStormMaxStr);
 }
 
-bool ArgFlag(void *L, int idx) {
-    return reinterpret_cast<LooseBool_t>(
-               static_cast<uintptr_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE))(L, idx, 0) != 0;
-}
 
 bool Complete(uint32_t matched) {
     return (matched & AFFILIATION_MASK) && (matched & REACTION_MASK) && (matched & CONTROL_MASK) &&
@@ -269,7 +264,7 @@ int __fastcall Script_CombatLogSetRetentionTime(void *L) {
 }
 
 int __fastcall Script_CombatLogGetNumEntries(void *L) {
-    const bool all = ArgFlag(L, 1);
+    const bool all = Game::Lua::ToFlag(L, 1);
     int count = 0;
     for (const Entry &e : g_entries) {
         if (Matches(e, all))
@@ -286,7 +281,7 @@ int __fastcall Script_CombatLogSetCurrentEntry(void *L) {
     }
     g_current = -1;
     int index = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    const bool all = ArgFlag(L, 2);
+    const bool all = Game::Lua::ToFlag(L, 2);
     if (index <= 0) {
         // 0 is the newest entry, -1 the one before it.
         for (int i = Count() - 1; i >= 0; --i) {
@@ -320,7 +315,7 @@ int __fastcall Script_CombatLogAdvanceEntry(void *L) {
         return 0;
     }
     int count = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    const bool all = ArgFlag(L, 2);
+    const bool all = Game::Lua::ToFlag(L, 2);
     if (count != 0) {
         // The walk starts at the current entry, which counts when it matches.
         int result = -1;

@@ -264,17 +264,13 @@ const State *Find(void *bar) {
 
 void *ResolveBar(void *L) { return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_STATUSBAR_LUA_TYPE_ID); }
 
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
-bool ArgBool(void *L, int idx) {
-    return reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, idx, 0) != 0;
-}
 
 int __fastcall Script_SetReverseFill(void *L) {
     void *bar = ResolveBar(L);
     if (bar == nullptr)
         return 0;
-    const bool reverse = ArgBool(L, 2);
+    const bool reverse = Game::Lua::ToFlag(L, 2);
     Modify(bar, [reverse](State &s) { s.reverseFill = reverse; });
     return 0;
 }
@@ -292,7 +288,7 @@ int __fastcall Script_SetRotatesTexture(void *L) {
     void *bar = ResolveBar(L);
     if (bar == nullptr)
         return 0;
-    const bool rotates = ArgBool(L, 2);
+    const bool rotates = Game::Lua::ToFlag(L, 2);
     Modify(bar, [rotates](State &s) { s.rotatesTexture = rotates; });
     // 4.3.4 sets the full coordinates at once, so a bar with no value yet
     // shows its image turned, or not, before the first layout. Full

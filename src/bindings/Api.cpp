@@ -63,7 +63,6 @@ using KeyDispatch_t = int(__fastcall *)(void *mgr, void *edx, const char *key, i
 using CommandExecute_t = int(__fastcall *)(void *mgr, void *edx, const char *cmd, int isDown);
 using GetCommandAction_t = const char *(__thiscall *)(void *mgr, const char *key);
 using ScriptFn_t = int(__fastcall *)(void *L);
-using ToBool_t = int(__fastcall *)(void *L, int idx, int dflt);
 
 KeyDispatch_t g_keyDispatchOriginal = nullptr;
 CommandExecute_t g_commandExecuteOriginal = nullptr;
@@ -260,9 +259,6 @@ int __fastcall CommandExecute_h(void *mgr, void *edx, const char *command, int i
 
 // --- Lua ----------------------------------------------------------------------
 
-bool LooseBool(void *L, int idx) {
-    return reinterpret_cast<ToBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, idx, 0) != 0;
-}
 
 const char *OptString(void *L, int idx) {
     return Game::Lua::IsString(L, idx) ? Game::Lua::ToString(L, idx) : nullptr;
@@ -321,7 +317,7 @@ int __fastcall Script_SetOverrideBinding(void *L) {
         Game::Lua::Error(L, "Usage: SetOverrideBinding(owner, isPriority, \"KEY\"[, \"COMMAND\"])");
         return 0;
     }
-    SetOverrideBinding(owner, LooseBool(L, 2), Game::Lua::ToString(L, 3), OptString(L, 4));
+    SetOverrideBinding(owner, Game::Lua::ToFlag(L, 2), Game::Lua::ToString(L, 3), OptString(L, 4));
     return 0;
 }
 
@@ -332,7 +328,7 @@ int SetOverrideCommand(void *L, const char *prefix, const char *usage) {
         return 0;
     }
     const std::string command = std::string(prefix) + Game::Lua::ToString(L, 4);
-    SetOverrideBinding(owner, LooseBool(L, 2), Game::Lua::ToString(L, 3), command.c_str());
+    SetOverrideBinding(owner, Game::Lua::ToFlag(L, 2), Game::Lua::ToString(L, 3), command.c_str());
     return 0;
 }
 
@@ -358,7 +354,7 @@ int __fastcall Script_SetOverrideBindingClick(void *L) {
         return 0;
     }
     const std::string command = ClickCommand(Game::Lua::ToString(L, 4), OptString(L, 5));
-    SetOverrideBinding(owner, LooseBool(L, 2), Game::Lua::ToString(L, 3), command.c_str());
+    SetOverrideBinding(owner, Game::Lua::ToFlag(L, 2), Game::Lua::ToString(L, 3), command.c_str());
     return 0;
 }
 
@@ -376,7 +372,7 @@ int __fastcall Script_ClearOverrideBindings(void *L) {
 // GetBindingAction(key [, checkOverride]): 4.3.4's GetCommandAction checks the
 // override first when asked; the saved binding is the engine's own answer.
 int __fastcall Script_GetBindingAction(void *L) {
-    if (Game::Lua::IsString(L, 1) && LooseBool(L, 2)) {
+    if (Game::Lua::IsString(L, 1) && Game::Lua::ToFlag(L, 2)) {
         if (const char *command = ActiveOverride(Game::Lua::ToString(L, 1))) {
             Game::Lua::PushString(L, command);
             return 1;

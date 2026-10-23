@@ -56,7 +56,6 @@ namespace {
 // other things.
 std::unordered_set<void *> g_disabled;
 
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 bool OnRun(void *frame, uint32_t *slotPtr, const char * /*fmt*/, void * /*varargs*/) {
     if (g_disabled.empty() || g_disabled.count(frame) == 0)
@@ -71,7 +70,7 @@ int __fastcall Script_SetHyperlinksEnabled(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    if (reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 1) != 0)
+    if (Game::Lua::ToFlag(L, 2, true))
         g_disabled.erase(frame);
     else
         g_disabled.insert(frame);

@@ -11225,7 +11225,7 @@ enum Offsets {
     GXSHADER_TYPE_PIXEL = 1,
     GXSHADER_CODE_D3D = 2,
     GXRS_PIXEL_SHADER = 0x3F,                  // pointer-form selector (0x40 = vertex shader); doc only — the engine's draw binds it
-    FUN_LUA_TO_BOOLEAN_LOOSE = 0x006F1C10,     // __fastcall(L, idx, default): nil→0, boolean, number→int, "1/t/y…"→1, "0/f/n…"→0, "enabled"→1, "disabled"→0, other→default
+    FUN_LUA_TO_BOOLEAN_LOOSE = 0x006F1C10,     // __fastcall(L, idx, default): nil→0, boolean, number→int, "1/t/y…"→1, "0/f/n…"→0, "enabled"→1, "disabled"→0, other→default. Called through Game::Lua::ToFlag (4.3.4 StringToBOOL(L, idx, default))
 
     // --- Texture memory accounting: the zero-dimension hang -------------------
     // FUN_GX_TEXTURE_MIP_BYTES totals a texture's bytes across its mip chain:
@@ -11896,7 +11896,9 @@ enum Offsets {
     // (0x00779FC6), then reads its own attributes: "letters" (0x0077A046),
     // "autoFocus" (0x0077A0A5), "multiLine", "numeric", "historyLines".
     // Booleans go through FUN_XML_ATTR_TO_BOOL - `int __fastcall(const char *)`,
-    // 1 for text starting 1/t/y - as for autoFocus at 0x0077A0BC.
+    // 4.3.4's StringToBOOL(const char *): 1 for text starting 1-9/T/Y or equal
+    // to on/enabled, else 0 (null too) - as for autoFocus at 0x0077A0BC.
+    // Called through Game::StringToFlag.
     FUN_XML_EDITBOX_LOAD = 0x00779FB0,
     FUN_XML_ATTR_TO_BOOL = 0x006F1B30,
     // Selection-highlight regions — three consecutive CSimpleTexture pointers

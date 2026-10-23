@@ -34,16 +34,12 @@ namespace FontString::IndentedWordWrap {
 
 namespace {
 
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 using SetStyleFlags_t = void(__fastcall *)(void *fontString, void *edx, uint32_t flags);
 using UpdateObjects_t = void(__fastcall *)(void *font);
 using ReadTextType_t = int(__fastcall *)(void *L);
 
 constexpr uint32_t kIndented = Offsets::FONT_STYLE_INDENTED_WORD_WRAP;
 
-bool ReadIndent(void *L) {
-    return reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 1) != 0;
-}
 
 int PushIndented(void *L, uint32_t styleFlags) {
     if (styleFlags & kIndented)
@@ -93,7 +89,7 @@ void *HtmlFont(void *L) {
 template <void *(*Font)(void *)> int __fastcall Script_SetFontIndented(void *L) {
     void *font = Font(L);
     if (font != nullptr)
-        SetFontIndented(font, ReadIndent(L));
+        SetFontIndented(font, Game::Lua::ToFlag(L, 2, true));
     return 0;
 }
 
@@ -115,7 +111,7 @@ int __fastcall Script_SetFontStringIndented(void *L) {
     void *fontString = Game::Lua::ResolveFontString(L);
     if (fontString == nullptr)
         return 0;
-    const bool indented = ReadIndent(L);
+    const bool indented = Game::Lua::ToFlag(L, 2, true);
     Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kIndented;
     const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
     reinterpret_cast<SetStyleFlags_t>(Offsets::FUN_FONTSTRING_SET_STYLE_FLAGS)(

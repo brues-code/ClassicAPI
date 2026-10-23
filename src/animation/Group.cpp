@@ -471,14 +471,10 @@ namespace {
 
 Group *Self(void *L) { return static_cast<Group *>(Resolve(L, 1, Group::s_class)); }
 
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
-bool LooseBool(void *L, int idx, int dflt) {
-    return reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, idx, dflt) != 0;
-}
 
 int __fastcall Script_Play(void *L) {
     if (Group *g = Self(L))
-        g->Play(LooseBool(L, 2, 0));
+        g->Play(Game::Lua::ToFlag(L, 2));
     return 0;
 }
 int __fastcall Script_Pause(void *L) {
@@ -620,7 +616,7 @@ int __fastcall Script_SetIgnoreFramerateThrottle(void *L) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    if (LooseBool(L, 2, 0))
+    if (Game::Lua::ToFlag(L, 2))
         g->flags |= GROUP_IGNORE_THROTTLE;
     else
         g->flags &= ~GROUP_IGNORE_THROTTLE;

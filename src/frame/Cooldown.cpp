@@ -655,8 +655,6 @@ void __fastcall OnFrameSizeChanged(void *layout, void *, const float *oldRect) {
     ResetVerts(FrameOfLayout(layout));
 }
 
-bool StringToBool(const char *s);
-
 // The stock CooldownFrameTemplate: a Model template (Cooldown.xml, 1.12).
 bool IsStockTemplate(const void *node) {
     if (!Xml::TagIs(node, "Model"))
@@ -691,9 +689,9 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         return result;
     Fields &f = F(FrameOfLayout(layout));
     if (const char *reverse = Xml::Attr(node, "reverse"))
-        f.reverse = StringToBool(reverse);
+        f.reverse = Game::StringToFlag(reverse);
     if (const char *drawEdge = Xml::Attr(node, "drawEdge"))
-        f.drawEdge = StringToBool(drawEdge);
+        f.drawEdge = Game::StringToFlag(drawEdge);
     return result;
 }
 
@@ -743,44 +741,6 @@ void *__fastcall CreateCooldown(void *parent) {
 
 void *ResolveCooldown(void *L) { return Game::Lua::ResolveTypedObject(L, 1, TypeIdVar()); }
 
-// 4.3.4's StringToBOOL on a string (FrameXML/LoadXML.cpp 0x004EF0C0): the
-// first letter (0/F/N false, 1-9/T/Y true), then off/disabled/on/enabled,
-// and true for anything else.
-bool StringToBool(const char *s) {
-    switch (*s) {
-    case '0': case 'F': case 'N': case 'f': case 'n':
-        return false;
-    case '1': case '2': case '3': case '4': case '5':
-    case '6': case '7': case '8': case '9':
-    case 'T': case 'Y': case 't': case 'y':
-        return true;
-    default:
-        break;
-    }
-    if (_stricmp(s, "off") == 0 || _stricmp(s, "disabled") == 0)
-        return false;
-    return true;
-}
-
-// StringToBOOL(L, index, 1): nil is false, a boolean is itself, a number is
-// != 0, a string as above, and anything else the default.
-bool ArgToBool(void *L, int index) {
-    switch (Game::Lua::Type(L, index)) {
-    case Game::Lua::TYPE_NIL:
-        return false;
-    case Game::Lua::TYPE_BOOLEAN:
-        return Game::Lua::ToBoolean(L, index) != 0;
-    case Game::Lua::TYPE_NUMBER:
-        return Game::Lua::ToNumber(L, index) != 0.0;
-    case Game::Lua::TYPE_STRING: {
-        const char *s = Game::Lua::ToString(L, index);
-        return s == nullptr || StringToBool(s);
-    }
-    default:
-        return true;
-    }
-}
-
 // OFFSET (4.3.4): 0x009FFBD0
 int __fastcall Script_SetCooldown(void *L) {
     void *frame = ResolveCooldown(L);
@@ -802,7 +762,7 @@ int __fastcall Script_SetReverse(void *L) {
     void *frame = ResolveCooldown(L);
     if (frame == nullptr)
         return 0;
-    F(frame).reverse = ArgToBool(L, 2);
+    F(frame).reverse = Game::Lua::ToFlag(L, 2, true);
     return 0;
 }
 
@@ -821,7 +781,7 @@ int __fastcall Script_SetDrawEdge(void *L) {
     if (frame == nullptr)
         return 0;
     Fields &f = F(frame);
-    const uint32_t drawEdge = ArgToBool(L, 2);
+    const uint32_t drawEdge = Game::Lua::ToFlag(L, 2, true);
     if (drawEdge != f.drawEdge) {
         f.drawEdge = drawEdge;
         NotifyLayerChanged(frame, 3);

@@ -104,6 +104,12 @@ using LoadScriptFunctions_t = void(__fastcall *)();
 // registering its 109 glue functions. See FUN_LOAD_GLUE_SCRIPT_FUNCTIONS.
 using LoadGlueScriptFunctions_t = void(__stdcall *)();
 
+// The engine's text-to-flag reader (FUN_XML_ATTR_TO_BOOL, 4.3.4's
+// `StringToBOOL(const char *)`), which XML boolean attributes go through:
+// true for text starting 1-9/T/Y/t/y or equal to "on"/"enabled" (any case),
+// false for anything else, including null.
+bool StringToFlag(const char *text);
+
 // --- API documentation descriptors -----------------------------------------
 //
 // Every Lua registration (see the `Register*` functions in `Game::Lua`) can
@@ -312,6 +318,13 @@ extern const lua_pushboolean_t PushBoolean;
 // engine's `lua_pushboolean` ABI wants `int` (any non-zero = true), so
 // this just funnels through the raw binding with a single conversion.
 inline void PushBool(void *L, bool b) { PushBoolean(L, static_cast<int>(b)); }
+// The engine's script-flag argument reader (FUN_LUA_TO_BOOLEAN_LOOSE, 4.3.4's
+// `StringToBOOL(L, index, default)`), which every engine method taking an
+// optional flag uses: nil is false, a boolean is itself, a number is its
+// truncated int (so 0.5 is false), a string reads as StringToFlag except that
+// text it does not recognize is `defaultValue`, and any other type is
+// `defaultValue`.
+bool ToFlag(void *L, int index, bool defaultValue = false);
 extern const lua_pushstring_t PushString;
 extern const lua_pushlstring_t PushLString;
 extern const lua_pushvalue_t PushValue;

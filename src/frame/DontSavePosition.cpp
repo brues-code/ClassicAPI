@@ -36,7 +36,6 @@ namespace {
 
 using SaveFrame_t = void(__fastcall *)(void *frame, void *file);
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 SaveFrame_t g_origSaveFrame = nullptr;
 
@@ -58,9 +57,9 @@ int __fastcall Script_SetDontSavePosition(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    const int on = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 1);
+    const bool on = Game::Lua::ToFlag(L, 2, true);
     reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
-        frame, nullptr, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, on != 0);
+        frame, nullptr, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, on);
     return 0;
 }
 

@@ -40,6 +40,11 @@ double InternalToPixel(float internal) {
     return static_cast<double>(internal) * div * Offsets::UI_COORD_SCALE_UNIT / mul;
 }
 
+bool StringToFlag(const char *text) {
+    using StringToFlag_t = int(__fastcall *)(const char *text);
+    return reinterpret_cast<StringToFlag_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(text) != 0;
+}
+
 namespace Lua {
 // Each entry binds a typed function pointer in `Game::Lua::` to the
 // corresponding raw VA in `Offsets`. The X-macro keeps the column-aligned
@@ -129,6 +134,13 @@ int ObjectLuaRef(void *object) {
 
 void PushObject(void *L, void *object) {
     RawGetI(L, REGISTRY_INDEX, ObjectLuaRef(object));
+}
+
+bool ToFlag(void *L, int index, bool defaultValue) {
+    // Returns a full int in EAX on every path (Ghidra's `bool` is wrong).
+    using ToFlag_t = int(__fastcall *)(void *L, int index, int defaultValue);
+    return reinterpret_cast<ToFlag_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, index,
+                                                                          defaultValue ? 1 : 0) != 0;
 }
 
 const char *ObjectDisplayName(void *object) {

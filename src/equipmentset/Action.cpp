@@ -76,7 +76,6 @@ using Notify_t = void(__fastcall *)(uint32_t slot0, int sendToServer, int quiet)
 using Usable_t = uint32_t(__fastcall *)(uint32_t slot0, int *outNoMana);
 using Texture_t = const char *(__fastcall *)(uint32_t slot0);
 using Script_t = int(__fastcall *)(void *L);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 // `__stdcall(a, packet)`, RET 8 — declared `__fastcall` with the two
 // register slots passed through untouched, which is the same frame.
 using ActionButtons_t = int(__fastcall *)(void *ecx, void *edx, void *a, void *packet);
@@ -193,7 +192,7 @@ int __fastcall UseAction_h(void *L) {
     if (slot < 0 || slot >= static_cast<int>(kSlots))
         return g_origUseAction(L);
     const uint32_t slot0 = static_cast<uint32_t>(slot);
-    if (reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 0) != 0) {
+    if (Game::Lua::ToFlag(L, 2)) {
         if (const uint32_t id = CursorSetID()) {
             PlaceSet(slot0, id);
             return 0;

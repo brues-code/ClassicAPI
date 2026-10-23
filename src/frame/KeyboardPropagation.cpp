@@ -47,7 +47,6 @@ namespace {
 
 using KeySlot_t = int(__fastcall *)(void *frame, void *edx, void *event);
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 KeySlot_t g_origFrameOnChar = nullptr;
 KeySlot_t g_origFrameOnKeyDown = nullptr;
@@ -86,9 +85,9 @@ int __fastcall Script_SetPropagateKeyboardInput(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    const int on = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 0);
+    const bool on = Game::Lua::ToFlag(L, 2);
     reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
-        frame, nullptr, Offsets::FRAME_FLAG_PROPAGATE_KEYBOARD, on != 0);
+        frame, nullptr, Offsets::FRAME_FLAG_PROPAGATE_KEYBOARD, on);
     return 0;
 }
 

@@ -67,7 +67,6 @@ namespace {
 
 using Cycle_t = void(__fastcall *)(int reverse, int mode);
 using Valid_t = int(__fastcall *)(void *player, void *cand, int mode);
-using ToBool_t = int(__fastcall *)(void *L, int idx, int dflt);
 using SetSelection_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
 using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx, uint64_t guid);
 using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
@@ -110,9 +109,7 @@ const Game::HookAutoRegister _validHook{Offsets::FUN_TARGET_CANDIDATE_VALID,
                                         reinterpret_cast<void **>(&g_validOriginal)};
 
 void Cycle(void *L, int mode) {
-    const int reverse =
-        reinterpret_cast<ToBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 1, 0);
-    reinterpret_cast<Cycle_t>(Offsets::FUN_TARGET_NEAREST_CYCLE)(reverse, mode);
+    reinterpret_cast<Cycle_t>(Offsets::FUN_TARGET_NEAREST_CYCLE)(Game::Lua::ToFlag(L, 1), mode);
 }
 
 void SetSelection(uint64_t guid) {

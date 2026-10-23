@@ -66,7 +66,6 @@ using ShaderCreate_t = void(__fastcall *)(int type, void **outSlot, const char *
 using ArrayGrow_t = void(__thiscall *)(void *desc, uint32_t newCap);
 using CompilePs_t = void(__thiscall *)(void *device, void *shader);
 using SetShader_t = void(__thiscall *)(void *region, void *shader);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 using ScriptFn_t = int(__fastcall *)(void *L);
 using GetUiPixelShader_t = void *(__fastcall *)(int index);
 
@@ -380,8 +379,7 @@ int __fastcall Script_SetDesaturated(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const int flag = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 1);
-    if (!Apply(region, flag != 0 ? kFull : 0)) {
+    if (!Apply(region, Game::Lua::ToFlag(L, 2, true) ? kFull : 0)) {
         Game::Lua::PushNil(L);
         return 1;
     }

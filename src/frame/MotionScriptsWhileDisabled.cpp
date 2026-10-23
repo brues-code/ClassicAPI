@@ -48,8 +48,6 @@ namespace {
 using OnEnter_t = void(__fastcall *)(void *button, void *edx);
 using OnLeave_t = void(__fastcall *)(void *button, void *edx, int removed);
 using FireScript_t = void(__fastcall *)(void *frame, void *edx, int *slot);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
-using AttrToBool_t = int(__fastcall *)(const char *text);
 
 std::unordered_set<const void *> g_enabled;
 
@@ -99,7 +97,7 @@ void OnFrameNode(void *object, const void *node, void * /*status*/) {
     const char *value = Xml::Attr(node, "motionScriptsWhileDisabled");
     if (value == nullptr || *value == '\0' || !Game::Lua::IsA(object, Offsets::VAR_BUTTON_LUA_TYPE_ID))
         return;
-    Set(object, reinterpret_cast<AttrToBool_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(value) != 0);
+    Set(object, Game::StringToFlag(value));
 }
 
 const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};
@@ -115,7 +113,7 @@ int __fastcall Script_SetMotionScriptsWhileDisabled(void *L) {
     void *button = ResolveButton(L);
     if (button == nullptr)
         return 0;
-    Set(button, reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 0) != 0);
+    Set(button, Game::Lua::ToFlag(L, 2));
     return 0;
 }
 

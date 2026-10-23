@@ -32,7 +32,6 @@ namespace FontString::WordWrap {
 
 namespace {
 
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 constexpr uint32_t kNoWrap = Offsets::FONT_STYLE_NO_WORD_WRAP;
 
@@ -40,7 +39,7 @@ int __fastcall Script_SetWordWrap(void *L) {
     void *fontString = Game::Lua::ResolveFontString(L);
     if (fontString == nullptr)
         return 0;
-    const bool wrap = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 1) != 0;
+    const bool wrap = Game::Lua::ToFlag(L, 2, true);
     Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kNoWrap;
     const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
     const uint32_t wanted = wrap ? flags & ~kNoWrap : flags | kNoWrap;

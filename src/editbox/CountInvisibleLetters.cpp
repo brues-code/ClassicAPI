@@ -86,7 +86,6 @@ const Game::HookAutoRegister _countHook{Offsets::FUN_EDITBOX_COUNT_CHARS, reinte
 
 using Load_t = uintptr_t(__thiscall *)(void *self, const void *node, void *status);
 using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
-using AttrToBool_t = int(__fastcall *)(const char *text);
 Load_t g_origEditBoxLoad = nullptr;
 
 // `self` is the loader sub-object inside the edit box.
@@ -99,7 +98,7 @@ uintptr_t __fastcall EditBoxLoad_h(void *self, void * /*edx*/, const void *node,
     if (value == nullptr || *value == '\0')
         return result;
     void *editBox = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
-    if (reinterpret_cast<AttrToBool_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(value))
+    if (Game::StringToFlag(value))
         g_counting.insert(editBox);
     else
         g_counting.erase(editBox);

@@ -57,15 +57,14 @@ namespace {
 
 using OnSpriteRightClick_t = int(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
 using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
-using ToBool_t = int(__fastcall *)(void *L, int idx, int dflt);
 
 uint64_t ResolveGuid(void *L, const char *token) {
     if (_stricmp(token, "mouseover") == 0)
         return Game::Read<uint64_t>(Offsets::VAR_MOUSEOVER_GUID_LO);
     if (Unit::TokenResolve::IsUnitToken(token))
         return reinterpret_cast<TokenToGuid_t>(Offsets::FUN_TOKEN_TO_GUID)(token);
-    const int exact = reinterpret_cast<ToBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE)(L, 2, 0);
-    return Unit::Identity::FindGuidByName(token, Offsets::TYPEMASK_OBJECT, exact != 0);
+    return Unit::Identity::FindGuidByName(token, Offsets::TYPEMASK_OBJECT,
+                                          Game::Lua::ToFlag(L, 2));
 }
 
 bool Interact(void *L) {

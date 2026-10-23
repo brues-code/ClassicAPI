@@ -46,7 +46,6 @@ namespace Item::Count {
 namespace {
 
 using CountByID_t = int(__thiscall *)(const void *invMgr, int itemID, uint32_t flags);
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 int CountByID(uintptr_t fn, int itemID, uint32_t flags) {
     const uint8_t *invMgr = Unit::Identity::PlayerInventoryManager();
@@ -86,9 +85,8 @@ int CountUses(int itemID, int total) {
 }
 
 int __fastcall Script_C_Item_GetItemCount(void *L) {
-    const auto looseBool = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE);
-    const bool includeBank = looseBool(L, 2, 0) != 0;
-    const bool includeUses = looseBool(L, 3, 0) != 0;
+    const bool includeBank = Game::Lua::ToFlag(L, 2);
+    const bool includeUses = Game::Lua::ToFlag(L, 3);
     const uint32_t flags = includeBank ? Offsets::INVMGR_SEARCH_BANK : 0;
 
     const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);

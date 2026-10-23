@@ -75,7 +75,6 @@ void RewriteAppendHeader(void *tooltip, int headerLine, int spellID, bool showSu
     *numLines = after;
 }
 
-using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
 
 // 4.3.4's Script_SetSpellByID / Script_AddSpellByID (Tooltip_Scripts.cpp
 // 0x004733C0 / 0x00473530), which differ only in `append`: (spellID
@@ -93,9 +92,8 @@ int SetOrAddSpellByID(void *L, bool append) {
                          Game::Lua::ObjectDisplayName(tooltip));
         return 0;
     }
-    const auto looseBool = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE);
-    const bool isPet = looseBool(L, 3, 0) != 0;
-    const bool showSubtext = looseBool(L, 4, 0) != 0;
+    const bool isPet = Game::Lua::ToFlag(L, 3);
+    const bool showSubtext = Game::Lua::ToFlag(L, 4);
 
     const int before = Game::Read<int>(tooltip, Offsets::OFF_GAMETOOLTIP_NUM_LINES);
     const uint32_t result = BuildSpell(tooltip, spellID, CooldownRemainingMs(spellID, isPet),
