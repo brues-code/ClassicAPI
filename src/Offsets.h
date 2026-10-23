@@ -10387,6 +10387,16 @@ enum Offsets {
     // the previous NPC's stale arrays/text after close.
     VAR_GOSSIP_NPC_GUID = 0x00BC3F58,
 
+    // u32, 1 while the greeting is unresolved. The greeting builder
+    // 0x004E2010 (its only writer) sets it on an NPC-text cache miss or
+    // textID 0 and clears it once the text resolves, right before
+    // GOSSIP_SHOW; the option selector 0x004E2320 refuses while it is
+    // set. The GUID above is latched earlier, so GUID != 0 alone counts
+    // a window that has not shown yet — with the previous NPC's text
+    // still in VAR_GOSSIP_GREETING_TEXT. Verified via xrefs (1 read, 2
+    // writes) and the 0x004E2010 decompile.
+    VAR_GOSSIP_TEXT_PENDING = 0x00BBB670,
+
     // --- Quest-greeting state (SMSG_QUESTGIVER_QUEST_LIST) -------------
     // Vanilla's SECOND questgiver path: NPCs without a gossip menu send
     // SMSG_QUESTGIVER_QUEST_LIST, whose handler (FUN_005dbb10) fills a

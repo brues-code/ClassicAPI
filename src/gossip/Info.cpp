@@ -30,7 +30,8 @@
 // block in Offsets.h). Retail keeps the two APIs disjoint, but for
 // backporting it's far more useful for `C_GossipInfo` to serve
 // whichever questgiver session is actually live:
-//   - gossip session live (VAR_GOSSIP_NPC_GUID != 0)   → gossip arrays
+//   - gossip session live (VAR_GOSSIP_NPC_GUID != 0
+//     and greeting not pending)                        → gossip arrays
 //   - greeting session live (VAR_QUESTGIVER_GUID != 0
 //     and == VAR_GREETING_NPC_GUID)                    → greeting arrays
 //   - neither                                           → empty / ""
@@ -68,10 +69,15 @@ uint64_t ReadU64(uintptr_t va) {
     return *reinterpret_cast<const uint64_t *>(va);
 }
 
-// A gossip session is live from SMSG_GOSSIP_MESSAGE until the close
-// worker (0x004E1FA0) zeroes the GUID and fires GOSSIP_CLOSED.
+// A gossip session is live from GOSSIP_SHOW until the close worker
+// (0x004E1FA0) zeroes the GUID and fires GOSSIP_CLOSED. The GUID is
+// latched on SMSG_GOSSIP_MESSAGE, before the greeting resolves, so the
+// engine's own pending flag (what its option selector checks) keeps the
+// not-yet-shown window — and the previous NPC's text — out.
 bool GossipSessionActive() {
-    return ReadU64(Offsets::VAR_GOSSIP_NPC_GUID) != 0;
+    return ReadU64(Offsets::VAR_GOSSIP_NPC_GUID) != 0 &&
+           *reinterpret_cast<const uint32_t *>(
+               Offsets::VAR_GOSSIP_TEXT_PENDING) == 0;
 }
 
 // A quest-greeting session is live while the quest-session GUID is set
@@ -427,18 +433,28 @@ int __fastcall Script_C_GossipInfo_SelectOption(void *L) {
 
 // `C_GossipInfo.SelectOptionByIndex(orderIndex)` — `orderIndex` is
 // 1-based in display order (matches what `GetOptions()` puts on each
-// entry). The engine helper takes the 0-based array slot.
+// entry). Slots with a negative index are hidden and skipped, so the
+// display position is walked back to the 0-based array slot the engine
+// helper takes, the same way `GetOptions()` numbered it.
 int __fastcall Script_C_GossipInfo_SelectOptionByIndex(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L,
             "Usage: C_GossipInfo.SelectOptionByIndex(orderIndex)");
         return 0;
     }
-    const int slot0Based = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    if (slot0Based < 0 || slot0Based >= Offsets::GOSSIP_OPTIONS_MAX ||
-        !GossipSessionActive())
+    const int target = static_cast<int>(Game::Lua::ToNumber(L, 1));
+    if (!GossipSessionActive())
         return 0;
-    EngineSelectOption(slot0Based, nullptr);
+
+    int orderIndex = 0;
+    for (int slot = 0; slot < Offsets::GOSSIP_OPTIONS_MAX; ++slot) {
+        if (OptionIndex(OptionEntry(slot)) < 0)
+            continue;
+        if (++orderIndex == target) {
+            EngineSelectOption(slot, nullptr);
+            return 0;
+        }
+    }
     return 0;
 }
 
