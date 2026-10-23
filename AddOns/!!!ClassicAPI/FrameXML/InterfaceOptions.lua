@@ -347,14 +347,25 @@ end
 -- Goes right above Key Bindings. Stock anchors Key Bindings under Interface
 -- Options and Turtle under its single Options button, so the new button takes
 -- over whatever anchor Key Bindings has and Key Bindings moves under it.
--- Buttons other addons add at the top of the menu are unaffected.
+--
+-- The splice waits for the menu's first show. Other addons insert their own
+-- buttons the same way -- ShaguTweaks anchors "Advanced Options" under
+-- Interface Options and moves Key Bindings under it -- and they load after
+-- us. Splicing at load time would claim the slot first, and the later addon
+-- would anchor its button on the same spot as ours. By the first show every
+-- addon has placed its buttons, so ours goes into the chain as it stands.
 local menuButton = CreateFrame("Button", "GameMenuButtonAddOnOptions", GameMenuFrame, "GameMenuButtonTemplate")
 menuButton:SetText(ADDON_OPTIONS)
-local point, relativeTo, relativePoint, x, y = GameMenuButtonKeybindings:GetPoint()
-menuButton:SetPoint(point, relativeTo, relativePoint, x, y)
-GameMenuButtonKeybindings:ClearAllPoints()
-GameMenuButtonKeybindings:SetPoint(point, menuButton, relativePoint, x, y)
-GameMenuFrame:SetHeight(GameMenuFrame:GetHeight() + menuButton:GetHeight() - y)
+local spliced
+GameMenuFrame:HookScript("OnShow", function()
+	if spliced then return end
+	spliced = true
+	local point, relativeTo, relativePoint, x, y = GameMenuButtonKeybindings:GetPoint()
+	menuButton:SetPoint(point, relativeTo, relativePoint, x, y)
+	GameMenuButtonKeybindings:ClearAllPoints()
+	GameMenuButtonKeybindings:SetPoint(point, menuButton, relativePoint, x, y)
+	GameMenuFrame:SetHeight(GameMenuFrame:GetHeight() + menuButton:GetHeight() - y)
+end)
 menuButton:SetScript("OnClick", function()
 	PlaySound("igMainMenuOption")
 	ShowUIPanel(frame)
