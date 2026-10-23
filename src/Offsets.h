@@ -189,8 +189,16 @@ enum Offsets {
     // lookups (e.g. GameTooltip:GetOwner) subtract this back out.
     OFF_FRAME_LAYOUT_SUBOBJECT = 0x24,
 
-    // Inner spell-tooltip builder, called from Script_GameTooltip_SetSpell at 0x00532E92.
-    // __thiscall(spellID, 0, 0, isPet, 0, 0, 0); we always pass isPet=0.
+    // Inner spell-tooltip builder (CGTooltip::BuildSpell), called from
+    // Script_GameTooltip_SetSpell at 0x00532E92. `uint __thiscall(spellID,
+    // compact, cooldownMs, pet, showRank, talent, rebuild)`, RET 0x1C — the
+    // first six of 4.3.4's CGTooltip::SetSpell(spellId, brief, cooldown,
+    // isPet, showSubtext, …, talent, …, append, …) in order. `rebuild`
+    // skips the clear and the spellID stash (+0x39C) and, unlike 4.3.4's
+    // append, always heads the block with "\n" TOOLTIP_TALENT_NEXT_RANK
+    // instead of the name line (talent or not). A TRADESPELL record builds
+    // its created item's tooltip instead. Returns 1 when it added the
+    // cooldown line (cooldownMs != 0, recovery >= 60s) or a chance-to line.
     FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP = 0x0052E610,
 
     // Existing GameTooltip method-table entries we dispatch to from
@@ -3783,9 +3791,12 @@ enum Offsets {
     // The two default tooltip line colors, packed {b,g,r,a} like every
     // FUN_GAMETOOLTIP_ADD_LINE color: text 0xFFFFFFFF (static init 0x00528E90)
     // and title 0xFFFFD200 (static init 0x00528E50) — 4.3.4's
-    // s_tooltipTextColor / s_tooltipTitleColor.
+    // s_tooltipTextColor / s_tooltipTitleColor. The gray 0xFF808080 is the
+    // right column of the spell builder's name line (benilla-re
+    // s_tooltipGray, verified) — 4.3.4's s_tooltipGrayColor.
     VAR_TOOLTIP_TEXT_COLOR = 0x00C0CF60,
     VAR_TOOLTIP_TITLE_COLOR = 0x00C0D3E8,
+    VAR_TOOLTIP_GRAY_COLOR = 0x00C0D3C4,
     FUN_SCRIPT_FRAME_SHOW = 0x00775750,
     FUN_SCRIPT_FRAME_HIDE = 0x00775810,
     FUN_SCRIPT_FRAME_SETMINRESIZE = 0x00776020,

@@ -13,20 +13,108 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "spell/Cooldown.h"
 #include "spell/Lookup.h"
 #include "spell/Tooltip.h"
+#include "time/Clock.h"
+#include "tooltip/Lines.h"
 
 #include <cstdint>
 
 namespace Spell::Tooltip {
 
-// Spell.dbc record offsets used by GetSpell. Kept local rather than
-// pulled from Spell::Info — that module keeps these as `static
-// constexpr` privates and exposing them just for two readers here
-// would force a header change.
+namespace {
 
-using BuildSpellTooltip_t = void(__thiscall *)(void *thisObj, int spellID, int arg2, int arg3,
-                                               int isPet, int showRank, int arg6, int arg7);
+// CGTooltip::BuildSpell — see FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP.
+using BuildSpell_t = uint32_t(__thiscall *)(void *tooltip, int spellID, int compact,
+                                            uint32_t cooldownMs, int pet, int showRank,
+                                            const void *talent, int rebuild);
+
+uint32_t BuildSpell(void *tooltip, int spellID, uint32_t cooldownMs, bool pet, bool showRank,
+                    bool rebuild) {
+    return reinterpret_cast<BuildSpell_t>(Offsets::FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP)(
+        tooltip, spellID, 0, cooldownMs, pet ? 1 : 0, showRank ? 1 : 0, nullptr, rebuild ? 1 : 0);
+}
+
+// The cooldown argument 4.3.4's Script_SetSpellByID computes: the time left
+// when the spell's cooldown is enabled, running and started, else 0.
+uint32_t CooldownRemainingMs(int spellID, bool pet) {
+    uint32_t start = 0, duration = 0;
+    bool enabled = false;
+    if (!Spell::Cooldown::Query(spellID, pet, &start, &duration, &enabled) || !enabled ||
+        duration == 0 || start == 0)
+        return 0;
+    return Time::Clock::Remaining(start + duration);
+}
+
+// The builder's append mode heads the block with its talent "Next rank:"
+// line, where 4.3.4's append (no talent) adds the ordinary name line. Rewrite
+// that line in place with the engine's own add-line — the same
+// `AddDoubleLine(name, subtext, text, gray)` the builder's non-append path
+// makes — by pointing the line cursor back at it for the one call.
+void RewriteAppendHeader(void *tooltip, int headerLine, int spellID, bool showSubtext) {
+    const uint8_t *record = Spell::Lookup::RecordForID(spellID);
+    if (record == nullptr ||
+        (Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+         Offsets::SPELL_ATTR_TRADESPELL) != 0)
+        return; // a recipe appends its created item's tooltip, which has no header
+    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
+    const char *name = Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
+    if (name == nullptr || name[0] == '\0')
+        return;
+    const char *subtext =
+        showSubtext ? Game::Read<const char *>(record, Offsets::OFF_SPELL_RECORD_RANK + locale * 4)
+                    : nullptr;
+
+    const uint32_t textColor = Game::Read<uint32_t>(Offsets::VAR_TOOLTIP_TEXT_COLOR);
+    const uint32_t grayColor = Game::Read<uint32_t>(Offsets::VAR_TOOLTIP_GRAY_COLOR);
+    int *numLines = Game::Ptr<int>(tooltip, Offsets::OFF_GAMETOOLTIP_NUM_LINES);
+    const int after = *numLines;
+    *numLines = headerLine;
+    ::Tooltip::Lines::AddDouble(tooltip, name, subtext, textColor, grayColor);
+    *numLines = after;
+}
+
+using LooseBool_t = int(__fastcall *)(void *L, int idx, int defaultValue);
+
+// 4.3.4's Script_SetSpellByID / Script_AddSpellByID (Tooltip_Scripts.cpp
+// 0x004733C0 / 0x00473530), which differ only in `append`: (spellID
+// [, isPet [, showSubtext]]), the spell's cooldown passed to the builder,
+// 1 when it added the cooldown line (FrameXML's refresh cue), else nil.
+// Both raise the same message, SetSpellByID's.
+int SetOrAddSpellByID(void *L, bool append) {
+    void *tooltip = Game::Lua::ResolveTooltip(L);
+    if (tooltip == nullptr)
+        return 0;
+    int spellID = 0;
+    if (!Game::Lua::IsNumber(L, 2) ||
+        (spellID = static_cast<int>(Game::Lua::ToNumber(L, 2))) < 0) {
+        Game::Lua::Error(L, "Invalid spell ID in %s:SetSpellByID",
+                         Game::Lua::ObjectDisplayName(tooltip));
+        return 0;
+    }
+    const auto looseBool = reinterpret_cast<LooseBool_t>(Offsets::FUN_LUA_TO_BOOLEAN_LOOSE);
+    const bool isPet = looseBool(L, 3, 0) != 0;
+    const bool showSubtext = looseBool(L, 4, 0) != 0;
+
+    const int before = Game::Read<int>(tooltip, Offsets::OFF_GAMETOOLTIP_NUM_LINES);
+    const uint32_t result = BuildSpell(tooltip, spellID, CooldownRemainingMs(spellID, isPet),
+                                       isPet, showSubtext, append);
+    if (append && Game::Read<int>(tooltip, Offsets::OFF_GAMETOOLTIP_NUM_LINES) > before)
+        RewriteAppendHeader(tooltip, before, spellID, showSubtext);
+
+    if (result != 0)
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
+int __fastcall Script_GameTooltipSetSpellByID(void *L) { return SetOrAddSpellByID(L, false); }
+
+int __fastcall Script_GameTooltipAddSpellByID(void *L) { return SetOrAddSpellByID(L, true); }
+
+} // namespace
 
 void ShowByID(void *L, int spellID) {
     if (spellID <= 0)
@@ -34,88 +122,7 @@ void ShowByID(void *L, int spellID) {
     void *tooltipObj = Game::Lua::ResolveTooltip(L);
     if (tooltipObj == nullptr)
         return;
-    auto BuildSpellTooltip =
-        reinterpret_cast<BuildSpellTooltip_t>(Offsets::FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP);
-    BuildSpellTooltip(tooltipObj, spellID, 0, 0, 0, /*showRank=*/1, 0, 0);
-}
-
-static int __fastcall Script_GameTooltipSetSpellByID(void *L) {
-    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L, "Usage: GameTooltipSetSpellByID(self, spellID)");
-        return 0;
-    }
-    if (!Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: GameTooltipSetSpellByID(self, spellID)");
-        return 0;
-    }
-    const int spellID = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    ShowByID(L, spellID);
-    return 0;
-}
-
-// `GameTooltip:AddSpellByID(spellID)` — APPENDS a spell's tooltip to the
-// current one instead of clearing+rebuilding (the `SetSpellByID` behavior).
-// The natural pair to `SetSpellByID`; lets callers compose tooltips like
-// `AddLine(talentName) + AddSpellByID(rankSpellID)`.
-//
-// `BuildSpellTooltip`'s last arg (`param_7`) gates the clear: `0` calls the
-// per-tooltip Clear (`FUN_00530050`) first — that's `SetSpellByID`; non-zero
-// SKIPS the clear and appends. The append path is the engine's talent
-// "next rank" preview, so it (a) emits a `"\nNext rank:"` header line
-// instead of the spell name, and (b) does NOT stash the displayed spellID at
-// `+0x39C` (so `GetSpell` keeps reflecting the base tooltip — correct for an
-// append). We fix (a) by overwriting that header line — which lands at index
-// `numLines`-before-the-build (0-based) — with the real spell name via the
-// line pool's left-text FontString. Verified against `FUN_0052E610`.
-void AppendByID(void *L, int spellID) {
-    if (spellID <= 0)
-        return;
-    void *tooltipObj = Game::Lua::ResolveTooltip(L);
-    if (tooltipObj == nullptr)
-        return;
-    auto *tt = static_cast<uint8_t *>(tooltipObj);
-
-    const int before = Game::Read<int>(
-        tt, Offsets::OFF_GAMETOOLTIP_NUM_LINES);
-
-    auto BuildSpellTooltip =
-        reinterpret_cast<BuildSpellTooltip_t>(Offsets::FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP);
-    BuildSpellTooltip(tooltipObj, spellID, 0, 0, 0, 0, 0, /*param_7 (append)=*/1);
-
-    const int after = Game::Read<int>(
-        tt, Offsets::OFF_GAMETOOLTIP_NUM_LINES);
-    if (after <= before)
-        return; // nothing appended (bad spellID / missing Spell.dbc record)
-
-    const uint8_t *record = Spell::Lookup::RecordForID(spellID);
-    if (record == nullptr)
-        return;
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = Game::Read<const char *>(
-        record, Offsets::OFF_SPELL_NAMES + locale * 4);
-    if (name == nullptr || name[0] == '\0')
-        return;
-
-    // Left-text FontString array: descriptor at +0x324, data ptr at +0x8.
-    auto **textLeft = Game::Read<void **>(
-        tt, Offsets::OFF_GAMETOOLTIP_TEXTLEFT_DESC + 8);
-    if (textLeft == nullptr)
-        return;
-    void *fs = textLeft[before];
-    if (fs == nullptr)
-        return;
-    using SetText_t = void(__thiscall *)(void *fs, const char *text, int flag);
-    reinterpret_cast<SetText_t>(Offsets::FUN_FONTSTRING_SET_TEXT)(fs, name, 0);
-}
-
-static int __fastcall Script_GameTooltipAddSpellByID(void *L) {
-    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE ||
-        !Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: GameTooltip:AddSpellByID(spellID)");
-        return 0;
-    }
-    AppendByID(L, static_cast<int>(Game::Lua::ToNumber(L, 2)));
-    return 0;
+    BuildSpell(tooltipObj, spellID, 0, false, /*showRank=*/true, false);
 }
 
 // `GameTooltip:GetSpell()` → (name, rank, spellID) for whichever spell
@@ -196,13 +203,20 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
 
 // --- Documentation ----------------------------------------------------------
 
-static const Game::Doc::Field kSpellIDArg[] = {
+static const Game::Doc::Field kSpellByIDArgs[] = {
     Game::Doc::Req("spellID", "number", "Any spell ID, learned or not."),
+    Game::Doc::Opt("isPet", "boolean", "false", "Read cost, range and cooldown as the pet's spell."),
+    Game::Doc::Opt("showSubtext", "boolean", "false", "Show the spell's rank to the right of its name."),
+};
+static const Game::Doc::Field kSpellByIDRets[] = {
+    Game::Doc::Opt("hasCooldown", "number", nullptr,
+                   "1 when the tooltip shows a cooldown that is counting down, else nil."),
 };
 static const Game::Doc::Function kSetSpellByID{
-    "Fills the tooltip with a spell's tooltip.", kSpellIDArg, {}};
+    "Fills the tooltip with a spell's tooltip.", kSpellByIDArgs, kSpellByIDRets};
 static const Game::Doc::Function kAddSpellByID{
-    "Appends a spell's tooltip to what the tooltip already shows.", kSpellIDArg, {}};
+    "Appends a spell's tooltip to what the tooltip already shows.", kSpellByIDArgs,
+    kSpellByIDRets};
 
 static const Game::Doc::Field kGetSpellRets[] = {
     Game::Doc::Opt("name", "string", nullptr, "Nil when the tooltip shows no spell."),

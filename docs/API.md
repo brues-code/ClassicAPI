@@ -376,8 +376,8 @@ build instructions.
 
 - [GameTooltip](#gametooltip)
   - [`GameTooltip:AddTexture(texture)`](#gametooltipaddtexturetexture)
-  - [`GameTooltip:SetSpellByID(spellID)`](#gametooltipsetspellbyidspellid)
-  - [`GameTooltip:AddSpellByID(spellID)`](#gametooltipaddspellbyidspellid)
+  - [`GameTooltip:SetSpellByID(spellID [, isPet [, showSubtext]])`](#gametooltipsetspellbyidspellid--ispet--showsubtext)
+  - [`GameTooltip:AddSpellByID(spellID [, isPet [, showSubtext]])`](#gametooltipaddspellbyidspellid--ispet--showsubtext)
   - [`GameTooltip:SetTalentByID(talentID)`](#gametooltipsettalentbyidtalentid)
   - [`GameTooltip:SetInventoryItemByID(itemID)`](#gametooltipsetinventoryitembyiditemid)
   - [`GameTooltip:SetHyperlink(link)`](#gametooltipsethyperlinklink)
@@ -8644,44 +8644,51 @@ The call adds no texture and returns `false` in these cases:
 12x12. Do not resize or move a texture after you add it: the text of the
 line does not move with it.
 
-### `GameTooltip:SetSpellByID(spellID)`
+### `GameTooltip:SetSpellByID(spellID [, isPet [, showSubtext]])`
 
-Renders a spell tooltip for any `spellID`, including spells the player has
-not learned. The stock 1.12 `GameTooltip:SetSpell(slot, bookType)` only works
-for entries in the player's spellbook (or pet book). `SetSpellByID` bypasses
-the spellbook indirection and calls WoW's internal tooltip builder directly.
+Shows the tooltip of a spell. The spell can be any spell ID, also a spell
+that the player did not learn.
+
+| Argument | Type | Description |
+|---|---|---|
+| `spellID` | number | The ID of the spell. |
+| `isPet` | boolean | If `true`, the cost, range, and cooldown are those of the pet. The default is `false`. |
+| `showSubtext` | boolean | If `true`, the rank shows to the right of the spell name. The default is `false`. |
+
+Returns `1` when the tooltip shows a cooldown that counts down. Otherwise,
+returns `nil`. The tooltip shows the remaining cooldown only for a spell
+with a cooldown of 1 minute or more.
+
+If `spellID` is not a number, or is less than 0, the function raises an
+error. If no spell has this ID, the tooltip clears and hides.
 
 ```lua
 GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
-GameTooltip:SetSpellByID(133)  -- Fireball
+GameTooltip:SetSpellByID(133)              -- Fireball
+GameTooltip:SetSpellByID(133, false, true) -- Fireball, with its rank
 GameTooltip:Show()
 ```
 
-### `GameTooltip:AddSpellByID(spellID)`
+### `GameTooltip:AddSpellByID(spellID [, isPet [, showSubtext]])`
 
-The append counterpart to [`SetSpellByID`](#gametooltipsetspellbyidspellid):
-adds a spell's full tooltip (name, cast time, cost, range, description) to
-the *current* tooltip **without clearing** the existing lines. Works for any
-`spellID`, learned or not. Lets you compose tooltips — e.g. a header line
-plus a spell block.
+Adds the tooltip of a spell below the lines that the tooltip already shows.
+The tooltip does not clear first. The arguments and the return value are the
+same as for [`SetSpellByID`](#gametooltipsetspellbyidspellid--ispet--showsubtext).
+
+Use this function to make one tooltip from more parts, for example a header
+line and a spell.
 
 ```lua
 GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
 GameTooltip:AddLine("Rank 3 grants:")
-GameTooltip:AddSpellByID(133)  -- Fireball, appended below the header
+GameTooltip:AddSpellByID(133)  -- Fireball, below the header
 GameTooltip:Show()
 ```
 
-Unlike `SetSpellByID`, this does **not** update what
-[`GetSpell`](#gametooltipgetspell) reports — the appended spell isn't the
-tooltip's "primary" spell, so `GetSpell` keeps reflecting whatever `SetX`
-call (if any) built the base tooltip. Silent no-op for `spellID <= 0` or an
-unknown spell.
-
-> The engine's tooltip builder only exposes "append" via its internal talent
-> "next rank" preview, which emits a `Next rank:` header instead of the
-> spell name; we overwrite that header line with the real name so the
-> appended block reads normally.
+This function does not change the value of
+[`GetSpell`](#gametooltipgetspell). `GetSpell` continues to give the spell
+of the tooltip before the added lines. If no spell has this ID, the function
+adds no lines.
 
 ### `GameTooltip:GetItem()`
 
@@ -9003,7 +9010,7 @@ GameTooltip:SetHyperlink("quest:783")
 | `\|H<payload>\|h[text]\|h` | The tooltip for the payload, as in the rows below |
 | `item:` | The item tooltip |
 | `enchant:<spellID>` | The spell tooltip, for an Enchanting formula or a trade-skill recipe (such as a [`GetTradeSkillRecipeLink`](#gettradeskillrecipelinkindex) link) |
-| `spell:<spellID>` | The spell tooltip, the same as [`SetSpellByID`](#gametooltipsetspellbyidspellid) |
+| `spell:<spellID>` | The spell tooltip of [`SetSpellByID`](#gametooltipsetspellbyidspellid--ispet--showsubtext), with the rank and without the cooldown |
 | `quest:<questID>[:level]` | The quest title, then the objectives text. Tokens such as `$N` are expanded, as in the quest log. |
 
 Other link types (for example `achievement:` and `talent:`) raise the error

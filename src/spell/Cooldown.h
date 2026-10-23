@@ -28,4 +28,10 @@ namespace Spell::Cooldown {
 bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
            bool *enabled);
 
+// Same, read from the history the caller names (`pet` = the pet's) — the
+// shape 4.3.4's `Spell_C_GetSpellCooldown(spellId, isPet, …)` takes, for
+// callers that are handed the history instead of deriving it.
+bool Query(int spellID, bool pet, uint32_t *startMs, uint32_t *durationMs,
+           bool *enabled);
+
 } // namespace Spell::Cooldown

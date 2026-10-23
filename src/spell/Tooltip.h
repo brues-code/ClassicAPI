@@ -15,26 +15,15 @@
 
 namespace Spell::Tooltip {
 
-// Resolves the `GameTooltip` self at Lua stack[1] (via the
-// engine's `FrameScript_PushObject`/`FrameScript_GetObject` chain)
-// and dispatches the engine's spell-tooltip builder for `spellID`,
-// with the spell's rank shown in the top-right corner of the title
-// line (matching `SetAction`/`SetPetAction`; native `SetSpell` omits it).
-// Silent no-op if `spellID <= 0` or stack[1] isn't a frame object.
+// Resolves the `GameTooltip` self at Lua stack[1] and runs the engine's
+// spell-tooltip builder for `spellID` with the rank shown in the top-right
+// corner of the name line (as `SetAction` shows it) and no cooldown line.
+// Silent no-op if `spellID <= 0` or stack[1] isn't a tooltip.
 //
-// Used by `GameTooltip:SetSpellByID` directly, and by
-// `GameTooltip:SetTalentByID` as a fallback for cross-class talents
-// (where the engine's per-player TalentEntry tables don't apply,
-// so we render the rank-1 spell tooltip instead).
+// Used by `GameTooltip:SetTalentByID` as a fallback for cross-class talents
+// (where the engine's per-player TalentEntry tables don't apply, so we
+// render the rank-1 spell tooltip instead) and by `spell:` hyperlinks.
+// `GameTooltip:SetSpellByID` has its own 4.3.4-shaped arguments.
 void ShowByID(void *L, int spellID);
-
-// Like `ShowByID` but APPENDS the spell's tooltip to the current one
-// (no clear), and overwrites the engine's talent "next rank" header with
-// the real spell name. Backs `GameTooltip:AddSpellByID`. Silent no-op if
-// `spellID <= 0`, stack[1] isn't a frame object, or the build added no
-// lines. Does not stash the displayed spellID (so `GetSpell` still
-// reflects the base tooltip). Useful for cross-class talent tooltips
-// (`AddLine(talentName) + AppendByID(rankSpellID)`).
-void AppendByID(void *L, int spellID);
 
 } // namespace Spell::Tooltip

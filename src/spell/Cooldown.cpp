@@ -98,12 +98,17 @@ const Game::Doc::Function kGetSpellCooldown{
 
 bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
            bool *enabled) {
+    int pet = 0;
+    Spell::Lookup::FindSpellbookSlot(spellID, &pet);
+    return Query(spellID, pet != 0, startMs, durationMs, enabled);
+}
+
+bool Query(int spellID, bool pet, uint32_t *startMs, uint32_t *durationMs,
+           bool *enabled) {
     if (spellID <= 0 || Spell::Lookup::RecordForID(spellID) == nullptr)
         return false;
     auto fn = reinterpret_cast<QueryCooldown_t>(
         static_cast<uintptr_t>(Offsets::FUN_SPELL_QUERY_COOLDOWN));
-    int pet = 0;
-    Spell::Lookup::FindSpellbookSlot(spellID, &pet);
     uint32_t duration = 0, start = 0, enable = 0;
     fn(spellID, pet, &duration, &start, &enable);
     *startMs = start;
