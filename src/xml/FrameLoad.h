@@ -24,8 +24,8 @@
 // `Frame::Attributes`' `<Attributes>`), so — like `Frame::RunnerHook` and
 // `Tick::WorldTick` — this module owns the hook and fans out. Subscribers run
 // after the engine has loaded the node, in static-init order, which must not
-// matter; `AutoSubscribeBefore` ones run before it (`Frame::Cooldown` loads
-// its base template there). The hook also runs the loader through `Xml::Inherits::LoadFrame`,
+// matter; `AutoSubscribeBefore` ones run before it (`Xml::Mixin` applies a
+// frame's mixins there). The hook also runs the loader through `Xml::Inherits::LoadFrame`,
 // which reads `inherits` as a list. Declare a file-scope
 //   static const Xml::FrameLoad::AutoSubscribe _sub{&OnFrameNode};
 

@@ -3817,16 +3817,6 @@ enum Offsets {
     // GetEffectiveAlpha calls it for its `self` type check, then reads the
     // byte.
     FUN_SCRIPT_FRAME_GETALPHA = 0x00774DC0,
-    // Region GetObjectType / IsObjectType (Region table 0x0087C9B8 entries
-    // 0/1, ctx VAR_REGION_METHOD_REGISTRY) and Frame GetFrameType /
-    // IsFrameType (Frame table 0x00878EC0 entries 0/1, ctx
-    // VAR_FRAME_METHOD_REGISTRY), per docs/raw_methods.txt.
-    // `Frame::Cooldown` re-registers these names on the Model registry and
-    // delegates to them for every frame that is not a marked Cooldown.
-    FUN_SCRIPT_REGION_GETOBJECTTYPE = 0x007A11D0,
-    FUN_SCRIPT_REGION_ISOBJECTTYPE = 0x007A1290,
-    FUN_SCRIPT_FRAME_GETFRAMETYPE = 0x00773640,
-    FUN_SCRIPT_FRAME_ISFRAMETYPE = 0x00773700,
 
     // Hyperlink scripts. ScrollingMessageFrame and SimpleHTML share a base
     // whose GetScriptByName override (0x007A3700, in the vtables at slots
@@ -10840,10 +10830,123 @@ enum Offsets {
     // FUN_0048FBF0 after LoadScriptFunctions and before FrameXML loads — and
     // the glue UI's FUN_0046A400.
     FUN_FRAMEXML_REGISTER_FACTORY = 0x006EE880,
-    // The "Model" factory from that default list: allocates the 0x3DC-byte
-    // CSimpleModel and constructs it on `parent` (0x0076C8E0).
-    // `CSimpleFrame *__fastcall(CSimpleFrame *parent)`.
-    FUN_FRAMEXML_CREATE_MODEL = 0x006EECF0,
+
+    // ---- Subclassing CSimpleFrame (Frame::Cooldown) -------------------------
+    // The "Frame" factory of the default list (0x006EEC10) is
+    // `SMemAlloc(SIMPLEFRAME_SIZE, file, line, 0)` then the constructor
+    // `CSimpleFrame::CSimpleFrame` — `__thiscall(frame, parent)`, `ret 4` —
+    // which stores VTBL_SIMPLEFRAME at +0 and VTBL_SIMPLEFRAME_LAYOUT at
+    // OFF_FRAME_LAYOUT_SUBOBJECT (0x007692E5 / 0x007692EB). Every derived
+    // factory (Model 0x006EECF0: 0x3DC bytes, CSimpleModel ctor) has the same
+    // shape. Slot 0's deleting destructor (0x00769380) runs the destructor
+    // body FUN_FRAME_DESTRUCTOR and SMemFrees the block, so a larger block
+    // from SMemAlloc frees cleanly. The vtables are 36 and 11 slots: the main
+    // one ends where the layout one's successor (title region, 0x0081C528)
+    // begins, and the layout one ends at VTBL_SIMPLEFRAME (benilla-re
+    // ui/frames, dumped from the exe).
+    SIMPLEFRAME_SIZE = 0x314,
+    FUN_SIMPLEFRAME_CONSTRUCTOR = 0x00769090,
+    VTBL_SIMPLEFRAME = 0x0081C498,
+    VTBL_SIMPLEFRAME_SLOTS = 36,
+    VTBL_SIMPLEFRAME_LAYOUT = 0x0081C46C,
+    VTBL_SIMPLEFRAME_LAYOUT_SLOTS = 11,
+    // Main-vtable slots, all __thiscall (CSimpleFrame's own in brackets):
+    //   +0x00 deleting destructor (this, flags), ret 4        [0x00769380]
+    //   +0x08 GetScriptMethod (this, L, name) -> int, ret 8   [0x00778590]:
+    //         FUN_FRAMESCRIPT_PUSH_METHOD on the class hash, else the base
+    //         class's lookup — the `__index` dispatcher's per-class step
+    //   +0x10 IsA (this, int typeId) -> bool, ret 4           [0x00484780]
+    //   +0x18 IsObjectType (this, const char *) -> bool, ret 4 [0x004847B0]
+    //   +0x1C GetObjectType (this) -> const char *            [0x00484800]:
+    //         what Script GetObjectType (0x007A11D0) and GetFrameType
+    //         (0x00773640) push, after IsA(Region/Frame id) via +0x10
+    //   +0x38 OnFrameUpdate (this, float elapsedSec), ret 4   [0x0076B2C0]:
+    //         the update walk's per-frame call (CSimpleTop 0x00765707);
+    //         runs OnUpdate
+    //   +0x44 EmitLayer (this, batch, int layer), ret 8       [0x0076B3A0]:
+    //         the level rebuild's per-frame call (0x007659ED) — 4.3.4's
+    //         OnFrameRender(batch, layer)
+    //   +0x84 Hide (this) / +0x88 Show (this): the visibility half of 1.12's
+    //         Show/Hide; Script Show/Hide (0x00775750/0x00775810) and the XML
+    //         `hidden` attribute (0x007698A6/0x007698BA) first write
+    //         OFF_FRAME_SHOWN 1/0, then call these.
+    // (+0x28 is VTBL_FRAME_SET_FRAME_ALPHA.)
+    VTBL_FRAME_DELETING_DESTRUCTOR = 0x00,
+    VTBL_FRAME_GET_SCRIPT_METHOD = 0x08,
+    VTBL_FRAME_IS_A = 0x10,
+    VTBL_FRAME_IS_OBJECT_TYPE = 0x18,
+    VTBL_FRAME_GET_OBJECT_TYPE = 0x1C,
+    VTBL_FRAME_ON_FRAME_UPDATE = 0x38,
+    VTBL_FRAME_EMIT_LAYER = 0x44,
+    VTBL_FRAME_HIDE = 0x84,
+    VTBL_FRAME_SHOW = 0x88,
+    // Layout-vtable slots, `this` = the layout sub-object:
+    //   +0x00 OnFrameSizeChanged (this, const float *oldRect), ret 4
+    //         [0x0076B580]
+    //   +0x04 deleting destructor thunk: `sub ecx, 0x24; jmp 0x00769380`
+    //         (0x0076C410) — it does NOT go through slot 0
+    //   +0x08 VTBL_XML_NODE_LOADER (FUN_XML_FRAME_LOAD)
+    //   +0x0C GetLayoutParent (this) -> layout or 0           [0x0076C6E0]
+    VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED = 0x00,
+    VTBL_LAYOUT_DELETING_DESTRUCTOR = 0x04,
+    VTBL_LAYOUT_GET_LAYOUT_PARENT = 0x0C,
+    // CLayoutFrame::LoadXML's `setAllPoints="true"` (0x00767800) is
+    // FUN_LAYOUT_SET_ALL_POINTS(layout, GetLayoutParent(), 1).
+    //
+    // CSimpleFrame::NotifyLayerChanged — `void __thiscall(frame, int layer)`,
+    // `ret 4`: marks one draw layer for a rebuild, in the frame's own mask
+    // when it draws itself (FRAME_FLAG_SCROLLED), else in its level's when
+    // the frame is visible. Nothing to mark when it is not: showing it
+    // joins the level, which rebuilds it.
+    FUN_FRAME_NOTIFY_LAYER_CHANGED = 0x0076A990,
+
+    // ---- Per-class method hashes --------------------------------------------
+    // Every frame class keeps its Lua methods in a Storm hash of 10 dwords
+    // (0x28 bytes): +0x00 the node allocator vtable VTBL_METHOD_HASH_ALLOCATOR,
+    // +0x04 the node link offset 0xC, +0x08/+0x0C an empty list (head = &+0x08,
+    // tail = &+0x08 | 1), +0x10..+0x20 zero (the bucket array), +0x24 the
+    // bucket mask, -1 until the first registration allocates 4 buckets.
+    // That is the whole static initializer (Model's 0x0076F5F0, Frame's
+    // 0x00778310 — both store 0x00806CB8). FUN_REGISTER_FRAME_METHODS fills
+    // one (it always appends a node: re-registering a name it holds without
+    // unregistering first leaves the old node and its stale ref), and
+    // FrameScriptUnregisterMethods — `void __fastcall(hash)` — unrefs each
+    // function in the live Lua state and frees the nodes, keeping the
+    // buckets for the next registration.
+    // FrameScriptPushMethod — `int __fastcall(L, const char *name, hash)`,
+    // callee pops `hash`: pushes registry[ref] and answers 1 when found.
+    VTBL_METHOD_HASH_ALLOCATOR = 0x00806CB8,
+    METHOD_HASH_SIZE = 0x28,
+    FUN_FRAMESCRIPT_PUSH_METHOD = 0x00702000,
+    FUN_FRAMESCRIPT_UNREGISTER_METHODS = 0x00701F20,
+    // CGGameUI::UnregisterScriptFunctions — `void __cdecl(void)`: the mirror
+    // of LoadScriptFunctions, called from the game UI's shutdown (0x00490CBA)
+    // on /reload and logout while the game Lua state is still open. Releases
+    // the class hashes (GameTooltip, Minimap, PlayerModel, ...) with
+    // FUN_FRAMESCRIPT_UNREGISTER_METHODS and unregisters the globals.
+    FUN_GAMEUI_UNREGISTER_SCRIPT_FUNCTIONS = 0x00490CE0,
+
+    // ---- Layer batch quads ----------------------------------------------------
+    // A layer batch (0x30 bytes, benilla-re ui/draworder) counts its entries
+    // at +0x04 and keeps its quads in an array at +0x08: capacity, count
+    // (+0x0C), records (+0x10), growth step. A record is 0x1C bytes: device
+    // texture (FUN_TEXTURE_GET_RENDERABLE), float[4][3] positions, float[4][2]
+    // texcoords, blend mode, colour pointer or 0, colour stride (4 = one
+    // colour per vertex, 0 = one for all), pixel shader or 0. The texture
+    // emit FUN_00772FD0 writes exactly that after reserving one record with
+    // FUN_RENDERBATCH_RESERVE_QUADS — `void __thiscall(array, extra, round)`,
+    // `ret 8`, a no-op while there is room. The batch keeps the POINTERS and
+    // re-reads them on every draw (FUN_0076FB00: a 4-vertex strip with the
+    // indices {0,1,2,3} at 0x00878CDC, so the triangles are 0-1-2 and
+    // 1-2-3); it is rebuilt only when a layer is marked changed. A record
+    // with a colour and a blend mode below 2 draws with blend 2 (alpha), the
+    // same promotion 3.3.5's SortByTexture makes.
+    FUN_RENDERBATCH_RESERVE_QUADS = 0x00773280,
+    OFF_RENDERBATCH_ENTRY_COUNT = 0x04,
+    OFF_RENDERBATCH_QUADS = 0x08,
+    OFF_RENDERBATCH_QUAD_COUNT = 0x0C,
+    OFF_RENDERBATCH_QUAD_RECORDS = 0x10,
+    RENDERBATCH_QUAD_SIZE = 0x1C,
     // CLayoutFrame::ClearAllPoints — `void __fastcall(layout)`, layout =
     // object + OFF_FRAME_LAYOUT_SUBOBJECT. Frees all 9 anchor slots and
     // unlinks the frame from each relative frame. Script ClearAllPoints
@@ -11029,6 +11132,20 @@ enum Offsets {
     // load — calling it each frame IS the residency reference (what the
     // minimap's masked draw does for its mask at 0x004ec65c).
     FUN_TEXTURE_LOAD_BY_PATH = 0x00449D90,
+    // TextureCreateWithCallback — `HTEXTURE __fastcall(uint32 w, uint32 h,
+    // uint32 mips, uint32 format, uint32 flags, void *owner, callback, const
+    // char *name, int force)`: a named texture whose texels `callback`
+    // supplies, never deduplicated by name. The portrait cache (0x00525F58:
+    // 64x64, 1 mip, GXTEX_FORMAT_ARGB8888, FUN_GX_TEXFLAGS_INIT(1, 0,0, 0,0,0,
+    // 1, 0), "Portrait2") is the model. The callback is `void
+    // __fastcall(uint32 command, uint32 w, uint32 h, uint32 face, uint32
+    // level, void *owner, uint32 *stride, const void **texels)`, `ret 0x18`;
+    // on GXTEX_CMD_LATCH it answers stride = w * 4 and the texels, which it
+    // keeps (the portrait's 0x00525AE0 hands its cached array over without a
+    // copy), and ignores every other command.
+    FUN_TEXTURE_CREATE_WITH_CALLBACK = 0x00449BF0,
+    GXTEX_FORMAT_ARGB8888 = 2,
+    GXTEX_CMD_LATCH = 1,
     PTR_TEXLOAD_DESC_VTBL = 0x007FFA10,
     FUN_GX_TEXFLAGS_INIT = 0x0058A980,
     FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,

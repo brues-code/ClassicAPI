@@ -167,8 +167,14 @@ const WidgetSystem kWidgetSystems[] = {
     {Offsets::VAR_MODEL_METHOD_REGISTRY, "SimpleModelAPI"},
 };
 
+// Hashes of the frame classes this DLL adds (NameWidgetSystem).
+std::vector<WidgetSystem> g_ownWidgetSystems;
+
 const char *WidgetSystemFor(const void *registry) {
     for (const WidgetSystem &w : kWidgetSystems)
+        if (reinterpret_cast<const void *>(w.registry) == registry)
+            return w.system;
+    for (const WidgetSystem &w : g_ownWidgetSystems)
         if (reinterpret_cast<const void *>(w.registry) == registry)
             return w.system;
     return nullptr;
@@ -657,6 +663,12 @@ void RecordFrameMethods(const void *registry, const Game::Lua::FrameMethodEntry 
         if (!matched)
             Record(KIND_ORPHAN_METHOD_DOC, nullptr, docs[d].name, registry, docs[d].doc);
     }
+}
+
+void NameWidgetSystem(const void *registry, const char *system) {
+    if (WidgetSystemFor(registry) != nullptr)
+        return;
+    g_ownWidgetSystems.push_back({reinterpret_cast<uintptr_t>(registry), system});
 }
 
 void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,

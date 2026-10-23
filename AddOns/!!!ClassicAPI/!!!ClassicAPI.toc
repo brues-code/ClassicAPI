@@ -49,6 +49,7 @@ Util\Vector4D.lua
 Util\UiMapPoint.lua
 Util\UIParent.lua
 Util\ActionButton.lua
+Util\Cooldown.lua
 Util\WorldMap.lua
 Util\AuraDurationModifiers.lua
 Util\AuraUtil.lua

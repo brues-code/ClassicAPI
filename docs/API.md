@@ -6496,7 +6496,8 @@ ignores a negative `id`.
 
 ### `CreateFrame("Cooldown" [, name, parent, template])`
 
-Creates a cooldown frame. The frame shows a cooldown sweep.
+Creates a cooldown frame. The frame shows a dark sweep that moves clockwise
+over its area, then a short flash, then hides itself.
 
 ```lua
 local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
@@ -6505,43 +6506,44 @@ cd:IsObjectType("Cooldown")     -- true
 cd:SetCooldown(GetTime(), 10)   -- start, duration in seconds
 cd:SetReverse(false)
 cd:GetReverse()                 -- false
-cd:SetDrawEdge(false)
-cd:GetDrawEdge()                -- false
+cd:SetDrawEdge(true)
+cd:GetDrawEdge()                -- true
 ```
 
 | Method | Notes |
 | --- | --- |
-| `cooldown:SetCooldown(start, duration)` | Sets the sweep. `start` and `duration` are numbers in seconds. `start` is a time value, for example the value that `GetTime()` returns. The frame shows the sweep. If `start` or `duration` is not positive, the frame hides. |
-| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. The flag is `false` when the frame is created. |
-| `cooldown:SetDrawEdge(drawEdge)` / `cooldown:GetDrawEdge()` | Sets and returns the draw-edge flag. The flag is `false` when the frame is created. |
+| `cooldown:SetCooldown(start, duration)` | Starts the sweep and shows the frame. `start` and `duration` are numbers in seconds. `start` is a time value, for example the value that `GetTime()` returns. When `duration` is over, the frame shows the flash for one second and then hides. |
+| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. With the flag set, the sweep starts full and becomes empty. At the end, the frame stays shown with no flash. The flag is `false` when the frame is created. |
+| `cooldown:SetDrawEdge(drawEdge)` / `cooldown:GetDrawEdge()` | Sets and returns the draw-edge flag. With the flag set, a bright line moves along the edge of the sweep. The flag is `false` when the frame is created. |
 
 If `start` or `duration` is not a number, `SetCooldown` gives the error
 `Usage: <name>:SetCooldown(start, duration)`.
 
-You can also use `CooldownFrame_SetTimer(cd, start, duration, 1)` to set
-the sweep.
+The draw-edge flag applies from the next `SetCooldown` call.
 
-The reverse flag and the draw-edge flag do not change the sweep picture.
-The getter methods return the values that the setter methods set.
+You can also use `CooldownFrame_SetTimer(cd, start, duration, enable)`.
+This function calls `SetCooldown` on a cooldown frame. If `start`,
+`duration`, or `enable` is not more than 0, it hides the frame.
 
-Use these methods on a cooldown frame. A call on a frame of another type
-gives an error.
+Only cooldown frames have these five methods.
 
-XML files can also create a cooldown frame with a `<Cooldown>` element:
+A new cooldown frame has a sweep that is already over. If the frame is
+shown before the first `SetCooldown` call, it hides itself after one
+second.
+
+XML files can also create a cooldown frame with a `<Cooldown>` element.
+The `reverse` and `drawEdge` attributes set the two flags:
 
 ```xml
 <Frames>
-    <Cooldown name="$parentCooldown" inherits="CooldownFrameTemplate"/>
+    <Cooldown name="$parentCooldown" inherits="CooldownFrameTemplate" drawEdge="true"/>
 </Frames>
 ```
 
-Every cooldown frame shows the sweep, also without a template. Its
-`template` and `inherits` templates apply after the sweep, so they can
-change it.
-
-A cooldown frame starts without anchors. Give it a position with
-`SetPoint`, `SetAllPoints`, or `<Anchors>`. `CooldownFrameTemplate` sets
-the frame to the full size of its parent.
+A cooldown frame needs no template. A cooldown frame starts without
+anchors. Give it a position with `SetPoint`, `SetAllPoints`, or
+`<Anchors>`. `CooldownFrameTemplate` sets the frame to the full size of
+its parent, and the frame starts hidden.
 
 ### `frame:SetShown(shown)`
 

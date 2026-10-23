@@ -54,6 +54,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "texture/Load.h"
 #include "texture/Mask.h"
 #include "texture/Transform.h"
 #include "ui/FrameObject.h"
@@ -96,56 +97,10 @@ std::unordered_map<void *, std::vector<void *>> g_baseMasks;
 // Regions minted by CreateMaskTexture — a mask-source allow-list.
 std::unordered_set<void *> g_maskRegions;
 
-// --- path -> HTEXTURE loader (mirrors FUN_00770200's SetTexture load) --------
-
-using HandleRelease_t = void(__fastcall *)(void *handle);
-using SysMsgAdd_t = int(__fastcall *)(void *status, uint32_t level);
-using StatusDestroy_t = void(__thiscall *)(void *status);
-
-void ReleaseHandle(void *handle) {
-    if (handle != nullptr)
-        reinterpret_cast<HandleRelease_t>(Offsets::FUN_HANDLE_RELEASE)(handle);
-}
-
-using TexFlagsInit_t = void *(__thiscall *)(void *self, uint32_t blend, int, int, int, int, int,
-                                            uint32_t, int);
-using TextureLoad_t = uint32_t(__fastcall *)(const char *path, void *desc, uint32_t flags, int,
-                                             int);
 using GetRenderable_t = void *(__fastcall *)(void *hTex, int force, void *);
 
-struct TexLoadDesc {
-    void *vtbl;
-    int32_t field4;
-    void *self8;
-    uint32_t fieldC;
-    int32_t field10;
-};
-
-// The loaded handle, or nullptr when the file does not load. Same failure
-// test and cleanup as SetTexture: a status level of 2 or more closes the
-// green fallback and passes the status to the (silent) system-message
-// printer; the status is destroyed either way.
-void *LoadByPath(const char *path) {
-    TexLoadDesc desc;
-    desc.vtbl = reinterpret_cast<void *>(Offsets::PTR_TEXLOAD_DESC_VTBL);
-    desc.field4 = 8;
-    desc.self8 = &desc.self8;
-    desc.fieldC = reinterpret_cast<uintptr_t>(&desc.self8) | 1u;
-    desc.field10 = 0;
-    uint32_t flags = 0;
-    const uint32_t blend = Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
-    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0,
-                                                                    1, 0);
-    void *handle = reinterpret_cast<void *>(reinterpret_cast<TextureLoad_t>(
-        Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, flags, 0, 1));
-    if (desc.field10 >= 2) {
-        ReleaseHandle(handle);
-        handle = nullptr;
-        reinterpret_cast<SysMsgAdd_t>(Offsets::FUN_SYSMSG_ADD_STATUS)(&desc, 4);
-    }
-    reinterpret_cast<StatusDestroy_t>(Offsets::FUN_FRAMESCRIPT_STATUS_RESET)(&desc);
-    return handle;
-}
+using Texture::LoadByPath;
+using Texture::ReleaseHandle;
 
 // Drops a region's path mask and its handle reference.
 void ClearPathMask(void *region) {

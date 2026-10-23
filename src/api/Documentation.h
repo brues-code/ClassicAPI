@@ -34,6 +34,9 @@ void RecordGlobal(const char *name, const Game::Doc::Function *doc);
 void RecordTable(const char *table, const char *name, const Game::Doc::Function *doc);
 void RecordFrameMethods(const void *registry, const Game::Lua::FrameMethodEntry *table,
                         int count, const Game::Doc::Method *docs, int docCount);
+// Names the widget system of a method hash this DLL owns (a frame class it
+// adds), alongside the engine registries the exporter already knows.
+void NameWidgetSystem(const void *registry, const char *system);
 void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,
                 int count, const char *system);
 
