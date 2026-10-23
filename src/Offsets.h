@@ -4293,6 +4293,18 @@ enum Offsets {
     // (0.5, 0x200122). The decal's vertices carry the full ARGB, and the
     // circle blends (source alpha, one), so the alpha byte is its brightness.
     FUN_CGOBJECT_FRAME_UPDATE = 0x00614A90,
+    // CGObject_C::SetLight / ClearLight — `void __thiscall(obj, int bit)`.
+    // SetLight ORs the bit into the object's light bits (+0xB8) and gives the
+    // model the light state's emissive colour (+0x178..+0x17A / 255); ClearLight
+    // clears it and blacks the emissive only when no bit is left. The engine
+    // uses bit 0 for the target (SelectTarget 0x493701 / ReleaseTarget
+    // 0x4939A7) and bit 1 for the mouseover (PublishWorldMouseover 0x492890,
+    // which first requires a model: OFF_CGOBJECT_OVERRIDE_MODEL, else
+    // OFF_CGOBJECT_MODEL). Decompiled; benilla-re objectbase#highlight-light-bits.
+    FUN_CGOBJECT_SET_LIGHT = 0x00614550,
+    FUN_CGOBJECT_CLEAR_LIGHT = 0x006144F0,
+    OFF_CGOBJECT_MODEL = 0xD8,
+    OFF_CGOBJECT_OVERRIDE_MODEL = 0xDC,
     OFF_CGOBJECT_VTBL_SELECTION_COLOR = 0x2C,
     OFF_CGUNIT_SELECTION_RADIUS = 0xCF0,
     OFF_OBJECT_FIELD_SCALE_X = 0x10, // in the block at OFF_UNIT_GUID_PTR

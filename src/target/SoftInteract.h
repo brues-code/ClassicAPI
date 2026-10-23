@@ -25,4 +25,8 @@ uint64_t Get();
 // with (in reach or not, on screen or not), else `softinteract`, else 0.
 uint64_t GetAny();
 
+// True when the player can interact with `object` right now: the hover
+// cursor shows its interact mode, not the Unable form.
+bool InReach(void *object);
+
 } // namespace Target::SoftInteract

@@ -200,4 +200,6 @@ uint64_t GetAny() {
     return Get();
 }
 
+bool InReach(void *object) { return ReachOf(object) == Reach::Now; }
+
 } // namespace Target::SoftInteract
