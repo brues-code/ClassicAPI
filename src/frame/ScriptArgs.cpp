@@ -81,6 +81,14 @@ namespace {
 // reimplementation risk) — the OFF escape valve for this hot path.
 bool g_enabled = true;
 
+// Chained at static-init time by each `AutoObserve` constructor.
+AutoObserve *g_observers = nullptr;
+
+void Notify(bool begin, int handlerRef, void *frame) {
+    for (AutoObserve *o = g_observers; o != nullptr; o = o->next)
+        o->fn(begin, handlerRef, frame);
+}
+
 // Engine cap: the runner stops setting arg globals at index 19 (arg1..arg19).
 constexpr int kMaxArgs = 19;
 
@@ -377,8 +385,7 @@ using RunArgs_t = void(__cdecl *)(int handlerRef, void *frame, const char *fmt,
                                   const void *vaPtr);
 RunArgs_t g_origRunArgs = nullptr;
 
-void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
-                       const void *vaPtr) {
+void RunArgs(int handlerRef, void *frame, const char *fmt, const void *vaPtr) {
     if (g_enabled && handlerRef != 0 && fmt != nullptr) {
         void *L = Game::Lua::State();
         if (L != nullptr && HandlerWantsArgs(L, handlerRef) &&
@@ -388,13 +395,20 @@ void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
     g_origRunArgs(handlerRef, frame, fmt, vaPtr);
 }
 
+void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
+                       const void *vaPtr) {
+    Notify(true, handlerRef, frame);
+    RunArgs(handlerRef, frame, fmt, vaPtr);
+    Notify(false, handlerRef, frame);
+}
+
 // --- FUN_FRAME_INVOKE_SCRIPT co-hook (no-arg scripts) -----------------------
 // Same address Tooltip::SetEvents calls directly to fire OnTooltipSet*; with
 // the switch enabled those fire with (self) too, which is the modern shape.
 using Invoke_t = void(__fastcall *)(int handlerRef, void *frame);
 Invoke_t g_origInvoke = nullptr;
 
-void __fastcall Invoke_h(int handlerRef, void *frame) {
+void Invoke(int handlerRef, void *frame) {
     if (g_enabled && handlerRef != 0 && frame != nullptr) {
         void *L = Game::Lua::State();
         if (L != nullptr && HandlerWantsArgs(L, handlerRef) &&
@@ -402,6 +416,12 @@ void __fastcall Invoke_h(int handlerRef, void *frame) {
             return;
     }
     g_origInvoke(handlerRef, frame);
+}
+
+void __fastcall Invoke_h(int handlerRef, void *frame) {
+    Notify(true, handlerRef, frame);
+    Invoke(handlerRef, frame);
+    Notify(false, handlerRef, frame);
 }
 
 const Game::HookAutoRegister _runArgsHook{
@@ -443,8 +463,12 @@ void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int na
     ArgSource src;
     src.stackBase = firstArgIdx;
     src.n = nargs;
+    Notify(true, handlerRef, frame);
     RunCore(L, handlerRef, frame, src, /*positional*/ g_enabled);
+    Notify(false, handlerRef, frame);
 }
+
+AutoObserve::AutoObserve(Observer f) : fn(f), next(g_observers) { g_observers = this; }
 
 void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs) {
     if (slot == nullptr || slot[0] == 0)

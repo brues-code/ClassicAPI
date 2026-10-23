@@ -133,7 +133,8 @@ target_include_directories(
                           ${CMAKE_BINARY_DIR}/generated
                           external/minhook/include
                           external
-                          external/tinycbor/src)
+                          external/tinycbor/src
+                          external/unordered_dense/include)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ClassicAPI")
 

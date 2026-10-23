@@ -41,6 +41,10 @@ const char *Attr(const void *node, const char *name);
 // The template definition node `inherits=` resolves `name` to
 // (FUN_XML_TEMPLATE_LOOKUP); nullptr when no template has that name.
 const void *Template(const char *name);
+// The context word the template `name` registered under — its owning addon's
+// name, or nullptr for the client's own templates and for unknown names.
+// 3.3.5 applies a template under this as `lua_gctag`.
+const char *TemplateContext(const char *name);
 // Loads `node` (with its own `inherits`) onto the frame `object` through the
 // object's node loader `(object+0x24)->vtable[+8]` — the call the frame
 // loader makes for an inherited node.

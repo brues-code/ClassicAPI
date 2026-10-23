@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "frame/ScriptSlots.h"
 
 namespace Frame::ExtraScripts {
 
@@ -53,6 +54,14 @@ void PrepareForReload() {
 }
 
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
+
+void ForEachSlot(const void *frame, Frame::ScriptSlots::Visit visit, void *ctx) {
+    for (const Script *s = g_head; s != nullptr; s = s->next)
+        if (const uint32_t *slot = s->Slot(frame))
+            visit(slot, ctx);
+}
+
+const Frame::ScriptSlots::AutoRegister _slots{&ForEachSlot};
 
 } // namespace
 

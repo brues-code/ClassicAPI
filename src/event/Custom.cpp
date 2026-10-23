@@ -17,6 +17,7 @@
 #include "Offsets.h"
 #include "debug/Log.h"
 #include "frame/ScriptArgs.h"
+#include "profile/ScriptTime.h"
 
 #include <cstdint>
 #include <cstring>
@@ -323,6 +324,8 @@ bool HasListeners(int slot) {
 }
 
 void FireValues(int slot, void *L, int firstArgIdx, int nargs) {
+    // A signal, listened to or not (3.3.5's FrameScript_SignalEvent counts first).
+    Profile::ScriptTime::CountSignal();
     if (L == nullptr || !HasListeners(slot))
         return;
     using namespace Game::Lua;

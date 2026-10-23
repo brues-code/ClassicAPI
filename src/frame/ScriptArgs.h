@@ -33,4 +33,18 @@ void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int na
 // scripts it runs. Does nothing for an empty slot.
 void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs);
 
+// Every frame-script handler run passes through this module — the engine's
+// two runners (FUN_FRAME_INVOKE_SCRIPT, FUN_FRAME_RUN_SCRIPT_ARGS, co-hooked
+// here) and RunWithValues — so it plays 3.3.5's FrameScript_Execute, the one
+// function that runs a script. An observer is called with `begin` true
+// before the handler runs and false after, nested runs nesting. Declare a
+// file-scope `static const Frame::ScriptArgs::AutoObserve`.
+using Observer = void (*)(bool begin, int handlerRef, void *frame);
+
+struct AutoObserve {
+    explicit AutoObserve(Observer fn);
+    Observer fn;
+    AutoObserve *next;
+};
+
 } // namespace Frame::ScriptArgs

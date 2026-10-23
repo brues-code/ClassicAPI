@@ -21,6 +21,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "profile/Cpu.h"
 
 #include <cstdint>
 
@@ -95,7 +96,11 @@ static int AuxResume(void *L, void *co, int narg) {
         return -1;
     }
     Game::Lua::XMove(L, co, narg);
+    Profile::Cpu::OnResume(co);
     const int s = Game::Lua::Resume(co, narg);
+    // The status code can't tell a yield apart (see above); the call stack can.
+    if (IsYielded(co))
+        Profile::Cpu::OnYield(co);
     if (s == 0 || IsYielded(co)) {
         const int nres = Game::Lua::GetTop(co);
         if (Game::Lua::CheckStack(L, nres + 1) == 0)
@@ -114,6 +119,7 @@ static int __fastcall Script_Coroutine_Create(void *L) {
     }
     Game::Lua::NewThread(L);                    // [arg1, NL]
     void *NL = Game::Lua::ToThread(L, -1);
+    Profile::Cpu::OnThreadCreated(NL);          // threads don't inherit the hook
     Game::Lua::PushValue(L, 1);                 // [arg1, NL, fn]
     Game::Lua::XMove(L, NL, 1);                 // [arg1, NL]; NL has fn
     return 1;

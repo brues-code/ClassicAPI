@@ -47,4 +47,13 @@ template <typename Fn> void ForEachEntry(Fn fn) {
     }
 }
 
+// Resolves Lua arg 1 (index or name) to the addon's registry record, with
+// the arg handling of stock `Script_GetAddOnDependencies` (`0x0048E5E0`) —
+// the same shape 3.3.5 gives every `(index or "name")` addon global:
+// `lua_isnumber` first (so a numeric string like `"3"` is an index), an
+// out-of-range index raises the engine's own range error with the addon
+// count, anything else non-string raises `usage`, and an unknown *name*
+// returns nullptr with no error.
+const uint8_t *ResolveRecord(void *L, const char *usage);
+
 } // namespace Addons

@@ -672,6 +672,18 @@ build instructions.
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
+
+- [Profiling](#profiling)
+  - [`UpdateAddOnMemoryUsage()` / `GetAddOnMemoryUsage(index or "name")`](#updateaddonmemoryusage--getaddonmemoryusageindex-or-name)
+  - [`scriptProfile`](#scriptprofile)
+  - [`GetFunctionCPUUsage(func [, includeSubroutines])`](#getfunctioncpuusagefunc--includesubroutines)
+  - [`UpdateAddOnCPUUsage()` / `GetAddOnCPUUsage(index or "name")`](#updateaddoncpuusage--getaddoncpuusageindex-or-name)
+  - [`GetFrameCPUUsage(frame [, includeChildren])`](#getframecpuusageframe--includechildren)
+  - [`GetEventCPUUsage([event])`](#geteventcpuusageevent)
+  - [`GetScriptCPUUsage()`](#getscriptcpuusage)
+  - [`ResetCPUUsage()`](#resetcpuusage)
+  - [`_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`](#_classicapi_luaheapaudit--_classicapi_gctagofvalue)
+
 - [Quest](#quest)
   - [`C_QuestLog.GetInfo(questLogIndex)`](#c_questloggetinfoquestlogindex)
   - [`C_QuestLog.GetQuestLogTitle(questLogIndex)`](#c_questloggetquestlogtitlequestlogindex)
@@ -15888,6 +15900,131 @@ local sex = C_PlayerInfo.GetSex(loc)
 - An unresolvable or unsupported location returns nil. A malformed unit token
   raises (the engine's token→GUID resolver rejects it), same as passing it to
   `UnitName`/`UnitClass` directly.
+
+## Profiling
+
+These functions measure how much Lua memory and CPU time each addon uses.
+Addon managers and performance tools read them.
+
+### `UpdateAddOnMemoryUsage()` / `GetAddOnMemoryUsage(index or "name")`
+
+`GetAddOnMemoryUsage` returns the Lua memory that an addon uses, in
+kilobytes. The value comes from the last call to `UpdateAddOnMemoryUsage`.
+Call `UpdateAddOnMemoryUsage` first. Each call counts all memory again, so
+do not call it every frame.
+
+```lua
+UpdateAddOnMemoryUsage()
+print(GetAddOnMemoryUsage("MyAddon"))   -- 854.04
+print(GetAddOnMemoryUsage(3))           -- the third addon in the list
+```
+
+- The memory of an addon is all Lua memory that the addon's code makes. This
+  includes the memory that its file load, its SavedVariables, and its
+  scripts make.
+- The objects that an XML template makes belong to the addon that defines
+  the template. This is true when a different addon uses the template.
+- Blizzard addons, unknown names, and addons that have not loaded return `0`.
+- An index that is not in the range `1..GetNumAddOns()` raises an error.
+
+### `scriptProfile`
+
+A setting that turns CPU profiling on (`1`) or off (`0`, the default). The
+CPU functions in this section return `0` while profiling is off. The game
+reads the setting when the UI loads, so a change starts after `/reload`.
+
+```
+/console scriptProfile 1
+/reload
+```
+
+Profiling makes each Lua function call slower. Turn it on only when you
+measure.
+
+### `GetFunctionCPUUsage(func [, includeSubroutines])`
+
+Returns two values: the time in milliseconds that the function ran, and the
+number of calls to it. If `includeSubroutines` is `true` (the default), the
+time includes the functions that it calls. If `includeSubroutines` is
+`false`, the time is only the function's own code.
+
+```lua
+ResetCPUUsage()
+MyAddon_Update()
+print(GetFunctionCPUUsage(MyAddon_Update))         -- 11.81  1
+print(GetFunctionCPUUsage(MyAddon_Update, false))  -- 0.004  1
+```
+
+- A recursive call counts in the call count. Its time counts only once.
+- A coroutine that waits in `coroutine.yield` does not add time.
+- An argument that is not a function raises an error.
+
+### `UpdateAddOnCPUUsage()` / `GetAddOnCPUUsage(index or "name")`
+
+`GetAddOnCPUUsage` returns the time in milliseconds that an addon's
+functions ran. The value comes from the last call to `UpdateAddOnCPUUsage`.
+The time of each function counts once, for the addon that made the
+function.
+
+```lua
+UpdateAddOnCPUUsage()
+print(GetAddOnCPUUsage("MyAddon"))   -- 23.96
+```
+
+### `GetFrameCPUUsage(frame [, includeChildren])`
+
+Returns two values: the time in milliseconds that the frame's scripts ran,
+and the number of calls to them. Each script counts, `OnUpdate` included.
+If `includeChildren` is `true` (the default), the values include the child
+frames of the frame.
+
+```lua
+print(GetFrameCPUUsage(MyFrame))          -- the frame and its children
+print(GetFrameCPUUsage(MyFrame, false))   -- the frame only
+```
+
+A script that you remove with `SetScript(name, nil)` does not count.
+
+### `GetEventCPUUsage([event])`
+
+Returns two values: the time in milliseconds that event handlers ran, and
+the number of events that fired. The values are for all events. The
+`event` argument has no effect.
+
+```lua
+print(GetEventCPUUsage())   -- 39.06  27
+```
+
+The event count increases also when profiling is off. The time stays `0`
+when profiling is off.
+
+### `GetScriptCPUUsage()`
+
+Returns the time in milliseconds that all frame scripts ran. When a script
+runs inside a different script, the time counts for both scripts.
+
+### `ResetCPUUsage()`
+
+Sets all CPU times and call counts to `0`, and the event count too. Memory
+values do not change.
+
+### `_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`
+
+Two aids for developers who test the memory values.
+
+`_classicapi_LuaHeapAudit()` returns three values: the bytes of all Lua
+objects, the total bytes of Lua memory, and the number of objects that
+belong to an addon. The first value is a little less than the second.
+
+`_classicapi_GcTagOf(value)` returns the name of the addon that a table,
+function, userdata, or thread belongs to. It returns `nil` for an object
+that the game's own code made. For an object that a macro or `/run` made,
+it returns a hexadecimal string such as `"0x0083DE24"`.
+
+```lua
+print(_classicapi_GcTagOf(MyAddon_Update))   -- "MyAddon"
+print(_classicapi_GcTagOf(UIParent))         -- nil
+```
 
 ## Quest
 

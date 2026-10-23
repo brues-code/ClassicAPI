@@ -7,3 +7,6 @@
 [submodule "external/tinycbor"]
 	path = external/tinycbor
 	url = https://github.com/intel/tinycbor.git
+[submodule "external/unordered_dense"]
+	path = external/unordered_dense
+	url = https://github.com/martinus/unordered_dense.git

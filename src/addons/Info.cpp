@@ -27,6 +27,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/LoadState.h"
+#include "addons/Registry.h"
 
 #include <cstdint>
 
@@ -44,8 +45,7 @@ using CanLoadFn_t = uint8_t(__fastcall *)(const uint8_t *entry, char fullCheck,
                                           const char *accountName);
 using GetAccountName_t = const char *(*)();
 // Hash-lookup by name → the matched record's RequiredDeps descriptor
-// (`record + 0x48`), NULL on miss. Accepts an entry pointer too (its
-// first bytes are the inline name). We use it only to recover the
+// (`record + 0x48`), NULL on miss. We use it only to recover the
 // record base; see `Script_GetAddOnOptionalDependencies`.
 using ResolveReqDeps_t = uint8_t *(__fastcall *)(const char *nameOrEntry);
 
@@ -54,8 +54,7 @@ using ResolveReqDeps_t = uint8_t *(__fastcall *)(const char *nameOrEntry);
 // a NUL-terminated string starting at the input pointer and case-
 // insensitively match it against the registry, so either of these
 // shapes works:
-//   - an AddOnEntry pointer from `GetByIndex` (the entry's first
-//     12 bytes ARE the inline name buffer)
+//   - the name pointer `GetByIndex` returns (`[entry+0x14]`)
 //   - a raw `const char *` to a Lua string
 //
 // Mirrors `Script_GetAddOnInfo`'s own input handling exactly — it
@@ -265,11 +264,10 @@ int __fastcall Script_GetAddOnSecurity(void *L) {
 // tracks from the loader itself.
 //
 // Resolves both numeric indices (via `FUN_ADDON_GET_BY_INDEX`) and
-// string names. `IS_LOADED` accepts an entry pointer as its name arg
-// because the entry's first 12 bytes are the inline NUL-terminated
-// directory name (same as the other per-field accessors), so we can
-// feed it either an entry or a Lua-side string transparently — and that
-// same pointer is the name `LoadState` matches on.
+// string names. `FUN_ADDON_GET_BY_INDEX` returns the entry's name
+// pointer, so `IS_LOADED` (like the other per-field accessors) takes
+// either that or a Lua-side string transparently — and that same
+// pointer is the name `LoadState` matches on.
 int __fastcall Script_IsAddOnLoaded(void *L) {
     const uint8_t *entry = ResolveAddOnName(L);
     if (entry == nullptr) {
@@ -309,49 +307,6 @@ int __fastcall Script_DoesAddOnExist(void *L) {
     return 1;
 }
 
-// Resolves arg 1 to the addon's registry record, with the arg handling
-// of stock `Script_GetAddOnDependencies` (`0x0048E5E0`, identical to
-// 4.3.4's `Script_GetAddOnOptionalDependencies`), not `ResolveAddOnName`:
-// `lua_isnumber` first (so a numeric string like `"3"` is an index), an
-// out-of-range index raises the engine's own range error with the addon
-// count, anything else non-string raises `usage`, and an unknown *name*
-// returns nullptr with no error.
-//
-// Either input is then routed through the by-name hash lookup
-// `FUN_ADDON_RESOLVE_REQ_DEPS` to reach the record.
-// `FUN_ADDON_GET_BY_INDEX` returns a *name pointer*, NOT the record —
-// reading record offsets off it lands in string memory and crashes (a
-// numeric-path caller like pfUI's addon list hit exactly that). The
-// resolver returns the RequiredDeps descriptor at `record+0x48`;
-// subtract to recover the base.
-const uint8_t *ResolveRecord(void *L, const char *usage) {
-    const char *name;
-    if (Game::Lua::IsNumber(L, 1)) {
-        const int idx = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-        auto byIndex = reinterpret_cast<GetByIndex_t>(Offsets::FUN_ADDON_GET_BY_INDEX);
-        name = static_cast<const char *>(byIndex(idx));
-        if (name == nullptr) {
-            auto count = reinterpret_cast<GetAddOnCount_t>(Offsets::FUN_ADDON_GET_COUNT);
-            Game::Lua::Error(L, reinterpret_cast<const char *>(static_cast<uintptr_t>(
-                                    Offsets::VAR_ADDON_INDEX_RANGE_ERROR_FMT)),
-                             count());
-            return nullptr;
-        }
-    } else if (Game::Lua::IsString(L, 1)) {
-        name = Game::Lua::ToString(L, 1);
-    } else {
-        Game::Lua::Error(L, usage);
-        return nullptr;
-    }
-
-    auto resolve = reinterpret_cast<ResolveReqDeps_t>(
-        Offsets::FUN_ADDON_RESOLVE_REQ_DEPS);
-    uint8_t *reqDesc = resolve(name);
-    if (reqDesc == nullptr)
-        return nullptr;
-    return reqDesc - Offsets::OFF_ADDON_REQDEPS_DESC;
-}
-
 // `C_AddOns.GetAddOnOptionalDependencies(indexOrName)` — the addon's
 // `## OptionalDeps:` names as multiple return values, in declared order.
 // The exact shape of the stock `GetAddOnDependencies`, but reading the
@@ -365,7 +320,7 @@ const uint8_t *ResolveRecord(void *L, const char *usage) {
 // Like stock, `lua_checkstack(count)` before the pushes — a C function
 // is only guaranteed LUA_MINSTACK (20) free slots.
 int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
-    const uint8_t *record = ResolveRecord(
+    const uint8_t *record = Addons::ResolveRecord(
         L, "Usage: C_AddOns.GetAddOnOptionalDependencies(index or \"name\")");
     if (record == nullptr)
         return 0;
@@ -391,7 +346,7 @@ int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
 // client version) by `AddOns::TocRewrite` before the parser sees it.
 // nil for an unknown name.
 int __fastcall Script_GetAddOnInterfaceVersion(void *L) {
-    const uint8_t *record = ResolveRecord(
+    const uint8_t *record = Addons::ResolveRecord(
         L, "Usage: C_AddOns.GetAddOnInterfaceVersion(index or \"name\")");
     if (record == nullptr) {
         Game::Lua::PushNil(L);

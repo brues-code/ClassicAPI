@@ -53,11 +53,16 @@
 //             the whole string finds nothing) and keeps EDX.
 //
 // Textures and font strings keep one template, as in 4.3.4.
+//
+// Each listed template is applied under a `Gc::Tag` pin on its owner, as
+// 3.3.5's LoadXML / LoadXMLInheritance set `lua_gctag` per template;
+// `Xml::TemplateTag` pins the single-name engine path the same way.
 
 #include "xml/Inherits.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "gc/Tag.h"
 #include "xml/FrameLoad.h"
 
 #include <cstring>
@@ -118,8 +123,10 @@ void __fastcall ChildFrames_h(void *frame, void *edx, const void *node, void *st
         return;
     }
     ForEach(inherits, [&](const char *name) {
-        if (const void *t = Template(name))
+        if (const void *t = Template(name)) {
+            Gc::Tag::PinScope pin(TemplateContext(name));
             ChildFrames_h(frame, edx, t, status);
+        }
     });
     const void *frames = reinterpret_cast<GetChild_t>(Offsets::FUN_XML_NODE_GET_CHILD)(node, "Frames");
     if (frames == nullptr)
@@ -196,9 +203,10 @@ uintptr_t LoadFrame(Loader original, void *self, void *edx, const void *node, vo
         return original(self, edx, node, status);
     void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     ForEach(inherits, [&](const char *name) {
-        if (const void *t = Template(name))
+        if (const void *t = Template(name)) {
+            Gc::Tag::PinScope pin(TemplateContext(name));
             LoadNode(object, t, status);
-        else
+        } else
             Warn(status, reinterpret_cast<const char *>(Offsets::STR_XML_NO_INHERITED_NODE), name);
     });
     SuppressInherits suppress(node);

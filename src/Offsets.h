@@ -7722,6 +7722,110 @@ enum Offsets {
     // `CMP EDX,[ECX+0x1C]` at 0x006FA70E (array pointer at +0x0C).
     OFF_LUA_TABLE_SIZEARRAY = 0x1C,
 
+    // --- Lua 5.0 GC object lifecycle (Lua::GcHooks) ---------------------------
+    // Every collectable object is created through one of three functions and
+    // freed through one. Proven by xrefs: luaC_link's six callers are luaH_new,
+    // luaF_newCclosure, luaF_newLclosure, luaF_newproto, luaF_close (a closed
+    // upvalue, tt 10) and luaE_newthread (tt 8); newlstr's only caller is
+    // luaS_newlstr; luaS_newudata's only caller is lua_newuserdata. freeobj's
+    // only caller is sweeplist (0x006F7210, from luaC_sweep twice and
+    // sweepstrings), and each per-type free function's only caller is freeobj.
+    // `__fastcall(L, o)` + `tt` on the stack, RET 4: next = rootgc, rootgc = o,
+    // marked = 0, tt = arg.
+    FUN_LUA_C_LINK = 0x006F7B20,
+    // `__fastcall(L, str)` + `len, hash` on the stack, RET 8 → TString*.
+    // Allocates len+0x11, links into strt.hash[hash & (size-1)].
+    FUN_LUA_S_NEWLSTR = 0x006F9D90,
+    // `__fastcall(L, size)` → Udata*. Allocates size+0x10, tt 7, metatable
+    // [G+0x48], links into rootudata [G+0x14].
+    FUN_LUA_S_NEWUDATA = 0x006F9E30,
+    // `__fastcall(L, o)`. Switch on tt-4 through the jump table at 0x006F72D0.
+    FUN_LUA_C_FREEOBJ = 0x006F7260,
+    // lua_State: the global state (luaC_link reads `[ecx+0x10]`).
+    OFF_LUA_STATE_G = 0x10,
+    // global_State: string table {hash@+4, nuse@+8, size@+0xC} (newlstr's
+    // bucket insert), rootgc / rootudata (luaC_link, luaS_newudata,
+    // luaC_sweep), nblocks = bytes in use (lua_newtable's GC threshold test
+    // `cmp [G+0x28],[G+0x24]`; what gcinfo reports).
+    OFF_LUA_G_STRT_HASH = 0x04,
+    OFF_LUA_G_STRT_SIZE = 0x0C,
+    OFF_LUA_G_ROOTGC = 0x10,
+    OFF_LUA_G_ROOTUDATA = 0x14,
+    OFF_LUA_G_NBLOCKS = 0x28,
+    // GCheader: next@+0, tt@+4 (luaC_link writes both; freeobj switches on tt).
+    OFF_LUA_GCHEADER_NEXT = 0x00,
+    OFF_LUA_GCHEADER_TT = 0x04,
+    // GC type tags past TYPE_THREAD, from freeobj's jump table.
+    LUA_TT_PROTO = 9,
+    LUA_TT_UPVAL = 10,
+    // Object sizes, read from the sizes freeobj and its per-type free
+    // functions pass to luaM_irealloc (so they match the engine's own
+    // accounting exactly):
+    //   string  len@+0xC + 0x11               (freeobj 0x006F729B)
+    //   udata   len@+0xC + 0x10               (freeobj 0x006F72B4)
+    //   upval   0x20                          (freeobj 0x006F727D)
+    //   table   0x20 + 16*sizearray@+0x1C + (lsizenode@+7 ? 40 << lsizenode : 0)
+    //           (luaH_free 0x006FA690; a 0 lsizenode is the shared dummy node)
+    //   closure isC@+6 ? (nupvalues@+7 + 1)*16 : nupvalues*4 + 0x24
+    //           (luaF_freeclosure 0x006FA110)
+    //   proto   0x48 + 4*sizecode@+0x2C + 4*sizep@+0x34 + 16*sizek@+0x28 +
+    //           4*sizelineinfo@+0x30 + 12*sizelocvars@+0x38 + 4*sizeupvalues@+0x24
+    //           (luaF_freeproto 0x006FA050)
+    //   thread  0x68 + 16*stacksize@+0x20 + 24*size_ci(u16)@+0x2C
+    //           (luaE_freethread 0x006F6C90 → 0x006F6CE0 stack/ci, 0x006F6CC0 state)
+    OFF_LUA_TSTRING_LEN = 0x0C,
+    OFF_LUA_UDATA_LEN = 0x0C,
+    OFF_LUA_TABLE_LSIZENODE = 0x07,
+    OFF_LUA_CLOSURE_ISC = 0x06,
+    OFF_LUA_CLOSURE_NUPVALUES = 0x07,
+    OFF_LUA_PROTO_SIZEK = 0x28,
+    OFF_LUA_PROTO_SIZECODE = 0x2C,
+    OFF_LUA_PROTO_SIZELINEINFO = 0x30,
+    OFF_LUA_PROTO_SIZELOCVARS = 0x38,
+    OFF_LUA_STATE_STACKSIZE = 0x20,
+    OFF_LUA_STATE_SIZE_CI = 0x2C,
+    SIZEOF_LUA_TSTRING_HEADER = 0x11, // header + the terminating NUL
+    SIZEOF_LUA_UDATA_HEADER = 0x10,
+    SIZEOF_LUA_UPVAL = 0x20,
+    SIZEOF_LUA_TABLE = 0x20,
+    SIZEOF_LUA_TVALUE = 0x10,
+    SIZEOF_LUA_NODE = 0x28,
+    SIZEOF_LUA_LCLOSURE_BASE = 0x24,
+    SIZEOF_LUA_PROTO = 0x48,
+    SIZEOF_LUA_LOCVAR = 0x0C,
+    SIZEOF_LUA_STATE = 0x68,
+    SIZEOF_LUA_CALLINFO = 0x18,
+
+    // --- Lua 5.0 debug hooks (Profile::Cpu) -----------------------------------
+    // `lua_sethook(L, func, mask, count)` — `__fastcall`, mask/count on the
+    // stack, RET 8: stores count at +0x34/+0x38, mask byte +0x30, func +0x3C,
+    // clears the inited byte +0x32; an empty func or mask clears both. The
+    // engine never calls it and no other loaded DLL references it.
+    // Hooks are per lua_State and NOT inherited: luaE_newthread's preinit
+    // (0x006F6C40) zeroes them (and sets allowhook +0x31 = 1).
+    LUA_SET_HOOK = 0x006FBA40,
+    // luaD_callhook (0x006F5F80) calls the hook `__fastcall(L, ar)` when it is
+    // set and allowhook is 1. CALL (event 0) fires for a C function in
+    // luaD_precall (0x006F6191) and for a Lua function at the VM's call entry
+    // 0x006F8730, which OP_CALL (0x006F975C) and OP_TAILCALL (0x006F9827) jump
+    // back to; RET (1) and TAILRET (4) come from callrethooks (0x006F6540),
+    // which luaD_poscall runs before popping the record. `ar` (lua_Debug):
+    // event @+0, the call record's index @+0x5C (0 for TAILRET).
+    LUA_HOOK_CALL = 0,
+    LUA_HOOK_RET = 1,
+    LUA_MASK_CALL = 1,
+    LUA_MASK_RET = 2,
+    OFF_LUA_DEBUG_EVENT = 0x00,
+    OFF_LUA_DEBUG_I_CI = 0x5C,
+    // lua_State: base_ci (luaD_callhook's index = (ci - [L+0x28]) / 24).
+    OFF_LUA_STATE_BASE_CI = 0x28,
+    // CallInfo: base @+0 (luaD_precall stores func + 0x10, so the called
+    // function's TValue is base - 0x10); tailcalls @+0x14 — luaD_precall
+    // zeroes it for a Lua call (0x006F60FB), OP_TAILCALL increments the
+    // replaced record's (`inc [ci-4]` at 0x006F9809) before re-entering.
+    OFF_LUA_CALLINFO_BASE = 0x00,
+    OFF_LUA_CALLINFO_TAILCALLS = 0x14,
+
     // --- Lua 5.0 parser internals: `for` loop scoping -------------------------
     // forbody(ls, base, line, nvars, isnum) -- stock 5.0.2, decompiled:
     // adjustlocalvars(nvars); check(TK_DO); enterblock(&bl, 1); prep =
@@ -7856,6 +7960,14 @@ enum Offsets {
     // read it on demand in helpers that run outside a Lua callback (e.g.
     // RegisterTableFunction during LoadScriptFunctions).
     VAR_LUA_STATE = 0x00CEEF74,
+    // `FrameScript_GetContext` — `mov eax,[VAR_LUA_STATE]; ret`.
+    FUN_FRAMESCRIPT_GET_CONTEXT = 0x007040D0,
+    // FUN_FIRE_EVENT's `call FUN_FRAMESCRIPT_GET_CONTEXT` (E8, 5 bytes), right
+    // after its empty-listener early-out — once per signal that has a
+    // listener. ECX/EDX are dead across it (both reloaded after). Profile::
+    // ScriptTime counts signals here rather than MinHooking FUN_FIRE_EVENT,
+    // which nampower and SuperWoWhook also target (a co-hook there crashed).
+    CALL_FIRE_EVENT_GET_CONTEXT = 0x00703F78,
 
     // zlib 1.2.2, statically linked into WoW.exe (version string at
     // `0x008745F0`, copyright banners at `0x00815528`/`0x00815608`).
@@ -8881,26 +8993,28 @@ enum Offsets {
     FUN_SERVER_TIME_LOCAL_SECONDS = 0x00429580,
 
     // AddOn registry. The engine keeps a flat 4-byte-stride array of
-    // `AddOnEntry *` at `[VAR_ADDON_ARRAY]`, with the in-use count at
-    // `[VAR_ADDON_COUNT]`. Each entry's first 12 bytes are an inline
-    // null-terminated name buffer, so an `AddOnEntry *` can be passed
-    // directly to `lua_pushstring` to push the addon's name (which is
-    // exactly what `Script_GetAddOnInfo` does for ret1).
+    // addon NAME POINTERS at `[VAR_ADDON_ARRAY]` — each element is an
+    // entry's `[entry + OFF_ADDON_ENTRY_NAME_PTR]` (the display-array
+    // builder copies that field; `FUN_ADDON_GET_BY_INDEX` returns the
+    // element) — with the in-use count at `[VAR_ADDON_COUNT]`. Being the
+    // name string itself, an element can be passed directly to
+    // `lua_pushstring` (which is exactly what `Script_GetAddOnInfo` does for
+    // ret1). It is NOT the entry: `entry + 0` is the name hash (the loader's
+    // bucket compare `cmp [ebx],esi` at 0x0051F2A1). It is also the exact
+    // pointer the loader installs as the context word, so it is the addon's
+    // memory/CPU tag.
     //
     // Per-field accessors (all `__fastcall(ecx=name) → char* or NULL`):
     // each one looks up the addon by name in the engine's hash table,
     // then reads a single hardcoded field from the addon's metadata
     // hash table and returns its string value (NULL if the addon
-    // doesn't exist or the field is missing). The `name` arg can be
-    // either a real C string OR an `AddOnEntry *` — the entry's
-    // first 12 bytes are an inline null-terminated name, so it
-    // doubles as a valid `const char *`.
+    // doesn't exist or the field is missing).
     //
     // We use these directly in the `C_AddOns.*` wrappers to avoid
     // dispatching to `Script_GetAddOnInfo` (which pushes a 7-tuple
     // when we only want one field, and worse, errors via `lua_error`
     // for out-of-range numeric indices).
-    FUN_ADDON_GET_BY_INDEX = 0x0051DF00,        // (idx0Based) → AddOnEntry* or NULL
+    FUN_ADDON_GET_BY_INDEX = 0x0051DF00,        // (idx0Based) → name pointer or NULL
     FUN_ADDON_GET_COUNT = 0x0051DEF0,           // () → [VAR_ADDON_COUNT]; the engine's GetNumAddOns read
     // `"AddOn index must be in the range of 1 to %d"` — the luaL_error
     // format stock `Script_GetAddOnDependencies` (`0x0048E5E0`) raises with
@@ -8909,9 +9023,9 @@ enum Offsets {
     FUN_ADDON_GET_TITLE_BY_NAME = 0x0051DF20,   // (name) → title string or NULL
     FUN_ADDON_GET_NOTES_BY_NAME = 0x0051E050,   // (name) → notes string or NULL
 
-    // `__fastcall(const char *nameOrEntry) → AddOnEntry*+0x48 or NULL`.
-    // Hash-table lookup by name (accepts an entry pointer too — its
-    // first 12 bytes are the inline name), returning a pointer to the
+    // `__fastcall(const char *name) → AddOnEntry*+0x48 or NULL`.
+    // Hash-table lookup by name (a `FUN_ADDON_GET_BY_INDEX` result works
+    // because it IS a name pointer), returning a pointer to the
     // matched record's RequiredDeps descriptor (`record + 0x48`), or
     // NULL on a miss. Stock `Script_GetAddOnDependencies` (`0x0048E5E0`)
     // calls this then reads count@+4 / data@+8 off the return to walk
@@ -8984,6 +9098,19 @@ enum Offsets {
     // dependency pulled in during them) execute inside it.
     // `AddOns::LoadState` co-hooks this to tell the two states apart.
     FUN_ADDON_LOAD_ONE = 0x0051F240,
+    // The loader's context window — 3.3.5's `LoadAddOn` brackets the same
+    // span with `lua_gctag = addonName`. After the dependency loop it saves
+    // the context word, sets it to `[entry+0x24] ? [entry+0x14] : 0`, runs
+    // the TOC files, Bindings.xml and both SavedVariables files, restores the
+    // word, and only then fires ADDON_LOADED (0x0051F5AD). EBX = the entry
+    // throughout. Both sites are reached on every path through the window
+    // (the context write before the open is conditional; these are not) and
+    // no jump lands inside either:
+    //   OPEN  `33 C0 8D 4D E8` (xor eax,eax; lea ecx,[ebp-0x18]), 5 bytes
+    //   CLOSE `A1 C4 EA CE 00` (mov eax,[0x00CEEAC4]), 5 bytes; also the
+    //         target of the digest skip `jnz` at 0x0051F553
+    SITE_ADDON_LOAD_WINDOW_OPEN = 0x0051F38D,
+    SITE_ADDON_LOAD_WINDOW_CLOSE = 0x0051F576,
 
     // `Script_LoadAddOn` — the stock `LoadAddOn(index or name)` global.
     // Pushes two values either way: `(1, nil)` on success, or
@@ -9071,6 +9198,12 @@ enum Offsets {
     // clients) — never evict/re-register them: the parser cannot restore
     // packet-delivered state (and their MPQ TOCs never change anyway).
     OFF_ADDON_ENTRY_SECURE = 0x28,
+
+    // Signature status (dword) — 3.3.5's `UIADDON::m_status`. Nonzero = an
+    // insecure (user) addon. `FUN_ADDON_LOAD_ONE` runs the addon's files under
+    // the context word `[+0x24] ? [+0x14] : 0` (0x0051F37E..0x0051F387) and
+    // checks the TOC digest only when it is 0 (0x0051F54E).
+    OFF_ADDON_ENTRY_STATUS = 0x24,
 
     // Complete single-`AddOnEntry` destructor — vtable slot 0 of the
     // registry's node factory (`[0x00BE1B60]` = `&PTR_FUN_00808c7c`,
@@ -10722,10 +10855,31 @@ enum Offsets {
     XML_TEMPLATE_BUCKET_STRIDE = 0xC,
     OFF_XML_TEMPLATE_BUCKET_LINKOFF = 0x0,
     OFF_XML_TEMPLATE_BUCKET_HEAD = 0x8,
-    // Registry node payload: template name string @+0x14, parsed definition
-    // XML node @+0x18 (hash @+0x0, virtual flag @+0x1C — unused here).
+    // Registry node payload: name hash @+0x0 (FUN_SSTR_HASH_HT, the lookup's
+    // `cmp [ebx],esi`), template name string @+0x14, parsed definition XML
+    // node @+0x18, and the context word current when it registered @+0x1C —
+    // the registrar FUN_006EE500(node, name, context, status) stores its
+    // third argument there (0x006EE6BE), and the XML file loader passes
+    // VAR_FRAMESCRIPT_EXEC_CONTEXT: the owning addon's name, or 0 for the
+    // client's own XML. 3.3.5's FrameXML_AcquireHashNode returns it as the
+    // template's taint.
+    OFF_XML_TEMPLATE_NODE_HASH = 0x0,
     OFF_XML_TEMPLATE_NODE_NAME = 0x14,
     OFF_XML_TEMPLATE_NODE_DEF = 0x18,
+    OFF_XML_TEMPLATE_NODE_CONTEXT = 0x1C,
+    // The two places the client applies a single `inherits` template — the
+    // 1.12 counterparts of the two sites where 3.3.5 sets `lua_gctag` to the
+    // template's taint (CSimpleFrame::LoadXML and LoadXMLInheritance):
+    //   FUN_XML_FRAME_LOAD: `call FUN_XML_TEMPLATE_LOOKUP` (E8, 5 bytes), then
+    //     the re-entry through the node loader, 12 bytes with no jump into
+    //     them: mov ecx,[ebp+0xC]; mov edx,[ebx]; push ecx; push eax;
+    //     mov ecx,ebx; call [edx+8] (EAX = template node, EBX = loader).
+    //   FUN_XML_FRAME_LOAD_CHILD_FRAMES: `call FUN_XML_TEMPLATE_LOOKUP`, then
+    //     the recursive `call FUN_XML_FRAME_LOAD_CHILD_FRAMES` (E8, 5 bytes).
+    CALL_XML_FRAME_LOAD_TEMPLATE_LOOKUP = 0x0076984A,
+    SITE_XML_FRAME_LOAD_TEMPLATE_APPLY = 0x00769853,
+    CALL_XML_CHILD_FRAMES_TEMPLATE_LOOKUP = 0x0076A085,
+    CALL_XML_CHILD_FRAMES_TEMPLATE_RECURSE = 0x0076A092,
     // Parsed XML element node: its tag-name string ("Frame" / "Button" /
     // "CheckButton" / …) lives at +0x8 — this is the frame "type".
     OFF_XML_NODE_TAG = 0x8,
@@ -10915,6 +11069,11 @@ enum Offsets {
     // (+0x28 is VTBL_FRAME_SET_FRAME_ALPHA.)
     VTBL_FRAME_DELETING_DESTRUCTOR = 0x00,
     VTBL_FRAME_GET_SCRIPT_METHOD = 0x08,
+    // +0x0C the script-name resolver (this, const char *name) -> slot*, ret 4:
+    //       FUN_FRAME_SCRIPT_RESOLVER for Frame and MessageFrame, each other
+    //       type's extension of it otherwise (benilla-re ui/xmltypes); what
+    //       SetScriptObjectScript (0x007025C0) and SetScript/GetScript use.
+    VTBL_FRAME_SCRIPT_RESOLVER = 0x0C,
     VTBL_FRAME_IS_A = 0x10,
     VTBL_FRAME_IS_OBJECT_TYPE = 0x18,
     VTBL_FRAME_GET_OBJECT_TYPE = 0x1C,

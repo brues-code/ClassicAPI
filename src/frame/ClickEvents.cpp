@@ -106,6 +106,7 @@
 #include "Offsets.h"
 #include "frame/MouseRegistration.h"
 #include "frame/RunnerHook.h"
+#include "frame/ScriptSlots.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -319,6 +320,16 @@ static const Game::HookAutoRegister _clickHook{
     reinterpret_cast<void **>(&g_clickOriginal)};
 
 static const Frame::RunnerHook::AutoSubscribe _runnerSub{&OnRun};
+
+void ForEachSlot(const void *frame, Frame::ScriptSlots::Visit visit, void *ctx) {
+    const auto it = g_cells.find(const_cast<void *>(frame));
+    if (it == g_cells.end())
+        return;
+    for (const auto &slot : it->second.slot)
+        visit(slot, ctx);
+}
+
+static const Frame::ScriptSlots::AutoRegister _slots{&ForEachSlot};
 
 } // namespace
 

@@ -47,6 +47,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "equipmentset/Tooltip.h"
+#include "frame/ScriptSlots.h"
 #include "unit/Tooltip.h"
 
 #include <cstdint>
@@ -248,6 +249,14 @@ static const Game::HookAutoRegister _buildGOHook{
     Offsets::FUN_GAMETOOLTIP_BUILD_GAMEOBJECT,
     reinterpret_cast<void *>(&BuildGO_h),
     reinterpret_cast<void **>(&g_buildGOOriginal)};
+
+void ForEachSlot(const void *frame, Frame::ScriptSlots::Visit visit, void *ctx) {
+    for (int k = 0; k < SK_COUNT; ++k)
+        if (const uint32_t *slot = SlotFor(const_cast<void *>(frame), k, /*create*/ false))
+            visit(slot, ctx);
+}
+
+const Frame::ScriptSlots::AutoRegister _slots{&ForEachSlot};
 
 } // namespace
 
