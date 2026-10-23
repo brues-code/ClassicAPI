@@ -10397,6 +10397,24 @@ enum Offsets {
     // writes) and the 0x004E2010 decompile.
     VAR_GOSSIP_TEXT_PENDING = 0x00BBB670,
 
+    // --- Gossip point of interest (SMSG_GOSSIP_POI, opcode 0x224) ------
+    // The handler 0x004E2840 stores the marker in static blip record 1
+    // (records 0x74 apart from 0x00CEA760: 0 = selected quest, 1 = gossip,
+    // 2 = corpse) through the setter 0x006DAC10, the record's only writer.
+    // There is one marker at a time; a new packet overwrites it. It is
+    // live while its position is nonzero: 0x006D93A0 zeroes x/y when the
+    // player comes within 10 yards or 480 s after it was set. The world
+    // map's landmark builder 0x004A67A0 reads it the same way and projects
+    // it with 0x004A7360, which drops it unless the displayed map's row
+    // has the record's map id and the point lands inside 0..1. Verified
+    // via the 0x006DAC10 / 0x004A67A0 / 0x004A7360 decompiles.
+    VAR_GOSSIP_POI_BLIP = 0x00CEA7D4,
+    VAR_GOSSIP_POI_NAME = 0x00CEA6E0, // char[0x40], slot 1 of the names at 0x00CEA6A0
+    OFF_STATIC_BLIP_ICON = 0x08,      // u32, POI icon index (the packet's icon)
+    OFF_STATIC_BLIP_X = 0x10,         // float, world X (north)
+    OFF_STATIC_BLIP_Y = 0x14,         // float, world Y (west)
+    OFF_STATIC_BLIP_MAP = 0x1C,       // i32, Map.dbc id: the minimap's map when set
+
     // --- Quest-greeting state (SMSG_QUESTGIVER_QUEST_LIST) -------------
     // Vanilla's SECOND questgiver path: NPCs without a gossip menu send
     // SMSG_QUESTGIVER_QUEST_LIST, whose handler (FUN_005dbb10) fills a
