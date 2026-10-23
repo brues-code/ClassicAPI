@@ -198,6 +198,7 @@ build instructions.
   - [`UPDATE_INVENTORY_DURABILITY` event](#update_inventory_durability-event)
   - [`PLAYER_AVG_ITEM_LEVEL_READY` event](#player_avg_item_level_ready-event)
   - [`HEARTHSTONE_BOUND` event](#hearthstone_bound-event)
+  - [`DYNAMIC_GOSSIP_POI_UPDATED` event](#dynamic_gossip_poi_updated-event)
   - [Player input-state events (`PLAYER_STARTED_MOVING` / `LOOKING` / `TURNING` + `STOPPED_*`)](#player-input-state-events)
   - [`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events](#global_mouse_down--global_mouse_up-events)
   - [`AUCTION_MULTISELL_START` / `AUCTION_MULTISELL_UPDATE` / `AUCTION_MULTISELL_FAILURE` events](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
@@ -429,6 +430,8 @@ build instructions.
   - [`C_GossipInfo.SelectAvailableQuest(questID)`](#c_gossipinfoselectavailablequestquestid)
   - [`C_GossipInfo.SelectActiveQuest(questID)`](#c_gossipinfoselectactivequestquestid)
   - [`C_GossipInfo.CloseGossip()`](#c_gossipinfoclosegossip)
+  - [`C_GossipInfo.GetPoiForUiMapID(uiMapID)`](#c_gossipinfogetpoiforuimapiduimapid)
+  - [`C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)`](#c_gossipinfogetpoiinfouimapid-gossippoiid)
   - [`GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`](#getnumgossipavailablequests--getnumgossipactivequests)
 
 - [Hooks](#hooks)
@@ -4517,6 +4520,12 @@ Implemented by hooking the BINDPOINTUPDATE packet handler at
 Character switch is handled automatically: the character-entry init
 re-zeroes the flag, so each new character's first update is also
 treated as sync and suppressed.
+
+### `DYNAMIC_GOSSIP_POI_UPDATED` event
+
+Fires (with no payload) when a gossip point of interest is added to the map or
+removed from it. When it fires, read the marker again with
+[`C_GossipInfo.GetPoiForUiMapID`](#c_gossipinfogetpoiforuimapiduimapid).
 
 ### Player input-state events
 
@@ -9778,6 +9787,40 @@ Picks an in-progress quest by `questID`. Same shape as
 
 Closes the gossip window. Direct passthrough to the engine's
 `CloseGossip`. Returns nothing.
+
+### `C_GossipInfo.GetPoiForUiMapID(uiMapID)`
+
+Returns the ID of the gossip point of interest on the map `uiMapID`, or nil.
+Some gossip options add this marker to the map, for example the directions
+that a city guard gives. There is only one marker at a time, and its ID is
+always `1`.
+
+The function returns nil when there is no marker, or when the marker is not
+inside the map. The marker goes away when the player comes within 10 yards of
+it, or 8 minutes after it was added.
+
+### `C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)`
+
+Returns a table that describes the gossip point of interest on the map
+`uiMapID`, or nil. It returns nil in the same conditions as
+`GetPoiForUiMapID`, and when `gossipPoiID` is not the ID that
+`GetPoiForUiMapID` returns.
+
+| Field          | Type    | Description |
+|----------------|---------|-------------|
+| `name`         | string  | The name of the location, for example `"Stormwind Bank"`. |
+| `textureIndex` | number  | The icon index. It is the same index that `GetMapLandmarkInfo` returns for this marker. |
+| `position`     | vector2 | The position on the map, from 0 to 1 on each axis. |
+| `inBattleMap`  | boolean | Always `false`. |
+
+```lua
+local mapID = C_Map.GetBestMapForUnit("player")
+local poiID = C_GossipInfo.GetPoiForUiMapID(mapID)
+if poiID then
+    local info = C_GossipInfo.GetPoiInfo(mapID, poiID)
+    print(info.name, info.position:GetXY())
+end
+```
 
 ### `GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`
 

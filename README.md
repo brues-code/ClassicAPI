@@ -103,7 +103,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [GameObject](docs/API.md#gameobject) | `C_GameObjectInfo.GetGameObjectInfoByID`, `C_GameObjectInfo.RequestLoadGameObjectByID`, `ClosestGameObjectPosition` |
 | [Glue](docs/API.md#glue) | `C_Glue.IsOnGlueScreen` |
 | [GameTooltip](docs/API.md#gametooltip) | `GameTooltip:AddSpellByID`, `GameTooltip:AddTexture`, `GameTooltip:GetGameObject`, `GameTooltip:GetItem`, `GameTooltip:GetMinimumWidth`, `GameTooltip:GetOwner`, `GameTooltip:GetPadding`, `GameTooltip:GetSpell`, `GameTooltip:GetUnit`, `GameTooltip:GetUnitGUID`, `GameTooltip:HasGameObject`, `GameTooltip:HasItem`, `GameTooltip:HasSpell`, `GameTooltip:HasUnit`, `GameTooltip:IsEquippedItem`, `GameTooltip:IsUnit`, `GameTooltip:SetAnchorType`, `GameTooltip:SetEquipmentSet`, `GameTooltip:SetFrameStack`, `GameTooltip:SetHyperlink` (full links, `spell:`, `quest:`), `GameTooltip:SetHyperlinkCompareItem`, `GameTooltip:SetInventoryItemByID`, `GameTooltip:SetItemByGUID`, `GameTooltip:SetItemByID`, `GameTooltip:SetSpellByID`, `GameTooltip:SetTalentByID`, `GameTooltip:SetTotem`, `GameTooltip:SetUnitAura`, `OnTooltipSetItem`, `OnTooltipSetSpell`, `OnTooltipSetUnit`, `OnTooltipSetGameObject`, `OnTooltipSetFrameStack` (scripts) |
-| [Gossip](docs/API.md#gossip) | `C_GossipInfo.CloseGossip`, `C_GossipInfo.GetActiveQuests`, `C_GossipInfo.GetAvailableQuests`, `C_GossipInfo.GetNumActiveQuests`, `C_GossipInfo.GetNumAvailableQuests`, `C_GossipInfo.GetNumOptions`, `C_GossipInfo.GetOptions`, `C_GossipInfo.GetText`, `C_GossipInfo.SelectActiveQuest`, `C_GossipInfo.SelectAvailableQuest`, `C_GossipInfo.SelectOption`, `C_GossipInfo.SelectOptionByIndex`, `GetNumGossipActiveQuests`, `GetNumGossipAvailableQuests` |
+| [Gossip](docs/API.md#gossip) | `C_GossipInfo.CloseGossip`, `C_GossipInfo.GetActiveQuests`, `C_GossipInfo.GetAvailableQuests`, `C_GossipInfo.GetNumActiveQuests`, `C_GossipInfo.GetNumAvailableQuests`, `C_GossipInfo.GetNumOptions`, `C_GossipInfo.GetOptions`, `C_GossipInfo.GetPoiForUiMapID`, `C_GossipInfo.GetPoiInfo`, `C_GossipInfo.GetText`, `C_GossipInfo.SelectActiveQuest`, `C_GossipInfo.SelectAvailableQuest`, `C_GossipInfo.SelectOption`, `C_GossipInfo.SelectOptionByIndex`, `GetNumGossipActiveQuests`, `GetNumGossipAvailableQuests` |
 | [Hooks](docs/API.md#hooks) | `hooksecurefunc` |
 | [Input](docs/API.md#input) | `GetMouseButtonClicked`, `IsLeftAltKeyDown`, `IsLeftControlKeyDown`, `IsLeftShiftKeyDown`, `IsModifierKeyDown`, `IsMouseButtonDown`, `IsRightAltKeyDown`, `IsRightControlKeyDown`, `IsRightShiftKeyDown` |
 | [Instance](docs/API.md#instance) | `GetInstanceInfo`, `IsActiveBattlefieldArena` |
@@ -275,6 +275,7 @@ when launching with `-console`), not as Lua functions. See the
 | `COMBAT_LOG_EVENT` | `timestamp, subevent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags, ...` ([details](docs/API.md#combat_log_event_unfiltered--combat_log_event-events)) |
 | `COMBAT_LOG_EVENT_UNFILTERED` | same as `COMBAT_LOG_EVENT` |
 | `CURSOR_CHANGED` | `isDefault, newCursorType, oldCursorType, oldCursorVirtualID` |
+| `DYNAMIC_GOSSIP_POI_UPDATED` | *(none)* |
 | `EQUIPMENT_SETS_CHANGED` | *(none)* |
 | `EQUIPMENT_SWAP_PENDING` | `setID` |
 | `EQUIPMENT_SWAP_FINISHED` | `success, setID` |

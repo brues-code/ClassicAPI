@@ -25,11 +25,20 @@
 //
 // The packet carries no POI id, and there is only ever one marker, so its
 // `gossipPoiID` is the engine's slot number, 1.
+//
+// `DYNAMIC_GOSSIP_POI_UPDATED` fires when the marker is set or cleared. Every
+// change runs the world map rebuild 0x004A67A0 (the setter after a packet, the
+// 480 s expiry and the 10-yard clear in 0x006D93A0), but that rebuild also
+// runs for every map view change, so the event comes from a once-per-frame
+// diff of the record instead: x, y and the expiry, which each set rewrites
+// and each clear zeroes.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "event/Custom.h"
 #include "map/Area.h"
 #include "map/Vector2.h"
+#include "tick/WorldTick.h"
 
 #include <cstdint>
 
@@ -42,6 +51,32 @@ constexpr int kGossipPoiID = 1;
 template <typename T> T BlipField(uintptr_t off) {
     return *reinterpret_cast<const T *>(Offsets::VAR_GOSSIP_POI_BLIP + off);
 }
+
+const Game::Doc::Event kPoiUpdatedDoc{
+    "GossipInfo", "Fires when a gossip point of interest is added to or removed from the map.",
+    {}};
+const Event::Custom::AutoReserve _evtPoiUpdated{"DYNAMIC_GOSSIP_POI_UPDATED",
+                                                &kPoiUpdatedDoc};
+
+struct Snapshot {
+    uint32_t x, y, expiry;
+};
+
+// The record as of the last fire. DLL-lived like the record itself, so a
+// /reload with a marker up does not fire a phantom change.
+Snapshot g_last{};
+
+void OnTick() {
+    const Snapshot now{BlipField<uint32_t>(Offsets::OFF_STATIC_BLIP_X),
+                       BlipField<uint32_t>(Offsets::OFF_STATIC_BLIP_Y),
+                       *reinterpret_cast<const uint32_t *>(Offsets::VAR_GOSSIP_POI_EXPIRY)};
+    if (now.x == g_last.x && now.y == g_last.y && now.expiry == g_last.expiry)
+        return;
+    g_last = now;
+    Event::Custom::Fire(_evtPoiUpdated.Slot(), "");
+}
+
+const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
 // Projects the live marker onto `uiMapID`. False when there is no marker or
 // it isn't on that map.

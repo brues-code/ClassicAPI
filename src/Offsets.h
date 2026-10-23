@@ -10410,6 +10410,9 @@ enum Offsets {
     // via the 0x006DAC10 / 0x004A67A0 / 0x004A7360 decompiles.
     VAR_GOSSIP_POI_BLIP = 0x00CEA7D4,
     VAR_GOSSIP_POI_NAME = 0x00CEA6E0, // char[0x40], slot 1 of the names at 0x00CEA6A0
+    // u32, wall-clock seconds (0x00429580) + 480 at each set; both clears
+    // zero it with x/y (0x006D93FB, 0x006D9A3A). 0 = no marker.
+    VAR_GOSSIP_POI_EXPIRY = 0x00CEAAA4,
     OFF_STATIC_BLIP_ICON = 0x08,      // u32, POI icon index (the packet's icon)
     OFF_STATIC_BLIP_X = 0x10,         // float, world X (north)
     OFF_STATIC_BLIP_Y = 0x14,         // float, world Y (west)
