@@ -66,6 +66,7 @@ build instructions.
   - [`GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only](#getsavedcharacterorderrealm--setsavedcharacterorderrealm-order--gluexml-only)
 
 - [Chat](#chat)
+  - [`GetCurrentChatEvent()`](#getcurrentchatevent)
   - [`GetCurrentChatGUID()`](#getcurrentchatguid)
 
 - [Class](#class)
@@ -1936,6 +1937,40 @@ end
 ```
 
 ## Chat
+
+### `GetCurrentChatEvent()`
+
+Returns the name and the arguments of the `CHAT_MSG_*` event that is being
+handled now. It returns nothing when you call it outside a chat event.
+This is a ClassicAPI extension.
+
+```lua
+event, arg1, arg2, ..., arg12 = GetCurrentChatEvent()
+```
+
+The values are the values that the event gave to its handlers, in the same
+order: the event name, `arg1` to `arg10`, then the line ID (`arg11`) and the
+sender GUID (`arg12`) (see
+[`CHAT_MSG_*` arguments](#chat_msg_-arguments-lineid-arg11-and-guid-arg12)).
+
+Use it when the `event` and `arg1` to `arg12` globals are not reliable. Other
+handlers and hooks can change these globals before your code reads them. This
+function always gives the values of the event that is in progress.
+
+```lua
+local orig = ChatFrame_OnEvent
+function ChatFrame_OnEvent(event)
+    local name, text, sender = GetCurrentChatEvent()
+    if name then
+        -- name, text and sender are the real values, even if a hook changed arg1/arg2
+    end
+    return orig(event)
+end
+```
+
+If a chat event handler causes another chat event, the function gives the
+inner event while that handler runs. When the inner handler returns, it gives
+the outer event again.
 
 ### `GetCurrentChatGUID()`
 

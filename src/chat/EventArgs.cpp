@@ -11,8 +11,9 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// CHAT_MSG_* arg11 (lineID) and arg12 (sender GUID), as 4.3.4 fires them, and
-// `GetCurrentChatGUID()`, which reads the same sender from inside the handler.
+// CHAT_MSG_* arg11 (lineID) and arg12 (sender GUID), as 4.3.4 fires them,
+// `GetCurrentChatGUID()`, which reads the same sender from inside the handler,
+// and `GetCurrentChatEvent()`, which reads the whole payload back.
 //
 // 4.3.4's SendChatEvent (ChatFrame.cpp, 0x008E82E0) fires every chat event
 // with "%s%s%s%s%s%s%d%d%s%d%d%s%u%b": the ten arguments 1.12 already passes,
@@ -32,6 +33,13 @@
 //
 // `GetCurrentChatGUID()` returns that same sender, as nil where arg12 is "",
 // so code written for the function and code reading arg12 always agree.
+//
+// `GetCurrentChatEvent()` (a ClassicAPI extension) returns the event name and
+// the arguments exactly as fired. 1.12's ChatFrame_OnEvent reads the `event`
+// and `arg1..` globals, which any handler or hook running before it may
+// overwrite; the payload read here is the one this fire passed. It lives only
+// for the fire, and a chat event fired from another's handler restores the
+// outer payload when it returns.
 //
 // The sender comes from a SenderScope. Chat::Dispatch opens one around the
 // chat-message dispatch with the GUID it picks for that chat type; the text
@@ -70,6 +78,33 @@ using TextEmote_t = void(__fastcall *)(const uint64_t *senderGuid, int emote, co
 
 TextEmote_t g_textEmoteOriginal = nullptr;
 
+// The chat event being fired, as pushed. `argc` is 12 for the stock format and
+// 10 when another loader's format was fired unextended.
+struct Payload {
+    int eventId;
+    const char *text, *sender, *language, *channelString, *target, *flags;
+    int zoneChannelID, channelNumber;
+    const char *channelName;
+    int channelUnk;
+    uint32_t lineID;
+    const char *guid;
+    int argc;
+};
+
+const Payload *g_payload = nullptr;
+
+// Points g_payload at a fire for its duration, restoring the outer one after.
+class PayloadScope {
+public:
+    explicit PayloadScope(const Payload &p) : prev_(g_payload) { g_payload = &p; }
+    ~PayloadScope() { g_payload = prev_; }
+    PayloadScope(const PayloadScope &) = delete;
+    PayloadScope &operator=(const PayloadScope &) = delete;
+
+private:
+    const Payload *prev_;
+};
+
 // 1.12's chat tags are "AFK", "DND" and "GM"; 4.3.4's IsStaffChatFlag also
 // matches "DEV", which this client never sends.
 bool IsStaffFlag(const char *flags) { return flags != nullptr && std::strcmp(flags, "GM") == 0; }
@@ -88,7 +123,10 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
     text = Chat::RaidMarkers::ForChatEvent(text, markerBuf, sizeof markerBuf);
     // Another loader passing its own format: the arguments may not be ours to
     // extend, so fire exactly what was asked.
+    Payload payload{eventId, text, sender, language, channelString, target, flags,
+                    zoneChannelID, channelNumber, channelName, channelUnk, 0, "", 10};
     if (fmt != reinterpret_cast<const char *>(Offsets::VAR_STR_CHAT_EVENT_FORMAT)) {
+        PayloadScope scope(payload);
         fire(eventId, fmt, text, sender, language, channelString, target, flags, zoneChannelID,
              channelNumber, channelName, channelUnk);
         return;
@@ -97,6 +135,10 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
     char guid[Guid::STRING_SIZE] = "";
     if (g_sender != 0)
         Guid::FormatAsString(g_sender, guid, sizeof guid);
+    payload.lineID = lineID;
+    payload.guid = guid;
+    payload.argc = 12;
+    PayloadScope scope(payload);
     fire(eventId, "%s%s%s%s%s%s%d%d%s%d%d%s", text, sender, language, channelString, target, flags,
          zoneChannelID, channelNumber, channelName, channelUnk, static_cast<int>(lineID), guid);
 }
@@ -114,6 +156,53 @@ int __fastcall Script_GetCurrentChatGUID(void *L) {
     Game::Lua::PushString(L, Guid::FormatAsString(g_sender, buf, sizeof buf));
     return 1;
 }
+
+// event name, arg1..argN — the same values the handler received.
+int __fastcall Script_GetCurrentChatEvent(void *L) {
+    using namespace Game::Lua;
+    const Payload *p = g_payload;
+    if (p == nullptr || CheckStack(L, p->argc + 1) == 0)
+        return 0;
+    const auto *entry = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR) +
+                        p->eventId * Offsets::EVENT_ENTRY_STRIDE;
+    PushString(L, Game::Read<const char *>(entry, Offsets::OFF_EVENT_ENTRY_NAME));
+    // A null string pushes nil, as it does through the engine's dispatcher.
+    PushString(L, p->text);
+    PushString(L, p->sender);
+    PushString(L, p->language);
+    PushString(L, p->channelString);
+    PushString(L, p->target);
+    PushString(L, p->flags);
+    PushNumber(L, p->zoneChannelID);
+    PushNumber(L, p->channelNumber);
+    PushString(L, p->channelName);
+    PushNumber(L, p->channelUnk);
+    if (p->argc == 12) {
+        PushNumber(L, p->lineID);
+        PushString(L, p->guid);
+    }
+    return p->argc + 1;
+}
+
+const Game::Doc::Field kChatEventRets[] = {
+    Game::Doc::Req("event", "string", "The CHAT_MSG_* event name."),
+    Game::Doc::Opt("text", "string"),
+    Game::Doc::Opt("playerName", "string"),
+    Game::Doc::Opt("languageName", "string"),
+    Game::Doc::Opt("channelName", "string"),
+    Game::Doc::Opt("playerName2", "string"),
+    Game::Doc::Opt("specialFlags", "string"),
+    Game::Doc::Opt("zoneChannelID", "number"),
+    Game::Doc::Opt("channelIndex", "number"),
+    Game::Doc::Opt("channelBaseName", "string"),
+    Game::Doc::Opt("unused", "number"),
+    Game::Doc::Opt("lineID", "number"),
+    Game::Doc::Opt("guid", "string"),
+};
+const Game::Doc::Function kGetCurrentChatEvent{
+    "Returns the name and arguments of the CHAT_MSG_* event being handled now, or nothing "
+    "outside one.",
+    {}, kChatEventRets, "ChatGlobals", true};
 
 // Once per process; a patched site no longer reaches FUN_FIRE_EVENT, so a
 // second pass would refuse anyway.
@@ -139,6 +228,8 @@ void Apply() {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetCurrentChatGUID", &Script_GetCurrentChatGUID);
+    Game::Lua::RegisterGlobalFunction("GetCurrentChatEvent", &Script_GetCurrentChatEvent,
+                                      &kGetCurrentChatEvent);
     Apply();
 }
 
