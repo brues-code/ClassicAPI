@@ -336,6 +336,6 @@ AddSlider(tts, TEXT_TO_SPEECH_ADJUST_VOLUME, TEXT_TO_SPEECH_ADJUST_VOLUME, Numbe
 -- Player Cache
 -- ---------------------------------------------------------------------------
 
-local playerCache = NewPage(L.PLAYER_CACHE, main.name, TEXT_TO_SPEECH)
+local playerCache = NewPage(L.PLAYER_CACHE, main.name, L.PLAYER_CACHE)
 AddCheckbox(playerCache, L.REMEMBER_PLAYERS, L.REMEMBER_PLAYERS_TOOLTIP, rememberSetting)
 AddCheckbox(playerCache, L.SCAN_PLAYERS, L.SCAN_PLAYERS_TOOLTIP, scanSetting, rememberSetting.get)
