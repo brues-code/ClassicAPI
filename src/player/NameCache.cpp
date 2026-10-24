@@ -510,7 +510,7 @@ void __fastcall CacheWrite_h(void *self, void *edx, const uint8_t *packet,
     CacheWrite_o(self, packet, guidLo, guidHi);
     (void)edx;
 
-    if (!g_enabled || packet == nullptr)
+    if (packet == nullptr || !IsEnabled())
         return;
     RememberRecord((static_cast<uint64_t>(guidHi) << 32) | guidLo, packet);
 }
@@ -618,7 +618,7 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Entry *Lookup(uint64_t guid, const std::string **outName) {
     if (outName != nullptr)
         *outName = nullptr;
-    if (!g_enabled)
+    if (!IsEnabled())
         return nullptr;
     LoadCacheIfNeeded();
     auto guidIt = g_guidIndex.find(guid);
@@ -633,7 +633,7 @@ const Entry *Lookup(uint64_t guid, const std::string **outName) {
 }
 
 const Entry *LookupByName(const char *name) {
-    if (!g_enabled || name == nullptr || name[0] == '\0')
+    if (name == nullptr || name[0] == '\0' || !IsEnabled())
         return nullptr;
     LoadCacheIfNeeded();
     auto it = g_entries.find(name);
@@ -644,7 +644,7 @@ const Entry *LookupByName(const char *name) {
 
 void Remember(uint64_t guid, const char *name, uint32_t classID,
               uint32_t raceID, uint32_t sex) {
-    if (!g_enabled || guid == 0 || name == nullptr || name[0] == '\0')
+    if (guid == 0 || name == nullptr || name[0] == '\0' || !IsEnabled())
         return;
     LoadCacheIfNeeded();
     if (classID > kMaxClassID)
@@ -660,6 +660,10 @@ void Remember(uint64_t guid, const char *name, uint32_t classID,
     }
 }
 
+// Every gate reads the toggle through here, never `g_enabled` directly:
+// nothing else guarantees the account settings are loaded before the
+// first name response arrives (only optional glue Lua calls into the
+// registry at character select).
 bool IsEnabled() {
     Settings::Account::EnsureLoaded();
     return g_enabled;
