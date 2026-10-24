@@ -286,10 +286,6 @@ end
 local version = GetAddOnMetadata("!!!ClassicAPI", "Version")
 local main = NewPage("ClassicAPI", nil, "ClassicAPI " .. version, L.ABOUT)
 
-AddHeader(main, L.PLAYER_CACHE)
-AddCheckbox(main, L.REMEMBER_PLAYERS, L.REMEMBER_PLAYERS_TOOLTIP, rememberSetting)
-AddCheckbox(main, L.SCAN_PLAYERS, L.SCAN_PLAYERS_TOOLTIP, scanSetting, rememberSetting.get)
-
 -- ---------------------------------------------------------------------------
 -- Controls
 -- ---------------------------------------------------------------------------
@@ -335,3 +331,11 @@ AddDropDown(tts, TEXT_TO_SPEECH_VOICE_OPTION, TEXT_TO_SPEECH_VOICE_OPTION, Numbe
 end)
 AddSlider(tts, TEXT_TO_SPEECH_ADJUST_RATE, TEXT_TO_SPEECH_ADJUST_RATE, NumberCVarSetting("ttsSpeed"), -10, 10)
 AddSlider(tts, TEXT_TO_SPEECH_ADJUST_VOLUME, TEXT_TO_SPEECH_ADJUST_VOLUME, NumberCVarSetting("ttsVolume"), 0, 100)
+
+-- ---------------------------------------------------------------------------
+-- Player Cache
+-- ---------------------------------------------------------------------------
+
+local playerCache = NewPage(L.PLAYER_CACHE, main.name, TEXT_TO_SPEECH)
+AddCheckbox(playerCache, L.REMEMBER_PLAYERS, L.REMEMBER_PLAYERS_TOOLTIP, rememberSetting)
+AddCheckbox(playerCache, L.SCAN_PLAYERS, L.SCAN_PLAYERS_TOOLTIP, scanSetting, rememberSetting.get)
