@@ -196,8 +196,9 @@ int __fastcall Script_UnitNameFromGUID(void *L) {
 // `C_PlayerCache.GetPlayerInfoByName(name)` — returns `(localizedClass,
 // englishClass, localizedRace, englishRace, sex, name, realm, guid)` or
 // nothing if the name can't be resolved. Resolves the name with
-// `GuidFromName`, then builds the same tuple as `GetPlayerInfoByGUID`, so a
-// nearby or grouped player works whether or not the persistent cache is on.
+// `GuidFromName`, then builds the same tuple as `GetPlayerInfoByGUID`, so any
+// player the engine has named this session works whether or not the
+// persistent cache is on.
 //
 // Companion to `GetPlayerInfoByGUID` for the case where an addon has
 // a player's name from a `|Hplayer:Name|h` chat link or
@@ -260,7 +261,9 @@ bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize) {
 //      players only, whole-name match) — party and raid members, including
 //      out-of-range ones, then every visible player.
 //   2. Friends list — online and offline friends.
-//   3. Persistent NameCache (when enabled) — players seen earlier.
+//   3. The engine's name cache — anyone it has named this session (chat
+//      senders, group, guild, seen units), in range or not.
+//   4. Persistent NameCache (when enabled) — players seen in earlier sessions.
 uint64_t GuidFromName(const char *name) {
     if (name == nullptr || *name == '\0')
         return 0;
@@ -268,6 +271,8 @@ uint64_t GuidFromName(const char *name) {
             name, Offsets::TYPEMASK_PLAYER, /*exact*/ true))
         return guid;
     if (const uint64_t guid = FriendList::GuidForName(name))
+        return guid;
+    if (const uint64_t guid = Unit::Identity::GuidForCachedName(name))
         return guid;
     if (const NameCache::Entry *e = NameCache::LookupByName(name))
         return e->guid;

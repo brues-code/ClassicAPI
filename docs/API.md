@@ -15555,14 +15555,17 @@ The function looks for the name in this order:
    range or in a different zone.
 2. Players near you.
 3. Your friends list, including offline friends.
-4. The persistent NameCache, if you enabled it with
+4. Players the game knows by name in this session. For example, players
+   who sent a chat message, were in your group, or were near you. The game
+   forgets these players when you log out.
+5. The persistent NameCache, if you enabled it with
    `C_PlayerCache.SetEnabled(true)`.
 
-Steps 1–3 work when the persistent NameCache is off.
+Steps 1–4 work when the persistent NameCache is off.
 
-The name must be the full name. Steps 1–3 ignore case (`"gedwyr"`
-finds `"Gedwyr"`). Step 4 is case-sensitive. The `name` return is the
-name as the server stores it, not the text you passed in.
+The name must be the full name. Case does not matter (`"gedwyr"`
+finds `"Gedwyr"`). The `name` return is the name as the server stores
+it, not the text you passed in.
 
 The function only finds players, never NPCs. It does not send a query
 to the server.

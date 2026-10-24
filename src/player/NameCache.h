@@ -62,9 +62,9 @@ struct Entry {
 // the caller read both halves from one lookup.
 const Entry *Lookup(uint64_t guid, const std::string **outName);
 
-// O(1) lookup by name (case-sensitive, exact match). Vanilla
-// 1.12's server-stored names are case-stable, so `"Gedwyr"` won't
-// match `"gedwyr"`. Returns nullptr if no entry has that name.
+// O(1) lookup by whole name, ignoring ASCII case like the engine's own
+// name compares, so `"gedwyr"` finds `"Gedwyr"`. Returns nullptr if no
+// entry has that name.
 //
 // Used by `C_PlayerCache.GetPlayerInfoByName` for the case where
 // an addon has a player's name (e.g., from a `|Hplayer:Name|h`

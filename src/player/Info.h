@@ -32,8 +32,8 @@ bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize);
 
 // Resolve a player's character name to their GUID, or 0. Chain: the engine's
 // by-name search (party and raid members, including out-of-range ones, then
-// visible players; whole name, case-insensitive) -> friends list ->
-// persistent NameCache. Players only, never creatures. Passive -- never
+// visible players; whole name, case-insensitive) -> friends list -> the
+// engine's name cache (anyone named this session) -> persistent NameCache. Players only, never creatures. Passive -- never
 // triggers a name query.
 uint64_t GuidFromName(const char *name);
 

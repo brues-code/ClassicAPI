@@ -5490,6 +5490,18 @@ enum Offsets {
     VAR_PLAYER_NAME_CACHE = 0x00C0E228,
     FUN_PLAYER_INFO_LOOKUP = 0x0055F080,
 
+    // Every node of the name cache sits on one Storm TSList at cache+0x04:
+    // the list's link offset at cache+0x04, its first node at cache+0x0C,
+    // each node's next at node + linkOffset + 4, ended by 0 or a low-bit-
+    // tagged pointer. A node keeps its 64-bit GUID key at +0x168 (pass it
+    // to FUN_PLAYER_INFO_LOOKUP for the record). Verified from the cache's
+    // own save walk, NameCacheSave 0x0055EC70 (next-link helper
+    // 0x0055EC50). The engine has no by-name lookup over this cache — this
+    // walk is the only way to search it.
+    OFF_NAME_CACHE_LINK_OFFSET = 0x04,
+    OFF_NAME_CACHE_FIRST_NODE = 0x0C,
+    OFF_NAME_CACHE_NODE_GUID = 0x168,
+
     // NameCache write entry — `__thiscall(this = cache, packetData,
     // guidLo, guidHi)` at 0x0055F310. Called once per
     // SMSG_NAME_QUERY_RESPONSE after the engine's opcode handler

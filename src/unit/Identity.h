@@ -130,4 +130,11 @@ const uint8_t *PlayerInfoRecord(uint64_t guid);
 // for callers that only want the name (friend/ignore GUID→name compares).
 const char *NameForGuid(uint64_t guid);
 
+// The GUID of the player the NameCache knows as `name` (whole name, case-
+// insensitive — the engine's own ignore-by-name compare), or 0. Walks every
+// loaded record, so it resolves anyone the engine has named this session
+// (chat senders, group, guild, seen units) whether or not they're in range.
+// Passive — never fires a query. First match wins.
+uint64_t GuidForCachedName(const char *name);
+
 } // namespace Unit::Identity

@@ -118,7 +118,25 @@ constexpr DWORD kScanIntervalMs = 10 * 1000;
 // name the natural identity key; deletion-recreation produces a new
 // GUID for the same name, which inserts-replaces here instead of
 // piling up dead entries the way a GUID-keyed map would.
-std::unordered_map<std::string, Entry> g_entries;
+//
+// Keys compare ignoring ASCII case, the same rule as the engine's own
+// name compares (SStrCmpI 0x0064A4C0 is a null-checked CRT _strnicmp), so
+// `"gedwyr"` finds `"Gedwyr"`. A re-cased name for the same GUID takes the
+// rename path in Upsert, so the newest spelling wins.
+struct NameHash {
+    size_t operator()(const std::string &s) const {
+        size_t h = 2166136261u; // FNV-1a over the lowercased bytes
+        for (unsigned char c : s)
+            h = (h ^ static_cast<size_t>(c >= 'A' && c <= 'Z' ? c + 32 : c)) * 16777619u;
+        return h;
+    }
+};
+struct NameEqual {
+    bool operator()(const std::string &a, const std::string &b) const {
+        return a.size() == b.size() && _strnicmp(a.c_str(), b.c_str(), a.size()) == 0;
+    }
+};
+std::unordered_map<std::string, Entry, NameHash, NameEqual> g_entries;
 // `guid → name` reverse index. Maintained in lockstep with
 // `g_entries`. Invariant: `g_guidIndex[guid] == name` iff
 // `g_entries[name].guid == guid`.

@@ -199,6 +199,28 @@ const char *NameForGuid(uint64_t guid) {
     return (name != nullptr && *name != '\0') ? name : nullptr;
 }
 
+uint64_t GuidForCachedName(const char *name) {
+    if (name == nullptr || *name == '\0')
+        return 0;
+    using SStrCmpI_t = int(__stdcall *)(const char *, const char *, int);
+    auto cmp = reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I));
+    // Walk the cache's node list the way its save routine NameCacheSave
+    // (0x0055EC70) does, and read each node's name back through the engine's
+    // own lookup — which also skips nodes whose query is still pending.
+    const auto *cache = reinterpret_cast<const void *>(
+        static_cast<uintptr_t>(Offsets::VAR_PLAYER_NAME_CACHE));
+    const auto linkOffset = Game::Read<uintptr_t>(cache, Offsets::OFF_NAME_CACHE_LINK_OFFSET);
+    for (auto node = Game::Read<uintptr_t>(cache, Offsets::OFF_NAME_CACHE_FIRST_NODE);
+         node != 0 && (node & 1) == 0;
+         node = Game::Read<uintptr_t>(node + linkOffset + 4)) { // TSLink {prev, next}
+        const auto guid = Game::Read<uint64_t>(node + Offsets::OFF_NAME_CACHE_NODE_GUID);
+        const char *cached = NameForGuid(guid);
+        if (cached != nullptr && cmp(cached, name, 0x7FFFFFFF) == 0)
+            return guid;
+    }
+    return 0;
+}
+
 // `UnitGUID(unit)` — returns the unit's 64-bit GUID formatted as a
 // hex string `"0xHHHHHHHHLLLLLLLL"` (16 hex digits, hi dword first).
 //
