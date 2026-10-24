@@ -805,6 +805,7 @@ build instructions.
 - [System](#system)
   - [`GetPhysicalScreenSize()`](#getphysicalscreensize)
   - [`CopyToClipboard(text [, removeMarkup])`](#copytoclipboardtext--removemarkup)
+  - [`FlashClientIcon([briefly])`](#flashclienticonbriefly)
 
 - [Talent](#talent)
   - [`GetTalentSpellID(tabIndex, talentIndex, [rank[, classID]])`](#gettalentspellidtabindex-talentindex-rank-classid)
@@ -18980,6 +18981,21 @@ CopyToClipboard(link)                                       -- 15  (raw escapes 
 > into `||`, so a literal `|cff…` you type is no longer a color code by the
 > time it reaches Lua. Build real markup with `\124` (as above) to exercise
 > `removeMarkup`.
+
+### `FlashClientIcon([briefly])`
+
+Flashes the client's taskbar button to get the player's attention (a
+retail backport). Does nothing while WoW is the foreground window, and
+returns nothing.
+
+- `briefly` — optional, default `false`. When falsy, flashes until the
+  client is focused (Windows stops it on its own). When truthy, flashes
+  three times and stops.
+
+```lua
+FlashClientIcon()       -- flash until focused (e.g. a battleground queue pops while alt-tabbed)
+FlashClientIcon(true)   -- brief flash
+```
 
 ## Talent
 

@@ -2831,6 +2831,15 @@ enum Offsets {
     // tick count in EAX).
     FUN_OS_TICKCOUNT_MS = 0x0042B790,
 
+    // OsGuiGetWindow — `HWND __fastcall(int which)`: 0 returns the game
+    // window, 1 `GetActiveWindow()`, 2 `GetForegroundWindow()`, anything
+    // else null. (benilla-re core/input "Message filter and idle sleep",
+    // verified.) Confirmed against C:\WoW\Octo\WoW.exe: `sub ecx,0 /
+    // je game-window / dec ecx / je jmp [GetActiveWindow] / dec ecx /
+    // je jmp [GetForegroundWindow] / xor eax; ret`, with the game window
+    // read from `[0x00884EA0]` — exactly 32 bytes, matching the symbol size.
+    FUN_OS_GUI_GET_WINDOW = 0x00435C30,
+
     // Effective cast time (ms) for a spell, fully resolved:
     // `__fastcall int32_t(int spellID, int pet /*0 = local player, 1 = pet*/,
     // int allowNegative /*0 = clamp negatives to 0*/)`. Computes
