@@ -36,7 +36,8 @@ uint32_t CurrentMask();
 uint32_t ParseModifiers(const char *&text);
 
 // 4.3.4's key-state override around a key binding's command
-// (CGUIBindings::ExecKey): for its lifetime every modifier read — CurrentMask,
+// (CGUIBindings::ExecKey; Bindings::Api applies it to direct actions only):
+// for its lifetime every modifier read — CurrentMask,
 // the Is*KeyDown functions, and the engine's own IsKeyDown — sees the keys
 // held now minus the modifiers named in `boundKey`, the binding that matched
 // (StripModifiers). Nestable; restores the previous state.

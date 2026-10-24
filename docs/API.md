@@ -6283,8 +6283,8 @@ The cursor does not have to be over the button.
 
 ### Modifier keys during a binding
 
-While a key binding runs, the modifier keys that are part of its key do
-not count as held. For a binding on `ALT-1`:
+While a `SPELL`, `ITEM`, `MACRO` or `CLICK` binding runs, the modifier keys
+that are part of its key do not count as held. For a binding on `ALT-1`:
 
 - `IsAltKeyDown()`, `IsLeftAltKeyDown()` and the other modifier functions
   return `nil` for ALT.
@@ -6292,7 +6292,8 @@ not count as held. For a binding on `ALT-1`:
   does not cast at you.
 - `[mod:alt]` does not pass.
 
-This applies to every key binding, including ones that run Lua.
+A binding that runs Lua sees the modifier keys that are held. A handler
+for `SHIFT-E` gets `1` from `IsShiftKeyDown()`.
 
 ### Override bindings
 

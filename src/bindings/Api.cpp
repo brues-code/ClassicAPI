@@ -38,8 +38,9 @@
 // command is unknown, as 4.3.4 does — and lets the engine run a saved binding
 // it finds.
 //
-// Around whatever runs, the key-state override (Input::Modifier) hides the
-// matched key's own modifiers, as 4.3.4's ExecKey does. Direct actions
+// Around a direct action, the key-state override (Input::Modifier) hides the
+// matched key's own modifiers, as 4.3.4's ExecKey does; a Lua command sees
+// the live state, as in 1.12 (see KeyDispatch_h). Direct actions
 // (Bindings::Command) run only for a key: the command co-hook acts while the
 // manager's executing flag — set by the key dispatch, not by RunBinding — is
 // up, which is 4.3.4's ExecKey / ExecCommand split.
@@ -52,6 +53,7 @@
 #include <cstdint>
 #include <cstring>
 #include <list>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -240,7 +242,13 @@ int __fastcall KeyDispatch_h(void *mgr, void *edx, const char *key, int isDown) 
     const KeyBinding binding = FindReducedKeyBinding(mgr, key, reduced);
     if (binding.command == nullptr)
         return 0;
-    const Input::Modifier::KeyStateOverride keyState(reduced.c_str());
+    // 4.3.4 hides the key's modifiers around every command. 1.12 Lua bindings
+    // were written against the live state: an addon that binds SHIFT-E and
+    // reads IsShiftKeyDown() inside its handler (Puppeteer) then sees nothing
+    // held. Only the direct actions, which 1.12 never had, get the override.
+    std::optional<Input::Modifier::KeyStateOverride> keyState;
+    if (Command::IsDirectAction(binding.command))
+        keyState.emplace(reduced.c_str());
     if (binding.isOverride)
         return RunOverride(mgr, binding.command, isDown);
     return g_keyDispatchOriginal(mgr, edx, reduced.c_str(), isDown);
