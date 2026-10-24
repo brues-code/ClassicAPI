@@ -87,8 +87,6 @@ static void __stdcall LoadGlueScriptFunctions_h() {
 static void __fastcall FrameRegisterEvent_h(void *frame, void *edx,
                                             const char *eventName) {
     Event::Custom::RetryClaims();
-    // Throttled-internally; no-op when the cache or scan toggle is off.
-    Player::NameCache::Tick();
     FrameRegisterEvent_o(frame, edx, eventName);
 }
 

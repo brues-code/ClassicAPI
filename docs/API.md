@@ -660,8 +660,6 @@ build instructions.
   - [`C_PlayerCache.RememberPlayer(guid, name, classToken)`](#c_playercacherememberplayerguid-name-classtoken)
   - [`C_PlayerCache.SetEnabled(enabled)`](#c_playercachesetenabledenabled)
   - [`C_PlayerCache.IsEnabled()`](#c_playercacheisenabled)
-  - [`C_PlayerCache.SetScanEnabled(enabled)`](#c_playercachesetscanenabledenabled)
-  - [`C_PlayerCache.IsScanEnabled()`](#c_playercacheisscanenabled)
 
 - [NewItems](#newitems)
   - [`C_NewItems.IsNewItem(bagID, slotIndex)`](#c_newitemsisnewitembagid-slotindex)
@@ -15401,41 +15399,30 @@ GUID-keyed cache of player names and classes. The engine itself
 maintains an in-memory `NameCache` at `0x00C0E228`, populated by
 `SMSG_NAME_QUERY_RESPONSE` — but it isn't exposed to Lua,
 and it doesn't survive `/reload`. This module surfaces it as
-`GetPlayerInfoByGUID`, adds an opt-in **persistent** layer that
-survives `/reload` and full client restarts, and (separately
-toggleable) sweeps the engine's visible-object list to populate
-entries the SMSG path would never reach on its own.
+`GetPlayerInfoByGUID` and adds an opt-in **persistent** layer that
+survives `/reload` and full client restarts.
 
-Two toggles, each independent:
+**`C_PlayerCache.SetEnabled`** turns on the on-disk cache. It is off
+by default. Without it, the module only reads the engine's in-memory
+cache.
 
-- **`C_PlayerCache.SetEnabled`** — turn on the on-disk cache.
-  Off by default. Without this, the module is read-only against
-  the engine's transient in-memory cache.
-- **`C_PlayerCache.SetScanEnabled`** — turn on the visible-object
-  sweep. Off by default. Requires the on-disk cache to be enabled
-  to have any effect.
+Three sources feed the cache when it is on:
 
-Three population sources feed the cache when fully enabled:
-
-1. **`SMSG_NAME_QUERY_RESPONSE` hook** (always active when the
-   on-disk cache is on). Every name-query response the engine
-   processes is mirrored to disk. Covers chat, group/raid sync,
-   guild updates, visible-object resolution — anything the engine
-   itself issues a name query for.
-2. **`C_PlayerCache.RememberPlayer`** (always available, no-op
-   when the cache is off). Lets addons feed in sources the engine
-   never sees: `/who` results, etc.
-3. **Visible-object sweep** (active when both toggles are on).
-   Walks the engine's live visible-object list every ~10 seconds
-   on the `Frame::RegisterEvent` hook, resolving each player and
-   feeding name + class. Picks up nearby players whether or not
-   the engine ever queried them.
+1. **Name-query responses.** Every `SMSG_NAME_QUERY_RESPONSE` the
+   engine processes is copied to the cache. This covers chat,
+   group and raid sync, guild updates, and every player you can
+   see — anything the engine queries a name for.
+2. **`C_PlayerCache.RememberPlayer`** (no-op when the cache is off).
+   Lets addons add sources the engine never sees, such as `/who`
+   results.
+3. **Import on enable.** When you turn the cache on, it copies
+   every player the engine already knows from this session.
 
 Storage:
 
 - `WTF\Account\<account>\ClassicAPI.txt` — account-level settings
-  (`PersistentNameCacheEnabled`, `NameCacheScanEnabled`). The
-  opt-in toggles stay per-account.
+  (`PersistentNameCacheEnabled`). The opt-in toggle stays
+  per-account.
 - `WTF\ClassicAPI\<realmList>\<realm>\ClassicAPI_NameCache.txt` —
   per-realm cache, **shared across every account on the same
   server**. Keyed by the realmlist address (unambiguous server
@@ -15654,8 +15641,8 @@ When enabled:
   (they're no-ops when the cache is disabled).
 - `GetPlayerInfoByGUID` gains the cross-session fallback path
   documented above.
-- [`SetScanEnabled`](#c_playercachesetscanenabledenabled)
-  becomes effective if also turned on.
+- Every player the engine already knows from this session is
+  copied to the cache.
 
 When disabled, the on-disk file is left in place (re-enabling later
 restores the prior contents); future writes are simply suppressed.
@@ -15677,59 +15664,6 @@ file).
 ```lua
 if C_PlayerCache.IsEnabled() then
     -- persistent fallback is active for GetPlayerInfoByGUID
-end
-```
-
-### `C_PlayerCache.SetScanEnabled(enabled)`
-
-Opts into the **visible-object sweep**: an opportunistic walk of
-the engine's live visible-object list that feeds every player in
-render range (whose object is currently loaded by the client) into
-the persistent name cache. Throttled to once per ~10 seconds, on
-the existing `Frame::RegisterEvent` hook — no per-frame overhead,
-no extra hooks installed.
-
-`enabled` is a boolean (numeric `0`/`1` also accepted). Persists to
-`WTF\Account\<account>\ClassicAPI.txt` as
-`NameCacheScanEnabled=1`/`0`.
-
-```lua
-C_PlayerCache.SetEnabled(true)        -- prerequisite
-C_PlayerCache.SetScanEnabled(true)
--- Now: standing in Stormwind for a minute pre-populates the cache
--- with every visible player's name and class.
-```
-
-**Independent of the cache toggle.** Turning this on alone has no
-effect — the sweep relies on `Remember()` which silently no-ops
-when the on-disk cache is disabled. Turning the cache off (without
-also turning the scan off) preserves the scan setting for the next
-time you re-enable the cache.
-
-**Players only.** NPCs and pets aren't cached — their GUIDs are
-ephemeral and can get reused across sessions, so caching them is
-worse than useless.
-
-**Implementation**: walks `ClntObjMgrEnumVisibleObjects`
-(`0x00468380`) — the same engine iterator
-[VanillaMinimapTracking](https://github.com/Brues/VanillaMinimapTracking)
-uses for blip rendering — filtering each GUID through
-`ClntObjMgrObjectPtr` (`0x00468460`) with `TYPEMASK_PLAYER`. Name
-comes from the CGObject vftable's `GetName` slot; class is the
-byte at `[m_objectFields + 0x79]` (UNIT_FIELD_BYTES_0 byte 1, same
-field `Script_UnitClass` reads).
-
-### `C_PlayerCache.IsScanEnabled()`
-
-Returns the current visible-object scan setting as a boolean.
-Independent of the cache toggle — this only reflects the scan-
-specific setting, not whether the scan is *effectively* running
-(which also requires the cache to be on).
-
-```lua
-if C_PlayerCache.IsScanEnabled()
-    and C_PlayerCache.IsEnabled() then
-    -- visible-object sweeps are running every ~10s
 end
 ```
 

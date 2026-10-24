@@ -81,8 +81,9 @@ void Remember(uint64_t guid, const char *name, uint32_t classID,
               uint32_t raceID, uint32_t sex);
 
 // Opt-in toggle. State persists to `WTF\Account\<acct>\ClassicAPI.txt`.
-// Enabling triggers a load from disk; disabling stops further writes
-// but leaves the file in place (re-enabling restores prior state).
+// Enabling loads the file and imports every row the engine NameCache
+// already holds; disabling stops further writes but leaves the file in
+// place (re-enabling restores prior state).
 bool IsEnabled();
 void SetEnabled(bool enabled);
 
@@ -92,13 +93,5 @@ void SetEnabled(bool enabled);
 // call any time. Bounded by GetTickCount-based throttling internally,
 // so calling repeatedly in tight succession is cheap.
 void Flush();
-
-// Opportunistic per-event tick. Called from the engine's
-// `Frame::RegisterEvent` hook (which fires whenever any addon
-// registers a Lua event handler). Internally throttled — only
-// actually runs the visible-object scan once per `kScanIntervalMs`,
-// and only when both the cache and the visible-scan toggle are
-// enabled. Safe to call any time; cheap on the no-op path.
-void Tick();
 
 } // namespace Player::NameCache

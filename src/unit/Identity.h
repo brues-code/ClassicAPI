@@ -137,4 +137,12 @@ const char *NameForGuid(uint64_t guid);
 // Passive — never fires a query. First match wins.
 uint64_t GuidForCachedName(const char *name);
 
+// Calls `visit(guid, record, context)` for every loaded NameCache record
+// (`record` as PlayerInfoRecord returns it; nodes whose query is still pending
+// are skipped). Stops early when `visit` returns false. Passive — never fires
+// a query.
+using CachedPlayerVisitor = bool (*)(uint64_t guid, const uint8_t *record,
+                                     void *context);
+void ForEachCachedPlayer(CachedPlayerVisitor visit, void *context);
+
 } // namespace Unit::Identity

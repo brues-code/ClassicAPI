@@ -16,8 +16,8 @@
 // Two persistence files:
 //
 //   `WTF\Account\<acct>\ClassicAPI.txt`
-//       Account-level settings — `PersistentNameCacheEnabled` and
-//       `NameCacheScanEnabled`. Shared with other modules via the
+//       Account-level setting — `PersistentNameCacheEnabled`.
+//       Shared with other modules via the
 //       [`Settings::Account`](../settings/Account.h) registry; we
 //       register a section at static-init time with reset / serialize /
 //       parse callbacks, and the registry handles load/save so neither
@@ -40,19 +40,20 @@
 // Population sources:
 //   1. The engine's NameCache writer (`FUN_PLAYER_INFO_CACHE_WRITE`)
 //      — every SMSG_NAME_QUERY_RESPONSE the engine processes flows
-//      through here. Covers chat, group/raid sync, guild roster
-//      updates, visible-object resolution.
+//      through here, and it is the only writer that fills an engine
+//      NameCache row. Covers chat, group/raid sync, guild roster
+//      updates, and every visible player (`CGUnit_C::GetUnitName`
+//      0x00609210 sends the query on a miss).
 //   2. `C_PlayerCache.RememberPlayer(guid, name, classToken)` from
 //      Lua — lets addons feed in sources the engine cache doesn't
 //      touch directly (e.g. /who results parsed via GetWhoInfo,
 //      mouseover, target).
-//   3. **Visible-object sweep** (opt-in via `C_PlayerCache.SetScanEnabled`):
-//      walks the engine's live visible-object list every ~10s on
-//      the existing `Frame::RegisterEvent` hook. Picks up every
-//      player in render range whether or not the engine has issued
-//      a SMSG_NAME_QUERY for them. Same primitive
-//      VanillaMinimapTracking uses for its blip rendering, so we
-//      know the path is safe and cheap.
+//   3. A one-time import of the engine NameCache when the cache is
+//      turned on. The hook only sees responses that arrive while the
+//      cache is enabled, so rows the engine resolved earlier in the
+//      session would otherwise stay missing until that player is
+//      queried again. The engine keeps names in memory only, so a
+//      fresh session starts empty and needs no import.
 //
 // Lookups are GUID-keyed. Names ARE the dedup signal though: vanilla
 // server-side names are unique per realm, so a fresh GUID claiming a
@@ -68,7 +69,6 @@
 #include "Offsets.h"
 #include "dbc/Names.h"
 #include "guid/Guid.h"
-#include "object/Resolve.h"
 #include "settings/Account.h"
 #include "unit/Identity.h"
 
@@ -109,11 +109,6 @@ constexpr uint32_t kMaxRaceID = 16;
 // Wire sex values are 0/1. Any higher value is corrupt input.
 constexpr uint32_t kMaxSex = 1;
 
-// Visible-object scan throttle. 10s is short enough that walking
-// through a city populates entries quickly, long enough that idle
-// players in a static zone do basically nothing.
-constexpr DWORD kScanIntervalMs = 10 * 1000;
-
 // Name-primary storage. Vanilla's per-realm name uniqueness makes
 // name the natural identity key; deletion-recreation produces a new
 // GUID for the same name, which inserts-replaces here instead of
@@ -142,11 +137,9 @@ std::unordered_map<std::string, Entry, NameHash, NameEqual> g_entries;
 // `g_entries[name].guid == guid`.
 std::unordered_map<uint64_t, std::string> g_guidIndex;
 bool g_enabled = false;
-bool g_scanEnabled = false;
 bool g_cacheLoaded = false;
 bool g_dirty = false;
 DWORD g_lastSaveTick = 0;
-DWORD g_lastScanTick = 0;
 
 // ----- engine globals helpers (mirrors EquipmentSet::Storage) -----
 
@@ -250,21 +243,15 @@ void EnsureParentDirs(const std::string &filePath) {
 
 void SettingsReset() {
     g_enabled = false;
-    g_scanEnabled = false;
 }
 
 void SettingsSerialize(std::ostream &out) {
     out << "PersistentNameCacheEnabled=" << (g_enabled ? 1 : 0) << "\n";
-    out << "NameCacheScanEnabled=" << (g_scanEnabled ? 1 : 0) << "\n";
 }
 
 bool SettingsParse(const std::string &key, const std::string &value) {
     if (key == "PersistentNameCacheEnabled") {
         g_enabled = (value == "1" || value == "true");
-        return true;
-    }
-    if (key == "NameCacheScanEnabled") {
-        g_scanEnabled = (value == "1" || value == "true");
         return true;
     }
     return false;
@@ -463,12 +450,54 @@ void MaybeFlush() {
     SaveCache();
 }
 
-// ----- engine NameCache hook -----
+// ----- engine NameCache mirror -----
+
+// Mirrors one engine player-info record into our store. `record` is
+// either the SMSG_NAME_QUERY_RESPONSE buffer the writer consumes or the
+// cache row it produced — same layout (`OFF_PLAYER_INFO_*`).
+void RememberRecord(uint64_t guid, const uint8_t *record) {
+    if (guid == 0)
+        return;
+    const char *name = reinterpret_cast<const char *>(
+        record + Offsets::OFF_PLAYER_INFO_NAME);
+    const uint32_t classID = *reinterpret_cast<const uint32_t *>(
+        record + Offsets::OFF_PLAYER_INFO_CLASS);
+    const uint32_t raceID = *reinterpret_cast<const uint32_t *>(
+        record + Offsets::OFF_PLAYER_INFO_RACE);
+    const uint32_t sex = *reinterpret_cast<const uint32_t *>(
+        record + Offsets::OFF_PLAYER_INFO_SEX);
+    if (name[0] == '\0')
+        return;
+    if (classID == 0 || classID > kMaxClassID)
+        return;
+
+    LoadCacheIfNeeded();
+    const std::string sanitized = SanitizeName(name);
+    // Out-of-range race/sex mean the record didn't carry them (some
+    // entry types skip these fields); pass 0 so `Upsert` preserves
+    // any prior real data.
+    const uint32_t safeRace = (raceID != 0 && raceID <= kMaxRaceID) ? raceID : 0;
+    const uint32_t safeSex = (sex <= kMaxSex) ? sex : 0;
+    if (Upsert(guid, sanitized, classID, safeRace, safeSex)) {
+        g_dirty = true;
+        MaybeFlush();
+    }
+}
+
+// Copies every row the engine already resolved this session. Run when
+// the cache turns on, since the hook missed those responses.
+void ImportEngineCache() {
+    Unit::Identity::ForEachCachedPlayer(
+        [](uint64_t guid, const uint8_t *record, void *) {
+            RememberRecord(guid, record);
+            return true;
+        },
+        nullptr);
+}
 
 // `__thiscall(this = cache, packet, guidLo, guidHi)`. We forward to
 // the original first (so the engine settles its entry and dispatches
-// callbacks), then read the same fields back out of the packet and
-// mirror them into our store.
+// callbacks), then mirror the packet's fields into our store.
 using CacheWrite_t = void(__thiscall *)(void *self, const uint8_t *packet,
                                         uint32_t guidLo, uint32_t guidHi);
 CacheWrite_t CacheWrite_o = nullptr;
@@ -481,164 +510,15 @@ void __fastcall CacheWrite_h(void *self, void *edx, const uint8_t *packet,
     CacheWrite_o(self, packet, guidLo, guidHi);
     (void)edx;
 
-    if (!g_enabled)
+    if (!g_enabled || packet == nullptr)
         return;
-    if (packet == nullptr)
-        return;
-    if (guidLo == 0 && guidHi == 0)
-        return;
-
-    LoadCacheIfNeeded();
-
-    const char *name = reinterpret_cast<const char *>(
-        packet + Offsets::OFF_PLAYER_INFO_NAME);
-    const uint32_t classID = *reinterpret_cast<const uint32_t *>(
-        packet + Offsets::OFF_PLAYER_INFO_CLASS);
-    const uint32_t raceID = *reinterpret_cast<const uint32_t *>(
-        packet + Offsets::OFF_PLAYER_INFO_RACE);
-    const uint32_t sex = *reinterpret_cast<const uint32_t *>(
-        packet + Offsets::OFF_PLAYER_INFO_SEX);
-    if (name[0] == '\0')
-        return;
-    if (classID == 0 || classID > kMaxClassID)
-        return;
-
-    const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
-    const std::string sanitized = SanitizeName(name);
-    // Out-of-range race/sex mean the packet didn't carry them (some
-    // entry types skip these fields); pass 0 so `Upsert` preserves
-    // any prior real data.
-    const uint32_t safeRace = (raceID != 0 && raceID <= kMaxRaceID) ? raceID : 0;
-    const uint32_t safeSex = (sex <= kMaxSex) ? sex : 0;
-    if (Upsert(guid, sanitized, classID, safeRace, safeSex)) {
-        g_dirty = true;
-        MaybeFlush();
-    }
+    RememberRecord((static_cast<uint64_t>(guidHi) << 32) | guidLo, packet);
 }
 
 static const Game::HookAutoRegister _hookreg{
     Offsets::FUN_PLAYER_INFO_CACHE_WRITE,
     reinterpret_cast<void *>(&CacheWrite_h),
     reinterpret_cast<void **>(&CacheWrite_o)};
-
-// ----- visible-object scan -----
-
-// Engine iterator over the live visible-object list. Internally walks
-// the linked list at [playerObj + 0xAC] and calls our callback once
-// per object with (ECX = context, [stack] = uint64_t guid).
-// Returning 0 from the callback stops iteration; 1 continues.
-using EnumVisibleObjects_t = bool(__fastcall *)(void *callback, void *context);
-using EnumVisibleObjectsCallback_t = int(__fastcall *)(void *context, void *edx,
-                                                      uint64_t guid);
-
-// CGObject vftable's GetName slot. Slot 22 = byte offset 22 * 4 = 0x58.
-// VanillaMinimapTracking calls obj->vftable->GetName(obj) the same way
-// in its NameLookupCallback; verified working against the 1.12 binary.
-constexpr size_t kVftableGetNameSlot = 22;
-
-// Reads `obj->vftable[slot]` as a __thiscall function pointer and
-// invokes it on `obj`. Lets us call GetName without committing to a
-// full vftable struct definition.
-const char *CallGetName(void *obj) {
-    using GetName_t = const char *(__thiscall *)(void *self);
-    auto *vftable = *reinterpret_cast<void *const *const *>(obj);
-    auto getName = reinterpret_cast<GetName_t>(vftable[kVftableGetNameSlot]);
-    return getName(obj);
-}
-
-// Reads race/class/sex bytes off a CGUnit_C's m_objectFields
-// descriptor (`UNIT_FIELD_BYTES_0` packs them at +0x78..+0x7A).
-// Field path matches Script_UnitClass's general-token branch.
-// Returns all zeros if the descriptor pointer is null.
-struct UnitBytes0 {
-    uint32_t raceID;
-    uint32_t classID;
-    uint32_t sex;
-};
-
-UnitBytes0 ReadBytes0(void *unit) {
-    UnitBytes0 out{0, 0, 0};
-    auto *descriptor = *reinterpret_cast<const uint8_t *const *>(
-        reinterpret_cast<const uint8_t *>(unit)
-        + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
-    if (descriptor == nullptr)
-        return out;
-    out.raceID = descriptor[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE];
-    out.classID = descriptor[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE];
-    out.sex = descriptor[Offsets::OFF_UNIT_DESCRIPTOR_SEX_BYTE];
-    return out;
-}
-
-// Reads the local player's GUID from the engine's CGPlayer_C global
-// at [0x00B41414 + 0xC0]. Used to skip "scan yourself" — the local
-// player's CGObject is the head of the visible-object list, and its
-// vftable's GetName slot empirically returns a sentinel pointer (0x1)
-// rather than a real string in 1.12.1. Either slot 22 isn't GetName
-// on the local CGPlayer_C type, or it is but returns 0x1 to mean
-// "no remote name; ask the local source." Either way we don't need
-// to cache ourselves — we have the data via every other path.
-uint64_t LocalPlayerGUID() { return Unit::Identity::PlayerGuid(); }
-
-// Pointer sanity check before dereferencing. The CGObject vftable
-// GetName slot has at least one known case where it returns 0x1
-// instead of a real `const char *` (see LocalPlayerGUID note). Any
-// "pointer" below 0x10000 is invalid for a 32-bit user-space
-// address, so a cheap lower-bound check catches the sentinel case
-// without needing per-object-type vftable awareness.
-bool LooksLikeStringPointer(const void *p) {
-    return reinterpret_cast<uintptr_t>(p) >= 0x10000;
-}
-
-// Callback invoked once per visible object during a scan. Filters to
-// players (NPCs and pets have ephemeral, reusable GUIDs — caching
-// them is worse than useless) and feeds name + class into Remember().
-int __fastcall ScanCallback(void * /*context*/, void * /*edx*/, uint64_t guid) {
-    if (guid == 0)
-        return 1;
-    // Skip ourselves — see LocalPlayerGUID comment for the crash
-    // we hit when calling GetName on the local CGPlayer's vftable.
-    if (guid == LocalPlayerGUID())
-        return 1;
-    void *obj = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid, nullptr, 0);
-    if (obj == nullptr)
-        return 1; // not a player (or not currently loaded)
-    const char *name = CallGetName(obj);
-    if (!LooksLikeStringPointer(name) || name[0] == '\0')
-        return 1;
-    const UnitBytes0 bytes0 = ReadBytes0(obj);
-    if (bytes0.classID == 0 || bytes0.classID > kMaxClassID)
-        return 1;
-    Remember(guid, name, bytes0.classID, bytes0.raceID, bytes0.sex);
-    return 1; // keep walking
-}
-
-void ScanVisibleObjects() {
-    // The iterator's prologue is `mov eax, [VAR_LOCAL_PLAYER_PTR]` +
-    // unconditional `mov ebx, [eax+0xAC]` — at the glue / character-
-    // select screen the global is NULL and the engine crashes on the
-    // deref. Gate the call ourselves rather than relying on other
-    // DLLs' hooks to catch it; we've seen VanillaMinimapTracking's
-    // guard not fire when ClassicAPI and VMT are both loaded and our
-    // path through `FrameRegisterEvent_h → Tick → MaybeScan` reaches
-    // the iterator during glue Lua script load.
-    if (*reinterpret_cast<void *volatile *>(
-            static_cast<uintptr_t>(Offsets::VAR_LOCAL_PLAYER_PTR)) == nullptr)
-        return;
-    auto enumerate = reinterpret_cast<EnumVisibleObjects_t>(
-        static_cast<uintptr_t>(Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS));
-    enumerate(reinterpret_cast<void *>(&ScanCallback), nullptr);
-}
-
-void MaybeScan() {
-    if (!g_enabled || !g_scanEnabled)
-        return;
-    const DWORD now = GetTickCount();
-    if ((now - g_lastScanTick) < kScanIntervalMs && g_lastScanTick != 0)
-        return;
-    g_lastScanTick = now;
-    LoadCacheIfNeeded();
-    ScanVisibleObjects();
-}
 
 // ----- Lua surface -----
 
@@ -703,8 +583,8 @@ int __fastcall Script_C_PlayerCache_RememberPlayer(void *L) {
 
 // `C_PlayerCache.SetEnabled(bool)` — opt-in toggle for the persistent
 // name cache. Persists to the account-level settings file. Enabling
-// triggers a lazy load of any prior cache contents for the current
-// realm.
+// loads any prior cache contents for the current realm and imports
+// what the engine already resolved this session.
 int __fastcall Script_C_PlayerCache_SetEnabled(void *L) {
     Settings::Account::EnsureLoaded();
     bool desired = false;
@@ -712,48 +592,13 @@ int __fastcall Script_C_PlayerCache_SetEnabled(void *L) {
         desired = Game::Lua::ToNumber(L, 1) != 0;
     else
         desired = Game::Lua::ToBoolean(L, 1) != 0;
-    if (g_enabled != desired) {
-        g_enabled = desired;
-        Settings::Account::Save();
-        if (g_enabled) {
-            LoadCacheIfNeeded();
-        } else {
-            // Flush any pending writes before going quiet.
-            if (g_dirty)
-                SaveCache();
-        }
-    }
+    SetEnabled(desired);
     return 0;
 }
 
 int __fastcall Script_C_PlayerCache_IsEnabled(void *L) {
     Settings::Account::EnsureLoaded();
     Game::Lua::PushBoolean(L, g_enabled);
-    return 1;
-}
-
-// `C_PlayerCache.SetScanEnabled(bool)` — opt-in toggle for the
-// visible-object sweep. Independent of the cache toggle: turning
-// this on without `C_PlayerCache.SetEnabled(true)` does nothing
-// (scan results would have nowhere to go). Persists to the same
-// account-level settings file.
-int __fastcall Script_C_PlayerCache_SetScanEnabled(void *L) {
-    Settings::Account::EnsureLoaded();
-    bool desired = false;
-    if (Game::Lua::IsNumber(L, 1))
-        desired = Game::Lua::ToNumber(L, 1) != 0;
-    else
-        desired = Game::Lua::ToBoolean(L, 1) != 0;
-    if (g_scanEnabled != desired) {
-        g_scanEnabled = desired;
-        Settings::Account::Save();
-    }
-    return 0;
-}
-
-int __fastcall Script_C_PlayerCache_IsScanEnabled(void *L) {
-    Settings::Account::EnsureLoaded();
-    Game::Lua::PushBool(L, g_scanEnabled);
     return 1;
 }
 
@@ -764,10 +609,6 @@ void RegisterLuaFunctions() {
                                      &Script_C_PlayerCache_SetEnabled);
     Game::Lua::RegisterTableFunction("C_PlayerCache", "IsEnabled",
                                      &Script_C_PlayerCache_IsEnabled);
-    Game::Lua::RegisterTableFunction("C_PlayerCache", "SetScanEnabled",
-                                     &Script_C_PlayerCache_SetScanEnabled);
-    Game::Lua::RegisterTableFunction("C_PlayerCache", "IsScanEnabled",
-                                     &Script_C_PlayerCache_IsScanEnabled);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
@@ -830,10 +671,12 @@ void SetEnabled(bool enabled) {
         return;
     g_enabled = enabled;
     Settings::Account::Save();
-    if (g_enabled)
+    if (g_enabled) {
         LoadCacheIfNeeded();
-    else if (g_dirty)
+        ImportEngineCache();
+    } else if (g_dirty) {
         SaveCache();
+    }
 }
 
 void Flush() {
@@ -842,10 +685,6 @@ void Flush() {
     // SaveCache resolves the path itself — returns silently if realm
     // name isn't available yet (pre-login).
     SaveCache();
-}
-
-void Tick() {
-    MaybeScan();
 }
 
 } // namespace Player::NameCache

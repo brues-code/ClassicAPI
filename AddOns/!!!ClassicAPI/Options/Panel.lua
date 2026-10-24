@@ -19,8 +19,6 @@ local L = {
 	PLAYER_CACHE = "Player Cache",
 	REMEMBER_PLAYERS = "Remember players",
 	REMEMBER_PLAYERS_TOOLTIP = "Saves the name, class, race and sex of the players you meet, so addons can show them in later sessions. All your characters on this realm share the data.",
-	SCAN_PLAYERS = "Scan nearby players",
-	SCAN_PLAYERS_TOOLTIP = "Every 10 seconds, adds all the players near you to the player cache. Needs Remember players.",
 	FRIEND_TARGETING = "Enable Friendly Action Targeting",
 	FRIEND_TARGETING_TOOLTIP = "Picks the nearest friendly unit where you are looking. When you have no target, your helpful spells go to it.",
 	AUTO_STAND = "Auto Stand",
@@ -93,16 +91,11 @@ local interactIconsSetting = {
 	reset = function() ResetCVars(ICON_CVARS) end,
 }
 
-local function PlayerCacheSetting(isEnabled, setEnabled)
-	return {
-		get = function() return isEnabled() and true or false end,
-		set = function(value) setEnabled(value) end,
-		reset = function() setEnabled(false) end,
-	}
-end
-
-local rememberSetting = PlayerCacheSetting(C_PlayerCache.IsEnabled, C_PlayerCache.SetEnabled)
-local scanSetting = PlayerCacheSetting(C_PlayerCache.IsScanEnabled, C_PlayerCache.SetScanEnabled)
+local rememberSetting = {
+	get = function() return C_PlayerCache.IsEnabled() and true or false end,
+	set = function(value) C_PlayerCache.SetEnabled(value) end,
+	reset = function() C_PlayerCache.SetEnabled(false) end,
+}
 
 -- ---------------------------------------------------------------------------
 -- Pages
@@ -338,4 +331,3 @@ AddSlider(tts, TEXT_TO_SPEECH_ADJUST_VOLUME, TEXT_TO_SPEECH_ADJUST_VOLUME, Numbe
 
 local playerCache = NewPage(L.PLAYER_CACHE, main.name, L.PLAYER_CACHE)
 AddCheckbox(playerCache, L.REMEMBER_PLAYERS, L.REMEMBER_PLAYERS_TOOLTIP, rememberSetting)
-AddCheckbox(playerCache, L.SCAN_PLAYERS, L.SCAN_PLAYERS_TOOLTIP, scanSetting, rememberSetting.get)

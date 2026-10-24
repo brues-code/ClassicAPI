@@ -197,11 +197,9 @@ const char *NameForGuid(uint64_t guid) {
     return (name != nullptr && *name != '\0') ? name : nullptr;
 }
 
-uint64_t GuidForCachedName(const char *name) {
-    if (name == nullptr || *name == '\0')
-        return 0;
+void ForEachCachedPlayer(CachedPlayerVisitor visit, void *context) {
     // Walk the cache's node list the way its save routine NameCacheSave
-    // (0x0055EC70) does, and read each node's name back through the engine's
+    // (0x0055EC70) does, and read each node's record back through the engine's
     // own lookup — which also skips nodes whose query is still pending.
     const auto *cache = reinterpret_cast<const void *>(
         static_cast<uintptr_t>(Offsets::VAR_PLAYER_NAME_CACHE));
@@ -210,11 +208,30 @@ uint64_t GuidForCachedName(const char *name) {
          node != 0 && (node & 1) == 0;
          node = Game::Read<uintptr_t>(node + linkOffset + 4)) { // TSLink {prev, next}
         const auto guid = Game::Read<uint64_t>(node + Offsets::OFF_NAME_CACHE_NODE_GUID);
-        const char *cached = NameForGuid(guid);
-        if (cached != nullptr && Game::StrCmpI(cached, name) == 0)
-            return guid;
+        const uint8_t *rec = PlayerInfoRecord(guid);
+        if (rec != nullptr && !visit(guid, rec, context))
+            return;
     }
-    return 0;
+}
+
+uint64_t GuidForCachedName(const char *name) {
+    if (name == nullptr || *name == '\0')
+        return 0;
+    struct Search {
+        const char *name;
+        uint64_t guid;
+    } search{name, 0};
+    ForEachCachedPlayer(
+        [](uint64_t guid, const uint8_t *rec, void *context) {
+            auto *s = static_cast<Search *>(context);
+            const char *cached = Game::Ptr<const char>(rec, Offsets::OFF_PLAYER_INFO_NAME);
+            if (*cached == '\0' || Game::StrCmpI(cached, s->name) != 0)
+                return true;
+            s->guid = guid;
+            return false;
+        },
+        &search);
+    return search.guid;
 }
 
 // `UnitGUID(unit)` — returns the unit's 64-bit GUID formatted as a
