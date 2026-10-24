@@ -54,9 +54,6 @@ using GetName_t = const char *(__thiscall *)(void *object);
 using GetRect_t = int(__thiscall *)(void *layout, float *rect);
 using NDCToDDC_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 using StrataToString_t = const char *(__fastcall *)(int strata);
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
-
-constexpr int kStormMaxStr = 0x7FFFFFFF;
 
 // 4.3.4's line colors, packed {b,g,r,a} like every add-line color; two of each
 // so neighbouring frame levels alternate (s_frameStack*Colors).
@@ -83,8 +80,7 @@ bool Before(const Entry &a, const Entry &b) {
         return a.strata > b.strata;
     if (a.level != b.level)
         return a.level > b.level;
-    auto cmp = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
-    return cmp(a.name, b.name, kStormMaxStr) < 0;
+    return Game::StrCmpI(a.name, b.name) < 0;
 }
 
 // The frame's display name, as 4.3.4 forms it: the global name when

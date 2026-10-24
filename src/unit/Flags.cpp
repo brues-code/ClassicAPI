@@ -158,8 +158,6 @@ uint32_t ReadGuildKey(const uint8_t *unit) {
 }
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
-// Storm SStrCmpI — `__stdcall`, RET 0xC (see Offsets.h).
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using PlayerInfoLookup_t = const uint8_t *(__thiscall *)(
     void *cache, uint32_t guidLo, uint32_t guidHi, uint64_t *cookie,
     void *callback, void *userData, int retryFlag);
@@ -279,14 +277,13 @@ int __fastcall Script_UnitIsInMyGuild(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    auto cmp = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
     for (int i = 0; i < total; ++i) {
         const uint8_t *entry = roster[i];
         if (entry == nullptr)
             continue;
         const char *name =
             Game::Ptr<const char>(entry, Offsets::OFF_GUILD_MEMBER_NAME);
-        if (cmp(name, nameToFind, 0x7FFFFFFF) == 0) {
+        if (Game::StrCmpI(name, nameToFind) == 0) {
             Game::Lua::PushNumber(L, 1.0);
             return 1;
         }

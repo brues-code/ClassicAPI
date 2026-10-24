@@ -25,7 +25,6 @@ namespace {
 
 using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
 using TemplateLookup_t = const void *(__fastcall *)(const char *name);
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using Hash_t = uint32_t(__stdcall *)(const char *s);
 using StatusAdd_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
 
@@ -46,7 +45,7 @@ const char *Tag(const void *node) {
 bool TagIs(const void *node, const char *tag) {
     const char *t = Tag(node);
     return t != nullptr &&
-           reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I)(t, tag, 0x7FFFFFFF) == 0;
+           Game::StrCmpI(t, tag) == 0;
 }
 
 const char *Attr(const void *node, const char *name) {
@@ -67,13 +66,12 @@ const char *TemplateContext(const char *name) {
     const uint32_t hash = reinterpret_cast<Hash_t>(Offsets::FUN_SSTR_HASH_HT)(name);
     const uint8_t *bucket = base + (hash & mask) * Offsets::XML_TEMPLATE_BUCKET_STRIDE;
     const int linkOff = Game::Read<int>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_LINKOFF);
-    auto cmp = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
     for (const uint8_t *node = Game::Read<const uint8_t *>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_HEAD);
          node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0;
          node = Game::Read<const uint8_t *>(node, linkOff + 4)) {
         if (Game::Read<uint32_t>(node, Offsets::OFF_XML_TEMPLATE_NODE_HASH) == hash &&
-            cmp(Game::Read<const char *>(node, Offsets::OFF_XML_TEMPLATE_NODE_NAME), name,
-                0x7FFFFFFF) == 0)
+            Game::StrCmpI(Game::Read<const char *>(node, Offsets::OFF_XML_TEMPLATE_NODE_NAME),
+                          name) == 0)
             return Game::Read<const char *>(node, Offsets::OFF_XML_TEMPLATE_NODE_CONTEXT);
     }
     return nullptr;

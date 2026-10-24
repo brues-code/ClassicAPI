@@ -48,7 +48,7 @@
 //     engine's own, run on the payload.
 //
 // Prefixes match case-insensitively, as the engine's own `item:` test does
-// (FUN_SSTR_CMP_I).
+// (Game::StrCmpI).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -78,7 +78,7 @@ constexpr uint32_t kQuestTextSize = 0x400;
 
 bool HasPrefix(const char *s, size_t len, const char *prefix) {
     const size_t n = std::strlen(prefix);
-    return len > n && _strnicmp(s, prefix, n) == 0;
+    return len > n && Game::StrCmpI(s, prefix, static_cast<int>(n)) == 0;
 }
 
 // Quest title in the white of a tooltip header, objectives in the gold of

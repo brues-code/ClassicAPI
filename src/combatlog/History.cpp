@@ -55,7 +55,6 @@ constexpr uint32_t CONTROL_MASK = 0x300;
 constexpr uint32_t TYPE_MASK = 0xFC00;
 
 constexpr int kMaxToken = 128;
-constexpr int kStormMaxStr = 0x7FFFFFFF;
 
 struct Filter {
     uint64_t events = ~0ull; // bit per Subevent
@@ -79,14 +78,8 @@ constexpr int kDefaultRetention = 300;
 // The longest retention, in seconds, that the wrap-safe age test can measure.
 constexpr int kMaxRetention = 0x7FFFFFFF / 1000;
 
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 using Tokenize_t = void(__stdcall *)(char **cursor, char *out, unsigned outSize,
                                      const char *delims, int *outQuoted);
-
-int StrCmpI(const char *a, const char *b) {
-    return reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I))(
-        a, b, kStormMaxStr);
-}
 
 
 bool Complete(uint32_t matched) {
@@ -140,7 +133,7 @@ uint64_t EventBits(const char *events) {
         if (token[0] == '\0')
             break;
         for (int i = 0; i < EVENT_COUNT; ++i) {
-            if (StrCmpI(token, Name(i)) == 0) {
+            if (Game::StrCmpI(token, Name(i)) == 0) {
                 bits |= 1ull << i;
                 break;
             }
@@ -170,7 +163,7 @@ bool Matches(const Filter &f, const Entry &e) {
     if (!f.spellNamed)
         return true;
     const char *name = e.spellPrefix ? SpellName(SpellRecord(e.spellId)) : nullptr;
-    return name != nullptr && StrCmpI(name, f.spellName.c_str()) == 0;
+    return name != nullptr && Game::StrCmpI(name, f.spellName.c_str()) == 0;
 }
 
 bool Matches(const Entry &e, bool all) { return all || MatchesFilter(e); }

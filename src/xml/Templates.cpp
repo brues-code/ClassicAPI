@@ -44,7 +44,6 @@ namespace {
 
 using TemplateLookup_t = const uint8_t *(__fastcall *)(const char *name);
 using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 
 // The engine's by-name template lookup (FUN_006ee6f0) — the same path
 // `inherits=` resolves through. Returns the parsed definition node, or null
@@ -73,8 +72,7 @@ bool TagEquals(const uint8_t *node, const char *tag) {
     const char *t = Game::Read<const char *>(node, Offsets::OFF_XML_NODE_TAG);
     if (t == nullptr)
         return false;
-    return reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I)(
-               t, tag, 0x7FFFFFFF) == 0;
+    return Game::StrCmpI(t, tag) == 0;
 }
 
 const uint8_t *FindChild(const uint8_t *node, const char *tag) {

@@ -77,7 +77,6 @@ using ChildFrames_t = void(__fastcall *)(void *frame, void *edx, const void *nod
 using Build_t = void *(__fastcall *)(const void *node, void *parent, void *status);
 using GetChild_t = const void *(__thiscall *)(const void *node, const char *tag);
 using ObjectByName_t = void *(__fastcall *)(const char *name, int typeId);
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 
 constexpr const char *kSeparators = " ,";
 
@@ -91,10 +90,9 @@ public:
     explicit SuppressInherits(const void *node) {
         const int count = Game::Read<int>(node, Offsets::OFF_XML_NODE_ATTR_COUNT);
         auto *attrs = Game::Read<uint8_t *>(node, Offsets::OFF_XML_NODE_ATTRS);
-        auto cmp = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
         for (int i = 0; i < count; ++i) {
             uint8_t *pair = attrs + i * Offsets::XML_NODE_ATTR_STRIDE;
-            if (cmp(*reinterpret_cast<const char **>(pair), "inherits", 0x7FFFFFFF) == 0) {
+            if (Game::StrCmpI(*reinterpret_cast<const char **>(pair), "inherits") == 0) {
                 m_value = reinterpret_cast<const char **>(pair + sizeof(const char *));
                 m_saved = *m_value;
                 *m_value = "";

@@ -81,17 +81,13 @@ namespace Frame::UnitEvent {
 namespace {
 
 using ScriptFn_t = int(__fastcall *)(void *L);
-// Storm SStrCmpI — `__stdcall`, RET 0xC (see Offsets.h; a __cdecl declaration
-// drifts ESP by 12 per call).
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 
 int CallScript(uintptr_t fn, void *L) { return reinterpret_cast<ScriptFn_t>(fn)(L); }
 
 bool EqualsIgnoreCase(const char *a, const char *b) {
     if (a == nullptr || b == nullptr)
         return false;
-    auto cmp = reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I));
-    return cmp(a, b, 0x7FFFFFFF) == 0;
+    return Game::StrCmpI(a, b) == 0;
 }
 
 // One filtered registration — the unit filter 5.4.8 keeps on the event's

@@ -161,9 +161,7 @@ bool IsPlayerToken(const char *token) {
     // token via Storm's SStrCmpI(token, "player", 0x7FFFFFFF) (the call at
     // 0x005183B0), not the CRT _stricmp. Same case-insensitive result for the
     // ASCII literal, but routed through the engine's own comparator.
-    using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
-    auto sstrcmpi = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
-    return sstrcmpi(token, "player", 0x7FFFFFFF) == 0;
+    return Game::StrCmpI(token, "player") == 0;
 }
 
 uint64_t GuidForToken(const char *token) {
@@ -202,8 +200,6 @@ const char *NameForGuid(uint64_t guid) {
 uint64_t GuidForCachedName(const char *name) {
     if (name == nullptr || *name == '\0')
         return 0;
-    using SStrCmpI_t = int(__stdcall *)(const char *, const char *, int);
-    auto cmp = reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I));
     // Walk the cache's node list the way its save routine NameCacheSave
     // (0x0055EC70) does, and read each node's name back through the engine's
     // own lookup — which also skips nodes whose query is still pending.
@@ -215,7 +211,7 @@ uint64_t GuidForCachedName(const char *name) {
          node = Game::Read<uintptr_t>(node + linkOffset + 4)) { // TSLink {prev, next}
         const auto guid = Game::Read<uint64_t>(node + Offsets::OFF_NAME_CACHE_NODE_GUID);
         const char *cached = NameForGuid(guid);
-        if (cached != nullptr && cmp(cached, name, 0x7FFFFFFF) == 0)
+        if (cached != nullptr && Game::StrCmpI(cached, name) == 0)
             return guid;
     }
     return 0;

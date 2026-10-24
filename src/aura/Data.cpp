@@ -69,14 +69,12 @@ const char *LocalizedSpellName(const uint8_t *spellRecord) {
 
 // True when the spell's locale-resolved name equals `query`, ignoring case:
 // Storm's SStrCmpI, the compare 4.3.4's GetSortedAuraSlot makes for UnitAura's
-// name form. `int __stdcall(a, b, n)` — see `FUN_SSTR_CMP_I`.
+// name form.
 bool SpellNameMatches(const uint8_t *spellRecord, const char *query) {
     const char *name = LocalizedSpellName(spellRecord);
     if (name == nullptr || query == nullptr)
         return false;
-    using SStrCmpI_t = int(__stdcall *)(const char *, const char *, int);
-    auto cmp = reinterpret_cast<SStrCmpI_t>(static_cast<uintptr_t>(Offsets::FUN_SSTR_CMP_I));
-    return cmp(name, query, 0x7FFFFFFF) == 0;
+    return Game::StrCmpI(name, query) == 0;
 }
 
 const char *SpellIconPath(const uint8_t *spellRecord) {

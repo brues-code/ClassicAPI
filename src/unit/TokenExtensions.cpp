@@ -100,12 +100,6 @@ int HexNibble(char c) {
 }
 
 using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
-// `__stdcall`, not `__cdecl` — `FUN_00064A4C0` ends with `ret 0xc`,
-// callee cleans 3-arg stack frame. Calling it through a cdecl typedef
-// makes MSVC emit `add esp, 12` after the call on top of the callee's
-// own cleanup, drifting ESP +12 per call and corrupting the caller's
-// frame.
-using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
 
 constexpr const char kNamePlatePrefix[] = "nameplate";
 constexpr int kNamePlatePrefixLen = static_cast<int>(sizeof(kNamePlatePrefix) - 1);
@@ -140,9 +134,8 @@ constexpr int kResolvePriority = 0x6e;
 TokenToGUID_t Original_o = nullptr;
 
 uint64_t WalkSuffix(uint64_t guid, const char *suffix) {
-    auto sstrcmpi = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
     while (guid != 0 && *suffix != '\0') {
-        if (sstrcmpi(suffix, kSuffixTarget, kSuffixTargetLen) != 0)
+        if (Game::StrCmpI(suffix, kSuffixTarget, kSuffixTargetLen) != 0)
             return 0; // unknown suffix component — modern returns nil
         suffix += kSuffixTargetLen;
         auto *obj = static_cast<uint8_t *>(
@@ -188,12 +181,10 @@ uint64_t __fastcall Hook_h(const char *token) {
             return WalkSuffix(guid, p);
     }
 
-    auto sstrcmpi = reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I);
-
     // `focus` / `focustarget*`. The 5-char prefix is unique among
     // unit tokens (no `focuscast` / `focused*` etc. live in vanilla
     // or modern resolvers), so any match continues as our token.
-    if (sstrcmpi(token, kFocusPrefix, kFocusPrefixLen) == 0) {
+    if (Game::StrCmpI(token, kFocusPrefix, kFocusPrefixLen) == 0) {
         const uint64_t guid = Unit::Focus::Get();
         if (guid == 0)
             return 0;
@@ -222,7 +213,7 @@ uint64_t __fastcall Hook_h(const char *token) {
          [] { return Target::SoftUnit::GetAny(Side::Friend); }},
     };
     for (const Soft &soft : kSoft) {
-        if (sstrcmpi(token, soft.prefix, soft.len) == 0) {
+        if (Game::StrCmpI(token, soft.prefix, soft.len) == 0) {
             const uint64_t guid = soft.guid();
             return guid == 0 ? 0 : WalkSuffix(guid, token + soft.len);
         }
@@ -231,7 +222,7 @@ uint64_t __fastcall Hook_h(const char *token) {
     // `nameplateN` / `nameplate1target*`. Requires a digit after the
     // prefix; anything else (`nameplate`, `nameplateX`) falls through
     // to the engine for its standard "Unknown unit name" error.
-    if (sstrcmpi(token, kNamePlatePrefix, kNamePlatePrefixLen) == 0) {
+    if (Game::StrCmpI(token, kNamePlatePrefix, kNamePlatePrefixLen) == 0) {
         const char *p = token + kNamePlatePrefixLen;
         if (*p >= '0' && *p <= '9') {
             int index = 0;
@@ -250,7 +241,7 @@ uint64_t __fastcall Hook_h(const char *token) {
     // after the prefix (`mark1` = star … `mark8` = skull). Anything else
     // (`mark`, `mark0`, `mark9`) falls through to the engine. Single
     // digit only, so `mark1target` leaves `p` at "target" for the walker.
-    if (sstrcmpi(token, kMarkPrefix, kMarkPrefixLen) == 0) {
+    if (Game::StrCmpI(token, kMarkPrefix, kMarkPrefixLen) == 0) {
         const char *p = token + kMarkPrefixLen;
         if (*p >= '1' && *p <= '8') {
             const int mark = *p - '0';

@@ -45,6 +45,11 @@ bool StringToFlag(const char *text) {
     return reinterpret_cast<StringToFlag_t>(Offsets::FUN_XML_ATTR_TO_BOOL)(text) != 0;
 }
 
+int StrCmpI(const char *a, const char *b, int n) {
+    using SStrCmpI_t = int(__stdcall *)(const char *a, const char *b, int n);
+    return reinterpret_cast<SStrCmpI_t>(Offsets::FUN_SSTR_CMP_I)(a, b, n);
+}
+
 namespace Lua {
 // Each entry binds a typed function pointer in `Game::Lua::` to the
 // corresponding raw VA in `Offsets`. The X-macro keeps the column-aligned

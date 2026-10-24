@@ -130,7 +130,6 @@ const char *SavedCommand(void *mgr, const char *key) {
 // FUN_BINDING_COMMAND_EXECUTE (see OFF_BINDINGS_COMMAND_TABLE).
 bool IsKnownCommand(void *mgr, const char *command) {
     using HashHT_t = uint32_t(__stdcall *)(const char *);
-    using CmpI_t = int(__stdcall *)(const char *, const char *, int);
     const uintptr_t table = reinterpret_cast<uintptr_t>(mgr) + Offsets::OFF_BINDINGS_COMMAND_TABLE;
     const uint32_t mask = Game::Read<uint32_t>(table + Offsets::OFF_HASHTABLE_MASK);
     if (*command == '\0' || mask == 0xFFFFFFFF)
@@ -142,9 +141,8 @@ bool IsKnownCommand(void *mgr, const char *command) {
     for (uintptr_t node = Game::Read<uintptr_t>(bucket + 8); node != 0 && (node & 1) == 0;
          node = Game::Read<uintptr_t>(node + link + 4)) {
         if (Game::Read<uint32_t>(node) == hash &&
-            reinterpret_cast<CmpI_t>(Offsets::FUN_SSTR_CMP_I)(
-                Game::Read<const char *>(node + Offsets::OFF_HASHTABLE_NODE_NAME), command,
-                0x7FFFFFFF) == 0)
+            Game::StrCmpI(Game::Read<const char *>(node + Offsets::OFF_HASHTABLE_NODE_NAME),
+                          command) == 0)
             return true;
     }
     return false;

@@ -110,6 +110,13 @@ using LoadGlueScriptFunctions_t = void(__stdcall *)();
 // false for anything else, including null.
 bool StringToFlag(const char *text);
 
+// Storm's case-insensitive compare, SStrCmpI (FUN_SSTR_CMP_I) — the one the
+// engine uses for names, tokens and tags: at most `n` characters, ASCII case
+// folded, <0 / 0 / >0 like strcmp. The default `n` is Storm's "whole string".
+// Always call it through here: the engine function is `__stdcall` (RET 0xC),
+// and a `__cdecl` declaration drifts ESP by 12 per call.
+int StrCmpI(const char *a, const char *b, int n = 0x7FFFFFFF);
+
 // --- API documentation descriptors -----------------------------------------
 //
 // Every Lua registration (see the `Register*` functions in `Game::Lua`) can
