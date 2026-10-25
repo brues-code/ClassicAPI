@@ -2,6 +2,8 @@ if GetLocale() ~= "frFR" then return end
 
 ACTION_BUTTON_USE_KEY_DOWN = "Enfoncer la touche déclenche l’action";
 ACTION_TARGETING_OPTION = "Activer le ciblage des actions";
+ADDON_MEM_KB_ABBR = "(%.0f Ko) %s";
+ADDON_MEM_MB_ABBR = "(%.2f Mo) %s";
 BINDING_NAME_FOCUSTARGET = "Définir cible";
 BINDING_NAME_INTERACTMOUSEOVER = "Interagir par survol de la souris";
 BINDING_NAME_INTERACTTARGET = "Interagir avec la cible";
@@ -176,3 +178,5 @@ TEXT_TO_SPEECH = "Narrateur";
 TEXT_TO_SPEECH_ADJUST_RATE = "Modifie la vitesse de la voix";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "Volume de la voix";
 TEXT_TO_SPEECH_VOICE_OPTION = "Option vocale";
+TOTAL_MEM_KB_ABBR = "Mémoire add-on : %.0f Ko";
+TOTAL_MEM_MB_ABBR = "Mémoire add-on : %.2f Mo";

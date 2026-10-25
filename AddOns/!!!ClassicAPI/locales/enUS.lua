@@ -1,5 +1,7 @@
 ACTION_BUTTON_USE_KEY_DOWN = "Cast action keybinds on key down";
 ACTION_TARGETING_OPTION = "Enable Action Targeting";
+ADDON_MEM_KB_ABBR = "(%.0f KB) %s";
+ADDON_MEM_MB_ABBR = "(%.2f MB) %s";
 ADDON_OPTIONS = "AddOn Options";
 BINDING_NAME_AOELOOT = "AoE Loot";
 BINDING_NAME_FOCUSTARGET = "Focus Target";
@@ -181,3 +183,5 @@ TEXT_TO_SPEECH = "Text To Speech";
 TEXT_TO_SPEECH_ADJUST_RATE = "Adjust Rate of Speech";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "Speech Volume";
 TEXT_TO_SPEECH_VOICE_OPTION = "Voice Option";
+TOTAL_MEM_KB_ABBR = "AddOn Memory: %.0f KB";
+TOTAL_MEM_MB_ABBR = "AddOn Memory: %.2f MB";

@@ -2,6 +2,8 @@ if GetLocale() ~= "esES" then return end
 
 ACTION_BUTTON_USE_KEY_DOWN = "Ejecutar acción al pulsar tecla";
 ACTION_TARGETING_OPTION = "Habilitar selección de objetivo de acción";
+ADDON_MEM_KB_ABBR = "(%.0f KB) %s";
+ADDON_MEM_MB_ABBR = "(%.2f MB) %s";
 BINDING_NAME_FOCUSTARGET = "Establecer objetivo";
 BINDING_NAME_INTERACTMOUSEOVER = "Interactuar al pasar el ratón";
 BINDING_NAME_INTERACTTARGET = "Interactuar con objetivo";
@@ -176,3 +178,5 @@ TEXT_TO_SPEECH = "Texto a voz";
 TEXT_TO_SPEECH_ADJUST_RATE = "Ajustar velocidad de voz";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "Volumen de voz";
 TEXT_TO_SPEECH_VOICE_OPTION = "Opción de voz";
+TOTAL_MEM_KB_ABBR = "Memoria de addon: %.0f KB";
+TOTAL_MEM_MB_ABBR = "Memoria de addon: %.2f MB";

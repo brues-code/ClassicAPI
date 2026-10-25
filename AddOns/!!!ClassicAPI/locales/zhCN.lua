@@ -2,6 +2,8 @@ if GetLocale() ~= "zhCN" then return end
 
 ACTION_BUTTON_USE_KEY_DOWN = "按下快捷键时施法";
 ACTION_TARGETING_OPTION = "开启动作瞄准";
+ADDON_MEM_KB_ABBR = "(%.0f KB) %s";
+ADDON_MEM_MB_ABBR = "(%.2f MB) %s";
 BINDING_NAME_FOCUSTARGET = "焦点目标";
 BINDING_NAME_INTERACTMOUSEOVER = "与鼠标悬停处互动";
 BINDING_NAME_INTERACTTARGET = "与目标互动";
@@ -176,3 +178,5 @@ TEXT_TO_SPEECH = "文本转语音";
 TEXT_TO_SPEECH_ADJUST_RATE = "调节讲话速度";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "音量";
 TEXT_TO_SPEECH_VOICE_OPTION = "语音设置";
+TOTAL_MEM_KB_ABBR = "插件内存：%.0f KB";
+TOTAL_MEM_MB_ABBR = "插件内存：%.2f MB";

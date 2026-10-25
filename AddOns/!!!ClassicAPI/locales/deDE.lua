@@ -2,6 +2,8 @@ if GetLocale() ~= "deDE" then return end
 
 ACTION_BUTTON_USE_KEY_DOWN = "Aktionen werden beim Drücken von\nTasten ausgelöst";
 ACTION_TARGETING_OPTION = "Zielerfassung für Aktionen aktivieren";
+ADDON_MEM_KB_ABBR = "(%.0f KB) %s";
+ADDON_MEM_MB_ABBR = "(%.2f MB) %s";
 BINDING_NAME_FOCUSTARGET = "Fokus setzen";
 BINDING_NAME_INTERACTMOUSEOVER = "Mit Mouseover interagieren";
 BINDING_NAME_INTERACTTARGET = "Mit Ziel interagieren";
@@ -176,3 +178,5 @@ TEXT_TO_SPEECH = "Text-to-Speech";
 TEXT_TO_SPEECH_ADJUST_RATE = "Sprechgeschwindigkeit anpassen";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "Sprechlautstärke";
 TEXT_TO_SPEECH_VOICE_OPTION = "Stimmenauswahl";
+TOTAL_MEM_KB_ABBR = "Speicher für Addons: %.0f KB";
+TOTAL_MEM_MB_ABBR = "Speicher für Addons: %.2f MB";

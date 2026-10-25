@@ -2,6 +2,8 @@ if GetLocale() ~= "zhTW" then return end
 
 ACTION_BUTTON_USE_KEY_DOWN = "於按下按鍵時施放技能";
 ACTION_TARGETING_OPTION = "啟用行動鎖定";
+ADDON_MEM_KB_ABBR = "(%.0f KB) %s";
+ADDON_MEM_MB_ABBR = "(%.2f MB) %s";
 BINDING_NAME_FOCUSTARGET = "鎖定目標";
 BINDING_NAME_INTERACTMOUSEOVER = "與滑鼠指定的目標互動";
 BINDING_NAME_INTERACTTARGET = "與目標互動";
@@ -176,3 +178,5 @@ TEXT_TO_SPEECH = "文字轉語音";
 TEXT_TO_SPEECH_ADJUST_RATE = "調整語速";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "語音音量";
 TEXT_TO_SPEECH_VOICE_OPTION = "聲音選項";
+TOTAL_MEM_KB_ABBR = "插件記憶體：%.0f KB";
+TOTAL_MEM_MB_ABBR = "插件記憶體：%.2f MB";

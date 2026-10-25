@@ -2,6 +2,8 @@ if GetLocale() ~= "ruRU" then return end
 
 ACTION_BUTTON_USE_KEY_DOWN = "Способности при нажатии клавиш";
 ACTION_TARGETING_OPTION = "Разрешить динамическое выделение";
+ADDON_MEM_KB_ABBR = "(%.0f КБ) %s";
+ADDON_MEM_MB_ABBR = "(%.2f МБ) %s";
 BINDING_NAME_FOCUSTARGET = "Запомненная цель";
 BINDING_NAME_INTERACTMOUSEOVER = "Взаимодействовать указателем мыши";
 BINDING_NAME_INTERACTTARGET = "Взаимодействовать с целью";
@@ -176,3 +178,5 @@ TEXT_TO_SPEECH = "Текст в речь";
 TEXT_TO_SPEECH_ADJUST_RATE = "Изменить скорость речи.";
 TEXT_TO_SPEECH_ADJUST_VOLUME = "Громкость речи";
 TEXT_TO_SPEECH_VOICE_OPTION = "Параметры голоса";
+TOTAL_MEM_KB_ABBR = "Память: %.0f КБ";
+TOTAL_MEM_MB_ABBR = "Модификации занимают в памяти: %.2f МБ";
