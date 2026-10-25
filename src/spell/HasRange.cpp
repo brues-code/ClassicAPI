@@ -12,8 +12,10 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `C_Spell.SpellHasRange(spellIdentifier)` and the parallel
-// `SpellHasRange(slot, bookType)` — true iff the spell's
-// `SpellRange.dbc` row has a non-zero min or max range.
+// `SpellHasRange(slot, bookType)` — true iff the engine's own range
+// resolver (`FUN_GET_MIN_MAX_RANGE`) reports a non-near-zero min or max
+// for the spell, mirroring vanilla `ActionHasRange` (see
+// `Spell::Range::SpellIDHasRange`).
 //
 // Vanilla 1.12 doesn't ship `SpellHasRange` as a global at all; 3.3.5+
 // added it but with the spellID-only signature. We provide the modern

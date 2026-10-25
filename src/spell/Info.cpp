@@ -166,8 +166,10 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     const int rangeIndex = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_RANGE_INDEX);
     if (auto *rangeRec = LookupSubRecord(Offsets::VAR_SPELL_RANGE_RECORDS,
                                          Offsets::VAR_SPELL_RANGE_COUNT, rangeIndex)) {
-        out.minRange = *reinterpret_cast<const float *>(rangeRec + 4);
-        out.maxRange = *reinterpret_cast<const float *>(rangeRec + 8);
+        out.minRange =
+            *reinterpret_cast<const float *>(rangeRec + Offsets::OFF_SPELLRANGE_RECORD_MIN);
+        out.maxRange =
+            *reinterpret_cast<const float *>(rangeRec + Offsets::OFF_SPELLRANGE_RECORD_MAX);
     }
 
     return true;

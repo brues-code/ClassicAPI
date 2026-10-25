@@ -15,60 +15,75 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "unit/Position.h"
+
+#include <cmath>
+#include <cstdint>
 
 namespace Spell::Range {
 
 namespace {
 
-// Spell.dbc RangeIndex + SpellRange.dbc min/max offsets (verified,
-// documented in CLAUDE.md under "Sub-DBC record layouts").
-constexpr int OFF_SPELLRANGE_MIN = 0x04;
-constexpr int OFF_SPELLRANGE_MAX = 0x08;
-
 // FUN_SPELL_RANGE_CHECK: char __fastcall(caster, target, spellID, outFlag).
 using SpellRangeCheck_t = char(__fastcall *)(void *caster, void *target,
                                              int spellID, char *outFlag);
+
+// FUN_GET_MIN_MAX_RANGE: void __fastcall(caster, spellID, min, max, target).
+using GetMinMaxRange_t = void(__fastcall *)(void *caster, uint32_t spellID,
+                                            float *minRange, float *maxRange,
+                                            void *target);
+
+// The engine's own has-range notion, mirroring `ActionHasRange`
+// (`0x4E75D0`): either bound at or above the near-zero epsilon counts as
+// ranged. The negated `<` (rather than `>=`) reproduces the engine's
+// `fcomp` + `test ah,5; jp` exactly — a NaN bound counts as ranged,
+// matching vanilla. Unlike the raw `SpellRange.dbc` read this replaces,
+// the engine call also covers `Attributes & 0x404` spells (flat 100-yard
+// max with no range row), melee rows whose max folds combat reach, and
+// the stationary / ranged-item / spell-mod bonuses.
+bool EngineHasRange(void *caster, int spellID, void *target) {
+    float minRange = 0.0f;
+    float maxRange = 0.0f;
+    auto getMinMax = reinterpret_cast<GetMinMaxRange_t>(
+        Offsets::FUN_GET_MIN_MAX_RANGE);
+    getMinMax(caster, static_cast<uint32_t>(spellID), &minRange, &maxRange,
+              target);
+    const float epsilon = Game::Read<float>(
+        static_cast<uintptr_t>(Offsets::VAR_HAS_RANGE_EPSILON));
+    return !(std::fabs(minRange) < epsilon) ||
+           !(std::fabs(maxRange) < epsilon);
+}
 
 } // namespace
 
 bool SpellIDHasRange(int spellID) {
     if (spellID <= 0)
         return false;
-    const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                     Offsets::VAR_SPELL_RECORD_COUNT,
-                                     static_cast<uint32_t>(spellID));
-    if (rec == nullptr)
-        return false;
-    const uint32_t rangeIdx =
-        Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_RANGE_INDEX);
-    if (rangeIdx == 0)
-        return false;
-    const uint8_t *rangeRec = DBC::Record(Offsets::VAR_SPELL_RANGE_RECORDS,
-                                          Offsets::VAR_SPELL_RANGE_COUNT, rangeIdx);
-    if (rangeRec == nullptr)
-        return false;
-    const float minRange =
-        *reinterpret_cast<const float *>(rangeRec + OFF_SPELLRANGE_MIN);
-    const float maxRange =
-        *reinterpret_cast<const float *>(rangeRec + OFF_SPELLRANGE_MAX);
-    return minRange > 0.0f || maxRange > 0.0f;
+    // Null target: the engine falls back to the caster's current-target
+    // GUID (`[caster+0xC48]`), else the caster itself, for the reach fold.
+    // A null caster zeroes both bounds, which reads as rangeless.
+    return EngineHasRange(Unit::Position::ResolveToken("player"), spellID,
+                          nullptr);
 }
 
 int PlayerVsUnit(int spellID, const char *unitToken) {
-    // No answer when the range check can't apply: unknown/rangeless spell,
-    // or no unit token given.
-    if (spellID <= 0 || unitToken == nullptr || !SpellIDHasRange(spellID))
+    // No answer when the range check can't apply: unknown spell or no
+    // unit token given.
+    if (spellID <= 0 || unitToken == nullptr)
         return -1;
 
     void *caster = Unit::Position::ResolveToken("player");
     void *target = Unit::Position::ResolveToken(unitToken);
+    if (caster == nullptr || target == nullptr)
+        return -1;
+    // Rangeless spell (self buff, etc.) has no meaningful "in range" answer.
+    if (!EngineHasRange(caster, spellID, target))
+        return -1;
 
     // Guard positions before handing the objects to the engine core:
     // FUN_SPELL_RANGE_CHECK dereferences each GetPosition result without a
-    // null check, and a resolved-but-position-less object (or an absent
-    // token → null) would otherwise crash. A failed read → no answer.
+    // null check, and a resolved-but-position-less object would otherwise
+    // crash. A failed read → no answer.
     float casterPos[3];
     float targetPos[3];
     if (!Unit::Position::Read(caster, casterPos) ||

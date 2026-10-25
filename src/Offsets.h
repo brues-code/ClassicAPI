@@ -3008,6 +3008,26 @@ enum Offsets {
     // nil cleanly).
     FUN_SPELL_RANGE_CHECK = 0x006E47B0,
 
+    // Spell min/max range resolver: `void __fastcall(void *caster /*ecx*/,
+    // uint32_t spellID /*edx*/, float *minRange, float *maxRange,
+    // void *target)`. Zeroes both and returns for a null caster or an
+    // unknown spell; forces `max = 100.0` (`DAT_008118d4`) for
+    // `Attributes & 0x404` without reading any range row; otherwise folds
+    // the `SpellRange.dbc` row with both units' combat reach, the
+    // stationary +8/3 bonus, the slot-17 ranged-item scale, and the op-5
+    // spell modifier. Null-safe on the caster (unlike
+    // `FUN_SPELL_RANGE_CHECK`, which needs both positions readable). This
+    // is what `FUN_SPELL_RANGE_CHECK` calls for its window, and what
+    // `ActionHasRange` (`0x4E75D0`) gates on.
+    FUN_GET_MIN_MAX_RANGE = 0x006E3480,
+
+    // Near-zero range epsilon `ActionHasRange` (`0x4E75D0`) compares
+    // against: `|min|`/`|max|` below this counts as rangeless, while a NaN
+    // counts as ranged (`fcomp` then `test ah,5; jp` at `0x4E5885`
+    // passes unordered). Verified by a direct float dump of the image:
+    // exactly 2^-22 (0x34800000) at this address. Read live, not hardcoded.
+    VAR_HAS_RANGE_EPSILON = 0x008029D4,
+
     // The two floats `FUN_006e3480`'s COMBAT-RANGE branch folds into its
     // max-range output: `casterReach + targetReach + LEEWAY`, floored at
     // MIN. Verified by a direct float dump of the image (1.33333 / 5.0);
@@ -7166,6 +7186,8 @@ enum Offsets {
 
     VAR_SPELL_RANGE_RECORDS = 0x00C0D79C,      // SpellRange.dbc
     VAR_SPELL_RANGE_COUNT = 0x00C0D7A0,
+    OFF_SPELLRANGE_RECORD_MIN = 0x04,          // float min range (column 1)
+    OFF_SPELLRANGE_RECORD_MAX = 0x08,          // float max range (column 2)
     VAR_SPELL_ICON_RECORDS = 0x00C0D7EC,       // SpellIcon.dbc
     VAR_SPELL_ICON_COUNT = 0x00C0D7F0,
     VAR_SPELL_CAST_TIMES_RECORDS = 0x00C0D878, // SpellCastTimes.dbc

@@ -21,9 +21,13 @@
 // on-use spell) `C_Item.IsItemInRange`.
 namespace Spell::Range {
 
-// True iff the spell's `SpellRange.dbc` row has a non-zero min or max
-// range. Rangeless spells (self buffs, etc.) have no meaningful "in
-// range" answer.
+// True iff the engine's own range resolver (`FUN_GET_MIN_MAX_RANGE`)
+// reports a non-near-zero min or max for the spell — the same notion
+// vanilla's `ActionHasRange` uses. Covers what a raw `SpellRange.dbc`
+// read misses: `Attributes & 0x404` spells (flat 100-yard max), melee
+// rows whose max folds combat reach, and the stationary / ranged-item /
+// spell-mod bonuses. Rangeless spells (self buffs, etc.) have no
+// meaningful "in range" answer.
 bool SpellIDHasRange(int spellID);
 
 // Range check of the local player's cast of `spellID` against

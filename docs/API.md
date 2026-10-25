@@ -17536,14 +17536,15 @@ it's a targeted ability you cast at a unit / location rather than a
 self-cast (which has range `0`).
 
 ```lua
-C_Spell.SpellHasRange(133)    -- Fireball       → true (40yd)
+C_Spell.SpellHasRange(133)    -- Fireball       → true (35yd)
 C_Spell.SpellHasRange(1006)   -- Inner Fire     → false (self buff)
 SpellHasRange(10, "spell")    -- 10th spellbook slot in player book
 ```
 
-Looks up `Spell.dbc.RangeIndex` (`+0x90`) → `SpellRange.dbc` row,
-then tests `minRange > 0 or maxRange > 0`. The stock client doesn't ship
-this function. We expose both the namespaced form (any
+It tells you whether a spell has a usable range. It uses the same
+range that the game uses when it checks distance, so bonuses that
+change range also change this answer. Spells that you cast on
+yourself return false. We expose both the namespaced form (any
 `SpellIdentifier`) and a positional `SpellHasRange(slot, bookType)`
 matching the dual-signature shape used elsewhere in this backport
 (`GetSpellInfo`, `GetSpellLink`, etc.). The `bookType` argument
