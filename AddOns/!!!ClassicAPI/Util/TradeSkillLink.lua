@@ -772,22 +772,20 @@ end
 
 ------------------------------------------------------------------------------
 -- Click interception: handle `trade:` before the engine's SetHyperlink (which
--- in 1.12 only knows item:/enchant: and would reject the link).
+-- in 1.12 only knows item:/enchant: and would reject the link). Registered
+-- on LinkUtil's SetItemRef dispatch (Util/LinkUtil.lua) instead of wrapping
+-- SetItemRef a second time, so there is exactly one override to chain.
 ------------------------------------------------------------------------------
-
-local originalSetItemRef = SetItemRef;
-function SetItemRef(link, text, button, chatFrame)
-	if type(link) == "string" and string.sub(link, 1, 6) == "trade:" then
-		if IsShiftKeyDown() and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
-			ChatFrameEditBox:Insert(text);
-			return;
-		end
-		if ShowTradeSkillLink(link, text) then
-			return;
-		end
+LinkUtil.RegisterLinkHandler("trade", function(link, text, linkData, contextData)
+	if IsShiftKeyDown() and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
+		ChatFrameEditBox:Insert(text);
+		return LinkProcessorResponse.Handled;
 	end
-	return originalSetItemRef(link, text, button, chatFrame);
-end
+	if ShowTradeSkillLink(link, text) then
+		return LinkProcessorResponse.Handled;
+	end
+	return LinkProcessorResponse.Unhandled;
+end);
 
 local function CreateProfessionLinkButton(parentName, getLink)
 	local parent = _G[parentName];

@@ -137,6 +137,13 @@ function GetItemInfoFromHyperlink(link)
 	end
 end
 
+function GetSpellInfoFromHyperlink(link)
+	local spellID = string.match(link, "|Hspell:(%d+)");
+	if spellID then
+		return tonumber(spellID);
+	end
+end
+
 function GetAchievementInfoFromHyperlink(link)
 	local linkType, linkData = LinkUtil.SplitLinkData(link);
 	if linkType and string.match(linkType, "|Hachievement") then
@@ -218,4 +225,50 @@ function SetItemRef(link, text, button, chatFrame)
 		return;
 	end
 	return originalSetItemRef(link, text, button, chatFrame);
+end
+
+------------------------------------------------------------------------------
+-- Spell links (`|cff71d5ff|Hspell:<spellID>:<glyphID>|h[name]|h|r`). `link`
+-- is the payload (`spell:1460:0`); only the spell ID matters, anything after
+-- it (glyph ID, combat-log event) is ignored. Display goes through the
+-- extended `GameTooltip:SetHyperlink` (src/tooltip/Hyperlink.cpp), which
+-- builds the same tooltip `GameTooltip:SetSpellByID` builds, so the handler
+-- passes the payload through instead of rebuilding the tooltip itself.
+------------------------------------------------------------------------------
+LinkUtil.RegisterLinkHandler(LinkTypes.Spell, function(link, text, linkData, contextData)
+	local spellID = tonumber(string.match(link, "^spell:(%d+)"));
+	if not spellID then
+		return LinkProcessorResponse.Unhandled;
+	end
+	if IsShiftKeyDown() and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
+		ChatFrameEditBox:Insert(text);
+		return LinkProcessorResponse.Handled;
+	end
+	local tooltip = ItemRefTooltip or GameTooltip;
+	tooltip:SetOwner(UIParent, "ANCHOR_PRESERVE");
+	tooltip:SetHyperlink(link);
+	tooltip:Show();
+	return LinkProcessorResponse.Handled;
+end);
+
+------------------------------------------------------------------------------
+-- Turtle reroute. Turtle's FrameXML (SpellChatLinks.lua, in FrameXML.toc)
+-- overrides ChatFrame_OnHyperlinkShow and handles `spell:` links itself, so
+-- those clicks never reach SetItemRef — and its `spell:(%d+):(%w+):(%w+)`
+-- pattern silently drops anything shaped differently, including this
+-- addon's own `spell:<id>:0` links (GetSpellLink) and other clients' spell
+-- links. Route spell links Turtle would drop back through SetItemRef so the
+-- Spell handler above shows them; Turtle-shaped links
+-- (`spell:<id>:<bookType>:<player>`) pass through to Turtle's handler
+-- untouched. On a stock client the original already forwards everything to
+-- SetItemRef, so both branches behave the same there.
+------------------------------------------------------------------------------
+local originalChatFrameOnHyperlinkShow = ChatFrame_OnHyperlinkShow;
+function ChatFrame_OnHyperlinkShow(link, text, button)
+	if type(link) == "string" and strsub(link, 1, 6) == "spell:" and
+		not string.find(link, "^spell:(%d+):(%w+):(%w+)") then
+		SetItemRef(link, text, button);
+		return;
+	end
+	return originalChatFrameOnHyperlinkShow(link, text, button);
 end
