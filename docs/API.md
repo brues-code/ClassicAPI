@@ -6589,6 +6589,7 @@ cd:GetDrawEdge()                -- true
 | `cooldown:SetSwipeTexture(texture [, r, g, b, a])` | Sets the texture and the color of the sweep. The texture covers the full area of the frame, and the sweep shows the part that it covers. The default texture is `Interface\Cooldown\star4`. |
 | `cooldown:SetEdgeTexture(texture [, r, g, b, a])` | Sets the texture and the color of the edge line. The texture turns about its center with the sweep. Draw the line from the center to the top edge, as in `Interface\Cooldown\edge`, the default texture. |
 | `cooldown:SetBlingTexture(texture [, r, g, b, a])` | Sets the texture and the color of the flash at the end. The default flash is `Interface\Cooldown\star4` in light blue. |
+| `cooldown:SetRotation(radians)` / `cooldown:GetRotation()` | Sets and returns the angle where the sweep starts, in radians, clockwise from the top. For example, `math.pi / 2` starts the sweep at the right side. The angle is `0` when the frame is created. |
 
 For the three texture methods, `texture` is a file path. An empty string
 gives a solid color. If you do not give `r`, `g`, and `b`, the color does
@@ -6639,7 +6640,8 @@ second.
 
 XML files can also create a cooldown frame with a `<Cooldown>` element.
 The `reverse`, `drawEdge`, `drawSwipe`, and `drawBling` attributes set
-the four flags:
+the four flags. The `rotation` attribute sets the start angle in degrees,
+for example `rotation="180"`.
 
 The `<SwipeTexture>`, `<EdgeTexture>`, and `<BlingTexture>` child elements
 set the three textures. Each element takes a `file` attribute and a

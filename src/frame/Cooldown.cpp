@@ -132,6 +132,7 @@ struct Fields {
     void *blingTexture; // 4.3.4 flashes with the star texture; one reference
     uint32_t blingBase;
     uint32_t texturesSet; // TextureSlot bits a setter or the XML filled
+    float rotation;       // radians, clockwise: where the sweep starts
 };
 
 constexpr size_t kObjectSize = Offsets::SIMPLEFRAME_SIZE + sizeof(Fields);
@@ -288,11 +289,6 @@ const float s_flashAlpha[7] = {0.0f, 0.5f, 1.0f, 0.75f, 0.5f, 0.25f, 0.0f};
 const float s_flashRotation[7] = {0.0f, -0.1303761f, -0.25918141f, -0.39269909f,
                                   -0.51836282f, -0.6518805f, -0.78539819f};
 
-void SetXY(C3Vector &v, float x, float y) {
-    v.x = x;
-    v.y = y;
-}
-
 // The strips the batch draws, from 4.3.4's arrays.
 void PublishStrips(Fields &f) {
     for (int k = 0; k < 4; ++k) {
@@ -311,161 +307,40 @@ void PublishStrips(Fields &f) {
     }
 }
 
-// OFFSET (4.3.4): 0x009FDC20
-void AnimateOctants01(Fields &f, const Rect &r, uint32_t octant, float t) {
+// The point at `s` turns along the frame's outline, clockwise from the top
+// centre. Each half side takes an eighth of a turn whatever its length, which
+// is how 4.3.4's sweep moves (AnimateOctants01..67, 0x009FDC20..0x009FE4F0:
+// each octant lasts duration / 8, the point linear along its half side).
+C3Vector OutlinePoint(const Rect &r, float s) {
     const float cx = (r.minX + r.maxX) * 0.5f;
-    const float cy = 0.5f * (r.maxY + r.minY);
-    C3Vector *v = f.starVerts;
-    if (f.reverse) {
-        if (octant > 0) {
-            SetXY(v[2], r.maxX, r.maxY - (r.maxY - cy) * t);
-            SetXY(v[1], r.maxX, r.maxY);
-            for (int i = 3; i < 9; ++i)
-                SetXY(v[i], r.maxX, v[1].y);
-        } else {
-            const float x = cx + (r.maxX - cx) * t;
-            SetXY(v[1], x, r.maxY);
-            SetXY(v[2], x, r.maxY);
-            for (int i = 3; i < 9; ++i)
-                SetXY(v[i], v[1].x, r.maxY);
-        }
-        return;
-    }
-    if (octant > 0) {
-        SetXY(v[1], r.maxX, r.maxY - (r.maxY - cy) * t);
-        v[0] = v[1];
-    } else {
-        SetXY(v[0], (r.maxX - cx) * t + cx, r.maxY);
-        SetXY(v[1], r.maxX, r.maxY);
-    }
-    SetXY(v[2], r.maxX, cy);
-    SetXY(v[3], r.maxX, r.minY);
-    SetXY(v[4], cx, r.minY);
-    SetXY(v[5], r.minX, r.minY);
-    SetXY(v[6], r.minX, cy);
-    SetXY(v[7], r.minX, r.maxY);
+    const float cy = (r.minY + r.maxY) * 0.5f;
+    const C3Vector knots[9] = {{cx, r.maxY, 0.0f},     {r.maxX, r.maxY, 0.0f}, {r.maxX, cy, 0.0f},
+                               {r.maxX, r.minY, 0.0f}, {cx, r.minY, 0.0f},     {r.minX, r.minY, 0.0f},
+                               {r.minX, cy, 0.0f},     {r.minX, r.maxY, 0.0f}, {cx, r.maxY, 0.0f}};
+    const float e = (s - std::floor(s)) * 8.0f;
+    const int k = e < 8.0f ? static_cast<int>(e) : 7;
+    const float t = e - static_cast<float>(k);
+    return {knots[k].x + (knots[k + 1].x - knots[k].x) * t,
+            knots[k].y + (knots[k + 1].y - knots[k].y) * t, 0.0f};
 }
 
-// OFFSET (4.3.4): 0x009FDEB0
-void AnimateOctants23(Fields &f, const Rect &r, uint32_t octant, float t) {
-    const float cx = (r.minX + r.maxX) * 0.5f;
-    const float cy = 0.5f * (r.maxY + r.minY);
+// The dark part of the sweep as 4.3.4's fan: the outline from turn `a` to `b`
+// (b - a at most 1) with the corners in between, in v0..v8 around the centre
+// v9, the unused tail repeating the last point (degenerate triangles), as
+// 4.3.4 pads it. 4.3.4 builds the same polygon octant by octant, except its
+// reverse octant 1, which pads with the corner and so draws one triangle
+// twice.
+void AnimateSweep(Fields &f, const Rect &r, float a, float b) {
     C3Vector *v = f.starVerts;
-    if (f.reverse) {
-        if (octant >= 3) {
-            const float x = r.maxX - (r.maxX - cx) * t;
-            SetXY(v[4], x, r.minY);
-            SetXY(v[1], r.maxX, r.maxY);
-            SetXY(v[2], r.maxX, cy);
-            SetXY(v[3], r.maxX, r.minY);
-            SetXY(v[5], x, r.minY);
-            for (int i = 6; i < 9; ++i)
-                SetXY(v[i], v[4].x, r.minY);
-        } else {
-            SetXY(v[3], r.maxX, cy - (cy - r.minY) * t);
-            SetXY(v[1], r.maxX, r.maxY);
-            SetXY(v[2], r.maxX, cy);
-            for (int i = 4; i < 9; ++i)
-                SetXY(v[i], r.maxX, v[3].y);
-        }
-        return;
-    }
-    if (octant >= 3) {
-        SetXY(v[3], r.maxX - (r.maxX - cx) * t, r.minY);
-        v[0] = v[3];
-        v[1] = v[3];
-        v[2] = v[3];
-    } else {
-        SetXY(v[2], r.maxX, cy - (cy - r.minY) * t);
-        v[0] = v[2];
-        v[1] = v[2];
-        SetXY(v[3], r.maxX, r.minY);
-    }
-    SetXY(v[4], cx, r.minY);
-    SetXY(v[5], r.minX, r.minY);
-    SetXY(v[6], r.minX, cy);
-    SetXY(v[7], r.minX, r.maxY);
-}
-
-// OFFSET (4.3.4): 0x009FE1D0
-void AnimateOctants45(Fields &f, const Rect &r, uint32_t octant, float t) {
-    const float cx = (r.minX + r.maxX) * 0.5f;
-    const float cy = 0.5f * (r.maxY + r.minY);
-    C3Vector *v = f.starVerts;
-    if (f.reverse) {
-        if (octant >= 5) {
-            SetXY(v[6], r.minX, (cy - r.minY) * t + r.minY);
-            SetXY(v[1], r.maxX, r.maxY);
-            SetXY(v[2], r.maxX, cy);
-            SetXY(v[3], r.maxX, r.minY);
-            SetXY(v[4], cx, r.minY);
-            SetXY(v[5], r.minX, r.minY);
-            SetXY(v[7], r.minX, v[6].y);
-            SetXY(v[8], r.minX, v[6].y);
-        } else {
-            const float x = cx - (cx - r.minX) * t;
-            SetXY(v[5], x, r.minY);
-            SetXY(v[1], r.maxX, r.maxY);
-            SetXY(v[2], r.maxX, cy);
-            SetXY(v[3], r.maxX, r.minY);
-            SetXY(v[4], cx, r.minY);
-            SetXY(v[6], x, r.minY);
-            SetXY(v[7], v[5].x, r.minY);
-            SetXY(v[8], v[5].x, r.minY);
-        }
-        return;
-    }
-    if (octant >= 5) {
-        SetXY(v[5], r.minX, (cy - r.minY) * t + r.minY);
-        for (int i = 0; i < 5; ++i)
-            v[i] = v[5];
-    } else {
-        SetXY(v[4], cx - (cx - r.minX) * t, r.minY);
-        for (int i = 0; i < 4; ++i)
-            v[i] = v[4];
-        SetXY(v[5], r.minX, r.minY);
-    }
-    SetXY(v[6], r.minX, cy);
-    SetXY(v[7], r.minX, r.maxY);
-}
-
-// OFFSET (4.3.4): 0x009FE4F0
-void AnimateOctants67(Fields &f, const Rect &r, uint32_t octant, float t) {
-    const float cx = (r.minX + r.maxX) * 0.5f;
-    const float cy = 0.5f * (r.maxY + r.minY);
-    C3Vector *v = f.starVerts;
-    if (f.reverse) {
-        if (octant < 7) {
-            SetXY(v[7], r.minX, (r.maxY - cy) * t + cy);
-            SetXY(v[1], r.maxX, r.maxY);
-            SetXY(v[2], r.maxX, cy);
-            SetXY(v[3], r.maxX, r.minY);
-            SetXY(v[4], cx, r.minY);
-            SetXY(v[5], r.minX, r.minY);
-            SetXY(v[6], r.minX, cy);
-            SetXY(v[8], r.minX, v[7].y);
-            return;
-        }
-        SetXY(v[8], (cx - r.minX) * t + r.minX, r.maxY);
-        SetXY(v[1], r.maxX, r.maxY);
-        SetXY(v[2], r.maxX, cy);
-        SetXY(v[3], r.maxX, r.minY);
-        SetXY(v[4], cx, r.minY);
-        SetXY(v[5], r.minX, r.minY);
-        SetXY(v[6], r.minX, cy);
-        SetXY(v[7], r.minX, r.maxY);
-        return;
-    }
-    if (octant < 7) {
-        SetXY(v[6], r.minX, cy + (r.maxY - cy) * t);
-        for (int i = 0; i < 6; ++i)
-            v[i] = v[6];
-        SetXY(v[7], r.minX, r.maxY);
-        return;
-    }
-    SetXY(v[7], (cx - r.minX) * t + r.minX, r.maxY);
-    for (int i = 0; i < 7; ++i)
-        v[i] = v[7];
+    int n = 0;
+    v[n++] = OutlinePoint(r, a);
+    for (float corner = std::floor(a) + 0.125f; corner < b; corner += 0.25f)
+        if (corner > a)
+            v[n++] = OutlinePoint(r, corner);
+    v[n++] = OutlinePoint(r, b);
+    for (; n < 9; ++n)
+        v[n] = v[n - 1];
+    v[9] = {(r.minX + r.maxX) * 0.5f, (r.minY + r.maxY) * 0.5f, 0.0f};
 }
 
 // The four corners of a quad turned by `angle` about the texture centre and
@@ -507,31 +382,20 @@ void AnimateVerts(void *frame) {
     if (!f.flashing) {
         const float elapsed = static_cast<float>(f.elapsed);
         const float duration = static_cast<float>(f.duration);
-        const float octantTime = duration * 0.125f;
-        const float invOctantTime = 1.0f / octantTime;
-        const int32_t octant = static_cast<int32_t>(invOctantTime * elapsed);
-        const float t = invOctantTime * (elapsed - octantTime * static_cast<float>(octant));
-
-        const int top = f.reverse ? 0 : 8;
-        f.starVerts[top] = {cx, r.maxY, 0.0f};
-        f.starVerts[9] = {cx, cy, 0.0f};
-
-        const uint32_t o = static_cast<uint32_t>(octant);
-        if (octant < 4) {
-            if (octant < 2)
-                AnimateOctants01(f, r, o, t);
-            else
-                AnimateOctants23(f, r, o, t);
-        } else if (octant < 6) {
-            AnimateOctants45(f, r, o, t);
-        } else {
-            AnimateOctants67(f, r, o, t);
-        }
+        const float done = duration > 0.0f ? std::fmin(elapsed / duration, 1.0f) : 1.0f;
+        // The rotation moves where the sweep starts, clockwise (retail probe:
+        // SetRotation(pi / 2) started it at 3 o'clock).
+        const float start = f.rotation / 6.2831855f;
+        // Covers what is left; reverse covers what has passed.
+        if (f.reverse)
+            AnimateSweep(f, r, start, start + done);
+        else
+            AnimateSweep(f, r, start + done, start + 1.0f);
         MapStarTexCoords(f, r);
 
         // CLayoutFrame::m_layoutScale, the frame's effective scale.
         if (f.drawEdge)
-            RotateQuadTexCoords(f.edgeTexCoords, elapsed / duration * -6.2831855f,
+            RotateQuadTexCoords(f.edgeTexCoords, elapsed / duration * -6.2831855f - f.rotation,
                                 Game::Read<float>(frame, Offsets::OFF_LAYOUT_SCALE));
         PublishStrips(f);
         return;
@@ -871,6 +735,12 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         f.drawSwipe = Game::StringToFlag(drawSwipe);
     if (const char *drawBling = Xml::Attr(node, "drawBling"))
         f.drawBling = Game::StringToFlag(drawBling);
+    // Degrees in XML (rotation="180" in the later clients' FrameXML), radians in Lua.
+    if (const char *rotation = Xml::Attr(node, "rotation")) {
+        using ToFloat_t = float(__stdcall *)(const char *text);
+        f.rotation = reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(rotation) *
+                     (3.14159265f / 180.0f);
+    }
     for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
         const TextureSlot slot = Xml::TagIs(c, "SwipeTexture")  ? SLOT_SWIPE
                                  : Xml::TagIs(c, "EdgeTexture") ? SLOT_EDGE
@@ -1156,6 +1026,26 @@ int __fastcall Script_SetBlingTexture(void *L) {
     return SetTextureMethod(L, SLOT_BLING, "SetBlingTexture");
 }
 
+int __fastcall Script_SetRotation(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetRotation(radians)", Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    F(frame).rotation = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetRotation(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).rotation);
+    return 1;
+}
+
 // OFFSET (4.3.4): 0x009FF650 / 0x009FF6A0
 int __fastcall Script_SetReverse(void *L) {
     void *frame = ResolveCooldown(L);
@@ -1223,6 +1113,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetSwipeTexture", &Script_SetSwipeTexture},
     {"SetEdgeTexture", &Script_SetEdgeTexture},
     {"SetBlingTexture", &Script_SetBlingTexture},
+    {"SetRotation", &Script_SetRotation},
+    {"GetRotation", &Script_GetRotation},
 };
 
 const Game::Doc::Field kSetCooldownArgs[] = {
@@ -1318,6 +1210,16 @@ const Game::Doc::Function kSetEdgeTexture{
     "Sets the texture and colour of the line on the edge of the sweep; the texture turns with the "
     "sweep about its centre.",
     kTextureArgs, {}};
+const Game::Doc::Field kRotationArg[] = {
+    Game::Doc::Req("radians", "number", "Clockwise from the top."),
+};
+const Game::Doc::Field kRotationRet[] = {
+    Game::Doc::Req("radians", "number"),
+};
+const Game::Doc::Function kSetRotation{
+    "Sets where the sweep starts, as a clockwise angle from the top.", kRotationArg, {}};
+const Game::Doc::Function kGetRotation{
+    "Returns where the sweep starts, as a clockwise angle from the top.", {}, kRotationRet};
 const Game::Doc::Function kSetBlingTexture{
     "Sets the texture and colour of the flash at the end of the cooldown.", kTextureArgs, {}};
 
@@ -1346,6 +1248,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetSwipeTexture", &kSetSwipeTexture},
     {"SetEdgeTexture", &kSetEdgeTexture},
     {"SetBlingTexture", &kSetBlingTexture},
+    {"SetRotation", &kSetRotation},
+    {"GetRotation", &kGetRotation},
 };
 
 // The engine's static initializer for a class hash (Model's 0x0076F5F0).
