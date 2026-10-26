@@ -12701,7 +12701,7 @@ end
 | `spellID` | number | The spell causing the effect. `0` for `SCHOOL_INTERRUPT` (the interrupting spell isn't in the lockout packet). |
 | `displayText` | string | Effect name — the spell name for CC, `"Interrupted"` for `SCHOOL_INTERRUPT`. |
 | `iconTexture` | string | The spell's icon path (there are no FileDataIDs here; the path is the functional equivalent). `""` for `SCHOOL_INTERRUPT`. |
-| `startTime` | number? | `GetTime()`-epoch seconds. Present for `SCHOOL_INTERRUPT` and for CC whose applying cast ClassicAPI observed; `nil` otherwise. |
+| `startTime` | number? | `GetTime()`-epoch seconds. `nil` when the effect has no timer. |
 | `timeRemaining` | number? | Seconds remaining. |
 | `duration` | number? | Effect duration, in seconds. |
 | `lockoutSchool` | number | The locked spell-school mask for `SCHOOL_INTERRUPT` (feed to `C_Spell.GetSchoolString` for the name); `0` for CC effects. |
@@ -12715,9 +12715,10 @@ Fidelity notes:
   every spell of the interrupted school at one uniform duration), so the school
   and duration are authoritative. The interrupting spell itself isn't
   transmitted, hence `spellID = 0` and `displayText = "Interrupted"`.
-- **CC timing** is best-effort — `startTime` / `timeRemaining` / `duration` are
-  filled when ClassicAPI observed the cast that applied the aura (the
-  `Aura::Source` cache) and are `nil` otherwise. These fields are nullable.
+- **CC timing** comes from the server's timer for your debuff, the same timer
+  `GetPlayerBuffTimeLeft` uses. It includes diminishing returns and the
+  caster's talents. `startTime` / `timeRemaining` / `duration` are `nil` when
+  the debuff has no timer.
 - **`auraInstanceID`** is omitted (`nil`) — no equivalent here.
 
 ### `C_LossOfControl.GetSchoolLockout([filterMask])`
@@ -21443,7 +21444,7 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `dispelName` | string | `"Magic"` / `"Curse"` / `"Disease"` / `"Poison"` (from `SpellDispelType.dbc`), or `""` if non-dispellable |
 | `isHelpful` | boolean | true when the aura is a buff |
 | `isHarmful` | boolean | true when the aura is a debuff. This is the aura's real polarity, so a debuff parked in a buff slot still reads harmful |
-| `duration` | number | applied duration in seconds. When the aura's cast was observed (in the `Aura::Source` cache), this is the caster-modified duration — talent/glyph extensions like Improved Shadow Word: Pain included — so it stays consistent with `expirationTime` (`remaining ≤ duration`). When no expiration time is known, `duration` is 0 too, so the two values are always given together. Returns 0 for spells flagged "no duration" (passives, paladin auras, infinite buffs) |
+| `duration` | number | applied duration in seconds. For `unit == "player"`, this is the duration the server applied, with diminishing returns and the caster's talents included. For other units, when the aura's cast was observed (in the `Aura::Source` cache), this is the caster-modified duration — talent/glyph extensions like Improved Shadow Word: Pain included — so it stays consistent with `expirationTime` (`remaining ≤ duration`). When no expiration time is known, `duration` is 0 too, so the two values are always given together. Returns 0 for spells flagged "no duration" (passives, paladin auras, infinite buffs) |
 | `expirationTime` | number | for `unit == "player"`, read from the engine's player-buff table at `0x00BC6040` (same data `GetPlayerBuffTimeLeft` returns). For any other unit, taken from the `Aura::Source` cache (cast time + duration captured from `SMSG_SPELL_GO`; see below). `0` when neither source has it, and `0` for one of your auras that lasts until you cancel it. `expirationTime - GetTime()` gives the true remaining time |
 | `sourceUnit` | string | unit token of the caster (`"player"`, `"raid7"`, `"nameplate1"`, …), resolved from the `Aura::Source` cache. `nil` if the cast wasn't observed or the caster maps to no current token |
 | `sourceGUID` | string | caster's `"0x…"` GUID string from the same cache. **A ClassicAPI extension — not a standard `AuraData` field.** Set whenever a caster is known, including when `sourceUnit` is `nil` (caster left token range). Stable for the session, unlike the volatile nameplate token; doubles as a unit token under SuperWoW. `nil` on a cache miss |

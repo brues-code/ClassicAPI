@@ -28,9 +28,11 @@
 //
 //   2. CC debuffs — stun / fear / root / confuse / charm / possess / silence /
 //      pacify / disarm are real debuff auras. We scan the player's debuffs and
-//      classify each by its spell's EffectApplyAuraName. Timing is best-effort
-//      from the Aura::Source cache (nil when the cast wasn't observed — the
-//      LoC timing fields are nullable, so that's contract-valid).
+//      classify each by its spell's EffectApplyAuraName. Timing is the
+//      server's own for the player's auras (`Aura::Data::PlayerAuraTiming`,
+//      the SMSG_UPDATE_AURA_DURATION the engine's GetPlayerBuffTimeLeft
+//      counts down), so diminishing returns and the caster's talents are
+//      in it; nil only when the slot has no running timer.
 //
 // Placeholders for fields with no vanilla equivalent: priority = 0,
 // displayType = 2 (show for full duration), auraInstanceID = nil. iconTexture
@@ -40,7 +42,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Data.h"
-#include "aura/Source.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
 #include "lossofcontrol/Lockout.h"
@@ -179,7 +180,6 @@ int BuildList(LocEntry *out, int maxOut) {
     // harmful order, the slots FindNthSlot would hand out for 1, 2, ...
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player != nullptr) {
-        const uint64_t playerGuid = Unit::Identity::PlayerGuid();
         int order[Offsets::UNIT_AURA_TOTAL];
         Aura::Data::WalkOrder(player, Aura::Data::Filter::Harmful, order);
         for (int i = 0; i < Offsets::UNIT_AURA_TOTAL && n < maxOut; ++i) {
@@ -205,11 +205,8 @@ int BuildList(LocEntry *out, int maxOut) {
             e.schoolMask = 0;
             e.startMs = 0;
             e.endMs = 0;
-            uint64_t caster = 0;
             uint32_t expMs = 0, durMs = 0;
-            if (Aura::Source::Get(playerGuid, spellID, slot, &caster, &expMs,
-                                  &durMs) &&
-                expMs != 0) {
+            if (Aura::Data::PlayerAuraTiming(slot, &expMs, &durMs)) {
                 e.endMs = expMs;
                 if (durMs != 0)
                     e.startMs = expMs - durMs;

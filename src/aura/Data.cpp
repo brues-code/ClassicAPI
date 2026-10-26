@@ -19,6 +19,7 @@
 #include "dbc/Lookup.h"
 #include "group/MemberStats.h"
 #include "guid/Guid.h"
+#include "net/PacketDispatch.h"
 #include "object/Resolve.h"
 #include "spell/CrowdControl.h"
 #include "spell/IsSelfBuff.h"
@@ -120,38 +121,27 @@ bool PlayerBuffUntilCancelled(const uint8_t *record) {
     return Game::Read<int>(record, Offsets::OFF_PLAYER_BUFF_UNTIL_CANCELLED) != 0;
 }
 
-// Reads the absolute expiration timestamp (in seconds, GetTime-epoch)
-// for a player-buff record, or 0 if it has expired / has no timing. The
-// engine stores ms-since-tickcount-epoch which matches what Lua's
-// `GetTime()` returns (engineMs * 0.001), so converting
-// `expirationMs * 0.001` lands directly on the same timeline addons
-// compare against on the Lua side. No epoch reconciliation needed.
-//
-// **Read as `uint32_t`**: GetTickCount overflows `INT_MAX` at ~24.86
-// days of system uptime. A signed read flips negative past that
-// point, which broke a `<= 0` early-bail that was supposed to catch
-// only the "no timing" (0) sentinel. The engine's own arithmetic
-// works on the unsigned tick because both sides of `expiration -
-// currentMs` wrap together.
-double PlayerBuffExpirationSeconds(const uint8_t *record) {
-    if (record == nullptr || PlayerBuffUntilCancelled(record))
-        return 0.0;
-    const int slotCode = Game::Read<int>(record, Offsets::OFF_PLAYER_BUFF_SLOT_CODE);
-    if (slotCode < 0 || slotCode >= Offsets::UNIT_AURA_TOTAL)
-        return 0.0;
-    auto *expirationTable = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_BUFF_EXPIRATION_TABLE));
-    const uint32_t expirationMs = expirationTable[slotCode];
-    if (expirationMs == 0)
-        return 0.0;
-    // An elapsed expiry reads as "no timer", as the engine's own
-    // GetPlayerBuffTimeLeft (0x004e4930 → FUN_004e4450) returns 0 once
-    // `(int)(now - expiration[slot]) >= 0`. `Time::Clock::Reached` takes the
-    // same signed diff, so it also absorbs the ~24.86-day GetTickCount wrap.
-    if (Time::Clock::Reached(expirationMs))
-        return 0.0;
-    return static_cast<double>(expirationMs) * 0.001;
+// The applied duration the server last sent for each of the player's aura
+// slots. SMSG_UPDATE_AURA_DURATION (`u8 slot, i32 ms`) is the only wire
+// timing for the player's own auras, and the engine's `SetAuraDuration`
+// (0x004E4390) keeps just `now + ms` from it — the expiration table. The ms
+// itself is the true total (diminishing returns and the caster's modifiers
+// already applied server-side), so it is kept here. Subscribers run before
+// the engine handler, so an entry changes in the same packet as its slot's
+// expiry and, like it, outlives the aura (the until-cancelled flag and the
+// elapsed test gate both).
+uint32_t g_playerDurationMs[Offsets::PLAYER_BUFF_TABLE_COUNT];
+
+void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode != Offsets::SMSG_UPDATE_AURA_DURATION)
+        return;
+    const uint8_t slot = Net::Read<uint8_t>(packet);
+    const int32_t ms = Net::Read<int32_t>(packet);
+    if (packet->m_read > packet->m_size || slot >= Offsets::PLAYER_BUFF_TABLE_COUNT)
+        return;
+    g_playerDurationMs[slot] = (ms > 0) ? static_cast<uint32_t>(ms) : 0;
 }
+const Net::PacketDispatch::AutoSubscribe _durationSub{&OnPacket};
 
 // The spell's base duration in seconds, as the server computes it before
 // combo points and caster modifiers: the SpellDuration row's base, with
@@ -187,7 +177,7 @@ double SpellBaseDurationSeconds(uint32_t spellID) {
 }
 
 // True if the engine-tick expiration `expMs` has already reached/passed now.
-// Same signed-wrap-safe compare `PlayerBuffExpirationSeconds` uses (absorbs
+// Same signed-wrap-safe compare `PlayerAuraTiming` uses (absorbs
 // the ~24.86-day GetTickCount wrap). An already-elapsed cached expiration is
 // not meaningful — the caster is kept regardless, but the time is reported as
 // unknown rather than as a negative remaining.
@@ -977,6 +967,29 @@ static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int app
     Game::Lua::PushNumber(L, 1);                                     // 15 timeMod
 }
 
+bool PlayerAuraTiming(int slot, uint32_t *outExpirationMs, uint32_t *outDurationMs) {
+    // FindPlayerBuffRecord matches slotCode == slot, and an empty record's
+    // slotCode is -1, so an unbound slot must not reach it.
+    if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
+        return false;
+    const uint8_t *record = FindPlayerBuffRecord(slot);
+    if (record == nullptr || PlayerBuffUntilCancelled(record))
+        return false;
+    // The engine's expiry, in the GetTime() epoch (×0.001) and read as
+    // `uint32_t` — the tick is unsigned and wraps (see `Time::Clock`).
+    auto *expirationTable = reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PLAYER_BUFF_EXPIRATION_TABLE));
+    const uint32_t expirationMs = expirationTable[slot];
+    // An elapsed expiry reads as "no timer", as the engine's own
+    // GetPlayerBuffTimeLeft (0x004e4930 → FUN_004e4450) returns 0 once
+    // `(int)(now - expiration[slot]) >= 0` — the same signed diff `Reached` takes.
+    if (expirationMs == 0 || Time::Clock::Reached(expirationMs))
+        return false;
+    *outExpirationMs = expirationMs;
+    *outDurationMs = g_playerDurationMs[slot];
+    return true;
+}
+
 // Enriches a bare `(guid, spellID)` into a full AuraData table — the shared
 // core behind every push path (descriptor, cache fallback, group-array). No
 // dependence on a live descriptor: the descriptor path passes what it read
@@ -987,8 +1000,9 @@ static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int app
 // (`SpellBaseDurationSeconds`); talent/glyph
 // duration modifiers are baked into the caster-side expiration, so
 // `expirationTime - GetTime()` is the true remaining time even when `duration`
-// omits the boost. `expirationTime` for the local player comes from the engine
-// buff table (gated on `isPlayer`); for everyone else it, the caster, and the
+// omits the boost. For the local player both come from `PlayerAuraTiming`
+// (gated on `isPlayer`) — the server's applied duration, which no cache
+// estimate overrides; for everyone else the expiration, the caster, and the
 // applied (caster-modified) duration come from the `Aura::Source` SMSG_SPELL_GO
 // cache when it observed the cast — a miss leaves the modern-truthful defaults
 // (expiration 0, no sourceUnit/GUID). `slot` is the absolute descriptor slot
@@ -1014,13 +1028,19 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
     double expirationTime = 0.0;
     uint64_t casterGuid = 0;
     bool untilCancelled = false;
+    bool exactDuration = false;
     if (spellID != 0)
         duration = SpellBaseDurationSeconds(spellID);
     if (isPlayer && spellID != 0) {
         const uint8_t *record = FindPlayerBuffRecord(slot);
-        if (record != nullptr) {
-            untilCancelled = PlayerBuffUntilCancelled(record);
-            expirationTime = PlayerBuffExpirationSeconds(record);
+        untilCancelled = record != nullptr && PlayerBuffUntilCancelled(record);
+        uint32_t expMs = 0, durMs = 0;
+        if (PlayerAuraTiming(slot, &expMs, &durMs)) {
+            expirationTime = static_cast<double>(expMs) * 0.001;
+            if (durMs != 0) {
+                duration = static_cast<double>(durMs) * 0.001;
+                exactDuration = true;
+            }
         }
     }
     if (spellID != 0 && guid != 0) {
@@ -1040,7 +1060,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
         if (expirationTime == 0.0 && a.expirationMs != 0 &&
             !ExpirationElapsed(a.expirationMs))
             expirationTime = static_cast<double>(a.expirationMs) * 0.001;
-        if (a.durationMs != 0)
+        if (a.durationMs != 0 && !exactDuration)
             duration = static_cast<double>(a.durationMs) * 0.001;
         casterGuid = a.caster;
     }

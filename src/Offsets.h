@@ -3248,6 +3248,10 @@ enum Offsets {
     SMSG_SPELL_GO = 0x132,
     SMSG_SPELL_FAILURE = 0x133,
     SMSG_SPELL_COOLDOWN = 0x134,
+    // `u8 slot, i32 ms` — the applied duration of one of the local player's
+    // aura slots; `SetAuraDuration` (0x004E4390) stores `now + ms` in
+    // VAR_PLAYER_BUFF_EXPIRATION_TABLE (benilla-re objectlayer/playermessages).
+    SMSG_UPDATE_AURA_DURATION = 0x137,
     SMSG_SPELL_CHANNEL_START = 0x139,
     SMSG_SPELL_CHANNEL_UPDATE = 0x13A,
     SMSG_SPELL_DELAYED = 0x1E2,

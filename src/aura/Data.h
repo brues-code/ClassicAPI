@@ -173,6 +173,14 @@ int FindSlotBySpellName(const uint8_t *unit, const char *spellName,
 // whose cast we didn't observe.
 bool IsPlayerCast(const uint8_t *unit, int slot);
 
+// The server's own timing for the local player's aura in absolute `slot`:
+// the engine's expiration (what `GetPlayerBuffTimeLeft` counts down) and the
+// applied duration from the same SMSG_UPDATE_AURA_DURATION, both exact —
+// diminishing returns and the caster's modifiers included. False when the
+// slot has no running timer (empty, until-cancelled, or elapsed).
+// `outDurationMs` is 0 when no duration packet was seen for the slot.
+bool PlayerAuraTiming(int slot, uint32_t *outExpirationMs, uint32_t *outDurationMs);
+
 // Applies a `CasterMode` to a per-aura "was cast by the player or a unit
 // they own" answer. `Any` → always true; `PlayerOnly` → the answer;
 // `NotPlayer` → its negation.
