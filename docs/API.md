@@ -6590,6 +6590,10 @@ cd:GetDrawEdge()                -- true
 | `cooldown:SetEdgeTexture(texture [, r, g, b, a])` | Sets the texture and the color of the edge line. The texture turns about its center with the sweep. Draw the line from the center to the top edge, as in `Interface\Cooldown\edge`, the default texture. |
 | `cooldown:SetBlingTexture(texture [, r, g, b, a])` | Sets the texture and the color of the flash at the end. The default flash is `Interface\Cooldown\star4` in light blue. |
 | `cooldown:SetRotation(radians)` / `cooldown:GetRotation()` | Sets and returns the angle where the sweep starts, in radians, clockwise from the top. For example, `math.pi / 2` starts the sweep at the right side. The angle is `0` when the frame is created. |
+| `cooldown:SetHideCountdownNumbers(hide)` / `cooldown:GetHideCountdownNumbers()` | Sets and returns whether the countdown numbers are hidden. The flag is `false` when the frame is created. |
+| `cooldown:GetCountdownFontString()` | Returns the font string that shows the countdown numbers. It uses `Fonts\FRIZQT__.TTF`, size 16, with an outline, at the center of the frame. You can change its font, color, and position. |
+| `cooldown:SetCountdownAbbrevThreshold(seconds)` / `cooldown:GetCountdownAbbrevThreshold()` | Sets and returns the time left in seconds below which the numbers show as `m:ss`, for example `1:56`. Above it, they show whole minutes, for example `3m`. The threshold applies from one minute to one hour. The default is `120`. |
+| `cooldown:SetMinimumCountdownDuration(milliseconds)` / `cooldown:GetMinimumCountdownDuration()` | Sets and returns the duration that a cooldown must be longer than to show numbers. The value applies to the full duration, not to the time left. The default is `2000`. |
 
 For the three texture methods, `texture` is a file path. An empty string
 gives a solid color. If you do not give `r`, `g`, and `b`, the color does
@@ -6603,6 +6607,17 @@ example `Usage: <name>:SetCooldown(start, duration[, modRate])`.
 The draw-edge flag applies from the next `SetCooldown` call.
 
 Only cooldown frames have these methods.
+
+The countdown numbers show only when the `countdownForCooldowns` CVar is
+`1`. The default is `0`, so a cooldown shows no numbers until you set it:
+
+```lua
+SetCVar("countdownForCooldowns", "1")
+```
+
+The numbers show the time left, rounded up: seconds below one minute
+(`57`), then `m:ss` or whole minutes, then whole hours (`2h`) and days
+(`2d`). They do not show during the flash.
 
 The `OnCooldownDone` script runs one time when the sweep of a cooldown
 ends. It runs before the flash. You can set it with `SetScript`,
@@ -6641,7 +6656,8 @@ second.
 XML files can also create a cooldown frame with a `<Cooldown>` element.
 The `reverse`, `drawEdge`, `drawSwipe`, and `drawBling` attributes set
 the four flags. The `rotation` attribute sets the start angle in degrees,
-for example `rotation="180"`.
+for example `rotation="180"`. The `hideCountdownNumbers` and
+`minimumCountdownDuration` attributes set the matching countdown values.
 
 The `<SwipeTexture>`, `<EdgeTexture>`, and `<BlingTexture>` child elements
 set the three textures. Each element takes a `file` attribute and a

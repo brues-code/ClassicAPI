@@ -591,6 +591,15 @@ enum Offsets {
     FUN_SIMPLEFONTSTRING_CTOR = 0x00770D30,       // __thiscall(mem, parent, layer, sublayer) -> fs
     FUN_REGION_SET_NAME = 0x0076C650,             // __thiscall(region, name) — registers _G[name]
     FUN_FONTSTRING_SET_FONT = 0x00770C60,         // __thiscall(fs + OFF_FONTSTRING_FONT_HOLDER, fontObject)
+    // CSimpleFontString::SetFont — `uint32_t __thiscall(fs, const char *path,
+    // float height, uint32_t flags, uint8_t force)`, `ret 0x10` (0x007715F7):
+    // builds and installs the font unless unchanged; 0 when it fails. Script
+    // FontString:SetFont (0x0079D4F0) converts the height as
+    // Game::PixelToInternal does, parses the flags (FONT_FLAG_*), and on
+    // success clears bit 0 of OFF_FONTSTRING_FONT_FLAGS (benilla-re ui/fonttext).
+    FUN_SIMPLEFONTSTRING_SET_FONT = 0x007714F0,
+    OFF_FONTSTRING_FONT_FLAGS = 0xD4,
+    FONT_FLAG_OUTLINE = 1, // ParseFontFlags 0x006F1A90: OUTLINE 1, MONOCHROME 2, THICKOUTLINE 4
     FUN_REGION_SET_POINT = 0x00767C70,            // __thiscall(region+OFF_REGION_ANCHOR, point, relAnchor, relPoint, x, y, flag=1)
     OFF_FONTSTRING_FONT_HOLDER = 0xCC,            // font-reference sub-object (SetFont `this`)
     OFF_FONTSTRING_FONT_OBJECT = 0xD0,            // font object pointer (holder + 4)
@@ -620,6 +629,7 @@ enum Offsets {
     FUN_STRING_TO_FRAME_POINT = 0x006F1840,
     FUN_FRAME_POINT_TO_STRING = 0x006F1890,
     DRAWLAYER_ARTWORK = 2,
+    DRAWLAYER_OVERLAY = 3,
     FRAMEPOINT_TOPLEFT = 0,
     FRAMEPOINT_TOP = 1,
     FRAMEPOINT_TOPRIGHT = 2,

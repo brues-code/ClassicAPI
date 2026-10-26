@@ -71,6 +71,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "api/Documentation.h"
+#include "cvar/Factory.h"
 #include "frame/ExtraScripts.h"
 #include "frame/RenderBatch.h"
 #include "frame/ScriptArgs.h"
@@ -81,6 +82,8 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace Frame::Cooldown {
@@ -133,6 +136,11 @@ struct Fields {
     uint32_t blingBase;
     uint32_t texturesSet; // TextureSlot bits a setter or the XML filled
     float rotation;       // radians, clockwise: where the sweep starts
+    void *countdown;      // the CSimpleFontString of the countdown numbers
+    uint32_t hideCountdownNumbers;
+    float abbrevThreshold;      // s: below it, m:ss in place of whole minutes
+    uint32_t minCountdownDuration; // ms: shorter cooldowns show no numbers
+    char countdownText[16];     // what the font string holds
 };
 
 constexpr size_t kObjectSize = Offsets::SIMPLEFRAME_SIZE + sizeof(Fields);
@@ -534,6 +542,82 @@ void SetPaused(void *frame, bool paused) {
     f.paused = paused;
 }
 
+// ---- countdown numbers ----------------------------------------------------------
+
+// Retail's switch for the numbers, with its default, help and category.
+CVar::Factory::Handle g_countdownForCooldowns = nullptr;
+
+// The numbers' font string, as the later clients make it (retail probe:
+// Fonts\FRIZQT__.TTF 16 OUTLINE whatever the frame size, CENTER on the
+// frame's CENTER at (0, -1)), built the way Script_CreateFontString,
+// Script_SetFont and Script_SetPoint build one.
+void *CreateCountdown(void *frame) {
+    using PoolAlloc_t = void *(__thiscall *)(void *pool, int zeroInit, const char *tag, int line);
+    using Ctor_t = void *(__thiscall *)(void *mem, void *parent, int layer, int sublayer);
+    using SetFont_t = uint32_t(__thiscall *)(void *fs, const char *path, float height,
+                                             uint32_t flags, uint8_t force);
+    using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
+                                          float x, float y, int flag);
+    void *mem = reinterpret_cast<PoolAlloc_t>(Offsets::FUN_REGION_POOL_ALLOC)(
+        reinterpret_cast<void *>(Offsets::VAR_SIMPLEFONTSTRING_POOL), 0,
+        reinterpret_cast<const char *>(Offsets::VAR_SIMPLEFONTSTRING_CLASS_TAG), -2);
+    if (mem == nullptr)
+        return nullptr;
+    void *fs = reinterpret_cast<Ctor_t>(Offsets::FUN_SIMPLEFONTSTRING_CTOR)(
+        mem, frame, Offsets::DRAWLAYER_OVERLAY, 0);
+    if (fs == nullptr)
+        return nullptr;
+    if (reinterpret_cast<SetFont_t>(Offsets::FUN_SIMPLEFONTSTRING_SET_FONT)(
+            fs, "Fonts\\FRIZQT__.TTF", Game::PixelToInternal(16.0f), Offsets::FONT_FLAG_OUTLINE, 0))
+        Game::Ref<uint32_t>(fs, Offsets::OFF_FONTSTRING_FONT_FLAGS) &= ~1u;
+    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
+        Game::Ptr<void>(fs, Offsets::OFF_REGION_ANCHOR), Offsets::FRAMEPOINT_CENTER,
+        Game::Ptr<void>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), Offsets::FRAMEPOINT_CENTER,
+        0.0f, Game::PixelToInternal(-1.0f), 1);
+    // Built before the frame is shown, the region starts unshown (live:
+    // IsShown() nil), where a script-created one on a shown frame is drawn.
+    // Shown as the engine's callers show a region: the desired flag, then Show.
+    using Show_t = void(__fastcall *)(void *region);
+    Game::Ref<uint32_t>(fs, Offsets::OFF_REGION_DESIRED_SHOWN) = 1;
+    reinterpret_cast<Show_t>(Offsets::FUN_FONTSTRING_SHOW)(fs);
+    return fs;
+}
+
+// Retail's text for `ms` left (probe: 2 s "2", 57 s "57", 116 s "1:56",
+// 123 s "3m", 3698 s "2h", 89998 s "2d"): whole units rounded up; m:ss below
+// the abbreviation threshold, which applies only from one minute to one hour.
+void FormatCountdown(char (&out)[16], uint32_t ms, float abbrevThreshold) {
+    const double s = ms / 1000.0;
+    const int whole = static_cast<int>(std::ceil(s));
+    if (s >= 86400.0)
+        std::snprintf(out, sizeof(out), "%dd", static_cast<int>(std::ceil(s / 86400.0)));
+    else if (s >= 3600.0)
+        std::snprintf(out, sizeof(out), "%dh", static_cast<int>(std::ceil(s / 3600.0)));
+    else if (s >= 60.0 && s >= std::fmin(abbrevThreshold, 3600.0f))
+        std::snprintf(out, sizeof(out), "%dm", static_cast<int>(std::ceil(s / 60.0)));
+    else if (s >= 60.0)
+        std::snprintf(out, sizeof(out), "%d:%02d", whole / 60, whole % 60);
+    else
+        std::snprintf(out, sizeof(out), "%d", whole);
+}
+
+// From the update walk: the numbers while the sweep runs, nothing otherwise.
+// SetText only when the text changes.
+void UpdateCountdown(void *frame) {
+    using SetText_t = void(__fastcall *)(void *fs, void *edx, const char *text, int expand);
+    Fields &f = F(frame);
+    if (f.countdown == nullptr)
+        return;
+    char text[16] = "";
+    if (!f.hideCountdownNumbers && !f.flashing && !f.done && f.duration > f.minCountdownDuration &&
+        f.elapsed < f.duration && CVar::Factory::GetInt(g_countdownForCooldowns) != 0)
+        FormatCountdown(text, f.duration - f.elapsed, f.abbrevThreshold);
+    if (std::strcmp(text, f.countdownText) == 0)
+        return;
+    std::memcpy(f.countdownText, text, sizeof(text));
+    reinterpret_cast<SetText_t>(Offsets::FUN_FONTSTRING_SET_TEXT)(f.countdown, nullptr, text, 1);
+}
+
 // ---- the overrides ------------------------------------------------------------
 
 using DeletingDestructor_t = void *(__fastcall *)(void *self, void *edx, uint32_t flags);
@@ -648,6 +732,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
         }
     }
     AnimateVerts(self);
+    UpdateCountdown(self);
     // Last: the handler may start another cooldown on this frame.
     if (finished)
         RunOnCooldownDone(self);
@@ -735,6 +820,10 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         f.drawSwipe = Game::StringToFlag(drawSwipe);
     if (const char *drawBling = Xml::Attr(node, "drawBling"))
         f.drawBling = Game::StringToFlag(drawBling);
+    if (const char *hide = Xml::Attr(node, "hideCountdownNumbers"))
+        f.hideCountdownNumbers = Game::StringToFlag(hide);
+    if (const char *minimum = Xml::Attr(node, "minimumCountdownDuration"))
+        f.minCountdownDuration = static_cast<uint32_t>(std::strtoul(minimum, nullptr, 10));
     // Degrees in XML (rotation="180" in the later clients' FrameXML), radians in Lua.
     if (const char *rotation = Xml::Attr(node, "rotation")) {
         using ToFloat_t = float(__stdcall *)(const char *text);
@@ -801,6 +890,10 @@ void *__fastcall CreateCooldown(void *parent) {
     f.swipeBase = Bgra(0, 0, 0, 160);
     f.edgeBase = Bgra(0xFF, 0xFF, 0xFF, 0xFF);
     f.blingBase = Bgra(0x50, 0xA0, 0xFF, 0xFF); // 4.3.4's flash colour
+    // The later clients' defaults (retail probe: 120, 2000).
+    f.abbrevThreshold = 120.0f;
+    f.minCountdownDuration = 2000;
+    f.countdown = CreateCountdown(frame);
     return frame;
 }
 
@@ -1046,6 +1139,74 @@ int __fastcall Script_GetRotation(void *L) {
     return 1;
 }
 
+int __fastcall Script_SetHideCountdownNumbers(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        F(frame).hideCountdownNumbers = Game::Lua::ToFlag(L, 2, true);
+    return 0;
+}
+
+int __fastcall Script_GetHideCountdownNumbers(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).hideCountdownNumbers != 0);
+    return 1;
+}
+
+int __fastcall Script_GetCountdownFontString(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    void *fs = F(frame).countdown;
+    if (fs == nullptr || !Xml::PushWrapper(L, fs))
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
+int __fastcall Script_SetCountdownAbbrevThreshold(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetCountdownAbbrevThreshold(seconds)",
+                         Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    F(frame).abbrevThreshold = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetCountdownAbbrevThreshold(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).abbrevThreshold);
+    return 1;
+}
+
+int __fastcall Script_SetMinimumCountdownDuration(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetMinimumCountdownDuration(milliseconds)",
+                         Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    const double ms = Game::Lua::ToNumber(L, 2);
+    F(frame).minCountdownDuration = ms > 0.0 ? static_cast<uint32_t>(ms) : 0;
+    return 0;
+}
+
+int __fastcall Script_GetMinimumCountdownDuration(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, static_cast<double>(F(frame).minCountdownDuration));
+    return 1;
+}
+
 // OFFSET (4.3.4): 0x009FF650 / 0x009FF6A0
 int __fastcall Script_SetReverse(void *L) {
     void *frame = ResolveCooldown(L);
@@ -1115,6 +1276,13 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetBlingTexture", &Script_SetBlingTexture},
     {"SetRotation", &Script_SetRotation},
     {"GetRotation", &Script_GetRotation},
+    {"SetHideCountdownNumbers", &Script_SetHideCountdownNumbers},
+    {"GetHideCountdownNumbers", &Script_GetHideCountdownNumbers},
+    {"GetCountdownFontString", &Script_GetCountdownFontString},
+    {"SetCountdownAbbrevThreshold", &Script_SetCountdownAbbrevThreshold},
+    {"GetCountdownAbbrevThreshold", &Script_GetCountdownAbbrevThreshold},
+    {"SetMinimumCountdownDuration", &Script_SetMinimumCountdownDuration},
+    {"GetMinimumCountdownDuration", &Script_GetMinimumCountdownDuration},
 };
 
 const Game::Doc::Field kSetCooldownArgs[] = {
@@ -1220,6 +1388,39 @@ const Game::Doc::Function kSetRotation{
     "Sets where the sweep starts, as a clockwise angle from the top.", kRotationArg, {}};
 const Game::Doc::Function kGetRotation{
     "Returns where the sweep starts, as a clockwise angle from the top.", {}, kRotationRet};
+const Game::Doc::Function kSetHideCountdownNumbers{
+    "Sets whether the countdown numbers are hidden. The numbers show only while the "
+    "countdownForCooldowns CVar is 1.",
+    kBoolArg, {}};
+const Game::Doc::Function kGetHideCountdownNumbers{
+    "Returns whether the countdown numbers are hidden.", {}, kBoolRet};
+const Game::Doc::Field kFontStringRet[] = {
+    Game::Doc::Req("countdownString", "FontString"),
+};
+const Game::Doc::Function kGetCountdownFontString{
+    "Returns the font string that shows the countdown numbers.", {}, kFontStringRet};
+const Game::Doc::Field kSecondsArg[] = {
+    Game::Doc::Req("seconds", "number",
+                   "Below this time left the numbers show as m:ss; it applies from one minute to one hour."),
+};
+const Game::Doc::Field kSecondsRet[] = {
+    Game::Doc::Req("seconds", "number"),
+};
+const Game::Doc::Function kSetCountdownAbbrevThreshold{
+    "Sets the time left below which the numbers show as m:ss in place of whole minutes.",
+    kSecondsArg, {}};
+const Game::Doc::Function kGetCountdownAbbrevThreshold{
+    "Returns the time left below which the numbers show as m:ss.", {}, kSecondsRet};
+const Game::Doc::Field kMillisecondsArg[] = {
+    Game::Doc::Req("milliseconds", "number", "Compared with the full duration, not the time left."),
+};
+const Game::Doc::Field kMillisecondsRet[] = {
+    Game::Doc::Req("milliseconds", "number"),
+};
+const Game::Doc::Function kSetMinimumCountdownDuration{
+    "Sets the duration a cooldown must be longer than to show numbers.", kMillisecondsArg, {}};
+const Game::Doc::Function kGetMinimumCountdownDuration{
+    "Returns the duration a cooldown must be longer than to show numbers.", {}, kMillisecondsRet};
 const Game::Doc::Function kSetBlingTexture{
     "Sets the texture and colour of the flash at the end of the cooldown.", kTextureArgs, {}};
 
@@ -1250,6 +1451,13 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetBlingTexture", &kSetBlingTexture},
     {"SetRotation", &kSetRotation},
     {"GetRotation", &kGetRotation},
+    {"SetHideCountdownNumbers", &kSetHideCountdownNumbers},
+    {"GetHideCountdownNumbers", &kGetHideCountdownNumbers},
+    {"GetCountdownFontString", &kGetCountdownFontString},
+    {"SetCountdownAbbrevThreshold", &kSetCountdownAbbrevThreshold},
+    {"GetCountdownAbbrevThreshold", &kGetCountdownAbbrevThreshold},
+    {"SetMinimumCountdownDuration", &kSetMinimumCountdownDuration},
+    {"GetMinimumCountdownDuration", &kGetMinimumCountdownDuration},
 };
 
 // The engine's static initializer for a class hash (Model's 0x0076F5F0).
@@ -1272,6 +1480,10 @@ void RegisterLuaFunctions() {
     // LoadScriptFunctions first), like the engine's own game-UI list
     // FUN_00495940, where 4.3.4 registers "Cooldown".
     InitMethodHash();
+    g_countdownForCooldowns = CVar::Factory::Register(
+        "countdownForCooldowns",
+        "Whether to use number countdown instead of radial swipe for action button cooldowns or not.",
+        Offsets::CVAR_CATEGORY_GAME, "0");
     reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(
         "Cooldown", &CreateCooldown, 0);
     Api::Documentation::NameWidgetSystem(g_hash, "FrameAPICooldown");
