@@ -40,6 +40,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "aura/Instance.h"
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
 
@@ -474,6 +475,46 @@ int PushAuraBySlot(void *L, Data::Emit emit) {
     return 1;
 }
 
+// C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID [, buf])
+//   -> AuraData | nil
+// With `buf`, the fields go into that table (cleared of any this aura lacks)
+// and it is returned — the allocation-free form for UNIT_AURA_DELTA handlers
+// that look up each changed ID. Only auras of a unit in view have IDs.
+int __fastcall Script_GetAuraDataByAuraInstanceID(void *L) {
+    const char *unitToken = ArgUnit(L, 1);
+    if (unitToken == nullptr || !Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    const auto id = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    const bool fill = Game::Lua::Type(L, 3) == Game::Lua::TYPE_TABLE;
+    const uint8_t *unit = ResolveUnit(unitToken);
+    const int slot = Aura::Instance::SlotForID(unit, id);
+    if (slot < 0) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    if (fill) {
+        Game::Lua::PushValue(L, 3);
+        Data::Push(L, unit, slot, Data::Emit::Fill);
+    } else {
+        Data::Push(L, unit, slot);
+    }
+    return 1;
+}
+
+const Game::Doc::Field kByInstanceIDArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("auraInstanceID", "number"),
+    Game::Doc::Opt("buf", "table", nullptr,
+                   "A table to write the aura into and return instead of a new one."),
+};
+const Game::Doc::Field kByInstanceIDRets[] = {
+    Game::Doc::Opt("aura", "AuraData", nullptr, "Nil when no aura on the unit has that ID."),
+};
+const Game::Doc::Function kGetAuraDataByAuraInstanceID{
+    "The aura with the given instance ID on a unit.", kByInstanceIDArgs, kByInstanceIDRets};
+
 // C_UnitAuras.GetAuraDataBySlot(unit, slot) -> AuraData | nil
 int __fastcall Script_GetAuraDataBySlot(void *L) {
     return PushAuraBySlot(L, Data::Emit::Table);
@@ -630,6 +671,9 @@ static void RegisterLuaFunctions() {
                                      &Script_GetAuraSlots);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDataBySlot",
                                      &Script_GetAuraDataBySlot);
+    Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDataByAuraInstanceID",
+                                     &Script_GetAuraDataByAuraInstanceID,
+                                     &kGetAuraDataByAuraInstanceID);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "UnitAuraBySlot",
                                      &Script_UnitAuraBySlot);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetUnitAuraBySpellID",

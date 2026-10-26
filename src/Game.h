@@ -309,6 +309,10 @@ using lua_resume_t = int(__fastcall *)(void *L, int nargs);
 using lua_yield_t = int(__fastcall *)(void *L, int nresults);
 using luaL_argerror_t = void(__fastcall *)(void *L, int narg, const char *msg);
 using luaL_setn_t = void(__fastcall *)(void *L, int t, int n);
+// Pops the top value into the table at `t` under a fresh integer key and
+// returns the key (LUA_REFNIL, -1, for a nil). With REGISTRY_INDEX it anchors
+// a value across calls; read it back with RawGetI(L, REGISTRY_INDEX, ref).
+using luaL_ref_t = int(__fastcall *)(void *L, int t);
 using lua_checkstack_t = int(__fastcall *)(void *L, int size);
 
 extern const lua_isnumber_t IsNumber;
@@ -363,6 +367,7 @@ extern const lua_resume_t Resume;
 extern const lua_yield_t Yield;
 extern const luaL_argerror_t ArgError;
 extern const luaL_setn_t SetN;
+extern const luaL_ref_t Ref;
 extern const lua_checkstack_t CheckStack;
 
 // Returns the global `lua_State *` (read on demand from the engine's global).

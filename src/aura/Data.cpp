@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "aura/Instance.h"
 #include "aura/Source.h"
 #include "dbc/Lookup.h"
 #include "group/MemberStats.h"
@@ -140,6 +141,9 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
     if (packet->m_read > packet->m_size || slot >= Offsets::PLAYER_BUFF_TABLE_COUNT)
         return;
     g_playerDurationMs[slot] = (ms > 0) ? static_cast<uint32_t>(ms) : 0;
+    // A duration packet for an aura already in the slot is a refresh — no
+    // descriptor field changes, so nothing else reports it.
+    Aura::Instance::NoteUpdated(Unit::Identity::PlayerGuid(), slot);
 }
 const Net::PacketDispatch::AutoSubscribe _durationSub{&OnPacket};
 
@@ -867,18 +871,28 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelp
     return d;
 }
 
+static void ClearField(void *L, const char *key) {
+    Game::Lua::PushString(L, key);
+    Game::Lua::PushNil(L);
+    Game::Lua::SetTable(L, -3);
+}
+
 // Writes the full modern AuraData table on top of the Lua stack from
 // already-resolved values. Shared by the descriptor path (`Push`) and the
-// cache-fallback path (`PushFromCache`). Net stack effect: +1 (the table).
+// cache-fallback path (`PushFromCache`). Net stack effect: +1 (the table), or
+// 0 with `fill`, which writes into the table already on top and clears the
+// optional fields this aura doesn't have. `instanceID` 0 = none
+// (`Aura::Instance` names only live descriptor auras).
 static void BuildTable(void *L, uint64_t unitGuid, uint32_t spellID, int applications,
                        bool isHelpful, double duration, double expirationTime,
-                       uint64_t casterGuid) {
+                       uint64_t casterGuid, uint32_t instanceID, bool fill) {
     const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful, unitGuid);
     const char *name = disp.name;
     const char *icon = disp.icon;
     const char *dispel = disp.dispelName;
 
-    Game::Lua::NewTable(L);
+    if (!fill)
+        Game::Lua::NewTable(L);
 
     Game::Lua::SetFieldString(L, "name", name);
     Game::Lua::SetFieldString(L, "icon", icon);
@@ -905,9 +919,21 @@ static void BuildTable(void *L, uint64_t unitGuid, uint32_t spellID, int applica
             Guid::FormatAsString(casterGuid, guidBuf, sizeof guidBuf);
         if (sourceUnit != nullptr)
             Game::Lua::SetFieldString(L, "sourceUnit", sourceUnit);
+        else if (fill)
+            ClearField(L, "sourceUnit");
         if (sourceGUID != nullptr)
             Game::Lua::SetFieldString(L, "sourceGUID", sourceGUID);
+        else if (fill)
+            ClearField(L, "sourceGUID");
+    } else if (fill) {
+        ClearField(L, "sourceUnit");
+        ClearField(L, "sourceGUID");
     }
+
+    if (instanceID != 0)
+        Game::Lua::SetFieldNumber(L, "auraInstanceID", static_cast<double>(instanceID));
+    else if (fill)
+        ClearField(L, "auraInstanceID");
 
     Game::Lua::SetFieldNumber(L, "charges", 0);
     Game::Lua::SetFieldNumber(L, "maxCharges", 0);
@@ -925,9 +951,9 @@ static void BuildTable(void *L, uint64_t unitGuid, uint32_t spellID, int applica
     Game::Lua::SetFieldBool(L, "nameplateShowPersonal", false);
     Game::Lua::SetFieldBool(L, "shouldConsolidate", false);
 
-    // `auraInstanceID` and `points` are deliberately omitted — modern returns
-    // nil for those when they don't apply, and Lua reading a missing key
-    // yields nil, so the table doesn't need an explicit entry.
+    // `points` is deliberately omitted — modern returns nil when it doesn't
+    // apply, and Lua reading a missing key yields nil, so the table doesn't
+    // need an explicit entry.
 }
 
 // Emits the Classic-Era `UnitAura` 15-value tuple onto the Lua stack from the
@@ -1023,7 +1049,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
                          bool isHelpful, int applications,
                          bool isPlayer, int slot,
                          const Attribution *known = nullptr,
-                         Emit emit = Emit::Table) {
+                         Emit emit = Emit::Table, uint32_t instanceID = 0) {
     double duration = 0.0;
     double expirationTime = 0.0;
     uint64_t casterGuid = 0;
@@ -1075,7 +1101,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
                        expirationTime, casterGuid);
     else
         BuildTable(L, guid, spellID, applications, isHelpful, duration, expirationTime,
-                   casterGuid);
+                   casterGuid, instanceID, emit == Emit::Fill);
 }
 
 // Attribution held directly by an `Aura::Source` cache entry (from `Enumerate`),
@@ -1089,7 +1115,7 @@ void Push(void *L, const uint8_t *unit, int slot, Emit emit) {
     const bool isHelpful = !IsSlotHarmful(unit, slot); // nibble, not slot range
     PushEnriched(L, UnitGuid(unit), spellID, isHelpful, ReadStacks(unit, slot),
                  unit != nullptr && unit == LocalPlayer(), slot,
-                 /*known*/ nullptr, emit);
+                 /*known*/ nullptr, emit, Aura::Instance::IDForSlot(unit, slot));
 }
 
 namespace {

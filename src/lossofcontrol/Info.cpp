@@ -35,13 +35,14 @@
 //      in it; nil only when the slot has no running timer.
 //
 // Placeholders for fields with no vanilla equivalent: priority = 0,
-// displayType = 2 (show for full duration), auraInstanceID = nil. iconTexture
+// displayType = 2 (show for full duration). iconTexture
 // is the spell's icon PATH (vanilla has no FileDataIDs; a path is the
 // functional equivalent).
 
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Data.h"
+#include "aura/Instance.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
 #include "lossofcontrol/Lockout.h"
@@ -157,6 +158,7 @@ struct LocEntry {
     int schoolMask;     // lockoutSchool
     uint32_t startMs;   // 0 = unknown
     uint32_t endMs;     // 0 = unknown / no timing
+    int slot;           // the CC debuff's player aura slot; -1 for school interrupt
 };
 
 int BuildList(LocEntry *out, int maxOut) {
@@ -173,6 +175,7 @@ int BuildList(LocEntry *out, int maxOut) {
             e.schoolMask = 1 << s;
             e.startMs = g_schoolLock[s].startMs;
             e.endMs = g_schoolLock[s].endMs;
+            e.slot = -1;
         }
     }
 
@@ -205,6 +208,7 @@ int BuildList(LocEntry *out, int maxOut) {
             e.schoolMask = 0;
             e.startMs = 0;
             e.endMs = 0;
+            e.slot = slot;
             uint32_t expMs = 0, durMs = 0;
             if (Aura::Data::PlayerAuraTiming(slot, &expMs, &durMs)) {
                 e.endMs = expMs;
@@ -355,7 +359,13 @@ int __fastcall Script_GetActiveLossOfControlData(void *L) {
                               static_cast<double>(e.schoolMask));
     Game::Lua::SetFieldNumber(L, "priority", 0);
     Game::Lua::SetFieldNumber(L, "displayType", 2); // show for full duration
-    // auraInstanceID: nil (vanilla has no aura instance IDs) — field omitted.
+    // auraInstanceID: the CC debuff's; nil for a school interrupt (no aura).
+    if (e.slot >= 0) {
+        const uint32_t id =
+            Aura::Instance::IDForSlot(Unit::Identity::PlayerObject(), e.slot);
+        if (id != 0)
+            Game::Lua::SetFieldNumber(L, "auraInstanceID", static_cast<double>(id));
+    }
     return 1;
 }
 

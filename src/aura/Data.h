@@ -59,8 +59,11 @@ enum class Filter { Helpful, Harmful };
 // pushes the Classic-Era `UnitAura` 15-value tuple (net stack +15) with NO table
 // allocation, for the `C_UnitAuras.UnitAura/UnitBuff/UnitDebuff` accessors that
 // avoid the per-call GC churn. Selection + timing resolution are identical for
-// both — only the terminal leaf differs.
-enum class Emit { Table, Positional };
+// both — only the terminal leaf differs. `Fill` writes the `AuraData` fields
+// into the table already on top of the stack instead of a new one (net stack
+// 0), for getters that take a caller's table to reuse; fields the aura lacks
+// are cleared to nil.
+enum class Emit { Table, Positional, Fill };
 
 // Caster restriction from the `PLAYER` / `!PLAYER` aura filter tokens.
 // `Any` = no restriction; `PlayerOnly` = only auras the local player cast,
@@ -248,14 +251,16 @@ const char *DispelName(uint32_t dispelTypeID);
 //                dispel type a spell the player or pet knows removes from
 //                an enemy)
 //
+// And `auraInstanceID` from `Aura::Instance` (the table forms only).
+//
 // And these with vanilla-truthful defaults (matches modern's
 // "field present but inapplicable" semantics):
-//   charges=0, maxCharges=0, auraInstanceID=nil, points=nil,
+//   charges=0, maxCharges=0, points=nil,
 //   isBossAura=false, isNameplateOnly=false, nameplateShowAll=false,
 //   nameplateShowPersonal=false, shouldConsolidate=false
 //
 // Net stack effect: +1 for `Emit::Table` (the table), +15 for `Emit::Positional`
-// (the Classic-Era `UnitAura` tuple — see `Emit`).
+// (the Classic-Era `UnitAura` tuple), 0 for `Emit::Fill` — see `Emit`.
 void Push(void *L, const uint8_t *unit, int slot, Emit emit = Emit::Table);
 
 // Fallback for the index path when the descriptor has dropped an aura's slot

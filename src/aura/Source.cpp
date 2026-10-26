@@ -18,6 +18,7 @@
 #include "ComboDuration.h"
 #include "Data.h"
 #include "Game.h"
+#include "Instance.h"
 #include "Offsets.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
@@ -361,6 +362,7 @@ Entry *Claim(uint32_t now) {
 // Defined in the duration-modifier section below; used by StoreFromCast's
 // refresh path too.
 void SignalAuraChanged(uint64_t guid);
+void SignalEntryChanged(const Entry &e);
 
 // Defined with the duration-modifier machinery below. A trigger can CREATE the
 // aura it then edits, in which case the edit is armed at trigger time and
@@ -407,7 +409,7 @@ void StoreFromCast(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid,
     // down a once-read duration) would never re-read the new timing. Signal it
     // ourselves (deferred to the world tick, coalesced). A NEW application
     // doesn't need this: its descriptor write fires the engine's own event.
-    SignalAuraChanged(targetGuid);
+    SignalEntryChanged(*e);
     ConsumePendingMods(*e, now);
 }
 
@@ -639,6 +641,13 @@ void SignalAuraChanged(uint64_t guid) {
         g_pendingSignals[g_pendingSignalCount++] = guid;
 }
 
+// An entry's timing changed in place: the unit's UNIT_AURA re-broadcast, and
+// the instance in the entry's slot reported as updated to UNIT_AURA_DELTA.
+void SignalEntryChanged(const Entry &e) {
+    Aura::Instance::NoteUpdated(e.targetGuid, e.slot);
+    SignalAuraChanged(e.targetGuid);
+}
+
 void FlushAuraSignals() {
     // The engine broadcast plus ClassicAPI's tokens (see Unit::TokenEvents).
     for (int i = 0; i < g_pendingSignalCount; ++i)
@@ -651,20 +660,20 @@ void ApplyModOp(Entry &e, int32_t op, int32_t valueMs, uint32_t now) {
     case MOD_REFRESH:
         if (e.durationMs > 0) {
             e.expirationMs = now + e.durationMs; // RefreshHolder → reset to max
-            SignalAuraChanged(e.targetGuid);
+            SignalEntryChanged(e);
         }
         break;
     case MOD_SET:
         e.durationMs = static_cast<uint32_t>(valueMs);
         e.expirationMs = now + static_cast<uint32_t>(valueMs);
-        SignalAuraChanged(e.targetGuid);
+        SignalEntryChanged(e);
         break;
     case MOD_REDUCE:
         if (e.expirationMs != 0) {
             if (Time::Clock::Remaining(now, e.expirationMs) >
                 static_cast<uint32_t>(valueMs)) {
                 e.expirationMs -= static_cast<uint32_t>(valueMs);
-                SignalAuraChanged(e.targetGuid);
+                SignalEntryChanged(e);
             } else {
                 e.used = false; // shaved to/past now → server removes it
             }
@@ -1011,7 +1020,7 @@ void CompressTarget(const TickCompression &c, uint64_t targetGuid,
         // pollers pick it up on their own. First write nudges immediately.
         if (s->lastSignalMs == 0 || now - s->lastSignalMs >= 1000) {
             s->lastSignalMs = now;
-            SignalAuraChanged(e.targetGuid);
+            SignalEntryChanged(e);
         }
     }
 }
@@ -1227,7 +1236,7 @@ int RefreshJudgementsImpl(uint64_t unitGuid, uint64_t attackerGuid, bool adopt) 
             e.casterGuid = attackerGuid; // adoption claim
         e.expirationMs = now + e.durationMs; // RefreshHolder → own duration
         e.stampMs = now;
-        SignalAuraChanged(e.targetGuid);
+        SignalEntryChanged(e);
         ++refreshed;
     }
     return refreshed;
@@ -1320,7 +1329,7 @@ void RefreshTriggeredExisting(uint64_t victim, const TriggeredApplication &r,
         e.durationMs = newMs;
         e.expirationMs = now + newMs;
         e.stampMs = now;
-        SignalAuraChanged(victim);
+        SignalEntryChanged(e);
         break; // one aura instance per (target, spell, caster) — server touches one holder
     }
 }
@@ -1962,7 +1971,7 @@ uint32_t RefreshDurationByFamily(uint64_t unitGuid, uint32_t family,
         // duration, not a five-point one.
         e.expirationMs = now + e.durationMs;
         e.stampMs = now;
-        SignalAuraChanged(e.targetGuid);
+        SignalEntryChanged(e);
         return e.spellId;
     }
     return 0;
@@ -1983,7 +1992,7 @@ void RestampPlayerChannel(uint32_t spellId, uint32_t remainingMs) {
             continue;
         e.expirationMs = now + remainingMs;
         e.stampMs = now;
-        SignalAuraChanged(e.targetGuid);
+        SignalEntryChanged(e);
     }
 }
 

@@ -38,7 +38,6 @@ namespace {
 
 using SetScriptText_t = bool(__fastcall *)(void *object, void *edx, const char *name, const char *text);
 using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
-using LuaRef_t = int(__fastcall *)(void *L, int t);
 
 const void *FindChild(const void *node, const char *tag) {
     for (const void *c = ::Xml::FirstChild(node); c != nullptr; c = ::Xml::NextSibling(c))
@@ -103,7 +102,7 @@ void LoadScripts(Object *object, const void *node) {
                 continue;
             }
             reinterpret_cast<void(__stdcall *)(uint32_t *)>(Offsets::FUN_SCRIPT_RELEASE)(slot);
-            slot[0] = static_cast<uint32_t>(reinterpret_cast<LuaRef_t>(Offsets::LUA_REF_REF)(L, Game::Lua::REGISTRY_INDEX));
+            slot[0] = static_cast<uint32_t>(Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX));
             slot[1] = 0;
             continue;
         }

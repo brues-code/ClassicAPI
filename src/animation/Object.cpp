@@ -30,7 +30,6 @@ using Lock_t = void(__fastcall *)(void *object, void *edx, const char *name);
 using Unlock_t = void(__fastcall *)(void *object, void *edx, const char *name);
 using BaseResolve_t = uint32_t *(__fastcall *)(void *object, void *edx, const char *name);
 using Release_t = void(__stdcall *)(uint32_t *slot);
-using LuaRef_t = int(__fastcall *)(void *L, int t);
 using LuaUnref_t = void(__fastcall *)(void *L, int t, int ref);
 using GetName_t = const char *(__fastcall *)(const void *object);
 
@@ -190,7 +189,7 @@ void RegisterClass(Class &cls) {
         Game::Lua::PushCClosure(L, cls.methods[i].func, 0);
         Game::Lua::RawSet(L, -3);
     }
-    cls.methodsRef = reinterpret_cast<LuaRef_t>(Offsets::LUA_REF_REF)(L, Game::Lua::REGISTRY_INDEX);
+    cls.methodsRef = Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX);
 }
 
 // ---- The base methods -----------------------------------------------------------
@@ -306,7 +305,7 @@ int __fastcall Script_SetScript(void *L) {
     }
     reinterpret_cast<Release_t>(Offsets::FUN_SCRIPT_RELEASE)(slot);
     Game::Lua::SetTop(L, 3);
-    const int ref = reinterpret_cast<LuaRef_t>(Offsets::LUA_REF_REF)(L, Game::Lua::REGISTRY_INDEX);
+    const int ref = Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX);
     slot[0] = ref > 0 ? static_cast<uint32_t>(ref) : 0;
     slot[1] = Game::Read<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
     return 0;

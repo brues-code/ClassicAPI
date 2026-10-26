@@ -226,6 +226,7 @@ build instructions.
   - [`QUEST_REMOVED` event](#quest_removed-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
+  - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
@@ -923,6 +924,7 @@ build instructions.
   - [`C_UnitAuras.UnitBuff(unit, index [, filter])` / `UnitDebuff(unit, index [, filter])`](#c_unitaurasunitbuffunit-index--filter--unitdebuffunit-index--filter)
   - [`C_UnitAuras.GetAuraSlots(unit [, filter [, maxSlots [, continuationToken]]])`](#c_unitaurasgetauraslotsunit--filter--maxslots--continuationtoken)
   - [`C_UnitAuras.GetAuraDataBySlot(unit, slot)` / `UnitAuraBySlot(unit, slot)`](#c_unitaurasgetauradatabyslotunit-slot--unitaurabyslotunit-slot)
+  - [`C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID [, buf])`](#c_unitaurasgetauradatabyaurainstanceidunit-aurainstanceid--buf)
   - [`C_UnitAuras.GetUnitAuraBySpellID(unit, spellID [, filter])`](#c_unitaurasgetunitaurabyspellidunit-spellid--filter)
   - [`C_UnitAuras.GetPlayerAuraBySpellID(spellID)`](#c_unitaurasgetplayeraurabyspellidspellid)
   - [`C_UnitAuras.GetAuraDataBySpellName(unit, spellName [, filter])`](#c_unitaurasgetauradatabyspellnameunit-spellname--filter)
@@ -5413,6 +5415,99 @@ click would otherwise raise an event.
 
 The event arrives on the frame after the sound ends, which is when the
 client releases it.
+
+### `UNIT_AURA_DELTA` event
+
+Fires when the auras on a unit change. The payload tells you which auras
+changed, so a handler does not have to read all the auras of the unit
+again. This is a ClassicAPI extension. Its payload has the shape of the
+modern `UNIT_AURA` payload, but it holds instance IDs only. `UNIT_AURA`
+itself does not change.
+
+```
+UNIT_AURA_DELTA: unitTarget, updateInfo
+```
+
+- **`unitTarget`** (string) — the unit token. A unit that has more than
+  one token (for example `target` and `party1`) gets one event for each
+  token.
+- **`updateInfo`** (table):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `isFullUpdate` | boolean | `true` when the handler must read all the auras of the unit again. The three lists are then `nil`. |
+| `addedAuraInstanceIDs` | table? | The instance IDs of the auras that the unit got. `nil` when there are none. |
+| `updatedAuraInstanceIDs` | table? | The instance IDs of the auras that stayed on the unit but changed: a new stack count, a refresh, or a new duration. `nil` when there are none. |
+| `removedAuraInstanceIDs` | table? | The instance IDs of the auras that went off the unit. `nil` when there are none. |
+
+An instance ID is the `auraInstanceID` field of an
+[`AuraData`](#auradata-table-shape) table. To read an added or updated
+aura, give its ID to
+[`C_UnitAuras.GetAuraDataByAuraInstanceID`](#c_unitaurasgetauradatabyaurainstanceidunit-aurainstanceid--buf).
+
+```lua
+local spells = {}  -- auraInstanceID -> spellId, for the player
+local buf = {}
+
+local function ReadAll()
+    spells = {}
+    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+        local i = 1
+        local d = C_UnitAuras.GetAuraDataByIndex("player", i, filter)
+        while d do
+            if d.auraInstanceID then
+                spells[d.auraInstanceID] = d.spellId
+            end
+            i = i + 1
+            d = C_UnitAuras.GetAuraDataByIndex("player", i, filter)
+        end
+    end
+end
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
+f:RegisterEvent("UNIT_AURA_DELTA")
+f:SetScript("OnEvent", function()
+    if event == "PLAYER_ENTERING_WORLD" then
+        ReadAll()
+        return
+    end
+    if arg1 ~= "player" then
+        return
+    end
+    if arg2.isFullUpdate then
+        ReadAll()
+        return
+    end
+    for _, id in ipairs(arg2.removedAuraInstanceIDs or {}) do
+        spells[id] = nil
+    end
+    for _, id in ipairs(arg2.addedAuraInstanceIDs or {}) do
+        local d = C_UnitAuras.GetAuraDataByAuraInstanceID("player", id, buf)
+        if d then
+            spells[id] = d.spellId
+        end
+    end
+end)
+```
+
+Some rules:
+
+- **The tables are valid only during the handler.** Each fire uses the
+  same `updateInfo` table and the same three lists again. To keep a list,
+  copy it.
+- **The event gives changes, not the start state.** Read all the auras of
+  a unit before you use its deltas: when you register the event, and when
+  a token starts to name a different unit (for example on
+  `PLAYER_TARGET_CHANGED`). The event does not fire when a unit only gets
+  a new token.
+- **One event for each unit and token in each frame.** All the changes of
+  one frame come together.
+- **`isFullUpdate`** is `true` when no list is available. For example,
+  this occurs when a unit comes back into view.
+- A refresh that changes nothing that the client can see does not fire
+  the event.
+- When no frame is registered for the event, the client builds no lists.
 
 ### `UNIT_FACTION` event (fire-coverage fix)
 
@@ -12719,7 +12814,9 @@ Fidelity notes:
   `GetPlayerBuffTimeLeft` uses. It includes diminishing returns and the
   caster's talents. `startTime` / `timeRemaining` / `duration` are `nil` when
   the debuff has no timer.
-- **`auraInstanceID`** is omitted (`nil`) — no equivalent here.
+- **`auraInstanceID`** is the instance ID of the CC debuff (see
+  [`AuraData`](#auradata-table-shape)). It is `nil` for
+  `SCHOOL_INTERRUPT`, which is not an aura.
 
 ### `C_LossOfControl.GetSchoolLockout([filterMask])`
 
@@ -21455,7 +21552,8 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `isRaid` | boolean | true when the aura passes the `RAID` filter: a buff that you can cast on other players, or a debuff that you can dispel |
 | `isStealable` | boolean | true when you can remove the buff from an enemy: you can attack the unit, the aura is a buff that is not passive, not an area aura and not channeled, and you or your pet know a spell that removes its dispel type from an enemy (for example Purge, Dispel Magic, Tranquilizing Shot, Devour Magic) |
 | `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal`, `shouldConsolidate` | boolean | always `false` — UI concepts not present here |
-| `auraInstanceID`, `points` | (absent) | omitted from the table — Lua read yields nil for "field doesn't apply" |
+| `auraInstanceID` | number | a number that identifies this aura on this unit. It stays the same while the aura stays on the unit. An aura that goes off and comes back gets a new number. `nil` for an aura that is not in the unit's aura list (a group member out of range, or an aura that only the cast cache knows) |
+| `points` | (absent) | omitted from the table — Lua read yields nil for "field doesn't apply" |
 
 ### Filter parsing
 
@@ -21690,6 +21788,27 @@ allocates nothing. Get slot ids from `GetAuraSlots`.
 local token, slot = C_UnitAuras.GetAuraSlots("player", "HELPFUL", 1)
 if slot then
     local d = C_UnitAuras.GetAuraDataBySlot("player", slot)
+    print(d.name, d.applications)
+end
+```
+
+### `C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID [, buf])`
+
+Returns the `AuraData` table for the aura on `unit` that has the instance
+ID `auraInstanceID`. Returns `nil` when no aura on the unit has this ID.
+An ID stops working when its aura goes off the unit.
+
+If you give `buf`, the function writes the aura into `buf` and returns
+`buf`. This form makes no new table. It is the correct form for a
+[`UNIT_AURA_DELTA`](#unit_aura_delta-event) handler that reads each
+changed ID. When the aura has no `sourceUnit` or `sourceGUID`, the
+function sets that field of `buf` to `nil`. The other keys of `buf` do
+not change.
+
+```lua
+local buf = {}
+local d = C_UnitAuras.GetAuraDataByAuraInstanceID("target", id, buf)
+if d then
     print(d.name, d.applications)
 end
 ```

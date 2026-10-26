@@ -95,6 +95,7 @@ namespace Lua {
     F(Yield,       lua_yield,       LUA_YIELD)        \
     F(ArgError,    luaL_argerror,   LUAL_ARG_ERROR)   \
     F(SetN,        luaL_setn,       LUAL_SETN)         \
+    F(Ref,         luaL_ref,        LUA_REF_REF)       \
     F(CheckStack,  lua_checkstack,  LUA_CHECK_STACK)
 
 #define CLASSICAPI_BIND_LUA(Name, Typedef, Offset) \
