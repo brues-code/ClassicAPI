@@ -32,9 +32,11 @@
 // out-of-memory longjmp mid-push unwinds them for free — no leaked refs, no
 // per-call ref churn. See RunModern.
 //
-// The reimplemented path is taken ONLY for a handler that actually declares a
-// parameter or is vararg (checked via its Proto — see HandlerWantsArgs). A
-// handler that declares NO parameters can't observe positional args, so pushing
+// The reimplemented path is taken ONLY for a handler that can observe
+// positional args: a Lua function that declares a parameter or is vararg
+// (checked via its Proto), or a C function such as a frame method bound
+// directly — see FunctionWantsArgs. A Lua handler that declares NO parameters
+// can't observe positional args, so pushing
 // them is a no-op — those route through the original engine runner unchanged:
 // provably identical to vanilla, and OFF the engine's hottest Lua path (the vast
 // majority of vanilla handlers, which read `this`/`arg1`, are param-less). So a
@@ -337,7 +339,10 @@ constexpr int kMaxWrapperDepth = 32;
 // `function(self, delta)` / `function(self, ...)`. The hook wrapper
 // (`HookSecureFunc::Wrapper`, what HookScript installs) forwards its args to
 // both functions it holds, so it does when either of them does. Any other C
-// closure reads globals/upvalues, never positional args.
+// closure may read them: a frame method bound directly
+// (`SetScript("OnDragStart", f.StartMoving)`) takes `self` from argument 1
+// and raises "Attempt to find 'this'" without it — 1.12's methods never fall
+// back to the `this` global — so it gets them, as every handler does in 3.3.5.
 bool FunctionWantsArgs(const void *tv, int depth) {
     if (Game::Read<int>(tv, 0) != kLuaTFunction)
         return false;
@@ -354,7 +359,7 @@ bool FunctionWantsArgs(const void *tv, int depth) {
     }
     if (Game::Read<uintptr_t>(cl, OFF_CCLOSURE_FN) !=
         reinterpret_cast<uintptr_t>(&HookSecureFunc::Wrapper))
-        return false;
+        return true;
     if (depth >= kMaxWrapperDepth)
         return true;
     const auto *upvalues = static_cast<const uint8_t *>(cl) + OFF_CCLOSURE_UPVALUES;
@@ -369,8 +374,8 @@ bool FunctionWantsArgs(const void *tv, int depth) {
 // handler FunctionWantsArgs accepts takes the reimplemented positional path.
 //
 // Reads the closures directly (the engine exposes no arity via the C API);
-// every read is bounded — a non-function ref, a foreign C closure, or a null
-// Proto all fall through to "no".
+// every read is bounded — a non-function ref or a null Proto falls through to
+// "no".
 bool HandlerWantsArgs(void *L, int handlerRef) {
     RawGetI(L, Game::Lua::REGISTRY_INDEX, handlerRef); // push registry[handlerRef]
     const void *tv = reinterpret_cast<const void *>(

@@ -7947,7 +7947,10 @@ handlers written as `function(self, delta) … end` work unmodified:
 
 The `this` / `arg1` / `event` globals stay set, so a handler that reads them still
 works. A handler that declares no parameters is unaffected — it cannot see the
-positional arguments. `SetModernScriptArgs(enable)` sets the state and returns it.
+positional arguments. A frame method or other C function that you give directly
+to `SetScript` also gets the positional arguments. For example,
+`f:SetScript("OnDragStart", f.StartMoving)` calls `f:StartMoving()`.
+`SetModernScriptArgs(enable)` sets the state and returns it.
 `GetModernScriptArgs()` returns the current state.
 
 **Caveat — a parameter that was always nil now gets a value.** With zero
