@@ -97,6 +97,9 @@ void Notify(bool begin, int handlerRef, void *frame) {
         o->fn(begin, handlerRef, frame);
 }
 
+// Chained at static-init time by each `AutoTrailingBool` constructor.
+AutoTrailingBool *g_trailing = nullptr;
+
 // The engine runner sets only arg1..arg19 (0x704F10 stops at the 19th spec,
 // `cmp [ebp-4],0x13; jge` at 0x704F73). 3.3.5's FrameScript_Execute has no
 // limit, so a fire with more specs than this takes the reimplemented path.
@@ -129,12 +132,16 @@ int CountArgs(const char *fmt) {
 // Where RunCore's arguments come from: the runner's printf-style format over
 // its packed vararg buffer (%d/%u/%s 4 bytes, %f 8), or `n` Lua values already
 // on the stack from absolute index `stackBase` (they sit below everything
-// RunCore pushes, so the index holds).
+// RunCore pushes, so the index holds). `hasTrailing` appends one boolean after
+// them (see AutoTrailingBool).
 struct ArgSource {
     const char *fmt = nullptr;
     const void *vaPtr = nullptr;
     int stackBase = 0;
     int n = 0;
+    bool hasTrailing = false;
+    bool trailing = false;
+    int Count() const { return n + (hasTrailing ? 1 : 0); }
 };
 
 // Pushes an ArgSource's values in order, one per PushNext; a new cursor
@@ -146,6 +153,11 @@ public:
 
     void PushNext(void *L) {
         using namespace Game::Lua;
+        if (k_ >= src_.n) {
+            PushBool(L, src_.trailing);
+            ++k_;
+            return;
+        }
         if (p_ == nullptr) {
             PushValue(L, src_.stackBase + k_++);
             return;
@@ -179,6 +191,7 @@ public:
                 continue; // unknown spec — consume nothing
             }
             ++p_;
+            ++k_;
             return;
         }
     }
@@ -248,7 +261,7 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
              bool positional) {
     using namespace Game::Lua;
     // Headroom for the saved-old block plus the transient set/call pushes.
-    if (CheckStack(L, 2 * src.n + 16) == 0)
+    if (CheckStack(L, 2 * src.Count() + 16) == 0)
         return false;
 
     const bool haveThis = frame != nullptr;
@@ -257,7 +270,7 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
     const bool isOnEvent = IsOnEvent(handlerRef, frame);
     const int selfRef = haveThis ? Game::Lua::ObjectLuaRef(frame) : 0;
 
-    const int n = src.n;
+    const int n = src.Count();
     char argName[16];
 
     // --- save the globals we're about to clobber, onto the stack ------------
@@ -336,6 +349,18 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
     return true;
 }
 
+// Asks the providers for this run's trailing boolean.
+void FindTrailing(int handlerRef, void *frame, ArgSource &src) {
+    for (AutoTrailingBool *t = g_trailing; t != nullptr; t = t->next) {
+        bool value = false;
+        if (t->fn(handlerRef, frame, &value)) {
+            src.hasTrailing = true;
+            src.trailing = value;
+            return;
+        }
+    }
+}
+
 // The runner path: arguments from the engine's printf-style format.
 bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) {
     void *L = Game::Lua::State();
@@ -345,6 +370,7 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
     src.fmt = fmt;
     src.vaPtr = vaPtr;
     src.n = CountArgs(fmt);
+    FindTrailing(handlerRef, frame, src);
     return RunCore(L, handlerRef, frame, src, /*positional*/ true);
 }
 
@@ -520,6 +546,8 @@ void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int na
 }
 
 AutoObserve::AutoObserve(Observer f) : fn(f), next(g_observers) { g_observers = this; }
+
+AutoTrailingBool::AutoTrailingBool(TrailingBool f) : fn(f), next(g_trailing) { g_trailing = this; }
 
 void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs) {
     if (slot == nullptr || slot[0] == 0)

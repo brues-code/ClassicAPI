@@ -7942,8 +7942,14 @@ every handler additionally receives its values as real positional arguments, so
 handlers written as `function(self, delta) … end` work unmodified:
 
 - most scripts: `(self, arg1..argN)` — e.g. `OnMouseWheel(self, delta)`,
-  `OnClick(self, button)`, `OnValueChanged(self, value)`, `OnUpdate(self, elapsed)`.
+  `OnClick(self, button, down)`, `OnValueChanged(self, value)`, `OnUpdate(self, elapsed)`.
 - `OnEvent`: `(self, event, arg1..argN)`.
+- `OnClick`, `PreClick` and `PostClick`: `down` is true for a click on a mouse
+  press and false for a click on a release. For `button:Click(name, down)`, it
+  is the value of `down`.
+- `OnEnter` and `OnLeave`: `(self, motion)`. `motion` is true when a mouse
+  move caused the enter or leave. It is false when the frame moved, showed or
+  hid under a cursor that did not move.
 
 The `this` / `arg1` / `event` globals stay set, so a handler that reads them still
 works. A handler that declares no parameters is unaffected — it cannot see the

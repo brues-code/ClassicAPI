@@ -64,9 +64,19 @@
 //      the three apart. The name comes from the vmethod's button mask via the
 //      six engine .data literals FUN_BUTTON_CLICK's own jump table selects
 //      (unrecognized mask -> "UNKNOWN", exactly as Button:Click("Fnord") gives
-//      OnClick). `down` is not supplied: 1.12's vmethod never learns whether the
-//      click came from a press or a release, so Pre/Post keep 1.12 OnClick's
-//      shape `(button)`.
+//      OnClick).
+//
+//   2a. `down`. 3.3.5 passes OnClick/PreClick/PostClick `(button, down)`; its
+//      press handler clicks with down = 1, its release handler with 0, and
+//      Click(button, down) reads StringToBOOL(L, 3, 0). 1.12's click vmethod
+//      gets `(mask, fromScript)` and never learns which — but its callers do.
+//      The six that 3.3.5 maps onto (press, release, Script_Click's four name
+//      branches — SITE_BUTTON_*_CLICK / SITE_SCRIPT_CLICK_*) call it through
+//      `call [edx+0x94]`; each is replaced with a call to a thunk that records
+//      {button, down} and jumps on through the same vtable slot. The click
+//      detour takes that record for its own button (anything else clicks with
+//      down = false) and offers it to Frame::ScriptArgs as the trailing boolean
+//      of this button's OnClick/PreClick/PostClick runs.
 //
 //   3. GetMouseButtonClicked scope — the runner interceptor. Every one of the
 //      fires 3.3.5 brackets reaches FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT as
@@ -102,10 +112,12 @@
 
 #include "frame/ClickEvents.h"
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/MouseRegistration.h"
 #include "frame/RunnerHook.h"
+#include "frame/ScriptArgs.h"
 #include "frame/ScriptSlots.h"
 
 #include <cstdint>
@@ -190,7 +202,81 @@ int __fastcall Script_GetMouseButtonClicked(void *L) {
     return 1;
 }
 
+// --- down: the click's callers record it ------------------------------------
+// The last {button, down} a patched call site recorded; the click detour takes
+// it (TakeDown) for its own button.
+void *g_pendingButton = nullptr;
+int g_pendingDown = 0;
+
+// The thunks jump through `[edx + 94h]`. MSVC inline asm reads a C++ name
+// inside an address expression as that variable's ADDRESS, not its value
+// (`[edx + vtblButtonClick]` jumped through vtable + &vtblButtonClick and
+// crashed), so the displacement is a literal held to Offsets here.
+static_assert(Offsets::VTBL_BUTTON_CLICK == 0x94, "click thunks hard-code [edx + 94h]");
+
+// Script_Click's `down`: StringToBOOL(L, 3, 0), as 3.3.5's Click reads it.
+void __cdecl RecordScriptDown(void *button) {
+    void *L = Game::Lua::State();
+    g_pendingButton = button;
+    g_pendingDown = (L != nullptr && Game::Lua::ToFlag(L, 3)) ? 1 : 0;
+}
+
+// Each stands in for `call [edx+0x94]` (ECX = the button, EDX = its vtable):
+// record, then jump to the same slot with the caller's return address and
+// arguments untouched.
+__declspec(naked) void PressClickThunk() {
+    __asm {
+        mov g_pendingButton, ecx
+        mov g_pendingDown, 1
+        jmp dword ptr [edx + 94h]
+    }
+}
+
+__declspec(naked) void ReleaseClickThunk() {
+    __asm {
+        mov g_pendingButton, ecx
+        mov g_pendingDown, 0
+        jmp dword ptr [edx + 94h]
+    }
+}
+
+__declspec(naked) void ScriptClickThunk() {
+    __asm {
+        push ecx
+        push edx
+        push ecx
+        call RecordScriptDown
+        add esp, 4
+        pop edx
+        pop ecx
+        jmp dword ptr [edx + 94h]
+    }
+}
+
+void PatchClickCallers() {
+    static const uint8_t kCallClick[6] = {0xFF, 0x92, 0x94, 0x00, 0x00, 0x00};
+    const auto patch = [](uintptr_t site, void (*thunk)()) {
+        Common::ReplaceWithCall(site, kCallClick, sizeof kCallClick,
+                                reinterpret_cast<const void *>(thunk));
+    };
+    patch(Offsets::SITE_BUTTON_PRESS_CLICK, &PressClickThunk);
+    patch(Offsets::SITE_BUTTON_RELEASE_CLICK, &ReleaseClickThunk);
+    patch(Offsets::SITE_SCRIPT_CLICK_LEFT, &ScriptClickThunk);
+    patch(Offsets::SITE_SCRIPT_CLICK_MIDDLE, &ScriptClickThunk);
+    patch(Offsets::SITE_SCRIPT_CLICK_RIGHT, &ScriptClickThunk);
+    patch(Offsets::SITE_SCRIPT_CLICK_DEFAULT, &ScriptClickThunk);
+}
+
+// The recorded `down` when it was recorded for `button`; false for a click
+// no patched caller made. Clears the record either way.
+bool TakeDown(void *button) {
+    const bool down = g_pendingButton == button && g_pendingDown != 0;
+    g_pendingButton = nullptr;
+    return down;
+}
+
 void RegisterLuaFunctions() {
+    PatchClickCallers();
     Game::Lua::RegisterGlobalFunction("GetMouseButtonClicked",
                                       &Script_GetMouseButtonClicked);
 }
@@ -281,7 +367,32 @@ void FireSlot(void *button, uint32_t *slot, const char *name) {
         Game::Lua::SetTop(L, savedTop);
 }
 
-void __fastcall Click_h(void *self, void *edx, uint32_t mask, int fromScript) {
+// The innermost click in progress, for its OnClick/PreClick/PostClick `down`.
+struct ClickScope {
+    void *button;
+    bool down;
+};
+ClickScope g_click = {nullptr, false};
+
+bool ClickDown(int handlerRef, void *frame, bool *value) {
+    if (frame == nullptr || frame != g_click.button)
+        return false;
+    bool isClick = Game::Read<int>(frame, Offsets::OFF_BUTTON_ONCLICK_HANDLER) == handlerRef;
+    if (!isClick) {
+        const Cell *cell = CellFor(frame, /*create*/ false);
+        isClick = cell != nullptr &&
+                  (static_cast<int>(cell->slot[SK_PRECLICK][0]) == handlerRef ||
+                   static_cast<int>(cell->slot[SK_POSTCLICK][0]) == handlerRef);
+    }
+    if (!isClick)
+        return false;
+    *value = g_click.down;
+    return true;
+}
+
+const Frame::ScriptArgs::AutoTrailingBool _clickDown{&ClickDown};
+
+void ClickBracket(void *self, void *edx, uint32_t mask, int fromScript) {
     Cell *cell = CellFor(self, /*create*/ false);
     if (cell == nullptr || cell->firing) {
         // No Pre/Post on this button, or a re-entrant click of the same button
@@ -307,6 +418,13 @@ void __fastcall Click_h(void *self, void *edx, uint32_t mask, int fromScript) {
     }
 
     g_clickedButton = saved;
+}
+
+void __fastcall Click_h(void *self, void *edx, uint32_t mask, int fromScript) {
+    const ClickScope saved = g_click;
+    g_click = {self, TakeDown(self)};
+    ClickBracket(self, edx, mask, fromScript);
+    g_click = saved;
 }
 
 static const Game::HookAutoRegister _resolverHook{

@@ -47,4 +47,19 @@ struct AutoObserve {
     AutoObserve *next;
 };
 
+// A boolean 3.3.5 passes after a script's values, which 1.12's runners
+// cannot carry: OnClick/PreClick/PostClick's `down`, OnEnter/OnLeave's
+// `motion`. A provider returns true and sets `value` when the run of
+// `handlerRef` on `frame` takes one; the first provider that does wins. It
+// becomes the last argN and positional argument of a handler that takes the
+// positional path; a handler that declares no parameters keeps vanilla's
+// globals. Declare a file-scope `static const Frame::ScriptArgs::AutoTrailingBool`.
+using TrailingBool = bool (*)(int handlerRef, void *frame, bool *value);
+
+struct AutoTrailingBool {
+    explicit AutoTrailingBool(TrailingBool fn);
+    TrailingBool fn;
+    AutoTrailingBool *next;
+};
+
 } // namespace Frame::ScriptArgs

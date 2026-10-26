@@ -3438,6 +3438,19 @@ enum Offsets {
     VTBL_BUTTON_DOUBLE_CLICK = 0x98,
     VTBL_BUTTON_SET_STATE = 0x9C,
     VAR_BUTTON_IN_CLICK = 0x00CF4DA0,
+    // The click vmethod's callers that know 3.3.5's `down`, each a 6-byte
+    // `FF 92 94 00 00 00` (call [edx+VTBL_BUTTON_CLICK]) with ECX = the button
+    // and EDX = its vtable (capstone): the press handler 0x00779210 (slot 26)
+    // clicks a down-registered button (down = 1), the release handler
+    // 0x007792D0 (slot 27) an up-registered one (down = 0), and Script_Click
+    // 0x007826C0 clicks from its four name branches with `(mask, 1)` —
+    // LeftButton, MiddleButton, RightButton-or-UNKNOWN, no name.
+    SITE_BUTTON_PRESS_CLICK = 0x00779285,
+    SITE_BUTTON_RELEASE_CLICK = 0x007793A9,
+    SITE_SCRIPT_CLICK_LEFT = 0x007827B6,
+    SITE_SCRIPT_CLICK_MIDDLE = 0x007827E2,
+    SITE_SCRIPT_CLICK_RIGHT = 0x00782811,
+    SITE_SCRIPT_CLICK_DEFAULT = 0x00782826,
     BUTTON_DOUBLE_CLICK_MS = 300,
     // Button::SetClickMask — __thiscall(button, mask): writes +0x330. The
     // ctors call it with the type default (Button 0x100 = LeftButtonUp;
@@ -3773,6 +3786,17 @@ enum Offsets {
     // cursor is over no mouse-enabled frame. `Frame::Attributes` polls this to
     // drive the `mouseover` override from the hovered frame's `unit` attribute.
     OFF_UI_CONTEXT_MOUSE_FOCUS = 0x7C,
+    // The mouse-focus pass — `int __fastcall(const MouseEvent *event,
+    // context)`, an input handler (registered by 0x00765C6C) that also runs
+    // from the layout update 0x007657BE when the re-pick flag (+0x1100) is
+    // set. That re-pick passes the context's saved copy of the last mouse
+    // event, `context + OFF_UI_CONTEXT_SAVED_MOUSE_EVENT`; `cmp ebx,edi` at
+    // 0x00766114 tells the two apart, as 3.3.5's CSimpleTop::OnMouseMove does
+    // for its `motion` (`mouseData != &top->m_mousePosition`). It stores the
+    // new focus at +0x7C, then calls the old focus's leave (vtable+0x50, 0)
+    // and the new focus's enter (vtable+0x4C) (Ghidra).
+    FUN_UI_MOUSE_FOCUS_PASS = 0x007660D0,
+    OFF_UI_CONTEXT_SAVED_MOUSE_EVENT = 0x1104,
     // Head of the engine's frame list (`*(*VAR_UI_CONTEXT_PTR + 0xCC4)`),
     // and each frame CObject's next-in-enumeration pointer at +0x308 — the
     // list `Script_EnumerateFrames` (0x00705F60) walks. A node with its low
