@@ -19,6 +19,7 @@
 #include "item/Location.h"
 #include "item/Record.h"
 #include "item/Swap.h"
+#include "spell/Known.h"
 
 #include <cstdint>
 
@@ -26,42 +27,21 @@ namespace Item::Equipment {
 
 namespace {
 
-// `OffhandHasWeapon()` — true iff the player has a one-handed
-// weapon (or off-hand-only weapon) equipped in the off-hand slot.
-// Returns false for empty off-hand, shields, and held items
-// (tomes, orbs, librams) — even though the latter two share the
-// off-hand slot.
-//
-// Implementation: resolves slot 17 → CGItem → itemID → cached
-// ItemStats record → m_inventoryType. Falls back to false on any
-// missing link in that chain (no item, item data not cached yet,
-// etc.). Modern API behavior is the same — no async load fired,
-// no event emitted; if the off-hand item isn't cached the function
-// just returns false until something else warms the cache.
-int __fastcall Script_OffhandHasWeapon(void *L) {
-    auto *item = Item::Location::ResolveEquipmentSlot(Offsets::INVSLOT_OFFHAND);
-    if (item == nullptr) {
-        Game::Lua::PushBool(L, 0);
-        return 1;
-    }
-
-    const int itemID = Item::ID::FromCGItem(item);
-    if (itemID == 0) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
-    }
-
-    auto *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
-    }
-
-    const uint32_t invType = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
-    const bool isWeapon = (invType == Offsets::INVTYPE_WEAPON ||
-                           invType == Offsets::INVTYPE_WEAPONOFFHAND);
-    Game::Lua::PushBoolean(L, static_cast<int>(isWeapon));
+// `IsDualWielding()` — a port of 4.3.4's `Script_IsDualWielding`
+// (0x00452A50): true iff the off-hand slot holds a weapon-class item and the
+// player can dual wield. A shield or held item is not weapon class. 4.3.4's
+// `CGItem_C::GetClassID` reads the cached record and yields 0 when it is
+// missing; the passive peek here is the same, no load fired. Dual wield comes
+// from Spell::Known::CanDualWield (see there for why not the engine's).
+int __fastcall Script_IsDualWielding(void *L) {
+    const uint8_t *item = Item::Location::ResolveEquipmentSlot(Offsets::INVSLOT_OFFHAND);
+    const int itemID = item != nullptr ? Item::ID::FromCGItem(item) : 0;
+    const uint8_t *record =
+        itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+    Game::Lua::PushBool(L, record != nullptr &&
+                               Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS) ==
+                                   Offsets::ITEM_CLASS_WEAPON &&
+                               Spell::Known::CanDualWield());
     return 1;
 }
 
@@ -224,6 +204,14 @@ int __fastcall Script_C_Item_EquipItemByName(void *L) {
 
 // --- Documentation ----------------------------------------------------------
 
+const Game::Doc::Field kIsDualWieldingRets[] = {
+    Game::Doc::Req("isDualWielding", "bool",
+                   "True when the player can dual wield and has a weapon in the off hand."),
+};
+const Game::Doc::Function kIsDualWielding{
+    "Whether the player is holding a weapon in each hand.", {}, kIsDualWieldingRets,
+    "ItemGlobals"};
+
 const Game::Doc::Field kIsEquippableLegacyArgs[] = {
     Game::Doc::Req("item", "number", "An item ID, an item link, or the name of a carried item."),
 };
@@ -248,7 +236,7 @@ const Game::Doc::Function kCIsEquippableItem{
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("OffhandHasWeapon", &Script_OffhandHasWeapon);
+    Game::Lua::RegisterGlobalFunction("IsDualWielding", &Script_IsDualWielding, &kIsDualWielding);
     Game::Lua::RegisterGlobalFunction("IsEquippableItem", &Script_IsEquippableItem,
                                       &kIsEquippableItem);
     Game::Lua::RegisterTableFunction("C_Item", "IsEquippableItem",

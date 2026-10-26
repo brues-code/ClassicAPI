@@ -455,8 +455,7 @@ the other spell registrations in [src/spell/Info.cpp](src/spell/Info.cpp).
 ## ~~26. `C_Item.IsEquippableItem(item)`~~ — DONE
 
 Cache-record read of `m_inventoryType` at `OFF_ITEMSTATS_INVENTORY_TYPE`.
-Non-zero = equippable. Lives in `item/Equipment.cpp` alongside
-`OffhandHasWeapon` (which uses the same field) and `IsEquippedItem`.
+Non-zero = equippable. Lives in `item/Equipment.cpp` alongside `IsEquippedItem`.
 Synchronous; returns `false` on cache miss without firing a load.
 Namespaced under `C_Item` to match Classic Era 1.15.x.
 
@@ -1465,20 +1464,12 @@ it on a struct pointer to scan layouts, or from Lua via
 `_classicapi_HexDump(label, addr, len)` to inspect engine
 globals without a per-investigation probe module.
 
-## ~~56. `OffhandHasWeapon()`~~ — DONE
+## ~~56. `OffhandHasWeapon()`~~ — DROPPED
 
-Shipped as `src/item/Equipment.cpp`. Resolves the off-hand
-equipment slot (slot 17) via `Item::Location::ResolveEquipmentSlot`,
-reads the cached `ItemStats_C` record's `m_inventoryType` at
-`+0x2C`, and returns true iff it's `INVTYPE_WEAPON` (13) or
-`INVTYPE_WEAPONOFFHAND` (22). Shields, holdables (tomes/orbs),
-empty slots, and uncached items all return false.
-
-No async load is fired — modern API behavior matches; if the
-off-hand item isn't cached the function silently returns false
-until something else warms the cache. Typically only matters on
-first login before the player's own gear is in the cache, which
-in practice is loaded eagerly anyway.
+Vanilla already ships it (`0x004C9570`, same body as 3.3.5/4.3.4:
+off-hand slot item class 2 → `1`, else `nil`). Our override returned
+booleans and tested inventory type instead; removed so the engine's
+own global stands.
 
 ## 57. `IsFlying()` — TESTED, DROPPED
 
@@ -1952,8 +1943,8 @@ current item/spell/unit. Approach:
 4. Each match reveals the offset for that state field.
 
 Once located, `GetItem()`, `GetSpell()`, `GetUnit()` are trivial
-deref+push. Implementation roughly the same as `OffhandHasWeapon`
-or `IsEquippedItem` patterns.
+deref+push. Implementation roughly the same as the `IsEquippedItem`
+pattern.
 
 ### Risks
 

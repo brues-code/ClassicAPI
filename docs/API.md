@@ -513,7 +513,7 @@ build instructions.
   - [`GetInventoryItemRepairCost(invSlot)`](#getinventoryitemrepaircostinvslot)
   - [`GetInventoryItemsForSlot(slot, returnTable [, transmogrify])`](#getinventoryitemsforslotslot-returntable--transmogrify)
   - [`GetItemIcon(itemID)` / `C_Item.GetItemIcon(itemLocation)` / `C_Item.GetItemIconByID(item)`](#getitemiconitemid--c_itemgetitemiconitemlocation--c_itemgetitemiconbyiditem)
-  - [`OffhandHasWeapon()`](#offhandhasweapon)
+  - [`IsDualWielding()`](#isdualwielding)
 
 - [Launch](#launch)
   - [`-config <name>` (launch switch)](#-config-name-launch-switch)
@@ -12385,30 +12385,18 @@ local path = C_Item.GetItemIconByID("|cff...|Hitem:6948:0:0:0|h[Hearthstone]|h|r
 Equivalent to the global `GetItemIcon` and the `C_Item.GetItemIcon` /
 `GetItemIconByID` family.
 
-### `OffhandHasWeapon()`
+### `IsDualWielding()`
 
-Returns `true` if the player has a one-handed weapon (or off-hand-only
-weapon) equipped in the off-hand slot, `false` otherwise. Used by
-dual-wield checks and weapon-equipment logic.
-
-Returns `false` for:
-
-- Empty off-hand
-- Shields (`INVTYPE_SHIELD`)
-- Held items — tomes, orbs, librams (`INVTYPE_HOLDABLE`)
-- Off-hand item data not yet cached (typically only on first login,
-  before the engine has the item record; warms up after a peek)
-
-Returns `true` for `INVTYPE_WEAPON` (any one-handed weapon — sword,
-axe, mace, dagger, fist) and `INVTYPE_WEAPONOFFHAND` (off-hand-only
-weapons). Two-handers occupy the main-hand slot exclusively, so they
-never apply.
+Returns `true` if the player can dual wield and has a weapon in the
+off-hand slot. Otherwise it returns `false`.
 
 ```lua
-if OffhandHasWeapon() then
-    -- Apply mainhand+offhand poison, refresh dual-wield rotation, etc.
-end
+if IsDualWielding() then ... end
 ```
+
+A shield or a held item (tome, orb, libram) in the off hand does not
+count. The result is also `false` until the client has the off-hand
+item's data.
 
 ## Launch
 

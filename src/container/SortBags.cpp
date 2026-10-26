@@ -118,11 +118,9 @@ int g_mergePackets = 0;
 // Item.dbc `m_class` values we rank on. Per-module codes, the way
 // `Item::BagFamily` keeps its own.
 constexpr uint32_t kClassConsumable = 0;
-constexpr uint32_t kClassWeapon = 2;
 constexpr uint32_t kClassArmor = 4;
 constexpr uint32_t kClassReagent = 5;
 constexpr uint32_t kClassTradeGoods = 7;
-constexpr uint32_t kClassQuest = 12;
 
 constexpr uint32_t kQualityPoor = 0;
 constexpr uint32_t kQualityUncommon = 2;
@@ -149,7 +147,7 @@ uint8_t CategoryFor(uint32_t itemID, uint32_t itemClass, uint32_t quality) {
         return kCatHearthstone;
     if (quality == kQualityPoor)
         return kCatJunk;
-    if (itemClass == kClassWeapon || itemClass == kClassArmor)
+    if (itemClass == Offsets::ITEM_CLASS_WEAPON || itemClass == kClassArmor)
         return kCatGear;
     if (itemClass == kClassConsumable)
         return kCatConsumable;
@@ -157,7 +155,7 @@ uint8_t CategoryFor(uint32_t itemID, uint32_t itemClass, uint32_t quality) {
         return kCatReagent;
     if (itemClass == kClassTradeGoods)
         return kCatTradeGoods;
-    if (itemClass == kClassQuest)
+    if (itemClass == Offsets::ITEM_CLASS_QUEST)
         return kCatQuest;
     if (quality >= kQualityEpic)
         return kCatOtherEpic;

@@ -4927,6 +4927,10 @@ enum Offsets {
     // VanillaHelpers's `Game.h` (`struct ItemStats_C`); we only need these.
     OFF_ITEMSTATS_CLASS = 0x00,
     OFF_ITEMSTATS_SUBCLASS = 0x04,
+    // `OFF_ITEMSTATS_CLASS` values (ItemClass.dbc IDs, verified by parsing
+    // C:\WoW\Octo\DBFilesClient\ItemClass.dbc: 2 = "Weapon", 12 = "Quest").
+    ITEM_CLASS_WEAPON = 2,
+    ITEM_CLASS_QUEST = 12,
     // `char *m_name[4]` per VanillaHelpers's `struct ItemStats_C`. Only
     // m_name[0] is the primary localized item name (e.g., "Linen Cloth");
     // m_name[1..3] are random-property suffix slots that are typically
@@ -9555,15 +9559,8 @@ enum Offsets {
     INVSLOT_OFFHAND = 17,
     INVSLOT_MAINHAND = 16,
 
-    // INVTYPE values that count as "weapon" for `OffhandHasWeapon`.
-    // INVTYPE_WEAPON (13) covers any one-handed weapon equippable in
-    // either hand (sword, axe, mace, dagger, fist). INVTYPE_WEAPONOFFHAND
-    // (22) covers weapons that can ONLY go in the off-hand. Shields
-    // (14), Holdables (23 — tomes/orbs), and empty slots all return
-    // false. INVTYPE_2HWEAPON (17) is excluded because two-handers
-    // occupy the main-hand slot exclusively.
-    INVTYPE_WEAPON = 13,
-    INVTYPE_WEAPONOFFHAND = 22,
+    // INVTYPE (`OFF_ITEMSTATS_INVENTORY_TYPE`) of a two-handed weapon,
+    // which occupies the main-hand slot and blocks the off-hand.
     INVTYPE_2HWEAPON = 17,
 
     // Character-pane equipment slot range: 1..19 (head=1, neck=2, …,

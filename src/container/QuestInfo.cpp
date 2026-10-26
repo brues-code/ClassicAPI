@@ -49,10 +49,6 @@ namespace Container::QuestInfo {
 
 namespace {
 
-// ItemClass.dbc row 12. Only this file cares which class means "quest",
-// so the code stays local per the single-use rule in the offsets policy.
-constexpr uint32_t kItemClassQuest = 12;
-
 int __fastcall Script_C_Container_GetContainerItemQuestInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1) || !Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L,
@@ -79,7 +75,7 @@ int __fastcall Script_C_Container_GetContainerItemQuestInfo(void *L) {
         } else {
             isQuestItem = *reinterpret_cast<const uint32_t *>(
                               record + Offsets::OFF_ITEMSTATS_CLASS) ==
-                          kItemClassQuest;
+                          Offsets::ITEM_CLASS_QUEST;
             startQuest = *reinterpret_cast<const uint32_t *>(
                 record + Offsets::OFF_ITEMSTATS_START_QUEST);
         }
