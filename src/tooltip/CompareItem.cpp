@@ -34,9 +34,9 @@
 //      Stats come from the shared `Item::StatAccum`.
 //
 // Returns 1 when the tooltip was filled, nil otherwise (tooltip left
-// untouched). Size/show is left to the caller, as in retail. The 60-line
-// pool from Tooltip::LinePool keeps the appended deltas under the AddLine
-// cap. `shiftButton` only matters for the offset-3 merchant case, so it is
+// untouched). Size/show is left to the caller, as in retail.
+// Tooltip::LinePool grows the line pool on demand, so the appended deltas
+// never hit a cap. `shiftButton` only matters for the offset-3 merchant case, so it is
 // accepted and ignored.
 
 #include "Game.h"
@@ -467,7 +467,7 @@ void PrependCurrentlyEquipped(void *self, void *L) {
         Game::Read<int>(t, Offsets::OFF_GAMETOOLTIP_NUM_LINES_ALLOC);
     const int n = *numLines;
     if (n <= 0 || n + 1 > allocated)
-        return; // nothing built, or pool full (LinePool keeps 60, so rare)
+        return; // nothing built, or pool full (LinePool leaves a spare after every add)
 
     auto **leftArr = Game::Read<void **>(
         t, Offsets::OFF_GAMETOOLTIP_TEXTLEFT_DESC + 8);

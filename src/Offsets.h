@@ -259,21 +259,21 @@ enum Offsets {
     FUN_REGISTER_FRAME_METHODS = 0x00701D80,
     VAR_GAMETOOLTIP_METHOD_REGISTRY = 0x00C0CF20,
 
-    // CGameTooltip line pool (see TODO #97). The engine caps AddLine
-    // (FUN_00530270) at `numLinesAllocated`, which the XML-OnLoad scan
-    // (FUN_00529650, vtable slot 9) sets to the count of contiguous
-    // `<name>TextLeftN`/`TextRightN` FontStrings the template declares
-    // (30). Tooltip::LinePool grows it: it appends its own C++-created
-    // FontStrings to the three parallel arrays and bumps this count. Each
-    // array is a {count@+0x0, cap@+0x4, data@+0x8} descriptor; the
-    // reallocators realloc `data` to newCount*4 and copy `cap` old elements.
-    VAR_GAMETOOLTIP_VTABLE = 0x00808F60,          // type guard for a resolved tooltip object
+    // CGameTooltip line pool. The engine caps AddLine (FUN_00530270) at
+    // `numLinesAllocated`, which the XML-OnLoad scan (FUN_00529650, vtable
+    // slot 9) sets to the count of contiguous `<name>TextLeftN`/`TextRightN`
+    // FontStrings the template declares (30). Tooltip::LinePool grows it on
+    // demand inside AddLine, appending through FUN_GAMETOOLTIP_ADD_FONT_STRINGS.
+    // Each array is a {count@+0x0, cap@+0x4, data@+0x8} descriptor.
     OFF_GAMETOOLTIP_NUM_LINES_ALLOC = 0x320,      // int — pool size AddLine gates on
     OFF_GAMETOOLTIP_TEXTLEFT_DESC = 0x324,        // {count,cap,data}; data (+0x8) = CSimpleFontString*[]
     OFF_GAMETOOLTIP_TEXTRIGHT_DESC = 0x330,       // symmetric right column
     OFF_GAMETOOLTIP_WRAPFLAG_DESC = 0x33C,        // per-line wrap int[]
-    FUN_TOOLTIP_REALLOC_PTR_ARRAY = 0x00536C80,   // __thiscall(desc, newCount) — pointer arrays
-    FUN_TOOLTIP_REALLOC_INT_ARRAY = 0x004368C0,   // __thiscall(desc, newCount) — wrap-flag array
+    // __thiscall(tooltip, left, right), `ret 8` — the core of the
+    // `GameTooltip:AddFontStrings` method (0x00530C40): bumps
+    // numLinesAllocated, grows the three arrays to it, stores the pair and a
+    // 0 wrap flag in the new last slot. 4.3.4's CGTooltip::AddFontStrings.
+    FUN_GAMETOOLTIP_ADD_FONT_STRINGS = 0x00529940,
 
     // GameTooltip:SetHyperlinkCompareItem (Tooltip::Compare) — builds the
     // equipped item's tooltip natively (no Lua roundtrip) and appends
@@ -584,7 +584,6 @@ enum Offsets {
     // offsets mirrored from Script_CreateFontString (0x00773C30),
     // Script_SetFontObject (0x0079D1A0 → 0x00770C60), and Script_SetPoint
     // (0x007A2540 → 0x00767C70) — see TODO #97's investigation update.
-    FUN_GAMETOOLTIP_SETUP_LINES = 0x00529650,     // vtable slot 9 — the pool scan we co-hook
     VAR_SIMPLEFONTSTRING_POOL = 0x00CF4D10,       // CSimpleFontString free-list pool (allocator `this`)
     VAR_SIMPLEFONTSTRING_CLASS_TAG = 0x00846544,  // ".?AVCSimpleFontString@@" (alloc debug tag)
     FUN_REGION_POOL_ALLOC = 0x00760450,           // __thiscall(pool, zeroInit=0, tag, line=-2) -> raw mem
