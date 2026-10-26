@@ -46,7 +46,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "debug/Log.h"
 #include "event/Custom.h"
 
 #include <algorithm>
@@ -98,7 +97,6 @@ struct Entry {
 std::vector<Entry> g_entries;
 Env g_pass = ENV_NONE;
 unsigned g_sealed = 0;
-int g_recordedThisPass = 0;
 
 constexpr const char *kDebugPrefix = "_classicapi_";
 
@@ -131,7 +129,6 @@ void Record(Kind kind, const char *table, const char *name, const void *registry
             const Function *doc) {
     if (g_pass == ENV_NONE || name == nullptr)
         return;
-    ++g_recordedThisPass;
     if (Entry *e = Find(kind, table, name, registry)) {
         e->env |= g_pass;
         if (e->doc == nullptr)
@@ -619,19 +616,13 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 void BeginPass(Env env) {
     g_pass = (g_sealed & env) != 0 ? ENV_NONE : env;
-    g_recordedThisPass = 0;
 }
 
 void EndPass() {
     if (g_pass == ENV_NONE)
         return;
     g_sealed |= g_pass;
-    const Env done = g_pass;
     g_pass = ENV_NONE;
-    const std::vector<std::string> missing = Undocumented();
-    Debug::Log::Printf("[doc] %s pass: %d registrations recorded, %d undocumented",
-                       done == ENV_GLUE ? "glue" : "game", g_recordedThisPass,
-                       static_cast<int>(missing.size()));
 }
 
 void RecordGlobal(const char *name, const Function *doc) {
@@ -675,7 +666,6 @@ void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntege
                 int count, const char *system) {
     if (g_pass == ENV_NONE || sub == nullptr)
         return;
-    ++g_recordedThisPass;
     if (Entry *e = Find(KIND_ENUM, parent, sub, nullptr)) {
         e->env |= g_pass;
         if (e->enumSystem == nullptr)
