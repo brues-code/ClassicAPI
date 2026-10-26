@@ -41,7 +41,12 @@
 // provably identical to vanilla, and OFF the engine's hottest Lua path (the vast
 // majority of vanilla handlers, which read `this`/`arg1`, are param-less). So a
 // param-less vanilla handler is untouched; only a param-declaring handler sees
-// the `(self, [event,] arg1..argN)` shape.
+// the `(self, [event,] arg1..argN)` shape. The one exception is a fire with
+// more values than the engine runner's 19: 3.3.5 sets every argN, so that
+// fire takes the reimplemented path whatever the handler.
+//
+// Each OnEvent handler also gets its own `event` global, saved before and
+// restored after it (SaveEvent), as 3.3.5 does per handler.
 //
 // Irreducible caveat: a param-declaring handler and a modern handler are
 // indistinguishable to the dispatcher — both are one-param Lua functions. So a
@@ -73,6 +78,7 @@
 #include "Offsets.h"
 
 #include <cstdint>
+#include <cstdio>
 
 namespace Frame::ScriptArgs {
 
@@ -91,100 +97,133 @@ void Notify(bool begin, int handlerRef, void *frame) {
         o->fn(begin, handlerRef, frame);
 }
 
-// Engine cap: the runner stops setting arg globals at index 19 (arg1..arg19).
-constexpr int kMaxArgs = 19;
+// The engine runner sets only arg1..arg19 (0x704F10 stops at the 19th spec,
+// `cmp [ebp-4],0x13; jge` at 0x704F73). 3.3.5's FrameScript_Execute has no
+// limit, so a fire with more specs than this takes the reimplemented path.
+constexpr int kEngineArgLimit = 19;
 
 using Game::Lua::RawGetI;
 
-// Writes "arg" + k (k in 1..19) into buf; buf must hold at least 6 bytes.
-void ArgName(char *buf, int k) {
-    buf[0] = 'a';
-    buf[1] = 'r';
-    buf[2] = 'g';
-    if (k < 10) {
-        buf[3] = static_cast<char>('0' + k);
-        buf[4] = '\0';
-    } else {
-        buf[3] = static_cast<char>('0' + k / 10);
-        buf[4] = static_cast<char>('0' + k % 10);
-        buf[5] = '\0';
-    }
-}
+// Writes "arg" + k into buf.
+void ArgName(char (&buf)[16], int k) { std::snprintf(buf, sizeof buf, "arg%d", k); }
 
-// One parsed positional argument from the runner's printf-style format.
-// Numbers ('d'/'u'/'f') land in `num`; strings ('s') keep the char* the engine
-// handed us (stable for the duration of the call).
-struct Arg {
-    char kind;    // 'd' | 'u' | 'f' | 's'
-    double num;
-    const char *str;
-};
-
-// Decodes `fmt`/`vaPtr` (the runner's %d/%u/%f/%s specs over a packed vararg
-// buffer) into `out`, returning the count (capped at kMaxArgs). Unknown specs
-// are skipped and consume no vararg — mirroring the engine runner's switch.
-// Pure C, touches no Lua state, so it can never throw.
-int ParseArgs(const char *fmt, const void *vaPtr, Arg *out) {
+// Counts the values in the runner's printf-style format: each %d/%u/%f/%s.
+// Any other letter after `%` is skipped and consumes no vararg, as in the
+// engine runner's switch.
+int CountArgs(const char *fmt) {
     if (fmt == nullptr)
         return 0;
-    const char *cur = static_cast<const char *>(vaPtr);
     int n = 0;
-    for (const char *p = fmt; *p != '\0' && n < kMaxArgs; ++p) {
+    for (const char *p = fmt; *p != '\0'; ++p) {
         if (*p != '%')
             continue;
         ++p;
         if (*p == '\0')
             break;
-        Arg &a = out[n];
-        switch (*p) {
-        case 'd':
-            a.num = static_cast<double>(*reinterpret_cast<const int *>(cur));
-            cur += 4;
-            break;
-        case 'u':
-            a.num = static_cast<double>(
-                *reinterpret_cast<const unsigned int *>(cur));
-            cur += 4;
-            break;
-        case 'f':
-            a.num = *reinterpret_cast<const double *>(cur);
-            cur += 8;
-            break;
-        case 's':
-            a.str = *reinterpret_cast<const char *const *>(cur);
-            cur += 4;
-            break;
-        default:
-            continue; // unknown spec — consume nothing
-        }
-        a.kind = *p;
-        ++n;
+        if (*p == 'd' || *p == 'u' || *p == 'f' || *p == 's')
+            ++n;
     }
     return n;
 }
 
-// Pushes a parsed argument's value onto the Lua stack.
-void PushArg(void *L, const Arg &a) {
-    if (a.kind == 's')
-        Game::Lua::PushString(L, a.str);
-    else
-        Game::Lua::PushNumber(L, a.num);
-}
-
-// Where RunCore's arguments come from: the runner's parsed printf-style
-// list, or `n` Lua values already on the stack from absolute index
-// `stackBase` (they sit below everything RunCore pushes, so the index holds).
+// Where RunCore's arguments come from: the runner's printf-style format over
+// its packed vararg buffer (%d/%u/%s 4 bytes, %f 8), or `n` Lua values already
+// on the stack from absolute index `stackBase` (they sit below everything
+// RunCore pushes, so the index holds).
 struct ArgSource {
-    const Arg *parsed = nullptr;
+    const char *fmt = nullptr;
+    const void *vaPtr = nullptr;
     int stackBase = 0;
     int n = 0;
-    void Push(void *L, int k) const {
-        if (parsed != nullptr)
-            PushArg(L, parsed[k]);
-        else
-            Game::Lua::PushValue(L, stackBase + k);
-    }
 };
+
+// Pushes an ArgSource's values in order, one per PushNext; a new cursor
+// starts again from the first.
+class ArgCursor {
+public:
+    explicit ArgCursor(const ArgSource &src)
+        : src_(src), p_(src.fmt), cur_(static_cast<const char *>(src.vaPtr)) {}
+
+    void PushNext(void *L) {
+        using namespace Game::Lua;
+        if (p_ == nullptr) {
+            PushValue(L, src_.stackBase + k_++);
+            return;
+        }
+        for (; *p_ != '\0'; ++p_) {
+            if (*p_ != '%')
+                continue;
+            ++p_;
+            const char spec = *p_;
+            if (spec == '\0')
+                return;
+            switch (spec) {
+            case 'd':
+                PushNumber(L, static_cast<double>(*reinterpret_cast<const int *>(cur_)));
+                cur_ += 4;
+                break;
+            case 'u':
+                PushNumber(L, static_cast<double>(
+                                  *reinterpret_cast<const unsigned int *>(cur_)));
+                cur_ += 4;
+                break;
+            case 'f':
+                PushNumber(L, *reinterpret_cast<const double *>(cur_));
+                cur_ += 8;
+                break;
+            case 's': // a null string pushes nil, as lua_pushstring does
+                PushString(L, *reinterpret_cast<const char *const *>(cur_));
+                cur_ += 4;
+                break;
+            default:
+                continue; // unknown spec — consume nothing
+            }
+            ++p_;
+            return;
+        }
+    }
+
+private:
+    const ArgSource &src_;
+    const char *p_;
+    const char *cur_;
+    int k_ = 0;
+};
+
+// OnEvent dispatch? The event dispatchers invoke the frame's OnEvent slot
+// (frame+0x0C); matching the handler ref against that slot identifies it
+// exactly.
+bool IsOnEvent(int handlerRef, void *frame) {
+    return frame != nullptr &&
+           Game::Read<int>(frame, Offsets::OFF_FRAME_ONEVENT_SLOT) == handlerRef;
+}
+
+// Keeps the `event` global per OnEvent handler, as 3.3.5's
+// FrameScript_Execute does: saved before the handler, restored after it. The
+// engine dispatchers (0x703E50 / 0x703F50) set `event` once for the whole
+// dispatch, so a handler that assigns the global would otherwise change it
+// for every listener after it. SaveEvent pushes the value and returns its
+// stack index (0 when there is nothing to keep); RestoreEvent puts it back and
+// pops it. Every run between them is stack-balanced.
+int SaveEvent(void *L, int handlerRef, void *frame) {
+    using namespace Game::Lua;
+    if (!g_enabled || L == nullptr || !IsOnEvent(handlerRef, frame) ||
+        CheckStack(L, 2) == 0)
+        return 0;
+    PushString(L, "event");
+    RawGet(L, GLOBALS_INDEX);
+    return GetTop(L);
+}
+
+void RestoreEvent(void *L, int saved) {
+    using namespace Game::Lua;
+    if (saved == 0)
+        return;
+    PushString(L, "event");
+    PushValue(L, saved);
+    SetTable(L, GLOBALS_INDEX);
+    SetTop(L, saved - 1);
+}
 
 // Reimplements the runner tail: set the `this`/`arg1..argN` globals, invoke the
 // handler with modern positional args `(self, [event,] arg1..argN)` under the
@@ -213,32 +252,30 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
         return false;
 
     const bool haveThis = frame != nullptr;
-    // OnEvent dispatch? The event dispatchers invoke the frame's OnEvent slot
-    // (frame+0x0C); matching the handler ref against that slot identifies it
-    // exactly. When so, `event` (a global the dispatcher has set) is prepended
-    // as the first positional to mirror retail's (self, event, arg1..argN).
-    const bool isOnEvent =
-        haveThis &&
-        Game::Read<int>(frame, Offsets::OFF_FRAME_ONEVENT_SLOT) == handlerRef;
+    // When so, `event` (a global the dispatcher has set) is prepended as the
+    // first positional to mirror retail's (self, event, arg1..argN).
+    const bool isOnEvent = IsOnEvent(handlerRef, frame);
     const int selfRef = haveThis ? Game::Lua::ObjectLuaRef(frame) : 0;
 
     const int n = src.n;
-    char argName[6];
+    char argName[16];
 
     // --- save the globals we're about to clobber, onto the stack ------------
     // Absolute indices, live until the closing SetTop(base):
     //   base+1                = old _G.this        (if haveThis)
     //   savedArgBase+1 .. +n   = old _G.arg1..argN
+    // Raw reads, as 3.3.5's FrameScript_Execute saves them: a `_G` __index
+    // (a strict-globals guard) never runs for an unset argN.
     const int base = GetTop(L);
     if (haveThis) {
         PushString(L, "this");
-        GetTable(L, GLOBALS_INDEX); // [.. oldThis]
+        RawGet(L, GLOBALS_INDEX); // [.. oldThis]
     }
     const int savedArgBase = base + (haveThis ? 1 : 0);
     for (int k = 0; k < n; ++k) {
         ArgName(argName, k + 1);
         PushString(L, argName);
-        GetTable(L, GLOBALS_INDEX); // [.. oldArgk]
+        RawGet(L, GLOBALS_INDEX); // [.. oldArgk]
     }
 
     // --- set the new globals (each op is stack-neutral) ---------------------
@@ -247,10 +284,11 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
         RawGetI(L, REGISTRY_INDEX, selfRef); // frame object
         SetTable(L, GLOBALS_INDEX);
     }
+    ArgCursor globals(src);
     for (int k = 0; k < n; ++k) {
         ArgName(argName, k + 1);
         PushString(L, argName);
-        src.Push(L, k);
+        globals.PushNext(L);
         SetTable(L, GLOBALS_INDEX);
     }
 
@@ -272,10 +310,11 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
             PushNil(L);
         if (isOnEvent) { // event goes before the args, retail-style
             PushString(L, "event");
-            GetTable(L, GLOBALS_INDEX);
+            RawGet(L, GLOBALS_INDEX);
         }
+        ArgCursor args(src);
         for (int k = 0; k < n; ++k)
-            src.Push(L, k);
+            args.PushNext(L);
         nargs = 1 + (isOnEvent ? 1 : 0) + n;
     }
     PCall(L, nargs, 0, errIdx);
@@ -302,10 +341,10 @@ bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) 
     void *L = Game::Lua::State();
     if (L == nullptr)
         return false;
-    Arg args[kMaxArgs];
     ArgSource src;
-    src.parsed = args;
-    src.n = ParseArgs(fmt, vaPtr, args);
+    src.fmt = fmt;
+    src.vaPtr = vaPtr;
+    src.n = CountArgs(fmt);
     return RunCore(L, handlerRef, frame, src, /*positional*/ true);
 }
 
@@ -390,20 +429,24 @@ using RunArgs_t = void(__cdecl *)(int handlerRef, void *frame, const char *fmt,
                                   const void *vaPtr);
 RunArgs_t g_origRunArgs = nullptr;
 
-void RunArgs(int handlerRef, void *frame, const char *fmt, const void *vaPtr) {
-    if (g_enabled && handlerRef != 0 && fmt != nullptr) {
-        void *L = Game::Lua::State();
-        if (L != nullptr && HandlerWantsArgs(L, handlerRef) &&
-            RunModern(handlerRef, frame, fmt, vaPtr))
-            return;
-    }
+void RunArgs(void *L, int handlerRef, void *frame, const char *fmt,
+             const void *vaPtr) {
+    // Past the engine's limit the original would drop arg20 onward, so even a
+    // handler that declares no parameters takes the uncapped path.
+    if (g_enabled && L != nullptr && handlerRef != 0 && fmt != nullptr &&
+        (HandlerWantsArgs(L, handlerRef) || CountArgs(fmt) > kEngineArgLimit) &&
+        RunModern(handlerRef, frame, fmt, vaPtr))
+        return;
     g_origRunArgs(handlerRef, frame, fmt, vaPtr);
 }
 
 void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
                        const void *vaPtr) {
+    void *L = Game::Lua::State();
     Notify(true, handlerRef, frame);
-    RunArgs(handlerRef, frame, fmt, vaPtr);
+    const int savedEvent = SaveEvent(L, handlerRef, frame);
+    RunArgs(L, handlerRef, frame, fmt, vaPtr);
+    RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
 
@@ -413,19 +456,20 @@ void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
 using Invoke_t = void(__fastcall *)(int handlerRef, void *frame);
 Invoke_t g_origInvoke = nullptr;
 
-void Invoke(int handlerRef, void *frame) {
-    if (g_enabled && handlerRef != 0 && frame != nullptr) {
-        void *L = Game::Lua::State();
-        if (L != nullptr && HandlerWantsArgs(L, handlerRef) &&
-            RunModern(handlerRef, frame, /*fmt*/ nullptr, /*vaPtr*/ nullptr))
-            return;
-    }
+void Invoke(void *L, int handlerRef, void *frame) {
+    if (g_enabled && L != nullptr && handlerRef != 0 && frame != nullptr &&
+        HandlerWantsArgs(L, handlerRef) &&
+        RunModern(handlerRef, frame, /*fmt*/ nullptr, /*vaPtr*/ nullptr))
+        return;
     g_origInvoke(handlerRef, frame);
 }
 
 void __fastcall Invoke_h(int handlerRef, void *frame) {
+    void *L = Game::Lua::State();
     Notify(true, handlerRef, frame);
-    Invoke(handlerRef, frame);
+    const int savedEvent = SaveEvent(L, handlerRef, frame);
+    Invoke(L, handlerRef, frame);
+    RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
 
@@ -469,7 +513,9 @@ void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int na
     src.stackBase = firstArgIdx;
     src.n = nargs;
     Notify(true, handlerRef, frame);
+    const int savedEvent = SaveEvent(L, handlerRef, frame);
     RunCore(L, handlerRef, frame, src, /*positional*/ g_enabled);
+    RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
 
