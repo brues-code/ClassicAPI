@@ -8135,6 +8135,23 @@ enum Offsets {
     EVENT_ENTRY_STRIDE = 0x10,
     OFF_EVENT_ENTRY_NAME = 0x00,
     OFF_EVENT_ENTRY_HEAD = 0x0C,
+    // Event ids the engine signals BY NUMBER although the in-game name array
+    // leaves them NULL — a name claimed there hears the engine's signals.
+    // benilla-re's census of all 485 fire sites (tables/event_sites.tsv;
+    // Turtle's .tdata adds no fire site, only the chat id 0x5E → 543, named —
+    // CHAT_MSG_HARDCORE at runtime)
+    // finds exactly two sources:
+    //  - the glue band: the glue builder installs a 26-name table
+    //    (`mov edx,0x1a; mov ecx,0xB41E70; call 0x703D90` at 0x0046A885), so
+    //    ids 0..25 are glue events to glue and net code. The SMSG_ADDON_INFO
+    //    listener (0x005AB2F0) fires glue's ADDON_LIST_UPDATE (6) whenever the
+    //    packet arrives, whichever table is installed.
+    //  - the chat-type → event-id dword table read at 0x0049B18C, bounded by
+    //    `cmp edx,0x5e` (0x0049B0B6): chat type 89 (FOREIGN_TELL) maps to
+    //    id 540, which has no name.
+    GLUE_EVENT_COUNT = 26,
+    VAR_CHAT_TYPE_EVENT_IDS = 0x008062E0, // uint32[CHAT_TYPE_COUNT]
+    CHAT_TYPE_COUNT = 0x5E,
 
     // Subscriber-chain node layout — the linked list hanging off each
     // entry's +0x0C head, derived from Frame::RegisterEvent
@@ -8202,7 +8219,7 @@ enum Offsets {
     // Called by `RebuildEventTable` to (re)size the entry array. SuperWoW and
     // nampower co-hook it to destructively clamp the FrameXML count (`> 200`;
     // glue is smaller) to 700. We deliberately DON'T hook it: our default is
-    // claim-NULL into the engine's ~200 low gaps (which always suffices), and
+    // claim-NULL into the engine's ~110 usable low gaps (which suffices), and
     // when a grow IS needed `Event::Custom::Grow` reallocates the buffer +
     // swaps the globals directly (bypassing this clamp) rather than routing a
     // size through here. Also documents the empty-entry init the grow mirrors

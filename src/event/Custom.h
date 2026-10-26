@@ -27,8 +27,8 @@ namespace Event::Custom {
 // runs. After the engine and any other DLLs have finished writing to
 // the event table (signaled by the first `Frame::RegisterEvent` call
 // from Lua, which our hook intercepts to fire `RetryClaims`), we walk
-// the table from the END looking for NULL-name slots and claim them
-// for our reserved names — engine-owned `SStrDup` storage, so the
+// the table from the LOW end for claimable slots (NULL name, and an id
+// the engine never signals by number) and claim them for our reserved names — engine-owned `SStrDup` storage, so the
 // engine's reload teardown frees them correctly.
 //
 // We don't hook `RebuildEventTable` directly: chaining with other DLLs

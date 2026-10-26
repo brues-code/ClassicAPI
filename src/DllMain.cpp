@@ -82,8 +82,8 @@ static void __stdcall LoadGlueScriptFunctions_h() {
 // Every Lua-side `frame:RegisterEvent(...)` is a chance to claim a slot
 // for any custom event still waiting. By this point the engine's table
 // is fully populated and SuperWoWhook / other DLLs have done their
-// post-rebuild writes, so the table state is settled and our backwards
-// walk finds genuine NULL slots near the tail.
+// post-rebuild writes, so the table state is settled and our walk from the
+// low end finds genuinely free slots.
 static void __fastcall FrameRegisterEvent_h(void *frame, void *edx,
                                             const char *eventName) {
     Event::Custom::RetryClaims();

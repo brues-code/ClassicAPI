@@ -45,7 +45,7 @@ namespace {
 // scope + the 5 lazy TTS ones), so on any client without VanillaTTS — where
 // the TTS five DO construct, and construct last — the 65th
 // (VOICE_CHAT_TTS_VOICES_UPDATE) was dropped and its event never fired.
-// Count as of the WEAPON_SLOT_CHANGED addition: 66.
+// Count as of the 2026-10-26 live dump: 77.
 constexpr int MAX_RESERVED = 96;
 struct Reservation {
     const char *name;
@@ -59,8 +59,8 @@ bool g_writesEnabled = false;
 // claim) is logged once per session instead of silently dropping the
 // event — the failure mode that would otherwise rot unnoticed. Re-armed on
 // `/reload` (the table is rebuilt fresh). In practice this never triggers:
-// SuperWoW/nampower clamp the FrameXML table to 700 and the engine leaves
-// ~200 NULL gaps in the low range, dwarfing our ~46 reservations. The log is
+// the engine leaves ~115 claimable gaps below 549 (see `TryClaim`) against
+// our ~77 reservations, and `Grow` adds room past that. The log is
 // purely a backstop if some future install somehow drains the gap pool.
 bool g_warnedTableFull = false;
 
@@ -103,21 +103,37 @@ void SMemFree(void *ptr) {
     fn(ptr, __FILE__, __LINE__, 0);
 }
 
-// Walk the engine's event table from the LOW end looking for a NULL-name
-// slot. The bulk-init at `0x0051AB30` leaves ~200 NULL gaps scattered
-// through the 548-slot input names array (it only writes ~350 of the
-// slots explicitly; the rest stay zero-initialized from .data) — a big
-// contiguous hole around 42..106 alone dwarfs our reservation count.
+// True when slot `id` of the live table can take one of our names: its name
+// is NULL (no one owns it) AND the engine never signals it by number. A NULL
+// name alone is not enough — the glue band (ids below GLUE_EVENT_COUNT) and
+// the chat-type id table both fire NULL-named in-game ids, and a name claimed
+// there would hear those signals (see GLUE_EVENT_COUNT in Offsets.h).
+bool Claimable(const uint8_t *base, int id) {
+    if (id < Offsets::GLUE_EVENT_COUNT)
+        return false;
+    if (Game::Read<const char *>(base + id * Offsets::EVENT_ENTRY_STRIDE,
+                                 Offsets::OFF_EVENT_ENTRY_NAME) != nullptr)
+        return false;
+    for (int t = 0; t < Offsets::CHAT_TYPE_COUNT; ++t)
+        if (Game::Read<int>(Offsets::VAR_CHAT_TYPE_EVENT_IDS + t * 4) == id)
+            return false;
+    return true;
+}
+
+// Walk the engine's event table from the LOW end looking for a claimable
+// slot. The bulk-init at `0x0051AB30` names 419 of the 549 slots (verified
+// against both benilla-re's tables/events.tsv and this exe's initializer);
+// the other 130 stay zero-initialized from .data. Less the glue band and
+// chat id 540, ~115 are claimable — a contiguous hole at 42..106 alone
+// covers most of our reservations.
 //
-// We go LOW (ascending) deliberately: SuperWoW and nampower own the HIGH
-// range (fixed event IDs 549..655, and they destructively clamp the table
-// to 700), and other claim-based DLLs (VanillaMinimapTracking) also walk
-// from the tail — so the top is the contested end. Claiming from the low
-// engine gaps keeps us entirely out of their way and independent of their
-// clamp / hook order. The engine's ~200 low NULL gaps dwarf our ~46
-// reservations, so a free slot is essentially always available; the
-// skip-occupied invariant keeps this safe against future engine additions
-// regardless of direction.
+// We go LOW (ascending) deliberately: the other DLLs own the HIGH range —
+// nampower writes fixed ids 549..599 and 650..655, SuperWoW 600 (per
+// nampower's own table), WeirdUtils scans up from 650, and both nampower and
+// SuperWoW clamp the table to 700 — and VanillaMinimapTracking walks from the
+// tail. Below 549 only nampower writes, at 369 and 540, both before any Lua
+// runs, so skip-occupied steps over them. Claiming low keeps us out of
+// everyone's way and independent of their clamp / hook order.
 int TryClaim(const char *eventName) {
     if (!g_writesEnabled)
         return -1;
@@ -126,10 +142,10 @@ int TryClaim(const char *eventName) {
     if (base == nullptr || count <= 0)
         return -1;
     for (int i = 0; i < count; ++i) {
-        auto **namePtr = Game::Ptr<const char *>(
-            base + i * Offsets::EVENT_ENTRY_STRIDE,
-            Offsets::OFF_EVENT_ENTRY_NAME);
-        if (*namePtr == nullptr) {
+        if (Claimable(base, i)) {
+            auto **namePtr = Game::Ptr<const char *>(
+                base + i * Offsets::EVENT_ENTRY_STRIDE,
+                Offsets::OFF_EVENT_ENTRY_NAME);
             char *copy = SStrDup(eventName);
             if (copy == nullptr)
                 return -1;
@@ -162,8 +178,8 @@ int TryClaim(const char *eventName) {
 // previous/glue table and always aborted — it never actually grew. The
 // realloc logic itself was fine; only the timing was broken.)
 //
-// Grows only when the engine's low NULL gaps are fewer than our
-// reservations — which never happens in practice (~200 gaps vs ~46
+// Grows only when the claimable slots are fewer than our reservations —
+// which never happens in practice (~115 below 549 alone vs ~77
 // reservations), so this is a dormant durability valve. `g_forceGrowNext`
 // (debug) forces it so the path can be exercised. It grows by reallocating
 // the entry buffer with the engine's own Storm allocator and swapping the
@@ -185,9 +201,7 @@ void Grow() {
 
     int nulls = 0;
     for (int i = 0; i < count; ++i)
-        if (Game::Read<const char *>(
-                base + i * Offsets::EVENT_ENTRY_STRIDE,
-                Offsets::OFF_EVENT_ENTRY_NAME) == nullptr)
+        if (Claimable(base, i))
             ++nulls;
 
     const bool force = g_forceGrowNext;
