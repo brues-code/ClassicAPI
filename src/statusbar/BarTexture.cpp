@@ -29,27 +29,22 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Region.h"
 #include "texture/Desaturation.h"
 
 namespace StatusBar::BarTexture {
 
 namespace {
 
-using PoolAlloc_t = void *(__thiscall *)(void *pool, int zeroInit, const char *tag, int line);
-using TexCtor_t = void *(__thiscall *)(void *mem, void *parent, int layer, int sublayer);
 using SetAllPoints_t = void(__thiscall *)(void *anchor, void *relative, int doResize);
 using Install_t = void(__thiscall *)(void *bar, void *texture, int drawLayer);
 
 void *BarTextureOf(void *bar) { return Game::Read<void *>(bar, Offsets::OFF_STATUSBAR_BAR_TEXTURE); }
 
 void *CreateBarTexture(void *bar) {
-    void *mem = reinterpret_cast<PoolAlloc_t>(Offsets::FUN_REGION_POOL_ALLOC)(
-        reinterpret_cast<void *>(Offsets::VAR_SIMPLETEXTURE_POOL), 0,
-        reinterpret_cast<const char *>(Offsets::VAR_SIMPLETEXTURE_CLASS_TAG), -2);
-    if (mem == nullptr)
+    void *texture = Frame::Region::CreateTexture(nullptr, Offsets::DRAWLAYER_ARTWORK, 1);
+    if (texture == nullptr)
         return nullptr;
-    void *texture =
-        reinterpret_cast<TexCtor_t>(Offsets::FUN_SIMPLETEXTURE_CTOR)(mem, nullptr, Offsets::DRAWLAYER_ARTWORK, 1);
     reinterpret_cast<SetAllPoints_t>(Offsets::FUN_LAYOUT_SET_ALL_POINTS)(
         Game::Ptr<uint8_t>(texture, Offsets::OFF_REGION_ANCHOR), Game::Ptr<uint8_t>(bar, Offsets::OFF_REGION_ANCHOR),
         1);

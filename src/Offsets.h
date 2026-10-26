@@ -591,6 +591,15 @@ enum Offsets {
     FUN_SIMPLEFONTSTRING_CTOR = 0x00770D30,       // __thiscall(mem, parent, layer, sublayer) -> fs
     FUN_REGION_SET_NAME = 0x0076C650,             // __thiscall(region, name) — registers _G[name]
     FUN_FONTSTRING_SET_FONT = 0x00770C60,         // __thiscall(fs + OFF_FONTSTRING_FONT_HOLDER, fontObject)
+    // CSimpleFontString::SetFont — `uint32_t __thiscall(fs, const char *path,
+    // float height, uint32_t flags, uint8_t force)`, `ret 0x10` (0x007715F7):
+    // builds and installs the font unless unchanged; 0 when it fails. Script
+    // FontString:SetFont (0x0079D4F0) converts the height as
+    // Game::PixelToInternal does, parses the flags (FONT_FLAG_*), and on
+    // success clears bit 0 of OFF_FONTSTRING_FONT_FLAGS (benilla-re ui/fonttext).
+    FUN_SIMPLEFONTSTRING_SET_FONT = 0x007714F0,
+    OFF_FONTSTRING_FONT_FLAGS = 0xD4,
+    FONT_FLAG_OUTLINE = 1, // ParseFontFlags 0x006F1A90: OUTLINE 1, MONOCHROME 2, THICKOUTLINE 4
     FUN_REGION_SET_POINT = 0x00767C70,            // __thiscall(region+OFF_REGION_ANCHOR, point, relAnchor, relPoint, x, y, flag=1)
     OFF_FONTSTRING_FONT_HOLDER = 0xCC,            // font-reference sub-object (SetFont `this`)
     OFF_FONTSTRING_FONT_OBJECT = 0xD0,            // font object pointer (holder + 4)
@@ -620,6 +629,7 @@ enum Offsets {
     FUN_STRING_TO_FRAME_POINT = 0x006F1840,
     FUN_FRAME_POINT_TO_STRING = 0x006F1890,
     DRAWLAYER_ARTWORK = 2,
+    DRAWLAYER_OVERLAY = 3,
     FRAMEPOINT_TOPLEFT = 0,
     FRAMEPOINT_TOP = 1,
     FRAMEPOINT_TOPRIGHT = 2,
@@ -11395,6 +11405,13 @@ enum Offsets {
     // load — calling it each frame IS the residency reference (what the
     // minimap's masked draw does for its mask at 0x004ec65c).
     FUN_TEXTURE_LOAD_BY_PATH = 0x00449D90,
+    // TextureCreateFromBlp — `HTEXTURE __fastcall(const char *path, uint32
+    // fileFlag, uint32 flags, void *log)`, `ret 8` (0x0044A3A3/0x0044A4FC):
+    // opens `path` (extension included) through SFile and queues the async
+    // read; null when SFile cannot open it. Called only by TextureCreate
+    // (0x00449E2B), on a texture-hash miss, which hash-inserts a non-null
+    // result under the name and the made flags word (0x00449E99).
+    FUN_TEXTURE_CREATE_FROM_BLP = 0x0044A310,
     // TextureCreateWithCallback — `HTEXTURE __fastcall(uint32 w, uint32 h,
     // uint32 mips, uint32 format, uint32 flags, void *owner, callback, const
     // char *name, int force)`: a named texture whose texels `callback`
@@ -11407,6 +11424,18 @@ enum Offsets {
     // keeps (the portrait's 0x00525AE0 hands its cached array over without a
     // copy), and ignores every other command.
     FUN_TEXTURE_CREATE_WITH_CALLBACK = 0x00449BF0,
+    // TextureCreateSolid — `HTEXTURE __fastcall(const uint32_t *bgra, uint32_t
+    // unused)`: the cached 8x8 "Solid Texture" of one colour (0xAARRGGBB),
+    // built on a miss (benilla-re gx/textures, verified). The caller owns the
+    // handle: CSimpleTexture::SetSolidColour (0x00770360, what a <Texture>'s
+    // <Color> child runs) stores it at +0xCC and closes it on replace.
+    FUN_TEXTURE_CREATE_SOLID = 0x0044A9C0,
+    // XmlReadColor — `int __fastcall(const XMLNode *node, uint32_t *bgra,
+    // CStatus *status)`, `ret 4` (0x006F2626): a <Color> element's r/g/b/a,
+    // clamped to 0..1; a missing r, g or b is 0 and a missing a is 1
+    // (benilla-re ui/backdrop, verified). CSimpleTexture::LoadXML reads
+    // <Color> with it, pushing its own load status (0x00770090).
+    FUN_XML_READ_COLOR = 0x006F23D0,
     GXTEX_FORMAT_ARGB8888 = 2,
     GXTEX_CMD_LATCH = 1,
     PTR_TEXLOAD_DESC_VTBL = 0x007FFA10,

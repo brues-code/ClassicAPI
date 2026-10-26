@@ -29,10 +29,16 @@ void ReleaseHandle(void *handle);
 
 // A one-mip `width` x `height` texture of ARGB8888 `texels`, through the
 // engine's own procedural path (FUN_TEXTURE_CREATE_WITH_CALLBACK) with the
-// same flags as LoadByPath. The engine reads `texels` whenever it uploads the
-// texture, so they must outlive the handle. Never deduplicated: each call is
-// a new texture.
+// texture flags word a loader was handed (TextureMakeFlags is idempotent on
+// it, as the path re-runs it unforced). The engine reads `texels` whenever it
+// uploads the texture, so they must outlive the handle. Never deduplicated:
+// each call is a new texture.
 void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,
-                       const uint32_t *texels);
+                       const uint32_t *texels, uint32_t flags);
+
+// The engine's shared solid texture of one colour (0xAARRGGBB), what a
+// <Texture>'s <Color> child loads (FUN_TEXTURE_CREATE_SOLID). The caller owns
+// one reference and drops it with ReleaseHandle.
+void *CreateSolid(uint32_t bgra);
 
 } // namespace Texture

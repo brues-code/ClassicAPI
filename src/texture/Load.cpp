@@ -91,10 +91,15 @@ void *LoadByPath(const char *path) {
 }
 
 void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,
-                       const uint32_t *texels) {
+                       const uint32_t *texels, uint32_t flags) {
     return reinterpret_cast<CreateWithCallback_t>(Offsets::FUN_TEXTURE_CREATE_WITH_CALLBACK)(
-        width, height, 1, Offsets::GXTEX_FORMAT_ARGB8888, DefaultFlags(),
+        width, height, 1, Offsets::GXTEX_FORMAT_ARGB8888, flags,
         const_cast<uint32_t *>(texels), reinterpret_cast<void *>(&LatchPixels), name, 0);
+}
+
+void *CreateSolid(uint32_t bgra) {
+    using CreateSolid_t = void *(__fastcall *)(const uint32_t *bgra, uint32_t unused);
+    return reinterpret_cast<CreateSolid_t>(Offsets::FUN_TEXTURE_CREATE_SOLID)(&bgra, 0);
 }
 
 } // namespace Texture
