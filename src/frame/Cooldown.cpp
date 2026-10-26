@@ -32,7 +32,11 @@
 //     OnFrameSizeChanged(rect)       layout +0x00
 //     LoadXML(node, status)          layout +0x08
 //
-// The five methods live in a method hash of their own, exactly like each
+// Past 4.3.4's five methods, the later clients' (Clear, Pause, the getters,
+// the draw flags and colours, OnCooldownDone) follow the contract in their
+// FrameAPICooldownDocumentation.lua; the 4.3.4 state machine stays as it is.
+//
+// The methods live in a method hash of their own, exactly like each
 // engine frame class's (Offsets.h "Per-class method hashes"), so only a
 // Cooldown has them, and they reach `self` through the engine's own IsA gate
 // with a type id taken from the engine's counter. The hash is released where
@@ -64,7 +68,9 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "api/Documentation.h"
+#include "frame/ExtraScripts.h"
 #include "frame/RenderBatch.h"
+#include "frame/ScriptArgs.h"
 #include "texture/Load.h"
 #include "time/Clock.h"
 #include "xml/FrameLoad.h"
@@ -109,6 +115,16 @@ struct Fields {
     C2Vector flashStripTexCoords[4];
     C3Vector edgeStripVerts[4];
     C2Vector edgeStripTexCoords[4];
+
+    // Past 4.3.4 (FrameAPICooldownDocumentation.lua's contract).
+    uint32_t done;     // this cooldown has ended (or was cleared); OnCooldownDone ran
+    uint32_t paused;
+    uint32_t pausedAt; // ms, the time the frame holds at while paused
+    float modRate;     // scales the flash and the display duration, not the sweep
+    uint32_t drawSwipe;
+    uint32_t drawBling;
+    uint32_t swipeBase; // BGRA before the frame alpha
+    uint32_t edgeBase;
 };
 
 constexpr size_t kObjectSize = Offsets::SIMPLEFRAME_SIZE + sizeof(Fields);
@@ -134,6 +150,21 @@ uint32_t Bgra(uint32_t r, uint32_t g, uint32_t b, uint32_t a) {
 }
 
 void SetAlphaByte(uint32_t &color, uint32_t a) { color = (color & 0x00FFFFFFu) | (a << 24); }
+
+// `base` with its alpha scaled by the frame's, as 4.3.4 scales its constants.
+uint32_t WithAlpha(uint32_t base, uint32_t alpha) {
+    uint32_t color = base;
+    SetAlphaByte(color, (base >> 24) * alpha / 255);
+    return color;
+}
+
+uint32_t ColorByte(double c) {
+    if (!(c > 0.0))
+        return 0;
+    if (c >= 1.0)
+        return 255;
+    return static_cast<uint32_t>(c * 255.0 + 0.5);
+}
 
 // ---- vtables ----------------------------------------------------------------
 
@@ -448,25 +479,12 @@ void AnimateVerts(void *frame) {
         return;
     }
 
-    if (f.reverse) {
-        C3Vector *v = f.starVerts;
-        v[0] = {cx, r.maxY, 0.0f};
-        f.starTexCoords[0] = {0.5f, 0.0f};
-        SetXY(v[1], r.maxX, r.maxY);
-        SetXY(v[2], r.maxX, cy);
-        SetXY(v[3], r.maxX, r.minY);
-        SetXY(v[4], cx, r.minY);
-        SetXY(v[5], r.minX, r.minY);
-        SetXY(v[6], r.minX, cy);
-        SetXY(v[7], r.minX, r.maxY);
-        SetXY(v[8], cx, r.maxY);
-        v[9] = {cx, cy, 0.0f};
-        f.starTexCoords[9] = {0.5f, 0.5f};
-        PublishStrips(f);
-        return;
-    }
-
-    const float elapsed = static_cast<float>(f.elapsed);
+    // 4.3.4 draws a reverse frame's flash as the full star fan here, but its
+    // reverse never reaches the flash (it holds at the end). Retail's reverse
+    // flashes like any cooldown, and the star is transparent while flashing,
+    // so both directions animate the flash.
+    // On 4.3.4's 1000 ms flash timeline; a modRate shortens the flash itself.
+    const float elapsed = static_cast<float>(f.elapsed) * (1000.0f / static_cast<float>(f.duration));
     // The update that ends the flash (elapsed 1000) hides the frame and then
     // animates once more with key 6, where 4.3.4 reads one float past each
     // table; the last segment stands in for it.
@@ -515,8 +533,9 @@ void UpdateColors(void *frame) {
     Fields &f = F(frame);
     const uint32_t alpha = DrawAlpha(frame);
     if (!f.flashing) {
-        f.starColor = Bgra(0, 0, 0, alpha * 160 / 255);
-        f.edgeColor = Bgra(0xFF, 0xFF, 0xFF, alpha);
+        // 4.3.4's constants (black at 160, white) are the bases' defaults.
+        f.starColor = WithAlpha(f.swipeBase, alpha);
+        f.edgeColor = WithAlpha(f.edgeBase, alpha);
         f.flashColor = Bgra(0, 0, 0, 0);
     } else {
         f.starColor = Bgra(0, 0, 0, 0);
@@ -525,13 +544,19 @@ void UpdateColors(void *frame) {
     }
 }
 
-// OFFSET (4.3.4): 0x009FFAD0
-void SetCooldown(void *frame, uint32_t start, uint32_t duration) {
+// OFFSET (4.3.4): 0x009FFAD0. A paused frame holds at the moment of the call,
+// which is what CooldownFrame_SetDisplayAsPercentage (Pause, then SetCooldown
+// back-dated by the shown fraction) relies on.
+void SetCooldown(void *frame, uint32_t start, uint32_t duration, float modRate) {
     Fields &f = F(frame);
     f.startTime = start;
     f.duration = duration;
+    f.modRate = modRate;
     f.elapsed = 0;
     f.flashing = 0;
+    f.done = 0;
+    if (f.paused)
+        f.pausedAt = Time::Clock::NowMs();
     if (f.starTexture == nullptr) {
         f.starTexture = Texture::LoadByPath(kStarTextureName);
         NotifyLayerChanged(frame, 2);
@@ -543,6 +568,31 @@ void SetCooldown(void *frame, uint32_t start, uint32_t duration) {
     UpdateColors(frame);
     ResetVerts(frame);
     Show(frame);
+}
+
+// Ends the cooldown without the bling or OnCooldownDone.
+void Clear(void *frame) {
+    Fields &f = F(frame);
+    f.startTime = 0;
+    f.duration = 0;
+    f.elapsed = 0;
+    f.flashing = 0;
+    f.done = 1;
+    Hide(frame);
+}
+
+// The timer stops at the moment of the pause; resuming moves the start past
+// the paused span, so the sweep (or the bling) picks up where it stopped.
+void SetPaused(void *frame, bool paused) {
+    Fields &f = F(frame);
+    if (paused == (f.paused != 0))
+        return;
+    const uint32_t now = Time::Clock::NowMs();
+    if (paused)
+        f.pausedAt = now;
+    else
+        f.startTime += Time::Clock::Elapsed(f.pausedAt, now);
+    f.paused = paused;
 }
 
 // ---- the overrides ------------------------------------------------------------
@@ -564,6 +614,19 @@ uint32_t g_hash[Offsets::METHOD_HASH_SIZE / 4];
 int g_typeId = 0;
 
 uintptr_t TypeIdVar() { return reinterpret_cast<uintptr_t>(&g_typeId); }
+
+const Frame::ExtraScripts::Script g_onCooldownDone{"oncooldowndone", TypeIdVar()};
+
+// From the update walk, where the engine runs OnUpdate.
+void RunOnCooldownDone(void *frame) {
+    const uint32_t *slot = g_onCooldownDone.Slot(frame);
+    if (slot == nullptr || slot[0] == 0)
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, Game::Lua::GetTop(L) + 1, 0);
+}
 
 // CGCooldown::~CGCooldown, then CSimpleFrame's deleting destructor.
 void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {
@@ -607,25 +670,45 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     Fields &f = F(self);
-    // 4.3.4: `now <= start ? 0 : now - start`, compared wrap-safe.
-    const uint32_t now = Time::Clock::NowMs();
-    f.elapsed = Time::Clock::Reached(now, f.startTime) ? Time::Clock::Elapsed(f.startTime, now)
-                                                       : 0;
+    // 4.3.4: `now <= start ? 0 : now - start`, compared wrap-safe. A paused
+    // frame reads the time it was paused at.
+    const uint32_t now = f.paused ? f.pausedAt : Time::Clock::NowMs();
+    f.elapsed = Time::Clock::Reached(now, f.startTime) ? Time::Clock::Elapsed(f.startTime, now) : 0;
+    bool finished = false;
     if (f.elapsed >= f.duration) {
         if (f.flashing) {
             f.flashing = 0;
             Hide(self);
-        } else if (f.reverse) {
-            f.elapsed = f.duration - 1;
+        } else if (f.done) {
+            // Shown again after the end or a Clear: nothing left to play.
+            Hide(self);
         } else {
-            f.startTime = now;
-            f.flashing = 1;
-            f.duration = 1000;
-            f.elapsed = 0;
-            UpdateColors(self);
+            f.done = 1;
+            // Not the zero-length timer a new frame (or SetCooldown(t, 0)) runs.
+            finished = f.duration != 0;
+            // Retail ends a reverse cooldown like any other, where 4.3.4 holds
+            // it at `duration - 1` (live probe: reverse SetCooldown(T, 2) ran
+            // OnCooldownDone at T + 2, still shown at T + 2.5, hidden by T + 4).
+            if (f.drawBling) {
+                // Retail: the sweep ends at start + duration whatever the
+                // modRate; the flash lasts 1000 * modRate ms, and the getters
+                // then report the flash (live probe: SetCooldown(T, 4, 0.5)
+                // finished at T + 4 with times T + 4000, 500).
+                f.startTime = now;
+                f.flashing = 1;
+                const float flash = 1000.0f * f.modRate;
+                f.duration = flash >= 1.0f ? static_cast<uint32_t>(flash) : 1;
+                f.elapsed = 0;
+                UpdateColors(self);
+            } else {
+                Hide(self);
+            }
         }
     }
     AnimateVerts(self);
+    // Last: the handler may start another cooldown on this frame.
+    if (finished)
+        RunOnCooldownDone(self);
 }
 
 // OFFSET (4.3.4): 0x009FE830 (OnFrameRender)
@@ -635,7 +718,7 @@ void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
     using RenderBatch::QueueStrip;
     if (layer == 2) {
         if (f.starTexture != nullptr) {
-            for (int k = 0; k < 4; ++k)
+            for (int k = 0; f.drawSwipe && k < 4; ++k)
                 QueueStrip(batch, f.starTexture, RenderBatch::BLEND_ALPHA, f.starStripVerts[k],
                            f.starStripTexCoords[k], &f.starColor);
             QueueStrip(batch, f.starTexture, RenderBatch::BLEND_ADD, f.flashStripVerts,
@@ -677,7 +760,7 @@ void LoadModernTemplate(void *layout) {
 }
 
 // OFFSET (4.3.4): 0x009FDBD0 — the frame's own loader, then `reverse` and
-// `drawEdge`.
+// `drawEdge`, and the later clients' `drawSwipe` and `drawBling`.
 uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *status) {
     if (node != nullptr && IsStockTemplate(node)) {
         LoadModernTemplate(layout);
@@ -692,6 +775,10 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         f.reverse = Game::StringToFlag(reverse);
     if (const char *drawEdge = Xml::Attr(node, "drawEdge"))
         f.drawEdge = Game::StringToFlag(drawEdge);
+    if (const char *drawSwipe = Xml::Attr(node, "drawSwipe"))
+        f.drawSwipe = Game::StringToFlag(drawSwipe);
+    if (const char *drawBling = Xml::Attr(node, "drawBling"))
+        f.drawBling = Game::StringToFlag(drawBling);
     return result;
 }
 
@@ -734,12 +821,25 @@ void *__fastcall CreateCooldown(void *parent) {
     reinterpret_cast<Constructor_t>(Offsets::FUN_SIMPLEFRAME_CONSTRUCTOR)(frame, nullptr, parent);
     Game::Ref<const void *>(frame, 0) = g_vtable.slots;
     Game::Ref<const void *>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT) = g_layoutVtable.slots;
+    Fields &f = F(frame);
+    f.modRate = 1.0f;
+    f.drawSwipe = 1;
+    f.drawBling = 1;
+    f.swipeBase = Bgra(0, 0, 0, 160);
+    f.edgeBase = Bgra(0xFF, 0xFF, 0xFF, 0xFF);
     return frame;
 }
 
-// ---- the five methods (CGCooldown_Scripts.cpp) -----------------------------------
+// ---- the methods (CGCooldown_Scripts.cpp, then the later clients') -------------------
 
 void *ResolveCooldown(void *L) { return Game::Lua::ResolveTypedObject(L, 1, TypeIdVar()); }
+
+// Seconds to ms on the GetTime() epoch, wrapping like the tick does.
+uint32_t Ms(double seconds) { return static_cast<uint32_t>(static_cast<int64_t>(seconds * 1000.0)); }
+
+float ModRateArg(void *L, int index) {
+    return Game::Lua::IsNumber(L, index) ? static_cast<float>(Game::Lua::ToNumber(L, index)) : 1.0f;
+}
 
 // OFFSET (4.3.4): 0x009FFBD0
 int __fastcall Script_SetCooldown(void *L) {
@@ -747,13 +847,174 @@ int __fastcall Script_SetCooldown(void *L) {
     if (frame == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3)) {
-        Game::Lua::Error(L, "Usage: %s:SetCooldown(start, duration)",
+        Game::Lua::Error(L, "Usage: %s:SetCooldown(start, duration[, modRate])",
                          Game::Lua::ObjectDisplayName(frame));
         return 0;
     }
-    const uint32_t start = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2) * 1000.0);
-    const uint32_t duration = static_cast<uint32_t>(Game::Lua::ToNumber(L, 3) * 1000.0);
-    SetCooldown(frame, start, duration);
+    SetCooldown(frame, Ms(Game::Lua::ToNumber(L, 2)), Ms(Game::Lua::ToNumber(L, 3)),
+                ModRateArg(L, 4));
+    return 0;
+}
+
+int __fastcall Script_SetCooldownDuration(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetCooldownDuration(duration[, modRate])",
+                         Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    SetCooldown(frame, Time::Clock::NowMs(), Ms(Game::Lua::ToNumber(L, 2)), ModRateArg(L, 3));
+    return 0;
+}
+
+// The start that makes the sweep end at expirationTime.
+int __fastcall Script_SetCooldownFromExpirationTime(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3)) {
+        Game::Lua::Error(L,
+                         "Usage: %s:SetCooldownFromExpirationTime(expirationTime, duration[, modRate])",
+                         Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    const double duration = Game::Lua::ToNumber(L, 3);
+    SetCooldown(frame, Ms(Game::Lua::ToNumber(L, 2) - duration), Ms(duration), ModRateArg(L, 4));
+    return 0;
+}
+
+int __fastcall Script_Clear(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        Clear(frame);
+    return 0;
+}
+
+// The timer as it stands, in ms: the cooldown, then the flash once it ends
+// (retail reports the flash's start and length after OnCooldownDone).
+int __fastcall Script_GetCooldownTimes(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    const Fields &f = F(frame);
+    Game::Lua::PushNumber(L, static_cast<double>(f.startTime));
+    Game::Lua::PushNumber(L, static_cast<double>(f.duration));
+    return 2;
+}
+
+int __fastcall Script_GetCooldownDuration(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, static_cast<double>(F(frame).duration));
+    return 1;
+}
+
+// Retail: SetCooldown(T, 4, 0.5) reads 8000 here and 4000 from GetCooldownDuration.
+int __fastcall Script_GetCooldownDisplayDuration(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    const Fields &f = F(frame);
+    const double duration = static_cast<double>(f.duration);
+    Game::Lua::PushNumber(L, f.modRate > 0.0f ? duration / f.modRate : duration);
+    return 1;
+}
+
+int __fastcall Script_Pause(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        SetPaused(frame, true);
+    return 0;
+}
+
+int __fastcall Script_Resume(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        SetPaused(frame, false);
+    return 0;
+}
+
+int __fastcall Script_SetPaused(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        SetPaused(frame, Game::Lua::ToFlag(L, 2, true));
+    return 0;
+}
+
+int __fastcall Script_IsPaused(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).paused != 0);
+    return 1;
+}
+
+// The swipe strips are queued only while the flag is set.
+int __fastcall Script_SetDrawSwipe(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Fields &f = F(frame);
+    const uint32_t drawSwipe = Game::Lua::ToFlag(L, 2, true);
+    if (drawSwipe != f.drawSwipe) {
+        f.drawSwipe = drawSwipe;
+        NotifyLayerChanged(frame, 2);
+    }
+    return 0;
+}
+
+int __fastcall Script_GetDrawSwipe(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).drawSwipe != 0);
+    return 1;
+}
+
+int __fastcall Script_SetDrawBling(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    F(frame).drawBling = Game::Lua::ToFlag(L, 2, true);
+    return 0;
+}
+
+int __fastcall Script_GetDrawBling(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).drawBling != 0);
+    return 1;
+}
+
+// (r, g, b[, a]) into a base colour; a missing alpha is opaque.
+bool ReadColor(void *L, void *frame, const char *method, uint32_t &base) {
+    if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3) || !Game::Lua::IsNumber(L, 4)) {
+        Game::Lua::Error(L, "Usage: %s:%s(r, g, b[, a])", Game::Lua::ObjectDisplayName(frame),
+                         method);
+        return false;
+    }
+    const double a = Game::Lua::IsNumber(L, 5) ? Game::Lua::ToNumber(L, 5) : 1.0;
+    base = Bgra(ColorByte(Game::Lua::ToNumber(L, 2)), ColorByte(Game::Lua::ToNumber(L, 3)),
+                ColorByte(Game::Lua::ToNumber(L, 4)), ColorByte(a));
+    UpdateColors(frame);
+    return true;
+}
+
+int __fastcall Script_SetSwipeColor(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        ReadColor(L, frame, "SetSwipeColor", F(frame).swipeBase);
+    return 0;
+}
+
+int __fastcall Script_SetEdgeColor(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        ReadColor(L, frame, "SetEdgeColor", F(frame).edgeBase);
     return 0;
 }
 
@@ -805,16 +1066,74 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetReverse", &Script_GetReverse},
     {"SetDrawEdge", &Script_SetDrawEdge},
     {"GetDrawEdge", &Script_GetDrawEdge},
+    {"SetCooldownDuration", &Script_SetCooldownDuration},
+    {"SetCooldownFromExpirationTime", &Script_SetCooldownFromExpirationTime},
+    {"Clear", &Script_Clear},
+    {"GetCooldownTimes", &Script_GetCooldownTimes},
+    {"GetCooldownDuration", &Script_GetCooldownDuration},
+    {"GetCooldownDisplayDuration", &Script_GetCooldownDisplayDuration},
+    {"Pause", &Script_Pause},
+    {"Resume", &Script_Resume},
+    {"SetPaused", &Script_SetPaused},
+    {"IsPaused", &Script_IsPaused},
+    {"SetDrawSwipe", &Script_SetDrawSwipe},
+    {"GetDrawSwipe", &Script_GetDrawSwipe},
+    {"SetDrawBling", &Script_SetDrawBling},
+    {"GetDrawBling", &Script_GetDrawBling},
+    {"SetSwipeColor", &Script_SetSwipeColor},
+    {"SetEdgeColor", &Script_SetEdgeColor},
 };
 
 const Game::Doc::Field kSetCooldownArgs[] = {
     Game::Doc::Req("start", "number", "Cooldown start time, in seconds as returned by GetTime."),
     Game::Doc::Req("duration", "number", "Cooldown length in seconds."),
+    Game::Doc::Opt("modRate", "number", "1",
+                   "Scales the end flash and GetCooldownDisplayDuration; the sweep still ends at start + duration."),
 };
 const Game::Doc::Function kSetCooldown{
     "Shows the frame and runs the cooldown sweep from a start time and duration in seconds, "
     "then the end flash.",
     kSetCooldownArgs, {}};
+const Game::Doc::Field kSetCooldownDurationArgs[] = {
+    Game::Doc::Req("duration", "number", "Cooldown length in seconds."),
+    Game::Doc::Opt("modRate", "number", "1", "As in SetCooldown."),
+};
+const Game::Doc::Function kSetCooldownDuration{
+    "Starts a cooldown of the given length now.", kSetCooldownDurationArgs, {}};
+const Game::Doc::Field kSetCooldownFromExpirationTimeArgs[] = {
+    Game::Doc::Req("expirationTime", "number", "When the cooldown ends, in seconds as returned by GetTime."),
+    Game::Doc::Req("duration", "number", "Cooldown length in seconds."),
+    Game::Doc::Opt("modRate", "number", "1", "As in SetCooldown."),
+};
+const Game::Doc::Function kSetCooldownFromExpirationTime{
+    "Starts a cooldown that ends at the given time.", kSetCooldownFromExpirationTimeArgs, {}};
+const Game::Doc::Function kClear{
+    "Ends the cooldown and hides the frame, without the end flash or OnCooldownDone.", {}, {}};
+const Game::Doc::Field kTimesRet[] = {
+    Game::Doc::Req("start", "number", "Start time in milliseconds."),
+    Game::Doc::Req("duration", "number", "Length in milliseconds."),
+};
+const Game::Doc::Function kGetCooldownTimes{
+    "Returns the timer's start time and length in milliseconds: the cooldown's, then the end "
+    "flash's once the cooldown ends. Clear sets both to 0.",
+    {}, kTimesRet};
+const Game::Doc::Field kDurationRet[] = {
+    Game::Doc::Req("duration", "number", "Milliseconds."),
+};
+const Game::Doc::Function kGetCooldownDuration{
+    "Returns the timer's length in milliseconds, as GetCooldownTimes does.", {}, kDurationRet};
+const Game::Doc::Function kGetCooldownDisplayDuration{
+    "Returns the timer's length in milliseconds divided by its modRate.", {}, kDurationRet};
+const Game::Doc::Function kPause{"Stops the cooldown where it is.", {}, {}};
+const Game::Doc::Function kResume{"Continues a paused cooldown from where it stopped.", {}, {}};
+const Game::Doc::Field kPausedArg[] = {
+    Game::Doc::Req("paused", "bool"),
+};
+const Game::Doc::Function kSetPaused{"Pauses or resumes the cooldown.", kPausedArg, {}};
+const Game::Doc::Field kPausedRet[] = {
+    Game::Doc::Req("isPaused", "bool"),
+};
+const Game::Doc::Function kIsPaused{"Returns whether the cooldown is paused.", {}, kPausedRet};
 const Game::Doc::Field kBoolArg[] = {
     Game::Doc::Opt("value", "bool", nullptr, "The flag value; strings and numbers are read as in XML."),
 };
@@ -822,7 +1141,7 @@ const Game::Doc::Field kBoolRet[] = {
     Game::Doc::Req("value", "bool", "The current flag value."),
 };
 const Game::Doc::Function kSetReverse{
-    "Sets whether the sweep reveals instead of covers, holding at the end without a flash.",
+    "Sets whether the sweep reveals instead of covers.",
     kBoolArg, {}};
 const Game::Doc::Function kGetReverse{
     "Returns whether the sweep reveals instead of covers.", {}, kBoolRet};
@@ -830,6 +1149,21 @@ const Game::Doc::Function kSetDrawEdge{
     "Sets whether a bright line follows the edge of the sweep.", kBoolArg, {}};
 const Game::Doc::Function kGetDrawEdge{
     "Returns whether a bright line follows the edge of the sweep.", {}, kBoolRet};
+const Game::Doc::Function kSetDrawSwipe{"Sets whether the dark sweep is drawn.", kBoolArg, {}};
+const Game::Doc::Function kGetDrawSwipe{"Returns whether the dark sweep is drawn.", {}, kBoolRet};
+const Game::Doc::Function kSetDrawBling{
+    "Sets whether the flash plays when the cooldown ends.", kBoolArg, {}};
+const Game::Doc::Function kGetDrawBling{
+    "Returns whether the flash plays when the cooldown ends.", {}, kBoolRet};
+const Game::Doc::Field kColorArgs[] = {
+    Game::Doc::Req("r", "number"),
+    Game::Doc::Req("g", "number"),
+    Game::Doc::Req("b", "number"),
+    Game::Doc::Opt("a", "number", "1"),
+};
+const Game::Doc::Function kSetSwipeColor{"Sets the colour of the sweep.", kColorArgs, {}};
+const Game::Doc::Function kSetEdgeColor{
+    "Sets the colour of the line on the edge of the sweep.", kColorArgs, {}};
 
 const Game::Doc::Method g_methodDocs[] = {
     {"SetCooldown", &kSetCooldown},
@@ -837,6 +1171,22 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetReverse", &kGetReverse},
     {"SetDrawEdge", &kSetDrawEdge},
     {"GetDrawEdge", &kGetDrawEdge},
+    {"SetCooldownDuration", &kSetCooldownDuration},
+    {"SetCooldownFromExpirationTime", &kSetCooldownFromExpirationTime},
+    {"Clear", &kClear},
+    {"GetCooldownTimes", &kGetCooldownTimes},
+    {"GetCooldownDuration", &kGetCooldownDuration},
+    {"GetCooldownDisplayDuration", &kGetCooldownDisplayDuration},
+    {"Pause", &kPause},
+    {"Resume", &kResume},
+    {"SetPaused", &kSetPaused},
+    {"IsPaused", &kIsPaused},
+    {"SetDrawSwipe", &kSetDrawSwipe},
+    {"GetDrawSwipe", &kGetDrawSwipe},
+    {"SetDrawBling", &kSetDrawBling},
+    {"GetDrawBling", &kGetDrawBling},
+    {"SetSwipeColor", &kSetSwipeColor},
+    {"SetEdgeColor", &kSetEdgeColor},
 };
 
 // The engine's static initializer for a class hash (Model's 0x0076F5F0).

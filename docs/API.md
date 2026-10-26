@@ -6571,27 +6571,66 @@ cd:GetDrawEdge()                -- true
 
 | Method | Notes |
 | --- | --- |
-| `cooldown:SetCooldown(start, duration)` | Starts the sweep and shows the frame. `start` and `duration` are numbers in seconds. `start` is a time value, for example the value that `GetTime()` returns. When `duration` is over, the frame shows the flash for one second and then hides. |
-| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. With the flag set, the sweep starts full and becomes empty. At the end, the frame stays shown with no flash. The flag is `false` when the frame is created. |
+| `cooldown:SetCooldown(start, duration [, modRate])` | Starts the sweep and shows the frame. `start` and `duration` are numbers in seconds. `start` is a time value, for example the value that `GetTime()` returns. When `duration` is over, the frame shows the flash for one second and then hides. `modRate` is `1` by default. It does not change when the sweep ends. The flash lasts `modRate` seconds, and `GetCooldownDisplayDuration` divides by `modRate`. |
+| `cooldown:SetCooldownDuration(duration [, modRate])` | Starts a cooldown of `duration` seconds at the current time. |
+| `cooldown:SetCooldownFromExpirationTime(expirationTime, duration [, modRate])` | Starts a cooldown of `duration` seconds that ends at `expirationTime`. |
+| `cooldown:Clear()` | Stops the cooldown and hides the frame. There is no flash, and `OnCooldownDone` does not run. |
+| `cooldown:GetCooldownTimes()` | Returns `start, duration` in milliseconds. While the sweep runs, these are the values of the cooldown. When the sweep ends, they change to the values of the flash: `start` is the end time, and `duration` is `1000` × `modRate`. After `Clear()`, both values are `0`. |
+| `cooldown:GetCooldownDuration()` | Returns the `duration` that `GetCooldownTimes()` returns. |
+| `cooldown:GetCooldownDisplayDuration()` | Returns the `duration` that `GetCooldownTimes()` returns, divided by `modRate`. |
+| `cooldown:Pause()` / `cooldown:Resume()` | Stops the sweep at its current position, then starts it again from that position. The flash also stops when you pause it. |
+| `cooldown:SetPaused(paused)` / `cooldown:IsPaused()` | Sets and returns the paused state. A paused frame stays paused when you call `SetCooldown`. The sweep then stays at the position of that start time. |
+| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. With the flag set, the sweep starts full and becomes empty. The end is the same as without the flag. The flag is `false` when the frame is created. |
 | `cooldown:SetDrawEdge(drawEdge)` / `cooldown:GetDrawEdge()` | Sets and returns the draw-edge flag. With the flag set, a bright line moves along the edge of the sweep. The flag is `false` when the frame is created. |
+| `cooldown:SetDrawSwipe(drawSwipe)` / `cooldown:GetDrawSwipe()` | Sets and returns the draw-swipe flag. With the flag cleared, the dark sweep is not drawn. The flag is `true` when the frame is created. |
+| `cooldown:SetDrawBling(drawBling)` / `cooldown:GetDrawBling()` | Sets and returns the draw-bling flag. With the flag cleared, the frame hides at the end without the flash. The flag is `true` when the frame is created. |
+| `cooldown:SetSwipeColor(r, g, b [, a])` | Sets the color of the sweep. The default color is black with alpha `0.63`. If you do not give `a`, the alpha is `1`. |
+| `cooldown:SetEdgeColor(r, g, b [, a])` | Sets the color of the edge line. The default color is white. If you do not give `a`, the alpha is `1`. |
 
-If `start` or `duration` is not a number, `SetCooldown` gives the error
-`Usage: <name>:SetCooldown(start, duration)`.
+If a required number is missing, the method gives a usage error, for
+example `Usage: <name>:SetCooldown(start, duration[, modRate])`.
 
 The draw-edge flag applies from the next `SetCooldown` call.
 
-You can also use `CooldownFrame_SetTimer(cd, start, duration, enable)`.
-This function calls `SetCooldown` on a cooldown frame. If `start`,
-`duration`, or `enable` is not more than 0, it hides the frame.
+Only cooldown frames have these methods.
 
-Only cooldown frames have these five methods.
+The `OnCooldownDone` script runs one time when the sweep of a cooldown
+ends. It runs before the flash. You can set it with `SetScript`,
+`HookScript`, or a `<OnCooldownDone>` element in `<Scripts>`:
+
+```lua
+cd:SetScript("OnCooldownDone", function()
+    print(this:GetName() .. " is ready")
+end)
+```
+
+The script does not run for `Clear()` or for a cooldown with a `duration`
+of `0`.
+
+You can also use these functions:
+
+- `CooldownFrame_Set(cd, start, duration, enable [, forceShowDrawEdge, modRate])`
+  starts the cooldown and sets the draw-edge flag. If `enable` is `nil`
+  or `0`, or `start` or `duration` is not more than 0, it calls
+  `CooldownFrame_Clear`.
+- `CooldownFrame_Clear(cd)` calls `Clear()`.
+- `CooldownFrame_SetDisplayAsPercentage(cd, percentage)` pauses the frame
+  and shows the sweep at `percentage` (0 to 1).
+- `CooldownFrame_SetTimer(cd, start, duration, enable)` calls
+  `SetCooldown`. If `start`, `duration`, or `enable` is not more than 0,
+  it hides the frame.
+
+`CooldownFrame_Set`, `CooldownFrame_Clear`, and `CooldownFrame_SetTimer`
+also accept the indicator models of the stock buttons. For these
+models, they use the stock timer.
 
 A new cooldown frame has a sweep that is already over. If the frame is
 shown before the first `SetCooldown` call, it hides itself after one
 second.
 
 XML files can also create a cooldown frame with a `<Cooldown>` element.
-The `reverse` and `drawEdge` attributes set the two flags:
+The `reverse`, `drawEdge`, `drawSwipe`, and `drawBling` attributes set
+the four flags:
 
 ```xml
 <Frames>
