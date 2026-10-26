@@ -492,6 +492,7 @@ build instructions.
   - [`C_Item.IsEquippedItem(item)`](#c_itemisequippeditemitem)
   - [`C_Item.IsItemDataCachedByID(item)` / `C_Item.IsItemDataCached(itemLocation)`](#c_itemisitemdatacachedbyiditem--c_itemisitemdatacacheditemlocation)
   - [`C_Item.IsItemGUIDInInventory(itemGUID)`](#c_itemisitemguidininventoryitemguid)
+  - [`C_Item.ItemHasRange(item)` / `ItemHasRange(item)`](#c_itemitemhasrangeitem--itemhasrangeitem)
   - [`C_Item.IsItemInRange(item, targetUnit)`](#c_itemisiteminrangeitem-targetunit)
   - [`C_Item.IsItemOpenable(itemLocation)`](#c_itemisitemopenableitemlocation)
   - [`C_Item.IsLocked(itemLocation)`](#c_itemislockeditemlocation)
@@ -11474,6 +11475,26 @@ C_Item.IsItemGUIDInInventory(
 Accepts the GUID string [`C_Item.GetItemGUID`](#c_itemgetitemguiditemlocation)
 / `UnitGUID` return; returns `false` for a malformed or zero GUID. To also
 cover the bank, use `C_Item.GetItemCount(itemID, true) > 0` instead.
+
+### `C_Item.ItemHasRange(item)` / `ItemHasRange(item)`
+
+Whether the item has a range restriction — i.e. its on-use spell
+reports a nonzero min or max range through the engine's own resolver.
+Items with no on-use spell, or whose spell is rangeless (potions, food,
+self-buff trinkets, hearthstone), have none.
+
+`item` is an itemID, `"item:NNN"` string, or item link, same as
+[`C_Item.IsItemInRange`](#c_itemisiteminrangeitem-targetunit). Uncached
+items read as having no range and fire no load.
+
+The two forms return different types. `ItemHasRange` returns `1` or
+`nil`, like 3.3.5. `C_Item.ItemHasRange` returns `true` or `false`.
+
+```lua
+ItemHasRange(1251)               -- Linen Bandage → 1 (has a range)
+C_Item.ItemHasRange(118)         -- Minor Healing Potion → false
+C_Item.ItemHasRange(6948)        -- Hearthstone → false
+```
 
 ### `C_Item.IsItemInRange(item, targetUnit)`
 

@@ -17,6 +17,10 @@
 // (names aren't resolvable — vanilla has no name→ID map — and yield nil);
 // `targetUnit` is a unit token ("target", "mouseover", "party1", …).
 //
+// `C_Item.ItemHasRange(item)` / `ItemHasRange(item)` — whether the item
+// has a range restriction at all (same `item` shapes). The global keeps
+// 3.3.5's 1/nil; the namespaced form returns a bool.
+//
 // An item's range comes from the spell it fires on use: we resolve the
 // item to its on-use spell (`Item::Spell::OnUseSpellIDForItemID`) and run
 // the same range test as `C_Spell.IsSpellInRange`, via the shared
@@ -62,9 +66,38 @@ int __fastcall Script_C_Item_IsItemInRange(void *L) {
     return 1;
 }
 
+// Shared core: true iff the item's on-use spell reports a non-near-zero
+// min or max range via the engine's own resolver. A missing record, an
+// item with no on-use spell, and a rangeless spell all read as false —
+// passive, no cache warm, matching 3.3.5's `Script_ItemHasRange`.
+bool ItemHasRange(int itemID) {
+    const int spellID =
+        itemID > 0 ? Item::Spell::OnUseSpellIDForItemID(
+                         static_cast<uint32_t>(itemID))
+                   : 0;
+    // `::Spell` — unqualified `Spell` would bind to `Item::Spell` here.
+    return ::Spell::Range::SpellIDHasRange(spellID);
+}
+
+int __fastcall Script_ItemHasRange(void *L) {
+    if (ItemHasRange(Item::Arg::ResolveItemID(L, 1)))
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
+int __fastcall Script_C_Item_ItemHasRange(void *L) {
+    Game::Lua::PushBool(L, ItemHasRange(Item::Arg::ResolveItemID(L, 1)));
+    return 1;
+}
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "IsItemInRange",
                                      &Script_C_Item_IsItemInRange);
+    Game::Lua::RegisterGlobalFunction("ItemHasRange", &Script_ItemHasRange);
+    Game::Lua::RegisterTableFunction("C_Item", "ItemHasRange",
+                                     &Script_C_Item_ItemHasRange);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
