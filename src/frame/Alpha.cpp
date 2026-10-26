@@ -44,11 +44,23 @@
 // the region recolors and the Model want. The chat bubble and nameplate fades
 // compare it with their own targets. They're WorldFrame children, where drawn
 // and own are the same while WorldFrame is opaque.
+//
+// Default nameplates are exempt: the plate itself (IsNamePlate, by vtable)
+// and anything parented under one (UnderNamePlate). The engine fades plates
+// itself, and nameplate addons layer their own frames over the plate and
+// manage alpha the 1.12.1 way — a child's own SetAlpha is absolute there.
+// The plate runs an emulated setter (DrawPlate): byte, recolor, copy-down,
+// except children with an explicitly-set alpha keep it, so an overlay the
+// addon set is never stomped by a later engine fade the addon's write-once
+// cache won't repair. The plate's own writes of the legacy constants (0x7F
+// dimmed, 0xFF target) resolve through the `nameplateNotSelectedAlpha` /
+// `nameplateSelectedAlpha` CVars (defaults 0.5 / 1, byte-identical).
 
 #include "frame/Alpha.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cvar/Factory.h"
 #include "frame/Destruction.h"
 
 #include <cstdint>
@@ -66,10 +78,20 @@ using ScriptFn_t = int(__fastcall *)(void *L);
 SetFrameAlpha_t g_origSetAlpha = nullptr;
 SetParent_t g_origSetParent = nullptr;
 ScriptFn_t g_origGetAlpha = nullptr;
+CVar::Factory::Handle g_dimCVar = nullptr;
+CVar::Factory::Handle g_selCVar = nullptr;
+// Set while running the original setter body directly: its internal
+// recursion reaches these hooks through the vtable, and those propagated
+// writes must not record an "explicit" alpha.
+bool g_inOriginal = false;
 
-// Own alpha of every live frame that set one other than 255. Every frame
-// class's destructor runs FUN_FRAME_DESTRUCTOR, whose listener drops the
-// frame's entry, so a frame that outlives a /reload keeps its own alpha.
+void __fastcall SetFrameAlpha_h(void *frame, void *edx, uint32_t alpha);
+
+// Own alpha of every live frame that set one, including 255: presence (not
+// the value) marks "explicitly managed", which is what a plate fade consults
+// before overwriting a child. Every frame class's destructor runs
+// FUN_FRAME_DESTRUCTOR, whose listener drops the frame's entry, so a frame
+// that outlives a /reload keeps its own alpha.
 std::unordered_map<const void *, uint8_t> g_own;
 
 // Set while a frame is being given its drawn alpha through its vtable setter.
@@ -89,10 +111,7 @@ uint8_t Own(const void *frame) {
 }
 
 void SetOwn(const void *frame, uint8_t alpha) {
-    if (alpha == 255)
-        g_own.erase(frame);
-    else
-        g_own[frame] = alpha;
+    g_own[frame] = alpha;
 }
 
 // Truncating, as 3.3.5's CSimpleFrame::GetEffectiveAlpha (0x00482E60) and
@@ -105,6 +124,50 @@ uint8_t DrawnFor(void *frame, uint8_t own) {
     void *parent = Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT);
     return parent != nullptr ? Mul(own, *DrawnByte(parent)) : own;
 }
+
+// A live default nameplate, by its vtable pointer
+// (VAR_NAMEPLATE_VTABLE).
+bool IsNamePlate(const void *frame) {
+    return *reinterpret_cast<void *const *>(frame) ==
+           reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_NAMEPLATE_VTABLE));
+}
+
+// Anything parented under a plate, at any depth. Nameplate addons layer
+// their own frames over the default plate (a `CreateFrame` Button whose
+// parent is the plate) and manage alpha the 1.12.1 way, where a child's
+// own SetAlpha is absolute — multiplication would glue the overlay to the
+// engine-dimmed plate underneath. The whole subtree keeps vanilla
+// semantics; only the plate itself additionally resolves the legacy
+// constants through the CVars.
+bool UnderNamePlate(const void *frame) {
+    const void *f =
+        Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT);
+    for (int i = 0; i < kMaxDepth && f != nullptr; ++i) {
+        if (IsNamePlate(f))
+            return true;
+        f = Game::Read<void *>(f, Offsets::OFF_REGION_PARENT);
+    }
+    return false;
+}
+
+// The legacy constants the plate fade writes (OnUpdate): 0x7F dimmed,
+// 0xFF for the target.
+constexpr uint8_t kLegacyDim = 0x7F;
+constexpr uint8_t kLegacyFull = 0xFF;
+
+// A 0-to-1 CVar as a byte. The defaults truncate to the legacy constants
+// (0.5 → 0x7F, 1.0 → 0xFF), so untouched installs are byte-identical.
+uint8_t CVarByte(CVar::Factory::Handle cvar, float fallback) {
+    float v = CVar::Factory::GetFloat(cvar, fallback);
+    if (v < 0.0f)
+        v = 0.0f;
+    if (v > 1.0f)
+        v = 1.0f;
+    return static_cast<uint8_t>(v * 255.0f);
+}
+
+uint8_t DimByte() { return CVarByte(g_dimCVar, 0.5f); }
+uint8_t SelectedByte() { return CVarByte(g_selCVar, 1.0f); }
 
 // Gives `frame` its drawn alpha through its own vtable setter.
 void ApplyDrawn(void *frame, uint8_t drawn) {
@@ -135,11 +198,77 @@ void Draw(void *frame, uint8_t drawn) {
             vtable[Offsets::VTBL_REGION_RECOLOR / sizeof(void *)])(region, 0);
     });
     Game::ForEachFrameListObject(frame, Offsets::OFF_FRAME_CHILD_LIST,
-                [drawn](void *child) { ApplyDrawn(child, Mul(Own(child), drawn)); });
+                [drawn](void *child) {
+                    if (IsNamePlate(child) || UnderNamePlate(child)) {
+                        // Into the plate subtree: run the hook body so plates
+                        // substitute and overlays stay verbatim. Flagged: this
+                        // copy-down must not record.
+                        const bool saved = g_inOriginal;
+                        g_inOriginal = true;
+                        SetFrameAlpha_h(child, nullptr, drawn);
+                        g_inOriginal = saved;
+                        return;
+                    }
+                    ApplyDrawn(child, Mul(Own(child), drawn));
+                });
+}
+
+// The original setter's body for a plate: byte, recolor, then copy-down —
+// except children with an explicitly-set alpha keep it. Vanilla would
+// overwrite them, which stomps addon overlays every engine fade while the
+// addon's write-once cache never repairs them. The engine's own plate parts
+// never set one, so they still follow the fade exactly as vanilla.
+void DrawPlate(void *frame, uint8_t drawn) {
+    uint8_t *byte = DrawnByte(frame);
+    if (*byte == drawn)
+        return;
+    *byte = drawn;
+    Game::ForEachFrameListObject(frame, Offsets::OFF_FRAME_REGION_LIST, [](void *region) {
+        void **vtable = *static_cast<void ***>(region);
+        reinterpret_cast<Recolor_t>(
+            vtable[Offsets::VTBL_REGION_RECOLOR / sizeof(void *)])(region, 0);
+    });
+    Game::ForEachFrameListObject(frame, Offsets::OFF_FRAME_CHILD_LIST,
+                [drawn](void *child) {
+                    if (g_own.find(child) != g_own.end())
+                        return; // explicitly managed: never inherits the fade
+                    const bool saved = g_inOriginal;
+                    g_inOriginal = true;
+                    g_origSetAlpha(child, drawn);
+                    g_inOriginal = saved;
+                });
 }
 
 void __fastcall SetFrameAlpha_h(void *frame, void * /*edx*/, uint32_t alpha) {
     const uint8_t value = static_cast<uint8_t>(alpha);
+    if (IsNamePlate(frame)) {
+        // Plate fade, with one substitution per legacy constant: dim writes
+        // resolve through `nameplateNotSelectedAlpha`, full writes through
+        // `nameplateSelectedAlpha`. Nothing is recorded for the plate itself
+        // and nothing multiplies.
+        uint8_t out = value;
+        if (value == kLegacyDim)
+            out = DimByte();
+        else if (value == kLegacyFull)
+            out = SelectedByte();
+        DrawPlate(frame, out);
+        return;
+    }
+    if (UnderNamePlate(frame)) {
+        // Pure vanilla, plus a record: the overlay's own SetAlpha is
+        // absolute, and the record is what later plate fades consult. (A
+        // write of exactly 0x7F/0xFF here is the addon's own choice and
+        // passes through untouched — only the plate's own writes resolve the
+        // CVars.) Propagated copy-down writes arrive with g_inOriginal set
+        // and must not record.
+        if (!g_inOriginal)
+            SetOwn(frame, value);
+        const bool saved = g_inOriginal;
+        g_inOriginal = true;
+        g_origSetAlpha(frame, value);
+        g_inOriginal = saved;
+        return;
+    }
     if (g_propagating) {
         // Reached from ApplyDrawn: `value` is already the drawn alpha.
         Draw(frame, value);
@@ -151,6 +280,8 @@ void __fastcall SetFrameAlpha_h(void *frame, void * /*edx*/, uint32_t alpha) {
 
 void __fastcall SetParent_h(void *frame, void * /*edx*/, void *parent) {
     g_origSetParent(frame, parent);
+    if (IsNamePlate(frame) || UnderNamePlate(frame))
+        return; // vanilla: a new parent contributes no alpha
     ApplyDrawn(frame, DrawnFor(frame, Own(frame)));
 }
 
@@ -164,8 +295,8 @@ int __fastcall GetAlpha_h(void *L) {
     if (n != 1)
         return n;
     const void *frame = Game::Lua::ResolveObject(L, 1);
-    if (frame == nullptr)
-        return n;
+    if (frame == nullptr || IsNamePlate(frame) || UnderNamePlate(frame))
+        return n; // the plate subtree reports the byte, as vanilla does
     Game::Lua::SetTop(L, -2);
     Game::Lua::PushNumber(L, Own(frame) / 255.0);
     return 1;
@@ -180,6 +311,19 @@ const Game::HookAutoRegister _setParentHook{Offsets::FUN_FRAME_SET_PARENT,
 const Game::HookAutoRegister _getAlphaHook{Offsets::FUN_SCRIPT_FRAME_GETALPHA,
                                            reinterpret_cast<void *>(&GetAlpha_h),
                                            reinterpret_cast<void **>(&g_origGetAlpha)};
+
+void RegisterCVar() {
+    g_dimCVar = CVar::Factory::Register(
+        "nameplateNotSelectedAlpha",
+        "The alpha of a nameplate whose unit is not the target, from 0 to 1",
+        Offsets::CVAR_CATEGORY_GAME, "0.5");
+    g_selCVar = CVar::Factory::Register(
+        "nameplateSelectedAlpha",
+        "The alpha of a nameplate whose unit is the target, from 0 to 1",
+        Offsets::CVAR_CATEGORY_GAME, "1");
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterCVar};
 
 } // namespace
 

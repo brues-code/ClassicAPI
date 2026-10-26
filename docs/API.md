@@ -644,6 +644,8 @@ build instructions.
   - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
 
 - [NamePlate](#nameplate)
+  - [`nameplateNotSelectedAlpha`](#nameplatenotselectedalpha)
+  - [`nameplateSelectedAlpha`](#nameplateselectedalpha)
   - [`C_NamePlate.GetNamePlates()`](#c_nameplategetnameplates)
   - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
   - [`C_NamePlate.GetNamePlateForUnit(unitToken)`](#c_nameplategetnameplateforunitunittoken)
@@ -15133,6 +15135,28 @@ The `"nameplateN"` unit-token family is also supported — see
 [Unit tokens](#unit-tokens-nameplaten) below. `NAME_PLATE_UNIT_ADDED`
 / `_REMOVED` / `_CREATED` events fire via a per-tick visible-plate
 diff (see [the events section](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)).
+
+### `nameplateNotSelectedAlpha`
+
+The alpha of a default nameplate whose unit is not the current target.
+At the default `0.5`, a non-target plate draws half-faded. At `1`,
+every plate draws at full alpha. The target plate always draws at full
+alpha. Addons that draw their own plates keep their own settings.
+
+```lua
+/console nameplateNotSelectedAlpha 1
+```
+
+### `nameplateSelectedAlpha`
+
+The alpha of a default nameplate whose unit is the current target. At
+the default `1`, the target plate draws at full alpha. At `0.5`, it
+draws half-faded like the rest. Addons that draw their own plates keep
+their own settings.
+
+```lua
+/console nameplateSelectedAlpha 0.5
+```
 
 ### `C_NamePlate.GetNamePlates()`
 

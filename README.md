@@ -242,6 +242,8 @@ menu and click AddOn Options, then ClassicAPI.
 | | `SoftTargetIconEnemy` / `SoftTargetIconFriend` | `0` | `1` shows an icon over `softenemy` / `softfriend`. |
 | | `SoftTargetLowPriorityIcons` | `0` | `1` also shows the normal pointer as an icon. |
 | | `SoftTargetNameplateSize` | `19` | Size of all soft-target icons. |
+| [NamePlate](docs/API.md#nameplate) | `nameplateNotSelectedAlpha` | `0.5` | Alpha of a non-target default nameplate, `0` to `1`. |
+| | `nameplateSelectedAlpha` | `1` | Alpha of the target's default nameplate, `0` to `1`. |
 | [Text to speech](docs/API.md#tts-cvars) | `ttsVoice` | `0` | The voice that `C_VoiceChat.SpeakText` uses. |
 | | `ttsSpeed` | `0` | Speech rate, `-10` to `10`. |
 | | `ttsVolume` | `100` | Speech volume, `0` to `100`. |

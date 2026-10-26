@@ -17,9 +17,11 @@
 
 namespace Frame::Alpha {
 
-// A frame's own alpha byte (3.x's m_alpha, what GetAlpha returns): 255 for a
-// frame that never set one. Set it with the frame's vtable alpha setter
-// (VTBL_FRAME_SET_FRAME_ALPHA), as SetAlpha does.
+// A frame's own alpha byte (3.x's m_alpha, what GetAlpha returns): the last
+// explicitly-set value, 255 for a frame that never set one. Presence in the
+// table (not the value) is what a plate fade consults before overwriting a
+// child. Plates themselves never record one; GetAlpha still reports the byte
+// for the whole plate subtree.
 uint8_t OwnAlpha(const void *frame);
 
 } // namespace Frame::Alpha

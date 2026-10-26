@@ -2469,6 +2469,13 @@ enum Offsets {
     OFF_NAMEPLATE_LINK_NEXT = 0x4E0,
     OFF_NAMEPLATE_GUID = 0x4E8,
     OFF_UNIT_NAMEPLATE = 0xE60,
+    // CGNamePlateFrame vtable: the 40 virtual slots the plate constructor
+    // stores as the frame's vfptr. Slot 10 (+0x28) is
+    // FUN_FRAME_SET_FRAME_ALPHA, which is how the plate fade writes 0xFF /
+    // 0x7F. Verified against benilla-re (`s_namePlateVtable`) and by dumping
+    // this image: slot 10 reads 0x0076A690. A frame whose vfptr is this
+    // address is a live default plate (addon-built plates are normal frames).
+    VAR_NAMEPLATE_VTABLE = 0x0081DE50,
 
     // CGCreature client-side creature-data cache row. Populated by the
     // engine when an NPC GUID becomes visible (the same row the
