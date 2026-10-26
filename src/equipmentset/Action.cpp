@@ -40,6 +40,8 @@
 //                    GetActionTexture / GetActionText / IsUsableAction.
 //   right-click drop FUN_WORLD_BUTTON_HOOK — its "cursor holds something"
 //                    test reads the payload globals, and the set has none.
+//   cursor clear     FUN_CURSOR_CLEAR — 4.3.4's set arm (drop sound, reset
+//                    the ID); 1.12's kind table stops at 10.
 //
 // Persistence. The server's CMSG_SET_ACTION_BUTTON handler whitelists
 // spell / macro / item and drops type 0x20 without a word (tortoise-wow
@@ -108,6 +110,7 @@ Script_t g_origUseAction = nullptr;
 Script_t g_origGetActionText = nullptr;
 ActionButtons_t g_origActionButtons = nullptr;
 WorldButton_t g_origWorldButton = nullptr;
+CursorClear_t g_origCursorClear = nullptr;
 
 uint32_t *Table() {
     return reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE));
@@ -291,6 +294,17 @@ int __fastcall ActionButtons_h(void *ecx, void *edx, void *a, void *packet) {
     return result;
 }
 
+// 4.3.4 `CGGameUI::ClearCursor` case 12, ahead of the engine's own clear,
+// which still runs the shared tail (grid, type, CURSOR_UPDATE).
+void __fastcall CursorClear_h(int returnItem, int fireMoneyEvent) {
+    if (CursorSetID() != 0) {
+        g_cursorSetID = 0;
+        reinterpret_cast<PlaySound_t>(Offsets::FUN_PLAY_SOUND_BY_NAME)(
+            "INTERFACESOUND_CURSORDROPOBJECT");
+    }
+    g_origCursorClear(returnItem, fireMoneyEvent);
+}
+
 // FUN_WORLD_BUTTON_HOOK's right-press branch for our cursor type: clear
 // and consume, as it does for every payload it knows.
 uint32_t __fastcall WorldButton_h(void *event, void *edx) {
@@ -352,6 +366,9 @@ const Game::HookAutoRegister _hookUseAction{
 const Game::HookAutoRegister _hookActionText{
     Offsets::FUN_SCRIPT_GET_ACTION_TEXT, reinterpret_cast<void *>(&GetActionText_h),
     reinterpret_cast<void **>(&g_origGetActionText)};
+const Game::HookAutoRegister _hookCursorClear{
+    Offsets::FUN_CURSOR_CLEAR, reinterpret_cast<void *>(&CursorClear_h),
+    reinterpret_cast<void **>(&g_origCursorClear)};
 const Game::HookAutoRegister _hookWorldButton{
     Offsets::FUN_WORLD_BUTTON_HOOK, reinterpret_cast<void *>(&WorldButton_h),
     reinterpret_cast<void **>(&g_origWorldButton)};

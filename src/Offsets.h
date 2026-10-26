@@ -10902,8 +10902,9 @@ enum Offsets {
     // Equipment set — 3.3.5's cursor type for it (`FUN_00520dc0` writes
     // 0xD). Free in 1.12 (the engine uses 1..10); the setID lives in
     // `EquipmentSet::Action`, not an engine global. FUN_CURSOR_CLEAR's
-    // switch has no case for it, so a clear only resets the type — the
-    // payload must be read gated on this type.
+    // kind table covers 1..10 only, so `EquipmentSet::Action` co-hooks it
+    // for this type's arm (drop sound, payload reset); the payload is still
+    // read gated on this type.
     CURSOR_TYPE_EQUIPMENT_SET = 13,
 
     // Cursor clear — `__fastcall(int returnItem, int fireMoneyEvent)`. The
