@@ -139,6 +139,7 @@ struct Fields {
     void *countdown;      // the CSimpleFontString of the countdown numbers
     uint32_t hideCountdownNumbers;
     float abbrevThreshold;      // s: below it, m:ss in place of whole minutes
+    float millisecondsThreshold; // s: below it, tenths
     uint32_t minCountdownDuration; // ms: shorter cooldowns show no numbers
     char countdownText[16];     // what the font string holds
 };
@@ -584,12 +585,17 @@ void *CreateCountdown(void *frame) {
 }
 
 // Retail's text for `ms` left (probe: 2 s "2", 57 s "57", 116 s "1:56",
-// 123 s "3m", 3698 s "2h", 89998 s "2d"): whole units rounded up; m:ss below
-// the abbreviation threshold, which applies only from one minute to one hour.
-void FormatCountdown(char (&out)[16], uint32_t ms, float abbrevThreshold) {
+// 123 s "3m", 3698 s "2h", 89998 s "2d"; 6.49 "7", 5.014 "6"): whole units
+// rounded up; m:ss below the abbreviation threshold, which applies only from
+// one minute to one hour; below the milliseconds threshold, tenths rounded up
+// (threshold 5: 4.973 "5.0", 3.24 "3.3", 1.039 "1.1", 0.039 "0.1").
+void FormatCountdown(char (&out)[16], uint32_t ms, float abbrevThreshold,
+                     float millisecondsThreshold) {
     const double s = ms / 1000.0;
     const int whole = static_cast<int>(std::ceil(s));
-    if (s >= 86400.0)
+    if (s < millisecondsThreshold)
+        std::snprintf(out, sizeof(out), "%.1f", std::ceil(s * 10.0) / 10.0);
+    else if (s >= 86400.0)
         std::snprintf(out, sizeof(out), "%dd", static_cast<int>(std::ceil(s / 86400.0)));
     else if (s >= 3600.0)
         std::snprintf(out, sizeof(out), "%dh", static_cast<int>(std::ceil(s / 3600.0)));
@@ -611,7 +617,7 @@ void UpdateCountdown(void *frame) {
     char text[16] = "";
     if (!f.hideCountdownNumbers && !f.flashing && !f.done && f.duration > f.minCountdownDuration &&
         f.elapsed < f.duration && CVar::Factory::GetInt(g_countdownForCooldowns) != 0)
-        FormatCountdown(text, f.duration - f.elapsed, f.abbrevThreshold);
+        FormatCountdown(text, f.duration - f.elapsed, f.abbrevThreshold, f.millisecondsThreshold);
     if (std::strcmp(text, f.countdownText) == 0)
         return;
     std::memcpy(f.countdownText, text, sizeof(text));
@@ -1185,6 +1191,27 @@ int __fastcall Script_GetCountdownAbbrevThreshold(void *L) {
     return 1;
 }
 
+int __fastcall Script_SetCountdownMillisecondsThreshold(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetCountdownMillisecondsThreshold(seconds)",
+                         Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    F(frame).millisecondsThreshold = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetCountdownMillisecondsThreshold(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).millisecondsThreshold);
+    return 1;
+}
+
 int __fastcall Script_SetMinimumCountdownDuration(void *L) {
     void *frame = ResolveCooldown(L);
     if (frame == nullptr)
@@ -1281,6 +1308,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetCountdownFontString", &Script_GetCountdownFontString},
     {"SetCountdownAbbrevThreshold", &Script_SetCountdownAbbrevThreshold},
     {"GetCountdownAbbrevThreshold", &Script_GetCountdownAbbrevThreshold},
+    {"SetCountdownMillisecondsThreshold", &Script_SetCountdownMillisecondsThreshold},
+    {"GetCountdownMillisecondsThreshold", &Script_GetCountdownMillisecondsThreshold},
     {"SetMinimumCountdownDuration", &Script_SetMinimumCountdownDuration},
     {"GetMinimumCountdownDuration", &Script_GetMinimumCountdownDuration},
 };
@@ -1411,6 +1440,13 @@ const Game::Doc::Function kSetCountdownAbbrevThreshold{
     kSecondsArg, {}};
 const Game::Doc::Function kGetCountdownAbbrevThreshold{
     "Returns the time left below which the numbers show as m:ss.", {}, kSecondsRet};
+const Game::Doc::Field kTenthsArg[] = {
+    Game::Doc::Req("seconds", "number", "Below this time left the numbers show tenths, for example 8.7."),
+};
+const Game::Doc::Function kSetCountdownMillisecondsThreshold{
+    "Sets the time left below which the numbers show tenths of a second.", kTenthsArg, {}};
+const Game::Doc::Function kGetCountdownMillisecondsThreshold{
+    "Returns the time left below which the numbers show tenths of a second.", {}, kSecondsRet};
 const Game::Doc::Field kMillisecondsArg[] = {
     Game::Doc::Req("milliseconds", "number", "Compared with the full duration, not the time left."),
 };
@@ -1456,6 +1492,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetCountdownFontString", &kGetCountdownFontString},
     {"SetCountdownAbbrevThreshold", &kSetCountdownAbbrevThreshold},
     {"GetCountdownAbbrevThreshold", &kGetCountdownAbbrevThreshold},
+    {"SetCountdownMillisecondsThreshold", &kSetCountdownMillisecondsThreshold},
+    {"GetCountdownMillisecondsThreshold", &kGetCountdownMillisecondsThreshold},
     {"SetMinimumCountdownDuration", &kSetMinimumCountdownDuration},
     {"GetMinimumCountdownDuration", &kGetMinimumCountdownDuration},
 };

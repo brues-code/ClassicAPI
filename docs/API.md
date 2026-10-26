@@ -6593,6 +6593,7 @@ cd:GetDrawEdge()                -- true
 | `cooldown:SetHideCountdownNumbers(hide)` / `cooldown:GetHideCountdownNumbers()` | Sets and returns whether the countdown numbers are hidden. The flag is `false` when the frame is created. |
 | `cooldown:GetCountdownFontString()` | Returns the font string that shows the countdown numbers. It uses `Fonts\FRIZQT__.TTF`, size 16, with an outline, at the center of the frame. You can change its font, color, and position. |
 | `cooldown:SetCountdownAbbrevThreshold(seconds)` / `cooldown:GetCountdownAbbrevThreshold()` | Sets and returns the time left in seconds below which the numbers show as `m:ss`, for example `1:56`. Above it, they show whole minutes, for example `3m`. The threshold applies from one minute to one hour. The default is `120`. |
+| `cooldown:SetCountdownMillisecondsThreshold(seconds)` / `cooldown:GetCountdownMillisecondsThreshold()` | Sets and returns the time left in seconds below which the numbers show tenths of a second, for example `3.3`. The default is `0`, so the numbers show whole seconds. |
 | `cooldown:SetMinimumCountdownDuration(milliseconds)` / `cooldown:GetMinimumCountdownDuration()` | Sets and returns the duration that a cooldown must be longer than to show numbers. The value applies to the full duration, not to the time left. The default is `2000`. |
 
 For the three texture methods, `texture` is a file path. An empty string
@@ -6615,9 +6616,9 @@ The countdown numbers show only when the `countdownForCooldowns` CVar is
 SetCVar("countdownForCooldowns", "1")
 ```
 
-The numbers show the time left, rounded up: seconds below one minute
-(`57`), then `m:ss` or whole minutes, then whole hours (`2h`) and days
-(`2d`). They do not show during the flash.
+The numbers show the time left, rounded up: tenths below the
+milliseconds threshold (`3.3`), seconds below one minute (`57`), then
+`m:ss` or whole minutes, then whole hours (`2h`) and days (`2d`). They do not show during the flash.
 
 The `OnCooldownDone` script runs one time when the sweep of a cooldown
 ends. It runs before the flash. You can set it with `SetScript`,
