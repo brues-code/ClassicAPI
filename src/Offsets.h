@@ -11654,6 +11654,12 @@ enum Offsets {
     // (Texture::DimensionGate): route a texture larger than the pool can index to
     // the engine's own non-pooled free FUN_TEXTURE_FREE_RAW — exactly what the
     // guard's else-branch already does for too-small / too-many-mip textures.
+    // The same gate has no power-of-two test either (decompiled; benilla-re
+    // TexturePoolRelease), so an NPOT texture files by its power-of-two FACTOR —
+    // a 600x600 lands in the 64x64 bucket — and the allocator's hit test, which
+    // compares only filter bits and format, hands it to the next 64x64 request.
+    // 4.3.4's TextureFreeGxTex gates on GxTexReusable (target == GxTex_2d, never
+    // GxTex_NonPow2), so NPOT is routed to the raw free as well.
     FUN_TEXTURE_POOL_FREE = 0x00448670,   // __fastcall(tex); the pool free path
     FUN_TEXTURE_FREE_RAW = 0x0058AD60,    // __fastcall(tex); non-pooled free (device release)
     FUN_TEXTURE_GET_DESC = 0x0058ADA0,    // __fastcall(tex, out*) — fills width@+4, height@+8
@@ -11695,6 +11701,20 @@ enum Offsets {
     // returns is precisely what the scratch slot expects — and SMemAlloc-backed,
     // so the exit teardown's SMemFree on it is valid.
     FUN_TEXTURE_DECODE_BUFFER_ALLOC = 0x005A4AF0,
+    // That recycle front and its free: a per-format cache of decoded buffers for
+    // sides 8..256, bucketed by `tz(w>>3)*6 + tz(h>>3)` with no power-of-two test
+    // on either side (verified, disassembly). Freeing an NPOT buffer files it
+    // under its power-of-two factor and a later request of that bucket's size
+    // gets it — or, the dangerous way round, a 200x100 request gets the 8x32
+    // buffer the bucket holds and decodes past its end. Out-of-window sizes take
+    // FUN_TEXTURE_DECODE_BUFFER_ALLOC / FUN_STORM_SMEM_FREE directly, so NPOT is
+    // routed there too (Texture::DimensionGate). Callers: the BLP IMG/cache path
+    // FUN_00449840 and the TGA decoder FUN_004491F0 when its slot is NULL (the
+    // live TGA path pre-seeds the slot with the scratch, so it never allocates);
+    // the free is ~CTexture with the texture's +0x118 type code and +0x144/+0x148
+    // size.
+    FUN_TEXTURE_ALLOC_MIPS = 0x0044AF90, // __fastcall(format, width, [stack] height) -> buffer, RET 4
+    FUN_TEXTURE_FREE_MIPS = 0x0044B110,  // __fastcall(buffer, format, [stack] width, height), RET 8
     // Device-relative: the caps block at +0x23C (what FUN_0058A230 returns) plus
     // the type-0 (2D) max-texture-dimension slot at +0x60 — the exact field the
     // create validator FUN_0058AB10 compares width and height against
@@ -11761,6 +11781,17 @@ enum Offsets {
     // type-2 flags check.
     PATCH_TEXVALIDATE_POT_W = 0x0058AB7C,
     PATCH_TEXVALIDATE_POT_H = 0x0058AB8D,
+    // The imm8 of the validator's minimum side, `CMP EDI,8` (83 FF 08) /
+    // `CMP EBX,8` (83 FB 08), each followed by JC fail. 4.3.4 keeps the same 8
+    // ("Texture size must be at least 8x8"). Lowered to 1 so 0 is still refused.
+    // Nothing downstream needs 8: the allocator sends sides <= 16 straight here,
+    // the pool free takes only >= 32, the mip cache sends < 8 to the plain
+    // allocator, and a stock mip chain already uploads levels down to 1x1. If the
+    // D3D create fails anyway (a driver refusing a sub-4 DXT top level), LoadTexture
+    // 0x005A0D70 skips the upload while the D3D object at +0x48 is NULL, so the
+    // texture just stays blank.
+    PATCH_TEXVALIDATE_MIN_W_IMM = 0x0058AB42,
+    PATCH_TEXVALIDATE_MIN_H_IMM = 0x0058AB4E,
 
     // --- Inline-texture positioning (slice 1: measure/emit integration) --------
     // The 1.12 text pipeline builds a layout as a list of render "nodes" (one

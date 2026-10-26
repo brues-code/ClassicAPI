@@ -78,12 +78,21 @@
 //      failed" for a texture the GPU can't hold. It acts only when the slot IS
 //      the scratch: the IMG path decompresses into a private, right-sized
 //      buffer of its own and is left untouched.
-//   6. The recycle-pool free follows the same bound (always on). The free path
-//      files a texture into a bucket with no upper size check; the cave lets
-//      textures larger than the pool can index exist, so freeing one overran
-//      the bucket table (a 2048x2048 crashed at teardown). A hook routes any
-//      texture the table can't index to the non-pooled free instead — the
-//      mirror of the allocator's cave, and the missing half of the size gate.
+//   6. The recycle-pool free follows the same rule (always on). The free path
+//      files a texture into a bucket with no upper size check and no
+//      power-of-two check; the cave lets both kinds exist. Freeing an oversized
+//      one overran the bucket table (a 2048x2048 crashed at teardown); freeing
+//      an NPOT one filed it under its power-of-two factor, where the next POT
+//      request of that size was handed the wrong-sized texture. A hook routes
+//      anything the allocator would not have pooled to the non-pooled free —
+//      the mirror of the allocator's cave, and the missing half of the gate.
+//   7. The decoded-buffer cache follows it too (always on). Its alloc and free
+//      bucket by power-of-two factor the same way, so an NPOT BLP on the model /
+//      character cache path could be handed a smaller buffer and decode past
+//      it. NPOT sizes take the engine's own uncached alloc and free, as sizes
+//      outside the cache's 8..256 window already do.
+//   Minimum side (always on). The create validator refuses sides below 8; it
+//      now refuses only 0, so a 1x1 or 4x4 texture loads.
 //   5. The async fallback guard (always on). FUN_TEXTURE_FORCE_LOAD shoves a
 //      read that never fit the shared async buffer into a 512 KiB static
 //      fallback with no size check — a pre-existing engine bug the stock size
@@ -139,6 +148,9 @@ bool WriteNearJump(uintptr_t site, uint8_t cond, uintptr_t target) {
     Put32(bytes + 2, Rel32(site + 6, target));
     return Common::PatchBytes(reinterpret_cast<void *>(site), bytes, sizeof bytes);
 }
+
+// 0 counts as a power of two, as in every engine test of `v & (v - 1)`.
+bool IsPowerOfTwo(uint32_t v) { return (v & (v - 1)) == 0; }
 
 // ---- what the engine was actually configured with ----------------------------
 
@@ -281,8 +293,7 @@ uintptr_t Cave() { return reinterpret_cast<uintptr_t>(g_cave); }
 
 // ---- state -------------------------------------------------------------------
 
-uint32_t g_poolMax = 0;      // what the in-function CMPs admit to the pool
-uint32_t g_poolIndexMax = 0; // the largest dimension the bucket table can index
+uint32_t g_poolMax = 0; // what the in-function CMPs admit to the pool
 int g_poolSide = 0;
 bool g_strideFixed = false;
 
@@ -291,7 +302,6 @@ bool g_strideFixed = false;
 bool ApplySizeGate() {
     g_poolSide = PoolSide();
     const uint32_t indexable = PoolMaxDimension(g_poolSide);
-    g_poolIndexMax = indexable; // the free-path guard's bound (layer 6)
     const uint32_t scratch = ScratchDimension();
     // A texture that enters the pool never reaches the cave, so it must also
     // fit the scratch as it stands. (A VanillaHelpers install whose scratch
@@ -414,20 +424,22 @@ using TexGetDesc_t = void(__fastcall *)(void *tex, uint32_t *out);
 using TexFreeRaw_t = void(__fastcall *)(void *tex);
 
 // The pool free files a texture into a bucket keyed by each dimension's
-// power-of-two factor, with no upper bound (see Offsets.h). The allocator's cave
-// lets textures larger than the pool can index exist; freeing one files it past
-// the bucket table and writes through garbage. Exclude the same textures here:
-// route anything the table can't index to the engine's own non-pooled free —
-// exactly the guard's else-branch for too-small / too-many-mip textures. Cold
-// path (texture teardown), so a MinHook here carries no per-frame concern, and
-// nothing else patches this function's code.
+// power-of-two factor, with no upper bound and no power-of-two test (see
+// Offsets.h). The allocator's cave lets both oversized and NPOT textures exist:
+// an oversized one files past the bucket table and writes through garbage, an
+// NPOT one files under a POT size and is recycled for it. Pool here exactly
+// what the allocator pools — a power of two on both sides, no larger than
+// g_poolMax — and route the rest to the engine's own non-pooled free, the
+// guard's else-branch for too-small / too-many-mip textures. Cold path (texture
+// teardown), so a MinHook here carries no per-frame concern, and nothing else
+// patches this function's code.
 void __fastcall PoolFree_h(void *tex) {
-    if (g_poolIndexMax != 0 && tex != nullptr) {
+    if (g_poolMax != 0 && tex != nullptr) {
         uint32_t desc[16] = {0};
         reinterpret_cast<TexGetDesc_t>(Offsets::FUN_TEXTURE_GET_DESC)(tex, desc);
         const uint32_t w = desc[Offsets::OFF_TEXDESC_WIDTH / 4];
         const uint32_t h = desc[Offsets::OFF_TEXDESC_HEIGHT / 4];
-        if (w > g_poolIndexMax || h > g_poolIndexMax) {
+        if (!IsPowerOfTwo(w) || !IsPowerOfTwo(h) || w > g_poolMax || h > g_poolMax) {
             reinterpret_cast<TexFreeRaw_t>(Offsets::FUN_TEXTURE_FREE_RAW)(tex);
             return;
         }
@@ -437,6 +449,41 @@ void __fastcall PoolFree_h(void *tex) {
 
 const Game::HookAutoRegister _poolFreeHook{Offsets::FUN_TEXTURE_POOL_FREE, &PoolFree_h,
                                            reinterpret_cast<void **>(&PoolFree_o)};
+
+// ---- layer 7: the decoded-buffer cache follows the same rule -------------------
+
+using AllocMips_t = void *(__fastcall *)(uint32_t format, uint32_t width, uint32_t height);
+using FreeMips_t = void(__fastcall *)(void *buffer, uint32_t format, uint32_t width,
+                                      uint32_t height);
+AllocMips_t AllocMips_o = nullptr;
+FreeMips_t FreeMips_o = nullptr;
+
+// The cache buckets by power-of-two factor (see Offsets.h), so an NPOT size is
+// neither cached nor served from it: it takes the same uncached alloc and free
+// the engine uses outside the cache's 8..256 window. Both halves must agree, or
+// a buffer allocated here would be filed by the original free. Once per texture
+// load and unload.
+void *__fastcall AllocMips_h(uint32_t format, uint32_t width, uint32_t height) {
+    if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height))
+        return reinterpret_cast<DecodeBufferAlloc_t>(Offsets::FUN_TEXTURE_DECODE_BUFFER_ALLOC)(
+            static_cast<int>(format), width, height, kAllocTag, __LINE__);
+    return AllocMips_o(format, width, height);
+}
+
+void __fastcall FreeMips_h(void *buffer, uint32_t format, uint32_t width, uint32_t height) {
+    if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height)) {
+        if (buffer != nullptr)
+            reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE)(buffer, kAllocTag, __LINE__,
+                                                                      0);
+        return;
+    }
+    FreeMips_o(buffer, format, width, height);
+}
+
+const Game::HookAutoRegister _allocMipsHook{Offsets::FUN_TEXTURE_ALLOC_MIPS, &AllocMips_h,
+                                            reinterpret_cast<void **>(&AllocMips_o)};
+const Game::HookAutoRegister _freeMipsHook{Offsets::FUN_TEXTURE_FREE_MIPS, &FreeMips_h,
+                                           reinterpret_cast<void **>(&FreeMips_o)};
 
 // ---- non-power-of-two ----------------------------------------------------------
 
@@ -461,6 +508,20 @@ bool ApplyNonPowerOfTwo() {
     return ok;
 }
 
+// ---- minimum side --------------------------------------------------------------
+
+// The validator's `CMP side,8 ; JC fail` per axis, lowered to 1 so only a 0
+// side is refused. See Offsets.h for why nothing downstream depends on 8.
+bool ApplyMinimumSide() {
+    const uint8_t one = 1;
+    bool ok = Common::PatchBytes(reinterpret_cast<void *>(Offsets::PATCH_TEXVALIDATE_MIN_W_IMM),
+                                 &one, sizeof one);
+    ok = Common::PatchBytes(reinterpret_cast<void *>(Offsets::PATCH_TEXVALIDATE_MIN_H_IMM), &one,
+                            sizeof one) &&
+         ok;
+    return ok;
+}
+
 // Re-asserted on every registration so the code segment and our recorded state
 // cannot disagree. Order matters: the cave must exist before anything is
 // pointed at it.
@@ -469,6 +530,7 @@ void ApplyGates() {
         return;
     ApplyStrideFix();
     ApplyNonPowerOfTwo();
+    ApplyMinimumSide();
 }
 
 // ---- Lua ---------------------------------------------------------------------
