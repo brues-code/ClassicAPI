@@ -38,6 +38,8 @@
 //                    only caller.
 //   texture / text / usable — the per-slot readers behind
 //                    GetActionTexture / GetActionText / IsUsableAction.
+//   right-click drop FUN_WORLD_BUTTON_HOOK — its "cursor holds something"
+//                    test reads the payload globals, and the set has none.
 //
 // Persistence. The server's CMSG_SET_ACTION_BUTTON handler whitelists
 // spell / macro / item and drops type 0x20 without a word (tortoise-wow
@@ -79,6 +81,8 @@ using Script_t = int(__fastcall *)(void *L);
 // `__stdcall(a, packet)`, RET 8 — declared `__fastcall` with the two
 // register slots passed through untouched, which is the same frame.
 using ActionButtons_t = int(__fastcall *)(void *ecx, void *edx, void *a, void *packet);
+// `__thiscall(event *)`, plain RET — `__fastcall` with edx unused.
+using WorldButton_t = uint32_t(__fastcall *)(void *event, void *edx);
 
 constexpr uint32_t kTag = Offsets::ACTION_TYPE_EQUIPMENT_SET;
 constexpr uint32_t kSlots = Offsets::ACTION_TABLE_MAX_SLOTS;
@@ -103,6 +107,7 @@ Texture_t g_origTexture = nullptr;
 Script_t g_origUseAction = nullptr;
 Script_t g_origGetActionText = nullptr;
 ActionButtons_t g_origActionButtons = nullptr;
+WorldButton_t g_origWorldButton = nullptr;
 
 uint32_t *Table() {
     return reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE));
@@ -286,6 +291,20 @@ int __fastcall ActionButtons_h(void *ecx, void *edx, void *a, void *packet) {
     return result;
 }
 
+// FUN_WORLD_BUTTON_HOOK's right-press branch for our cursor type: clear
+// and consume, as it does for every payload it knows.
+uint32_t __fastcall WorldButton_h(void *event, void *edx) {
+    constexpr uint32_t kEvtButtonDown = 0x400500C8;
+    constexpr uint32_t kButtonRight = 4;
+    const auto *e = static_cast<const uint8_t *>(event);
+    if (CursorSetID() != 0 && *reinterpret_cast<const uint32_t *>(e + 0x08) == kEvtButtonDown &&
+        *reinterpret_cast<const uint32_t *>(e + 0x14) == kButtonRight) {
+        ClearCursor();
+        return 1;
+    }
+    return g_origWorldButton(event, edx);
+}
+
 int __fastcall Script_PickupEquipmentSet(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: C_EquipmentSet.PickupEquipmentSet(setID)");
@@ -333,6 +352,9 @@ const Game::HookAutoRegister _hookUseAction{
 const Game::HookAutoRegister _hookActionText{
     Offsets::FUN_SCRIPT_GET_ACTION_TEXT, reinterpret_cast<void *>(&GetActionText_h),
     reinterpret_cast<void **>(&g_origGetActionText)};
+const Game::HookAutoRegister _hookWorldButton{
+    Offsets::FUN_WORLD_BUTTON_HOOK, reinterpret_cast<void *>(&WorldButton_h),
+    reinterpret_cast<void **>(&g_origWorldButton)};
 const Game::HookAutoRegister _hookActionButtons{
     Offsets::FUN_SMSG_ACTION_BUTTONS, reinterpret_cast<void *>(&ActionButtons_h),
     reinterpret_cast<void **>(&g_origActionButtons)};

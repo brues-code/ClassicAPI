@@ -10925,6 +10925,12 @@ enum Offsets {
     // `int __fastcall(int kind)` — the protected-action gate FUN_ACTION_PLACE
     // opens with (kind 9). Returns 0 to refuse.
     FUN_CURSOR_EDIT_ALLOWED = 0x00494A50,
+    // The frame manager's world input hook (`+0x1128`) — `uint __thiscall
+    // (event *)`, plain RET. A right press (event id `+0x08` 0x400500C8,
+    // button `+0x14` 4) while any payload global is set clears the cursor
+    // with FUN_CURSOR_CLEAR(1, 1) and returns 1 (consumed). It tests the
+    // payload globals, not VAR_CURSOR_TYPE. Disassembled.
+    FUN_WORLD_BUTTON_HOOK = 0x00492B50,
 
     // GUID → CGObject resolver. `__fastcall(type_filter, guid_lo,
     // guid_hi) → CGObject *` at `0x00468460`. Type filter 0x2 = item,
