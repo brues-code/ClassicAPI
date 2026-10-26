@@ -38,6 +38,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Region.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -52,8 +53,6 @@ constexpr uint32_t kMaxLines = 60;
 
 // --- engine entry points (all __thiscall; see Offsets.h) -------------------
 using GetName_t = const char *(__thiscall *)(void *self);
-using PoolAlloc_t = void *(__thiscall *)(void *pool, int zeroInit, const char *tag, int line);
-using FontStringCtor_t = void *(__thiscall *)(void *mem, void *parent, int layer, int sublayer);
 using SetName_t = void(__thiscall *)(void *region, const char *name);
 using SetFont_t = void(__thiscall *)(void *fontHolder, void *fontObject);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
@@ -85,14 +84,7 @@ void *FontObjectOf(void *fontString) {
 // allocation failure.
 void *CreateLine(void *parent, const char *name, void *fontSource, int point,
                  void *relRegion, int relPoint, float x, float y) {
-    auto alloc = reinterpret_cast<PoolAlloc_t>(Offsets::FUN_REGION_POOL_ALLOC);
-    void *mem = alloc(reinterpret_cast<void *>(Offsets::VAR_SIMPLEFONTSTRING_POOL), 0,
-                      reinterpret_cast<const char *>(Offsets::VAR_SIMPLEFONTSTRING_CLASS_TAG), -2);
-    if (mem == nullptr)
-        return nullptr;
-
-    auto ctor = reinterpret_cast<FontStringCtor_t>(Offsets::FUN_SIMPLEFONTSTRING_CTOR);
-    void *fs = ctor(mem, parent, Offsets::DRAWLAYER_ARTWORK, 1);
+    void *fs = Frame::Region::CreateFontString(parent, Offsets::DRAWLAYER_ARTWORK, 1);
     if (fs == nullptr)
         return nullptr;
     auto *fsBytes = reinterpret_cast<uint8_t *>(fs);

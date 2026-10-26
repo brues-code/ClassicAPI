@@ -50,6 +50,7 @@
 #include "Offsets.h"
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
+#include "frame/Region.h"
 #include "object/Resolve.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
@@ -63,8 +64,6 @@ namespace Target::SoftTargetIcon {
 
 namespace {
 
-using PoolAlloc_t = void *(__thiscall *)(void *pool, int zeroInit, const char *tag, int line);
-using TexCtor_t = void *(__thiscall *)(void *mem, void *parent, int layer, int sublayer);
 using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
                                             int b);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
@@ -99,13 +98,7 @@ void *g_parent = nullptr; // the world frame the icons' textures belong to
 void *Anchor(void *region) { return static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR; }
 
 void *CreateTexture(void *parent) {
-    auto alloc = reinterpret_cast<PoolAlloc_t>(Offsets::FUN_REGION_POOL_ALLOC);
-    void *mem = alloc(reinterpret_cast<void *>(Offsets::VAR_SIMPLETEXTURE_POOL), 0,
-                      reinterpret_cast<const char *>(Offsets::VAR_SIMPLETEXTURE_CLASS_TAG), -2);
-    if (mem == nullptr)
-        return nullptr;
-    return reinterpret_cast<TexCtor_t>(Offsets::FUN_SIMPLETEXTURE_CTOR)(
-        mem, parent, Offsets::DRAWLAYER_ARTWORK, 0);
+    return Frame::Region::CreateTexture(parent, Offsets::DRAWLAYER_ARTWORK, 0);
 }
 
 void SetShown(Icon &icon, bool shown) {

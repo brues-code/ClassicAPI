@@ -24,6 +24,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Region.h"
 #include "text/PtrProbe.h"
 #include "tick/FrameTick.h"
 
@@ -37,8 +38,6 @@ namespace Text::InlineTexturePool {
 
 namespace {
 
-using PoolAlloc_t = void *(__thiscall *)(void *pool, int zeroInit, const char *tag, int line);
-using TexCtor_t = void *(__thiscall *)(void *mem, void *parent, int layer, int sublayer);
 using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
                                             int b);
 using SetColor_t = void(__thiscall *)(void *tex, const void *colorBGRA);
@@ -216,13 +215,9 @@ uint32_t FadedColor(const Placement &p, uint32_t fsColor) {
 
 // Creates a bare pooled CSimpleTexture parented to `parent` (ARTWORK).
 void *CreateRegion(void *parent) {
-    auto alloc = reinterpret_cast<PoolAlloc_t>(Offsets::FUN_REGION_POOL_ALLOC);
-    void *mem = alloc(reinterpret_cast<void *>(Offsets::VAR_SIMPLETEXTURE_POOL), 0,
-                      reinterpret_cast<const char *>(Offsets::VAR_SIMPLETEXTURE_CLASS_TAG), -2);
-    if (mem == nullptr)
+    void *tex = Frame::Region::CreateTexture(parent, Offsets::DRAWLAYER_ARTWORK, 1);
+    if (tex == nullptr)
         return nullptr;
-    auto ctor = reinterpret_cast<TexCtor_t>(Offsets::FUN_SIMPLETEXTURE_CTOR);
-    void *tex = ctor(mem, parent, Offsets::DRAWLAYER_ARTWORK, 1);
     LearnRegionVtable(tex); // for the eviction-path liveness gate
     return tex;
 }

@@ -11405,6 +11405,13 @@ enum Offsets {
     // load — calling it each frame IS the residency reference (what the
     // minimap's masked draw does for its mask at 0x004ec65c).
     FUN_TEXTURE_LOAD_BY_PATH = 0x00449D90,
+    // TextureCreateFromBlp — `HTEXTURE __fastcall(const char *path, uint32
+    // fileFlag, uint32 flags, void *log)`, `ret 8` (0x0044A3A3/0x0044A4FC):
+    // opens `path` (extension included) through SFile and queues the async
+    // read; null when SFile cannot open it. Called only by TextureCreate
+    // (0x00449E2B), on a texture-hash miss, which hash-inserts a non-null
+    // result under the name and the made flags word (0x00449E99).
+    FUN_TEXTURE_CREATE_FROM_BLP = 0x0044A310,
     // TextureCreateWithCallback — `HTEXTURE __fastcall(uint32 w, uint32 h,
     // uint32 mips, uint32 format, uint32 flags, void *owner, callback, const
     // char *name, int force)`: a named texture whose texels `callback`
