@@ -11407,6 +11407,18 @@ enum Offsets {
     // keeps (the portrait's 0x00525AE0 hands its cached array over without a
     // copy), and ignores every other command.
     FUN_TEXTURE_CREATE_WITH_CALLBACK = 0x00449BF0,
+    // TextureCreateSolid — `HTEXTURE __fastcall(const uint32_t *bgra, uint32_t
+    // unused)`: the cached 8x8 "Solid Texture" of one colour (0xAARRGGBB),
+    // built on a miss (benilla-re gx/textures, verified). The caller owns the
+    // handle: CSimpleTexture::SetSolidColour (0x00770360, what a <Texture>'s
+    // <Color> child runs) stores it at +0xCC and closes it on replace.
+    FUN_TEXTURE_CREATE_SOLID = 0x0044A9C0,
+    // XmlReadColor — `int __fastcall(const XMLNode *node, uint32_t *bgra,
+    // CStatus *status)`, `ret 4` (0x006F2626): a <Color> element's r/g/b/a,
+    // clamped to 0..1; a missing r, g or b is 0 and a missing a is 1
+    // (benilla-re ui/backdrop, verified). CSimpleTexture::LoadXML reads
+    // <Color> with it, pushing its own load status (0x00770090).
+    FUN_XML_READ_COLOR = 0x006F23D0,
     GXTEX_FORMAT_ARGB8888 = 2,
     GXTEX_CMD_LATCH = 1,
     PTR_TEXLOAD_DESC_VTBL = 0x007FFA10,

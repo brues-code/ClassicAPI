@@ -55,7 +55,10 @@
 // does not, and a texture under the embedded addon's path would not load:
 // BLPs open through SFile, not the read the addon redirects. So the edge is
 // 4.3.4's 16x16 image as texels in the DLL, through the engine's procedural
-// texture path, created once per process.
+// texture path, created once per process. The later clients split 4.3.4's
+// star texture into a swipe and a bling texture, each of the three slots with
+// a setter and an XML element; a slot left empty gets 4.3.4's texture at the
+// first SetCooldown, so a frame that sets none draws exactly as 4.3.4's.
 //
 // The stock CooldownFrameTemplate is a Model template (the indicator model and
 // its OnUpdateModel / OnAnimFinished scripts), which vanilla's own buttons
@@ -75,6 +78,7 @@
 #include "time/Clock.h"
 #include "xml/FrameLoad.h"
 
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -96,14 +100,14 @@ struct Fields {
     uint32_t elapsed;
     uint32_t flashing;
     uint32_t reverse;
-    void *starTexture; // HTEXTURE, one reference
+    void *swipeTexture; // 4.3.4's m_starTexture; HTEXTURE, one reference
     C3Vector starVerts[10];
     C2Vector starTexCoords[10];
     uint32_t starColor; // BGRA
     C3Vector flashVerts[4];
     C2Vector flashTexCoords[4];
     uint32_t flashColor;
-    void *edgeTexture; // the process-wide edge texture, not counted
+    void *edgeTexture; // one reference, except the DLL's edge.blp (not counted)
     uint32_t drawEdge;
     C3Vector edgeVerts[4];
     C2Vector edgeTexCoords[4];
@@ -125,6 +129,9 @@ struct Fields {
     uint32_t drawBling;
     uint32_t swipeBase; // BGRA before the frame alpha
     uint32_t edgeBase;
+    void *blingTexture; // 4.3.4 flashes with the star texture; one reference
+    uint32_t blingBase;
+    uint32_t texturesSet; // TextureSlot bits a setter or the XML filled
 };
 
 constexpr size_t kObjectSize = Offsets::SIMPLEFRAME_SIZE + sizeof(Fields);
@@ -209,6 +216,7 @@ void NotifyLayerChanged(void *frame, int layer) {
 // ---- textures ---------------------------------------------------------------
 
 const char *const kStarTextureName = "interface\\cooldown\\star4.blp";
+const char *const kEdgeTextureName = "interface\\cooldown\\edge.blp";
 
 // interface\cooldown\edge.blp (4.3.4): 16x16 DXT5, decoded the standard way
 // (565 widened by bit replication), as 4.3.4's device samples it. Each of rows
@@ -229,9 +237,46 @@ void *EdgeTexture() {
         for (uint32_t x = 0; x < kEdgeSize; ++x)
             g_edgeTexels[y * kEdgeSize + x] =
                 kEdgeRowColor[y] | (x == kEdgeColumn ? uint32_t{kEdgeColumnAlpha[y]} << 24 : 0);
-    g_edgeTexture = Texture::CreateFromPixels("interface\\cooldown\\edge.blp", kEdgeSize,
-                                              kEdgeSize, g_edgeTexels);
+    g_edgeTexture = Texture::CreateFromPixels(kEdgeTextureName, kEdgeSize, kEdgeSize, g_edgeTexels);
     return g_edgeTexture;
+}
+
+// Interface\Cooldown\edge, with or without .blp, either slash, any case: the
+// file retail's CooldownFrameTemplate names, which 1.12 does not ship.
+bool IsEdgePath(const char *file) {
+    const char *stem = "interface\\cooldown\\edge";
+    for (; *stem != '\0'; ++stem, ++file) {
+        const char c = *file == '/' ? '\\' : static_cast<char>(std::tolower(static_cast<unsigned char>(*file)));
+        if (c != *stem)
+            return false;
+    }
+    return *file == '\0' || _stricmp(file, ".blp") == 0;
+}
+
+// The three textures a Cooldown draws. A bit is set once a setter or the XML
+// fills the slot, so SetCooldown's 4.3.4 defaults leave it alone.
+enum TextureSlot : uint32_t {
+    SLOT_NONE = 0,
+    SLOT_SWIPE = 1,
+    SLOT_EDGE = 2,
+    SLOT_BLING = 4,
+};
+
+// A setter's file. None (or "") is the engine's solid white for the slot's
+// colour to tint, as a <Texture> with only a <Color> is solid; edge.blp is
+// the DLL's copy; anything else loads from its path, and a file that does not
+// load draws nothing.
+void *LoadSlotTexture(const char *file) {
+    if (file == nullptr || *file == '\0')
+        return Texture::CreateSolid(Bgra(0xFF, 0xFF, 0xFF, 0xFF));
+    if (IsEdgePath(file))
+        return EdgeTexture();
+    return Texture::LoadByPath(file);
+}
+
+void ReleaseSlotTexture(void *texture) {
+    if (texture != g_edgeTexture)
+        Texture::ReleaseHandle(texture);
 }
 
 // ---- CGCooldown --------------------------------------------------------------
@@ -438,6 +483,20 @@ void RotateQuadTexCoords(C2Vector *tc, float angle, float scale) {
     tc[3] = {(d - e) * scale + 0.5f, (d + e) * scale + 0.5f};
 }
 
+// The fan's texcoords from its positions, the texture spread over the frame.
+// 4.3.4 sets only the top (0.5, 0) and the centre (0.5, 0.5), which this
+// mapping gives too, and leaves the rest at 0; star4 is one colour, so that
+// never showed, but a swipe texture has to line up with the frame.
+void MapStarTexCoords(Fields &f, const Rect &r) {
+    const float w = r.maxX - r.minX;
+    const float h = r.maxY - r.minY;
+    for (int i = 0; i < 10; ++i) {
+        const C3Vector &v = f.starVerts[i];
+        f.starTexCoords[i] = {w > 0.0f ? (v.x - r.minX) / w : 0.5f,
+                              h > 0.0f ? (r.maxY - v.y) / h : 0.5f};
+    }
+}
+
 // OFFSET (4.3.4): 0x009FED40
 void AnimateVerts(void *frame) {
     Fields &f = F(frame);
@@ -455,9 +514,7 @@ void AnimateVerts(void *frame) {
 
         const int top = f.reverse ? 0 : 8;
         f.starVerts[top] = {cx, r.maxY, 0.0f};
-        f.starTexCoords[top] = {0.5f, 0.0f};
         f.starVerts[9] = {cx, cy, 0.0f};
-        f.starTexCoords[9] = {0.5f, 0.5f};
 
         const uint32_t o = static_cast<uint32_t>(octant);
         if (octant < 4) {
@@ -470,6 +527,7 @@ void AnimateVerts(void *frame) {
         } else {
             AnimateOctants67(f, r, o, t);
         }
+        MapStarTexCoords(f, r);
 
         // CLayoutFrame::m_layoutScale, the frame's effective scale.
         if (f.drawEdge)
@@ -492,7 +550,7 @@ void AnimateVerts(void *frame) {
     if (index > 5)
         index = 5;
     const float t = (elapsed - static_cast<float>(index) * 166.66667f) * 0.0059999996f;
-    const float alpha = static_cast<float>(DrawAlpha(frame));
+    const float alpha = static_cast<float>(DrawAlpha(frame) * (f.blingBase >> 24) / 255);
     const float key =
         (s_flashAlpha[index + 1] - s_flashAlpha[index]) * t + s_flashAlpha[index];
     SetAlphaByte(f.flashColor, static_cast<uint8_t>(static_cast<int32_t>(alpha * key)));
@@ -533,15 +591,33 @@ void UpdateColors(void *frame) {
     Fields &f = F(frame);
     const uint32_t alpha = DrawAlpha(frame);
     if (!f.flashing) {
-        // 4.3.4's constants (black at 160, white) are the bases' defaults.
+        // 4.3.4's constants (black at 160, white, the flash blue) are the bases' defaults.
         f.starColor = WithAlpha(f.swipeBase, alpha);
         f.edgeColor = WithAlpha(f.edgeBase, alpha);
         f.flashColor = Bgra(0, 0, 0, 0);
     } else {
         f.starColor = Bgra(0, 0, 0, 0);
         f.edgeColor = Bgra(0, 0, 0, 0);
-        f.flashColor = Bgra(0x50, 0xA0, 0xFF, alpha);
+        f.flashColor = WithAlpha(f.blingBase, alpha);
     }
+}
+
+// Fills one texture slot with `file` (LoadSlotTexture), tinted `base`, or by
+// the slot's colour as it stands when `base` is null: retail keeps it (live
+// probe: SetSwipeColor(1, 0, 0, 1), then SetSwipeTexture(file) drew red).
+void SetSlotTexture(void *frame, TextureSlot slot, const char *file, const uint32_t *base) {
+    Fields &f = F(frame);
+    void *&texture = slot == SLOT_SWIPE  ? f.swipeTexture
+                     : slot == SLOT_EDGE ? f.edgeTexture
+                                         : f.blingTexture;
+    uint32_t &color = slot == SLOT_SWIPE ? f.swipeBase : slot == SLOT_EDGE ? f.edgeBase : f.blingBase;
+    ReleaseSlotTexture(texture);
+    texture = LoadSlotTexture(file);
+    if (base != nullptr)
+        color = *base;
+    f.texturesSet |= slot;
+    NotifyLayerChanged(frame, slot == SLOT_EDGE ? 3 : 2);
+    UpdateColors(frame);
 }
 
 // OFFSET (4.3.4): 0x009FFAD0. A paused frame holds at the moment of the call,
@@ -557,14 +633,13 @@ void SetCooldown(void *frame, uint32_t start, uint32_t duration, float modRate) 
     f.done = 0;
     if (f.paused)
         f.pausedAt = Time::Clock::NowMs();
-    if (f.starTexture == nullptr) {
-        f.starTexture = Texture::LoadByPath(kStarTextureName);
-        NotifyLayerChanged(frame, 2);
-    }
-    if (f.edgeTexture == nullptr) {
-        f.edgeTexture = EdgeTexture();
-        NotifyLayerChanged(frame, 3);
-    }
+    // 4.3.4 loads its two textures here; a slot already filled keeps its own.
+    if (!(f.texturesSet & SLOT_SWIPE))
+        SetSlotTexture(frame, SLOT_SWIPE, kStarTextureName, nullptr);
+    if (!(f.texturesSet & SLOT_EDGE))
+        SetSlotTexture(frame, SLOT_EDGE, kEdgeTextureName, nullptr);
+    if (!(f.texturesSet & SLOT_BLING))
+        SetSlotTexture(frame, SLOT_BLING, kStarTextureName, nullptr);
     UpdateColors(frame);
     ResetVerts(frame);
     Show(frame);
@@ -631,9 +706,12 @@ void RunOnCooldownDone(void *frame) {
 // CGCooldown::~CGCooldown, then CSimpleFrame's deleting destructor.
 void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {
     Fields &f = F(self);
-    Texture::ReleaseHandle(f.starTexture);
-    f.starTexture = nullptr;
+    ReleaseSlotTexture(f.swipeTexture);
+    ReleaseSlotTexture(f.edgeTexture);
+    ReleaseSlotTexture(f.blingTexture);
+    f.swipeTexture = nullptr;
     f.edgeTexture = nullptr;
+    f.blingTexture = nullptr;
     return Base<DeletingDestructor_t>(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR)(self, nullptr,
                                                                                flags);
 }
@@ -717,13 +795,12 @@ void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
     Fields &f = F(self);
     using RenderBatch::QueueStrip;
     if (layer == 2) {
-        if (f.starTexture != nullptr) {
-            for (int k = 0; f.drawSwipe && k < 4; ++k)
-                QueueStrip(batch, f.starTexture, RenderBatch::BLEND_ALPHA, f.starStripVerts[k],
-                           f.starStripTexCoords[k], &f.starColor);
-            QueueStrip(batch, f.starTexture, RenderBatch::BLEND_ADD, f.flashStripVerts,
+        for (int k = 0; f.swipeTexture != nullptr && f.drawSwipe && k < 4; ++k)
+            QueueStrip(batch, f.swipeTexture, RenderBatch::BLEND_ALPHA, f.starStripVerts[k],
+                       f.starStripTexCoords[k], &f.starColor);
+        if (f.blingTexture != nullptr)
+            QueueStrip(batch, f.blingTexture, RenderBatch::BLEND_ADD, f.flashStripVerts,
                        f.flashStripTexCoords, &f.flashColor);
-        }
     } else if (layer == 3) {
         if (f.edgeTexture != nullptr && f.drawEdge)
             QueueStrip(batch, f.edgeTexture, RenderBatch::BLEND_OPAQUE, f.edgeStripVerts,
@@ -759,8 +836,23 @@ void LoadModernTemplate(void *layout) {
     Hide(FrameOfLayout(layout));
 }
 
+// A texture element's <Color> child into `color`, read as CSimpleTexture::
+// LoadXML reads one (it passes its load status too); false when it has none.
+bool XmlTextureColor(const void *node, void *status, uint32_t &color) {
+    using ReadColor_t = int(__fastcall *)(const void *node, uint32_t *bgra, void *status);
+    for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
+        if (Xml::TagIs(c, "Color")) {
+            reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(c, &color, status);
+            return true;
+        }
+    }
+    return false;
+}
+
 // OFFSET (4.3.4): 0x009FDBD0 — the frame's own loader, then `reverse` and
-// `drawEdge`, and the later clients' `drawSwipe` and `drawBling`.
+// `drawEdge`, and the later clients' `drawSwipe` and `drawBling` and their
+// <SwipeTexture>, <EdgeTexture> and <BlingTexture> (UI.xsd's CooldownType:
+// a TextureType's `file` and <Color>).
 uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *status) {
     if (node != nullptr && IsStockTemplate(node)) {
         LoadModernTemplate(layout);
@@ -779,6 +871,17 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         f.drawSwipe = Game::StringToFlag(drawSwipe);
     if (const char *drawBling = Xml::Attr(node, "drawBling"))
         f.drawBling = Game::StringToFlag(drawBling);
+    for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
+        const TextureSlot slot = Xml::TagIs(c, "SwipeTexture")  ? SLOT_SWIPE
+                                 : Xml::TagIs(c, "EdgeTexture") ? SLOT_EDGE
+                                 : Xml::TagIs(c, "BlingTexture") ? SLOT_BLING
+                                                                 : SLOT_NONE;
+        if (slot == SLOT_NONE)
+            continue;
+        uint32_t color = 0;
+        SetSlotTexture(FrameOfLayout(layout), slot, Xml::Attr(c, "file"),
+                       XmlTextureColor(c, status, color) ? &color : nullptr);
+    }
     return result;
 }
 
@@ -827,6 +930,7 @@ void *__fastcall CreateCooldown(void *parent) {
     f.drawBling = 1;
     f.swipeBase = Bgra(0, 0, 0, 160);
     f.edgeBase = Bgra(0xFF, 0xFF, 0xFF, 0xFF);
+    f.blingBase = Bgra(0x50, 0xA0, 0xFF, 0xFF); // 4.3.4's flash colour
     return frame;
 }
 
@@ -1018,6 +1122,40 @@ int __fastcall Script_SetEdgeColor(void *L) {
     return 0;
 }
 
+// (texture[, r, g, b[, a]]): without r, g, b the colour stays; a missing a is
+// 1, as in the colour setters; "" is a solid colour.
+int SetTextureMethod(void *L, TextureSlot slot, const char *method) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:%s(texture[, r, g, b, a])",
+                         Game::Lua::ObjectDisplayName(frame), method);
+        return 0;
+    }
+    const bool hasColor =
+        Game::Lua::IsNumber(L, 3) && Game::Lua::IsNumber(L, 4) && Game::Lua::IsNumber(L, 5);
+    const uint32_t color =
+        hasColor ? Bgra(ColorByte(Game::Lua::ToNumber(L, 3)), ColorByte(Game::Lua::ToNumber(L, 4)),
+                        ColorByte(Game::Lua::ToNumber(L, 5)),
+                        Game::Lua::IsNumber(L, 6) ? ColorByte(Game::Lua::ToNumber(L, 6)) : 0xFFu)
+                 : 0;
+    SetSlotTexture(frame, slot, Game::Lua::ToString(L, 2), hasColor ? &color : nullptr);
+    return 0;
+}
+
+int __fastcall Script_SetSwipeTexture(void *L) {
+    return SetTextureMethod(L, SLOT_SWIPE, "SetSwipeTexture");
+}
+
+int __fastcall Script_SetEdgeTexture(void *L) {
+    return SetTextureMethod(L, SLOT_EDGE, "SetEdgeTexture");
+}
+
+int __fastcall Script_SetBlingTexture(void *L) {
+    return SetTextureMethod(L, SLOT_BLING, "SetBlingTexture");
+}
+
 // OFFSET (4.3.4): 0x009FF650 / 0x009FF6A0
 int __fastcall Script_SetReverse(void *L) {
     void *frame = ResolveCooldown(L);
@@ -1082,6 +1220,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetDrawBling", &Script_GetDrawBling},
     {"SetSwipeColor", &Script_SetSwipeColor},
     {"SetEdgeColor", &Script_SetEdgeColor},
+    {"SetSwipeTexture", &Script_SetSwipeTexture},
+    {"SetEdgeTexture", &Script_SetEdgeTexture},
+    {"SetBlingTexture", &Script_SetBlingTexture},
 };
 
 const Game::Doc::Field kSetCooldownArgs[] = {
@@ -1164,6 +1305,21 @@ const Game::Doc::Field kColorArgs[] = {
 const Game::Doc::Function kSetSwipeColor{"Sets the colour of the sweep.", kColorArgs, {}};
 const Game::Doc::Function kSetEdgeColor{
     "Sets the colour of the line on the edge of the sweep.", kColorArgs, {}};
+const Game::Doc::Field kTextureArgs[] = {
+    Game::Doc::Req("texture", "string", "A texture path; an empty string is a solid colour."),
+    Game::Doc::Opt("r", "number", nullptr, "Without r, g and b the colour stays as it is."),
+    Game::Doc::Opt("g", "number"),
+    Game::Doc::Opt("b", "number"),
+    Game::Doc::Opt("a", "number", "1"),
+};
+const Game::Doc::Function kSetSwipeTexture{
+    "Sets the texture and colour of the sweep; the texture spans the frame.", kTextureArgs, {}};
+const Game::Doc::Function kSetEdgeTexture{
+    "Sets the texture and colour of the line on the edge of the sweep; the texture turns with the "
+    "sweep about its centre.",
+    kTextureArgs, {}};
+const Game::Doc::Function kSetBlingTexture{
+    "Sets the texture and colour of the flash at the end of the cooldown.", kTextureArgs, {}};
 
 const Game::Doc::Method g_methodDocs[] = {
     {"SetCooldown", &kSetCooldown},
@@ -1187,6 +1343,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetDrawBling", &kGetDrawBling},
     {"SetSwipeColor", &kSetSwipeColor},
     {"SetEdgeColor", &kSetEdgeColor},
+    {"SetSwipeTexture", &kSetSwipeTexture},
+    {"SetEdgeTexture", &kSetEdgeTexture},
+    {"SetBlingTexture", &kSetBlingTexture},
 };
 
 // The engine's static initializer for a class hash (Model's 0x0076F5F0).

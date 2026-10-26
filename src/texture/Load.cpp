@@ -97,4 +97,9 @@ void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,
         const_cast<uint32_t *>(texels), reinterpret_cast<void *>(&LatchPixels), name, 0);
 }
 
+void *CreateSolid(uint32_t bgra) {
+    using CreateSolid_t = void *(__fastcall *)(const uint32_t *bgra, uint32_t unused);
+    return reinterpret_cast<CreateSolid_t>(Offsets::FUN_TEXTURE_CREATE_SOLID)(&bgra, 0);
+}
+
 } // namespace Texture

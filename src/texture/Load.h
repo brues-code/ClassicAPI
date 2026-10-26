@@ -35,4 +35,9 @@ void ReleaseHandle(void *handle);
 void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,
                        const uint32_t *texels);
 
+// The engine's shared solid texture of one colour (0xAARRGGBB), what a
+// <Texture>'s <Color> child loads (FUN_TEXTURE_CREATE_SOLID). The caller owns
+// one reference and drops it with ReleaseHandle.
+void *CreateSolid(uint32_t bgra);
+
 } // namespace Texture
