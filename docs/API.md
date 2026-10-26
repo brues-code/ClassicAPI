@@ -20767,9 +20767,6 @@ UnitIsDND("target")
 ### `UnitIsFeignDeath(unit)`
 
 Returns `true` if the unit is feigning death (Hunter's `Feign Death`).
-Reads `UNIT_FIELD_FLAGS` bit 29 (`0x20000000`) from the broadcast
-descriptor — works for any unit since UNIT_FIELD_FLAGS is broadcast
-in object updates.
 
 ```lua
 UnitIsFeignDeath("target")   -- true if a feigning hunter

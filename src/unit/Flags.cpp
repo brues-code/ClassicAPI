@@ -105,11 +105,10 @@ int __fastcall Script_UnitIsDND(void *L) {
 }
 
 // `UnitIsFeignDeath(unit)` — returns true if the unit is feigning
-// death (Hunter's `Feign Death`). Reads `UNIT_FIELD_FLAGS` bit 29
-// (`0x20000000`) directly off the unit's m_objectFields descriptor.
-// Unlike AFK/DND, this works for any unit token because
-// UNIT_FIELD_FLAGS is broadcast in object updates — anyone watching
-// the hunter sees the flag set.
+// death (Hunter's `Feign Death`). Tests `UNIT_DYNFLAG_DEAD` in
+// UNIT_DYNAMIC_FLAGS, as 3.3.5's `Script_UnitIsFeignDeath` (`0x0060F3D0`)
+// does. Not UNIT_FIELD_FLAGS bit 29: tortoise-wow sets that alongside the
+// dynamic flag, but vmangos sets only the dynamic flag.
 int __fastcall Script_UnitIsFeignDeath(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: UnitIsFeignDeath(\"unit\")");
@@ -132,10 +131,10 @@ int __fastcall Script_UnitIsFeignDeath(void *L) {
         Game::Lua::PushBoolean(L, 0);
         return 1;
     }
-    const uint32_t unitFlags =
-        Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS);
+    const uint32_t dynamicFlags =
+        Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_DYNAMIC_FLAGS);
     Game::Lua::PushBoolean(L,
-        (unitFlags & Offsets::UNIT_FLAG_FEIGN_DEATH) != 0);
+        (dynamicFlags & Offsets::UNIT_DYNFLAG_DEAD) != 0);
     return 1;
 }
 

@@ -2614,12 +2614,6 @@ enum Offsets {
     // secure-frame system here, so the modern lockdown semantics
     // reduce to a plain combat flag check.
     UNIT_FLAG_IN_COMBAT = 0x00080000,
-    // Bit 29 of UNIT_FIELD_FLAGS — set by the engine when the player is
-    // feigning death (Hunter's `Feign Death`). Standard vanilla
-    // `UNIT_FLAG_FEIGN_DEATH = 0x20000000` per emulator source. Tested
-    // by `UnitIsFeignDeath(unit)` — works on any unit since
-    // UNIT_FIELD_FLAGS is broadcast in object updates.
-    UNIT_FLAG_FEIGN_DEATH = 0x20000000,
     // Bit 24 of UNIT_FIELD_FLAGS — set by the engine when a player is
     // possessed (priest's `Mind Control`, warlock's `Subjugate Demon`).
     // Standard vanilla `UNIT_FLAG_POSSESSED = 0x01000000` per emulator
