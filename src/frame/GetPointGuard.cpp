@@ -139,32 +139,8 @@ void CleanDanglingAnchors(void *region) {
     }
 }
 
-namespace {
-
-int __fastcall GetPoint_h(void *L) {
-    // The engine's own prologue and errors (same type id, 0x00CF0C3C).
-    void *region = Game::Lua::ResolveRegion(L, 1);
-    if (region == nullptr)
-        return 0;
-    CleanDanglingAnchors(region);
-
-    int index = 0;
-    if (Game::Lua::IsNumber(L, 2))
-        index = static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1;
-
-    // The index-th set slot, in point order (TOPLEFT .. BOTTOMRIGHT).
-    uint8_t *node = nullptr;
-    int point = 0;
-    for (int found = 0; point < Offsets::REGION_ANCHOR_SLOT_COUNT; ++point) {
-        auto *slot = Game::Read<uint8_t *>(region, Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4);
-        if (slot == nullptr)
-            continue;
-        if (found >= index) {
-            node = slot;
-            break;
-        }
-        ++found;
-    }
+int PushPoint(void *L, void *region, int point) {
+    auto *node = Game::Read<uint8_t *>(region, Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4);
     if (node == nullptr)
         return 0;
 
@@ -190,6 +166,30 @@ int __fastcall GetPoint_h(void *L) {
     Game::Lua::PushNumber(L, x);
     Game::Lua::PushNumber(L, y);
     return 5;
+}
+
+namespace {
+
+int __fastcall GetPoint_h(void *L) {
+    // The engine's own prologue and errors (same type id, 0x00CF0C3C).
+    void *region = Game::Lua::ResolveRegion(L, 1);
+    if (region == nullptr)
+        return 0;
+    CleanDanglingAnchors(region);
+
+    int index = 0;
+    if (Game::Lua::IsNumber(L, 2))
+        index = static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1;
+
+    // The index-th set slot, in point order (TOPLEFT .. BOTTOMRIGHT).
+    for (int point = 0, found = 0; point < Offsets::REGION_ANCHOR_SLOT_COUNT; ++point) {
+        if (Game::Read<uint8_t *>(region, Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4) == nullptr)
+            continue;
+        if (found >= index)
+            return PushPoint(L, region, point);
+        ++found;
+    }
+    return 0;
 }
 
 const Game::Lua::FrameMethodEntry g_methods[] = {

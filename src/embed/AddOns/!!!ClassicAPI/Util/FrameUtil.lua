@@ -69,6 +69,17 @@ function DoesAncestryIncludeAny(ancestry, frames)
     return false;
 end
 
+function GetUnscaledFrameRect(frame, scale)
+	local frameLeft, frameBottom, frameWidth, frameHeight = frame:GetScaledRect();
+	if frameLeft == nil then
+		-- Defaulted returned for diagnosing invalid rects in layout frames.
+		local defaulted = true;
+		return 1, 1, 1, 1, defaulted;
+	end
+
+	return frameLeft / scale, frameBottom / scale, frameWidth / scale, frameHeight / scale;
+end
+
 function GetAppropriateTooltip()
 	return UIParent and GameTooltip or GlueTooltip;
 end

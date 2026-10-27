@@ -41,6 +41,8 @@ Util\FrameWatcher.lua
 Util\TimedCallback.lua
 Util\EasingUtil.lua
 Util\Interpolator.lua
+Util\AnchorUtil.lua
+Util\GridLayoutUtil.lua
 Util\EquipmentManager.lua
 Util\PlayerUtil.lua
 Util\SlashCommandsRegistry.lua
@@ -65,6 +67,8 @@ Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
 
+FrameXML\LayoutFrame.lua
+FrameXML\LayoutFrame.xml
 FrameXML\SharedUIPanelTemplates.xml
 
 Options\Panel.lua

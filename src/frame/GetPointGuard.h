@@ -21,4 +21,10 @@ namespace Frame::GetPointGuard {
 // Anything that reads a region's anchor nodes itself calls this first.
 void CleanDanglingAnchors(void *region);
 
+// Pushes GetPoint's returns for `region`'s anchor at `point` (FRAMEPOINT_*):
+// point, then relativeTo, relativePoint for a point with a target, then x
+// and y. Returns the count pushed, 0 for an empty slot. Run
+// CleanDanglingAnchors first.
+int PushPoint(void *L, void *region, int point);
+
 } // namespace Frame::GetPointGuard

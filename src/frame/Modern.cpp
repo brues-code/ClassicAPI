@@ -23,13 +23,19 @@
 //     omitted; a co-hook on Script_SetPoint normalizes it to
 //     `(point, 0, 0)` (parent-relative, zero offsets — the exact modern
 //     semantic).
-//   - `region:SetSize(w, h)` / `region:GetSize()` — registered on the
-//     REGION base method registry, so they resolve on frames, buttons,
-//     textures, fontstrings — everything.
+//   - `region:SetSize(w, h)` / `region:GetSize([ignoreRect])` — registered
+//     on the REGION base method registry, so they resolve on frames,
+//     buttons, textures, fontstrings — everything.
+//   - `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])` —
+//     the engine's getters with the later argument. The engine answers the
+//     explicit size, and the rect's extent only when that size is 0; with
+//     ignoreRect a 0 stays 0.
 //   - `region:IsMouseOver([top, bottom, left, right])` — cursor-in-rect
 //     test with optional per-edge offsets, also on the REGION registry.
 //   - `region:GetRect()` — left, bottom, width, height, composed from the
 //     engine's Region getters. Also on the REGION registry.
+//   - `region:GetScaledRect()` — GetRect times the effective scale, the
+//     rect in UIParent-independent screen units.
 //   - `region:IsDragging()` — true while the region is the frame currently
 //     being moved/sized. Reads the engine's global drag target.
 //   - `frame:SetShown(shown)` — Show/Hide are per-branch script functions
@@ -40,6 +46,12 @@
 //   - `frame:HookScript(scriptType, handler)` — absent in vanilla
 //     entirely. 4.3.4's: chains after any existing handler through the
 //     same wrapper `hooksecurefunc` installs.
+//   - `texture:GetScale()` / `GetEffectiveScale()`, and the fontstring pair
+//     — Frame has the engine's own. A region carries no scale of its own;
+//     the frame's scale setter hands each region the frame's effective
+//     scale as its layout scale (OFF_REGION_EFFECTIVE_SCALE, benilla-re
+//     ui/visibility "Scale"), so the effective scale is that and the scale
+//     is 1.
 //   - `frame:GetEffectiveAlpha()` — the alpha the frame is drawn with:
 //     the byte at OFF_FRAME_ALPHA, which `Frame::Alpha` keeps at own ×
 //     the parent's drawn alpha. Frame-scoped (matches GetAlpha).
@@ -84,11 +96,52 @@ int __fastcall Script_SetSize(void *L) {
     return 0;
 }
 
-// `region:GetSize()` → width, height.
+using LayoutExtent_t = float(__thiscall *)(void *layout);
+
+// Pushes the engine getter's answer for `self` (index 1), or 0 when
+// ignoreRect is set and the explicit size in `slot` is 0 — the one case the
+// engine answers from the rect instead.
+void PushExtent(void *L, bool ignoreRect, int slot, uintptr_t getter) {
+    if (ignoreRect) {
+        void *self = Game::Lua::ResolveRegion(L);
+        if (self == nullptr)
+            return;
+        void *layout = static_cast<uint8_t *>(self) + Offsets::OFF_REGION_ANCHOR;
+        auto *vtable = Game::Read<uintptr_t *>(layout, 0);
+        if (reinterpret_cast<LayoutExtent_t>(vtable[slot / sizeof(uintptr_t)])(layout) == 0.0f) {
+            Game::Lua::PushNumber(L, 0.0);
+            return;
+        }
+    }
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushValue(L, 1);
+    CallScript(getter, L); // (.., self, value)
+    Game::Lua::Remove(L, top + 1);
+}
+
+// `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`.
+int __fastcall Script_GetWidth(void *L) {
+    const bool ignoreRect = Game::Lua::ToBoolean(L, 2) != 0;
+    Game::Lua::SetTop(L, 1);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_WIDTH, Offsets::FUN_SCRIPT_REGION_GETWIDTH);
+    return 1;
+}
+
+int __fastcall Script_GetHeight(void *L) {
+    const bool ignoreRect = Game::Lua::ToBoolean(L, 2) != 0;
+    Game::Lua::SetTop(L, 1);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_HEIGHT,
+               Offsets::FUN_SCRIPT_REGION_GETHEIGHT);
+    return 1;
+}
+
+// `region:GetSize([ignoreRect])` → width, height.
 int __fastcall Script_GetSize(void *L) {
-    Game::Lua::SetTop(L, 1);                            // (self)
-    CallScript(Offsets::FUN_SCRIPT_REGION_GETWIDTH, L); // (self, w)
-    CallScript(Offsets::FUN_SCRIPT_REGION_GETHEIGHT, L); // (self, w, h)
+    const bool ignoreRect = Game::Lua::ToBoolean(L, 2) != 0;
+    Game::Lua::SetTop(L, 1); // (self)
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_WIDTH, Offsets::FUN_SCRIPT_REGION_GETWIDTH);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_HEIGHT,
+               Offsets::FUN_SCRIPT_REGION_GETHEIGHT);
     return 2;
 }
 
@@ -196,6 +249,26 @@ int __fastcall Script_GetRect(void *L) {
     Game::Lua::PushNumber(L, bottom);
     Game::Lua::PushNumber(L, width);
     Game::Lua::PushNumber(L, height);
+    return 4;
+}
+
+// `region:GetScaledRect()` → GetRect's four values times the effective scale.
+int __fastcall Script_GetScaledRect(void *L) {
+    void *self = ResolveRegionFamily(L);
+    if (self == nullptr)
+        return 0;
+    const double scale = Game::Read<float>(self, Offsets::OFF_REGION_EFFECTIVE_SCALE);
+    double left, bottom, width, height;
+    if (!CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETLEFT, &left))
+        return 0;
+    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETBOTTOM, &bottom);
+    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETWIDTH, &width);
+    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETHEIGHT, &height);
+    Game::Lua::SetTop(L, 1);
+    Game::Lua::PushNumber(L, left * scale);
+    Game::Lua::PushNumber(L, bottom * scale);
+    Game::Lua::PushNumber(L, width * scale);
+    Game::Lua::PushNumber(L, height * scale);
     return 4;
 }
 
@@ -338,6 +411,23 @@ const Game::HookAutoRegister _setPointHook{
     reinterpret_cast<void *>(&SetPoint_h),
     reinterpret_cast<void **>(&g_origSetPoint)};
 
+// ---- Texture / FontString scale -----------------------------------------------
+
+int __fastcall Script_GetRegionScale(void *L) {
+    if (ResolveRegionFamily(L) == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, 1.0);
+    return 1;
+}
+
+int __fastcall Script_GetRegionEffectiveScale(void *L) {
+    void *self = ResolveRegionFamily(L);
+    if (self == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, Game::Read<float>(self, Offsets::OFF_REGION_EFFECTIVE_SCALE));
+    return 1;
+}
+
 // ---- Button normal-state font ------------------------------------------------
 
 // `button:SetNormalFontObject(font)` / `button:GetNormalFontObject()` - the
@@ -357,8 +447,11 @@ int __fastcall Script_GetNormalFontObject(void *L) {
 const Game::Lua::FrameMethodEntry g_regionMethods[] = {
     {"SetSize", &Script_SetSize},
     {"GetSize", &Script_GetSize},
+    {"GetWidth", &Script_GetWidth},
+    {"GetHeight", &Script_GetHeight},
     {"IsMouseOver", &Script_IsMouseOver},
     {"GetRect", &Script_GetRect},
+    {"GetScaledRect", &Script_GetScaledRect},
     {"IsDragging", &Script_IsDragging},
 };
 
@@ -378,11 +471,15 @@ const Game::Lua::FrameMethodEntry g_buttonMethods[] = {
 const Game::Lua::FrameMethodEntry g_textureMethods[] = {
     {"SetShown", &Script_SetShown<Offsets::FUN_SCRIPT_TEXTURE_SHOW,
                                   Offsets::FUN_SCRIPT_TEXTURE_HIDE>},
+    {"GetScale", &Script_GetRegionScale},
+    {"GetEffectiveScale", &Script_GetRegionEffectiveScale},
 };
 
 const Game::Lua::FrameMethodEntry g_fontStringMethods[] = {
     {"SetShown", &Script_SetShown<Offsets::FUN_SCRIPT_FONTSTRING_SHOW,
                                   Offsets::FUN_SCRIPT_FONTSTRING_HIDE>},
+    {"GetScale", &Script_GetRegionScale},
+    {"GetEffectiveScale", &Script_GetRegionEffectiveScale},
 };
 
 void RegisterLuaFunctions() {

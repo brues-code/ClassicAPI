@@ -11303,6 +11303,13 @@ enum Offsets {
     VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED = 0x00,
     VTBL_LAYOUT_DELETING_DESTRUCTOR = 0x04,
     VTBL_LAYOUT_GET_LAYOUT_PARENT = 0x0C,
+    // +0x1C / +0x20 the explicit width / height, `float __thiscall(this)`:
+    // CLayoutFrame's read +0x50 / +0x54 (0x00768420 / 0x00768410); textures
+    // and font strings override them. Script GetWidth / GetHeight call them
+    // and use the rect's extent only when the answer is 0 (benilla-re
+    // ui/methods "Coordinates the methods convert").
+    VTBL_LAYOUT_GET_WIDTH = 0x1C,
+    VTBL_LAYOUT_GET_HEIGHT = 0x20,
     // CLayoutFrame::LoadXML's `setAllPoints="true"` (0x00767800) is
     // FUN_LAYOUT_SET_ALL_POINTS(layout, GetLayoutParent(), 1).
     //
@@ -11365,6 +11372,12 @@ enum Offsets {
     // unlinks the frame from each relative frame. Script ClearAllPoints
     // (0x007A2B70) calls it through the thunk 0x00767ED0 after resolving self.
     FUN_LAYOUT_CLEAR_ALL_POINTS = 0x00767620,
+    // CLayoutFrame's dependent removal — `void __thiscall(relativeLayout,
+    // dependentLayout, mask)`, `ret 8`: clears `mask` (1 << point) in the
+    // dependents node relativeLayout keeps for dependentLayout and frees the
+    // node at 0. ClearAllPoints calls it for each point's relative frame
+    // (0x00767651) before deleting the point through its vtable slot 0 with 1.
+    FUN_LAYOUT_REMOVE_DEPENDENT = 0x00767FA0,
     // The Button node loader (same sub-object convention). It calls
     // FUN_XML_FRAME_LOAD first, then loads the button's own children: each
     // font element into a font object embedded in the button - NormalFont

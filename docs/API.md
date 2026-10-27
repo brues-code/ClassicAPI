@@ -262,10 +262,16 @@ build instructions.
 
 - [Frame](#frame)
   - [`region:SetPoint("point")` (one-argument form)](#regionsetpointpoint-one-argument-form)
-  - [`region:SetSize(width, height)` / `region:GetSize()`](#regionsetsizewidth-height--regiongetsize)
+  - [`region:SetSize(width, height)` / `region:GetSize([ignoreRect])`](#regionsetsizewidth-height--regiongetsizeignorerect)
+  - [`region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`](#regiongetwidthignorerect--regiongetheightignorerect)
+  - [`region:GetScale()` / `region:GetEffectiveScale()`](#regiongetscale--regiongeteffectivescale)
   - [`region:IsMouseOver([topOffset, bottomOffset, leftOffset, rightOffset])`](#regionismouseovertopoffset-bottomoffset-leftoffset-rightoffset)
   - [`region:GetRect()`](#regiongetrect)
+  - [`region:GetScaledRect()`](#regiongetscaledrect)
+  - [`region:IsRectValid()`](#regionisrectvalid)
   - [`region:GetPoint([index])`](#regiongetpointindex)
+  - [`region:GetPointByName(point)`](#regiongetpointbynamepoint)
+  - [`region:ClearPoint(point)`](#regionclearpointpoint)
   - [`region:IsDragging()`](#regionisdragging)
   - [`region:GetDebugName([preferParentKey])`](#regiongetdebugnamepreferparentkey)
   - [`region:GetSourceLocation()`](#regiongetsourcelocation)
@@ -6587,12 +6593,34 @@ argument fails its type validation). A co-hook on the engine's
 `(point, 0, 0)` — the parent-relative form (anchor to the parent's same
 point, zero offsets).
 
-### `region:SetSize(width, height)` / `region:GetSize()`
+### `region:SetSize(width, height)` / `region:GetSize([ignoreRect])`
 
 The combined setter/getter for `SetWidth`+`SetHeight` /
 `GetWidth`+`GetHeight`. Works on any region type — frames, buttons,
 textures (including engine-created ones like
-`button:GetNormalTexture()`), fontstrings.
+`button:GetNormalTexture()`), fontstrings. `ignoreRect` has the same
+effect as on `GetWidth` and `GetHeight`.
+
+### `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`
+
+Returns the width or the height of the region. A region with no set size
+returns the size that its anchors give it. If `ignoreRect` is true, the
+method returns only the set size, which is 0 for a region with no set size.
+
+```lua
+local f = CreateFrame("Frame", nil, UIParent)
+f:SetPoint("TOPLEFT", UIParent, "TOPLEFT")
+f:SetPoint("BOTTOMRIGHT", UIParent, "TOP")
+f:GetWidth()      -- half the width of UIParent
+f:GetWidth(true)  -- 0
+```
+
+### `region:GetScale()` / `region:GetEffectiveScale()`
+
+Frames have these methods by default. Textures and font strings have them
+too. A texture or a font string has no scale of its own, so `GetScale`
+returns 1. `GetEffectiveScale` returns the effective scale of the frame
+that owns the region.
 
 ### `region:IsMouseOver([topOffset, bottomOffset, leftOffset, rightOffset])`
 
@@ -6625,6 +6653,28 @@ UIParent:GetRect()   -- 0, 0, <screenWidth>, <screenHeight>
 Minimap:GetRect()    -- <left>, <bottom>, 140, 140
 ```
 
+### `region:GetScaledRect()`
+
+Returns the same four values as `GetRect`, multiplied by the effective
+scale of the region. The values are in screen units, so you can compare
+the rects of regions that have different scales. Returns nothing for a
+region with no position.
+
+### `region:IsRectValid()`
+
+Returns true when the anchors and the size of the region give it a
+position. Returns false otherwise, for example for a region with no
+anchors. If this method returns true, `GetLeft` and `GetRect` return
+numbers.
+
+```lua
+local f = CreateFrame("Frame")
+f:SetSize(10, 10)
+f:IsRectValid()          -- false
+f:SetPoint("CENTER")
+f:IsRectValid()          -- true
+```
+
 ### `region:GetPoint([index])`
 
 Returns the anchor at `index` (1 when omitted) as `point, relativeTo,
@@ -6638,6 +6688,27 @@ local point, relativeTo, relativePoint, x, y = MyFrame:GetPoint(1)
 `relativeTo` is nil when the anchor is relative to the screen. A frame with
 no parent gets this anchor from `SetPoint` without a `relativeTo`, and from
 XML anchors without one.
+
+### `region:GetPointByName(point)`
+
+Returns the anchor of the region at `point` (for example `"TOPLEFT"`), with
+the same values as `GetPoint`. Returns nothing when the region has no
+anchor at that point.
+
+```lua
+local point, relativeTo, relativePoint, x, y = MyFrame:GetPointByName("TOPLEFT")
+```
+
+### `region:ClearPoint(point)`
+
+Removes the anchor of the region at `point`. The other anchors stay. The
+region does not move until its anchors or its size change again, the same
+as after `ClearAllPoints`.
+
+```lua
+MyFrame:ClearPoint("BOTTOMRIGHT")
+MyFrame:SetPoint("BOTTOMRIGHT", OtherFrame, "BOTTOMRIGHT")
+```
 
 ### `region:IsDragging()`
 
