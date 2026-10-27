@@ -27,12 +27,11 @@
 // 3.3.5's FrameXML_ProcessFile (0x00813EE0) joins `<Script file>` onto the
 // XML file's directory exactly as it joins `<Include file>`, always.
 //
-// Track the XML file being processed (co-hook of FUN_XML_LOAD_FILE, which
-// recurses for <Include>, hence a stack) and, at the <Script> call into
-// FUN_LUA_LOAD_FILE (return address RET_XML_SCRIPT_FILE_LOAD, seen through
-// Script::LoadFile's shared hook), retry a backslash path that does not exist
-// as given against that file's directory. The retry is used only when the
-// joined file exists, so a root-relative
+// At the <Script> call into FUN_LUA_LOAD_FILE (return address
+// RET_XML_SCRIPT_FILE_LOAD, seen through Script::LoadFile's shared hook),
+// retry a backslash path that does not exist as given against the directory
+// of the XML file being processed (Xml::FileStack). The retry is used only
+// when the joined file exists, so a root-relative
 // `<Script file="Interface\AddOns\X\y.lua"/>` that works on vanilla keeps
 // working, and a genuinely missing file still fails with the engine's own
 // message.
@@ -47,23 +46,13 @@
 #include "Offsets.h"
 #include "addons/EngineIO.h"
 #include "script/LoadFile.h"
+#include "xml/FileStack.h"
 
 #include <cstring>
 
 namespace Xml::ScriptPath {
 
 namespace {
-
-using XmlLoadFile_t = uintptr_t(__fastcall *)(const char *path, void *ctx, void *status);
-
-XmlLoadFile_t g_origXmlLoadFile = nullptr;
-
-// XML files currently being processed, innermost last. <Include> nesting is
-// shallow; deeper levels still count so pops stay balanced, they just are not
-// consulted.
-constexpr int kMaxDepth = 16;
-const char *g_xmlStack[kMaxDepth];
-int g_depth = 0;
 
 bool FileExists(const char *path) {
     return reinterpret_cast<AddOns::EngineIO::FileExistsFn>(
@@ -87,34 +76,18 @@ void CollapseDotDot(char *s) {
     }
 }
 
-uintptr_t __fastcall XmlLoadFile_h(const char *path, void *ctx, void *status) {
-    if (g_depth < kMaxDepth)
-        g_xmlStack[g_depth] = path;
-    ++g_depth;
-    const uintptr_t r = g_origXmlLoadFile(path, ctx, status);
-    --g_depth;
-    return r;
-}
-
-const Game::HookAutoRegister _xmlLoadFileHook{
-    Offsets::FUN_XML_LOAD_FILE,
-    reinterpret_cast<void *>(&XmlLoadFile_h),
-    reinterpret_cast<void **>(&g_origXmlLoadFile)};
-
 // For the XML `<Script file>` call site only: a `file=` value that contains a
 // subdirectory and does not exist as given is retried relative to the XML
 // file being processed; the joined path is returned when that file exists.
 const char *Resolve(const char *path, uintptr_t retAddr, char *buf, size_t bufSize) {
     if (retAddr != Offsets::RET_XML_SCRIPT_FILE_LOAD || path == buf)
         return path;
-    if (g_depth <= 0 || g_depth > kMaxDepth)
-        return path;
     if (std::strchr(path, '\\') == nullptr)
         return path; // the engine already joined it onto the XML's directory
     if (FileExists(path))
         return path; // root-relative, as vanilla loads it
 
-    const char *xml = g_xmlStack[g_depth - 1];
+    const char *xml = Xml::FileStack::Current();
     const char *slash = xml ? std::strrchr(xml, '\\') : nullptr;
     if (slash == nullptr)
         return path;

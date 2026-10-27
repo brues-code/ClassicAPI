@@ -582,10 +582,12 @@
 
     <GameTooltip name="FrameStackTooltip" frameStrata="TOOLTIP" hidden="true" parent="UIParent" inherits="GameTooltipTemplate">
         <Scripts>
-            <OnLoad>DebugTooltip_OnLoad(this);</OnLoad>
+            <OnLoad>FrameStackTooltip_OnLoad(this);</OnLoad>
             <OnShow>FrameStackTooltip_OnShow(this);</OnShow>
             <OnEnter>FrameStackTooltip_OnEnter(this);</OnEnter>
             <OnUpdate>FrameStackTooltip_OnUpdate(this, arg1);</OnUpdate>
+            <OnEvent>FrameStackTooltip_OnEvent(this, event, arg1, arg2);</OnEvent>
+            <OnTooltipSetFrameStack>FrameStackTooltip_OnTooltipSetFrameStack(this, arg1);</OnTooltipSetFrameStack>
         </Scripts>
     </GameTooltip>
 

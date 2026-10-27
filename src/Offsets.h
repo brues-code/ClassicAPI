@@ -613,12 +613,22 @@ enum Offsets {
     // `MOV EAX,[relativeTo-0x24+4]` at 0x007A2452 → ERROR #132. The rel-less
     // anchor node type (vtable 0x0081C42C, 12 bytes) has NO relativeTo field
     // and its readers never deref one, so only 0x44C nodes can dangle.
-    FUN_GET_POINT = 0x007A2340,                   // engine Script_GetPoint (Region registry idx 15); delegate target
+    FUN_GET_POINT = 0x007A2340,                   // engine Script_GetPoint (Region registry idx 15); Frame::GetPointGuard replaces it
     FUN_REGION_CLEAR_POINT_BY_RELATIVE = 0x00767E70, // __thiscall(region+OFF_REGION_ANCHOR, relativeTo, doRelayout): frees+NULLs every anchor node on this region whose GetRelativeTo()==relativeTo (pointer compare, never derefs the target). The engine's own "my anchor target was removed" cleanup — the one NOT called on target destruction, which is the bug.
     OFF_REGION_ANCHOR_ARRAY = 0x28,               // region base + 0x28 = anchor-node slot[0] (= OFF_REGION_ANCHOR + 4)
     REGION_ANCHOR_SLOT_COUNT = 9,                 // one slot per FRAMEPOINT_* enum (0..8)
     OFF_ANCHOR_NODE_RELATIVE_TO = 0x0C,           // raw relativeTo ptr within a 0x44C anchor node
     VAR_ANCHOR_VTABLE_WITH_RELATIVE = 0x0081C44C, // .rdata vtable of anchor nodes that carry a relativeTo (vs rel-less 0x0081C42C)
+    // The rest of the relative anchor node (benilla-re ui/anchors "Absolute
+    // and relative points": {vtable, x, y, frame, point}, 0x14 bytes), and
+    // the getter Script_GetPoint (0x007A23F2) calls for the target instead
+    // of reading +0x0C: vtable+0x0C `void *__thiscall(node)` — the target's
+    // LayoutFrame inner (base = inner - OFF_REGION_ANCHOR), 0 for the
+    // rel-less node type. x and y are internal units (Game::InternalToPixel).
+    OFF_ANCHOR_NODE_X = 0x04,
+    OFF_ANCHOR_NODE_Y = 0x08,
+    OFF_ANCHOR_NODE_RELATIVE_POINT = 0x10,
+    VTBL_ANCHOR_NODE_GET_RELATIVE = 0x0C,
 
     // The point names the XML loader and SetPoint share (benilla-re
     // ui/anchors "Point slots and point names"), 4.3.4's StringToFramePoint /
@@ -3777,6 +3787,15 @@ enum Offsets {
     // Frame::Modern's IsDragging: StopMovingOrSizing (0x00776990) gates its
     // clear on `*(context+0xCFC) == self`, i.e. the IsDragging predicate.
     VAR_UI_CONTEXT_PTR = 0x00CF0BD8,
+    // The top is NOT a region: CSimpleTop's constructor (0x00764160) runs
+    // CLayoutFrame::CLayoutFrame(this) on the object itself, so its layout
+    // sits at +0 with no CScriptObject in front. Script SetPoint (0x007A2710)
+    // and SetAllPoints store this pointer as the relative layout when
+    // relativeTo is nil, so a screen anchor's node names the top. Anything
+    // that turns an anchor's relative layout back into a region
+    // (`layout - OFF_REGION_ANCHOR`) must test for the top first — the stock
+    // Script_GetPoint does not, and reads the 36 bytes before this object
+    // (3.3.5 added that test and pushes nil). Tooltip::FrameStack does.
     OFF_UI_CONTEXT_DRAG_TARGET = 0xCFC,
     // Frame currently under the mouse (the CFrameScriptObject* that
     // `GetMouseFocus` returns): `*(*VAR_UI_CONTEXT_PTR + 0x7C)`. 0 when the
@@ -3831,6 +3850,10 @@ enum Offsets {
     // (vtable+0x3C, base 0x0076B320 → FUN_FRAME_HIT_TEST) hits the focus.
     OFF_UI_CONTEXT_EVENT_QUEUES = 0xD10,
     FRAME_STRATA_COUNT = 9,
+    // Stratum 0, the world frame's: 4.3.4's FRAME_STRATA_WORLD, which its
+    // FrameStrataToString names "WORLD". 1.12's name table (0x008119F8) starts
+    // at BACKGROUND = 1, so FUN_FRAME_STRATA_TO_STRING answers "UNKNOWN" for it.
+    FRAME_STRATA_WORLD = 0,
     EVENT_QUEUE_STRIDE = 0x1C,
     OFF_EVENT_QUEUE_DATA = 0x08,
     OFF_EVENT_QUEUE_COUNT = 0x10,
@@ -7937,6 +7960,26 @@ enum Offsets {
     LUA_MASK_RET = 2,
     OFF_LUA_DEBUG_EVENT = 0x00,
     OFF_LUA_DEBUG_I_CI = 0x5C,
+    // `lua_getstack(L, level, ar)` and `lua_getinfo(L, what, ar)` — both
+    // `int __fastcall(L /*ecx*/, level-or-what /*edx*/, lua_Debug *ar /*stack*/)`,
+    // RET 4 (luaL_where 0x006F48E0 calls them so: ar at ebp-0x60, "Snl", then
+    // reads currentline at ar+0x14 and short_src at ar+0x20). lua_Debug is
+    // stock 5.0 with LUA_IDSIZE 60: event +0, name +4, namewhat +8, what
+    // +0xC, source +0x10, currentline +0x14, nups +0x18, linedefined +0x1C,
+    // short_src +0x20 (60 bytes), i_ci +0x5C; 0x60 bytes in all. Level 0 is
+    // the running C function, level 1 its caller; a C level reports
+    // currentline -1.
+    LUA_GET_STACK = 0x006FBAA0,
+    LUA_GET_INFO = 0x006FBC70,
+    SIZEOF_LUA_DEBUG = 0x60,
+    OFF_LUA_DEBUG_SOURCE = 0x10,
+    OFF_LUA_DEBUG_CURRENTLINE = 0x14,
+    // `luaO_chunkid(out, source, bufflen)` — `void __fastcall(char *out /*ecx*/,
+    // const char *source /*edx*/, int bufflen /*stack*/)`, RET 4: the name a
+    // chunk has in error messages. `=name` is copied as is, `@file` is the
+    // file (its tail after "..." when longer than bufflen-8), anything else
+    // becomes `[string "first line..."]` (benilla-re lua/object).
+    LUAO_CHUNKID = 0x006F5C40,
     // lua_State: base_ci (luaD_callhook's index = (ci - [L+0x28]) / 24).
     OFF_LUA_STATE_BASE_CI = 0x28,
     // CallInfo: base @+0 (luaD_precall stores func + 0x10, so the called

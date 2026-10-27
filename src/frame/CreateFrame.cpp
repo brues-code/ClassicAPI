@@ -28,11 +28,14 @@
 // function rather than wrapping it: the same steps, in the same order, with
 // the engine's own node constructor, attribute setter, builder, status
 // object and script registration (Offsets FUN_SCRIPT_CREATEFRAME).
+// A Frame::SourceLocation::LuaScope spans the build, so the frames it makes
+// record the calling script's "file:line" (GetSourceLocation).
 // "Cooldown" needs nothing here: it is a registered frame type
 // (src/frame/Cooldown.cpp).
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/SourceLocation.h"
 #include "xml/FrameLoad.h"
 #include "xml/Inherits.h"
 
@@ -144,6 +147,9 @@ int __fastcall CreateFrame_h(void *L) {
         SetAttr(node, "inherits", inherits);
     if (id != nullptr)
         SetAttr(node, "id", id);
+
+    // The frames the builder makes take this call's script location.
+    Frame::SourceLocation::LuaScope source(L);
 
     BuildStatus status;
     InitStatus(&status);

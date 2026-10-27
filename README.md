@@ -468,7 +468,7 @@ Slash commands provided:
 |---------|---------|
 | `/dump <expr>` | Pretty-print any Lua value, including tables and multi-return tuples. The right tool for inspecting return values from `GetSpellInfo`, `C_Item.GetItemInfoInstant`, etc. |
 | `/etrace` | Event tracer window. `/etrace start`, `/etrace stop`, `/etrace add EVENT`, etc. |
-| `/framestack` (or `/fstack`) | Tooltip showing the frame hierarchy under the mouse cursor. |
+| `/framestack [showHidden [showRegions]]` (or `/fstack`) | Tooltip that lists the frames under the cursor and marks one of them with `-->`, with its anchors and the file and line that created it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. |
 | `/luaerrors` (or `/scripterrors`) | Lua error display window. |
 
 Lua globals provided (backports of Blizzard helpers):

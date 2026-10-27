@@ -47,6 +47,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "equipmentset/Tooltip.h"
+#include "frame/ScriptArgs.h"
 #include "frame/ScriptSlots.h"
 #include "unit/Tooltip.h"
 
@@ -260,7 +261,30 @@ const Frame::ScriptSlots::AutoRegister _slots{&ForEachSlot};
 
 } // namespace
 
-void FireFrameStack(void *tooltip) { FireScript(tooltip, SK_FRAMESTACK); }
+// The frame stack's fire carries the highlight as a Lua value, which the
+// engine's invoker cannot pass (%d/%u/%f/%s only): the slot runs through
+// Frame::ScriptArgs with the object (or nil) as its one argument — `arg1`
+// and, with modern script args on, the positional (self, highlightFrame).
+// Same guards and stack restore as FireScript.
+void FireFrameStack(void *tooltip, void *highlight) {
+    if (g_suppress > 0 || g_firing > 0)
+        return;
+    uint32_t *slot = SlotFor(tooltip, SK_FRAMESTACK, /*create*/ false);
+    if (slot == nullptr || slot[0] == 0)
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int savedTop = Game::Lua::GetTop(L);
+    if (highlight != nullptr)
+        Game::Lua::PushObject(L, highlight);
+    else
+        Game::Lua::PushNil(L);
+    ++g_firing;
+    Frame::ScriptArgs::RunSlotWithValues(L, slot, tooltip, savedTop + 1, 1);
+    --g_firing;
+    Game::Lua::SetTop(L, savedTop);
+}
 
 Suppressor::Suppressor() { ++g_suppress; }
 Suppressor::~Suppressor() {

@@ -265,7 +265,9 @@ build instructions.
   - [`region:SetSize(width, height)` / `region:GetSize()`](#regionsetsizewidth-height--regiongetsize)
   - [`region:IsMouseOver([topOffset, bottomOffset, leftOffset, rightOffset])`](#regionismouseovertopoffset-bottomoffset-leftoffset-rightoffset)
   - [`region:GetRect()`](#regiongetrect)
+  - [`region:GetPoint([index])`](#regiongetpointindex)
   - [`region:IsDragging()`](#regionisdragging)
+  - [`region:GetSourceLocation()`](#regiongetsourcelocation)
   - [`GetMouseFoci()`](#getmousefoci)
   - [`CreateFrame(frameType [, name, parent, template, id])`](#createframeframetype--name-parent-template-id)
   - [`CreateFrame("Cooldown" [, name, parent, template])`](#createframecooldown--name-parent-template)
@@ -386,7 +388,7 @@ build instructions.
   - [`GameTooltip:SetHyperlink(link)`](#gametooltipsethyperlinklink)
   - [`GameTooltip:SetHyperlinkCompareItem("itemLink" [, offset, shiftButton, comparisonTooltip])`](#gametooltipsethyperlinkcompareitemitemlink--offset-shiftbutton-comparisontooltip)
   - [`GameTooltip:IsEquippedItem()`](#gametooltipisequippeditem)
-  - [`GameTooltip:SetFrameStack([showHidden])`](#gametooltipsetframestackshowhidden)
+  - [`GameTooltip:SetFrameStack([showHidden, showRegions, highlightIndexChanged])`](#gametooltipsetframestackshowhidden-showregions-highlightindexchanged)
   - [`OnTooltipSet*` scripts (Item / Spell / Unit / GameObject / FrameStack)](#ontooltipset-scripts)
   - [`GameTooltip:SetItemByGUID(itemGUID)`](#gametooltipsetitembyguiditemguid)
   - [`GameTooltip:SetEquipmentSet(name)`](#gametooltipsetequipmentsetname)
@@ -6622,6 +6624,20 @@ UIParent:GetRect()   -- 0, 0, <screenWidth>, <screenHeight>
 Minimap:GetRect()    -- <left>, <bottom>, 140, 140
 ```
 
+### `region:GetPoint([index])`
+
+Returns the anchor at `index` (1 when omitted) as `point, relativeTo,
+relativePoint, x, y`. The anchors are in point order, from `TOPLEFT` to
+`BOTTOMRIGHT`. The method returns nothing when there is no such anchor.
+
+```lua
+local point, relativeTo, relativePoint, x, y = MyFrame:GetPoint(1)
+```
+
+`relativeTo` is nil when the anchor is relative to the screen. A frame with
+no parent gets this anchor from `SetPoint` without a `relativeTo`, and from
+XML anchors without one.
+
 ### `region:IsDragging()`
 
 `true` while the region is the frame currently being moved or resized by
@@ -6635,6 +6651,28 @@ fontstrings) always report `false`, since only frames can be dragged.
 -- in a frame's OnUpdate while the user drags it:
 if self:IsDragging() then ... end
 ```
+
+### `region:GetSourceLocation()`
+
+Returns where the region was created, as a string.
+
+```lua
+local f = CreateFrame("Frame")
+print(f:GetSourceLocation())            -- "Interface\AddOns\MyAddon\Core.lua:12"
+print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml"
+```
+
+- A frame that `CreateFrame` made returns the script file and the line of
+  that call, as `file:line`. The file name is the chunk name, as in error
+  messages. A `/run` or `loadstring` chunk shows as `[string "..."]`.
+- A frame that an XML file defines returns the path of that XML file. There
+  is no line number.
+- A texture or font string returns the location of its parent frame.
+- The method returns nil when no script and no XML file made the frame.
+
+If `CreateFrame` runs inside `pcall`, the location is the script that called
+`pcall`. Child frames that a template adds to a `CreateFrame` frame return
+the location of that `CreateFrame` call.
 
 ### `GetMouseFoci()`
 
@@ -9365,45 +9403,70 @@ GameTooltip:SetBagItem(0, 1)
 if GameTooltip:IsEquippedItem() then ... end  -- false unless that item is also worn
 ```
 
-### `GameTooltip:SetFrameStack([showHidden])`
+### `GameTooltip:SetFrameStack([showHidden, showRegions, highlightIndexChanged])`
 
-Fills the tooltip with the frames under the cursor. This is the method that
-`/fstack` uses. The method also shows the tooltip, so set an owner first.
+Fills the tooltip with the frames under the cursor and returns the
+highlighted entry. This is the method that `/fstack` uses. The method also
+shows the tooltip, so set an owner first.
 
 ```lua
 GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
 GameTooltip:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -20, 20)
-GameTooltip:SetFrameStack()      -- shown frames only
-GameTooltip:SetFrameStack(true)  -- also hidden frames
+local highlight = GameTooltip:SetFrameStack()  -- shown frames only
+GameTooltip:SetFrameStack(true)                -- also hidden frames
+GameTooltip:SetFrameStack(false, true)         -- also textures and font strings
+GameTooltip:SetFrameStack(false, false, 1)     -- move the highlight down one entry
 ```
 
 The first line shows the text `DEBUG_FRAMESTACK` and the cursor position, in
 the same units as `GetCursorPosition()`. Below it, the frames are in groups by
 strata, from the top strata down. Each group starts with the strata name. In a
 group, frames go from the highest frame level down. Each frame line shows
-` <level> name`:
+`   <level> name`:
 
 - A frame with a name shows that name.
 - A frame with no name shows its Lua table, for example `table: 1A2B3C4D`.
 - When the global variable with the frame's name is not that frame, the line
   shows the table and the name, for example `table: 1A2B3C4D (MyFrame)`.
 
-The color of a line tells you the state of the frame:
+With `showRegions`, the textures and font strings of a listed frame come
+after that frame, when the cursor is in their rectangle. A region line is
+indented three more spaces and shows the level of its frame.
 
-| Color | Frame |
+The color of a line tells you the state of the entry:
+
+| Color | Entry |
 |---|---|
-| Orange | Shown, and the mouse is enabled |
-| Blue | Shown, and the mouse is not enabled |
+| Orange | A shown frame, and the mouse is enabled |
+| Blue | A shown frame, and the mouse is not enabled |
+| Cyan | A shown region (only with `showRegions`) |
 | Grey | Hidden (only with `showHidden`) |
 
-The color has two shades. The shade changes when the frame level changes.
+The frame colors have two shades. The shade changes when the frame level
+changes.
 
 A frame is in the list when the cursor is in its rectangle. Hit-rect insets
 and clipping by a parent frame have no effect on the list. The list also
 includes frames that do not get mouse input.
 
+**The highlight.** One entry is the highlighted entry. Its line starts with
+`-->` in place of the indent, and the method returns its frame or region.
+After the list, the tooltip shows:
+
+- `ANCHORS`, then one line per anchor point: `<index> point relativeTo
+  relativePoint x y`, the values that `GetPoint(index)` returns. If the
+  anchor is relative to the screen, the line is `<index> point x y`.
+- `SOURCE`, then the location that
+  [`GetSourceLocation()`](#regiongetsourcelocation) returns. These two lines
+  are absent when the location is not known.
+
+The highlight starts at the first entry. `highlightIndexChanged` moves it
+that many entries down the list, or up for a negative number, and wraps at
+both ends. The index stays between calls, so the highlight does not move
+while the cursor rests. Pass `0`, or nothing, to keep it.
+
 The method runs the `OnTooltipSetFrameStack` script before it shows the
-tooltip.
+tooltip. The script gets the highlighted entry, or nil, as `arg1`.
 
 ### `OnTooltipSet*` scripts
 
@@ -9422,7 +9485,7 @@ tooltips by hooking one script per object type instead of wrapping every
 | `OnTooltipSetSpell` | `SetSpell`, `SetSpellByID`, `SetTalent`, `SetShapeshift` |
 | `OnTooltipSetUnit` | `SetUnit` and unit mouseover |
 | `OnTooltipSetGameObject` | gameobject mouseover (herb/ore nodes, chests, mailboxes, signs) |
-| `OnTooltipSetFrameStack` | [`SetFrameStack`](#gametooltipsetframestackshowhidden) |
+| `OnTooltipSetFrameStack` | [`SetFrameStack`](#gametooltipsetframestackshowhidden-showregions-highlightindexchanged) |
 
 The engine ships only `OnTooltipAddMoney` / `OnTooltipCleared` /
 `OnTooltipSetDefaultAnchor`; these five are added.

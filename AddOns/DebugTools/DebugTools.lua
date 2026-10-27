@@ -6,9 +6,11 @@
 --    explicit (this, event, arg1..arg19) parameters from XML inline scripts.
 --  * RegisterAllEvents is used when available; the curated default list is
 --    a fallback if the client doesn't expose it.
---  * /fstack accepts "true" (as on 3.3.5) or "hidden" to list hidden
---    frames too.
---  * No UIPanelDialogTemplate, no parentKey, no clampedToScreen, no
+--  * /fstack [showHidden [showRegions]] is the modern (10.x+)
+--    FrameStackTooltip on ClassicAPI's SetFrameStack: Alt moves the
+--    highlight, Ctrl inspects it, Shift shows texture info (see the
+--    FrameStackTooltip section).
+--  * No UIPanelDialogTemplate, no clampedToScreen, no
 --    OnSizeChanged in vanilla -- frames have fixed dimensions.
 --  * No debuglocals
 --
@@ -1014,27 +1016,175 @@ function DebugTooltip_OnLoad(self)
     end
 end
 
-function FrameStackTooltip_Toggle(showHidden)
-    local tooltip = FrameStackTooltip;
-    if (tooltip:IsVisible()) then
-        tooltip:Hide();
-    else
-        tooltip:SetOwner(UIParent, "ANCHOR_NONE");
-        tooltip:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -32, 96);
-        tooltip.default = 1;
-        tooltip.showHidden = showHidden;
-        tooltip:SetFrameStack(showHidden);
+-- The modern (10.x+) FrameStackTooltip on ClassicAPI's
+-- `SetFrameStack(showHidden, showRegions, highlightIndexChanged)`, which
+-- returns the highlighted entry and lists its anchors and source:
+--  * Left Alt / Right Alt move the highlight down / up the list;
+--  * Ctrl (on release) opens the highlighted entry in the TableInspector;
+--  * Shift toggles texture information for the highlighted entry;
+--  * `fsobj` is the highlighted entry after an Alt press.
+-- The modern tooltip polls a KeyCommand table from OnUpdate; here the
+-- MODIFIER_STATE_CHANGED(key, down) event carries the same per-side state.
+
+FRAMESTACK_UPDATE_TIME = .1;
+
+-- Blizzard_SharedXML's StringToBoolean, for the /framestack arguments.
+local function _StringToBoolean(stringToCheck, defaultReturn)
+    stringToCheck = string.lower(stringToCheck);
+    local firstChar = string.sub(stringToCheck, 1, 1);
+    if (firstChar == "0" or firstChar == "n" or firstChar == "f" or
+        stringToCheck == "off" or stringToCheck == "disabled") then
+        return false;
+    elseif (string.find(firstChar, "^[1-9yt]") or
+            stringToCheck == "on" or stringToCheck == "enabled") then
+        return true;
+    end
+    return defaultReturn;
+end
+
+-- What the modern tooltip prints through GetDebugName: the global name,
+-- else the object's table.
+local function _DebugName(obj)
+    local name = obj.GetName and obj:GetName();
+    if (name and name ~= "") then return name; end
+    return tostring(obj);
+end
+
+local function _WrapColor(text, colorHex)
+    return "|c" .. colorHex .. text .. "|r";
+end
+
+function FrameStackTooltip_OnLoad(self)
+    DebugTooltip_OnLoad(self);
+    self.nextUpdate = 0;
+    self.highlightIndexChanged = 0;
+    self:RegisterEvent("MODIFIER_STATE_CHANGED");
+end
+
+function FrameStackTooltip_OnEvent(self, event, key, down)
+    if (event ~= "MODIFIER_STATE_CHANGED" or not self:IsShown()) then
+        return;
+    end
+    if (key == "LALT") then
+        if (down == 1) then FrameStackTooltip_ChangeHighlight(self, 1); end
+    elseif (key == "RALT") then
+        if (down == 1) then FrameStackTooltip_ChangeHighlight(self, -1); end
+    elseif (key == "LCTRL" or key == "RCTRL") then
+        -- On release, as the modern RUN_ON_UP command.
+        if (down == 0) then FrameStackTooltip_InspectTable(self); end
+    elseif (key == "LSHIFT" or key == "RSHIFT") then
+        if (down == 1) then FrameStackTooltip_ToggleTextureInformation(self); end
     end
 end
 
-FRAMESTACK_UPDATE_TIME = .1;
-local _frameStackAccum = 0;
+function FrameStackTooltip_ChangeHighlight(self, direction)
+    self.highlightIndexChanged = direction;
+    self.shouldSetFSObj = true;
+end
+
+function FrameStackTooltip_InspectTable(self)
+    if (self.highlightFrame) then
+        TableInspector_Show(self.highlightFrame, _DebugName(self.highlightFrame));
+    end
+end
+
+function FrameStackTooltip_ToggleTextureInformation(self)
+    self.showTextureInfo = not self.showTextureInfo;
+end
+
+-- Blizzard_TextureInfoGenerator on 1.12's texture methods: the file a
+-- texture shows and its coordinates when they are not the whole image.
+local function _FormatTextureCoordinates(ulX, ulY, blX, blY, urX, urY, brX, brY)
+    if (type(brY) ~= "number") then
+        return "invalid coordinates";
+    end
+    if (ulX == 0 and ulY == 0 and blX == 0 and blY == 1 and
+        urX == 1 and urY == 0 and brX == 1 and brY == 1) then
+        return "";
+    end
+    return _WrapColor(string.format("UL:(%.2f, %.2f), BL:(%.2f, %.2f), UR:(%.2f, %.2f), BR:(%.2f, %.2f)",
+                                    ulX, ulY, blX, blY, urX, urY, brX, brY), "ff00ffff");
+end
+
+local function _FormatTextureInfo(region)
+    if (not region:IsObjectType("Texture") or not region:IsMouseOver()) then
+        return nil;
+    end
+    local file = region:GetTexture();
+    if (file == nil) then
+        return nil;
+    end
+    return string.format("%s : %s: %s %s", _DebugName(region), _WrapColor("File", "ffff0000"),
+                         tostring(file), _FormatTextureCoordinates(region:GetTexCoord()));
+end
+
+function FrameStackTooltip_CheckFormatTextureInfo(obj)
+    local regions;
+    if (obj:IsObjectType("Frame")) then
+        regions = { obj:GetRegions() };
+    else
+        regions = { obj };
+    end
+    local info = {};
+    for _, region in ipairs(regions) do
+        local line = _FormatTextureInfo(region);
+        if (line) then
+            table.insert(info, line);
+        end
+    end
+    if (table.getn(info) > 0) then
+        return table.concat(info, "\n");
+    end
+end
+
+function FrameStackTooltip_OnTooltipSetFrameStack(self, highlightFrame)
+    self.highlightFrame = highlightFrame;
+
+    if (self.highlightFrame and self.showTextureInfo) then
+        local textureInfo = FrameStackTooltip_CheckFormatTextureInfo(self.highlightFrame);
+        if (textureInfo) then
+            self:AddLine(textureInfo);
+        end
+    end
+
+    if (self.shouldSetFSObj) then
+        fsobj = self.highlightFrame;
+        self.shouldSetFSObj = nil;
+    end
+
+    if (fsobj) then
+        self:AddLine(string.format("\nfsobj = %s", _DebugName(fsobj)));
+    end
+end
+
+function FrameStackTooltip_Show(self, showHidden, showRegions)
+    self:SetOwner(UIParent, "ANCHOR_NONE");
+    self:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -32, 96);
+    self.default = 1;
+    self.showRegions = showRegions;
+    self.showHidden = showHidden;
+    self:SetFrameStack(showHidden, showRegions);
+end
+
+function FrameStackTooltip_Hide(self)
+    self:Hide();
+end
+
+function FrameStackTooltip_Toggle(showHidden, showRegions)
+    local tooltip = FrameStackTooltip;
+    if (tooltip:IsVisible()) then
+        FrameStackTooltip_Hide(tooltip);
+    else
+        FrameStackTooltip_Show(tooltip, showHidden, showRegions);
+    end
+end
 
 function FrameStackTooltip_OnUpdate(self, elapsed)
-    _frameStackAccum = _frameStackAccum + elapsed;
-    if (_frameStackAccum >= FRAMESTACK_UPDATE_TIME) then
-        _frameStackAccum = 0;
-        self:SetFrameStack(self.showHidden);
+    local now = GetTime();
+    if (now >= self.nextUpdate or self.highlightIndexChanged ~= 0) then
+        self.nextUpdate = now + FRAMESTACK_UPDATE_TIME;
+        self.highlightFrame = self:SetFrameStack(self.showHidden, self.showRegions, self.highlightIndexChanged);
+        self.highlightIndexChanged = 0;
     end
 end
 
@@ -1063,12 +1213,21 @@ end
 
 FrameStackTooltip_OnEnter = FrameStackTooltip_OnShow;
 
+-- /framestack [showHidden [showRegions]], as the modern slash
+-- command reads it: each word through StringToBoolean, with the defaults
+-- false, true. The modern third word, showAnchors, drives its highlight
+-- frames (the green cover), which came after 4.3.4 and are not ported: the
+-- tooltip's "-->" mark, ANCHORS and SOURCE lines carry that information.
 function FrameStackTooltip_HandleSlashCmd(msg)
-    if (msg == nil) then msg = ""; end
-    local showHidden = (msg == "true" or string.find(msg, "hidden") ~= nil);
-    FrameStackTooltip_Toggle(showHidden);
-end
+    local showHiddenArg, showRegionsArg;
+    showHiddenArg, msg = string.match(msg or "", "^%s*(%S+)(.*)$");
+    showRegionsArg, msg = string.match(msg or "", "^%s*(%S+)(.*)$");
 
+    local showHidden = _StringToBoolean(showHiddenArg or "", false);
+    local showRegions = _StringToBoolean(showRegionsArg or "", true);
+
+    FrameStackTooltip_Toggle(showHidden, showRegions);
+end
 ------------------------------------------------------------------------------
 -- Slash command registration
 ------------------------------------------------------------------------------
