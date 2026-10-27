@@ -16794,8 +16794,9 @@ local willPlay, handle = PlaySoundFile("Sound\\Interface\\RaidWarning.wav", "Mas
 [`C_Sound.PlaySound`](#c_soundplaysoundsoundkitid--channel-forcenoduplicates-runfinishcallback).
 For a file, `"Ambience"` uses the ambience volume.
 
-Only two files from `PlaySoundFile` can play at the same time. While two
-play, a third returns `false`. Give the handle to
+The client limits how many files can play at the same time. When the limit
+is reached, `PlaySoundFile` returns `false`. A file holds its place until it
+ends. A file that fades out still holds its place. Give the handle to
 [`StopSound`](#stopsoundsoundhandle--fadeouttime) to stop the file before it ends.
 
 ### `C_Sound.PlayItemSound(soundType, item)`
