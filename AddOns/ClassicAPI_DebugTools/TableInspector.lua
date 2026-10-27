@@ -329,7 +329,3 @@ function TableInspector_HandleSlashCmd(msg)
     end
     TableInspector_Show(result, msg);
 end
-
-SLASH_TINSPECT1 = "/tinspect";
-SLASH_TINSPECT2 = "/tins";
-SlashCmdList["TINSPECT"] = TableInspector_HandleSlashCmd;

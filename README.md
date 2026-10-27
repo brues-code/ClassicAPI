@@ -453,34 +453,32 @@ is also absent from the AddOns list. The dispatch is transparent:
 addons consuming `Mixin`, `ColorMixin`, `TableUtil`, etc. behave
 identically in both cases.
 
-## Bundled addon: DebugTools
+## Debug tools
 
-A 1.12.1 / Lua 5.0 backport of Blizzard's `Blizzard_DebugTools` addon
-lives in [`AddOns/DebugTools/`](AddOns/DebugTools/).
-It's an independent addon — it doesn't use anything ClassicAPI adds, and
-ClassicAPI works fine without it. It's bundled here because it's the
-natural companion for testing and debugging anything written against the
-1.12 Lua surface (with or without the ClassicAPI extensions).
+ClassicAPI contains a backport of Blizzard's `Blizzard_DebugTools` addon,
+with the name `ClassicAPI_DebugTools`. The DLL contains this addon, so you do
+not install it. The addon is not in the AddOns list, and you cannot disable it.
 
-Slash commands provided:
+The slash commands are always available. The tools load the first time
+that you use one of these commands:
 
 | Command | Purpose |
 |---------|---------|
-| `/dump <expr>` | Pretty-print any Lua value, including tables and multi-return tuples. The right tool for inspecting return values from `GetSpellInfo`, `C_Item.GetItemInfoInstant`, etc. |
-| `/etrace` | Event tracer window. `/etrace start`, `/etrace stop`, `/etrace add EVENT`, etc. |
-| `/framestack [showHidden [showRegions]]` (or `/fstack`) | Tooltip that lists the frames under the cursor and marks one of them with `-->`, with its anchors and the file and line that created it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. |
-| `/luaerrors` (or `/scripterrors`) | Lua error display window. |
+| `/dump <expr>` | Shows a Lua value in the chat frame. It shows tables and all return values. Use it to examine the return values of `GetSpellInfo`, `C_Item.GetItemInfoInstant`, and other functions. |
+| `/etrace` | Opens the event trace window. Other forms: `/etrace start`, `/etrace stop`, `/etrace add EVENT`, and more. |
+| `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. |
+| `/tinspect <expr>` (or `/tins`) | Opens the table inspector on the result of `<expr>`. |
+| `/luaerrors` (or `/scripterrors`) | Opens the Lua error window. |
 
-Lua globals provided (backports of Blizzard helpers):
+### Print functions
+
+`!!!ClassicAPI` adds these globals:
 
 | Global | Purpose |
 |--------|---------|
-| `print(...)` | Backport of Blizzard's `print` — concats varargs with `" "` and pushes to `DEFAULT_CHAT_FRAME`. Routes through `setprinthandler`'s handler; falls back via `geterrorhandler` if the handler errors. |
-| `setprinthandler(func)` / `getprinthandler()` | Install / query a custom print handler. Useful for redirecting print output in tests. |
-| `tostringall(...)` | Apply `tostring()` to every vararg, preserving the count. Lua 5.0-compatible (uses `arg.n` since `select` doesn't exist in 5.0). |
-
-To install: copy [`AddOns/DebugTools/`](AddOns/DebugTools/) into your
-`Interface/AddOns/` directory like any other addon.
+| `print(...)` | Backport of Blizzard's `print`. It joins the arguments with `" "` and sends the result to `DEFAULT_CHAT_FRAME`. It uses the handler from `setprinthandler`. If that handler fails, it uses `geterrorhandler`. |
+| `setprinthandler(func)` / `getprinthandler()` | Sets or gets the print handler. Use it to send print output to a different place in tests. |
+| `tostringall(...)` | Applies `tostring()` to each argument, and keeps the number of arguments. |
 
 ## Building
 

@@ -1,9 +1,10 @@
 ## Interface: 11200
-## Title: UI Debug Tools
+## Title: ClassicAPI Debug Tools
 ## Notes: Tools for developing addons (backport of Blizzard_DebugTools 3.3.5 to 1.12.1 / Lua 5.0)
 ## Author: Blizzard Entertainment, backported
 ## Special Thanks: Iriel, Kirov, Esamynn
-## Version: 1.0
+## Version: DEV
+## LoadOnDemand: 1
 ## SavedVariables: DebugToolsSavedVars
 Dump.lua
 DebugTools.lua

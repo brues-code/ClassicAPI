@@ -1119,7 +1119,7 @@ once existence is confirmed. Returns `nil` for missing addons.
 
 ```lua
 C_AddOns.GetAddOnName(1)            -- "Atlas-TW"
-C_AddOns.GetAddOnName("DebugTools") -- "DebugTools"
+C_AddOns.GetAddOnName("myaddon")    -- "myaddon"
 C_AddOns.GetAddOnName("garbage")    -- nil
 ```
 
@@ -1130,7 +1130,7 @@ color-code escapes applied. `nil` for missing addons or addons
 without a title field.
 
 ```lua
-C_AddOns.GetAddOnTitle("DebugTools") -- "UI Debug Tools"
+C_AddOns.GetAddOnTitle("MyAddon") -- "My Addon"
 ```
 
 ### `C_AddOns.GetAddOnNotes(indexOrName)`
@@ -1139,8 +1139,7 @@ Returns the `## Notes:` from the `.toc`. `nil` for missing
 addons or addons without notes.
 
 ```lua
-C_AddOns.GetAddOnNotes("DebugTools")
--- "Tools for developing addons (backport of Blizzard_DebugTools 3.3.5 to 1.12.1 / Lua 5.0)"
+C_AddOns.GetAddOnNotes("MyAddon") -- "Shows a thing on the screen."
 ```
 
 ### `C_AddOns.IsAddOnLoadable(indexOrName)`
@@ -1157,7 +1156,7 @@ and `demandLoaded` arguments — those are ignored here, since there is
 no per-character addon enable state.
 
 ```lua
-C_AddOns.IsAddOnLoadable("DebugTools")        -- true, nil
+C_AddOns.IsAddOnLoadable("MyAddon")           -- true, nil
 C_AddOns.IsAddOnLoadable("HardcoreTooltips")  -- false, "DISABLED"
 C_AddOns.IsAddOnLoadable("garbage")           -- false, nil
 ```
@@ -1167,7 +1166,7 @@ C_AddOns.IsAddOnLoadable("garbage")           -- false, nil
 Returns `loadedOrLoading, loaded` — two booleans.
 
 ```lua
-C_AddOns.IsAddOnLoaded("DebugTools")    -- true, true
+C_AddOns.IsAddOnLoaded("MyAddon")       -- true, true
 C_AddOns.IsAddOnLoaded("garbage")       -- false, false
 C_AddOns.IsAddOnLoaded(1)               -- true, true   (first addon by index)
 ```
@@ -1228,7 +1227,7 @@ Returns an `Enum.AddOnSecurityStatus` integer (not a string):
 
 ```lua
 C_AddOns.GetAddOnSecurity("Blizzard_TalentUI") -- 0 (Secure)
-C_AddOns.GetAddOnSecurity("DebugTools")        -- 1 (Insecure)
+C_AddOns.GetAddOnSecurity("MyAddon")           -- 1 (Insecure)
 C_AddOns.GetAddOnSecurity("Nonexistent")       -- 3 (NotAvailable)
 
 if status == Enum.AddOnSecurityStatus.Secure then ...
@@ -1247,7 +1246,7 @@ back as ret1 unconditionally (before the lookup), so a
 string. This wrapper avoids that.
 
 ```lua
-C_AddOns.DoesAddOnExist("DebugTools")  -- true
+C_AddOns.DoesAddOnExist("MyAddon")     -- true
 C_AddOns.DoesAddOnExist("garbage")     -- false
 ```
 
@@ -1311,7 +1310,7 @@ addon's table from access it did not permit.
 local t = C_AddOns.GetAddOnLocalTable("MyAddon")   -- MyAddon's table
 t.sharedValue = 5                                  -- MyAddon sees this too
 
-C_AddOns.GetAddOnLocalTable("DebugTools")   -- nil (no opt-in directive)
+C_AddOns.GetAddOnLocalTable("OtherAddon")   -- nil (no opt-in directive)
 C_AddOns.GetAddOnLocalTable("DoesNotExist") -- nil (not loaded)
 ```
 

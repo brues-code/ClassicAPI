@@ -76,24 +76,18 @@ endif()
 add_library(${PROJECT_NAME} SHARED
     ${SOURCES} ${HEADERS} ${TINYCBOR_SOURCES})
 
-# Embed `AddOns/!!!ClassicAPI/` and `src/bindings/Bindings.xml` as RCDATA
+# Embed the addons under `AddOns/` and `src/bindings/Bindings.xml` as RCDATA
 # resources. The file-read hook in `src/addons/Embedded.cpp` serves the
 # addon files when the engine asks for paths under
-# `Interface\AddOns\!!!ClassicAPI\`, so the addon loads even when the user
-# doesn't have it on disk. `src/bindings/Inject.cpp` splices the bindings
+# `Interface\AddOns\<addon>\`, so the addons load even when the user
+# doesn't have them on disk. `src/bindings/Inject.cpp` splices the bindings
 # XML (our TARGETING-group additions) into the engine's
 # `Interface\FrameXML\Bindings.xml` at load time.
 include(cmake/embed_resources.cmake)
-set(EMBEDDED_CLASSICAPI_SRC "${CMAKE_CURRENT_SOURCE_DIR}/AddOns/!!!ClassicAPI")
-file(GLOB_RECURSE EMBEDDED_CLASSICAPI_FILES CONFIGURE_DEPENDS RELATIVE
-     "${EMBEDDED_CLASSICAPI_SRC}" "${EMBEDDED_CLASSICAPI_SRC}/*")
-# Never embed the developer marker: it must reflect on-disk presence only
-# (see DiskHasDevMarker in src/addons/Embedded.cpp).
-list(FILTER EMBEDDED_CLASSICAPI_FILES EXCLUDE REGEX "(^|/)\\.classicapi-dev$")
 embed_resources(
     TARGET ${PROJECT_NAME}
-    ADDON_DIR "${EMBEDDED_CLASSICAPI_SRC}"
-    ADDON_FILES ${EMBEDDED_CLASSICAPI_FILES}
+    ADDONS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/AddOns"
+    ADDONS "!!!ClassicAPI" "ClassicAPI_DebugTools"
     ADDON_VERSION "${CLASSICAPI_TOC_VERSION}"
     BINDINGS_XML "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings/Bindings.xml"
     OUT_DIR "${CMAKE_BINARY_DIR}/generated")

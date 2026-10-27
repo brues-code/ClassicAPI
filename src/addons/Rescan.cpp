@@ -61,7 +61,7 @@
 // bytes cleared), and the load pass hasn't — nothing holds entry state.
 //
 // Excluded from the evict path (everything else is fair game):
-//   - `!!!ClassicAPI` — embedded; `Addons::Embedded` owns its entry
+//   - the embedded addons — `Addons::Embedded` owns their entries
 //     (registered first + filter byte);
 //   - `## Secure:` / SMSG-managed entries — the parser cannot restore
 //     packet-delivered state (see OFF_ADDON_ENTRY_SECURE).
@@ -83,6 +83,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/Embedded.h"
 #include "addons/EngineIO.h"
 #include "addons/Registry.h"
 
@@ -164,10 +165,6 @@ void RefreshLooseFileIndex() {
 
 // ── Step 1.5: `##` metadata refresh (evict + re-register on change) ──
 
-// The embedded addon's name — its entry is owned by `Addons::Embedded`
-// (registered first + filter byte) and never refreshed here.
-constexpr const char *kEmbeddedAddon = "!!!ClassicAPI";
-
 // name → FNV-1a hash of the addon's `##` lines, as last parsed.
 // Per-process on purpose: the registry persists across /reload, and a
 // stale hash after a full re-login scan only causes one harmless
@@ -221,11 +218,12 @@ uint32_t HashTocMetadata(const char *buf, size_t size) {
     return h;
 }
 
-// True when the entry never takes the evict path: the embedded addon
-// (owned by `Addons::Embedded`) and SMSG-managed secure entries (the
-// parser cannot restore packet-delivered state).
+// True when the entry never takes the evict path: the embedded addons
+// (owned by `Addons::Embedded` — registered first + filter byte) and
+// SMSG-managed secure entries (the parser cannot restore packet-delivered
+// state).
 bool IsRefreshExempt(uintptr_t entry, const char *name) {
-    return name == nullptr || std::strcmp(name, kEmbeddedAddon) == 0 ||
+    return name == nullptr || Addons::Embedded::IsEmbedded(name) ||
            *reinterpret_cast<const uint8_t *>(
                entry + Offsets::OFF_ADDON_ENTRY_SECURE) != 0;
 }
@@ -373,7 +371,7 @@ void FixupReverseLoadWith(const std::vector<uintptr_t> &added) {
 // `FUN_0051DA70` phase 2, mirrored (never call that function itself —
 // its phase 1 consumes an SMSG_ADDON_INFO packet): rebuild the
 // `GetNumAddOns`/`GetAddOnInfo(i)` name-pointer array from the linked
-// list, skipping filtered entries (keeps `!!!ClassicAPI` hidden), then
+// list, skipping filtered entries (keeps the embedded addons hidden), then
 // sort with the engine's own comparator to restore alphabetical order.
 void RebuildDisplayArray() {
     auto desc = reinterpret_cast<Desc *>(

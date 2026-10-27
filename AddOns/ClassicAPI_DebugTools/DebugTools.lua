@@ -138,7 +138,7 @@ _initFrame:RegisterEvent("ADDON_LOADED");
 _initFrame:RegisterEvent("PLAYER_LOGOUT");
 _initFrame:SetScript("OnEvent", function()
     if (event == "ADDON_LOADED") then
-        if (arg1 ~= "DebugTools") then return; end
+        if (arg1 ~= "ClassicAPI_DebugTools") then return; end
         DebugToolsSavedVars = _MergeDefaults(DebugToolsSavedVars);
         _ApplySavedVars();
         _initFrame:UnregisterEvent("ADDON_LOADED");
@@ -1228,17 +1228,3 @@ function FrameStackTooltip_HandleSlashCmd(msg)
 
     FrameStackTooltip_Toggle(showHidden, showRegions);
 end
-------------------------------------------------------------------------------
--- Slash command registration
-------------------------------------------------------------------------------
-
-SLASH_ETRACE1 = "/etrace";
-SlashCmdList["ETRACE"] = EventTraceFrame_HandleSlashCmd;
-
-SLASH_FRAMESTACK1 = "/framestack";
-SLASH_FRAMESTACK2 = "/fstack";
-SlashCmdList["FRAMESTACK"] = FrameStackTooltip_HandleSlashCmd;
-
-SLASH_LUAERRORS1 = "/luaerrors";
-SLASH_LUAERRORS2 = "/scripterrors";
-SlashCmdList["LUAERRORS"] = ScriptErrorsFrame_HandleSlashCmd;

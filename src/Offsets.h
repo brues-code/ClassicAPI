@@ -8387,7 +8387,7 @@ enum Offsets {
     //       int          flag2);         // 0
     //   Returns 1 on success, 0 on failure.
     //
-    // We hook this to redirect reads of `Interface\AddOns\!!!ClassicAPI\*`
+    // We hook this to redirect reads of `Interface\AddOns\<embedded addon>\*`
     // to embedded buffers (see src/addons/Embedded.cpp). Allocating via
     // the same Storm allocator the engine uses means the caller's
     // normal `SMemFree` works without us tracking lifetime.

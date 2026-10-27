@@ -4,7 +4,7 @@
 -- Original by Iriel, Esamynn and Kirov from DevTools v1.11
 -- /dump implementation
 --
--- Globals: DevTools, SLASH_DUMP1, DevTools_Dump, DevTools_RunDump
+-- Globals: DevTools, DevTools_Dump, DevTools_RunDump
 -- Globals: DEVTOOLS_MAX_ENTRY_CUTOFF, DEVTOOLS_LONG_STRING_CUTOFF
 -- Globals: DEVTOOLS_DEPTH_CUTOFF, DEVTOOLS_INDENT
 -- Globals: DEVTOOLS_USE_TABLE_CACHE, DEVTOOLS_USE_FUNCTION_CACHE
@@ -431,7 +431,3 @@ for k, v in pairs(getfenv(0)) do
         end
     end
 end
-
--- Slash command setup
-SLASH_DUMP1 = "/dump";
-SlashCmdList["DUMP"] = DevTools_DumpCommand;

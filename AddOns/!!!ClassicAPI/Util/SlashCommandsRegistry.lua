@@ -1001,6 +1001,53 @@ end
 SLASH_STOPMACRO1 = "/stopmacro";
 
 -- ---------------------------------------------------------------------
+-- Debug tools: load on demand, as retail's chat frame does with
+-- Blizzard_DebugTools. The commands live here; the tools load on first use.
+
+local function LoadDebugTools()
+	UIParentLoadAddOn("ClassicAPI_DebugTools");
+	return IsAddOnLoaded("ClassicAPI_DebugTools");
+end
+
+SlashCmdList["DUMP"] = function(msg)
+	if ( LoadDebugTools() ) then
+		DevTools_DumpCommand(msg);
+	end
+end
+SLASH_DUMP1 = "/dump";
+
+SlashCmdList["FRAMESTACK"] = function(msg)
+	if ( LoadDebugTools() ) then
+		FrameStackTooltip_HandleSlashCmd(msg);
+	end
+end
+SLASH_FRAMESTACK1 = "/framestack";
+SLASH_FRAMESTACK2 = "/fstack";
+
+SlashCmdList["ETRACE"] = function(msg)
+	if ( LoadDebugTools() ) then
+		EventTraceFrame_HandleSlashCmd(msg);
+	end
+end
+SLASH_ETRACE1 = "/etrace";
+
+SlashCmdList["TINSPECT"] = function(msg)
+	if ( LoadDebugTools() ) then
+		TableInspector_HandleSlashCmd(msg);
+	end
+end
+SLASH_TINSPECT1 = "/tinspect";
+SLASH_TINSPECT2 = "/tins";
+
+SlashCmdList["LUAERRORS"] = function(msg)
+	if ( LoadDebugTools() ) then
+		ScriptErrorsFrame_HandleSlashCmd(msg);
+	end
+end
+SLASH_LUAERRORS1 = "/luaerrors";
+SLASH_LUAERRORS2 = "/scripterrors";
+
+-- ---------------------------------------------------------------------
 -- Give a contested command back to whoever already owned it
 --
 -- Vanilla has no `/petattack`, so the entry above ADDS it. A macro addon can
