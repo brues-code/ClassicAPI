@@ -4664,8 +4664,8 @@ Behavior notes:
 ### `COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events
 
 `COMBAT_LOG_EVENT_UNFILTERED` fires once for each combat log event: a hit, a
-miss, a heal, a power gain, damage from the environment, a cast, an aura that
-starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires only for the
+miss, a heal, a power gain, damage from the environment, a cast, a summon, an
+aura that starts or ends, a dispel, a death. `COMBAT_LOG_EVENT` fires only for the
 events that match the combat log filter (see
 [`CombatLogAddFilter`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)).
 With no filter, it fires for each event. The text lines in the chat frames
@@ -4717,7 +4717,7 @@ Then comes the suffix:
 | `_DURABILITY_DAMAGE` | `itemId`, `itemName` |
 | `_AURA_APPLIED`, `_AURA_REMOVED` | `auraType`: `"BUFF"` or `"DEBUFF"` |
 | `_AURA_APPLIED_DOSE`, `_AURA_REMOVED_DOSE` | `auraType`, `amount` |
-| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
+| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_SUMMON`, `_CREATE`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
 
 The subevents that fire:
 
@@ -4732,6 +4732,8 @@ The subevents that fire:
 - `SPELL_DRAIN`, `SPELL_LEECH`, `SPELL_INTERRUPT`, `SPELL_EXTRA_ATTACKS`,
   `SPELL_INSTAKILL`, `SPELL_RESURRECT`, `SPELL_DURABILITY_DAMAGE`,
   `SPELL_DURABILITY_DAMAGE_ALL`
+- `SPELL_SUMMON` (a pet, a totem or another summoned unit), `SPELL_CREATE`
+  (a game object, for example a portal or a fishing bobber)
 - `SPELL_AURA_APPLIED`, `SPELL_AURA_REMOVED`, `SPELL_AURA_APPLIED_DOSE`,
   `SPELL_AURA_REMOVED_DOSE`
 - `SPELL_DISPEL`, `SPELL_DISPEL_FAILED`
@@ -4751,12 +4753,16 @@ Some values have fixed contents:
 - `alternatePowerType` is always `nil`.
 - `DAMAGE_SHIELD` does not name its spell: `spellId` is 0, `spellName` is
   `nil`, and `spellSchool` is the school of the damage.
+- `DAMAGE_SHIELD_MISSED` with the `missType` `"IMMUNE"` fires for a target
+  that is immune to the damage of a damage shield or of a periodic effect.
 - The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
   never set.
 - `SPELL_CAST_START` fires for a spell with a cast time, and has no target.
   `SPELL_CAST_SUCCESS` fires for an instant spell. A spell with a cast time
   gets no `SPELL_CAST_SUCCESS`.
 - `SPELL_CAST_FAILED` fires only for your own casts.
+- A spell that the game hides from the combat log fires no event, except
+  `SPELL_CAST_FAILED`. The mage portals are such spells.
 - The `amount` of an `_AURA_APPLIED_DOSE` or `_AURA_REMOVED_DOSE` is the
   number of stacks after the change.
 - `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` do not name the dispelling spell:
@@ -4765,8 +4771,8 @@ Some values have fixed contents:
 - These events have no source: `ENVIRONMENTAL_DAMAGE`, `SPELL_INSTAKILL`,
   `UNIT_DIED`, `UNIT_DESTROYED`, and an aura event when the caster of the
   aura is not known.
-- `SPELL_AURA_REFRESH`, `SPELL_SUMMON`, `SPELL_CREATE`, `ENCHANT_APPLIED`
-  and `ENCHANT_REMOVED` do not fire.
+- `SPELL_AURA_REFRESH`, `ENCHANT_APPLIED` and `ENCHANT_REMOVED` do not
+  fire.
 - On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
   does direct damage, for example Pummel, Kick or Earth Shock. These servers
   do not send the interrupt for such a spell.

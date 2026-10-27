@@ -36,6 +36,7 @@
 //                               resisted
 //   0x260 PROCRESIST            caster, target (u64), spell, u8 debug (two
 //                               floats follow when it is set)
+//   0x263 SPELLORDAMAGE_IMMUNE  caster, target (u64), spell, u8 debug
 // What 1.12 does not send is filled as 4.3.4 fills "none": overkill and
 // overhealing 0, healing absorbed 0, no periodic critical. Schools are
 // indexes here and masks in the event. A damage shield names no spell, so
@@ -70,6 +71,7 @@ constexpr uint32_t SMSG_PROCRESIST = 0x260;
 constexpr uint32_t SMSG_PERIODICAURALOG = 0x24e;
 constexpr uint32_t SMSG_SPELLDAMAGESHIELD = 0x24f;
 constexpr uint32_t SMSG_SPELLNONMELEEDAMAGELOG = 0x250;
+constexpr uint32_t SMSG_SPELLORDAMAGE_IMMUNE = 0x263;
 
 // 1.12 melee hit info (the swing line's own tests, 0x00629B60 / 0x00629D30).
 constexpr uint32_t HITINFO_LEFTSWING = 0x4;
@@ -441,6 +443,27 @@ void ProcResist(CDataStore *p) {
     SendMiss(caster, target, SPELL_MISSED, spell, MISS_RESIST, 0, false);
 }
 
+// SMSG_SPELLORDAMAGE_IMMUNE → Packet_SMSG_SPELLORDAMAGE_IMMUNE: a target immune
+// to the damage (a damage shield's, a periodic tick's). 4.3.4 passes it to
+// UnitCombatLogSpellMissed as IMMUNE with damageShield = !debug and periodic =
+// debug, so with the server's debug byte of 0 the event is
+// DAMAGE_SHIELD_MISSED whatever dealt the damage; 3.3.5 does the same. 1.12's
+// own line (0x0062D240, IMMUNESPELL…) comes from this handler alone, not from
+// the miss writer Miss.cpp hooks.
+void SpellOrDamageImmune(CDataStore *p) {
+    const uint64_t caster = Read<uint64_t>(p);
+    const uint64_t target = Read<uint64_t>(p);
+    const int spellId = Read<int32_t>(p);
+    const bool debug = Read<uint8_t>(p) != 0;
+    if (Overrun(p))
+        return;
+    const uint8_t *spell = SpellRecord(spellId);
+    if (Hidden(spell))
+        return;
+    SendMiss(caster, target, debug ? SPELL_PERIODIC_MISSED : DAMAGE_SHIELD_MISSED, spell,
+             MISS_IMMUNE, 0, false);
+}
+
 void OnPacket(uint32_t opcode, CDataStore *p) {
     switch (opcode) {
     case SMSG_ATTACKERSTATEUPDATE:
@@ -466,6 +489,9 @@ void OnPacket(uint32_t opcode, CDataStore *p) {
         break;
     case SMSG_PROCRESIST:
         ProcResist(p);
+        break;
+    case SMSG_SPELLORDAMAGE_IMMUNE:
+        SpellOrDamageImmune(p);
         break;
     default:
         break;

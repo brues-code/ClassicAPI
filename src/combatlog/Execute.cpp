@@ -17,7 +17,9 @@
 //
 // 0x24c SPELLLOGEXECUTE (handler 0x005E7F90): packed caster, spell, effect
 // count; per effect its id and a target count, then per target what that
-// effect carries. 1.12's reader is the layout, whatever the server meant:
+// effect carries. The layout is the server's (tortoise-wow
+// Spell::SendLogExecute), which 1.12's reader follows for every effect it
+// knows:
 //   8 (power drain)        u64 target, amount, power, float multiplier
 //   19 (extra attacks)     u64 target, count
 //   24 (create item)       item
@@ -26,10 +28,15 @@
 //   111 (durability)       u64 target, item, slot (both -1: every item)
 //   1, 18, 33, 38, 59, 63, 69, 79, 91, 102, 108, 113, 114, 116, 125, 126
 //                          u64 target
-//   any other              nothing
+//   28, 41, 42, 50, 56, 73, 74, 76, 87-90, 97, 104-107, 112 (the summons)
+//                          u64 summoned — the one block 1.12's reader skips:
+//                          it reads nothing for these effects and leaves the
+//                          GUID in the buffer, so the engine's own log never
+//                          names a summon
+//   any other              nothing (the server sends no message for it)
 // 4.3.4 logs drains and leeches, resurrections (18, 113), extra attacks,
-// interrupts and durability losses from these. Its summons have no target
-// here, so SPELL_SUMMON and SPELL_CREATE do not occur.
+// interrupts, durability losses and summons (SPELL_SUMMON for a unit,
+// SPELL_CREATE for a game object) from these.
 //
 // 0x32f SPELLINSTAKILLLOG (0x005E85A0): the victim (u64) and the spell. 1.12
 // names no caster, so the entry has no source.
@@ -38,6 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "guid/Guid.h"
 #include "net/PacketDispatch.h"
 
 #include <cstdint>
@@ -59,18 +67,36 @@ enum Effect : uint32_t {
     EFFECT_RESURRECT = 18,
     EFFECT_ADD_EXTRA_ATTACKS = 19,
     EFFECT_CREATE_ITEM = 24,
+    EFFECT_SUMMON = 28,
     EFFECT_OPEN_LOCK = 33,
     EFFECT_DISPEL = 38,
+    EFFECT_SUMMON_WILD = 41,
+    EFFECT_SUMMON_GUARDIAN = 42,
+    EFFECT_TRANS_DOOR = 50,
+    EFFECT_SUMMON_PET = 56,
     EFFECT_OPEN_LOCK_ITEM = 59,
     EFFECT_THREAT = 63,
     EFFECT_INTERRUPT_CAST = 68,
     EFFECT_DISTRACT = 69,
+    EFFECT_SUMMON_POSSESSED = 73,
+    EFFECT_SUMMON_TOTEM = 74,
+    EFFECT_SUMMON_OBJECT_WILD = 76,
     EFFECT_SANCTUARY = 79,
+    EFFECT_SUMMON_TOTEM_SLOT1 = 87,
+    EFFECT_SUMMON_TOTEM_SLOT2 = 88,
+    EFFECT_SUMMON_TOTEM_SLOT3 = 89,
+    EFFECT_SUMMON_TOTEM_SLOT4 = 90,
     EFFECT_THREAT_ALL = 91,
+    EFFECT_SUMMON_CRITTER = 97,
     EFFECT_FEED_PET = 101,
     EFFECT_DISMISS_PET = 102,
+    EFFECT_SUMMON_OBJECT_SLOT1 = 104,
+    EFFECT_SUMMON_OBJECT_SLOT2 = 105,
+    EFFECT_SUMMON_OBJECT_SLOT3 = 106,
+    EFFECT_SUMMON_OBJECT_SLOT4 = 107,
     EFFECT_DISPEL_MECHANIC = 108,
     EFFECT_DURABILITY_DAMAGE = 111,
+    EFFECT_SUMMON_DEMON = 112,
     EFFECT_RESURRECT_NEW = 113,
     EFFECT_ATTACK_ME = 114,
     EFFECT_SKIN_PLAYER_CORPSE = 116,
@@ -105,6 +131,17 @@ void Simple(uint64_t caster, uint64_t target, int event, const uint8_t *spell) {
         return;
     Entry e = Begin(caster, target, event, spell);
     Queue(e);
+}
+
+// UnitCombatLogSummon: a game object or dynamic object is SPELL_CREATE, a
+// unit SPELL_SUMMON. A portal writes nothing: every portal spell has
+// Attributes 0x100 (verified in Spell.dbc: 11417, 11418, Turtle's 49362), the
+// same bit that keeps it out of 1.12's own cast lines; Fishing does not.
+void Summon(uint64_t caster, uint64_t summoned, const uint8_t *spell) {
+    if (summoned == 0)
+        return;
+    const bool object = Guid::IsGameObject(summoned) || Guid::IsDynamicObject(summoned);
+    Simple(caster, summoned, object ? SPELL_CREATE : SPELL_SUMMON, spell);
 }
 
 // UnitCombatLogExtraAttacks.
@@ -183,6 +220,29 @@ bool Target(CDataStore *p, uint32_t effect, uint64_t caster, const uint8_t *spel
         const uint64_t target = Read<uint64_t>(p);
         if (!Overrun(p))
             Simple(caster, target, SPELL_RESURRECT, spell);
+        break;
+    }
+    case EFFECT_SUMMON:
+    case EFFECT_SUMMON_WILD:
+    case EFFECT_SUMMON_GUARDIAN:
+    case EFFECT_TRANS_DOOR:
+    case EFFECT_SUMMON_PET:
+    case EFFECT_SUMMON_POSSESSED:
+    case EFFECT_SUMMON_TOTEM:
+    case EFFECT_SUMMON_OBJECT_WILD:
+    case EFFECT_SUMMON_TOTEM_SLOT1:
+    case EFFECT_SUMMON_TOTEM_SLOT2:
+    case EFFECT_SUMMON_TOTEM_SLOT3:
+    case EFFECT_SUMMON_TOTEM_SLOT4:
+    case EFFECT_SUMMON_CRITTER:
+    case EFFECT_SUMMON_OBJECT_SLOT1:
+    case EFFECT_SUMMON_OBJECT_SLOT2:
+    case EFFECT_SUMMON_OBJECT_SLOT3:
+    case EFFECT_SUMMON_OBJECT_SLOT4:
+    case EFFECT_SUMMON_DEMON: {
+        const uint64_t summoned = Read<uint64_t>(p);
+        if (!Overrun(p))
+            Summon(caster, summoned, spell);
         break;
     }
     case EFFECT_CREATE_ITEM:
