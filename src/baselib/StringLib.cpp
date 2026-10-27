@@ -22,6 +22,15 @@
 //   - `strtrim(str [, chars])`            — WoW global; trim a char set.
 //   - `strreplace(str, find, replace)`    — plain-text replace (see below).
 //   - `string.reverse(s)` / `strrev(s)`   — 5.1 string function, missing in 5.0.
+//   - `strlenutf8(s)`                     — WoW global; characters, not bytes.
+//   - `strcmputf8i(a, b)`                 — WoW global; case-insensitive UTF-8 order.
+//   - `strsplittable(sep, str [, pieces])`— WoW global; `strsplit` into a table.
+//   - `strconcat(...)` / `string.concat`  — WoW global; `..` over every argument.
+//
+// The two UTF-8 globals are 4.3.4's `Script_strlenutf8` and the newer
+// clients' `strcmputf8i`, each a thin push over a Storm helper 1.12 does not
+// have (`SStrLenUTF8` / `SStrCmpUTF8I`) — `Text::Utf8` mirrors those.
+// `strconcat` is 4.3.4's: `lua_concat` over the whole stack.
 //
 // The two pattern `string.*` ones reuse machinery 5.0 already ships:
 //   - `match` is `find` returning captures / the whole match instead of the
@@ -38,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "text/Utf8.h"
 
 #include <cstddef>
 #include <cstring>
@@ -92,33 +102,17 @@ int __fastcall Script_string_match(void *L) {
 const auto Script_string_gmatch =
     reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_LUA_STR_GFIND);
 
-// `strsplit(sep, str [, pieces])` — the WoW global (also aliased as
-// `string.split`), split `str` on ANY character in `sep` and return the
-// pieces as multiple values. `pieces > 0` caps the result count, with the
-// unsplit remainder as the final piece; `0` / omitted = unlimited. Ported
-// from 3.3.5's `strsplit` (FUN_00816a60) with one deliberate change: we do
-// NOT `lua_settop(L, 0)` up front. Popping the args would leave the source
-// string unreferenced, so a GC step triggered by a `pushlstring` could free
-// the very buffer we're still scanning. Keeping the args on the stack keeps
-// the source GC-rooted; Lua returns the top N values (our pieces) regardless
-// of the args sitting below them. Each push is guarded by `lua_checkstack`
-// (this pushes an unbounded number of results), erroring like 3.3.5 on
-// genuine stack exhaustion.
-int __fastcall Script_strsplit(void *L) {
-    const char *sep = Game::Lua::ToString(L, 1);
-    const char *str = Game::Lua::ToString(L, 2);
-    if (sep == nullptr || str == nullptr) {
-        Game::Lua::Error(L, "Usage: strsplit(\"separators\", str [, pieces])");
-        return 0; // unreachable
-    }
-    const int pieces =
-        Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : 0;
-
+// The scan behind `strsplit` and `strsplittable`: splits `str` on ANY
+// character in `sep` and hands each piece to `emit(start, length)` in order,
+// the unsplit remainder last. `pieces > 0` caps the count, with the
+// remainder (delimiters and all) as the final piece; `0` is unlimited.
+// Only scans for separators while unlimited or the cap hasn't been reached;
+// `pieces == 1` (or <= 0 but non-zero) yields the whole string as a single
+// piece — matches 3.3.5's `strsplit` (FUN_00816a60).
+template <typename Emit>
+void SplitPieces(const char *sep, const char *str, int pieces, Emit emit) {
     const char *segStart = str;
     int count = 0;
-    // Only scan for separators while unlimited (pieces == 0) or the cap
-    // hasn't been reached (pieces > 1). pieces == 1 (or <= 0 but non-zero)
-    // yields the whole string as a single piece — matches 3.3.5.
     if (pieces == 0 || pieces > 1) {
         for (const char *p = str; *p != '\0'; ++p) {
             bool isSep = false;
@@ -131,23 +125,108 @@ int __fastcall Script_strsplit(void *L) {
             if (!isSep)
                 continue;
             ++count;
-            if (Game::Lua::CheckStack(L, count) == 0) {
-                Game::Lua::Error(L, "strsplit(): Stack overflow");
-                return 0; // unreachable
-            }
-            Game::Lua::PushLString(L, segStart,
-                                   static_cast<unsigned int>(p - segStart));
+            emit(segStart, static_cast<unsigned int>(p - segStart));
             segStart = p + 1;
             if (count == pieces - 1)
                 break; // cap hit; remainder becomes the final piece
         }
     }
-    if (Game::Lua::CheckStack(L, count + 1) == 0) {
-        Game::Lua::Error(L, "strsplit(): Stack overflow");
+    emit(segStart, static_cast<unsigned int>(std::strlen(segStart)));
+}
+
+// `strsplit(sep, str [, pieces])` — the WoW global (also aliased as
+// `string.split`): the pieces as multiple values. Ported from 3.3.5 with one
+// deliberate change: we do NOT `lua_settop(L, 0)` up front. Popping the args
+// would leave the source string unreferenced, so a GC step triggered by a
+// `pushlstring` could free the very buffer we're still scanning. Keeping the
+// args on the stack keeps the source GC-rooted; Lua returns the top N values
+// (our pieces) regardless of the args sitting below them. Each push is
+// guarded by `lua_checkstack` (this pushes an unbounded number of results),
+// erroring like 3.3.5 on genuine stack exhaustion.
+int __fastcall Script_strsplit(void *L) {
+    const char *sep = Game::Lua::ToString(L, 1);
+    const char *str = Game::Lua::ToString(L, 2);
+    if (sep == nullptr || str == nullptr) {
+        Game::Lua::Error(L, "Usage: strsplit(\"separators\", str [, pieces])");
         return 0; // unreachable
     }
-    Game::Lua::PushString(L, segStart); // final piece (remainder to end)
-    return count + 1;
+    const int pieces =
+        Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : 0;
+
+    int count = 0;
+    SplitPieces(sep, str, pieces, [L, &count](const char *start, unsigned int len) {
+        ++count;
+        if (Game::Lua::CheckStack(L, count) == 0) {
+            Game::Lua::Error(L, "strsplit(): Stack overflow");
+            return; // unreachable
+        }
+        Game::Lua::PushLString(L, start, len);
+    });
+    return count;
+}
+
+// `strsplittable(sep, str [, pieces])` — the same split as one array
+// table. Every piece goes to the next integer key of a fresh table, so the
+// Lua stack never grows and no piece count is too many — the point of the
+// table form. The args stay on the stack (GC-rooting the source, as above);
+// the table sits above them at index 4.
+int __fastcall Script_strsplittable(void *L) {
+    const char *sep = Game::Lua::ToString(L, 1);
+    const char *str = Game::Lua::ToString(L, 2);
+    if (sep == nullptr || str == nullptr) {
+        Game::Lua::Error(L, "Usage: strsplittable(\"separators\", str [, pieces])");
+        return 0; // unreachable
+    }
+    const int pieces =
+        Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : 0;
+
+    Game::Lua::SetTop(L, 3);
+    Game::Lua::NewTable(L); // 4
+    int count = 0;
+    SplitPieces(sep, str, pieces, [L, &count](const char *start, unsigned int len) {
+        Game::Lua::PushNumber(L, static_cast<double>(++count));
+        Game::Lua::PushLString(L, start, len);
+        Game::Lua::RawSet(L, 4);
+    });
+    return 1;
+}
+
+// `strlenutf8(s)` — 4.3.4's `Script_strlenutf8`: `SStrLenUTF8` on the
+// string, the count of characters (code points) rather than bytes. Same
+// usage text and `lua_isstring` gate as the original.
+int __fastcall Script_strlenutf8(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: strlenutf8(string)");
+        return 0; // unreachable
+    }
+    Game::Lua::PushNumber(
+        L, static_cast<double>(Text::Utf8::Length(Game::Lua::ToString(L, 1))));
+    return 1;
+}
+
+// `strcmputf8i(string1, string2)` — the newer clients' global (its usage
+// text is in their binaries) over `SStrCmpUTF8I`: a case-insensitive sort
+// order for UTF-8 text. The number is the first folded code-point
+// difference, as Storm returns it; FrameXML only ever tests the sign (`< 0`
+// in sort comparators, `== 0` for a name match).
+int __fastcall Script_strcmputf8i(void *L) {
+    if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: strcmputf8i(string1, string2)");
+        return 0; // unreachable
+    }
+    const int result =
+        Text::Utf8::CompareI(Game::Lua::ToString(L, 1), Game::Lua::ToString(L, 2));
+    Game::Lua::PushNumber(L, static_cast<double>(result));
+    return 1;
+}
+
+// `strconcat(...)` / `string.concat(...)` — 4.3.4's `Script_strconcat`:
+// `lua_concat` over everything on the stack, i.e. the `..` operator applied
+// to every argument (numbers convert, anything else raises the concatenate
+// error), `""` for no arguments, and a single argument handed back as it is.
+int __fastcall Script_strconcat(void *L) {
+    Game::Lua::Concat(L, Game::Lua::GetTop(L));
+    return 1;
 }
 
 // `strjoin(delimiter, ...)` — the inverse of `strsplit`: concatenate the
@@ -384,6 +463,55 @@ int __fastcall Script_string_gsub(void *L) {
     return engineGsub(L);
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kStrlenutf8Args[] = {
+    Game::Doc::Req("string", "string", "UTF-8 text."),
+};
+const Game::Doc::Field kStrlenutf8Rets[] = {
+    Game::Doc::Req("length", "number", "The number of characters; strlen counts bytes."),
+};
+const Game::Doc::Function kStrlenutf8{
+    "The number of characters in a UTF-8 string, not the number of bytes.",
+    kStrlenutf8Args, kStrlenutf8Rets, "LuaGlobals"};
+
+const Game::Doc::Field kStrcmputf8iArgs[] = {
+    Game::Doc::Req("string1", "string"),
+    Game::Doc::Req("string2", "string"),
+};
+const Game::Doc::Field kStrcmputf8iRets[] = {
+    Game::Doc::Req("result", "number",
+                   "Negative when string1 sorts first, 0 when the two match ignoring "
+                   "case, positive when string2 sorts first."),
+};
+const Game::Doc::Function kStrcmputf8i{
+    "Compares two UTF-8 strings ignoring case, for sorting and matching.",
+    kStrcmputf8iArgs, kStrcmputf8iRets, "LuaGlobals"};
+
+const Game::Doc::Field kStrsplittableArgs[] = {
+    Game::Doc::Req("delimiter", "string", "Each character is a delimiter."),
+    Game::Doc::Req("str", "string"),
+    Game::Doc::Opt("pieces", "number", "0",
+                   "Maximum number of pieces; the last one holds the rest of the string. "
+                   "0 is unlimited."),
+};
+const Game::Doc::Field kStrsplittableRets[] = {
+    Game::Doc::Req("chunks", "table", "Array of the pieces, in order."),
+};
+const Game::Doc::Function kStrsplittable{
+    "Splits a string on delimiter characters and returns the pieces as an array.",
+    kStrsplittableArgs, kStrsplittableRets, "LuaGlobals"};
+
+const Game::Doc::Field kStrconcatArgs[] = {
+    Game::Doc::Vararg("string", "Strings or numbers."),
+};
+const Game::Doc::Field kStrconcatRets[] = {
+    Game::Doc::Req("result", "string"),
+};
+const Game::Doc::Function kStrconcat{
+    "Joins every argument into one string with nothing between them.",
+    kStrconcatArgs, kStrconcatRets, "LuaGlobals"};
+
 void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "match", &Script_string_match);
     Game::Lua::RegisterTableFunction("string", "gmatch", Script_string_gmatch);
@@ -392,6 +520,7 @@ void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit);
     Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
     Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
+    Game::Lua::RegisterTableFunction("string", "concat", &Script_strconcat, &kStrconcat);
     // 4.3.4's compat.lua binds each short global and its string-table twin
     // to ONE function by assignment (`gsub = str.gsub`, `strmatch =
     // str.match`, `strrev = str.reverse`, `str.trim = strtrim`, `str.split =
@@ -407,7 +536,12 @@ void RegisterFns() {
     Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
     Game::Lua::RegisterGlobalAlias("strtrim", "string", "trim");
     Game::Lua::RegisterGlobalAlias("strrev", "string", "reverse");
+    Game::Lua::RegisterGlobalAlias("strconcat", "string", "concat", &kStrconcat);
     Game::Lua::RegisterGlobalFunction("strreplace", &Script_strreplace);
+    Game::Lua::RegisterGlobalFunction("strlenutf8", &Script_strlenutf8, &kStrlenutf8);
+    Game::Lua::RegisterGlobalFunction("strcmputf8i", &Script_strcmputf8i, &kStrcmputf8i);
+    Game::Lua::RegisterGlobalFunction("strsplittable", &Script_strsplittable,
+                                      &kStrsplittable);
 }
 
 // Both states are Lua 5.0 and equally missing these; RegisterTableFunction

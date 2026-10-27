@@ -560,6 +560,10 @@ build instructions.
   - [`strtrim(str [, chars])`](#strtrimstr--chars)
   - [`strreplace(str, find, replace)`](#strreplacestr-find-replace)
   - [`string.reverse(s)` / `strrev(s)`](#stringreverses--strrevs)
+  - [`strlenutf8(s)`](#strlenutf8s)
+  - [`strcmputf8i(string1, string2)`](#strcmputf8istring1-string2)
+  - [`strsplittable(sep, str [, pieces])`](#strsplittablesep-str--pieces)
+  - [`strconcat(...)` / `string.concat(...)`](#strconcat--stringconcat)
   - [`math.fmod(x, y)`](#mathfmodx-y)
   - [`math.modf(x)`](#mathmodfx)
   - [`math.huge`](#mathhuge)
@@ -13406,6 +13410,55 @@ Registered both on the `string` table and as the `strrev` global.
 ```lua
 string.reverse("abc")   -- "cba"
 strrev("hello")         -- "olleh"
+```
+
+### `strlenutf8(s)`
+
+The number of characters in a UTF-8 string. `strlen` counts bytes, so the
+two differ for text with accented or non-Latin letters.
+
+```lua
+strlenutf8("abc")       -- 3
+strlen("Ärger")         -- 6   (Ä is two bytes)
+strlenutf8("Ärger")     -- 5
+```
+
+### `strcmputf8i(string1, string2)`
+
+Compares two UTF-8 strings and ignores case. The result is a number:
+negative when `string1` sorts first, `0` when the two match, positive when
+`string2` sorts first. Only the sign has meaning.
+
+The case fold covers ASCII letters, the Latin-1 letters `à`..`þ`, `œ`, and
+the Cyrillic alphabet. Other characters compare by code point.
+
+```lua
+strcmputf8i("Thrall", "thrall")    -- 0
+strcmputf8i("Ärger", "ärger")      -- 0
+strcmputf8i("abc", "abd") < 0      -- true
+table.sort(names, function(a, b) return strcmputf8i(a, b) < 0 end)
+```
+
+### `strsplittable(sep, str [, pieces])`
+
+The same split as `strsplit`, returned as one array table instead of
+multiple values. The arguments have the same meaning. The table form has no
+stack limit, so a string can split into any number of pieces.
+
+```lua
+strsplittable(":", "hello:world:banana")   -- { "hello", "world", "banana" }
+strsplittable(",", "a,b,c,d", 2)           -- { "a", "b,c,d" }
+```
+
+### `strconcat(...)` / `string.concat(...)`
+
+Joins every argument into one string with nothing between them, like the
+`..` operator. Numbers convert to text, and any other value is an error.
+With no arguments it returns `""`.
+
+```lua
+strconcat("a", "b", 1)   -- "ab1"
+strconcat()              -- ""
 ```
 
 ### `math.fmod(x, y)`

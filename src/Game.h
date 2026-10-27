@@ -314,6 +314,9 @@ using luaL_setn_t = void(__fastcall *)(void *L, int t, int n);
 // a value across calls; read it back with RawGetI(L, REGISTRY_INDEX, ref).
 using luaL_ref_t = int(__fastcall *)(void *L, int t);
 using lua_checkstack_t = int(__fastcall *)(void *L, int size);
+// Pops the top `n` values and pushes their `..` concatenation; n == 0 pushes
+// "" and n == 1 leaves the value untouched.
+using lua_concat_t = void(__fastcall *)(void *L, int n);
 
 extern const lua_isnumber_t IsNumber;
 extern const lua_isstring_t IsString;
@@ -369,6 +372,7 @@ extern const luaL_argerror_t ArgError;
 extern const luaL_setn_t SetN;
 extern const luaL_ref_t Ref;
 extern const lua_checkstack_t CheckStack;
+extern const lua_concat_t Concat;
 
 // Returns the global `lua_State *` (read on demand from the engine's global).
 // Callable outside a Lua callback, e.g. during LoadScriptFunctions setup.

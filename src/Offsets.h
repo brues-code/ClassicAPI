@@ -7999,6 +7999,13 @@ enum Offsets {
     // number of results (e.g. `strsplit`) — pushing past the ~20-slot
     // C-call guarantee without growing corrupts the stack.
     LUA_CHECK_STACK = 0x006F2F30,
+    // `lua_concat(L, n)` — `void __fastcall(L /*ecx*/, n /*edx*/)`. Pops the
+    // top `n` values and pushes their concatenation: n >= 2 runs
+    // `luaV_concat(L, n, top-1)` (the `..` operator, so numbers convert and
+    // anything else raises "attempt to concatenate"), n == 1 leaves the value
+    // as it is, n == 0 pushes "". A GC step may run first. Decompiled
+    // 0x006F44E0; catalogued ★ in docs/LuaCAPI.md. Backs `strconcat`.
+    LUA_CONCAT = 0x006F44E0,
     // `str_find` — the Lua 5.0 string-library `string.find` C function
     // (`int __fastcall(void *L)`), entry in the strlib luaL_reg table at
     // `0x00822dd0`. Returns `1` (nil pushed, no match), `2` (start, end),
