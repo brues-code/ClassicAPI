@@ -239,8 +239,9 @@ void ObserveGroupAuras(uint64_t guid, const uint16_t *auraArray);
 
 // An aura arriving on a unit, leaving it, or changing its stack count, as the
 // engine's own handlers see it (`OnAuraAdded`, `OnAuraRemoved`,
-// `OnAuraStacksChanged`), with the caster this cache binds to it.
-enum class ChangeType { Added, Removed, Stacks };
+// `OnAuraStacksChanged`), with the caster this cache binds to it — or its
+// duration set again while it stays (Refreshed, see `SignalRefreshed`).
+enum class ChangeType { Added, Removed, Stacks, Refreshed };
 
 struct Change {
     ChangeType type;
@@ -263,5 +264,13 @@ struct AutoObserve {
     ChangeCallback callback;
     const AutoObserve *next;
 };
+
+// A duration set again for an aura already on `unitGuid`: the server's
+// SMSG_UPDATE_AURA_DURATION for an occupied slot of the player, a recast this
+// cache refreshed, a server refresh mechanic it mirrors. Observers get it as a
+// Refreshed change at the world tick, once per aura per frame, and only if the
+// descriptor then still holds the spell — a slot that changed hands in the
+// same tick was an application, not a refresh. `slot` may be SLOT_UNBOUND.
+void SignalRefreshed(uint64_t unitGuid, uint32_t spellId, int slot);
 
 } // namespace Aura::Source

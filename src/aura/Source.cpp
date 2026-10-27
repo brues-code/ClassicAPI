@@ -363,6 +363,10 @@ Entry *Claim(uint32_t now) {
 // refresh path too.
 void SignalAuraChanged(uint64_t guid);
 void SignalEntryChanged(const Entry &e);
+void SignalEntryRefreshed(const Entry &e);
+// Defined with the aura handlers below; used by the refresh flush.
+Change MakeChange(ChangeType type, void *unit, int slot, uint32_t spellId);
+void NotifyObservers(const Change &change);
 
 // Defined with the duration-modifier machinery below. A trigger can CREATE the
 // aura it then edits, in which case the edit is armed at trigger time and
@@ -407,9 +411,10 @@ void StoreFromCast(uint64_t targetGuid, uint32_t spellId, uint64_t casterGuid,
     // An in-place recast refresh changes no descriptor field, so the engine
     // fires no UNIT_AURA — event-driven consumers (aura-bar addons counting
     // down a once-read duration) would never re-read the new timing. Signal it
-    // ourselves (deferred to the world tick, coalesced). A NEW application
-    // doesn't need this: its descriptor write fires the engine's own event.
-    SignalEntryChanged(*e);
+    // ourselves (deferred to the world tick, coalesced), and report the
+    // refresh. A NEW application doesn't need this: its descriptor write
+    // fires the engine's own event.
+    SignalEntryRefreshed(*e);
     ConsumePendingMods(*e, now);
 }
 
@@ -648,7 +653,58 @@ void SignalEntryChanged(const Entry &e) {
     SignalAuraChanged(e.targetGuid);
 }
 
+// The refreshes of this frame (SignalRefreshed), resolved by the flush.
+struct PendingRefresh {
+    uint64_t guid;
+    uint32_t spellId;
+    int slot;
+};
+constexpr int kPendingRefreshMax = 32;
+PendingRefresh g_pendingRefreshes[kPendingRefreshMax];
+int g_pendingRefreshCount = 0;
+
+// A server refresh the entry mirrors — a recast, a mechanic's reset to a full
+// duration: the timing signal, and a Refreshed change for the observers. Not
+// for the tick-speed compression's periodic nudge (this client's estimate
+// moving, no server event) nor a reduction.
+void SignalEntryRefreshed(const Entry &e) {
+    SignalEntryChanged(e);
+    SignalRefreshed(e.targetGuid, e.spellId, e.slot);
+}
+
+// The slot of `unit`'s descriptor holding `spellId`, or -1.
+int DescriptorSlotOf(const uint8_t *unit, uint32_t spellId) {
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        if (Aura::Data::ReadSpellID(unit, slot) == spellId)
+            return slot;
+    }
+    return -1;
+}
+
+// Reports the frame's refreshes whose aura the descriptor still holds, in the
+// slot that was named when it still holds the spell, else wherever it is now.
+void FlushRefreshes() {
+    constexpr int kUnitOrPlayerMask =
+        (1 << Offsets::OBJECT_TYPE_UNIT) | (1 << Offsets::OBJECT_TYPE_PLAYER);
+    const int count = g_pendingRefreshCount;
+    g_pendingRefreshCount = 0; // an observer's own action may queue again
+    for (int i = 0; i < count; ++i) {
+        const PendingRefresh &p = g_pendingRefreshes[i];
+        void *unit = Object::ByGuid(kUnitOrPlayerMask, p.guid, nullptr, 0);
+        if (unit == nullptr)
+            continue;
+        const auto *u = static_cast<const uint8_t *>(unit);
+        int slot = p.slot;
+        if (slot < 0 || Aura::Data::ReadSpellID(u, slot) != p.spellId)
+            slot = DescriptorSlotOf(u, p.spellId);
+        if (slot < 0)
+            continue;
+        NotifyObservers(MakeChange(ChangeType::Refreshed, unit, slot, p.spellId));
+    }
+}
+
 void FlushAuraSignals() {
+    FlushRefreshes();
     // The engine broadcast plus ClassicAPI's tokens (see Unit::TokenEvents).
     for (int i = 0; i < g_pendingSignalCount; ++i)
         Unit::TokenEvents::Broadcast(&g_pendingSignals[i], Offsets::UNIT_EVENT_UNIT_AURA);
@@ -660,13 +716,13 @@ void ApplyModOp(Entry &e, int32_t op, int32_t valueMs, uint32_t now) {
     case MOD_REFRESH:
         if (e.durationMs > 0) {
             e.expirationMs = now + e.durationMs; // RefreshHolder → reset to max
-            SignalEntryChanged(e);
+            SignalEntryRefreshed(e);
         }
         break;
     case MOD_SET:
         e.durationMs = static_cast<uint32_t>(valueMs);
         e.expirationMs = now + static_cast<uint32_t>(valueMs);
-        SignalEntryChanged(e);
+        SignalEntryRefreshed(e);
         break;
     case MOD_REDUCE:
         if (e.expirationMs != 0) {
@@ -1236,7 +1292,7 @@ int RefreshJudgementsImpl(uint64_t unitGuid, uint64_t attackerGuid, bool adopt) 
             e.casterGuid = attackerGuid; // adoption claim
         e.expirationMs = now + e.durationMs; // RefreshHolder → own duration
         e.stampMs = now;
-        SignalEntryChanged(e);
+        SignalEntryRefreshed(e);
         ++refreshed;
     }
     return refreshed;
@@ -1329,7 +1385,7 @@ void RefreshTriggeredExisting(uint64_t victim, const TriggeredApplication &r,
         e.durationMs = newMs;
         e.expirationMs = now + newMs;
         e.stampMs = now;
-        SignalEntryChanged(e);
+        SignalEntryRefreshed(e);
         break; // one aura instance per (target, spell, caster) — server touches one holder
     }
 }
@@ -1971,7 +2027,7 @@ uint32_t RefreshDurationByFamily(uint64_t unitGuid, uint32_t family,
         // duration, not a five-point one.
         e.expirationMs = now + e.durationMs;
         e.stampMs = now;
-        SignalEntryChanged(e);
+        SignalEntryRefreshed(e);
         return e.spellId;
     }
     return 0;
@@ -2105,6 +2161,21 @@ void ObserveGroupAuras(uint64_t guid, const uint16_t *auraArray) {
 
 AutoObserve::AutoObserve(ChangeCallback cb) : callback(cb), next(g_observers) {
     g_observers = this;
+}
+
+void SignalRefreshed(uint64_t unitGuid, uint32_t spellId, int slot) {
+    if (unitGuid == 0 || spellId == 0)
+        return;
+    for (int i = 0; i < g_pendingRefreshCount; ++i) {
+        PendingRefresh &p = g_pendingRefreshes[i];
+        if (p.guid == unitGuid && p.spellId == spellId) {
+            if (p.slot < 0)
+                p.slot = slot;
+            return;
+        }
+    }
+    if (g_pendingRefreshCount < kPendingRefreshMax)
+        g_pendingRefreshes[g_pendingRefreshCount++] = {unitGuid, spellId, slot};
 }
 
 } // namespace Aura::Source

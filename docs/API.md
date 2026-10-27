@@ -4715,7 +4715,7 @@ Then comes the suffix:
 | `_DISPEL` | `extraSpellId`, `extraSpellName`, `extraSchool`, `auraType` |
 | `_EXTRA_ATTACKS` | `amount` |
 | `_DURABILITY_DAMAGE` | `itemId`, `itemName` |
-| `_AURA_APPLIED`, `_AURA_REMOVED` | `auraType`: `"BUFF"` or `"DEBUFF"` |
+| `_AURA_APPLIED`, `_AURA_REMOVED`, `_AURA_REFRESH` | `auraType`: `"BUFF"` or `"DEBUFF"` |
 | `_AURA_APPLIED_DOSE`, `_AURA_REMOVED_DOSE` | `auraType`, `amount` |
 | `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_SUMMON`, `_CREATE`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
 
@@ -4734,8 +4734,8 @@ The subevents that fire:
   `SPELL_DURABILITY_DAMAGE_ALL`
 - `SPELL_SUMMON` (a pet, a totem or another summoned unit), `SPELL_CREATE`
   (a game object, for example a portal or a fishing bobber)
-- `SPELL_AURA_APPLIED`, `SPELL_AURA_REMOVED`, `SPELL_AURA_APPLIED_DOSE`,
-  `SPELL_AURA_REMOVED_DOSE`
+- `SPELL_AURA_APPLIED`, `SPELL_AURA_REMOVED`, `SPELL_AURA_REFRESH`,
+  `SPELL_AURA_APPLIED_DOSE`, `SPELL_AURA_REMOVED_DOSE`
 - `SPELL_DISPEL`, `SPELL_DISPEL_FAILED`
 - `UNIT_DIED`, `UNIT_DESTROYED` (a totem or another summoned unit),
   `PARTY_KILL`
@@ -4749,7 +4749,11 @@ Some values have fixed contents:
   `"BLOCK"`, `"EVADE"`, `"IMMUNE"`, `"DEFLECT"`, `"ABSORB"` or `"REFLECT"`.
 - Schools are bit masks: 1 physical, 2 holy, 4 fire, 8 nature, 16 frost,
   32 shadow, 64 arcane.
-- `overkill`, `overhealing` and the `absorbed` of a heal are always 0.
+- `overkill` is the damage above the health of the target. It is 0 when the
+  target lives. `overhealing` is the part of a heal above the health that
+  the target was missing. Both are 0 when the target is not in view, or when
+  the server sends the health of the target as a percentage. Most servers do
+  this for units outside your group. The `absorbed` of a heal is always 0.
 - `alternatePowerType` is always `nil`.
 - `DAMAGE_SHIELD` names its spell when the owner of the shield has one
   damage-shield aura of that school, for example Thorns. Otherwise `spellId`
@@ -4766,6 +4770,9 @@ Some values have fixed contents:
   `SPELL_CAST_FAILED`. The mage portals are such spells.
 - The `amount` of an `_AURA_APPLIED_DOSE` or `_AURA_REMOVED_DOSE` is the
   number of stacks after the change.
+- `SPELL_AURA_REFRESH` fires when the duration of an aura starts again while
+  the aura stays. For your own auras, each refresh fires. For another unit,
+  a refresh fires when the client saw the cast that caused it.
 - `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` name the dispelling spell when
   its cast was seen, for example Dispel Magic or Purge. A dispel from an
   aura, for example Abolish Poison, has `spellId` 0 and `spellName` `nil`.
@@ -4775,8 +4782,7 @@ Some values have fixed contents:
 - These events have no source: `ENVIRONMENTAL_DAMAGE`, `UNIT_DIED`,
   `UNIT_DESTROYED`, and an aura event when the caster of the aura is not
   known.
-- `SPELL_AURA_REFRESH`, `ENCHANT_APPLIED` and `ENCHANT_REMOVED` do not
-  fire.
+- `ENCHANT_APPLIED` and `ENCHANT_REMOVED` do not fire.
 - On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
   does direct damage, for example Pummel, Kick or Earth Shock. These servers
   do not send the interrupt for such a spell.

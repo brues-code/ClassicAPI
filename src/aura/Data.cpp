@@ -140,12 +140,26 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
     const int32_t ms = Net::Read<int32_t>(packet);
     if (packet->m_read > packet->m_size || slot >= Offsets::PLAYER_BUFF_TABLE_COUNT)
         return;
+    const uint32_t previous = g_playerDurationMs[slot];
     g_playerDurationMs[slot] = (ms > 0) ? static_cast<uint32_t>(ms) : 0;
     // A duration packet for an aura already in the slot is a refresh — no
-    // descriptor field changes, so nothing else reports it.
+    // descriptor field changes, so nothing else reports it. An application's
+    // packet comes before the descriptor write that fills its slot (verified
+    // live: the slot reads 0 at that moment), so an occupied slot held the
+    // aura already. The login burst (Map::ExistingPlayerLogin re-sends every
+    // duration after the player's own create block, slots full) finds no
+    // earlier duration: the table is cleared with the glue screen.
     Aura::Instance::NoteUpdated(Unit::Identity::PlayerGuid(), slot);
+    const uint32_t spellId = ReadSpellID(Unit::Identity::PlayerObject(), slot);
+    if (spellId != 0 && previous != 0 && ms > 0)
+        Aura::Source::SignalRefreshed(Unit::Identity::PlayerGuid(), spellId, slot);
 }
 const Net::PacketDispatch::AutoSubscribe _durationSub{&OnPacket};
+
+// The glue screen ends the table: the next login's duration burst must find
+// no earlier duration, or every aura would read as refreshed.
+void ResetPlayerDurations() { std::memset(g_playerDurationMs, 0, sizeof g_playerDurationMs); }
+const Game::GlueModuleAutoRegister _glueReset{&ResetPlayerDurations};
 
 // The spell's base duration in seconds, as the server computes it before
 // combo points and caster modifiers: the SpellDuration row's base, with

@@ -23,8 +23,12 @@
 // dead unit, and stacks only for a spell that stacks. 4.3.4 also logs a
 // stack's fall (SPELL_AURA_REMOVED_DOSE), which 1.12 does not write.
 //
-// 4.3.4's SPELL_AURA_REFRESH needs the server to say that an aura's duration
-// restarted, which 1.12 never says for another unit, so it does not occur.
+// SPELL_AURA_REFRESH is 4.3.4's "same spell in the slot, duration updated"
+// (CGUnit_C's aura update → UnitCombatLogAuraRefreshed). 1.12 says that only
+// for the player (SMSG_UPDATE_AURA_DURATION for an occupied slot); for other
+// units it is the recast Aura::Source saw, or a server refresh mechanic it
+// mirrors. Both arrive as a Refreshed change, resolved at the world tick
+// against the descriptor (see Aura::Source::SignalRefreshed).
 //
 // 1.12's dispel messages name no dispelling spell (handlers 0x005E8B60,
 // 0x00628C20; vmangos writes none). The server sends them from the dispel
@@ -91,10 +95,19 @@ void OnAuraChange(const Aura::Source::Change &c) {
         Queue(e);
         return;
     }
-    const bool added = c.type == Aura::Source::ChangeType::Added;
-    if ((!added && Health(c.unit) <= 0) ||
-        (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+    if ((Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
          Offsets::SPELL_ATTR_PASSIVE) != 0)
+        return;
+    if (c.type == Aura::Source::ChangeType::Refreshed) {
+        // UnitCombatLogAuraRefreshed: an application's tests, no health test.
+        Entry e = Begin(c.caster, unit, SPELL_AURA_REFRESH, spell);
+        e.info |= INFO_AURA_TYPE;
+        e.harmful = c.harmful;
+        Queue(e);
+        return;
+    }
+    const bool added = c.type == Aura::Source::ChangeType::Added;
+    if (!added && Health(c.unit) <= 0)
         return;
     Entry e = Begin(c.caster, unit, added ? SPELL_AURA_APPLIED : SPELL_AURA_REMOVED, spell);
     e.info |= INFO_AURA_TYPE;

@@ -37,8 +37,9 @@
 //   0x260 PROCRESIST            caster, target (u64), spell, u8 debug (two
 //                               floats follow when it is set)
 //   0x263 SPELLORDAMAGE_IMMUNE  caster, target (u64), spell, u8 debug
-// What 1.12 does not send is filled as 4.3.4 fills "none": overkill and
-// overhealing 0, healing absorbed 0, no periodic critical. Schools are
+// What 1.12 does not send is filled as 4.3.4 fills "none": healing absorbed
+// 0, no periodic critical. Overkill and overhealing, which 1.12 does not send
+// either, are computed from the target's health (see Predicted). Schools are
 // indexes here and masks in the event. A damage shield names no spell: the
 // owner's one damage-shield aura of the damage's school names it, else its
 // spell prefix is spellId 0 with the damage school.
@@ -54,6 +55,7 @@
 #include "aura/Data.h"
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
+#include "time/Clock.h"
 
 #include <cstdint>
 
@@ -121,6 +123,92 @@ bool PlayerControlled(const void *unit) {
                                  Offsets::UNIT_FLAG_PLAYER_CONTROLLED) != 0;
 }
 
+// 4.3.4's ModifyPredictedHealth, for the overkill and overhealing 1.12 does
+// not send. The server sends each damage and heal message from the handler
+// that deals it, and the unit's health in the update that ends the tick, so
+// a message's target still shows the health before it (verified live: a
+// target at 148, 113, 91, 63, 37, 10 of 194 under Fireballs of 34, 22, 27,
+// 26, 27, then the kill at 10 with a 26). Overkill is the damage past that
+// health and overhealing the heal past the missing health — the server's own
+// arithmetic, one tick early. A tick's second message on a unit must count
+// its first, so the messages since the health field was last read are kept
+// as a delta; a changed field is a fresh snapshot that already counts them.
+struct Predicted {
+    uint64_t guid = 0;
+    int health = 0; // the field's value the delta was taken against
+    int delta = 0;  // the messages since, as a change of health
+    uint32_t stampMs = 0;
+};
+constexpr int kPredictedMax = 16;
+constexpr uint32_t kPredictedStaleMs = 2000;
+Predicted g_predicted[kPredictedMax];
+
+// A server that hides health sends a percentage with this maximum (tortoise-
+// wow Object::BuildValuesUpdate with ShowHealthValues off — the stock setting,
+// for every unit outside the player's group; Turtle shows real values). Its
+// damage would read as overkill, so such a unit gets none.
+constexpr int kHiddenMaxHealth = 100;
+
+Predicted &PredictedFor(uint64_t guid, int health, uint32_t now) {
+    Predicted *oldest = &g_predicted[0];
+    for (Predicted &p : g_predicted) {
+        if (p.guid == guid) {
+            if (p.health != health || Time::Clock::Elapsed(p.stampMs, now) > kPredictedStaleMs) {
+                p.health = health;
+                p.delta = 0;
+            }
+            p.stampMs = now;
+            return p;
+        }
+        if (p.guid == 0 || static_cast<int32_t>(p.stampMs - oldest->stampMs) < 0)
+            oldest = &p;
+    }
+    *oldest = {guid, health, 0, now};
+    return *oldest;
+}
+
+// The target's health as the tick's earlier messages leave it, and its
+// maximum. False for a unit out of view or one whose health is hidden.
+bool PredictedHealth(uint64_t guid, int *health, int *max, Predicted **entry) {
+    const void *unit = Unit(guid);
+    const auto *fields =
+        unit != nullptr ? Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR) : nullptr;
+    if (fields == nullptr)
+        return false;
+    *max = Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_MAXHEALTH);
+    if (*max == kHiddenMaxHealth)
+        return false;
+    const int current = Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_HEALTH);
+    *entry = &PredictedFor(guid, current, Time::Clock::NowMs());
+    *health = current + (*entry)->delta;
+    return true;
+}
+
+// The damage past the target's health, counting the damage for the tick's
+// later messages.
+int Overkill(uint64_t dest, int damage) {
+    int health, max;
+    Predicted *p;
+    if (damage <= 0 || !PredictedHealth(dest, &health, &max, &p))
+        return 0;
+    const int overkill = damage > health ? damage - health : 0;
+    p->delta -= damage - overkill;
+    return overkill;
+}
+
+// The heal past the health the target is missing, counting the heal for the
+// tick's later messages.
+int Overhealing(uint64_t dest, int amount) {
+    int health, max;
+    Predicted *p;
+    if (amount <= 0 || !PredictedHealth(dest, &health, &max, &p))
+        return 0;
+    const int missing = max > health ? max - health : 0;
+    const int overhealing = amount > missing ? amount - missing : 0;
+    p->delta += amount - overhealing;
+    return overhealing;
+}
+
 // SendDamageEvent.
 void SendDamage(uint64_t source, uint64_t dest, int event, const uint8_t *spell, int damage,
                 uint32_t schoolMask, int resisted, int blocked, int absorbed, bool critical,
@@ -128,7 +216,7 @@ void SendDamage(uint64_t source, uint64_t dest, int event, const uint8_t *spell,
     Entry e = Begin(source, dest, event, spell);
     e.info |= INFO_DAMAGE;
     e.v[1] = damage;
-    e.v[2] = 0; // overkill: not sent
+    e.v[2] = Overkill(dest, damage);
     e.v[3] = static_cast<int>(schoolMask);
     e.v[4] = absorbed;
     e.v[5] = resisted;
@@ -178,7 +266,7 @@ void Heal(uint64_t caster, uint64_t target, const uint8_t *spell, int amount, bo
     Entry e = Begin(caster, target, periodic ? SPELL_PERIODIC_HEAL : SPELL_HEAL, spell);
     e.info |= INFO_HEAL;
     e.v[0] = amount;
-    e.v[1] = 0; // overhealing: not sent
+    e.v[1] = Overhealing(target, amount);
     e.v[2] = 0; // absorbed: 1.12 has no healing absorbs
     e.critical = critical;
     Queue(e);
@@ -436,6 +524,7 @@ void DamageShield(CDataStore *p) {
     e.spellSchool = SchoolMask(school);
     e.info |= INFO_DAMAGE;
     e.v[1] = damage;
+    e.v[2] = Overkill(victim, damage);
     e.v[3] = static_cast<int>(SchoolMask(school));
     Queue(e);
 }
@@ -456,6 +545,7 @@ void EnvironmentalDamage(CDataStore *p) {
     e.info |= INFO_ENVIRONMENTAL | INFO_DAMAGE;
     e.v[0] = static_cast<int>(type);
     e.v[1] = damage;
+    e.v[2] = Overkill(victim, damage);
     e.v[3] = static_cast<int>(SchoolMask(type < 6 ? kSchools[type] : 0));
     e.v[4] = absorbed;
     e.v[5] = resisted;
