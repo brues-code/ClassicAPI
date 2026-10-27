@@ -12267,6 +12267,17 @@ enum Offsets {
     // {size@+0x390, alloc@+0x394, data@+0x398} of {char* text, int exec}
     // entries. AddHistoryLine writes at +0x38c and advances modulo +0x388.
     OFF_EDITBOX_HISTORY_MAX = 0x388,
+    // The ring's one position: AddHistoryLine writes there and advances it,
+    // and the Up/Down walkers (0x0077CFD0 / 0x0077D030, called only from
+    // OnKeyDown) move it to the line they show.
+    OFF_EDITBOX_HISTORY_POS = 0x38C,
+    // The ring's records, OFF_EDITBOX_HISTORY_MAX of them, 8 bytes each:
+    // {char *text (null for an empty slot), int exec} (0x0077CF6E).
+    OFF_EDITBOX_HISTORY_DATA = 0x398,
+    // `void __thiscall(editbox, const char *text, int exec)`, `ret 8`
+    // (0x0077CFC8). Returns at once for a max of 0; one caller, the Lua
+    // AddHistoryLine (0x00798A47).
+    FUN_EDITBOX_ADD_HISTORY_LINE = 0x0077CF40,
     // 4.3.4's m_imeComposition: nonzero while an input method composes text.
     // The input-method slot 0x0077AFC0 sets it on composition start (action 1,
     // 0x0077B0F9) and clears it on end (actions 5 and 6, 0x0077B118), at the
@@ -12327,6 +12338,9 @@ enum Offsets {
     // frees the whole buffer and zeroes the container. ClearHistory calls it
     // with 0 then the saved max — empties every entry and resets the write
     // position while keeping the limit (so recording still works after).
+    // `ret 4`; ends by clamping OFF_EDITBOX_HISTORY_POS to maxLines - 1 (0
+    // for none). Callers: the destructor with 0 (0x00779E13), XML
+    // `historyLines` (0x0077A18D), Lua SetHistoryLines (0x007994FE).
     FUN_EDITBOX_SET_HISTORY_MAX = 0x0077cd90,
 
     // --- FontString measure internals (GetStringWidth icon fix + GetStringHeight) ---
