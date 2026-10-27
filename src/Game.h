@@ -395,8 +395,12 @@ int ObjectLuaRef(void *object);
 // Pushes the object's Lua table (registry[ObjectLuaRef(object)]).
 void PushObject(void *L, void *object);
 
+// The object's global name (VTBL_SCRIPTOBJECT_GET_NAME), or nullptr when it
+// has none.
+const char *ObjectName(void *object);
+
 // How the engine names an object in its frame-script usage errors:
-// `GetName() ?: "<unnamed>"` (VTBL_SCRIPTOBJECT_GET_NAME).
+// `GetName() ?: "<unnamed>"`.
 const char *ObjectDisplayName(void *object);
 
 // Same resolve, then the type gate every engine frame method applies to its

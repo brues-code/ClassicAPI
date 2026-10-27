@@ -150,11 +150,14 @@ bool ToFlag(void *L, int index, bool defaultValue) {
                                                                           defaultValue ? 1 : 0) != 0;
 }
 
-const char *ObjectDisplayName(void *object) {
+const char *ObjectName(void *object) {
     using GetName_t = const char *(__thiscall *)(void *);
     const void *vtable = Game::Read<const void *>(object, 0);
-    const char *name = Game::Read<GetName_t>(
-        vtable, Offsets::VTBL_SCRIPTOBJECT_GET_NAME)(object);
+    return Game::Read<GetName_t>(vtable, Offsets::VTBL_SCRIPTOBJECT_GET_NAME)(object);
+}
+
+const char *ObjectDisplayName(void *object) {
+    const char *name = ObjectName(object);
     return name != nullptr ? name
                            : reinterpret_cast<const char *>(Offsets::VAR_STR_UNNAMED);
 }

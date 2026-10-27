@@ -1042,14 +1042,6 @@ local function _StringToBoolean(stringToCheck, defaultReturn)
     return defaultReturn;
 end
 
--- What the modern tooltip prints through GetDebugName: the global name,
--- else the object's table.
-local function _DebugName(obj)
-    local name = obj.GetName and obj:GetName();
-    if (name and name ~= "") then return name; end
-    return tostring(obj);
-end
-
 local function _WrapColor(text, colorHex)
     return "|c" .. colorHex .. text .. "|r";
 end
@@ -1084,7 +1076,7 @@ end
 
 function FrameStackTooltip_InspectTable(self)
     if (self.highlightFrame) then
-        TableInspector_Show(self.highlightFrame, _DebugName(self.highlightFrame));
+        TableInspector_Show(self.highlightFrame, self.highlightFrame:GetDebugName());
     end
 end
 
@@ -1114,7 +1106,7 @@ local function _FormatTextureInfo(region)
     if (file == nil) then
         return nil;
     end
-    return string.format("%s : %s: %s %s", _DebugName(region), _WrapColor("File", "ffff0000"),
+    return string.format("%s : %s: %s %s", region:GetDebugName(), _WrapColor("File", "ffff0000"),
                          tostring(file), _FormatTextureCoordinates(region:GetTexCoord()));
 end
 
@@ -1153,7 +1145,7 @@ function FrameStackTooltip_OnTooltipSetFrameStack(self, highlightFrame)
     end
 
     if (fsobj) then
-        self:AddLine(string.format("\nfsobj = %s", _DebugName(fsobj)));
+        self:AddLine(string.format("\nfsobj = %s", fsobj:GetDebugName()));
     end
 end
 

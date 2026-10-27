@@ -267,6 +267,7 @@ build instructions.
   - [`region:GetRect()`](#regiongetrect)
   - [`region:GetPoint([index])`](#regiongetpointindex)
   - [`region:IsDragging()`](#regionisdragging)
+  - [`region:GetDebugName([preferParentKey])`](#regiongetdebugnamepreferparentkey)
   - [`region:GetSourceLocation()`](#regiongetsourcelocation)
   - [`GetMouseFoci()`](#getmousefoci)
   - [`CreateFrame(frameType [, name, parent, template, id])`](#createframeframetype--name-parent-template-id)
@@ -6651,6 +6652,28 @@ fontstrings) always report `false`, since only frames can be dragged.
 -- in a frame's OnUpdate while the user drags it:
 if self:IsDragging() then ... end
 ```
+
+### `region:GetDebugName([preferParentKey])`
+
+Returns the name that the debug tools show for a region.
+
+```lua
+local f = CreateFrame("Frame", "SomeFrame", UIParent)
+f.Icon = f:CreateTexture()
+print(f:GetDebugName())                 -- "SomeFrame"
+print(f.Icon:GetDebugName())            -- "SomeFrame.Icon"
+print(f:CreateTexture():GetDebugName()) -- "SomeFrame.1a2b3c4d"
+print(CreateFrame("Frame"):GetDebugName() == "") -- true
+```
+
+- A region with a global name returns that name.
+- A region with no name returns the debug name of its parent, a dot, and
+  the key that holds the region in the parent's table.
+- If no key in the parent holds the region, the address of the region (in
+  hex) replaces the key.
+- A region with no name and no parent returns an empty string.
+- If `preferParentKey` is `true`, the parent-key form comes before the
+  global name, at each level of the chain.
 
 ### `region:GetSourceLocation()`
 
