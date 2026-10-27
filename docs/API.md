@@ -17729,8 +17729,9 @@ spellbook slot first.
 
 ```lua
 local info = C_Spell.GetSpellCooldown(1953)   -- Blink
--- on cooldown:   { startTime=728565.79, duration=15, isEnabled=true, modRate=1 }
--- off cooldown:  { startTime=0,         duration=0,  isEnabled=true, modRate=1 }
+-- on cooldown:   { startTime=728565.79, duration=15,  isEnabled=true, modRate=1, isOnGCD=false }
+-- on the GCD:    { startTime=728580.12, duration=1.5, isEnabled=true, modRate=1, isOnGCD=true }
+-- off cooldown:  { startTime=0,         duration=0,   isEnabled=true, modRate=1, isOnGCD=false }
 ```
 
 | Field | Type | Notes |
@@ -17739,9 +17740,10 @@ local info = C_Spell.GetSpellCooldown(1953)   -- Blink
 | `duration` | number | Cooldown length in seconds; `0` when no cooldown active. |
 | `isEnabled` | boolean | `false` when the cooldown is "on hold" (e.g. some channeled abilities). `true` for normal cooldowns. |
 | `modRate` | number | Always `1.0` — there is no haste-on-cooldown mechanic. |
+| `isOnGCD` | boolean | `true` when `startTime` and `duration` are the global cooldown. `false` when they are the spell's own cooldown, or when no cooldown is active. |
 
-The `activeCategory`, `timeUntilEndOfStartRecovery`, and
-`isOnGCD` fields read as `nil` since they have no source here.
+The `activeCategory` and `timeUntilEndOfStartRecovery` fields read as
+`nil` since they have no source here.
 
 A spell in your pet's spellbook, and not in yours, reports your pet's
 cooldown.

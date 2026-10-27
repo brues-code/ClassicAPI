@@ -6866,6 +6866,21 @@ enum Offsets {
     // don't trust it for this entry.
     FUN_SPELL_QUERY_COOLDOWN = 0x006E2EA0,
 
+    // Spell history (`SpellHistory::GetCooldown`, `0x006E13E0`, decompiled;
+    // benilla-re systems/spell/cooldowns.md). Two 24-byte lists, the
+    // player's at `VAR_SPELL_HISTORY` and the pet's one stride later; a walk
+    // starts at the head `+0x08` and follows each record's `+0x04` until a
+    // link is zero or has bit 0 set. The reader's global leg applies when a
+    // record's GCD category equals the spell's StartRecoveryCategory and its
+    // GCD time is nonzero, and it reports (`+0x10` start, GCD time).
+    VAR_SPELL_HISTORY = 0x00CECAEC,
+    SPELL_HISTORY_STRIDE = 0x18,                 // pet list = base + 1 * stride
+    OFF_SPELL_HISTORY_HEAD = 0x08,
+    OFF_SPELL_HISTORY_RECORD_NEXT = 0x04,
+    OFF_SPELL_HISTORY_RECORD_START = 0x10,       // u32 tick, the global leg's start
+    OFF_SPELL_HISTORY_RECORD_GCD_CATEGORY = 0x28,
+    OFF_SPELL_HISTORY_RECORD_GCD_TIME = 0x2C,    // u32 ms, 0 = no global cooldown
+
     // Per-item cooldown query — `bool __fastcall(uint itemID,
     // int *outDuration, int *outStart, uint *outEnable)`. Looks up
     // the item's `ItemStats_C` record via the cache, finds the slot
@@ -10507,6 +10522,7 @@ enum Offsets {
     SPELL_EFFECT_DISPEL = 38,
     OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_B = 0x154,// i32[3] implicit target B
     OFF_SPELL_RECORD_MANA_COST_PERCENT = 0x270,       // i32 % of base resource (0 = flat)
+    OFF_SPELL_RECORD_START_RECOVERY_CATEGORY = 0x274, // u32 column 157; the GCD category (0x006E13E0 global leg, 0x006E2DE0)
     OFF_SPELL_RECORD_RANK = 0x204,                    // char*[9] localized rank text
     OFF_SPELL_RECORD_TOTEM = 0xA0,                    // i32[2] required totem/tool item IDs
 
