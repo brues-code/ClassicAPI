@@ -25,6 +25,7 @@
 #include "../guid/Guid.h"
 #include "../object/Resolve.h"
 #include "../tick/WorldTick.h"
+#include "Request.h"
 
 #include <cstdint>
 
@@ -39,8 +40,6 @@ enum class State {
     WaitingOpen,
 };
 
-using LootUnit_t = void(__thiscall *)(void *player, void *target,
-                                      char useDistanceCheck);
 // `FUN_005E1AD0` is `__stdcall(uint8_t)`, not `__fastcall` — the
 // callee reads its arg at `[ebp+8]` (stack) and ends with `ret 4`.
 // Mis-declaring as `__fastcall` makes MSVC skip the push but the
@@ -105,8 +104,13 @@ void OnTick() {
             Reset();
             return;
         }
-        if (s_ticksSinceTransition >= kStepTimeoutTicks)
+        if (s_ticksSinceTransition >= kStepTimeoutTicks) {
+            // Never opened — release a request the server never
+            // answered, or it blocks all looting (see Request.h).
+            if (void *player = Game::ResolveUnitToken("player"))
+                Request::ReleaseIfUnanswered(player, s_targetGuid);
             Reset();
+        }
     }
 }
 
@@ -126,6 +130,8 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 //   - another `LootUnitItem` is mid-flight,
 //   - the world isn't loaded,
 //   - the target GUID doesn't resolve to a visible unit,
+//   - the player is mounted, or can't loot right now (another loot
+//     window open, falling, not in control),
 //   - (sync path only) no slot in the currently-open window holds
 //     the requested itemID.
 //
@@ -175,8 +181,10 @@ int __fastcall Script_LootUnitItem(void *L) {
         return 1;
     }
 
-    auto LootUnit = reinterpret_cast<LootUnit_t>(Offsets::FUN_CMSG_LOOT_UNIT);
-    LootUnit(player, target, /*useDistanceCheck=*/0);
+    if (!Request::Send(player, target, guid)) {
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
 
     s_targetGuid = guid;
     s_desiredItemID = itemID;

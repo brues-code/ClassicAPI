@@ -15,19 +15,13 @@
 #include "../Offsets.h"
 #include "../guid/Guid.h"
 #include "../object/Resolve.h"
+#include "Request.h"
 
 #include <cstdint>
 
 namespace Loot::Unit {
 
 namespace {
-
-// `FUN_CMSG_LOOT_UNIT` is `__thiscall(player, target, useDistanceCheck)`.
-// MSVC `__thiscall` puts `player` in ECX and the rest on the stack —
-// matching the engine's own callsite at `FUN_0060FA20`. The trailing
-// `char` argument is padded to 4 stack bytes by the ABI.
-using LootUnit_t = void(__thiscall *)(void *player, void *target,
-                                      char useDistanceCheck);
 
 // `C_Loot.LootUnit(guid)` — initiates a loot session against the unit
 // identified by `guid` (a hex-string as returned by `UnitGUID` /
@@ -47,6 +41,7 @@ using LootUnit_t = void(__thiscall *)(void *player, void *target,
 //   - The GUID doesn't resolve to a visible `TYPEMASK_UNIT` object
 //     (target despawned, out of render range, wrong typemask).
 //   - The local player pointer can't be resolved.
+//   - The player is mounted (as a right-click on a corpse does nothing).
 // Errors only on Lua usage problems (missing arg, unparseable GUID).
 int __fastcall Script_LootUnit(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
@@ -76,8 +71,7 @@ int __fastcall Script_LootUnit(void *L) {
     if (player == nullptr)
         return 0;
 
-    auto LootUnit = reinterpret_cast<LootUnit_t>(Offsets::FUN_CMSG_LOOT_UNIT);
-    LootUnit(player, target, /*useDistanceCheck=*/0);
+    Request::Send(player, target, guid);
     return 0;
 }
 

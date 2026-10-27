@@ -12551,6 +12551,8 @@ No return value. Silent no-op when:
 - The GUID doesn't resolve to a visible unit (out of render range,
   despawned, wrong typemask).
 - The local player pointer can't be resolved.
+- You are mounted. A right-click on a corpse also does nothing while
+  you are mounted.
 
 Errors only on bad Lua usage (missing arg, unparseable GUID).
 
@@ -12588,6 +12590,8 @@ Two paths, picked automatically:
 - Another `LootUnitItem` is mid-flight (one at a time).
 - The world isn't loaded.
 - The target GUID doesn't resolve to a visible unit.
+- You are mounted, or you cannot loot now (for example, another loot
+  window is open).
 - (sync path only) No slot in the open window holds the itemID.
 
 The send bypasses the BoP-confirmation dialog. Server still
@@ -12614,7 +12618,7 @@ listeners don't react — the scan is invisible to addons that aren't
 opted in.
 
 Returns `true` if the scan was queued, `false` if another scan is
-already in progress or the world isn't loaded. Completion is signaled
+already in progress, the world isn't loaded, or you are mounted. Completion is signaled
 via the [`LOOT_SCAN_COMPLETED`](#loot_scan_completed-event) event;
 results are read via [`C_Loot.GetLastScanResults()`](#c_lootgetlastscanresults).
 
@@ -12633,7 +12637,8 @@ C_Loot.ScanNearbyLoot()
 
 Per-corpse step timeout is ~3-6 seconds (180 WorldTick frames) so a
 single dropped server response doesn't hang the whole scan. Failed
-corpses simply don't appear in the results.
+corpses simply don't appear in the results. A corpse that gets no
+response does not block looting after the scan.
 
 ### `C_Loot.LootAllCorpses([max])`
 
@@ -12644,7 +12649,8 @@ from each window before releasing and advancing to the next corpse. The
 optional `max` caps how many corpses are visited (default: all in range).
 
 Returns `true` if the loot walk was queued, `false` if a walk (this or
-`ScanNearbyLoot`) is already in progress or the world isn't loaded — the
+`ScanNearbyLoot`) is already in progress, the world isn't loaded, or you
+are mounted — the
 two share one state machine, so [`IsScanInProgress`](#c_lootisscaninprogress)
 reports either, and only one runs at a time.
 

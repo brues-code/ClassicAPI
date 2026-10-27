@@ -42,6 +42,7 @@
 #include "../guid/Guid.h"
 #include "../object/Resolve.h"
 #include "../tick/WorldTick.h"
+#include "Request.h"
 
 #include <cstdint>
 #include <string>
@@ -105,8 +106,6 @@ using ClntObjMgrEnumVisibleObjectsCallback_t = int(__fastcall *)(void *ctx,
                                                                   uint64_t guid);
 using ClntObjMgrEnumVisibleObjects_t =
     int(__fastcall *)(ClntObjMgrEnumVisibleObjectsCallback_t cb, void *ctx);
-using LootUnit_t = void(__thiscall *)(void *player, void *target,
-                                      char useDistanceCheck);
 using CloseLootInner_t = void(__fastcall *)(int sendRelease,
                                              char earlyReturnOnGameObject,
                                              char showError);
@@ -281,12 +280,12 @@ void TryStartNext() {
 
 void StartLoot(uint64_t guid) {
     void *target = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-    if (target == nullptr) {
+    // Not sent (mounted mid-walk, or the engine's pre-checks refused): no
+    // response is coming, so skip without waiting out the timeout.
+    if (target == nullptr || !Request::Send(s_scan.player, target, guid)) {
         TryStartNext();
         return;
     }
-    auto LootUnit = reinterpret_cast<LootUnit_t>(Offsets::FUN_CMSG_LOOT_UNIT);
-    LootUnit(s_scan.player, target, /*useDistanceCheck=*/0);
     s_scan.currentGuid = guid;
     s_scan.state = State::WaitingForResponse;
     s_scan.ticksSinceTransition = 0;
@@ -391,10 +390,12 @@ void OnTick() {
         return;
     ++s_scan.ticksSinceTransition;
     if (s_scan.ticksSinceTransition >= kStepTimeoutTicks) {
-        // Controller hook never fired — engine guards rejected the
-        // send (player state / OOR), or the server dropped the
-        // packet. Skip this corpse and advance.
+        // Controller hook never fired — the server answered with a
+        // failure, or never answered. A failure already cleared the
+        // held target; an unanswered request still holds it, which
+        // would block all looting, so release it. Skip this corpse.
         s_scan.suppressEvents = false;
+        Request::ReleaseIfUnanswered(s_scan.player, s_scan.currentGuid);
         TryStartNext();
     }
 }
@@ -436,14 +437,15 @@ void BuildQueue(void *player, size_t maxCount) {
 
 // Shared starter for both entry points: resolve the player, build the
 // corpse queue, kick off the walk. Returns whether it started — `false` if a
-// walk is already in progress or there's no local player.
+// walk is already in progress, there's no local player, or the player is
+// mounted.
 bool BeginWalk(bool lootMode, size_t maxCount) {
     if (s_scan.state != State::Idle)
         return false;
     if (*reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr)
         return false;
     void *player = Game::ResolveUnitToken("player");
-    if (player == nullptr)
+    if (player == nullptr || Request::IsMounted(player))
         return false;
 
     s_scan.results.clear();
@@ -463,8 +465,8 @@ bool BeginWalk(bool lootMode, size_t maxCount) {
 
 // `C_Loot.ScanNearbyLoot()` — scrape-only walk. Returns `true` if it
 // started (a subsequent `GetLastScanResults()` holds the contents once
-// `LOOT_SCAN_COMPLETED` fires), `false` if a walk is already running or
-// there's no local player.
+// `LOOT_SCAN_COMPLETED` fires), `false` if a walk is already running,
+// there's no local player, or the player is mounted.
 int __fastcall Script_ScanNearbyLoot(void *L) {
     Game::Lua::PushBool(L, BeginWalk(/*lootMode=*/false, /*maxCount=*/0));
     return 1;
@@ -473,9 +475,10 @@ int __fastcall Script_ScanNearbyLoot(void *L) {
 // `C_Loot.LootAllCorpses([max])` — loots every nearby lootable corpse
 // (coin + all items) in sequence. Optional `max` caps how many corpses are
 // visited. Returns `true` if it started, `false` if a walk (scan or loot)
-// is already in progress or there's no local player. `LOOT_SCAN_COMPLETED`
-// fires when the walk finishes; `GetLastScanResults()` then reports what
-// each corpse held (i.e. what was looted).
+// is already in progress, there's no local player, or the player is
+// mounted. `LOOT_SCAN_COMPLETED` fires when the walk finishes;
+// `GetLastScanResults()` then reports what each corpse held (i.e. what was
+// looted).
 int __fastcall Script_LootAllCorpses(void *L) {
     const size_t maxCount = Game::Lua::IsNumber(L, 1)
                                 ? static_cast<size_t>(Game::Lua::ToNumber(L, 1))

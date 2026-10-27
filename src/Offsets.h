@@ -10003,6 +10003,23 @@ enum Offsets {
     // below.
     FUN_CMSG_LOOT_UNIT = 0x005DF2A0,
 
+    // The active player's held loot target — a u64 GUID on the CGPlayer
+    // object (`m_lootGuid`). `FUN_CMSG_LOOT_UNIT` writes it as it sends
+    // `CMSG_LOOT`; its `CanLootNow` pre-check (`0x005EC110`) refuses every
+    // loot while it is non-zero. Cleared by the loot response's accept /
+    // failure legs (`0x005EB900`), the release response (`0x005EC090`) and
+    // `FUN_CLOSE_LOOT_INNER` — but that close clears it only while a loot
+    // WINDOW is open, so a request the server never answers leaves it held
+    // with no window, and only a server reply (or a relog) frees it.
+    // Verified: `cmp edx,[esi+0x1d28]` / `mov [esi+0x1d28],0` in `0x005EC090`.
+    OFF_PLAYER_LOOT_TARGET_GUID = 0x1D28,
+
+    // `CGUnit_C::UpdateBaseAnimation` — `__thiscall(unit, uint mask)`,
+    // `ret 4`. Replays the unit's stand/base animation; the release
+    // response (`0x005EC090`) calls it with `-1` right after clearing the
+    // loot target to end the kneel `FUN_CMSG_LOOT_UNIT` started.
+    FUN_UNIT_UPDATE_BASE_ANIMATION = 0x005FD9E0,
+
     // `__fastcall(int loot_response_struct, undefined4 coin, int unk)`
     // — master loot-window state controller. Called by the
     // `SMSG_LOOT_RESPONSE` handler tail (via `FUN_0048F3A0`) and by
