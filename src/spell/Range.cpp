@@ -41,13 +41,20 @@ using GetMinMaxRange_t = void(__fastcall *)(void *caster, uint32_t spellID,
 // the engine call also covers `Attributes & 0x404` spells (flat 100-yard
 // max with no range row), melee rows whose max folds combat reach, and
 // the stationary / ranged-item / spell-mod bonuses.
-bool EngineHasRange(void *caster, int spellID, void *target) {
-    float minRange = 0.0f;
-    float maxRange = 0.0f;
+void EngineMinMax(void *caster, int spellID, void *target, float &minRange,
+                  float &maxRange) {
+    minRange = 0.0f;
+    maxRange = 0.0f;
     auto getMinMax = reinterpret_cast<GetMinMaxRange_t>(
         Offsets::FUN_GET_MIN_MAX_RANGE);
     getMinMax(caster, static_cast<uint32_t>(spellID), &minRange, &maxRange,
               target);
+}
+
+bool EngineHasRange(void *caster, int spellID, void *target) {
+    float minRange;
+    float maxRange;
+    EngineMinMax(caster, spellID, target, minRange, maxRange);
     const float epsilon = Game::Read<float>(
         static_cast<uintptr_t>(Offsets::VAR_HAS_RANGE_EPSILON));
     return !(std::fabs(minRange) < epsilon) ||
@@ -64,6 +71,12 @@ bool SpellIDHasRange(int spellID) {
     // A null caster zeroes both bounds, which reads as rangeless.
     return EngineHasRange(Unit::Position::ResolveToken("player"), spellID,
                           nullptr);
+}
+
+void CasterMinMax(void *caster, int spellID, float &minRange, float &maxRange) {
+    // Null target, as 4.3.4's `Script_GetSpellInfo` passes: the engine folds
+    // the caster's current target's reach, else the caster's own.
+    EngineMinMax(caster, spellID, nullptr, minRange, maxRange);
 }
 
 int PlayerVsUnit(int spellID, const char *unitToken) {

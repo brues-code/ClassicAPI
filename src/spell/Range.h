@@ -30,6 +30,11 @@ namespace Spell::Range {
 // meaningful "in range" answer.
 bool SpellIDHasRange(int spellID);
 
+// The caster's effective min/max range for `spellID` from the engine's own
+// resolver (`FUN_GET_MIN_MAX_RANGE`): spell-mod, ranged-item, stationary and
+// combat-reach folds included. A null caster yields 0/0.
+void CasterMinMax(void *caster, int spellID, float &minRange, float &maxRange);
+
 // Range check of the local player's cast of `spellID` against
 // `unitToken` (`"target"`, `"mouseover"`, `"party1"`, …). Returns:
 //   1  — in range

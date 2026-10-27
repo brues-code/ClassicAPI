@@ -16,6 +16,8 @@
 #include "spell/Known.h"
 #include "spell/Arg.h"
 #include "spell/Lookup.h"
+#include "spell/Range.h"
+#include "unit/Position.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -161,16 +163,20 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
         out.castTimeMs = reinterpret_cast<CastTime_t>(
             static_cast<uintptr_t>(Offsets::FUN_GET_CAST_TIME))(spellID, pet, 1);
 
+    // Range as 4.3.4's `Script_GetSpellInfo` reports it: 0/0 for a melee
+    // row (SpellRange flag 0x1), else the engine's resolver for the caster.
+    // 4.3.4's minimum-range fold (flag 0x2) has no 1.12 row to act on.
+    constexpr uint32_t SPELLRANGE_FLAG_MELEE = 0x1;
     out.minRange = 0.0f;
     out.maxRange = 0.0f;
     const int rangeIndex = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_RANGE_INDEX);
-    if (auto *rangeRec = LookupSubRecord(Offsets::VAR_SPELL_RANGE_RECORDS,
-                                         Offsets::VAR_SPELL_RANGE_COUNT, rangeIndex)) {
-        out.minRange =
-            *reinterpret_cast<const float *>(rangeRec + Offsets::OFF_SPELLRANGE_RECORD_MIN);
-        out.maxRange =
-            *reinterpret_cast<const float *>(rangeRec + Offsets::OFF_SPELLRANGE_RECORD_MAX);
-    }
+    const auto *rangeRec = LookupSubRecord(Offsets::VAR_SPELL_RANGE_RECORDS,
+                                           Offsets::VAR_SPELL_RANGE_COUNT, rangeIndex);
+    if (rangeRec == nullptr ||
+        !(Game::Read<uint32_t>(rangeRec, Offsets::OFF_SPELLRANGE_RECORD_FLAGS) &
+          SPELLRANGE_FLAG_MELEE))
+        Spell::Range::CasterMinMax(Unit::Position::ResolveToken(pet ? "pet" : "player"),
+                                   spellID, out.minRange, out.maxRange);
 
     return true;
 }
@@ -805,8 +811,10 @@ static const Game::Doc::Field kGetSpellInfoRets[] = {
                    "0 mana, 1 rage, 2 focus, 3 energy, 4 happiness."),
     Game::Doc::Opt("castTime", "number", nullptr,
                    "Cast time for the caster in milliseconds, with talents and cast speed; 0 when instant or passive."),
-    Game::Doc::Opt("minRange", "number", nullptr, "Minimum range in yards."),
-    Game::Doc::Opt("maxRange", "number", nullptr, "Maximum range in yards."),
+    Game::Doc::Opt("minRange", "number", nullptr,
+                   "Minimum range for the caster in yards, with talents; 0 for a melee spell."),
+    Game::Doc::Opt("maxRange", "number", nullptr,
+                   "Maximum range for the caster in yards, with talents; 0 for a melee spell."),
     Game::Doc::Opt("spellID", "number", nullptr, "The spell ID the arguments resolved to."),
 };
 static const Game::Doc::Function kGetSpellInfo{
@@ -819,8 +827,10 @@ static const Game::Doc::Field kSpellInfoFields[] = {
                    "Icon texture path; give it to texture:SetTexture."),
     Game::Doc::Req("castTime", "number",
                    "Cast time for the player in milliseconds, with talents and cast speed; 0 when instant or passive."),
-    Game::Doc::Req("minRange", "number", "Minimum range in yards."),
-    Game::Doc::Req("maxRange", "number", "Maximum range in yards."),
+    Game::Doc::Req("minRange", "number",
+                   "Minimum range for the player in yards, with talents; 0 for a melee spell."),
+    Game::Doc::Req("maxRange", "number",
+                   "Maximum range for the player in yards, with talents; 0 for a melee spell."),
     Game::Doc::Req("spellID", "number", "The spell ID."),
     Game::Doc::Opt("rank", "string", nullptr, "Localized rank text, such as \"Rank 2\"."),
     Game::Doc::Req("cost", "number",

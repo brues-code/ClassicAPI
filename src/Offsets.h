@@ -7237,8 +7237,7 @@ enum Offsets {
 
     VAR_SPELL_RANGE_RECORDS = 0x00C0D79C,      // SpellRange.dbc
     VAR_SPELL_RANGE_COUNT = 0x00C0D7A0,
-    OFF_SPELLRANGE_RECORD_MIN = 0x04,          // float min range (column 1)
-    OFF_SPELLRANGE_RECORD_MAX = 0x08,          // float max range (column 2)
+    OFF_SPELLRANGE_RECORD_FLAGS = 0x0C,        // u32 flags (column 3); 0x1 = melee, only row 2 "Combat Range" (DBC dump)
     VAR_SPELL_ICON_RECORDS = 0x00C0D7EC,       // SpellIcon.dbc
     VAR_SPELL_ICON_COUNT = 0x00C0D7F0,
     VAR_SPELL_CAST_TIMES_RECORDS = 0x00C0D878, // SpellCastTimes.dbc

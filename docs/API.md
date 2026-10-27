@@ -17002,9 +17002,11 @@ range.
   Health Funnel or Drain Soul. Then `cost` is the cost per second.
 - `castTime` is your cast time in milliseconds, with your talents and
   cast speed. It is `0` for an instant or passive spell.
-- `minRange` and `maxRange` are in yards.
+- `minRange` and `maxRange` are your range in yards, with your talents.
+  Both are `0` for a melee spell.
 
-For a `"pet"` book slot, `cost` and `castTime` are your pet's values.
+For a `"pet"` book slot, `cost`, `castTime` and the ranges are your pet's
+values.
 
 Four input forms are accepted:
 
@@ -17062,8 +17064,8 @@ Table fields:
 | `name`       | string  | Localized name |
 | `iconID`     | string  | Icon **path** (e.g. `"Interface\\Icons\\Spell_Fire_FlameBolt"`). See note below. |
 | `castTime`   | number  | Your cast time in milliseconds, with talents and cast speed; 0 for an instant or passive spell |
-| `minRange`   | number  | Yards, or 0 if not applicable |
-| `maxRange`   | number  | Yards, or 0 if not applicable |
+| `minRange`   | number  | Your minimum range in yards, with talents; 0 for a melee spell |
+| `maxRange`   | number  | Your maximum range in yards, with talents; 0 for a melee spell |
 | `spellID`    | number  | Echo of the input |
 | `rank`       | string  | Localized rank (e.g. `"Rank 1"`) — an extra field |
 | `cost`       | number  | The cost you pay, with talents and gear; rage in whole points; per second when `isFunnel` — an extra field |
