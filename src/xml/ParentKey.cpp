@@ -72,6 +72,12 @@
 // for that state (SetTextFontObject / SetHighlightFontObject /
 // SetDisabledFontObject) with `_G[style]`.
 //
+// `parentArray="Name"` appends the object to `parent.Name` (created on first
+// use) in load order, the same way.
+//
+// All three loaders also re-set <Anchor>s that use `relativeKey` or `x` / `y`
+// (Xml::Anchors), once the earlier siblings' keys are bound.
+//
 // The texture and font string loaders also apply <KeyValues>
 // (Xml::KeyValues, which reads frames itself).
 //
@@ -87,6 +93,7 @@
 #include "Offsets.h"
 #include "animation/Xml.h"
 #include "texture/Mask.h"
+#include "xml/Anchors.h"
 #include "xml/KeyValues.h"
 #include "xml/Mixin.h"
 
@@ -125,6 +132,48 @@ void BindParentKey(void *object, const void *node) {
         Game::Lua::PushString(L, key);                    // [parent, object, key]
         Game::Lua::PushValue(L, -2);                      // [parent, object, key, object]
         Game::Lua::SetTable(L, -4);                       // parent[key] = object
+    }
+    Game::Lua::SetTop(L, top);
+}
+
+// parentArray="Name": appends the object to parent.Name, creating the array
+// on first use, in load order.
+void BindParentArray(void *object, const void *node) {
+    const char *key = Xml::Attr(node, "parentArray");
+    if (key == nullptr || *key == '\0')
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    void *parent = Game::Read<void *>(object, Offsets::OFF_REGION_PARENT);
+    if (parent == nullptr)
+        return;
+
+    const int top = Game::Lua::GetTop(L);
+    if (PushWrapper(L, parent)) {                       // [parent]
+        Game::Lua::PushString(L, key);
+        Game::Lua::GetTable(L, top + 1);                // [parent, array?]
+        if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+            Game::Lua::SetTop(L, top + 1);
+            Game::Lua::NewTable(L);                     // [parent, array]
+            Game::Lua::PushString(L, key);
+            Game::Lua::PushValue(L, -2);
+            Game::Lua::SetTable(L, top + 1);            // parent[key] = array
+        }
+        int n = 0;
+        for (;;) {
+            Game::Lua::RawGetI(L, top + 2, n + 1);
+            const bool present = Game::Lua::Type(L, -1) != Game::Lua::TYPE_NIL;
+            Game::Lua::SetTop(L, top + 2);
+            if (!present)
+                break;
+            ++n;
+        }
+        if (PushWrapper(L, object)) {                   // [parent, array, object]
+            Game::Lua::PushNumber(L, n + 1);
+            Game::Lua::Insert(L, -2);                   // [parent, array, n+1, object]
+            Game::Lua::RawSet(L, top + 2);              // array[n+1] = object
+        }
     }
     Game::Lua::SetTop(L, top);
 }
@@ -246,6 +295,8 @@ uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void 
 
 void OnFrameNode(void *object, const void *node, void *status) {
     BindParentKey(object, node);
+    BindParentArray(object, node);
+    Xml::Anchors::Apply(object, node, status);
     BindScriptFunctions(object, node);
     Animation::Xml::LoadAnimations(object, node, status);
 }
@@ -265,6 +316,8 @@ uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void
     Xml::Mixin::End(RegionObject(self));
     {
         BindParentKey(RegionObject(self), node);
+        BindParentArray(RegionObject(self), node);
+        Xml::Anchors::Apply(RegionObject(self), node, status);
         Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
         if (const char *mask = Xml::Attr(node, "mask"); mask != nullptr && *mask != '\0')
@@ -281,6 +334,8 @@ uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, v
     Xml::Mixin::End(RegionObject(self));
     {
         BindParentKey(RegionObject(self), node);
+        BindParentArray(RegionObject(self), node);
+        Xml::Anchors::Apply(RegionObject(self), node, status);
         Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
     }

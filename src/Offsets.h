@@ -11121,6 +11121,13 @@ enum Offsets {
     // tag matches (SStrCmpI), or null. The child-frames builder finds
     // `<Frames>` with it (0x0076A09E).
     FUN_XML_NODE_GET_CHILD = 0x006F2C50,
+    // XmlReadDimension — `int __fastcall(node, float *x, float *y, status)`,
+    // `ret 8`: reads `x` and `y` from the node's own attributes, else from its
+    // <AbsDimension> (or <RelDimension>) child, converted to layout units the
+    // way every XML size and offset is. With neither attribute and no child it
+    // reports the node to `status` and returns 0. The anchor loader reads each
+    // <Offset> with it (0x00767800 calls it, benilla-re ui/anchors).
+    FUN_XML_READ_DIMENSION = 0x006F1EB0,
     // XMLTree_Load — `XMLTree *__fastcall(const char *data, uint32_t size)`,
     // null when the text does not parse; the root node is `*(XMLNode **)tree`.
     // XMLTree_Free — `void __fastcall(XMLTree *)`. The bindings loader's own

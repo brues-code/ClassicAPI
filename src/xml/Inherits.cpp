@@ -54,6 +54,10 @@
 //
 // Textures and font strings keep one template, as in 4.3.4.
 //
+// The two frame hooks also finish Xml::Anchors' queued relativeKey anchors:
+// the children hook once a frame's <Frames> are built (before its OnLoad),
+// the builder hook when the outermost build returns.
+//
 // Each listed template is applied under a `Gc::Tag` pin on its owner, as
 // 3.3.5's LoadXML / LoadXMLInheritance set `lua_gctag` per template;
 // `Xml::TemplateTag` pins the single-name engine path the same way.
@@ -63,9 +67,12 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "gc/Tag.h"
+#include "xml/Anchors.h"
 #include "xml/FrameLoad.h"
 
+#include <algorithm>
 #include <cstring>
+#include <vector>
 
 namespace Xml::Inherits {
 
@@ -114,7 +121,9 @@ private:
 
 // ---- children --------------------------------------------------------------
 
-void __fastcall ChildFrames_h(void *frame, void *edx, const void *node, void *status) {
+void __fastcall ChildFrames_h(void *frame, void *edx, const void *node, void *status);
+
+void ChildFramesBody(void *frame, void *edx, const void *node, void *status) {
     const char *inherits = node != nullptr ? Attr(node, "inherits") : nullptr;
     if (inherits == nullptr || !IsList(inherits)) {
         g_origChildFrames(frame, edx, node, status);
@@ -132,6 +141,24 @@ void __fastcall ChildFrames_h(void *frame, void *edx, const void *node, void *st
     auto build = reinterpret_cast<Build_t>(Offsets::FUN_XML_FRAME_BUILD);
     for (const void *c = FirstChild(frames); c != nullptr; c = NextSibling(c))
         build(c, frame, status);
+}
+
+// Frames whose children are being built. The engine re-enters this function
+// for each template in a chain; only the outermost call for a frame has
+// built all of them.
+std::vector<void *> g_buildingChildren;
+
+void __fastcall ChildFrames_h(void *frame, void *edx, const void *node, void *status) {
+    const bool outermost = std::find(g_buildingChildren.begin(), g_buildingChildren.end(),
+                                     frame) == g_buildingChildren.end();
+    if (outermost)
+        g_buildingChildren.push_back(frame);
+    ChildFramesBody(frame, edx, node, status);
+    if (outermost) {
+        g_buildingChildren.pop_back();
+        // Before the finalize fires OnLoad: anchors that name a child frame.
+        Xml::Anchors::RetryUnder(frame, status);
+    }
 }
 
 // ---- parent ----------------------------------------------------------------
@@ -160,6 +187,8 @@ const char *FindParent(const void *node, bool *sawList) {
     return found;
 }
 
+int g_buildDepth = 0;
+
 void *__fastcall Build_h(const void *node, void *parent, void *status) {
     if (node != nullptr && Attr(node, "parent") == nullptr) {
         bool sawList = false;
@@ -171,7 +200,11 @@ void *__fastcall Build_h(const void *node, void *parent, void *status) {
                 Warn(status, reinterpret_cast<const char *>(Offsets::STR_XML_NO_FRAME_PARENT), name);
         }
     }
-    return g_origBuild(node, parent, status);
+    ++g_buildDepth;
+    void *frame = g_origBuild(node, parent, status);
+    if (--g_buildDepth == 0)
+        Xml::Anchors::Flush(status);
+    return frame;
 }
 
 const Game::HookAutoRegister _childFramesHook{
