@@ -274,3 +274,23 @@ EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
                                             CAPI_ApplyStandardColorGlobals)
 EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
                                             CAPI_ApplyStandardColorGlobals)
+
+-- Outfitter keeps its minimap button's drag state in a plain field,
+-- `OutfitterMinimapButton.IsDragging`, that it never initializes: the field is
+-- nil until the first OnDragStart, and OutfitterTimer_AdjustTimer and
+-- OutfitterUpdateFrame_OnUpdate read it as a boolean before then. Our DLL adds
+-- the `region:IsDragging()` method, so a read that misses the raw field now
+-- falls through the metatable to that function, which is truthy. Outfitter
+-- then believes a drag is in progress from the moment it loads: its update
+-- frame calls UpdateDragPosition every frame, which subtracts a CursorStartX
+-- that only OnMouseDown sets (Outfitter.lua:5235). A real drag would assign
+-- the field and mask the method, but pfUI's addon-buttons module clears
+-- OnDragStart on the minimap buttons it collects, so that may never happen.
+-- Give the field vanilla's falsy value before the first OnUpdate can run.
+if C_AddOns.DoesAddOnExist("Outfitter") then
+    EventUtil.ContinueOnAddOnLoaded("Outfitter", function()
+        if OutfitterMinimapButton then
+            OutfitterMinimapButton.IsDragging = false
+        end
+    end)
+end
