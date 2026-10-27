@@ -27,8 +27,11 @@
 // restarted, which 1.12 never says for another unit, so it does not occur.
 //
 // 1.12's dispel messages name no dispelling spell (handlers 0x005E8B60,
-// 0x00628C20; vmangos writes none), so the entry's spell is spellId 0 with no
-// name, as a damage shield's is:
+// 0x00628C20; vmangos writes none). The server sends them from the dispel
+// effect's handler, after the cast's SMSG_SPELL_GO in the same tick, so the
+// spell is the caster's newest cast at the target with a dispel effect
+// (RecentCasts). A dispel from an aura (Abolish Poison) has no cast, and the
+// entry's spell is spellId 0 with no name, as a damage shield's is:
 //   0x27b SPELLDISPELLOG  packed target, packed caster, count, count × spell
 //   0x262 DISPEL_FAILED   caster, target (u64), spells to the end
 // A dispel's BUFF or DEBUFF is the slot the aura holds on the target, which
@@ -40,6 +43,7 @@
 #include "Offsets.h"
 #include "aura/Data.h"
 #include "aura/Source.h"
+#include "combatlog/RecentCasts.h"
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
@@ -56,6 +60,10 @@ using Net::ReadPackedGuid;
 
 constexpr uint32_t SMSG_DISPEL_FAILED = 0x262;
 constexpr uint32_t SMSG_SPELLDISPELLOG = 0x27b;
+
+// The effects a dispelling cast has.
+constexpr int SPELL_EFFECT_DISPEL = 38;
+constexpr int SPELL_EFFECT_DISPEL_MECHANIC = 108;
 
 bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
@@ -107,12 +115,15 @@ bool Harmful(uint64_t target, uint32_t spellId) {
     return slot >= 0 && Aura::Data::IsSlotHarmful(unit, slot);
 }
 
-// One entry with the dispelled spell as its extra spell.
+// One entry with the dispelled spell as its extra spell, and the cast that
+// dispelled it as its spell when one was seen.
 void SendDispel(uint64_t caster, uint64_t target, int event, int dispelledId, bool auraType) {
     if (Hidden(SpellRecord(dispelledId)))
         return;
-    Entry e = Begin(caster, target, event, nullptr);
-    e.spellPrefix = true; // the dispelling spell, which 1.12 does not name
+    const uint8_t *spell = RecentCasts::SpellByEffect(caster, target, SPELL_EFFECT_DISPEL,
+                                                      SPELL_EFFECT_DISPEL_MECHANIC);
+    Entry e = Begin(caster, target, event, Hidden(spell) ? nullptr : spell);
+    e.spellPrefix = true; // with no cast seen, the spell 1.12 does not name
     e.info |= INFO_EXTRA_SPELL;
     e.v[0] = dispelledId;
     if (auraType) {

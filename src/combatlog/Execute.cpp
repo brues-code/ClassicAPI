@@ -39,12 +39,15 @@
 // SPELL_CREATE for a game object) from these.
 //
 // 0x32f SPELLINSTAKILLLOG (0x005E85A0): the victim (u64) and the spell. 1.12
-// names no caster, so the entry has no source.
+// names no caster; the server sends it from the effect's handler, after the
+// cast's SMSG_SPELL_GO in the same tick, so the source is the caster of the
+// newest cast of that spell at the victim (RecentCasts), else none.
 
 #include "combatlog/Entry.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "combatlog/RecentCasts.h"
 #include "guid/Guid.h"
 #include "net/PacketDispatch.h"
 
@@ -292,8 +295,10 @@ void SpellLogExecute(CDataStore *p) {
 void InstakillLog(CDataStore *p) {
     const uint64_t victim = Read<uint64_t>(p);
     const int spellId = Read<int32_t>(p);
-    if (!Overrun(p))
-        Simple(0, victim, SPELL_INSTAKILL, SpellRecord(spellId));
+    if (Overrun(p))
+        return;
+    const uint64_t caster = RecentCasts::CasterOf(static_cast<uint32_t>(spellId), victim);
+    Simple(caster, victim, SPELL_INSTAKILL, SpellRecord(spellId));
 }
 
 void OnPacket(uint32_t opcode, CDataStore *p) {

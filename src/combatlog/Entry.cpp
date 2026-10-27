@@ -619,6 +619,17 @@ bool HasEffect(const uint8_t *spell, int effect) {
     return false;
 }
 
+bool HasAuraEffect(const uint8_t *spell, int auraName) {
+    if (spell == nullptr)
+        return false;
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
+        if (Game::Read<int>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME + i * 4) ==
+            auraName)
+            return true;
+    }
+    return false;
+}
+
 Entry Begin(uint64_t source, uint64_t dest, int event, const uint8_t *spell) {
     Entry e;
     e.event = event;

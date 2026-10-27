@@ -39,8 +39,9 @@
 //   0x263 SPELLORDAMAGE_IMMUNE  caster, target (u64), spell, u8 debug
 // What 1.12 does not send is filled as 4.3.4 fills "none": overkill and
 // overhealing 0, healing absorbed 0, no periodic critical. Schools are
-// indexes here and masks in the event. A damage shield names no spell, so
-// its spell prefix is spellId 0 with the damage school.
+// indexes here and masks in the event. A damage shield names no spell: the
+// owner's one damage-shield aura of the damage's school names it, else its
+// spell prefix is spellId 0 with the damage school.
 //
 // Spell misses do not come from here: they reach the log from three places
 // (the SPELL_GO miss list, a missile's arrival, SPELLLOGMISS), all through
@@ -50,6 +51,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "aura/Data.h"
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
 
@@ -94,6 +96,9 @@ enum VictimState : uint32_t {
     VICTIMSTATE_IMMUNE = 7,
     VICTIMSTATE_DEFLECTS = 8,
 };
+
+// The aura a damage shield is (SpellAuraNames 15).
+constexpr int AURA_DAMAGE_SHIELD = 15;
 
 // Periodic aura types (SpellAuraNames) the log reads.
 constexpr uint32_t AURA_PERIODIC_DAMAGE = 3;
@@ -391,6 +396,32 @@ void PeriodicAuraLog(CDataStore *p) {
     }
 }
 
+// The shield that dealt the damage: the one damage-shield aura of `school`
+// among the owner's aura slots (Thorns, Fire Shield, Retribution Aura;
+// Lightning Shield is a proc and arrives through the non-melee log). An owner
+// out of view, or two shields of one school on one owner, name none. The
+// shield is still on the owner: the message comes before any aura update.
+const uint8_t *ShieldSpell(uint64_t owner, uint32_t school) {
+    const auto *unit = static_cast<const uint8_t *>(Unit(owner));
+    if (unit == nullptr)
+        return nullptr;
+    const uint8_t *found = nullptr;
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        const uint32_t spellId = Aura::Data::ReadSpellID(unit, slot);
+        if (spellId == 0)
+            continue;
+        const uint8_t *spell = SpellRecord(static_cast<int>(spellId));
+        if (spell == nullptr ||
+            Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_SCHOOL) != school ||
+            !HasAuraEffect(spell, AURA_DAMAGE_SHIELD))
+            continue;
+        if (found != nullptr && found != spell)
+            return nullptr;
+        found = spell;
+    }
+    return found;
+}
+
 // SMSG_SPELLDAMAGESHIELD → UnitCombatLogDamageShield.
 void DamageShield(CDataStore *p) {
     const uint64_t owner = Read<uint64_t>(p);
@@ -399,7 +430,8 @@ void DamageShield(CDataStore *p) {
     const uint32_t school = Read<uint32_t>(p);
     if (Overrun(p))
         return;
-    Entry e = Begin(owner, victim, DAMAGE_SHIELD, nullptr);
+    const uint8_t *spell = ShieldSpell(owner, school);
+    Entry e = Begin(owner, victim, DAMAGE_SHIELD, Hidden(spell) ? nullptr : spell);
     e.spellPrefix = true;
     e.spellSchool = SchoolMask(school);
     e.info |= INFO_DAMAGE;

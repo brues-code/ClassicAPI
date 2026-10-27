@@ -4751,8 +4751,9 @@ Some values have fixed contents:
   32 shadow, 64 arcane.
 - `overkill`, `overhealing` and the `absorbed` of a heal are always 0.
 - `alternatePowerType` is always `nil`.
-- `DAMAGE_SHIELD` does not name its spell: `spellId` is 0, `spellName` is
-  `nil`, and `spellSchool` is the school of the damage.
+- `DAMAGE_SHIELD` names its spell when the owner of the shield has one
+  damage-shield aura of that school, for example Thorns. Otherwise `spellId`
+  is 0, `spellName` is `nil`, and `spellSchool` is the school of the damage.
 - `DAMAGE_SHIELD_MISSED` with the `missType` `"IMMUNE"` fires for a target
   that is immune to the damage of a damage shield or of a periodic effect.
 - The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
@@ -4765,12 +4766,15 @@ Some values have fixed contents:
   `SPELL_CAST_FAILED`. The mage portals are such spells.
 - The `amount` of an `_AURA_APPLIED_DOSE` or `_AURA_REMOVED_DOSE` is the
   number of stacks after the change.
-- `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` do not name the dispelling spell:
-  `spellId` is 0 and `spellName` is `nil`. The extra spell is the aura that
-  the dispel removed, or did not remove.
-- These events have no source: `ENVIRONMENTAL_DAMAGE`, `SPELL_INSTAKILL`,
-  `UNIT_DIED`, `UNIT_DESTROYED`, and an aura event when the caster of the
-  aura is not known.
+- `SPELL_DISPEL` and `SPELL_DISPEL_FAILED` name the dispelling spell when
+  its cast was seen, for example Dispel Magic or Purge. A dispel from an
+  aura, for example Abolish Poison, has `spellId` 0 and `spellName` `nil`.
+  The extra spell is the aura that the dispel removed, or did not remove.
+- `SPELL_INSTAKILL` has a source when the cast was seen. Otherwise it has
+  none.
+- These events have no source: `ENVIRONMENTAL_DAMAGE`, `UNIT_DIED`,
+  `UNIT_DESTROYED`, and an aura event when the caster of the aura is not
+  known.
 - `SPELL_AURA_REFRESH`, `ENCHANT_APPLIED` and `ENCHANT_REMOVED` do not
   fire.
 - On some servers, `SPELL_INTERRUPT` does not fire for a spell that also

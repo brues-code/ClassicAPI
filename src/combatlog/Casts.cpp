@@ -39,6 +39,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "combatlog/RecentCasts.h"
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
@@ -105,15 +106,20 @@ void SpellStart(CDataStore *p) {
     Queue(e);
 }
 
-// SMSG_SPELL_GO → UnitCombatLogCastGo: an instant cast, at its target.
+// SMSG_SPELL_GO → UnitCombatLogCastGo: an instant cast, at its target. Every
+// cast's hit list also goes to RecentCasts, for the messages that follow it.
 void SpellGo(CDataStore *p) {
     ReadPackedGuid(p);
     const uint64_t caster = ReadPackedGuid(p);
     const int spellId = Read<int32_t>(p);
     const uint16_t flags = Read<uint16_t>(p);
     const int hits = Read<uint8_t>(p);
-    for (int i = 0; i < hits && !Overrun(p); ++i)
-        Read<uint64_t>(p);
+    uint64_t hitList[RecentCasts::MAX_HITS];
+    for (int i = 0; i < hits && !Overrun(p); ++i) {
+        const uint64_t hit = Read<uint64_t>(p);
+        if (i < RecentCasts::MAX_HITS)
+            hitList[i] = hit;
+    }
     const int misses = Read<uint8_t>(p);
     for (int i = 0; i < misses && !Overrun(p); ++i) {
         Read<uint64_t>(p);
@@ -122,7 +128,10 @@ void SpellGo(CDataStore *p) {
     }
     const uint16_t targetMask = Read<uint16_t>(p);
     const uint64_t target = (targetMask & TARGET_FLAG_OBJECT) ? ReadPackedGuid(p) : 0;
-    if (Overrun(p) || (flags & CAST_FLAG_HIDDEN_COMBATLOG) != 0)
+    if (Overrun(p))
+        return;
+    RecentCasts::Record(caster, static_cast<uint32_t>(spellId), hitList, hits);
+    if ((flags & CAST_FLAG_HIDDEN_COMBATLOG) != 0)
         return;
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, caster);
     const uint8_t *spell = SpellRecord(spellId);

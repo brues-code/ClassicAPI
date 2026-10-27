@@ -160,6 +160,10 @@ uint32_t SchoolMask(uint32_t school);
 // Whether one of the spell's three effects is `effect`.
 bool HasEffect(const uint8_t *spell, int effect);
 
+// Whether one of the spell's three effects applies the aura `auraName`
+// (EffectApplyAuraName).
+bool HasAuraEffect(const uint8_t *spell, int auraName);
+
 // GetCombatLogEntry: an entry for `event` from `source` to `dest` (either may
 // be 0), with the spell prefix when `spell` is a record.
 Entry Begin(uint64_t source, uint64_t dest, int event, const uint8_t *spell);
