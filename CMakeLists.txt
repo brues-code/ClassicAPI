@@ -76,7 +76,7 @@ endif()
 add_library(${PROJECT_NAME} SHARED
     ${SOURCES} ${HEADERS} ${TINYCBOR_SOURCES})
 
-# Embed the addons under `AddOns/` and `src/bindings/Bindings.xml` as RCDATA
+# Embed the addons under `src/embed/AddOns/` and `src/bindings/Bindings.xml` as RCDATA
 # resources. The file-read hook in `src/addons/Embedded.cpp` serves the
 # addon files when the engine asks for paths under
 # `Interface\AddOns\<addon>\`, so the addons load even when the user
@@ -86,7 +86,7 @@ add_library(${PROJECT_NAME} SHARED
 include(cmake/embed_resources.cmake)
 embed_resources(
     TARGET ${PROJECT_NAME}
-    ADDONS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/AddOns"
+    ADDONS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/embed/AddOns"
     ADDONS "!!!ClassicAPI" "ClassicAPI_DebugTools"
     ADDON_VERSION "${CLASSICAPI_TOC_VERSION}"
     BINDINGS_XML "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings/Bindings.xml"

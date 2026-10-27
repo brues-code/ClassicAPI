@@ -3809,7 +3809,7 @@ of descriptors feeds the in-game browser, a page generator, and a drift check.
   registration on the first pass of each Lua state, derives systems, and
   exports `C_APIDocumentation.GetSystems()` / `GetSystem(name)` lazily in
   Blizzard's exact table shape, plus `_classicapi_UndocumentedAPI()`.
-- `AddOns/!!!ClassicAPI/APIDocumentation/` — the 8-file port of
+- `src/embed/AddOns/!!!ClassicAPI/APIDocumentation/` — the 8-file port of
   `Blizzard_APIDocumentation`, driven by `/classicapi` (short `/capi`).
   Named for what it documents: the browser holds only ClassicAPI's own
   surface, so `/api` would have over-promised.

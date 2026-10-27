@@ -409,13 +409,15 @@ Download the prebuilt `ClassicAPI.dll` from the
 3. Add `ClassicAPI.dll` to `dlls.txt`.
 4. Launch the game with `VanillaFixes.exe`.
 
-The bundled `!!!ClassicAPI` addon ships *inside* the DLL — no separate
-addon download or install step needed.
+The `!!!ClassicAPI` and `ClassicAPI_DebugTools` addons are *inside* the
+DLL. You do not download or install them. The `src/embed/AddOns/` folder
+in this repository is source code for the DLL. Do not copy it into your
+game.
 
 ## Bundled addon: !!!ClassicAPI
 
 The Lua-side companion library lives in
-[`AddOns/!!!ClassicAPI/`](AddOns/!!!ClassicAPI/). It's a 1.12.1 /
+[`src/embed/AddOns/!!!ClassicAPI/`](src/embed/AddOns/!!!ClassicAPI/). It's a 1.12.1 /
 Lua 5.0 backport of the modern Blizzard helpers that aren't engine
 functions but that consumer code still expects to find as globals —
 `CallbackRegistryMixin`, `EventRegistry`, `ColorMixin` + `CreateColor`,
@@ -426,7 +428,7 @@ commands and `SecureCmdOptionParse`, the parser that reads `[conditions]`
 and `@unit` for them.
 
 **You don't have to install the addon manually** — the DLL embeds
-the contents of [`AddOns/!!!ClassicAPI/`](AddOns/!!!ClassicAPI/) and
+the contents of [`src/embed/AddOns/!!!ClassicAPI/`](src/embed/AddOns/!!!ClassicAPI/) and
 registers them with the engine as a synthetic addon on startup, so
 the library is always available when the DLL is loaded. It fires
 `ADDON_LOADED`, supports `SavedVariables`, and is resolvable by name —
@@ -443,15 +445,12 @@ can't be switched off. Being hidden means it's omitted from the
 index-based `GetNumAddOns()` / `GetAddOnInfo(i)` enumeration, but every
 by-name lookup and dependency reference still resolves normally.
 
-If you drop the folder into your `Interface/AddOns/` directory, **that
-copy's files win** — the DLL's embedded version only serves files when
-the engine's normal scan doesn't already have a newer entry under that
-name. Useful for editing the Lua locally without rebuilding the DLL.
-The hidden + force-enabled treatment applies either way (it's keyed to
-the addon name, not to which copy serves the files), so the local copy
-is also absent from the AddOns list. The dispatch is transparent:
-addons consuming `Mixin`, `ColorMixin`, `TableUtil`, etc. behave
-identically in both cases.
+For development, you can put a copy of the addon folder in
+`Interface/AddOns/` and add an empty `.classicapi-dev` file to it. The
+game then reads the Lua files from that copy, so you can edit them
+without a DLL rebuild. Without this file, the game uses the copy with the
+newer `## Version:`. The copy is hidden and always enabled, the same as
+the embedded addon.
 
 ## Debug tools
 
@@ -469,16 +468,6 @@ that you use one of these commands:
 | `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. |
 | `/tinspect <expr>` (or `/tins`) | Opens the table inspector on the result of `<expr>`. |
 | `/luaerrors` (or `/scripterrors`) | Opens the Lua error window. |
-
-### Print functions
-
-`!!!ClassicAPI` adds these globals:
-
-| Global | Purpose |
-|--------|---------|
-| `print(...)` | Backport of Blizzard's `print`. It joins the arguments with `" "` and sends the result to `DEFAULT_CHAT_FRAME`. It uses the handler from `setprinthandler`. If that handler fails, it uses `geterrorhandler`. |
-| `setprinthandler(func)` / `getprinthandler()` | Sets or gets the print handler. Use it to send print output to a different place in tests. |
-| `tostringall(...)` | Applies `tostring()` to each argument, and keeps the number of arguments. |
 
 ## Building
 

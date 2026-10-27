@@ -1,7 +1,0 @@
-## Interface: 11200
-## Title: AoE Loot Test
-## Notes: Test bed for ClassicAPI's C_Loot.ScanNearbyLoot / LootUnitItem. /aoeloot
-## Dependencies: !!!ClassicAPI
-## Version: DEV
-
-AoELootTest.lua

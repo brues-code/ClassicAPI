@@ -18,7 +18,7 @@
 // basenames; returns nothing (mutation is the contract).
 //
 // Modern WoW's `IconDataProviderMixin` (see
-// `AddOns/!!!ClassicAPI/Util/IconDataProvider.lua`) calls all four
+// `src/embed/AddOns/!!!ClassicAPI/Util/IconDataProvider.lua`) calls all four
 // in this order to assemble its `BaseIconFilenames` cache:
 //
 //     GetLooseMacroIcons(spellList)

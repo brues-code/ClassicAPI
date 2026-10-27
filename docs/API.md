@@ -13719,7 +13719,7 @@ end)
 the next `step` after that many seconds. `yield(0)` is the
 "resume on the next frame" form (since `C_Timer.After(0, ...)`
 fires on the next OnUpdate tick). `RunNextFrame(cb)` in
-[`AddOns/!!!ClassicAPI/Util/FunctionUtil.lua`](../AddOns/!!!ClassicAPI/Util/FunctionUtil.lua)
+[`src/embed/AddOns/!!!ClassicAPI/Util/FunctionUtil.lua`](../src/embed/AddOns/!!!ClassicAPI/Util/FunctionUtil.lua)
 wraps the same primitive for the non-coroutine case.
 
 ## Macros
@@ -22066,7 +22066,7 @@ Scent of Blood to its own length — live in `src/turtle/DurationMods.cpp`, and
 Carnage's roll-gated Rip/Rake refresh in `src/turtle/Carnage.cpp`.
 
 The one rule registered from Lua
-([Util/AuraDurationModifiers.lua](../AddOns/!!!ClassicAPI/Util/AuraDurationModifiers.lua))
+([Util/AuraDurationModifiers.lua](../src/embed/AddOns/!!!ClassicAPI/Util/AuraDurationModifiers.lua))
 is Shadow Weaving: for a 5/5 priest (talent `15334`, where the proc is 100%),
 any shadow-school priest cast refreshes the target's Shadow Vulnerability
 (`15258`). Below 5/5 it's roll-gated and deliberately not inferred — the client
