@@ -6702,7 +6702,7 @@ cd:GetDrawEdge()                -- true
 | `cooldown:GetCooldownDisplayDuration()` | Returns the `duration` that `GetCooldownTimes()` returns, divided by `modRate`. |
 | `cooldown:Pause()` / `cooldown:Resume()` | Stops the sweep at its current position, then starts it again from that position. The flash also stops when you pause it. |
 | `cooldown:SetPaused(paused)` / `cooldown:IsPaused()` | Sets and returns the paused state. A paused frame stays paused when you call `SetCooldown`. The sweep then stays at the position of that start time. |
-| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. With the flag set, the sweep starts full and becomes empty. The end is the same as without the flag. The flag is `false` when the frame is created. |
+| `cooldown:SetReverse(reverse)` / `cooldown:GetReverse()` | Sets and returns the reverse flag. With the flag set, the sweep starts empty and becomes full. At the end, the sweep stays full while the flash plays, so an icon under it stays covered. Then the frame hides. The flag is `false` when the frame is created. |
 | `cooldown:SetDrawEdge(drawEdge)` / `cooldown:GetDrawEdge()` | Sets and returns the draw-edge flag. With the flag set, a bright line moves along the edge of the sweep. The flag is `false` when the frame is created. |
 | `cooldown:SetDrawSwipe(drawSwipe)` / `cooldown:GetDrawSwipe()` | Sets and returns the draw-swipe flag. With the flag cleared, the dark sweep is not drawn. The flag is `true` when the frame is created. |
 | `cooldown:SetDrawBling(drawBling)` / `cooldown:GetDrawBling()` | Sets and returns the draw-bling flag. With the flag cleared, the frame hides at the end without the flash. The flag is `true` when the frame is created. |

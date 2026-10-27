@@ -41,6 +41,13 @@
 // (or a zero-length one) hides without flashing, and a paused frame's clock
 // stands still. Do not "restore" 4.3.4's version of any of them.
 //
+// One look is kept from 4.3.4 across that change: a reverse frame's swipe
+// stays full while its flash plays (4.3.4's flash geometry for reverse, the
+// full fan, with the swipe colour kept). 4.3.4's hold meant a buff icon under
+// a reverse sweep stayed covered until the addon hid it; with the swipe
+// cleared at the flash's first tick, the icon showed bright for the frames
+// between the client-side end and the aura's removal from the server.
+//
 // The methods live in a method hash of their own, exactly like each
 // engine frame class's (Offsets.h "Per-class method hashes"), so only a
 // Cooldown has them, and they reach `self` through the engine's own IsA gate
@@ -386,11 +393,18 @@ void AnimateVerts(void *frame) {
         return;
     }
 
-    // 4.3.4 draws a reverse frame's flash as the full star fan here, but its
-    // reverse never reaches the flash (it holds at the end). Retail's reverse
-    // flashes like any cooldown, and the star is transparent while flashing,
-    // so both directions animate the flash.
-    // On 4.3.4's 1000 ms flash timeline; a modRate shortens the flash itself.
+    // 4.3.4's flash geometry for a reverse frame: the full fan (its reverse
+    // never reaches the flash, but this is what it draws there). The swipe
+    // colour is kept too (UpdateColors), so the icon stays covered until the
+    // frame hides or the addon hides it. Set every tick: a timer already over
+    // at its first update comes here from ResetVerts' zeroed fan.
+    if (f.reverse) {
+        const float start = f.rotation / 6.2831855f;
+        AnimateSweep(f, r, start, start + 1.0f);
+        MapStarTexCoords(f, r);
+    }
+    // Retail's reverse flashes like any cooldown, so both directions animate
+    // the flash, on 4.3.4's 1000 ms timeline; a modRate shortens the flash.
     const float elapsed = static_cast<float>(f.elapsed) * (1000.0f / static_cast<float>(f.duration));
     // The update that ends the flash (elapsed 1000) hides the frame and then
     // animates once more with key 6, where 4.3.4 reads one float past each
@@ -446,7 +460,9 @@ void UpdateColors(void *frame) {
         f.edgeColor = WithAlpha(f.slots[SLOT_EDGE].base, alpha);
         f.flashColor = Bgra(0, 0, 0, 0);
     } else {
-        f.starColor = Bgra(0, 0, 0, 0);
+        // A reverse frame keeps its full swipe under the flash (see the file
+        // header); the edge goes with the flash as in 4.3.4.
+        f.starColor = f.reverse ? WithAlpha(f.slots[SLOT_SWIPE].base, alpha) : Bgra(0, 0, 0, 0);
         f.edgeColor = Bgra(0, 0, 0, 0);
         f.flashColor = WithAlpha(f.slots[SLOT_BLING].base, alpha);
     }
