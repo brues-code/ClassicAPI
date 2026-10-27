@@ -63,6 +63,8 @@
 // OnLoad still fires at the usual point. `method="Name"` does the same with
 // `frame[Name]`, the frame's own field - usually a function from its mixin
 // (Xml::Mixin), which is in place before any node of the frame loads.
+// A script with an `inherit="prepend"` / `"append"` element is left to
+// Xml::ScriptInherit, which runs around this binding.
 //
 // A button's font elements take their font from `style` on later clients
 // (`<NormalFont style="GameFontNormal"/>`) where vanilla reads `inherits`; the
@@ -96,6 +98,7 @@
 #include "xml/Anchors.h"
 #include "xml/KeyValues.h"
 #include "xml/Mixin.h"
+#include "xml/ScriptInherit.h"
 
 #include <cstdint>
 
@@ -207,6 +210,8 @@ void BindScriptFunctions(void *object, const void *node) {
         const bool byFunction = fn != nullptr && *fn != '\0';
         if (script == nullptr || (!byFunction && (method == nullptr || *method == '\0')))
             continue;
+        if (Xml::ScriptInherit::Chained(scripts, script))
+            continue; // Xml::ScriptInherit sets this script
         if (!havePushed) {
             if (!PushWrapper(L, object)) // [frame]
                 break;
@@ -297,7 +302,9 @@ void OnFrameNode(void *object, const void *node, void *status) {
     BindParentKey(object, node);
     BindParentArray(object, node);
     Xml::Anchors::Apply(object, node, status);
+    Xml::ScriptInherit::Apply(object, node);
     BindScriptFunctions(object, node);
+    Xml::ScriptInherit::Capture(object);
     Animation::Xml::LoadAnimations(object, node, status);
 }
 

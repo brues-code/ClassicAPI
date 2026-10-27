@@ -30,7 +30,6 @@ using Lock_t = void(__fastcall *)(void *object, void *edx, const char *name);
 using Unlock_t = void(__fastcall *)(void *object, void *edx, const char *name);
 using BaseResolve_t = uint32_t *(__fastcall *)(void *object, void *edx, const char *name);
 using Release_t = void(__stdcall *)(uint32_t *slot);
-using LuaUnref_t = void(__fastcall *)(void *L, int t, int ref);
 using GetName_t = const char *(__fastcall *)(const void *object);
 
 // 4.3.4's CScriptObject type name, which every class's IsA(name) accepts.

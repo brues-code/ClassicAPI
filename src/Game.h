@@ -313,6 +313,8 @@ using luaL_setn_t = void(__fastcall *)(void *L, int t, int n);
 // returns the key (LUA_REFNIL, -1, for a nil). With REGISTRY_INDEX it anchors
 // a value across calls; read it back with RawGetI(L, REGISTRY_INDEX, ref).
 using luaL_ref_t = int(__fastcall *)(void *L, int t);
+// Releases a key returned by luaL_ref; ignores LUA_REFNIL / LUA_NOREF.
+using luaL_unref_t = void(__fastcall *)(void *L, int t, int ref);
 using lua_checkstack_t = int(__fastcall *)(void *L, int size);
 // Pops the top `n` values and pushes their `..` concatenation; n == 0 pushes
 // "" and n == 1 leaves the value untouched.
@@ -371,6 +373,7 @@ extern const lua_yield_t Yield;
 extern const luaL_argerror_t ArgError;
 extern const luaL_setn_t SetN;
 extern const luaL_ref_t Ref;
+extern const luaL_unref_t Unref;
 extern const lua_checkstack_t CheckStack;
 extern const lua_concat_t Concat;
 

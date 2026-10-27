@@ -96,6 +96,7 @@ namespace Lua {
     F(ArgError,    luaL_argerror,   LUAL_ARG_ERROR)   \
     F(SetN,        luaL_setn,       LUAL_SETN)         \
     F(Ref,         luaL_ref,        LUA_REF_REF)       \
+    F(Unref,       luaL_unref,      LUA_REF_UNREF)     \
     F(CheckStack,  lua_checkstack,  LUA_CHECK_STACK)  \
     F(Concat,      lua_concat,      LUA_CONCAT)
 
