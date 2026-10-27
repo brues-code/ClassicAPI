@@ -68,3 +68,7 @@ function DoesAncestryIncludeAny(ancestry, frames)
     end
     return false;
 end
+
+function GetAppropriateTooltip()
+	return UIParent and GameTooltip or GlueTooltip;
+end

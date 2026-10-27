@@ -25,9 +25,8 @@
 --    name in the row (was tooltip-only before). Time toggle blanks
 --    the time column without re-anchoring frames.
 --
--- New: TableInspector window (see TableInspector.lua) — open via
--- `/tinspect <luaexpr>` with a navigable, breadcrumb-tracked view of
--- any table.
+-- The table inspector (/tinspect, Ctrl in /fstack) is retail's
+-- Blizzard_TableInspector; see TableInspector.lua.
 ------------------------------------------------------------------------------
 
 EVENT_TRACE_EVENT_HEIGHT = 16;
@@ -1046,6 +1045,57 @@ local function _WrapColor(text, colorHex)
     return "|c" .. colorHex .. text .. "|r";
 end
 
+-- Retail's frame highlight: a green cover over a frame, and with showAnchors
+-- a yellow cover over each frame it is anchored to. The table inspector's
+-- Highlight checkbox uses it.
+local function AnchorHighlight(frame, highlight, relativePoint)
+	highlight:ClearAllPoints();
+	highlight:SetAllPoints(frame);
+	highlight:Show();
+
+	if highlight.AnchorPoint then
+		if relativePoint then
+			highlight.AnchorPoint:ClearAllPoints();
+			highlight.AnchorPoint:SetPoint("CENTER", highlight, relativePoint);
+			highlight.AnchorPoint:Show();
+		else
+			highlight.AnchorPoint:Hide();
+		end
+	end
+end
+
+AnchorHighlightMixin = {};
+
+function AnchorHighlightMixin:RetrieveAnchorHighlight(pointIndex)
+	if not self.AnchorHighlights then
+		CreateFrame("FRAME", "FrameStackAnchorHighlightTemplate1", self, "FrameStackAnchorHighlightTemplate");
+	end
+
+	while pointIndex > #self.AnchorHighlights do
+		CreateFrame("FRAME", "FrameStackAnchorHighlightTemplate"..(#self.AnchorHighlights + 1), self, "FrameStackAnchorHighlightTemplate");
+	end
+
+	return self.AnchorHighlights[pointIndex];
+end
+
+function AnchorHighlightMixin:HighlightFrame(baseFrame, showAnchors)
+	AnchorHighlight(baseFrame, self);
+
+	local pointIndex = 1;
+	if (showAnchors and baseFrame.GetNumPoints and baseFrame.GetPoint) then -- TODO: Fix for lines
+		while pointIndex <= baseFrame:GetNumPoints() do
+			local _, anchorFrame, anchorRelativePoint = baseFrame:GetPoint(pointIndex);
+			AnchorHighlight(anchorFrame, self:RetrieveAnchorHighlight(pointIndex), anchorRelativePoint);
+			pointIndex = pointIndex + 1;
+		end
+	end
+
+	while self.AnchorHighlights and self.AnchorHighlights[pointIndex] do
+		self.AnchorHighlights[pointIndex]:Hide();
+		pointIndex = pointIndex + 1;
+	end
+end
+
 function FrameStackTooltip_OnLoad(self)
     DebugTooltip_OnLoad(self);
     self.nextUpdate = 0;
@@ -1076,7 +1126,8 @@ end
 
 function FrameStackTooltip_InspectTable(self)
     if (self.highlightFrame) then
-        TableInspector_Show(self.highlightFrame, self.highlightFrame:GetDebugName());
+        TableAttributeDisplay:InspectTable(self.highlightFrame);
+        TableAttributeDisplay:Show();
     end
 end
 

@@ -8,5 +8,8 @@
 ## SavedVariables: DebugToolsSavedVars
 Dump.lua
 DebugTools.lua
-TableInspector.lua
 DebugTools.xml
+TableInspectorDataProvider.lua
+TableInspectorAnchorDataProvider.xml
+TableInspectorAttributeDataProvider.xml
+TableInspector.xml

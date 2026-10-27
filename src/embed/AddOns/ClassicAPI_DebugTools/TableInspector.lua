@@ -1,331 +1,323 @@
-------------------------------------------------------------------------------
--- TableInspector.lua
+-- Backport of retail's Blizzard_DebugTools/Blizzard_TableInspector.lua.
 --
--- Vanilla 1.12 backport of the modern Blizzard_TableInspector UX,
--- scoped to the "minimal" feature set: one navigable window with a
--- breadcrumb showing the current path, a scrollable list of (key,
--- value) rows for the current table, and click-to-drill / Back-to-pop
--- navigation through sub-tables.
---
--- Trade-offs vs the modern source:
---   * No DataProvider / ScrollBox infrastructure — we use the same
---     fixed-row + slider pattern EventTraceFrame uses (vanilla
---     FauxScrollFrame works too but we already validated the slider
---     approach in this addon).
---   * No anchor / attribute providers, no live polling — open once
---     against the current snapshot.
---   * No multi-tab or pinning — one window, navigate via Back.
---
--- API:
---   TableInspector_Show(tbl, label)   -- open with `tbl` as root, `label` shown in breadcrumb
---   TableInspector_Push(tbl, label)   -- drill in (called by row click)
---   TableInspector_Back()             -- pop one level
---   TableInspector_Refresh()          -- re-read the current level's live table (scroll kept)
---   TableInspector_Close()            -- hide the window
---   /tinspect <luaexpr>               -- evaluate `<luaexpr>` as Lua and open if result is a table
-------------------------------------------------------------------------------
+-- Differences from the retail source:
+--   - 1.12 has no tool windows (ToolWindowOwnerMixin), so an inspector is
+--     always a frame inside the game UI: the GetWindow / MoveToNewWindow
+--     branches are gone.
+--   - The scroll frame is TableInspectorScrollFrameTemplate (end of file).
+--     1.12 sizes the scroll range from the scroll child's own height, so
+--     UpdateLines sets LinesContainer's height to fit the lines.
 
-TABLE_INSPECTOR_ROW_HEIGHT  = 16;
-TABLE_INSPECTOR_NUM_ROWS    = 22;
+TABLE_INSPECTOR_LINE_HEIGHT = 16;
 
-local _TableInspectorFrame;
+local tableInspectorPool = CreateFramePool("FRAME", UIParent, "TableAttributeDisplayTemplate");
 
--- Navigation stack — `{ {tbl=..., label=...}, ... }`. The last entry
--- is the active view. Push when drilling in, pop on Back.
-local _navStack = {};
-
-------------------------------------------------------------------------------
--- Key + value formatting
-------------------------------------------------------------------------------
-
--- Returns three lists: numeric keys (sorted ascending), string keys
--- (sorted), and other-type keys (booleans, tables-as-keys, etc.).
--- The other-type bucket stays unsorted — there's no canonical order
--- across types and these are rare in practice.
-local function _SortedKeys(tbl)
-    local nums, strs, others = {}, {}, {};
-    for k in pairs(tbl) do
-        local t = type(k);
-        if (t == "number") then
-            table.insert(nums, k);
-        elseif (t == "string") then
-            table.insert(strs, k);
-        else
-            table.insert(others, k);
-        end
-    end
-    table.sort(nums);
-    table.sort(strs);
-    return nums, strs, others;
-end
-
--- Returns (displayText, valueType, isDrillable). `isDrillable` is true
--- only for tables (the only type that can be navigated into).
-local function _FormatValue(v)
-    local t = type(v);
-    if (t == "string") then
-        -- Truncate very long strings to keep rows scannable; user can
-        -- always tooltip-hover for the full content if needed.
-        if (string.len(v) > 80) then
-            return string.format('"%s..."', string.sub(v, 1, 77)), "string", false;
-        end
-        return string.format('"%s"', v), "string", false;
-    elseif (t == "number") then
-        return tostring(v), "number", false;
-    elseif (t == "boolean") then
-        return v and "true" or "false", "boolean", false;
-    elseif (t == "table") then
-        return tostring(v), "table", true;
-    elseif (t == "function") then
-        return tostring(v), "function", false;
-    elseif (t == "userdata") then
-        return tostring(v), "userdata", false;
-    end
-    return tostring(v), t, false;
-end
-
-local _TYPE_COLORS = {
-    ["string"]   = { 1.00, 0.75, 0.40 },
-    ["number"]   = { 0.60, 0.85, 1.00 },
-    ["boolean"]  = { 0.70, 0.70, 1.00 },
-    ["table"]    = { 0.60, 1.00, 0.60 },
-    ["function"] = { 1.00, 0.60, 0.60 },
-    ["userdata"] = { 1.00, 0.60, 0.60 },
+local DEFAULT_DATA_PROVIDERS = {
+	TableInspectorAnchorDataProviderMixin,
+	TableInspectorAttributeDataProviderMixin,
 };
 
-local function _ValueColor(t)
-    local c = _TYPE_COLORS[t];
-    if (c) then return c[1], c[2], c[3]; end
-    return 1, 1, 1;
+TableInspectorMixin = {};
+
+function TableInspectorMixin:OnLoad()
+	self:Reset();
 end
 
-local function _FormatKey(k)
-    local t = type(k);
-    if (t == "string") then return k; end
-    if (t == "number") then return string.format("[%d]", k); end
-    return string.format("[%s]", tostring(k));
+function TableInspectorMixin:SetTableFocusedCallback(tableFocusedCallback)
+	self.tableFocusedCallback = tableFocusedCallback;
 end
 
-------------------------------------------------------------------------------
--- View state — manages the flattened (key, value) list for the active
--- table. Rebuilt on push / pop, not on every Update tick.
-------------------------------------------------------------------------------
+function TableInspectorMixin:Reset()
+	self:RemoveAllDataProviders();
+	for i, dataProvider in ipairs(DEFAULT_DATA_PROVIDERS) do
+		local dataProviderInstance = CreateFromMixins(dataProvider);
+		dataProviderInstance:Initialize(self, self.LinesScrollFrame.LinesContainer);
+		self:AddDataProvider(dataProviderInstance);
+	end
 
--- Cached array of (key, value) tuples for the active table, in the
--- sort order returned by _SortedKeys. Re-derived on every navigation
--- change so the rows can be rendered by simple `entries[scroll + i]`
--- indexing instead of walking `pairs()` mid-frame.
-local _entries = {};
+	if self.lines then
+		wipe(self.lines);
+	else
+		self.lines = {};
+	end
 
-local function _RebuildEntries()
-    _entries = {};
-    local top = _navStack[table.getn(_navStack)];
-    if (not top or type(top.tbl) ~= "table") then return; end
-    local nums, strs, others = _SortedKeys(top.tbl);
-    for i = 1, table.getn(nums) do
-        local k = nums[i];
-        table.insert(_entries, { key = k, value = top.tbl[k] });
-    end
-    for i = 1, table.getn(strs) do
-        local k = strs[i];
-        table.insert(_entries, { key = k, value = top.tbl[k] });
-    end
-    for i = 1, table.getn(others) do
-        local k = others[i];
-        table.insert(_entries, { key = k, value = top.tbl[k] });
-    end
+	if self.tableNavigation then
+		wipe(self.tableNavigation);
+	else
+		self.tableNavigation = {};
+	end
+
+	self.tableNavigationIndex = 0;
 end
 
-local function _Breadcrumb()
-    local parts = {};
-    for i = 1, table.getn(_navStack) do
-        table.insert(parts, _navStack[i].label or "?");
-    end
-    return table.concat(parts, " > ");
+function TableInspectorMixin:OnHide()
+	tableInspectorPool:Release(self);
 end
 
-------------------------------------------------------------------------------
--- Public API
-------------------------------------------------------------------------------
+function TableInspectorMixin:AddDataProvider(dataProvider)
+	if not self.dataProviders then
+		self.dataProviders = {};
+	end
 
-function TableInspector_Show(tbl, label)
-    if (type(tbl) ~= "table") then
-        DEFAULT_CHAT_FRAME:AddMessage(
-            "|cffff8888TableInspector: argument is not a table|r");
-        return;
-    end
-    _navStack = { { tbl = tbl, label = label or tostring(tbl) } };
-    _RebuildEntries();
-    if (_TableInspectorFrame) then
-        _TableInspectorFrame:Show();
-        TableInspectorFrame_Update();
-    end
+	table.insert(self.dataProviders, dataProvider);
 end
 
-function TableInspector_Push(tbl, label)
-    if (type(tbl) ~= "table") then return; end
-    table.insert(_navStack, { tbl = tbl, label = label or tostring(tbl) });
-    _RebuildEntries();
-    -- Reset scroll to top so the user starts at the beginning of the
-    -- newly-drilled table.
-    local scroll = getglobal("TableInspectorFrameScroll");
-    if (scroll) then scroll:SetValue(0); end
-    TableInspectorFrame_Update();
+function TableInspectorMixin:ClearData()
+	if not self.dataProviders then
+		return;
+	end
+
+	for _, dataProvider in ipairs(self.dataProviders) do
+		dataProvider:Clear(self.focusedTable);
+	end
 end
 
-function TableInspector_Back()
-    if (table.getn(_navStack) <= 1) then
-        TableInspector_Close();
-        return;
-    end
-    table.remove(_navStack);
-    _RebuildEntries();
-    local scroll = getglobal("TableInspectorFrameScroll");
-    if (scroll) then scroll:SetValue(0); end
-    TableInspectorFrame_Update();
+function TableInspectorMixin:RemoveAllDataProviders()
+	if self.dataProviders then
+		wipe(self.dataProviders);
+	end
 end
 
-function TableInspector_Refresh()
-    local top = _navStack[table.getn(_navStack)];
-    if (not top or type(top.tbl) ~= "table") then return; end
-    _RebuildEntries();
-    TableInspectorFrame_Update();
+function TableInspectorMixin:RefreshAllData()
+	if self.dataProviders then
+		for _, dataProvider in ipairs(self.dataProviders) do
+			dataProvider:RefreshData(self.focusedTable);
+		end
+	end
 end
 
-function TableInspector_Close()
-    if (_TableInspectorFrame) then _TableInspectorFrame:Hide(); end
-    _navStack = {};
-    _entries = {};
+function TableInspectorMixin:UpdateLines()
+	if not self.dataProviders then
+		return;
+	end
+
+	self.lines = {};
+
+	local previousLine = nil;
+	for _, dataProvider in ipairs(self.dataProviders) do
+		dataProvider:HideAllLines();
+		local lines = dataProvider:GetLines(self.FilterBox:GetText());
+		for _, line in ipairs(lines) do
+			table.insert(self.lines, line);
+			if previousLine then
+				line:SetPoint("TOPLEFT", previousLine, "BOTTOMLEFT", 0, 0);
+			else
+				line:SetPoint("TOPLEFT", self.LinesScrollFrame.LinesContainer, "TOPLEFT", 0, 0);
+			end
+
+			previousLine = line;
+			line:Show();
+		end
+	end
+
+	local linesContainer = self.LinesScrollFrame.LinesContainer;
+	linesContainer:SetHeight(math.max(#self.lines * TABLE_INSPECTOR_LINE_HEIGHT, 1));
+	self.LinesScrollFrame:UpdateScrollChildRect();
 end
 
-------------------------------------------------------------------------------
--- Frame scripts (called from TableInspector XML in DebugTools.xml)
-------------------------------------------------------------------------------
-
-function TableInspectorFrame_OnLoad(self)
-    self.rows = {};
-    _TableInspectorFrame = self;
-
-    self:EnableMouse(true);
-    self:EnableMouseWheel(true);
-    self:SetScript("OnMouseWheel", function()
-        TableInspectorFrame_OnMouseWheel(this, arg1);
-    end);
-
-    for i = 1, TABLE_INSPECTOR_NUM_ROWS do
-        local row = CreateFrame("Button", "TableInspectorFrameRow" .. i, self,
-                                "TableInspectorRowTemplate");
-        row:SetPoint("TOPLEFT", 12, -(56 + (i - 1) * TABLE_INSPECTOR_ROW_HEIGHT));
-        row:SetPoint("RIGHT", -28, 0);
-        row.rowIndex = i;
-        table.insert(self.rows, row);
-    end
+function TableInspectorMixin:OpenParentDisplay()
+	local parent = self.focusedTable.GetParent and self.focusedTable:GetParent() or nil;
+	if parent then
+		self:InspectTable(parent);
+	end
 end
 
-function TableInspectorFrame_Update()
-    if (not _TableInspectorFrame or not _TableInspectorFrame.rows) then return; end
-
-    local scroll = getglobal("TableInspectorFrameScroll");
-    if (not scroll) then return; end
-
-    local total = table.getn(_entries);
-    local visible = TABLE_INSPECTOR_NUM_ROWS;
-    local maxOffset = math.max(0, total - visible);
-    scroll:SetMinMaxValues(0, maxOffset);
-    local offset = math.floor(scroll:GetValue() + 0.5);
-    if (offset > maxOffset) then offset = maxOffset; end
-    if (offset < 0) then offset = 0; end
-
-    -- Update breadcrumb each tick — cheap (string concat over a tiny
-    -- nav stack) and avoids a separate "breadcrumb changed" signal.
-    local crumb = getglobal("TableInspectorFrameBreadcrumb");
-    if (crumb) then
-        crumb:SetText(_Breadcrumb() .. string.format("  (%d entries)", total));
-    end
-
-    for i = 1, visible do
-        local row = _TableInspectorFrame.rows[i];
-        local entry = _entries[offset + i];
-        if (entry) then
-            local keyFS = getglobal(row:GetName() .. "Key");
-            local valFS = getglobal(row:GetName() .. "Value");
-            keyFS:SetText(_FormatKey(entry.key));
-            local disp, vt, drillable = _FormatValue(entry.value);
-            valFS:SetText(disp);
-            valFS:SetTextColor(_ValueColor(vt));
-            row.entryKey = entry.key;
-            row.entryValue = entry.value;
-            row.drillable = drillable;
-            row:Show();
-        else
-            row.entryKey = nil;
-            row.entryValue = nil;
-            row.drillable = false;
-            row:Hide();
-        end
-    end
+function TableInspectorMixin:CanNavigateBackward()
+	return self.tableNavigationIndex > 1;
 end
 
-function TableInspectorFrame_OnMouseWheel(self, delta)
-    local scroll = getglobal("TableInspectorFrameScroll");
-    if (not scroll) then return; end
-    local mn, mx = scroll:GetMinMaxValues();
-    local v = scroll:GetValue() - delta * 3;
-    if (v < mn) then v = mn; end
-    if (v > mx) then v = mx; end
-    scroll:SetValue(v);
+function TableInspectorMixin:NavigateBackward()
+	if self:CanNavigateBackward() then
+		self.tableNavigationIndex = self.tableNavigationIndex - 1;
+		self:InspectTable(self.tableNavigation[self.tableNavigationIndex]);
+	end
 end
 
-function TableInspectorRow_OnClick(self)
-    if (not self.drillable or type(self.entryValue) ~= "table") then return; end
-    TableInspector_Push(self.entryValue, _FormatKey(self.entryKey));
+function TableInspectorMixin:CanNavigateForward()
+	return self.tableNavigationIndex < #self.tableNavigation;
 end
 
-------------------------------------------------------------------------------
--- Slash command — /tinspect <luaexpr>
---
--- Evaluates `<luaexpr>` in a fresh chunk with `return ` prefixed, so
--- bare expressions (`_G`, `GameTooltip`, `MyAddOn.foo`) work without
--- the user having to write `return ...` themselves.
-------------------------------------------------------------------------------
-
-local function _ChatErr(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cffff8888TableInspector:|r " .. msg);
+function TableInspectorMixin:NavigateForward()
+	if self:CanNavigateForward() then
+		self.tableNavigationIndex = self.tableNavigationIndex + 1;
+		self:InspectTable(self.tableNavigation[self.tableNavigationIndex]);
+	end
 end
 
-function TableInspector_HandleSlashCmd(msg)
-    if (not msg) then msg = ""; end
-    msg = string.gsub(msg, "^%s*(.-)%s*$", "%1"); -- trim
-    if (msg == "" or msg == "help") then
-        DEFAULT_CHAT_FRAME:AddMessage(
-            "|cff88ff88/tinspect|r <expr> -- open inspector on the result of <expr>");
-        DEFAULT_CHAT_FRAME:AddMessage("  example: /tinspect _G");
-        DEFAULT_CHAT_FRAME:AddMessage("  example: /tinspect ChatTypeInfo");
-        return;
-    end
-    if (msg == "close") then
-        TableInspector_Close();
-        return;
-    end
-    local chunk, parseErr = loadstring("return " .. msg);
-    if (not chunk) then
-        _ChatErr("parse error: " .. tostring(parseErr));
-        return;
-    end
-    -- Run in the global environment so the user's expression sees
-    -- the usual addon globals. setfenv on the loadstring chunk
-    -- defaults to that already in vanilla, but be explicit.
-    setfenv(chunk, getfenv(0));
-    local ok, result = pcall(chunk);
-    if (not ok) then
-        _ChatErr("eval error: " .. tostring(result));
-        return;
-    end
-    if (type(result) ~= "table") then
-        _ChatErr(string.format(
-            "result is %s (%s), expected table",
-            type(result), tostring(result)));
-        return;
-    end
-    TableInspector_Show(result, msg);
+function TableInspectorMixin:DuplicateAttributeDisplay()
+	local copy = DisplayTableInspectorWindow(self.focusedTable);
+	copy:ClearAllPoints();
+	local point, parent, relativePoint, xOffset, yOffset = self:GetPoint(1);
+	copy:SetPoint(point, parent, relativePoint, xOffset + 60, yOffset + 60);
+	copy:Show();
+	return copy;
+end
+
+function TableInspectorMixin:SetFocusedFrameShown(shown)
+	if self.focusedTable and self.focusedTable.SetShown then
+		self.focusedTable:SetShown(shown);
+	end
+end
+
+function TableInspectorMixin:SetDynamicUpdates(enabled)
+	if enabled then
+		self:SetScript("OnUpdate", function()
+			self:RefreshAllData();
+			self:UpdateLines();
+		end);
+		self.DynamicUpdateButton:SetChecked(true);
+	else
+		self:SetScript("OnUpdate", nil);
+		self.DynamicUpdateButton:SetChecked(false);
+	end
+end
+
+function TableInspectorMixin:UpdateFocusedHighlight()
+	if self.focusedTable and self.focusedTable.GetDebugName and self.HighlightButton:GetChecked() then
+		self.FrameHighlight:Show();
+		self.FrameHighlight:HighlightFrame(self.focusedTable);
+	else
+		self.FrameHighlight:Hide();
+	end
+end
+
+function TableInspectorMixin:SelectTable(selectedTable, selectedTableTitle)
+	self:InspectTable(selectedTable, self.TitleButton.Text:GetText().." - "..selectedTableTitle);
+end
+
+function TableInspectorMixin:UpdateTableNavigation(newFocusedTable)
+	-- We've branched to a new direction
+	if newFocusedTable ~= self.tableNavigation[self.tableNavigationIndex] then
+		for i = self.tableNavigationIndex + 1, #self.tableNavigation do
+			self.tableNavigation[i] = nil;
+		end
+
+		table.insert(self.tableNavigation, newFocusedTable);
+		self.tableNavigationIndex = #self.tableNavigation;
+	end
+
+	self.NavigateBackwardButton:SetEnabled(self:CanNavigateBackward());
+	self.NavigateForwardButton:SetEnabled(self:CanNavigateForward());
+end
+
+function TableInspectorMixin:InspectTable(focusedTable, title)
+	self.LinesScrollFrame:SetVerticalScroll(0);
+	self.FilterBox:SetText("");
+	self.FilterBox:ClearFocus();
+	self:UpdateTableNavigation(focusedTable);
+	self.OpenParentButton:SetEnabled(focusedTable and focusedTable.GetParent and focusedTable:GetParent());
+	self.focusedTable = focusedTable;
+	if not focusedTable then
+		self:ClearData();
+		self.TitleButton.Text:SetText("No Table Selected");
+		return;
+	end
+
+	if focusedTable.SetShown then
+		self.VisibilityButton:SetChecked(focusedTable:IsShown());
+		self.VisibilityButton:Enable();
+		self:UpdateFocusedHighlight();
+		self.HighlightButton:Enable();
+	else
+		self.VisibilityButton:Disable();
+		self.HighlightButton:Disable();
+		self.FrameHighlight:Hide();
+	end
+
+	if not title then
+		if focusedTable.GetDebugName then
+			title = "Frame Attributes - "..focusedTable:GetDebugName();
+		else
+			title = "Table Attributes";
+		end
+	end
+
+	self.TitleButton.Text:SetText(title);
+
+	self:RefreshAllData();
+	self:UpdateLines();
+
+	if self.tableFocusedCallback then
+		self.tableFocusedCallback(selectedTable);
+	end
+end
+
+function TableAttributeDisplayDuplicateButton_OnClick(self)
+	self:GetParent():DuplicateAttributeDisplay();
+end
+
+function TableAttributeDisplayParentButton_OnClick(self)
+	self:GetParent():OpenParentDisplay();
+end
+
+function TableAttributeDisplayNavigateBackwardButton_OnClick(self)
+	self:GetParent():NavigateBackward();
+end
+
+function TableAttributeDisplayNavigateForwardButton_OnClick(self)
+	self:GetParent():NavigateForward();
+end
+
+function TableAttributeDisplayVisibilityButton_OnClick(self)
+	self:GetParent():SetFocusedFrameShown(self:GetChecked());
+end
+
+function TableAttributeDisplayDynamicUpdateButton_OnClick(self)
+	self:GetParent():SetDynamicUpdates(self:GetChecked());
+end
+
+function TableAttributeDisplayHighlightButton_OnClick(self)
+	self:GetParent():UpdateFocusedHighlight();
+end
+
+function TableInspectorFilterBox_OnEnterPressed(self)
+	self:ClearFocus();
+end
+
+function TableInspectorFilterBox_OnTextChanged(self)
+	self:GetParent():UpdateLines();
+end
+
+function DisplayTableInspectorWindow(focusedTable, customTitle, tableFocusedCallback)
+	local attributeDisplay = tableInspectorPool:Acquire();
+	attributeDisplay:OnLoad();
+	attributeDisplay:SetTableFocusedCallback(tableFocusedCallback);
+	attributeDisplay:SetPoint("LEFT", 64 + math.random(0, 64), math.random(0, 64));
+	attributeDisplay:InspectTable(focusedTable, customTitle);
+	attributeDisplay:Show();
+	return attributeDisplay;
+end
+
+-- The 1.12 stand-in for retail's ScrollFrameTemplate: a ScrollFrame with a
+-- Slider at self.ScrollBar, both unnamed so that every inspector window gets
+-- its own. The bar hides while there is nothing to scroll, as retail's
+-- scrollBarHideIfUnscrollable does.
+TableInspectorScrollFrameMixin = {};
+
+function TableInspectorScrollFrameMixin:OnLoad()
+	self.ScrollBar:SetMinMaxValues(0, 0);
+	self.ScrollBar:SetValue(0);
+	self.ScrollBar:Hide();
+end
+
+function TableInspectorScrollFrameMixin:OnScrollRangeChanged(xRange, yRange)
+	yRange = yRange or self:GetVerticalScrollRange();
+	self.ScrollBar:SetMinMaxValues(0, yRange);
+	self.ScrollBar:SetShown(yRange > 0);
+	if self:GetVerticalScroll() > yRange then
+		self:SetVerticalScroll(yRange);
+	end
+end
+
+function TableInspectorScrollFrameMixin:OnVerticalScroll(offset)
+	self.ScrollBar:SetValue(offset);
+end
+
+function TableInspectorScrollFrameMixin:OnMouseWheel(delta)
+	local offset = self:GetVerticalScroll() - delta * TABLE_INSPECTOR_LINE_HEIGHT * 3;
+	self:SetVerticalScroll(Clamp(offset, 0, self:GetVerticalScrollRange()));
+end
+
+function TableInspectorScrollBar_OnValueChanged(self, value)
+	self:GetParent():SetVerticalScroll(value);
 end

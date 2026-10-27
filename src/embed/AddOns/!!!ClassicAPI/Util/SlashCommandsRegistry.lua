@@ -1032,8 +1032,25 @@ end
 SLASH_ETRACE1 = "/etrace";
 
 SlashCmdList["TINSPECT"] = function(msg)
-	if ( LoadDebugTools() ) then
-		TableInspector_HandleSlashCmd(msg);
+	if ( not LoadDebugTools() ) then
+		return;
+	end
+
+	local focusedTable = nil;
+	if msg ~= "" and msg ~= " " then
+		local focusedFunction = loadstring(("return %s"):format(msg));
+		focusedTable = focusedFunction and focusedFunction();
+	end
+
+	if focusedTable and type(focusedTable) == "table" then
+		DisplayTableInspectorWindow(focusedTable);
+	else
+		local highlightFrame = FrameStackTooltip:SetFrameStack();
+		if highlightFrame then
+			DisplayTableInspectorWindow(highlightFrame);
+		else
+			DisplayTableInspectorWindow(UIParent);
+		end
 	end
 end
 SLASH_TINSPECT1 = "/tinspect";

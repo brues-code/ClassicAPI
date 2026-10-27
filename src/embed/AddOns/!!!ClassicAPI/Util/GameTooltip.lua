@@ -90,3 +90,15 @@ function GameTooltip_ShowCompareItem(self, shift)
 		end
 	end
 end
+
+function GameTooltip_AddNormalLine(tooltip, text, wrap, leftOffset)
+	GameTooltip_AddColoredLine(tooltip, text, NORMAL_FONT_COLOR, wrap, leftOffset);
+end
+
+function GameTooltip_AddColoredLine(tooltip, text, color, wrap, leftOffset)
+	local r, g, b = color:GetRGB();
+	if wrap == nil then
+		wrap = true;
+	end
+	tooltip:AddLine(text, r, g, b, wrap, leftOffset);
+end

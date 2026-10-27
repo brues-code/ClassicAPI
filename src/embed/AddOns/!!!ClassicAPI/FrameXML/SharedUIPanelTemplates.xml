@@ -1,0 +1,25 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!-- Two templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml. -->
+	<Script file="SharedUIPanelTemplates.lua"/>
+
+	<Frame name="TruncatedTooltipScriptTemplate" virtual="true">
+		<Scripts>
+			<OnEnter function="TruncatedTooltipScript_OnEnter"/>
+			<OnLeave function="TruncatedTooltipScript_OnLeave"/>
+		</Scripts>
+	</Frame>
+
+	<Button name="PanelDragBarTemplate" mixin="PanelDragBarMixin" virtual="true">
+		<KeyValues>
+			<!-- If true, will show the move cursor when hovering the bar, rather than only when dragged -->
+			<KeyValue key="showCursorOnHover" value="false" type="boolean"/>
+		</KeyValues>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnDragStart method="OnDragStart"/>
+			<OnDragStop method="OnDragStop"/>
+		</Scripts>
+	</Button>
+</Ui>

@@ -65,6 +65,8 @@ Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
 
+FrameXML\SharedUIPanelTemplates.xml
+
 Options\Panel.lua
 
 APIDocumentation\BaseAPIMixin.lua
