@@ -250,8 +250,9 @@
 				<FontString inherits="ChatFontNormal"/>
 			</EditBox>
 			<Button parentKey="CloseButton" inherits="UIPanelCloseButton">
+				<Size x="24" y="24"/>
 				<Anchors>
-					<Anchor point="TOPRIGHT" x="-2" y="-2"/>
+					<Anchor point="TOPRIGHT" x="-4" y="-2"/>
 				</Anchors>
 			</Button>
 			<Button parentKey="TitleButton" inherits="TruncatedTooltipScriptTemplate, PanelDragBarTemplate">
