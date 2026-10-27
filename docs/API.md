@@ -4160,20 +4160,27 @@ the same bit-packed encoding Blizzard's FrameXML
 | `0x00100000` (PLAYER) | Item is in a player slot (equipped or in a player bag) |
 | `0x00200000` (BAGS)   | Item is inside a bag (player or bank) |
 | `0x00400000` (BANK)   | Item is in the bank (main or bank bag) |
-| bits 0..7             | Slot (1-based) within the container |
+| bits 0..7             | Slot. Inside a bag, the 1-based slot in that bag. Otherwise, the inventory slot ID |
 | bits 8..15            | Bag index — present only when BAGS bit is set |
 
 PLAYER and BANK are **mutually exclusive** in the encoding (the
 unpack uses `if player elseif bank`). Bank bags subtract 4 from the
-bagID before storing so the field fits cleanly; unpack reverses this
+bagID before storing so the field fits cleanly. Unpack reverses this
 to give back bag IDs 5..10. Composition:
 
 | Location | Bits | Example |
 |----------|------|---------|
 | Equipped (paperdoll slot 1..19) | `PLAYER | slot` | `0x100007` = legs (slot 7) |
 | Backpack / player bag 1..4 | `PLAYER | BAGS | (bag<<8) | slot` | `0x300205` = bag 2 slot 5 |
-| Main bank slot 1..28 | `BANK | slot` | `0x400003` = bank slot 3 |
+| Main bank slot 1..24 | `BANK | invSlot` | `0x40002A` = bank slot 3 (inventory slot 42) |
 | Bank bag 5..10 | `BANK | BAGS | ((bag-4)<<8) | slot` | `0x600101` = bank bag 5 slot 1 |
+
+A main-bank code holds the inventory slot ID, not the bank slot
+number. This is the value that `BankButtonIDToInvSlotID(bankSlot)`
+returns: bank slot N is inventory slot 39 + N. A location without the
+BAGS bit therefore goes straight to `GetInventoryItemLink("player", slot)`,
+the same way the Blizzard helper `EquipmentManager_GetItemInfoByLocation`
+reads it.
 
 Special values returned in the table entry:
 - `0` — the set saved the slot as empty

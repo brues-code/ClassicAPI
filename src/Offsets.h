@@ -5127,6 +5127,15 @@ enum Offsets {
     // BAG3 = 22, BAG4 = 23. Used to map a Lua bagID (1..4) onto the
     // equipment slot the bag occupies: `equipSlot = INVSLOT_BAG1 + bagID - 1`.
     INVSLOT_BAG1 = 20,
+    // First main-bank inventory slot id. `Script_BankButtonIDToInvSlotID`
+    // (0x004F8530, benilla-re verified) returns `id + 39`, so bank slot N
+    // is inventory slot 39 + N: 40..63 for the 24 main-bank slots (linear
+    // 39..62 + 1, the same `linear + 1` rule behind INVSLOT_BAG1 = 20).
+    // The equipment-set location code for a main-bank item carries this
+    // id — `BANK | invSlot`, as 4.3.4's `Script_GetEquipmentSetLocations`
+    // packs it (`i + 0x400001` over linear `i`) and as FrameXML's
+    // `EquipmentManager_GetItemInfoByLocation` consumes it.
+    INVSLOT_BANK1 = 40,
     BACKPACK_NUM_SLOTS = 16,
 
     // ItemClass.dbc — standard 5-DWORD class shape. Records is an array of

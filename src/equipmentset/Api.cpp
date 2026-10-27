@@ -362,15 +362,19 @@ bool PlayerInCombat() {
 
 // The Lua bagID and 1-based slot of a bag or bank location code (see
 // Set.h's pack helpers): 0..4 player bags, -1 main bank, 5..10 bank bags.
+// A main-bank code carries the inventory slot id, so it comes back
+// through `INVSLOT_BANK1` to the 1-based slot `Item::Swap::FromBag` takes.
 void UnpackContainer(int loc, int *bagID, int *slot) {
     *slot = loc & LOC_SLOT_MASK;
     const int bag = (loc >> LOC_BAG_SHIFT) & 0xFF;
-    if ((loc & LOC_BANK) == 0)
+    if ((loc & LOC_BANK) == 0) {
         *bagID = bag;
-    else if ((loc & LOC_BAGS) == 0)
+    } else if ((loc & LOC_BAGS) == 0) {
         *bagID = -1;
-    else
+        *slot = *slot - Offsets::INVSLOT_BANK1 + 1;
+    } else {
         *bagID = bag + BANK_BAG_OFFSET;
+    }
 }
 
 int __fastcall Script_UseEquipmentSet(void *L) {

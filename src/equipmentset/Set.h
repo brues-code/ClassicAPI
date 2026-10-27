@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "Offsets.h"
 #include "event/Custom.h"
 
 #include <cstdint>
@@ -74,12 +75,14 @@ inline bool SwapsInCombat(int slot1Based) { return slot1Based >= 16 && slot1Base
 // `EquipmentManager_UnpackLocation` (constants are in
 // `Constants.lua`: `ITEM_INVENTORY_LOCATION_*` and
 // `ITEM_INVENTORY_BAG_BIT_OFFSET`). Verified against the Classic Era
-// 1.15.x install at `_classic_/BlizzardInterfaceCode/`.
+// 1.15.x install at `_classic_/BlizzardInterfaceCode/` and 4.3.4's
+// `Script_GetEquipmentSetLocations` (3.3.5 packs identically).
 //
 //   bit 20 (0x00100000)  PLAYER — local player paperdoll/bags
 //   bit 21 (0x00200000)  BAGS   — inside a bag (player or bank)
 //   bit 22 (0x00400000)  BANK   — main bank or bank bag
-//   bits 0..7            slot   — 1-based slot within the container
+//   bits 0..7            slot   — 1-based slot within the bag when BAGS
+//                                 is set, else the INVENTORY slot id
 //   bits 8..15           bag    — bag index (only when BAGS bit set)
 //
 // Composition by source — note PLAYER and BANK are **mutually
@@ -88,13 +91,22 @@ inline bool SwapsInCombat(int slot1Based) { return slot1Based >= 16 && slot1Base
 // remainder):
 //   equipped (paperdoll)  → PLAYER         | slot
 //   backpack / player bag → PLAYER | BAGS  | (bag << 8)         | slot   (bag 0..4)
-//   main bank             → BANK           | slot                          (slot 1..28)
+//   main bank             → BANK           | invSlot                       (invSlot 40..63)
 //   bank bag              → BANK   | BAGS  | ((bagID - 4) << 8) | slot   (bagID 5..10)
 //
 // The `bagID - 4` shift on bank bags lets unpack store an internal
 // 1..6 in the field, then add `ITEM_INVENTORY_BANK_BAG_OFFSET` (= 4)
 // back at unpack time to recover bag 5..10. Same scheme the engine
 // uses natively.
+//
+// The main-bank slot field is the INVENTORY slot id, not the 1-based
+// bank slot. The engine packs `linear + 1` (4.3.4 pushes `i + 0x400001`
+// over linear 39..66), which is exactly what `BankButtonIDToInvSlotID`
+// (`0x4F8530`: id + 39) hands FrameXML. FrameXML depends on it: a
+// location without the BAGS bit goes straight to
+// `GetInventoryItemID("player", slot)` in
+// `EquipmentManager_GetItemInfoByLocation`, so a bare bank slot number
+// would read the paperdoll instead.
 constexpr int LOC_PLAYER = 0x00100000;
 constexpr int LOC_BAGS = 0x00200000;
 constexpr int LOC_BANK = 0x00400000;
@@ -107,8 +119,10 @@ inline int PackBag(int bag, int slot) {
     return LOC_PLAYER | LOC_BAGS | ((bag & 0xFF) << LOC_BAG_SHIFT) |
            (slot & LOC_SLOT_MASK);
 }
-inline int PackMainBank(int slot) {
-    return LOC_BANK | (slot & LOC_SLOT_MASK);
+// `bankSlot` is the 1-based main-bank slot (1..24); the field carries
+// its inventory slot id (`INVSLOT_BANK1 + bankSlot - 1`).
+inline int PackMainBank(int bankSlot) {
+    return LOC_BANK | ((Offsets::INVSLOT_BANK1 + bankSlot - 1) & LOC_SLOT_MASK);
 }
 inline int PackBankBag(int bagID, int slot) {
     const int internalBag = bagID - BANK_BAG_OFFSET; // 5..10 → 1..6
