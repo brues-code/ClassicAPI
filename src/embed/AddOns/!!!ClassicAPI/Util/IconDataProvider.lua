@@ -21,7 +21,6 @@
 --
 -- Implementation differences from the modern source:
 --
---   * `EnumUtil.MakeEnum` is inlined as a plain table.
 --   * Modern's `C_SpecializationInfo.GetTalentInfo(query)` (Cata+
 --     spec-aware talent API) and `GetPvpTalentInfoByID` (MoP+ PvP
 --     talents) are replaced with vanilla's `GetTalentInfo(tab, idx)`
@@ -84,8 +83,7 @@ end
 
 IconDataProviderMixin = {}
 
--- `EnumUtil.MakeEnum("Spell", "Item")` produces `{ Spell = 1, Item = 2 }`.
-IconDataProviderIconType = { Spell = 1, Item = 2 }
+IconDataProviderIconType = EnumUtil.MakeEnum("Spell", "Item")
 
 IconDataProviderExtraType = {
     Spellbook = 1,

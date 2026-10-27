@@ -52,4 +52,14 @@ struct AutoSubscribe {
     AutoSubscribe *next;
 };
 
+// The `elapsed` the current frame pass hands to every frame's per-frame
+// update — the value `OnUpdate` receives. Latched on entry to the render
+// callback, before any `OnUpdate` runs, so every reader in the pass sees its
+// own frame's delta. Code that runs earlier in the engine tick (timers,
+// packets and their events, the world tick and `C_Timer`) runs before the
+// pass and sees the previous pass's delta. The engine keeps no persisting
+// copy: its accumulator `DAT_00885608` is zeroed once the pass presents.
+// 0 before the first pass.
+float Elapsed();
+
 } // namespace Tick::FrameTick

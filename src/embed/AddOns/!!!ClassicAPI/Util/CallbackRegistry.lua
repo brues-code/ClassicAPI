@@ -7,7 +7,6 @@
 --     lazily inside RegisterCallback instead.
 --   - securecallfunction/secureexecuterange don't exist; they reduce to
 --     direct calls / explicit for-loops here.
---   - EnumUtil.MakeEnum is inlined as a plain string table.
 --   - GenerateClosure doesn't exist in 1.12; provide a local one that
 --     captures registration-time varargs via SafePack-style storage.
 --   - Lua 5.0 has no select() or `wipe()`; we use the implicit `arg`
@@ -15,7 +14,7 @@
 
 local generateOwnerID = CreateCounter()
 
-local CallbackType = { Closure = "Closure", Function = "Function" }
+local CallbackType = EnumUtil.MakeEnum("Closure", "Function")
 
 -- Local GenerateClosure: binds `func` plus all of `...` so a later call
 -- invokes func(boundArgs..., callArgs...). Mirrors 3.3.5's helper of the

@@ -854,6 +854,7 @@ build instructions.
 - [Time](#time)
   - [`GetServerTime()`](#getservertime)
   - [`GetTimeCached()`](#gettimecached)
+  - [`GetTickTime()`](#getticktime)
   - [`C_Timer.After(seconds, callback)`](#c_timerafterseconds-callback)
   - [`C_Timer.NewTimer(seconds, callback)`](#c_timernewtimerseconds-callback)
   - [`C_Timer.NewTicker(seconds, callback, [iterations])`](#c_timernewtickerseconds-callback-iterations)
@@ -20164,6 +20165,21 @@ end
 The cache is refreshed from the shared once-per-frame `Tick::WorldTick`
 hook; before the first world tick (pre-login / glue) it falls back to a
 live sample, so it never returns 0.
+
+### `GetTickTime()`
+
+Returns the time in seconds that the current frame advanced. The value is
+the same `elapsed` value that the `OnUpdate` scripts of this frame receive.
+The value changes one time in each frame, before the first `OnUpdate`
+script runs.
+
+```lua
+local elapsed = GetTickTime()
+```
+
+> **Code that runs before `OnUpdate`.** Events and `C_Timer` callbacks run
+> earlier in the frame than `OnUpdate` scripts. For these callers, the
+> function returns the value of the previous frame.
 
 ### `C_Timer.After(seconds, callback)`
 

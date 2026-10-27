@@ -17,6 +17,8 @@ Util\Mixin.lua
 Util\Color.lua
 Util\Constants.lua
 Util\TableUtil.lua
+Util\EnumUtil.lua
+Util\StringUtil.lua
 Util\MathUtil.lua
 Util\PixelUtil.lua
 Util\FrameUtil.lua
@@ -24,6 +26,8 @@ Util\FormattingUtil.lua
 Util\TimeUtil.lua
 Util\CallbackRegistry.lua
 Util\GlobalCallbackRegistry.lua
+Util\DataProvider.lua
+Util\CircularBuffer.lua
 Util\ColorUtil.lua
 Util\ItemLocation.lua
 Util\PlayerLocation.lua
@@ -35,6 +39,8 @@ Util\CacheUtil.lua
 Util\Pools.lua
 Util\FrameWatcher.lua
 Util\TimedCallback.lua
+Util\EasingUtil.lua
+Util\Interpolator.lua
 Util\EquipmentManager.lua
 Util\PlayerUtil.lua
 Util\SlashCommandsRegistry.lua
