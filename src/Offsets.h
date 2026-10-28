@@ -7298,6 +7298,19 @@ enum Offsets {
     // `Spell::Tracking::SetTracking` "select = cast" path does this).
     FUN_SCRIPT_CAST_SPELL = 0x004B42F0,
 
+    // `Script_GetShapeshiftFormInfo(index)` — `int __fastcall(void *L)`,
+    // reads the 1-based shapeshift-bar index at Lua stack[1] and returns
+    // (icon, name, active, castable). It holds the engine's only full
+    // "form-bar spell is active" test: a SPELL_AURA_MOD_SHAPESHIFT spell is
+    // active when its EffectMiscValue equals the form byte of UNIT_BYTES_1;
+    // any other bar spell with an active icon is active when its aura is on
+    // the player (the aura-array half alone is FUN_SPELL_IS_TOGGLE_AURA_ACTIVE).
+    // Raises its usage error only for index 0.
+    FUN_SCRIPT_GET_SHAPESHIFT_FORM_INFO = 0x004B45C0,
+    // Number of spells on the shapeshift bar — the dword
+    // `Script_GetNumShapeshiftForms` (0x004B4590) pushes.
+    VAR_SHAPESHIFT_BAR_SPELL_COUNT = 0x00B71104,
+
     // Inner spell-cast dispatcher — `__fastcall(slot, bookType, targetGuidLo,
     // targetGuidHi)`. `Script_CastSpellByName` calls this after resolving
     // the spell name to a spellbook slot. For ground-target spells, the

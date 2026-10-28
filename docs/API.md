@@ -828,6 +828,7 @@ build instructions.
   - [`IsInGroup()`](#isingroup)
   - [`IsInRaid()`](#isinraid)
   - [`GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(label)`](#getmirrortimerinfoindex--getmirrortimerprogresslabel)
+  - [`GetShapeshiftForm([requireForm])`](#getshapeshiftformrequireform)
   - [`GetShapeshiftFormID()`](#getshapeshiftformid)
   - [`CancelShapeshiftForm()`](#cancelshapeshiftform)
   - [`GetSheathState()`](#getsheathstate)
@@ -8702,7 +8703,9 @@ not.
 
 The `[stance:N]` number is the shapeshift bar slot, not the form ID that
 [`GetShapeshiftFormID()`](#getshapeshiftformid) returns. On a druid, bar slot 1
-is Bear and slot 3 is Cat.
+is Bear and slot 3 is Cat. The condition tests the value of
+[`GetShapeshiftForm(true)`](#getshapeshiftformrequireform). A paladin aura is on
+the stance bar, but it is not a form, so `[stance]` is false for a paladin.
 
 `[button:N]` reads the button of the click the macro is running inside, the
 same value [`GetMouseButtonClicked()`](#getmousebuttonclicked) returns. You can
@@ -19644,6 +19647,31 @@ end
 > we surface what the engine actually returns rather than translating
 > the name. Addons porting `"FATIGUE"`-keyed code need to
 > handle either string.
+
+### `GetShapeshiftForm([requireForm])`
+
+Returns the stance-bar index of your active form or stance. This is
+the same 1-based index that `GetShapeshiftFormInfo(index)` takes.
+Returns `0` when no form or stance is active. `GetShapeshiftForm(true)`
+is the number that `[stance:N]` and `[form:N]` test.
+
+```lua
+local index = GetShapeshiftForm()
+if index > 0 then
+    local icon, name = GetShapeshiftFormInfo(index)
+    print("active:", name)
+end
+```
+
+- The index depends on which forms you know and on their order on the
+  stance bar. The same form can have a different index on a different
+  character. To identify a form, use
+  [`GetShapeshiftFormID()`](#getshapeshiftformid).
+- If you are in a form that is not on your stance bar, the result is
+  the number of stance-bar spells plus 1.
+- If `requireForm` is `true` and you have no shapeshift form, the
+  result is `0`, even when a stance-bar spell that is not a form is
+  active.
 
 ### `GetShapeshiftFormID()`
 

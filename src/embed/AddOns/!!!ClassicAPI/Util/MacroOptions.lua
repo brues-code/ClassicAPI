@@ -60,20 +60,6 @@ end
 -- Query helpers used by more than one predicate
 -- ---------------------------------------------------------------------------
 
--- The shapeshift-BAR index of the active form (1-based), or 0 when formless.
--- [stance:N] / [form:N] number by this bar order (druid 1 = Bear, 3 = Cat),
--- which is NOT the DBC form id GetShapeshiftFormID() returns -- so the ':N'
--- form deliberately does not use that faster reader.
-local function GetCurrentFormIndex()
-    for i = 1, GetNumShapeshiftForms() do
-        local _, _, active = GetShapeshiftFormInfo(i);
-        if active then
-            return i;
-        end
-    end
-    return 0;
-end
-
 -- True when any equipped item (slots 1..19) matches `want` by localized item
 -- type, subtype, or equip-location slot name. C_Item.GetItemInfoInstant is
 -- synchronous and link-accepting; worn gear is always cached, and a nil field
@@ -176,15 +162,19 @@ CONDITIONS.group = function(target, args)
     return inParty or inRaid;
 end
 
+-- [stance:N] / [form:N] number by stance-bar index, not by the DBC form id
+-- GetShapeshiftFormID() returns. Same as Blizzard's EvaluateStance: the index
+-- comes from GetShapeshiftForm(true), so a bar spell that grants no form (a
+-- paladin aura) is no stance, and each value is its leading digits ("" is 0).
 CONDITIONS.stance = function(target, args)
+    local cur = GetShapeshiftForm(true);
     if args then
-        local cur = GetCurrentFormIndex();
         for i = 1, args.n do
-            if tonumber(args[i]) == cur then return true; end
+            if (tonumber(strmatch(args[i], "^%d*")) or 0) == cur then return true; end
         end
         return false;
     end
-    return GetShapeshiftFormID() ~= 0;
+    return cur ~= 0;
 end
 
 CONDITIONS.stealth = function()

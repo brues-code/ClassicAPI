@@ -72,6 +72,40 @@ int __fastcall Script_GetShapeshiftFormID(void *L) {
     return 1;
 }
 
+// `GetShapeshiftForm([requireForm])` — the 1-based shapeshift-bar index of
+// the active form (the number `[stance:N]` / `[form:N]` use), or 0.
+//
+// 4.3.4 (CGSpellBook::GetShapeshiftForm) walks the bar from the last entry
+// down and returns the first whose spell is active; when none is but the
+// player still has a form byte, it returns count + 1; `requireForm` true
+// returns 0 for a player with no form byte (an active bar spell that grants
+// no form counts as none). 1.12's only full "bar spell is active" test sits inside
+// `Script_GetShapeshiftFormInfo`, so each index is asked through it and its
+// third return read.
+int __fastcall Script_GetShapeshiftForm(void *L) {
+    const bool requireForm = Game::Lua::ToFlag(L, 1);
+    const int form = ReadCurrentForm();
+    int index = 0;
+    if (form >= 0 && !(requireForm && form == 0)) {
+        auto formInfo = reinterpret_cast<Game::Lua::CFunction>(
+            Offsets::FUN_SCRIPT_GET_SHAPESHIFT_FORM_INFO);
+        const int count = Game::Read<int>(
+            static_cast<uintptr_t>(Offsets::VAR_SHAPESHIFT_BAR_SPELL_COUNT));
+        for (index = count; index > 0; --index) {
+            Game::Lua::SetTop(L, 0);
+            Game::Lua::PushNumber(L, index);
+            formInfo(L);
+            if (Game::Lua::Type(L, 4) != Game::Lua::TYPE_NIL)
+                break; // stack: index, icon, name, active, castable
+        }
+        if (index == 0 && form > 0)
+            index = count + 1;
+    }
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::PushNumber(L, index);
+    return 1;
+}
+
 // `CancelShapeshiftForm()` — drops whatever shapeshift the player is
 // currently in. Walks the player's buff slots, scans each spell's
 // `EffectApplyAuraName[3]` for `SPELL_AURA_MOD_SHAPESHIFT` paired with
@@ -98,7 +132,22 @@ int __fastcall Script_CancelShapeshiftForm(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kGetShapeshiftFormArgs[] = {
+    Game::Doc::Opt("requireForm", "bool", "false",
+                   "True returns 0 when you have no shapeshift form, even while a "
+                   "stance-bar spell that is not a form is active."),
+};
+const Game::Doc::Field kGetShapeshiftFormRets[] = {
+    Game::Doc::Req("index", "number",
+                   "The stance-bar index of your active form or stance, or 0 for none."),
+};
+const Game::Doc::Function kGetShapeshiftForm{
+    "Returns the stance-bar index of your active form or stance.", kGetShapeshiftFormArgs,
+    kGetShapeshiftFormRets, "SpellBookGlobals"};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("GetShapeshiftForm", &Script_GetShapeshiftForm,
+                                      &kGetShapeshiftForm);
     Game::Lua::RegisterGlobalFunction("GetShapeshiftFormID", &Script_GetShapeshiftFormID);
     Game::Lua::RegisterGlobalFunction("CancelShapeshiftForm", &Script_CancelShapeshiftForm);
 }
