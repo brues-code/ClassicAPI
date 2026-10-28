@@ -126,12 +126,22 @@ bool PlayerBuffUntilCancelled(const uint8_t *record) {
 // slots. SMSG_UPDATE_AURA_DURATION (`u8 slot, i32 ms`) is the only wire
 // timing for the player's own auras, and the engine's `SetAuraDuration`
 // (0x004E4390) keeps just `now + ms` from it — the expiration table. The ms
-// itself is the true total (diminishing returns and the caster's modifiers
-// already applied server-side), so it is kept here. Subscribers run before
-// the engine handler, so an entry changes in the same packet as its slot's
-// expiry and, like it, outlives the aura (the until-cancelled flag and the
-// elapsed test gate both).
+// is the holder's REMAINING time (tortoise-wow `UpdateAuraDuration` sends
+// `GetAuraDuration()`), which on application and refresh is the true total
+// (diminishing returns and the caster's modifiers already applied
+// server-side), so it is kept here. Subscribers run before the engine
+// handler, so an entry changes in the same packet as its slot's expiry and,
+// like it, outlives the aura (the until-cancelled flag and the elapsed test
+// gate both).
 uint32_t g_playerDurationMs[Offsets::PLAYER_BUFF_TABLE_COUNT];
+
+// Slots whose ms came from an aura the character already held — only what is
+// left of it, not its total. Login sends those durations twice over: a fresh
+// login from `_LoadAuras` while the character loads, before the player's
+// create block (no player object yet); a reconnect from
+// Map::ExistingPlayerLogin after it (slots full, no earlier duration).
+// `PlayerAuraTiming` stands the spell's base in for the total.
+bool g_playerDurationRemainingOnly[Offsets::PLAYER_BUFF_TABLE_COUNT];
 
 void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
     if (opcode != Offsets::SMSG_UPDATE_AURA_DURATION)
@@ -140,17 +150,18 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
     const int32_t ms = Net::Read<int32_t>(packet);
     if (packet->m_read > packet->m_size || slot >= Offsets::PLAYER_BUFF_TABLE_COUNT)
         return;
+    const uint8_t *player = Unit::Identity::PlayerObject();
     const uint32_t previous = g_playerDurationMs[slot];
-    g_playerDurationMs[slot] = (ms > 0) ? static_cast<uint32_t>(ms) : 0;
     // A duration packet for an aura already in the slot is a refresh — no
     // descriptor field changes, so nothing else reports it. An application's
     // packet comes before the descriptor write that fills its slot (verified
     // live: the slot reads 0 at that moment), so an occupied slot held the
-    // aura already. The login burst (Map::ExistingPlayerLogin re-sends every
-    // duration after the player's own create block, slots full) finds no
-    // earlier duration: the table is cleared with the glue screen.
+    // aura already. The login burst finds no earlier duration: the table is
+    // cleared with the glue screen.
+    const uint32_t spellId = ReadSpellID(player, slot);
+    g_playerDurationMs[slot] = (ms > 0) ? static_cast<uint32_t>(ms) : 0;
+    g_playerDurationRemainingOnly[slot] = player == nullptr || (spellId != 0 && previous == 0);
     Aura::Instance::NoteUpdated(Unit::Identity::PlayerGuid(), slot);
-    const uint32_t spellId = ReadSpellID(Unit::Identity::PlayerObject(), slot);
     if (spellId != 0 && previous != 0 && ms > 0)
         Aura::Source::SignalRefreshed(Unit::Identity::PlayerGuid(), spellId, slot);
 }
@@ -1027,6 +1038,14 @@ bool PlayerAuraTiming(int slot, uint32_t *outExpirationMs, uint32_t *outDuration
         return false;
     *outExpirationMs = expirationMs;
     *outDurationMs = g_playerDurationMs[slot];
+    // A remaining-only ms gives way to the spell's base, unless a caster
+    // modifier stretched the aura past it.
+    if (g_playerDurationRemainingOnly[slot] && *outDurationMs != 0) {
+        const uint32_t spellID = ReadSpellID(Unit::Identity::PlayerObject(), slot);
+        const auto baseMs = static_cast<uint32_t>(SpellBaseDurationSeconds(spellID) * 1000.0);
+        if (baseMs > *outDurationMs)
+            *outDurationMs = baseMs;
+    }
     return true;
 }
 
