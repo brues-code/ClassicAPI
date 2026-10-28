@@ -138,6 +138,7 @@ build instructions.
   - [`C_Container.GetSortBagsRightToLeft()` / `C_Container.SetSortBagsRightToLeft(enable)`](#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable)
   - [`C_Container.GetBackpackAutosortDisabled()` / `C_Container.SetBackpackAutosortDisabled(disable)`](#c_containergetbackpackautosortdisabled--c_containersetbackpackautosortdisableddisable)
   - [`C_Container.GetBankAutosortDisabled()` / `C_Container.SetBankAutosortDisabled(disable)`](#c_containergetbankautosortdisabled--c_containersetbankautosortdisableddisable)
+  - [`SetBagPortraitTexture(texture, bagIndex)` / `C_Container.SetBagPortraitTexture(texture, bagIndex)`](#setbagportraittexturetexture-bagindex--c_containersetbagportraittexturetexture-bagindex)
 
 - [Creature](#creature)
   - [`C_CreatureInfo.GetCreatureID(guid)`](#c_creatureinfogetcreatureidguid)
@@ -535,6 +536,7 @@ build instructions.
   - [`GetInventoryItemID(unit, slot)`](#getinventoryitemidunit-slot)
   - [`GetInventoryItemRepairCost(invSlot)`](#getinventoryitemrepaircostinvslot)
   - [`GetInventoryItemsForSlot(slot, returnTable [, transmogrify])`](#getinventoryitemsforslotslot-returntable--transmogrify)
+  - [`SetInventoryPortraitTexture(texture, unit, slot)`](#setinventoryportraittexturetexture-unit-slot)
   - [`GetItemIcon(itemID)` / `C_Item.GetItemIcon(itemLocation)` / `C_Item.GetItemIconByID(item)`](#getitemiconitemid--c_itemgetitemiconitemlocation--c_itemgetitemiconbyiditem)
   - [`IsDualWielding()`](#isdualwielding)
 
@@ -3457,6 +3459,26 @@ C_Container.SortBankBags() -- bank bags only
 ```
 
 Stored as the `bankAutosortDisabled` console variable.
+
+### `SetBagPortraitTexture(texture, bagIndex)` / `C_Container.SetBagPortraitTexture(texture, bagIndex)`
+
+Sets a texture to the icon of an equipped bag, cut to a round
+portrait. The two names are the same function.
+
+```lua
+SetBagPortraitTexture(ContainerFrame1Portrait, 1)   -- the first bag
+C_Container.SetBagPortraitTexture(myTexture, 5)     -- the first bank bag
+```
+
+| `bagIndex` | Result |
+|------------|--------|
+| `1` to `4` | The icon of the equipped bag. |
+| `5` to `10` | The icon of the bank bag. The bank must be open. |
+| `0` or less (backpack, bank, keyring) | The texture does not change. |
+| `11` or more | An error. |
+
+If the bag slot is empty, the texture is cleared. The error messages
+spell the name as `SetBagPortaitTexture`.
 
 ## Creature
 
@@ -12859,6 +12881,22 @@ currently plumb the flag through to any of them.
 > is open (bank shows up only when the bank UI is open). We don't walk
 > bank slots — addons that want bank inclusion need their own bank scan
 > with the bank UI open.
+
+### `SetInventoryPortraitTexture(texture, unit, slot)`
+
+Sets a texture to the icon of the item in an inventory slot of a
+player, cut to a round portrait.
+
+```lua
+SetInventoryPortraitTexture(myTexture, "player", 16)   -- main hand
+```
+
+- `unit` must be a player. For other units, the texture is cleared.
+- `slot` is an inventory slot number, the same number that
+  `GetInventoryItemTexture` takes. `0` is the ammo slot.
+- If the slot is empty, the texture is cleared.
+- A `slot` that is not an inventory slot causes an error. The error
+  messages spell the name as `SetInventoryPortaitTexture`.
 
 ### `GetItemIcon(itemID)` / `C_Item.GetItemIcon(itemLocation)` / `C_Item.GetItemIconByID(item)`
 
