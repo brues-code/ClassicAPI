@@ -43,6 +43,8 @@ int ResolveSpellID(void *L, int idx);
 // `ResolveSpellID` uses for its name-input branch. Exposed for
 // callers that already have a name string (macro-body scanners,
 // etc.). Returns 0 if `name` isn't in the player's spellbook.
-int NameToSpellID(const char *name);
+// `outIsPet`, when given, is set to 1 when the name matched in the pet
+// spellbook (the engine's own answer), else 0.
+int NameToSpellID(const char *name, int *outIsPet = nullptr);
 
 } // namespace Spell::Arg

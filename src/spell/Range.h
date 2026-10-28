@@ -16,9 +16,9 @@
 #include <cstdint>
 
 // Shared spell-range core. One place for "does this spell have a range"
-// and "is the player's cast of this spell in range of a unit", used by
-// `C_Spell.SpellHasRange`, `C_Spell.IsSpellInRange`, and (via the item's
-// on-use spell) `C_Item.IsItemInRange`.
+// and "is a cast of this spell in range of a unit", used by
+// `C_Spell.SpellHasRange`, `C_Spell.IsSpellInRange`, (via the item's
+// on-use spell) `C_Item.IsItemInRange`, and the swing-range probe.
 namespace Spell::Range {
 
 // True iff the engine's own range resolver (`FUN_GET_MIN_MAX_RANGE`)
@@ -45,8 +45,17 @@ void CasterMinMax(void *caster, int spellID, float &minRange, float &maxRange);
 // (the same test the action-button range coloring uses), which folds in
 // the target's bounding radius so the boundary matches the client's own
 // "in range" exactly — melee and min-range (too-close) spells included.
-// Ignores line of sight and target faction, matching retail's range-only
-// `Is*InRange` semantics.
+// Ignores line of sight and whether the spell may target the unit at all;
+// `CastVsUnit` is the check with that gate.
 int PlayerVsUnit(int spellID, const char *unitToken);
+
+// The range answer for casting `spellID` at `unitToken`: 4.3.4's
+// `Spell_C_RangeCheckSelected` (the core of its `IsSpellInRange` /
+// `IsItemInRange`) on 1.12's own target gate. Returns 1 / 0 like
+// `PlayerVsUnit`, and -1 also when the spell cannot be cast at that unit
+// (wrong reaction, creature type, dead or alive state). The caster is the
+// player's pet when `petCaster` is set. A spell aimed at the pet measures to
+// the pet, and a resurrect aimed at a ghost measures to its corpse.
+int CastVsUnit(int spellID, const char *unitToken, bool petCaster);
 
 } // namespace Spell::Range

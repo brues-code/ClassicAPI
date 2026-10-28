@@ -2679,6 +2679,20 @@ enum Offsets {
     // (0x005FF580) tests it at 0x005FF724 and, for the active player, again at
     // 0x005FF747; tortoise-wow / vmangos UNIT_FLAG_PVP.
     UNIT_FLAG_PVP = 0x1000,
+    // Bit 8 of UNIT_FIELD_FLAGS (vmangos UNIT_FLAG_IMMUNE_TO_PLAYER): a unit
+    // with it fails CheckSpellTargetRange's target-word-0x2 relation
+    // (0x006E460E).
+    UNIT_FLAG_IMMUNE_TO_PLAYER = 0x100,
+    // Bit 16 of UNIT_FIELD_FLAGS (vmangos UNIT_FLAG_NON_ATTACKABLE_2):
+    // CheckSpellTargetRange admits no spell on such a unit (0x006E4517).
+    UNIT_FLAG_NON_ATTACKABLE_2 = 0x10000,
+    // UNIT_FIELD_PETNUMBER: nonzero for a hunter / warlock pet.
+    // CheckSpellTargetRange reads it at 0x006E4645 (`[fields+0x214]`).
+    OFF_UNIT_FIELD_PETNUMBER = 0x214,
+    // The active mover's GUID (u64): the unit the client moves, the player
+    // or a unit it controls. SetActiveMover 0x006006E0 writes it,
+    // ReleaseActiveMover 0x006006B0 zeroes both halves (disassembled).
+    VAR_ACTIVE_MOVER_GUID = 0x00C4DA98,
     // OnUnitFlagsChanged's `mov ecx, esi; call FUN_UNIT_REFRESH_REACTION`
     // taken only when UNIT_FLAG_PVP changed (`test ah, 0x10` at 0x005FF724).
     SITE_UNIT_PVP_FLAG_CHANGED = 0x005FF72B,
@@ -3058,6 +3072,14 @@ enum Offsets {
     //     word sends at once. 0 = nothing bound: the request then refuses
     //     (word 0x80: 0x0A / 0x09) or raises the targeting cursor.
     FUN_CHECK_SPELL_TARGET_RANGE = 0x006E4440,
+    // The relations CheckSpellTargetRange tests, each `bool __thiscall(caster,
+    // other)` (`mov ecx,[ebp-8]; push esi; call`, 0x006E4591..0x006E46EB):
+    // same party (target word 0x8), same raid (0x4), may assist a unit, may
+    // assist a corpse. FUN_UNIT_CAN_ATTACK is the fifth (0x80).
+    FUN_UNIT_IN_SAME_PARTY = 0x00606C20,
+    FUN_UNIT_IN_SAME_RAID = 0x00606D20,
+    FUN_UNIT_CAN_ASSIST = 0x006066F0,
+    FUN_UNIT_CAN_ASSIST_CORPSE = 0x006067D0,
     CALL_CAST_CHECK_TARGET_RANGE = 0x006E4F26,
     FUN_SPELL_TARGET_ARM = 0x006E5250,
     CALL_CAST_TARGET_ARM = 0x006E5038,
@@ -4689,6 +4711,10 @@ enum Offsets {
     OFF_PLAYER_INFO_FLAGS = 0x08,
     PLAYER_FLAG_AFK = 0x02,
     PLAYER_FLAG_DND = 0x04,
+    // PLAYER_FLAGS bit 4 — a released ghost (benilla-re ui/deathui; the
+    // engine's ghost test `test byte [eax+8],0x10`, OnPlayerFlagsChanged
+    // 0x005EEAB4).
+    PLAYER_FLAG_GHOST = 0x10,
     // PLAYER_FLAGS bit 9 — the player asked to stay PvP flagged (TogglePVP /
     // SetPVP). CGPlayer_C::OnPlayerFlagsChanged (0x005EE990) tests it at
     // 0x005EEB0D; tortoise-wow and vmangos PLAYER_FLAGS_PVP_DESIRED = 0x200.
@@ -10466,6 +10492,13 @@ enum Offsets {
     // for live-unit lootability — use `OFF_UNIT_FIELD_DYNAMIC_FLAGS`
     // bit 0 against a CGUnit instead.
     FUN_CGCORPSE_IS_LOOTABLE = 0x005D6E20,
+    // A corpse's field block (`[corpse+OFF_UNIT_DESCRIPTOR]`, the corpse
+    // fields from index 6): CORPSE_FIELD_OWNER (u64) at +0, CORPSE_FIELD_FLAGS
+    // at +0x74, bit 0 = bones. CheckSpellTargetRange tests the bones bit at
+    // 0x006E46BC (benilla-re objectlayer/corpses#members-and-fields).
+    OFF_CORPSE_FIELD_OWNER = 0x00,
+    OFF_CORPSE_FIELD_FLAGS = 0x74,
+    CORPSE_FLAG_BONES = 0x1,
 
     // Merchant inventory: flat array at `0xBDD118`, stride 0x1C,
     // itemID at `entry+4`. The "flag" globals are actually the
@@ -10920,6 +10953,12 @@ enum Offsets {
     OFF_SPELL_RECORD_MANA_COST = 0x80,                // u32 base cost
     OFF_SPELL_RECORD_RANGE_INDEX = 0x90,              // u32 → SpellRange.dbc
     OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A = 0x148,// i32[3] implicit target A
+    // Targets (column 13; CheckSpellTargetRange reads its low word,
+    // `mov bx,[edi+0x34]`) and TargetCreatureType (column 14, a CreatureType
+    // bit mask, `[edi+0x38]`). Every 1.12 resurrect (effect 18 / 113) has
+    // Targets 0x8000 and no other spell does (extracted Spell.dbc).
+    OFF_SPELL_RECORD_TARGETS = 0x34,
+    OFF_SPELL_RECORD_TARGET_CREATURE_TYPE = 0x38,
     // Implicit target ids (vmangos SpellDefines.h). A Dispel effect (38) aimed
     // at one of these can remove an aura from an enemy: Purge, Shield Slam,
     // Tranquilizing Shot (6); Dispel Magic, Devour Magic (25, any unit).

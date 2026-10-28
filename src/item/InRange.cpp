@@ -23,16 +23,16 @@
 //
 // An item's range comes from the spell it fires on use: we resolve the
 // item to its on-use spell (`Item::Spell::OnUseSpellIDForItemID`) and run
-// the same range test as `C_Spell.IsSpellInRange`, via the shared
-// `Spell::Range::PlayerVsUnit` core. So items with a targeted on-use
+// the same check as `C_Spell.IsSpellInRange`, via the shared
+// `Spell::Range::CastVsUnit` core (4.3.4's Spell_C_RangeCheckSelected). So items with a targeted on-use
 // effect that has a range (nets, bombs, thrown/targeted quest items, …)
 // get a true/false answer; items with no on-use spell, or whose on-use
 // spell is rangeless (potions, food, self-buff trinkets, hearthstone),
 // return nil — matching retail, which also reports nil for items without
 // a range restriction.
 //
-// Range-only, like `IsSpellInRange`: ignores line of sight and target
-// faction. Passive reader — an item not yet in the client item cache
+// Like `IsSpellInRange`: nil also for a unit the on-use spell cannot be cast
+// at; line of sight is not checked. Passive reader — an item not yet in the client item cache
 // returns nil (no background fetch); items you'd range-check are normally
 // in bags / on the action bar and already cached.
 
@@ -57,7 +57,7 @@ int __fastcall Script_C_Item_IsItemInRange(void *L) {
         Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : nullptr;
 
     // `::Spell` — unqualified `Spell` would bind to `Item::Spell` here.
-    const int result = ::Spell::Range::PlayerVsUnit(spellID, unit);
+    const int result = ::Spell::Range::CastVsUnit(spellID, unit, false);
     if (result < 0) {
         Game::Lua::PushNil(L);
         return 1;

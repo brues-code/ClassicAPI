@@ -51,13 +51,18 @@ Resolved Resolve(void *L, int idx) {
     return out;
 }
 
-int NameToSpellID(const char *name) {
+int NameToSpellID(const char *name, int *outIsPet) {
+    if (outIsPet != nullptr)
+        *outIsPet = 0;
     if (name == nullptr || *name == '\0')
         return 0;
     auto fn = reinterpret_cast<NameToSpellID_t>(
         static_cast<uintptr_t>(Offsets::FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID));
     int isPet = 0;
-    return fn(name, &isPet);
+    const int spellID = fn(name, &isPet);
+    if (outIsPet != nullptr)
+        *outIsPet = isPet;
+    return spellID;
 }
 
 int ResolveSpellID(void *L, int idx) {

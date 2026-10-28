@@ -12482,9 +12482,9 @@ An item's range comes from the spell it fires on use, so this resolves
 the item to its on-use spell ([`C_Item.GetItemSpell`](#c_itemgetitemspellitem)'s
 spell) and runs the exact same range test as
 [`C_Spell.IsSpellInRange`](#c_spellisspellinrangespellidentifier-targetunit)
-— the two agree for the same underlying spell. Range-only like the spell
-version: it ignores line of sight and doesn't reject wrong-faction
-targets. Passive reader — an item not yet in the client item cache
+— the two agree for the same underlying spell. Like the spell version,
+it returns `nil` for a unit that the on-use spell cannot be cast on, and
+it does not check line of sight. Passive reader — an item not yet in the client item cache
 returns `nil` with no background fetch (items you'd range-check are
 normally in bags / on the action bar and already cached). Absent tokens
 (e.g. `"target"` with no target) return `nil`; a genuinely unrecognized
@@ -18962,7 +18962,8 @@ follows the same convention as `GetSpellName(slot, bookType)`:
 
 Returns `true` if the spell is in range of `targetUnit`, `false` if
 out of range, and `nil` when the range check doesn't apply — a
-rangeless spell (self buff), or an unresolvable spell / unit.
+rangeless spell (self buff), an unresolvable spell / unit, or a unit
+that the spell cannot be cast on.
 
 `spellIdentifier` is a spellID, spell link, or the name of a spell in
 the player's spellbook. `targetUnit` is a unit token.
@@ -18979,12 +18980,23 @@ spell's min/max range — folding in the target's bounding radius — and
 compares center-to-center distance, so the boundary matches the
 client exactly, melee and min-range ("too close") spells included.
 
-Range-only: it ignores line of sight, and it does
-**not** reject wrong-faction targets (a friendly-only heal still
-returns a range answer against an enemy). Check target validity
-separately if you need it. Absent tokens (e.g. `"target"` with no
-target) return `nil`; a genuinely unrecognized token string raises a
-Lua error, same contract as `UnitHealth("garbage")`.
+The target must be one that the spell can be cast on. If it is not,
+the result is `nil`. For example, a heal on an enemy, a damage spell on
+a friend, a creature-type spell on the wrong creature type, or a
+non-resurrect spell on a dead unit all return `nil`. Line of sight is
+not part of the check.
+
+Some spells do not measure to `targetUnit`:
+
+- A spell that acts on your pet (for example Mend Pet) measures to your
+  pet.
+- A resurrect on a released ghost measures to the ghost's corpse.
+- A spell from the pet spellbook that you do not know yourself measures
+  from your pet, not from you.
+
+Absent tokens (e.g. `"target"` with no target) return `nil`; a
+genuinely unrecognized token string raises a Lua error, same contract
+as `UnitHealth("garbage")`.
 
 ### `C_Spell.IsAutoAttackSpell(spellID)`
 
@@ -22335,6 +22347,10 @@ full enum.
 Returns `(inRange, checkedRange)` — whether `unit` is within 40 yards
 of the player, plus a flag indicating whether the range check could
 actually be performed.
+
+While you control another unit (for example with Mind Control or Eyes
+of the Beast), the distance is measured from that unit. When the client
+moves no unit, the result is `(false, false)`.
 
 ```lua
 local inRange, checked = UnitInRange("party1")

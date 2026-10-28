@@ -34,8 +34,14 @@
 // `40 + playerReach + targetReach`. On big targets that's easily 2–3
 // yards past the raw 40, which is why a pure center-to-center 40-yard cap
 // reported out-of-range for a target the client could actually heal.
+//
+// UnitInRange measures from the active mover, as 4.3.4's does
+// (`CGUnit_C::s_activeMover`): the unit the client moves, which is the
+// player, or the unit it controls (Mind Control, Eyes of the Beast). No
+// mover gives no answer, as in 4.3.4.
 
 #include "Game.h"
+#include "object/Resolve.h"
 #include "unit/Position.h"
 #include "Offsets.h"
 
@@ -77,6 +83,17 @@ bool ReadPosAndReach(const char *token, float pos[3], float *reach) {
     return true;
 }
 
+// The active mover's world position and reach (VAR_ACTIVE_MOVER_GUID).
+bool ReadMoverPosAndReach(float pos[3], float *reach) {
+    void *mover = Object::ByGuid(
+        Offsets::TYPEMASK_UNIT,
+        Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_MOVER_GUID)));
+    if (!Unit::Position::Read(mover, pos))
+        return false;
+    *reach = BoundingRadius(mover);
+    return true;
+}
+
 // Squared world distance from the player to `token`'s unit (raw,
 // center-to-center; reach is applied by the caller when needed).
 bool PlayerToUnitDistSq(const char *token, float *outSq) {
@@ -112,26 +129,26 @@ int __fastcall Script_UnitInRange(void *L) {
     }
 
     float unitPos[3] = {};
-    float playerPos[3] = {};
+    float moverPos[3] = {};
     float unitReach = 0.0f;
-    float playerReach = 0.0f;
+    float moverReach = 0.0f;
     if (!ReadPosAndReach(token, unitPos, &unitReach) ||
-        !ReadPosAndReach("player", playerPos, &playerReach)) {
+        !ReadMoverPosAndReach(moverPos, &moverReach)) {
         Game::Lua::PushBool(L, false);
         Game::Lua::PushBool(L, false);
         return 2;
     }
 
-    const float dx = unitPos[0] - playerPos[0];
-    const float dy = unitPos[1] - playerPos[1];
-    const float dz = unitPos[2] - playerPos[2];
+    const float dx = unitPos[0] - moverPos[0];
+    const float dy = unitPos[1] - moverPos[1];
+    const float dz = unitPos[2] - moverPos[2];
     const float distSq = dx * dx + dy * dy + dz * dz;
 
     // Effective range = base + both units' reach, mirroring the engine's
     // spell-range formula (FUN_006e3480). Without the reach terms a target
     // whose center sits just past 40 yards but whose body is within reach
     // reports out-of-range even though a 40-yard heal would land.
-    const float effRange = kRangeYards + playerReach + unitReach;
+    const float effRange = kRangeYards + moverReach + unitReach;
     Game::Lua::PushBool(L, distSq <= effRange * effRange);
     Game::Lua::PushBool(L, true);
     return 2;
