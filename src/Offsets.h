@@ -10710,6 +10710,11 @@ enum Offsets {
     // AttributesEx2 autorepeat flag (bit 5, Auto Shot / Shoot) — each shared
     // by more than one module, so kept here rather than redefined locally.
     SPELL_ATTR_EX_CHANNELED = 0x4 | 0x40,
+    // AttributesEx bit 2 alone (CHANNELED_1) — also the engine's cancel
+    // override: `Script_CancelPlayerBuff` (0x004E4A06) cancels an aura
+    // without the slot's cancelable bit when its spell has this bit, and
+    // 4.3.4's `Script_CancelUnitBuff` makes the same test.
+    SPELL_ATTR_EX_CHANNELED_1 = 0x4,
     SPELL_ATTR_EX2_AUTOREPEAT_FLAG = 0x20,
     // AttributesEx2 bit 17 — "don't reset the caster's melee/ranged
     // auto-attack timers" (tortoise-wow `SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS`).

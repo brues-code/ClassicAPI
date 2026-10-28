@@ -41,6 +41,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Instance.h"
+#include "spell/Lookup.h"
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
 
@@ -652,6 +653,55 @@ int __fastcall Script_GetAuraDispelTypeColor(void *L) {
     return 1;
 }
 
+// CancelUnitBuff(unit, index [, filter]) — 4.3.4's Script_CancelUnitBuff.
+// Only the player's own auras: its other branch exits a vehicle seat, which
+// 1.12 has no counterpart for. The index counts in `FindNthSlot` order, the
+// same order 4.3.4's GetSortedAuraSlot walks, so it matches the
+// C_UnitAuras by-index getters for the same filter (HELPFUL by default).
+// The cancel gate is the engine's: the slot's cancelable bit, or the spell's
+// `SPELL_ATTR_EX_CHANNELED_1`, before the CMSG_CANCEL_AURA sender.
+int __fastcall Script_CancelUnitBuff(void *L) {
+    if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: CancelUnitBuff(\"unit\", index[, \"filter\"])");
+        return 0;
+    }
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    if (player == nullptr ||
+        Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1)) !=
+            Unit::Identity::PlayerGuid())
+        return 0;
+    const ParsedFilter pf = ParseFilters(ArgOptString(L, 3));
+    const int slot =
+        Data::FindNthSlot(player, ArgInt(L, 2), RangeFilter(pf), pf.ToMatch());
+    if (slot < 0)
+        return 0;
+    const int spellID = static_cast<int>(Data::ReadSpellID(player, slot));
+    const uint8_t *record = Spell::Lookup::RecordForID(spellID);
+    if (record == nullptr)
+        return 0;
+    const bool cancelable =
+        (Data::SlotNibble(player, slot) & Offsets::UNIT_AURA_FLAG_CANCELABLE) != 0 ||
+        (Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX) &
+         Offsets::SPELL_ATTR_EX_CHANNELED_1) != 0;
+    if (!cancelable)
+        return 0;
+    using CancelAuraSend_t = void(__fastcall *)(int spellID);
+    reinterpret_cast<CancelAuraSend_t>(
+        static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND))(spellID);
+    return 0;
+}
+
+const Game::Doc::Field kCancelUnitBuffArgs[] = {
+    Game::Doc::Req("unit", "string", "Must be the player."),
+    Game::Doc::Req("index", "number",
+                   "Which aura of the ones `filter` selects, from 1."),
+    Game::Doc::Opt("filter", "string", "\"HELPFUL\"",
+                   "Aura filter tokens, the same as `C_UnitAuras.GetAuraDataByIndex`."),
+};
+const Game::Doc::Function kCancelUnitBuff{
+    "Cancels one of your own auras by index.", kCancelUnitBuffArgs, {},
+    "SpellGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
@@ -686,6 +736,8 @@ static void RegisterLuaFunctions() {
                                      &Script_GetUnitAuras);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDispelTypeColor",
                                      &Script_GetAuraDispelTypeColor);
+    Game::Lua::RegisterGlobalFunction("CancelUnitBuff", &Script_CancelUnitBuff,
+                                      &kCancelUnitBuff);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

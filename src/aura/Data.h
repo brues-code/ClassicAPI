@@ -107,6 +107,10 @@ struct Match {
     bool raid = false;
 };
 
+// The slot's descriptor flag nibble (0 for an empty slot or a null unit).
+// Bit `UNIT_AURA_FLAG_CANCELABLE` is the cancelable bit on every server.
+uint8_t SlotNibble(const uint8_t *unit, int slot);
+
 // Reads the spell ID at the given absolute slot (0..47). Returns 0
 // if the slot is empty or the unit pointer is null.
 uint32_t ReadSpellID(const uint8_t *unit, int slot);

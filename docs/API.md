@@ -789,6 +789,7 @@ build instructions.
   - [`C_Spell.CastAtCursor(spellIDOrName)`](#c_spellcastatcursorspellidorname)
   - [`C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`](#c_spellcastatunitspellidorname-unit--placegroundspell)
   - [`C_Spell.CancelSpellByID(spellID)` / `CancelSpellByName(name)`](#c_spellcancelspellbyidspellid--cancelspellbynamename)
+  - [`CancelUnitBuff(unit, index [, filter])`](#cancelunitbuffunit-index--filter)
   - [`C_Spell.UnitCastingInfo(unit)` / `C_Spell.CastingInfo()`](#c_spellunitcastinginfounit--c_spellcastinginfo)
   - [`C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`](#c_spellunitchannelinfounit--c_spellchannelinfo)
   - [`C_Spell.GetSpellLevelInfo(spellID)`](#c_spellgetspelllevelinfospellid)
@@ -18822,6 +18823,33 @@ input (e.g. `"Power Word: Fortitude(Rank 4)"`) is **not** parsed —
 pass the plain name. Multi-rank buffs match on first-found; if you
 have multiple ranks of the same buff active (unusual but possible with
 e.g. paladin blessings before talent merge), the first slot wins.
+
+### `CancelUnitBuff(unit, index [, filter])`
+
+Cancels one of your own auras by its index. The function returns nothing.
+
+```lua
+CancelUnitBuff("player", 1)            -- Cancel your first buff
+CancelUnitBuff("player", 2, "PLAYER")  -- Cancel the second buff that you cast
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `unit` | string | A unit token for you, such as `"player"`. For any other unit, the function does nothing. |
+| `index` | number | Which aura to cancel, from 1. The index counts only the auras that `filter` selects. |
+| `filter` | string, optional | Aura filter tokens. The default is `"HELPFUL"`. The tokens are the same as for [`C_UnitAuras.GetAuraDataByIndex`](#c_unitaurasgetauradatabyindexunit-index--filter). |
+
+The index counts in the same order as `C_UnitAuras.GetAuraDataByIndex`
+and `C_UnitAuras.UnitBuff` with the same filter. The built-in `UnitBuff`
+can count in a different order. Do not use its index here.
+
+The function cancels only an aura that you can cancel by a right-click
+on its icon. For other auras, it does nothing. To send the cancel
+request without this test, use
+[`C_Spell.CancelSpellByID`](#c_spellcancelspellbyidspellid--cancelspellbynamename).
+
+If `unit` is not a string or `index` is not a number, the function
+raises the error `Usage: CancelUnitBuff("unit", index[, "filter"])`.
 
 ### `C_Spell.UnitCastingInfo(unit)` / `C_Spell.CastingInfo()`
 
