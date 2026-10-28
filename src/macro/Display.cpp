@@ -35,6 +35,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Arg.h"
 #include "macro/ShowTooltip.h"
 
 #include <cstdint>
@@ -66,29 +67,12 @@ int __fastcall Script_C_Macro_SetMacroDisplay(void *L) {
     return 1;
 }
 
-// The macro slot (1-based) that argument 1 names, as 4.3.4's GetMacroFromLua
-// reads it: a number, or a string that converts to one, is an index; any other
-// string is a name. 0 when no macro is there.
-int MacroSlotArg(void *L) {
-    using NameToSlot_t = uint32_t(__fastcall *)(const char *name);
-    using SlotToEntry_t = const uint8_t *(__fastcall *)(uint32_t slot0);
-    uint32_t slot0 = 0xFFFFFFFFu;
-    if (Game::Lua::IsNumber(L, 1))
-        slot0 = static_cast<uint32_t>(static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1);
-    else if (Game::Lua::IsString(L, 1))
-        slot0 = reinterpret_cast<NameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT)(
-            Game::Lua::ToString(L, 1));
-    if (reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(slot0) == nullptr)
-        return 0;
-    return static_cast<int>(slot0) + 1;
-}
-
 int SetMacroValue(void *L, Macro::ShowTooltip::Accept accept, const char *usage) {
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, usage);
         return 0;
     }
-    const int macroSlot = MacroSlotArg(L);
+    const int macroSlot = Macro::Arg::Slot(L);
     if (macroSlot == 0)
         return 0;
     Macro::ShowTooltip::PublishOptions options;

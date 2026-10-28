@@ -282,8 +282,24 @@ int __fastcall Script_GetCursorInfo(void *L) {
     }
 }
 
+// `CursorHasMacro()` — 4.3.4's Script_CursorHasMacro (0x008C6F70) tests its
+// macro cursor type, 7; 1.12's macro type is 8.
+int __fastcall Script_CursorHasMacro(void *L) {
+    Game::Lua::PushBool(L, ReadVar(Offsets::VAR_CURSOR_TYPE) == TYPE_MACRO);
+    return 1;
+}
+
+const Game::Doc::Field kCursorHasMacroRets[] = {
+    Game::Doc::Req("hasMacro", "boolean", "True if the cursor holds a macro."),
+};
+const Game::Doc::Function kCursorHasMacro{
+    "Returns true if the cursor holds a macro.",
+    {}, kCursorHasMacroRets, "CursorGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetCursorInfo", &Script_GetCursorInfo);
+    Game::Lua::RegisterGlobalFunction("CursorHasMacro", &Script_CursorHasMacro,
+                                      &kCursorHasMacro);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

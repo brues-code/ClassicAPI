@@ -102,6 +102,7 @@ build instructions.
 
 - [Console](#console)
   - [`ConsoleExec(command)`](#consoleexeccommand)
+  - [`ConsoleAddMessage(message)`](#consoleaddmessagemessage)
   - [`ConsoleEcho(message [, colorType])`](#consoleechomessage--colortype)
   - [`ConsolePrintAllMatchingCommands(prefix)`](#consoleprintallmatchingcommandsprefix)
   - [`ConsoleIsActive()`](#consoleisactive)
@@ -173,6 +174,7 @@ build instructions.
 
 - [Cursor](#cursor)
   - [`GetCursorInfo()`](#getcursorinfo)
+  - [`CursorHasMacro()`](#cursorhasmacro)
 
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
@@ -623,6 +625,7 @@ build instructions.
   - [`GetRunningMacro()`](#getrunningmacro)
   - [`GetRunningMacroButton()`](#getrunningmacrobutton)
   - [Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`](#macro-names-in-getmacroinfo--editmacro--pickupmacro--deletemacro)
+  - [`GetMacroBody(macro)`](#getmacrobodymacro)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
   - [`SetMacroSpell(macro, spell [, target])` / `SetMacroItem(macro, item [, target])`](#setmacrospellmacro-spell--target--setmacroitemmacro-item--target)
@@ -2502,6 +2505,15 @@ unless you specifically want the console's behaviour.
 Works whether or not the console is open, and whether or not `-console` was
 used.
 
+### `ConsoleAddMessage(message)`
+
+Writes a line of text to the console. An empty string writes nothing. An
+argument that is not a string raises an error.
+
+```lua
+ConsoleAddMessage("Hello from Lua")
+```
+
 ### `ConsoleEcho(message [, colorType])`
 
 Writes one line to the console. `colorType` is 0 to 8 and picks the colour, as
@@ -4183,6 +4195,10 @@ Consumers can use `CursorHasItem`, `CursorHasSpell` and `CursorHasMoney`.
 
 Changes to what the cursor holds are reported by the
 [`CURSOR_CHANGED` event](#cursor_changed-event).
+
+### `CursorHasMacro()`
+
+Returns `true` if the cursor holds a macro, and `false` if it does not.
 
 ## EquipmentSet
 
@@ -14868,6 +14884,16 @@ PickupMacro("MyMacro")
 ```
 
 Numbers and numeric strings (`"3"`) are still indexes.
+
+### `GetMacroBody(macro)`
+
+Returns the text of a macro. `macro` is the macro's index or its name.
+If no macro is there, the function returns nothing.
+
+```lua
+/dump GetMacroBody(1)
+/dump GetMacroBody("MyMacro")
+```
 
 ### `GetMacroSpell(macroSlot)`
 

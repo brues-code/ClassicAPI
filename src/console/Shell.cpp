@@ -78,6 +78,27 @@ int __fastcall Script_ConsoleEcho(void *L) {
     return 0;
 }
 
+// `ConsoleAddMessage(message)` — 4.3.4's Script_ConsoleAddMessage
+// (0x008C38B0): a usage error for a non-string, else ConsolePrintf("%s")
+// unless the text is empty.
+int __fastcall Script_ConsoleAddMessage(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: ConsoleAddMessage(string)");
+        return 0;
+    }
+    const char *text = Game::Lua::ToString(L, 1);
+    if (text != nullptr && *text != '\0')
+        Game::Console::Printf("%s", text);
+    return 0;
+}
+
+const Game::Doc::Field kConsoleAddMessageArgs[] = {
+    Game::Doc::Req("message", "string", "The text to write."),
+};
+const Game::Doc::Function kConsoleAddMessage{
+    "Writes a line of text to the console.",
+    kConsoleAddMessageArgs, {}, "ConsoleGlobals"};
+
 // `ConsoleIsActive()` — whether the console is open right now.
 //
 // False when the client was started without `-console`, since the toggle key
@@ -208,6 +229,8 @@ int __fastcall Script_CalculateStringEditDistance(void *L) {
 void Register() {
     Game::Lua::RegisterGlobalFunction("ConsoleExec", &Script_ConsoleExec);
     Game::Lua::RegisterGlobalFunction("ConsoleEcho", &Script_ConsoleEcho);
+    Game::Lua::RegisterGlobalFunction("ConsoleAddMessage", &Script_ConsoleAddMessage,
+                                      &kConsoleAddMessage);
     Game::Lua::RegisterGlobalFunction("ConsoleIsActive", &Script_ConsoleIsActive);
     Game::Lua::RegisterGlobalFunction("ConsoleGetColorFromType",
                                       &Script_ConsoleGetColorFromType);
