@@ -4080,6 +4080,18 @@ enum Offsets {
     PATCH_SETPARENT_LEVEL_CHILDREN = 0x0076AB6B,     // before `call` at 0x0076AB71 (parent)
     PATCH_SETPARENT_NIL_LEVEL_CHILDREN = 0x0076ABAC, // before `call` at 0x0076ABB2 (no parent)
     FUN_FRAME_SET_FRAME_LEVEL = 0x0076A4F0,
+    // CScriptRegion::SetRegionParent (0x0077FD10) links a region into its new
+    // parent's region list with `push esi; mov ecx,edi; call
+    // CSimpleFrame::AddRegion` (`56 8B CF E8 rel32`; ESI the region, EDI the
+    // parent). The region takes the frame's scale only later, in
+    // CSimpleFrame::AddRegionToLayer (0x0076A860), which runs once the frame
+    // is visible. Frame::RegionScale replaces this call.
+    SITE_REGION_PARENT_ADD_REGION = 0x0077FD6B,
+    FUN_FRAME_ADD_REGION = 0x0076A750, // __thiscall(frame, region), ret 4
+    // A region's layout part (region + OFF_REGION_ANCHOR) sets its scale through
+    // vtable +0x10, `__thiscall(layout, float scale, int force)`, ret 8;
+    // AddRegionToLayer passes the frame's OFF_REGION_EFFECTIVE_SCALE and 0.
+    VTBL_LAYOUT_SET_SCALE = 0x10,
     // Frame alpha. The byte at OFF_FRAME_ALPHA (0..255) is what the frame's
     // regions are drawn with (each region's recolor reads it) and what
     // FUN_SCRIPT_FRAME_GETALPHA returns (`[frame+0xC8] / 255`); it has one
