@@ -11,6 +11,8 @@ build instructions.
 
 - [Action](#action)
   - [`GetActionInfo(slot)`](#getactioninfoslot)
+  - [`IsItemAction(slot)`](#isitemactionslot)
+  - [`HasBonusActionBar()`](#hasbonusactionbar)
 
 - [AddOns](#addons)
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
@@ -1148,6 +1150,29 @@ A button whose macro no longer exists also returns nothing.
 The third return is always `"spell"` for a spell. Pet-bar actions are
 not in this table. Use `PetHasActionBar` and the pet-action functions for
 pet slots.
+
+### `IsItemAction(slot)`
+
+Returns 1 if the 1-based action-bar slot holds an item. Otherwise it
+returns nil. A slot that is not in the range 1 to 120 also returns nil.
+
+```lua
+if IsItemAction(1) then
+    print("Slot 1 holds an item.")
+end
+```
+
+### `HasBonusActionBar()`
+
+Returns 1 while a bonus action bar is active. Otherwise it returns nil.
+A stance, a form or stealth can give a bonus bar. `GetBonusBarOffset()`
+gives the number of the bar.
+
+```lua
+if HasBonusActionBar() then
+    print("Bonus bar", GetBonusBarOffset())
+end
+```
 
 ## AddOns
 

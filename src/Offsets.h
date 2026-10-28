@@ -6084,6 +6084,10 @@ enum Offsets {
     // hook filters out the non-form recomputes (this fires for any
     // UNIT_BYTES_1 update, not just form changes).
     FUN_BONUS_ACTIONBAR_UPDATE = 0x004E4FC0,
+    // The bonus action bar offset (uint32) that FUN_BONUS_ACTIONBAR_UPDATE
+    // stores, 0 for none. Script_GetBonusBarOffset (0x004E7620) reads it at
+    // 0x004E7626.
+    VAR_BONUS_BAR_OFFSET = 0x00BC6E88,
     // Inner watched-faction setter — `__fastcall(ecx = factionID) → void`.
     // The engine's `Script_SetWatchedFactionIndex` (0x004D6B60) is a
     // thin Lua-side wrapper that takes a 1-based displayed-list index,
