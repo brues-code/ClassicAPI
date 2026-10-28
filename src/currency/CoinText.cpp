@@ -11,6 +11,16 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+// `GetCoinText` / `C_CurrencyInfo.GetCoinText` — the plain-text money string
+// ("12 Gold, 34 Silver, 56 Copper"), 4.3.4's `Script_GetCoinText` →
+// `GetCurrencyText` (LootFrame.cpp): the non-zero denominations, gold first,
+// each from its `GOLD_AMOUNT` / `SILVER_AMOUNT` / `COPPER_AMOUNT` GlobalString,
+// joined by the separator (default ", "); zero copper is the empty string.
+// 1.12's only money formatter (`GetLootRowName`, 0x004C2550) hard-codes
+// "%d %s" over GOLD / SILVER / COPPER with "\n", so it can't carry the
+// separator or the localized formats; the strings are backported in
+// `locales/*.lua`.
+//
 // `GetCoinTextureString` / `C_CurrencyInfo.GetCoinTextureString` — the coin-icon
 // money string (e.g. "12<gold> 34<silver> 56<copper>"), a C++ backport of the
 // retail C function.
@@ -37,6 +47,7 @@
 
 #include "Game.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 
@@ -85,6 +96,54 @@ void AppendDenom(void *L, std::string &out, const char *globalName, const char *
     out += piece;
 }
 
+// Fallbacks byte-identical to the backported enUS GlobalStrings.
+constexpr const char *kGoldTextFallback = "%d Gold";
+constexpr const char *kSilverTextFallback = "%d Silver";
+constexpr const char *kCopperTextFallback = "%d Copper";
+
+// 4.3.4's GetCurrencyText default separator.
+constexpr const char *kDefaultSeparator = ", ";
+
+void AppendText(void *L, std::string &out, const char *separator, const char *globalName,
+                const char *fallback, int count) {
+    if (count == 0)
+        return;
+    if (!out.empty())
+        out += separator;
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushLocalizedFormatInt(L, globalName, fallback, count);
+    if (const char *piece = Game::Lua::ToString(L, -1))
+        out += piece;
+    Game::Lua::SetTop(L, top);
+}
+
+// GetCoinText(amount [, separator]) -> string
+int __fastcall Script_GetCoinText(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: GetCoinText(amount [,separator])");
+        return 0;
+    }
+    // 4.3.4 takes the amount as uint32 (`static_cast<uint32_t>(lua_tonumber)`),
+    // the width of the money field.
+    const double amt = Game::Lua::ToNumber(L, 1);
+    const uint32_t amount = amt <= 0.0          ? 0u
+                            : amt >= 4294967295.0 ? 0xFFFFFFFFu
+                                                  : static_cast<uint32_t>(amt);
+    const char *separator =
+        Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : kDefaultSeparator;
+
+    std::string out;
+    AppendText(L, out, separator, "GOLD_AMOUNT", kGoldTextFallback,
+               static_cast<int>(amount / 10000));
+    AppendText(L, out, separator, "SILVER_AMOUNT", kSilverTextFallback,
+               static_cast<int>((amount % 10000) / 100));
+    AppendText(L, out, separator, "COPPER_AMOUNT", kCopperTextFallback,
+               static_cast<int>(amount % 100));
+
+    Game::Lua::PushString(L, out.c_str());
+    return 1;
+}
+
 // GetCoinTextureString(amount [, fontHeight]) -> string
 int __fastcall Script_GetCoinTextureString(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
@@ -127,7 +186,23 @@ int __fastcall Script_GetCoinTextureString(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kCoinTextArgs[] = {
+    Game::Doc::Req("amount", "number", "The amount of money, in copper."),
+    Game::Doc::Opt("separator", "string", "\", \"",
+                   "The text between the gold, silver and copper parts."),
+};
+const Game::Doc::Field kCoinTextRets[] = {
+    Game::Doc::Req("result", "string",
+                   "For example \"12 Gold, 34 Silver, 56 Copper\". Empty for 0."),
+};
+const Game::Doc::Function kGetCoinText{
+    "Formats an amount of money as text, with a word for each coin.", kCoinTextArgs,
+    kCoinTextRets, "CurrencyInfo"};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("GetCoinText", &Script_GetCoinText, &kGetCoinText);
+    Game::Lua::RegisterTableFunction("C_CurrencyInfo", "GetCoinText", &Script_GetCoinText,
+                                     &kGetCoinText);
     Game::Lua::RegisterGlobalFunction("GetCoinTextureString", &Script_GetCoinTextureString);
     Game::Lua::RegisterTableFunction("C_CurrencyInfo", "GetCoinTextureString",
                                      &Script_GetCoinTextureString);

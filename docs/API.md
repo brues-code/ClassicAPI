@@ -153,6 +153,7 @@ build instructions.
   - [`C_CreatureInfo.GetCreatureTypeIDs()`](#c_creatureinfogetcreaturetypeids)
 
 - [Currency](#currency)
+  - [`GetCoinText(amount [, separator])` / `C_CurrencyInfo.GetCoinText(amount [, separator])`](#getcointextamount--separator--c_currencyinfogetcointextamount--separator)
   - [`GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`](#getcointexturestringamount--fontheight--c_currencyinfogetcointexturestringamount--fontheight)
 
 - [CVar](#cvar)
@@ -3731,6 +3732,32 @@ local ids = C_CreatureInfo.GetCreatureTypeIDs()
 ```
 
 ## Currency
+
+### `GetCoinText(amount [, separator])` / `C_CurrencyInfo.GetCoinText(amount [, separator])`
+
+Returns the amount of copper as money text, with a word for each coin.
+Both names call the same function.
+
+```lua
+GetCoinText(123456)       -- "12 Gold, 34 Silver, 56 Copper"
+GetCoinText(123456, " ")  -- "12 Gold 34 Silver 56 Copper"
+GetCoinText(5)            -- "5 Copper"
+GetCoinText(0)            -- ""
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `amount` | number | The amount of money, in copper. |
+| `separator` | string, optional | The text between the coin parts. The default is `", "`. |
+
+Only the coin parts that are not zero appear, in the order gold, silver,
+copper. An `amount` of `0` returns an empty string. If `amount` is not a
+number, the function raises the error
+`Usage: GetCoinText(amount [,separator])`.
+
+The word for each coin comes from the global strings `GOLD_AMOUNT`,
+`SILVER_AMOUNT` and `COPPER_AMOUNT`. The embedded `!!!ClassicAPI` addon
+gives these strings for each language.
 
 ### `GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`
 
