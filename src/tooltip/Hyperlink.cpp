@@ -57,7 +57,6 @@
 #include "spell/Tooltip.h"
 #include "tooltip/Lines.h"
 #include "ui/ColorData.h"
-#include "unit/Identity.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -68,13 +67,8 @@ namespace Tooltip::Hyperlink {
 namespace {
 
 using ScriptFn_t = int(__fastcall *)(void *L);
-using Substitute_t = void(__fastcall *)(const char *src, char *dst, uint32_t size,
-                                        const uint64_t *playerGuid);
 
 ScriptFn_t g_origSetHyperlink = nullptr;
-
-// Script_GetQuestLogQuestText's buffer size for the expanded text.
-constexpr uint32_t kQuestTextSize = 0x400;
 
 bool HasPrefix(const char *s, size_t len, const char *prefix) {
     const size_t n = std::strlen(prefix);
@@ -126,10 +120,8 @@ void ShowQuest(void *L, uint32_t questID) {
     const char *objectives =
         reinterpret_cast<const char *>(quest + Quest::Cache::OFF_OBJECTIVES);
     if (objectives[0] != '\0') {
-        char text[kQuestTextSize];
-        const uint64_t guid = Unit::Identity::PlayerGuid();
-        reinterpret_cast<Substitute_t>(Offsets::FUN_QUEST_TEXT_SUBSTITUTE)(
-            objectives, text, sizeof(text), &guid);
+        char text[Quest::Cache::EXPANDED_TEXT_SIZE];
+        Quest::Cache::ExpandText(objectives, text, sizeof(text));
         Tooltip::Lines::Add(self, text, kTextColor, /*wrap=*/true);
     }
 

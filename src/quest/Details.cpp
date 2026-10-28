@@ -240,8 +240,8 @@ int __fastcall Script_GetQuestDetails(void *L) {
                               str(Quest::Cache::OFF_DESCRIPTION));
     Game::Lua::SetFieldString(L, "objectives",
                               str(Quest::Cache::OFF_OBJECTIVES));
-    Game::Lua::SetFieldString(L, "completionText",
-                              str(Quest::Cache::OFF_COMPLETION_TEXT));
+    Game::Lua::SetFieldString(L, "endText",
+                              str(Quest::Cache::OFF_END_TEXT));
 
     if (const uint32_t mapID = u32(Quest::Cache::OFF_POI_MAP_ID)) {
         Game::Lua::PushString(L, "poi");

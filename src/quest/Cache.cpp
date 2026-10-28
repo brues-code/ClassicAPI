@@ -14,6 +14,7 @@
 #include "Cache.h"
 
 #include "Offsets.h"
+#include "unit/Identity.h"
 
 namespace Quest::Cache {
 
@@ -38,6 +39,14 @@ const uint8_t *Lookup(uint32_t questID, void *callback, void *userData, bool uni
     auto *cache = reinterpret_cast<void *>(Offsets::VAR_QUEST_CACHE);
     uint64_t outBuf = 0;
     return fn(cache, questID, &outBuf, callback, userData, unique ? 1 : 0);
+}
+
+using Substitute_t = void(__fastcall *)(const char *src, char *dst, uint32_t size,
+                                        const uint64_t *playerGuid);
+
+void ExpandText(const char *src, char *dst, uint32_t size) {
+    const uint64_t guid = Unit::Identity::PlayerGuid();
+    reinterpret_cast<Substitute_t>(Offsets::FUN_QUEST_TEXT_SUBSTITUTE)(src, dst, size, &guid);
 }
 
 } // namespace Quest::Cache

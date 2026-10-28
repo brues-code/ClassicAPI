@@ -45,6 +45,14 @@ inline const uint8_t *Peek(uint32_t questID) {
     return Lookup(questID, nullptr, nullptr);
 }
 
+// The buffer size `Script_GetQuestLogQuestText` expands quest text into.
+constexpr uint32_t EXPANDED_TEXT_SIZE = 0x400;
+
+// Expands the `$N`/`$C`-style tokens in cached quest text `src` for the
+// active player into `dst`, as the quest log shows it. Runs the engine's
+// `FUN_QUEST_TEXT_SUBSTITUTE`.
+void ExpandText(const char *src, char *dst, uint32_t size);
+
 // Field offsets within the data block returned by `Lookup`.
 //
 // Derived from the engine's own `Script_GetQuestLog*` accessors at
@@ -188,16 +196,15 @@ constexpr int OFF_TITLE = 0x9C;
 // guides / databases.
 constexpr int OFF_OBJECTIVES = 0x29C;
 constexpr int OFF_DESCRIPTION = 0xA9C;
-// Completion text — the "talk to me now" body shown on the
-// quest-reward UI panel after objectives are met. 0x200 (512) bytes
-// inline. Modern API exposes this as `GetQuestLogCompletionText()`.
-// Confirmed by the cache copy at `0x00562E1F..0x00562E36` (a 0x200-byte
-// memcpy from src+0x129C to dst+0x129C) and by the serializer at
-// `0x006DBEBE` (`lea eax, [edi+0x129C]` followed by the string-writer
-// call). Vanilla LeaderBoard reads from this offset for some override
-// cases but the engine never directly exposes the text to Lua —
-// `Script_GetQuestLogQuestText` returns description + objectives only.
-constexpr int OFF_COMPLETION_TEXT = 0x129C;
+// EndText — the packet's fourth string, after title, objectives and
+// description. 0x200 (512) bytes inline. Confirmed by the cache copy at
+// `0x00562E1F..0x00562E36` (a 0x200-byte memcpy from src+0x129C to
+// dst+0x129C) and by the serializer at `0x006DBEBE` (`lea eax, [edi+0x129C]`
+// followed by the string-writer call). Not the completion text of
+// `GetQuestLogCompletionText`: 4.3.4's cache holds both (`m_endText[512]`
+// and a later `m_completionText[2048]`), and the 1.12 wire carries only
+// EndText (vmangos / tortoise-wow `QuestHandler.cpp`).
+constexpr int OFF_END_TEXT = 0x129C;
 // Objective arrays — four uint32[4] parallel slabs carrying
 // SMSG_QUEST_QUERY_RESPONSE's RequiredNPCOrGo / Count / Item / Count
 // fields verbatim. NPC-or-GO is **signed**: positive = creature

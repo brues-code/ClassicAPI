@@ -746,6 +746,7 @@ build instructions.
   - [`C_QuestLog.GetNumQuestObjectives(questID)`](#c_questloggetnumquestobjectivesquestid)
   - [`C_QuestLog.IsQuestDataCachedByID(questID)`](#c_questlogisquestdatacachedbyidquestid)
   - [`GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`](#getquestlogleaderboardidobjectiveindex--questindex)
+  - [`GetQuestLogCompletionText([questLogIndex])`](#getquestlogcompletiontextquestlogindex)
   - [A turn-in always prints "*quest* completed."](#a-turn-in-always-prints-quest-completed)
 
 - [Sound](#sound)
@@ -17351,7 +17352,7 @@ Like `GetTitleForQuestID`, this is a pure cache probe — pair it with
 | `isSharable` | boolean | Convenience extraction of bit `0x08` from `questFlags`. |
 | `description` | string | The questgiver's narrative text. Raw — printf-style `$N` (player name), `$C` (class), `$R` (race) tokens are **not** substituted; use `string.gsub` if you need runtime values. |
 | `objectives` | string | The "what you must do" summary text, same raw / un-substituted format as `description`. |
-| `completionText` | string | The "now turn it in" text shown on the reward UI panel after objectives are met. Often empty for simple quests; populated for narrative-heavy ones. Also exposed as `GetQuestLogCompletionText`. |
+| `endText` | string | The end text of the quest, in the raw format of `description`. Most quests have no end text, and the string is empty. |
 | `poi` | table \| absent | Point-of-interest marker (`{mapID, x, y, opt}`). Set on quests with a server-supplied "go here" location; omitted when `mapID == 0`. |
 | `rewardItems` | array of `{id, count}` | Items the quest gives unconditionally on turn-in. Empty when there are no fixed rewards. |
 | `choiceItems` | array of `{id, count}` | "Pick one" reward items. Empty when none. |
@@ -17486,6 +17487,25 @@ A separate function keeps the existing call wire-compatible.
 > Iteration mirrors the engine at `0x004E0110`: walk the NPC/GO array
 > first, skip zero slots, then the item array. 1-based `objectiveIndex`
 > counts only non-empty slots.
+
+### `GetQuestLogCompletionText([questLogIndex])`
+
+Returns the text that the quest log shows when a quest is ready to turn
+in. The text is the quest objectives. Tokens such as `$N` (player name)
+and `$C` (class) are replaced, as in the quest log.
+
+- `questLogIndex` is the 1-based index in the quest log. Without it, the
+  function uses the selected quest.
+- The function returns nothing for a header row or an index that is out
+  of range.
+- The function returns nothing until the quest data is in the cache. It
+  does not request the data. Use `C_QuestLog.RequestLoadQuestByID` for that.
+
+```lua
+SelectQuestLogEntry(2)
+print(GetQuestLogCompletionText())
+-- "Kill 12 Kobold Laborers, then return to Marshal McBride at Northshire Abbey."
+```
 
 ### A turn-in always prints "*quest* completed."
 
