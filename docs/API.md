@@ -970,6 +970,7 @@ build instructions.
   - [`mixin` in XML](#mixin-in-xml)
   - [`intrinsic` frame types in XML](#intrinsic-frame-types-in-xml)
   - [ScrollBox and scroll bars](#scrollbox-and-scroll-bars)
+  - [BackdropTemplate](#backdroptemplate)
   - [Atlases in XML](#atlases-in-xml)
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
@@ -22821,6 +22822,60 @@ box:SetDataProvider(CreateDataProvider({"one", "two", "three"}))
 ```
 
 The scroll bar arrows do not play a click sound.
+
+### BackdropTemplate
+
+ClassicAPI has the `BackdropTemplate` template and the
+`BackdropTemplateMixin` mixin. A frame that inherits `BackdropTemplate` gets
+these methods:
+
+| Method | Use |
+|---|---|
+| `frame:SetBackdrop(backdropInfo)` | Sets the backdrop and keeps the table in `frame.backdropInfo`. If the frame already uses this table, nothing changes and the colors stay. `nil`, or a table without `bgFile` and `edgeFile`, removes the backdrop. |
+| `frame:ApplyBackdrop()` | Sets the backdrop from `frame.backdropInfo`. The colors change to white. |
+| `frame:ClearBackdrop()` | Removes the backdrop. |
+| `frame:HasBackdropInfo(backdropInfo)` | Returns `true` if the frame uses this table. |
+| `frame:GetEdgeSize()` | Returns the edge size of the backdrop. If the table has no `edgeSize`, it returns the default size. |
+
+`GetBackdrop`, `SetBackdropColor`, `GetBackdropColor`,
+`SetBackdropBorderColor` and `GetBackdropBorderColor` are the same on all
+frames.
+
+When the frame loads, it applies these `<KeyValues>`:
+
+| Key | Type | Value |
+|---|---|---|
+| `backdropInfo` | `global` | The backdrop table, for example `BACKDROP_DIALOG_32_32`. |
+| `backdropColor` | `global` | A color object for the background. |
+| `backdropColorAlpha` | `number` | The alpha of the background. |
+| `backdropBorderColor` | `global` | A color object for the border. |
+| `backdropBorderColorAlpha` | `number` | The alpha of the border. |
+
+```xml
+<Frame name="MyPanel" parent="UIParent" inherits="BackdropTemplate">
+    <Size x="200" y="100"/>
+    <Anchors><Anchor point="CENTER"/></Anchors>
+    <KeyValues>
+        <KeyValue key="backdropInfo" value="BACKDROP_TUTORIAL_16_16" type="global"/>
+        <KeyValue key="backdropBorderColor" value="NORMAL_FONT_COLOR" type="global"/>
+    </KeyValues>
+</Frame>
+```
+
+```lua
+local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+f:SetBackdrop(BACKDROP_DIALOG_32_32)
+```
+
+The `BACKDROP_*` tables are available. These tables name textures that
+are not in the game files, and those parts of the backdrop do not show:
+`BACKDROP_ACHIEVEMENTS_0_64`, `BACKDROP_ARENA_32_32` (border),
+`BACKDROP_DARK_DIALOG_32_32` (background), `BACKDROP_WATERMARK_DIALOG_0_16`,
+`BACKDROP_TOAST_12_12`, `BACKDROP_CALLOUT_GLOW_0_16` and
+`BACKDROP_CALLOUT_GLOW_0_20`.
+
+`frame:SetBorderBlendMode` and the `backdropBorderBlendMode` key are not
+available.
 ### Atlases in XML
 
 A `<Texture>` element takes an `atlas` attribute and a `useAtlasSize`

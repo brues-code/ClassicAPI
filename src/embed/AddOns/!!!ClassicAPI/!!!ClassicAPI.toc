@@ -74,6 +74,8 @@ Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
 
+FrameXML\Backdrop.lua
+FrameXML\Backdrop.xml
 FrameXML\EventFrame.lua
 FrameXML\EventFrame.xml
 FrameXML\EventButton.lua
