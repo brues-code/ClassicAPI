@@ -71,6 +71,25 @@ struct Info {
     // to announce it — a modifier going down, a new mouseover. A tooltip built
     // from it has to keep re-reading while the cursor rests on the button.
     bool conditional;
+    // The unit the macro's spell is aimed at, 4.3.4's MACRONODE::m_target: the
+    // `[@unit]` of the clause that matched, or the target a `SetMacroSpell` /
+    // `SetMacroItem` named. 0 means the current target, as for any action.
+    uint64_t unit;
+};
+
+// What a published value may resolve to: every form a `#showtooltip` value
+// takes (`C_Macro.SetMacroDisplay`), a spellbook spell only (`SetMacroSpell`),
+// or an item only (`SetMacroItem`).
+enum class Accept : uint8_t { Any, Spell, Item };
+
+struct PublishOptions {
+    Accept accept = Accept::Any;
+    // A unit token or a name the spell is aimed at; null for the current target.
+    const char *unit = nullptr;
+    // The claim ends when the macro's body is edited, as 4.3.4's SetMacroSpell
+    // and SetMacroItem last only until the macro is parsed again. Otherwise it
+    // lasts until `Release` or a reload.
+    bool untilEdit = false;
 };
 
 // Publish the resolution for macro slot `macroSlot` (1-based, as
@@ -89,7 +108,7 @@ struct Info {
 // state. Whether it also replaces the TOOLTIP is the macro body's call: only
 // `#showtooltip` hands the tooltip over, while `#show` (icon only) and a body
 // with no directive at all keep the engine's macro-name tooltip.
-bool Publish(int macroSlot, const char *value);
+bool Publish(int macroSlot, const char *value, const PublishOptions &options = {});
 
 // Give a published macro back, so our own `#showtooltip` parse resumes for
 // it. No-op for a macro that was never published.

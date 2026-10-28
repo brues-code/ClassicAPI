@@ -81,6 +81,7 @@
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
+#include "unit/TokenResolve.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -140,6 +141,10 @@ struct Entry {
     // macro: we neither parse the body nor re-evaluate it, and the lookups
     // answer from it even while yielding. See the header.
     bool external = false;
+    // A `SetMacroSpell` / `SetMacroItem` claim: it ends when the body changes,
+    // which `Rescan` tells by this hash of the body taken at the claim.
+    bool untilEdit = false;
+    uint32_t bodyHash = 0;
     // The last resolution had a value to resolve, even if it resolved to
     // nothing. The engine's cache tells those two apart — a value that named
     // something unresolvable greys the button (`0xFFFFFFFF`), nothing matched
@@ -154,6 +159,7 @@ struct Entry {
     uint32_t spellID = 0;
     uint32_t isPet = 0;
     int itemID = 0;
+    uint64_t unit = 0; // Info::unit
     uint32_t lastEvalMs = 0;
 };
 
@@ -427,6 +433,15 @@ bool Drives(const Entry &e) {
     return e.kind != Kind::None && !e.foreign && (e.optionCount > 0 || e.none);
 }
 
+// FNV-1a over a macro's body: enough to tell that an edit changed it.
+uint32_t BodyHash(const uint8_t *macroEntry) {
+    uint32_t h = 2166136261u;
+    for (const char *p = reinterpret_cast<const char *>(macroEntry + Offsets::OFF_MACRO_BODY);
+         *p != '\0'; ++p)
+        h = (h ^ static_cast<uint8_t>(*p)) * 16777619u;
+    return h;
+}
+
 void Rescan(void *L) {
     if (!g_slashNamesLoaded)
         LoadSlashNames(L);
@@ -445,7 +460,8 @@ void Rescan(void *L) {
         // its body. Ownership follows the macro, so it only drops when the
         // slot comes to hold a different one.
         if (e.external) {
-            if (e.macroID == macroID)
+            if (e.macroID == macroID &&
+                !(e.untilEdit && BodyHash(entry) != e.bodyHash))
                 continue;
             e = Entry{};
         }
@@ -484,12 +500,17 @@ void Rescan(void *L) {
 // shared with `/cast`, so a `[@mouseover][]` clause falls through to its
 // `[]` group here exactly as it does for the cast.
 //
+// `unit` gets the matched clause's `@unit` (the parser's second return), or
+// an empty string when it named none.
+//
 // `*outForeign` is set when the line uses a condition our parser does not
 // own. We ask quietly, because a macro body is not ours: another macro addon
 // has its own conditions, and naming one at the player would be noise about a
 // macro that works.
-bool ResolveOptions(void *L, const char *options, char *out, size_t outSize, bool *outForeign) {
+bool ResolveOptions(void *L, const char *options, char *out, size_t outSize, char *unit,
+                    size_t unitSize, bool *outForeign) {
     out[0] = '\0';
+    unit[0] = '\0';
     *outForeign = false;
     if (std::strchr(options, '[') == nullptr && std::strchr(options, ';') == nullptr) {
         CopyTrimmed(options, out, outSize);
@@ -512,6 +533,10 @@ bool ResolveOptions(void *L, const char *options, char *out, size_t outSize, boo
             if (value != nullptr) {
                 CopyTrimmed(value, out, outSize); // copy before the SetTop below
                 matched = true;
+            }
+            if (Game::Lua::Type(L, -2) == Game::Lua::TYPE_STRING) {
+                if (const char *token = Game::Lua::ToString(L, -2))
+                    CopyTrimmed(token, unit, unitSize);
             }
         }
     }
@@ -553,7 +578,19 @@ struct Resolution {
     uint32_t spellID = 0;
     uint32_t isPet = 0;
     int itemID = 0;
+    uint64_t unit = 0;
 };
+
+// The GUID of the unit a clause or a publisher names: a unit token through the
+// engine's resolver, else a unit with that exact name. 0 for none, and for a
+// token that points at nothing, which leaves the current target in charge.
+uint64_t UnitGuid(const char *unit) {
+    if (unit == nullptr || unit[0] == '\0')
+        return 0;
+    if (::Unit::TokenResolve::IsUnitToken(unit))
+        return ::Unit::Identity::GuidForToken(unit);
+    return ::Unit::Identity::FindGuidByName(unit, Offsets::TYPEMASK_UNIT, true);
+}
 
 void SetItem(const uint8_t *cgItem, Resolution *r) {
     const int itemID = Item::ID::FromCGItem(cgItem);
@@ -667,6 +704,28 @@ void ResolveValue(const char *value, Resolution *r, bool explicitValue, bool ite
         SetSpellByID(n, r);
 }
 
+// A spell only, as 4.3.4's SetMacroSpell finds it: by name in the spellbook
+// (the player's, then the pet's), with `spell:N` and a bare ID as the display
+// forms `ResolveValue` gives a published value.
+void ResolveSpell(const char *value, Resolution *r) {
+    if (const int spellRef = ParseSpellRef(value)) {
+        SetSpellByID(spellRef, r);
+        return;
+    }
+    int isPet = 0;
+    const int spellID = reinterpret_cast<ResolveSpellName_t>(
+        Offsets::FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID)(value, &isPet);
+    if (spellID > 0) {
+        r->target = Target::Spell;
+        r->spellID = static_cast<uint32_t>(spellID);
+        r->isPet = (isPet != 0) ? 1u : 0u;
+        return;
+    }
+    int n = 0;
+    if (ParseInt(value, &n))
+        SetSpellByID(n, r);
+}
+
 // Repaint every action slot holding `macroID` through the engine's own
 // slot-changed notifier (recompute usable + ACTIONBAR_SLOT_CHANGED, no server
 // packet). Lua handlers run synchronously inside — keep the stack balanced.
@@ -720,6 +779,9 @@ void ApplyResolution(void *L, Entry &e, const Resolution &r, bool matched) {
     e.spellID = r.spellID;
     e.isPet = r.isPet;
     e.itemID = r.itemID;
+    // The unit changes no button state the engine caches (the range answer is
+    // asked for fresh), so it never forces a repaint.
+    e.unit = r.unit;
     e.matched = matched;
     cache = cacheSpell;
     pet = cachePet;
@@ -794,9 +856,11 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
     bool matched = false;
     int matchedLine = -1;
     char value[kOptionsMax] = {};
+    char unit[kOptionsMax] = {};
     for (int i = 0; i < e.optionCount; ++i) {
         bool foreign = false;
-        bool got = ResolveOptions(L, e.options[i], value, sizeof(value), &foreign);
+        bool got = ResolveOptions(L, e.options[i], value, sizeof(value), unit, sizeof(unit),
+                                  &foreign);
         if (got && value[0] != '\0') {
             switch (e.lineType[i]) {
             case LineType::Sequence:
@@ -845,6 +909,7 @@ void Evaluate(void *L, Entry &e, uint32_t nowMs) {
         const LineType type = e.lineType[matchedLine];
         ResolveValue(value, &r, type == LineType::Directive,
                      type == LineType::Equip || type == LineType::EquipSlot);
+        r.unit = UnitGuid(unit);
     }
     ApplyResolution(L, e, r, matched);
 }
@@ -868,6 +933,7 @@ void MaintainExternal(void *L) {
         r.spellID = e.spellID;
         r.isPet = e.isPet;
         r.itemID = e.itemID;
+        r.unit = e.unit;
         uint32_t wantSpell = 0, wantPet = 0;
         // `e.matched`, never `kind != None`: `Publish` marks a claimed macro
         // `ShowTooltip` even when the publisher had nothing for us, and
@@ -1167,6 +1233,7 @@ bool LookupEntries(uint32_t macroID, Info *out) {
         out->spellID = e.spellID;
         out->isPet = e.isPet;
         out->itemID = e.itemID;
+        out->unit = e.unit;
         // A publisher re-publishes the moment its answer changes, so a claimed
         // macro never needs the polling refresh a condition of ours does.
         out->conditional = false;
@@ -1180,6 +1247,7 @@ bool LookupEntries(uint32_t macroID, Info *out) {
         out->spellID = e.spellID;
         out->isPet = e.isPet;
         out->itemID = e.itemID;
+        out->unit = e.unit;
         out->conditional = e.conditional;
         return true;
     }
@@ -1198,6 +1266,7 @@ bool LookupEntries(uint32_t macroID, Info *out) {
         out->spellID = spellID;
         out->isPet = Game::Read<uint32_t>(entry, Offsets::OFF_MACRO_PRIMARY_SPELL_IS_PET);
         out->itemID = 0;
+        out->unit = 0;
         // A bare directive has no option lines, so nothing to re-evaluate.
         out->conditional = false;
         return true;
@@ -1214,7 +1283,7 @@ const Game::HookAutoRegister _hookPruneSpell{
 
 } // namespace
 
-bool Publish(int macroSlot, const char *value) {
+bool Publish(int macroSlot, const char *value, const PublishOptions &options) {
     if (macroSlot < 1 || macroSlot > kMaxMacros)
         return false;
     void *L = ReadyState();
@@ -1234,6 +1303,8 @@ bool Publish(int macroSlot, const char *value) {
         e.macroID = macroID;
         e.external = true;
     }
+    e.untilEdit = options.untilEdit;
+    e.bodyHash = options.untilEdit ? BodyHash(macroEntry) : 0;
     // Kind marks the macro as claimed even when nothing resolved, so the button
     // falls back to the question mark rather than to our own parse. WHICH kind
     // is the body's call, not the publisher's: `#show` is the macro's author
@@ -1249,8 +1320,14 @@ bool Publish(int macroSlot, const char *value) {
     const bool matched = value != nullptr && value[0] != '\0';
     // A publisher naming a value is naming it explicitly, the same as a
     // directive that carries one.
-    if (matched)
-        ResolveValue(value, &r, /*explicitValue=*/true, /*itemOnly=*/false);
+    if (matched) {
+        if (options.accept == Accept::Spell)
+            ResolveSpell(value, &r);
+        else
+            ResolveValue(value, &r, /*explicitValue=*/true,
+                         /*itemOnly=*/options.accept == Accept::Item);
+    }
+    r.unit = UnitGuid(options.unit);
 
     BusyScope busy;
     ApplyResolution(L, e, r, matched);

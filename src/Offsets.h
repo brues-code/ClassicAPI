@@ -6533,6 +6533,18 @@ enum Offsets {
     // returned via the second arg.
     //   __fastcall uint(uint slot0Based, uint *outPetFlag)
     FUN_ACTION_SLOT_TO_SPELL = 0x004E5A50,
+    // An action slot's range answer, `int __fastcall(int slot0, int
+    // *inRange)`: 0 for no answer (no player, a bad slot, a pet-book spell,
+    // no record, a spell whose first implicit target takes no unit, or no
+    // target selected), else 1 with `*inRange` 0 or 1. It calls
+    // FUN_CHECK_SPELL_TARGET_RANGE(player, record, GUID 0 = the selection,
+    // report 0) at 0x004E5765; a pass then answers 1 only for a first implicit
+    // target of 6, 21, 23, 25, 26, 35, 45, 57 or 61 (jump table 0x004E57C4,
+    // index bytes 0x004E57CC: case 0 for exactly those) with a target selected
+    // (0x004E579C). Sole caller Script_IsActionInRange, at the call below;
+    // `Action::Range` redirects it.
+    FUN_ACTION_SLOT_RANGE = 0x004E56F0,
+    CALL_IS_ACTION_IN_RANGE_SLOT_RANGE = 0x004E7583,
     ACTION_TYPE_MASK = 0xF0000000,
     ACTION_TYPE_SPELL = 0x00000000,
     // 0x40000000 entries are macros — live only while `entry & 0xBFFFFFFF`

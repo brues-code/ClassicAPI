@@ -26,9 +26,18 @@
 // publisher hands over what it would have written in the macro and gets the
 // item-before-spell precedence, `item:N`, links, inventory slots and
 // `bag slot` for free.
+//
+// `SetMacroSpell(macro, spell [, target])` and `SetMacroItem(macro, item
+// [, target])` are 4.3.4's narrower doors onto the same publish: a spellbook
+// spell only, or an item only, aimed at `target` (the unit the button's range
+// check uses, see `Action::Range`). As in 4.3.4 the claim lasts until the
+// macro is edited, and a name that resolves to nothing greys the button.
 
 #include "Game.h"
+#include "Offsets.h"
 #include "macro/ShowTooltip.h"
+
+#include <cstdint>
 
 namespace Macro::Display {
 
@@ -57,7 +66,75 @@ int __fastcall Script_C_Macro_SetMacroDisplay(void *L) {
     return 1;
 }
 
+// The macro slot (1-based) that argument 1 names, as 4.3.4's GetMacroFromLua
+// reads it: a number, or a string that converts to one, is an index; any other
+// string is a name. 0 when no macro is there.
+int MacroSlotArg(void *L) {
+    using NameToSlot_t = uint32_t(__fastcall *)(const char *name);
+    using SlotToEntry_t = const uint8_t *(__fastcall *)(uint32_t slot0);
+    uint32_t slot0 = 0xFFFFFFFFu;
+    if (Game::Lua::IsNumber(L, 1))
+        slot0 = static_cast<uint32_t>(static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1);
+    else if (Game::Lua::IsString(L, 1))
+        slot0 = reinterpret_cast<NameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT)(
+            Game::Lua::ToString(L, 1));
+    if (reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(slot0) == nullptr)
+        return 0;
+    return static_cast<int>(slot0) + 1;
+}
+
+int SetMacroValue(void *L, Macro::ShowTooltip::Accept accept, const char *usage) {
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, usage);
+        return 0;
+    }
+    const int macroSlot = MacroSlotArg(L);
+    if (macroSlot == 0)
+        return 0;
+    Macro::ShowTooltip::PublishOptions options;
+    options.accept = accept;
+    options.unit = Game::Lua::IsString(L, 3) ? Game::Lua::ToString(L, 3) : nullptr;
+    options.untilEdit = true;
+    if (Macro::ShowTooltip::Publish(macroSlot, Game::Lua::ToString(L, 2), options))
+        Game::Lua::PushNumber(L, 1);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
+int __fastcall Script_SetMacroSpell(void *L) {
+    return SetMacroValue(L, Macro::ShowTooltip::Accept::Spell,
+                         "Usage: SetMacroSpell(macro, spell [,target])");
+}
+
+int __fastcall Script_SetMacroItem(void *L) {
+    return SetMacroValue(L, Macro::ShowTooltip::Accept::Item,
+                         "Usage: SetMacroItem(macro, item [,target])");
+}
+
+const Game::Doc::Field kSetMacroSpellArgs[] = {
+    Game::Doc::Req("macro", "string", "The macro's index or name."),
+    Game::Doc::Req("spell", "string", "The spell's name, with an optional \"(Rank N)\"."),
+    Game::Doc::Opt("target", "string", nullptr, "The unit that the button's range check uses."),
+};
+const Game::Doc::Field kSetMacroItemArgs[] = {
+    Game::Doc::Req("macro", "string", "The macro's index or name."),
+    Game::Doc::Req("item", "string", "The item's name, item:N or link."),
+    Game::Doc::Opt("target", "string", nullptr, "The unit that the button's range check uses."),
+};
+const Game::Doc::Field kSetMacroValueRets[] = {
+    Game::Doc::Opt("found", "number", nullptr, "1 when the name was found."),
+};
+const Game::Doc::Function kSetMacroSpell{
+    "Sets the spell that a macro's action button shows, until the macro is edited.",
+    kSetMacroSpellArgs, kSetMacroValueRets, "MacroGlobals"};
+const Game::Doc::Function kSetMacroItem{
+    "Sets the item that a macro's action button shows, until the macro is edited.",
+    kSetMacroItemArgs, kSetMacroValueRets, "MacroGlobals"};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("SetMacroSpell", &Script_SetMacroSpell, &kSetMacroSpell);
+    Game::Lua::RegisterGlobalFunction("SetMacroItem", &Script_SetMacroItem, &kSetMacroItem);
     Game::Lua::RegisterTableFunction("C_Macro", "SetMacroDisplay",
                                      &Script_C_Macro_SetMacroDisplay);
 }

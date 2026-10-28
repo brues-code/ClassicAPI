@@ -617,6 +617,7 @@ build instructions.
   - [Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`](#macro-names-in-getmacroinfo--editmacro--pickupmacro--deletemacro)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
+  - [`SetMacroSpell(macro, spell [, target])` / `SetMacroItem(macro, item [, target])`](#setmacrospellmacro-spell--target--setmacroitemmacro-item--target)
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
   - [`C_Macro.CreateMacro` / `C_Macro.EditMacro`](#c_macrocreatemacro--c_macroeditmacro)
   - [`C_Macro.GetMacroIcon(macroSlot)`](#c_macrogetmacroiconmacroslot)
@@ -14549,6 +14550,10 @@ does the same, but keeps the macro name as the tooltip.
   the cursor, and `[@mouseover][] Rejuvenation` shows the spell and casts on
   your target instead. If the value names a spell by name that you do not
   know, nothing shows. Name it by ID to show it anyway.
+- The unit of the clause that matched (`[@focus]`, `[target=party1]`) is the
+  unit for the button's range check. `IsActionInRange` then tells whether that
+  unit is in range, not whether your target is. With no unit in the clause, the
+  range check uses your target.
 
 A macro without `#showtooltip` or `#show` works the same way as `#show`
 with no value. If its icon is the question mark, it shows the icon of its
@@ -14775,6 +14780,37 @@ of your item, with its suffix and enchant.
 local name, link = GetMacroItem(4)
 -- name = "Major Healthstone", link = "|cffffffff|Hitem:9421:0:0:0|h[Major Healthstone]|h|r"
 ```
+
+### `SetMacroSpell(macro, spell [, target])` / `SetMacroItem(macro, item [, target])`
+
+Sets the spell or the item that a macro's action button shows. The button
+then follows it, as for a [`#showtooltip`](#showtooltip-and-show) value: icon,
+cooldown, count, usable state and range.
+
+```lua
+SetMacroSpell("Heal", "Flash Heal", "focus")   -- show Flash Heal, range to focus
+SetMacroItem(3, "Hearthstone")                 -- show the Hearthstone
+```
+
+| Argument | Type | Description |
+|---|---|---|
+| `macro` | number or string | The macro's index, or its name. |
+| `spell` | string | `SetMacroSpell` only. A spell in your spellbook, by name, with an optional `(Rank N)`. |
+| `item` | string | `SetMacroItem` only. An item you carry, by name, or `item:N` or an item link. |
+| `target` | string (optional) | A unit token or a name. The button's range check uses this unit in place of your target. |
+
+Both functions return `1` when they find the spell or the item. If they do
+not find it, they return `nil`, and the button is greyed. If no macro has that
+index or name, they return nothing.
+
+The setting stays until you edit the macro, or until the interface reloads.
+Then the macro shows what its own lines resolve to again. The unit of
+`target` is found when you call the function. If that unit goes away, the
+button has no range state.
+
+If `spell` or `item` is not a string or a number, the function raises the
+error `Usage: SetMacroSpell(macro, spell [,target])` or
+`Usage: SetMacroItem(macro, item [,target])`.
 
 ### `GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`
 
