@@ -799,6 +799,9 @@ build instructions.
   - [`C_Spell.IsSpellUsable(spellID)`](#c_spellisspellusablespellid)
   - [`C_Spell.GetSpellCooldown(spellIdentifier)`](#c_spellgetspellcooldownspellidentifier)
   - [`GetSpellBaseCooldown(spellID)`](#getspellbasecooldownspellid)
+  - [`IsAttackSpell(slot, bookType)`](#isattackspellslot-booktype)
+  - [`IsAutoRepeatSpell(slot, bookType)`](#isautorepeatspellslot-booktype)
+  - [`IsConsumableSpell(spellID)` / `IsConsumableSpell(slot, bookType)`](#isconsumablespellspellid--isconsumablespellslot-booktype)
   - [`C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`](#c_spellgetspelllossofcontrolcooldownspellidentifier)
   - [`C_Spell.IsCurrentSpell(spellIdentifier)`](#c_spelliscurrentspellspellidentifier)
   - [`C_Spell.IsSelfBuff(spellID)`](#c_spellisselfbuffspellid)
@@ -18697,6 +18700,42 @@ cooldown and its category cooldown.
 Returns `0` for a spell that has only the global cooldown. Returns `nil`
 if the spell does not exist, or if the spell has no cooldown and no
 global cooldown.
+
+### `IsAttackSpell(slot, bookType)`
+
+Returns `true` if the spellbook slot holds the melee Attack spell.
+`bookType` is `"spell"` or `"pet"`.
+
+```lua
+/dump IsAttackSpell(1, "spell")
+/dump IsAttackSpell("Attack")
+```
+
+### `IsAutoRepeatSpell(slot, bookType)`
+
+Returns `true` if the spellbook slot holds the spell that repeats now,
+such as Auto Shot or Shoot. Pet spells always return `false`.
+
+```lua
+/dump IsAutoRepeatSpell("Auto Shot")
+```
+
+### `IsConsumableSpell(spellID)` / `IsConsumableSpell(slot, bookType)`
+
+Returns `true` if the spell uses up reagents. A single number is a
+spell ID. A number and a `bookType` is a spellbook slot.
+
+```lua
+/dump IsConsumableSpell(20484)   -- Rebirth: true
+/dump IsConsumableSpell(133)     -- Fireball: false
+```
+
+These three functions accept a spell name in place of the slot. The
+name can end in a rank, such as `"Fireball(Rank 1)"`. You can also give
+the rank as the second argument: `IsAttackSpell("Fireball", "Rank 1")`.
+If the name is not in your spellbook, the function returns nothing. A
+slot outside 1 to 1024 also returns nothing. A first argument that is
+not a number or a string raises an error.
 
 ### `C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`
 

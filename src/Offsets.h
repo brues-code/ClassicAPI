@@ -7380,6 +7380,14 @@ enum Offsets {
     // `Spell::Tracking::SetTracking` "select = cast" path does this).
     FUN_SCRIPT_CAST_SPELL = 0x004B42F0,
 
+    // ReadBookSlotArgs — `int __fastcall(void *L, int *slot, int *pet)`,
+    // `ret 4`. Needs a number at stack[1] and a string at stack[2]; writes
+    // the 0-based slot (fails outside 0..0x3FF) and pet = stack[2] is "pet"
+    // (case-insensitive). Returns 0 on failure without raising — every 1.12
+    // slot script raises its own "Invalid spell slot in X" (disassembled;
+    // 4.3.4's GetSlotFromLua number branch).
+    FUN_READ_BOOK_SLOT_ARGS = 0x004B3EC0,
+
     // `Script_GetShapeshiftFormInfo(index)` — `int __fastcall(void *L)`,
     // reads the 1-based shapeshift-bar index at Lua stack[1] and returns
     // (icon, name, active, castable). It holds the engine's only full
