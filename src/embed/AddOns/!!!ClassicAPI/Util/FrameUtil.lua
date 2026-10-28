@@ -3,8 +3,7 @@
 -- Only the dependency-light, commonly-called helpers are ported. Omitted:
 --   - the fade/flash functions (UIFrameFade*/UIFrameFlash*) are already
 --     native in 1.12.
---   - the scale/layout/secure/EventRegistry helpers (rely on APIs absent
---     here).
+--   - the scale/layout/secure helpers (rely on APIs absent here).
 
 FrameUtil = FrameUtil or {};
 
@@ -78,6 +77,33 @@ function GetUnscaledFrameRect(frame, scale)
 	end
 
 	return frameLeft / scale, frameBottom / scale, frameWidth / scale, frameHeight / scale;
+end
+
+local alternateTopLevelParent;
+function SetAlternateTopLevelParent(parent)
+	alternateTopLevelParent = parent;
+	EventRegistry:TriggerEvent("UI.AlternateTopLevelParentChanged", parent);
+end
+
+function ClearAlternateTopLevelParent()
+	alternateTopLevelParent = nil;
+	EventRegistry:TriggerEvent("UI.AlternateTopLevelParentChanged");
+end
+
+-- optionalExcludedParent: Frame to avoid returning if it is currently the alternateTopLevelParent; Useful for frames that might currently be the alternate but need the root top for scaling
+function GetAppropriateTopLevelParent(optionalExcludedParent)
+	if alternateTopLevelParent and alternateTopLevelParent:IsShown() and (not optionalExcludedParent or alternateTopLevelParent ~= optionalExcludedParent) then
+		return alternateTopLevelParent;
+	end
+
+	return UIParent or GlueParent;
+end
+
+function SetAppropriateTopLevelParent(frame)
+	local parent = GetAppropriateTopLevelParent();
+	if parent then
+		frame:SetParent(parent);
+	end
 end
 
 function GetAppropriateTooltip()

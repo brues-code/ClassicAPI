@@ -115,17 +115,24 @@ constexpr Entry kAtlases[] = {
     // client's scroll bars draw the same art from files. The track is
     // UI-Character-ScrollBar (64x256), the file the Friends and Battlefield
     // frames' scroll bars use: its left column (0..0.484375, 31 px) is the top
-    // cap and then rails to the bottom, its right column (0.515625..1) ends in
-    // the bottom cap at 0.4140625 (106 px), the TexCoords those frames give
-    // it. Each cap is the 28 px at its end, the member table's 31x28. The
-    // center tiles vertically there; here it is the whole rail below the top
-    // cap, so a stretched center shows the same rails.
+    // cap and then rails to the bottom, its right column (0.515625..1, the
+    // rails 1 px right of the left column's) holds two bottom caps. Each cap
+    // is 28 px, the member table's 31x28, and must fit the template's
+    // steppers (Back y=-4 16 tall, Forward y=4 17 tall). Alpha measured: the
+    // top cap at rows 0..28 has a 4-row border, a 16-row well and the
+    // separator at rows 20..21. The upper bottom cap (rows 78..106, where the
+    // Friends frame's TexCoords end) has only a 3-row border, so the Forward
+    // stepper would cover its separator; the lower one at rows 227..255 has
+    // a 4-row border, a 17-row well and the separator 21..22 rows up, the
+    // stepper's exact fit. The center tiles vertically there; here it is the
+    // whole rail below the top cap, so a stretched center shows the same
+    // rails.
     {"UI-ClassicScrollBar-EndCap-Top",
      "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 31, 28, 0.0f,
      0.484375f, 0.0f, 0.109375f, 1941, 18426, false, false},
     {"UI-ClassicScrollBar-EndCap-Bottom",
      "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 31, 28, 0.515625f,
-     1.0f, 0.3046875f, 0.4140625f, 1941, 18425, false, false},
+     1.0f, 0.88671875f, 0.99609375f, 1941, 18425, false, false},
     {"UI-ClassicScrollBar-Center",
      "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 31, 228, 0.0f,
      0.484375f, 0.109375f, 1.0f, 1763, 18422, false, true},

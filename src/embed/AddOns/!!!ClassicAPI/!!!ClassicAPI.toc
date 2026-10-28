@@ -22,6 +22,7 @@ Util\StringUtil.lua
 Util\MathUtil.lua
 Util\PixelUtil.lua
 Util\FrameUtil.lua
+Util\InputUtil.lua
 Util\FormattingUtil.lua
 Util\TimeUtil.lua
 Util\Flags.lua
