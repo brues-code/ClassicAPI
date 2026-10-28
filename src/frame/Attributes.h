@@ -22,4 +22,9 @@ namespace Frame::Attributes {
 // from `FrameScript_Initialize_h` in DllMain.cpp alongside the other cleaners.
 void PrepareForReload();
 
+// Drops every attribute of the frame at stack index `frameIdx`, and its
+// mouseover binding, without running OnAttributeChanged: retail's
+// SetToDefaults.
+void ClearAll(void *L, int frameIdx);
+
 } // namespace Frame::Attributes

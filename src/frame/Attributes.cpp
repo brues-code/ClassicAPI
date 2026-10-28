@@ -1193,4 +1193,14 @@ void PrepareForReload() {
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
+void ClearAll(void *L, int frameIdx) {
+    void *frame = Game::Lua::ResolveFrame(L, frameIdx, false);
+    if (frame == nullptr)
+        return;
+    Game::Lua::PushValue(L, frameIdx);               // [.., frame]
+    Game::Lua::PushNil(L);                           // [.., frame, nil]
+    Game::Lua::RawSet(L, Game::Lua::REGISTRY_INDEX); // registry[frame] = nil
+    g_unitFrames.erase(frame);
+}
+
 } // namespace Frame::Attributes

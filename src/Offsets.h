@@ -414,6 +414,9 @@ enum Offsets {
     // (0x00770D30(this, 2, 1)), then FUN_FONTSTRING_SET_TEXT(label, text, 1).
     // Lua Button:SetText (0x00780D20) and 4.3.4's SetFormattedText call it.
     FUN_BUTTON_SET_TEXT = 0x00778DC0,
+    // The button's label, a CSimpleFontString* (0 until SetText or SetFontString
+    // makes one); CSimpleButton::SetText writes its text (benilla-re ui/button).
+    OFF_BUTTON_LABEL = 0x338,
     // Button::Click vmethod (Button vtable 0x0081C7F8 + 0x94) — __thiscall(button,
     // buttonMask, fromScript), RET 8. Gate [+0x328] != 0 (enabled); runs the
     // internal C++ click listener at +0x314 (vtable+0x10; set by FUN_00779740,
@@ -597,6 +600,11 @@ enum Offsets {
     // Game::PixelToInternal does, parses the flags (FONT_FLAG_*), and on
     // success clears bit 0 of OFF_FONTSTRING_FONT_FLAGS (benilla-re ui/fonttext).
     FUN_SIMPLEFONTSTRING_SET_FONT = 0x007714F0,
+    // CSimpleFontString::SetAlphaGradient - `int __thiscall(fs, int start, int
+    // length)`, ret 8: stores the pair at +0x118 / +0x11C, rebuilding a built
+    // string. The constructor stores start -1 (no gradient) (benilla-re
+    // ui/fonttext; 0x00770D30).
+    FUN_FONTSTRING_SET_ALPHA_GRADIENT = 0x00772460,
     OFF_FONTSTRING_FONT_FLAGS = 0xD4,
     FONT_FLAG_OUTLINE = 1, // ParseFontFlags 0x006F1A90: OUTLINE 1, MONOCHROME 2, THICKOUTLINE 4
     FUN_REGION_SET_POINT = 0x00767C70,            // __thiscall(region+OFF_REGION_ANCHOR, point, relAnchor, relPoint, x, y, flag=1)

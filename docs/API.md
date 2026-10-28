@@ -276,6 +276,7 @@ build instructions.
   - [`region:IsDragging()`](#regionisdragging)
   - [`region:GetDebugName([preferParentKey])`](#regiongetdebugnamepreferparentkey)
   - [`region:GetSourceLocation()`](#regiongetsourcelocation)
+  - [`region:SetToDefaults()`](#regionsettodefaults)
   - [`AddSourceLocationExclude(fileName)`](#addsourcelocationexcludefilename)
   - [`GetMouseFoci()`](#getmousefoci)
   - [`CreateFrame(frameType [, name, parent, template, id])`](#createframeframetype--name-parent-template-id)
@@ -6778,6 +6779,31 @@ print(CreateFrame("Frame"):GetDebugName() == "") -- true
 - A region with no name and no parent returns an empty string.
 - If `preferParentKey` is `true`, the parent-key form comes before the
   global name, at each level of the chain.
+
+### `region:SetToDefaults()`
+
+Puts a frame, a texture or a font string back in the state it has when it
+is first made with no template. Use it to reuse a frame from a pool.
+
+The state that the template, `CreateFontString` or the frame type gave the
+object is also removed:
+
+- A frame loses its anchors, size, scripts, attributes and mouse input. Its
+  alpha and scale become 1, its frame strata becomes `MEDIUM` and its frame
+  level becomes one more than the level of its parent. The frame is shown.
+- A button also loses its text, its font objects and its highlight lock. It
+  is enabled and in the `NORMAL` state. It has no mouse input, but a new
+  button has mouse input.
+- A texture loses its file, texture coordinates and vertex color. Its blend
+  mode becomes `BLEND` and its draw layer becomes `BACKGROUND`.
+- A font string loses its text and its font. `GetFont()` returns `nil`, so
+  set a font or a font object before you set text again. The text color
+  becomes white, the shadow becomes black with no offset, and the justify
+  becomes `CENTER` and `MIDDLE`.
+
+These do not change: the parent, keyboard and mouse wheel input, the
+registered events, the child regions of a frame (for example, the textures
+and the label of a button), and the fields on the Lua table of the object.
 
 ### `region:GetSourceLocation()`
 
