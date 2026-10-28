@@ -68,6 +68,7 @@ build instructions.
 - [Chat](#chat)
   - [`GetCurrentChatEvent()`](#getcurrentchatevent)
   - [`GetCurrentChatGUID()`](#getcurrentchatguid)
+  - [`SendSystemMessage(message)`](#sendsystemmessagemessage)
 
 - [Class](#class)
   - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable--isfemale)
@@ -2055,6 +2056,28 @@ end)
 If a chat event handler causes another chat event, the function gives the
 inner event's sender while that handler runs. When the inner handler
 returns, it gives the outer event's sender again.
+
+### `SendSystemMessage(message)`
+
+Shows `message` in chat as a system message. Only your client shows the
+line. Nothing goes to the server.
+
+The line has the system message color and fires `CHAT_MSG_SYSTEM`, with
+`message` as `arg1`. Chat frames and addons that watch system messages see
+it as they see a message from the game.
+
+```lua
+SendSystemMessage("Raid check complete.")
+```
+
+| Argument | Type | Description |
+|---|---|---|
+| `message` | string | The text of the line. A number is also accepted. |
+
+If `message` is not a string or a number, the function raises the error
+`Usage: SendSystemMessage("message")`.
+
+The line cannot show icons. A `|T` or `|A` escape shows as text.
 
 ## Class
 
