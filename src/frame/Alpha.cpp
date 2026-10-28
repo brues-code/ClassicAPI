@@ -26,8 +26,8 @@
 //     animation fading a child starts from its parent's value.
 // 3.x keeps each frame's own alpha and draws it multiplied by its parent's.
 //
-// Co-hooks of the setter (FUN_FRAME_SET_FRAME_ALPHA), SetParent
-// (FUN_FRAME_SET_PARENT) and frame GetAlpha, and a Frame::Destruction listener:
+// Co-hooks of the setter (FUN_FRAME_SET_FRAME_ALPHA) and frame GetAlpha, and
+// Frame::ParentChange and Frame::Destruction listeners:
 //   - SetAlpha and XML `alpha` record the frame's own alpha;
 //   - the byte holds own x the parent's drawn alpha. When it changes, the
 //     frame's regions recolor and each child is recomputed from its own alpha,
@@ -62,6 +62,7 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "frame/Destruction.h"
+#include "frame/ParentChange.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -71,12 +72,10 @@ namespace Frame::Alpha {
 namespace {
 
 using SetFrameAlpha_t = void(__thiscall *)(void *frame, uint32_t alpha);
-using SetParent_t = void(__thiscall *)(void *frame, void *parent);
 using Recolor_t = void(__thiscall *)(void *region, int arg);
 using ScriptFn_t = int(__fastcall *)(void *L);
 
 SetFrameAlpha_t g_origSetAlpha = nullptr;
-SetParent_t g_origSetParent = nullptr;
 ScriptFn_t g_origGetAlpha = nullptr;
 CVar::Factory::Handle g_dimCVar = nullptr;
 CVar::Factory::Handle g_selCVar = nullptr;
@@ -278,12 +277,13 @@ void __fastcall SetFrameAlpha_h(void *frame, void * /*edx*/, uint32_t alpha) {
     Draw(frame, DrawnFor(frame, value));
 }
 
-void __fastcall SetParent_h(void *frame, void * /*edx*/, void *parent) {
-    g_origSetParent(frame, parent);
+void OnParentChanged(void *frame) {
     if (IsNamePlate(frame) || UnderNamePlate(frame))
         return; // vanilla: a new parent contributes no alpha
     ApplyDrawn(frame, DrawnFor(frame, Own(frame)));
 }
+
+const Frame::ParentChange::AutoSubscribe _parentSub{&OnParentChanged};
 
 void OnFrameDestroyed(void *frame) { g_own.erase(frame); }
 
@@ -305,9 +305,6 @@ int __fastcall GetAlpha_h(void *L) {
 const Game::HookAutoRegister _setAlphaHook{Offsets::FUN_FRAME_SET_FRAME_ALPHA,
                                            reinterpret_cast<void *>(&SetFrameAlpha_h),
                                            reinterpret_cast<void **>(&g_origSetAlpha)};
-const Game::HookAutoRegister _setParentHook{Offsets::FUN_FRAME_SET_PARENT,
-                                            reinterpret_cast<void *>(&SetParent_h),
-                                            reinterpret_cast<void **>(&g_origSetParent)};
 const Game::HookAutoRegister _getAlphaHook{Offsets::FUN_SCRIPT_FRAME_GETALPHA,
                                            reinterpret_cast<void *>(&GetAlpha_h),
                                            reinterpret_cast<void **>(&g_origGetAlpha)};
