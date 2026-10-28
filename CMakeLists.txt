@@ -98,8 +98,7 @@ target_compile_definitions(
 
 # Stamp the PE VERSIONINFO resource from the same version components, so the
 # DLL's file/product version (Explorer -> Properties -> Details) matches the
-# CLASSIC_API_VERSION Lua global. The .rsrc section the resource lands in is
-# untouched by the .rdata/.pdata section merges below.
+# CLASSIC_API_VERSION Lua global.
 set(CLASSICAPI_VER_STRING
     "${CLASSICAPI_VER_MAJOR}.${CLASSICAPI_VER_MINOR}.${CLASSICAPI_VER_PATCH}.0")
 set(CLASSICAPI_VERSION_RC "${CMAKE_BINARY_DIR}/generated/version.rc")
@@ -156,5 +155,9 @@ set(CMAKE_SHARED_LINKER_FLAGS
     # identical-COMDAT fold); they are listed explicitly below so they stay ON
     # and the shipped DLL does not grow. (/OPT:ICF folds identical functions, so
     # a few map symbols share an address — harmless.)
-    "/OPT:REF /OPT:ICF /MERGE:.rdata=.text /MERGE:.pdata=.text /SECTION:.text,EWR /NODEFAULTLIB:MSVCRT /MAP /DEBUG"
+    # The sections keep the standard layout: .text is read + execute only and
+    # constants stay in a read-only .rdata. Nothing writes into this DLL's own
+    # code; engine patches make their target writable themselves
+    # (Common::PatchBytes).
+    "/OPT:REF /OPT:ICF /NODEFAULTLIB:MSVCRT /MAP /DEBUG"
 )
