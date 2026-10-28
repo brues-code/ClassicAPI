@@ -3715,6 +3715,10 @@ enum Offsets {
     FUN_DETACH_HELD_ITEM_SLOT = 0x0047A310,
     // TryOnItem — `__thiscall(pane, itemID)`: the worker behind TryOn.
     FUN_DRESSUPMODEL_TRY_ON_ITEM = 0x00504540,
+    // The worker's item-cache callback (0x00504BA0) re-runs it once the
+    // record loads: `push itemID; mov ecx, pane; call` here. The only other
+    // caller is the original Script_TryOn (0x00504E29), which ours replaces.
+    CALL_TRY_ON_ITEM_CACHED = 0x00504BAE,
     // CGGameUI::DisplayError — `__cdecl(id, ...)`: shows a catalogue game
     // error. TryOnItem shows 0x13 (ERR_NOT_EQUIPPABLE) at 0x00504B2F.
     FUN_GAMEUI_DISPLAY_ERROR = 0x00496720,

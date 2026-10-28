@@ -16123,6 +16123,10 @@ Puts an item on a `DressUpModel`. `item` is one of these:
   the recipe makes.
 - The name of an item that you carry, equipped or in your bags.
 
+If the item is a pattern, plan, or other recipe item, the model tries on
+the item that the recipe makes. Thus Control-click on a pattern opens the
+dressing room with the item that the pattern makes.
+
 If `item` is none of these, the game shows the error "That item can't be
 equipped". The model chooses the hand for a weapon itself.
 

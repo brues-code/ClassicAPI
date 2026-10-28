@@ -26,13 +26,22 @@
 // ERR_NOT_EQUIPPABLE, as 4.3.4 does. 4.3.4's optional hand argument
 // ("mainhand" / "offhand") is not supported: vanilla's worker picks the hand
 // itself.
+//
+// 4.3.4's worker (`TryOnWithVisual`, 0x00A05010) tries on what a recipe makes:
+// an item with no inventory type whose spell teaches a CREATE_ITEM spell is
+// swapped for the made item. Vanilla's worker shows ERR_NOT_EQUIPPABLE
+// instead. `TryOnItem` adds the swap in front of the worker, for our TryOn
+// and for the worker's cache-load callback, so an uncached pattern works too.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "Common.h"
 #include "item/Arg.h"
+#include "item/Dressable.h"
 #include "item/ID.h"
 #include "item/Location.h"
+#include "item/Record.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -130,6 +139,19 @@ uint32_t RecipeItem(const char *link) {
     return Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
 }
 
+// `__thiscall(pane, itemID)` as `__fastcall` with the EDX slot unused, so it
+// can stand at the worker's call sites.
+void __fastcall TryOnItem(void *pane, void *, uint32_t itemID) {
+    const uint8_t *record = Item::PeekRecord(itemID);
+    if (record != nullptr &&
+        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE) == 0) {
+        const uint32_t made = Item::Dressable::RecipeItem(record);
+        if (made != 0)
+            itemID = made;
+    }
+    reinterpret_cast<TryOnItem_t>(Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM)(pane, itemID);
+}
+
 int __fastcall Script_TryOn(void *L) {
     void *pane = ResolvePane(L);
     if (pane == nullptr)
@@ -159,7 +181,7 @@ int __fastcall Script_TryOn(void *L) {
             Offsets::GAME_ERROR_NOT_EQUIPPABLE);
         return 0;
     }
-    reinterpret_cast<TryOnItem_t>(Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM)(pane, itemID);
+    TryOnItem(pane, nullptr, itemID);
     return 0;
 }
 
@@ -184,6 +206,8 @@ const Game::Doc::Method g_methodDocs[] = {
 };
 
 void RegisterLuaFunctions() {
+    Common::RedirectCall(Offsets::CALL_TRY_ON_ITEM_CACHED, Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM,
+                         reinterpret_cast<const void *>(&TryOnItem));
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_DRESSUPMODEL_METHOD_REGISTRY), g_methods,
         static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,

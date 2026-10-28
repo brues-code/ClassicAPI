@@ -24,6 +24,8 @@
 // The item and the created item are read from the cache with no load fired:
 // an uncached one is not dressable.
 
+#include "item/Dressable.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "item/Location.h"
@@ -42,7 +44,7 @@ bool IsEquippable(const uint8_t *record) {
 }
 
 // The created item of the spell `teachID` teaches, or 0.
-int CreatedItem(int teachID) {
+uint32_t CreatedItem(int teachID) {
     const uint8_t *teach = Spell::Lookup::RecordForID(teachID);
     if (teach == nullptr ||
         Game::Read<int>(teach, Offsets::OFF_SPELL_RECORD_EFFECT) != Offsets::SPELL_EFFECT_LEARN_SPELL)
@@ -52,7 +54,7 @@ int CreatedItem(int teachID) {
     if (learned == nullptr ||
         Game::Read<int>(learned, Offsets::OFF_SPELL_RECORD_EFFECT) != Offsets::SPELL_EFFECT_CREATE_ITEM)
         return 0;
-    return Game::Read<int>(learned, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
+    return Game::Read<uint32_t>(learned, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
 }
 
 bool IsDressable(int itemID) {
@@ -65,8 +67,8 @@ bool IsDressable(int itemID) {
         const int spellID = Game::Read<int>(record, Offsets::OFF_ITEMSTATS_SPELL_ID + i * 4);
         if (spellID == 0)
             continue;
-        const int created = CreatedItem(spellID);
-        if (created > 0 && IsEquippable(Item::PeekRecord(static_cast<uint32_t>(created))))
+        const uint32_t created = CreatedItem(spellID);
+        if (created != 0 && IsEquippable(Item::PeekRecord(created)))
             return true;
     }
     return false;
@@ -100,5 +102,15 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+uint32_t RecipeItem(const uint8_t *record) {
+    for (int i = 0; i < Offsets::ITEMSTATS_SPELL_SLOT_COUNT; ++i) {
+        const int spellID = Game::Read<int>(record, Offsets::OFF_ITEMSTATS_SPELL_ID + i * 4);
+        const uint32_t created = spellID != 0 ? CreatedItem(spellID) : 0;
+        if (created != 0)
+            return created;
+    }
+    return 0;
+}
 
 } // namespace Item::Dressable
