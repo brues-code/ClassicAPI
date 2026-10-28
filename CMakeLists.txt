@@ -133,11 +133,13 @@ target_include_directories(
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ClassicAPI")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MT")
-# /Zi retains full debug info (source file + line numbers, locals, types) in a
-# separate PDB WITHOUT disabling optimization — the DLL stays a fully optimized
-# /O2 release build; the symbols just live in ClassicAPI.pdb on the side. Feeds
-# the linker's /DEBUG below.
-set(CMAKE_CXX_FLAGS_RELEASE "/MT /O2 /Ob2 /DNDEBUG /Zi")
+# /O1 optimizes for size: the code is mostly short glue around engine calls,
+# and /O1 made the DLL 280 KB smaller than /O2 /Ob2 (link-time code generation,
+# /GL + /LTCG, made it larger again). /Zi retains full debug info (source file +
+# line numbers, locals, types) in a separate PDB WITHOUT disabling
+# optimization; the symbols just live in ClassicAPI.pdb on the side. Feeds the
+# linker's /DEBUG below.
+set(CMAKE_CXX_FLAGS_RELEASE "/MT /O1 /DNDEBUG /Zi")
 set(CMAKE_SHARED_LINKER_FLAGS
     # Two debug artifacts for triaging crashes from a SHIPPED DLL. Both are
     # published as release artifacts, match this exact build, and have no effect

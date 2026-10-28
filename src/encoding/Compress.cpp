@@ -29,6 +29,8 @@
 //   Deflate     windowBits = -15           (raw, no header/checksum)
 //   auto-detect windowBits =  15 + 32 = 47 (decode only; Zlib or Gzip)
 
+#include "encoding/Compress.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
@@ -89,7 +91,7 @@ constexpr int kDefaultLevel = -1; // zlib's "default" (6)
 bool WindowBitsForEncode(Method m, int &outBits) {
     switch (m) {
         case Method::Zlib:    outBits = 15;       return true;
-        case Method::Gzip:    outBits = 15 + 16;  return true;
+        case Method::Gzip:    outBits = kGzipWindowBits; return true;
         case Method::Deflate: outBits = -15;      return true;
     }
     return false;
@@ -98,7 +100,7 @@ bool WindowBitsForEncode(Method m, int &outBits) {
 bool WindowBitsForDecode(Method m, int &outBits) {
     switch (m) {
         case Method::Zlib:    outBits = 15;       return true;
-        case Method::Gzip:    outBits = 15 + 16;  return true;
+        case Method::Gzip:    outBits = kGzipWindowBits; return true;
         case Method::Deflate: outBits = -15;      return true;
     }
     return false;
@@ -155,6 +157,8 @@ bool Deflate(const uint8_t *src, std::size_t srcLen, int level,
     return true;
 }
 
+} // namespace
+
 bool Inflate(const uint8_t *src, std::size_t srcLen, int windowBits,
              std::vector<uint8_t> &out) {
     auto init = reinterpret_cast<inflateInit2_t>(Offsets::FUN_ZLIB_INFLATE_INIT2);
@@ -207,6 +211,8 @@ bool Inflate(const uint8_t *src, std::size_t srcLen, int windowBits,
     done(&strm);
     return true;
 }
+
+namespace {
 
 int OptionalIntArg(void *L, int idx, int defaultValue) {
     if (Game::Lua::Type(L, idx) == Game::Lua::TYPE_NUMBER)

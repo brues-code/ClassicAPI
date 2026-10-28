@@ -4,7 +4,7 @@
 # Runs at configure time. It writes two files into OUT_DIR:
 #
 #   embedded.rc           one `<id> RCDATA "<path>"` line per file; rc.exe
-#                         reads each file straight from disk.
+#                         reads each file's gzipped copy from disk.
 #   embedded_resources.h  the IDs the DLL looks up at runtime through
 #                         src/embed/Resource.h:
 #
@@ -28,14 +28,31 @@
 # never embedded: it must reflect on-disk presence only (see
 # DiskHasDevMarker in src/addons/Embedded.cpp).
 #
+# Every resource is gzipped at build time (gzip_file.cmake) into
+# `OUT_DIR/embed/<path>.gz`, and the DLL inflates it with the engine's zlib on
+# first use (src/embed/Resource.cpp). The addon text compresses to about a
+# quarter of its size.
+#
 # Rebuild triggers: adding or removing a file reconfigures through the
 # CONFIGURE_DEPENDS glob; editing a toc reconfigures through
-# CMAKE_CONFIGURE_DEPENDS; editing any other file recompiles the .rc
-# through its OBJECT_DEPENDS.
+# CMAKE_CONFIGURE_DEPENDS; editing any other file re-gzips it through its
+# custom command, which recompiles the .rc through its OBJECT_DEPENDS.
 #
 # Usage:
 #   embed_resources(TARGET <t> ADDONS_ROOT <dir> ADDONS <folder names...>
 #                   ADDON_VERSION <v> BINDINGS_XML <file> OUT_DIR <dir>)
+
+set(_EMBED_GZIP_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/gzip_file.cmake")
+
+# Add the build-time command that gzips `src` into `gz`.
+function(_embed_gzip src gz)
+    add_custom_command(
+        OUTPUT "${gz}"
+        COMMAND "${CMAKE_COMMAND}" "-DIN=${src}" "-DOUT=${gz}"
+                -P "${_EMBED_GZIP_SCRIPT}"
+        DEPENDS "${src}" "${_EMBED_GZIP_SCRIPT}"
+        VERBATIM)
+endfunction()
 
 # Write `content` to `path` only when it differs, so an unchanged
 # reconfigure does not touch the file and trigger a rebuild.
@@ -56,8 +73,10 @@ function(embed_resources)
     set(inputs "")
     set(id 1)
 
-    string(APPEND rc "${id} RCDATA \"${E_BINDINGS_XML}\"\n")
-    list(APPEND inputs "${E_BINDINGS_XML}")
+    set(gz "${E_OUT_DIR}/embed/Bindings.xml.gz")
+    _embed_gzip("${E_BINDINGS_XML}" "${gz}")
+    string(APPEND rc "${id} RCDATA \"${gz}\"\n")
+    list(APPEND inputs "${gz}")
     set(bindings_id ${id})
     math(EXPR id "${id} + 1")
 
@@ -81,8 +100,10 @@ function(embed_resources)
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${abs}")
             set(abs "${stamped}")
         endif()
-        string(APPEND rc "${id} RCDATA \"${abs}\"\n")
-        list(APPEND inputs "${abs}")
+        set(gz "${E_OUT_DIR}/embed/${rel}.gz")
+        _embed_gzip("${abs}" "${gz}")
+        string(APPEND rc "${id} RCDATA \"${gz}\"\n")
+        list(APPEND inputs "${gz}")
         string(REPLACE "/" "\\\\" rel_bs "${rel}")
         string(APPEND manifest "    { \"${rel_bs}\", ${id} },\n")
         math(EXPR id "${id} + 1")
@@ -123,6 +144,8 @@ constexpr size_t kFileCount = sizeof(kFiles) / sizeof(kFiles[0]);
 } // namespace Addons::Embedded::Manifest
 ")
 
+    add_custom_target(${E_TARGET}_embed DEPENDS ${inputs})
+    add_dependencies(${E_TARGET} ${E_TARGET}_embed)
     target_sources(${E_TARGET} PRIVATE "${E_OUT_DIR}/embedded.rc")
     set_source_files_properties("${E_OUT_DIR}/embedded.rc" PROPERTIES
         OBJECT_DEPENDS "${inputs}")

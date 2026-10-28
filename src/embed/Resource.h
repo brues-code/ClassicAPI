@@ -23,9 +23,10 @@ struct Bytes {
 };
 
 // The bytes of RCDATA resource `id` in this DLL (IDs come from the generated
-// `embedded_resources.h`). The memory is part of the mapped image, so it stays
-// valid for the life of the DLL and must not be freed. `{nullptr, 0}` when the
-// resource is missing.
+// `embedded_resources.h`). Each resource is stored gzipped
+// (cmake/embed_resources.cmake); the first call inflates it and keeps the
+// bytes, so they stay valid for the life of the DLL and must not be freed.
+// `{nullptr, 0}` when the resource is missing or does not inflate.
 Bytes Resource(int id);
 
 } // namespace Embed

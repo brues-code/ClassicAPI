@@ -13,6 +13,12 @@
 
 #include "embed/Resource.h"
 
+#include "encoding/Compress.h"
+
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
+
 #include <windows.h>
 
 // The linker-defined base of this module — our HMODULE without a lookup.
@@ -21,15 +27,26 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 namespace Embed {
 
 Bytes Resource(int id) {
-    const HMODULE self = reinterpret_cast<HMODULE>(&__ImageBase);
-    HRSRC info = FindResourceW(self, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10)); // RT_RCDATA
-    if (info == nullptr)
-        return {nullptr, 0};
-    HGLOBAL handle = LoadResource(self, info);
-    if (handle == nullptr)
-        return {nullptr, 0};
-    return {static_cast<const unsigned char *>(LockResource(handle)),
-            static_cast<size_t>(SizeofResource(self, info))};
+    static std::unordered_map<int, std::vector<uint8_t>> inflated;
+    auto it = inflated.find(id);
+    if (it == inflated.end()) {
+        const HMODULE self = reinterpret_cast<HMODULE>(&__ImageBase);
+        HRSRC info = FindResourceW(self, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10)); // RT_RCDATA
+        if (info == nullptr)
+            return {nullptr, 0};
+        HGLOBAL handle = LoadResource(self, info);
+        if (handle == nullptr)
+            return {nullptr, 0};
+        std::vector<uint8_t> bytes;
+        if (!Encoding::Compress::Inflate(static_cast<const uint8_t *>(LockResource(handle)),
+                                         SizeofResource(self, info),
+                                         Encoding::Compress::kGzipWindowBits, bytes) ||
+            bytes.empty())
+            return {nullptr, 0};
+        bytes.shrink_to_fit();
+        it = inflated.emplace(id, std::move(bytes)).first;
+    }
+    return {it->second.data(), it->second.size()};
 }
 
 } // namespace Embed
