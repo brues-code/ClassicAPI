@@ -719,6 +719,9 @@ build instructions.
   - [`UninviteUnit(name)`](#uninviteunitname)
   - [`PromoteToLeader(name [, exactNameMatch])`](#promotetoleadername--exactnamematch)
 
+- [Pet](#pet)
+  - [`IsPetAttackAction(index)`](#ispetattackactionindex)
+
 - [PlayerInfo](#playerinfo)
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
@@ -16869,6 +16872,24 @@ PromoteToLeader("Allianceman", true)  -- Promote only "Allianceman"
 
 If `name` is not a string, the function raises the error
 `Usage: PromoteToLeader(name)`.
+
+## Pet
+
+### `IsPetAttackAction(index)`
+
+Returns true if the pet bar slot holds the Attack command. Otherwise it
+returns false. The index is 1 to 10. If you have no pet, it returns false.
+
+`IsPetAttackActive(index)` also needs the pet to attack now.
+`IsPetAttackAction` does not.
+
+```lua
+for i = 1, NUM_PET_ACTION_SLOTS do
+    if IsPetAttackAction(i) then
+        print("Attack is in slot", i)
+    end
+end
+```
 
 ## PlayerInfo
 

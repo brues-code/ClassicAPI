@@ -7012,6 +7012,15 @@ enum Offsets {
     // branch of the action-usability recompute `FUN_004E5050` resolves the
     // pet from it before reading the pet's power.
     VAR_PET_GUID = 0x00B714A0,
+    // The pet bar: PET_ACTION_SLOT_COUNT u32 slot words, 0 = empty. Type is
+    // `(word >> 24) & 0x3F` (1-5 spell, 6 reaction, 7 command), action the
+    // low 16 bits. Verified from `Script_IsPetAttackActive` (0x004BE0E0):
+    // `lea eax,[eax*4+B71438]`, `cmp eax,0xA`, `and dl,0x3F` on byte 3,
+    // `and eax,0xFFFF`.
+    VAR_PET_ACTION_SLOTS = 0x00B71438,
+    PET_ACTION_SLOT_COUNT = 10,
+    PET_ACTION_TYPE_COMMAND = 7,
+    PET_ACTION_COMMAND_ATTACK = 2,
     // "The pet can act" — the core of `Script_GetPetActionsUsable`
     // (0x004BE0B0), `int()` with no args. True when the player isn't
     // charmed, the CGPlayer pet field matches VAR_PET_GUID, the pet
