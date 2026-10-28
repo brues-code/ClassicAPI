@@ -798,6 +798,7 @@ build instructions.
   - [`IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)`](#isusablespellspell--isusablespellslot-booktype)
   - [`C_Spell.IsSpellUsable(spellID)`](#c_spellisspellusablespellid)
   - [`C_Spell.GetSpellCooldown(spellIdentifier)`](#c_spellgetspellcooldownspellidentifier)
+  - [`GetSpellBaseCooldown(spellID)`](#getspellbasecooldownspellid)
   - [`C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`](#c_spellgetspelllossofcontrolcooldownspellidentifier)
   - [`C_Spell.IsCurrentSpell(spellIdentifier)`](#c_spelliscurrentspellspellidentifier)
   - [`C_Spell.IsSelfBuff(spellID)`](#c_spellisselfbuffspellid)
@@ -18680,6 +18681,22 @@ cooldown.
 
 Returns `nil` if the resolved spellID is `0` or doesn't have a
 `Spell.dbc` row.
+
+### `GetSpellBaseCooldown(spellID)`
+
+Returns the base cooldown of a spell in milliseconds. Talents and items
+do not change this value. The value is the larger of the spell's own
+cooldown and its category cooldown.
+
+```lua
+/dump GetSpellBaseCooldown(12051)   -- Evocation: 480000
+/dump GetSpellBaseCooldown(133)     -- Fireball: 0
+/dump GetSpellBaseCooldown(6603)    -- Attack: nil
+```
+
+Returns `0` for a spell that has only the global cooldown. Returns `nil`
+if the spell does not exist, or if the spell has no cooldown and no
+global cooldown.
 
 ### `C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`
 

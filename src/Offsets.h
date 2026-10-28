@@ -10866,6 +10866,9 @@ enum Offsets {
     OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_B = 0x154,// i32[3] implicit target B
     OFF_SPELL_RECORD_MANA_COST_PERCENT = 0x270,       // i32 % of base resource (0 = flat)
     OFF_SPELL_RECORD_START_RECOVERY_CATEGORY = 0x274, // u32 column 157; the GCD category (0x006E13E0 global leg, 0x006E2DE0)
+    OFF_SPELL_RECORD_START_RECOVERY_TIME = 0x278,     // i32 column 158; the GCD ms (SMSG_SPELL_COOLDOWN 0x006E9460, modifier 21)
+    OFF_SPELL_RECORD_RECOVERY_TIME = 0x4C,            // i32 column 19; the spell's own cooldown ms (0x006E2C60, 0x006E9460)
+    OFF_SPELL_RECORD_CATEGORY_RECOVERY_TIME = 0x50,   // i32 column 20; the category cooldown ms (0x006E2C60, 0x006E9460)
     OFF_SPELL_RECORD_RANK = 0x204,                    // char*[9] localized rank text
     OFF_SPELL_RECORD_TOTEM = 0xA0,                    // i32[2] required totem/tool item IDs
 
