@@ -266,6 +266,7 @@ build instructions.
   - [`C_Reputation.IsFactionActive(factionSortIndex)` / `C_Reputation.IsFactionActiveByID(factionID)`](#c_reputationisfactionactivefactionsortindex--c_reputationisfactionactivebyidfactionid)
   - [`C_Reputation.SetFactionInactiveByID(factionID)` / `C_Reputation.SetFactionActiveByID(factionID)`](#c_reputationsetfactioninactivebyidfactionid--c_reputationsetfactionactivebyidfactionid)
   - [`C_Reputation.GetLastStandingChange()`](#c_reputationgetlaststandingchange)
+  - [`ExpandAllFactionHeaders()` / `CollapseAllFactionHeaders()`](#expandallfactionheaders--collapseallfactionheaders)
 
 - [Focus](#focus)
   - [`FocusUnit(unit)`](#focusunitunit)
@@ -6526,6 +6527,22 @@ state is cleared as soon as the dispatch returns.
 
 This is a ClassicAPI-only call. Addons can otherwise get the factionID
 from `FACTION_STANDING_CHANGED` directly.
+
+### `ExpandAllFactionHeaders()` / `CollapseAllFactionHeaders()`
+
+Expands or collapses every header of the reputation list. Takes no
+arguments and returns nothing.
+
+The list is sorted again and `UPDATE_FACTION` fires, as with
+`ExpandFactionHeader(index)` and `CollapseFactionHeader(index)`. Nothing
+goes to the server, and the state is not saved.
+
+```lua
+ExpandAllFactionHeaders()
+for i = 1, GetNumFactions() do
+    print(GetFactionInfo(i))
+end
+```
 
 ## Focus
 

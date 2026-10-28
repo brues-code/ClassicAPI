@@ -6228,6 +6228,13 @@ enum Offsets {
     VAR_FACTION_HEADER_COUNT = 0x00B736B0,
     VAR_FACTION_COLLAPSED_BITMASK = 0x0084A0A4,
     MAX_FACTION_HEADERS = 32,
+    // CGReputationInfo::CollapseHeader — `__fastcall(uint32 entry, int
+    // collapse)`, no stack args, tail-jumps to the sorter 0x4D5C40. An entry
+    // at or above VAR_FACTION_VISIBLE_MAX_INDEX, or a non-header, sets the
+    // whole mask (0 collapse / -1 expand). Script_CollapseFactionHeader
+    // (0x4D6A50) and Script_ExpandFactionHeader (0x4D6AA0) call it with
+    // index-1 and 1 / 0. Disassembled.
+    FUN_REPUTATION_COLLAPSE_HEADER = 0x004D6400,
 
     // The social singleton (0x00C28168) — one object shared by the friend
     // list, ignore list, and /who system. Layout: friend entries inline from
