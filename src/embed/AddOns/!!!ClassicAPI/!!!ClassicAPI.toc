@@ -16,6 +16,7 @@ Util\Print.lua
 Util\Mixin.lua
 Util\Color.lua
 Util\Constants.lua
+Util\SoundKitConstants.lua
 Util\TableUtil.lua
 Util\EnumUtil.lua
 Util\StringUtil.lua
