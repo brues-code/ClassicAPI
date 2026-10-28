@@ -11248,6 +11248,15 @@ enum Offsets {
     // the current connection through FUN_NET_SEND when one exists (benilla-re
     // net/connection#sending-a-packet).
     FUN_CLIENT_SERVICES_SEND = 0x005AB630,
+    // ClientServices::GetCurrent — `__cdecl ClientConnection *(void)`, a bare
+    // `mov eax,[0xC28128]; ret`. The idle-logout check in OnRender passes its
+    // result straight to IsLogoutPending without a null test. Disassembled.
+    FUN_CLIENT_SERVICES_GET_CURRENT = 0x005AB490,
+    // ClientConnection::IsLogoutPending — `__thiscall`, returns the byte at
+    // +0x1B1D, set by a non-instant logout request (0x5AB000) and cleared by
+    // SMSG_LOGOUT_COMPLETE / CANCEL_ACK / a failed SMSG_LOGOUT_RESPONSE.
+    // 4.3.4's CharacterLoggingOut. Disassembled; benilla-re net/connection.
+    FUN_CLIENT_CONNECTION_IS_LOGOUT_PENDING = 0x005AB0D0,
 
     // Engine millisecond tick (returns `ulonglong` but truncating to
     // `uint32_t` is fine for the time deltas we need — the high

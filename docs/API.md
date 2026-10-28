@@ -876,6 +876,8 @@ build instructions.
   - [`GetShapeshiftFormID()`](#getshapeshiftformid)
   - [`CancelShapeshiftForm()`](#cancelshapeshiftform)
   - [`GetSheathState()`](#getsheathstate)
+  - [`IsLoggingOut()`](#isloggingout)
+  - [`IsPlayerInWorld()`](#isplayerinworld)
 
 - [SwingTimer](#swingtimer)
   - [`C_SwingTimer.EnableRangeCheck(swingType, enable)`](#c_swingtimerenablerangecheckswingtype-enable)
@@ -20428,6 +20430,37 @@ end
 The engine has `ToggleSheath()` but no matching getter. `GetSheathState`
 adds the query, with 1-based values. To change the state, use the
 built-in `ToggleSheath()`.
+
+### `IsLoggingOut()`
+
+Returns `true` while a logout or quit countdown runs, `false` otherwise.
+Takes no arguments.
+
+The value becomes `true` when `Logout()` or `Quit()` starts the countdown.
+It becomes `false` when the logout completes, when the player cancels it,
+or when the server refuses it. An instant logout (for example, in an inn)
+does not set it.
+
+```lua
+if IsLoggingOut() then
+    CancelLogout()
+end
+```
+
+### `IsPlayerInWorld()`
+
+Returns `true` when the player is in the world, `false` during a loading
+screen. Takes no arguments.
+
+The value becomes `false` at the start of each loading screen (login,
+instance or continent change, logout). It becomes `true` again when the
+player enters the world, before `PLAYER_ENTERING_WORLD` fires.
+
+```lua
+if IsPlayerInWorld() then
+    -- safe to read world state
+end
+```
 
 ## SwingTimer
 
