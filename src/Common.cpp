@@ -48,6 +48,22 @@ bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target) {
     return PatchBytes(reinterpret_cast<uint8_t *>(site) + 1, &rel, sizeof rel);
 }
 
+bool RedirectJcc(uintptr_t site, uintptr_t expected, const void *target) {
+    const auto *code = reinterpret_cast<const uint8_t *>(site);
+    if (code[0] != 0x0F || (code[1] & 0xF0) != 0x80)
+        return false;
+    const auto dest = [site](int32_t rel) { return site + 6 + static_cast<uintptr_t>(rel); };
+    int32_t rel = 0;
+    std::memcpy(&rel, code + 2, sizeof rel);
+    const uintptr_t to = reinterpret_cast<uintptr_t>(target);
+    if (dest(rel) == to)
+        return true;
+    if (dest(rel) != expected)
+        return false;
+    rel = static_cast<int32_t>(to - (site + 6));
+    return PatchBytes(reinterpret_cast<uint8_t *>(site) + 2, &rel, sizeof rel);
+}
+
 bool ReplaceWithCall(uintptr_t site, const uint8_t *original, size_t len, const void *target) {
     uint8_t code[64];
     if (len < 5 || len > sizeof code)

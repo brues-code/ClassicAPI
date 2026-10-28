@@ -61,6 +61,7 @@ build instructions.
   - [`GetBindingAction(key [, checkOverride])`](#getbindingactionkey--checkoverride)
   - [Keys with modifiers](#keys-with-modifiers)
   - [`GetBindingByKey(key)`](#getbindingbykeykey)
+  - [Function keys F13 to F24](#function-keys-f13-to-f24)
   - [Modified clicks](#modified-clicks)
   - [`ActionButtonUseKeyDown`](#actionbuttonusekeydown)
 
@@ -6671,6 +6672,16 @@ returns `1` and `[mod:shift]` passes.
 
 Returns the command that a press of `key` runs, or `nil`. It uses the order
 in [Keys with modifiers](#keys-with-modifiers), and includes overrides.
+
+### Function keys F13 to F24
+
+The keys F13 to F24 work like F1 to F12. You can bind them with
+`SetBinding`, in the key binding window, or as override bindings. A binding
+can use modifiers, for example `CTRL-F13`. `OnKeyDown` and `OnKeyUp` scripts
+get the key name, for example `"F15"`.
+
+Most keyboards do not have these keys. Macro tools and some gaming keyboards
+can send them.
 
 ### Modified clicks
 

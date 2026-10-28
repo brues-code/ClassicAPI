@@ -9152,6 +9152,37 @@ enum Offsets {
     // 4.3.4's KEY enum, unchanged in 1.12: the console's switch tests 0x200
     // Escape, 0x201 Enter, 0x203 Tab.
     KEY_TAB = 0x203,
+    // The window procedure's key translator: `int __fastcall(uint32_t vk,
+    // uint32_t *key)`, 1 when it stored a code. VK_F1..VK_F12 become 0x300..
+    // 0x30B; every key outside its byte map 0x0042DAFC (VK_F13..VK_F24
+    // included, decoded from the exe) goes to MapVirtualKeyA(vk, 2), which
+    // answers 0 for them, so the key is dropped and never queued.
+    FUN_INPUT_TRANSLATE_KEY = 0x0042D800,
+    // ClassicAPI's codes for F13..F24 (Input::FunctionKeys), contiguous from
+    // KEY_F13. F1 + n cannot run past F12: 0x30C is NUMPADEQUALS, and a code
+    // indexes CSimpleTop's 0x30E-entry key-taker array at +0x84 (cleared with
+    // `mov ecx,0x30E; rep stos` at 0x00764272) and is refused from 0x30E on by
+    // the world frame (`cmp eax,0x30E` at 0x00483B92 / 0x00483BF2). 0x213..0x2FF
+    // is unused by the engine; this block ends just below F1.
+    KEY_F13 = 0x2F4,
+    KEY_EXTRA_FUNCTION_COUNT = 12,
+    // The engine's three key-code→name decoders (the binding chord builder
+    // 0x004B66B0, Frame OnKeyDown 0x0076B7D0, Frame OnKeyUp 0x0076BBA0; the
+    // only users of the "F%d" format 0x00846E70) each end their 0x206..0x212
+    // switch with a 6-byte `ja <UNKNOWN arm>` (0F 87 84 00 00 00), taken for
+    // exactly the codes 0x213..0x2FF. At the jump the chord builder holds the
+    // code in ESI and leaves its name in ESI at the join; the frame scripts
+    // hold it in ECX and leave the name in EAX. EAX/ECX/EDX are free at each
+    // join. Verified by disassembly.
+    SITE_KEY_NAME_CHORD = 0x004B685E,
+    KEY_NAME_CHORD_UNKNOWN = 0x004B68E8,
+    KEY_NAME_CHORD_JOIN = 0x004B68FB,
+    SITE_KEY_NAME_ON_KEY_DOWN = 0x0076B972,
+    KEY_NAME_ON_KEY_DOWN_UNKNOWN = 0x0076B9FC,
+    KEY_NAME_ON_KEY_DOWN_JOIN = 0x0076BA0F,
+    SITE_KEY_NAME_ON_KEY_UP = 0x0076BD38,
+    KEY_NAME_ON_KEY_UP_UNKNOWN = 0x0076BDC2,
+    KEY_NAME_ON_KEY_UP_JOIN = 0x0076BDD5,
     // The key event's modifier mask is 4.3.4's `1 << key` over the meta keys,
     // but 1.12 has three merged meta keys (KEY 0 SHIFT, 1 CTRL, 2 ALT — the
     // FUN_GAMEUI_IS_KEY_DOWN codes) where 4.3.4 has six per-side ones. So:
