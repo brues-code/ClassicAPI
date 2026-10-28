@@ -2436,6 +2436,16 @@ enum Offsets {
     // Player::Equipment co-hooks it to fire UPDATE_INVENTORY_DURABILITY,
     // exactly where 4.3.4 does. void __fastcall(), no args.
     FUN_INVENTORY_ALERTS_RECOMPUTE = 0x004C7EE0,
+    // `Script_SetInventoryPortaitTexture` (sic) — `__fastcall(void *L)`,
+    // (texture, unit, slot). Same body as 4.3.4's
+    // Script_SetInventoryPortraitTexture except that it reads the unit
+    // token from Lua index 1 (the texture table → null token → no unit),
+    // so it always just clears the texture. The index is the imm32 of the
+    // `mov edx,1` (BA 01 00 00 00) at 0x004C9247, ahead of the
+    // lua_tostring call at 0x004C924E; `Item::InventoryPortrait` patches
+    // it to 2.
+    FUN_SCRIPT_SET_INVENTORY_PORTAIT_TEXTURE = 0x004C9150,
+    PATCH_INVENTORY_PORTRAIT_UNIT_ARG = 0x004C9247,
     // ItemMgr::GetItemBySlot — __thiscall(this, slot) → CGItem* (NULL if empty).
     // Slot is the engine's linearized slot index, not bagID/slot tuple.
     FUN_ITEMMGR_GET_ITEM_BY_SLOT = 0x006228A0,
@@ -4820,6 +4830,14 @@ enum Offsets {
     // an item, swaps with the bag slot). Used by `EquipItemByName` to
     // pick up the source item before dispatching to the equip helpers.
     FUN_SCRIPT_PICKUP_CONTAINER_ITEM = 0x004F9B30,
+    // `Script_SetBagPortaitTexture` (sic, the client's spelling) —
+    // `__fastcall(void *L)`, (texture, bagID). Clears the texture, then
+    // feeds `<StringLookups row 3>\<bag's InventoryIcon>` to the circular
+    // portrait sink 0x00525D30; bagID 0 and below return silently, 11 and
+    // up raise. Same body as 4.3.4's Script_SetBagPortraitTexture, which
+    // raises from 12 (one more bank bag). `Container::Portrait` registers
+    // it under the correct name.
+    FUN_SCRIPT_SET_BAG_PORTAIT_TEXTURE = 0x004FA4F0,
     // Container-content cursor-pickup PRIMITIVE — the plain-pickup branch
     // inside `Script_PickupContainerItem`'s state machine, called directly
     // (no Lua stack, no state-machine modes).
