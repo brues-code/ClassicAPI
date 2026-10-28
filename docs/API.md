@@ -669,6 +669,7 @@ build instructions.
 - [MerchantFrame](#merchantframe)
   - [`C_MerchantFrame.GetItemInfo(slot)`](#c_merchantframegetiteminfoslot)
   - [`C_MerchantFrame.GetBuybackItemID(slot)`](#c_merchantframegetbuybackitemidslot)
+  - [`GetBuybackItemLink(slot)`](#getbuybackitemlinkslot)
   - [`C_MerchantFrame.GetNumJunkItems()`](#c_merchantframegetnumjunkitems)
   - [`C_MerchantFrame.SellAllJunkItems()`](#c_merchantframesellalljunkitems)
   - [`C_MerchantFrame.IsMerchantItemRefundable(slot)`](#c_merchantframeismerchantitemrefundableslot)
@@ -15821,17 +15822,14 @@ end
 
 ## MerchantFrame
 
-The six `C_MerchantFrame.*` calls addons use when
-interacting with a vendor. All entry points read the engine's
-merchant/buyback storage directly — no Lua-roundtrip through
-`GetMerchantItemInfo` / `GetBuybackItemLink` etc. — and the
-`SellAllJunkItems` dispatcher bypasses `UseContainerItem` entirely
-by calling the engine's internal `MerchantSellItem` packet builder.
+The `C_MerchantFrame.*` calls and `GetBuybackItemLink` give the items
+and the buyback list of a vendor.
 
-A "merchant frame is currently open" gate (`VAR_MERCHANT_NPC_GUID_*`
-non-zero) applies to every function.
-`GetNumJunkItems` returns `0` away from a vendor and the sell
-functions are no-ops; the per-slot getters return `nil`.
+The vendor window must be open for `GetItemInfo`, `GetNumJunkItems`
+and the sell functions. Without a vendor, `GetNumJunkItems` returns
+`0`, the sell functions do nothing and `GetItemInfo` returns `nil`.
+The buyback getters do not need an open window. After you close the
+window, they still give the last buyback list.
 
 ### `C_MerchantFrame.GetItemInfo(slot)`
 
@@ -15865,31 +15863,29 @@ this returns the wider struct shape in one call.
 
 ### `C_MerchantFrame.GetBuybackItemID(slot)`
 
-Returns the itemID of the merchant's buyback slot at the given
-1-based index (1..12), or `nil` if the slot is empty / no merchant
-is open.
+Returns the item ID of the item in a buyback slot, 1 to 12. Returns
+`nil` if the slot is empty.
 
 ```lua
-for slot = 1, 12 do
+for slot = 1, GetNumBuybackItems() do
     local id = C_MerchantFrame.GetBuybackItemID(slot)
     if id then
-        -- buybackable item at slot
+        print(slot, id)
     end
 end
 ```
 
-Resolution chain (engine-direct, no Lua-side `GetBuybackItemLink`
-roundtrip):
+### `GetBuybackItemLink(slot)`
 
-1. Read the buyback slot's stored invMgr index from
-   `VAR_BUYBACK_SLOTS + (slot-1)*4`.
-2. Look up that index in the player invMgr's flat GUID array (the
-   engine keeps sold items alive in the player's inventory storage,
-   not in a separate buyback pool).
-3. Resolve the GUID to a `CGItem*` via
-   `Item::Location::ResolveByGUID` — same engine helper
-   `C_EquipmentSet.GetItemLocations` uses.
-4. Read the itemID from the CGItem's instance block at `+0x08 + 0x0C`.
+Returns the item link of the item in a buyback slot, 1 to 12. Returns
+`nil` if the slot is empty. The link has the enchant and the random
+suffix of the item that you sold.
+
+```lua
+for slot = 1, GetNumBuybackItems() do
+    print(slot, GetBuybackItemLink(slot))
+end
+```
 
 ### `C_MerchantFrame.GetNumJunkItems()`
 

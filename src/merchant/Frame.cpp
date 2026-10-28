@@ -16,9 +16,10 @@
 // etc.). Storage layouts and the `MerchantSellItem` dispatcher are
 // documented in Offsets.h.
 //
-// `GetBuybackItemID` walks: buyback slot → invMgr slot index →
-//   GUID → engine `ResolveItemByGUID` → CGItem +0x08 instance →
-//   itemID at +0x0C.
+// `GetBuybackItemID` and the global `GetBuybackItemLink` walk:
+//   buyback slot → invMgr slot index → GUID → engine
+//   `ResolveItemByGUID` → CGItem. The ID is the instance block's
+//   +0x0C; the link is the engine's builder (Item::Link::FromCGItem).
 //
 // `GetNumJunkItems` / `SellAllJunkItems` walk player bags 0..4 via
 // the existing `Item::Location::ResolveBag` helper and look up
@@ -33,6 +34,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "item/CGItem.h"
+#include "item/Link.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "unit/Identity.h"
@@ -108,8 +110,43 @@ void ForEachItemInBag(void *L, int bagID, Cb &&cb) {
 }
 
 // ---------------------------------------------------------------------
-// GetBuybackItemID
+// Buyback slots
 // ---------------------------------------------------------------------
+
+// The item in the 0-based buyback `slot`, or nullptr. Mirrors 1.12's
+// Script_GetBuybackItemInfo (0x004FB310) and 4.3.4's
+// Script_GetBuybackItemLink: no vendor-GUID check, so the cached list
+// still answers after the window closes (the close handler clears the
+// GUID but not VAR_BUYBACK_COUNT).
+const uint8_t *BuybackItem(int slot) {
+    const int count = static_cast<int>(*reinterpret_cast<const uint32_t *>(
+        Offsets::VAR_BUYBACK_COUNT));
+    if (slot < 0 || slot >= count)
+        return nullptr;
+
+    // Buyback slot → linear invMgr slot index → GUID.
+    const uint32_t invSlot = *reinterpret_cast<const uint32_t *>(
+        Offsets::VAR_BUYBACK_SLOTS + slot * 4);
+    if (invSlot == 0)
+        return nullptr;
+
+    auto *invMgr = Unit::Identity::PlayerInventoryManager();
+    if (invMgr == nullptr)
+        return nullptr;
+    // First u32 of the invMgr struct is the max slot count.
+    const uint32_t maxSlots = *reinterpret_cast<const uint32_t *>(invMgr);
+    if (invSlot >= maxSlots)
+        return nullptr;
+    auto *guidArray = *reinterpret_cast<const uint64_t *const *>(
+        invMgr + Offsets::OFF_INVMGR_GUID_ARRAY);
+    if (guidArray == nullptr)
+        return nullptr;
+    const uint64_t guid = guidArray[invSlot];
+    if (guid == 0)
+        return nullptr;
+
+    return Item::Location::ResolveByGUID(guid);
+}
 
 int __fastcall Script_GetBuybackItemID(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
@@ -118,44 +155,23 @@ int __fastcall Script_GetBuybackItemID(void *L) {
         return 0;
     }
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    if (slot < 0)
-        return 0;
-
-    uint32_t merchantLo, merchantHi;
-    if (!MerchantOpen(merchantLo, merchantHi))
-        return 0;
-
-    const int count = static_cast<int>(*reinterpret_cast<const uint32_t *>(
-        Offsets::VAR_BUYBACK_COUNT));
-    if (slot >= count)
-        return 0;
-
-    // Buyback slot → linear invMgr slot index → GUID.
-    const uint32_t invSlot = *reinterpret_cast<const uint32_t *>(
-        Offsets::VAR_BUYBACK_SLOTS + slot * 4);
-    if (invSlot == 0)
-        return 0;
-
-    auto *invMgr = Unit::Identity::PlayerInventoryManager();
-    if (invMgr == nullptr)
-        return 0;
-    // First u32 of the invMgr struct is the max slot count.
-    const uint32_t maxSlots = *reinterpret_cast<const uint32_t *>(invMgr);
-    if (invSlot >= maxSlots)
-        return 0;
-    auto *guidArray = *reinterpret_cast<const uint64_t *const *>(
-        invMgr + Offsets::OFF_INVMGR_GUID_ARRAY);
-    if (guidArray == nullptr)
-        return 0;
-    const uint64_t guid = guidArray[invSlot];
-    if (guid == 0)
-        return 0;
-
-    auto *cgItem = Item::Location::ResolveByGUID(guid);
-    const int itemID = ItemIDFromCGItem(cgItem);
+    const int itemID = ItemIDFromCGItem(BuybackItem(slot));
     if (itemID == 0)
         return 0;
     Game::Lua::PushNumber(L, static_cast<double>(itemID));
+    return 1;
+}
+
+int __fastcall Script_GetBuybackItemLink(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: GetBuybackItemLink(slot)");
+        return 0;
+    }
+    const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
+    const char *link = Item::Link::FromCGItem(BuybackItem(slot));
+    if (link == nullptr)
+        return 0;
+    Game::Lua::PushString(L, link);
     return 1;
 }
 
@@ -345,7 +361,20 @@ int __fastcall Script_SellAllJunkItems(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("slot", "number", "The buyback slot, 1 to 12."),
+};
+const Game::Doc::Field kLinkRets[] = {
+    Game::Doc::Opt("itemLink", "string", nullptr,
+                   "The item link, or nil if the slot is empty."),
+};
+const Game::Doc::Function kGetBuybackItemLink{
+    "Returns the item link of an item in the buyback list of the vendor.",
+    kSlotArgs, kLinkRets, "MerchantGlobals"};
+
 void Register() {
+    Game::Lua::RegisterGlobalFunction("GetBuybackItemLink", &Script_GetBuybackItemLink,
+                                      &kGetBuybackItemLink);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "GetBuybackItemID",
                                      &Script_GetBuybackItemID);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "GetItemInfo",
