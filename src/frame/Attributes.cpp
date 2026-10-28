@@ -747,23 +747,16 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
                     Offsets::VAR_CURRENT_SELECTION_GUID_LO);
             Game::Lua::CallGlobalString(L, "TargetUnit", unit);
         }
-        char macro[512];
+        char macro[Offsets::MACRO_BODY_SIZE];
         bool handled = false;
-        // `macrotext` is raw macro text (the modern default). Run it as text
-        // through the stock chat parser so each line dispatches via
-        // SlashCmdList — that routes /cast etc. through any addon slash hooks
-        // (e.g. SuperCleveRoidMacros' conditional /cast). A name-based RunMacro
-        // (which is what SuperCleveRoidMacros ships) can't interpret text and
-        // would silently resolve nothing.
+        // `macrotext` is raw macro text (the modern default), `macro` a saved
+        // macro's name or index. Both run through the engine's macro runner
+        // with the clicked button, as 4.3.4's RunMacroText / RunMacro do.
         if (ReadModAttr(L, fi, prefix, "macrotext", suffix, macro, sizeof macro)) {
-            Macro::Execute::Text(L, macro);
+            Macro::Execute::Text(macro, button);
             handled = true;
-        }
-        // Deprecated `macro` form: a saved-macro name/index. Prefer an
-        // addon-provided RunMacro (SuperCleveRoidMacros, pfUI, …) to run the
-        // named macro's body; fall back to the stock parser when none exists.
-        else if (ReadModAttr(L, fi, prefix, "macro", suffix, macro, sizeof macro)) {
-            handled = Macro::Execute::Saved(L, macro);
+        } else if (ReadModAttr(L, fi, prefix, "macro", suffix, macro, sizeof macro)) {
+            handled = Macro::Execute::Saved(macro, button);
         }
         // Restore the target the click swapped away from. `FUN_TARGET_BY_GUID`
         // validates the GUID resolves to a live unit and bails otherwise, so a

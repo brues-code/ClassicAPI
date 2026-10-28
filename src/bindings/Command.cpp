@@ -21,7 +21,8 @@
 //   ITEM x   on release: the item named x you carry (equipment, then bags)
 //            used through FUN_ITEM_USE with the same target.
 //   MACRO x  on release: macro index x when x is all digits, else the macro
-//            named x, run through FUN_MACRO_RUN_BODY.
+//            named x, run through FUN_MACRO_RUN_BODY with the button
+//            "LeftButton", as 4.3.4 runs it.
 //   CLICK f:b press and release: the frame named f gets a mouse down and a
 //            mouse up for button b.
 //
@@ -46,13 +47,13 @@
 #include "item/Arg.h"
 #include "item/Location.h"
 #include "item/Use.h"
+#include "macro/Execute.h"
 #include "spell/Placement.h"
 #include "time/Clock.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 
 namespace Bindings::Command {
@@ -88,23 +89,6 @@ void UseItem(const char *name) {
     if (!Item::Location::FindByArgNoLua(byName, &found) || found.item == nullptr)
         return;
     Item::Use::UseItem(found.item, ModifiedTarget());
-}
-
-void RunMacro(const char *name) {
-    using SlotToEntry_t = const uint8_t *(__fastcall *)(unsigned slot);
-    using NameToSlot_t = uint32_t(__fastcall *)(const char *name);
-    using RunBody_t = void(__fastcall *)(const uint8_t *entry);
-    const char *digit = name;
-    while (*digit >= '0' && *digit <= '9')
-        ++digit;
-    const uint32_t slot =
-        (*name != '\0' && *digit == '\0')
-            ? static_cast<uint32_t>(std::atoi(name) - 1)
-            : reinterpret_cast<NameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT)(name);
-    const uint8_t *entry =
-        reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(slot);
-    if (entry != nullptr)
-        reinterpret_cast<RunBody_t>(Offsets::FUN_MACRO_RUN_BODY)(entry);
 }
 
 // StringToMouseButton: the click mask for a button name, 0 for any other
@@ -231,7 +215,7 @@ int RunKey(const char *command, int isDown) {
     }
     if (HasPrefix(command, kMacro)) {
         if (!isDown)
-            RunMacro(command + sizeof kMacro - 1);
+            Macro::Execute::Saved(command + sizeof kMacro - 1, "LeftButton");
         return 1;
     }
     return Click(command + sizeof kClick - 1, isDown);

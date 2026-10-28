@@ -25,7 +25,7 @@
 -- Where a keyword's underlying state does not exist on 1.12 (flying, flyable,
 -- vehicleui, unithasvehicleui) the condition is a constant false; where 1.12
 -- only has a partial answer (spec is always primary; actionbar defaults to the
--- resting state, as does button when no click is running) the closest honest
+-- resting state, as does button when no click or macro button is set) the closest honest
 -- mapping is used. An UNKNOWN keyword
 -- is a hard false with a one-time warning -- never a silent pass -- so a typo
 -- can't wrongly show a frame. See docs/API.md for the full contract.
@@ -239,15 +239,21 @@ local BUTTON_NUMBER_NAMES = {
 
 CONDITIONS.button = function(target, args)
     if args then
-        -- GetMouseButtonClicked() is the button of the click this macro is
-        -- running inside. It reads nil when no click is running -- a state
-        -- driver poll, or the re-evaluation behind a macro's #showtooltip
-        -- display -- and the engine's own no-argument Button:Click() means the
-        -- left button, so that is the resting answer.
-        local current = strlower(GetMouseButtonClicked() or "LeftButton");
+        -- A name matches the button of the click this macro is running inside
+        -- (GetMouseButtonClicked) or the button the macro was started with
+        -- (GetRunningMacroButton: RunMacroText's second argument, the clicked
+        -- button of a secure `macro` button). With neither -- a state driver
+        -- poll, the re-evaluation behind a macro's #showtooltip display -- the
+        -- answer is the left button, the engine's own no-argument Button:Click().
+        local clicked = GetMouseButtonClicked();
+        local running = GetRunningMacroButton();
+        if not clicked and not running then clicked = "LeftButton"; end
+        clicked = clicked and strlower(clicked);
+        running = running and strlower(running);
         for i = 1, args.n do
             local a = strlower(args[i]);
-            if (BUTTON_NUMBER_NAMES[a] or a) == current then return true; end
+            local name = BUTTON_NUMBER_NAMES[a] or a;
+            if name == clicked or name == running then return true; end
         end
         return false;
     end

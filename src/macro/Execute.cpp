@@ -12,196 +12,84 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Vanilla 1.12 has no RunMacro or RunMacroText global. Raw macro text is
-// dispatched one line at a time through FrameXML's ChatEdit_ParseText using a
-// small throwaway edit-box table. Saved macros are resolved with the stock
-// GetMacroIndexByName/GetMacroInfo globals before entering that same path.
+// `RunMacroText(text [, button])` and the macro runs that other modules start
+// (the secure button's `macro` verb, the MACRO binding).
+//
+// 4.3.4's RunMacroText copies the text into the body of a MACRONODE on the
+// stack and hands it to CGUIMacros::RunMacro, the runner a saved macro goes
+// through. 1.12's runner, FUN_MACRO_RUN_BODY, reads nothing of the entry but
+// the body at +OFF_MACRO_BODY (0x004F14ED), so a zeroed stack entry with the
+// text copied there is a whole macro to it. Each line then goes the engine's
+// way: EXECUTE_CHAT_LINE to FrameXML's MacroEditBox and ChatEdit_SendText,
+// with `#` lines skipped and /stopmacro honored by `Macro::RunBody`.
 
 #include "macro/Execute.h"
+#include "macro/RunBody.h"
 
 #include "Game.h"
+#include "Offsets.h"
 
-#include <cstddef>
-#include <string>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 namespace Macro::Execute {
 
 namespace {
 
-int __fastcall Script_GetText(void *L) {
-    Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
-    return 1;
+int __fastcall Script_RunMacroText(void *L) {
+    if (!Game::Lua::IsString(L, 1))
+        Game::Lua::Error(L, "Usage: RunMacroText(\"text\" [, \"button\"])");
+    Text(Game::Lua::ToString(L, 1), Game::Lua::ToString(L, 2));
+    return 0;
 }
 
-int __fastcall Script_Noop(void *) { return 0; }
-
-int __fastcall Script_Index(void *L) {
-    Game::Lua::PushCClosure(L, &Script_Noop, 0);
-    return 1;
-}
-
-void Line(void *L, const char *line, size_t length) {
-    if (length == 0)
-        return;
-    if (line[length - 1] == '\r')
-        --length;
-    // Leading blanks come through as typed, so skip past them before
-    // anything else: a directive written with an indent is still a comment,
-    // and letting it through would send it to chat.
-    while (length > 0 && (*line == ' ' || *line == '\t')) {
-        ++line;
-        --length;
-    }
-    if (length == 0)
-        return;
-    // `#` lines are comments (`#showtooltip`, `#show`) — the engine's own
-    // runner skips them too (see `Macro::RunBody`).
-    if (line[0] == '#')
-        return;
-
-    const int top = Game::Lua::GetTop(L);
-
-    Game::Lua::NewTable(L);
-    const int objectIndex = Game::Lua::GetTop(L);
-
-    Game::Lua::PushString(L, "GetText");
-    Game::Lua::PushLString(L, line, static_cast<unsigned int>(length));
-    Game::Lua::PushCClosure(L, &Script_GetText, 1);
-    Game::Lua::SetTable(L, objectIndex);
-
-    Game::Lua::NewTable(L);
-    const int metatableIndex = Game::Lua::GetTop(L);
-    Game::Lua::PushString(L, "__index");
-    Game::Lua::PushCClosure(L, &Script_Index, 0);
-    Game::Lua::SetTable(L, metatableIndex);
-
-    if (Game::Lua::PushGlobalFunction(L, "setmetatable")) {
-        Game::Lua::PushValue(L, objectIndex);
-        Game::Lua::PushValue(L, metatableIndex);
-        Game::Lua::PCall(L, 2, 0, 0);
-    }
-
-    if (Game::Lua::PushGlobalFunction(L, "ChatEdit_ParseText")) {
-        Game::Lua::PushValue(L, objectIndex);
-        Game::Lua::PushNumber(L, 1);
-        Game::Lua::PCall(L, 2, 0, 0);
-    }
-
-    Game::Lua::SetTop(L, top);
-}
-
-bool ParseIndex(const char *value, int *index) {
-    if (value == nullptr || *value == '\0')
-        return false;
-
-    int result = 0;
-    for (const char *p = value; *p != '\0'; ++p) {
-        if (*p < '0' || *p > '9')
-            return false;
-
-        const int digit = *p - '0';
-        if (result > (0x7FFFFFFF - digit) / 10)
-            return false;
-
-        result = result * 10 + digit;
-    }
-
-    if (result <= 0)
-        return false;
-
-    *index = result;
-    return true;
-}
-
-bool CallRunMacro(void *L, const char *macro) {
-    const int top = Game::Lua::GetTop(L);
-    if (!Game::Lua::PushGlobalFunction(L, "RunMacro")) {
-        Game::Lua::SetTop(L, top);
-        return false;
-    }
-
-    int index = 0;
-    if (ParseIndex(macro, &index))
-        Game::Lua::PushNumber(L, index);
-    else
-        Game::Lua::PushString(L, macro);
-
-    const bool ok = Game::Lua::PCall(L, 1, 0, 0) == 0;
-    Game::Lua::SetTop(L, top);
-
-    return ok;
-}
-
-int ResolveIndex(void *L, const char *macro) {
-    int index = 0;
-    if (ParseIndex(macro, &index))
-        return index;
-
-    const int top = Game::Lua::GetTop(L);
-    if (!Game::Lua::PushGlobalFunction(L, "GetMacroIndexByName")) {
-        Game::Lua::SetTop(L, top);
-        return 0;
-    }
-
-    Game::Lua::PushString(L, macro);
-    if (Game::Lua::PCall(L, 1, 1, 0) == 0 && Game::Lua::IsNumber(L, -1))
-        index = static_cast<int>(Game::Lua::ToNumber(L, -1));
-
-    Game::Lua::SetTop(L, top);
-
-    return index;
-}
-
-bool GetBody(void *L, int index, std::string *body) {
-    const int top = Game::Lua::GetTop(L);
-    if (!Game::Lua::PushGlobalFunction(L, "GetMacroInfo")) {
-        Game::Lua::SetTop(L, top);
-        return false;
-    }
-
-    Game::Lua::PushNumber(L, index);
-    const bool called = Game::Lua::PCall(L, 1, 3, 0) == 0;
-    const bool found = called && Game::Lua::IsString(L, -1);
-    if (found)
-        *body = Game::Lua::ToString(L, -1);
-
-    Game::Lua::SetTop(L, top);
-
-    return found;
-}
+const Game::Doc::Field kRunMacroTextArgs[] = {
+    Game::Doc::Req("text", "string", "The macro text. Lines are separated by line breaks."),
+    Game::Doc::Opt("button", "string", nullptr,
+                   "The button that the macro runs with, for [button] and "
+                   "GetRunningMacroButton()."),
+};
+const Game::Doc::Function kRunMacroText{
+    "Runs text as a macro, one line at a time, as if a macro with this text was used.",
+    kRunMacroTextArgs, {}, "MacroGlobals"};
 
 } // namespace
 
-void Text(void *L, const char *text) {
-    if (L == nullptr || text == nullptr)
+void Text(const char *text, const char *button) {
+    if (text == nullptr)
         return;
-
-    for (const char *line = text; *line != '\0';) {
-        const char *end = line;
-        while (*end != '\0' && *end != '\n')
-            ++end;
-        Line(L, line, static_cast<size_t>(end - line));
-        line = *end == '\n' ? end + 1 : end;
-    }
+    uint8_t entry[Offsets::OFF_MACRO_BODY + Offsets::MACRO_BODY_SIZE] = {};
+    // The body keeps its last byte for the NUL, as the engine's own copy does.
+    std::memcpy(entry + Offsets::OFF_MACRO_BODY, text,
+                strnlen(text, Offsets::MACRO_BODY_SIZE - 1));
+    RunBody::Run(entry, button);
 }
 
-bool Saved(void *L, const char *macro) {
-    if (L == nullptr || macro == nullptr || *macro == '\0')
+bool Saved(const char *macro, const char *button) {
+    if (macro == nullptr || *macro == '\0')
         return false;
-
-    if (CallRunMacro(L, macro))
-        return true;
-
-    const int index = ResolveIndex(L, macro);
-    if (index <= 0)
+    using SlotToEntry_t = const uint8_t *(__fastcall *)(unsigned slot);
+    using NameToSlot_t = uint32_t(__fastcall *)(const char *name);
+    const char *digit = macro;
+    while (*digit >= '0' && *digit <= '9')
+        ++digit;
+    const uint32_t slot =
+        *digit == '\0'
+            ? static_cast<uint32_t>(std::atoi(macro) - 1)
+            : reinterpret_cast<NameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT)(macro);
+    const uint8_t *entry =
+        reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(slot);
+    if (entry == nullptr)
         return false;
-
-    std::string body;
-    if (!GetBody(L, index, &body))
-        return false;
-
-    Text(L, body.c_str());
+    RunBody::Run(entry, button);
     return true;
 }
+
+static void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("RunMacroText", &Script_RunMacroText, &kRunMacroText);
+}
+
+static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace Macro::Execute

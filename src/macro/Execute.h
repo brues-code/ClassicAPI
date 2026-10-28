@@ -16,12 +16,12 @@
 
 namespace Macro::Execute {
 
-// Runs raw macro text through vanilla FrameXML's ChatEdit_ParseText dispatcher.
-void Text(void *L, const char *text);
+// Runs `text` as a macro body through the engine's macro runner, as 4.3.4's
+// RunMacroText does. `button` is the running macro's button; it may be null.
+void Text(const char *text, const char *button);
 
-// Runs a saved macro by name or decimal index. Prefers an addon-provided
-// RunMacro implementation when present, then falls back to GetMacroInfo plus
-// the stock text dispatcher.
-bool Saved(void *L, const char *macro);
+// Runs a saved macro, named or given as a 1-based index in decimal, through
+// the same runner. Returns false when no macro matches.
+bool Saved(const char *macro, const char *button);
 
 } // namespace Macro::Execute

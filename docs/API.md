@@ -611,6 +611,9 @@ build instructions.
   - [Numeric spellIDs in `/cast` and `CastSpellByName`](#numeric-spellids-in-cast-and-castspellbyname)
   - [`CastSpellNoToggle` as a macro cast line](#castspellnotoggle-as-a-macro-cast-line)
   - [`StopMacro()`](#stopmacro)
+  - [`RunMacroText(text [, button])`](#runmacrotexttext--button)
+  - [`GetRunningMacro()`](#getrunningmacro)
+  - [`GetRunningMacroButton()`](#getrunningmacrobutton)
   - [Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`](#macro-names-in-getmacroinfo--editmacro--pickupmacro--deletemacro)
   - [`GetMacroSpell(macroSlot)`](#getmacrospellmacroslot)
   - [`GetMacroItem(macroSlot)`](#getmacroitemmacroslot)
@@ -8528,7 +8531,7 @@ modifier/button-qualified, same precedence as `type`):
 | `focus` | — | Sets the ClassicAPI focus to the `unit`. |
 | `spell` | `spell` | Casts the `spell`. With a `unit`, it casts on that unit via [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell) — the unit's GUID goes straight to the cast dispatcher (no target juggling), and a ground-target spell lands at the unit's feet. With no `unit`, it casts on the current target through `CastSpellByName`, like a plain `/cast`. |
 | `item` | `item`, or `bag`+`slot` | Uses an item on the `unit`. `item` may be a name / itemID / link (used via `C_Item.UseItemByName`, unit as the target) or a `"bag slot"` string like `"0 1"` (used via `UseContainerItem`). The deprecated `bag`+`slot` attributes are used when `item` is unset. |
-| `macro` | `macrotext` or `macro` | Runs the macro text. To give the macro a unit, the handler selects the clicked `unit`, runs the macro, then restores the target from before the click. It prefers an addon `RunMacro` (for example, SuperCleveRoidMacros — named macros and extended conditionals). If no addon `RunMacro` exists, it runs the text natively, line by line, through the stock `ChatEdit_ParseText`. |
+| `macro` | `macrotext` or `macro` | Runs the `macrotext` text as [`RunMacroText`](#runmacrotexttext--button) does. If `macrotext` is not set, it runs the saved macro that `macro` names, by name or index. The clicked button is the macro's button. To give the macro a unit, the handler selects the clicked `unit`, runs the macro, then restores the target from before the click. |
 | `stopcasting` | — | Stops the current cast. |
 | `menu` / `togglemenu` | — | Pops the standard unit dropdown at the cursor (whisper / inspect / trade / invite / …, the same menu `PlayerFrame` / `TargetFrame` / `PartyMemberFrame` show). |
 
@@ -8763,14 +8766,17 @@ is Bear and slot 3 is Cat. The condition tests the value of
 [`GetShapeshiftForm(true)`](#getshapeshiftformrequireform). A paladin aura is on
 the stance bar, but it is not a form, so `[stance]` is false for a paladin.
 
-`[button:N]` reads the button of the click the macro is running inside, the
-same value [`GetMouseButtonClicked()`](#getmousebuttonclicked) returns. You can
-give a button name in place of the number: `[button:rightbutton]` and
-`[button:2]` are the same test, and names are not case-sensitive.
+`[button:N]` matches two buttons. The first is the button of the click the
+macro is running inside, the same value
+[`GetMouseButtonClicked()`](#getmousebuttonclicked) returns. The second is the
+button the macro was started with, the same value
+[`GetRunningMacroButton()`](#getrunningmacrobutton) returns. You can give a
+button name in place of the number: `[button:rightbutton]` and `[button:2]` are
+the same test, and names are not case-sensitive.
 
-When no click is running, `[button:N]` answers as if the left button were used.
-That is the case for a state driver poll and for the re-evaluation behind a
-macro's `#showtooltip` icon, neither of which comes from a click.
+When neither button is set, `[button:N]` answers as if the left button were
+used. That is the case for a state driver poll and for the re-evaluation behind
+a macro's `#showtooltip` icon, neither of which comes from a click.
 
 `known` is a ClassicAPI extension, not a Blizzard conditional. A numeric
 argument uses [`IsPlayerSpell`](#isplayerspellspellid), so it matches any known
@@ -14648,6 +14654,58 @@ The call applies to the macro that is running it. If a macro line runs a
 second macro, a `StopMacro` in that second macro stops the second one only,
 and the first one goes on. A call made while no macro is running does
 nothing, and leaves nothing behind for the next macro you press.
+
+### `RunMacroText(text [, button])`
+
+Runs `text` as a macro. Each line runs as a line of a saved macro runs: a
+slash command runs, and any other line goes to chat. `#` lines are skipped,
+and [`/stopmacro`](#stopmacro) stops the lines after it.
+
+```lua
+RunMacroText("/target Hogger\n/cast Fireball")
+RunMacroText("/cast [button:2] Frost Nova; Fireball", "RightButton")
+```
+
+| Argument | Type | Description |
+|---|---|---|
+| `text` | string | The macro text. Separate the lines with `\n`. The first 1023 bytes are used. |
+| `button` | string (optional) | The button that the macro runs with. [`GetRunningMacroButton()`](#getrunningmacrobutton) returns it, and `[button:N]` tests it. |
+
+If `text` is not a string or a number, the function raises the error
+`Usage: RunMacroText("text" [, "button"])`.
+
+### `GetRunningMacro()`
+
+Returns the index of the saved macro that is running now. Returns `nil` when
+no macro is running, and while a [`RunMacroText`](#runmacrotexttext--button)
+text runs, because that text is not a saved macro.
+
+```lua
+macroIndex = GetRunningMacro()
+```
+
+If a macro line runs a second macro, the function returns the index of the
+second macro while it runs. Then it returns the index of the first macro
+again.
+
+### `GetRunningMacroButton()`
+
+Returns the button that the running macro was started with, or `nil`.
+
+```lua
+button = GetRunningMacroButton()
+```
+
+| Started by | Button |
+|---|---|
+| [`RunMacroText(text, button)`](#runmacrotexttext--button) | `button` |
+| A [secure button](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute) with the `macro` type | The clicked button, for example `"RightButton"` |
+| A key bound with `SetBindingMacro` | `"LeftButton"` |
+| An action bar button | `nil` |
+
+If a macro line runs a second macro, the function returns the button of the
+second macro while it runs. Then it returns the button of the first macro
+again.
 
 ### Macro names in `GetMacroInfo` / `EditMacro` / `PickupMacro` / `DeleteMacro`
 

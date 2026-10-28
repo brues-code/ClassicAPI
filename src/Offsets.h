@@ -7406,7 +7406,13 @@ enum Offsets {
     // for every macro slot, so cooldown / usable / range / current /
     // auto-repeat all follow it — and `Macro::ShowTooltip` writes the
     // `#showtooltip`-resolved spell into it for exactly that reason.
+    // uint32 macro ID, the key FUN_MACRO_RUN_BY_ID finds the entry by
+    // (`cmp [edx],ecx` at 0x004F1499); 0 in a stack entry RunMacroText builds.
+    OFF_MACRO_ID = 0x00,
     OFF_MACRO_BODY = 0x164,
+    // char[0x400]: the body fills +0x164..+0x564, and the body setter copies it
+    // with `push 0x400; lea esi,[ecx+0x164]` (0x004F1556).
+    MACRO_BODY_SIZE = 0x400,
     OFF_MACRO_PRIMARY_SPELL = 0x564,
 
     // Spell.dbc and friends. Pointer-to-records-array + record-count pairs.
