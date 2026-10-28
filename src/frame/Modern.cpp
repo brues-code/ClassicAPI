@@ -27,9 +27,9 @@
 //     on the REGION base method registry, so they resolve on frames,
 //     buttons, textures, fontstrings — everything.
 //   - `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])` —
-//     the engine's getters with the later argument. The engine answers the
-//     explicit size, and the rect's extent only when that size is 0; with
-//     ignoreRect a 0 stays 0.
+//     4.3.4's getters: the explicit size, and the rect's extent over the
+//     layout scale only when that size is 0; with ignoreRect a 0 stays 0.
+//     1.12's own leave out the division (see PushExtent).
 //   - `region:IsMouseOver([top, bottom, left, right])` — cursor-in-rect
 //     test with optional per-edge offsets, also on the REGION registry.
 //   - `region:GetRect()` — left, bottom, width, height, composed from the
@@ -98,41 +98,47 @@ int __fastcall Script_SetSize(void *L) {
 }
 
 using LayoutExtent_t = float(__thiscall *)(void *layout);
+using LayoutDirty_t = int(__fastcall *)(void *layout);
+using LayoutResize_t = void(__fastcall *)(void *layout, void *edx, int force);
+using LayoutGetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
 
-// Pushes the engine getter's answer for `self` (index 1), or 0 when
-// ignoreRect is set and the explicit size in `slot` is 0 — the one case the
-// engine answers from the rect instead.
-void PushExtent(void *L, bool ignoreRect, int slot, uintptr_t getter) {
-    if (ignoreRect) {
-        void *self = Game::Lua::ResolveRegion(L);
-        if (self == nullptr)
-            return;
-        void *layout = static_cast<uint8_t *>(self) + Offsets::OFF_REGION_ANCHOR;
-        auto *vtable = Game::Read<uintptr_t *>(layout, 0);
-        if (reinterpret_cast<LayoutExtent_t>(vtable[slot / sizeof(uintptr_t)])(layout) == 0.0f) {
-            Game::Lua::PushNumber(L, 0.0);
-            return;
-        }
+// 4.3.4's Script_GetWidth / Script_GetHeight for `self` (index 1): the
+// explicit size from layout `slot`, or when it is 0 and ignoreRect is not set,
+// the rect's span over the layout scale; pushed in script units. 1.12's own
+// getters (FUN_SCRIPT_REGION_GETWIDTH / _GETHEIGHT) leave out the division,
+// so an anchored region under a UI scale reads scaled: a 160-high track at
+// scale 0.91 answered 145.6 while its GetTop - GetBottom was 160. Their other
+// steps, and the edge getters' division, are the engine's.
+void PushExtent(void *L, bool ignoreRect, int slot, bool vertical) {
+    void *self = Game::Lua::ResolveRegion(L);
+    if (self == nullptr)
+        return;
+    void *layout = static_cast<uint8_t *>(self) + Offsets::OFF_REGION_ANCHOR;
+    auto *vtable = Game::Read<uintptr_t *>(layout, 0);
+    float extent = reinterpret_cast<LayoutExtent_t>(vtable[slot / sizeof(uintptr_t)])(layout);
+    if (extent == 0.0f && !ignoreRect) {
+        if (reinterpret_cast<LayoutDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(layout) != 0)
+            reinterpret_cast<LayoutResize_t>(Offsets::FUN_LAYOUT_RESIZE)(layout, nullptr, 1);
+        float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // {bottom, left, top, right}
+        if (reinterpret_cast<LayoutGetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, rect) != 0)
+            extent = (vertical ? rect[2] - rect[0] : rect[3] - rect[1]) /
+                     Game::Read<float>(self, Offsets::OFF_REGION_EFFECTIVE_SCALE);
     }
-    const int top = Game::Lua::GetTop(L);
-    Game::Lua::PushValue(L, 1);
-    CallScript(getter, L); // (.., self, value)
-    Game::Lua::Remove(L, top + 1);
+    Game::Lua::PushNumber(L, Game::InternalToPixel(extent));
 }
 
 // `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`.
 int __fastcall Script_GetWidth(void *L) {
     const bool ignoreRect = Game::Lua::ToBoolean(L, 2) != 0;
     Game::Lua::SetTop(L, 1);
-    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_WIDTH, Offsets::FUN_SCRIPT_REGION_GETWIDTH);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_WIDTH, false);
     return 1;
 }
 
 int __fastcall Script_GetHeight(void *L) {
     const bool ignoreRect = Game::Lua::ToBoolean(L, 2) != 0;
     Game::Lua::SetTop(L, 1);
-    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_HEIGHT,
-               Offsets::FUN_SCRIPT_REGION_GETHEIGHT);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_HEIGHT, true);
     return 1;
 }
 
@@ -140,9 +146,8 @@ int __fastcall Script_GetHeight(void *L) {
 int __fastcall Script_GetSize(void *L) {
     const bool ignoreRect = Game::Lua::ToBoolean(L, 2) != 0;
     Game::Lua::SetTop(L, 1); // (self)
-    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_WIDTH, Offsets::FUN_SCRIPT_REGION_GETWIDTH);
-    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_HEIGHT,
-               Offsets::FUN_SCRIPT_REGION_GETHEIGHT);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_WIDTH, false);
+    PushExtent(L, ignoreRect, Offsets::VTBL_LAYOUT_GET_HEIGHT, true);
     return 2;
 }
 
@@ -234,7 +239,8 @@ int __fastcall Script_IsMouseOver(void *L) {
 // ---- GetRect (Region base — all region types) ------------------------------
 
 // `region:GetRect()` → left, bottom, width, height. Composed from the
-// engine's own Region getters (so all UI-scale conversion is its code).
+// engine's edge getters and this file's GetWidth / GetHeight (the engine's
+// leave the layout scale in a rect-derived size).
 // Matches retail: returns nothing for a region with no resolved rect —
 // gated on GetLeft, which pushes nil when the position isn't resolved (a
 // size-only region with no anchor has width/height but no rect).
@@ -243,8 +249,8 @@ int __fastcall Script_GetRect(void *L) {
     if (!CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETLEFT, &left))
         return 0;
     CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETBOTTOM, &bottom);
-    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETWIDTH, &width);
-    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETHEIGHT, &height);
+    CallRegionNumber(L, reinterpret_cast<uintptr_t>(&Script_GetWidth), &width);
+    CallRegionNumber(L, reinterpret_cast<uintptr_t>(&Script_GetHeight), &height);
     Game::Lua::SetTop(L, 1);
     Game::Lua::PushNumber(L, left);
     Game::Lua::PushNumber(L, bottom);
@@ -263,8 +269,8 @@ int __fastcall Script_GetScaledRect(void *L) {
     if (!CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETLEFT, &left))
         return 0;
     CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETBOTTOM, &bottom);
-    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETWIDTH, &width);
-    CallRegionNumber(L, Offsets::FUN_SCRIPT_REGION_GETHEIGHT, &height);
+    CallRegionNumber(L, reinterpret_cast<uintptr_t>(&Script_GetWidth), &width);
+    CallRegionNumber(L, reinterpret_cast<uintptr_t>(&Script_GetHeight), &height);
     Game::Lua::SetTop(L, 1);
     Game::Lua::PushNumber(L, left * scale);
     Game::Lua::PushNumber(L, bottom * scale);

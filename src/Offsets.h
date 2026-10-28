@@ -11195,7 +11195,9 @@ enum Offsets {
     // <AbsDimension> (or <RelDimension>) child, converted to layout units the
     // way every XML size and offset is. With neither attribute and no child it
     // reports the node to `status` and returns 0. The anchor loader reads each
-    // <Offset> with it (0x00767800 calls it, benilla-re ui/anchors).
+    // <Offset> with it (0x00767800 calls it, benilla-re ui/anchors). It
+    // decides "no attributes" from `y` alone, so a node with only `x` reports
+    // and answers 0; Xml::Dimension co-hooks it to answer 1 there, as 4.3.4.
     FUN_XML_READ_DIMENSION = 0x006F1EB0,
     // XMLTree_Load — `XMLTree *__fastcall(const char *data, uint32_t size)`,
     // null when the text does not parse; the root node is `*(XMLNode **)tree`.

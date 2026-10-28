@@ -87,13 +87,16 @@
 // builder finalizes, so OnLoad sees the groups.
 //
 // The texture loader also reads `mask="path"` (`<Texture file=".." mask=".."/>`,
-// the later-client attribute) and applies it as texture:SetMask(path).
+// the later-client attribute) and applies it as texture:SetMask(path), and
+// `atlas="name"` with `useAtlasSize`, applied as texture:SetAtlas(name,
+// useAtlasSize).
 
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "animation/Xml.h"
+#include "texture/Atlas.h"
 #include "texture/Mask.h"
 #include "xml/Anchors.h"
 #include "xml/KeyValues.h"
@@ -329,6 +332,11 @@ uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
         if (const char *mask = Xml::Attr(node, "mask"); mask != nullptr && *mask != '\0')
             Texture::Mask::SetPath(RegionObject(self), mask);
+        if (const char *atlas = Xml::Attr(node, "atlas"); atlas != nullptr && *atlas != '\0') {
+            const char *useSize = Xml::Attr(node, "useAtlasSize");
+            Texture::Atlas::SetFromXml(RegionObject(self), atlas,
+                                       useSize != nullptr && Game::StringToFlag(useSize));
+        }
     }
     return r;
 }

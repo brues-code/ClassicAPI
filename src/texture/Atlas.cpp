@@ -567,4 +567,17 @@ void PrepareForReload() {
     g_misses.clear();
 }
 
+void SetFromXml(void *region, const char *name, bool useAtlasSize) {
+    void *L = Game::Lua::State();
+    if (L == nullptr || region == nullptr || name == nullptr || *name == '\0')
+        return;
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushCClosure(L, &Script_SetAtlas, 0);
+    Game::Lua::PushObject(L, region);
+    Game::Lua::PushString(L, name);
+    Game::Lua::PushBool(L, useAtlasSize);
+    Game::Lua::PCall(L, 3, 0, 0);
+    Game::Lua::SetTop(L, top);
+}
+
 } // namespace Texture::Atlas

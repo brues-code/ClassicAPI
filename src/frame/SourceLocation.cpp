@@ -40,6 +40,12 @@
 // Textures and font strings have no record of their own; Get walks to their
 // parent frame — retail's behavior for script-created regions.
 //
+// AddSourceLocationExclude(fileName) names a script file whose levels the
+// walk steps over, so a frame a factory file makes (retail's FrameFactory.lua
+// and Pools.lua exclude themselves) is the caller's. A level matches when its
+// file name, the part of its path after the last separator, is fileName,
+// ignoring case. The names are dropped with the Lua state that added them.
+//
 // Always on: retail gates the file-name lookup behind the
 // enableSourceLocationLookup CVar ("UnknownFile" otherwise), a cost its Lua
 // has and 5.0's two field reads do not.
@@ -56,6 +62,7 @@
 #include <cstdio>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Frame::SourceLocation {
 
@@ -78,8 +85,23 @@ constexpr int kMaxScopes = 32; // CreateFrame -> OnLoad -> CreateFrame nests sha
 Scope g_scopes[kMaxScopes];
 int g_scopeDepth = 0;
 
+std::vector<std::string> g_excludes;
+
+bool Excluded(const char *source) {
+    if (g_excludes.empty())
+        return false;
+    const char *name = source;
+    for (const char *p = source; *p != '\0'; ++p)
+        if (*p == '\\' || *p == '/')
+            name = p + 1;
+    for (const std::string &e : g_excludes)
+        if (Game::StrCmpI(name, e.c_str()) == 0)
+            return true;
+    return false;
+}
+
 // "file:line" of the nearest Lua function above the running C function on
-// L's call stack. False when there is none.
+// L's call stack that is not in an excluded file. False when there is none.
 bool CaptureCaller(void *L, char *out, size_t size) {
     auto getStack = reinterpret_cast<GetStack_t>(Offsets::LUA_GET_STACK);
     auto getInfo = reinterpret_cast<GetInfo_t>(Offsets::LUA_GET_INFO);
@@ -93,6 +115,8 @@ bool CaptureCaller(void *L, char *out, size_t size) {
         const char *source = Game::Read<const char *>(ar, Offsets::OFF_LUA_DEBUG_SOURCE);
         if (source == nullptr)
             return false;
+        if (Excluded(source))
+            continue;
         char name[256];
         reinterpret_cast<ChunkId_t>(Offsets::LUAO_CHUNKID)(name, source, sizeof(name));
         std::snprintf(out, size, "%s:%d", name, line);
@@ -138,9 +162,33 @@ int __fastcall Script_GetSourceLocation(void *L) {
     return 1;
 }
 
+int __fastcall Script_AddSourceLocationExclude(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: AddSourceLocationExclude(fileName)");
+        return 0;
+    }
+    const char *name = Game::Lua::ToString(L, 1);
+    for (const std::string &e : g_excludes)
+        if (Game::StrCmpI(name, e.c_str()) == 0)
+            return 0;
+    g_excludes.emplace_back(name);
+    return 0;
+}
+
+void PrepareForReload() { g_excludes.clear(); }
+
+const Game::ReloadAutoRegister _reload{&PrepareForReload};
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetSourceLocation", &Script_GetSourceLocation},
 };
+
+const Game::Doc::Field kExcludeArgs[] = {
+    Game::Doc::Req("fileName", "string", "A script file name, such as \"FrameFactory.lua\"."),
+};
+const Game::Doc::Function kAddSourceLocationExclude{
+    "Makes GetSourceLocation skip the named script file and report the code that called into it.",
+    kExcludeArgs, {}, "FrameScriptGlobals"};
 
 const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("location", "string", nullptr,
@@ -156,6 +204,8 @@ const Game::Doc::Method g_methodDocs[] = {
 };
 
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("AddSourceLocationExclude", &Script_AddSourceLocationExclude,
+                                      &kAddSourceLocationExclude);
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_methods,
         static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,

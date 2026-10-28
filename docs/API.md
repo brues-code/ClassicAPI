@@ -272,9 +272,11 @@ build instructions.
   - [`region:GetPoint([index])`](#regiongetpointindex)
   - [`region:GetPointByName(point)`](#regiongetpointbynamepoint)
   - [`region:ClearPoint(point)`](#regionclearpointpoint)
+  - [`region:AdjustPointsOffset(x, y)` / `region:ClearPointsOffset()`](#regionadjustpointsoffsetx-y--regionclearpointsoffset)
   - [`region:IsDragging()`](#regionisdragging)
   - [`region:GetDebugName([preferParentKey])`](#regiongetdebugnamepreferparentkey)
   - [`region:GetSourceLocation()`](#regiongetsourcelocation)
+  - [`AddSourceLocationExclude(fileName)`](#addsourcelocationexcludefilename)
   - [`GetMouseFoci()`](#getmousefoci)
   - [`CreateFrame(frameType [, name, parent, template, id])`](#createframeframetype--name-parent-template-id)
   - [`CreateFrame("Cooldown" [, name, parent, template])`](#createframecooldown--name-parent-template)
@@ -450,6 +452,7 @@ build instructions.
 
 - [Hooks](#hooks)
   - [`hooksecurefunc(name, callback)` / `hooksecurefunc(table, name, callback)`](#hooksecurefuncname-callback--hooksecurefunctable-name-callback)
+  - [`securecall(func, ...)` / `securecallfunction(func, ...)` / `secureexecuterange(tbl, func, ...)`](#securecallfunc---securecallfunctionfunc---secureexecuterangetbl-func-)
 
 - [Input](#input)
   - [`IsLeftShiftKeyDown()` / `IsRightShiftKeyDown()`](#isleftshiftkeydown--isrightshiftkeydown)
@@ -964,6 +967,8 @@ build instructions.
   - [`KeyValues` in XML](#keyvalues-in-xml)
   - [`mixin` in XML](#mixin-in-xml)
   - [`intrinsic` frame types in XML](#intrinsic-frame-types-in-xml)
+  - [ScrollBox and scroll bars](#scrollbox-and-scroll-bars)
+  - [Atlases in XML](#atlases-in-xml)
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
@@ -6608,8 +6613,9 @@ effect as on `GetWidth` and `GetHeight`.
 ### `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`
 
 Returns the width or the height of the region. A region with no set size
-returns the size that its anchors give it. If `ignoreRect` is true, the
-method returns only the set size, which is 0 for a region with no set size.
+returns the size that its anchors give it, in the same units as `GetTop`
+and `GetBottom`, at every UI scale. If `ignoreRect` is true, the method
+returns only the set size, which is 0 for a region with no set size.
 
 ```lua
 local f = CreateFrame("Frame", nil, UIParent)
@@ -6703,6 +6709,21 @@ anchor at that point.
 local point, relativeTo, relativePoint, x, y = MyFrame:GetPointByName("TOPLEFT")
 ```
 
+### `region:AdjustPointsOffset(x, y)` / `region:ClearPointsOffset()`
+
+`AdjustPointsOffset` adds `x` and `y` to the offset of each anchor of the
+region. `ClearPointsOffset` sets the offset of each anchor to 0. Each
+anchor keeps its point, its relative region and its relative point.
+
+```lua
+t:SetPoint("CENTER", 5, 7)
+t:AdjustPointsOffset(1, -1)   -- the anchor is now ("CENTER", 6, 6)
+t:ClearPointsOffset()         -- the anchor is now ("CENTER", 0, 0)
+```
+
+`ClearPointsOffset` does not undo `AdjustPointsOffset`. It removes all of
+the offset, also the offset that `SetPoint` gave.
+
 ### `region:ClearPoint(point)`
 
 Removes the anchor of the region at `point`. The other anchors stay. The
@@ -6771,6 +6792,19 @@ print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml"
 If `CreateFrame` runs inside `pcall`, the location is the script that called
 `pcall`. Child frames that a template adds to a `CreateFrame` frame return
 the location of that `CreateFrame` call.
+
+### `AddSourceLocationExclude(fileName)`
+
+Makes [`GetSourceLocation`](#regiongetsourcelocation) skip a script file.
+A frame that code in that file creates returns the location of the code
+that called into the file. Use it in a file that creates frames for other
+code, such as a pool or a factory:
+
+```lua
+AddSourceLocationExclude("MyFramePool.lua")
+```
+
+`fileName` is the name of the file without its folder. Case is ignored.
 
 ### `GetMouseFoci()`
 
@@ -10395,6 +10429,27 @@ The engine ships `IsShiftKeyDown` / `IsControlKeyDown` / `IsAltKeyDown`
 but they only report "any shift/ctrl/alt" — there's no built-in way to
 tell left from right. These seven functions add the missing distinction
 plus an `IsModifierKeyDown()` rollup.
+
+### `securecall(func, ...)` / `securecallfunction(func, ...)` / `secureexecuterange(tbl, func, ...)`
+
+Call a function so that an error in it does not stop the code that called
+it. The error goes to the error handler (`geterrorhandler()`).
+
+- `securecall(func, ...)` calls `func(...)` and returns its results.
+  `func` can also be the name of a global function. After an error,
+  `securecall` returns nothing.
+- `securecallfunction(func, ...)` is the same, but `func` must be a
+  function.
+- `secureexecuterange(tbl, func, ...)` calls `func(key, value, ...)` for
+  each entry of `tbl`. After an error in one call, the other entries still
+  run. It returns nothing.
+
+```lua
+print(securecall(math.max, 1, 9))   -- 9
+secureexecuterange({10, 20}, function(key, value, extra)
+    print(key, value, extra)
+end, "x")
+```
 
 ### `IsLeftShiftKeyDown()` / `IsRightShiftKeyDown()`
 ### `IsLeftControlKeyDown()` / `IsRightControlKeyDown()`
@@ -22584,7 +22639,7 @@ are `string` if you leave them out:
 | `number` | The text as a number. |
 | `boolean` | `true` if the text starts with `t`, `y` or a digit from `1` to `9` (any case), or is `on` or `enabled`. Otherwise `false`. |
 | `nil` | `nil`. This type clears a field that a template set. |
-| `global` | The global variable with that name, `_G[value]`. |
+| `global` | The global variable with that name, `_G[value]`. A name with dots, such as `ScrollControllerMixin.Directions.Decrease`, reads one field at each dot. |
 
 Numbers keep about seven significant digits, so integers up to 16777216
 are exact.
@@ -22675,6 +22730,59 @@ scripts. For example, an `EventFrame` sends `OnShow`, `OnHide` and
 local f = CreateFrame("EventFrame", nil, UIParent)
 f:RegisterCallback("OnShow", function() print("shown") end, f)
 ```
+
+
+### ScrollBox and scroll bars
+
+ClassicAPI has the ScrollBox system of the later clients: scroll boxes,
+their views, data providers, `ScrollUtil` and scroll bars. A scroll box
+shows its frames only inside its own area.
+
+| Template | Use |
+|---|---|
+| `WowScrollBoxList` | A list or a grid of frames from a data provider. |
+| `WowScrollBox` | A scroll box with one frame that you make, such as a long text. |
+| `WowClassicScrollBar` | A vertical scroll bar with the client's own scroll bar art. |
+| `WowTrimScrollBar`, `MinimalScrollBar` | The same as `WowClassicScrollBar`. |
+| `ScrollingEditBoxTemplate`, `ScrollingFontTemplate` | An edit box or a font string in a scroll box. |
+
+```lua
+local box = CreateFrame("Frame", nil, UIParent, "WowScrollBoxList")
+box:SetSize(200, 200)
+box:SetPoint("CENTER")
+local bar = CreateFrame("EventFrame", nil, UIParent, "WowClassicScrollBar")
+bar:SetPoint("TOPLEFT", box, "TOPRIGHT")
+bar:SetPoint("BOTTOMLEFT", box, "BOTTOMRIGHT")
+
+local view = CreateScrollBoxListLinearView()
+view:SetElementExtent(20)
+view:SetElementInitializer("Button", function(button, data)
+    if not button.text then
+        button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        button.text:SetAllPoints()
+    end
+    button.text:SetText(data)
+end)
+ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
+box:SetDataProvider(CreateDataProvider({"one", "two", "three"}))
+```
+
+The scroll bar arrows do not play a click sound.
+### Atlases in XML
+
+A `<Texture>` element takes an `atlas` attribute and a `useAtlasSize`
+attribute. They are the same as
+`texture:SetAtlas(atlas, useAtlasSize)`:
+
+```xml
+<Texture parentKey="Middle" atlas="UI-ClassicScrollBar-Center" useAtlasSize="true"/>
+```
+
+The atlas applies after the other content of the element. An atlas that
+ClassicAPI does not know keeps the texture that the element set.
+
+A `<Size>` element, an `<Anchor>` or an `<Offset>` can give only `x` or
+only `y`. The value that it does not give is 0.
 
 ### Masks in XML
 

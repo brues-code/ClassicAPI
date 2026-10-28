@@ -53,7 +53,6 @@ namespace {
 
 using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
 using ReadDimension_t = int(__fastcall *)(const void *node, float *x, float *y, void *status);
-using SetAttribute_t = void(__thiscall *)(void *node, const char *name, const char *value);
 using GetRelative_t = void *(__thiscall *)(void *anchorNode);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
                                       float x, float y, int flag);
@@ -151,20 +150,11 @@ bool ApplyAnchor(void *object, const void *anchor, void *status) {
             return true;
     }
 
-    // An attribute the anchor leaves out is 0; giving it "0" keeps the reader
-    // from reporting a missing dimension when the other one is present.
+    // An attribute the anchor leaves out is 0 (Xml::Dimension reads one alone).
     float x = 0.0f, y = 0.0f;
     const void *dimension = inlineOffset ? anchor : FindChild(anchor, "Offset");
-    if (dimension != nullptr) {
-        if (inlineOffset) {
-            auto setAttr = reinterpret_cast<SetAttribute_t>(Offsets::FUN_XML_NODE_SET_ATTRIBUTE);
-            if (!HasValue(xs))
-                setAttr(const_cast<void *>(anchor), "x", "0");
-            if (!HasValue(ys))
-                setAttr(const_cast<void *>(anchor), "y", "0");
-        }
+    if (dimension != nullptr)
         reinterpret_cast<ReadDimension_t>(Offsets::FUN_XML_READ_DIMENSION)(dimension, &x, &y, status);
-    }
 
     reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
         Game::Ptr<void>(object, Offsets::OFF_REGION_ANCHOR), point, relAnchor, relativePoint, x,

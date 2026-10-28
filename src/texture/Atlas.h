@@ -62,4 +62,9 @@ void RecordMiss(const char *name);
 // across the gap.
 void PrepareForReload();
 
+// The XML `<Texture atlas="name" useAtlasSize="true">`: texture:SetAtlas(name,
+// useAtlasSize) on `region`, run as its own Lua call so the caller's stack is
+// left alone.
+void SetFromXml(void *region, const char *name, bool useAtlasSize);
+
 } // namespace Texture::Atlas

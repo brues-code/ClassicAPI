@@ -23,7 +23,10 @@
 //
 // Each entry is `object[key] = value`. `type` and `keyType` (default
 // "string") are one of nil / boolean / number / string / global, the later
-// clients' KEYVALUETYPE; "global" is `_G[text]`. Booleans and numbers go
+// clients' KEYVALUETYPE; "global" is `_G[text]`, walking a dotted path a
+// field at a time: retail's own templates use
+// "ScrollControllerMixin.Directions.Decrease". A step that is not a table
+// gives nil. Booleans and numbers go
 // through the same loader helpers as `<Attributes>` (FUN_XML_ATTR_TO_BOOL,
 // FUN_SSTR_TO_FLOAT).
 //
@@ -41,6 +44,8 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "xml/FrameLoad.h"
+
+#include <cstring>
 
 namespace Xml::KeyValues {
 
@@ -75,10 +80,28 @@ void Push(void *L, Kind kind, const char *text) {
     case Kind::String:
         Game::Lua::PushString(L, text);
         break;
-    case Kind::Global:
-        Game::Lua::PushString(L, text);
-        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+    case Kind::Global: {
+        Game::Lua::PushValue(L, Game::Lua::GLOBALS_INDEX);
+        const char *start = text;
+        for (;;) {
+            const char *dot = std::strchr(start, '.');
+            if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+                Game::Lua::SetTop(L, -2);
+                Game::Lua::PushNil(L);
+                break;
+            }
+            if (dot == nullptr)
+                Game::Lua::PushString(L, start);
+            else
+                Game::Lua::PushLString(L, start, static_cast<unsigned>(dot - start));
+            Game::Lua::GetTable(L, -2);
+            Game::Lua::Remove(L, -2);
+            if (dot == nullptr)
+                break;
+            start = dot + 1;
+        }
         break;
+    }
     default:
         Game::Lua::PushNil(L);
         break;
