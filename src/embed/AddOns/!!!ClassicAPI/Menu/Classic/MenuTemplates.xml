@@ -1,0 +1,178 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\..\FrameXML\UI.xsd">
+	<!-- Retail's Blizzard_Menu/Classic/MenuTemplates.xml drawn with 1.12 art; see
+	Classic/MenuTemplates.lua. The dropdown art is UIDropDownMenuTemplate's: the
+	label frame's visible part is 38 pixels tall, centred in its 64, and starts 10
+	pixels in on the left and ends 11 pixels in on the right. -->
+	<DropdownButton name="WowStyle1DropdownTemplate" mixin="WowStyle1DropdownMixin" virtual="true">
+		<KeyValues>
+			<KeyValue key="menuMixin" value="MenuStyle1Mixin" type="global"/>
+		</KeyValues>
+		<Size x="60" y="24"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="Left" file="Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame">
+					<Size x="25" y="64"/>
+					<Anchors>
+						<Anchor point="LEFT" x="-10" y="0"/>
+					</Anchors>
+					<TexCoords left="0" right="0.1953125" top="0" bottom="1"/>
+				</Texture>
+				<Texture parentKey="Right" file="Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame">
+					<Size x="25" y="64"/>
+					<Anchors>
+						<Anchor point="RIGHT" x="11" y="0"/>
+					</Anchors>
+					<TexCoords left="0.8046875" right="1" top="0" bottom="1"/>
+				</Texture>
+				<Texture parentKey="Middle" file="Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeKey="$parent.Left" relativePoint="TOPRIGHT"/>
+						<Anchor point="BOTTOMRIGHT" relativeKey="$parent.Right" relativePoint="BOTTOMLEFT"/>
+					</Anchors>
+					<TexCoords left="0.1953125" right="0.8046875" top="0" bottom="1"/>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<Texture parentKey="Arrow" file="Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up">
+					<Size x="24" y="24"/>
+					<Anchors>
+						<Anchor point="RIGHT" x="-5" y="0"/>
+					</Anchors>
+				</Texture>
+				<FontString parentKey="Text" inherits="GameFontHighlightSmall" wordwrap="false" justifyH="RIGHT">
+					<Size x="0" y="10"/>
+					<Anchors>
+						<Anchor point="LEFT" x="9" y="0"/>
+						<Anchor point="RIGHT" relativeKey="$parent.Arrow" relativePoint="LEFT"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD">
+			<Size x="24" y="24"/>
+			<Anchors>
+				<Anchor point="RIGHT" x="-5" y="0"/>
+			</Anchors>
+		</HighlightTexture>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnShow method="OnShow"/>
+			<OnMouseDown method="OnMouseDown"/>
+			<OnMouseUp method="OnMouseUp"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnEnable method="OnEnable"/>
+			<OnDisable method="OnDisable"/>
+		</Scripts>
+	</DropdownButton>
+
+	<DropdownButton name="WowStyle1ThinDropdownTemplate" inherits="WowStyle1DropdownTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="menuMixin" value="MenuStyle1ThinMixin" type="global"/>
+		</KeyValues>
+	</DropdownButton>
+
+	<DropdownButton name="WowStyle1ArrowDropdownTemplate" mixin="WowStyle1ArrowDropdownMixin" virtual="true">
+		<Size x="25" y="25"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<Texture parentKey="Arrow" file="Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up">
+					<Size x="24" y="24"/>
+					<Anchors>
+						<Anchor point="CENTER" x="0" y="0"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD">
+			<Size x="24" y="24"/>
+			<Anchors>
+				<Anchor point="CENTER" x="0" y="0"/>
+			</Anchors>
+		</HighlightTexture>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnMouseDown method="OnMouseDown"/>
+			<OnMouseUp method="OnMouseUp"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnEnable method="OnEnable"/>
+			<OnDisable method="OnDisable"/>
+		</Scripts>
+	</DropdownButton>
+
+	<DropdownButton name="WowStyle1FilterDropdownTemplate" mixin="WowStyle1FilterDropdownMixin" virtual="true">
+		<Size x="135" y="22"/>
+		<KeyValues>
+			<KeyValue key="text" type="global" value="FILTER"/>
+			<KeyValue key="disableFontObject" type="string" value="GameFontDisable"/>
+			<KeyValue key="menuMixin" type="global" value="MenuStyle2Mixin"/>
+			<KeyValue key="menuRelativePoint" type="string" value="BOTTOMLEFT"/>
+			<KeyValue key="menuPointX" type="number" value="6"/>
+			<KeyValue key="menuPointY" type="number" value="2"/>
+			<KeyValue key="resizeToText" type="boolean" value="true"/>
+			<KeyValue key="resizeToTextPadding" type="number" value="60"/>
+
+			<!--
+			baseFontObject: you can set an override for the font to use for "Text" when not disabled.
+			<KeyValue key="baseFontObject" type="string" value="GameFontNormal"/>
+			-->
+		</KeyValues>
+		<Frames>
+			<!--Required by WowStyle1FilterDropdownMixin but is unused in classic.-->
+			<Button parentKey="ResetButton" inherits="UIResetButtonTemplate" hidden="true">
+				<Anchors>
+					<Anchor point="CENTER" relativePoint="TOPRIGHT" x="-3" y="0"/>
+				</Anchors>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="Left" file="Interface\Buttons\UI-Panel-Button-Up">
+					<Size x="12" y="22"/>
+					<Anchors>
+						<Anchor point="LEFT"/>
+					</Anchors>
+					<TexCoords left="0" right="0.09375" top="0" bottom="0.6875"/>
+				</Texture>
+				<Texture parentKey="Right" file="Interface\Buttons\UI-Panel-Button-Up">
+					<Size x="12" y="22"/>
+					<Anchors>
+						<Anchor point="RIGHT"/>
+					</Anchors>
+					<TexCoords left="0.53125" right="0.625" top="0" bottom="0.6875"/>
+				</Texture>
+				<Texture parentKey="Middle" file="Interface\Buttons\UI-Panel-Button-Up">
+					<Size x="12" y="22"/>
+					<Anchors>
+						<Anchor point="LEFT" relativeKey="$parent.Left" relativePoint="RIGHT"/>
+						<Anchor point="RIGHT" relativeKey="$parent.Right" relativePoint="LEFT"/>
+					</Anchors>
+					<TexCoords left="0.09375" right="0.53125" top="0" bottom="0.6875"/>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString parentKey="Text" inherits="GameFontHighlight" wordwrap="false" justifyH="LEFT">
+					<Size x="0" y="20"/>
+					<Anchors>
+						<Anchor point="TOP" x="0" y="-2"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\Buttons\UI-Panel-Button-Highlight" alphaMode="ADD">
+			<TexCoords left="0" right="0.625" top="0" bottom="0.6875"/>
+		</HighlightTexture>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnMouseDown method="OnMouseDown"/>
+			<OnMouseUp method="OnMouseUp"/>
+			<OnShow method="OnShow"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnEnable method="OnEnable"/>
+			<OnDisable method="OnDisable"/>
+		</Scripts>
+	</DropdownButton>
+</Ui>

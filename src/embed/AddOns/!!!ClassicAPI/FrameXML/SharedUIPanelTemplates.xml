@@ -1,5 +1,5 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
-	<!-- Two templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml. -->
+	<!-- Templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml. -->
 	<Script file="SharedUIPanelTemplates.lua"/>
 
 	<Frame name="TruncatedTooltipScriptTemplate" virtual="true">
@@ -21,5 +21,12 @@
 			<OnDragStart method="OnDragStart"/>
 			<OnDragStop method="OnDragStop"/>
 		</Scripts>
+	</Button>
+
+	<!-- The red X is 1.12's group loot pass button, which has its own highlight. -->
+	<Button name="UIResetButtonTemplate" hidden="true" virtual="true">
+		<Size x="23" y="23"/>
+		<NormalTexture file="Interface\Buttons\UI-GroupLoot-Pass-Up" setAllPoints="true"/>
+		<HighlightTexture file="Interface\Buttons\UI-GroupLoot-Pass-Highlight" alphaMode="ADD" setAllPoints="true"/>
 	</Button>
 </Ui>

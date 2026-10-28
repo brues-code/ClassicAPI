@@ -8,26 +8,6 @@
 --   - Lua 5.0 has no `#` operator; use table.getn().
 --   - 5.0's xpcall is strictly (f, handler) — no trailing args. We wrap
 --     the script call in a local closure that captures frame + arg.
---   - CallErrorHandler isn't in 1.12; we route through geterrorhandler()
---     (same pattern as ItemUtil.lua).
---   - `nop` and `assertsafe` aren't globals in stock 1.12; defined as
---     local fallbacks so this file stays self-contained.
-
-local function nop() end
-
-local function CallErrorHandler(err)
-	local h = geterrorhandler and geterrorhandler()
-	if h then return h(err) end
-end
-
--- Match the modern assertsafe semantics: only fires when `condition` is
--- falsy. Calls with just a message string are no-ops (the message ends
--- up as the condition and is truthy) — matches Blizzard's source.
-local function assertsafe(condition, msg)
-	if not condition then
-		CallErrorHandler(msg or "assertion failed!")
-	end
-end
 
 function ExecuteFrameScript(frame, scriptName, ...)
 	local script = frame:GetScript(scriptName);

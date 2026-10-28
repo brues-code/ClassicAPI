@@ -253,3 +253,6 @@ COMBATLOG_FILTER_NEUTRAL_UNITS		= bit.bor(
 						);
 COMBATLOG_FILTER_UNKNOWN_UNITS		= COMBATLOG_OBJECT_NONE;
 COMBATLOG_FILTER_EVERYTHING =	tonumber("FFFFFFFF", 16);
+
+-- Retail defines this in Blizzard_UIPanels_Game/MerchantFrame.lua.
+LIST_DELIMITER = ", ";

@@ -1,0 +1,44 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!-- Retail's Blizzard_SharedXMLBase/ColorSwatch.xml. 1.12 has no texture
+	sublevels, so the three BACKGROUND sublevels (-3, -2, -1) are the
+	BACKGROUND, BORDER and ARTWORK layers, and the named colors are written out
+	(HIGHLIGHT_FONT_COLOR white, BLACK_FONT_COLOR black). Retail's OnEnter script
+	turns mouse input on; 1.12's does not, so enableMouse says it. -->
+	<Frame name="ColorSwatchTemplate" mixin="ColorSwatchMixin" enableMouse="true" propagateMouseInput="Both" virtual="true">
+		<Size x="16" y="16"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentSwatchBg" parentKey="SwatchBg">
+					<Size x="14" y="14"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+					<Color r="1" g="1" b="1"/>
+				</Texture>
+			</Layer>
+			<Layer level="BORDER">
+				<Texture parentKey="InnerBorder">
+					<Size x="12" y="12"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+					<Color r="0" g="0" b="0"/>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture parentKey="Color">
+					<Size x="10" y="10"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+					<Color r="1" g="1" b="1"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnShow method="OnShow"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+	</Frame>
+</Ui>

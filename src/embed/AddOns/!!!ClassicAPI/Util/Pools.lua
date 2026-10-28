@@ -16,17 +16,6 @@
 --   - Lua 5.0 has no `...` as expression; the converter mixins use
 --     `unpack(arg)` to forward varargs (spans arg[1..arg.n] via getn;
 --     this build's unpack ignores explicit i/j — the count lives in `.n`).
---   - assertsafe / nop aren't globals in stock 1.12; defined as local
---     fallbacks (same pattern as FunctionUtil.lua).
-
-local function nop() end
-
-local function assertsafe(condition, msg)
-	if not condition then
-		local h = geterrorhandler and geterrorhandler()
-		if h then h(msg or "assertion failed!") end
-	end
-end
 
 local ObjectPoolBaseMixin = {};
 

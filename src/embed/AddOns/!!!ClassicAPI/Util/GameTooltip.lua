@@ -91,6 +91,11 @@ function GameTooltip_ShowCompareItem(self, shift)
 	end
 end
 
+function GameTooltip_SetTitle(tooltip, text, overrideColor, wrap)
+	tooltip:ClearLines();
+	GameTooltip_AddColoredLine(tooltip, text, overrideColor or HIGHLIGHT_FONT_COLOR, wrap)
+end
+
 function GameTooltip_AddNormalLine(tooltip, text, wrap, leftOffset)
 	GameTooltip_AddColoredLine(tooltip, text, NORMAL_FONT_COLOR, wrap, leftOffset);
 end

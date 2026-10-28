@@ -109,3 +109,11 @@ end
 function GetAppropriateTooltip()
 	return UIParent and GameTooltip or GlueTooltip;
 end
+
+-- From retail's Blizzard_SharedXML/ScrollingMessageFrame.lua, where the key
+-- comes from the Lua intrinsic's XML. 1.12's scrolling message frames are
+-- native and have no such key.
+function IsScrollingMessageFrame(object)
+	-- Defined in the intrinsic's XML
+	return object.isScrollingMessageFrame;
+end

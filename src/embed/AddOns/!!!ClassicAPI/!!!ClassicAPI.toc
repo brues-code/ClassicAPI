@@ -12,6 +12,8 @@ FrameXML\InterfaceOptions.lua
 
 SecureTemplates.xml
 Compat.lua
+Util\EnvironmentUtil.lua
+Util\ErrorUtil.lua
 Util\Print.lua
 Util\Mixin.lua
 Util\Color.lua
@@ -44,11 +46,14 @@ Util\AddOnCompat.lua
 Util\FunctionUtil.lua
 Util\CacheUtil.lua
 Util\Pools.lua
+Util\SecureTypes.lua
+Util\ProxyUtil.lua
 Util\FrameWatcher.lua
 Util\TimedCallback.lua
 Util\EasingUtil.lua
 Util\Interpolator.lua
 Util\AnchorUtil.lua
+Util\RegionUtil.lua
 Util\GridLayoutUtil.lua
 Util\EquipmentManager.lua
 Util\PlayerUtil.lua
@@ -107,6 +112,23 @@ FrameXML\Scroll\TrimScrollBar.xml
 FrameXML\LayoutFrame.lua
 FrameXML\LayoutFrame.xml
 FrameXML\SharedUIPanelTemplates.xml
+FrameXML\ColorSwatch.lua
+FrameXML\ColorSwatch.xml
+
+Menu\MenuConstants.lua
+Menu\Classic\MenuConstants.lua
+Menu\MenuVariants.lua
+Menu\Vanilla\MenuVariants.lua
+Menu\Compositor.lua
+Menu\Menu.lua
+Menu\Menu.xml
+Menu\DropdownButton.lua
+Menu\DropdownButton.xml
+Menu\MenuTemplates.lua
+Menu\MenuTemplates.xml
+Menu\Classic\MenuTemplates.lua
+Menu\Classic\MenuTemplates.xml
+Menu\MenuUtil.lua
 
 Options\Panel.lua
 

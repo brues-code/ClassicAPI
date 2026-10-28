@@ -977,6 +977,7 @@ build instructions.
   - [`intrinsic` frame types in XML](#intrinsic-frame-types-in-xml)
   - [ScrollBox and scroll bars](#scrollbox-and-scroll-bars)
   - [BackdropTemplate](#backdroptemplate)
+  - [Menus and dropdowns](#menus-and-dropdowns)
   - [Atlases in XML](#atlases-in-xml)
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
@@ -23004,6 +23005,63 @@ are not in the game files, and those parts of the backdrop do not show:
 
 `frame:SetBorderBlendMode` and the `backdropBorderBlendMode` key are not
 available.
+
+### Menus and dropdowns
+
+ClassicAPI has the menu system: `Menu`, `MenuUtil`, `MenuTemplates`,
+`MenuConstants`, `MenuResponse`, `MenuVariants` and the `DropdownButton`
+frame type. Menus and dropdowns use the game's own dropdown art.
+
+These dropdown templates are available:
+
+| Template | Use |
+|---|---|
+| `WowStyle1DropdownTemplate` | A dropdown that shows the selected options as its text. Its menu has the dialog border. |
+| `WowStyle1ThinDropdownTemplate` | The same dropdown. Its menu has less space at the sides, for short options. |
+| `WowStyle1ArrowDropdownTemplate` | A dropdown that is only an arrow button. |
+| `WowStyle1FilterDropdownTemplate` | A red button with fixed text, "Filter" by default. Its menu has the tooltip border. |
+
+A menu description has these functions to add elements: `CreateButton`,
+`CreateTitle`, `CreateCheckbox`, `CreateRadio`, `CreateDivider`,
+`CreateSpacer`, `CreateColorSwatch`, `CreateFrame` and `CreateTemplate`.
+An element that has elements of its own opens them as a submenu.
+
+```lua
+local dropdown = CreateFrame("DropdownButton", nil, UIParent, "WowStyle1DropdownTemplate")
+dropdown:SetPoint("CENTER")
+dropdown:SetWidth(150)
+
+local selected = 1
+dropdown:SetupMenu(function(dropdown, rootDescription)
+    rootDescription:CreateTitle("Size")
+    local names = { "Small", "Medium", "Large" }
+    for i = 1, table.getn(names) do
+        rootDescription:CreateRadio(names[i],
+            function(index) return selected == index end,
+            function(index) selected = index end, i)
+    end
+end)
+```
+
+`MenuUtil.CreateContextMenu(owner, generator)` opens a menu at the cursor.
+The menu closes when `owner` is hidden. A context menu has the tooltip
+border.
+
+```lua
+frame:SetScript("OnMouseUp", function(self, button)
+    if button == "RightButton" then
+        MenuUtil.CreateContextMenu(self, function(owner, rootDescription)
+            rootDescription:CreateButton("Say hello", function() print("Hello") end)
+        end)
+    end
+end)
+```
+
+The `ColorSwatchTemplate` template is also available.
+
+`MenuUtil.CreateHighlightRadio`, `WowStyle2DropdownTemplate` and
+`WowStyle2IconButtonTemplate` are not available.
+
 ### Atlases in XML
 
 A `<Texture>` element takes an `atlas` attribute and a `useAtlasSize`

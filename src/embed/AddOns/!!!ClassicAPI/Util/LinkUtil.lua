@@ -61,18 +61,6 @@ LinkTypes = {
 
 LinkUtil = {};
 
--- `assertsafe` isn't a global in stock 1.12; defined as a local fallback so
--- this file stays self-contained, the same way FunctionUtil.lua and Pools.lua
--- do. Only fires when `condition` is falsy, matching Blizzard's semantics.
-local function assertsafe(condition, msg)
-	if not condition then
-		local handler = geterrorhandler and geterrorhandler();
-		if handler then
-			handler(msg or "assertion failed!");
-		end
-	end
-end
-
 function LinkUtil.FormatLink(linkType, linkDisplayText, ...)
 	local linkFormatTable = { string.format("|H%s", linkType) };
 	for i = 1, arg.n do
