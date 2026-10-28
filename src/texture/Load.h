@@ -24,6 +24,9 @@ namespace Texture {
 // reference and drops it with ReleaseHandle.
 void *LoadByPath(const char *path);
 
+// SetTexture's texture flags: the default filter, clamped, one mip level.
+uint32_t DefaultFlags();
+
 // Drops one reference on a handle (FUN_HANDLE_RELEASE). Null is a no-op.
 void ReleaseHandle(void *handle);
 

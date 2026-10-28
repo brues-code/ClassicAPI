@@ -54,6 +54,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/AlphaGradient.h"
 #include "texture/Load.h"
 #include "texture/Mask.h"
 #include "texture/Transform.h"
@@ -286,9 +287,11 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     void *dev = Game::Read<void *>(Offsets::VAR_GX_DEVICE);
     if (dev == nullptr)
         return false;
-    int usable = Game::Read<int>(dev, Offsets::OFF_GXDEV_STAGE_CAP) - 1;
-    if (usable > 7)
-        usable = 7;
+    // Stages from 1 up hold the alpha gradients being drawn; masks go above.
+    const int first = 1 + Frame::AlphaGradient::StagesInUse();
+    int usable = Game::Read<int>(dev, Offsets::OFF_GXDEV_STAGE_CAP) - first;
+    if (usable > 8 - first)
+        usable = 8 - first;
     if (usable < 1)
         return false;
 
@@ -353,7 +356,7 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     reinterpret_cast<void(__fastcall *)()>(Offsets::FUN_GX_STATE_PUSH)();
     g_pendingRestore = 1u;
     for (int i = 0; i < units; ++i) {
-        const int unit = 1 + i;
+        const int unit = first + i;
         rsPtr(Offsets::GXRS_TEXTURE0 + unit, cgx[i]);
         rs(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
         rs(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_OBJECT_POS);

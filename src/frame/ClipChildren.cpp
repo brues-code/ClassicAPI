@@ -56,16 +56,25 @@
 // layers of every frame under it changed, so the next rebuild moves their
 // regions. SetParent alone does not relink a frame whose level and strata
 // stay the same.
+//
+// A frame with an alpha gradient (Frame::AlphaGradient) has its own regions
+// and those of every frame under it drawn the same way, from a batch per level
+// batch, nearest clipping frame and nearest frame with a gradient. Its draw
+// applies the gradients around the clipped draw, and the child draw of a
+// ScrollFrame applies a child's own.
 
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/AlphaGradient.h"
+#include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
 #include "frame/ParentChange.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
-#include <unordered_map>
+#include <map>
+#include <tuple>
 
 namespace Frame::ClipChildren {
 
@@ -88,14 +97,18 @@ using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y)
 // A hit rect: {bottom, left, top, right}.
 enum { BOTTOM, LEFT, TOP, RIGHT };
 
-// One level batch's regions under one clipping frame.
+// One level batch's regions under one clipping frame and one frame with a
+// gradient, either of which may be none.
 struct Record {
     alignas(4) uint8_t batch[Offsets::RENDERBATCH_SIZE];
-    void *root;
+    void *clipRoot;
+    void *gradientRoot;
+    bool live;
     bool sorted;
 };
 
-std::unordered_map<uint64_t, Record *> g_records;
+using Key = std::tuple<const void *, const void *, const void *>;
+std::map<Key, Record *> g_records;
 int g_clipping = 0; // frames with the flag; nothing to look up while 0
 
 bool Clips(const void *frame) {
@@ -115,10 +128,7 @@ void *NearestRoot(const void *frame) {
     return nullptr;
 }
 
-uint64_t Key(const void *levelBatch, const void *root) {
-    return (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(levelBatch)) << 32) |
-           reinterpret_cast<uintptr_t>(root);
-}
+bool Grouping() { return g_clipping != 0 || Frame::AlphaGradient::Any(); }
 
 void __fastcall DrawClipped(void *arg);
 
@@ -131,19 +141,23 @@ bool HasCallback(const void *levelBatch, const Record *r) {
     return false;
 }
 
-// The batch `frame`'s regions of this layer go into: its clip batch under its
-// nearest clipping frame, begun and hooked onto the level batch the first
-// time this rebuild reaches it, or the level batch itself.
+// The batch `frame`'s regions of this layer go into: the batch under its
+// nearest clipping frame and nearest frame with a gradient, begun and hooked
+// onto the level batch the first time this rebuild reaches it, or the level
+// batch itself.
 void *BatchFor(void *frame, void *levelBatch) {
-    if (g_clipping == 0)
+    if (!Grouping())
         return levelBatch;
-    void *root = NearestRoot(frame);
-    if (root == nullptr)
+    void *clipRoot = g_clipping != 0 ? NearestRoot(frame) : nullptr;
+    void *gradientRoot = Frame::AlphaGradient::Nearest(frame);
+    if (clipRoot == nullptr && gradientRoot == nullptr)
         return levelBatch;
-    Record *&r = g_records[Key(levelBatch, root)];
+    Record *&r = g_records[Key(levelBatch, clipRoot, gradientRoot)];
     if (r == nullptr) {
         r = new Record{};
-        r->root = root;
+        r->clipRoot = clipRoot;
+        r->gradientRoot = gradientRoot;
+        r->live = true;
         reinterpret_cast<BatchOp_t>(Offsets::FUN_RENDERBATCH_CONSTRUCT)(r->batch);
     }
     if (!HasCallback(levelBatch, r)) {
@@ -260,13 +274,19 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
 void __fastcall DrawClipped(void *arg) {
     Record *r = static_cast<Record *>(arg);
     float rect[4];
-    if (r->root == nullptr || !ClipRect(r->root, rect))
+    if (!r->live || (r->clipRoot != nullptr && !ClipRect(r->clipRoot, rect)))
         return;
     if (!r->sorted) {
         reinterpret_cast<BatchOp_t>(Offsets::FUN_RENDERBATCH_SORT)(r->batch);
         r->sorted = true;
     }
-    DrawInside(rect, reinterpret_cast<Callback_t>(Offsets::FUN_FRAME_LAYER_RENDER), r->batch);
+    const auto render = reinterpret_cast<Callback_t>(Offsets::FUN_FRAME_LAYER_RENDER);
+    const int stages = Frame::AlphaGradient::Begin(r->gradientRoot, true);
+    if (r->clipRoot != nullptr)
+        DrawInside(rect, render, r->batch);
+    else
+        render(r->batch);
+    Frame::AlphaGradient::End(stages);
 }
 
 void __fastcall DrawFrame(void *frame) {
@@ -277,18 +297,20 @@ void __fastcall DrawFrame(void *frame) {
 // A frame a ScrollFrame draws draws each child through its own draw
 // (CALL_FRAME_DRAW_SELF_CHILD). A child of a clipping frame draws inside the
 // clipping frame's hit rect; the viewport already holds every clip above it.
+// A child with a gradient draws with it; the gradients above it already apply.
 void __stdcall DrawChild(void *child) {
     const void *parent = Parent(child);
+    const int stages = Frame::AlphaGradient::Begin(child, false);
     if (g_clipping == 0 || parent == nullptr || !Clips(parent)) {
         DrawFrame(child);
-        return;
+    } else if ((Game::Read<uint8_t>(parent, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT + Offsets::OFF_LAYOUT_FLAGS) &
+                1) != 0) {
+        float rect[4];
+        for (int i = 0; i < 4; ++i)
+            rect[i] = HitRect(parent)[i];
+        DrawInside(rect, &DrawFrame, child);
     }
-    if ((Game::Read<uint8_t>(parent, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT + Offsets::OFF_LAYOUT_FLAGS) & 1) == 0)
-        return;
-    float rect[4];
-    for (int i = 0; i < 4; ++i)
-        rect[i] = HitRect(parent)[i];
-    DrawInside(rect, &DrawFrame, child);
+    Frame::AlphaGradient::End(stages);
 }
 
 // Replaces `mov edx,[ecx]; call [edx+0x40]`: the child in ecx.
@@ -340,22 +362,25 @@ void Set(void *frame, bool on) {
     reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
         frame, nullptr, Offsets::FRAME_FLAG_CLIPS_CHILDREN, on);
     g_clipping += on ? 1 : -1;
+    // A gradient draws only while its frame clips, its own regions included.
+    if ((Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_ALPHA_GRADIENT) != 0)
+        MarkLayers(frame);
     MarkSubtree(frame);
 }
 
-// Its clip batches, when a clipping frame goes. They are emptied (their quads
-// point into regions about to be freed) and kept: a level batch may still hold
-// their callback until its next rebuild, which a null root makes a no-op.
+// Its batches, when a clipping frame or a frame with a gradient goes. They are
+// emptied (their quads point into regions about to be freed) and kept: a level
+// batch may still hold their callback until its next rebuild, which makes it a
+// no-op.
 void OnFrameDestroyed(void *frame) {
-    if (!Clips(frame))
-        return;
-    --g_clipping;
+    if (Clips(frame))
+        --g_clipping;
     for (auto it = g_records.begin(); it != g_records.end();) {
-        if (it->second->root != frame) {
+        if (it->second->clipRoot != frame && it->second->gradientRoot != frame) {
             ++it;
             continue;
         }
-        it->second->root = nullptr;
+        it->second->live = false;
         reinterpret_cast<BatchOp_t>(Offsets::FUN_RENDERBATCH_BEGIN)(it->second->batch);
         it = g_records.erase(it);
     }
@@ -364,7 +389,7 @@ void OnFrameDestroyed(void *frame) {
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
 void OnParentChanged(void *frame) {
-    if (g_clipping == 0)
+    if (!Grouping())
         return;
     MarkLayers(frame);
     MarkSubtree(frame);
@@ -436,5 +461,10 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+void Regroup(void *frame) {
+    MarkLayers(frame);
+    MarkSubtree(frame);
+}
 
 } // namespace Frame::ClipChildren

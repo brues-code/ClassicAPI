@@ -349,6 +349,8 @@ build instructions.
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
+  - [`frame:SetAlphaGradient(index, gradient)` / `frame:ClearAlphaGradient()` / `frame:HasAlphaGradient()`](#framesetalphagradientindex-gradient--frameclearalphagradient--framehasalphagradient)
+  - [`frame:DesaturateHierarchy(desaturation [, excludeRoot])`](#framedesaturatehierarchydesaturation--excluderoot)
   - [`frame:GetBoundsRect()`](#framegetboundsrect)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [Script binding types](#script-binding-types)
@@ -7946,6 +7948,56 @@ You can also set the value in XML with the `clipChildren` attribute:
 <Frame name="MyList" clipChildren="true">
     <Size x="200" y="100"/>
 </Frame>
+```
+
+### `frame:SetAlphaGradient(index, gradient)` / `frame:ClearAlphaGradient()` / `frame:HasAlphaGradient()`
+
+Fades what the frame draws near its edges.
+
+- `index` is `0` or `1`. Index `0` is the left and top edges. Index `1` is
+  the right and bottom edges.
+- `gradient` is a vector from `CreateVector2D(x, y)`. `x` is the length of
+  the fade in from the left or right edge. `y` is the length of the fade in
+  from the top or bottom edge. The lengths use the scale of the frame. A
+  length of `0` gives no fade at that edge.
+
+At the edge, the alpha is `0`. The alpha increases in a straight line to full
+alpha at the end of the length. The fade applies to the textures and font
+strings of the frame and to all frames under it.
+
+The fade shows only when the frame clips its children
+(`frame:SetClipsChildren(true)`). `HasAlphaGradient` returns `true` after you
+set a gradient, also when the frame does not clip. `ClearAlphaGradient`
+removes the gradient of both indexes.
+
+```lua
+list:SetClipsChildren(true)
+list:SetAlphaGradient(0, CreateVector2D(0, 40)) -- fade 40 in from the top
+list:SetAlphaGradient(1, CreateVector2D(0, 40)) -- fade 40 in from the bottom
+```
+
+`scrollBox:SetEdgeFadeLength(length)` uses this method.
+
+Limits:
+
+- A texture that is desaturated (`SetDesaturation` above `0`) or that has a
+  mask does not fade.
+- With the OpenGL renderer (`gxApi` set to `opengl`), nothing fades.
+
+### `frame:DesaturateHierarchy(desaturation [, excludeRoot])`
+
+Sets the desaturation of each texture of the frame and of all frames under it.
+`desaturation` is a number from `0` (full color) to `1` (grayscale), as for
+`texture:SetDesaturation(amount)`. When `excludeRoot` is `true`, the textures
+of the frame itself do not change.
+
+The method sets the value on each texture, so `texture:GetDesaturation()`
+returns the new value after the call. A texture that you add later keeps its
+own value. Font strings and models do not change.
+
+```lua
+button:DesaturateHierarchy(1) -- gray
+button:DesaturateHierarchy(0) -- full color again
 ```
 
 ### `frame:GetBoundsRect()`

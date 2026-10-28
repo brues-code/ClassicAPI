@@ -4099,6 +4099,8 @@ enum Offsets {
     // Frame::ClipChildren's own bit: the frame clips its child frames. No
     // engine code writes it (see FUN_FRAME_SET_FRAME_FLAG's callers).
     FRAME_FLAG_CLIPS_CHILDREN = 0x800000,
+    // Frame::AlphaGradient's own bit: the frame has an alpha gradient set.
+    FRAME_FLAG_ALPHA_GRADIENT = 0x1000000,
     // The ScrollFrame's draw (0x00787220), which Frame::ClipChildren mirrors,
     // saves and restores the device transforms around a narrowed viewport:
     //   - FUN_GX_GET_PROJECTION / FUN_GX_GET_VIEW / FUN_GX_SET_PROJECTION /
@@ -11584,8 +11586,13 @@ enum Offsets {
     // slot 8 = model, 10 = view) — the disc draw's push/translate/scale/pop:
     GXRS_TEXGEN0 = 0x2F,      // texgen mode, +unit (int form)
     GXRS_TEXGEN_OBJECT_POS = 1,
+    GXRS_TEXGEN_CAMERA_POS = 3,
     GXRS_TEXXFORM0 = 0x37,    // coord-transform mode, +unit (int form)
     GXRS_TEXXFORM_MATRIX = 1,
+    // Kind 2 (CGxDeviceD3d::FlushTextureTransform 0x005A14E0): the same product,
+    // flags 0x103 = D3DTTFF_COUNT3 | PROJECTED, so u and v are divided by the
+    // third coordinate.
+    GXRS_TEXXFORM_PROJECTED = 2,
     // Texture-matrix stack ops — `__fastcall(int unit, ...)`. PUSH duplicates
     // the top (max depth 4); PUSH_LOAD pushes then loads an arbitrary 4×4
     // (row-vector D3D layout: out = pos·M, translation in row 3). POP restores.
@@ -11595,6 +11602,10 @@ enum Offsets {
     FUN_GX_TEXMTX_PUSH = 0x0058B200,      // (unit)
     FUN_GX_TEXMTX_PUSH_LOAD = 0x0058B210, // (unit, const float m[16])
     FUN_GX_TEXMTX_POP = 0x0058B220,       // (unit)
+    // GxXformSetTexture — `__fastcall(int unit, const float m[16])`: copies the
+    // matrix over the top of the unit's stack (CGxDevice::XformSet 0x00592810,
+    // the stack at device+0xFD0+unit*0x118), which marks it for the next flush.
+    FUN_GX_TEXMTX_LOAD = 0x0058B240,
     // Gx render-state journal push/pop — brackets a state scope; pop replays
     // every selector written since the push back to its prior value. The engine
     // wraps each region-layer draw (FUN_0076fb00) and the disc draw in a pair.

@@ -42,15 +42,6 @@ struct TexLoadDesc {
     int32_t field10;
 };
 
-// SetTexture's flags: the default filter, clamped, one mip level.
-uint32_t DefaultFlags() {
-    uint32_t flags = 0;
-    const uint32_t blend = Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
-    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0,
-                                                                    1, 0);
-    return flags;
-}
-
 // The texel source of CreateFromPixels, the portrait cache's 0x00525AE0 with
 // the array as the owner.
 void __fastcall LatchPixels(uint32_t command, uint32_t width, uint32_t /*height*/,
@@ -63,6 +54,14 @@ void __fastcall LatchPixels(uint32_t command, uint32_t width, uint32_t /*height*
 }
 
 } // namespace
+
+uint32_t DefaultFlags() {
+    uint32_t flags = 0;
+    const uint32_t blend = Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
+    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0,
+                                                                    1, 0);
+    return flags;
+}
 
 void ReleaseHandle(void *handle) {
     if (handle != nullptr)
