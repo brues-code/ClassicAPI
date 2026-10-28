@@ -1961,6 +1961,17 @@ enum Offsets {
     // member or their pet (FUN_004bafd0). The engine keeps the target on a
     // unit leaving the object table only when this is true.
     FUN_UNIT_IS_GROUP_MEMBER_OR_PET = 0x00491900,
+    // `int __fastcall(const uint64_t *guid)` — 4.3.4's
+    // CGRaidInfo::IsPlayerOrPetInRaid: a raid member or their pet
+    // (walks VAR_RAID_MEMBER_PTRS). Plain `ret`.
+    FUN_RAID_IS_PLAYER_OR_PET = 0x004BAFD0,
+    // `int __fastcall(const uint64_t *guid)` — 4.3.4's
+    // CGPartyInfo::IsPlayerOrPetInParty. Plain `ret`.
+    FUN_PARTY_IS_PLAYER_OR_PET = 0x004E8FA0,
+    // `bool __thiscall(CGUnit *this, CGUnit *other)`, `ret 4` — the
+    // player-side cooperate test SetRaidTarget (0x004BBFC4) runs on a
+    // player unit: neither is charmed, then the two faction groups compare.
+    FUN_UNIT_CAN_COOPERATE = 0x00606BA0,
     // CGUnit_C::Disable — `void __fastcall(unit)`, run as a unit leaves the
     // object table: ClearTarget(guid) unless FUN_UNIT_IS_GROUP_MEMBER_OR_PET,
     // then UnregisterScript(0xFFFFFFFF). 4.3.4's version (via BreakTarget)

@@ -975,6 +975,7 @@ build instructions.
   - [`UnitPowerType(unit)`](#unitpowertypeunit)
   - [`UnitSpellHaste(unit)`](#unitspellhasteunit)
   - [`UnitSpellTargetName(unit)`](#unitspelltargetnameunit)
+  - [`CanBeRaidTarget(unit)`](#canberaidtargetunit)
 
 - [UnitAuras](#unitauras)
   - [`C_UnitAuras.GetAuraDataByIndex(unit, index [, filter])`](#c_unitaurasgetauradatabyindexunit-index--filter)
@@ -22594,6 +22595,27 @@ friends list, then the persistent name cache — the same chain as
 The player's target lands with the confirming packet, about one round-trip
 after the cast starts. So `UnitSpellTargetName("player")` can read `nil` for
 the first part of your own cast, then return the name.
+
+### `CanBeRaidTarget(unit)`
+
+Returns true if you can put a raid target icon on the unit. Otherwise it
+returns false.
+
+These units are eligible:
+
+- you
+- a member of your party or raid, and the pet of a member
+- an NPC
+- a player of your faction
+
+If you or the other player is charmed, that player is not eligible. A
+unit that does not exist returns false.
+
+```lua
+if CanBeRaidTarget("target") then
+    SetRaidTarget("target", 8)
+end
+```
 
 ## UnitAuras
 
