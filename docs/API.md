@@ -241,6 +241,8 @@ build instructions.
   - [`GetClassicExpansionLevel()`](#getclassicexpansionlevel)
   - [`ClassicExpansionAtLeast(expansionLevel)`](#classicexpansionatleastexpansionlevel)
   - [`ClassicExpansionAtMost(expansionLevel)`](#classicexpansionatmostexpansionlevel)
+  - [`GetExpansionLevel()` / `GetAccountExpansionLevel()`](#getexpansionlevel--getaccountexpansionlevel)
+  - [`GetMaxPlayerLevel()`](#getmaxplayerlevel)
 
 - [Faction](#faction)
   - [`GetFactionIDByIndex(factionIndex)`](#getfactionidbyindexfactionindex)
@@ -6029,6 +6031,27 @@ Errors if `expansionLevel` is missing or non-numeric.
 ```lua
 if ClassicExpansionAtMost(LE_EXPANSION_CLASSIC) then
     -- vanilla / Classic Era only code path
+end
+```
+
+### `GetExpansionLevel()` / `GetAccountExpansionLevel()`
+
+`GetExpansionLevel()` returns the expansion level of the game.
+`GetAccountExpansionLevel()` returns the expansion level of the account.
+Both always return `0` (`LE_EXPANSION_CLASSIC`).
+
+```lua
+local expansionLevel = GetExpansionLevel()          -- 0
+local accountLevel = GetAccountExpansionLevel()     -- 0
+```
+
+### `GetMaxPlayerLevel()`
+
+Returns the highest level that a character can reach. Always `60`.
+
+```lua
+if UnitLevel("player") == GetMaxPlayerLevel() then
+    -- hide the experience bar
 end
 ```
 

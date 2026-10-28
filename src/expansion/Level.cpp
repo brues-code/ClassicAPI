@@ -51,7 +51,43 @@ int __fastcall Script_ClassicExpansionAtMost(void *L) {
     return 1;
 }
 
+// `GetExpansionLevel()` / `GetAccountExpansionLevel()` — 4.3.4 reads the
+// account's and the active expansion off the connection; a 1.12 client has
+// only the base game, so both are the current level.
+int __fastcall Script_GetExpansionLevel(void *L) {
+    Game::Lua::PushNumber(L, static_cast<double>(Expansion::kCurrentExpansionLevel));
+    return 1;
+}
+
+// `GetMaxPlayerLevel()`.
+int __fastcall Script_GetMaxPlayerLevel(void *L) {
+    Game::Lua::PushNumber(L, static_cast<double>(Expansion::kMaxPlayerLevel));
+    return 1;
+}
+
+const Game::Doc::Field kExpansionLevelRets[] = {
+    Game::Doc::Req("expansionLevel", "number", "LE_EXPANSION_CLASSIC (0)."),
+};
+const Game::Doc::Function kGetExpansionLevel{
+    "Returns the expansion level of the game.", {}, kExpansionLevelRets, "ExpansionGlobals"};
+const Game::Doc::Function kGetAccountExpansionLevel{
+    "Returns the expansion level of the account.", {}, kExpansionLevelRets,
+    "ExpansionGlobals"};
+
+const Game::Doc::Field kMaxPlayerLevelRets[] = {
+    Game::Doc::Req("maxLevel", "number", "60."),
+};
+const Game::Doc::Function kGetMaxPlayerLevel{
+    "Returns the highest level a character can reach.", {}, kMaxPlayerLevelRets,
+    "ExpansionGlobals"};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("GetExpansionLevel", &Script_GetExpansionLevel,
+                                      &kGetExpansionLevel);
+    Game::Lua::RegisterGlobalFunction("GetAccountExpansionLevel", &Script_GetExpansionLevel,
+                                      &kGetAccountExpansionLevel);
+    Game::Lua::RegisterGlobalFunction("GetMaxPlayerLevel", &Script_GetMaxPlayerLevel,
+                                      &kGetMaxPlayerLevel);
     Game::Lua::RegisterGlobalFunction("GetClassicExpansionLevel",
                                       &Script_GetClassicExpansionLevel);
     Game::Lua::RegisterGlobalFunction("ClassicExpansionAtLeast",

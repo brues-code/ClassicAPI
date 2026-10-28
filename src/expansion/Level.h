@@ -23,4 +23,9 @@ namespace Expansion {
 // All three need to agree, so the constant lives here.
 constexpr int kCurrentExpansionLevel = 0;
 
+// `GetMaxPlayerLevel()`. 4.3.4's C function returns a constant (85); 1.12's
+// own FrameXML keeps its cap the same way, `MAX_PLAYER_LEVEL = 60` in
+// ReputationFrame.lua.
+constexpr int kMaxPlayerLevel = 60;
+
 } // namespace Expansion
