@@ -34,7 +34,11 @@ using GetMinMaxRange_t = void(__fastcall *)(void *caster, uint32_t spellID,
                                             void *target);
 
 // The engine's own has-range notion, mirroring `ActionHasRange`
-// (`0x4E75D0`): either bound at or above the near-zero epsilon counts as
+// (`0x4E75D0` → `ActionSlotHasRange`): resolve with a NULL target, then
+// either bound at or above the near-zero epsilon counts as ranged. The
+// null target is load-bearing: given a unit target, the resolver folds
+// both units' combat reach into every non-melee row, so a self-range
+// (0/0) spell like Hearthstone comes back with max ~3yd and reads as
 // ranged. The negated `<` (rather than `>=`) reproduces the engine's
 // `fcomp` + `test ah,5; jp` exactly — a NaN bound counts as ranged,
 // matching vanilla. Unlike the raw `SpellRange.dbc` read this replaces,
@@ -51,10 +55,10 @@ void EngineMinMax(void *caster, int spellID, void *target, float &minRange,
               target);
 }
 
-bool EngineHasRange(void *caster, int spellID, void *target) {
+bool EngineHasRange(void *caster, int spellID) {
     float minRange;
     float maxRange;
-    EngineMinMax(caster, spellID, target, minRange, maxRange);
+    EngineMinMax(caster, spellID, nullptr, minRange, maxRange);
     const float epsilon = Game::Read<float>(
         static_cast<uintptr_t>(Offsets::VAR_HAS_RANGE_EPSILON));
     return !(std::fabs(minRange) < epsilon) ||
@@ -66,11 +70,8 @@ bool EngineHasRange(void *caster, int spellID, void *target) {
 bool SpellIDHasRange(int spellID) {
     if (spellID <= 0)
         return false;
-    // Null target: the engine falls back to the caster's current-target
-    // GUID (`[caster+0xC48]`), else the caster itself, for the reach fold.
     // A null caster zeroes both bounds, which reads as rangeless.
-    return EngineHasRange(Unit::Position::ResolveToken("player"), spellID,
-                          nullptr);
+    return EngineHasRange(Unit::Position::ResolveToken("player"), spellID);
 }
 
 void CasterMinMax(void *caster, int spellID, float &minRange, float &maxRange) {
@@ -90,7 +91,7 @@ int PlayerVsUnit(int spellID, const char *unitToken) {
     if (caster == nullptr || target == nullptr)
         return -1;
     // Rangeless spell (self buff, etc.) has no meaningful "in range" answer.
-    if (!EngineHasRange(caster, spellID, target))
+    if (!EngineHasRange(caster, spellID))
         return -1;
 
     // Guard positions before handing the objects to the engine core:
