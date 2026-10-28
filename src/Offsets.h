@@ -3858,6 +3858,32 @@ enum Offsets {
     ADDR_UI_FOCUS_PASS_COMMIT = 0x00766218,
     ADDR_UI_FOCUS_SETTER_STORE = 0x00764DD0,
     ADDR_UI_INPUT_REMOVAL_FOCUS = 0x00764CB3,
+    // The pass's per-frame probe, `mov ecx,ebx; call [edx+0x3C]` with the
+    // event already pushed: the frame in ebx.
+    ADDR_UI_FOCUS_PASS_PROBE = 0x00766205,
+    // The mouse-button handlers (benilla-re ui/input "Mouse buttons"). The
+    // press 0x007662C0 targets the pressed frame (+0x80), else the focus:
+    // `mov esi,[ebx+0x7C]; test esi,esi` at ADDR_UI_PRESS_TARGET (context in
+    // ebx; `jz` follows), then becomes the pressed frame and runs its button-
+    // down slot: `mov edx,[esi]; push eax; mov ecx,esi; call [edx+0x68]` at
+    // ADDR_UI_PRESS_DISPATCH (frame esi, event eax, context ebx). The release
+    // 0x00766420 runs the pressed frame's button-up slot: `mov eax,[ebx];
+    // lea ecx,[ebp-0x3C]; push ecx; mov ecx,ebx; call [eax+0x6C]` at
+    // ADDR_UI_RELEASE_DISPATCH (frame ebx, context esi, event at ebp-0x3C),
+    // then forgets the pressed frame when the event's held-button field
+    // (OFF_MOUSE_EVENT_BUTTONS) is 0.
+    ADDR_UI_PRESS_TARGET = 0x00766389,
+    ADDR_UI_PRESS_DISPATCH = 0x007663EF,
+    ADDR_UI_RELEASE_DISPATCH = 0x0076649C,
+    OFF_MOUSE_EVENT_BUTTONS = 0x18,
+    // CSimpleFrame::EnableEvent `__thiscall(frame, kind, priority)`, ret 8:
+    // sets the kind's bit in OFF_FRAME_ENABLED_EVENTS and, when the frame is
+    // visible, enters it in the kind's input list (priority -1 = its level).
+    // DisableEvent `__thiscall(frame, kind)`, ret 4: clears the bit and runs
+    // the input removal. EnableMouse calls them with kind 2 and priority -1
+    // (benilla-re ui/input, ui/mouse).
+    FUN_FRAME_ENABLE_EVENT = 0x0076AF00,
+    FUN_FRAME_DISABLE_EVENT = 0x0076AF50,
     // `int` re-pick flag: nonzero asks the layout update 0x00765650 to run
     // FUN_UI_MOUSE_FOCUS_PASS at the saved cursor position (benilla-re
     // ui/hover "Picking the hover again").
@@ -3961,6 +3987,10 @@ enum Offsets {
     // it so a unit-attributed frame registers as the mouse-focus (bare frames
     // otherwise never hover). Standard `int __fastcall(void *L)` Script_* shape.
     FUN_SCRIPT_FRAME_ENABLEMOUSE = 0x00777070,
+    // `frame:IsMouseEnabled()` — pushes 1 when OFF_FRAME_ENABLED_EVENTS bit 2
+    // is set, else nil (benilla-re ui/mouse). `Frame::MouseInput` re-registers
+    // both to keep the click/motion halves.
+    FUN_SCRIPT_FRAME_ISMOUSEENABLED = 0x00777130,
     // (The button click dispatcher is FUN_BUTTON_CLICK, defined with the frame
     // script slots near FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT. A note here used to
     // forbid hooking it on a SuperWoW-collision theory that a per-DLL scan has
@@ -11407,6 +11437,10 @@ enum Offsets {
     VTBL_FRAME_ON_MOUSE_MOVE = 0x3C,
     VTBL_FRAME_ON_ENTER = 0x4C,
     VTBL_FRAME_ON_LEAVE = 0x50,
+    // +0x68 / +0x6C the button-down / button-up slots (this, const MouseEvent *),
+    // ret 4: OnMouseDown / OnMouseUp, drag arming, a button's push and click.
+    VTBL_FRAME_ON_MOUSE_DOWN = 0x68,
+    VTBL_FRAME_ON_MOUSE_UP = 0x6C,
     VTBL_FRAME_EMIT_LAYER = 0x44,
     VTBL_FRAME_HIDE = 0x84,
     VTBL_FRAME_SHOW = 0x88,

@@ -20,4 +20,8 @@ namespace Frame::MotionFocus {
 // exactly that frame's script.
 void *Notifying();
 
+// True when the frame is in the motion focus: one of the frames under the
+// cursor that take motion (GetMouseFoci).
+bool IsFocus(void *frame);
+
 } // namespace Frame::MotionFocus

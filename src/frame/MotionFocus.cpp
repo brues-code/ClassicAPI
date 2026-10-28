@@ -33,6 +33,8 @@
 //   propagates, the walk resumes after it in the same mouse lists, through
 //   the same per-frame probe (vtable +0x3C), re-reading each list as the
 //   engine's loop does.
+// - Both walks pass over a frame whose motion is off (Frame::MouseInput):
+//   the engine's probe call is replaced with one that answers 0 for it.
 // - The setter (entering mouselook) makes its frame the whole list.
 // - The removal takes any listed frame out, not just the first: it leaves
 //   with 1 unless it is being destroyed, and asks for a re-pick, since the
@@ -48,6 +50,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
+#include "frame/MouseInput.h"
 #include "ui/FrameObject.h"
 #include "xml/FrameLoad.h"
 
@@ -138,6 +141,14 @@ void Apply(uint8_t *ctx, std::vector<void *> list) {
             Notify(f, true, 0, f);
 }
 
+// The pass's per-frame probe, for a frame that takes motion.
+int __stdcall Probe(void *frame, const void *event) {
+    if (!Frame::MouseInput::MotionEnabled(frame))
+        return 0;
+    const void *vtable = Game::Read<const void *>(frame, 0);
+    return Game::Read<Probe_t>(vtable, Offsets::VTBL_FRAME_ON_MOUSE_MOVE)(frame, event);
+}
+
 // Appends the frames the walk reaches past `primary` while the last one
 // taken propagates: the rest of the mouse lists in the pass's order, each
 // probed as the pass probes it.
@@ -154,8 +165,7 @@ void ContinueWalk(uint8_t *ctx, void *primary, const void *event, std::vector<vo
                 past = frame == primary;
                 continue;
             }
-            const void *vtable = Game::Read<const void *>(frame, 0);
-            if (Game::Read<Probe_t>(vtable, Offsets::VTBL_FRAME_ON_MOUSE_MOVE)(frame, event) == 0)
+            if (Probe(frame, event) == 0)
                 continue;
             list.push_back(frame);
             if (!Propagates(frame))
@@ -195,6 +205,12 @@ void __stdcall Remove(uint8_t *ctx, void *frame) {
         Notify(frame, false, 1, nullptr);
 }
 
+// The removal tail runs for every frame taken out of the mouse lists.
+void __stdcall RemoveInput(uint8_t *ctx, void *frame) {
+    Frame::MouseInput::OnInputRemoved(frame);
+    Remove(ctx, frame);
+}
+
 // Replaces the pass's commit block: context [ebp-8], picked frame [ebp-4],
 // the event's copy at ebp-0x44. The NOPs after the call run on to 0x0076623C,
 // which reads [ebp-4] for the pass's return value.
@@ -224,8 +240,19 @@ __declspec(naked) void RemovalThunk() {
     __asm {
         push edi
         push eax
-        call Remove
+        call RemoveInput
         ret
+    }
+}
+
+// Replaces the pass's `mov ecx,ebx; call [edx+0x3C]`: frame in ebx, the
+// event pushed for the call, which `ret 4` takes off as the slot would.
+__declspec(naked) void ProbeThunk() {
+    __asm {
+        push dword ptr [esp + 4]
+        push ebx
+        call Probe
+        ret 4
     }
 }
 
@@ -235,6 +262,7 @@ const uint8_t kPassCommit[] = {0x8B, 0x4D, 0xF0, 0x3B, 0xC1, 0x74, 0x1D, 0x85, 0
 const uint8_t kSetterStore[] = {0x3B, 0xF9, 0x74, 0x19, 0x85, 0xC9, 0x89, 0x7E, 0x7C, 0x74,
                                 0x07, 0x8B, 0x01, 0x6A, 0x00, 0xFF, 0x50, 0x50, 0x85, 0xFF,
                                 0x74, 0x07, 0x8B, 0x17, 0x8B, 0xCF, 0xFF, 0x52, 0x4C};
+const uint8_t kProbe[] = {0x8B, 0xCB, 0xFF, 0x52, 0x3C};
 const uint8_t kRemovalFocus[] = {0x3B, 0x78, 0x7C, 0x75, 0x1F, 0x89, 0x70, 0x7C, 0xC7, 0x80, 0x00, 0x11,
                                  0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x83, 0xBF, 0xAC, 0x00, 0x00, 0x00,
                                  0x03, 0x74, 0x09, 0x8B, 0x17, 0x6A, 0x01, 0x8B, 0xCF, 0xFF, 0x52, 0x50};
@@ -259,7 +287,8 @@ void SetPropagates(void *frame, bool on) {
         Game::Ref<int>(ctx, Offsets::OFF_UI_CONTEXT_REPICK) = 1;
 }
 
-// `propagateMouseInput="Motion"` or `"Both"`; "Clicks" is the click half.
+// `propagateMouseInput="Motion"` or `"Both"`; Frame::MouseInput reads the
+// click half.
 void OnFrameNode(void *object, const void *node, void * /*status*/) {
     const char *value = Xml::Attr(node, "propagateMouseInput");
     if (Ascii::EqualCI(value, "Motion") || Ascii::EqualCI(value, "Both"))
@@ -349,6 +378,8 @@ void RegisterLuaFunctions() {
                             reinterpret_cast<const void *>(&SetterThunk));
     Common::ReplaceWithCall(Offsets::ADDR_UI_INPUT_REMOVAL_FOCUS, kRemovalFocus, sizeof kRemovalFocus,
                             reinterpret_cast<const void *>(&RemovalThunk));
+    Common::ReplaceWithCall(Offsets::ADDR_UI_FOCUS_PASS_PROBE, kProbe, sizeof kProbe,
+                            reinterpret_cast<const void *>(&ProbeThunk));
     Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_methods,
                                     static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
                                     static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
@@ -360,5 +391,7 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 } // namespace
 
 void *Notifying() { return g_notifying; }
+
+bool IsFocus(void *frame) { return Contains(g_list, frame); }
 
 } // namespace Frame::MotionFocus

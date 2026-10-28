@@ -348,6 +348,8 @@ build instructions.
   - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
   - [`frame:SetPropagateMouseMotion(propagate)` / `frame:CanPropagateMouseMotion()`](#framesetpropagatemousemotionpropagate--framecanpropagatemousemotion)
   - [`frame:IsMouseMotionFocus()`](#frameismousemotionfocus)
+  - [`frame:SetMouseClickEnabled(enabled)` / `frame:SetMouseMotionEnabled(enabled)`](#framesetmouseclickenabledenabled--framesetmousemotionenabledenabled)
+  - [`frame:SetPropagateMouseClicks(propagate)` / `frame:CanPropagateMouseClicks()`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
@@ -7912,7 +7914,8 @@ frame onto a child that passes motion on, the frame does not get `OnLeave`.
 
 - `CanPropagateMouseMotion` returns `true` or `false`. The default is
   `false`.
-- Clicks do not pass on. A click goes to the top frame only.
+- Clicks do not pass on with motion. For clicks, use
+  [`frame:SetPropagateMouseClicks`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks).
 - In XML, `propagateMouseInput="Motion"` or `propagateMouseInput="Both"` on
   a frame sets the value to `true`.
 
@@ -7937,6 +7940,49 @@ close:SetPropagateMouseMotion(true)
 Returns `true` when the frame gets mouse motion at the cursor, and `false`
 when it does not. It returns `true` for each frame in
 [`GetMouseFoci()`](#getmousefoci).
+
+### `frame:SetMouseClickEnabled(enabled)` / `frame:SetMouseMotionEnabled(enabled)`
+
+Sets whether the frame takes mouse clicks and whether it takes mouse
+motion. `frame:IsMouseClickEnabled()` and `frame:IsMouseMotionEnabled()`
+return `true` or `false`.
+
+Mouse motion is `OnEnter` and `OnLeave`. Mouse clicks are `OnMouseDown`,
+`OnMouseUp` and the clicks of a button. The two are separate:
+
+- A frame that takes only motion gets `OnEnter` and `OnLeave`. A click on it
+  goes to the next frame under the cursor that takes clicks.
+- A frame that takes only clicks never gets `OnEnter` or `OnLeave`. The
+  frame under it keeps the mouse motion. A click on the frame goes to the
+  frame.
+
+`frame:EnableMouse(enable)` sets both values. `frame:IsMouseEnabled()`
+returns `1` when the frame takes both clicks and motion, and `nil` when it
+does not.
+
+In XML, `enableMouseClicks="true"` and `enableMouseMotion="true"` on a frame
+turn on one value each. `enableMouse="true"` turns on both.
+
+```lua
+local overlay = CreateFrame("Frame", nil, UIParent)
+overlay:SetAllPoints(UIParent)
+overlay:SetMouseMotionEnabled(true)
+overlay:SetScript("OnEnter", function() print("over the overlay") end)
+-- Clicks go through the overlay to the frames under it.
+```
+
+### `frame:SetPropagateMouseClicks(propagate)` / `frame:CanPropagateMouseClicks()`
+
+Sets or gets whether a click on the frame also goes to the next frame under
+the cursor that takes clicks.
+
+Each frame gets `OnMouseDown`, and then `OnMouseUp`, from top to bottom. The
+next frame can pass the click on too.
+
+- `CanPropagateMouseClicks` returns `true` or `false`. The default is
+  `false`.
+- In XML, `propagateMouseInput="Clicks"` or `propagateMouseInput="Both"` on
+  a frame sets the value to `true`.
 
 ### `frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`
 
