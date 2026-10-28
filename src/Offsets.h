@@ -3842,6 +3842,31 @@ enum Offsets {
     // and the new focus's enter (vtable+0x4C) (Ghidra).
     FUN_UI_MOUSE_FOCUS_PASS = 0x007660D0,
     OFF_UI_CONTEXT_SAVED_MOUSE_EVENT = 0x1104,
+    // The three writers of OFF_UI_CONTEXT_MOUSE_FOCUS, each a "store the focus,
+    // notify" block (Ghidra; benilla-re ui/hover). Frame::MotionFocus replaces
+    // each block with a call:
+    //   pass commit   0x00766218..0x0076623C: new focus at [ebp-4], old at
+    //                 [ebp-0x10], context at [ebp-8], the event's copy at
+    //                 ebp-0x44; stores +0x7C, old->leave(0), new->enter.
+    //   focus setter  0x00764DD0..0x00764DED, inside 0x00764DC0
+    //                 `__thiscall(context, frame)`, ret 4 (its one caller is entering
+    //                 mouselook, 0x00493085): context in esi, frame in edi.
+    //   input removal 0x00764CB3..0x00764CD7, the kind-2 tail of the
+    //                 unregister 0x00764BA0 (a frame hidden, mouse-disabled or
+    //                 detached): context in eax, frame in edi; clears +0x7C,
+    //                 sets the re-pick flag, frame->leave(1) unless destroying.
+    ADDR_UI_FOCUS_PASS_COMMIT = 0x00766218,
+    ADDR_UI_FOCUS_SETTER_STORE = 0x00764DD0,
+    ADDR_UI_INPUT_REMOVAL_FOCUS = 0x00764CB3,
+    // `int` re-pick flag: nonzero asks the layout update 0x00765650 to run
+    // FUN_UI_MOUSE_FOCUS_PASS at the saved cursor position (benilla-re
+    // ui/hover "Picking the hover again").
+    OFF_UI_CONTEXT_REPICK = 0x1100,
+    // A frame's script-object state word: 1 from the constructor, 3 from the
+    // destructor (0x007690AC / 0x007693CC); the removal skips the leave
+    // notify of a frame being destroyed (benilla-re ui/hover).
+    OFF_FRAME_OBJECT_STATE = 0xAC,
+    FRAME_OBJECT_STATE_DESTROYING = 3,
     // Head of the engine's frame list (`*(*VAR_UI_CONTEXT_PTR + 0xCC4)`),
     // and each frame CObject's next-in-enumeration pointer at +0x308 — the
     // list `Script_EnumerateFrames` (0x00705F60) walks. A node with its low
@@ -11375,6 +11400,13 @@ enum Offsets {
     VTBL_FRAME_IS_OBJECT_TYPE = 0x18,
     VTBL_FRAME_GET_OBJECT_TYPE = 0x1C,
     VTBL_FRAME_ON_FRAME_UPDATE = 0x38,
+    // +0x3C OnMouseMove (this, const MouseEvent *) -> hit, ret 4: the drag-start
+    //       check then FUN_FRAME_HIT_TEST (base 0x0076B320); the probe the focus
+    //       pass calls per frame. +0x4C the enter notify (this); +0x50 the
+    //       leave notify (this, int removal), ret 4 (benilla-re ui/hover).
+    VTBL_FRAME_ON_MOUSE_MOVE = 0x3C,
+    VTBL_FRAME_ON_ENTER = 0x4C,
+    VTBL_FRAME_ON_LEAVE = 0x50,
     VTBL_FRAME_EMIT_LAYER = 0x44,
     VTBL_FRAME_HIDE = 0x84,
     VTBL_FRAME_SHOW = 0x88,

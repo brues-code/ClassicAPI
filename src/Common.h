@@ -24,8 +24,8 @@ bool PatchBytes(void *dst, const void *src, size_t len);
 // Idempotent, so it can run on every registration pass.
 bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target);
 
-// Writes `call target` plus NOP padding over the `len`-byte (>= 5)
-// instruction at `site` when it still holds `original`; true when the site
+// Writes `call target` plus NOP padding over the `len` bytes (5 to 64) of
+// code at `site` when they still hold `original`; true when the site
 // now calls `target`. A site holding anything else (another DLL's patch, a
 // different build) is left alone. Idempotent, like RedirectCall.
 bool ReplaceWithCall(uintptr_t site, const uint8_t *original, size_t len, const void *target);

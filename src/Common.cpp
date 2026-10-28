@@ -49,7 +49,7 @@ bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target) {
 }
 
 bool ReplaceWithCall(uintptr_t site, const uint8_t *original, size_t len, const void *target) {
-    uint8_t code[16];
+    uint8_t code[64];
     if (len < 5 || len > sizeof code)
         return false;
     code[0] = 0xE8;

@@ -346,6 +346,8 @@ build instructions.
   - [`region:IsProtected()` / `region:CanChangeProtectedState()`](#regionisprotected--regioncanchangeprotectedstate)
   - [`frame:CanChangeAttribute()` / `frame:AllowAttributeChanges()`](#framecanchangeattribute--frameallowattributechanges)
   - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
+  - [`frame:SetPropagateMouseMotion(propagate)` / `frame:CanPropagateMouseMotion()`](#framesetpropagatemousemotionpropagate--framecanpropagatemousemotion)
+  - [`frame:IsMouseMotionFocus()`](#frameismousemotionfocus)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
@@ -6811,14 +6813,14 @@ AddSourceLocationExclude("MyFramePool.lua")
 
 ### `GetMouseFoci()`
 
-Returns a table of the mouse-enabled frames under the cursor, from top
-to bottom. Index 1 is the frame that `GetMouseFocus()` returns, so
+Returns a table of the frames that get mouse motion at the cursor, from
+top to bottom. Index 1 is the frame that `GetMouseFocus()` returns, so
 `GetMouseFocus() == GetMouseFoci()[1]` is always true.
 
-A frame is in the table when it can get mouse input at the cursor
-position, the same test that sets the mouse focus. Hit-rect insets
-(`SetHitRectInsets`) apply, and a frame in a scroll frame counts only
-inside the visible part of the scroll frame.
+Usually the table holds one frame: the top mouse-enabled frame under the
+cursor. It holds more frames when frames pass mouse motion on with
+[`frame:SetPropagateMouseMotion(true)`](#framesetpropagatemousemotionpropagate--framecanpropagatemousemotion).
+The table is empty when no frame gets mouse motion.
 
 ```lua
 local foci = GetMouseFoci()
@@ -7893,6 +7895,48 @@ f:EnableKeyboard(true)
 f:SetPropagateKeyboardInput(true)
 f:SetScript("OnKeyDown", function() print(arg1) end)
 ```
+
+### `frame:SetPropagateMouseMotion(propagate)` / `frame:CanPropagateMouseMotion()`
+
+Sets or gets whether the frame passes mouse motion on to the next frame
+under the cursor.
+
+Usually only the top mouse-enabled frame under the cursor gets mouse
+motion. When that frame passes motion on, the next mouse-enabled frame
+under the cursor also gets it, and that frame can pass it on too. The next
+frame is the frame below in the draw order. It is not always the parent.
+
+Each frame that gets motion gets `OnEnter` when the cursor comes to it, and
+`OnLeave` when the cursor goes away from it. When the cursor moves from a
+frame onto a child that passes motion on, the frame does not get `OnLeave`.
+
+- `CanPropagateMouseMotion` returns `true` or `false`. The default is
+  `false`.
+- Clicks do not pass on. A click goes to the top frame only.
+- In XML, `propagateMouseInput="Motion"` or `propagateMouseInput="Both"` on
+  a frame sets the value to `true`.
+
+```lua
+local row = CreateFrame("Button", nil, UIParent)
+row:SetWidth(200)
+row:SetHeight(20)
+row:SetPoint("CENTER")
+row:SetScript("OnEnter", function(self) self:LockHighlight() end)
+row:SetScript("OnLeave", function(self) self:UnlockHighlight() end)
+
+local close = CreateFrame("Button", nil, row)
+close:SetWidth(16)
+close:SetHeight(16)
+close:SetPoint("RIGHT")
+close:SetPropagateMouseMotion(true)
+-- The row keeps its highlight while the cursor is on the close button.
+```
+
+### `frame:IsMouseMotionFocus()`
+
+Returns `true` when the frame gets mouse motion at the cursor, and `false`
+when it does not. It returns `true` for each frame in
+[`GetMouseFoci()`](#getmousefoci).
 
 ### `frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`
 
