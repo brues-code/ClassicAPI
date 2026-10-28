@@ -11,8 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `GLOBAL_MOUSE_DOWN(button)` / `GLOBAL_MOUSE_UP(button)` and
-// `IsMouseButtonDown([button])`.
+// `GLOBAL_MOUSE_DOWN(button)` / `GLOBAL_MOUSE_UP(button)`,
+// `IsMouseButtonDown([button])` and `GetMouseButtonName(button)`.
 //
 // The engine already has the whole pipeline. Its window procedure queues each
 // button message; once per tick PostMouseDownEvent / PostMouseUpEvent update
@@ -35,6 +35,13 @@
 //
 // The payload names come from the engine's own literals through
 // Frame::ClickEvents::ButtonNameForMask, whose masks are the same bits.
+//
+// GetMouseButtonName is 4.3.4's Script_GetMouseButtonName (0x008C6D80): a
+// number goes through IndexToMouseButton, then GetMouseButtonName; any other
+// string comes back as itself, anything else as nil. 4.3.4 names masks up to
+// Button31; 1.12's click sites (0x7795A3, 0x76BFC6) name only the five bits
+// its input queues and call the rest "UNKNOWN", so ButtonNameForMask stands
+// in for the name step and the name always matches what OnClick receives.
 //
 // `GetMouseButtonClicked()` is NOT here — it is not a mouse-device query. The
 // engine scopes it to a click DISPATCH, so it lives with that dispatch in
@@ -121,6 +128,20 @@ int __fastcall Script_IsMouseButtonDown(void *L) {
     return 1;
 }
 
+int __fastcall Script_GetMouseButtonName(void *L) {
+    if (Game::Lua::IsNumber(L, 1)) {
+        const int id = static_cast<int>(Game::Lua::ToNumber(L, 1));
+        Game::Lua::PushString(
+            L, Frame::ClickEvents::ButtonNameForMask(id >= 1 && id <= 5 ? kButtonBits[id - 1] : 0));
+        return 1;
+    }
+    if (Game::Lua::IsString(L, 1))
+        Game::Lua::SetTop(L, 1);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
 using Handler_t = int(__fastcall *)(const void *payload, void *param);
 using RegisterEx_t = void(__fastcall *)(int eventId, Handler_t handler, void *param,
                                         float priority);
@@ -147,9 +168,21 @@ const Game::Doc::Field kIsDownRets[] = {
 const Game::Doc::Function kIsMouseButtonDown{
     "Whether a mouse button is held now.", kIsDownArgs, kIsDownRets, "UIParent"};
 
+const Game::Doc::Field kNameArgs[] = {
+    Game::Doc::Req("button", "number", "A button ID from 1 (LeftButton) to 5 (Button5)."),
+};
+const Game::Doc::Field kNameRets[] = {
+    Game::Doc::Req("buttonName", "string",
+                   "The button name, or \"UNKNOWN\" for an ID that is not a button."),
+};
+const Game::Doc::Function kGetMouseButtonName{
+    "Returns the name of a mouse button from its ID.", kNameArgs, kNameRets, "UIParent"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsMouseButtonDown", &Script_IsMouseButtonDown,
                                       &kIsMouseButtonDown);
+    Game::Lua::RegisterGlobalFunction("GetMouseButtonName", &Script_GetMouseButtonName,
+                                      &kGetMouseButtonName);
     RegisterHandlers();
 }
 

@@ -477,6 +477,7 @@ build instructions.
   - [`IsLeftAltKeyDown()` / `IsRightAltKeyDown()`](#isleftaltkeydown--isrightaltkeydown)
   - [`IsModifierKeyDown()`](#ismodifierkeydown)
   - [`IsMouseButtonDown([button])`](#ismousebuttondownbutton)
+  - [`GetMouseButtonName(button)`](#getmousebuttonnamebutton)
   - [`GetMouseButtonClicked()`](#getmousebuttonclicked)
 
 - [Instance](#instance)
@@ -10849,6 +10850,22 @@ the game window loses focus, no button stays held.
 if IsMouseButtonDown("RightButton") then
     -- right-button-held bindings
 end
+```
+
+### `GetMouseButtonName(button)`
+
+Returns the name of a mouse button from its ID. The IDs are the same as
+the IDs of [`IsMouseButtonDown`](#ismousebuttondownbutton): `1` gives
+`"LeftButton"`, `2` gives `"RightButton"`, and `5` gives `"Button5"`.
+
+The name is the same name that `OnClick` gets in `arg1` for that button.
+An ID that is not a button gives `"UNKNOWN"`.
+
+If `button` is a string that is not a number, the function returns this
+string. If `button` is `nil` or another type, the function returns `nil`.
+
+```lua
+local name = GetMouseButtonName(3) -- "MiddleButton"
 ```
 
 ### `GetMouseButtonClicked()`
