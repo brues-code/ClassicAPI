@@ -2800,6 +2800,14 @@ enum Offsets {
     OFF_PLAYER_FIELD_MOD_DAMAGE_DONE_POS = 0xFD4,
     OFF_PLAYER_FIELD_MOD_DAMAGE_DONE_NEG = 0xFF0,
 
+    // PLAYER_CRIT_PERCENTAGE / PLAYER_RANGED_CRIT_PERCENTAGE — float percent,
+    // in the same `[player + OFF_CGPLAYER_INFO]` sub-struct. UpdateField
+    // table: fieldIndex 0x399 / 0x39A → 0xE64 / 0xE68, right after
+    // PLAYER_DODGE_PERCENTAGE (0x397 → 0xE5C), which Script_GetDodgeChance
+    // (0x00516F00) reads as `fld [[player+0xE68]+0xE5C]`.
+    OFF_PLAYER_FIELD_CRIT_PERCENTAGE = 0xE64,
+    OFF_PLAYER_FIELD_RANGED_CRIT_PERCENTAGE = 0xE68,
+
     // Reusable "is this spell record a user-visible aura" predicate.
     // `__fastcall(spellRecord*) -> bool`. Hides a spell whose Attributes
     // has bit 7 (the high bit of the byte at +0x18), whose AttributesEx

@@ -786,6 +786,7 @@ build instructions.
   - [`IsSpellKnown(spellID, [isPet])`](#isspellknownspellid-ispet)
   - [`GetSpellBonusDamage(school)`](#getspellbonusdamageschool)
   - [`GetSpellBonusHealing()`](#getspellbonushealing)
+  - [`GetCritChance()` / `GetRangedCritChance()`](#getcritchance--getrangedcritchance)
   - [`IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)`](#isusablespellspell--isusablespellslot-booktype)
   - [`C_Spell.IsSpellUsable(spellID)`](#c_spellisspellusablespellid)
   - [`C_Spell.GetSpellCooldown(spellIdentifier)`](#c_spellgetspellcooldownspellidentifier)
@@ -18490,6 +18491,21 @@ GetSpellBonusHealing()   -- your +Healing
 >
 > Residual: assumes talent ranks supersede (only the learned rank is known)
 > and misses set-bonus healing granted via a set-completion spell.
+
+### `GetCritChance()` / `GetRangedCritChance()`
+
+`GetCritChance` returns your chance to get a critical strike with melee
+attacks. `GetRangedCritChance` returns the same chance for ranged attacks.
+Each value is a percent, for example `21.2`. Each function returns `0`
+before you are in the world.
+
+The value includes gear, buffs, talents and forms. It changes when you
+change form, for example when a druid goes into Cat Form.
+
+```lua
+GetCritChance()         -- melee crit, for example 21.2
+GetRangedCritChance()   -- ranged crit, for example 9.2
+```
 
 ### `IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)`
 
