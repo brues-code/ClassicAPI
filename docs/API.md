@@ -345,6 +345,7 @@ build instructions.
   - [`frame:CanChangeAttribute()` / `frame:AllowAttributeChanges()`](#framecanchangeattribute--frameallowattributechanges)
   - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
+  - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:GetBoundsRect()`](#framegetboundsrect)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
@@ -7864,6 +7865,28 @@ frame. Use this for a frame whose position your addon saves itself.
 
 - `dontSave` is `true` when you omit it.
 - `GetDontSavePosition` returns `1` or `nil`.
+
+### `frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`
+
+Sets or gets whether the frame uses the frame level of its parent.
+
+A child frame usually has a frame level one more than its parent. When
+`usingParentLevel` is true, the frame has the same level as its parent. The
+frame stays at that level when you call `SetFrameLevel`, when you give it a
+new parent, and when its parent's level changes with its children.
+
+- `IsUsingParentLevel` returns `true` or `false`. The default is `false`.
+- When you set the value to `false`, the frame keeps its current level.
+
+You can also set the value in XML with the `useParentLevel` attribute:
+
+```xml
+<Frame name="MyFrame">
+    <Frames>
+        <Frame parentKey="Background" useParentLevel="true" setAllPoints="true"/>
+    </Frames>
+</Frame>
+```
 
 ### `frame:GetBoundsRect()`
 

@@ -3987,6 +3987,7 @@ enum Offsets {
     // to 1.
     PATCH_SETPARENT_LEVEL_CHILDREN = 0x0076AB6B,     // before `call` at 0x0076AB71 (parent)
     PATCH_SETPARENT_NIL_LEVEL_CHILDREN = 0x0076ABAC, // before `call` at 0x0076ABB2 (no parent)
+    FUN_FRAME_SET_FRAME_LEVEL = 0x0076A4F0,
     // Frame alpha. The byte at OFF_FRAME_ALPHA (0..255) is what the frame's
     // regions are drawn with (each region's recolor reads it) and what
     // FUN_SCRIPT_FRAME_GETALPHA returns (`[frame+0xC8] / 255`); it has one
@@ -4077,6 +4078,9 @@ enum Offsets {
     // 4.3.4's SetPropagateKeyboardInput bit: a frame's key-down and character
     // slots run the script and then answer "not handled", so the key goes on.
     FRAME_FLAG_PROPAGATE_KEYBOARD = 0x200000,
+    // 4.3.4's SetUseParentLevel bit: its level setter replaces the level it
+    // is given with the parent's level while the frame has it.
+    FRAME_FLAG_USE_PARENT_LEVEL = 0x100000,
     // `int` — nonzero when the frame is shown (4.3.4's m_shown).
     // Script_IsShown (0x00775990) pushes `[frame+0xD0] != 0`.
     OFF_FRAME_SHOWN = 0xD0,
