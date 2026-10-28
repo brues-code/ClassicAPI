@@ -721,6 +721,7 @@ build instructions.
 
 - [Pet](#pet)
   - [`IsPetAttackAction(index)`](#ispetattackactionindex)
+  - [`IsAtStableMaster()`](#isatstablemaster)
 
 - [PlayerInfo](#playerinfo)
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
@@ -16888,6 +16889,16 @@ for i = 1, NUM_PET_ACTION_SLOTS do
     if IsPetAttackAction(i) then
         print("Attack is in slot", i)
     end
+end
+```
+
+### `IsAtStableMaster()`
+
+Returns true while the stable window is open. Otherwise it returns false.
+
+```lua
+if IsAtStableMaster() then
+    print("Stable slots:", GetNumStableSlots())
 end
 ```
 

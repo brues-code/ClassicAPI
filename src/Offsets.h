@@ -7021,6 +7021,11 @@ enum Offsets {
     PET_ACTION_SLOT_COUNT = 10,
     PET_ACTION_TYPE_COMMAND = 7,
     PET_ACTION_COMMAND_ATTACK = 2,
+    // The open stable master's GUID as a u64, 0 while no stable window is
+    // open. Set by MSG_LIST_STABLED_PETS, cleared by the close (0x004CAE10:
+    // `or eax,[B72244]` test, then zeroes both halves) and at world entry;
+    // StablePet (0x004CAE50) gates on it the same way.
+    VAR_STABLE_MASTER_GUID = 0x00B72240,
     // "The pet can act" — the core of `Script_GetPetActionsUsable`
     // (0x004BE0B0), `int()` with no args. True when the player isn't
     // charmed, the CGPlayer pet field matches VAR_PET_GUID, the pet

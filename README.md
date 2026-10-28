@@ -113,7 +113,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [NameCache](docs/API.md#namecache) | `C_PlayerCache.GetPlayerInfoByName`, `C_PlayerCache.IsEnabled`, `C_PlayerCache.RememberPlayer`, `C_PlayerCache.SetEnabled`, `GetPlayerInfoByGUID`, `UnitNameFromGUID` |
 | [NewItems](docs/API.md#newitems) | `C_NewItems.ClearAll`, `C_NewItems.IsNewItem`, `C_NewItems.RemoveNewItem` |
 | [PartyInfo](docs/API.md#partyinfo) | `InviteUnit`, `PromoteToLeader`, `UninviteUnit` |
-| [Pet](docs/API.md#pet) | `IsPetAttackAction` |
+| [Pet](docs/API.md#pet) | `IsPetAttackAction`, `IsAtStableMaster` |
 | [PlayerInfo](docs/API.md#playerinfo) | `C_PlayerInfo.CanUseItem`, `C_PlayerInfo.GetClass`, `C_PlayerInfo.GetName`, `C_PlayerInfo.GetRace`, `C_PlayerInfo.GetSex`, `C_PlayerInfo.GUIDIsCreature`, `C_PlayerInfo.GUIDIsGameObject`, `C_PlayerInfo.GUIDIsPet`, `C_PlayerInfo.GUIDIsPlayer`, `C_PlayerInfo.IsConnected` |
 | [Profiling](docs/API.md#profiling) | `GetAddOnCPUUsage`, `GetAddOnMemoryUsage`, `GetEventCPUUsage`, `GetFrameCPUUsage`, `GetFunctionCPUUsage`, `GetScriptCPUUsage`, `ResetCPUUsage`, `UpdateAddOnCPUUsage`, `UpdateAddOnMemoryUsage` |
 | [Quest](docs/API.md#quest) | `C_QuestLog.GetInfo`, `C_QuestLog.GetNumQuestObjectives`, `C_QuestLog.GetQuestDetails`, `C_QuestLog.GetQuestLogTitle`, `C_QuestLog.GetHeaderIndexForQuest`, `C_QuestLog.GetLogIndexForQuestID`, `C_QuestLog.GetQuestIDForLogIndex`, `C_QuestLog.GetTitleForQuestID`, `C_QuestLog.IsOnQuest`, `C_QuestLog.IsQuestDataCachedByID`, `C_QuestLog.IsUnitOnQuest`, `C_QuestLog.RequestLoadQuestByID`, `GetQuestLogCompletionText`, `GetQuestLogLeaderBoardID` |
