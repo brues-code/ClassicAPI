@@ -404,6 +404,7 @@ build instructions.
   - [`C_FriendList.GetFriendInfoByIndex(index)`](#c_friendlistgetfriendinfobyindexindex)
   - [`C_FriendList.SetFriendNotes(name, notes)`](#c_friendlistsetfriendnotesname-notes)
   - [`C_FriendList.SetFriendNotesByIndex(index, notes)`](#c_friendlistsetfriendnotesbyindexindex-notes)
+  - [`AddOrRemoveFriend(name[, notes])`](#addorremovefriendname-notes)
 
 - [GameObject](#gameobject)
   - [`C_GameObjectInfo.GetGameObjectInfoByID(gameObjectID)`](#c_gameobjectinfogetgameobjectinfobyidgameobjectid)
@@ -9365,6 +9366,20 @@ nothing.
 
 ```lua
 C_FriendList.SetFriendNotesByIndex(1, "tank")
+```
+
+### `AddOrRemoveFriend(name[, notes])`
+
+If a friend has the name `name`, removes that friend. If not, adds `name`
+as a friend. The name compare ignores case. When `name` is not a string,
+the function does nothing.
+
+When the function adds a friend, it keeps `notes` as the note of that
+friend. The note is set when the server adds the friend. If the server
+does not add the friend, the note is discarded at logout.
+
+```lua
+AddOrRemoveFriend(UnitName("target"), "met in Stranglethorn")
 ```
 
 ## GameObject

@@ -6268,6 +6268,26 @@ enum Offsets {
     // an ignore (0x005AF650) zeroes its slot and only re-sorts when no ignore
     // name lookup is pending (+0x718 == 0), so the list can have holes.
     FUN_FRIEND_LIST_IS_IGNORED = 0x005AE5A0,
+    // FriendList::AddFriend — `void __thiscall(socialSingleton, const char
+    // *name)` (RET 4): marks tutorial 0x15 seen, sends CMSG_ADD_FRIEND (0x69)
+    // with the name. Never reads `this`. What Lua AddFriend (0x005AD290) calls.
+    FUN_FRIEND_LIST_ADD_FRIEND = 0x005AE670,
+    // FriendList::SendRemoveFriend — `void __thiscall(socialSingleton,
+    // uint64_t guid)` (RET 8): sends CMSG_DEL_FRIEND (0x6A) with the GUID.
+    // Never reads `this`. Both RemoveFriend paths (by index 0x005AE7E0, by
+    // name 0x005AE6F0) end here.
+    FUN_FRIEND_LIST_SEND_REMOVE_FRIEND = 0x005AE760,
+    // FriendList::SetFriendName — `void __thiscall(socialSingleton, uint64_t
+    // guid, const char *name)` (RET 0xC): replaces the name of the slot holding
+    // the GUID with a heap copy; no slot, no write. The only writer of a friend
+    // slot's name; its two callers are the sites below.
+    FUN_FRIEND_LIST_SET_FRIEND_NAME = 0x005AEAC0,
+    // SMSG_FRIEND_STATUS handler (0x005ACAB0), results 6/7 (added) with the
+    // name already in the name cache: `call FUN_FRIEND_LIST_SET_FRIEND_NAME`.
+    SITE_FRIEND_STATUS_SET_NAME = 0x005ACDD0,
+    // The friend name-lookup callback (0x005ACE70), when the name cache answers
+    // later: `call FUN_FRIEND_LIST_SET_FRIEND_NAME`.
+    SITE_FRIEND_NAME_LOOKUP_SET_NAME = 0x005ACF0A,
 
     // SMSG_WHO opcode handler — opcode 0x63 (99) per the registration
     // in `FUN_005adc50`: `FUN_005ab650(99, FUN_005adf60, 0)`. Reads
