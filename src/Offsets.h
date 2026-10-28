@@ -1025,23 +1025,52 @@ enum Offsets {
                                       // engine callers always write it before show/hide
     OFF_REGION_ACTUALLY_SHOWN = 0xC8, // 1 after Show completed (the realize latch)
 
-    // Owning-frame recovery for the inline-icon pool (the 3.3.5 ownership model,
-    // no overlay). Chat renders through the strata walker FUN_007657d0 →
-    // per-frame draw-list rebuild FUN_00765920 → per-layer render FUN_0076FB00 →
-    // text paint (NOT through the child-frame render FUN_0076B3F0). So
-    // Text::InlineTexturePool co-hooks the two below:
-    //   • FUN_FRAME_DRAWLIST_REBUILD — `__fastcall(frame)`, receives the frame
-    //     cleanly and owns its 5 inline draw layers at frame + OFF_FRAME_LAYER_BASE
-    //     + i*FRAME_LAYER_STRIDE. We record layer→frame so the layer-render hook
-    //     can recover the owning frame with no offset-scan / vtable guessing.
-    //   • FUN_FRAME_LAYER_RENDER — `__fastcall(layer)`, the per-layer paint that
-    //     directly wraps the chat text paint. We bracket the icon pool's pass here
-    //     (the flush runs nested) and look the frame up in the layer→frame map.
+    // The level draw (benilla-re ui/draworder). CSimpleTop's render pass
+    // (0x007657D0) walks strata 0..8 and each stratum's levels ascending; per
+    // level it rebuilds the dirty layers, then draws the level's batches.
+    //   - FUN_FRAME_DRAWLIST_REBUILD — CFrameStrataNode::RebuildBatches,
+    //     `int __fastcall(levelNode)`. For each layer bit set in the node's
+    //     dirty mask (+0x10C) it begins the layer's batch (node+0x1C+0x30*layer)
+    //     with FUN_RENDERBATCH_BEGIN, asks every frame of the level without
+    //     FRAME_FLAG_SCROLLED for its regions of that layer through vtable+0x44
+    //     (CALL_FRAME_LEVEL_EMIT_LAYER), sorts it with FUN_RENDERBATCH_SORT, and
+    //     links every batch whose entry count is nonzero into the level's draw
+    //     list in layer order.
+    //   - FUN_FRAME_LAYER_RENDER — DrawBatch, `void __fastcall(batch)`: the
+    //     batch's quads (sorted by texture), then its text sub-batch, then each
+    //     render callback, `fn` called as `__thiscall(arg)`.
     FUN_FRAME_DRAWLIST_REBUILD = 0x00765920,
     FUN_FRAME_LAYER_RENDER = 0x0076FB00,
-    OFF_FRAME_LAYER_BASE = 0x1C,   // first inline draw layer, region-relative
-    FRAME_LAYER_STRIDE = 0x30,     // per-layer stride
-    FRAME_LAYER_COUNT = 5,         // BACKGROUND..OVERLAY
+    FRAME_LAYER_COUNT = 5, // BACKGROUND, BORDER, ARTWORK, OVERLAY, HIGHLIGHT
+    // The rebuild's per-frame call: `mov eax,[ebx]; push ecx; push esi; mov
+    // ecx,ebx; call [eax+0x44]` (8B 03 51 56 8B CB FF 50 44, 9 bytes), with the
+    // frame in ebx, the level's layer batch in esi and the layer in ecx.
+    CALL_FRAME_LEVEL_EMIT_LAYER = 0x007659E7,
+    // A frame that draws itself (FRAME_FLAG_SCROLLED) draws through vtable+0x40
+    // (CSimpleFrame's 0x0076B3F0): its own five batches, then each shown child
+    // without FRAME_FLAG_SCROLL_CHILD through the child's +0x40, at 0x0076B511:
+    // `mov edx,[ecx]; call [edx+0x40]` (8B 11 FF 52 40), the child in ecx.
+    VTBL_FRAME_DRAW_SELF = 0x40,
+    CALL_FRAME_DRAW_SELF_CHILD = 0x0076B511,
+    // Layer batch operations, each `__thiscall(batch)`, plain `ret`: the
+    // in-place constructor (stores vtable 0x0081C7AC, empties every list), the
+    // destructor (begins it, then frees the quad array), begin (zeroes the
+    // quad count and the entry count, frees the text sub-batch, frees every
+    // callback node) and the texture sort (qsort of the quads by handle).
+    FUN_RENDERBATCH_CONSTRUCT = 0x00772E80,
+    FUN_RENDERBATCH_DESTRUCT = 0x00772EF0,
+    FUN_RENDERBATCH_BEGIN = 0x007731D0,
+    FUN_RENDERBATCH_SORT = 0x007731A0,
+    RENDERBATCH_SIZE = 0x30,
+    // Adds a render callback — `void __thiscall(batch, fn, arg)`, `ret 8`: a
+    // 0x10-byte node with `fn` at +0x08 and `arg` at +0x0C, linked into the
+    // list whose first node is at OFF_RENDERBATCH_CALLBACKS (node+0x04 next,
+    // NULL or low bit 1 ends it), counted in OFF_RENDERBATCH_ENTRY_COUNT so the
+    // level links the batch even with no quads. The ScrollFrame's layer emit
+    // (0x007871C0) adds its scroll child's draw (0x00787220) to its HIGHLIGHT
+    // batch this way.
+    FUN_RENDERBATCH_ADD_CALLBACK = 0x00773110,
+    OFF_RENDERBATCH_CALLBACKS = 0x24,
     // Resolved on-screen rect of a region: 4 floats at regionBase+0x64 (=
     // LayoutFrame+0x40), in GxU SCREEN PIXELS — verified: FUN_00770670 reads
     // them and FUN_007705b0 stores them straight as GxU vertex corners. Layout is
@@ -4063,6 +4092,35 @@ enum Offsets {
     OFF_FRAME_FLAGS = 0xB4,
     FRAME_FLAG_SCROLLED = 0x2000,
     FRAME_FLAG_SCROLL_CHILD = 0x4000,
+    // The hit rect: {bottom, left, top, right} in DDC, the layout rect less the
+    // hit-rect insets. CSimpleFrame::GetHitRect (0x0076B220) copies it when
+    // the layout is valid; FUN_FRAME_HIT_TEST and the ScrollFrame's draw read it.
+    OFF_FRAME_HIT_RECT = 0xD8,
+    // Frame::ClipChildren's own bit: the frame clips its child frames. No
+    // engine code writes it (see FUN_FRAME_SET_FRAME_FLAG's callers).
+    FRAME_FLAG_CLIPS_CHILDREN = 0x800000,
+    // The ScrollFrame's draw (0x00787220), which Frame::ClipChildren mirrors,
+    // saves and restores the device transforms around a narrowed viewport:
+    //   - FUN_GX_GET_PROJECTION / FUN_GX_GET_VIEW / FUN_GX_SET_PROJECTION /
+    //     FUN_GX_SET_VIEW — `void __fastcall(float m[16])`;
+    //   - FUN_GX_GET_VIEWPORT — `void __fastcall(float *minX, float *maxX,
+    //     float *minY, float *maxY, float *minZ, float *maxZ)`, `ret 0x10`, in NDC;
+    //   - FUN_GX_SET_VIEWPORT — `void __stdcall(minX, maxX, minY, maxY, minZ,
+    //     maxZ)`;
+    //   - FUN_SETUP_ORTHO_TRANSFORMS — `void __fastcall(const float rect[4],
+    //     const float point[2], int unused)`, `ret 4`: an orthographic projection
+    //     over a DDC rect {bottom, left, top, right} and a view offset by
+    //     `point`, the one the render pass sets over the whole screen;
+    //   - FUN_COORD_DDC_TO_NDC — UnscaleScreenXY, the inverse of
+    //     FUN_COORD_NDC_TO_DDC, same signature.
+    FUN_GX_GET_PROJECTION = 0x0058B090,
+    FUN_GX_GET_VIEW = 0x0058B0B0,
+    FUN_GX_SET_PROJECTION = 0x0058B040,
+    FUN_GX_SET_VIEW = 0x0058B050,
+    FUN_GX_GET_VIEWPORT = 0x0058B060,
+    FUN_GX_SET_VIEWPORT = 0x0058AF60,
+    FUN_SETUP_ORTHO_TRANSFORMS = 0x007AD7F0,
+    FUN_COORD_DDC_TO_NDC = 0x0041ADE0,
     // CSimpleFrame::SetFrameFlag — `void __thiscall(frame, uint32 mask, int
     // on)`, `ret 8`: sets or clears `mask` in OFF_FRAME_FLAGS. Every write of
     // the word goes through it (benilla-re ui/layoutcache). Its 14 callers

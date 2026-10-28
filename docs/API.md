@@ -346,6 +346,7 @@ build instructions.
   - [`frame:SetPropagateKeyboardInput([propagate])` / `frame:GetPropagateKeyboardInput()`](#framesetpropagatekeyboardinputpropagate--framegetpropagatekeyboardinput)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
+  - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
   - [`frame:GetBoundsRect()`](#framegetboundsrect)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
@@ -7885,6 +7886,29 @@ You can also set the value in XML with the `useParentLevel` attribute:
     <Frames>
         <Frame parentKey="Background" useParentLevel="true" setAllPoints="true"/>
     </Frames>
+</Frame>
+```
+
+### `frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`
+
+Sets or gets whether the frame clips its child frames.
+
+When `clipsChildren` is true, each frame under the frame draws only inside
+the rectangle of the frame. The parts outside the rectangle are not shown,
+and the mouse does not touch them there. The textures and font strings of
+the frame itself are not clipped.
+
+The clipped frames keep their frame strata and frame levels. A frame under
+two clipping frames draws only where both rectangles overlap.
+
+- `DoesClipChildren` returns `true` or `false`. The default is `false`.
+- The rectangle is the area of the frame less its hit rect insets.
+
+You can also set the value in XML with the `clipChildren` attribute:
+
+```xml
+<Frame name="MyList" clipChildren="true">
+    <Size x="200" y="100"/>
 </Frame>
 ```
 
