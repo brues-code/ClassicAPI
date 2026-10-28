@@ -3719,6 +3719,26 @@ enum Offsets {
     // error. TryOnItem shows 0x13 (ERR_NOT_EQUIPPABLE) at 0x00504B2F.
     FUN_GAMEUI_DISPLAY_ERROR = 0x00496720,
     GAME_ERROR_NOT_EQUIPPABLE = 0x13,
+    // Script_InviteByName shows 0x3B (ERR_INVITE_SELF) at 0x0048A485 when
+    // the name is the player's own.
+    GAME_ERROR_INVITE_SELF = 0x3B,
+
+    // ---- Group verbs (benilla objectlayer/party, disassembled) -------------
+    // Each is `__thiscall` on the active player, which none of them reads.
+    // InviteByName — `(player, name)`, `ret 4`: raises tutorial flag 0x11,
+    // then sends CMSG_GROUP_INVITE (0x6E) with the name. No self check: the
+    // Lua wrappers make it.
+    FUN_GROUP_INVITE_BY_NAME = 0x005E9490,
+    // UninviteByGuid — `(player, guidLo, guidHi)`, `ret 8`: uninvites the
+    // unit's name when an object has the GUID, else sends
+    // CMSG_GROUP_UNINVITE_GUID (0x76). UninviteFromParty's worker.
+    FUN_GROUP_UNINVITE_BY_GUID = 0x005E9510,
+    // UninviteByName — `(player, name)`, `ret 4`: sends CMSG_GROUP_UNINVITE
+    // (0x75) with the name.
+    FUN_GROUP_UNINVITE_BY_NAME = 0x005E95D0,
+    // SendGroupSetLeader — `(player, guidLo, guidHi)`, `ret 8`: sends
+    // CMSG_GROUP_SET_LEADER (0x78). PromoteToPartyLeader's worker.
+    FUN_GROUP_SET_LEADER = 0x005E9640,
 
     // ---- M2 model cameras --------------------------------------------------
     // GetCameraCount — `__thiscall(model)`: data +0x124 after waiting for the

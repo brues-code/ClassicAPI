@@ -699,6 +699,11 @@ build instructions.
   - [`C_NewItems.RemoveNewItem(bagID, slotIndex)`](#c_newitemsremovenewitembagid-slotindex)
   - [`C_NewItems.ClearAll()`](#c_newitemsclearall)
 
+- [PartyInfo](#partyinfo)
+  - [`InviteUnit(targetName)`](#inviteunittargetname)
+  - [`UninviteUnit(name)`](#uninviteunitname)
+  - [`PromoteToLeader(name [, exactNameMatch])`](#promotetoleadername--exactnamematch)
+
 - [PlayerInfo](#playerinfo)
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
@@ -16534,6 +16539,64 @@ slot.
 
 Clears every new flag at once. Fires `BAG_NEW_ITEMS_UPDATED` if anything was
 flagged.
+
+## PartyInfo
+
+These functions invite players to your group, remove players from your
+group, and change the group leader. Each function sends a request to the
+server, and the server decides if the request is valid. If the server
+refuses a request, the game shows its usual error message. The
+functions return nothing.
+
+### `InviteUnit(targetName)`
+
+Invites a player to your group by name.
+
+```lua
+InviteUnit("Allianceman")
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `targetName` | string | The name of the player. The function does not read unit tokens. To invite by unit token, use `InviteToParty`. |
+
+If `targetName` is your own name, the game shows the error "You cannot
+invite yourself." If the name is longer than 48 bytes, the function
+raises the error `Name too long`. If `targetName` is not a string, the
+function does nothing.
+
+### `UninviteUnit(name)`
+
+Removes a player from your group.
+
+```lua
+UninviteUnit("party1")       -- Remove the first party member
+UninviteUnit("Allianceman")  -- Remove a group member by name
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `name` | string | A unit token, such as `"party1"`, or the full name of a group member. |
+
+If `name` is not a string or is empty, the function does nothing.
+
+### `PromoteToLeader(name [, exactNameMatch])`
+
+Makes a group member the group leader. You must be the group leader.
+
+```lua
+PromoteToLeader("party1")             -- Promote the first party member
+PromoteToLeader("Alliance")           -- Promote the best match for "Alliance"
+PromoteToLeader("Allianceman", true)  -- Promote only "Allianceman"
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `name` | string | A unit token, such as `"party1"`, or a player name. |
+| `exactNameMatch` | boolean, optional | If `true`, the name must match the full name of the player. The default is `false`: the function selects the player whose name starts with the longest part of `name`. |
+
+If `name` is not a string, the function raises the error
+`Usage: PromoteToLeader(name)`.
 
 ## PlayerInfo
 

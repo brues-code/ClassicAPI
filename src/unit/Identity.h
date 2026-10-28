@@ -92,7 +92,9 @@ uint64_t GuidForToken(const char *token);
 // of `typeMask` (TYPEMASK_UNIT or TYPEMASK_PLAYER). `exact` false takes the
 // longest case-insensitive prefix match; true needs the whole name. `mode`
 // is the engine's candidate-set selector: 0 = party, raid, then objects
-// (what `TargetByName` passes); 3 = party then objects, skipping the raid.
+// (what `TargetByName` passes); 2 = the same candidates with the engine's
+// mode-2 unit filter (what `PromoteByName` / `FollowByName` pass); 3 = party
+// then objects, skipping the raid.
 // Returns 0 on no match, or before the local player object exists.
 uint64_t FindGuidByName(const char *name, uint32_t typeMask, bool exact, int mode = 0);
 
