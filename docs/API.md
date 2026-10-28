@@ -733,6 +733,12 @@ build instructions.
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
 
+- [PvP](#pvp)
+  - [`SetPVP(enable)` / `C_PvP.SetPVP(enable)`](#setpvpenable--c_pvpsetpvpenable)
+  - [`GetPVPDesired()`](#getpvpdesired)
+  - [`IsPVPTimerRunning()` / `GetPVPTimer()`](#ispvptimerrunning--getpvptimer)
+  - [`PVP_TIMER_UPDATE` event](#pvp_timer_update-event)
+
 - [Profiling](#profiling)
   - [`UpdateAddOnMemoryUsage()` / `GetAddOnMemoryUsage(index or "name")`](#updateaddonmemoryusage--getaddonmemoryusageindex-or-name)
   - [`scriptProfile`](#scriptprofile)
@@ -17086,6 +17092,66 @@ local sex = C_PlayerInfo.GetSex(loc)
 - An unresolvable or unsupported location returns nil. A malformed unit token
   raises (the engine's token→GUID resolver rejects it), same as passing it to
   `UnitName`/`UnitClass` directly.
+
+## PvP
+
+### `SetPVP(enable)` / `C_PvP.SetPVP(enable)`
+
+Asks the server to turn the PvP preference of the player on or off.
+
+- `enable` is `true` or a nonzero number to turn the preference on.
+- `false`, `nil` or `0` turns the preference off.
+
+The result does not depend on the current state, as it does with
+`TogglePVP()`. The new value comes back with the next update from the
+server. Then `GetPVPDesired()` returns it.
+
+### `GetPVPDesired()`
+
+Returns `true` when the player chose to stay flagged for PvP, else `false`.
+This value is the preference, not the flag. For the flag, use
+`UnitIsPVP("player")`.
+
+### `IsPVPTimerRunning()` / `GetPVPTimer()`
+
+When the player turns the PvP preference off, the PvP flag stays for five
+minutes. `IsPVPTimerRunning()` returns `true` during these five minutes.
+
+`GetPVPTimer()` returns a number of milliseconds:
+
+- While the timer runs, the time left plus 1000.
+- When the countdown is at zero but the flag stays, 999.
+- When no timer runs, 301000.
+
+```lua
+if IsPVPTimerRunning() then
+    print(format("PvP off in %d s", GetPVPTimer() / 1000))
+end
+```
+
+The timer starts only when the player turns the preference off while
+flagged. Other flags show no timer, for example the flag that stays after
+the player leaves hostile territory. PvP combat restarts the five minutes
+on the server, but not the countdown. Thus the countdown can reach zero
+before the flag goes off. The timer stops when the flag goes off, when the
+player turns the preference on, or at logout.
+
+### `PVP_TIMER_UPDATE` event
+
+Fires with `"player"` when the timer starts or stops. Then
+`IsPVPTimerRunning()` and `GetPVPTimer()` return the new values.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PVP_TIMER_UPDATE")
+f:SetScript("OnEvent", function()
+    if IsPVPTimerRunning() then
+        f.endTime = GetTime() + GetPVPTimer() / 1000
+    else
+        f.endTime = nil
+    end
+end)
+```
 
 ## Profiling
 

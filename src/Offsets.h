@@ -2675,6 +2675,20 @@ enum Offsets {
     OFF_UNIT_FIELD_RESISTANCE_ARMOR = 0x254,
     OFF_UNIT_FIELD_FLAGS = 0xA0,
     UNIT_FLAG_PLAYER_CONTROLLED = 0x08,
+    // Bit 12 of UNIT_FIELD_FLAGS — flagged for PvP. CGUnit_C::OnUnitFlagsChanged
+    // (0x005FF580) tests it at 0x005FF724 and, for the active player, again at
+    // 0x005FF747; tortoise-wow / vmangos UNIT_FLAG_PVP.
+    UNIT_FLAG_PVP = 0x1000,
+    // OnUnitFlagsChanged's `mov ecx, esi; call FUN_UNIT_REFRESH_REACTION`
+    // taken only when UNIT_FLAG_PVP changed (`test ah, 0x10` at 0x005FF724).
+    SITE_UNIT_PVP_FLAG_CHANGED = 0x005FF72B,
+    // CGUnit_C::RefreshReaction — `void __thiscall(CGUnit_C *)`, plain RET:
+    // redraws names and signals UNIT_FACTION. Disassembled 0x00606E20.
+    FUN_UNIT_REFRESH_REACTION = 0x00606E20,
+    // IsActivePlayerUnit — `uint32_t __thiscall(CGUnit_C *)`: 1 when the
+    // unit's GUID is the active player's (benilla-re, verified).
+    // OnUnitFlagsChanged calls it at 0x005FF732.
+    FUN_IS_ACTIVE_PLAYER_UNIT = 0x005FA6D0,
     // Bit 19 of UNIT_FIELD_FLAGS — `Script_UnitAffectingCombat` at
     // `0x00517E4A`-`0x517E5C` tests it via `mov eax, [fields+0xA0];
     // shr eax, 19; test al, 1`. We use it for `InCombatLockdown`,
@@ -4675,6 +4689,16 @@ enum Offsets {
     OFF_PLAYER_INFO_FLAGS = 0x08,
     PLAYER_FLAG_AFK = 0x02,
     PLAYER_FLAG_DND = 0x04,
+    // PLAYER_FLAGS bit 9 — the player asked to stay PvP flagged (TogglePVP /
+    // SetPVP). CGPlayer_C::OnPlayerFlagsChanged (0x005EE990) tests it at
+    // 0x005EEB0D; tortoise-wow and vmangos PLAYER_FLAGS_PVP_DESIRED = 0x200.
+    PLAYER_FLAG_PVP_DESIRED = 0x200,
+    // OnPlayerFlagsChanged, active player only, when PLAYER_FLAGS_PVP_DESIRED
+    // changed: `push 0x1B5; call FUN_GAMEUI_DISPLAY_ERROR` (ERR_PVP_TOGGLE_ON)
+    // when it is now set, `push 0x1B6; call` (ERR_PVP_TOGGLE_OFF) when clear.
+    // Disassembled 0x005EEAFC..0x005EEB2B.
+    SITE_PVP_TOGGLE_ON_NOTICE = 0x005EEB1A,
+    SITE_PVP_TOGGLE_OFF_NOTICE = 0x005EEB2B,
 
     // Guild-key field on the CGPlayer sub-struct. Verified by
     // disassembling `Script_GetGuildInfo` at `0x004C9330`: after
@@ -11158,6 +11182,8 @@ enum Offsets {
     // buffer unless alloc is -1. Verified by disassembly of that send.
     FUN_DATASTORE_PUT_U32 = 0x00418190,
     FUN_DATASTORE_PUT_GUID = 0x00418370,
+    // CDataStore::PutInt8 — `__thiscall(this, u8)`, RET 4. Disassembled.
+    FUN_DATASTORE_PUT_U8 = 0x00418070,
     VTABLE_CDATASTORE = 0x007FF9E4,
     // ClientServices::Send — `__thiscall void(CDataStore *packet)`: sends on
     // the current connection through FUN_NET_SEND when one exists (benilla-re
