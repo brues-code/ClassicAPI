@@ -784,6 +784,7 @@ build instructions.
   - [`IsHarmfulSpell(spell)` / `IsHelpfulSpell(spell)`](#isharmfulspellspell--ishelpfulspellspell)
   - [`C_Spell.IsSpellHarmful(spellID)` / `C_Spell.IsSpellHelpful(spellID)`](#c_spellisspellharmfulspellid--c_spellisspellhelpfulspellid)
   - [`GetSpellSchool(spellID)`](#getspellschoolspellid)
+  - [`CastSpellByID(spellID [, target])`](#castspellbyidspellid--target)
   - [`CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`](#castspellnotogglename--spellid--unit--placegroundspell)
   - [`C_Spell.CastAtCursor(spellIDOrName)`](#c_spellcastatcursorspellidorname)
   - [`C_Spell.CastAtUnit(spellIDOrName, unit [, placeGroundSpell])`](#c_spellcastatunitspellidorname-unit--placegroundspell)
@@ -18554,6 +18555,42 @@ Useful for combat-log breakdown addons, dispel-eligibility checks,
 resistance-aware aura libraries, and damage-meter school tagging.
 Previously addons either maintained hardcoded `spellID → school`
 tables or scanned tooltips for the first-line color tag.
+
+### `CastSpellByID(spellID [, target])`
+
+Casts the spell that has this spell ID. Each rank has its own spell
+ID, so `CastSpellByID(133)` casts Fireball Rank 1, not the highest
+rank that you know.
+
+```lua
+CastSpellByID(133)              -- Fireball Rank 1, at your current target
+CastSpellByID(2050, "player")   -- Lesser Heal Rank 1, on yourself
+CastSpellByID(2050, "party1")   -- on party1; your target does not change
+```
+
+The spell must be in your spellbook or in the spellbook of your pet.
+
+- `target` is a unit token. The spell goes to that unit, and your
+  current target does not change.
+- Without `target`, the spell goes to your current target, as with
+  `CastSpellByName`.
+- A ground-target spell shows the targeting circle for you to click.
+  To place it at a unit, use
+  [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell).
+- A string that is not a unit token causes an "Unknown unit" error.
+
+| Case | Return |
+|------|--------|
+| The cast attempt started | `true` |
+| You and your pet do not know the spell | nothing |
+| `target` names no unit (for example, `"target"` with no target) | nothing |
+
+A `true` return does not prove that the spell cast. The game can
+still refuse it. For example, the target is out of range, or the
+spell is on cooldown.
+
+A macro that calls `CastSpellByID(<spellID>)` shows that spell on its
+action button, as a `/cast` line does.
 
 ### `CastSpellNoToggle(name | spellID [, unit [, placeGroundSpell]])`
 
