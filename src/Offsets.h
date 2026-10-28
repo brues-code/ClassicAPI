@@ -4711,6 +4711,13 @@ enum Offsets {
     OFF_PLAYER_INFO_FLAGS = 0x08,
     PLAYER_FLAG_AFK = 0x02,
     PLAYER_FLAG_DND = 0x04,
+    // Chat AFK mirror (4.3.4 CGChat::m_afk), dword, nonzero = AFK. Five
+    // writers, all disassembled: SetAfk 0x5EB7AE (1, first mark), ClearAfk
+    // 0x5EB885 (0), the PLAYER_FLAGS change handler 0x5EE9F2 (active player's
+    // `flags & PLAYER_FLAG_AFK`, so it holds 2, not 1), and world entry
+    // 0x4989EB / 0x4989F7 (1 / 0 from the same bit). 1.12 has no DND mirror:
+    // /dnd tests PLAYER_FLAGS bit 0x4 directly (0x49F3F0).
+    VAR_CHAT_AFK = 0x00B6E5CC,
     // PLAYER_FLAGS bit 4 — a released ghost (benilla-re ui/deathui; the
     // engine's ghost test `test byte [eax+8],0x10`, OnPlayerFlagsChanged
     // 0x005EEAB4).

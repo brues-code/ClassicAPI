@@ -73,6 +73,8 @@ build instructions.
   - [`GetCurrentChatEvent()`](#getcurrentchatevent)
   - [`GetCurrentChatGUID()`](#getcurrentchatguid)
   - [`SendSystemMessage(message)`](#sendsystemmessagemessage)
+  - [`IsChatAFK()`](#ischatafk)
+  - [`IsChatDND()`](#ischatdnd)
 
 - [Class](#class)
   - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable--isfemale)
@@ -2157,6 +2159,41 @@ If `message` is not a string or a number, the function raises the error
 `Usage: SendSystemMessage("message")`.
 
 The line cannot show icons. A `|T` or `|A` escape shows as text.
+
+### `IsChatAFK()`
+
+Returns `true` when the player is marked AFK, `false` otherwise. Takes no
+arguments.
+
+The value changes as soon as you type `/afk`, and when AFK clears because
+you chat or move with the `autoClearAFK` setting on. It also follows the
+server: when the server clears AFK (for example, in combat), the value
+becomes `false`. Use it to decide whether the next `/afk` sets or clears
+the status.
+
+```lua
+if IsChatAFK() then
+    SendChatMessage("", "AFK") -- clears AFK
+end
+```
+
+To get the AFK status of another player, use `UnitIsAFK(unit)`.
+
+### `IsChatDND()`
+
+Returns `true` when the player is marked DND, `false` otherwise. Takes no
+arguments.
+
+The value changes when the server confirms the `/dnd` command, a short
+time after you type it.
+
+```lua
+if not IsChatDND() then
+    SendChatMessage("Busy", "DND")
+end
+```
+
+To get the DND status of another player, use `UnitIsDND(unit)`.
 
 ## Class
 

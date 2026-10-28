@@ -57,7 +57,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Animation](docs/API.md#animation) | `region:CreateAnimationGroup`, `region:GetAnimationGroups`, `region:StopAnimating`, `SetMaxAnimFramerate`, `GetMaxAnimFramerate`, `AnimationGroup` and `Animation` / `Alpha` / `Translation` / `Scale` / `Rotation` / `Path` / `ControlPoint` methods |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem`, `CanCancelAuction` |
 | [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings`, `GetBindingAction` (`checkOverride`), `GetBindingByKey`, `IsModifiedClick`, `GetModifiedClick`, `SetModifiedClick`, `GetNumModifiedClickActions`, `GetModifiedClickAction` |
-| [Chat](docs/API.md#chat) | `GetCurrentChatEvent`, `GetCurrentChatGUID`, `SendSystemMessage` |
+| [Chat](docs/API.md#chat) | `GetCurrentChatEvent`, `GetCurrentChatGUID`, `IsChatAFK`, `IsChatDND`, `SendSystemMessage` |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
 | [Class](docs/API.md#class) | `FillLocalizedClassList` |
 | [ClassColor](docs/API.md#classcolor) | `C_ClassColor.GetClassColor` |
