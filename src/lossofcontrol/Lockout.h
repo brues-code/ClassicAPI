@@ -32,6 +32,8 @@ namespace LossOfControl {
 //   PACIFY                        → spells with PreventionType PACIFY (2)
 //   PACIFYSILENCE                 → both of the above
 //   ROOT / DISARM                 → nothing (neither stops a cast)
+// except that, like the client's own cast check, a spell granting immunity
+// to the effect is not blocked by it (a druid form under Polymorph).
 bool LockoutForSpell(int spellID, uint32_t *startMs, uint32_t *endMs);
 
 } // namespace LossOfControl

@@ -220,29 +220,49 @@ int BuildList(LocEntry *out, int maxOut) {
     return n;
 }
 
-// Which spells a control-loss effect blocks — the server's cast gates
-// (`Spell::CheckCast`) restated: a school lockout gates by the spell's school
-// (`Unit::IsSpellSchoolLocked`); stun / fear / confuse / charm / possess gate
-// every cast (UNIT_STAT_STUNNED / FLEEING / CONFUSED, or control handed to
-// another unit); silence and pacify gate by the spell's PreventionType
-// (UNIT_FLAG_SILENCED ↔ SPELL_PREVENTION_TYPE_SILENCE, UNIT_FLAG_PACIFIED ↔
-// _PACIFY). Root and disarm stop no cast.
-bool Blocks(const LocEntry &e, int schoolIdx, int preventionType) {
-    const char *t = e.locType;
-    if (std::strcmp(t, "SCHOOL_INTERRUPT") == 0)
-        return (e.schoolMask & (1 << schoolIdx)) != 0;
-    if (std::strcmp(t, "STUN") == 0 || std::strcmp(t, "FEAR") == 0 ||
-        std::strcmp(t, "CONFUSE") == 0 || std::strcmp(t, "CHARM") == 0 ||
-        std::strcmp(t, "POSSESS") == 0)
-        return true;
+// The caster validator's (`FUN_CHECK_CASTER_STATE_FOR_SPELL`) refusal arm a
+// control-loss effect falls under, as that arm's exemption scan; 0 when the
+// effect stops no cast of this PreventionType. Stun / fear / confuse / charm
+// / possess gate every cast; silence and pacify gate by the spell's
+// PreventionType (UNIT_FLAG_SILENCED ↔ SPELL_PREVENTION_TYPE_SILENCE,
+// UNIT_FLAG_PACIFIED ↔ _PACIFY). Root and disarm stop no cast.
+uintptr_t ArmScan(const char *t, int preventionType) {
+    if (std::strcmp(t, "STUN") == 0)
+        return Offsets::FUN_SCAN_STUN_AURAS;
+    if (std::strcmp(t, "FEAR") == 0)
+        return Offsets::FUN_SCAN_FEAR_AURAS;
+    if (std::strcmp(t, "CONFUSE") == 0)
+        return Offsets::FUN_SCAN_CONFUSE_AURAS;
+    if (std::strcmp(t, "CHARM") == 0 || std::strcmp(t, "POSSESS") == 0)
+        return Offsets::FUN_SCAN_CHARM_AURAS;
     const bool both = std::strcmp(t, "PACIFYSILENCE") == 0;
     if ((both || std::strcmp(t, "SILENCE") == 0) &&
         preventionType == Offsets::SPELL_PREVENTION_TYPE_SILENCE)
-        return true;
+        return Offsets::FUN_SCAN_SILENCE_AURAS;
     if ((both || std::strcmp(t, "PACIFY") == 0) &&
         preventionType == Offsets::SPELL_PREVENTION_TYPE_PACIFY)
-        return true;
-    return false;
+        return Offsets::FUN_SCAN_PACIFY_AURAS;
+    return 0;
+}
+
+using ScanAuras_t = uint8_t(__fastcall *)(const void *unit,
+                                          const uint8_t *castRecord,
+                                          uint32_t *mechanic);
+
+// Whether a control-loss effect blocks casting `castRec`. A school lockout
+// gates by the spell's school (`Unit::IsSpellSchoolLocked`). Anything else
+// asks its validator arm's own scan, which lets through a spell granting
+// immunity to every aura of the arm — a druid form under Polymorph.
+bool Blocks(const LocEntry &e, const uint8_t *castRec, int schoolIdx,
+            int preventionType) {
+    if (std::strcmp(e.locType, "SCHOOL_INTERRUPT") == 0)
+        return (e.schoolMask & (1 << schoolIdx)) != 0;
+    const uintptr_t scan = ArmScan(e.locType, preventionType);
+    if (scan == 0)
+        return false;
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    return player == nullptr ||
+           reinterpret_cast<ScanAuras_t>(scan)(player, castRec, nullptr) == 0;
 }
 
 // ---- LOSS_OF_CONTROL_ADDED / _UPDATE events (WorldTick poll-and-diff) ------
@@ -437,7 +457,7 @@ bool LockoutForSpell(int spellID, uint32_t *startMs, uint32_t *endMs) {
         const LocEntry &e = entries[i];
         if (e.endMs == 0 || Reached(now, e.endMs))
             continue; // timing unknown, or already over
-        if (!Blocks(e, school, prevention))
+        if (!Blocks(e, rec, school, prevention))
             continue;
         if (!found || Time::Clock::Remaining(now, e.endMs) >
                           Time::Clock::Remaining(now, *endMs)) {

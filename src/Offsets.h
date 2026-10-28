@@ -2985,6 +2985,21 @@ enum Offsets {
     // spell/castgates; xrefs confirm the single call).
     FUN_CHECK_CASTER_STATE_FOR_SPELL = 0x006094F0,
     CALL_TRY_CAST_CHECK_CASTER_STATE = 0x006E4F3B,
+    // CheckCasterStateForSpell's crowd-control exemption scans, one per
+    // refusal arm: `uint8_t __fastcall(void *unit /*ecx*/, const uint8_t
+    // *castRecord /*edx*/, uint32_t *mechanic)`, ret 4; `mechanic` may be
+    // null. 1 = the unit has auras of the arm's types and the cast spell
+    // grants an immunity covering every such effect (AttributesEx 0x8000 +
+    // an immunity aura, matched by FUN_006E9D70 — the druid forms' Polymorph
+    // immunity), so the arm lets the cast through. The arm's unit-flag test
+    // decides whether the scan runs at all. Verified by disassembly (ret 4,
+    // the pushed aura types; benilla-re spell/checks).
+    FUN_SCAN_STUN_AURAS = 0x006E9C80,    // 12
+    FUN_SCAN_SILENCE_AURAS = 0x006E9E60, // 27, 12, 60
+    FUN_SCAN_PACIFY_AURAS = 0x006E9EC0,  // 25, 12, 60
+    FUN_SCAN_FEAR_AURAS = 0x006E9F20,    // 7
+    FUN_SCAN_CONFUSE_AURAS = 0x006E9F40, // 5
+    FUN_SCAN_CHARM_AURAS = 0x006E9F60,   // 6, 177, 2
     // The cast request's (FUN_006E4B60) two reads of its target GUID, the
     // argument halves at [ebx+0xC] / [ebx+0x10] (Ghidra):
     //   CheckSpellTargetRange — `uint8_t __fastcall(void *caster, const

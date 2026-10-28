@@ -18262,6 +18262,9 @@ Which effects block which spells:
 | Pacify | Abilities that a pacify prevents (most melee and ranged abilities). |
 | Root, disarm | Nothing. |
 
+An effect does not block a spell that makes you immune to that effect.
+For example, Polymorph does not block a druid's shapeshift forms.
+
 The function reports only effects with a known end time. See the timing
 note in [LossOfControl](#lossofcontrol): a school lockout always has one,
 and a control effect has one when ClassicAPI saw the cast that applied it.
