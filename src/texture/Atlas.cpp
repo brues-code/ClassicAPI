@@ -79,6 +79,7 @@ std::map<std::string, Info> &Registry() {
             info.elementID = e.elementID;
             info.tilesHorizontally = e.tilesHorizontally;
             info.tilesVertically = e.tilesVertically;
+            info.transposed = e.transposed;
             registry[Lower(e.name)] = info;
         }
     }
@@ -136,13 +137,15 @@ Applied *LiveEntry(void *region) {
     return &it->second;
 }
 
-// Map sprite-space corners onto the atlas's rectangle within its file.
+// Map sprite-space corners onto the atlas's rectangle within its file; a
+// transposed sprite's x runs down the rectangle and its y across it.
 void Compose(const Info &info, const float user[8], float out[8]) {
     const float width = info.right - info.left;
     const float height = info.bottom - info.top;
     for (int i = 0; i < 4; ++i) {
-        out[i * 2] = info.left + user[i * 2] * width;
-        out[i * 2 + 1] = info.top + user[i * 2 + 1] * height;
+        const float x = user[i * 2], y = user[i * 2 + 1];
+        out[i * 2] = info.left + (info.transposed ? y : x) * width;
+        out[i * 2 + 1] = info.top + (info.transposed ? x : y) * height;
     }
 }
 

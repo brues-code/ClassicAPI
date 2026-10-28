@@ -224,6 +224,10 @@ bool ParseAtlasIcon(const char *payload, size_t len, IconDesc &out) {
         Texture::Atlas::RecordMiss(name.c_str());
         return false;
     }
+    // An inline icon is one axis-aligned rect of its file; a transposed sprite
+    // is not one.
+    if (info->transposed)
+        return false;
     out.path = info->file;
     out.u0 = info->left;
     out.u1 = info->right;

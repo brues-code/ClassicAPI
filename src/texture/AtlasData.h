@@ -88,6 +88,12 @@ struct Entry {
     int32_t elementID;              // Blizzard UiTextureAtlasMember.UiTextureAtlasElementID
     bool tilesHorizontally;
     bool tilesVertically;
+    // The sprite is the rect transposed: sprite x runs down the file rect and
+    // sprite y across it, so the rect's top edge is the sprite's left edge and
+    // `width` / `height` are the rect's height / width. This client has no
+    // horizontal scroll bar art; transposing the vertical art keeps its
+    // top-left lighting, which a quarter turn would move.
+    bool transposed;
 };
 
 constexpr Entry kAtlases[] = {
@@ -165,6 +171,47 @@ constexpr Entry kAtlases[] = {
     {"UI-ScrollBar-ClassicScrollDownButton-Highlight",
      "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight", 19, 17,
      0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18429, false, false},
+    // WIDGET MATCH, transposed. Retail's WowTrimHorizontalScrollBar
+    // (Shared/Scroll/TrimScrollBar.xml) draws with these atlases, and its
+    // layout is the vertical bar's with x and y swapped; Classic Era has no
+    // horizontal bar and this client no horizontal scroll bar art. Each is the
+    // Classic scroll bar entry above transposed: the top cap is the left cap,
+    // the bottom cap the right one, the rails the center (tiling horizontally,
+    // as the `_` prefix and member flag 4 mark it), the up arrow the left one
+    // and the down arrow the right one. Sizes are the transposed 1.12 sprites.
+    {"UI-ScrollBar-EndCap-Left",
+     "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 28, 31, 0.0f,
+     0.484375f, 0.0f, 0.109375f, 1769, 17384, false, false, true},
+    {"UI-ScrollBar-EndCap-Right",
+     "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 28, 31, 0.515625f,
+     1.0f, 0.88671875f, 0.99609375f, 1769, 17385, false, false, true},
+    {"_UI-ScrollBar-Center",
+     "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 228, 31, 0.0f,
+     0.484375f, 0.109375f, 1.0f, 1770, 17418, true, false, true},
+    {"UI-ScrollBar-ScrollLeftButton-Up",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17406, false, false, true},
+    {"UI-ScrollBar-ScrollLeftButton-Down",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Down", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17404, false, false, true},
+    {"UI-ScrollBar-ScrollLeftButton-Disabled",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Disabled", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17403, false, false, true},
+    {"UI-ScrollBar-ScrollLeftButton-Highlight",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Highlight", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17405, false, false, true},
+    {"UI-ScrollBar-ScrollRightButton-Up",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17410, false, false, true},
+    {"UI-ScrollBar-ScrollRightButton-Down",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Down", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17408, false, false, true},
+    {"UI-ScrollBar-ScrollRightButton-Disabled",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Disabled", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17407, false, false, true},
+    {"UI-ScrollBar-ScrollRightButton-Highlight",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight", 17, 19,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17409, false, false, true},
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);

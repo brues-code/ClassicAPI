@@ -22796,6 +22796,7 @@ shows its frames only inside its own area.
 | `WowScrollBox` | A scroll box with one frame that you make, such as a long text. |
 | `WowClassicScrollBar` | A vertical scroll bar with the client's own scroll bar art. |
 | `WowTrimScrollBar`, `MinimalScrollBar` | The same as `WowClassicScrollBar`. |
+| `WowTrimHorizontalScrollBar` | A horizontal scroll bar. It uses the art of `WowClassicScrollBar`, turned on its side. |
 | `ScrollingEditBoxTemplate`, `ScrollingFontTemplate` | An edit box or a font string in a scroll box. |
 
 ```lua

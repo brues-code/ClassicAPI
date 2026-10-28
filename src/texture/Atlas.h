@@ -45,6 +45,8 @@ struct Info {
     int elementID = 0;
     bool tilesHorizontally = false;
     bool tilesVertically = false;
+    // A built-in sprite drawn transposed from its rect (AtlasData::Entry).
+    bool transposed = false;
 };
 
 // Resolves an atlas by name, case-insensitively. Null when the name is unbound.
