@@ -47,6 +47,7 @@ build instructions.
 
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
+  - [`CanCancelAuction(index)`](#cancancelauctionindex)
 
 - [AuraUtil](#aurautil)
   - [`AuraUtil.ForEachAura`](#aurautilforeachaura)
@@ -1931,6 +1932,23 @@ aren't aggregated across bags — `quantity × numStacks` must fit in that one
 stack); temp splits use general-purpose bags only, so family-restricted items
 (arrows/shards that live in specialty bags) aren't supported; one job runs at
 a time.
+
+### `CanCancelAuction(index)`
+
+Returns `1` when row `index` of the `"owner"` auction list is an auction
+that `CancelAuction(index)` can cancel. Returns `nil` for an index with no
+row. When the auction house is closed, it returns no value.
+
+`CancelAuction` also needs money for the cancel fee when the auction has a
+bid. `CanCancelAuction` does not examine the money.
+
+```lua
+for i = 1, GetNumAuctionItems("owner") do
+    if CanCancelAuction(i) then
+        print(GetAuctionItemLink("owner", i))
+    end
+end
+```
 
 ## AuraUtil
 
