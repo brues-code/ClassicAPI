@@ -364,6 +364,27 @@ int __fastcall Script_GetNumGossipActiveQuests(void *L) {
     return 1;
 }
 
+// `GetNumGossipOptions()` — 3.3.5 pushes m_gossipOptionsCount. 1.12 keeps no
+// count and has no counter like the quest ones: Script_GetGossipOptions
+// (0x004E28D0) walks all 16 slots, skips a negative index, and pushes a
+// (text, type) pair per remaining slot, with no session check. This counts
+// exactly those slots.
+int __fastcall Script_GetNumGossipOptions(void *L) {
+    int count = 0;
+    for (int slot = 0; slot < Offsets::GOSSIP_OPTIONS_MAX; ++slot) {
+        if (OptionIndex(OptionEntry(slot)) >= 0)
+            count += 1;
+    }
+    Game::Lua::PushNumber(L, static_cast<double>(count));
+    return 1;
+}
+
+const Game::Doc::Field kNumOptionsRets[] = {
+    Game::Doc::Req("numOptions", "number", nullptr),
+};
+const Game::Doc::Function kGetNumGossipOptions{
+    "Returns the number of options GetGossipOptions returns.", {}, kNumOptionsRets, "GossipGlobals"};
+
 // Selectors — translate the retail-shape arg into the engine's
 // 0-based slot/index and call the engine helper directly. The helpers
 // are what the `Script_SelectGossip*` Lua wrappers tail-call after
@@ -539,6 +560,8 @@ void RegisterLuaFunctions() {
                                       &Script_GetNumGossipAvailableQuests);
     Game::Lua::RegisterGlobalFunction("GetNumGossipActiveQuests",
                                       &Script_GetNumGossipActiveQuests);
+    Game::Lua::RegisterGlobalFunction("GetNumGossipOptions", &Script_GetNumGossipOptions,
+                                      &kGetNumGossipOptions);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectOption",
                                      &Script_C_GossipInfo_SelectOption);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectOptionByIndex",

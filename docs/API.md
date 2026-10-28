@@ -472,6 +472,7 @@ build instructions.
   - [`C_GossipInfo.GetPoiForUiMapID(uiMapID)`](#c_gossipinfogetpoiforuimapiduimapid)
   - [`C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)`](#c_gossipinfogetpoiinfouimapid-gossippoiid)
   - [`GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`](#getnumgossipavailablequests--getnumgossipactivequests)
+  - [`GetNumGossipOptions()`](#getnumgossipoptions)
 
 - [Hooks](#hooks)
   - [`hooksecurefunc(name, callback)` / `hooksecurefunc(table, name, callback)`](#hooksecurefuncname-callback--hooksecurefunctable-name-callback)
@@ -10826,6 +10827,18 @@ gossip menus only. For a questgiver that has no gossip menu, use
 local quests = { GetGossipAvailableQuests() }
 for i = 1, GetNumGossipAvailableQuests() do
     local title, level = quests[i * 2 - 1], quests[i * 2]
+end
+```
+
+### `GetNumGossipOptions()`
+
+Returns the number of options that `GetGossipOptions()` returns. Each
+option is one (text, type) pair, so the count always agrees with the list.
+
+```lua
+local options = { GetGossipOptions() }
+for i = 1, GetNumGossipOptions() do
+    local text, gossipType = options[i * 2 - 1], options[i * 2]
 end
 ```
 
