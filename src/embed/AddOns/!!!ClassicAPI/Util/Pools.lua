@@ -520,3 +520,5 @@ CreateActorPool = CreateUnsecuredActorPool;
 CreateFramePoolCollection = CreateUnsecuredFramePoolCollection;
 CreateFontStringPoolCollection = CreateUnsecuredFontStringPoolCollection;
 CreateMaskTexturePool = CreateUnsecuredMaskTexturePool;
+
+AddSourceLocationExclude("Pools.lua");

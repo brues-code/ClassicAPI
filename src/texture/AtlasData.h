@@ -110,6 +110,54 @@ constexpr Entry kAtlases[] = {
      0.0f, 1.0f, 0.0f, 1.0f, 647, 9443, false, false},
     {"Rotating-MinimapGuideArrow", "Interface\\Minimap\\ROTATING-MINIMAPGUIDEARROW", 32, 32,
      0.0f, 1.0f, 0.0f, 1.0f, 647, 9444, false, false},
+    // WIDGET MATCH. Classic Era's WowClassicScrollBar (Classic/Scroll/
+    // TrimScrollBar.xml) draws its track and steppers with these atlases; this
+    // client's scroll bars draw the same art from files. The track is
+    // UI-Character-ScrollBar (64x256), the file the Friends and Battlefield
+    // frames' scroll bars use: its left column (0..0.484375, 31 px) is the top
+    // cap and then rails to the bottom, its right column (0.515625..1) ends in
+    // the bottom cap at 0.4140625 (106 px), the TexCoords those frames give
+    // it. Each cap is the 28 px at its end, the member table's 31x28. The
+    // center tiles vertically there; here it is the whole rail below the top
+    // cap, so a stretched center shows the same rails.
+    {"UI-ClassicScrollBar-EndCap-Top",
+     "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 31, 28, 0.0f,
+     0.484375f, 0.0f, 0.109375f, 1941, 18426, false, false},
+    {"UI-ClassicScrollBar-EndCap-Bottom",
+     "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 31, 28, 0.515625f,
+     1.0f, 0.3046875f, 0.4140625f, 1941, 18425, false, false},
+    {"UI-ClassicScrollBar-Center",
+     "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar", 31, 228, 0.0f,
+     0.484375f, 0.109375f, 1.0f, 1763, 18422, false, true},
+    // WIDGET MATCH, the same scroll bar's steppers: this client's
+    // UIPanelScrollUp/DownButtonTemplate draws them from these 32x32 files. The
+    // arrow in every Up/Down/Disabled file sits at pixels (6,7)..(25,24), alpha
+    // measured, which is exactly the member table's 19x17. The Highlight files
+    // are full-frame glows the client draws with alphaMode ADD; same rect.
+    {"UI-ScrollBar-ClassicScrollUpButton-Up",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18434, false, false},
+    {"UI-ScrollBar-ClassicScrollUpButton-Down",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Down", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18432, false, false},
+    {"UI-ScrollBar-ClassicScrollUpButton-Disabled",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Disabled", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18431, false, false},
+    {"UI-ScrollBar-ClassicScrollUpButton-Highlight",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Highlight", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18433, false, false},
+    {"UI-ScrollBar-ClassicScrollDownButton-Up",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18430, false, false},
+    {"UI-ScrollBar-ClassicScrollDownButton-Down",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Down", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18428, false, false},
+    {"UI-ScrollBar-ClassicScrollDownButton-Disabled",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Disabled", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18427, false, false},
+    {"UI-ScrollBar-ClassicScrollDownButton-Highlight",
+     "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight", 19, 17,
+     0.1875f, 0.78125f, 0.21875f, 0.75f, 1941, 18429, false, false},
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);
