@@ -4230,6 +4230,11 @@ enum Offsets {
     VAR_SCROLLFRAME_LUA_TYPE_ID = 0x00CF4F14,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
+    // fontstring:SetText(text) - standard Script_* shape: resolves self, raises
+    // the SetText 'Font not set' error without a font, then
+    // FUN_FONTSTRING_SET_TEXT(fs, lua_tostring(L, 2), 1); nil or no text
+    // clears it. FontString::Metrics' SetTextToFit calls it.
+    FUN_SCRIPT_FONTSTRING_SET_TEXT = 0x0079D760,
     FUN_SCRIPT_FONTSTRING_SHOW = 0x0079CDB0,
     FUN_SCRIPT_FONTSTRING_HIDE = 0x0079CE70,
 

@@ -52,6 +52,15 @@
 //                               re-invalidates the layout like SetText does.
 //                               SetMaxLines(1) is how you get a single-line,
 //                               ellipsized label.
+//   SetTextToFit([text])      — SetText, then the explicit width becomes the
+//                               unbounded width (probed on 5.5.4: smaller or
+//                               larger widths alike, max lines ignored; empty
+//                               text leaves the width unset). The height is
+//                               not touched. The text goes through the
+//                               engine's own Lua SetText (0x0079D760), so its
+//                               conversions, grammar escapes and "Font not
+//                               set" error are SetText's; the width through
+//                               CLayoutFrame::SetWidth, as Lua SetWidth does.
 //   GetFieldSize()            — how many bytes of text the string holds. 4.3.4
 //                               answers its own constant 8191; 1.12's truth is
 //                               the fixed text size (XML `bytes`) less the one
@@ -83,6 +92,8 @@ using StringHeightInternal_t = float(__fastcall *)(void *fs);
 using MeasureSubstring_t = float(__fastcall *)(void *fs, void *edx, const char *text, int len);
 // FUN_FONTSTRING_FONT_HEIGHT — __thiscall(fs, mode-on-stack); dummy-EDX form.
 using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
+// FUN_LAYOUT_SET_WIDTH — __thiscall(region + OFF_REGION_ANCHOR, internal width).
+using SetWidth_t = void(__thiscall *)(void *anchor, float internal);
 // FUN_FONTSTRING_BREAK_ARRAY — __thiscall(fs, text, wrapWidth, outBreaks, cap).
 using BreakArray_t = uint32_t(__fastcall *)(void *fs, void *edx, const char *text, float width,
                                             int *outBreaks, int cap);
@@ -128,19 +139,32 @@ int __fastcall Script_GetStringHeight(void *L) {
     return 1;
 }
 
+// The width of the whole text with no wrap cap, in internal units; 0 for no
+// text.
+float UnboundedWidth(void *fs) {
+    const char *text = Game::Read<const char *>(fs, Offsets::OFF_FONTSTRING_TEXT);
+    if (text == nullptr || *text == '\0')
+        return 0.0f;
+    return reinterpret_cast<MeasureSubstring_t>(Offsets::FUN_FONTSTRING_MEASURE_SUBSTRING)(fs, nullptr, text,
+                                                                                         0);
+}
+
 int __fastcall Script_GetUnboundedStringWidth(void *L) {
     void *fs = ResolveSelf(L, "Usage: fontstring:GetUnboundedStringWidth()");
     if (fs == nullptr)
         return 0;
-    const char *text = Game::Read<const char *>(fs, Offsets::OFF_FONTSTRING_TEXT);
-    if (text == nullptr || *text == '\0') {
-        Game::Lua::PushNumber(L, 0.0);
-        return 1;
-    }
-    const float w = reinterpret_cast<MeasureSubstring_t>(
-        Offsets::FUN_FONTSTRING_MEASURE_SUBSTRING)(fs, nullptr, text, 0);
-    Game::Lua::PushNumber(L, Game::InternalToPixel(w));
+    Game::Lua::PushNumber(L, Game::InternalToPixel(UnboundedWidth(fs)));
     return 1;
+}
+
+int __fastcall Script_SetTextToFit(void *L) {
+    void *fs = ResolveSelf(L, "Usage: fontstring:SetTextToFit([text])");
+    if (fs == nullptr)
+        return 0;
+    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_FONTSTRING_SET_TEXT)(L);
+    reinterpret_cast<SetWidth_t>(Offsets::FUN_LAYOUT_SET_WIDTH)(Game::Ptr<uint8_t>(fs, Offsets::OFF_REGION_ANCHOR),
+                                                               UnboundedWidth(fs));
+    return 0;
 }
 
 int __fastcall Script_GetNumLines(void *L) {
@@ -339,12 +363,24 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetMaxLines", &Script_SetMaxLines},
     {"GetMaxLines", &Script_GetMaxLines},
     {"GetFieldSize", &Script_GetFieldSize},
+    {"SetTextToFit", &Script_SetTextToFit},
+};
+
+const Game::Doc::Field kSetTextToFitArgs[] = {
+    Game::Doc::Opt("text", "cstring", "\"\"", "The text to show."),
+};
+const Game::Doc::Function kSetTextToFit{"Sets the text and makes the font string as wide as the text.",
+                                        kSetTextToFitArgs, {}};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetTextToFit", &kSetTextToFit},
 };
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
+        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

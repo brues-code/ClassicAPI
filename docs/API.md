@@ -285,6 +285,7 @@ build instructions.
   - [A ScrollFrame keeps clipping its content when it moves](#a-scrollframe-keeps-clipping-its-content-when-it-moves)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`fontstring:GetUnboundedStringWidth()`](#fontstringgetunboundedstringwidth)
+  - [`fontstring:SetTextToFit([text])`](#fontstringsettexttofittext)
   - [`fontstring:GetWrappedWidth()`](#fontstringgetwrappedwidth)
   - [`fontstring:GetNumLines()`](#fontstringgetnumlines)
   - [`fontstring:GetLineHeight()`](#fontstringgetlineheight)
@@ -7050,6 +7051,17 @@ that is a classic API trap. Here the two methods always agree. The width
 of the text AS RENDERED (the widest wrapped line) is `GetWrappedWidth`,
 below. Inline `|T…|t` icon widths are included. Empty or unset text
 returns `0`.
+
+### `fontstring:SetTextToFit([text])`
+
+Sets the text of the font string, and then sets the width of the font
+string to the width of the text on one line (`GetUnboundedStringWidth`).
+
+- The width changes each time, also when the font string was wider than
+  the text.
+- The height does not change.
+- With no text, or empty text, the font string has no width of its own
+  again.
 
 ### `fontstring:GetWrappedWidth()`
 
