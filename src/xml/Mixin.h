@@ -28,8 +28,10 @@ void ApplyChain(void *L, int index, const void *node, void *status, const char *
 // For a loader hook that the engine re-enters for each inherited template:
 // Begin before the engine loads `node`, End after. Only the object's
 // outermost load applies the chain, so every mixin is in place before any
-// node's KeyValues and scripts.
-void Begin(void *object, const void *node, void *status, bool listInherits);
+// node's KeyValues and scripts. `first`, when set, is a node whose chain
+// applies before `node`'s: an intrinsic definition (Xml::Intrinsics).
+void Begin(void *object, const void *node, void *status, bool listInherits,
+           const void *first = nullptr);
 void End(void *object);
 
 } // namespace Xml::Mixin

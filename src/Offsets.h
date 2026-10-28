@@ -11156,6 +11156,13 @@ enum Offsets {
     // FUN_006f2cf0 (`__thiscall(node, name) -> value string`, null if absent).
     OFF_XML_NODE_CHILD = 0x4,
     OFF_XML_NODE_SIBLING = 0x1C,
+    // Parent node @+0x0 (null for a root). FUN_XML_NODE_DETACH — `void
+    // __fastcall(node)` — unlinks the node from its parent's child list and
+    // clears its parent and sibling, so freeing the document leaves it alone;
+    // the template registrar FUN_006EE500 detaches every virtual node it keeps,
+    // and frees a replaced one with FUN_XML_NODE_DTOR + FUN_STORM_SMEM_FREE.
+    OFF_XML_NODE_PARENT = 0x0,
+    FUN_XML_NODE_DETACH = 0x006F2E20,
     // An element's text content (`const char *`, null when empty) - what the
     // XML file processor compiles for an inline <Script> element
     // (`mov esi, [esi+0xC]` at 0x006EE0D9, then "%s:<Scripts>").
@@ -11300,6 +11307,18 @@ enum Offsets {
     // FUN_0048FBF0 after LoadScriptFunctions and before FrameXML loads — and
     // the glue UI's FUN_0046A400.
     FUN_FRAMEXML_REGISTER_FACTORY = 0x006EE880,
+    // The table it fills: a Storm hash with the template table's shape
+    // (XML_TEMPLATE_BUCKET_*): a pointer to the bucket array and the bucket
+    // mask, 0xFFFFFFFF before the first registration. A node holds the name
+    // hash @+0x0 (FUN_SSTR_HASH_HT), the name @+0x14, the factory @+0x18 and
+    // the unique flag (byte) @+0x1C. FUN_XML_FRAME_BUILD's lookup
+    // (0x006EE2DE..0x006EE351) hashes the tag, compares the name with SStrCmpI
+    // and calls the factory with the parent in ECX.
+    VAR_FRAME_FACTORY_TABLE = 0x00CEE9D8,
+    VAR_FRAME_FACTORY_MASK = 0x00CEE9E0,
+    OFF_FRAME_FACTORY_NODE_HASH = 0x0,
+    OFF_FRAME_FACTORY_NODE_NAME = 0x14,
+    OFF_FRAME_FACTORY_NODE_FN = 0x18,
 
     // ---- Subclassing CSimpleFrame (Frame::Cooldown) -------------------------
     // The "Frame" factory of the default list (0x006EEC10) is

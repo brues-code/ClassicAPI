@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "xml/Inherits.h"
+#include "xml/Intrinsics.h"
 #include "Offsets.h"
 
 #include <cstdint>
@@ -134,6 +135,7 @@ uintptr_t __fastcall Hook(void *self, void *edx, const void *node, void *status)
     void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     for (AutoSubscribeBefore *s = g_beforeHead; s != nullptr; s = s->next)
         s->fn(object, node, status);
+    const Intrinsics::LoadScope intrinsic(object, node, status);
     const uintptr_t r = Inherits::LoadFrame(g_orig, self, edx, node, status);
     for (AutoSubscribe *s = g_head; s != nullptr; s = s->next)
         s->fn(object, node, status);

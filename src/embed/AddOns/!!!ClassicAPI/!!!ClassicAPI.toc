@@ -67,6 +67,14 @@ Util\MacroOptions.lua
 Util\SecureStateDriver.lua
 Util\MacroIconSelection.lua
 
+FrameXML\EventFrame.lua
+FrameXML\EventFrame.xml
+FrameXML\EventButton.lua
+FrameXML\EventButton.xml
+FrameXML\EventEditBox.lua
+FrameXML\EventEditBox.xml
+FrameXML\EventScrollFrame.lua
+FrameXML\EventScrollFrame.xml
 FrameXML\LayoutFrame.lua
 FrameXML\LayoutFrame.xml
 FrameXML\SharedUIPanelTemplates.xml

@@ -76,6 +76,7 @@
 #include "Game.h"
 #include "HookSecureFunc.h"
 #include "Offsets.h"
+#include "frame/ScriptBindings.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -403,7 +404,9 @@ constexpr int kMaxWrapperDepth = 32;
 // does when it declares a parameter or is vararg — a modern
 // `function(self, delta)` / `function(self, ...)`. The hook wrapper
 // (`HookSecureFunc::Wrapper`, what HookScript installs) forwards its args to
-// both functions it holds, so it does when either of them does. Any other C
+// both functions it holds, so it does when either of them does; so does the
+// dispatcher of a script with intrinsic bindings (Frame::ScriptBindings) for
+// its three. Any other C
 // closure may read them: a frame method bound directly
 // (`SetScript("OnDragStart", f.StartMoving)`) takes `self` from argument 1
 // and raises "Attempt to find 'this'" without it — 1.12's methods never fall
@@ -422,14 +425,21 @@ bool FunctionWantsArgs(const void *tv, int depth) {
                (Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_NUMPARAMS) > 0 ||
                 Game::Read<uint8_t>(proto, Offsets::OFF_LUA_PROTO_IS_VARARG) != 0);
     }
-    if (Game::Read<uintptr_t>(cl, OFF_CCLOSURE_FN) !=
-        reinterpret_cast<uintptr_t>(&HookSecureFunc::Wrapper))
+    const uintptr_t fn = Game::Read<uintptr_t>(cl, OFF_CCLOSURE_FN);
+    int forwarded = 0;
+    if (fn == reinterpret_cast<uintptr_t>(&HookSecureFunc::Wrapper))
+        forwarded = 2; // original, hook
+    else if (fn == reinterpret_cast<uintptr_t>(&Frame::ScriptBindings::Dispatcher))
+        forwarded = Frame::ScriptBindings::BINDING_COUNT; // precall, extrinsic, postcall
+    else
         return true;
     if (depth >= kMaxWrapperDepth)
         return true;
     const auto *upvalues = static_cast<const uint8_t *>(cl) + OFF_CCLOSURE_UPVALUES;
-    return FunctionWantsArgs(upvalues, depth + 1) ||              // original
-           FunctionWantsArgs(upvalues + kTValueSize, depth + 1);  // hook
+    for (int i = 0; i < forwarded; ++i)
+        if (FunctionWantsArgs(upvalues + i * kTValueSize, depth + 1))
+            return true;
+    return false;
 }
 
 // Does this handler actually observe positional args? A vanilla handler reads

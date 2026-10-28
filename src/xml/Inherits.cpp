@@ -54,6 +54,10 @@
 //
 // Textures and font strings keep one template, as in 4.3.4.
 //
+// The builder hook also hands Xml::Intrinsics the definitions it keeps
+// instead of building, and the node its factory builds; the children hook
+// builds an intrinsic definition's child frames first.
+//
 // The two frame hooks also finish Xml::Anchors' queued relativeKey anchors:
 // the children hook once a frame's <Frames> are built (before its OnLoad),
 // the builder hook when the outermost build returns.
@@ -69,6 +73,7 @@
 #include "gc/Tag.h"
 #include "xml/Anchors.h"
 #include "xml/FrameLoad.h"
+#include "xml/Intrinsics.h"
 
 #include <algorithm>
 #include <cstring>
@@ -153,6 +158,10 @@ void __fastcall ChildFrames_h(void *frame, void *edx, const void *node, void *st
                                      frame) == g_buildingChildren.end();
     if (outermost)
         g_buildingChildren.push_back(frame);
+    // An intrinsic definition's own child frames come first (Xml::Intrinsics).
+    if (outermost)
+        if (const void *def = Xml::Intrinsics::ForChain(node, nullptr))
+            ChildFramesBody(frame, edx, def, status);
     ChildFramesBody(frame, edx, node, status);
     if (outermost) {
         g_buildingChildren.pop_back();
@@ -190,6 +199,8 @@ const char *FindParent(const void *node, bool *sawList) {
 int g_buildDepth = 0;
 
 void *__fastcall Build_h(const void *node, void *parent, void *status) {
+    if (node != nullptr && Xml::Intrinsics::Define(node, status))
+        return nullptr;
     if (node != nullptr && Attr(node, "parent") == nullptr) {
         bool sawList = false;
         const char *name = FindParent(node, &sawList);
@@ -200,6 +211,7 @@ void *__fastcall Build_h(const void *node, void *parent, void *status) {
                 Warn(status, reinterpret_cast<const char *>(Offsets::STR_XML_NO_FRAME_PARENT), name);
         }
     }
+    const Xml::Intrinsics::BuildScope intrinsic(node);
     ++g_buildDepth;
     void *frame = g_origBuild(node, parent, status);
     if (--g_buildDepth == 0)

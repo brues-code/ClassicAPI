@@ -26,7 +26,9 @@
 // overwrite their defaults. Instead the OUTERMOST load of an object walks
 // the whole inherits chain once, before the engine runs, and mixes in each
 // template's mixins (templates first, in inherits order) and then the
-// element's own. Inner loads of the same object apply nothing.
+// element's own. Inner loads of the same object apply nothing. A frame
+// whose chain builds on an intrinsic type (Xml::Intrinsics) takes the
+// definition's mixins before all of them.
 //
 // A name that is not a global table is skipped with a load warning.
 
@@ -36,6 +38,7 @@
 #include "baselib/Mixin.h"
 #include "xml/FrameLoad.h"
 #include "xml/Inherits.h"
+#include "xml/Intrinsics.h"
 
 #include <vector>
 
@@ -109,20 +112,25 @@ void ApplyChain(void *L, int index, const void *node, void *status, const char *
     ApplyNode(L, index, node, status, owner, listInherits, 0);
 }
 
-void Begin(void *object, const void *node, void *status, bool listInherits) {
+void Begin(void *object, const void *node, void *status, bool listInherits, const void *first) {
     bool outer = true;
     for (void *o : g_loading)
         if (o == object)
             outer = false;
     g_loading.push_back(object);
-    if (!outer || !HasMixinInChain(node, listInherits, 0))
+    if (!outer || (!HasMixinInChain(node, listInherits, 0) &&
+                   (first == nullptr || !HasMixinInChain(first, listInherits, 0))))
         return;
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
     const int top = Game::Lua::GetTop(L);
-    if (PushWrapper(L, object))
-        ApplyChain(L, top + 1, node, status, Game::Lua::ObjectDisplayName(object), listInherits);
+    if (PushWrapper(L, object)) {
+        const char *owner = Game::Lua::ObjectDisplayName(object);
+        if (first != nullptr)
+            ApplyChain(L, top + 1, first, status, owner, listInherits);
+        ApplyChain(L, top + 1, node, status, owner, listInherits);
+    }
     Game::Lua::SetTop(L, top);
 }
 
@@ -133,7 +141,9 @@ void End(void *object) {
 
 namespace {
 
-void BeginFrame(void *object, const void *node, void *status) { Begin(object, node, status, true); }
+void BeginFrame(void *object, const void *node, void *status) {
+    Begin(object, node, status, true, Intrinsics::ForChain(node, nullptr));
+}
 void EndFrame(void *object, const void *, void *) { End(object); }
 
 const FrameLoad::AutoSubscribeBefore _frameBegin{&BeginFrame};

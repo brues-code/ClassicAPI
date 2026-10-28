@@ -349,6 +349,7 @@ build instructions.
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
   - [`frame:GetBoundsRect()`](#framegetboundsrect)
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
+  - [Script binding types](#script-binding-types)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
@@ -962,6 +963,7 @@ build instructions.
   - [`parentKey` in XML](#parentkey-in-xml)
   - [`KeyValues` in XML](#keyvalues-in-xml)
   - [`mixin` in XML](#mixin-in-xml)
+  - [`intrinsic` frame types in XML](#intrinsic-frame-types-in-xml)
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
@@ -7942,6 +7944,42 @@ button:HookScript("OnEnter", function(self)
     GameTooltip:SetText("hello")
     GameTooltip:Show()
 end)
+```
+
+`HookScript` takes an optional third argument, `bindingType`. With
+`LE_SCRIPT_BINDING_TYPE_INTRINSIC_PRECALL` or
+`LE_SCRIPT_BINDING_TYPE_INTRINSIC_POSTCALL`, the hook goes on that
+[intrinsic script](#script-binding-types) instead of the handler.
+
+### Script binding types
+
+Each script of a frame has three parts. They run in this order:
+
+| Constant | Value | Part |
+|---|---|---|
+| `LE_SCRIPT_BINDING_TYPE_INTRINSIC_PRECALL` | 0 | The intrinsic script that runs first |
+| `LE_SCRIPT_BINDING_TYPE_EXTRINSIC` | 1 | The handler |
+| `LE_SCRIPT_BINDING_TYPE_INTRINSIC_POSTCALL` | 2 | The intrinsic script that runs last |
+
+The intrinsic scripts come from an
+[`intrinsic` frame type](#intrinsic-frame-types-in-xml), or from
+`HookScript` with a `bindingType`.
+
+- `SetScript(scriptType, handler)` sets the handler only.
+  `SetScript(scriptType, nil)` removes the handler, and the intrinsic
+  scripts still run.
+- `GetScript(scriptType)` returns the handler. It returns `nil` when the
+  script has only intrinsic scripts.
+- `GetScript(scriptType, bindingType)` returns one part, or `nil`.
+- `HookScript(scriptType, hook)` hooks the handler, so the hook runs before
+  the postcall script.
+- An error in one part is shown through the error handler. The other parts
+  still run.
+
+```lua
+local f = CreateFrame("EventFrame")
+f:SetScript("OnShow", nil)
+print(f:GetScript("OnShow", LE_SCRIPT_BINDING_TYPE_INTRINSIC_POSTCALL))
 ```
 
 ### `smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`
@@ -22588,6 +22626,55 @@ template get the template's mixins too.
 
 If a name is not a global table, `FrameXML.log` gets the warning
 `Couldn't find mixin` and the other names still apply.
+
+### `intrinsic` frame types in XML
+
+A top-level frame element with `intrinsic="true"` makes a new frame type.
+The element does not make a frame. Its `name` becomes the name of the type:
+
+```xml
+<Frame name="MyEventFrame" mixin="MyEventFrameMixin" intrinsic="true">
+    <Scripts>
+        <OnLoad method="OnLoad_Intrinsic"/>
+        <OnShow method="OnShow_Intrinsic" intrinsicOrder="postcall"/>
+    </Scripts>
+</Frame>
+```
+
+Use the name as an XML element, or as the type in `CreateFrame`:
+
+```xml
+<MyEventFrame name="MyFrame" parent="UIParent"/>
+```
+
+```lua
+local f = CreateFrame("MyEventFrame", nil, UIParent)
+```
+
+- The frame has the type of the element that made the type. In the
+  example, `GetObjectType()` returns `"Frame"`.
+- The content of the type applies first. Then the templates in `inherits`
+  apply, then the element's own content. The [mixins](#mixin-in-xml) of the
+  type also apply before all other mixins.
+- The scripts of the type are its
+  [intrinsic scripts](#script-binding-types). They always run, also after
+  the frame gets a different handler. An element with
+  `intrinsicOrder="postcall"` runs after the frame's handler. All other
+  intrinsic scripts run before it.
+- A type cannot inherit from templates. `FrameXML.log` gets a warning for
+  an unnamed type, a type with `inherits`, and a type whose name is
+  already a template.
+
+ClassicAPI defines four types: `EventFrame`, `EventButton`,
+`EventEditBox` and `EventScrollFrame`. Each one is a
+`CallbackRegistryMixin` that sends a callback event for some of its
+scripts. For example, an `EventFrame` sends `OnShow`, `OnHide` and
+`OnSizeChanged`:
+
+```lua
+local f = CreateFrame("EventFrame", nil, UIParent)
+f:RegisterCallback("OnShow", function() print("shown") end, f)
+```
 
 ### Masks in XML
 

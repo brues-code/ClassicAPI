@@ -66,6 +66,7 @@
 #include "Game.h"
 #include "HookSecureFunc.h"
 #include "Offsets.h"
+#include "frame/ScriptBindings.h"
 
 #include <cstdint>
 
@@ -363,6 +364,10 @@ int __fastcall Script_SetResizeBounds(void *L) {
 // parameters; the engine sets the this/event/argN globals for vanilla
 // handlers either way. Script lookup, the unknown-script error and storage
 // stay the engine's own GetScript / SetScript, whose texts match 4.3.4's.
+//
+// The retail third argument, `bindingType`, hooks one of the script's
+// intrinsic bindings instead (Frame::ScriptBindings); without it the hook
+// goes on the extrinsic binding, which GetScript / SetScript read and write.
 
 int __fastcall Script_HookScript(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
@@ -373,6 +378,18 @@ int __fastcall Script_HookScript(void *L) {
         Game::Lua::Error(L, "Usage: %s:HookScript(\"type\", function)",
                          Game::Lua::ObjectDisplayName(frame));
         return 0;
+    }
+
+    if (Game::Lua::IsNumber(L, 4)) {
+        const int binding = static_cast<int>(Game::Lua::ToNumber(L, 4));
+        if (binding == Frame::ScriptBindings::INTRINSIC_PRECALL ||
+            binding == Frame::ScriptBindings::INTRINSIC_POSTCALL) {
+            if (!Frame::ScriptBindings::HookIntrinsic(
+                    L, frame, static_cast<Frame::ScriptBindings::Binding>(binding)))
+                Game::Lua::Error(L, "%s doesn't have a \"%s\" script",
+                                 Game::Lua::ObjectDisplayName(frame), Game::Lua::ToString(L, 2));
+            return 0;
+        }
     }
 
     Game::Lua::SetTop(L, 3);                            // (self, type, hook)
