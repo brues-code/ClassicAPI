@@ -35,7 +35,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "item/Arg.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "spell/Lookup.h"
@@ -56,10 +55,7 @@ bool UsesReagents(const uint8_t *spell) {
 }
 
 bool IsConsumable(void *L) {
-    const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);
-    int itemID = arg.itemID;
-    if (itemID <= 0)
-        itemID = Item::Location::IDForName(arg.name, Offsets::INVMGR_SEARCH_BANK);
+    const int itemID = Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK);
     const uint8_t *record =
         itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
     if (record == nullptr)

@@ -29,7 +29,9 @@
 #include "Offsets.h"
 #include "item/Arg.h"
 #include "item/Data.h"
+#include "item/Location.h"
 #include "item/Record.h"
+#include "spell/Info.h"
 #include "spell/Lookup.h"
 
 #include <cstdint>
@@ -75,6 +77,56 @@ int __fastcall Script_GetItemSpell(void *L) {
     return 2;
 }
 
+// `IsHelpfulItem(item)` / `IsHarmfulItem(item)` — 1 when the item's on-use
+// spell is helpful / harmful, else nil. Ports of 4.3.4's
+// `Script_IsHelpfulItem` (0x008C8970) / `Script_IsHarmfulItem` (0x008C8A40),
+// which classify `CGItem_C::GetUseSpell` with `SpellFaction`. 4.3.4 first
+// tries a use-spell enchantment on a carried copy; 1.12 has no such
+// enchantment type, so the record's on-use spell is the whole answer. The
+// classifier is the one behind `IsHelpfulSpell` / `IsHarmfulSpell`, so an
+// item and its spell always agree. Uncached item → nil, no load fired.
+int OnUseSpellForArg(void *L) {
+    const int itemID = Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK);
+    return itemID > 0 ? OnUseSpellIDForItemID(static_cast<uint32_t>(itemID)) : 0;
+}
+
+int __fastcall Script_IsHelpfulItem(void *L) {
+    if (::Spell::Info::IsHelpful(OnUseSpellForArg(L)))
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
+int __fastcall Script_IsHarmfulItem(void *L) {
+    if (::Spell::Info::IsHarmful(OnUseSpellForArg(L)))
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kItemArgs[] = {
+    Game::Doc::Req("item", "number", "An item ID, an item link, or the name of a carried item."),
+};
+const Game::Doc::Field kIsHelpfulRets[] = {
+    Game::Doc::Opt("isHelpful", "number", nullptr,
+                   "1 when the item's use effect aims at a friend, else nil."),
+};
+const Game::Doc::Function kIsHelpfulItem{
+    "Whether the item's use effect aims at a friend.", kItemArgs, kIsHelpfulRets,
+    "ItemGlobals"};
+
+const Game::Doc::Field kIsHarmfulRets[] = {
+    Game::Doc::Opt("isHarmful", "number", nullptr,
+                   "1 when the item's use effect aims at an enemy, else nil."),
+};
+const Game::Doc::Function kIsHarmfulItem{
+    "Whether the item's use effect aims at an enemy.", kItemArgs, kIsHarmfulRets,
+    "ItemGlobals"};
+
 } // namespace
 
 // Walks the item's 5 spell slots looking for the first ON_USE
@@ -111,6 +163,8 @@ int OnUseSpellIDForItemID(uint32_t itemID) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemSpell", &Script_GetItemSpell);
+    Game::Lua::RegisterGlobalFunction("IsHelpfulItem", &Script_IsHelpfulItem, &kIsHelpfulItem);
+    Game::Lua::RegisterGlobalFunction("IsHarmfulItem", &Script_IsHarmfulItem, &kIsHarmfulItem);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

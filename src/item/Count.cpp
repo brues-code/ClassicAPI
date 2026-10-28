@@ -33,7 +33,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "item/Arg.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "spell/CastCount.h"
@@ -89,10 +88,7 @@ int __fastcall Script_C_Item_GetItemCount(void *L) {
     const bool includeUses = Game::Lua::ToFlag(L, 3);
     const uint32_t flags = includeBank ? Offsets::INVMGR_SEARCH_BANK : 0;
 
-    const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);
-    int itemID = arg.itemID;
-    if (itemID <= 0)
-        itemID = Item::Location::IDForName(arg.name, flags);
+    const int itemID = Item::Location::IDForArg(L, 1, flags);
 
     int total = itemID > 0 ? CountByID(Offsets::FUN_INVMGR_COUNT_STACKS_BY_ID, itemID, flags) : 0;
     if (total != 0 && includeUses)

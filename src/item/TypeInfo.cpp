@@ -11,11 +11,14 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "item/TypeInfo.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 
 #include <cstdint>
+#include <initializer_list>
 
 namespace Item::TypeInfo {
 
@@ -25,6 +28,8 @@ int LocaleIndex() {
     return *reinterpret_cast<const int *>(
         static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
 }
+
+} // namespace
 
 // Localized ItemClass.dbc name for a class ID (records indexed by ID, the
 // standard DBC shape — same lookup `Script_GetItemInfo` uses). Returns ""
@@ -74,6 +79,20 @@ const char *SubClassName(const uint8_t *rec) {
     return (shortName != nullptr && shortName[0] != '\0') ? shortName : "";
 }
 
+// Either localized name of the subclass row equals `name`, ignoring case —
+// 4.3.4's `FindItemClassTypeCallback` (0x008DAAC0) tests both the verbose
+// and the display name, so "One-Handed Swords" and "Sword" both match.
+bool SubClassNamed(const uint8_t *rec, const char *name) {
+    const int locale = LocaleIndex();
+    for (const uint32_t off :
+         {Offsets::OFF_ITEMSUBCLASS_DISPLAY_NAME, Offsets::OFF_ITEMSUBCLASS_NAME}) {
+        const char *s = *reinterpret_cast<const char *const *>(rec + off + locale * 4);
+        if (s != nullptr && s[0] != '\0' && Game::StrCmpI(s, name) == 0)
+            return true;
+    }
+    return false;
+}
+
 // The engine's INVTYPE table holds the equipLoc KEY string ("INVTYPE_HEAD",
 // …) indexed by inventory type. Returns "" for out-of-range / empty slots.
 const char *InvTypeKey(int invType) {
@@ -84,6 +103,8 @@ const char *InvTypeKey(int invType) {
     const char *s = table[invType];
     return (s != nullptr && s[0] != '\0') ? s : "";
 }
+
+namespace {
 
 // `GetItemClassInfo(classID)` → `className` (localized). `nil` for an
 // unknown class. Backport of the modern global (also exposed as

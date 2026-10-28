@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "spell/Info.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "spell/Known.h"
@@ -671,7 +673,7 @@ static bool AnyEffectTarget(const uint8_t *record, Pred pred) {
 // to classify positive vs negative spells, since vanilla 1.12 has
 // no dedicated "harmful" attribute bit (the `SPELL_ATTR_EX_NEGATIVE`
 // flag is sparsely set — most damage spells don't have it).
-static bool ComputeIsHarmful(int spellID) {
+bool IsHarmful(int spellID) {
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
     return AnyEffectTarget(record, &IsHostileTarget);
 }
@@ -682,7 +684,7 @@ static bool ComputeIsHarmful(int spellID) {
 // most spells are clearly one or the other — but they aren't
 // strict inverses: a few utility/geometry-targeted spells (script-
 // driven, totem placement, etc.) return false for both.
-static bool ComputeIsHelpful(int spellID) {
+bool IsHelpful(int spellID) {
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
     return AnyEffectTarget(record, &IsFriendlyTarget);
 }
@@ -692,7 +694,7 @@ static bool ComputeIsHelpful(int spellID) {
 // `ResolveLuaArgsToSpellID` path `GetSpellInfo` uses.
 static int __fastcall Script_IsHarmfulSpell(void *L) {
     const int spellID = ResolveLuaArgsToSpellID(L);
-    Game::Lua::PushBool(L, ComputeIsHarmful(spellID));
+    Game::Lua::PushBool(L, IsHarmful(spellID));
     return 1;
 }
 
@@ -703,20 +705,20 @@ static int __fastcall Script_IsHarmfulSpell(void *L) {
 // without parsing every effect's implicit target.
 static int __fastcall Script_IsHelpfulSpell(void *L) {
     const int spellID = ResolveLuaArgsToSpellID(L);
-    Game::Lua::PushBool(L, ComputeIsHelpful(spellID));
+    Game::Lua::PushBool(L, IsHelpful(spellID));
     return 1;
 }
 
 // `C_Spell.IsSpellHarmful(spellID)` — direct-by-ID modern signature.
 // No spellbook-slot variant; takes a numeric spellID only.
 static int __fastcall Script_C_Spell_IsSpellHarmful(void *L) {
-    Game::Lua::PushBool(L, ComputeIsHarmful(Spell::Arg::ResolveSpellID(L, 1)));
+    Game::Lua::PushBool(L, IsHarmful(Spell::Arg::ResolveSpellID(L, 1)));
     return 1;
 }
 
 // `C_Spell.IsSpellHelpful(spellID)` — direct-by-ID modern signature.
 static int __fastcall Script_C_Spell_IsSpellHelpful(void *L) {
-    Game::Lua::PushBool(L, ComputeIsHelpful(Spell::Arg::ResolveSpellID(L, 1)));
+    Game::Lua::PushBool(L, IsHelpful(Spell::Arg::ResolveSpellID(L, 1)));
     return 1;
 }
 

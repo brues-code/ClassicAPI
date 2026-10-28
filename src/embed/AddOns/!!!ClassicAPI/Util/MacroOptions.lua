@@ -60,31 +60,6 @@ end
 -- Query helpers used by more than one predicate
 -- ---------------------------------------------------------------------------
 
--- True when any equipped item (slots 1..19) matches `want` by localized item
--- type, subtype, or equip-location slot name. C_Item.GetItemInfoInstant is
--- synchronous and link-accepting; worn gear is always cached, and a nil field
--- simply fails the match (fail-safe).
-local function IsEquippedTypeMatch(want)
-    want = strlower(want);
-    for slot = 1, 19 do
-        local link = GetInventoryItemLink("player", slot);
-        if link then
-            local _, itemType, itemSubType, equipLoc = C_Item.GetItemInfoInstant(link);
-            if (itemType and strlower(itemType) == want)
-                or (itemSubType and strlower(itemSubType) == want) then
-                return true;
-            end
-            if equipLoc and equipLoc ~= "" then
-                local slotName = _G[equipLoc];
-                if slotName and strlower(slotName) == want then
-                    return true;
-                end
-            end
-        end
-    end
-    return false;
-end
-
 -- True when a spell named `want` (case-insensitive) is in the player's
 -- spellbook. This is the name form of [known:...]. There is no name -> id
 -- resolver, so a name can only resolve against castable spellbook entries;
@@ -312,10 +287,11 @@ CONDITIONS.channeling = function(target, args)
     return name ~= nil;
 end
 
+-- 4.3.4's EvaluateEquipped runs IsEquippedItemType's search on each type.
 CONDITIONS.equipped = function(target, args)
     if not args then return false; end          -- [equipped] with no type never matches
     for i = 1, args.n do
-        if IsEquippedTypeMatch(args[i]) then return true; end
+        if args[i] ~= "" and IsEquippedItemType(args[i]) then return true; end
     end
     return false;
 end

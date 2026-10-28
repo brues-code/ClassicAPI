@@ -19,6 +19,7 @@
 #include "item/Location.h"
 #include "item/Record.h"
 #include "item/Swap.h"
+#include "item/TypeInfo.h"
 #include "spell/Known.h"
 
 #include <cstdint>
@@ -57,10 +58,7 @@ int __fastcall Script_IsDualWielding(void *L) {
 //
 // The global keeps 3.3.5's 1/nil; `C_Item.IsEquippableItem` returns a bool.
 bool IsEquippable(void *L) {
-    const Item::Arg::Resolved arg = Item::Arg::Resolve(L, 1);
-    int itemID = arg.itemID;
-    if (itemID <= 0)
-        itemID = Item::Location::IDForName(arg.name, Offsets::INVMGR_SEARCH_BANK);
+    const int itemID = Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK);
     const uint8_t *record =
         itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
     return record != nullptr &&
@@ -77,6 +75,73 @@ int __fastcall Script_IsEquippableItem(void *L) {
 
 int __fastcall Script_C_Item_IsEquippableItem(void *L) {
     Game::Lua::PushBool(L, IsEquippable(L));
+    return 1;
+}
+
+// `IsEquippedItemType(type)` — 1 when an equipped item is of `type`, else
+// nil. A port of 4.3.4's `Script_IsEquippedItemType` (0x008DAC20). `type`
+// is first looked up as an inventory type: its key ("INVTYPE_SHIELD") or that
+// key's global string ("Off Hand"), ignoring case. A match searches for an
+// equipped item of that inventory type (`CanEquipInSlotCallback`); anything
+// else is an item class or subclass name ("Weapon", "Shields", "Sword"),
+// matched by `FindItemClassTypeCallback`. Both run on the engine's
+// inventory search over the equipment slots, so a broken item is not
+// counted. Every compare is Storm's SStrCmpI (`Game::StrCmpI`); 4.3.4 uses
+// SStrCmpUTF8I for the localized names.
+int __fastcall MatchesInvType(const uint8_t *item, void *ctx) {
+    const int itemID = Item::ID::FromCGItem(item);
+    const uint8_t *record =
+        itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+    return record != nullptr &&
+           Game::Read<int>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE) ==
+               *static_cast<const int *>(ctx);
+}
+
+int __fastcall MatchesClassType(const uint8_t *item, void *ctx) {
+    const char *type = static_cast<const char *>(ctx);
+    const int itemID = Item::ID::FromCGItem(item);
+    const uint8_t *record =
+        itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+    if (record == nullptr)
+        return 0;
+    const uint32_t classID = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS);
+    if (Game::StrCmpI(Item::TypeInfo::ClassName(classID), type) == 0)
+        return 1;
+    const uint8_t *sub = Item::TypeInfo::FindSubClass(
+        classID, Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS));
+    return sub != nullptr && Item::TypeInfo::SubClassNamed(sub, type);
+}
+
+int InvTypeForName(const char *type) {
+    using GetText_t = const char *(__fastcall *)(const char *name, int edx, int gender);
+    for (int invType = 1; invType <= Offsets::INVTYPE_TABLE_MAX_INDEX; ++invType) {
+        const char *key = Item::TypeInfo::InvTypeKey(invType);
+        if (key[0] == '\0')
+            continue;
+        if (Game::StrCmpI(type, key) == 0 ||
+            Game::StrCmpI(type, reinterpret_cast<GetText_t>(
+                                    Offsets::FUN_FRAMESCRIPT_GET_TEXT)(key, -1, 0)) == 0)
+            return invType;
+    }
+    return 0;
+}
+
+int __fastcall Script_IsEquippedItemType(void *L) {
+    const char *type = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
+    if (type == nullptr || type[0] == '\0') {
+        Game::Lua::Error(L, "Usage: IsEquippedItemType(\"type\")");
+        return 0;
+    }
+    int invType = InvTypeForName(type);
+    const uint8_t *item =
+        invType > 0
+            ? Item::Location::Walk(&MatchesInvType, &invType, Offsets::INVMGR_SEARCH_EQUIPMENT)
+            : Item::Location::Walk(&MatchesClassType, const_cast<char *>(type),
+                                   Offsets::INVMGR_SEARCH_EQUIPMENT);
+    if (item != nullptr)
+        Game::Lua::PushNumber(L, 1.0);
+    else
+        Game::Lua::PushNil(L);
     return 1;
 }
 
@@ -223,6 +288,19 @@ const Game::Doc::Function kIsEquippableItem{
     "Whether the item goes in an equipment slot, bag slots and the ammo slot included.",
     kIsEquippableLegacyArgs, kIsEquippableLegacyRets, "ItemGlobals"};
 
+const Game::Doc::Field kIsEquippedTypeArgs[] = {
+    Game::Doc::Req("type", "string",
+                   "An equip location (\"INVTYPE_SHIELD\" or its name), an item class, or an "
+                   "item subclass name."),
+};
+const Game::Doc::Field kIsEquippedTypeRets[] = {
+    Game::Doc::Opt("isEquipped", "number", nullptr,
+                   "1 when an equipped item that is not broken is of that type, else nil."),
+};
+const Game::Doc::Function kIsEquippedItemType{
+    "Whether the player has an item of the given type equipped.", kIsEquippedTypeArgs,
+    kIsEquippedTypeRets, "ItemGlobals"};
+
 const Game::Doc::Field kIsEquippableArgs[] = {
     Game::Doc::Req("item", "ItemInfo", "An item ID, an item link, or the name of a carried item."),
 };
@@ -242,6 +320,8 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "IsEquippableItem",
                                      &Script_C_Item_IsEquippableItem, &kCIsEquippableItem);
     Game::Lua::RegisterTableFunction("C_Item", "IsEquippedItem", &Script_C_Item_IsEquippedItem);
+    Game::Lua::RegisterGlobalFunction("IsEquippedItemType", &Script_IsEquippedItemType,
+                                      &kIsEquippedItemType);
     Game::Lua::RegisterTableFunction("C_Item", "EquipItemByName", &Script_C_Item_EquipItemByName);
 }
 

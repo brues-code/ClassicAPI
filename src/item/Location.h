@@ -160,6 +160,18 @@ bool MatchesArg(const uint8_t *cgItem, const Item::Arg::Resolved &arg);
 // No Lua stack — safe from any context.
 int IDForName(const char *name, uint32_t flags);
 
+// The player's inventory search (FUN_INVMGR_WALK): the first item `cb`
+// answers nonzero for, in the slots `flags` selects (see `IDForName`;
+// `INVMGR_SEARCH_EQUIPMENT` alone is the equipped gear), or nullptr. Like
+// every engine search it skips broken items. No Lua stack.
+using WalkCallback = int(__fastcall *)(const uint8_t *item, void *ctx);
+const uint8_t *Walk(WalkCallback cb, void *ctx, uint32_t flags);
+
+// 3.3.5 / 4.3.4's `GetItemIDByName` for a Lua arg: the itemID of a number,
+// an `item:` string or a link (`Item::Arg::Resolve`), else of the carried
+// item with that name (`IDForName` with `flags`). 0 when nothing resolves.
+int IDForArg(void *L, int idx, uint32_t flags);
+
 // Walks the player's bags (0..4 only — no equipment) looking for the
 // first item matching `arg` (via `MatchesArg`). On hit, populates
 // `out->bagID` / `out->slotIndex` / `out->item` and sets

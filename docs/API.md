@@ -518,6 +518,10 @@ build instructions.
   - [`IsConsumableItem(item)` / `C_Item.IsConsumableItem(item)`](#isconsumableitemitem--c_itemisconsumableitemitem)
   - [`IsEquippableItem(item)` / `C_Item.IsEquippableItem(item)`](#isequippableitemitem--c_itemisequippableitemitem)
   - [`IsUsableItem(item)` / `C_Item.IsUsableItem(item)`](#isusableitemitem--c_itemisusableitemitem)
+  - [`IsEquippedItemType(type)`](#isequippeditemtypetype)
+  - [`IsCurrentItem(item)`](#iscurrentitemitem)
+  - [`IsDressableItem(item)`](#isdressableitemitem)
+  - [`IsHelpfulItem(item)` / `IsHarmfulItem(item)`](#ishelpfulitemitem--isharmfulitemitem)
   - [`C_Item.IsEquippedItem(item)`](#c_itemisequippeditemitem)
   - [`C_Item.IsItemDataCachedByID(item)` / `C_Item.IsItemDataCached(itemLocation)`](#c_itemisitemdatacachedbyiditem--c_itemisitemdatacacheditemlocation)
   - [`C_Item.IsItemGUIDInInventory(itemGUID)`](#c_itemisitemguidininventoryitemguid)
@@ -8772,7 +8776,7 @@ SecureCmdOptionParse("[nocombat] rest")      -- "rest" out of combat, else nil
 | `bonusbar` / `bonusbar:N` | a bonus bar is active / bonus bar N is active |
 | `pet` / `pet:name` | you have a pet / a pet with that name or family |
 | `channeling` / `channeling:spell` | you are channeling / channeling that spell |
-| `equipped:type` | an item of that type, subtype, or slot is equipped (`worn` is the same) |
+| `equipped:type` | an item of that type is equipped, as [`IsEquippedItemType`](#isequippeditemtypetype) tells (`worn` is the same) |
 | `cursor` | the cursor holds an item, a spell, or money |
 | `spec` / `spec:1` | always true (there is one spec) |
 | `known:spellID` / `known:name` | you know that spell |
@@ -12200,6 +12204,80 @@ local usable, noMana = C_Item.IsUsableItem(13446)  -- Major Healing Potion
 > the function does not load it. To wait for the data, call
 > `C_Item.RequestLoadItemDataByID` first, then check again on
 > `ITEM_DATA_LOAD_RESULT`.
+
+### `IsEquippedItemType(type)`
+
+Tells if you have an item of the given type equipped. Returns `1` or
+`nil`. A broken item does not count.
+
+`type` is one of these, without regard to case:
+
+- An equip location key, for example `"INVTYPE_SHIELD"`.
+- The name of an equip location, for example `"Head"` or `"Off Hand"`.
+- An item class name, for example `"Weapon"` or `"Armor"`.
+- An item subclass name, for example `"Shields"`, `"Plate"`, or
+  `"Sword"`. Both the long and the short subclass names match.
+
+An empty or missing `type` causes an error. The `[equipped:type]` macro
+condition uses this function.
+
+```lua
+IsEquippedItemType("INVTYPE_HEAD")   -- a helm is equipped → 1
+IsEquippedItemType("Shields")        -- no shield equipped → nil
+IsEquippedItemType("Weapon")         -- → 1
+```
+
+### `IsCurrentItem(item)`
+
+Tells if you are using the item now. Returns `1` while the cast of the
+item's use effect runs, else `nil`. The action button of the item shows
+its checked state for the same time.
+
+`item` is an item ID, an item link, or the name of an item that you carry.
+
+```lua
+-- During the Hearthstone cast:
+IsCurrentItem(6948)            -- → 1
+IsCurrentItem("Hearthstone")   -- → 1
+```
+
+### `IsDressableItem(item)`
+
+Tells if you can try on the item in the dressing room. Returns `1` or
+`nil`. These items are dressable:
+
+- An item that goes in an equipment slot.
+- A recipe that teaches you to make an item that goes in an equipment
+  slot.
+
+`item` is an item ID, an item link, or the name of an item that you
+carry. If the item, or the item that the recipe makes, is not in the
+item cache, the result is `nil`. The function does not start a load.
+
+```lua
+IsDressableItem(12640)                    -- Lionheart Helm → 1
+IsDressableItem("Plans: Lionheart Helm")  -- → 1
+IsDressableItem(6948)                     -- Hearthstone → nil
+```
+
+### `IsHelpfulItem(item)` / `IsHarmfulItem(item)`
+
+Tell if the use effect of the item aims at a friend (`IsHelpfulItem`) or
+at an enemy (`IsHarmfulItem`). Each returns `1` or `nil`. They give the
+same result as
+[`IsHelpfulSpell` / `IsHarmfulSpell`](#isharmfulspellspell--ishelpfulspellspell)
+for the use spell of the item. An item with no use effect returns `nil`
+from both.
+
+`item` is an item ID, an item link, or the name of an item that you
+carry. If the item is not in the item cache, both return `nil`. The
+functions do not start a load.
+
+```lua
+IsHelpfulItem(118)    -- Minor Healing Potion → 1
+IsHarmfulItem(118)    -- → nil
+IsHarmfulItem(4358)   -- Rough Dynamite → 1
+```
 
 ### `C_Item.IsEquippedItem(item)`
 

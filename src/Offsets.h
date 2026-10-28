@@ -6692,6 +6692,10 @@ enum Offsets {
     // (63..68), recursing into each bag. Reads the GUID array directly, so
     // unlike FUN_ITEMMGR_GET_ITEM_BY_SLOT it needs no open bank window.
     INVMGR_SEARCH_BANK = 0x08,
+    // `flags` bit for the equipment slots (linear 0..18) alone — the visitor's
+    // first slot test (`0x0062244F`: slot <= 0x12 and flags & 1). 4.3.4's
+    // `Script_IsEquippedItemType` searches with exactly this flag.
+    INVMGR_SEARCH_EQUIPMENT = 0x01,
     // The registered action-bar Lua C functions that `Action::ItemState`
     // re-registers in front of. Tail-call these with the untouched stack for
     // every slot we don't own (they raise their own usage errors).
@@ -7250,6 +7254,11 @@ enum Offsets {
     // `C_Spell.IsCurrentSpell` covers both "casting now" and "queued
     // to cast next", so we check this slot too.
     VAR_QUEUED_CAST_SPELL = 0x00CECAA8,
+    // GUID (u64) of the item the in-flight cast came from — what
+    // `GetCastItemGuidPtr` (0x006E3D20: `mov eax, 0xCECAB0; ret`) returns.
+    // `Script_IsCurrentAction`'s item branch (0x004E53D4) resolves it as an
+    // item and compares its entry with the slot's itemID.
+    VAR_CAST_ITEM_GUID = 0x00CECAB0,
 
     // Spell-placement state bitmask. Non-zero when the engine is
     // waiting on user input for an in-progress cast — the AoE reticle,
