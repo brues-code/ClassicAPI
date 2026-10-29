@@ -160,6 +160,9 @@ struct Entry {
     uint32_t isPet = 0;
     int itemID = 0;
     uint64_t unit = 0; // Info::unit
+    // A published `PublishOptions::liveUnit` token, resolved afresh by every
+    // lookup in place of `unit`. Empty for none.
+    char unitToken[kOptionsMax] = {};
     uint32_t lastEvalMs = 0;
 };
 
@@ -1233,7 +1236,8 @@ bool LookupEntries(uint32_t macroID, Info *out) {
         out->spellID = e.spellID;
         out->isPet = e.isPet;
         out->itemID = e.itemID;
-        out->unit = e.unit;
+        out->unit = e.unitToken[0] != '\0' ? ::Unit::Identity::GuidForToken(e.unitToken)
+                                           : e.unit;
         // A publisher re-publishes the moment its answer changes, so a claimed
         // macro never needs the polling refresh a condition of ours does.
         out->conditional = false;
@@ -1327,7 +1331,13 @@ bool Publish(int macroSlot, const char *value, const PublishOptions &options) {
             ResolveValue(value, &r, /*explicitValue=*/true,
                          /*itemOnly=*/options.accept == Accept::Item);
     }
-    r.unit = UnitGuid(options.unit);
+    // Set on every publish, so one that changes only the unit still lands:
+    // `ApplyResolution` stores the unit before its unchanged-value early out.
+    if (options.liveUnit && options.unit != nullptr)
+        std::snprintf(e.unitToken, sizeof(e.unitToken), "%s", options.unit);
+    else
+        e.unitToken[0] = '\0';
+    r.unit = options.liveUnit ? 0 : UnitGuid(options.unit);
 
     BusyScope busy;
     ApplyResolution(L, e, r, matched);

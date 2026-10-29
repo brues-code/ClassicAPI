@@ -644,7 +644,7 @@ build instructions.
   - [`GetMacroIcons` / `GetMacroItemIcons` / `GetLooseMacroIcons` / `GetLooseMacroItemIcons`](#getmacroicons--getmacroitemicons--getloosemacroicons--getloosemacroitemicons)
   - [`C_Macro.CreateMacro` / `C_Macro.EditMacro`](#c_macrocreatemacro--c_macroeditmacro)
   - [`C_Macro.GetMacroIcon(macroSlot)`](#c_macrogetmacroiconmacroslot)
-  - [`C_Macro.SetMacroDisplay(macroSlot, value)`](#c_macrosetmacrodisplaymacroslot-value)
+  - [`C_Macro.SetMacroDisplay(macroSlot, value [, unit])`](#c_macrosetmacrodisplaymacroslot-value--unit)
 
 - [Mail](#mail)
   - [`GetSendMailItemLink([attachmentIndex])`](#getsendmailitemlinkattachmentindex)
@@ -14968,7 +14968,7 @@ to.
 If SuperCleveRoidMacros is loaded, it controls macro display, and ClassicAPI
 does not evaluate `#showtooltip`. A build that hands its own results over
 through
-[`C_Macro.SetMacroDisplay`](#c_macrosetmacrodisplaymacroslot-value) keeps
+[`C_Macro.SetMacroDisplay`](#c_macrosetmacrodisplaymacroslot-value--unit) keeps
 `#showtooltip` working for the macros it does not claim.
 
 A macro that names a condition
@@ -15342,7 +15342,7 @@ mark, and the macro's own icon otherwise.
 selector edits. Use this function when you want the icon a macro shows, and
 `GetMacroInfo` when you want the one the player picked.
 
-### `C_Macro.SetMacroDisplay(macroSlot, value)`
+### `C_Macro.SetMacroDisplay(macroSlot, value [, unit])`
 
 Tells the client what a macro is about, so the action button shows it. For
 an addon that parses macros itself and wants the button to follow, instead
@@ -15350,9 +15350,10 @@ of replacing `GetActionTexture`, `GetActionCooldown`, `IsUsableAction` and
 the rest in Lua.
 
 ```lua
-C_Macro.SetMacroDisplay(1, "Frostbolt")   -- show this
-C_Macro.SetMacroDisplay(1, false)         -- mine, nothing matched, show ?
-C_Macro.SetMacroDisplay(1, nil)           -- released, `#showtooltip` resumes
+C_Macro.SetMacroDisplay(1, "Frostbolt")                -- show this
+C_Macro.SetMacroDisplay(1, "Flash Heal", "mouseover")  -- show this, range to the mouseover
+C_Macro.SetMacroDisplay(1, false)                      -- mine, nothing matched, show ?
+C_Macro.SetMacroDisplay(1, nil)                        -- released, `#showtooltip` resumes
 ```
 
 `macroSlot` is the macro index, the same one
@@ -15365,6 +15366,31 @@ C_Macro.SetMacroDisplay(1, nil)           -- released, `#showtooltip` resumes
 it, the same as a directive that names its own value.
 
 Returns `true` when the value named a spell or an item.
+
+**The range unit.** `unit` is optional. It names the unit that the button's
+range check uses in place of your target. Usually it is the `[@unit]` of the
+clause that your parser matched. It takes any unit token or GUID string that
+`UnitExists` takes, for example `"mouseover"`, `"focus"` or
+`"party2target"`. If you give no `unit`, or `nil`, the range check uses your
+target.
+
+The client finds the unit again each time it checks the button's range. So
+if `"mouseover"` moves to a different unit, the range follows it with no new
+call. The same is true for `"focus"`, `"target"` and every other token. This
+is different from the `target` of
+[`SetMacroSpell`](#setmacrospellmacro-spell--target--setmacroitemmacro-item--target),
+which is found once, when you call it.
+
+If the token points at no unit at that time, for example `"mouseover"` with
+nothing under the cursor, the range check uses your target. If the unit is
+too far away for the client to see it, for example a party member in another
+zone, the button has no range state.
+
+The function ignores `unit` when `value` is `false`, `nil` or an empty
+string, because the macro then aims at nothing. A call with the same `value`
+and a different `unit` changes the unit. If `unit` is not a unit token, the
+function raises the error `Unknown unit name: <unit>`, the same error that
+`UnitExists` gives. Then it publishes nothing.
 
 **What the button picks up.** The spell is written where the client keeps
 each macro's spell, which is the field its own buttons read. So cooldown,
@@ -15379,8 +15405,8 @@ button, on the cursor while you drag the macro, and in the macro window.
 The icon replaces the macro's own only when that is the question mark, which
 is the same rule `#showtooltip` follows. A macro with a chosen icon keeps it.
 
-**Call it whenever your answer changes.** Nothing is re-evaluated for you.
-The value stands until you publish another, and it survives the client
+**Call it whenever your answer changes.** Nothing is re-evaluated for you,
+except the unit that a `unit` token points at. The value stands until you publish another, and it survives the client
 re-reading the macro, so an edit elsewhere cannot quietly replace it.
 
 Publishing takes the macro over: `#showtooltip` is not parsed for it while

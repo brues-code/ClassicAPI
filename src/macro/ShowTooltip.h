@@ -72,8 +72,10 @@ struct Info {
     // from it has to keep re-reading while the cursor rests on the button.
     bool conditional;
     // The unit the macro's spell is aimed at, 4.3.4's MACRONODE::m_target: the
-    // `[@unit]` of the clause that matched, or the target a `SetMacroSpell` /
-    // `SetMacroItem` named. 0 means the current target, as for any action.
+    // `[@unit]` of the clause that matched, the target a `SetMacroSpell` /
+    // `SetMacroItem` named, or whoever the token a `SetMacroDisplay` named
+    // points at as of this lookup. 0 means the current target, as for any
+    // action.
     uint64_t unit;
 };
 
@@ -86,6 +88,12 @@ struct PublishOptions {
     Accept accept = Accept::Any;
     // A unit token or a name the spell is aimed at; null for the current target.
     const char *unit = nullptr;
+    // Resolve `unit` at every lookup rather than once, here, so the macro
+    // keeps following whoever the token names (a new mouseover, focus or
+    // target) with no republish. `unit` must then be a token the engine's
+    // resolver accepts: one that resolves once never raises later, since the
+    // resolver tells a token's family from its spelling alone.
+    bool liveUnit = false;
     // The claim ends when the macro's body is edited, as 4.3.4's SetMacroSpell
     // and SetMacroItem last only until the macro is parsed again. Otherwise it
     // lasts until `Release` or a reload.
