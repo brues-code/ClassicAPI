@@ -12,7 +12,8 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // The trade-skill window's recipe functions from 3.x:
-// `GetTradeSkillRecipeLink(index)` and `IsTradeSkillLinked()`.
+// `GetTradeSkillRecipeLink(index)`, `GetTradeSkillDescription(index)` and
+// `IsTradeSkillLinked()`.
 //
 // `GetTradeSkillRecipeLink(index)` links the recipe in row `index`: the
 // recipe spell, as an `enchant:` link. Vanilla's window links only the item a
@@ -36,6 +37,14 @@
 // (0x0084D410, white, bare name) is GetCraftItemLink's and is not this one.
 // Tooltip::Hyperlink shows these links, which 1.12's SetHyperlink rejects.
 //
+// `GetTradeSkillDescription(index)` is the row's recipe description with its
+// `$` tokens filled in, or nil. Mirrors 3.3.5's
+// Script_GetTradeSkillDescription (0x005DBE10): the same row test, nil
+// unless the recipe spell's description is non-empty in the client's locale,
+// then the spell-text parser into a 1024-byte buffer (Spell::Description).
+// Most recipes that make an item have no description; enchants do. 1.12's
+// Craft window already has this as GetCraftDescription.
+//
 // `IsTradeSkillLinked()` says whether the window shows a profession opened
 // from another player's link, and whose. On this client it never does. A
 // received `trade:` link opens ClassicAPI's own viewer
@@ -49,6 +58,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "object/Resolve.h"
+#include "spell/Description.h"
 #include "spell/Lookup.h"
 #include "unit/Identity.h"
 
@@ -92,23 +102,26 @@ const uint8_t *PlayerSkillLineFor(int spellID) {
                        Game::Read<uint32_t>(ability, Offsets::OFF_SLA_SKILL_ID));
 }
 
+// The recipe spell ID in 1-based row `n`, or 0. The engine truncates,
+// subtracts 1 and compares unsigned against the row count, so only an index
+// that truncates into [1, count] passes. Compared as a double first: casting
+// NaN or an out-of-range value to an integer is undefined in C++. A header
+// row holds -1, which has no Spell.dbc record.
+int RowSpellID(double n) {
+    const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_TRADESKILL_COUNT);
+    if (!(n >= 1.0 && n < static_cast<double>(count) + 1.0))
+        return 0;
+    return Spell::Lookup::RecipeSlotSpellID(Offsets::VAR_TRADESKILL_ENTRIES,
+                                            Offsets::VAR_TRADESKILL_COUNT,
+                                            static_cast<int>(n) - 1);
+}
+
 int __fastcall Script_GetTradeSkillRecipeLink(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetTradeSkillRecipeLink(index)");
         return 0;
     }
-    // The engine truncates, subtracts 1 and compares unsigned against the
-    // row count, so only an index that truncates into [1, count] passes.
-    // Compared as a double first: casting NaN or an out-of-range value to
-    // an integer is undefined in C++.
-    const double n = Game::Lua::ToNumber(L, 1);
-    const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_TRADESKILL_COUNT);
-    if (!(n >= 1.0 && n < static_cast<double>(count) + 1.0))
-        return 0;
-
-    const int spellID = Spell::Lookup::RecipeSlotSpellID(
-        Offsets::VAR_TRADESKILL_ENTRIES, Offsets::VAR_TRADESKILL_COUNT,
-        static_cast<int>(n) - 1);
+    const int spellID = RowSpellID(Game::Lua::ToNumber(L, 1));
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
     if (record == nullptr ||
         (Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
@@ -125,6 +138,25 @@ int __fastcall Script_GetTradeSkillRecipeLink(void *L) {
     }
 
     Game::Lua::PushString(L, link);
+    return 1;
+}
+
+int __fastcall Script_GetTradeSkillDescription(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: GetTradeSkillDescription(index)");
+        return 0;
+    }
+    const uint8_t *record =
+        Spell::Lookup::RecordForID(RowSpellID(Game::Lua::ToNumber(L, 1)));
+    if (record == nullptr ||
+        *LocalizedName(record, Offsets::OFF_SPELL_RECORD_DESCRIPTION) == '\0') {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+
+    char description[1024];
+    Spell::Description::Expand(record, description, sizeof description);
+    Game::Lua::PushString(L, description);
     return 1;
 }
 
@@ -147,6 +179,14 @@ const Game::Doc::Function kGetTradeSkillRecipeLink{
     "Returns a link to the recipe spell in a row of the trade-skill window.",
     kRecipeLinkArgs, kRecipeLinkRets, "TradeSkillGlobals"};
 
+const Game::Doc::Field kDescriptionRets[] = {
+    Game::Doc::Opt("description", "string", nullptr,
+                   "Nil for a header row and for a recipe with no description."),
+};
+const Game::Doc::Function kGetTradeSkillDescription{
+    "Returns the description of the recipe in a row of the trade-skill window.",
+    kRecipeLinkArgs, kDescriptionRets, "TradeSkillGlobals"};
+
 const Game::Doc::Field kLinkedRets[] = {
     Game::Doc::Opt("isLinked", "bool", nullptr,
                    "True when the window shows another player's linked profession."),
@@ -160,6 +200,9 @@ const Game::Doc::Function kIsTradeSkillLinked{
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetTradeSkillRecipeLink", &Script_GetTradeSkillRecipeLink,
                                       &kGetTradeSkillRecipeLink);
+    Game::Lua::RegisterGlobalFunction("GetTradeSkillDescription",
+                                      &Script_GetTradeSkillDescription,
+                                      &kGetTradeSkillDescription);
     Game::Lua::RegisterGlobalFunction("IsTradeSkillLinked", &Script_IsTradeSkillLinked,
                                       &kIsTradeSkillLinked);
 }

@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "Description.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "spell/Arg.h"
@@ -25,6 +27,18 @@ using FormatSpellDescription_t = void(__fastcall *)(const void *spellRecord, cha
                                                     int useToolTipText, int reserved5,
                                                     int reserved6);
 
+void Expand(const uint8_t *spellRecord, char *out, int outSize) {
+    out[0] = '\0';
+    auto fn = reinterpret_cast<FormatSpellDescription_t>(
+        Offsets::FUN_FORMAT_SPELL_DESCRIPTION);
+    fn(spellRecord, out, outSize,
+       /*contextFlag*/ 0,
+       /*reserved3*/ 0,
+       /*useToolTipText*/ 0, // 0 = read description (+0x228), non-zero = ToolTip (+0x24C)
+       /*reserved5*/ 1,
+       /*reserved6*/ 0);
+}
+
 static int __fastcall Script_GetSpellDescription(void *L) {
     const int spellID = Spell::Arg::ResolveSpellID(L, 1);
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
@@ -36,16 +50,7 @@ static int __fastcall Script_GetSpellDescription(void *L) {
     // null-terminates and stops writing on overflow, so the upper bound is
     // self-enforced.
     char buffer[0x400];
-    buffer[0] = '\0';
-
-    auto fn = reinterpret_cast<FormatSpellDescription_t>(
-        Offsets::FUN_FORMAT_SPELL_DESCRIPTION);
-    fn(record, buffer, sizeof(buffer),
-       /*contextFlag*/ 0,
-       /*reserved3*/ 0,
-       /*useToolTipText*/ 0, // 0 = read description (+0x228), non-zero = ToolTip (+0x24C)
-       /*reserved5*/ 1,
-       /*reserved6*/ 0);
+    Expand(record, buffer, sizeof(buffer));
 
     if (buffer[0] == '\0')
         return 0; // empty / no description in current locale → nil

@@ -957,7 +957,11 @@ build instructions.
   - [`C_TradeSkillUI.GetCraftListLink()`](#c_tradeskilluigetcraftlistlink)
   - [`C_TradeSkillUI.GetTradeSkillListRecipes(skillLineID, bits)`](#c_tradeskilluigettradeskilllistrecipesskilllineid-bits)
   - [`GetTradeSkillRecipeLink(index)`](#gettradeskillrecipelinkindex)
+  - [`GetTradeSkillDescription(index)`](#gettradeskilldescriptionindex)
   - [`IsTradeSkillLinked()`](#istradeskilllinked)
+
+- [Trainer](#trainer)
+  - [`GetTrainerServiceItemLink(index)`](#gettrainerserviceitemlinkindex)
 
 - [UIColor](#uicolor)
   - [`C_UIColor.GetColors()`](#c_uicolorgetcolors)
@@ -21872,6 +21876,24 @@ local _, _, spellID = string.find(GetTradeSkillRecipeLink(2), "|Henchant:(%d+)")
 The Craft window (Enchanting, pet training) already has this in
 `GetCraftItemLink`.
 
+### `GetTradeSkillDescription(index)`
+
+Returns the description of the recipe in row `index` of the trade-skill
+window. The function fills in the values in the text, such as amounts and
+durations, as the spell tooltip does. Most recipes that make an item have
+no description. For these recipes, for a header row, and for an index
+outside the list, the function returns nil.
+
+```lua
+local description = GetTradeSkillDescription(GetTradeSkillSelectionIndex())
+if description then
+    print(description)
+end
+```
+
+The Craft window (Enchanting, pet training) already has this in
+`GetCraftDescription`.
+
 ### `IsTradeSkillLinked()`
 
 Returns whether the trade-skill window shows a profession that was opened
@@ -21885,6 +21907,26 @@ profession out of the player's own records.
 local isLinked, playerName = IsTradeSkillLinked()   -- nil, nil
 if not isLinked then
     -- the rows are the player's own recipes
+end
+```
+
+## Trainer
+
+### `GetTrainerServiceItemLink(index)`
+
+Returns the link to the item that the recipe in row `index` of the trainer
+window makes. Only a profession trainer gives a link. For other trainers,
+for a header row, for a recipe that makes no item, and for an index outside
+the list, the function returns nil.
+
+The function also returns nil if the item is not in the item cache. When
+you select a row, the trainer window gets the data for the item of that row.
+
+```lua
+-- at a profession trainer
+local link = GetTrainerServiceItemLink(GetTrainerSelectionIndex())
+if link then
+    print(link)
 end
 ```
 

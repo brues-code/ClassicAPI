@@ -81,13 +81,13 @@ const char *IconPath(const uint8_t *spellRecord, bool active);
 // wins). Returns 0 for a null/empty name or one the player doesn't know.
 int SpellNameToID(const char *name);
 
-// Resolves a 0-based UI slot into the recipe's spellID. Used by both
-// tradeskill and craft scrapers — they share the same storage shape:
+// Resolves a 0-based UI slot into the recipe's spellID. Used by the
+// tradeskill, craft and trainer windows — they share the same storage shape:
 // `[entriesVar]` is a pointer to a heap-allocated array of recipe-
 // entry pointers, with the entry's first u32 holding the spellID.
 //
 // Pass `entriesVar` + `countVar` matching the UI surface
-// (`VAR_TRADESKILL_*` or `VAR_CRAFT_*`). Returns 0 if the UI is
+// (`VAR_TRADESKILL_*`, `VAR_CRAFT_*` or `VAR_TRAINER_SERVICE*`). Returns 0 if the UI is
 // closed, the index is OOR, the entry slot is null, or the entry's
 // spellID is 0.
 int RecipeSlotSpellID(uintptr_t entriesVar, uintptr_t countVar, int slotIndex0);

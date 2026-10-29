@@ -10749,6 +10749,19 @@ enum Offsets {
     // skill-line-ID global — `TradeSkill::Link` derives the skill line
     // from the first craft recipe — so this is the "craft open" gate.
     VAR_CRAFT_WINDOW_STATE = 0x00BDCFB8,
+
+    // Trainer window (ClassTrainerFrame.cpp). Same slot-indirected shape as
+    // the trade-skill rows: `[VAR_TRAINER_SERVICES]` points at an array of
+    // 0x38-byte service records, the record's `+0x00` is the spell the
+    // server sent (-1 for a group header). GetTrainerService (0x004D89B0)
+    // is `index < [0xB73A10] ? [0xB737B0][index] : null`, and every
+    // GetTrainerService* getter reads its row through it. Disassembled.
+    VAR_TRAINER_SERVICES = 0x00B737B0,
+    VAR_TRAINER_SERVICE_COUNT = 0x00B73A10,
+    // Trainer type from SMSG_TRAINER_LIST: 0 class, 1 mount, 2 tradeskill,
+    // 3 pet. Script_IsTradeskillTrainer (0x004D8EA0) tests `== 2`.
+    VAR_TRAINER_TYPE = 0x00B73A08,
+    TRAINER_TYPE_TRADESKILLS = 2,
     // Spell.dbc "produced item" field for crafting recipes — the
     // itemID this spell creates when cast. Reagent itemIDs and
     // counts live at `OFF_SPELL_REAGENT_ID` / `OFF_SPELL_REAGENT_COUNT`
@@ -10803,6 +10816,9 @@ enum Offsets {
     OFF_SPELL_RECORD_EFFECT_TRIGGER_SPELL = 0x1B4,    // int32[3]
     SPELL_EFFECT_CREATE_ITEM = 24,
     SPELL_EFFECT_LEARN_SPELL = 36,
+    // tortoise-wow SpellDefines.h; Script_GetTrainerServiceIcon (0x004D8F50)
+    // and Script_GetCraftDescription follow it like LEARN_SPELL (`cmp 0x39`).
+    SPELL_EFFECT_LEARN_PET_SPELL = 57,
     SPELL_EFFECT_ENCHANT_ITEM = 53,
     SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY = 54,
     // Verified from Spell.dbc: 13262 "Disenchant" has Effect[0] = 99 (the
@@ -11006,7 +11022,10 @@ enum Offsets {
     OFF_SPELL_RECORD_RECOVERY_TIME = 0x4C,            // i32 column 19; the spell's own cooldown ms (0x006E2C60, 0x006E9460)
     OFF_SPELL_RECORD_CATEGORY_RECOVERY_TIME = 0x50,   // i32 column 20; the category cooldown ms (0x006E2C60, 0x006E9460)
     OFF_SPELL_RECORD_RANK = 0x204,                    // char*[9] localized rank text
-    OFF_SPELL_RECORD_TOTEM = 0xA0,                    // i32[2] required totem/tool item IDs
+    // char*[9] localized description, column 138; FUN_FORMAT_SPELL_DESCRIPTION's
+    // source. Script_GetCraftDescription (0x004F7A90) tests `+0x228 + locale*4`.
+    OFF_SPELL_RECORD_DESCRIPTION = 0x228,
+    OFF_SPELL_RECORD_TOTEM = 0xA0,                   // i32[2] required totem/tool item IDs
 
     // SpellIcon.dbc record's path string field (char* at +0x04). Distinct
     // struct from Spell.dbc — reached via SpellIcon.dbc[Spell.SpellIconID].
