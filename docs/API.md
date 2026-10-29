@@ -20586,7 +20586,7 @@ is the number that `[stance:N]` and `[form:N]` test.
 
 ```lua
 local index = GetShapeshiftForm()
-if index > 0 then
+if index > 0 and index <= GetNumShapeshiftForms() then
     local icon, name = GetShapeshiftFormInfo(index)
     print("active:", name)
 end
