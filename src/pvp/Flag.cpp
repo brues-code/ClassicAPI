@@ -15,6 +15,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "net/PacketWriter.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
 
@@ -70,21 +71,6 @@ void SetRunning(bool running) {
         Event::Custom::Fire(_timerUpdate.Slot(), "%s", "player");
 }
 
-// The engine's stack CDataStore (see Offsets::VTABLE_CDATASTORE).
-struct DataStore {
-    uintptr_t vtable;
-    void *buffer;
-    uint32_t base;
-    uint32_t alloc;
-    uint32_t size;
-    uint32_t read;
-};
-static_assert(sizeof(DataStore) == 0x18, "CDataStore layout");
-
-using PutU32_t = void(__thiscall *)(DataStore *self, uint32_t value);
-using PutU8_t = void(__thiscall *)(DataStore *self, uint8_t value);
-using Send_t = void(__thiscall *)(DataStore *self);
-using Free_t = void(__thiscall *)(DataStore *self, void **buffer, uint32_t *base, uint32_t *alloc);
 using DisplayError_t = void(__cdecl *)(uint32_t id);
 using UnitFn_t = uint32_t(__thiscall *)(void *unit);
 
@@ -138,16 +124,9 @@ int32_t ToggleTimer() {
 int __fastcall Script_SetPVP(void *L) {
     const bool enable = Game::Lua::IsNumber(L, 1) ? Game::Lua::ToNumber(L, 1) != 0.0
                                                   : Game::Lua::ToBoolean(L, 1) != 0;
-    DataStore packet{Offsets::VTABLE_CDATASTORE, nullptr, 0, 0, 0, 0xFFFFFFFF};
-    reinterpret_cast<PutU32_t>(Offsets::FUN_DATASTORE_PUT_U32)(&packet, CMSG_TOGGLE_PVP);
-    reinterpret_cast<PutU8_t>(Offsets::FUN_DATASTORE_PUT_U8)(&packet, enable ? 1 : 0);
-    packet.read = 0;
-    reinterpret_cast<Send_t>(Offsets::FUN_CLIENT_SERVICES_SEND)(&packet);
-    if (packet.alloc != 0xFFFFFFFF) {
-        const auto release =
-            *reinterpret_cast<const Free_t *>(Offsets::VTABLE_CDATASTORE + sizeof(uintptr_t));
-        release(&packet, &packet.buffer, &packet.base, &packet.alloc);
-    }
+    Net::OutPacket packet(CMSG_TOGGLE_PVP);
+    packet.PutU8(enable ? 1 : 0);
+    packet.Send();
     return 0;
 }
 

@@ -5,23 +5,25 @@ Candidates for new DLL functions, prioritized. All are things the
 addon polyfills badly, hackily, or not at all, and where engine access is the
 right answer.
 
-## ~~1. `C_QuestLog.IsQuestFlaggedCompleted(questID)`~~ — NOT FEASIBLE in 1.12
+## ~~1. `C_QuestLog.IsQuestFlaggedCompleted(questID)`~~ — DONE (Turtle-lineage servers)
 
-The original TODO note ("engine maintains a completed-quests bitfield in
-client memory") was based on 3.3.5 / WotLK semantics. Vanilla 1.12 has no
-equivalent: neither `QueryQuestsCompleted` nor `GetQuestsCompleted`
-exists, the protocol has no `CMSG_QUERY_QUESTS_COMPLETED`, and the
-client doesn't track historical completions. The polyfill at
-`Util/C_QuestLog.lua:5-8` works on Frostmourne (3.3.5a) where those
-functions exist; on the 1.12 Octo client they're absent.
+Stock 1.12 has no completed-quests query and keeps no quest history, so
+this exists only where the server offers the list another way. Turtle WoW
+and its forks answer the player command `.queststatuses` with `TWQUEST`
+guild addon messages from the player, split at 2000 characters, the last
+message always shorter (probed: 2003, 2004, 0) - an exact end marker.
 
-Servers that want to expose this in 1.12 (notably Turtle WoW) do it
-via the `CHAT_MSG_ADDON` channel — the addon sends `.queststatus` over
-guild/whisper chat and the server replies with addon-channel messages
-the addon parses. Fundamentally async, server-specific, and requires
-SavedVariables-style persistence across sessions to amortize the
-round-trip — all of which belong on the Lua side, not in this DLL.
-There's nothing the DLL can usefully add here.
+[src/quest/Completed.cpp](src/quest/Completed.cpp) does it all in the DLL,
+Turtle clients only: it sends the request itself (on
+SMSG_LOGIN_VERIFY_WORLD, after each turn-in, and from
+`QueryQuestsCompleted`), reads every answer at the packet funnel (sender
+must be the player), and keeps the live list behind `GetQuestsCompleted`,
+`C_QuestLog.IsQuestFlaggedCompleted` and
+`C_QuestLog.GetAllCompletedQuestIDs`; `QUEST_QUERY_COMPLETE` fires per
+answer. No disk cache: the first answer lands one round trip after
+PLAYER_ENTERING_WORLD, because the server sends the player object (which
+fires PLAYER_LOGIN) before it reads any request. Replaces the closed Lua
+collector of PR #86.
 
 ## ~~2. `C_Spell.GetSpellDescription(spellID)`~~ — DONE
 

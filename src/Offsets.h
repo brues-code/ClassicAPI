@@ -2328,6 +2328,11 @@ enum Offsets {
     OFF_PENDING_CHAT_CHANNEL = 0x2C, // char[0x80]
     OFF_PENDING_CHAT_FLAGS = 0xB8,   // char[5]
     SMSG_MESSAGECHAT = 0x96,
+    // Outgoing chat: u32 type, u32 language, a C-string target for whisper
+    // (6) and channel (14) only, then the C-string text. SendChatMessage
+    // sends the race's default language; CGPlayer_C::SetAFK / ClearAFK send
+    // language 0 (benilla-re ui/chatsend "The chat packet").
+    CMSG_MESSAGECHAT = 0x95,
     // CHAT_MSG_* event fire, `__fastcall(text, chatType)` + 6 stack args
     // (senderName, languageID, channelString, targetName, flags, channel
     // record), RET 0x18. Three callers: FUN_CHAT_DISPATCH, FUN_0049B1B0
@@ -9535,6 +9540,14 @@ enum Offsets {
     // pre-validate.
     FUN_SCRIPT_GET_TALENT_INFO = 0x004F3200,
 
+    // SMSG_LOGIN_VERIFY_WORLD — the server's answer to CMSG_PLAYER_LOGIN,
+    // and only to it (a world transfer sends SMSG_NEW_WORLD): u32 map, the
+    // position and facing. Its handler is registered last by 0x00401570
+    // (benilla-re ui/worldenter). The server sends it from the same call
+    // that puts the player in the world and then sends the player's own
+    // object (tortoise-wow WorldSession::HandlePlayerLogin → Map::Add).
+    SMSG_LOGIN_VERIFY_WORLD = 0x236,
+
     // Game-time struct populated by SMSG_LOGIN_VERIFY_WORLD /
     // SMSG_LOGIN_SETTIMESPEED. The engine maintains it as the current
     // server clock, advanced by an internal tick handler. `Script_GetGameTime`
@@ -10178,6 +10191,7 @@ enum Offsets {
     // hook the per-opcode handler directly to keep our gate narrow.
     // Hooked by `Quest::TurnedIn` to fire `QUEST_TURNED_IN(questID, xp, money)`.
     FUN_QUEST_GIVER_QUEST_COMPLETE_HANDLER = 0x005DC400,
+    SMSG_QUESTGIVER_QUEST_COMPLETE = 0x191,
 
     // The two tests that keep "<quest> completed." out of chat for a quest in
     // the middle of a chain. The handler above looks the quest up in the quest
@@ -11292,6 +11306,11 @@ enum Offsets {
     FUN_DATASTORE_PUT_GUID = 0x00418370,
     // CDataStore::PutInt8 — `__thiscall(this, u8)`, RET 4. Disassembled.
     FUN_DATASTORE_PUT_U8 = 0x00418070,
+    // CDataStore::PutString — `__thiscall(this, const char *)`, RET 4: puts
+    // strlen+1 bytes (the terminator included) through 0x00418570; a null
+    // string sets last error 0x57 and puts nothing. Disassembled; the chat
+    // packet's text (benilla-re ui/chatsend).
+    FUN_DATASTORE_PUT_CSTRING = 0x00418430,
     VTABLE_CDATASTORE = 0x007FF9E4,
     // ClientServices::Send — `__thiscall void(CDataStore *packet)`: sends on
     // the current connection through FUN_NET_SEND when one exists (benilla-re

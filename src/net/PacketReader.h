@@ -54,6 +54,20 @@ T Read(CDataStore *p) {
     return val;
 }
 
+// Returns the next `n` bytes in place and advances the cursor past them, as
+// the engine's `CDataStore::GetDataInSitu` (0x00419AC0) does for chat text.
+// On overrun it poisons `m_read` and returns null. The bytes live in the
+// packet, so read them before the subscriber returns.
+inline const uint8_t *ReadBytes(CDataStore *p, uint32_t n) {
+    if (p->m_read > p->m_size || n > p->m_size - p->m_read) {
+        p->m_read = p->m_size + 1;
+        return nullptr;
+    }
+    const uint8_t *at = p->m_buffer - p->m_base + p->m_read;
+    p->m_read += n;
+    return at;
+}
+
 // Reads a WoW packed GUID: a 1-byte mask followed by one byte per set bit,
 // each contributing the corresponding byte of the 64-bit value.
 inline uint64_t ReadPackedGuid(CDataStore *p) {

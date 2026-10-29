@@ -237,6 +237,7 @@ build instructions.
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
+  - [`QUEST_QUERY_COMPLETE` event](#quest_query_complete-event)
   - [`QUEST_REMOVED` event](#quest_removed-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
@@ -774,6 +775,11 @@ build instructions.
   - [`C_QuestLog.IsQuestDataCachedByID(questID)`](#c_questlogisquestdatacachedbyidquestid)
   - [`GetQuestLogLeaderBoardID(objectiveIndex [, questIndex])`](#getquestlogleaderboardidobjectiveindex--questindex)
   - [`GetQuestLogCompletionText([questLogIndex])`](#getquestlogcompletiontextquestlogindex)
+  - [Completed quests](#completed-quests)
+  - [`QueryQuestsCompleted()`](#queryquestscompleted)
+  - [`GetQuestsCompleted([questTable])`](#getquestscompletedquesttable)
+  - [`C_QuestLog.IsQuestFlaggedCompleted(questID)`](#c_questlogisquestflaggedcompletedquestid)
+  - [`C_QuestLog.GetAllCompletedQuestIDs()`](#c_questloggetallcompletedquestids)
   - [A turn-in always prints "*quest* completed."](#a-turn-in-always-prints-quest-completed)
 
 - [Sound](#sound)
@@ -5674,6 +5680,16 @@ either.
 When the static data for a quest is not in the client cache yet, the
 event waits for the server to answer. The delay is one round trip. The
 system message waits with it, so the order does not change.
+
+### `QUEST_QUERY_COMPLETE` event
+
+Fires on a Turtle WoW client when a copy of the list of completed quests
+arrives from the server. The event has no payload. Read the list with
+`GetQuestsCompleted` or `C_QuestLog.GetAllCompletedQuestIDs`.
+
+The event fires a short time after each login, and after each request for
+the list. A request can come from `QueryQuestsCompleted`, from a quest
+turn-in, or from another addon. See [Completed quests](#completed-quests).
 
 ### `QUEST_REMOVED` event
 
@@ -17878,6 +17894,81 @@ SelectQuestLogEntry(2)
 print(GetQuestLogCompletionText())
 -- "Kill 12 Kobold Laborers, then return to Marshal McBride at Northshire Abbey."
 ```
+
+### Completed quests
+
+The functions in this group give the quests that the character has
+completed. They exist only on a Turtle WoW client, or on a client that is
+built on it. On other clients, they are not defined.
+
+The server keeps the list of completed quests. The client gets a copy of
+the list at these times:
+
+- At each login, a short time after `PLAYER_ENTERING_WORLD`. Until then,
+  the list is empty.
+- After each `QueryQuestsCompleted` call.
+- After each quest turn-in.
+- When an addon sends the `.queststatuses` chat command.
+
+Each copy replaces the list, and then `QUEST_QUERY_COMPLETE` fires.
+
+The list does not include repeatable quests. When you turn in a quest, the
+quest goes into the list before `QUEST_TURNED_IN` fires. A repeatable quest
+stays in the list until the next copy arrives.
+
+The list stays after `/reload`. The server sends the copy as
+`CHAT_MSG_ADDON` messages with the prefix `TWQUEST`, so other addons also
+see these messages.
+
+### `QueryQuestsCompleted()`
+
+Turtle WoW only (see [Completed quests](#completed-quests)). Sends a
+request for the list of completed quests to the server, and returns at
+once. When the list arrives, `QUEST_QUERY_COMPLETE` fires.
+
+Each call sends a request. If the server does not answer, the event does
+not fire. For example, the server ignores a request that it gets during the
+loading screen of a teleport.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("QUEST_QUERY_COMPLETE")
+f:SetScript("OnEvent", function()
+    local completed = GetQuestsCompleted()
+    -- completed[questID] is true for each completed quest
+end)
+QueryQuestsCompleted()
+```
+
+### `GetQuestsCompleted([questTable])`
+
+Turtle WoW only (see [Completed quests](#completed-quests)). Returns a
+table in which the key of each completed quest is its quest ID and the
+value is `true`.
+
+- If you give `questTable`, the function adds the quests to that table and
+  returns it.
+- If you do not give a table, the function returns a new table.
+
+The function returns the list that the client has now. It does not send a
+request.
+
+```lua
+if GetQuestsCompleted()[4813] then
+    -- The Fragments Within is complete
+end
+```
+
+### `C_QuestLog.IsQuestFlaggedCompleted(questID)`
+
+Turtle WoW only (see [Completed quests](#completed-quests)). Returns `true`
+if the quest is in the list of completed quests, and `false` if not. Until
+the list arrives after login, the function returns `false` for all quests.
+
+### `C_QuestLog.GetAllCompletedQuestIDs()`
+
+Turtle WoW only (see [Completed quests](#completed-quests)). Returns an
+array of the completed quest IDs, from the lowest ID to the highest.
 
 ### A turn-in always prints "*quest* completed."
 
