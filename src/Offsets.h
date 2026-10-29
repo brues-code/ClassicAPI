@@ -2192,6 +2192,14 @@ enum Offsets {
     // `.text`. Returns 0 when the first `n` characters match
     // (ignoring case) or both strings end before `n`.
     FUN_SSTR_CMP_I = 0x0064A4C0,
+    // `SUniConvertUTF8to16(dst, cap, src, len, &written, &read)` — Storm's
+    // UTF-8 → UTF-16 conversion, the one 4.3.4's CaseAccentInsensitiveParse
+    // calls. **`int __stdcall`** (`ret 0x18`). `cap` is in UTF-16 units;
+    // `len` 0x7FFFFFFF reads to the NUL, which it stores and stops on
+    // (result 0). A full `dst` returns 1 with no terminator stored. Both
+    // count pointers are null-tested before the store (0x0065B4AF /
+    // 0x0065B4BB). Semantics per benilla-re systems/storm/unicode.md.
+    FUN_SUNI_CONVERT_UTF8_TO_16 = 0x0065B350,
 
     // UNIT_FIELD_TARGET within `m_objectFields` — 64-bit GUID at byte
     // offsets +0x28 (lo) / +0x2C (hi). Verified by disassembling
@@ -5477,6 +5485,11 @@ enum Offsets {
     OFF_ITEMSUBCLASS_SUBCLASS_ID = 0x04,
     OFF_ITEMSUBCLASS_FLAGS = 0x10,
     ITEMSUBCLASS_FLAG_USES_INVTYPE = 0x200,
+    // Bit 0x1 of the same field: set on exactly the Axe, Mace, Polearm,
+    // Sword, Staff, Fist Weapon, Dagger and Spear rows (dumped from
+    // ItemSubClass.dbc). 4.3.4's bag search (`ItemRecIsFiltered`,
+    // 0x009BD3C0) does not match the subclass name of these rows.
+    ITEMSUBCLASS_FLAG_NO_SEARCH_NAME = 0x1,
 
     // ItemDisplayInfo.dbc — standard layout. Icon path char* at record +0x14
     // (per the helper at 0x005D88B0 that Script_GetItemInfo uses).
@@ -5534,6 +5547,9 @@ enum Offsets {
     // the table above: 24 = `INVTYPE_AMMO`, 25 = `INVTYPE_THROWN`.
     INVTYPE_AMMO = 24,
     INVTYPE_THROWN = 25,
+    // Index 16 of the table above (read from WoW.exe). The bag search skips
+    // a cloak's subclass name ("Cloth"), as 4.3.4's does.
+    INVTYPE_CLOAK = 16,
 
     // Faction "displayed list" — the engine maintains a sorted/visible list
     // of factions the player has rep with. `Script_GetNumFactions` (at

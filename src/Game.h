@@ -541,6 +541,10 @@ void RegisterIntegerEnum(const char *parent, const char *sub,
 void SetFieldNumber(void *L, const char *key, double value);
 void SetFieldString(void *L, const char *key, const char *value);
 void SetFieldBool(void *L, const char *key, bool value);
+// `t[key] = nil` — clears a field a reused (caller-supplied) table may still
+// hold from an earlier fill. Not for fresh tables: Lua 5.0 inserts a node for
+// a missing key even when the value is nil.
+void SetFieldNil(void *L, const char *key);
 
 // Sets `_G[name] = value` via `lua_rawset` on the globals
 // pseudo-index. `RawSet` over `SetTable` because the globals table has

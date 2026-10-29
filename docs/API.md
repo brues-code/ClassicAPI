@@ -124,7 +124,9 @@ build instructions.
 
 - [Container](#container)
   - [`C_Container.GetContainerItemID(bagIndex, slotIndex)`](#c_containergetcontaineritemidbagindex-slotindex)
-  - [`C_Container.GetContainerItemInfo(containerIndex, slotIndex)`](#c_containergetcontaineriteminfocontainerindex-slotindex)
+  - [`C_Container.GetContainerItemInfo(containerIndex, slotIndex [, buf])`](#c_containergetcontaineriteminfocontainerindex-slotindex--buf)
+  - [`C_Container.SetItemSearch(searchString)`](#c_containersetitemsearchsearchstring)
+  - [`C_Container.IsContainerFiltered(containerIndex)`](#c_containeriscontainerfilteredcontainerindex)
   - [`C_Container.HasContainerItem(bagIndex, slotIndex)`](#c_containerhascontaineritembagindex-slotindex)
   - [`GetItemCooldown(itemInfo)` / `C_Container.GetItemCooldown(itemID)`](#getitemcooldowniteminfo--c_containergetitemcooldownitemid)
   - [`C_Container.GetContainerItemDurability(containerIndex, slotIndex)`](#c_containergetcontaineritemdurabilitycontainerindex-slotindex)
@@ -221,6 +223,7 @@ build instructions.
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`WEAR_EQUIPMENT_SET` event](#wear_equipment_set-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
+  - [`INVENTORY_SEARCH_UPDATE` event](#inventory_search_update-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
   - [`LOOT_SCAN_COMPLETED` event](#loot_scan_completed-event)
@@ -2864,7 +2867,7 @@ for slot = 1, 16 do
 end
 ```
 
-### `C_Container.GetContainerItemInfo(containerIndex, slotIndex)`
+### `C_Container.GetContainerItemInfo(containerIndex, slotIndex [, buf])`
 
 Returns a `ContainerItemInfo` table for the item in the given bag slot, or
 `nil` if the slot is empty / the indices are out of range. The
@@ -2873,6 +2876,13 @@ only returned `texture, itemCount, locked, quality, readable`.
 
 - `containerIndex = 0` — main backpack; `1..4` — equipped bag slots.
 - `slotIndex` — 1-based.
+- `buf` — optional table (ClassicAPI extension). When you give a table,
+  the function writes the fields into it and returns it, instead of a new
+  table. It clears the fields that the item does not have. For an empty
+  slot, it returns `nil` and does not change the table.
+
+A bag addon that reads every slot on each `BAG_UPDATE` can give the same
+`buf` to each call. Then the calls do not make a new table each time.
 
 Table fields:
 
@@ -2885,7 +2895,7 @@ Table fields:
 | `isReadable` | boolean | Has readable page text (books/letters). |
 | `hasLoot` | boolean | Static LOOTABLE flag (best-effort — post-loot emptiness can't be tracked client-side). |
 | `hyperlink` | string | Fully-decorated per-instance item link (enchant + random suffix), same as `GetContainerItemLink`. |
-| `isFiltered` | boolean | Always `false` — there is no bag search-filter system. |
+| `isFiltered` | boolean | `true` when a bag search is active and the item does not match it. See [`C_Container.SetItemSearch`](#c_containersetitemsearchsearchstring). |
 | `hasNoValue` | boolean | `true` when the item's vendor sell price is 0. |
 | `itemID` | number | Item ID. |
 | `isBound` | boolean | Soulbound. |
@@ -2901,6 +2911,75 @@ does not warm the item cache.
 local info = C_Container.GetContainerItemInfo(0, 1)
 if info then
     print(info.itemName, info.stackCount, info.quality, info.hyperlink)
+end
+
+-- One table for the whole backpack:
+local buf = {}
+for slot = 1, GetContainerNumSlots(0) do
+    if C_Container.GetContainerItemInfo(0, slot, buf) then
+        -- buf holds this slot's item until the next call
+    end
+end
+```
+
+### `C_Container.SetItemSearch(searchString)`
+
+Sets the text of the bag search. The bags, the bank, and the keyring all
+use the same search. An empty string clears the search.
+
+When the search changes, the `INVENTORY_SEARCH_UPDATE` event fires. If
+the new text gives the same search, the event does not fire. For example,
+"Potion" after "potion" does not fire it.
+
+An item matches the search when the search text is part of one of these:
+
+- the name of an equipment set that holds the item
+- the full name of the item, with its random suffix ("of the Owl")
+- the subclass name of the item, for example "Bow" or "Cloth"
+- the name of its equip slot, for example "Head" or "Two-Hand"
+
+An item that does not match has `isFiltered = true` in
+[`C_Container.GetContainerItemInfo`](#c_containergetcontaineriteminfocontainerindex-slotindex--buf).
+
+Rules of the match:
+
+- The search ignores case. On French, German, Spanish, and Russian
+  clients, it also ignores accents: "epee" matches "Épée".
+- Cloaks do not match their subclass name ("Cloth").
+- Axes, maces, polearms, swords, staves, fist weapons, daggers, and spears
+  do not match their subclass name. A search for "sword" finds a sword
+  only when its name contains "sword". The equip slot name ("One-Hand",
+  "Two-Hand") still matches.
+- The equipment set match uses the item that was saved in the set.
+  Another copy of the same item does not match.
+- If the data of an item is not in the cache yet, the item matches.
+- When the data of an item arrives later, no event fires. Read
+  `isFiltered` again on `BAG_UPDATE` and on `INVENTORY_SEARCH_UPDATE`.
+- The search stays after `/reload`. A logout clears it.
+
+```lua
+-- In the OnTextChanged script of a search box:
+C_Container.SetItemSearch(this:GetText())
+```
+
+### `C_Container.IsContainerFiltered(containerIndex)`
+
+Returns `true` when a bag search is active and no item in the container
+matches it. Returns `false` when no search is active. A bag addon can use
+this to dim a bag button.
+
+- `containerIndex` — `0` backpack, `1..4` bags, `-1` bank, `5..10` bank
+  bags, `-2` keyring.
+
+When a search is active, these also return `true`:
+
+- an empty bag
+- an index that is not a container
+- the bank and the bank bags while the bank is closed
+
+```lua
+for bag = 0, 4 do
+    print(bag, C_Container.IsContainerFiltered(bag))
 end
 ```
 
@@ -5211,6 +5290,15 @@ snapshot of `(factionID, newStanding, repGained)` is captured before
 forwarding, which [`C_Reputation.GetLastStandingChange`](#c_reputationgetlaststandingchange)
 exposes — so addons can read the structured payload from inside the
 chat event without re-parsing the localized string.
+
+### `INVENTORY_SEARCH_UPDATE` event
+
+Fires with no payload when
+[`C_Container.SetItemSearch`](#c_containersetitemsearchsearchstring)
+changes the bag search. When it fires, read `isFiltered` from
+`C_Container.GetContainerItemInfo` and the result of
+`C_Container.IsContainerFiltered` again. A logout clears the search, but
+it does not fire this event.
 
 ### `LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events
 

@@ -26,10 +26,17 @@ const uint8_t *FindSubClass(uint32_t classID, uint32_t subClassID);
 // The row's localized verbose name, else its short name, else "".
 const char *SubClassName(const uint8_t *rec);
 
+// The row's localized short name ("Sword", "Cloth"), "" when none.
+const char *SubClassShortName(const uint8_t *rec);
+
 // Whether either localized name of the row equals `name`, ignoring case.
 bool SubClassNamed(const uint8_t *rec, const char *name);
 
 // The equipLoc key ("INVTYPE_HEAD", …) for an inventory type, "" when none.
 const char *InvTypeKey(int invType);
+
+// The equip slot's display name ("Head", "Two-Hand") for an inventory type:
+// the global string its key names. "" when none.
+const char *InvTypeName(int invType);
 
 } // namespace Item::TypeInfo

@@ -47,6 +47,25 @@ bool TryReadIntField(void *L, int locIdx, const char *fieldName, int *out) {
     return ok;
 }
 
+// PackBagSlot + GetItemBySlot on the (bagID, slotIndex) already at Lua
+// stack[1] / stack[2]. PackBagSlot only `lua_tonumber`s those two indices
+// (0x004F9820), so the stack is left as it was.
+bool DetailFromArgs(void *L, BagSlotDetail *out) {
+    void *container = nullptr;
+    int linearSlot = 0;
+    int unused = 0;
+    auto PackBagSlot = reinterpret_cast<PackBagSlot_t>(Offsets::FUN_PACK_BAG_SLOT);
+    if (!PackBagSlot(L, &container, &linearSlot, &unused) || container == nullptr)
+        return false;
+
+    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
+        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
+    out->container = static_cast<const uint8_t *>(container);
+    out->linearSlot = linearSlot;
+    out->item = static_cast<const uint8_t *>(GetItemBySlot(container, linearSlot));
+    return true;
+}
+
 const uint8_t *ResolveBagSlot(void *L, int bagID, int slotIndex) {
     BagSlotDetail d;
     if (!ResolveBagSlotDetail(L, bagID, slotIndex, &d))
@@ -131,24 +150,16 @@ bool ResolveBagSlotDetail(void *L, int bagID, int slotIndex, BagSlotDetail *out)
     Game::Lua::SetTop(L, 0);
     Game::Lua::PushNumber(L, static_cast<double>(bagID));
     Game::Lua::PushNumber(L, static_cast<double>(slotIndex));
-
-    void *container = nullptr;
-    int linearSlot = 0;
-    int unused = 0;
-    auto PackBagSlot = reinterpret_cast<PackBagSlot_t>(Offsets::FUN_PACK_BAG_SLOT);
-    if (!PackBagSlot(L, &container, &linearSlot, &unused) || container == nullptr)
-        return false;
-
-    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
-        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
-    out->container = static_cast<const uint8_t *>(container);
-    out->linearSlot = linearSlot;
-    out->item = static_cast<const uint8_t *>(GetItemBySlot(container, linearSlot));
-    return true;
+    return DetailFromArgs(L, out);
 }
 
 const uint8_t *ResolveBag(void *L, int bagID, int slotIndex) {
     return ResolveBagSlot(L, bagID, slotIndex);
+}
+
+const uint8_t *ResolveBagArgs(void *L) {
+    BagSlotDetail d;
+    return DetailFromArgs(L, &d) ? d.item : nullptr;
 }
 
 bool ParseGUIDString(const char *s, uint64_t *out) {

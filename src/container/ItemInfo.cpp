@@ -35,7 +35,7 @@
 //                 vanilla can't track post-loot dynamic emptiness client-side).
 //   hyperlink   — engine link builder via `Item::Link::FromCGItem` (enchant /
 //                 random-suffix decorated, same as `GetContainerItemLink`).
-//   isFiltered  — always false (vanilla has no bag search-filter system).
+//   isFiltered  — the bag search's verdict (`Container::Search`).
 //   hasNoValue  — ItemStats sellPrice == 0.
 //   itemID      — instance block itemID (`Item::ID::FromCGItem`).
 //   isBound     — CGItem descriptor SOULBOUND flag (`C_Item.IsBound`'s bit).
@@ -46,9 +46,16 @@
 // name) are omitted/nil when the item's static data isn't cached yet — the
 // live per-instance fields (count / locked / bound / itemID / link) are always
 // present. Passive: does not warm the item cache.
+//
+// ClassicAPI extension: a table as the 3rd argument is filled and returned
+// instead of a new one. Bag addons call this for every slot on every
+// BAG_UPDATE, and in Lua 5.0 a table per call is steady garbage-collector
+// work; the fill clears the optional fields this item lacks. An empty slot
+// still returns nil and leaves the table alone.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "container/Search.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
 #include "item/Icon.h"
@@ -82,10 +89,10 @@ int __fastcall Script_C_Container_GetContainerItemInfo(void *L) {
             "Usage: C_Container.GetContainerItemInfo(containerIndex, slotIndex)");
         return 0;
     }
-    const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    const bool fill = Game::Lua::Type(L, 3) == Game::Lua::TYPE_TABLE;
 
-    const uint8_t *item = Item::Location::ResolveBag(L, bagID, slotIndex);
+    // Leaves the stack as it is, so a `buf` at index 3 is still there below.
+    const uint8_t *item = Item::Location::ResolveBagArgs(L);
     if (item == nullptr) {
         Game::Lua::PushNil(L); // empty slot / bad index → nil (modern contract)
         return 1;
@@ -149,30 +156,73 @@ int __fastcall Script_C_Container_GetContainerItemInfo(void *L) {
             itemName = baseName;
     }
 
+    const bool isFiltered = Container::Search::IsItemFiltered(item);
+
     // --- Build the ContainerItemInfo table (only stack-safe SetField* now). ---
-    Game::Lua::NewTable(L);
+    if (fill)
+        Game::Lua::PushValue(L, 3);
+    else
+        Game::Lua::NewTable(L);
     if (haveIcon)
         Game::Lua::SetFieldString(L, "iconFileID", iconPath);
+    else if (fill)
+        Game::Lua::SetFieldNil(L, "iconFileID");
     Game::Lua::SetFieldNumber(L, "stackCount", static_cast<double>(stackCount));
     Game::Lua::SetFieldBool(L, "isLocked", isLocked);
     if (haveQuality)
         Game::Lua::SetFieldNumber(L, "quality", static_cast<double>(quality));
+    else if (fill)
+        Game::Lua::SetFieldNil(L, "quality");
     Game::Lua::SetFieldBool(L, "isReadable", isReadable);
     Game::Lua::SetFieldBool(L, "hasLoot", hasLoot);
     if (hyperlink != nullptr && hyperlink[0] != '\0')
         Game::Lua::SetFieldString(L, "hyperlink", hyperlink);
-    Game::Lua::SetFieldBool(L, "isFiltered", false);
+    else if (fill)
+        Game::Lua::SetFieldNil(L, "hyperlink");
+    Game::Lua::SetFieldBool(L, "isFiltered", isFiltered);
     Game::Lua::SetFieldBool(L, "hasNoValue", hasNoValue);
     Game::Lua::SetFieldNumber(L, "itemID", static_cast<double>(itemID));
     Game::Lua::SetFieldBool(L, "isBound", isBound);
     if (itemName != nullptr)
         Game::Lua::SetFieldString(L, "itemName", itemName);
+    else if (fill)
+        Game::Lua::SetFieldNil(L, "itemName");
     return 1;
 }
 
+const Game::Doc::Field kContainerItemInfoFields[] = {
+    Game::Doc::Opt("iconFileID", "string", nullptr,
+                   "Icon texture path. Nil until the item's data is cached."),
+    Game::Doc::Req("stackCount", "number"),
+    Game::Doc::Req("isLocked", "bool"),
+    Game::Doc::Opt("quality", "ItemQuality", nullptr, "Nil until the item's data is cached."),
+    Game::Doc::Req("isReadable", "bool"),
+    Game::Doc::Req("hasLoot", "bool"),
+    Game::Doc::Opt("hyperlink", "string"),
+    Game::Doc::Req("isFiltered", "bool", "True when the bag search hides the item."),
+    Game::Doc::Req("hasNoValue", "bool"),
+    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Req("isBound", "bool"),
+    Game::Doc::Opt("itemName", "string", nullptr, "Nil until the item's data is cached."),
+};
+const Game::Doc::Structure kContainerItemInfo{"ContainerItemInfo", "Container",
+                                              kContainerItemInfoFields};
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+    Game::Doc::Opt("buf", "table", nullptr,
+                   "A table to write the item into and return instead of a new one."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("containerInfo", "ContainerItemInfo", nullptr, "Nil when the slot is empty."),
+};
+const Game::Doc::Function kGetContainerItemInfo{"The item in a bag slot.", kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemInfo",
-                                     &Script_C_Container_GetContainerItemInfo);
+                                     &Script_C_Container_GetContainerItemInfo,
+                                     &kGetContainerItemInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

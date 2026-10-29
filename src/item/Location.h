@@ -52,6 +52,13 @@ bool IsLocationArg(void *L, int idx);
 // `Resolve()` above.
 const uint8_t *ResolveBag(void *L, int bagID, int slotIndex);
 
+// Resolves the `(bagID, slotIndex)` a script was called with — Lua stack[1]
+// and stack[2], read the way the engine's own container scripts read them —
+// to a `CGItem *`. Unlike `ResolveBag` it leaves the stack untouched, so the
+// script's later arguments are still there. Null for an empty slot or bad
+// coordinates. Callers validate both arguments as numbers first.
+const uint8_t *ResolveBagArgs(void *L);
+
 // Resolves a 1-based character-pane equipment slot directly to a
 // `CGItem *`. Used by the positional-arg `GetInventoryItemDurability`
 // (and any future per-slot getter) that doesn't take an ItemLocation

@@ -79,6 +79,12 @@ const char *SubClassName(const uint8_t *rec) {
     return (shortName != nullptr && shortName[0] != '\0') ? shortName : "";
 }
 
+const char *SubClassShortName(const uint8_t *rec) {
+    const char *s = *reinterpret_cast<const char *const *>(
+        rec + Offsets::OFF_ITEMSUBCLASS_NAME + LocaleIndex() * 4);
+    return (s != nullptr && s[0] != '\0') ? s : "";
+}
+
 // Either localized name of the subclass row equals `name`, ignoring case —
 // 4.3.4's `FindItemClassTypeCallback` (0x008DAAC0) tests both the verbose
 // and the display name, so "One-Handed Swords" and "Sword" both match.
@@ -102,6 +108,15 @@ const char *InvTypeKey(int invType) {
         static_cast<uintptr_t>(Offsets::VAR_INVTYPE_STRING_TABLE));
     const char *s = table[invType];
     return (s != nullptr && s[0] != '\0') ? s : "";
+}
+
+const char *InvTypeName(int invType) {
+    const char *key = InvTypeKey(invType);
+    if (key[0] == '\0')
+        return "";
+    using GetText_t = const char *(__fastcall *)(const char *name, int edx, int gender);
+    const char *s = reinterpret_cast<GetText_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT)(key, -1, 0);
+    return s != nullptr ? s : "";
 }
 
 namespace {

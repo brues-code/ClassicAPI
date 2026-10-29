@@ -438,6 +438,12 @@ void SetFieldBool(void *L, const char *key, bool value) {
     SetTable(L, -3);
 }
 
+void SetFieldNil(void *L, const char *key) {
+    PushString(L, key);
+    PushNil(L);
+    SetTable(L, -3);
+}
+
 void SetGlobalNumber(void *L, const char *name, double value) {
     PushString(L, name);
     PushNumber(L, value);

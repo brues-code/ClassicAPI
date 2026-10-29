@@ -29,6 +29,10 @@ namespace Item {
 // null-check the result before reading fields).
 const uint8_t *InstanceBlock(const uint8_t *cgItem);
 
+// The item's GUID, read from its instance block. 0 for a null `cgItem` or
+// a missing block.
+uint64_t Guid(const uint8_t *cgItem);
+
 // The item's **m_objectFields descriptor** (`CGItem + 0x114` dereferenced):
 // the UpdateField block holding stack count (`+0x20`), flags (`+0x3C`),
 // spell charges (`+0x28`), durability (`+0xA0`), enchantments, etc. Distinct
