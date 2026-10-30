@@ -151,8 +151,30 @@ constexpr int LOC_IGNORED = 1;
 //                              when the swap settles — see
 //                              `EquipmentSet::Pending`. `success` is
 //                              1 or nil, never 0 (a Lua 0 is true).
-inline const Event::Custom::AutoReserve kEvtSetsChanged{"EQUIPMENT_SETS_CHANGED"};
-inline const Event::Custom::AutoReserve kEvtSwapPending{"EQUIPMENT_SWAP_PENDING"};
-inline const Event::Custom::AutoReserve kEvtSwapFinished{"EQUIPMENT_SWAP_FINISHED"};
+inline const Game::Doc::Event kSetsChangedDoc{
+    "EquipmentSet",
+    "Fires when an equipment set is created, saved, renamed, or deleted, or when the slots "
+    "ignored for the next save change.",
+    {}};
+inline const Game::Doc::Field kSwapPendingPayload[] = {
+    Game::Doc::Req("setID", "number"),
+};
+inline const Game::Doc::Event kSwapPendingDoc{
+    "EquipmentSet", "Fires when C_EquipmentSet.UseEquipmentSet has sent all its moves.",
+    kSwapPendingPayload};
+inline const Game::Doc::Field kSwapFinishedPayload[] = {
+    Game::Doc::Opt("result", "number", nullptr, "1 when the swap succeeded, else nil."),
+    Game::Doc::Req("setID", "number"),
+};
+inline const Game::Doc::Event kSwapFinishedDoc{
+    "EquipmentSet", "Fires when the moves of an equipment set swap are done.",
+    kSwapFinishedPayload};
+
+inline const Event::Custom::AutoReserve kEvtSetsChanged{"EQUIPMENT_SETS_CHANGED",
+                                                        &kSetsChangedDoc};
+inline const Event::Custom::AutoReserve kEvtSwapPending{"EQUIPMENT_SWAP_PENDING",
+                                                        &kSwapPendingDoc};
+inline const Event::Custom::AutoReserve kEvtSwapFinished{"EQUIPMENT_SWAP_FINISHED",
+                                                         &kSwapFinishedDoc};
 
 } // namespace EquipmentSet
