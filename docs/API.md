@@ -387,6 +387,7 @@ build instructions.
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`smf:GetMessageInfo(index)`](#smfgetmessageinfoindex)
   - [`smf:BackFillMessage(text, r, g, b, ...)`](#smfbackfillmessagetext-r-g-b-)
+  - [`smf:RemoveMessagesByPredicate(predicate)`](#smfremovemessagesbypredicatepredicate)
   - [`smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`](#smfsetscrolloffsetoffset--smfgetscrolloffset--smfgetmaxscrollrange--smfscrollbyamountamount)
   - [`smf:SetInsertMode(mode)` / `smf:GetInsertMode()`](#smfsetinsertmodemode--smfgetinsertmode)
   - [`smf:AddOnDisplayRefreshedCallback(callback)`](#smfaddondisplayrefreshedcallbackcallback)
@@ -8719,6 +8720,30 @@ move.
 ```lua
 ChatFrame1:BackFillMessage("older", 1, 1, 1)
 ChatFrame1:GetMessageInfo(1)   -- "older", 1, 1, 1
+```
+
+### `smf:RemoveMessagesByPredicate(predicate)`
+
+On ScrollingMessageFrame. Removes the messages that `predicate` selects. The
+function calls `predicate(text, r, g, b, ...)` for each message, from the
+oldest to the newest, with the values that `GetMessageInfo` returns for the
+message. If `predicate` returns true, the function removes the message. The
+other messages keep their order. If `predicate` is not a function, the
+function gives an error.
+
+- The function calls `predicate` for all messages before it removes any
+  message. If `predicate` gives an error for a message, the frame keeps that
+  message.
+- The frame keeps its scroll offset (`GetScrollOffset`). If fewer messages
+  remain than the offset, the offset becomes the oldest message.
+- The frame shows the lines that remain at once. If no message remains, the
+  result is the same as `smf:Clear()`.
+
+```lua
+-- remove the messages that were added with the extra value 7
+ChatFrame1:RemoveMessagesByPredicate(function(text, r, g, b, id)
+    return id == 7
+end)
 ```
 
 ### `smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`

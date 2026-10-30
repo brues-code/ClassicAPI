@@ -12888,6 +12888,17 @@ enum Offsets {
     // 0 when empty; the GetCurrentScroll method pushes it.
     FUN_SCROLLINGMESSAGEFRAME_SCROLL_TO_OFFSET = 0x00788700,
     FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET = 0x00788AC0,
+    // Clear (`void __thiscall(smf)`, 4.3.4's Clear): count 0, position 0, a
+    // layout from 0, +0x350 = 0, position -1. The Clear method's body.
+    FUN_SCROLLINGMESSAGEFRAME_CLEAR = 0x007882B0,
+    // RearmLines (`void __thiscall(smf)`, 4.3.4's RefreshMessages): every
+    // shown line back to alpha 0xFF, shown, the frame's two times, and its
+    // node shown (benilla-re ui/messageframe "Scrolling brings lines back").
+    // FUN_SMF_DISPLAY_REFRESH (LayoutLines) owns +0x348 (the scroll record)
+    // and +0x354 (at bottom = record == position) itself, and re-arms only
+    // when it moves off the bottom; a layout at the bottom keeps the fade
+    // state, so 4.3.4 re-arms explicitly after a removal's layout.
+    FUN_SCROLLINGMESSAGEFRAME_REARM_LINES = 0x00788B80,
     FUN_SCRIPT_SCROLLINGMESSAGEFRAME_GET_CURRENT_SCROLL = 0x00793650,
     // The frame's OnFrameUpdate override (vtable+0x38, see
     // FUN_FRAME_ON_UPDATE), `void __thiscall(smf, float elapsed)`, `ret 4`:

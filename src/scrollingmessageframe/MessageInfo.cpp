@@ -47,6 +47,11 @@
 // OLDEST — the combat log's refilter walks its history newest to oldest and
 // fills the frame behind the lines it already shows (Blizzard_CombatLog's
 // RefilterUpdate). It writes the ring itself; see the function.
+//
+// `RemoveMessagesByPredicate(predicate)`, retail's, removes the messages the
+// predicate selects by their GetMessageInfo values. The ring has no
+// compaction of its own; 4.3.4's RemoveLines loop is run over it, the
+// extra-argument tables moving with their records. See the function.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -54,6 +59,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace ScrollingMessageFrame::MessageInfo {
 
@@ -66,9 +72,9 @@ constexpr int kFirstExtra = 6; // self, text, r, g, b, then the extra arguments
 constexpr int kNoRef = -2;
 int g_extrasRef = kNoRef;
 
-// Pushes the extra-argument table of record `record` of the frame whose Lua
-// table is at stack slot 1, or nil when it has none and `create` is false.
-void PushExtras(void *L, int record, bool create) {
+// Pushes the record → extra-arguments table of the frame whose Lua table is
+// at stack slot 1, or nil when it has none and `create` is false.
+void PushRecords(void *L, bool create) {
     using namespace Game::Lua;
     if (g_extrasRef == kNoRef) {
         if (!create) {
@@ -89,6 +95,13 @@ void PushExtras(void *L, int record, bool create) {
         RawSet(L, -4); // frames[self] = records
     }
     Remove(L, -2); // [records]
+}
+
+// Pushes the extra-argument table of record `record` of the frame whose Lua
+// table is at stack slot 1, or nil when it has none and `create` is false.
+void PushExtras(void *L, int record, bool create) {
+    using namespace Game::Lua;
+    PushRecords(L, create); // [records]
     if (Type(L, -1) != TYPE_TABLE)
         return;
     RawGetI(L, -1, record); // [records, extras]
@@ -241,27 +254,24 @@ int __fastcall Script_BackFillMessage(void *L) {
     return 0;
 }
 
-int __fastcall Script_GetMessageInfo(void *L) {
-    using namespace Game::Lua;
-    void *frame = ResolveTypedObject(L, 1, Offsets::VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID);
-    if (frame == nullptr)
-        return 0;
-    if (!IsNumber(L, 2)) {
-        Error(L, "Usage: %s:GetMessageInfo(index)", ObjectDisplayName(frame));
-        return 0;
-    }
-    const double index = ToNumber(L, 2);
+// The record of message `index`, 1 the oldest: (position - count + index),
+// plus the limit when negative.
+int RecordOf(void *frame, int index) {
     const int count = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT);
-    if (!(index >= 1 && index <= count) || index != static_cast<int>(index))
-        return 0;
-    int record = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS) - count +
-                 static_cast<int>(index);
+    int record = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS) - count + index;
     if (record < 0)
         record += Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MAX_MESSAGES);
+    return record;
+}
+
+// Pushes a record's GetMessageInfo values — its text, r, g, b, then its extra
+// arguments — for the frame whose Lua table is at stack slot 1, and returns
+// how many.
+int PushMessage(void *L, void *frame, int record) {
+    using namespace Game::Lua;
     const auto *message = Game::Read<const uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES) +
                           record * Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
     const uint32_t color = Game::Read<uint32_t>(message, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COLOR);
-
     PushExtras(L, record, false);
     const int extras = GetTop(L);
     const int n = Type(L, extras) == TYPE_TABLE ? ExtraCount(L, extras) : 0;
@@ -276,10 +286,146 @@ int __fastcall Script_GetMessageInfo(void *L) {
     return 4 + n;
 }
 
+int __fastcall Script_GetMessageInfo(void *L) {
+    using namespace Game::Lua;
+    void *frame = ResolveTypedObject(L, 1, Offsets::VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID);
+    if (frame == nullptr)
+        return 0;
+    if (!IsNumber(L, 2)) {
+        Error(L, "Usage: %s:GetMessageInfo(index)", ObjectDisplayName(frame));
+        return 0;
+    }
+    const double index = ToNumber(L, 2);
+    const int count = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT);
+    if (!(index >= 1 && index <= count) || index != static_cast<int>(index))
+        return 0;
+    return PushMessage(L, frame, RecordOf(frame, static_cast<int>(index)));
+}
+
+// `ScrollingMessageFrame:RemoveMessagesByPredicate(predicate)`, retail's: the
+// predicate is called with each message's GetMessageInfo values, oldest
+// first, and the messages it returns true for are removed; the rest keep
+// their order. Retail's mixin rebuilds its history buffer and re-renders at
+// the kept scroll offset. The removal is 4.3.4's RemoveLines over 1.12's
+// ring: every kept record moves forward in ring order to the first free slot
+// (freeing the text it lands on, nulling the one it left), the position moves
+// back by the removed count, and the extra-argument tables move with their
+// records. Then the engine's own layout from the record at the kept offset
+// (clamped to the oldest) and its re-arm — a layout at the bottom keeps the
+// fade state, so 4.3.4 re-arms after — or its Clear when nothing is kept.
+//
+// The predicate runs for every message before anything moves (retail builds
+// its new list first). A predicate that errors keeps that message, as
+// retail's safesecurecall does; the engine's error handler reports it.
+int __fastcall Script_RemoveMessagesByPredicate(void *L) {
+    using namespace Game::Lua;
+    using Layout_t = void(__fastcall *)(void *smf, void *edx, int newestRecord);
+    using Smf_t = void(__fastcall *)(void *smf);
+    using ScrollOffset_t = int(__fastcall *)(void *smf);
+    using StormFree_t = int(__stdcall *)(void *ptr, const char *file, int line, int flags);
+    static const char kStormFile[] = "ClassicAPI ScrollingMessageFrame:RemoveMessagesByPredicate";
+
+    void *frame = ResolveTypedObject(L, 1, Offsets::VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID);
+    if (frame == nullptr)
+        return 0;
+    if (Type(L, 2) != TYPE_FUNCTION) {
+        Error(L, "Usage: %s:RemoveMessagesByPredicate(predicate)", ObjectDisplayName(frame));
+        return 0;
+    }
+    const int count = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT);
+    const int max = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MAX_MESSAGES);
+    if (count <= 0 || max <= 0)
+        return 0;
+    const int top = GetTop(L);
+
+    // The predicate over every message, through the engine's error handler.
+    int errIdx = 0;
+    const int errRef = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
+    if (errRef > 0) {
+        RawGetI(L, REGISTRY_INDEX, errRef);
+        errIdx = GetTop(L);
+    }
+    std::vector<uint8_t> remove(static_cast<size_t>(count), 0);
+    int kept = count;
+    for (int i = 0; i < count; ++i) {
+        CheckStack(L, 2);
+        PushValue(L, 2);
+        const int args = PushMessage(L, frame, RecordOf(frame, i + 1));
+        if (PCall(L, args, 1, errIdx) == 0 && ToBoolean(L, -1) != 0) {
+            remove[static_cast<size_t>(i)] = 1;
+            --kept;
+        }
+        SetTop(L, -2);
+    }
+    SetTop(L, top);
+    if (kept == count)
+        return 0;
+
+    // 4.3.4's RemoveLines: compact the kept records forward in ring order.
+    const int offset = reinterpret_cast<ScrollOffset_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET)(frame);
+    int &pos = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS);
+    uint8_t *records = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
+    PushRecords(L, false);
+    const int table = GetTop(L);
+    const bool extras = Type(L, table) == TYPE_TABLE;
+    int src = pos - count + 1;
+    if (src < 0)
+        src += max;
+    int dst = src;
+    for (int i = 0; i < count; ++i) {
+        if (!remove[static_cast<size_t>(i)]) {
+            if (src != dst) {
+                uint8_t *to = records + dst * Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
+                uint8_t *from = records + src * Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
+                char *&landedOn = *reinterpret_cast<char **>(to + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT);
+                if (landedOn != nullptr)
+                    reinterpret_cast<StormFree_t>(Offsets::FUN_STORM_SMEM_FREE)(landedOn, kStormFile, __LINE__, 0);
+                std::memcpy(to, from, Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE);
+                *reinterpret_cast<char **>(from + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT) = nullptr;
+                if (extras) {
+                    PushNumber(L, dst);
+                    RawGetI(L, table, src);
+                    RawSet(L, table); // records[dst] = records[src]
+                    PushNumber(L, src);
+                    PushNil(L);
+                    RawSet(L, table); // records[src] = nil
+                }
+            }
+            dst = (dst + 1) % max;
+        } else if (extras) {
+            PushNumber(L, src);
+            PushNil(L);
+            RawSet(L, table); // records[src] = nil
+        }
+        src = (src + 1) % max;
+    }
+    SetTop(L, top);
+
+    if (kept == 0) {
+        reinterpret_cast<Smf_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_CLEAR)(frame);
+        DisplayRefreshed::MarkDirty(frame);
+        return 0;
+    }
+    pos += kept - count;
+    if (pos < 0)
+        pos += max;
+    Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT) = kept;
+    // The lines again from the record at the kept offset, then re-armed.
+    const int shown = (offset < kept) ? (offset < 0 ? 0 : offset) : kept - 1;
+    int record = pos - shown;
+    if (record < 0)
+        record += max;
+    reinterpret_cast<Layout_t>(Offsets::FUN_SMF_DISPLAY_REFRESH)(frame, nullptr, record);
+    reinterpret_cast<Smf_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_REARM_LINES)(frame);
+    DisplayRefreshed::MarkDirty(frame);
+    return 0;
+}
+
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AddMessage", &Script_AddMessage},
     {"BackFillMessage", &Script_BackFillMessage},
     {"GetMessageInfo", &Script_GetMessageInfo},
+    {"RemoveMessagesByPredicate", &Script_RemoveMessagesByPredicate},
 };
 
 const Game::Doc::Field kAddMessageArgs[] = {
@@ -318,17 +464,27 @@ const Game::Doc::Function kGetMessageInfo{
     "when there is no message at that index.",
     kGetMessageInfoArgs, kGetMessageInfoRets};
 
+const Game::Doc::Field kRemoveMessagesByPredicateArgs[] = {
+    Game::Doc::Req("predicate", "function",
+                   "Called with each message's GetMessageInfo values, oldest first; true removes the message."),
+};
+const Game::Doc::Function kRemoveMessagesByPredicate{
+    "Removes the messages the predicate returns true for. The rest keep their order, and the frame "
+    "keeps its scroll offset.",
+    kRemoveMessagesByPredicateArgs, {}};
+
 const Game::Doc::Method kDocs[] = {
     {"AddMessage", &kAddMessage},
     {"BackFillMessage", &kBackFillMessage},
     {"GetMessageInfo", &kGetMessageInfo},
+    {"RemoveMessagesByPredicate", &kRemoveMessagesByPredicate},
 };
 
 void RegisterLuaFunctions() {
     // Each registration pass is a new Lua state; the old state's ref is gone.
     g_extrasRef = kNoRef;
     Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
-                                    kMethods, 3, kDocs, 3);
+                                    kMethods, 4, kDocs, 4);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

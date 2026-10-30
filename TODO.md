@@ -4090,8 +4090,13 @@ Each entry still needs the usual check of how the engine does it before building
   `BackFillMessage` (writes 4.3.4's addToTop slot of the ring, the free one
   before the oldest; a full frame drops it, as retail's CircularBuffer
   `PushBack` does — 4.3.4 overwrites the oldest there).
-- **ScrollingMessageFrame** `RemoveMessagesByAccessID` / `RemoveMessagesByExtraData` (4.3.4 C; retail
-  has `RemoveMessagesByPredicate`): 1.12 has no ring compaction.
+- **DONE** (`src/scrollingmessageframe/MessageInfo.cpp`).
+  **ScrollingMessageFrame** `RemoveMessagesByPredicate` (retail's shape; it
+  covers 4.3.4's `RemoveMessagesByAccessID` / `RemoveMessagesByExtraData`,
+  whose int fields our retail-shaped records do not have). The compaction
+  is 4.3.4's `RemoveLines` loop over 1.12's ring, then the engine's own
+  layout (0x00788750) at the kept scroll offset and re-arm (0x00788B80),
+  or Clear (0x007882B0) when nothing is kept.
 - **DONE** (`src/editbox/Focus.cpp`, `src/animation/Framerate.cpp`).
   **Globals** (`SimpleFrameScript_Scripts.cpp`): `GetCurrentKeyBoardFocus()`
   (the focused edit box's wrapper, or nil); `SetMaxAnimFramerate(fps)` /
