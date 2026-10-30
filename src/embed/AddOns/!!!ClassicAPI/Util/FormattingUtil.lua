@@ -1,110 +1,220 @@
--- Backport of FrameXML/FormattingUtil.lua (feasible subset) to vanilla
--- 1.12 / Lua 5.0.
+-- Backport of retail Blizzard_SharedXML/FormattingUtil.lua to vanilla 1.12 / Lua 5.0.
 --
--- 5.0 notes: no `#`/`%`/string-method syntax — uses string.*, math.mod.
--- GetMoneyString gives the text-symbol form ("12g 34s 56c"). The coin-icon form
--- (GetCoinTextureString / C_CurrencyInfo.GetCoinTextureString) is provided by the
--- ClassicAPI DLL in C++ (src/currency/CoinText.cpp) — like retail, where it's a
--- C function — now that the inline-texture backport renders |T markup in 1.12.
+-- Implementation differences from the retail source:
+--   - GetMoneyString always gives the coin-icon form, retail's default. Retail
+--     switches to the text-symbol form ("12g 34s 56c") under its colorblind
+--     mode, which 1.12 does not have.
+--   - GetMoneyString accepts checkGoldThreshold but does not apply it yet:
+--     FormatDisplayCopper reads Constants.MoneyFormattingConstants, which
+--     ClassicAPI does not provide.
+--   - Not ported: FormattingUtil.GetCostString / GetItemCostString (they need
+--     the BreakUpLargeNumbers / AbbreviateNumbers C functions) and
+--     GetCurrencyString / GetCurrenciesString (1.12 has no currencies).
 --
--- The FrameXML format-string globals these functions consume
--- (LARGE_NUMBER_SEPERATOR, PERCENTAGE_STRING, GOLD_AMOUNT_SYMBOL,
--- GOLD_AMOUNT_TEXTURE, …) are defined in the locale layer (locales/enUS.lua),
--- which loads first.
+-- The GlobalStrings these functions consume (LARGE_NUMBER_SEPERATOR,
+-- PERCENTAGE_STRING, GOLD_AMOUNT_TEXTURE, SYMBOLIC_NEGATIVE_NUMBER, ...) are
+-- defined in the locale layer (locales/*.lua), which loads first. The coin
+-- formats there crop the one 1.12 sprite sheet, UI-MoneyIcons.
+
+function SplitTextIntoLines(text, delimiter)
+	local lines = {};
+	local startIndex = 1;
+	local foundIndex = string.find(text, delimiter);
+	while foundIndex do
+		table.insert(lines, text:sub(startIndex, foundIndex - 1));
+		startIndex = foundIndex + 2;
+		foundIndex = string.find(text, delimiter, startIndex);
+	end
+	if startIndex <= #text then
+		table.insert(lines, text:sub(startIndex));
+	end
+	return lines;
+end
+
+function SplitTextIntoHeaderAndNonHeader(text)
+	local foundIndex = string.find(text, "|n");
+	if not foundIndex then
+		-- There was no newline...the whole thing is a header
+		return text;
+	elseif #text == 2 then
+		-- There was a newline, but that was all that was in the string.
+		return nil;
+	elseif foundIndex == 1 then
+		-- There was a newline at the very beginning...the whole rest of the string is a header
+		return text:sub(3);
+	elseif foundIndex == #text - 1 then
+		-- There was a newline at the very end...the whole rest of the string is a header
+		return text:sub(1, foundIndex - 1);
+	else
+		-- There was a newline somewhere in the middle...everything before it is the header and everything after it is the non-header
+		return text:sub(1, foundIndex - 1), text:sub(foundIndex + 2);
+	end
+end
+
+function FormatValueWithSign(value)
+	local formatString = value < 0 and SYMBOLIC_NEGATIVE_NUMBER or SYMBOLIC_POSITIVE_NUMBER;
+	return formatString:format(math.abs(value));
+end
+
+function FormatLargeNumber(amount)
+	amount = tostring(amount);
+	local newDisplay = "";
+	local strlen = amount:len();
+	--Add each thing behind a comma
+	for i=4, strlen, 3 do
+		newDisplay = LARGE_NUMBER_SEPERATOR..amount:sub(-(i - 1), -(i - 3))..newDisplay;
+	end
+	--Add everything before the first comma
+	newDisplay = amount:sub(1, (strlen % 3 == 0) and 3 or (strlen % 3))..newDisplay;
+	return newDisplay;
+end
 
 COPPER_PER_SILVER = 100;
 SILVER_PER_GOLD = 100;
 COPPER_PER_GOLD = COPPER_PER_SILVER * SILVER_PER_GOLD;
 
-function FormatLargeNumber(amount)
-    amount = tostring(amount);
-    local newDisplay = "";
-    local strlen = string.len(amount);
-    -- Insert a separator before each group of three trailing digits.
-    for i = 4, strlen, 3 do
-        newDisplay = LARGE_NUMBER_SEPERATOR ..
-            string.sub(amount, -(i - 1), -(i - 3)) .. newDisplay;
-    end
-    -- Prepend everything before the first separator.
-    local lead = (math.mod(strlen, 3) == 0) and 3 or math.mod(strlen, 3);
-    newDisplay = string.sub(amount, 1, lead) .. newDisplay;
-    return newDisplay;
+local COPPER_PER_SILVER = COPPER_PER_SILVER;
+local SILVER_PER_GOLD = SILVER_PER_GOLD;
+local COPPER_PER_GOLD = COPPER_PER_GOLD;
+
+MoneyStringConstants =
+{
+	SeparateThousands = true,
+	DontSeparateThousands = false,
+	CheckGoldThreshold = true,
+	DontCheckGoldThreshold = false,
+	ShowZeroAsGold = true,
+	ShowZeroAsLowerDenomination = false,
+};
+
+function GetMoneyString(money, separateThousands, checkGoldThreshold, showZeroAsGold, color)
+	local goldString, silverString, copperString;
+	local gold = floor(money / (COPPER_PER_SILVER * SILVER_PER_GOLD));
+	local silver = floor((money - (gold * COPPER_PER_SILVER * SILVER_PER_GOLD)) / COPPER_PER_SILVER);
+	local copper = mod(money, COPPER_PER_SILVER);
+
+	if (separateThousands) then
+		goldString = GOLD_AMOUNT_TEXTURE_STRING:format(FormatLargeNumber(gold), 0, 0);
+	else
+		goldString = GOLD_AMOUNT_TEXTURE:format(gold, 0, 0);
+	end
+	silverString = SILVER_AMOUNT_TEXTURE:format(silver, 0, 0);
+	copperString = COPPER_AMOUNT_TEXTURE:format(copper, 0, 0);
+
+	if showZeroAsGold and ( money == 0 ) then
+		return color and color:WrapTextInColorCode(goldString) or goldString;
+	end
+
+	local moneyString = "";
+	local separator = "";
+	if ( gold > 0 ) then
+		moneyString = goldString;
+		separator = " ";
+	end
+	if ( silver > 0 ) then
+		moneyString = moneyString..separator..silverString;
+		separator = " ";
+	end
+	if ( copper > 0 or moneyString == "" ) then
+		moneyString = moneyString..separator..copperString;
+	end
+
+	return color and color:WrapTextInColorCode(moneyString) or moneyString;
 end
 
 function FormatPercentage(percentage, roundToNearestInteger)
-    if roundToNearestInteger then
-        percentage = Round(percentage * 100);
-    else
-        percentage = percentage * 100;
-    end
-    return string.format(PERCENTAGE_STRING, percentage);
+	if roundToNearestInteger then
+		percentage = Round(percentage * 100);
+	else
+		percentage = percentage * 100;
+	end
+
+	return PERCENTAGE_STRING:format(percentage);
+end
+
+function FormatPercentageRounded(value)
+	local roundToNearestInteger = true;
+	return FormatPercentage(value, roundToNearestInteger);
 end
 
 function FormatFraction(numerator, denominator)
-    return string.format(GENERIC_FRACTION_STRING, numerator, denominator);
+	return GENERIC_FRACTION_STRING:format(numerator, denominator);
 end
 
-function SplitTextIntoLines(text, delimiter)
-    local lines = {};
-    local startIndex = 1;
-    local foundIndex = string.find(text, delimiter);
-    while foundIndex do
-        table.insert(lines, string.sub(text, startIndex, foundIndex - 1));
-        startIndex = foundIndex + 2;
-        foundIndex = string.find(text, delimiter, startIndex);
-    end
-    if startIndex <= string.len(text) then
-        table.insert(lines, string.sub(text, startIndex));
-    end
-    return lines;
+function GetHighlightedNumberDifferenceString(baseString, newString)
+	local outputString = "";
+	-- output string is being built from the new string
+	local newStringIndex = 1;
+	-- find a stretch of digits (including . and , because of different locales) - but has to end in a digit
+	local PATTERN = "([,%.%d]*%d+)";
+	local start1, end1, baseNumberString = string.find(baseString, PATTERN);
+	local start2, end2, newNumberString = string.find(newString, PATTERN);
+	while start1 and start2 do
+		-- add from the new string until the matched spot
+		outputString = outputString .. string.sub(newString, newStringIndex, start2 - 1);
+		newStringIndex = end2 + 1;
+
+		if baseNumberString ~= newNumberString then
+			-- need to remove , and . before comparing numbers because of locales
+			local scrubbedBaseNumberString = gsub(baseNumberString, "[,%.]", "");
+			local scrubbedNewNumberString = gsub(newNumberString, "[,%.]", "");
+			local baseNumber = tonumber(scrubbedBaseNumberString);
+			local newNumber = tonumber(scrubbedNewNumberString);
+			if baseNumber and newNumber then
+				local delta = newNumber - baseNumber;
+				if delta > 0 then
+					newNumberString = GREEN_FONT_COLOR_CODE..string.format(newNumberString)..FONT_COLOR_CODE_CLOSE;
+				elseif delta < 0 then
+					newNumberString = RED_FONT_COLOR_CODE..string.format(newNumberString)..FONT_COLOR_CODE_CLOSE;
+				end
+			end
+		end
+
+		outputString = outputString..newNumberString;
+
+		start1, end1, baseNumberString = string.find(baseString, PATTERN, end1 + 1);
+		start2, end2, newNumberString = string.find(newString, PATTERN, end2 + 1);
+	end
+
+	outputString = outputString .. string.sub(newString, newStringIndex, string.len(newString));
+	return outputString;
 end
 
-function SplitTextIntoHeaderAndNonHeader(text)
-    local foundIndex = string.find(text, "|n");
-    local len = string.len(text);
-    if not foundIndex then
-        return text; -- no newline: whole thing is a header
-    elseif len == 2 then
-        return nil; -- the string was just a newline
-    elseif foundIndex == 1 then
-        return string.sub(text, 3); -- leading newline: rest is a header
-    elseif foundIndex == len - 1 then
-        return string.sub(text, 1, foundIndex - 1); -- trailing newline
-    else
-        return string.sub(text, 1, foundIndex - 1), string.sub(text, foundIndex + 2);
-    end
+function FormatUnreadMailTooltip(tooltip, headerText, senders)
+	for i, sender in ipairs(senders) do
+		headerText = headerText.."\n"..sender;
+	end
+
+	tooltip:SetText(headerText);
 end
 
--- (money, separateThousands [, checkGoldThreshold, showZeroAsGold])
--- Text-symbol form ("12g 34s 56c"); for the coin-icon form use
--- GetCoinTextureString below. The checkGoldThreshold arg is accepted for
--- signature compatibility but not applied (it relied on modern Constants tables).
-function GetMoneyString(money, separateThousands, checkGoldThreshold, showZeroAsGold)
-    local gold = math.floor(money / COPPER_PER_GOLD);
-    local silver = math.floor(math.mod(money, COPPER_PER_GOLD) / COPPER_PER_SILVER);
-    local copper = math.mod(money, COPPER_PER_SILVER);
+FormattingUtil = {};
 
-    local goldString = (separateThousands and FormatLargeNumber(gold) or tostring(gold)) ..
-        GOLD_AMOUNT_SYMBOL;
-    local silverString = silver .. SILVER_AMOUNT_SYMBOL;
-    local copperString = copper .. COPPER_AMOUNT_SYMBOL;
+function FormattingUtil.AddLeadingZeroes(digits, numZeroes, zeroesColor)
+	numZeroes = numZeroes or 7;
+	zeroesColor = zeroesColor or GRAY_FONT_COLOR;
 
-    if showZeroAsGold and money == 0 then
-        return goldString;
-    end
+	local digitsString = tostring(digits);
+	local numDigits = #digitsString;
+	if numDigits < numZeroes then
+		local leadingZeroes = "";
+		for i = 1, (numZeroes - numDigits) do
+			leadingZeroes = leadingZeroes.."0";
+		end
 
-    local moneyString = "";
-    local separator = "";
-    if gold > 0 then
-        moneyString = goldString;
-        separator = " ";
-    end
-    if silver > 0 then
-        moneyString = moneyString .. separator .. silverString;
-        separator = " ";
-    end
-    if copper > 0 or moneyString == "" then
-        moneyString = moneyString .. separator .. copperString;
-    end
-    return moneyString;
+		leadingZeroes = zeroesColor:WrapTextInColorCode(leadingZeroes);
+
+		return leadingZeroes .. digits;
+	end
+
+	return digits;
+end
+
+function ReplaceGenderTokens(string, gender)
+	if not strfind(string, "%$") then
+		return string;
+	end
+
+	-- This is a very simple parser that will only handle $G/$g tokens
+	return gsub(string, "$[Gg]([^:]+):([^;]+);", "%"..gender);
 end
