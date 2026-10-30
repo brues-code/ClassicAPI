@@ -669,54 +669,242 @@ static int __fastcall Script_C_Reputation_SetWatchedFactionByID(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kFactionDataFields[] = {
+    Game::Doc::Req("factionID", "number"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("description", "string", "Empty when the faction has none."),
+    Game::Doc::Req("reaction", "luaIndex", "The rank, from 1 for Hated to 8 for Exalted."),
+    Game::Doc::Req("currentReactionThreshold", "number",
+                   "The standing at the bottom of the current rank."),
+    Game::Doc::Req("nextReactionThreshold", "number",
+                   "The standing at the top of the current rank."),
+    Game::Doc::Req("currentStanding", "number"),
+    Game::Doc::Req("atWarWith", "bool"),
+    Game::Doc::Req("canToggleAtWar", "bool",
+                   "False below -3000 standing, when the war state is fixed, or with no "
+                   "reputation slot."),
+    Game::Doc::Req("isChild", "bool", "Always false."),
+    Game::Doc::Req("isHeader", "bool", "True when the faction is a header in the reputation list."),
+    Game::Doc::Req("isHeaderWithRep", "bool", "Always false."),
+    Game::Doc::Req("isCollapsed", "bool", "True for a collapsed header."),
+    Game::Doc::Req("isWatched", "bool", "True when the faction is shown above the experience bar."),
+    Game::Doc::Req("hasBonusRepGain", "bool", "Always false."),
+    Game::Doc::Req("canSetInactive", "bool",
+                   "True when the faction has a reputation slot and is not a header."),
+    Game::Doc::Req("isAccountWide", "bool", "Always false."),
+};
+const Game::Doc::Structure kFactionData{"FactionData", "Reputation", kFactionDataFields,
+                                        "A faction's reputation data."};
+
+const Game::Doc::Field kFactionIDArgs[] = {
+    Game::Doc::Req("factionID", "number"),
+};
+const Game::Doc::Field kSortIndexArgs[] = {
+    Game::Doc::Req("factionSortIndex", "luaIndex", "A position in the reputation list."),
+};
+
+const Game::Doc::Field kFactionIDByIndexArgs[] = {
+    Game::Doc::Req("factionIndex", "luaIndex", "A position in the reputation list."),
+};
+const Game::Doc::Field kFactionIDByIndexRets[] = {
+    Game::Doc::Opt("factionID", "number", nullptr,
+                   "0 for a header with no faction of its own, such as Other or Inactive; nil "
+                   "when the index is out of range."),
+};
+const Game::Doc::Function kGetFactionIDByIndex{
+    "Returns the faction ID of the entry at a position in the reputation list.",
+    kFactionIDByIndexArgs, kFactionIDByIndexRets, "ReputationGlobals", true};
+
+const Game::Doc::Field kFactionInfoByIDRets[] = {
+    Game::Doc::Opt("name", "string", nullptr, "Nil, with the rest, when no faction has the ID."),
+    Game::Doc::Opt("description", "string", nullptr, "Empty when the faction has none."),
+    Game::Doc::Opt("standingID", "number", nullptr, "The rank, from 1 for Hated to 8 for Exalted."),
+    Game::Doc::Opt("barMin", "number", nullptr, "The standing at the bottom of the current rank."),
+    Game::Doc::Opt("barMax", "number", nullptr, "The standing at the top of the current rank."),
+    Game::Doc::Opt("barValue", "number", nullptr, "The current standing."),
+    Game::Doc::Opt("atWarWith", "number", nullptr,
+                   "1 when the player is at war with the faction, else nil."),
+    Game::Doc::Opt("canToggleAtWar", "number", nullptr,
+                   "1 when the at-war state can be changed, else nil."),
+    Game::Doc::Opt("isHeader", "number", nullptr,
+                   "1 when the faction is a header in the reputation list, else nil."),
+    Game::Doc::Opt("isCollapsed", "number", nullptr, "1 for a collapsed header, else nil."),
+    Game::Doc::Opt("isWatched", "number", nullptr,
+                   "1 when the faction is shown above the experience bar, else nil."),
+};
+const Game::Doc::Function kGetFactionInfoByID{
+    "Returns the same values as GetFactionInfo for a faction ID, whether or not the faction "
+    "is in the reputation list.",
+    kFactionIDArgs, kFactionInfoByIDRets, "ReputationGlobals"};
+
+const Game::Doc::Field kFactionParentIDRets[] = {
+    Game::Doc::Opt("parentFactionID", "number", nullptr,
+                   "0 for a faction with no parent; nil when no faction has the ID."),
+};
+const Game::Doc::Function kGetFactionParentID{
+    "Returns the ID of a faction's parent faction, such as Alliance for Stormwind.",
+    kFactionIDArgs, kFactionParentIDRets, "ReputationGlobals", true};
+
+const Game::Doc::Field kSetWatchedArgs[] = {
+    Game::Doc::Req("factionID", "number",
+                   "0, or an ID with no reputation slot, clears the watched faction; a negative "
+                   "ID does nothing."),
+};
+const Game::Doc::Function kSetWatchedFactionByID{
+    "Sets the faction shown above the experience bar.", kSetWatchedArgs, {}};
+
+const Game::Doc::Field kSetSelectedByIDArgs[] = {
+    Game::Doc::Req("factionID", "number", "0 clears the selection; a negative ID does nothing."),
+};
+const Game::Doc::Function kSetSelectedFactionByID{
+    "Selects a faction in the reputation pane by ID, even when the faction is not listed.",
+    kSetSelectedByIDArgs, {}, nullptr, true};
+
+const Game::Doc::Function kToggleFactionAtWarByID{
+    "Toggles whether the player is at war with a faction, by ID; the same limits apply as "
+    "for C_Reputation.ToggleFactionAtWar.",
+    kFactionIDArgs, {}, nullptr, true};
+
+const Game::Doc::Field kIsActiveRets[] = {
+    Game::Doc::Req("isActive", "bool",
+                   "False under the Inactive header, and for anything with no reputation slot."),
+};
+const Game::Doc::Function kIsFactionActive{
+    "Returns whether the faction at a position in the reputation list is active, that is, "
+    "not under the Inactive header.",
+    kSortIndexArgs, kIsActiveRets};
+const Game::Doc::Function kIsFactionActiveByID{
+    "Returns whether a faction is active, that is, not under the Inactive header.",
+    kFactionIDArgs, kIsActiveRets, nullptr, true};
+
+const Game::Doc::Field kIsInactiveRets[] = {
+    Game::Doc::Opt("isInactive", "number", nullptr,
+                   "1 when the faction is under the Inactive header, else nil."),
+};
+const Game::Doc::Function kIsFactionInactive{
+    "Returns whether the faction at a position in the reputation list is under the Inactive "
+    "header, as 1 or nil.",
+    kSortIndexArgs, kIsInactiveRets, nullptr, true};
+
+const Game::Doc::Function kSetFactionInactiveByID{
+    "Moves a faction under the Inactive header of the reputation list, by ID.",
+    kFactionIDArgs, {}, nullptr, true};
+const Game::Doc::Function kSetFactionActiveByID{
+    "Moves a faction out from under the Inactive header of the reputation list, by ID.",
+    kFactionIDArgs, {}, nullptr, true};
+const Game::Doc::Function kSetFactionInactive{
+    "Moves the faction at a position in the reputation list under the Inactive header.",
+    kSortIndexArgs, {}, nullptr, true};
+const Game::Doc::Function kSetFactionActive{
+    "Moves the faction at a position in the reputation list out from under the Inactive "
+    "header.",
+    kSortIndexArgs, {}};
+
+const Game::Doc::Function kToggleFactionAtWar{
+    "Toggles whether the player is at war with the faction at a position in the reputation "
+    "list.",
+    kSortIndexArgs, {}};
+const Game::Doc::Function kSetSelectedFaction{
+    "Selects the faction at a position in the reputation list.", kSortIndexArgs, {}};
+
+const Game::Doc::Field kWatchedFactionDataRets[] = {
+    Game::Doc::Opt("watchedFactionData", "FactionData", nullptr,
+                   "Nil when no faction is watched."),
+};
+const Game::Doc::Function kGetWatchedFactionData{
+    "Returns the faction shown above the experience bar.", {}, kWatchedFactionDataRets};
+
+const Game::Doc::Field kStandingsRets[] = {
+    Game::Doc::Req("standings", "table",
+                   "Keyed by faction ID; each value is the faction's standing."),
+};
+const Game::Doc::Function kGetFactionStandings{
+    "Returns the standing of every faction the character has reputation with, keyed by "
+    "faction ID.",
+    {}, kStandingsRets, nullptr, true};
+
+const Game::Doc::Field kFactionDataByIDRets[] = {
+    Game::Doc::Opt("factionData", "FactionData", nullptr, "Nil when no faction has the ID."),
+};
+const Game::Doc::Function kGetFactionDataByID{
+    "Returns a faction's reputation data by ID, whether or not the faction is in the "
+    "reputation list.",
+    kFactionIDArgs, kFactionDataByIDRets};
+
+const Game::Doc::Field kFactionDataByIndexRets[] = {
+    Game::Doc::Opt("factionData", "FactionData", nullptr,
+                   "Nil when the index is out of range or names the Other or Inactive header."),
+};
+const Game::Doc::Function kGetFactionDataByIndex{
+    "Returns the reputation data of the faction at a position in the reputation list.",
+    kSortIndexArgs, kFactionDataByIndexRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetFactionIDByIndex", &Script_GetFactionIDByIndex);
-    Game::Lua::RegisterGlobalFunction("GetFactionInfoByID", &Script_GetFactionInfoByID);
-    Game::Lua::RegisterGlobalFunction("GetFactionParentID", &Script_GetFactionParentID);
+    Game::Lua::RegisterGlobalFunction("GetFactionIDByIndex", &Script_GetFactionIDByIndex,
+                                      &kGetFactionIDByIndex);
+    Game::Lua::RegisterGlobalFunction("GetFactionInfoByID", &Script_GetFactionInfoByID,
+                                      &kGetFactionInfoByID);
+    Game::Lua::RegisterGlobalFunction("GetFactionParentID", &Script_GetFactionParentID,
+                                      &kGetFactionParentID);
     Game::Lua::RegisterTableFunction("C_Reputation", "SetWatchedFactionByID",
-                                     &Script_C_Reputation_SetWatchedFactionByID);
+                                     &Script_C_Reputation_SetWatchedFactionByID,
+                                     &kSetWatchedFactionByID);
     Game::Lua::RegisterTableFunction("C_Reputation", "SetSelectedFactionByID",
-                                     &Script_C_Reputation_SetSelectedFactionByID);
+                                     &Script_C_Reputation_SetSelectedFactionByID,
+                                     &kSetSelectedFactionByID);
     Game::Lua::RegisterTableFunction("C_Reputation", "ToggleFactionAtWarByID",
-                                     &Script_C_Reputation_ToggleFactionAtWarByID);
+                                     &Script_C_Reputation_ToggleFactionAtWarByID,
+                                     &kToggleFactionAtWarByID);
     Game::Lua::RegisterTableFunction("C_Reputation", "IsFactionActive",
-                                     &Script_C_Reputation_IsFactionActive);
+                                     &Script_C_Reputation_IsFactionActive, &kIsFactionActive);
     Game::Lua::RegisterTableFunction("C_Reputation", "IsFactionActiveByID",
-                                     &Script_C_Reputation_IsFactionActiveByID);
+                                     &Script_C_Reputation_IsFactionActiveByID,
+                                     &kIsFactionActiveByID);
     Game::Lua::RegisterTableFunction(
         "C_Reputation", "IsFactionInactive",
         reinterpret_cast<Game::Lua::CFunction>(
-            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_IS_FACTION_INACTIVE)));
+            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_IS_FACTION_INACTIVE)),
+        &kIsFactionInactive);
     Game::Lua::RegisterTableFunction("C_Reputation", "SetFactionInactiveByID",
-                                     &Script_C_Reputation_SetFactionInactiveByID);
+                                     &Script_C_Reputation_SetFactionInactiveByID,
+                                     &kSetFactionInactiveByID);
     Game::Lua::RegisterTableFunction("C_Reputation", "SetFactionActiveByID",
-                                     &Script_C_Reputation_SetFactionActiveByID);
+                                     &Script_C_Reputation_SetFactionActiveByID,
+                                     &kSetFactionActiveByID);
     Game::Lua::RegisterTableFunction(
         "C_Reputation", "SetFactionInactive",
         reinterpret_cast<Game::Lua::CFunction>(
-            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_SET_FACTION_INACTIVE)));
+            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_SET_FACTION_INACTIVE)),
+        &kSetFactionInactive);
     Game::Lua::RegisterTableFunction(
         "C_Reputation", "SetFactionActive",
         reinterpret_cast<Game::Lua::CFunction>(
-            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_SET_FACTION_ACTIVE)));
+            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_SET_FACTION_ACTIVE)),
+        &kSetFactionActive);
     Game::Lua::RegisterTableFunction(
         "C_Reputation", "ToggleFactionAtWar",
         reinterpret_cast<Game::Lua::CFunction>(
-            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_FACTION_TOGGLE_AT_WAR)));
+            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_FACTION_TOGGLE_AT_WAR)),
+        &kToggleFactionAtWar);
     // The stock global, mirrored into the namespace — the engine's own
     // handler already has the Lua C ABI, so it registers as-is.
     Game::Lua::RegisterTableFunction(
         "C_Reputation", "SetSelectedFaction",
         reinterpret_cast<Game::Lua::CFunction>(
-            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_SET_SELECTED_FACTION)));
+            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_SET_SELECTED_FACTION)),
+        &kSetSelectedFaction);
     Game::Lua::RegisterTableFunction("C_Reputation", "GetWatchedFactionData",
-                                     &Script_C_Reputation_GetWatchedFactionData);
+                                     &Script_C_Reputation_GetWatchedFactionData,
+                                     &kGetWatchedFactionData);
     Game::Lua::RegisterTableFunction("C_Reputation", "GetFactionStandings",
-                                     &Script_C_Reputation_GetFactionStandings);
+                                     &Script_C_Reputation_GetFactionStandings,
+                                     &kGetFactionStandings);
     Game::Lua::RegisterTableFunction("C_Reputation", "GetFactionDataByID",
-                                     &Script_C_Reputation_GetFactionDataByID);
+                                     &Script_C_Reputation_GetFactionDataByID,
+                                     &kGetFactionDataByID);
     Game::Lua::RegisterTableFunction("C_Reputation", "GetFactionDataByIndex",
-                                     &Script_C_Reputation_GetFactionDataByIndex);
+                                     &Script_C_Reputation_GetFactionDataByIndex,
+                                     &kGetFactionDataByIndex);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
