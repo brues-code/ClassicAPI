@@ -18,7 +18,8 @@
 namespace Frame::ScriptArgs {
 
 // Runs a frame-script handler with arbitrary Lua values as its arguments —
-// the engine's runners can only pass %d/%u/%f/%s. `nargs` values at absolute
+// the engine's runners pass only what a printf-style format can carry (no
+// booleans). `nargs` values at absolute
 // stack index `firstArgIdx` become `arg1..argN` (globals, saved and restored
 // around the call) and, while modern script args are on, the positional
 // `(self, ...)`. Sets `this`, runs under the engine's script error handler,

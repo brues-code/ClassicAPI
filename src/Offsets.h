@@ -324,12 +324,26 @@ enum Offsets {
     // lua_pcall with **zero Lua args** and the engine error handler
     // (VAR_FRAMESCRIPT_ERROR_HANDLER_REF) as errfunc. FUN_FRAME_INVOKE_SCRIPT
     // is the same shape for the no-arg scripts (OnShow/OnHide/OnEnter/…).
-    // `Frame::ScriptArgs` co-hooks both to additionally pass the handler
-    // modern positional args (self, arg1..argN). The frame's own Lua object
+    // `Frame::ScriptArgs` co-hooks both and redirects their pcalls (below) to
+    // additionally pass the handler modern positional args (self,
+    // arg1..argN). The frame's own Lua object
     // ref lives at frame+OFF_COBJECT_LUA_REF (refcount at
     // OFF_COBJECT_LUA_REFCOUNT); FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER
     // lazily creates it when the refcount is 0.
     FUN_FRAME_RUN_SCRIPT_ARGS = 0x00704F10,
+    // Each runner's own `call LUA_PCALL` (E8, 5 bytes): lua_pcall(L, 0, 0, -2)
+    // with [errfunc, handler] on top, after the runner has set `this` and
+    // arg1..argN. Frame::ScriptArgs redirects both, so a format is only ever
+    // parsed by the runner's own switch (0x704F89: index byte table 0x7052B8
+    // for 'd'..'u', jump table 0x7052A4) — including a spec another DLL adds
+    // at runtime: SuperWoWhook points 'e' (byte 0x7052B9) at a new slot
+    // 0x7052CC whose handler pushes registry[ref] for a 4-byte ref, and fires
+    // CREATE_CHATBUBBLE with "%e%s". In the args runner at this call, [ebp+8] is handlerRef,
+    // [ebp+0Ch] the frame and [ebp-4] the number of argN it set (0x704F54,
+    // 0x705011; at most 19, 0x704F73). In the no-arg runner, [ebp-8] is
+    // handlerRef (0x704D5D) and EDI the frame (0x704D5B).
+    CALL_FRAME_RUN_SCRIPT_ARGS_PCALL = 0x00705199,
+    CALL_FRAME_INVOKE_SCRIPT_PCALL = 0x00704E79,
     // The base ScriptObject's OnEvent handler slot — an 8-byte
     // {handler, context} pair at frame+0x0C (from FUN_00702590, the base
     // resolver every frame-type resolver chains through, and confirmed by

@@ -24,26 +24,19 @@
 // the `this`/`arg1..argN` globals and then `lua_pcall(handler, /*nargs*/0)`.
 // So `function(self, delta)` gets nothing today.
 //
-// We co-hook both runners and REPLACE their pcall tail: keep setting the same
-// globals (so handlers reading `this`/`arg1` keep working), but push `self` +
-// `arg1..argN` as real arguments and `pcall` with `nargs = 1 + N`. The
-// reimplementation mirrors the engine's message-handler errfunc, but saves the
-// clobbered globals on the Lua stack (not registry refs like the engine) so an
-// out-of-memory longjmp mid-push unwinds them for free — no leaked refs, no
-// per-call ref churn. See RunModern.
+// We redirect each runner's own lua_pcall (RunnerPCall). By then the runner
+// has done everything else — parsed its format, saved and set `this` and
+// arg1..argN — so the values are read back from those globals and passed as
+// `(self, arg1..argN)` with `nargs = 1 + N`. The format is never parsed here.
+// The runner's switch is the only one, so a spec another DLL adds to it at
+// runtime keeps working: SuperWoWhook's `%e` (a registry ref) crashed the copy
+// of the switch this module used to carry.
 //
-// The reimplemented path is taken ONLY for a handler that can observe
-// positional args: a Lua function that declares a parameter or is vararg
-// (checked via its Proto), or a C function such as a frame method bound
-// directly — see FunctionWantsArgs. A Lua handler that declares NO parameters
-// can't observe positional args, so pushing
-// them is a no-op — those route through the original engine runner unchanged:
-// provably identical to vanilla, and OFF the engine's hottest Lua path (the vast
-// majority of vanilla handlers, which read `this`/`arg1`, are param-less). So a
-// param-less vanilla handler is untouched; only a param-declaring handler sees
-// the `(self, [event,] arg1..argN)` shape. The one exception is a fire with
-// more values than the engine runner's 19: 3.3.5 sets every argN, so that
-// fire takes the reimplemented path whatever the handler.
+// Positional args go only to a handler that can observe them: a Lua function
+// that declares a parameter or is vararg (checked via its Proto), or a C
+// function such as a frame method bound directly — see FunctionWantsArgs. Any
+// other handler is called exactly as the engine calls it, so a param-less
+// vanilla handler (the vast majority, reading `this`/`arg1`) is untouched.
 //
 // Each OnEvent handler also gets its own `event` global, saved before and
 // restored after it (SaveEvent), as 3.3.5 does per handler.
@@ -66,13 +59,16 @@
 // Runtime switch, default ON — modern handler signatures are a core 5.1
 // feature, so ports that write `function(self, delta)` work out of the box.
 // `SetModernScriptArgs(false)` disables it, `GetModernScriptArgs()` reads the
-// state. While disabled both detours are a straight passthrough to the original
-// runner (exact vanilla behavior, zero reimplementation risk) — the OFF escape
-// valve, since this lands on the hottest Lua path in the engine
-// (FUN_FRAME_RUN_SCRIPT_ARGS fires for every OnUpdate frame).
+// state. While disabled the redirected pcall is the engine's call unchanged —
+// exact vanilla behavior.
+//
+// Scripts the engine never runs (RunWithValues: custom events,
+// OnAttributeChanged, …) carry arbitrary Lua values, which no runner format
+// can, so RunCore runs those itself, as 3.3.5's FrameScript_Execute does.
 
 #include "frame/ScriptArgs.h"
 
+#include "Common.h"
 #include "Game.h"
 #include "HookSecureFunc.h"
 #include "Offsets.h"
@@ -85,9 +81,9 @@ namespace Frame::ScriptArgs {
 
 namespace {
 
-// Runtime switch. Default ON (core 5.1 behavior). When false, both detours
-// tail-call the original runner unchanged (exact vanilla behavior, no
-// reimplementation risk) — the OFF escape valve for this hot path.
+// Runtime switch. Default ON (core 5.1 behavior). When false, the redirected
+// pcall makes the engine's own call and RunWithValues passes no positional
+// args — exact vanilla behavior.
 bool g_enabled = true;
 
 // Chained at static-init time by each `AutoObserve` constructor.
@@ -101,108 +97,10 @@ void Notify(bool begin, int handlerRef, void *frame) {
 // Chained at static-init time by each `AutoTrailingBool` constructor.
 AutoTrailingBool *g_trailing = nullptr;
 
-// The engine runner sets only arg1..arg19 (0x704F10 stops at the 19th spec,
-// `cmp [ebp-4],0x13; jge` at 0x704F73). 3.3.5's FrameScript_Execute has no
-// limit, so a fire with more specs than this takes the reimplemented path.
-constexpr int kEngineArgLimit = 19;
-
 using Game::Lua::RawGetI;
 
 // Writes "arg" + k into buf.
 void ArgName(char (&buf)[16], int k) { std::snprintf(buf, sizeof buf, "arg%d", k); }
-
-// Counts the values in the runner's printf-style format: each %d/%u/%f/%s.
-// Any other letter after `%` is skipped and consumes no vararg, as in the
-// engine runner's switch.
-int CountArgs(const char *fmt) {
-    if (fmt == nullptr)
-        return 0;
-    int n = 0;
-    for (const char *p = fmt; *p != '\0'; ++p) {
-        if (*p != '%')
-            continue;
-        ++p;
-        if (*p == '\0')
-            break;
-        if (*p == 'd' || *p == 'u' || *p == 'f' || *p == 's')
-            ++n;
-    }
-    return n;
-}
-
-// Where RunCore's arguments come from: the runner's printf-style format over
-// its packed vararg buffer (%d/%u/%s 4 bytes, %f 8), or `n` Lua values already
-// on the stack from absolute index `stackBase` (they sit below everything
-// RunCore pushes, so the index holds). `hasTrailing` appends one boolean after
-// them (see AutoTrailingBool).
-struct ArgSource {
-    const char *fmt = nullptr;
-    const void *vaPtr = nullptr;
-    int stackBase = 0;
-    int n = 0;
-    bool hasTrailing = false;
-    bool trailing = false;
-    int Count() const { return n + (hasTrailing ? 1 : 0); }
-};
-
-// Pushes an ArgSource's values in order, one per PushNext; a new cursor
-// starts again from the first.
-class ArgCursor {
-public:
-    explicit ArgCursor(const ArgSource &src)
-        : src_(src), p_(src.fmt), cur_(static_cast<const char *>(src.vaPtr)) {}
-
-    void PushNext(void *L) {
-        using namespace Game::Lua;
-        if (k_ >= src_.n) {
-            PushBool(L, src_.trailing);
-            ++k_;
-            return;
-        }
-        if (p_ == nullptr) {
-            PushValue(L, src_.stackBase + k_++);
-            return;
-        }
-        for (; *p_ != '\0'; ++p_) {
-            if (*p_ != '%')
-                continue;
-            ++p_;
-            const char spec = *p_;
-            if (spec == '\0')
-                return;
-            switch (spec) {
-            case 'd':
-                PushNumber(L, static_cast<double>(*reinterpret_cast<const int *>(cur_)));
-                cur_ += 4;
-                break;
-            case 'u':
-                PushNumber(L, static_cast<double>(
-                                  *reinterpret_cast<const unsigned int *>(cur_)));
-                cur_ += 4;
-                break;
-            case 'f':
-                PushNumber(L, *reinterpret_cast<const double *>(cur_));
-                cur_ += 8;
-                break;
-            case 's': // a null string pushes nil, as lua_pushstring does
-                PushString(L, *reinterpret_cast<const char *const *>(cur_));
-                cur_ += 4;
-                break;
-            default:
-                continue; // unknown spec — consume nothing
-            }
-            ++p_;
-            ++k_;
-            return;
-        }
-    }
-
-private:
-    const ArgSource &src_;
-    const char *p_;
-    const char *cur_;
-    int k_ = 0;
-};
 
 // OnEvent dispatch? The event dispatchers invoke the frame's OnEvent slot
 // (frame+0x0C); matching the handler ref against that slot identifies it
@@ -239,53 +137,42 @@ void RestoreEvent(void *L, int saved) {
     SetTop(L, saved - 1);
 }
 
-// Reimplements the runner tail: set the `this`/`arg1..argN` globals, invoke the
-// handler with modern positional args `(self, [event,] arg1..argN)` under the
-// engine's own message-handler errfunc, then restore the globals. `fmt`/`vaPtr`
-// are null for the no-arg runner (N == 0).
+// Runs a handler with the `n` Lua values at absolute index `firstArgIdx` (they
+// sit below everything this pushes, so the index holds): set the
+// `this`/`arg1..argN` globals, invoke the handler with modern positional args
+// `(self, [event,] arg1..argN)` under the engine's own message-handler
+// errfunc, then restore the globals.
 //
-// Unlike the engine (and our first cut), the old global values are saved on the
-// Lua STACK, not in the registry via luaL_ref. A registry save leaks its ref if
+// Unlike the engine runners, the old global values are saved on the Lua
+// STACK, not in the registry via luaL_ref. A registry save leaks its ref if
 // any push before the protected call longjmps — and out-of-memory, the one
 // failure that actually fires here, does exactly that. Stack slots need no
-// cleanup: an unwinding error resets `L->top` past them for free, so nothing
-// leaks and there's no per-call ref churn on the OnUpdate hot path. The cost is
+// cleanup: an unwinding error resets `L->top` past them for free. The cost is
 // a deeper stack (up to ~2*N slots live at once), so we CheckStack up front.
 //
-// Returns false WITHOUT side effects when it declines (no Lua state, or the
-// stack can't grow); the caller then runs the original. Every false path is
-// before the first push, so falling back never double-runs the handler.
-//
 // `positional` false sets the globals but calls the handler with no
-// arguments — the vanilla shape, for RunWithValues while the switch is off.
-bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
-             bool positional) {
+// arguments — the vanilla shape, while the switch is off.
+void RunCore(void *L, int handlerRef, void *frame, int firstArgIdx, int n, bool positional) {
     using namespace Game::Lua;
     // Headroom for the saved-old block plus the transient set/call pushes.
-    if (CheckStack(L, 2 * src.Count() + 16) == 0)
-        return false;
+    if (CheckStack(L, 2 * n + 16) == 0)
+        return;
 
-    const bool haveThis = frame != nullptr;
     // When so, `event` (a global the dispatcher has set) is prepended as the
     // first positional to mirror retail's (self, event, arg1..argN).
     const bool isOnEvent = IsOnEvent(handlerRef, frame);
-    const int selfRef = haveThis ? Game::Lua::ObjectLuaRef(frame) : 0;
-
-    const int n = src.Count();
+    const int selfRef = Game::Lua::ObjectLuaRef(frame);
     char argName[16];
 
     // --- save the globals we're about to clobber, onto the stack ------------
     // Absolute indices, live until the closing SetTop(base):
-    //   base+1                = old _G.this        (if haveThis)
-    //   savedArgBase+1 .. +n   = old _G.arg1..argN
+    //   base+1             = old _G.this
+    //   base+2 .. base+1+n = old _G.arg1..argN
     // Raw reads, as 3.3.5's FrameScript_Execute saves them: a `_G` __index
     // (a strict-globals guard) never runs for an unset argN.
     const int base = GetTop(L);
-    if (haveThis) {
-        PushString(L, "this");
-        RawGet(L, GLOBALS_INDEX); // [.. oldThis]
-    }
-    const int savedArgBase = base + (haveThis ? 1 : 0);
+    PushString(L, "this");
+    RawGet(L, GLOBALS_INDEX); // [.. oldThis]
     for (int k = 0; k < n; ++k) {
         ArgName(argName, k + 1);
         PushString(L, argName);
@@ -293,16 +180,13 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
     }
 
     // --- set the new globals (each op is stack-neutral) ---------------------
-    if (haveThis) {
-        PushString(L, "this");
-        RawGetI(L, REGISTRY_INDEX, selfRef); // frame object
-        SetTable(L, GLOBALS_INDEX);
-    }
-    ArgCursor globals(src);
+    PushString(L, "this");
+    RawGetI(L, REGISTRY_INDEX, selfRef); // frame object
+    SetTable(L, GLOBALS_INDEX);
     for (int k = 0; k < n; ++k) {
         ArgName(argName, k + 1);
         PushString(L, argName);
-        globals.PushNext(L);
+        PushValue(L, firstArgIdx + k);
         SetTable(L, GLOBALS_INDEX);
     }
 
@@ -318,17 +202,13 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
     RawGetI(L, REGISTRY_INDEX, handlerRef); // handler
     int nargs = 0;
     if (positional) {
-        if (haveThis)
-            RawGetI(L, REGISTRY_INDEX, selfRef); // self
-        else
-            PushNil(L);
+        RawGetI(L, REGISTRY_INDEX, selfRef); // self
         if (isOnEvent) { // event goes before the args, retail-style
             PushString(L, "event");
             RawGet(L, GLOBALS_INDEX);
         }
-        ArgCursor args(src);
         for (int k = 0; k < n; ++k)
-            args.PushNext(L);
+            PushValue(L, firstArgIdx + k);
         nargs = 1 + (isOnEvent ? 1 : 0) + n;
     }
     PCall(L, nargs, 0, errIdx);
@@ -338,41 +218,22 @@ bool RunCore(void *L, int handlerRef, void *frame, const ArgSource &src,
     for (int k = 0; k < n; ++k) {
         ArgName(argName, k + 1);
         PushString(L, argName);
-        PushValue(L, savedArgBase + 1 + k);
+        PushValue(L, base + 2 + k);
         SetTable(L, GLOBALS_INDEX);
     }
-    if (haveThis) {
-        PushString(L, "this");
-        PushValue(L, base + 1);
-        SetTable(L, GLOBALS_INDEX);
-    }
+    PushString(L, "this");
+    PushValue(L, base + 1);
+    SetTable(L, GLOBALS_INDEX);
     SetTop(L, base);
-    return true;
 }
 
-// Asks the providers for this run's trailing boolean.
-void FindTrailing(int handlerRef, void *frame, ArgSource &src) {
-    for (AutoTrailingBool *t = g_trailing; t != nullptr; t = t->next) {
-        bool value = false;
-        if (t->fn(handlerRef, frame, &value)) {
-            src.hasTrailing = true;
-            src.trailing = value;
-            return;
-        }
-    }
-}
-
-// The runner path: arguments from the engine's printf-style format.
-bool RunModern(int handlerRef, void *frame, const char *fmt, const void *vaPtr) {
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return false;
-    ArgSource src;
-    src.fmt = fmt;
-    src.vaPtr = vaPtr;
-    src.n = CountArgs(fmt);
-    FindTrailing(handlerRef, frame, src);
-    return RunCore(L, handlerRef, frame, src, /*positional*/ true);
+// Asks the providers for this run's trailing boolean; false when none takes
+// one.
+bool FindTrailing(int handlerRef, void *frame, bool *value) {
+    for (AutoTrailingBool *t = g_trailing; t != nullptr; t = t->next)
+        if (t->fn(handlerRef, frame, value))
+            return true;
+    return false;
 }
 
 // Lua 5.0 internal offsets for reading a handler's arity — verified against the
@@ -442,69 +303,144 @@ bool FunctionWantsArgs(const void *tv, int depth) {
     return false;
 }
 
-// Does this handler actually observe positional args? A vanilla handler reads
-// this/arg1 globals and declares NO parameters, so pushing positional args to
-// it is observably identical to vanilla — those route through the original
-// engine runner instead (exact vanilla, and off the hottest Lua path). Only a
-// handler FunctionWantsArgs accepts takes the reimplemented positional path.
+// --- The runners' lua_pcall, redirected -------------------------------------
+// Each runner calls `lua_pcall(L, nargs, nresults, errfunc)` with [errfunc,
+// handler] on top, `this` and arg1..arg`count` already set. A handler that
+// observes positional args (FunctionWantsArgs, read straight off the top) gets
+// `(self, [event,] arg1..argN [, trailing])`, each argN read back raw from the
+// global the runner just set; any other handler, and every run while the
+// switch is off, gets the engine's call unchanged.
 //
-// Reads the closures directly (the engine exposes no arity via the C API);
-// every read is bounded — a non-function ref or a null Proto falls through to
-// "no".
-bool HandlerWantsArgs(void *L, int handlerRef) {
-    RawGetI(L, Game::Lua::REGISTRY_INDEX, handlerRef); // push registry[handlerRef]
-    const void *tv = reinterpret_cast<const void *>(
+// A trailing boolean (AutoTrailingBool) also becomes global arg`count+1` for
+// the call, as 3.3.5 sets it. Its old value waits on the stack below the
+// errfunc, where the runner's own pops after the call never reach it.
+int __fastcall RunnerPCall(void *L, int nargs, int nresults, int errfunc, int handlerRef,
+                           void *frame, int count) {
+    using namespace Game::Lua;
+    const void *handler = reinterpret_cast<const void *>(
         Game::Read<uintptr_t>(L, OFF_LUASTATE_TOP) - kTValueSize);
-    const bool wants = FunctionWantsArgs(tv, 0);
-    Game::Lua::SetTop(L, -2); // pop the handler
-    return wants;
+    // Headroom for self, event, the args, the trailing value and its save.
+    if (!g_enabled || !FunctionWantsArgs(handler, 0) || CheckStack(L, count + 8) == 0)
+        return PCall(L, nargs, nresults, errfunc);
+
+    bool trailing = false;
+    const bool hasTrailing = FindTrailing(handlerRef, frame, &trailing);
+    char trailingName[16];
+    int saved = 0;
+    if (hasTrailing) {
+        ArgName(trailingName, count + 1);
+        PushString(L, trailingName);
+        RawGet(L, GLOBALS_INDEX); // [.. errfunc handler old]
+        Insert(L, -3);            // [.. old errfunc handler]
+        saved = GetTop(L) - 2;
+        PushString(L, trailingName);
+        PushBool(L, trailing);
+        SetTable(L, GLOBALS_INDEX);
+    }
+
+    int pushed = 1;
+    if (frame != nullptr)
+        RawGetI(L, REGISTRY_INDEX, Game::Lua::ObjectLuaRef(frame)); // self
+    else
+        PushNil(L);
+    if (IsOnEvent(handlerRef, frame)) { // event goes before the args, retail-style
+        PushString(L, "event");
+        RawGet(L, GLOBALS_INDEX);
+        ++pushed;
+    }
+    char argName[16];
+    for (int k = 1; k <= count; ++k) {
+        ArgName(argName, k);
+        PushString(L, argName);
+        RawGet(L, GLOBALS_INDEX);
+    }
+    pushed += count;
+    if (hasTrailing) {
+        PushBool(L, trailing);
+        ++pushed;
+    }
+    // Both runners pass errfunc = -2, relative to the top: it moves down by
+    // every argument pushed above it.
+    const int status = PCall(L, nargs + pushed, nresults, errfunc - pushed);
+
+    if (hasTrailing) {
+        PushString(L, trailingName);
+        PushValue(L, saved);
+        SetTable(L, GLOBALS_INDEX);
+        Remove(L, saved);
+    }
+    return status;
 }
 
-// --- FUN_FRAME_RUN_SCRIPT_ARGS co-hook (scripts with values) ----------------
+// The runners reach RunnerPCall through these. ECX/EDX (L, nargs) and the
+// pcall's two stack arguments pass through; each thunk adds the run's handler
+// ref, frame and argument count from the runner's own frame (see
+// CALL_FRAME_RUN_SCRIPT_ARGS_PCALL), then returns as lua_pcall does (`ret 8`).
+//
+// FUN_FRAME_RUN_SCRIPT_ARGS: [ebp+8] handlerRef, [ebp+0Ch] frame, [ebp-4] the
+// number of argN its switch set — every spec it ran, one added at runtime
+// included.
+__declspec(naked) void RunArgsPCallThunk() {
+    __asm {
+        push dword ptr [ebp - 4]   // count
+        push dword ptr [ebp + 0Ch] // frame
+        push dword ptr [ebp + 8]   // handlerRef
+        push dword ptr [esp + 14h] // errfunc
+        push dword ptr [esp + 14h] // nresults
+        call RunnerPCall
+        ret 8
+    }
+}
+
+// FUN_FRAME_INVOKE_SCRIPT: [ebp-8] handlerRef, EDI frame; it sets no argN.
+__declspec(naked) void InvokePCallThunk() {
+    __asm {
+        push 0                     // count
+        push edi                   // frame
+        push dword ptr [ebp - 8]   // handlerRef
+        push dword ptr [esp + 14h] // errfunc
+        push dword ptr [esp + 14h] // nresults
+        call RunnerPCall
+        ret 8
+    }
+}
+
+// Runs on both registration passes, so the glue screen's scripts get the
+// positional args too. Idempotent.
+void PatchCode() {
+    Common::RedirectCall(Offsets::CALL_FRAME_RUN_SCRIPT_ARGS_PCALL, Offsets::LUA_PCALL,
+                         reinterpret_cast<const void *>(&RunArgsPCallThunk));
+    Common::RedirectCall(Offsets::CALL_FRAME_INVOKE_SCRIPT_PCALL, Offsets::LUA_PCALL,
+                         reinterpret_cast<const void *>(&InvokePCallThunk));
+}
+
+const Game::GlueModuleAutoRegister _gluePatch{&PatchCode};
+
+// --- Runner co-hooks: observers and the per-handler `event` ------------------
 using RunArgs_t = void(__cdecl *)(int handlerRef, void *frame, const char *fmt,
                                   const void *vaPtr);
 RunArgs_t g_origRunArgs = nullptr;
-
-void RunArgs(void *L, int handlerRef, void *frame, const char *fmt,
-             const void *vaPtr) {
-    // Past the engine's limit the original would drop arg20 onward, so even a
-    // handler that declares no parameters takes the uncapped path.
-    if (g_enabled && L != nullptr && handlerRef != 0 && fmt != nullptr &&
-        (HandlerWantsArgs(L, handlerRef) || CountArgs(fmt) > kEngineArgLimit) &&
-        RunModern(handlerRef, frame, fmt, vaPtr))
-        return;
-    g_origRunArgs(handlerRef, frame, fmt, vaPtr);
-}
 
 void __cdecl RunArgs_h(int handlerRef, void *frame, const char *fmt,
                        const void *vaPtr) {
     void *L = Game::Lua::State();
     Notify(true, handlerRef, frame);
     const int savedEvent = SaveEvent(L, handlerRef, frame);
-    RunArgs(L, handlerRef, frame, fmt, vaPtr);
+    g_origRunArgs(handlerRef, frame, fmt, vaPtr);
     RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
 
-// --- FUN_FRAME_INVOKE_SCRIPT co-hook (no-arg scripts) -----------------------
 // Same address Tooltip::SetEvents calls directly to fire OnTooltipSet*; with
 // the switch enabled those fire with (self) too, which is the modern shape.
 using Invoke_t = void(__fastcall *)(int handlerRef, void *frame);
 Invoke_t g_origInvoke = nullptr;
 
-void Invoke(void *L, int handlerRef, void *frame) {
-    if (g_enabled && L != nullptr && handlerRef != 0 && frame != nullptr &&
-        HandlerWantsArgs(L, handlerRef) &&
-        RunModern(handlerRef, frame, /*fmt*/ nullptr, /*vaPtr*/ nullptr))
-        return;
-    g_origInvoke(handlerRef, frame);
-}
-
 void __fastcall Invoke_h(int handlerRef, void *frame) {
     void *L = Game::Lua::State();
     Notify(true, handlerRef, frame);
     const int savedEvent = SaveEvent(L, handlerRef, frame);
-    Invoke(L, handlerRef, frame);
+    g_origInvoke(handlerRef, frame);
     RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
@@ -532,6 +468,7 @@ int __fastcall Script_GetModernScriptArgs(void *L) {
 }
 
 void RegisterLuaFunctions() {
+    PatchCode();
     Game::Lua::RegisterGlobalFunction("SetModernScriptArgs",
                                       &Script_SetModernScriptArgs);
     Game::Lua::RegisterGlobalFunction("GetModernScriptArgs",
@@ -545,12 +482,9 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int nargs) {
     if (handlerRef == 0 || frame == nullptr)
         return;
-    ArgSource src;
-    src.stackBase = firstArgIdx;
-    src.n = nargs;
     Notify(true, handlerRef, frame);
     const int savedEvent = SaveEvent(L, handlerRef, frame);
-    RunCore(L, handlerRef, frame, src, /*positional*/ g_enabled);
+    RunCore(L, handlerRef, frame, firstArgIdx, nargs, /*positional*/ g_enabled);
     RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
