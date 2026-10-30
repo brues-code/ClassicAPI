@@ -236,6 +236,7 @@ menu and click AddOn Options, then ClassicAPI.
 | | `SoftTargetNameplateSize` | `19` | Size of all soft-target icons. |
 | [Localization](docs/API.md#breakuplargenumbers-cvar) | `breakUpLargeNumbers` | `1` | `1` puts a separator between each group of three digits in `BreakUpLargeNumbers`. `0` writes no separator. |
 | [Cooldown](docs/API.md#createframecooldown--name-parent-template) | `countdownForCooldowns` | `0` | `1` shows the time left as numbers on cooldown frames. |
+| `ScriptAnimationUtil` | `ShakeStrengthUI` | `1` | Scales how far `ScriptAnimationUtil.ShakeFrame` moves a frame. `0` turns the shake off. |
 | [NamePlate](docs/API.md#nameplate) | `nameplateNotSelectedAlpha` | `0.5` | Alpha of a non-target default nameplate, `0` to `1`. |
 | | `nameplateSelectedAlpha` | `1` | Alpha of the target's default nameplate, `0` to `1`. |
 | [Text to speech](docs/API.md#tts-cvars) | `ttsVoice` | `0` | The voice that `C_VoiceChat.SpeakText` uses. |
@@ -435,8 +436,8 @@ functions but that consumer code still expects to find as globals —
 `Item` / `ItemLocation`, `MathUtil`(`Lerp` / `Clamp` / `CreateCounter`),
 `TableUtil` (`tCompare`, `MergeTable`, `SafePack`, etc.), `EventUtil`
 (`ContinueOnAddOnLoaded` and more), `FormattingUtil` (`GetMoneyString`,
-`FormatLargeNumber` and more), `DataProvider`, `CircularBuffer`,
-`EasingUtil`, `Interpolator`, `EnumUtil`, `StringUtil`, `AnchorUtil`,
+`FormatLargeNumber` and more), `FrameUtil`, `DataProvider`, `CircularBuffer`,
+`EasingUtil`, `ScriptAnimationUtil`, `Interpolator`, `EnumUtil`, `StringUtil`, `AnchorUtil`,
 `GridLayoutUtil`, and the layout frame templates (`VerticalLayoutFrame`,
 `HorizontalLayoutFrame`, `ResizeLayoutFrame`, `GridLayoutFrame`,
 `StaticGridLayoutFrame`). It also holds the conditional slash

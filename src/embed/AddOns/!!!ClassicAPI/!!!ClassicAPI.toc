@@ -51,6 +51,7 @@ Util\ProxyUtil.lua
 Util\FrameWatcher.lua
 Util\TimedCallback.lua
 Util\EasingUtil.lua
+Util\ScriptAnimationUtil.lua
 Util\Interpolator.lua
 Util\AnchorUtil.lua
 Util\RegionUtil.lua
