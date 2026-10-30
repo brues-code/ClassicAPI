@@ -946,10 +946,31 @@ int __fastcall Script_RegisterAuraDurationModifierByTrigger(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kDurationModArgs[] = {
+    Game::Doc::Req("triggerFamily", "number", "The SpellFamilyName of the triggering cast."),
+    Game::Doc::Req("triggerSchool", "number",
+                   "The school index the trigger must have, or below 0 for any school."),
+    Game::Doc::Req("affectedFamily", "number", "The SpellFamilyName of the aura to change."),
+    Game::Doc::Req("affectedFamilyFlags", "number",
+                   "A SpellFamilyFlags mask the aura must overlap, or 0 to match on the icon."),
+    Game::Doc::Req("affectedIcon", "number",
+                   "The SpellIconID the aura must have, or 0 for any icon."),
+    Game::Doc::Req("op", "string", "refresh, reduce, set, or remove."),
+    Game::Doc::Opt("valueSeconds", "number", nullptr, "The amount for reduce and set."),
+};
+const Game::Doc::Field kDurationModRets[] = {
+    Game::Doc::Req("success", "bool"),
+};
+const Game::Doc::Function kRegisterAuraDurationModifierByTrigger{
+    "Changes the shown duration of the caster's aura on a unit when a matching cast by "
+    "that caster lands.",
+    kDurationModArgs, kDurationModRets, nullptr, true};
+
 void RegisterDurationModLua() {
     Game::Lua::RegisterTableFunction("C_UnitAuras",
                                      "RegisterAuraDurationModifierByTrigger",
-                                     &Script_RegisterAuraDurationModifierByTrigger);
+                                     &Script_RegisterAuraDurationModifierByTrigger,
+                                     &kRegisterAuraDurationModifierByTrigger);
 }
 
 const Game::ModuleAutoRegister _autoregDurationMod{&RegisterDurationModLua};

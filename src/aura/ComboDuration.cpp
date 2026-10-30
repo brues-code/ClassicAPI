@@ -193,9 +193,23 @@ int __fastcall Script_RegisterComboDuration(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spellID", "number"),
+    Game::Doc::Req("baseSeconds", "number",
+                   "The duration at zero combo points; each point adds a fifth of the "
+                   "difference to maxSeconds."),
+    Game::Doc::Req("maxSeconds", "number", "The duration at five combo points."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("success", "bool"),
+};
+const Game::Doc::Function kRegisterComboDuration{
+    "Sets the combo point durations of a finisher whose client data is missing or wrong.",
+    kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_UnitAuras", "RegisterComboDuration",
-                                     &Script_RegisterComboDuration);
+                                     &Script_RegisterComboDuration, &kRegisterComboDuration);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

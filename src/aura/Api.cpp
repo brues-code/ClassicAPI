@@ -702,40 +702,216 @@ const Game::Doc::Function kCancelUnitBuff{
     "Cancels one of your own auras by index.", kCancelUnitBuffArgs, {},
     "SpellGlobals"};
 
+const Game::Doc::Field kAuraDataFields[] = {
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("icon", "string", "The icon's texture path."),
+    Game::Doc::Req("applications", "number", "The stack count."),
+    Game::Doc::Req("spellId", "number"),
+    Game::Doc::Req("dispelName", "string",
+                   "Magic, Curse, Disease, or Poison; empty when the aura has no dispel type."),
+    Game::Doc::Req("isHelpful", "bool"),
+    Game::Doc::Req("isHarmful", "bool"),
+    Game::Doc::Req("duration", "number", "In seconds; 0 when the duration is not known."),
+    Game::Doc::Req("expirationTime", "number",
+                   "When the aura ends, in GetTime() seconds; 0 when not known."),
+    Game::Doc::Opt("sourceUnit", "UnitToken", nullptr,
+                   "Nil when the cast was not seen or the caster has no unit token."),
+    Game::Doc::Opt("sourceGUID", "WOWGUID", nullptr,
+                   "The caster's GUID, a ClassicAPI extension; nil when the cast was not seen."),
+    Game::Doc::Opt("auraInstanceID", "number", nullptr,
+                   "Nil for an aura that is not in the unit's aura list."),
+    Game::Doc::Req("charges", "number", "Always 0."),
+    Game::Doc::Req("maxCharges", "number", "Always 0."),
+    Game::Doc::Req("timeMod", "number", "Always 1."),
+    Game::Doc::Req("isFromPlayerOrPlayerPet", "bool",
+                   "True when any player or a player's pet applied the aura."),
+    Game::Doc::Req("canApplyAura", "bool",
+                   "True when the player or the pet knows the spell that applies the aura."),
+    Game::Doc::Req("isRaid", "bool", "True when the aura passes the RAID filter."),
+    Game::Doc::Req("isStealable", "bool",
+                   "True when the player can remove this buff from an enemy."),
+    Game::Doc::Req("isBossAura", "bool", "Always false."),
+    Game::Doc::Req("isNameplateOnly", "bool", "Always false."),
+    Game::Doc::Req("nameplateShowAll", "bool", "Always false."),
+    Game::Doc::Req("nameplateShowPersonal", "bool", "Always false."),
+    Game::Doc::Req("shouldConsolidate", "bool", "Always false."),
+};
+const Game::Doc::Structure kAuraData{"AuraData", "UnitAuras", kAuraDataFields,
+                                     "One aura on a unit."};
+
+// The Classic Era `UnitAura` tuple, shared by the four positional getters.
+// `Data::PushPositional` is the source of the order.
+const Game::Doc::Field kPositionalRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil, as the only return, when there is no such aura."),
+    Game::Doc::Opt("icon", "string"),
+    Game::Doc::Opt("count", "number"),
+    Game::Doc::Opt("dispelType", "string", nullptr,
+                   "Empty when the aura has no dispel type."),
+    Game::Doc::Opt("duration", "number"),
+    Game::Doc::Opt("expirationTime", "number"),
+    Game::Doc::Opt("source", "UnitToken", nullptr, "Nil when the caster is not known."),
+    Game::Doc::Opt("isStealable", "bool"),
+    Game::Doc::Opt("nameplateShowPersonal", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("spellId", "number"),
+    Game::Doc::Opt("canApplyAura", "bool"),
+    Game::Doc::Opt("isBossDebuff", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("castByPlayer", "bool", nullptr,
+                   "True when a player applied the aura; false for a pet."),
+    Game::Doc::Opt("nameplateShowAll", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("timeMod", "number", nullptr, "Always 1."),
+};
+
+const Game::Doc::Field kAuraRets[] = {
+    Game::Doc::Opt("aura", "AuraData", nullptr, "Nil when there is no such aura."),
+};
+
+const Game::Doc::Field kByIndexArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("index", "luaIndex"),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr,
+                   "Tokens such as HELPFUL, HARMFUL, PLAYER, RAID; HELPFUL when no range is given."),
+};
+const Game::Doc::Function kGetAuraDataByIndex{
+    "Returns the aura at an index among a unit's auras that match a filter.", kByIndexArgs,
+    kAuraRets};
+const Game::Doc::Function kUnitAura{
+    "Returns the aura at an index as positional values, without making a table.",
+    kByIndexArgs, kPositionalRets};
+
+const Game::Doc::Field kLockedIndexArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("index", "luaIndex"),
+};
+const Game::Doc::Function kGetBuffDataByIndex{
+    "Returns the buff at an index on a unit.", kLockedIndexArgs, kAuraRets};
+const Game::Doc::Function kGetDebuffDataByIndex{
+    "Returns the debuff at an index on a unit.", kLockedIndexArgs, kAuraRets};
+
+const Game::Doc::Field kLockedFilterArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("index", "luaIndex"),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr,
+                   "Further tokens such as PLAYER or RAID; the range is fixed."),
+};
+const Game::Doc::Function kUnitBuff{
+    "Returns the buff at an index as positional values, without making a table.",
+    kLockedFilterArgs, kPositionalRets};
+const Game::Doc::Function kUnitDebuff{
+    "Returns the debuff at an index as positional values, without making a table.",
+    kLockedFilterArgs, kPositionalRets};
+
+const Game::Doc::Field kSlotsArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Opt("filter", "AuraFilters"),
+    Game::Doc::Opt("maxSlots", "number", nullptr, "Nil or 0 returns all of them."),
+    Game::Doc::Opt("continuationToken", "number", nullptr,
+                   "The first return of the previous call, to get the next batch."),
+    Game::Doc::Opt("buf", "table", nullptr,
+                   "A table to fill with the slot IDs instead; the call then returns the "
+                   "token and the count. A ClassicAPI extension."),
+};
+const Game::Doc::Field kSlotsRets[] = {
+    Game::Doc::Opt("outContinuationToken", "number", nullptr,
+                   "Nil when this batch reaches the last aura."),
+    Game::Doc::Vararg("number", "The slot IDs, valid only in the frame they are returned."),
+};
+const Game::Doc::Function kGetAuraSlots{
+    "Returns the slot IDs of a unit's auras that match a filter, in batches.", kSlotsArgs,
+    kSlotsRets};
+
+const Game::Doc::Field kBySlotArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("slot", "number", "A slot ID from C_UnitAuras.GetAuraSlots."),
+};
+const Game::Doc::Function kGetAuraDataBySlot{
+    "Returns the aura that a slot ID names.", kBySlotArgs, kAuraRets};
+const Game::Doc::Function kUnitAuraBySlot{
+    "Returns the aura that a slot ID names as positional values, without making a table.",
+    kBySlotArgs, kPositionalRets};
+
+const Game::Doc::Field kBySpellIDArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("spellID", "number"),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr, "Nil searches buffs, then debuffs."),
+};
+const Game::Doc::Function kGetUnitAuraBySpellID{
+    "Returns the first aura on a unit with a spell ID; the player's own aura comes first.",
+    kBySpellIDArgs, kAuraRets};
+
+const Game::Doc::Field kPlayerBySpellIDArgs[] = {
+    Game::Doc::Req("spellID", "number"),
+};
+const Game::Doc::Function kGetPlayerAuraBySpellID{
+    "Returns the first aura on the player with a spell ID.", kPlayerBySpellIDArgs, kAuraRets};
+
+const Game::Doc::Field kBySpellNameArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("spellName", "cstring", "The localized name; case does not matter."),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr, "Nil searches buffs, then debuffs."),
+};
+const Game::Doc::Function kGetAuraDataBySpellName{
+    "Returns the first aura on a unit with a spell name; the player's own aura comes first.",
+    kBySpellNameArgs, kAuraRets};
+
+const Game::Doc::Field kUnitAurasArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr,
+                   "With no HELPFUL or HARMFUL token, both are returned."),
+};
+const Game::Doc::Field kUnitAurasRets[] = {
+    Game::Doc::Req("auras", "table", "An array of AuraData; empty when the unit has none."),
+};
+const Game::Doc::Function kGetUnitAuras{
+    "Returns all of a unit's auras that match a filter, buffs first.", kUnitAurasArgs,
+    kUnitAurasRets};
+
+const Game::Doc::Field kDispelColorArgs[] = {
+    Game::Doc::Opt("dispelName", "string", nullptr,
+                   "Magic, Curse, Disease, Poison, or Enrage; any other value gives the "
+                   "no-type color."),
+};
+const Game::Doc::Field kDispelColorRets[] = {
+    Game::Doc::Req("color", "colorRGBA"),
+};
+const Game::Doc::Function kGetAuraDispelTypeColor{
+    "Returns the border color for an aura's dispel type.", kDispelColorArgs,
+    kDispelColorRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDataByIndex",
-                                     &Script_GetAuraDataByIndex);
+                                     &Script_GetAuraDataByIndex, &kGetAuraDataByIndex);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetBuffDataByIndex",
-                                     &Script_GetBuffDataByIndex);
+                                     &Script_GetBuffDataByIndex, &kGetBuffDataByIndex);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetDebuffDataByIndex",
-                                     &Script_GetDebuffDataByIndex);
+                                     &Script_GetDebuffDataByIndex, &kGetDebuffDataByIndex);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "UnitAura",
-                                     &Script_UnitAura);
+                                     &Script_UnitAura, &kUnitAura);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "UnitBuff",
-                                     &Script_UnitBuff);
+                                     &Script_UnitBuff, &kUnitBuff);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "UnitDebuff",
-                                     &Script_UnitDebuff);
+                                     &Script_UnitDebuff, &kUnitDebuff);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraSlots",
-                                     &Script_GetAuraSlots);
+                                     &Script_GetAuraSlots, &kGetAuraSlots);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDataBySlot",
-                                     &Script_GetAuraDataBySlot);
+                                     &Script_GetAuraDataBySlot, &kGetAuraDataBySlot);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDataByAuraInstanceID",
                                      &Script_GetAuraDataByAuraInstanceID,
                                      &kGetAuraDataByAuraInstanceID);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "UnitAuraBySlot",
-                                     &Script_UnitAuraBySlot);
+                                     &Script_UnitAuraBySlot, &kUnitAuraBySlot);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetUnitAuraBySpellID",
-                                     &Script_GetUnitAuraBySpellID);
+                                     &Script_GetUnitAuraBySpellID, &kGetUnitAuraBySpellID);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetPlayerAuraBySpellID",
-                                     &Script_GetPlayerAuraBySpellID);
+                                     &Script_GetPlayerAuraBySpellID, &kGetPlayerAuraBySpellID);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDataBySpellName",
-                                     &Script_GetAuraDataBySpellName);
+                                     &Script_GetAuraDataBySpellName, &kGetAuraDataBySpellName);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetUnitAuras",
-                                     &Script_GetUnitAuras);
+                                     &Script_GetUnitAuras, &kGetUnitAuras);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDispelTypeColor",
-                                     &Script_GetAuraDispelTypeColor);
+                                     &Script_GetAuraDispelTypeColor, &kGetAuraDispelTypeColor);
     Game::Lua::RegisterGlobalFunction("CancelUnitBuff", &Script_CancelUnitBuff,
                                       &kCancelUnitBuff);
 }
