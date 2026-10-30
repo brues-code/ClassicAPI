@@ -13,11 +13,22 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Text::InlineTexture {
 
 // Called from FrameScript_Initialize_h before the /reload teardown: the reload
 // frees every fontstring and text node, so the node→owner map and the per-node
 // icon records are dropped (they rebuild as the reloaded UI re-emits its text).
 void PrepareForReload();
+
+// The room the tall inline icons on the line [text, text + len) take when
+// `fs` renders it, in the font string's own units (its height getter's):
+// `before` is how far the render moves that line's text down, `after` how
+// far it moves the lines after it — 4.3.4's InitializeText offsets, split by
+// the font string's vertical justify (top: none / all; middle: half / half,
+// floored; bottom: all / none). Both 0, and false, without an icon taller
+// than the font or with the feature off.
+bool LineIconShift(void *fs, const uint8_t *text, int len, float &before, float &after);
 
 } // namespace Text::InlineTexture

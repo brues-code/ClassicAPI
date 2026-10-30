@@ -13062,6 +13062,51 @@ enum Offsets {
     // ending at 0x0077D49D.
     PATCH_EDITBOX_TEXT_CHANGED_FIRE = 0x0077D485,
     OFF_EDITBOX_ONTEXTCHANGED_SLOT = 0x418,
+    // --- Edit box rows (EditBox::IconRows) ---
+    // The mode flags byte (benilla-re ui/editbox): bit 0 autoFocus, 1
+    // multiLine, 2 numeric, 3 password, 4 ignoreArrows. Every row placer
+    // below tests it (`TEST byte ptr [ESI+0x318], 0x2 / 0x8`). Not the dirty
+    // word OFF_EDITBOX_FLAGS (+0x31c).
+    OFF_EDITBOX_MODE_FLAGS = 0x318,
+    EDITBOX_MODE_MULTILINE = 0x02,
+    EDITBOX_MODE_PASSWORD = 0x08,
+    // The password copy of the text (every byte '*'), the buffer the label
+    // and the rows read with EDITBOX_MODE_PASSWORD set (4.3.4's
+    // m_textHidden); OFF_EDITBOX_TEXT otherwise. RebuildLabel 0x0077D4D0
+    // refreshes it.
+    OFF_EDITBOX_TEXT_MASKED = 0x334,
+    // The visible window in bytes: its first byte and its length (4.3.4's
+    // m_visiblePosition / m_visibleLength). PlaceCaret hides the caret and
+    // fires nothing for a cursor outside it (0x0077DA89..0x0077DAA7).
+    OFF_EDITBOX_VISIBLE_START = 0x348,
+    OFF_EDITBOX_VISIBLE_LENGTH = 0x34C,
+    // The caret texture (4.3.4's m_cursorTexture), anchored by PlaceCaret.
+    OFF_EDITBOX_CARET = 0x368,
+    // OnCursorChanged's script slot; PlaceCaret fires it when non-zero
+    // (0x0077DD8C).
+    OFF_EDITBOX_ONCURSORCHANGED_SLOT = 0x428,
+    // The three row placers, all `__thiscall`: PlaceCaret (no args; 4.3.4's
+    // UpdateVisibleCursor), PlaceSelectionPiece `(editbox, texture, from, to)`
+    // `ret 0xC` (UpdateHighlightArea) and GetIndexAtPoint `(editbox, float x,
+    // float y, int *index)` `ret 0xC` (ConvertCoordinateToIndex). Each steps
+    // rows of FUN_PIXEL_ALIGN_Y(fontH × scale) + FUN_PIXEL_ALIGN_Y(spacing ×
+    // scale), the first two divided by the box's OFF_LAYOUT_SCALE (benilla-re
+    // ui/editbox "The caret" / "Selection"; Ghidra). Co-hooked by
+    // EditBox::IconRows: tall inline icons move the rows.
+    FUN_EDITBOX_PLACE_CARET = 0x0077DA80,
+    FUN_EDITBOX_PLACE_SELECTION_PIECE = 0x0077DE70,
+    FUN_EDITBOX_INDEX_AT_POINT = 0x0077D0D0,
+    // "%f%f%f%f" (.data; verified in the file at 0x479CB8) — the format
+    // PlaceCaret fires OnCursorChanged with through
+    // FUN_FRAME_RUN_SCRIPT_VARIADIC: x, y, width, height, each a double of
+    // FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X(FUN_COORD_GET_SCALED_SCREEN_ASPECT()
+    // × [FLOAT_SCRIPT_COORD_SCALE] × value) — 4.3.4's
+    // RunOnCursorChangedScript (0x0077DDA0..0x0077DE20).
+    VAR_SCRIPT_FMT_FFFF = 0x00879CB8,
+    // 1024.0f (.rdata; verified in the file at 0x3FFD68): the anchor→script
+    // push factor every script coordinate push multiplies by (the `1024` of
+    // the GetFont note at FUN_COORD_GET_SCALED_SCREEN_ASPECT).
+    FLOAT_SCRIPT_COORD_SCALE = 0x007FFD68,
     // `void __thiscall(editbox, int maxLines)` — the SetHistoryLines internal
     // (FUN_0077cd90). Reallocates the history ring to maxLines; maxLines == 0
     // frees the whole buffer and zeroes the container. ClearHistory calls it
@@ -13079,7 +13124,8 @@ enum Offsets {
     // core FUN_0044D670(fontHandle fs+0xE0, text, len, fontH*[fs+0x7C], &out,
     // fs+0x108, 0, flags fs+0x120), then `fs+0xFC = out / [fs+0x7C]`. Exactly 4
     // callers: Script_GetStringWidth (0x0079E510), GameTooltip auto-size
-    // (0x00530640), the editbox caret positioner (0x0077DE70), and the layout
+    // (0x00530640), the editbox selection-piece placer (0x0077DE70, a whole
+    // last line's width), and the layout
     // effective-width vmethod (FUN_00772930 = fs+0x24 vtbl slot +0x1C: explicit
     // rect width else string width). Prologue PUSH EBX; PUSH ESI; MOV ESI,ECX;
     // FLD [ESI+0xFC] — MinHook-safe. Co-hooked by Text::InlineTexture to add

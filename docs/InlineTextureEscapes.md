@@ -86,9 +86,11 @@ The DLL hooks the engine's own text pipeline — no companion addon:
   (`49934b0`, `b9d0705`).
 - **Chat fade** — icons fade in lockstep with their chat line (`3ca3b7e`).
 - **Edit boxes** — render the icons in their text, as 4.3.4 does; the caret,
-  the mouse and the arrow keys treat an icon as one character, and Ctrl+C
-  drops icons (4.3.4's 0x1500 strip mask). Typed markup stays literal by the
-  engine's own input escape (below).
+  the mouse and the arrow keys treat an icon as one character, Ctrl+C
+  drops icons (4.3.4's 0x1500 strip mask), and a multi-line box's caret,
+  selection and click rows follow the lines a tall icon moves (below;
+  4.3.4's own rows do not). Typed markup stays literal by the engine's own
+  input escape (below).
 - **Payload** — the full
   `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`:
   size, pen offset, sprite-sheet crop, and vertex tint. BLP and uncompressed
@@ -377,7 +379,7 @@ funnel for exactly 4 callers:
 
 - `Script_GetStringWidth` (0x0079E510)
 - the GameTooltip auto-size (0x00530640)
-- the editbox caret positioner (0x0077DE70)
+- the editbox selection-piece placer (0x0077DE70, a whole last line's width)
 - the layout effective-width vmethod (`FUN_00772930` = fs+0x24 vtbl +0x1C,
   which feeds auto-width fontstring layout)
 
@@ -523,6 +525,22 @@ the same input escape, so ClassicAPI's edit boxes need no special case:
   icon with the following character into one step; ours is its own step.
 - **Caret x** — `FUN_0077DA80` measures the line through
   `FUN_00772AE0`, whose co-hook adds the icons.
+- **Rows (multi-line)** — `PlaceCaret` (`0x77da80`), `PlaceSelectionPiece`
+  (`0x77de70`) and `GetIndexAtPoint` (`0x77d0d0`) step rows of one height
+  (font height + spacing, pixel-aligned), as 4.3.4's `UpdateVisibleCursor`,
+  `UpdateHighlightArea` and `ConvertCoordinateToIndex` do — while the render
+  moves a tall-icon line and every line after it down by the overflow
+  (`InitializeText`; the emitter co-hook) and the box grows to match (the
+  string-height co-hook). 4.3.4 has that fault too; `EditBox::IconRows`
+  (`src/editbox/IconRows.cpp`) gives each placer the render's move, from
+  `Text::InlineTexture::LineIconShift` over the box's own line table: the
+  click's y is moved onto the uniform row of the icon-aware row under it
+  before the engine maps it; a selection piece is re-anchored after the
+  engine placed it, with the engine's own x; the caret likewise, then
+  `OnCursorChanged` fired once with the moved y through
+  `FUN_FRAME_RUN_SCRIPT_VARIADIC` exactly as `PlaceCaret` fires it (its own
+  fire muted for the call by emptying the slot), so
+  `ScrollingEditBoxMixin:ScrollCursorIntoView` scrolls to the real caret.
 - **Click → cursor, single-line window** — `GetIndexAtPoint` (`0x77d0d0`),
   `RebuildLabel` and `MeasureWindow` count characters with
   `FUN_FONTSTRING_FIT_TEXT` (`0x772bc0` → `0x44d860` → `0x5c6c50`), whose

@@ -2234,6 +2234,32 @@ void PrepareForReload() {
     g_nodeBakedColor.clear();
 }
 
+bool LineIconShift(void *fs, const uint8_t *text, int len, float &before, float &after) {
+    before = 0.0f;
+    after = 0.0f;
+    if (!g_inlineEnabled || !LooksReadable(fs) || !LooksReadable(text) || len <= 0 ||
+        !HasInlineTexture(text, len))
+        return false;
+    FsPenFont pf;
+    if (!ResolveFsPenFont(fs, pf))
+        return false;
+    const float overflow = IconOverflowPx(text, len, pf.fontHPen, pf.layoutScale);
+    if (!(overflow > 0.0f))
+        return false;
+    // The node's justify-V as the block creator (FUN_0044d420) reads the
+    // style word: TOP (8) wins, then BOTTOM (0x20), else middle — the value
+    // the emitter reads from the node to split the move.
+    const uint32_t style = Game::Read<uint32_t>(fs, Offsets::OFF_FONTSTRING_FLAGS);
+    const int justifyV = (style & 0x8u) ? 0 : (style & 0x20u) ? 2 : 1;
+    const float move = (justifyV == 1) ? std::floor(overflow * 0.5f) : overflow;
+    const float toFs = pf.fontHInt / pf.fontHPen; // pen px → the getter's units
+    if (justifyV != 0)
+        before = move * toFs;
+    if (justifyV != 2)
+        after = move * toFs;
+    return true;
+}
+
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 } // namespace Text::InlineTexture
