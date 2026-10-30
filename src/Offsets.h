@@ -12873,6 +12873,27 @@ enum Offsets {
     // FUN_FRAME_ON_UPDATE), `void __thiscall(smf, float elapsed)`, `ret 4`:
     // FUN_FRAME_ON_UPDATE (OnUpdate), then the fader.
     FUN_SCROLLINGMESSAGEFRAME_ON_UPDATE = 0x00788460,
+    // The line layout (FUN_SMF_DISPLAY_REFRESH) anchors a line once, when it
+    // creates the line's font string, through the one SetPoint call at
+    // CALL_SMF_LAYOUT_ANCHOR_LINE (`E8 rel32` to FUN_REGION_SET_POINT; ESI the
+    // frame, EDI the font string, its parent at OFF_REGION_PARENT already set
+    // by SetRegionParent 0x0077FD10): the first line (BOTTOMLEFT, the frame,
+    // BOTTOMLEFT, left inset, bottom inset), each next one (BOTTOMLEFT, the
+    // line before, TOPLEFT, 0, FUN_PIXEL_ALIGN_Y(spacing)), then
+    // FUN_LAYOUT_RESIZE(1). The layout is the only maker of lines (the array
+    // grow 0x00789060 and the node constructor 0x00788D90 have no other
+    // caller). OnRectChanged (0x00788310) destroys every line when the message
+    // area changes size and lays them out again; Clear (0x007882B0) only hides
+    // them. The insets are the four floats SetInsets (0x00787FB0) stores and
+    // OnRectChanged subtracts from the rect: bottom, left, top, right.
+    CALL_SMF_LAYOUT_ANCHOR_LINE = 0x00788975,
+    OFF_SCROLLINGMESSAGEFRAME_INSET_BOTTOM = 0x37C,
+    OFF_SCROLLINGMESSAGEFRAME_INSET_LEFT = 0x380,
+    OFF_SCROLLINGMESSAGEFRAME_INSET_TOP = 0x384,
+    OFF_FONTSTRING_SPACING = 0xF4, // float, the line spacing
+    // PixelAlignY - `float __stdcall(float)`, `ret 4`: rounds a vertical
+    // length up to whole device pixels (benilla-re ui/regions).
+    FUN_PIXEL_ALIGN_Y = 0x00766750,
 
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is

@@ -4085,11 +4085,9 @@ Each entry still needs the usual check of how the engine does it before building
   **ScrollingMessageFrame** `GetMessageInfo`, `SetScrollOffset` (1.12's
   `SetScrollFromBottom`, 0x00793070, under its later name, clamped as
   retail), `GetScrollOffset`, `GetMaxScrollRange`, `ScrollByAmount`,
-  `AddOnDisplayRefreshedCallback`, `SetInsertMode` / `GetInsertMode` (BOTTOM
-  only).
-- **ScrollingMessageFrame** insert mode TOP: 1.12's line layout (0x00788750)
-  stacks lines bottom-up only; TOP needs that layout to anchor top-down.
-  `RemoveMessagesByAccessID` / `RemoveMessagesByExtraData` (4.3.4 C; retail
+  `AddOnDisplayRefreshedCallback`, `SetInsertMode` / `GetInsertMode` (TOP
+  through a redirect of the layout's one line-anchor call, 0x00788975).
+- **ScrollingMessageFrame** `RemoveMessagesByAccessID` / `RemoveMessagesByExtraData` (4.3.4 C; retail
   has `RemoveMessagesByPredicate`): 1.12 has no ring compaction.
 - **DONE** (`src/editbox/Focus.cpp`, `src/animation/Framerate.cpp`).
   **Globals** (`SimpleFrameScript_Scripts.cpp`): `GetCurrentKeyBoardFocus()`

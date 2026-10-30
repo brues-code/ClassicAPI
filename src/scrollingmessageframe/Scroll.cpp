@@ -11,10 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Retail's scroll offset and insert mode on ScrollingMessageFrame:
-// `SetScrollOffset(offset)`, `GetScrollOffset()`, `GetMaxScrollRange()`,
-// `ScrollByAmount(amount)`, `SetInsertMode(mode)`, `GetInsertMode()` and the
-// SCROLLING_MESSAGE_FRAME_INSERT_MODE_* globals.
+// Retail's scroll offset on ScrollingMessageFrame: `SetScrollOffset(offset)`,
+// `GetScrollOffset()`, `GetMaxScrollRange()` and `ScrollByAmount(amount)`.
 //
 // Retail's offset (Blizzard_SharedXML/ScrollingMessageFrame.lua) counts the
 // lines the frame is scrolled up from the newest message, 0 at the bottom, up
@@ -27,9 +25,6 @@
 // frame has does nothing, as on retail. ScrollByAmount always calls the
 // engine, which re-arms the shown lines' fade when the offset stays: retail's
 // ResetAllFadeTimes.
-//
-// 1.12's line layout stacks the lines from the bottom up, retail's BOTTOM
-// mode, and has no field for another; TOP is not supported.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -38,10 +33,6 @@
 namespace ScrollingMessageFrame::Scroll {
 
 namespace {
-
-// SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP / _BOTTOM.
-constexpr int kInsertModeTop = 1;
-constexpr int kInsertModeBottom = 2;
 
 using ScrollToOffset_t = void(__fastcall *)(void *smf, void *edx, int offset);
 using ScrollOffset_t = int(__fastcall *)(void *smf);
@@ -104,74 +95,44 @@ int __fastcall Script_ScrollByAmount(void *L) {
     return 0;
 }
 
-int __fastcall Script_SetInsertMode(void *L) {
-    void *frame = ResolveSmf(L);
-    if (frame == nullptr)
-        return 0;
-    if (!Game::Lua::IsNumber(L, 2) || Game::Lua::ToNumber(L, 2) != kInsertModeBottom)
-        Game::Lua::Error(L, "%s:SetInsertMode(): only SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM is supported",
-                         Game::Lua::ObjectDisplayName(frame));
-    return 0;
-}
-
-int __fastcall Script_GetInsertMode(void *L) {
-    if (ResolveSmf(L) == nullptr)
-        return 0;
-    Game::Lua::PushNumber(L, kInsertModeBottom);
-    return 1;
-}
-
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetScrollOffset", &Script_SetScrollOffset},
     {"GetScrollOffset",
      reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_SCROLLINGMESSAGEFRAME_GET_CURRENT_SCROLL)},
     {"GetMaxScrollRange", &Script_GetMaxScrollRange},
     {"ScrollByAmount", &Script_ScrollByAmount},
-    {"SetInsertMode", &Script_SetInsertMode},
-    {"GetInsertMode", &Script_GetInsertMode},
 };
 
 const Game::Doc::Field kOffsetArgs[] = {
-    Game::Doc::Req("offset", "number", "Lines up from the newest message; clamped to 0..GetMaxScrollRange()."),
+    Game::Doc::Req("offset", "number", "Lines from the newest message; clamped to 0..GetMaxScrollRange()."),
 };
 const Game::Doc::Field kOffsetRets[] = {
-    Game::Doc::Req("offset", "number", "Lines up from the newest message; 0 at the bottom."),
+    Game::Doc::Req("offset", "number", "Lines from the newest message; 0 when not scrolled."),
 };
 const Game::Doc::Field kRangeRets[] = {
     Game::Doc::Req("maxScrollRange", "number"),
 };
 const Game::Doc::Field kAmountArgs[] = {
-    Game::Doc::Req("amount", "number", "Positive scrolls up, toward older messages."),
+    Game::Doc::Req("amount", "number", "Positive scrolls toward older messages."),
 };
-const Game::Doc::Field kModeArgs[] = {
-    Game::Doc::Req("mode", "number", "SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM; other modes raise an error."),
-};
-const Game::Doc::Field kModeRets[] = {
-    Game::Doc::Req("mode", "number", "SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM."),
-};
-const Game::Doc::Function kSetScrollOffset{"Scrolls the frame to a number of lines up from the newest message.",
+const Game::Doc::Function kSetScrollOffset{"Scrolls the frame to a number of lines from the newest message.",
                                            kOffsetArgs, {}};
-const Game::Doc::Function kGetScrollOffset{"Returns how many lines the frame is scrolled up from the newest message.",
+const Game::Doc::Function kGetScrollOffset{"Returns how many lines the frame is scrolled from the newest message.",
                                            {}, kOffsetRets};
 const Game::Doc::Function kGetMaxScrollRange{"Returns the largest scroll offset: one less than the message count.",
                                              {}, kRangeRets};
 const Game::Doc::Function kScrollByAmount{"Scrolls the frame by a number of lines and shows the faded lines again.",
                                           kAmountArgs, {}};
-const Game::Doc::Function kSetInsertMode{"Sets where the newest message shows.", kModeArgs, {}};
-const Game::Doc::Function kGetInsertMode{"Returns where the newest message shows.", {}, kModeRets};
-
 const Game::Doc::Method kDocs[] = {
-    {"SetScrollOffset", &kSetScrollOffset},     {"GetScrollOffset", &kGetScrollOffset},
-    {"GetMaxScrollRange", &kGetMaxScrollRange}, {"ScrollByAmount", &kScrollByAmount},
-    {"SetInsertMode", &kSetInsertMode},         {"GetInsertMode", &kGetInsertMode},
+    {"SetScrollOffset", &kSetScrollOffset},
+    {"GetScrollOffset", &kGetScrollOffset},
+    {"GetMaxScrollRange", &kGetMaxScrollRange},
+    {"ScrollByAmount", &kScrollByAmount},
 };
 
 void RegisterLuaFunctions() {
-    void *L = Game::Lua::State();
-    Game::Lua::SetGlobalNumber(L, "SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP", kInsertModeTop);
-    Game::Lua::SetGlobalNumber(L, "SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM", kInsertModeBottom);
     Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
-                                    kMethods, 6, kDocs, 6);
+                                    kMethods, 4, kDocs, 4);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

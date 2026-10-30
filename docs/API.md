@@ -8699,15 +8699,15 @@ end
 ### `smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`
 
 On ScrollingMessageFrame. The scroll offset is the number of lines that the
-frame is scrolled up from the newest message. At the bottom, the offset is 0.
-The largest offset is `GetMaxScrollRange()`, that is `GetNumMessages() - 1`,
-or 0 for an empty frame. At that offset, the oldest message is the bottom
-line.
+frame is scrolled away from the newest message. When the frame is not
+scrolled, the offset is 0. The largest offset is `GetMaxScrollRange()`, that
+is `GetNumMessages() - 1`, or 0 for an empty frame. At that offset, the oldest
+message is the bottom line, or the top line in TOP insert mode.
 
 - `SetScrollOffset(offset)` scrolls to `offset`. An offset less than 0 or
   more than `GetMaxScrollRange()` changes to the nearest limit.
 - `ScrollByAmount(amount)` adds `amount` to the offset. A positive amount
-  scrolls up, to older messages. The function also shows the faded lines
+  scrolls to older messages. The function also shows the faded lines
   again, also when the offset does not change.
 - If `offset` or `amount` is not a number, the function gives an error.
 
@@ -8721,14 +8721,24 @@ ChatFrame1:SetScrollOffset(0)    -- the newest message again
 ### `smf:SetInsertMode(mode)` / `smf:GetInsertMode()`
 
 On ScrollingMessageFrame. The insert mode tells where the newest message
-shows. The frame always shows the newest message at the bottom, so
-`GetInsertMode()` returns `SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM` (2).
-`SetInsertMode` accepts only this value. For
-`SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP` (1) or any other value, it gives an
-error.
+shows.
+
+- `SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM` (2) shows the newest message
+  at the bottom, with older messages above it. This is the default.
+- `SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP` (1) shows the newest message at
+  the top, with older messages below it.
+
+In both modes, the scroll offset counts lines from the newest message. A
+change of mode moves the lines that show and runs the display-refreshed
+callbacks. If `mode` is the current mode, `SetInsertMode` does nothing. If
+`mode` is not one of the two values, the function gives an error.
 
 ```lua
-ChatFrame1:GetInsertMode() == SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM   -- true
+local f = CreateFrame("ScrollingMessageFrame", nil, UIParent)
+f:SetInsertMode(SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP)
+f:AddMessage("first")
+f:AddMessage("second")   -- shows above "first"
+f:GetInsertMode()        -- 1
 ```
 
 ### `smf:AddOnDisplayRefreshedCallback(callback)`
