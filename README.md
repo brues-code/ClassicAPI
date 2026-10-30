@@ -69,7 +69,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Cursor](docs/API.md#cursor) | `CursorHasMacro`, `GetCursorInfo` |
 | [Container](docs/API.md#container) | `C_Container.AutoStoreItem`, `C_Container.CalculateTotalNumberOfFreeBagSlots`, `C_Container.GetContainerItemCharges`, `C_Container.GetContainerItemDurability`, `C_Container.GetContainerItemID`, `C_Container.GetContainerItemInfo`, `C_Container.GetContainerItemEquipmentSetInfo`, `C_Container.GetContainerItemQuestInfo`, `C_Container.GetContainerItemRepairCost`, `C_Container.GetContainerFreeSlots`, `C_Container.GetContainerNumFreeSlots`, `C_Container.GetBackpackAutosortDisabled`, `C_Container.GetBankAutosortDisabled`, `C_Container.GetItemCooldown`, `C_Container.GetSortBagsRightToLeft`, `C_Container.HasContainerItem`, `C_Container.IsContainerFiltered`, `C_Container.IsContainerItemOpenable`, `C_Container.MoveItem`, `C_Container.PlayerHasHearthstone`, `C_Container.SetBackpackAutosortDisabled`, `C_Container.SetBagPortraitTexture`, `C_Container.SetBankAutosortDisabled`, `C_Container.SetItemSearch`, `C_Container.SetSortBagsRightToLeft`, `C_Container.SortBags`, `C_Container.SortBankBags`, `C_Container.SwapItems`, `C_Container.UseHearthstone`, `GetItemCooldown`, `SetBagPortraitTexture` |
 | [Creature](docs/API.md#creature) | `C_CreatureInfo.GetCreatureID`, `C_CreatureInfo.GetCreatureInfoByID`, `C_CreatureInfo.RequestLoadCreatureByID`, `C_CreatureInfo.GetRaceInfo`, `C_CreatureInfo.GetClassInfo`, `C_CreatureInfo.GetCreatureFamilyInfo`, `C_CreatureInfo.GetCreatureFamilyIDs`, `C_CreatureInfo.GetFactionInfo`, `C_CreatureInfo.GetCreatureTypeInfo`, `C_CreatureInfo.GetCreatureTypeIDs` |
-| [Currency](docs/API.md#currency) | `GetCoinText`, `C_CurrencyInfo.GetCoinText`, `GetCoinTextureString`, `C_CurrencyInfo.GetCoinTextureString` |
+| [Currency](docs/API.md#currency) | `GetCoinText`, `C_CurrencyInfo.GetCoinText`, `GetCoinTextureString`, `C_CurrencyInfo.GetCoinTextureString`, `Constants.MoneyFormattingConstants` |
 | EncodingUtil | `C_EncodingUtil.CompressString`, `C_EncodingUtil.DecompressString`, `C_EncodingUtil.EncodeBase64`, `C_EncodingUtil.DecodeBase64`, `C_EncodingUtil.EncodeHex`, `C_EncodingUtil.DecodeHex`, `C_EncodingUtil.SerializeJSON`, `C_EncodingUtil.DeserializeJSON`, `C_EncodingUtil.SerializeCBOR`, `C_EncodingUtil.DeserializeCBOR` |
 | [DeathInfo](docs/API.md#deathinfo) | `C_DeathInfo.GetSelfResurrectOptions`, `C_DeathInfo.UseSelfResurrectOption` |
 | [EquipmentSet](docs/API.md#equipmentset) | `C_EquipmentSet.CanUseEquipmentSets`, `C_EquipmentSet.ClearIgnoredSlotsForSave`, `C_EquipmentSet.CreateEquipmentSet`, `C_EquipmentSet.DeleteEquipmentSet`, `C_EquipmentSet.EquipmentSetContainsLockedItems`, `C_EquipmentSet.GetEquipmentSetID`, `C_EquipmentSet.GetEquipmentSetIDs`, `C_EquipmentSet.GetEquipmentSetInfo`, `C_EquipmentSet.GetIgnoredSlots`, `C_EquipmentSet.GetItemIDs`, `C_EquipmentSet.GetItemLocations`, `C_EquipmentSet.GetNumEquipmentSets`, `C_EquipmentSet.IgnoreSlotForSave`, `C_EquipmentSet.IsSlotIgnoredForSave`, `C_EquipmentSet.ModifyEquipmentSet`, `C_EquipmentSet.PickupEquipmentSet`, `C_EquipmentSet.SaveEquipmentSet`, `C_EquipmentSet.UnignoreSlotForSave`, `C_EquipmentSet.UseEquipmentSet` |
@@ -100,6 +100,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Item: info](docs/API.md#getitemclassinfoclassid) | `GetItemClassInfo`, `GetItemSubClassInfo`, `GetItemIcon`, `IsConsumableItem`, `IsCurrentItem`, `IsDressableItem`, `IsEquippedItemType`, `IsHarmfulItem`, `IsHelpfulItem`, `IsUsableItem` |
 | [Item: inventory](docs/API.md#getaverageitemlevel) | `GetAverageItemLevel`, `GetInventoryItemID`, `GetInventoryItemDurability`, `GetInventoryItemRepairCost`, `GetInventoryItemsForSlot`, `IsDualWielding`, `SetInventoryPortraitTexture` |
 | [Item: item IDs](docs/API.md#getitemid--companions-to-the-engines-getitemlink-family) | `GetAuctionItemID`, `GetAuctionSellItemID`, `GetCraftReagentItemID`, `GetInboxItemID`, `GetLootRollItemID`, `GetLootSlotItemID`, `GetMerchantItemID`, `GetQuestItemID`, `GetQuestLogItemID`, `GetTradePlayerItemID`, `GetTradeTargetItemID`, `GetTradeSkillItemID`, `GetTradeSkillReagentItemID` |
+| [Localization](docs/API.md#localization) | `AbbreviateLargeNumbers`, `AbbreviateNumbers`, `BreakUpLargeNumbers`, `C_StringUtil.GetDefaultAbbreviationBreakpoints` |
 | [Loot](docs/API.md#loot) | `C_Loot.GetNearbyLootableUnits`, `C_Loot.GetLastScanResults`, `C_Loot.IsScanInProgress`, `C_Loot.LootAllCorpses`, `C_Loot.LootUnit`, `C_Loot.LootUnitItem`, `C_Loot.ScanNearbyLoot` |
 | [LootHistory](docs/API.md#loothistory) | `C_LootHistory.GetNumItems`, `C_LootHistory.GetItem`, `C_LootHistory.GetPlayerInfo`, `C_LootHistory.Clear` |
 | [LossOfControl](docs/API.md#lossofcontrol) | `C_LossOfControl.GetActiveLossOfControlData`, `C_LossOfControl.GetActiveLossOfControlDataCount`, `C_LossOfControl.GetSchoolLockout` |
@@ -233,6 +234,7 @@ menu and click AddOn Options, then ClassicAPI.
 | | `SoftTargetIconEnemy` / `SoftTargetIconFriend` | `0` | `1` shows an icon over `softenemy` / `softfriend`. |
 | | `SoftTargetLowPriorityIcons` | `0` | `1` also shows the normal pointer as an icon. |
 | | `SoftTargetNameplateSize` | `19` | Size of all soft-target icons. |
+| [Localization](docs/API.md#breakuplargenumbers-cvar) | `breakUpLargeNumbers` | `1` | `1` puts a separator between each group of three digits in `BreakUpLargeNumbers`. `0` writes no separator. |
 | [Cooldown](docs/API.md#createframecooldown--name-parent-template) | `countdownForCooldowns` | `0` | `1` shows the time left as numbers on cooldown frames. |
 | [NamePlate](docs/API.md#nameplate) | `nameplateNotSelectedAlpha` | `0.5` | Alpha of a non-target default nameplate, `0` to `1`. |
 | | `nameplateSelectedAlpha` | `1` | Alpha of the target's default nameplate, `0` to `1`. |
@@ -432,7 +434,8 @@ functions but that consumer code still expects to find as globals —
 `CallbackRegistryMixin`, `EventRegistry`, `ColorMixin` + `CreateColor`,
 `Item` / `ItemLocation`, `MathUtil`(`Lerp` / `Clamp` / `CreateCounter`),
 `TableUtil` (`tCompare`, `MergeTable`, `SafePack`, etc.), `EventUtil`
-(`ContinueOnAddOnLoaded` and more), `DataProvider`, `CircularBuffer`,
+(`ContinueOnAddOnLoaded` and more), `FormattingUtil` (`GetMoneyString`,
+`FormatLargeNumber` and more), `DataProvider`, `CircularBuffer`,
 `EasingUtil`, `Interpolator`, `EnumUtil`, `StringUtil`, `AnchorUtil`,
 `GridLayoutUtil`, and the layout frame templates (`VerticalLayoutFrame`,
 `HorizontalLayoutFrame`, `ResizeLayoutFrame`, `GridLayoutFrame`,

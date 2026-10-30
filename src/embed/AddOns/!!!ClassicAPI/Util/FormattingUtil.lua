@@ -4,9 +4,8 @@
 --   - GetMoneyString always gives the coin-icon form, retail's default. Retail
 --     switches to the text-symbol form ("12g 34s 56c") under its colorblind
 --     mode, which 1.12 does not have.
---   - Not ported: FormattingUtil.GetCostString / GetItemCostString (they need
---     the BreakUpLargeNumbers / AbbreviateNumbers C functions) and
---     GetCurrencyString / GetCurrenciesString (1.12 has no currencies).
+--   - Not ported: GetCurrencyString / GetCurrenciesString (1.12 has no
+--     currencies).
 --
 -- The GlobalStrings these functions consume (LARGE_NUMBER_SEPERATOR,
 -- PERCENTAGE_STRING, GOLD_AMOUNT_TEXTURE, SYMBOLIC_NEGATIVE_NUMBER, ...) are
@@ -192,6 +191,28 @@ function FormatUnreadMailTooltip(tooltip, headerText, senders)
 end
 
 FormattingUtil = {};
+
+function FormattingUtil.GetCostString(icon, quantity, colorCode, abbreviate)
+	colorCode = colorCode or HIGHLIGHT_FONT_COLOR_CODE;
+
+	local markup = CreateTextureMarkup(icon, 64, 64, 16, 16, 0, 1, 0, 1);
+	local amountString;
+	if abbreviate then
+		amountString = AbbreviateNumbers(quantity);
+	else
+		amountString = BreakUpLargeNumbers(quantity);
+	end
+	return ("%s%s %s|r"):format(colorCode, amountString, markup);
+end
+
+function FormattingUtil.GetItemCostString(itemID, quantity, colorCode, abbreviate)
+	local icon = C_Item.GetItemIconByID(itemID);
+	if icon then
+		return FormattingUtil.GetCostString(icon, quantity, colorCode, abbreviate);
+	end
+
+	return "";
+end
 
 function FormattingUtil.AddLeadingZeroes(digits, numZeroes, zeroesColor)
 	numZeroes = numZeroes or 7;

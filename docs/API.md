@@ -165,6 +165,7 @@ build instructions.
 - [Currency](#currency)
   - [`GetCoinText(amount [, separator])` / `C_CurrencyInfo.GetCoinText(amount [, separator])`](#getcointextamount--separator--c_currencyinfogetcointextamount--separator)
   - [`GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`](#getcointexturestringamount--fontheight--c_currencyinfogetcointexturestringamount--fontheight)
+  - [`Constants.MoneyFormattingConstants`](#constantsmoneyformattingconstants)
 
 - [CVar](#cvar)
   - [`GetCVar(name)`](#getcvarname)
@@ -579,6 +580,13 @@ build instructions.
 - [Launch](#launch)
   - [`-config <name>` (launch switch)](#-config-name-launch-switch)
   - [`-gluescript` / `-gluescriptFile` / `-gamescript` / `-gamescriptFile` (launch switches)](#-gluescript---gluescriptfile---gamescript---gamescriptfile-launch-switches)
+
+- [Localization](#localization)
+  - [`BreakUpLargeNumbers(largeNumber [, natural])`](#breakuplargenumberslargenumber--natural)
+  - [`AbbreviateNumbers(number [, options])`](#abbreviatenumbersnumber--options)
+  - [`AbbreviateLargeNumbers(number [, options])`](#abbreviatelargenumbersnumber--options)
+  - [`C_StringUtil.GetDefaultAbbreviationBreakpoints([locale])`](#c_stringutilgetdefaultabbreviationbreakpointslocale)
+  - [`breakUpLargeNumbers` (CVar)](#breakuplargenumbers-cvar)
 
 - [Loot](#loot)
   - [`C_Loot.GetNearbyLootableUnits()`](#c_lootgetnearbylootableunits)
@@ -4041,6 +4049,19 @@ The per-denomination formats are the GlobalStrings
 `GOLD_AMOUNT_TEXTURE` / `SILVER_AMOUNT_TEXTURE` /
 `COPPER_AMOUNT_TEXTURE`, backported in the embedded `!!!ClassicAPI`
 addon's locale layer — a locale can override them.
+
+### `Constants.MoneyFormattingConstants`
+
+A table of constants for money text.
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `GOLD_REWARD_THRESHOLD_TO_HIDE_COPPER` | `10` | With `checkGoldThreshold`, `GetMoneyString` shows no copper for an amount of more than this number of gold. |
+
+```lua
+GetMoneyString(1234567, nil, true)  -- "123g 45s" with coin icons, no copper
+GetMoneyString(51234, nil, true)    -- "5g 12s 34c" with coin icons
+```
 
 ## CVar
 
@@ -13723,6 +13744,166 @@ first, then the file.
 **Errors.** A script that fails to compile, or that raises while it runs,
 is reported the same way any other script error is. It does not stop the
 client, and it does not stop the other scripts.
+
+## Localization
+
+Functions that write numbers as text, with the separators and abbreviations
+of the client language.
+
+### `BreakUpLargeNumbers(largeNumber [, natural])`
+
+Returns the number as text, with a separator between each group of three
+digits.
+
+```lua
+BreakUpLargeNumbers(1234567)          -- "1,234,567"
+BreakUpLargeNumbers(1234567.891)      -- "1,234,567"
+BreakUpLargeNumbers(123.456)          -- "123.5"
+BreakUpLargeNumbers(5)                -- "5"
+BreakUpLargeNumbers(-1234567)         -- "-1,234,567"
+BreakUpLargeNumbers(12345678, true)   -- "12.3 million"
+BreakUpLargeNumbers(123456, true)     -- "123,456"
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `largeNumber` | number | The number to write. |
+| `natural` | boolean, optional | `true` writes a number of one million or more with a word, for example `"1.2 million"`. The default is `false`. |
+
+A whole number, or a number of 1000 or more, loses its decimals. The
+function removes them and does not round. Any other number keeps one
+decimal, rounded to the nearest tenth. A half rounds away from zero: `0.25`
+becomes `"0.3"`. A number with a decimal has no separator, so `999.96`
+becomes `"1000.0"`.
+
+The separator is the global string `LARGE_NUMBER_SEPERATOR`, and the decimal
+point is `DECIMAL_SEPERATOR`. When the
+[`breakUpLargeNumbers`](#breakuplargenumbers-cvar) CVar is `0`, the function
+writes the digits with no separator.
+
+With `natural`, a positive number of one million or more gets the largest
+word that fits: million, billion or trillion. The number before the word
+keeps one decimal when it is less than 100. The function removes the other
+decimals and does not round, and it does not show a decimal of `.0`:
+`2000000` becomes `"2 million"`. Smaller numbers and negative numbers are
+whole numbers with separators.
+
+The words are the global strings `SECOND_NUMBER`, `THIRD_NUMBER` and
+`FOURTH_NUMBER`. On Chinese and Korean clients, these words count in steps
+of ten thousand, so the words start at 10,000. On German, Spanish and French
+clients, the words contain a `|7` plural code, which shows as written.
+
+### `AbbreviateNumbers(number [, options])`
+
+Returns a short form of the number, for example `"1.2K"` for 1234.
+
+```lua
+AbbreviateNumbers(999.9)     -- "999.9"
+AbbreviateNumbers(1234)      -- "1.2K"
+AbbreviateNumbers(12345)     -- "12K"
+AbbreviateNumbers(1999999)   -- "1.9M"
+AbbreviateNumbers(-12345)    -- "-12345"
+AbbreviateNumbers(1234, { breakpointData = {
+    { breakpoint = 100, abbreviation = "h", significandDivisor = 10,
+      fractionDivisor = 10, abbreviationIsGlobal = false },
+} })                         -- "12.3h"
+```
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `number` | number | The number to shorten. |
+| `options` | table, optional | A `NumberAbbrevOptions` table. See below. |
+
+The function uses a list of breakpoints, from the largest to the smallest.
+It uses the first breakpoint that the number reaches. The result is
+`floor(number / significandDivisor) / fractionDivisor`, followed by the
+abbreviation. Because the function rounds down, `1999999` becomes `"1.9M"`.
+When the number is less than all breakpoints, the function returns the
+number as Lua writes it. This is always true for a negative number.
+
+The default breakpoints give one decimal below ten of a unit, and no decimal
+from ten up. The units are thousands (`K`), millions (`M`), billions and
+trillions. The abbreviations for billions and trillions name global strings
+that do not exist, so these numbers have no letter:
+`AbbreviateNumbers(1.5e10)` returns `"15"`. On Chinese and Korean clients,
+the default units are ten thousand and one hundred million.
+
+`NumberAbbrevOptions` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `breakpointData` | table, optional | A list of `NumberAbbreviationBreakpoint` tables, from the largest breakpoint to the smallest. The list replaces the default breakpoints. |
+| `locale` | string, optional | The language of the default breakpoints. `"koKR"`, `"zhCN"` and `"zhTW"` give the Chinese and Korean breakpoints. The default is the language of the client. |
+
+A `config` field has no effect.
+
+`NumberAbbreviationBreakpoint` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `breakpoint` | number | The smallest number for this entry. |
+| `abbreviation` | string | The name of the global string that comes after the number. |
+| `significandDivisor` | number | The function divides the number by this value and rounds down. |
+| `fractionDivisor` | number | The function then divides by this value, which gives the decimals. |
+| `abbreviationIsGlobal` | boolean, optional | `false` puts the `abbreviation` text itself after the number. The default is `true`. |
+
+When an abbreviation names a global string that does not exist, nothing
+comes after the number. When an entry of `breakpointData` is not a table, or
+a field has the wrong type, the function raises an error.
+
+### `AbbreviateLargeNumbers(number [, options])`
+
+Returns a short form of a large number, in whole thousands or millions.
+
+```lua
+AbbreviateLargeNumbers(12345)       -- "12,345"
+AbbreviateLargeNumbers(123456)      -- "123 K"
+AbbreviateLargeNumbers(12345678)    -- "12345 K"
+AbbreviateLargeNumbers(123456789)   -- "123 M"
+AbbreviateLargeNumbers(-12345)      -- "-12,345"
+```
+
+The arguments are the same as for
+[`AbbreviateNumbers`](#abbreviatenumbersnumber--options), and the function
+uses breakpoints in the same way. The default breakpoints start at 100,000
+for thousands (`FIRST_NUMBER_CAP`, `" K"`) and at 100,000,000 for millions
+(`SECOND_NUMBER_CAP`, `" M"`). When the number is less than all breakpoints,
+the result is `BreakUpLargeNumbers(number)`.
+
+The function rounds the result to the nearest whole number. With the
+breakpoint from the `AbbreviateNumbers` example, `123456` becomes `"1235h"`.
+On Chinese and Korean clients, or with one of their `locale` values, the
+result keeps its decimals. There, the default breakpoints use ten thousand
+and one hundred million: `123456789` becomes `1.23` and the
+`SECOND_NUMBER_CAP` string.
+
+### `C_StringUtil.GetDefaultAbbreviationBreakpoints([locale])`
+
+Returns a new list of the default breakpoints of `AbbreviateNumbers`, as
+`NumberAbbreviationBreakpoint` tables. You can change the list and give it
+as `breakpointData`.
+
+| Arg | Type | Description |
+|-----|------|-------------|
+| `locale` | string, optional | The language, for example `"zhCN"`. The default is the language of the client. |
+
+```lua
+local breakpoints = C_StringUtil.GetDefaultAbbreviationBreakpoints()
+-- breakpoints[1] = { breakpoint = 10000000000000,
+--                    abbreviation = "FOURTH_NUMBER_CAP_NO_SPACE",
+--                    significandDivisor = 1000000000000,
+--                    fractionDivisor = 1, abbreviationIsGlobal = true }
+```
+
+### `breakUpLargeNumbers` (CVar)
+
+A setting for `BreakUpLargeNumbers` and the functions that use it. `1` (the
+default) puts a separator between each group of three digits. `0` writes the
+digits with no separator.
+
+```
+/console breakUpLargeNumbers 0
+```
 
 ## Loot
 
