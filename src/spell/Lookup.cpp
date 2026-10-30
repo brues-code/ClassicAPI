@@ -52,6 +52,16 @@ bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
     return (flags & flagMask) != 0;
 }
 
+bool HasEffect(const uint8_t *spellRecord, int effect) {
+    if (spellRecord == nullptr)
+        return false;
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
+        if (Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) == effect)
+            return true;
+    }
+    return false;
+}
+
 int SpellbookSlotToID(int slot1Based, int bookType) {
     const int slot = slot1Based - 1;
     if (slot < 0 || slot >= Offsets::SPELLBOOK_MAX_SLOTS)

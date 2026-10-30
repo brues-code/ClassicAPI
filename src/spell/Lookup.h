@@ -31,6 +31,10 @@ const uint8_t *RecordForID(int spellID);
 bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
                    uint64_t flagMask);
 
+// Whether one of the spell's three effects is `effect` — 4.3.4's
+// SpellHasEffect. False for a null record.
+bool HasEffect(const uint8_t *spellRecord, int effect);
+
 // Resolves a 1-based Lua-facing spellbook slot to the spellID stored
 // there. `bookType` is `0` for the player spellbook, `1` for the pet
 // spellbook (matches the engine's encoding from `Script_GetSpellName`).

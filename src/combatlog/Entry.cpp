@@ -609,16 +609,6 @@ bool Ranged(const uint8_t *spell) {
 
 uint32_t SchoolMask(uint32_t school) { return school < kSchoolCount ? 1u << school : 0; }
 
-bool HasEffect(const uint8_t *spell, int effect) {
-    if (spell == nullptr)
-        return false;
-    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
-        if (Game::Read<int>(spell, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) == effect)
-            return true;
-    }
-    return false;
-}
-
 bool HasAuraEffect(const uint8_t *spell, int auraName) {
     if (spell == nullptr)
         return false;

@@ -42,6 +42,7 @@
 #include "combatlog/RecentCasts.h"
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
+#include "spell/Lookup.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -54,13 +55,9 @@ using Net::CDataStore;
 using Net::Read;
 using Net::ReadPackedGuid;
 
-constexpr uint32_t SMSG_SPELL_START = 0x131;
-constexpr uint32_t SMSG_SPELL_GO = 0x132;
-
 // The cast flag that keeps a cast out of the combat log (both servers'
 // CAST_FLAG_HIDDEN_COMBATLOG); 4.3.4 tests the same bit.
 constexpr uint16_t CAST_FLAG_HIDDEN_COMBATLOG = 0x1;
-constexpr uint16_t TARGET_FLAG_OBJECT = 0x8A02;
 constexpr uint8_t SPELL_MISS_REFLECT = 11;
 
 // 4.3.4's SpellHasOpenLockEffect tests 33 alone; 1.12's success line also
@@ -85,7 +82,7 @@ int CastingTime(void *unit, int spellId) {
 
 // The rules both cast builders share.
 bool Logged(const uint8_t *spell) {
-    return !Hidden(spell) && !HasEffect(spell, SPELL_EFFECT_LEARN_SPELL) &&
+    return !Hidden(spell) && !Spell::Lookup::HasEffect(spell, SPELL_EFFECT_LEARN_SPELL) &&
            (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX4) &
             ATTR_EX4_NO_CAST_LOG) == 0;
 }
@@ -127,7 +124,8 @@ void SpellGo(CDataStore *p) {
             Read<uint8_t>(p);
     }
     const uint16_t targetMask = Read<uint16_t>(p);
-    const uint64_t target = (targetMask & TARGET_FLAG_OBJECT) ? ReadPackedGuid(p) : 0;
+    const uint64_t target =
+        (targetMask & Offsets::SPELL_TARGET_FLAGS_OBJECT) ? ReadPackedGuid(p) : 0;
     if (Overrun(p))
         return;
     RecentCasts::Record(caster, static_cast<uint32_t>(spellId), hitList, hits);
@@ -135,17 +133,17 @@ void SpellGo(CDataStore *p) {
         return;
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, caster);
     const uint8_t *spell = SpellRecord(spellId);
-    if (unit == nullptr || !Logged(spell) || HasEffect(spell, SPELL_EFFECT_OPEN_LOCK) ||
-        CastingTime(unit, spellId) != 0)
+    if (unit == nullptr || !Logged(spell) ||
+        Spell::Lookup::HasEffect(spell, SPELL_EFFECT_OPEN_LOCK) || CastingTime(unit, spellId) != 0)
         return;
     Entry e = Begin(caster, target, SPELL_CAST_SUCCESS, spell);
     Queue(e);
 }
 
 void OnPacket(uint32_t opcode, CDataStore *p) {
-    if (opcode == SMSG_SPELL_START)
+    if (opcode == Offsets::SMSG_SPELL_START)
         SpellStart(p);
-    else if (opcode == SMSG_SPELL_GO)
+    else if (opcode == Offsets::SMSG_SPELL_GO)
         SpellGo(p);
 }
 

@@ -14,6 +14,7 @@
 #include "combatlog/RecentCasts.h"
 
 #include "combatlog/Entry.h"
+#include "spell/Lookup.h"
 #include "time/Clock.h"
 
 #include <cstdint>
@@ -80,7 +81,7 @@ const uint8_t *SpellByEffect(uint64_t caster, uint64_t target, int effectA, int 
         if (c.caster != caster || !Hit(c, target))
             return false;
         const uint8_t *spell = SpellRecord(static_cast<int>(c.spellId));
-        if (!HasEffect(spell, effectA) && !HasEffect(spell, effectB))
+        if (!Spell::Lookup::HasEffect(spell, effectA) && !Spell::Lookup::HasEffect(spell, effectB))
             return false;
         found = spell;
         return true;

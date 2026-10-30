@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "object/Corpse.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "unit/Position.h"
@@ -114,8 +115,6 @@ constexpr int32_t TARGET_PET = 5;
 
 using Relation_t = bool(__thiscall *)(void *caster, void *other);
 using CreatureType_t = int(__thiscall *)(void *unit);
-using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx, uint64_t guid);
-using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
 
 bool Relation(uintptr_t fn, void *caster, void *other) {
     return reinterpret_cast<Relation_t>(fn)(caster, other);
@@ -179,28 +178,6 @@ uint32_t TargetWord(const uint8_t *rec, bool &aimsAtPet) {
         }
     }
     return word;
-}
-
-struct CorpseScan {
-    uint64_t owner;
-    void *corpse;
-};
-
-int __fastcall CorpseScanCallback(CorpseScan *scan, void * /*unusedEdx*/, uint64_t guid) {
-    void *obj = Object::ByGuid(Offsets::TYPEMASK_CORPSE, guid, nullptr, 0);
-    if (obj == nullptr ||
-        Game::Read<uint64_t>(Fields(obj), Offsets::OFF_CORPSE_FIELD_OWNER) != scan->owner)
-        return 1;
-    scan->corpse = obj;
-    return 0;
-}
-
-// 4.3.4's ClntObjMgrFindCorpseByOwner, over the visible objects.
-void *CorpseOf(uint64_t owner) {
-    CorpseScan scan{owner, nullptr};
-    reinterpret_cast<EnumVisibleObjects_t>(Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS)(
-        reinterpret_cast<EnumCallback_t>(&CorpseScanCallback), &scan);
-    return scan.corpse;
 }
 
 // A unit target (0x006E4511..0x006E469A).
@@ -281,7 +258,7 @@ void *AdmittedTarget(void *caster, const uint8_t *rec, void *target) {
             if (info != nullptr &&
                 (Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_FLAGS) &
                  Offsets::PLAYER_FLAG_GHOST) != 0) {
-                if (void *corpse = CorpseOf(Game::Read<uint64_t>(Head(target), 0)))
+                if (void *corpse = Object::Corpse::ByOwner(Game::Read<uint64_t>(Head(target), 0)))
                     return corpse;
             }
         }

@@ -88,6 +88,7 @@
 #include "time/Clock.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
+#include "unit/IncomingResurrection.h"
 
 #include <cstdint>
 
@@ -691,6 +692,7 @@ void ParseChannelUpdate(Net::CDataStore *packet) {
 void HandleCastAborted(uint64_t guid, int spellID, bool castSlotOnly = false) {
     if (guid == 0 || spellID == 0)
         return;
+    Unit::IncomingResurrection::OnCastEnded(guid, spellID);
     // Remote units: invalidate the cached cast/channel so
     // UnitCastingInfo/UnitChannelInfo stop reporting it this tick.
     for (auto &e : g_remoteCasts) {

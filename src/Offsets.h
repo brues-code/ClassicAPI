@@ -3396,6 +3396,13 @@ enum Offsets {
     SMSG_SPELL_CHANNEL_UPDATE = 0x13A,
     SMSG_SPELL_DELAYED = 0x1E2,
     SMSG_SPELL_FAILED_OTHER = 0x2A6,
+    // SpellCastTargets mask bits that carry a packed object GUID right after
+    // the u16 mask in SMSG_SPELL_START / SMSG_SPELL_GO: unit 0x2, PvP corpse
+    // 0x200, game object 0x800, corpse 0x8000 — one GUID for whichever is
+    // set (the client's target reader 0x007E4ED0; tortoise-wow
+    // SpellCastTargets::write). A resurrect aimed at a released player
+    // carries the corpse.
+    SPELL_TARGET_FLAGS_OBJECT = 0x8A02,
     // Melee swing result broadcast. Body (verified against the server's own
     // writer, tortoise-wow Unit::SendAttackStateUpdate): u32 hitInfo,
     // packedGuid attacker, packedGuid victim, u32 totalDamage, u8 subCount,

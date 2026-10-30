@@ -223,6 +223,7 @@ build instructions.
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`WEAR_EQUIPMENT_SET` event](#wear_equipment_set-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
+  - [`INCOMING_RESURRECT_CHANGED` event](#incoming_resurrect_changed-event)
   - [`INVENTORY_SEARCH_UPDATE` event](#inventory_search_update-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
@@ -1011,6 +1012,7 @@ build instructions.
   - [`UnitPowerType(unit)`](#unitpowertypeunit)
   - [`UnitSpellHaste(unit)`](#unitspellhasteunit)
   - [`UnitSpellTargetName(unit)`](#unitspelltargetnameunit)
+  - [`UnitHasIncomingResurrection(unit)`](#unithasincomingresurrectionunit)
   - [`CanBeRaidTarget(unit)`](#canberaidtargetunit)
 
 - [UnitAuras](#unitauras)
@@ -5296,6 +5298,25 @@ snapshot of `(factionID, newStanding, repGained)` is captured before
 forwarding, which [`C_Reputation.GetLastStandingChange`](#c_reputationgetlaststandingchange)
 exposes — so addons can read the structured payload from inside the
 chat event without re-parsing the localized string.
+
+### `INCOMING_RESURRECT_CHANGED` event
+
+Fires when a resurrection cast at a unit starts or stops. `arg1` is the unit
+token. The event gives no value.
+[`UnitHasIncomingResurrection`](#unithasincomingresurrectionunit) gives the
+new value.
+
+The event fires one time for each token that names the unit, for example
+`"party1"` and `"target"`. If the cast is at the corpse of a released player,
+`arg1` names that player.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("INCOMING_RESURRECT_CHANGED")
+f:SetScript("OnEvent", function()
+    print(arg1, UnitHasIncomingResurrection(arg1))
+end)
+```
 
 ### `INVENTORY_SEARCH_UPDATE` event
 
@@ -23167,6 +23188,32 @@ friends list, then the persistent name cache — the same chain as
 The player's target lands with the confirming packet, about one round-trip
 after the cast starts. So `UnitSpellTargetName("player")` can read `nil` for
 the first part of your own cast, then return the name.
+
+### `UnitHasIncomingResurrection(unit)`
+
+```
+hasIncomingResurrection = UnitHasIncomingResurrection(unit)
+```
+
+Returns true while somebody casts a resurrection spell at `unit`. Otherwise
+it returns false. If `unit` is a released player, the function also includes
+casts at the corpse of that player.
+
+```lua
+if UnitHasIncomingResurrection("party1") then
+    print(UnitName("party1"), "has an incoming resurrection")
+end
+```
+
+The value changes to true when the cast starts. It changes to false when the
+cast stops, for any reason. This includes a completed cast that the target did
+not accept yet.
+
+You see a cast only when its caster is near you. If the caster goes out of
+range during the cast, the value changes to false.
+
+[`INCOMING_RESURRECT_CHANGED`](#incoming_resurrect_changed-event) fires at
+each change.
 
 ### `CanBeRaidTarget(unit)`
 

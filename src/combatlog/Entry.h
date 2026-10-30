@@ -158,9 +158,6 @@ bool Ranged(const uint8_t *spell);
 // A school index (Spell.dbc School, the packets' school) as a school mask.
 uint32_t SchoolMask(uint32_t school);
 
-// Whether one of the spell's three effects is `effect`.
-bool HasEffect(const uint8_t *spell, int effect);
-
 // Whether one of the spell's three effects applies the aura `auraName`
 // (EffectApplyAuraName).
 bool HasAuraEffect(const uint8_t *spell, int auraName);
