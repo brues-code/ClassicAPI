@@ -71,6 +71,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Creature](docs/API.md#creature) | `C_CreatureInfo.GetCreatureID`, `C_CreatureInfo.GetCreatureInfoByID`, `C_CreatureInfo.RequestLoadCreatureByID`, `C_CreatureInfo.GetRaceInfo`, `C_CreatureInfo.GetClassInfo`, `C_CreatureInfo.GetCreatureFamilyInfo`, `C_CreatureInfo.GetCreatureFamilyIDs`, `C_CreatureInfo.GetFactionInfo`, `C_CreatureInfo.GetCreatureTypeInfo`, `C_CreatureInfo.GetCreatureTypeIDs` |
 | [Currency](docs/API.md#currency) | `GetCoinText`, `C_CurrencyInfo.GetCoinText`, `GetCoinTextureString`, `C_CurrencyInfo.GetCoinTextureString` |
 | EncodingUtil | `C_EncodingUtil.CompressString`, `C_EncodingUtil.DecompressString`, `C_EncodingUtil.EncodeBase64`, `C_EncodingUtil.DecodeBase64`, `C_EncodingUtil.EncodeHex`, `C_EncodingUtil.DecodeHex`, `C_EncodingUtil.SerializeJSON`, `C_EncodingUtil.DeserializeJSON`, `C_EncodingUtil.SerializeCBOR`, `C_EncodingUtil.DeserializeCBOR` |
+| [DeathInfo](docs/API.md#deathinfo) | `C_DeathInfo.GetSelfResurrectOptions`, `C_DeathInfo.UseSelfResurrectOption` |
 | [EquipmentSet](docs/API.md#equipmentset) | `C_EquipmentSet.CanUseEquipmentSets`, `C_EquipmentSet.ClearIgnoredSlotsForSave`, `C_EquipmentSet.CreateEquipmentSet`, `C_EquipmentSet.DeleteEquipmentSet`, `C_EquipmentSet.EquipmentSetContainsLockedItems`, `C_EquipmentSet.GetEquipmentSetID`, `C_EquipmentSet.GetEquipmentSetIDs`, `C_EquipmentSet.GetEquipmentSetInfo`, `C_EquipmentSet.GetIgnoredSlots`, `C_EquipmentSet.GetItemIDs`, `C_EquipmentSet.GetItemLocations`, `C_EquipmentSet.GetNumEquipmentSets`, `C_EquipmentSet.IgnoreSlotForSave`, `C_EquipmentSet.IsSlotIgnoredForSave`, `C_EquipmentSet.ModifyEquipmentSet`, `C_EquipmentSet.PickupEquipmentSet`, `C_EquipmentSet.SaveEquipmentSet`, `C_EquipmentSet.UnignoreSlotForSave`, `C_EquipmentSet.UseEquipmentSet` |
 | [Events](docs/API.md#events) | `C_EventUtils.IsEventValid`, `GetFramesRegisteredForEvent` |
 | [Expansion](docs/API.md#expansion) | `ClassicExpansionAtLeast`, `ClassicExpansionAtMost`, `GetAccountExpansionLevel`, `GetClassicExpansionLevel`, `GetExpansionLevel`, `GetMaxPlayerLevel` |
@@ -313,6 +314,7 @@ when launching with `-console`), not as Lua functions. See the
 | `QUEST_QUERY_COMPLETE` | *(none)* (Turtle WoW only) |
 | `QUEST_REMOVED` | `questID` |
 | `QUEST_TURNED_IN` | `questID, xpReward, moneyReward` |
+| `SELF_RES_SPELL_CHANGED` | *(none)* |
 | `SOUNDKIT_FINISHED` | `soundHandle` (only for sounds played with `runFinishCallback`) |
 | `UNIT_AURA_DELTA` | `unitTarget, updateInfo` (the instance IDs of the auras added, updated, and removed) |
 | `UNIT_SPELLCAST_SENT` | `"player", target, castGUID, spellID, spellName, rank` |
@@ -360,6 +362,7 @@ when launching with `-console`), not as Lua functions. See the
 | Spellbook bank | `Enum.SpellBookSpellBank.{Player,Pet}` (0–1) |
 | Spellbook item type | `Enum.SpellBookItemType.{None,Spell,FutureSpell,PetAction,Flyout}` (0–4; 1.12 only yields `Spell`/`PetAction`) |
 | Player swing type | `Enum.PlayerSwingType.{MainHand,OffHand,Ranged}` (0–2) |
+| Self-resurrect option type | `Enum.SelfResurrectOptionType.{Spell,Item}` (0–1) |
 
 </details>
 

@@ -182,6 +182,10 @@ build instructions.
   - [`GetCursorInfo()`](#getcursorinfo)
   - [`CursorHasMacro()`](#cursorhasmacro)
 
+- [DeathInfo](#deathinfo)
+  - [`C_DeathInfo.GetSelfResurrectOptions()`](#c_deathinfogetselfresurrectoptions)
+  - [`C_DeathInfo.UseSelfResurrectOption(optionType, id)`](#c_deathinfouseselfresurrectoptionoptiontype-id)
+
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
   - [`C_EquipmentSet.CanUseEquipmentSets()`](#c_equipmentsetcanuseequipmentsets)
@@ -241,6 +245,7 @@ build instructions.
   - [`QUEST_QUERY_COMPLETE` event](#quest_query_complete-event)
   - [`QUEST_REMOVED` event](#quest_removed-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
+  - [`SELF_RES_SPELL_CHANGED` event](#self_res_spell_changed-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
@@ -4359,6 +4364,57 @@ Changes to what the cursor holds are reported by the
 
 Returns `true` if the cursor holds a macro, and `false` if it does not.
 
+## DeathInfo
+
+### `C_DeathInfo.GetSelfResurrectOptions()`
+
+```
+options = C_DeathInfo.GetSelfResurrectOptions()
+```
+
+Returns an array of the ways that the dead player can resurrect themselves.
+Each entry is a `SelfResurrectOption` table:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | The name of the spell or the item. |
+| `optionType` | number | `Enum.SelfResurrectOptionType.Spell` (0) or `Enum.SelfResurrectOptionType.Item` (1). |
+| `id` | number | The spell ID or the item ID. |
+| `canUse` | boolean | Always `true`. |
+| `isLimited` | boolean | Always `false`. |
+| `priority` | number | Always `0`. |
+
+The array has one entry at most. A self-resurrection spell, such as
+Soulstone Resurrection or Reincarnation, comes before an item. The array is
+empty when the player is alive or a ghost, or has no option. The function
+returns nothing before the player enters the world.
+
+```lua
+local options = C_DeathInfo.GetSelfResurrectOptions()
+if options and options[1] then
+    print("You can resurrect with", options[1].name)
+end
+```
+
+[`SELF_RES_SPELL_CHANGED`](#self_res_spell_changed-event) fires when the
+self-resurrection spell changes.
+
+### `C_DeathInfo.UseSelfResurrectOption(optionType, id)`
+
+Resurrects the dead player with an option from
+[`C_DeathInfo.GetSelfResurrectOptions`](#c_deathinfogetselfresurrectoptions).
+`optionType` and `id` must match an entry that it returns now. If they do
+not match, the call does nothing. An item option uses the item, and this
+stops a spell cast in progress.
+
+```lua
+local options = C_DeathInfo.GetSelfResurrectOptions()
+local option = options and options[1]
+if option then
+    C_DeathInfo.UseSelfResurrectOption(option.optionType, option.id)
+end
+```
+
 ## EquipmentSet
 
 `C_EquipmentSet.*` — named sets of gear you can save and equip again
@@ -5782,6 +5838,14 @@ quest invalidated, etc.). Only fires on a real successful turn-in.
 > sends it after committing the turn-in (XP / money / item awards
 > done, quest removed from log). Hooking the packet handler gives
 > us a clean turn-in signal.
+
+### `SELF_RES_SPELL_CHANGED` event
+
+Fires with no payload when the self-resurrection spell of the player
+changes. For example, it fires when the player dies with a Soulstone, and
+again when the player comes back to life. When it fires, read
+[`C_DeathInfo.GetSelfResurrectOptions`](#c_deathinfogetselfresurrectoptions)
+again. A change to an item option does not fire this event.
 
 ### `SOUNDKIT_FINISHED` event
 

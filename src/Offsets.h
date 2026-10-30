@@ -2425,6 +2425,16 @@ enum Offsets {
     // right after that same unlock — Player::Equipment co-hooks it to do so.
     FUN_INV_SLOT_CHANGED_OBSERVER = 0x005DDCF0,
 
+    // CGPlayer_C::AddActiveWatchers / its removal — `void __thiscall
+    // (CGPlayer_C *)`, plain `ret`. Register and remove the active player's
+    // bank-PLAYER observers (inventory, quests, coinage, skills, the
+    // 0x005DE4B0 event fields); 4.3.4's SetActiveMirrorHandlers (0x0056E430)
+    // / UnsetActiveMirrorHandlers. Add runs on arrival (0x005DEA58) and
+    // reactivation (0x005E9C00); remove only at 0x005E9B50, for the active
+    // player.
+    FUN_PLAYER_ADD_ACTIVE_WATCHERS = 0x005DD8A0,
+    FUN_PLAYER_REMOVE_ACTIVE_WATCHERS = 0x005DE5B0,
+
     // PLAYER_FIELD_INV_SLOT_HEAD — first of the 19 equipment-slot u64 GUID
     // fields in the player descriptor (0x4A8..0x538, stride 8; 0x540 is
     // the first equipped-bag slot). 0-based slot = (offset - 0x4A8) >> 3;
@@ -4582,6 +4592,12 @@ enum Offsets {
     // (see OFF_UNIT_FIELD_CHANNEL_SPELL below); PLAYER_FLAGS only
     // exists on the +0xE68 sub-struct here.
     OFF_CGPLAYER_INFO = 0xE68,
+    // PLAYER_SELF_RES_SPELL in that block (UpdateField table: player index
+    // 0x40C, owner-only): the spell the server offers a dead player to raise
+    // themselves (Soulstone Resurrection, Reincarnation), 0 for none. Also
+    // its offset in observer bank DESC_OBSERVER_BANK_PLAYER. Read by
+    // HasSoulstone (0x0048ACC6) and UseSoulstone (0x0048ADB6).
+    OFF_CGPLAYER_INFO_SELF_RES_SPELL = 0x1030,
     // The engine's explored-area bit test (benilla `IsAreaExplored`):
     // __thiscall(this = player + OFF_CGPLAYER_INFO, int areaBit) → nonzero
     // when explored, ret 4. Reads `[this] + 0xE6C` (the 0x100-byte
@@ -4993,6 +5009,16 @@ enum Offsets {
     // target is passed, so passing zero (no target) is fine for most
     // items. `flag` is 0 in every Script_UseContainerItem call site.
     FUN_ITEM_USE = 0x005D8D00,
+    // The player's self-resurrect item — `CGItem_C *__thiscall(CGPlayer_C *)`,
+    // plain `ret`: the first carried item (equipment, bags, backpack,
+    // keyring) with an on-use spell of effect 94 (SELF_RESURRECT), or null.
+    // HasSoulstone and UseSoulstone ask it when PLAYER_SELF_RES_SPELL is 0.
+    FUN_PLAYER_SELF_RES_ITEM = 0x005ED630,
+    // Script_UseSoulstone — the Lua C function itself, `int __fastcall(L)`;
+    // reads no argument and pushes nothing. Sends CMSG_SELF_RES (0x2B3, no
+    // body) when PLAYER_SELF_RES_SPELL is set, else cancels the cast
+    // (0x006E4940(1, 1, 0x1C)) and uses FUN_PLAYER_SELF_RES_ITEM's item.
+    FUN_SCRIPT_USE_SOULSTONE = 0x0048AD70,
     // `CGPlayer::AutoEquipCursorItem` — `__thiscall(CGPlayer *this, int flag)`.
     // The engine-internal helper that `Script_AutoEquipCursorItem`
     // (`0x0048A040`) is a thin wrapper around: that wrapper just
