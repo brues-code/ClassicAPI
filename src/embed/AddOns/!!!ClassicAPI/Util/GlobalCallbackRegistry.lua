@@ -13,6 +13,9 @@
 
 EventRegistry = CreateFromMixins(CallbackRegistryMixin);
 
+-- Keep every instance field in OnLoad. Addons derive their own registry from
+-- this instance (pfUI: CreateFromMixins(EventRegistry) then :OnLoad()), and a
+-- field set anywhere else would be shared with the global registry.
 function EventRegistry:OnLoad()
 	CallbackRegistryMixin.OnLoad(self);
 	self:SetUndefinedEventsAllowed(true);
