@@ -12837,6 +12837,25 @@ enum Offsets {
     OFF_SIMPLEHTML_FONTS = 0x350,
     VAR_SIMPLEHTML_LUA_TYPE_ID = 0x00CF4F64,
     FUN_SIMPLEHTML_READ_TEXT_TYPE = 0x00795D80,
+    // The ScrollingMessageFrame's message ring. GetNumMessages (0x007934D0)
+    // pushes the count. The ring's one writer, 0x00788150 (`__thiscall(smf,
+    // text, const CImVector *color, int id)`, `ret 0xC`), called only by the
+    // AddMessage method (FUN_SCRIPT_..._ADD_MESSAGE, `int __fastcall(L)`),
+    // raises the count up to the limit, advances the position (wrapping at
+    // the limit) and fills the record there. So message i, 1 the oldest, is
+    // record (position - count + i), plus the limit when negative. Records
+    // are 0x18 bytes: the text (an SStrDupA copy), the colour (a CImVector,
+    // the dword 0xAARRGGBB: AddMessage builds it R, G, B with alpha 0xFF at
+    // 0x00792ADD..0x00792B11), shown +0x8, the visible and fade times +0xC and
+    // +0x10, and the integer id +0x14 (benilla-re ui/messageframe).
+    FUN_SCRIPT_SCROLLINGMESSAGEFRAME_ADD_MESSAGE = 0x00792900,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT = 0x33C,
+    OFF_SCROLLINGMESSAGEFRAME_MAX_MESSAGES = 0x340,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS = 0x344, // the newest record; -1 when empty
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGES = 0x394,    // the record array
+    SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE = 0x18,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT = 0x0,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COLOR = 0x4,
 
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is

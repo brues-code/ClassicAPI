@@ -385,6 +385,7 @@ build instructions.
   - [`frame:HookScript(scriptType, handler)`](#framehookscriptscripttype-handler)
   - [Script binding types](#script-binding-types)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
+  - [`smf:GetMessageInfo(index)`](#smfgetmessageinfoindex)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
@@ -8661,6 +8662,35 @@ them on.
 ```lua
 ChatFrame1:SetHyperlinksEnabled(false)   -- links in this chat window stop reacting
 ChatFrame1:GetHyperlinksEnabled()        -- false
+```
+
+### `smf:GetMessageInfo(index)`
+
+On ScrollingMessageFrame. Returns one message of the frame: its text, its
+color, and the extra values that `AddMessage` got for the message. Index 1 is
+the oldest message, and `smf:GetNumMessages()` is the index of the newest
+message. If no message has the index, the function returns nothing. If
+`index` is not a number, the function gives an error.
+
+- `text` is the text that the frame keeps, with its color codes.
+- `r`, `g` and `b` are the color that the frame shows for the message. After
+  `UpdateColorByID` changes the color, these values also change. The frame
+  keeps each color value in steps of 1/255, so `0.5` returns as `0.50196…`.
+- `smf:AddMessage(text, r, g, b, ...)` keeps all the values after `b`.
+  `GetMessageInfo` returns these values in the same order, nil values
+  included.
+
+An addon that replaces `AddMessage` and gives only `text, r, g, b` to the
+original function removes the extra values.
+
+```lua
+ChatFrame1:AddMessage("hello", 1, 0.5, 0, 7, "extra")
+ChatFrame1:GetMessageInfo(ChatFrame1:GetNumMessages())
+-- "hello", 1, 0.50196078431373, 0, 7, "extra"
+
+for i = 1, ChatFrame1:GetNumMessages() do
+    local text, r, g, b = ChatFrame1:GetMessageInfo(i)   -- oldest message first
+end
 ```
 
 ### `frame:IsEventRegistered(event)`
