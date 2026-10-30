@@ -218,6 +218,16 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetEquipmentSet", &Script_GameTooltipSetEquipmentSet},
 };
 
+const Game::Doc::Field kSetEquipmentSetArgs[] = {
+    Game::Doc::Req("name", "cstring", "The name of the equipment set."),
+};
+const Game::Doc::Function kSetEquipmentSet{
+    "Shows an equipment set in the tooltip: its name and where its items are.",
+    kSetEquipmentSetArgs, {}};
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetEquipmentSet", &kSetEquipmentSet},
+};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
@@ -226,7 +236,8 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
         g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
+        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

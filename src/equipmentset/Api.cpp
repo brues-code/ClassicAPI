@@ -543,46 +543,180 @@ int __fastcall Script_UseEquipmentSet(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kSetIDArgs[] = {
+    Game::Doc::Req("setID", "number"),
+};
+const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "An equipment slot, from 1 to 19."),
+};
+
+const Game::Doc::Field kCanUseRets[] = {
+    Game::Doc::Req("canUseEquipmentSets", "bool", "False while a set swap is in progress."),
+};
+const Game::Doc::Function kCanUseEquipmentSets{
+    "Returns whether an equipment set can be used now.", {}, kCanUseRets};
+
+const Game::Doc::Field kNumRets[] = {
+    Game::Doc::Req("numEquipmentSets", "number"),
+};
+const Game::Doc::Function kGetNumEquipmentSets{
+    "Returns the number of equipment sets the character has.", {}, kNumRets};
+
+const Game::Doc::Field kIDsRets[] = {
+    Game::Doc::Req("setIDs", "table", "The set IDs in the order the sets were created."),
+};
+const Game::Doc::Function kGetEquipmentSetIDs{
+    "Returns the IDs of all the character's equipment sets.", {}, kIDsRets};
+
+const Game::Doc::Field kIDArgs[] = {
+    Game::Doc::Req("name", "cstring", "The exact name; case matters."),
+};
+const Game::Doc::Field kIDRets[] = {
+    Game::Doc::Opt("setID", "number", nullptr, "Nil when no set has that name."),
+};
+const Game::Doc::Function kGetEquipmentSetID{
+    "Returns the ID of the equipment set with a name.", kIDArgs, kIDRets};
+
+const Game::Doc::Field kInfoRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil, with the rest, when the set does not exist."),
+    Game::Doc::Opt("icon", "string", nullptr, "The icon's texture name."),
+    Game::Doc::Opt("setID", "number"),
+    Game::Doc::Opt("isEquipped", "bool", nullptr,
+                   "True when every slot that is not ignored holds what the set saved."),
+    Game::Doc::Opt("numItems", "number", nullptr,
+                   "numEquipped plus numInInventory plus numMissing."),
+    Game::Doc::Opt("numEquipped", "number"),
+    Game::Doc::Opt("numInInventory", "number", nullptr,
+                   "In the bags, or in the bank while the bank is open."),
+    Game::Doc::Opt("numMissing", "number"),
+    Game::Doc::Opt("numIgnored", "number"),
+};
+const Game::Doc::Function kGetEquipmentSetInfo{
+    "Returns an equipment set's name, icon, and where its items are.", kSetIDArgs,
+    kInfoRets};
+
+const Game::Doc::Field kIgnoredRets[] = {
+    Game::Doc::Opt("ignoredSlots", "table", nullptr,
+                   "The numbers of the ignored slots; nil when the set does not exist."),
+};
+const Game::Doc::Function kGetIgnoredSlots{
+    "Returns the slots an equipment set leaves alone.", kSetIDArgs, kIgnoredRets};
+
+const Game::Doc::Field kItemIDsRets[] = {
+    Game::Doc::Opt("itemIDs", "table", nullptr,
+                   "Keyed by slot: the item ID, 0 for an empty slot, 1 for an ignored slot, "
+                   "or -1 when not known."),
+};
+const Game::Doc::Function kGetItemIDs{
+    "Returns the item ID an equipment set saved for each slot.", kSetIDArgs, kItemIDsRets};
+
+const Game::Doc::Field kLocationsRets[] = {
+    Game::Doc::Opt("locations", "table", nullptr,
+                   "Keyed by slot: a packed location, 0 for an empty slot, 1 for an ignored "
+                   "slot, or -1 for a missing item."),
+};
+const Game::Doc::Function kGetItemLocations{
+    "Returns where each item of an equipment set is now.", kSetIDArgs, kLocationsRets};
+
+const Game::Doc::Field kCreateArgs[] = {
+    Game::Doc::Req("name", "cstring", "Shorter than 32 characters, with no line break."),
+    Game::Doc::Opt("icon", "string", "\"INV_Misc_QuestionMark\"", "A texture name."),
+};
+const Game::Doc::Field kCreateRets[] = {
+    Game::Doc::Opt("setID", "number", nullptr, "Nil when the name is already in use."),
+};
+const Game::Doc::Function kCreateEquipmentSet{
+    "Saves the equipped items as a new equipment set.", kCreateArgs, kCreateRets};
+
+const Game::Doc::Field kSaveArgs[] = {
+    Game::Doc::Req("setID", "number"),
+    Game::Doc::Opt("icon", "string", nullptr, "A new texture name; nil keeps the icon."),
+};
+const Game::Doc::Function kSaveEquipmentSet{
+    "Saves the equipped items into an existing equipment set.", kSaveArgs, {}};
+
+const Game::Doc::Field kModifyArgs[] = {
+    Game::Doc::Req("setID", "number"),
+    Game::Doc::Req("newName", "cstring"),
+};
+const Game::Doc::Function kModifyEquipmentSet{
+    "Renames an equipment set; does nothing when another set has the name.", kModifyArgs,
+    {}};
+
+const Game::Doc::Function kDeleteEquipmentSet{
+    "Deletes an equipment set and removes it from the action bars.", kSetIDArgs, {}};
+
+const Game::Doc::Function kIgnoreSlotForSave{
+    "Makes the next save of an equipment set leave a slot alone.", kSlotArgs, {}};
+const Game::Doc::Function kUnignoreSlotForSave{
+    "Makes the next save of an equipment set include a slot again.", kSlotArgs, {}};
+
+const Game::Doc::Field kIsIgnoredRets[] = {
+    Game::Doc::Req("isSlotIgnored", "bool"),
+};
+const Game::Doc::Function kIsSlotIgnoredForSave{
+    "Returns whether the next save of an equipment set leaves a slot alone.", kSlotArgs,
+    kIsIgnoredRets};
+const Game::Doc::Function kClearIgnoredSlotsForSave{
+    "Makes the next save of an equipment set include every slot.", {}, {}};
+
+const Game::Doc::Field kLockedRets[] = {
+    Game::Doc::Opt("hasLockedItems", "bool", nullptr, "Nil when the set does not exist."),
+};
+const Game::Doc::Function kEquipmentSetContainsLockedItems{
+    "Returns whether an item of an equipment set is locked by a move in progress.",
+    kSetIDArgs, kLockedRets};
+
+const Game::Doc::Field kUseRets[] = {
+    Game::Doc::Req("setWasEquipped", "bool",
+                   "True when the swap starts; EQUIPMENT_SWAP_FINISHED gives the result."),
+};
+const Game::Doc::Function kUseEquipmentSet{
+    "Equips the items of an equipment set.", kSetIDArgs, kUseRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "CanUseEquipmentSets",
-                                     &Script_CanUseEquipmentSets);
+                                     &Script_CanUseEquipmentSets, &kCanUseEquipmentSets);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetNumEquipmentSets",
-                                     &Script_GetNumEquipmentSets);
+                                     &Script_GetNumEquipmentSets, &kGetNumEquipmentSets);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetEquipmentSetIDs",
-                                     &Script_GetEquipmentSetIDs);
+                                     &Script_GetEquipmentSetIDs, &kGetEquipmentSetIDs);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetEquipmentSetID",
-                                     &Script_GetEquipmentSetID);
+                                     &Script_GetEquipmentSetID, &kGetEquipmentSetID);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetEquipmentSetInfo",
-                                     &Script_GetEquipmentSetInfo);
+                                     &Script_GetEquipmentSetInfo, &kGetEquipmentSetInfo);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetIgnoredSlots",
-                                     &Script_GetIgnoredSlots);
+                                     &Script_GetIgnoredSlots, &kGetIgnoredSlots);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetItemIDs",
-                                     &Script_GetItemIDs);
+                                     &Script_GetItemIDs, &kGetItemIDs);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "GetItemLocations",
-                                     &Script_GetItemLocations);
+                                     &Script_GetItemLocations, &kGetItemLocations);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "CreateEquipmentSet",
-                                     &Script_CreateEquipmentSet);
+                                     &Script_CreateEquipmentSet, &kCreateEquipmentSet);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "SaveEquipmentSet",
-                                     &Script_SaveEquipmentSet);
+                                     &Script_SaveEquipmentSet, &kSaveEquipmentSet);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "ModifyEquipmentSet",
-                                     &Script_ModifyEquipmentSet);
+                                     &Script_ModifyEquipmentSet, &kModifyEquipmentSet);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "DeleteEquipmentSet",
-                                     &Script_DeleteEquipmentSet);
+                                     &Script_DeleteEquipmentSet, &kDeleteEquipmentSet);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "IgnoreSlotForSave",
-                                     &Script_IgnoreSlotForSave);
+                                     &Script_IgnoreSlotForSave, &kIgnoreSlotForSave);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "UnignoreSlotForSave",
-                                     &Script_UnignoreSlotForSave);
+                                     &Script_UnignoreSlotForSave, &kUnignoreSlotForSave);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "IsSlotIgnoredForSave",
-                                     &Script_IsSlotIgnoredForSave);
+                                     &Script_IsSlotIgnoredForSave, &kIsSlotIgnoredForSave);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "ClearIgnoredSlotsForSave",
-                                     &Script_ClearIgnoredSlotsForSave);
+                                     &Script_ClearIgnoredSlotsForSave,
+                                     &kClearIgnoredSlotsForSave);
     Game::Lua::RegisterTableFunction("C_EquipmentSet",
                                      "EquipmentSetContainsLockedItems",
-                                     &Script_EquipmentSetContainsLockedItems);
+                                     &Script_EquipmentSetContainsLockedItems,
+                                     &kEquipmentSetContainsLockedItems);
     Game::Lua::RegisterTableFunction("C_EquipmentSet", "UseEquipmentSet",
-                                     &Script_UseEquipmentSet);
+                                     &Script_UseEquipmentSet, &kUseEquipmentSet);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
