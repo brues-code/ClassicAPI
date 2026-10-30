@@ -1,72 +1,66 @@
--- Backport of 3.3.5 FrameXML/TableUtil.lua to vanilla 1.12 / Lua 5.0.
---
--- Implementation differences from the 3.3.5 source:
---   - Lua 5.0 has no length operator (#). Sequence length comes from
---     table.getn(t), which honors an explicit .n field when present.
---   - Lua 5.0 has no select() and no `...` outside a vararg function
---     body; varargs are passed via the implicit `arg` table.
---   - 1.12 has no global wipe(); we ship a local Wipe() helper instead.
---   - Lua 5.0 has no math.huge; 1/0 yields the same +inf sentinel.
+-- Backport of retail's Blizzard_SharedXMLBase/TableUtil.lua. The one
+-- addition is TableUtil.ExecuteOnKeys, which retail does not have.
 
-local tRemove, tInsert, tWipe = table.remove, table.insert, table.wipe
-local tGetN = table.getn
+local tRemove = table.remove;
+local tInsert = table.insert;
+local tWipe = table.wipe;
 
-TableUtil = TableUtil or {}
+TableUtil = {};
 
 TableUtil.Constants =
 {
-    AssociativePriorityTable = true,
-    ArraylikePriorityTable = false,
-    IsIndexTable = true,
-}
+	AssociativePriorityTable = true,
+	ArraylikePriorityTable = false,
+	IsIndexTable = true,
+};
 
 function ipairs_reverse(table)
-    local function Enumerator(table, index)
-        index = index - 1
-        local value = table[index]
-        if value ~= nil then
-            return index, value
-        end
-    end
-    return Enumerator, table, tGetN(table) + 1
+	local function Enumerator(table, index)
+		index = index - 1;
+		local value = table[index];
+		if value ~= nil then
+			return index, value;
+		end
+	end
+	return Enumerator, table, #table + 1;
 end
 
 function CreateTableEnumerator(tbl, minIndex, maxIndex)
-    minIndex = minIndex and (minIndex - 1) or 0
-    maxIndex = maxIndex or math.huge
+	minIndex = minIndex and (minIndex - 1) or 0;
+	maxIndex = maxIndex or math.huge;
 
-    local function Enumerator(tbl, index)
-        index = index + 1
-        if index <= maxIndex then
-            local value = tbl[index]
-            if value ~= nil then
-                return index, value
-            end
-        end
-    end
+	local function Enumerator(tbl, index)
+		index = index + 1;
+		if index <= maxIndex then
+			local value = tbl[index];
+			if value ~= nil then
+				return index, value;
+			end
+		end
+	end
 
-    return Enumerator, tbl, minIndex
+	return Enumerator, tbl, minIndex;
 end
 
 function CreateTableReverseEnumerator(tbl, minIndex, maxIndex)
-    minIndex = minIndex or 1
-    maxIndex = (maxIndex or tGetN(tbl)) + 1
+	minIndex = minIndex or 1;
+	maxIndex = (maxIndex or #tbl) + 1;
 
-    local function Enumerator(tbl, index)
-        index = index - 1
-        if index >= minIndex then
-            local value = tbl[index]
-            if value ~= nil then
-                return index, value
-            end
-        end
-    end
+	local function Enumerator(tbl, index)
+		index = index - 1;
+		if index >= minIndex then
+			local value = tbl[index];
+			if value ~= nil then
+				return index, value;
+			end
+		end
+	end
 
-    return Enumerator, tbl, maxIndex
+	return Enumerator, tbl, maxIndex;
 end
 
 function tDeleteItem(tbl, item)
-	local size = tGetN(tbl);
+	local size = #tbl;
 	local index = size;
 	while index > 0 do
 		if item == tbl[index] then
@@ -74,15 +68,15 @@ function tDeleteItem(tbl, item)
 		end
 		index = index - 1;
 	end
-	return size - tGetN(tbl);
+	return size - #tbl;
 end
 
 function tIndexOf(tbl, item)
-    for i, v in ipairs(tbl) do
-        if item == v then
-            return i
-        end
-    end
+	for i, v in ipairs(tbl) do
+		if item == v then
+			return i;
+		end
+	end
 end
 
 function tContains(tbl, item)
@@ -94,137 +88,172 @@ function tContains(tbl, item)
 	return false;
 end
 
+function TableUtil.SafeCountTable(tbl, isIndexTable)
+	if tbl == nil then
+		return 0;
+	end
+
+	if isIndexTable then
+		return #tbl;
+	end
+
+	return CountTable(tbl);
+end
+
+function TableUtil.SafeCountIndexTable(tbl)
+	local isIndexTable = true;
+	return TableUtil.SafeCountTable(tbl, isIndexTable);
+end
+
 function TableUtil.ContainsAllKeys(lhsTable, rhsTable)
-    for key, _ in pairs(lhsTable) do
-        if rhsTable[key] == nil then
-            return false
-        end
-    end
-    return true
+	for key, _ in pairs(lhsTable) do
+		if rhsTable[key] == nil then
+			return false;
+		end
+	end
+	-- Check for any keys that are in rhsTable and not lhsTable.
+	for key, _ in pairs(rhsTable) do
+		if lhsTable[key] == nil then
+			return false;
+		end
+	end
+	return true;
 end
 
 function TableUtil.CompareValuesAsKeys(lhsTable, rhsTable, valueToKeyOp)
-    local lhsKeys = CopyTransformedValuesAsKeys(lhsTable, valueToKeyOp)
-    local rhsKeys = CopyTransformedValuesAsKeys(rhsTable, valueToKeyOp)
-    return TableUtil.ContainsAllKeys(lhsKeys, rhsKeys)
+	local lhsKeys = CopyTransformedValuesAsKeys(lhsTable, valueToKeyOp);
+	local rhsKeys = CopyTransformedValuesAsKeys(rhsTable, valueToKeyOp);
+	return TableUtil.ContainsAllKeys(lhsKeys, rhsKeys)
 end
 
+-- This is a deep compare on the values of the table (based on depth) but not a deep comparison
+-- of the keys, as this would be an expensive check and won't be necessary in most cases.
 function tCompare(lhsTable, rhsTable, depth)
-    depth = depth or 1
-    for key, value in pairs(lhsTable) do
-        if type(value) == "table" then
-            local rhsValue = rhsTable[key]
-            if type(rhsValue) ~= "table" then
-                return false
-            end
-            if depth > 1 then
-                if not tCompare(value, rhsValue, depth - 1) then
-                    return false
-                end
-            end
-        elseif value ~= rhsTable[key] then
-            return false
-        end
-    end
+	depth = depth or 1;
+	for key, value in pairs(lhsTable) do
+		if type(value) == "table" then
+			local rhsValue = rhsTable[key];
+			if type(rhsValue) ~= "table" then
+				return false;
+			end
+			if depth > 1 then
+				if not tCompare(value, rhsValue, depth - 1) then
+					return false;
+				end
+			end
+		elseif value ~= rhsTable[key] then
+			return false;
+		end
+	end
 
-    for key, value in pairs(rhsTable) do
-        if lhsTable[key] == nil then
-            return false
-        end
-    end
+	-- Check for any keys that are in rhsTable and not lhsTable.
+	for key, value in pairs(rhsTable) do
+		if lhsTable[key] == nil then
+			return false;
+		end
+	end
 
-    return true
+	return true;
 end
 
 function tInvert(tbl)
-    local inverted = {}
-    for k, v in pairs(tbl) do
-        inverted[v] = k
-    end
-    return inverted
+	local inverted = {};
+	for k, v in pairs(tbl) do
+		inverted[v] = k;
+	end
+	return inverted;
+end
+
+function tInvertToArray(tbl)
+	local index = 1;
+	local copy = {};
+	for k in pairs(tbl) do
+		copy[k] = index;
+		index = index + 1;
+	end
+	return tInvert(copy);
 end
 
 function TableUtil.TrySet(tbl, key)
-    if not tbl[key] then
-        tbl[key] = true
-        return true
-    end
-    return false
+	if not tbl[key] then
+		tbl[key] = true;
+		return true;
+	end
+	return false;
 end
 
 function TableUtil.CopyUnique(tbl, isIndexTable)
-    local found = {}
-    local function FilterPredicate(value)
-        return TableUtil.TrySet(found, value)
-    end
+	local found = {};
+	local function FilterPredicate(value)
+		return TableUtil.TrySet(found, value);
+	end
 
-    return tFilter(tbl, FilterPredicate, isIndexTable)
+	return tFilter(tbl, FilterPredicate, isIndexTable);
 end
 
 function TableUtil.CopyUniqueByPredicate(tbl, isIndexTable, unaryPredicate)
-    local found = {}
-    local function FilterPredicate(value)
-        return TableUtil.TrySet(found, unaryPredicate(value))
-    end
+	local found = {};
+	local function FilterPredicate(value)
+		return TableUtil.TrySet(found, unaryPredicate(value));
+	end
 
-    return tFilter(tbl, FilterPredicate, isIndexTable)
+	return tFilter(tbl, FilterPredicate, isIndexTable);
 end
 
 function tFilter(tbl, pred, isIndexTable)
-    local out = {}
+	local out = {};
 
-    if isIndexTable then
-        local currentIndex = 1
-        for i, v in ipairs(tbl) do
-            if pred(v) then
-                out[currentIndex] = v
-                currentIndex = currentIndex + 1
-            end
-        end
-    else
-        for k, v in pairs(tbl) do
-            if pred(v) then
-                out[k] = v
-            end
-        end
-    end
+	if (isIndexTable) then
+		local currentIndex = 1;
+		for i, v in ipairs(tbl) do
+			if (pred(v)) then
+				out[currentIndex] = v;
+				currentIndex = currentIndex + 1;
+			end
+		end
+	else
+		for k, v in pairs(tbl) do
+			if (pred(v)) then
+				out[k] = v;
+			end
+		end
+	end
 
-    return out
+	return out;
 end
 
 function tAppendAll(table, addedArray)
-    for i, element in ipairs(addedArray) do
-        tInsert(table, element)
-    end
+	for i, element in ipairs(addedArray) do
+		tinsert(table, element);
+	end
 end
 
 function tInsertUnique(tbl, item)
-    if not tContains(tbl, item) then
-        tInsert(tbl, item)
-        return tGetN(tbl)
-    end
-    return nil
+	if not tContains(tbl, item) then
+		table.insert(tbl, item);
+		return #tbl;
+	end
+	return nil;
 end
 
 function tUnorderedRemove(tbl, index)
-    local n = tGetN(tbl)
-    if index ~= n then
-        tbl[index] = tbl[n]
-    end
+	if index ~= #tbl then
+		tbl[index] = tbl[#tbl];
+	end
 
-    tRemove(tbl)
+	tRemove(tbl);
 end
 
 function CopyTable(settings, shallow)
-    local copy = {}
-    for k, v in pairs(settings) do
-        if type(v) == "table" and not shallow then
-            copy[k] = CopyTable(v)
-        else
-            copy[k] = v
-        end
-    end
-    return copy
+	local copy = {};
+	for k, v in pairs(settings) do
+		if type(v) == "table" and not shallow then
+			copy[k] = CopyTable(v);
+		else
+			copy[k] = v;
+		end
+	end
+	return copy;
 end
 
 function CopyTableSafe(settings, shallow)
@@ -236,14 +265,16 @@ function CopyTableSafe(settings, shallow)
 end
 
 function MergeTable(destination, source)
-    for k, v in pairs(source) do
-        destination[k] = v
-    end
+	for k, v in pairs(source) do
+		destination[k] = v;
+	end
 end
 
+-- Useful if there are external references to a table but we want to set
+-- that table's key-value pairs to be exactly the same as another table's key-value pairs.
 function SetTablePairsToTable(destination, source)
-    tWipe(destination)
-    MergeTable(destination, source)
+	tWipe(destination);
+	MergeTable(destination, source);
 end
 
 function CountTable(tbl)
@@ -255,50 +286,50 @@ function CountTable(tbl)
 end
 
 function Accumulate(tbl)
-    local count = 0
-    for k, v in pairs(tbl) do
-        count = count + v
-    end
-    return count
+	local count = 0;
+	for k, v in pairs(tbl) do
+		count = count + v;
+	end
+	return count;
 end
 
 function AccumulateOp(tbl, op)
-    local count = 0
-    for k, v in pairs(tbl) do
-        count = count + op(v)
-    end
-    return count
+	local count = 0;
+	for k, v in pairs(tbl) do
+		count = count + op(v);
+	end
+	return count;
 end
 
 function TableUtil.Execute(tbl, op)
-    for k, v in pairs(tbl) do
-        op(v)
-    end
+	for k, v in pairs(tbl) do
+		op(v);
+	end
 end
 
 function TableUtil.ExecuteOnKeys(tbl, op)
-    for k in pairs(tbl) do
-        op(k)
-    end
+	for k in pairs(tbl) do
+		op(k);
+	end
 end
 
 function TableUtil.ExecuteUntil(tbl, op)
-    for k, v in pairs(tbl) do
-        local operationResult = op(v)
-        if operationResult then
-            return operationResult
-        end
-    end
+	for k, v in pairs(tbl) do
+		local operationResult = op(v);
+		if operationResult then
+			return operationResult;
+		end
+	end
 
-    return nil
+	return nil;
 end
 
 function TableUtil.Transform(tbl, op)
-    local result = {}
-    for k, v in pairs(tbl) do
-        tInsert(result, op(v))
-        return result
-    end
+	local result = {};
+	for k, v in pairs(tbl) do
+		table.insert(result, op(v));
+	end
+	return result;
 end
 
 -- Returns the value in a table deemed smallest by evaluating each value returned by the op function parameter.
@@ -332,13 +363,13 @@ function TableUtil.FindMax(tbl, op)
 end
 
 function ContainsIf(tbl, pred)
-    for k, v in pairs(tbl) do
-        if pred(v) then
-            return true
-        end
-    end
+	for k, v in pairs(tbl) do
+		if (pred(v)) then
+			return true;
+		end
+	end
 
-    return false
+	return false;
 end
 
 function FindInTable(tbl, value)
@@ -352,86 +383,90 @@ function FindInTable(tbl, value)
 end
 
 function FindInTableIf(tbl, pred)
-    for k, v in pairs(tbl) do
-        if pred(v) then
-            return k, v
-        end
-    end
+	for k, v in pairs(tbl) do
+		if (pred(v)) then
+			return k, v;
+		end
+	end
 
-    return nil
+	return nil;
 end
 
 function FindValueInTableIf(tbl, pred)
-    local _, value = FindInTableIf(tbl, pred)
-    return value
+	local _, value = FindInTableIf(tbl, pred);
+	return value;
 end
 
 local function FindSortedIndexImplementation(tbl, searchComparison, startIndex, rangeStart, rangeEnd)
-    local comparisonResult = searchComparison(tbl[startIndex])
-    if comparisonResult == 0 then
-        return startIndex
-    end
+	local comparisonResult = searchComparison(tbl[startIndex]);
+	if comparisonResult == 0 then
+		return startIndex;
+	end
 
-    if comparisonResult > 0 then
-        if startIndex >= rangeEnd then
-            return startIndex + 1
-        end
+	if comparisonResult > 0 then
+		if startIndex >= rangeEnd then
+			return startIndex + 1;
+		end
 
-        rangeStart = startIndex + 1
-        return FindSortedIndexImplementation(tbl, searchComparison, startIndex + math.ceil((rangeEnd - startIndex) / 2), rangeStart, rangeEnd)
-    end
+		rangeStart = startIndex + 1;
+		return FindSortedIndexImplementation(tbl, searchComparison, startIndex + math.ceil((rangeEnd - startIndex) / 2), rangeStart, rangeEnd);
+	end
 
-    if startIndex <= rangeStart then
-        return startIndex
-    end
+	-- comparisonResult < 0
+	if startIndex <= rangeStart then
+		return startIndex;
+	end
 
-    rangeEnd = startIndex - 1
-    return FindSortedIndexImplementation(tbl, searchComparison, math.floor(startIndex / 2), rangeStart, rangeEnd)
+	rangeEnd = startIndex - 1;
+	return FindSortedIndexImplementation(tbl, searchComparison, math.floor(startIndex / 2), rangeStart, rangeEnd);
 end
 
 function FindSortedIndex(tbl, searchComparison)
-    local numTable = tGetN(tbl)
-    local startingIndex = math.ceil(numTable / 2)
-    if startingIndex == 0 then
-        return 1
-    end
+	local numTable = #tbl;
+	local startingIndex = math.ceil(numTable / 2);
+	if startingIndex == 0 then
+		return 1;
+	end
 
-    return FindSortedIndexImplementation(tbl, searchComparison, startingIndex, 1, numTable)
+	return FindSortedIndexImplementation(tbl, searchComparison, startingIndex, 1, numTable);
 end
 
 function TableIsEmpty(tbl)
-    return next(tbl) == nil
+	return next(tbl) == nil;
 end
 
 function TableHasAnyEntries(tbl)
-    return next(tbl) ~= nil
+	return next(tbl) ~= nil;
 end
 
 function CopyValuesAsKeys(tbl)
-    local output = {}
-    for k, v in ipairs(tbl) do
-        output[v] = v
-    end
-    return output
+	local output = {};
+	for k, v in ipairs(tbl) do
+		output[v] = v;
+	end
+	return output;
 end
 
 function CopyTransformedValuesAsKeys(tbl, transformOp)
-    local output = {}
-    for _, v in ipairs(tbl) do
-        output[transformOp(v)] = v
-    end
-    return output
+	local output = {};
+	for _, v in ipairs(tbl) do
+		output[transformOp(v)] = v;
+	end
+	return output;
 end
 
+-- Addresses the problem where nil values within a varargs list are not preserved when constructing
+-- a table, resulting a table with a smaller size than expected. Should be paired with a call to
+-- SafeUnpack when unpacking the table.
 function SafePack(...)
-    local tbl = {}
-    for i = 1, arg.n do tbl[i] = arg[i] end
-    tbl.n = arg.n
-    return tbl
+	local tbl = { ... };
+	tbl.n = select("#", ...);
+	return tbl;
 end
 
-function SafeUnpack(tbl)
-    return unpack(tbl)
+-- Upacks a table that was constructed using SafePack.
+function SafeUnpack(tbl, startIndex)
+	return unpack(tbl, startIndex or 1, tbl.n);
 end
 
 -- Returns the length of a table, accounting for the possibility of a table constructed using SafePack.
@@ -440,7 +475,7 @@ function SafeLength(tbl)
 		return 0;
 	end
 
-	local operatorCount = tGetN(tbl);
+	local operatorCount = #tbl;
 	local safePackCount = tbl.n;
 
 	if safePackCount and operatorCount ~= safePackCount then
@@ -451,29 +486,29 @@ function SafeLength(tbl)
 end
 
 function GetOrCreateTableEntry(table, key, defaultValue)
-    local currentValue = table[key]
-    local isNewValue = (currentValue == nil)
-    if isNewValue then
-        if defaultValue ~= nil then
-            currentValue = defaultValue
-        else
-            currentValue = {}
-        end
-        table[key] = currentValue
-    end
+	local currentValue = table[key];
+	local isNewValue = (currentValue == nil);
+	if isNewValue then
+		if defaultValue ~= nil then
+			currentValue = defaultValue;
+		else
+			currentValue = {};
+		end
+		table[key] = currentValue;
+	end
 
-    return currentValue, isNewValue
+	return currentValue, isNewValue;
 end
 
 function GetOrCreateTableEntryByCallback(table, key, callback)
-    local currentValue = table[key]
-    local isNewValue = (currentValue == nil)
-    if isNewValue then
-        currentValue = callback(key)
-        table[key] = currentValue
-    end
+	local currentValue = table[key];
+	local isNewValue = (currentValue == nil);
+	if isNewValue then
+		currentValue = callback(key);
+		table[key] = currentValue;
+	end
 
-    return currentValue, isNewValue
+	return currentValue, isNewValue;
 end
 
 function GetOrCreateTableEntryByMethod(table, key, method, owner)
@@ -488,53 +523,53 @@ function GetOrCreateTableEntryByMethod(table, key, method, owner)
 end
 
 function GetRandomArrayEntry(array)
-    return array[math.random(1, tGetN(array))]
+	return array[math.random(1, #array)];
 end
 
 function GetRandomTableValue(tbl)
-    local value
-    local n = 0
-    for k, v in pairs(tbl) do
-        n = n + 1
-        local r = math.random()
-        if r <= (1 / n) then
-            value = v
-        end
-    end
-    return value
+	local value;
+	local n = 0;
+	for k, v in pairs(tbl) do
+		n = n + 1;
+		local r = math.random();
+		if r <= (1 / n) then
+			value = v;
+		end
+	end
+	return value;
 end
 
 function GetKeysArray(tbl)
-    local keysArray = {}
-    for key in pairs(tbl) do
-        tInsert(keysArray, key)
-    end
+	local keysArray = {};
+	for key in pairs(tbl) do
+		tInsert(keysArray, key);
+	end
 
-    return keysArray
+	return keysArray;
 end
 
 function GetValuesArray(tbl)
-    local valuesArray = {}
-    for key, value in pairs(tbl) do
-        tInsert(valuesArray, value)
-    end
+	local valuesArray = {};
+	for key, value in pairs(tbl) do
+		tInsert(valuesArray, value);
+	end
 
-    return valuesArray
+	return valuesArray;
 end
 
 function GetPairsArray(tbl)
-    local pairsArray = {}
-    for key, value in pairs(tbl) do
-        tInsert(pairsArray, { key = key, value = value, })
-    end
+	local pairsArray = {};
+	for key, value in pairs(tbl) do
+		tInsert(pairsArray, { key = key, value = value, });
+	end
 
-    return pairsArray
+	return pairsArray;
 end
 
 function SwapTableEntries(lhsTable, rhsTable, key)
-    local lhsValue = lhsTable[key]
-    lhsTable[key] = rhsTable[key]
-    rhsTable[key] = lhsValue
+	local lhsValue = lhsTable[key];
+	lhsTable[key] = rhsTable[key];
+	rhsTable[key] = lhsValue;
 end
 
 function GetKeysArraySortedByValue(tbl)
@@ -548,12 +583,12 @@ function GetKeysArraySortedByValue(tbl)
 end
 
 function TableUtil.GetTableValueListFromEnumeration(tableKey, ...)
-    local values = {}
-    for enumerationKey, tbl in arg[1] do
-        tInsert(values, tbl[tableKey])
-    end
+	local values = {};
+	for enumerationKey, tbl in ... do
+		table.insert(values, tbl[tableKey]);
+	end
 
-    return values
+	return values;
 end
 
 function TableUtil.GetHighestNumericalValueInTable(table)
@@ -566,6 +601,80 @@ function TableUtil.GetHighestNumericalValueInTable(table)
 	return highestValue;
 end
 
+-- Useful for debugging the differences between two tables.
+function CollectTableDifferences(actual, expected, path, differences, depth)
+	path = path or "";
+	differences = differences or {};
+	depth = depth or 10;
+
+	if depth <= 0 then
+		return differences;
+	end
+
+	-- Check if types match
+	local actualType = type(actual);
+	local expectedType = type(expected);
+
+	if actualType ~= expectedType then
+		table.insert(differences, {
+			path = path == "" and "root" or path,
+			actual = actual,
+			expected = expected,
+			reason = "type mismatch"
+		});
+		return differences;
+	end
+
+	-- If not tables, do direct comparison
+	if actualType ~= "table" then
+		if actual ~= expected then
+			table.insert(differences, {
+				path = path == "" and "root" or path,
+				actual = actual,
+				expected = expected,
+				reason = "value mismatch"
+			});
+		end
+		return differences;
+	end
+
+	-- Both are tables, compare recursively
+	local checkedKeys = {};
+
+	-- Check all keys in expected
+	for key, expectedValue in pairs(expected) do
+		checkedKeys[key] = true;
+		local actualValue = actual[key];
+		local keyPath = path == "" and tostring(key) or (path .. "." .. tostring(key));
+
+		if actualValue == nil then
+			table.insert(differences, {
+				path = keyPath,
+				actual = nil,
+				expected = expectedValue,
+				reason = "missing in actual"
+			});
+		else
+			CollectTableDifferences(actualValue, expectedValue, keyPath, differences, depth - 1);
+		end
+	end
+
+	-- Check for extra keys in actual
+	for key, actualValue in pairs(actual) do
+		if not checkedKeys[key] then
+			local keyPath = path == "" and tostring(key) or (path .. "." .. tostring(key));
+			table.insert(differences, {
+				path = keyPath,
+				actual = actualValue,
+				expected = nil,
+				reason = "extra in actual"
+			});
+		end
+	end
+
+	return differences;
+end
+
 --[[
 This utility creates and returns a table of elements that are sorted by value "priority".
 
@@ -574,152 +683,159 @@ comparator - comparator(A, B) returns whether A has higher priority than B
 isAssociative - whether the table should be associative (true) or array-like (false). Only values have priorities for associative tables, not keys.
 
 Return usage:
-t[k]/t:Get(k)  - returns the value stored with key/index k
-t[k] = v       - (Associative only) stores the value v at key k, sorting accordingly
-t:Insert(v)    - (Array-like only) inserts the value v, sorting accordingly
-t:Remove(k)    - removes the element at key/index k
-t:Iterate(cb)  - calls function cb on each key/index value pair in sorted priority order
-t:GetTop()     - returns the highest priority element
-t:Pop()        - returns and removes the highest priority element
-t:GetBottom()  - returns the lowest priority element
-t:Size()       - returns the number of stored elements
-t:Clear()      - removes all elements
+t[k]/t:Get(k) - returns the value stored with key/index k
+t[k] = v (Associative only) - stores the value v at key k, sorting accordingly
+t:Insert(v) (Array-like only) - inserts the value v, sorting accordingly
+t:Remove(k) - removes the element at key/index k
+t:Iterate(cb) - calls function cb on each key/index value pair in sorted priority order. !!WARNING!! This must be used instead of pairs(t)/ipairs(t)
+t:GetTop() - returns the highest priority element
+t:Pop() - returns and removes the highest priority element
+t:GetBottom() - returns the lowest priority element
+t:Size() - returns the number of stored elements. !!WARNING!! This must be used instead of #t
+t:Clear() - removes all elements
 --]]
 function TableUtil.CreatePriorityTable(comparator, isAssociative)
-    local sortedArray = {}
+	local sortedArray = {};
 
-    local ShiftPositionMap
-    local keyToPosMap
-    if isAssociative then
-        keyToPosMap = {}
+	local ShiftPositionMap;
+	local keyToPosMap;
+	if isAssociative then
+		keyToPosMap = {};
 
-        ShiftPositionMap = function(position, shiftUp)
-            local mod = shiftUp and 1 or -1
-            for k, p in pairs(keyToPosMap) do
-                if p >= position then
-                    keyToPosMap[k] = p + mod
-                end
-            end
-        end
-    end
+		ShiftPositionMap = function(position, shiftUp)
+			local mod = shiftUp and 1 or -1;
+			for k, p in pairs(keyToPosMap) do
+				if p >= position then
+					keyToPosMap[k] = p + mod;
+				end
+			end
+		end
+	end
 
-    local function SortedInsert(k, v)
-        if isAssociative then
-            local prevPos = keyToPosMap[k]
-            if prevPos then
-                tRemove(sortedArray, prevPos)
-                local shiftUp = false
-                ShiftPositionMap(prevPos, shiftUp)
-            end
-        end
+	local function SortedInsert(k, v)
+		if isAssociative then
+			local prevPos = keyToPosMap[k];
+			if prevPos then
+				tRemove(sortedArray, prevPos);
+				local shiftUp = false;
+				ShiftPositionMap(prevPos, shiftUp);
+			end
+		end
 
-        local n = tGetN(sortedArray)
-        local top = (n > 0) and (n + 1) or 1
-        local bottom = 1
-        while top ~= bottom do
-            local mid = math.floor((top - bottom) / 2) + bottom
-            if not comparator(v, sortedArray[mid]) then
-                bottom = mid + 1
-            else
-                top = mid
-            end
-        end
-        local idx = bottom
-        tInsert(sortedArray, idx, v)
+		local top = (#sortedArray > 0) and (#sortedArray + 1) or 1;
+		local bottom = 1;
+		while top ~= bottom do
+			local mid = math.floor((top - bottom) / 2) + bottom;
+			if not comparator(v, sortedArray[mid]) then
+				bottom = mid + 1;
+			else
+				top = mid;
+			end
+		end
+		local idx = bottom;
+		tInsert(sortedArray, idx, v);
 
-        if isAssociative then
-            local shiftUp = true
-            ShiftPositionMap(idx, shiftUp)
-            keyToPosMap[k] = idx
-        end
-    end
+		if isAssociative then
+			local shiftUp = true;
+			ShiftPositionMap(idx, shiftUp);
+			keyToPosMap[k] = idx;
+		end
+	end
 
-    local t = {}
+	local t = {};
 
-    function t:Get(k)
-        local key = isAssociative and keyToPosMap[k] or k
-        return sortedArray[key]
-    end
+	local function GetKey(k)
+		if isAssociative then
+			return keyToPosMap[k];
+		end
+		return k;
+	end
 
-    if not isAssociative then
-        function t:Insert(v)
-            SortedInsert(nil, v)
-        end
-    end
+	function t:Get(k)
+		local key = GetKey(k);
+		return key and sortedArray[key] or nil;
+	end
 
-    function t:Remove(k)
-        local key = isAssociative and keyToPosMap[k] or k
-        tRemove(sortedArray, key)
-        if isAssociative then
-            keyToPosMap[k] = nil
-            local shiftUp = false
-            ShiftPositionMap(key, shiftUp)
-        end
-    end
+	if not isAssociative then
+		function t:Insert(v)
+			SortedInsert(nil, v)
+		end
+	end
 
-    function t:GetTop()
-        return tGetN(sortedArray) > 0 and sortedArray[1]
-    end
+	function t:Remove(k)
+		local key = GetKey(k);
+		if key then
+			tRemove(sortedArray, key);
+			if isAssociative then
+				keyToPosMap[k] = nil;
+				local shiftUp = false;
+				ShiftPositionMap(key, shiftUp);
+			end
+		end
+	end
 
-    function t:GetBottom()
-        local n = tGetN(sortedArray)
-        return n > 0 and sortedArray[n]
-    end
+	function t:GetTop()
+		return #sortedArray > 0 and sortedArray[1];
+	end
 
-    function t:Pop()
-        if t:Size() == 0 then
-            return nil
-        end
+	function t:GetBottom()
+		return #sortedArray > 0 and sortedArray[#sortedArray];
+	end
 
-        local top = t:GetTop()
-        local removalKey = isAssociative and tInvert(keyToPosMap)[1] or 1
-        t:Remove(removalKey)
-        return top
-    end
+	function t:Pop()
+		if t:Size() == 0 then
+			return nil;
+		end
 
-    function t:Iterate(callback)
-        local posToKeyMap = isAssociative and tInvert(keyToPosMap) or nil
-        for pos, v in ipairs(sortedArray) do
-            local key = isAssociative and posToKeyMap[pos] or pos
-            local done = callback(key, v)
-            if done then
-                return
-            end
-        end
-    end
+		local top = t:GetTop();
+		local removalKey = isAssociative and tInvert(keyToPosMap)[1] or 1;
+		t:Remove(removalKey);
+		return top;
+	end
 
-    function t:Size()
-        return tGetN(sortedArray)
-    end
+	function t:Iterate(callback)
+		local posToKeyMap = isAssociative and tInvert(keyToPosMap) or nil;
+		for pos, v in ipairs(sortedArray) do
+			local key = isAssociative and posToKeyMap[pos] or pos;
+			local done = callback(key, v);
+			if done then
+				return;
+			end
+		end
+	end
 
-    function t:Clear()
-        sortedArray = {}
-        if isAssociative then
-            keyToPosMap = {}
-        end
-    end
+	function t:Size()
+		return #sortedArray;
+	end
 
-    local mt =
-    {
-        __index = function(t, k)
-            return t:Get(k)
-        end,
-    }
-    if isAssociative then
-        mt.__newindex = function(t, k, v)
-            if v ~= nil then
-                SortedInsert(k, v)
-            else
-                t:Remove(k)
-            end
-        end
-    else
-        mt.__newindex = function(t, k, v)
-            error("Attempted to assign a value to an array-like priority queue index. Use Insert()/Remove() instead.")
-        end
-    end
+	function t:Clear()
+		sortedArray = {};
+		if isAssociative then
+			keyToPosMap = {};
+		end
+	end
 
-    setmetatable(t, mt)
+	local mt =
+	{
+		__index = function(t, k)
+			return t:Get(k);
+		end,
+	};
+	if isAssociative then
+		mt.__newindex = function(t, k, v)
+			if v ~= nil then
+				SortedInsert(k, v);
+			else
+				t:Remove(k);
+			end
+		end
+	else
+		mt.__newindex = function(t, k, v)
+			error("Attempted to assign a value to an array-like priority queue index. Use Insert()/Remove() instead.")
+		end
+	end
 
-    return t
+	setmetatable(t, mt);
+
+	return t;
 end
