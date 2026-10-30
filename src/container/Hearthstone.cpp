@@ -117,13 +117,27 @@ int __fastcall Script_C_Container_UseHearthstone(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kHasRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr, "Nil when no hearthstone is in the bags."),
+};
+const Game::Doc::Function kPlayerHasHearthstone{
+    "Returns the ID of the hearthstone in the player's bags.", {}, kHasRets};
+
+const Game::Doc::Field kUseRets[] = {
+    Game::Doc::Req("used", "bool",
+                   "True when a hearthstone was found; the cast itself can still fail."),
+};
+const Game::Doc::Function kUseHearthstone{"Uses the hearthstone in the player's bags.", {},
+                                          kUseRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "PlayerHasHearthstone",
-                                     &Script_C_Container_PlayerHasHearthstone);
+                                     &Script_C_Container_PlayerHasHearthstone,
+                                     &kPlayerHasHearthstone);
     Game::Lua::RegisterTableFunction("C_Container", "UseHearthstone",
-                                     &Script_C_Container_UseHearthstone);
+                                     &Script_C_Container_UseHearthstone, &kUseHearthstone);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -62,9 +62,23 @@ int __fastcall Script_C_Container_AutoStoreItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("srcBag", "BagIndex"),
+    Game::Doc::Req("srcSlot", "luaIndex"),
+    Game::Doc::Opt("dstBag", "BagIndex", "0",
+                   "0 for anywhere in the bags, 1 to 4 for one bag, -1 for the bank."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("sent", "bool", "False when the server cannot be asked for this move."),
+};
+const Game::Doc::Function kAutoStoreItem{
+    "Moves an item and lets the server choose where it goes, merging it into "
+    "existing stacks first.",
+    kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "AutoStoreItem",
-                                     &Script_C_Container_AutoStoreItem);
+                                     &Script_C_Container_AutoStoreItem, &kAutoStoreItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -37,9 +37,21 @@ int __fastcall Script_C_Container_GetContainerItemRepairCost(void *L) {
         L, Item::Location::ResolveBag(L, bagID, slotIndex));
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("repairCost", "number", "In copper; 0 when the item needs no repair."),
+};
+const Game::Doc::Function kGetContainerItemRepairCost{
+    "Returns what a merchant charges to repair the item in a bag slot.", kArgs, kRets,
+    nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemRepairCost",
-                                     &Script_C_Container_GetContainerItemRepairCost);
+                                     &Script_C_Container_GetContainerItemRepairCost,
+                                     &kGetContainerItemRepairCost);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
