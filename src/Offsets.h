@@ -12736,6 +12736,18 @@ enum Offsets {
     CALL_TEXT_FIT_HEIGHT_STEP = 0x005C22B1,
     CALL_TEXT_ENUMERATE_LINES_STEP = 0x005C24F9,
     DRAW_BUILDER_FRAME_LINE_X = 0x48,
+    // The fit-to-height count's line test (0x005C21C0, after its stepper
+    // call): `fld [ebp+10h]` (the block height), then this `fadd dword ptr
+    // [VAR_TEXT_FIT_HEIGHT_EPSILON]` (D8 05 BC 26 80 00), then FCOMPP against
+    // the running height + font height; it stops at the first line that
+    // fails. [ebp-8] is the bytes fitted so far, 0 until a line fits. EAX is
+    // dead here (FNSTSW AX, then both paths reload it from [ebp-8]).
+    // Text::FitHeight replaces the fadd.
+    SITE_TEXT_FIT_HEIGHT_TOLERANCE = 0x005C22CB,
+    TEXT_FIT_HEIGHT_FRAME_FITTED_BYTES = 0x8,
+    // Exactly 2^-20 (0x35800000, .rdata): the fit's line margin above. A
+    // shared float, also read by collision, movement and matrix code.
+    VAR_TEXT_FIT_HEIGHT_EPSILON = 0x008026BC,
     // The draw builder's right / centre x: `FUN_TEXT_SCREEN_TO_PIXEL_WIDTH(raw,
     // -width)` (or -width / 2), `float __fastcall(int raw, float)`, `ret 4`,
     // result in ST0, stored to the line x at 0x005CDE28.
