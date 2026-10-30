@@ -45,9 +45,9 @@ Util\ItemUtil.lua
 Util\AddOnCompat.lua
 Util\FunctionUtil.lua
 Util\CacheUtil.lua
-Util\Pools.lua
 Util\SecureTypes.lua
 Util\ProxyUtil.lua
+Util\Pools.lua
 Util\FrameWatcher.lua
 Util\TimedCallback.lua
 Util\EasingUtil.lua

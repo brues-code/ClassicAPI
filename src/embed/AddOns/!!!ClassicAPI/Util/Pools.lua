@@ -1,21 +1,26 @@
--- Backport of FrameXML/Pools.lua to vanilla 1.12 / Lua 5.0.
+-- Backport of retail Blizzard_SharedXMLBase/Pools.lua to vanilla 1.12 / Lua 5.0.
 --
--- Implementation differences from the modern source:
---   - 1.12 has no taint/secure system, so the entire Secure*/Proxy
---     machinery (SecureTypes, ProxyUtil, securecallfunction,
---     CreateForbiddenFrame) is dropped. Only the Unsecured pools and
---     pool collections exist; the canonical `CreateObjectPool` /
---     `CreateFramePool` / etc. globals are aliased to them at the
---     bottom of the file.
---   - FrameUtil.SpecializeFrameWithMixins isn't a thing in 1.12; the
---     "table specialization" branch is inlined as a plain Mixin().
---   - CreateMaskTexture and CreateActor aren't in 1.12 — the
---     corresponding pool creators are kept as stubs so chunk-load of
---     consumer addons doesn't fail; they'll error at Acquire() time
---     if anything actually invokes them.
---   - Lua 5.0 has no `...` as expression; the converter mixins use
---     `unpack(arg)` to forward varargs (spans arg[1..arg.n] via getn;
---     this build's unpack ignores explicit i/j — the count lives in `.n`).
+-- Implementation differences from the retail source:
+--   - 1.12 has no secret values, so SecureObjectPoolMixin does not override
+--     CheckAllowReleaseObject to refuse them (as in SecureTypes.lua).
+--   - 1.12 has no CreateForbiddenFrame, so a pool asked for forbidden frames
+--     makes normal ones. It has no CreateActor, so an actor pool errors when
+--     it creates an object.
+
+local SpecializeFrameWithMixins = FrameUtil.SpecializeFrameWithMixins;
+local CreateSecureMap = SecureTypes.CreateSecureMap;
+local CreateSecureStack = SecureTypes.CreateSecureStack;
+local CreateSecureNumber = SecureTypes.CreateSecureNumber;
+local CreateProxy = ProxyUtil.CreateProxy;
+local CreateProxyDirectory = ProxyUtil.CreateProxyDirectory;
+local CreateProxyMixin = ProxyUtil.CreateProxyMixin;
+local SetPrivateReference = ProxyUtil.SetPrivateReference;
+local ReleasePrivateReference = ProxyUtil.ReleasePrivateReference;
+local ProxyConvertablePrivateMixin = CreateFromMixins(ProxyConvertableMixin);
+local CreateFromMixinsPrivate = CreateFromMixins;
+
+local enableProxyReporting = false; -- For debugging purposes only.
+local Proxies = CreateProxyDirectory("Pools.lua", enableProxyReporting);
 
 local ObjectPoolBaseMixin = {};
 
@@ -36,9 +41,9 @@ end
 
 local function GetObjectIsInvalidMsg(object, poolOrCollection)
 	if poolOrCollection:DoesObjectBelongToPool(object) then
-		return string.format("Attempted to release inactive object '%s'", tostring(object));
+		return ("Attempted to release inactive object '%s'"):format(tostring(object));
 	else
-		return string.format("Attempted to release object '%s' that doesn't belong to this pool", tostring(object));
+		return ("Attempted to release object '%s' that doesn't belong to this pool"):format(tostring(object));
 	end
 end
 
@@ -58,11 +63,25 @@ function ObjectPoolBaseMixin:Acquire()
 		]]--
 		assert(type(object) == "table");
 
+		--[[
+		The reset function will error if forbidden actions are attempted insecurely,
+		particularly in scenarios involving forbidden and protected frames. If an error
+		is thrown, it will do so before we make any further modifications to this pool.
+
+		Note this does create a potential for a dangling frame or region, but that is less of a
+		concern than mutating the pool.
+		]]--
 		self:CallReset(object, new);
 	end
 
 	self:AddObject(object);
 	return object, new;
+end
+
+function ObjectPoolBaseMixin:CheckAllowReleaseObject(object)
+	-- Override in a derived mixin if there's any conditional circumstances
+	-- to prevent releasing an object (and probably assert, too).
+	return true;
 end
 
 function ObjectPoolBaseMixin:Release(object, canFailToFindObject)
@@ -76,11 +95,21 @@ function ObjectPoolBaseMixin:Release(object, canFailToFindObject)
 	the case where the object was not found in any pool.
 	]]--
 	if not canFailToFindObject then
-		assertsafe(active, GetObjectIsInvalidMsg(object, self));
+		assertsafe(active, GetObjectIsInvalidMsg, object, self);
+	end
+
+	if not self:CheckAllowReleaseObject(object) then
+		return false;
 	end
 
 	if active then
+		--[[
+		The reset function will error if forbidden actions are attempted insecurely,
+		particularly in scenarios involving forbidden and protected frames. If an error
+		is thrown, it will do so before we make any further modifications to this pool.
+		]]--
 		self:CallReset(object);
+
 		self:ReclaimObject(object);
 	end
 
@@ -93,7 +122,14 @@ function ObjectPoolBaseMixin:Dump()
 	end
 end
 
-local ObjectPoolMixin = CreateFromMixins(ObjectPoolBaseMixin);
+--[[
+ObjectPoolMixin is not exposed for use at this time. All code requiring pools or
+pool collections are currently using the secure variants. If you need a proxyless pool
+for any reason, you'll need to expose a function to create this.
+
+You'll also need to create a PoolCollectionMixin that doesn't make use of any secure types.
+]]--
+local ObjectPoolMixin = CreateFromMixinsPrivate(ObjectPoolBaseMixin);
 
 function ObjectPoolMixin:Init(createFunc, resetFunc, capacity)
 	self.createFunc = createFunc;
@@ -164,6 +200,93 @@ end
 
 function ObjectPoolMixin:GetNumActive()
 	return self.activeObjectCount;
+end
+
+local SecureObjectPoolMixin = CreateFromMixinsPrivate(ObjectPoolBaseMixin, ProxyConvertablePrivateMixin);
+
+function SecureObjectPoolMixin:Init(proxy, createFunc, resetFunc, capacity)
+	local tags = ProxyConvertablePrivateMixin.Init(self, proxy, Proxies);
+	tags[proxy] = "SecureObjectPoolMixin";
+
+	self.createFunc = createFunc;
+	self.resetFunc = resetFunc;
+	self.activeObjects = CreateSecureMap();
+	self.inactiveObjects = CreateSecureStack();
+	self.activeObjectCount = CreateSecureNumber();
+
+	Reserve(self, capacity);
+end
+
+function SecureObjectPoolMixin:CallReset(object, new)
+	self.resetFunc(self:ToProxy(), object, new);
+end
+
+function SecureObjectPoolMixin:CallCreate()
+	return self.createFunc(self:ToProxy());
+end
+
+function SecureObjectPoolMixin:PopInactiveObject()
+	return self.inactiveObjects:Pop();
+end
+
+function SecureObjectPoolMixin:AddObject(object)
+	local dummy = true;
+	self.activeObjects:SetValue(object, dummy);
+	self.activeObjectCount:Increment();
+end
+
+function SecureObjectPoolMixin:ReclaimObject(object)
+	self.inactiveObjects:Push(object);
+	self.activeObjects:ClearValue(object);
+	self.activeObjectCount:Decrement();
+end
+
+function SecureObjectPoolMixin:ReleaseAll()
+	for object in self.activeObjects:Enumerate() do
+		self:Release(object);
+	end
+end
+
+function SecureObjectPoolMixin:EnumerateActive()
+	return self.activeObjects:Enumerate();
+end
+
+function SecureObjectPoolMixin:GetNextActive(current)
+	return self.activeObjects:GetNext(current);
+end
+
+function SecureObjectPoolMixin:IsActive(object)
+	return self.activeObjects:HasKey(object);
+end
+
+function SecureObjectPoolMixin:DoesObjectBelongToPool(object)
+	if self:IsActive(object) then
+		return true;
+	end
+
+	return self.inactiveObjects:Contains(object);
+end
+
+function SecureObjectPoolMixin:GetNumActive()
+	return self.activeObjectCount:GetValue();
+end
+
+local ObjectPoolProxyMixin;
+do
+	local Funcs =
+	{
+		"Acquire",
+		"ReleaseAll",
+		"Release",
+		"EnumerateActive",
+		"GetNextActive",
+		"IsActive",
+		"GetNumActive",
+		"DoesObjectBelongToPool",
+	};
+
+	ObjectPoolProxyMixin = CreateProxyMixin(Proxies, SecureObjectPoolMixin, Funcs);
+	ObjectPoolProxyMixin.__index = ObjectPoolProxyMixin;
 end
 
 local function GetPoolKey(template, specialization)
@@ -238,9 +361,9 @@ function PoolCollectionBaseMixin:Dump()
 	end
 end
 
-local PoolCollectionMixin = CreateFromMixins(PoolCollectionBaseMixin);
+local PoolCollectionMixin = CreateFromMixinsPrivate(PoolCollectionBaseMixin);
 
-function PoolCollectionMixin:Init()
+function PoolCollectionMixin:Init(proxy)
 	self.pools = {};
 end
 
@@ -267,7 +390,7 @@ function PoolCollectionMixin:Release(object)
 			return;
 		end
 	end
-	assertsafe(false, GetObjectIsInvalidMsg(object, self));
+	assertsafe(false, GetObjectIsInvalidMsg, object, self);
 end
 
 function PoolCollectionMixin:DoesObjectBelongToPool(object)
@@ -307,9 +430,125 @@ function PoolCollectionMixin:EnumerateActive()
 	end, nil;
 end
 
+local SecurePoolCollectionMixin = CreateFromMixinsPrivate(PoolCollectionBaseMixin, ProxyConvertablePrivateMixin);
+
+function SecurePoolCollectionMixin:Init(proxy)
+	local tags = ProxyConvertablePrivateMixin.Init(self, proxy, Proxies);
+	tags[proxy] = "SecurePoolCollectionMixin";
+
+	self.pools = CreateSecureMap();
+end
+
+do
+	local function Accumulate(poolKey, pool, total)
+		total:Add(pool:GetNumActive());
+	end
+
+	function SecurePoolCollectionMixin:GetNumActive()
+		local total = CreateSecureNumber();
+		self.pools:ExecuteRange(Accumulate, total);
+		return total:GetValue();
+	end
+end
+
+function SecurePoolCollectionMixin:SetPool(poolKey, pool)
+	self.pools:SetValue(poolKey, pool);
+end
+
+function SecurePoolCollectionMixin:GetPoolByKey(poolKey)
+	return self.pools:GetValue(poolKey);
+end
+
+function SecurePoolCollectionMixin:Release(object)
+	local canFailToFindObject = true;
+	for poolKey, pool in self.pools:Enumerate() do
+		if securecallmethod(pool, "Release", object, canFailToFindObject) then
+			return;
+		end
+	end
+	assertsafe(false, GetObjectIsInvalidMsg, object, self);
+end
+
+do
+	-- Taint protection reading insecure pool
+	local function ReleaseAll(poolKey, pool)
+		pool:ReleaseAll();
+	end
+
+	function SecurePoolCollectionMixin:ReleaseAll()
+		self.pools:ExecuteRange(ReleaseAll);
+	end
+end
+
+do
+	-- Taint protection reading insecure pool
+	local function GetNextActive(pool, currentObject)
+		return pool:GetNextActive(currentObject);
+	end
+
+	-- Warning: this function only returns the object, unlike a pool that also returns the key.
+	function SecurePoolCollectionMixin:EnumerateActive()
+	local currentObject = nil;
+		local currentPoolKey, currentPool = self.pools:GetNext(currentObject);
+		return function()
+			if currentPool then
+					currentObject = securecallfunction(GetNextActive, currentPool, currentObject);
+				while not currentObject do
+						currentPoolKey, currentPool = self.pools:GetNext(currentPoolKey);
+					if currentPool then
+							currentObject = securecallfunction(GetNextActive, currentPool, nil);
+					else
+						break;
+					end
+				end
+			end
+
+			return currentObject;
+		end, nil;
+	end
+end
+
 function Pool_HideAndClearAnchors(pool, region)
 	region:Hide();
 	region:ClearAllPoints();
+end
+
+function Pool_HideAndSetToDefaults(pool, region)
+	region:SetToDefaults();
+	region:Hide();
+end
+
+local function CreateSecureObjectPoolInstance(createFunc, resetFunc, capacity)
+	local pool = CreateFromMixinsPrivate(SecureObjectPoolMixin);
+	local proxy = CreateProxy(pool, ObjectPoolProxyMixin);
+	pool:Init(proxy, createFunc, resetFunc or nop, capacity);
+	return pool;
+end
+
+local function CreateSecureRegionPoolInstance(template, createFunc, resetFunc, capacity)
+	local pool = CreateSecureObjectPoolInstance(createFunc, resetFunc or Pool_HideAndClearAnchors, capacity);
+	local proxy = pool:ToProxy();
+	proxy.GetTemplate = function(self)
+		return template;
+	end
+
+	return pool;
+end
+
+local function CreateSecureFramePoolInstance(frameType, parent, template, resetFunc, forbidden, postCreate, capacity)
+	local function Create()
+		local createFrame = forbidden and CreateForbiddenFrame or CreateFrame;
+		local name = nil;
+		local frame = createFrame(frameType, name, parent, template);
+
+		if postCreate then
+			postCreate(frame);
+		end
+
+		return frame;
+	end
+
+	return CreateSecureRegionPoolInstance(template, Create, resetFunc, capacity);
 end
 
 function ActorPool_HideAndClearModel(actorPool, actor)
@@ -317,11 +556,42 @@ function ActorPool_HideAndClearModel(actorPool, actor)
 	actor:Hide();
 end
 
+local function CreateSecureActorPoolInstance(parent, template, resetFunc, capacity)
+	local function Create()
+		local name = nil;
+		return parent:CreateActor(name, template);
+	end
+	return CreateSecureRegionPoolInstance(template, Create, resetFunc or ActorPool_HideAndClearModel, capacity);
+end
+
+local function CreateSecureTexturePoolInstance(parent, layer, subLayer, template, resetFunc, capacity)
+	local function Create()
+		local name = nil;
+		return parent:CreateTexture(name, layer, template, subLayer);
+	end
+	return CreateSecureRegionPoolInstance(template, Create, resetFunc, capacity);
+end
+
+local function CreateSecureFontStringPoolInstance(parent, layer, subLayer, template, resetFunc, capacity)
+	local function Create()
+		local name = nil;
+		return parent:CreateFontString(name, layer, template, subLayer);
+	end
+	return CreateSecureRegionPoolInstance(template, Create, resetFunc, capacity);
+end
+
+local function CreateSecureMaskTexturePoolInstance(parent, layer, subLayer, template, resetFunc, capacity)
+	local function Create()
+		local name = nil;
+		return parent:CreateMaskTexture(name, layer, template, subLayer);
+	end
+	return CreateSecureRegionPoolInstance(template, Create, resetFunc, capacity);
+end
+
 --[[
 In addition to a specialization being used to create separate pools for the same template, it can
-be used to modify a frame after being created. On modern WoW this delegates to
-FrameUtil.SpecializeFrameWithMixins (which also wires up conventional script handlers); on 1.12
-we just Mixin() the table into the frame and let the consumer call SetScript() if needed.
+be used to modify a frame after being created. See FrameUtil.SpecializeFrameWithMixins
+for the behavior when providing tables with conventionally named script handlers included.
 ]]--
 local function ConvertSpecializationToPostCreate(specialization)
 	local specializationType = type(specialization);
@@ -329,7 +599,7 @@ local function ConvertSpecializationToPostCreate(specialization)
 		return specialization;
 	elseif specializationType == "table" then
 		local function Initializer(frame)
-			Mixin(frame, specialization);
+			SpecializeFrameWithMixins(frame, specialization);
 		end
 		return Initializer;
 	end
@@ -337,8 +607,49 @@ local function ConvertSpecializationToPostCreate(specialization)
 	return nil;
 end
 
+--[[
+Arguments are packed into a table for ease of implementation in PoolCollectionBaseMixin. which is derived with
+different argument signatures. This will also be helpful if we want to access a particular field off the table,
+such as 'parent' without dealing with argument position in ...
+]]--
+local function FramePoolCollection_ArgsToTable(frameType, parent, template, resetFunc, forbidden, specialization, capacity)
+	local args =
+	{
+		frameType = frameType,
+		parent = parent,
+		template = template,
+		resetFunc = resetFunc,
+		forbidden = forbidden,
+		specialization = specialization,
+		capacity = capacity,
+	};
+	return args;
+end
+
+local FramePoolCollectionConverterMixin = {};
+
+local function SecureCreatePoolKeyFromPoolArgs(args)
+	return GetPoolKey(args.template, args.specialization);
+end
+
+function FramePoolCollectionConverterMixin:CreatePoolKeyFromPoolArgs(args)
+	return securecallfunction(SecureCreatePoolKeyFromPoolArgs, args);
+end
+
+function FramePoolCollectionConverterMixin:GetOrCreatePool(...)
+	local args = FramePoolCollection_ArgsToTable(...);
+	return SecurePoolCollectionMixin.GetOrCreatePoolWithArgs(self, args);
+end
+
+function FramePoolCollectionConverterMixin:CreatePool(...)
+	local args = FramePoolCollection_ArgsToTable(...);
+	return SecurePoolCollectionMixin.CreatePoolWithArgs(self, args);
+end
+
+local FramePoolCollectionMixin = CreateFromMixinsPrivate(PoolCollectionMixin, FramePoolCollectionConverterMixin);
+
 function CreateUnsecuredRegionPoolInstance(template, createFunc, resetFunc, capacity)
-	local pool = CreateFromMixins(ObjectPoolMixin);
+	local pool = CreateFromMixinsPrivate(ObjectPoolMixin);
 	pool:Init(createFunc, resetFunc or Pool_HideAndClearAnchors, capacity);
 	pool.GetTemplate = function(self)
 		return template;
@@ -347,46 +658,12 @@ function CreateUnsecuredRegionPoolInstance(template, createFunc, resetFunc, capa
 	return pool;
 end
 
---[[
-Args are packed into a table for ease of implementation in PoolCollectionBaseMixin, which is
-derived with different argument signatures. This also makes it easy to access named fields
-like `parent` off the table without dealing with argument position.
-]]--
-local function FramePoolCollection_ArgsToTable(frameType, parent, template, resetFunc, forbidden, specialization, capacity)
-	return {
-		frameType = frameType,
-		parent = parent,
-		template = template,
-		resetFunc = resetFunc,
-		forbidden = forbidden,        -- ignored on 1.12 (no CreateForbiddenFrame)
-		specialization = specialization,
-		capacity = capacity,
-	};
-end
-
-local FramePoolCollectionConverterMixin = {};
-
-function FramePoolCollectionConverterMixin:CreatePoolKeyFromPoolArgs(args)
-	return GetPoolKey(args.template, args.specialization);
-end
-
-function FramePoolCollectionConverterMixin:GetOrCreatePool(...)
-	local args = FramePoolCollection_ArgsToTable(unpack(arg));
-	return self:GetOrCreatePoolWithArgs(args);
-end
-
-function FramePoolCollectionConverterMixin:CreatePool(...)
-	local args = FramePoolCollection_ArgsToTable(unpack(arg));
-	return self:CreatePoolWithArgs(args);
-end
-
-local FramePoolCollectionMixin = CreateFromMixins(PoolCollectionMixin, FramePoolCollectionConverterMixin);
-
 do
-	local function CreateFramePoolInstance(frameType, parent, template, resetFunc, postCreate, capacity)
+	local function CreateFramePoolInstance(frameType, parent, template, resetFunc, forbidden, postCreate, capacity)
 		local function Create()
+			local createFrame = forbidden and CreateForbiddenFrame or CreateFrame;
 			local name = nil;
-			local frame = CreateFrame(frameType, name, parent, template);
+			local frame = createFrame(frameType, name, parent, template);
 
 			if postCreate then
 				postCreate(frame);
@@ -400,18 +677,26 @@ do
 
 	function FramePoolCollectionMixin:CreatePoolInternal(args)
 		local postCreate = ConvertSpecializationToPostCreate(args.specialization);
-		return CreateFramePoolInstance(args.frameType, args.parent, args.template, args.resetFunc, postCreate, args.capacity);
+		return CreateFramePoolInstance(args.frameType, args.parent, args.template, args.resetFunc, args.forbidden, postCreate, args.capacity);
 	end
 end
 
-local FontStringPoolCollectionMixin = CreateFromMixins(PoolCollectionMixin);
+local SecureFramePoolCollectionMixin = CreateFromMixinsPrivate(SecurePoolCollectionMixin, FramePoolCollectionConverterMixin);
 
-function FontStringPoolCollectionMixin:CreatePoolKeyFromPoolArgs(args)
+function SecureFramePoolCollectionMixin:CreatePoolInternal(args)
+	local postCreate = ConvertSpecializationToPostCreate(args.specialization);
+	return CreateSecureFramePoolInstance(args.frameType, args.parent, args.template, args.resetFunc, args.forbidden, postCreate, args.capacity);
+end
+
+local SecureFontStringPoolCollectionMixin = CreateFromMixinsPrivate(SecurePoolCollectionMixin);
+
+function SecureFontStringPoolCollectionMixin:CreatePoolKeyFromPoolArgs(args)
 	return args.template;
 end
 
 local function FontStringPoolCollection_ArgsToTable(parent, layer, subLayer, template, resetFunc, capacity)
-	return {
+	local args =
+	{
 		parent = parent,
 		layer = layer,
 		subLayer = subLayer,
@@ -419,34 +704,105 @@ local function FontStringPoolCollection_ArgsToTable(parent, layer, subLayer, tem
 		resetFunc = resetFunc,
 		capacity = capacity,
 	};
+	return args;
 end
 
-function FontStringPoolCollectionMixin:GetOrCreatePool(...)
-	local args = FontStringPoolCollection_ArgsToTable(unpack(arg));
-	return self:GetOrCreatePoolWithArgs(args);
+function SecureFontStringPoolCollectionMixin:GetOrCreatePool(...)
+	local args = FontStringPoolCollection_ArgsToTable(...)
+	return SecurePoolCollectionMixin.GetOrCreatePoolWithArgs(self, args);
 end
 
-function FontStringPoolCollectionMixin:CreatePool(...)
-	local args = FontStringPoolCollection_ArgsToTable(unpack(arg));
-	return self:CreatePoolWithArgs(args);
+function SecureFontStringPoolCollectionMixin:CreatePool(...)
+	local args = FontStringPoolCollection_ArgsToTable(...);
+	return SecurePoolCollectionMixin.CreatePoolWithArgs(self, args);
 end
 
-function FontStringPoolCollectionMixin:CreatePoolInternal(args)
-	return CreateUnsecuredFontStringPool(args.parent, args.layer, args.subLayer, args.template, args.resetFunc, args.capacity);
+function SecureFontStringPoolCollectionMixin:CreatePoolInternal(args)
+	return CreateSecureFontStringPoolInstance(args.parent, args.layer, args.subLayer, args.template, args.resetFunc, args.capacity);
+end
+
+function CreateSecureObjectPool(createFunc, resetFunc, capacity)
+	return CreateSecureObjectPoolInstance(createFunc, resetFunc, capacity):ToProxy();
+end
+
+function CreateSecureFramePool(frameType, parent, template, resetFunc, forbidden, postCreate, capacity)
+	return CreateSecureFramePoolInstance(frameType, parent, template, resetFunc, forbidden, postCreate, capacity):ToProxy();
+end
+
+function CreateSecureTexturePool(parent, layer, subLayer, template, resetFunc, capacity)
+	return CreateSecureTexturePoolInstance(parent, layer, subLayer, template, resetFunc, capacity):ToProxy();
+end
+
+function CreateSecureFontStringPool(parent, layer, subLayer, template, resetFunc, capacity)
+	return CreateSecureFontStringPoolInstance(parent, layer, subLayer, template, resetFunc, capacity):ToProxy();
+end
+
+function CreateSecureActorPool(parent, template, resetFunc, capacity)
+	return CreateSecureActorPoolInstance(parent, template, resetFunc, capacity):ToProxy();
+end
+
+function CreateSecureMaskTexturePool(parent, layer, subLayer, template, resetFunc, capacity)
+	return CreateSecureMaskTexturePoolInstance(parent, layer, subLayer, template, resetFunc, capacity):ToProxy();
+end
+
+do
+	local Funcs =
+	{
+		"GetNumActive",
+		"Acquire",
+		"Release",
+		"ReleaseAll",
+		"ReleaseAllByTemplate",
+		"EnumerateActiveByTemplate",
+		"EnumerateActive",
+		"IsActive",
+		"DoesObjectBelongToPool",
+		--"Dump",
+	};
+
+	local PoolCollectionProxyMixin = CreateProxyMixin(Proxies, SecurePoolCollectionMixin, Funcs);
+	PoolCollectionProxyMixin.__index = PoolCollectionProxyMixin;
+
+	function PoolCollectionProxyMixin:GetPool(...)
+		local poolCollection = Proxies:ToPrivate(self);
+		local pool = poolCollection:GetPool(...);
+		if not pool then
+			return nil;
+		end
+
+		return pool:ToProxy();
+	end
+
+	function PoolCollectionProxyMixin:CreatePool(...)
+		local poolCollection = Proxies:ToPrivate(self);
+		return poolCollection:CreatePool(...):ToProxy();
+	end
+
+	function PoolCollectionProxyMixin:GetOrCreatePool(...)
+		local poolCollection = Proxies:ToPrivate(self);
+		return poolCollection:GetOrCreatePool(...):ToProxy();
+	end
+
+	local function CreatePoolCollectionInstance(collectionMixin)
+		local poolCollection = CreateFromMixinsPrivate(collectionMixin);
+		local proxy = CreateProxy(poolCollection, PoolCollectionProxyMixin);
+		poolCollection:Init(proxy);
+		return poolCollection;
+	end
+
+	function CreateSecureFramePoolCollection()
+		return CreatePoolCollectionInstance(SecureFramePoolCollectionMixin):ToProxy();
+	end
+
+	function CreateSecureFontStringPoolCollection()
+		return CreatePoolCollectionInstance(SecureFontStringPoolCollectionMixin):ToProxy();
+	end
 end
 
 function CreateUnsecuredObjectPool(createFunc, resetFunc, capacity)
-	local pool = CreateFromMixins(ObjectPoolMixin);
+	local pool = CreateFromMixinsPrivate(ObjectPoolMixin);
 	pool:Init(createFunc, resetFunc, capacity);
 	return pool;
-end
-
-function CreateUnsecuredFramePool(frameType, parent, template, resetFunc, capacity)
-	local function Create()
-		local name = nil;
-		return CreateFrame(frameType, name, parent, template);
-	end
-	return CreateUnsecuredRegionPoolInstance(template, Create, resetFunc, capacity);
 end
 
 function CreateUnsecuredTexturePool(parent, layer, subLayer, template, resetFunc, capacity)
@@ -465,19 +821,20 @@ function CreateUnsecuredFontStringPool(parent, layer, subLayer, template, resetF
 	return CreateUnsecuredRegionPoolInstance(template, Create, resetFunc, capacity);
 end
 
--- Stub: 1.12 has no CreateActor (model actors are Cataclysm+). Acquire()
--- will raise once it actually tries to call parent:CreateActor — kept so
--- that addon code merely referencing the symbol doesn't fail to load.
-function CreateUnsecuredActorPool(parent, template, resetFunc, capacity)
+function CreateUnsecuredFramePool(frameType, parent, template, resetFunc, capacity)
 	local function Create()
 		local name = nil;
-		return parent:CreateActor(name, template);
+		return CreateFrame(frameType, name, parent, template);
 	end
-	return CreateUnsecuredRegionPoolInstance(template, Create, resetFunc or ActorPool_HideAndClearModel, capacity);
+	return CreateUnsecuredRegionPoolInstance(template, Create, resetFunc, capacity);
 end
 
--- Stub: 1.12 has no CreateMaskTexture (mask textures are post-vanilla).
--- Same caveat as CreateUnsecuredActorPool.
+function CreateUnsecuredFramePoolCollection()
+	local poolCollection = CreateFromMixinsPrivate(FramePoolCollectionMixin);
+	poolCollection:Init();
+	return poolCollection;
+end
+
 function CreateUnsecuredMaskTexturePool(parent, layer, subLayer, template, resetFunc, capacity)
 	local function Create()
 		local name = nil;
@@ -486,28 +843,16 @@ function CreateUnsecuredMaskTexturePool(parent, layer, subLayer, template, reset
 	return CreateUnsecuredRegionPoolInstance(template, Create, resetFunc, capacity);
 end
 
-function CreateUnsecuredFramePoolCollection()
-	local poolCollection = CreateFromMixins(FramePoolCollectionMixin);
-	poolCollection:Init();
-	return poolCollection;
-end
+-- Aliases until we determine if we want to change any code to explicitly create
+-- the secure or unsecured variant of pools and pool collections.
+CreateObjectPool = CreateSecureObjectPool;
+CreateFramePool = CreateSecureFramePool;
+CreateTexturePool = CreateSecureTexturePool;
+CreateFontStringPool = CreateSecureFontStringPool;
+CreateActorPool = CreateSecureActorPool;
+CreateFramePoolCollection = CreateSecureFramePoolCollection;
+CreateFontStringPoolCollection = CreateSecureFontStringPoolCollection;
+CreateMaskTexturePool = CreateSecureMaskTexturePool;
 
-function CreateUnsecuredFontStringPoolCollection()
-	local poolCollection = CreateFromMixins(FontStringPoolCollectionMixin);
-	poolCollection:Init();
-	return poolCollection;
-end
-
--- Canonical API aliases. On modern WoW these point at the Secure variants;
--- on 1.12 there's no taint system, so they all go straight to the Unsecured
--- implementations.
-CreateObjectPool = CreateUnsecuredObjectPool;
-CreateFramePool = CreateUnsecuredFramePool;
-CreateTexturePool = CreateUnsecuredTexturePool;
-CreateFontStringPool = CreateUnsecuredFontStringPool;
-CreateActorPool = CreateUnsecuredActorPool;
-CreateFramePoolCollection = CreateUnsecuredFramePoolCollection;
-CreateFontStringPoolCollection = CreateUnsecuredFontStringPoolCollection;
-CreateMaskTexturePool = CreateUnsecuredMaskTexturePool;
-
+-- Script objects created from this file should have their source location set to the calling function, rather than generic Pools.lua internals
 AddSourceLocationExclude("Pools.lua");

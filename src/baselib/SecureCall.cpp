@@ -11,7 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `securecall(func or name, ...)`, `securecallfunction(func, ...)` and
+// `securecall(func or name, ...)`, `securecallfunction(func, ...)`,
+// `securecallmethod(object, method, ...)` and
 // `secureexecuterange(tbl, func, ...)` — the later clients' protected calls,
 // less taint (1.12 has none). Retail, probed:
 //   - securecall returns the function's results; a string names a global
@@ -22,6 +23,11 @@
 //   - secureexecuterange calls func(key, value, ...) for each entry of tbl in
 //     `next` order; an error in one goes to the error handler and the walk
 //     goes on. It returns nothing.
+// securecallmethod is from retail's API documentation, not a probe: it calls
+// object[method](object, ...) with a raw lookup (no metatable), and an error
+// in the lookup or the call goes to the error handler with no results. Here
+// a lookup that finds no function, or an object that is not a table, errors
+// the way calling that value does.
 // The error handler is the one every engine script run passes
 // (VAR_FRAMESCRIPT_ERROR_HANDLER_REF), as HookScript's wrapper uses.
 //
@@ -70,6 +76,20 @@ int __fastcall Script_securecall(void *L) {
 
 int __fastcall Script_securecallfunction(void *L) { return CallProtected(L); }
 
+int __fastcall Script_securecallmethod(void *L) {
+    if (Game::Lua::GetTop(L) < 2)
+        Game::Lua::SetTop(L, 2);
+    if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE) {
+        Game::Lua::PushValue(L, 2);
+        Game::Lua::RawGet(L, 1);
+    } else {
+        Game::Lua::PushNil(L);
+    }
+    Game::Lua::Remove(L, 2); // [object, args..., func]
+    Game::Lua::Insert(L, 1); // [func, object, args...]
+    return CallProtected(L);
+}
+
 int __fastcall Script_secureexecuterange(void *L) {
     const int n = Game::Lua::GetTop(L); // tbl, func, extra args 3..n
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE)
@@ -97,6 +117,11 @@ const Game::Doc::Field kCallArgs[] = {
 const Game::Doc::Field kCallRets[] = {
     Game::Doc::Opt("...", "any", nullptr, "The function's results, or nothing after an error."),
 };
+const Game::Doc::Field kMethodArgs[] = {
+    Game::Doc::Req("object", "table", "The table that holds the method. The lookup ignores its metatable."),
+    Game::Doc::Req("method", "string", "The name of the method."),
+    Game::Doc::Opt("...", "any", nullptr, "The arguments after object."),
+};
 const Game::Doc::Field kRangeArgs[] = {
     Game::Doc::Req("tbl", "table", "The table whose entries are visited."),
     Game::Doc::Req("func", "function", "Called as func(key, value, ...) for each entry."),
@@ -108,6 +133,9 @@ const Game::Doc::Function kSecureCall{
 const Game::Doc::Function kSecureCallFunction{
     "Calls a function and returns its results. An error goes to the error handler and the call returns nothing.",
     kCallArgs, kCallRets, "LuaGlobals"};
+const Game::Doc::Function kSecureCallMethod{
+    "Calls object[method](object, ...) and returns its results. An error goes to the error handler and the call returns nothing.",
+    kMethodArgs, kCallRets, "LuaGlobals"};
 const Game::Doc::Function kSecureExecuteRange{
     "Calls a function for each entry of a table. An error goes to the error handler and the other entries still run.",
     kRangeArgs, {}, "LuaGlobals"};
@@ -115,12 +143,14 @@ const Game::Doc::Function kSecureExecuteRange{
 void RegisterInGame() {
     Game::Lua::RegisterGlobalFunction("securecall", &Script_securecall, &kSecureCall);
     Game::Lua::RegisterGlobalFunction("securecallfunction", &Script_securecallfunction, &kSecureCallFunction);
+    Game::Lua::RegisterGlobalFunction("securecallmethod", &Script_securecallmethod, &kSecureCallMethod);
     Game::Lua::RegisterGlobalFunction("secureexecuterange", &Script_secureexecuterange, &kSecureExecuteRange);
 }
 
 void RegisterGlue() {
     Game::Lua::RegisterGlueFunction("securecall", &Script_securecall, &kSecureCall);
     Game::Lua::RegisterGlueFunction("securecallfunction", &Script_securecallfunction, &kSecureCallFunction);
+    Game::Lua::RegisterGlueFunction("securecallmethod", &Script_securecallmethod, &kSecureCallMethod);
     Game::Lua::RegisterGlueFunction("secureexecuterange", &Script_secureexecuterange, &kSecureExecuteRange);
 }
 

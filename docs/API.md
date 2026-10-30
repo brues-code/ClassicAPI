@@ -493,7 +493,7 @@ build instructions.
 
 - [Hooks](#hooks)
   - [`hooksecurefunc(name, callback)` / `hooksecurefunc(table, name, callback)`](#hooksecurefuncname-callback--hooksecurefunctable-name-callback)
-  - [`securecall(func, ...)` / `securecallfunction(func, ...)` / `secureexecuterange(tbl, func, ...)`](#securecallfunc---securecallfunctionfunc---secureexecuterangetbl-func-)
+  - [`securecall(func, ...)` / `securecallfunction(func, ...)` / `securecallmethod(object, method, ...)` / `secureexecuterange(tbl, func, ...)`](#securecallfunc---securecallfunctionfunc---securecallmethodobject-method---secureexecuterangetbl-func-)
 
 - [Input](#input)
   - [`IsLeftShiftKeyDown()` / `IsRightShiftKeyDown()`](#isleftshiftkeydown--isrightshiftkeydown)
@@ -11266,7 +11266,7 @@ but they only report "any shift/ctrl/alt" — there's no built-in way to
 tell left from right. These seven functions add the missing distinction
 plus an `IsModifierKeyDown()` rollup.
 
-### `securecall(func, ...)` / `securecallfunction(func, ...)` / `secureexecuterange(tbl, func, ...)`
+### `securecall(func, ...)` / `securecallfunction(func, ...)` / `securecallmethod(object, method, ...)` / `secureexecuterange(tbl, func, ...)`
 
 Call a function so that an error in it does not stop the code that called
 it. The error goes to the error handler (`geterrorhandler()`).
@@ -11276,6 +11276,10 @@ it. The error goes to the error handler (`geterrorhandler()`).
   `securecall` returns nothing.
 - `securecallfunction(func, ...)` is the same, but `func` must be a
   function.
+- `securecallmethod(object, method, ...)` calls
+  `object[method](object, ...)` and returns its results. The lookup of
+  `method` ignores the metatable of `object`. If `object` is not a table,
+  or `method` is not a function, the error goes to the error handler.
 - `secureexecuterange(tbl, func, ...)` calls `func(key, value, ...)` for
   each entry of `tbl`. After an error in one call, the other entries still
   run. It returns nothing.
