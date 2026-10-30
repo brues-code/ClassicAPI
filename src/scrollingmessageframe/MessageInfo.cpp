@@ -42,12 +42,18 @@
 // The extra arguments live in a registry table keyed by the frame's Lua table,
 // then by record. A record's table is refilled when the record is overwritten,
 // so a full ring makes no garbage.
+//
+// `BackFillMessage(text, r, g, b, ...)`, retail's, adds a message as the
+// OLDEST — the combat log's refilter walks its history newest to oldest and
+// fills the frame behind the lines it already shows (Blizzard_CombatLog's
+// RefilterUpdate). It writes the ring itself; see the function.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "scrollingmessageframe/DisplayRefreshed.h"
 
 #include <cstdint>
+#include <cstring>
 
 namespace ScrollingMessageFrame::MessageInfo {
 
@@ -146,6 +152,95 @@ int __fastcall Script_AddMessage(void *L) {
     return 0;
 }
 
+// AddMessage's colour byte (0x00792A1B..0x00792ACC): the value clamped to
+// 0..1 (NaN to 1), then trunc(v × 255 + 0.5).
+uint32_t ColorByte(double value) {
+    double clamped = 1.0;
+    if (value < 0.0)
+        clamped = 0.0;
+    else if (value < 1.0)
+        clamped = static_cast<float>(value);
+    return static_cast<uint32_t>(static_cast<int>(clamped * 255.0 + 0.5)) & 0xFFu;
+}
+
+// The colour AddMessage builds from stack slots 3..5 — alpha 0xFF, R, G, B —
+// or the frame font's when they are not all numbers (0x007929CD..0x00792B45).
+uint32_t MessageColor(void *L, void *frame) {
+    using namespace Game::Lua;
+    if (IsNumber(L, 3) && IsNumber(L, 4) && IsNumber(L, 5))
+        return 0xFF000000u | (ColorByte(ToNumber(L, 3)) << 16) | (ColorByte(ToNumber(L, 4)) << 8) |
+               ColorByte(ToNumber(L, 5));
+    const void *font = Game::Read<const void *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_FONT);
+    return font != nullptr ? Game::Read<uint32_t>(font, Offsets::OFF_SCROLLINGMESSAGEFRAME_FONT_COLOR) : 0xFFFFFFFFu;
+}
+
+// `ScrollingMessageFrame:BackFillMessage(text, r, g, b, ...)`, retail's: the
+// message becomes the OLDEST. Retail's mixin pushes the entry at the back of
+// its history buffer and drops it when the buffer is full ("Won't overwrite
+// front"); 4.3.4's AddMessage(..., addToTop) writes the same slot but, full,
+// overwrites the oldest. The slot is 4.3.4's: once the count has grown, the
+// free one before the oldest, `(pos - count + 1) mod max` (pos 0 for an empty
+// ring), and the record is written as the ring writer 0x00788150 writes it —
+// the text a Storm copy (the ring frees its texts with SMemFree), AddMessage's
+// colour, shown, the frame's two times, id 0. Nothing already in the ring
+// moves, so a scrolled-up frame keeps its view; at the bottom the lines are
+// laid out again from the newest, as the writer does, which shows the new
+// line when there is room above the others.
+int __fastcall Script_BackFillMessage(void *L) {
+    using namespace Game::Lua;
+    using StormAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
+    using StormFree_t = int(__stdcall *)(void *ptr, const char *file, int line, int flags);
+    using Layout_t = void(__fastcall *)(void *smf, void *edx, int newestRecord);
+    static const char kStormFile[] = "ClassicAPI ScrollingMessageFrame:BackFillMessage";
+
+    const int top = GetTop(L);
+    void *frame = ResolveTypedObject(L, 1, Offsets::VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID);
+    if (frame == nullptr)
+        return 0;
+    const char *text = IsString(L, 2) ? ToString(L, 2) : nullptr;
+    if (text == nullptr || *text == '\0')
+        return 0;
+    const int max = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MAX_MESSAGES);
+    int &count = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT);
+    if (max <= 0 || count >= max)
+        return 0; // full: the message is older than every kept one
+    const uint32_t color = MessageColor(L, frame);
+    const size_t bytes = std::strlen(text) + 1;
+    char *copy = static_cast<char *>(
+        reinterpret_cast<StormAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC)(bytes, kStormFile, __LINE__, 0));
+    if (copy == nullptr)
+        return 0;
+    std::memcpy(copy, text, bytes);
+
+    ++count;
+    int &pos = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS);
+    if (pos == -1)
+        pos = 0;
+    int slot = pos - count + 1;
+    if (slot < 0)
+        slot += max;
+    uint8_t *record = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES) +
+                      slot * Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
+    char *&stored = *reinterpret_cast<char **>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT);
+    if (stored != nullptr)
+        reinterpret_cast<StormFree_t>(Offsets::FUN_STORM_SMEM_FREE)(stored, kStormFile, __LINE__, 0);
+    stored = copy;
+    *reinterpret_cast<uint32_t *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COLOR) = color;
+    *reinterpret_cast<int *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_SHOWN) = 1;
+    *reinterpret_cast<uint32_t *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_VISIBLE_TIME) =
+        Game::Read<uint32_t>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_VISIBLE_TIME);
+    *reinterpret_cast<uint32_t *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_FADE_TIME) =
+        Game::Read<uint32_t>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_FADE_TIME);
+    *reinterpret_cast<int *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_ID) = 0;
+    StoreExtras(L, slot, top);
+
+    if (Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_AT_BOTTOM) != 0)
+        reinterpret_cast<Layout_t>(Offsets::FUN_SMF_DISPLAY_REFRESH)(frame, nullptr, pos);
+    // Scrolled up, the message lands without a layout.
+    DisplayRefreshed::MarkDirty(frame);
+    return 0;
+}
+
 int __fastcall Script_GetMessageInfo(void *L) {
     using namespace Game::Lua;
     void *frame = ResolveTypedObject(L, 1, Offsets::VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID);
@@ -183,6 +278,7 @@ int __fastcall Script_GetMessageInfo(void *L) {
 
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AddMessage", &Script_AddMessage},
+    {"BackFillMessage", &Script_BackFillMessage},
     {"GetMessageInfo", &Script_GetMessageInfo},
 };
 
@@ -194,6 +290,18 @@ const Game::Doc::Field kAddMessageArgs[] = {
     Game::Doc::Vararg("any", "Kept with the message; GetMessageInfo returns them after its colour."),
 };
 const Game::Doc::Function kAddMessage{"Adds a message to the frame.", kAddMessageArgs, {}};
+
+const Game::Doc::Field kBackFillMessageArgs[] = {
+    Game::Doc::Req("text", "string"),
+    Game::Doc::Opt("r", "number", nullptr, "Without r, g and b the message takes the frame's font colour."),
+    Game::Doc::Opt("g", "number"),
+    Game::Doc::Opt("b", "number"),
+    Game::Doc::Vararg("any", "Kept with the message; GetMessageInfo returns them after its colour."),
+};
+const Game::Doc::Function kBackFillMessage{
+    "Adds a message as the oldest, to fill in history behind the messages the frame has. A frame at "
+    "its line limit drops it.",
+    kBackFillMessageArgs, {}};
 
 const Game::Doc::Field kGetMessageInfoArgs[] = {
     Game::Doc::Req("index", "luaIndex", "1 is the oldest message."),
@@ -212,6 +320,7 @@ const Game::Doc::Function kGetMessageInfo{
 
 const Game::Doc::Method kDocs[] = {
     {"AddMessage", &kAddMessage},
+    {"BackFillMessage", &kBackFillMessage},
     {"GetMessageInfo", &kGetMessageInfo},
 };
 
@@ -219,7 +328,7 @@ void RegisterLuaFunctions() {
     // Each registration pass is a new Lua state; the old state's ref is gone.
     g_extrasRef = kNoRef;
     Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
-                                    kMethods, 2, kDocs, 2);
+                                    kMethods, 3, kDocs, 3);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

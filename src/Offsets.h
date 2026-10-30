@@ -12857,6 +12857,26 @@ enum Offsets {
     SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE = 0x18,
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT = 0x0,
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COLOR = 0x4,
+    // The rest of the record as the ring writer 0x00788150 fills it: shown
+    // (1), the frame's visible and fade times, and the integer id.
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_SHOWN = 0x8,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_VISIBLE_TIME = 0xC,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_FADE_TIME = 0x10,
+    OFF_SCROLLINGMESSAGEFRAME_MESSAGE_ID = 0x14,
+    // The bottom flag (4.3.4's m_atBottom): the ring writer lays the lines
+    // out from the newest record when it is set (0x00788150 tail), and
+    // ScrollToBottom re-arms the shown lines instead of laying out
+    // (0x007886D0; benilla-re ui/messageframe "Scrolling brings lines back").
+    OFF_SCROLLINGMESSAGEFRAME_AT_BOTTOM = 0x354,
+    // The visible and fade times the writer copies into each record
+    // (0x00788150: record+0xC = +0x364, record+0x10 = +0x368; the setters
+    // 0x00788090 / 0x007880F0 store them).
+    OFF_SCROLLINGMESSAGEFRAME_VISIBLE_TIME = 0x364,
+    OFF_SCROLLINGMESSAGEFRAME_FADE_TIME = 0x368,
+    // The colour (CImVector) of the object at OFF_SCROLLINGMESSAGEFRAME_FONT,
+    // the message colour AddMessage takes without r, g, b
+    // (0x00792B3C..0x00792B45: `[[smf+0x35C]+0x58]`).
+    OFF_SCROLLINGMESSAGEFRAME_FONT_COLOR = 0x58,
     // The frame's scroll in retail's units, the lines it is scrolled up from
     // the newest message. ScrollToOffset (`void __thiscall(smf, int offset)`,
     // `ret 4`) is the body of SetScrollFromBottom (0x00793070), 4.3.4's

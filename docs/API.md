@@ -386,6 +386,7 @@ build instructions.
   - [Script binding types](#script-binding-types)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`smf:GetMessageInfo(index)`](#smfgetmessageinfoindex)
+  - [`smf:BackFillMessage(text, r, g, b, ...)`](#smfbackfillmessagetext-r-g-b-)
   - [`smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`](#smfsetscrolloffsetoffset--smfgetscrolloffset--smfgetmaxscrollrange--smfscrollbyamountamount)
   - [`smf:SetInsertMode(mode)` / `smf:GetInsertMode()`](#smfsetinsertmodemode--smfgetinsertmode)
   - [`smf:AddOnDisplayRefreshedCallback(callback)`](#smfaddondisplayrefreshedcallbackcallback)
@@ -8694,6 +8695,30 @@ ChatFrame1:GetMessageInfo(ChatFrame1:GetNumMessages())
 for i = 1, ChatFrame1:GetNumMessages() do
     local text, r, g, b = ChatFrame1:GetMessageInfo(i)   -- oldest message first
 end
+```
+
+### `smf:BackFillMessage(text, r, g, b, ...)`
+
+On ScrollingMessageFrame. Adds a message as the oldest message of the frame.
+`AddMessage` adds the newest message. `BackFillMessage` adds history behind
+the messages that the frame already has. An addon that rebuilds a frame from
+a history walks the history from the newest entry to the oldest and adds each
+entry with this function. The messages that the frame already has do not
+move.
+
+- `text`, `r`, `g`, `b` and the extra values work as in `AddMessage`.
+  Without `r`, `g` and `b`, the message takes the color of the frame's font.
+  `GetMessageInfo` returns the extra values after the color.
+- If the frame is at its line limit (`SetMaxLines`), the function drops the
+  message, because the message is older than each message that the frame
+  keeps.
+- If the frame is scrolled to the bottom, the frame shows the message when
+  there is room above its other lines. If the frame is scrolled up, the frame
+  keeps its view.
+
+```lua
+ChatFrame1:BackFillMessage("older", 1, 1, 1)
+ChatFrame1:GetMessageInfo(1)   -- "older", 1, 1, 1
 ```
 
 ### `smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`

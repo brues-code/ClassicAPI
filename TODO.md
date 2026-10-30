@@ -4086,7 +4086,10 @@ Each entry still needs the usual check of how the engine does it before building
   `SetScrollFromBottom`, 0x00793070, under its later name, clamped as
   retail), `GetScrollOffset`, `GetMaxScrollRange`, `ScrollByAmount`,
   `AddOnDisplayRefreshedCallback`, `SetInsertMode` / `GetInsertMode` (TOP
-  through a redirect of the layout's one line-anchor call, 0x00788975).
+  through a redirect of the layout's one line-anchor call, 0x00788975),
+  `BackFillMessage` (writes 4.3.4's addToTop slot of the ring, the free one
+  before the oldest; a full frame drops it, as retail's CircularBuffer
+  `PushBack` does — 4.3.4 overwrites the oldest there).
 - **ScrollingMessageFrame** `RemoveMessagesByAccessID` / `RemoveMessagesByExtraData` (4.3.4 C; retail
   has `RemoveMessagesByPredicate`): 1.12 has no ring compaction.
 - **DONE** (`src/editbox/Focus.cpp`, `src/animation/Framerate.cpp`).
