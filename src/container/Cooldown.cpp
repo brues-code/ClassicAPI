@@ -33,9 +33,22 @@ int __fastcall Script_C_Container_GetItemCooldown(void *L) {
     return 3;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemID", "number"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("startTime", "number",
+                   "When the cooldown started, in GetTime() seconds; 0 when none."),
+    Game::Doc::Req("duration", "number", "Length in seconds; 0 when there is no cooldown."),
+    Game::Doc::Req("enable", "number",
+                   "0 while the cooldown waits to start, as for a potion used in combat; else 1."),
+};
+const Game::Doc::Function kGetItemCooldown{
+    "Returns the cooldown of an item's use effect.", kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetItemCooldown",
-                                     &Script_C_Container_GetItemCooldown);
+                                     &Script_C_Container_GetItemCooldown, &kGetItemCooldown);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

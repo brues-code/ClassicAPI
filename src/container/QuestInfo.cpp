@@ -97,9 +97,29 @@ int __fastcall Script_C_Container_GetContainerItemQuestInfo(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kItemQuestInfoFields[] = {
+    Game::Doc::Req("isQuestItem", "bool"),
+    Game::Doc::Opt("questID", "number", nullptr,
+                   "The quest the item begins; nil when it begins none."),
+    Game::Doc::Req("isActive", "bool", "True when the quest in questID is in the quest log."),
+};
+const Game::Doc::Structure kItemQuestInfo{"ItemQuestInfo", "Container", kItemQuestInfoFields};
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("questInfo", "ItemQuestInfo",
+                   "Always a table; an empty slot reports no quest."),
+};
+const Game::Doc::Function kGetContainerItemQuestInfo{
+    "Returns how the item in a bag slot relates to quests.", kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemQuestInfo",
-                                     &Script_C_Container_GetContainerItemQuestInfo);
+                                     &Script_C_Container_GetContainerItemQuestInfo,
+                                     &kGetContainerItemQuestInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -43,9 +43,21 @@ int __fastcall Script_C_Container_GetContainerItemCharges(void *L) {
         L, Item::Location::ResolveBag(L, bagID, slotIndex));
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("uses", "number", nullptr, "Nil when the slot is empty."),
+};
+const Game::Doc::Function kGetContainerItemCharges{
+    "Returns the uses left on the item in a bag slot: its charges times its stack size.",
+    kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemCharges",
-                                     &Script_C_Container_GetContainerItemCharges);
+                                     &Script_C_Container_GetContainerItemCharges,
+                                     &kGetContainerItemCharges);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -40,9 +40,20 @@ int __fastcall Script_C_Container_HasContainerItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("hasItem", "bool"),
+};
+const Game::Doc::Function kHasContainerItem{
+    "Returns whether a bag slot holds an item, even one whose data is not cached yet.",
+    kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "HasContainerItem",
-                                     &Script_C_Container_HasContainerItem);
+                                     &Script_C_Container_HasContainerItem, &kHasContainerItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

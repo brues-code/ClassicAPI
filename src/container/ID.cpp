@@ -41,9 +41,19 @@ int __fastcall Script_C_Container_GetContainerItemID(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr, "Nil when the slot is empty."),
+};
+const Game::Doc::Function kGetContainerItemID{"Returns the ID of the item in a bag slot.",
+                                              kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemID",
-                                     &Script_C_Container_GetContainerItemID);
+                                     &Script_C_Container_GetContainerItemID, &kGetContainerItemID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

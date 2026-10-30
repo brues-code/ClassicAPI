@@ -49,9 +49,21 @@ int __fastcall Script_C_Container_SwapItems(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("srcBag", "BagIndex"),
+    Game::Doc::Req("srcSlot", "luaIndex"),
+    Game::Doc::Req("dstBag", "BagIndex"),
+    Game::Doc::Req("dstSlot", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("sent", "bool", "False when an argument is not valid."),
+};
+const Game::Doc::Function kSwapItems{
+    "Swaps the contents of two bag slots without the cursor.", kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Container", "SwapItems",
-                                     &Script_C_Container_SwapItems);
+    Game::Lua::RegisterTableFunction("C_Container", "SwapItems", &Script_C_Container_SwapItems,
+                                     &kSwapItems);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

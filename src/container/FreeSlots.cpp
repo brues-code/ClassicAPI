@@ -182,15 +182,45 @@ int __fastcall Script_C_Container_CalculateTotalNumberOfFreeBagSlots(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kBagArgs[] = {
+    Game::Doc::Req("bagIndex", "BagIndex", "0 for the backpack, 1 to 4 for the equipped bags."),
+};
+const Game::Doc::Field kNumFreeSlotsRets[] = {
+    Game::Doc::Req("numFreeSlots", "number", "0 when the bag does not exist."),
+    Game::Doc::Req("bagFamily", "number",
+                   "The bag's family bitmask; 0 for a bag that takes any item."),
+};
+const Game::Doc::Function kGetContainerNumFreeSlots{
+    "Returns the number of empty slots in a bag and the kind of items the bag takes.",
+    kBagArgs, kNumFreeSlotsRets};
+
+const Game::Doc::Field kFreeSlotsRets[] = {
+    Game::Doc::Opt("freeSlots", "table", nullptr,
+                   "The empty slot numbers in ascending order; nil when the bag does not exist."),
+};
+const Game::Doc::Function kGetContainerFreeSlots{
+    "Returns the numbers of the empty slots in a bag.", kBagArgs, kFreeSlotsRets};
+
+const Game::Doc::Field kTotalRets[] = {
+    Game::Doc::Req("totalFreeSlots", "number"),
+};
+const Game::Doc::Function kCalculateTotalNumberOfFreeBagSlots{
+    "Returns the number of empty slots in the backpack and the equipped bags that take "
+    "any item.",
+    {}, kTotalRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerNumFreeSlots",
-                                     &Script_C_Container_GetContainerNumFreeSlots);
+                                     &Script_C_Container_GetContainerNumFreeSlots,
+                                     &kGetContainerNumFreeSlots);
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerFreeSlots",
-                                     &Script_C_Container_GetContainerFreeSlots);
+                                     &Script_C_Container_GetContainerFreeSlots,
+                                     &kGetContainerFreeSlots);
     Game::Lua::RegisterTableFunction("C_Container", "CalculateTotalNumberOfFreeBagSlots",
-                                     &Script_C_Container_CalculateTotalNumberOfFreeBagSlots);
+                                     &Script_C_Container_CalculateTotalNumberOfFreeBagSlots,
+                                     &kCalculateTotalNumberOfFreeBagSlots);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

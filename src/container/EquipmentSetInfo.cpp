@@ -80,10 +80,25 @@ int __fastcall Script_C_Container_GetContainerItemEquipmentSetInfo(void *L) {
     return 2;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("inSet", "bool"),
+    Game::Doc::Opt("setList", "string", nullptr,
+                   "The set names joined by PLAYER_LIST_DELIMITER; nil when inSet is false."),
+};
+const Game::Doc::Function kGetContainerItemEquipmentSetInfo{
+    "Returns whether the item in a bag slot is saved in an equipment set, and the "
+    "names of those sets.",
+    kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(
         "C_Container", "GetContainerItemEquipmentSetInfo",
-        &Script_C_Container_GetContainerItemEquipmentSetInfo);
+        &Script_C_Container_GetContainerItemEquipmentSetInfo,
+        &kGetContainerItemEquipmentSetInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

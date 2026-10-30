@@ -57,9 +57,23 @@ int __fastcall Script_C_Container_MoveItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("srcBag", "BagIndex"),
+    Game::Doc::Req("srcSlot", "luaIndex"),
+    Game::Doc::Req("dstBag", "BagIndex"),
+    Game::Doc::Req("dstSlot", "luaIndex"),
+    Game::Doc::Req("count", "number", "From 1 to 255."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("sent", "bool", "False when an argument is not valid."),
+};
+const Game::Doc::Function kMoveItem{
+    "Moves part of a stack to another bag slot without the cursor.", kArgs, kRets, nullptr,
+    true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Container", "MoveItem",
-                                     &Script_C_Container_MoveItem);
+    Game::Lua::RegisterTableFunction("C_Container", "MoveItem", &Script_C_Container_MoveItem,
+                                     &kMoveItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
