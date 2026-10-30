@@ -1,14 +1,12 @@
--- Backport of 3.3.5 FrameXML/EventUtil.lua to vanilla 1.12 / Lua 5.0.
+-- Backport of retail Blizzard_SharedXML/EventUtil.lua to vanilla 1.12 / Lua 5.0.
 --
--- Implementation differences from the 3.3.5 source:
---   - Lua 5.0 has no select(); we work off the implicit `arg` table
---     in vararg functions.
---   - 1.12 has no C_AddOns; the legacy global IsAddOnLoaded(name)
---     fills the same role.
---   - 1.12 has no secureexecuterange; queued callbacks are dispatched
---     by a plain ipairs loop.
---   - AreVariablesLoaded in 3.3.5 sniffs GlueParent / UIParent.firstTimeLoaded.
---     1.12 has neither; we track a private flag flipped on VARIABLES_LOADED.
+-- Implementation differences from the retail source:
+--   - Retail's UIParent sets UIParent.variablesLoaded and calls
+--     EventUtil.TriggerOnVariablesLoaded on VARIABLES_LOADED. 1.12's
+--     FrameXML does neither, so the frame at the bottom of this file does
+--     both.
+--   - Varargs are read from the implicit `arg` table, which every Lua 5.0
+--     vararg function already has, rather than walked with select().
 
 EventUtil = {}
 
@@ -19,7 +17,7 @@ function ContinueAfterAllEventsMixin:Init(callback, ...)
 
     for index = 1, arg.n do
         local event = arg[index]
-        assert(C_EventUtils.IsEventValid(event), "Unknown event \"" .. event .. "\"")
+        assert(C_EventUtils.IsEventValid(event), ("Unknown event \"%s\""):format(event))
         self.events[event] = false
 
         local function OnEventReceived()
@@ -50,13 +48,8 @@ function EventUtil.ContinueAfterAllEvents(callback, ...)
     obj:Init(callback, unpack(arg))
 end
 
--- Tracked locally because 1.12 has no GlueParent / UIParent.firstTimeLoaded.
--- Bootstrap frame at the bottom of the file listens for VARIABLES_LOADED
--- and flips the flag, then drains the queued callbacks via the
--- TriggerOnVariablesLoaded path.
-local variablesLoaded = false
 function EventUtil.AreVariablesLoaded()
-    return variablesLoaded
+    return GlueParent or (UIParent and UIParent.variablesLoaded)
 end
 
 local eventUtilVariablesLoadedCallbacks = {}
@@ -69,25 +62,26 @@ function EventUtil.ContinueOnVariablesLoaded(callback)
     table.insert(eventUtilVariablesLoadedCallbacks, callback)
 end
 
+local secureexecuterange = secureexecuterange
 local eventUtilContinueOnVariablesLoadedTriggered = false
 function EventUtil.TriggerOnVariablesLoaded()
     if eventUtilContinueOnVariablesLoadedTriggered then
+        -- If TriggerOnVariablesLoaded has been called once already, don't do anything further.
         return
     end
     eventUtilContinueOnVariablesLoadedTriggered = true
-    variablesLoaded = true
 
-    for _, callback in ipairs(eventUtilVariablesLoadedCallbacks) do
+    secureexecuterange(eventUtilVariablesLoadedCallbacks, function(_, callback)
         callback()
-    end
+    end)
 end
 
 function EventUtil.ContinueOnAddOnLoaded(addOnName, callback)
-	local isLoadedOrLoading, isLoaded = C_AddOns.IsAddOnLoaded(addOnName)
-	if isLoaded then
-		callback();
-		return;
-	end
+    local isLoadedOrLoading, isLoaded = C_AddOns.IsAddOnLoaded(addOnName)
+    if isLoaded then
+        callback()
+        return
+    end
 
     EventUtil.RegisterOnceFrameEventAndCallback("ADDON_LOADED", callback, addOnName)
 end
@@ -125,6 +119,7 @@ function CallbackHandleContainerMixin:Init()
     self.handles = {}
 end
 
+-- Accepts any CBR and stores a handle to the registered callback.
 function CallbackHandleContainerMixin:RegisterCallback(cbr, event, callback, owner)
     self:AddHandle(cbr:RegisterCallbackWithHandle(event, callback, owner))
 end
@@ -141,7 +136,7 @@ function CallbackHandleContainerMixin:Unregister()
 end
 
 function CallbackHandleContainerMixin:IsEmpty()
-    return table.getn(self.handles) == 0
+    return #self.handles == 0
 end
 
 function EventUtil.CreateCallbackHandleContainer()
@@ -150,13 +145,13 @@ function EventUtil.CreateCallbackHandleContainer()
     return cbrHandles
 end
 
--- VARIABLES_LOADED bootstrap. Drains anything queued via
--- ContinueOnVariablesLoaded the first time the event fires. We use a
--- dedicated frame so we don't pollute EventRegistry's payload routing.
+-- Retail UIParent's VARIABLES_LOADED work for EventUtil: mark the variables
+-- loaded, then run what ContinueOnVariablesLoaded queued.
 do
     local f = CreateFrame("Frame")
     f:RegisterEvent("VARIABLES_LOADED")
     f:SetScript("OnEvent", function()
+        UIParent.variablesLoaded = true
         EventUtil.TriggerOnVariablesLoaded()
         f:UnregisterEvent("VARIABLES_LOADED")
     end)
