@@ -386,6 +386,9 @@ build instructions.
   - [Script binding types](#script-binding-types)
   - [`smf:SetHyperlinksEnabled(enabled)` / `smf:GetHyperlinksEnabled()`](#smfsethyperlinksenabledenabled--smfgethyperlinksenabled)
   - [`smf:GetMessageInfo(index)`](#smfgetmessageinfoindex)
+  - [`smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`](#smfsetscrolloffsetoffset--smfgetscrolloffset--smfgetmaxscrollrange--smfscrollbyamountamount)
+  - [`smf:SetInsertMode(mode)` / `smf:GetInsertMode()`](#smfsetinsertmodemode--smfgetinsertmode)
+  - [`smf:AddOnDisplayRefreshedCallback(callback)`](#smfaddondisplayrefreshedcallbackcallback)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
@@ -8691,6 +8694,64 @@ ChatFrame1:GetMessageInfo(ChatFrame1:GetNumMessages())
 for i = 1, ChatFrame1:GetNumMessages() do
     local text, r, g, b = ChatFrame1:GetMessageInfo(i)   -- oldest message first
 end
+```
+
+### `smf:SetScrollOffset(offset)` / `smf:GetScrollOffset()` / `smf:GetMaxScrollRange()` / `smf:ScrollByAmount(amount)`
+
+On ScrollingMessageFrame. The scroll offset is the number of lines that the
+frame is scrolled up from the newest message. At the bottom, the offset is 0.
+The largest offset is `GetMaxScrollRange()`, that is `GetNumMessages() - 1`,
+or 0 for an empty frame. At that offset, the oldest message is the bottom
+line.
+
+- `SetScrollOffset(offset)` scrolls to `offset`. An offset less than 0 or
+  more than `GetMaxScrollRange()` changes to the nearest limit.
+- `ScrollByAmount(amount)` adds `amount` to the offset. A positive amount
+  scrolls up, to older messages. The function also shows the faded lines
+  again, also when the offset does not change.
+- If `offset` or `amount` is not a number, the function gives an error.
+
+```lua
+ChatFrame1:ScrollByAmount(3)     -- 3 lines up
+ChatFrame1:GetScrollOffset()     -- 3
+ChatFrame1:SetScrollOffset(ChatFrame1:GetMaxScrollRange())   -- the oldest message
+ChatFrame1:SetScrollOffset(0)    -- the newest message again
+```
+
+### `smf:SetInsertMode(mode)` / `smf:GetInsertMode()`
+
+On ScrollingMessageFrame. The insert mode tells where the newest message
+shows. The frame always shows the newest message at the bottom, so
+`GetInsertMode()` returns `SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM` (2).
+`SetInsertMode` accepts only this value. For
+`SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP` (1) or any other value, it gives an
+error.
+
+```lua
+ChatFrame1:GetInsertMode() == SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM   -- true
+```
+
+### `smf:AddOnDisplayRefreshedCallback(callback)`
+
+On ScrollingMessageFrame. Adds a function that the frame calls as
+`callback(frame)` after it refreshes the messages that it shows. The frame
+refreshes after a new message, a scroll, a resize, a font change, or
+`Clear()`.
+
+- The callbacks run one time, in the next update of the frame, in the order
+  that you added them.
+- A hidden frame runs its callbacks when it shows again.
+- An error in one callback goes to the error handler, and the other callbacks
+  still run.
+- A change that a callback makes to the frame does not run the callbacks
+  again.
+- If `callback` is not a function, the method gives an error. You cannot
+  remove a callback.
+
+```lua
+ChatFrame1:AddOnDisplayRefreshedCallback(function(frame)
+    MyScrollLabel:SetText(frame:GetScrollOffset() .. " / " .. frame:GetMaxScrollRange())
+end)
 ```
 
 ### `frame:IsEventRegistered(event)`

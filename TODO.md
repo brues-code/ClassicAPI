@@ -4081,12 +4081,16 @@ Each entry still needs the usual check of how the engine does it before building
   `GetRotatesTexture` (`CSimpleStatusBar.cpp:135`, the vertical texcoord path
   at `:285`). Retail adds `SetFillStyle` (STANDARD / CENTER / REVERSE),
   `SetColorFill`, `SetStatusBarDesaturated` / `Desaturation`.
-- **DONE** (`src/scrollingmessageframe/MessageInfo.cpp`, retail's return
-  values). **ScrollingMessageFrame** `GetMessageInfo`.
-- **ScrollingMessageFrame** `SetInsertMode` / `GetInsertMode`,
-  `RemoveMessagesByAccessID`, `RemoveMessagesByExtraData`, `SetScrollOffset`
-  — in C in 4.3.4 (retail moved the type to Lua). `SetScrollOffset` is
-  1.12's `SetScrollFromBottom` (0x00793070) under its later name.
+- **DONE** (`src/scrollingmessageframe/`, retail's shapes).
+  **ScrollingMessageFrame** `GetMessageInfo`, `SetScrollOffset` (1.12's
+  `SetScrollFromBottom`, 0x00793070, under its later name, clamped as
+  retail), `GetScrollOffset`, `GetMaxScrollRange`, `ScrollByAmount`,
+  `AddOnDisplayRefreshedCallback`, `SetInsertMode` / `GetInsertMode` (BOTTOM
+  only).
+- **ScrollingMessageFrame** insert mode TOP: 1.12's line layout (0x00788750)
+  stacks lines bottom-up only; TOP needs that layout to anchor top-down.
+  `RemoveMessagesByAccessID` / `RemoveMessagesByExtraData` (4.3.4 C; retail
+  has `RemoveMessagesByPredicate`): 1.12 has no ring compaction.
 - **DONE** (`src/editbox/Focus.cpp`, `src/animation/Framerate.cpp`).
   **Globals** (`SimpleFrameScript_Scripts.cpp`): `GetCurrentKeyBoardFocus()`
   (the focused edit box's wrapper, or nil); `SetMaxAnimFramerate(fps)` /

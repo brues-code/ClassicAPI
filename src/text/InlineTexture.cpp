@@ -79,6 +79,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "scrollingmessageframe/Layout.h"
 #include "text/InlineTexturePool.h"
 #include "text/PtrProbe.h"
 #include "texture/Atlas.h"
@@ -2085,7 +2086,8 @@ static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
 // So a line's icons are recorded — and its regions placed — one frame AFTER its
 // glyphs draw, because a frame's textures (our icon regions) draw before its
 // fontstring glyphs and the placement isn't computed until the glyph build runs
-// mid-paint. This co-hook closes it: after the refresh sets up the lines (still
+// mid-paint. This layout listener (ScrollingMessageFrame::Layout, which owns
+// the hook) closes it: after the refresh sets up the lines (still
 // PRE-RENDER — the refresh runs from the SMF's Lua/event-driven methods, never
 // mid-render), force each icon-bearing line to resolve+build and apply its icon
 // placement synchronously, so the icons draw with their glyphs the same frame.
@@ -2095,9 +2097,6 @@ static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
 // one-frame lagged). Gated by its own toggle (default on) so it can be A/B'd and
 // disabled independently of the whole feature; the SEH latch trips it on a fault.
 bool g_earlyApply = true;
-
-using SmfRefresh_t = void(__fastcall *)(void *smf, void *edx, int newestIdx);
-SmfRefresh_t g_smfRefreshOriginal = nullptr;
 
 using EnsureBuilt_t = int(__fastcall *)(void *node);
 using RealizeAnchor_t = void(__thiscall *)(void *anchor, int flag);
@@ -2183,15 +2182,12 @@ void SafeSmfEarlyApply(void *smf) {
     }
 }
 
-void __fastcall SmfRefresh_h(void *smf, void *edx, int newestIdx) {
-    g_smfRefreshOriginal(smf, edx, newestIdx);
+void OnSmfLayout(void *smf) {
     if (g_inlineEnabled && g_earlyApply)
         SafeSmfEarlyApply(smf);
 }
 
-static const Game::HookAutoRegister _smfRefreshHook{
-    Offsets::FUN_SMF_DISPLAY_REFRESH, reinterpret_cast<void *>(&SmfRefresh_h),
-    reinterpret_cast<void **>(&g_smfRefreshOriginal)};
+static const ScrollingMessageFrame::Layout::AutoSubscribe _smfLayoutSub{&OnSmfLayout};
 
 // --- Lua control surface ---------------------------------------------------
 

@@ -45,6 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "scrollingmessageframe/DisplayRefreshed.h"
 
 #include <cstdint>
 
@@ -140,6 +141,8 @@ int __fastcall Script_AddMessage(void *L) {
     if (frame == nullptr)
         return 0;
     StoreExtras(L, Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS), top);
+    // Scrolled up, the engine adds the message without a layout.
+    DisplayRefreshed::MarkDirty(frame);
     return 0;
 }
 

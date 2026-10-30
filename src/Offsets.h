@@ -988,7 +988,8 @@ enum Offsets {
     // message. Every new message shifts the newest index, so EVERY visible slot
     // is re-SetText'd -> its inline icons must be recomputed; the engine builds
     // the line lazily at paint, so icons land one frame after the glyphs (the
-    // one-frame lag). Text::InlineTexture co-hooks this and, post-refresh,
+    // one-frame lag). ScrollingMessageFrame::Layout owns the hook and fans
+    // out after it; Text::InlineTexture listens and, post-refresh,
     // forces each icon-bearing line to resolve+build and applies its icon
     // placement synchronously — pre-render (the refresh runs from the SMF's
     // Lua/event-driven methods, never mid-render), so icons draw with their
@@ -12856,6 +12857,22 @@ enum Offsets {
     SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE = 0x18,
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT = 0x0,
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COLOR = 0x4,
+    // The frame's scroll in retail's units, the lines it is scrolled up from
+    // the newest message. ScrollToOffset (`void __thiscall(smf, int offset)`,
+    // `ret 4`) is the body of SetScrollFromBottom (0x00793070), 4.3.4's
+    // SetScrollOffset (0x0051E6F0) step for step: the record (position -
+    // offset + count) % count, then it re-arms the shown lines (0x00788B80)
+    // when that is the current scroll and lays the lines out from it
+    // (FUN_SMF_DISPLAY_REFRESH) otherwise. ScrollOffset (`int
+    // __thiscall(smf)`) is the inverse, (position - scroll + count) % count,
+    // 0 when empty; the GetCurrentScroll method pushes it.
+    FUN_SCROLLINGMESSAGEFRAME_SCROLL_TO_OFFSET = 0x00788700,
+    FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET = 0x00788AC0,
+    FUN_SCRIPT_SCROLLINGMESSAGEFRAME_GET_CURRENT_SCROLL = 0x00793650,
+    // The frame's OnFrameUpdate override (vtable+0x38, see
+    // FUN_FRAME_ON_UPDATE), `void __thiscall(smf, float elapsed)`, `ret 4`:
+    // FUN_FRAME_ON_UPDATE (OnUpdate), then the fader.
+    FUN_SCROLLINGMESSAGEFRAME_ON_UPDATE = 0x00788460,
 
     // Focused-editbox global — holds the CSimpleEditBox that currently has
     // keyboard focus (the one showing a cursor), or 0 when no input field is
