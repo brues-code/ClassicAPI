@@ -39,5 +39,7 @@ void RecordFrameMethods(const void *registry, const Game::Lua::FrameMethodEntry 
 void NameWidgetSystem(const void *registry, const char *system);
 void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,
                 int count, const char *system);
+void RecordConstants(const char *sub, const Game::Lua::EnumIntegerEntry *entries, int count,
+                     const char *system);
 
 } // namespace Api::Documentation

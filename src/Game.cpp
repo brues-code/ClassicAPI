@@ -401,12 +401,12 @@ void RegisterGlobalAlias(const char *alias, const char *tableName, const char *m
     Api::Documentation::RecordGlobal(alias, doc);
 }
 
-void RegisterIntegerEnum(const char *parent, const char *sub,
-                         const EnumIntegerEntry *entries, int count,
-                         const char *docSystem) {
+// `_G[parent][sub] = { entries }`, creating `_G[parent]` if needed.
+static bool SetIntegerTable(const char *parent, const char *sub,
+                            const EnumIntegerEntry *entries, int count) {
     void *L = State();
     if (L == nullptr)
-        return;
+        return false;
     EnsureGlobalTable(L, parent); // [parentTbl]
     PushString(L, sub);           // [parentTbl, subName]
     NewTable(L);                  // [parentTbl, subName, subTbl]
@@ -417,7 +417,20 @@ void RegisterIntegerEnum(const char *parent, const char *sub,
     }
     SetTable(L, -3); // parentTbl[sub] = subTbl
     SetTop(L, -2);   // pop parentTbl
-    Api::Documentation::RecordEnum(parent, sub, entries, count, docSystem);
+    return true;
+}
+
+void RegisterIntegerEnum(const char *parent, const char *sub,
+                         const EnumIntegerEntry *entries, int count,
+                         const char *docSystem) {
+    if (SetIntegerTable(parent, sub, entries, count))
+        Api::Documentation::RecordEnum(parent, sub, entries, count, docSystem);
+}
+
+void RegisterConstants(const char *sub, const EnumIntegerEntry *entries, int count,
+                       const char *docSystem) {
+    if (SetIntegerTable("Constants", sub, entries, count))
+        Api::Documentation::RecordConstants(sub, entries, count, docSystem);
 }
 
 void SetFieldNumber(void *L, const char *key, double value) {

@@ -36,8 +36,8 @@
 //                               listed by the coverage function
 //   - a frame method         -> Blizzard's widget system for its registry
 //                               ("SimpleTextureAPI", Type "ScriptObject")
-//   - an enum / structure /
-//     event                  -> the System named in its declaration
+//   - an enum / constants /
+//     structure / event      -> the System named in its declaration
 // A system's `Environment` is "All" when its functions were recorded in both
 // Lua states, else "Game" or "Glue"; a function whose own environment is
 // narrower than its system's gets a Documentation line saying so.
@@ -79,13 +79,20 @@ enum Kind : uint8_t {
     KIND_TABLE,            // RegisterTableFunction
     KIND_FRAME_METHOD,     // RegisterFrameMethods, one per entry
     KIND_ENUM,             // RegisterIntegerEnum
+    KIND_CONSTANTS,        // RegisterConstants
     KIND_ORPHAN_METHOD_DOC // a Doc::Method naming no entry in its table
 };
+
+// The value-table kinds, which share the enum* fields of Entry.
+bool IsValueTable(Kind kind) {
+    return kind == KIND_ENUM || kind == KIND_CONSTANTS;
+}
 
 struct Entry {
     Kind kind;
     unsigned env;          // Env bits the registration was recorded in
-    const char *table;     // KIND_TABLE: the namespace; KIND_ENUM: the parent ("Enum")
+    const char *table;     // KIND_TABLE: the namespace; KIND_ENUM: the parent ("Enum");
+                           // KIND_CONSTANTS: "Constants"
     const char *name;      // registered name / method name / enum sub-name
     const void *registry;  // frame methods only
     const Function *doc;   // nullptr = undocumented
@@ -195,6 +202,7 @@ const char *SystemOf(const Entry &e) {
     case KIND_FRAME_METHOD:
         return WidgetSystemFor(e.registry);
     case KIND_ENUM:
+    case KIND_CONSTANTS:
         return e.enumSystem;
     default:
         return nullptr;
@@ -240,6 +248,7 @@ std::vector<SystemInfo> CollectSystems() {
             AddSystem(systems, SystemOf(e), nullptr, "ScriptObject", e.env);
             break;
         case KIND_ENUM:
+        case KIND_CONSTANTS:
             AddSystem(systems, e.enumSystem, nullptr, nullptr, 0);
             break;
         default:
@@ -394,6 +403,25 @@ void PushEnumeration(void *L, const Entry &e) {
     Lua::SetTable(L, -3);
 }
 
+// Pushes { Name, Type = "Constants",
+//          Values = { { Name, Type = "number", Value } } }.
+void PushConstants(void *L, const Entry &e) {
+    Lua::NewTable(L);
+    Lua::SetFieldString(L, "Name", e.name);
+    Lua::SetFieldString(L, "Type", "Constants");
+    Lua::PushString(L, "Values");
+    Lua::NewTable(L);
+    for (int i = 0; i < e.enumCount; ++i) {
+        Lua::PushNumber(L, static_cast<double>(i + 1));
+        Lua::NewTable(L);
+        Lua::SetFieldString(L, "Name", e.enumEntries[i].key);
+        Lua::SetFieldString(L, "Type", "number");
+        Lua::SetFieldNumber(L, "Value", e.enumEntries[i].value);
+        Lua::SetTable(L, -3);
+    }
+    Lua::SetTable(L, -3);
+}
+
 // Pushes { Name, Type = "Structure" [, Documentation], Fields = { … } }.
 void PushStructure(void *L, const Structure &s) {
     Lua::NewTable(L);
@@ -479,10 +507,13 @@ void PushSystem(void *L, const SystemInfo &sys) {
         Lua::SetTable(L, -3);
     }
     for (const Entry &e : g_entries) {
-        if (e.kind != KIND_ENUM || !SameTextNoCase(e.enumSystem, sys.name))
+        if (!IsValueTable(e.kind) || !SameTextNoCase(e.enumSystem, sys.name))
             continue;
         Lua::PushNumber(L, static_cast<double>(++n));
-        PushEnumeration(L, e);
+        if (e.kind == KIND_ENUM)
+            PushEnumeration(L, e);
+        else
+            PushConstants(L, e);
         Lua::SetTable(L, -3);
     }
     Lua::SetTable(L, -3);
@@ -527,6 +558,7 @@ std::vector<std::string> Undocumented() {
             break;
         }
         case KIND_ENUM:
+        case KIND_CONSTANTS:
             if (e.enumSystem == nullptr)
                 out.push_back(std::string(e.table) + "." + e.name);
             break;
@@ -662,18 +694,21 @@ void NameWidgetSystem(const void *registry, const char *system) {
     g_ownWidgetSystems.push_back({reinterpret_cast<uintptr_t>(registry), system});
 }
 
-void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,
-                int count, const char *system) {
+namespace {
+
+void RecordValueTable(Kind kind, const char *parent, const char *sub,
+                      const Game::Lua::EnumIntegerEntry *entries, int count,
+                      const char *system) {
     if (g_pass == ENV_NONE || sub == nullptr)
         return;
-    if (Entry *e = Find(KIND_ENUM, parent, sub, nullptr)) {
+    if (Entry *e = Find(kind, parent, sub, nullptr)) {
         e->env |= g_pass;
         if (e->enumSystem == nullptr)
             e->enumSystem = system;
         return;
     }
     Entry e{};
-    e.kind = KIND_ENUM;
+    e.kind = kind;
     e.env = g_pass;
     e.table = parent;
     e.name = sub;
@@ -681,6 +716,18 @@ void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntege
     e.enumEntries = entries;
     e.enumCount = count;
     g_entries.push_back(e);
+}
+
+} // namespace
+
+void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,
+                int count, const char *system) {
+    RecordValueTable(KIND_ENUM, parent, sub, entries, count, system);
+}
+
+void RecordConstants(const char *sub, const Game::Lua::EnumIntegerEntry *entries, int count,
+                     const char *system) {
+    RecordValueTable(KIND_CONSTANTS, "Constants", sub, entries, count, system);
 }
 
 } // namespace Api::Documentation

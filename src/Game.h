@@ -516,9 +516,9 @@ void RegisterTableFunction(const char *tableName, const char *methodName,
 void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName,
                          const Doc::Function *doc = nullptr);
 
-// Key/value pair for `RegisterIntegerEnum`. `key` becomes a field name
-// (PascalCase, matching Blizzard's `Enum.*` naming) and `value` is the
-// integer the enum field maps to.
+// Key/value pair for `RegisterIntegerEnum` and `RegisterConstants`. `key`
+// becomes a field name (PascalCase for Blizzard's `Enum.*`, UPPER_CASE for
+// its `Constants.*`) and `value` is the integer the field maps to.
 struct EnumIntegerEntry {
     const char *key;
     int value;
@@ -532,6 +532,12 @@ struct EnumIntegerEntry {
 void RegisterIntegerEnum(const char *parent, const char *sub,
                          const EnumIntegerEntry *entries, int count,
                          const char *docSystem = nullptr);
+
+// Registers `Constants[sub] = { entries }`, Blizzard's engine constant
+// tables (`Constants.MoneyFormattingConstants`). Documented as a "Constants"
+// table of `docSystem`.
+void RegisterConstants(const char *sub, const EnumIntegerEntry *entries, int count,
+                       const char *docSystem);
 
 // Set `t[key] = value` on the table currently at stack[-1] (the most
 // common shape used when populating a struct-style table mid-build).

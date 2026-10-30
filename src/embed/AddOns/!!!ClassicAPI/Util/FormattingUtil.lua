@@ -4,9 +4,6 @@
 --   - GetMoneyString always gives the coin-icon form, retail's default. Retail
 --     switches to the text-symbol form ("12g 34s 56c") under its colorblind
 --     mode, which 1.12 does not have.
---   - GetMoneyString accepts checkGoldThreshold but does not apply it yet:
---     FormatDisplayCopper reads Constants.MoneyFormattingConstants, which
---     ClassicAPI does not provide.
 --   - Not ported: FormattingUtil.GetCostString / GetItemCostString (they need
 --     the BreakUpLargeNumbers / AbbreviateNumbers C functions) and
 --     GetCurrencyString / GetCurrenciesString (1.12 has no currencies).
@@ -105,6 +102,8 @@ function GetMoneyString(money, separateThousands, checkGoldThreshold, showZeroAs
 		return color and color:WrapTextInColorCode(goldString) or goldString;
 	end
 
+	copper = FormatDisplayCopper(checkGoldThreshold, gold, silver, copper);
+
 	local moneyString = "";
 	local separator = "";
 	if ( gold > 0 ) then
@@ -120,6 +119,10 @@ function GetMoneyString(money, separateThousands, checkGoldThreshold, showZeroAs
 	end
 
 	return color and color:WrapTextInColorCode(moneyString) or moneyString;
+end
+
+function FormatDisplayCopper(checkGoldThreshold, gold, silver, copper)
+	return (checkGoldThreshold and gold > Constants.MoneyFormattingConstants.GOLD_REWARD_THRESHOLD_TO_HIDE_COPPER ) and 0 or copper;
 end
 
 function FormatPercentage(percentage, roundToNearestInteger)
