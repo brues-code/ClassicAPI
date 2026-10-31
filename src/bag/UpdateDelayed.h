@@ -19,8 +19,9 @@
 // the `BAG_UPDATE_DELAYED` event. Subscribe here to run C++ work exactly once
 // per frame in which any bag actually changed, instead of polling every frame.
 //
-// Callbacks fire at the tail of the world tick, after every BAG_UPDATE for the
-// frame has already fired (so bag contents are settled). No firing on frames
+// Callbacks fire from the world tick's subscription, after the frame's UI draw
+// and after every BAG_UPDATE for the frame has already fired (so bag contents
+// are settled). No firing on frames
 // where nothing changed. Order across subscribers is unspecified.
 //
 // Module pattern, matching `Tick::WorldTick::AutoSubscribe`: declare a

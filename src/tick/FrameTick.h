@@ -35,8 +35,9 @@
 //
 // Subscribers run at the **tail** of the render callback (after the UI strata
 // walk completes, so no frame is mid-draw and mutating regions is safe;
-// mutations take effect next frame — same latency class as WorldTick). Order
-// across subscribers is unspecified.
+// mutations take effect next frame). WorldTick's subscribers run from here
+// too, in a frame whose walk drew the world. Order across subscribers is
+// unspecified.
 //
 // Module pattern (identical to WorldTick): declare a file-scope
 // `static const Tick::FrameTick::AutoSubscribe` in your TU; the constructor
@@ -56,8 +57,9 @@ struct AutoSubscribe {
 // update — the value `OnUpdate` receives. Latched on entry to the render
 // callback, before any `OnUpdate` runs, so every reader in the pass sees its
 // own frame's delta. Code that runs earlier in the engine tick (timers,
-// packets and their events, the world tick and `C_Timer`) runs before the
-// pass and sees the previous pass's delta. The engine keeps no persisting
+// packets and their events) runs before the pass and sees the previous pass's
+// delta; WorldTick's subscribers, `C_Timer` among them, run at the pass's tail
+// and see its own. The engine keeps no persisting
 // copy: its accumulator `DAT_00885608` is zeroed once the pass presents.
 // 0 before the first pass.
 float Elapsed();

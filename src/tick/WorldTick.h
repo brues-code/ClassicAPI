@@ -18,11 +18,13 @@
 // per-frame tick must go through this module instead of registering
 // its own `HookAutoRegister`.
 //
-// Subscribers receive a callback at the **tail** of each frame:
-// the engine's original world-tick runs first, then this module
-// walks the subscriber list. Order across subscribers is unspecified
-// (LIFO of static-init order across TUs), so subscribers must not
-// depend on each other.
+// Subscribers run once per frame in which the world ticked, at the
+// **tail** of that frame's UI draw (from `Tick::FrameTick`), never at
+// the hook itself: the world tick runs inside the UI strata walk, where
+// script work frees fonts that already-built batches still draw (see
+// WorldTick.cpp). Order across subscribers is unspecified (LIFO of
+// static-init order across TUs), so subscribers must not depend on
+// each other.
 //
 // Module pattern, matching `HookAutoRegister` / `ModuleAutoRegister`:
 // declare a file-scope `static const Tick::WorldTick::AutoSubscribe`

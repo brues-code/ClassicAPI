@@ -10325,13 +10325,18 @@ enum Offsets {
     FUN_RAISE_BAG_EVENTS = 0x004F91A0,
     FUN_RAISE_BAG_UPDATE = 0x004F9370,
     FUN_ON_BACKPACK_SLOT_CHANGED = 0x004F8DB0,
-    // World-subsystem per-frame update — runs exactly once per frame
-    // as part of the main world tick (`FUN_00482EA0`). Only one caller
-    // in the entire binary; deep in the rendering/world pipeline,
-    // nowhere near the chat/cast/transmog code regions that other
-    // DLLs (SuperWoWhook / nampower / transmogfix) hook. We hook the
-    // tail of this function to drain `BAG_UPDATE_DELAYED`'s pending
-    // flag — exact per-frame coalescing matching modern WoW.
+    // CWorld::BeginFrame, the world-subsystem per-frame update — runs
+    // exactly once per frame from CGWorldFrame::OnRender
+    // (`FUN_00482EA0`), its only caller, nowhere near the
+    // chat/cast/transmog code regions that other DLLs (SuperWoWhook /
+    // nampower / transmogfix) hook. OnRender is run by WorldFrame's
+    // layer-0 draw callback (`0x00482D70`), so this executes INSIDE the
+    // UI strata walk: the WORLD stratum's batches are already rebuilt and
+    // its levels above 0 (the nameplates) are not drawn yet. Lua run here
+    // that changes a font string in that stratum leaves a batch drawing a
+    // destroyed font (fault in the atlas-page upload under 0x005C8FE0).
+    // `Tick::WorldTick` only notes the tick here and runs its subscribers
+    // after the draw.
     //
     // Calling convention: `__fastcall(int ecx, int edx, int stackArg)`,
     // `RET 0x4` (callee cleans the one stack arg).
