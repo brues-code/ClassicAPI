@@ -52,6 +52,7 @@ struct Reservation {
     const char *name;
     int slot;  // -1 until claimed
     const Game::Doc::Event *doc;  // API documentation; nullptr = undocumented
+    int fixedId;  // an `EngineName`'s engine id (its slot for good); -1 = claimed
 };
 Reservation g_reserved[MAX_RESERVED];
 int g_reservedCount = 0;
@@ -119,6 +120,15 @@ bool Claimable(const uint8_t *base, int id) {
         if (Game::Read<int>(Offsets::VAR_CHAT_TYPE_EVENT_IDS + t * 4) == id)
             return false;
     return true;
+}
+
+// Reservations that need a claimed slot (an `EngineName` has its own).
+int ClaimDemand() {
+    int demand = 0;
+    for (int i = 0; i < g_reservedCount; ++i)
+        if (g_reserved[i].fixedId < 0)
+            ++demand;
+    return demand;
 }
 
 // Walk the engine's event table from the LOW end looking for a claimable
@@ -197,7 +207,8 @@ void Grow() {
 
     const int count = Game::Read<int>(Offsets::VAR_EVENT_TABLE_COUNT);
     auto *base = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR);
-    if (base == nullptr || count <= 0 || g_reservedCount <= 0)
+    const int demand = ClaimDemand();
+    if (base == nullptr || count <= 0 || demand <= 0)
         return;
 
     int nulls = 0;
@@ -207,7 +218,7 @@ void Grow() {
 
     const bool force = g_forceGrowNext;
     g_forceGrowNext = false;
-    if (nulls >= g_reservedCount && !force)
+    if (nulls >= demand && !force)
         return; // plenty of room — the common (only) real case
 
     // Growing moves the buffer, invalidating every entry's self-referential
@@ -227,7 +238,7 @@ void Grow() {
     }
 
     constexpr int kMargin = 16;
-    const int deficit = (nulls < g_reservedCount) ? (g_reservedCount - nulls) : 0;
+    const int deficit = (nulls < demand) ? (demand - nulls) : 0;
     const int newCount = count + deficit + kMargin;
     auto *newBuf = static_cast<uint8_t *>(
         SMemAlloc(static_cast<unsigned>(newCount) * Offsets::EVENT_ENTRY_STRIDE));
@@ -261,7 +272,7 @@ void Grow() {
     SMemFree(base);
 
     Debug::Log::Printf("[event] grew table %d -> %d (%d NULL, %d reserved%s)",
-                       count, newCount, nulls, g_reservedCount,
+                       count, newCount, nulls, demand,
                        force ? ", FORCED" : "");
 }
 
@@ -287,7 +298,21 @@ AutoReserve::AutoReserve(const char *name, const Game::Doc::Event *doc) {
     g_reserved[g_reservedCount].name = name;
     g_reserved[g_reservedCount].slot = -1;
     g_reserved[g_reservedCount].doc = doc;
+    g_reserved[g_reservedCount].fixedId = -1;
     index_ = g_reservedCount;
+    ++g_reservedCount;
+}
+
+EngineName::EngineName(int id, const char *name, const Game::Doc::Event *doc) {
+    if (name == nullptr || id < 0 || id >= Offsets::EVENT_NAME_TABLE_STATIC_COUNT ||
+        g_reservedCount >= MAX_RESERVED)
+        return;
+    auto **slot = reinterpret_cast<const char **>(
+        static_cast<uintptr_t>(Offsets::VAR_EVENT_NAME_TABLE_STATIC)) + id;
+    if (*slot != nullptr)
+        return; // the engine names it; never take an engine event's slot
+    *slot = name;
+    g_reserved[g_reservedCount] = {name, id, doc, id};
     ++g_reservedCount;
 }
 
@@ -395,7 +420,7 @@ void EnableWrites() { g_writesEnabled = true; }
 
 void PrepareForReload() {
     for (int i = 0; i < g_reservedCount; ++i)
-        g_reserved[i].slot = -1;
+        g_reserved[i].slot = g_reserved[i].fixedId;
     g_writesEnabled = false;
     g_warnedTableFull = false;  // fresh table after the rebuild — re-arm
     g_growLatched = false;      // re-arm the one-shot grow for the new table

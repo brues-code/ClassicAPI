@@ -2429,6 +2429,9 @@ enum Offsets {
     //   Per-index watched size (FUN_0051bbb0's switch): i∈{0,2,4,10}=8,
     //   0x29=0xD8 (UNIT_FIELD_AURA), 0x6B=0x30, 0xA7/0xAE=0x1C, else 4.
     VAR_EVENT_NAME_TABLE_STATIC = 0x00BE1198, // char*[] boot name array; slot i (base+i*4) non-null ⇒ real event i
+    // Its length: world init builds the table from it with
+    // `mov edx,0x225; mov ecx,0xBE1198; call 0x703D90` (0x0048FEA1).
+    EVENT_NAME_TABLE_STATIC_COUNT = 0x225,
     EVENT_NAME_UNIT_MAX = 0xB6,               // FUN_0051bbb0's loop bound
 
     // CGPlayer_C::AddActiveWatchers' inventory-slot observer

@@ -64,6 +64,32 @@ private:
     int index_ = -1; // into the reservation table; -1 = dropped (overflow)
 };
 
+// Names engine event `id`, an id the engine already signals by number but
+// 1.12 left unnamed. Place a static instance at file scope:
+//
+//   static const Event::Custom::EngineName _n{id, "MY_EVENT", &kDoc};
+//
+// The unit-field events are the case this serves. `FUN_0051bbb0` watches unit
+// field `i` only when slot `i` of the static name array
+// (`VAR_EVENT_NAME_TABLE_STATIC`) is named, and its watcher fires event `i`
+// once per token of the unit (the field index is the event id). So naming the
+// slot is all the engine needs. Its table build
+// (`SetScriptEventTable(0x00BE1198, 0x225)`, every world init) copies the
+// name, and its own watchers fire the event. Nothing here fires anything.
+//
+// The name is written at construction, which is static init, before any world
+// init or unit watch. Watch and unwatch then always see the same set. Nothing
+// in the binary writes the array except the boot initializer `0x0051AB30`,
+// and it stores only the slots it names. A slot the engine already names is
+// left alone. The caller proves that nothing else signals `id` by number while
+// the game table is installed (the census in `GLUE_EVENT_COUNT`'s comment).
+//
+// The event is documented like a reservation: `ReservedName` / `ReservedDoc`
+// list it, and its slot is `id` for good (never re-claimed on `/reload`).
+struct EngineName {
+    EngineName(int id, const char *name, const Game::Doc::Event *doc);
+};
+
 // Read access to the reservation table for the API documentation: the
 // number of reserved names, the literal name of the i-th (0-based), and its
 // descriptor (nullptr when undocumented). Indices are stable for the

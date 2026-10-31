@@ -253,6 +253,7 @@ build instructions.
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
+  - [`UNIT_TARGET` event](#unit_target-event)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
   - [`UNIT_SPELLCAST_*` events](#unit_spellcast_-events)
@@ -6113,6 +6114,30 @@ after — single fire if any byte changed. The bulk snapshot is 64
 byte reads (cheap) and naturally handles the case where one packet
 carries multiple rep updates whose threshold crossings ripple AT_WAR
 state across unrelated slots.
+
+### `UNIT_TARGET` event
+
+Fires when the target of a unit changes.
+
+```
+UNIT_TARGET: unitTarget
+```
+
+- **`unitTarget`** (string) — the unit token. A unit that has more than
+  one token (for example `target` and `focus`) gets one event for each
+  token.
+
+The event fires for each unit token that gets unit events, `focus`
+included. It fires only for units that the client can see. The token of
+the new target is `unitTarget .. "target"`, for example `focustarget`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterUnitEvent("UNIT_TARGET", "focus")
+f:SetScript("OnEvent", function()
+    print("Focus target:", UnitName("focustarget") or "none")
+end)
+```
 
 ### `UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)
 
