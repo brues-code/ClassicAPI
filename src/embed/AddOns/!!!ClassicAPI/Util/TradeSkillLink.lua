@@ -10,6 +10,8 @@
 --   - TradeSkillFrame_SetSelection's linked branch: a window that shows
 --     another player's profession hides what only works on the player's own
 --     (Create, Create All and the count controls).
+-- 3.3.5 never shows whose profession a linked window holds. 4.3.4 does, with
+-- TradeSkillLinkNameButton and TradeSkillFrame_SetLinkName, ported here too.
 -- The Craft window gets the same through GetCraftListLink and IsCraftLinked.
 
 local TRADE_SKILL_CREATE_CONTROLS = {
@@ -68,8 +70,48 @@ local function CreateProfessionLinkButton(parentName, getLink)
 	return btn;
 end
 
+local TRADE_SKILL_LINKED_NAME_WIDTH = 120;
+
+-- 4.3.4's TradeSkillLinkNameButton: "[name]" after the title of a linked
+-- window, a whisper to that player on click. The returned function is
+-- TradeSkillFrame_SetLinkName. It moves the title left by half the name, from
+-- the title's own anchor, so the pair stays centered where the title was.
+local function CreateLinkNameButton(parentName, isLinked)
+	local title = _G[parentName .. "TitleText"];
+	local point, relativeTo, relativePoint, x, y = title:GetPoint();
+	local btn = CreateFrame("Button", parentName .. "LinkNameButton", _G[parentName]);
+	btn:SetHeight(20);
+	btn:SetPoint("LEFT", title, "RIGHT", 5, 0);
+	local text = btn:CreateFontString(btn:GetName() .. "TitleText", "OVERLAY", "GameFontHighlight");
+	text:SetAllPoints(btn);
+	btn:SetScript("OnClick", function()
+		PlaySound("igMainMenuOptionCheckBoxOn");
+		if this.linkedName then
+			ChatFrame_OpenChat(SLASH_WHISPER1 .. " " .. this.linkedName .. " ", DEFAULT_CHAT_FRAME);
+		end
+	end);
+	btn:Hide();
+
+	return function()
+		local _, linkedName = isLinked();
+		title:ClearAllPoints();
+		if linkedName then
+			btn:Show();
+			text:SetText("[" .. linkedName .. "]");
+			local linkedNameWidth = math.min(text:GetStringWidth(), TRADE_SKILL_LINKED_NAME_WIDTH);
+			btn:SetWidth(linkedNameWidth);
+			btn.linkedName = linkedName;
+			title:SetPoint(point, relativeTo, relativePoint, x - linkedNameWidth / 2, y);
+		else
+			btn:Hide();
+			title:SetPoint(point, relativeTo, relativePoint, x, y);
+		end
+	end
+end
+
 EventUtil.ContinueOnAddOnLoaded("Blizzard_TradeSkillUI", function()
 	local linkButton = CreateProfessionLinkButton("TradeSkillFrame", GetTradeSkillListLink);
+	local setLinkName = CreateLinkNameButton("TradeSkillFrame", IsTradeSkillLinked);
 	hooksecurefunc("TradeSkillFrame_SetSelection", function()
 		local linked = IsTradeSkillLinked();
 		for i = 1, table.getn(TRADE_SKILL_CREATE_CONTROLS) do
@@ -78,17 +120,20 @@ EventUtil.ContinueOnAddOnLoaded("Blizzard_TradeSkillUI", function()
 		if linkButton then
 			linkButton:SetShown(not linked and GetTradeSkillListLink() ~= nil);
 		end
+		setLinkName();
 	end);
 end)
 
 EventUtil.ContinueOnAddOnLoaded("Blizzard_CraftUI", function()
 	local linkButton = CreateProfessionLinkButton("CraftFrame", GetCraftListLink);
+	local setLinkName = CreateLinkNameButton("CraftFrame", IsCraftLinked);
 	hooksecurefunc("CraftFrame_SetSelection", function()
 		local linked = IsCraftLinked();
 		CraftCreateButton:SetShown(not linked);
 		if linkButton then
 			linkButton:SetShown(not linked and GetCraftListLink() ~= nil);
 		end
+		setLinkName();
 	end);
 end)
 
