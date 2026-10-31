@@ -1,7 +1,7 @@
 # ClassicAPI
 
 ClassicAPI is a DLL for World of Warcraft 1.12.1 (Vanilla / Turtle WoW). It
-backports a large part of the modern WoW API — 550+ functions and 50+ events,
+backports a large part of the modern WoW API — 950+ functions and 80+ events,
 plus much of Lua 5.1 — into the 1.12 client, so addons written for later
 versions (3.3.5+ or Classic Era) run with little or no change.
 
@@ -45,7 +45,7 @@ heading to expand it. For signatures and return values, see the per-function
 reference in **[docs/API.md](docs/API.md)**.
 
 <details>
-<summary><b>In-game Lua calls</b> — 550+ functions across ~60 namespaces</summary>
+<summary><b>In-game Lua calls</b> — 950+ functions across ~75 namespaces</summary>
 
 In the Frame rows, a name that starts with `:` is a method of the widget that the row names, for example `:SetShown` is `frame:SetShown`.
 
