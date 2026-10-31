@@ -16,9 +16,10 @@
 #include "Game.h"
 #include "Offsets.h"
 
-// Shared world-position read for any CGObject-derived unit. The
-// position comes from the object's `GetPosition` virtual (vtable
-// slot 5) — the same one `CheckInteractDistance` / `UnitInRange` use.
+// Shared world-position and facing reads for any CGObject-derived unit.
+// The position comes from the object's `GetPosition` virtual (vtable
+// slot 5) — the same one `CheckInteractDistance` / `UnitInRange` use —
+// and the facing from its `GetFacing` virtual (slot 6).
 // Header-only so callers (UnitInRange, CastAtUnit, UseAtUnit) don't
 // each re-derive the vtable-slot math.
 
@@ -57,6 +58,19 @@ inline bool Read(void *obj, float out[3]) {
         out[2] = p[2];
     }
     return true;
+}
+
+// `obj`'s world facing in radians (0 = north, counter-clockwise, 0..2pi)
+// from its `GetFacing` virtual (vtable slot 6). On units and players that
+// is CGUnit_C::GetFacing (0x5F1F30): the mover's facing passed through
+// CMovement::TransportFacingToWorld (0x7C4AE0), so a unit on a boat or
+// zeppelin reads its world facing, not the transport-relative one the
+// mover stores.
+inline float Facing(void *obj) {
+    auto **vtable = *reinterpret_cast<void ***>(obj);
+    using GetFacing_t = float(__thiscall *)(void *self);
+    return reinterpret_cast<GetFacing_t>(
+        vtable[Offsets::OFF_CGOBJECT_VTBL_GET_FACING / 4])(obj);
 }
 
 // Convenience: resolve a token and read its position in one step.

@@ -1056,6 +1056,7 @@ build instructions.
   - [`UnitInRange(unit)`](#unitinrangeunit)
   - [`UnitDistanceSquared(unit)`](#unitdistancesquaredunit)
   - [`UnitPosition(unit)`](#unitpositionunit)
+  - [`UnitFacing(unit)`](#unitfacingunit)
   - [`UnitInLineOfSight(unit)`](#unitinlineofsightunit)
   - [`ClosestUnitPosition(creatureID)`](#closestunitpositioncreatureid)
   - [`UnitHealthMissing(unit)`](#unithealthmissingunit)
@@ -23835,6 +23836,20 @@ Reads through the same `CGObject::GetPosition` virtual as
 > if SuperWoW is loaded the last registrant wins — install order decides
 > which shape is live. Without SuperWoW, this version is the
 > one you get.
+
+### `UnitFacing(unit)`
+
+Returns the direction that `unit` faces, as an angle in radians (`0` …
+`2*pi`). The angle is `0` at north and increases counter-clockwise. If
+the unit does not exist, the function returns nothing. For `"player"`,
+the value is the same as [`GetPlayerFacing`](#getplayerfacing).
+
+```lua
+local facing = UnitFacing("target")   -- e.g. 3.11
+```
+
+On a boat or a zeppelin, the angle is the direction in the world, not
+the direction relative to the ship.
 
 ### `UnitInLineOfSight(unit)`
 

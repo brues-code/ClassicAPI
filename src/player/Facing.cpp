@@ -16,16 +16,12 @@
 // nothing when there's no player (glue / loading). Vanilla 1.12 doesn't
 // ship it (only character-create/select facing exist).
 //
-// The orientation is a field in the player's CGUnit movement block
-// (`OFF_UNIT_FACING` = +0x9C4), sitting just past the {x,y,z} position at
-// +0x9B8. The `GetPosition` virtual only copies x/y/z into a caller buffer,
-// so the facing is read off the object directly.
+// The facing comes from the player's `GetFacing` virtual, the same read
+// 3.3.5's Script_GetPlayerFacing makes (`target->GetFacing()`), so it is the
+// world facing on a transport too (see `Unit::Position::Facing`).
 
 #include "Game.h"
-#include "Offsets.h"
 #include "unit/Position.h"
-
-#include <cstdint>
 
 namespace Player::Facing {
 
@@ -36,9 +32,7 @@ int __fastcall Script_GetPlayerFacing(void *L) {
     if (player == nullptr)
         return 0;
 
-    const float facing = *reinterpret_cast<const float *>(
-        static_cast<const uint8_t *>(player) + Offsets::OFF_UNIT_FACING);
-    Game::Lua::PushNumber(L, static_cast<double>(facing));
+    Game::Lua::PushNumber(L, static_cast<double>(Unit::Position::Facing(player)));
     return 1;
 }
 

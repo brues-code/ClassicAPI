@@ -4709,15 +4709,6 @@ enum Offsets {
     // `0x0048BACF` / `0x0048BADC`.
     OFF_CGOBJECT_VTBL_GET_POSITION = 0x14,
 
-    // CGUnit movement-block orientation (facing) in radians, 0..2*pi. Lives
-    // right after the {x,y,z} position block (at +0x9B8), i.e. pos+0xC. The
-    // `GetPosition` virtual copies only x/y/z into the caller's buffer, so
-    // read facing off the object directly. Backs `GetPlayerFacing`. Empirically
-    // located by probing the player object across a known 180-degree turn
-    // (value flipped by ~pi, stayed in range); mirrored at +0x9F8 / +0xC98
-    // (last-sent / render copies) — +0x9C4 is the authoritative one.
-    OFF_UNIT_FACING = 0x9C4,
-
     // CGObject `m_objectType` field — 0 = (base) object, 1 = item,
     // 2 = container, 3 = unit, 4 = player, 5 = gameobject, … Read as
     // `*(int *)(obj + 0x14)`. (Distinct from GET_POSITION above, which
@@ -4727,7 +4718,9 @@ enum Offsets {
     OBJECT_TYPE_PLAYER = 4,
 
     // CGObject vtable slots (byte offsets): GetFacing `float __thiscall()`
-    // (slot 6, the tab collector's player facing), IsMouseoverable
+    // (slot 6, the world facing; unit and player vtables 0x80C4F8 / 0x80AF78
+    // both hold CGUnit_C::GetFacing 0x5F1F30 there, read from the binary —
+    // backs `UnitFacing` / `GetPlayerFacing`), IsMouseoverable
     // `int __thiscall()` (slot 21, the hover dispatch's gate at 0x482982).
     OFF_CGOBJECT_VTBL_GET_FACING = 0x18,
     OFF_CGOBJECT_VTBL_IS_MOUSEOVERABLE = 0x54,
