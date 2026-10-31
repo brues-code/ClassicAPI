@@ -7929,6 +7929,28 @@ enum Offsets {
     FUN_PARTY_RECORD_SIGNAL = 0x005E5720,
     CALL_READ_PARTY_MEMBER_STATS_SIGNAL = 0x005E54FA,
     CALL_COMPARE_PARTY_RECORD_SIGNAL = 0x005F0C42,
+    // DiffPartyRecords — the `changes` mask of the fields two party records
+    // differ in (bit 1 status, 2 health, 0x10 power, 0x20 max power, …).
+    // `uint32_t __fastcall(const uint8_t *oldRec, const uint8_t *newRec)`.
+    FUN_PARTY_RECORD_DIFF = 0x005E5510,
+    // The group list (SMSG 0x7D, 0x005E6A40) stores each member it keeps:
+    // AddPartyMember — 4.3.4's CGPartyInfo::AddMember less its closing
+    // diff-and-dispatch — copies the member's previous record (or a fresh
+    // one when `oldRecord` is null) into its party slot and sets or clears
+    // the status online bit from `online`.
+    // `void __fastcall(uint32_t online, const uint8_t *oldRecord,
+    // uint64_t guid)`, RET 8 (0x004E8482). One E8 call, in the group list.
+    FUN_ADD_PARTY_MEMBER = 0x004E82D0,
+    CALL_GROUP_LIST_ADD_PARTY_MEMBER = 0x005E6C4A,
+    // RebuildRaidRoster — refills the raid slots from the group list: a
+    // returning member's previous record is copied into slot + 0x10 (so the
+    // status byte lands at OFF_RAID_SLOT_FLAGS) and its online bit is set or
+    // cleared from `online[i]`; signals RAID_ROSTER_UPDATE.
+    // `void __fastcall(const uint64_t *guids, const uint32_t *flags,
+    // const uint8_t *online, uint32_t count)`, RET 8 (0x004BACC7). One E8
+    // call, in the group list.
+    FUN_REBUILD_RAID_ROSTER = 0x004BA5F0,
+    CALL_GROUP_LIST_REBUILD_RAID_ROSTER = 0x005E6EB4,
     // Bit 1: flagged for PvP — Script_UnitIsPVP's test (0x00516502) for a
     // token with no unit object.
     GROUP_MEMBER_STATUS_PVP = 0x2,

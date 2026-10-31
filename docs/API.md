@@ -252,6 +252,7 @@ build instructions.
   - [`SELF_RES_SPELL_CHANGED` event](#self_res_spell_changed-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
+  - [`UNIT_CONNECTION` event](#unit_connection-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
   - [`UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events](#unit_power_update--unit_power_frequent--unit_maxpower-events)
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
@@ -6053,6 +6054,33 @@ Some rules:
 - A refresh that changes nothing that the client can see does not fire
   the event.
 - When no frame is registered for the event, the client builds no lists.
+
+### `UNIT_CONNECTION` event
+
+Fires when a group member goes offline or comes back online.
+
+```
+UNIT_CONNECTION: unitTarget, isConnected
+```
+
+- **`unitTarget`** (string) — the unit token of the member, for example
+  `party1` or `raid12`. A member that has more than one token (for
+  example `party1` and `raid3`) gets one event for each token.
+- **`isConnected`** (boolean) — `true` when the member is online, `false`
+  when the member is offline.
+
+The event also fires for a member that the client cannot see, for example
+a member in another zone. When the event fires,
+[`UnitIsConnected(unitTarget)`](https://warcraft.wiki.gg/wiki/API_UnitIsConnected)
+already gives the new state.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("UNIT_CONNECTION")
+f:SetScript("OnEvent", function()
+    print(UnitName(arg1), arg2 and "is online" or "is offline")
+end)
+```
 
 ### `UNIT_FACTION` event (fire-coverage fix)
 

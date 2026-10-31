@@ -320,6 +320,7 @@ when launching with `-console`), not as Lua functions. See the
 | `SELF_RES_SPELL_CHANGED` | *(none)* |
 | `SOUNDKIT_FINISHED` | `soundHandle` (only for sounds played with `runFinishCallback`) |
 | `UNIT_AURA_DELTA` | `unitTarget, updateInfo` (the instance IDs of the auras added, updated, and removed) |
+| `UNIT_CONNECTION` | `unitTarget, isConnected` |
 | `UNIT_SPELLCAST_SENT` | `"player", target, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_START` | `unit, castGUID, spellID, spellName, rank` |
 | `UNIT_SPELLCAST_STOP` | `unit, castGUID, spellID, spellName, rank` |
