@@ -37,6 +37,8 @@
 //     of its tokens, we return without invoking the handler. Suppressing at the
 //     runner also suppresses HookScript chains and Frame::ScriptArgs' positional
 //     path — they all live downstream of it, which is what retail does too.
+//     Event::Custom::FireValues walks the chain itself and never reaches that
+//     runner, so it asks `Accepts` (UnitEvent.h) for each frame instead.
 //
 // Semantics mirror Blizzard's 5.4.8 implementation (Ghidra-verified), where the
 // filter lives ON the subscriber node and the node's kind is fixed when it is
@@ -65,6 +67,8 @@
 // `%s`, or a no-arg event (those go through FUN_FIRE_EVENT_NO_ARGS → a runner
 // we never see), fires as with RegisterEvent — one rule that holds on every
 // dispatch path, whose failure mode is an extra event rather than a lost one.
+
+#include "UnitEvent.h"
 
 #include "Game.h"
 #include "Offsets.h"
@@ -249,6 +253,24 @@ int __fastcall Script_IsEventRegistered(void *L) {
 
 // ---- the gate ------------------------------------------------------------------
 
+// The frame's filter for the event being dispatched. `eventName` is the
+// event-table entry's own name, which Filter::event was copied from, so a
+// plain strcmp matches it.
+const Filter *DispatchFilter(const std::vector<Filter> &filters, const char *eventName) {
+    for (const Filter &f : filters)
+        if (std::strcmp(f.event.c_str(), eventName) == 0)
+            return &f;
+    return nullptr;
+}
+
+bool MatchesUnit(const Filter &f, const char *arg1) {
+    if (arg1 != nullptr)
+        for (const std::string &u : f.units)
+            if (EqualsIgnoreCase(arg1, u.c_str()))
+                return true;
+    return false;
+}
+
 // True (and `*out` = arg1) when the runner's first conversion spec is `%s` —
 // the unit token of every unit event. Anything else means arg1 isn't a string
 // and the filter does not apply.
@@ -292,24 +314,9 @@ bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     Game::Lua::PushString(L, "event");
     Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
     const char *ev = Game::Lua::ToString(L, -1);
-    const Filter *match = nullptr;
-    if (ev != nullptr) {
-        for (const Filter &f : it->second) {
-            if (std::strcmp(f.event.c_str(), ev) == 0) {
-                match = &f;
-                break;
-            }
-        }
-    }
+    const Filter *match = ev != nullptr ? DispatchFilter(it->second, ev) : nullptr;
     Game::Lua::SetTop(L, -2);
-    if (match == nullptr)
-        return false;
-    if (arg1 != nullptr) {
-        for (const std::string &u : match->units)
-            if (EqualsIgnoreCase(arg1, u.c_str()))
-                return false;
-    }
-    return true; // no token matched — suppress
+    return match != nullptr && !MatchesUnit(*match, arg1); // no token matched — suppress
 }
 
 // ---- unregister co-hooks (the filter dies with the node) ------------------------
@@ -366,5 +373,15 @@ const Game::HookAutoRegister _hookUnregisterAll{
     reinterpret_cast<void **>(&g_origUnregisterAll)};
 
 } // namespace
+
+bool Accepts(const void *frame, const char *eventName, const char *arg1) {
+    if (g_filters.empty() || frame == nullptr || eventName == nullptr)
+        return true;
+    auto it = g_filters.find(frame);
+    if (it == g_filters.end())
+        return true;
+    const Filter *match = DispatchFilter(it->second, eventName);
+    return match == nullptr || MatchesUnit(*match, arg1);
+}
 
 } // namespace Frame::UnitEvent

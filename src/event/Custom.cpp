@@ -17,6 +17,7 @@
 #include "Offsets.h"
 #include "debug/Log.h"
 #include "frame/ScriptArgs.h"
+#include "frame/UnitEvent.h"
 #include "profile/ScriptTime.h"
 
 #include <cstdint>
@@ -357,11 +358,16 @@ void FireValues(int slot, void *L, int firstArgIdx, int nargs) {
     PushString(L, "event");
     PushString(L, name);
     SetTable(L, GLOBALS_INDEX);
+    // A string arg1 meets RegisterUnitEvent filters, which the engine's
+    // dispatches meet at the runner this walk never calls.
+    const char *unit = nargs > 0 && Type(L, firstArgIdx) == TYPE_STRING
+                           ? ToString(L, firstArgIdx)
+                           : nullptr;
     uintptr_t node = Game::Read<uintptr_t>(entry, Offsets::OFF_EVENT_ENTRY_HEAD);
     while (node != 0 && (node & 1) == 0) {
         const uintptr_t next = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT);
         auto *frame = Game::Read<uint8_t *>(node + Offsets::OFF_EVENT_NODE_FRAME);
-        if (frame != nullptr)
+        if (frame != nullptr && (unit == nullptr || Frame::UnitEvent::Accepts(frame, name, unit)))
             Frame::ScriptArgs::RunSlotWithValues(
                 L, reinterpret_cast<const uint32_t *>(frame + Offsets::OFF_FRAME_ONEVENT_SLOT),
                 frame, firstArgIdx, nargs);

@@ -99,9 +99,10 @@ bool HasListeners(int slot);
 // restored after, and each listener's OnEvent runs through
 // `Frame::ScriptArgs::RunSlotWithValues` (so `arg1..argN`, `this` and the
 // modern positional arguments are set the way the engine's runner sets
-// them). The values stay on the stack; the caller pops them. No-op for
-// `slot < 0` or an event nobody listens to. 4.3.4's equivalent is
-// `FrameScript_SignalEvent(id, L, count)`.
+// them). A string first value meets RegisterUnitEvent filters, as a `%s`
+// arg1 does on the engine's path. The values stay on the stack; the caller
+// pops them. No-op for `slot < 0` or an event nobody listens to. 4.3.4's
+// equivalent is `FrameScript_SignalEvent(id, L, count)`.
 void FireValues(int slot, void *L, int firstArgIdx, int nargs);
 
 // Dispatches a custom event via the engine's printf-style event
