@@ -2402,6 +2402,26 @@ enum Offsets {
     //   nothing matches. What FUN_004F91A0 calls for an unequipped bag.
     FUN_DESC_OBSERVER_UNREGISTER = 0x00467FB0,
 
+    // Type-wide observers (ClntObjMgrSetTypeMirrorHandler): one record on
+    // the global list of a (bank, field) at 0x00B23310, called for EVERY
+    // object of that type whose watched bytes change, same callback ABI as
+    // the per-object observers below. CGUnit_C::RegisterFieldWatchers
+    // (0x006041F0) registers the engine's 25 unit handlers with it from
+    // ClientInitializeGame, OnPowerFieldChanged (bank 3, +0x44, 0x14) among
+    // them; ClearFieldWatchers (0x00605290) removes each by name. The list
+    // array is referenced only by these two and the update passes
+    // (0x00465443, 0x00466670): nothing frees or resets a list wholesale.
+    // The record's copy offset comes from tables MirrorInitialize (0x0047F840)
+    // rebuilds at the top of every ClientInitializeGame, before UI init.
+    //   Register — __fastcall(int bank /*ecx*/, uint32_t fieldOffset /*edx*/,
+    //     uint32_t size, const void *callback, void *userArg, int kind),
+    //     RET 0x10. kind 0 links at the pending tail, 1 at the head.
+    FUN_TYPE_OBSERVER_REGISTER = 0x00468070,
+    //   Unregister — __fastcall(int bank /*ecx*/, uint32_t fieldOffset
+    //     /*edx*/, const void *callback, void *userArg), RET 8; matches
+    //     (callback, userArg) and no-ops when nothing matches.
+    FUN_TYPE_OBSERVER_UNREGISTER = 0x00468240,
+
     // Observer callback ABI (verified from the dispatcher's call site at
     // 0x004655DC + the engine callback FUN_004F8DB0's RET 0x10):
     //   int __fastcall cb(uint32_t fieldOffset /*ecx, as registered*/,
@@ -2664,6 +2684,7 @@ enum Offsets {
     // mana/rage/focus/energy/happiness order as POWER1..5). Vanilla
     // 1.12 has 5 power types; the WotLK additions (Runes / Runic Power)
     // don't exist in this descriptor layout.
+    UNIT_POWER_TYPE_COUNT = 5, // POWER1..5 / MAXPOWER1..5; the slot is the power type
 
     // UNIT_MOD_CAST_SPEED — the cast-time multiplier float (1.0 = normal,
     // <1.0 = faster). The server folds it into `SpellEntry::GetCastTime`
@@ -7869,6 +7890,23 @@ enum Offsets {
     // present (and thus connected). Both take a pointer to the 64-bit GUID.
     OFF_GROUP_MEMBER_STATUS_FLAGS = 0x08,
     GROUP_MEMBER_STATUS_ONLINE = 0x1,
+    // The party record's pet: its GUID and power type, whose change bits
+    // SignalPartyRecordChanges fires for the pet's GUID (0x005E5720).
+    OFF_GROUP_MEMBER_PET_GUID = 0x80,
+    OFF_GROUP_MEMBER_PET_POWER_TYPE = 0xD8,
+    // SignalPartyRecordChanges — 4.3.4's
+    // CGPlayer_C::DispatchPartyMemberStatsChanges: raises the unit events for
+    // the fields in `changes` (the DiffPartyRecords 0x005E5510 mask) between
+    // two party records, through FUN_UNIT_EVENT_BROADCAST.
+    // `void __fastcall(const uint64_t *guid, uint32_t changes,
+    // const uint8_t *oldRec, const uint8_t *newRec)`, RET 8 (0x005E5909).
+    // Two callers, both after the new record is stored: ReadPartyMemberStats
+    // (0x005E5110, SMSG 0x7E / 0x2F2) and CGPlayer_C::ComparePartyRecord
+    // (0x005F0B80). Both E8 calls, targets checked against the exe; no loaded
+    // DLL references the function or either site.
+    FUN_PARTY_RECORD_SIGNAL = 0x005E5720,
+    CALL_READ_PARTY_MEMBER_STATS_SIGNAL = 0x005E54FA,
+    CALL_COMPARE_PARTY_RECORD_SIGNAL = 0x005F0C42,
     // Bit 1: flagged for PvP — Script_UnitIsPVP's test (0x00516502) for a
     // token with no unit object.
     GROUP_MEMBER_STATUS_PVP = 0x2,

@@ -253,6 +253,7 @@ build instructions.
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
+  - [`UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events](#unit_power_update--unit_power_frequent--unit_maxpower-events)
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
@@ -6115,6 +6116,43 @@ after — single fire if any byte changed. The bulk snapshot is 64
 byte reads (cheap) and naturally handles the case where one packet
 carries multiple rep updates whose threshold crossings ripple AT_WAR
 state across unrelated slots.
+
+### `UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events
+
+`UNIT_POWER_UPDATE` and `UNIT_POWER_FREQUENT` fire when the power of a
+unit changes. `UNIT_MAXPOWER` fires when the maximum power of a unit
+changes.
+
+```
+UNIT_POWER_UPDATE: unitTarget, powerType
+UNIT_POWER_FREQUENT: unitTarget, powerType
+UNIT_MAXPOWER: unitTarget, powerType
+```
+
+- **`unitTarget`** (string) — the unit token. A unit that has more than
+  one token (for example `target` and `focus`) gets one event for each
+  token.
+- **`powerType`** (string) — the power that changed: `"MANA"`, `"RAGE"`,
+  `"FOCUS"`, `"ENERGY"`, or `"HAPPINESS"`.
+
+The client gets each power change from the server, so
+`UNIT_POWER_FREQUENT` fires at the same times as `UNIT_POWER_UPDATE`. The
+events fire for each unit token that gets unit events. For a unit that the
+client can see, they fire for every power of the unit, not only for its
+primary power. For a group member that the client cannot see, for example
+a member in another zone, they fire for the primary power of the member
+only. The new values are
+[`UnitPower(unitTarget, type)` and `UnitPowerMax(unitTarget, type)`](#unitpowerunit--powertype--unmodified--unitpowermaxunit--powertype--unmodified).
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+f:SetScript("OnEvent", function()
+    if arg2 == "ENERGY" then
+        print("Energy:", UnitPower("player", Enum.PowerType.Energy))
+    end
+end)
+```
 
 ### `UNIT_SPELL_HASTE` event
 
@@ -23845,6 +23883,9 @@ The same third argument `UnitPower` / `UnitPowerMax` take.
 Direct descriptor reads — `desc[+0x44 + type*4]` for current power,
 `desc[+0x5C + type*4]` for max, divided by the table entry for the
 type. No engine call, no Lua-stack roundtrip.
+
+[`UNIT_POWER_UPDATE` and `UNIT_MAXPOWER`](#unit_power_update--unit_power_frequent--unit_maxpower-events)
+fire when these values change.
 
 ### `UnitPowerMissing(unit [, powerType [, unmodified]])`
 

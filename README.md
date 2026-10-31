@@ -335,6 +335,9 @@ when launching with `-console`), not as Lua functions. See the
 | `UNIT_SPELLCAST_RETICLE_CLEAR` | `"player", "", spellID, spellName, rank` |
 | `UNIT_SPELLCAST_INTERRUPTIBLE` | `unit` |
 | `UNIT_SPELLCAST_NOT_INTERRUPTIBLE` | `unit` |
+| `UNIT_MAXPOWER` | `unitTarget, powerType` |
+| `UNIT_POWER_FREQUENT` | `unitTarget, powerType` |
+| `UNIT_POWER_UPDATE` | `unitTarget, powerType` |
 | `UNIT_SPELL_HASTE` | `unitTarget` |
 | `UNIT_TARGET` | `unitTarget` |
 | `UPDATE_INVENTORY_DURABILITY` | *(none)* |
