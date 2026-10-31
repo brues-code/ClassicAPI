@@ -208,16 +208,21 @@ for what each command does, and
 
 Each setting is saved in `WTF\Config.wtf`. Read and write them with `GetCVar`
 / `SetCVar` or `/console`. Click a group name for the full rules. To change
-the most common settings and the player cache in the game, open the game
-menu and click AddOn Options, then ClassicAPI.
+these settings and the player cache in the game, open the game menu and
+click AddOn Options, then ClassicAPI.
 
 | Group | CVar | Default | What it does |
 |-------|------|---------|--------------|
 | [Bindings](docs/API.md#actionbuttonusekeydown) | `ActionButtonUseKeyDown` | `0` | `1` uses an action-bar key binding when you press the key. `0` uses it when you release the key. |
 | [Combat](docs/API.md#stopautoattackontargetchange) | `stopAutoAttackOnTargetChange` | `0` | `1` stops melee auto-attack, Auto Shot and wand shots when you change target. |
+| [Combat log](docs/API.md#kept-entries) | `combatLogRetentionTime` | `300` | The number of seconds that the combat log keeps an entry. |
 | [Cast settings](docs/API.md#cast-settings-autostand-autodismount-autounshift) | `autoStand` | `0` | `1` makes you stand up when you cast while you sit. |
 | | `autoDismount` | `0` | `1` makes you dismount when you cast while you are mounted. |
 | | `autoUnshift` | `0` | `1` makes you leave your form when a spell cannot be cast in it. |
+| [Bag sorting](docs/API.md#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable) | `sortBagsRightToLeft` | `0` | `1` makes a sort fill your bags from the last slot of the last bag. |
+| | `backpackAutosortDisabled` | `0` | `1` keeps the items in your backpack in place when you sort your bags. |
+| | `bankAutosortDisabled` | `0` | `1` keeps the items in the main bank slots in place when you sort your bank. |
+| [Equipment sets](docs/API.md#equipment-sets-on-item-tooltips) | `dontShowEquipmentSetsOnItems` | `0` | `1` removes the Equipment Sets line from item tooltips. |
 | [Profiling](docs/API.md#scriptprofile) | `scriptProfile` | `0` | `1` turns on CPU profiling for the `*CPUUsage` functions. The change starts after `/reload`. |
 | [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract) | `SoftTargetInteract` | `3` | Turns `softinteract` on: `2` keyboard and mouse, `3` always, `0` / `1` off. |
 | | `SoftTargetInteractArc` | `0` | Where the object can be: `0` straight ahead of the camera, `1` within 30° of it, `2` any direction. |
