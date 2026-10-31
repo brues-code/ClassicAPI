@@ -8778,8 +8778,11 @@ message is the bottom line, or the top line in TOP insert mode.
 - `SetScrollOffset(offset)` scrolls to `offset`. An offset less than 0 or
   more than `GetMaxScrollRange()` changes to the nearest limit.
 - `ScrollByAmount(amount)` adds `amount` to the offset. A positive amount
-  scrolls to older messages. The function also shows the faded lines
-  again, also when the offset does not change.
+  scrolls to older messages. After the oldest message shows on the frame,
+  the offset does not increase. `ScrollUp()` stops at the same position.
+  As a result, the offset can stay less than `GetMaxScrollRange()`. The
+  function also shows the faded lines again, also when the offset does not
+  change.
 - If `offset` or `amount` is not a number, the function gives an error.
 
 ```lua

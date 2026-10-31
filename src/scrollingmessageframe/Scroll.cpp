@@ -22,9 +22,17 @@
 // two directions, and GetScrollOffset is the engine's GetCurrentScroll under
 // retail's name. Retail clamps the offset to its range; the engine wraps one
 // outside it, so the setters clamp first. SetScrollOffset to the offset the
-// frame has does nothing, as on retail. ScrollByAmount always calls the
-// engine, which re-arms the shown lines' fade when the offset stays: retail's
-// ResetAllFadeTimes.
+// frame has does nothing, as on retail.
+//
+// Retail's ScrollUp and ScrollDown are ScrollByAmount(1) and (-1), so
+// ScrollByAmount steps the engine's own ScrollUp / ScrollDown, the loop its
+// PageUp runs. The engine's ScrollUp stops once the oldest message is on
+// screen, short of the range's end, where that message sits alone on the
+// bottom line under empty space; moving the offset straight there scrolls
+// chat up into that space (pfUI's chat wheel did). The clamped target still
+// bounds the steps, since a hidden frame never lays out and its ScrollUp never
+// finds the top. Every step re-arms the shown lines' fade, and an amount that
+// takes no step re-arms through ScrollToOffset: retail's ResetAllFadeTimes.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -35,10 +43,19 @@ namespace ScrollingMessageFrame::Scroll {
 namespace {
 
 using ScrollToOffset_t = void(__fastcall *)(void *smf, void *edx, int offset);
-using ScrollOffset_t = int(__fastcall *)(void *smf);
+using SmfInt_t = int(__fastcall *)(void *smf);
 
 int ScrollOffset(void *smf) {
-    return reinterpret_cast<ScrollOffset_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET)(smf);
+    return reinterpret_cast<SmfInt_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET)(smf);
+}
+
+// One step of the engine's ScrollUp / ScrollDown; false at their end.
+bool ScrollUp(void *smf) {
+    return reinterpret_cast<SmfInt_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_SCROLL_UP)(smf) != 0;
+}
+
+bool ScrollDown(void *smf) {
+    return reinterpret_cast<SmfInt_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_SCROLL_DOWN)(smf) != 0;
 }
 
 int MaxScrollRange(void *smf) {
@@ -90,7 +107,14 @@ int __fastcall Script_ScrollByAmount(void *L) {
         Game::Lua::Error(L, "Usage: %s:ScrollByAmount(amount)", Game::Lua::ObjectDisplayName(frame));
         return 0;
     }
-    ScrollTo(frame, Clamped(frame, ScrollOffset(frame) + Game::Lua::ToNumber(L, 2)));
+    const int offset = ScrollOffset(frame);
+    int steps = Clamped(frame, offset + Game::Lua::ToNumber(L, 2)) - offset;
+    if (steps == 0)
+        ScrollTo(frame, offset);
+    while (steps > 0 && ScrollUp(frame))
+        --steps;
+    while (steps < 0 && ScrollDown(frame))
+        ++steps;
     DisplayRefreshed::MarkDirty(frame);
     return 0;
 }
@@ -121,8 +145,10 @@ const Game::Doc::Function kGetScrollOffset{"Returns how many lines the frame is 
                                            {}, kOffsetRets};
 const Game::Doc::Function kGetMaxScrollRange{"Returns the largest scroll offset: one less than the message count.",
                                              {}, kRangeRets};
-const Game::Doc::Function kScrollByAmount{"Scrolls the frame by a number of lines and shows the faded lines again.",
-                                          kAmountArgs, {}};
+const Game::Doc::Function kScrollByAmount{
+    "Scrolls the frame by a number of lines, stopping where ScrollUp and ScrollDown stop, and shows the faded lines "
+    "again.",
+    kAmountArgs, {}};
 const Game::Doc::Method kDocs[] = {
     {"SetScrollOffset", &kSetScrollOffset},
     {"GetScrollOffset", &kGetScrollOffset},

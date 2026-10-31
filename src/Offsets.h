@@ -12914,6 +12914,19 @@ enum Offsets {
     // 0 when empty; the GetCurrentScroll method pushes it.
     FUN_SCROLLINGMESSAGEFRAME_SCROLL_TO_OFFSET = 0x00788700,
     FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET = 0x00788AC0,
+    // ScrollUp / ScrollDown (`int __thiscall(smf)`, plain `ret`; 4.3.4's
+    // 0x0051E620 / 0x0051E660 step for step): one record older / newer and a
+    // layout, answering 1. Each answers 0 without moving when empty or at its
+    // end, and re-arms the shown lines there: ScrollDown at
+    // OFF_SCROLLINGMESSAGEFRAME_AT_BOTTOM, ScrollUp at +0x350 (4.3.4's
+    // m_atTop), which the layout sets when every message from the scroll
+    // record back to the oldest fit the height (0x00788A37: laid-out count ==
+    // count remaining). The layout runs only on a shown frame ([smf+0xD4],
+    // m_visible), so a hidden frame's +0x350 is stale and its ScrollUp wraps
+    // around the ring. PageUp (0x007885B0) is a loop of ScrollUp that ends on
+    // the first 0.
+    FUN_SCROLLINGMESSAGEFRAME_SCROLL_UP = 0x00788610,
+    FUN_SCROLLINGMESSAGEFRAME_SCROLL_DOWN = 0x00788650,
     // Clear (`void __thiscall(smf)`, 4.3.4's Clear): count 0, position 0, a
     // layout from 0, +0x350 = 0, position -1. The Clear method's body.
     FUN_SCROLLINGMESSAGEFRAME_CLEAR = 0x007882B0,
