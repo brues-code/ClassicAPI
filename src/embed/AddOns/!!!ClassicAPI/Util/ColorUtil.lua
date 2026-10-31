@@ -87,11 +87,7 @@ function GetClassColoredTextForUnit(unit, text)
 end
 
 function GetFactionColor(factionGroupTag)
-	-- Both PLAYER_FACTION_GROUP (tag -> index) and PLAYER_FACTION_COLORS
-	-- (index -> color) live in our Constants.lua. Guarded defensively in
-	-- case a client variant leaves one unset.
-	local group = PLAYER_FACTION_GROUP[factionGroupTag];
-	return PLAYER_FACTION_COLORS and PLAYER_FACTION_COLORS[group];
+	return PLAYER_FACTION_COLORS[PLAYER_FACTION_GROUP[factionGroupTag]];
 end
 
 function RGBToColorCode(r, g, b)
