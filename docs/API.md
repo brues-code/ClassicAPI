@@ -11590,20 +11590,21 @@ settings, exists but stays empty.
 
 ### `C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`
 
-Existence checks straight off the engine's inventory manager (location
-form) and item cache (ID form). No `GetItemInfo` chaining — both
-functions read directly from the structures they need.
+Existence checks for an inventory location or an item ID.
 
 - `C_Item.DoesItemExist(itemLocation)` — `true` iff the equipment-slot
   or `(bagID, slotIndex)` location resolves to a populated inventory
   slot on the active player. Empty slots, missing bags, or malformed
   tables return `false`.
-- `C_Item.DoesItemExistByID(item)` — `true` iff the cache currently
-  has data for `item`. Cache miss returns `false` and kicks off the
-  network query in the background; a follow-up call after
-  [`GET_ITEM_INFO_RECEIVED`](#c_itemrequestloaditemdatabyiditem--c_itemrequestloaditemdataitemlocation)
-  will succeed. Accepts a numeric `itemID`, a bare `"item:NNN..."`
-  string, or a full chat link.
+- `C_Item.DoesItemExistByID(item)` — `true` for any positive item ID.
+  The item does not have to be in the cache, and the call does not
+  load it. The function does not check that the ID belongs to a real
+  item.
+  [`C_Item.IsItemDataCachedByID`](#c_itemisitemdatacachedbyiditem--c_itemisitemdatacacheditemlocation)
+  tells you if the data is cached.
+  [`C_Item.RequestLoadItemDataByID`](#c_itemrequestloaditemdatabyiditem--c_itemrequestloaditemdataitemlocation)
+  loads it. Accepts a numeric `itemID`, a bare `"item:NNN..."` string,
+  or a full chat link. Other input returns `false`.
 
 ```lua
 if C_Item.DoesItemExist({equipmentSlotIndex = INVSLOT_HEAD}) then ... end
