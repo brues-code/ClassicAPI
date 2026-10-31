@@ -125,6 +125,45 @@ int ExtraCount(void *L, int extras) {
     return n;
 }
 
+// Moves the records of slots 0..span-1 so that slot i holds what slot
+// (i + by) % span held, with their extra-argument tables and the scroll
+// record. Whole records move, so every text keeps one owner, a free slot's
+// too (Clear and the writer leave a free slot's old text for the writer to
+// free when it reuses the slot). The lines still show the records they were
+// laid out from; the caller lays them out again. Self at stack slot 1.
+void RotateRecords(void *L, void *frame, int span, int by) {
+    using namespace Game::Lua;
+    by %= span;
+    if (span <= 1 || by == 0)
+        return;
+    constexpr size_t kStride = Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
+    uint8_t *records = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
+    const std::vector<uint8_t> was(records, records + span * kStride);
+    for (int i = 0; i < span; ++i)
+        std::memcpy(records + i * kStride, was.data() + ((i + by) % span) * kStride, kStride);
+    int &scroll = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_SCROLL_RECORD);
+    if (scroll >= 0 && scroll < span)
+        scroll = (scroll - by + span) % span;
+
+    PushRecords(L, false);
+    const int table = GetTop(L);
+    if (Type(L, table) == TYPE_TABLE) {
+        NewTable(L);
+        const int moved = GetTop(L);
+        for (int i = 0; i < span; ++i) {
+            PushNumber(L, i);
+            RawGetI(L, table, (i + by) % span);
+            RawSet(L, moved);
+        }
+        for (int i = 0; i < span; ++i) {
+            PushNumber(L, i);
+            RawGetI(L, moved, i);
+            RawSet(L, table);
+        }
+    }
+    SetTop(L, table - 1);
+}
+
 // Stores stack slots kFirstExtra..top as the extra arguments of `record`.
 void StoreExtras(void *L, int record, int top) {
     using namespace Game::Lua;
@@ -190,15 +229,18 @@ uint32_t MessageColor(void *L, void *frame) {
 // `ScrollingMessageFrame:BackFillMessage(text, r, g, b, ...)`, retail's: the
 // message becomes the OLDEST. Retail's mixin pushes the entry at the back of
 // its history buffer and drops it when the buffer is full ("Won't overwrite
-// front"); 4.3.4's AddMessage(..., addToTop) writes the same slot but, full,
-// overwrites the oldest. The slot is 4.3.4's: once the count has grown, the
-// free one before the oldest, `(pos - count + 1) mod max` (pos 0 for an empty
-// ring), and the record is written as the ring writer 0x00788150 writes it —
-// the text a Storm copy (the ring frees its texts with SMemFree), AddMessage's
-// colour, shown, the frame's two times, id 0. Nothing already in the ring
-// moves, so a scrolled-up frame keeps its view; at the bottom the lines are
-// laid out again from the newest, as the writer does, which shows the new
-// line when there is room above the others.
+// front"). The ring is then not full, so the engine keeps it in records
+// 0..count-1 (Offsets.h, OFF_SCROLLINGMESSAGEFRAME_MESSAGES), and the new
+// oldest goes in record 0: every record moves up one, the free record at the
+// count coming round to 0. (4.3.4's AddMessage(..., addToTop) writes the
+// record before the oldest instead, which wraps to the end of the array and
+// leaves 4.3.4's own count-wrapped scroll math wrong.) The record is written
+// as the ring writer 0x00788150 writes it: the text a Storm copy (the ring
+// frees its texts with SMemFree), AddMessage's colour, shown, the frame's two
+// times, id 0. The lines are laid out again: at the bottom from the newest,
+// as the writer does, which shows the new line when there is room above the
+// others; scrolled up from the scroll record, which moved with its message,
+// so the view stays.
 int __fastcall Script_BackFillMessage(void *L) {
     using namespace Game::Lua;
     using StormAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
@@ -225,15 +267,11 @@ int __fastcall Script_BackFillMessage(void *L) {
         return 0;
     std::memcpy(copy, text, bytes);
 
+    RotateRecords(L, frame, count + 1, count);
     ++count;
     int &pos = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS);
-    if (pos == -1)
-        pos = 0;
-    int slot = pos - count + 1;
-    if (slot < 0)
-        slot += max;
-    uint8_t *record = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES) +
-                      slot * Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
+    pos = count - 1;
+    uint8_t *record = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
     char *&stored = *reinterpret_cast<char **>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT);
     if (stored != nullptr)
         reinterpret_cast<StormFree_t>(Offsets::FUN_STORM_SMEM_FREE)(stored, kStormFile, __LINE__, 0);
@@ -245,11 +283,13 @@ int __fastcall Script_BackFillMessage(void *L) {
     *reinterpret_cast<uint32_t *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_FADE_TIME) =
         Game::Read<uint32_t>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_FADE_TIME);
     *reinterpret_cast<int *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_ID) = 0;
-    StoreExtras(L, slot, top);
+    StoreExtras(L, 0, top);
 
-    if (Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_AT_BOTTOM) != 0)
-        reinterpret_cast<Layout_t>(Offsets::FUN_SMF_DISPLAY_REFRESH)(frame, nullptr, pos);
-    // Scrolled up, the message lands without a layout.
+    reinterpret_cast<Layout_t>(Offsets::FUN_SMF_DISPLAY_REFRESH)(
+        frame, nullptr,
+        Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_AT_BOTTOM) != 0
+            ? pos
+            : Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_SCROLL_RECORD));
     DisplayRefreshed::MarkDirty(frame);
     return 0;
 }
@@ -310,7 +350,11 @@ int __fastcall Script_GetMessageInfo(void *L) {
 // ring: every kept record moves forward in ring order to the first free slot
 // (freeing the text it lands on, nulling the one it left), the position moves
 // back by the removed count, and the extra-argument tables move with their
-// records. Then the engine's own layout from the record at the kept offset
+// records. The ring is turned first so that the oldest is record 0, so the
+// kept ones end in records 0..kept-1, the engine's layout of a ring that is
+// not full (Offsets.h, OFF_SCROLLINGMESSAGEFRAME_MESSAGES); 4.3.4 compacts
+// from the oldest's record, which leaves a full ring's survivors anywhere.
+// Then the engine's own layout from the record at the kept offset
 // (clamped to the oldest) and its re-arm — a layout at the bottom keeps the
 // fade state, so 4.3.4 re-arms after — or its Clear when nothing is kept.
 //
@@ -361,17 +405,21 @@ int __fastcall Script_RemoveMessagesByPredicate(void *L) {
     if (kept == count)
         return 0;
 
-    // 4.3.4's RemoveLines: compact the kept records forward in ring order.
+    // 4.3.4's RemoveLines: compact the kept records forward in ring order,
+    // the oldest first turned to record 0.
     const int offset = reinterpret_cast<ScrollOffset_t>(Offsets::FUN_SCROLLINGMESSAGEFRAME_SCROLL_OFFSET)(frame);
     int &pos = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS);
+    int oldest = pos - count + 1;
+    if (oldest < 0)
+        oldest += max;
+    RotateRecords(L, frame, max, oldest);
+    pos = count - 1;
     uint8_t *records = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
     PushRecords(L, false);
     const int table = GetTop(L);
     const bool extras = Type(L, table) == TYPE_TABLE;
-    int src = pos - count + 1;
-    if (src < 0)
-        src += max;
-    int dst = src;
+    int src = 0;
+    int dst = 0;
     for (int i = 0; i < count; ++i) {
         if (!remove[static_cast<size_t>(i)]) {
             if (src != dst) {

@@ -12984,6 +12984,15 @@ enum Offsets {
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COUNT = 0x33C,
     OFF_SCROLLINGMESSAGEFRAME_MAX_MESSAGES = 0x340,
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS = 0x344, // the newest record; -1 when empty
+    // The record the lines are laid out from (4.3.4's m_currentScroll);
+    // FUN_SMF_DISPLAY_REFRESH stores its argument here.
+    OFF_SCROLLINGMESSAGEFRAME_SCROLL_RECORD = 0x348,
+    // A ring that is not full holds records 0..count-1: the writer fills
+    // them in order from an empty ring (Clear: position -1), and only a full
+    // ring wraps. ScrollOffset and ScrollToOffset (below) wrap by the count,
+    // not the limit, and ScrollToTop (0x00788690) lays out from record 0
+    // unless the ring is full, so each is right only for that layout. A
+    // ClassicAPI writer must leave the ring in it.
     OFF_SCROLLINGMESSAGEFRAME_MESSAGES = 0x394,    // the record array
     SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE = 0x18,
     OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT = 0x0,
