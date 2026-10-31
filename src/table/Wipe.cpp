@@ -72,8 +72,23 @@ static int __fastcall Script_table_wipe(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kWipeArgs[] = {
+    Game::Doc::Req("tbl", "table"),
+};
+const Game::Doc::Field kWipeRets[] = {
+    Game::Doc::Req("tbl", "table", "The same table, now empty."),
+};
+const Game::Doc::Function kWipe{"Removes every key from a table.", kWipeArgs, kWipeRets,
+                                "LuaGlobals"};
+
+// `wipe` is the global alias 3.3.5's FrameScript compat preamble sets next
+// to `tinsert` / `tremove` (`wipe = tab.wipe`). 1.12's preamble predates
+// table.wipe, so the alias is registered here; retail FrameXML calls it.
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("table", "wipe", &Script_table_wipe);
+    Game::Lua::RegisterGlobalFunction("wipe", &Script_table_wipe, &kWipe);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -10,7 +10,6 @@
 --     (an error goes to the error handler and the other callbacks still run),
 --     but every call to a vararg function builds an `arg` table in Lua 5.0,
 --     which would cost a table per callback per event.
---   - 1.12 has no global wipe, so UnregisterEvents uses table.wipe.
 
 local secureexecuterange = secureexecuterange;
 local securecallfunction = securecallfunction;
@@ -19,7 +18,6 @@ local error = error;
 local pairs = pairs;
 local rawset = rawset;
 local next = next;
-local wipe = table.wipe;
 local GetOrCreateTableEntry = GetOrCreateTableEntry;
 
 local CallbackType = EnumUtil.MakeEnum("Closure", "Function");

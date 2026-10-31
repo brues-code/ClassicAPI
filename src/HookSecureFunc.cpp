@@ -32,9 +32,8 @@ namespace {
 // that are not base-library functions at all. So do not derive this from
 // the engine's `luaopen_base` table (`0x00811E28`, 36 entries — see
 // BlizzardScriptAPI.md §3); that is a different set with a different
-// purpose. Names with no 1.12 counterpart (`wipe` is `table.wipe` here; the
-// secure family does not exist) stay for parity of the error an addon
-// sees. Sorted alphabetically.
+// purpose. Names with no 1.12 counterpart (the secure family does not
+// exist) stay for parity of the error an addon sees. Sorted alphabetically.
 const char *const kUnhookableNames[] = {
     "getfenv", "getmetatable", "hooksecurefunc", "ipairs", "issecurevalue",
     "issecurevariable", "next", "pairs", "pcall", "pcallwithenv", "rawget",

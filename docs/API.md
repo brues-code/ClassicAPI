@@ -643,7 +643,7 @@ build instructions.
   - [`unpack(list [, i [, j]])`](#unpacklist--i--j)
   - [`xpcall(f, msgh [, arg1, ...])`](#xpcallf-msgh--arg1-)
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
-  - [`table.wipe(t)`](#tablewipet)
+  - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
   - [`table.count(tbl)`](#tablecounttbl)
   - [`table.maxn(t)`](#tablemaxnt)
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
@@ -15057,10 +15057,11 @@ optional numeric threshold and errored on every string option
 - A number (or no argument) keeps the stock threshold behavior
   unchanged.
 
-### `table.wipe(t)`
+### `table.wipe(t)` / `wipe(t)`
 
 Removes every key from `t`, leaving it empty but preserving its
-internal hash and array capacity. Returns `t` for chaining.
+internal hash and array capacity. Returns `t` for chaining. `wipe` is
+the same function as a global.
 
 ```lua
 local cache = {}

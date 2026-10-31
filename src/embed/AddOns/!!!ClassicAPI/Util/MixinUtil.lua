@@ -1,9 +1,4 @@
 -- Backport of retail's Blizzard_SharedXML/MixinUtil.lua.
---
--- Implementation differences from the retail source:
---   - wipe is table.wipe here.
-
-local wipe = table.wipe;
 
 -- The following function is used with permission from Daniel Stephens
 -- texture			- Texture
