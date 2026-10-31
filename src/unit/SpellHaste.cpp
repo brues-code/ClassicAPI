@@ -31,15 +31,33 @@
 // casters most of the time — the value is meaningful for Curse of Tongues,
 // Nature's Grace, and the handful of other cast-speed effects (and, as the
 // cast-time work showed, whatever bleeds into the field for hunter shots).
+//
+// `UNIT_SPELL_HASTE` fires when that field changes. 1.12 turns unit-field
+// changes into events by index: FUN_0051bbb0 watches unit field i when slot
+// i of the static event-name array is named, and FUN_0051bd50 signals event i
+// once per token of the unit. UNIT_MOD_CAST_SPEED is index 139
+// (OFF_UNIT_MOD_CAST_SPEED / 4), and slot 139 has no name, so naming it lets
+// the engine's own watchers fire the event (see Event::Custom::EngineName).
+// Nothing else signals 139 by number: it is above the glue band and not in
+// the chat-type event table.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "event/Custom.h"
 
 #include <cstdint>
 
 namespace Unit::SpellHaste {
 
 namespace {
+
+const Game::Doc::Field kEventPayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken"),
+};
+const Game::Doc::Event kEventDoc{"Unit", "Fires when the unit's spell haste changes.",
+                                 kEventPayload};
+const Event::Custom::EngineName _event{Offsets::OFF_UNIT_MOD_CAST_SPEED / 4, "UNIT_SPELL_HASTE",
+                                       &kEventDoc};
 
 const uint8_t *Descriptor(const uint8_t *unit) {
     if (unit == nullptr)

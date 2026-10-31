@@ -253,6 +253,7 @@ build instructions.
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
+  - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
@@ -6114,6 +6115,23 @@ after — single fire if any byte changed. The bulk snapshot is 64
 byte reads (cheap) and naturally handles the case where one packet
 carries multiple rep updates whose threshold crossings ripple AT_WAR
 state across unrelated slots.
+
+### `UNIT_SPELL_HASTE` event
+
+Fires when the spell haste of a unit changes.
+
+```
+UNIT_SPELL_HASTE: unitTarget
+```
+
+- **`unitTarget`** (string) — the unit token. A unit that has more than
+  one token (for example `target` and `focus`) gets one event for each
+  token.
+
+The new value is
+[`UnitSpellHaste(unitTarget)`](#unitspellhasteunit). The event fires for
+each unit token that gets unit events, and only for units that the client
+can see.
 
 ### `UNIT_TARGET` event
 
@@ -23902,6 +23920,7 @@ This is the Blizzard-shaped surface over the field nampower exposes raw as
 `GetUnitField(unit, "modCastSpeed")`, so addons can drop that dependency.
 Consumers that need the raw multiplier back can recover it as
 `1 / (1 + UnitSpellHaste(unit) / 100)`. Returns `0` for invalid units.
+[`UNIT_SPELL_HASTE`](#unit_spell_haste-event) fires when the value changes.
 
 ### `UnitSpellTargetName(unit)`
 
