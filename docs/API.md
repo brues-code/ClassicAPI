@@ -13,6 +13,7 @@ build instructions.
   - [`GetActionInfo(slot)`](#getactioninfoslot)
   - [`IsItemAction(slot)`](#isitemactionslot)
   - [`HasBonusActionBar()`](#hasbonusactionbar)
+  - [`C_ActionBar.ShouldShowKeyring()`](#c_actionbarshouldshowkeyring)
 
 - [AddOns](#addons)
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
@@ -149,6 +150,8 @@ build instructions.
   - [`C_Container.GetBackpackAutosortDisabled()` / `C_Container.SetBackpackAutosortDisabled(disable)`](#c_containergetbackpackautosortdisabled--c_containersetbackpackautosortdisableddisable)
   - [`C_Container.GetBankAutosortDisabled()` / `C_Container.SetBankAutosortDisabled(disable)`](#c_containergetbankautosortdisabled--c_containersetbankautosortdisableddisable)
   - [`SetBagPortraitTexture(texture, bagIndex)` / `C_Container.SetBagPortraitTexture(texture, bagIndex)`](#setbagportraittexturetexture-bagindex--c_containersetbagportraittexturetexture-bagindex)
+  - [`C_Container.GetContainerNumSlots(containerIndex)` / `C_Container.PickupContainerItem(containerIndex, slotIndex)`](#c_containergetcontainernumslotscontainerindex--c_containerpickupcontaineritemcontainerindex-slotindex)
+  - [`ContainerFrame_GetContainerNumSlots(bagID)` / `NUM_TOTAL_BAG_FRAMES`](#containerframe_getcontainernumslotsbagid--num_total_bag_frames)
 
 - [Creature](#creature)
   - [`C_CreatureInfo.GetCreatureID(guid)`](#c_creatureinfogetcreatureidguid)
@@ -463,6 +466,7 @@ build instructions.
   - [`LE_ITEM_QUALITY_*`](#le_item_quality_)
   - [`LE_UNIT_STAT_*`](#le_unit_stat_)
   - [`Enum.AddOnSecurityStatus`](#enumaddonsecuritystatus)
+  - [`Enum.BagIndex`](#enumbagindex)
   - [`Enum.InventoryType`](#enuminventorytype)
   - [`Enum.ItemClass`](#enumitemclass)
   - [`Enum.ItemQuality`](#enumitemquality)
@@ -520,6 +524,7 @@ build instructions.
   - [`C_Item.GetItemFamily(item)`](#c_itemgetitemfamilyitem)
   - [`C_Item.GetItemGUID(itemLocation)`](#c_itemgetitemguiditemlocation)
   - [`C_Item.GetItemID(itemLocation)`](#c_itemgetitemiditemlocation)
+  - [`C_Item.GetItemIDForItemInfo(itemInfo)`](#c_itemgetitemidforiteminfoiteminfo)
   - [`C_Item.GetItemInfo(itemInfo)`](#c_itemgetiteminfoiteminfo)
   - [`C_Item.GetItemInfoInstant(item)`](#c_itemgetiteminfoinstantitem)
   - [`C_Item.GetItemInventorySlotInfo(inventorySlot)`](#c_itemgetiteminventoryslotinfoinventoryslot)
@@ -576,6 +581,18 @@ build instructions.
   - [`SetInventoryPortraitTexture(texture, unit, slot)`](#setinventoryportraittexturetexture-unit-slot)
   - [`GetItemIcon(itemID)` / `C_Item.GetItemIcon(itemLocation)` / `C_Item.GetItemIconByID(item)`](#getitemiconitemid--c_itemgetitemiconitemlocation--c_itemgetitemiconbyiditem)
   - [`IsDualWielding()`](#isdualwielding)
+  - [`Item` objects](#item-objects)
+
+- [ItemUtil](#itemutil)
+  - [`ItemUtil.GetItemDetails(itemLink, quantity)` / `ItemUtil.GetItemHyperlink(itemID)`](#itemutilgetitemdetailsitemlink-quantity--itemutilgetitemhyperlinkitemid)
+  - [`ItemUtil.PickupBagItem(itemLocation)`](#itemutilpickupbagitemitemlocation)
+  - [`ItemUtil.IterateBagSlots(bag, callback)` / `ItemUtil.IterateInventorySlots(firstSlot, lastSlot, callback)`](#itemutiliteratebagslotsbag-callback--itemutiliterateinventoryslotsfirstslot-lastslot-callback)
+  - [`ItemUtil.IteratePlayerInventory(callback)` / `ItemUtil.IteratePlayerInventoryAndEquipment(callback)`](#itemutiliterateplayerinventorycallback--itemutiliterateplayerinventoryandequipmentcallback)
+  - [`ItemUtil.FilterOwnedItems(itemIDs)`](#itemutilfilterowneditemsitemids)
+  - [`ItemUtil.TransformItemIDsToItems(itemIDs)` and related functions](#itemutiltransformitemidstoitemsitemids-and-related-functions)
+  - [`ItemUtil.GetValidatedItemLocation(equipSlot)` / `ItemUtil.GetEquipSlotTexture(equipSlot)`](#itemutilgetvalidateditemlocationequipslot--itemutilgetequipslottextureequipslot)
+  - [`ItemUtil.GetEmptyEquipSlotTooltip(equipSlot)` / `ItemUtil.GetEmptyEquipSlotTooltipForSlotName(slotName)`](#itemutilgetemptyequipslottooltipequipslot--itemutilgetemptyequipslottooltipforslotnameslotname)
+  - [`ItemUtil.DisplayEquipSlotTooltip(frame, tooltip, equipSlot, suppressComparison, checkRelic)`](#itemutildisplayequipslottooltipframe-tooltip-equipslot-suppresscomparison-checkrelic)
 
 - [Launch](#launch)
   - [`-config <name>` (launch switch)](#-config-name-launch-switch)
@@ -748,6 +765,9 @@ build instructions.
   - [`C_NewItems.IsNewItem(bagID, slotIndex)`](#c_newitemsisnewitembagid-slotindex)
   - [`C_NewItems.RemoveNewItem(bagID, slotIndex)`](#c_newitemsremovenewitembagid-slotindex)
   - [`C_NewItems.ClearAll()`](#c_newitemsclearall)
+
+- [PaperDollInfo](#paperdollinfo)
+  - [`C_PaperDollInfo.GetInventorySlotInfoForInvSlot(invSlot)`](#c_paperdollinfogetinventoryslotinfoforinvslotinvslot)
 
 - [PartyInfo](#partyinfo)
   - [`InviteUnit(targetName)`](#inviteunittargetname)
@@ -1234,6 +1254,17 @@ gives the number of the bar.
 ```lua
 if HasBonusActionBar() then
     print("Bonus bar", GetBonusBarOffset())
+end
+```
+
+### `C_ActionBar.ShouldShowKeyring()`
+
+Returns `true`. The client always has a keyring. When this value is true,
+bag code includes the keyring (`KEYRING_CONTAINER`).
+
+```lua
+if C_ActionBar.ShouldShowKeyring() then
+    ItemUtil.IterateBagSlots(KEYRING_CONTAINER, callback)
 end
 ```
 
@@ -3748,6 +3779,27 @@ C_Container.SetBagPortraitTexture(myTexture, 5)     -- the first bank bag
 
 If the bag slot is empty, the texture is cleared. The error messages
 spell the name as `SetBagPortaitTexture`.
+
+### `C_Container.GetContainerNumSlots(containerIndex)` / `C_Container.PickupContainerItem(containerIndex, slotIndex)`
+
+These are the stock `GetContainerNumSlots` and `PickupContainerItem` with
+their `C_Container` names. Each pair is the same function.
+
+```lua
+local numSlots = C_Container.GetContainerNumSlots(Enum.BagIndex.Backpack)  -- 16
+C_Container.PickupContainerItem(Enum.BagIndex.Backpack, 1)
+```
+
+### `ContainerFrame_GetContainerNumSlots(bagID)` / `NUM_TOTAL_BAG_FRAMES`
+
+`ContainerFrame_GetContainerNumSlots(bagID)` returns two values:
+`maxNumSlots, currentNumSlots`. For the keyring, both values are
+`GetKeyRingSize()`. For other bags, both values are
+`C_Container.GetContainerNumSlots(bagID)`.
+
+`NUM_TOTAL_BAG_FRAMES` is the number of equipped bags (`4`). The bag
+indices from `Enum.BagIndex.Backpack` to `NUM_TOTAL_BAG_FRAMES` are the
+backpack and the equipped bags.
 
 ## Creature
 
@@ -10819,6 +10871,28 @@ if C_AddOns.GetAddOnSecurity(name) == Enum.AddOnSecurityStatus.Secure then
 end
 ```
 
+### `Enum.BagIndex`
+
+The container indices that the `C_Container` functions and the stock
+container functions take:
+
+| Value | Field |
+|------:|-------|
+| `-2` | `Keyring` |
+| `-1` | `Bank` |
+| `0` | `Backpack` |
+| `1` to `4` | `Bag_1` to `Bag_4` |
+| `5` to `10` | `BankBag_1` to `BankBag_6` |
+
+`Keyring` and `Bank` have the same values as `KEYRING_CONTAINER` and
+`BANK_CONTAINER`.
+
+```lua
+for bag = Enum.BagIndex.Backpack, NUM_TOTAL_BAG_FRAMES do
+    -- the backpack and the equipped bags
+end
+```
+
 ### `Enum.InventoryType`
 
 The equip-type enum — the numeric `inventoryType` reported by
@@ -11927,6 +12001,17 @@ if id then
     local _, type, subtype = C_Item.GetItemInfoInstant(id)
     -- ...
 end
+```
+
+### `C_Item.GetItemIDForItemInfo(itemInfo)`
+
+Returns the itemID for an itemID, an `"item:N"` string or an item link. It
+does not need the item's data in the cache. An item name, or input that
+names no item, returns nothing.
+
+```lua
+/dump C_Item.GetItemIDForItemInfo("item:6948")
+-- 6948
 ```
 
 ### `C_Item.GetItemInfo(itemInfo)`
@@ -13670,6 +13755,147 @@ if IsDualWielding() then ... end
 A shield or a held item (tome, orb, libram) in the off hand does not
 count. The result is also `false` until the client has the off-hand
 item's data.
+
+### `Item` objects
+
+These functions make an item object (`ItemMixin`):
+
+- `Item:CreateFromItemID(itemID)`
+- `Item:CreateFromItemLink(itemLink)`
+- `Item:CreateFromItemGUID(itemGUID)`
+- `Item:CreateFromBagAndSlot(bagID, slotIndex)`
+- `Item:CreateFromEquipmentSlot(equipmentSlotIndex)`
+- `Item:CreateFromItemLocation(itemLocation)`
+
+Its methods read the item through `C_Item`. Some of them are `GetItemID`,
+`GetItemName`, `GetItemLink`, `GetItemIcon`, `GetItemQuality` and
+`GetStackCount`. The methods that read the item's data return `nil` until
+that data is in the cache.
+
+When the load of the item's data ends, `item:ContinueOnItemLoad(callback)`
+calls `callback(itemID, success)`. If the data is already in the cache, the
+call occurs immediately. If the data loaded, `success` is `1`. If the load
+fails (for example, the server has no item with this ID), the callback also
+occurs, with `success` set to `nil`. If the item is empty (for example, an
+empty bag slot), `ContinueOnItemLoad` raises an error.
+
+`item:ContinueWithCancelOnItemLoad(callback)` does the same, and returns a
+function. A call to that function cancels the callback before it occurs.
+
+```lua
+local item = Item:CreateFromItemID(19019)
+item:ContinueOnItemLoad(function(itemID, success)
+    if success then
+        print(item:GetItemLink())
+    end
+end)
+```
+
+`ItemEventListener` and `QuestEventListener` are the listeners behind these
+callbacks. When the data of a quest loads,
+`QuestEventListener:AddCallback(questID, callback)` calls
+`callback(questID, success)`. If the load fails, the callback does not occur.
+
+## ItemUtil
+
+Helper functions for items, bags and equipment slots, backported from
+FrameXML. Each `itemLocation` is an `ItemLocation` object (see
+[`itemLocation` argument shapes](#itemlocation-argument-shapes)).
+
+### `ItemUtil.GetItemDetails(itemLink, quantity)` / `ItemUtil.GetItemHyperlink(itemID)`
+
+`ItemUtil.GetItemDetails` returns `itemName, itemTexture, quantity,
+itemRarity, itemLink` from [`C_Item.GetItemInfo`](#c_itemgetiteminfoiteminfo).
+It returns `quantity` as you gave it. `ItemUtil.GetItemHyperlink` returns
+only the item link. Both return `nil` for an item that is not in the cache.
+
+### `ItemUtil.PickupBagItem(itemLocation)`
+
+Picks up the item at a bag location, with
+[`C_Container.PickupContainerItem`](#c_containergetcontainernumslotscontainerindex--c_containerpickupcontaineritemcontainerindex-slotindex).
+An equipment location does nothing.
+
+### `ItemUtil.IterateBagSlots(bag, callback)` / `ItemUtil.IterateInventorySlots(firstSlot, lastSlot, callback)`
+
+These functions call `callback(itemLocation)` for each slot that holds an
+item, in slot order. When `callback` returns a true value, the walk stops.
+
+- `ItemUtil.IterateBagSlots` walks one bag. If `callback` stopped the walk,
+  it returns `true`. Otherwise it returns `false`.
+- `ItemUtil.IterateInventorySlots` walks the equipment slots from `firstSlot`
+  to `lastSlot`. It returns nothing.
+
+### `ItemUtil.IteratePlayerInventory(callback)` / `ItemUtil.IteratePlayerInventoryAndEquipment(callback)`
+
+`ItemUtil.IteratePlayerInventory` walks the backpack, the equipped bags and
+then the keyring, with the same `callback` rule as
+`ItemUtil.IterateBagSlots`. If `callback` stopped the walk, it returns `true`.
+
+`ItemUtil.IteratePlayerInventoryAndEquipment` walks the same bags. If
+`callback` does not stop the walk, it then walks the equipped slots
+(`INVSLOT_FIRST_EQUIPPED` to `INVSLOT_LAST_EQUIPPED`). It returns nothing.
+
+```lua
+ItemUtil.IteratePlayerInventory(function(itemLocation)
+    print(C_Item.GetItemLink(itemLocation))
+end)
+```
+
+### `ItemUtil.FilterOwnedItems(itemIDs)`
+
+Returns a new array with the IDs from `itemIDs` that are in the player's
+bags or keyring. Equipped items do not count.
+
+```lua
+/dump ItemUtil.FilterOwnedItems({6948, 19019})
+-- {6948} with a Hearthstone in the bags
+```
+
+### `ItemUtil.TransformItemIDsToItems(itemIDs)` and related functions
+
+These functions return a new array of [`Item` objects](#item-objects), one
+for each entry of the input array:
+
+- `ItemUtil.TransformItemIDsToItems(itemIDs)`
+- `ItemUtil.TransformItemGUIDsToItems(itemGUIDs)`
+- `ItemUtil.TransformItemLocationsToItems(itemLocations)`
+- `ItemUtil.TransformItemLocationItemsToGUIDItems(itemLocations)`, which
+  gives the same result as `ItemUtil.TransformItemLocationsToItems`
+
+### `ItemUtil.GetValidatedItemLocation(equipSlot)` / `ItemUtil.GetEquipSlotTexture(equipSlot)`
+
+If the equipment slot holds an item, `ItemUtil.GetValidatedItemLocation`
+returns an `ItemLocation` for that slot. Otherwise it returns `nil`.
+
+`ItemUtil.GetEquipSlotTexture` returns the icon of the item in the
+equipment slot. If the slot is empty, it returns the texture of the empty
+slot from
+[`C_PaperDollInfo.GetInventorySlotInfoForInvSlot`](#c_paperdollinfogetinventoryslotinfoforinvslotinvslot).
+
+### `ItemUtil.GetEmptyEquipSlotTooltip(equipSlot)` / `ItemUtil.GetEmptyEquipSlotTooltipForSlotName(slotName)`
+
+Both functions return the display name of an equipment slot, for example
+`"Head"`. `ItemUtil.GetEmptyEquipSlotTooltipForSlotName` takes a slot name,
+for example `"HeadSlot"`, and returns the global string with that name in
+upper case (`HEADSLOT`). `ItemUtil.GetEmptyEquipSlotTooltip` takes a slot
+number.
+
+```lua
+/dump ItemUtil.GetEmptyEquipSlotTooltip(1)
+-- "Head"
+```
+
+### `ItemUtil.DisplayEquipSlotTooltip(frame, tooltip, equipSlot, suppressComparison, checkRelic)`
+
+Shows the item in an equipment slot of the player on `tooltip`. If the slot
+is empty, the tooltip shows the name of the slot at the right of `frame`.
+If `checkRelic` is true and the player has a relic slot, the name is
+`RELICSLOT` ("Relic").
+
+If `suppressComparison` is true, the function calls
+`GameTooltip_SuppressAutomaticCompareItem(tooltip)`. That function sets
+`tooltip.suppressAutomaticCompareItem`. No ClassicAPI code compares items
+automatically, so the flag has no effect.
 
 ## Launch
 
@@ -17540,6 +17766,29 @@ slot.
 
 Clears every new flag at once. Fires `BAG_NEW_ITEMS_UPDATED` if anything was
 flagged.
+
+## PaperDollInfo
+
+### `C_PaperDollInfo.GetInventorySlotInfoForInvSlot(invSlot)`
+
+Returns the paper doll slot for an inventory slot number. It is the reverse
+of `GetInventorySlotInfo(slotName)`, which starts from the slot name. It
+returns four values:
+
+| Return | Value |
+|--------|-------|
+| `invSlot` | The slot number. |
+| `slotTexture` | The texture path of the empty slot. |
+| `checkRelic` | `true` for the ranged slot (`18`), which can also hold a relic. Otherwise `false`. |
+| `slotName` | The slot name, for example `"HeadSlot"`. |
+
+If no paper doll slot has this number, it returns nothing. An argument that
+is not a number raises an error.
+
+```lua
+/dump C_PaperDollInfo.GetInventorySlotInfoForInvSlot(18)
+-- 18, "interface\\paperdoll\\UI-PaperDoll-Slot-Ranged.blp", true, "RangedSlot"
+```
 
 ## PartyInfo
 

@@ -91,6 +91,13 @@ function GameTooltip_ShowCompareItem(self, shift)
 	end
 end
 
+-- Retail's automatic comparison (the alwaysCompareItems cvar) skips a
+-- tooltip with this flag. Comparison here runs only when a caller asks for
+-- it, so nothing reads the flag.
+function GameTooltip_SuppressAutomaticCompareItem(tooltip)
+	tooltip.suppressAutomaticCompareItem = true;
+end
+
 function GameTooltip_SetTitle(tooltip, text, overrideColor, wrap)
 	tooltip:ClearLines();
 	GameTooltip_AddColoredLine(tooltip, text, overrideColor or HIGHLIGHT_FONT_COLOR, wrap)

@@ -4867,6 +4867,17 @@ enum Offsets {
     // arrays: a 1-based backpack slot S maps to linear (S - 1) + 23. Matches
     // PackBagSlot's `*param_3 += 0x17` for the backpack branch.
     BACKPACK_LINEAR_BASE = 23,
+    // Lua container indices (bagID), as `PackBagSlot` reads them and FrameXML
+    // names them (KEYRING_CONTAINER, BANK_CONTAINER, BACKPACK_CONTAINER,
+    // NUM_BAG_SLOTS, NUM_BANKBAGSLOTS): keyring -2, bank -1, backpack 0,
+    // equipped bags 1..4, bank bags 5..10. `Enum.BagIndex` publishes them.
+    BAG_INDEX_KEYRING = -2,
+    BAG_INDEX_BANK = -1,
+    BAG_INDEX_BACKPACK = 0,
+    BAG_INDEX_BAG_FIRST = 1,
+    BAG_INDEX_BAG_LAST = 4,
+    BAG_INDEX_BANK_BAG_FIRST = 5,
+    BAG_INDEX_BANK_BAG_LAST = 10,
     // Player inventory manager layout — used for direct GUID-array reads
     // that bypass `GetItemBySlot`'s bank gate at `0x006228C1`.
     //   +0x00  uint32  max slot count
@@ -5543,6 +5554,25 @@ enum Offsets {
     // ItemSubClass.dbc). 4.3.4's bag search (`ItemRecIsFiltered`,
     // 0x009BD3C0) does not match the subclass name of these rows.
     ITEMSUBCLASS_FLAG_NO_SEARCH_NAME = 0x1,
+
+    // PaperDollItemFrame.dbc — the paper-doll slot table. Like ItemSubClass,
+    // the engine reads a parallel (records, count) pair at the class
+    // instance's +0x00 / +0x04: `Script_GetInventorySlotInfo` (0x004C81B0)
+    // walks [0x00C0DA00] for [0x00C0DA04] flat 0x10-byte rows. Columns
+    // (verified against the dumped DBC):
+    //   +0x00 char* ItemSlotName ("HeadSlot", "Bag0Slot", "AmmoSlot", ...)
+    //   +0x04 char* SlotIcon ("interface\paperdoll\UI-PaperDoll-Slot-Head.blp")
+    //   +0x08 int   SlotNumber (inventory slot: 1..19 equipment, 20..23 bag
+    //               slots, 0 ammo)
+    // The engine flags SlotNumber 18 (ranged) as the relic-check slot
+    // (`SlotNumber - 1 == 0x11` at 0x004C8264).
+    VAR_PAPERDOLLITEMFRAME_RECORDS = 0x00C0DA00,
+    VAR_PAPERDOLLITEMFRAME_COUNT = 0x00C0DA04,
+    OFF_PAPERDOLLITEMFRAME_RECORD_STRIDE = 0x10,
+    OFF_PAPERDOLLITEMFRAME_SLOT_NAME = 0x00,
+    OFF_PAPERDOLLITEMFRAME_SLOT_ICON = 0x04,
+    OFF_PAPERDOLLITEMFRAME_SLOT_NUMBER = 0x08,
+    PAPERDOLLITEMFRAME_RELIC_SLOT_NUMBER = 18,
 
     // ItemDisplayInfo.dbc — standard layout. Icon path char* at record +0x14
     // (per the helper at 0x005D88B0 that Script_GetItemInfo uses).

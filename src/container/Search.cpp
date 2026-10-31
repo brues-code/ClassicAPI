@@ -208,13 +208,6 @@ bool IsItemFiltered(const uint8_t *cgItem) {
 
 namespace {
 
-// Lua's BACKPACK_CONTAINER, BANK_CONTAINER, KEYRING_CONTAINER and the last
-// bank bag (NUM_BAG_SLOTS + NUM_BANKBAGSLOTS).
-constexpr int kBackpack = 0;
-constexpr int kBank = -1;
-constexpr int kKeyring = -2;
-constexpr int kLastBankBag = 10;
-
 const Game::Doc::Event kSearchUpdateDoc{
     "Container", "Fires when the bag search text changes.", {}};
 const Event::Custom::AutoReserve _evt{"INVENTORY_SEARCH_UPDATE", &kSearchUpdateDoc};
@@ -225,11 +218,12 @@ const Event::Custom::AutoReserve _evt{"INVENTORY_SEARCH_UPDATE", &kSearchUpdateD
 // get their fixed sizes. The keyring is the inventory's last range, so the
 // whole-inventory bound is its own. Any other index is no container.
 int SlotsToWalk(int bagID) {
-    if (bagID == kBackpack)
+    if (bagID == Offsets::BAG_INDEX_BACKPACK)
         return Offsets::BACKPACK_NUM_SLOTS;
-    if (bagID == kBank)
+    if (bagID == Offsets::BAG_INDEX_BANK)
         return Offsets::INVMGR_BANK_MAIN_LAST_SLOT - Offsets::INVMGR_BANK_MAIN_FIRST_SLOT + 1;
-    if (bagID == kKeyring || (bagID >= 1 && bagID <= kLastBankBag))
+    if (bagID == Offsets::BAG_INDEX_KEYRING ||
+        (bagID >= Offsets::BAG_INDEX_BAG_FIRST && bagID <= Offsets::BAG_INDEX_BANK_BAG_LAST))
         return INT_MAX;
     return 0;
 }

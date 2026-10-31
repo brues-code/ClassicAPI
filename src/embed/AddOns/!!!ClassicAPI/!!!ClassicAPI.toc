@@ -43,6 +43,8 @@ Util\PlayerLocation.lua
 Util\EventUtil.lua
 Util\AsyncCallbackSystem.lua
 Util\Item.lua
+Util\ItemUtil.lua
+Util\ContainerFrame.lua
 Util\AddOnCompat.lua
 Util\FunctionUtil.lua
 Util\CacheUtil.lua
