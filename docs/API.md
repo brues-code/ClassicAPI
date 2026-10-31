@@ -252,6 +252,7 @@ build instructions.
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`SELF_RES_SPELL_CHANGED` event](#self_res_spell_changed-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
+  - [`UNIT_AREA_CHANGED` event](#unit_area_changed-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_CONNECTION` event](#unit_connection-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
@@ -5976,6 +5977,36 @@ click would otherwise raise an event.
 
 The event arrives on the frame after the sound ends, which is when the
 client releases it.
+
+### `UNIT_AREA_CHANGED` event
+
+Fires when a group member moves to a different zone.
+
+```
+UNIT_AREA_CHANGED: unitTarget
+```
+
+- **`unitTarget`** (string) — the unit token of the member, for example
+  `party1` or `raid12`. A member that has more than one token (for
+  example `party1` and `raid3`) gets one event for each token.
+
+The event also fires for a member that the client cannot see, for example
+a member in another zone. The client puts a member that it can see in the
+zone of the player. As a result, the event fires when a member comes into
+view from a different zone. It does not fire when a member that the client
+can see moves to a different zone. The event does not fire for `player`.
+
+For a raid member, the zone value of
+[`GetRaidRosterInfo`](https://warcraft.wiki.gg/wiki/API_GetRaidRosterInfo)
+already gives the new zone when the event fires.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("UNIT_AREA_CHANGED")
+f:SetScript("OnEvent", function()
+    print(UnitName(arg1), "changed zone")
+end)
+```
 
 ### `UNIT_AURA_DELTA` event
 

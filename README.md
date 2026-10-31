@@ -320,6 +320,7 @@ when launching with `-console`), not as Lua functions. See the
 | `QUEST_TURNED_IN` | `questID, xpReward, moneyReward` |
 | `SELF_RES_SPELL_CHANGED` | *(none)* |
 | `SOUNDKIT_FINISHED` | `soundHandle` (only for sounds played with `runFinishCallback`) |
+| `UNIT_AREA_CHANGED` | `unitTarget` |
 | `UNIT_AURA_DELTA` | `unitTarget, updateInfo` (the instance IDs of the auras added, updated, and removed) |
 | `UNIT_CONNECTION` | `unitTarget, isConnected` |
 | `UNIT_SPELLCAST_SENT` | `"player", target, castGUID, spellID, spellName, rank` |

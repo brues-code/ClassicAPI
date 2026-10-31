@@ -11,8 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `UNIT_CONNECTION` and the generic power events for a group member's party
-// record.
+// `UNIT_CONNECTION`, `UNIT_AREA_CHANGED` and the generic power events for a
+// group member's party record.
 //
 // A group member's stats packet (ReadPartyMemberStats, 0x005E5110) and the
 // player's own record check (ComparePartyRecord, 0x005F0B80) end in
@@ -22,7 +22,15 @@
 // (Player_C.cpp), which in the same places also signals UNIT_CONNECTION
 // `(token, isConnected)` when the online bit of the status flags flips, and
 // UNIT_POWER / UNIT_POWER_FREQUENT / UNIT_MAXPOWER with the power token
-// beside each per-type power event.
+// beside each per-type power event. Retail adds UNIT_AREA_CHANGED `(token)`
+// for the zone; DiffPartyRecords sets its bit (0x80, record +0x14) and the
+// raiser reads nothing for it. The server sends the zone only to members
+// that cannot see the player (tortoise-wow's Group::UpdatePlayerOutOfRange).
+// A member in view is built with the player's own zone (BuildPartyRecord
+// stores s_zoneId), which is also the zone GetRaidRosterInfo gives for a
+// held object, so ComparePartyRecord sets the bit when a member comes into
+// view from another zone. It never runs for the active player
+// (CGPlayer_C::PostInit skips it), so "player" gets no event.
 //
 // Both calls point here instead (Common::RedirectCall): the function calls
 // the raiser, then adds those events for the same change bits, after the
@@ -59,6 +67,7 @@ constexpr uint32_t CHANGE_STATUS = 0x1;
 constexpr uint32_t CHANGE_HEALTH = 0x2;
 constexpr uint32_t CHANGE_POWER = 0x10;
 constexpr uint32_t CHANGE_MAX_POWER = 0x20;
+constexpr uint32_t CHANGE_ZONE = 0x80;
 constexpr uint32_t CHANGE_PET_POWER = 0x20000;
 constexpr uint32_t CHANGE_PET_MAX_POWER = 0x40000;
 
@@ -69,6 +78,13 @@ const Game::Doc::Field kConnectionPayload[] = {
 const Game::Doc::Event kConnectionDoc{
     "Unit", "Fires when a group member goes offline or comes back online.", kConnectionPayload};
 const Event::Custom::AutoReserve kConnection{"UNIT_CONNECTION", &kConnectionDoc};
+
+const Game::Doc::Field kAreaPayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken"),
+};
+const Game::Doc::Event kAreaDoc{"Unit", "Fires when a group member moves to a different zone.",
+                                kAreaPayload};
+const Event::Custom::AutoReserve kArea{"UNIT_AREA_CHANGED", &kAreaDoc};
 
 using Signal_t = void(__fastcall *)(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
                                     const uint8_t *newRec);
@@ -96,6 +112,16 @@ void SignalConnection(uint64_t guid, bool connected) {
     }
 }
 
+void SignalArea(uint64_t guid) {
+    const int slot = kArea.Slot();
+    if (!Event::Custom::HasListeners(slot))
+        return;
+    char tokens[16][32];
+    const int n = Unit::Identity::TokensForGUID(guid, tokens, 16);
+    for (int i = 0; i < n; ++i)
+        Event::Custom::Fire(slot, "%s", tokens[i]);
+}
+
 void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
                            const uint8_t *newRec) {
     reinterpret_cast<Signal_t>(Offsets::FUN_PARTY_RECORD_SIGNAL)(guid, changes, oldRec, newRec);
@@ -114,6 +140,8 @@ void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t
         Unit::PowerEvents::SignalPower(member, powerType);
     if (changes & CHANGE_MAX_POWER)
         Unit::PowerEvents::SignalMaxPower(member, powerType);
+    if (changes & CHANGE_ZONE)
+        SignalArea(member);
     const uint64_t pet = Game::Read<uint64_t>(newRec, Offsets::OFF_GROUP_MEMBER_PET_GUID);
     if (pet == 0)
         return;
