@@ -7970,6 +7970,22 @@ enum Offsets {
     // call, in the group list.
     FUN_REBUILD_RAID_ROSTER = 0x004BA5F0,
     CALL_GROUP_LIST_REBUILD_RAID_ROSTER = 0x005E6EB4,
+    // UpdateRaidMemberRecord — a player object's raid slot as it enters or
+    // leaves view: with `mode` 0 it stores a live record (FUN_005F0880) in
+    // the player's raid slot and sends 0x27F; with 1 it does nothing.
+    // `void __fastcall(void *player, uint32_t mode, uint32_t withPet)`, RET 4
+    // (0x004BAE8B). Its four E8 callers are exactly a CGPlayer_C entering
+    // and leaving the object table: PostInit and PostUpdate (reactivation)
+    // with mode 1, the release slot (0x005E9AA0) with 0, and ~CGPlayer_C
+    // with 0 only for an object never released (CGObject_C::IsReleased
+    // 0x00614EA0). Each pairs with UpdatePartyMemberRecord (0x004E85D0) one
+    // call earlier. Targets checked against the exe; no loaded DLL
+    // references the function or a site.
+    FUN_UPDATE_RAID_MEMBER_RECORD = 0x004BADC0,
+    CALL_PLAYER_POST_INIT_RAID_RECORD = 0x005DEC43,
+    CALL_PLAYER_POST_UPDATE_RAID_RECORD = 0x005DECAF,
+    CALL_PLAYER_RELEASE_RAID_RECORD = 0x005E9ACF,
+    CALL_PLAYER_DTOR_RAID_RECORD = 0x005DD6AB,
     // Bit 1: flagged for PvP — Script_UnitIsPVP's test (0x00516502) for a
     // token with no unit object.
     GROUP_MEMBER_STATUS_PVP = 0x2,

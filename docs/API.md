@@ -255,7 +255,9 @@ build instructions.
   - [`UNIT_AREA_CHANGED` event](#unit_area_changed-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_CONNECTION` event](#unit_connection-event)
+  - [`UNIT_DISTANCE_CHECK_UPDATE` event](#unit_distance_check_update-event)
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
+  - [`UNIT_IN_RANGE_UPDATE` event](#unit_in_range_update-event)
   - [`UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events](#unit_power_update--unit_power_frequent--unit_maxpower-events)
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
@@ -6128,6 +6130,36 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
+### `UNIT_DISTANCE_CHECK_UPDATE` event
+
+Fires when a group member comes into view or leaves it.
+
+```
+UNIT_DISTANCE_CHECK_UPDATE: unitTarget, isInDistance
+```
+
+- **`unitTarget`** (string) — the unit token of the member, for example
+  `party1` or `raid12`. A member that has more than one token (for
+  example `party1` and `raid3`) gets one event for each token.
+- **`isInDistance`** (boolean) — `true` when the client can see the
+  member, `false` when the client cannot see the member.
+
+The client can see a member that is near enough for the server to send
+it. The server sets this distance. When the event fires,
+[`UnitIsVisible(unitTarget)`](https://warcraft.wiki.gg/wiki/API_UnitIsVisible)
+already gives the new state.
+
+The event fires for party and raid members. It does not fire for
+`player` or for pets.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("UNIT_DISTANCE_CHECK_UPDATE")
+f:SetScript("OnEvent", function()
+    print(UnitName(arg1), arg2 and "came into view" or "left view")
+end)
+```
+
 ### `UNIT_FACTION` event (fire-coverage fix)
 
 `UNIT_FACTION` already exists in the event table — addons can register
@@ -6190,6 +6222,43 @@ after — single fire if any byte changed. The bulk snapshot is 64
 byte reads (cheap) and naturally handles the case where one packet
 carries multiple rep updates whose threshold crossings ripple AT_WAR
 state across unrelated slots.
+
+### `UNIT_IN_RANGE_UPDATE` event
+
+Fires when a unit moves into or out of the range that
+[`UnitInRange`](#unitinrangeunit) checks.
+
+```
+UNIT_IN_RANGE_UPDATE: unitTarget, isInRange
+```
+
+- **`unitTarget`** (string) — the unit token.
+- **`isInRange`** (boolean) — the new first return value of
+  `UnitInRange(unitTarget)`.
+
+The frames that are registered for the event select the units that the
+client checks:
+
+- A frame that uses `RegisterUnitEvent` adds its units. You can use any
+  unit token, for example `target` or `focus`.
+- A frame that uses `RegisterEvent` adds `pet`, each party and raid
+  member, and the pets of these members.
+
+The client checks these units on each frame, but only while a frame is
+registered for the event. To check fewer units, use `RegisterUnitEvent`
+with only the units that you show.
+
+The event fires only when the value changes. The first check of a unit
+does not fire the event. Thus, read `UnitInRange` when you start to
+show a unit.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterUnitEvent("UNIT_IN_RANGE_UPDATE", "party1", "party2")
+f:SetScript("OnEvent", function()
+    print(arg1, arg2 and "is in range" or "is out of range")
+end)
+```
 
 ### `UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events
 

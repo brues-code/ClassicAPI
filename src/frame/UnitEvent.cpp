@@ -384,4 +384,14 @@ bool Accepts(const void *frame, const char *eventName, const char *arg1) {
     return match == nullptr || MatchesUnit(*match, arg1);
 }
 
+const std::vector<std::string> *Units(const void *frame, const char *eventName) {
+    if (g_filters.empty() || frame == nullptr || eventName == nullptr)
+        return nullptr;
+    auto it = g_filters.find(frame);
+    if (it == g_filters.end())
+        return nullptr;
+    const Filter *match = DispatchFilter(it->second, eventName);
+    return match != nullptr ? &match->units : nullptr;
+}
+
 } // namespace Frame::UnitEvent

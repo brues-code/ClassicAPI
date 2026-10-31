@@ -40,6 +40,8 @@
 // player, or the unit it controls (Mind Control, Eyes of the Beast). No
 // mover gives no answer, as in 4.3.4.
 
+#include "unit/Range.h"
+
 #include "Game.h"
 #include "object/Resolve.h"
 #include "unit/Position.h"
@@ -115,42 +117,10 @@ int __fastcall Script_UnitInRange(void *L) {
         Game::Lua::Error(L, "Usage: UnitInRange(\"unit\")");
         return 0;
     }
-    const char *token = Game::Lua::ToString(L, 1);
-
-    // Documented Blizzard quirk: `UnitInRange("player")` returns
-    // false. The function is meant for healing-frame "is *another*
-    // unit in range" checks; querying yourself is meaningless and
-    // the API returns nil/false to flag that. We match the modern
-    // behavior — no position read, no range check.
-    if (token != nullptr && std::strcmp(token, "player") == 0) {
-        Game::Lua::PushBool(L, false);
-        Game::Lua::PushBool(L, false);
-        return 2;
-    }
-
-    float unitPos[3] = {};
-    float moverPos[3] = {};
-    float unitReach = 0.0f;
-    float moverReach = 0.0f;
-    if (!ReadPosAndReach(token, unitPos, &unitReach) ||
-        !ReadMoverPosAndReach(moverPos, &moverReach)) {
-        Game::Lua::PushBool(L, false);
-        Game::Lua::PushBool(L, false);
-        return 2;
-    }
-
-    const float dx = unitPos[0] - moverPos[0];
-    const float dy = unitPos[1] - moverPos[1];
-    const float dz = unitPos[2] - moverPos[2];
-    const float distSq = dx * dx + dy * dy + dz * dz;
-
-    // Effective range = base + both units' reach, mirroring the engine's
-    // spell-range formula (FUN_006e3480). Without the reach terms a target
-    // whose center sits just past 40 yards but whose body is within reach
-    // reports out-of-range even though a 40-yard heal would land.
-    const float effRange = kRangeYards + moverReach + unitReach;
-    Game::Lua::PushBool(L, distSq <= effRange * effRange);
-    Game::Lua::PushBool(L, true);
+    bool inRange = false;
+    const bool checked = InRange(Game::Lua::ToString(L, 1), &inRange);
+    Game::Lua::PushBool(L, inRange);
+    Game::Lua::PushBool(L, checked);
     return 2;
 }
 
@@ -188,5 +158,37 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+bool InRange(const char *token, bool *inRange) {
+    *inRange = false;
+    // Documented Blizzard quirk: `UnitInRange("player")` returns
+    // false. The function is meant for healing-frame "is *another*
+    // unit in range" checks; querying yourself is meaningless and
+    // the API returns nil/false to flag that. We match the modern
+    // behavior — no position read, no range check.
+    if (token == nullptr || std::strcmp(token, "player") == 0)
+        return false;
+
+    float unitPos[3] = {};
+    float moverPos[3] = {};
+    float unitReach = 0.0f;
+    float moverReach = 0.0f;
+    if (!ReadPosAndReach(token, unitPos, &unitReach) ||
+        !ReadMoverPosAndReach(moverPos, &moverReach))
+        return false;
+
+    const float dx = unitPos[0] - moverPos[0];
+    const float dy = unitPos[1] - moverPos[1];
+    const float dz = unitPos[2] - moverPos[2];
+    const float distSq = dx * dx + dy * dy + dz * dz;
+
+    // Effective range = base + both units' reach, mirroring the engine's
+    // spell-range formula (FUN_006e3480). Without the reach terms a target
+    // whose center sits just past 40 yards but whose body is within reach
+    // reports out-of-range even though a 40-yard heal would land.
+    const float effRange = kRangeYards + moverReach + unitReach;
+    *inRange = distSq <= effRange * effRange;
+    return true;
+}
 
 } // namespace Unit::Range

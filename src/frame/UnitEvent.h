@@ -13,6 +13,9 @@
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 namespace Frame::UnitEvent {
 
 // The RegisterUnitEvent filter for one fire whose first argument is the
@@ -22,5 +25,10 @@ namespace Frame::UnitEvent {
 // a dispatcher of our own that walks the subscriber chain itself
 // (Event::Custom::FireValues) asks here for each frame.
 bool Accepts(const void *frame, const char *eventName, const char *arg1);
+
+// The units `frame` gave RegisterUnitEvent for `eventName` (the event-table
+// entry's own name), or nullptr for a plain registration. Valid until the
+// frame's registrations change.
+const std::vector<std::string> *Units(const void *frame, const char *eventName);
 
 } // namespace Frame::UnitEvent

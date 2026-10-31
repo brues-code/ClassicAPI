@@ -122,6 +122,25 @@ int LookupByName(const char *name);
 // past the live table.
 bool HasListeners(int slot);
 
+// Calls `fn(frame)` for each frame registered for the event in `slot`, in
+// the dispatcher's order. Each node's successor is read before `fn` runs,
+// as the dispatcher reads it, so `fn` may run the frame's script. Nothing
+// for a slot `HasListeners` is false for.
+template <typename Fn> void ForEachListener(int slot, Fn fn) {
+    if (!HasListeners(slot))
+        return;
+    const uint8_t *entry = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR) +
+                           slot * Offsets::EVENT_ENTRY_STRIDE;
+    uintptr_t node = Game::Read<uintptr_t>(entry, Offsets::OFF_EVENT_ENTRY_HEAD);
+    while (node != 0 && (node & 1) == 0) {
+        const uintptr_t next = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT);
+        auto *frame = Game::Read<uint8_t *>(node + Offsets::OFF_EVENT_NODE_FRAME);
+        if (frame != nullptr)
+            fn(frame);
+        node = next;
+    }
+}
+
 // Fires the event in `slot` with `nargs` Lua values at absolute stack index
 // `firstArgIdx` as its payload — booleans and nils included, which the
 // printf-style `Fire` cannot carry. Mirrors the engine dispatcher
