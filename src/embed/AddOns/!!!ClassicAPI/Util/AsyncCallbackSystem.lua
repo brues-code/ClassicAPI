@@ -1,9 +1,4 @@
 -- Backport of retail's Blizzard_ObjectAPI/Mainline/AsyncCallbackSystem.lua.
---
--- Differences from the retail source:
---   - No ASYNC_SPELL type and no SpellEventListener. This client keeps every
---     spell in its own data files, so there is no spell data to wait for and
---     no C_Spell.RequestLoadSpellData / SPELL_DATA_LOAD_RESULT.
 
 --[[
 	Queries some data retrieval API (specifically where the data may not be currently available) and when it becomes available
@@ -16,12 +11,14 @@
 AsyncCallbackAPIType = {
 	ASYNC_QUEST = 1,
 	ASYNC_ITEM = 2,
+	ASYNC_SPELL = 3,
 }
 
 local permittedAPI =
 {
 	[AsyncCallbackAPIType.ASYNC_QUEST] = { event = "QUEST_DATA_LOAD_RESULT", accessor =  C_QuestLog.RequestLoadQuestByID },
 	[AsyncCallbackAPIType.ASYNC_ITEM] = { event = "ITEM_DATA_LOAD_RESULT", accessor =  C_Item.RequestLoadItemDataByID },
+	[AsyncCallbackAPIType.ASYNC_SPELL] = { event = "SPELL_DATA_LOAD_RESULT", accessor =  C_Spell.RequestLoadSpellData },
 };
 
 AsyncCallbackSystemMixin = {};
@@ -113,4 +110,5 @@ local function CreateListener(apiType)
 end
 
 ItemEventListener = CreateListener(AsyncCallbackAPIType.ASYNC_ITEM);
+SpellEventListener = CreateListener(AsyncCallbackAPIType.ASYNC_SPELL);
 QuestEventListener = CreateListener(AsyncCallbackAPIType.ASYNC_QUEST);

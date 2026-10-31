@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "item/Location.h"
 #include "spell/Arg.h"
 #include "spell/Lookup.h"
 
@@ -58,6 +59,22 @@ static int __fastcall Script_GetSpellDescription(void *L) {
     return 1;
 }
 
+// `C_Spell.GetSpellDescriptionForItemLocation(spell, itemLocation)` — the
+// description as an item at `itemLocation` shows it. The item tooltip's
+// spell lines (0x0052DA24) expand the spell's text with the same arguments
+// `Expand` passes (pet 0, level 0, aura 0, stack 1, unmodified 0 —
+// benilla-re ui/spelltokens), so the item contributes nothing to the text
+// and the result is GetSpellDescription's. The location is still required,
+// as the retail signature makes it.
+static int __fastcall Script_GetSpellDescriptionForItemLocation(void *L) {
+    if (!Item::Location::IsLocationArg(L, 2)) {
+        Game::Lua::Error(L, "Usage: local description = "
+                            "C_Spell.GetSpellDescriptionForItemLocation(spellIdentifier, itemLocation)");
+        return 0;
+    }
+    return Script_GetSpellDescription(L);
+}
+
 // --- Documentation ----------------------------------------------------------
 
 static const Game::Doc::Field kGetSpellDescriptionArgs[] = {
@@ -72,9 +89,20 @@ static const Game::Doc::Function kGetSpellDescription{
     "The spell's description text, with its placeholders filled in at the base rank.",
     kGetSpellDescriptionArgs, kGetSpellDescriptionRets};
 
+static const Game::Doc::Field kForItemLocationArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
+    Game::Doc::Req("itemLocation", "ItemLocation", "The item that shows the spell."),
+};
+static const Game::Doc::Function kGetSpellDescriptionForItemLocation{
+    "The spell's description text as an item's tooltip shows it.",
+    kForItemLocationArgs, kGetSpellDescriptionRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellDescription",
                                      &Script_GetSpellDescription, &kGetSpellDescription);
+    Game::Lua::RegisterTableFunction("C_Spell", "GetSpellDescriptionForItemLocation",
+                                     &Script_GetSpellDescriptionForItemLocation,
+                                     &kGetSpellDescriptionForItemLocation);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

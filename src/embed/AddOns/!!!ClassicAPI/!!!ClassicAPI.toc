@@ -36,13 +36,16 @@ Util\TemplateInfoCache.lua
 Util\FrameFactory.lua
 Util\DataProvider.lua
 Util\TreeListDataProvider.lua
+Util\IndexRangeDataProvider.lua
 Util\CircularBuffer.lua
 Util\ColorUtil.lua
 Util\ItemLocation.lua
 Util\PlayerLocation.lua
 Util\EventUtil.lua
+Util\ContinuableContainer.lua
 Util\AsyncCallbackSystem.lua
 Util\Item.lua
+Util\Spell.lua
 Util\ItemUtil.lua
 Util\ContainerFrame.lua
 Util\AddOnCompat.lua
@@ -51,6 +54,7 @@ Util\CacheUtil.lua
 Util\SecureTypes.lua
 Util\ProxyUtil.lua
 Util\Pools.lua
+Util\TableBuilder.lua
 Util\FrameWatcher.lua
 Util\TimedCallback.lua
 Util\EasingUtil.lua
@@ -93,6 +97,8 @@ FrameXML\EventEditBox.lua
 FrameXML\EventEditBox.xml
 FrameXML\EventScrollFrame.lua
 FrameXML\EventScrollFrame.xml
+FrameXML\CallbackRegistrant.lua
+FrameXML\CallbackRegistrant.xml
 FrameXML\Scroll\ScrollUtil.lua
 FrameXML\Scroll\ScrollController.lua
 FrameXML\Scroll\ScrollBoxPadding.lua

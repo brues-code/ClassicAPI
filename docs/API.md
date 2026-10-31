@@ -837,6 +837,8 @@ build instructions.
   - [`C_Sound.GetRecentSoundFiles()`](#c_soundgetrecentsoundfiles)
 - [Spell](#spell)
   - [`C_Spell.DoesSpellExist(spellID)`](#c_spelldoesspellexistspellid)
+  - [`C_Spell.IsSpellDataCached(spellIdentifier)`](#c_spellisspelldatacachedspellidentifier)
+  - [`C_Spell.RequestLoadSpellData(spellIdentifier)`](#c_spellrequestloadspelldataspellidentifier)
   - [`C_Spell.GetSchoolString(schoolMask)`](#c_spellgetschoolstringschoolmask)
   - [`GetSpellInfo(spellID)` / `GetSpellInfo(slot, bookType)`](#getspellinfospellid--getspellinfoslot-booktype)
   - [`C_Spell.GetSpellInfo(spellID)`](#c_spellgetspellinfospellid)
@@ -845,6 +847,7 @@ build instructions.
   - [`GetSpellLink(spellID)` / `GetSpellLink(slot, bookType)`](#getspelllinkspellid--getspelllinkslot-booktype)
   - [`C_Spell.GetSpellLink(spellID)`](#c_spellgetspelllinkspellid)
   - [`C_Spell.GetSpellDescription(spellID)`](#c_spellgetspelldescriptionspellid)
+  - [`C_Spell.GetSpellDescriptionForItemLocation(spellIdentifier, itemLocation)`](#c_spellgetspelldescriptionforitemlocationspellidentifier-itemlocation)
   - [`C_Spell.GetSpellMechanicByID(spellID)`](#c_spellgetspellmechanicbyidspellid)
   - [`C_Spell.GetSpellEffectInfo(spellID)`](#c_spellgetspelleffectinfospellid)
   - [`C_Spell.GetSpellEffectMechanics(spellID)`](#c_spellgetspelleffectmechanicsspellid)
@@ -19005,6 +19008,40 @@ if C_Spell.DoesSpellExist(133) then
 end
 ```
 
+### `C_Spell.IsSpellDataCached(spellIdentifier)`
+
+Returns `true` if the data of the spell is loaded. `spellIdentifier` is a
+spell ID, a spell link, or the name of a spell in your spellbook. The data
+of every spell that exists is always loaded. Thus the result is `true` for
+each spell that exists, and `false` for all other values.
+
+```lua
+C_Spell.IsSpellDataCached(133)     -- true
+C_Spell.IsSpellDataCached(999999)  -- false
+```
+
+### `C_Spell.RequestLoadSpellData(spellIdentifier)`
+
+Asks for the data of a spell. `spellIdentifier` is a spell ID, a spell
+link, or the name of a spell in your spellbook. The function returns no
+values.
+
+The function sends `SPELL_DATA_LOAD_RESULT(spellID, success)` before it
+returns. If the spell exists, `success` is `1`. If no spell has this ID,
+`success` is `nil`. If `spellIdentifier` does not give a spell ID, the event
+does not occur.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("SPELL_DATA_LOAD_RESULT")
+f:SetScript("OnEvent", function()
+    if arg2 then
+        print(C_Spell.GetSpellName(arg1))
+    end
+end)
+C_Spell.RequestLoadSpellData(133)  -- prints "Fireball"
+```
+
 ### `C_Spell.GetSchoolString(schoolMask)`
 
 Returns the localized name for a damage-school bitmask. Resolves
@@ -19248,6 +19285,19 @@ local desc = C_Spell.GetSpellDescription(133)  -- Fireball Rank 1
 > outside a unit context. If you need the
 > "currently displayed" tooltip text with caster scaling, use
 > `GameTooltip:SetSpellByID` and read line strings from there.
+
+### `C_Spell.GetSpellDescriptionForItemLocation(spellIdentifier, itemLocation)`
+
+Returns the description of a spell as the tooltip of an item shows it.
+`itemLocation` is an `ItemLocation` object or table. An item tooltip shows
+the same spell text as `C_Spell.GetSpellDescription`. Thus the result is
+equal to `C_Spell.GetSpellDescription(spellIdentifier)`. If `itemLocation`
+is not a table or a string, the function raises an error.
+
+```lua
+local loc = ItemLocation:CreateFromEquipmentSlot(13)
+local desc = C_Spell.GetSpellDescriptionForItemLocation(spellID, loc)
+```
 
 ### `C_Spell.GetSpellMechanicByID(spellID)`
 
@@ -24800,6 +24850,7 @@ box:SetDataProvider(CreateDataProvider({"one", "two", "three"}))
 ```
 
 The scroll bar arrows do not play a click sound.
+
 
 ### BackdropTemplate
 
