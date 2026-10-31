@@ -32,6 +32,12 @@ enum SwingType : int { MAIN_HAND = 0, OFF_HAND = 1, RANGED = 2 };
 // callers treat 0 as "this swing type doesn't apply right now".
 uint32_t AttackTimeMs(SwingType type);
 
+// Called by `Player::Equipment` from the engine's inventory-slot observer
+// when the item GUID in 0-based equipment slot `slot0` changes. A weapon
+// slot (15 / 16 / 17) changed in combat resets that hand's swing timer; any
+// other slot is ignored.
+void OnWeaponSlotChanged(int slot0);
+
 // True if `player` and `target` (raw CGUnit* object pointers, e.g. from
 // `Unit::Position::ResolveToken` or `Object::ByGuid`) are within pure 2D
 // (X/Y) melee reach of each other -- the server's own auto-attack distance

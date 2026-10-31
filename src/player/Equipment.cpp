@@ -59,6 +59,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "combat/Swing.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
 #include "object/Resolve.h"
@@ -176,6 +177,7 @@ int __fastcall SlotChanged_h(uint32_t fieldOffset, uint32_t size,
     // that changes two weapon slots yields one event.
     if (IsWeaponSlot(slot0))
         g_weaponDirty = true;
+    Combat::Swing::OnWeaponSlotChanged(slot0);
     return ret;
 }
 

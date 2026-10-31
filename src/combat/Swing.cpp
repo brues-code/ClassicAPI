@@ -25,7 +25,8 @@
 //   - a cast-time spell is cast             -> SMSG_SPELL_GO, InterruptFlags & AUTOATTACK
 //   - autorepeat (Auto Shot / Shoot) fires  -> SMSG_SPELL_GO, AttributesEx2 & AUTOREPEAT
 //   - starting a fresh melee attack         -> SMSG_ATTACKSTART (off-hand only)
-//   - a weapon is swapped mid-combat        -> no packet; polled off the invMgr GUIDs
+//   - a weapon is swapped mid-combat        -> no packet; the engine's inventory-slot
+//                                              observer (via Player::Equipment)
 //   - the LOCAL PLAYER parries an attack    -> SMSG_ATTACKERSTATEUPDATE, victim == us,
 //                                              targetState == PARRY (no separate packet —
 //                                              the server just clips OUR remaining time)
@@ -431,63 +432,28 @@ void OnPacket(uint32_t opcode, CDataStore *packet) {
 
 const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
 
-// ---- Weapon swap mid-combat (polled -- no packet, no observer needed) ---
+} // namespace
+
+// ---- Weapon swap mid-combat (inventory-slot observer) -------------------
 //
 // A weapon equipped while `IsInCombat()` resets that hand's timer
 // server-side (`Player::_ApplyWeaponDependentAuraMods` -> `SetAttackTime`
 // with `resetTimer = IsInCombat()`). There's no dedicated packet for this;
-// `Player::Equipment` already sees the same invMgr GUIDs change via the
-// engine's inventory-slot observer for `PLAYER_EQUIPMENT_CHANGED`, but
-// that's a one-way Lua event fire with nothing to subscribe to in C++. Only
-// 3 slots matter here, so a plain 3-GUID compare on the existing WorldTick
-// pass is simpler than a second hook on the same observer.
-
-uint64_t g_lastMainGuid = 0;
-uint64_t g_lastOffGuid = 0;
-uint64_t g_lastRangedGuid = 0;
-bool g_weaponSnapValid = false;
-
-void PollWeaponSwap() {
-    const uint8_t *player = Unit::Identity::PlayerObject();
-    if (player == nullptr) {
-        g_weaponSnapValid = false;
-        return;
-    }
-    const uint8_t *invMgr = player + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
-    const uint32_t count =
-        *reinterpret_cast<const uint32_t *>(invMgr + Offsets::OFF_INVMGR_SLOT_COUNT);
-    if (count < 18) {
-        g_weaponSnapValid = false;
-        return;
-    }
-    const uint64_t *guids = *reinterpret_cast<const uint64_t *const *>(
-        invMgr + Offsets::OFF_INVMGR_GUID_ARRAY);
-    if (guids == nullptr) {
-        g_weaponSnapValid = false;
-        return;
-    }
-
+// `Player::Equipment`'s co-hook on the engine's inventory-slot observer calls
+// in here when a slot's GUID changes. That runs inside SMSG_UPDATE_OBJECT
+// after the whole values block is written, so `AttackTimeMs` already reads
+// the new weapon's speed when it arrives in the same block.
+void OnWeaponSlotChanged(int slot0) {
     // 0-based invMgr slots: 15 = main hand (Lua 16), 16 = off hand (17),
     // 17 = ranged (18) -- same `slot0 = luaSlot - 1` convention documented
-    // in Player::Equipment.
-    const uint64_t mainGuid = guids[15];
-    const uint64_t offGuid = guids[16];
-    const uint64_t rangedGuid = guids[17];
-
-    if (g_weaponSnapValid && PlayerInCombat()) {
-        if (mainGuid != g_lastMainGuid)
-            MarkReset(MAIN_HAND, AttackTimeMs(MAIN_HAND));
-        if (offGuid != g_lastOffGuid)
-            MarkReset(OFF_HAND, AttackTimeMs(OFF_HAND));
-        if (rangedGuid != g_lastRangedGuid)
-            MarkReset(RANGED, AttackTimeMs(RANGED));
-    }
-
-    g_lastMainGuid = mainGuid;
-    g_lastOffGuid = offGuid;
-    g_lastRangedGuid = rangedGuid;
-    g_weaponSnapValid = true;
+    // in Player::Equipment, and in SwingType order.
+    if (slot0 < 15 || slot0 > 17 || !PlayerInCombat())
+        return;
+    const auto type = static_cast<SwingType>(slot0 - 15);
+    MarkReset(type, AttackTimeMs(type));
 }
+
+namespace {
 
 // ---- PLAYER_SWING fire (WorldTick, at most once per type per frame) -----
 
@@ -504,8 +470,6 @@ const Game::Doc::Event kPlayerSwingDoc{
 const Event::Custom::AutoReserve _evt{"PLAYER_SWING", &kPlayerSwingDoc};
 
 void OnWorldTick() {
-    PollWeaponSwap();
-
     const int slot = _evt.Slot();
     const uint32_t now = NowMs();
     for (int t = 0; t < 3; ++t) {
