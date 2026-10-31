@@ -14,7 +14,7 @@
 // `CreateColor(r,g,b,a)` and assign the result to globals like
 // `ACHIEVEMENT_COLOR`. Vanilla 1.12 has no `GlobalColor.dbc` (the
 // table was added in TBC) and no `C_UIColor` namespace, so we embed
-// a Blizzard-provided snapshot (BC Classic 2.5.5 build 67323) and
+// a Blizzard-provided snapshot (build 1.60.1.70707) and
 // register the function ourselves. The companion addon
 // `!!!ClassicAPI/Util/Color.lua` defines `ColorMixin` and `CreateColor`
 // in pure Lua — same as `SharedXMLBase/Color.lua` does on modern —

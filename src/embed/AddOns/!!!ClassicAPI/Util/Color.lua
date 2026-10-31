@@ -132,7 +132,7 @@ local function ApplyItemQualityColors()
 end
 
 function CAPI_ApplyStandardColorGlobals()
-    -- `C_UIColor.GetColors()` makes a color object for each of its 187 rows,
+    -- `C_UIColor.GetColors()` makes a color object for each of its 331 rows,
     -- so keep the values from the first call. Each later pass is then one
     -- lookup per tag.
     if not standardColors then
