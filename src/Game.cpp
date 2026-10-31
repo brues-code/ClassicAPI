@@ -98,7 +98,9 @@ namespace Lua {
     F(Ref,         luaL_ref,        LUA_REF_REF)       \
     F(Unref,       luaL_unref,      LUA_REF_UNREF)     \
     F(CheckStack,  lua_checkstack,  LUA_CHECK_STACK)  \
-    F(Concat,      lua_concat,      LUA_CONCAT)
+    F(Concat,      lua_concat,      LUA_CONCAT)       \
+    F(NewUserdata, lua_newuserdata, LUA_NEW_USERDATA) \
+    F(ToUserdata,  lua_touserdata,  FUN_FRAMESCRIPT_GET_OBJECT)
 
 #define CLASSICAPI_BIND_LUA(Name, Typedef, Offset) \
     const Typedef##_t Name = reinterpret_cast<Typedef##_t>(Offsets::Offset);

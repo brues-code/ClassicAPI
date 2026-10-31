@@ -86,6 +86,7 @@
 #include "frame/Region.h"
 #include "frame/RenderBatch.h"
 #include "frame/ScriptArgs.h"
+#include "text/NumericFormatter.h"
 #include "texture/Load.h"
 #include "time/Clock.h"
 #include "xml/FrameLoad.h"
@@ -95,6 +96,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace Frame::Cooldown {
 
@@ -169,7 +171,8 @@ struct Fields {
     float abbrevThreshold;      // s: below it, m:ss in place of whole minutes
     float millisecondsThreshold; // s: below it, tenths
     uint32_t minCountdownDuration; // ms: shorter cooldowns show no numbers
-    char countdownText[16];     // what the font string holds
+    Text::NumericFormatter::Formatter *countdownFormatter; // one reference, or null
+    std::string *countdownText; // what the font string holds; a formatter's text has no bound
 };
 
 constexpr size_t kObjectSize = Offsets::SIMPLEFRAME_SIZE + sizeof(Fields);
@@ -595,19 +598,37 @@ void FormatCountdown(char (&out)[16], uint32_t ms, float abbrevThreshold,
 
 // From the update walk: the numbers while the sweep runs, nothing otherwise.
 // SetText only when the text changes.
+//
+// A countdown formatter replaces FormatCountdown and both thresholds, and gets
+// the seconds left unrounded; the gates stay (retail probe: "%.3f" showed
+// "28.118" 1.882 s into a 30 s cooldown with the milliseconds threshold at
+// 100, and nothing on a 1.5 s one). A format error shows no numbers.
 void UpdateCountdown(void *frame) {
     using SetText_t = void(__fastcall *)(void *fs, void *edx, const char *text, int expand);
     Fields &f = F(frame);
     if (f.countdown == nullptr)
         return;
-    char text[16] = "";
-    if (!f.hideCountdownNumbers && !f.flashing && !f.done && f.duration > f.minCountdownDuration &&
-        f.elapsed < f.duration && CVar::Factory::GetInt(g_countdownForCooldowns) != 0)
-        FormatCountdown(text, f.duration - f.elapsed, f.abbrevThreshold, f.millisecondsThreshold);
-    if (std::strcmp(text, f.countdownText) == 0)
-        return;
-    std::memcpy(f.countdownText, text, sizeof(text));
-    reinterpret_cast<SetText_t>(Offsets::FUN_FONTSTRING_SET_TEXT)(f.countdown, nullptr, text, 1);
+    const bool shown = !f.hideCountdownNumbers && !f.flashing && !f.done &&
+                       f.duration > f.minCountdownDuration && f.elapsed < f.duration &&
+                       CVar::Factory::GetInt(g_countdownForCooldowns) != 0;
+    char numbers[16] = "";
+    const char *text = numbers;
+    void *L = nullptr;
+    int top = 0;
+    if (shown && f.countdownFormatter != nullptr && (L = Game::Lua::State()) != nullptr) {
+        top = Game::Lua::GetTop(L);
+        text = Text::NumericFormatter::Format(L, f.countdownFormatter, (f.duration - f.elapsed) / 1000.0);
+        if (text == nullptr)
+            text = "";
+    } else if (shown) {
+        FormatCountdown(numbers, f.duration - f.elapsed, f.abbrevThreshold, f.millisecondsThreshold);
+    }
+    if (*f.countdownText != text) {
+        f.countdownText->assign(text);
+        reinterpret_cast<SetText_t>(Offsets::FUN_FONTSTRING_SET_TEXT)(f.countdown, nullptr, text, 1);
+    }
+    if (L != nullptr)
+        Game::Lua::SetTop(L, top);
 }
 
 // ---- the overrides ------------------------------------------------------------
@@ -645,10 +666,15 @@ void RunOnCooldownDone(void *frame) {
 
 // CGCooldown::~CGCooldown, then CSimpleFrame's deleting destructor.
 void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {
-    for (Slot &s : F(self).slots) {
+    Fields &f = F(self);
+    for (Slot &s : f.slots) {
         Texture::ReleaseHandle(s.texture);
         s.texture = nullptr;
     }
+    Text::NumericFormatter::Release(f.countdownFormatter);
+    f.countdownFormatter = nullptr;
+    delete f.countdownText;
+    f.countdownText = nullptr;
     return Base<DeletingDestructor_t>(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR)(self, nullptr,
                                                                                flags);
 }
@@ -884,6 +910,7 @@ void *__fastcall CreateCooldown(void *parent) {
     // The later clients' defaults (retail probe: 120, 2000).
     f.abbrevThreshold = 120.0f;
     f.minCountdownDuration = 2000;
+    f.countdownText = new std::string;
     f.countdown = CreateCountdown(frame);
     return frame;
 }
@@ -1218,6 +1245,42 @@ int __fastcall Script_GetMinimumCountdownDuration(void *L) {
     return 1;
 }
 
+// The frame shares the formatter: a later SetBreakpoints on it shows (retail
+// probe). The text follows at the next update, not at this call.
+int __fastcall Script_SetCountdownFormatter(void *L) {
+    namespace Formatters = Text::NumericFormatter;
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Formatters::Formatter *formatter = nullptr;
+    if (Game::Lua::Type(L, 2) > Game::Lua::TYPE_NIL) {
+        formatter = Formatters::ToFormatter(L, 2);
+        if (formatter == nullptr) {
+            Game::Lua::Error(L, "Usage: %s:SetCountdownFormatter([formatter])",
+                             Game::Lua::ObjectDisplayName(frame));
+            return 0;
+        }
+        Formatters::Retain(formatter);
+    }
+    Fields &f = F(frame);
+    Formatters::Release(f.countdownFormatter);
+    f.countdownFormatter = formatter;
+    return 0;
+}
+
+// A new Lua object for the formatter each call, as retail's (probe:
+// rawequal(GetCountdownFormatter(), formatter) is false).
+int __fastcall Script_GetCountdownFormatter(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (Text::NumericFormatter::Formatter *formatter = F(frame).countdownFormatter)
+        Text::NumericFormatter::Push(L, formatter);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
 // OFFSET (4.3.4): 0x009FF650 / 0x009FF6A0
 int __fastcall Script_SetReverse(void *L) {
     void *frame = ResolveCooldown(L);
@@ -1296,6 +1359,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetCountdownMillisecondsThreshold", &Script_GetCountdownMillisecondsThreshold},
     {"SetMinimumCountdownDuration", &Script_SetMinimumCountdownDuration},
     {"GetMinimumCountdownDuration", &Script_GetMinimumCountdownDuration},
+    {"SetCountdownFormatter", &Script_SetCountdownFormatter},
+    {"GetCountdownFormatter", &Script_GetCountdownFormatter},
 };
 
 const Game::Doc::Field kSetCooldownArgs[] = {
@@ -1441,6 +1506,18 @@ const Game::Doc::Function kSetMinimumCountdownDuration{
     "Sets the duration a cooldown must be longer than to show numbers.", kMillisecondsArg, {}};
 const Game::Doc::Function kGetMinimumCountdownDuration{
     "Returns the duration a cooldown must be longer than to show numbers.", {}, kMillisecondsRet};
+const Game::Doc::Field kFormatterArg[] = {
+    Game::Doc::Opt("formatter", "NumericRuleFormatter", nullptr,
+                   "Makes the text from the seconds left; nil goes back to the built-in numbers."),
+};
+const Game::Doc::Field kFormatterRet[] = {
+    Game::Doc::Opt("formatter", "NumericRuleFormatter"),
+};
+const Game::Doc::Function kSetCountdownFormatter{
+    "Sets the formatter that writes the countdown numbers.", kFormatterArg, {}};
+const Game::Doc::Function kGetCountdownFormatter{
+    "Returns the formatter that writes the countdown numbers, or nil when there is none.", {},
+    kFormatterRet};
 const Game::Doc::Function kSetBlingTexture{
     "Sets the texture and colour of the flash at the end of the cooldown.", kTextureArgs, {}};
 
@@ -1480,6 +1557,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetCountdownMillisecondsThreshold", &kGetCountdownMillisecondsThreshold},
     {"SetMinimumCountdownDuration", &kSetMinimumCountdownDuration},
     {"GetMinimumCountdownDuration", &kGetMinimumCountdownDuration},
+    {"SetCountdownFormatter", &kSetCountdownFormatter},
+    {"GetCountdownFormatter", &kGetCountdownFormatter},
 };
 
 // The engine's static initializer for a class hash (Model's 0x0076F5F0).

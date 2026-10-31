@@ -8125,6 +8125,11 @@ enum Offsets {
     LUA_REF_UNREF = 0x6F5400,
     LUA_PUSH_CCLOSURE = 0x6F3920,
     LUA_NEW_TABLE = 0x6F3C90,
+    // `lua_newuserdata(L, size)` — `__fastcall`, plain RET; pushes a full
+    // userdata (tt 7, stamped with the exec context like every push) and
+    // returns its block, the Udata + 0x10. Verified by disassembly: GC step
+    // test, luaS_newudata (FUN_LUA_S_NEWUDATA), `ADD EAX,0x10`.
+    LUA_NEW_USERDATA = 0x6F4560,
     LUA_GET_TABLE = 0x6F3A40,     // (was 0x6F3EA0, which is lua_rawset)
     LUA_RAW_GET = 0x6F3B00,
     // `lua_rawgeti(L, idx, n)` — pushes `table_at_idx[n]` without invoking

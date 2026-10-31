@@ -319,6 +319,10 @@ using lua_checkstack_t = int(__fastcall *)(void *L, int size);
 // Pops the top `n` values and pushes their `..` concatenation; n == 0 pushes
 // "" and n == 1 leaves the value untouched.
 using lua_concat_t = void(__fastcall *)(void *L, int n);
+// Pushes a new full userdata of `size` bytes and returns its block.
+using lua_newuserdata_t = void *(__fastcall *)(void *L, unsigned int size);
+// The block of the full userdata at idx, the pointer of a light one, else null.
+using lua_touserdata_t = void *(__fastcall *)(void *L, int idx);
 
 extern const lua_isnumber_t IsNumber;
 extern const lua_isstring_t IsString;
@@ -376,6 +380,8 @@ extern const luaL_ref_t Ref;
 extern const luaL_unref_t Unref;
 extern const lua_checkstack_t CheckStack;
 extern const lua_concat_t Concat;
+extern const lua_newuserdata_t NewUserdata;
+extern const lua_touserdata_t ToUserdata;
 
 // Returns the global `lua_State *` (read on demand from the engine's global).
 // Callable outside a Lua callback, e.g. during LoadScriptFunctions setup.
