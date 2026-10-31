@@ -1,4 +1,8 @@
--- Verbatim backport of retail's Blizzard_SharedXML/Shared/Scroll/ScrollUtil.lua.
+-- Backport of retail's Blizzard_SharedXML/Shared/Scroll/ScrollUtil.lua.
+-- The one difference: wipe is ClassicAPI.wipe, so an addon's own global
+-- wipe cannot replace it.
+
+local wipe = ClassicAPI.wipe;
 
 local function ContainsCursor(frame, cx, cy)
 	return cy <= frame:GetTop() and cy >= frame:GetBottom()

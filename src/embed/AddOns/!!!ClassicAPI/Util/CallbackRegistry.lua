@@ -10,6 +10,8 @@
 --     (an error goes to the error handler and the other callbacks still run),
 --     but every call to a vararg function builds an `arg` table in Lua 5.0,
 --     which would cost a table per callback per event.
+--   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
+--     replace it.
 
 local secureexecuterange = secureexecuterange;
 local securecallfunction = securecallfunction;
@@ -18,6 +20,7 @@ local error = error;
 local pairs = pairs;
 local rawset = rawset;
 local next = next;
+local wipe = ClassicAPI.wipe;
 local GetOrCreateTableEntry = GetOrCreateTableEntry;
 
 local CallbackType = EnumUtil.MakeEnum("Closure", "Function");

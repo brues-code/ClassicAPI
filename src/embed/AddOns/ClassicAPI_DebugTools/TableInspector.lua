@@ -7,6 +7,10 @@
 --   - The scroll frame is TableInspectorScrollFrameTemplate (end of file).
 --     1.12 sizes the scroll range from the scroll child's own height, so
 --     UpdateLines sets LinesContainer's height to fit the lines.
+--   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
+--     replace it.
+
+local wipe = ClassicAPI.wipe;
 
 TABLE_INSPECTOR_LINE_HEIGHT = 16;
 

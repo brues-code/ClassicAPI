@@ -1,8 +1,14 @@
 -- Backport of retail's Blizzard_DebugTools/Blizzard_TableInspectorAttributeDataProvider.lua.
 --
--- Difference from the retail source: ShouldShowObject shows every object.
--- Retail hides the widgets that tainted code cannot access; 1.12 has no
--- taint system, so every widget is accessible.
+-- Differences from the retail source:
+--   - ShouldShowObject shows every object. Retail hides the widgets that
+--     tainted code cannot access; 1.12 has no taint system, so every
+--     widget is accessible.
+--   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
+--     replace it.
+
+local wipe = ClassicAPI.wipe;
+
 TableInspectorAttributeDataProviderMixin = CreateFromMixins(TableInspectorDataProviderMixin);
 
 function TableInspectorAttributeDataProviderMixin:Initialize(tableInspector, parent)

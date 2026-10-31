@@ -1,4 +1,9 @@
--- Verbatim backport of retail's Blizzard_SharedXML/Shared/Scroll/ScrollBoxListView.lua.
+-- Backport of retail's Blizzard_SharedXML/Shared/Scroll/ScrollBoxListView.lua.
+-- The one difference: wipe is ClassicAPI.wipe, so an addon's own global
+-- wipe cannot replace it.
+
+local wipe = ClassicAPI.wipe;
+
 local InvalidationReason = EnumUtil.MakeEnum("DataProviderReassigned", "DataProviderContentsChanged");
 
 ScrollBoxListViewMixin = CreateFromMixins(ScrollBoxViewMixin, CallbackRegistryMixin);

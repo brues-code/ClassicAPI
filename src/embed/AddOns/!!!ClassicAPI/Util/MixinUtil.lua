@@ -1,4 +1,8 @@
 -- Backport of retail's Blizzard_SharedXML/MixinUtil.lua.
+-- The one difference: wipe is ClassicAPI.wipe, so an addon's own global
+-- wipe cannot replace it.
+
+local wipe = ClassicAPI.wipe;
 
 -- The following function is used with permission from Daniel Stephens
 -- texture			- Texture

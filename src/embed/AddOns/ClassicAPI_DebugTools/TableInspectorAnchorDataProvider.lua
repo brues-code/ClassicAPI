@@ -1,4 +1,9 @@
--- Verbatim backport of retail's Blizzard_DebugTools/Blizzard_TableInspectorAnchorDataProvider.lua.
+-- Backport of retail's Blizzard_DebugTools/Blizzard_TableInspectorAnchorDataProvider.lua.
+-- The one difference: wipe is ClassicAPI.wipe, so an addon's own global
+-- wipe cannot replace it.
+
+local wipe = ClassicAPI.wipe;
+
 TableInspectorAnchorDataProviderMixin = CreateFromMixins(TableInspectorDataProviderMixin);
 
 function TableInspectorAnchorDataProviderMixin:Initialize(tableInspector, parent)

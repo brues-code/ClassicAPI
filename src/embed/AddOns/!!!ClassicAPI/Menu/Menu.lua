@@ -18,6 +18,8 @@
 --     elements turn it back on where they set those scripts.
 --   - Lua 5.0 has no `...` as an expression and no `#` operator; varargs
 --     forward through unpack(arg) and lengths come from table.getn.
+--   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
+--     replace it.
 
 local CreateSecureMap = SecureTypes.CreateSecureMap;
 local CreateSecureArray = SecureTypes.CreateSecureArray;
@@ -32,6 +34,7 @@ local ProxyConvertablePrivateMixin = CreateFromMixins(ProxyConvertableMixin);
 local CreateFromMixinsPrivate = CreateFromMixins;
 local assert = assert;
 local type = type;
+local wipe = ClassicAPI.wipe;
 
 local ModifyMenuRegistry = CreateFromMixinsPrivate(CallbackRegistryMixin);
 ModifyMenuRegistry:SetUndefinedEventsAllowed(true);

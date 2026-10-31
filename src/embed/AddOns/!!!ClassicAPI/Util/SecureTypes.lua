@@ -4,6 +4,8 @@
 --   - 1.12 has no secret values, so the issecretvalue asserts are dropped.
 --   - Lua 5.0 has no `...` as an expression and no `#` operator; varargs
 --     forward through unpack(arg) and lengths come from table.getn.
+--   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
+--     replace it.
 
 local assert = assert;
 local ContainsIf = ContainsIf;
@@ -22,7 +24,7 @@ local tCount = table.count;
 local tDeleteItem = tDeleteItem;
 local tinsert = table.insert;
 local tremove = table.remove;
-local wipe = wipe;
+local wipe = ClassicAPI.wipe;
 
 -- Secure types are expected to be used by Blizzard code to prevent taint propagation
 -- while accessing values, particularly in cases where container types are used that can have
