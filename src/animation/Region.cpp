@@ -162,8 +162,20 @@ uint32_t VertexColor(void *region) {
     return bgra;
 }
 
+// An unchanged alpha writes nothing. The setter already does nothing when the
+// one entry it would store is the region's colour, but the getter reads a
+// gradient back as white, and the setter shrinks a gradient's four entries to
+// that one (benilla-re ui/texture, "Setting a vertex colour"). So restoring
+// the stored alpha (PreOnAnimUpdate, AnimDeactivated) on a gradient under an
+// ancestor's alpha group flattened it to white. 3.3.5's and 4.3.4's
+// SetVertexColor drop the gradient there too; here only a region that an
+// animation itself fades loses it. The ancestor's fade still reaches the
+// gradient: a frame's alpha change refolds every region's entries (0x77FAC0).
 void SetVertexAlpha(void *region, uint8_t alpha) {
-    const uint32_t bgra = (VertexColor(region) & 0x00FFFFFF) | (static_cast<uint32_t>(alpha) << 24);
+    const uint32_t color = VertexColor(region);
+    if ((color >> 24) == alpha)
+        return;
+    const uint32_t bgra = (color & 0x00FFFFFF) | (static_cast<uint32_t>(alpha) << 24);
     reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(region, nullptr, &bgra);
 }
 
