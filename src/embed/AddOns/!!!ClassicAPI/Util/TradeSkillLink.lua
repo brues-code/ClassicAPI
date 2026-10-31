@@ -182,8 +182,14 @@ local function ResolveSubclasses(list, onLoaded)
 				if subType and subType ~= "" then
 					r.subclass = subType;
 				elseif onLoaded then
-					-- Not cached — re-derive when the item loads.
-					Item:CreateFromItemID(r.createdItem):ContinueOnItemLoad(onLoaded);
+					-- Not cached — re-derive when the item loads. The callback
+					-- also runs when the load fails; re-deriving then would ask
+					-- for the item again.
+					Item:CreateFromItemID(r.createdItem):ContinueOnItemLoad(function(_, success)
+						if success then
+							onLoaded();
+						end
+					end);
 				end
 			end
 			if r.subclass and not present[r.subclass] then
@@ -526,8 +532,8 @@ local function CreateFrame_TradeSkillLink()
 		local function itemInfo(id)
 			local item = Item:CreateFromItemID(id);
 			if not item:IsItemDataCached() then
-				item:ContinueOnItemLoad(function()
-					if self:IsShown() and self.selectedSpellID == entry.spellID then
+				item:ContinueOnItemLoad(function(_, success)
+					if success and self:IsShown() and self.selectedSpellID == entry.spellID then
 						self:RenderDetail(entry);
 					end
 				end);

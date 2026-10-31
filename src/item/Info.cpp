@@ -120,6 +120,28 @@ static int __fastcall Script_GetItemInfoInstant(void *L) {
     return 7;
 }
 
+// `C_Item.GetItemIDForItemInfo(itemInfo)` — the itemID alone, from the same
+// resolver `GetItemInfoInstant` echoes: an itemID, an `"item:N"` string or an
+// item link. ItemMixin:GetItemID falls back to it when GetItemInfoInstant
+// returns nothing. Returns nothing for input that names no item.
+static const Game::Doc::Field kGetItemIDForItemInfoArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo"),
+};
+static const Game::Doc::Field kGetItemIDForItemInfoRets[] = {
+    Game::Doc::Req("itemID", "number"),
+};
+static const Game::Doc::Function kGetItemIDForItemInfo{
+    "Returns the item ID of an item ID, item string or item link.", kGetItemIDForItemInfoArgs,
+    kGetItemIDForItemInfoRets};
+
+static int __fastcall Script_GetItemIDForItemInfo(void *L) {
+    const int itemID = Item::Arg::ResolveItemID(L, 1);
+    if (itemID <= 0)
+        return 0;
+    Game::Lua::PushNumber(L, static_cast<double>(itemID));
+    return 1;
+}
+
 // Pushes the icon path for `itemID` and returns 1, or returns 0 (= nil
 // to Lua) if the item isn't cached, the displayInfoID is missing, or
 // the icon record's path slot is empty. Shared by all three
@@ -315,6 +337,8 @@ static int __fastcall Script_C_Item_GetItemInfo(void *L) {
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInfo", &Script_C_Item_GetItemInfo);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInfoInstant", &Script_GetItemInfoInstant);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemIDForItemInfo",
+                                     &Script_GetItemIDForItemInfo, &kGetItemIDForItemInfo);
     Game::Lua::RegisterGlobalFunction("GetItemIcon", &Script_GetItemIcon);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemIcon", &Script_C_Item_GetItemIcon);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemIconByID", &Script_C_Item_GetItemIconByID);

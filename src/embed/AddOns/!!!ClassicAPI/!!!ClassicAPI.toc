@@ -41,6 +41,7 @@ Util\ColorUtil.lua
 Util\ItemLocation.lua
 Util\PlayerLocation.lua
 Util\EventUtil.lua
+Util\AsyncCallbackSystem.lua
 Util\Item.lua
 Util\AddOnCompat.lua
 Util\FunctionUtil.lua

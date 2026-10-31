@@ -149,7 +149,7 @@ on a frame timer" goal landed as the request/event pair below:
   cache (or synchronously if it was already loaded).
 
 Together those replace the polyfill's 180-second polling frame
-(`ItemEventListener` in `Util/ItemUtil.lua:254-372`) — addons can now
+(`ItemEventListener`, now in `Util/AsyncCallbackSystem.lua`) — addons can now
 fire `RequestLoadItemDataByID(id)` and listen for
 `ITEM_DATA_LOAD_RESULT` instead.
 
