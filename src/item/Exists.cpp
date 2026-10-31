@@ -42,7 +42,7 @@ static int __fastcall Script_C_Item_DoesItemExist(void *L) {
 // optimistically accept any positive itemID; callers needing the
 // "is the cache populated?" check should use `IsItemDataCachedByID`.
 //
-// This split matters for `ItemMixin:IsItemEmpty` (FrameXML ItemUtil),
+// This split matters for `ItemMixin:IsItemEmpty` (Util/Item.lua),
 // which uses `DoesItemExistByID` to gate `ContinueOnItemLoad` — the
 // whole point of `ContinueOnItemLoad` is to wait for an uncached item
 // to load, so the existence check must succeed for items that aren't
