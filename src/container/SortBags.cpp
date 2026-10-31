@@ -48,8 +48,8 @@
 // reproduction of Blizzard's: hearthstone, gear, consumables, reagents,
 // trade goods, quest items, everything else by quality, junk last. Within
 // a category, by item class, subclass, name, then fuller stacks first.
-// Gear adds two keys so like pieces sit together: the equip slot right
-// after the class (kSlotOrder), and quality, best first, before the name.
+// Gear adds two keys so like pieces sit together: the equip slot ahead of
+// the class (kSlotOrder), and quality, best first, before the name.
 //
 // An item whose data has NOT arrived, or that is locked (on the cursor,
 // in the trade window, mid-move), is pinned: left where it is, with its
@@ -172,7 +172,10 @@ uint8_t CategoryFor(uint32_t itemID, uint32_t itemClass, uint32_t quality) {
 // shoulder. Not the equipment slot either, which lumps shields, off-hand
 // weapons and held items into one. The order is Baganator's (its
 // Sorting/ItemFields.lua): weapons by hand, then ranged and ammo, then
-// armor head to foot, then jewelry, shirt and tabard.
+// armor head to foot, then jewelry, shirt and tabard. Unlike Baganator,
+// this key runs before the item class: shields, held-in-off-hand items
+// and relics are armor class, and ranking class first would pull them
+// out of the hand group to the head of the armor block.
 constexpr uint8_t kSlotOrder[] = {
     17, 13, 21, 14, 23, 26, 22, 15, 25, 24, 27, 28, // weapons, ranged, relic
     1, 3, 16, 5, 20, 9, 10, 6, 7, 8,                // head .. feet
@@ -238,11 +241,11 @@ int CompareNames(const char *a, const char *b) {
 bool Precedes(const Entry &a, const Entry &b) {
     if (a.category != b.category)
         return a.category < b.category;
-    if (a.itemClass != b.itemClass)
-        return a.itemClass < b.itemClass;
     const bool gear = a.category == kCatGear;
     if (gear && a.slotRank != b.slotRank)
         return a.slotRank < b.slotRank;
+    if (a.itemClass != b.itemClass)
+        return a.itemClass < b.itemClass;
     if (a.subClass != b.subClass)
         return a.subClass < b.subClass;
     if (gear && a.quality != b.quality)
