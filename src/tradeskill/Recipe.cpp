@@ -12,8 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // The trade-skill window's recipe functions from 3.x:
-// `GetTradeSkillRecipeLink(index)`, `GetTradeSkillDescription(index)` and
-// `IsTradeSkillLinked()`.
+// `GetTradeSkillRecipeLink(index)` and `GetTradeSkillDescription(index)`.
 //
 // `GetTradeSkillRecipeLink(index)` links the recipe in row `index`: the
 // recipe spell, as an `enchant:` link. Vanilla's window links only the item a
@@ -44,15 +43,6 @@
 // then the spell-text parser into a 1024-byte buffer (Spell::Description).
 // Most recipes that make an item have no description; enchants do. 1.12's
 // Craft window already has this as GetCraftDescription.
-//
-// `IsTradeSkillLinked()` says whether the window shows a profession opened
-// from another player's link, and whose. On this client it never does. A
-// received `trade:` link opens ClassicAPI's own viewer
-// (Util/TradeSkillLink.lua), which the trade-skill functions never describe,
-// and the window shows the player's own professions only. So it returns
-// (nil, nil), 3.3.5's answer for the player's own window. Addons check it to
-// keep a linked profession out of the player's own records; Zygor skips its
-// recipe scan on it.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -160,12 +150,6 @@ int __fastcall Script_GetTradeSkillDescription(void *L) {
     return 1;
 }
 
-int __fastcall Script_IsTradeSkillLinked(void *L) {
-    Game::Lua::PushNil(L);
-    Game::Lua::PushNil(L);
-    return 2;
-}
-
 // --- Documentation ----------------------------------------------------------
 
 const Game::Doc::Field kRecipeLinkArgs[] = {
@@ -187,24 +171,12 @@ const Game::Doc::Function kGetTradeSkillDescription{
     "Returns the description of the recipe in a row of the trade-skill window.",
     kRecipeLinkArgs, kDescriptionRets, "TradeSkillGlobals"};
 
-const Game::Doc::Field kLinkedRets[] = {
-    Game::Doc::Opt("isLinked", "bool", nullptr,
-                   "True when the window shows another player's linked profession."),
-    Game::Doc::Opt("linkedPlayerName", "string", nullptr,
-                   "The name of the player whose profession is shown."),
-};
-const Game::Doc::Function kIsTradeSkillLinked{
-    "Whether the trade-skill window shows a profession opened from another player's link.",
-    {}, kLinkedRets, "TradeSkillGlobals"};
-
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetTradeSkillRecipeLink", &Script_GetTradeSkillRecipeLink,
                                       &kGetTradeSkillRecipeLink);
     Game::Lua::RegisterGlobalFunction("GetTradeSkillDescription",
                                       &Script_GetTradeSkillDescription,
                                       &kGetTradeSkillDescription);
-    Game::Lua::RegisterGlobalFunction("IsTradeSkillLinked", &Script_IsTradeSkillLinked,
-                                      &kIsTradeSkillLinked);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

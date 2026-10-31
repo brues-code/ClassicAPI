@@ -11,8 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `GameTooltip:SetHyperlink(link)` takes a full chat link, and `spell:` and
-// `quest:` links, as on 3.x clients.
+// `GameTooltip:SetHyperlink(link)` takes a full chat link, and `spell:`,
+// `quest:` and `trade:` links, as on 3.x clients.
 //
 // Vanilla's Script_GameTooltip_SetHyperlink knows two payloads, `item:` and
 // `enchant:`, matched against the start of the argument. Anything else -
@@ -43,6 +43,10 @@
 //     the tooltip empty and queues the server query the quest log would
 //     make (once per quest - see Quest::Cache::Lookup's `unique`); the next
 //     SetHyperlink after the answer shows it.
+//   - `trade:` opens the linked profession in the profession window
+//     (TradeSkill::Link::Open) and leaves the tooltip alone, as 3.3.5's
+//     SetHyperlink does. That is how a click on a chat link opens it: the
+//     SetItemRef of both 1.12 and 3.3.5 ends in ItemRefTooltip:SetHyperlink.
 //   - Everything else - `item:`, other `enchant:` links, and the error for link types
 //     vanilla has no data for (`achievement:`, `talent:`, ...) - is the
 //     engine's own, run on the payload.
@@ -56,11 +60,13 @@
 #include "spell/Lookup.h"
 #include "spell/Tooltip.h"
 #include "tooltip/Lines.h"
+#include "tradeskill/Link.h"
 #include "ui/ColorData.h"
 
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace Tooltip::Hyperlink {
 
@@ -163,6 +169,10 @@ int __fastcall SetHyperlink_h(void *L) {
     }
     if (HasPrefix(payload, len, "quest:")) {
         ShowQuest(L, static_cast<uint32_t>(std::strtoul(payload + 6, nullptr, 10)));
+        return 0;
+    }
+    if (HasPrefix(payload, len, "trade:")) {
+        TradeSkill::Link::Open(std::string(payload + 6, len - 6).c_str());
         return 0;
     }
 

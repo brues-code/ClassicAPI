@@ -223,8 +223,8 @@ enum Offsets {
     // VAR_SPELL_RECORDS whose record has `+0x0C == 3` ->
     // FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP), else raises "Unknown link type"
     // (`0x00532269`). A full `|H...|h` link fails the prefix test. Co-hooked
-    // by `Tooltip::Hyperlink` for full links, `spell:` / `quest:`, and
-    // trade-skill `enchant:` links. SuperWoW patches a jump at `0x00532210`
+    // by `Tooltip::Hyperlink` for full links, `spell:` / `quest:` / `trade:`,
+    // and trade-skill `enchant:` links. SuperWoW patches a jump at `0x00532210`
     // (after the `item:` test) that adds `quest:` and resumes at `enchant:`.
     FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK = 0x00531FD0, // slot 12
     // `SetAction(slot)`: cooldown via FUN_ACTION_SLOT_COOLDOWN, clear, then
@@ -6112,8 +6112,8 @@ enum Offsets {
     // rank-up / passive rows have both zero. Empirically: the
     // Blacksmithing skill line has 343 SLA rows, 334 with a nonzero
     // threshold — the 9 excluded are the Apprentice..Artisan rank
-    // spells and skill grants. This is the discriminator
-    // `TradeSkill::Link` uses to build the canonical recipe universe.
+    // spells and skill grants. The profession list builds read both
+    // for a row's difficulty.
     OFF_SLA_TRIVIAL_SKILL_HIGH = 0x28,
     OFF_SLA_TRIVIAL_SKILL_LOW = 0x2C,
     // The engine's (race, class, spellID) -> SkillLineAbility record lookup:
@@ -10851,12 +10851,70 @@ enum Offsets {
     // window is open. `FUN_004FC870` zeroes it on close (and fires
     // event `0x13B`), so `> 0` reliably means "trade window open".
     VAR_CURRENT_TRADESKILL_LINE = 0x00BDE040,
-    // Craft window (Enchanting, pet training) open-state flag — nonzero
-    // (3 for the enchanting-style craft) while open; `FUN_004F5FE0`
-    // zeroes it on close (fires event `0x169`). The Craft window has no
-    // skill-line-ID global — `TradeSkill::Link` derives the skill line
-    // from the first craft recipe — so this is the "craft open" gate.
+    // Craft window (Enchanting, pet training): the open craft type — the
+    // opening spell's EffectMiscValue[0], 3 for Enchanting, 1 for Beast
+    // Training — or 0 when closed. `FUN_004F5FE0` zeroes it on close (fires
+    // event `0x169`). The Craft window keeps no skill line.
     VAR_CRAFT_WINDOW_STATE = 0x00BDCFB8,
+
+    // The profession windows' open, build and shutdown seams that
+    // `TradeSkill::Window` uses to show another player's profession from a
+    // `trade:` link, as 3.3.5's CGTradeSkillInfo does. Disassembly.
+    //
+    // `void __fastcall(uint32_t skillLine)`: opens the TradeSkill window on a
+    // skill line, or closes it when that line is already open. The only
+    // caller is TryCastSpell at CALL_TRY_CAST_TOGGLE_TRADE_SKILL, with the
+    // cast spell ID in ESI.
+    FUN_TOGGLE_TRADE_SKILL = 0x004FC910,
+    CALL_TRY_CAST_TOGGLE_TRADE_SKILL = 0x006E4C22,
+    // `void __fastcall(uint32_t craftType)`: the Craft window's twin. The
+    // only caller is TryCastSpell at CALL_TRY_CAST_TOGGLE_CRAFT, ESI = spell.
+    FUN_TOGGLE_CRAFT = 0x004F6000,
+    CALL_TRY_CAST_TOGGLE_CRAFT = 0x006E4C34,
+    // `void(void)`: clears the TradeSkill repeat latch and fires
+    // UPDATE_TRADESKILL_RECAST (3.3.5 CGTradeSkillInfo::StopRecast).
+    FUN_TRADE_SKILL_STOP_RECAST = 0x004FD790,
+    // The TradeSkill list build (BuildTradeSkillList, 0x004FCA20) reads per
+    // row: the open line's spell array from
+    // `CGPlayer_C::FindSkillLineSpells(player, skillLine)` (`__thiscall`,
+    // returns a growable array — count +0x04, int spell IDs at +0x08 — or
+    // null), each spell's ability row from FUN_SKILL_LINE_ABILITY_LOOKUP
+    // with the player's race and class, and the player's raw rank in the
+    // ability's line from the 33 bytes at SITE_BUILD_TRADE_SKILL_RANK
+    // (`call FindSkillIndex` .. `xor eax,eax`; ECX = player, the line
+    // pushed, rank left in EAX at 0x004FCC49). One call site each.
+    FUN_PLAYER_FIND_SKILL_LINE_SPELLS = 0x005EA2C0,
+    CALL_BUILD_TRADE_SKILL_SPELLS = 0x004FCB2A,
+    CALL_BUILD_TRADE_SKILL_ABILITY = 0x004FCBD2,
+    SITE_BUILD_TRADE_SKILL_RANK = 0x004FCC28,
+    // The Craft list build (BuildCraftList, 0x004F60C0) reads per row: the
+    // type's spell array from `CGPlayer_C::GetTabSpells(player, tab)`
+    // (`__thiscall`, the array at player + 0x1CD0 + tab * 16, same shape),
+    // each spell's ability row from `CGUnit_C::FindSkillLineAbility(unit,
+    // spell)` (`__thiscall`, the unit's race and class), and the rank from
+    // `CGPlayer_C::GetSkillTotal(player, skillLine)` (`__thiscall`, base plus
+    // temporary bonus). GetTabSpells' other caller is
+    // Script_GetCraftDisplaySkillLine (0x004F6CF4).
+    FUN_PLAYER_GET_TAB_SPELLS = 0x005EA330,
+    CALL_BUILD_CRAFT_SPELLS = 0x004F6118,
+    FUN_UNIT_FIND_SKILL_LINE_ABILITY = 0x0060C7C0,
+    CALL_BUILD_CRAFT_ABILITY = 0x004F61A8,
+    FUN_PLAYER_GET_SKILL_TOTAL = 0x005EA520,
+    CALL_BUILD_CRAFT_RANK = 0x004F620E,
+    // `void(void)` each: free the TradeSkill / Craft rows and zero their
+    // state. CGGameUI::ShutdownGame (0x00491180) calls them once per return
+    // to the character screen, as 3.3.5's calls CGTradeSkillInfo::ShutdownGame.
+    FUN_SHUTDOWN_TRADE_SKILL = 0x004FC790,
+    CALL_GAME_SHUTDOWN_TRADE_SKILL = 0x004911C8,
+    FUN_SHUTDOWN_CRAFT = 0x004F5F00,
+    CALL_GAME_SHUTDOWN_CRAFT = 0x004911D2,
+    // The window getters that answer for the player: GetTradeSkillLine and
+    // GetCraftDisplaySkillLine push (name, rank, maxRank) from the player's
+    // skill slot; GetCraftName pushes the name of the spell the player keeps
+    // for the open type. `int __fastcall(lua_State *)` each.
+    FUN_SCRIPT_GET_TRADE_SKILL_LINE = 0x004FDD40,
+    FUN_SCRIPT_GET_CRAFT_DISPLAY_SKILL_LINE = 0x004F6CB0,
+    FUN_SCRIPT_GET_CRAFT_NAME = 0x004F6C10,
 
     // Trainer window (ClassTrainerFrame.cpp). Same slot-indirected shape as
     // the trade-skill rows: `[VAR_TRAINER_SERVICES]` points at an array of
@@ -10932,6 +10990,14 @@ enum Offsets {
     // Verified from Spell.dbc: 13262 "Disenchant" has Effect[0] = 99 (the
     // only row carrying it). Effect 32 is TRIGGER_MISSILE, not disenchant.
     SPELL_EFFECT_DISENCHANT = 99,
+    // A profession spell (Blacksmithing 2018, Enchanting 7411, Smelting
+    // 2656): casting it opens a profession window. TryCastSpell (0x006E4B60)
+    // tests Effect[0] for it (`cmp [edi+0xF4], 0x2F` at 0x006E4BCE) and
+    // routes on EffectMiscValue[0]: 0 opens the TradeSkill window for the
+    // spell's skill line, any other value is the Craft window's type (3
+    // Enchanting, 1 Beast Training). 3.3.5's GetTradeSkillListLink takes
+    // only spells whose Effect[0] is this.
+    SPELL_EFFECT_TRADE_SKILL = 47,
 
     // EffectBasePoints[3] — the base magnitude of each effect, stored as
     // (value - 1) for the fixed-die spells that back item stats (the
@@ -10998,6 +11064,15 @@ enum Offsets {
     // SetHyperlink's `enchant:` on this bit, and its UnitCastingInfo reports
     // it as isTradeskill.
     SPELL_ATTR_TRADESPELL = 0x20,
+    // Column 3, castUI: the tab a learned spell without SPELL_ATTR_TRADESPELL
+    // is filed under. The learn function (0x005E9C20) puts a TRADESPELL
+    // spell in its skill line's list (CGPlayer_C::FindSkillLineSpells) and
+    // any other spell with castUI > 0 in tab array castUI
+    // (CGPlayer_C::GetTabSpells, `mov esi,[edi+0xC]` at 0x005E9D83), which
+    // the Craft window of that type lists. Extracted Spell.dbc: 187 of
+    // Enchanting's 192 SkillLineAbility spells hold 3, 138 of Beast
+    // Training's 140 hold 1.
+    OFF_SPELL_RECORD_CAST_UI = 0x0C,
     // Attributes bits 2 (0x4) and 10 (0x400) — "on next melee swing" (the
     // ability replaces the next white hit instead of sending its own attack,
     // e.g. Heroic Strike / Maul / Raptor Strike). The CLIENT itself tests

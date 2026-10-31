@@ -1003,12 +1003,12 @@ build instructions.
   - [`SetTracking([index])`](#settrackingindex)
 
 - [TradeSkillUI](#tradeskillui)
-  - [`C_TradeSkillUI.GetTradeSkillListLink()`](#c_tradeskilluigettradeskilllistlink)
-  - [`C_TradeSkillUI.GetCraftListLink()`](#c_tradeskilluigetcraftlistlink)
-  - [`C_TradeSkillUI.GetTradeSkillListRecipes(skillLineID, bits)`](#c_tradeskilluigettradeskilllistrecipesskilllineid-bits)
+  - [`GetTradeSkillListLink()`](#gettradeskilllistlink)
+  - [`GetCraftListLink()`](#getcraftlistlink)
   - [`GetTradeSkillRecipeLink(index)`](#gettradeskillrecipelinkindex)
   - [`GetTradeSkillDescription(index)`](#gettradeskilldescriptionindex)
   - [`IsTradeSkillLinked()`](#istradeskilllinked)
+  - [`IsCraftLinked()`](#iscraftlinked)
 
 - [Trainer](#trainer)
   - [`GetTrainerServiceItemLink(index)`](#gettrainerserviceitemlinkindex)
@@ -22673,92 +22673,76 @@ end
 
 ## TradeSkillUI
 
-The **trade-skill list link** — the shareable
-`|Htrade:...|h[Profession]|h` link that shows a player's profession and
-which recipes they know. The engine has no such link type (its
-hyperlink parser only knows `item:` and `enchant:`), so both the link and the
-click-to-view UI are synthesized. Clicking a received link opens a
-crafting-window-style frame (the real `TradeSkillFrame` parchment art) listing
-the recipes the linker knows — difficulty-coloured and sorted high-craft-first
-— with a skill-rank bar and an "X of Y recipes known" summary.
+A **profession link** (`|Htrade:...|h[Blacksmithing]|h`) shows the
+profession of a player and the recipes that the player knows. The link also
+carries the skill rank of the player.
 
-The "known recipes" data is a bitfield over the skill line's **canonical
-recipe list** — every `SkillLineAbility.dbc` row for the skill line that is a
-craftable recipe, in ascending record-ID order. That ordering is identical on
-every client with the same DBC, so the sender and reader agree on the
-bit-index space with no handshake. Whether the sender knows a given recipe
-comes from the same player-spell bitmap `IsPlayerSpell` reads (which covers
-profession recipes), so the link is self-contained — the reader needs neither
-the sender online nor the profession itself.
+When you click a received link in chat, the profession window opens with
+that profession. The window lists the recipes of the linked player. The
+difficulty colors use the rank of the linked player. The reagent counts come
+from your bags.
 
-### `C_TradeSkillUI.GetTradeSkillListLink()`
+While the window shows a profession from a link, the window does not show its
+Create, Create All, and count controls. `GetTradeSkillLine` gives the rank of
+the linked player. When you open a profession from your spellbook, the window
+shows your own profession again.
 
-Returns the `|Htrade:...|h` link for the **currently-open** trade skill
-window, or `nil` if no profession window is open.
+Enchanting opens in the craft window. The craft window has two functions of
+its own: [`GetCraftListLink`](#getcraftlistlink) and
+[`IsCraftLinked`](#iscraftlinked). While the craft window shows a link,
+`GetCraftName` and `GetCraftDisplaySkillLine` give the linked profession and
+rank.
 
-```lua
--- with a profession window open:
-local link = C_TradeSkillUI.GetTradeSkillListLink()
--- "|cffffd000|Htrade:164:300:300:Bob:eE0C...|h[Blacksmithing]|h|r"
-ChatEdit_InsertLink(link)   -- or SendChatMessage(link, "GUILD"), etc.
-```
+You can link every profession that opens from the spellbook. This includes
+Smelting, Poisons, and Beast Training.
 
-Built entirely in the DLL — no addon wiring. The window only needs to be open
-long enough to identify the profession; the recipe data is read from the spell
-bitmap, not the window's server list. Wire format (a ClassicAPI-private shape
-modeled on the 2.x link, with the linker's name in the slot 2.x used for the
-GUID):
+The client must know the player who sent the link. If the client does not
+know the player, it asks the server for the name. The link opens when the
+answer arrives.
 
-```
-|cffffd000|Htrade:<skillLineID>:<curRank>:<maxRank>:<linkerName>:<base64 bits>|h[Name]|h|r
-```
+A link holds one bit for each recipe of the profession, in the order of the
+DBC files. If two clients have different DBC files, the link does not open,
+or it shows the wrong recipes.
 
-`skillLineID` is the `SkillLine.dbc` row (164 = Blacksmithing); `curRank` /
-`maxRank` are the linker's skill level (cosmetic); `linkerName` is the linking
-character's name (shown in the viewer title); the base64 tail packs 6 recipes
-per character, LSB-first. Links from before this field was added (no
-`linkerName`) still decode — the viewer just omits the name from its title.
+### `GetTradeSkillListLink()`
 
-Clicking a `trade:` link is handled automatically (an override of
-`SetItemRef`) — it opens the recipe viewer. No addon wiring needed.
-
-### `C_TradeSkillUI.GetCraftListLink()`
-
-Same as `GetTradeSkillListLink`, but for the **Craft window** — the
-separate profession frame used by Enchanting and pet training. Returns `nil`
-unless `CraftFrame` is shown. The two windows have separate storage and can be
-open simultaneously, so they get separate builders; the resulting link is
-the same `|Htrade:...|h` format and opens the same viewer.
+Returns the link for your profession in the trade-skill window. The link has
+your skill rank and the recipes that you know. When the window is closed, the
+function returns nil.
 
 ```lua
-local link = C_TradeSkillUI.GetCraftListLink()   -- with the enchanting window open
--- "|cffffd000|Htrade:333:300:300:Bob:...|h[Enchanting]|h|r"
+local link = GetTradeSkillListLink()
+-- "|cffffd000|Htrade:9785:300:300:2A6F1:Ug/E...|h[Blacksmithing]|h|r"
+ChatFrameEditBox:Insert(link)
 ```
 
-### `C_TradeSkillUI.GetTradeSkillListRecipes(skillLineID, bits)`
+The trade-skill window has a button next to its title. The button puts this
+link in the chat box.
 
-Decodes a link's bitfield against a skill line's canonical recipe list.
-Returns an array table:
+The link has this format:
+
+```
+|cffffd000|Htrade:<spellID>:<rank>:<maxRank>:<GUID>:<bits>|h[<profession>]|h|r
+```
+
+- `spellID`: the profession spell that opened the window.
+- `rank`, `maxRank`: your skill rank and maximum rank, as `GetTradeSkillLine`
+  gives them.
+- `GUID`: the GUID of your character, in hexadecimal.
+- `bits`: the recipes that you know, six recipes for each base64 character.
+
+### `GetCraftListLink()`
+
+Returns the link for your profession in the craft window, for example
+Enchanting. When the craft window is closed, the function returns nil. This
+function works like
+[`GetTradeSkillListLink`](#gettradeskilllistlink). This is a ClassicAPI
+extension.
 
 ```lua
-local recipes = C_TradeSkillUI.GetTradeSkillListRecipes(164, "eE0C...")
--- recipes[i] = { spellID, isKnown, trivialLevel, greenLevel, createdItem }
-for i = 1, table.getn(recipes) do
-    local name = GetSpellInfo(recipes[i].spellID)
-    print(name, recipes[i].isKnown and "known" or "unknown")
-end
+local link = GetCraftListLink()   -- with Enchanting open
+-- "|cffffd000|Htrade:13920:300:300:2A6F1:...|h[Enchanting]|h|r"
 ```
-
-`trivialLevel` / `greenLevel` are the skill levels the recipe turns grey /
-green at — the recipe's difficulty band, coloured against the linker's skill
-exactly as the default UI does (the required-skill field is uselessly `1` for
-nearly every trainer-taught recipe). `createdItem` is the crafted item's ID
-(`0` for enchants), which the viewer uses to build its subclass filter.
-
-The array is in canonical recipe order (one entry per *possible* recipe in the
-skill line, not just the known ones). Turn a `spellID` into a name/icon with
-[`GetSpellInfo`](#getspellinfospellid--getspellinfoslot-booktype). Recipes past the end of a short/garbled
-`bits` string decode as not-known rather than erroring.
 
 ### `GetTradeSkillRecipeLink(index)`
 
@@ -22803,19 +22787,27 @@ The Craft window (Enchanting, pet training) already has this in
 
 ### `IsTradeSkillLinked()`
 
-Returns whether the trade-skill window shows a profession that was opened
-from another player's link. The second return value is that player's name.
-On this client, both return values are always nil. A received `trade:` link
-opens its own viewer, and the trade-skill window and its functions only
-show the player's own professions. Addons use this check to keep a linked
-profession out of the player's own records.
+When the trade-skill window shows a profession from a link, the function
+returns 1 and the name of the linked player. Otherwise, it returns nil and
+nil. If the client does not know the name, the second value is nil.
+
+After the window closes, the function gives the same values until the window
+opens again. Addons use this function to keep a linked profession out of the
+recipe records of the player.
 
 ```lua
-local isLinked, playerName = IsTradeSkillLinked()   -- nil, nil
+local isLinked, playerName = IsTradeSkillLinked()
 if not isLinked then
-    -- the rows are the player's own recipes
+    -- the rows are your own recipes
 end
 ```
+
+### `IsCraftLinked()`
+
+When the craft window shows a profession from a link, the function returns 1
+and the name of the linked player. Otherwise, it returns nil and nil. This
+function works like [`IsTradeSkillLinked`](#istradeskilllinked). This is a
+ClassicAPI extension.
 
 ## Trainer
 
