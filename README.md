@@ -341,6 +341,7 @@ when launching with `-console`), not as Lua functions. See the
 | `UNIT_POWER_UPDATE` | `unitTarget, powerType` |
 | `UNIT_SPELL_HASTE` | `unitTarget` |
 | `UNIT_TARGET` | `unitTarget` |
+| `UNIT_TARGETABLE_CHANGED` | `unitTarget` |
 | `UPDATE_INVENTORY_DURABILITY` | *(none)* |
 | `UPDATE_SHAPESHIFT_FORM` | *(none)* |
 | `USER_WAYPOINT_UPDATED` | *(none)* |

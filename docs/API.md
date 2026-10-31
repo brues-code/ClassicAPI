@@ -257,6 +257,7 @@ build instructions.
   - [`UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events](#unit_power_update--unit_power_frequent--unit_maxpower-events)
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
+  - [`UNIT_TARGETABLE_CHANGED` event](#unit_targetable_changed-event)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
   - [`UNIT_SPELLCAST_*` events](#unit_spellcast_-events)
@@ -6222,6 +6223,22 @@ f:SetScript("OnEvent", function()
     print("Focus target:", UnitName("focustarget") or "none")
 end)
 ```
+
+### `UNIT_TARGETABLE_CHANGED` event
+
+Fires when a unit becomes selectable or stops being selectable, for
+example a boss that leaves the fight for a phase.
+
+```
+UNIT_TARGETABLE_CHANGED: unitTarget
+```
+
+- **`unitTarget`** (string) — the unit token. A unit that has more than
+  one token (for example `target` and `focus`) gets one event for each
+  token.
+
+The event fires for each unit token that gets unit events, and only for
+units that the client can see.
 
 ### `UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)
 

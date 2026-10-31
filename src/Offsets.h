@@ -2803,6 +2803,15 @@ enum Offsets {
     // and vmangos UnitDefines.h agree). 4.3.4 drops the focus when a unit
     // gains it (CGUnit_C::OnFlagChanged → BreakTarget); 1.12 has no reader.
     UNIT_FLAG_NOT_SELECTABLE = 0x02000000,
+    // CGUnit_C::OnUnitFlagsChanged — 4.3.4's CGUnit_C::OnFlagChanged less its
+    // UNIT_FLAG_NOT_SELECTABLE branch (break target, UNIT_TARGETABLE_CHANGED):
+    // acts on the bits that differ from `oldFlags`.
+    // `void __thiscall(CGUnit_C *unit, uint32_t oldFlags)`, RET 4 (0x005FF7F2).
+    // One E8 call, from the flags field's type watcher OnFlagsFieldChanged
+    // (0x006044B0), which resolves the unit and passes the old value; no
+    // loaded DLL references either address.
+    FUN_UNIT_FLAGS_CHANGED = 0x005FF580,
+    CALL_FLAGS_FIELD_FLAGS_CHANGED = 0x006044DB,
     // Bit 20 of UNIT_FIELD_FLAGS — on a flight path (vmangos
     // UNIT_FLAG_TAXI_FLIGHT). The stand setter FUN_PLAYER_SEND_STAND_STATE
     // refuses while it is set (benilla-re objectlayer/standstate#the-sit-gate).
