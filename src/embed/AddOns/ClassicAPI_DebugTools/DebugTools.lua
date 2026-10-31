@@ -1027,20 +1027,6 @@ end
 
 FRAMESTACK_UPDATE_TIME = .1;
 
--- Blizzard_SharedXML's StringToBoolean, for the /framestack arguments.
-local function _StringToBoolean(stringToCheck, defaultReturn)
-    stringToCheck = string.lower(stringToCheck);
-    local firstChar = string.sub(stringToCheck, 1, 1);
-    if (firstChar == "0" or firstChar == "n" or firstChar == "f" or
-        stringToCheck == "off" or stringToCheck == "disabled") then
-        return false;
-    elseif (string.find(firstChar, "^[1-9yt]") or
-            stringToCheck == "on" or stringToCheck == "enabled") then
-        return true;
-    end
-    return defaultReturn;
-end
-
 local function _WrapColor(text, colorHex)
     return "|c" .. colorHex .. text .. "|r";
 end
@@ -1266,8 +1252,8 @@ function FrameStackTooltip_HandleSlashCmd(msg)
     showHiddenArg, msg = string.match(msg or "", "^%s*(%S+)(.*)$");
     showRegionsArg, msg = string.match(msg or "", "^%s*(%S+)(.*)$");
 
-    local showHidden = _StringToBoolean(showHiddenArg or "", false);
-    local showRegions = _StringToBoolean(showRegionsArg or "", true);
+    local showHidden = StringToBoolean(showHiddenArg or "", false);
+    local showRegions = StringToBoolean(showRegionsArg or "", true);
 
     FrameStackTooltip_Toggle(showHidden, showRegions);
 end
