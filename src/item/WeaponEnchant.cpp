@@ -28,6 +28,7 @@ constexpr int INVSLOT_RANGED = 18;
 
 struct EnchantInfo {
     bool has;
+    bool hasExpiration;
     uint32_t expirationMs;
     uint32_t charges;
     uint32_t enchantID;
@@ -47,7 +48,7 @@ struct EnchantInfo {
 // — the same block `spell/BonusDamage.cpp` walks for enchant-granted
 // spell power.
 EnchantInfo ReadTempEnchant(const uint8_t *cgItem) {
-    EnchantInfo r{false, 0, 0, 0};
+    EnchantInfo r{false, false, 0, 0, 0};
     if (cgItem == nullptr)
         return r;
     const uint8_t *desc = Item::ObjectFields(cgItem);
@@ -66,6 +67,7 @@ EnchantInfo ReadTempEnchant(const uint8_t *cgItem) {
         desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_CHARGES_DELTA);
     if (Game::Read<uint32_t>(
             desc, kSlot + Offsets::DESCRIPTOR_ENCHANTMENT_DURATION_DELTA) != 0) {
+        r.hasExpiration = true;
         using TimeLeft_t = uint32_t(__fastcall *)(const uint8_t *item, void *edx, int slot);
         r.expirationMs = reinterpret_cast<TimeLeft_t>(
             static_cast<uintptr_t>(Offsets::FUN_ITEM_ENCHANTMENT_TIME_LEFT))(
@@ -157,11 +159,60 @@ int __fastcall Script_C_Item_GetItemTempEnchantInfo(void *L) {
     return 4;
 }
 
+// `C_PaperDollInfo.GetTemporaryEnchantmentInfo(slot)` — retail's per-slot
+// temporary enchant, the one its deprecated `GetWeaponEnchantInfo` is now
+// built from. `slot` is an equipment slot (INVSLOT_*). Returns a
+// `TemporaryItemEnchantInfo` table, or nothing when the slot has no
+// temporary enchant (or no item, or is not an equipment slot).
+// `hasExpirationTime` is the descriptor duration gate `ReadTempEnchant`
+// reads; without it `remainingTimeMs` is 0.
+const Game::Doc::Field kTemporaryItemEnchantInfoFields[] = {
+    Game::Doc::Req("enchantID", "number"),
+    Game::Doc::Req("remainingTimeMs", "number"),
+    Game::Doc::Req("chargesRemaining", "number"),
+    Game::Doc::Req("hasExpirationTime", "bool"),
+};
+const Game::Doc::Structure kTemporaryItemEnchantInfo{
+    "TemporaryItemEnchantInfo", "PaperDollInfo", kTemporaryItemEnchantInfoFields};
+
+const Game::Doc::Field kGetTemporaryEnchantmentInfoArgs[] = {
+    Game::Doc::Req("slot", "number", "An INVSLOT_ constant."),
+};
+const Game::Doc::Field kGetTemporaryEnchantmentInfoRets[] = {
+    Game::Doc::Req("enchantInfo", "TemporaryItemEnchantInfo"),
+};
+const Game::Doc::Function kGetTemporaryEnchantmentInfo{
+    "Returns the temporary enchantment on an equipped item, or nothing if there is none.",
+    kGetTemporaryEnchantmentInfoArgs, kGetTemporaryEnchantmentInfoRets};
+
+int __fastcall Script_GetTemporaryEnchantmentInfo(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_PaperDollInfo.GetTemporaryEnchantmentInfo(slot)");
+        return 0;
+    }
+    const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
+    if (slot < Offsets::EQUIPMENT_SLOT_FIRST || slot > Offsets::EQUIPMENT_SLOT_LAST)
+        return 0;
+
+    const EnchantInfo e = ReadEquippedTempEnchant(slot);
+    if (!e.has)
+        return 0;
+    Game::Lua::NewTable(L);
+    Game::Lua::SetFieldNumber(L, "enchantID", static_cast<double>(e.enchantID));
+    Game::Lua::SetFieldNumber(L, "remainingTimeMs", static_cast<double>(e.expirationMs));
+    Game::Lua::SetFieldNumber(L, "chargesRemaining", static_cast<double>(e.charges));
+    Game::Lua::SetFieldBool(L, "hasExpirationTime", e.hasExpiration);
+    return 1;
+}
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetWeaponEnchantInfo",
                                       &Script_C_Item_GetWeaponEnchantInfo);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemTempEnchantInfo",
                                       &Script_C_Item_GetItemTempEnchantInfo);
+    Game::Lua::RegisterTableFunction("C_PaperDollInfo", "GetTemporaryEnchantmentInfo",
+                                      &Script_GetTemporaryEnchantmentInfo,
+                                      &kGetTemporaryEnchantmentInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -768,6 +768,7 @@ build instructions.
 
 - [PaperDollInfo](#paperdollinfo)
   - [`C_PaperDollInfo.GetInventorySlotInfoForInvSlot(invSlot)`](#c_paperdollinfogetinventoryslotinfoforinvslotinvslot)
+  - [`C_PaperDollInfo.GetTemporaryEnchantmentInfo(slot)`](#c_paperdollinfogettemporaryenchantmentinfoslot)
 
 - [PartyInfo](#partyinfo)
   - [`InviteUnit(targetName)`](#inviteunittargetname)
@@ -12679,6 +12680,10 @@ That enchant is a separate field.
 An empty slot returns `false, 0, 0, 0`. An item you do not own returns
 the same, and so does a location that resolves to nothing.
 
+For an equipped item,
+[`C_PaperDollInfo.GetTemporaryEnchantmentInfo`](#c_paperdollinfogettemporaryenchantmentinfoslot)
+gives the same enchant as a table.
+
 This call is a ClassicAPI extension.
 
 ### `C_Item.GetEnchantInfo(enchantID)`
@@ -17789,6 +17794,29 @@ is not a number raises an error.
 /dump C_PaperDollInfo.GetInventorySlotInfoForInvSlot(18)
 -- 18, "interface\\paperdoll\\UI-PaperDoll-Slot-Ranged.blp", true, "RangedSlot"
 ```
+
+### `C_PaperDollInfo.GetTemporaryEnchantmentInfo(slot)`
+
+Returns the temporary enchant on an equipped item as a table. `slot` is an
+`INVSLOT_` constant, for example `INVSLOT_MAINHAND`. If the slot has no
+temporary enchant, the call returns nothing.
+
+| Field | Value |
+|-------|-------|
+| `enchantID` | The enchant. [`C_Item.GetEnchantInfo`](#c_itemgetenchantinfoenchantid) gives its name and effects. |
+| `remainingTimeMs` | The time left in milliseconds. If the enchant has no time limit, the value is `0`. |
+| `chargesRemaining` | The charges left. An oil has `0`. |
+| `hasExpirationTime` | `true` if the enchant has a time limit. |
+
+```lua
+local info = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_MAINHAND)
+if info then
+    print(info.enchantID, info.remainingTimeMs, info.chargesRemaining)
+end
+```
+
+[`C_Item.GetItemTempEnchantInfo`](#c_itemgetitemtempenchantinfoitemlocation)
+reads the same enchant on a weapon in a bag.
 
 ## PartyInfo
 
