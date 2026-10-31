@@ -2452,6 +2452,28 @@ enum Offsets {
     // Its length: world init builds the table from it with
     // `mov edx,0x225; mov ecx,0xBE1198; call 0x703D90` (0x0048FEA1).
     EVENT_NAME_TABLE_STATIC_COUNT = 0x225,
+    // UnitWatchedIndex — the position of unit field `field` (bank-relative
+    // index, the unit-field event id) in the unit's watched-field table
+    // (0x00839E48, 0xA7 entries), the slot of its 4 bytes in the watch copy
+    // every observer's mirror lives in. A field outside the table answers
+    // UNIT_WATCHED_NONE, and the copy offset built from it lies past the
+    // unit's 170-slot copy, inside the object: a watcher on such a field
+    // writes its old value over the object (UNIT_MOD_CAST_SPEED, index 139,
+    // put its 1.0f over a list link and crashed ClntObjMgrRelease). Fields
+    // outside the table: 8, 9, 34..39, 123, 124, 126, 139, 140, 156, 157, 181.
+    // `uint32_t __fastcall(uint32_t field, uint32_t dwords, uint32_t
+    // isActivePlayer)`, RET 4; both FieldCopyOffset (0x00466830) and
+    // GetWatcherCopyOffset (0x004680C0) take the unit slot from it.
+    FUN_UNIT_WATCHED_INDEX = 0x0047DB20,
+    UNIT_WATCHED_NONE = 0xB6,
+    // The table itself (.data, u32 per entry): 166 field indices and one
+    // spare entry holding UNIT_WATCHED_NONE (position 166, the copy's last
+    // slot, 169 — no field asks for it: unit indices end at 181 and player
+    // fields take their slots from 170 on). UnitWatchedIndex (0x0047DB25) is
+    // the table's only reader and nothing writes it, so a field written into
+    // the spare entry gets a copy slot of its own.
+    VAR_UNIT_WATCHED_FIELDS = 0x00839E48,
+    UNIT_WATCHED_FIELD_COUNT = 0xA7,
     EVENT_NAME_UNIT_MAX = 0xB6,               // FUN_0051bbb0's loop bound
 
     // CGPlayer_C::AddActiveWatchers' inventory-slot observer

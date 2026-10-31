@@ -81,8 +81,12 @@ private:
 // init or unit watch. Watch and unwatch then always see the same set. Nothing
 // in the binary writes the array except the boot initializer `0x0051AB30`,
 // and it stores only the slots it names. A slot the engine already names is
-// left alone. The caller proves that nothing else signals `id` by number while
-// the game table is installed (the census in `GLUE_EVENT_COUNT`'s comment).
+// left alone. A unit field the unit's watch copy has no slot for
+// (FUN_UNIT_WATCHED_INDEX) would have its watchers write over the object, so
+// it takes the watched-field table's one spare entry first, and the name is
+// refused when that is gone. The caller proves that nothing else signals
+// `id` by number while the game table is installed (the census in
+// `GLUE_EVENT_COUNT`'s comment).
 //
 // The event is documented like a reservation: `ReservedName` / `ReservedDoc`
 // list it, and its slot is `id` for good (never re-claimed on `/reload`).

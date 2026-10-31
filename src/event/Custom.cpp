@@ -276,6 +276,25 @@ void Grow() {
                        force ? ", FORCED" : "");
 }
 
+// True when unit field `field` has a slot in the unit's watch copy, giving it
+// the watched-field table's spare entry when it has none.
+bool GiveWatchSlot(uint32_t field) {
+    using WatchedIndex_t = uint32_t(__fastcall *)(uint32_t field, uint32_t dwords,
+                                                  uint32_t isActivePlayer);
+    const auto index = reinterpret_cast<WatchedIndex_t>(Offsets::FUN_UNIT_WATCHED_INDEX);
+    if (index(field, 1, 0) != Offsets::UNIT_WATCHED_NONE)
+        return true;
+    auto *table =
+        reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(Offsets::VAR_UNIT_WATCHED_FIELDS));
+    for (int i = 0; i < Offsets::UNIT_WATCHED_FIELD_COUNT; ++i) {
+        if (table[i] == Offsets::UNIT_WATCHED_NONE) {
+            table[i] = field;
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 AutoReserve::AutoReserve(const char *name, const Game::Doc::Event *doc) {
@@ -306,6 +325,12 @@ AutoReserve::AutoReserve(const char *name, const Game::Doc::Event *doc) {
 EngineName::EngineName(int id, const char *name, const Game::Doc::Event *doc) {
     if (name == nullptr || id < 0 || id >= Offsets::EVENT_NAME_TABLE_STATIC_COUNT ||
         g_reservedCount >= MAX_RESERVED)
+        return;
+    // A named unit-field slot makes FUN_0051bbb0 watch field `id`, and a
+    // watcher on a field the unit's watch copy has no slot for writes past
+    // the copy, into the object (see FUN_UNIT_WATCHED_INDEX). Such a field
+    // takes the table's spare entry, or the name is refused.
+    if (id < Offsets::EVENT_NAME_UNIT_MAX && !GiveWatchSlot(static_cast<uint32_t>(id)))
         return;
     auto **slot = reinterpret_cast<const char **>(
         static_cast<uintptr_t>(Offsets::VAR_EVENT_NAME_TABLE_STATIC)) + id;

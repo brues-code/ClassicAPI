@@ -36,10 +36,13 @@
 // changes into events by index: FUN_0051bbb0 watches unit field i when slot
 // i of the static event-name array is named, and FUN_0051bd50 signals event i
 // once per token of the unit. UNIT_MOD_CAST_SPEED is index 139
-// (OFF_UNIT_MOD_CAST_SPEED / 4), and slot 139 has no name, so naming it lets
+// (OFF_UNIT_MOD_CAST_SPEED / 4) and slot 139 has no name, so naming it lets
 // the engine's own watchers fire the event (see Event::Custom::EngineName).
-// Nothing else signals 139 by number: it is above the glue band and not in
-// the chat-type event table.
+// Field 139 is one of the few the unit's watch copy has no slot for, so the
+// name also gives it the watched-field table's spare entry; without it, each
+// watcher wrote the field over its object (FUN_UNIT_WATCHED_INDEX). Nothing
+// else signals 139 by number: it is above the glue band and not in the
+// chat-type event table.
 
 #include "Game.h"
 #include "Offsets.h"
