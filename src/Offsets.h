@@ -2812,6 +2812,16 @@ enum Offsets {
     // loaded DLL references either address.
     FUN_UNIT_FLAGS_CHANGED = 0x005FF580,
     CALL_FLAGS_FIELD_FLAGS_CHANGED = 0x006044DB,
+    // CGUnit_C::OnMountDisplayChanged — dismounts from the old mount display
+    // (when `oldMountDisplay` is nonzero), mounts the new one with the
+    // mount-up effect, then refreshes the loop sound, quest marker and name.
+    // `void __thiscall(CGUnit_C *unit, uint32_t oldMountDisplay)`, RET 4
+    // (0x005FFAFF). One E8 call, from the UNIT_FIELD_MOUNTDISPLAYID type
+    // watcher OnMountDisplayFieldChanged (0x00604570), which resolves the
+    // unit and passes the old value. VanillaHelpers calls the function
+    // directly after a local mount morph and patches neither address.
+    FUN_UNIT_MOUNT_DISPLAY_CHANGED = 0x005FFA50,
+    CALL_MOUNT_DISPLAY_FIELD_CHANGED = 0x0060459B,
     // Bit 20 of UNIT_FIELD_FLAGS — on a flight path (vmangos
     // UNIT_FLAG_TAXI_FLIGHT). The stand setter FUN_PLAYER_SEND_STAND_STATE
     // refuses while it is set (benilla-re objectlayer/standstate#the-sit-gate).

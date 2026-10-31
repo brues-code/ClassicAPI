@@ -241,6 +241,7 @@ build instructions.
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
+  - [`PLAYER_MOUNT_DISPLAY_CHANGED` event](#player_mount_display_changed-event)
   - [`PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events](#player_soft_enemy_changed--player_soft_friend_changed-events)
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
@@ -5716,6 +5717,19 @@ end)
 **Identity-checked**: assigning the same GUID twice is a no-op
 (no event refires). Fired whenever the player's focus target is
 changed, including when the focus target is lost or cleared.
+
+### `PLAYER_MOUNT_DISPLAY_CHANGED` event
+
+Fires when the player mounts, dismounts, or changes to a different mount.
+The event has no payload.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+f:SetScript("OnEvent", function()
+    print("Mount display changed")
+end)
+```
 
 ### `PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events
 

@@ -300,6 +300,7 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_AVG_ITEM_LEVEL_READY` | *(none)* |
 | `PLAYER_EQUIPMENT_CHANGED` | `equipmentSlot, hasCurrent` |
 | `PLAYER_FOCUS_CHANGED` | *(none)* |
+| `PLAYER_MOUNT_DISPLAY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_ENEMY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_FRIEND_CHANGED` | *(none)* |
 | `PLAYER_SOFT_INTERACT_CHANGED` | `oldTarget, newTarget` |
