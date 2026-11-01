@@ -46,8 +46,10 @@ namespace {
 // scope + the 5 lazy TTS ones), so on any client without VanillaTTS — where
 // the TTS five DO construct, and construct last — the 65th
 // (VOICE_CHAT_TTS_VOICES_UPDATE) was dropped and its event never fired.
-// Count as of the 2026-10-26 live dump: 77.
-constexpr int MAX_RESERVED = 96;
+// Count as of the 2026-10-26 live dump: 77. Raised to 128 on 2026-11-01:
+// 90 unique `AutoReserve` names + 2 `EngineName`s (which take entries here
+// too) + the four SPELL_ACTIVATION_OVERLAY_* events filled the old 96.
+constexpr int MAX_RESERVED = 128;
 struct Reservation {
     const char *name;
     int slot;  // -1 until claimed

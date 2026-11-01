@@ -7294,6 +7294,34 @@ enum Offsets {
     // firing LEARNED_SPELL_IN_TAB. Read by `Spell::Learn`.
     VAR_PLAYER_SPELLBOOK_COUNT = 0x00B7116C,
 
+    // The reactive-spell list: 8-byte entries `{spellID, usable}`, one per
+    // NAME among the learned spells whose record has AttributesEx4 bit 0x200
+    // (Overpower, Revenge, Execute, Riposte, Counterattack, Mongoose Bite,
+    // Hammer of Wrath on stock 1.12.1 — the bit is in 26 records of 7 names).
+    // `AddSpellToBook` appends `{id, 0}` for a new name and moves an existing
+    // entry to a strictly higher rank (`SStrCmp` of the locale name);
+    // unlearning removes nothing, and the book reset `0x004B23A0` frees the
+    // list on active-player arrival. `FUN_FIRE_USABLE_EVENTS` is the only
+    // other reader: it retests each entry with FUN_SPELL_IS_USABLE, stores
+    // the answer at +4 (`0x004B3231`), raises COMBAT_TEXT_UPDATE SPELL_ACTIVE
+    // for each 0→1, then signals SPELL_UPDATE_USABLE (disassembled; benilla-re
+    // ui/reactivespells). Read by `Spell::ActivationOverlay`.
+    VAR_REACTIVE_SPELL_COUNT = 0x00B7114C,
+    VAR_REACTIVE_SPELL_ENTRIES = 0x00B71150, // pointer to the entry array
+    REACTIVE_SPELL_ENTRY_STRIDE = 8,
+    OFF_REACTIVE_SPELL_ENTRY_USABLE = 4,     // u32, the last answer (0/1)
+    // `FireUsableEvents` — `void __cdecl()`. Runs the action bar's usable
+    // refresh (`FUN_ACTION_UPDATE_USABLE`), retests the reactive list, then
+    // `mov ecx, 0x107; call FUN_FIRE_EVENT_NO_ARGS` at 0x004B3241 — so an
+    // `Event::SignalHook` subscriber seeing EVENT_SPELL_UPDATE_USABLE reads
+    // the list already updated. Called from target select / release, player
+    // control, combo points, shapeshift, the player's flags / bytes1 /
+    // health / power / aura-state field watchers and the cooldown starters
+    // (twelve functions) — the same triggers 4.3.4 pairs with
+    // `CGSpellActivationOverlay::UpdateUsable`.
+    FUN_FIRE_USABLE_EVENTS = 0x004B31C0,
+    EVENT_SPELL_UPDATE_USABLE = 0x107,
+
     // The player's pet GUID as a u64 (lo @ +0, hi @ +4). Verified three
     // ways: `Script_HasPetUI` (0x004BE670) resolves it with TYPEMASK_UNIT
     // through FUN_OBJECT_RESOLVE_BY_GUID, FUN_PET_ACTIONS_USABLE compares it

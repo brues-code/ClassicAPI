@@ -252,6 +252,8 @@ build instructions.
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`SELF_RES_SPELL_CHANGED` event](#self_res_spell_changed-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
+  - [`SPELL_ACTIVATION_OVERLAY_SHOW` / `SPELL_ACTIVATION_OVERLAY_HIDE` events](#spell_activation_overlay_show--spell_activation_overlay_hide-events)
+  - [`SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` / `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE` events](#spell_activation_overlay_glow_show--spell_activation_overlay_glow_hide-events)
   - [`UNIT_AREA_CHANGED` event](#unit_area_changed-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_CONNECTION` event](#unit_connection-event)
@@ -905,6 +907,10 @@ build instructions.
   - [`C_Spell.GetSpellLevelInfo(spellID)`](#c_spellgetspelllevelinfospellid)
   - [`GetSpellRequiredTargetLevel(spellID)`](#getspellrequiredtargetlevelspellid)
   - [Cast settings (`autoStand`, `autoDismount`, `autoUnshift`)](#cast-settings-autostand-autodismount-autounshift)
+
+- [SpellActivationOverlay](#spellactivationoverlay)
+  - [`C_SpellActivationOverlay.IsSpellOverlayed(spellID)` / `IsSpellOverlayed(spellID)`](#c_spellactivationoverlayisspelloverlayedspellid--isspelloverlayedspellid)
+  - [`Enum.ScreenLocationType`](#enumscreenlocationtype)
 
 - [SpellBook](#spellbook)
   - [`FindSpellBookSlotByID(spellID)`](#findspellbookslotbyidspellid)
@@ -5981,6 +5987,57 @@ click would otherwise raise an event.
 
 The event arrives on the frame after the sound ends, which is when the
 client releases it.
+
+### `SPELL_ACTIVATION_OVERLAY_SHOW` / `SPELL_ACTIVATION_OVERLAY_HIDE` events
+
+Fire when a spell alert starts or ends. See the
+[SpellActivationOverlay](#spellactivationoverlay) section for the spells
+that have alerts.
+
+| Event | Args | When |
+|---|---|---|
+| `SPELL_ACTIVATION_OVERLAY_SHOW` | `spellID`, `texture`, `locationType`, `scale`, `r`, `g`, `b` | A proc aura landed on the player. `spellID` is the aura. |
+| `SPELL_ACTIVATION_OVERLAY_HIDE` | `spellID` (or nil) | The aura left the player. If `spellID` is nil, every alert ends. |
+
+- `texture` is a texture path that names the art of the alert. An addon
+  that draws the alert supplies a texture file for each path.
+- `locationType` is an [`Enum.ScreenLocationType`](#enumscreenlocationtype)
+  value.
+- `scale` is a size multiplier, and `r`, `g` and `b` are a tint from 0
+  to 255.
+
+When the player enters the world (login, `/reload` or a zone change),
+`SPELL_ACTIVATION_OVERLAY_HIDE` fires with nil. Then
+`SPELL_ACTIVATION_OVERLAY_SHOW` fires again for each alert that continues.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("SPELL_ACTIVATION_OVERLAY_SHOW")
+f:RegisterEvent("SPELL_ACTIVATION_OVERLAY_HIDE")
+f:SetScript("OnEvent", function()
+    if event == "SPELL_ACTIVATION_OVERLAY_SHOW" then
+        MyAlert_Show(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+    elseif arg1 then
+        MyAlert_Hide(arg1)
+    else
+        MyAlert_HideAll()
+    end
+end)
+```
+
+### `SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` / `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE` events
+
+Fire when the glow of a spell starts or ends.
+
+| Event | Args | When |
+|---|---|---|
+| `SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` | `spellID` | The glow of the spell started. |
+| `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE` | `spellID` | The glow of the spell ended. |
+
+Each event names one spell ID. A spell with ranks fires one event for each
+rank in the spellbook. When the event fires,
+[`IsSpellOverlayed`](#c_spellactivationoverlayisspelloverlayedspellid--isspelloverlayedspellid)
+already gives the new answer.
 
 ### `UNIT_AREA_CHANGED` event
 
@@ -21061,6 +21118,64 @@ still fails, and you stay in your form.
 ```
 /console autoDismount 1
 ```
+
+## SpellActivationOverlay
+
+Spell alerts. The client tells a UI when to show an alert around the
+center of the screen, and when an action button glows. This system gives
+the events and one query function. It draws nothing. An addon draws the
+alerts and the glows.
+
+Two kinds of change start an alert or a glow:
+
+- **A spell becomes usable after a combat event.** These are the spells
+  that also fire `COMBAT_TEXT_UPDATE` with `SPELL_ACTIVE`: for example,
+  Overpower, Revenge, Execute, Riposte, Counterattack, Mongoose Bite and
+  Hammer of Wrath. While the spell is usable, it glows. These spells have
+  no alert.
+- **A proc aura lands on the player.** Shadow Trance shows an alert, and
+  Shadow Bolt glows. Clearcasting from Omen of Clarity shows an alert only.
+
+The events are
+[`SPELL_ACTIVATION_OVERLAY_SHOW` / `SPELL_ACTIVATION_OVERLAY_HIDE`](#spell_activation_overlay_show--spell_activation_overlay_hide-events)
+for alerts and
+[`SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` / `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE`](#spell_activation_overlay_glow_show--spell_activation_overlay_glow_hide-events)
+for glows.
+
+### `C_SpellActivationOverlay.IsSpellOverlayed(spellID)` / `IsSpellOverlayed(spellID)`
+
+Returns `true` while the spell glows, and `false` at other times. The two
+names are the same function.
+
+```lua
+local actionType, id = GetActionInfo(slot)
+if actionType == "spell" and C_SpellActivationOverlay.IsSpellOverlayed(id) then
+    MyGlow_Show(button)
+end
+```
+
+Each rank of a spell has its own spell ID, and every rank in the spellbook
+glows. A glow continues through a `/reload`, and its
+`SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` does not fire again. Thus, call this
+function each time that you draw a button.
+
+### `Enum.ScreenLocationType`
+
+The positions of an alert, as `SPELL_ACTIVATION_OVERLAY_SHOW` gives them in
+`locationType`.
+
+| Field | Value | Field | Value |
+|---|---|---|---|
+| `Center` | 0 | `TopRight` | 6 |
+| `Left` | 1 | `LeftOutside` | 7 |
+| `Right` | 2 | `RightOutside` | 8 |
+| `Top` | 3 | `LeftRight` | 9 |
+| `Bottom` | 4 | `TopBottom` | 10 |
+| `TopLeft` | 5 | `LeftRightOutside` | 11 |
+
+`LeftRight`, `TopBottom` and `LeftRightOutside` are pairs: the art shows on
+both sides. The art on the `Right`, `RightOutside` and `Bottom` sides is a
+mirror image.
 
 ## SpellBook
 
