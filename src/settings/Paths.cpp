@@ -52,6 +52,11 @@ std::string AccountName() {
     return Usable(account) ? std::string(account) : std::string();
 }
 
+std::string RealmName() {
+    const char *realm = ReadRealmName();
+    return Usable(realm) ? std::string(realm) : std::string();
+}
+
 std::string AccountFile(const char *leaf) {
     const char *account = ReadAccountName();
     if (!Usable(account))

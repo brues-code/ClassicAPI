@@ -30,16 +30,19 @@ namespace Player::Info {
 // name query of its own.
 //
 // `outRealm` (optional) receives the player's realm when the engine's name
-// cache record carries one, and is left untouched otherwise -- initialize it.
-// It points into that record, so read it before the next engine call.
+// cache record or the persistent entry carries one, and may be left untouched
+// otherwise -- initialize it. It points into that record or entry, so read it
+// before the next engine call.
 bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize,
                   const char **outRealm = nullptr);
 
-// Resolve a player's character name to their GUID, or 0. Chain: the engine's
-// by-name search (party and raid members, including out-of-range ones, then
-// visible players; whole name, case-insensitive) -> friends list -> the
-// engine's name cache (anyone named this session) -> persistent NameCache. Players only, never creatures. Passive -- never
-// triggers a name query.
+// Resolve a player's name to their GUID, or 0. `name` is "Name", or
+// "Name-Realm" for a player from another realm (`Player::FullName`; whole
+// name, case-insensitive). Chain: the engine's by-name search (party and raid
+// members, including out-of-range ones, then visible players) -> friends list
+// -> the engine's name cache (anyone named this session) -> persistent
+// NameCache; a "Name-Realm" skips the first two, which keep no realm. Players
+// only, never creatures. Passive -- never triggers a name query.
 uint64_t GuidFromName(const char *name);
 
 } // namespace Player::Info

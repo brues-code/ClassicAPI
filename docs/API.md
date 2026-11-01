@@ -17835,16 +17835,19 @@ Storage:
 - `WTF\Account\<account>\ClassicAPI.txt` — account-level settings
   (`PersistentNameCacheEnabled`). The opt-in toggle stays
   per-account.
-- `WTF\ClassicAPI\<realmList>\<realm>\ClassicAPI_NameCache.txt` —
-  per-realm cache, **shared across every account on the same
-  server**. Keyed by the realmlist address (unambiguous server
-  identity, can't collide across unrelated private servers) plus the
-  realm name — so alts on different accounts pool into one file
-  rather than each rebuilding their own. Tab-separated text,
-  ~30 bytes/entry, hand-editable. On first load with no shared file
-  yet, a pre-existing per-account cache
-  (`WTF\Account\<account>\<realm>\ClassicAPI_NameCache.txt`) is
-  migrated in automatically.
+- `WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt` — one cache
+  file for each realm, **shared across every account on the same
+  server**. The file name has the realm name and the realmlist
+  address, so two private servers with the same realm name do not
+  share a file. Alts on different accounts use the same file. Each
+  line is one player: the GUID, the name, the realm, the class, the
+  race, and the sex, with tabs between them. The realm is empty for a
+  player on your realm. You can edit the file by hand. If you used
+  the cache before, the old file
+  (`WTF\ClassicAPI\<realmList>\<realm>\ClassicAPI_NameCache.txt`) is
+  copied into the new file the first time you log in to that realm.
+  The old file and its empty folders are deleted after the new file
+  is saved.
 
 ### `GetPlayerInfoByGUID(guid)`
 
@@ -17888,8 +17891,7 @@ explicitly and fire a load-result event.
 has been opted into, a per-realm on-disk cache extends coverage
 across sessions. If the engine cache does not have the player,
 `GetPlayerInfoByGUID` uses the persistent cache. It returns `name`,
-`class`, `race`, and `sex` from storage. The persistent cache does
-not store the realm, so `realm` is `""`.
+`realm`, `class`, `race`, and `sex` from storage.
 Returns `nil` only when both the engine and persistent caches miss.
 
 **Implementation**: calls the engine's get-or-fetch primitive at
@@ -17926,8 +17928,8 @@ local name, realm = UnitNameFromGUID("0x0000000000000777")
 
 `realm` is the realm that the server sends with the player's name.
 It is `""` when the server sends no realm, and when the name comes
-from your friends list or from the persistent cache. It is never
-`nil`, so you can test `realm == ""`.
+from your friends list. It is never `nil`, so you can test
+`realm == ""`.
 
 Doesn't trigger a network query on miss. To populate an unknown
 GUID, either let the engine receive a `SMSG_NAME_QUERY_RESPONSE`
@@ -17965,8 +17967,12 @@ The function looks for the name in this order:
 Steps 1–4 work when the persistent NameCache is off.
 
 The name must be the full name. Case does not matter (`"gedwyr"`
-finds `"Gedwyr"`). The `name` return is the name as the server stores
-it, not the text you passed in.
+finds `"Gedwyr"`). A name without a realm finds a player on your
+realm. For a player from a different realm, pass `"Name-Realm"`, the
+form that chat events give for the sender. Spaces in the realm name
+do not matter. For a `"Name-Realm"` name, the function uses only
+steps 4 and 5. The `name` return is the name as the server stores
+it, without the realm, not the text you passed in.
 
 The function only finds players, never NPCs. It does not send a query
 to the server.
@@ -17998,8 +18004,11 @@ enabled or the required args are malformed.
 
 - `guid` — `"0xHHHHHHHHLLLLLLLL"` string (same format `UnitGUID`
   returns). 8-hex `"0xLLLLLLLL"` is also accepted (hi-dword zero).
-- `name` — 1–12 ASCII chars (the character-name range). Tabs,
-  newlines, and high bytes are stripped.
+- `name` — the name of a player on your realm, or `"Name-Realm"` for
+  a player from a different realm. Names in any language work, for
+  example Chinese. The cache keeps at most 47 bytes of a name (15
+  Chinese characters) and never cuts a character in two. Tabs and
+  line breaks are removed.
 - `classToken` — uppercase token like `"WARRIOR"`, `"MAGE"`. Looked
   up against `ChrClasses.dbc` filename field, case-insensitive.
   Passing an unknown token keeps the entry's prior class (so a
@@ -18036,8 +18045,8 @@ name without erasing class.
 The "deleted character recreated with same name, different class"
 collision case that name-keyed caches suffer from doesn't apply
 here: GUIDs are permanent for the life of a character, so
-the new character has a different GUID and gets a different cache
-entry.
+the new character has a different GUID and replaces the old
+character's entry.
 
 ### `C_PlayerCache.SetEnabled(enabled)`
 
@@ -18050,7 +18059,7 @@ client restarts.
 When enabled:
 
 - Every `SMSG_NAME_QUERY_RESPONSE` the engine processes is also
-  written to `WTF\Account\<account>\<realm>\ClassicAPI_NameCache.txt`.
+  written to `WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt`.
 - Lua-side `C_PlayerCache.RememberPlayer` calls become effective
   (they're no-ops when the cache is disabled).
 - `GetPlayerInfoByGUID` gains the cross-session fallback path

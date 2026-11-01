@@ -34,6 +34,7 @@
 // chat won't be in the cache; once they whisper you (or you target
 // them, or they appear in guild login spam), they will be.
 
+#include "FullName.h"
 #include "Game.h"
 #include "Info.h"
 #include "NameCache.h"
@@ -76,8 +77,7 @@ bool ParseGUID(const char *str, uint32_t &outHi, uint32_t &outLo) {
 // Pushes `(localizedClass, englishClass, localizedRace, englishRace, sex,
 // name, realm)` for a player GUID and returns 7, or pushes nothing and
 // returns 0 if nothing knows that GUID. Engine name cache first, then the
-// persistent NameCache (when enabled) — whose realm is always "", since it
-// doesn't store one.
+// persistent NameCache (when enabled).
 int PushPlayerInfo(void *L, uint64_t guid) {
     if (guid == 0)
         return 0;
@@ -100,15 +100,14 @@ int PushPlayerInfo(void *L, uint64_t guid) {
         classID = *reinterpret_cast<const uint32_t *>(
             entry + Offsets::OFF_PLAYER_INFO_CLASS);
     } else {
-        const std::string *cachedName = nullptr;
-        const NameCache::Entry *cached = NameCache::Lookup(guid, &cachedName);
-        if (cached == nullptr || cachedName == nullptr || cachedName->empty())
+        const NameCache::Entry *cached = NameCache::Lookup(guid);
+        if (cached == nullptr || cached->name.empty())
             return 0;
-        name = cachedName->c_str();
+        name = cached->name.c_str();
+        realm = cached->realm.c_str();
         classID = cached->classID;
         race = cached->raceID;
         sex = cached->sex;
-        realm = "";
     }
 
     const char *englishClass = DBC::ClassToken(classID);
@@ -163,10 +162,11 @@ int __fastcall Script_GetPlayerInfoByGUID(void *L) {
 //      back to the persistent NameCache (when enabled).
 //
 // `realm` is the server name the name cache record carries — the
-// field SMSG_NAME_QUERY_RESPONSE fills for a cross-realm player. It's
-// `""` when the record has none or the name came from the friends
-// list / persistent cache. Retail documents both returns as non-nil
-// strings, so the empty case pushes `""` rather than nil.
+// field SMSG_NAME_QUERY_RESPONSE fills for a cross-realm player, which
+// the persistent cache keeps too. It's `""` when the record has none
+// or the name came from the friends list. Retail documents both
+// returns as non-nil strings, so the empty case pushes `""` rather
+// than nil.
 //
 // Returns nothing on:
 //   - Missing or non-string arg (raises an error rather than return).
@@ -236,7 +236,8 @@ int __fastcall Script_C_PlayerCache_GetPlayerInfoByName(void *L) {
 //      or not.
 //   4. Persistent NameCache (when enabled) — players seen in earlier sessions.
 // The realm comes from the engine's name cache record, through the getter's
-// own out-param in step 1, as vanilla's UnitName reads it.
+// own out-param in step 1, as vanilla's UnitName reads it, or from the
+// persistent entry in step 4.
 bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize, const char **outRealm) {
     if (guid == 0 || buf == nullptr || bufSize == 0)
         return false;
@@ -261,15 +262,43 @@ bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize, const char **outReal
         }
     }
 
-    const std::string *cachedName = nullptr;
-    const NameCache::Entry *cached = NameCache::Lookup(guid, &cachedName);
-    if (cached != nullptr && cachedName != nullptr && !cachedName->empty())
-        return CopyName(buf, cachedName->c_str(), bufSize);
+    const NameCache::Entry *cached = NameCache::Lookup(guid);
+    if (cached != nullptr && !cached->name.empty()) {
+        if (outRealm != nullptr)
+            *outRealm = cached->realm.c_str();
+        return CopyName(buf, cached->name.c_str(), bufSize);
+    }
 
     return false;
 }
 
-// Resolution order, most live first:
+// The GUID of the player the engine's name cache knows by `fullName`
+// (`Player::FullName` form), or 0. Walks every loaded record, so it resolves
+// anyone the engine has named this session whether or not they're in range.
+// Passive — never fires a query. First match wins.
+static uint64_t GuidForCachedName(const std::string &fullName) {
+    struct Search {
+        const std::string *fullName;
+        uint64_t guid;
+    } search{&fullName, 0};
+    Unit::Identity::ForEachCachedPlayer(
+        [](uint64_t guid, const uint8_t *rec, void *context) {
+            auto *s = static_cast<Search *>(context);
+            const std::string cached =
+                FullName::Make(Game::Ptr<const char>(rec, Offsets::OFF_PLAYER_INFO_NAME),
+                               Game::Ptr<const char>(rec, Offsets::OFF_PLAYER_INFO_REALM));
+            if (cached.empty() || Game::StrCmpI(cached.c_str(), s->fullName->c_str()) != 0)
+                return true;
+            s->guid = guid;
+            return false;
+        },
+        &search);
+    return search.guid;
+}
+
+// Resolution order, most live first. `name` is "Name", or "Name-Realm" for a
+// player from another realm (`Player::FullName`); only the two caches keep a
+// player's realm, so such a name skips steps 1 and 2.
 //   1. The engine's by-name search (`Unit::Identity::FindGuidByName`,
 //      players only, whole-name match) — party and raid members, including
 //      out-of-range ones, then every visible player.
@@ -278,18 +307,19 @@ bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize, const char **outReal
 //      senders, group, guild, seen units), in range or not.
 //   4. Persistent NameCache (when enabled) — players seen in earlier sessions.
 uint64_t GuidFromName(const char *name) {
-    if (name == nullptr || *name == '\0')
+    const std::string fullName = FullName::Parse(name);
+    if (fullName.empty())
         return 0;
-    if (const uint64_t guid = Unit::Identity::FindGuidByName(
-            name, Offsets::TYPEMASK_PLAYER, /*exact*/ true))
+    if (fullName.find('-') == std::string::npos) {
+        if (const uint64_t guid = Unit::Identity::FindGuidByName(
+                fullName.c_str(), Offsets::TYPEMASK_PLAYER, /*exact*/ true))
+            return guid;
+        if (const uint64_t guid = FriendList::GuidForName(fullName.c_str()))
+            return guid;
+    }
+    if (const uint64_t guid = GuidForCachedName(fullName))
         return guid;
-    if (const uint64_t guid = FriendList::GuidForName(name))
-        return guid;
-    if (const uint64_t guid = Unit::Identity::GuidForCachedName(name))
-        return guid;
-    if (const NameCache::Entry *e = NameCache::LookupByName(name))
-        return e->guid;
-    return 0;
+    return NameCache::GuidForName(fullName);
 }
 
 static void RegisterLuaFunctions() {

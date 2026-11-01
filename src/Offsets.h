@@ -6092,6 +6092,12 @@ enum Offsets {
     OFF_PLAYER_INFO_RACE = 0x138,   // u32 (race ID 1..8)
     OFF_PLAYER_INFO_SEX = 0x13C,    // u32 (0=male, 1=female on wire)
     OFF_PLAYER_INFO_CLASS = 0x140,  // u32 (class ID 1..11)
+    // Capacities of the two inline strings, NUL included: the store copies
+    // them with SStrCopy(dst, src, 0x30) and SStrCopy(dst, src, 0x100)
+    // (0x0055F3B9, 0x0055F3D4). Names are UTF-8, so a Chinese character
+    // takes 3 of the 48 bytes.
+    PLAYER_INFO_NAME_SIZE = 0x30,
+    PLAYER_INFO_REALM_SIZE = 0x100,
 
     // Visible-object iterator. Walks the engine's linked list of
     // currently-in-range CGObjects (the same list the minimap blip

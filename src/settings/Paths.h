@@ -34,6 +34,9 @@ namespace Settings::Paths {
 // The logged-in account name, upper-cased by the engine. Empty before login.
 std::string AccountName();
 
+// The name of the realm the session is on. Empty before one is chosen.
+std::string RealmName();
+
 // `WTF\Account\<account>\<leaf>` — for data shared by every character on the
 // account. Empty until the account is known.
 std::string AccountFile(const char *leaf);

@@ -221,26 +221,6 @@ void ForEachCachedPlayer(CachedPlayerVisitor visit, void *context) {
     }
 }
 
-uint64_t GuidForCachedName(const char *name) {
-    if (name == nullptr || *name == '\0')
-        return 0;
-    struct Search {
-        const char *name;
-        uint64_t guid;
-    } search{name, 0};
-    ForEachCachedPlayer(
-        [](uint64_t guid, const uint8_t *rec, void *context) {
-            auto *s = static_cast<Search *>(context);
-            const char *cached = Game::Ptr<const char>(rec, Offsets::OFF_PLAYER_INFO_NAME);
-            if (*cached == '\0' || Game::StrCmpI(cached, s->name) != 0)
-                return true;
-            s->guid = guid;
-            return false;
-        },
-        &search);
-    return search.guid;
-}
-
 // `UnitGUID(unit)` — returns the unit's 64-bit GUID formatted as a
 // hex string `"0xHHHHHHHHLLLLLLLL"` (16 hex digits, hi dword first).
 //

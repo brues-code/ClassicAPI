@@ -141,13 +141,6 @@ const char *NameForGuid(uint64_t guid);
 // passive peek: a player whose name isn't cached yet gets a name query.
 const char *NameForUnit(const void *unit, const char **outRealm = nullptr);
 
-// The GUID of the player the NameCache knows as `name` (whole name, case-
-// insensitive — the engine's own ignore-by-name compare), or 0. Walks every
-// loaded record, so it resolves anyone the engine has named this session
-// (chat senders, group, guild, seen units) whether or not they're in range.
-// Passive — never fires a query. First match wins.
-uint64_t GuidForCachedName(const char *name);
-
 // Calls `visit(guid, record, context)` for every loaded NameCache record
 // (`record` as PlayerInfoRecord returns it; nodes whose query is still pending
 // are skipped). Stops early when `visit` returns false. Passive — never fires
