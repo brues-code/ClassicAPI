@@ -334,6 +334,7 @@ when launching with `-console`), not as Lua functions. See the
 | `SPELL_ACTIVATION_OVERLAY_HIDE` | `spellID` (`nil` hides every alert) |
 | `SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` | `spellID` ([details](docs/API.md#spell_activation_overlay_glow_show--spell_activation_overlay_glow_hide-events)) |
 | `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE` | `spellID` |
+| `UI_SCALE_CHANGED` | *(none)* |
 | `UNIT_AREA_CHANGED` | `unitTarget` |
 | `UNIT_AURA_DELTA` | `unitTarget, updateInfo` (the instance IDs of the auras added, updated, and removed) |
 | `UNIT_CONNECTION` | `unitTarget, isConnected` |

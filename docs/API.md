@@ -262,6 +262,7 @@ build instructions.
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`SPELL_ACTIVATION_OVERLAY_SHOW` / `SPELL_ACTIVATION_OVERLAY_HIDE` events](#spell_activation_overlay_show--spell_activation_overlay_hide-events)
   - [`SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` / `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE` events](#spell_activation_overlay_glow_show--spell_activation_overlay_glow_hide-events)
+  - [`UI_SCALE_CHANGED` event](#ui_scale_changed-event)
   - [`UNIT_AREA_CHANGED` event](#unit_area_changed-event)
   - [`UNIT_AURA_DELTA` event](#unit_aura_delta-event)
   - [`UNIT_CONNECTION` event](#unit_connection-event)
@@ -6184,6 +6185,29 @@ Each event names one spell ID. A spell with ranks fires one event for each
 rank in the spellbook. When the event fires,
 [`IsSpellOverlayed`](#c_spellactivationoverlayisspelloverlayedspellid--isspelloverlayedspellid)
 already gives the new answer.
+
+### `UI_SCALE_CHANGED` event
+
+Fires (with no payload) each time the game applies the interface scale to
+`UIParent`. This occurs when:
+
+- the `uiScale` setting changes while `useUiScale` is on,
+- the `useUiScale` setting changes, or
+- the size of the game window changes.
+
+When the event fires, `UIParent` already has the new scale. After a change of
+the window size, the event fires before `DISPLAY_SIZE_CHANGED`.
+
+The event also fires when the new scale is the same as the old scale. A call
+to `UIParent:SetScale()` from Lua does not fire it.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("UI_SCALE_CHANGED")
+f:SetScript("OnEvent", function()
+    print(UIParent:GetScale())
+end)
+```
 
 ### `UNIT_AREA_CHANGED` event
 

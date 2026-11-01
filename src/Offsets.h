@@ -698,6 +698,18 @@ enum Offsets {
     VAR_COORD_DDC_HEIGHT_SCALE = 0x00832A48,
     VAR_COORD_ASPECT_COMPENSATION = 0x00832A4C,
     UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
+    // `SetUiParentScale` — `void __stdcall(float scale)`, `ret 4`. The one
+    // setter of UIParent's scale: raises the value to 0.64, calls SetScale
+    // with force (0x0076AC10), drains the layout queue (0x00768ED0), and does
+    // nothing while VAR_UI_PARENT is null. Its six callers (Ghidra xrefs):
+    // the uiScale and useUiScale cvar callbacks (0x004907C7/0x004907D8,
+    // 0x0049084A/0x0049085D), OnDisplaySizeChanged (0x00492F0E) and the
+    // automatic scale ApplyAutoUiScale (0x0049301D).
+    FUN_SET_UI_PARENT_SCALE = 0x00494550,
+    // CSimpleFrame* UIParent — stored by the game UI's Initialize
+    // (0x00490077) and cleared by its Shutdown (0x00490CA4), so it is null on
+    // the glue screen. Read at 0x0049456A (SetUiParentScale) and 0x00494590.
+    VAR_UI_PARENT = 0x00B4B44C,
     // gxu text-raster dimensions — INT dwords holding the live render-target
     // size in PIXELS ({0,0,640,480} fallback), written by FUN_005c2b50 from
     // the render-target rect (FUN_0058a240) whenever it changes; every font
