@@ -1,0 +1,139 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\..\..\..\..\WoW\Data\Interface\AddOns\Blizzard_SharedXML\UI.xsd">
+	<Frame name="ScriptErrorsFrame" parent="UIParent" movable="true" hidden="true" toplevel="true" frameStrata="DIALOG" enableMouse="true">
+		<Size x="384" y="260"/>
+		<Anchors>
+			<Anchor point="CENTER"/>
+		</Anchors>
+		<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+			<BackgroundInsets>
+				<AbsInset left="11" right="12" top="12" bottom="11"/>
+			</BackgroundInsets>
+			<TileSize>
+				<AbsValue val="32"/>
+			</TileSize>
+			<EdgeSize>
+				<AbsValue val="32"/>
+			</EdgeSize>
+		</Backdrop>
+		<Layers>
+			<!-- ARTWORK, not BACKGROUND: the Backdrop above draws its
+			     background and border into BACKGROUND, and it is applied
+			     after the textures declared here, so a header in that layer
+			     ends up behind the window border. Every Blizzard frame that
+			     uses UI-DialogBox-Header puts it in ARTWORK for this reason. -->
+			<Layer level="ARTWORK">
+				<Texture name="$parentTitleBG" file="Interface\DialogFrame\UI-DialogBox-Header">
+					<Size x="256" y="64"/>
+					<Anchors>
+						<Anchor point="TOP">
+							<Offset x="0" y="12"/>
+						</Anchor>
+					</Anchors>
+				</Texture>
+				<FontString name="$parentTitle" inherits="GameFontNormal" text="LUA_ERROR">
+					<Anchors>
+						<Anchor point="TOP">
+							<Offset x="0" y="-2"/>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentIndexLabel" inherits="GameFontNormal" justifyH="CENTER">
+					<Size x="70" y="16"/>
+					<Anchors>
+						<Anchor point="BOTTOM">
+							<Offset x="0" y="20"/>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame name="$parentTitleButton">
+				<Size x="256" y="20"/>
+				<Anchors>
+					<Anchor point="TOP"/>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						this:RegisterForDrag("LeftButton");
+					</OnLoad>
+					<OnDragStart>ScriptErrorsFrame:StartMoving();</OnDragStart>
+					<OnDragStop>ScriptErrorsFrame:StopMovingOrSizing();</OnDragStop>
+				</Scripts>
+			</Frame>
+			<!-- The edit box and its scroll bar fill the interior inside the
+			     32px dialog border, 16 to 368, where the Close button ends:
+			     the bar is 25 wide and sits 4 to the right of the edit box.
+			     Retail's numbers do not carry over here: its ScriptErrorsFrame
+			     inherits UIPanelDialogTemplate, a thin GearManager border. -->
+			<Frame parentKey="ScrollingEditBox" inherits="ScrollingEditBoxTemplate">
+				<KeyValues>
+					<KeyValue key="fontName" value="GameFontHighlightSmall" type="string"/>
+				</KeyValues>
+				<Anchors>
+					<Anchor point="TOPLEFT" x="16" y="-32"/>
+					<Anchor point="BOTTOMRIGHT" x="-45" y="58"/>
+				</Anchors>
+			</Frame>
+			<EventFrame parentKey="ScrollBar" inherits="MinimalScrollBar">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeKey="$parent.ScrollingEditBox" relativePoint="TOPRIGHT" x="4" y="0"/>
+					<Anchor point="BOTTOMLEFT" relativeKey="$parent.ScrollingEditBox" relativePoint="BOTTOMRIGHT" x="4" y="0"/>
+				</Anchors>
+			</EventFrame>
+			<Button name="$parentReload" inherits="UIPanelButtonTemplate" text="RELOADUI">
+				<Size x="96" y="24"/>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset x="16" y="16"/>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>ReloadUI();</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="$parentPrevious">
+				<Size x="32" y="32"/>
+				<Anchors>
+					<Anchor point="RIGHT" relativeTo="$parentIndexLabel" relativePoint="LEFT"/>
+				</Anchors>
+				<Scripts>
+					<OnClick>ScriptErrorsFrame_ChangeDisplayedIndex(-1);</OnClick>
+				</Scripts>
+				<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Up"/>
+				<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Down"/>
+				<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Disabled"/>
+				<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+			</Button>
+			<Button name="$parentNext">
+				<Size x="32" y="32"/>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentIndexLabel" relativePoint="RIGHT"/>
+				</Anchors>
+				<Scripts>
+					<OnClick>ScriptErrorsFrame_ChangeDisplayedIndex(1);</OnClick>
+				</Scripts>
+				<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Up"/>
+				<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Down"/>
+				<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled"/>
+				<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+			</Button>
+			<Button name="$parentClose" inherits="UIPanelButtonTemplate" text="CLOSE">
+				<Size x="96" y="24"/>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset x="-16" y="16"/>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>ScriptErrorsFrame:Hide();</OnClick>
+				</Scripts>
+			</Button>
+		</Frames>
+		<Scripts>
+			<OnLoad>ScriptErrorsFrame_OnLoad(this);</OnLoad>
+			<OnShow>ScriptErrorsFrame_Update();</OnShow>
+		</Scripts>
+	</Frame>
+</Ui>

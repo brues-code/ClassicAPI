@@ -137,6 +137,8 @@ FrameXML\LayoutFrame.xml
 FrameXML\SharedUIPanelTemplates.xml
 FrameXML\ColorSwatch.lua
 FrameXML\ColorSwatch.xml
+FrameXML\ScriptErrorsFrame.lua
+FrameXML\ScriptErrorsFrame.xml
 
 Menu\MenuConstants.lua
 Menu\Classic\MenuConstants.lua

@@ -498,6 +498,23 @@ without a DLL rebuild. Without this file, the game uses the copy with the
 newer `## Version:`. The copy is hidden and always enabled, the same as
 the embedded addon.
 
+## Lua errors
+
+ClassicAPI replaces the game's Lua error box with a Lua error window. The
+window opens when an error occurs. It shows the message, the time, the count
+and the stack of each error. You can select and copy the text. The arrow
+buttons show the previous and the next error. The **Reload UI** button
+reloads the interface.
+
+If you use `!BugGrabber` (with BugSack), BugGrabber gets the errors and the
+window does not open. If an addon sets its own error handler, the window also
+does not open.
+
+| Command | Purpose |
+|---------|---------|
+| `/luaerrors` (or `/scripterrors`) | Opens or closes the Lua error window. |
+| `/luaerrors clear` | Removes all errors from the window. |
+
 ## Debug tools
 
 ClassicAPI contains a backport of Blizzard's `Blizzard_DebugTools` addon,
@@ -513,7 +530,6 @@ that you use one of these commands:
 | `/etrace` | Opens the event trace window. Other forms: `/etrace start`, `/etrace stop`, `/etrace add EVENT`, and more. |
 | `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. The tooltip also shows the addon that made the marked frame. When `scriptProfile` is `1`, it shows the CPU time of the frame scripts. |
 | `/tinspect [expr]` (or `/tins`) | Opens a table inspector on the result of `expr`. With no table, it opens on the frame under the cursor. The window shows the anchors and the fields of the table, grouped by type. You can edit numbers, strings and booleans, filter the lines, and open a child table or frame. |
-| `/luaerrors` (or `/scripterrors`) | Opens the Lua error window. |
 | `/profiler` (or `/prof`) | Opens the profiler. The profiler shows the Lua memory, the allocations and the CPU time of each addon, frame, event and global function. `/profiler widget` shows a small window with the Lua memory, the frame rate and the addons that use the most. `/profiler reset` sets the counters to zero. CPU times need `scriptProfile` `1`. `/profiler profile on` sets it and reloads the UI. |
 
 ## Building

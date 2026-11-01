@@ -1001,6 +1001,15 @@ end
 SLASH_STOPMACRO1 = "/stopmacro";
 
 -- ---------------------------------------------------------------------
+-- The Lua error window is always loaded (FrameXML\ScriptErrorsFrame).
+
+SlashCmdList["LUAERRORS"] = function(msg)
+	ScriptErrorsFrame_HandleSlashCmd(msg);
+end
+SLASH_LUAERRORS1 = "/luaerrors";
+SLASH_LUAERRORS2 = "/scripterrors";
+
+-- ---------------------------------------------------------------------
 -- Debug tools: load on demand, as retail's chat frame does with
 -- Blizzard_DebugTools. The commands live here; the tools load on first use.
 
@@ -1055,14 +1064,6 @@ SlashCmdList["TINSPECT"] = function(msg)
 end
 SLASH_TINSPECT1 = "/tinspect";
 SLASH_TINSPECT2 = "/tins";
-
-SlashCmdList["LUAERRORS"] = function(msg)
-	if ( LoadDebugTools() ) then
-		ScriptErrorsFrame_HandleSlashCmd(msg);
-	end
-end
-SLASH_LUAERRORS1 = "/luaerrors";
-SLASH_LUAERRORS2 = "/scripterrors";
 
 SlashCmdList["PROFILER"] = function(msg)
 	if ( LoadDebugTools() ) then
