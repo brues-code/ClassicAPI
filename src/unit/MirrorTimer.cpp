@@ -11,315 +11,194 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(label)` — modern
-// (3.0+) readers for the BREATH / FATIGUE / EXHAUSTION / FEIGNDEATH
-// timer state. Vanilla 1.12's engine fires `MIRROR_TIMER_START` /
-// `MIRROR_TIMER_PAUSE` / `MIRROR_TIMER_STOP` events with the full
-// packet payload, but doesn't cache anything internally — so we hook
-// the SMSG handler (`FUN_005E7990`) and build a 3-slot side cache.
+// `GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(timer)` — readers for
+// the EXHAUSTION (deep-water fatigue), BREATH and FEIGNDEATH bars.
 //
-// The hook peeks the packet via cursor save/restore on the CDataStore
-// (offset `+0x14`) before the original consumes the bytes. After
-// peeking, we restore the cursor and let the original handler run
-// normally, which fires the existing Lua events untouched.
+// 1.12's handler for the three mirror-timer SMSGs (`0x5E7990`) reads each
+// packet and signals MIRROR_TIMER_START / _PAUSE / _STOP, nothing more. The
+// state these functions read is what 3.3.5 added to that same handler
+// (`CGGameUI::OnMirrorTimerEvent` + `m_mirrorTimerInfo`), and this file keeps
+// its rules:
+//   - START (0x1D9) writes the slot of its type and stamps the time.
+//   - PAUSE (0x1DA) writes nothing. (Tortoise never sends it: the stock
+//     handler misreads its args, so the server resends START with the paused
+//     byte instead.)
+//   - STOP (0x1DB) resets the slot to inactive.
+//   - Leaving the world resets every slot. `CGPlayer_C::Release` (0x5E9AA0)
+//     runs `StopMirrorTimers` (0x5E9B90) for the active player — STOP for all
+//     three types, no packet — and then `LeaveWorldUI` (0x490A80), which
+//     fires PLAYER_LEAVING_WORLD. That event is the reset point.
 //
-// Timer types in vanilla 1.12 (per `FUN_005E7AE0`):
-//   0 → "EXHAUSTION"  (sliding outside playable bounds; map edges)
-//   1 → "BREATH"      (underwater drowning)
-//   2 → "FEIGNDEATH"  (Hunter Feign Death duration)
-//
-// Modern uses "FATIGUE" instead of "EXHAUSTION" for the same concept;
-// we preserve the engine's wording. Addons that hardcode "FATIGUE"
-// from backported code need to handle either.
+// The packet subscriber runs before the engine's handler, so a Lua handler of
+// a MIRROR_TIMER_* event already reads the new state.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "event/Custom.h"
+#include "event/SignalHook.h"
+#include "net/PacketDispatch.h"
+#include "net/PacketReader.h"
+#include "time/Clock.h"
 
 #include <cstdint>
-#include <cstring>
-#include <windows.h>
 
 namespace Unit::MirrorTimer {
 
 namespace {
 
-using DataStoreReadU32_t = void(__thiscall *)(void *self, uint32_t *out);
-using DataStoreReadU8_t = void(__thiscall *)(void *self, uint8_t *out);
-using TimerTypeName_t = const char *(__fastcall *)(int type);
-using TimerLabel_t = const char *(__fastcall *)(int type, int spellID);
+using TimerTypeName_t = const char *(__fastcall *)(uint32_t type);
+using TimerLabel_t = const char *(__fastcall *)(uint32_t type, uint32_t spellID);
 
-// Windows `GetTickCount` rather than the engine's `FUN_ENGINE_TICK_MS`
-// — the engine helper has two internal branches (`GetTickCount` vs a
-// high-res counter with a different epoch) selected by a runtime flag,
-// and the caller chain runs the result through `__ftol`, suggesting at
-// least one path returns via the FPU rather than EAX. Reading those
-// bytes as a plain `uint64_t` return picks up garbage. `GetTickCount`
-// is single-epoch (ms since boot), monotonic, and unambiguous.
-uint32_t NowMs() {
-    return ::GetTickCount();
+// 3.3.5's UNIT_MIRROR_TIMER_INACTIVE. The engine's name helper returns
+// "UNKNOWN" for it, which is what an empty slot reports.
+constexpr uint32_t kInactive = Offsets::MIRROR_TIMER_SLOT_COUNT;
+
+// "EXHAUSTION" / "BREATH" / "FEIGNDEATH", "UNKNOWN" for any other type.
+const char *TypeName(uint32_t type) {
+    return reinterpret_cast<TimerTypeName_t>(Offsets::FUN_MIRROR_TIMER_TYPE_NAME)(type);
 }
 
-const char *TypeName(int type) {
-    auto fn = reinterpret_cast<TimerTypeName_t>(Offsets::FUN_MIRROR_TIMER_TYPE_NAME);
-    return fn(type);
+// The spell's name when the spell exists, else the global <NAME>_LABEL ("" if
+// that is missing).
+const char *Label(uint32_t type, uint32_t spellID) {
+    return reinterpret_cast<TimerLabel_t>(Offsets::FUN_MIRROR_TIMER_LABEL)(type, spellID);
 }
 
-const char *LabelFor(int type, int spellID) {
-    auto fn = reinterpret_cast<TimerLabel_t>(Offsets::FUN_MIRROR_TIMER_LABEL);
-    return fn(type, spellID);
-}
-
-struct Slot {
-    bool active = false;
-    int type = 0;
-    int initialValue = 0;   // value as received in the START packet (ms)
-    int maxValue = 0;
-    int scale = 0;          // packet rate (positive = decreasing)
-    bool paused = false;
-    int spellID = 0;        // populated for FEIGNDEATH; 0 otherwise
-    uint32_t baseMs = 0;    // engine ms at which `initialValue` was true
+// 3.3.5's MirrorTimerInfo; the table is indexed by type.
+struct Timer {
+    uint32_t type = kInactive;
+    int32_t value = 0;     // ms, as of `startMs`
+    int32_t maxValue = 0;  // ms
+    int32_t scale = 0;     // ms of value per ms of time (-1 drains, 10 refills)
+    int32_t paused = 0;
+    uint32_t spellID = 0;
+    uint32_t startMs = 0;
 };
 
-Slot g_slots[Offsets::MIRROR_TIMER_SLOT_COUNT];
+Timer g_timers[Offsets::MIRROR_TIMER_SLOT_COUNT];
 
-// Compute the live current value given a slot's snapshot + a current
-// engine tick. Matches what the vanilla FrameXML breath/fatigue bars
-// do internally: linear interpolation `value = initial + elapsed *
-// scale`. Vanilla sends `scale = -1` for depleting timers (breath
-// drains 60000 → 0 over 60s = `+ 25000 * -1 = -25000` per 25s
-// real-time), so the sign in the formula is `+`, not `-`. Modern's
-// docs describe positive scale as depleting; that's a post-vanilla
-// convention flip — we follow the wire format the 1.12 server
-// actually sends. Returns the snapshot verbatim while paused.
-int LiveValue(const Slot &s, uint32_t now) {
-    if (!s.active)
-        return 0;
-    if (s.paused)
-        return s.initialValue;
-    const int elapsed = static_cast<int>(now - s.baseMs);
-    const int value = s.initialValue + elapsed * s.scale;
-    if (value < 0)
-        return 0;
-    if (s.maxValue > 0 && value > s.maxValue)
-        return s.maxValue;
-    return value;
+// 3.3.5's `value + scale * (now - start)`, except that a timer the server
+// started paused holds its value: 3.3.5 keeps extrapolating it. An inactive
+// slot (all zero) reads 0, as in 3.3.5.
+int32_t Progress(const Timer &t, uint32_t nowMs) {
+    if (t.paused != 0)
+        return t.value;
+    return t.value + t.scale * static_cast<int32_t>(Time::Clock::Elapsed(t.startMs, nowMs));
 }
 
-void OnStart(int type, int value, int maxValue, int scale,
-             bool paused, int spellID) {
-    if (type < 0 || type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
-        return;
-    Slot &s = g_slots[type];
-    s.active = true;
-    s.type = type;
-    s.initialValue = value;
-    s.maxValue = maxValue;
-    s.scale = scale;
-    s.paused = paused;
-    s.spellID = spellID;
-    s.baseMs = NowMs();
-}
-
-void OnPause(int type, bool paused) {
-    if (type < 0 || type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
-        return;
-    Slot &s = g_slots[type];
-    if (!s.active)
-        return;
-    if (paused) {
-        // Freeze: snapshot the live value as the new initial, and
-        // mark paused so `LiveValue` returns it verbatim.
-        s.initialValue = LiveValue(s, NowMs());
-        s.paused = true;
-    } else if (s.paused) {
-        // Unpause: reset the base tick so live interpolation
-        // resumes from the frozen value.
-        s.paused = false;
-        s.baseMs = NowMs();
+void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode == Offsets::SMSG_OPCODE_MIRROR_TIMER_START) {
+        Timer t;
+        t.type = Net::Read<uint32_t>(packet);
+        t.value = Net::Read<int32_t>(packet);
+        t.maxValue = Net::Read<int32_t>(packet);
+        t.scale = Net::Read<int32_t>(packet);
+        t.paused = Net::Read<uint8_t>(packet);
+        t.spellID = Net::Read<uint32_t>(packet);
+        if (packet->m_read > packet->m_size || t.type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
+            return;
+        t.startMs = Time::Clock::NowMs();
+        g_timers[t.type] = t;
+    } else if (opcode == Offsets::SMSG_OPCODE_MIRROR_TIMER_STOP) {
+        const uint32_t type = Net::Read<uint32_t>(packet);
+        if (packet->m_read > packet->m_size || type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
+            return;
+        g_timers[type] = Timer{};
     }
 }
 
-void OnStop(int type) {
-    if (type < 0 || type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
-        return;
-    g_slots[type] = Slot{};
-}
+const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
 
-// Peek the packet by reading the fields out of the data store, then
-// rewind the cursor so the original handler reads the same bytes.
-// `out`-only — caches into our slot table; returns whether the read
-// successfully observed the expected fields.
-void PeekStartPacket(void *dataStore) {
-    auto readU32 = reinterpret_cast<DataStoreReadU32_t>(
-        Offsets::FUN_DATASTORE_READ_U32);
-    auto readU8 = reinterpret_cast<DataStoreReadU8_t>(
-        Offsets::FUN_DATASTORE_READ_U8);
-    auto cursorPtr = reinterpret_cast<uint32_t *>(
-        static_cast<uint8_t *>(dataStore) + Offsets::OFF_DATASTORE_CURSOR);
-    const uint32_t saved = *cursorPtr;
+int g_leavingWorldId = -1;
 
-    uint32_t type = 0, value = 0, maxValue = 0, scale = 0, spellID = 0;
-    uint8_t paused = 0;
-    readU32(dataStore, &type);
-    readU32(dataStore, &value);
-    readU32(dataStore, &maxValue);
-    readU32(dataStore, &scale);
-    readU8(dataStore, &paused);
-    readU32(dataStore, &spellID);
-
-    *cursorPtr = saved;
-
-    OnStart(static_cast<int>(type), static_cast<int>(value),
-            static_cast<int>(maxValue), static_cast<int>(scale),
-            paused != 0, static_cast<int>(spellID));
-}
-
-void PeekPausePacket(void *dataStore) {
-    auto readU32 = reinterpret_cast<DataStoreReadU32_t>(
-        Offsets::FUN_DATASTORE_READ_U32);
-    auto readU8 = reinterpret_cast<DataStoreReadU8_t>(
-        Offsets::FUN_DATASTORE_READ_U8);
-    auto cursorPtr = reinterpret_cast<uint32_t *>(
-        static_cast<uint8_t *>(dataStore) + Offsets::OFF_DATASTORE_CURSOR);
-    const uint32_t saved = *cursorPtr;
-
-    uint32_t type = 0;
-    uint8_t paused = 0;
-    readU32(dataStore, &type);
-    readU8(dataStore, &paused);
-
-    *cursorPtr = saved;
-
-    OnPause(static_cast<int>(type), paused != 0);
-}
-
-void PeekStopPacket(void *dataStore) {
-    auto readU32 = reinterpret_cast<DataStoreReadU32_t>(
-        Offsets::FUN_DATASTORE_READ_U32);
-    auto cursorPtr = reinterpret_cast<uint32_t *>(
-        static_cast<uint8_t *>(dataStore) + Offsets::OFF_DATASTORE_CURSOR);
-    const uint32_t saved = *cursorPtr;
-
-    uint32_t type = 0;
-    readU32(dataStore, &type);
-
-    *cursorPtr = saved;
-
-    OnStop(static_cast<int>(type));
-}
-
-// Slot lookup by type-name string. Used by `GetMirrorTimerProgress`,
-// whose caller passes the engine's literal name (e.g. "BREATH").
-const Slot *FindSlotByName(const char *name) {
-    if (name == nullptr)
-        return nullptr;
-    for (int i = 0; i < Offsets::MIRROR_TIMER_SLOT_COUNT; ++i) {
-        const Slot &s = g_slots[i];
-        if (!s.active)
-            continue;
-        const char *engineName = TypeName(s.type);
-        if (engineName != nullptr && std::strcmp(engineName, name) == 0)
-            return &s;
+bool OnSignal(int eventID) {
+    if (g_leavingWorldId < 0)
+        g_leavingWorldId = Event::Custom::LookupByName("PLAYER_LEAVING_WORLD");
+    if (eventID == g_leavingWorldId) {
+        for (Timer &t : g_timers)
+            t = Timer{};
     }
-    return nullptr;
+    return false;
 }
 
-// `GetMirrorTimerInfo(index)` — returns `(timer, value, maxValue,
-// scale, paused, label)` for the timer in slot `index` (1..3), or
-// nothing if that slot is empty. Matches modern's 6-tuple shape.
-// `value` is the snapshot from the last server packet (not
-// live-interpolated) — modern documents the same "possibly outdated"
-// caveat. Use `GetMirrorTimerProgress(timer)` for the live value.
+const Event::SignalHook::AutoSubscribe _leavingWorld{&OnSignal};
+
+// Returns 3.3.5's six values plus retail's seventh (spellID). An empty slot
+// returns "UNKNOWN" and zeros, which retail's MirrorTimer.lua tests for on
+// PLAYER_ENTERING_WORLD. An index outside 1..3 returns nothing, as retail
+// documents (3.3.5 raised an error).
 int __fastcall Script_GetMirrorTimerInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetMirrorTimerInfo(index)");
         return 0;
     }
-    const int index1 = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    const int slotIdx = index1 - 1;
-    if (slotIdx < 0 || slotIdx >= Offsets::MIRROR_TIMER_SLOT_COUNT)
+    const int index = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
+    if (index < 0 || index >= Offsets::MIRROR_TIMER_SLOT_COUNT)
         return 0;
-    const Slot &s = g_slots[slotIdx];
-    if (!s.active)
-        return 0;
-
-    const char *name = TypeName(s.type);
-    const char *label = LabelFor(s.type, s.spellID);
-
-    Game::Lua::PushString(L, name != nullptr ? name : "");
-    Game::Lua::PushNumber(L, static_cast<double>(s.initialValue));
-    Game::Lua::PushNumber(L, static_cast<double>(s.maxValue));
-    Game::Lua::PushNumber(L, static_cast<double>(s.scale));
-    Game::Lua::PushBool(L, s.paused);
-    Game::Lua::PushString(L, label != nullptr ? label : "");
-    return 6;
+    const Timer &t = g_timers[index];
+    Game::Lua::PushString(L, TypeName(t.type));
+    Game::Lua::PushNumber(L, static_cast<double>(t.value));
+    Game::Lua::PushNumber(L, static_cast<double>(t.maxValue));
+    Game::Lua::PushNumber(L, static_cast<double>(t.scale));
+    Game::Lua::PushNumber(L, static_cast<double>(t.paused));
+    Game::Lua::PushString(L, Label(t.type, t.spellID));
+    Game::Lua::PushNumber(L, static_cast<double>(t.spellID));
+    return 7;
 }
 
-// `GetMirrorTimerProgress(label)` — returns the live current value of
-// the timer matching `label` (one of the engine's type-name strings:
-// "EXHAUSTION", "BREATH", "FEIGNDEATH"), in milliseconds. Returns 0
-// when no matching timer is currently active. Computed each call by
-// linearly interpolating from the last packet snapshot using the
-// engine's millisecond clock — same logic the stock FrameXML bars
-// run in their `OnUpdate` handlers.
+// Matches the name case-insensitively, as 3.3.5's MirrorTimerToIndex does. A
+// name that is not a timer type returns nil, as retail documents (3.3.5
+// raised an error).
 int __fastcall Script_GetMirrorTimerProgress(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: GetMirrorTimerProgress(\"timer\")");
         return 0;
     }
     const char *name = Game::Lua::ToString(L, 1);
-    const Slot *s = FindSlotByName(name);
-    if (s == nullptr) {
-        Game::Lua::PushNumber(L, 0);
-        return 1;
+    for (uint32_t type = 0; type < Offsets::MIRROR_TIMER_SLOT_COUNT; ++type) {
+        if (Game::StrCmpI(name, TypeName(type)) == 0) {
+            Game::Lua::PushNumber(L, static_cast<double>(
+                Progress(g_timers[type], Time::Clock::NowMs())));
+            return 1;
+        }
     }
-    Game::Lua::PushNumber(L, static_cast<double>(LiveValue(*s, NowMs())));
-    return 1;
+    return 0;
 }
 
+const Game::Doc::Field kInfoArgs[] = {
+    Game::Doc::Req("timerIndex", "luaIndex", "The timer slot, 1 to 3."),
+};
+const Game::Doc::Field kInfoRets[] = {
+    Game::Doc::Req("name", "string", "EXHAUSTION, BREATH or FEIGNDEATH, or UNKNOWN for an empty slot."),
+    Game::Doc::Req("startValue", "number", "The value in milliseconds when the timer started."),
+    Game::Doc::Req("maxValue", "number", "The full value in milliseconds."),
+    Game::Doc::Req("scale", "number", "The change in value per millisecond; negative drains."),
+    Game::Doc::Req("paused", "number", "1 when the timer is paused, else 0."),
+    Game::Doc::Req("label", "string", "The text the timer bar shows."),
+    Game::Doc::Req("spellID", "number", "The spell that started the timer, or 0."),
+};
+const Game::Doc::Function kGetMirrorTimerInfo{
+    "Returns the state of a mirror timer slot.", kInfoArgs, kInfoRets, "MirrorTimer"};
+
+const Game::Doc::Field kProgressArgs[] = {
+    Game::Doc::Req("timerName", "string", "EXHAUSTION, BREATH or FEIGNDEATH."),
+};
+const Game::Doc::Field kProgressRets[] = {
+    Game::Doc::Opt("progress", "number", nullptr,
+                   "The current value in milliseconds, or 0 when the timer is not running."),
+};
+const Game::Doc::Function kGetMirrorTimerProgress{
+    "Returns the current value of a mirror timer.", kProgressArgs, kProgressRets, "MirrorTimer"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetMirrorTimerInfo",
-                                       &Script_GetMirrorTimerInfo);
-    Game::Lua::RegisterGlobalFunction("GetMirrorTimerProgress",
-                                       &Script_GetMirrorTimerProgress);
+    Game::Lua::RegisterGlobalFunction("GetMirrorTimerInfo", &Script_GetMirrorTimerInfo,
+                                      &kGetMirrorTimerInfo);
+    Game::Lua::RegisterGlobalFunction("GetMirrorTimerProgress", &Script_GetMirrorTimerProgress,
+                                      &kGetMirrorTimerProgress);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
-
-// `FUN_005E7990` is a true `__fastcall` with 4 real args — `param_1` in
-// ECX, the opcode (`param_2`) in EDX, then `param_3` and `param_4` on the
-// stack. NOT a thiscall — there's no dummy EDX slot. Declaring it with
-// the thiscall shape (extra `void *edx` parameter) shifts every
-// subsequent arg by one slot, leaving `dataStore` reading garbage off the
-// end of the stack frame and crashing inside `FUN_00418E30`'s
-// vtable-fallback path when the cursor bounds check fails.
-using SMSGHandler_t = int(__fastcall *)(void *param_1, int opcode,
-                                         void *param_3, void *dataStore);
-SMSGHandler_t SMSGHandler_o = nullptr;
-
-int __fastcall SMSGHandler_h(void *param_1, int opcode,
-                              void *param_3, void *dataStore) {
-    if (dataStore != nullptr) {
-        switch (opcode) {
-            case Offsets::SMSG_OPCODE_MIRROR_TIMER_START:
-                PeekStartPacket(dataStore);
-                break;
-            case Offsets::SMSG_OPCODE_MIRROR_TIMER_PAUSE:
-                PeekPausePacket(dataStore);
-                break;
-            case Offsets::SMSG_OPCODE_MIRROR_TIMER_STOP:
-                PeekStopPacket(dataStore);
-                break;
-        }
-    }
-    return SMSGHandler_o(param_1, opcode, param_3, dataStore);
-}
-
-static const Game::HookAutoRegister _hookreg{
-    Offsets::FUN_SMSG_MIRROR_TIMER_HANDLER,
-    reinterpret_cast<void *>(&SMSGHandler_h),
-    reinterpret_cast<void **>(&SMSGHandler_o)};
 
 } // namespace Unit::MirrorTimer

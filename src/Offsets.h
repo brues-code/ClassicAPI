@@ -11575,14 +11575,6 @@ enum Offsets {
     FUN_GREETING_SELECT_AVAILABLE_QUEST = 0x005012A0,
     FUN_GREETING_SELECT_ACTIVE_QUEST = 0x00501320,
 
-    // CDataStore primitive readers — `__thiscall void(this, void *out)`.
-    // Read at the current cursor (`+0x14`) and advance it by the value
-    // size. We call these directly from `Unit::MirrorTimer` to peek
-    // packet contents before the SMSG handler consumes them, then
-    // restore the cursor so the original handler reads the same bytes.
-    FUN_DATASTORE_READ_U32 = 0x00418E30,
-    FUN_DATASTORE_READ_U8 = 0x00418CB0,
-    OFF_DATASTORE_CURSOR = 0x14,
     // CDataStore writers and the stack-packet shape the DBCache query send
     // builds (FUN_DBCACHE_ITEMSTATS_GET_RECORD, 0x0055BB18..0x0055BB89):
     // {vtable, buffer, base, alloc, size, read} with buffer/base/alloc/size 0
@@ -11623,28 +11615,24 @@ enum Offsets {
     // selection flag at `0x00884C80`.
     FUN_ENGINE_TICK_MS = 0x0042B750,
 
-    // Mirror timer (BREATH / FATIGUE-style) SMSG handler. Dispatches
-    // opcodes `0x1D9` (START), `0x1DA` (PAUSE), `0x1DB` (STOP) — but
-    // the vanilla engine doesn't cache any timer state, just reads
-    // the packet and immediately fires the corresponding
-    // MIRROR_TIMER_* Lua event. Our hook (`Unit::MirrorTimer`) peeks
-    // the packet via cursor save/restore on the CDataStore and
-    // builds a side cache that `GetMirrorTimerInfo` /
-    // `GetMirrorTimerProgress` can read back.
+    // Mirror timers (EXHAUSTION = deep-water fatigue, BREATH, FEIGNDEATH).
+    // The engine's handler for all three SMSGs is `0x005E7990`,
+    // `uint32_t __fastcall(param, opcode, time, CDataStore *)`; it only
+    // reads each packet and signals MIRROR_TIMER_START / _PAUSE / _STOP.
+    // START is `u32 type, i32 value, i32 max, i32 scale, u8 paused, u32
+    // spell`; STOP is `u32 type`. `Unit::MirrorTimer` reads both through
+    // `Net::PacketDispatch` (verified: Ghidra + benilla-re
+    // objectlayer/playermessages#mirror-timers).
     //
-    //   __fastcall void(?, int opcode, ?, void *dataStore)
-    //
-    // The helper at `FUN_MIRROR_TIMER_TYPE_NAME` returns the
-    // engine's static type-name string for IDs 0..2 (`"EXHAUSTION"`,
-    // `"BREATH"`, `"FEIGNDEATH"`); `FUN_MIRROR_TIMER_LABEL` builds
-    // the localized display label by looking up `{TYPE}_LABEL` in
-    // the engine's localized strings, or substituting the spell
-    // name when the type is FEIGNDEATH and a spellID is non-zero.
-    FUN_SMSG_MIRROR_TIMER_HANDLER = 0x005E7990,
+    // `FUN_MIRROR_TIMER_TYPE_NAME` is `const char *__fastcall(uint32_t
+    // type)`: "EXHAUSTION" / "BREATH" / "FEIGNDEATH" for 0..2, "UNKNOWN"
+    // otherwise. `FUN_MIRROR_TIMER_LABEL` is `const char *__fastcall(
+    // uint32_t type, uint32_t spell)`: the spell's localized name when the
+    // spell exists, else the global string `<NAME>_LABEL` (FrameScript_GetText,
+    // "" when missing).
     FUN_MIRROR_TIMER_TYPE_NAME = 0x005E7AE0,
     FUN_MIRROR_TIMER_LABEL = 0x005E7B10,
     SMSG_OPCODE_MIRROR_TIMER_START = 0x1D9,
-    SMSG_OPCODE_MIRROR_TIMER_PAUSE = 0x1DA,
     SMSG_OPCODE_MIRROR_TIMER_STOP = 0x1DB,
     MIRROR_TIMER_SLOT_COUNT = 3,
 

@@ -938,7 +938,7 @@ build instructions.
   - [`IsAssistingRitual()`](#isassistingritual)
   - [`IsInGroup()`](#isingroup)
   - [`IsInRaid()`](#isinraid)
-  - [`GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(label)`](#getmirrortimerinfoindex--getmirrortimerprogresslabel)
+  - [`GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(timer)`](#getmirrortimerinfoindex--getmirrortimerprogresstimer)
   - [`GetShapeshiftForm([requireForm])`](#getshapeshiftformrequireform)
   - [`GetShapeshiftFormID()`](#getshapeshiftformid)
   - [`CancelShapeshiftForm()`](#cancelshapeshiftform)
@@ -21624,58 +21624,62 @@ local channel = IsInRaid() and "RAID" or "PARTY"
 SendChatMessage("ready check", channel)
 ```
 
-### `GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(label)`
+### `GetMirrorTimerInfo(index)` / `GetMirrorTimerProgress(timer)`
 
-Readers for the BREATH (drowning) / EXHAUSTION
-(off-map) / FEIGNDEATH (hunter Feign Death) bar state. The
-engine fires the `MIRROR_TIMER_START` / `_PAUSE` / `_STOP` events
-with the full packet payload but doesn't cache anything internally;
-ClassicAPI hooks the SMSG handler at `0x005E7990` and builds a
-3-slot side cache so these accessors work.
+These functions read the state of the mirror timer bars: EXHAUSTION
+(fatigue in deep water), BREATH (under water), and FEIGNDEATH.
 
-`GetMirrorTimerInfo(index)` — `index` is 1, 2, or 3 (slot id). Returns
-`(timer, value, maxValue, scale, paused, label)` for an active slot,
-or nothing if that slot is empty:
+`GetMirrorTimerInfo(index)` returns the state of one timer slot.
+`index` is 1, 2, or 3. Slot 1 is EXHAUSTION, slot 2 is BREATH, and
+slot 3 is FEIGNDEATH. If `index` is a different number, the function
+returns nothing.
 
 | Return | Type | Meaning |
 |--------|------|---------|
-| `timer` | string | Engine type-name: `"EXHAUSTION"`, `"BREATH"`, or `"FEIGNDEATH"` |
-| `value` | number | The snapshot value from the last server packet (ms). Not live-interpolated — see `GetMirrorTimerProgress` for that |
-| `maxValue` | number | Timer's max (ms) |
-| `scale` | number | Server-set rate. **Negative** = depleting (the server sends `-1` for breath, draining 60000 ms over 60 s of real time); **positive** = filling |
-| `paused` | boolean | `true` if the engine has frozen the timer |
-| `label` | string | Localized display label, e.g. `"Breath"`. For FEIGNDEATH, the spell name |
+| `timer` | string | `"EXHAUSTION"`, `"BREATH"`, or `"FEIGNDEATH"`. `"UNKNOWN"` when the slot is empty |
+| `value` | number | The value in milliseconds when the timer started. It does not change while the timer runs |
+| `maxValue` | number | The full value in milliseconds |
+| `scale` | number | The change of the value for each millisecond. A negative scale drains the bar (`-1` under water). A positive scale fills it |
+| `paused` | number | `1` when the timer is paused, else `0` |
+| `label` | string | The text of the bar, for example `"Breath"`. When a spell started the timer, the name of that spell |
+| `spellID` | number | The spell that started the timer, or `0` |
 
-`GetMirrorTimerProgress(label)` — `label` is the engine type-name
-(`"BREATH"` etc.). Returns the **live interpolated** value in
-milliseconds, computed each call from the snapshot + elapsed
-real-time ticks. Returns `0` when no matching timer is active.
+An empty slot returns `"UNKNOWN"` and `0` for each number.
+
+`GetMirrorTimerProgress(timer)` returns the current value of a timer
+in milliseconds. `timer` is a timer name, in any letter case. The
+function calculates the value from `value`, `scale`, and the time
+since the timer started.
+
+- If the timer is not active, the function returns `0`.
+- If the timer is paused, the function returns `value`.
+- If `timer` is not a timer name, the function returns `nil`.
+- The result can go below `0` or above `maxValue` before the server
+  stops or changes the timer.
+
+Both functions already return the new state in a `MIRROR_TIMER_START`
+or `MIRROR_TIMER_STOP` handler. When the player leaves the world (a
+logout or a loading screen), all slots become empty.
 
 ```lua
 local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("MIRROR_TIMER_START")
 f:SetScript("OnEvent", function()
-    -- pull whichever slot the engine just populated
     for i = 1, 3 do
-        local timer, value, maxv, scale, paused, label = GetMirrorTimerInfo(i)
-        if timer then
-            DEFAULT_CHAT_FRAME:AddMessage(format("%s: %d / %d (%s)",
-                label, value, maxv, paused and "paused" or "running"))
+        local timer, value, maxValue, scale, paused, label = GetMirrorTimerInfo(i)
+        if timer ~= "UNKNOWN" then
+            print(format("%s: %d / %d ms (%s)", label, value, maxValue,
+                paused == 1 and "paused" or "active"))
         end
     end
 end)
 
--- Smooth bar updates: poll progress in OnUpdate
-local function OnUpdate(self)
-    self:SetValue(GetMirrorTimerProgress("BREATH"))
-end
+-- bar is a StatusBar with SetMinMaxValues(0, maxValue / 1000)
+bar:SetScript("OnUpdate", function()
+    bar:SetValue(GetMirrorTimerProgress("BREATH") / 1000)
+end)
 ```
-
-> **The off-map timer is `"EXHAUSTION"`, not `"FATIGUE"`.** The engine
-> type-name string for the off-map timer is `"EXHAUSTION"` —
-> we surface what the engine actually returns rather than translating
-> the name. Addons porting `"FATIGUE"`-keyed code need to
-> handle either string.
 
 ### `GetShapeshiftForm([requireForm])`
 
