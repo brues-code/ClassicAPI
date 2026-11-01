@@ -43,11 +43,13 @@
 // patched only when the counts match Ghidra's xref lists, so a different
 // binary is left alone. The token map itself is SuperWoW's patch site.
 //
-// All of a token's unit events come from here, none from Unit::TokenObserver:
-// SuperWoW sets a registration bit on every unit, so every unit's field
-// changes already reach the broadcast, and an observer of our own would fire
-// them a second time. Only `focustarget` (no unit has it in any token map)
-// stays on TokenObserver.
+// All of a token's engine unit events come from here, none from
+// Unit::TokenObserver: SuperWoW sets a registration bit on every unit, so
+// every unit's field changes already reach the broadcast, and an observer of
+// our own would fire them a second time. Only `focustarget` (no unit has it
+// in any token map) stays on TokenObserver. ClassicAPI's own unit events reach
+// the same tokens: Unit::Identity::TokensForGUID adds TokensOf's list to the
+// engine's.
 
 #include "TokenEvents.h"
 
@@ -80,43 +82,36 @@ using CombatFeedback_t = void(__fastcall *)(const uint64_t *guid, const char *ac
 
 // At most one focus, nameplate, mark, softenemy and softfriend per unit.
 constexpr int kMaxTokens = 5;
-using TokenList = char[kMaxTokens][24];
+using TokenList = char[kMaxTokens][32];
 
-// The ClassicAPI tokens `guid` has right now, in UnitTokenFromGUID's order.
-int TokensOf(uint64_t guid, TokenList &out) {
+// The ClassicAPI tokens `guid` has right now, in UnitTokenFromGUID's order,
+// at most `max` of them.
+int ListTokens(uint64_t guid, char (*out)[32], int max) {
     if (guid == 0)
         return 0;
     int n = 0;
-    for (int i = 1, count = NamePlate::Events::GetSlotCount(); i <= count; ++i)
+    for (int i = 1, count = NamePlate::Events::GetSlotCount(); n < max && i <= count; ++i)
         if (NamePlate::Events::GetGUIDByIndex(i) == guid) {
             std::snprintf(out[n++], sizeof out[0], "nameplate%d", i);
             break;
         }
-    if (guid == Unit::Focus::Get())
+    if (n < max && guid == Unit::Focus::Get())
         std::snprintf(out[n++], sizeof out[0], "focus");
-    for (int m = 1; m <= Unit::RaidTarget::kMarkCount; ++m)
+    for (int m = 1; n < max && m <= Unit::RaidTarget::kMarkCount; ++m)
         if (Unit::RaidTarget::GetGUIDByMark(m) == guid) {
             std::snprintf(out[n++], sizeof out[0], "mark%d", m);
             break;
         }
-    if (guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Enemy))
+    if (n < max && guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Enemy))
         std::snprintf(out[n++], sizeof out[0], "softenemy");
-    if (guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Friend))
+    if (n < max && guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Friend))
         std::snprintf(out[n++], sizeof out[0], "softfriend");
     return n;
 }
 
 bool HasTokens(uint64_t guid) {
     TokenList t;
-    return TokensOf(guid, t) > 0;
-}
-
-// The tokens to fire for, empty before the world is up (the token map
-// answers nothing before the player exists; neither does this).
-int FireTokensOf(uint64_t guid, TokenList &out) {
-    if (guid == 0 || Unit::Identity::PlayerObject() == nullptr)
-        return 0;
-    return TokensOf(guid, out);
+    return ListTokens(guid, t, kMaxTokens) > 0;
 }
 
 uint64_t UnitGuid(const void *unit) {
@@ -176,7 +171,7 @@ void __fastcall CombatFeedbackSite(const uint64_t *guid, const char *action, int
     reinterpret_cast<CombatFeedback_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_COMBAT_FEEDBACK))(
         guid, action, amount, school, hitInfo);
     TokenList tokens;
-    const int n = FireTokensOf(g, tokens);
+    const int n = TokensOf(g, tokens, kMaxTokens);
     if (n == 0)
         return;
     const char *modifier = CombatModifier(amount, hitInfo);
@@ -236,12 +231,20 @@ const Game::ModuleAutoRegister _autoreg{&Apply};
 
 } // namespace
 
+int TokensOf(uint64_t guid, char (*out)[32], int maxTokens) {
+    // The token map answers nothing before the player exists; neither does
+    // this.
+    if (Unit::Identity::PlayerObject() == nullptr)
+        return 0;
+    return ListTokens(guid, out, maxTokens);
+}
+
 void __fastcall Broadcast(const uint64_t *guid, uint32_t eventId) {
     const uint64_t g = (guid != nullptr) ? *guid : 0;
     reinterpret_cast<Broadcast_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_EVENT_BROADCAST))(
         guid, eventId);
     TokenList tokens;
-    const int n = FireTokensOf(g, tokens);
+    const int n = TokensOf(g, tokens, kMaxTokens);
     const auto fire = reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT));
     for (int i = 0; i < n; ++i)
         fire(static_cast<int>(eventId), "%s", tokens[i]);

@@ -22315,6 +22315,14 @@ locked target, and it never selects a target when you have none.
 
 A `target` suffix also works, for example `"softenemytarget"`.
 
+**Unit events.** Every unit event fires with `arg1 == "softenemy"` for the
+soft enemy, the same as it does for `"target"`. Every unit event fires with
+`arg1 == "softfriend"` for the soft friend in the same way. This includes
+`UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, and `UNIT_SPELLCAST_START`. A unit
+that is your target and your soft enemy fires each event two times: one time
+with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
+`"anyfriend"` fire no unit events.
+
 **Settings.**
 
 | cvar | default | values |

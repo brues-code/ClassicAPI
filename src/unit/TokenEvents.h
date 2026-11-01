@@ -24,6 +24,12 @@ namespace Unit::TokenEvents {
 // itself).
 void Refresh(uint64_t guid);
 
+// The ClassicAPI tokens `guid` has right now — nameplateN, focus, markN,
+// softenemy, softfriend, in that order — written into `out` (rows of 32
+// bytes), at most `maxTokens` of them. Returns the count: 0 for guid 0, and
+// before the world is up. These are the tokens the engine's unit events reach.
+int TokensOf(uint64_t guid, char (*out)[32], int maxTokens);
+
 // The engine's per-token unit-event broadcast, then the same event for each
 // ClassicAPI token `*guid` has. ClassicAPI code that re-fires a unit event
 // calls this instead of FUN_UNIT_EVENT_BROADCAST.

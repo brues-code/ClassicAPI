@@ -110,11 +110,11 @@ const char *TokenFromGUID(uint64_t guid, char *buf, size_t bufSize);
 // (each row must hold >= 32 bytes) and returns the count, capped at
 // `maxTokens`. Engine-native tokens (player/pet/target/party/partypet/raid/
 // raidpet/npc/mouseover) come from the engine's reverse map
-// (`FUN_UNIT_TOKENS_FROM_GUID`); ClassicAPI's synthetic `focus` /
-// `nameplateN` are appended on top. The result is snapshotted into `out`
-// (safe to fire re-entrant Lua events while iterating). Returns 0 pre-world
-// or when no token maps to `guid`. Used for the per-token `UNIT_SPELLCAST_*`
-// remote-unit fan-out.
+// (`FUN_UNIT_TOKENS_FROM_GUID`); ClassicAPI's own tokens
+// (`Unit::TokenEvents::TokensOf`) are appended on top. The result is
+// snapshotted into `out` (safe to fire re-entrant Lua events while
+// iterating). Returns 0 pre-world or when no token maps to `guid`. Used to
+// fire ClassicAPI's own unit events once per token, as the engine fires its.
 int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens);
 
 // The engine's cached player-info record for `guid` — the NameCache data block

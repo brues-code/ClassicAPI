@@ -125,8 +125,8 @@ void OnInterruptibleChanged(uint64_t casterGuid, bool notInterruptible);
 //
 // `Spell::Cast` owns the remote-cast packet hooks; it calls these at the
 // transition points, and each event is fanned out to EVERY unit token the
-// caster GUID currently maps to (target / focus / nameplateN / party / raid /
-// mouseover), via `Unit::Identity::TokensForGUID`. Each remote cast gets its
+// caster GUID currently maps to, the engine's and ClassicAPI's, via
+// `Unit::Identity::TokensForGUID`. Each remote cast gets its
 // own synthesized castGUID, shared across its events.
 
 // A remote unit began a cast (SMSG_SPELL_START). `endMs` is the computed end

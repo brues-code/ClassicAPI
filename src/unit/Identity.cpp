@@ -18,6 +18,7 @@
 #include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "unit/TokenEvents.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -414,19 +415,9 @@ int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {
         }
     }
 
-    // Synthetic tokens the engine's map can't produce. `focus` resolves via
-    // our token-resolver hook (returns 0 when unset — never raises).
-    if (n < maxTokens && GuidForToken("focus") == guid)
-        std::snprintf(out[n++], 32, "focus");
-
-    // Visible nameplates — sparse slot array, so scan and skip gaps.
-    const int plateCount = NamePlate::Events::GetSlotCount();
-    for (int i = 1; i <= plateCount && n < maxTokens; ++i) {
-        if (NamePlate::Events::GetGUIDByIndex(i) == guid)
-            std::snprintf(out[n++], 32, "nameplate%d", i);
-    }
-
-    return n;
+    // ClassicAPI's tokens, which the engine's map can't produce: the same
+    // list the engine's unit events reach.
+    return n + Unit::TokenEvents::TokensOf(guid, out + n, maxTokens - n);
 }
 
 static int __fastcall Script_UnitTokenFromGUID(void *L) {
