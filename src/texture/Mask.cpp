@@ -14,7 +14,9 @@
 // `Texture:SetMask(path)` — apply an alpha-mask texture to a Texture region, the
 // way the modern client does (a white-with-alpha mask clips the texture to the
 // mask's shape). 1.12 has no generic masking, only the special-cased minimap
-// disc (Minimap:SetMaskTexture). This backports it to any Texture.
+// disc (Minimap:SetMaskTexture). This backports it to any Texture. XML sets it
+// with the Texture attribute `mask="path"`, read after the engine's texture
+// loader (Xml::TypeLoad).
 //
 // Mechanism (see the Offsets.h "Texture masking" + "Texgen" blocks for the full
 // findings): every textured region draws through the vertex-stream primitive
@@ -59,6 +61,8 @@
 #include "texture/Mask.h"
 #include "texture/Transform.h"
 #include "ui/FrameObject.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <windows.h>
 
@@ -478,6 +482,15 @@ int __fastcall Script_SetMask(void *L) {
     SetPath(region, path);
     return 0;
 }
+
+// The later-client XML attribute `<Texture file=".." mask="path"/>`, applied
+// as texture:SetMask(path) when present and non-empty.
+void OnTextureNode(void *object, const void *node, void * /*status*/) {
+    if (const char *mask = Xml::Attr(node, "mask"); mask != nullptr && *mask != '\0')
+        SetPath(object, mask);
+}
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
 
 using ScriptFn_t = int(__fastcall *)(void *L);
 

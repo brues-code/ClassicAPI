@@ -28,11 +28,13 @@
 // return addresses, get the new count. The cursor stays where it was.
 //
 // XML sets it with the EditBox attribute `countInvisibleLetters="true"`, read
-// after the engine's own EditBox loader and parsed the way it parses
-// `autoFocus`.
+// after the engine's own EditBox loader (Xml::TypeLoad) and parsed the way it
+// parses `autoFocus`.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 #include <intrin.h> // _ReturnAddress
@@ -84,29 +86,17 @@ int __fastcall CountChars_h(void *editBox, void * /*edx*/, int start, int count)
 const Game::HookAutoRegister _countHook{Offsets::FUN_EDITBOX_COUNT_CHARS, reinterpret_cast<void *>(&CountChars_h),
                                         reinterpret_cast<void **>(&g_origCountChars)};
 
-using Load_t = uintptr_t(__thiscall *)(void *self, const void *node, void *status);
-using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
-Load_t g_origEditBoxLoad = nullptr;
-
-// `self` is the loader sub-object inside the edit box.
-uintptr_t __fastcall EditBoxLoad_h(void *self, void * /*edx*/, const void *node, void *status) {
-    const uintptr_t result = g_origEditBoxLoad(self, node, status);
-    if (node == nullptr)
-        return result;
-    const char *value =
-        reinterpret_cast<GetAttr_t>(Offsets::FUN_XML_NODE_GET_ATTRIBUTE)(node, "countInvisibleLetters");
+void OnEditBoxNode(void *object, const void *node, void * /*status*/) {
+    const char *value = Xml::Attr(node, "countInvisibleLetters");
     if (value == nullptr || *value == '\0')
-        return result;
-    void *editBox = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
+        return;
     if (Game::StringToFlag(value))
-        g_counting.insert(editBox);
+        g_counting.insert(object);
     else
-        g_counting.erase(editBox);
-    return result;
+        g_counting.erase(object);
 }
 
-const Game::HookAutoRegister _loadHook{Offsets::FUN_XML_EDITBOX_LOAD, reinterpret_cast<void *>(&EditBoxLoad_h),
-                                       reinterpret_cast<void **>(&g_origEditBoxLoad)};
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::EDIT_BOX, &OnEditBoxNode};
 
 int __fastcall Script_SetCountInvisibleLetters(void *L) {
     void *editBox = Game::Lua::ResolveEditBox(L);

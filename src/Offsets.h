@@ -12019,7 +12019,8 @@ enum Offsets {
     //   TEXTURE: reads "inherits", "hidden", "alphaMode" (0x00770179).
     //   FONTSTRING: reads "inherits", "hidden", "justifyH" (0x00771308).
     // Identified by the attribute-name strings each passes to
-    // FUN_XML_NODE_GET_ATTRIBUTE. Co-hooked by xml/ParentKey.cpp. The FRAME
+    // FUN_XML_NODE_GET_ATTRIBUTE. Hooked by xml/FrameLoad.cpp (FRAME) and
+    // xml/TypeLoad.cpp (TEXTURE, FONTSTRING). The FRAME
     // loader covers attributes, TitleRegion, ResizeBounds, Backdrop,
     // HitRectInsets, Layers and Scripts - not <Frames>, which the finalize
     // step builds (FUN_XML_FRAME_LOAD_CHILD_FRAMES).
@@ -12264,6 +12265,11 @@ enum Offsets {
     // HighlightFont (0x00778A28) into +0x394 - reading its `inherits`.
     // In 4 loader vtables; CheckButton's loader 0x00785170 calls it first.
     FUN_XML_BUTTON_LOAD = 0x007788C0,
+    // The StatusBar node loader (same sub-object convention, `ret 8`). It calls
+    // FUN_XML_FRAME_LOAD first (0x00782F06), then reads `drawLayer`, each
+    // BarTexture (0x00782F5B, set at 0x00782F63) and BarColor, `minValue` /
+    // `maxValue` / `defaultValue` and `orientation` (Ghidra).
+    FUN_XML_STATUSBAR_LOAD = 0x00782EF0,
     // By-name template lookup — the same one `inherits=` resolves through.
     // `__fastcall(const char *name) -> definition node`, 0 if unregistered
     // (case-insensitive, hashed). See FUN_006ee6f0 in Templates.cpp notes.

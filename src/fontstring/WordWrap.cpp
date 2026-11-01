@@ -23,14 +23,14 @@
 // ellipsize the one line (wrap off) nor make room for the others (wrap on).
 //
 // The FontString node's `wordwrap` attribute is 3.3.5's loader: when present
-// and non-empty it goes through the same setter (Xml::ParentKey's font string
-// loader hook calls Set). 1.12's loader reads only `nonspacewrap`.
-
-#include "fontstring/WordWrap.h"
+// and non-empty it goes through the same setter, after the engine's font
+// string loader (Xml::TypeLoad). 1.12's loader reads only `nonspacewrap`.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "fontstring/Layout.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 
@@ -39,6 +39,23 @@ namespace FontString::WordWrap {
 namespace {
 
 constexpr uint32_t kNoWrap = Offsets::FONT_STYLE_NO_WORD_WRAP;
+
+void Set(void *fontString, bool wrap) {
+    Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kNoWrap;
+    const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
+    const uint32_t wanted = wrap ? flags & ~kNoWrap : flags | kNoWrap;
+    if (wanted != flags) {
+        Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS) = wanted;
+        FontString::Layout::Invalidate(fontString);
+    }
+}
+
+void OnFontStringNode(void *object, const void *node, void * /*status*/) {
+    if (const char *wordwrap = Xml::Attr(node, "wordwrap"); wordwrap != nullptr && *wordwrap != '\0')
+        Set(object, Game::StringToFlag(wordwrap));
+}
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::FONT_STRING, &OnFontStringNode};
 
 int __fastcall Script_SetWordWrap(void *L) {
     void *fontString = Game::Lua::ResolveFontString(L);
@@ -86,15 +103,5 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
-
-void Set(void *fontString, bool wrap) {
-    Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kNoWrap;
-    const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
-    const uint32_t wanted = wrap ? flags & ~kNoWrap : flags | kNoWrap;
-    if (wanted != flags) {
-        Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS) = wanted;
-        FontString::Layout::Invalidate(fontString);
-    }
-}
 
 } // namespace FontString::WordWrap

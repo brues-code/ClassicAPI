@@ -48,15 +48,15 @@
 // value on spaces and commas, each name ORs in its bits
 // (Frame::MouseRegistration::MaskForName, 3.3.5's MouseButtonStringToBitmask,
 // which knows AnyUp / AnyDown), and the result REPLACES the mask through the
-// engine's setter, as RegisterForClicks does. 1.12's Button loader has no such
-// attribute.
-
-#include "frame/ClickMask.h"
+// engine's setter, as RegisterForClicks does, after the engine's Button loader
+// (Xml::TypeLoad). 1.12's Button loader has no such attribute.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/MouseRegistration.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 
@@ -108,9 +108,10 @@ void RegisterLuaFunctions() {
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
-} // namespace
-
-void SetFromXml(void *button, const char *value) {
+void OnButtonNode(void *object, const void *node, void * /*status*/) {
+    const char *value = Xml::Attr(node, "registerForClicks");
+    if (value == nullptr || *value == '\0')
+        return;
     auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
     uint32_t mask = 0;
     char token[1024];
@@ -120,7 +121,11 @@ void SetFromXml(void *button, const char *value) {
         tokenize(&cursor, token, sizeof token, " ,", nullptr);
         mask |= Frame::MouseRegistration::MaskForName(token);
     }
-    reinterpret_cast<SetClickMask_t>(Offsets::FUN_BUTTON_SET_CLICK_MASK)(button, mask);
+    reinterpret_cast<SetClickMask_t>(Offsets::FUN_BUTTON_SET_CLICK_MASK)(object, mask);
 }
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::BUTTON, &OnButtonNode};
+
+} // namespace
 
 } // namespace Frame::ClickMask

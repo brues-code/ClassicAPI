@@ -30,9 +30,8 @@
 //                all frame types
 //   textures     FUN_0076FE20 - reads "alphaMode" (0x00770179)
 //   font strings FUN_00770F40 - reads "justifyH" (0x00771308)
-// After the engine has loaded the node (frames through the shared
-// Xml::FrameLoad observer, which owns that loader's hook; textures and font
-// strings through co-hooks here), read `parentKey`
+// After the engine has loaded the node (through the shared Xml::FrameLoad and
+// Xml::TypeLoad observers, which own those loaders' hooks), read `parentKey`
 // with the engine's own attribute getter and, when present, set
 // `parent[key] = object` on the Lua wrappers, where parent is the object's
 // script-region parent (OFF_REGION_PARENT, which GetParent reads for frames
@@ -72,9 +71,7 @@
 // and, with no `inherits`, leaves it empty. After that loader, a font element
 // with `style` and no `inherits` is applied through the engine's own setter
 // for that state (SetTextFontObject / SetHighlightFontObject /
-// SetDisabledFontObject) with `_G[style]`. The Button loader also reads
-// `registerForClicks` (Frame::ClickMask) and the font string loader
-// `wordwrap` (FontString::WordWrap), the 3.3.5 attributes 1.12 lacks.
+// SetDisabledFontObject) with `_G[style]`.
 //
 // `parentArray="Name"` appends the object to `parent.Name` (created on first
 // use) in load order, the same way.
@@ -87,37 +84,20 @@
 //
 // Every loader also loads an <Animations> child (Animation::Xml), before the
 // builder finalizes, so OnLoad sees the groups.
-//
-// The texture loader also reads `mask="path"` (`<Texture file=".." mask=".."/>`,
-// the later-client attribute) and applies it as texture:SetMask(path), and
-// `atlas="name"` with `useAtlasSize`, applied as texture:SetAtlas(name,
-// useAtlasSize).
 
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "animation/Xml.h"
-#include "fontstring/WordWrap.h"
-#include "frame/ClickMask.h"
-#include "texture/Atlas.h"
-#include "texture/Mask.h"
 #include "xml/Anchors.h"
 #include "xml/KeyValues.h"
-#include "xml/Mixin.h"
 #include "xml/ScriptInherit.h"
-
-#include <cstdint>
+#include "xml/TypeLoad.h"
 
 namespace Xml::ParentKey {
 
 namespace {
-
-using Loader_t = uintptr_t(__fastcall *)(void *self, void *edx, const void *node, void *status);
-
-Loader_t g_origTextureLoad = nullptr;
-Loader_t g_origFontStringLoad = nullptr;
-Loader_t g_origButtonLoad = nullptr;
 
 using Xml::FirstChild;
 using Xml::NextSibling;
@@ -254,11 +234,8 @@ const ButtonFontSlot kButtonFontSlots[] = {
 
 // button:<setter>(_G[style]) for each font element of `node` that has `style`
 // and no `inherits`. A style that names no global object is skipped.
-void BindButtonFontStyles(void *self, const void *node) {
-    if (self == nullptr || node == nullptr)
-        return;
+void BindButtonFontStyles(void *object, const void *node, void * /*status*/) {
     void *L = nullptr;
-    void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     int top = 0;
     bool havePushed = false;
     for (const void *c = FirstChild(node); c != nullptr; c = NextSibling(c)) {
@@ -299,14 +276,7 @@ void BindButtonFontStyles(void *self, const void *node) {
         Game::Lua::SetTop(L, top);
 }
 
-uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void *status) {
-    const uintptr_t r = g_origButtonLoad(self, edx, node, status);
-    BindButtonFontStyles(self, node);
-    if (self != nullptr && node != nullptr)
-        if (const char *clicks = Xml::Attr(node, "registerForClicks"); clicks != nullptr && *clicks != '\0')
-            Frame::ClickMask::SetFromXml(static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT, clicks);
-    return r;
-}
+const Xml::TypeLoad::AutoSubscribe _buttonNode{Xml::TypeLoad::BUTTON, &BindButtonFontStyles};
 
 void OnFrameNode(void *object, const void *node, void *status) {
     BindParentKey(object, node);
@@ -320,66 +290,16 @@ void OnFrameNode(void *object, const void *node, void *status) {
 
 const Xml::FrameLoad::AutoSubscribe _frameNode{&OnFrameNode};
 
-// Region loaders: `self` is the layout sub-object inside the object.
-void *RegionObject(void *self) {
-    return static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
+void OnRegionNode(void *object, const void *node, void *status) {
+    BindParentKey(object, node);
+    BindParentArray(object, node);
+    Xml::Anchors::Apply(object, node, status);
+    Xml::KeyValues::ApplyToRegion(object, node, status);
+    Animation::Xml::LoadAnimations(object, node, status);
 }
 
-uintptr_t __fastcall TextureLoad_h(void *self, void *edx, const void *node, void *status) {
-    if (self == nullptr || node == nullptr)
-        return g_origTextureLoad(self, edx, node, status);
-    Xml::Mixin::Begin(RegionObject(self), node, status, false);
-    const uintptr_t r = g_origTextureLoad(self, edx, node, status);
-    Xml::Mixin::End(RegionObject(self));
-    {
-        BindParentKey(RegionObject(self), node);
-        BindParentArray(RegionObject(self), node);
-        Xml::Anchors::Apply(RegionObject(self), node, status);
-        Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
-        Animation::Xml::LoadAnimations(RegionObject(self), node, status);
-        if (const char *mask = Xml::Attr(node, "mask"); mask != nullptr && *mask != '\0')
-            Texture::Mask::SetPath(RegionObject(self), mask);
-        if (const char *atlas = Xml::Attr(node, "atlas"); atlas != nullptr && *atlas != '\0') {
-            const char *useSize = Xml::Attr(node, "useAtlasSize");
-            Texture::Atlas::SetFromXml(RegionObject(self), atlas,
-                                       useSize != nullptr && Game::StringToFlag(useSize));
-        }
-    }
-    return r;
-}
-
-uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, void *status) {
-    if (self == nullptr || node == nullptr)
-        return g_origFontStringLoad(self, edx, node, status);
-    Xml::Mixin::Begin(RegionObject(self), node, status, false);
-    const uintptr_t r = g_origFontStringLoad(self, edx, node, status);
-    Xml::Mixin::End(RegionObject(self));
-    {
-        BindParentKey(RegionObject(self), node);
-        BindParentArray(RegionObject(self), node);
-        Xml::Anchors::Apply(RegionObject(self), node, status);
-        Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
-        Animation::Xml::LoadAnimations(RegionObject(self), node, status);
-        if (const char *wordwrap = Xml::Attr(node, "wordwrap"); wordwrap != nullptr && *wordwrap != '\0')
-            FontString::WordWrap::Set(RegionObject(self), Game::StringToFlag(wordwrap));
-    }
-    return r;
-}
-
-const Game::HookAutoRegister _buttonHook{
-    Offsets::FUN_XML_BUTTON_LOAD,
-    reinterpret_cast<void *>(&ButtonLoad_h),
-    reinterpret_cast<void **>(&g_origButtonLoad)};
-
-const Game::HookAutoRegister _textureHook{
-    Offsets::FUN_XML_TEXTURE_LOAD,
-    reinterpret_cast<void *>(&TextureLoad_h),
-    reinterpret_cast<void **>(&g_origTextureLoad)};
-
-const Game::HookAutoRegister _fontStringHook{
-    Offsets::FUN_XML_FONTSTRING_LOAD,
-    reinterpret_cast<void *>(&FontStringLoad_h),
-    reinterpret_cast<void **>(&g_origFontStringLoad)};
+const Xml::TypeLoad::AutoSubscribe _textureNode{Xml::TypeLoad::TEXTURE, &OnRegionNode};
+const Xml::TypeLoad::AutoSubscribe _fontStringNode{Xml::TypeLoad::FONT_STRING, &OnRegionNode};
 
 } // namespace
 

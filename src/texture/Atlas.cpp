@@ -29,6 +29,8 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 #include <map>
@@ -549,6 +551,25 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
+// The XML `<Texture atlas="name" useAtlasSize="true">`: texture:SetAtlas(name,
+// useAtlasSize), run as its own Lua call so the loader's stack is left alone.
+void OnTextureNode(void *object, const void *node, void * /*status*/) {
+    const char *name = Xml::Attr(node, "atlas");
+    void *L = Game::Lua::State();
+    if (name == nullptr || *name == '\0' || L == nullptr)
+        return;
+    const char *useSize = Xml::Attr(node, "useAtlasSize");
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushCClosure(L, &Script_SetAtlas, 0);
+    Game::Lua::PushObject(L, object);
+    Game::Lua::PushString(L, name);
+    Game::Lua::PushBool(L, useSize != nullptr && Game::StringToFlag(useSize));
+    Game::Lua::PCall(L, 3, 0, 0);
+    Game::Lua::SetTop(L, top);
+}
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
+
 } // namespace
 
 const Info *Find(const char *name) {
@@ -568,19 +589,6 @@ void RecordMiss(const char *name) {
 void PrepareForReload() {
     g_applied.clear();
     g_misses.clear();
-}
-
-void SetFromXml(void *region, const char *name, bool useAtlasSize) {
-    void *L = Game::Lua::State();
-    if (L == nullptr || region == nullptr || name == nullptr || *name == '\0')
-        return;
-    const int top = Game::Lua::GetTop(L);
-    Game::Lua::PushCClosure(L, &Script_SetAtlas, 0);
-    Game::Lua::PushObject(L, region);
-    Game::Lua::PushString(L, name);
-    Game::Lua::PushBool(L, useAtlasSize);
-    Game::Lua::PCall(L, 3, 0, 0);
-    Game::Lua::SetTop(L, top);
 }
 
 } // namespace Texture::Atlas
