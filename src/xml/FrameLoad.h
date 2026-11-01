@@ -63,6 +63,11 @@ void Warn(void *status, const char *fmt, const char *a, const char *b = nullptr,
 // does not point back at `object`.
 bool PushWrapper(void *L, void *object);
 
+// parentArray="key": pops the value on top of the stack and appends it to
+// parent[key], where parent is the table at the absolute stack index
+// `parentIdx`; parent[key] is created on first use.
+void AppendToArray(void *L, int parentIdx, const char *key);
+
 namespace FrameLoad {
 
 using Observer = void (*)(void *object, const void *node, void *status);

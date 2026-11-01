@@ -140,31 +140,8 @@ void BindParentArray(void *object, const void *node) {
         return;
 
     const int top = Game::Lua::GetTop(L);
-    if (PushWrapper(L, parent)) {                       // [parent]
-        Game::Lua::PushString(L, key);
-        Game::Lua::GetTable(L, top + 1);                // [parent, array?]
-        if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-            Game::Lua::SetTop(L, top + 1);
-            Game::Lua::NewTable(L);                     // [parent, array]
-            Game::Lua::PushString(L, key);
-            Game::Lua::PushValue(L, -2);
-            Game::Lua::SetTable(L, top + 1);            // parent[key] = array
-        }
-        int n = 0;
-        for (;;) {
-            Game::Lua::RawGetI(L, top + 2, n + 1);
-            const bool present = Game::Lua::Type(L, -1) != Game::Lua::TYPE_NIL;
-            Game::Lua::SetTop(L, top + 2);
-            if (!present)
-                break;
-            ++n;
-        }
-        if (PushWrapper(L, object)) {                   // [parent, array, object]
-            Game::Lua::PushNumber(L, n + 1);
-            Game::Lua::Insert(L, -2);                   // [parent, array, n+1, object]
-            Game::Lua::RawSet(L, top + 2);              // array[n+1] = object
-        }
-    }
+    if (PushWrapper(L, parent) && PushWrapper(L, object)) // [parent, object]
+        Xml::AppendToArray(L, top + 1, key);
     Game::Lua::SetTop(L, top);
 }
 

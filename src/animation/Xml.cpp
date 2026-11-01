@@ -18,7 +18,7 @@
 // it is named "<object>:<script>" and handled like a frame's.
 //
 // Later clients' attributes go to the same fields their methods set:
-// setToFinalAlpha on a group; targetKey and childKey on any animation;
+// setToFinalAlpha and parentArray on a group; targetKey and childKey on any animation;
 // fromAlpha / toAlpha on Alpha; fromScaleX / fromScaleY / toScaleX /
 // toScaleY on Scale. Each applies only when present and non-empty.
 
@@ -71,6 +71,22 @@ void BindParentKey(void *object, Object *child, const char *key) {
         Game::Lua::PushString(L, key);
         Push(L, child);
         Game::Lua::SetTable(L, -3);
+    }
+    Game::Lua::SetTop(L, top);
+}
+
+// Later clients' parentArray on a group: appended to object[key], as a
+// frame or region is.
+void BindParentArray(void *object, Object *child, const char *key) {
+    if (key == nullptr || *key == '\0')
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    if (::Xml::PushWrapper(L, object)) {
+        Push(L, child);
+        ::Xml::AppendToArray(L, top + 1, key);
     }
     Game::Lua::SetTop(L, top);
 }
@@ -210,6 +226,7 @@ void LoadGroupNode(Group *group, const void *node, void *status) {
             LoadGroupNode(group, base, status);
     }
     BindParentKey(group->RegionObject(), group, ::Xml::Attr(node, "parentKey"));
+    BindParentArray(group->RegionObject(), group, ::Xml::Attr(node, "parentArray"));
     if (const char *looping = ::Xml::Attr(node, "looping"); looping != nullptr && *looping != '\0') {
         LoopType type;
         if (StringToLoopType(looping, type))

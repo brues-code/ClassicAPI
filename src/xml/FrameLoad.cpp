@@ -116,6 +116,32 @@ bool PushWrapper(void *L, void *object) {
     return true;
 }
 
+void AppendToArray(void *L, int parentIdx, const char *key) {
+    const int value = Game::Lua::GetTop(L);        // [.., value]
+    Game::Lua::PushString(L, key);
+    Game::Lua::GetTable(L, parentIdx);             // [.., value, array?]
+    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::SetTop(L, value);
+        Game::Lua::NewTable(L);                    // [.., value, array]
+        Game::Lua::PushString(L, key);
+        Game::Lua::PushValue(L, -2);
+        Game::Lua::SetTable(L, parentIdx);         // parent[key] = array
+    }
+    int n = 0;
+    for (;;) {
+        Game::Lua::RawGetI(L, value + 1, n + 1);
+        const bool present = Game::Lua::Type(L, -1) != Game::Lua::TYPE_NIL;
+        Game::Lua::SetTop(L, value + 1);
+        if (!present)
+            break;
+        ++n;
+    }
+    Game::Lua::PushNumber(L, n + 1);
+    Game::Lua::PushValue(L, value);                // [.., value, array, n+1, value]
+    Game::Lua::RawSet(L, value + 1);               // array[n+1] = value
+    Game::Lua::SetTop(L, value - 1);
+}
+
 namespace FrameLoad {
 
 namespace {

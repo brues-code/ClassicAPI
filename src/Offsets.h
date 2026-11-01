@@ -3665,6 +3665,12 @@ enum Offsets {
     // Lua stack and tail-calls this, so the engine's parser, setter and error
     // text stay in force.
     FUN_SCRIPT_BUTTON_REGISTERFORCLICKS = 0x00782490,
+    // Frame:RegisterForDrag (Script table 0x00878EC0). It ORs LeftButton 1,
+    // MiddleButton 2, RightButton 4 (SStrCmpI; any other string 0) over its
+    // string arguments and stores the mask at frame+0xFC; no string clears it
+    // (Ghidra). Xml::NativeSetters calls it for the `registerForDrag`
+    // attribute.
+    FUN_SCRIPT_FRAME_REGISTERFORDRAG = 0x00776D60,
     // CSimpleButton's mouse handlers, Button vtable 0x0081C7F8 (ctor 0x00778733)
     // slots +0x68 OnLayerMouseDown (0x00779210) / +0x6C OnLayerMouseUp
     // (0x007792D0), each `__thiscall(button, CMouseEvent *)` over the base

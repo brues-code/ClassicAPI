@@ -26,6 +26,11 @@
 // `scale` on a frame other than a Model (retail's Frame attribute), set as
 // Frame:SetScale sets it (0x00775140): a negative scale is refused, anything
 // else goes to SetFrameScale without force.
+//
+// `registerForDrag` on a frame (retail's LayoutFrame attribute), passed to
+// Frame:RegisterForDrag itself (FUN_SCRIPT_FRAME_REGISTERFORDRAG), which
+// parses the names and stores the mask. The engine has no setter to call
+// instead.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -42,6 +47,8 @@ using ToFloat_t = float(__stdcall *)(const char *s);
 using GetColor_t = void(__fastcall *)(void *region, void *edx, uint32_t *bgra);
 using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *bgra);
 using SetFrameScale_t = bool(__fastcall *)(void *frame, void *edx, float scale, int force);
+using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize, const char *delims,
+                                     int *outQuoted);
 
 bool FloatAttr(const void *node, const char *name, float &out) {
     const char *value = Xml::Attr(node, name);
@@ -68,12 +75,40 @@ void OnRegionNode(void *object, const void *node, void * /*status*/) {
 const Xml::TypeLoad::AutoSubscribe _textureSub{Xml::TypeLoad::TEXTURE, &OnRegionNode};
 const Xml::TypeLoad::AutoSubscribe _fontStringSub{Xml::TypeLoad::FONT_STRING, &OnRegionNode};
 
+// frame:RegisterForDrag(name, ...) with the attribute's names, split on spaces
+// and commas as `registerForClicks` is, run as its own Lua call so the
+// loader's stack is left alone.
+void RegisterForDrag(void *frame, const char *value) {
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushCClosure(L, reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_FRAME_REGISTERFORDRAG), 0);
+    Game::Lua::PushObject(L, frame);
+    int args = 1;
+    char token[1024];
+    const char *cursor = value;
+    while (cursor != nullptr && *cursor != '\0') {
+        token[0] = '\0';
+        tokenize(&cursor, token, sizeof token, " ,", nullptr);
+        if (token[0] != '\0') {
+            Game::Lua::PushString(L, token);
+            ++args;
+        }
+    }
+    Game::Lua::PCall(L, args, 0, 0);
+    Game::Lua::SetTop(L, top);
+}
+
 // A Model's `scale` is its model scale (1.12's and 4.3.4's Model loaders read
 // it so; retail calls it `modelScale` beside the frame's `scale`).
 void OnFrameNode(void *object, const void *node, void * /*status*/) {
     float scale = 0.0f;
     if (FloatAttr(node, "scale", scale) && !(scale < 0.0f) && !Game::Lua::IsA(object, Offsets::VAR_MODEL_LUA_TYPE_ID))
         reinterpret_cast<SetFrameScale_t>(Offsets::FUN_FRAME_SET_SCALE)(object, nullptr, scale, 0);
+    if (const char *drag = Xml::Attr(node, "registerForDrag"); drag != nullptr && *drag != '\0')
+        RegisterForDrag(object, drag);
 }
 
 const Xml::FrameLoad::AutoSubscribe _frameSub{&OnFrameNode};

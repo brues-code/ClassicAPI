@@ -17,7 +17,9 @@
 // corners around a pivot; SetVertexOffset nudges one corner directly. They are
 // one primitive: a per-region transform of {rotation, four vertex offsets} that
 // both methods write into and that COMPOSE (rotate about the pivot first, then
-// add the offsets), matching retail.
+// add the offsets), matching retail. XML sets the rotation with the Texture
+// attribute `rotation` (degrees) and the FontString attributes `degrees` /
+// `radians`, after the engine's loaders (Xml::TypeLoad).
 //
 // The engine re-derives axis-aligned corners from the layout rect on every
 // resolve via FUN_REGION_STORE_CORNERS (0x007705B0). We co-hook that store and,
@@ -55,6 +57,8 @@
 #include "texture/Transform.h"
 
 #include "animation/Region.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cmath>
 #include <cstdint>
@@ -239,6 +243,17 @@ void __fastcall StoreCorners_h(void *region, void *edx, float *rect) {
                  it->second);
 }
 
+// The angle, and the pivot when given (both of cx and cy).
+void SetTextureRotation(void *tex, float angle, const float *cxN, const float *cyN) {
+    Xf xf = Current(tex);
+    xf.angle = angle;
+    if (cxN != nullptr && cyN != nullptr) {
+        xf.cxN = *cxN;
+        xf.cyN = *cyN;
+    }
+    UpdateAndApply(tex, xf);
+}
+
 int __fastcall Script_SetRotation(void *L) {
     void *tex = nullptr;
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
@@ -247,13 +262,14 @@ int __fastcall Script_SetRotation(void *L) {
         Game::Lua::Error(L, "Usage: texture:SetRotation(angle [, cx, cy])");
         return 0;
     }
-    Xf xf = Current(tex);
-    xf.angle = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    const float angle = static_cast<float>(Game::Lua::ToNumber(L, 2));
     if (Game::Lua::IsNumber(L, 3) && Game::Lua::IsNumber(L, 4)) {
-        xf.cxN = static_cast<float>(Game::Lua::ToNumber(L, 3));
-        xf.cyN = static_cast<float>(Game::Lua::ToNumber(L, 4));
+        const float cx = static_cast<float>(Game::Lua::ToNumber(L, 3));
+        const float cy = static_cast<float>(Game::Lua::ToNumber(L, 4));
+        SetTextureRotation(tex, angle, &cx, &cy);
+    } else {
+        SetTextureRotation(tex, angle, nullptr, nullptr);
     }
-    UpdateAndApply(tex, xf);
     return 0;
 }
 
@@ -504,19 +520,12 @@ void ReapplyFontStringRotation(void *fs) {
 // retail (verified in-game). cx/cy are an optional pivot (normalized within the
 // text's vertex bounds; default centre) — a superset of retail, which is
 // centre-only.
-int __fastcall Script_SetRotationFS(void *L) {
-    void *fs = nullptr;
-    if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
-        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
-    if (fs == nullptr || !Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: fontstring:SetRotation(angle [, cx, cy])");
-        return 0;
-    }
+void SetFontStringRotation(void *fs, float angle, const float *cxN, const float *cyN) {
     Xf xf = Current(fs);
-    xf.angle = static_cast<float>(Game::Lua::ToNumber(L, 2));
-    if (Game::Lua::IsNumber(L, 3) && Game::Lua::IsNumber(L, 4)) {
-        xf.cxN = static_cast<float>(Game::Lua::ToNumber(L, 3));
-        xf.cyN = static_cast<float>(Game::Lua::ToNumber(L, 4));
+    xf.angle = angle;
+    if (cxN != nullptr && cyN != nullptr) {
+        xf.cxN = *cxN;
+        xf.cyN = *cyN;
     }
     if (xf.active())
         g_xf[fs] = xf;
@@ -527,11 +536,65 @@ int __fastcall Script_SetRotationFS(void *L) {
     if (Animation::Region::StringAnimated(fs)) {
         if (void *node = FontStringNode(fs))
             reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_TEXT_NODE_INVALIDATE)(node);
-        return 0;
+        return;
     }
     ReapplyFontStringRotation(fs);
+}
+
+int __fastcall Script_SetRotationFS(void *L) {
+    void *fs = nullptr;
+    if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE)
+        fs = Game::Lua::ResolveFontString(L, 1, /*raiseError=*/false);
+    if (fs == nullptr || !Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: fontstring:SetRotation(angle [, cx, cy])");
+        return 0;
+    }
+    const float angle = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    if (Game::Lua::IsNumber(L, 3) && Game::Lua::IsNumber(L, 4)) {
+        const float cx = static_cast<float>(Game::Lua::ToNumber(L, 3));
+        const float cy = static_cast<float>(Game::Lua::ToNumber(L, 4));
+        SetFontStringRotation(fs, angle, &cx, &cy);
+    } else {
+        SetFontStringRotation(fs, angle, nullptr, nullptr);
+    }
     return 0;
 }
+
+// XML: the Texture attribute `rotation` (later clients, in degrees), and the
+// FontString attributes `degrees` and `radians` (4.3.4's loader; `radians`
+// wins when both are given). Each applies when present and non-empty, about
+// the default pivot.
+bool AngleAttr(const void *node, const char *name, float &out) {
+    const char *value = Xml::Attr(node, name);
+    if (value == nullptr || *value == '\0')
+        return false;
+    out = reinterpret_cast<float(__stdcall *)(const char *)>(Offsets::FUN_SSTR_TO_FLOAT)(value);
+    return true;
+}
+
+constexpr float kRadiansPerDegree = 0.017453292f;
+
+void OnTextureNode(void *object, const void *node, void * /*status*/) {
+    float degrees = 0.0f;
+    if (AngleAttr(node, "rotation", degrees))
+        SetTextureRotation(object, degrees * kRadiansPerDegree, nullptr, nullptr);
+}
+
+void OnFontStringNode(void *object, const void *node, void * /*status*/) {
+    float angle = 0.0f;
+    bool given = false;
+    if (AngleAttr(node, "degrees", angle)) {
+        angle *= kRadiansPerDegree;
+        given = true;
+    }
+    if (AngleAttr(node, "radians", angle))
+        given = true;
+    if (given)
+        SetFontStringRotation(object, angle, nullptr, nullptr);
+}
+
+const Xml::TypeLoad::AutoSubscribe _textureSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
+const Xml::TypeLoad::AutoSubscribe _fontStringSub{Xml::TypeLoad::FONT_STRING, &OnFontStringNode};
 
 int __fastcall Script_SetVertexOffset(void *L) {
     void *tex = nullptr;

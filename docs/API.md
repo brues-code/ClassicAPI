@@ -1122,7 +1122,7 @@ build instructions.
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
-  - [`alpha` and `scale` in XML](#alpha-and-scale-in-xml)
+  - [`alpha`, `scale` and `registerForDrag` in XML](#alpha-scale-and-registerfordrag-in-xml)
   - [`C_TTSSettings` — getters & setters](#c_ttssettings--getters--setters)
   - [TTS events](#tts-events)
   - [TTS CVars](#tts-cvars)
@@ -1985,8 +1985,10 @@ path:CreateControlPoint():SetOffset(100, 0)
 
 An `<Animations>` block on a frame, texture or font string builds its
 groups before the frame's `OnLoad`, and each group's `OnLoad` runs when it
-is built. Groups read `name`, `inherits`, `parentKey`, `looping`,
-`initialOffsetX` / `initialOffsetY` and `setToFinalAlpha`. Animations read
+is built. Groups read `name`, `inherits`, `parentKey`, `parentArray`,
+`looping`, `initialOffsetX` / `initialOffsetY` and `setToFinalAlpha`.
+`parentArray` adds the group to a list on its region, as it does for a
+frame or a texture. Animations read
 `name`, `inherits`, `parentKey`, `target`, `targetKey`, `childKey`,
 `duration`, `startDelay`, `endDelay`, `order`, `smoothing`, and their type's
 own attributes:
@@ -8408,6 +8410,13 @@ t:SetRotation(math.rad(45))      -- 45 degrees counter-clockwise
 t:SetRotation(math.pi, 0, 1)     -- half turn around the top-left corner
 ```
 
+A `<Texture>` element takes a `rotation` attribute, in degrees. It turns the
+texture around the center:
+
+```xml
+<Texture parentKey="Arrow" file="Interface\Buttons\UI-SpellbookIcon-NextPage-Up" rotation="90"/>
+```
+
 ### `texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`
 
 Moves one corner of a texture by `offsetX, offsetY` pixels. `vertexIndex` picks
@@ -8716,6 +8725,13 @@ fs:SetPoint("CENTER")
 fs:SetText("Rotate me")
 fs:SetRotation(math.rad(45))     -- 45 degrees counter-clockwise
 fs:SetRotation(0)                -- back to upright
+```
+
+A `<FontString>` element takes a `degrees` or a `radians` attribute. It turns
+the text around the center. If the element has both, `radians` is used:
+
+```xml
+<FontString parentKey="SideLabel" inherits="GameFontNormal" text="Side" degrees="90"/>
 ```
 
 ### `editBox:SetCursorPosition(position)`
@@ -25916,7 +25932,7 @@ through the same setters as `SetTextFontObject`, `SetHighlightFontObject`
 and `SetDisabledFontObject`. An element with `inherits` loads as before.
 CheckButtons get the same.
 
-### `alpha` and `scale` in XML
+### `alpha`, `scale` and `registerForDrag` in XML
 
 A `<Texture>` or `<FontString>` element takes an `alpha` attribute. It is
 the same as `region:SetAlpha(alpha)`. The value goes from 0 to 1. Values
@@ -25933,4 +25949,12 @@ and the model types that come from it, `scale` stays the scale of the model:
 
 ```xml
 <Frame name="MySmallFrame" scale="0.8"/>
+```
+
+A frame element takes a `registerForDrag` attribute. It is the same as
+`frame:RegisterForDrag(...)` with the button names in the attribute. Spaces
+or commas separate the names:
+
+```xml
+<Frame name="MyMovableFrame" movable="true" enableMouse="true" registerForDrag="LeftButton"/>
 ```
