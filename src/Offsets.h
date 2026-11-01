@@ -4904,7 +4904,13 @@ enum Offsets {
     // bound the Lua API uses, not the underlying array.
     VAR_GUILD_ROSTER_PTR = 0x00B72704,
     VAR_GUILD_ROSTER_TOTAL_COUNT = 0x00B73118,
+    // u64 — the roster handler reads the member's GUID straight into the
+    // record (`push [roster+i*4]; call CDataStore::GetInt64` at 0x004D0BFD).
+    OFF_GUILD_MEMBER_GUID = 0x00,
     OFF_GUILD_MEMBER_NAME = 0x08,
+    // u32 — `presence byte != 0` (`setne` at 0x004D0C1D, stored at
+    // 0x004D0C22); GetGuildRosterInfo's online return tests it (0x004D13C5).
+    OFF_GUILD_MEMBER_ONLINE = 0x48,
 
     // PackBagSlot — __fastcall(L, void **outInvMgr, int *outLinearSlot, int *outIsBank) → bool.
     // Reads bagID at Lua stack[1] and slot at stack[2], validates them, and

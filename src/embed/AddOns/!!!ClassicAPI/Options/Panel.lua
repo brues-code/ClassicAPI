@@ -395,6 +395,18 @@ AddHeader(interface, CLASSICAPI_MOTION)
 AddNumberBox(interface, CLASSICAPI_UI_SHAKE_STRENGTH, CLASSICAPI_UI_SHAKE_STRENGTH_TOOLTIP, NumberCVarSetting("ShakeStrengthUI"))
 
 -- ---------------------------------------------------------------------------
+-- Social
+-- ---------------------------------------------------------------------------
+
+local social = NewPage(SOCIAL_LABEL, main.name)
+
+-- C_AutoComplete reads these; the addon that shows the names does the rest.
+AddHeader(social, CLASSICAPI_NAME_SUGGESTIONS)
+AddCheckbox(social, CLASSICAPI_RECENT_WHISPERS_FIRST, CLASSICAPI_RECENT_WHISPERS_FIRST_TOOLTIP, CVarSetting("autoCompleteResortNamesOnRecency"))
+AddCheckbox(social, CLASSICAPI_MATCH_INSIDE_NAMES, CLASSICAPI_MATCH_INSIDE_NAMES_TOOLTIP, CVarSetting("autoCompleteWhenEditingFromCenter"))
+AddCheckbox(social, CLASSICAPI_MATCH_THE_COMMAND, CLASSICAPI_MATCH_THE_COMMAND_TOOLTIP, CVarSetting("autoCompleteUseContext"))
+
+-- ---------------------------------------------------------------------------
 -- Text To Speech
 -- ---------------------------------------------------------------------------
 

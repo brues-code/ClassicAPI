@@ -187,6 +187,7 @@ SLASH_TARGET_NEAREST_RAID1 = "/schlachtzuganvisieren";
 SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/benutzen";
 SLASH_USE2 = "/use";
+SOCIAL_LABEL = "Kontakte";
 LINK_TRADESKILL_TOOLTIP = "Hier klicken, um einen Link zu Eurem Beruf zu erstellen.";
 TEXT_TO_SPEECH = "Text-to-Speech";
 TEXT_TO_SPEECH_ADJUST_RATE = "Sprechgeschwindigkeit anpassen";

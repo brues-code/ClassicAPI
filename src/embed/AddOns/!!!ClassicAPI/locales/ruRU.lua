@@ -187,6 +187,7 @@ SLASH_TARGET_NEAREST_RAID1 = "/цельрейд";
 SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/use";
 SLASH_USE2 = "/использовать";
+SOCIAL_LABEL = "Общение";
 LINK_TRADESKILL_TOOLTIP = "Щелкните здесь, чтобы создать ссылку на вашу профессию.";
 TEXT_TO_SPEECH = "Текст в речь";
 TEXT_TO_SPEECH_ADJUST_RATE = "Изменить скорость речи.";

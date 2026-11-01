@@ -187,6 +187,7 @@ SLASH_TARGET_NEAREST_RAID1 = "/目標團隊";
 SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/使用";
 SLASH_USE2 = "/use";
+SOCIAL_LABEL = "社交";
 LINK_TRADESKILL_TOOLTIP = "點擊這裡以製造一個你專業技能的連結。";
 TEXT_TO_SPEECH = "文字轉語音";
 TEXT_TO_SPEECH_ADJUST_RATE = "調整語速";

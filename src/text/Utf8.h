@@ -25,12 +25,13 @@ namespace Text::Utf8 {
 // a continuation byte (`10xxxxxx`) starts one.
 size_t Length(const char *s);
 
-// `SStrCmpUTF8I(string1, string2, STORM_MAX_STR)`: case-insensitive compare.
+// `SStrCmpUTF8I(string1, string2, maxChars)`: case-insensitive compare of at
+// most `maxChars` code points (the default is Storm's whole string).
 // Decodes one code point at a time with 4.3.4's `SStrCmpGetNextTextUpper`
 // fold (ASCII and Latin-1 letters, œ, and the Cyrillic alphabet; every other
 // code point compares as itself) and returns the first difference of the
 // folded values: negative when `a` sorts first, 0 when equal, positive when
 // `b` sorts first. Only the sign carries meaning.
-int CompareI(const char *a, const char *b);
+int CompareI(const char *a, const char *b, size_t maxChars = static_cast<size_t>(-1));
 
 } // namespace Text::Utf8

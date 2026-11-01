@@ -56,6 +56,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [APIDocumentation](docs/API.md#apidocumentation) | `/classicapi` in-game browser, `C_APIDocumentation.GetSystem`, `C_APIDocumentation.GetSystems` |
 | [Animation](docs/API.md#animation) | `region:CreateAnimationGroup`, `region:GetAnimationGroups`, `region:StopAnimating`, `SetMaxAnimFramerate`, `GetMaxAnimFramerate`, `AnimationGroup` and `Animation` / `Alpha` / `Translation` / `Scale` / `Rotation` / `Path` / `ControlPoint` methods |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem`, `CanCancelAuction` |
+| [AutoComplete](docs/API.md#autocomplete) | `C_AutoComplete.GetAutoCompleteResults`, `C_AutoComplete.IsRecognizedName`, `C_AutoComplete.GetAutoCompletePresenceID`, `C_AutoComplete.GetAutoCompleteRealms` |
 | [Bindings](docs/API.md#bindings) | `SetBindingSpell`, `SetBindingItem`, `SetBindingMacro`, `SetBindingClick`, `SetOverrideBinding`, `SetOverrideBindingSpell`, `SetOverrideBindingItem`, `SetOverrideBindingMacro`, `SetOverrideBindingClick`, `ClearOverrideBindings`, `GetBindingAction` (`checkOverride`), `GetBindingByKey`, `IsModifiedClick`, `GetModifiedClick`, `SetModifiedClick`, `GetNumModifiedClickActions`, `GetModifiedClickAction` |
 | [Chat](docs/API.md#chat) | `GetCurrentChatEvent`, `GetCurrentChatGUID`, `IsChatAFK`, `IsChatDND`, `SendSystemMessage` |
 | [ChatBubbles](docs/API.md#chatbubbles) | `C_ChatBubbles.GetAllChatBubbles` |
@@ -224,6 +225,9 @@ click AddOn Options, then ClassicAPI.
 | | `backpackAutosortDisabled` | `0` | `1` keeps the items in your backpack in place when you sort your bags. |
 | | `bankAutosortDisabled` | `0` | `1` keeps the items in the main bank slots in place when you sort your bank. |
 | [Equipment sets](docs/API.md#equipment-sets-on-item-tooltips) | `dontShowEquipmentSetsOnItems` | `0` | `1` removes the Equipment Sets line from item tooltips. |
+| [Name completion](docs/API.md#name-completion-settings) | `autoCompleteResortNamesOnRecency` | `1` | `1` puts the players that you whispered first in `C_AutoComplete` results, the most recent first. `0` uses alphabetical order. |
+| | `autoCompleteWhenEditingFromCenter` | `1` | `1` also matches the text after the cursor when you type inside a name. |
+| | `autoCompleteUseContext` | `1` | `0` makes `C_AutoComplete` ignore `includeFlags` and `excludeFlags`. |
 | [Profiling](docs/API.md#scriptprofile) | `scriptProfile` | `0` | `1` turns on CPU profiling for the `*CPUUsage` functions. The change starts after `/reload`. |
 | [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract) | `SoftTargetInteract` | `3` | Turns `softinteract` on: `2` keyboard and mouse, `3` always, `0` / `1` off. |
 | | `SoftTargetInteractArc` | `0` | Where the object can be: `0` straight ahead of the camera, `1` within 30° of it, `2` any direction. |
@@ -388,6 +392,8 @@ when launching with `-console`), not as Lua functions. See the
 | Player swing type | `Enum.PlayerSwingType.{MainHand,OffHand,Ranged}` (0–2) |
 | Screen location type | `Enum.ScreenLocationType.{Center,Left,Right,Top,Bottom,TopLeft,TopRight,LeftOutside,RightOutside,LeftRight,TopBottom,LeftRightOutside}` (0–11) |
 | Self-resurrect option type | `Enum.SelfResurrectOptionType.{Spell,Item}` (0–1) |
+| Autocomplete entry flag | `Enum.AutoCompleteEntryFlag.{InGroup,InGuild,Friend,Bnet,InteractedWith,Online,InAOI,AccountCharacter,RecentPlayer}` (bits 1–256) |
+| Autocomplete priority | `Enum.AutoCompletePriority.{Other,Interacted,InGroup,Guild,Friend,AccountCharacter,AccountCharacterSameRealm}` (0–6) |
 
 </details>
 

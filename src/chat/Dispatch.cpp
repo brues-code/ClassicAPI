@@ -29,6 +29,8 @@
 //     marker icons but still can't inject an arbitrary `|T` path.
 //   - Chat::EventArgs::SenderScope — name the sender for the CHAT_MSG_* event
 //     the original fires synchronously: its arg12 and `GetCurrentChatGUID()`.
+//   - AutoComplete::Names::OnChat — a whisper partner becomes an
+//     InteractedWith name for C_AutoComplete.
 //
 // Signature — `__fastcall`, `RET 0x28` (stack args at entry):
 //   ECX  = the MESSAGE text (`MOV ECX,[EBP-0x10]` in FUN_0049D560; copied into
@@ -68,6 +70,7 @@
 #include "RaidMarkers.h"
 
 #include "Game.h"
+#include "autocomplete/Names.h"
 #include "Offsets.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
@@ -158,10 +161,15 @@ void __fastcall ChatDispatch_h(
     // escapes are added.
     Chat::RaidMarkers::EventScope markers;
 
+    const uint64_t senderGuid = Sender(_ReturnAddress(), chatType, channel, flags, guidLo, guidHi);
+
+    // A whisper partner becomes an autocomplete name before the event fires,
+    // so a CHAT_MSG_WHISPER handler already finds them.
+    AutoComplete::Names::OnChat(chatType, languageID, senderName, senderGuid);
+
     // The sender for the CHAT_MSG_* event the original fires synchronously;
     // restored when this scope ends (after the original returns).
-    Chat::EventArgs::SenderScope sender(
-        Sender(_ReturnAddress(), chatType, channel, flags, guidLo, guidHi), flags, true);
+    Chat::EventArgs::SenderScope sender(senderGuid, flags, true);
 
     g_original(msg, chatType, senderName, languageID, channel, targetName, flags,
                speakerGuidLo, speakerGuidHi, rank, guidLo, guidHi);

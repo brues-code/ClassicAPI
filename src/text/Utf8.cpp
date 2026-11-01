@@ -135,8 +135,8 @@ size_t Length(const char *s) {
     return length;
 }
 
-int CompareI(const char *a, const char *b) {
-    while (*a != '\0' || *b != '\0') {
+int CompareI(const char *a, const char *b, size_t maxChars) {
+    while ((*a != '\0' || *b != '\0') && maxChars-- != 0) {
         uint32_t upperA;
         NextUpper(&a, &upperA);
         uint32_t upperB;

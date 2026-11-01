@@ -56,6 +56,14 @@ build instructions.
   - [`AuraUtil.FindAuraByName`](#aurautilfindaurabyname)
   - [`AuraUtil.UnpackAuraData`](#aurautilunpackauradata)
 
+- [AutoComplete](#autocomplete)
+  - [`C_AutoComplete.GetAutoCompleteResults(name, numResults, cursorPosition, allowFullMatch, includeFlags, excludeFlags)`](#c_autocompletegetautocompleteresultsname-numresults-cursorposition-allowfullmatch-includeflags-excludeflags)
+  - [`C_AutoComplete.IsRecognizedName(name, includeFlags, excludeFlags)`](#c_autocompleteisrecognizednamename-includeflags-excludeflags)
+  - [`C_AutoComplete.GetAutoCompletePresenceID(name)` / `C_AutoComplete.GetAutoCompleteRealms()`](#c_autocompletegetautocompletepresenceidname--c_autocompletegetautocompleterealms)
+  - [`Enum.AutoCompleteEntryFlag`](#enumautocompleteentryflag)
+  - [`Enum.AutoCompletePriority`](#enumautocompletepriority)
+  - [Name completion settings](#name-completion-settings)
+
 - [Bindings](#bindings)
   - [Direct-action bindings](#direct-action-bindings)
   - [Modifier keys during a binding](#modifier-keys-during-a-binding)
@@ -2100,6 +2108,144 @@ not unique, so this returns the first match.
 `AuraUtil.UnpackAuraData(auraData)` returns an `AuraData` table's fields as 15
 positional values in the classic `UnitAura` order, or `nil` when `auraData` is
 `nil`. (Position 13 is the table's `isFromPlayerOrPlayerPet`.)
+
+## AutoComplete
+
+Name completion for edit boxes. These functions find the names of the
+players you know that complete the text in an edit box. This system shows
+nothing. An addon shows the names, for example in a list under the chat
+edit box.
+
+A player is a known name when one or more of these is true:
+
+- The player is in your party or raid. The entry has the `InGroup` bit.
+- The player is in your guild roster. The entry has the `InGuild` bit.
+- The player is on your friends list. The entry has the `Friend` bit.
+- You whispered the player, or the player whispered you, after you logged
+  in. The entry has the `InteractedWith` bit.
+
+A player on two or more of these lists is one entry, with the bit of each
+list. You are never an entry. The `Online` bit comes from your group, your
+guild roster and your friends list. A player that you know only from a
+whisper also has the `Online` bit.
+
+Guild members are known names only after the client has the guild roster.
+`GuildRoster()` requests it.
+
+### `C_AutoComplete.GetAutoCompleteResults(name, numResults, cursorPosition, allowFullMatch, includeFlags, excludeFlags)`
+
+Returns an array of the known names that complete `name`. Each entry is a
+table:
+
+| Field | Type | Value |
+|---|---|---|
+| `name` | string | The name of the player. |
+| `priority` | `Enum.AutoCompletePriority` | The closest tie to the player (see below). |
+| `bnetID` | number | Always `0`. |
+
+The arguments:
+
+- `name`: the text in the edit box.
+- `numResults`: the maximum number of entries. At `0` or less, you get all
+  of them.
+- `cursorPosition`: the position of the cursor in `name`, in characters, as
+  `editBox:GetUTF8CursorPosition()` gives it. A value less than `1` or more
+  than the length of `name` is the end of the text.
+- `allowFullMatch`: if this is `false`, a name equal to `name` is not an
+  entry.
+- `includeFlags`: [`Enum.AutoCompleteEntryFlag`](#enumautocompleteentryflag)
+  bits. Each entry has one or more of them.
+- `excludeFlags`: `Enum.AutoCompleteEntryFlag` bits. No entry has one of
+  them.
+
+A name matches when it starts with `name`. Upper case and lower case are
+the same. If the cursor is inside the text, the text before the cursor must
+start the name. The text after the cursor must come later in the name. For
+example, if you type `Jhn`, put the cursor after the `J` and type `o`, then
+`Jo|hn` matches `Johnson`.
+
+The order of the entries:
+
+1. The players that you whispered, the most recent first.
+2. All other names, in alphabetical order.
+
+The `priority` of an entry is the first tie on this list that the player
+has: `Friend`, `Guild`, `InGroup`, `Interacted`. A player with none of them
+is `Other`.
+
+```lua
+local function ShowNames(editBox)
+    local results = C_AutoComplete.GetAutoCompleteResults(editBox:GetText(), 5,
+        editBox:GetUTF8CursorPosition(), false, Enum.AutoCompleteEntryFlag.Online, 0)
+    for i = 1, table.getn(results) do
+        print(results[i].name)
+    end
+end
+```
+
+Three settings change the results. See
+[Name completion settings](#name-completion-settings).
+
+### `C_AutoComplete.IsRecognizedName(name, includeFlags, excludeFlags)`
+
+Returns `true` if a known name is equal to `name`, and `false` if not.
+Upper case and lower case are the same. `includeFlags` and `excludeFlags`
+have the same function as in `GetAutoCompleteResults`.
+
+```lua
+if C_AutoComplete.IsRecognizedName("Johnson", Enum.AutoCompleteEntryFlag.InGuild, 0) then
+    print("Johnson is in your guild.")
+end
+```
+
+### `C_AutoComplete.GetAutoCompletePresenceID(name)` / `C_AutoComplete.GetAutoCompleteRealms()`
+
+`GetAutoCompletePresenceID` always returns `nil`, and
+`GetAutoCompleteRealms` always returns an empty table. No known name has a
+Battle.net presence ID or a realm name.
+
+### `Enum.AutoCompleteEntryFlag`
+
+The bits of a known name, for `includeFlags` and `excludeFlags`.
+
+| Field | Value | Field | Value |
+|---|---|---|---|
+| `InGroup` | 1 | `Online` | 32 |
+| `InGuild` | 2 | `InAOI` | 64 |
+| `Friend` | 4 | `AccountCharacter` | 128 |
+| `Bnet` | 8 | `RecentPlayer` | 256 |
+| `InteractedWith` | 16 | | |
+
+No entry has the `Bnet`, `InAOI`, `AccountCharacter` or `RecentPlayer` bit.
+
+### `Enum.AutoCompletePriority`
+
+The values of an entry's `priority`.
+
+| Field | Value | Field | Value |
+|---|---|---|---|
+| `Other` | 0 | `Friend` | 4 |
+| `Interacted` | 1 | `AccountCharacter` | 5 |
+| `InGroup` | 2 | `AccountCharacterSameRealm` | 6 |
+| `Guild` | 3 | | |
+
+No entry has the priority `AccountCharacter` or `AccountCharacterSameRealm`.
+
+### Name completion settings
+
+Three cvars change the results of `GetAutoCompleteResults` and
+`IsRecognizedName`. Each one is `1` by default. You can also set them on the
+Social page of the ClassicAPI options.
+
+| CVar | At `1` | At `0` |
+|---|---|---|
+| `autoCompleteResortNamesOnRecency` | The players that you whispered come first, the most recent first. | All names are in alphabetical order. |
+| `autoCompleteWhenEditingFromCenter` | With the cursor inside the text, the text after the cursor must come later in the name. | The name must start with all of the text. |
+| `autoCompleteUseContext` | `includeFlags` and `excludeFlags` select the entries. | Every known name is an entry. |
+
+```
+/console autoCompleteUseContext 0
+```
 
 ## CharacterList
 

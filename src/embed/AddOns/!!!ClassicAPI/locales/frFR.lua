@@ -187,6 +187,7 @@ SLASH_TARGET_NEAREST_RAID1 = "/ciblerraid";
 SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/use";
 SLASH_USE2 = "/utiliser";
+SOCIAL_LABEL = "Social";
 LINK_TRADESKILL_TOOLTIP = "Cliquez ici pour créer un lien vers votre profession.";
 TEXT_TO_SPEECH = "Narrateur";
 TEXT_TO_SPEECH_ADJUST_RATE = "Modifie la vitesse de la voix";

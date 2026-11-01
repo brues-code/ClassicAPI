@@ -187,6 +187,7 @@ SLASH_TARGET_NEAREST_RAID1 = "/targetraid";
 SLASH_TARGET_NEAREST_RAID2 = "/targetraid";
 SLASH_USE1 = "/use";
 SLASH_USE2 = "/use";
+SOCIAL_LABEL = "社交";
 LINK_TRADESKILL_TOOLTIP = "点击这里以创建一个链接到你的专业的快捷方式。";
 TEXT_TO_SPEECH = "文本转语音";
 TEXT_TO_SPEECH_ADJUST_RATE = "调节讲话速度";
