@@ -132,6 +132,15 @@ const uint8_t *PlayerInfoRecord(uint64_t guid);
 // for callers that only want the name (friend/ignore GUID→name compares).
 const char *NameForGuid(uint64_t guid);
 
+// The engine's own name for a resolved unit object (`FUN_OBJECT_GET_NAME`,
+// CGUnit_C::GetUnitName): a player's from the name cache, a pet's from the pet
+// name cache, a creature's from its creature record, else the engine's
+// `"UNKNOWNOBJECT"` / `"Unknown Being"` text. `outRealm` (optional) receives
+// the player's realm when the name cache record carries one and is left
+// untouched otherwise, so initialize it. Unlike NameForGuid this is not a
+// passive peek: a player whose name isn't cached yet gets a name query.
+const char *NameForUnit(const void *unit, const char **outRealm = nullptr);
+
 // The GUID of the player the NameCache knows as `name` (whole name, case-
 // insensitive — the engine's own ignore-by-name compare), or 0. Walks every
 // loaded record, so it resolves anyone the engine has named this session

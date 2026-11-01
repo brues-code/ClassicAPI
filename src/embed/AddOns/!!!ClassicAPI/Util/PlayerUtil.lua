@@ -40,6 +40,6 @@ function IsPlayerGuid(guid)
 end
 
 function GetNameAndServerNameFromGUID(unitGUID)
-	local _, _, _, _, _, name = GetPlayerInfoByGUID(unitGUID);
-	return name, GetRealmName()
+	local _, _, _, _, _, name, normalizedRealmName = GetPlayerInfoByGUID(unitGUID);
+	return name, normalizedRealmName;
 end

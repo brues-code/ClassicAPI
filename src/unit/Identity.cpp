@@ -198,6 +198,12 @@ const char *NameForGuid(uint64_t guid) {
     return (name != nullptr && *name != '\0') ? name : nullptr;
 }
 
+const char *NameForUnit(const void *unit, const char **outRealm) {
+    using GetName_t = const char *(__thiscall *)(const void *unit, const char **outRealm);
+    return reinterpret_cast<GetName_t>(
+        static_cast<uintptr_t>(Offsets::FUN_OBJECT_GET_NAME))(unit, outRealm);
+}
+
 void ForEachCachedPlayer(CachedPlayerVisitor visit, void *context) {
     // Walk the cache's node list the way its save routine NameCacheSave
     // (0x0055EC70) does, and read each node's record back through the engine's

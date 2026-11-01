@@ -76,8 +76,8 @@ bool ParseGUID(const char *str, uint32_t &outHi, uint32_t &outLo) {
 // Pushes `(localizedClass, englishClass, localizedRace, englishRace, sex,
 // name, realm)` for a player GUID and returns 7, or pushes nothing and
 // returns 0 if nothing knows that GUID. Engine name cache first, then the
-// persistent NameCache (when enabled) — whose realm is always "", since
-// vanilla is single-realm and never carries a per-player realm.
+// persistent NameCache (when enabled) — whose realm is always "", since it
+// doesn't store one.
 int PushPlayerInfo(void *L, uint64_t guid) {
     if (guid == 0)
         return 0;
@@ -157,22 +157,24 @@ int __fastcall Script_GetPlayerInfoByGUID(void *L) {
 //   2. Friends list. It keeps name + GUID for online AND offline
 //      friends (SMSG_FRIEND_LIST), so a friend resolves even while
 //      unsynced and never seen in chat. Always on (not opt-in).
-//   3. If still unresolved (ex-target who logged off, player
-//      encountered earlier in chat but no longer visible), fall back
-//      to the persistent NameCache (when enabled).
+//   3. The engine's name cache — anyone it has named this session (a
+//      chat sender, an ex-target no longer in range).
+//   4. If still unresolved (player seen in an earlier session), fall
+//      back to the persistent NameCache (when enabled).
 //
-// `realm` is always `""` in vanilla — the engine doesn't populate
-// per-player realm names and 1.12 has no cross-realm interaction.
-// We push the empty string rather than nil so callers don't have to
-// special-case the second return; modern WoW returns nil, but
-// `realm == ""` is just as easy to gate on.
+// `realm` is the server name the name cache record carries — the
+// field SMSG_NAME_QUERY_RESPONSE fills for a cross-realm player. It's
+// `""` when the record has none or the name came from the friends
+// list / persistent cache. Retail documents both returns as non-nil
+// strings, so the empty case pushes `""` rather than nil.
 //
 // Returns nothing on:
 //   - Missing or non-string arg (raises an error rather than return).
 //   - Unparseable GUID string.
 //   - Zero / NULL GUID.
 //   - GUID not resolvable in the object manager, not on the friends
-//     list, AND not in the persistent NameCache (never seen this unit).
+//     list, not in the engine's name cache, AND not in the persistent
+//     NameCache (never seen this unit).
 //
 // Doesn't trigger a network query on miss — passive read, same as
 // `GetPlayerInfoByGUID`. Use `C_PlayerCache.RememberPlayer` or let
@@ -186,10 +188,11 @@ int __fastcall Script_UnitNameFromGUID(void *L) {
     if (!ParseGUID(Game::Lua::ToString(L, 1), hi, lo))
         return 0;
     char name[64];
-    if (!NameFromGuid((static_cast<uint64_t>(hi) << 32) | lo, name, sizeof name))
+    const char *realm = "";
+    if (!NameFromGuid((static_cast<uint64_t>(hi) << 32) | lo, name, sizeof name, &realm))
         return 0;
     Game::Lua::PushString(L, name);
-    Game::Lua::PushString(L, ""); // realm — always "" in vanilla
+    Game::Lua::PushString(L, realm);
     return 2;
 }
 
@@ -229,16 +232,17 @@ int __fastcall Script_C_PlayerCache_GetPlayerInfoByName(void *L) {
 //      rather than pre-filtering by typemask.
 //   2. Friends list — keeps name + GUID for online AND offline friends, so a
 //      friend resolves even while unsynced and never seen in chat.
-//   3. Persistent NameCache (when enabled) — ex-units no longer in the sync
-//      window (an ex-target who logged off, a chat name no longer visible).
-bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize) {
+//   3. The engine's name cache — anyone it has named this session, in range
+//      or not.
+//   4. Persistent NameCache (when enabled) — players seen in earlier sessions.
+// The realm comes from the engine's name cache record, through the getter's
+// own out-param in step 1, as vanilla's UnitName reads it.
+bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize, const char **outRealm) {
     if (guid == 0 || buf == nullptr || bufSize == 0)
         return false;
 
-    using GetName_t = const char *(__thiscall *)(void *obj, int *outFlags);
     if (void *obj = Object::ByGuid(Offsets::TYPEMASK_OBJECT, guid, nullptr, 0)) {
-        auto getName = reinterpret_cast<GetName_t>(Offsets::FUN_OBJECT_GET_NAME);
-        const char *name = getName(obj, nullptr);
+        const char *name = Unit::Identity::NameForUnit(obj, outRealm);
         if (name != nullptr && *name != '\0' &&
             std::strcmp(name, "UNKNOWNOBJECT") != 0 &&
             std::strcmp(name, "Unknown Being") != 0)
@@ -247,6 +251,15 @@ bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize) {
 
     if (const char *fname = FriendList::NameForGuid(guid))
         return CopyName(buf, fname, bufSize);
+
+    if (const uint8_t *rec = Unit::Identity::PlayerInfoRecord(guid)) {
+        const char *name = Game::Ptr<const char>(rec, Offsets::OFF_PLAYER_INFO_NAME);
+        if (*name != '\0') {
+            if (outRealm != nullptr)
+                *outRealm = Game::Ptr<const char>(rec, Offsets::OFF_PLAYER_INFO_REALM);
+            return CopyName(buf, name, bufSize);
+        }
+    }
 
     const std::string *cachedName = nullptr;
     const NameCache::Entry *cached = NameCache::Lookup(guid, &cachedName);

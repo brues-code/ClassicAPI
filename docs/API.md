@@ -17870,7 +17870,7 @@ Returns:
 | 4 `englishRace`    | `"Human"`, `"Orc"`, `"Dwarf"`, `"NightElf"`, `"Scourge"` (the filename for what addons call Undead), `"Tauren"`, `"Gnome"`, `"Troll"` — from `ChrRaces.dbc` filename field. |
 | 5 `sex`            | `2` = male, `3` = female. Matches `UnitSex` convention (the cache stores `0`/`1`; we add `2`). |
 | 6 `name`           | Character name. |
-| 7 `realm`          | Realm name. Single-realm, so usually the local realm. |
+| 7 `realm`          | The realm that the server sends with the player's name, or `""` when the server sends no realm. |
 
 **Cache coverage**: the engine populates entries from
 `SMSG_NAME_QUERY_RESPONSE`. Anything the client has already seen
@@ -17886,10 +17886,10 @@ explicitly and fire a load-result event.
 **Persistent fallback**: when
 [`C_PlayerCache.SetEnabled(true)`](#c_playercachesetenabledenabled)
 has been opted into, a per-realm on-disk cache extends coverage
-across sessions. On engine cache miss, `GetPlayerInfoByGUID` falls
-back to the persistent cache and returns `name`, `class`, `race`,
-and `sex` from storage (`realm` comes back as `""` since this is
-single-realm and we don't carry per-player realm names).
+across sessions. If the engine cache does not have the player,
+`GetPlayerInfoByGUID` uses the persistent cache. It returns `name`,
+`class`, `race`, and `sex` from storage. The persistent cache does
+not store the realm, so `realm` is `""`.
 Returns `nil` only when both the engine and persistent caches miss.
 
 **Implementation**: calls the engine's get-or-fetch primitive at
@@ -17903,14 +17903,16 @@ sex, class) was reverse-engineered from the
 Returns `name, realm` for the player identified by `guid`, or `nil`
 if no player with that GUID has been encountered yet.
 
-It tries three sources in order:
+It tries four sources in order:
 
 1. The object manager — any currently-synced unit (a player you can
    see, your target, a party or raid member, an NPC in range).
 2. Your friends list — it keeps name and GUID for online and offline
    friends, so a friend resolves even when not synced and never seen
    in chat. Always on.
-3. The persistent on-disk name cache, when you have enabled it.
+3. The engine name cache — every player name that the client got in
+   this session, in range or not.
+4. The persistent on-disk name cache, when you have enabled it.
 
 ```lua
 local name, realm = UnitNameFromGUID(UnitGUID("target"))
@@ -17922,10 +17924,10 @@ end
 local name, realm = UnitNameFromGUID("0x0000000000000777")
 ```
 
-`realm` is always `""` — the engine doesn't populate
-per-player realm names and there is no cross-realm interaction.
-We push the empty string rather than `nil` to match the convention
-of the other player-info accessors; addons can gate on `realm == ""`.
+`realm` is the realm that the server sends with the player's name.
+It is `""` when the server sends no realm, and when the name comes
+from your friends list or from the persistent cache. It is never
+`nil`, so you can test `realm == ""`.
 
 Doesn't trigger a network query on miss. To populate an unknown
 GUID, either let the engine receive a `SMSG_NAME_QUERY_RESPONSE`

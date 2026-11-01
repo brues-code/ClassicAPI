@@ -5007,7 +5007,7 @@ enum Offsets {
     // The type arg is a bitmask of object-type bits (see the TYPEMASK_*
     // block below), not an enum index.
 
-    // `CGObject::GetName` — returns the display-name `const char *` for
+    // `CGUnit_C::GetUnitName` — returns the display-name `const char *` for
     // a resolved CGObject (CGUnit / CGPlayer / CGCreature). Internally
     // does a NameCache lookup for players and reads the creature-info
     // cache for NPCs; falls back to `"UNKNOWNOBJECT"` / `"Unknown Being"`
@@ -5015,10 +5015,16 @@ enum Offsets {
     // "name + PvP-rank decoration" helper used by the SetUnit tooltip
     // builder) calls internally.
     //
-    //   __thiscall const char *(void *obj, int *outFlags /* may be 0 */)
+    //   __thiscall const char *(void *obj, const char **outRealm /* may be 0 */), RET 4
     //
-    // Caller-owned `outFlags` receives metadata about the lookup; we
-    // pass `nullptr` since we just want the name.
+    // `outRealm` is the player's realm: for a player whose name-cache record
+    // has a non-empty server name (`OFF_PLAYER_INFO_REALM`), it stores a
+    // pointer to that string (0x0060926B-0x00609283); otherwise it leaves
+    // `*outRealm` untouched, so the caller initializes it. Vanilla's
+    // `Script_UnitName` (0x00517020) passes `&realm` here and pushes it as
+    // UnitName's second return (nil when unset, spaces/tabs stripped when
+    // arg 2 is `true`). The player lookup passes callback 0x005FB840, so a
+    // synced player whose name isn't cached yet gets a name query.
     FUN_OBJECT_GET_NAME = 0x00609210,
     // `CGGameObject_C::GetName` — gameobject-specific name getter.
     // Returns `*(obj+0x214)+0x08` (the cached GameObjectStats_C record's

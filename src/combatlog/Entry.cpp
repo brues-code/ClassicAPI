@@ -298,7 +298,6 @@ using CacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id, co
 using NameCache_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo, uint32_t hi,
                                                   const uint64_t *guid, void *callback,
                                                   void *userData, char dedup);
-using ObjectName_t = const char *(__thiscall *)(void *object, int *outFlags);
 using GameObjectName_t = const char *(__fastcall *)(void *object);
 
 void *QueryDone() { return reinterpret_cast<void *>(Offsets::FUN_COMBAT_LOG_NAME_QUERY_DONE); }
@@ -322,7 +321,7 @@ const char *ObjectName(uint64_t guid) {
         const uint32_t type =
             fields != nullptr ? Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_TYPE) : 0;
         if (type & Offsets::TYPEMASK_UNIT)
-            return reinterpret_cast<ObjectName_t>(Offsets::FUN_OBJECT_GET_NAME)(object, nullptr);
+            return Unit::Identity::NameForUnit(object);
         if (type & Offsets::TYPEMASK_GAMEOBJECT)
             return reinterpret_cast<GameObjectName_t>(Offsets::FUN_GAMEOBJECT_GET_NAME)(object);
         if (type & Offsets::TYPEMASK_ITEM)

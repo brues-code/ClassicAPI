@@ -51,7 +51,6 @@ namespace {
 using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 using SendName_t = void(__thiscall *)(const void *player, const char *name);
 using SendGuid_t = void(__thiscall *)(const void *player, uint32_t guidLo, uint32_t guidHi);
-using GetName_t = const char *(__thiscall *)(const void *object, int *outFlags);
 using DisplayError_t = void(__cdecl *)(int id, ...);
 
 // The by-name search mode `Script_PromoteByName` passes (0x0048A855).
@@ -80,8 +79,7 @@ int __fastcall Script_InviteUnit(void *L) {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return 0;
-    const char *self =
-        reinterpret_cast<GetName_t>(Offsets::FUN_OBJECT_GET_NAME)(player, nullptr);
+    const char *self = Unit::Identity::NameForUnit(player);
     if (Game::StrCmpI(name, self) == 0) {
         reinterpret_cast<DisplayError_t>(Offsets::FUN_GAMEUI_DISPLAY_ERROR)(
             Offsets::GAME_ERROR_INVITE_SELF);

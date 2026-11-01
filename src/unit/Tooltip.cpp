@@ -261,8 +261,6 @@ static int __fastcall Script_GameTooltipSetUnit(void *L) {
     return n;
 }
 
-using ObjectGetName_t = const char *(__fastcall *)(void *obj, void *edx_unused, int *outFlags);
-
 // The name `UnitName` would give for this GUID, in `Script_UnitName`'s order
 // (0x00517020): the live object, else — no object, e.g. an offline or far
 // party/raid member — the group roster slot's inline name, else the player
@@ -277,12 +275,9 @@ static const char *ResolveUnitName(uint32_t guidLo, uint32_t guidHi) {
             return Game::Ptr<const char>(slot, Offsets::OFF_GROUP_MEMBER_SLOT_NAME);
         return Unit::Identity::NameForGuid(guid);
     }
-    // `FUN_OBJECT_GET_NAME` is __thiscall — wire as __fastcall with the
-    // ignored EDX slot. Returns a const char* (the canonical display
-    // name for the object); falls back to engine `"UNKNOWNOBJECT"` /
-    // `"Unknown Being"` literals when the unit's name isn't cached.
-    auto getName = reinterpret_cast<ObjectGetName_t>(Offsets::FUN_OBJECT_GET_NAME);
-    return getName(obj, nullptr, nullptr);
+    // Falls back to the engine's `"UNKNOWNOBJECT"` / `"Unknown Being"`
+    // text when the unit's name isn't cached.
+    return Unit::Identity::NameForUnit(obj);
 }
 
 // `GameTooltip:GetUnitGUID()` → (name, guidString) for whichever unit

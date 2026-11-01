@@ -24,11 +24,16 @@ namespace Player::Info {
 
 // Resolve any object GUID to a display name -- players AND creatures. Chain:
 // object manager (the engine's polymorphic name getter) -> friends list ->
-// persistent NameCache. Writes a NUL-terminated name into `buf` and returns
-// true iff resolved; returns false (buf untouched) for GUID 0, a non-unit
-// object, or an unknown / uncached GUID. Passive -- never triggers a name
-// query.
-bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize);
+// the engine's name cache -> persistent NameCache. Writes a NUL-terminated
+// name into `buf` and returns true iff resolved; returns false (buf untouched)
+// for GUID 0, a non-unit object, or an unknown / uncached GUID. Never sends a
+// name query of its own.
+//
+// `outRealm` (optional) receives the player's realm when the engine's name
+// cache record carries one, and is left untouched otherwise -- initialize it.
+// It points into that record, so read it before the next engine call.
+bool NameFromGuid(uint64_t guid, char *buf, size_t bufSize,
+                  const char **outRealm = nullptr);
 
 // Resolve a player's character name to their GUID, or 0. Chain: the engine's
 // by-name search (party and raid members, including out-of-range ones, then

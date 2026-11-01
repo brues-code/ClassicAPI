@@ -62,7 +62,6 @@ namespace Player::LocationInfo {
 namespace {
 
 using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
-using GetName_t = const char *(__thiscall *)(void *obj, int *outFlags);
 using GroupLookup_t = void *(__fastcall *)(const uint64_t *guid);
 
 // Reads a string field `t[field]` at table stack index `locIdx` into `out`.
@@ -131,8 +130,7 @@ int __fastcall Script_GetName(void *L) {
     const uint8_t *unit = ResolveUnit(guid);
     if (unit == nullptr)
         return 0;
-    auto getName = reinterpret_cast<GetName_t>(Offsets::FUN_OBJECT_GET_NAME);
-    const char *name = getName(const_cast<uint8_t *>(unit), nullptr);
+    const char *name = Unit::Identity::NameForUnit(unit);
     if (name == nullptr || name[0] == '\0')
         return 0;
     Game::Lua::PushString(L, name);

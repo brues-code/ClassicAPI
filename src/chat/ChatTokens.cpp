@@ -61,10 +61,7 @@ const char *UnitName(uint64_t guid) {
     if (guid == 0)
         return nullptr;
     if (void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0)) {
-        using GetName_t = const char *(__thiscall *)(void *obj, int *outFlags);
-        const char *name =
-            reinterpret_cast<GetName_t>(static_cast<uintptr_t>(Offsets::FUN_OBJECT_GET_NAME))(
-                unit, nullptr);
+        const char *name = Unit::Identity::NameForUnit(unit);
         if (name != nullptr && *name != '\0')
             return name;
     }

@@ -175,12 +175,6 @@ uint32_t SpellDurationMs(const uint8_t *rec) {
 using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx,
                                          uint64_t guid);
 using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
-using GetUnitName_t = const char *(__thiscall *)(void *unit, int *outFlags);
-
-const char *UnitName(void *unit) {
-    return reinterpret_cast<GetUnitName_t>(
-        static_cast<uintptr_t>(Offsets::FUN_OBJECT_GET_NAME))(unit, nullptr);
-}
 
 struct ScanCtx {
     uint64_t playerGuid;
@@ -278,7 +272,7 @@ void OnTick() {
                 Destroy(s);
                 continue;
             }
-            const char *name = UnitName(obj);
+            const char *name = Unit::Identity::NameForUnit(obj);
             if (name != t.name) {
                 t.name = name;
                 MarkDirty(s);
@@ -314,7 +308,7 @@ void OnTick() {
                 Slot &t = g_slots[s];
                 t.guid = ctx.found[s];
                 void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, t.guid, nullptr, 0);
-                t.name = obj != nullptr ? UnitName(obj) : nullptr;
+                t.name = obj != nullptr ? Unit::Identity::NameForUnit(obj) : nullptr;
                 MarkDirty(s);
             }
         }
