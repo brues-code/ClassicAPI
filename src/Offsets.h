@@ -1959,7 +1959,7 @@ enum Offsets {
     // (loot sparkle), so bit 0x2000 (4.3.4's focus bit) is taken here, and
     // UnitXP references 0x0060C578 in its body. Unit::TokenEvents co-hooks
     // the recompute to keep UNIT_SCRIPT_REG_TOKENS on units that have a
-    // ClassicAPI token (focus, nameplateN, markN).
+    // ClassicAPI token (focus, nameplateN, markN, softenemy, softfriend).
     OFF_CGUNIT_SCRIPT_REGISTRATION = 0xC90,
     // ClassicAPI's bit for those units (4.3.4's focus bit is 0x2000, taken
     // here — see above; 0x4000 is 4.3.4's arena bit).

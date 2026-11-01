@@ -295,8 +295,7 @@ static int __fastcall Script_UnitGUID(void *L) {
 //          → raidpet1..40 → nameplate1..N → target → focus
 //          → npc → mouseover → softenemy → softfriend → softinteract
 //
-// (retail's place for the three soft targets is not verified; they go
-// last).
+// `markN` is not in retail's list, so it is never returned here.
 //
 // The result is inherently unstable — multiple tokens can map to the
 // same GUID at once (your target IS your mouseover IS your party1), and

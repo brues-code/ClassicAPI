@@ -94,8 +94,9 @@ int __fastcall Script_UnitCreatureID(void *L) {
     if (token == nullptr)
         return 0;
 
-    // Token -> GUID (player fast-path, focus / nameplateN / markN, raw GUID),
-    // then the shared block-first lookup. A valid-but-empty token resolves to
+    // Token -> GUID (player fast-path, then the engine resolver with
+    // ClassicAPI's tokens and raw GUIDs, see unit/TokenExtensions.cpp), then
+    // the shared block-first lookup. A valid-but-empty token resolves to
     // GUID 0 -> 0 -> nil; a player resolves to a player GUID -> 0 -> nil.
     const uint32_t entryID = ForGuid(Unit::Identity::GuidForToken(token));
     if (entryID == 0) {

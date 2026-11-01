@@ -28,9 +28,7 @@
 //   event firing.
 //
 // - `mark1`..`mark8` — raid-target markers (star … skull), resolved
-//   from the engine's marker table via `Unit::RaidTarget`. That module
-//   also fires per-`markN` unit events (`UNIT_HEALTH`, …) through the
-//   same `TokenObserver` path as `focus`/`nameplateN`.
+//   from the engine's marker table via `Unit::RaidTarget`.
 //
 // - `softinteract` / `anyinteract` / `anyleftinteract` — the interact
 //   key's object, backed by `Target::SoftInteract`. Any can be a game object
@@ -47,16 +45,16 @@
 //   when it is, its own resolver hook owns GUID input and we defer to
 //   avoid double-handling. See `GuidTokenEnabled` below.
 //
-// Both families compose with the engine's own `target`-suffix walker
+// Every family composes with the engine's own `target`-suffix walker
 // (`focustarget`, `nameplate1targettarget`) via the shared
 // `WalkSuffix` helper, which mirrors the engine's
 // `LAB_005159d3..0x00515A2C` walker instruction-for-instruction
 // (SStrCmpI "target" + ObjectByGUID + read UNIT_FIELD_TARGET).
 //
-// Resolution order in the hook: focus check first (literal-equal,
-// short token), then nameplate prefix (longer, requires digit).
-// Both branches short-circuit; on no-match the original engine
-// resolver runs unchanged.
+// Resolution order in the hook: raw GUID, focus, the soft targets,
+// nameplateN (requires a digit), markN (one digit 1..8). Each branch
+// short-circuits; on no match the original engine resolver runs
+// unchanged.
 
 #include "Game.h"
 #include "Offsets.h"

@@ -23,7 +23,7 @@
 //
 // Watching. The engine rebuilds a unit's registration mask from scratch in
 // FUN_UNIT_SCRIPT_RECOMPUTE on every target / group / pet change and at unit
-// post-init. A co-hook keeps UNIT_SCRIPT_REG_TOKENS (one bit for all three
+// post-init. A co-hook keeps UNIT_SCRIPT_REG_TOKENS (one bit for all the
 // tokens) on any unit that has one, through the engine's own
 // FUN_UNIT_SCRIPT_REGISTER / _UNREGISTER, which start and stop the field
 // watch on 0 ↔ nonzero. Post-init covers a unit coming back into range — a
@@ -223,7 +223,7 @@ void Apply() {
     if (broadcast.size() != Offsets::UNIT_EVENT_BROADCAST_CALL_SITES ||
         combat.size() != Offsets::UNIT_COMBAT_FEEDBACK_CALL_SITES) {
         Debug::Log::Printf("TokenEvents: call sites differ (broadcast %u, combat %u); "
-                           "focus/nameplate/mark tokens get no engine unit events",
+                           "ClassicAPI tokens get no engine unit events",
                            static_cast<unsigned>(broadcast.size()),
                            static_cast<unsigned>(combat.size()));
         return;

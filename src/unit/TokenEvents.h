@@ -18,9 +18,10 @@
 namespace Unit::TokenEvents {
 
 // Re-evaluates whether the engine watches `guid`'s unit for ClassicAPI's
-// tokens (focus, nameplateN, markN). The owner of a token calls it after the
-// token is given to or taken from a unit; 0 and units out of range are no-ops
-// (a unit coming into range is evaluated by the engine itself).
+// tokens (focus, nameplateN, markN, softenemy, softfriend). The owner of a
+// token calls it after the token is given to or taken from a unit; 0 and units
+// out of range are no-ops (a unit coming into range is evaluated by the engine
+// itself).
 void Refresh(uint64_t guid);
 
 // The engine's per-token unit-event broadcast, then the same event for each

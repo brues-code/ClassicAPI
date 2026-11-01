@@ -35,14 +35,14 @@ using FieldCallback = int(__fastcall *)(uint32_t fieldOffset, uint32_t size,
 // `UNIT_AURA`, `UNIT_LEVEL`, …).
 //
 // For a token no engine token map can name — today only `focustarget`. The
-// tokens a unit can hold (focus, nameplateN, markN) are NOT observed here:
-// `Unit::TokenEvents` routes the engine's own events to them, and with
-// SuperWoW watching every unit, an observer of ours would fire their field
-// events a second time. The registrar appends a fresh node per (guid, field)
-// with no dedup, so our observer coexists with the engine's — a unit that is
-// simultaneously the target keeps firing `"target"` while ours fires its own
-// token. Unregister is a safe no-op once the object is gone (the engine frees
-// observer nodes with the object).
+// tokens a unit can hold (focus, nameplateN, markN, softenemy, softfriend)
+// are NOT observed here: `Unit::TokenEvents` routes the engine's own events
+// to them, and with SuperWoW watching every unit, an observer of ours would
+// fire their field events a second time. The registrar appends a fresh node
+// per (guid, field) with no dedup, so our observer coexists with the
+// engine's — a unit that is simultaneously the target keeps firing
+// `"target"` while ours fires its own token. Unregister is a safe no-op once
+// the object is gone (the engine frees observer nodes with the object).
 //
 // `cb` runs inside SMSG_UPDATE_OBJECT dispatch; firing engine events from it
 // is sanctioned (the engine's own callback `FUN_0051bd50` does exactly that).
