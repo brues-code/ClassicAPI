@@ -12,7 +12,10 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // 4.3.4's CSimpleAnimGroup (wowdecomp15595 CSimpleAnimGroup.cpp and
-// CSimpleAnimGroup_Scripts.cpp), on Animation::Object.
+// CSimpleAnimGroup_Scripts.cpp), on Animation::Object, with later clients'
+// SetToFinalAlpha / IsSetToFinalAlpha: the final alpha is kept when the
+// group finishes (Finish included), and Stop still restores the alpha. No
+// source on disk says what a later client's Stop does with the flag.
 
 #include "animation/Classes.h"
 #include "animation/Region.h"
@@ -343,6 +346,12 @@ bool Group::OnUpdate(float elapsedSec) {
         RunScript(G_ONUPDATE, 1);
     }
     if (done) {
+        // setToFinalAlpha: the alpha each alpha animation's target finished on
+        // becomes what the end restores. Stop restores the alpha as before.
+        if (setToFinalAlpha)
+            for (Anim *anim : animations)
+                if (anim->kind == KIND_ALPHA)
+                    Region::KeepAnimAlpha(RegionObject(), anim->target);
         Region::NotifyEnd(RegionObject(), this);
         const bool requested = (flags & GROUP_PENDING_FINISH) != 0;
         loopState = STATE_NONE;
@@ -632,6 +641,18 @@ int __fastcall Script_GetIgnoreFramerateThrottle(void *L) {
         Game::Lua::PushNil(L);
     return 1;
 }
+int __fastcall Script_SetToFinalAlpha(void *L) {
+    if (Group *g = Self(L))
+        g->setToFinalAlpha = Game::Lua::ToFlag(L, 2);
+    return 0;
+}
+int __fastcall Script_IsSetToFinalAlpha(void *L) {
+    Group *g = Self(L);
+    if (g == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, g->setToFinalAlpha);
+    return 1;
+}
 
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetObjectType", &Script_GetObjectType},
@@ -662,6 +683,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"HookScript", &Script_HookScript},
     {"SetIgnoreFramerateThrottle", &Script_SetIgnoreFramerateThrottle},
     {"GetIgnoreFramerateThrottle", &Script_GetIgnoreFramerateThrottle},
+    {"SetToFinalAlpha", &Script_SetToFinalAlpha},
+    {"IsSetToFinalAlpha", &Script_IsSetToFinalAlpha},
 };
 
 } // namespace

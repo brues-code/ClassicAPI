@@ -16,6 +16,7 @@
 #include "animation/Object.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 // 4.3.4's CSimpleAnimGroup and CSimpleAnim (and its Alpha, Translation,
@@ -61,6 +62,10 @@ class Group : public Object {
     int GetMaxAnimOrder() const;
     bool HasAlphaAnim() const;
     bool HasPositionAnim() const;
+
+    // Later clients' setToFinalAlpha: when the group finishes, its alpha
+    // animations' targets keep the alpha they end on (KeepAnimAlpha).
+    bool setToFinalAlpha = false;
 
     void NotifyAnimAdded(Anim *anim);
     void NotifyOrderChanged(Anim *anim, int oldOrder);
@@ -141,17 +146,30 @@ class Anim : public Object {
     uint8_t flags = 0;
     int playState = 0; // 0 stopped, 1 playing, 2 paused
     int loopState = STATE_NONE;
-    void *target = nullptr;          // m_target, resolved from targetName on Play
+    void *target = nullptr;          // m_target, resolved from targetName or targetKey on Play
     char targetName[128] = {};       // m_targetName
+    // Later clients' targetKey: a key path from the animation itself, where
+    // `$parent` steps to the group, then the group's region, then that
+    // region's parent. childKey "Icon" is "$parent.$parent.Icon".
+    std::string targetKey;
     bool hasSmoother = false;
     float smoothIn = 0.0f, smoothOut = 0.0f;
 
-    // Alpha: m_change, -255..255.
+    // Resolves targetName or targetKey into target, when either is set.
+    void ResolveTarget();
+
+    // Alpha: m_change, -255..255, or (alphaFromTo) the absolute fromAlpha /
+    // toAlpha, 0..1, that later clients replaced it with.
     int16_t change = 0;
+    bool alphaFromTo = false;
+    float fromAlpha = 0.0f, toAlpha = 0.0f;
     // Translation: the offset; Scale: the scale and origin; Rotation: the
     // angle and origin. Offsets in layout units, as 4.3.4 keeps them.
     float offsetX = 0.0f, offsetY = 0.0f;
-    float scaleChangeX = 0.0f, scaleChangeY = 0.0f; // m_scaleChange: 1 - scale
+    // Scale: from and to, 1 by default. 4.3.4's m_scaleChange (1 - scale)
+    // is the case from = 1; later clients added the from scale.
+    float scaleFromX = 1.0f, scaleFromY = 1.0f;
+    float scaleToX = 1.0f, scaleToY = 1.0f;
     float radians = 0.0f;
     int originPoint = 4; // FRAMEPOINT_CENTER
     float originX = 0.0f, originY = 0.0f;

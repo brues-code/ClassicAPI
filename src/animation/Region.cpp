@@ -64,10 +64,12 @@
 #include "frame/Alpha.h"
 #include "frame/Destruction.h"
 #include "texture/Transform.h"
+#include "xml/Anchors.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -683,6 +685,28 @@ void AddAnimAlpha(void *region, void *target, int16_t alpha) {
     SetVertexAlpha(region, static_cast<uint8_t>(value > 255 ? 255 : (value < 0 ? 0 : value)));
 }
 
+void SetAnimAlpha(void *region, void *target, uint8_t alpha) {
+    if (IsFrame(region)) {
+        if (target != nullptr && target != region) {
+            ForEachChild(region, [target, alpha](void *child) { SetAnimAlpha(child, target, alpha); });
+            return;
+        }
+        if (alpha != OwnAlpha(region))
+            SetOwnAlpha(region, alpha);
+        return;
+    }
+    if (target != nullptr && target != region)
+        return;
+    SetVertexAlpha(region, alpha);
+}
+
+void KeepAnimAlpha(void *region, void *target) {
+    void *shown = target != nullptr ? target : region;
+    AnimData *data = DataOf(shown);
+    if (data != nullptr && data->hasAlpha)
+        data->alpha = IsFrame(shown) ? OwnAlpha(shown) : static_cast<uint8_t>(VertexColor(shown) >> 24);
+}
+
 namespace {
 
 // The corners (TL, BL, TR, BR) as 2D points.
@@ -840,6 +864,31 @@ void *FindRegionByName(const char *name) {
     if (object == nullptr || IsOurs(object) || !Game::Lua::IsA(object, Offsets::VAR_REGION_LUA_TYPE_ID))
         return nullptr;
     return object;
+}
+
+// The leading `$parent` steps that stay among our objects (an animation to
+// its group, a group to its region) are taken here; the rest of the path,
+// from that region, is the one Xml::Anchors resolves for relativeKey.
+void *FindRegionByKey(Object *from, const char *path) {
+    if (from == nullptr || path == nullptr)
+        return nullptr;
+    void *current = from;
+    const char *p = path;
+    while (current != nullptr && IsOurs(current)) {
+        const char *dot = std::strchr(p, '.');
+        const std::string part = dot != nullptr ? std::string(p, dot) : std::string(p);
+        if (Game::StrCmpI(part.c_str(), "$parent") != 0)
+            return nullptr; // a key on a group or animation names no region
+        current = static_cast<Object *>(current)->parent;
+        p = dot != nullptr ? dot + 1 : p + part.size();
+    }
+    if (current == nullptr)
+        return nullptr;
+    if (*p != '\0')
+        current = ::Xml::Anchors::ResolveKeyPath(current, p, false);
+    if (current == nullptr || IsOurs(current) || !Game::Lua::IsA(current, Offsets::VAR_REGION_LUA_TYPE_ID))
+        return nullptr;
+    return current;
 }
 
 } // namespace Animation::Region

@@ -72,14 +72,15 @@ const void *FindChild(const void *node, const char *tag) {
     return nullptr;
 }
 
-// The object `path` names, starting from `object`, or nullptr.
-void *ResolveKeyPath(void *object, const char *path) {
+} // namespace
+
+void *ResolveKeyPath(void *object, const char *path, bool leadingGlobal) {
     void *L = Game::Lua::State();
     if (L == nullptr)
         return nullptr;
     const int top = Game::Lua::GetTop(L);
     void *current = object;
-    bool first = true;
+    bool first = leadingGlobal;
     for (const char *p = path; current != nullptr;) {
         const char *dot = std::strchr(p, '.');
         const std::string part = dot != nullptr ? std::string(p, dot) : std::string(p);
@@ -107,6 +108,8 @@ void *ResolveKeyPath(void *object, const char *path) {
     Game::Lua::SetTop(L, top);
     return current;
 }
+
+namespace {
 
 // The relative target the engine's loader gave `point` (its anchor node's
 // LayoutFrame inner, the setter's relAnchor), or nullptr when the point is
@@ -140,7 +143,7 @@ bool ApplyAnchor(void *object, const void *anchor, void *status) {
 
     void *relAnchor = nullptr;
     if (HasValue(relativeKey)) {
-        void *target = ResolveKeyPath(object, relativeKey);
+        void *target = ResolveKeyPath(object, relativeKey, true);
         if (target == nullptr || target == object)
             return false;
         relAnchor = Game::Ptr<void>(target, Offsets::OFF_REGION_ANCHOR);

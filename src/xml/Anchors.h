@@ -29,4 +29,10 @@ void RetryUnder(void *root, void *status);
 // run when the outermost frame build returns.
 void Flush(void *status);
 
+// The object a later-client key path names, starting from the region
+// `object`, or nullptr: `$parent` steps to the region's parent, any other part
+// indexes the current object's Lua table. With `leadingGlobal` (relativeKey),
+// a first part that is not `$parent` is a global instead.
+void *ResolveKeyPath(void *object, const char *path, bool leadingGlobal);
+
 } // namespace Xml::Anchors

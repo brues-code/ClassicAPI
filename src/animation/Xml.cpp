@@ -16,6 +16,11 @@
 // LoadXML_AnimOrigin; the attributes BinaryXML.cpp parses), on 1.12 nodes.
 // A script body compiles through the engine's own SetScriptObjectScript, so
 // it is named "<object>:<script>" and handled like a frame's.
+//
+// Later clients' attributes go to the same fields their methods set:
+// setToFinalAlpha on a group; targetKey and childKey on any animation;
+// fromAlpha / toAlpha on Alpha; fromScaleX / fromScaleY / toScaleX /
+// toScaleY on Scale. Each applies only when present and non-empty.
 
 #include "animation/Xml.h"
 
@@ -212,6 +217,8 @@ void LoadGroupNode(Group *group, const void *node, void *status) {
         else
             ::Xml::Warn(status, "AnimationGroup %s: Invalid looping value: %s", group->DisplayName(), looping);
     }
+    if (const char *keep = ::Xml::Attr(node, "setToFinalAlpha"); keep != nullptr && *keep != '\0')
+        group->setToFinalAlpha = Game::StringToFlag(keep);
     float x = 0.0f, y = 0.0f;
     FloatAttr(node, "initialOffsetX", x);
     FloatAttr(node, "initialOffsetY", y);
@@ -262,8 +269,13 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
         if (FloatAttr(node, "scaleY", sy) && sy < 0.001f)
             ::Xml::Warn(status, "%s: Invalid scaleY value: %s. Value must be at least 0.001.", anim->DisplayName(),
                         ::Xml::Attr(node, "scaleY"));
-        anim->scaleChangeX = 1.0f - (sx >= 0.001f ? sx : 0.001f);
-        anim->scaleChangeY = 1.0f - (sy >= 0.001f ? sy : 0.001f);
+        anim->scaleToX = sx >= 0.001f ? sx : 0.001f;
+        anim->scaleToY = sy >= 0.001f ? sy : 0.001f;
+        // Later clients' from and to scale, each axis when given.
+        FloatAttr(node, "fromScaleX", anim->scaleFromX);
+        FloatAttr(node, "fromScaleY", anim->scaleFromY);
+        FloatAttr(node, "toScaleX", anim->scaleToX);
+        FloatAttr(node, "toScaleY", anim->scaleToY);
         break;
     }
     default:
@@ -285,6 +297,16 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
         if (name.size() + 1 > sizeof(anim->targetName))
             ::Xml::Warn(status, "target key too long: %s", name.c_str());
         std::snprintf(anim->targetName, sizeof(anim->targetName), "%s", name.c_str());
+        anim->targetKey.clear();
+    }
+    // Later clients' key paths, looked up on Play like `target`.
+    if (const char *key = ::Xml::Attr(node, "targetKey"); key != nullptr && *key != '\0') {
+        anim->targetName[0] = '\0';
+        anim->targetKey = key;
+    }
+    if (const char *key = ::Xml::Attr(node, "childKey"); key != nullptr && *key != '\0') {
+        anim->targetName[0] = '\0';
+        anim->targetKey = std::string("$parent.$parent.") + key;
     }
     if (FloatAttr(node, "startDelay", x))
         anim->startDelay = x < 0.0f ? 0.0f : x;
@@ -319,6 +341,17 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
             x = 0.0f;
         }
         anim->change = static_cast<int16_t>((x < -1.0f ? -1.0f : (x >= 1.0f ? 1.0f : x)) * 255.0f);
+        if (::Xml::Attr(node, "change") != nullptr)
+            anim->alphaFromTo = false;
+        // Later clients' absolute alpha: either end turns it on.
+        if (FloatAttr(node, "fromAlpha", x)) {
+            anim->fromAlpha = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+            anim->alphaFromTo = true;
+        }
+        if (FloatAttr(node, "toAlpha", x)) {
+            anim->toAlpha = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+            anim->alphaFromTo = true;
+        }
     }
     if (anim->kind == KIND_SCALE || anim->kind == KIND_ROTATION)
         LoadOrigin(anim, node);

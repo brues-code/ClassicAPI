@@ -15,6 +15,17 @@
 // subclasses (wowdecomp15595 CSimpleAnim.cpp, CSimple*Anim.cpp and their
 // _Scripts.cpp), on Animation::Object, and the group's CreateAnimation.
 // Path and its control points are in Path.cpp.
+//
+// Later clients' additions, on the same objects:
+//   - the target setters (SetTarget, SetTargetName, SetTargetKey,
+//     SetChildKey, SetTargetParent, GetTarget);
+//   - Alpha's fromAlpha / toAlpha. Blizzard's own code starts a fade from
+//     the region's current alpha with SetFromAlpha(region:GetAlpha()), and
+//     its XML fades in with toAlpha="1" alone, so the alpha is absolute (the
+//     target's alpha becomes from + (to - from) x progress) and an unset
+//     fromAlpha is 0. SetChange goes back to 4.3.4's relative change;
+//   - Scale's SetScaleFrom / SetScaleTo. 4.3.4's scale is the case from = 1,
+//     and SetScale sets the end, so its old results do not change.
 
 #include "animation/Classes.h"
 #include "animation/Region.h"
@@ -25,7 +36,9 @@
 #include "baselib/Ascii.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace Animation {
 
@@ -79,9 +92,15 @@ Anim::~Anim() {
 
 // ---- Playback --------------------------------------------------------------------
 
-bool Anim::Play() {
-    if (targetName[0] != '\0')
+void Anim::ResolveTarget() {
+    if (!targetKey.empty())
+        target = Region::FindRegionByKey(this, targetKey.c_str());
+    else if (targetName[0] != '\0')
         target = Region::FindRegionByName(targetName);
+}
+
+bool Anim::Play() {
+    ResolveTarget();
     if (playState != 1) {
         playState = 1;
         RunScript(A_ONPLAY, 0);
@@ -204,14 +223,21 @@ void Anim::Apply(float p) {
         return;
     switch (kind) {
     case KIND_ALPHA:
-        Region::AddAnimAlpha(region, target, static_cast<int16_t>(change * p));
+        if (alphaFromTo)
+            Region::SetAnimAlpha(region, target, static_cast<uint8_t>((fromAlpha + (toAlpha - fromAlpha) * p) * 255.0f));
+        else
+            Region::AddAnimAlpha(region, target, static_cast<int16_t>(change * p));
         break;
     case KIND_TRANSLATION:
         Region::AddAnimTranslation(region, target, offsetX * p, offsetY * p);
         break;
-    case KIND_SCALE:
-        Region::AddAnimScale(region, target, originPoint, originX, originY, scaleChangeX * p, scaleChangeY * p);
+    case KIND_SCALE: {
+        // AddAnimScale takes the share of the way to the origin, 1 - scale.
+        const float x = scaleFromX + (scaleToX - scaleFromX) * p;
+        const float y = scaleFromY + (scaleToY - scaleFromY) * p;
+        Region::AddAnimScale(region, target, originPoint, originX, originY, 1.0f - x, 1.0f - y);
         break;
+    }
     case KIND_ROTATION:
         Region::AddAnimRotation(region, target, originPoint, originX, originY, radians * p);
         break;
@@ -473,6 +499,101 @@ int __fastcall Script_GetRegionParent(void *L) {
     return 1;
 }
 
+// ---- Target (later clients) ----
+//
+// An animation with no target animates its group's region. Each setter
+// replaces the others' target and returns whether it names a region now;
+// a name or key is looked up again on Play, as 4.3.4 looks up `target`.
+
+int PushTargetFound(void *L, const Anim *a) {
+    Game::Lua::PushBool(L, a->target != nullptr);
+    return 1;
+}
+
+void *RegionArg(void *L, int idx) {
+    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_TABLE)
+        return nullptr;
+    void *object = Game::Lua::ResolveObject(L, idx);
+    if (object == nullptr || IsOurs(object) || !Game::Lua::IsA(object, Offsets::VAR_REGION_LUA_TYPE_ID))
+        return nullptr;
+    return object;
+}
+
+const char *StringArg(void *L, Anim *a, const char *usage) {
+    if (Game::Lua::IsString(L, 2))
+        return Game::Lua::ToString(L, 2);
+    Game::Lua::Error(L, usage, a->DisplayName());
+    return nullptr;
+}
+
+int __fastcall Script_SetTarget(void *L) {
+    Anim *a = Self(L);
+    if (a == nullptr)
+        return 0;
+    void *region = RegionArg(L, 2);
+    if (region == nullptr) {
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
+    a->targetName[0] = '\0';
+    a->targetKey.clear();
+    a->target = region;
+    return PushTargetFound(L, a);
+}
+int __fastcall Script_SetTargetName(void *L) {
+    Anim *a = Self(L);
+    const char *name = a != nullptr ? StringArg(L, a, "Usage: %s:SetTargetName(name)") : nullptr;
+    if (name == nullptr)
+        return 0;
+    std::snprintf(a->targetName, sizeof(a->targetName), "%s", CreateName(name, a).c_str());
+    a->targetKey.clear();
+    a->target = nullptr;
+    a->ResolveTarget();
+    return PushTargetFound(L, a);
+}
+int __fastcall Script_SetTargetKey(void *L) {
+    Anim *a = Self(L);
+    const char *key = a != nullptr ? StringArg(L, a, "Usage: %s:SetTargetKey(key)") : nullptr;
+    if (key == nullptr)
+        return 0;
+    a->targetName[0] = '\0';
+    a->targetKey = key;
+    a->target = nullptr;
+    a->ResolveTarget();
+    return PushTargetFound(L, a);
+}
+int __fastcall Script_SetChildKey(void *L) {
+    Anim *a = Self(L);
+    const char *key = a != nullptr ? StringArg(L, a, "Usage: %s:SetChildKey(childKey)") : nullptr;
+    if (key == nullptr)
+        return 0;
+    a->targetName[0] = '\0';
+    a->targetKey = std::string("$parent.$parent.") + key;
+    a->target = nullptr;
+    a->ResolveTarget();
+    return PushTargetFound(L, a);
+}
+int __fastcall Script_SetTargetParent(void *L) {
+    Anim *a = Self(L);
+    if (a == nullptr)
+        return 0;
+    a->targetName[0] = '\0';
+    a->targetKey.clear();
+    a->target = a->GetRegionParent();
+    return PushTargetFound(L, a);
+}
+int __fastcall Script_GetTarget(void *L) {
+    Anim *a = Self(L);
+    if (a == nullptr)
+        return 0;
+    void *region = a->target != nullptr ? a->target : a->GetRegionParent();
+    if (region != nullptr)
+        Game::Lua::PushObject(L, region);
+    else
+        Game::Lua::PushNil(L);
+    return 1;
+}
+
 // ---- Alpha ----
 
 int __fastcall Script_SetChange(void *L) {
@@ -483,6 +604,7 @@ int __fastcall Script_SetChange(void *L) {
     const float change = static_cast<float>(Game::Lua::ToNumber(L, 2));
     const float value = change < -1.0f ? -1.0f : (change >= 1.0f ? 1.0f : change);
     a->change = static_cast<int16_t>(value * 255.0f);
+    a->alphaFromTo = false;
     return 0;
 }
 int __fastcall Script_GetChange(void *L) {
@@ -490,6 +612,39 @@ int __fastcall Script_GetChange(void *L) {
     if (a == nullptr)
         return 0;
     Game::Lua::PushNumber(L, a->change * (1.0f / 255.0f));
+    return 1;
+}
+
+// Later clients' absolute alpha. Setting either end turns it on; the other
+// end keeps its value, 0 until set.
+void SetAlphaEnd(void *L, float Anim::*end, const char *usage) {
+    Anim *a = SelfOf(L, Anim::s_alphaClass);
+    if (a == nullptr || !NumberArg(L, 2, a, usage))
+        return;
+    const float value = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    a->*end = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+    a->alphaFromTo = true;
+}
+int __fastcall Script_SetFromAlpha(void *L) {
+    SetAlphaEnd(L, &Anim::fromAlpha, "Usage: %s:SetFromAlpha(alpha)");
+    return 0;
+}
+int __fastcall Script_SetToAlpha(void *L) {
+    SetAlphaEnd(L, &Anim::toAlpha, "Usage: %s:SetToAlpha(alpha)");
+    return 0;
+}
+int __fastcall Script_GetFromAlpha(void *L) {
+    Anim *a = SelfOf(L, Anim::s_alphaClass);
+    if (a == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, a->fromAlpha);
+    return 1;
+}
+int __fastcall Script_GetToAlpha(void *L) {
+    Anim *a = SelfOf(L, Anim::s_alphaClass);
+    if (a == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, a->toAlpha);
     return 1;
 }
 
@@ -572,19 +727,57 @@ int __fastcall Script_SetScale(void *L) {
         Game::Lua::Error(L, "Usage: %s:SetScale(x, y)", a->DisplayName());
         return 0;
     }
-    // CSimpleScaleAnim::SetScale.
+    // CSimpleScaleAnim::SetScale: the scale it ends on.
     const float x = static_cast<float>(Game::Lua::ToNumber(L, 2));
     const float y = static_cast<float>(Game::Lua::ToNumber(L, 3));
-    a->scaleChangeX = 1.0f - (x >= 0.001f ? x : 0.001f);
-    a->scaleChangeY = 1.0f - (y >= 0.001f ? y : 0.001f);
+    a->scaleToX = x >= 0.001f ? x : 0.001f;
+    a->scaleToY = y >= 0.001f ? y : 0.001f;
     return 0;
 }
 int __fastcall Script_GetScale(void *L) {
     Anim *a = SelfOf(L, Anim::s_scaleClass);
     if (a == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, 1.0f - a->scaleChangeX);
-    Game::Lua::PushNumber(L, 1.0f - a->scaleChangeY);
+    Game::Lua::PushNumber(L, a->scaleToX);
+    Game::Lua::PushNumber(L, a->scaleToY);
+    return 2;
+}
+
+// Later clients' SetScaleFrom / SetScaleTo: the scale the animation starts
+// and ends on, as given.
+void SetScaleEnd(void *L, float Anim::*x, float Anim::*y, const char *usage) {
+    Anim *a = SelfOf(L, Anim::s_scaleClass);
+    if (a == nullptr)
+        return;
+    if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3)) {
+        Game::Lua::Error(L, usage, a->DisplayName());
+        return;
+    }
+    a->*x = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    a->*y = static_cast<float>(Game::Lua::ToNumber(L, 3));
+}
+int __fastcall Script_SetScaleFrom(void *L) {
+    SetScaleEnd(L, &Anim::scaleFromX, &Anim::scaleFromY, "Usage: %s:SetScaleFrom(x, y)");
+    return 0;
+}
+int __fastcall Script_SetScaleTo(void *L) {
+    SetScaleEnd(L, &Anim::scaleToX, &Anim::scaleToY, "Usage: %s:SetScaleTo(x, y)");
+    return 0;
+}
+int __fastcall Script_GetScaleFrom(void *L) {
+    Anim *a = SelfOf(L, Anim::s_scaleClass);
+    if (a == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, a->scaleFromX);
+    Game::Lua::PushNumber(L, a->scaleFromY);
+    return 2;
+}
+int __fastcall Script_GetScaleTo(void *L) {
+    Anim *a = SelfOf(L, Anim::s_scaleClass);
+    if (a == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, a->scaleToX);
+    Game::Lua::PushNumber(L, a->scaleToY);
     return 2;
 }
 
@@ -647,24 +840,31 @@ const Game::Lua::FrameMethodEntry kAnimMethods[] = {
     {"GetSmoothing", &Script_GetSmoothing},
     {"SetParent", &Script_SetParent},
     {"GetRegionParent", &Script_GetRegionParent},
+    {"SetTarget", &Script_SetTarget},
+    {"SetTargetName", &Script_SetTargetName},
+    {"SetTargetKey", &Script_SetTargetKey},
+    {"SetChildKey", &Script_SetChildKey},
+    {"SetTargetParent", &Script_SetTargetParent},
+    {"GetTarget", &Script_GetTarget},
     {"HasScript", &Script_HasScript},
     {"GetScript", &Script_GetScript},
     {"SetScript", &Script_SetScript},
     {"HookScript", &Script_HookScript},
 };
 const Game::Lua::FrameMethodEntry kAlphaMethods[] = {
-    {"SetChange", &Script_SetChange},
-    {"GetChange", &Script_GetChange},
+    {"SetChange", &Script_SetChange},       {"GetChange", &Script_GetChange},
+    {"SetFromAlpha", &Script_SetFromAlpha}, {"GetFromAlpha", &Script_GetFromAlpha},
+    {"SetToAlpha", &Script_SetToAlpha},     {"GetToAlpha", &Script_GetToAlpha},
 };
 const Game::Lua::FrameMethodEntry kTranslationMethods[] = {
     {"SetOffset", &Script_SetOffset},
     {"GetOffset", &Script_GetOffset},
 };
 const Game::Lua::FrameMethodEntry kScaleMethods[] = {
-    {"SetOrigin", &Script_SetOrigin},
-    {"GetOrigin", &Script_GetOrigin},
-    {"SetScale", &Script_SetScale},
-    {"GetScale", &Script_GetScale},
+    {"SetOrigin", &Script_SetOrigin},       {"GetOrigin", &Script_GetOrigin},
+    {"SetScale", &Script_SetScale},         {"GetScale", &Script_GetScale},
+    {"SetScaleFrom", &Script_SetScaleFrom}, {"GetScaleFrom", &Script_GetScaleFrom},
+    {"SetScaleTo", &Script_SetScaleTo},     {"GetScaleTo", &Script_GetScaleTo},
 };
 const Game::Lua::FrameMethodEntry kRotationMethods[] = {
     {"SetOrigin", &Script_SetOrigin},   {"GetOrigin", &Script_GetOrigin},   {"SetDegrees", &Script_SetDegrees},

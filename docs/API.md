@@ -1801,6 +1801,7 @@ group:Play()
 `SetLooping("NONE" | "REPEAT" | "BOUNCE")`, `GetLooping`, `GetLoopState`,
 `GetMaxOrder`, `SetInitialOffset(x, y)` / `GetInitialOffset`,
 `SetIgnoreFramerateThrottle` / `GetIgnoreFramerateThrottle`,
+`SetToFinalAlpha(setToFinalAlpha)` / `IsSetToFinalAlpha`,
 `CreateAnimation([type [, name [, templateName]]])`, `GetAnimations`, and
 `SetScript` / `GetScript` / `HookScript` / `HasScript` for `OnLoad`,
 `OnPlay`, `OnPause`, `OnStop(self, requested)`,
@@ -1809,6 +1810,10 @@ group:Play()
 
 When a group ends, its progress goes back to 0. After the end, `IsDone`
 returns false. To find out when a group ends, use `OnFinished`.
+
+After `SetToFinalAlpha(true)`, each `Alpha` animation of the group keeps
+the alpha that it ends on when the group finishes. This includes a group
+that ends after `Finish`. `Stop` puts the stored alpha back.
 
 Animations with the same order play together, and the orders play one
 after another. An order lasts as long as its longest
@@ -1836,13 +1841,35 @@ except `OnLoop`.
 - Progress steps at most 30 times a second, unless the group ignores the
   framerate throttle.
 
+An animation changes the region of its group, or the target that you set.
+The target must be that region, or a frame, texture or font string inside
+it:
+
+| Method | Target |
+|---|---|
+| `SetTarget(region)` | The region. |
+| `SetTargetName(name)` | The region with that global name. `name` can start with `$parent`. |
+| `SetChildKey(childKey)` | The region at `region[childKey]`, where `region` is the region of the group. |
+| `SetTargetKey(key)` | The region at the key path. `$parent` steps from the animation to its group, then to the region of the group, then to the parent of that region. The other parts are keys. |
+| `SetTargetParent()` | The region of the group. |
+
+- Each method returns `true` if it finds a region now.
+- A name or a key is looked up again each time that the animation plays.
+- `GetTarget()` returns the target, or the region of the group if there
+  is no target.
+
+```lua
+local glow = group:CreateAnimation("Alpha")
+glow:SetChildKey("Glow")                    -- same as SetTargetKey("$parent.$parent.Glow")
+```
+
 ### Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`
 
 | Type | Methods |
 |---|---|
-| `Alpha` | `SetChange(change)` / `GetChange()`, `change` from -1 to 1 |
+| `Alpha` | `SetChange(change)` / `GetChange()`, `change` from -1 to 1; `SetFromAlpha(alpha)` / `GetFromAlpha()`, `SetToAlpha(alpha)` / `GetToAlpha()`, from 0 to 1 |
 | `Translation` | `SetOffset(x, y)` / `GetOffset()` |
-| `Scale` | `SetScale(x, y)` / `GetScale()`, `SetOrigin(point, x, y)` / `GetOrigin()` |
+| `Scale` | `SetScale(x, y)` / `GetScale()`, `SetScaleFrom(x, y)` / `GetScaleFrom()`, `SetScaleTo(x, y)` / `GetScaleTo()`, `SetOrigin(point, x, y)` / `GetOrigin()` |
 | `Rotation` | `SetDegrees` / `GetDegrees`, `SetRadians` / `GetRadians`, `SetOrigin(point, x, y)` / `GetOrigin()` |
 
 `Alpha` changes the region's alpha while its group plays:
@@ -1858,6 +1885,23 @@ except `OnLoop`.
 - A value you set with `SetAlpha` while the group plays is replaced on the
   next update.
 
+`SetFromAlpha` and `SetToAlpha` give an alpha that does not depend on the
+stored value:
+
+- On each update, the alpha becomes `from + (to - from) × progress`.
+- When you set one of the two values, the animation uses them. The value
+  that you do not set is 0. `SetChange` makes the animation add a change
+  again.
+- When more than one such animation applies to one region, the last one
+  wins. An earlier order keeps its end value until the current order
+  replaces it.
+
+```lua
+local fadeIn = group:CreateAnimation("Alpha")
+fadeIn:SetFromAlpha(frame:GetAlpha())       -- start from the current alpha
+fadeIn:SetToAlpha(1)
+```
+
 `Translation` moves what the region draws:
 
 - The offset is in UI pixels at a scale of 1. The scale of the region does
@@ -1871,6 +1915,11 @@ except `OnLoop`.
   with it and keeps the offset.
 - When the last group with a `Translation`, `Scale` or `Rotation` animation
   stops or finishes, the drawing goes back to its place.
+
+`SetScaleFrom` sets the scale at the start of a `Scale` animation, and
+`SetScaleTo` sets the scale at the end. Both are 1 by default. `SetScale`
+sets the end, the same as `SetScaleTo`, but it keeps `x` and `y` at 0.001
+or more.
 
 `Scale` and `Rotation` change the drawing in the same way:
 
@@ -1936,11 +1985,33 @@ path:CreateControlPoint():SetOffset(100, 0)
 
 An `<Animations>` block on a frame, texture or font string builds its
 groups before the frame's `OnLoad`, and each group's `OnLoad` runs when it
-is built. Groups read `name`, `inherits`, `parentKey`, `looping` and
-`initialOffsetX` / `initialOffsetY`. Animations read `name`, `inherits`,
-`parentKey`, `target`, `duration`, `startDelay`, `endDelay`, `order`,
-`smoothing`, and their type's own attributes: `change`, `offsetX` /
-`offsetY`, `scaleX` / `scaleY`, `degrees` / `radians`, and `<Origin>`.
+is built. Groups read `name`, `inherits`, `parentKey`, `looping`,
+`initialOffsetX` / `initialOffsetY` and `setToFinalAlpha`. Animations read
+`name`, `inherits`, `parentKey`, `target`, `targetKey`, `childKey`,
+`duration`, `startDelay`, `endDelay`, `order`, `smoothing`, and their type's
+own attributes:
+
+| Type | Attributes |
+|---|---|
+| `Alpha` | `change`, or `fromAlpha` / `toAlpha` |
+| `Translation` | `offsetX` / `offsetY` |
+| `Scale` | `scaleX` / `scaleY`, `fromScaleX` / `fromScaleY` / `toScaleX` / `toScaleY`, `<Origin>` |
+| `Rotation` | `degrees` / `radians`, `<Origin>` |
+
+```xml
+<Frame name="MyButtonGlow">
+    <Layers>
+        <Layer level="OVERLAY">
+            <Texture parentKey="Glow" file="Interface\Buttons\UI-ActionButton-Border" alphaMode="ADD" alpha="0"/>
+        </Layer>
+    </Layers>
+    <Animations>
+        <AnimationGroup parentKey="FlashIn" setToFinalAlpha="true">
+            <Alpha childKey="Glow" fromAlpha="0" toAlpha="1" duration="0.3"/>
+        </AnimationGroup>
+    </Animations>
+</Frame>
+```
 A `<Path>` reads `curve` and a `<ControlPoints>` block:
 
 ```xml

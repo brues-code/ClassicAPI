@@ -21,6 +21,7 @@
 // frames, textures and font strings, which have no room for them.
 namespace Animation {
 class Group;
+class Object;
 }
 
 namespace Animation::Region {
@@ -35,6 +36,12 @@ void NotifyEnd(void *region, Group *group);
 void PreOnAnimUpdate(void *region);
 // CScriptRegion::AddAnimAlpha(target, alpha) on the group's region.
 void AddAnimAlpha(void *region, void *target, int16_t alpha);
+// Later clients' absolute alpha (Alpha fromAlpha / toAlpha): the same target
+// rule as AddAnimAlpha, but the alpha becomes `alpha` instead of growing.
+void SetAnimAlpha(void *region, void *target, uint8_t alpha);
+// AnimationGroup setToFinalAlpha: the alpha that `target` (the group's
+// `region` when null) shows now becomes the one the group's end restores.
+void KeepAnimAlpha(void *region, void *target);
 // CScriptRegion::AddAnimTranslation(target, translation), in layout units:
 // moves the drawn textures and font strings, never a rect.
 void AddAnimTranslation(void *region, void *target, float x, float y);
@@ -58,5 +65,9 @@ bool StringAnimated(void *fontString);
 // CScriptObject::GetScriptObjectByName for a region (Animation:Play's
 // target lookup): the region named `name`, or nullptr.
 void *FindRegionByName(const char *name);
+// The region a later-client targetKey path names, read from `from`: each
+// dot-separated part is `$parent` (the object's parent) or a key on the
+// current object's table. Nullptr unless the path ends on a region.
+void *FindRegionByKey(Object *from, const char *path);
 
 } // namespace Animation::Region
