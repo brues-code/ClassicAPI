@@ -242,16 +242,19 @@ void __stdcall OnSpeechNotify(WPARAM, LPARAM) {
                 it->second.startedEmitted = true;
             }
         } else if (ev.eEventId == SPEI_END_INPUT_STREAM) {
-            UtteranceMeta meta{0, DEST_LOCAL_PLAYBACK, false};
+            UtteranceMeta meta{};
+            bool known = false;
             {
                 std::lock_guard<std::mutex> lock(g_streamMx);
                 auto it = g_streamMap.find(ev.ulStreamNum);
                 if (it != g_streamMap.end()) {
                     meta = it->second;
                     g_streamMap.erase(it);
+                    known = true;
                 }
             }
-            FirePlaybackFinished(1, meta.id, meta.destination);
+            if (known)
+                FirePlaybackFinished(1, meta.id, meta.destination);
         }
         // Only START/END stream events are requested; neither carries an
         // allocated lParam, so no SpClearEvent (sphelper) is needed.
@@ -398,6 +401,17 @@ void StopAll() {
     if (g_pVoice == nullptr)
         return;
     g_pVoice->Speak(nullptr, SPF_PURGEBEFORESPEAK, nullptr);
+    // The purge still queues START/END for the streams it cut off, and SAPI
+    // numbers streams from 1 again after it, so left in the queue those
+    // events would land on the next utterance: STARTED/FINISHED for it
+    // before it plays, then a FINISHED with utteranceID 0 when it ends. The
+    // purge is synchronous and has queued them all by the time it returns
+    // (probed: speak/stop/speak with and without a pump between), so discard
+    // them here. Purged utterances signal nothing, as in retail.
+    SPEVENT ev = {};
+    ULONG fetched = 0;
+    while (SUCCEEDED(g_pVoice->GetEvents(1, &ev, &fetched)) && fetched == 1)
+        ev = SPEVENT{};
     std::lock_guard<std::mutex> lock(g_streamMx);
     g_streamMap.clear();
 }
