@@ -1122,6 +1122,7 @@ build instructions.
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
+  - [`alpha` and `scale` in XML](#alpha-and-scale-in-xml)
   - [`C_TTSSettings` — getters & setters](#c_ttssettings--getters--setters)
   - [TTS events](#tts-events)
   - [TTS CVars](#tts-cvars)
@@ -8243,6 +8244,13 @@ string height counts the narrower lines.
 ChatFrame1:SetIndentedWordWrap(true)   -- wrapped chat lines start 15 px in
 ```
 
+You can also set the value in XML with the `indented` attribute on a
+`FontString`:
+
+```xml
+<FontString parentKey="Text" inherits="GameFontHighlight" indented="true"/>
+```
+
 ### `fontstring:SetWordWrap([wrap])` / `fontstring:CanWordWrap()`
 
 When `wrap` is false, the text does not wrap. The string shows only its
@@ -8551,6 +8559,13 @@ icon:SetVertexColor(1, 0.5, 0.5)   -- the gray keeps a red tint
 icon:SetDesaturated(false)         -- full color again
 ```
 
+A `<Texture>` element also takes a `desaturated` attribute.
+`desaturated="true"` is the same as `SetDesaturated(true)`:
+
+```xml
+<Texture parentKey="Icon" file="Interface\Icons\INV_Misc_QuestionMark" desaturated="true"/>
+```
+
 ### `texture:GetDesaturation()`
 
 Returns the current desaturation amount as a number from `0` to `1`. A texture
@@ -8806,6 +8821,17 @@ Sets how the bar fills as its value increases. `fillStyle` is a value of
 bar:SetFillStyle(Enum.StatusBarFillStyle.Center)
 ```
 
+You can also set the three values in XML. A `StatusBar` takes the
+`reverseFill`, `rotatesTexture` and `fillStyle` attributes. `fillStyle`
+takes the string names in the table. A name that is not in the table
+changes nothing.
+
+```xml
+<StatusBar name="MyBar" reverseFill="true" fillStyle="CENTER">
+    <BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
+</StatusBar>
+```
+
 ### `statusBar:SetColorFill(colorR, colorG, colorB [, a])`
 
 Fills the bar texture with one color. The values go from 0 to 1, and `a` is
@@ -8975,6 +9001,13 @@ f:SetPropagateKeyboardInput(true)
 f:SetScript("OnKeyDown", function() print(arg1) end)
 ```
 
+You can also set the value in XML with the `propagateKeyboardInput`
+attribute:
+
+```xml
+<Frame name="MyKeyWatcher" enableKeyboard="true" propagateKeyboardInput="true"/>
+```
+
 ### `frame:SetPropagateMouseMotion(propagate)` / `frame:CanPropagateMouseMotion()`
 
 Sets or gets whether the frame passes mouse motion on to the next frame
@@ -9072,6 +9105,12 @@ frame. Use this for a frame whose position your addon saves itself.
 
 - `dontSave` is `true` when you omit it.
 - `GetDontSavePosition` returns `1` or `nil`.
+
+You can also set the value in XML with the `dontSavePosition` attribute:
+
+```xml
+<Frame name="MyAddonFrame" movable="true" dontSavePosition="true"/>
+```
 
 ### `frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`
 
@@ -25805,3 +25844,22 @@ A `NormalFont`, `HighlightFont` or `DisabledFont` with `style` and no
 through the same setters as `SetTextFontObject`, `SetHighlightFontObject`
 and `SetDisabledFontObject`. An element with `inherits` loads as before.
 CheckButtons get the same.
+
+### `alpha` and `scale` in XML
+
+A `<Texture>` or `<FontString>` element takes an `alpha` attribute. It is
+the same as `region:SetAlpha(alpha)`. The value goes from 0 to 1. Values
+outside this range are clamped. The alpha applies after the `<Color>` of
+the element:
+
+```xml
+<Texture parentKey="Glow" file="Interface\Buttons\UI-ActionButton-Border" alphaMode="ADD" alpha="0.5"/>
+```
+
+A frame element takes a `scale` attribute. It is the same as
+`frame:SetScale(scale)`. A negative scale changes nothing. On a `<Model>`
+and the model types that come from it, `scale` stays the scale of the model:
+
+```xml
+<Frame name="MySmallFrame" scale="0.8"/>
+```

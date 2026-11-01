@@ -22,11 +22,14 @@
 // follow the font. The getters return 1 or nil. 1.12 has the same style
 // dword, settable mask and font setter shape (Offsets.h, IndentedWordWrap),
 // so these are 4.3.4's setters on 1.12's fields; Text::IndentedWordWrap
-// makes the text engine honour the bit.
+// makes the text engine honour the bit. The FontString attribute `indented`
+// sets it after the engine's font string loader (Xml::TypeLoad).
 
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 
@@ -107,17 +110,30 @@ constexpr auto ScrollingMessageFrameFont =
 
 // ---- Font strings: 4.3.4's CSimpleFontString Script_Set/GetIndentedWordWrap -
 
-int __fastcall Script_SetFontStringIndented(void *L) {
-    void *fontString = Game::Lua::ResolveFontString(L);
-    if (fontString == nullptr)
-        return 0;
-    const bool indented = Game::Lua::ToFlag(L, 2, true);
+void SetFontStringIndented(void *fontString, bool indented) {
     Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kIndented;
     const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
     reinterpret_cast<SetStyleFlags_t>(Offsets::FUN_FONTSTRING_SET_STYLE_FLAGS)(
         fontString, nullptr, indented ? flags | kIndented : flags & ~kIndented);
+}
+
+int __fastcall Script_SetFontStringIndented(void *L) {
+    void *fontString = Game::Lua::ResolveFontString(L);
+    if (fontString == nullptr)
+        return 0;
+    SetFontStringIndented(fontString, Game::Lua::ToFlag(L, 2, true));
     return 0;
 }
+
+// 4.3.4's font string loader sets the bit only when the attribute is present
+// and non-empty, so a template's value stays unless the element names its own.
+void OnFontStringNode(void *object, const void *node, void * /*status*/) {
+    const char *value = Xml::Attr(node, "indented");
+    if (value != nullptr && *value != '\0')
+        SetFontStringIndented(object, Game::StringToFlag(value));
+}
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::FONT_STRING, &OnFontStringNode};
 
 int __fastcall Script_GetFontStringIndented(void *L) {
     void *fontString = Game::Lua::ResolveFontString(L);

@@ -35,9 +35,12 @@
 // answer, so 4.3.4's key-up return has nothing to change here. As in 4.3.4,
 // a frame that passes a key down on is not recorded as the key's owner, so
 // its key up goes to the frame that took the key.
+//
+// XML sets the flag with the frame attribute `propagateKeyboardInput`.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "xml/FrameLoad.h"
 
 #include <cstdint>
 
@@ -90,6 +93,18 @@ int __fastcall Script_SetPropagateKeyboardInput(void *L) {
         frame, nullptr, Offsets::FRAME_FLAG_PROPAGATE_KEYBOARD, on);
     return 0;
 }
+
+// 4.3.4's frame loader sets the flag only when the node has the attribute, so
+// a template's value stays unless the element names its own.
+void OnFrameNode(void *object, const void *node, void * /*status*/) {
+    const char *value = Xml::Attr(node, "propagateKeyboardInput");
+    if (value == nullptr || *value == '\0')
+        return;
+    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
+        object, nullptr, Offsets::FRAME_FLAG_PROPAGATE_KEYBOARD, Game::StringToFlag(value));
+}
+
+const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};
 
 int __fastcall Script_GetPropagateKeyboardInput(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);

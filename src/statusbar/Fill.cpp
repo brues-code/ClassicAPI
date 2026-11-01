@@ -38,11 +38,18 @@
 // 4.3.4 lays out again when m_changed is set, and its SetWidth sets it; a
 // bar's height change re-lays nothing there. Here a size change in either
 // axis does, since the offsets are lengths in the bar's units.
+//
+// XML sets the modes with the StatusBar attributes `rotatesTexture` and
+// `reverseFill` (4.3.4's loader: applied when present and non-empty, after
+// the BarTexture) and retail's `fillStyle`, read after the engine's StatusBar
+// loader (Xml::TypeLoad).
 
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -284,17 +291,20 @@ int __fastcall Script_GetReverseFill(void *L) {
     return 1;
 }
 
-int __fastcall Script_SetRotatesTexture(void *L) {
-    void *bar = ResolveBar(L);
-    if (bar == nullptr)
-        return 0;
-    const bool rotates = Game::Lua::ToFlag(L, 2);
+void SetRotates(void *bar, bool rotates) {
     Modify(bar, [rotates](State &s) { s.rotatesTexture = rotates; });
     // 4.3.4 sets the full coordinates at once, so a bar with no value yet
     // shows its image turned, or not, before the first layout. Full
     // coordinates crop nothing, so a texture back on the crop takes them too.
     if (void *texture = BarTexture(bar))
         SetFullTexCoord(texture, rotates);
+}
+
+int __fastcall Script_SetRotatesTexture(void *L) {
+    void *bar = ResolveBar(L);
+    if (bar == nullptr)
+        return 0;
+    SetRotates(bar, Game::Lua::ToFlag(L, 2));
     return 0;
 }
 
@@ -307,6 +317,14 @@ int __fastcall Script_GetRotatesTexture(void *L) {
     return 1;
 }
 
+// The style a kFillStyleTokens name stands for, or -1.
+int StyleForName(const char *name) {
+    for (int i = 0; i < static_cast<int>(sizeof(kFillStyleTokens) / sizeof(kFillStyleTokens[0])); ++i)
+        if (Ascii::EqualCI(name, kFillStyleTokens[i]))
+            return i;
+    return -1;
+}
+
 int __fastcall Script_SetFillStyle(void *L) {
     void *bar = ResolveBar(L);
     if (bar == nullptr)
@@ -317,10 +335,7 @@ int __fastcall Script_SetFillStyle(void *L) {
         if (n >= kStandard && n <= kReverse && n == static_cast<int>(n))
             style = static_cast<int>(n);
     } else if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING) {
-        const char *name = Game::Lua::ToString(L, 2);
-        for (int i = 0; i < static_cast<int>(sizeof(kFillStyleTokens) / sizeof(kFillStyleTokens[0])); ++i)
-            if (Ascii::EqualCI(name, kFillStyleTokens[i]))
-                style = i;
+        style = StyleForName(Game::Lua::ToString(L, 2));
     }
     if (style < 0) {
         Game::Lua::Error(L, "Usage: %s:SetFillStyle(fillStyle)", Game::Lua::ObjectDisplayName(bar));
@@ -338,6 +353,23 @@ int __fastcall Script_GetFillStyle(void *L) {
     Game::Lua::PushNumber(L, state != nullptr ? state->fillStyle : kStandard);
     return 1;
 }
+
+// Each attribute applies only when present and non-empty, so a template's
+// value stays unless the element names its own; an unknown fillStyle name
+// changes nothing.
+void OnStatusBarNode(void *object, const void *node, void * /*status*/) {
+    if (const char *v = Xml::Attr(node, "rotatesTexture"); v != nullptr && *v != '\0')
+        SetRotates(object, Game::StringToFlag(v));
+    if (const char *v = Xml::Attr(node, "reverseFill"); v != nullptr && *v != '\0') {
+        const bool reverse = Game::StringToFlag(v);
+        Modify(object, [reverse](State &s) { s.reverseFill = reverse; });
+    }
+    if (const char *v = Xml::Attr(node, "fillStyle"); v != nullptr && *v != '\0')
+        if (const int style = StyleForName(v); style >= 0)
+            Modify(object, [style](State &s) { s.fillStyle = style; });
+}
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::STATUS_BAR, &OnStatusBarNode};
 
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetReverseFill", &Script_SetReverseFill},     {"GetReverseFill", &Script_GetReverseFill},

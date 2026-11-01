@@ -23,10 +23,12 @@
 //
 // 1.12's writer calls FUN_LAYOUT_CACHE_SAVE_FRAME on each frame, and that
 // function makes the same name / user-placed / movable test. The hook adds
-// 4.3.4's flag test in front of it.
+// 4.3.4's flag test in front of it. XML sets the flag with the frame attribute
+// `dontSavePosition`.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "xml/FrameLoad.h"
 
 #include <cstdint>
 
@@ -62,6 +64,18 @@ int __fastcall Script_SetDontSavePosition(void *L) {
         frame, nullptr, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, on);
     return 0;
 }
+
+// 4.3.4's frame loader sets the flag only when the node has the attribute, so
+// a template's value stays unless the element names its own.
+void OnFrameNode(void *object, const void *node, void * /*status*/) {
+    const char *value = Xml::Attr(node, "dontSavePosition");
+    if (value == nullptr || *value == '\0')
+        return;
+    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
+        object, nullptr, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, Game::StringToFlag(value));
+}
+
+const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};
 
 // 4.3.4 pushes 1 or nil.
 int __fastcall Script_GetDontSavePosition(void *L) {

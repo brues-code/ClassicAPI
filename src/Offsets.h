@@ -4446,6 +4446,12 @@ enum Offsets {
     // pass only 0x1, 0x10, 0x100, 0x200, 0x1000, 0x2000 and 0x4000, so the
     // 4.3.4 bits below are free in 1.12.
     FUN_FRAME_SET_FRAME_FLAG = 0x0076A3C0,
+    // CSimpleFrame::SetFrameScale — `bool __thiscall(frame, float scale, int
+    // force)`, `ret 8`: without force, returns 0 and changes nothing when the
+    // scale is within epsilon of the stored one (+0xB8); else stores it and
+    // calls vtable +0x8C (the rescale). Frame:SetScale (0x00775140) calls it
+    // with force 0 after rejecting a negative scale (Ghidra).
+    FUN_FRAME_SET_SCALE = 0x0076AC10,
     // 4.3.4's disabled bit: CSimpleFrame::RunOnEnableScript sets it for a
     // disabled Button or EditBox, and EditBox:IsEnabled reads it.
     FRAME_FLAG_DISABLED = 0x400,

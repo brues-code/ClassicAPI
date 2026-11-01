@@ -42,12 +42,18 @@
 // VAR_TEXTURE_METHOD_REGISTRY wins. The engine registers its Texture table as
 // the first call inside FUN_LOAD_SCRIPT_FUNCTIONS and ModuleAutoRegister runs
 // after the original, so ours wins on every /reload. No hook is involved.
+//
+// The Texture attribute `desaturated` is 4.3.4's loader: when present it sets
+// the flag as SetDesaturated does, after the engine's texture loader
+// (Xml::TypeLoad).
 
 #include "texture/Desaturation.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "xml/FrameLoad.h"
+#include "xml/TypeLoad.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -386,6 +392,15 @@ int __fastcall Script_SetDesaturated(void *L) {
     Game::Lua::PushNumber(L, 1.0);
     return 1;
 }
+
+// 4.3.4 applies the attribute whenever it is present (an empty value reads as
+// false), last in the texture's load.
+void OnTextureNode(void *object, const void *node, void * /*status*/) {
+    if (const char *value = Xml::Attr(node, "desaturated"))
+        SetAmount(object, Game::StringToFlag(value) ? 1.0 : 0.0);
+}
+
+const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
 
 // IsDesaturateSupported() -> 1, or nothing. The engine's own support test, as
 // 3.3.5's Script_IsDesaturateSupported (0x00511FB0) makes it: the stock UI
