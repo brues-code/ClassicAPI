@@ -8262,6 +8262,13 @@ f:SetWordWrap(false)
 f:SetText("one two three four five six")   -- draws "one two three four fi..."
 ```
 
+You can also set the value in XML with the `wordwrap` attribute on a
+`FontString`. The default is `true`.
+
+```xml
+<FontString parentKey="Label" inherits="GameFontHighlightSmall" wordwrap="false" justifyH="LEFT"/>
+```
+
 ### `fontstring:GetFieldSize()`
 
 Returns the number of bytes of text that the string can hold. A string
@@ -10005,6 +10012,16 @@ A name that is not in this list counts as no click type. A call with only
 unknown names makes the button respond to no click at all. `Button:Click()`
 ignores the click types, so a button in that state still responds to
 `Click()`.
+
+You can also set the click types in XML with the `registerForClicks`
+attribute on a `Button` or `CheckButton`. Put spaces or commas between the
+names. The attribute replaces the click types of an inherited template, and
+a `RegisterForClicks` call in `OnLoad` replaces the attribute.
+
+```xml
+<Button name="MyButton" registerForClicks="AnyUp"/>
+<Button name="MyRowButton" registerForClicks="LeftButtonUp, RightButtonUp"/>
+```
 
 ### `button:RegisterForMouse(...)`
 

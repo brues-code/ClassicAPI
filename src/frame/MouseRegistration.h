@@ -13,7 +13,14 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Frame::MouseRegistration {
+
+// The click-mask bits for one click name ("LeftButtonUp", "AnyDown", ...),
+// matched case-insensitively; 0 for an unknown name. 3.3.5's
+// MouseButtonStringToBitmask.
+uint32_t MaskForName(const char *name);
 
 // Whether `frame`'s OnMouseDown (`down`) or OnMouseUp fire for the mouse
 // button `name` (one of the engine's name literals, as the fire passes it)

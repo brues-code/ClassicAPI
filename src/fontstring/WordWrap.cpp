@@ -21,6 +21,12 @@
 // out again as SetText does, not only rebuilds it: a string sized by its text
 // would keep its old height, and the engine's fit would then neither
 // ellipsize the one line (wrap off) nor make room for the others (wrap on).
+//
+// The FontString node's `wordwrap` attribute is 3.3.5's loader: when present
+// and non-empty it goes through the same setter (Xml::ParentKey's font string
+// loader hook calls Set). 1.12's loader reads only `nonspacewrap`.
+
+#include "fontstring/WordWrap.h"
 
 #include "Game.h"
 #include "Offsets.h"
@@ -32,21 +38,13 @@ namespace FontString::WordWrap {
 
 namespace {
 
-
 constexpr uint32_t kNoWrap = Offsets::FONT_STYLE_NO_WORD_WRAP;
 
 int __fastcall Script_SetWordWrap(void *L) {
     void *fontString = Game::Lua::ResolveFontString(L);
     if (fontString == nullptr)
         return 0;
-    const bool wrap = Game::Lua::ToFlag(L, 2, true);
-    Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kNoWrap;
-    const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
-    const uint32_t wanted = wrap ? flags & ~kNoWrap : flags | kNoWrap;
-    if (wanted != flags) {
-        Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS) = wanted;
-        FontString::Layout::Invalidate(fontString);
-    }
+    Set(fontString, Game::Lua::ToFlag(L, 2, true));
     return 0;
 }
 
@@ -88,5 +86,15 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+void Set(void *fontString, bool wrap) {
+    Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_SETTABLE_STYLE) &= ~kNoWrap;
+    const uint32_t flags = Game::Read<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS);
+    const uint32_t wanted = wrap ? flags & ~kNoWrap : flags | kNoWrap;
+    if (wanted != flags) {
+        Game::Ref<uint32_t>(fontString, Offsets::OFF_FONTSTRING_FLAGS) = wanted;
+        FontString::Layout::Invalidate(fontString);
+    }
+}
 
 } // namespace FontString::WordWrap

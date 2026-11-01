@@ -3713,9 +3713,10 @@ enum Offsets {
     SITE_SCRIPT_CLICK_RIGHT = 0x00782811,
     SITE_SCRIPT_CLICK_DEFAULT = 0x00782826,
     BUTTON_DOUBLE_CLICK_MS = 300,
-    // Button::SetClickMask — __thiscall(button, mask): writes +0x330. The
-    // ctors call it with the type default (Button 0x100 = LeftButtonUp;
-    // hyperlink button 0x500). Reference only.
+    // Button::SetClickMask — __thiscall(button, mask), `ret 4`: writes +0x330
+    // and nothing else (Ghidra). The ctors call it with the type default
+    // (Button 0x100 = LeftButtonUp; hyperlink button 0x500). Frame::ClickMask
+    // calls it for the XML `registerForClicks` attribute.
     FUN_BUTTON_SET_CLICK_MASK = 0x00779730,
     // EditBox — 48 methods (table 0x0087BB68), ctx per
     // docs/BlizzardScriptAPI.md. Backs `EditBox:SetCursorPosition` /

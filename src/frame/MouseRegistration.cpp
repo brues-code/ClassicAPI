@@ -33,6 +33,7 @@
 // insensitive, unknown names add nothing, the scan stops at the first
 // non-string. Only buttons that called RegisterForMouse with something other
 // than the default get an entry; Frame::Destruction drops it with the button.
+// MaskForName also parses the XML `registerForClicks` names (Frame::ClickMask).
 
 #include "frame/MouseRegistration.h"
 
@@ -83,12 +84,8 @@ int __fastcall Script_RegisterForMouse(void *L) {
         return 0;
     uint32_t mask = 0;
     const int top = GetTop(L);
-    for (int i = 2; i <= top && IsString(L, i); ++i) {
-        const char *arg = ToString(L, i);
-        for (const Name &n : kNames)
-            if (Ascii::EqualCI(arg, n.name))
-                mask |= n.bits;
-    }
+    for (int i = 2; i <= top && IsString(L, i); ++i)
+        mask |= MaskForName(ToString(L, i));
     if (mask == kDefault)
         g_masks.erase(button);
     else
@@ -118,6 +115,13 @@ void OnFrameDestroyed(void *frame) { g_masks.erase(frame); }
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
 } // namespace
+
+uint32_t MaskForName(const char *name) {
+    for (const Name &n : kNames)
+        if (Ascii::EqualCI(name, n.name))
+            return n.bits;
+    return 0;
+}
 
 bool Accepts(void *frame, bool down, const char *name) {
     if (g_masks.empty())

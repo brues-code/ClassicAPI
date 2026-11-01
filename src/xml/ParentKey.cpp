@@ -72,7 +72,9 @@
 // and, with no `inherits`, leaves it empty. After that loader, a font element
 // with `style` and no `inherits` is applied through the engine's own setter
 // for that state (SetTextFontObject / SetHighlightFontObject /
-// SetDisabledFontObject) with `_G[style]`.
+// SetDisabledFontObject) with `_G[style]`. The Button loader also reads
+// `registerForClicks` (Frame::ClickMask) and the font string loader
+// `wordwrap` (FontString::WordWrap), the 3.3.5 attributes 1.12 lacks.
 //
 // `parentArray="Name"` appends the object to `parent.Name` (created on first
 // use) in load order, the same way.
@@ -96,6 +98,8 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "animation/Xml.h"
+#include "fontstring/WordWrap.h"
+#include "frame/ClickMask.h"
 #include "texture/Atlas.h"
 #include "texture/Mask.h"
 #include "xml/Anchors.h"
@@ -298,6 +302,9 @@ void BindButtonFontStyles(void *self, const void *node) {
 uintptr_t __fastcall ButtonLoad_h(void *self, void *edx, const void *node, void *status) {
     const uintptr_t r = g_origButtonLoad(self, edx, node, status);
     BindButtonFontStyles(self, node);
+    if (self != nullptr && node != nullptr)
+        if (const char *clicks = Xml::Attr(node, "registerForClicks"); clicks != nullptr && *clicks != '\0')
+            Frame::ClickMask::SetFromXml(static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT, clicks);
     return r;
 }
 
@@ -353,6 +360,8 @@ uintptr_t __fastcall FontStringLoad_h(void *self, void *edx, const void *node, v
         Xml::Anchors::Apply(RegionObject(self), node, status);
         Xml::KeyValues::ApplyToRegion(RegionObject(self), node, status);
         Animation::Xml::LoadAnimations(RegionObject(self), node, status);
+        if (const char *wordwrap = Xml::Attr(node, "wordwrap"); wordwrap != nullptr && *wordwrap != '\0')
+            FontString::WordWrap::Set(RegionObject(self), Game::StringToFlag(wordwrap));
     }
     return r;
 }

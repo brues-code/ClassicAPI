@@ -42,14 +42,31 @@
 // can silently displace, so it is reserved for names nobody else contends —
 // unlike TargetUnit (see CLAUDE.md), no loaded DLL or addon has cause to
 // replace RegisterForClicks.
+//
+// The XML attribute `registerForClicks` is 3.3.5's CSimpleButton::LoadXML:
+// Storm's tokenizer (FUN_STORM_STR_TOKENIZE, the one 3.3.5 calls) splits the
+// value on spaces and commas, each name ORs in its bits
+// (Frame::MouseRegistration::MaskForName, 3.3.5's MouseButtonStringToBitmask,
+// which knows AnyUp / AnyDown), and the result REPLACES the mask through the
+// engine's setter, as RegisterForClicks does. 1.12's Button loader has no such
+// attribute.
+
+#include "frame/ClickMask.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "frame/MouseRegistration.h"
+
+#include <cstdint>
 
 namespace Frame::ClickMask {
 
 namespace {
+
+using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
+                                     const char *delims, int *outQuoted);
+using SetClickMask_t = void(__thiscall *)(void *button, uint32_t mask);
 
 // The engine's own click-type names, in mask-bit order.
 constexpr const char *kUpNames[] = {"LeftButtonUp", "MiddleButtonUp", "RightButtonUp",
@@ -92,5 +109,18 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+void SetFromXml(void *button, const char *value) {
+    auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
+    uint32_t mask = 0;
+    char token[1024];
+    const char *cursor = value;
+    while (cursor != nullptr && *cursor != '\0') {
+        token[0] = '\0';
+        tokenize(&cursor, token, sizeof token, " ,", nullptr);
+        mask |= Frame::MouseRegistration::MaskForName(token);
+    }
+    reinterpret_cast<SetClickMask_t>(Offsets::FUN_BUTTON_SET_CLICK_MASK)(button, mask);
+}
 
 } // namespace Frame::ClickMask
