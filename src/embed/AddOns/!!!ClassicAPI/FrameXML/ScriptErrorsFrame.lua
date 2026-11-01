@@ -23,18 +23,25 @@
 --   - The text is a ScrollingEditBoxTemplate with a MinimalScrollBar, the
 --     ScrollBox pair retail uses for scrolling edit boxes, not retail's
 --     ScrollFrameTemplate, which ClassicAPI does not port.
---   - The stack starts at a fixed level, as in 3.3.5; 1.12 has no
---     GetErrorCallstackHeight. The engine's error function (0x703B40) is C
---     and calls the handler, so from the SetText slot level 1 is the slot,
---     2 is _ERRORMESSAGE, 3 is that C function and 4 is the code that failed.
---     !BugGrabber's GrabError reads level 4 from the same slot. A handler
---     that chains to _ERRORMESSAGE adds one level on top.
---   - No Locals section: 1.12 has no debuglocals.
+--   - The stack is retail's GetErrorData without the locals, taken in the
+--     SetText slot: GetErrorCallstackHeight finds the code that failed
+--     however many handlers sit between it and the slot. 1.12 has no
+--     debuglocals.
 --   - No scriptErrors cvar (1.12 always shows errors), no LUA_WARNING, no
 --     gamepad legend.
 --   - Lua 5.0: no `...` expression, no # operator.
 
-DEBUGLOCALS_LEVEL = 4;
+local function GetErrorStack()
+	-- Example of how debug stack level is calculated
+	-- Current stack: [1, 2, 3, 4, 5] (current function is at 1, total current height is 5)
+	-- Stack at time of error: [1, 2] (these are currently now index 4 and 5, but at the time of error the stack height is 2)
+	-- To calcuate the level to debug (4): curentStackHeight - (errorStackHeight - 1) = 5 - (2 - 1) = 4
+	local currentStackHeight = GetCallstackHeight();
+	local errorCallStackHeight = GetErrorCallstackHeight();
+	local errorStackOffset = errorCallStackHeight and (errorCallStackHeight - 1);
+	local debugStackLevel = currentStackHeight - (errorStackOffset or 0);
+	return debugstack(debugStackLevel);
+end
 
 local ERROR_FORMAT = "|cffffd200Message:|r|cffffffff %s|r\n"
 	.. "|cffffd200Time:|r|cffffffff %s|r\n"
@@ -61,7 +68,7 @@ function ScriptErrorsFrame_OnLoad(self)
 	ScrollUtil.RegisterScrollBoxWithScrollBar(scrollBox, self.ScrollBar);
 
 	ScriptErrors_Message.SetText = function(_, message)
-		ScriptErrorsFrame_OnError(message, debugstack(DEBUGLOCALS_LEVEL));
+		ScriptErrorsFrame_OnError(message, GetErrorStack());
 	end
 	ScriptErrors.Show = function() end
 end

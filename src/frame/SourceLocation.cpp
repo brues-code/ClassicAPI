@@ -68,8 +68,6 @@ namespace Frame::SourceLocation {
 
 namespace {
 
-using GetStack_t = int(__fastcall *)(void *L, int level, void *ar);
-using GetInfo_t = int(__fastcall *)(void *L, const char *what, void *ar);
 using ChunkId_t = void(__fastcall *)(char *out, const char *source, int bufflen);
 
 // Per-frame location, keyed by the frame object.
@@ -103,11 +101,9 @@ bool Excluded(const char *source) {
 // "file:line" of the nearest Lua function above the running C function on
 // L's call stack that is not in an excluded file. False when there is none.
 bool CaptureCaller(void *L, char *out, size_t size) {
-    auto getStack = reinterpret_cast<GetStack_t>(Offsets::LUA_GET_STACK);
-    auto getInfo = reinterpret_cast<GetInfo_t>(Offsets::LUA_GET_INFO);
     alignas(4) uint8_t ar[Offsets::SIZEOF_LUA_DEBUG];
     for (int level = 1; level < 32; ++level) {
-        if (!getStack(L, level, ar) || !getInfo(L, "Sl", ar))
+        if (!Game::Lua::GetStack(L, level, ar) || !Game::Lua::GetInfo(L, "Sl", ar))
             return false;
         const int line = Game::Read<int>(ar, Offsets::OFF_LUA_DEBUG_CURRENTLINE);
         if (line <= 0)

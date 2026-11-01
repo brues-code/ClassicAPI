@@ -359,6 +359,13 @@ enum Offsets {
     // read as `*(int*)VAR_FRAMESCRIPT_ERROR_HANDLER_REF`, pushed via
     // lua_rawgeti(REGISTRY, ref). Set once at engine init.
     VAR_FRAMESCRIPT_ERROR_HANDLER_REF = 0x008722C8,
+    // The C function that ref holds (benilla FrameScriptCallErrorHandler),
+    // `int __fastcall(L)`: when the seterrorhandler ref (0x008722CC) is not
+    // -1 it pushes that function (lua_rawgeti REGISTRY), moves it under the
+    // message (lua_insert -2), lua_call(1, 1)s it and returns 1. No code
+    // calls it directly; state open pushes it as a C closure and refs it
+    // (0x00703A8C). Verified by disassembly.
+    FUN_FRAMESCRIPT_CALL_ERROR_HANDLER = 0x00703B40,
     // The base Frame script-name resolver — __thiscall(frame, const char *name)
     // -> int* slot, 0 for an unknown name. Maps the standard base-frame scripts
     // to their 8-byte {handler, context} slots on the frame (OnLoad@+0x118,
@@ -8790,6 +8797,11 @@ enum Offsets {
     // otherwise. Used by `coroutine.create` to reject C functions
     // (Lua 5.0 only allows Lua-defined functions as coroutine bodies).
     LUA_IS_C_FUNCTION = 0x6F34A0,
+    // `lua_tocfunction(L, idx)` — the C function of a C closure, else null.
+    // `__fastcall(L, idx)`: index2adr (0x6F3410) on the same registers, tag
+    // 6, the C byte at closure+6, the function at closure+0xC (benilla-re
+    // bytes; the engine never calls it, so Ghidra has no function there).
+    LUA_TO_C_FUNCTION = 0x6F3720,
     // `lua_tothread(L, idx)` — returns the embedded `lua_State *` for
     // type-8 (LUA_TTHREAD) TValues, NULL for anything else. Used by
     // the `coroutine` library to extract the coroutine pointer from a

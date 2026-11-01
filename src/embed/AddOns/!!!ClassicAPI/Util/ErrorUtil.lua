@@ -1,13 +1,14 @@
 -- Backport of retail's Blizzard_SharedXMLBase/ErrorUtil.lua.
 --
 -- Implementation differences from the retail source:
---   - 1.12 has no SetErrorCallstackHeight / GetCallstackHeight, so an
---     error's stack starts at assertsafe rather than at its caller.
 --   - Lua 5.0 has no `...` as an expression and strings have no methods;
 --     varargs go through the implicit `arg` table and string.format.
 
 function CallErrorHandler(...)
-	return geterrorhandler()(unpack(arg));
+	SetErrorCallstackHeight(GetCallstackHeight() - 1); -- report error from the previous function
+	local result = geterrorhandler()(unpack(arg));
+	SetErrorCallstackHeight(nil);
+	return result;
 end
 
 function assertsafe(cond, msgStringOrFunction, ...)
@@ -19,6 +20,7 @@ function assertsafe(cond, msgStringOrFunction, ...)
 			error = msgStringOrFunction(unpack(arg));
 		end
 
+		SetErrorCallstackHeight(GetCallstackHeight() - 1); -- report error from the previous function
 		if geterrorhandler() then
 			geterrorhandler()(error);
 		elseif ProcessExceptionClient then
@@ -26,6 +28,7 @@ function assertsafe(cond, msgStringOrFunction, ...)
 			ProcessExceptionClient(error, error, framesToSkip);
 
 		end
+		SetErrorCallstackHeight(nil);
 	end
 
 	-- Parity with regular 'assert' which returns the input.

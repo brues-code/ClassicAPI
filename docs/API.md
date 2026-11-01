@@ -654,6 +654,7 @@ build instructions.
   - [`select(index, ...)`](#selectindex-)
   - [`unpack(list [, i [, j]])`](#unpacklist--i--j)
   - [`xpcall(f, msgh [, arg1, ...])`](#xpcallf-msgh--arg1-)
+  - [`GetCallstackHeight()` / `GetErrorCallstackHeight()` / `SetErrorCallstackHeight([height])`](#getcallstackheight--geterrorcallstackheight--seterrorcallstackheightheight)
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
   - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
   - [`table.count(tbl)`](#tablecounttbl)
@@ -15366,12 +15367,42 @@ xpcall(function() return f(a, b) end, handler)
 
 Available to in-game addons and glue-screen code alike.
 
-Note that `error("...")` does not reach the handler. WoW replaces Lua's
-`error` with one that reports through `geterrorhandler()` and then returns
-normally, so `f` looks like it finished and you get `true` with the message
-printed to chat. Real runtime errors — indexing or calling nil, arithmetic
-on a non-number — do reach the handler. To abort into it deliberately, cause
-one of those: `(nil)()` is the shortest.
+`error("...")` reaches the handler, the same as a runtime error. An addon
+can replace the global `error` with a function that does not raise. For
+example, pfUI's `error` prints the message to the chat frame and returns.
+Then `f` continues, and `xpcall` returns `true`.
+
+### `GetCallstackHeight()` / `GetErrorCallstackHeight()` / `SetErrorCallstackHeight([height])`
+
+An error handler uses these functions to find the code that caused an
+error. The handler can then show the stack from that code, and not from
+the handler.
+
+- `GetCallstackHeight()` returns the number of call levels on the stack.
+  The function that calls `GetCallstackHeight` is level 1. C functions
+  count as levels, the same as in `debugstack`.
+- `GetErrorCallstackHeight()` returns the stack height of the code that
+  caused the error, while the game reports an error to the error handler.
+  If code calls the error handler directly, `GetErrorCallstackHeight`
+  returns the value that `SetErrorCallstackHeight` set, or nil.
+- `SetErrorCallstackHeight(height)` sets the height for an error handler
+  that code calls directly, with no error. `SetErrorCallstackHeight(nil)`
+  removes the value. `CallErrorHandler` and `assertsafe` use this function
+  to report from the code that called them.
+
+This function returns the stack from the code that caused the error:
+
+```lua
+local function ErrorStack()
+    local errorHeight = GetErrorCallstackHeight()
+    if not errorHeight then
+        return debugstack(2)
+    end
+    return debugstack(GetCallstackHeight() - errorHeight + 1)
+end
+```
+
+Works in the world and on the login screen.
 
 ### `collectgarbage(opt [, arg])`
 
@@ -15757,21 +15788,18 @@ Returns:
   - The coroutine isn't suspended. `errMsg` is
     `"cannot resume <status> coroutine"`, where `<status>` is
     `running`, `normal` or `dead`.
-  - The body hit a Lua VM error. `errMsg` is the formatted error
-    string with file:line prefix.
+  - The body raised an error: a Lua VM error, or a call to `error`.
+    `errMsg` is the error message, usually with a file:line prefix.
 
 Passing more arguments, or getting back more results, than the stack
 can hold raises `too many arguments to resume` /
 `too many results to resume`.
 
-**Caveat — `error()` doesn't propagate.** WoW replaces Lua's
-`error()` global with a soft handler that calls
-`geterrorhandler()(msg)` and returns normally instead of
-longjmp'ing. So `error("msg")` inside a coroutine body looks like
-a clean return to `resume` — the message gets printed to chat as
-a side effect and `resume` returns `true` with no values. Real VM
-errors (calling `nil`, indexing `nil`, etc.) still propagate
-through the standard `false, msg` path.
+**Caveat — an addon can change `error()`.** If an addon replaces
+the global `error` with a function that does not raise,
+`error("msg")` returns normally. pfUI does this: its `error` prints
+the message to the chat frame. In a coroutine body, the body then
+continues, and `resume` does not return `false`.
 
 #### `coroutine.yield(...)`
 

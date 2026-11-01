@@ -89,6 +89,9 @@ namespace Lua {
     F(ToPointer,   lua_topointer,   LUA_TO_POINTER)   \
     F(ToThread,    lua_tothread,    LUA_TO_THREAD)    \
     F(IsCFunction, lua_iscfunction, LUA_IS_C_FUNCTION)\
+    F(ToCFunction, lua_tocfunction, LUA_TO_C_FUNCTION)\
+    F(GetStack,    lua_getstack,    LUA_GET_STACK)    \
+    F(GetInfo,     lua_getinfo,     LUA_GET_INFO)     \
     F(XMove,       lua_xmove,       LUA_X_MOVE)       \
     F(NewThread,   lua_newthread,   LUA_NEW_THREAD)   \
     F(Resume,      lua_resume,      LUA_RESUME)       \

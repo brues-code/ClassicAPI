@@ -298,6 +298,11 @@ using lua_error_t = void(__cdecl *)(void *L, const char *fmt, ...);
 using lua_topointer_t = const void *(__fastcall *)(void *L, int idx);
 using lua_tothread_t = void *(__fastcall *)(void *L, int idx);
 using lua_iscfunction_t = int(__fastcall *)(void *L, int idx);
+using lua_tocfunction_t = CFunction(__fastcall *)(void *L, int idx);
+// Fill a lua_Debug (Offsets::SIZEOF_LUA_DEBUG bytes) for a call level /
+// with the fields `what` names. Level 0 is the running C function.
+using lua_getstack_t = int(__fastcall *)(void *L, int level, void *ar);
+using lua_getinfo_t = int(__fastcall *)(void *L, const char *what, void *ar);
 using lua_xmove_t = void(__fastcall *)(void *from, void *to, int n);
 // `lua_newthread` returns the new `lua_State *` in eax, but Ghidra
 // infers `void` because the inner call's value just flows through.
@@ -370,6 +375,9 @@ extern const lua_error_t Error;
 extern const lua_topointer_t ToPointer;
 extern const lua_tothread_t ToThread;
 extern const lua_iscfunction_t IsCFunction;
+extern const lua_tocfunction_t ToCFunction;
+extern const lua_getstack_t GetStack;
+extern const lua_getinfo_t GetInfo;
 extern const lua_xmove_t XMove;
 extern const lua_newthread_t NewThread;
 extern const lua_resume_t Resume;
