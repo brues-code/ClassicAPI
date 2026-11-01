@@ -2629,6 +2629,14 @@ enum Offsets {
     OFF_NAMEPLATE_LINK_NEXT = 0x4E0,
     OFF_NAMEPLATE_GUID = 0x4E8,
     OFF_UNIT_NAMEPLATE = 0xE60,
+    // unit+0xE64 is the unit's chat bubble (0x608AC0 fills it, 0x608C00
+    // releases it; benilla-re objectlayer/unitnames.md "Chat bubbles").
+    OFF_UNIT_CHAT_BUBBLE = 0xE64,
+    // CGUnit_C::ShouldShowName — `int __thiscall(CGUnit_C *, uint32_t mask)`,
+    // RET 4: whether the unit's overhead name shows. The mask is the UnitName*
+    // cvars' (0xCE8720). Its only caller is the name draw
+    // PLAYERNAMEDESC::UpdatePlate (0x6C6EE2), every frame. Disassembled.
+    FUN_CGUNIT_SHOULD_SHOW_NAME = 0x006070A0,
     // CGNamePlateFrame vtable: the 40 virtual slots the plate constructor
     // stores as the frame's vfptr. Slot 10 (+0x28) is
     // FUN_FRAME_SET_FRAME_ALPHA, which is how the plate fade writes 0xFF /
@@ -4724,6 +4732,10 @@ enum Offsets {
     // `int __thiscall()` (slot 21, the hover dispatch's gate at 0x482982).
     OFF_CGOBJECT_VTBL_GET_FACING = 0x18,
     OFF_CGOBJECT_VTBL_IS_MOUSEOVERABLE = 0x54,
+    // CanSelect `int __thiscall()` (slot 22): the unit and player vtables both
+    // hold CGUnit_C::CanSelect 0x5F1EC0, which jumps through slot 21 above.
+    // SelectTarget and CGUnit_C::ShouldShowName (0x6070A8) call it.
+    OFF_CGOBJECT_VTBL_CAN_SELECT = 0x58,
 
     // The selection circle (benilla-re objectlayer/unitdisplay.md, verified
     // against the bytes of 0x608E00 / 0x614A90). The base per-frame step

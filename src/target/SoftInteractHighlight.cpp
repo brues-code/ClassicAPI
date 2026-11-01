@@ -13,8 +13,9 @@
 
 // The soft-interact highlight: `softinteract` glows as the object under the
 // cursor does, while the player can interact with it right now (in reach).
-// `softenemy` / `softfriend` get no glow; their mark is the circle
-// (SoftTargetCircle). No cvar of its own: it follows SoftTargetInteract.
+// `softenemy` / `softfriend` get no glow; they get the target's circle and
+// name (SoftTargetCircle, SoftTargetName). No cvar of its own: it follows
+// SoftTargetInteract.
 //
 // The mouseover's glow is the engine's light bits: PublishWorldMouseover
 // sets bit 1 through CGObject_C::SetLight on an object with a model and

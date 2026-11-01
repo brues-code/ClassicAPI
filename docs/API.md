@@ -22333,6 +22333,12 @@ it is smaller and dimmer. When the soft unit is also your target, the unit shows
 the target circle. `ObjectSelectionCircle` `0` hides the soft circles with
 the target circle.
 
+**The names.** The name of `"softenemy"` and of `"softfriend"` shows above
+the unit, the same as the name of your target. When the `UnitName` cvars
+hide the names of other units, the soft unit names also show. When a soft
+unit has a nameplate, the nameplate shows and the name does not, the same as
+for your target.
+
 **The icons.** When `SoftTargetIconEnemy` is `1`, an icon shows above the
 name of `"softenemy"`. When `SoftTargetIconFriend` is `1`, an icon shows
 above the name of `"softfriend"`. The icon is the cursor image that the
