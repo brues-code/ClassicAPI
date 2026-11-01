@@ -39,8 +39,9 @@
 // SoftTargetWithLocked 1. The arcs are not: Classic Era's 2 picks the
 // nearest unit wherever the camera looks, so both default to 0, the
 // interact arc's (the unit in front of the camera).
-// Picked when something asks (a read of a token) and on the UI frame tick
-// only while a frame is registered for the side's event.
+// Picked on the UI frame tick and when something asks (a read of a token).
+// The softenemy / softfriend unit events (UNIT_HEALTH, …) follow the pick via
+// Unit::TokenEvents, as they do for focus.
 
 #include "target/SoftUnit.h"
 
@@ -53,6 +54,7 @@
 #include "target/Nearest.h"
 #include "target/SoftTarget.h"
 #include "tick/FrameTick.h"
+#include "unit/TokenEvents.h"
 
 namespace Target::SoftUnit {
 
@@ -124,8 +126,6 @@ uint64_t Pick(State &st) {
     return SoftTarget::Nearest(area, Offsets::TYPEMASK_UNIT, &Accept, &st);
 }
 
-bool Watched(const State &st) { return Event::Custom::HasListeners(st.changed->Slot()); }
-
 // One pick per side per scene drain. The scan reads what the last drain drew,
 // which changes only when the next one does, so every read until then — the
 // circles, the icons, Lua's token reads — shares the first one's answer. The
@@ -142,7 +142,12 @@ void Refresh(State &st) {
     const uint64_t guid = Pick(st);
     if (guid == st.soft)
         return;
+    const uint64_t old = st.soft;
     st.soft = guid;
+    // The token's unit events follow the pick (the engine watches a unit
+    // that holds a token), so the registration moves before the event fires.
+    Unit::TokenEvents::Refresh(old);
+    Unit::TokenEvents::Refresh(guid);
     Event::Custom::Fire(st.changed->Slot(), "");
 }
 
@@ -152,10 +157,8 @@ void OnFrameTick() {
         g_friend.soft = 0;
         return;
     }
-    if (Watched(g_enemy))
-        Refresh(g_enemy);
-    if (Watched(g_friend))
-        Refresh(g_friend);
+    Refresh(g_enemy);
+    Refresh(g_friend);
 }
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
@@ -193,16 +196,15 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-// Fresh when nothing watches; the frame tick's pick (this frame's) when a
-// listener does.
 uint64_t Get(Side side) {
     if (!Object::RegistryReady())
         return 0;
     State &st = Of(side);
-    if (!Watched(st))
-        Refresh(st);
+    Refresh(st);
     return st.soft;
 }
+
+uint64_t Current(Side side) { return Of(side).soft; }
 
 // Classic Era 1.15 probes, `anyfriend`: a target that qualifies, else
 // `softfriend`, else the target whatever its reaction (a hostile one, or a

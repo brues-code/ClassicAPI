@@ -23,6 +23,10 @@ enum class Side { Enemy, Friend };
 // `unit/TokenExtensions.cpp`.
 uint64_t Get(Side side);
 
+// The last pick, with no scan. For the unit-event hot path
+// (`unit/TokenEvents.cpp`); the frame tick keeps it current.
+uint64_t Current(Side side);
+
 // SoftTargetEnemy / SoftTargetFriend turns the side on.
 bool Enabled(Side side);
 

@@ -12,7 +12,8 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // Every unit event the engine fires reaches ClassicAPI's unit tokens —
-// `focus`, `nameplateN`, `markN` — as it reaches `target`.
+// `focus`, `nameplateN`, `markN`, `softenemy`, `softfriend` — as it reaches
+// `target`.
 //
 // This is how 4.3.4 makes its focus a full unit token (decomp: GameUI.cpp
 // SetFocusTarget, ScriptEvents.cpp token maps), in two steps: the unit gets a
@@ -56,6 +57,7 @@
 #include "debug/Log.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "target/SoftUnit.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
 #include "unit/RaidTarget.h"
@@ -76,8 +78,8 @@ using Broadcast_t = void(__fastcall *)(const uint64_t *guid, uint32_t eventId);
 using CombatFeedback_t = void(__fastcall *)(const uint64_t *guid, const char *action, int amount,
                                             int school, uint32_t hitInfo);
 
-// At most one focus, one nameplate and one mark per unit.
-constexpr int kMaxTokens = 3;
+// At most one focus, nameplate, mark, softenemy and softfriend per unit.
+constexpr int kMaxTokens = 5;
 using TokenList = char[kMaxTokens][24];
 
 // The ClassicAPI tokens `guid` has right now, in UnitTokenFromGUID's order.
@@ -97,6 +99,10 @@ int TokensOf(uint64_t guid, TokenList &out) {
             std::snprintf(out[n++], sizeof out[0], "mark%d", m);
             break;
         }
+    if (guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Enemy))
+        std::snprintf(out[n++], sizeof out[0], "softenemy");
+    if (guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Friend))
+        std::snprintf(out[n++], sizeof out[0], "softfriend");
     return n;
 }
 
