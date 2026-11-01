@@ -234,16 +234,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
                 CloseHandle(worker);
         }
     } else if (reason == DLL_PROCESS_DETACH) {
-        // Clean /quit path — only tear down if we actually initialized.
-        // Flush before MH_Uninitialize — the cache's file I/O uses Win32
-        // directly (no MinHook involvement), so either order works in
-        // practice, but flushing first lets us bail early if the hook
-        // teardown ever grows side effects. Hard process termination (task
-        // manager kill) bypasses this path; that's an inherent OS
-        // limitation, and the 5-minute backstop flush in Remember() covers
-        // the worst case there.
+        // Process exit — only tear down if we actually initialized. A
+        // clean /quit already saved the name cache from its atexit handler,
+        // which runs before this; this save covers an exit that skips the
+        // atexit handlers (Storm's fatal exit 0x0064CC80 calls ExitProcess
+        // itself) and a save that failed there. Save before
+        // MH_Uninitialize — the cache's file I/O uses Win32 directly (no
+        // MinHook involvement), so either order works in practice, but
+        // saving first lets us bail early if the hook teardown ever grows
+        // side effects. Hard process termination (task manager kill)
+        // bypasses this path; that's an inherent OS limitation, and the
+        // 5-minute backstop flush covers the worst case there.
         if (g_mhInitialized) {
-            Player::NameCache::Flush();
+            Player::NameCache::Shutdown();
             MH_Uninitialize();
         }
     }

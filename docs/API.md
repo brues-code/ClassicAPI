@@ -17830,6 +17830,11 @@ Three sources feed the cache when it is on:
 3. **Import on enable.** When you turn the cache on, it copies
    every player the engine already knows from this session.
 
+When a player gets a new name, the server tells every client that is
+online. The cache then forgets the old name. If you were offline
+during the rename, the cache keeps the old name until the game gets
+the player's name again.
+
 Storage:
 
 - `WTF\Account\<account>\ClassicAPI.txt` — account-level settings
@@ -18002,6 +18007,9 @@ C_PlayerCache.RememberPlayer(guid, name, classToken [, raceToken [, sex]])
 Returns `true` on success, `false` if the persistent cache isn't
 enabled or the required args are malformed.
 
+When the game already has the player's data from the server in this
+session, the call keeps the server's data. It still returns `true`.
+
 - `guid` — `"0xHHHHHHHHLLLLLLLL"` string (same format `UnitGUID`
   returns). 8-hex `"0xLLLLLLLL"` is also accepted (hi-dword zero).
 - `name` — the name of a player on your realm, or `"Name-Realm"` for
@@ -18021,8 +18029,9 @@ enabled or the required args are malformed.
   wire-format convention the engine cache stores. `UnitSex`
   uses `2`/`3`; pass `UnitSex - 2` if you're forwarding
   that value. Omitted/`0` → leaves prior sex alone (so this call
-  can't be used to flip a stored value back to male; the
-  `SMSG_NAME_QUERY_RESPONSE` hook handles direct assignment).
+  can't be used to flip a stored value back to male). The server's
+  data replaces the stored value the next time the game gets the
+  player's name.
 
 ```lua
 -- Harvest /who results into the persistent cache

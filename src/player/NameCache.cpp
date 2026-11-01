@@ -37,26 +37,28 @@
 //       the v4 file in on first load, and deleting it once v5 is saved;
 //       see `V4CachePath`). Saved when
 //       (a) a recent write hasn't been flushed AND (b) `kFlushIntervalMs`
-//       has elapsed since the prior save, OR (c) DLL teardown / `Flush()`
-//       is called.
+//       has elapsed since the prior save, OR (c) `Flush()` is called
+//       (/reload, /logout, process exit).
 //
-// Population sources:
-//   1. The engine's NameCache writer (`FUN_PLAYER_INFO_CACHE_WRITE`)
-//      — every SMSG_NAME_QUERY_RESPONSE the engine processes flows
-//      through here, and it is the only writer that fills an engine
-//      NameCache row. Covers chat, group/raid sync, guild roster
-//      updates, and every visible player (`CGUnit_C::GetUnitName`
-//      0x00609210 sends the query on a miss).
-//   2. `C_PlayerCache.RememberPlayer(guid, name, classToken)` from
-//      Lua — lets addons feed in sources the engine cache doesn't
-//      touch directly (e.g. /who results parsed via GetWhoInfo,
-//      mouseover, target).
-//   3. A one-time import of the engine NameCache when the cache is
-//      turned on. The hook only sees responses that arrive while the
-//      cache is enabled, so rows the engine resolved earlier in the
-//      session would otherwise stay missing until that player is
-//      queried again. The engine keeps names in memory only, so a
-//      fresh session starts empty and needs no import.
+// One copy per player. The engine's name cache (`VAR_PLAYER_NAME_CACHE`)
+// holds every player it named since the last world entry; this store holds
+// the rest, and never a player the engine holds:
+//   - SMSG_NAME_QUERY_RESPONSE hands a player to the engine. Every name the
+//     engine learns arrives this way (chat, group, guild, every visible
+//     player). We drop our entry just before the engine's handler stores its
+//     record.
+//   - SMSG_INVALIDATE_PLAYER (a rename) drops our entry; the engine frees
+//     its own record.
+//   - The engine empties its cache at each world entry
+//     (`FUN_NAME_CACHE_CLEAR`) and frees it at exit (its atexit handler).
+//     Both times we copy its records into this store first.
+// A save writes both: this store, then the engine's records. Readers ask
+// the engine first (`Player::Info`), so they find a player either way.
+//
+// `C_PlayerCache.RememberPlayer(guid, name, classToken)` adds players from
+// sources the engine never names (e.g. /who results parsed via GetWhoInfo).
+// Turning the cache on mid-session drops our entry for every player the
+// engine already holds, as their replies would have.
 //
 // Entries are GUID-keyed, like the engine's own cache. Full names are the
 // dedup signal though: names are unique per realm, so a fresh GUID claiming a
@@ -72,6 +74,7 @@
 #include "Offsets.h"
 #include "dbc/Names.h"
 #include "guid/Guid.h"
+#include "net/PacketDispatch.h"
 #include "settings/Account.h"
 #include "settings/Paths.h"
 #include "unit/Identity.h"
@@ -94,10 +97,10 @@ namespace Player::NameCache {
 namespace {
 
 // Backstop flush interval — explicit `Flush()` calls from DllMain's
-// `FrameScript_Initialize` hook (covers /reload and /logout) and
-// `DLL_PROCESS_DETACH` (clean /quit) are the primary save path. The
-// in-`Remember` `MaybeFlush` runs only as a defensive measure for
-// long sessions that never reload AND end via hard process kill
+// `FrameScript_Initialize` hook (covers /reload and /logout) and our
+// atexit handler (`OnProcessExit`, a clean /quit) are the primary save
+// path. The `MaybeFlush` on each change runs only as a defensive measure
+// for long sessions that never reload AND end via hard process kill
 // (task manager, OS crash) — in that case we bound data loss to
 // roughly this interval. 5 minutes was chosen as a compromise:
 // long enough that routine play has zero in-flight I/O, short
@@ -146,6 +149,11 @@ bool g_dirty = false;
 DWORD g_lastSaveTick = 0;
 // The v4 file this session migrated from, deleted once the v5 file is saved.
 std::string g_migratedV4Path;
+// Set once the process is exiting (`Shutdown`). The engine's exit handler is
+// about to free its name cache, or a fatal exit skipped that handler and left
+// the cache in a crashing process. Nothing walks the cache after that.
+bool g_engineFreed = false;
+bool g_exitSaveRegistered = false;
 
 // ----- path resolution -----
 
@@ -332,6 +340,92 @@ bool Upsert(uint64_t guid, const std::string &name, const std::string &realm,
     return changed;
 }
 
+// The entry for a name record, or false for one we don't keep: no name, or a
+// class outside ChrClasses.dbc. An out-of-range race or sex means the record
+// didn't carry it, so it becomes 0 ("unknown").
+bool MakeEntry(const char *name, const char *realm, uint32_t classID, uint32_t raceID,
+               uint32_t sex, Entry &out) {
+    if (name == nullptr || classID == 0 || classID > kMaxClassID)
+        return false;
+    out.name = SanitizeName(name);
+    if (out.name.empty())
+        return false;
+    out.realm = SanitizeRealm(realm);
+    out.classID = classID;
+    out.raceID = raceID <= kMaxRaceID ? raceID : 0;
+    out.sex = sex <= kMaxSex ? sex : 0;
+    return true;
+}
+
+// The entry for one of the engine's records (`OFF_PLAYER_INFO_*` layout).
+bool RecordEntry(const uint8_t *record, Entry &out) {
+    return MakeEntry(
+        reinterpret_cast<const char *>(record + Offsets::OFF_PLAYER_INFO_NAME),
+        reinterpret_cast<const char *>(record + Offsets::OFF_PLAYER_INFO_REALM),
+        *reinterpret_cast<const uint32_t *>(record + Offsets::OFF_PLAYER_INFO_CLASS),
+        *reinterpret_cast<const uint32_t *>(record + Offsets::OFF_PLAYER_INFO_RACE),
+        *reinterpret_cast<const uint32_t *>(record + Offsets::OFF_PLAYER_INFO_SEX), out);
+}
+
+// Drops the entry for `guid`. Returns true if there was one.
+bool Erase(uint64_t guid) {
+    auto it = g_entries.find(guid);
+    if (it == g_entries.end())
+        return false;
+    g_byName.erase(FullName::Make(it->second.name.c_str(), it->second.realm.c_str()));
+    g_entries.erase(it);
+    return true;
+}
+
+// Drops our entries for a player the engine now holds as `e`: the one under
+// its GUID, and the one under its full name, whose character was deleted or
+// renamed since (names are unique per realm).
+void HandOver(uint64_t guid, const Entry &e) {
+    Erase(guid);
+    auto it = g_byName.find(FullName::Make(e.name.c_str(), e.realm.c_str()));
+    if (it != g_byName.end()) {
+        const uint64_t other = it->second;
+        Erase(other);
+    }
+}
+
+// Calls `visit(guid, entry)` for each of the engine's records we keep
+// (`MakeEntry`), and for none once the engine has freed its cache.
+template <typename Visit>
+void ForEachEngineEntry(Visit &visit) {
+    if (g_engineFreed)
+        return;
+    Unit::Identity::ForEachCachedPlayer(
+        [](uint64_t guid, const uint8_t *record, void *context) {
+            Entry e;
+            if (RecordEntry(record, e))
+                (*static_cast<Visit *>(context))(guid, e);
+            return true;
+        },
+        &visit);
+}
+
+// Copies the engine's records into this store just before the engine drops
+// them. The saved file needs no change: a save writes the engine's records
+// after ours, so loading it applies them the same way.
+void TakeEngineRecords() {
+    auto take = [](uint64_t guid, const Entry &e) {
+        Upsert(guid, e.name, e.realm, e.classID, e.raceID, e.sex);
+    };
+    ForEachEngineEntry(take);
+}
+
+// Drops our entry for every player the engine already holds, for a cache
+// turned on mid-session: their replies arrived while it was off. The file
+// doesn't have their records yet, so the store turns dirty.
+void HandOverAll() {
+    auto handOver = [](uint64_t guid, const Entry &e) {
+        HandOver(guid, e);
+        g_dirty = true;
+    };
+    ForEachEngineEntry(handOver);
+}
+
 // Parses v5 cache lines (`guid\tname\trealm\tclass\trace\tsex`) from `file`
 // into the store. Split on tabs, not whitespace: a realm can hold spaces and
 // is empty for a player on this realm. Variable-width hex GUID (no leading
@@ -404,6 +498,18 @@ void DeleteMigratedV4() {
     g_migratedV4Path.clear();
 }
 
+// One cache line. GUID first since it's the key. Variable-width hex — 1-8
+// digits for player GUIDs (the high dword is always 0), up to 16 if a
+// non-player GUID ever lands here.
+void WriteLine(std::ostream &out, uint64_t guid, const Entry &e) {
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "%llX\t", static_cast<unsigned long long>(guid));
+    out << buf << e.name << '\t' << e.realm;
+    std::snprintf(buf, sizeof(buf), "\t%u\t%u\t%u\n", e.classID, e.raceID, e.sex);
+    out << buf;
+}
+
+// Writes this store, then the engine's records.
 void SaveCache() {
     if (g_loadedPath.empty())
         return;
@@ -416,20 +522,12 @@ void SaveCache() {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         if (!out.is_open())
             return;
-        // GUID first since it's the key. Variable-width hex — 1-8 digits
-        // for player GUIDs (the high dword is always 0), up to 16 if a
-        // non-player GUID ever lands here.
         out << "# ClassicAPI name cache v5 (per-realm, shared across accounts)\n";
         out << "# guid\tname\trealm\tclassID\traceID\tsex\n";
-        for (const auto &kv : g_entries) {
-            const Entry &e = kv.second;
-            char buf[48];
-            std::snprintf(buf, sizeof(buf), "%llX\t",
-                          static_cast<unsigned long long>(kv.first));
-            out << buf << e.name << '\t' << e.realm;
-            std::snprintf(buf, sizeof(buf), "\t%u\t%u\t%u\n", e.classID, e.raceID, e.sex);
-            out << buf;
-        }
+        for (const auto &kv : g_entries)
+            WriteLine(out, kv.first, kv.second);
+        auto write = [&out](uint64_t guid, const Entry &e) { WriteLine(out, guid, e); };
+        ForEachEngineEntry(write);
         if (!out)
             return;
     }
@@ -484,76 +582,84 @@ void MaybeFlush() {
     SaveCache();
 }
 
-// ----- engine NameCache mirror -----
+// ----- engine name cache hand-off -----
 
-// Mirrors one engine player-info record into our store. `record` is
-// either the SMSG_NAME_QUERY_RESPONSE buffer the writer consumes or the
-// cache row it produced — same layout (`OFF_PLAYER_INFO_*`).
-void RememberRecord(uint64_t guid, const uint8_t *record) {
+// Name replies and renames, read before the engine's handler runs
+// (`Net::PacketDispatch`), so the engine's record is still the old one. The
+// backstop save goes first: a save after the drop would miss this player,
+// who is in neither copy until the handler stores the record.
+void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode != Offsets::SMSG_NAME_QUERY_RESPONSE &&
+        opcode != Offsets::SMSG_INVALIDATE_PLAYER)
+        return;
+    if (!IsEnabled())
+        return;
+    const uint64_t guid = Net::Read<uint64_t>(packet);
     if (guid == 0)
         return;
-    const char *name = reinterpret_cast<const char *>(
-        record + Offsets::OFF_PLAYER_INFO_NAME);
-    const char *realm = reinterpret_cast<const char *>(
-        record + Offsets::OFF_PLAYER_INFO_REALM);
-    const uint32_t classID = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_PLAYER_INFO_CLASS);
-    const uint32_t raceID = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_PLAYER_INFO_RACE);
-    const uint32_t sex = *reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_PLAYER_INFO_SEX);
-    if (name[0] == '\0')
-        return;
-    if (classID == 0 || classID > kMaxClassID)
-        return;
-
     LoadCacheIfNeeded();
-    // Out-of-range race/sex mean the record didn't carry them (some
-    // entry types skip these fields); pass 0 so `Upsert` preserves
-    // any prior real data.
-    const uint32_t safeRace = (raceID != 0 && raceID <= kMaxRaceID) ? raceID : 0;
-    const uint32_t safeSex = (sex <= kMaxSex) ? sex : 0;
-    if (Upsert(guid, SanitizeName(name), SanitizeRealm(realm), classID, safeRace, safeSex)) {
-        g_dirty = true;
+
+    if (opcode == Offsets::SMSG_INVALIDATE_PLAYER) {
+        // The engine is about to free its record, so the next save leaves
+        // the player out either way.
+        const bool engineHeld = Unit::Identity::PlayerInfoRecord(guid) != nullptr;
         MaybeFlush();
-    }
-}
-
-// Copies every row the engine already resolved this session. Run when
-// the cache turns on, since the hook missed those responses.
-void ImportEngineCache() {
-    Unit::Identity::ForEachCachedPlayer(
-        [](uint64_t guid, const uint8_t *record, void *) {
-            RememberRecord(guid, record);
-            return true;
-        },
-        nullptr);
-}
-
-// `__thiscall(this = cache, packet, guidLo, guidHi)`. We forward to
-// the original first (so the engine settles its entry and dispatches
-// callbacks), then mirror the packet's fields into our store.
-using CacheWrite_t = void(__thiscall *)(void *self, const uint8_t *packet,
-                                        uint32_t guidLo, uint32_t guidHi);
-CacheWrite_t CacheWrite_o = nullptr;
-
-void __fastcall CacheWrite_h(void *self, void *edx, const uint8_t *packet,
-                             uint32_t guidLo, uint32_t guidHi) {
-    // __fastcall stub forwards to __thiscall — MSVC's free-function
-    // __fastcall lays out (ECX=self, EDX=unused, stack=packet, lo, hi),
-    // matching the engine's __thiscall(self, packet, lo, hi).
-    CacheWrite_o(self, packet, guidLo, guidHi);
-    (void)edx;
-
-    if (packet == nullptr || !IsEnabled())
+        if (Erase(guid) || engineHeld)
+            g_dirty = true;
         return;
-    RememberRecord((static_cast<uint64_t>(guidHi) << 32) | guidLo, packet);
+    }
+
+    // Read as HandleNameQueryResponse does (see SMSG_NAME_QUERY_RESPONSE).
+    const char *name = Net::ReadCString(packet, Offsets::PLAYER_INFO_NAME_SIZE);
+    const char *realm = Net::ReadCString(packet, Offsets::PLAYER_INFO_REALM_SIZE);
+    const uint32_t raceID = Net::Read<uint32_t>(packet);
+    const uint32_t sex = Net::Read<uint32_t>(packet);
+    const uint32_t classID = Net::Read<uint32_t>(packet);
+    // An empty name refuses the GUID: the engine stores nothing, so ours stays.
+    Entry e;
+    if (!MakeEntry(name, realm != nullptr ? realm : "", classID, raceID, sex, e))
+        return;
+    MaybeFlush();
+    HandOver(guid, e);
+    g_dirty = true; // the engine's record is not in the file yet
+}
+
+const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
+
+// Our atexit handler. The engine's own frees its name cache (see
+// `FUN_CRT_ATEXIT`); ours was registered after it, so it runs first.
+void __cdecl OnProcessExit() {
+    if (!g_loadedPath.empty() && IsEnabled())
+        TakeEngineRecords();
+    Shutdown();
+}
+
+// `FUN_NAME_CACHE_CLEAR`, `__thiscall(this = cache)`, rendered as
+// `__fastcall(self, edx)`. Runs at each world entry, before the engine names
+// anyone. The store still holds the realm the records came from: it moves to
+// a new realm on its first use after this.
+using NameCacheClear_t = void(__thiscall *)(void *self);
+NameCacheClear_t NameCacheClear_o = nullptr;
+
+void __fastcall NameCacheClear_h(void *self, void *edx) {
+    (void)edx;
+    // From the first world entry on, the engine holds players until exit.
+    // The game is running by now, so the engine's startup registrations are
+    // all older than ours.
+    if (!g_exitSaveRegistered) {
+        using Atexit_t = int(__cdecl *)(void(__cdecl *)());
+        g_exitSaveRegistered = reinterpret_cast<Atexit_t>(
+            static_cast<uintptr_t>(Offsets::FUN_CRT_ATEXIT))(&OnProcessExit) == 0;
+    }
+    if (!g_loadedPath.empty() && IsEnabled())
+        TakeEngineRecords();
+    NameCacheClear_o(self);
 }
 
 static const Game::HookAutoRegister _hookreg{
-    Offsets::FUN_PLAYER_INFO_CACHE_WRITE,
-    reinterpret_cast<void *>(&CacheWrite_h),
-    reinterpret_cast<void **>(&CacheWrite_o)};
+    Offsets::FUN_NAME_CACHE_CLEAR,
+    reinterpret_cast<void *>(&NameCacheClear_h),
+    reinterpret_cast<void **>(&NameCacheClear_o)};
 
 // ----- Lua surface -----
 
@@ -610,10 +716,10 @@ int __fastcall Script_C_PlayerCache_RememberPlayer(void *L) {
             sex = static_cast<uint32_t>(raw);
     }
     // Remember treats sex==0 as "leave alone" since male and "unknown"
-    // share the same wire value. To flip a wrongly-cached female back
-    // to male, the SMSG hook path (which does direct assignment) is
-    // the route — RememberPlayer is for additive updates from addon
-    // sources that may or may not know sex.
+    // share the same wire value. A wrongly-cached female goes back to
+    // male through the server's name reply, which replaces our entry
+    // with the engine's record — RememberPlayer is for additive updates
+    // from addon sources that may or may not know sex.
     Remember(guid, name.c_str(), dash != nullptr ? dash + 1 : "", classID, raceID, sex);
     Game::Lua::PushBoolean(L, 1);
     return 1;
@@ -621,8 +727,8 @@ int __fastcall Script_C_PlayerCache_RememberPlayer(void *L) {
 
 // `C_PlayerCache.SetEnabled(bool)` — opt-in toggle for the persistent
 // name cache. Persists to the account-level settings file. Enabling
-// loads any prior cache contents for the current realm and imports
-// what the engine already resolved this session.
+// loads any prior cache contents for the current realm and leaves the
+// players the engine already named this session to the engine.
 int __fastcall Script_C_PlayerCache_SetEnabled(void *L) {
     Settings::Account::EnsureLoaded();
     bool desired = false;
@@ -673,6 +779,11 @@ void Remember(uint64_t guid, const char *name, const char *realm, uint32_t class
               uint32_t raceID, uint32_t sex) {
     if (guid == 0 || name == nullptr || name[0] == '\0' || !IsEnabled())
         return;
+    // The engine's record is the server's own answer, and it is saved.
+    Entry held;
+    const uint8_t *record = Unit::Identity::PlayerInfoRecord(guid);
+    if (record != nullptr && RecordEntry(record, held))
+        return;
     LoadCacheIfNeeded();
     if (classID > kMaxClassID)
         classID = 0;
@@ -703,7 +814,7 @@ void SetEnabled(bool enabled) {
     Settings::Account::Save();
     if (g_enabled) {
         LoadCacheIfNeeded();
-        ImportEngineCache();
+        HandOverAll();
     } else if (g_dirty) {
         SaveCache();
     }
@@ -715,6 +826,11 @@ void Flush() {
     // SaveCache writes to the file the store was loaded from — returns
     // silently if nothing is loaded yet (pre-login).
     SaveCache();
+}
+
+void Shutdown() {
+    g_engineFreed = true;
+    Flush();
 }
 
 } // namespace Player::NameCache

@@ -68,6 +68,28 @@ inline const uint8_t *ReadBytes(CDataStore *p, uint32_t n) {
     return at;
 }
 
+// Returns a C string of at most `capacity` bytes, NUL included, in place and
+// advances the cursor past its NUL, the bound `CDataStore::GetCString`
+// (0x004191B0) reads with. With no NUL inside `capacity` or before the end it
+// poisons `m_read` and returns null, where the engine gets an empty string and
+// a poisoned cursor. The bytes live in the packet, so read them before the
+// subscriber returns.
+inline const char *ReadCString(CDataStore *p, uint32_t capacity) {
+    if (p->m_read > p->m_size)
+        return nullptr;
+    const uint8_t *at = p->m_buffer - p->m_base + p->m_read;
+    const uint32_t left = p->m_size - p->m_read;
+    const uint32_t span = capacity < left ? capacity : left;
+    for (uint32_t i = 0; i < span; ++i) {
+        if (at[i] == '\0') {
+            p->m_read += i + 1;
+            return reinterpret_cast<const char *>(at);
+        }
+    }
+    p->m_read = p->m_size + 1;
+    return nullptr;
+}
+
 // Reads a WoW packed GUID: a 1-byte mask followed by one byte per set bit,
 // each contributing the corresponding byte of the 64-bit value.
 inline uint64_t ReadPackedGuid(CDataStore *p) {

@@ -6057,31 +6057,44 @@ enum Offsets {
     OFF_NAME_CACHE_FIRST_NODE = 0x0C,
     OFF_NAME_CACHE_NODE_GUID = 0x168,
 
-    // NameCache write entry — `__thiscall(this = cache, packetData,
-    // guidLo, guidHi)` at 0x0055F310. Called once per
-    // SMSG_NAME_QUERY_RESPONSE after the engine's opcode handler
-    // builds a `packetData` buffer with the layout:
-    //   +0x000  name[48]
-    //   +0x030  realm[256]
-    //   +0x130  unknown[8]   (probably (charGuidLo, charGuidHi))
-    //   +0x138  race  (u32)
-    //   +0x13C  sex   (u32, 0/1 wire)
-    //   +0x140  class (u32)
-    // Writes that data into the cache entry and dispatches any
-    // pending callbacks. Decoded by Ghidra; field offsets verified
-    // against the `*(uint*)(param_2 + N)` reads in the function body.
-    //
-    // Hooking here gives us a single chokepoint covering every name-
-    // query response the engine processes — chat, group/raid sync,
-    // guild roster, visible-object resolution. The hook runs after
-    // the engine has settled the entry, so reading from the cache
-    // post-hook is safe.
-    FUN_PLAYER_INFO_CACHE_WRITE = 0x0055F310,
+    // SMSG_NAME_QUERY_RESPONSE, handled by HandleNameQueryResponse
+    // 0x005551A0, which reads in this order:
+    //   u64 guid           CDataStore::GetGuid 0x004190B0 (8 raw bytes)
+    //   name  C string     CDataStore::GetCString 0x004191B0, capacity 0x30
+    //   realm C string     capacity 0x100
+    //   u32 race, u32 sex, u32 class   CDataStore::GetUInt32 0x00418EB0
+    // GetCString empties the string and poisons the cursor when no NUL fits
+    // in the capacity. A non-empty name goes to NameCacheStore 0x0055F310
+    // (its only caller, 0x00555230) from a stack copy laid out as the record
+    // below, with the guid at +0x130; an empty name refuses the guid
+    // (0x0055F6F0). Every name the engine learns arrives this way (chat,
+    // group, guild, visible players).
+    SMSG_NAME_QUERY_RESPONSE = 0x51,
+    // SMSG_INVALIDATE_PLAYER: a u64 guid. HandleNameInvalidate 0x00555600
+    // frees that guid's record (NameCacheRemove 0x00560170, its only caller).
+    // tortoise sends it to every client when a character is renamed
+    // (World::InvalidatePlayerDataToAllClients, from the rename handler and
+    // the GM rename command).
+    SMSG_INVALIDATE_PLAYER = 0x31C,
+    // NameCacheClear, `__thiscall(this = cache)`: frees every node. Its only
+    // caller is DBCacheClearUnsaved 0x00555740, whose only caller is
+    // CGGameUI::InitializeGame (0x0048F586), run by ClientInitializeGame at
+    // each world entry. Nothing else empties the cache, so the engine keeps
+    // its names from one world entry to the next, through logout and /reload.
+    FUN_NAME_CACHE_CLEAR = 0x00560400,
+    // The exe's C runtime `_atexit`, `int __cdecl(void (__cdecl *)(void))`, 0
+    // on success. 0x00554CF0 registers the name cache's exit handler with it
+    // at startup: NameCacheSave 0x0055EC70, which writes nothing for names
+    // (persist byte +0x39 is 0) and frees the cache. Storm's exit handler
+    // 0x0064CC30 runs every other handler, newest first (__cexit), before
+    // __exit -> ExitProcess -> DLL_PROCESS_DETACH, so a DLL's detach runs
+    // after the engine has freed its names.
+    FUN_CRT_ATEXIT = 0x00409AEF,
 
     // Entry-data offsets. The lookup returns `entry + 0x20`, so these
     // are relative to that pointer (not to the entry's hash-table
     // header). Field layout verified by decoding the cache writer
-    // FUN_0055F310 at 0x0055F32D-0x0055F365:
+    // NameCacheStore 0x0055F310 at 0x0055F32D-0x0055F365:
     //   - copy 48 bytes from packet[+0]   into entry+0x20   (name)
     //   - copy 256 bytes from packet[+0x30] into entry+0x50 (realm)
     //   - copy 4 bytes from packet[+0x138] into entry+0x158 (race)
