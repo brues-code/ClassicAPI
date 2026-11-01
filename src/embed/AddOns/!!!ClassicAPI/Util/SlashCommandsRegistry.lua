@@ -1064,6 +1064,14 @@ end
 SLASH_LUAERRORS1 = "/luaerrors";
 SLASH_LUAERRORS2 = "/scripterrors";
 
+SlashCmdList["PROFILER"] = function(msg)
+	if ( LoadDebugTools() ) then
+		ClassicAPIProfiler_HandleSlashCmd(msg);
+	end
+end
+SLASH_PROFILER1 = "/profiler";
+SLASH_PROFILER2 = "/prof";
+
 -- ---------------------------------------------------------------------
 -- Give a contested command back to whoever already owned it
 --

@@ -26,8 +26,11 @@
 --    the time column without re-anchoring frames.
 --
 -- The table inspector (/tinspect, Ctrl in /fstack) is retail's
--- Blizzard_TableInspector; see TableInspector.lua.
+-- Blizzard_TableInspector; see TableInspector.lua. The profiler (/profiler)
+-- is in Profiler/, and adds its owner and CPU lines to /fstack.
 ------------------------------------------------------------------------------
+
+local _, ns = ...;
 
 EVENT_TRACE_EVENT_HEIGHT = 16;
 EVENT_TRACE_MAX_ENTRIES  = 1000;
@@ -1184,6 +1187,8 @@ function FrameStackTooltip_OnTooltipSetFrameStack(self, highlightFrame)
     if (fsobj) then
         self:AddLine(string.format("\nfsobj = %s", fsobj:GetDebugName()));
     end
+
+    ns.AddFrameStackLines(self, self.highlightFrame);
 end
 
 function FrameStackTooltip_Show(self, showHidden, showRegions)

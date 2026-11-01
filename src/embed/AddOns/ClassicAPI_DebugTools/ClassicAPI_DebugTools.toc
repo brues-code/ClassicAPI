@@ -13,3 +13,13 @@ TableInspectorDataProvider.lua
 TableInspectorAnchorDataProvider.xml
 TableInspectorAttributeDataProvider.xml
 TableInspector.xml
+Profiler\Profiler.xml
+Profiler\Core.lua
+Profiler\Track.lua
+Profiler\Widget.lua
+Profiler\Window.lua
+Profiler\AddonsTab.lua
+Profiler\FramesTab.lua
+Profiler\EventsTab.lua
+Profiler\GlobalsTab.lua
+Profiler\FrameStack.lua

@@ -1,0 +1,58 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <!--
+  A thin scroll bar for ClassicAPI's ScrollBox. ScrollBarMixin needs Back and
+  Forward steppers, so they exist but stay hidden.
+  -->
+  <EventFrame name="ClassicAPIProfilerScrollBarTemplate" inherits="VerticalScrollBarTemplate" virtual="true">
+    <Size x="7"/>
+    <KeyValues>
+      <KeyValue key="hideIfUnscrollable" value="true" type="boolean"/>
+    </KeyValues>
+    <Frames>
+      <Frame parentKey="Track" setAllPoints="true" enableMouse="true">
+        <Frames>
+          <EventButton parentKey="Thumb">
+            <Size x="7"/>
+            <Layers>
+              <Layer level="ARTWORK">
+                <Texture setAllPoints="true">
+                  <Color r=".2" g="1" b=".8" a=".5"/>
+                </Texture>
+              </Layer>
+            </Layers>
+          </EventButton>
+        </Frames>
+      </Frame>
+      <EventButton parentKey="Back" hidden="true"/>
+      <EventButton parentKey="Forward" hidden="true"/>
+    </Frames>
+  </EventFrame>
+
+  <!--
+  A sortable list: a column header above a WowScrollBoxList, with the scroll
+  bar on the right. Window.lua fills the header and the view.
+  -->
+  <Frame name="ClassicAPIProfilerListTemplate" virtual="true">
+    <Frames>
+      <Frame parentKey="Header">
+        <Size y="18"/>
+        <Anchors>
+          <Anchor point="TOPLEFT" x="5" y="-5"/>
+          <Anchor point="TOPRIGHT" x="-15" y="-5"/>
+        </Anchors>
+      </Frame>
+      <EventFrame parentKey="ScrollBar" inherits="ClassicAPIProfilerScrollBarTemplate">
+        <Anchors>
+          <Anchor point="TOPRIGHT" x="-5" y="-25"/>
+          <Anchor point="BOTTOMRIGHT" x="-5" y="5"/>
+        </Anchors>
+      </EventFrame>
+      <Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+        <Anchors>
+          <Anchor point="TOPLEFT" x="5" y="-25"/>
+          <Anchor point="BOTTOMRIGHT" relativeKey="$parent.ScrollBar" relativePoint="BOTTOMLEFT" x="-3"/>
+        </Anchors>
+      </Frame>
+    </Frames>
+  </Frame>
+</Ui>

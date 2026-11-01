@@ -498,9 +498,10 @@ that you use one of these commands:
 |---------|---------|
 | `/dump <expr>` | Shows a Lua value in the chat frame. It shows tables and all return values. Use it to examine the return values of `GetSpellInfo`, `C_Item.GetItemInfoInstant`, and other functions. |
 | `/etrace` | Opens the event trace window. Other forms: `/etrace start`, `/etrace stop`, `/etrace add EVENT`, and more. |
-| `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. |
+| `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. The tooltip also shows the addon that made the marked frame. When `scriptProfile` is `1`, it shows the CPU time of the frame scripts. |
 | `/tinspect [expr]` (or `/tins`) | Opens a table inspector on the result of `expr`. With no table, it opens on the frame under the cursor. The window shows the anchors and the fields of the table, grouped by type. You can edit numbers, strings and booleans, filter the lines, and open a child table or frame. |
 | `/luaerrors` (or `/scripterrors`) | Opens the Lua error window. |
+| `/profiler` (or `/prof`) | Opens the profiler. The profiler shows the Lua memory, the allocations and the CPU time of each addon, frame, event and global function. `/profiler widget` shows a small window with the Lua memory, the frame rate and the addons that use the most. `/profiler reset` sets the counters to zero. CPU times need `scriptProfile` `1`. `/profiler profile on` sets it and reloads the UI. |
 
 ## Building
 
