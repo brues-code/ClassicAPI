@@ -24,9 +24,9 @@
 //
 // How:
 //
-//   1. The CMake build embeds every file of every listed addon as an
-//      RCDATA resource, plus a generated `{path, resourceId}` manifest
-//      (`embedded_resources.h`).
+//   1. The CMake build embeds each listed addon as one RCDATA resource,
+//      a gzipped pack of its files, plus a generated
+//      `{path, resourceId, index}` manifest (`embedded_resources.h`).
 //
 //   2. We hook the engine's file-read function at `FUN_FILE_READ`.
 //      When the engine asks for a path under
@@ -153,7 +153,8 @@ int MatchAddonPath(const char *path, const char **relPath) {
 Embed::Bytes LookupEmbedded(const char *relPath) {
     for (size_t i = 0; i < Manifest::kFileCount; ++i) {
         if (PathEqualsCI(relPath, Manifest::kFiles[i].path))
-            return Embed::Resource(Manifest::kFiles[i].resourceId);
+            return Embed::File(Manifest::kFiles[i].resourceId,
+                               Manifest::kFiles[i].index);
     }
     return {nullptr, 0};
 }

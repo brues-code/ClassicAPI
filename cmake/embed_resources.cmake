@@ -3,8 +3,8 @@
 #
 # Runs at configure time. It writes two files into OUT_DIR:
 #
-#   embedded.rc           one `<id> RCDATA "<path>"` line per file; rc.exe
-#                         reads each file's gzipped copy from disk.
+#   embedded.rc           one `<id> RCDATA "<path>"` line per pack; rc.exe
+#                         reads each gzipped pack from disk.
 #   embedded_resources.h  the IDs the DLL looks up at runtime through
 #                         src/embed/Resource.h:
 #
@@ -12,14 +12,24 @@
 #     namespace Addons::Embedded::Manifest {
 #         constexpr const char *kAddons[] = { ... };  // in ADDONS order
 #         constexpr size_t kAddonCount = ...;
-#         struct File { const char *path; int resourceId; };
+#         struct File { const char *path; int resourceId; int index; };
 #         constexpr File kFiles[] = { ... };
 #         constexpr size_t kFileCount = ...;
 #     }
 #
+# Each resource is a pack: one gzip stream of several files, which
+# pack_files.cmake joins at build time into `OUT_DIR/embed/<name>.pack.gz`.
+# Resource 1 is the bindings XML, a pack of one; then each addon is one
+# pack, in ADDONS order. A pack compresses each file against the files
+# before it, so the addon text packs to about 22% of its size, against 27%
+# for one gzip stream per file. The DLL inflates a whole pack with the
+# engine's zlib on first use (src/embed/Resource.cpp), so the
+# load-on-demand addon costs nothing until it loads.
+#
 # File paths are relative to ADDONS_ROOT, in backslash form
 # (`!!!ClassicAPI\Util\Print.lua`) — the suffix the engine builds after
-# `Interface\AddOns\`. The DLL compares them ignoring case.
+# `Interface\AddOns\`. The DLL compares them ignoring case. A file's index
+# is its place in its addon's pack, which is in path order.
 #
 # Each addon's `.toc` is the one file that is not embedded verbatim: its
 # `## Version:` line is stamped with ADDON_VERSION into a copy under
@@ -28,30 +38,37 @@
 # never embedded: it must reflect on-disk presence only (see
 # DiskHasDevMarker in src/addons/Embedded.cpp).
 #
-# Every resource is gzipped at build time (gzip_file.cmake) into
-# `OUT_DIR/embed/<path>.gz`, and the DLL inflates it with the engine's zlib on
-# first use (src/embed/Resource.cpp). The addon text compresses to about a
-# quarter of its size.
-#
 # Rebuild triggers: adding or removing a file reconfigures through the
 # CONFIGURE_DEPENDS glob; editing a toc reconfigures through
-# CMAKE_CONFIGURE_DEPENDS; editing any other file re-gzips it through its
-# custom command, which recompiles the .rc through its OBJECT_DEPENDS.
+# CMAKE_CONFIGURE_DEPENDS; editing any other file re-packs its addon through
+# the pack's custom command, which recompiles the .rc through its
+# OBJECT_DEPENDS.
 #
 # Usage:
 #   embed_resources(TARGET <t> ADDONS_ROOT <dir> ADDONS <folder names...>
 #                   ADDON_VERSION <v> BINDINGS_XML <file> OUT_DIR <dir>)
 
-set(_EMBED_GZIP_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/gzip_file.cmake")
+set(_EMBED_PACK_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/pack_files.cmake")
 
-# Add the build-time command that gzips `src` into `gz`.
-function(_embed_gzip src gz)
+# Add the build-time command that packs `ARGN` (absolute paths, in pack
+# order) into `<out_dir>/embed/<name>.pack.gz`, and set `gz` in the caller
+# to that path. The paths reach the script through a generated list file:
+# an addon's paths are too long for one command line.
+function(_embed_pack out_dir name)
+    set(pack "${out_dir}/embed/${name}.pack")
+    set(list "set(FILES\n")
+    foreach(path ${ARGN})
+        string(APPEND list "    [==[${path}]==]\n")
+    endforeach()
+    string(APPEND list ")\n")
+    _embed_write_if_changed("${pack}.cmake" "${list}")
     add_custom_command(
-        OUTPUT "${gz}"
-        COMMAND "${CMAKE_COMMAND}" "-DIN=${src}" "-DOUT=${gz}"
-                -P "${_EMBED_GZIP_SCRIPT}"
-        DEPENDS "${src}" "${_EMBED_GZIP_SCRIPT}"
+        OUTPUT "${pack}.gz"
+        COMMAND "${CMAKE_COMMAND}" "-DLIST=${pack}.cmake" "-DOUT=${pack}.gz"
+                -P "${_EMBED_PACK_SCRIPT}"
+        DEPENDS ${ARGN} "${pack}.cmake" "${_EMBED_PACK_SCRIPT}"
         VERBATIM)
+    set(gz "${pack}.gz" PARENT_SCOPE)
 endfunction()
 
 # Write `content` to `path` only when it differs, so an unchanged
@@ -71,56 +88,55 @@ function(embed_resources)
     set(addon_names "")
     set(manifest "")
     set(inputs "")
-    set(id 1)
 
-    set(gz "${E_OUT_DIR}/embed/Bindings.xml.gz")
-    _embed_gzip("${E_BINDINGS_XML}" "${gz}")
-    string(APPEND rc "${id} RCDATA \"${gz}\"\n")
+    set(bindings_id 1)
+    _embed_pack("${E_OUT_DIR}" "Bindings.xml" "${E_BINDINGS_XML}")
+    string(APPEND rc "${bindings_id} RCDATA \"${gz}\"\n")
     list(APPEND inputs "${gz}")
-    set(bindings_id ${id})
-    math(EXPR id "${id} + 1")
 
-    set(files "")
+    set(id 2)
     foreach(addon ${E_ADDONS})
         string(APPEND addon_names "    \"${addon}\",\n")
-        file(GLOB_RECURSE addon_files CONFIGURE_DEPENDS RELATIVE
+        file(GLOB_RECURSE files CONFIGURE_DEPENDS RELATIVE
              "${E_ADDONS_ROOT}" "${E_ADDONS_ROOT}/${addon}/*")
-        list(FILTER addon_files EXCLUDE REGEX "(^|/)\\.classicapi-dev$")
-        list(APPEND files ${addon_files})
-    endforeach()
-    list(SORT files) # deterministic IDs
-    foreach(rel ${files})
-        set(abs "${E_ADDONS_ROOT}/${rel}")
-        if(rel MATCHES "\\.toc$")
-            file(READ "${abs}" toc)
-            string(REGEX REPLACE "## Version:[^\n\r]*"
-                   "## Version: ${E_ADDON_VERSION}" toc "${toc}")
-            set(stamped "${E_OUT_DIR}/embed/${rel}")
-            _embed_write_if_changed("${stamped}" "${toc}")
-            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${abs}")
-            set(abs "${stamped}")
-        endif()
-        set(gz "${E_OUT_DIR}/embed/${rel}.gz")
-        _embed_gzip("${abs}" "${gz}")
+        list(FILTER files EXCLUDE REGEX "(^|/)\\.classicapi-dev$")
+        list(SORT files) # deterministic indexes
+        set(paths "")
+        set(index 0)
+        foreach(rel ${files})
+            set(abs "${E_ADDONS_ROOT}/${rel}")
+            if(rel MATCHES "\\.toc$")
+                file(READ "${abs}" toc)
+                string(REGEX REPLACE "## Version:[^\n\r]*"
+                       "## Version: ${E_ADDON_VERSION}" toc "${toc}")
+                set(stamped "${E_OUT_DIR}/embed/${rel}")
+                _embed_write_if_changed("${stamped}" "${toc}")
+                set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${abs}")
+                set(abs "${stamped}")
+            endif()
+            list(APPEND paths "${abs}")
+            string(REPLACE "/" "\\\\" rel_bs "${rel}")
+            string(APPEND manifest "    { \"${rel_bs}\", ${id}, ${index} },\n")
+            math(EXPR index "${index} + 1")
+        endforeach()
+        _embed_pack("${E_OUT_DIR}" "${addon}" ${paths})
         string(APPEND rc "${id} RCDATA \"${gz}\"\n")
         list(APPEND inputs "${gz}")
-        string(REPLACE "/" "\\\\" rel_bs "${rel}")
-        string(APPEND manifest "    { \"${rel_bs}\", ${id} },\n")
         math(EXPR id "${id} + 1")
     endforeach()
 
     _embed_write_if_changed("${E_OUT_DIR}/embedded.rc" "${rc}")
     _embed_write_if_changed("${E_OUT_DIR}/embedded_resources.h"
 "// Generated by cmake/embed_resources.cmake — do not edit.
-// Resource IDs for the RCDATA entries in embedded.rc. Load them through
-// src/embed/Resource.h.
+// Resource IDs for the RCDATA packs in embedded.rc, and each embedded file's
+// place in them. Load them through src/embed/Resource.h.
 
 #pragma once
 
 #include <cstddef>
 
 namespace Embed::Ids {
-constexpr int kBindingsXml = ${bindings_id};
+constexpr int kBindingsXml = ${bindings_id}; // a pack of the one file
 } // namespace Embed::Ids
 
 namespace Addons::Embedded::Manifest {
@@ -133,7 +149,8 @@ constexpr size_t kAddonCount = sizeof(kAddons) / sizeof(kAddons[0]);
 
 struct File {
     const char *path;
-    int resourceId;
+    int resourceId; // its addon's pack
+    int index;      // its place in the pack
 };
 
 constexpr File kFiles[] = {

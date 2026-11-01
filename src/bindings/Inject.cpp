@@ -133,7 +133,7 @@ bool ExtractHeaderAttr(const char *tagStart, const char *tagEnd,
 
 EmbeddedConfig ResolveEmbeddedConfig() {
     EmbeddedConfig out = {};
-    const Embed::Bytes xml = Embed::Resource(Embed::Ids::kBindingsXml);
+    const Embed::Bytes xml = Embed::File(Embed::Ids::kBindingsXml, 0);
     if (xml.data == nullptr) return out;
     const char *content = reinterpret_cast<const char *>(xml.data);
     const char *end = content + xml.size;
