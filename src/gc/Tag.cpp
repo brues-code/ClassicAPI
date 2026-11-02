@@ -25,8 +25,9 @@ namespace Gc::Tag {
 
 namespace {
 
-// Live tagged objects → tag. Untagged objects are never stored, and every
-// free erases, so a reused address can't inherit a dead object's tag.
+// Tagged objects → tag. Untagged objects are never stored. Every create
+// writes or erases its address's entry, so a reused address can't inherit a
+// dead object's tag even when its free bypassed `FUN_LUA_C_FREEOBJ`.
 ankerl::unordered_dense::map<const void *, const char *> g_tags;
 
 // `GCUsage` list: tag → bytes at the last UpdateUsage. Like 3.3.5's list, a
@@ -38,8 +39,10 @@ std::vector<const char *> g_pins;
 
 void OnCreate(const void *object) {
     const char *ctx = Game::Read<const char *>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
-    if (ctx == nullptr)
+    if (ctx == nullptr) {
+        g_tags.erase(object);
         return;
+    }
     const char *pin = g_pins.empty() ? nullptr : g_pins.back();
     g_tags[object] = pin != nullptr ? pin : ctx;
 }
@@ -103,11 +106,13 @@ void PopPin() {
         g_pins.pop_back();
 }
 
-void UpdateUsage() {
+void UpdateUsage(const void *L) {
     for (auto &entry : g_usage)
         entry.second = 0;
-    for (const auto &[object, tag] : g_tags)
-        g_usage[tag] += SizeOf(object);
+    ForEachObject(L, [](const void *object) {
+        if (const char *tag = Of(object))
+            g_usage[tag] += SizeOf(object);
+    });
 }
 
 uint64_t Usage(const char *tag) {

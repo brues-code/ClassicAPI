@@ -89,8 +89,8 @@ void PatchLoadWindow() {
                             reinterpret_cast<const void *>(&LoadWindowCloseThunk));
 }
 
-int __fastcall Script_UpdateAddOnMemoryUsage(void * /*L*/) {
-    Gc::Tag::UpdateUsage();
+int __fastcall Script_UpdateAddOnMemoryUsage(void *L) {
+    Gc::Tag::UpdateUsage(L);
     return 0;
 }
 
@@ -107,30 +107,15 @@ int __fastcall Script_GetAddOnMemoryUsage(void *L) {
 }
 
 // `_classicapi_LuaHeapAudit()` → objectBytes, nblocks, taggedObjects.
-// Walks every collectable object the engine can reach — the main list,
-// the userdata list and the string table, the three lists `luaC_sweep`
-// sweeps — summing `Gc::Tag::SizeOf`. `objectBytes` should sit just under
-// `nblocks` (the engine's own byte count): the gap is what is not a GC
-// object (string-table buckets, the main thread and its stack, buffers).
-// A gap that grows with the heap means a size formula is wrong.
-uint64_t SumList(const uint8_t *object) {
-    uint64_t total = 0;
-    while (object != nullptr) {
-        total += Gc::Tag::SizeOf(object);
-        object = Game::Read<const uint8_t *>(object, Offsets::OFF_LUA_GCHEADER_NEXT);
-    }
-    return total;
-}
-
+// Sums `Gc::Tag::SizeOf` over every collectable object the engine can
+// reach. `objectBytes` should sit just under `nblocks` (the engine's own
+// byte count): the gap is what is not a GC object (string-table buckets,
+// the main thread and its stack, buffers). A gap that grows with the heap
+// means a size formula is wrong.
 int __fastcall Script_LuaHeapAudit(void *L) {
+    uint64_t bytes = 0;
+    Gc::Tag::ForEachObject(L, [&bytes](const void *object) { bytes += Gc::Tag::SizeOf(object); });
     const uint8_t *g = Game::Read<const uint8_t *>(L, Offsets::OFF_LUA_STATE_G);
-    uint64_t bytes = SumList(Game::Read<const uint8_t *>(g, Offsets::OFF_LUA_G_ROOTGC)) +
-                     SumList(Game::Read<const uint8_t *>(g, Offsets::OFF_LUA_G_ROOTUDATA));
-    const auto buckets =
-        Game::Read<const uint8_t *const *>(g, Offsets::OFF_LUA_G_STRT_HASH);
-    const int size = Game::Read<int>(g, Offsets::OFF_LUA_G_STRT_SIZE);
-    for (int i = 0; i < size; ++i)
-        bytes += SumList(buckets[i]);
     Game::Lua::PushNumber(L, static_cast<double>(bytes));
     Game::Lua::PushNumber(L, static_cast<double>(Game::Read<uint32_t>(g, Offsets::OFF_LUA_G_NBLOCKS)));
     Game::Lua::PushNumber(L, static_cast<double>(Gc::Tag::TaggedCount()));
