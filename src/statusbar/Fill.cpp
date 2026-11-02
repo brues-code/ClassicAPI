@@ -11,27 +11,30 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `bar:SetReverseFill` / `GetReverseFill`, `SetRotatesTexture` /
-// `GetRotatesTexture` and `SetFillStyle` / `GetFillStyle`.
+// The bar fill, as 4.3.4 and retail lay it out, and `bar:SetReverseFill` /
+// `GetReverseFill`, `SetRotatesTexture` / `GetRotatesTexture` and
+// `SetFillStyle` / `GetFillStyle`.
 //
 // 1.12 draws the fill by cropping: the bar texture is installed with
 // OFF_REGION_TEXCOORD_MODIFIES_RECT, and OnFrameUpdate sets its coordinates to
-// the filled part, which shrinks its rectangle from the bottom-left corner.
-// That crop can only grow a fill from the left or the bottom.
+// the filled part, which shrinks the drawn quad but not the texture's rect. A
+// region anchored to GetStatusBarTexture() then stays on the full bar.
 //
 // 4.3.4's CSimpleStatusBar::OnLayerUpdate (CSimpleStatusBar.cpp:248) does not
 // crop: it sets the coordinates and moves the texture's four points in from
 // the bar's edges by the empty part, from the right / top or, reversed, from
 // the left / bottom (`m_reverseFill`), and with `m_rotatesTexture` maps the
-// image turned a quarter. A bar with any of these modes on takes that layout
-// here: the co-hook on OnFrameUpdate runs the base frame update and lays the
-// texture out as 4.3.4 does, with the crop flag cleared on the texture. A bar
-// with them all off runs 1.12's own update untouched. Turning the last mode
-// off pins the texture to the bar again and gives it back its crop flag, as
-// InstallBarTexture and SetBarTexture leave it.
+// image turned a quarter. Retail does the same, so a region anchored to the
+// texture's edge rides the fill. The co-hook replaces 1.12's OnFrameUpdate
+// for every bar: it runs the base frame update and lays the texture out as
+// 4.3.4 does, with the crop flag that InstallBarTexture sets cleared. The
+// points are set with doResize, as 4.3.4 sets them, which queues the texture
+// for the layout pass before the draw; its dependents resolve in that pass.
+// An empty fill keeps a zero-width rect on the start edge (1.12's
+// CalculateRect has no size test), where 4.3.4 also hides the texture; that
+// hide is left out, so the texture stays shown as 1.12 leaves it.
 //
-// A tiled bar texture (Texture::Tile) takes the same layout, since the crop
-// would size it by its repeat count, and keeps its coordinates, as 4.3.4's
+// A tiled bar texture (Texture::Tile) keeps its coordinates, as 4.3.4's
 // OnLayerUpdate sets none for a texture with a tile flag on.
 //
 // The retail fill styles (Enum.StatusBarFillStyle) fit the same layout:
@@ -85,28 +88,20 @@ struct State {
     bool reverseFill = false;
     bool rotatesTexture = false;
     int fillStyle = kStandard;
-    // The texture's crop flag and points are ours until Restore.
-    bool owned = false;
     bool laidOut = false;
     float width = 0.0f;
     float height = 0.0f;
-
-    bool Active() const { return reverseFill || rotatesTexture || fillStyle != kStandard; }
 };
 
-// Bars with a mode on, or laid out by us and not yet restored. Dropped when the
-// bar is destroyed.
+// Every bar laid out or given a mode. Dropped when the bar is destroyed.
 std::unordered_map<const void *, State> g_state;
 
 using Update_t = void(__fastcall *)(void *bar, void *edx, float elapsed);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relative, int relativePoint, float x,
                                       float y, int doResize);
-using SetAllPoints_t = void(__thiscall *)(void *anchor, void *relative, int doResize);
 using SetTexCoordRect_t = void(__thiscall *)(void *texture, const float *rect);
 using SetTexCoordCorners_t = void(__thiscall *)(void *texture, const float *corners);
 using GetFillFraction_t = float(__fastcall *)(void *bar, void *edx);
-
-Update_t g_origUpdate = nullptr;
 
 uint32_t &Flags(void *bar) { return Game::Ref<uint32_t>(bar, Offsets::OFF_VALUE_FLAGS); }
 
@@ -134,6 +129,9 @@ float FillFraction(void *bar, int fillStyle) {
     return reinterpret_cast<GetFillFraction_t>(Game::Read<uintptr_t>(
         *static_cast<void **>(bar), Offsets::OFF_VMT_STATUSBAR_GET_FILL_FRACTION))(bar, nullptr);
 }
+
+// InstallBarTexture puts each new bar texture on 1.12's crop.
+void Uncrop(void *texture) { Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 0; }
 
 void SetPoint(void *texture, int point, void *bar, float x, float y) {
     reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
@@ -171,9 +169,6 @@ void LayOut(void *bar, State &state, bool tiled) {
         s1 = 1.0f;
     }
 
-    Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 0; // a new texture is installed with it
-    state.owned = true;
-
     float left = 0.0f, right = 0.0f, top = 0.0f, bottom = 0.0f;
     if (IsVertical(bar)) {
         if (!tiled && state.rotatesTexture) {
@@ -208,46 +203,20 @@ void LayOut(void *bar, State &state, bool tiled) {
     state.height = height;
 }
 
-// Hands the texture back to 1.12's crop: pinned to the bar, crop flag on, and
-// the fill marked for 1.12's next update.
-void Restore(void *bar) {
-    if (void *texture = BarTexture(bar)) {
-        reinterpret_cast<SetAllPoints_t>(Offsets::FUN_LAYOUT_SET_ALL_POINTS)(
-            Game::Ptr<uint8_t>(texture, Offsets::OFF_REGION_ANCHOR),
-            Game::Ptr<uint8_t>(bar, Offsets::OFF_REGION_ANCHOR), 1);
-        Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 1;
-    }
-    Flags(bar) |= Offsets::VALUE_FLAG_CHANGED;
-}
-
+// Replaces CSimpleStatusBar::OnFrameUpdate: 1.12's crop never runs.
 void __fastcall Update_h(void *bar, void *edx, float elapsed) {
     StatusBar::Display::Advance(bar, elapsed);
-    void *texture = BarTexture(bar);
-    const bool tiled = texture != nullptr && Texture::Wrap::Tiles(texture);
-    auto it = g_state.find(bar);
-    if (it == g_state.end()) {
-        if (!tiled) {
-            g_origUpdate(bar, edx, elapsed);
-            return;
-        }
-        // 1.12's crop would size a tiled texture by its repeat count.
-        it = g_state.emplace(bar, State{}).first;
-        Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 0;
-        it->second.owned = true;
-        Flags(bar) |= Offsets::VALUE_FLAG_CHANGED;
-    } else if (!it->second.Active() && !tiled) {
-        Restore(bar);
-        g_state.erase(it);
-        g_origUpdate(bar, edx, elapsed);
-        return;
-    }
-    State &state = it->second;
     reinterpret_cast<Update_t>(Offsets::FUN_FRAME_ON_UPDATE)(bar, edx, elapsed);
 
+    void *texture = BarTexture(bar);
+    if (texture == nullptr)
+        return;
+    Uncrop(texture);
     constexpr uint32_t kReady = Offsets::VALUE_FLAG_RANGE_SET | Offsets::VALUE_FLAG_VALUE_SET;
     const uint32_t flags = Flags(bar);
-    if ((flags & kReady) != kReady || BarTexture(bar) == nullptr)
+    if ((flags & kReady) != kReady)
         return;
+    State &state = g_state[bar];
     bool changed = (flags & Offsets::VALUE_FLAG_CHANGED) != 0;
     if (!changed && state.laidOut) { // a resize moves the offsets' lengths
         float width, height;
@@ -256,35 +225,21 @@ void __fastcall Update_h(void *bar, void *edx, float elapsed) {
     }
     if (!changed)
         return;
-    LayOut(bar, state, tiled);
+    LayOut(bar, state, Texture::Wrap::Tiles(texture));
     Flags(bar) &= ~Offsets::VALUE_FLAG_CHANGED;
 }
 
 const Game::HookAutoRegister _updateHook{Offsets::FUN_STATUSBAR_ON_FRAME_UPDATE,
-                                         reinterpret_cast<void *>(&Update_h),
-                                         reinterpret_cast<void **>(&g_origUpdate)};
+                                         reinterpret_cast<void *>(&Update_h), nullptr};
 
 void OnFrameDestroyed(void *frame) { g_state.erase(frame); }
 
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
-// Applies a mode change. A bar with a mode on takes its texture off the crop
-// at once - a turned image's coordinates would crop it to nothing - and is laid
-// out on its next update; one with none goes back to 1.12's fill.
+// Applies a mode change; the bar is laid out again on its next update.
 template <typename Change> void Modify(void *bar, Change change) {
-    State &state = g_state[bar];
-    change(state);
+    change(g_state[bar]);
     Flags(bar) |= Offsets::VALUE_FLAG_CHANGED;
-    if (state.Active()) {
-        if (void *texture = BarTexture(bar)) {
-            Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 0;
-            state.owned = true;
-        }
-        return;
-    }
-    if (state.owned || state.laidOut)
-        Restore(bar);
-    g_state.erase(bar);
 }
 
 const State *Find(void *bar) {
@@ -293,8 +248,6 @@ const State *Find(void *bar) {
 }
 
 void *ResolveBar(void *L) { return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_STATUSBAR_LUA_TYPE_ID); }
-
-
 
 int __fastcall Script_SetReverseFill(void *L) {
     void *bar = ResolveBar(L);
@@ -317,10 +270,13 @@ int __fastcall Script_GetReverseFill(void *L) {
 void SetRotates(void *bar, bool rotates) {
     Modify(bar, [rotates](State &s) { s.rotatesTexture = rotates; });
     // 4.3.4 sets the full coordinates at once, so a bar with no value yet
-    // shows its image turned, or not, before the first layout. Full
-    // coordinates crop nothing, so a texture back on the crop takes them too.
-    if (void *texture = BarTexture(bar))
+    // shows its image turned, or not, before the first layout. A texture not
+    // yet laid out is still on the crop, which would crop the turned image
+    // to nothing.
+    if (void *texture = BarTexture(bar)) {
+        Uncrop(texture);
         SetFullTexCoord(texture, rotates);
+    }
 }
 
 int __fastcall Script_SetRotatesTexture(void *L) {

@@ -58,9 +58,8 @@
 // 1.12 has the split this needs: OnFrameUpdate draws the fill from the bar's
 // GetFillFraction virtual (4.3.4's GetAnimValue), not from the stored value.
 // A co-hook on it answers the shown fraction for a bar with a timer or an
-// ease. Every fill layout takes its fraction there - 1.12's texture crop and
-// StatusBar::Fill's reversed, centered, turned and tiled layouts alike - so
-// both keep the bar's crop and fill style. Advance runs from that same update
+// ease. StatusBar::Fill's layout takes its fraction there, so a timer or an
+// ease keeps the bar's fill style. Advance runs from that same update
 // pass, for shown bars only, with the pass's elapsed, which is the step the
 // probe found; the fraction it settled is the one drawn.
 //

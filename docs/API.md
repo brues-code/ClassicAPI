@@ -9150,6 +9150,10 @@ Sets how the bar fills as its value increases. `fillStyle` is a value of
 
 - A string is not case-sensitive. Any other value is an error.
 - The `Center` style ignores `statusBar:SetReverseFill()`.
+- The bar texture covers only the filled part of the bar. A region that is
+  anchored to `statusBar:GetStatusBarTexture()` moves with the edge of the
+  fill. When the bar is empty, the texture has a size of 0 along the fill,
+  at the start edge.
 
 ```lua
 bar:SetFillStyle(Enum.StatusBarFillStyle.Center)
@@ -9198,8 +9202,9 @@ end
 - `SetValue` does not remove the timer. `SetMinMaxValues` removes it.
 - A hidden bar does not move. When it shows again, its fill is correct on
   its first frame.
-- The bar keeps its texture crop and its fill style, from `SetFillStyle`,
-  `SetReverseFill` and `SetRotatesTexture`.
+- The bar keeps its fill style, from `SetFillStyle`, `SetReverseFill` and
+  `SetRotatesTexture`. The bar texture moves with the fill, as it does
+  for `SetValue`.
 - `interpolation` is a value of `Enum.StatusBarInterpolation`. The default
   is `Immediate`. With `ExponentialEaseOut`, the fill eases from the fill
   that the bar showed before, and then follows the timer with the same ease
