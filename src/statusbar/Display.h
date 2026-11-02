@@ -13,16 +13,18 @@
 
 #pragma once
 
-// A StatusBar's timer (bar:SetTimerDuration).
-namespace StatusBar::Timer {
+// What a StatusBar's fill shows when it is not its stored value: the share of
+// a timer (bar:SetTimerDuration) and the ease of Enum.StatusBarInterpolation
+// .ExponentialEaseOut.
+namespace StatusBar::Display {
 
 // Runs first in every StatusBar update (StatusBar::Fill's co-hook on
-// CSimpleStatusBar::OnFrameUpdate): marks the fill changed when the bar's
-// timer has moved it since the last update.
-void Advance(void *bar);
+// CSimpleStatusBar::OnFrameUpdate) with the frame's `elapsed`: moves the shown
+// fraction and marks the fill changed when it moved.
+void Advance(void *bar, float elapsed);
 
 // Drops the bar's timer. Every range change does (retail probe:
 // SetMinMaxValues ends the timer, SetValue does not).
-void Clear(void *bar);
+void ClearTimer(void *bar);
 
-} // namespace StatusBar::Timer
+} // namespace StatusBar::Display

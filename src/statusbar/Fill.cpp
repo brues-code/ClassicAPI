@@ -52,7 +52,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
-#include "statusbar/Timer.h"
+#include "statusbar/Display.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -123,9 +123,9 @@ void BarSize(void *bar, float &width, float &height) {
     height = (rect[2] - rect[0]) / scale;
 }
 
-// The bar's own GetFillFraction (4.3.4's GetAnimValue, which a timer
-// answers), with StandardNoRangeFill's full bar for an empty range. A timed
-// bar's range is 0..0, so the style never overrides a timer.
+// The bar's own GetFillFraction (4.3.4's GetAnimValue, which a timer or an
+// ease answers), with StandardNoRangeFill's full bar for an empty range. A
+// timed bar's range is 0..0, so the style never overrides a timer.
 float FillFraction(void *bar, int fillStyle) {
     const float min = Game::Read<float>(bar, Offsets::OFF_VALUE_MIN);
     const float max = Game::Read<float>(bar, Offsets::OFF_STATUSBAR_MAX);
@@ -221,7 +221,7 @@ void Restore(void *bar) {
 }
 
 void __fastcall Update_h(void *bar, void *edx, float elapsed) {
-    StatusBar::Timer::Advance(bar);
+    StatusBar::Display::Advance(bar, elapsed);
     void *texture = BarTexture(bar);
     const bool tiled = texture != nullptr && Texture::Wrap::Tiles(texture);
     auto it = g_state.find(bar);

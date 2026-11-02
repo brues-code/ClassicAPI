@@ -3864,6 +3864,13 @@ enum Offsets {
     // Disassembled.
     FUN_STATUSBAR_GET_FILL_FRACTION = 0x00783380,
     OFF_VMT_STATUSBAR_GET_FILL_FRACTION = 0x98,
+    // The engine's StatusBar:SetValue(value) and SetMinMaxValues(min, max)
+    // Lua methods (`int __fastcall(L)`, from the method table 0x0087B010).
+    // They type-check self, raise the usage errors, and call the bar's
+    // SetValue slot / FUN_STATUSBAR_SET_MIN_MAX_VALUES; they read no argument
+    // past their own. Decompiled.
+    FUN_SCRIPT_STATUSBAR_SET_VALUE = 0x0078F690,
+    FUN_SCRIPT_STATUSBAR_SET_MIN_MAX_VALUES = 0x0078F4B0,
     // CSimpleStatusBar::InstallBarTexture — `void __thiscall(bar, texture,
     // int drawLayer)`, `ret 8`: deletes the old bar texture, parents the new
     // one to the bar in the layer, sets its OFF_REGION_TEXCOORD_MODIFIES_RECT

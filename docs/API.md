@@ -389,6 +389,8 @@ build instructions.
   - [`statusBar:SetRotatesTexture(rotatesTexture)` / `statusBar:GetRotatesTexture()`](#statusbarsetrotatestexturerotatestexture--statusbargetrotatestexture)
   - [`statusBar:SetFillStyle(fillStyle)` / `statusBar:GetFillStyle()`](#statusbarsetfillstylefillstyle--statusbargetfillstyle)
   - [`statusBar:SetTimerDuration(duration [, interpolation [, direction]])` / `statusBar:GetTimerDuration()`](#statusbarsettimerdurationduration--interpolation--direction--statusbargettimerduration)
+  - [`statusBar:SetValue(value [, interpolation])` / `statusBar:SetMinMaxValues(min, max [, interpolation])`](#statusbarsetvaluevalue--interpolation--statusbarsetminmaxvaluesmin-max--interpolation)
+  - [`statusBar:GetInterpolatedValue()` / `statusBar:IsInterpolating()` / `statusBar:SetToTargetValue()`](#statusbargetinterpolatedvalue--statusbarisinterpolating--statusbarsettotargetvalue)
   - [`statusBar:SetColorFill(colorR, colorG, colorB [, a])`](#statusbarsetcolorfillcolorr-colorg-colorb--a)
   - [`statusBar:SetStatusBarDesaturation(desaturation)` / `statusBar:GetStatusBarDesaturation()`](#statusbarsetstatusbardesaturationdesaturation--statusbargetstatusbardesaturation)
   - [`editBox:IsInIMECompositionMode()`](#editboxisinimecompositionmode)
@@ -9198,11 +9200,52 @@ end
   its first frame.
 - The bar keeps its texture crop and its fill style, from `SetFillStyle`,
   `SetReverseFill` and `SetRotatesTexture`.
-- `interpolation` is a value of `Enum.StatusBarInterpolation`: `Immediate`
-  (0) or `ExponentialEaseOut` (1). The default is `Immediate`. The bar draws
-  the two values the same, as `Immediate`.
+- `interpolation` is a value of `Enum.StatusBarInterpolation`. The default
+  is `Immediate`. With `ExponentialEaseOut`, the fill eases from the fill
+  that the bar showed before, and then follows the timer with the same ease
+  (see [`statusBar:SetValue`](#statusbarsetvaluevalue--interpolation--statusbarsetminmaxvaluesmin-max--interpolation)).
+  A jump in the time span then eases too.
 - A `duration` that is not a duration object, or an enum argument that is
   not one of its values, is an error.
+
+### `statusBar:SetValue(value [, interpolation])` / `statusBar:SetMinMaxValues(min, max [, interpolation])`
+
+These are the usual `SetValue` and `SetMinMaxValues`, with an optional
+`interpolation` argument. `interpolation` is a value of
+`Enum.StatusBarInterpolation`:
+
+| Value | Fill |
+|---|---|
+| `Enum.StatusBarInterpolation.Immediate` (0) | The fill shows the new value at once. This is the default. |
+| `Enum.StatusBarInterpolation.ExponentialEaseOut` (1) | The fill eases from the fill that it showed before to the new value. |
+
+```lua
+healthBar:SetValue(UnitHealth("target"), Enum.StatusBarInterpolation.ExponentialEaseOut)
+```
+
+- On each frame, the remaining gap is multiplied by `exp(-18 * elapsed)`,
+  with `elapsed` in seconds. The speed does not change with the frame rate.
+- The ease works on the fill as a part of the bar. Thus, a full-bar jump
+  takes the same time on each range: approximately 0.4 seconds.
+- When the gap is less than 0.1% of the bar, the next frame shows the new
+  value and the ease stops.
+- `GetValue()` returns the new value at once. `OnValueChanged` runs one
+  time, at the call, with the new value.
+- A new eased value continues from the fill that the bar shows. An
+  `Immediate` value stops the ease.
+- With `SetMinMaxValues`, the fill keeps its part of the bar and eases to
+  the part that the value has in the new range.
+- A hidden bar does not ease. It continues when it shows again.
+- Any `interpolation` value other than `ExponentialEaseOut` works as
+  `Immediate`. It does not cause an error.
+
+### `statusBar:GetInterpolatedValue()` / `statusBar:IsInterpolating()` / `statusBar:SetToTargetValue()`
+
+`statusBar:GetInterpolatedValue()` returns the value that the fill shows
+now. While the bar eases, it is between the old value and the new value.
+Else it is the same as `GetValue()`. `statusBar:IsInterpolating()` returns
+`true` while the bar eases. `statusBar:SetToTargetValue()` stops the ease
+and shows the value at once.
 
 ### `statusBar:SetColorFill(colorR, colorG, colorB [, a])`
 
