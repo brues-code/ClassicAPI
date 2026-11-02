@@ -5,7 +5,6 @@
 ## Special Thanks: Iriel, Kirov, Esamynn
 ## Version: DEV
 ## LoadOnDemand: 1
-## SavedVariables: DebugToolsSavedVars
 Dump.lua
 DebugTools.lua
 DebugTools.xml

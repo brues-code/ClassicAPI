@@ -134,7 +134,11 @@ FrameXML\Scroll\TrimScrollBar.lua
 FrameXML\Scroll\TrimScrollBar.xml
 FrameXML\LayoutFrame.lua
 FrameXML\LayoutFrame.xml
+FrameXML\AnimationTemplates.xml
+FrameXML\SharedTooltipTemplates.xml
 FrameXML\SharedUIPanelTemplates.xml
+FrameXML\InputBoxTemplates.xml
+FrameXML\SearchBoxTemplate.xml [ExcludeLoadGameType turtle]
 FrameXML\ColorSwatch.lua
 FrameXML\ColorSwatch.xml
 FrameXML\ScriptErrorsFrame.lua

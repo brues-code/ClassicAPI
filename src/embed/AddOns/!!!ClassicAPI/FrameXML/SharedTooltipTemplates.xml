@@ -1,0 +1,10 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	One template from retail's Blizzard_SharedXML/SharedTooltipTemplates.xml.
+	Retail draws it with a NineSlice border and sets it up in
+	SharedTooltip_OnLoad. This client's tooltips already have their border,
+	strata, clamp and set-up in 1.12's own GameTooltipTemplate, so the
+	template is that one.
+	-->
+	<GameTooltip name="SharedTooltipTemplate" inherits="GameTooltipTemplate" virtual="true"/>
+</Ui>

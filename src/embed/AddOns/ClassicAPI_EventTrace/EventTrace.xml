@@ -1,0 +1,413 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	Backport of retail's Blizzard_EventTrace/Blizzard_EventTrace.xml.
+	- Textures without <Anchors> get setAllPoints="true": retail's loader
+	  fills such a texture to its parent, this client's does not.
+	- The menu buttons' auctionhouse-nav-button atlas is art this client does
+	  not have. They are drawn like the Options dropdown beside them: the
+	  panel button art in three slices, its highlight on mouseover.
+	- The title bar is a Frame, which this client does not make mouse-enabled
+	  for its drag scripts, so it has enableMouse.
+	- The scroll bars are this client's bar, not retail's thin one. Its frame
+	  is 25 wide but its art 31, drawn from the frame's left. Each scroll box
+	  leaves 32 at its right and the bar sits 4 to its right, so the art ends
+	  3 past the log, at the Inset's edge (6 from the window's, the log's 9).
+	- The search box inherits ClassicAPISearchBoxTemplate, retail's
+	  SearchBoxTemplate under the name that is ClassicAPI's on every client
+	  (Turtle's FrameXML has a SearchBoxTemplate of its own).
+	-->
+	<Script file="EventTrace.lua"/>
+
+	<CheckButton name="EventTraceCheckButtonTemplate" virtual="true">
+		<Size x="15" y="15"/>
+		<HitRectInsets>
+			<AbsInset left="0" right="-100" top="0" bottom="0"/>
+		</HitRectInsets>
+		<NormalTexture file="Interface\Buttons\UI-CheckBox-Up"/>
+		<PushedTexture file="Interface\Buttons\UI-CheckBox-Down"/>
+		<HighlightTexture file="Interface\Buttons\UI-CheckBox-Highlight" alphaMode="ADD"/>
+		<CheckedTexture file="Interface\Buttons\UI-CheckBox-Check"/>
+		<DisabledCheckedTexture file="Interface\Buttons\UI-CheckBox-Check-Disabled"/>
+	</CheckButton>
+
+	<Frame name="EventTraceButtonBehaviorTemplate" mixin="EventTraceButtonBehaviorMixin" virtual="true">
+		<Scripts>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+	</Frame>
+
+	<Button name="EventTraceMenuButtonTemplate" inherits="EventTraceButtonBehaviorTemplate" virtual="true">
+		<Size x="132" y="20"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="Left" file="Interface\Buttons\UI-Panel-Button-Up">
+					<Size x="12" y="20"/>
+					<Anchors>
+						<Anchor point="LEFT"/>
+					</Anchors>
+					<TexCoords left="0" right="0.09375" top="0" bottom="0.6875"/>
+				</Texture>
+				<Texture parentKey="Right" file="Interface\Buttons\UI-Panel-Button-Up">
+					<Size x="12" y="20"/>
+					<Anchors>
+						<Anchor point="RIGHT"/>
+					</Anchors>
+					<TexCoords left="0.53125" right="0.625" top="0" bottom="0.6875"/>
+				</Texture>
+				<Texture parentKey="Middle" file="Interface\Buttons\UI-Panel-Button-Up">
+					<Size x="12" y="20"/>
+					<Anchors>
+						<Anchor point="LEFT" relativeKey="$parent.Left" relativePoint="RIGHT"/>
+						<Anchor point="RIGHT" relativeKey="$parent.Right" relativePoint="LEFT"/>
+					</Anchors>
+					<TexCoords left="0.09375" right="0.53125" top="0" bottom="0.6875"/>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<Texture parentKey="MouseoverOverlay" file="Interface\Buttons\UI-Panel-Button-Highlight" hidden="true" alphaMode="ADD" setAllPoints="true">
+					<TexCoords left="0" right="0.625" top="0" bottom="0.6875"/>
+				</Texture>
+				<FontString parentKey="Label" inherits="GameFontHighlight">
+					<Size x="180" y="16"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Button>
+
+	<Button name="EventTraceScrollBoxButtonTemplate" inherits="EventTraceButtonBehaviorTemplate" mixin="EventTraceScrollBoxButtonMixin" virtual="true">
+		<Size y="20"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture setAllPoints="true">
+					<Color r=".1" g=".1" b=".1" a="1"/>
+				</Texture>
+				<Texture parentKey="Alternate" hidden="true" alphaMode="ADD" setAllPoints="true">
+					<Color r=".02" g=".02" b=".02" a="1"/>
+				</Texture>
+				<Texture parentKey="MouseoverOverlay" hidden="true" alphaMode="ADD" setAllPoints="true">
+					<Color r=".1" g=".1" b=".1" a="1"/>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<Texture parentKey="FlashOverlay" setAllPoints="true">
+					<Color r="1" b="1" g="1" a=".5"/>
+					<Animations>
+						<AnimationGroup parentKey="Anim" setToFinalAlpha="true" inherits="VisibleWhilePlayingAnimGroupTemplate">
+							<Alpha fromAlpha="0.5" toAlpha="1" duration="0.5" order="1" smoothing="IN"/>
+							<Alpha fromAlpha="1" toAlpha="0.0" duration="0.5" order="2" smoothing="IN"/>
+						</AnimationGroup>
+					</Animations>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Button>
+
+	<Button name="EventTraceLogEventButtonTemplate" inherits="EventTraceScrollBoxButtonTemplate" registerForClicks="AnyUp" mixin="EventTraceLogEventButtonMixin" virtual="true">
+		<Size y="20"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="RightLabel" inherits="GameFontHighlightSmall" justifyH="RIGHT">
+					<Size y="20"/>
+					<Anchors>
+						<Anchor point="RIGHT" x="-5"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="LeftLabel" inherits="GameFontHighlightSmall" wordwrap="false" justifyH="LEFT">
+					<Size y="20"/>
+					<Anchors>
+						<Anchor point="LEFT" x="24"/>
+						<Anchor point="RIGHT" relativeKey="$parent.RightLabel" relativePoint="LEFT" x="-5"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button parentKey="HideButton" inherits="UIPanelCloseButtonNoScripts">
+				<Size x="20" y="20"/>
+			</Button>
+		</Frames>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+	</Button>
+
+	<Button name="EventTraceLogMessageButtonTemplate" inherits="EventTraceScrollBoxButtonTemplate" mixin="EventTraceLogMessageButtonMixin" virtual="true">
+		<Size x="100" y="20"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="RightLabel" inherits="GameFontHighlightSmall" justifyH="RIGHT">
+					<Size y="20"/>
+					<Anchors>
+						<Anchor point="RIGHT" x="-5"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="LeftLabel" inherits="GameFontHighlightSmall" wordwrap="false" justifyH="LEFT">
+					<Size y="20"/>
+					<Anchors>
+						<Anchor point="LEFT" x="24"/>
+						<Anchor point="RIGHT" relativeKey="$parent.RightLabel" relativePoint="LEFT" x="-5"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+	</Button>
+
+	<Button name="EventTraceFilterButtonTemplate" inherits="EventTraceScrollBoxButtonTemplate" mixin="EventTraceFilterButtonMixin" virtual="true">
+		<Size x="100" y="20"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="Label" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size y="20"/>
+					<Anchors>
+						<Anchor point="LEFT" x="24"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button parentKey="HideButton" inherits="UIPanelCloseButtonNoScripts">
+				<Size x="20" y="20"/>
+				<Anchors>
+					<Anchor point="LEFT" x="3"/>
+				</Anchors>
+			</Button>
+			<CheckButton parentKey="CheckButton" inherits="EventTraceCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="RIGHT" x="-3"/>
+				</Anchors>
+			</CheckButton>
+		</Frames>
+		<Scripts>
+			<OnDoubleClick method="OnDoubleClick"/>
+		</Scripts>
+	</Button>
+
+	<Frame name="EventTrace" mixin="EventTracePanelMixin" inherits="ButtonFrameTemplate" parent="UIParent" toplevel="true" movable="true" resizable="true" enableMouse="true" frameStrata="DIALOG">
+		<Size x="600" y="400"/>
+		<Anchors>
+			<Anchor point="CENTER"/>
+		</Anchors>
+		<Frames>
+			<Frame parentKey="TitleBar" inherits="PanelDragBarTemplate" enableMouse="true">
+				<Size y="32"/>
+				<Anchors>
+					<Anchor point="TOPLEFT"/>
+					<Anchor point="TOPRIGHT"/>
+				</Anchors>
+				<Layers>
+				</Layers>
+			</Frame>
+			<Button parentKey="ResizeButton" inherits="PanelResizeButtonTemplate">
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT" x="-4" y="4"/>
+				</Anchors>
+			</Button>
+			<Frame parentKey="SubtitleBar">
+				<Size y="32"/>
+				<Anchors>
+					<Anchor point="TOPLEFT"/>
+					<Anchor point="TOPRIGHT"/>
+				</Anchors>
+				<Frames>
+					<Button parentKey="ViewLog" inherits="EventTraceMenuButtonTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" x="5"/>
+						</Anchors>
+					</Button>
+					<Button parentKey="ViewFilter" inherits="EventTraceMenuButtonTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeKey="$parent.ViewLog" relativePoint="TOPRIGHT" x="3"/>
+						</Anchors>
+					</Button>
+					<DropdownButton parentKey="OptionsDropdown" inherits="WowStyle1FilterDropdownTemplate">
+						<Anchors>
+							<Anchor point="TOPRIGHT" relativePoint="BOTTOMRIGHT" x="-20"/>
+						</Anchors>
+					</DropdownButton>
+				</Frames>
+			</Frame>
+			<Frame parentKey="Log">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeKey="$parent.SubtitleBar" relativePoint="BOTTOMLEFT" x="8" y="-32"/>
+					<Anchor point="BOTTOMRIGHT" x="-9" y="28"/>
+				</Anchors>
+				<Frames>
+					<Frame parentKey="Bar">
+						<Size y="24"/>
+						<Anchors>
+							<Anchor point="TOPLEFT"/>
+							<Anchor point="TOPRIGHT"/>
+						</Anchors>
+						<Layers>
+							<Layer level="OVERLAY">
+								<FontString parentKey="Label" inherits="GameFontHighlight" justifyH="LEFT">
+									<Size x="135" y="10"/>
+									<Anchors>
+										<Anchor point="LEFT" x="12" y="0"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<Button parentKey="MarkButton" inherits="EventTraceMenuButtonTemplate">
+								<Anchors>
+									<Anchor point="RIGHT" x="-3" y="0"/>
+								</Anchors>
+							</Button>
+							<Button parentKey="PlaybackButton" inherits="EventTraceMenuButtonTemplate">
+								<Anchors>
+									<Anchor point="RIGHT" relativeKey="$parent.MarkButton" relativePoint="LEFT" x="-3"/>
+								</Anchors>
+							</Button>
+							<Button parentKey="DiscardAllButton" inherits="EventTraceMenuButtonTemplate">
+								<Anchors>
+									<Anchor point="RIGHT" relativeKey="$parent.PlaybackButton" relativePoint="LEFT" x="-3"/>
+								</Anchors>
+							</Button>
+							<EditBox parentKey="SearchBox" autoFocus="false" historyLines="1" bytes="64" inherits="ClassicAPISearchBoxTemplate">
+								<Size x="180" y="22"/>
+								<Anchors>
+									<Anchor point="RIGHT" relativeKey="$parent.DiscardAllButton" relativePoint="LEFT" x="-3"/>
+								</Anchors>
+							</EditBox>
+						</Frames>
+					</Frame>
+					<Frame parentKey="Events">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeKey="$parent.Bar" relativePoint="BOTTOMLEFT" y="-2"/>
+							<Anchor point="BOTTOMRIGHT"/>
+						</Anchors>
+						<Frames>
+							<Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+								<Anchors>
+									<Anchor point="TOPLEFT"/>
+									<Anchor point="BOTTOMRIGHT" x="-32"/>
+								</Anchors>
+								<Layers>
+									<Layer level="BACKGROUND">
+										<Texture setAllPoints="true">
+											<Color r=".03" g=".03" b=".03" a="1"/>
+										</Texture>
+									</Layer>
+								</Layers>
+							</Frame>
+							<EventFrame parentKey="ScrollBar" inherits="MinimalScrollBar">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeKey="$parent.ScrollBox" relativePoint="TOPRIGHT" x="4" y="0"/>
+									<Anchor point="BOTTOMLEFT" relativeKey="$parent.ScrollBox" relativePoint="BOTTOMRIGHT" x="4" y="0"/>
+								</Anchors>
+							</EventFrame>
+						</Frames>
+					</Frame>
+					<Frame parentKey="Search">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeKey="$parent.Bar" relativePoint="BOTTOMLEFT" y="-2"/>
+							<Anchor point="BOTTOMRIGHT"/>
+						</Anchors>
+						<Frames>
+							<Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+								<Anchors>
+									<Anchor point="TOPLEFT"/>
+									<Anchor point="BOTTOMRIGHT" x="-32"/>
+								</Anchors>
+								<Layers>
+									<Layer level="BACKGROUND">
+										<Texture setAllPoints="true">
+											<Color r=".03" g=".03" b=".03" a="1"/>
+										</Texture>
+									</Layer>
+								</Layers>
+							</Frame>
+							<EventFrame parentKey="ScrollBar" inherits="MinimalScrollBar">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeKey="$parent.ScrollBox" relativePoint="TOPRIGHT" x="4" y="0"/>
+									<Anchor point="BOTTOMLEFT" relativeKey="$parent.ScrollBox" relativePoint="BOTTOMRIGHT" x="4" y="0"/>
+								</Anchors>
+							</EventFrame>
+						</Frames>
+					</Frame>
+				</Frames>
+			</Frame>
+			<Frame parentKey="Filter" hidden="true">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeKey="$parent.SubtitleBar" relativePoint="BOTTOMLEFT" x="8" y="-32"/>
+					<Anchor point="BOTTOMRIGHT" x="-9" y="28"/>
+				</Anchors>
+				<Frames>
+					<Frame parentKey="Bar">
+						<Size y="24"/>
+						<Anchors>
+							<Anchor point="TOPLEFT"/>
+							<Anchor point="TOPRIGHT"/>
+						</Anchors>
+						<Layers>
+							<Layer level="OVERLAY">
+								<FontString parentKey="Label" inherits="GameFontHighlight" justifyH="LEFT">
+									<Size x="135" y="10"/>
+									<Anchors>
+										<Anchor point="LEFT" x="12" y="0"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<Button parentKey="CheckAllButton" inherits="EventTraceMenuButtonTemplate">
+								<Anchors>
+									<Anchor point="RIGHT" x="-3"/>
+								</Anchors>
+							</Button>
+							<Button parentKey="UncheckAllButton" inherits="EventTraceMenuButtonTemplate">
+								<Anchors>
+									<Anchor point="RIGHT" relativeKey="$parent.CheckAllButton" relativePoint="LEFT" x="-3"/>
+								</Anchors>
+							</Button>
+							<Button parentKey="DiscardAllButton" inherits="EventTraceMenuButtonTemplate">
+								<Anchors>
+									<Anchor point="RIGHT" relativeKey="$parent.UncheckAllButton" relativePoint="LEFT" x="-3"/>
+								</Anchors>
+							</Button>
+						</Frames>
+					</Frame>
+
+					<Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeKey="$parent.Bar" relativePoint="BOTTOMLEFT" y="-2"/>
+							<Anchor point="BOTTOMRIGHT" x="-32"/>
+						</Anchors>
+						<Layers>
+							<Layer level="BACKGROUND">
+								<Texture setAllPoints="true">
+									<Color r=".03" g=".03" b=".03" a="1"/>
+								</Texture>
+							</Layer>
+						</Layers>
+					</Frame>
+					<EventFrame parentKey="ScrollBar" inherits="MinimalScrollBar">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeKey="$parent.ScrollBox" relativePoint="TOPRIGHT" x="4" y="0"/>
+							<Anchor point="BOTTOMLEFT" relativeKey="$parent.ScrollBox" relativePoint="BOTTOMRIGHT" x="4" y="0"/>
+						</Anchors>
+					</EventFrame>
+				</Frames>
+			</Frame>
+		</Frames>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEvent method="OnEvent"/>
+			<OnShow method="OnShow"/>
+			<OnHide method="OnHide"/>
+		</Scripts>
+	</Frame>
+
+	<GameTooltip name="EventTraceTooltip" frameStrata="TOOLTIP" hidden="true" parent="EventTrace" inherits="SharedTooltipTemplate"/>
+</Ui>

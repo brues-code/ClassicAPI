@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: ClassicAPI Event Trace
+## Notes: Event log for addon development (backport of retail's Blizzard_EventTrace to 1.12.1)
+## Author: Blizzard Entertainment, backported
+## Version: DEV
+## LoadOnDemand: 1
+## SavedVariables: EventTraceSavedVars
+EventTrace.xml

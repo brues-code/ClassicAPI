@@ -1033,12 +1033,19 @@ end
 SLASH_FRAMESTACK1 = "/framestack";
 SLASH_FRAMESTACK2 = "/fstack";
 
-SlashCmdList["ETRACE"] = function(msg)
-	if ( LoadDebugTools() ) then
-		EventTraceFrame_HandleSlashCmd(msg);
+-- Retail keeps EventTrace_LoadUI in Blizzard_EventTrace's [Bootstrap] file,
+-- which loads before the addon itself. This client has no bootstrap files,
+-- so it is here. The addon replaces this command with its show / hide toggle
+-- when it loads.
+function EventTrace_LoadUI()
+	return UIParentLoadAddOn("ClassicAPI_EventTrace");
+end
+
+SlashCmdList["EVENTTRACE"] = function(msg)
+	if ( EventTrace_LoadUI() ) then
+		EventTrace:ProcessChatCommand(msg);
 	end
 end
-SLASH_ETRACE1 = "/etrace";
 
 SlashCmdList["TINSPECT"] = function(msg)
 	if ( not LoadDebugTools() ) then

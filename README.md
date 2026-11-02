@@ -450,10 +450,10 @@ Download the prebuilt `ClassicAPI.dll` from the
 3. Add `ClassicAPI.dll` to `dlls.txt`.
 4. Launch the game with `VanillaFixes.exe`.
 
-The `!!!ClassicAPI` and `ClassicAPI_DebugTools` addons are *inside* the
-DLL. You do not download or install them. The `src/embed/AddOns/` folder
-in this repository is source code for the DLL. Do not copy it into your
-game.
+The `!!!ClassicAPI`, `ClassicAPI_DebugTools` and `ClassicAPI_EventTrace`
+addons are *inside* the DLL. You do not download or install them. The
+`src/embed/AddOns/` folder in this repository is source code for the DLL.
+Do not copy it into your game.
 
 ## Bundled addon: !!!ClassicAPI
 
@@ -517,17 +517,18 @@ does not open.
 
 ## Debug tools
 
-ClassicAPI contains a backport of Blizzard's `Blizzard_DebugTools` addon,
-with the name `ClassicAPI_DebugTools`. The DLL contains this addon, so you do
-not install it. The addon is not in the AddOns list, and you cannot disable it.
+ClassicAPI contains backports of two Blizzard addons: `Blizzard_DebugTools`,
+with the name `ClassicAPI_DebugTools`, and `Blizzard_EventTrace`, with the
+name `ClassicAPI_EventTrace`. The DLL contains these addons, so you do not
+install them. They are not in the AddOns list, and you cannot disable them.
 
-The slash commands are always available. The tools load the first time
-that you use one of these commands:
+The slash commands are always available. Each addon loads the first time
+that you use one of its commands:
 
 | Command | Purpose |
 |---------|---------|
 | `/dump <expr>` | Shows a Lua value in the chat frame. It shows tables and all return values. Use it to examine the return values of `GetSpellInfo`, `C_Item.GetItemInfoInstant`, and other functions. |
-| `/etrace` | Opens the event trace window. Other forms: `/etrace start`, `/etrace stop`, `/etrace add EVENT`, and more. |
+| `/etrace` (or `/eventtrace`) | Opens or closes the event trace window. The window logs each event with its time and its arguments. Move the mouse over an event to see its arguments, and the contents of each table argument. You can search the log, hide events with the filter, and pause the log. `/etrace mark <text>` adds a line of text to the log. |
 | `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. The tooltip also shows the addon that made the marked frame. When `scriptProfile` is `1`, it shows the CPU time of the frame scripts. |
 | `/tinspect [expr]` (or `/tins`) | Opens a table inspector on the result of `expr`. With no table, it opens on the frame under the cursor. The window shows the anchors and the fields of the table, grouped by type. You can edit numbers, strings and booleans, filter the lines, and open a child table or frame. |
 | `/profiler` (or `/prof`) | Opens the profiler. The profiler shows the Lua memory, the allocations and the CPU time of each addon, frame, event and global function. `/profiler widget` shows a small window with the Lua memory, the frame rate and the addons that use the most. `/profiler reset` sets the counters to zero. CPU times need `scriptProfile` `1`. `/profiler profile on` sets it and reloads the UI. |

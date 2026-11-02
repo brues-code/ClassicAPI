@@ -1,5 +1,20 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
-	<!-- Templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml. -->
+	<!--
+	Templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml.
+	Retail draws the panel frames, the close button and the resize grip with
+	atlases and a NineSlice this client does not have, so:
+	- PortraitFrameBaseTemplate's border is the tooltip border, with a dark
+	  title bar under the title, as TableInspector draws its window. The
+	  border is the same with and without the portrait.
+	- InsetFrameTemplate is a darker fill without a border: retail's content
+	  sits on its thin inset border, which a tooltip border would hide.
+	- The inset sits where retail puts it without the portrait.
+	- The close button is 1.12's own (UIPanelCloseButton's art).
+	- The resize grip is the chat frame's expand arrow, turned to point at
+	  the corner.
+	- No FrameGlow, gamepad jump hints, TopTileStreaks or button bar.
+	-->
+	<Script file="PortraitFrame.lua"/>
 	<Script file="SharedUIPanelTemplates.lua"/>
 
 	<Frame name="TruncatedTooltipScriptTemplate" virtual="true">
@@ -28,5 +43,145 @@
 		<Size x="23" y="23"/>
 		<NormalTexture file="Interface\Buttons\UI-GroupLoot-Pass-Up" setAllPoints="true"/>
 		<HighlightTexture file="Interface\Buttons\UI-GroupLoot-Pass-Highlight" alphaMode="ADD" setAllPoints="true"/>
+	</Button>
+
+	<Button name="UIPanelCloseButtonNoScripts" frameLevel="510" virtual="true">
+		<Size x="24" y="24"/>
+		<DisabledTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Disabled"/>
+		<NormalTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Up"/>
+		<PushedTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Down"/>
+		<HighlightTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Highlight" alphaMode="ADD"/>
+	</Button>
+	<Button name="UIPanelCloseButtonDefaultAnchors" mixin="UIPanelCloseButtonDefaultAnchorsMixin" inherits="UIPanelCloseButtonNoScripts" virtual="true">
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnClick function="UIPanelCloseButton_OnClick"/>
+		</Scripts>
+	</Button>
+
+	<Frame name="InsetFrameTemplate" useParentLevel="true" virtual="true">
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="Bg" name="$parentBg" setAllPoints="true">
+					<Color r="0" g="0" b="0" a="0.5"/>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Frame>
+
+<!--
+*******************************************************************************
+    PortraitFrameTemplate
+	This is an empty frame with space for a portrait/icon in the top left corner.
+*******************************************************************************
+-->
+	<Frame name="PortraitFrameBaseTemplate" mixin="PortraitFrameMixin" virtual="true">
+		<Size x="338" y="424"/>
+		<Backdrop edgeFile="Interface\Tooltips\UI-Tooltip-Border">
+			<EdgeSize val="16"/>
+		</Backdrop>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture>
+					<Anchors>
+						<Anchor point="TOPLEFT" x="5" y="-5"/>
+						<Anchor point="BOTTOMRIGHT" relativePoint="TOPRIGHT" x="-5" y="-24"/>
+					</Anchors>
+					<Color r="0.1" g="0.1" b="0.1" a="0.95"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame parentKey="PortraitContainer" frameLevel="400">
+				<Size x="1" y="1"/>
+				<Anchors>
+					<Anchor point="TOPLEFT"/>
+				</Anchors>
+				<Layers>
+					<Layer level="OVERLAY">
+						<Texture name="$parentPortrait" parentKey="portrait">
+							<Size x="62" y="62"/>
+							<Anchors>
+								<Anchor point="TOPLEFT" x="-5" y="7" />
+							</Anchors>
+						</Texture>
+						<MaskTexture parentKey="CircleMask" file="Interface\CharacterFrame\TempPortraitAlphaMask" hWrapMode="CLAMPTOBLACKADDITIVE" vWrapMode="CLAMPTOBLACKADDITIVE">
+							<Anchors>
+								<Anchor point="TOPLEFT" relativeKey="$parent.portrait" x="2" y="0"/>
+								<Anchor point="BOTTOMRIGHT" relativeKey="$parent.portrait" x="-2" y="4"/>
+							</Anchors>
+							<MaskedTextures>
+								<MaskedTexture childKey="portrait"/>
+							</MaskedTextures>
+						</MaskTexture>
+					</Layer>
+				</Layers>
+			</Frame>
+			<Frame parentKey="TitleContainer" frameLevel="510">
+				<Size x="0" y="20"/>
+				<Anchors>
+					<Anchor point="TOPLEFT" x="58" y="-1"/>
+					<Anchor point="TOPRIGHT" x="-24" y="-1"/>
+				</Anchors>
+				<Layers>
+					<Layer level="OVERLAY">
+						<FontString name="$parentTitleText" inherits="GameFontNormal" text="" parentKey="TitleText" wordwrap="false">
+							<Anchors>
+								<Anchor point="TOP" x="0" y="-5"/>
+								<Anchor point="LEFT"/>
+								<Anchor point="RIGHT"/>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+			</Frame>
+		</Frames>
+	</Frame>
+
+<!--
+*******************************************************************************
+    ButtonFrameTemplate
+	This is a Portrait Frame that also has space for buttons along the bottom
+	edge, and includes an inset content area.
+*******************************************************************************
+-->
+	<Frame name="ButtonFrameBaseTemplate" inherits="PortraitFrameBaseTemplate" virtual="true">
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentBg" parentKey="Bg">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="5" y="-24"/>
+						<Anchor point="BOTTOMRIGHT" x="-5" y="5"/>
+					</Anchors>
+					<Color r="0" g="0" b="0" a="0.75"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentCloseButton" parentKey="CloseButton" inherits="UIPanelCloseButtonDefaultAnchors"/>
+		</Frames>
+	</Frame>
+
+	<Frame name="ButtonFrameTemplate" inherits="ButtonFrameBaseTemplate" virtual="true">
+		<Frames>
+			<Frame name="$parentInset" parentKey="Inset" useParentLevel="true" inherits="InsetFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" x="9" y="-60" />
+					<Anchor point="BOTTOMRIGHT" x="-6" y="26" />
+				</Anchors>
+			</Frame>
+		</Frames>
+	</Frame>
+
+	<Button name="PanelResizeButtonTemplate" mixin="PanelResizeButtonMixin" virtual="true">
+		<Size x="16" y="16"/>
+		<Scripts>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnMouseDown method="OnMouseDown"/>
+			<OnMouseUp method="OnMouseUp"/>
+		</Scripts>
+		<NormalTexture file="Interface\ChatFrame\ChatFrameExpandArrow" rotation="-45"/>
+		<HighlightTexture file="Interface\ChatFrame\ChatFrameExpandArrow" rotation="-45" alphaMode="ADD"/>
 	</Button>
 </Ui>

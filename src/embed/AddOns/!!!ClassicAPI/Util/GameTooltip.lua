@@ -107,10 +107,23 @@ function GameTooltip_AddNormalLine(tooltip, text, wrap, leftOffset)
 	GameTooltip_AddColoredLine(tooltip, text, NORMAL_FONT_COLOR, wrap, leftOffset);
 end
 
+function GameTooltip_AddHighlightLine(tooltip, text, wrap, leftOffset)
+	GameTooltip_AddColoredLine(tooltip, text, HIGHLIGHT_FONT_COLOR, wrap, leftOffset);
+end
+
 function GameTooltip_AddColoredLine(tooltip, text, color, wrap, leftOffset)
 	local r, g, b = color:GetRGB();
 	if wrap == nil then
 		wrap = true;
 	end
 	tooltip:AddLine(text, r, g, b, wrap, leftOffset);
+end
+
+function GameTooltip_AddColoredDoubleLine(tooltip, leftText, rightText, leftColor, rightColor, wrap, leftOffset)
+	local leftR, leftG, leftB = leftColor:GetRGB();
+	local rightR, rightG, rightB = rightColor:GetRGB();
+	if wrap == nil then
+		wrap = true;
+	end
+	tooltip:AddDoubleLine(leftText, rightText, leftR, leftG, leftB, rightR, rightG, rightB, wrap, leftOffset);
 end
