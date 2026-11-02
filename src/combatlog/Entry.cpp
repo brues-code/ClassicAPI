@@ -35,6 +35,7 @@
 #include "combatlog/Entry.h"
 
 #include "Game.h"
+#include "combatlog/File.h"
 #include "combatlog/History.h"
 #include "Offsets.h"
 #include "event/Custom.h"
@@ -405,9 +406,7 @@ int Push(void *L, const Entry &e) {
             PushString(L, name);
         else
             PushNil(L);
-        PushNumber(L, spell != nullptr
-                          ? SchoolMask(Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_SCHOOL))
-                          : e.spellSchool);
+        PushNumber(L, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
         count += 3;
     }
     if (e.info & INFO_COUNT) {
@@ -419,14 +418,12 @@ int Push(void *L, const Entry &e) {
         ++count;
     }
     if (e.info & INFO_MISS) {
-        const int miss = e.v[0];
-        PushString(L, (miss >= 0 && miss < MISS_COUNT) ? kMissNames[miss] : kMissNames[0]);
+        PushString(L, MissName(e.v[0]));
         PushFlag(L, e.offHand);
         count += 2;
     }
     if (e.info & INFO_ENVIRONMENTAL) {
-        const int type = e.v[0];
-        PushString(L, (type >= 0 && type < 6) ? kEnvironmentalNames[type] : kEnvironmentalNames[0]);
+        PushString(L, EnvironmentalName(e.v[0]));
         ++count;
     }
     if (e.info & INFO_DAMAGE) {
@@ -488,9 +485,7 @@ int Push(void *L, const Entry &e) {
             PushString(L, name);
         else
             PushNil(L);
-        PushNumber(L, extra != nullptr ? SchoolMask(Game::Read<uint32_t>(
-                                             extra, Offsets::OFF_SPELL_RECORD_SCHOOL))
-                                       : 0);
+        PushNumber(L, SpellSchoolMask(extra));
         count += 3;
     }
     if (e.info & INFO_ITEM) {
@@ -581,6 +576,14 @@ const char *Name(int event) {
     return (event >= 0 && event < EVENT_COUNT) ? kEventNames[event] : "";
 }
 
+const char *MissName(int missType) {
+    return (missType >= 0 && missType < MISS_COUNT) ? kMissNames[missType] : kMissNames[0];
+}
+
+const char *EnvironmentalName(int type) {
+    return (type >= 0 && type < 6) ? kEnvironmentalNames[type] : kEnvironmentalNames[0];
+}
+
 int PushEvent(void *L, const Entry &entry) { return Push(L, entry); }
 
 const uint8_t *SpellRecord(int spellId) { return Spell::Lookup::RecordForID(spellId); }
@@ -607,6 +610,12 @@ bool Ranged(const uint8_t *spell) {
 }
 
 uint32_t SchoolMask(uint32_t school) { return school < kSchoolCount ? 1u << school : 0; }
+
+uint32_t SpellSchoolMask(const uint8_t *spell) {
+    return spell != nullptr
+               ? SchoolMask(Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_SCHOOL))
+               : 0;
+}
 
 bool HasAuraEffect(const uint8_t *spell, int auraName) {
     if (spell == nullptr)
@@ -700,6 +709,7 @@ void Queue(Entry &e) {
         g_startTimeMs = e.timeMs;
     }
     History::Record(e);
+    File::Write(e);
     Send(e);
 }
 

@@ -2113,6 +2113,25 @@ enum Offsets {
     // own text is empty), as 4.3.4 calls UnitCombatLogSpellFail. Returns for a
     // null player or spell (disassembly, 0x0062C37C-0x0062C38E).
     FUN_COMBAT_LOG_SPELL_FAIL = 0x0062C360,
+    // LoggingCombat's flag (s_loggingFlags[1]; [0] at 0x00B4FDB4 is chat):
+    // nonzero while the combat log is written to a file. Cleared by the chat
+    // teardown (0x00498700). Disassembled, 0x0049FE70 / 0x0049B1D3.
+    VAR_COMBAT_LOGGING = 0x00B4FDB8,
+    // Storm SLogCreate — `bool __stdcall(const char *path, uint32_t flags,
+    // uint32_t *log)`. Flag 4 appends; the file is opened (and its folders
+    // made) on the first write. LoggingCombat opens Logs\WoWCombatLog.txt with
+    // it (0x0049FEA2). Storm closes every open log at exit (0x0065A4B0).
+    // benilla-re storm/log.
+    FUN_SLOG_CREATE = 0x0065A0C0,
+    // Storm SLogWrite — `void __cdecl(uint32_t log, const char *format, ...)`:
+    // one line, prefixed with "M/D HH:MM:SS.mmm  " and ended with "\r\n". The
+    // combat log's own line writer (0x0049B1E8) calls it with "%s".
+    // benilla-re storm/log.
+    FUN_SLOG_WRITE = 0x0065ACE0,
+    // Storm SLogClose — `void __stdcall(uint32_t log)`: writes the buffered
+    // lines to the file, flushes and closes it. The chat teardown closes the
+    // chat and combat logs with it (0x0049871B). benilla-re storm/log.
+    FUN_SLOG_CLOSE = 0x00659EC0,
     // A unit's death — `void __fastcall(CGUnit *unit)`: writes the death
     // line (0x0062C160), shows the pending XP gain, plays the death animation
     // and sound. Its one caller is CGUnit_C::OnDied (0x006058AE), from the

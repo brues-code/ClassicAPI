@@ -72,6 +72,12 @@ enum Subevent : int {
 
 const char *Name(int event);
 
+// The INFO_MISS value as 4.3.4's g_spellMissStrings names it.
+const char *MissName(int missType);
+
+// The INFO_ENVIRONMENTAL value as 4.3.4's s_environmentalDamageTypes names it.
+const char *EnvironmentalName(int type);
+
 // 4.3.4's m_infoFlags: which suffix blocks the event carries, pushed in
 // this order after the spell prefix.
 enum Info : uint32_t {
@@ -157,6 +163,9 @@ bool Ranged(const uint8_t *spell);
 
 // A school index (Spell.dbc School, the packets' school) as a school mask.
 uint32_t SchoolMask(uint32_t school);
+
+// The spell's school as a mask (4.3.4's SpellRec m_schoolMask), 0 for nullptr.
+uint32_t SpellSchoolMask(const uint8_t *spell);
 
 // Whether one of the spell's three effects applies the aura `auraName`
 // (EffectApplyAuraName).
