@@ -197,6 +197,8 @@ build instructions.
 - [DeathInfo](#deathinfo)
   - [`C_DeathInfo.GetSelfResurrectOptions()`](#c_deathinfogetselfresurrectoptions)
   - [`C_DeathInfo.UseSelfResurrectOption(optionType, id)`](#c_deathinfouseselfresurrectoptionoptiontype-id)
+- [DurationUtil](#durationutil)
+  - [`C_DurationUtil.CreateDuration()`](#c_durationutilcreateduration)
 
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
@@ -385,6 +387,7 @@ build instructions.
   - [`statusBar:SetReverseFill(isReverseFill)` / `statusBar:GetReverseFill()`](#statusbarsetreversefillisreversefill--statusbargetreversefill)
   - [`statusBar:SetRotatesTexture(rotatesTexture)` / `statusBar:GetRotatesTexture()`](#statusbarsetrotatestexturerotatestexture--statusbargetrotatestexture)
   - [`statusBar:SetFillStyle(fillStyle)` / `statusBar:GetFillStyle()`](#statusbarsetfillstylefillstyle--statusbargetfillstyle)
+  - [`statusBar:SetTimerDuration(duration [, interpolation [, direction]])` / `statusBar:GetTimerDuration()`](#statusbarsettimerdurationduration--interpolation--direction--statusbargettimerduration)
   - [`statusBar:SetColorFill(colorR, colorG, colorB [, a])`](#statusbarsetcolorfillcolorr-colorg-colorb--a)
   - [`statusBar:SetStatusBarDesaturation(desaturation)` / `statusBar:GetStatusBarDesaturation()`](#statusbarsetstatusbardesaturationdesaturation--statusbargetstatusbardesaturation)
   - [`editBox:IsInIMECompositionMode()`](#editboxisinimecompositionmode)
@@ -917,6 +920,7 @@ build instructions.
   - [`CancelUnitBuff(unit, index [, filter])`](#cancelunitbuffunit-index--filter)
   - [`C_Spell.UnitCastingInfo(unit)` / `C_Spell.CastingInfo()`](#c_spellunitcastinginfounit--c_spellcastinginfo)
   - [`C_Spell.UnitChannelInfo(unit)` / `C_Spell.ChannelInfo()`](#c_spellunitchannelinfounit--c_spellchannelinfo)
+  - [`UnitCastingDuration(unit)` / `UnitChannelDuration(unit)`](#unitcastingdurationunit--unitchanneldurationunit)
   - [`C_Spell.GetSpellLevelInfo(spellID)`](#c_spellgetspelllevelinfospellid)
   - [`GetSpellRequiredTargetLevel(spellID)`](#getspellrequiredtargetlevelspellid)
   - [Cast settings (`autoStand`, `autoDismount`, `autoUnshift`)](#cast-settings-autostand-autodismount-autounshift)
@@ -4739,6 +4743,72 @@ if option then
     C_DeathInfo.UseSelfResurrectOption(option.optionType, option.id)
 end
 ```
+
+## DurationUtil
+
+### `C_DurationUtil.CreateDuration()`
+
+Returns a new duration object. A duration object holds a time span: a start
+time and a total duration. All times are `GetTime()` seconds. A new duration
+object holds a zero time span that starts at 0.
+
+```lua
+local duration = C_DurationUtil.CreateDuration()
+duration:SetTimeFromStart(GetTime(), 2.5)
+print(duration:GetRemainingDuration())  -- 2.5
+```
+
+These methods set the time span:
+
+| Method | Time span |
+|---|---|
+| `SetTimeFromStart(startTime, duration [, modRate])` | Starts at `startTime` and lasts `duration` seconds. |
+| `SetTimeFromEnd(endTime, duration [, modRate])` | Ends at `endTime` and lasts `duration` seconds. |
+| `SetTimeSpan(startTime, endTime)` | Starts at `startTime` and ends at `endTime`. If `endTime` is before `startTime`, the time span is zero and starts at `startTime`. |
+| `Reset()` / `SetToDefaults()` | Zero, and starts at 0. |
+| `Assign(other)` | The same as the time span of the duration object `other`. |
+
+These methods read the time span. Each one takes an optional `modifier`
+argument (see below):
+
+| Method | Returns |
+|---|---|
+| `GetStartTime()` | The start time. |
+| `GetEndTime()` | The start time plus the total duration. |
+| `GetTotalDuration()` | The total duration, in seconds. |
+| `GetElapsedDuration()` | The seconds from the start time to now, from 0 to the total duration. Before the start time, it is 0. |
+| `GetRemainingDuration()` | The total duration minus the elapsed duration. Before the start time, it is the total duration. |
+| `GetElapsedPercent()` / `GetRemainingPercent()` | The elapsed or remaining duration as a part of the total duration, from 0 to 1. A zero time span gives 1 elapsed and 0 remaining. |
+| `HasStarted()` | `true` when now is at or after the start time. |
+| `HasExpired()` | `true` when now is at or after the end time. |
+| `IsActive()` | `true` from the start time until the end time. |
+
+These methods take no arguments:
+
+| Method | Returns |
+|---|---|
+| `IsZero()` | `true` when the total duration is 0. |
+| `GetModRate()` | The mod rate of the time span. The default is 1. |
+| `Copy()` | A new duration object with the same time span. A change to one of the two objects does not change the other. |
+| `GetClockTime()` | The current time, as `GetTime()` gives it. |
+| `GetClock()` | Always `nil`. |
+| `HasSecretValues()` | Always `false`. |
+
+- A new or reset duration object has started and has expired.
+- `modRate` must be more than 0. It changes only the results for
+  `Enum.DurationTimeModifier.BaseTime`.
+- `modifier` is a value of `Enum.DurationTimeModifier`. `RealTime` (0) is
+  the default. With `BaseTime` (1), the total duration is the total duration
+  divided by the mod rate, from the same start time. For example, 1 second
+  into a 4-second time span with a mod rate of 2, the remaining duration is
+  1 second of a 2-second total.
+- A function that returns a duration object returns a new Lua object on each
+  call. Two of these Lua objects can hold the same time span. For example,
+  `statusBar:GetTimerDuration` returns a new Lua object for the time span
+  that you gave to `statusBar:SetTimerDuration`. A change made through one
+  of them shows in the other.
+- A missing or wrong argument is an error.
+- The `Evaluate…` and `Format…` methods and `SetClock` are not available.
 
 ## EquipmentSet
 
@@ -9015,6 +9085,46 @@ changes nothing.
     <BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
 </StatusBar>
 ```
+
+### `statusBar:SetTimerDuration(duration [, interpolation [, direction]])` / `statusBar:GetTimerDuration()`
+
+`statusBar:SetTimerDuration(duration)` gives the bar a timer. The bar then
+fills by itself on each frame from the time span of `duration`, a
+[duration object](#c_durationutilcreateduration). Your code does not call
+`SetValue` on each frame. `statusBar:GetTimerDuration()` returns the
+duration object of the timer, or `nil` when the bar has no timer.
+
+`direction` is a value of `Enum.StatusBarTimerDirection`:
+
+| Value | Fill |
+|---|---|
+| `Enum.StatusBarTimerDirection.ElapsedTime` (0) | The bar fills as the time goes. This is the default. |
+| `Enum.StatusBarTimerDirection.RemainingTime` (1) | The bar empties as the time goes. |
+
+```lua
+local duration = UnitCastingDuration("target")
+if duration then
+    bar:SetTimerDuration(duration, Enum.StatusBarInterpolation.Immediate,
+        Enum.StatusBarTimerDirection.ElapsedTime)
+end
+```
+
+- The bar keeps the duration object, not a copy. If you change the time
+  span of the object later, the bar shows the change on the next frame.
+- After the end time, the bar stays full (`ElapsedTime`) or empty
+  (`RemainingTime`). The timer stays on the bar.
+- While the bar has a timer, `GetValue()` returns 0 and `GetMinMaxValues()`
+  returns 0, 0. The timer does not run the `OnValueChanged` script.
+- `SetValue` does not remove the timer. `SetMinMaxValues` removes it.
+- A hidden bar does not move. When it shows again, its fill is correct on
+  its first frame.
+- The bar keeps its texture crop and its fill style, from `SetFillStyle`,
+  `SetReverseFill` and `SetRotatesTexture`.
+- `interpolation` is a value of `Enum.StatusBarInterpolation`: `Immediate`
+  (0) or `ExponentialEaseOut` (1). The default is `Immediate`. The bar draws
+  the two values the same, as `Immediate`.
+- A `duration` that is not a duration object, or an enum argument that is
+  not one of its values, is an error.
 
 ### `statusBar:SetColorFill(colorR, colorG, colorB [, a])`
 
@@ -21484,6 +21594,32 @@ so a stale cache entry never applies to a different/ended channel);
 otherwise it falls back to `name`/`displayName`/`textureID`/`spellID` with
 **`nil` times**. The player path is unchanged (full timing).
 `notInterruptible` follows the same rules as in `C_Spell.UnitCastingInfo`.
+
+### `UnitCastingDuration(unit)` / `UnitChannelDuration(unit)`
+
+`UnitCastingDuration(unit)` returns a
+[duration object](#c_durationutilcreateduration) for the regular cast of the
+unit. `UnitChannelDuration(unit)` returns one for the channel of the unit.
+Each function returns nothing when the unit has no cast or channel.
+
+```lua
+local duration = UnitCastingDuration("player")
+if duration then
+    print(duration:GetRemainingDuration())  -- 1.92
+end
+```
+
+- `unit` takes the same unit tokens as
+  [`C_Spell.UnitCastingInfo`](#c_spellunitcastinginfounit--c_spellcastinginfo).
+- The time span is the same as the `startTimeMs` and `endTimeMs` of
+  `C_Spell.UnitCastingInfo` or `C_Spell.UnitChannelInfo`, in seconds. The
+  same limits apply.
+- `UnitChannelDuration` returns nothing for a unit whose channel you did not
+  see begin. `C_Spell.UnitChannelInfo` gives `nil` times for this channel.
+- Each call returns a new duration object. The object keeps the time span
+  that it got at the call. It does not change when the cast gets pushback or
+  when the cast ends. To get the new end time, call the function again on
+  `UNIT_SPELLCAST_DELAYED` or `UNIT_SPELLCAST_CHANNEL_UPDATE`.
 
 ### `C_Spell.GetSpellLevelInfo(spellID)`
 

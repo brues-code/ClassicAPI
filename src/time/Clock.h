@@ -45,6 +45,10 @@ namespace Time::Clock {
 // Current engine ms tick. Unsigned by construction — assign to `uint32_t`.
 uint32_t NowMs();
 
+// The value Lua's `GetTime()` returns now: the tick as unsigned 32 bits, in
+// seconds. For times Lua passes in as `GetTime()` seconds, which wrap with it.
+inline double NowSeconds() { return static_cast<double>(NowMs()) * 0.001; }
+
 // Wrap-safe "has `deadlineMs` arrived?" — true once `now` is at or past it.
 inline bool Reached(uint32_t nowMs, uint32_t deadlineMs) {
     return static_cast<int32_t>(nowMs - deadlineMs) >= 0;

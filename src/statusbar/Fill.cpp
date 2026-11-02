@@ -52,6 +52,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
+#include "statusbar/Timer.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -103,6 +104,7 @@ using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relative, i
 using SetAllPoints_t = void(__thiscall *)(void *anchor, void *relative, int doResize);
 using SetTexCoordRect_t = void(__thiscall *)(void *texture, const float *rect);
 using SetTexCoordCorners_t = void(__thiscall *)(void *texture, const float *corners);
+using GetFillFraction_t = float(__fastcall *)(void *bar, void *edx);
 
 Update_t g_origUpdate = nullptr;
 
@@ -121,16 +123,16 @@ void BarSize(void *bar, float &width, float &height) {
     height = (rect[2] - rect[0]) / scale;
 }
 
-// 4.3.4's GetAnimValue, with StandardNoRangeFill's full bar for an empty range.
+// The bar's own GetFillFraction (4.3.4's GetAnimValue, which a timer
+// answers), with StandardNoRangeFill's full bar for an empty range. A timed
+// bar's range is 0..0, so the style never overrides a timer.
 float FillFraction(void *bar, int fillStyle) {
     const float min = Game::Read<float>(bar, Offsets::OFF_VALUE_MIN);
     const float max = Game::Read<float>(bar, Offsets::OFF_STATUSBAR_MAX);
-    const float range = max - min;
-    if (range > 0.0f)
-        return (Game::Read<float>(bar, Offsets::OFF_VALUE_VALUE) - min) / range;
-    if (fillStyle == kStandardNoRangeFill && (min != 0.0f || max != 0.0f))
+    if (fillStyle == kStandardNoRangeFill && !(max - min > 0.0f) && (min != 0.0f || max != 0.0f))
         return 1.0f;
-    return 0.0f;
+    return reinterpret_cast<GetFillFraction_t>(Game::Read<uintptr_t>(
+        *static_cast<void **>(bar), Offsets::OFF_VMT_STATUSBAR_GET_FILL_FRACTION))(bar, nullptr);
 }
 
 void SetPoint(void *texture, int point, void *bar, float x, float y) {
@@ -219,6 +221,7 @@ void Restore(void *bar) {
 }
 
 void __fastcall Update_h(void *bar, void *edx, float elapsed) {
+    StatusBar::Timer::Advance(bar);
     void *texture = BarTexture(bar);
     const bool tiled = texture != nullptr && Texture::Wrap::Tiles(texture);
     auto it = g_state.find(bar);

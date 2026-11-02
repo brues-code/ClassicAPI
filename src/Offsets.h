@@ -3844,6 +3844,13 @@ enum Offsets {
     // FUN_SIMPLETEXTURE_SET_TEXCOORD and clears the bit. The texture's
     // OFF_REGION_TEXCOORD_MODIFIES_RECT crop draws the filled part.
     FUN_STATUSBAR_ON_FRAME_UPDATE = 0x007833C0,
+    // CSimpleStatusBar::GetFillFraction, 4.3.4's GetAnimValue — `float
+    // __thiscall(bar)`, plain RET, vtable slot +0x98 (read from vtable
+    // 0x0081CA68): (value - min) / (max - min), or 0 when max - min <= 0.
+    // FUN_STATUSBAR_ON_FRAME_UPDATE takes the fill from this slot.
+    // Disassembled.
+    FUN_STATUSBAR_GET_FILL_FRACTION = 0x00783380,
+    OFF_VMT_STATUSBAR_GET_FILL_FRACTION = 0x98,
     // CSimpleStatusBar::InstallBarTexture — `void __thiscall(bar, texture,
     // int drawLayer)`, `ret 8`: deletes the old bar texture, parents the new
     // one to the bar in the layer, sets its OFF_REGION_TEXCOORD_MODIFIES_RECT

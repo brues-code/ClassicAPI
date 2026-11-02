@@ -33,6 +33,7 @@
 #include "Offsets.h"
 #include "frame/ExtraScripts.h"
 #include "frame/ScriptArgs.h"
+#include "statusbar/Timer.h"
 
 #include <cmath>
 #include <cstdint>
@@ -93,6 +94,7 @@ void __fastcall SliderSetMinMax_h(void *slider, void *edx, float min, float max)
 }
 
 void __fastcall StatusBarSetMinMax_h(void *bar, void *edx, float min, float max) {
+    StatusBar::Timer::Clear(bar);
     const float storedMin = min > max ? max : min;
     if ((Flags(bar) & Offsets::VALUE_FLAG_RANGE_SET) != 0 &&
         Game::Read<float>(bar, Offsets::OFF_VALUE_MIN) == storedMin &&

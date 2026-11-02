@@ -77,6 +77,7 @@
 #include "Offsets.h"
 #include "aura/Source.h"
 #include "dbc/Lookup.h"
+#include "duration/Object.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "object/Resolve.h"
@@ -324,17 +325,20 @@ const char *SpellIconPath(const uint8_t *rec) {
 // — the same castGUID the cast's UNIT_SPELLCAST_* events carry. `casterUnit`
 // is the caster's CGUnit (null when unresolvable) for the immunity-aura half
 // of `notInterruptible`.
+// The spell record of a cast the getters report, or null for none.
+// Self-expire: once the cast window has elapsed, report nothing even if
+// the slot wasn't explicitly cleared. Keeps a stale cast (e.g. one whose
+// clear we missed) from lingering on an addon's cast bar, and lets a
+// fresh stamp for the next cast take over cleanly.
+const uint8_t *ShownCastRecord(const TrackedSpell &c) {
+    if (c.spellID == 0 || Ended(c.endMs))
+        return nullptr;
+    return Spell::Lookup::RecordForID(c.spellID);
+}
+
 int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
                  const uint8_t *casterUnit) {
-    if (c.spellID == 0)
-        return 0;
-    // Self-expire: once the cast window has elapsed, report nothing even if
-    // the slot wasn't explicitly cleared. Keeps a stale cast (e.g. one whose
-    // clear we missed) from lingering on an addon's cast bar, and lets a
-    // fresh stamp for the next cast take over cleanly.
-    if (Ended(c.endMs))
-        return 0;
-    const uint8_t *rec = Spell::Lookup::RecordForID(c.spellID);
+    const uint8_t *rec = ShownCastRecord(c);
     if (rec == nullptr)
         return 0;
     const char *name = SpellName(rec);
@@ -362,17 +366,22 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
 // (we only track the local player's channel start), pushing nil times.
 // `casterUnit` is the channeling CGUnit (null when unresolvable), for the
 // immunity-aura half of `notInterruptible`.
+// The spell record of a channel the getters report, or null for none.
+// Self-expire a timed channel once its window elapses (mirrors
+// ShownCastRecord) — this is how the player's channel clears, since we no
+// longer poll the +0x228 field. Remote callers gate on endMs before
+// passing haveTimes, so this is a no-op for them.
+const uint8_t *ShownChannelRecord(int spellID, int endMs, bool haveTimes) {
+    if (spellID == 0 || HidesChannelBar(spellID))
+        return nullptr;
+    if (haveTimes && endMs != 0 && Ended(endMs))
+        return nullptr;
+    return Spell::Lookup::RecordForID(spellID);
+}
+
 int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes,
                     const uint8_t *casterUnit) {
-    if (spellID == 0 || HidesChannelBar(spellID))
-        return 0;
-    // Self-expire a timed channel once its window elapses (mirrors
-    // PushCastInfo) — this is how the player's channel clears, since we no
-    // longer poll the +0x228 field. Remote callers gate on endMs before
-    // passing haveTimes, so this is a no-op for them.
-    if (haveTimes && endMs != 0 && Ended(endMs))
-        return 0;
-    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
+    const uint8_t *rec = ShownChannelRecord(spellID, endMs, haveTimes);
     if (rec == nullptr)
         return 0;
     const char *name = SpellName(rec);
@@ -1022,29 +1031,65 @@ static int __fastcall Script_CastingInfo(void *L) {
                         Unit::Identity::PlayerObject());
 }
 
-// `UnitCastingInfo(unit)` — local player from self-tracking; other units
-// from the SMSG_SPELL_START cache (regular casts still within their cast
-// window; aborted casts are evicted by the ClearCastingSpell / failure-
-// packet co-hooks).
-static int __fastcall Script_UnitCastingInfo(void *L) {
+// The unit a `(unit)` getter names in argument 1, or null when it names
+// none. Raises `usage` for a non-string.
+static void *UnitArg(void *L, const char *usage) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Spell.UnitCastingInfo(\"unit\")");
-        return 0;
+        Game::Lua::Error(L, usage);
+        return nullptr;
     }
     const char *token = Game::Lua::ToString(L, 1);
-    void *u = (token != nullptr) ? Resolve(token) : nullptr;
-    if (u == nullptr)
-        return 0;
-    if (u == Resolve("player"))
-        return PushCastInfo(L, g_cast, Unit::Identity::PlayerGuid(),
-                            Unit::Identity::PlayerObject());
+    return (token != nullptr) ? Resolve(token) : nullptr;
+}
 
+// The regular cast unit `u` has, as UnitCastingInfo reports it: the local
+// player from self-tracking; other units from the SMSG_SPELL_START cache
+// (regular casts still within their cast window; aborted casts are evicted by
+// the ClearCastingSpell / failure-packet co-hooks). spellID 0 when none.
+struct UnitCast {
+    TrackedSpell spell;
+    uint64_t guid;
+    const uint8_t *unit;
+};
+static UnitCast FindUnitCast(void *u) {
+    if (u == Resolve("player"))
+        return {g_cast, Unit::Identity::PlayerGuid(), Unit::Identity::PlayerObject()};
     const uint64_t guid = Unit::Identity::GuidForObject(u);
     const RemoteCast *rc = FindRemoteCast(guid);
     if (rc != nullptr && !rc->isChannel && !Ended(rc->endMs))
-        return PushCastInfo(L, TrackedSpell{rc->spellID, rc->startMs, rc->endMs},
-                            guid, static_cast<const uint8_t *>(u));
-    return 0;
+        return {TrackedSpell{rc->spellID, rc->startMs, rc->endMs}, guid, static_cast<const uint8_t *>(u)};
+    return {TrackedSpell{0, 0, 0, 0}, guid, static_cast<const uint8_t *>(u)};
+}
+
+// `UnitCastingInfo(unit)`.
+static int __fastcall Script_UnitCastingInfo(void *L) {
+    void *u = UnitArg(L, "Usage: C_Spell.UnitCastingInfo(\"unit\")");
+    if (u == nullptr)
+        return 0;
+    const UnitCast c = FindUnitCast(u);
+    return PushCastInfo(L, c.spell, c.guid, c.unit);
+}
+
+// Pushes a duration object for [startMs, endMs] in GetTime() seconds.
+static int PushDuration(void *L, int startMs, int endMs) {
+    Duration::Object::PushFromStart(L, static_cast<double>(static_cast<uint32_t>(startMs)) * 0.001,
+                                    static_cast<double>(endMs - startMs) * 0.001);
+    return 1;
+}
+
+// `UnitCastingDuration(unit)` — the cast UnitCastingInfo reports, as a new
+// duration object each call, or nothing. The object is a snapshot: retail's
+// keeps the times it was made with after the cast ends (probe 2026-11-01), so
+// pushback reaches only a later call. Pushback taken so far is in it, as in
+// UnitCastingInfo's end time.
+static int __fastcall Script_UnitCastingDuration(void *L) {
+    void *u = UnitArg(L, "Usage: UnitCastingDuration(\"unit\")");
+    if (u == nullptr)
+        return 0;
+    const TrackedSpell c = FindUnitCast(u).spell;
+    if (ShownCastRecord(c) == nullptr)
+        return 0;
+    return PushDuration(L, c.startMs, c.endMs);
 }
 
 // `ChannelInfo()` — local player's channel, no token lookup.
@@ -1053,26 +1098,24 @@ static int __fastcall Script_ChannelInfo(void *L) {
                            Unit::Identity::PlayerObject());
 }
 
-// `UnitChannelInfo(unit)` — full timing for the player; for other units, full
-// timing from the SpellStart cache, else spellID/name/texture (no times) from
-// the broadcast +0x228 field.
-static int __fastcall Script_UnitChannelInfo(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Spell.UnitChannelInfo(\"unit\")");
-        return 0;
-    }
-    const char *token = Game::Lua::ToString(L, 1);
-    void *u = (token != nullptr) ? Resolve(token) : nullptr;
-    if (u == nullptr)
-        return 0;
+// The channel unit `u` has, as UnitChannelInfo reports it: full timing for
+// the player; for other units, full timing from the SpellStart cache, else
+// spellID (no times) from the broadcast +0x228 field. spellID 0 when none.
+struct UnitChannel {
+    int spellID;
+    int startMs;
+    int endMs;
+    bool haveTimes;
+    const uint8_t *unit;
+};
+static UnitChannel FindUnitChannel(void *u) {
     if (u == Resolve("player"))
-        return PushChannelInfo(L, g_channel.spellID, g_channel.startMs, g_channel.endMs, true,
-                               Unit::Identity::PlayerObject());
+        return {g_channel.spellID, g_channel.startMs, g_channel.endMs, true, Unit::Identity::PlayerObject()};
 
     auto *unit = static_cast<const uint8_t *>(u);
     auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
     if (desc == nullptr)
-        return 0;
+        return {0, 0, 0, false, unit};
     // A cached channel stands while +0x228 shows it, or reads 0 because it
     // hasn't caught up yet (unconfirmed — PollRemoteChannels drops the entry
     // once a confirmed field clears). Otherwise the field alone answers.
@@ -1080,10 +1123,31 @@ static int __fastcall Script_UnitChannelInfo(void *L) {
     const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(unit));
     if (rc != nullptr && rc->isChannel && !Ended(rc->endMs) &&
         (spellID == rc->spellID || (spellID == 0 && !rc->confirmed)))
-        return PushChannelInfo(L, rc->spellID, rc->startMs, rc->endMs, /*haveTimes*/ true, unit);
-    if (spellID == 0)
+        return {rc->spellID, rc->startMs, rc->endMs, true, unit};
+    return {spellID, 0, 0, false, unit};
+}
+
+// `UnitChannelInfo(unit)`.
+static int __fastcall Script_UnitChannelInfo(void *L) {
+    void *u = UnitArg(L, "Usage: C_Spell.UnitChannelInfo(\"unit\")");
+    if (u == nullptr)
         return 0;
-    return PushChannelInfo(L, spellID, 0, 0, /*haveTimes*/ false, unit);
+    const UnitChannel c = FindUnitChannel(u);
+    return PushChannelInfo(L, c.spellID, c.startMs, c.endMs, c.haveTimes, c.unit);
+}
+
+// `UnitChannelDuration(unit)` — the channel UnitChannelInfo reports, as a
+// new snapshot duration object each call (see UnitCastingDuration), or
+// nothing. Also nothing for a unit whose channel we did not see begin, which
+// has no times.
+static int __fastcall Script_UnitChannelDuration(void *L) {
+    void *u = UnitArg(L, "Usage: UnitChannelDuration(\"unit\")");
+    if (u == nullptr)
+        return 0;
+    const UnitChannel c = FindUnitChannel(u);
+    if (!c.haveTimes || c.endMs == 0 || ShownChannelRecord(c.spellID, c.endMs, c.haveTimes) == nullptr)
+        return 0;
+    return PushDuration(L, c.startMs, c.endMs);
 }
 
 // The unit GUID `caster` is currently casting / channeling AT, or 0 when it
@@ -1185,6 +1249,22 @@ static const Game::Doc::Function kChannelInfo{
     "The channel the player has in progress, with its start and end times.",
     {}, kChannelInfoRets};
 
+static const Game::Doc::Field kCastingDurationRets[] = {
+    Game::Doc::Req("duration", "LuaDurationObject",
+                   "A new object each call that keeps these times; nothing is returned when the unit is not "
+                   "casting."),
+};
+static const Game::Doc::Function kUnitCastingDuration{
+    "The time span of the regular cast a unit has in progress.", kUnitArgs, kCastingDurationRets,
+    "UnitGlobals"};
+static const Game::Doc::Field kChannelDurationRets[] = {
+    Game::Doc::Req("duration", "LuaDurationObject",
+                   "A new object each call that keeps these times; nothing is returned when the unit is not "
+                   "channeling, or for a unit whose channel you did not see begin."),
+};
+static const Game::Doc::Function kUnitChannelDuration{
+    "The time span of the channel a unit has in progress.", kUnitArgs, kChannelDurationRets, "UnitGlobals"};
+
 static const Game::Doc::Field kTargetNameRets[] = {
     Game::Doc::Opt("targetName", "string", nullptr,
                    "Nil when the unit is not casting, the spell has no unit target, "
@@ -1211,6 +1291,11 @@ static void RegisterLuaFunctions() {
                                      &kUnitChannelInfo);
     Game::Lua::RegisterTableFunction("C_Spell", "ChannelInfo", &Script_ChannelInfo,
                                      &kChannelInfo);
+    // Retail's names. No 1.12 addon ships its own, so they take the globals.
+    Game::Lua::RegisterGlobalFunction("UnitCastingDuration", &Script_UnitCastingDuration,
+                                      &kUnitCastingDuration);
+    Game::Lua::RegisterGlobalFunction("UnitChannelDuration", &Script_UnitChannelDuration,
+                                      &kUnitChannelDuration);
     // A novel ClassicAPI name (no addon ships its own), so it's safe as a
     // global — and it matches the `UnitSpellTargetName(unit)` call shape.
     Game::Lua::RegisterGlobalFunction("UnitSpellTargetName", &Script_UnitSpellTargetName,
