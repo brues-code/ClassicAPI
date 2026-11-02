@@ -19,13 +19,17 @@
 
 namespace Texture {
 
-// The loaded handle, or nullptr when the file does not load. Linear filter,
-// clamped, the flags SetTexture's own call builds. The caller owns one
-// reference and drops it with ReleaseHandle.
-void *LoadByPath(const char *path);
+// The texture flags word SetTexture's own call builds, with a filter and a
+// repeat per axis (FUN_GX_TEXFLAGS_INIT).
+uint32_t Flags(uint32_t filter, bool wrapU, bool wrapV);
 
 // SetTexture's texture flags: the default filter, clamped, one mip level.
 uint32_t DefaultFlags();
+
+// The loaded handle, or nullptr when the file does not load, made with
+// `flags` (SetTexture's own by default). The caller owns one reference and
+// drops it with ReleaseHandle.
+void *LoadByPath(const char *path, uint32_t flags = DefaultFlags());
 
 // Drops one reference on a handle (FUN_HANDLE_RELEASE). Null is a no-op.
 void ReleaseHandle(void *handle);

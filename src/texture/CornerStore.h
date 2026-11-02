@@ -20,8 +20,8 @@
 // Listeners run after the corners are written.
 //
 // MinHook allows ONE hook per address and more than one feature follows the
-// quad (Texture::Transform's rotation), so this module owns the hook and fans
-// out. Declare a file-scope
+// quad (Texture::Transform's rotation, Texture::Tile's repeat count), so this
+// module owns the hook and fans out. Declare a file-scope
 //   static const Texture::CornerStore::AutoSubscribe _sub{&OnCornersStored};
 namespace Texture::CornerStore {
 

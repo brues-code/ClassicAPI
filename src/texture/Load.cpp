@@ -55,12 +55,15 @@ void __fastcall LatchPixels(uint32_t command, uint32_t width, uint32_t /*height*
 
 } // namespace
 
-uint32_t DefaultFlags() {
+uint32_t Flags(uint32_t filter, bool wrapU, bool wrapV) {
     uint32_t flags = 0;
-    const uint32_t blend = Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
-    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, blend, 0, 0, 0, 0, 0,
-                                                                    1, 0);
+    reinterpret_cast<TexFlagsInit_t>(Offsets::FUN_GX_TEXFLAGS_INIT)(&flags, filter, wrapU ? 1 : 0,
+                                                                    wrapV ? 1 : 0, 0, 0, 0, 1, 0);
     return flags;
+}
+
+uint32_t DefaultFlags() {
+    return Flags(Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), false, false);
 }
 
 void ReleaseHandle(void *handle) {
@@ -71,7 +74,7 @@ void ReleaseHandle(void *handle) {
 // Same failure test and cleanup as SetTexture: a status level of 2 or more
 // closes the green fallback and passes the status to the (silent)
 // system-message printer; the status is destroyed either way.
-void *LoadByPath(const char *path) {
+void *LoadByPath(const char *path, uint32_t flags) {
     TexLoadDesc desc;
     desc.vtbl = reinterpret_cast<void *>(Offsets::PTR_TEXLOAD_DESC_VTBL);
     desc.field4 = 8;
@@ -79,7 +82,7 @@ void *LoadByPath(const char *path) {
     desc.fieldC = reinterpret_cast<uintptr_t>(&desc.self8) | 1u;
     desc.field10 = 0;
     void *handle = reinterpret_cast<void *>(reinterpret_cast<TextureLoad_t>(
-        Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, DefaultFlags(), 0, 1));
+        Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, flags, 0, 1));
     if (desc.field10 >= 2) {
         ReleaseHandle(handle);
         handle = nullptr;

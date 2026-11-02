@@ -359,6 +359,8 @@ build instructions.
   - [`texture:GetAtlas()`](#texturegetatlas)
   - [`texture:ResetTexCoord()`](#textureresettexcoord)
   - [`texture:SetSpriteSheetCell(cell, numRows, numColumns)`](#texturesetspritesheetcellcell-numrows-numcolumns)
+  - [`texture:SetTexture(file [, wrapModeHorizontal, wrapModeVertical])`](#texturesettexturefile--wrapmodehorizontal-wrapmodevertical)
+  - [`texture:SetHorizTile(tiling)` / `texture:SetVertTile(tiling)`](#texturesethoriztiletiling--texturesetverttiletiling)
   - [`texture:SetDesaturation(amount)`](#texturesetdesaturationamount)
   - [`texture:GetDesaturation()`](#texturegetdesaturation)
   - [`IsDesaturateSupported()`](#isdesaturatesupported)
@@ -8571,6 +8573,7 @@ After `SetAtlas`, texture coordinates address the art and not the file it sits
 in, so `0` to `1` covers the whole of the art. `SetTexCoord(0, 0.5, 0, 0.5)`
 shows the top-left quarter of the art, and `GetTexCoord` reads back what you
 asked for. `SetTexture` points the texture at a file again and clears the atlas.
+`SetAtlas` turns tiling off and sets both wrap modes to `"CLAMP"`.
 
 When the name is not known, the texture keeps whatever it was showing. Call
 `_classicapi_DumpAtlasMisses()` to list the names that were asked for and not
@@ -8620,6 +8623,74 @@ The texture keeps what it was showing when `cell` falls outside the grid.
 -- The eight raid markers share one 4x4 sheet. Cell 8 is the skull.
 t:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
 t:SetSpriteSheetCell(8, 4, 4)
+```
+
+### `texture:SetTexture(file [, wrapModeHorizontal, wrapModeVertical])`
+
+Points the texture at an image file. The two optional arguments set the wrap
+mode of the horizontal and the vertical axis. The wrap mode decides what the
+texture shows where its coordinates go past `0` or `1`:
+
+- `"REPEAT"` or `true` repeats the image.
+- `"CLAMP"`, `false` or `nil` stretches the pixels at the edge of the image.
+  This is the default.
+
+`"CLAMPTOBLACKADDITIVE"`, `"CLAMPTOBLACK"`, `"CLAMPTOWHITE"` and `"MIRROR"`
+work the same as `"CLAMP"`.
+
+Each call with a file sets both modes again, so `SetTexture(file)` sets them
+back to `"CLAMP"`. A color fill, `SetTexture(r, g, b)`, keeps the modes. An axis
+with tiling on always repeats (see
+[`texture:SetHorizTile`](#texturesethoriztiletiling--texturesetverttiletiling)).
+
+```lua
+bg:SetTexture("Interface\\AddOns\\MyAddon\\stripes", "REPEAT", "REPEAT")
+bg:SetTexCoord(0, 4, 0, 2)   -- four copies across, two copies down
+```
+
+A `<Texture>` element takes the same modes in its `hWrapMode` and `vWrapMode`
+attributes:
+
+```xml
+<Texture parentKey="Fill" file="Interface\AddOns\MyAddon\stripes" hWrapMode="REPEAT"/>
+```
+
+### `texture:SetHorizTile(tiling)` / `texture:SetVertTile(tiling)`
+
+Turns tiling on or off for one axis. A tiled axis repeats the image at its own
+size: one pixel of the image covers one unit of the texture's width or height. For example,
+an image 32 pixels wide on a texture 100 units wide shows the image a little
+more than three times across. The count changes when the texture changes size.
+`GetHorizTile()` and `GetVertTile()` return `true` or `false`.
+
+Tiling sets each coordinate on that axis that is not `0` to the repeat count,
+so `GetTexCoord` returns the count. The count needs the size of the image, so
+for a new image it is set when the texture is first drawn. Tiling stays on when
+`SetTexture` sets a new file. A texture that shows an atlas does not tile, and
+neither does a texture with `SetTexCoordModifiesRect` on.
+
+A tiled status bar texture keeps the image at its own size as the bar fills.
+The bar shows more or fewer copies and does not squeeze the image.
+
+```lua
+local edge = frame:CreateTexture(nil, "BORDER")
+edge:SetTexture("Interface\\AddOns\\MyAddon\\border-top")
+edge:SetPoint("TOPLEFT")
+edge:SetPoint("TOPRIGHT")
+edge:SetHeight(16)
+edge:SetHorizTile(true)
+```
+
+A `<Texture>` element takes `horizTile` and `vertTile` attributes. A
+`<TexCoords>` child must keep a tiled axis at `0` and `1`, for example
+`left="0" right="1"` with `horizTile`. Other values are an error in the XML log,
+and the texture then shows the whole image. The other axis can take any values,
+so one strip of a file can tile:
+
+```xml
+<Texture parentKey="Rail" file="Interface\AddOns\MyAddon\rails" horizTile="true">
+  <TexCoords left="0" right="1" top="0.25" bottom="0.5"/>
+</Texture>
 ```
 
 ### `texture:SetDesaturation(amount)`

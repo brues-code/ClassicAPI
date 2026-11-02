@@ -30,6 +30,13 @@ using Hash_t = uint32_t(__stdcall *)(const char *s);
 using StatusAdd_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
 using ToFloat_t = float(__stdcall *)(const char *s);
 
+void Report(void *status, int level, const char *fmt, const char *a, const char *b, const char *c) {
+    if (status == nullptr)
+        return;
+    const void *vtable = Game::Read<const void *>(status, 0);
+    Game::Read<StatusAdd_t>(vtable, Offsets::VTBL_XML_STATUS_ADD)(status, level, fmt, a, b, c);
+}
+
 } // namespace
 
 const void *FirstChild(const void *node) {
@@ -95,11 +102,11 @@ bool FloatAttr(const void *node, const char *name, float &out) {
 }
 
 void Warn(void *status, const char *fmt, const char *a, const char *b, const char *c) {
-    if (status == nullptr)
-        return;
-    const void *vtable = Game::Read<const void *>(status, 0);
-    Game::Read<StatusAdd_t>(vtable, Offsets::VTBL_XML_STATUS_ADD)(
-        status, Offsets::XML_STATUS_WARNING, fmt, a, b, c);
+    Report(status, Offsets::XML_STATUS_WARNING, fmt, a, b, c);
+}
+
+void Error(void *status, const char *fmt, const char *a, const char *b, const char *c) {
+    Report(status, Offsets::XML_STATUS_ERROR, fmt, a, b, c);
 }
 
 bool PushWrapper(void *L, void *object) {

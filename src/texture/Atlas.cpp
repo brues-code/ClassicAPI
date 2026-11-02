@@ -29,6 +29,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -321,6 +322,11 @@ int __fastcall Script_SetAtlas(void *L) {
         return 0;
     }
 
+    // Retail's SetAtlas re-applies the atlas's own wrap mode, which clears
+    // tiling the texture had. An atlas never tiles here (the built-in ones are
+    // parts of their files), so that leaves it clamped.
+    Texture::Wrap::Clear(region);
+
     // Reshaping the stack for each delegated handler leaves `info` untouched — it
     // points into the registry, which none of these calls can reach.
     Game::Lua::SetTop(L, 1); // (self)
@@ -569,6 +575,8 @@ void OnTextureNode(void *object, const void *node, void * /*status*/) {
 const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
 
 } // namespace
+
+bool Shows(void *region) { return LiveEntry(region) != nullptr; }
 
 const Info *Find(const char *name) {
     if (name == nullptr || *name == '\0')

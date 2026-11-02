@@ -58,6 +58,9 @@ void LoadNode(void *object, const void *node, void *status);
 // the same warning the loaders log ("Couldn't find inherited node: %s").
 void Warn(void *status, const char *fmt, const char *a, const char *b = nullptr,
           const char *c = nullptr);
+// The same at STATUS_ERROR, the level 4.3.4's loaders give a value they reject.
+void Error(void *status, const char *fmt, const char *a, const char *b = nullptr,
+           const char *c = nullptr);
 
 // Pushes `object`'s Lua wrapper and returns true, registering an unnamed,
 // never-exposed object the way the engine's own lazy path does. Pushes

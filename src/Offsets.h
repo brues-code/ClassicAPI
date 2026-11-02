@@ -862,6 +862,20 @@ enum Offsets {
     // texcoords (no v-flip — the engine region path is top-left origin).
     FUN_SIMPLETEXTURE_SET_TEXCOORD = 0x00770410,
     OFF_SIMPLETEXTURE_HTEXTURE = 0xCC,        // owned HTEXTURE ref (diagnostic)
+    // The eight coordinates, UL, LL, UR, LR as (x, y) pairs — what GetTexCoord
+    // pushes (0x0079BDF0) and both SetTexCoord forms write. The layer batch
+    // keeps a pointer to them (FUN_00772FD0 0x00773020) and reads them on
+    // every draw.
+    OFF_SIMPLETEXTURE_TEXCOORDS = 0x104,
+    // CSimpleTexture::Emit — `void __thiscall(texture, batch)`, `ret 4`, the
+    // layer-batch rebuild's per-texture call (4.3.4's CSimpleTexture::Draw):
+    // with an image it runs the quad append FUN_00772FD0, whose device-texture
+    // lookup loads the texture, so after it the device texture exists.
+    FUN_SIMPLETEXTURE_EMIT = 0x007706E0,
+    // CScriptRegion::NotifyLayerChanged — `void __thiscall(region)`: marks the
+    // region's layer for a batch rebuild. SetTexture (0x007702E2) and SetImage
+    // (0x00770300) call it after storing a new image.
+    FUN_REGION_NOTIFY_LAYER_CHANGED = 0x0077FDF0,
     // The four drawn-quad corner POSITIONS: 4 vertices of {x, y, z} floats (0xC
     // stride), order BL, TL, BR, TR (from FUN_REGION_STORE_CORNERS's writes). The
     // region draw enqueue FUN_00772fd0 (0x00772fd0) hands region+0xD4 straight to
@@ -879,10 +893,10 @@ enum Offsets {
     // its screen rect with NO anchors (anchoring 100+ textures/frame corrupts the
     // UI-manager pending-layout list — the FUN_00765650 crash). Hooked by
     // Texture::CornerStore, whose listeners re-apply rotation
-    // (Texture::Transform) right after the engine restores the axis-aligned
-    // corners (layout resolve / SetTexCoord). Writes only the corners:
-    // nothing marks the layer changed, since the layer batch reads them
-    // through a pointer on every draw.
+    // (Texture::Transform) and the repeat count (Texture::Tile) right after
+    // the engine restores the axis-aligned corners (layout resolve /
+    // SetTexCoord). Writes only the corners: nothing marks the layer changed,
+    // since the layer batch reads them through a pointer on every draw.
     FUN_REGION_STORE_CORNERS = 0x007705B0,
     // CSimpleTexture::OnFrameSizeChanged — `__thiscall(texture+OFF_REGION_ANCHOR,
     // const float *oldRect)`, the layout callback: lays out dependents, then
@@ -12011,6 +12025,7 @@ enum Offsets {
     // names them: 0 info, 1 warning, 2 error, 3 fatal.
     VTBL_XML_STATUS_ADD = 0x0C,
     XML_STATUS_WARNING = 1,
+    XML_STATUS_ERROR = 2,
     // `float __stdcall SStrToFloat(const char *)` (RET 4, x87 result) — the
     // frame loader's `alpha` conversion (0x00769A10).
     FUN_SSTR_TO_FLOAT = 0x0064AAA0,
@@ -12501,8 +12516,54 @@ enum Offsets {
     GXTEX_FORMAT_ARGB8888 = 2,
     GXTEX_CMD_LATCH = 1,
     PTR_TEXLOAD_DESC_VTBL = 0x007FFA10,
+    // CGxTexFlags::CGxTexFlags — `void *__thiscall(flags, filter, wrapU,
+    // wrapV, 0, 0, 0, anisotropy, 0)`. CSimpleTexture::SetTexture builds its
+    // word with (filter, wrap, wrap, 0, 0, 0, 1, 0) (0x00770241..0x00770270),
+    // one wrap argument for both axes. The bits: 0..2 the filter, 3 repeat in
+    // U, 4 repeat in V — the OpenGL backend's ApplyTextureParams (0x0059F170)
+    // maps `& 8` / `& 0x10` to GL_REPEAT or a clamp, one bit per axis, so the
+    // device has no mirror or border mode (benilla-re gx/textures, verified).
     FUN_GX_TEXFLAGS_INIT = 0x0058A980,
+    GXTEX_FLAG_FILTER_MASK = 0x7,
+    GXTEX_FLAG_WRAP_U = 0x8,
+    GXTEX_FLAG_WRAP_V = 0x10,
+    // GetTextureDeviceObject — `CGxTex *__fastcall(HTEXTURE, int load, void
+    // *callback)`: [hTex + OFF_HTEXTURE_DEVICE], or with `load` set the
+    // texture is first waited for (0x0044AD03), so 0 with `load` clear means
+    // not loaded yet.
     FUN_TEXTURE_GET_RENDERABLE = 0x0044ACF0,
+    // The HTEXTURE object (CTexture, 0x15C bytes, benilla-re gx/textures):
+    // its file name as loaded (the path, extension kept), a source word whose
+    // bit 1 the file loaders TextureCreateFromBlp (0x0044A310),
+    // TextureCreateFromTga (0x0044A140) and TextureCreateFromFile (0x00449610)
+    // set for a load with the file flag CSimpleTexture::SetTexture always
+    // passes (a solid colour or a pixel source never has it), the device
+    // texture (0 until loaded) and, for a BLP only, the texture flags word it
+    // was created with (TextureCreateFromBlp stores it before queuing the
+    // read; the build ORs in 0x40 for mips). A TGA hands its word only to its
+    // device texture (OFF_GXTEX_FLAGS).
+    OFF_HTEXTURE_NAME = 0x0C,
+    OFF_HTEXTURE_SOURCE = 0x110,
+    HTEXTURE_SOURCE_FILE = 0x2,
+    OFF_HTEXTURE_DEVICE = 0x140,
+    OFF_HTEXTURE_TEX_FLAGS = 0x150,
+    // TextureNameMatch — `int __fastcall(HTEXTURE, const char *name)`: 1 when
+    // the texture was made from a file of that name (extension ignored, any
+    // case), else 0. Flags play no part, so SetTexture's same-file early-out
+    // (0x0077021E) keeps a held image whatever wrap a new call asks for.
+    FUN_TEXTURE_NAME_MATCH = 0x0044AC70,
+    // The device texture record (CGxTex): its width and height, stored by the
+    // record constructor 0x00591600 from its arguments. They are the BLP's
+    // size after TextureLimitSize (0x00448B60), which halves only past the
+    // GPU's maximum texture size; the BaseMip skip ([device + 0x31C]) is
+    // applied at upload and never written here. 4.3.4's CRenderBatch::
+    // QueueTexture reads the same `gxTex->m_width` for its tile count.
+    OFF_GXTEX_WIDTH = 0x24,
+    OFF_GXTEX_HEIGHT = 0x28,
+    // Its texture flags word (FUN_GX_TEXFLAGS_INIT bits), stored by 0x00591600
+    // and read on every bind by ApplyTextureParams (0x0059F170): the wrap the
+    // device actually samples with.
+    OFF_GXTEX_FLAGS = 0x3C,
     // SysMsgAdd — `int __fastcall(CStatus *status, uint32_t level)`: hands a
     // status's error text to the system-message printer 0x0044CB20, which in
     // this build formats it and drops it (nothing reaches the screen; seen

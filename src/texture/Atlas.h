@@ -53,6 +53,10 @@ struct Info {
 // The returned pointer stays valid for the life of the process.
 const Info *Find(const char *name);
 
+// True while `region` shows the atlas SetAtlas last gave it: its image has not
+// been replaced since.
+bool Shows(void *region);
+
 // Records an unresolved atlas name for `_classicapi_DumpAtlasMisses()`. This is
 // how the built-in table grows: load a real addon, read what it actually asked
 // for, bind those names instead of guessing at thousands.

@@ -30,6 +30,10 @@
 // off pins the texture to the bar again and gives it back its crop flag, as
 // InstallBarTexture and SetBarTexture leave it.
 //
+// A tiled bar texture (Texture::Tile) takes the same layout, since the crop
+// would size it by its repeat count, and keeps its coordinates, as 4.3.4's
+// OnLayerUpdate sets none for a texture with a tile flag on.
+//
 // The retail fill styles (Enum.StatusBarFillStyle) fit the same layout:
 // Reverse is the reversed fill; Center insets both ends by half the empty
 // part and shows the middle of the image; StandardNoRangeFill draws a bar
@@ -48,6 +52,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
+#include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -148,7 +153,8 @@ void SetFullTexCoord(void *texture, bool rotates) {
 
 // 4.3.4's OnLayerUpdate body. [s0, s1] is the filled part of the bar along the
 // fill axis, from its start edge; [t0, t1] the part of the image drawn there.
-void LayOut(void *bar, State &state) {
+// A tiled texture keeps its coordinates, which its repeat count owns.
+void LayOut(void *bar, State &state, bool tiled) {
     void *texture = BarTexture(bar);
     float width, height;
     BarSize(bar, width, height);
@@ -168,22 +174,22 @@ void LayOut(void *bar, State &state) {
 
     float left = 0.0f, right = 0.0f, top = 0.0f, bottom = 0.0f;
     if (IsVertical(bar)) {
-        if (state.rotatesTexture) {
+        if (!tiled && state.rotatesTexture) {
             const float corners[8] = {t1, 0.0f, t0, 0.0f, t1, 1.0f, t0, 1.0f}; // UL, LL, UR, LR
             reinterpret_cast<SetTexCoordCorners_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD_CORNERS)(texture,
                                                                                                     corners);
-        } else {
+        } else if (!tiled) {
             const float rect[4] = {1.0f - t1, 0.0f, 1.0f - t0, 1.0f};
             reinterpret_cast<SetTexCoordRect_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD)(texture, rect);
         }
         bottom = s0 * height;
         top = -((1.0f - s1) * height);
     } else {
-        if (state.rotatesTexture) {
+        if (!tiled && state.rotatesTexture) {
             const float corners[8] = {0.0f, 1.0f - t0, 1.0f, 1.0f - t0, 0.0f, 1.0f - t1, 1.0f, 1.0f - t1};
             reinterpret_cast<SetTexCoordCorners_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD_CORNERS)(texture,
                                                                                                     corners);
-        } else {
+        } else if (!tiled) {
             const float rect[4] = {0.0f, t0, 1.0f, t1};
             reinterpret_cast<SetTexCoordRect_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD)(texture, rect);
         }
@@ -213,8 +219,22 @@ void Restore(void *bar) {
 }
 
 void __fastcall Update_h(void *bar, void *edx, float elapsed) {
-    const auto it = g_state.find(bar);
+    void *texture = BarTexture(bar);
+    const bool tiled = texture != nullptr && Texture::Wrap::Tiles(texture);
+    auto it = g_state.find(bar);
     if (it == g_state.end()) {
+        if (!tiled) {
+            g_origUpdate(bar, edx, elapsed);
+            return;
+        }
+        // 1.12's crop would size a tiled texture by its repeat count.
+        it = g_state.emplace(bar, State{}).first;
+        Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 0;
+        it->second.owned = true;
+        Flags(bar) |= Offsets::VALUE_FLAG_CHANGED;
+    } else if (!it->second.Active() && !tiled) {
+        Restore(bar);
+        g_state.erase(it);
         g_origUpdate(bar, edx, elapsed);
         return;
     }
@@ -233,7 +253,7 @@ void __fastcall Update_h(void *bar, void *edx, float elapsed) {
     }
     if (!changed)
         return;
-    LayOut(bar, state);
+    LayOut(bar, state, tiled);
     Flags(bar) &= ~Offsets::VALUE_FLAG_CHANGED;
 }
 

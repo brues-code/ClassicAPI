@@ -20,7 +20,7 @@
 // address.
 //
 // MinHook allows ONE hook per address and more than one feature keeps state
-// keyed by a texture region (Texture::Mask), so this module owns
+// keyed by a texture region (Texture::Mask, Texture::Wrap), so this module owns
 // the hook and fans out. Declare a file-scope
 //   static const Texture::Construct::AutoSubscribe _sub{&OnTextureConstructed};
 namespace Texture::Construct {

@@ -71,10 +71,12 @@
 //   - 73 names repeat case-insensitively; keep the higher ID, the same rule
 //     `ui/ColorData.h` documents for duplicate color tags.
 //
-// `tilesHorizontally` / `tilesVertically` come from `CommittedFlags` bits 0 and 1.
-// They are stored as resolved booleans rather than the raw flags word because the
-// other set bits (4, 8, 16 appear in the data) have no known meaning and must not
-// leak into the public contract.
+// `tilesHorizontally` / `tilesVertically` come from `CommittedFlags` 4 and 2:
+// 190 of the 194 members named `_...` (Blizzard's prefix for art that tiles
+// across) carry 4, and 56 of the 60 named `!...` (tiles down) carry 2; 1 is
+// set only on the nameless rows. They are stored as resolved booleans rather
+// than the raw flags word because the other set bits (8, 16 appear in the data)
+// have no known meaning and must not leak into the public contract.
 
 namespace Texture::AtlasData {
 
