@@ -199,6 +199,7 @@ build instructions.
   - [`C_DeathInfo.UseSelfResurrectOption(optionType, id)`](#c_deathinfouseselfresurrectoptionoptiontype-id)
 - [DurationUtil](#durationutil)
   - [`C_DurationUtil.CreateDuration()`](#c_durationutilcreateduration)
+  - [`C_DurationUtil.CreateDurationTextBinding()`](#c_durationutilcreatedurationtextbinding)
 
 - [EquipmentSet](#equipmentset)
   - [Overview & file format](#overview--file-format)
@@ -4808,7 +4809,84 @@ These methods take no arguments:
   that you gave to `statusBar:SetTimerDuration`. A change made through one
   of them shows in the other.
 - A missing or wrong argument is an error.
-- The `Evaluate…` and `Format…` methods and `SetClock` are not available.
+- `FormatElapsedDuration(formatter [, modifier])`,
+  `FormatRemainingDuration(formatter [, modifier])` and
+  `FormatTotalDuration(formatter [, modifier])` return the text that a
+  [`NumericRuleFormatter`](#c_stringutilcreatenumericruleformatter) makes
+  from the duration.
+- The `Evaluate…` methods and `SetClock` are not available.
+
+### `C_DurationUtil.CreateDurationTextBinding()`
+
+Returns a new text binding. A text binding writes text into a font string
+on each frame, from the time span of a
+[duration object](#c_durationutilcreateduration). Use it for a countdown
+text. Your code does not call `SetText` on each frame.
+
+```lua
+local formatter = C_StringUtil.CreateNumericRuleFormatter()
+formatter:AddBreakpoint({ threshold = 0, format = "%.1f" })
+
+local binding = C_DurationUtil.CreateDurationTextBinding()
+binding:SetFontString(castBar.timeText)
+binding:SetDuration(UnitCastingDuration("player"))
+binding:SetFormatter(formatter)
+binding:SetEnabled(true)
+```
+
+A new text binding is disabled. It writes text only when it is enabled and
+it has a font string and a format. These methods configure it:
+
+| Method | Result |
+|---|---|
+| `SetFontString(fontString)` / `GetFontString()` | The font string that gets the text. |
+| `SetDuration(duration)` / `GetDuration()` | The duration object. The binding keeps the object, not a copy. |
+| `SetFormatter(formatter)` | The text is the text of `formatter` for the remaining seconds. |
+| `SetTextFormat(formatString, components)` | The text is `formatString`, with each `{}` replaced by the text of one component, in order. |
+| `SetExpiredText([text])` / `GetExpiredText()` | The text after the end time. `nil` removes it. |
+| `SetZeroDurationText([text])` / `GetZeroDurationText()` | The text for a zero time span, or when the binding has no duration object. `nil` removes it. |
+| `SetUpdateInterval(seconds)` / `GetUpdateInterval()` | The minimum time between two updates. 0, the default, updates on each frame. |
+| `SetTimeModifier(modifier)` / `GetTimeModifier()` | The `Enum.DurationTimeModifier` that the binding reads the time span with. The default is `RealTime`. |
+| `SetEnabled(enabled)`, `Enable()`, `Disable()` / `IsEnabled()` | Starts or stops the updates. |
+
+Each component of `SetTextFormat` is a table
+`{ property = property, formatter = formatter }`. `property` is a value of
+`Enum.DurationTextBindingProperty`: `RemainingDuration` (0),
+`RemainingPercent` (1), `ElapsedDuration` (2), `ElapsedPercent` (3),
+`TotalDuration` (4), `StartTime` (5) or `EndTime` (6). `formatter` is a
+`NumericRuleFormatter`.
+
+```lua
+binding:SetTextFormat("{} / {}", {
+    { property = Enum.DurationTextBindingProperty.RemainingDuration, formatter = formatter },
+    { property = Enum.DurationTextBindingProperty.TotalDuration, formatter = formatter },
+})
+```
+
+Other methods:
+
+| Method | Result |
+|---|---|
+| `GetFormattedText()` | The text that the binding writes now, or `""` when it has no format. |
+| `UpdateFontString()` | Writes the text now. |
+| `CanFormatText()` | `true` when the binding has a format. |
+| `CanUpdateFontString()` | `true` when the binding has a format and a font string. |
+| `Copy()` | A new binding with the same configuration. The copy is disabled. |
+| `Assign(other)` | Copies the configuration of the binding `other`. The enabled state does not change. |
+| `SetToDefaults()` | Removes the configuration and disables the binding. |
+| `HasSecretValues()` | Always `false`. |
+
+- An enabled binding continues to update when your code has no reference
+  to it. To stop it, disable it.
+- When you enable a binding, it writes the text immediately.
+- The binding writes the text only when the text changes.
+- After the end time, the binding shows the expired text, if it has one.
+  The binding stays enabled.
+- A zero time span shows the zero duration text before the expired text.
+- When the font string goes away with its frame, the binding has no font
+  string. It then writes nothing.
+- A `{}` with no component writes nothing.
+- The color curve methods are not available.
 
 ## EquipmentSet
 
@@ -23712,15 +23790,21 @@ the same as for [`GetTotemInfo`](#gettoteminfoslot).
 
 ### `GetTotemDuration(slot)`
 
-Returns the full duration of the active totem in the slot, in whole
-seconds. Returns `0` when the slot has no active totem. This is the same
-value as the 4th return of `GetTotemInfo`. It is the companion to
-[`GetTotemTimeLeft`](#gettotemtimeleftslot).
+Returns a [duration object](#c_durationutilcreateduration) for the active
+totem in the slot. Its time span starts when the totem appears and lasts
+the full duration of the totem. When the slot has no active totem, the
+duration object holds a zero time span. Each call returns a new duration
+object.
 
 ```lua
-local total = GetTotemDuration(1)                       -- e.g. 60
-local frac  = GetTotemTimeLeft(1) / GetTotemDuration(1) -- bar fill
+local duration = GetTotemDuration(1)
+print(duration:GetTotalDuration())      -- e.g. 60
+bar:SetTimerDuration(duration, Enum.StatusBarInterpolation.Immediate,
+    Enum.StatusBarTimerDirection.RemainingTime)
 ```
+
+- The times are exact. `GetTotemInfo` gives the start time and the
+  duration in whole seconds.
 
 The slot errors are the same as for [`GetTotemInfo`](#gettoteminfoslot).
 

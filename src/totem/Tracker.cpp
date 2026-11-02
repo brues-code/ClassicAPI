@@ -49,6 +49,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "duration/Object.h"
 #include "event/Custom.h"
 #include "event/SignalHook.h"
 #include "guid/Guid.h"
@@ -415,16 +416,20 @@ int __fastcall Script_GetTotemTimeLeft(void *L) {
     return 1;
 }
 
-// `GetTotemDuration(slot)` → the slot's active totem's full lifetime in
-// whole seconds (GetTotemInfo's 4th value), or `0` when none. Retail returns
-// a DurationObject here; seconds are the closest 1.12 shape.
+// `GetTotemDuration(slot)` → a new duration object for the slot's active
+// totem, from its spawn to its expiry in GetTime() seconds (unrounded, unlike
+// GetTotemInfo's whole seconds), or a zero one when none: retail's return is
+// never nil.
 int __fastcall Script_GetTotemDuration(void *L) {
     const int slot = CheckSlot(L, "Usage: GetTotemDuration(slot)");
     if (slot < 0)
         return 0;
     const Slot &t = g_slots[slot];
-    Game::Lua::PushNumber(
-        L, t.active ? static_cast<double>(t.durationMs / 1000) : 0.0);
+    if (t.active)
+        Duration::Object::PushFromStart(L, static_cast<double>(t.startMs) * 0.001,
+                                        static_cast<double>(t.durationMs) * 0.001);
+    else
+        Duration::Object::PushFromStart(L, 0.0, 0.0);
     return 1;
 }
 

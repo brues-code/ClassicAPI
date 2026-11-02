@@ -42,4 +42,25 @@ void PushFromStart(void *L, double startSec, double totalSec);
 double ElapsedPercent(const Span *s);
 double RemainingPercent(const Span *s);
 
+// Enum.DurationTextBindingProperty: the values Sample reads.
+enum Property : int {
+    PROPERTY_REMAINING_DURATION = 0,
+    PROPERTY_REMAINING_PERCENT = 1,
+    PROPERTY_ELAPSED_DURATION = 2,
+    PROPERTY_ELAPSED_PERCENT = 3,
+    PROPERTY_TOTAL_DURATION = 4,
+    PROPERTY_START_TIME = 5,
+    PROPERTY_END_TIME = 6,
+};
+
+// `s`'s `property` now, in time `modifier` (Enum.DurationTimeModifier), as
+// the matching Get... method answers it.
+double Sample(const Span *s, int property, int modifier);
+bool IsZero(const Span *s);
+bool HasExpired(const Span *s, int modifier);
+
+// The DurationTimeModifier at `idx`, RealTime for nil; false when the value
+// is neither.
+bool ToModifier(void *L, int idx, int &out);
+
 } // namespace Duration::Object

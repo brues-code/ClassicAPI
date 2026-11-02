@@ -34,13 +34,15 @@
 // Times are GetTime() seconds and the clock is GetTime()'s, so a span
 // straddling the 2^32 ms tick wrap jumps exactly as GetTime() does.
 //
-// Not ported: the Evaluate* methods (retail curve objects), the Format*
-// methods, and SetClock / C_DurationUtil.CreateManualClock. 1.12 has no
-// secret values, so HasSecretValues is always false.
+// The Format* methods hand the value to a Text::NumericFormatter. Not ported:
+// the Evaluate* methods (retail curve objects) and SetClock /
+// C_DurationUtil.CreateManualClock. 1.12 has no secret values, so
+// HasSecretValues is always false.
 
 #include "duration/Object.h"
 
 #include "Game.h"
+#include "text/NumericFormatter.h"
 #include "time/Clock.h"
 
 #include <cmath>
@@ -139,14 +141,8 @@ bool ModRate(void *L, int idx, const char *usage, double &out) {
 
 // The optional DurationTimeModifier at `idx`: RealTime when nil.
 bool ModifierArg(void *L, int idx, const char *usage, int &out) {
-    out = MODIFIER_REAL_TIME;
-    if (Lua::Type(L, idx) <= Lua::TYPE_NIL)
+    if (ToModifier(L, idx, out))
         return true;
-    const double n = Lua::Type(L, idx) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, idx) : NAN;
-    if (n == MODIFIER_REAL_TIME || n == MODIFIER_BASE_TIME) {
-        out = static_cast<int>(n);
-        return true;
-    }
     Usage(L, idx, usage);
     return false;
 }
@@ -212,6 +208,42 @@ int __fastcall Script_IsActive(void *L) {
     return Query(L, "local isActive = self:IsActive([modifier])", [L](const Span &s, int m, double now) {
         Lua::PushBool(L, now >= s.start && now < s.start + Total(s, m));
     });
+}
+
+// `self:Format...Duration(formatter [, modifier])`: the formatter's text for
+// the value, or its format error, raised as FormatNumber raises it.
+int Format(void *L, const char *usage, const char *method, int property) {
+    Span *s = Self(L, usage);
+    if (s == nullptr)
+        return 0;
+    Text::NumericFormatter::Formatter *f = Text::NumericFormatter::ToFormatter(L, 2);
+    int m;
+    if (f == nullptr) {
+        Usage(L, 2, usage);
+        return 0;
+    }
+    if (!ModifierArg(L, 3, usage, m))
+        return 0;
+    if (Text::NumericFormatter::Format(L, f, Sample(s, property, m)) == nullptr) {
+        const char *msg = Lua::ToString(L, -1);
+        Lua::Error(L, "LuaDurationObject:%s(): %s", method, msg != nullptr ? msg : "?");
+    }
+    return 1;
+}
+
+int __fastcall Script_FormatElapsedDuration(void *L) {
+    return Format(L, "local formatted = self:FormatElapsedDuration(formatter [, modifier])",
+                  "FormatElapsedDuration", PROPERTY_ELAPSED_DURATION);
+}
+
+int __fastcall Script_FormatRemainingDuration(void *L) {
+    return Format(L, "local formatted = self:FormatRemainingDuration(formatter [, modifier])",
+                  "FormatRemainingDuration", PROPERTY_REMAINING_DURATION);
+}
+
+int __fastcall Script_FormatTotalDuration(void *L) {
+    return Format(L, "local formatted = self:FormatTotalDuration(formatter [, modifier])",
+                  "FormatTotalDuration", PROPERTY_TOTAL_DURATION);
 }
 
 int __fastcall Script_IsZero(void *L) {
@@ -352,6 +384,9 @@ struct Method {
 const Method kMethods[] = {
     {"Assign", &Script_Assign},
     {"Copy", &Script_Copy},
+    {"FormatElapsedDuration", &Script_FormatElapsedDuration},
+    {"FormatRemainingDuration", &Script_FormatRemainingDuration},
+    {"FormatTotalDuration", &Script_FormatTotalDuration},
     {"GetClock", &Script_GetClock},
     {"GetClockTime", &Script_GetClockTime},
     {"GetElapsedDuration", &Script_GetElapsedDuration},
@@ -454,5 +489,42 @@ void PushFromStart(void *L, double startSec, double totalSec) {
 double ElapsedPercent(const Span *s) { return ElapsedPct(*s, MODIFIER_REAL_TIME, Time::Clock::NowSeconds()); }
 
 double RemainingPercent(const Span *s) { return RemainingPct(*s, MODIFIER_REAL_TIME, Time::Clock::NowSeconds()); }
+
+double Sample(const Span *s, int property, int modifier) {
+    const double now = Time::Clock::NowSeconds();
+    switch (property) {
+    case PROPERTY_REMAINING_DURATION:
+        return Total(*s, modifier) - Elapsed(*s, modifier, now);
+    case PROPERTY_REMAINING_PERCENT:
+        return RemainingPct(*s, modifier, now);
+    case PROPERTY_ELAPSED_DURATION:
+        return Elapsed(*s, modifier, now);
+    case PROPERTY_ELAPSED_PERCENT:
+        return ElapsedPct(*s, modifier, now);
+    case PROPERTY_TOTAL_DURATION:
+        return Total(*s, modifier);
+    case PROPERTY_START_TIME:
+        return s->start;
+    default:
+        return s->start + Total(*s, modifier);
+    }
+}
+
+bool IsZero(const Span *s) { return s->total == 0.0; }
+
+bool HasExpired(const Span *s, int modifier) {
+    return Time::Clock::NowSeconds() >= s->start + Total(*s, modifier);
+}
+
+bool ToModifier(void *L, int idx, int &out) {
+    out = MODIFIER_REAL_TIME;
+    if (Lua::Type(L, idx) <= Lua::TYPE_NIL)
+        return true;
+    const double n = Lua::Type(L, idx) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, idx) : NAN;
+    if (n != MODIFIER_REAL_TIME && n != MODIFIER_BASE_TIME)
+        return false;
+    out = static_cast<int>(n);
+    return true;
+}
 
 } // namespace Duration::Object

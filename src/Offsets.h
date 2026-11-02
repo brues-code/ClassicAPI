@@ -612,6 +612,12 @@ enum Offsets {
     VAR_SIMPLEFONTSTRING_CLASS_TAG = 0x00846544,  // ".?AVCSimpleFontString@@" (alloc debug tag)
     FUN_REGION_POOL_ALLOC = 0x00760450,           // __thiscall(pool, zeroInit=0, tag, line=-2) -> raw mem
     FUN_SIMPLEFONTSTRING_CTOR = 0x00770D30,       // __thiscall(mem, parent, layer, sublayer) -> fs
+    // CSimpleFontString::~CSimpleFontString — `void __thiscall(fs)`, plain RET:
+    // frees the text, drops the font, ends in the region destructor. Its
+    // deleting destructor (0x00770E20, which then returns the block to the
+    // region pool) calls it. Decompiled; benilla-re ui/fonttext.
+    // `FontString::Destruction` hooks it.
+    FUN_FONTSTRING_DESTRUCTOR = 0x00770E50,
     FUN_REGION_SET_NAME = 0x0076C650,             // __thiscall(region, name) — registers _G[name]
     FUN_FONTSTRING_SET_FONT = 0x00770C60,         // __thiscall(fs + OFF_FONTSTRING_FONT_HOLDER, fontObject)
     // CSimpleFontString::SetFont — `uint32_t __thiscall(fs, const char *path,

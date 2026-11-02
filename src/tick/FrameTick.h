@@ -53,6 +53,18 @@ struct AutoSubscribe {
     AutoSubscribe *next;
 };
 
+// Subscribers that run at the HEAD of the render callback instead: before
+// the frame pass runs any OnUpdate or draws, so a region they change draws in
+// this same frame. Nothing is mid-draw there either. Use for UI upkeep that
+// must not show a frame late (Duration::TextBinding's text, which has to match
+// a timer bar's fill computed in the same pass). Same module pattern and
+// unspecified order.
+struct AutoSubscribeBefore {
+    explicit AutoSubscribeBefore(Callback cb);
+    Callback cb;
+    AutoSubscribeBefore *next;
+};
+
 // The `elapsed` the current frame pass hands to every frame's per-frame
 // update — the value `OnUpdate` receives. Latched on entry to the render
 // callback, before any `OnUpdate` runs, so every reader in the pass sees its
