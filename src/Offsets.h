@@ -13401,6 +13401,27 @@ enum Offsets {
     // when it moves off the bottom; a layout at the bottom keeps the fade
     // state, so 4.3.4 re-arms explicitly after a removal's layout.
     FUN_SCROLLINGMESSAGEFRAME_REARM_LINES = 0x00788B80,
+    // The ring writer's layout at the bottom: `E8 rel32` to
+    // FUN_SMF_DISPLAY_REFRESH with ECX the frame and the newest record pushed
+    // (0x00788150 tail; StoreLine's only layout call).
+    CALL_SMF_STORE_LINE_LAYOUT = 0x00788234,
+    // FUN_SCROLLINGMESSAGEFRAME_ON_UPDATE's first call, FUN_FRAME_ON_UPDATE
+    // (the OnUpdate script), with ECX the frame and the elapsed time pushed;
+    // the fader and the link-button rebuild follow it. Past the 6 bytes a
+    // prologue hook of the function takes (55 / 8BEC / 83EC0C).
+    CALL_SMF_ON_UPDATE_BASE = 0x00788471,
+    // The layout-queue drain - `void __cdecl()`, plain `ret`: up to 32 passes
+    // resolving every queued frame (benilla-re ui/anchors "The queue drain").
+    FUN_LAYOUT_QUEUE_DRAIN = 0x00768ED0,
+    // The top's update pass (CSimpleTop::OnLayerUpdate 0x00765650) drains the
+    // queue, calls every shown frame's update slot (vtable+0x38), then drains
+    // again here, before the draw pass (0x007657D0): `E8 rel32` to
+    // FUN_LAYOUT_QUEUE_DRAIN. Everything a frame's update changed is laid out
+    // by this call and drawn in the same frame.
+    CALL_TOP_UPDATE_SECOND_DRAIN = 0x00765799,
+    // The GetNumLinesDisplayed method, `int __fastcall(L)`: pushes
+    // OFF_SCROLLINGMESSAGEFRAME_LINES_SHOWN.
+    FUN_SCRIPT_SCROLLINGMESSAGEFRAME_GET_NUM_LINES_DISPLAYED = 0x00793590,
     FUN_SCRIPT_SCROLLINGMESSAGEFRAME_GET_CURRENT_SCROLL = 0x00793650,
     // The frame's OnFrameUpdate override (vtable+0x38, see
     // FUN_FRAME_ON_UPDATE), `void __thiscall(smf, float elapsed)`, `ret 4`:

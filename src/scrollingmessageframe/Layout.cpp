@@ -21,11 +21,14 @@ namespace ScrollingMessageFrame::Layout {
 namespace {
 
 AutoSubscribe *g_head = nullptr;
+AutoSubscribeBefore *g_beforeHead = nullptr;
 
 using Layout_t = void(__fastcall *)(void *smf, void *edx, int newestRecord);
 Layout_t g_origLayout = nullptr;
 
 void __fastcall Layout_h(void *smf, void *edx, int newestRecord) {
+    for (const AutoSubscribeBefore *s = g_beforeHead; s != nullptr; s = s->next)
+        s->fn(smf);
     g_origLayout(smf, edx, newestRecord);
     for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
         s->fn(smf);
@@ -37,5 +40,7 @@ const Game::HookAutoRegister _hook{Offsets::FUN_SMF_DISPLAY_REFRESH, reinterpret
 } // namespace
 
 AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
+
+AutoSubscribeBefore::AutoSubscribeBefore(Listener fn) : fn(fn), next(g_beforeHead) { g_beforeHead = this; }
 
 } // namespace ScrollingMessageFrame::Layout

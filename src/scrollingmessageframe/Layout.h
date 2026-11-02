@@ -16,7 +16,8 @@
 // Shared observer for the ScrollingMessageFrame line layout
 // FUN_SMF_DISPLAY_REFRESH (Offsets.h), which lays out the lines the frame
 // shows after every change to them: a message added at the bottom, a scroll,
-// a resize, a font change, Clear. A listener runs after it, with the frame.
+// a resize, a font change, Clear. A listener runs after it, with the frame;
+// an AutoSubscribeBefore listener runs before it.
 //
 // MinHook allows ONE hook per address and more than one feature follows the
 // layout (Text::InlineTexture's early icon apply, the display-refreshed
@@ -30,6 +31,15 @@ struct AutoSubscribe {
     explicit AutoSubscribe(Listener fn);
     Listener fn;
     AutoSubscribe *next;
+};
+
+// A listener that runs BEFORE the layout, with the frame. The layout can run
+// Lua (the frame's OnMessageScrollChanged), and so a nested layout, before it
+// returns; state a layout makes current must be dropped here, not after.
+struct AutoSubscribeBefore {
+    explicit AutoSubscribeBefore(Listener fn);
+    Listener fn;
+    AutoSubscribeBefore *next;
 };
 
 } // namespace ScrollingMessageFrame::Layout
