@@ -1,3 +1,5 @@
+local strsplit = string.split;
+
 LinkTypes = {
 	AADCOpenConfig = "aadcopenconfig",
 	Action = "action",
@@ -75,7 +77,7 @@ function LinkUtil.FormatLink(linkType, linkDisplayText, ...)
 end
 
 function LinkUtil.SplitLinkData(linkData)
-	local linkType, linkOptions = string.split(":", linkData, 2);
+	local linkType, linkOptions = strsplit(":", linkData, 2);
 	linkOptions = linkOptions or "";  -- Could be nil if there's no ":" in linkData.
 	return linkType, linkOptions;
 end
@@ -85,7 +87,7 @@ function LinkUtil.SplitLink(link) -- returns linkText and displayText
 end
 
 function LinkUtil.SplitLinkOptions(linkOptions)
-	return string.split(":", linkOptions);
+	return strsplit(":", linkOptions);
 end
 
 -- Extract the first link from the text given, ignoring leading and trailing characters.
