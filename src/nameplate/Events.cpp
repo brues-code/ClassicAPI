@@ -17,9 +17,16 @@
 // Per-frame poll: walk the engine's shown-plate list (`NamePlate::Walk`),
 // diff against last frame's snapshot, fire events on real transitions only.
 // Comparing frame to frame (instead of hooking acquire / release) keeps the
-// hot per-unit `FUN_006086E0` un-hooked and folds a release and re-acquire
-// inside one frame — the name-cache callback `FUN_005FB840` drops a plate so
-// it rebuilds with the name — into no event at all.
+// hot per-unit `FUN_006086E0` un-hooked.
+//
+// A binding is the (GUID, frame) pair, not the GUID. The name-cache and
+// creature-cache replies (`FUN_005FB840`, `FUN_00604660`) release a unit's
+// plate and re-acquire it within one frame so it rebuilds with the name, and
+// the free list is FIFO (`FUN_00608A10` appends, `FUN_006087F0` takes the
+// head), so the unit usually comes back on a DIFFERENT frame. That is a new
+// nameplate as far as an addon keyed by frame is concerned: REMOVED for the
+// old binding, then ADDED for the new one. Only a re-acquire that hands back
+// the same frame folds into no event.
 //
 // Payload shape (matches modern WoW exactly):
 // - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame**, the
@@ -92,9 +99,9 @@ std::vector<uint64_t> g_deferredAdds;
 // subsequent shows.
 std::vector<const void *> g_seenPlates;
 
-bool HasGuid(const std::vector<Plate> &plates, uint64_t guid) {
+bool HasBinding(const std::vector<Plate> &plates, const Plate &binding) {
     for (const Plate &p : plates)
-        if (p.guid == guid)
+        if (p.guid == binding.guid && p.plate == binding.plate)
             return true;
     return false;
 }
@@ -200,9 +207,43 @@ void OnWorldTick() {
             g_currentTickPlates.push_back({guid, nameplate});
         });
 
+    // Fire REMOVED for bindings in last tick's snapshot but not current —
+    // the unit left, or moved to another frame. Runs before the ADDED pass so
+    // a moved unit's old binding is gone (and its slot free) before the new
+    // one is announced. The slot is *freed* (set 0), not erased, so surviving
+    // plates keep their index (retail-exact — no shift); the next ADD reuses
+    // it. Token is computed before freeing so the payload names the slot just
+    // vacated. Trailing empties are trimmed so the array tracks the
+    // high-water mark.
+    for (const Plate &last : g_lastTickPlates) {
+        if (!HasBinding(g_currentTickPlates, last)) {
+            auto it = std::find(g_slots.begin(), g_slots.end(), last.guid);
+            if (it == g_slots.end())
+                continue;
+            const int oneBased = static_cast<int>(it - g_slots.begin()) + 1;
+            // Let the handler reach the frame it is being told about; live
+            // state no longer names it (the unit has no plate, or already the
+            // new one). Skipped once the engine has rebound the frame to
+            // another unit.
+            if (!PlateReassigned(last.plate, last.guid)) {
+                g_removingGuid = last.guid;
+                g_removingPlate = last.plate;
+            }
+            char tokenBuf[24];
+            FireWithString(_evtUnitRemoved,
+                FormatNamePlateToken(tokenBuf, sizeof tokenBuf, oneBased));
+            g_removingGuid = 0;
+            g_removingPlate = nullptr;
+            *it = 0; // free the slot (no shift of survivors)
+            Unit::TokenEvents::Refresh(last.guid);
+            while (!g_slots.empty() && g_slots.back() == 0)
+                g_slots.pop_back();
+        }
+    }
+
     // Fire CREATED (with the Frame as arg1) for never-before-seen
     // frame pointers; ADDED (with `"nameplateN"` token as arg1) for
-    // GUIDs not in last tick's snapshot. The slot is assigned *before*
+    // bindings not in last tick's snapshot. The slot is assigned *before*
     // firing so the token resolves to the newly-added plate during the
     // event handler.
     //
@@ -221,7 +262,7 @@ void OnWorldTick() {
             g_seenPlates.push_back(cur.plate);
             announced = true;
         }
-        if (!HasGuid(g_lastTickPlates, cur.guid)) {
+        if (!HasBinding(g_lastTickPlates, cur)) {
             if (!announced || _evtUnitAdded.Slot() < 0) {
                 g_deferredAdds.push_back(cur.guid);
                 continue;
@@ -233,36 +274,6 @@ void OnWorldTick() {
             char tokenBuf[24];
             FireWithString(_evtUnitAdded,
                 FormatNamePlateToken(tokenBuf, sizeof tokenBuf, slot + 1));
-        }
-    }
-
-    // Fire REMOVED for GUIDs in last tick's snapshot but not current. The
-    // slot is *freed* (set 0), not erased, so surviving plates keep their
-    // index (retail-exact — no shift); the next ADD reuses it. Token is
-    // computed before freeing so the payload names the slot just vacated.
-    // Trailing empties are trimmed so the array tracks the high-water mark.
-    for (const Plate &last : g_lastTickPlates) {
-        if (!HasGuid(g_currentTickPlates, last.guid)) {
-            auto it = std::find(g_slots.begin(), g_slots.end(), last.guid);
-            if (it == g_slots.end())
-                continue;
-            const int oneBased = static_cast<int>(it - g_slots.begin()) + 1;
-            // Let the handler reach the frame it is being told about; live
-            // state can no longer answer for it. Skipped once the engine has
-            // rebound the frame to another unit.
-            if (!PlateReassigned(last.plate, last.guid)) {
-                g_removingGuid = last.guid;
-                g_removingPlate = last.plate;
-            }
-            char tokenBuf[24];
-            FireWithString(_evtUnitRemoved,
-                FormatNamePlateToken(tokenBuf, sizeof tokenBuf, oneBased));
-            g_removingGuid = 0;
-            g_removingPlate = nullptr;
-            *it = 0; // free the slot (no shift of survivors)
-            Unit::TokenEvents::Refresh(last.guid);
-            while (!g_slots.empty() && g_slots.back() == 0)
-                g_slots.pop_back();
         }
     }
 

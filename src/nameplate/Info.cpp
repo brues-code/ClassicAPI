@@ -105,19 +105,17 @@ static void PushNamePlateForGUID(void *L, uint64_t guid) {
         Game::Lua::PushNil(L);
         return;
     }
-    const void *nameplate = nullptr;
-    auto *unit = static_cast<uint8_t *>(
-        Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, "NamePlate", 0x172));
-    if (unit != nullptr)
-        nameplate = *reinterpret_cast<uint8_t *const *>(unit + Offsets::OFF_UNIT_NAMEPLATE);
-
-    // Neither read can answer during `NAME_PLATE_UNIT_REMOVED`: the event
-    // reports that the unit→plate binding is gone, and the unit itself is
-    // often already out of the object table. Fall back to the frame the
-    // removal is announcing so a handler can still reach it, as it can on
-    // retail.
-    if (nameplate == nullptr)
-        nameplate = NamePlate::Events::PlateBeingRemoved(guid);
+    // During `NAME_PLATE_UNIT_REMOVED` the answer is the frame being removed,
+    // as on retail. Live state can't give it: the unit→plate binding is gone
+    // (or already names the unit's new frame), and the unit itself is often
+    // out of the object table.
+    const void *nameplate = NamePlate::Events::PlateBeingRemoved(guid);
+    if (nameplate == nullptr) {
+        auto *unit = static_cast<uint8_t *>(
+            Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, "NamePlate", 0x172));
+        if (unit != nullptr)
+            nameplate = *reinterpret_cast<uint8_t *const *>(unit + Offsets::OFF_UNIT_NAMEPLATE);
+    }
 
     if (nameplate == nullptr) {
         Game::Lua::PushNil(L);
