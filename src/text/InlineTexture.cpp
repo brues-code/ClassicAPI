@@ -79,7 +79,6 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
-#include "scrollingmessageframe/Layout.h"
 #include "text/InlineTexturePool.h"
 #include "text/PtrProbe.h"
 #include "texture/Atlas.h"
@@ -462,20 +461,34 @@ static const Game::HookAutoRegister _nodeFreeHook{Offsets::FUN_TEXT_NODE_FREE,
 using RebuildString_t = void(__fastcall *)(void *fs);
 RebuildString_t g_rebuildOriginal = nullptr;
 
+void SafeRefreshIcons(void *fs);
+
+// It is also 4.3.4's UpdateString for the icons. RebuildString closes the
+// built string and builds a new one whenever its gate passes (bit 1 of the
+// layout flags at OFF_FONTSTRING_DIRTY_FLAGS, the valid rect: `test byte
+// [esi+0x60],1` at 0x007724AA), so a passing call drops the fontstring's
+// icons (FreeEmbeddedTextures) and sets up those of the new string
+// (RefreshEmbeddedTextures, SafeRefreshIcons).
 void __fastcall RebuildString_h(void *fs) {
+    const bool rebuilds =
+        LooksReadable(fs) && (Game::Read<uint8_t>(fs, Offsets::OFF_FONTSTRING_DIRTY_FLAGS) & 1u) != 0;
     {
         // The rebuild runs the display-text truncation, an fs-level wrap.
         FsScope scope(fs);
         g_rebuildOriginal(fs);
     }
-    if (!LooksReadable(fs))
+    if (!rebuilds)
         return;
+    Text::InlineTexturePool::Release(fs);
     void *block = Game::Read<void *>(fs, Offsets::OFF_FONTSTRING_TEXT_BLOCK);
     if (!LooksReadable(block))
         return;
     void *node = Game::Read<void *>(block, Offsets::OFF_TEXTBLOCK_NODE);
-    if (LooksReadable(node))
-        g_nodeOwner[node] = fs;
+    if (!LooksReadable(node))
+        return;
+    g_nodeOwner[node] = fs;
+    if (g_inlineEnabled)
+        SafeRefreshIcons(fs);
 }
 
 static const Game::HookAutoRegister _rebuildHook{Offsets::FUN_FONTSTRING_REBUILD_STRING,
@@ -1854,7 +1867,7 @@ Paint_t g_paintOriginal = nullptr;
 // globals written) and the fs rect resolved. Returns false otherwise, and the
 // caller must NOT queue an empty set (that would hide the icons and the dedup
 // would freeze them hidden — the scroll-landing bug's second head). Shared by
-// the paint flush and the SMF-refresh early apply so both produce
+// the paint flush and the rebuild refresh (RefreshIcons) so both produce
 // bit-identical placements (the pool's dedup depends on that). The per-icon
 // geometry is what the emitter recorded — see its icon loop.
 bool ComputePlacementsForNode(void *node, void *fs,
@@ -2043,7 +2056,7 @@ void FlushLayout(void *layout) {
             }
         }
         // Geometry + readiness gate factored into ComputePlacementsForNode
-        // (shared with the SMF-refresh early apply so both produce
+        // (shared with the rebuild refresh, RefreshIcons, so both produce
         // bit-identical placements — the pool dedup depends on it). It
         // returns false when K or the fs rect isn't ready; SKIP the queue
         // then and retry next paint. An empty queue here would HIDE the
@@ -2079,115 +2092,50 @@ static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
                                                reinterpret_cast<void *>(&Paint_h),
                                                reinterpret_cast<void **>(&g_paintOriginal)};
 
-// --- SMF-refresh early apply (kills the one-frame chat-icon lag) -------------
+// --- 4.3.4's RefreshEmbeddedTextures -----------------------------------------
 //
-// The lag: a ScrollingMessageFrame re-SetTexts every visible line slot on each
-// new message (FUN_00788750), but the engine builds each line lazily at PAINT.
-// So a line's icons are recorded — and its regions placed — one frame AFTER its
-// glyphs draw, because a frame's textures (our icon regions) draw before its
-// fontstring glyphs and the placement isn't computed until the glyph build runs
-// mid-paint. This layout listener (ScrollingMessageFrame::Layout, which owns
-// the hook) closes it: after the refresh sets up the lines (still
-// PRE-RENDER — the refresh runs from the SMF's Lua/event-driven methods, never
-// mid-render), force each icon-bearing line to resolve+build and apply its icon
-// placement synchronously, so the icons draw with their glyphs the same frame.
-//
-// Additive and best-effort: any line we can't resolve/build in time (rect still
-// pending) falls back to the existing paint-flush + FrameTick pipeline (correct,
-// one-frame lagged). Gated by its own toggle (default on) so it can be A/B'd and
-// disabled independently of the whole feature; the SEH latch trips it on a fault.
-bool g_earlyApply = true;
+// 4.3.4 sets a fontstring's embedded textures up inside UpdateString, right
+// after it builds the string, from the icons the font engine laid out. 1.12's
+// RebuildString lays the node out lazily, at paint, which is where the
+// emitter records the icons; so the refresh lays the node out now (the call
+// the paint makes, FUN_TEXT_ENSURE_BUILT, idempotent) and applies the
+// placements at once. The icons then draw with the text in the same frame
+// wherever the string was rebuilt: a chat line laid out by its frame, a
+// tooltip line, a rect change. The paint flush stays the backstop for a
+// string whose placements can not be computed yet (K or the rect not ready).
 
 using EnsureBuilt_t = int(__fastcall *)(void *node);
-using RealizeAnchor_t = void(__thiscall *)(void *anchor, int flag);
-using RebuildStringFs_t = void(__fastcall *)(void *fs);
 
-// Force `fs` to resolve its rect and lay out its text node NOW (pre-render),
-// mirroring what the engine's pending-layout pass + paint would do later.
-// Returns the live text node, or nullptr if it couldn't be built yet (rect
-// still unresolved — caller falls back to the lagged pipeline). Uses only the
-// engine's own supported force paths (the same Realize/RebuildString/ensure-
-// built the Show and paint paths call).
-void *ForceBuildFontString(void *fs) {
-    // 1. Synchronous rect resolve (Realize flag 0 — the call Show itself uses;
-    //    it unlinks the anchor from the pending-layout list and resolves now).
-    //    The caller walks lines bottom-up, so this line's relativeTo (the line
-    //    below it / the frame) is already resolved when we get here.
-    reinterpret_cast<RealizeAnchor_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(
-        reinterpret_cast<uint8_t *>(fs) + Offsets::OFF_REGION_ANCHOR, 0);
-    // 2. Rebuild the text block — creates the fresh node (but only if the rect
-    //    is now resolved). Internally gated on the fs dirty bit, so a clean
-    //    line is a no-op and we avoid depending on reading that bit ourselves.
-    reinterpret_cast<RebuildStringFs_t>(Offsets::FUN_FONTSTRING_REBUILD_STRING)(fs);
+void RefreshIcons(void *fs) {
+    const uint8_t *text = Game::Read<const uint8_t *>(fs, Offsets::OFF_FONTSTRING_TEXT);
+    if (!LooksReadable(text))
+        return;
+    int len = 0;
+    while (len < 0x4000 && text[len] != '\0')
+        ++len;
+    if (!HasInlineTexture(text, len))
+        return;
     void *block = Game::Read<void *>(fs, Offsets::OFF_FONTSTRING_TEXT_BLOCK);
     if (!LooksReadable(block))
-        return nullptr; // rect still unresolved — no node created
+        return;
     void *node = Game::Read<void *>(block, Offsets::OFF_TEXTBLOCK_NODE);
     if (!LooksReadable(node))
-        return nullptr;
-    // 3. Lay the node out now: runs the glyph emitter (our Emitter_h records the
-    //    icons) and finalizes the node origin. Idempotent — paint's own ensure-
-    //    built re-runs later and the flush dedups the identical placement.
+        return;
     reinterpret_cast<EnsureBuilt_t>(Offsets::FUN_TEXT_ENSURE_BUILT)(node);
-    return node;
+    std::vector<Text::InlineTexturePool::Placement> places;
+    if (ComputePlacementsForNode(node, fs, places))
+        Text::InlineTexturePool::ApplyNow(fs, std::move(places));
 }
 
-// Walk the SMF's visible line array and early-apply each icon-bearing line.
-// The C++-object-holding body is kept out of the SEH frame (see
-// SafeSmfEarlyApply) — MSVC won't allow __try where objects need unwinding.
-void SmfEarlyApplyImpl(void *smf) {
-    if (!LooksReadable(smf))
-        return;
-    const int count = Game::Read<int>(smf, Offsets::OFF_SMF_LINE_COUNT);
-    if (count <= 0 || count > 1024)
-        return;
-    auto *arrayBase = Game::Read<uint8_t *>(smf, Offsets::OFF_SMF_LINE_ARRAY);
-    if (!LooksReadable(arrayBase))
-        return;
-    for (int i = 0; i < count; ++i) {
-        uint8_t *entry = arrayBase + i * Offsets::SMF_LINE_STRIDE;
-        if (!LooksReadable(entry))
-            break;
-        void *fs = Game::Read<void *>(entry, Offsets::OFF_SMF_LINE_FONTSTRING);
-        if (!LooksReadable(fs))
-            continue;
-        // Only shown lines (the desired-shown latch the SMF just set) that carry
-        // inline markup — a plain chat line costs nothing but the text scan.
-        if (Game::Read<uint32_t>(fs, Offsets::OFF_REGION_DESIRED_SHOWN) == 0)
-            continue;
-        const uint8_t *text = Game::Read<const uint8_t *>(fs, Offsets::OFF_FONTSTRING_TEXT);
-        if (!LooksReadable(text))
-            continue;
-        int len = 0;
-        while (len < 0x4000 && text[len] != '\0')
-            ++len;
-        if (!HasInlineTexture(text, len))
-            continue;
-        void *node = ForceBuildFontString(fs);
-        if (node == nullptr)
-            continue; // couldn't build in time
-        std::vector<Text::InlineTexturePool::Placement> places;
-        if (ComputePlacementsForNode(node, fs, places))
-            Text::InlineTexturePool::ApplyNow(fs, std::move(places));
-    }
-}
-
-// SEH latch mirroring SafeFlush — a fault disables the early path for the
-// session (the baseline paint+tick pipeline still runs) instead of crashing.
-void SafeSmfEarlyApply(void *smf) {
+// SEH latch mirroring SafeFlush — a fault disables the whole feature for the
+// session instead of crashing the client.
+void SafeRefreshIcons(void *fs) {
     __try {
-        SmfEarlyApplyImpl(smf);
+        RefreshIcons(fs);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        g_earlyApply = false;
+        g_inlineEnabled = false;
     }
 }
-
-void OnSmfLayout(void *smf) {
-    if (g_inlineEnabled && g_earlyApply)
-        SafeSmfEarlyApply(smf);
-}
-
-static const ScrollingMessageFrame::Layout::AutoSubscribe _smfLayoutSub{&OnSmfLayout};
 
 // --- Lua control surface ---------------------------------------------------
 
@@ -2202,22 +2150,8 @@ int __fastcall Script_InlineTexEnable(void *L) {
     return 1;
 }
 
-// _classicapi_InlineTexEarly([on]) -> enabled. Toggles the SMF-refresh
-// pre-render early apply (the chat-icon-lag fix) independently of the whole
-// feature — for A/B'ing the lag against the baseline paint+tick pipeline, which
-// keeps running either way. Also what the SMF SEH latch trips on a fault.
-int __fastcall Script_InlineTexEarly(void *L) {
-    if (Game::Lua::GetTop(L) == 0)
-        g_earlyApply = true;
-    else
-        g_earlyApply = Game::Lua::ToBoolean(L, 1) != 0;
-    Game::Lua::PushBool(L, g_earlyApply);
-    return 1;
-}
-
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexEnable", &Script_InlineTexEnable);
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexEarly", &Script_InlineTexEarly);
     ApplyCopyMask();
 }
 

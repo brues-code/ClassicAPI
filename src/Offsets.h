@@ -885,6 +885,19 @@ enum Offsets {
     // with an image it runs the quad append FUN_00772FD0, whose device-texture
     // lookup loads the texture, so after it the device texture exists.
     FUN_SIMPLETEXTURE_EMIT = 0x007706E0,
+    // CSimpleFontString::Emit — `void __thiscall(fs, batch)`, `ret 4`, the
+    // font string's slot of the same call (4.3.4's CSimpleFontString::Draw):
+    // with a font and a nonempty text it runs AppendToBatch (0x00773080),
+    // which adds the built string (+0xF8) when the rect is valid and not
+    // wholly off screen.
+    FUN_FONTSTRING_EMIT = 0x00772E50,
+    // A layer batch's entry count: the quad append and the text append each
+    // add one (0x00772FD0, 0x00773080).
+    OFF_LAYER_BATCH_COUNT = 0x4,
+    // A region's vtable slot 0, the deleting destructor `void __thiscall(region,
+    // int flags)`: the frame destructor (0x007693B0) deletes each of its regions
+    // with flags 1.
+    VTBL_REGION_DELETING_DESTRUCTOR = 0x00,
     // CScriptRegion::NotifyLayerChanged — `void __thiscall(region)`: marks the
     // region's layer for a batch rebuild. SetTexture (0x007702E2) and SetImage
     // (0x00770300) call it after storing a new image.
@@ -1040,23 +1053,17 @@ enum Offsets {
     // pass (FUN_005c8fe0) calls per node; safe to call directly (the builder
     // re-lays the node — a clean node just re-emits the same glyphs). Verified
     // callers: the paint pass and FUN_005cd4d0 (the width/resize helper).
-    // Text::InlineTexture drives it PRE-RENDER from the SMF-refresh early-apply
-    // so a chat line's icons are recorded before the frame draws.
+    // Text::InlineTexture calls it right after RebuildString (its RefreshIcons,
+    // 4.3.4's RefreshEmbeddedTextures) so a string's icons are recorded and
+    // placed before the string draws.
     FUN_TEXT_ENSURE_BUILT = 0x005CD6A0,
 
     // CScrollingMessageFrame display refresh — `__thiscall(smf, int newestIdx)`.
     // Rebuilds the visible line set bottom-up: per slot it SetTexts the line
     // fontstring (FUN_00788af0 -> SetText FUN_00771d80 + enqueue-resolve
     // FUN_007680e0 flag 1), (re)anchors newly-allocated lines, shows/hides by
-    // message. Every new message shifts the newest index, so EVERY visible slot
-    // is re-SetText'd -> its inline icons must be recomputed; the engine builds
-    // the line lazily at paint, so icons land one frame after the glyphs (the
-    // one-frame lag). ScrollingMessageFrame::Layout owns the hook and fans
-    // out after it; Text::InlineTexture listens and, post-refresh,
-    // forces each icon-bearing line to resolve+build and applies its icon
-    // placement synchronously — pre-render (the refresh runs from the SMF's
-    // Lua/event-driven methods, never mid-render), so icons draw with their
-    // glyphs the same frame. Line-entry layout verified from the decompile:
+    // message. ScrollingMessageFrame::Layout owns the hook and fans out around
+    // it. Line-entry layout verified from the decompile:
     // count@+0x3A0, stride-0x10 entry array@+0x3A4, entry+8 = the line fs.
     FUN_SMF_DISPLAY_REFRESH = 0x00788750,
     OFF_SMF_LINE_COUNT = 0x3A0,     // int: allocated visible-line count
@@ -12262,6 +12269,10 @@ enum Offsets {
     VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED = 0x00,
     VTBL_LAYOUT_DELETING_DESTRUCTOR = 0x04,
     VTBL_LAYOUT_GET_LAYOUT_PARENT = 0x0C,
+    // +0x10 SetLayoutScale (this, float scale, int force) -> int, ret 8: what
+    // AddRegionToLayer (0x0076A860) calls with the frame's OFF_LAYOUT_SCALE
+    // and 0 when it links a region into a draw layer.
+    VTBL_LAYOUT_SET_LAYOUT_SCALE = 0x10,
     // +0x1C / +0x20 the explicit width / height, `float __thiscall(this)`:
     // CLayoutFrame's read +0x50 / +0x54 (0x00768420 / 0x00768410); textures
     // and font strings override them. Script GetWidth / GetHeight call them

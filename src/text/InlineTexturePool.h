@@ -13,14 +13,18 @@
 
 #pragma once
 
-// Engine-region rendering for the inline-|T icons (the 4.3.4
-// CSimpleEmbeddedTexture model).
+// Engine-texture rendering for the inline-|T icons, 4.3.4's
+// CSimpleEmbeddedTexture model.
 //
-// One pooled CSimpleTexture per visible inline icon, anchored RELATIVE TO THE
-// OWNING FONTSTRING at offsets converted from pen space via the fs+0x7C scale
-// bridge (see InlineTexture.cpp's FlushLayout). Engine-drawn → resident by
-// construction (no VRAM-eviction flicker); engine-anchored → tracks the
-// fontstring's movement for free.
+// One pooled CSimpleTexture per inline icon, anchored RELATIVE TO THE OWNING
+// FONTSTRING at offsets converted from pen space via the fs+0x7C scale bridge
+// (see InlineTexture.cpp's FlushLayout). As in 4.3.4 the texture has no frame,
+// so it is in no draw layer: the fontstring draws it. Its draw call
+// (FUN_FONTSTRING_EMIT, 4.3.4's CSimpleFontString::Draw → QueueTextures) adds
+// the icons to the layer batch right after its text, so an icon draws exactly
+// when its line's text does - shown, hidden, faded out, off screen - in the
+// same frame. Engine-drawn → resident by construction; engine-anchored →
+// tracks the fontstring's movement for free.
 
 #include <cstdint>
 #include <string>
@@ -51,25 +55,28 @@ inline bool operator==(const Placement &a, const Placement &b) {
 }
 
 // Queue the icon set for a FONTSTRING (the stable entity — text nodes die on
-// every SetText, so regions must not be keyed by node). Safe from the paint
-// hook: only records data; regions are created/configured on the next
-// WorldTick (never mid-render). Identical re-queues are deduped, so calling
-// every paint is cheap. An empty vector hides the fontstring's regions; a
-// hidden fontstring's regions are hidden automatically each tick.
+// every SetText, so textures must not be keyed by node). Safe from the paint
+// hook: only records data; the textures are configured on the next FrameTick.
+// Identical re-queues are deduped, so calling every paint is cheap. An empty
+// vector stops the fontstring drawing icons.
 void QueuePlacements(void *fs, std::vector<Placement> &&icons);
 
-// Like QueuePlacements, but ALSO applies the placements to their regions
-// immediately (synchronously) instead of waiting for the next FrameTick. Only
-// safe to call PRE-RENDER (no frame mid-draw) — Text::InlineTexture calls it
-// from the SMF-refresh hook so a chat line's icons are placed before the frame
-// draws, killing the one-frame lag. Deduped against the current want, so a
-// no-change re-apply is a cheap no-op. Faults are caught (latches the same
-// maintenance kill switch as the tick path).
+// Like QueuePlacements, but ALSO applies the placements to their textures
+// immediately (synchronously) instead of waiting for the next FrameTick, and
+// marks the fontstring's layer for a batch rebuild so the icons draw with the
+// text. Deduped against the current want, so a no-change re-apply is a cheap
+// no-op. Faults are caught (latches the same maintenance kill switch as the
+// tick path).
 void ApplyNow(void *fs, std::vector<Placement> &&icons);
 
-// Called from FrameScript_Initialize_h BEFORE the /reload teardown: the reload
-// destroys every icon region (they die with their parent frames), so drop the
-// pointers without touching them — regions rebuild lazily as icons re-draw.
+// The fontstring's built string was replaced: it draws no icons until new
+// placements arrive (4.3.4's FreeEmbeddedTextures at the top of UpdateString).
+// Its textures stay pooled for them.
+void Release(void *fs);
+
+// Called BEFORE the /reload teardown and on glue boot: forgets every
+// fontstring and deletes every icon texture at the next tick, after a draw
+// whose batches no longer hold them.
 void PrepareForReload();
 
 } // namespace Text::InlineTexturePool

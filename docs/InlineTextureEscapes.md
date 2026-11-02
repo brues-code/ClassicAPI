@@ -27,24 +27,22 @@ The DLL hooks the engine's own text pipeline — no companion addon:
   pen is lazy and omits the last glyph's own advance, so a coin sat on its
   digits; the emitter now adds the true terminal advance from the engine's own
   glyph-advance helpers (`550cf5e`).
-- **Rendering** — the paint-pass co-hook `FUN_005c8fe0` walks the icon records
-  and queues each to `Text::InlineTexturePool`, which places the region on the
-  next frame tick (never mid-render).
-- **Chat has no one-frame lag** — a ScrollingMessageFrame re-`SetText`s every
-  visible line on each new message, and the engine builds each line lazily at
-  paint, so a line's icons would land one frame after its glyphs (glyphs draw
-  synchronously; the icon regions are separate objects whose placement is only
-  known once the line builds mid-paint, after the frame's texture pass already
-  drew). A co-hook on the SMF display refresh (`FUN_00788750`, which runs
-  pre-render from the frame's own methods) forces each icon-bearing line to
-  resolve+build and applies its icon placement synchronously — before the frame
-  draws — so icons move in lockstep with their text. It reuses the engine's own
-  `Realize(0)` → `RebuildString` → ensure-built path and the same placement math
-  the paint flush uses (`ComputePlacementsForNode`), so the later flush dedups to
-  a no-op. Additive and best-effort: any line whose rect isn't resolvable in time
-  falls back to the paint + tick pipeline (correct, one-frame lagged). A pure
-  scroll or drag never lagged — the icons are anchored to the line and the engine
-  moves them for free; only content changes on a reused line needed this.
+- **Rendering** — 4.3.4's `CSimpleEmbeddedTexture` model. Each icon is a
+  pooled `CSimpleTexture` with no frame, anchored to its fontstring: it is in
+  no draw layer, so the fontstring draws it. The fontstring's batch call
+  (`FUN_FONTSTRING_EMIT` `0x00772E50`, 4.3.4's `CSimpleFontString::Draw` →
+  `QueueTextures`) adds the icons right after its text, and only when the text
+  went in, so an icon shows exactly when its line does — hidden, faded out, off
+  screen, or scrolled off the top of a chat frame — in the same frame.
+- **No one-frame lag** — 4.3.4 sets the embedded textures up in `UpdateString`,
+  right after it builds the string. The `RebuildString` co-hook does the same:
+  a rebuild drops the fontstring's icons, lays the new node out now (the
+  ensure-built call the paint makes) and applies the placements at once, so a
+  string's icons draw with its text wherever it was rebuilt (a chat line laid
+  out by its frame, a tooltip line, a rect change). The paint-pass co-hook
+  `FUN_005c8fe0` still walks the icon records and queues them to
+  `Text::InlineTexturePool` for the next frame tick: the backstop for a string
+  whose placement can't be computed at rebuild time.
 - **Placement coordinates** — text pen space IS render-target pixels. The
   engine stores node positions NORMALIZED (fs-local anchor ÷
   `[0x832A44]`/`[0x832A48]` per axis, `FUN_0041ade0`), and the origin finalize
@@ -107,10 +105,8 @@ Every fs-level measure path now counts icons: width (`FUN_00772890`), height
 refute that: the GameTooltip auto-size measures each WRAPPED SEGMENT of a
 wrap-enabled line through it, so icon-bearing wrapped tooltip lines
 undersized their tooltip until it was hooked too). The Lua control surface is
-two toggles: `_classicapi_InlineTexEnable` (the whole-feature kill switch; the
-SEH latch trips it on a flush fault) and `_classicapi_InlineTexEarly` (the
-SMF-refresh early apply above — on by default, toggle off to A/B the chat lag
-against the baseline paint+tick pipeline, which keeps running either way). The
+one toggle: `_classicapi_InlineTexEnable` (the whole-feature kill switch; the
+SEH latch trips it on a fault). The
 bring-up tune / stat / probe functions were removed (`5e5677b`, `6800a9a`).
 
 ## REMOVED (bring-up record) — the raw-GxU-quad rendering primitive

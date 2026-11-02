@@ -11,14 +11,10 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Engine-region rendering for inline-|T icons — see the header. One pooled
-// CSimpleTexture per visible icon, anchored to its owning fontstring; the
-// engine draws it every frame like any UI region, so the texture is resident
-// by construction and the icon moves with its line for free.
-//
-// A CSimpleTexture renders as a gxu text node whose page texture IS the
-// region's CGxTex: the layout paint (FUN_005c8fe0) binds it (GxRsSet 0x17) and
-// submits its quad EVERY FRAME the region is shown.
+// Engine-texture rendering for inline-|T icons — see the header. One pooled
+// CSimpleTexture per icon, anchored to its owning fontstring, drawn by the
+// fontstring itself (Emit_h below), so the texture is resident by
+// construction, moves with its line and shows exactly when its line does.
 
 #include "text/InlineTexturePool.h"
 
@@ -45,99 +41,64 @@ using SetColor_t = void(__thiscall *)(void *tex, const void *colorBGRA);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
                                       float x, float y, int flag);
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
-using ShowHide_t = void(__fastcall *)(void *tex);
+using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
+using SetLayoutScale_t = int(__thiscall *)(void *layout, float scale, int force);
+using DeletingDestructor_t = void(__thiscall *)(void *region, int flags);
+using Emit_t = void(__fastcall *)(void *region, void *edx, void *batch);
+using NotifyLayerChanged_t = void(__fastcall *)(void *region);
 
 // LAA-aware pointer sanity probe: Text::LooksReadable (text/PtrProbe.h).
 
-using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
-using SetParentAndLayer_t = void(__thiscall *)(void *region, void *parentFrame, int layer,
-                                               int show);
+// --- texture placement state -------------------------------------------------
 
-// --- region placement state --------------------------------------------------
-
-// A pooled icon region and the config it currently carries (for dedup).
+// A pooled icon texture and the config it currently carries (for dedup).
 struct IconRegion {
     void *tex = nullptr;
-    void *parent = nullptr;
     std::string path;
     // Accumulated offset-scale correction, converged from rect readback (see
     // the verification pass in Maintain). Starts at 1; survives reuse (the
-    // resolver scale is a property of the parent chain, not the placement).
+    // resolver scale is a property of the fontstring's scale, not the
+    // placement).
     float corr = 1.0f;
 };
 
 // Keyed by FONTSTRING (stable across SetText — text nodes are reallocated per
-// rebuild, so a node key would orphan regions every chat scroll step: the
+// rebuild, so a node key would orphan textures every chat scroll step: the
 // "wall of icons" bug).
 struct FsPlacements {
     std::vector<Placement> want; // queued by the paint hook
     bool dirty = false;
-    std::vector<IconRegion> regions; // engine regions currently serving this fs
-    int shown = 0;                   // how many of `regions` are visible
-    // Maintain-tick of the last QueuePlacements touch (deduped ones included).
-    // A LIVE painted icon line is re-queued every paint; a parked/orphaned fs
-    // (recycled chat line whose node never rebuilds — the "ghost icons at the
-    // parked position" class) stops being touched entirely, so its regions
-    // expire via the freshness check in Maintain.
-    uint32_t lastTouchTick = 0;
+    std::vector<IconRegion> regions; // textures currently serving this fs
+    int shown = 0;                   // how many of `regions` the fs draws
     // The fs colour key (folded BGRA colors[0] dword) last applied to the
-    // shown regions (the fade mirror — see FsColorKey below). Re-applied on
+    // drawn textures (the fade mirror — see FsColorKey below). Re-applied on
     // change only.
     uint32_t appliedColor = 0xFFFFFFFFu;
 };
 
 std::unordered_map<void *, FsPlacements> g_fsIcons;
-uint32_t g_maintainTick = 0;
 
-// Every pooled icon region still alive, so OnRegionDestroyed can tell ours
-// from the rest in one lookup.
+// Every icon texture still alive. They have no frame, so nothing but this
+// module deletes them.
 std::unordered_set<void *> g_iconRegions;
 
-// The regions of keys destroyed since the last tick. Their shown regions are
-// hidden there, never from inside the destructor that reported the death.
-std::vector<std::vector<IconRegion>> g_orphans;
-
-// Drops `tex` from `regions`. For a live key's list, the regions after it now
-// serve the wrong placements, so the key is re-placed.
-void DropRegion(std::vector<IconRegion> &regions, void *tex, FsPlacements *np) {
-    for (size_t i = 0; i < regions.size(); ++i) {
-        if (regions[i].tex != tex)
-            continue;
-        regions.erase(regions.begin() + static_cast<std::ptrdiff_t>(i));
-        if (np != nullptr) {
-            if (static_cast<int>(i) < np->shown)
-                --np->shown;
-            np->dirty = true;
-        }
-        return;
-    }
-}
+// Textures to delete at the next tick: those of destroyed fontstrings and,
+// after a reload, all of them. By the tick the draw has rebuilt the batches
+// that held them (the fontstring's removal marked its layer).
+std::vector<void *> g_orphans;
 
 // Frame::RegionDestruction. A destroyed key fontstring takes its entry with it
 // at once: its block goes back to the region pool and can come back as an
 // unrelated fontstring at the same address, which must start with no entry.
-// Its regions live on, parented to its parent frame (unless that frame is the
-// one dying, when they are reported here too), and are hidden at the next
-// tick. A destroyed icon region is dropped wherever it is held. This runs
-// inside a frame's destructor, so it changes no region itself.
-//
-// ACCEPTED LEAK: an orphan's regions are hidden, not reclaimed. They stay on
-// their parent frame until it dies (/reload frees all of them). Chat and
-// tooltip fontstrings are a reused, never-destroyed set, so only destroyed
-// transient |T fontstrings leave regions behind.
+// Its textures are deleted at the next tick, never from inside the destructor
+// that reported the death.
 void OnRegionDestroyed(void *region) {
     const auto it = g_fsIcons.find(region);
-    if (it != g_fsIcons.end()) {
-        g_orphans.push_back(std::move(it->second.regions));
-        g_fsIcons.erase(it);
+    if (it == g_fsIcons.end())
         return;
-    }
-    if (g_iconRegions.erase(region) == 0)
-        return;
-    for (auto &entry : g_fsIcons)
-        DropRegion(entry.second.regions, region, &entry.second);
-    for (std::vector<IconRegion> &orphan : g_orphans)
-        DropRegion(orphan, region, nullptr);
+    for (const IconRegion &r : it->second.regions)
+        g_orphans.push_back(r.tex);
+    g_fsIcons.erase(it);
 }
 
 const Frame::RegionDestruction::AutoSubscribe _regionDestructionSub{&OnRegionDestroyed};
@@ -145,20 +106,6 @@ const Frame::RegionDestruction::AutoSubscribe _regionDestructionSub{&OnRegionDes
 // Latched off by Maintain's SEH guard on a fault; re-armed on /reload (see
 // PrepareForReload). Mirrors InlineTexture.cpp's g_inlineEnabled paint latch.
 bool g_maintainDisabled = false;
-
-void Show(void *tex) {
-    // Show no-ops unless the desired-shown flag (+0xC4) is set; engine callers
-    // always write it first (see the region RE notes).
-    *reinterpret_cast<uint32_t *>(reinterpret_cast<uint8_t *>(tex) +
-                                  Offsets::OFF_REGION_DESIRED_SHOWN) = 1;
-    reinterpret_cast<ShowHide_t>(Offsets::FUN_FONTSTRING_SHOW)(tex);
-}
-
-void Hide(void *tex) {
-    *reinterpret_cast<uint32_t *>(reinterpret_cast<uint8_t *>(tex) +
-                                  Offsets::OFF_REGION_DESIRED_SHOWN) = 0;
-    reinterpret_cast<ShowHide_t>(Offsets::FUN_FONTSTRING_HIDE)(tex);
-}
 
 // The fontstring's live folded colour (slot 0's BGRA dword) — THE FADE
 // SIGNAL. Its alpha byte is the chat-fade channel: the ScrollingMessageFrame's
@@ -205,18 +152,40 @@ uint32_t FadedColor(const Placement &p, uint32_t fsColor) {
     return (a << 24) | rgb;
 }
 
-// Creates a bare pooled CSimpleTexture parented to `parent` (ARTWORK).
-void *CreateRegion(void *parent) {
-    void *tex = Frame::Region::CreateTexture(parent, Offsets::DRAWLAYER_ARTWORK, 1);
+// Creates a bare pooled CSimpleTexture with no frame, as 4.3.4's
+// CSimpleEmbeddedTexture does: it is in no draw layer, its layout is live (a
+// region is deferred only by a hide), and the frame-alpha fold skips it
+// (FUN_0077FAC0 tests the parent), so its colour is exactly what it is given.
+void *CreateRegion() {
+    void *tex = Frame::Region::CreateTexture(nullptr, Offsets::DRAWLAYER_ARTWORK, 1);
     if (tex == nullptr)
         return nullptr;
     g_iconRegions.insert(tex);
     return tex;
 }
 
-// Applies one placement to one region: texture, texcoords, color (with the
-// line's fade alpha folded in), and the two anchor points expressed relative to
-// the owning fontstring's BOTTOMLEFT (so the engine moves the icon with its
+// Deletes an icon texture the way the frame destructor deletes its regions.
+void DeleteRegion(void *tex) {
+    if (g_iconRegions.erase(tex) == 0)
+        return;
+    auto *vtable = Game::Read<DeletingDestructor_t *>(tex, 0);
+    vtable[Offsets::VTBL_REGION_DELETING_DESTRUCTOR / sizeof(void *)](tex, 1);
+}
+
+// Gives the texture the fontstring's scale, as a draw layer gives a region its
+// frame's (AddRegionToLayer 0x0076A860, through the same layout slot).
+void MatchScale(void *tex, void *fs) {
+    const float scale = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
+    if (!(scale > 0.0f) || Game::Read<float>(tex, Offsets::OFF_LAYOUT_SCALE) == scale)
+        return;
+    void *layout = static_cast<uint8_t *>(tex) + Offsets::OFF_REGION_ANCHOR;
+    auto *vtable = Game::Read<SetLayoutScale_t *>(layout, 0);
+    vtable[Offsets::VTBL_LAYOUT_SET_LAYOUT_SCALE / sizeof(void *)](layout, scale, 0);
+}
+
+// Applies one placement to one texture: image, texcoords, color (with the
+// line's fade alpha folded in), and the two anchor points expressed relative
+// to the owning fontstring's BOTTOMLEFT (so the engine moves the icon with its
 // line for free).
 void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColor) {
     auto *f = reinterpret_cast<uint8_t *>(fs);
@@ -246,7 +215,7 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     // effective scale chain (+0x7C — uiScale × per-frame scales). Verified from
     // the probe: a 50px SetPoint offset stored as 0.0319 internal resolved to a
     // rect at 0.0290 = 0.0319 × s (s = 0.91). So divide the desired resolved
-    // delta by the region's own scale before storing.
+    // delta by the texture's own scale before storing.
     float sReg = Game::Read<float>(r.tex, Offsets::OFF_LAYOUT_SCALE);
     if (!(sReg > 0.01f && sReg < 100.0f))
         sReg = Game::Read<float>(f, Offsets::OFF_LAYOUT_SCALE);
@@ -254,8 +223,8 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
 
     // Single deterministic placement; the resolver's true offset scale is
     // converged by the verification pass in Maintain via r.corr (a same-call
-    // rect readback is unreliable: fresh regions read zeros and reused pooled
-    // regions read their PREVIOUS placement — that poisoned fix rendered the
+    // rect readback is unreliable: fresh textures read zeros and reused pooled
+    // textures read their PREVIOUS placement — that poisoned fix rendered the
     // 14px crest at 7.4px).
     const float scale = inv * r.corr;
     auto setPoint = reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT);
@@ -266,95 +235,51 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     setPoint(texAnchor, Offsets::FRAMEPOINT_TOPRIGHT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
              p.x1 * scale, p.y1 * scale, 1);
     reinterpret_cast<Realize_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(texAnchor, 0);
-    Show(r.tex);
 }
 
-// Apply the queued `want` for one fs to its regions: create/reparent/configure
-// each, hide surplus from a previously-larger set, and clear the dirty flag.
-// Reads the fs's live parent at call time. Shared by MaintainImpl's dirty
-// branch and the synchronous ApplyNow path (pre-render). Caller supplies the
-// folded fs colour (FsColorKey) so both paths fold the same fade.
+// Apply the queued `want` for one fs to its textures: create and configure
+// each, and clear the dirty flag. The layer batch copies the texture set,
+// images and colour counts when it is built (FUN_00772FD0), so the
+// fontstring's layer is marked for a rebuild — the call SetTexture makes for
+// a texture in a layer. Shared by MaintainImpl's dirty branch and the
+// synchronous ApplyNow path. Caller supplies the folded fs colour
+// (FsColorKey) so both paths fold the same fade.
 void ApplyDirtyBranch(void *fs, FsPlacements &np, uint32_t fsColor) {
     np.dirty = false;
-    void *parent = *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(fs) +
-                                              Offsets::OFF_REGION_PARENT);
-    if (!LooksReadable(parent))
-        return;
     const int want = static_cast<int>(np.want.size());
     for (int i = 0; i < want; ++i) {
         if (i >= static_cast<int>(np.regions.size())) {
-            void *tex = CreateRegion(parent);
+            void *tex = CreateRegion();
             if (tex == nullptr)
                 break;
-            np.regions.push_back(IconRegion{tex, parent, std::string()});
+            np.regions.push_back(IconRegion{tex, std::string()});
         }
         IconRegion &r = np.regions[static_cast<size_t>(i)];
-        if (r.parent != parent) {
-            reinterpret_cast<SetParentAndLayer_t>(Offsets::FUN_REGION_SET_PARENT_AND_LAYER)(
-                r.tex, parent, Offsets::DRAWLAYER_ARTWORK, 0);
-            r.parent = parent;
-        }
+        MatchScale(r.tex, fs);
         ApplyPlacement(r, fs, np.want[static_cast<size_t>(i)], fsColor);
     }
-    // Hide surplus pooled regions from a previous, larger icon set.
-    for (int i = want; i < np.shown; ++i)
-        if (i < static_cast<int>(np.regions.size()))
-            Hide(np.regions[static_cast<size_t>(i)].tex);
     np.shown = (want < static_cast<int>(np.regions.size()))
                    ? want
                    : static_cast<int>(np.regions.size());
     np.appliedColor = fsColor;
+    reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(fs);
 }
 
 // Per-frame tick (FrameTick — glue AND world): apply queued placements
-// (deferred out of the text paint — regions must never be mutated mid-paint).
-// Wrapped by Maintain() below; kept destructor-holding C++ objects out of the
-// SEH frame (MSVC won't allow __try in a function that needs object unwinding).
+// (deferred out of the text paint). Wrapped by Maintain() below; kept
+// destructor-holding C++ objects out of the SEH frame (MSVC won't allow __try
+// in a function that needs object unwinding).
 void MaintainImpl() {
-    ++g_maintainTick;
-    // Hide the regions of keys destroyed since the last tick (see
-    // OnRegionDestroyed). Every region still listed is alive.
-    for (const std::vector<IconRegion> &orphan : g_orphans)
-        for (const IconRegion &r : orphan)
-            Hide(r.tex);
-    g_orphans.clear();
+    if (!g_orphans.empty()) {
+        std::vector<void *> orphans;
+        orphans.swap(g_orphans);
+        for (void *tex : orphans)
+            DeleteRegion(tex);
+    }
 
-    for (auto it = g_fsIcons.begin(); it != g_fsIcons.end();) {
-        void *fs = it->first;
-        FsPlacements &np = it->second;
-
-        // Freshness expiry: a LIVE painted icon line re-queues every paint, so
-        // its touch stamp stays current. A parked/orphaned fs (recycled chat
-        // line whose node never rebuilds and may not even be walked) stops
-        // being touched — hide its regions and drop the stale want so nothing
-        // ghosts at the parked position. ~1s at a per-frame tick.
-        constexpr uint32_t kWantTTL = 60;
-        if (np.shown > 0 && g_maintainTick - np.lastTouchTick > kWantTTL) {
-            for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
-                Hide(np.regions[static_cast<size_t>(i)].tex);
-            np.shown = 0;
-            np.want.clear();
-            np.dirty = false;
-            ++it;
-            continue;
-        }
-
-        // Mirror the fontstring's own visibility EVERY tick, not just on dirty:
-        // expired/hidden chat lines get their fs Hidden by the message frame,
-        // and our regions are parented to the CHAT FRAME (regions can't parent
-        // regions), so they don't inherit the line's own hide. Every key is a
-        // live fontstring (OnRegionDestroyed drops a destroyed one at once).
-        const bool fsShown =
-            *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fs) +
-                                                Offsets::OFF_REGION_ACTUALLY_SHOWN) != 0;
-        if (!fsShown) {
-            for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
-                Hide(np.regions[static_cast<size_t>(i)].tex);
-            np.shown = 0;
-            np.dirty = true; // re-place if/when the fs shows again
-            ++it;
-            continue;
-        }
+    for (auto &entry : g_fsIcons) {
+        void *fs = entry.first;
+        FsPlacements &np = entry.second;
 
         // The line's live folded colour (see FsColorKey) — folded into every
         // color write below and mirrored on change.
@@ -365,9 +290,10 @@ void MaintainImpl() {
         } else if (np.shown > 0 && fsColor != np.appliedColor) {
             // FADE MIRROR: the ScrollingMessageFrame fader animates the line
             // fontstring's color alpha every frame, and the glue AddonList
-            // swaps title RGB on toggle; keep the icon regions' colour in
+            // swaps title RGB on toggle; keep the icon textures' colour in
             // lockstep (alpha everywhere, value-follow on glue — see
-            // FadedColor) so inline icons fade/dim with their text. Change-
+            // FadedColor) so inline icons fade/dim with their text. The batch
+            // reads the colour through a pointer, so no rebuild. Change-
             // driven — steady state costs one dword compare.
             np.appliedColor = fsColor;
             const int live = (np.shown < static_cast<int>(np.want.size()))
@@ -375,18 +301,17 @@ void MaintainImpl() {
                                  : static_cast<int>(np.want.size());
             for (int i = 0; i < live && i < static_cast<int>(np.regions.size()); ++i) {
                 IconRegion &r = np.regions[static_cast<size_t>(i)];
-                if (r.tex == nullptr)
-                    continue;
                 const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
                 reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(r.tex, &color);
             }
         }
 
-        // Convergence pass: compare each shown region's RESOLVED width against
-        // its wanted width and fold the ratio into the region's correction. The
-        // resolver's true offset scale is whatever it is (uiScale chains, pfUI
-        // frame scales) — a tick or two of this converges the placement exactly
-        // and self-heals any stale-pool or timing artifact. 0.5% deadband.
+        // Convergence pass: compare each drawn texture's RESOLVED width against
+        // its wanted width and fold the ratio into the texture's correction.
+        // The resolver's true offset scale is whatever it is (uiScale chains,
+        // pfUI frame scales) — a tick or two of this converges the placement
+        // exactly and self-heals any stale-pool or timing artifact. 0.5%
+        // deadband.
         const int live = (np.shown < static_cast<int>(np.want.size()))
                              ? np.shown
                              : static_cast<int>(np.want.size());
@@ -394,7 +319,7 @@ void MaintainImpl() {
             IconRegion &r = np.regions[static_cast<size_t>(i)];
             const Placement &p = np.want[static_cast<size_t>(i)];
             const float wantW = p.x1 - p.x0;
-            if (r.tex == nullptr || wantW <= 1e-6f)
+            if (wantW <= 1e-6f)
                 continue;
             const float *rr = reinterpret_cast<const float *>(
                 reinterpret_cast<uint8_t *>(r.tex) + Offsets::OFF_REGION_RECT);
@@ -413,13 +338,11 @@ void MaintainImpl() {
                 ApplyPlacement(r, fs, p, fsColor);
             }
         }
-
-        ++it;
     }
 }
 
 // SEH latch mirroring InlineTexture.cpp's SafeFlush: the tick drives engine
-// region calls (SetTexture with addon-supplied paths, SetPoint, Show) from
+// texture calls (SetTexture with addon-supplied paths, SetPoint) from
 // paint-time data, so a fault disables maintenance for the session instead of
 // crashing the client. A /reload re-arms it (PrepareForReload). The __try body
 // holds no C++ objects — see MaintainImpl.
@@ -433,11 +356,8 @@ void Maintain() {
     }
 }
 
-// Synchronous apply for ONE fs (the pre-render early path). Applies only when
-// the fs is a live, actually-shown fontstring and its entry is still dirty
-// (i.e. QueuePlacements did NOT dedup the re-queue). Otherwise it leaves the
-// entry for the normal tick path — best-effort, so a not-yet-shown or
-// deduped line simply falls back to the one-frame-lagged behaviour.
+// Synchronous apply for ONE fs. Applies only when its entry is still dirty
+// (i.e. QueuePlacements did NOT dedup the re-queue).
 void ApplyNowImpl(void *fs) {
     auto it = g_fsIcons.find(fs);
     if (it == g_fsIcons.end())
@@ -445,14 +365,6 @@ void ApplyNowImpl(void *fs) {
     FsPlacements &np = it->second;
     if (!np.dirty)
         return; // deduped re-queue: already applied, nothing to do
-    // Match Maintain's own visibility gate (actually-shown latch). The SMF's
-    // per-line Show realizes this synchronously before we run, so a visible
-    // line passes; a line not yet shown is left dirty for the tick path.
-    const bool fsShown =
-        *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fs) +
-                                            Offsets::OFF_REGION_ACTUALLY_SHOWN) != 0;
-    if (!fsShown)
-        return;
     ApplyDirtyBranch(fs, np, FsColorKey(fs));
 }
 
@@ -469,12 +381,34 @@ void SafeApplyNow(void *fs) {
     }
 }
 
-// FrameTick, not WorldTick: icon regions are UI objects that also exist on the
-// glue screen (addon-list titles with |T emotes), and FrameTick fires wherever
-// the UI renders — glue and world. (An earlier FrameTick attempt was blamed
-// for an in-world regression and reverted; that was the LAA pointer-bound
-// phantom — see laa-pointer-bounds / dc61f77. Single tick is the clean design.)
+// FrameTick, not WorldTick: icon textures also exist on the glue screen
+// (addon-list titles with |T emotes), and FrameTick fires wherever the UI
+// renders — glue and world.
 static const Tick::FrameTick::AutoSubscribe _tick{&Maintain};
+
+// The fontstring's draw call: its icons go into the layer batch right after
+// its text, and only when the text went in (the append counts it), as 4.3.4's
+// CSimpleFontString::Draw queues its embedded textures after the string. So
+// an icon draws exactly when its line's text does. A texture's own emit
+// (FUN_SIMPLETEXTURE_EMIT) appends its quad when it has an image.
+Emit_t g_origEmit = nullptr;
+
+void __fastcall Emit_h(void *fs, void *edx, void *batch) {
+    const int before = Game::Read<int>(batch, Offsets::OFF_LAYER_BATCH_COUNT);
+    g_origEmit(fs, edx, batch);
+    if (g_maintainDisabled || Game::Read<int>(batch, Offsets::OFF_LAYER_BATCH_COUNT) == before)
+        return;
+    const auto it = g_fsIcons.find(fs);
+    if (it == g_fsIcons.end())
+        return;
+    const FsPlacements &np = it->second;
+    for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
+        reinterpret_cast<Emit_t>(Offsets::FUN_SIMPLETEXTURE_EMIT)(np.regions[static_cast<size_t>(i)].tex,
+                                                                  nullptr, batch);
+}
+
+const Game::HookAutoRegister _emitHook{Offsets::FUN_FONTSTRING_EMIT, reinterpret_cast<void *>(&Emit_h),
+                                       reinterpret_cast<void **>(&g_origEmit)};
 
 } // namespace
 
@@ -484,16 +418,14 @@ void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
     auto it = g_fsIcons.find(fs);
     if (it == g_fsIcons.end()) {
         if (icons.empty())
-            return; // nothing shown, nothing wanted — don't create state
+            return; // nothing drawn, nothing wanted — don't create state
         FsPlacements np;
         np.want = std::move(icons);
         np.dirty = true;
-        np.lastTouchTick = g_maintainTick;
         g_fsIcons.emplace(fs, std::move(np));
         return;
     }
     FsPlacements &np = it->second;
-    np.lastTouchTick = g_maintainTick; // freshness — deduped touches count too
     if (np.want == icons)
         return; // identical re-queue (the per-paint steady state) — no work
     np.want = std::move(icons);
@@ -501,20 +433,31 @@ void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
 }
 
 void ApplyNow(void *fs, std::vector<Placement> &&icons) {
-    // Queue first (sets want+dirty+touch, dedups an unchanged re-queue), then
-    // apply synchronously for this fs. Deduped
-    // re-queues leave the entry not-dirty, so SafeApplyNow no-ops — a
-    // per-paint steady state costs one compare, same as QueuePlacements.
+    // Queue first (sets want+dirty, dedups an unchanged re-queue), then apply
+    // synchronously for this fs. Deduped re-queues leave the entry not-dirty,
+    // so SafeApplyNow no-ops — a steady state costs one compare, same as
+    // QueuePlacements.
     QueuePlacements(fs, std::move(icons));
     SafeApplyNow(fs);
 }
 
+void Release(void *fs) {
+    const auto it = g_fsIcons.find(fs);
+    if (it == g_fsIcons.end())
+        return;
+    // The rebuild that called this marks the fontstring's layer itself.
+    it->second.want.clear();
+    it->second.shown = 0;
+    it->second.dirty = false;
+}
+
 void PrepareForReload() {
-    // The reload teardown frees the icon regions (they die with their parent
-    // frames); only forget the pointers — never Hide/free them.
+    // The textures have no frame, so the teardown leaves them alive (a
+    // destroyed fontstring only clears their anchor). Delete them at the next
+    // tick, once the new UI's first draw has built batches without them.
+    for (void *tex : g_iconRegions)
+        g_orphans.push_back(tex);
     g_fsIcons.clear();
-    g_iconRegions.clear();
-    g_orphans.clear();
     g_maintainDisabled = false; // re-arm the SEH latch for the fresh UI
 }
 
