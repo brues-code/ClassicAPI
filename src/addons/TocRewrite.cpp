@@ -16,6 +16,7 @@
 #include "addons/Toc.h"
 
 #include "Offsets.h"
+#include "turtle/Detect.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -139,13 +140,23 @@ bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     return true;
 }
 
+// True iff the game-type list names a game type this client is: always
+// `vanilla`, and `turtle` (a ClassicAPI extension, like the `_Turtle.toc`
+// flavor) on a Turtle client.
+bool ListContainsGameType(const char *list, size_t listLen) {
+    return ListContains(list, listLen, "vanilla") ||
+           (Turtle::Detected() && ListContains(list, listLen, "turtle"));
+}
+
 // Evaluate a `[keyword args]` condition — the return is whether the line should
 // load. An unrecognized keyword returns false so the caller drops the line (a
 // condition we cannot confirm must not load — fail safe).
 bool EvalCondition(const char *head, size_t headLen, const char *args,
                    size_t argsLen) {
     if (EqCI(head, headLen, "AllowLoadGameType"))
-        return ListContains(args, argsLen, "vanilla");
+        return ListContainsGameType(args, argsLen);
+    if (EqCI(head, headLen, "ExcludeLoadGameType"))
+        return !ListContainsGameType(args, argsLen);
     if (EqCI(head, headLen, "AllowLoadTextLocale"))
         return ListContains(args, argsLen, ClientLocale());
     if (EqCI(head, headLen, "AllowLoad"))

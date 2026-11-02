@@ -34,6 +34,9 @@
 //      via the same allocator the engine itself uses, copy the
 //      embedded content in, and hand it back. The caller's normal
 //      `SMemFree` reclaims it on completion — no special lifetime.
+//      A TOC then goes through `AddOns::TocRewrite`, as an installed
+//      addon's does, so its file lines can carry `[AllowLoadGameType ...]`
+//      / `[ExcludeLoadGameType ...]` conditions.
 //
 //   3. We hook the exists-check `FUN_FILE_EXISTS` so it answers the same
 //      way for the same paths. Without it every embedded file reads fine
@@ -302,6 +305,49 @@ void DecideSource(int addon) {
     g_source[addon] = (cmp > 0) ? Source::Embedded : Source::Disk;
 }
 
+// Serves one file of embedded addon `addon` from whichever source won
+// DecideSource.
+int ReadAddonFile(int addon, const char *relPath, int unused, const char *path,
+                  void **outBuf, size_t *outSize, size_t extraBytes, int flag1,
+                  int flag2) {
+    DecideSource(addon);
+
+    if (g_source[addon] == Source::Disk) {
+        // Disk version is at least as new — serve disk. If disk
+        // doesn't have this specific file (e.g. embedded has files
+        // disk doesn't), fall through and try embedded.
+        const int diskResult = FileRead_o(unused, path, outBuf, outSize,
+                                           extraBytes, flag1, flag2);
+        if (diskResult != 0) return diskResult;
+    }
+
+    // Source::Embedded path, OR Source::Disk-but-file-missing fallback.
+    // Look up the embedded version and synthesize a Storm buffer the
+    // caller can free normally.
+    const Embed::Bytes entry = LookupEmbedded(relPath);
+    if (entry.data == nullptr) {
+        // Not in our embedded set either — let the engine try disk
+        // one more time (returns 0 if that also fails). Covers
+        // pathological cases like an empty disk install + embedded
+        // missing some file.
+        return FileRead_o(unused, path, outBuf, outSize, extraBytes,
+                          flag1, flag2);
+    }
+
+    auto SMemAlloc = reinterpret_cast<SMemAllocFn>(
+        Offsets::FUN_STORM_SMEM_ALLOC);
+    const size_t totalSize = entry.size + extraBytes;
+    void *buf = SMemAlloc(totalSize, __FILE__, __LINE__, 0);
+    if (buf == nullptr) return 0;
+    std::memcpy(buf, entry.data, entry.size);
+    if (extraBytes > 0) {
+        std::memset(static_cast<uint8_t *>(buf) + entry.size, 0, extraBytes);
+    }
+    if (outBuf != nullptr) *outBuf = buf;
+    if (outSize != nullptr) *outSize = entry.size;
+    return 1;
+}
+
 int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
                          size_t *outSize, size_t extraBytes,
                          int flag1, int flag2) {
@@ -345,42 +391,13 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
         return result;
     }
 
-    DecideSource(addon);
-
-    if (g_source[addon] == Source::Disk) {
-        // Disk version is at least as new — serve disk. If disk
-        // doesn't have this specific file (e.g. embedded has files
-        // disk doesn't), fall through and try embedded.
-        const int diskResult = FileRead_o(unused, path, outBuf, outSize,
-                                           extraBytes, flag1, flag2);
-        if (diskResult != 0) return diskResult;
-    }
-
-    // Source::Embedded path, OR Source::Disk-but-file-missing fallback.
-    // Look up the embedded version and synthesize a Storm buffer the
-    // caller can free normally.
-    const Embed::Bytes entry = LookupEmbedded(relPath);
-    if (entry.data == nullptr) {
-        // Not in our embedded set either — let the engine try disk
-        // one more time (returns 0 if that also fails). Covers
-        // pathological cases like an empty disk install + embedded
-        // missing some file.
-        return FileRead_o(unused, path, outBuf, outSize, extraBytes,
-                          flag1, flag2);
-    }
-
-    auto SMemAlloc = reinterpret_cast<SMemAllocFn>(
-        Offsets::FUN_STORM_SMEM_ALLOC);
-    const size_t totalSize = entry.size + extraBytes;
-    void *buf = SMemAlloc(totalSize, __FILE__, __LINE__, 0);
-    if (buf == nullptr) return 0;
-    std::memcpy(buf, entry.data, entry.size);
-    if (extraBytes > 0) {
-        std::memset(static_cast<uint8_t *>(buf) + entry.size, 0, extraBytes);
-    }
-    if (outBuf != nullptr) *outBuf = buf;
-    if (outSize != nullptr) *outSize = entry.size;
-    return 1;
+    // An embedded addon's TOC takes the same per-line directives as an
+    // installed addon's, whichever source serves it.
+    const int result = ReadAddonFile(addon, relPath, unused, path, outBuf, outSize,
+                                     extraBytes, flag1, flag2);
+    if (result != 0)
+        AddOns::TocRewrite::Transform(path, outBuf, outSize);
+    return result;
 }
 
 // The exists-check counterpart of FileRead_h: the same source decision and

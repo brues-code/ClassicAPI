@@ -42,7 +42,15 @@ namespace AddOns::TocRewrite {
 // below); metadata-line conditions, added in retail 12.0.7, are out of
 // scope. What the tokens resolve to on this 1.12 client:
 //
-//   [AllowLoadGameType ...]   keep the line iff the list contains `vanilla`
+//   [AllowLoadGameType ...]   keep the line iff the list names a game type
+//                             of this client
+//   [ExcludeLoadGameType ...] keep the line iff the list names none
+//                             This client is the `vanilla` game type, and
+//                             also `turtle` (a ClassicAPI extension, like
+//                             the `_Turtle.toc` flavor) when
+//                             Turtle::Detected(). So
+//                             `[ExcludeLoadGameType turtle]` loads a line
+//                             everywhere but Turtle.
 //   [AllowLoadTextLocale ...] keep the line iff the list contains the
 //                             client locale (GetLocale() code, e.g. enUS)
 //   [AllowLoad ...]           addon files only load in-game, so `game`
