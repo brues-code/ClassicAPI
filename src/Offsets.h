@@ -4316,6 +4316,11 @@ enum Offsets {
     // `Frame::ClampRectInsets` hooks FUN_LAYOUT_CALC_RECT to clamp the rect
     // grown by the frame's insets instead.
     OFF_LAYOUT_FLAGS = 0x3C,
+    // Layout deferred: invalidation leaves the frame off the queue and lays
+    // out its dependents instead. FUN_REGION_LAYOUT_REALIZE(1) sets it,
+    // (0) clears it (`and [ecx+0x3c], 0xfffffffd` at 0x007680BF) and then
+    // resolves a pending layout (bit 4, FUN_REGION_LAYOUT_DIRTY) at once.
+    LAYOUT_FLAG_DEFERRED = 0x02,
     LAYOUT_FLAG_CLAMPED = 0x10,
     FUN_LAYOUT_CALC_RECT = 0x00767A20,
     // CSimpleFrame's size-changed vmethod: `void __thiscall(frame, float w,
@@ -12096,6 +12101,22 @@ enum Offsets {
     // which runs it before firing OnLoad (+0x118) - so a parent's OnLoad
     // sees its children built.
     FUN_XML_FRAME_LOAD_CHILD_FRAMES = 0x0076A060,
+    // CSimpleFrame::PostLoadXML, the finalize above: `__thiscall(frame, node,
+    // status)`, `ret 8`. Clears the loading flag (+0x114); when visible
+    // (+0xD4) ends the layout deferral of the frame's layout part (+0x24,
+    // CALL_FRAME_POST_LOAD_XML_UNDEFER_FRAME), its title region's (+0xA8,
+    // CALL_FRAME_POST_LOAD_XML_UNDEFER_TITLE) and each registered region's
+    // (+0x1B8 list, region +0xC8 set, CALL_FRAME_POST_LOAD_XML_UNDEFER_REGION),
+    // each `push 0; lea ecx, [x+0x24]; call FUN_REGION_LAYOUT_REALIZE`; then
+    // builds the children (FUN_XML_FRAME_LOAD_CHILD_FRAMES), fires OnLoad
+    // (+0x118), then OnShow (+0x130) when visible and not loading
+    // (disassembly). Every frame type's vtable points here; the two other
+    // finalizers (minimap 0x004EE2C0, tooltip 0x00529668) call it first and
+    // read no rect after it.
+    FUN_FRAME_POST_LOAD_XML = 0x0076A2F0,
+    CALL_FRAME_POST_LOAD_XML_UNDEFER_FRAME = 0x0076A310,
+    CALL_FRAME_POST_LOAD_XML_UNDEFER_TITLE = 0x0076A324,
+    CALL_FRAME_POST_LOAD_XML_UNDEFER_REGION = 0x0076A35B,
     // The frame builder — `CSimpleFrame *__fastcall(node, parent, status)`,
     // ret 4 (disassembly: ECX = node, EDX = parent saved to [ebp-8]). Looks
     // the node's tag up in the frame-type factory table, picks the parent,
