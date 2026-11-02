@@ -49,7 +49,7 @@
 // co-hook on the indexed submit pops the matrices and the state journal after
 // the draw, exactly the op order of the engine's own disc draw.
 //
-// A cold co-hook on the region ctor clears a region's mask state when its
+// A Texture::Construct listener clears a region's mask state when its
 // pooled memory is reused, so a recycled region can never inherit (or serve) a
 // stale mask. Kill switch `_classicapi_TextureMaskEnable`; an SEH latch trips
 // it on a draw fault.
@@ -57,6 +57,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/AlphaGradient.h"
+#include "texture/Construct.h"
 #include "texture/Load.h"
 #include "texture/Mask.h"
 #include "texture/Transform.h"
@@ -437,37 +438,28 @@ static const Game::HookAutoRegister _primIdxHook{
     Offsets::FUN_GX_PRIM_INDEXED, reinterpret_cast<void *>(&PrimIndexed_h),
     reinterpret_cast<void **>(&g_primIndexedOriginal)};
 
-// --- region ctor co-hook: drop a stale mask on pooled reuse ------------------
+// --- region construction: drop a stale mask on pooled reuse ------------------
 
-// __thiscall(mem, parent, layer, sublayer) -> region; dummy-EDX __fastcall.
-using Ctor_t = void *(__fastcall *)(void *mem, void *edx, void *parent, int layer, int sublayer);
-Ctor_t g_ctorOriginal = nullptr;
-
-void *__fastcall Ctor_h(void *mem, void *edx, void *parent, int layer, int sublayer) {
-    if (mem != nullptr) {
-        // A (re)constructed region owns no mask and is no longer a mask source.
-        ClearPathMask(mem);
-        g_baseMasks.erase(mem);
-        // If the recycled memory WAS a mask region, detach it from every base
-        // still holding it — otherwise the draw hook would read the recycled
-        // region as a mask (stale rect/texture at best, garbage at worst).
-        if (g_maskRegions.erase(mem) != 0 && !g_baseMasks.empty()) {
-            for (auto it = g_baseMasks.begin(); it != g_baseMasks.end();) {
-                auto &v = it->second;
-                v.erase(std::remove(v.begin(), v.end(), mem), v.end());
-                if (v.empty())
-                    it = g_baseMasks.erase(it);
-                else
-                    ++it;
-            }
+void OnTextureConstructed(void *mem) {
+    // A (re)constructed region owns no mask and is no longer a mask source.
+    ClearPathMask(mem);
+    g_baseMasks.erase(mem);
+    // If the recycled memory WAS a mask region, detach it from every base
+    // still holding it — otherwise the draw hook would read the recycled
+    // region as a mask (stale rect/texture at best, garbage at worst).
+    if (g_maskRegions.erase(mem) != 0 && !g_baseMasks.empty()) {
+        for (auto it = g_baseMasks.begin(); it != g_baseMasks.end();) {
+            auto &v = it->second;
+            v.erase(std::remove(v.begin(), v.end(), mem), v.end());
+            if (v.empty())
+                it = g_baseMasks.erase(it);
+            else
+                ++it;
         }
     }
-    return g_ctorOriginal(mem, edx, parent, layer, sublayer);
 }
 
-static const Game::HookAutoRegister _ctorHook{Offsets::FUN_SIMPLETEXTURE_CTOR,
-                                              reinterpret_cast<void *>(&Ctor_h),
-                                              reinterpret_cast<void **>(&g_ctorOriginal)};
+static const Texture::Construct::AutoSubscribe _constructSub{&OnTextureConstructed};
 
 // --- Lua surface -------------------------------------------------------------
 

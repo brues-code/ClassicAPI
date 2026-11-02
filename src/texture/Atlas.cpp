@@ -97,9 +97,7 @@ std::set<std::string> g_misses;
 // HTEXTURE that set installed. Comparing the stored handle against the region's
 // current one on read means a plain `SetTexture` afterwards correctly clears the
 // atlas — and a recycled region can't report a stale name either, which is what
-// lets this module skip a `FUN_SIMPLETEXTURE_CTOR` hook. It must skip one:
-// `Texture::Mask` already owns that target, and MinHook refuses a duplicate,
-// which would abort the entire hook install.
+// lets this module skip a `Texture::Construct` listener.
 // Texture coordinates in the engine's own corner order: UL, LL, UR, LR, each an
 // (x, y) pair — the order GetTexCoord pushes them in. Identity selects all of
 // whatever the texture points at.

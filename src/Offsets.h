@@ -877,9 +877,12 @@ enum Offsets {
     // populated (verified: the draw gate tests region+0xD4 != 0), and normally
     // SetPoint→layout-resolve calls this. We call it directly to place an icon by
     // its screen rect with NO anchors (anchoring 100+ textures/frame corrupts the
-    // UI-manager pending-layout list — the FUN_00765650 crash). Co-hooked by
-    // texture/Rotation.cpp, which re-applies rotation right after the engine
-    // restores the axis-aligned corners (layout resolve / SetTexCoord).
+    // UI-manager pending-layout list — the FUN_00765650 crash). Hooked by
+    // Texture::CornerStore, whose listeners re-apply rotation
+    // (Texture::Transform) right after the engine restores the axis-aligned
+    // corners (layout resolve / SetTexCoord). Writes only the corners:
+    // nothing marks the layer changed, since the layer batch reads them
+    // through a pointer on every draw.
     FUN_REGION_STORE_CORNERS = 0x007705B0,
     // CSimpleTexture::OnFrameSizeChanged — `__thiscall(texture+OFF_REGION_ANCHOR,
     // const float *oldRect)`, the layout callback: lays out dependents, then

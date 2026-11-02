@@ -28,6 +28,7 @@ using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name)
 using TemplateLookup_t = const void *(__fastcall *)(const char *name);
 using Hash_t = uint32_t(__stdcall *)(const char *s);
 using StatusAdd_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
+using ToFloat_t = float(__stdcall *)(const char *s);
 
 } // namespace
 
@@ -83,6 +84,14 @@ void LoadNode(void *object, const void *node, void *status) {
     void *self = static_cast<uint8_t *>(object) + Offsets::OFF_XML_LOADER_SUBOBJECT;
     const void *vtable = Game::Read<const void *>(self, 0);
     Game::Read<NodeLoader_t>(vtable, Offsets::VTBL_XML_NODE_LOADER)(self, node, status);
+}
+
+bool FloatAttr(const void *node, const char *name, float &out) {
+    const char *value = Attr(node, name);
+    if (value == nullptr || *value == '\0')
+        return false;
+    out = reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(value);
+    return true;
 }
 
 void Warn(void *status, const char *fmt, const char *a, const char *b, const char *c) {

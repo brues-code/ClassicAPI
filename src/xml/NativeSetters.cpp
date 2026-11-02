@@ -43,20 +43,11 @@ namespace Xml::NativeSetters {
 
 namespace {
 
-using ToFloat_t = float(__stdcall *)(const char *s);
 using GetColor_t = void(__fastcall *)(void *region, void *edx, uint32_t *bgra);
 using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *bgra);
 using SetFrameScale_t = bool(__fastcall *)(void *frame, void *edx, float scale, int force);
 using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize, const char *delims,
                                      int *outQuoted);
-
-bool FloatAttr(const void *node, const char *name, float &out) {
-    const char *value = Xml::Attr(node, name);
-    if (value == nullptr || *value == '\0')
-        return false;
-    out = reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(value);
-    return true;
-}
 
 void OnRegionNode(void *object, const void *node, void * /*status*/) {
     float alpha = 0.0f;

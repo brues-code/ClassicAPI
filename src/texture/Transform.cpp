@@ -22,8 +22,9 @@
 // `radians`, after the engine's loaders (Xml::TypeLoad).
 //
 // The engine re-derives axis-aligned corners from the layout rect on every
-// resolve via FUN_REGION_STORE_CORNERS (0x007705B0). We co-hook that store and,
-// for a transformed region, overwrite the just-written corners. So a static
+// resolve via FUN_REGION_STORE_CORNERS (0x007705B0). We listen to that store
+// (Texture::CornerStore) and, for a transformed region, overwrite the
+// just-written corners. So a static
 // transform is written once and costs nothing per frame; a moving/resizing
 // region re-transforms automatically.
 //
@@ -57,6 +58,7 @@
 #include "texture/Transform.h"
 
 #include "animation/Region.h"
+#include "texture/CornerStore.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -85,10 +87,6 @@ struct Xf {
 };
 
 std::unordered_map<void *, Xf> g_xf;
-
-// FUN_REGION_STORE_CORNERS — __thiscall(region, float rect[4]); dummy-EDX form.
-using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
-StoreCorners_t g_storeOriginal = nullptr;
 
 // FUN_REGION_GET_RECT — __thiscall(region+OFF_REGION_ANCHOR, float out[4]) -> int.
 using GetRect_t = int(__fastcall *)(void *anchor, void *edx, float *outRect);
@@ -222,13 +220,12 @@ void UpdateAndApply(void *region, const Xf &xf) {
     ApplyFromRect(region, xf); // identity xf restores the plain quad
 }
 
-// Co-hook on the corner store: the engine writes axis-aligned corners, then we
+// After the corner store: the engine wrote axis-aligned corners, and we
 // overwrite them with the transformed ones for a tracked region. Reading the
-// edges back from the corners the original just wrote keeps this
+// edges back from the corners the store just wrote keeps this
 // transform-source-agnostic (SetTexCoord's cropped rect vs. the raw layout rect
 // both resolve here).
-void __fastcall StoreCorners_h(void *region, void *edx, float *rect) {
-    g_storeOriginal(region, edx, rect);
+void OnCornersStored(void *region) {
     if (g_xf.empty())
         return;
     auto it = g_xf.find(region);
@@ -564,30 +561,22 @@ int __fastcall Script_SetRotationFS(void *L) {
 // FontString attributes `degrees` and `radians` (4.3.4's loader; `radians`
 // wins when both are given). Each applies when present and non-empty, about
 // the default pivot.
-bool AngleAttr(const void *node, const char *name, float &out) {
-    const char *value = Xml::Attr(node, name);
-    if (value == nullptr || *value == '\0')
-        return false;
-    out = reinterpret_cast<float(__stdcall *)(const char *)>(Offsets::FUN_SSTR_TO_FLOAT)(value);
-    return true;
-}
-
 constexpr float kRadiansPerDegree = 0.017453292f;
 
 void OnTextureNode(void *object, const void *node, void * /*status*/) {
     float degrees = 0.0f;
-    if (AngleAttr(node, "rotation", degrees))
+    if (Xml::FloatAttr(node, "rotation", degrees))
         SetTextureRotation(object, degrees * kRadiansPerDegree, nullptr, nullptr);
 }
 
 void OnFontStringNode(void *object, const void *node, void * /*status*/) {
     float angle = 0.0f;
     bool given = false;
-    if (AngleAttr(node, "degrees", angle)) {
+    if (Xml::FloatAttr(node, "degrees", angle)) {
         angle *= kRadiansPerDegree;
         given = true;
     }
-    if (AngleAttr(node, "radians", angle))
+    if (Xml::FloatAttr(node, "radians", angle))
         given = true;
     if (given)
         SetFontStringRotation(object, angle, nullptr, nullptr);
@@ -740,9 +729,7 @@ void RegisterLuaFunctions() {
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
-const Game::HookAutoRegister _hookStoreCorners{
-    Offsets::FUN_REGION_STORE_CORNERS, reinterpret_cast<void *>(&StoreCorners_h),
-    reinterpret_cast<void **>(&g_storeOriginal)};
+const Texture::CornerStore::AutoSubscribe _cornerSub{&OnCornersStored};
 
 } // namespace
 

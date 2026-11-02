@@ -39,6 +39,9 @@ const char *Tag(const void *node);
 bool TagIs(const void *node, const char *tag); // case-insensitive, like the engine's
 // The engine's attribute getter; nullptr when the attribute is absent.
 const char *Attr(const void *node, const char *name);
+// A number attribute through the engine's SStrToFloat (the frame loader's
+// `alpha` conversion); false, `out` untouched, when absent or empty.
+bool FloatAttr(const void *node, const char *name, float &out);
 // The template definition node `inherits=` resolves `name` to
 // (FUN_XML_TEMPLATE_LOOKUP); nullptr when no template has that name.
 const void *Template(const char *name);
