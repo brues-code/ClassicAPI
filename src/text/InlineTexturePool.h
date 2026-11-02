@@ -17,8 +17,8 @@
 // CSimpleEmbeddedTexture model.
 //
 // One pooled CSimpleTexture per inline icon, anchored RELATIVE TO THE OWNING
-// FONTSTRING at offsets converted from pen space via the fs+0x7C scale bridge
-// (see InlineTexture.cpp's FlushLayout). As in 4.3.4 the texture has no frame,
+// FONTSTRING at offsets converted from pen space (see InlineTexture.cpp's
+// ComputePlacementsForNode). As in 4.3.4 the texture has no frame,
 // so it is in no draw layer: the fontstring draws it. Its draw call
 // (FUN_FONTSTRING_EMIT, 4.3.4's CSimpleFontString::Draw → QueueTextures) adds
 // the icons to the layer batch right after its text, so an icon draws exactly

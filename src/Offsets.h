@@ -12269,10 +12269,7 @@ enum Offsets {
     VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED = 0x00,
     VTBL_LAYOUT_DELETING_DESTRUCTOR = 0x04,
     VTBL_LAYOUT_GET_LAYOUT_PARENT = 0x0C,
-    // +0x10 SetLayoutScale (this, float scale, int force) -> int, ret 8: what
-    // AddRegionToLayer (0x0076A860) calls with the frame's OFF_LAYOUT_SCALE
-    // and 0 when it links a region into a draw layer.
-    VTBL_LAYOUT_SET_LAYOUT_SCALE = 0x10,
+    // +0x10 SetLayoutScale: VTBL_LAYOUT_SET_SCALE.
     // +0x1C / +0x20 the explicit width / height, `float __thiscall(this)`:
     // CLayoutFrame's read +0x50 / +0x54 (0x00768420 / 0x00768410); textures
     // and font strings override them. Script GetWidth / GetHeight call them

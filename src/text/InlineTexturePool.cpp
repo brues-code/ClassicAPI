@@ -42,7 +42,6 @@ using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, 
                                       float x, float y, int flag);
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
-using SetLayoutScale_t = int(__thiscall *)(void *layout, float scale, int force);
 using DeletingDestructor_t = void(__thiscall *)(void *region, int flags);
 using Emit_t = void(__fastcall *)(void *region, void *edx, void *batch);
 using NotifyLayerChanged_t = void(__fastcall *)(void *region);
@@ -55,11 +54,6 @@ using NotifyLayerChanged_t = void(__fastcall *)(void *region);
 struct IconRegion {
     void *tex = nullptr;
     std::string path;
-    // Accumulated offset-scale correction, converged from rect readback (see
-    // the verification pass in Maintain). Starts at 1; survives reuse (the
-    // resolver scale is a property of the fontstring's scale, not the
-    // placement).
-    float corr = 1.0f;
 };
 
 // Keyed by FONTSTRING (stable across SetText — text nodes are reallocated per
@@ -172,17 +166,6 @@ void DeleteRegion(void *tex) {
     vtable[Offsets::VTBL_REGION_DELETING_DESTRUCTOR / sizeof(void *)](tex, 1);
 }
 
-// Gives the texture the fontstring's scale, as a draw layer gives a region its
-// frame's (AddRegionToLayer 0x0076A860, through the same layout slot).
-void MatchScale(void *tex, void *fs) {
-    const float scale = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
-    if (!(scale > 0.0f) || Game::Read<float>(tex, Offsets::OFF_LAYOUT_SCALE) == scale)
-        return;
-    void *layout = static_cast<uint8_t *>(tex) + Offsets::OFF_REGION_ANCHOR;
-    auto *vtable = Game::Read<SetLayoutScale_t *>(layout, 0);
-    vtable[Offsets::VTBL_LAYOUT_SET_LAYOUT_SCALE / sizeof(void *)](layout, scale, 0);
-}
-
 // Applies one placement to one texture: image, texcoords, color (with the
 // line's fade alpha folded in), and the two anchor points expressed relative
 // to the owning fontstring's BOTTOMLEFT (so the engine moves the icon with its
@@ -210,30 +193,19 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     const uint32_t color = FadedColor(p, fsColor);
     reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(r.tex, &color);
 
-    // Placement coords are in RESOLVED-rect (anchor) units, but anchor
-    // resolution multiplies STORED SetPoint offsets by the positioned region's
-    // effective scale chain (+0x7C — uiScale × per-frame scales). Verified from
-    // the probe: a 50px SetPoint offset stored as 0.0319 internal resolved to a
-    // rect at 0.0290 = 0.0319 × s (s = 0.91). So divide the desired resolved
-    // delta by the texture's own scale before storing.
-    float sReg = Game::Read<float>(r.tex, Offsets::OFF_LAYOUT_SCALE);
-    if (!(sReg > 0.01f && sReg < 100.0f))
-        sReg = Game::Read<float>(f, Offsets::OFF_LAYOUT_SCALE);
-    const float inv = (sReg > 0.01f && sReg < 100.0f) ? 1.0f / sReg : 1.0f;
-
-    // Single deterministic placement; the resolver's true offset scale is
-    // converged by the verification pass in Maintain via r.corr (a same-call
-    // rect readback is unreliable: fresh textures read zeros and reused pooled
-    // textures read their PREVIOUS placement — that poisoned fix rendered the
-    // 14px crest at 7.4px).
-    const float scale = inv * r.corr;
+    // Placement coords are in resolved-rect (anchor) units. The resolver places
+    // a point at the positioned region's own layout scale × the stored offset
+    // + the relative edge (RelativePointGetX/Y 0x7A2F90/0x7A3070); the texture
+    // has no frame, so nothing changes the ctor's scale of 1 (CLayoutFrame
+    // 0x00767680) and the offsets land exactly as given, as 4.3.4's
+    // CSimpleEmbeddedTexture's do.
     auto setPoint = reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT);
     void *texAnchor = reinterpret_cast<uint8_t *>(r.tex) + Offsets::OFF_REGION_ANCHOR;
     void *fsAnchor = f + Offsets::OFF_REGION_ANCHOR;
     setPoint(texAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
-             p.x0 * scale, p.y0 * scale, 1);
+             p.x0, p.y0, 1);
     setPoint(texAnchor, Offsets::FRAMEPOINT_TOPRIGHT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
-             p.x1 * scale, p.y1 * scale, 1);
+             p.x1, p.y1, 1);
     reinterpret_cast<Realize_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(texAnchor, 0);
 }
 
@@ -255,7 +227,6 @@ void ApplyDirtyBranch(void *fs, FsPlacements &np, uint32_t fsColor) {
             np.regions.push_back(IconRegion{tex, std::string()});
         }
         IconRegion &r = np.regions[static_cast<size_t>(i)];
-        MatchScale(r.tex, fs);
         ApplyPlacement(r, fs, np.want[static_cast<size_t>(i)], fsColor);
     }
     np.shown = (want < static_cast<int>(np.regions.size()))
@@ -303,39 +274,6 @@ void MaintainImpl() {
                 IconRegion &r = np.regions[static_cast<size_t>(i)];
                 const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
                 reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(r.tex, &color);
-            }
-        }
-
-        // Convergence pass: compare each drawn texture's RESOLVED width against
-        // its wanted width and fold the ratio into the texture's correction.
-        // The resolver's true offset scale is whatever it is (uiScale chains,
-        // pfUI frame scales) — a tick or two of this converges the placement
-        // exactly and self-heals any stale-pool or timing artifact. 0.5%
-        // deadband.
-        const int live = (np.shown < static_cast<int>(np.want.size()))
-                             ? np.shown
-                             : static_cast<int>(np.want.size());
-        for (int i = 0; i < live && i < static_cast<int>(np.regions.size()); ++i) {
-            IconRegion &r = np.regions[static_cast<size_t>(i)];
-            const Placement &p = np.want[static_cast<size_t>(i)];
-            const float wantW = p.x1 - p.x0;
-            if (wantW <= 1e-6f)
-                continue;
-            const float *rr = reinterpret_cast<const float *>(
-                reinterpret_cast<uint8_t *>(r.tex) + Offsets::OFF_REGION_RECT);
-            const float gotW = (rr[3] > rr[1]) ? (rr[3] - rr[1]) : (rr[1] - rr[3]);
-            if (gotW <= 1e-7f) {
-                ApplyPlacement(r, fs, p, fsColor); // rect not resolved yet — re-kick
-                continue;
-            }
-            const float err = gotW / wantW;
-            if (err > 1.005f || err < 0.995f) {
-                r.corr *= wantW / gotW;
-                if (r.corr < 0.05f)
-                    r.corr = 0.05f;
-                else if (r.corr > 20.0f)
-                    r.corr = 20.0f;
-                ApplyPlacement(r, fs, p, fsColor);
             }
         }
     }
