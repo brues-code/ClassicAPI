@@ -612,12 +612,19 @@ enum Offsets {
     VAR_SIMPLEFONTSTRING_CLASS_TAG = 0x00846544,  // ".?AVCSimpleFontString@@" (alloc debug tag)
     FUN_REGION_POOL_ALLOC = 0x00760450,           // __thiscall(pool, zeroInit=0, tag, line=-2) -> raw mem
     FUN_SIMPLEFONTSTRING_CTOR = 0x00770D30,       // __thiscall(mem, parent, layer, sublayer) -> fs
-    // CSimpleFontString::~CSimpleFontString — `void __thiscall(fs)`, plain RET:
-    // frees the text, drops the font, ends in the region destructor. Its
-    // deleting destructor (0x00770E20, which then returns the block to the
-    // region pool) calls it. Decompiled; benilla-re ui/fonttext.
-    // `FontString::Destruction` hooks it.
-    FUN_FONTSTRING_DESTRUCTOR = 0x00770E50,
+    // SimpleRegionDestruct, CSimpleRegion's destructor body — `void
+    // __thiscall(region)`, plain RET: unparents the region, frees its two
+    // arrays, then the script region destructor. Every region's destruction
+    // reaches it, and it has exactly three callers: the base region's deleting
+    // destructor (0x0077F6C6), ~CSimpleTexture (0x0076FD40, tail JMP; called
+    // only by its deleting destructor 0x0076FD10) and ~CSimpleFontString
+    // (0x00770E50, tail JMP; called by its deleting destructor 0x00770E20 and
+    // a subclass's, 0x00789320). The texture and font string vtables are
+    // written only by their constructor and destructor, so no inlined
+    // destructor skips it. The blocks then go back to the region pool, where
+    // they can come back as new regions. Xrefs + decompiles; benilla-re
+    // ui/regions. `Frame::RegionDestruction` hooks it.
+    FUN_REGION_DESTRUCT = 0x0077F6F0,
     FUN_REGION_SET_NAME = 0x0076C650,             // __thiscall(region, name) — registers _G[name]
     FUN_FONTSTRING_SET_FONT = 0x00770C60,         // __thiscall(fs + OFF_FONTSTRING_FONT_HOLDER, fontObject)
     // CSimpleFontString::SetFont — `uint32_t __thiscall(fs, const char *path,

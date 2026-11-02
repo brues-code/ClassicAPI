@@ -42,14 +42,14 @@
 // before its OnUpdate pass and draw, so the text shows in the same frame as a
 // timer bar's fill from that pass; at the tail it would show a frame late.
 // They set the text only when it differs from the font string's own. Destroyed font strings are
-// dropped through FontString::Destruction. Not ported: the color curves
+// dropped through Frame::RegionDestruction. Not ported: the color curves
 // (SetTextColorCurve, GetTextColorCurve, ClearTextColorCurve,
 // GetFormattedTextColor).
 
 #include "Game.h"
 #include "Offsets.h"
 #include "duration/Object.h"
-#include "fontstring/Destruction.h"
+#include "frame/RegionDestruction.h"
 #include "text/NumericFormatter.h"
 #include "tick/FrameTick.h"
 #include "time/Clock.h"
@@ -93,7 +93,7 @@ struct Binding {
     double lastUpdate = -INFINITY;
 };
 
-// Every live binding, for FontString::Destruction; and the enabled ones,
+// Every live binding, for Frame::RegionDestruction; and the enabled ones,
 // each holding a reference.
 std::vector<Binding *> g_all;
 std::vector<Binding *> g_active;
@@ -259,13 +259,13 @@ void OnTick() {
 
 const Tick::FrameTick::AutoSubscribeBefore _tickSub{&OnTick};
 
-void OnFontStringDestroyed(void *fontString) {
+void OnRegionDestroyed(void *region) {
     for (Binding *b : g_all)
-        if (b->fontString == fontString)
+        if (b->fontString == region)
             b->fontString = nullptr;
 }
 
-const FontString::Destruction::AutoSubscribe _destructionSub{&OnFontStringDestroyed};
+const Frame::RegionDestruction::AutoSubscribe _destructionSub{&OnRegionDestroyed};
 
 // ---- the Lua object -------------------------------------------------------------
 

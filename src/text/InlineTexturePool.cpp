@@ -25,6 +25,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/Region.h"
+#include "frame/RegionDestruction.h"
 #include "text/PtrProbe.h"
 #include "tick/FrameTick.h"
 
@@ -47,68 +48,6 @@ using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using ShowHide_t = void(__fastcall *)(void *tex);
 
 // LAA-aware pointer sanity probe: Text::LooksReadable (text/PtrProbe.h).
-
-// Vtables seen at object+0x00 of REAL, live fontstrings — learned at paint time
-// (see LearnFontStringVtable / QueuePlacements). A fontstring is polymorphic, so
-// its vtable is a fixed .rdata pointer per class. We LEARN rather than hardcode
-// because chat (ScrollingMessageFrame's internal lines), tooltip, and addon
-// fontstrings are different classes with different vtables — a single hardcoded
-// value filtered live chat icons out entirely.
-std::unordered_set<uintptr_t> g_fsVtables;
-
-// A vtable pointer that lands in the WoW.exe image (.rdata) — engine C++ classes
-// (fontstrings, our CSimpleTexture regions) carry their vtable there. Gates what
-// the learned-vtable sets admit so a stray value never poisons them.
-bool InWowImage(uintptr_t vt) { return vt >= 0x00400000u && vt < 0x00D2B000u; }
-
-// Record a live fontstring's vtable. Called only from QueuePlacements, which the
-// paint hook invokes with a fontstring the engine is actively drawing — so
-// *(void**)fs is a valid vtable here. The module-range gate is belt-and-braces
-// against ever poisoning the set with a stray value.
-void LearnFontStringVtable(const void *fs) {
-    if (!LooksReadable(fs))
-        return;
-    const uintptr_t vt = *reinterpret_cast<const uintptr_t *>(fs);
-    if (InWowImage(vt))
-        g_fsVtables.insert(vt);
-}
-
-// True only for a LIVE fontstring: its object+0x00 vtable matches one learned
-// from a genuinely-painted fontstring. A bare VA-range check is not enough — a
-// freed fontstring whose heap memory is reused (as a string buffer, …) still
-// passes it, and reading a garbage "parent" (fs+0x9C) from such a stale key
-// crashed the region attach (FUN_0076a750 dereferencing *(parent+0x1B4), parent
-// = ASCII "-Rac" string bytes). Reused memory never carries a fontstring vtable.
-// The vtable read is safe: the range check bounds the pointer, and these object
-// pages stay committed (we already read fs+0xC8 on the same pointer).
-bool IsLiveFontString(const void *fs) {
-    if (!LooksReadable(fs))
-        return false;
-    return g_fsVtables.count(*reinterpret_cast<const uintptr_t *>(fs)) != 0;
-}
-
-// Same technique, for our pooled CSimpleTexture regions. Learned from
-// CreateRegion's freshly-ctor'd object (the ctor writes the vtable). A region is
-// parented to the fontstring's PARENT FRAME, so it outlives the fontstring — EXCEPT
-// when that parent frame itself dies, which frees the fontstring AND its child
-// regions together. The eviction path runs with a non-live fontstring, so it can't
-// assume the regions survived; this gate keeps its Hide off a region whose memory
-// was freed and recycled (a bare pointer there would fault).
-std::unordered_set<uintptr_t> g_regionVtables;
-
-void LearnRegionVtable(const void *tex) {
-    if (!LooksReadable(tex))
-        return;
-    const uintptr_t vt = *reinterpret_cast<const uintptr_t *>(tex);
-    if (InWowImage(vt))
-        g_regionVtables.insert(vt);
-}
-
-bool IsLiveRegion(const void *tex) {
-    if (!LooksReadable(tex))
-        return false;
-    return g_regionVtables.count(*reinterpret_cast<const uintptr_t *>(tex)) != 0;
-}
 
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
 using SetParentAndLayer_t = void(__thiscall *)(void *region, void *parentFrame, int layer,
@@ -149,6 +88,59 @@ struct FsPlacements {
 
 std::unordered_map<void *, FsPlacements> g_fsIcons;
 uint32_t g_maintainTick = 0;
+
+// Every pooled icon region still alive, so OnRegionDestroyed can tell ours
+// from the rest in one lookup.
+std::unordered_set<void *> g_iconRegions;
+
+// The regions of keys destroyed since the last tick. Their shown regions are
+// hidden there, never from inside the destructor that reported the death.
+std::vector<std::vector<IconRegion>> g_orphans;
+
+// Drops `tex` from `regions`. For a live key's list, the regions after it now
+// serve the wrong placements, so the key is re-placed.
+void DropRegion(std::vector<IconRegion> &regions, void *tex, FsPlacements *np) {
+    for (size_t i = 0; i < regions.size(); ++i) {
+        if (regions[i].tex != tex)
+            continue;
+        regions.erase(regions.begin() + static_cast<std::ptrdiff_t>(i));
+        if (np != nullptr) {
+            if (static_cast<int>(i) < np->shown)
+                --np->shown;
+            np->dirty = true;
+        }
+        return;
+    }
+}
+
+// Frame::RegionDestruction. A destroyed key fontstring takes its entry with it
+// at once: its block goes back to the region pool and can come back as an
+// unrelated fontstring at the same address, which must start with no entry.
+// Its regions live on, parented to its parent frame (unless that frame is the
+// one dying, when they are reported here too), and are hidden at the next
+// tick. A destroyed icon region is dropped wherever it is held. This runs
+// inside a frame's destructor, so it changes no region itself.
+//
+// ACCEPTED LEAK: an orphan's regions are hidden, not reclaimed. They stay on
+// their parent frame until it dies (/reload frees all of them). Chat and
+// tooltip fontstrings are a reused, never-destroyed set, so only destroyed
+// transient |T fontstrings leave regions behind.
+void OnRegionDestroyed(void *region) {
+    const auto it = g_fsIcons.find(region);
+    if (it != g_fsIcons.end()) {
+        g_orphans.push_back(std::move(it->second.regions));
+        g_fsIcons.erase(it);
+        return;
+    }
+    if (g_iconRegions.erase(region) == 0)
+        return;
+    for (auto &entry : g_fsIcons)
+        DropRegion(entry.second.regions, region, &entry.second);
+    for (std::vector<IconRegion> &orphan : g_orphans)
+        DropRegion(orphan, region, nullptr);
+}
+
+const Frame::RegionDestruction::AutoSubscribe _regionDestructionSub{&OnRegionDestroyed};
 
 // Latched off by Maintain's SEH guard on a fault; re-armed on /reload (see
 // PrepareForReload). Mirrors InlineTexture.cpp's g_inlineEnabled paint latch.
@@ -218,7 +210,7 @@ void *CreateRegion(void *parent) {
     void *tex = Frame::Region::CreateTexture(parent, Offsets::DRAWLAYER_ARTWORK, 1);
     if (tex == nullptr)
         return nullptr;
-    LearnRegionVtable(tex); // for the eviction-path liveness gate
+    g_iconRegions.insert(tex);
     return tex;
 }
 
@@ -320,38 +312,16 @@ void ApplyDirtyBranch(void *fs, FsPlacements &np, uint32_t fsColor) {
 // SEH frame (MSVC won't allow __try in a function that needs object unwinding).
 void MaintainImpl() {
     ++g_maintainTick;
+    // Hide the regions of keys destroyed since the last tick (see
+    // OnRegionDestroyed). Every region still listed is alive.
+    for (const std::vector<IconRegion> &orphan : g_orphans)
+        for (const IconRegion &r : orphan)
+            Hide(r.tex);
+    g_orphans.clear();
+
     for (auto it = g_fsIcons.begin(); it != g_fsIcons.end();) {
         void *fs = it->first;
         FsPlacements &np = it->second;
-
-        // Stale-key eviction (the crash fix). A destroyed fontstring leaves a
-        // dangling key here; its heap memory may be reused as unrelated data, so
-        // a VA-range check is not enough — verify the live-fontstring vtable. If
-        // it is gone, hide our regions and erase the entry. This also stops dead
-        // keys from accumulating: only live fontstrings survive, and the
-        // chat/tooltip pools reuse a bounded set of them.
-        if (!IsLiveFontString(fs)) {
-            // The regions usually outlive the fontstring (they're parented to its
-            // parent FRAME, which persists while lines churn). But if the fontstring
-            // died because that parent frame died, the regions died with it — so
-            // gate each Hide on the region's OWN vtable liveness, else Hide would
-            // write to freed/recycled region memory. A dead region needs no hiding
-            // (it's already gone); a live one still gets hidden so it can't ghost.
-            for (int i = 0; i < np.shown && i < static_cast<int>(np.regions.size()); ++i)
-                if (IsLiveRegion(np.regions[static_cast<size_t>(i)].tex))
-                    Hide(np.regions[static_cast<size_t>(i)].tex);
-            // ACCEPTED LEAK: erasing the entry drops np.regions without freeing
-            // the pooled CSimpleTextures — they stay (hidden) on their parent
-            // frame until it dies (/reload frees all of them). We do NOT reclaim
-            // them, on purpose: any reclaim (a free list, or an explicit destroy)
-            // would reuse/free a region pointer whose parent frame may already be
-            // gone — a use-after-free on the exact path this liveness check was
-            // added to stop crashing. The leak is bounded and near-zero in
-            // practice: chat/tooltip fontstrings are a reused, never-evicted set,
-            // so only genuinely-destroyed transient |T fontstrings ever land here.
-            it = g_fsIcons.erase(it);
-            continue;
-        }
 
         // Freshness expiry: a LIVE painted icon line re-queues every paint, so
         // its touch stamp stays current. A parked/orphaned fs (recycled chat
@@ -372,8 +342,8 @@ void MaintainImpl() {
         // Mirror the fontstring's own visibility EVERY tick, not just on dirty:
         // expired/hidden chat lines get their fs Hidden by the message frame,
         // and our regions are parented to the CHAT FRAME (regions can't parent
-        // regions), so they don't inherit the line's own hide. fs is a live
-        // fontstring here (checked above), so this read is safe.
+        // regions), so they don't inherit the line's own hide. Every key is a
+        // live fontstring (OnRegionDestroyed drops a destroyed one at once).
         const bool fsShown =
             *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fs) +
                                                 Offsets::OFF_REGION_ACTUALLY_SHOWN) != 0;
@@ -448,12 +418,11 @@ void MaintainImpl() {
     }
 }
 
-// SEH latch mirroring InlineTexture.cpp's SafeFlush. Maintain's liveness probe
-// dereferences a fontstring pointer whose object *may* have been freed (see
-// IsLiveFontString) — a residual the design accepts. The paint path is already
-// guarded; this closes the matching hole on the tick path, so a fault disables
-// maintenance for the session instead of crashing the client. A /reload re-arms
-// it (PrepareForReload). The __try body holds no C++ objects — see MaintainImpl.
+// SEH latch mirroring InlineTexture.cpp's SafeFlush: the tick drives engine
+// region calls (SetTexture with addon-supplied paths, SetPoint, Show) from
+// paint-time data, so a fault disables maintenance for the session instead of
+// crashing the client. A /reload re-arms it (PrepareForReload). The __try body
+// holds no C++ objects — see MaintainImpl.
 void Maintain() {
     if (g_maintainDisabled)
         return;
@@ -476,8 +445,6 @@ void ApplyNowImpl(void *fs) {
     FsPlacements &np = it->second;
     if (!np.dirty)
         return; // deduped re-queue: already applied, nothing to do
-    if (!IsLiveFontString(fs))
-        return;
     // Match Maintain's own visibility gate (actually-shown latch). The SMF's
     // per-line Show realizes this synchronously before we run, so a visible
     // line passes; a line not yet shown is left dirty for the tick path.
@@ -514,11 +481,6 @@ static const Tick::FrameTick::AutoSubscribe _tick{&Maintain};
 void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
     if (fs == nullptr)
         return;
-    // fs is a fontstring the engine is actively painting — learn its class
-    // vtable so Maintain's liveness check recognizes it (and stale, reused-memory
-    // keys, which never carry one). Must precede the early returns below so an
-    // entry's vtable is always known before Maintain evaluates it.
-    LearnFontStringVtable(fs);
     auto it = g_fsIcons.find(fs);
     if (it == g_fsIcons.end()) {
         if (icons.empty())
@@ -539,8 +501,8 @@ void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
 }
 
 void ApplyNow(void *fs, std::vector<Placement> &&icons) {
-    // Queue first (learns the fs vtable, sets want+dirty+touch, dedups an
-    // unchanged re-queue), then apply synchronously for this fs. Deduped
+    // Queue first (sets want+dirty+touch, dedups an unchanged re-queue), then
+    // apply synchronously for this fs. Deduped
     // re-queues leave the entry not-dirty, so SafeApplyNow no-ops — a
     // per-paint steady state costs one compare, same as QueuePlacements.
     QueuePlacements(fs, std::move(icons));
@@ -551,6 +513,8 @@ void PrepareForReload() {
     // The reload teardown frees the icon regions (they die with their parent
     // frames); only forget the pointers — never Hide/free them.
     g_fsIcons.clear();
+    g_iconRegions.clear();
+    g_orphans.clear();
     g_maintainDisabled = false; // re-arm the SEH latch for the fresh UI
 }
 

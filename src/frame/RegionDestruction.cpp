@@ -11,31 +11,31 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-#include "fontstring/Destruction.h"
+#include "frame/RegionDestruction.h"
 
 #include "Game.h"
 #include "Offsets.h"
 
-namespace FontString::Destruction {
+namespace Frame::RegionDestruction {
 
 namespace {
 
 AutoSubscribe *g_head = nullptr;
 
-using Destructor_t = void(__fastcall *)(void *fontString);
-Destructor_t g_origDestructor = nullptr;
+using Destruct_t = void(__fastcall *)(void *region);
+Destruct_t g_origDestruct = nullptr;
 
-void __fastcall Destructor_h(void *fontString) {
+void __fastcall Destruct_h(void *region) {
     for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
-        s->fn(fontString);
-    g_origDestructor(fontString);
+        s->fn(region);
+    g_origDestruct(region);
 }
 
-const Game::HookAutoRegister _hook{Offsets::FUN_FONTSTRING_DESTRUCTOR, reinterpret_cast<void *>(&Destructor_h),
-                                   reinterpret_cast<void **>(&g_origDestructor)};
+const Game::HookAutoRegister _hook{Offsets::FUN_REGION_DESTRUCT, reinterpret_cast<void *>(&Destruct_h),
+                                   reinterpret_cast<void **>(&g_origDestruct)};
 
 } // namespace
 
 AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
-} // namespace FontString::Destruction
+} // namespace Frame::RegionDestruction
