@@ -14,6 +14,9 @@ build instructions.
   - [`IsItemAction(slot)`](#isitemactionslot)
   - [`HasBonusActionBar()`](#hasbonusactionbar)
   - [`C_ActionBar.ShouldShowKeyring()`](#c_actionbarshouldshowkeyring)
+  - [`C_ActionBar.EnableActionRangeCheck(slot, enable)`](#c_actionbarenableactionrangecheckslot-enable)
+  - [`ACTION_RANGE_CHECK_UPDATE` event](#action_range_check_update-event)
+  - [`ACTION_USABLE_CHANGED` event](#action_usable_changed-event)
 
 - [AddOns](#addons)
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
@@ -1308,6 +1311,96 @@ bag code includes the keyring (`KEYRING_CONTAINER`).
 if C_ActionBar.ShouldShowKeyring() then
     ItemUtil.IterateBagSlots(KEYRING_CONTAINER, callback)
 end
+```
+
+### `C_ActionBar.EnableActionRangeCheck(slot, enable)`
+
+Starts or stops the range check of a 1-based action-bar slot for
+[`ACTION_RANGE_CHECK_UPDATE`](#action_range_check_update-event). A slot
+that is not in the range 1 to 120 is ignored.
+
+The client counts the calls for each slot. Each call with `enable` set to
+`true` adds one. Each call with `enable` set to `false` removes one. The
+client checks the slot while its count is more than zero. Thus, if two
+buttons show the same slot, each button can enable and disable the slot
+for itself.
+
+After each call with `enable` set to `true`, the next check of the slot
+fires the event, also if the state did not change. This gives a new
+button the current state of its slot. You do not have to call
+`IsActionInRange` when you show a button.
+
+A `/reload` sets the count of all slots to zero.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("ACTION_RANGE_CHECK_UPDATE")
+f:SetScript("OnEvent", function()
+    print("Slot", arg1, arg3 and (arg2 and "in range" or "out of range") or "no range check")
+end)
+C_ActionBar.EnableActionRangeCheck(1, true)
+```
+
+### `ACTION_RANGE_CHECK_UPDATE` event
+
+Fires when an action-bar slot that has
+[`EnableActionRangeCheck`](#c_actionbarenableactionrangecheckslot-enable)
+on goes into or out of range of its target.
+
+```
+ACTION_RANGE_CHECK_UPDATE: slot, isInRange, checksRange
+```
+
+- **`slot`** (number) — the 1-based action-bar slot.
+- **`isInRange`** (boolean) — `true` when the target is in range. Do not
+  use this value when `checksRange` is `false`.
+- **`checksRange`** (boolean) — `false` when the client did not do a range
+  check. For example, the slot is empty, its action has no range, or there
+  is no target.
+
+The values are the values that `IsActionInRange(slot)` gives: `1` is
+`isInRange = true`, `0` is `isInRange = false`, and `nil` is
+`checksRange = false`. A macro that is aimed at a unit (for example
+`[@focus]`) uses that unit as its target.
+
+The client checks the enabled slots on each frame, but only while a frame
+is registered for the event. The event fires only when the state of a
+slot changes, and after each enable call. When the action in a slot
+changes, the client checks the new action. The event fires if its state
+is different.
+
+### `ACTION_USABLE_CHANGED` event
+
+Fires when the usable state of one or more action-bar slots changes. The
+payload gives only the slots that changed. Thus, a handler does not have
+to read `IsUsableAction` for each button.
+
+```
+ACTION_USABLE_CHANGED: changes
+```
+
+- **`changes`** (table) — a list with one table for each slot that
+  changed:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `slot` | number | The 1-based action-bar slot. |
+| `usable` | boolean | The new first return value of `IsUsableAction(slot)`, as a boolean. |
+| `noMana` | boolean | The new second return value of `IsUsableAction(slot)`, as a boolean. |
+
+The event fires immediately after `ACTIONBAR_UPDATE_USABLE`, which does
+not change. When the action in a slot changes, the client fires
+`ACTIONBAR_SLOT_CHANGED` for that slot, not this event. Thus, read
+`IsUsableAction` for a slot on `ACTIONBAR_SLOT_CHANGED`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("ACTION_USABLE_CHANGED")
+f:SetScript("OnEvent", function()
+    for _, change in ipairs(arg1) do
+        print("Slot", change.slot, change.usable, change.noMana)
+    end
+end)
 ```
 
 ## AddOns

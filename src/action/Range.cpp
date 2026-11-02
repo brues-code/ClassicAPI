@@ -28,6 +28,8 @@
 // The function's one caller, Script_IsActionInRange, is redirected rather than
 // the function hooked.
 
+#include "action/Range.h"
+
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
@@ -106,5 +108,7 @@ void Register() {
 const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
+
+int Answer(int slot0, int *inRange) { return SlotRange_h(slot0, inRange); }
 
 } // namespace Action::Range

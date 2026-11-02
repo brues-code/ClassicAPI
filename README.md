@@ -51,7 +51,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 
 | Namespace | Calls |
 |-----------|-------|
-| [Action](docs/API.md#action) | `GetActionInfo`, `IsItemAction`, `HasBonusActionBar` |
+| [Action](docs/API.md#action) | `GetActionInfo`, `IsItemAction`, `HasBonusActionBar`, `C_ActionBar.EnableActionRangeCheck` |
 | [AddOns](docs/API.md#addons) | `C_AddOns.DoesAddOnExist`, `C_AddOns.GetAddOnInterfaceVersion`, `C_AddOns.GetAddOnLocalTable`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded`, `C_AddOns.LoadAddOn` |
 | [APIDocumentation](docs/API.md#apidocumentation) | `/classicapi` in-game browser, `C_APIDocumentation.GetSystem`, `C_APIDocumentation.GetSystems` |
 | [Animation](docs/API.md#animation) | `region:CreateAnimationGroup`, `region:GetAnimationGroups`, `region:StopAnimating`, `SetMaxAnimFramerate`, `GetMaxAnimFramerate`, `AnimationGroup` and `Animation` / `Alpha` / `Translation` / `Scale` / `Rotation` / `Path` / `ControlPoint` methods |
@@ -280,6 +280,8 @@ when launching with `-console`), not as Lua functions. See the
 
 | Event | Payload |
 |-------|---------|
+| `ACTION_RANGE_CHECK_UPDATE` | `slot, isInRange, checksRange` (slots with `C_ActionBar.EnableActionRangeCheck` on) |
+| `ACTION_USABLE_CHANGED` | `changes` (a `{ slot, usable, noMana }` table for each slot that changed) |
 | `BAG_NEW_ITEMS_UPDATED` | *(none)* |
 | `BAG_UPDATE_DELAYED` | *(none)* |
 | `CHAT_MSG_*` | adds `lineID, guid` as `arg11, arg12` after the existing ten ([details](docs/API.md#chat_msg_-arguments-lineid-arg11-and-guid-arg12)) |

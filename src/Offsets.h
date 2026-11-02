@@ -7024,6 +7024,19 @@ enum Offsets {
     // ACTIONBAR_UPDATE_USABLE (0xD7, via FUN_FIRE_EVENT_NO_ARGS) when one did.
     // Disassembled; it is 4.3.4's `CGActionBar::UpdateUsable` line for line.
     FUN_ACTION_UPDATE_USABLE = 0x004E5C00,
+    // The uint[120] caches FUN_ACTION_UPDATE_USABLE compares and stores:
+    // FUN_ACTION_SLOT_USABLE's return at `0x004E5C1A` / `0x004E5C2F`, its
+    // `*outNoMana` at `0x004E5C26` / `0x004E5C36`. `IsUsableAction` reads them.
+    VAR_ACTION_USABLE = 0x00BC6B60,
+    VAR_ACTION_NO_MANA = 0x00BC67A0,
+    // FUN_ACTION_UPDATE_USABLE's per-slot `call FUN_ACTION_SLOT_USABLE` (ecx
+    // slot0, edx &noMana), compared against the caches above before they are
+    // stored. E8 call, disassembled.
+    CALL_UPDATE_USABLE_SLOT_USABLE = 0x004E5C15,
+    // FUN_ACTION_UPDATE_USABLE's `mov ecx, 0xD7; call FUN_FIRE_EVENT_NO_ARGS`
+    // (ACTIONBAR_UPDATE_USABLE), reached only when a slot changed. E8 call,
+    // disassembled.
+    CALL_UPDATE_USABLE_FIRE = 0x004E5C53,
     // Drop the cursor onto a slot — `__fastcall(uint slot0)`. Sole entry
     // for `PlaceAction`, and the tail of both FUN_ACTION_PICKUP and
     // nampower's detoured `CGActionBar_UseAction` (`0x004E5EE0`) when the
