@@ -182,12 +182,14 @@ void RegisterLuaFunctions() {
                              reinterpret_cast<const void *>(&WriterLayout));
 }
 
+void DropBeforeLayout(void *smf, int) { Drop(smf); }
+
 void PrepareForReload() { g_pending.clear(); }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
 const Frame::Destruction::AutoSubscribe _destructionSub{&Drop};
-const ScrollingMessageFrame::Layout::AutoSubscribeBefore _layoutSub{&Drop};
+const ScrollingMessageFrame::Layout::AutoSubscribeBefore _layoutSub{&DropBeforeLayout};
 
 } // namespace
 

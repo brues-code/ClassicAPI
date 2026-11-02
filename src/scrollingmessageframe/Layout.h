@@ -33,12 +33,15 @@ struct AutoSubscribe {
     AutoSubscribe *next;
 };
 
-// A listener that runs BEFORE the layout, with the frame. The layout can run
-// Lua (the frame's OnMessageScrollChanged), and so a nested layout, before it
-// returns; state a layout makes current must be dropped here, not after.
+// A listener that runs BEFORE the layout, with the frame and the record the
+// layout runs from (the scroll record it is about to store). The layout can
+// run Lua (the frame's OnMessageScrollChanged), and so a nested layout, before
+// it returns; state a layout makes current must be dropped here, not after.
+using BeforeListener = void (*)(void *smf, int newestRecord);
+
 struct AutoSubscribeBefore {
-    explicit AutoSubscribeBefore(Listener fn);
-    Listener fn;
+    explicit AutoSubscribeBefore(BeforeListener fn);
+    BeforeListener fn;
     AutoSubscribeBefore *next;
 };
 

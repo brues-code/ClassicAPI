@@ -39,6 +39,7 @@
 #include "Offsets.h"
 #include "frame/Destruction.h"
 #include "scrollingmessageframe/DisplayRefreshed.h"
+#include "scrollingmessageframe/InsertMode.h"
 
 #include <cstdint>
 #include <unordered_set>
@@ -92,28 +93,18 @@ void __fastcall AnchorNewLine(void *anchor, void *, int point, void *relative, i
                  flag);
 }
 
+void *LineOf(void *smf, int index) {
+    const auto *lines = Game::Read<const uint8_t *>(smf, Offsets::OFF_SMF_LINE_ARRAY);
+    return Game::Read<void *>(lines + index * Offsets::SMF_LINE_STRIDE, Offsets::OFF_SMF_LINE_FONTSTRING);
+}
+
 // Anchors the frame's lines again, in order, with the layout's arguments and
 // steps.
 void AnchorLines(void *smf) {
     const int count = Game::Read<int>(smf, Offsets::OFF_SMF_LINE_COUNT);
-    const auto *lines = Game::Read<const uint8_t *>(smf, Offsets::OFF_SMF_LINE_ARRAY);
-    void *previous = nullptr;
     for (int i = 0; i < count; ++i) {
-        void *line = Game::Read<void *>(lines + i * Offsets::SMF_LINE_STRIDE, Offsets::OFF_SMF_LINE_FONTSTRING);
-        void *anchor = AnchorOf(line);
-        reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(anchor);
-        if (previous == nullptr)
-            SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, AnchorOf(smf), Offsets::FRAMEPOINT_BOTTOMLEFT,
-                         Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_LEFT),
-                         Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_BOTTOM), 1);
-        else
-            SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, AnchorOf(previous), Offsets::FRAMEPOINT_TOPLEFT,
-                         0.0f,
-                         reinterpret_cast<PixelAlignY_t>(Offsets::FUN_PIXEL_ALIGN_Y)(
-                             Game::Read<float>(line, Offsets::OFF_FONTSTRING_SPACING)),
-                         1);
-        reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(anchor, nullptr, 1);
-        previous = line;
+        AnchorLine(smf, i);
+        reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(AnchorOf(LineOf(smf, i)), nullptr, 1);
     }
 }
 
@@ -190,5 +181,21 @@ const Game::ReloadAutoRegister _reload{&PrepareForReload};
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
 } // namespace
+
+void AnchorLine(void *smf, int index) {
+    void *line = LineOf(smf, index);
+    void *anchor = AnchorOf(line);
+    reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(anchor);
+    if (index == 0)
+        SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, AnchorOf(smf), Offsets::FRAMEPOINT_BOTTOMLEFT,
+                     Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_LEFT),
+                     Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_BOTTOM), 1);
+    else
+        SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, AnchorOf(LineOf(smf, index - 1)),
+                     Offsets::FRAMEPOINT_TOPLEFT, 0.0f,
+                     reinterpret_cast<PixelAlignY_t>(Offsets::FUN_PIXEL_ALIGN_Y)(
+                         Game::Read<float>(line, Offsets::OFF_FONTSTRING_SPACING)),
+                     1);
+}
 
 } // namespace ScrollingMessageFrame::InsertMode
