@@ -57,8 +57,10 @@
 #include "Offsets.h"
 #include "scrollingmessageframe/DisplayRefreshed.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include <vector>
 
 namespace ScrollingMessageFrame::MessageInfo {
@@ -131,16 +133,22 @@ int ExtraCount(void *L, int extras) {
 // too (Clear and the writer leave a free slot's old text for the writer to
 // free when it reuses the slot). The lines still show the records they were
 // laid out from; the caller lays them out again. Self at stack slot 1.
+//
+// Both move in place. The records rotate as whole 0x18-byte values, and the
+// extra-argument tables follow each cycle of the rotation, every one moved
+// once, so a call makes no garbage table.
 void RotateRecords(void *L, void *frame, int span, int by) {
     using namespace Game::Lua;
-    by %= span;
-    if (span <= 1 || by == 0)
+    struct Record {
+        uint8_t bytes[Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE];
+    };
+    if (span <= 1)
         return;
-    constexpr size_t kStride = Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
-    uint8_t *records = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
-    const std::vector<uint8_t> was(records, records + span * kStride);
-    for (int i = 0; i < span; ++i)
-        std::memcpy(records + i * kStride, was.data() + ((i + by) % span) * kStride, kStride);
+    by %= span;
+    if (by == 0)
+        return;
+    auto *records = Game::Read<Record *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
+    std::rotate(records, records + by, records + span);
     int &scroll = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_SCROLL_RECORD);
     if (scroll >= 0 && scroll < span)
         scroll = (scroll - by + span) % span;
@@ -148,17 +156,21 @@ void RotateRecords(void *L, void *frame, int span, int by) {
     PushRecords(L, false);
     const int table = GetTop(L);
     if (Type(L, table) == TYPE_TABLE) {
-        NewTable(L);
-        const int moved = GetTop(L);
-        for (int i = 0; i < span; ++i) {
+        const int cycles = std::gcd(span, by);
+        for (int start = 0; start < cycles; ++start) {
+            RawGetI(L, table, start); // the cycle's first table, until its slot comes round
+            const int held = GetTop(L);
+            int i = start;
+            for (int next = (i + by) % span; next != start; next = (i + by) % span) {
+                PushNumber(L, i);
+                RawGetI(L, table, next);
+                RawSet(L, table); // records[i] = records[next]
+                i = next;
+            }
             PushNumber(L, i);
-            RawGetI(L, table, (i + by) % span);
-            RawSet(L, moved);
-        }
-        for (int i = 0; i < span; ++i) {
-            PushNumber(L, i);
-            RawGetI(L, moved, i);
+            PushValue(L, held);
             RawSet(L, table);
+            SetTop(L, held - 1);
         }
     }
     SetTop(L, table - 1);
@@ -241,6 +253,16 @@ uint32_t MessageColor(void *L, void *frame) {
 // as the writer does, which shows the new line when there is room above the
 // others; scrolled up from the scroll record, which moved with its message,
 // so the view stays.
+//
+// A shown frame whose lines do not reach the oldest message (its top flag
+// clear) cannot show the new one, so that layout would place the same lines
+// again: the same texts, the same scroll record, no scroll script. Retail
+// only marks its display dirty. The layout is skipped there, and the one
+// thing it would change, each laid-out node's record pointer (the fader,
+// RearmLines and the link-button rebuild read the record through it), moves
+// one record up with the message it shows. The top flag is only kept while
+// the frame has messages and is shown, so an empty or hidden frame is laid
+// out as before (a hidden frame's layout places nothing).
 int __fastcall Script_BackFillMessage(void *L) {
     using namespace Game::Lua;
     using StormAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
@@ -267,6 +289,8 @@ int __fastcall Script_BackFillMessage(void *L) {
         return 0;
     std::memcpy(copy, text, bytes);
 
+    const bool offScreen = count > 0 && Game::Read<int>(frame, Offsets::OFF_FRAME_VISIBLE) != 0 &&
+                           Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_AT_TOP) == 0;
     RotateRecords(L, frame, count + 1, count);
     ++count;
     int &pos = Game::Ref<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_POS);
@@ -285,6 +309,15 @@ int __fastcall Script_BackFillMessage(void *L) {
     *reinterpret_cast<int *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_ID) = 0;
     StoreExtras(L, 0, top);
 
+    if (offScreen) {
+        const int shown = Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_LINES_SHOWN);
+        auto *lines = Game::Read<uint8_t *>(frame, Offsets::OFF_SMF_LINE_ARRAY);
+        for (int i = 0; i < shown; ++i)
+            Game::Ref<uint8_t *>(lines + i * Offsets::SMF_LINE_STRIDE, Offsets::OFF_SMF_LINE_RECORD) +=
+                Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
+        DisplayRefreshed::MarkDirty(frame);
+        return 0;
+    }
     reinterpret_cast<Layout_t>(Offsets::FUN_SMF_DISPLAY_REFRESH)(
         frame, nullptr,
         Game::Read<int>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_AT_BOTTOM) != 0

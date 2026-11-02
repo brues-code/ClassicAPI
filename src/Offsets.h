@@ -1063,6 +1063,7 @@ enum Offsets {
     OFF_SMF_LINE_ARRAY = 0x3A4,     // base of the stride-0x10 line-entry array
     SMF_LINE_STRIDE = 0x10,         // per-line-entry stride
     OFF_SMF_LINE_FONTSTRING = 0x8,  // entry+8 = the line's CSimpleFontString
+    OFF_SMF_LINE_RECORD = 0xC,      // entry+0xC = the ring record it shows (ShowLine 0x00788AF0)
     // THE pen↔anchor unit bridge. RebuildString (0x7724A0) multiplies every
     // text-unit quantity by region+0x7C when crossing into node creation:
     // nodePos = inset×s + rect corner, nodeFontH = fontPx×s, spacing = +0xF4×s,
@@ -13324,6 +13325,17 @@ enum Offsets {
     // The record the lines are laid out from (4.3.4's m_currentScroll);
     // FUN_SMF_DISPLAY_REFRESH stores its argument here.
     OFF_SCROLLINGMESSAGEFRAME_SCROLL_RECORD = 0x348,
+    // The lines the last layout of a shown frame laid out (4.3.4's
+    // m_numDisplayed): FUN_SMF_DISPLAY_REFRESH zeroes it and counts each line
+    // it places, and the fader (0x00788460), RearmLines (0x00788B80) and the
+    // link-button rebuild (0x00788C00) walk display nodes 0..this-1, each
+    // through its record pointer (OFF_SMF_LINE_RECORD).
+    OFF_SCROLLINGMESSAGEFRAME_LINES_SHOWN = 0x34C,
+    // The top flag (4.3.4's m_atTop): the layout sets it when the lines it
+    // placed reach the oldest message (0x00788A37). Clear (0x007882B0) zeroes
+    // it, and a layout of an empty frame returns before it, so it is only
+    // meaningful while the frame has messages.
+    OFF_SCROLLINGMESSAGEFRAME_AT_TOP = 0x350,
     // A ring that is not full holds records 0..count-1: the writer fills
     // them in order from an empty ring (Clear: position -1), and only a full
     // ring wraps. ScrollOffset and ScrollToOffset (below) wrap by the count,
