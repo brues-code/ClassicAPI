@@ -44,13 +44,14 @@
 //      (FUN_007724A0) maps each fresh text node to its OWNING FONTSTRING (1.12
 //      chat lines are real CSimpleFontStrings — the ScrollingMessageFrame's
 //      display refresh FUN_00788750 SetTexts/anchors/shows one per visible
-//      line). The paint-tail flush walks the icon records and queues each to
+//      line). When the string is built, and again when it moves
+//      (TextBlockSetStringPos), its icon records are applied to
 //      `Text::InlineTexturePool`, which configures a pooled engine-managed
 //      CSimpleTexture ANCHORED TO THE OWNING FONTSTRING at the pen offset —
 //      exactly how 4.3.4's UpdateEmbeddedTextures anchors its embedded
-//      textures. The engine draws the region every frame (residency) and the
-//      anchor system moves it with its line on every scroll/shift (zero
-//      per-frame work, no render transforms, no mid-render mutation).
+//      textures. The fontstring draws the textures with its text, and the
+//      anchor system moves them with their line (no per-frame work, no render
+//      transforms, no mid-render mutation).
 //
 // Supports the full positional payload
 // `|Tpath:height:width:offsetX:offsetY:texW:texH:left:right:top:bottom:r:g:b|t`
@@ -1855,21 +1856,16 @@ static const Game::HookAutoRegister _emitterHook{Offsets::FUN_TEXT_EMITTER,
                                                  reinterpret_cast<void *>(&Emitter_h),
                                                  reinterpret_cast<void **>(&g_emitterOriginal)};
 
-// --- paint co-hook: queue recorded icons as region placements ---------------
-
-using Paint_t = void(__fastcall *)(void *layout);
-Paint_t g_paintOriginal = nullptr;
+// --- icon placements -------------------------------------------------------
 
 // Builds the region placements for `node`'s recorded icons, expressed RELATIVE
 // to the owning fontstring `fs`'s rect min corner (the pool anchors them there,
 // so the engine moves them with the line). Fills `out` and returns true ONLY
 // when everything the placement needs is ready this instant — K live (raster
 // globals written) and the fs rect resolved. Returns false otherwise, and the
-// caller must NOT queue an empty set (that would hide the icons and the dedup
-// would freeze them hidden — the scroll-landing bug's second head). Shared by
-// the paint flush and the rebuild refresh (RefreshIcons) so both produce
-// bit-identical placements (the pool's dedup depends on that). The per-icon
-// geometry is what the emitter recorded — see its icon loop.
+// caller applies nothing (an empty set would hide the icons). Shared by the
+// rebuild (RefreshIcons) and the move (MoveIcons). The per-icon geometry is
+// what the emitter recorded — see its icon loop.
 bool ComputePlacementsForNode(void *node, void *fs,
                               std::vector<Text::InlineTexturePool::Placement> &out) {
     if (!LooksReadable(node) || !LooksReadable(fs))
@@ -1881,6 +1877,12 @@ bool ComputePlacementsForNode(void *node, void *fs,
     if (!(K.x > 1.0f) || !(K.y > 1.0f))
         return false;
     auto *n = reinterpret_cast<uint8_t *>(node);
+    // The origin is the pixel anchor only while the node is laid out: with no
+    // built lines, the origin finalize (FUN_TEXT_NODE_FINALIZE_ORIGIN) copies
+    // the raw normalized position into it and returns before the justify and
+    // the pixel rounding. Callers lay the node out first (FUN_TEXT_ENSURE_BUILT).
+    if (Game::Read<int>(n, Offsets::OFF_TEXT_NODE_BUILT_LINES) == 0)
+        return false;
     const float ox = Game::Read<float>(n, Offsets::OFF_TEXT_NODE_ORIGIN_X);
     const float oy = Game::Read<float>(n, Offsets::OFF_TEXT_NODE_ORIGIN_Y);
     // Same pixel-snap mode the emitter honours (bit-7 clear) — gates the
@@ -1927,13 +1929,15 @@ bool ComputePlacementsForNode(void *node, void *fs,
     return true;
 }
 
-// Walks the layout's live render nodes and, for each recorded icon, computes
-// its screen geometry (node-local pen coords translated by the node's screen
-// origin +0x70/+0x74 — the SAME transform the paint pass applies to glyph
-// batches) and queues it to Text::InlineTexturePool as a placement RELATIVE TO
-// THE OWNING FONTSTRING. Runs after the original paint so icon coords and the
-// fs rect are read in one coherent snapshot; the pool applies placements on
-// the next FrameTick (regions are never mutated mid-render).
+// --- paint co-hook: upkeep of the painted nodes ------------------------------
+
+using Paint_t = void(__fastcall *)(void *layout);
+Paint_t g_paintOriginal = nullptr;
+
+// Walks the layout's live render nodes after the original paint: re-dirties a
+// stuck-blockless fontstring, drops stale icon records, and mirrors the live
+// alpha into baked glyph colours. Icon placement is not done here — the
+// rebuild and the move apply it (RefreshIcons, MoveIcons).
 void FlushLayout(void *layout) {
     if (!LooksReadable(layout))
         return;
@@ -1948,13 +1952,10 @@ void FlushLayout(void *layout) {
         auto *n = reinterpret_cast<uint8_t *>(node);
         void *const next = Game::Read<void *>(n, linkOff + 4);
 
-        // Resolve the owning fontstring up front: a node with NO icons must
-        // still clear its fontstring's regions — the fs may have just been
-        // re-SetText'd from icon text to plain text (chat line slot reuse).
-        // A node only speaks for its fontstring while it IS the fontstring's
-        // CURRENT text node (fs+0xF8 → handle+8): around a rebuild, the old and
-        // new node can both be walked in one paint, and letting the stale one
-        // queue (especially a clear) made icons vanish nondeterministically.
+        // Resolve the owning fontstring up front. A node only speaks for its
+        // fontstring while it IS the fontstring's CURRENT text node (fs+0xF8 →
+        // handle+8): around a rebuild, the old and new node can both be walked
+        // in one paint.
         void *fs = nullptr;
         {
             auto ow = g_nodeOwner.find(node);
@@ -1981,7 +1982,7 @@ void FlushLayout(void *layout) {
         // which lied on pfUI chat lines and made the old node-text scan erase
         // LIVE records). A node with records whose owning fs currently shows
         // text WITHOUT any |T (e.g. a recycled nameplate name that inherited a
-        // dead emote node's address) is stale: erase and clear. False matches
+        // dead emote node's address) is stale: erase. False matches
         // can only false-KEEP (safe), never false-erase.
         // (NOTE: do NOT build-version records against the builder counter — the
         // builder runs every paint but only emits when dirty, so a version
@@ -1995,8 +1996,6 @@ void FlushLayout(void *layout) {
             }
         }
         if (it == g_nodeIcons.end() || it->second.empty()) {
-            if (fs != nullptr)
-                Text::InlineTexturePool::QueuePlacements(fs, {});
             node = next;
             continue;
         }
@@ -2055,18 +2054,6 @@ void FlushLayout(void *layout) {
                 }
             }
         }
-        // Geometry + readiness gate factored into ComputePlacementsForNode
-        // (shared with the rebuild refresh, RefreshIcons, so both produce
-        // bit-identical placements — the pool dedup depends on it). It
-        // returns false when K or the fs rect isn't ready; SKIP the queue
-        // then and retry next paint. An empty queue here would HIDE the
-        // line's icons and the dedup would freeze it hidden forever
-        // (identical empty re-queues never dirty) — the scroll-landing
-        // bug's second head, where lines painted before K was available
-        // queued {} and stayed iconless until their text changed.
-        std::vector<Text::InlineTexturePool::Placement> places;
-        if (ComputePlacementsForNode(node, fs, places))
-            Text::InlineTexturePool::QueuePlacements(fs, std::move(places));
         node = next;
     }
 }
@@ -2101,8 +2088,7 @@ static const Game::HookAutoRegister _paintHook{Offsets::FUN_TEXT_PAINT,
 // the paint makes, FUN_TEXT_ENSURE_BUILT, idempotent) and applies the
 // placements at once. The icons then draw with the text in the same frame
 // wherever the string was rebuilt: a chat line laid out by its frame, a
-// tooltip line, a rect change. The paint flush stays the backstop for a
-// string whose placements can not be computed yet (K or the rect not ready).
+// tooltip line, a rect change.
 
 using EnsureBuilt_t = int(__fastcall *)(void *node);
 
@@ -2124,7 +2110,7 @@ void RefreshIcons(void *fs) {
     reinterpret_cast<EnsureBuilt_t>(Offsets::FUN_TEXT_ENSURE_BUILT)(node);
     std::vector<Text::InlineTexturePool::Placement> places;
     if (ComputePlacementsForNode(node, fs, places))
-        Text::InlineTexturePool::ApplyNow(fs, std::move(places));
+        Text::InlineTexturePool::Apply(fs, std::move(places));
 }
 
 // SEH latch mirroring SafeFlush — a fault disables the whole feature for the
@@ -2136,6 +2122,53 @@ void SafeRefreshIcons(void *fs) {
         g_inlineEnabled = false;
     }
 }
+
+// --- moves ---------------------------------------------------------------------
+//
+// A fontstring that moves without changing size keeps its built string: its
+// rect callback (FUN_FONTSTRING_ON_FRAME_SIZE_CHANGED), SetTextOffset and the
+// animation translation only move it, through TextBlockSetStringPos, which
+// re-finalizes the node origin before it returns. The origin is rounded to
+// whole render-target pixels, so the icons' offsets from the fontstring rect
+// change with the move (up to 0.9 px measured over chat scrolls). Re-applying
+// them after each move keeps every icon on its glyphs' pixel grid. The node
+// may not be laid out at the move (a colour change invalidates it until the
+// next paint), so the move lays it out first, as the rebuild does.
+
+using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
+SetStringPos_t g_setStringPosOriginal = nullptr;
+
+void MoveIcons(void *block) {
+    void *node = Game::Read<void *>(block, Offsets::OFF_TEXTBLOCK_NODE);
+    if (!LooksReadable(node))
+        return;
+    void *fs = OwningFontStringOf(node);
+    if (fs == nullptr || g_nodeIcons.find(node) == g_nodeIcons.end())
+        return;
+    reinterpret_cast<EnsureBuilt_t>(Offsets::FUN_TEXT_ENSURE_BUILT)(node);
+    std::vector<Text::InlineTexturePool::Placement> places;
+    if (ComputePlacementsForNode(node, fs, places))
+        Text::InlineTexturePool::Apply(fs, std::move(places));
+}
+
+// SEH latch mirroring SafeRefreshIcons.
+void SafeMoveIcons(void *block) {
+    __try {
+        MoveIcons(block);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_inlineEnabled = false;
+    }
+}
+
+void __fastcall SetStringPos_h(void *block, const float *position) {
+    g_setStringPosOriginal(block, position);
+    if (g_inlineEnabled && LooksReadable(block))
+        SafeMoveIcons(block);
+}
+
+static const Game::HookAutoRegister _setStringPosHook{
+    Offsets::FUN_TEXTBLOCK_SET_STRING_POS, reinterpret_cast<void *>(&SetStringPos_h),
+    reinterpret_cast<void **>(&g_setStringPosOriginal)};
 
 // --- Lua control surface ---------------------------------------------------
 

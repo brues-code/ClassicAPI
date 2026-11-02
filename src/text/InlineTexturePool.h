@@ -24,7 +24,9 @@
 // the icons to the layer batch right after its text, so an icon draws exactly
 // when its line's text does - shown, hidden, faded out, off screen - in the
 // same frame. Engine-drawn → resident by construction; engine-anchored →
-// tracks the fontstring's movement for free.
+// tracks the fontstring's movement. The placements are applied when the
+// string is built and again after each move, since the move re-rounds the
+// glyph origin (see InlineTexture.cpp's MoveIcons).
 
 #include <cstdint>
 #include <string>
@@ -34,12 +36,10 @@ namespace Text::InlineTexturePool {
 
 // One icon's target geometry, in anchor-space units RELATIVE TO THE OWNING
 // FONTSTRING's rect min corner (y up, same units as the region rect at +0x64).
-// Computed entirely at PAINT time — icon coords and fs rect read in the same
-// flush, a coherent snapshot — so the pool applies it verbatim with no
-// apply-time rect read (an apply-time read raced the chat relayout after
-// SetText and parked icons off their line, where the dedup froze them: the
-// scroll-landing "randomly hidden icon" bug). Relative offsets are also
-// position-invariant, so scrolling a line re-queues nothing.
+// Computed from the laid-out node and the fs rect in one read, so the pool
+// applies it verbatim with no apply-time rect read (an apply-time read raced
+// the chat relayout after SetText and parked icons off their line: the
+// scroll-landing "randomly hidden icon" bug).
 struct Placement {
     std::string path;
     float x0, y0, x1, y1;
@@ -48,26 +48,19 @@ struct Placement {
 };
 
 // Exact compare is correct here: unchanged layouts reproduce bit-identical
-// floats, and that's precisely the "nothing moved" case the dedup wants.
+// floats, and that's precisely the "nothing changed" case Apply skips.
 inline bool operator==(const Placement &a, const Placement &b) {
     return a.x0 == b.x0 && a.y0 == b.y0 && a.x1 == b.x1 && a.y1 == b.y1 && a.color == b.color &&
            a.u0 == b.u0 && a.v0 == b.v0 && a.u1 == b.u1 && a.v1 == b.v1 && a.path == b.path;
 }
 
-// Queue the icon set for a FONTSTRING (the stable entity — text nodes die on
-// every SetText, so textures must not be keyed by node). Safe from the paint
-// hook: only records data; the textures are configured on the next FrameTick.
-// Identical re-queues are deduped, so calling every paint is cheap. An empty
-// vector stops the fontstring drawing icons.
-void QueuePlacements(void *fs, std::vector<Placement> &&icons);
-
-// Like QueuePlacements, but ALSO applies the placements to their textures
-// immediately (synchronously) instead of waiting for the next FrameTick, and
-// marks the fontstring's layer for a batch rebuild so the icons draw with the
-// text. Deduped against the current want, so a no-change re-apply is a cheap
-// no-op. Faults are caught (latches the same maintenance kill switch as the
-// tick path).
-void ApplyNow(void *fs, std::vector<Placement> &&icons);
+// Applies the icon set of a FONTSTRING (the stable entity — text nodes die on
+// every SetText, so textures must not be keyed by node) to its textures at
+// once and marks its layer for a batch rebuild, so the icons draw with the
+// text. A set equal to the one applied is skipped. An empty vector stops the
+// fontstring drawing icons. Faults are caught (latches the pool's kill
+// switch, re-armed on /reload).
+void Apply(void *fs, std::vector<Placement> &&icons);
 
 // The fontstring's built string was replaced: it draws no icons until new
 // placements arrive (4.3.4's FreeEmbeddedTextures at the top of UpdateString).

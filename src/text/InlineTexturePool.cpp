@@ -60,8 +60,7 @@ struct IconRegion {
 // rebuild, so a node key would orphan textures every chat scroll step: the
 // "wall of icons" bug).
 struct FsPlacements {
-    std::vector<Placement> want; // queued by the paint hook
-    bool dirty = false;
+    std::vector<Placement> want;     // the placements the textures carry
     std::vector<IconRegion> regions; // textures currently serving this fs
     int shown = 0;                   // how many of `regions` the fs draws
     // The fs colour key (folded BGRA colors[0] dword) last applied to the
@@ -209,15 +208,11 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     reinterpret_cast<Realize_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(texAnchor, 0);
 }
 
-// Apply the queued `want` for one fs to its textures: create and configure
-// each, and clear the dirty flag. The layer batch copies the texture set,
-// images and colour counts when it is built (FUN_00772FD0), so the
-// fontstring's layer is marked for a rebuild — the call SetTexture makes for
-// a texture in a layer. Shared by MaintainImpl's dirty branch and the
-// synchronous ApplyNow path. Caller supplies the folded fs colour
-// (FsColorKey) so both paths fold the same fade.
-void ApplyDirtyBranch(void *fs, FsPlacements &np, uint32_t fsColor) {
-    np.dirty = false;
+// Applies `want` to the fontstring's textures: create and configure each. The
+// layer batch copies the texture set, images and colour counts when it is
+// built (FUN_00772FD0), so the fontstring's layer is marked for a rebuild —
+// the call SetTexture makes for a texture in a layer.
+void ApplyPlacements(void *fs, FsPlacements &np, uint32_t fsColor) {
     const int want = static_cast<int>(np.want.size());
     for (int i = 0; i < want; ++i) {
         if (i >= static_cast<int>(np.regions.size())) {
@@ -236,8 +231,8 @@ void ApplyDirtyBranch(void *fs, FsPlacements &np, uint32_t fsColor) {
     reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(fs);
 }
 
-// Per-frame tick (FrameTick — glue AND world): apply queued placements
-// (deferred out of the text paint). Wrapped by Maintain() below; kept
+// Per-frame tick (FrameTick — glue AND world): deletes orphaned textures and
+// mirrors the line's fade. Wrapped by Maintain() below; kept
 // destructor-holding C++ objects out of the SEH frame (MSVC won't allow __try
 // in a function that needs object unwinding).
 void MaintainImpl() {
@@ -249,41 +244,31 @@ void MaintainImpl() {
     }
 
     for (auto &entry : g_fsIcons) {
-        void *fs = entry.first;
         FsPlacements &np = entry.second;
-
-        // The line's live folded colour (see FsColorKey) — folded into every
-        // color write below and mirrored on change.
-        const uint32_t fsColor = FsColorKey(fs);
-
-        if (np.dirty) {
-            ApplyDirtyBranch(fs, np, fsColor);
-        } else if (np.shown > 0 && fsColor != np.appliedColor) {
-            // FADE MIRROR: the ScrollingMessageFrame fader animates the line
-            // fontstring's color alpha every frame, and the glue AddonList
-            // swaps title RGB on toggle; keep the icon textures' colour in
-            // lockstep (alpha everywhere, value-follow on glue — see
-            // FadedColor) so inline icons fade/dim with their text. The batch
-            // reads the colour through a pointer, so no rebuild. Change-
-            // driven — steady state costs one dword compare.
-            np.appliedColor = fsColor;
-            const int live = (np.shown < static_cast<int>(np.want.size()))
-                                 ? np.shown
-                                 : static_cast<int>(np.want.size());
-            for (int i = 0; i < live && i < static_cast<int>(np.regions.size()); ++i) {
-                IconRegion &r = np.regions[static_cast<size_t>(i)];
-                const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
-                reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(r.tex, &color);
-            }
+        // FADE MIRROR: the ScrollingMessageFrame fader animates the line
+        // fontstring's color alpha every frame, and the glue AddonList swaps
+        // title RGB on toggle; keep the icon textures' colour in lockstep
+        // (alpha everywhere, value-follow on glue — see FadedColor) so inline
+        // icons fade/dim with their text. The batch reads the colour through a
+        // pointer, so no rebuild. Change-driven — steady state costs one dword
+        // compare.
+        const uint32_t fsColor = FsColorKey(entry.first);
+        if (np.shown == 0 || fsColor == np.appliedColor)
+            continue;
+        np.appliedColor = fsColor;
+        for (int i = 0; i < np.shown; ++i) {
+            const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
+            reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(
+                np.regions[static_cast<size_t>(i)].tex, &color);
         }
     }
 }
 
-// SEH latch mirroring InlineTexture.cpp's SafeFlush: the tick drives engine
-// texture calls (SetTexture with addon-supplied paths, SetPoint) from
-// paint-time data, so a fault disables maintenance for the session instead of
-// crashing the client. A /reload re-arms it (PrepareForReload). The __try body
-// holds no C++ objects — see MaintainImpl.
+// SEH latch mirroring InlineTexture.cpp's SafeFlush: the pool drives engine
+// texture calls (SetTexture with addon-supplied paths, SetPoint), so a fault
+// disables it for the session instead of crashing the client. A /reload
+// re-arms it (PrepareForReload). The __try body holds no C++ objects — see
+// MaintainImpl.
 void Maintain() {
     if (g_maintainDisabled)
         return;
@@ -294,26 +279,27 @@ void Maintain() {
     }
 }
 
-// Synchronous apply for ONE fs. Applies only when its entry is still dirty
-// (i.e. QueuePlacements did NOT dedup the re-queue).
-void ApplyNowImpl(void *fs) {
+// Applies `icons` to one fontstring unless its textures already carry them.
+void ApplyImpl(void *fs, std::vector<Placement> &icons) {
     auto it = g_fsIcons.find(fs);
-    if (it == g_fsIcons.end())
-        return;
+    if (it == g_fsIcons.end()) {
+        if (icons.empty())
+            return; // nothing drawn, nothing wanted — don't create state
+        it = g_fsIcons.emplace(fs, FsPlacements{}).first;
+    }
     FsPlacements &np = it->second;
-    if (!np.dirty)
-        return; // deduped re-queue: already applied, nothing to do
-    ApplyDirtyBranch(fs, np, FsColorKey(fs));
+    if (np.want == icons && np.shown == static_cast<int>(icons.size()))
+        return;
+    np.want = std::move(icons);
+    ApplyPlacements(fs, np, FsColorKey(fs));
 }
 
-// SEH split mirroring Maintain/MaintainImpl — the __try body holds no C++
-// objects needing unwinding (see MaintainImpl). A fault latches the same
-// maintenance kill switch as the tick path.
-void SafeApplyNow(void *fs) {
+// SEH split mirroring Maintain/MaintainImpl, on the same kill switch.
+void SafeApply(void *fs, std::vector<Placement> &icons) {
     if (g_maintainDisabled)
         return;
     __try {
-        ApplyNowImpl(fs);
+        ApplyImpl(fs, icons);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         g_maintainDisabled = true;
     }
@@ -350,33 +336,9 @@ const Game::HookAutoRegister _emitHook{Offsets::FUN_FONTSTRING_EMIT, reinterpret
 
 } // namespace
 
-void QueuePlacements(void *fs, std::vector<Placement> &&icons) {
-    if (fs == nullptr)
-        return;
-    auto it = g_fsIcons.find(fs);
-    if (it == g_fsIcons.end()) {
-        if (icons.empty())
-            return; // nothing drawn, nothing wanted — don't create state
-        FsPlacements np;
-        np.want = std::move(icons);
-        np.dirty = true;
-        g_fsIcons.emplace(fs, std::move(np));
-        return;
-    }
-    FsPlacements &np = it->second;
-    if (np.want == icons)
-        return; // identical re-queue (the per-paint steady state) — no work
-    np.want = std::move(icons);
-    np.dirty = true;
-}
-
-void ApplyNow(void *fs, std::vector<Placement> &&icons) {
-    // Queue first (sets want+dirty, dedups an unchanged re-queue), then apply
-    // synchronously for this fs. Deduped re-queues leave the entry not-dirty,
-    // so SafeApplyNow no-ops — a steady state costs one compare, same as
-    // QueuePlacements.
-    QueuePlacements(fs, std::move(icons));
-    SafeApplyNow(fs);
+void Apply(void *fs, std::vector<Placement> &&icons) {
+    if (fs != nullptr)
+        SafeApply(fs, icons);
 }
 
 void Release(void *fs) {
@@ -386,7 +348,6 @@ void Release(void *fs) {
     // The rebuild that called this marks the fontstring's layer itself.
     it->second.want.clear();
     it->second.shown = 0;
-    it->second.dirty = false;
 }
 
 void PrepareForReload() {
