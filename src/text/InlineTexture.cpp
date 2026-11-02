@@ -2019,9 +2019,9 @@ void FlushLayout(void *layout) {
         // put while the icons faded. Mirror the live alpha into every
         // baked colour, change-detected on each page's first entry (all
         // baked alphas are uniform — the engine's own |c splice writes the
-        // node alpha too). One-frame lag (flush runs post-paint), same as
-        // the icon fade mirror. Chat (bit-3 clear) is excluded: the engine
-        // re-bakes those on colour change itself.
+        // node alpha too). One-frame lag (flush runs post-paint). Chat
+        // (bit-3 clear) is excluded: the engine re-bakes those on colour
+        // change itself.
         if ((Game::Read<uint32_t>(n, Offsets::OFF_TEXT_NODE_FLAGS) & 8u) != 0) {
             const uint32_t liveColor = Game::Read<uint32_t>(n, Offsets::OFF_TEXT_NODE_COLOR);
             auto baked = g_nodeBakedColor.find(node);

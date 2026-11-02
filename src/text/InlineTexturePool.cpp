@@ -45,6 +45,7 @@ using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
 using DeletingDestructor_t = void(__thiscall *)(void *region, int flags);
 using Emit_t = void(__fastcall *)(void *region, void *edx, void *batch);
 using NotifyLayerChanged_t = void(__fastcall *)(void *region);
+using OnColorChanged_t = void(__fastcall *)(void *fs, void *edx, int changed);
 
 // LAA-aware pointer sanity probe: Text::LooksReadable (text/PtrProbe.h).
 
@@ -63,10 +64,6 @@ struct FsPlacements {
     std::vector<Placement> want;     // the placements the textures carry
     std::vector<IconRegion> regions; // textures currently serving this fs
     int shown = 0;                   // how many of `regions` the fs draws
-    // The fs colour key (folded BGRA colors[0] dword) last applied to the
-    // drawn textures (the fade mirror — see FsColorKey below). Re-applied on
-    // change only.
-    uint32_t appliedColor = 0xFFFFFFFFu;
 };
 
 std::unordered_map<void *, FsPlacements> g_fsIcons;
@@ -96,7 +93,7 @@ void OnRegionDestroyed(void *region) {
 
 const Frame::RegionDestruction::AutoSubscribe _regionDestructionSub{&OnRegionDestroyed};
 
-// Latched off by Maintain's SEH guard on a fault; re-armed on /reload (see
+// Latched off by the pool's SEH guards on a fault; re-armed on /reload (see
 // PrepareForReload). Mirrors InlineTexture.cpp's g_inlineEnabled paint latch.
 bool g_maintainDisabled = false;
 
@@ -105,7 +102,8 @@ bool g_maintainDisabled = false;
 // fader animates each visible line fontstring's alpha through the fs SetColor
 // every frame (see OFF_FONTSTRING_COLOR_ARRAY's derivation), and the engine
 // keeps the byte folded with the frame-chain effective alpha. Count 0 = never
-// coloured = opaque white default.
+// coloured = opaque white default. The icons have no frame, so this is the
+// only alpha they get (see OnColorChanged_h).
 uint32_t FsColorKey(const void *fs) {
     if (Game::Read<uint32_t>(fs, Offsets::OFF_FONTSTRING_COLOR_COUNT) < 1u)
         return 0xFFFFFFFFu;
@@ -227,41 +225,20 @@ void ApplyPlacements(void *fs, FsPlacements &np, uint32_t fsColor) {
     np.shown = (want < static_cast<int>(np.regions.size()))
                    ? want
                    : static_cast<int>(np.regions.size());
-    np.appliedColor = fsColor;
     reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(fs);
 }
 
-// Per-frame tick (FrameTick — glue AND world): deletes orphaned textures and
-// mirrors the line's fade. Wrapped by Maintain() below; kept
-// destructor-holding C++ objects out of the SEH frame (MSVC won't allow __try
-// in a function that needs object unwinding).
+// Per-frame tick (FrameTick — glue AND world): deletes orphaned textures.
+// Wrapped by Maintain() below; kept destructor-holding C++ objects out of the
+// SEH frame (MSVC won't allow __try in a function that needs object
+// unwinding).
 void MaintainImpl() {
-    if (!g_orphans.empty()) {
-        std::vector<void *> orphans;
-        orphans.swap(g_orphans);
-        for (void *tex : orphans)
-            DeleteRegion(tex);
-    }
-
-    for (auto &entry : g_fsIcons) {
-        FsPlacements &np = entry.second;
-        // FADE MIRROR: the ScrollingMessageFrame fader animates the line
-        // fontstring's color alpha every frame, and the glue AddonList swaps
-        // title RGB on toggle; keep the icon textures' colour in lockstep
-        // (alpha everywhere, value-follow on glue — see FadedColor) so inline
-        // icons fade/dim with their text. The batch reads the colour through a
-        // pointer, so no rebuild. Change-driven — steady state costs one dword
-        // compare.
-        const uint32_t fsColor = FsColorKey(entry.first);
-        if (np.shown == 0 || fsColor == np.appliedColor)
-            continue;
-        np.appliedColor = fsColor;
-        for (int i = 0; i < np.shown; ++i) {
-            const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
-            reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(
-                np.regions[static_cast<size_t>(i)].tex, &color);
-        }
-    }
+    if (g_orphans.empty())
+        return;
+    std::vector<void *> orphans;
+    orphans.swap(g_orphans);
+    for (void *tex : orphans)
+        DeleteRegion(tex);
 }
 
 // SEH latch mirroring InlineTexture.cpp's SafeFlush: the pool drives engine
@@ -333,6 +310,47 @@ void __fastcall Emit_h(void *fs, void *edx, void *batch) {
 
 const Game::HookAutoRegister _emitHook{Offsets::FUN_FONTSTRING_EMIT, reinterpret_cast<void *>(&Emit_h),
                                        reinterpret_cast<void **>(&g_origEmit)};
+
+// The fontstring's colour change (FUN_FONTSTRING_ON_COLOR_CHANGED), where
+// 4.3.4's CSimpleFontString::OnColorChanged copies the string's alpha into its
+// embedded textures. Every change of the fs colour ends here, folded by the
+// time the original returns, so the icons take the line's fade (and, on glue,
+// its value — see FadedColor) in the same call. The batch reads the colour
+// through a pointer, so no rebuild.
+OnColorChanged_t g_origOnColorChanged = nullptr;
+
+void MirrorFade(void *fs) {
+    const auto it = g_fsIcons.find(fs);
+    if (it == g_fsIcons.end())
+        return;
+    const FsPlacements &np = it->second;
+    const uint32_t fsColor = FsColorKey(fs);
+    for (int i = 0; i < np.shown; ++i) {
+        const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
+        reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(
+            np.regions[static_cast<size_t>(i)].tex, &color);
+    }
+}
+
+// SEH split mirroring Maintain/MaintainImpl, on the same kill switch.
+void SafeMirrorFade(void *fs) {
+    if (g_maintainDisabled)
+        return;
+    __try {
+        MirrorFade(fs);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_maintainDisabled = true;
+    }
+}
+
+void __fastcall OnColorChanged_h(void *fs, void *edx, int changed) {
+    g_origOnColorChanged(fs, edx, changed);
+    SafeMirrorFade(fs);
+}
+
+const Game::HookAutoRegister _colorHook{Offsets::FUN_FONTSTRING_ON_COLOR_CHANGED,
+                                        reinterpret_cast<void *>(&OnColorChanged_h),
+                                        reinterpret_cast<void **>(&g_origOnColorChanged)};
 
 } // namespace
 

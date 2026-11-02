@@ -891,6 +891,15 @@ enum Offsets {
     // which adds the built string (+0xF8) when the rect is valid and not
     // wholly off screen.
     FUN_FONTSTRING_EMIT = 0x00772E50,
+    // CSimpleFontString::OnColorChanged — `void __thiscall(fs, int changed)`,
+    // `ret 4`, the font string's region slot 8 (VTBL_REGION_RECOLOR): calls the
+    // region colour fold 0x0077FAC0, then, with a built string, hands
+    // colors[0] (or white when the count is not 1) to TextBlockUpdateColor
+    // 0x0044D650 and redoes the shadow. SetVertexColor (0x0077F750) calls it
+    // after storing a colour, and the frame alpha setter (0x0076A690) on each
+    // region, so every change of OFF_FONTSTRING_COLOR_ARRAY ends here.
+    // Verified by disassembly.
+    FUN_FONTSTRING_ON_COLOR_CHANGED = 0x00772180,
     // A layer batch's entry count: the quad append and the text append each
     // add one (0x00772FD0, 0x00773080).
     OFF_LAYER_BATCH_COUNT = 0x4,
@@ -1013,12 +1022,10 @@ enum Offsets {
     // {rgba@+4, shown@+8, timeVisibleLeft@+0xC, fadeLeft@+0x10} in the
     // stride-0x10 line array at smf+0x3A4) animates each visible line
     // fontstring's alpha byte through this same SetColor every frame, then
-    // hides the fs at fade end. Text::InlineTexturePool mirrors this byte onto
-    // the line's icon regions each tick so inline icons fade with their line
-    // (regions parent to the CHAT FRAME, so the frame's own alpha byte —
-    // frame+0xC8, per Script_GetAlpha 0x00774DC0 — already modulates them via
-    // the engine's parent×region product; only the fs's own component needs
-    // mirroring).
+    // hides the fs at fade end. The byte also carries the frame's alpha
+    // (folded by 0x0077FAC0). Text::InlineTexturePool copies it onto the
+    // line's icon textures from FUN_FONTSTRING_ON_COLOR_CHANGED; the textures
+    // have no frame, so it is the only alpha they get.
     OFF_FONTSTRING_COLOR_COUNT = 0xB4,
     OFF_FONTSTRING_COLOR_ARRAY = 0xB8,
     OFF_TEXTBLOCK_NODE = 0x8,         // the gxu text node inside the handle
