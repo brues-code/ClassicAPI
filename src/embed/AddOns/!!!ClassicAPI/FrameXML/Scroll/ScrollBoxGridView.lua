@@ -15,7 +15,7 @@ function ScrollBoxListGridViewMixin:GetStride()
 	local strideExtent = self:GetStrideExtent();
 	if strideExtent then
 		local scrollTarget = self:GetScrollTarget();
-		local extent = scrollTarget:GetWidth();
+		local extent = scrollTarget:GetUnscaledWidth();
 		local spacing = self:GetHorizontalSpacing();
 		local stride = math.max(1, math.floor(extent / strideExtent));
 		local extentWithSpacing = (stride * strideExtent) + ((stride-1) * spacing);

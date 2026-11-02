@@ -246,7 +246,7 @@ function ScrollUtil.InitScrollFrameWithScrollBar(scrollFrame, scrollBar)
 		onVerticalScroll(scrollFrame, scrollFrame:GetVerticalScroll());
 
 		local visibleExtentPercentage = 0;
-		local height = scrollFrame:GetHeight();
+		local height = scrollFrame:GetUnscaledHeight();
 		if height > 0 then
 			visibleExtentPercentage = height / (vScrollRange + height);
 		end
@@ -652,7 +652,7 @@ ScrollBoxDragBehavior = {};
 local function GetRelativeCursorRange(frame, cy, dragBehavior)
 	local insetBottom, insetTop = dragBehavior:GetCursorHitInsets();
 	local bottom = frame:GetBottom() + insetBottom;
-	local height = frame:GetHeight() - (insetBottom + insetTop);
+	local height = frame:GetUnscaledHeight() - (insetBottom + insetTop);
 	local relativeCursorY = cy - bottom;
 	return relativeCursorY, height;
 end
@@ -1140,7 +1140,7 @@ function ScrollBoxDragBehavior:Register(onDragStop, onDragUpdate)
 		self.delegate:SetScript("OnUpdate", function(delegateFrame, elapsed)
 			local cx, cy = InputUtil.GetCursorPosition(cursorParent);
 			local x, y = cx - dx, cy - dy;
-			self.cursorFrame:SetPoint("TOPLEFT", x, y - cursorParent:GetHeight());
+			self.cursorFrame:SetPoint("TOPLEFT", x, y - cursorParent:GetUnscaledHeight());
 
 			self:TryVerticalEdgeScroll(elapsed, cx, cy);
 
@@ -1323,7 +1323,7 @@ function ScrollUtil.GenerateCursorFactory(scrollBox)
 		local view = scrollBox:GetView();
 		
 		local function CursorInitializer(cursorFrame, candidateFrame, elementData)
-			cursorFrame:SetSize(candidateFrame:GetSize());
+			cursorFrame:SetSize(candidateFrame:GetUnscaledSize());
 	
 			-- Uses the candidate frame's initializer on the cursor frame.
 			local template, initializer = view:GetFactoryDataFromElementData(elementData);

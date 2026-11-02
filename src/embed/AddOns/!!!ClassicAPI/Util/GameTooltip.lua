@@ -53,10 +53,10 @@ function GameTooltip_ShowCompareItem(self, shift)
 	if ( self:GetAnchorType() and self:GetAnchorType() ~= "ANCHOR_PRESERVE" ) then
 		local totalWidth = 0;
 		if ( item1  ) then
-			totalWidth = totalWidth + shoppingTooltip1:GetWidth();
+			totalWidth = totalWidth + shoppingTooltip1:GetUnscaledWidth();
 		end
 		if ( item2  ) then
-			totalWidth = totalWidth + shoppingTooltip2:GetWidth();
+			totalWidth = totalWidth + shoppingTooltip2:GetUnscaledWidth();
 		end
 
 		if ( (side == "left") and (totalWidth > leftPos) ) then

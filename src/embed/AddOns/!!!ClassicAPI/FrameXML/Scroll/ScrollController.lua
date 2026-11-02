@@ -5,7 +5,7 @@ ScrollDirectionMixin = {};
 ScrollDirectionUtil = {};
 
 function ScrollDirectionUtil.GetFrameExtent(frame, isHorizontal)
-	local width, height = frame:GetSize();
+	local width, height = frame:GetUnscaledSize();
 	return isHorizontal and width or height;
 end
 

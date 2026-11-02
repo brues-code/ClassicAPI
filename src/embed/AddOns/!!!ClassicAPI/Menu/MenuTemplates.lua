@@ -353,7 +353,7 @@ function MenuTemplates.CreateHighlightRadio(text, isSelected, onSelect, data, on
 		-- about that texture here because it is managed by the compositor.
 		button.Text:Show();
 		button.Text:SetTextToFit(text);
-		button.Text:SetWidth(button.Text:GetWidth() + 10);
+		button.Text:SetWidth(button.Text:GetUnscaledWidth() + 10);
 
 		button.HighlightBGTex:SetAlpha(0);
 

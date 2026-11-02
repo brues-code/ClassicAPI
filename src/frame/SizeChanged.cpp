@@ -12,7 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // OnSizeChanged receives the frame's new width and height in the units
-// GetWidth / GetHeight return.
+// GetUnscaledWidth / GetUnscaledHeight return.
 //
 // The engine fires the script from one place, the size-changed vmethod
 // FUN_FRAME_ON_SIZE_CHANGED, and passes it the size of the frame's screen

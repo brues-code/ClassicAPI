@@ -1131,7 +1131,7 @@ local function InitializeFrame(frame, menu)
 	]]--
 	frame:ClearAllPoints();
 	frame:SetPoint("TOPLEFT"); -- Workaround to force a valid rect prior to calling initializer.
-	frame:GetHeight(); -- Workaround to force a valid rect prior to calling initializer.
+	frame:GetUnscaledHeight(); -- Workaround to force a valid rect prior to calling initializer.
 
 	CallInitializers(frame, menu);
 
@@ -1287,7 +1287,7 @@ function MenuMixin:MeasureFrameExtents()
 	local totalHeight = 0;
 
 	for index, frame in self.frames:Enumerate() do
-		local w, h = frame:GetSize();
+		local w, h = frame:GetUnscaledSize();
 		width = math.max(width, w);
 		height = math.max(height, h);
 		totalHeight = totalHeight + height;
@@ -1766,7 +1766,7 @@ function MenuProxyMixin:OnLoad()
 	end);
 
 	view:SetElementExtentCalculator(function(dataIndex, elementData)
-		return elementData:GetHeight();
+		return elementData:GetUnscaledHeight();
 	end);
 
 	view:SetElementInitializer("Frame", function(frame, elementData)
@@ -1787,7 +1787,7 @@ end
 
 function MenuProxyMixin:InitScrollLayout(childWidth, maxScrollExtent)
 	local left, top, right, bottom = securecallfunction(SecureGetInset, self);
-	local scrollBarWidth = self.ScrollBar:GetWidth();
+	local scrollBarWidth = self.ScrollBar:GetUnscaledWidth();
 	self.ScrollBox:SetPoint("TOPLEFT", left, -top);
 	self.ScrollBox:SetPoint("BOTTOMRIGHT", -(right + scrollBarWidth), bottom);
 

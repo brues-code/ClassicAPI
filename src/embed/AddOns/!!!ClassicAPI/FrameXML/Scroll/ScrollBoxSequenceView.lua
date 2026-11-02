@@ -8,7 +8,7 @@ ScrollBoxListSequenceViewMixin = CreateFromMixins(ScrollBoxListBiaxalViewMixin);
 -- after frame sizes have changed so we're avoiding ScrollTarget because calculating its width in an OnSizeChanged
 -- handler callstack is not reliable and we can end up getting bad values.
 function ScrollBoxListSequenceViewMixin:GetVisibleWidth(scrollBox)
-	return scrollBox:GetWidth() - (scrollBox:GetLeftPadding() + scrollBox:GetRightPadding());
+	return scrollBox:GetUnscaledWidth() - (scrollBox:GetLeftPadding() + scrollBox:GetRightPadding());
 end
 
 function ScrollBoxListSequenceViewMixin:Layout(scrollBox)

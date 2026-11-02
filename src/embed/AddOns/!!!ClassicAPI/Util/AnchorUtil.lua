@@ -129,8 +129,8 @@ function AnchorUtil.GridLayout(frames, initialAnchor, layout)
 		return;
 	end
 
-	local width = layout.horizontalSpacing or frames[1]:GetWidth();
-	local height = layout.verticalSpacing or frames[1]:GetHeight();
+	local width = layout.horizontalSpacing or frames[1]:GetUnscaledWidth();
+	local height = layout.verticalSpacing or frames[1]:GetUnscaledHeight();
 	local stride = layout.stride;
 	local paddingX = layout.paddingX;
 	local paddingY = layout.paddingY;
@@ -243,8 +243,8 @@ function AnchorUtil.GridLayoutFactory(factoryFunction, initialAnchor, totalWidth
 
 	-- If we have an override padding, count it in the frame width. We add a padding to totalWidth/totalHeight to account for the
 	-- extra space we save for the last element which doesn't need padding.
-	local width = Round(frame:GetWidth()) + (overridePaddingX or 0);
-	local height = Round(frame:GetHeight()) + (overridePaddingY or 0);
+	local width = Round(frame:GetUnscaledWidth()) + (overridePaddingX or 0);
+	local height = Round(frame:GetUnscaledHeight()) + (overridePaddingY or 0);
 	local rowSize = math.floor((totalWidth + (overridePaddingX or 0)) / width);
 	local colSize = math.floor((totalHeight + (overridePaddingY or 0)) / height);
 
@@ -439,8 +439,8 @@ local function DebugAnchorGraph(frame, indent, visited, output)
 
 	local function FormatFrame(frame)
 		local color = frame:IsRectValid() and GREEN_FONT_COLOR or RED_FONT_COLOR;
-		local x, y = frame:GetSize();
-		local x2, y2 = frame:GetSize(true);
+		local x, y = frame:GetUnscaledSize();
+		local x2, y2 = frame:GetUnscaledSize(true);
 		return color:WrapTextInColorCode(frame:GetDebugName() .. (" calculated size <%.2f, %.2f> explicit size <%.2f, %.2f> points <%d>, scale <%.2f> effective scale <%.2f>"):format(
 			x, y, x2, y2, frame:GetNumPoints(), frame:GetScale(), frame:GetEffectiveScale()));
 	end

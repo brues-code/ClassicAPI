@@ -38,13 +38,13 @@ function ScrollBoxViewUtil.SetPoint(frame, offset, indent, elementStretchDisable
 		if not elementStretchDisabled then
 			frame:SetPoint("BOTTOMLEFT", scrollTarget, "BOTTOMLEFT", offset, 0);
 		end
-		return frame:GetWidth();
+		return frame:GetUnscaledWidth();
 	else
 		frame:SetPoint("TOPLEFT", scrollTarget, "TOPLEFT", indent, -offset);
 		if not elementStretchDisabled then
 			frame:SetPoint("TOPRIGHT", scrollTarget, "TOPRIGHT", 0, -offset);
 		end
-		return frame:GetHeight();
+		return frame:GetUnscaledHeight();
 	end
 end
 

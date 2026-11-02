@@ -25,8 +25,8 @@
 -- GridLayoutManagerMixin is used to house all the different specifications required to described different layouts.
 --
 -- The primary elements of GridLayoutManagerMixin are:
---  primarySizeCalculator: how to measure regions. Typically GetWidth or GetHeight.
---  secondarySizeCalculator: how to measure regions. Typically GetWidth or GetHeight.
+--  primarySizeCalculator: how to measure regions. Typically GetUnscaledWidth or GetUnscaledHeight.
+--  secondarySizeCalculator: how to measure regions. Typically GetUnscaledWidth or GetUnscaledHeight.
 --	cellSizeCalculator: how to measure cell size of regions. Optional. Typically only used for cell-size-based layout.
 --  primaryMultiplier: to be used when applying offsets. Typically 1 or -1.
 --  secondaryMultiplier: to be used when applying offsets. Typically 1 or -1.
@@ -61,8 +61,8 @@ function GridLayoutUtil.GridLayoutRegions(regions, initialAnchor, layout)
 	end
 
 	local isColumnBased = layout.isColumnBased;
-	local primarySizeCalculator = isColumnBased and regions[1].GetHeight or regions[1].GetWidth;
-	local secondarySizeCalculator = isColumnBased and regions[1].GetWidth or regions[1].GetHeight;
+	local primarySizeCalculator = isColumnBased and regions[1].GetUnscaledHeight or regions[1].GetUnscaledWidth;
+	local secondarySizeCalculator = isColumnBased and regions[1].GetUnscaledWidth or regions[1].GetUnscaledHeight;
 	local primarySizePadding = isColumnBased and layout.paddingY or layout.paddingX;
 	local secondarySizePadding = isColumnBased and layout.paddingX or layout.paddingY;
 	local primaryMultiplier = isColumnBased and layout.direction.y or layout.direction.x;
@@ -152,8 +152,8 @@ function GridLayoutUtil.ApplyGridLayout(regions, initialAnchor, gridLayout)
 	end
 
 	local isColumnBased = gridLayout.isColumnBased;
-	local primarySizeCalculator = gridLayout.primarySizeCalculator or (isColumnBased and regions[1].GetHeight or regions[1].GetWidth);
-	local secondarySizeCalculator = gridLayout.secondarySizeCalculator or (isColumnBased and regions[1].GetWidth or regions[1].GetHeight);
+	local primarySizeCalculator = gridLayout.primarySizeCalculator or (isColumnBased and regions[1].GetUnscaledHeight or regions[1].GetUnscaledWidth);
+	local secondarySizeCalculator = gridLayout.secondarySizeCalculator or (isColumnBased and regions[1].GetUnscaledWidth or regions[1].GetUnscaledHeight);
 	local layoutManager = CreateAndInitFromMixin(GridLayoutManagerMixin, primarySizeCalculator, secondarySizeCalculator, gridLayout.primaryMultiplier, gridLayout.secondaryMultiplier,
 													gridLayout.primarySizePadding, gridLayout.secondarySizePadding);
 

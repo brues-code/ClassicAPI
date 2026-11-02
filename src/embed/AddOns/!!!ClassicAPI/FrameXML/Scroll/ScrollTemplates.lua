@@ -308,7 +308,7 @@ function ScrollingFontMixin:OnLoad()
 	view:SetPanExtent(fontHeight);
 	scrollBox:Init(view);
 
-	local width = scrollBox:GetWidth();
+	local width = scrollBox:GetUnscaledWidth();
 	local fontStringContainer = self:GetFontStringContainer();
 	fontStringContainer:SetWidth(width);
 	fontString:SetWidth(width);

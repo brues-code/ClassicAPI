@@ -151,15 +151,15 @@ function FrameUtil.UpdateScaleForFit(frame, extraWidth, extraHeight)
 	extraWidth = extraWidth or 0;
 	extraHeight = extraHeight or 0;
 
-	FrameUtil.UpdateScaleForFitSpecific(frame, frame:GetWidth() + extraWidth, frame:GetHeight() + extraHeight);
+	FrameUtil.UpdateScaleForFitSpecific(frame, frame:GetUnscaledWidth() + extraWidth, frame:GetUnscaledHeight() + extraHeight);
 end
 
 function FrameUtil.UpdateScaleForFitSpecific(frame, specificWidth, specificHeight)
 	frame:SetScale(1);
 
 	local topLevelParent = GetAppropriateTopLevelParent();
-	local horizRatio = topLevelParent:GetWidth() / (specificWidth or frame:GetWidth());
-	local vertRatio = topLevelParent:GetHeight() / (specificHeight or frame:GetHeight());
+	local horizRatio = topLevelParent:GetUnscaledWidth() / (specificWidth or frame:GetUnscaledWidth());
+	local vertRatio = topLevelParent:GetUnscaledHeight() / (specificHeight or frame:GetUnscaledHeight());
 
 	if (horizRatio < 1 or vertRatio < 1) then
 		frame:SetScale(min(horizRatio, vertRatio));
@@ -212,8 +212,8 @@ function GetScaledCenter(frame)
 end
 
 function FitToParent(parent, frame)
-	local horizRatio = parent:GetWidth() / frame:GetWidth();
-	local vertRatio = parent:GetHeight() / frame:GetHeight();
+	local horizRatio = parent:GetUnscaledWidth() / frame:GetUnscaledWidth();
+	local vertRatio = parent:GetUnscaledHeight() / frame:GetUnscaledHeight();
 
 	if ( horizRatio < 1 or vertRatio < 1 ) then
 		frame:SetScale(min(horizRatio, vertRatio));
@@ -397,16 +397,16 @@ end
 
 function AnimTransitionMixin:GetTranslationDeltas(translationType, isOut)
 	if translationType == AnimTransitionMixinTransitionType.SlideLeft then
-		local width = self.animTransitionConfig.distanceX or self:GetWidth();
+		local width = self.animTransitionConfig.distanceX or self:GetUnscaledWidth();
 		return isOut and -width or width, 0;
 	elseif translationType == AnimTransitionMixinTransitionType.SlideRight then
-		local width = self.animTransitionConfig.distanceX or self:GetWidth();
+		local width = self.animTransitionConfig.distanceX or self:GetUnscaledWidth();
 		return isOut and width or -width, 0;
 	elseif translationType == AnimTransitionMixinTransitionType.SlideTop then
-		local height = self.animTransitionConfig.distanceY or self:GetHeight();
+		local height = self.animTransitionConfig.distanceY or self:GetUnscaledHeight();
 		return 0, isOut and height or -height;
 	elseif translationType == AnimTransitionMixinTransitionType.SlideBottom then
-		local height = self.animTransitionConfig.distanceY or self:GetHeight();
+		local height = self.animTransitionConfig.distanceY or self:GetUnscaledHeight();
 		return 0, isOut and -height or height;
 	end
 

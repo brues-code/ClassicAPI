@@ -312,6 +312,7 @@ build instructions.
   - [`region:SetPoint("point")` (one-argument form)](#regionsetpointpoint-one-argument-form)
   - [`region:SetSize(width, height)` / `region:GetSize([ignoreRect])`](#regionsetsizewidth-height--regiongetsizeignorerect)
   - [`region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`](#regiongetwidthignorerect--regiongetheightignorerect)
+  - [`region:GetUnscaledWidth([ignoreRect])` / `region:GetUnscaledHeight([ignoreRect])` / `region:GetUnscaledSize([ignoreRect])`](#regiongetunscaledwidthignorerect--regiongetunscaledheightignorerect--regiongetunscaledsizeignorerect)
   - [`region:GetScale()` / `region:GetEffectiveScale()`](#regiongetscale--regiongeteffectivescale)
   - [`region:IsMouseOver([topOffset, bottomOffset, leftOffset, rightOffset])`](#regionismouseovertopoffset-bottomoffset-leftoffset-rightoffset)
   - [`region:GetRect()`](#regiongetrect)
@@ -7703,16 +7704,41 @@ effect as on `GetWidth` and `GetHeight`.
 ### `region:GetWidth([ignoreRect])` / `region:GetHeight([ignoreRect])`
 
 Returns the width or the height of the region. A region with no set size
-returns the size that its anchors give it, in the same units as `GetTop`
-and `GetBottom`, at every UI scale. If `ignoreRect` is true, the method
-returns only the set size, which is 0 for a region with no set size.
+returns the size that its anchors give it, multiplied by the effective
+scale of the region. Thus the value changes with the UI scale. If
+`ignoreRect` is true, the method returns only the set size, which is 0 for
+a region with no set size.
+
+`GetUnscaledWidth` and `GetUnscaledHeight` return the size in the same
+units as `GetTop` and `GetBottom`.
 
 ```lua
+-- f has an effective scale of 0.75
 local f = CreateFrame("Frame", nil, UIParent)
-f:SetPoint("TOPLEFT", UIParent, "TOPLEFT")
-f:SetPoint("BOTTOMRIGHT", UIParent, "TOP")
-f:GetWidth()      -- half the width of UIParent
-f:GetWidth(true)  -- 0
+f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+f:SetPoint("BOTTOMLEFT", UIParent, "TOPLEFT", 0, -160)
+f:GetTop() - f:GetBottom()  -- 160
+f:GetHeight()               -- 120
+f:GetHeight(true)           -- 0
+```
+
+### `region:GetUnscaledWidth([ignoreRect])` / `region:GetUnscaledHeight([ignoreRect])` / `region:GetUnscaledSize([ignoreRect])`
+
+These methods return the width, the height, or both, of the region. A region with no set
+size returns the size that its anchors give it, in the same units as
+`GetTop` and `GetBottom`. This value is the same at every UI scale. A
+region with a set size returns that size, as `GetWidth` and `GetHeight`
+do. `ignoreRect` has the same effect as on `GetWidth` and `GetHeight`.
+Works on any region type. This is a ClassicAPI extension.
+
+If you set the size or position of a region from the size of another
+region, use these methods.
+
+```lua
+-- the same f as in the GetHeight example
+f:GetUnscaledHeight()       -- 160
+f:GetUnscaledSize()         -- <width>, 160
+f:GetUnscaledHeight(true)   -- 0
 ```
 
 ### `region:GetScale()` / `region:GetEffectiveScale()`
@@ -7743,10 +7769,10 @@ Minimap:IsMouseOver(20, -20, -20, 20)        -- true within a 20px halo around i
 ### `region:GetRect()`
 
 Returns the region's `left, bottom, width, height` in one call (the
-combined form of `GetLeft`+`GetBottom`+`GetWidth`+`GetHeight`).
-Composed from the engine's own getters, so all UI-scale conversion is its
-code. On the Region base — works on any region type. Returns nothing for
-a region with no resolved rect (unpositioned).
+combined form of `GetLeft`+`GetBottom`+`GetUnscaledWidth`+`GetUnscaledHeight`).
+Thus all four values use the same units. On the Region base — works on any
+region type. Returns nothing for a region with no resolved rect
+(unpositioned).
 
 ```lua
 UIParent:GetRect()   -- 0, 0, <screenWidth>, <screenHeight>
@@ -9676,7 +9702,7 @@ Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
 ### `OnSizeChanged` sizes are in frame units
 
 An `OnSizeChanged` handler receives the frame's new width and height in the
-units that `GetWidth()` and `GetHeight()` return. A frame of size 20 x 10
+units that `GetUnscaledWidth()` and `GetUnscaledHeight()` return. A frame of size 20 x 10
 gets `(20, 10)`. `arg1` and `arg2` hold the same values.
 
 ```lua

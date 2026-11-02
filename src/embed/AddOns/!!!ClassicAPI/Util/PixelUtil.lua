@@ -69,14 +69,14 @@ function PixelUtil.SetPoint(region, point, relativeTo, relativePoint, offsetX, o
 end
 
 function PixelUtil.SetStatusBarValue(statusBar, value)
-    local width = statusBar:GetWidth();
+    local width = statusBar:GetUnscaledWidth();
     if width and width > 0.0 then
         local min, max = statusBar:GetMinMaxValues();
         local percent = ClampedPercentageBetween(value, min, max);
         if percent == 0.0 or percent == 1.0 then
             statusBar:SetValue(value);
         else
-            local numPixels = PixelUtil.GetNearestPixelSize(statusBar:GetWidth() * percent, statusBar:GetEffectiveScale());
+            local numPixels = PixelUtil.GetNearestPixelSize(statusBar:GetUnscaledWidth() * percent, statusBar:GetEffectiveScale());
             local roundedValue = Lerp(min, max, numPixels / width);
             statusBar:SetValue(roundedValue);
         end

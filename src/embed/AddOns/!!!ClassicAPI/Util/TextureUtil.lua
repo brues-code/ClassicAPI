@@ -20,8 +20,8 @@ function SetClampedTextureRotation(texture, rotationDegrees)
 
     if not (texture.rotationDegrees) then
         texture.origTexCoords = {texture:GetTexCoord()};
-        texture.origWidth = texture:GetWidth();
-        texture.origHeight = texture:GetHeight();
+        texture.origWidth = texture:GetUnscaledWidth();
+        texture.origHeight = texture:GetUnscaledHeight();
     end
 
     if (texture.rotationDegrees == rotationDegrees) then

@@ -173,7 +173,7 @@ end
 local sizeRoundingMultiple = 0.1;
 
 function BaseLayoutMixin:GetChildSize(child, ignoreRect)
-	local childWidth, childHeight = child:GetSize(ignoreRect);
+	local childWidth, childHeight = child:GetUnscaledSize(ignoreRect);
 	if self.usePreciseChildSizes then
 		return childWidth, childHeight;
 	else
@@ -182,7 +182,7 @@ function BaseLayoutMixin:GetChildSize(child, ignoreRect)
 end
 
 function BaseLayoutMixin:GetChildWidth(child, ignoreRect)
-	local childWidth = child:GetWidth(ignoreRect);
+	local childWidth = child:GetUnscaledWidth(ignoreRect);
 	if self.usePreciseChildSizes then
 		return childWidth;
 	else
@@ -191,7 +191,7 @@ function BaseLayoutMixin:GetChildWidth(child, ignoreRect)
 end
 
 function BaseLayoutMixin:GetChildHeight(child, ignoreRect)
-	local childHeight = child:GetHeight(ignoreRect);
+	local childHeight = child:GetUnscaledHeight(ignoreRect);
 	if self.usePreciseChildSizes then
 		return childHeight;
 	else

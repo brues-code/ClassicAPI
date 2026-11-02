@@ -161,7 +161,7 @@ end
 function TableBuilderColumnMixin:ConstrainToHeader(padding)
 	local header = self:GetHeaderFrame();
 	assert(header, "ConstrainToHeader() called with a nil header frame. Use ConstructHeader() or assign one with SetHeaderFrame(), or use SetFixedConstraints to have a headerless column.");
-	self:SetFixedConstraints(header:GetWidth(), padding or 0);
+	self:SetFixedConstraints(header:GetUnscaledWidth(), padding or 0);
 end
 
 function TableBuilderColumnMixin:SetFixedConstraints(fixedWidth, padding)
@@ -270,7 +270,7 @@ end
 function TableBuilderMixin:SetHeaderContainer(headerContainer)
 	assert(headerContainer, "SetHeaderContainer() with a nil header container. Use ConstructHeader() or assign one with SetHeaderFrame(), or use SetFixedConstraints to have a headerless column.");
 	self.headerContainer = headerContainer;
-	self:SetTableWidth(headerContainer:GetWidth());
+	self:SetTableWidth(headerContainer:GetUnscaledWidth());
 end
 
 function TableBuilderMixin:GetHeaderPoolCollection()
@@ -362,7 +362,7 @@ function TableBuilderMixin:ArrangeCells(row)
 		return;
 	end
 
-	local height = row:GetHeight();
+	local height = row:GetUnscaledHeight();
 	local leftMargin, rightMargin = self:GetTableMargins();
 
 	local column = columns[1];
