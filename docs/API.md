@@ -15,8 +15,6 @@ build instructions.
   - [`HasBonusActionBar()`](#hasbonusactionbar)
   - [`C_ActionBar.ShouldShowKeyring()`](#c_actionbarshouldshowkeyring)
   - [`C_ActionBar.EnableActionRangeCheck(slot, enable)`](#c_actionbarenableactionrangecheckslot-enable)
-  - [`ACTION_RANGE_CHECK_UPDATE` event](#action_range_check_update-event)
-  - [`ACTION_USABLE_CHANGED` event](#action_usable_changed-event)
 
 - [AddOns](#addons)
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
@@ -238,6 +236,8 @@ build instructions.
   - [Player input-state events (`PLAYER_STARTED_MOVING` / `LOOKING` / `TURNING` + `STOPPED_*`)](#player-input-state-events)
   - [`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events](#global_mouse_down--global_mouse_up-events)
   - [`AUCTION_MULTISELL_START` / `AUCTION_MULTISELL_UPDATE` / `AUCTION_MULTISELL_FAILURE` events](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
+  - [`ACTION_RANGE_CHECK_UPDATE` event](#action_range_check_update-event)
+  - [`ACTION_USABLE_CHANGED` event](#action_usable_changed-event)
   - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
   - [`CURSOR_CHANGED` event](#cursor_changed-event)
   - [`EQUIPMENT_SETS_CHANGED` event](#equipment_sets_changed-event)
@@ -1339,68 +1339,6 @@ f:SetScript("OnEvent", function()
     print("Slot", arg1, arg3 and (arg2 and "in range" or "out of range") or "no range check")
 end)
 C_ActionBar.EnableActionRangeCheck(1, true)
-```
-
-### `ACTION_RANGE_CHECK_UPDATE` event
-
-Fires when an action-bar slot that has
-[`EnableActionRangeCheck`](#c_actionbarenableactionrangecheckslot-enable)
-on goes into or out of range of its target.
-
-```
-ACTION_RANGE_CHECK_UPDATE: slot, isInRange, checksRange
-```
-
-- **`slot`** (number) — the 1-based action-bar slot.
-- **`isInRange`** (boolean) — `true` when the target is in range. Do not
-  use this value when `checksRange` is `false`.
-- **`checksRange`** (boolean) — `false` when the client did not do a range
-  check. For example, the slot is empty, its action has no range, or there
-  is no target.
-
-The values are the values that `IsActionInRange(slot)` gives: `1` is
-`isInRange = true`, `0` is `isInRange = false`, and `nil` is
-`checksRange = false`. A macro that is aimed at a unit (for example
-`[@focus]`) uses that unit as its target.
-
-The client checks the enabled slots on each frame, but only while a frame
-is registered for the event. The event fires only when the state of a
-slot changes, and after each enable call. When the action in a slot
-changes, the client checks the new action. The event fires if its state
-is different.
-
-### `ACTION_USABLE_CHANGED` event
-
-Fires when the usable state of one or more action-bar slots changes. The
-payload gives only the slots that changed. Thus, a handler does not have
-to read `IsUsableAction` for each button.
-
-```
-ACTION_USABLE_CHANGED: changes
-```
-
-- **`changes`** (table) — a list with one table for each slot that
-  changed:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `slot` | number | The 1-based action-bar slot. |
-| `usable` | boolean | The new first return value of `IsUsableAction(slot)`, as a boolean. |
-| `noMana` | boolean | The new second return value of `IsUsableAction(slot)`, as a boolean. |
-
-The event fires immediately after `ACTIONBAR_UPDATE_USABLE`, which does
-not change. When the action in a slot changes, the client fires
-`ACTIONBAR_SLOT_CHANGED` for that slot, not this event. Thus, read
-`IsUsableAction` for a slot on `ACTIONBAR_SLOT_CHANGED`.
-
-```lua
-local f = CreateFrame("Frame")
-f:RegisterEvent("ACTION_USABLE_CHANGED")
-f:SetScript("OnEvent", function()
-    for _, change in ipairs(arg1) do
-        print("Slot", change.slot, change.usable, change.noMana)
-    end
-end)
 ```
 
 ## AddOns
@@ -5625,6 +5563,68 @@ Behavior notes:
   `GLOBAL_MOUSE_UP` fires for each held button.
 - Clicks during a loading screen or a screen fade do not fire the
   events. Clicks that the open console takes also do not fire them.
+
+### `ACTION_RANGE_CHECK_UPDATE` event
+
+Fires when an action-bar slot that has
+[`EnableActionRangeCheck`](#c_actionbarenableactionrangecheckslot-enable)
+on goes into or out of range of its target.
+
+```
+ACTION_RANGE_CHECK_UPDATE: slot, isInRange, checksRange
+```
+
+- **`slot`** (number) — the 1-based action-bar slot.
+- **`isInRange`** (boolean) — `true` when the target is in range. Do not
+  use this value when `checksRange` is `false`.
+- **`checksRange`** (boolean) — `false` when the client did not do a range
+  check. For example, the slot is empty, its action has no range, or there
+  is no target.
+
+The values are the values that `IsActionInRange(slot)` gives: `1` is
+`isInRange = true`, `0` is `isInRange = false`, and `nil` is
+`checksRange = false`. A macro that is aimed at a unit (for example
+`[@focus]`) uses that unit as its target.
+
+The client checks the enabled slots on each frame, but only while a frame
+is registered for the event. The event fires only when the state of a
+slot changes, and after each enable call. When the action in a slot
+changes, the client checks the new action. The event fires if its state
+is different.
+
+### `ACTION_USABLE_CHANGED` event
+
+Fires when the usable state of one or more action-bar slots changes. The
+payload gives only the slots that changed. Thus, a handler does not have
+to read `IsUsableAction` for each button.
+
+```
+ACTION_USABLE_CHANGED: changes
+```
+
+- **`changes`** (table) — a list with one table for each slot that
+  changed:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `slot` | number | The 1-based action-bar slot. |
+| `usable` | boolean | The new first return value of `IsUsableAction(slot)`, as a boolean. |
+| `noMana` | boolean | The new second return value of `IsUsableAction(slot)`, as a boolean. |
+
+The event fires immediately after `ACTIONBAR_UPDATE_USABLE`, which does
+not change. When the action in a slot changes, the client fires
+`ACTIONBAR_SLOT_CHANGED` for that slot, not this event. Thus, read
+`IsUsableAction` for a slot on `ACTIONBAR_SLOT_CHANGED`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("ACTION_USABLE_CHANGED")
+f:SetScript("OnEvent", function()
+    for _, change in ipairs(arg1) do
+        print("Slot", change.slot, change.usable, change.noMana)
+    end
+end)
+```
 
 ### `COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events
 
