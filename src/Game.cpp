@@ -15,6 +15,7 @@
 #include "MinHook.h"
 #include "Offsets.h"
 #include "api/Documentation.h"
+#include "compat/WowTurbo.h"
 
 namespace Game {
 
@@ -586,6 +587,8 @@ HookAutoRegister::HookAutoRegister(uintptr_t target, void *hook, void **original
 bool RunHookRegistrations() {
     for (auto *node = g_hookHead; node != nullptr; node = node->next) {
         auto *targetPtr = reinterpret_cast<LPVOID>(node->target);
+        // A hook must wrap the engine's body, not wow_turbo's reimplementation.
+        Compat::WowTurbo::Reclaim(node->target);
         if (MH_CreateHook(targetPtr, node->hook,
                           reinterpret_cast<LPVOID *>(node->original)) != MH_OK)
             return false;
