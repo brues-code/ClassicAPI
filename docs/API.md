@@ -1033,6 +1033,8 @@ build instructions.
   - [`C_Texture.GetAtlasElements()`](#c_texturegetatlaselements)
   - [`C_Texture.RegisterAtlas(name, file, width, height, left, right, top, bottom [, tilesHorizontally, tilesVertically])`](#c_textureregisteratlasname-file-width-height-left-right-top-bottom--tileshorizontally-tilesvertically)
   - [Atlas markup](#atlas-markup)
+  - [`SetPortraitTextureFromCreatureDisplayID(texture, displayID)`](#setportraittexturefromcreaturedisplayidtexture-displayid)
+  - [`ClassicAPI_CancelPortraitTextureRequest(texture)`](#classicapi_cancelportraittexturerequesttexture)
 
 - [Time](#time)
   - [`GetServerTime()`](#getservertime)
@@ -23897,6 +23899,54 @@ in text.
 
 Text typed by other players never draws atlas art. This matches how a typed
 texture path behaves.
+
+### `SetPortraitTextureFromCreatureDisplayID(texture, displayID)`
+
+Generates a static 64x64 creature portrait in an existing Texture region.
+`displayID` is a positive `CreatureDisplayInfo` ID, not a creature entry ID.
+Unlike `SetPortraitTexture(texture, unit)`, no live unit is needed.
+
+The portrait uses the client's native M2 portrait camera, lighting, and round
+alpha mask. ClassicAPI prepares the source through
+[`model:SetDisplayInfo`](#modelsetdisplayinfocreaturedisplayid), including
+humanoid NPC appearance and equipment available from the display data.
+Like that method, it cannot reproduce weapons sent only for spawned units.
+
+Returns `true` if a cached portrait was assigned immediately or a new request
+was accepted for asynchronous rendering. Returns `false` if the internal model
+worker could not be created. **`true` does not mean rendering has finished.**
+An uncached request leaves the destination's existing texture unchanged until
+the portrait is ready; failed renders also leave it unchanged. No completion
+event or callback is provided.
+
+Repeated requests for the same display ID share a cached result. Calling this
+function again for the same destination replaces its previous pending request.
+The cache is retained across `/reload` within the same game process.
+
+```lua
+local frame = CreateFrame("Frame", nil, UIParent)
+frame:SetSize(64, 64)
+frame:SetPoint("CENTER")
+local portrait = frame:CreateTexture(nil, "ARTWORK")
+portrait:SetAllPoints(frame)
+portrait:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")  -- shown while loading
+
+local accepted = SetPortraitTextureFromCreatureDisplayID(portrait, 3254)
+-- accepted means cached or queued, not necessarily displayed yet
+```
+
+### `ClassicAPI_CancelPortraitTextureRequest(texture)`
+
+Removes a pending portrait request for this Texture region. Useful when a
+region is reused or no longer needs the requested portrait. Returns nothing.
+
+Cancellation does not clear a portrait already assigned to the region, remove
+an entry from the cache, or affect other regions waiting for the same display
+ID. Destroying a Texture region also drops its pending request automatically.
+
+```lua
+ClassicAPI_CancelPortraitTextureRequest(portrait)
+```
 
 ## Time
 
