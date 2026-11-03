@@ -21,8 +21,9 @@ namespace Target::SoftInteract {
 // Read by the token resolver in `unit/TokenExtensions.cpp`.
 uint64_t Get();
 
-// The `anyinteract` GUID: the current target when it can be interacted
-// with (in reach or not, on screen or not), else `softinteract`, else 0.
+// The `anyinteract` GUID: the current target when the player can interact
+// with it right now (in reach; on screen or not), else `softinteract`, else
+// the target when it is interactable but out of reach, else 0.
 uint64_t GetAny();
 
 // True when the player can interact with `object` right now: the hover

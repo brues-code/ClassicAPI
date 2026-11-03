@@ -38,13 +38,20 @@
 // looseTargeting]])` is the modern name the INTERACTTARGET /
 // INTERACTMOUSEOVER bindings call (with "anyinteract", see
 // target/SoftInteract.cpp): the same resolve and right-click, returning a
-// boolean. looseTargeting has no 1.12 counterpart and is read by nothing.
+// boolean. looseTargeting (default true) keeps the current target: on
+// retail 12.1.5 the Interact Key on a nearer NPC opens its dialog while a
+// farther unit stays targeted, and with no target it targets the NPC. Only
+// a unit other than the target would be selected, so only then does the
+// right-click run without its select (InteractKeepingTarget); everything
+// else is the engine's own right-click, which nampower also detours.
 //
 // 4.3.4's taint gate is dropped: 1.12 has no secure environment, and every
 // vanilla action function (TargetUnit, CastSpellByName, …) is callable.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "input/Modifier.h"
+#include "object/Resolve.h"
 #include "unit/Identity.h"
 #include "unit/TokenResolve.h"
 
@@ -56,6 +63,7 @@ namespace Unit::Interact {
 namespace {
 
 using OnSpriteRightClick_t = int(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
+using OnRightClick_t = void(__thiscall *)(void *object, int modifier);
 using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 
 uint64_t ResolveGuid(void *L, const char *token) {
@@ -67,8 +75,27 @@ uint64_t ResolveGuid(void *L, const char *token) {
                                           Game::Lua::ToFlag(L, 2));
 }
 
-bool Interact(void *L) {
+// FUN_ON_SPRITE_RIGHT_CLICK without its select (FUN_SET_SELECTION_BY_GUID):
+// the active-player gate, then the object's right-click virtual.
+bool InteractKeepingTarget(void *object) {
+    if (Object::ByGuid(Offsets::TYPEMASK_PLAYER, Unit::Identity::PlayerGuid()) == nullptr)
+        return true;
+    const int modifier = Input::Modifier::IsKeyDown(0) ? 1 : 0;
+    const auto vtable = *static_cast<uintptr_t *const *>(object);
+    reinterpret_cast<OnRightClick_t>(
+        vtable[Offsets::OFF_OBJECT_VTABLE_ON_RIGHT_CLICK / sizeof(uintptr_t)])(object, modifier);
+    return true;
+}
+
+bool Interact(void *L, bool loose) {
     const uint64_t guid = ResolveGuid(L, Game::Lua::ToString(L, 1));
+    const uint64_t target = Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO);
+    if (loose && target != 0 && guid != target) {
+        // The select stores only units (slot 0x58), so only a unit would move
+        // the target.
+        if (void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid))
+            return InteractKeepingTarget(unit);
+    }
     return reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
                static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)) != 0;
 }
@@ -78,7 +105,7 @@ int __fastcall Script_InteractUnit(void *L) {
         Game::Lua::Error(L, "Usage: InteractUnit(unitToken[, exactMatch])");
         return 0;
     }
-    if (Interact(L))
+    if (Interact(L, false))
         Game::Lua::PushNumber(L, 1.0);
     else
         Game::Lua::PushNil(L);
@@ -91,7 +118,8 @@ int __fastcall Script_C_InteractUnit(void *L) {
                             "looseTargeting]])");
         return 0;
     }
-    Game::Lua::PushBool(L, Interact(L));
+    const bool loose = Game::Lua::Type(L, 3) <= Game::Lua::TYPE_NIL || Game::Lua::ToFlag(L, 3);
+    Game::Lua::PushBool(L, Interact(L, loose));
     return 1;
 }
 
@@ -115,13 +143,15 @@ const Game::Doc::Field kManagerArgs[] = {
                    "\"anyinteract\" is what the Interact Key uses."),
     Game::Doc::Opt("exactMatch", "bool", "false",
                    "When a name is given, require the whole name instead of a prefix."),
-    Game::Doc::Opt("looseTargeting", "bool", "true", "Has no effect."),
+    Game::Doc::Opt("looseTargeting", "bool", "true",
+                   "Keep the current target: the unit becomes the target only when there is "
+                   "none."),
 };
 const Game::Doc::Field kManagerRets[] = {
     Game::Doc::Req("success", "bool", "True when the interaction ran."),
 };
 const Game::Doc::Function kManagerInteractUnit{
-    "Targets the unit or object and interacts with it, as a right-click in the world does.",
+    "Interacts with the unit or object, as a right-click in the world does.",
     kManagerArgs, kManagerRets, "PlayerInteractionManager"};
 
 void RegisterLuaFunctions() {

@@ -1920,6 +1920,10 @@ enum Offsets {
     // an aura-334 gate and skips the target for creatures with type flag
     // 0x20000000; 1.12 has neither. nampower detours it (its offsets.hpp).
     FUN_ON_SPRITE_RIGHT_CLICK = 0x00492820,
+    // The object right-click virtual FUN_ON_SPRITE_RIGHT_CLICK calls after the
+    // select: `void __thiscall(CGObject_C *, int modifier)`, the modifier
+    // being FUN_GAMEUI_IS_KEY_DOWN(0) (`call [edi+0x60]` at 0x00492881).
+    OFF_OBJECT_VTABLE_ON_RIGHT_CLICK = 0x60,
     // Current target-selection GUID (lo/hi), written by
     // `FUN_SET_SELECTION_BY_GUID` — 4.3.4's CGGameUI::m_lockedTarget. The tab
     // cycle compares it with its cursor entry; TargetDirection starts from it.

@@ -23228,7 +23228,10 @@ returns a boolean.
 
 - `unit` and `exactMatch` are the same as for `InteractUnit`. Use
   `"anyinteract"` for the object that the Interact Key uses.
-- `looseTargeting` has no effect.
+- `looseTargeting` is `true` if you do not give it. When it is `true` and
+  you have a target, the interaction does not change your target. When it
+  is `false`, or when you have no target, a unit that you interact with
+  becomes your target.
 
 Returns `true` if the interaction ran, or `false` if nothing matched.
 
@@ -23262,9 +23265,11 @@ If more than one object qualifies, it picks the nearest one.
 
 - `"softinteract"` is the object that soft interact picked. It is empty
   when nothing qualifies or when soft interact is off.
-- `"anyinteract"` is your target when you can interact with it. This is
-  true also when the target is behind you or too far away. If you cannot
-  interact with your target, `"anyinteract"` is the same as
+- `"anyinteract"` is your target when you can interact with it now. This
+  is true also when the target is behind you. When your target is too far
+  away, `"anyinteract"` is the same as `"softinteract"`. If
+  `"softinteract"` is empty, `"anyinteract"` is your target. When you
+  cannot interact with your target, `"anyinteract"` is the same as
   `"softinteract"`.
 - `"anyleftinteract"` is the same as `"anyinteract"`.
 
