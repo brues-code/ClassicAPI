@@ -60,18 +60,16 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "container/Bag.h"
 #include "cvar/Factory.h"
-#include "equipmentset/Locations.h"
 #include "item/BagFamily.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
-#include "item/Location.h"
 #include "item/Record.h"
 #include "item/Swap.h"
 #include "object/Resolve.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
-#include "unit/Identity.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -81,6 +79,8 @@
 namespace Container::SortBags {
 
 namespace {
+
+using BagView = Container::Bag::View;
 
 // The two sets this can arrange. Both go through the same merge,
 // snapshot, comparator and placement.
@@ -258,96 +258,13 @@ bool Precedes(const Entry &a, const Entry &b) {
     return a.itemID < b.itemID;   // total order, so the result is stable
 }
 
-// A bag's storage, addressed without Lua: the invMgr holding its GUID
-// array, the linear index its first slot sits at, and the family it
-// accepts. The backpack lives inside the player's own invMgr; bags 1..4
-// each have one of their own.
-struct BagView {
-    const uint8_t *invMgr;
-    int firstLinear;
-    int slotCount;
-    uint32_t family;
-};
-
-// The backpack and the main bank both live inside the player's own
-// invMgr, at different linear bases. Equipped bags and bank bags each
-// have an invMgr of their own, reached through the bag item.
-//
-// The bank resolves only while a banker is open: the server refuses every
-// bank move without one, and the engine's own slot reader (`0x6228a0`)
-// hides slots 39..68 on the same banker-GUID test. The main bank's GUIDs
-// sit in the player's invMgr from login, so without this gate a closed-
-// bank sort would plan and send moves the server rejects one by one.
-bool ViewForBag(int bagID, BagView *out) {
-    if ((bagID == -1 || bagID >= 5) && !EquipmentSet::Locations::BankerOpen())
-        return false;
-    if (bagID == 0) {
-        auto *inv = Unit::Identity::PlayerInventoryManager();
-        if (inv == nullptr)
-            return false;
-        *out = {inv, Offsets::INVMGR_BACKPACK_FIRST_SLOT,
-                Offsets::BACKPACK_NUM_SLOTS, 0};
-        return true;
-    }
-    if (bagID == -1) {
-        auto *inv = Unit::Identity::PlayerInventoryManager();
-        if (inv == nullptr)
-            return false;
-        *out = {inv, Offsets::INVMGR_BANK_MAIN_FIRST_SLOT,
-                Offsets::INVMGR_BANK_MAIN_LAST_SLOT -
-                    Offsets::INVMGR_BANK_MAIN_FIRST_SLOT + 1,
-                0};
-        return true;
-    }
-
-    // Resolve the bag item that owns the container.
-    int equipSlot = 0;
-    if (bagID >= 1 && bagID <= 4)
-        equipSlot = Offsets::INVSLOT_BAG1 + bagID - 1;
-    else if (bagID >= 5 && bagID <= 10)
-        equipSlot = Offsets::INVMGR_BANK_BAG_FIRST_SLOT + 1 + (bagID - 5);
-    else
-        return false;
-
-    auto *bagItem = Item::Location::ResolveEquipmentSlot(equipSlot);
-    if (bagItem == nullptr)
-        return false;
-    auto *bagInv = static_cast<const uint8_t *>(
-        Item::Location::ContainerInventory(bagItem));
-    if (bagInv == nullptr)
-        return false;
-    const int slots = static_cast<int>(
-        Game::Read<uint32_t>(bagInv, Offsets::OFF_INVMGR_SLOT_COUNT));
-    if (slots <= 0)
-        return false;
-
-    // A specialty bag only accepts its own family, and Turtle leaves the
-    // raw field empty on bags — `BitmaskForRecord` derives it from the
-    // container subclass, so a quiver reports a family here rather than
-    // reading as general-purpose. Shared with `C_Item.GetItemFamily`, so
-    // a bag and the items it holds agree.
-    uint32_t family = 0;
-    const int bagItemID = Item::ID::FromCGItem(bagItem);
-    if (bagItemID > 0) {
-        auto *rec = Item::PeekRecord(static_cast<uint32_t>(bagItemID));
-        if (rec != nullptr)
-            family = Item::BagFamily::BitmaskForRecord(rec);
-    }
-    *out = {bagInv, 0, slots, family};
-    return true;
-}
-
 const uint8_t *ItemByGuid(uint64_t guid) {
     return static_cast<const uint8_t *>(
         Object::ByGuid(Offsets::TYPEMASK_ITEM, guid, "SortBags", 0));
 }
 
 const uint8_t *ItemAt(const BagView &v, int slotIndex0, uint64_t *guidOut) {
-    auto *guids = *reinterpret_cast<const uint64_t *const *>(
-        v.invMgr + Offsets::OFF_INVMGR_GUID_ARRAY);
-    if (guids == nullptr)
-        return nullptr;
-    const uint64_t guid = guids[v.firstLinear + slotIndex0];
+    const uint64_t guid = Container::Bag::SlotGuid(v, slotIndex0);
     if (guid == 0)
         return nullptr;
     *guidOut = guid;
@@ -417,7 +334,7 @@ std::vector<Group> GatherGroups(const int *bags, int bagCount) {
     for (int b = 0; b < bagCount; ++b) {
         const int bag = bags[b];
         BagView view;
-        if (!ViewForBag(bag, &view))
+        if (!Container::Bag::ViewFor(bag, &view))
             continue;
         for (int i = 0; i < view.slotCount; ++i) {
             uint64_t guid = 0;
@@ -590,7 +507,7 @@ bool Place(const int *bags, int bagCount, int mergesPending) {
     for (int b = 0; b < bagCount; ++b) {
         const int bag = bags[b];
         BagView view;
-        if (!ViewForBag(bag, &view))
+        if (!Container::Bag::ViewFor(bag, &view))
             continue;
         for (int i = 0; i < view.slotCount; ++i) {
             const int slot = i + 1;
@@ -958,7 +875,7 @@ int __fastcall Script_SortBagsBags(void *L) {
     int pushed = 0;
     for (int b = 0; b < count; ++b) {
         BagView view;
-        if (!ViewForBag(bags[b], &view))
+        if (!Container::Bag::ViewFor(bags[b], &view))
             continue;
         Game::Lua::PushNumber(L, bags[b]);
         Game::Lua::PushNumber(L, view.slotCount);

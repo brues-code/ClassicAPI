@@ -87,16 +87,22 @@ int GetBagSlotCount(int bagID);
 // `equipmentset/Locations`, and `item/NewItems`.
 void *ContainerInventory(const uint8_t *container);
 
-// Returns the inventory object of the equipped bag in player bag slot `bagID`
-// (1..4): its container GUID via `FUN_GET_EQUIPPED_BAG_GUID`, resolved to the
-// CGContainer, then its inventory via `ContainerInventory`. The result has the
-// player-invMgr shape (slot count at `+0x00`, GUID array at
-// `+OFF_INVMGR_GUID_ARRAY`) and is what `GetItemBySlot` indexes with a 0-based
-// slot. Returns null for `bagID` outside 1..4 or when no bag is equipped
-// there. Pure C — no Lua stack. (The backpack, `bagID` 0, has no container
-// object; index it directly off the player inventory manager at
-// `BACKPACK_LINEAR_BASE + slot - 1`.)
-void *EquippedBagInventory(int bagID);
+// Returns the bag in container `bagID` — an equipped bag (1..4) or a bank
+// bag (5..10) — as its CGContainer, which is also its CGItem. The GUID comes
+// from `FUN_GET_EQUIPPED_BAG_GUID`, which itself answers 0 for a bank bag
+// while no bank window is open, so bank bags resolve only at a banker, the
+// way `PackBagSlot` resolves them. Null for any other `bagID` or an empty
+// bag slot. Pure C — no Lua stack.
+const uint8_t *BagContainer(int bagID);
+
+// `ContainerInventory(BagContainer(bagID))`: the inventory object of the bag
+// in container `bagID` (1..10, bank bags only at a banker). The result has
+// the player-invMgr shape (slot count at `+0x00`, GUID array at
+// `+OFF_INVMGR_GUID_ARRAY`) and is what `GetItemBySlot` indexes with a
+// 0-based slot. Null when `BagContainer` is. Pure C — no Lua stack. (The
+// backpack, `bagID` 0, has no container object; index it directly off the
+// player inventory manager at `BACKPACK_LINEAR_BASE + slot - 1`.)
+void *BagInventory(int bagID);
 
 // GUID-walk result. `equipmentSlotIndex != 0` means the item was
 // found in a character-pane equipment slot; otherwise it's in
@@ -224,8 +230,8 @@ bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out);
 
 // Resolves `(bagID, slotIndex)` to its `CGItem *` WITHOUT the Lua stack:
 // the backpack (bag 0) is indexed straight off the player inventory manager
-// at `BACKPACK_LINEAR_BASE + slot - 1`, bags 1..4 through
-// `EquippedBagInventory` — both via the engine's `GetItemBySlot`. Returns
+// at `BACKPACK_LINEAR_BASE + slot - 1`, bags 1..10 through `BagInventory`
+// (bank bags only at a banker) — both via the engine's `GetItemBySlot`. Returns
 // nullptr for a bad bag, an out-of-range slot, or an empty slot. Safe from
 // any context (world tick, packet hooks) — the `PackBagSlot`-based
 // `ResolveBag` is not, because it reads its inputs off the Lua stack.

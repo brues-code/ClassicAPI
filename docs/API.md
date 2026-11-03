@@ -3495,57 +3495,41 @@ for a wand without re-walking every other matching item.
 
 ### `C_Container.GetContainerNumFreeSlots(bagID)`
 
-Returns the number of empty slots in the given bag, plus the bag's
-`BagFamily` bitfield (the type of items the bag is restricted to).
+Returns the number of empty slots in a bag, and the bag family of that
+bag. The bag family is a bitmask that shows which items the bag accepts.
 
 ```
-numberOfFreeSlots, bagType = C_Container.GetContainerNumFreeSlots(bagID)
+numFreeSlots, bagFamily = C_Container.GetContainerNumFreeSlots(bagID)
 ```
 
-- `bagID = 0` — the player's main backpack. Always reports
-  `(freeCount, 0)` — the backpack is unfamilied (general-purpose).
-- `bagID = 1..4` — the player's equipped bag slots. Slot count and
-  bagType come from the bag item's cached `ItemStats_C` record —
-  `m_containerSlots` and `m_bagFamily` respectively. If no bag is
-  equipped (or the item somehow isn't cached): `(0, 0)`.
-- Other `bagID` values (bank, keyring, out-of-range): `(0, 0)`. Always
-  returns two values, never nil.
+- `bagID = 0`: the backpack. `bagFamily` is always `0`, because the
+  backpack accepts all items.
+- `bagID = 1..4`: the equipped bags.
+- `bagID = -1`: the main bank. `bagFamily` is always `0`.
+- `bagID = 5..10`: the bank bags.
+
+The main bank and the bank bags are available only while the bank window
+is open. If the bag is not there, the function returns only `0`, and
+`bagFamily` is `nil`. This includes the keyring, an empty bag slot, and
+the bank while the bank window is closed.
 
 ```lua
-local free, bagType = C_Container.GetContainerNumFreeSlots(0)
--- free = number of empty slots in backpack, bagType = 0
-
-for bag = 0, 4 do
-    local free = C_Container.GetContainerNumFreeSlots(bag)
-    -- ...
+local free, bagFamily = C_Container.GetContainerNumFreeSlots(1)
+if bagFamily == 0 then
+    -- a general-purpose bag
 end
 ```
 
-> **`bagType` is derived for specialty bags.** Bags leave the raw
-> BagFamily field empty in Turtle's data (Soul Bag, Herb Bag, quiver,
-> ammo pouch, … all read 0). We fall back to deriving the family from the
-> bag's class + subclass, so a Soul Bag reports `0x4` here, a quiver
-> `0x1`, an ammo pouch `0x2` — the same values
-> [`C_Item.GetItemFamily`](#c_itemgetitemfamilyitem) reports for both
-> the bag and the items it holds. This also means
-> `CalculateTotalNumberOfFreeBagSlots` now correctly excludes specialty
-> bags from the general-purpose free-slot total (it previously counted
-> them, since the raw field was 0). Note the Turtle custom families
-> (Meat/Fish/Leather/Mining, `0x200`–`0x1000`) collide with the standard
-> bit meanings — see the `GetItemFamily` family table for the caveat.
+> **Specialty bags report their family.** A Soul Bag reports `0x4`, a
+> quiver reports `0x1`, and an ammo pouch reports `0x2`. These are the same
+> values that [`C_Item.GetItemFamily`](#c_itemgetitemfamilyitem) gives for
+> the bag and for the items that go in it. The Turtle bags (Meat, Fish,
+> Leather, Mining) use `0x200` to `0x1000`. These bits have a different
+> meaning in other clients. See the `GetItemFamily` family table.
 
-> **The bitmask encoding.** `bagType` is the bit
-> position (`1 << (familyID - 1)`), not the raw stored familyID,
-> so callers can bitwise-AND with itemFamily values from
-> [`C_Item.GetItemFamily`](#c_itemgetitemfamilyitem) directly. We
-> convert internally — see that function's notes for the
-> encoding-shift story.
-
-Implementation walks the bag using
-[`Item::Location::ResolveBag`](#c_containergetcontaineritemidbagindex-slotindex)
-internally and counts slots that resolve to a null `CGItem *` (i.e.,
-empty). Cross-checked in-game against a manual
-`C_Container.GetContainerItemID` walk; counts match.
+> **The encoding.** `bagFamily` is a bitmask (`1 << (familyID - 1)`), so
+> you can use `bit.band` to compare it with a value from
+> [`C_Item.GetItemFamily`](#c_itemgetitemfamilyitem).
 
 ### `C_Container.GetContainerFreeSlots(bagID)`
 
@@ -3556,10 +3540,11 @@ ascending order.
 freeSlots = C_Container.GetContainerFreeSlots(bagID)
 ```
 
-- `bagID = 0` — the player's main backpack.
-- `bagID = 1..4` — the player's equipped bag slots. If no bag is
-  equipped there, the call returns nothing.
-- Other `bagID` values (bank, keyring, out of range) return nothing.
+- `bagID` takes the same values as
+  [`C_Container.GetContainerNumFreeSlots`](#c_containergetcontainernumfreeslotsbagid).
+  The main bank and the bank bags are available only while the bank
+  window is open.
+- If the bag is not there, the call returns nothing.
 
 A full bag returns an empty table. A bag that is not there returns
 nothing at all, so an empty table and a missing bag stay easy to tell
@@ -3650,8 +3635,8 @@ An empty slot, and a slot in a bag you do not have, both report
 ### `C_Container.CalculateTotalNumberOfFreeBagSlots()`
 
 Returns the total number of free slots across the player's
-**general-purpose** bags — backpack plus any equipped bags 0..4 whose
-`BagFamily` is 0. Specialty bags (quivers, soul bags, herb bags, …) are
+**general-purpose** bags: the backpack, plus each equipped bag (1..4)
+whose bag family is 0. Specialty bags (quivers, soul bags, herb bags, …) are
 excluded, matching FrameXML's implementation:
 
 ```lua
@@ -3665,12 +3650,9 @@ end
 
 Takes no arguments.
 
-> **Same sparse-`BagFamily` caveat** as
-> [`GetContainerNumFreeSlots`](#c_containergetcontainernumfreeslotsbagid):
-> because the server data leaves most bags' family field at 0,
-> specialty bags that would normally be excluded are counted here. The result
-> stays consistent with the per-bag `GetContainerNumFreeSlots` values it
-> sums.
+> The result is the sum of the per-bag
+> [`GetContainerNumFreeSlots`](#c_containergetcontainernumfreeslotsbagid)
+> values for the bags whose bag family is 0.
 
 ### `C_Container.IsContainerItemOpenable(containerIndex, slotIndex)`
 
@@ -12856,7 +12838,7 @@ Returned table:
 | `maxStackSize` | number | `m_stackable`. |
 | `maxCount` | number | `m_maxCount` — 0=unlimited, 1=unique, otherwise per-character cap. |
 | `containerSlots` | number | `m_containerSlots` — bag slot count, 0 for non-bags. |
-| `bagFamily` | number | `m_bagFamily` converted to a bitmask (`1 << (id-1)`). |
+| `bagFamily` | number | The bag family bitmask. The same value as [`C_Item.GetItemFamily`](#c_itemgetitemfamilyitem), bags included. |
 | `buyPrice` | number | Vendor buy price in copper. |
 | `sellPrice` | number | Vendor sell price in copper. |
 | `itemLevel` | number | Base ilvl from `ItemSparse`. |

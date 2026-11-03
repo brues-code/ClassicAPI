@@ -7135,6 +7135,13 @@ enum Offsets {
     // first slot test (`0x0062244F`: slot <= 0x12 and flags & 1). 4.3.4's
     // `Script_IsEquippedItemType` searches with exactly this flag.
     INVMGR_SEARCH_EQUIPMENT = 0x01,
+    // Free-slot count — `uint32 __thiscall(invMgr)`, plain `ret`. On a
+    // container's own inventory (`+0x10` byte clear) it counts every slot
+    // 0..count-1 whose GUID is zero: 3.3.5's `CGContainer_C::GetFreeSlots`.
+    // On the player's list it counts the backpack (23..38) plus, recursing,
+    // each item-class-1 bag in 19..22, and skips equipment, bank and keyring
+    // (disassembled 0x00622910-0x006229CA).
+    FUN_INVMGR_COUNT_FREE_SLOTS = 0x00622910,
     // The registered action-bar Lua C functions that `Action::ItemState`
     // re-registers in front of. Tail-call these with the untouched stack for
     // every slot we don't own (they raise their own usage errors).

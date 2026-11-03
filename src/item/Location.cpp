@@ -107,23 +107,25 @@ void *ContainerInventory(const uint8_t *container) {
     return getInventory(const_cast<uint8_t *>(container));
 }
 
-void *EquippedBagInventory(int bagID) {
-    if (bagID < 1 || bagID > 4)
+const uint8_t *BagContainer(int bagID) {
+    if (bagID < Offsets::BAG_INDEX_BAG_FIRST || bagID > Offsets::BAG_INDEX_BANK_BAG_LAST)
         return nullptr;
     using GetBagGuid_t = uint64_t(__fastcall *)(uint32_t bagIndex0);
     auto getBagGuid =
         reinterpret_cast<GetBagGuid_t>(Offsets::FUN_GET_EQUIPPED_BAG_GUID);
     const uint64_t bagGuid = getBagGuid(static_cast<uint32_t>(bagID - 1));
     if (bagGuid == 0)
-        return nullptr; // no bag equipped in that slot
-    auto *container = static_cast<const uint8_t *>(
+        return nullptr; // no bag there, or a bank bag with the bank closed
+    return static_cast<const uint8_t *>(
         Object::ByGuid(Offsets::TYPEMASK_CONTAINER, bagGuid, "ItemMgr", 0x172));
-    return ContainerInventory(container);
 }
 
-// Mirrors `Item::Bag::ResolveBagInfo`'s slot-count derivation: backpack
-// is fixed at 16, equipped bags read `m_containerSlots` off the cache
-// record. Returns 0 for empty bag slots or out-of-range bagIDs.
+void *BagInventory(int bagID) {
+    return ContainerInventory(BagContainer(bagID));
+}
+
+// Backpack is fixed at 16, equipped bags read `m_containerSlots` off the
+// cache record. Returns 0 for empty bag slots or out-of-range bagIDs.
 int GetBagSlotCount(int bagID) {
     if (bagID == 0)
         return Offsets::BACKPACK_NUM_SLOTS;
@@ -289,7 +291,7 @@ const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex) {
         return static_cast<const uint8_t *>(
             GetItemBySlot(invMgr, Offsets::BACKPACK_LINEAR_BASE + slotIndex - 1));
     }
-    void *bagInv = EquippedBagInventory(bagID);
+    void *bagInv = BagInventory(bagID);
     if (bagInv == nullptr)
         return nullptr;
     const int slotCount = static_cast<int>(*reinterpret_cast<const uint32_t *>(bagInv));

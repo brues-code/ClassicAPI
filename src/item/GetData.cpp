@@ -25,6 +25,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "item/Arg.h"
+#include "item/BagFamily.h"
 #include "item/ID.h"
 #include "item/Icon.h"
 #include "item/Location.h"
@@ -83,13 +84,6 @@ const char *LookupInvType(uint32_t invType) {
     auto **table = reinterpret_cast<const char **>(Offsets::VAR_INVTYPE_STRING_TABLE);
     const char *s = table[invType];
     return (s != nullptr && s[0] != '\0') ? s : "";
-}
-
-// Wrath flipped the bagFamily encoding from raw 1-based IDs to a
-// bitmask. We surface the modern shape so backported addons compile
-// cleanly. See `Item::Info::BagFamilyIdToBitmask` for the full story.
-uint32_t BagFamilyIdToBitmask(uint32_t rawId) {
-    return (rawId == 0) ? 0 : (1u << (rawId - 1));
 }
 
 // Shorthand: read a u32 field from the record at `offset`, push it on
@@ -276,10 +270,8 @@ void PushItemDataTable(void *L, uint32_t itemID, const uint8_t *record) {
     SetI32(L, record, "maxStackSize", Offsets::OFF_ITEMSTATS_STACKABLE);
     SetI32(L, record, "maxCount", Offsets::OFF_ITEMSTATS_MAX_COUNT);
     SetU32(L, record, "containerSlots", Offsets::OFF_ITEMSTATS_CONTAINER_SLOTS);
-    const uint32_t rawBagFamily = Game::Read<uint32_t>(
-        record, Offsets::OFF_ITEMSTATS_BAG_FAMILY);
     Game::Lua::SetFieldNumber(L, "bagFamily",
-                              static_cast<double>(BagFamilyIdToBitmask(rawBagFamily)));
+                              static_cast<double>(Item::BagFamily::BitmaskForRecord(record)));
 
     // Economy
     SetU32(L, record, "buyPrice", Offsets::OFF_ITEMSTATS_BUY_PRICE);

@@ -438,7 +438,7 @@ static void RebuildOwned() {
         // Contents of each equipped bag (its own invMgr, slot count at +0).
         for (int bagID = 1; bagID <= 4; ++bagID) {
             auto *bagInv =
-                static_cast<const uint8_t *>(Item::Location::EquippedBagInventory(bagID));
+                static_cast<const uint8_t *>(Item::Location::BagInventory(bagID));
             if (bagInv == nullptr)
                 continue;
             const int count = static_cast<int>(

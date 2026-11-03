@@ -242,7 +242,7 @@ int ScanBags(const uint8_t *player, uint64_t *out) {
         const int slots = Item::Location::GetBagSlotCount(bagID);
         if (slots <= 0)
             continue;
-        void *bagInv = Item::Location::EquippedBagInventory(bagID);
+        void *bagInv = Item::Location::BagInventory(bagID);
         if (bagInv == nullptr)
             continue;
         for (int slot = 1; slot <= slots; ++slot) {
