@@ -374,6 +374,20 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
+bool IsPortraitAppearanceReady(void *pane) {
+    if (pane == nullptr)
+        return false;
+    void *instance = Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
+    if (instance == nullptr ||
+        !reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(instance, 0, 0))
+        return false;
+    if (DressJob *job = FindJob(pane)) {
+        if (!job->done || (job->instance != nullptr && job->instance != instance))
+            return false;
+    }
+    return true;
+}
+
 void PrepareForReload() {
     for (auto &job : g_jobs)
         CancelJob(job);

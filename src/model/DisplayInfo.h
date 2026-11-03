@@ -12,6 +12,9 @@
 
 namespace Model::DisplayInfo {
 
+// The model's M2 and any pending humanoid appearance composition are ready.
+bool IsPortraitAppearanceReady(void *pane);
+
 // The reload teardown destroys every Model frame (and with it the model
 // instances our pending character-dress jobs point at). Drop all jobs and
 // destroy their engine compositors before the engine starts tearing down.

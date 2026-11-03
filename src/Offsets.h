@@ -12635,6 +12635,34 @@ enum Offsets {
     // the per-stage applies clamp against (FUN_005a29d0/FUN_005a2b40).
     VAR_GX_DEVICE = 0x00C0ED38,
     OFF_GXDEV_STAGE_CAP = 0x23C,
+    // Native static creature portrait pipeline — WoW 1.12.1 build 5875.
+    // Original portrait bake (0x00524F60) and related model/GX primitives.
+    FUN_PORTRAIT_SCENE_CREATE = 0x00706E10,
+    FUN_PORTRAIT_SCENE_RELEASE = 0x00707320,
+    FUN_PORTRAIT_SCENE_DUPLICATE = 0x00707400,
+    FUN_PORTRAIT_SCENE_ANIMATE = 0x00707680,
+    FUN_PORTRAIT_SCENE_DRAW = 0x00708900,
+    FUN_PORTRAIT_MODEL_RELEASE = 0x007103A0,
+    FUN_PORTRAIT_MODEL_IS_DRAWABLE = 0x00710450,
+    FUN_PORTRAIT_MODEL_SET_ANIMATING = 0x00710B90,
+    FUN_PORTRAIT_MODEL_SET_VISIBLE = 0x00710C50,
+    FUN_PORTRAIT_MODEL_PLAY_ANIMATION = 0x007121A0,
+    FUN_PORTRAIT_MODEL_CAMERA = 0x00713540,
+    FUN_PORTRAIT_CAMERA_PROJECTION = 0x007ADA40,
+    FUN_PORTRAIT_REMOVE_VISUALS = 0x0047A230,
+    FUN_PORTRAIT_LIGHTING_CALLBACK = 0x00525B10,
+    FUN_PORTRAIT_ALPHA_MASK = 0x005258A0,
+    FUN_GX_CAPS_SCREEN_SIZE = 0x0058A250,
+    FUN_GX_SCENE_CLEAR = 0x0058A970,
+    FUN_PORTRAIT_SET_TEXTURE_HANDLE = 0x00770300,
+    OFF_PORTRAIT_MODEL_DRAW_FLAGS = 0x10,
+    OFF_PORTRAIT_SCENE_ELEMENT_COUNT = 0x30,
+    // CGxDevice native vtable operations. SetCap(bit, enabled) is the
+    // original master-enable setter; bit 1 is fog (see benilla-re gx).
+    VTBL_GXDEVICE_READ_PIXELS = 0x48,
+    VTBL_GXDEVICE_SET_CAP = 0x9C,
+    OFF_GXDEV_CAPABILITY_BITS = 0x269C,
+    GX_CAP_FOG = 1,
     // The vertex-stream primitive every textured region draws through
     // (FUN_0076fb00 calls it per region). Decompiler signature (13 params):
     // (count, positions, posStride, s3, s3Stride, colors, colorStride, drop8,
