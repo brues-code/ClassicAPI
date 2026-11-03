@@ -106,7 +106,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Loot](docs/API.md#loot) | `C_Loot.GetNearbyLootableUnits`, `C_Loot.GetLastScanResults`, `C_Loot.IsScanInProgress`, `C_Loot.LootAllCorpses`, `C_Loot.LootUnit`, `C_Loot.LootUnitItem`, `C_Loot.ScanNearbyLoot` |
 | [LootHistory](docs/API.md#loothistory) | `C_LootHistory.GetNumItems`, `C_LootHistory.GetItem`, `C_LootHistory.GetPlayerInfo`, `C_LootHistory.Clear` |
 | [LossOfControl](docs/API.md#lossofcontrol) | `C_LossOfControl.GetActiveLossOfControlData`, `C_LossOfControl.GetActiveLossOfControlDataCount`, `C_LossOfControl.GetSchoolLockout` |
-| [Lua](docs/API.md#lua) | `collectgarbage` (5.1 options), `coroutine.create`, `coroutine.resume`, `coroutine.running`, `coroutine.status`, `coroutine.wrap`, `coroutine.yield`, `CreateFromMixins`, `GetCallstackHeight`, `GetErrorCallstackHeight`, `math.fmod`, `math.huge`, `math.modf`, `Mixin`, `select`, `SetErrorCallstackHeight`, `strcmputf8i`, `strconcat`, `string.concat`, `string.gmatch`, `string.gsub` (table replacement), `string.join`, `string.match`, `string.reverse`, `string.split`, `string.trim`, `strjoin`, `strlenutf8`, `strmatch`, `strreplace`, `strrev`, `strsplit`, `strsplittable`, `strtrim`, `table.count`, `table.maxn`, `table.wipe`, `unpack` (range args), `wipe`, `xpcall` (argument forwarding) |
+| [Lua](docs/API.md#lua) | `collectgarbage` (5.1 options), `coroutine.create`, `coroutine.resume`, `coroutine.running`, `coroutine.status`, `coroutine.wrap`, `coroutine.yield`, `CreateFromMixins`, `debuglocals`, `debugstack` (coroutine argument), `difftime`, `GetCallstackHeight`, `GetErrorCallstackHeight`, `gmatch`, `math.cosh`, `math.fmod`, `math.huge`, `math.modf`, `math.sinh`, `math.tanh`, `Mixin`, `newproxy`, `scrub`, `select`, `SetErrorCallstackHeight`, `strbyte` (range args), `strcmputf8i`, `strconcat`, `string.byte` (range args), `string.concat`, `string.format` (two-digit `%n$`), `string.gmatch`, `string.gsub` (table replacement, `%0`), `string.join`, `string.match`, `string.reverse`, `string.split`, `string.trim`, `strjoin`, `strlenutf8`, `strmatch`, `strreplace`, `strrev`, `strsplit`, `strsplittable`, `strtrim`, `table.count`, `table.maxn`, `table.removemulti`, `table.wipe`, `unpack` (range args), `wipe`, `xpcall` (argument forwarding) |
 | [Macros](docs/API.md#macros) | `C_Macro.CreateMacro`, `C_Macro.EditMacro`, `C_Macro.SetMacroDisplay`, `DeleteMacro` / `EditMacro` / `GetMacroInfo` / `PickupMacro` by name, `GetLooseMacroIcons`, `GetLooseMacroItemIcons`, `GetMacroBody`, `GetMacroIcons`, `GetMacroItem`, `GetMacroItemIcons`, `GetMacroSpell`, `GetRunningMacro`, `GetRunningMacroButton`, `RunMacroText`, `SetMacroItem`, `SetMacroSpell`, `StopMacro` |
 | [Mail](docs/API.md#mail) | `GetInboxItemLink`, `GetSendMailItemLink` |
 | [Map](docs/API.md#map) | `C_Map.CanSetUserWaypointOnMap`, `C_Map.ClearUserWaypoint`, `C_Map.GetAreaInfo`, `C_Map.GetAreas`, `C_Map.GetAreaTriggerInfo`, `C_Map.GetAreaTriggers`, `C_Map.GetBestMapForUnit`, `C_Map.GetFallbackWorldMapID`, `C_Map.GetMapAreaIDs`, `C_Map.GetMapArtLayers`, `C_Map.GetMapArtLayerTextures`, `C_Map.GetMapChildrenInfo`, `C_Map.GetMapInfo`, `C_Map.GetMapInfoAtPosition`, `C_Map.GetMapOverlays`, `C_Map.GetMapPosFromWorldPos`, `C_Map.GetMapRectOnMap`, `C_Map.GetMapWorldSize`, `C_Map.GetPlayerMapPosition`, `C_Map.GetUserWaypoint`, `C_Map.GetUserWaypointFromHyperlink`, `C_Map.GetUserWaypointHyperlink`, `C_Map.GetUserWaypointPositionForMap`, `C_Map.GetWorldPosFromMapPos`, `C_Map.HasUserWaypoint`, `C_Map.MapHasArt`, `C_Map.SetUserWaypoint` |
@@ -504,10 +504,10 @@ the embedded addon.
 ## Lua errors
 
 ClassicAPI replaces the game's Lua error box with a Lua error window. The
-window opens when an error occurs. It shows the message, the time, the count
-and the stack of each error. You can select and copy the text. The arrow
-buttons show the previous and the next error. The **Reload UI** button
-reloads the interface.
+window opens when an error occurs. It shows the message, the time, the count,
+the stack and the local variables of each error. You can select and copy the
+text. The arrow buttons show the previous and the next error. The
+**Reload UI** button reloads the interface.
 
 If you use `!BugGrabber` (with BugSack), BugGrabber gets the errors and the
 window does not open. If an addon sets its own error handler, the window also
