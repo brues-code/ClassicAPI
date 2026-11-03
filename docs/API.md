@@ -23908,7 +23908,7 @@ Unlike `SetPortraitTexture(texture, unit)`, no live unit is needed.
 
 The portrait uses the client's native M2 portrait camera, lighting, and round
 alpha mask. ClassicAPI prepares the source through
-[`model:SetDisplayInfo`](#modelsetdisplayinfocreaturedisplayid), including
+[`model:SetDisplayInfo`](#modelsetdisplayinfodisplayid), including
 humanoid NPC appearance and equipment available from the display data.
 Like that method, it cannot reproduce weapons sent only for spawned units.
 
