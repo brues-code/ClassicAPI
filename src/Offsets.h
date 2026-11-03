@@ -8795,8 +8795,20 @@ enum Offsets {
     LUA_GET_STACK = 0x006FBAA0,
     LUA_GET_INFO = 0x006FBC70,
     SIZEOF_LUA_DEBUG = 0x60,
+    OFF_LUA_DEBUG_NAME = 0x04,
     OFF_LUA_DEBUG_SOURCE = 0x10,
     OFF_LUA_DEBUG_CURRENTLINE = 0x14,
+    OFF_LUA_DEBUG_LINEDEFINED = 0x1C,
+    // `lua_getlocal(L, ar, n)` — `const char *__fastcall` (n on the stack):
+    // pushes local n of the call level ar names (ar+0x5C, i_ci) and returns
+    // its name, or returns null and pushes nothing (no such local, or a C
+    // level). No engine callers.
+    LUA_GET_LOCAL = 0x006FBB20,
+    // `lua_getupvalue(L, funcindex, n)` — `const char *__fastcall` (n on the
+    // stack): pushes upvalue n of the function at funcindex and returns its
+    // name ("" for a C closure), or null for no such upvalue or a value that
+    // is not a function. (0x006F45B0 is lua_pushupvalues.)
+    LUA_GET_UPVALUE = 0x006F4660,
     // `luaO_chunkid(out, source, bufflen)` — `void __fastcall(char *out /*ecx*/,
     // const char *source /*edx*/, int bufflen /*stack*/)`, RET 4: the name a
     // chunk has in error messages. `=name` is copied as is, `@file` is the

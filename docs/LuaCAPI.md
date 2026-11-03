@@ -178,9 +178,9 @@ behaviour the comment describes (`push 0; mov edx, 1; mov ecx, L`) is
 | `0x006F4450` | `lua_next`               | fastcall | calls `luaH_next` at `0x006FA2A0`                | ★   |
 | `0x006F44E0` | `lua_concat`             | fastcall | calls `luaV_concat` at `0x006F84D0`              | ★   |
 | `0x006F4560` | `lua_newuserdata`        | fastcall | tag 7; calls `luaS_newudata` at `0x006F9E30`     | ★   |
-| `0x006F45B0` | `lua_getupvalue`         | fastcall | reads upvalue from C closure                      | ◦   |
-| `0x006F4660` | `lua_setupvalue`         | fastcall |                                                   | ◦   |
-| `0x006F46E0` | *internal upvalue helper*|          | shared by get/set above                            | ◦   |
+| `0x006F45B0` | `lua_pushupvalues`       | fastcall | pushes the running C closure's upvalues, returns how many | ★ |
+| `0x006F4660` | `lua_getupvalue`         | fastcall | `(L, funcindex, n)`: pushes upvalue n, returns its name or null | ★ |
+| `0x006F46E0` | `aux_upvalue`            |          | finds upvalue n of a function, returns its name   | ★   |
 
 ## Auxiliary library (`luaL_*`)
 

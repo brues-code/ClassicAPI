@@ -678,6 +678,7 @@ build instructions.
   - [`difftime(time2 [, time1])`](#difftimetime2--time1)
   - [`xpcall(f, msgh [, arg1, ...])`](#xpcallf-msgh--arg1-)
   - [`GetCallstackHeight()` / `GetErrorCallstackHeight()` / `SetErrorCallstackHeight([height])`](#getcallstackheight--geterrorcallstackheight--seterrorcallstackheightheight)
+  - [`debuglocals([level [, skipFunctionsAndUserdata]])`](#debuglocalslevel--skipfunctionsanduserdata)
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
   - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
   - [`table.count(tbl)`](#tablecounttbl)
@@ -16135,6 +16136,32 @@ end
 ```
 
 Works in the world and on the login screen.
+
+### `debuglocals([level [, skipFunctionsAndUserdata]])`
+
+Returns the local variables and the upvalues of a call level as one string.
+An error handler uses it to show the values in the code that caused the
+error. `level` counts the same as in `debugstack`, and is 1 by default.
+
+Each variable is one `name=value` line. A string value is in quotes. A
+table shows the name of its frame, or `<table>`, then its fields one space in,
+then `}`. Fields of tables inside a table do not show. A function shows the
+file and line where it is defined.
+
+If `skipFunctionsAndUserdata` is `true`, function and userdata values do not
+show. The text stops at 4095 bytes.
+
+`debuglocals` works only while an error handler runs. At other times it
+returns nothing.
+
+```lua
+seterrorhandler(function(message)
+    local level = GetCallstackHeight() - GetErrorCallstackHeight() + 1
+    print(debuglocals(level, true))
+end)
+```
+
+The error window shows these values under **Locals**.
 
 ### `collectgarbage(opt [, arg])`
 

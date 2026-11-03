@@ -23,15 +23,15 @@
 --   - The text is a ScrollingEditBoxTemplate with a MinimalScrollBar, the
 --     ScrollBox pair retail uses for scrolling edit boxes, not retail's
 --     ScrollFrameTemplate, which ClassicAPI does not port.
---   - The stack is retail's GetErrorData without the locals, taken in the
---     SetText slot: GetErrorCallstackHeight finds the code that failed
---     however many handlers sit between it and the slot. 1.12 has no
---     debuglocals.
+--   - The stack and locals are retail's GetErrorData, taken in the SetText
+--     slot: GetErrorCallstackHeight finds the code that failed however many
+--     handlers sit between it and the slot. No |K strings to remove, and no
+--     C_StringUtil.EscapeDecimalNonPrintables.
 --   - No scriptErrors cvar (1.12 always shows errors), no LUA_WARNING, no
 --     gamepad legend.
 --   - Lua 5.0: no `...` expression, no # operator.
 
-local function GetErrorStack()
+local function GetErrorData()
 	-- Example of how debug stack level is calculated
 	-- Current stack: [1, 2, 3, 4, 5] (current function is at 1, total current height is 5)
 	-- Stack at time of error: [1, 2] (these are currently now index 4 and 5, but at the time of error the stack height is 2)
@@ -40,13 +40,20 @@ local function GetErrorStack()
 	local errorCallStackHeight = GetErrorCallstackHeight();
 	local errorStackOffset = errorCallStackHeight and (errorCallStackHeight - 1);
 	local debugStackLevel = currentStackHeight - (errorStackOffset or 0);
-	return debugstack(debugStackLevel);
+	local skipFunctionsAndUserdata = true;
+
+	local stack = debugstack(debugStackLevel);
+	local locals = debuglocals(debugStackLevel, skipFunctionsAndUserdata);
+
+	return stack, locals;
 end
 
 local ERROR_FORMAT = "|cffffd200Message:|r|cffffffff %s|r\n"
 	.. "|cffffd200Time:|r|cffffffff %s|r\n"
 	.. "|cffffd200Count:|r|cffffffff %s|r\n"
 	.. "|cffffd200Stack:|r\n"
+	.. "|cffffffff%s|r\n"
+	.. "|cffffd200Locals:|r\n"
 	.. "|cffffffff%s|r";
 
 local INDEX_ORDER_FORMAT = "%d / %d";
@@ -68,15 +75,16 @@ function ScriptErrorsFrame_OnLoad(self)
 	ScrollUtil.RegisterScrollBoxWithScrollBar(scrollBox, self.ScrollBar);
 
 	ScriptErrors_Message.SetText = function(_, message)
-		ScriptErrorsFrame_OnError(message, GetErrorStack());
+		ScriptErrorsFrame_OnError(message, GetErrorData());
 	end
 	ScriptErrors.Show = function() end
 end
 
-function ScriptErrorsFrame_OnError(message, stack)
+function ScriptErrorsFrame_OnError(message, stack, locals)
 	local self = ScriptErrorsFrame;
 	message = tostring(message);
 	stack = stack or "";
+	locals = locals or "<none>";
 
 	local messageKey = message .. "\n" .. stack;
 	local index = self.seen[messageKey];
@@ -84,7 +92,7 @@ function ScriptErrorsFrame_OnError(message, stack)
 		local errorData = self.errorData[index];
 		errorData.count = errorData.count + 1;
 	else
-		table.insert(self.errorData, { count = 1, message = message, time = date(), stack = stack });
+		table.insert(self.errorData, { count = 1, message = message, time = date(), stack = stack, locals = locals });
 		index = table.getn(self.errorData);
 		self.seen[messageKey] = index;
 	end
@@ -106,7 +114,7 @@ function ScriptErrorsFrame_Update()
 	-- SetText puts the cursor and the scroll back at the top.
 	local errorData = self.errorData[self.index];
 	if ( errorData ) then
-		self.ScrollingEditBox:SetText(string.format(ERROR_FORMAT, errorData.message, errorData.time, errorData.count, errorData.stack));
+		self.ScrollingEditBox:SetText(string.format(ERROR_FORMAT, errorData.message, errorData.time, errorData.count, errorData.stack, errorData.locals));
 		self.ScrollingEditBox:GetEditBox():HighlightText(0);
 	else
 		self.ScrollingEditBox:ClearText();

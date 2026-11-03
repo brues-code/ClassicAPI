@@ -40,11 +40,25 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/ErrorCallstack.h"
 
 #include <cstdint>
 #include <optional>
 
 namespace BaseLib::ErrorCallstack {
+
+int ErrorFunctionLevel(void *L) {
+    const auto errorFunction = reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_FRAMESCRIPT_CALL_ERROR_HANDLER);
+    alignas(4) uint8_t ar[Offsets::SIZEOF_LUA_DEBUG];
+    for (int level = 1; Game::Lua::GetStack(L, level, ar); ++level) {
+        Game::Lua::GetInfo(L, "f", ar); // the level's function; nil for a lost tail call
+        const bool found = Game::Lua::ToCFunction(L, -1) == errorFunction;
+        Game::Lua::SetTop(L, -2);
+        if (found)
+            return level;
+    }
+    return 0;
+}
 
 namespace {
 
@@ -57,21 +71,6 @@ int Height(void *L) {
     while (Game::Lua::GetStack(L, height + 1, ar))
         ++height;
     return height;
-}
-
-// The innermost level whose function is the engine's error function, or 0
-// when no error is being reported.
-int ErrorFunctionLevel(void *L) {
-    const auto errorFunction = reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_FRAMESCRIPT_CALL_ERROR_HANDLER);
-    alignas(4) uint8_t ar[Offsets::SIZEOF_LUA_DEBUG];
-    for (int level = 1; Game::Lua::GetStack(L, level, ar); ++level) {
-        Game::Lua::GetInfo(L, "f", ar); // the level's function; nil for a lost tail call
-        const bool found = Game::Lua::ToCFunction(L, -1) == errorFunction;
-        Game::Lua::SetTop(L, -2);
-        if (found)
-            return level;
-    }
-    return 0;
 }
 
 int __fastcall Script_GetCallstackHeight(void *L) {
