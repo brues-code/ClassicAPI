@@ -211,8 +211,8 @@ for what each command does, and
 
 Each setting is saved in `WTF\Config.wtf`. Read and write them with `GetCVar`
 / `SetCVar` or `/console`. Click a group name for the full rules. To change
-these settings and the player cache in the game, open the game menu and
-click AddOn Options, then ClassicAPI.
+these settings, the player cache and the ClassicAPI key bindings in the game,
+open the game menu and click AddOn Options, then ClassicAPI.
 
 | Group | CVar | Default | What it does |
 |-------|------|---------|--------------|

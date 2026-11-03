@@ -10,3 +10,6 @@ SECOND_NUMBER_CAP = "억";
 SECOND_NUMBER_CAP_NO_SPACE = "억";
 THIRD_NUMBER = "억";
 FOURTH_NUMBER = "조";
+KEY_BINDING_NAME_AND_KEY = "%s (%s)";
+KEY_BINDING_TOOLTIP = "<지정을 해제하려면 오른쪽 클릭>";
+SETTINGS_BIND_KEY_TO_COMMAND_OR_CANCEL = "\"%s\" 단축키 지정 또는 %s 눌러 취소";

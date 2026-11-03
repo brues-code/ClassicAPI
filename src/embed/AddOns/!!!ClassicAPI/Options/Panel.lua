@@ -1,20 +1,22 @@
 -- ClassicAPI's own entry in the AddOn Options window
 -- (FrameXML\InterfaceOptions.lua): a ClassicAPI page with one page under it
 -- for each feature. Every cvar that ClassicAPI registers has a control here,
--- and so does the player cache.
+-- and so do the player cache and ClassicAPI's key bindings.
 --
 -- Each control reads and writes exactly one setting, and writes it only when
 -- the player uses that control. So the pages have no okay, cancel or default:
 -- Okay, Cancel and Escape only close the window, and Defaults does nothing
--- here. A page reads its settings again each time it is shown.
+-- here. A page reads its settings again each time it is shown. A key binding
+-- saves at once into the binding set in use (account or character).
 --
 -- A page's controls scroll under its heading in a ScrollBox, so a page holds
 -- as many as its feature has. Dropdowns and number boxes sit on the same row
 -- as their label.
 --
--- Every string is a global from locales\enUS.lua: retail's GlobalStrings key
--- where retail has the string (ENABLE_INTERACT_TEXT and the like), a
--- CLASSICAPI_ one where it does not.
+-- Every string is a global: the client's own (KEY_BOUND, NOT_BOUND), or one
+-- from locales\enUS.lua - retail's GlobalStrings key where retail has the
+-- string (ENABLE_INTERACT_TEXT and the like), a CLASSICAPI_ one where it
+-- does not.
 --
 -- Lua 5.0: no `...` expression or select().
 
@@ -303,6 +305,215 @@ local function AddSlider(page, label, tooltip, setting, minValue, maxValue, step
 end
 
 -- ---------------------------------------------------------------------------
+-- Key bindings
+-- ---------------------------------------------------------------------------
+
+-- A key binding row, as on retail's settings pages: the binding's name, then
+-- a button for each of its two keys. Left click a button and press a key, a
+-- mouse button or the wheel to bind it there; Escape cancels. Right click a
+-- button to unbind its key.
+--
+-- While a button listens, `listener` covers the screen above the window and
+-- takes every key, click and wheel turn, as retail's KeybindListener and its
+-- input blocker do. A left or right click on it cancels. The binding itself
+-- is 1.12's Key Bindings window's: the same chord order, the same check for
+-- an action that loses its last key, the same put-back when SetBinding
+-- refuses a key.
+--
+-- Messages go on the page's output line, under its controls.
+
+local LISTEN_BUTTONS = {
+	MiddleButton = "BUTTON3",
+	Button4 = "BUTTON4",
+	Button5 = "BUTTON5",
+}
+
+-- Keys that only modify another key, as the Key Bindings window skips them.
+local IGNORED_KEYS = { UNKNOWN = true, SHIFT = true, CTRL = true, ALT = true }
+
+local listener = CreateFrame("Button", nil, UIParent)
+listener:SetAllPoints(UIParent)
+listener:SetFrameStrata("FULLSCREEN_DIALOG")
+listener:EnableMouse(true)
+listener:EnableMouseWheel(true)
+listener:EnableKeyboard(true)
+listener:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp", "Button4Up", "Button5Up")
+listener:Hide()
+
+local function BindingName(action)
+	return GetBindingText(action, "BINDING_NAME_")
+end
+
+-- GetBindingKey's keys as a list: a row's button `i` shows keys[i].
+local function BindingKeys(action)
+	return { GetBindingKey(action) }
+end
+
+local function StopListening()
+	local row = listener.row
+	if not row then return end
+	listener.row = nil
+	listener:Hide()
+	row.page.output:SetText("")
+	RefreshControls(row.page)
+end
+
+local function StartListening(row, index)
+	-- A number box that keeps the focus would take the key instead.
+	for _, control in ipairs(row.page.controls) do
+		if control.ClearFocus then control:ClearFocus() end
+	end
+	listener.row = row
+	listener.index = index
+	listener:Show()
+	row.page.output:SetText(format(SETTINGS_BIND_KEY_TO_COMMAND_OR_CANCEL, BindingName(row.action), GetBindingText("ESCAPE", "KEY_")))
+	RefreshControls(row.page)
+end
+
+-- 1.12's chord order: ALT-CTRL-SHIFT-key.
+local function Chord(key)
+	if IsShiftKeyDown() then key = "SHIFT-" .. key end
+	if IsControlKeyDown() then key = "CTRL-" .. key end
+	if IsAltKeyDown() then key = "ALT-" .. key end
+	return key
+end
+
+local function Bind(key)
+	if IGNORED_KEYS[key] then return end
+	local chord = Chord(key)
+	local current = GetBindingAction(chord)
+	if current == "SCREENSHOT" then
+		Screenshot()
+		return
+	end
+
+	local row, index = listener.row, listener.index
+	StopListening()
+	if key == "ESCAPE" and current == "TOGGLEGAMEMENU" then return end
+
+	local action = row.action
+	local message = KEY_BOUND
+	if current ~= "" and current ~= action then
+		local old1, old2 = GetBindingKey(current)
+		if (not old1 or old1 == chord) and (not old2 or old2 == chord) then
+			message = format(KEY_UNBOUND_ERROR, BindingName(current))
+		end
+	end
+
+	-- Unbind both keys, then bind them back in order with the new key in
+	-- the slot that was clicked.
+	local keys = BindingKeys(action)
+	for i = 1, 2 do
+		if keys[i] then SetBinding(keys[i]) end
+	end
+	for i = 1, 2 do
+		local bind = (i == index) and chord or keys[i]
+		if bind and not SetBinding(bind, action) then
+			if keys[i] then SetBinding(keys[i], action) end
+			message = KEYBINDINGFRAME_MOUSEWHEEL_ERROR
+		end
+	end
+	SaveBindings(GetCurrentBindingSet())
+
+	RefreshControls(row.page)
+	row.page.output:SetText(message)
+end
+
+listener:SetScript("OnKeyDown", function() Bind(arg1) end)
+listener:SetScript("OnMouseWheel", function()
+	Bind(arg1 > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")
+end)
+listener:SetScript("OnClick", function()
+	local button = LISTEN_BUTTONS[arg1]
+	if button then Bind(button) else StopListening() end
+end)
+
+local function Unbind(row, index)
+	local key = BindingKeys(row.action)[index]
+	if key then
+		SetBinding(key)
+		SaveBindings(GetCurrentBindingSet())
+	end
+	GameTooltip:Hide()
+	row.page.output:SetText("")
+	RefreshControls(row.page)
+end
+
+-- The page's output line, made with its first key binding row. It takes the
+-- bottom of the page from the ScrollBox.
+local function EnsureOutput(page)
+	if page.output then return end
+	local output = page:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	output:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 16, 12)
+	output:SetPoint("RIGHT", page, "RIGHT", -16, 0)
+	output:SetJustifyH("LEFT")
+	page.scrollBox:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -20, 30)
+	page.output = output
+	page:SetScript("OnHide", function()
+		if listener.row and listener.row.page == this then StopListening() end
+		this.output:SetText("")
+	end)
+end
+
+local function AddKeybinding(page, action)
+	EnsureOutput(page)
+	AddRowLabel(page, BindingName(action))
+
+	local row = { page = page, action = action, buttons = {} }
+	for i = 1, 2 do
+		local button = CreateFrame("Button", NextName(), page.content, "UIPanelButtonTemplate2")
+		button:SetWidth(86)
+		button:SetHeight(22)
+		if i == 1 then
+			button:SetPoint("TOPLEFT", page.content, "TOPLEFT", CONTROL_X, page.y - 5)
+		else
+			button:SetPoint("LEFT", row.buttons[1], "RIGHT", 0, 0)
+		end
+		button:SetTextFontObject(GameFontHighlightSmall)
+		button:SetHighlightFontObject(GameFontHighlightSmall)
+		button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		button.index = i
+		button:SetScript("OnClick", function()
+			if arg1 == "RightButton" then
+				Unbind(row, this.index)
+			else
+				StartListening(row, this.index)
+			end
+		end)
+		button:SetScript("OnEnter", function()
+			local key = BindingKeys(action)[this.index]
+			if not key then return end
+			GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+			GameTooltip:SetText(format(KEY_BINDING_NAME_AND_KEY, BindingName(action), GetBindingText(key, "KEY_")),
+				HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b)
+			GameTooltip:AddLine(KEY_BINDING_TOOLTIP, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1)
+			GameTooltip:Show()
+		end)
+		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		row.buttons[i] = button
+	end
+
+	row.Update = function(self)
+		local keys = BindingKeys(action)
+		for i, button in ipairs(self.buttons) do
+			if keys[i] then
+				button:SetText(GetBindingText(keys[i], "KEY_"))
+				button:SetAlpha(1)
+			else
+				button:SetText(NORMAL_FONT_COLOR_CODE .. NOT_BOUND .. FONT_COLOR_CODE_CLOSE)
+				button:SetAlpha(0.8)
+			end
+			if listener.row == self and listener.index == i then
+				button:LockHighlight()
+			else
+				button:UnlockHighlight()
+			end
+		end
+	end
+	AddControl(page, row, nil, 32)
+end
+
+-- ---------------------------------------------------------------------------
 -- ClassicAPI
 -- ---------------------------------------------------------------------------
 
@@ -316,6 +527,8 @@ local main = NewPage("ClassicAPI", nil, "ClassicAPI " .. version, CLASSICAPI_OPT
 local interact = NewPage(CLASSICAPI_INTERACT_KEY, main.name)
 
 AddCheckbox(interact, ENABLE_INTERACT_TEXT, OPTION_TOOLTIP_ENABLE_INTERACT, SoftTargetSetting("SoftTargetInteract"))
+AddKeybinding(interact, "INTERACTTARGET")
+AddKeybinding(interact, "INTERACTMOUSEOVER")
 AddDropDown(interact, CLASSICAPI_INTERACT_DIRECTION, CLASSICAPI_INTERACT_DIRECTION_TOOLTIP, NumberCVarSetting("SoftTargetInteractArc"), ARC_CHOICES)
 AddNumberBox(interact, CLASSICAPI_INTERACT_RANGE, CLASSICAPI_RANGE_TOOLTIP, NumberCVarSetting("SoftTargetInteractRange"))
 AddCheckbox(interact, CLASSICAPI_STRICT_INTERACT_RANGE, CLASSICAPI_STRICT_INTERACT_RANGE_TOOLTIP, CVarSetting("SoftTargetInteractRangeIsHard"))
@@ -377,6 +590,9 @@ AddCheckbox(bags, CLASSICAPI_SORT_BAGS_RIGHT_TO_LEFT, CLASSICAPI_SORT_BAGS_RIGHT
 AddCheckbox(bags, CLASSICAPI_IGNORE_BACKPACK, CLASSICAPI_IGNORE_BACKPACK_TOOLTIP, CVarSetting("backpackAutosortDisabled"))
 AddCheckbox(bags, CLASSICAPI_IGNORE_BANK, CLASSICAPI_IGNORE_BANK_TOOLTIP, CVarSetting("bankAutosortDisabled"))
 AddCheckbox(bags, CLASSICAPI_HIDE_EQUIPMENT_SETS, CLASSICAPI_HIDE_EQUIPMENT_SETS_TOOLTIP, CVarSetting("dontShowEquipmentSetsOnItems"))
+
+AddHeader(bags, LOOT)
+AddKeybinding(bags, "AOELOOT")
 
 -- ---------------------------------------------------------------------------
 -- Interface
