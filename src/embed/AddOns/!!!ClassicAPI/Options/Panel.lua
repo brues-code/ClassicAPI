@@ -74,11 +74,18 @@ local rememberSetting = {
 local LABEL_X = 48
 local CONTROL_X = 200
 
--- pfUI's Interface Options skin finds the controls by these names.
+-- pfUI's Interface Options skin finds the controls and the page scroll bars
+-- by these names.
 local numControls = 0
 local function NextName()
 	numControls = numControls + 1
 	return "ClassicAPIOptionsControl" .. numControls
+end
+
+local numScrollBars = 0
+local function NextScrollBarName()
+	numScrollBars = numScrollBars + 1
+	return "ClassicAPIOptionsScrollBar" .. numScrollBars
 end
 
 local function RefreshControls(page)
@@ -116,7 +123,7 @@ local function NewPage(name, parent, title, subtitle)
 	scrollBox:SetPoint("TOPLEFT", page, "TOPLEFT", 0, top)
 	scrollBox:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -20, 8)
 	scrollBox:EnableMouseWheel(true)
-	local scrollBar = CreateFrame("EventFrame", nil, page, "MinimalScrollBar")
+	local scrollBar = CreateFrame("EventFrame", NextScrollBarName(), page, "MinimalScrollBar")
 	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
 	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
 
