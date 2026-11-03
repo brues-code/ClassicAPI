@@ -16,6 +16,13 @@ build instructions.
   - [`C_ActionBar.ShouldShowKeyring()`](#c_actionbarshouldshowkeyring)
   - [`C_ActionBar.EnableActionRangeCheck(slot, enable)`](#c_actionbarenableactionrangecheckslot-enable)
   - [`C_ActionBar.GetSpell(actionID)`](#c_actionbargetspellactionid)
+  - [`C_ActionBar.GetItemActionOnEquipSpellID(actionID)`](#c_actionbargetitemactiononequipspellidactionid)
+  - [`IsStackableAction(slot)` / `C_ActionBar.IsStackableAction(actionID)`](#isstackableactionslot--c_actionbarisstackableactionactionid)
+  - [`C_ActionBar.IsMacroActionWithShowTooltip(actionID)`](#c_actionbarismacroactionwithshowtooltipactionid)
+  - [`C_ActionBar.FindSpellActionButtons(spell [, setToSearch])`](#c_actionbarfindspellactionbuttonsspell--settosearch)
+  - [`C_ActionBar.HasSpellActionButtons(spell [, setToSearch])`](#c_actionbarhasspellactionbuttonsspell--settosearch)
+  - [`C_ActionBar.IsOnBarOrSpecialBar(spell [, setToSearch])`](#c_actionbarisonbarorspecialbarspell--settosearch)
+  - [`Enum.ActionBarSet`](#enumactionbarset)
 
 - [AddOns](#addons)
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
@@ -1362,6 +1369,114 @@ if actionType == "item" then
     id = C_ActionBar.GetSpell(1)
 end
 ```
+
+### `C_ActionBar.GetItemActionOnEquipSpellID(actionID)`
+
+Returns the ID of the spell that the item of a 1-based action-bar slot
+gives while you wear it. The item is the item in the slot, or the item that
+a macro in the slot shows.
+
+If the slot has no item, or the item has no such spell, the function
+returns nil. If the client does not have the data of the item yet, the
+function also returns nil.
+
+```lua
+local spellID = C_ActionBar.GetItemActionOnEquipSpellID(1)
+if spellID then
+    print("Equip effect", GetSpellInfo(spellID))
+end
+```
+
+### `IsStackableAction(slot)` / `C_ActionBar.IsStackableAction(actionID)`
+
+Tells if the item of a 1-based action-bar slot stacks. The item is the item
+in the slot, or the item that a macro in the slot shows. A potion stacks.
+A sword does not stack.
+
+`IsStackableAction` returns 1 or nil. `C_ActionBar.IsStackableAction`
+returns `true` or `false`. A slot without an item gives nil or `false`.
+
+```lua
+if C_ActionBar.IsStackableAction(1) then
+    print("Count", GetActionCount(1))
+end
+```
+
+### `C_ActionBar.IsMacroActionWithShowTooltip(actionID)`
+
+Returns `true` if a 1-based action-bar slot holds a macro with a
+`#showtooltip` line. A macro with only `#show` gives `false`. Any other
+slot gives `false`.
+
+```lua
+if C_ActionBar.IsMacroActionWithShowTooltip(1) then
+    print("The button shows the tooltip of the macro spell or item")
+end
+```
+
+### `C_ActionBar.FindSpellActionButtons(spell [, setToSearch])`
+
+Returns a table of the 1-based action-bar slots that hold a spell. If no
+slot holds the spell, the function returns nothing.
+
+`spell` is a spell ID, a spell link, or the name of a spell in your
+spellbook. A name gives the highest rank that you know.
+
+A slot counts only when it holds the spell itself. A macro or an item that
+casts the spell does not count. Each rank is a different spell. Thus, a
+slot with Fireball rank 11 does not count for Fireball rank 10.
+
+`setToSearch` is a value of [`Enum.ActionBarSet`](#enumactionbarset). The default is
+`Enum.ActionBarSet.All`. The client has only the `Mkb` set of slots. Thus,
+`Enum.ActionBarSet.Gamepad` finds no slot.
+
+```lua
+local slots = C_ActionBar.FindSpellActionButtons(133)
+if slots then
+    for _, slot in ipairs(slots) do
+        print("Fireball on slot", slot)
+    end
+end
+```
+
+### `C_ActionBar.HasSpellActionButtons(spell [, setToSearch])`
+
+Returns `true` if one or more action-bar slots hold a spell. The function
+uses the same rules as
+[`FindSpellActionButtons`](#c_actionbarfindspellactionbuttonsspell--settosearch).
+
+```lua
+print(C_ActionBar.HasSpellActionButtons("Fireball"))
+```
+
+### `C_ActionBar.IsOnBarOrSpecialBar(spell [, setToSearch])`
+
+Returns `true` if a spell is on an action-bar slot, on the shapeshift bar,
+or on the pet bar. The action-bar slots use the same rules as
+[`FindSpellActionButtons`](#c_actionbarfindspellactionbuttonsspell--settosearch).
+`setToSearch` has an effect only on the action-bar slots.
+
+The shapeshift bar holds stances, forms, auras and stealth. The pet bar
+counts only while you have a pet bar.
+
+```lua
+-- Bear Form is on the shapeshift bar.
+print(C_ActionBar.IsOnBarOrSpecialBar(5487))
+```
+
+### `Enum.ActionBarSet`
+
+The sets of action-bar slots, for `setToSearch`.
+
+| Field | Value |
+|---|---|
+| `None` | 0 |
+| `Mkb` | 1 |
+| `Gamepad` | 2 |
+| `All` | 3 |
+
+All 120 action-bar slots are in the `Mkb` set. No slot is in the `Gamepad`
+set.
 
 ## AddOns
 

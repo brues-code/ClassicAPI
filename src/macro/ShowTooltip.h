@@ -149,6 +149,11 @@ const char *MacroNameForSlot(int slot0);
 // action bar and in the Macro UI; any other chosen icon stays.
 bool HasQuestionMarkIcon(uint32_t macroID);
 
+// True when the macro's body carries `#showtooltip` by the same parse that
+// decides the tooltip handover. Reads the body itself, so it answers while
+// the module yields or a publisher owns the macro.
+bool HasShowTooltipDirective(uint32_t macroID);
+
 // Texture path of the resolved target: the spell's icon (its active icon
 // when `activeIcon`, exactly the engine's toggle-up choice) or the item's
 // icon. False (out empty) when nothing resolved or no icon record exists.

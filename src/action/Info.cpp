@@ -46,11 +46,16 @@
 // its first on-use spell — retail's ActionButton.lua calls GetSpell for
 // exactly that item case. The spellbook flag it also hands back is not part
 // of the answer.
+//
+// `C_ActionBar.IsMacroActionWithShowTooltip(slot)` — the slot holds a macro
+// whose body carries `#showtooltip`, by the parse `Macro::ShowTooltip` hands
+// the tooltip over on. `#show` is not it.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "action/Slot.h"
 #include "equipmentset/Data.h"
+#include "macro/ShowTooltip.h"
 
 #include <cstdint>
 
@@ -149,6 +154,17 @@ int __fastcall Script_GetSpell(void *L) {
     return 1;
 }
 
+int __fastcall Script_IsMacroActionWithShowTooltip(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_ActionBar.IsMacroActionWithShowTooltip(actionID)");
+        return 0;
+    }
+    const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
+    const uint32_t macroID = Action::Slot::MacroIDForSlot(slot0);
+    Game::Lua::PushBool(L, macroID != 0 && Macro::ShowTooltip::HasShowTooltipDirective(macroID));
+    return 1;
+}
+
 const Game::Doc::Field kGetSpellArgs[] = {
     Game::Doc::Req("actionID", "luaIndex"),
 };
@@ -160,11 +176,21 @@ const Game::Doc::Function kGetSpellDoc{
     "on-use spell; 0 when there is none.",
     kGetSpellArgs, kGetSpellRets};
 
+const Game::Doc::Field kIsMacroActionWithShowTooltipRets[] = {
+    Game::Doc::Req("isMacroActionWithShowTooltip", "bool"),
+};
+const Game::Doc::Function kIsMacroActionWithShowTooltipDoc{
+    "Whether the action is a macro with an explicit #showtooltip line.",
+    kGetSpellArgs, kIsMacroActionWithShowTooltipRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetActionInfo", &Script_GetActionInfo);
     Game::Lua::RegisterTableFunction("C_ActionBar", "GetSpell", &Script_GetSpell, &kGetSpellDoc);
+    Game::Lua::RegisterTableFunction("C_ActionBar", "IsMacroActionWithShowTooltip",
+                                     &Script_IsMacroActionWithShowTooltip,
+                                     &kIsMacroActionWithShowTooltipDoc);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

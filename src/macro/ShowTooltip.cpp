@@ -1407,6 +1407,15 @@ bool HasQuestionMarkIcon(uint32_t macroID) {
                     kQuestionMarkIcon) == 0;
 }
 
+bool HasShowTooltipDirective(uint32_t macroID) {
+    const uint8_t *entry = EntryForID(macroID);
+    if (entry == nullptr)
+        return false;
+    Parsed parsed;
+    ParseBody(reinterpret_cast<const char *>(entry + Offsets::OFF_MACRO_BODY), &parsed);
+    return parsed.kind == Kind::ShowTooltip;
+}
+
 bool ResolvedIconPath(const Info &info, bool activeIcon, char *out, size_t outSize) {
     if (out == nullptr || outSize == 0)
         return false;

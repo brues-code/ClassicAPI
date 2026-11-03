@@ -5614,6 +5614,7 @@ enum Offsets {
     OFF_ITEMSTATS_SPELL_CATEGORY_CD = 0x180, // u32[5] — category cooldown ms
     ITEMSTATS_SPELL_SLOT_COUNT = 5,
     ITEM_SPELLTRIGGER_ON_USE = 0,
+    ITEM_SPELLTRIGGER_ON_EQUIP = 1,
 
     // `ItemStats_C.m_maxCount` — max number of this item the player can
     // hold in inventory at once. `0` = unlimited, `1` = unique, higher
@@ -7477,6 +7478,10 @@ enum Offsets {
     // `and eax,0xFFFF`.
     VAR_PET_ACTION_SLOTS = 0x00B71438,
     PET_ACTION_SLOT_COUNT = 10,
+    // Types 1-5 are spells, the spell ID in the low 16 bits — the `case 1..5`
+    // arm of Script_GetPetActionInfo (0x004BDC50), gated on VAR_PET_GUID.
+    PET_ACTION_TYPE_SPELL_FIRST = 1,
+    PET_ACTION_TYPE_SPELL_LAST = 5,
     PET_ACTION_TYPE_COMMAND = 7,
     PET_ACTION_COMMAND_ATTACK = 2,
     // The open stable master's GUID as a u64, 0 while no stable window is
@@ -7847,6 +7852,10 @@ enum Offsets {
     // Number of spells on the shapeshift bar — the dword
     // `Script_GetNumShapeshiftForms` (0x004B4590) pushes.
     VAR_SHAPESHIFT_BAR_SPELL_COUNT = 0x00B71104,
+    // Pointer to the shapeshift bar's u32 spell IDs, VAR_SHAPESHIFT_BAR_SPELL_
+    // COUNT of them: `mov eax,[0xB71108]; mov esi,[eax+esi*4]` in
+    // Script_GetShapeshiftFormInfo (0x004B4641) after its count bound.
+    VAR_SHAPESHIFT_BAR_SPELLS = 0x00B71108,
 
     // Inner spell-cast dispatcher — `__fastcall(slot, bookType, targetGuidLo,
     // targetGuidHi)`. `Script_CastSpellByName` calls this after resolving
