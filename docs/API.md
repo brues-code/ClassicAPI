@@ -688,6 +688,7 @@ build instructions.
   - [`strtrim(str [, chars])`](#strtrimstr--chars)
   - [`strreplace(str, find, replace)`](#strreplacestr-find-replace)
   - [`string.reverse(s)` / `strrev(s)`](#stringreverses--strrevs)
+  - [`string.byte(s [, i [, j]])` / `strbyte`](#stringbytes--i--j--strbyte)
   - [`strlenutf8(s)`](#strlenutf8s)
   - [`strcmputf8i(string1, string2)`](#strcmputf8istring1-string2)
   - [`strsplittable(sep, str [, pieces])`](#strsplittablesep-str--pieces)
@@ -16379,6 +16380,25 @@ Registered both on the `string` table and as the `strrev` global.
 ```lua
 string.reverse("abc")   -- "cba"
 strrev("hello")         -- "olleh"
+```
+
+### `string.byte(s [, i [, j]])` / `strbyte`
+
+Returns the numeric codes of the bytes of `s` from position `i` to position
+`j`, as separate values. `i` is 1 by default, and `j` is `i` by default. A
+negative position counts back from the end of the string: -1 is the last
+byte. Positions outside the string are clamped to it. If the range is empty,
+the function returns no values.
+
+The range can have at most about 2,000 bytes. A longer range causes the
+error `stack overflow (string slice too long)`.
+
+```lua
+string.byte("ABC")          -- 65
+string.byte("ABC", 2)       -- 66
+string.byte("ABC", 1, -1)   -- 65, 66, 67
+strbyte("ABC", -2, -1)      -- 66, 67
+string.byte("ABC", 4)       -- (no values)
 ```
 
 ### `strlenutf8(s)`

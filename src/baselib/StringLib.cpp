@@ -21,6 +21,7 @@
 //   - `strtrim(str [, chars])`            — WoW global; trim a char set.
 //   - `strreplace(str, find, replace)`    — plain-text replace (see below).
 //   - `string.reverse(s)` / `strrev(s)`   — 5.1 string function, missing in 5.0.
+//   - `string.byte(s, i, j)` / `strbyte`  — 5.1's range form (5.0 reads only i).
 //   - `strlenutf8(s)`                     — WoW global; characters, not bytes.
 //   - `strcmputf8i(a, b)`                 — WoW global; case-insensitive UTF-8 order.
 //   - `strsplittable(sep, str [, pieces])`— WoW global; `strsplit` into a table.
@@ -340,6 +341,45 @@ int __fastcall Script_string_reverse(void *L) {
     return 1;
 }
 
+// `string.byte(s [, i [, j]])` / `strbyte` — the codes of bytes i..j, as
+// 4.3.4's str_byte (j defaults to i). 1.12's (0x7FC210) is 5.0's: it reads
+// only `i` and pushes one code. With `j` absent the two give the same
+// result for every `i`. Positions truncate toward zero as the engine's
+// str_byte and str_sub do. The engine's lua_checkstack (0x6F2F30) refuses
+// more than 2048 stack slots, so the longest range is about 2000 bytes.
+using luaL_checklstring_t = const char *(__fastcall *)(void *L, int narg, unsigned int *len);
+using luaL_optnumber_t = double(__fastcall *)(void *L, int narg, double def);
+
+// 5.1's posrelat: a negative position counts from the end; before the start is 0.
+long PosRelat(long pos, long len) {
+    if (pos < 0)
+        pos += len + 1;
+    return pos >= 0 ? pos : 0;
+}
+
+int __fastcall Script_string_byte(void *L) {
+    const auto checkLString =
+        reinterpret_cast<luaL_checklstring_t>(Offsets::LUAL_CHECK_LSTRING);
+    const auto optNumber = reinterpret_cast<luaL_optnumber_t>(Offsets::LUAL_OPT_NUMBER);
+    unsigned int l = 0;
+    const char *s = checkLString(L, 1, &l);
+    const long len = static_cast<long>(l);
+    long posi = PosRelat(static_cast<long>(optNumber(L, 2, 1)), len);
+    long pose = PosRelat(static_cast<long>(optNumber(L, 3, static_cast<double>(posi))), len);
+    if (posi <= 0)
+        posi = 1;
+    if (pose > len)
+        pose = len;
+    if (posi > pose)
+        return 0;
+    const int n = static_cast<int>(pose - posi + 1);
+    if (!Game::Lua::CheckStack(L, n))
+        Game::Lua::Error(L, "stack overflow (%s)", "string slice too long");
+    for (int i = 0; i < n; i++)
+        Game::Lua::PushNumber(L, static_cast<unsigned char>(s[posi + i - 1]));
+    return n;
+}
+
 // --- Documentation ----------------------------------------------------------
 
 const Game::Doc::Field kStrlenutf8Args[] = {
@@ -393,6 +433,7 @@ void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "match", &Script_string_match);
     Game::Lua::RegisterTableFunction("string", "gmatch", Script_string_gmatch);
     Game::Lua::RegisterTableFunction("string", "reverse", &Script_string_reverse);
+    Game::Lua::RegisterTableFunction("string", "byte", &Script_string_byte);
     Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit);
     Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
     Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
@@ -410,6 +451,7 @@ void RegisterFns() {
     Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
     Game::Lua::RegisterGlobalAlias("strtrim", "string", "trim");
     Game::Lua::RegisterGlobalAlias("strrev", "string", "reverse");
+    Game::Lua::RegisterGlobalAlias("strbyte", "string", "byte");
     Game::Lua::RegisterGlobalAlias("strconcat", "string", "concat", &kStrconcat);
     Game::Lua::RegisterGlobalFunction("strreplace", &Script_strreplace);
     Game::Lua::RegisterGlobalFunction("strlenutf8", &Script_strlenutf8, &kStrlenutf8);

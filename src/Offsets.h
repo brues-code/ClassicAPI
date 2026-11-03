@@ -8473,6 +8473,12 @@ enum Offsets {
     // Both as called by str_gsub (0x007FD26A) and add_s (0x007FD35E).
     LUAL_ADD_LSTRING = 0x6F51F0,
     LUAL_ADD_VALUE = 0x6F5270,
+    // `luaL_checklstring(L, narg, size_t *len)` — __fastcall (len on the
+    // stack, ret 4; null is allowed). As str_gsub calls it (0x007FD0F7).
+    LUAL_CHECK_LSTRING = 0x6F4BE0,
+    // `luaL_optnumber(L, narg, double def)` — __fastcall (def on the stack,
+    // ret 8), returns the double in ST0. As str_gsub calls it (0x007FD12F).
+    LUAL_OPT_NUMBER = 0x6F4CD0,
     // `luaL_getn(L, tableIndex)` — Lua 5.0 auxlib table-length getter,
     // `int __fastcall(L /*ecx*/, idx /*edx*/)`, plain RET (no stack
     // args), length in eax. Verified by disassembly: a negative idx is
