@@ -8915,6 +8915,16 @@ enum Offsets {
     // — so an addon replacing `string.format` cannot hijack or break it (matches
     // retail, whose SetFormattedText formats in C).
     FUN_LUA_STR_FORMAT = 0x007FD3D0,
+    // str_format's `%n$` argument number (Lua 4.0's one-digit form): after
+    // the engine's isdigit(*ESI) passes, `cmp byte [esi+1],'$'; jnz +0C;
+    // movsx eax,byte [esi]; sub eax,'0'; mov [ebp-8],eax; lea ebx,[esi+2]`
+    // (80 7E 01 24 75 0C 0F BE 06 83 E8 30 89 45 F8 8D 5E 02), ending at
+    // 0x007FD4BE `inc dword [ebp-8]`. ESI = the spec after '%', EBX = where
+    // the flags scan starts, [ebp-8] = the argument number. EAX/ECX/EDX are
+    // dead (0x007FD4C1 `or ecx,-1`, 0x007FD4CA `xor eax,eax`, 0x007FD4E2
+    // `mov edx,ebx`). BaseLib::StringFormat replaces the 18 bytes.
+    SITE_LUA_STR_FORMAT_ARG_NUMBER = 0x007FD4AC,
+    LUA_STR_FORMAT_FRAME_ARG = 0x8,
     // `math_fmod` — the Lua 5.0 `math.mod` C function (mathlib entry at
     // `0x00822cb0`): `luaL_checknumber(1/2)` → `fmod(x, y)` → `lua_pushnumber`.
     // 5.1 renamed the Lua-facing name to `math.fmod` with the identical C
