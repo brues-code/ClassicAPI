@@ -8360,6 +8360,9 @@ enum Offsets {
     // CObjects — which is exactly why the engine pushes handler/frame
     // through it rather than a plain rawget.
     LUA_RAWGETI = 0x6F3BC0,
+    // `lua_rawseti(L, idx, n)` — __fastcall (n on the stack): t[n] = top,
+    // pops it. Calls luaH_setnum (0x006FAD80); stamps the GC context tag.
+    LUA_RAW_SET_I = 0x6F3F60,
     // `luaA_indexAcceptable(L, idx)` — the API's index walk: stack, pseudo
     // (registry / globals) or upvalue index → TObject*, or NULL for a
     // positive index at or past the top. __fastcall(L /*ecx*/, idx /*edx*/),
@@ -8479,6 +8482,9 @@ enum Offsets {
     // `luaL_optnumber(L, narg, double def)` — __fastcall (def on the stack,
     // ret 8), returns the double in ST0. As str_gsub calls it (0x007FD12F).
     LUAL_OPT_NUMBER = 0x6F4CD0,
+    // `luaL_checknumber(L, narg)` — __fastcall, returns the double in ST0.
+    // As str_format calls it (0x007FD570).
+    LUAL_CHECK_NUMBER = 0x6F4C80,
     // `luaL_getn(L, tableIndex)` — Lua 5.0 auxlib table-length getter,
     // `int __fastcall(L /*ecx*/, idx /*edx*/)`, plain RET (no stack
     // args), length in eax. Verified by disassembly: a negative idx is

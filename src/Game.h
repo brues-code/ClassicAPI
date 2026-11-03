@@ -270,6 +270,8 @@ using lua_rawget_t = void(__fastcall *)(void *L, int idx);
 // Pushes t[n] for the table at idx, raw (no metamethods). With idx =
 // REGISTRY_INDEX it pushes a value stored under an integer ref.
 using lua_rawgeti_t = void(__fastcall *)(void *L, int idx, int n);
+// Pops the top value into t[n] for the table at idx, raw.
+using lua_rawseti_t = void(__fastcall *)(void *L, int idx, int n);
 using lua_settable_t = void(__fastcall *)(void *L, int idx);
 using lua_rawset_t = void(__fastcall *)(void *L, int idx);
 // Pushes the metatable of the value at idx and returns 1, or pushes
@@ -280,6 +282,8 @@ using lua_getmetatable_t = int(__fastcall *)(void *L, int idx);
 using lua_setmetatable_t = int(__fastcall *)(void *L, int idx);
 using lua_insert_t = void(__fastcall *)(void *L, int idx);
 using lua_remove_t = void(__fastcall *)(void *L, int idx);
+// Pops the top value into slot idx.
+using lua_replace_t = void(__fastcall *)(void *L, int idx);
 using lua_gettop_t = int(__fastcall *)(void *L);
 using lua_settop_t = void(__fastcall *)(void *L, int idx);
 using lua_call_t = void(__fastcall *)(void *L, int nargs, int nresults);
@@ -313,6 +317,11 @@ using lua_newthread_t = void *(__fastcall *)(void *L);
 using lua_resume_t = int(__fastcall *)(void *L, int nargs);
 using lua_yield_t = int(__fastcall *)(void *L, int nresults);
 using luaL_argerror_t = void(__fastcall *)(void *L, int narg, const char *msg);
+// The auxlib argument readers: each raises the engine's own "bad argument"
+// error. CheckLString's `len` may be null.
+using luaL_checklstring_t = const char *(__fastcall *)(void *L, int narg, unsigned int *len);
+using luaL_checknumber_t = double(__fastcall *)(void *L, int narg);
+using luaL_optnumber_t = double(__fastcall *)(void *L, int narg, double def);
 using luaL_setn_t = void(__fastcall *)(void *L, int t, int n);
 // Pops the top value into the table at `t` under a fresh integer key and
 // returns the key (LUA_REFNIL, -1, for a nil). With REGISTRY_INDEX it anchors
@@ -358,12 +367,14 @@ extern const lua_newtable_t NewTable;
 extern const lua_gettable_t GetTable;
 extern const lua_rawget_t RawGet;
 extern const lua_rawgeti_t RawGetI;
+extern const lua_rawseti_t RawSetI;
 extern const lua_settable_t SetTable;
 extern const lua_rawset_t RawSet;
 extern const lua_getmetatable_t GetMetatable;
 extern const lua_setmetatable_t SetMetatable;
 extern const lua_insert_t Insert;
 extern const lua_remove_t Remove;
+extern const lua_replace_t Replace;
 extern const lua_gettop_t GetTop;
 extern const lua_settop_t SetTop;
 extern const lua_call_t Call;
@@ -383,6 +394,9 @@ extern const lua_newthread_t NewThread;
 extern const lua_resume_t Resume;
 extern const lua_yield_t Yield;
 extern const luaL_argerror_t ArgError;
+extern const luaL_checklstring_t CheckLString;
+extern const luaL_checknumber_t CheckNumber;
+extern const luaL_optnumber_t OptNumber;
 extern const luaL_setn_t SetN;
 extern const luaL_ref_t Ref;
 extern const luaL_unref_t Unref;

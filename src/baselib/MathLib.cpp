@@ -16,13 +16,16 @@
 //   - `math.fmod(x, y)` — floating-point remainder of `x / y`.
 //   - `math.modf(x)`    — split into integral + fractional parts.
 //   - `math.huge`       — positive infinity constant.
+//   - `math.cosh(x)`, `math.sinh(x)`, `math.tanh(x)` — hyperbolic functions.
 //
 // `math.fmod` is a pure rename: Lua 5.0 ships the exact same C function under
 // the name `math.mod`; 5.1 renamed the Lua-facing entry to `math.fmod`. We
 // register it as a direct alias of the engine's `math.mod` C function
 // (`FUN_LUA_MATH_FMOD`) — no wrapper. `math.mod` stays available too, so code
 // written for either name works. `modf` and `huge` are genuinely new in 5.1
-// (not in 1.12's mathlib table), so we implement/define them here.
+// (not in 1.12's mathlib table), so we implement/define them here, as are the
+// hyperbolic functions (5.1's math_cosh/sinh/tanh: luaL_checknumber, the C
+// function, one number).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -53,9 +56,27 @@ int __fastcall Script_math_modf(void *L) {
     return 2;
 }
 
+int __fastcall Script_math_cosh(void *L) {
+    Game::Lua::PushNumber(L, std::cosh(Game::Lua::CheckNumber(L, 1)));
+    return 1;
+}
+
+int __fastcall Script_math_sinh(void *L) {
+    Game::Lua::PushNumber(L, std::sinh(Game::Lua::CheckNumber(L, 1)));
+    return 1;
+}
+
+int __fastcall Script_math_tanh(void *L) {
+    Game::Lua::PushNumber(L, std::tanh(Game::Lua::CheckNumber(L, 1)));
+    return 1;
+}
+
 void RegisterFns() {
     Game::Lua::RegisterTableFunction("math", "fmod", Script_math_fmod);
     Game::Lua::RegisterTableFunction("math", "modf", &Script_math_modf);
+    Game::Lua::RegisterTableFunction("math", "cosh", &Script_math_cosh);
+    Game::Lua::RegisterTableFunction("math", "sinh", &Script_math_sinh);
+    Game::Lua::RegisterTableFunction("math", "tanh", &Script_math_tanh);
 
     // `math.huge` — a numeric constant, not a function. Fetch the (now
     // guaranteed-present) `math` table and set the field directly.

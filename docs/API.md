@@ -673,12 +673,16 @@ build instructions.
   - [`getfenv` / `setfenv` environment protection](#getfenv--setfenv-environment-protection)
   - [`select(index, ...)`](#selectindex-)
   - [`unpack(list [, i [, j]])`](#unpacklist--i--j)
+  - [`newproxy([proxy])`](#newproxyproxy)
+  - [`scrub(...)`](#scrub)
+  - [`difftime(time2 [, time1])`](#difftimetime2--time1)
   - [`xpcall(f, msgh [, arg1, ...])`](#xpcallf-msgh--arg1-)
   - [`GetCallstackHeight()` / `GetErrorCallstackHeight()` / `SetErrorCallstackHeight([height])`](#getcallstackheight--geterrorcallstackheight--seterrorcallstackheightheight)
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
   - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
   - [`table.count(tbl)`](#tablecounttbl)
   - [`table.maxn(t)`](#tablemaxnt)
+  - [`table.removemulti(t [, pos [, count]])`](#tableremovemultit--pos--count)
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
   - [`Mixin(object, ...)` / `CreateFromMixins(...)`](#mixinobject---createfrommixins)
   - [`string.match` / `string.gmatch`](#stringmatch--stringgmatch)
@@ -696,6 +700,7 @@ build instructions.
   - [`math.fmod(x, y)`](#mathfmodx-y)
   - [`math.modf(x)`](#mathmodfx)
   - [`math.huge`](#mathhuge)
+  - [`math.cosh(x)` / `math.sinh(x)` / `math.tanh(x)`](#mathcoshx--mathsinhx--mathtanhx)
   - [`coroutine.create(fn)`](#coroutinecreatefn)
   - [`coroutine.resume(co, ...)`](#coroutineresumeco-)
   - [`coroutine.yield(...)`](#coroutineyield)
@@ -16032,6 +16037,44 @@ unpack({10, 20, 30}, 2, 2)  -- 20
 length, so a vararg `arg` table's `n` field is honored and embedded nils
 keep their slots. Errors on a non-table first argument, exactly like 5.1.
 
+### `newproxy([proxy])`
+
+Returns a new empty userdata. The argument sets its metatable:
+
+- `false` or no argument: the userdata has no metatable.
+- `true`: the userdata gets a new empty metatable. Use `getmetatable` to get
+  this metatable and add metamethods to it.
+- A userdata from `newproxy(true)`: the new userdata shares the metatable of
+  that userdata.
+
+Any other argument causes the error `boolean or proxy expected`.
+
+```lua
+local proxy = newproxy(true)
+getmetatable(proxy).__gc = function() print("collected") end
+local twin = newproxy(proxy)  -- same metatable as proxy
+```
+
+### `scrub(...)`
+
+Returns its arguments. Each argument that is not a boolean, a number or a
+string becomes `nil`.
+
+```lua
+scrub(1, "a", true, {}, print)  -- 1, "a", true, nil, nil
+```
+
+### `difftime(time2 [, time1])`
+
+Returns the number of seconds from `time1` to `time2`. `time1` is 0 by
+default. Both values are times in seconds, as `time()` returns.
+
+```lua
+local start = time()
+-- ...
+difftime(time(), start)  -- the seconds since start
+```
+
 ### `xpcall(f, msgh [, arg1, ...])`
 
 Calls `f` under the message handler `msgh`, passing the trailing arguments
@@ -16167,6 +16210,21 @@ table.maxn({ a = 1 })               -- 0
 
 Errors on non-table input.
 
+### `table.removemulti(t [, pos [, count]])`
+
+Removes `count` elements from `t`, starting at position `pos`, and returns
+the removed elements in order. The elements after them move down to fill the
+gap. `pos` is the last position by default, and `count` is 1 by default.
+
+If `t` is empty, the function returns no values. If the range is not inside
+the table, the function causes the error `parameters out of bounds`.
+
+```lua
+local t = { "a", "b", "c", "d", "e" }
+table.removemulti(t, 2, 3)  -- "b", "c", "d"
+-- t is now { "a", "e" }
+```
+
 ### Stale table lengths (5.1 healing)
 
 Lua 5.0 stores a table's `table.insert` / `table.getn` length **out of
@@ -16253,7 +16311,8 @@ for word in string.gmatch("a,bb,ccc", "[^,]+") do print(word) end -- a / bb / cc
 Both call forms work: `string.match(s, p)` and `s:match(p)`. See
 [String methods](#string-methods-supper-sformat). `string.match` is also the
 global `strmatch`, as on 3.x clients, alongside 1.12's own `strfind`, `strsub`
-and the other globals for the 5.0 string functions.
+and the other globals for the 5.0 string functions. `string.gmatch` is also the
+global `gmatch`.
 
 ### `string.gsub` replacements
 
@@ -16484,6 +16543,16 @@ Positive infinity, as the numeric constant `math.huge` (Lua 5.1). Handy as a
 ```lua
 local best = math.huge
 for _, v in ipairs(costs) do best = math.min(best, v) end
+```
+
+### `math.cosh(x)` / `math.sinh(x)` / `math.tanh(x)`
+
+The hyperbolic cosine, sine and tangent of `x`.
+
+```lua
+math.cosh(0)  -- 1
+math.sinh(0)  -- 0
+math.tanh(1)  -- 0.76159415595576
 ```
 
 ### `coroutine.*`

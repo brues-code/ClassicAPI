@@ -73,12 +73,14 @@ namespace Lua {
     F(GetTable,    lua_gettable,    LUA_GET_TABLE)    \
     F(RawGet,      lua_rawget,      LUA_RAW_GET)      \
     F(RawGetI,     lua_rawgeti,     LUA_RAWGETI)      \
+    F(RawSetI,     lua_rawseti,     LUA_RAW_SET_I)    \
     F(SetTable,    lua_settable,    LUA_SET_TABLE)    \
     F(RawSet,      lua_rawset,      LUA_RAW_SET)      \
     F(GetMetatable,lua_getmetatable,LUA_GET_METATABLE)\
     F(SetMetatable,lua_setmetatable,LUA_SET_METATABLE)\
     F(Insert,      lua_insert,      LUA_INSERT)       \
     F(Remove,      lua_remove,      LUA_REMOVE)       \
+    F(Replace,     lua_replace,     LUA_REPLACE)      \
     F(GetTop,      lua_gettop,      LUA_GET_TOP)      \
     F(SetTop,      lua_settop,      LUA_SET_TOP)      \
     F(Call,        lua_call,        LUA_CALL)         \
@@ -98,6 +100,9 @@ namespace Lua {
     F(Resume,      lua_resume,      LUA_RESUME)       \
     F(Yield,       lua_yield,       LUA_YIELD)        \
     F(ArgError,    luaL_argerror,   LUAL_ARG_ERROR)   \
+    F(CheckLString,luaL_checklstring,LUAL_CHECK_LSTRING)\
+    F(CheckNumber, luaL_checknumber,LUAL_CHECK_NUMBER)\
+    F(OptNumber,   luaL_optnumber,  LUAL_OPT_NUMBER)  \
     F(SetN,        luaL_setn,       LUAL_SETN)         \
     F(Ref,         luaL_ref,        LUA_REF_REF)       \
     F(Unref,       luaL_unref,      LUA_REF_UNREF)     \

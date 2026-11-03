@@ -15,7 +15,7 @@
 //
 //   - `string.match(s, pattern [, init])` — first-match extraction (5.1),
 //     also the global `strmatch`, as `string.find` is `strfind`.
-//   - `string.gmatch(s, pattern)`         — match iterator (5.1).
+//   - `string.gmatch(s, pattern)`         — match iterator (5.1), also `gmatch`.
 //   - `strsplit(sep, str [, pieces])`     — WoW global; split on any char.
 //   - `strjoin(delimiter, ...)`           — WoW global; join varargs.
 //   - `strtrim(str [, chars])`            — WoW global; trim a char set.
@@ -347,8 +347,6 @@ int __fastcall Script_string_reverse(void *L) {
 // result for every `i`. Positions truncate toward zero as the engine's
 // str_byte and str_sub do. The engine's lua_checkstack (0x6F2F30) refuses
 // more than 2048 stack slots, so the longest range is about 2000 bytes.
-using luaL_checklstring_t = const char *(__fastcall *)(void *L, int narg, unsigned int *len);
-using luaL_optnumber_t = double(__fastcall *)(void *L, int narg, double def);
 
 // 5.1's posrelat: a negative position counts from the end; before the start is 0.
 long PosRelat(long pos, long len) {
@@ -358,14 +356,12 @@ long PosRelat(long pos, long len) {
 }
 
 int __fastcall Script_string_byte(void *L) {
-    const auto checkLString =
-        reinterpret_cast<luaL_checklstring_t>(Offsets::LUAL_CHECK_LSTRING);
-    const auto optNumber = reinterpret_cast<luaL_optnumber_t>(Offsets::LUAL_OPT_NUMBER);
     unsigned int l = 0;
-    const char *s = checkLString(L, 1, &l);
+    const char *s = Game::Lua::CheckLString(L, 1, &l);
     const long len = static_cast<long>(l);
-    long posi = PosRelat(static_cast<long>(optNumber(L, 2, 1)), len);
-    long pose = PosRelat(static_cast<long>(optNumber(L, 3, static_cast<double>(posi))), len);
+    long posi = PosRelat(static_cast<long>(Game::Lua::OptNumber(L, 2, 1)), len);
+    long pose =
+        PosRelat(static_cast<long>(Game::Lua::OptNumber(L, 3, static_cast<double>(posi))), len);
     if (posi <= 0)
         posi = 1;
     if (pose > len)
@@ -439,13 +435,15 @@ void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
     Game::Lua::RegisterTableFunction("string", "concat", &Script_strconcat, &kStrconcat);
     // 4.3.4's compat.lua binds each short global and its string-table twin
-    // to ONE function by assignment (`strmatch = str.match`, `strrev =
-    // str.reverse`, `str.trim = strtrim`, `str.split = strsplit`, `str.join =
-    // strjoin`), so `strtrim == string.trim`. A second Register* call would
-    // mint a second closure over the same C function, so the globals alias
-    // the table entries by value instead. The string-table half is what lets
-    // `(" x "):trim()` work and libraries capture it at file scope
-    // (AceConfigCmd-3.0: `strtrim = string.trim`).
+    // to ONE function by assignment (`gmatch = str.gmatch`, `strmatch =
+    // str.match`, `strrev = str.reverse`, `str.trim = strtrim`, `str.split =
+    // strsplit`, `str.join = strjoin`), so `strtrim == string.trim`. A second
+    // Register* call would mint a second closure over the same C function, so
+    // the globals alias the table entries by value instead. The string-table
+    // half is what lets `(" x "):trim()` work and libraries capture it at
+    // file scope (AceConfigCmd-3.0: `strtrim = string.trim`). 1.12's own
+    // compat.lua set `strbyte` from the old string.byte, so it is re-aliased.
+    Game::Lua::RegisterGlobalAlias("gmatch", "string", "gmatch");
     Game::Lua::RegisterGlobalAlias("strmatch", "string", "match");
     Game::Lua::RegisterGlobalAlias("strsplit", "string", "split");
     Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
