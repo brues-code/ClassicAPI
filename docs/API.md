@@ -23228,7 +23228,10 @@ returns a boolean.
 
 - `unit` and `exactMatch` are the same as for `InteractUnit`. Use
   `"anyinteract"` for the object that the Interact Key uses.
-- `looseTargeting` has no effect.
+- `looseTargeting` is `true` if you do not give it. When it is `true` and
+  you have a target, the interaction does not change your target. When it
+  is `false`, or when you have no target, a unit that you interact with
+  becomes your target.
 
 Returns `true` if the interaction ran, or `false` if nothing matched.
 

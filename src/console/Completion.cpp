@@ -49,6 +49,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "console/Registry.h"
+#include "input/Modifier.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -63,7 +64,6 @@ namespace {
 using Handler_t = int(__fastcall *)(const void *data, void *param);
 using RegisterEx_t = void(__fastcall *)(int eventId, Handler_t handler, void *param,
                                         float priority);
-using IsKeyDown_t = int(__fastcall *)(int key);
 using GetInputLine_t = uintptr_t(__fastcall *)();
 using MakeCommandCurrent_t = void(__fastcall *)(uintptr_t line, const char *text);
 using SetInputString_t = void(__fastcall *)(const char *text);
@@ -205,7 +205,7 @@ int __fastcall OnKeyDown(const void *data, void * /*param*/) {
         return 1;
     if (Game::Read<uint32_t>(Offsets::VAR_CONSOLE_VISIBLE) == 0)
         return 1;
-    if (reinterpret_cast<IsKeyDown_t>(Offsets::FUN_GAMEUI_IS_KEY_DOWN)(toggleKey) != 0)
+    if (Input::Modifier::IsKeyDown(toggleKey))
         return 1;
 
     const uintptr_t line =

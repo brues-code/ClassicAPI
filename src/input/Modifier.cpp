@@ -287,6 +287,10 @@ uint32_t CurrentMask() {
     return g_overrideActive ? g_overrideMask : HeldMask();
 }
 
+bool IsKeyDown(int key) {
+    return reinterpret_cast<IsKeyDown_t>(Offsets::FUN_GAMEUI_IS_KEY_DOWN)(key) != 0;
+}
+
 uint32_t ParseModifiers(const char *&text) {
     static const struct {
         const char *name;
