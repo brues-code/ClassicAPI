@@ -185,24 +185,34 @@ uint64_t Get() {
     return g_soft;
 }
 
-// Retail 12.1.5 probe, camera still, a soft-interact game object in front:
-// with an interactable NPC targeted `anyinteract` is the NPC, with no
-// target it is the game object — the target wins. "Interactable" is what
-// the cursor says now: a target out of reach (the Unable form) or with
-// nothing to offer yields to `softinteract`, so the key falls back to the
-// nearest interactable object instead of pressing a dead target. Being
-// behind the camera does not disqualify the target; the cursor verdict
-// does not look at facing.
+// Retail 12.1.5 probes, camera still:
+//   - a soft-interact game object in front: with an interactable NPC
+//     targeted `anyinteract` is the NPC, with no target it is the game
+//     object — the target wins;
+//   - an NPC targeted out of reach (the Unable form): facing away from
+//     everything (`softinteract` nil) `anyinteract` is the target; facing
+//     a nearer NPC (`softinteract`) it is that NPC.
+// So a target in reach wins, an out-of-reach one yields to `softinteract`
+// and is used only when nothing is picked — the key then still runs the
+// engine's interact on it ("You need to be closer", or the click-to-move
+// walk). Being behind the camera does not disqualify the target; the
+// cursor verdict does not look at facing.
 uint64_t GetAny() {
     if (!Object::RegistryReady())
         return 0;
     const uint64_t target = Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO);
+    Reach reach = Reach::None;
     if (target != 0) {
         void *object = Object::ByGuid(kTypeMask, target);
-        if (object != nullptr && ReachOf(object) == Reach::Now)
-            return target;
+        if (object != nullptr)
+            reach = ReachOf(object);
     }
-    return Get();
+    if (reach == Reach::Now)
+        return target;
+    const uint64_t soft = Get();
+    if (soft != 0 || reach == Reach::None)
+        return soft;
+    return target;
 }
 
 bool InReach(void *object) { return ReachOf(object) == Reach::Now; }

@@ -23262,11 +23262,12 @@ If more than one object qualifies, it picks the nearest one.
 
 - `"softinteract"` is the object that soft interact picked. It is empty
   when nothing qualifies or when soft interact is off.
-- `"anyinteract"` is your target when you can interact with it right now.
-  This is true also when the target is behind you. When the target is out
-  of reach, or you cannot interact with it, `"anyinteract"` is the same as
-  `"softinteract"` — the Interact Key falls back to the nearest object you
-  can interact with.
+- `"anyinteract"` is your target when you can interact with it now. This
+  is true also when the target is behind you. When your target is too far
+  away, `"anyinteract"` is the same as `"softinteract"`. If
+  `"softinteract"` is empty, `"anyinteract"` is your target. When you
+  cannot interact with your target, `"anyinteract"` is the same as
+  `"softinteract"`.
 - `"anyleftinteract"` is the same as `"anyinteract"`.
 
 Both tokens can point at a game object or a corpse. `UnitGUID` returns
