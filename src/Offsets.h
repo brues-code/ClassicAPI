@@ -8809,6 +8809,18 @@ enum Offsets {
     // name ("" for a C closure), or null for no such upvalue or a value that
     // is not a function. (0x006F45B0 is lua_pushupvalues.)
     LUA_GET_UPVALUE = 0x006F4660,
+    // `debugstack([start [, count1 [, count2]]])` — the engine's C function
+    // (base-function table 0x811E28); no engine callers. It reads the stack
+    // of the state it is called on through five lua_getstack calls and one
+    // lua_getinfo("Snl"), and pushes its text onto that same state.
+    // BaseLib::DebugStack points those six calls at a thread's state.
+    FUN_SCRIPT_DEBUGSTACK = 0x00703760,
+    CALL_DEBUGSTACK_GETSTACK_FIRST = 0x0070383F,
+    CALL_DEBUGSTACK_GETSTACK_TAIL_PROBE = 0x0070386E,
+    CALL_DEBUGSTACK_GETSTACK_TAIL_START = 0x00703896,
+    CALL_DEBUGSTACK_GETSTACK_TAIL_SKIP = 0x007038AD,
+    CALL_DEBUGSTACK_GETSTACK_NEXT = 0x00703998,
+    CALL_DEBUGSTACK_GETINFO = 0x007038CD,
     // `luaO_chunkid(out, source, bufflen)` — `void __fastcall(char *out /*ecx*/,
     // const char *source /*edx*/, int bufflen /*stack*/)`, RET 4: the name a
     // chunk has in error messages. `=name` is copied as is, `@file` is the

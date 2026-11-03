@@ -678,6 +678,7 @@ build instructions.
   - [`difftime(time2 [, time1])`](#difftimetime2--time1)
   - [`xpcall(f, msgh [, arg1, ...])`](#xpcallf-msgh--arg1-)
   - [`GetCallstackHeight()` / `GetErrorCallstackHeight()` / `SetErrorCallstackHeight([height])`](#getcallstackheight--geterrorcallstackheight--seterrorcallstackheightheight)
+  - [`debugstack(thread [, start [, count1 [, count2]]])`](#debugstackthread--start--count1--count2)
   - [`debuglocals([level [, skipFunctionsAndUserdata]])`](#debuglocalslevel--skipfunctionsanduserdata)
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
   - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
@@ -16136,6 +16137,18 @@ end
 ```
 
 Works in the world and on the login screen.
+
+### `debugstack(thread [, start [, count1 [, count2]]])`
+
+With a coroutine as the first argument, `debugstack` returns the call stack
+of that coroutine. `start` is 0 by default, which is the innermost level of
+the coroutine. Without a coroutine, `debugstack` works as before.
+
+```lua
+local co = coroutine.create(function() coroutine.yield() end)
+coroutine.resume(co)
+print(debugstack(co))
+```
 
 ### `debuglocals([level [, skipFunctionsAndUserdata]])`
 
