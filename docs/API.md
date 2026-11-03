@@ -15,6 +15,7 @@ build instructions.
   - [`HasBonusActionBar()`](#hasbonusactionbar)
   - [`C_ActionBar.ShouldShowKeyring()`](#c_actionbarshouldshowkeyring)
   - [`C_ActionBar.EnableActionRangeCheck(slot, enable)`](#c_actionbarenableactionrangecheckslot-enable)
+  - [`C_ActionBar.GetSpell(actionID)`](#c_actionbargetspellactionid)
 
 - [AddOns](#addons)
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
@@ -1339,6 +1340,27 @@ f:SetScript("OnEvent", function()
     print("Slot", arg1, arg3 and (arg2 and "in range" or "out of range") or "no range check")
 end)
 C_ActionBar.EnableActionRangeCheck(1, true)
+```
+
+### `C_ActionBar.GetSpell(actionID)`
+
+Returns the ID of the spell that a 1-based action-bar slot casts. The
+answer depends on what the slot holds:
+
+- A spell gives its own spell ID.
+- A macro gives the spell that its button shows. The button uses this
+  spell for its cooldown, usable state and range.
+- An item gives the spell that the item casts when you use it.
+
+If the slot is empty, has no spell, or is not in the range 1 to 120, the
+function returns `0`. If the client does not have the data of an item yet,
+the function also returns `0` for that item.
+
+```lua
+local actionType, id = GetActionInfo(1)
+if actionType == "item" then
+    id = C_ActionBar.GetSpell(1)
+end
 ```
 
 ## AddOns

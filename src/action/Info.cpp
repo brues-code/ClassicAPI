@@ -38,6 +38,14 @@
 // through to an empty return. There is no bag-item tag: items are always
 // by-itemID (0x80), and an earlier reading of the 0x40 "miss" as a bag item
 // was wrong.
+//
+// `C_ActionBar.GetSpell(slot)` — the spell the slot stands for, 0 for none.
+// It is the engine's own resolver (FUN_ACTION_SLOT_TO_SPELL), which every
+// action reader (cooldown, usable, range, current) goes through: a spell
+// action is its spell, a macro is its cached primary spell, and an item is
+// its first on-use spell — retail's ActionButton.lua calls GetSpell for
+// exactly that item case. The spellbook flag it also hands back is not part
+// of the answer.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -126,10 +134,37 @@ int __fastcall Script_GetActionInfo(void *L) {
     return 0;
 }
 
+int __fastcall Script_GetSpell(void *L) {
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_ActionBar.GetSpell(actionID)");
+        return 0;
+    }
+    // The resolver bounds-checks the slot itself and answers 0 outside it.
+    const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
+    uint32_t petFlag = 0;
+    const uint32_t spellID = reinterpret_cast<SlotToSpell_t>(
+        static_cast<uintptr_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL))(
+        static_cast<uint32_t>(slot0), &petFlag);
+    Game::Lua::PushNumber(L, static_cast<double>(spellID));
+    return 1;
+}
+
+const Game::Doc::Field kGetSpellArgs[] = {
+    Game::Doc::Req("actionID", "luaIndex"),
+};
+const Game::Doc::Field kGetSpellRets[] = {
+    Game::Doc::Req("spellID", "number"),
+};
+const Game::Doc::Function kGetSpellDoc{
+    "The spell an action stands for: a spell's own ID, a macro's spell, or an item's "
+    "on-use spell; 0 when there is none.",
+    kGetSpellArgs, kGetSpellRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetActionInfo", &Script_GetActionInfo);
+    Game::Lua::RegisterTableFunction("C_ActionBar", "GetSpell", &Script_GetSpell, &kGetSpellDoc);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
