@@ -682,7 +682,7 @@ build instructions.
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
   - [`Mixin(object, ...)` / `CreateFromMixins(...)`](#mixinobject---createfrommixins)
   - [`string.match` / `string.gmatch`](#stringmatch--stringgmatch)
-  - [`string.gsub` table replacement](#stringgsub-table-replacement)
+  - [`string.gsub` replacements](#stringgsub-replacements)
   - [`strsplit(sep, str [, pieces])`](#strsplitsep-str--pieces)
   - [`strjoin(delimiter, ...)`](#strjoindelimiter-)
   - [`strtrim(str [, chars])`](#strtrimstr--chars)
@@ -16254,27 +16254,48 @@ Both call forms work: `string.match(s, p)` and `s:match(p)`. See
 global `strmatch`, as on 3.x clients, alongside 1.12's own `strfind`, `strsub`
 and the other globals for the 5.0 string functions.
 
-### `string.gsub` table replacement
+### `string.gsub` replacements
 
-Lua 5.1 allows a **table** as `gsub`'s replacement: every match looks up
-the first capture (the whole match when the pattern declares no
-captures) as a key and substitutes the value. A `nil` or `false` value
-keeps the original match. The stock 5.0 `gsub` accepts only a string or
-function replacement and errors on a table
-(`string or function expected`).
+`string.gsub(s, pattern, repl [, n])` replaces each match of `pattern` in
+`s`. The replacement `repl` can be a string, a number, a table, or a
+function.
+
+- **String or number**: the text replaces the match. In this text, `%0` is
+  the whole match and `%1` to `%9` are the captures. If the pattern has no
+  captures, `%1` is also the whole match. `%%` is one `%` character.
+- **Table**: the first capture is the key. If the pattern has no captures,
+  the whole match is the key. The value at that key replaces the match.
+- **Function**: the function gets the captures as arguments. If the pattern
+  has no captures, it gets the whole match. Its first return value replaces
+  the match.
+
+If a table value is `nil` or `false`, the original match stays in the
+string. Any other table value that is not a string or a number causes the
+error `invalid replacement value (a <type>)`.
+
+If a function returns a value that is not a string or a number, the match is
+removed. This includes `nil` and `false`. To keep a match, return the match
+itself.
+
+If `repl` is not one of the four types, the call fails with the error
+`string/function/table expected`.
 
 ```lua
+("hello world"):gsub("%w+", "<%0>")
+-- "<hello> <world>", 2
+
 ("$name the $class"):gsub("%$(%w+)", { name = "Bob", class = "Druid" })
 -- "Bob the Druid", 2
 
 ("$name and $unknown"):gsub("%$(%w+)", { name = "Bob" })
--- "Bob and $unknown", 2   (a missing key keeps the match, as in 5.1)
+-- "Bob and $unknown", 2
+
+("a b c"):gsub("%a", function(c) if c == "b" then return "B" end end)
+-- " B ", 3   (the function returns nil for "a" and "c")
 ```
 
-Both `string.gsub` and the bare `gsub` global have the upgrade; string
-and function replacements behave exactly as before. One residual: when
-the pattern itself contains a `%1`..`%9` back-reference, a missing table
-key removes the match instead of keeping it.
+`string.gsub`, the global `gsub`, and the method form `s:gsub(...)` are the
+same function.
 
 ### `strsplit(sep, str [, pieces])`
 

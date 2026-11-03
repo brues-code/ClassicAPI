@@ -8468,6 +8468,11 @@ enum Offsets {
     // `rawset(nil)` clear leaves it stale and subsequent `table.insert`
     // appends past the wiped slots.
     LUAL_SETN = 0x6F4EA0,
+    // `luaL_addlstring(B, s, len)` — __fastcall (len on the stack, ret 4) —
+    // and `luaL_addvalue(B)` — __fastcall, pops the string on top into B.
+    // Both as called by str_gsub (0x007FD26A) and add_s (0x007FD35E).
+    LUAL_ADD_LSTRING = 0x6F51F0,
+    LUAL_ADD_VALUE = 0x6F5270,
     // `luaL_getn(L, tableIndex)` — Lua 5.0 auxlib table-length getter,
     // `int __fastcall(L /*ecx*/, idx /*edx*/)`, plain RET (no stack
     // args), length in eax. Verified by disassembly: a negative idx is
@@ -8898,14 +8903,28 @@ enum Offsets {
     // entry before the registration table's NULL terminator, matching
     // stock 5.0 order). Verified by decode: args (s, pat, repl, maxN),
     // `^` anchor pre-strip, and the luaL_argerror(3) "string or
-    // function expected" gate. Its add_value helper (`FUN_007fd2a0`)
-    // matches stock 5.0: a FUNCTION replacement's non-string result is
-    // popped and NOTHING is appended (match → empty) — 5.1 instead
-    // keeps the original match for nil/false. That difference is why
-    // `BaseLib::StringLib`'s 5.1 table-replacement shim wraps the
-    // pattern in an outer capture (arg 1 = whole match) so its adapter
-    // closure can hand the match back for missing keys.
+    // function expected" gate. BaseLib::StringGsub replaces the gate and
+    // the add_s call below.
     FUN_LUA_STR_GSUB = 0x007FD0E0,
+    // str_gsub's replacement-type gate, ECX = EDI = L on entry: `call
+    // lua_gettop; cmp eax,3; jl` → argerror, `lua_isstring(L,3)` → pass,
+    // `lua_type(L,3) == 6` → pass, else `luaL_argerror(L, 3, "string or
+    // function expected")`. 60 bytes, ending at 0x007FD19A `lea edx,[b]`
+    // (luaL_buffinit). Nothing outside the range jumps into it.
+    SITE_LUA_STR_GSUB_REPL_CHECK = 0x007FD15E,
+    // `add_s(ms, b, s, e)` — __fastcall (ECX = MatchState, EDX = luaL_Buffer,
+    // s/e on the stack, ret 8): Lua 5.0's add_s, which also does the
+    // function replacement (a non-string result is popped and nothing is
+    // added). Each `%n` goes through check_capture (0x007FCE20), so `%0`,
+    // and `%1` in a pattern with no captures, raise "invalid capture index".
+    // Its one caller is the call below; BaseLib::StringGsub still calls it
+    // for a function replacement.
+    FUN_LUA_STR_ADD_S = 0x007FD2A0,
+    CALL_LUA_STR_GSUB_ADD_S = 0x007FD203,
+    // `push_onecapture(ms, i)` — __fastcall, pushes capture `i`: "unfinished
+    // capture" for length -1, the position for -2, else the substring. 5.0's
+    // has no `i >= level` test (5.1's pushes the whole match for i == 0).
+    FUN_LUA_STR_PUSH_ONECAPTURE = 0x007FCF40,
     // `str_format` — the Lua 5.0 `string.format` C function (`int
     // __fastcall(void *L)`), strlib entry at `0x00822dc0`. Verified by decode:
     // reads the format at arg 1, handles `%%`, `%d/i/c`, `%e/E/f/g/G`,

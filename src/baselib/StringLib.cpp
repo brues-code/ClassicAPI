@@ -16,7 +16,6 @@
 //   - `string.match(s, pattern [, init])` — first-match extraction (5.1),
 //     also the global `strmatch`, as `string.find` is `strfind`.
 //   - `string.gmatch(s, pattern)`         — match iterator (5.1).
-//   - `string.gsub` TABLE replacement     — 5.1 form (see the shim below).
 //   - `strsplit(sep, str [, pieces])`     — WoW global; split on any char.
 //   - `strjoin(delimiter, ...)`           — WoW global; join varargs.
 //   - `strtrim(str [, chars])`            — WoW global; trim a char set.
@@ -341,128 +340,6 @@ int __fastcall Script_string_reverse(void *L) {
     return 1;
 }
 
-// --- string.gsub table-replacement upgrade (Lua 5.1) ------------------------
-//
-// 5.1 allows a TABLE as gsub's replacement: each match looks up the first
-// capture (the whole match when the pattern declares no captures) in the
-// table; a nil/false value keeps the original match; string/number values
-// substitute. This engine's gsub (FUN_LUA_STR_GSUB) is stock 5.0 —
-// string/function only ("string or function expected" otherwise), and its
-// add_value appends NOTHING when a replacement function returns a
-// non-string (match → empty; verified by decode, see Offsets.h). So a
-// plain table→closure adapter would EAT unmatched tokens where 5.1 keeps
-// them, and the closure can't reconstruct the whole match from capture
-// args alone.
-//
-// The shim therefore rewrites the pattern with one OUTER capture —
-// `pat` → `(pat)`, keeping a leading `^` and an unescaped trailing `$`
-// outside (both are anchors only at their positional ends; inside the
-// parens they'd turn literal) — so the adapter closure always receives
-// the whole match as arg 1, the pattern's own first capture as arg 2, and
-// can hand arg 1 back to reproduce 5.1's keep-match for missing keys.
-// Patterns containing a `%1`..`%9` back-reference can't be wrapped (the
-// outer capture would renumber what `%N` refers to); those fall back to
-// an unwrapped adapter whose missing-key behavior is the engine's own
-// (match → empty) — the one documented divergence, and the combination
-// (table replacement + pattern back-references) is essentially absent
-// from real code. String/function replacements tail-call the engine gsub
-// untouched.
-
-// True when the pattern contains a `%1`..`%9` back-reference. Escape-aware:
-// the char after any `%` is consumed, so `%%1` (literal percent, then '1')
-// doesn't count.
-bool PatternHasBackref(const char *p, unsigned len) {
-    for (unsigned i = 0; i + 1 < len; ++i) {
-        if (p[i] != '%')
-            continue;
-        const char c = p[i + 1];
-        if (c >= '1' && c <= '9')
-            return true;
-        ++i; // skip the escaped char
-    }
-    return false;
-}
-
-// Adapter for the wrapped-pattern path: arg 1 = whole match, arg 2 = the
-// pattern's own first capture (when it declared any). Upvalue 1 = the
-// replacement table. Missing/false value → return the whole match (5.1's
-// keep-match).
-int __fastcall GsubTableLookupWrapped(void *L) {
-    const int nargs = Game::Lua::GetTop(L);
-    Game::Lua::PushValue(L, nargs >= 2 ? 2 : 1);        // the 5.1 lookup key
-    Game::Lua::GetTable(L, Game::Lua::UpvalueIndex(1)); // tbl[key]
-    const int t = Game::Lua::Type(L, -1);
-    if (t == Game::Lua::TYPE_NIL ||
-        (t == Game::Lua::TYPE_BOOLEAN && Game::Lua::ToBoolean(L, -1) == 0))
-        Game::Lua::PushValue(L, 1); // keep the original match
-    return 1;                       // top value is the result
-}
-
-// Adapter for back-reference patterns (unwrapped): arg 1 is already the
-// 5.1 key. A missing key returns nil → the engine appends nothing.
-int __fastcall GsubTableLookupPlain(void *L) {
-    Game::Lua::PushValue(L, 1);
-    Game::Lua::GetTable(L, Game::Lua::UpvalueIndex(1));
-    return 1;
-}
-
-int __fastcall Script_string_gsub(void *L) {
-    const auto engineGsub =
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_LUA_STR_GSUB);
-    if (Game::Lua::Type(L, 3) != Game::Lua::TYPE_TABLE)
-        return engineGsub(L); // string/function/error paths untouched
-
-    const char *pat = Game::Lua::ToString(L, 2);
-    if (pat == nullptr)
-        return engineGsub(L); // let the engine raise its own arg error
-    const unsigned patLen = Game::Lua::StrLen(L, 2);
-
-    Game::Lua::SetTop(L, 4); // normalize to (s, pat, tbl, n) — gsub reads ≤4
-
-    if (!PatternHasBackref(pat, patLen)) {
-        // Build `(body)` with the anchors outside the capture.
-        unsigned b = 0, e = patLen;
-        std::string wrapped;
-        wrapped.reserve(patLen + 3);
-        if (e > b && pat[0] == '^') {
-            wrapped += '^';
-            b = 1;
-        }
-        bool anchoredBack = false;
-        if (e > b && pat[e - 1] == '$') {
-            // `$` is an anchor only when not %-escaped: an even number of
-            // `%` immediately before it means the `$` itself is unescaped.
-            unsigned pc = 0;
-            for (int idx = static_cast<int>(e) - 2;
-                 idx >= static_cast<int>(b) && pat[idx] == '%'; --idx)
-                ++pc;
-            anchoredBack = (pc % 2) == 0;
-            if (anchoredBack)
-                --e;
-        }
-        wrapped += '(';
-        wrapped.append(pat + b, e - b);
-        wrapped += ')';
-        if (anchoredBack)
-            wrapped += '$';
-
-        Game::Lua::PushLString(L, wrapped.data(),
-                               static_cast<unsigned int>(wrapped.size())); // 5
-        Game::Lua::PushValue(L, 3);                                        // 6: tbl
-        Game::Lua::PushCClosure(L, &GsubTableLookupWrapped, 1);            // 6: closure
-        Game::Lua::Insert(L, 2); // closure→2: s, closure, pat, tbl, n, wrapped
-        Game::Lua::Insert(L, 2); // wrapped→2: s, wrapped, closure, pat, tbl, n
-        Game::Lua::Remove(L, 4); // drop the original pattern
-        Game::Lua::Remove(L, 4); // drop the table → (s, wrapped, closure, n)
-    } else {
-        Game::Lua::PushValue(L, 3);                           // 5: tbl
-        Game::Lua::PushCClosure(L, &GsubTableLookupPlain, 1); // 5: closure
-        Game::Lua::Insert(L, 3); // → s, pat, closure, tbl, n
-        Game::Lua::Remove(L, 4); // → s, pat, closure, n
-    }
-    return engineGsub(L);
-}
-
 // --- Documentation ----------------------------------------------------------
 
 const Game::Doc::Field kStrlenutf8Args[] = {
@@ -515,22 +392,19 @@ const Game::Doc::Function kStrconcat{
 void RegisterFns() {
     Game::Lua::RegisterTableFunction("string", "match", &Script_string_match);
     Game::Lua::RegisterTableFunction("string", "gmatch", Script_string_gmatch);
-    Game::Lua::RegisterTableFunction("string", "gsub", &Script_string_gsub);
     Game::Lua::RegisterTableFunction("string", "reverse", &Script_string_reverse);
     Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit);
     Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
     Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
     Game::Lua::RegisterTableFunction("string", "concat", &Script_strconcat, &kStrconcat);
     // 4.3.4's compat.lua binds each short global and its string-table twin
-    // to ONE function by assignment (`gsub = str.gsub`, `strmatch =
-    // str.match`, `strrev = str.reverse`, `str.trim = strtrim`, `str.split =
-    // strsplit`, `str.join = strjoin`), so `strtrim == string.trim`. A second
-    // Register* call would mint a second closure over the same C function, so
-    // the globals alias the table entries by value instead. The string-table
-    // half is what lets `(" x "):trim()` work and libraries capture it at
-    // file scope (AceConfigCmd-3.0: `strtrim = string.trim`); the bare `gsub`
-    // gets the table-replacement upgrade by being the same function.
-    Game::Lua::RegisterGlobalAlias("gsub", "string", "gsub");
+    // to ONE function by assignment (`strmatch = str.match`, `strrev =
+    // str.reverse`, `str.trim = strtrim`, `str.split = strsplit`, `str.join =
+    // strjoin`), so `strtrim == string.trim`. A second Register* call would
+    // mint a second closure over the same C function, so the globals alias
+    // the table entries by value instead. The string-table half is what lets
+    // `(" x "):trim()` work and libraries capture it at file scope
+    // (AceConfigCmd-3.0: `strtrim = string.trim`).
     Game::Lua::RegisterGlobalAlias("strmatch", "string", "match");
     Game::Lua::RegisterGlobalAlias("strsplit", "string", "split");
     Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
