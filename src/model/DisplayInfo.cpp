@@ -54,6 +54,7 @@
 #include "creature/Info.h"
 #include "dbc/Lookup.h"
 #include "model/DisplayInfo.h"
+#include "model/ItemDisplay.h"
 #include "tick/WorldTick.h"
 
 #include <cstdint>
@@ -186,21 +187,8 @@ void StepJob(DressJob &job) {
             return;
         }
 
-        // The helm/shoulder feeds attach child model instances. The frame
-        // only lights its OWN instance (pre-render callback registered by
-        // SetModelInstance), so the children would render unlit — pure black.
-        // Give each child the frame's own light/fog callback; it reads the
-        // frame's live light struct, so later SetLight calls reach them too.
-        using SetRenderCb_t = void(__thiscall *)(void *instance, const void *cb, void *userData);
-        auto setRenderCb =
-            reinterpret_cast<SetRenderCb_t>(Offsets::FUN_MODEL_INSTANCE_SET_RENDER_CB);
-        const void *lightFogCb =
-            reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB);
-        for (auto *child = Game::Read<uint8_t *>(
-                 instance, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
-             child != nullptr; child = Game::Read<uint8_t *>(
-                                   child, Offsets::OFF_MODEL_INSTANCE_CHILD_NEXT))
-            setRenderCb(child, lightFogCb, job.frame);
+        // The helm/shoulder feeds attach child model instances.
+        LightChildren(job.frame, instance);
 
         job.configured = true;
     }
@@ -224,12 +212,15 @@ AttachDisplayModel_t g_origAttach = nullptr;
 
 // 4.3.4's SetUpModel order: build the model, then dress it when the display
 // has an Extra record.
+// An item record (SetItem) builds the item's model instead.
 void __fastcall AttachDisplayModel_h(void *pane, void * /*edx*/, const uint8_t *record) {
     // Any pending or kept dress for this pane is about to point at the wrong
     // model — drop it before the original swaps the instance.
     if (DressJob *job = FindJob(pane))
         CancelJob(*job);
 
+    if (Model::ItemDisplay::Attach(pane, record))
+        return;
     g_origAttach(pane, record);
 
     if (record == nullptr)
@@ -393,6 +384,21 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
             setItem(builder, slot, displayID);
     }
     return builder;
+}
+
+// The frame only lights its OWN instance (the pre-render callback
+// SetModelInstance registers), so attached children would render unlit, pure
+// black. Each child gets the frame's own light/fog callback; it reads the
+// frame's live light struct, so later SetLight calls reach them too.
+void LightChildren(void *frame, void *instance) {
+    using SetRenderCb_t = void(__thiscall *)(void *instance, const void *cb, void *userData);
+    auto setRenderCb = reinterpret_cast<SetRenderCb_t>(Offsets::FUN_MODEL_INSTANCE_SET_RENDER_CB);
+    const void *lightFogCb =
+        reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB);
+    for (auto *child = Game::Read<uint8_t *>(instance, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
+         child != nullptr;
+         child = Game::Read<uint8_t *>(child, Offsets::OFF_MODEL_INSTANCE_CHILD_NEXT))
+        setRenderCb(child, lightFogCb, frame);
 }
 
 bool PumpDresser(void *dresser) {

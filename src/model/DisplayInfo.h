@@ -27,6 +27,10 @@ void *CreateDresser(void *instance, const uint8_t *extraRec);
 bool PumpDresser(void *dresser);
 void DestroyDresser(void *dresser);
 
+// Gives every model attached to `instance` the light and fog callback that
+// `frame` gives its own model, so the children are lit like it.
+void LightChildren(void *frame, void *instance);
+
 // The reload teardown destroys every Model frame (and with it the model
 // instances our pending character-dress jobs point at). Drop all jobs and
 // destroy their engine compositors before the engine starts tearing down.

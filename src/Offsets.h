@@ -4064,6 +4064,24 @@ enum Offsets {
     // 0x004797B0), installs it (vtable +0x90), registers the done callback
     // and arms Stand. No character compositor: 4.3.4's SetUpModel adds it.
     FUN_PLAYERMODEL_ATTACH_DISPLAY_MODEL = 0x00505A70,
+    // The pane's animation-done callback, which AttachDisplayModel registers
+    // with the pane as user data (0x00505AFB) and which arms Stand when a
+    // whole-body track completes.
+    FUN_PLAYERMODEL_ON_ANIM_DONE = 0x005062A0,
+    // CM2Model::SetAnimDoneCallback — `__thiscall(model, callback, uint64
+    // userData)`, ret 0xC. AttachDisplayModel passes the pane sign-extended
+    // (`cdq` at 0x00505AF8).
+    FUN_M2MODEL_SET_ANIM_DONE_CALLBACK = 0x00711BB0,
+    // CM2Model::ReplaceTexture — `__thiscall(model, type, HTEXTURE)`, ret 8.
+    // Queues the bind when the model has not loaded yet (0x00710FFF). Item
+    // models take their skin as type 2 (0x00479933 in AttachItemModelFile,
+    // 0x0047A043 in the loose ammo model).
+    FUN_M2MODEL_REPLACE_TEXTURE = 0x00710EC0,
+    // The CStatus every item-model texture load reports to: AttachItemModelFile
+    // (0x00479912) and the loose ammo model (0x0047A01A) pass it to
+    // FUN_TEXTURE_LOAD_BY_PATH as `(path, status, flags, 1, 0)`, with flags
+    // from FUN_GX_TEXFLAGS_INIT(3, 0,0, 0,0,0, 1, 0).
+    VAR_ITEM_MODEL_TEXTURE_STATUS = 0x00B424F0,
     // ConfigureCamera — `__thiscall(pane)`, run by the model-ready hook
     // (0x00505B30): a frozen copy of the model's camera index 1, or a fixed
     // camera at the bounding-box centre. 4.3.4's ConfigureCamera is this plus
@@ -5961,6 +5979,12 @@ enum Offsets {
     // ItemVisuals ID (column 22). Read by AttachItemModel (0x0047A200) and
     // GetItemDescVisual (0x0062EC93); 365 stock rows set it.
     OFF_ITEMDISPLAYINFO_ITEM_VISUAL = 0x58,
+    // The two model names (+0x04, +0x08) and their two textures (+0x0C,
+    // +0x10), char* each. AttachItemModel (0x0047A0C0) builds a held item
+    // from name 0 and texture 0 (0x0047A192, 0x0047A1CF); the loose ammo
+    // model (0x00479F40) from name 1 and texture 1 (0x00479F58, 0x00479F64).
+    OFF_ITEMDISPLAYINFO_MODEL_NAME = 0x04,
+    OFF_ITEMDISPLAYINFO_MODEL_TEXTURE = 0x0C,
 
     // ItemVisuals.dbc — an ID plus five ItemVisualEffects IDs (6 columns),
     // the glow AttachItemVisuals hangs on a weapon. Instance 0x00C0DB68.
@@ -6091,6 +6115,13 @@ enum Offsets {
     VAR_CHRRACES_COUNT = 0x00C0DEE4,
     OFF_CHRRACES_FILENAME = 0x3C,
     OFF_CHRRACES_NAMES = 0x44,
+    // The client prefix ("Hu", "Or", ...) the head-item path takes: the helm
+    // builder (0x004799A0) reads it at 0x00479A21 for
+    // `Item\ObjectComponents\Head\<name>_<prefix><sex letter>.mdx`.
+    OFF_CHRRACES_CLIENT_PREFIX = 0x18,
+    // The helm builder's sex letters, `const char *[3]` = "M", "F", "U",
+    // indexed by the sex byte (0x00479A1A).
+    VAR_SEX_LETTERS = 0x00838AB4,
 
     // CreatureFamily.dbc — pet/beast family metadata. Standard 5-DWORD
     // class shape (instance 0x00C0DE74; records 0x00C0DE7C, count

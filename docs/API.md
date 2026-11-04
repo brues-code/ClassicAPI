@@ -781,6 +781,7 @@ build instructions.
 - [Model](#model)
   - [`model:SetDisplayInfo(displayID)`](#modelsetdisplayinfodisplayid)
   - [`model:SetCreature(creatureID [, displayID])`](#modelsetcreaturecreatureid--displayid)
+  - [`model:SetItem(itemID [, appearanceModID, itemVisualID])`](#modelsetitemitemid--appearancemodid-itemvisualid)
   - [`model:SetPortraitZoom(zoom)`](#modelsetportraitzoomzoom)
   - [`model:SetCamDistanceScale(scale)`](#modelsetcamdistancescalescale)
   - [`model:RefreshCamera()`](#modelrefreshcamera)
@@ -18555,6 +18556,31 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
+### `model:SetItem(itemID [, appearanceModID, itemVisualID])`
+
+Shows the model of one item: a weapon, a shield, a helm, a shoulder, a
+quiver, or ammo. The item has its skin texture and its glow, if it has one.
+`appearanceModID` has no effect.
+
+`itemVisualID` is an `ItemVisuals` ID, for example the glow of a weapon
+enchant. The model shows it only when the item has no glow of its own.
+
+A helm model is made for one race and sex. The model shows the helm for the
+race and sex of your character.
+
+An item that has no model of its own, for example a chest item, shows
+nothing. If the item is not in the client item cache, the model shows
+nothing at first. The client requests the item, and the model shows it when
+the data arrives.
+
+The model shows the item until the next `SetItem`, `SetDisplayInfo`,
+`SetCreature`, or `SetUnit` call. This is also true when you hide the frame
+and show it again.
+
+```lua
+PreviewModel:SetItem(19019)   -- Thunderfury
+```
+
 ### `model:SetPortraitZoom(zoom)`
 
 Moves the camera between the full-body view and the model's portrait view.
@@ -18624,7 +18650,8 @@ Returns the display ID (a `CreatureDisplayInfo` ID) that the model shows:
 - After `SetUnit`, the display that the unit has now. For a shapeshifted
   druid, this is the display of the form.
 
-Returns 0 when the model shows nothing, or when its unit no longer exists.
+Returns 0 when the model shows nothing or an item, or when its unit no
+longer exists.
 
 ### `model:SetAnimation(animation [, variation])`
 
@@ -18635,7 +18662,8 @@ animation. The default is 0. The value -1 selects a version at random.
 
 The model plays the animation again each time it ends. The model goes back
 to Stand when the frame loads a new model: after `SetUnit`, `RefreshUnit`,
-`SetDisplayInfo`, `SetCreature`, or `DressUpModel:Dress()`, and when the
+`SetDisplayInfo`, `SetCreature`, `SetItem`, or `DressUpModel:Dress()`, and
+when the
 frame shows again after it was hidden (see `SetKeepModelOnHide`). To go
 back to Stand at any time, call `SetAnimation(0)`.
 
@@ -18692,12 +18720,12 @@ Returns the value that `SetDoBlend` set.
 
 Sets whether the frame keeps its model while the frame is hidden. The
 default is `false`: the frame removes the model when it hides, and loads
-the model again from its unit or display when it shows.
+the model again from its unit, display, or item when it shows.
 
 If `keepModelOnHide` is `true`, the model comes back as it was when the
 frame shows again, with its animation and the items that `TryOn` put on
 it. If you call `SetUnit`, `RefreshUnit`, `SetDisplayInfo`, `SetCreature`,
-or `DressUpModel:Dress()` while the frame is hidden, the frame loads the
+`SetItem`, or `DressUpModel:Dress()` while the frame is hidden, the frame loads the
 new model when it shows, the same as with `false`.
 
 ```lua
