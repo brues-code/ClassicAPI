@@ -39,7 +39,8 @@ namespace DBC {
 
 // Resolves `id` to its record pointer in the table whose records-base
 // global is at `recordsVar` and count global at `countVar`. Returns
-// `nullptr` for `id == 0`, OOR ids (> count), and unpopulated slots.
+// `nullptr` for `id == 0`, OOR ids (> count, which includes -1 and every
+// other negative id), and unpopulated slots.
 // Caller reads whatever fields it needs off the returned record.
 //
 // Use this when `LocalizedField` / `StringField` don't fit — e.g. for

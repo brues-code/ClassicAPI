@@ -25,11 +25,13 @@ const char *NormalizeEmpty(const char *s) {
 
 } // namespace
 
+// The id is compared unsigned: a DBC column's "none" is -1, which a signed
+// compare passes as less than the count and then indexes records[-1]. The
+// engine rejects it with a signed `jl` before its `jg` against the count
+// (0x00472797). An unloaded store's count is -1, so it takes no id.
 const uint8_t *Record(uintptr_t recordsVar, uintptr_t countVar, uint32_t id) {
-    if (id == 0)
-        return nullptr;
     const int count = *reinterpret_cast<const int *>(countVar);
-    if (static_cast<int>(id) > count)
+    if (id == 0 || count <= 0 || id > static_cast<uint32_t>(count))
         return nullptr;
     const uint8_t *const *records =
         *reinterpret_cast<const uint8_t *const *const *>(recordsVar);

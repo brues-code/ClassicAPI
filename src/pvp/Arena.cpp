@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 
 #include <cstdint>
 
@@ -46,17 +47,8 @@ namespace {
 
 constexpr uint32_t MAP_INSTANCE_TYPE_PVP = 3;
 
-const uint8_t *DbcRecord(uintptr_t recordsVar, uintptr_t countVar, uint32_t id) {
-    const int count = *reinterpret_cast<const int *>(countVar);
-    if (id == 0 || static_cast<int>(id) > count)
-        return nullptr;
-    const uint8_t *const *records =
-        *reinterpret_cast<const uint8_t *const *const *>(recordsVar);
-    return records != nullptr ? records[id] : nullptr;
-}
-
 bool IsArenaArea(uint32_t areaID) {
-    const uint8_t *rec = DbcRecord(Offsets::VAR_AREATABLE_RECORDS,
+    const uint8_t *rec = DBC::Record(Offsets::VAR_AREATABLE_RECORDS,
                                    Offsets::VAR_AREATABLE_COUNT, areaID);
     if (rec == nullptr)
         return false;
@@ -69,7 +61,7 @@ bool InArena() {
     const uint32_t mapID = *reinterpret_cast<const uint32_t *>(
         static_cast<uintptr_t>(Offsets::VAR_CURRENT_MAP_ID));
     const uint8_t *map =
-        DbcRecord(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, mapID);
+        DBC::Record(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, mapID);
     if (map == nullptr)
         return false;
     const uint32_t type =
