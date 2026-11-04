@@ -12901,6 +12901,17 @@ enum Offsets {
     // last requested on the key bone (bone state +0xF8, the id as given, not
     // its fallback). Blocks on the shared data when the model is not loaded.
     FUN_M2MODEL_GET_KEY_BONE_ANIM = 0x00712090,
+    // The bone states, 0x118 bytes each, at [model+0x90]; key bone -1 is bone
+    // 0 (GetKeyBoneAnimId above). PlayAnimation fills a bone's primary slot
+    // (+0x98): the offset at +0xB8, where the sequence time is start +
+    // (ftol((now - startStamp) * speed) + offset) mod length, and the done
+    // latch at +0xC0, which it clears. Update (0x00719370) queues the done
+    // callback once when the bone's window reaches its end stamp (+0xAC) and
+    // the latch is 0, and sets the latch. A speed of 0 makes the end stamp
+    // the start stamp, so done would fire on the next update.
+    OFF_M2MODEL_BONE_STATES = 0x90,
+    OFF_M2BONE_SEQUENCE_OFFSET = 0xB8,
+    OFF_M2BONE_DONE_REPORTED = 0xC0,
     // ApplyCreatureDisplay — `__fastcall(model, displayRec, modelDataRec)`,
     // `ret 4`: the CreatureDisplayInfo row's three skins as the model's
     // replaceable textures 11..13 (AttachDisplayModel 0x00505AE6).

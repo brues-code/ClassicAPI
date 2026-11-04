@@ -11,8 +11,9 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `PlayerModel:SetAnimation(anim [, variation])`, `SetDoBlend` / `GetDoBlend`
-// and `HasAnimation(anim)` — retail's CharacterModelBase animation methods.
+// `PlayerModel:SetAnimation(anim [, variation])`, `FreezeAnimation(anim,
+// variation, frame)`, `SetDoBlend` / `GetDoBlend` and `HasAnimation(anim)` —
+// retail's CharacterModelBase animation methods.
 //
 // A pane rests on Stand: its per-paint UpdateModel (FUN_PLAYERMODEL_UPDATE_MODEL)
 // arms Stand whenever key bone -1 plays anything else and no turn is pending,
@@ -28,7 +29,17 @@
 //     model build and drop goes through) clears it.
 //   - Model::Rotation asks HasRestingAnimation before it shuffles.
 // The re-arm also restarts the animation after the pane's done callback
-// (0x005062A0) arms Stand at its end, so it loops as in 4.3.4.
+// (0x005062A0) arms Stand at its end, so it loops as in 4.3.4. A pane is
+// also re-armed once after each SetAnimation / FreezeAnimation, so a call
+// with the animation that already plays still starts or ends a freeze.
+//
+// FreezeAnimation rests the pane on the animation held at one time. The
+// engine's sequence time is start + (ftol(elapsed * speed) + offset) mod
+// length, so the arm plays at speed 0 and writes `frame` (milliseconds, the
+// unit of M2 sequence times) to the slot's offset. Speed 0 also puts the end
+// stamp on the start stamp, which would queue the done callback at once and
+// so arm Stand. The arm sets the slot's done latch, the flag Update sets
+// after it reports done: a held animation never ends.
 //
 // HasAnimation is PlayAnimation's own test on the raw id: the lookup index
 // must be below the sequence count.
@@ -56,8 +67,11 @@ using ModelLoaded_t = int(__thiscall *)(void *model, int tryLoad, int recurseChi
 struct PaneState {
     bool doBlend = false;
     bool resting = false; // SetAnimation gave the pane a resting animation
+    bool pending = false; // set since the last arm
+    bool frozen = false;  // FreezeAnimation: held at `frame`
     uint32_t animation = 0;
     int variation = 0;
+    uint32_t frame = 0; // ms into the sequence
 };
 std::unordered_map<void *, PaneState> g_panes;
 
@@ -72,22 +86,36 @@ bool IsLoaded(void *model) {
     return reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(model, 0, 0) != 0;
 }
 
+uint32_t KeyBoneAnim(void *model) {
+    return reinterpret_cast<GetKeyBoneAnim_t>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM)(model, -1);
+}
+
+void Arm(void *model, const PaneState &s) {
+    reinterpret_cast<PlayAnimation_t>(Offsets::FUN_M2MODEL_PLAY_ANIMATION)(
+        model, -1, s.animation, s.variation, 0, s.frozen ? 0.0f : 1.0f, s.doBlend ? 1 : 0, 1);
+    // PlayAnimation stores the id only when it found a sequence to play.
+    if (!s.frozen || KeyBoneAnim(model) != s.animation)
+        return;
+    auto *bone = Game::Read<uint8_t *>(model, Offsets::OFF_M2MODEL_BONE_STATES);
+    Game::Ref<uint32_t>(bone, Offsets::OFF_M2BONE_SEQUENCE_OFFSET) = s.frame;
+    Game::Ref<int>(bone, Offsets::OFF_M2BONE_DONE_REPORTED) = 1;
+}
+
 void __fastcall UpdateModel_h(void *pane, void * /*edx*/) {
     const auto it = g_panes.find(pane);
     if (it == g_panes.end() || !it->second.resting) {
         g_origUpdateModel(pane);
         return;
     }
-    const PaneState &s = it->second;
+    PaneState &s = it->second;
     reinterpret_cast<PaneFn_t>(Offsets::FUN_SIMPLEMODEL_UPDATE_MODEL)(pane);
     void *model = PaneModel(pane);
     const uint32_t deadline = Game::Read<uint32_t>(pane, Offsets::OFF_PLAYERMODEL_TURN_DEADLINE);
     if (Game::Read<int>(pane, Offsets::OFF_PLAYERMODEL_TURNING) == 0 &&
         (deadline == 0 || Time::Clock::Reached(deadline)) && model != nullptr && IsLoaded(model) &&
-        reinterpret_cast<GetKeyBoneAnim_t>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM)(model, -1) !=
-            s.animation) {
-        reinterpret_cast<PlayAnimation_t>(Offsets::FUN_M2MODEL_PLAY_ANIMATION)(
-            model, -1, s.animation, s.variation, 0, 1.0f, s.doBlend ? 1 : 0, 1);
+        (s.pending || KeyBoneAnim(model) != s.animation)) {
+        Arm(model, s);
+        s.pending = false;
         Game::Ref<uint32_t>(pane, Offsets::OFF_PLAYERMODEL_TURN_DEADLINE) = 0;
     }
     Game::Ref<int>(pane, Offsets::OFF_PLAYERMODEL_TURNING) = 0;
@@ -121,8 +149,29 @@ int __fastcall Script_SetAnimation(void *L) {
     }
     PaneState &s = g_panes[pane];
     s.resting = true;
+    s.pending = true;
+    s.frozen = false;
     s.animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
     s.variation = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : 0;
+    return 0;
+}
+
+int __fastcall Script_FreezeAnimation(void *L) {
+    void *pane = ResolvePane(L);
+    if (pane == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3) || !Game::Lua::IsNumber(L, 4)) {
+        Game::Lua::Error(L, "Usage: FreezeAnimation(animation, variation, frame)");
+        return 0;
+    }
+    const double frame = Game::Lua::ToNumber(L, 4);
+    PaneState &s = g_panes[pane];
+    s.resting = true;
+    s.pending = true;
+    s.frozen = true;
+    s.animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    s.variation = static_cast<int>(Game::Lua::ToNumber(L, 3));
+    s.frame = frame > 0.0 ? static_cast<uint32_t>(frame) : 0;
     return 0;
 }
 
@@ -166,6 +215,7 @@ int __fastcall Script_HasAnimation(void *L) {
 
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetAnimation", &Script_SetAnimation},
+    {"FreezeAnimation", &Script_FreezeAnimation},
     {"SetDoBlend", &Script_SetDoBlend},
     {"GetDoBlend", &Script_GetDoBlend},
     {"HasAnimation", &Script_HasAnimation},
@@ -177,6 +227,13 @@ const Game::Doc::Field kSetAnimationArgs[] = {
 };
 const Game::Doc::Function kSetAnimation{
     "Sets the animation the model plays until it loads a new model.", kSetAnimationArgs, {}};
+const Game::Doc::Field kFreezeArgs[] = {
+    Game::Doc::Req("animation", "number", "An AnimationData ID."),
+    Game::Doc::Req("variation", "number", "The variation; -1 picks one at random."),
+    Game::Doc::Req("frame", "number", "The time into the animation, in milliseconds."),
+};
+const Game::Doc::Function kFreezeAnimation{
+    "Holds the model in one pose of an animation until it loads a new model.", kFreezeArgs, {}};
 const Game::Doc::Field kDoBlendArgs[] = {
     Game::Doc::Opt("doBlend", "bool", "false"),
 };
@@ -199,6 +256,7 @@ const Game::Doc::Function kHasAnimation{
     kHasAnimationArgs, kHasAnimationRets};
 const Game::Doc::Method g_methodDocs[] = {
     {"SetAnimation", &kSetAnimation},
+    {"FreezeAnimation", &kFreezeAnimation},
     {"SetDoBlend", &kSetDoBlend},
     {"GetDoBlend", &kGetDoBlend},
     {"HasAnimation", &kHasAnimation},

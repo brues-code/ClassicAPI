@@ -789,6 +789,7 @@ build instructions.
   - [`model:CanSetUnit(unit)`](#modelcansetunitunit)
   - [`model:GetDisplayInfo()`](#modelgetdisplayinfo)
   - [`model:SetAnimation(animation [, variation])`](#modelsetanimationanimation--variation)
+  - [`model:FreezeAnimation(animation, variation, frame)`](#modelfreezeanimationanimation-variation-frame)
   - [`model:HasAnimation(animation)`](#modelhasanimationanimation)
   - [`model:SetDoBlend([doBlend])`](#modelsetdoblenddoblend)
   - [`model:GetDoBlend()`](#modelgetdoblend)
@@ -18649,6 +18650,20 @@ animation starts when the model finishes loading.
 ```lua
 PreviewModel:SetUnit("player")
 PreviewModel:SetAnimation(69)   -- dance
+```
+
+### `model:FreezeAnimation(animation, variation, frame)`
+
+Holds the model still in one pose of an animation. `animation` and
+`variation` are the same as in `SetAnimation`. `frame` is the time into the
+animation, in milliseconds. A time past the end of the animation wraps to
+the start.
+
+The model holds the pose until the frame loads a new model, the same as
+with `SetAnimation`. To make the model move again, call `SetAnimation`.
+
+```lua
+PreviewModel:FreezeAnimation(69, 0, 500)   -- dance pose, 0.5 seconds in
 ```
 
 ### `model:HasAnimation(animation)`
