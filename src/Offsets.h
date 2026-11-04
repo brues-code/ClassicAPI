@@ -4047,6 +4047,8 @@ enum Offsets {
     // write it; the show hook (0x00505D49) reads it to rebuild the model.
     // Those four are the only accesses in 0x00500000..0x00507000.
     OFF_PLAYERMODEL_DISPLAY_RECORD = 0x3F0,
+    // The pane's unit GUID (u64), stored by the SetUnit helper (0x00505B50).
+    OFF_PLAYERMODEL_UNIT_GUID = 0x3E0,
     // SetDisplay — `__thiscall(pane, record)`: clears the unit GUID, stores
     // the record and, if the frame is visible, builds the model.
     FUN_PLAYERMODEL_SET_DISPLAY = 0x00505CB0,
@@ -4069,11 +4071,63 @@ enum Offsets {
     OFF_DRESSUPMODEL_COMPONENT = 0x3F8,
     OFF_DRESSUPMODEL_MAIN_HAND_LANE = 0x3FC,
     OFF_DRESSUPMODEL_OFF_HAND_LANE = 0x404,
+    // Byte: the unit showed its native display when the pane was built (not
+    // shapeshifted). TryOnItem's armor arms need it and the component.
+    OFF_DRESSUPMODEL_READY = 0x40C,
+    // SetModelInstance — `__thiscall(pane, model)`, DressUpModel vtable slot
+    // 36 (0x008083A8 + 0x90; its only reference): sets the model, clones the
+    // unit's component and copies the unit's hand lanes. Null on hide.
+    FUN_DRESSUPMODEL_SET_MODEL_INSTANCE = 0x00504350,
+    SLOT_DRESSUPMODEL_SET_MODEL_INSTANCE = 0x00808438,
+    // ClearModel — `__thiscall(pane)`: Undress's worker.
+    FUN_DRESSUPMODEL_CLEAR_MODEL = 0x00504490,
+    // The engine's Lua DressUpModel:Dress() — `int __fastcall(L)`: re-runs
+    // the SetUnit helper (0x00505B50) with the pane's GUID.
+    FUN_SCRIPT_DRESSUPMODEL_DRESS = 0x00504CD0,
+    // AttachItemModel — `int __fastcall(model, displayRecord, bodySlot,
+    // sheatheType, bool sheathed, bool shield, bool ranged)`, ret 0x14: hangs
+    // a held item at the hand, or at its sheath point when `sheathed`. The
+    // unit's own AttachHandItem (0x0060B8C0) passes its sheath state there.
+    FUN_ATTACH_ITEM_MODEL = 0x0047A0C0,
+    // TryOnItem's held arm: the install (`push 0` as sheathed) and the two
+    // evictions of the other lane, each a `call` to the function above or
+    // FUN_DETACH_HELD_ITEM_SLOT. The third detach (0x00504A85) is the
+    // target lane's own occupant.
+    CALL_TRY_ON_ATTACH_ITEM = 0x00504AE6,
+    CALL_TRY_ON_EVICT_OFF_HAND = 0x00504A0C,
+    CALL_TRY_ON_EVICT_MAIN_HAND = 0x00504A55,
+    // TryOnItem's hand choice, reached only from the held arm (jump-table
+    // entry 0x0A: inventory types 13-15, 17, 21-23, 25, 26). The site is
+    // `mov edx, [edi+0x2C]; cmp edx, 0x0D` (8B 57 2C 83 FA 0D) before the
+    // `jnz`. Both paths start with ECX = the player (or null), ESI = the
+    // pane, EDI = the item record, and set [ebp-4] to body slot 0xF / 0x10
+    // before the CanHoldBoth (0x00504BC0) eviction of the other lane.
+    SITE_TRY_ON_HAND_CHOICE = 0x0050492D,
+    TRY_ON_MAIN_HAND_PATH = 0x0050495F,
+    TRY_ON_OFF_HAND_PATH = 0x005049B1,
+    // AttachItemVisuals — `__fastcall(model, itemVisualID)`: detaches the
+    // model's children, then hangs each ItemVisualEffects model of the
+    // ItemVisuals row (attachments 0-4). Ignores an id with no row.
+    FUN_ATTACH_ITEM_VISUALS = 0x00479700,
+    // CM2Model::FindChild — `__thiscall(model, attachId)`, ret 4: the child
+    // model hung at that attachment, or null.
+    FUN_M2MODEL_FIND_CHILD = 0x00712F00,
+    // GetItemDescVisual — `int __thiscall(visibleItem)`: -1 when the item's
+    // display has its own ItemVisuals row (AttachItemModel already hung it),
+    // else the visual of the first of its 7 enchants (+0x0C) that has one,
+    // else 0. CGPlayer_C::AttachEnchantVisual (0x005EED50) gives the result
+    // to FindChild + AttachItemVisuals on the attachment AttachItemModel
+    // used; AttachHandItem (0x0060B8C0) runs that for players only.
+    FUN_VISIBLE_ITEM_GET_DESC_VISUAL = 0x0062EC70,
     // UnequipCharacterSlot — `__thiscall(component, slot 0..11)`.
     FUN_CHARCOMP_UNEQUIP_SLOT = 0x00478960,
     // DetachHeldItemSlot — `__fastcall(model, bodySlot 0xF/0x10,
     // sheatheType, bool shield)`; Undress passes `invType == 14` as shield.
     FUN_DETACH_HELD_ITEM_SLOT = 0x0047A310,
+    // Unit vtable slot 39 — `const void *__thiscall(unit, hand 0/1/2)`: the
+    // ItemDisplayInfo row of the hand's item (CGUnit_C 0x00605EE0, CGPlayer_C
+    // 0x005EC350); AttachHandItem's record source.
+    VTBL_UNIT_GET_HELD_ITEM_DISPLAY = 0x9C,
     // TryOnItem — `__thiscall(pane, itemID)`: the worker behind TryOn.
     FUN_DRESSUPMODEL_TRY_ON_ITEM = 0x00504540,
     // The worker's item-cache callback (0x00504BA0) re-runs it once the
@@ -5861,6 +5915,14 @@ enum Offsets {
     VAR_ITEMDISPLAYINFO_RECORDS = 0x00C0DC10,
     VAR_ITEMDISPLAYINFO_COUNT = 0x00C0DC14,
     OFF_ITEMDISPLAYINFO_ICON = 0x14,
+    // ItemVisuals ID (column 22). Read by AttachItemModel (0x0047A200) and
+    // GetItemDescVisual (0x0062EC93); 365 stock rows set it.
+    OFF_ITEMDISPLAYINFO_ITEM_VISUAL = 0x58,
+
+    // ItemVisuals.dbc — an ID plus five ItemVisualEffects IDs (6 columns),
+    // the glow AttachItemVisuals hangs on a weapon. Instance 0x00C0DB68.
+    VAR_ITEMVISUALS_RECORDS = 0x00C0DB70,
+    VAR_ITEMVISUALS_COUNT = 0x00C0DB74,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at
@@ -8075,6 +8137,9 @@ enum Offsets {
     OFF_SPELLITEMENCHANT_AMOUNT = 0x10,        // int Amount[3] (EffectPointsMin)
     OFF_SPELLITEMENCHANT_ARG = 0x28,           // int EffectArg[3]
     OFF_SPELLITEMENCHANT_NAME = 0x34,          // char *name[8], locale-indexed
+    // ItemVisuals ID (column 22), the weapon glow; read by GetItemDescVisual
+    // (0x0062ECD7). Crusader 1900 = 103, Fiery 803 = 25, Icy 1894 = 126.
+    OFF_SPELLITEMENCHANT_ITEM_VISUAL = 0x58,
 
     // ItemRandomProperties.dbc — the table a random-suffix ID (the third
     // field of an `item:id:enchant:suffix:unique` link) indexes to get

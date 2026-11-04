@@ -40,12 +40,16 @@ Resolved ResolveString(const char *s) {
     if (const char *m = std::strstr(s, "item:")) {
         m += 5;
         out.itemID = std::atoi(m);
-        // Random suffix is the 3rd colon-separated field: itemID:enchant:suffix.
-        // Walk to the 2nd ':' (stopping at the link boundary), read the number
-        // after it. Bare "item:N" (no colons) leaves suffix 0.
+        // The enchant and random suffix are the 2nd and 3rd colon-separated
+        // fields: itemID:enchant:suffix. Walk the colons (stopping at the link
+        // boundary) and read the number after each. Bare "item:N" leaves both 0.
         int colons = 0;
         for (const char *p = m; *p != '\0' && *p != '|'; ++p) {
-            if (*p == ':' && ++colons == 2) {
+            if (*p != ':')
+                continue;
+            if (++colons == 1) {
+                out.enchant = std::atoi(p + 1);
+            } else {
                 out.suffix = std::atoi(p + 1);
                 break;
             }

@@ -786,7 +786,12 @@ build instructions.
   - [`model:RefreshCamera()`](#modelrefreshcamera)
   - [`model:SetRotation(rotation [, animate])`](#modelsetrotationrotation--animate)
   - [`DressUpModel:UndressSlot(slot)`](#dressupmodelundressslotslot)
-  - [`DressUpModel:TryOn(item)`](#dressupmodeltryonitem)
+  - [`DressUpModel:TryOn(item [, handSlotName, spellEnchantID])`](#dressupmodeltryonitem--handslotname-spellenchantid)
+  - [`DressUpModel:IsGeoReady()`](#dressupmodelisgeoready)
+  - [`DressUpModel:SetSheathed([sheathed, hideWeapons])`](#dressupmodelsetsheathedsheathed-hideweapons)
+  - [`DressUpModel:GetSheathed()`](#dressupmodelgetsheathed)
+  - [`DressUpModel:SetAutoDress([enabled])`](#dressupmodelsetautodressenabled)
+  - [`DressUpModel:GetAutoDress()`](#dressupmodelgetautodress)
   - [`Model:SetGlow(value)`](#modelsetglowvalue)
 
 - [ChatBubbles](#chatbubbles)
@@ -18594,7 +18599,7 @@ inventory slot number: 1 head, 3 shoulder, 4 shirt, 5 chest, 6 waist,
 DressUpModel:UndressSlot(1)   -- remove the helm
 ```
 
-### `DressUpModel:TryOn(item)`
+### `DressUpModel:TryOn(item [, handSlotName, spellEnchantID])`
 
 Puts an item on a `DressUpModel`. `item` is one of these:
 
@@ -18609,11 +18614,97 @@ the item that the recipe makes. Thus Control-click on a pattern opens the
 dressing room with the item that the pattern makes.
 
 If `item` is none of these, the game shows the error "That item can't be
-equipped". The model chooses the hand for a weapon itself.
+equipped".
+
+`handSlotName` sets the hand that holds a weapon, a shield, or an off-hand
+item. Give `"MAINHANDSLOT"` or `"SECONDARYHANDSLOT"`. Upper and lower case
+are the same. If the item in the other hand cannot be held with the new
+item, the model removes it. Armor ignores `handSlotName`.
+
+If `handSlotName` is `nil` or another name, the model chooses the hand. A
+one-hand weapon goes into the off hand only when the main hand holds a
+one-hand weapon and the unit can dual wield.
+
+`spellEnchantID` is an enchant ID from `SpellItemEnchantment.dbc`, for
+example 1900 (Crusader). The weapon shows the glow of that enchant. If
+`spellEnchantID` is `nil`, the weapon shows the glow of the enchant in the
+item link. An item that has its own glow keeps its own glow.
+
+If the item is not in the item cache, the model wears it when the data
+arrives. But then the model chooses the hand, and the weapon shows no
+enchant glow.
+
+`TryOn` returns an `Enum.ItemTryOnReason` value:
+
+- `Success` (0): the model wears the item.
+- `NotEquippable` (2): the model cannot wear the item. Necklaces, rings,
+  trinkets, and items that are not equipment give this result. Armor gives
+  this result when the model shows a shapeshifted unit or a creature.
+- `DataPending` (3): the item is not in the item cache. The game requests
+  the item. When the data arrives, the model wears the item.
+
+`WrongRace` (1) is in the enum, but `TryOn` does not return it.
 
 ```lua
-DressUpModel:TryOn("|cff1eff00|Hitem:2077:0:0:0|h[Magician Staff]|h|r")
+local result = DressUpModel:TryOn("|cff1eff00|Hitem:2077:0:0:0|h[Magician Staff]|h|r")
+if result == Enum.ItemTryOnReason.DataPending then
+    print("The item loads now.")
+end
 ```
+
+### `DressUpModel:IsGeoReady()`
+
+Returns `true` when the model file and all item models on it have
+loaded. Otherwise it returns `false`. A model that the frame does not show
+also gives `false`.
+
+### `DressUpModel:SetSheathed([sheathed, hideWeapons])`
+
+Moves the main-hand and off-hand weapons of the model. If `sheathed` is
+`true`, the weapons go to their sheath positions. If `sheathed` is `false`
+or `nil`, the weapons go into the hands. If `hideWeapons` is `true`, the
+model shows no main-hand or off-hand weapon.
+
+The setting stays on the frame. It applies to weapons that `TryOn` adds
+later. It also applies when the model is built again: when you call
+`SetUnit` or `Dress`, or when the frame shows again. `SetSheathed` does not
+move a ranged weapon. The weapons keep their enchant glow.
+
+Before the first `SetSheathed` call, the model holds its weapons the same
+way as its unit. Weapons that `TryOn` adds then go into the hands.
+
+```lua
+DressUpModel:SetSheathed(true)          -- weapons on the back and hips
+DressUpModel:SetSheathed(false, true)   -- no weapons
+DressUpModel:SetSheathed()              -- weapons in the hands
+```
+
+### `DressUpModel:GetSheathed()`
+
+Returns the `sheathed` value of the last `SetSheathed` call on the frame.
+Before the first call, it returns `false`.
+
+### `DressUpModel:SetAutoDress([enabled])`
+
+Sets whether the model wears the equipment of its unit. If `enabled` is
+`true`, `SetUnit` shows the unit with its equipment. If `enabled` is
+`false` or `nil`, `SetUnit` shows the unit with no equipment. The default
+is `true`.
+
+The setting applies the next time that the model is built: when you call
+`SetUnit`, or when the frame shows again. `Dress()` always dresses the model
+in the equipment of its unit.
+
+```lua
+DressUpModel:SetAutoDress(false)
+DressUpModel:SetUnit("player")   -- no equipment
+DressUpModel:TryOn(2077)         -- only the staff
+```
+
+### `DressUpModel:GetAutoDress()`
+
+Returns the value of the last `SetAutoDress` call on the frame. Before the
+first call, it returns `true`.
 
 ### `Model:SetGlow(value)`
 

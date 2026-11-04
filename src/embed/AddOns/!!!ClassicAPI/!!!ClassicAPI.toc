@@ -143,6 +143,7 @@ FrameXML\ColorSwatch.lua
 FrameXML\ColorSwatch.xml
 FrameXML\ScriptErrorsFrame.lua
 FrameXML\ScriptErrorsFrame.xml
+FrameXML\DressUpFrame.lua
 
 Menu\MenuConstants.lua
 Menu\Classic\MenuConstants.lua

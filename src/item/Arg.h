@@ -24,6 +24,7 @@ struct Resolved {
     int itemID;
     int suffix; // random-property / suffix ID (3rd `item:` field), 0 if none
     const char *name;
+    int enchant; // permanent enchant ID (2nd `item:` field), 0 if none
 };
 
 // Resolves a Lua arg at 1-based stack `idx` to an item reference.
