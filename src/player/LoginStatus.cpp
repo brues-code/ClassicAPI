@@ -12,29 +12,22 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `IsLoggedIn()` — exposed on both Lua states (glue and in-game).
-// Returns `true` once a character has been loaded *and identified*
-// (GUID populated), `false` on glue, pre-load, and the brief window
-// between struct allocation and character-data unpack.
+// Retail's answer: true once PLAYER_LOGIN has fired for this UI instance.
+// So it is false on glue and while the addons load, at a cold login and
+// after a /reload, and true from PLAYER_LOGIN's own handlers on.
 //
-// Check is two-step:
-//   1. `[VAR_LOCAL_PLAYER_PTR]` non-NULL — the player aggregator
-//      struct has been allocated
-//   2. `*(uint64*)(player + OFF_LOCAL_PLAYER_GUID)` non-zero — the
-//      character's GUID has been populated into the struct
-//
-// The pointer alone is too lax: the engine allocates the struct
-// shortly before the character data lands, so there's a window where
-// the pointer is non-NULL but the GUID is still zero. Most addons
-// that check `IsLoggedIn` go straight to `UnitGUID("player")` next,
-// and we don't want them to see GUID==nil right after IsLoggedIn
-// reported true.
-//
-// 3.3.5 uses a single byte flag at `[0x00BD0793]` cleared on world
-// entry — we couldn't pin down the analogous 1.12 flag (the engine
-// path that signals event 253 wires through CVar-init machinery and
-// doesn't map cleanly across the binary). The pointer+GUID check is
-// the same effective signal: both flip together at the moment the
-// player object is ready, and stay stable across zone transitions.
+// 3.3.5's Script_IsLoggedIn is `!CGGameUI::m_loggingIn`: InitializeFrameXML
+// sets m_loggingIn first thing, before FrameScript_Initialize and the addon
+// load, and the enter cascade clears it just before it fires PLAYER_LOGIN.
+// 1.12's arm byte 0x00B4E260 is the same flag but cannot be read the same
+// way: the initializer sets it after the addons load (0x0049011D) and the
+// cascade clears it after the fire (0x0049095E). So the flag here keeps
+// 3.3.5's timing: the PLAYER_LOGIN call (CALL_ENTER_WORLD_FIRE_PLAYER_LOGIN)
+// is redirected to set it before the event goes out, and the
+// FrameScript_Initialize cleanup, which runs before every /reload and
+// /logout, clears it. The player GUID is no answer: UnitGUID("player") serves
+// the char-select GUID before the world loads, and on a /reload the live GUID
+// is set while the addons load.
 //
 // `IsLoggingOut()` / `IsPlayerInWorld()` — in-game only, as in 4.3.4.
 // IsLoggingOut is 4.3.4's ClientServices::Connection()->CharacterLoggingOut();
@@ -43,9 +36,9 @@
 // CGGameUI::s_inWorld; 1.12's is VAR_IN_WORLD, with the same EnterWorld /
 // LeaveWorld writers.
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
-#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -53,8 +46,17 @@ namespace Player::LoginStatus {
 
 namespace {
 
+using FireEvent_t = void(__fastcall *)(int eventID);
+
+bool g_loginFired = false; // PLAYER_LOGIN has fired for this UI instance
+
+void __fastcall FirePlayerLogin(int eventID) {
+    g_loginFired = true;
+    reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT_NO_ARGS)(eventID);
+}
+
 int __fastcall Script_IsLoggedIn(void *L) {
-    Game::Lua::PushBool(L, Unit::Identity::PlayerGuid() != 0);
+    Game::Lua::PushBool(L, g_loginFired);
     return 1;
 }
 
@@ -88,6 +90,8 @@ const Game::Doc::Function kIsPlayerInWorld{
     "SystemGlobals"};
 
 void RegisterInGame() {
+    Common::RedirectCall(Offsets::CALL_ENTER_WORLD_FIRE_PLAYER_LOGIN, Offsets::FUN_FIRE_EVENT_NO_ARGS,
+                         reinterpret_cast<const void *>(&FirePlayerLogin));
     Game::Lua::RegisterGlobalFunction("IsLoggedIn", &Script_IsLoggedIn);
     Game::Lua::RegisterGlobalFunction("IsLoggingOut", &Script_IsLoggingOut, &kIsLoggingOut);
     Game::Lua::RegisterGlobalFunction("IsPlayerInWorld", &Script_IsPlayerInWorld, &kIsPlayerInWorld);
@@ -97,9 +101,14 @@ void RegisterGlue() {
     Game::Lua::RegisterGlueFunction("IsLoggedIn", &Script_IsLoggedIn);
 }
 
+void PrepareForReload() {
+    g_loginFired = false;
+}
+
 } // namespace
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterInGame};
+static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 static const Game::GlueModuleAutoRegister _gluereg{&RegisterGlue};
 
 } // namespace Player::LoginStatus

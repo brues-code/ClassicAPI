@@ -11190,6 +11190,13 @@ enum Offsets {
     // event-driven (state changes only), not per-frame, so per-call
     // overhead from a hooked predicate is negligible.
     FUN_FIRE_EVENT_NO_ARGS = 0x00703E50,
+    // The enter cascade's (0x004908C0) `mov ecx, 0x10E; call
+    // FUN_FIRE_EVENT_NO_ARGS`: PLAYER_LOGIN, the only place it fires. It runs
+    // only while the arm byte 0x00B4E260 is set, which the interface
+    // initializer (0x0048FBF0) sets after the addons load and this path
+    // clears, so it fires once per UI instance: at login and after a reload
+    // (benilla ui/worldenter). E8 call, disassembled.
+    CALL_ENTER_WORLD_FIRE_PLAYER_LOGIN = 0x00490959,
 
     // `__fastcall(int sendRelease, char earlyReturnOnGameObject,
     // char showError)` — engine's "close the current loot window"
