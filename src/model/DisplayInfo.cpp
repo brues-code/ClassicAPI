@@ -118,8 +118,7 @@ DressJob g_jobs[8];
 constexpr int kMaxDressTicks = 600;
 
 void CancelJob(DressJob &job) {
-    if (job.builder != nullptr)
-        reinterpret_cast<CharCompDestroy_t>(Offsets::FUN_CHARCOMP_DESTROY)(job.builder);
+    DestroyDresser(job.builder);
     job = DressJob{};
 }
 
@@ -153,14 +152,8 @@ DressJob *ClaimJob(void *frame) {
     return slot;
 }
 
-// Queue a dress for a character display just loaded into `frame`. Mirrors the
-// engine's own early-out: an Extra record with no bake name gets no
-// customization at all (FUN_005fb200 returns before creating the builder).
+// Queue a dress for a character display just loaded into `frame`.
 void ScheduleDress(void *frame, const uint8_t *extraRec) {
-    const char *bake = Game::Read<const char *>(
-        extraRec, Offsets::OFF_CREATUREDISPLAYINFOEXTRA_BAKE_NAME);
-    if (bake == nullptr || bake[0] == '\0')
-        return;
     DressJob *job = ClaimJob(frame);
     job->frame = frame;
     job->instance = Game::Read<void *>(frame,
@@ -184,49 +177,13 @@ void StepJob(DressJob &job) {
     if (!job.configured) {
         if (!reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(instance, 0, 0))
             return;
-
-        void *builder = reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)();
-        if (builder == nullptr) {
+        job.builder = CreateDresser(instance, job.extraRec);
+        if (job.builder == nullptr) {
             CancelJob(job);
             return;
         }
-        job.builder = builder;
 
-        const uint8_t *extra = job.extraRec;
-        auto field = [extra](int off) {
-            return Game::Read<uint32_t>(extra, off);
-        };
-        CharCompInfo info = {};
-        info.race = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_RACE);
-        info.sex = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_SEX);
-        info.hairColor = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_HAIR_COLOR);
-        info.skin = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_SKIN);
-        info.face = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_FACE);
-        info.facialHair = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_FACIAL_HAIR);
-        info.hairStyle = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_HAIR_STYLE);
-        info.model = instance;
-        info.useBake = 1;
-        const char *bake = Game::Read<const char *>(
-            extra, Offsets::OFF_CREATUREDISPLAYINFOEXTRA_BAKE_NAME);
-        std::snprintf(info.bakePath, sizeof(info.bakePath), "%s%s",
-                      "Textures\\BakedNpcTextures\\", bake);
-        std::memcpy(info.geosetDefaults, kGeosetGroupDefaults, sizeof(kGeosetGroupDefaults));
-
-        // The builder owns this ref (releases it on destroy / re-configure).
-        reinterpret_cast<ModelAddRef_t>(Offsets::FUN_MODEL_INSTANCE_ADDREF)(instance);
-        if (!reinterpret_cast<CharCompSetInfo_t>(Offsets::FUN_CHARCOMP_SET_INFO)(builder, &info)) {
-            CancelJob(job); // destroy releases the model ref already copied in
-            return;
-        }
-        auto setItem = reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM);
-        for (int slot = 0; slot < 10; ++slot) {
-            const auto displayID = static_cast<int>(
-                field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_EQUIP + slot * 4));
-            if (displayID != 0)
-                setItem(builder, slot, displayID);
-        }
-
-        // The helm/shoulder feeds above attach child model instances. The frame
+        // The helm/shoulder feeds attach child model instances. The frame
         // only lights its OWN instance (pre-render callback registered by
         // SetModelInstance), so the children would render unlit — pure black.
         // Give each child the frame's own light/fog callback; it reads the
@@ -245,7 +202,7 @@ void StepJob(DressJob &job) {
         job.configured = true;
     }
 
-    if (reinterpret_cast<CharCompPump_t>(Offsets::FUN_CHARCOMP_PUMP)(job.builder, nullptr))
+    if (PumpDresser(job.builder))
         job.done = true; // builder kept — it owns the model ref for the dressed model
 }
 
@@ -274,18 +231,8 @@ void __fastcall AttachDisplayModel_h(void *pane, void * /*edx*/, const uint8_t *
 
     if (record == nullptr)
         return;
-    const uint8_t *displayRec = DBC::Record(
-        Offsets::VAR_CREATUREDISPLAYINFO_RECORDS, Offsets::VAR_CREATUREDISPLAYINFO_COUNT,
-        Game::Read<uint32_t>(record, Offsets::OFF_CREATURE_DISPLAYID));
-    if (displayRec == nullptr)
-        return;
-    const uint32_t extID =
-        Game::Read<uint32_t>(displayRec, Offsets::OFF_CREATUREDISPLAYINFO_EXTENDED_ID);
-    if (extID == 0)
-        return;
-    const uint8_t *extraRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFOEXTRA_RECORDS,
-                                          Offsets::VAR_CREATUREDISPLAYINFOEXTRA_COUNT, extID);
-    if (extraRec != nullptr)
+    if (const uint8_t *extraRec =
+            DressRecord(Game::Read<uint32_t>(record, Offsets::OFF_CREATURE_DISPLAYID)))
         ScheduleDress(pane, extraRec);
 }
 
@@ -373,6 +320,77 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+// The engine's own early-out: an Extra record with no bake name gets no
+// customization at all (FUN_005fb200 returns before creating the builder).
+const uint8_t *DressRecord(uint32_t displayID) {
+    const uint8_t *displayRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                                            Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+    if (displayRec == nullptr)
+        return nullptr;
+    const uint32_t extID =
+        Game::Read<uint32_t>(displayRec, Offsets::OFF_CREATUREDISPLAYINFO_EXTENDED_ID);
+    if (extID == 0)
+        return nullptr;
+    const uint8_t *extraRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFOEXTRA_RECORDS,
+                                          Offsets::VAR_CREATUREDISPLAYINFOEXTRA_COUNT, extID);
+    if (extraRec == nullptr)
+        return nullptr;
+    const char *bake =
+        Game::Read<const char *>(extraRec, Offsets::OFF_CREATUREDISPLAYINFOEXTRA_BAKE_NAME);
+    return bake != nullptr && bake[0] != '\0' ? extraRec : nullptr;
+}
+
+// Configure + feed equipment, the engine's order: SetInfo, then the 10 Extra
+// equipment slots. Field-for-field mirror of FUN_005fb200's NPC branch.
+void *CreateDresser(void *instance, const uint8_t *extraRec) {
+    void *builder = reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)();
+    if (builder == nullptr)
+        return nullptr;
+
+    auto field = [extraRec](int off) {
+        return Game::Read<uint32_t>(extraRec, off);
+    };
+    CharCompInfo info = {};
+    info.race = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_RACE);
+    info.sex = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_SEX);
+    info.hairColor = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_HAIR_COLOR);
+    info.skin = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_SKIN);
+    info.face = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_FACE);
+    info.facialHair = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_FACIAL_HAIR);
+    info.hairStyle = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_HAIR_STYLE);
+    info.model = instance;
+    info.useBake = 1;
+    const char *bake =
+        Game::Read<const char *>(extraRec, Offsets::OFF_CREATUREDISPLAYINFOEXTRA_BAKE_NAME);
+    std::snprintf(info.bakePath, sizeof(info.bakePath), "%s%s", "Textures\\BakedNpcTextures\\",
+                  bake);
+    std::memcpy(info.geosetDefaults, kGeosetGroupDefaults, sizeof(kGeosetGroupDefaults));
+
+    // The builder owns this ref (releases it on destroy / re-configure).
+    reinterpret_cast<ModelAddRef_t>(Offsets::FUN_MODEL_INSTANCE_ADDREF)(instance);
+    if (!reinterpret_cast<CharCompSetInfo_t>(Offsets::FUN_CHARCOMP_SET_INFO)(builder, &info)) {
+        DestroyDresser(builder); // releases the model ref already copied in
+        return nullptr;
+    }
+    auto setItem = reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM);
+    for (int slot = 0; slot < 10; ++slot) {
+        const auto displayID =
+            static_cast<int>(field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_EQUIP + slot * 4));
+        if (displayID != 0)
+            setItem(builder, slot, displayID);
+    }
+    return builder;
+}
+
+bool PumpDresser(void *dresser) {
+    return reinterpret_cast<CharCompPump_t>(Offsets::FUN_CHARCOMP_PUMP)(dresser, nullptr) != 0;
+}
+
+void DestroyDresser(void *dresser) {
+    if (dresser != nullptr)
+        reinterpret_cast<CharCompDestroy_t>(Offsets::FUN_CHARCOMP_DESTROY)(dresser);
+}
 
 void PrepareForReload() {
     for (auto &job : g_jobs)

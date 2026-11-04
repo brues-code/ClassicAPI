@@ -131,7 +131,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Talent](docs/API.md#talent) | `GetTalentIDByIndex`, `GetTalentSpellID` |
 | [Targeting](docs/API.md#targeting) | `GetPlayerFacing`, `TargetDirectionEnemy`, `TargetDirectionFriend`, `TargetDirectionFinished`, `TargetNearest`, `TargetNearestEnemyPlayer`, `TargetNearestFriendPlayer`, `InteractUnit`, `C_PlayerInteractionManager.InteractUnit`, `IsTargetLoose` |
 | [TaxiMap](docs/API.md#taximap) | `C_TaxiMap.GetTaxiNodesForMap`, `C_TaxiMap.GetAllTaxiNodes`, `C_TaxiMap.GetTaxiPaths`, `C_TaxiMap.GetTaxiPathWaypoints`, `C_TaxiMap.GetTaxiRoute` |
-| [Texture](docs/API.md#texture) | `C_Texture.GetAtlasElementID`, `C_Texture.GetAtlasElements`, `C_Texture.GetAtlasExists`, `C_Texture.GetAtlasID`, `C_Texture.GetAtlasInfo`, `C_Texture.RegisterAtlas` |
+| [Texture](docs/API.md#texture) | `C_Texture.GetAtlasElementID`, `C_Texture.GetAtlasElements`, `C_Texture.GetAtlasExists`, `C_Texture.GetAtlasID`, `C_Texture.GetAtlasInfo`, `C_Texture.RegisterAtlas`, `SetPortraitTextureFromCreatureDisplayID` |
 | [Time](docs/API.md#time) | `C_DateAndTime.AdjustTimeByDays`, `C_DateAndTime.AdjustTimeByMinutes`, `C_DateAndTime.CompareCalendarTime`, `C_DateAndTime.GetCalendarTimeFromEpoch`, `C_DateAndTime.GetCurrentCalendarTime`, `C_DateAndTime.GetSecondsUntilDailyReset`, `C_DateAndTime.GetServerTimeLocal`, `C_Timer.After`, `C_Timer.NewTicker`, `C_Timer.NewTimer`, `GetServerTime`, `GetTickTime`, `GetTimeCached` |
 | [Totem](docs/API.md#totem) | `GetTotemInfo`, `GetTotemTimeLeft`, `GetTotemDuration`, `TargetTotem` |
 | [Tracking](docs/API.md#tracking) | `GetNumTrackingTypes`, `GetTrackingInfo`, `SetTracking` |

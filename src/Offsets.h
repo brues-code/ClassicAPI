@@ -12635,6 +12635,83 @@ enum Offsets {
     // the per-stage applies clamp against (FUN_005a29d0/FUN_005a2b40).
     VAR_GX_DEVICE = 0x00C0ED38,
     OFF_GXDEV_STAGE_CAP = 0x23C,
+    // ---- Unit portrait bake (BakePortrait 0x00524F60, benilla ui/portraits)
+    // Every entry below is a call the bake makes, read off its disassembly;
+    // calling convention from the call site. `Model::Portrait` replays the
+    // bake on a display model of its own.
+    // M2CreateScene — `void *()`: a fresh scene on the model cache.
+    FUN_M2_CREATE_SCENE = 0x00706E10,
+    // `__thiscall(scene)`: drops one scene reference; at zero the destructor
+    // releases every instance on the scene's model list.
+    FUN_M2SCENE_RELEASE = 0x00707320,
+    // CreateModelFromPath — `void *__thiscall(scene, const char *path,
+    // uint32 flags)`, `ret 8`: a new instance of the file's shared model
+    // (Spells\ErrorCube.mdx when the file is missing). AttachDisplayModel
+    // passes the CreatureModelData path and 0. The caller owns one reference.
+    FUN_M2SCENE_CREATE_MODEL = 0x00707350,
+    // CreateModelFromModel — `void *__thiscall(scene, source, uint32 flags)`:
+    // a new instance of the source's shared model, with its attachments.
+    FUN_M2SCENE_COPY_MODEL = 0x00707400,
+    // M2SceneDraw — `__thiscall(scene, pass)`; the bake draws 0 then 1.
+    FUN_M2SCENE_DRAW = 0x00708900,
+    // `__fastcall(model)`: drops one instance reference (HandleClose2).
+    FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,
+    // CM2Model::IsReady — `__thiscall(model, wait, recurseChildren)`:
+    // loaded AND every texture has its device texture. `wait` blocks on the
+    // reads and creates the device textures (GetTextureDeviceObject(.., 1));
+    // the bake's gate passes (0, 1), the bake itself (1, 1).
+    FUN_MODEL_INSTANCE_READY = 0x00710450,
+    // CM2Model::SetVisible — `__thiscall(model, bool)`.
+    FUN_M2MODEL_SET_VISIBLE = 0x00710C50,
+    // CM2Model::PlayAnimation — `__thiscall(model, 7 args)`, `ret 0x1C`. The
+    // bake passes (-1, 0, 0, 0, 1.0f, 0, 1).
+    FUN_M2MODEL_PLAY_ANIMATION = 0x007121A0,
+    // ApplyCreatureDisplay — `__fastcall(model, displayRec, modelDataRec)`,
+    // `ret 4`: the CreatureDisplayInfo row's three skins as the model's
+    // replaceable textures 11..13 (AttachDisplayModel 0x00505AE6).
+    FUN_APPLY_CREATURE_DISPLAY = 0x004797B0,
+    // DetachAllItemModels — `__fastcall(model)`: the bake strips the copy's
+    // attachments (helm, shoulders, held items) before it draws.
+    FUN_DETACH_ALL_ITEM_MODELS = 0x0047A230,
+    // CameraSetDeviceTransforms — `__fastcall(camera, const float rect[4],
+    // int)`: sets the device projection and view from the camera over the
+    // rect; the bake passes {0, 0, 1, aspect} and 0.
+    FUN_CAMERA_SET_DEVICE_TRANSFORMS = 0x007ADA40,
+    // PortraitLighting — the bake's lighting callback (ambient 0.45 grey and a
+    // white light along (-1, 0, -1)), set with FUN_MODEL_INSTANCE_SET_RENDER_CB
+    // and a null argument.
+    FUN_PORTRAIT_LIGHTING = 0x00525B10,
+    // GetPortraitAlphaMask — `void *__fastcall(uint32 size)`: an array whose
+    // byte data (pointer at +8) is the round mask's alpha, one per texel.
+    FUN_PORTRAIT_ALPHA_MASK = 0x005258A0,
+    // GxCapsScreenSize — `__fastcall(float rect[4])`, {top, left, bottom,
+    // right}; see FUN_GX_CAPS_WINDOW_SIZE.
+    FUN_GX_CAPS_SCREEN_SIZE = 0x0058A250,
+    // The bake's device gate: `int ()` each. WINDOW_ACTIVE reads the device's
+    // active flag (+0xF30, cleared while minimised), DEVICE_ALIVE reads
+    // OFF_GXDEVD3D_ALIVE (+0xF2C).
+    FUN_GX_WINDOW_ACTIVE = 0x0058A260,
+    FUN_GX_DEVICE_ALIVE = 0x0058A280,
+    // GxMasterEnable get / set — `bool __fastcall(cap)` / `__fastcall(cap,
+    // value)`. The bake saves cap 1 (fog), turns it off, and restores it.
+    FUN_GX_MASTER_ENABLE_GET = 0x0058A210,
+    FUN_GX_MASTER_ENABLE_SET = 0x0058A1E0,
+    GX_MASTER_FOG = 1,
+    // SetClearColorDevice — `__stdcall(uint32 argb)`; the bake sets 0.
+    FUN_GX_SET_CLEAR_COLOR = 0x0058A920,
+    // ClearDevice — `__fastcall(uint32 mask)`; the bake clears 3 before the
+    // draw and again after the readback.
+    FUN_GX_CLEAR = 0x0058A970,
+    // `__fastcall(const int rect[4], GrowableArray<uint32> *out)`: reads a
+    // back-buffer rectangle (device slot +0x48); the bake reads {0,0,64,64}.
+    FUN_GX_READ_PIXELS = 0x00589CF0,
+    // GxTexMarkRectDirty — `__fastcall(CGxTex *, const int rect[4], uint32
+    // immediate)`, `ret 4`: re-latches a callback texture's texels; the bake's
+    // re-draw of a cached portrait uploads its new pixels with immediate 1.
+    FUN_GX_TEX_MARK_RECT_DIRTY = 0x0058ACD0,
+    // CSimpleTexture::SetImage — `__thiscall(texture, HTEXTURE)`, `ret 4`:
+    // binds a texture handle (taking a reference) and notifies the layer.
+    FUN_SIMPLETEXTURE_SET_IMAGE = 0x00770300,
     // The vertex-stream primitive every textured region draws through
     // (FUN_0076fb00 calls it per region). Decompiler signature (13 params):
     // (count, positions, posStride, s3, s3Stride, colors, colorStride, drop8,

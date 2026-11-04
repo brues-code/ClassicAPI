@@ -1033,6 +1033,7 @@ build instructions.
   - [`C_Texture.GetAtlasElements()`](#c_texturegetatlaselements)
   - [`C_Texture.RegisterAtlas(name, file, width, height, left, right, top, bottom [, tilesHorizontally, tilesVertically])`](#c_textureregisteratlasname-file-width-height-left-right-top-bottom--tileshorizontally-tilesvertically)
   - [Atlas markup](#atlas-markup)
+  - [`SetPortraitTextureFromCreatureDisplayID(textureObject, creatureDisplayID)`](#setportraittexturefromcreaturedisplayidtextureobject-creaturedisplayid)
 
 - [Time](#time)
   - [`GetServerTime()`](#getservertime)
@@ -23897,6 +23898,36 @@ in text.
 
 Text typed by other players never draws atlas art. This matches how a typed
 texture path behaves.
+
+### `SetPortraitTextureFromCreatureDisplayID(textureObject, creatureDisplayID)`
+
+Shows the round portrait of a creature on a texture, by its display ID (a
+`CreatureDisplayInfo` ID). A unit is not necessary. The function returns
+nothing.
+
+The texture changes at once. The portrait is transparent until the creature
+model loads, and then it shows, a short time after the call.
+
+A character-based display gets the same appearance as a spawned NPC of that
+display. Like the portrait of a unit, the portrait does not show helms,
+shoulders, or weapons.
+
+A display ID that is not in `CreatureDisplayInfo` does not change the
+texture. Some models have no portrait view. For these models, the portrait
+stays transparent.
+
+Each display ID is drawn one time. Later calls for the same display ID show
+the finished portrait at once. The portraits stay until you log out.
+
+```lua
+local frame = CreateFrame("Frame", nil, UIParent)
+frame:SetWidth(64)
+frame:SetHeight(64)
+frame:SetPoint("CENTER", 0, 0)
+local portrait = frame:CreateTexture(nil, "ARTWORK")
+portrait:SetAllPoints(frame)
+SetPortraitTextureFromCreatureDisplayID(portrait, 3254)
+```
 
 ## Time
 
