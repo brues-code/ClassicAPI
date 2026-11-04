@@ -20,12 +20,28 @@
 // texture hash and inserts what it returns under the name and flags, so the
 // engine's own cache deduplicates and reference-counts the result like any
 // file's. A real file of the same name (a patch MPQ, a loose file) still wins.
+//
+// The texels come from two places:
+//   - interface\cooldown\edge.blp is built here from its decoded texels;
+//   - the files under src/embed/Textures sit at their game paths
+//     (Texture::Builtin::Manifest), each the later client's own BLP. One
+//     decodes the first time a load or Find asks for it, through the engine's
+//     BLP reader on the DLL's copy (Texture::BlpReader), and its texels stay.
 
+#include "texture/Builtin.h"
+
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "embed/Resource.h"
+#include "embedded_resources.h"
+#include "texture/BlpReader.h"
 #include "texture/Load.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <vector>
 
 namespace Texture::Builtin {
 
@@ -53,14 +69,24 @@ struct EdgeTexels {
 };
 const EdgeTexels g_edge;
 
-// `path` names `file` (the loader's path, extension included), either slash, any case.
-bool IsPath(const char *path, const char *file) {
-    for (; *file != '\0'; ++file, ++path) {
-        const char c = *path == '/' ? '\\' : *path;
-        if (c == '\0' || (c | 0x20) != (*file | 0x20))
-            return false;
-    }
-    return *path == '\0';
+// One embedded file, decoded at most once. Like the edge texels, the texels
+// outlive every handle made from them.
+struct Embedded {
+    bool tried = false;
+    std::vector<uint32_t> texels;
+    Image image = {};
+};
+Embedded g_embedded[Manifest::kFileCount];
+
+void Decode(const Manifest::File &file, Embedded &out) {
+    const Embed::Bytes bytes = Embed::File(file.resourceId, static_cast<size_t>(file.index));
+    BlpReader blp(bytes.data, bytes.size);
+    const uint8_t *bgra = blp.DecodeBgra();
+    if (bgra == nullptr)
+        return;
+    out.texels.resize(size_t{blp.Width()} * blp.Height());
+    std::memcpy(out.texels.data(), bgra, out.texels.size() * sizeof(uint32_t));
+    out.image = {blp.Width(), blp.Height(), out.texels.data()};
 }
 
 using CreateFromBlp_t = void *(__fastcall *)(const char *path, uint32_t fileFlag, uint32_t flags,
@@ -69,9 +95,13 @@ CreateFromBlp_t CreateFromBlp_o = nullptr;
 
 void *__fastcall CreateFromBlp_h(const char *path, uint32_t fileFlag, uint32_t flags, void *log) {
     void *handle = CreateFromBlp_o(path, fileFlag, flags, log);
-    if (handle == nullptr && path != nullptr && IsPath(path, "interface\\cooldown\\edge.blp"))
-        handle = CreateFromPixels(path, kEdgeSize, kEdgeSize, g_edge.texels, flags);
-    return handle;
+    if (handle != nullptr || path == nullptr)
+        return handle;
+    if (Common::SamePath(path, "interface\\cooldown\\edge.blp"))
+        return CreateFromPixels(path, kEdgeSize, kEdgeSize, g_edge.texels, flags);
+    if (const Image *image = Find(path))
+        return CreateFromPixels(path, image->width, image->height, image->texels, flags);
+    return nullptr;
 }
 
 const Game::HookAutoRegister _createFromBlpHook{Offsets::FUN_TEXTURE_CREATE_FROM_BLP,
@@ -79,5 +109,19 @@ const Game::HookAutoRegister _createFromBlpHook{Offsets::FUN_TEXTURE_CREATE_FROM
                                                 reinterpret_cast<void **>(&CreateFromBlp_o)};
 
 } // namespace
+
+const Image *Find(const char *path) {
+    if (path == nullptr)
+        return nullptr;
+    const Manifest::File *file = Embed::FindFile(Manifest::kFiles, path);
+    if (file == nullptr)
+        return nullptr;
+    Embedded &embedded = g_embedded[file - Manifest::kFiles];
+    if (!embedded.tried) {
+        embedded.tried = true;
+        Decode(*file, embedded);
+    }
+    return embedded.texels.empty() ? nullptr : &embedded.image;
+}
 
 } // namespace Texture::Builtin

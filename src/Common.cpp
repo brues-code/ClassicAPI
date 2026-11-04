@@ -113,4 +113,20 @@ void EnsureParentDirs(const char *relPath) {
     }
 }
 
+char FoldPathChar(char c) {
+    if (c == '/')
+        return '\\';
+    if (c >= 'A' && c <= 'Z')
+        return static_cast<char>(c + ('a' - 'A'));
+    return c;
+}
+
+bool SamePath(const char *a, const char *b) {
+    for (; FoldPathChar(*a) == FoldPathChar(*b); ++a, ++b) {
+        if (*a == '\0')
+            return true;
+    }
+    return false;
+}
+
 } // namespace Common

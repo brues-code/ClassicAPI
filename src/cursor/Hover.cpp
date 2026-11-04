@@ -27,14 +27,21 @@
 // The spell-targeting and mouselook legs of 0x4828D0 are left out: they
 // answer for the mouse, not for the object.
 //
+// The unit classifier and the fishing node's handler can also pick a mode of
+// Cursor::Extended (cursor/Npc, cursor/Fishing). The engine's SetCursorMode
+// cannot show one, so the same hook hands those to Cursor::Extended::Show,
+// and while capturing records them like any other.
+//
 // The images are the engine's own: `Interface\Cursor\<name>.blp` from its
 // cursor name table, and a game object's named cursor from its record
-// (FormatGameObjectCursorFile, `Unable` when not usable).
+// (FormatGameObjectCursorFile, `Unable` when not usable). An extended mode's
+// image is its embedded file (Cursor::Extended::Path).
 
 #include "cursor/Hover.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cursor/Extended.h"
 
 #include <cstdio>
 
@@ -56,6 +63,10 @@ uint32_t g_captured = 0;
 void __fastcall SetCursorMode_h(uint32_t mode) {
     if (g_capturing) {
         g_captured = mode;
+        return;
+    }
+    if (Cursor::Extended::Is(mode)) {
+        Cursor::Extended::Show(mode);
         return;
     }
     SetCursorMode_o(mode);
@@ -120,6 +131,17 @@ bool ImagePath(void *object, uint32_t mode, bool lowPriority, char *buf, std::si
         if (file[0] == '\0')
             return false;
         std::snprintf(buf, size, "%s", file);
+        return true;
+    }
+    if (Cursor::Extended::Is(mode)) {
+        // Retail shows no icon for a quest giver's cursor, not even the
+        // low-priority pointer (checked in game, 2026-11-03, with the soft
+        // interact icon and SoftTargetLowPriorityIcons 1). Blizzard_NamePlates
+        // shows that icon exactly when SetUnitCursorTexture returns true, so
+        // the refusal is the function's own.
+        if (Cursor::Extended::IsQuest(mode))
+            return false;
+        std::snprintf(buf, size, "%s", Cursor::Extended::Path(mode));
         return true;
     }
     if (mode >= Offsets::CURSOR_MODE_CUSTOM)

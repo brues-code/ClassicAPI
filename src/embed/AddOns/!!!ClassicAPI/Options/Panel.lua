@@ -607,6 +607,17 @@ AddKeybinding(bags, "AOELOOT")
 
 local interface = NewPage(CLASSICAPI_INTERFACE, main.name)
 
+-- The label ends with some of the cursors the setting shows. The DLL serves
+-- each image at its Interface\Cursor path, and the markup stays out of the
+-- translated string.
+local expandedCursorIcons = ""
+for _, name in ipairs({ "RepairNPC", "Innkeeper", "StableMaster", "Quest", "QuestTurnIn", "Fishing" }) do
+	expandedCursorIcons = expandedCursorIcons .. " |TInterface\\Cursor\\" .. name .. ":16|t"
+end
+
+AddHeader(interface, CLASSICAPI_CURSOR)
+AddCheckbox(interface, CLASSICAPI_EXPANDED_CURSORS .. expandedCursorIcons, CLASSICAPI_EXPANDED_CURSORS_TOOLTIP, CVarSetting("expandedCursors"))
+
 AddHeader(interface, CLASSICAPI_NAMEPLATES)
 AddSlider(interface, CLASSICAPI_TARGET_NAMEPLATE_ALPHA, CLASSICAPI_TARGET_NAMEPLATE_ALPHA_TOOLTIP, NumberCVarSetting("nameplateSelectedAlpha"), 0, 1, 0.05)
 AddSlider(interface, CLASSICAPI_OTHER_NAMEPLATE_ALPHA, CLASSICAPI_OTHER_NAMEPLATE_ALPHA_TOOLTIP, NumberCVarSetting("nameplateNotSelectedAlpha"), 0, 1, 0.05)

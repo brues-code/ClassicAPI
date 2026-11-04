@@ -202,6 +202,7 @@ build instructions.
 - [Cursor](#cursor)
   - [`GetCursorInfo()`](#getcursorinfo)
   - [`CursorHasMacro()`](#cursorhasmacro)
+  - [Expanded cursors (`expandedCursors`)](#expanded-cursors-expandedcursors)
 
 - [DeathInfo](#deathinfo)
   - [`C_DeathInfo.GetSelfResurrectOptions()`](#c_deathinfogetselfresurrectoptions)
@@ -4854,6 +4855,57 @@ Changes to what the cursor holds are reported by the
 ### `CursorHasMacro()`
 
 Returns `true` if the cursor holds a macro, and `false` if it does not.
+
+### Expanded cursors (`expandedCursors`)
+
+When the `expandedCursors` setting is `1` and you point at an NPC or an
+object, the cursor shows what you can do with it. The default is `0`. You can
+also change the setting in the ClassicAPI options, on the Interface page.
+
+These NPC services get new images:
+
+| The NPC has | The cursor |
+|---|---|
+| A quest that you can accept, or a quest that you did not complete | A yellow `!` |
+| A quest that you can turn in | A yellow `?` |
+| A repeatable quest that you can turn in | A blue `?` |
+| Repairs | An anvil |
+| An inn | A hearthstone |
+| A stable | A horseshoe |
+
+When an NPC has more than one service, the cursor shows the first service
+in this list:
+
+1. A quest
+2. Repairs
+3. An inn
+4. Flights
+5. Training
+6. Resurrection at a spirit healer
+7. A bank
+8. Guild charters, tabards and battlegrounds
+9. An auction house
+10. A stable
+11. Goods for sale
+12. Gossip
+
+The other services keep their usual images. For example, a vendor that also
+has gossip shows the vendor image, not the speech bubble.
+
+Your fishing bobber shows a fish hook, not the gear.
+
+When you cannot use the NPC or the object, the cursor shows the gray form of
+the image. For example, this occurs when you are too far away.
+
+The soft-interact icon and
+[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)
+show the same images as the cursor. For a quest, they show no image.
+
+```
+/console expandedCursors 1
+```
+
+*ClassicAPI extension.*
 
 ## DeathInfo
 
@@ -24659,6 +24711,9 @@ the image is the grey "Unable" form.
 Returns `true` when it sets the texture. When the unit has no image, it
 returns `false` and clears the texture.
 Otherwise it returns `false` and does not change the texture.
+
+A quest cursor (see [Expanded cursors](#expanded-cursors-expandedcursors))
+has no image, also when `includeLowPriority` is `true`.
 
 ```lua
 local icon = UIParent:CreateTexture(nil, "OVERLAY")

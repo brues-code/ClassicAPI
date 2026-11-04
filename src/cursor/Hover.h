@@ -18,9 +18,9 @@
 
 namespace Cursor::Hover {
 
-// The cursor mode (Offsets::CURSOR_MODE_*) the world cursor would show with
-// the mouse over `object` — a unit, player, game object or corpse — or 0
-// when it shows none. Computes it without showing it.
+// The cursor mode (Offsets::CURSOR_MODE_* or Cursor::Extended) the world
+// cursor would show with the mouse over `object` — a unit, player, game
+// object or corpse — or 0 when it shows none. Computes it without showing it.
 uint32_t Mode(void *object);
 
 // For a game object's named cursor (CURSOR_MODE_CUSTOM): whether the player
@@ -28,9 +28,10 @@ uint32_t Mode(void *object);
 bool IsUsable(void *object);
 
 // Writes the image file of `mode` over `object` into `buf`. False, with
-// `buf` untouched, for no mode, and for the base (resting) mode unless
-// `lowPriority` — retail's low-priority image, the plain pointer over a unit
-// with nothing to do (SetUnitCursorTexture's includeLowPriority).
+// `buf` untouched, for no mode, for a quest giver's cursor (retail shows no
+// icon for one), and for the base (resting) mode unless `lowPriority` —
+// retail's low-priority image, the plain pointer over a unit with nothing to
+// do (SetUnitCursorTexture's includeLowPriority).
 bool ImagePath(void *object, uint32_t mode, bool lowPriority, char *buf, std::size_t size);
 
 } // namespace Cursor::Hover

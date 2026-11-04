@@ -225,6 +225,7 @@ open the game menu and click AddOn Options, then ClassicAPI.
 | [Bag sorting](docs/API.md#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable) | `sortBagsRightToLeft` | `0` | `1` makes a sort fill your bags from the last slot of the last bag. |
 | | `backpackAutosortDisabled` | `0` | `1` keeps the items in your backpack in place when you sort your bags. |
 | | `bankAutosortDisabled` | `0` | `1` keeps the items in the main bank slots in place when you sort your bank. |
+| [Expanded cursors](docs/API.md#expanded-cursors-expandedcursors) | `expandedCursors` | `0` | `1` makes the cursor show what you can do with an NPC or an object: an anvil for repairs, a hearthstone for an inn, a horseshoe for a stable, `!` or `?` for quests, and a fish hook for your fishing bobber. |
 | [Equipment sets](docs/API.md#equipment-sets-on-item-tooltips) | `dontShowEquipmentSetsOnItems` | `0` | `1` removes the Equipment Sets line from item tooltips. |
 | [Name completion](docs/API.md#name-completion-settings) | `autoCompleteResortNamesOnRecency` | `1` | `1` puts the players that you whispered first in `C_AutoComplete` results, the most recent first. `0` uses alphabetical order. |
 | | `autoCompleteWhenEditingFromCenter` | `1` | `1` also matches the text after the cursor when you type inside a name. |

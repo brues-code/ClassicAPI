@@ -47,6 +47,7 @@
 // section's header follows.
 
 #include "Inject.h"
+#include "Common.h"
 #include "Offsets.h"
 
 #include "embed/Resource.h"
@@ -212,20 +213,6 @@ const char *FindSplicePosition(const char *content, size_t size,
     return FindOutsideComment(content, end, "</Bindings>");
 }
 
-char NormalizeChar(char c) {
-    if (c == '/') return '\\';
-    if (c >= 'A' && c <= 'Z') return static_cast<char>(c + 32);
-    return c;
-}
-
-bool PathEqualsCI(const char *a, const char *b) {
-    while (*a != '\0' && *b != '\0') {
-        if (NormalizeChar(*a) != NormalizeChar(*b)) return false;
-        ++a; ++b;
-    }
-    return *a == *b;
-}
-
 using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
 using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
 
@@ -233,7 +220,7 @@ using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int 
 
 bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
                size_t extraBytes, int flag1, int flag2, FileReadFn original) {
-    if (path == nullptr || !PathEqualsCI(path, kFrameXMLBindingsPath))
+    if (path == nullptr || !Common::SamePath(path, kFrameXMLBindingsPath))
         return false;
 
     // Pull the real file through the original reader with the caller's

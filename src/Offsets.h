@@ -1977,10 +1977,36 @@ enum Offsets {
     VAR_CURSOR_BASE_MODE = 0x00BE2C4C,
     CURSOR_MODE_POINT = 1,
     CURSOR_MODE_CAST = 2,
+    CURSOR_MODE_BUY = 3,
     CURSOR_MODE_ATTACK = 4,
+    CURSOR_MODE_INTERACT = 5,
+    CURSOR_MODE_SPEAK = 6,
+    CURSOR_MODE_PICKUP = 8,
+    CURSOR_MODE_TAXI = 9,
+    CURSOR_MODE_TRAINER = 10,
     CURSOR_MODE_LAST_NAMED = 20,
     CURSOR_MODE_UNABLE_OFFSET = 20,
     CURSOR_MODE_CUSTOM = 0x29,
+    // The shown mode, the one SetCursorMode compares and stores.
+    VAR_CURSOR_MODE = 0x00BE2C2C,
+    // SendCursorImage — `void __cdecl(void)`: copies the image slot of
+    // VAR_CURSOR_MODE (slot n at 0x00BE2D80 + n * 0x1000, CURSOR_IMAGE_SIZE
+    // squared BGRA8888 texels) to the device cursor, or the dragged payload's
+    // picture while one is held (disassembled 0x523790-0x52380D).
+    FUN_SEND_CURSOR_IMAGE = 0x00523790,
+    // SetCustomCursor — `uint32_t __fastcall(const char *path)`, plain ret:
+    // shows a named BLP as mode 41. Returns 1 at once when mode 41 already
+    // shows `path` (SStrCmpI against VAR_CUSTOM_CURSOR_NAME). Otherwise it
+    // loads the file, and for a 32x32 image stores mode 41, copies the texels
+    // into slot 41 (VAR_CURSOR_IMAGE_CUSTOM), sends the image, copies `path`
+    // into VAR_CUSTOM_CURSOR_NAME (CURSOR_FILE_SIZE bytes) and returns 1; a
+    // file that does not load returns 0 and changes nothing (disassembled
+    // 0x523C40-0x523D0E). ClassifyHoveredGameObject uses it for a
+    // record-named cursor.
+    FUN_SET_CUSTOM_CURSOR = 0x00523C40,
+    VAR_CURSOR_IMAGE_CUSTOM = 0x00C0BD80,
+    VAR_CUSTOM_CURSOR_NAME = 0x00BE2C70,
+    CURSOR_IMAGE_SIZE = 32,
     // s_cursorNames: `const char *[42]`, mode -> image name (0 and 41 null;
     // 21..40 carry their own "Unable…" names). The loader formats
     // `Interface\Cursor\%s.blp` from it (0x5236C0); dumped from the exe.
@@ -2000,6 +2026,16 @@ enum Offsets {
     // 9 / 0x19 and 0x81 after the object's IsMouseoverable answers nonzero.
     FUN_WORLD_FRAME_CLASSIFY_UNIT = 0x00482200,
     FUN_WORLD_FRAME_CLASSIFY_CORPSE = 0x00482740,
+    // ClassifyHoveredUnit's NPC flag chain (0x482336-0x4826D6), reached for a
+    // unit the player can interact with now (0x606880) with the unit in ESI,
+    // the player in EDI, and EBX 1 when the unit is beyond the interact reach
+    // (squared distance above 0xB4B32C), else 0. Its head is `mov ecx,
+    // [esi + 0x110]` (8B 8E 10 01 00 00), and no jump in the function lands
+    // inside it. CLASSIFY_UNIT_RETURN is the epilogue after the chain's first
+    // SetCursorMode call (`pop edi; pop esi; pop ebx; mov esp, ebp; pop ebp;
+    // ret 4`), with ESP as it is at the head (disassembled 0x482200-0x4826D6).
+    SITE_CLASSIFY_UNIT_NPC_FLAGS = 0x00482336,
+    CLASSIFY_UNIT_RETURN = 0x00482356,
     // CGGameObject_C::GetCursor — `uint32_t __thiscall(go)`: 0 when not
     // interactable, CURSOR_MODE_CUSTOM for a record-named cursor, else the
     // handler's mode (+20 when not usable). IsUsable — `bool __thiscall(go)`,
@@ -2008,6 +2044,17 @@ enum Offsets {
     // a custom-cursor texture load for 41.
     FUN_GAMEOBJECT_GET_CURSOR = 0x005F8760,
     FUN_GAMEOBJECT_IS_USABLE = 0x005F8810,
+    // The handler's mode is its vtable slot 4 (+0x10), which GetCursor
+    // tail-jumps to with the handler in ECX (`jmp [eax+0x10]` at 0x5F878B);
+    // GetCursor is the slot's one reader. BaseHandlerGetCursor — `uint32_t
+    // __thiscall(handler)`, plain ret — is the slot in most types: 0 when slot
+    // 5 says not interactable; a lock's LockType cursor by name; else
+    // CURSOR_MODE_INTERACT when usable (slot 6), its Unable form when not
+    // (disassembled 0x5F3070-0x5F3123). The fishing node (type 17) handler's
+    // vtable is 0x80BC80, whose slot 4 holds it (benilla-re
+    // s_fishingNodeHandlerVtable; xref 0x80BC90).
+    FUN_GO_HANDLER_BASE_GET_CURSOR = 0x005F3070,
+    SLOT_FISHING_NODE_HANDLER_GET_CURSOR = 0x0080BC90,
     // Object type words (descriptor OBJECT_FIELD_TYPE) the hover dispatch
     // switches on, exactly (0x4828D0): unit, player, game object, corpse.
     OBJECT_TYPE_WORD_UNIT = 0x09,
@@ -6308,6 +6355,17 @@ enum Offsets {
     OFF_UNIT_DESCRIPTOR_RACE_BYTE = 0x78,
     OFF_UNIT_DESCRIPTOR_CLASS_BYTE = 0x79,
     OFF_UNIT_DESCRIPTOR_SEX_BYTE = 0x7A,
+    // UNIT_NPC_FLAGS, read at descriptor +0x234 by ClassifyHoveredUnit's flag
+    // chain (0x48233C) and IsQuestGiverToTalk (0x5DF49C).
+    OFF_UNIT_DESCRIPTOR_NPC_FLAGS = 0x234,
+    // CGUnit_C::m_questStatus: the quest giver status the server last sent
+    // (SMSG_QUESTGIVER_STATUS), stored by SetQuestGiverStatus (0x607440) for
+    // a unit with NPC flag 0x2 (benilla-re objectlayer/unitnames).
+    OFF_CGUNIT_QUEST_STATUS = 0xCB8,
+    // IsQuestGiverToTalk — `uint32_t __stdcall(CGUnit_C *unit)`, ret 4: 1 for
+    // NPC flag 0x2 with a quest status other than 0 and 1. ClassifyHoveredUnit
+    // shows Speak for it (disassembled 0x5DF490-0x5DF4C4).
+    FUN_IS_QUEST_GIVER_TO_TALK = 0x005DF490,
 
     // The local player's UNIT_FIELD_BYTES_0 race/class/sex bytes, mirrored
     // into a login-time global that is populated at character-enter —
@@ -9321,9 +9379,21 @@ enum Offsets {
     FUN_BLP_DECODE_LEVEL = 0x005A7F00,
     FUN_BLP_FREE_SCRATCH = 0x005A8100,
     FUN_BLP_RESET = 0x005A7AA0,
+    // Parse(this, const void *file) → nonzero for a 'BLP2' type-1 header
+    // (ret 4): Open's second half. It copies BLP_HEADER_SIZE bytes of `file`
+    // into the record and keeps `file` as the pixel source (+0x498), which
+    // Reset only drops (it frees the decoded chain at +0x00), so a buffer the
+    // caller owns decodes like the one Open reads (disassembled
+    // 0x5A83B0-0x5A842A).
+    FUN_BLP_PARSE = 0x005A83B0,
+    BLP_HEADER_SIZE = 0x494,
     BLP_RECORD_SIZE = 0x4B4,
     OFF_BLP_MAGIC = 0x04,
     OFF_BLP_VERSION = 0x08,
+    // byte: 1 palette, 2 DXT, 3 raw BGRA (DecodeLevel's switch, 0x5A7F6B)
+    OFF_BLP_COMPRESSION = 0x0C,
+    // byte: for DXT, 0 DXT1, 1 DXT3, 7 DXT5 (DecodeLevel takes its class
+    // at 0x5A7FC3)
     OFF_BLP_ALPHA_TYPE = 0x0E,
     OFF_BLP_WIDTH = 0x10,
     OFF_BLP_HEIGHT = 0x14,
@@ -9333,6 +9403,15 @@ enum Offsets {
     // benilla image/convert#palette-to-bgra). GetPortraitAlphaMask decodes
     // to this format.
     GX_TEX_FORMAT_BGRA8888 = 2,
+    // DecodeLevel converts a DXT level to another format through the matrix
+    // InitConvertMatrix (0x005A4FC0) fills, by the class of the alpha type.
+    // It fills DXT1 and DXT3 to BGRA8888 (cells 0x00C0F840, 0x00C0F8D0) and
+    // leaves DXT5's (0x00C0F960) empty, so a DXT5 level gets an unwritten
+    // SMemAlloc buffer and DecodeLevel still returns 1 (disassembled
+    // 0x5A4FC0-0x5A5062 and 0x5A7FC3-0x5A8045; benilla
+    // image/convert#conversion-matrix).
+    BLP_COMPRESSION_DXT = 2,
+    BLP_ALPHA_TYPE_DXT5 = 7,
 
     // MPQ file enumerator — walks every mounted archive's `(listfile)`
     // and invokes a callback for each entry whose path begins with a

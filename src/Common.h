@@ -49,4 +49,11 @@ void BoundedCopy(char *dst, const char *src, size_t n);
 // directory. Directories that already exist are a no-op.
 void EnsureParentDirs(const char *relPath);
 
+// `c` as game paths compare it: '/' as '\', and A-Z as a-z.
+char FoldPathChar(char c);
+
+// Whether `a` and `b` are the same game path: equal after FoldPathChar, so
+// any case and either slash.
+bool SamePath(const char *a, const char *b);
+
 } // namespace Common

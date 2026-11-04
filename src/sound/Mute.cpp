@@ -44,6 +44,7 @@
 // Muted entries stay in the list, flagged. Dropping them would make a sound
 // vanish from the one view you would use to un-mute it.
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "time/Clock.h"
@@ -80,18 +81,13 @@ uint32_t g_seq = 0;
 // is one `empty()` test on the hook path.
 std::unordered_set<std::string> g_muted;
 
-// Lowercase, and fold '/' to '\', so a caller may pass either separator and
-// any casing — the engine's own path compares are case-insensitive.
+// Fold each character as Common::SamePath compares it, so a caller may pass
+// either separator and any casing — the engine's own path compares are
+// case-insensitive.
 void Normalize(const char *path, std::string &out) {
     out.clear();
-    for (const char *p = path; *p != '\0'; ++p) {
-        char c = *p;
-        if (c == '/')
-            c = '\\';
-        else if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c + ('a' - 'A'));
-        out.push_back(c);
-    }
+    for (const char *p = path; *p != '\0'; ++p)
+        out.push_back(Common::FoldPathChar(*p));
 }
 
 bool IsMuted(const char *path) {
@@ -100,22 +96,6 @@ bool IsMuted(const char *path) {
     std::string key;
     Normalize(path, key);
     return g_muted.find(key) != g_muted.end();
-}
-
-// Case-insensitive equality, tolerant of separator style — the same rule
-// Normalize applies, without building a string.
-bool SamePath(const char *a, const char *b) {
-    for (;; ++a, ++b) {
-        char ca = *a, cb = *b;
-        if (ca == '/') ca = '\\';
-        if (cb == '/') cb = '\\';
-        if (ca >= 'A' && ca <= 'Z') ca = static_cast<char>(ca + ('a' - 'A'));
-        if (cb >= 'A' && cb <= 'Z') cb = static_cast<char>(cb + ('a' - 'A'));
-        if (ca != cb)
-            return false;
-        if (ca == '\0')
-            return true;
-    }
 }
 
 // Note a path as played. Re-playing a path refreshes its existing slot
@@ -127,7 +107,7 @@ void Record(const char *path, bool muted) {
     int oldest = 0;
     for (int i = 0; i < kRecentSlots; ++i) {
         Recent &r = g_recent[i];
-        if (r.seq != 0 && SamePath(r.path, path)) {
+        if (r.seq != 0 && Common::SamePath(r.path, path)) {
             r.seq = ++g_seq;
             r.timeMs = now;
             r.muted = muted;

@@ -111,6 +111,7 @@
 #include "dbc/Lookup.h"
 #include "map/Area.h"
 #include "map/Overlays.h"
+#include "texture/BlpReader.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
@@ -136,59 +137,7 @@ int NextPot(int v) {
     return p;
 }
 
-// The engine's BLP reader, driven exactly as GetPortraitAlphaMask drives it
-// (see the FUN_BLP_OPEN block in Offsets.h). Open in the constructor, decode
-// on demand, free and reset in the destructor. Only one reader may be live
-// at a time: the engine keeps the file in one module-static buffer.
-class BlpReader {
-public:
-    explicit BlpReader(const char *path) {
-        std::memset(rec_, 0, sizeof(rec_));
-        Put(Offsets::OFF_BLP_MAGIC, 0x32504C42); // 'BLP2'
-        Put(Offsets::OFF_BLP_VERSION, 1);
-        rec_[Offsets::OFF_BLP_ALPHA_TYPE] = 2;
-        Put(Offsets::OFF_BLP_INIT_4A4, 100);
-        open_ = reinterpret_cast<Open_t>(Offsets::FUN_BLP_OPEN)(rec_, path, 1) != 0;
-    }
-    ~BlpReader() {
-        if (decoded_)
-            reinterpret_cast<FreeScratch_t>(Offsets::FUN_BLP_FREE_SCRATCH)(rec_, 0);
-        reinterpret_cast<Reset_t>(Offsets::FUN_BLP_RESET)(rec_);
-    }
-    BlpReader(const BlpReader &) = delete;
-    BlpReader &operator=(const BlpReader &) = delete;
-
-    bool IsOpen() const { return open_; }
-    uint32_t Width() const { return Game::Read<uint32_t>(rec_, Offsets::OFF_BLP_WIDTH); }
-    uint32_t Height() const { return Game::Read<uint32_t>(rec_, Offsets::OFF_BLP_HEIGHT); }
-
-    // Level 0 as BGRA8888 (alpha in byte 3), valid until destruction; null
-    // on failure.
-    const uint8_t *DecodeBgra() {
-        if (!open_)
-            return nullptr;
-        void *out = nullptr;
-        uint32_t size = 0;
-        decoded_ = true;
-        if (reinterpret_cast<DecodeLevel_t>(Offsets::FUN_BLP_DECODE_LEVEL)(
-                rec_, Offsets::GX_TEX_FORMAT_BGRA8888, 0, &out, &size) == 0)
-            return nullptr;
-        return static_cast<const uint8_t *>(out);
-    }
-
-private:
-    using Open_t = int(__thiscall *)(void *rec, const char *path, int flag);
-    using DecodeLevel_t = int(__thiscall *)(void *rec, uint32_t fmt, uint32_t level,
-                                            void **out, uint32_t *size);
-    using FreeScratch_t = void(__thiscall *)(void *rec, uint32_t level);
-    using Reset_t = void(__thiscall *)(void *rec);
-
-    void Put(uintptr_t off, uint32_t v) { std::memcpy(rec_ + off, &v, sizeof(v)); }
-
-    uint8_t rec_[Offsets::BLP_RECORD_SIZE];
-    bool open_ = false;
-    bool decoded_ = false;
-};
+using Texture::BlpReader;
 
 // Where one overlay's art lives and where it sits on the zone canvas.
 struct OverlaySource {

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "Common.h"
+
 #include <cstddef>
 
 namespace Embed {
@@ -29,5 +31,16 @@ struct Bytes {
 // for the life of the DLL and must not be freed. `{nullptr, 0}` when the
 // resource is missing, does not inflate or split, or has no file `index`.
 Bytes File(int id, size_t index);
+
+// The entry of `files`, a manifest in the generated `embedded_resources.h`,
+// whose path is the game path `path` (Common::SamePath); null when none is.
+template <class Entry, size_t N>
+const Entry *FindFile(const Entry (&files)[N], const char *path) {
+    for (const Entry &file : files) {
+        if (Common::SamePath(path, file.path))
+            return &file;
+    }
+    return nullptr;
+}
 
 } // namespace Embed

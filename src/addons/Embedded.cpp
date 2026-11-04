@@ -65,6 +65,7 @@
 
 #include "embedded_resources.h"
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/Embedded.h"
@@ -103,26 +104,12 @@ constexpr const char *kDevMarkerFile = ".classicapi-dev";
 // paths are case-insensitive.
 constexpr const char *kAddOnsPrefix = "Interface\\AddOns\\";
 
-char NormalizeChar(char c) {
-    if (c == '/') return '\\';
-    if (c >= 'A' && c <= 'Z') return static_cast<char>(c + 32);
-    return c;
-}
-
-bool PathEqualsCI(const char *a, const char *b) {
-    while (*a && *b) {
-        if (NormalizeChar(*a) != NormalizeChar(*b)) return false;
-        ++a; ++b;
-    }
-    return *a == *b;
-}
-
 // `path` with the case-insensitive `prefix` stripped, NULL when it does
 // not start with it.
 const char *StripPrefixCI(const char *path, const char *prefix) {
     while (*prefix) {
         if (*path == '\0') return nullptr;
-        if (NormalizeChar(*path) != NormalizeChar(*prefix)) return nullptr;
+        if (Common::FoldPathChar(*path) != Common::FoldPathChar(*prefix)) return nullptr;
         ++path; ++prefix;
     }
     return path;
@@ -130,7 +117,7 @@ const char *StripPrefixCI(const char *path, const char *prefix) {
 
 int IndexOfAddon(const char *name) {
     for (size_t i = 0; i < kAddonCount; ++i) {
-        if (PathEqualsCI(name, kAddons[i]))
+        if (Common::SamePath(name, kAddons[i]))
             return static_cast<int>(i);
     }
     return -1;
@@ -144,7 +131,7 @@ int MatchAddonPath(const char *path, const char **relPath) {
     if (rel == nullptr) return -1;
     for (size_t i = 0; i < kAddonCount; ++i) {
         const char *rest = StripPrefixCI(rel, kAddons[i]);
-        if (rest != nullptr && NormalizeChar(*rest) == '\\') {
+        if (rest != nullptr && Common::FoldPathChar(*rest) == '\\') {
             *relPath = rel;
             return static_cast<int>(i);
         }
@@ -155,12 +142,10 @@ int MatchAddonPath(const char *path, const char **relPath) {
 // The embedded bytes for manifest path `relPath`; `data` is NULL when it
 // is not embedded.
 Embed::Bytes LookupEmbedded(const char *relPath) {
-    for (size_t i = 0; i < Manifest::kFileCount; ++i) {
-        if (PathEqualsCI(relPath, Manifest::kFiles[i].path))
-            return Embed::File(Manifest::kFiles[i].resourceId,
-                               Manifest::kFiles[i].index);
-    }
-    return {nullptr, 0};
+    const Manifest::File *file = Embed::FindFile(Manifest::kFiles, relPath);
+    if (file == nullptr)
+        return {nullptr, 0};
+    return Embed::File(file->resourceId, file->index);
 }
 
 // Engine file I/O + Storm allocator — see addons/EngineIO.h for the shapes and

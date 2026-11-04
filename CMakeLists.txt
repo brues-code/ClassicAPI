@@ -76,13 +76,14 @@ endif()
 add_library(${PROJECT_NAME} SHARED
     ${SOURCES} ${HEADERS} ${TINYCBOR_SOURCES})
 
-# Embed the addons under `src/embed/AddOns/` and `src/bindings/Bindings.xml` as RCDATA
-# resources. The file-read hook in `src/addons/Embedded.cpp` serves the
-# addon files when the engine asks for paths under
-# `Interface\AddOns\<addon>\`, so the addons load even when the user
-# doesn't have them on disk. `src/bindings/Inject.cpp` splices the bindings
-# XML (our TARGETING-group additions) into the engine's
-# `Interface\FrameXML\Bindings.xml` at load time.
+# Embed the addons under `src/embed/AddOns/`, `src/bindings/Bindings.xml` and
+# the textures under `src/embed/Textures/` as RCDATA resources. The file-read
+# hook in `src/addons/Embedded.cpp` serves the addon files when the engine
+# asks for paths under `Interface\AddOns\<addon>\`, so the addons load even
+# when the user doesn't have them on disk. `src/bindings/Inject.cpp` splices
+# the bindings XML (our TARGETING-group additions) into the engine's
+# `Interface\FrameXML\Bindings.xml` at load time. `src/texture/Builtin.cpp`
+# serves each texture at its game path when no file has it.
 include(cmake/embed_resources.cmake)
 embed_resources(
     TARGET ${PROJECT_NAME}
@@ -90,6 +91,7 @@ embed_resources(
     ADDONS "!!!ClassicAPI" "ClassicAPI_DebugTools" "ClassicAPI_EventTrace"
     ADDON_VERSION "${CLASSICAPI_TOC_VERSION}"
     BINDINGS_XML "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings/Bindings.xml"
+    TEXTURES_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/embed/Textures"
     OUT_DIR "${CMAKE_BINARY_DIR}/generated")
 
 target_compile_definitions(
