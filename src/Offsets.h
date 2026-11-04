@@ -671,6 +671,39 @@ enum Offsets {
     OFF_ANCHOR_NODE_Y = 0x08,
     OFF_ANCHOR_NODE_RELATIVE_POINT = 0x10,
     VTBL_ANCHOR_NODE_GET_RELATIVE = 0x0C,
+    // The relative node's other three slots (Ghidra: each function's only
+    // reference is its slot): +0x00 the deleting destructor 0x00767D80, `void
+    // *__thiscall(node, int flags)`, `ret 4` — every free of a point (SetPoint,
+    // ClearAllPoints, FUN_REGION_CLEAR_POINT_BY_RELATIVE, the layout destructor)
+    // is `push 1; call [vtbl]`; +0x04 / +0x08 the x / y getters 0x007A2F90 /
+    // 0x007A3070, `float __thiscall(node, float scale)`, `ret 4` (benilla-re
+    // ui/anchors "Relative point coordinates"). A getter ends a deferred
+    // relative's deferral with FUN_REGION_LAYOUT_REALIZE(0) (0x007A2FC0), then
+    // reads the node again (0x007A2FC5).
+    VTBL_ANCHOR_NODE_DELETE = 0x00,
+    VTBL_ANCHOR_NODE_X = 0x04,
+    VTBL_ANCHOR_NODE_Y = 0x08,
+    FUN_ANCHOR_NODE_DELETE = 0x00767D80,
+    FUN_ANCHOR_NODE_X = 0x007A2F90,
+    FUN_ANCHOR_NODE_Y = 0x007A3070,
+    // A layout's point walks, 4.3.4's GetFramePointX / Y: `float
+    // __thiscall(layout, const int *points, int count)`, `ret 8` — calls
+    // VTBL_ANCHOR_NODE_X (Y) of each set slot in `points` with the layout's
+    // scale (+0x58) and returns the first result that is not
+    // VAR_LAYOUT_UNDEFINED. The six edge resolvers are the only callers
+    // (Ghidra xrefs): left / centre x / right call the x walk, top / centre y /
+    // bottom the y walk.
+    FUN_LAYOUT_POINTS_X = 0x007671A0,
+    FUN_LAYOUT_POINTS_Y = 0x007671F0,
+    CALL_LAYOUT_LEFT_POINTS = 0x007673F1,
+    CALL_LAYOUT_CENTER_X_POINTS = 0x00767281,
+    CALL_LAYOUT_RIGHT_POINTS = 0x00767561,
+    CALL_LAYOUT_TOP_POINTS = 0x007674F1,
+    CALL_LAYOUT_CENTER_Y_POINTS = 0x00767381,
+    CALL_LAYOUT_BOTTOM_POINTS = 0x007675D1,
+    // float: the "no value" an edge, a point or a walk returns (benilla-re
+    // s_layoutUndefined); the walk compares with `fcomp [0x00CF550C]`.
+    VAR_LAYOUT_UNDEFINED = 0x00CF550C,
 
     // The point names the XML loader and SetPoint share (benilla-re
     // ui/anchors "Point slots and point names"), 4.3.4's StringToFramePoint /

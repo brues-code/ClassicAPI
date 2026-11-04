@@ -28,6 +28,10 @@ bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target);
 // at `site` to `target` when it still reaches `expected`. Same contract.
 bool RedirectJcc(uintptr_t site, uintptr_t expected, const void *target);
 
+// RedirectCall for a function-pointer slot (a vtable entry): points the slot
+// at `slot` to `target` when it still holds `expected`. Same contract.
+bool RedirectSlot(uintptr_t slot, uintptr_t expected, const void *target);
+
 // Writes `call target` plus NOP padding over the `len` bytes (5 to 64) of
 // code at `site` when they still hold `original`; true when the site
 // now calls `target`. A site holding anything else (another DLL's patch, a
