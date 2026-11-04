@@ -41,6 +41,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "unit/LineOfSight.h"
 #include "unit/Position.h"
 
 #include <cmath>
@@ -106,23 +107,6 @@ bool SegmentClear(const Vec3 &a, const Vec3 &b) {
     return !(t >= 0.0f && t <= 1.0f);
 }
 
-// Player↔unit LoS. Returns 1 = in sight, 0 = blocked, -1 = unknown
-// (position unavailable). One segment, each end at its own unit's
-// collision height — the server's check (see the file header).
-int InSight(void *a, void *b) {
-    if (a == b)
-        return 1;
-
-    float pa[3];
-    float pb[3];
-    if (!Unit::Position::Read(a, pa) || !Unit::Position::Read(b, pb))
-        return -1;
-
-    const Vec3 ea{pa[0], pa[1], pa[2] + EyeHeight(a)};
-    const Vec3 eb{pb[0], pb[1], pb[2] + EyeHeight(b)};
-    return SegmentClear(ea, eb) ? 1 : 0;
-}
-
 int __fastcall Script_UnitInLineOfSight(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: UnitInLineOfSight(\"unit\")");
@@ -155,5 +139,22 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+// Player↔unit LoS. Returns 1 = in sight, 0 = blocked, -1 = unknown
+// (position unavailable). One segment, each end at its own unit's
+// collision height — the server's check (see the file header).
+int InSight(void *a, void *b) {
+    if (a == b)
+        return 1;
+
+    float pa[3];
+    float pb[3];
+    if (!Unit::Position::Read(a, pa) || !Unit::Position::Read(b, pb))
+        return -1;
+
+    const Vec3 ea{pa[0], pa[1], pa[2] + EyeHeight(a)};
+    const Vec3 eb{pb[0], pb[1], pb[2] + EyeHeight(b)};
+    return SegmentClear(ea, eb) ? 1 : 0;
+}
 
 } // namespace Unit::LineOfSight

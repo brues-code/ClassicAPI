@@ -1104,6 +1104,7 @@ build instructions.
   - [`UnitPosition(unit)`](#unitpositionunit)
   - [`UnitFacing(unit)`](#unitfacingunit)
   - [`UnitInLineOfSight(unit)`](#unitinlineofsightunit)
+  - [`UnitIsBehind(unit [, unit2])`](#unitisbehindunit--unit2)
   - [`ClosestUnitPosition(creatureID)`](#closestunitpositioncreatureid)
   - [`UnitHealthMissing(unit)`](#unithealthmissingunit)
   - [`UnitPower(unit [, powerType [, unmodified]])` / `UnitPowerMax(unit [, powerType [, unmodified]])`](#unitpowerunit--powertype--unmodified--unitpowermaxunit--powertype--unmodified)
@@ -25215,6 +25216,33 @@ Notes and limits:
   long-segment crash in the underlying trace); such units are usually
   outside the client's object sync window anyway.
 - `UnitInLineOfSight("player")` is `true` (you always see yourself).
+
+### `UnitIsBehind(unit [, unit2])`
+
+Returns `true` when the first unit stands in the second unit's back
+hemisphere and within 5 yards of it, the reach a backstab needs. The
+one-argument form tests the player, so `UnitIsBehind("target")` asks
+whether you are behind your target. A ClassicAPI extension (not a stock
+WoW global).
+
+```lua
+if UnitIsBehind("target") then
+    -- Backstab / Shred position
+end
+```
+
+The direction is computed from the two world positions with `atan2`, and
+the target's facing is read from the same `GetFacing` virtual that
+[`UnitFacing`](#unitfacingunit) uses. Units on the same spot, and pairs
+farther apart than 5 yards, return `false`.
+
+A creature that stands still in combat while it swings is a special
+case. The server never pushes a facing update for it, so its client-side
+facing can lag the direction it is actually attacking from. When such a
+creature can see its current target, the direction to that target is used
+as its facing instead. The conditions and the idea come from UnitXP_SP3's
+`UnitXP("behind", me, mob)`; the world line-of-sight test is ClassicAPI's
+own ([`UnitInLineOfSight`](#unitinlineofsightunit)).
 
 ### `UnitClassBase(unit)`
 
