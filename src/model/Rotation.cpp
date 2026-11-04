@@ -16,12 +16,14 @@
 // Vanilla's SetRotation (FUN_SCRIPT_PLAYERMODEL_SET_ROTATION) always turns the
 // model with a shuffle animation (TurnTo 0x00505BB0). 4.3.4's RotateModel
 // (CharacterModelBase.cpp) does the same when `animate` is true or absent, and
-// with `animate` false only stores the facing: no shuffle, no turn latch. So a
-// false `animate` stores the facing here and anything else runs vanilla's
-// method unchanged.
+// with `animate` false only stores the facing: no shuffle, no turn latch. It
+// also only stores the facing while the pane rests on an animation other than
+// Stand (`m_sequence`, set by SetAnimation, see Model::Animation). Otherwise
+// vanilla's method runs unchanged.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "model/Animation.h"
 
 namespace Model::Rotation {
 namespace {
@@ -31,11 +33,12 @@ constexpr int kTypeNone = -1; // lua_type of an absent argument
 using LuaMethod_t = int(__fastcall *)(void *L);
 
 int __fastcall Script_SetRotation(void *L) {
-    if (Game::Lua::Type(L, 3) == kTypeNone || Game::Lua::ToBoolean(L, 3) != 0)
-        return reinterpret_cast<LuaMethod_t>(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_ROTATION)(L);
     void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
     if (pane == nullptr)
         return 0;
+    const bool animate = Game::Lua::Type(L, 3) == kTypeNone || Game::Lua::ToBoolean(L, 3) != 0;
+    if (animate && !Model::Animation::HasRestingAnimation(pane))
+        return reinterpret_cast<LuaMethod_t>(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_ROTATION)(L);
     if (!Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: SetRotation(rotation (in radians))");
         return 0;

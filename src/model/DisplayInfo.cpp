@@ -11,7 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `PlayerModel:SetDisplayInfo(displayID)` and `PlayerModel:SetCreature(creatureID)`
+// `PlayerModel:SetDisplayInfo(displayID)` and
+// `PlayerModel:SetCreature(creatureID [, displayID])`
 // — 4.3.4's CGCharacterModelBase methods (CharacterModelBase_Scripts.cpp), on
 // vanilla's own pane path.
 //
@@ -32,6 +33,8 @@
 //     path CGUnit_C::UpdateCharacterCustomization).
 //   - SetCreature passes the creature's cache record straight to SetDisplay —
 //     the same record 4.3.4 passes (CreatureStats_C) and the stable passes.
+//     Retail's optional displayID shows that display in its place, through
+//     the SetDisplayInfo record below.
 //   - SetDisplayInfo has a display ID and no cache record. The pane only ever
 //     reads the record's display-ID field (OFF_PLAYERMODEL_DISPLAY_RECORD), so
 //     each pane gets a record of its own holding just that field, which lives
@@ -257,6 +260,15 @@ struct DisplayRecord {
 };
 std::unordered_map<void *, DisplayRecord> g_displayRecords;
 
+void ShowDisplayID(void *pane, uint32_t displayID) {
+    if (displayID == 0)
+        return;
+    DisplayRecord &rec = g_displayRecords[pane];
+    std::memset(rec.bytes, 0, sizeof(rec.bytes));
+    std::memcpy(rec.bytes + Offsets::OFF_CREATURE_DISPLAYID, &displayID, sizeof(displayID));
+    SetDisplay(pane, rec.bytes);
+}
+
 int __fastcall Script_SetDisplayInfo(void *L) {
     void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
     if (pane == nullptr)
@@ -265,13 +277,7 @@ int __fastcall Script_SetDisplayInfo(void *L) {
         Game::Lua::Error(L, "Usage: SetDisplayInfo(displayID)");
         return 0;
     }
-    const auto displayID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
-    if (displayID == 0)
-        return 0;
-    DisplayRecord &rec = g_displayRecords[pane];
-    std::memset(rec.bytes, 0, sizeof(rec.bytes));
-    std::memcpy(rec.bytes + Offsets::OFF_CREATURE_DISPLAYID, &displayID, sizeof(displayID));
-    SetDisplay(pane, rec.bytes);
+    ShowDisplayID(pane, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
     return 0;
 }
 
@@ -280,12 +286,16 @@ int __fastcall Script_SetCreature(void *L) {
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: SetCreature(creatureID)");
+        Game::Lua::Error(L, "Usage: SetCreature(creatureID [, displayID])");
         return 0;
     }
     const uint8_t *record =
         Creature::Info::CacheRecord(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
-    if (record != nullptr)
+    if (record == nullptr)
+        return 0;
+    if (Game::Lua::IsNumber(L, 3))
+        ShowDisplayID(pane, static_cast<uint32_t>(Game::Lua::ToNumber(L, 3)));
+    else
         SetDisplay(pane, record);
     return 0;
 }
@@ -302,6 +312,8 @@ const Game::Doc::Function kSetDisplayInfo{
     "Shows a creature display on the model, dressed like the creature.", kDisplayArgs, {}};
 const Game::Doc::Field kCreatureArgs[] = {
     Game::Doc::Req("creatureID", "number", "A creature ID that is in the creature cache."),
+    Game::Doc::Opt("displayID", "number", nullptr,
+                   "The CreatureDisplayInfo ID to show in place of the creature's own."),
 };
 const Game::Doc::Function kSetCreature{
     "Shows a creature on the model by its creature ID.", kCreatureArgs, {}};

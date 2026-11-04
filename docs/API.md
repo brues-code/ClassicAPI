@@ -780,11 +780,20 @@ build instructions.
 
 - [Model](#model)
   - [`model:SetDisplayInfo(displayID)`](#modelsetdisplayinfodisplayid)
-  - [`model:SetCreature(creatureID)`](#modelsetcreaturecreatureid)
+  - [`model:SetCreature(creatureID [, displayID])`](#modelsetcreaturecreatureid--displayid)
   - [`model:SetPortraitZoom(zoom)`](#modelsetportraitzoomzoom)
   - [`model:SetCamDistanceScale(scale)`](#modelsetcamdistancescalescale)
   - [`model:RefreshCamera()`](#modelrefreshcamera)
   - [`model:SetRotation(rotation [, animate])`](#modelsetrotationrotation--animate)
+  - [`model:SetUnit(unit)`](#modelsetunitunit)
+  - [`model:CanSetUnit(unit)`](#modelcansetunitunit)
+  - [`model:GetDisplayInfo()`](#modelgetdisplayinfo)
+  - [`model:SetAnimation(animation [, variation])`](#modelsetanimationanimation--variation)
+  - [`model:HasAnimation(animation)`](#modelhasanimationanimation)
+  - [`model:SetDoBlend([doBlend])`](#modelsetdoblenddoblend)
+  - [`model:GetDoBlend()`](#modelgetdoblend)
+  - [`model:SetKeepModelOnHide(keepModelOnHide)`](#modelsetkeepmodelonhidekeepmodelonhide)
+  - [`model:GetKeepModelOnHide()`](#modelgetkeepmodelonhide)
   - [`DressUpModel:UndressSlot(slot)`](#dressupmodelundressslotslot)
   - [`DressUpModel:TryOn(item [, handSlotName, spellEnchantID])`](#dressupmodeltryonitem--handslotname-spellenchantid)
   - [`DressUpModel:IsGeoReady()`](#dressupmodelisgeoready)
@@ -18518,11 +18527,12 @@ m:SetPoint("CENTER", 0, 0)
 m:SetDisplayInfo(330)   -- a human NPC
 ```
 
-### `model:SetCreature(creatureID)`
+### `model:SetCreature(creatureID [, displayID])`
 
 Shows a creature on the model by its creature ID (the creature's database
 ID, not a display ID). The model is the same as `SetDisplayInfo` with the
-creature's display ID.
+creature's display ID. If you give `displayID`, the model shows that
+display in place of the creature's own display.
 
 The creature must be in the client creature cache. The client adds a
 creature to the cache when you see it, target it, or put the mouse on it.
@@ -18587,6 +18597,101 @@ with no animation.
 ```lua
 PreviewModel:SetRotation(math.pi / 2, false)
 ```
+
+### `model:SetUnit(unit)`
+
+Shows a unit on the model. Returns `true` when the unit exists, and `false`
+when it does not. An unknown unit token is an error.
+
+```lua
+if not PreviewModel:SetUnit("target") then
+    PreviewModel:SetUnit("player")
+end
+```
+
+### `model:CanSetUnit(unit)`
+
+Returns `true` when the unit exists, so `SetUnit` can show it. The call
+does not change the model. An unknown unit token is an error, the same as
+in `SetUnit`.
+
+### `model:GetDisplayInfo()`
+
+Returns the display ID (a `CreatureDisplayInfo` ID) that the model shows:
+
+- After `SetDisplayInfo` or `SetCreature`, the display that the model got.
+- After `SetUnit`, the display that the unit has now. For a shapeshifted
+  druid, this is the display of the form.
+
+Returns 0 when the model shows nothing, or when its unit no longer exists.
+
+### `model:SetAnimation(animation [, variation])`
+
+Sets the animation that the model plays. `animation` is an `AnimationData`
+ID, for example 0 Stand, 4 Walk, 5 Run, 60 EmoteTalk, 67 EmoteWave, 69
+EmoteDance. `variation` selects one of the model's versions of the
+animation. The default is 0. The value -1 selects a version at random.
+
+The model plays the animation again each time it ends. The model goes back
+to Stand when the frame loads a new model: after `SetUnit`, `RefreshUnit`,
+`SetDisplayInfo`, `SetCreature`, or `DressUpModel:Dress()`, and when the
+frame shows again after it was hidden (see `SetKeepModelOnHide`). To go
+back to Stand at any time, call `SetAnimation(0)`.
+
+If the model does not have the animation, it plays the fallback animation
+that `AnimationData` gives, or Stand. Use `HasAnimation` to find out first.
+While the animation is not Stand, `SetRotation` turns the model without the
+step animation.
+
+Call `SetAnimation` after `SetUnit`, `SetDisplayInfo`, or `SetCreature`. The
+animation starts when the model finishes loading.
+
+```lua
+PreviewModel:SetUnit("player")
+PreviewModel:SetAnimation(69)   -- dance
+```
+
+### `model:HasAnimation(animation)`
+
+Returns `true` when the model has the animation (an `AnimationData` ID).
+Returns `false` until the model finishes loading. A model file that the
+client already loaded in this session is ready at once.
+
+```lua
+local anim = PreviewModel:HasAnimation(69) and 69 or 0
+PreviewModel:SetAnimation(anim)
+```
+
+### `model:SetDoBlend([doBlend])`
+
+Sets how the model starts the animation that `SetAnimation` set. If
+`doBlend` is `true`, the model blends from the animation that plays now into
+that animation. If `doBlend` is `false` or not given, the animation starts
+at once. The default is `false`.
+
+### `model:GetDoBlend()`
+
+Returns the value that `SetDoBlend` set.
+
+### `model:SetKeepModelOnHide(keepModelOnHide)`
+
+Sets whether the frame keeps its model while the frame is hidden. The
+default is `false`: the frame removes the model when it hides, and loads
+the model again from its unit or display when it shows.
+
+If `keepModelOnHide` is `true`, the model comes back as it was when the
+frame shows again, with its animation and the items that `TryOn` put on
+it. If you call `SetUnit`, `RefreshUnit`, `SetDisplayInfo`, `SetCreature`,
+or `DressUpModel:Dress()` while the frame is hidden, the frame loads the
+new model when it shows, the same as with `false`.
+
+```lua
+DressUpModel:SetKeepModelOnHide(true)
+```
+
+### `model:GetKeepModelOnHide()`
+
+Returns the value that `SetKeepModelOnHide` set.
 
 ### `DressUpModel:UndressSlot(slot)`
 

@@ -4029,6 +4029,13 @@ enum Offsets {
     VTBL_SIMPLEMODEL_UPDATE_MODEL = 0x98,
     // `CM2Scene *__thiscall(frame)` — the frame's scene, made on first use.
     FUN_SIMPLEMODEL_GET_SCENE = 0x0076CFC0,
+    // CSimpleModelFFX::SetModelInstance — `__thiscall(frame, model)`, ret 4:
+    // AddRefs the new model, releases the old one, stores it at +0x318.
+    // Slot 36 of the Model and pane vtables; DressUpModel's own slot 36
+    // (0x00504350) calls it first.
+    FUN_SIMPLEMODEL_SET_MODEL_INSTANCE = 0x0076CD30,
+    // The Model frame's per-paint update — `__thiscall(frame)`, slot 38.
+    FUN_SIMPLEMODEL_UPDATE_MODEL = 0x0076D1A0,
 
     // ---- PlayerModel / DressUpModel / TabardModel (benilla ui/playermodel) --
     // CGCharacterModelBase: a Model frame (0x3F8 bytes) that shows a copy of a
@@ -4064,6 +4071,37 @@ enum Offsets {
     FUN_PLAYERMODEL_CONFIGURE_CAMERA = 0x00505890,
     // The engine's Lua PlayerModel:SetRotation(angle) — `int __fastcall(L)`.
     FUN_SCRIPT_PLAYERMODEL_SET_ROTATION = 0x00505F00,
+    // The engine's Lua PlayerModel:SetUnit(unit) — `int __fastcall(L)`,
+    // returns nothing: FUN_TOKEN_TO_GUID, then the SetUnit helper below.
+    // Turtle's client patches its tail (0x00505E19) to also take a number.
+    FUN_SCRIPT_PLAYERMODEL_SET_UNIT = 0x00505D70,
+    // SetUnit helper — `__thiscall(pane, uint64 guid)`, ret 8: stores the
+    // GUID, clears the display record and, if the frame is visible
+    // (OFF_FRAME_VISIBLE), builds the model from the unit (type mask 8).
+    // Its callers: SetUnit, RefreshUnit (0x00505E40), DressUpModel:Dress.
+    FUN_PLAYERMODEL_SET_UNIT_GUID = 0x00505B50,
+    // Hide and Show — `__thiscall(pane)`, slots 33 and 34 of all three pane
+    // vtables. Hide drops the model (slot 36 with null), then jumps to the
+    // base hide. Show, while the frame is not yet visible, builds the model
+    // from the GUID or the display record, then jumps to the base show.
+    FUN_PLAYERMODEL_HIDE = 0x00505CE0,
+    FUN_PLAYERMODEL_SHOW = 0x00505D00,
+    FUN_SIMPLEFRAME_HIDE = 0x0076AD50,
+    FUN_SIMPLEFRAME_SHOW = 0x0076AE10,
+    // The turn latch (SetRotation sets it, the next paint clears it) and the
+    // turn deadline in OS ms (now + 100 on a turn, 0 once Stand is armed).
+    OFF_PLAYERMODEL_TURNING = 0x3E8,
+    OFF_PLAYERMODEL_TURN_DEADLINE = 0x3EC,
+    // UpdateModel — `__thiscall(pane)`, slot 38 (DressUpModel's 0x00504470
+    // calls it first): the base update, then, with no turn latched and the
+    // deadline passed (0 counts as passed), arms Stand (-1, 0, -1, 0, 1.0, 1,
+    // 1) when key bone -1 plays anything else, and zeroes the deadline.
+    // 4.3.4's UpdateModel is the same with the pane's m_sequence and
+    // m_sequenceVariation in place of 0 and -1, and a loaded-model gate.
+    FUN_PLAYERMODEL_UPDATE_MODEL = 0x00505C50,
+    // vtable slot 36: SetModelInstance `__thiscall(frame, model)`; the pane
+    // Hide passes null to drop the model (0x00505CE7).
+    VTBL_SIMPLEMODEL_SET_MODEL_INSTANCE = 0x90,
 
     // DressUpModel fields (benilla ui/dressup): the character component, and
     // the main- and off-hand lanes, 8 bytes each: byte 0 item class (0 =
@@ -4173,6 +4211,11 @@ enum Offsets {
     OFF_M2MODEL_SHARED = 0x30,
     OFF_M2SHARED_DATA = 0x130,
     OFF_M2DATA_CAMERA_ID_LOOKUP = 0x12C,
+    // The sequence count, and the {count, uint16 *} lookup from animation id
+    // to sequence. PlayAnimation (0x007121A0) maps a resolved id through the
+    // lookup and drops it when the index is not below the count.
+    OFF_M2DATA_SEQUENCE_COUNT = 0x1C,
+    OFF_M2DATA_ANIMATION_LOOKUP = 0x24,
     // SetAnimated — `__thiscall(model, bool)`; M2SceneAnimateAndCollect —
     // `__thiscall(scene, const float *cameraPos)`. ConfigureCamera runs both
     // (with the frame's facing zeroed) before it copies a model camera.
@@ -10630,6 +10673,10 @@ enum Offsets {
     // descriptor — though we only expose `IsMounted()` for the
     // player to match modern API semantics.
     OFF_UNIT_FIELD_MOUNTDISPLAYID = 0x1FC,
+    // UNIT_FIELD_DISPLAYID: the display the unit shows now (a shapeshift
+    // form's while shapeshifted). Field 0x7D in the update-field name table
+    // (0x0083A73C).
+    OFF_UNIT_FIELD_DISPLAYID = 0x1F4,
 
     // Local player movement-flags u32. Lives directly on the
     // CGPlayer object (not the broadcast descriptor) — this is
@@ -12850,6 +12897,10 @@ enum Offsets {
     // CM2Model::PlayAnimation — `__thiscall(model, 7 args)`, `ret 0x1C`. The
     // bake passes (-1, 0, 0, 0, 1.0f, 0, 1).
     FUN_M2MODEL_PLAY_ANIMATION = 0x007121A0,
+    // CM2Model::GetKeyBoneAnimId — `__thiscall(model, keyBone)`, ret 4: the id
+    // last requested on the key bone (bone state +0xF8, the id as given, not
+    // its fallback). Blocks on the shared data when the model is not loaded.
+    FUN_M2MODEL_GET_KEY_BONE_ANIM = 0x00712090,
     // ApplyCreatureDisplay — `__fastcall(model, displayRec, modelDataRec)`,
     // `ret 4`: the CreatureDisplayInfo row's three skins as the model's
     // replaceable textures 11..13 (AttachDisplayModel 0x00505AE6).
