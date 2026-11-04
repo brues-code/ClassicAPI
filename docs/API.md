@@ -963,7 +963,7 @@ build instructions.
   - [`UnitCastingDuration(unit)` / `UnitChannelDuration(unit)`](#unitcastingdurationunit--unitchanneldurationunit)
   - [`C_Spell.GetSpellLevelInfo(spellID)`](#c_spellgetspelllevelinfospellid)
   - [`GetSpellRequiredTargetLevel(spellID)`](#getspellrequiredtargetlevelspellid)
-  - [Cast settings (`autoStand`, `autoDismount`, `autoUnshift`)](#cast-settings-autostand-autodismount-autounshift)
+  - [Stand, dismount and form settings (`autoStand`, `autoDismount`, `autoUnshift`)](#stand-dismount-and-form-settings-autostand-autodismount-autounshift)
 
 - [SpellActivationOverlay](#spellactivationoverlay)
   - [`C_SpellActivationOverlay.IsSpellOverlayed(spellID)` / `IsSpellOverlayed(spellID)`](#c_spellactivationoverlayisspelloverlayedspellid--isspelloverlayedspellid)
@@ -22474,10 +22474,11 @@ with `SPELL_FAILED_LOWLEVEL`; higher ranks auto-downrank.
 > 1.12 client's `Spell.dbc`, so the `spellLevel` rule is the only
 > client-readable target-level mechanism.
 
-### Cast settings (`autoStand`, `autoDismount`, `autoUnshift`)
+### Stand, dismount and form settings (`autoStand`, `autoDismount`, `autoUnshift`)
 
-Three settings change what occurs when your state blocks a cast. Each one is
-`0` (the default) or `1`. At `0`, the cast fails with the usual error.
+Three settings change what occurs when your state blocks a cast or another
+action. Each one is `0` (the default) or `1`. At `0`, the action fails with
+the usual error.
 
 | Setting | At `1`, before the cast |
 |---|---|
@@ -22492,6 +22493,32 @@ When `autoUnshift` is `1`, an action button stays usable in a form that the
 cast can leave. For example, Healing Touch in Bear Form and Renew in
 Shadowform. A spell that needs a different form or stance ("Must be in ...")
 still fails, and you stay in your form.
+
+The settings also apply to these actions:
+
+| Action | `autoStand` | `autoDismount` | `autoUnshift` |
+|---|---|---|---|
+| Talk to an NPC | — | — | You leave the form. |
+| Use an object | — | You dismount. You stay mounted at a mailbox. | You leave the form. |
+| Loot a creature | You stand up. | You dismount. | — |
+| Loot a corpse | You stand up. | — | — |
+| Use an item | — | — | You leave the form. |
+| Attack | — | You dismount. | — |
+| Open the flight map | You stand up. | You dismount. | You leave the form. |
+
+A form that can talk and use objects, for example Shadowform, stays on when
+you talk to an NPC or use an object. While `autoUnshift` is `1`, the cursor
+over an NPC or an object shows its usual icon in such a form. While
+`autoDismount` is `1`, the cursor shows the attack icon over an enemy while
+you are mounted.
+
+You dismount to attack only when the target is in melee range. Farther away,
+the attack does not start and "Out of range." shows. With click-to-move on,
+no error shows and you walk to the target; click the target again when you
+arrive.
+
+To open a locked object, such as a chest, you cast a spell. Thus the cast
+rules above apply.
 
 ```
 /console autoDismount 1

@@ -3390,6 +3390,115 @@ enum Offsets {
     // state locally; a no-op while mounted, on a taxi, dead, channeling or
     // moving (benilla-re objectlayer/standstate#the-sit-gate).
     FUN_PLAYER_SEND_STAND_STATE = 0x005ED430,
+    // CGUnit_C::IsShapeShifted — `char __thiscall(const void *unit)`, no
+    // args: the form byte names a SpellShapeshiftForm row without flag bit
+    // 0 (a stance is not a shapeshift). Disassembled.
+    FUN_UNIT_IS_SHAPESHIFTED = 0x0060E9F0,
+    // The two interaction form gates, each `call FUN_UNIT_IS_SHAPESHIFTED`
+    // (ECX = the player) followed by a test for SHAPESHIFT_FORM_FLAG_CAN_-
+    // INTERACT; shifted without it refuses (disassembled):
+    //   the NPC right-click (CGPlayer_C::HandleOnRightClick, 0x005F0130):
+    //     ERR_CANT_INTERACT_SHAPESHIFTED, before the range check and walk;
+    //   the game-object use check (the handler's vtable slot 6, 0x005F3130,
+    //     4.3.4's CGGameObject_C_TypeBase::CanUseNow; every type but door and
+    //     chair): error 0x1A0, only for an object with no Lock row.
+    CALL_NPC_INTERACT_IS_SHAPESHIFTED = 0x005F0150,
+    CALL_GAMEOBJECT_CAN_USE_IS_SHAPESHIFTED = 0x005F31E1,
+    // CGUnit_C::CanInteractNow (0x00606880, `this` = the player, ECX = EDI)
+    // has the same form test at this call. Its only caller is the hover
+    // cursor (0x00482310, a .text call scan), which shows the NPC's service
+    // cursor only when it passes; 4.3.4's CursorTrackUnit asks the same.
+    CALL_UNIT_CAN_INTERACT_NOW_IS_SHAPESHIFTED = 0x006068B4,
+    // The use check's mount rung, the same no-Lock-row branch: `mov ecx,
+    // [eax+0x1FC]` (8B 88 FC 01 00 00, the player's mount display), then
+    // `test ecx,ecx; jle pass`, then the mailbox test; refuses 0x19F
+    // (ERR_NOT_WHILE_MOUNTED, no 1.12 text). EDI = the player; EAX is dead.
+    SITE_GAMEOBJECT_CAN_USE_MOUNT_READ = 0x005F31A8,
+    // 4.3.4's IsUsableMounted — `bool __thiscall(const void *const *fields)`,
+    // ECX = &object->descriptor: GAMEOBJECT_TYPE_ID is 19, the mailbox.
+    FUN_GAMEOBJECT_USABLE_MOUNTED = 0x0047CFF0,
+    OFF_GAMEOBJECT_DESCRIPTOR = 0x110,
+    // A type handler's object pointer (benilla-re objectlayer/gameobjects).
+    OFF_GAMEOBJECT_HANDLER_OBJECT = 0x4,
+    // The default use (slot 7, 0x005F33E0, 4.3.4's TypeBase::Use): its
+    // unlocked, no-spell branch sends CMSG_GAMEOBJ_USE, opening with `mov
+    // edi,0x7FF9E4` (BF E4 F9 7F 00, the CDataStore vtable). [EBP-4] = the
+    // handler; EAX, ECX and EDX are dead there.
+    SITE_GAMEOBJECT_USE_SEND = 0x005F35DF,
+    // The two types whose slot 7 replaces the default use (vtable dump):
+    // the mailbox (opens the mail frame) and text (opens the page). Both
+    // `char __thiscall(void *handler)`, no args, return 1.
+    SLOT_GAMEOBJECT_MAILBOX_USE = 0x0080BDBC,
+    FUN_GAMEOBJECT_MAILBOX_USE = 0x005F6820,
+    SLOT_GAMEOBJECT_TEXT_USE = 0x0080B954,
+    FUN_GAMEOBJECT_TEXT_USE = 0x005F58C0,
+
+    // The rest of 4.3.4's CanAutoStand / CanAutoDismount / CanAutoUnshift
+    // sites, each found as the matching 1.12 gate (disassembled):
+    //
+    // Stand-state reads before a loot, `call [reg+0xA4]` (GetStandState, 6
+    // bytes) with ECX = the player, then `test eax,eax; jnz` to
+    // ERR_LOOT_NOTSTANDING (4.3.4 CGUnit_C::OnRightClick / CGCorpse_C::
+    // OnRightClick): the unit right-click's loot step (FF 90 A4 00 00 00)
+    // and the corpse right-click (0x005D6BF0, FF 92 A4 00 00 00).
+    SITE_UNIT_LOOT_STAND_CALL = 0x0060BFB7,
+    SITE_CORPSE_LOOT_STAND_CALL = 0x005D6C3B,
+    // The unit right-click's loot step skips a mounted player: `mov eax,
+    // [ecx+0x1FC]` (8B 81 FC 01 00 00), `test eax,eax; jg skin`. ESI = the
+    // player; ECX and EDX are dead. 4.3.4 has no such test there and its
+    // LootUnit dismounts instead.
+    SITE_UNIT_LOOT_MOUNT_READ = 0x0060BF98,
+    // CGPlayer_C::LootUnit (0x005DF2A0) past its reach / walk-up, before the
+    // loot window close and CMSG_LOOT: `push 0; xor dl,dl; mov cl,1` (6A 00
+    // 32 D2 B1 01) for FUN_0048F200(1, 0, 0). ESI = the player; EAX is
+    // dead. 4.3.4's LootUnit dismounts at this point.
+    SITE_LOOT_UNIT_SEND = 0x005DF3B3,
+    // The item use's form refusal (0x005D8D00, 4.3.4 CGItem_C::Use):
+    // `push 0x15E` (68 5E 01 00 00, ERR_NO_ITEMS_WHILE_SHAPESHIFTED), then
+    // `jmp` to the error tail. ESI = the player; EAX, ECX, EDX are dead.
+    // ITEM_USE_FORM_PASSED is where the form test's pass jumps. Turtle's exe
+    // makes the refusal unreachable (`jmp` over the form test at
+    // 0x005D9139); the stock 1.12.1 exe reaches it.
+    SITE_ITEM_USE_FORM_REFUSAL = 0x005D914D,
+    ITEM_USE_FORM_PASSED = 0x005D9157,
+    // The mount reads in 4.3.4's CGUnit_C::CanAttackNow, inlined in 1.12
+    // (each followed by `test; jg refuse`):
+    //   the unit right-click's attack step (8B 82 FC 01 00 00), player ESI,
+    //     EAX out, ECX and EDX dead;
+    //   the hover cursor's attack cursor (8B 82 FC 01 00 00), player EDI,
+    //     EAX out, ECX and EDX dead;
+    //   StartAttack (0x005ECB70, 8B 81 FC 01 00 00), player ESI, EAX out,
+    //     ECX and EDX dead;
+    //   the attack resolver (0x00612DF0, 4.3.4 VerifyAttackIconPressed's
+    //     ERR_ATTACK_MOUNTED, 8B 81 FC 01 00 00), player EDI, EAX out;
+    //   the resolver's can-attack step (8B 90 FC 01 00 00), player ECX
+    //     (live after), EDX out, EAX dead.
+    SITE_RIGHT_CLICK_ATTACK_MOUNT_READ = 0x0060C1B4,
+    SITE_CURSOR_ATTACK_MOUNT_READ = 0x00482659,
+    SITE_START_ATTACK_MOUNT_READ = 0x005ECC06,
+    SITE_ATTACK_RESOLVER_MOUNT_READ = 0x00613039,
+    SITE_ATTACK_RESOLVER_CAN_ATTACK_MOUNT_READ = 0x00613142,
+    // StartAttack once every test passed, before the swing: `mov eax,[esi+
+    // 0xC8C]` (8B 86 8C 0C 00 00), ESI = the player, EDI = the target; ECX
+    // and EDX are dead. START_ATTACK_RETURN is its plain epilogue. 4.3.4's
+    // CombatModeEnter dismounts here.
+    SITE_START_ATTACK_PASSED = 0x005ECC56,
+    START_ATTACK_RETURN = 0x005ECD9A,
+    // ERR_OUT_OF_RANGE's message id (benilla-re tables/messages.tsv).
+    GAME_ERROR_OUT_OF_RANGE = 125,
+    // CGPlayer_C::CanAutoInteract — `bool __thiscall(const void *player)`,
+    // no args: a live active mover with the click-to-move cvar on
+    // (disassembled). 4.3.4's right-click passes it as CombatModeEnter's
+    // `silent`, so the out-of-reach error stays quiet while the player walks.
+    FUN_PLAYER_CAN_AUTO_INTERACT = 0x0060F900,
+    // The taxi map opener (0x004DB710) ends like 4.3.4's: TAXIMAP_OPENED,
+    // then tutorial 34 through FUN_TRIGGER_TUTORIAL (`void __fastcall(int
+    // id, int)`) at this call; 4.3.4 then stands, dismounts and leaves the
+    // form when the map has more than one node (VAR_TAXI_MAP_NODE_COUNT,
+    // the count the opener's TaxiNodeSetCurrent loop runs to).
+    CALL_TAXI_MAP_OPENED_TUTORIAL = 0x004DBAA2,
+    FUN_TRIGGER_TUTORIAL = 0x004B5390,
+    VAR_TAXI_MAP_NODE_COUNT = 0x00BB4AA8,
 
     // Effective spell/channel duration (ms):
     // `__fastcall int(const void *spellRecord, int pet /*0 = player,
@@ -11932,6 +12041,10 @@ enum Offsets {
     VAR_SPELL_SHAPESHIFT_FORM_COUNT = 0x00C0D778,
     OFF_SPELL_SHAPESHIFT_FORM_FLAGS = 0x2C,
     SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT = 0x100,
+    // Flag 0x8: the form may talk to NPCs and use objects (Shadowform's 0x9).
+    // Tested by both interaction gates (`test byte [eax+0x2C],0x8` at
+    // 0x005F017F / 0x005F3210) and 4.3.4's HandleOnRightClick / CanUseNow.
+    SHAPESHIFT_FORM_FLAG_CAN_INTERACT = 0x8,
 
     // Control-loss aura effect types (EffectApplyAuraName values), used by
     // C_LossOfControl to classify a debuff. Values are authoritative from the
