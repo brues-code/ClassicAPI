@@ -796,6 +796,7 @@ build instructions.
   - [`model:GetDoBlend()`](#modelgetdoblend)
   - [`model:SetKeepModelOnHide(keepModelOnHide)`](#modelsetkeepmodelonhidekeepmodelonhide)
   - [`model:GetKeepModelOnHide()`](#modelgetkeepmodelonhide)
+  - [`model:ApplySpellVisualKit(spellVisualKitID [, oneShot])`](#modelapplyspellvisualkitspellvisualkitid--oneshot)
   - [`DressUpModel:UndressSlot(slot)`](#dressupmodelundressslotslot)
   - [`DressUpModel:TryOn(item [, handSlotName, spellEnchantID])`](#dressupmodeltryonitem--handslotname-spellenchantid)
   - [`DressUpModel:IsGeoReady()`](#dressupmodelisgeoready)
@@ -18735,6 +18736,29 @@ DressUpModel:SetKeepModelOnHide(true)
 ### `model:GetKeepModelOnHide()`
 
 Returns the value that `SetKeepModelOnHide` set.
+
+### `model:ApplySpellVisualKit(spellVisualKitID [, oneShot])`
+
+Shows the effects of a spell visual kit (a `SpellVisualKit` ID) on the
+model, for example the glow on the hands while a spell is cast. Each effect
+attaches to its point on the model: head, chest, base, hands, breath, or
+weapons. An effect whose point the model does not have does not show.
+
+If `oneShot` is `true`, each effect plays one time and then fades out. If
+`oneShot` is `false` or not given, the effects play again and again until
+the model changes. The model changes after `SetUnit`, `SetDisplayInfo`,
+`SetCreature`, `SetItem`, and when the frame shows again after it was
+hidden.
+
+A kit can also change the color or the transparency of the model. This
+change stays until the model changes. The kit does not play its animation
+or its sound. A kit ID that is not in `SpellVisualKit` does nothing.
+
+```lua
+PreviewModel:SetUnit("player")
+PreviewModel:ApplySpellVisualKit(99)          -- holy glow on both hands
+PreviewModel:ApplySpellVisualKit(154, true)   -- Holy Light flash, one time
+```
 
 ### `DressUpModel:UndressSlot(slot)`
 

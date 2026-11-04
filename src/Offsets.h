@@ -5991,6 +5991,23 @@ enum Offsets {
     VAR_ITEMVISUALS_RECORDS = 0x00C0DB70,
     VAR_ITEMVISUALS_COUNT = 0x00C0DB74,
 
+    // SpellVisualKit.dbc (35 columns, 0x8C-byte rows). The char-select ghost
+    // kit (0x004727F0) reads the store at 0x004727F6/0x0047280A: nine effect
+    // IDs from +0x0C (attachments 20, 34, 19, 21, 22, 17, 23, 24, 25, pushed
+    // at 0x00472821..0x0047287F), then four procedure kinds from +0x3C with
+    // their first values from +0x4C (the loop at 0x00472888). Kind 1 is a
+    // tint, the value an 0xRRGGBB colour stored as a float; kind 14 an alpha.
+    VAR_SPELLVISUALKIT_RECORDS = 0x00C0D74C,
+    VAR_SPELLVISUALKIT_COUNT = 0x00C0D750,
+    OFF_SPELLVISUALKIT_EFFECTS = 0x0C,
+    OFF_SPELLVISUALKIT_PROC_KIND = 0x3C,
+    OFF_SPELLVISUALKIT_PROC_VALUE = 0x4C,
+    // SpellVisualEffectName.dbc: the model file at +0x08, which the ghost
+    // kit's effect step (0x00472780) creates (0x004727AF).
+    VAR_SPELLVISUALEFFECTNAME_RECORDS = 0x00C0D760,
+    VAR_SPELLVISUALEFFECTNAME_COUNT = 0x00C0D764,
+    OFF_SPELLVISUALEFFECTNAME_FILE = 0x08,
+
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at
     // 0x00C0DBB8 (records-ptr at +0x08, count at +0x0C). 45 columns,
@@ -12925,6 +12942,28 @@ enum Offsets {
     FUN_MODEL_INSTANCE_READY = 0x00710450,
     // CM2Model::SetVisible — `__thiscall(model, bool)`.
     FUN_M2MODEL_SET_VISIBLE = 0x00710C50,
+    // CM2Model::SetAlpha — `__thiscall(model, float)`; SetDiffuseColor —
+    // `__thiscall(model, const float rgb[3])`. Plain stores, which the
+    // ghost kit applies (0x004728C1, 0x00472939). Attached children take
+    // them through the per-frame combine.
+    FUN_M2MODEL_SET_ALPHA = 0x00710CB0,
+    FUN_M2MODEL_SET_DIFFUSE_COLOR = 0x00710CF0,
+    // CM2Model::HasAttachment — `__thiscall(model, id)`, ret 4. Waits for
+    // the model file (0x00710520) when it has not loaded.
+    FUN_M2MODEL_HAS_ATTACHMENT = 0x00712CB0,
+    // CM2Model::Attach — `__thiscall(child, parent, id)`, ret 8. The
+    // parent takes a reference; the attach index resolves once the parent
+    // loads.
+    FUN_M2MODEL_ATTACH = 0x00712F70,
+    // CM2Model::Detach — `__thiscall(child)`: unlinks the child from its
+    // parent, clears its parent (OFF_M2MODEL_PARENT) and drops the parent's
+    // reference. The destructor (0x0070E3F5) detaches every child this way.
+    FUN_M2MODEL_DETACH = 0x00713020,
+    OFF_M2MODEL_PARENT = 0x1CC,
+    // CM2Model::HasLiveParticles — `__thiscall(model)`: +0x3D8, which
+    // Animate sets while an emitter emits or holds a live particle. The
+    // dying-effect drain (0x0061F6CC) releases a stopped effect once false.
+    FUN_M2MODEL_HAS_LIVE_PARTICLES = 0x007135C0,
     // CM2Model::PlayAnimation — `__thiscall(model, 7 args)`, `ret 0x1C`. The
     // bake passes (-1, 0, 0, 0, 1.0f, 0, 1).
     FUN_M2MODEL_PLAY_ANIMATION = 0x007121A0,
