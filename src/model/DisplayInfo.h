@@ -10,10 +10,22 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Model::DisplayInfo {
 
-// The model's M2 and any pending humanoid appearance composition are ready.
-bool IsPortraitAppearanceReady(void *pane);
+// The CreatureDisplayInfoExtra record the engine dresses `displayID` from, or
+// null when the display gets no character customization.
+const uint8_t *DressRecord(uint32_t displayID);
+
+// The engine character compositor, configured to dress the LOADED model
+// `instance` from `extraRec` (a DressRecord) and fed its equipment, or null
+// when the engine pool is empty or rejects the info. It holds a reference on
+// the model. Pump it with PumpDresser until that returns true; DestroyDresser
+// releases it (null is a no-op).
+void *CreateDresser(void *instance, const uint8_t *extraRec);
+bool PumpDresser(void *dresser);
+void DestroyDresser(void *dresser);
 
 // The reload teardown destroys every Model frame (and with it the model
 // instances our pending character-dress jobs point at). Drop all jobs and

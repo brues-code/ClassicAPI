@@ -37,6 +37,8 @@
 // both model cameras; vanilla's ConfigureCamera does not subtract it from
 // camera 1, so the portrait camera is used as is, in the same space.
 
+#include "model/Camera.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
@@ -68,6 +70,23 @@ using UpdateModel_t = void(__thiscall *)(void *frame);
 using ModelLoaded_t = int(__thiscall *)(void *model, int tryLoad, int recurseChildren);
 using ConfigureCamera_t = void(__thiscall *)(void *pane);
 
+} // namespace
+
+// GetCameraById's lookup, bounded the way 4.3.4 null-checks its result.
+void *CameraById(void *model, uint32_t id) {
+    const uint32_t count =
+        reinterpret_cast<GetCameraCount_t>(Offsets::FUN_M2MODEL_GET_CAMERA_COUNT)(model);
+    const uint8_t *data = Game::Read<const uint8_t *>(
+        Game::Read<const uint8_t *>(model, Offsets::OFF_M2MODEL_SHARED), Offsets::OFF_M2SHARED_DATA);
+    const uint16_t index = reinterpret_cast<LookupIndex_t>(Offsets::FUN_M2_LOOKUP_INDEX)(
+        id, data + Offsets::OFF_M2DATA_CAMERA_ID_LOOKUP);
+    if (index >= count)
+        return nullptr;
+    return reinterpret_cast<GetCamera_t>(Offsets::FUN_M2MODEL_GET_CAMERA)(model, index);
+}
+
+namespace {
+
 struct Vec3 {
     float x, y, z;
 };
@@ -88,20 +107,6 @@ float GetScalar(void *camera, uint32_t id) {
 
 void SetScalar(void *camera, uint32_t id, float value) {
     reinterpret_cast<SetScalar_t>(Offsets::FUN_CAMERA_SET_SCALAR)(camera, id, value);
-}
-
-// The model's camera with id `id` (0 = portrait), or null when it has none —
-// GetCameraById's lookup, bounded the way 4.3.4 null-checks its result.
-void *CameraById(void *model, uint32_t id) {
-    const uint32_t count =
-        reinterpret_cast<GetCameraCount_t>(Offsets::FUN_M2MODEL_GET_CAMERA_COUNT)(model);
-    const uint8_t *data = Game::Read<const uint8_t *>(
-        Game::Read<const uint8_t *>(model, Offsets::OFF_M2MODEL_SHARED), Offsets::OFF_M2SHARED_DATA);
-    const uint16_t index = reinterpret_cast<LookupIndex_t>(Offsets::FUN_M2_LOOKUP_INDEX)(
-        id, data + Offsets::OFF_M2DATA_CAMERA_ID_LOOKUP);
-    if (index >= count)
-        return nullptr;
-    return reinterpret_cast<GetCamera_t>(Offsets::FUN_M2MODEL_GET_CAMERA)(model, index);
 }
 
 // ConfigureCamera's own evaluation pass: facing 0, rebuild the root
