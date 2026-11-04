@@ -21,7 +21,7 @@
 --     token (nil when the passing group set none).
 --
 -- The 33 condition keywords are the 3.3.5 set, matched case-sensitively, plus
--- one ClassicAPI extension: [known:spellID] / [known:name].
+-- two ClassicAPI extensions: [known:spellID] / [known:name] and [behind].
 -- Where a keyword's underlying state does not exist on 1.12 (flying, flyable,
 -- vehicleui, unithasvehicleui) the condition is a constant false; where 1.12
 -- only has a partial answer (spec is always primary; actionbar defaults to the
@@ -170,6 +170,15 @@ end
 
 CONDITIONS.outdoors = function()
     return IsOutdoors();
+end
+
+-- ClassicAPI extension (not a 3.3.5 conditional). [behind] passes while the
+-- player is in the target's back hemisphere and within melee reach -- the same
+-- answer UnitIsBehind gives, including its 5 yard cap. `[nobehind]` is "not
+-- behind"; with a @unit piece (`[@mouseover,behind]`) the player is tested
+-- against that unit instead of the target.
+CONDITIONS.behind = function(target)
+    return UnitIsBehind(target);
 end
 
 -- Vanilla has one permanent spec: [spec] and [spec:1] pass, higher indices fail.

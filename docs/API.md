@@ -10525,6 +10525,7 @@ SecureCmdOptionParse("[nocombat] rest")      -- "rest" out of combat, else nil
 | `group` / `group:party` / `group:raid` | you are in a group / party or raid / raid |
 | `stance` / `stance:N` | you are shapeshifted / in bar form N (`form` is the same) |
 | `stealth` / `mounted` / `swimming` / `indoors` / `outdoors` | player state |
+| `behind` | the player is behind the target, within melee reach |
 | `mod` / `mod:shift` / `mod:ctrl` / `mod:alt` | a modifier key is held (`modifier` is the same) |
 | `button:N` | the click running now used button N — 1 left, 2 right, 3 middle, 4, 5 (`btn` is the same) |
 | `bar:N` / `actionbar:N` | the current action bar page is N |
@@ -10566,6 +10567,19 @@ argument uses [`IsPlayerSpell`](#isplayerspellspellid), so it matches any known
 spell — a spellbook spell, a talent, a profession recipe, or a racial. A name
 argument matches only a spellbook spell, because there is no name-to-ID
 resolver. Use the spell ID for a talent or a recipe.
+
+`behind` is a ClassicAPI extension as well. It gives the same answer as
+[`UnitIsBehind`](#unitisbehindunit--unit2): true while the player stands in
+the target's back hemisphere and within 5 yards of it, the reach a backstab
+needs. With no target it is false. A `@unit` piece tests the player against
+that unit, so `[@mouseover,behind]` asks whether you are behind whatever is
+under the mouse. `[nobehind]` is "not behind". The 5 yard cap belongs to the
+condition: a unit farther away is not behind for this test, however its back
+faces you. A creature that stands still in combat while it swings is a
+special case: 1.12 never pushes a facing update for it, so when it can see
+its current target the direction to that target stands in for its facing.
+Without that, a stale client-side facing would read a tank-and-spank mob as
+turned away.
 
 ### `RegisterStateDriver` / `UnregisterStateDriver`
 
