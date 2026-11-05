@@ -20,6 +20,7 @@
 #include "spell/Lookup.h"
 #include "spell/Range.h"
 #include "unit/Position.h"
+#include "unit/Power.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -147,10 +148,8 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     out.powerType = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
 
     using PowerHelper_t = int32_t(__fastcall *)(int spellID, int pet);
-    using DisplayDivisor_t = uint32_t(__fastcall *)(int powerType);
     using CastTime_t = int32_t(__fastcall *)(int spellID, int pet, int allowNegative);
-    const auto divisor = static_cast<int32_t>(reinterpret_cast<DisplayDivisor_t>(
-        static_cast<uintptr_t>(Offsets::FUN_GET_POWER_DISPLAY_DIVISOR))(out.powerType));
+    const auto divisor = static_cast<int32_t>(Unit::Power::DisplayDivisor(out.powerType));
     const int32_t cost = reinterpret_cast<PowerHelper_t>(
         static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_COST))(spellID, pet) / divisor;
     const int32_t costPerSecond = reinterpret_cast<PowerHelper_t>(

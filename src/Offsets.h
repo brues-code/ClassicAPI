@@ -2894,23 +2894,14 @@ enum Offsets {
     UNIT_POWER_MIN_TYPE = 0,
     UNIT_POWER_MAX_TYPE = 4, // happiness; types 5/6 only valid post-WotLK
 
-    // Per-power-type display divisor. Raw descriptor values get
-    // divided by this before they're surfaced through Lua. Vanilla
-    // 1.12 stores rage as 0..1000 (internally) and divides by 10 to
-    // show 0..100; happiness is stored at 1000x scale and divides
-    // by 1000. Engine reads from `Script_UnitMana` at
-    // `0x006E7130 + type * 4` (= `0x0086F978`). Same trick the
-    // 3.3.5/4.x clients use; the table is per-client, the design is
-    // stable.
-    //
-    //   [0] = 1     MANA
-    //   [1] = 10    RAGE
-    //   [2] = 1     FOCUS
-    //   [3] = 1     ENERGY
-    //   [4] = 1000  HAPPINESS
-    VAR_UNIT_POWER_DIVISOR_TABLE = 0x0086F978,
-    // GetPowerDisplayDivisor — `int __fastcall(int powerType)`, the reader of
-    // the table above (1 for a negative type). benilla-re spell symbols.
+    // GetPowerDisplayDivisor — `uint32_t __fastcall(int powerType)`: the
+    // divisor that turns a stored power amount (descriptor POWER/MAXPOWER,
+    // Spell.dbc ManaCost, the cost helper's answer) into displayed units.
+    // Returns `[0x0086F978 + 4·type]`, or 1 for a negative type (verified by
+    // disassembly). Table {1, 10, 1, 1, 1000}: rage is stored in tenths
+    // (Shield Slam's 20 rage is 200), happiness at 1000x. Same table as
+    // 3.3.5's `s_powerDisplayMod`. Read it only through
+    // `Unit::Power::DisplayDivisor`.
     FUN_POWER_DISPLAY_DIVISOR = 0x006E7130,
     OFF_UNIT_FIELD_LEVEL = 0x70,
     // UNIT_FIELD_BYTES_0 dword at +0x78; byte 3 (= +0x7B) is the unit's
@@ -3259,13 +3250,6 @@ enum Offsets {
     // 4.3.4 `GetSpellInfo` reports this instead of the cost (with
     // isFunnel = true) when it is positive.
     FUN_GET_SPELL_POWER_PER_SECOND = 0x006E3300,
-    // Divisor that turns a stored power amount into its displayed units:
-    // `__fastcall uint32_t(int powerType)` → `[0x0086F978 + 4·type]`, 1 for a
-    // negative type. Table {1, 10, 1, 1, 1000} — rage is stored in tenths
-    // (Heroic Strike's 15 rage is 150 in Spell.dbc). Verified by disassembly;
-    // same table as 3.3.5's `s_powerDisplayMod`.
-    FUN_GET_POWER_DISPLAY_DIVISOR = 0x006E7130,
-
     // The engine's spell-castability verdict for the LOCAL player — the
     // function behind `IsUsableAction` for a player spell slot (the spell
     // branch of the per-slot recompute `FUN_004E5050`) and behind the

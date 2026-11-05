@@ -19,7 +19,7 @@
 // is the same: read POWER[type] / MAXPOWER[type] off the unit's
 // descriptor, defaulting `type` to the unit's primary power (the
 // `UNIT_FIELD_BYTES_0` byte 3 at `descriptor + 0x7B`), then divide
-// by the per-power-type display divisor (`VAR_UNIT_POWER_DIVISOR_TABLE`)
+// by the engine's per-power-type display divisor (`DisplayDivisor`)
 // before pushing. Rage internally stores 0..1000 but displays 0..100
 // (divisor 10); happiness uses divisor 1000. Same divisor logic
 // vanilla's own `Script_UnitMana` (`0x00517670`) applies.
@@ -58,6 +58,12 @@ const char *PowerTypeToken(int type) {
     return "UNKNOWN";
 }
 
+unsigned int DisplayDivisor(int type) {
+    using Divisor_t = unsigned int(__fastcall *)(int powerType);
+    return reinterpret_cast<Divisor_t>(
+        static_cast<uintptr_t>(Offsets::FUN_POWER_DISPLAY_DIVISOR))(type);
+}
+
 namespace {
 
 const uint8_t *Descriptor(const uint8_t *unit) {
@@ -71,18 +77,6 @@ const uint8_t *ResolveUnit(const char *token) {
     if (token == nullptr)
         return nullptr;
     return static_cast<const uint8_t *>(Game::ResolveUnitToken(token));
-}
-
-// Per-power-type display divisor. Vanilla stores rage as 0..1000
-// internally and displays 0..100 (divide by 10); happiness is
-// stored at 1000x scale. Same table the engine's own `Script_UnitMana`
-// (`0x00517670`) reads at `VAR_UNIT_POWER_DIVISOR_TABLE`.
-uint32_t PowerDivisor(int type) {
-    if (type < 0)
-        return 1;
-    auto *table = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_UNIT_POWER_DIVISOR_TABLE));
-    return table[type];
 }
 
 
@@ -167,7 +161,7 @@ double RosterPowerFallback(void *L, RosterKind kind) {
         return 0.0;
 
     const uint32_t divisor =
-        Game::Lua::ToBoolean(L, 3) ? 1u : PowerDivisor(s.powerType);
+        Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(s.powerType);
     const uint32_t curDisp = s.power / divisor;
     const uint32_t maxDisp = s.maxPower / divisor;
     switch (kind) {
@@ -202,7 +196,7 @@ static int __fastcall Script_UnitPower(void *L) {
         desc + Offsets::OFF_UNIT_FIELD_POWER1 + type * 4);
     // `unmodified` (arg 3, truthy) returns the raw internal value; otherwise
     // apply the per-type display divisor. Matches retail's third UnitPower arg.
-    const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : PowerDivisor(type);
+    const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(type);
     Game::Lua::PushNumber(L, static_cast<double>(raw / divisor));
     return 1;
 }
@@ -223,7 +217,7 @@ static int __fastcall Script_UnitPowerMax(void *L) {
     }
     const uint32_t raw = *reinterpret_cast<const uint32_t *>(
         desc + Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4);
-    const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : PowerDivisor(type);
+    const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(type);
     Game::Lua::PushNumber(L, static_cast<double>(raw / divisor));
     return 1;
 }
@@ -255,7 +249,7 @@ static int __fastcall Script_UnitPowerMissing(void *L) {
         desc + Offsets::OFF_UNIT_FIELD_POWER1 + type * 4);
     const uint32_t max = *reinterpret_cast<const uint32_t *>(
         desc + Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4);
-    const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : PowerDivisor(type);
+    const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(type);
     const uint32_t curDisp = cur / divisor;
     const uint32_t maxDisp = max / divisor;
     Game::Lua::PushNumber(

@@ -45,6 +45,7 @@
 #include "time/Clock.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
+#include "unit/Power.h"
 
 #include <ctime>
 
@@ -684,9 +685,7 @@ void SetItem(Entry &e, int itemId) {
 }
 
 int DisplayAmount(int amount, int powerType) {
-    using Divisor_t = int(__fastcall *)(int powerType);
-    const int divisor = reinterpret_cast<Divisor_t>(
-        static_cast<uintptr_t>(Offsets::FUN_POWER_DISPLAY_DIVISOR))(powerType);
+    const int divisor = static_cast<int>(Unit::Power::DisplayDivisor(powerType));
     return divisor != 0 ? amount / divisor : amount;
 }
 

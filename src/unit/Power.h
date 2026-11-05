@@ -20,4 +20,10 @@ namespace Unit::Power {
 // Used by `UnitPowerType`'s second return and by spell power-cost APIs.
 const char *PowerTypeToken(int type);
 
+// The engine's divisor from a stored power amount to displayed units
+// (`FUN_POWER_DISPLAY_DIVISOR`): 10 for rage, 1000 for happiness, 1 otherwise.
+// Every power amount surfaced to Lua — unit power, spell costs, combat-log
+// amounts — goes through this.
+unsigned int DisplayDivisor(int type);
+
 } // namespace Unit::Power

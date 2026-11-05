@@ -26,7 +26,9 @@
 //   type            Enum.PowerType (0 mana, 1 rage, 2 focus, 3 energy,
 //                   4 happiness) — the spell's PowerType (+0x7C)
 //   name            power token ("MANA", "RAGE", …)
-//   cost            effective cost (see above)
+//   cost            effective cost (see above), in displayed units — the
+//                   helper answers in stored units (rage in tenths), so it
+//                   is divided by `Unit::Power::DisplayDivisor`
 //   minCost         == cost; vanilla has no "optional" cost component
 //   costPercent     ManaCostPercent (+0x270) — the spell's %-of-base-
 //                   resource cost, or 0 for a flat cost
@@ -49,7 +51,8 @@ namespace {
 
 using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int pet);
 
-
+// The engine's cost helper, in STORED units (rage in tenths); 0xFFFFFFFF on
+// error. Callers divide by `Unit::Power::DisplayDivisor` before surfacing it.
 uint32_t EffectiveCost(int spellID) {
     return reinterpret_cast<GetSpellCost_t>(Offsets::FUN_GET_SPELL_COST)(spellID, 0);
 }
@@ -60,11 +63,12 @@ int __fastcall Script_GetSpellPowerCost(void *L) {
     if (rec == nullptr)
         return 0; // nil — spell not found
 
-    const uint32_t cost = EffectiveCost(spellID);
-    if (cost == 0xFFFFFFFF)
+    const uint32_t storedCost = EffectiveCost(spellID);
+    if (storedCost == 0xFFFFFFFF)
         return 0; // engine error (no player context, etc.)
 
     const int powerType = Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
+    const uint32_t cost = storedCost / Unit::Power::DisplayDivisor(powerType);
     const int costPercent = Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_MANA_COST_PERCENT);
     if (cost == 0 && costPercent == 0)
         return 0; // nil — no resource cost
