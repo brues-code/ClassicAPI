@@ -851,6 +851,7 @@ build instructions.
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
+  - [`C_PlayerInfo.UnitDistanceBetween(unit [, other])`](#c_playerinfounitdistancebetweenunit--other)
 
 - [PvP](#pvp)
   - [`SetPVP(enable)` / `C_PvP.SetPVP(enable)`](#setpvpenable--c_pvpsetpvpenable)
@@ -19810,6 +19811,54 @@ local sex = C_PlayerInfo.GetSex(loc)
 - An unresolvable or unsupported location returns nil. A malformed unit token
   raises (the engine's token→GUID resolver rejects it), same as passing it to
   `UnitName`/`UnitClass` directly.
+
+### `C_PlayerInfo.UnitDistanceBetween(unit [, other])`
+
+Returns the distance between the two units' **surfaces**, as a whole
+number of yards — the measurement SuperWoW/SP3 exposes as
+`UnitXP("distanceBetween", …)`.
+
+```lua
+C_PlayerInfo.UnitDistanceBetween("target")            -- player → target
+C_PlayerInfo.UnitDistanceBetween("party1", "target")  -- order doesn't matter
+```
+
+With one argument, `other` is the player. Both arguments accept a unit
+token or a raw GUID hex-string. The measurement is symmetric, so the
+argument order does not matter. `nil` when either unit has no known
+position.
+
+The value is the center-to-center world distance minus **both** units'
+bounding radii — the same reach term `UnitInRange` and the engine's
+spell-range check add. It is then rounded with `floor(distance + 0.5)`,
+so a 7.6-yard gap reads as `8`. A unit whose descriptor isn't populated
+yet counts as radius `0`, and the result falls back to the raw center
+distance.
+
+| Input | Result |
+|-------|--------|
+| two visible units | whole yards between their surfaces |
+| the same unit twice | `0` |
+| either position unavailable | `nil` |
+| hitboxes overlap | `0` or a **negative** number |
+
+A negative result is not an error: it is a signed surface gap, the same
+convention SP3 uses. Clamp with `math.max(0, d)` when you need a
+non-negative yard count.
+
+Compared with the neighbors:
+
+| Function | Measurement |
+|----------|-------------|
+| `UnitDistanceSquared` | center-to-center, squared yards |
+| `C_PlayerInfo.UnitDistanceBetween` | surface-to-surface, whole yards |
+| `UnitInRange` | 40-yard heal check, reach-aware (fixed 40) |
+
+Positions come from the same `CGObject::GetPosition` virtual as
+[`UnitDistanceSquared`](#unitdistancesquaredunit); the radius is
+`[m_objectFields + 0x1F0]`, the field the reach checks use. Only
+`C_PlayerInfo.UnitDistanceBetween` is registered — there is no global
+alias of the same name.
 
 ## PvP
 
