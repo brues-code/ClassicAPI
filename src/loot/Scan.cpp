@@ -42,6 +42,7 @@
 #include "../guid/Guid.h"
 #include "../object/Resolve.h"
 #include "../tick/WorldTick.h"
+#include "../time/Clock.h"
 #include "Request.h"
 
 #include <cstdint>
@@ -55,12 +56,11 @@ namespace {
 constexpr const char *kEventCompleted = "LOOT_SCAN_COMPLETED";
 const Event::Custom::AutoReserve _reserve{kEventCompleted};
 
-// Per-step timeout for the controller hook to fire on a queued
-// CMSG_LOOT. WorldTick fires at the client frame rate (~30-60 Hz),
-// so 180 ticks ≈ 3-6s wall clock. Long enough for high-latency
-// servers, short enough that a single dropped response doesn't hang
-// the whole scan.
-constexpr int kStepTimeoutTicks = 180;
+// How long one step may wait: for the server to answer a CMSG_LOOT it
+// never answers, or for the engine to accept a send it keeps refusing
+// (the player is moving). Long enough for high-latency servers, short
+// enough that a dropped response doesn't hang the walk.
+constexpr uint32_t kStepTimeoutMs = 3000;
 
 // Event IDs the engine fires through `FUN_FIRE_EVENT_NO_ARGS` for
 // loot-window transitions. The hook swallows these only when the
@@ -71,6 +71,7 @@ constexpr int EVENT_LOOT_CLOSED = 0x10D;
 
 enum class State {
     Idle,
+    WaitingToSend,      // the engine refused the send for now; retried each tick
     WaitingForResponse, // CMSG_LOOT sent; awaiting our controller hook
 };
 
@@ -90,7 +91,7 @@ struct ScanCtx {
     State state = State::Idle;
     void *player = nullptr;
     uint64_t currentGuid = 0;
-    int ticksSinceTransition = 0;
+    uint32_t stepStartMs = 0;
     bool suppressEvents = false; // read by the FireEvent hook
     bool lootMode = false;       // LootAllCorpses (true) vs ScanNearbyLoot (false)
     std::vector<uint64_t> queue;
@@ -128,55 +129,6 @@ using LootMoney_t = void(__fastcall *)(void *player);
 using LootController_t = void(__fastcall *)(int lootStructPtr,
                                              int coin,
                                              int unk);
-struct C3Vector {
-    float x, y, z;
-};
-using GetPosition_t = const C3Vector *(__thiscall *)(const void *self,
-                                                      C3Vector *outBuf);
-constexpr int VTBL_GET_POSITION_OFFSET = 0x14;
-
-constexpr float INTERACT_REACH = 1.3333333f;
-constexpr float MIN_INTERACT_RANGE = 5.0f;
-
-// === Range / lootability helpers (identical to Loot::Nearby) ===
-
-bool IsLootableUnit(const void *unit) {
-    auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
-    const uint32_t flags =
-        Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_DYNAMIC_FLAGS);
-    return (flags & Offsets::UNIT_DYNFLAG_LOOTABLE) != 0;
-}
-
-float BoundingRadius(const void *unit) {
-    auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
-    return Game::Read<float>(fields, Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
-}
-
-const C3Vector *GetPosition(const void *unit, C3Vector *outBuf) {
-    auto vtable = *reinterpret_cast<void *const *const *>(unit);
-    auto fn = reinterpret_cast<GetPosition_t>(
-        *reinterpret_cast<const void *const *>(
-            reinterpret_cast<const uint8_t *>(vtable) +
-            VTBL_GET_POSITION_OFFSET));
-    return fn(unit, outBuf);
-}
-
-bool InInteractRange(const void *player, const void *target) {
-    C3Vector pBuf{};
-    C3Vector tBuf{};
-    const C3Vector *pPos = GetPosition(player, &pBuf);
-    const C3Vector *tPos = GetPosition(target, &tBuf);
-    if (pPos == nullptr || tPos == nullptr)
-        return false;
-    const float dx = pPos->x - tPos->x;
-    const float dy = pPos->y - tPos->y;
-    const float dz = pPos->z - tPos->z;
-    const float distSq = dx * dx + dy * dy + dz * dz;
-    float range = BoundingRadius(player) + BoundingRadius(target) + INTERACT_REACH;
-    if (range < MIN_INTERACT_RANGE)
-        range = MIN_INTERACT_RANGE;
-    return distSq <= range * range;
-}
 
 // === Scrape ===
 
@@ -278,17 +230,37 @@ void TryStartNext() {
     StartLoot(guid);
 }
 
-void StartLoot(uint64_t guid) {
-    void *target = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-    // Not sent (mounted mid-walk, or the engine's pre-checks refused): no
-    // response is coming, so skip without waiting out the timeout.
-    if (target == nullptr || !Request::Send(s_scan.player, target, guid)) {
+void BeginStep(State state) {
+    s_scan.state = state;
+    s_scan.stepStartMs = Time::Clock::NowMs();
+}
+
+// Sends the current corpse's loot request. The corpse is checked again
+// here, not only when the queue was built: the walk takes a round trip per
+// corpse, and by now the corpse may be gone, looted, or out of reach
+// because the player moved. The server refuses an out-of-reach corpse
+// with an error, so skip it instead.
+//
+// When the engine refuses the send itself (the player is moving or
+// falling, ...), the corpse stays current and `OnTick` retries it: the
+// refusal is about the player, not the corpse, so skipping would drop
+// every corpse left in the queue.
+void SendCurrent() {
+    void *target =
+        Object::ByGuid(Offsets::TYPEMASK_UNIT, s_scan.currentGuid, nullptr, 0);
+    if (target == nullptr || !Request::IsLootable(target) ||
+        !Request::InReach(s_scan.player, target)) {
         TryStartNext();
         return;
     }
+    if (Request::Send(s_scan.player, target, s_scan.currentGuid))
+        BeginStep(State::WaitingForResponse);
+}
+
+void StartLoot(uint64_t guid) {
     s_scan.currentGuid = guid;
-    s_scan.state = State::WaitingForResponse;
-    s_scan.ticksSinceTransition = 0;
+    BeginStep(State::WaitingToSend);
+    SendCurrent();
 }
 
 // === Hooks ===
@@ -383,18 +355,35 @@ const Game::HookAutoRegister _hookController{
 
 const Event::SignalHook::AutoSubscribe _lootIntercept{&SuppressLootEvents};
 
-// === Tick (timeout only) ===
+// === Tick (refusals and timeouts) ===
 
 void OnTick() {
     if (s_scan.state == State::Idle)
         return;
-    ++s_scan.ticksSinceTransition;
-    if (s_scan.ticksSinceTransition >= kStepTimeoutTicks) {
-        // Controller hook never fired — the server answered with a
-        // failure, or never answered. A failure already cleared the
-        // held target; an unanswered request still holds it, which
-        // would block all looting, so release it. Skip this corpse.
-        s_scan.suppressEvents = false;
+    const bool timedOut = Time::Clock::Elapsed(s_scan.stepStartMs) >= kStepTimeoutMs;
+
+    if (s_scan.state == State::WaitingToSend) {
+        // Still refused: the player has not stopped moving, or mounted,
+        // or lost control. Every corpse left would be refused the same
+        // way, so end the walk.
+        if (timedOut) {
+            Complete();
+            return;
+        }
+        SendCurrent();
+        return;
+    }
+
+    // The server refused the corpse ("too far away", not ours, ...): its
+    // failure response and its release response both clear the held
+    // target, and no window opens. Go on to the next corpse now.
+    if (Request::HeldTarget(s_scan.player) != s_scan.currentGuid) {
+        TryStartNext();
+        return;
+    }
+    if (timedOut) {
+        // No answer at all. The held target would block all looting, so
+        // release it, and skip this corpse.
         Request::ReleaseIfUnanswered(s_scan.player, s_scan.currentGuid);
         TryStartNext();
     }
@@ -405,7 +394,7 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 // === Enumeration ===
 
 struct EnumCtx {
-    const void *player;
+    void *player;
     std::vector<uint64_t> *out;
 };
 
@@ -413,9 +402,9 @@ int __fastcall EnumCallback(EnumCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
     void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
     if (obj == nullptr)
         return 1;
-    if (!IsLootableUnit(obj))
+    if (!Request::IsLootable(obj))
         return 1;
-    if (!InInteractRange(ctx->player, obj))
+    if (!Request::InReach(ctx->player, obj))
         return 1;
     ctx->out->push_back(guid);
     return 1;

@@ -28,11 +28,26 @@ namespace Loot::Request {
 // (`CGUnit_C::Interact`, `0x0060BEA0`) applies before its loot leg.
 bool IsMounted(const void *player);
 
+// Whether the server grants us loot on `unit` (`UNIT_DYNFLAG_LOOTABLE`).
+bool IsLootable(const void *unit);
+
+// Whether `target` is within the reach `CanLootNow` (`0x005EC110`) demands
+// when the player is not walked up: both units' `+0x1F0` reach plus the
+// engine's live leeway, at least its live minimum, against the 3D distance.
+// `Send` never walks, so a target outside this reach is one the server
+// refuses with "too far away".
+bool InReach(void *player, void *target);
+
+// The player's held loot target. The engine writes it when the request goes
+// out and clears it when the server answers with a failure or a release, so
+// a caller waiting on `guid` sees the refusal as this no longer being `guid`.
+uint64_t HeldTarget(const void *player);
+
 // Sends the loot request the way a right-click would: refused while mounted
 // (the click's gate, which `FUN_CMSG_LOOT_UNIT` itself lacks), never
 // auto-walks. Returns whether the request went out — false when mounted or
-// when the engine's own pre-checks refused (another loot held, falling, not
-// in control, ...), in which case no response is coming.
+// when the engine's own pre-checks refused (another loot held, moving,
+// falling, not in control, ...), in which case no response is coming.
 bool Send(void *player, void *target, uint64_t guid);
 
 // For a caller that gave up waiting: if the player still holds `guid` as
