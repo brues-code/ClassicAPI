@@ -23,6 +23,7 @@
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
 #include "spell/CrowdControl.h"
+#include "spell/Duration.h"
 #include "spell/IsSelfBuff.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
@@ -172,37 +173,16 @@ const Net::PacketDispatch::AutoSubscribe _durationSub{&OnPacket};
 void ResetPlayerDurations() { std::memset(g_playerDurationMs, 0, sizeof g_playerDurationMs); }
 const Game::GlueModuleAutoRegister _glueReset{&ResetPlayerDurations};
 
-// The spell's base duration in seconds, as the server computes it before
-// combo points and caster modifiers: the SpellDuration row's base, with
-// −1 meaning infinite (returned as 0) and any other negative taken as its
-// absolute value. Both vmangos and tortoise-wow (`SpellEntry::GetDuration`)
-// ignore the row's per-level term, so this does too — the client's own
-// helper (`FUN_GET_SPELL_DURATION`) scales by the PLAYER's level and would
-// disagree with the expiration the server actually applies. Mirrors the
-// engine's lookup bounds (`0x006EA000`): an index outside the store or an
-// empty row gives 0.
+// The spell's server-computed base duration in seconds (see
+// `Spell::Duration::BaseMs`): no combo points, no caster modifiers. The
+// client's own `FUN_GET_SPELL_DURATION` scales by the PLAYER's level and
+// would disagree with the expiration the server actually applies.
 //
 // Caster-side modifiers are baked into the expiration, so
 // `expirationTime - GetTime()` stays the true remaining time even where
 // this base omits them.
 double SpellBaseDurationSeconds(uint32_t spellID) {
-    const uint8_t *spell = SpellRecord(spellID);
-    if (spell == nullptr)
-        return 0.0;
-    const int durIdx = *reinterpret_cast<const int *>(
-        spell + Offsets::OFF_SPELL_RECORD_DURATION_INDEX);
-    if (durIdx < 0)
-        return 0.0;
-    const uint8_t *durRec = DBC::Record(Offsets::VAR_SPELL_DURATION_RECORDS,
-                                        Offsets::VAR_SPELL_DURATION_COUNT,
-                                        static_cast<uint32_t>(durIdx));
-    if (durRec == nullptr)
-        return 0.0;
-    const int base = *reinterpret_cast<const int *>(
-        durRec + Offsets::OFF_SPELLDURATION_BASE_MS);
-    if (base == -1)
-        return 0.0;
-    return static_cast<double>(base < 0 ? -base : base) * 0.001;
+    return static_cast<double>(Spell::Duration::BaseMs(spellID)) * 0.001;
 }
 
 // True if the engine-tick expiration `expMs` has already reached/passed now.

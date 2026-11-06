@@ -918,6 +918,7 @@ build instructions.
   - [`C_Spell.GetSpellDescriptionForItemLocation(spellIdentifier, itemLocation)`](#c_spellgetspelldescriptionforitemlocationspellidentifier-itemlocation)
   - [`C_Spell.GetSpellMechanicByID(spellID)`](#c_spellgetspellmechanicbyidspellid)
   - [`C_Spell.GetSpellEffectInfo(spellID)`](#c_spellgetspelleffectinfospellid)
+  - [`GetSpellDuration(spellID [, ignoreModifiers])` / `C_Spell.GetSpellDuration(spellID)`](#getspelldurationspellid--ignoremodifiers--c_spellgetspelldurationspellid)
   - [`C_Spell.GetSpellEffectMechanics(spellID)`](#c_spellgetspelleffectmechanicsspellid)
   - [`C_Spell.GetSpellDispelType(spellID)`](#c_spellgetspelldispeltypespellid)
   - [`C_Spell.GetSpellRadius(spellID)` / `GetSpellRadius(slot, bookType)`](#c_spellgetspellradiusspellid--getspellradiusslot-booktype)
@@ -5948,6 +5949,20 @@ Some values have fixed contents:
 - On some servers, `SPELL_INTERRUPT` does not fire for a spell that also
   does direct damage, for example Pummel, Kick or Earth Shock. These servers
   do not send the interrupt for such a spell.
+
+**Spell details and mitigation.** The damage suffix already splits
+mitigation into its three parts: `resisted`, `blocked` and `absorbed`.
+For a spell's effects — which aura it applies and how often a periodic
+effect ticks — call
+[`C_Spell.GetSpellEffectInfo`](#c_spellgetspelleffectinfospellid): its
+`effect` and `auraName` name the effect, and `amplitude` is the tick
+interval in milliseconds. The subevent itself already separates periodic
+damage (`SPELL_PERIODIC_DAMAGE`) from direct damage, so a periodic hit
+needs no further attribution. The aura events carry no duration in
+4.3.4's layout; read `duration` and `expirationTime` from the unit's
+AuraData as it changes (see
+[`UNIT_AURA_DELTA`](#unit_aura_delta-event)), or a spell's full duration
+from [`GetSpellDuration`](#getspelldurationspellid--ignoremodifiers--c_spellgetspelldurationspellid).
 
 The flag constants are globals:
 
@@ -21149,6 +21164,7 @@ Each entry holds:
 | `pointsPerLevel` | Magnitude gained per level. Fractional. |
 | `dicePerLevel` | Random range gained per level. Fractional. |
 | `miscValue` | The effect's parameter, such as which stat a stat-modifying aura applies to. |
+| `amplitude` | Milliseconds between periodic ticks, such as a damage-over-time tick. `0` when the effect does not tick. |
 
 All three entries are always present. An unused effect slot has every
 field `0`.
@@ -21189,6 +21205,44 @@ damage or healing figure.
 Reads `Spell.dbc` directly, so it covers every spell the client knows,
 not just the player's spellbook, with no caching or waiting on the
 server.
+
+### `GetSpellDuration(spellID [, ignoreModifiers])` / `C_Spell.GetSpellDuration(spellID)`
+
+Returns the full duration of a spell in milliseconds. `nil` for an
+unknown spell; `0` for a spell with no finite duration (instant, until
+cancelled, or a missing `SpellDuration.dbc` row).
+
+```lua
+local duration = GetSpellDuration(589)       -- Shadow Word: Pain, in ms
+local base = GetSpellDuration(589, true)     -- the unmodified base
+
+local fx = C_Spell.GetSpellEffectInfo(589)
+local tick = fx[1].amplitude                 -- ms between periodic ticks
+local ticks = tick > 0 and duration / tick or 0
+```
+
+By default the answer is the duration a cast **by the local player**
+lasts: the `SpellDuration.dbc` row, scaled by the player's level and
+then by the player's duration spell modifiers. This is the number
+nampower's `GetSpellDuration` reports, so code ported from it keeps its
+values. Before the player exists (the login screen, a loading screen)
+there are no modifiers to apply and the base is returned.
+
+With `ignoreModifiers` true, the answer is the server's own
+pre-modifier base: the row's base value, with a negative base taken as
+its absolute value. It ignores level scaling, combo points and caster
+modifiers, so it is what the server starts from before anyone's
+talents. This is also the fallback for the `duration` field of an
+[`AuraData`](#auradata-table-shape) table.
+
+Neither form spends combo points. A finisher's row stores the 1-point
+duration as its base and the 5-point duration as its maximum, so both
+answers give the low end. For an aura that is actually on a unit, read
+`duration` and `expirationTime` from its AuraData table instead: those
+are the applied values and include the points spent.
+
+The first argument accepts every spell identifier form: an ID, a spell
+link, or a name in the player's spellbook.
 
 ### `C_Spell.GetSpellEffectMechanics(spellID)`
 

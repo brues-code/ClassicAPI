@@ -25,6 +25,9 @@
 //   dicePerLevel    EffectDicePerLevel (fractional)
 //   miscValue       EffectMiscValue — the effect's parameter, e.g. which
 //                   stat a stat-modifying aura applies to
+//   amplitude       EffectAmplitude — milliseconds between periodic
+//                   ticks (DoT / HoT / periodic drain), 0 when the
+//                   effect does not tick
 //
 // Deliberately RAW. The obvious alternative — return one computed
 // magnitude per effect — would be wrong often enough to mislead, because
@@ -84,6 +87,8 @@ int __fastcall Script_GetSpellEffectInfo(void *L) {
         record + Offsets::OFF_SPELL_RECORD_EFFECT_REAL_POINTS_PER_LEVEL);
     auto *miscValue = reinterpret_cast<const int32_t *>(
         record + Offsets::OFF_SPELL_RECORD_EFFECT_MISC_VALUE);
+    auto *amplitude = reinterpret_cast<const int32_t *>(
+        record + Offsets::OFF_SPELL_RECORD_EFFECT_AMPLITUDE);
 
     // Fixed 1-based array of all three effects, matching the raw [3]
     // layout so callers can index by effect slot. An unused slot is still
@@ -109,6 +114,8 @@ int __fastcall Script_GetSpellEffectInfo(void *L) {
                                   static_cast<double>(dicePerLevel[i]));
         Game::Lua::SetFieldNumber(L, "miscValue",
                                   static_cast<double>(miscValue[i]));
+        Game::Lua::SetFieldNumber(L, "amplitude",
+                                  static_cast<double>(amplitude[i]));
         Game::Lua::SetTable(L, -3); // outer[i + 1] = effect table
     }
     return 1;
@@ -129,6 +136,8 @@ const Game::Doc::Field kSpellEffectInfoFields[] = {
                    "Random range gained per level; can be fractional."),
     Game::Doc::Req("miscValue", "number",
                    "The effect's parameter, such as which stat a stat aura changes."),
+    Game::Doc::Req("amplitude", "number",
+                   "Milliseconds between periodic ticks; 0 when the effect does not tick."),
 };
 const Game::Doc::Structure kSpellEffectInfo{
     "SpellEffectInfo", "Spell", kSpellEffectInfoFields,

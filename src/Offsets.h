@@ -11784,6 +11784,14 @@ enum Offsets {
     // not an aura effect); `EffectMiscValue[i]` is effect-specific
     // (form ID for shapeshift, channel index for periodic, etc.).
     OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME = 0x16C,  // int32[3]
+    // EffectAmplitude[3] — milliseconds between periodic ticks for a
+    // periodic aura (damage / heal / energize / drain / leech), 0 for a
+    // non-periodic effect. Derived from the same record layout the two
+    // neighbors above verify: the intervening DBC columns are
+    // EffectAmplitude, EffectMultipleValue, EffectChainTarget and
+    // EffectItemType (0xC each), placing amplitude at 0x16C + 0xC and
+    // misc value at 0x16C + 0x3C = 0x1A8.
+    OFF_SPELL_RECORD_EFFECT_AMPLITUDE = 0x178,        // int32[3]
     OFF_SPELL_RECORD_EFFECT_MISC_VALUE = 0x1A8,       // int32[3]
     // Per-effect SpellMechanic ids (EffectMechanic[3]). One int32[3] (0xC)
     // after EffectBasePoints (0x130); cross-checked against EffectRadiusIndex
