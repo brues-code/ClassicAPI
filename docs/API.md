@@ -806,6 +806,10 @@ build instructions.
   - [`DressUpModel:GetAutoDress()`](#dressupmodelgetautodress)
   - [`Model:SetGlow(value)`](#modelsetglowvalue)
 
+- [Mount](#mount)
+  - [`C_MountJournal.GetMountFromSpell(spellID)`](#c_mountjournalgetmountfromspellspellid)
+  - [`C_MountJournal.GetMountInfoExtraByID(mountID)`](#c_mountjournalgetmountinfoextrabyidmountid)
+
 - [ChatBubbles](#chatbubbles)
   - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
 
@@ -18882,6 +18886,70 @@ first call, it returns `true`.
 
 This method exists on every `Model` frame, for code from later clients. It
 has no effect in the game.
+
+## Mount
+
+A mount ID is the spell ID of the spell that summons the mount. For example,
+the mount ID of Swift Mistsaber is 23219, the ID of its spell.
+
+### `C_MountJournal.GetMountFromSpell(spellID)`
+
+Returns the mount ID of a mount spell. For a spell that is not a mount, the
+function returns `nil`.
+
+`spellID` can be a spell ID, a spell link, or a spell name. A spell name
+works only for a spell in your spellbook. A spell ID works for all mount
+spells, also for a mount that you do not know.
+
+```lua
+C_MountJournal.GetMountFromSpell(23219) -- 23219 (Swift Mistsaber)
+C_MountJournal.GetMountFromSpell(133)   -- nil (Fireball)
+```
+
+On Turtle WoW, a mount item does not have its mount spell. Each mount item
+has the spell "Add Mount to Collection" (46499), and this spell is not a
+mount. Only the mount spell in the spellbook gives a mount ID.
+
+### `C_MountJournal.GetMountInfoExtraByID(mountID)`
+
+Returns nine values for a mount. For an ID that is not a mount, the function
+returns nothing.
+
+| # | Value | Contents |
+|---|---|---|
+| 1 | `creatureDisplayInfoID` | The display ID that you have when you ride the mount. `nil` when the game does not have the data for the mount yet. |
+| 2 | `description` | The description of the mount spell. |
+| 3 | `source` | Always `""`. |
+| 4 | `isSelfMount` | Always `false`. |
+| 5 | `mountTypeID` | The mount type. `230` for most mounts. |
+| 6 | `uiModelSceneID` | The model scene for a preview of the mount. `44` for the Qiraji battle tanks, `4` for all other mounts. |
+| 7 | `animID` | The animation of the rider on the mount. Always `91`. |
+| 8 | `spellVisualKitID` | Always `0`. |
+| 9 | `disablePlayerMountPreview` | Always `false`. |
+
+The display ID comes from the data of the creature that the mount spell
+summons. If the game does not have this data, the function returns `nil` for
+the display ID and requests the data. When the data arrives, the game sends
+`CREATURE_DATA_LOAD_RESULT`. After this event, the function returns the
+display ID.
+
+```lua
+local function ShowMount(model, mountID)
+    local displayID = C_MountJournal.GetMountInfoExtraByID(mountID)
+    if displayID then
+        model:SetDisplayInfo(displayID)
+    end
+    return displayID ~= nil
+end
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("CREATURE_DATA_LOAD_RESULT")
+f:SetScript("OnEvent", function()
+    ShowMount(MyModel, 23219)
+end)
+
+ShowMount(MyModel, 23219) -- shows display 14332 when the data is ready
+```
 
 ## ChatBubbles
 

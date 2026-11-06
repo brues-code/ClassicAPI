@@ -131,10 +131,7 @@ int __fastcall Script_RequestLoadCreatureByID(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    auto *cache = reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE);
-    const bool accepted =
-        Cache::QueryLoad::RequestLoad(cache, static_cast<uint32_t>(creatureID));
-    Game::Lua::PushBool(L, accepted);
+    Game::Lua::PushBool(L, RequestLoad(static_cast<uint32_t>(creatureID)));
     return 1;
 }
 
@@ -379,6 +376,11 @@ bool FactionGroupForRace(int raceID, const char **english, const char **localize
 
 const uint8_t *CacheRecord(uint32_t creatureID) {
     return creatureID != 0 ? PeekCreature(creatureID) : nullptr;
+}
+
+bool RequestLoad(uint32_t creatureID) {
+    return Cache::QueryLoad::RequestLoad(reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE),
+                                         creatureID);
 }
 
 } // namespace Creature::Info

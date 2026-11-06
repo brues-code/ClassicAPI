@@ -24,6 +24,12 @@ namespace Creature::Info {
 // engine's SetDisplay takes, and `PlayerModel:SetCreature` passes it there.
 const uint8_t *CacheRecord(uint32_t creatureID);
 
+// Starts loading `creatureID` into the creature cache; fires
+// `CREATURE_DATA_LOAD_RESULT(creatureID, success)` when it lands (at once
+// when already cached). False only when the load could not be tracked.
+// Backs `C_CreatureInfo.RequestLoadCreatureByID`.
+bool RequestLoad(uint32_t creatureID);
+
 // The faction group a player race belongs to, resolved the way
 // `Script_UnitFactionGroup` does it for a player whose object isn't in the
 // world (its name-cache branch, which reads the race): ChrRaces -> FactionTemplate
