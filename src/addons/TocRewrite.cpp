@@ -14,6 +14,7 @@
 #include "addons/EngineIO.h"
 #include "addons/TocRewrite.h"
 #include "addons/Toc.h"
+#include "localization/Locale.h"
 
 #include "Offsets.h"
 #include "turtle/Detect.h"
@@ -34,17 +35,7 @@ using AddOns::Toc::Lower;
 
 bool IsSpace(char c) { return c == ' ' || c == '\t'; }
 
-// The client locale code ("enUS", "frFR", …) — the exact string
-// GetLocale() returns (Offsets.h VAR_LOCALE_NAME_TABLE derivation).
-const char *ClientLocale() {
-    uint32_t idx = *reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    if (idx > 7) idx = 0; // slot 8 overreads the string pool — clamp
-    const char *const *table = reinterpret_cast<const char *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_NAME_TABLE));
-    const char *s = table[idx];
-    return (s != nullptr) ? s : "enUS";
-}
+using Localization::Locale::Client;
 
 // True iff the comma-separated `list` (spaces allowed) contains `token` (CI).
 bool ListContains(const char *list, size_t listLen, const char *token) {
@@ -66,7 +57,7 @@ bool ListContains(const char *list, size_t listLen, const char *token) {
 const char *VariableValue(const char *head, size_t headLen) {
     if (EqCI(head, headLen, "Family")) return "Classic";
     if (EqCI(head, headLen, "Game")) return "Vanilla";
-    if (EqCI(head, headLen, "TextLocale")) return ClientLocale();
+    if (EqCI(head, headLen, "TextLocale")) return Client();
     return nullptr;
 }
 
@@ -158,7 +149,7 @@ bool EvalCondition(const char *head, size_t headLen, const char *args,
     if (EqCI(head, headLen, "ExcludeLoadGameType"))
         return !ListContainsGameType(args, argsLen);
     if (EqCI(head, headLen, "AllowLoadTextLocale"))
-        return ListContains(args, argsLen, ClientLocale());
+        return ListContains(args, argsLen, Client());
     if (EqCI(head, headLen, "AllowLoad"))
         return ListContains(args, argsLen, "game"); // addon files: in-game only
     return false;

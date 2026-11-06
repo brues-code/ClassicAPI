@@ -31,6 +31,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "localization/Locale.h"
 
 #include <cstdint>
 #include <cstring>
@@ -45,16 +46,13 @@ using Rule_t = char *(__fastcall *)(const char *text);
 constexpr size_t kBufferSize = 0x2000;
 char g_buffer[kBufferSize];
 
-// FrameScript_GetPluralIndex. The 1.12 locale index has 4.3.4's order for
-// 0..7 (enUS, koKR, frFR, deDE, zhCN, zhTW, esES, esMX); 8 is ruRU there.
+// FrameScript_GetPluralIndex, keyed by locale name: 4.3.4 switches on its own
+// locale index, whose slots 1.12's index does not share (Localization::Locale).
 uint32_t PluralIndex(int32_t count) {
-    switch (Game::Read<int>(Offsets::VAR_LOCALE_INDEX)) {
-    case 1:
-    case 2:
-    case 4:
-    case 5:
+    using Localization::Locale::Is;
+    if (Is("koKR") || Is("frFR") || Is("zhCN") || Is("zhTW"))
         return count > 1;
-    case 8:
+    if (Is("ruRU")) {
         if (count % 100 >= 11 && count % 100 <= 14)
             return 2;
         if (count % 10 == 1)
@@ -62,9 +60,8 @@ uint32_t PluralIndex(int32_t count) {
         if (count % 10 >= 2 && count % 10 <= 4)
             return 1;
         return 2;
-    default:
-        return count != 1;
     }
+    return count != 1;
 }
 
 bool IsDigit(char ch) { return ch >= '0' && ch <= '9'; }

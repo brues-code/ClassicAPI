@@ -62,6 +62,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
+#include "localization/Locale.h"
 
 #include <cmath>
 #include <cstdio>
@@ -131,16 +132,12 @@ constexpr Scale kScalesAsian[] = {
 
 CVar::Factory::Handle g_breakUpLargeNumbers = nullptr;
 
-// VAR_LOCALE_INDEX order: enUS, koKR, frFR, deDE, zhCN, zhTW, esES, esMX, ruRU.
-bool ClientIsAsian() {
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    return locale == 1 || locale == 4 || locale == 5;
-}
-
 bool IsAsianLocale(const char *locale) {
     return std::strcmp(locale, "koKR") == 0 || std::strcmp(locale, "zhCN") == 0 ||
            std::strcmp(locale, "zhTW") == 0;
 }
+
+bool ClientIsAsian() { return IsAsianLocale(Localization::Locale::Client()); }
 
 // `_G[name]` when it is a string, else "".
 std::string GlobalString(void *L, const char *name) {
