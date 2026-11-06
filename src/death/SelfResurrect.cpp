@@ -206,9 +206,8 @@ void RegisterLuaFunctions() {
                                      &Script_GetSelfResurrectOptions, &kGetSelfResurrectOptions);
     Game::Lua::RegisterTableFunction("C_DeathInfo", "UseSelfResurrectOption",
                                      &Script_UseSelfResurrectOption, &kUseSelfResurrectOption);
-    Game::Lua::RegisterIntegerEnum("Enum", "SelfResurrectOptionType", kOptionTypeEntries,
-                                   sizeof(kOptionTypeEntries) / sizeof(kOptionTypeEntries[0]),
-                                   "DeathInfo");
+    Game::Lua::RegisterIntegerEnum(
+        "Enum", "SelfResurrectOptionType", kOptionTypeEntries, "DeathInfo");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

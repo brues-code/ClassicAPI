@@ -119,9 +119,7 @@ void OnTick() {
 const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "UICursorType", kCursorTypeEntries,
-        sizeof(kCursorTypeEntries) / sizeof(kCursorTypeEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "UICursorType", kCursorTypeEntries);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

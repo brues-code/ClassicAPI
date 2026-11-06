@@ -725,14 +725,14 @@ void RecordValueTable(Kind kind, const char *parent, const char *sub,
 
 } // namespace
 
-void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,
-                int count, const char *system) {
-    RecordValueTable(KIND_ENUM, parent, sub, entries, count, system);
+void RecordEnum(const char *parent, const char *sub,
+                Game::ArrayRef<Game::Lua::EnumIntegerEntry> entries, const char *system) {
+    RecordValueTable(KIND_ENUM, parent, sub, entries.data, entries.count, system);
 }
 
-void RecordConstants(const char *sub, const Game::Lua::EnumIntegerEntry *entries, int count,
+void RecordConstants(const char *sub, Game::ArrayRef<Game::Lua::EnumIntegerEntry> entries,
                      const char *system) {
-    RecordValueTable(KIND_CONSTANTS, "Constants", sub, entries, count, system);
+    RecordValueTable(KIND_CONSTANTS, "Constants", sub, entries.data, entries.count, system);
 }
 
 } // namespace Api::Documentation

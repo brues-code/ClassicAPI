@@ -568,14 +568,14 @@ struct EnumIntegerEntry {
 // `Enum.AddOnSecurityStatus = { Secure=0, Insecure=1, ... }` shapes.
 // `docSystem` is the documentation System the enumeration belongs to
 // ("SpellBook", "Item", …); the entries themselves are the documentation.
-void RegisterIntegerEnum(const char *parent, const char *sub,
-                         const EnumIntegerEntry *entries, int count,
+// `entries` is a file-scope array.
+void RegisterIntegerEnum(const char *parent, const char *sub, ArrayRef<EnumIntegerEntry> entries,
                          const char *docSystem = nullptr);
 
 // Registers `Constants[sub] = { entries }`, Blizzard's engine constant
 // tables (`Constants.MoneyFormattingConstants`). Documented as a "Constants"
 // table of `docSystem`.
-void RegisterConstants(const char *sub, const EnumIntegerEntry *entries, int count,
+void RegisterConstants(const char *sub, ArrayRef<EnumIntegerEntry> entries,
                        const char *docSystem);
 
 // Set `t[key] = value` on the table currently at stack[-1] (the most

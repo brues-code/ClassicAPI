@@ -27,10 +27,8 @@ const Game::Lua::EnumIntegerEntry kMoneyFormattingConstants[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterConstants("MoneyFormattingConstants", kMoneyFormattingConstants,
-                                 sizeof(kMoneyFormattingConstants) /
-                                     sizeof(kMoneyFormattingConstants[0]),
-                                 "MoneyConstants");
+    Game::Lua::RegisterConstants(
+        "MoneyFormattingConstants", kMoneyFormattingConstants, "MoneyConstants");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

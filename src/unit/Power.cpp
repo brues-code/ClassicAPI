@@ -286,10 +286,7 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("UnitPowerMax", &Script_UnitPowerMax);
     Game::Lua::RegisterGlobalFunction("UnitPowerMissing", &Script_UnitPowerMissing);
     Game::Lua::RegisterGlobalFunction("UnitPowerType", &Script_UnitPowerType);
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "PowerType",
-        kPowerTypeEntries,
-        sizeof(kPowerTypeEntries) / sizeof(kPowerTypeEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "PowerType", kPowerTypeEntries);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -58,7 +58,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -780,8 +779,8 @@ void RegisterLuaFunctions() {
     CreateMetatable(Lua::State());
     Lua::RegisterTableFunction("C_DurationUtil", "CreateDurationTextBinding", &Script_CreateDurationTextBinding,
                                &kCreateDurationTextBinding);
-    Lua::RegisterIntegerEnum("Enum", "DurationTextBindingProperty", kProperties,
-                             static_cast<int>(std::size(kProperties)), "DurationTextBindingShared");
+    Lua::RegisterIntegerEnum(
+        "Enum", "DurationTextBindingProperty", kProperties, "DurationTextBindingShared");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -437,17 +437,16 @@ static bool SetIntegerTable(const char *parent, const char *sub,
     return true;
 }
 
-void RegisterIntegerEnum(const char *parent, const char *sub,
-                         const EnumIntegerEntry *entries, int count,
+void RegisterIntegerEnum(const char *parent, const char *sub, ArrayRef<EnumIntegerEntry> entries,
                          const char *docSystem) {
-    if (SetIntegerTable(parent, sub, entries, count))
-        Api::Documentation::RecordEnum(parent, sub, entries, count, docSystem);
+    if (SetIntegerTable(parent, sub, entries.data, entries.count))
+        Api::Documentation::RecordEnum(parent, sub, entries, docSystem);
 }
 
-void RegisterConstants(const char *sub, const EnumIntegerEntry *entries, int count,
+void RegisterConstants(const char *sub, ArrayRef<EnumIntegerEntry> entries,
                        const char *docSystem) {
-    if (SetIntegerTable("Constants", sub, entries, count))
-        Api::Documentation::RecordConstants(sub, entries, count, docSystem);
+    if (SetIntegerTable("Constants", sub, entries.data, entries.count))
+        Api::Documentation::RecordConstants(sub, entries, docSystem);
 }
 
 void SetFieldNumber(void *L, const char *key, double value) {

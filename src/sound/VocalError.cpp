@@ -174,9 +174,7 @@ int __fastcall Script_PlayVocalErrorSound(void *L) {
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Sound", "PlayVocalErrorSound",
                                      &Script_PlayVocalErrorSound);
-    Game::Lua::RegisterIntegerEnum("Enum", "Vocalerrorsounds", kVocalErrorEntries,
-                                   sizeof(kVocalErrorEntries) /
-                                       sizeof(kVocalErrorEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "Vocalerrorsounds", kVocalErrorEntries);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

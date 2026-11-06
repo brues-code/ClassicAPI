@@ -497,9 +497,7 @@ const Game::Lua::EnumIntegerEntry kSwingTypeEntries[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "PlayerSwingType", kSwingTypeEntries,
-        sizeof(kSwingTypeEntries) / sizeof(kSwingTypeEntries[0]), "SwingTimer");
+    Game::Lua::RegisterIntegerEnum("Enum", "PlayerSwingType", kSwingTypeEntries, "SwingTimer");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

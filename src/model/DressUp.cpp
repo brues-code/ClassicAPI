@@ -641,9 +641,7 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_DRESSUPMODEL_METHOD_REGISTRY), g_methods,
         g_methodDocs);
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "ItemTryOnReason", kItemTryOnReason,
-        static_cast<int>(sizeof(kItemTryOnReason) / sizeof(kItemTryOnReason[0])), "UIModelInfo");
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemTryOnReason", kItemTryOnReason, "UIModelInfo");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

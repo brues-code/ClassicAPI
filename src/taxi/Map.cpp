@@ -434,14 +434,14 @@ void RegisterLuaFunctions() {
         {"Horde", FACTION_HORDE},
         {"Alliance", FACTION_ALLIANCE},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathFaction", kFaction, 3);
+    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathFaction", kFaction);
 
     static const Game::Lua::EnumIntegerEntry kState[] = {
         {"Current", STATE_CURRENT},
         {"Reachable", STATE_REACHABLE},
         {"Unreachable", STATE_UNREACHABLE},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathState", kState, 3);
+    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathState", kState);
 
     Game::Lua::RegisterTableFunction("C_TaxiMap", "GetTaxiNodesForMap",
                                      &Script_GetTaxiNodesForMap);

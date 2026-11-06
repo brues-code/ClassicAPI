@@ -47,7 +47,6 @@
 
 #include <cmath>
 #include <cstdio>
-#include <iterator>
 
 namespace Duration::Object {
 
@@ -451,8 +450,7 @@ const Game::Doc::Function kCreateDuration{"Creates a zero duration object that c
 void RegisterLuaFunctions() {
     CreateMetatable(Lua::State());
     Lua::RegisterTableFunction("C_DurationUtil", "CreateDuration", &Script_CreateDuration, &kCreateDuration);
-    Lua::RegisterIntegerEnum("Enum", "DurationTimeModifier", kModifiers, static_cast<int>(std::size(kModifiers)),
-                             "LuaDurationObjectShared");
+    Lua::RegisterIntegerEnum("Enum", "DurationTimeModifier", kModifiers, "LuaDurationObjectShared");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

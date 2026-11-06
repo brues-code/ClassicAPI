@@ -116,9 +116,7 @@ int __fastcall Script_PlayItemSound(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Sound", "PlayItemSound", &Script_PlayItemSound);
-    Game::Lua::RegisterIntegerEnum("Enum", "ItemSoundType", kItemSoundTypeEntries,
-                                   sizeof(kItemSoundTypeEntries) /
-                                       sizeof(kItemSoundTypeEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemSoundType", kItemSoundTypeEntries);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

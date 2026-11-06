@@ -52,7 +52,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -521,8 +520,7 @@ void RegisterLuaFunctions() {
     CreateMetatable(Lua::State());
     Lua::RegisterTableFunction("C_StringUtil", "CreateNumericRuleFormatter",
                                &Script_CreateNumericRuleFormatter, &kCreateNumericRuleFormatter);
-    Lua::RegisterIntegerEnum("Enum", "NumericRuleFormatRounding", kRounding,
-                             static_cast<int>(std::size(kRounding)), "StringUtil");
+    Lua::RegisterIntegerEnum("Enum", "NumericRuleFormatRounding", kRounding, "StringUtil");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

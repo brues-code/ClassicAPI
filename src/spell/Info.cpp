@@ -1036,10 +1036,10 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "ContainsAnyDisenchantSpell",
                                       &Script_ContainsAnyDisenchantSpell,
                                       &kContainsAnyDisenchantSpell);
-    Game::Lua::RegisterIntegerEnum("Enum", "SpellBookSpellBank",
-                                   kSpellBookSpellBankEntries, 2, "SpellBook");
-    Game::Lua::RegisterIntegerEnum("Enum", "SpellBookItemType",
-                                   kSpellBookItemTypeEntries, 5, "SpellBook");
+    Game::Lua::RegisterIntegerEnum(
+        "Enum", "SpellBookSpellBank", kSpellBookSpellBankEntries, "SpellBook");
+    Game::Lua::RegisterIntegerEnum(
+        "Enum", "SpellBookItemType", kSpellBookItemTypeEntries, "SpellBook");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

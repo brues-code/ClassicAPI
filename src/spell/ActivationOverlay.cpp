@@ -387,9 +387,7 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellActivationOverlay", "IsSpellOverlayed",
                                      &Script_IsSpellOverlayed, &kIsSpellOverlayed);
     Game::Lua::RegisterIntegerEnum(
-        "Enum", "ScreenLocationType", kScreenLocationEntries,
-        sizeof(kScreenLocationEntries) / sizeof(kScreenLocationEntries[0]),
-        "ScreenLocationConstants");
+        "Enum", "ScreenLocationType", kScreenLocationEntries, "ScreenLocationConstants");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

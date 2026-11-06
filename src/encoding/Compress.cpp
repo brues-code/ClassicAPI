@@ -305,8 +305,7 @@ void Register() {
         {"Zlib",    static_cast<int>(Method::Zlib)},
         {"Gzip",    static_cast<int>(Method::Gzip)},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod",
-                                   kCompressionMethod, 3);
+    Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod", kCompressionMethod);
 }
 
 } // namespace

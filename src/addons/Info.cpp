@@ -408,11 +408,7 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnInterfaceVersion",
                                      &Script_GetAddOnInterfaceVersion,
                                      &kGetAddOnInterfaceVersion);
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "AddOnSecurityStatus",
-        kAddOnSecurityStatusEntries,
-        sizeof(kAddOnSecurityStatusEntries) /
-            sizeof(kAddOnSecurityStatusEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "AddOnSecurityStatus", kAddOnSecurityStatusEntries);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

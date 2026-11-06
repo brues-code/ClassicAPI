@@ -457,12 +457,10 @@ static void RegisterLuaFunctions() {
                                      &Script_GetAutoCompleteResults, &kGetAutoCompleteResults);
     Game::Lua::RegisterTableFunction("C_AutoComplete", "IsRecognizedName", &Script_IsRecognizedName,
                                      &kIsRecognizedName);
-    Game::Lua::RegisterIntegerEnum("Enum", "AutoCompleteEntryFlag", kEntryFlagEntries,
-                                   sizeof(kEntryFlagEntries) / sizeof(kEntryFlagEntries[0]),
-                                   "AutoComplete");
-    Game::Lua::RegisterIntegerEnum("Enum", "AutoCompletePriority", kPriorityEntries,
-                                   sizeof(kPriorityEntries) / sizeof(kPriorityEntries[0]),
-                                   "AutoComplete");
+    Game::Lua::RegisterIntegerEnum(
+        "Enum", "AutoCompleteEntryFlag", kEntryFlagEntries, "AutoComplete");
+    Game::Lua::RegisterIntegerEnum(
+        "Enum", "AutoCompletePriority", kPriorityEntries, "AutoComplete");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

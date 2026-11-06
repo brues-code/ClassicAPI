@@ -42,8 +42,7 @@ const Game::Lua::EnumIntegerEntry kEntries[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterIntegerEnum("Enum", "BagIndex", kEntries,
-                                   sizeof(kEntries) / sizeof(kEntries[0]), "BagIndexConstants");
+    Game::Lua::RegisterIntegerEnum("Enum", "BagIndex", kEntries, "BagIndexConstants");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

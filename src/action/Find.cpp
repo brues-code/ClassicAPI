@@ -170,9 +170,7 @@ static void RegisterLuaFunctions() {
                                      &Script_HasSpellActionButtons, &kHasSpellActionButtons);
     Game::Lua::RegisterTableFunction("C_ActionBar", "IsOnBarOrSpecialBar",
                                      &Script_IsOnBarOrSpecialBar, &kIsOnBarOrSpecialBar);
-    Game::Lua::RegisterIntegerEnum("Enum", "ActionBarSet", kActionBarSet,
-                                   static_cast<int>(sizeof(kActionBarSet) / sizeof(kActionBarSet[0])),
-                                   "ActionBar");
+    Game::Lua::RegisterIntegerEnum("Enum", "ActionBarSet", kActionBarSet, "ActionBar");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

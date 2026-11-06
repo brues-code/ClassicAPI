@@ -38,9 +38,9 @@ void RecordFrameMethods(const void *registry,
 // Names the widget system of a method hash this DLL owns (a frame class it
 // adds), alongside the engine registries the exporter already knows.
 void NameWidgetSystem(const void *registry, const char *system);
-void RecordEnum(const char *parent, const char *sub, const Game::Lua::EnumIntegerEntry *entries,
-                int count, const char *system);
-void RecordConstants(const char *sub, const Game::Lua::EnumIntegerEntry *entries, int count,
+void RecordEnum(const char *parent, const char *sub,
+                Game::ArrayRef<Game::Lua::EnumIntegerEntry> entries, const char *system);
+void RecordConstants(const char *sub, Game::ArrayRef<Game::Lua::EnumIntegerEntry> entries,
                      const char *system);
 
 } // namespace Api::Documentation

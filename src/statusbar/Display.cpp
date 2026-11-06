@@ -82,7 +82,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <iterator>
 #include <unordered_map>
 
 namespace StatusBar::Display {
@@ -360,10 +359,10 @@ const Game::Doc::Method g_methodDocs[] = {
 void RegisterLuaFunctions() {
     Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_STATUSBAR_METHOD_REGISTRY), g_methods,
                               g_methodDocs);
-    Lua::RegisterIntegerEnum("Enum", "StatusBarTimerDirection", kDirectionEntries,
-                             static_cast<int>(std::size(kDirectionEntries)), "SimpleStatusBarConstants");
-    Lua::RegisterIntegerEnum("Enum", "StatusBarInterpolation", kInterpolationEntries,
-                             static_cast<int>(std::size(kInterpolationEntries)), "SimpleStatusBarConstants");
+    Lua::RegisterIntegerEnum(
+        "Enum", "StatusBarTimerDirection", kDirectionEntries, "SimpleStatusBarConstants");
+    Lua::RegisterIntegerEnum(
+        "Enum", "StatusBarInterpolation", kInterpolationEntries, "SimpleStatusBarConstants");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

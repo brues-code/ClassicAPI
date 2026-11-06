@@ -145,12 +145,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("ConsoleGetAllCommands", &Script_GetAllCommands);
     Game::Lua::RegisterGlobalFunction("ConsolePrintAllMatchingCommands",
                                       &Script_ConsolePrintAllMatchingCommands);
-    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCommandType", kCommandTypeEntries,
-                                   sizeof(kCommandTypeEntries) /
-                                       sizeof(kCommandTypeEntries[0]));
-    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCategory", kCategoryEntries,
-                                   sizeof(kCategoryEntries) /
-                                       sizeof(kCategoryEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCommandType", kCommandTypeEntries);
+    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCategory", kCategoryEntries);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

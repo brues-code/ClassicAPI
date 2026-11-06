@@ -30,8 +30,7 @@ const Game::Lua::EnumIntegerEntry kEntries[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterIntegerEnum("Enum", "InputContext", kEntries,
-                                   sizeof(kEntries) / sizeof(kEntries[0]), "InputConstants");
+    Game::Lua::RegisterIntegerEnum("Enum", "InputContext", kEntries, "InputConstants");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

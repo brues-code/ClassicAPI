@@ -309,15 +309,9 @@ void RegisterLuaFunctions() {
                                      &Script_GetItemInventorySlotKey);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInventorySlotInfo",
                                      &Script_GetItemInventorySlotInfo);
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "InventoryType", kInventoryTypeEntries,
-        sizeof(kInventoryTypeEntries) / sizeof(kInventoryTypeEntries[0]));
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "ItemClass", kItemClassEntries,
-        sizeof(kItemClassEntries) / sizeof(kItemClassEntries[0]));
-    Game::Lua::RegisterIntegerEnum(
-        "Enum", "ItemQuality", kItemQualityEntries,
-        sizeof(kItemQualityEntries) / sizeof(kItemQualityEntries[0]));
+    Game::Lua::RegisterIntegerEnum("Enum", "InventoryType", kInventoryTypeEntries);
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemClass", kItemClassEntries);
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemQuality", kItemQualityEntries);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

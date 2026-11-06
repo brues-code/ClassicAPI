@@ -217,8 +217,7 @@ void Register() {
         {"Standard", static_cast<int>(Variant::Standard)},
         {"UrlSafe",  static_cast<int>(Variant::UrlSafe)},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "Base64Variant",
-                                   kBase64Variant, 2);
+    Game::Lua::RegisterIntegerEnum("Enum", "Base64Variant", kBase64Variant);
 }
 
 } // namespace

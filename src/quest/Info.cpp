@@ -15,7 +15,6 @@
 #include "Offsets.h"
 
 #include <cstdint>
-#include <iterator>
 
 // `C_QuestLog.GetInfo(questLogIndex)` and `C_QuestLog.GetQuestLogTitle(
 // questLogIndex)` — the modern table and 17-tuple shapes of one quest-log row.
@@ -235,12 +234,9 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetInfo", &Script_GetInfo, &kGetInfo);
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetQuestLogTitle",
                                      &Script_GetQuestLogTitle, &kGetQuestLogTitle);
-    Game::Lua::RegisterIntegerEnum("Enum", "QuestFrequency", kQuestFrequencyEntries,
-                                   static_cast<int>(std::size(kQuestFrequencyEntries)),
-                                   "QuestLog");
-    Game::Lua::RegisterIntegerEnum("Enum", "QuestClassification", kQuestClassificationEntries,
-                                   static_cast<int>(std::size(kQuestClassificationEntries)),
-                                   "QuestLog");
+    Game::Lua::RegisterIntegerEnum("Enum", "QuestFrequency", kQuestFrequencyEntries, "QuestLog");
+    Game::Lua::RegisterIntegerEnum(
+        "Enum", "QuestClassification", kQuestClassificationEntries, "QuestLog");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
