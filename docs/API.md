@@ -40,12 +40,6 @@ build instructions.
   - [SavedVariables loaded first](#savedvariables-loaded-first)
   - [`<Script file>` paths in XML files](#script-file-paths-in-xml-files)
 
-- [APIDocumentation](#apidocumentation)
-  - [`/classicapi`](#classicapi)
-  - [`C_APIDocumentation.GetSystems()`](#c_apidocumentationgetsystems)
-  - [`C_APIDocumentation.GetSystem(system)`](#c_apidocumentationgetsystemsystem)
-  - [`_classicapi_UndocumentedAPI()`](#_classicapi_undocumentedapi)
-
 - [Animation](#animation)
   - [`region:CreateAnimationGroup([name [, templateName]])`](#regioncreateanimationgroupname--templatename)
   - [AnimationGroup](#animationgroup)
@@ -54,6 +48,12 @@ build instructions.
   - [`Path` and `ControlPoint`](#path-and-controlpoint)
   - [`<Animations>` in XML](#animations-in-xml)
   - [`SetMaxAnimFramerate(framesPerSec)` / `GetMaxAnimFramerate()`](#setmaxanimframerateframespersec--getmaxanimframerate)
+
+- [APIDocumentation](#apidocumentation)
+  - [`/classicapi`](#classicapi)
+  - [`C_APIDocumentation.GetSystems()`](#c_apidocumentationgetsystems)
+  - [`C_APIDocumentation.GetSystem(system)`](#c_apidocumentationgetsystemsystem)
+  - [`_classicapi_UndocumentedAPI()`](#_classicapi_undocumentedapi)
 
 - [AuctionHouse](#auctionhouse)
   - [`C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
@@ -94,11 +94,16 @@ build instructions.
   - [`IsChatAFK()`](#ischatafk)
   - [`IsChatDND()`](#ischatdnd)
 
+- [ChatBubbles](#chatbubbles)
+  - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
+
 - [Class](#class)
   - [`FillLocalizedClassList(table [, isFemale])`](#filllocalizedclasslisttable--isfemale)
 
 - [ClassColor](#classcolor)
   - [`C_ClassColor.GetClassColor(className)`](#c_classcolorgetclasscolorclassname)
+
+- [ClassicAPI namespace](#classicapi-namespace)
 
 - [ColorUtil](#colorutil)
   - [`C_ColorUtil.ConvertRGBToHSV(r, g, b)`](#c_colorutilconvertrgbtohsvr-g-b)
@@ -187,6 +192,11 @@ build instructions.
   - [`GetCoinTextureString(amount [, fontHeight])` / `C_CurrencyInfo.GetCoinTextureString(amount [, fontHeight])`](#getcointexturestringamount--fontheight--c_currencyinfogetcointexturestringamount--fontheight)
   - [`Constants.MoneyFormattingConstants`](#constantsmoneyformattingconstants)
 
+- [Cursor](#cursor)
+  - [`GetCursorInfo()`](#getcursorinfo)
+  - [`CursorHasMacro()`](#cursorhasmacro)
+  - [Expanded cursors (`expandedCursors`)](#expanded-cursors-expandedcursors)
+
 - [CVar](#cvar)
   - [`GetCVar(name)`](#getcvarname)
   - [`GetCVarDefault(name)`](#getcvardefaultname)
@@ -199,14 +209,10 @@ build instructions.
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
   - [The interface memory limit](#the-interface-memory-limit)
 
-- [Cursor](#cursor)
-  - [`GetCursorInfo()`](#getcursorinfo)
-  - [`CursorHasMacro()`](#cursorhasmacro)
-  - [Expanded cursors (`expandedCursors`)](#expanded-cursors-expandedcursors)
-
 - [DeathInfo](#deathinfo)
   - [`C_DeathInfo.GetSelfResurrectOptions()`](#c_deathinfogetselfresurrectoptions)
   - [`C_DeathInfo.UseSelfResurrectOption(optionType, id)`](#c_deathinfouseselfresurrectoptionoptiontype-id)
+
 - [DurationUtil](#durationutil)
   - [`C_DurationUtil.CreateDuration()`](#c_durationutilcreateduration)
   - [`C_DurationUtil.CreateDurationTextBinding()`](#c_durationutilcreatedurationtextbinding)
@@ -269,6 +275,7 @@ build instructions.
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
+  - [`PVP_TIMER_UPDATE` event](#pvp_timer_update-event)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
   - [`QUEST_QUERY_COMPLETE` event](#quest_query_complete-event)
   - [`QUEST_REMOVED` event](#quest_removed-event)
@@ -810,8 +817,13 @@ build instructions.
   - [`C_MountJournal.GetMountFromSpell(spellID)`](#c_mountjournalgetmountfromspellspellid)
   - [`C_MountJournal.GetMountInfoExtraByID(mountID)`](#c_mountjournalgetmountinfoextrabyidmountid)
 
-- [ChatBubbles](#chatbubbles)
-  - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
+- [NameCache](#namecache)
+  - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
+  - [`UnitNameFromGUID(guid)`](#unitnamefromguidguid)
+  - [`C_PlayerCache.GetPlayerInfoByName(name)`](#c_playercachegetplayerinfobynamename)
+  - [`C_PlayerCache.RememberPlayer(guid, name, classToken)`](#c_playercacherememberplayerguid-name-classtoken)
+  - [`C_PlayerCache.SetEnabled(enabled)`](#c_playercachesetenabledenabled)
+  - [`C_PlayerCache.IsEnabled()`](#c_playercacheisenabled)
 
 - [NamePlate](#nameplate)
   - [`nameplateNotSelectedAlpha`](#nameplatenotselectedalpha)
@@ -824,14 +836,6 @@ build instructions.
   - [Unit tokens (`markN`)](#unit-tokens-markn)
   - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
   - [`IsUnitToken(value)`](#isunittokenvalue)
-
-- [NameCache](#namecache)
-  - [`GetPlayerInfoByGUID(guid)`](#getplayerinfobyguidguid)
-  - [`UnitNameFromGUID(guid)`](#unitnamefromguidguid)
-  - [`C_PlayerCache.GetPlayerInfoByName(name)`](#c_playercachegetplayerinfobynamename)
-  - [`C_PlayerCache.RememberPlayer(guid, name, classToken)`](#c_playercacherememberplayerguid-name-classtoken)
-  - [`C_PlayerCache.SetEnabled(enabled)`](#c_playercachesetenabledenabled)
-  - [`C_PlayerCache.IsEnabled()`](#c_playercacheisenabled)
 
 - [NewItems](#newitems)
   - [`C_NewItems.IsNewItem(bagID, slotIndex)`](#c_newitemsisnewitembagid-slotindex)
@@ -856,12 +860,6 @@ build instructions.
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
 
-- [PvP](#pvp)
-  - [`SetPVP(enable)` / `C_PvP.SetPVP(enable)`](#setpvpenable--c_pvpsetpvpenable)
-  - [`GetPVPDesired()`](#getpvpdesired)
-  - [`IsPVPTimerRunning()` / `GetPVPTimer()`](#ispvptimerrunning--getpvptimer)
-  - [`PVP_TIMER_UPDATE` event](#pvp_timer_update-event)
-
 - [Profiling](#profiling)
   - [`UpdateAddOnMemoryUsage()` / `GetAddOnMemoryUsage(index or "name")`](#updateaddonmemoryusage--getaddonmemoryusageindex-or-name)
   - [`scriptProfile`](#scriptprofile)
@@ -872,6 +870,11 @@ build instructions.
   - [`GetScriptCPUUsage()`](#getscriptcpuusage)
   - [`ResetCPUUsage()`](#resetcpuusage)
   - [`_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`](#_classicapi_luaheapaudit--_classicapi_gctagofvalue)
+
+- [PvP](#pvp)
+  - [`SetPVP(enable)` / `C_PvP.SetPVP(enable)`](#setpvpenable--c_pvpsetpvpenable)
+  - [`GetPVPDesired()`](#getpvpdesired)
+  - [`IsPVPTimerRunning()` / `GetPVPTimer()`](#ispvptimerrunning--getpvptimer)
 
 - [Quest](#quest)
   - [`C_QuestLog.GetInfo(questLogIndex)`](#c_questloggetinfoquestlogindex)
@@ -907,6 +910,7 @@ build instructions.
   - [`C_Sound.PlayVocalErrorSound(vocalErrorSoundID)`](#c_soundplayvocalerrorsoundvocalerrorsoundid)
   - [`MuteSoundFile(file)` / `UnmuteSoundFile(file)`](#mutesoundfilefile--unmutesoundfilefile)
   - [`C_Sound.GetRecentSoundFiles()`](#c_soundgetrecentsoundfiles)
+
 - [Spell](#spell)
   - [`C_Spell.DoesSpellExist(spellID)`](#c_spelldoesspellexistspellid)
   - [`C_Spell.IsSpellDataCached(spellIdentifier)`](#c_spellisspelldatacachedspellidentifier)
@@ -1883,98 +1887,6 @@ there. The XML file's folder is tried only when the path does not exist as
 given, and only when the file is in that folder. If the file is in neither
 place, `FrameXML.log` shows "Error loading" with the path.
 
-## APIDocumentation
-
-ClassicAPI describes its own surface. Each function it adds carries a
-typed signature: the name and type of every argument and return value,
-which of them can be nil, and one sentence that says what the function
-does. Events, enumerations, and the table shapes functions return are
-described the same way.
-
-You read this in the game with `/classicapi`, or from code through
-`C_APIDocumentation`.
-
-### `/classicapi`
-
-Browse the API from the chat box. `/capi` is the short form.
-
-```
-/classicapi                        usage
-/classicapi stats                  how much is documented
-/classicapi system list            every system
-/classicapi spell                  one system
-/classicapi spell list             every function, event and table in a system
-/classicapi search cooldown        search everything
-/classicapi spell search cooldown  search one system
-```
-
-`search` also answers to `s`. Every search takes a Lua pattern.
-
-Results are clickable. Click a name to print its full signature, with
-each argument and return value on its own line. Right-click copies a
-ready-to-paste call to the clipboard. Shift-click puts a `/dump` of the
-function in the chat box, with the cursor between the parentheses.
-
-Functions are grouped into systems. A system is a namespace such as
-`C_Spell`, a group of plain globals such as `SpellGlobals`, or a widget
-method set such as `SimpleTextureAPI`. Find a system by its name or its
-namespace: `/classicapi spell` and `/classicapi c_spell` both work, and
-case does not matter.
-
-The browser holds what ClassicAPI adds. The functions the client already
-ships are not in it.
-
-### `C_APIDocumentation.GetSystems()`
-
-Returns an array of system names, sorted.
-
-```lua
-local systems = C_APIDocumentation.GetSystems()
--- { "Item", "ItemGlobals", "Spell", "SpellBook", "SpellGlobals", ... }
-```
-
-### `C_APIDocumentation.GetSystem(system)`
-
-Returns one system's documentation table, or `nil` if no system has that
-name. Match on the name or the namespace; case does not matter. Each
-call builds a new table, so the caller may keep it and change it.
-
-```lua
-local spell = C_APIDocumentation.GetSystem("C_Spell")
-spell.Name        -- "Spell"
-spell.Namespace   -- "C_Spell"
-spell.Functions[1].Name
-spell.Functions[1].Returns[1].Type
-```
-
-| Field | Meaning |
-|-------|---------|
-| `Name` | The system's name. |
-| `Type` | `"System"` for a namespace or a group of globals, `"ScriptObject"` for a widget method set. |
-| `Namespace` | The table the functions live in, such as `C_Spell`. Absent for globals and widget methods. |
-| `Environment` | `"All"`, `"Game"`, or `"Glue"` — where the functions exist. |
-| `Functions` | Array of functions. Each has `Name`, `Type`, and where documented `Documentation`, `Arguments`, and `Returns`. |
-| `Events` | Array of events. Each has `Name`, `LiteralName`, and where documented `Documentation` and `Payload`. |
-| `Tables` | Array of table shapes. A `Structure` has `Fields`; an `Enumeration` also has `NumValues`, `MinValue`, and `MaxValue`. |
-
-An argument, return value, payload value, or field is described by
-`Name`, `Type`, and `Nilable`, plus `Default` and `Documentation` when
-they apply. `Type` is a Lua type such as `number` or `string`, or the
-name of a table shape in some system's `Tables`.
-
-The layout matches the one Blizzard's own documentation uses, so a tool
-written against that data reads this without change.
-
-### `_classicapi_UndocumentedAPI()`
-
-Returns an array of the registered names that carry no description yet,
-and its length. Names are being described one namespace at a time, so
-this list shrinks with each release.
-
-```lua
-local missing, count = _classicapi_UndocumentedAPI()
-```
-
 ## Animation
 
 Animation groups on frames, textures and font strings, made in Lua or XML.
@@ -2259,6 +2171,98 @@ print(GetMaxAnimFramerate())   -- 60
 - The value is for all animations.
 - `0` stops the animations from changing until they finish.
 
+## APIDocumentation
+
+ClassicAPI describes its own surface. Each function it adds carries a
+typed signature: the name and type of every argument and return value,
+which of them can be nil, and one sentence that says what the function
+does. Events, enumerations, and the table shapes functions return are
+described the same way.
+
+You read this in the game with `/classicapi`, or from code through
+`C_APIDocumentation`.
+
+### `/classicapi`
+
+Browse the API from the chat box. `/capi` is the short form.
+
+```
+/classicapi                        usage
+/classicapi stats                  how much is documented
+/classicapi system list            every system
+/classicapi spell                  one system
+/classicapi spell list             every function, event and table in a system
+/classicapi search cooldown        search everything
+/classicapi spell search cooldown  search one system
+```
+
+`search` also answers to `s`. Every search takes a Lua pattern.
+
+Results are clickable. Click a name to print its full signature, with
+each argument and return value on its own line. Right-click copies a
+ready-to-paste call to the clipboard. Shift-click puts a `/dump` of the
+function in the chat box, with the cursor between the parentheses.
+
+Functions are grouped into systems. A system is a namespace such as
+`C_Spell`, a group of plain globals such as `SpellGlobals`, or a widget
+method set such as `SimpleTextureAPI`. Find a system by its name or its
+namespace: `/classicapi spell` and `/classicapi c_spell` both work, and
+case does not matter.
+
+The browser holds what ClassicAPI adds. The functions the client already
+ships are not in it.
+
+### `C_APIDocumentation.GetSystems()`
+
+Returns an array of system names, sorted.
+
+```lua
+local systems = C_APIDocumentation.GetSystems()
+-- { "Item", "ItemGlobals", "Spell", "SpellBook", "SpellGlobals", ... }
+```
+
+### `C_APIDocumentation.GetSystem(system)`
+
+Returns one system's documentation table, or `nil` if no system has that
+name. Match on the name or the namespace; case does not matter. Each
+call builds a new table, so the caller may keep it and change it.
+
+```lua
+local spell = C_APIDocumentation.GetSystem("C_Spell")
+spell.Name        -- "Spell"
+spell.Namespace   -- "C_Spell"
+spell.Functions[1].Name
+spell.Functions[1].Returns[1].Type
+```
+
+| Field | Meaning |
+|-------|---------|
+| `Name` | The system's name. |
+| `Type` | `"System"` for a namespace or a group of globals, `"ScriptObject"` for a widget method set. |
+| `Namespace` | The table the functions live in, such as `C_Spell`. Absent for globals and widget methods. |
+| `Environment` | `"All"`, `"Game"`, or `"Glue"` — where the functions exist. |
+| `Functions` | Array of functions. Each has `Name`, `Type`, and where documented `Documentation`, `Arguments`, and `Returns`. |
+| `Events` | Array of events. Each has `Name`, `LiteralName`, and where documented `Documentation` and `Payload`. |
+| `Tables` | Array of table shapes. A `Structure` has `Fields`; an `Enumeration` also has `NumValues`, `MinValue`, and `MaxValue`. |
+
+An argument, return value, payload value, or field is described by
+`Name`, `Type`, and `Nilable`, plus `Default` and `Documentation` when
+they apply. `Type` is a Lua type such as `number` or `string`, or the
+name of a table shape in some system's `Tables`.
+
+The layout matches the one Blizzard's own documentation uses, so a tool
+written against that data reads this without change.
+
+### `_classicapi_UndocumentedAPI()`
+
+Returns an array of the registered names that carry no description yet,
+and its length. Names are being described one namespace at a time, so
+this list shrinks with each release.
+
+```lua
+local missing, count = _classicapi_UndocumentedAPI()
+```
+
 ## AuctionHouse
 
 ### `C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`
@@ -2532,6 +2536,209 @@ Social page of the ClassicAPI options.
 /console autoCompleteUseContext 0
 ```
 
+## Bindings
+
+Key bindings that cast a spell, use an item, run a macro or click a button;
+temporary override bindings; and modified clicks.
+
+### Direct-action bindings
+
+| Function | Command it binds |
+|----------|------------------|
+| `ok = SetBindingSpell(key, spell)` | `"SPELL " .. spell` |
+| `ok = SetBindingItem(key, item)` | `"ITEM " .. item` |
+| `ok = SetBindingMacro(key, macro)` | `"MACRO " .. macro` |
+| `ok = SetBindingClick(key, buttonName [, mouseButton])` | `"CLICK " .. buttonName .. ":" .. (mouseButton or "LeftButton")` |
+
+Each function binds `key` in the current binding set, as `SetBinding` does.
+It returns `1` when the binding changed, else `nil`, and fires
+`UPDATE_BINDINGS`. Call `SaveBindings` to keep the change.
+
+A key bound to one of these commands does this:
+
+| Command | When | What |
+|---------|------|------|
+| `SPELL name` | Key release | Casts the spell from your spellbook. |
+| `ITEM name` | Key release | Uses the item with that name that you carry. |
+| `MACRO macro` | Key release | Runs the macro. A number is a macro index; other text is a macro name. |
+| `CLICK name:button` | Key press and key release | Sends the frame a mouse down on press and a mouse up on release. |
+
+`SPELL` and `ITEM` cast at you when the `SELFCAST` modified click is held,
+and at your focus when `FOCUSCAST` is held. Otherwise they use your target.
+
+For `CLICK`, a button acts as if it was clicked with the mouse. It clicks
+on press when it is registered for any `...Down` click, and on release when
+it is registered for any `...Up` click. Its pushed look, `OnMouseDown`,
+`OnMouseUp`, `PreClick`, `OnClick`, `PostClick` and `OnDoubleClick` all run.
+The cursor does not have to be over the button.
+
+`RunBinding` does not run these four commands.
+
+### Modifier keys during a binding
+
+While a `SPELL`, `ITEM`, `MACRO` or `CLICK` binding runs, the modifier keys
+that are part of its key do not count as held. For a binding on `ALT-1`:
+
+- `IsAltKeyDown()`, `IsLeftAltKeyDown()` and the other modifier functions
+  return `nil` for ALT.
+- `IsModifiedClick("SELFCAST")` is false when SELFCAST is ALT, so the binding
+  does not cast at you.
+- `[mod:alt]` does not pass.
+
+A binding that runs Lua sees the modifier keys that are held. A handler
+for `SHIFT-E` gets `1` from `IsShiftKeyDown()`.
+
+### Override bindings
+
+```lua
+SetOverrideBinding(owner, isPriority, key [, command])
+SetOverrideBindingSpell(owner, isPriority, key, spell)
+SetOverrideBindingItem(owner, isPriority, key, item)
+SetOverrideBindingMacro(owner, isPriority, key, macro)
+SetOverrideBindingClick(owner, isPriority, key, buttonName [, mouseButton])
+ClearOverrideBindings(owner)
+```
+
+An override binding replaces the saved binding of `key` until it is
+removed. It is never saved.
+
+- `owner` must be a frame.
+- `isPriority` is any value. A true value makes a priority override.
+- `key` is matched without regard to case. Write the modifiers in the order
+  the game uses: `ALT-CTRL-SHIFT-X`.
+- A `command` of `nil` or `""` removes the owner's override for `key`.
+- `ClearOverrideBindings(owner)` removes all of the owner's overrides.
+
+For each key, the newest priority override wins. With no priority override,
+the newest normal override wins. With no override, the saved binding is
+used. When you remove an override, the next one is used again.
+
+Overrides also apply to keys with fewer modifiers. See
+[Keys with modifiers](#keys-with-modifiers).
+
+All overrides are removed on `/reload` and logout.
+
+### `GetBindingAction(key [, checkOverride])`
+
+Returns the command bound to `key`. With `checkOverride` true, an override
+binding is returned first when one is active.
+
+### Keys with modifiers
+
+If a key with modifiers has no binding, the game tries the same key with
+fewer modifiers. The game uses the first key in the list that has a binding.
+
+| Key pressed | Keys that the game tries, in this order |
+|-------------|------------------------------------------|
+| `SHIFT-1` | `SHIFT-1`, `1` |
+| `ALT-SHIFT-1` | `ALT-SHIFT-1`, `SHIFT-1`, `ALT-1`, `1` |
+| `ALT-CTRL-SHIFT-1` | `ALT-CTRL-SHIFT-1`, `CTRL-SHIFT-1`, `ALT-SHIFT-1`, `ALT-CTRL-1`, `SHIFT-1`, `CTRL-1`, `ALT-1`, `1` |
+
+For each key, the game uses an override before the saved binding. The game
+ignores a binding to a command that does not exist, and tries the next key.
+
+A modifier that is not part of the matched key counts as held. For example,
+`ALT-SHIFT-1` runs the binding on `ALT-1`. In that binding, `IsShiftKeyDown()`
+returns `1` and `[mod:shift]` passes.
+
+### `GetBindingByKey(key)`
+
+Returns the command that a press of `key` runs, or `nil`. It uses the order
+in [Keys with modifiers](#keys-with-modifiers), and includes overrides.
+
+### Function keys F13 to F24
+
+The keys F13 to F24 work like F1 to F12. You can bind them with
+`SetBinding`, in the key binding window, or as override bindings. A binding
+can use modifiers, for example `CTRL-F13`. `OnKeyDown` and `OnKeyUp` scripts
+get the key name, for example `"F15"`.
+
+Most keyboards do not have these keys. Macro tools and some gaming keyboards
+can send them.
+
+### Modified clicks
+
+A modified click is an action that is active while a set of modifier keys,
+and optionally a mouse button, is held.
+
+```lua
+IsModifiedClick([action])            -- 1 or nil
+GetModifiedClick(action)             -- "ALT", "SHIFT-BUTTON1", "NONE", ...
+SetModifiedClick(action, binding)
+GetNumModifiedClickActions()
+GetModifiedClickAction(index)
+```
+
+- `IsModifiedClick(action)` returns `1` when the action's keys are held. It
+  also takes modifier names: `IsModifiedClick("SHIFT")`,
+  `IsModifiedClick("LCTRL")`. With no argument, it returns `1` when any
+  modifier key is held.
+- `SetModifiedClick` changes the current binding set. Call `SaveBindings` to
+  keep the change. `binding` is modifier names joined with `-`, optionally
+  followed by `BUTTON1` to `BUTTON5`, or `"NONE"`. An unknown action or
+  binding raises an error.
+- A `<ModifiedClick action="NAME" default="BINDING"/>` line in an addon's
+  `Bindings.xml` adds an action.
+
+The actions and their defaults:
+
+| Action | Default |
+|--------|---------|
+| `SELFCAST` | `ALT` |
+| `FOCUSCAST` | `NONE` |
+| `AUTOLOOTTOGGLE` | `SHIFT` |
+| `MAILAUTOLOOTTOGGLE` | `SHIFT` |
+| `STICKYCAMERA` | `CTRL` |
+| `CHATLINK` | `SHIFT-BUTTON1` |
+| `DRESSUP` | `CTRL-BUTTON1` |
+| `SOCKETITEM` | `SHIFT-BUTTON2` |
+| `SPLITSTACK` | `SHIFT` |
+| `PICKUPACTION` | `SHIFT` |
+| `PICKUPITEM` | `SHIFT` |
+| `COMPAREITEMS` | `SHIFT` |
+| `OPENALLBAGS` | `SHIFT` |
+| `QUESTWATCHTOGGLE` | `SHIFT` |
+| `TOKENWATCHTOGGLE` | `SHIFT` |
+| `SHOWITEMFLYOUT` | `ALT` |
+| `SHOWMULTICASTFLYOUT` | `ALT` |
+| `TRADESEARCHADD` | `SHIFT` |
+
+The `[mod:...]` macro condition takes the same values as `IsModifiedClick`:
+`[mod:shift]`, `[mod:lctrl]`, `[mod:SELFCAST]`.
+
+### `ActionButtonUseKeyDown`
+
+A setting for the action-bar key bindings (main bar, side bars, pet bar).
+`1` uses the action when the key is pressed. `0` (the default) uses it when
+the key is released.
+
+```
+/console ActionButtonUseKeyDown 1
+```
+
+### Predefined focus bindings (`FOCUSTARGET` / `TARGETFOCUS`)
+
+Two key bindings appear in the keybind UI (`Esc` → Key Bindings)
+under the **Targeting Functions** group, between `PETATTACK` and the
+Interface section:
+
+| Binding | Lua action | Use |
+|---------|------------|-----|
+| `FOCUSTARGET` | `FocusUnit("target")` | Pin current target as focus |
+| `TARGETFOCUS` | `TargetUnit("focus")` | Switch target to the focus |
+
+No default key — assign one in the keybind UI like any other binding.
+The two together give you a quick "set focus → swap to focus" loop
+common in PvP / heal-tank-while-killing-add scenarios.
+
+Implementation note: addon-side `Bindings.xml` files always render at
+the bottom of the keybind list (orphaned from any `header="..."` they
+declare) because the engine's binding registry is linearly indexed by
+insertion order and addons load after FrameXML. To land inside the
+TARGETING block, the DLL splices the two `<Binding>` entries into the
+engine's `Interface\FrameXML\Bindings.xml` at file-read time via a
+hook on `FUN_FILE_READ` — see [`src/bindings/Inject.cpp`](../src/bindings/Inject.cpp).
+
 ## CharacterList
 
 ### `GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only
@@ -2713,6 +2920,41 @@ end
 ```
 
 To get the DND status of another player, use `UnitIsDND(unit)`.
+
+## ChatBubbles
+
+### `C_ChatBubbles.GetAllChatBubbles([includeForbidden])`
+
+Returns a 1-based table of the currently-active chat-bubble `Frame`
+objects (the speech bubbles above characters who `/say` or `/yell`).
+This replaces the old "iterate over `WorldFrame` children and guess
+which are bubbles" idiom — we hand you the exact set instead.
+
+```lua
+for _, bubble in ipairs(C_ChatBubbles.GetAllChatBubbles()) do
+    -- The spoken text lives in the bubble's FontString region.
+    for _, region in ipairs({bubble:GetRegions()}) do
+        if region.GetText and region:GetText() then
+            print(region:GetText())
+        end
+    end
+end
+```
+
+Chat bubbles are `CGChatBubbleFrame`s — full frames the
+engine creates in C++ without ever calling `CreateFrame` (same as
+default nameplates). The returned frames are the engine's **canonical
+wrappers**: real, method-capable (`:GetRegions()`, `:IsShown()`,
+`:GetPoint()`, …), and identical to the object any other addon that
+touches the bubble sees, so decorations survive. The spoken-text
+FontString is parented to the bubble, so it shows up in
+`:GetRegions()`.
+
+`includeForbidden` is accepted for signature parity and ignored —
+there are no forbidden frames here, so every active bubble is returned
+regardless. Returns an empty table when no bubbles are showing. A
+bubble whose owner just despawned can linger for one frame before the
+engine prunes it; filter on `bubble:IsShown()` if that matters.
 
 ## Class
 
@@ -4549,6 +4791,137 @@ GetMoneyString(1234567, nil, true)  -- "123g 45s" with coin icons, no copper
 GetMoneyString(51234, nil, true)    -- "5g 12s 34c" with coin icons
 ```
 
+## Cursor
+
+### `GetCursorInfo()`
+
+Returns a tuple describing whatever the player has picked up on the
+cursor (item, money, spell, macro, merchant slot, pet), or nothing when
+the cursor is empty. Reads the same engine globals `CursorHasItem` /
+`CursorHasSpell` / `GetCursorMoney` consult, so the answer always
+matches what the rest of the engine sees.
+
+Return shape per cursor state:
+
+| Cursor holds | Returns |
+|---|---|
+| nothing | *nil* |
+| a bag item (PickupContainerItem, mail/trade detach with GUID) | `"item"`, `itemID`, `itemLink` |
+| a drag-source item (action bar, auction slot) | `"item"`, `itemID`, `itemLink` |
+| money (gold-split UI, `PickupPlayerMoney`) | `"money"`, `copperAmount` |
+| a spell from the spellbook | `"spell"`, `spellbookSlot`, `bookType`, `spellID` |
+| a macro | `"macro"`, `macroIndex` |
+| a merchant slot | `"merchant"`, `merchantIndex` |
+| a pet action | `"petaction"` |
+| a pet dragged in the stable | `"pet"`, `stableIndex` |
+| an equipment set | `"equipmentset"`, `setName` |
+
+`bookType` is `"spell"` for player spells, `"pet"` for pet spells.
+`spellbookSlot` is the 1-based slot the spell lives at in the
+spellbook arrays, found by walking the player/pet books. `0` if the
+spellID isn't in either book (rare — passive talent-granted spells).
+
+```lua
+local kind, a, b, c = GetCursorInfo()
+if kind == "item" then
+    print(("cursor item: %d"):format(a))
+elseif kind == "money" then
+    print(("cursor money: %d copper"):format(a))
+elseif kind == "spell" then
+    print(("cursor spell: id=%d slot=%d (%s book)"):format(c, a, b))
+elseif kind == "macro" then
+    print(("cursor macro index: %d"):format(a))
+end
+```
+
+#### `itemLink`
+
+The link always matches the item on the cursor.
+
+- **A bag item** keeps its identity on the cursor, so the link is the full
+  form for that exact item, with its enchant and random suffix:
+
+```
+|cff1eff00|Hitem:16791:255:0:0|h[Silkstream Cuffs]|h|r
+|cff1eff00|Hitem:9877:0:767:0|h[Sorcerer Cloak of the Owl]|h|r
+```
+
+- **A drag-source item** (action bar, auction slot) keeps only its item
+  ID on the cursor. The link is the plain link for that ID, without an
+  enchant or a suffix. The client does not know which copy you mean, and
+  the call does not guess.
+
+If the item is not in the item cache, no name is available. In that case
+a drag-source item returns only `"item"` and `itemID`.
+
+#### `stableIndex`
+
+The 1-based slot of the pet in the stable, as `ClickStablePet` takes it.
+
+#### Types we do not return
+
+Some engine cursor types return nothing, for example a trade slot or mail
+attachment. These carry no object that `GetCursorInfo` can describe.
+Consumers can use `CursorHasItem`, `CursorHasSpell` and `CursorHasMoney`.
+
+Changes to what the cursor holds are reported by the
+[`CURSOR_CHANGED` event](#cursor_changed-event).
+
+### `CursorHasMacro()`
+
+Returns `true` if the cursor holds a macro, and `false` if it does not.
+
+### Expanded cursors (`expandedCursors`)
+
+When the `expandedCursors` setting is `1` and you point at an NPC or an
+object, the cursor shows what you can do with it. The default is `0`. You can
+also change the setting in the ClassicAPI options, on the Interface page.
+
+These NPC services get new images:
+
+| The NPC has | The cursor |
+|---|---|
+| A quest that you can accept, or a quest that you did not complete | A yellow `!` |
+| A quest that you can turn in | A yellow `?` |
+| A repeatable quest that you can turn in | A blue `?` |
+| Repairs | An anvil |
+| An inn | A hearthstone |
+| A stable | A horseshoe |
+
+When an NPC has more than one service, the cursor shows the first service
+in this list:
+
+1. A quest
+2. Repairs
+3. An inn
+4. Flights
+5. Training
+6. Resurrection at a spirit healer
+7. A bank
+8. Guild charters, tabards and battlegrounds
+9. An auction house
+10. A stable
+11. Goods for sale
+12. Gossip
+
+The other services keep their usual images. For example, a vendor that also
+has gossip shows the vendor image, not the speech bubble.
+
+Your fishing bobber shows a fish hook, not the gear.
+
+When you cannot use the NPC or the object, the cursor shows the gray form of
+the image. For example, this occurs when you are too far away.
+
+The soft-interact icon and
+[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)
+show the same images as the cursor. For a quest, they show no image.
+
+```
+/console expandedCursors 1
+```
+
+*ClassicAPI extension.*
+
 ## CVar
 
 ### `GetCVar(name)`
@@ -4796,137 +5169,6 @@ SET scriptMemory "65536"
 ```
 
 That asks for a 64 MB limit, and any value above 0 turns the check back on.
-
-## Cursor
-
-### `GetCursorInfo()`
-
-Returns a tuple describing whatever the player has picked up on the
-cursor (item, money, spell, macro, merchant slot, pet), or nothing when
-the cursor is empty. Reads the same engine globals `CursorHasItem` /
-`CursorHasSpell` / `GetCursorMoney` consult, so the answer always
-matches what the rest of the engine sees.
-
-Return shape per cursor state:
-
-| Cursor holds | Returns |
-|---|---|
-| nothing | *nil* |
-| a bag item (PickupContainerItem, mail/trade detach with GUID) | `"item"`, `itemID`, `itemLink` |
-| a drag-source item (action bar, auction slot) | `"item"`, `itemID`, `itemLink` |
-| money (gold-split UI, `PickupPlayerMoney`) | `"money"`, `copperAmount` |
-| a spell from the spellbook | `"spell"`, `spellbookSlot`, `bookType`, `spellID` |
-| a macro | `"macro"`, `macroIndex` |
-| a merchant slot | `"merchant"`, `merchantIndex` |
-| a pet action | `"petaction"` |
-| a pet dragged in the stable | `"pet"`, `stableIndex` |
-| an equipment set | `"equipmentset"`, `setName` |
-
-`bookType` is `"spell"` for player spells, `"pet"` for pet spells.
-`spellbookSlot` is the 1-based slot the spell lives at in the
-spellbook arrays, found by walking the player/pet books. `0` if the
-spellID isn't in either book (rare — passive talent-granted spells).
-
-```lua
-local kind, a, b, c = GetCursorInfo()
-if kind == "item" then
-    print(("cursor item: %d"):format(a))
-elseif kind == "money" then
-    print(("cursor money: %d copper"):format(a))
-elseif kind == "spell" then
-    print(("cursor spell: id=%d slot=%d (%s book)"):format(c, a, b))
-elseif kind == "macro" then
-    print(("cursor macro index: %d"):format(a))
-end
-```
-
-#### `itemLink`
-
-The link always matches the item on the cursor.
-
-- **A bag item** keeps its identity on the cursor, so the link is the full
-  form for that exact item, with its enchant and random suffix:
-
-```
-|cff1eff00|Hitem:16791:255:0:0|h[Silkstream Cuffs]|h|r
-|cff1eff00|Hitem:9877:0:767:0|h[Sorcerer Cloak of the Owl]|h|r
-```
-
-- **A drag-source item** (action bar, auction slot) keeps only its item
-  ID on the cursor. The link is the plain link for that ID, without an
-  enchant or a suffix. The client does not know which copy you mean, and
-  the call does not guess.
-
-If the item is not in the item cache, no name is available. In that case
-a drag-source item returns only `"item"` and `itemID`.
-
-#### `stableIndex`
-
-The 1-based slot of the pet in the stable, as `ClickStablePet` takes it.
-
-#### Types we do not return
-
-Some engine cursor types return nothing, for example a trade slot or mail
-attachment. These carry no object that `GetCursorInfo` can describe.
-Consumers can use `CursorHasItem`, `CursorHasSpell` and `CursorHasMoney`.
-
-Changes to what the cursor holds are reported by the
-[`CURSOR_CHANGED` event](#cursor_changed-event).
-
-### `CursorHasMacro()`
-
-Returns `true` if the cursor holds a macro, and `false` if it does not.
-
-### Expanded cursors (`expandedCursors`)
-
-When the `expandedCursors` setting is `1` and you point at an NPC or an
-object, the cursor shows what you can do with it. The default is `0`. You can
-also change the setting in the ClassicAPI options, on the Interface page.
-
-These NPC services get new images:
-
-| The NPC has | The cursor |
-|---|---|
-| A quest that you can accept, or a quest that you did not complete | A yellow `!` |
-| A quest that you can turn in | A yellow `?` |
-| A repeatable quest that you can turn in | A blue `?` |
-| Repairs | An anvil |
-| An inn | A hearthstone |
-| A stable | A horseshoe |
-
-When an NPC has more than one service, the cursor shows the first service
-in this list:
-
-1. A quest
-2. Repairs
-3. An inn
-4. Flights
-5. Training
-6. Resurrection at a spirit healer
-7. A bank
-8. Guild charters, tabards and battlegrounds
-9. An auction house
-10. A stable
-11. Goods for sale
-12. Gossip
-
-The other services keep their usual images. For example, a vendor that also
-has gossip shows the vendor image, not the speech bubble.
-
-Your fishing bobber shows a fish hook, not the gear.
-
-When you cannot use the NPC or the object, the cursor shows the gray form of
-the image. For example, this occurs when you are too far away.
-
-The soft-interact icon and
-[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)
-show the same images as the cursor. For a quest, they show no image.
-
-```
-/console expandedCursors 1
-```
-
-*ClassicAPI extension.*
 
 ## DeathInfo
 
@@ -6501,6 +6743,24 @@ PLAYER_SWING_RANGE_UPDATE: swingType, isInRange, checksRange
   it was not: for example, there is no current target, the target
   cannot be attacked, or no weapon is equipped for this swing type.
 
+### `PVP_TIMER_UPDATE` event
+
+Fires with `"player"` when the PvP timer starts or stops. Then
+[`IsPVPTimerRunning()` and `GetPVPTimer()`](#ispvptimerrunning--getpvptimer)
+return the new values.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PVP_TIMER_UPDATE")
+f:SetScript("OnEvent", function()
+    if IsPVPTimerRunning() then
+        f.endTime = GetTime() + GetPVPTimer() / 1000
+    else
+        f.endTime = nil
+    end
+end)
+```
+
 ### `QUEST_ACCEPTED` event
 
 Fires once per quest the player just accepted, with two payload args:
@@ -7911,209 +8171,6 @@ target within one frame.
 after `"target"`, so a focused unit's GUID
 reverse-resolves to `"focus"` only if it isn't already addressable
 as `"player"` / `"party*"` / `"raid*"` / `"nameplate*"` / `"target"`.
-
-## Bindings
-
-Key bindings that cast a spell, use an item, run a macro or click a button;
-temporary override bindings; and modified clicks.
-
-### Direct-action bindings
-
-| Function | Command it binds |
-|----------|------------------|
-| `ok = SetBindingSpell(key, spell)` | `"SPELL " .. spell` |
-| `ok = SetBindingItem(key, item)` | `"ITEM " .. item` |
-| `ok = SetBindingMacro(key, macro)` | `"MACRO " .. macro` |
-| `ok = SetBindingClick(key, buttonName [, mouseButton])` | `"CLICK " .. buttonName .. ":" .. (mouseButton or "LeftButton")` |
-
-Each function binds `key` in the current binding set, as `SetBinding` does.
-It returns `1` when the binding changed, else `nil`, and fires
-`UPDATE_BINDINGS`. Call `SaveBindings` to keep the change.
-
-A key bound to one of these commands does this:
-
-| Command | When | What |
-|---------|------|------|
-| `SPELL name` | Key release | Casts the spell from your spellbook. |
-| `ITEM name` | Key release | Uses the item with that name that you carry. |
-| `MACRO macro` | Key release | Runs the macro. A number is a macro index; other text is a macro name. |
-| `CLICK name:button` | Key press and key release | Sends the frame a mouse down on press and a mouse up on release. |
-
-`SPELL` and `ITEM` cast at you when the `SELFCAST` modified click is held,
-and at your focus when `FOCUSCAST` is held. Otherwise they use your target.
-
-For `CLICK`, a button acts as if it was clicked with the mouse. It clicks
-on press when it is registered for any `...Down` click, and on release when
-it is registered for any `...Up` click. Its pushed look, `OnMouseDown`,
-`OnMouseUp`, `PreClick`, `OnClick`, `PostClick` and `OnDoubleClick` all run.
-The cursor does not have to be over the button.
-
-`RunBinding` does not run these four commands.
-
-### Modifier keys during a binding
-
-While a `SPELL`, `ITEM`, `MACRO` or `CLICK` binding runs, the modifier keys
-that are part of its key do not count as held. For a binding on `ALT-1`:
-
-- `IsAltKeyDown()`, `IsLeftAltKeyDown()` and the other modifier functions
-  return `nil` for ALT.
-- `IsModifiedClick("SELFCAST")` is false when SELFCAST is ALT, so the binding
-  does not cast at you.
-- `[mod:alt]` does not pass.
-
-A binding that runs Lua sees the modifier keys that are held. A handler
-for `SHIFT-E` gets `1` from `IsShiftKeyDown()`.
-
-### Override bindings
-
-```lua
-SetOverrideBinding(owner, isPriority, key [, command])
-SetOverrideBindingSpell(owner, isPriority, key, spell)
-SetOverrideBindingItem(owner, isPriority, key, item)
-SetOverrideBindingMacro(owner, isPriority, key, macro)
-SetOverrideBindingClick(owner, isPriority, key, buttonName [, mouseButton])
-ClearOverrideBindings(owner)
-```
-
-An override binding replaces the saved binding of `key` until it is
-removed. It is never saved.
-
-- `owner` must be a frame.
-- `isPriority` is any value. A true value makes a priority override.
-- `key` is matched without regard to case. Write the modifiers in the order
-  the game uses: `ALT-CTRL-SHIFT-X`.
-- A `command` of `nil` or `""` removes the owner's override for `key`.
-- `ClearOverrideBindings(owner)` removes all of the owner's overrides.
-
-For each key, the newest priority override wins. With no priority override,
-the newest normal override wins. With no override, the saved binding is
-used. When you remove an override, the next one is used again.
-
-Overrides also apply to keys with fewer modifiers. See
-[Keys with modifiers](#keys-with-modifiers).
-
-All overrides are removed on `/reload` and logout.
-
-### `GetBindingAction(key [, checkOverride])`
-
-Returns the command bound to `key`. With `checkOverride` true, an override
-binding is returned first when one is active.
-
-### Keys with modifiers
-
-If a key with modifiers has no binding, the game tries the same key with
-fewer modifiers. The game uses the first key in the list that has a binding.
-
-| Key pressed | Keys that the game tries, in this order |
-|-------------|------------------------------------------|
-| `SHIFT-1` | `SHIFT-1`, `1` |
-| `ALT-SHIFT-1` | `ALT-SHIFT-1`, `SHIFT-1`, `ALT-1`, `1` |
-| `ALT-CTRL-SHIFT-1` | `ALT-CTRL-SHIFT-1`, `CTRL-SHIFT-1`, `ALT-SHIFT-1`, `ALT-CTRL-1`, `SHIFT-1`, `CTRL-1`, `ALT-1`, `1` |
-
-For each key, the game uses an override before the saved binding. The game
-ignores a binding to a command that does not exist, and tries the next key.
-
-A modifier that is not part of the matched key counts as held. For example,
-`ALT-SHIFT-1` runs the binding on `ALT-1`. In that binding, `IsShiftKeyDown()`
-returns `1` and `[mod:shift]` passes.
-
-### `GetBindingByKey(key)`
-
-Returns the command that a press of `key` runs, or `nil`. It uses the order
-in [Keys with modifiers](#keys-with-modifiers), and includes overrides.
-
-### Function keys F13 to F24
-
-The keys F13 to F24 work like F1 to F12. You can bind them with
-`SetBinding`, in the key binding window, or as override bindings. A binding
-can use modifiers, for example `CTRL-F13`. `OnKeyDown` and `OnKeyUp` scripts
-get the key name, for example `"F15"`.
-
-Most keyboards do not have these keys. Macro tools and some gaming keyboards
-can send them.
-
-### Modified clicks
-
-A modified click is an action that is active while a set of modifier keys,
-and optionally a mouse button, is held.
-
-```lua
-IsModifiedClick([action])            -- 1 or nil
-GetModifiedClick(action)             -- "ALT", "SHIFT-BUTTON1", "NONE", ...
-SetModifiedClick(action, binding)
-GetNumModifiedClickActions()
-GetModifiedClickAction(index)
-```
-
-- `IsModifiedClick(action)` returns `1` when the action's keys are held. It
-  also takes modifier names: `IsModifiedClick("SHIFT")`,
-  `IsModifiedClick("LCTRL")`. With no argument, it returns `1` when any
-  modifier key is held.
-- `SetModifiedClick` changes the current binding set. Call `SaveBindings` to
-  keep the change. `binding` is modifier names joined with `-`, optionally
-  followed by `BUTTON1` to `BUTTON5`, or `"NONE"`. An unknown action or
-  binding raises an error.
-- A `<ModifiedClick action="NAME" default="BINDING"/>` line in an addon's
-  `Bindings.xml` adds an action.
-
-The actions and their defaults:
-
-| Action | Default |
-|--------|---------|
-| `SELFCAST` | `ALT` |
-| `FOCUSCAST` | `NONE` |
-| `AUTOLOOTTOGGLE` | `SHIFT` |
-| `MAILAUTOLOOTTOGGLE` | `SHIFT` |
-| `STICKYCAMERA` | `CTRL` |
-| `CHATLINK` | `SHIFT-BUTTON1` |
-| `DRESSUP` | `CTRL-BUTTON1` |
-| `SOCKETITEM` | `SHIFT-BUTTON2` |
-| `SPLITSTACK` | `SHIFT` |
-| `PICKUPACTION` | `SHIFT` |
-| `PICKUPITEM` | `SHIFT` |
-| `COMPAREITEMS` | `SHIFT` |
-| `OPENALLBAGS` | `SHIFT` |
-| `QUESTWATCHTOGGLE` | `SHIFT` |
-| `TOKENWATCHTOGGLE` | `SHIFT` |
-| `SHOWITEMFLYOUT` | `ALT` |
-| `SHOWMULTICASTFLYOUT` | `ALT` |
-| `TRADESEARCHADD` | `SHIFT` |
-
-The `[mod:...]` macro condition takes the same values as `IsModifiedClick`:
-`[mod:shift]`, `[mod:lctrl]`, `[mod:SELFCAST]`.
-
-### `ActionButtonUseKeyDown`
-
-A setting for the action-bar key bindings (main bar, side bars, pet bar).
-`1` uses the action when the key is pressed. `0` (the default) uses it when
-the key is released.
-
-```
-/console ActionButtonUseKeyDown 1
-```
-
-### Predefined focus bindings (`FOCUSTARGET` / `TARGETFOCUS`)
-
-Two key bindings appear in the keybind UI (`Esc` → Key Bindings)
-under the **Targeting Functions** group, between `PETATTACK` and the
-Interface section:
-
-| Binding | Lua action | Use |
-|---------|------------|-----|
-| `FOCUSTARGET` | `FocusUnit("target")` | Pin current target as focus |
-| `TARGETFOCUS` | `TargetUnit("focus")` | Switch target to the focus |
-
-No default key — assign one in the keybind UI like any other binding.
-The two together give you a quick "set focus → swap to focus" loop
-common in PvP / heal-tank-while-killing-add scenarios.
-
-Implementation note: addon-side `Bindings.xml` files always render at
-the bottom of the keybind list (orphaned from any `header="..."` they
-declare) because the engine's binding registry is linearly indexed by
-insertion order and addons load after FrameXML. To land inside the
-TARGETING block, the DLL splices the two `<Binding>` entries into the
-engine's `Interface\FrameXML\Bindings.xml` at file-read time via a
-hook on `FUN_FILE_READ` — see [`src/bindings/Inject.cpp`](../src/bindings/Inject.cpp).
 
 ## Frame
 
@@ -18299,6 +18356,72 @@ end
 > lookup). An addon can drop `GetAreaTriggers()` straight in place of a
 > shipped table.
 
+## MapExplorationInfo
+
+`C_MapExplorationInfo.GetExploredMapTextures` and
+`GetUnexploredMapTextures` (ClassicAPI extension) are the
+exploration-filtered views of a zone's `WorldMapOverlay.dbc` overlays.
+Together with [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid) (which
+returns **all** overlays) they form the three-way split:
+
+| function | returns |
+|---|---|
+| `C_MapExplorationInfo.GetExploredMapTextures(areaID)` | only overlays the player has **discovered** |
+| `C_MapExplorationInfo.GetUnexploredMapTextures(areaID)` | only overlays **not** yet discovered |
+| `C_Map.GetMapOverlays(areaID)` | **all** overlays, explored or not |
+
+All three return the same per-overlay table shape (see
+`GetMapOverlays`). These two only filter it. An overlay counts as
+explored when the player has explored one of its areas. This is the same
+rule that `GetNumMapOverlays` and `GetMapOverlayInfo` use. The `areaID`
+argument works for any zone, not only the zone on the world map. With no
+argument, both functions use the current map view.
+
+### `C_MapExplorationInfo.GetExploredMapTextures([areaID])`
+
+Returns an array of
+the overlay tables for overlays the local player **has discovered** in the
+zone — same shape as [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid),
+including `fileDataIDs` (here it
+holds `SetTexture`-ready texture *paths*, since there are no numeric
+fileDataIDs). Empty before the player is resident (character select).
+
+```lua
+for _, tex in ipairs(C_MapExplorationInfo.GetExploredMapTextures(12)) do
+    -- tex.fileDataIDs[i] -> SetTexture path; tex.offsetX/offsetY placement
+end
+```
+
+### `C_MapExplorationInfo.GetUnexploredMapTextures([areaID])`
+
+ClassicAPI extension — the complement: overlays the player has **not**
+discovered, the pieces a map-reveal addon draws over the fogged base map.
+The related [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid) returns
+*everything*. Same table shape and
+`areaID` semantics as the explored getter.
+
+### `C_MapExplorationInfo.GetExploredAreaIDsAtPosition(uiMapID, normalizedPosition)`
+
+Returns the explored areas at a point on a map, as an array of AreaTable
+IDs. Returns nil when there are none.
+
+- `uiMapID` — the map to look on.
+- `normalizedPosition` — a `CreateVector2D(x, y)` value (or a `{x = …, y
+  = …}` table). Both values go from 0 to 1 across the map.
+
+An area is at the point when its revealed map art covers the point. The
+match follows the exact shape of the art, not a rectangle around it. A
+point on bare base map gives nil, even inside the bounds of an area's art.
+When art overlaps, the most visible area comes first. Unexplored areas are
+never in the result.
+
+Use the first ID that has a name to label the map under the cursor:
+
+```lua
+local ids = C_MapExplorationInfo.GetExploredAreaIDsAtPosition(mapID, CreateVector2D(x, y))
+local name = ids and C_Map.GetAreaInfo(ids[1])
+```
+
 ## MerchantFrame
 
 The `C_MerchantFrame.*` calls and `GetBuybackItemLink` give the items
@@ -18434,72 +18557,6 @@ end
 Always returns `true`. There is no client setting to disable the
 sell-all-junk button, so the feature is always on. The function exists
 so addons that gate `SellAllJunkItems` on this don't no-op silently.
-
-## MapExplorationInfo
-
-`C_MapExplorationInfo.GetExploredMapTextures` and
-`GetUnexploredMapTextures` (ClassicAPI extension) are the
-exploration-filtered views of a zone's `WorldMapOverlay.dbc` overlays.
-Together with [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid) (which
-returns **all** overlays) they form the three-way split:
-
-| function | returns |
-|---|---|
-| `C_MapExplorationInfo.GetExploredMapTextures(areaID)` | only overlays the player has **discovered** |
-| `C_MapExplorationInfo.GetUnexploredMapTextures(areaID)` | only overlays **not** yet discovered |
-| `C_Map.GetMapOverlays(areaID)` | **all** overlays, explored or not |
-
-All three return the same per-overlay table shape (see
-`GetMapOverlays`). These two only filter it. An overlay counts as
-explored when the player has explored one of its areas. This is the same
-rule that `GetNumMapOverlays` and `GetMapOverlayInfo` use. The `areaID`
-argument works for any zone, not only the zone on the world map. With no
-argument, both functions use the current map view.
-
-### `C_MapExplorationInfo.GetExploredMapTextures([areaID])`
-
-Returns an array of
-the overlay tables for overlays the local player **has discovered** in the
-zone — same shape as [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid),
-including `fileDataIDs` (here it
-holds `SetTexture`-ready texture *paths*, since there are no numeric
-fileDataIDs). Empty before the player is resident (character select).
-
-```lua
-for _, tex in ipairs(C_MapExplorationInfo.GetExploredMapTextures(12)) do
-    -- tex.fileDataIDs[i] -> SetTexture path; tex.offsetX/offsetY placement
-end
-```
-
-### `C_MapExplorationInfo.GetUnexploredMapTextures([areaID])`
-
-ClassicAPI extension — the complement: overlays the player has **not**
-discovered, the pieces a map-reveal addon draws over the fogged base map.
-The related [`C_Map.GetMapOverlays`](#c_mapgetmapoverlaysareaid) returns
-*everything*. Same table shape and
-`areaID` semantics as the explored getter.
-
-### `C_MapExplorationInfo.GetExploredAreaIDsAtPosition(uiMapID, normalizedPosition)`
-
-Returns the explored areas at a point on a map, as an array of AreaTable
-IDs. Returns nil when there are none.
-
-- `uiMapID` — the map to look on.
-- `normalizedPosition` — a `CreateVector2D(x, y)` value (or a `{x = …, y
-  = …}` table). Both values go from 0 to 1 across the map.
-
-An area is at the point when its revealed map art covers the point. The
-match follows the exact shape of the art, not a rectangle around it. A
-point on bare base map gives nil, even inside the bounds of an area's art.
-When art overlaps, the most visible area comes first. Unexplored areas are
-never in the result.
-
-Use the first ID that has a name to label the map under the cursor:
-
-```lua
-local ids = C_MapExplorationInfo.GetExploredAreaIDsAtPosition(mapID, CreateVector2D(x, y))
-local name = ids and C_Map.GetAreaInfo(ids[1])
-```
 
 ## Model
 
@@ -18951,40 +19008,299 @@ end)
 ShowMount(MyModel, 23219) -- shows display 14332 when the data is ready
 ```
 
-## ChatBubbles
+## NameCache
 
-### `C_ChatBubbles.GetAllChatBubbles([includeForbidden])`
+GUID-keyed cache of player names and classes. The engine itself
+maintains an in-memory `NameCache` at `0x00C0E228`, populated by
+`SMSG_NAME_QUERY_RESPONSE` — but it isn't exposed to Lua,
+and it doesn't survive `/reload`. This module surfaces it as
+`GetPlayerInfoByGUID` and adds an opt-in **persistent** layer that
+survives `/reload` and full client restarts.
 
-Returns a 1-based table of the currently-active chat-bubble `Frame`
-objects (the speech bubbles above characters who `/say` or `/yell`).
-This replaces the old "iterate over `WorldFrame` children and guess
-which are bubbles" idiom — we hand you the exact set instead.
+**`C_PlayerCache.SetEnabled`** turns on the on-disk cache. It is off
+by default. Without it, the module only reads the engine's in-memory
+cache.
+
+Three sources feed the cache when it is on:
+
+1. **Name-query responses.** Every `SMSG_NAME_QUERY_RESPONSE` the
+   engine processes is copied to the cache. This covers chat,
+   group and raid sync, guild updates, and every player you can
+   see — anything the engine queries a name for.
+2. **`C_PlayerCache.RememberPlayer`** (no-op when the cache is off).
+   Lets addons add sources the engine never sees, such as `/who`
+   results.
+3. **Import on enable.** When you turn the cache on, it copies
+   every player the engine already knows from this session.
+
+When a player gets a new name, the server tells every client that is
+online. The cache then forgets the old name. If you were offline
+during the rename, the cache keeps the old name until the game gets
+the player's name again.
+
+Storage:
+
+- `WTF\Account\<account>\ClassicAPI.txt` — account-level settings
+  (`PersistentNameCacheEnabled`). The opt-in toggle stays
+  per-account.
+- `WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt` — one cache
+  file for each realm, **shared across every account on the same
+  server**. The file name has the realm name and the realmlist
+  address, so two private servers with the same realm name do not
+  share a file. Alts on different accounts use the same file. Each
+  line is one player: the GUID, the name, the realm, the class, the
+  race, and the sex, with tabs between them. The realm is empty for a
+  player on your realm. You can edit the file by hand. If you used
+  the cache before, the old file
+  (`WTF\ClassicAPI\<realmList>\<realm>\ClassicAPI_NameCache.txt`) is
+  copied into the new file the first time you log in to that realm.
+  The old file and its empty folders are deleted after the new file
+  is saved.
+
+### `GetPlayerInfoByGUID(guid)`
+
+Returns
+`localizedClass, englishClass, localizedRace, englishRace, sex, name, realm`
+for a player GUID the engine has cached, or `nil` on a cache miss.
 
 ```lua
-for _, bubble in ipairs(C_ChatBubbles.GetAllChatBubbles()) do
-    -- The spoken text lives in the bubble's FontString region.
-    for _, region in ipairs({bubble:GetRegions()}) do
-        if region.GetText and region:GetText() then
-            print(region:GetText())
-        end
+local _, class, _, race, sex, name = GetPlayerInfoByGUID(UnitGUID("target"))
+-- e.g. "WARRIOR", "NightElf", 2, "Sylphir"
+
+GetPlayerInfoByGUID("0x0000000000000777")  -- same shape for a literal GUID
+```
+
+`guid` is the `"0xHHHHHHHHLLLLLLLL"` string returned by `UnitGUID`.
+Bare 8-hex `"0xLLLLLLLL"` (hi-dword zero) is also accepted.
+
+Returns:
+
+| 1 `localizedClass` | `"Warrior"` / `"Krieger"` etc. — from `ChrClasses.dbc` indexed by locale. |
+| 2 `englishClass`   | `"WARRIOR"` (uppercase tag, the same value `UnitClass` returns as its 2nd return) — `ChrClasses.dbc` filename field. |
+| 3 `localizedRace`  | `"Human"` / `"Mensch"` / `"Humain"` etc. — from `ChrRaces.dbc` indexed by locale. |
+| 4 `englishRace`    | `"Human"`, `"Orc"`, `"Dwarf"`, `"NightElf"`, `"Scourge"` (the filename for what addons call Undead), `"Tauren"`, `"Gnome"`, `"Troll"` — from `ChrRaces.dbc` filename field. |
+| 5 `sex`            | `2` = male, `3` = female. Matches `UnitSex` convention (the cache stores `0`/`1`; we add `2`). |
+| 6 `name`           | Character name. |
+| 7 `realm`          | The realm that the server sends with the player's name, or `""` when the server sends no realm. |
+
+**Cache coverage**: the engine populates entries from
+`SMSG_NAME_QUERY_RESPONSE`. Anything the client has already seen
+populates the cache: chat (whispers, says, party chat), raid/group
+events, guild updates, visible objects (target, party, raid in
+zone). Names of offline friends never seen in chat are *not*
+cached — `GetPlayerInfoByGUID` returns `nil` for them until the
+client does something that triggers a name query. This module
+deliberately does not trigger queries from a passive getter; a
+future `C_PlayerInfo.RequestLoadPlayerByID` would do that
+explicitly and fire a load-result event.
+
+**Persistent fallback**: when
+[`C_PlayerCache.SetEnabled(true)`](#c_playercachesetenabledenabled)
+has been opted into, a per-realm on-disk cache extends coverage
+across sessions. If the engine cache does not have the player,
+`GetPlayerInfoByGUID` uses the persistent cache. It returns `name`,
+`realm`, `class`, `race`, and `sex` from storage.
+Returns `nil` only when both the engine and persistent caches miss.
+
+**Implementation**: calls the engine's get-or-fetch primitive at
+`0x0055F080` with a NULL callback (pure cache read). The cache
+instance lives at `0x00C0E228`; entry layout (name, realm, race,
+sex, class) was reverse-engineered from the
+`SMSG_NAME_QUERY_RESPONSE` write path at `0x0055F310`.
+
+### `UnitNameFromGUID(guid)`
+
+Returns `name, realm` for the player identified by `guid`, or `nil`
+if no player with that GUID has been encountered yet.
+
+It tries four sources in order:
+
+1. The object manager — any currently-synced unit (a player you can
+   see, your target, a party or raid member, an NPC in range).
+2. Your friends list — it keeps name and GUID for online and offline
+   friends, so a friend resolves even when not synced and never seen
+   in chat. Always on.
+3. The engine name cache — every player name that the client got in
+   this session, in range or not.
+4. The persistent on-disk name cache, when you have enabled it.
+
+```lua
+local name, realm = UnitNameFromGUID(UnitGUID("target"))
+if name then
+    ChatFrame1:AddMessage("Target: " .. name)
+end
+
+-- Resolving a chat link
+local name, realm = UnitNameFromGUID("0x0000000000000777")
+```
+
+`realm` is the realm that the server sends with the player's name.
+It is `""` when the server sends no realm, and when the name comes
+from your friends list. It is never `nil`, so you can test
+`realm == ""`.
+
+Doesn't trigger a network query on miss. To populate an unknown
+GUID, either let the engine receive a `SMSG_NAME_QUERY_RESPONSE`
+through normal chat/target interaction, or call
+[`C_PlayerCache.RememberPlayer`](#c_playercacherememberplayerguid-name-classtoken)
+explicitly.
+
+### `C_PlayerCache.GetPlayerInfoByName(name)`
+
+Returns
+`localizedClass, englishClass, localizedRace, englishRace, sex, name, realm, guid`
+for a player, or `nil` if the name is not known. Use it when you have a
+player's name but not the GUID. For example, a system message names a
+player in its text, and its `arg12` is `""`.
+
+```lua
+local _, class, _, race, _, _, _, guid = C_PlayerCache.GetPlayerInfoByName("Gedwyr")
+-- "MAGE", "Human", "0x000000003B9ADAA7"
+
+C_PlayerCache.GetPlayerInfoByName("NeverSeen")  -- nil (not known)
+```
+
+The function looks for the name in this order:
+
+1. Your party and raid members. This includes members that are out of
+   range or in a different zone.
+2. Players near you.
+3. Your friends list, including offline friends.
+4. Players the game knows by name in this session. For example, players
+   who sent a chat message, were in your group, or were near you. The game
+   forgets these players when you log out.
+5. The persistent NameCache, if you enabled it with
+   `C_PlayerCache.SetEnabled(true)`.
+
+Steps 1–4 work when the persistent NameCache is off.
+
+The name must be the full name. Case does not matter (`"gedwyr"`
+finds `"Gedwyr"`). A name without a realm finds a player on your
+realm. For a player from a different realm, pass `"Name-Realm"`, the
+form that chat events give for the sender. Spaces in the realm name
+do not matter. For a `"Name-Realm"` name, the function uses only
+steps 4 and 5. The `name` return is the name as the server stores
+it, without the realm, not the text you passed in.
+
+The function only finds players, never NPCs. It does not send a query
+to the server.
+
+Returns (vs. `GetPlayerInfoByGUID`):
+
+| Slot | Value | Notes |
+|------|-------|-------|
+| 1–7  | same as `GetPlayerInfoByGUID` | see above |
+| 8    | `guid` | `"0xHHHHHHHHLLLLLLLL"` — the player's full GUID, so you can pass it to GUID-keyed functions. `GetPlayerInfoByGUID` does not return it, because you already have it. |
+
+### `C_PlayerCache.RememberPlayer(guid, name, classToken)`
+
+Adds a `(guid → name, classID, raceID, sex)` entry to the persistent
+name cache. For the engine-driven coverage (chat / group / guild /
+visible objects), no addon-side feeding is needed — those flow into
+the cache automatically through the engine's
+`SMSG_NAME_QUERY_RESPONSE` write path. This call exists for the
+*other* sources libunitscan-style addons harvest from but the engine
+NameCache doesn't see directly: `/who` results, mouseover, target
+snapshots, etc.
+
+```
+C_PlayerCache.RememberPlayer(guid, name, classToken [, raceToken [, sex]])
+```
+
+Returns `true` on success, `false` if the persistent cache isn't
+enabled or the required args are malformed.
+
+When the game already has the player's data from the server in this
+session, the call keeps the server's data. It still returns `true`.
+
+- `guid` — `"0xHHHHHHHHLLLLLLLL"` string (same format `UnitGUID`
+  returns). 8-hex `"0xLLLLLLLL"` is also accepted (hi-dword zero).
+- `name` — the name of a player on your realm, or `"Name-Realm"` for
+  a player from a different realm. Names in any language work, for
+  example Chinese. The cache keeps at most 47 bytes of a name (15
+  Chinese characters) and never cuts a character in two. Tabs and
+  line breaks are removed.
+- `classToken` — uppercase token like `"WARRIOR"`, `"MAGE"`. Looked
+  up against `ChrClasses.dbc` filename field, case-insensitive.
+  Passing an unknown token keeps the entry's prior class (so a
+  name-only sighting doesn't erase good class data).
+- `raceToken` *(optional)* — uppercase token like `"NIGHTELF"`,
+  `"SCOURGE"` (the filename for Undead). Same resolution as
+  classToken, against `ChrRaces.dbc`. Omitted/unknown → leaves
+  prior race alone.
+- `sex` *(optional)* — `0` (male) or `1` (female), matching the
+  wire-format convention the engine cache stores. `UnitSex`
+  uses `2`/`3`; pass `UnitSex - 2` if you're forwarding
+  that value. Omitted/`0` → leaves prior sex alone (so this call
+  can't be used to flip a stored value back to male). The server's
+  data replaces the stored value the next time the game gets the
+  player's name.
+
+```lua
+-- Harvest /who results into the persistent cache
+local function OnWhoUpdate()
+    for i = 1, GetNumWhoResults() do
+        local name, _, _, _, class, _, _, _, _, _, _, sex = GetWhoInfo(i)
+        -- class/race come back localized from GetWhoInfo; the
+        -- locale-token tables in pfUI/AceLocale handle the
+        -- inverse mapping. RememberPlayer expects engine tokens
+        -- ("WARRIOR" etc.).
     end
 end
 ```
 
-Chat bubbles are `CGChatBubbleFrame`s — full frames the
-engine creates in C++ without ever calling `CreateFrame` (same as
-default nameplates). The returned frames are the engine's **canonical
-wrappers**: real, method-capable (`:GetRegions()`, `:IsShown()`,
-`:GetPoint()`, …), and identical to the object any other addon that
-touches the bubble sees, so decorations survive. The spoken-text
-FontString is parented to the bubble, so it shows up in
-`:GetRegions()`.
+Each non-zero field is updated on the existing entry; zeros are
+treated as "caller doesn't know" and preserve prior real data. A
+`name`-only update (classToken passed but unknown) refreshes the
+name without erasing class.
 
-`includeForbidden` is accepted for signature parity and ignored —
-there are no forbidden frames here, so every active bubble is returned
-regardless. Returns an empty table when no bubbles are showing. A
-bubble whose owner just despawned can linger for one frame before the
-engine prunes it; filter on `bubble:IsShown()` if that matters.
+The "deleted character recreated with same name, different class"
+collision case that name-keyed caches suffer from doesn't apply
+here: GUIDs are permanent for the life of a character, so
+the new character has a different GUID and replaces the old
+character's entry.
+
+### `C_PlayerCache.SetEnabled(enabled)`
+
+Opts into (or out of) the persistent name cache. `enabled` is a
+boolean (numeric `0`/`1` also accepted). Persists to
+`WTF\Account\<account>\ClassicAPI.txt` as
+`PersistentNameCacheEnabled=1`/`0`, so the choice survives
+client restarts.
+
+When enabled:
+
+- Every `SMSG_NAME_QUERY_RESPONSE` the engine processes is also
+  written to `WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt`.
+- Lua-side `C_PlayerCache.RememberPlayer` calls become effective
+  (they're no-ops when the cache is disabled).
+- `GetPlayerInfoByGUID` gains the cross-session fallback path
+  documented above.
+- Every player the engine already knows from this session is
+  copied to the cache.
+
+When disabled, the on-disk file is left in place (re-enabling later
+restores the prior contents); future writes are simply suppressed.
+
+```lua
+C_PlayerCache.SetEnabled(true)
+```
+
+Returns nothing.
+
+### `C_PlayerCache.IsEnabled()`
+
+Returns the current state of the persistent name cache as a
+boolean. `false` until
+[`SetEnabled`](#c_playercachesetenabledenabled)
+has been called (or its prior call survived in the on-disk settings
+file).
+
+```lua
+if C_PlayerCache.IsEnabled() then
+    -- persistent fallback is active for GetPlayerInfoByGUID
+end
+```
 
 ## NamePlate
 
@@ -19281,300 +19597,6 @@ A name that reads like a token is treated as the token. Call the by-name
 function directly to reach a player named `Target`.
 
 *ClassicAPI extension.*
-
-## NameCache
-
-GUID-keyed cache of player names and classes. The engine itself
-maintains an in-memory `NameCache` at `0x00C0E228`, populated by
-`SMSG_NAME_QUERY_RESPONSE` — but it isn't exposed to Lua,
-and it doesn't survive `/reload`. This module surfaces it as
-`GetPlayerInfoByGUID` and adds an opt-in **persistent** layer that
-survives `/reload` and full client restarts.
-
-**`C_PlayerCache.SetEnabled`** turns on the on-disk cache. It is off
-by default. Without it, the module only reads the engine's in-memory
-cache.
-
-Three sources feed the cache when it is on:
-
-1. **Name-query responses.** Every `SMSG_NAME_QUERY_RESPONSE` the
-   engine processes is copied to the cache. This covers chat,
-   group and raid sync, guild updates, and every player you can
-   see — anything the engine queries a name for.
-2. **`C_PlayerCache.RememberPlayer`** (no-op when the cache is off).
-   Lets addons add sources the engine never sees, such as `/who`
-   results.
-3. **Import on enable.** When you turn the cache on, it copies
-   every player the engine already knows from this session.
-
-When a player gets a new name, the server tells every client that is
-online. The cache then forgets the old name. If you were offline
-during the rename, the cache keeps the old name until the game gets
-the player's name again.
-
-Storage:
-
-- `WTF\Account\<account>\ClassicAPI.txt` — account-level settings
-  (`PersistentNameCacheEnabled`). The opt-in toggle stays
-  per-account.
-- `WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt` — one cache
-  file for each realm, **shared across every account on the same
-  server**. The file name has the realm name and the realmlist
-  address, so two private servers with the same realm name do not
-  share a file. Alts on different accounts use the same file. Each
-  line is one player: the GUID, the name, the realm, the class, the
-  race, and the sex, with tabs between them. The realm is empty for a
-  player on your realm. You can edit the file by hand. If you used
-  the cache before, the old file
-  (`WTF\ClassicAPI\<realmList>\<realm>\ClassicAPI_NameCache.txt`) is
-  copied into the new file the first time you log in to that realm.
-  The old file and its empty folders are deleted after the new file
-  is saved.
-
-### `GetPlayerInfoByGUID(guid)`
-
-Returns
-`localizedClass, englishClass, localizedRace, englishRace, sex, name, realm`
-for a player GUID the engine has cached, or `nil` on a cache miss.
-
-```lua
-local _, class, _, race, sex, name = GetPlayerInfoByGUID(UnitGUID("target"))
--- e.g. "WARRIOR", "NightElf", 2, "Sylphir"
-
-GetPlayerInfoByGUID("0x0000000000000777")  -- same shape for a literal GUID
-```
-
-`guid` is the `"0xHHHHHHHHLLLLLLLL"` string returned by `UnitGUID`.
-Bare 8-hex `"0xLLLLLLLL"` (hi-dword zero) is also accepted.
-
-Returns:
-
-| 1 `localizedClass` | `"Warrior"` / `"Krieger"` etc. — from `ChrClasses.dbc` indexed by locale. |
-| 2 `englishClass`   | `"WARRIOR"` (uppercase tag, the same value `UnitClass` returns as its 2nd return) — `ChrClasses.dbc` filename field. |
-| 3 `localizedRace`  | `"Human"` / `"Mensch"` / `"Humain"` etc. — from `ChrRaces.dbc` indexed by locale. |
-| 4 `englishRace`    | `"Human"`, `"Orc"`, `"Dwarf"`, `"NightElf"`, `"Scourge"` (the filename for what addons call Undead), `"Tauren"`, `"Gnome"`, `"Troll"` — from `ChrRaces.dbc` filename field. |
-| 5 `sex`            | `2` = male, `3` = female. Matches `UnitSex` convention (the cache stores `0`/`1`; we add `2`). |
-| 6 `name`           | Character name. |
-| 7 `realm`          | The realm that the server sends with the player's name, or `""` when the server sends no realm. |
-
-**Cache coverage**: the engine populates entries from
-`SMSG_NAME_QUERY_RESPONSE`. Anything the client has already seen
-populates the cache: chat (whispers, says, party chat), raid/group
-events, guild updates, visible objects (target, party, raid in
-zone). Names of offline friends never seen in chat are *not*
-cached — `GetPlayerInfoByGUID` returns `nil` for them until the
-client does something that triggers a name query. This module
-deliberately does not trigger queries from a passive getter; a
-future `C_PlayerInfo.RequestLoadPlayerByID` would do that
-explicitly and fire a load-result event.
-
-**Persistent fallback**: when
-[`C_PlayerCache.SetEnabled(true)`](#c_playercachesetenabledenabled)
-has been opted into, a per-realm on-disk cache extends coverage
-across sessions. If the engine cache does not have the player,
-`GetPlayerInfoByGUID` uses the persistent cache. It returns `name`,
-`realm`, `class`, `race`, and `sex` from storage.
-Returns `nil` only when both the engine and persistent caches miss.
-
-**Implementation**: calls the engine's get-or-fetch primitive at
-`0x0055F080` with a NULL callback (pure cache read). The cache
-instance lives at `0x00C0E228`; entry layout (name, realm, race,
-sex, class) was reverse-engineered from the
-`SMSG_NAME_QUERY_RESPONSE` write path at `0x0055F310`.
-
-### `UnitNameFromGUID(guid)`
-
-Returns `name, realm` for the player identified by `guid`, or `nil`
-if no player with that GUID has been encountered yet.
-
-It tries four sources in order:
-
-1. The object manager — any currently-synced unit (a player you can
-   see, your target, a party or raid member, an NPC in range).
-2. Your friends list — it keeps name and GUID for online and offline
-   friends, so a friend resolves even when not synced and never seen
-   in chat. Always on.
-3. The engine name cache — every player name that the client got in
-   this session, in range or not.
-4. The persistent on-disk name cache, when you have enabled it.
-
-```lua
-local name, realm = UnitNameFromGUID(UnitGUID("target"))
-if name then
-    ChatFrame1:AddMessage("Target: " .. name)
-end
-
--- Resolving a chat link
-local name, realm = UnitNameFromGUID("0x0000000000000777")
-```
-
-`realm` is the realm that the server sends with the player's name.
-It is `""` when the server sends no realm, and when the name comes
-from your friends list. It is never `nil`, so you can test
-`realm == ""`.
-
-Doesn't trigger a network query on miss. To populate an unknown
-GUID, either let the engine receive a `SMSG_NAME_QUERY_RESPONSE`
-through normal chat/target interaction, or call
-[`C_PlayerCache.RememberPlayer`](#c_playercacherememberplayerguid-name-classtoken)
-explicitly.
-
-### `C_PlayerCache.GetPlayerInfoByName(name)`
-
-Returns
-`localizedClass, englishClass, localizedRace, englishRace, sex, name, realm, guid`
-for a player, or `nil` if the name is not known. Use it when you have a
-player's name but not the GUID. For example, a system message names a
-player in its text, and its `arg12` is `""`.
-
-```lua
-local _, class, _, race, _, _, _, guid = C_PlayerCache.GetPlayerInfoByName("Gedwyr")
--- "MAGE", "Human", "0x000000003B9ADAA7"
-
-C_PlayerCache.GetPlayerInfoByName("NeverSeen")  -- nil (not known)
-```
-
-The function looks for the name in this order:
-
-1. Your party and raid members. This includes members that are out of
-   range or in a different zone.
-2. Players near you.
-3. Your friends list, including offline friends.
-4. Players the game knows by name in this session. For example, players
-   who sent a chat message, were in your group, or were near you. The game
-   forgets these players when you log out.
-5. The persistent NameCache, if you enabled it with
-   `C_PlayerCache.SetEnabled(true)`.
-
-Steps 1–4 work when the persistent NameCache is off.
-
-The name must be the full name. Case does not matter (`"gedwyr"`
-finds `"Gedwyr"`). A name without a realm finds a player on your
-realm. For a player from a different realm, pass `"Name-Realm"`, the
-form that chat events give for the sender. Spaces in the realm name
-do not matter. For a `"Name-Realm"` name, the function uses only
-steps 4 and 5. The `name` return is the name as the server stores
-it, without the realm, not the text you passed in.
-
-The function only finds players, never NPCs. It does not send a query
-to the server.
-
-Returns (vs. `GetPlayerInfoByGUID`):
-
-| Slot | Value | Notes |
-|------|-------|-------|
-| 1–7  | same as `GetPlayerInfoByGUID` | see above |
-| 8    | `guid` | `"0xHHHHHHHHLLLLLLLL"` — the player's full GUID, so you can pass it to GUID-keyed functions. `GetPlayerInfoByGUID` does not return it, because you already have it. |
-
-### `C_PlayerCache.RememberPlayer(guid, name, classToken)`
-
-Adds a `(guid → name, classID, raceID, sex)` entry to the persistent
-name cache. For the engine-driven coverage (chat / group / guild /
-visible objects), no addon-side feeding is needed — those flow into
-the cache automatically through the engine's
-`SMSG_NAME_QUERY_RESPONSE` write path. This call exists for the
-*other* sources libunitscan-style addons harvest from but the engine
-NameCache doesn't see directly: `/who` results, mouseover, target
-snapshots, etc.
-
-```
-C_PlayerCache.RememberPlayer(guid, name, classToken [, raceToken [, sex]])
-```
-
-Returns `true` on success, `false` if the persistent cache isn't
-enabled or the required args are malformed.
-
-When the game already has the player's data from the server in this
-session, the call keeps the server's data. It still returns `true`.
-
-- `guid` — `"0xHHHHHHHHLLLLLLLL"` string (same format `UnitGUID`
-  returns). 8-hex `"0xLLLLLLLL"` is also accepted (hi-dword zero).
-- `name` — the name of a player on your realm, or `"Name-Realm"` for
-  a player from a different realm. Names in any language work, for
-  example Chinese. The cache keeps at most 47 bytes of a name (15
-  Chinese characters) and never cuts a character in two. Tabs and
-  line breaks are removed.
-- `classToken` — uppercase token like `"WARRIOR"`, `"MAGE"`. Looked
-  up against `ChrClasses.dbc` filename field, case-insensitive.
-  Passing an unknown token keeps the entry's prior class (so a
-  name-only sighting doesn't erase good class data).
-- `raceToken` *(optional)* — uppercase token like `"NIGHTELF"`,
-  `"SCOURGE"` (the filename for Undead). Same resolution as
-  classToken, against `ChrRaces.dbc`. Omitted/unknown → leaves
-  prior race alone.
-- `sex` *(optional)* — `0` (male) or `1` (female), matching the
-  wire-format convention the engine cache stores. `UnitSex`
-  uses `2`/`3`; pass `UnitSex - 2` if you're forwarding
-  that value. Omitted/`0` → leaves prior sex alone (so this call
-  can't be used to flip a stored value back to male). The server's
-  data replaces the stored value the next time the game gets the
-  player's name.
-
-```lua
--- Harvest /who results into the persistent cache
-local function OnWhoUpdate()
-    for i = 1, GetNumWhoResults() do
-        local name, _, _, _, class, _, _, _, _, _, _, sex = GetWhoInfo(i)
-        -- class/race come back localized from GetWhoInfo; the
-        -- locale-token tables in pfUI/AceLocale handle the
-        -- inverse mapping. RememberPlayer expects engine tokens
-        -- ("WARRIOR" etc.).
-    end
-end
-```
-
-Each non-zero field is updated on the existing entry; zeros are
-treated as "caller doesn't know" and preserve prior real data. A
-`name`-only update (classToken passed but unknown) refreshes the
-name without erasing class.
-
-The "deleted character recreated with same name, different class"
-collision case that name-keyed caches suffer from doesn't apply
-here: GUIDs are permanent for the life of a character, so
-the new character has a different GUID and replaces the old
-character's entry.
-
-### `C_PlayerCache.SetEnabled(enabled)`
-
-Opts into (or out of) the persistent name cache. `enabled` is a
-boolean (numeric `0`/`1` also accepted). Persists to
-`WTF\Account\<account>\ClassicAPI.txt` as
-`PersistentNameCacheEnabled=1`/`0`, so the choice survives
-client restarts.
-
-When enabled:
-
-- Every `SMSG_NAME_QUERY_RESPONSE` the engine processes is also
-  written to `WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt`.
-- Lua-side `C_PlayerCache.RememberPlayer` calls become effective
-  (they're no-ops when the cache is disabled).
-- `GetPlayerInfoByGUID` gains the cross-session fallback path
-  documented above.
-- Every player the engine already knows from this session is
-  copied to the cache.
-
-When disabled, the on-disk file is left in place (re-enabling later
-restores the prior contents); future writes are simply suppressed.
-
-```lua
-C_PlayerCache.SetEnabled(true)
-```
-
-Returns nothing.
-
-### `C_PlayerCache.IsEnabled()`
-
-Returns the current state of the persistent name cache as a
-boolean. `false` until
-[`SetEnabled`](#c_playercachesetenabledenabled)
-has been called (or its prior call survived in the on-disk settings
-file).
-
-```lua
-if C_PlayerCache.IsEnabled() then
-    -- persistent fallback is active for GetPlayerInfoByGUID
-end
-```
 
 ## NewItems
 
@@ -19879,66 +19901,6 @@ local sex = C_PlayerInfo.GetSex(loc)
   raises (the engine's token→GUID resolver rejects it), same as passing it to
   `UnitName`/`UnitClass` directly.
 
-## PvP
-
-### `SetPVP(enable)` / `C_PvP.SetPVP(enable)`
-
-Asks the server to turn the PvP preference of the player on or off.
-
-- `enable` is `true` or a nonzero number to turn the preference on.
-- `false`, `nil` or `0` turns the preference off.
-
-The result does not depend on the current state, as it does with
-`TogglePVP()`. The new value comes back with the next update from the
-server. Then `GetPVPDesired()` returns it.
-
-### `GetPVPDesired()`
-
-Returns `true` when the player chose to stay flagged for PvP, else `false`.
-This value is the preference, not the flag. For the flag, use
-`UnitIsPVP("player")`.
-
-### `IsPVPTimerRunning()` / `GetPVPTimer()`
-
-When the player turns the PvP preference off, the PvP flag stays for five
-minutes. `IsPVPTimerRunning()` returns `true` during these five minutes.
-
-`GetPVPTimer()` returns a number of milliseconds:
-
-- While the timer runs, the time left plus 1000.
-- When the countdown is at zero but the flag stays, 999.
-- When no timer runs, 301000.
-
-```lua
-if IsPVPTimerRunning() then
-    print(format("PvP off in %d s", GetPVPTimer() / 1000))
-end
-```
-
-The timer starts only when the player turns the preference off while
-flagged. Other flags show no timer, for example the flag that stays after
-the player leaves hostile territory. PvP combat restarts the five minutes
-on the server, but not the countdown. Thus the countdown can reach zero
-before the flag goes off. The timer stops when the flag goes off, when the
-player turns the preference on, or at logout.
-
-### `PVP_TIMER_UPDATE` event
-
-Fires with `"player"` when the timer starts or stops. Then
-`IsPVPTimerRunning()` and `GetPVPTimer()` return the new values.
-
-```lua
-local f = CreateFrame("Frame")
-f:RegisterEvent("PVP_TIMER_UPDATE")
-f:SetScript("OnEvent", function()
-    if IsPVPTimerRunning() then
-        f.endTime = GetTime() + GetPVPTimer() / 1000
-    else
-        f.endTime = nil
-    end
-end)
-```
-
 ## Profiling
 
 These functions measure how much Lua memory and CPU time each addon uses.
@@ -20063,6 +20025,52 @@ it returns a hexadecimal string such as `"0x0083DE24"`.
 print(_classicapi_GcTagOf(MyAddon_Update))   -- "MyAddon"
 print(_classicapi_GcTagOf(UIParent))         -- nil
 ```
+
+## PvP
+
+### `SetPVP(enable)` / `C_PvP.SetPVP(enable)`
+
+Asks the server to turn the PvP preference of the player on or off.
+
+- `enable` is `true` or a nonzero number to turn the preference on.
+- `false`, `nil` or `0` turns the preference off.
+
+The result does not depend on the current state, as it does with
+`TogglePVP()`. The new value comes back with the next update from the
+server. Then `GetPVPDesired()` returns it.
+
+### `GetPVPDesired()`
+
+Returns `true` when the player chose to stay flagged for PvP, else `false`.
+This value is the preference, not the flag. For the flag, use
+`UnitIsPVP("player")`.
+
+### `IsPVPTimerRunning()` / `GetPVPTimer()`
+
+When the player turns the PvP preference off, the PvP flag stays for five
+minutes. `IsPVPTimerRunning()` returns `true` during these five minutes.
+
+`GetPVPTimer()` returns a number of milliseconds:
+
+- While the timer runs, the time left plus 1000.
+- When the countdown is at zero but the flag stays, 999.
+- When no timer runs, 301000.
+
+```lua
+if IsPVPTimerRunning() then
+    print(format("PvP off in %d s", GetPVPTimer() / 1000))
+end
+```
+
+The timer starts only when the player turns the preference off while
+flagged. Other flags show no timer, for example the flag that stays after
+the player leaves hostile territory. PvP combat restarts the five minutes
+on the server, but not the countdown. Thus the countdown can reach zero
+before the flag goes off. The timer stops when the flag goes off, when the
+player turns the preference on, or at logout.
+
+When the timer starts or stops, the game sends
+[`PVP_TIMER_UPDATE`](#pvp_timer_update-event).
 
 ## Quest
 
