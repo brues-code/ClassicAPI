@@ -72,18 +72,25 @@ struct State {
     uint32_t endMs = 0;
     bool active = false; // at least one reset has happened this session
     bool dirty = false;  // needs a PLAYER_SWING fire on the next WorldTick
+    bool held = false;   // the latest reset was recorded but not reported yet
 };
 State g_swing[3];
 
 // `notify` false records the server's new timer without firing PLAYER_SWING:
-// the reset is real, but no swing is coming yet (see OnSpellGo).
+// the reset is real, but no swing is coming yet (see OnSpellGo). It stays
+// `held` until the attack start reports it or a later reported reset replaces it.
 void MarkReset(SwingType type, uint32_t durationMs, bool notify = true) {
     if (durationMs == 0)
         return; // no weapon for this hand right now -- nothing to report
     State &s = g_swing[type];
     s.endMs = NowMs() + durationMs;
     s.active = true;
-    s.dirty = s.dirty || notify;
+    if (notify) {
+        s.dirty = true;
+        s.held = false;
+    } else {
+        s.held = true;
+    }
 }
 
 using HasAttackTarget_t = int(__fastcall *)(const void *unit);
@@ -410,11 +417,17 @@ void OnPacket(uint32_t opcode, CDataStore *packet) {
             auto *playerObj = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
             if (InMeleeRange(playerObj, victimObj)) {
                 MarkReset(OFF_HAND, AttackTimeMs(OFF_HAND));
-                // A cast reset made before the attack still holds the
-                // main-hand swing back; report it now that one is coming.
+                // A cast reset made before the attack is still held back;
+                // report it now that a swing is coming. Only a held reset:
+                // a target switch mid-attack also lands here, and there the
+                // main-hand swing was never reset -- re-reporting its
+                // remaining time would read as a fresh, short swing.
                 State &main = g_swing[MAIN_HAND];
-                if (main.active && Time::Clock::Remaining(NowMs(), main.endMs) > 0)
-                    main.dirty = true;
+                if (main.held) {
+                    main.held = false;
+                    if (Time::Clock::Remaining(NowMs(), main.endMs) > 0)
+                        main.dirty = true;
+                }
             }
         }
         return;
@@ -477,6 +490,7 @@ void OnWorldTick() {
         if (!s.dirty)
             continue;
         s.dirty = false;
+        s.held = false;
         if (slot < 0)
             continue;
         const uint32_t remaining = Time::Clock::Remaining(now, s.endMs);
