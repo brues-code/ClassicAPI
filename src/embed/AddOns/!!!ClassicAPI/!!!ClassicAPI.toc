@@ -1,6 +1,7 @@
 ## Interface: 11200
 ## Title: !!!ClassicAPI
 ## Notes: Library to emulate aspects of the modern WoW API on 1.12.1 / Lua 5.0.
+## Notes-ruRU: Библиотека, эмулирующая аспекты современного API WoW на 1.12.1 / Lua 5.0.
 ## Version: DEV
 ## Author: Brues
 ## X-Website: https://github.com/brues-code/ClassicAPI

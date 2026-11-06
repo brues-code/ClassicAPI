@@ -55,6 +55,7 @@
 #include "item/Location.h"
 #include "item/Record.h"
 #include "item/TypeInfo.h"
+#include "localization/Locale.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
@@ -86,12 +87,29 @@ char16_t ToLower(char16_t c) {
     return c;
 }
 
-// Appends the lowercased `c` with 4.3.4's accent folding for `locale`
-// (frFR 2, deDE 3, esES/esMX 6/7, ruRU 8); æ, œ and ß become two letters.
-// Returns the new length.
-size_t AppendFolded(int locale, char16_t c, char16_t *out, size_t n) {
-    switch (locale) {
-    case 2: // frFR
+// 4.3.4's accent-folding sets. 4.3.4 picks one by its locale index (frFR 2,
+// deDE 3, esES/esMX 6/7, ruRU 8); 1.12's index has other slots, so the set
+// is picked by locale name.
+enum class Folding { None, French, German, Spanish, Russian };
+
+Folding ClientFolding() {
+    using Localization::Locale::Is;
+    if (Is("frFR"))
+        return Folding::French;
+    if (Is("deDE"))
+        return Folding::German;
+    if (Is("esES") || Is("esMX"))
+        return Folding::Spanish;
+    if (Is("ruRU"))
+        return Folding::Russian;
+    return Folding::None;
+}
+
+// Appends the lowercased `c` with `folding`'s accent folding; æ, œ and ß
+// become two letters. Returns the new length.
+size_t AppendFolded(Folding folding, char16_t c, char16_t *out, size_t n) {
+    switch (folding) {
+    case Folding::French:
         switch (c) {
         case 0xE0: case 0xE2: case 0xE4: c = u'a'; break;
         case 0xE6: out[n++] = u'a'; c = u'e'; break;
@@ -103,14 +121,13 @@ size_t AppendFolded(int locale, char16_t c, char16_t *out, size_t n) {
         case 0xF9: case 0xFA: case 0xFB: case 0xFC: c = u'u'; break;
         }
         break;
-    case 3: // deDE
+    case Folding::German:
         if (c == 0xDF) {
             out[n++] = u's';
             c = u's';
         }
         break;
-    case 6: // esES
-    case 7: // esMX
+    case Folding::Spanish:
         switch (c) {
         case 0xE1: c = u'a'; break;
         case 0xE9: c = u'e'; break;
@@ -120,9 +137,11 @@ size_t AppendFolded(int locale, char16_t c, char16_t *out, size_t n) {
         case 0xF1: c = u'n'; break;
         }
         break;
-    case 8: // ruRU
+    case Folding::Russian:
         if (c == 0x451)
             c = 0x435;
+        break;
+    case Folding::None:
         break;
     }
     out[n++] = c;
@@ -141,11 +160,10 @@ size_t Fold(const char *text, char16_t (&out)[kFoldCap]) {
     // One unit short of the buffer: a full conversion stores no terminator.
     reinterpret_cast<Convert_t>(Offsets::FUN_SUNI_CONVERT_UTF8_TO_16)(
         wide, kFoldCap - 1, text, 0x7FFFFFFF, nullptr, nullptr);
-    const int locale =
-        *reinterpret_cast<const int *>(static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
+    const Folding folding = ClientFolding();
     size_t n = 0;
     for (size_t i = 0; wide[i] != 0 && n + 2 < kFoldCap; ++i)
-        n = AppendFolded(locale, ToLower(wide[i]), out, n);
+        n = AppendFolded(folding, ToLower(wide[i]), out, n);
     out[n] = 0;
     return n;
 }

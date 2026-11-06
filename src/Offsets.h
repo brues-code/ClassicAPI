@@ -8650,17 +8650,20 @@ enum Offsets {
     // unit-event observers. Matches nampower's `CGRaidInfo_m_raidtargets`.
     VAR_RAID_TARGET_GUIDS = 0x00B71368,
 
-    VAR_LOCALE_INDEX = 0x00C0E080,             // 0..8, picks one of the 9 localized strings
+    // 0..7: start-up stores the Wow.ini Language+Country tag's position in
+    // VAR_LOCALE_NAME_TABLE (0x402562), 0 when it matches none (enGB).
+    // Picks a DBC localized-string column. NOT 4.3.4's nine-slot locale
+    // order — language rules go by name (Localization::Locale).
+    VAR_LOCALE_INDEX = 0x00C0E080,
 
     // Locale-name string table — a parallel `const char *[8]` indexed by
     // VAR_LOCALE_INDEX, holding the exact codes `GetLocale()` returns:
-    // enUS / koKR / frFR / deDE / zhCN / zhTW / esES / xxYY. This is the
-    // source `Script_GetLocale` (FUN_0048d8b0) reads:
+    // enUS / koKR / frFR / deDE / zhCN / zhTW / esES / xxYY on a stock
+    // client. This is the source `Script_GetLocale` (FUN_0048d8b0) reads:
     //   lua_pushstring(L, (&PTR_DAT_008558a4)[DAT_00c0e080]);
-    // Verified by resolving all 8 entries from the binary. Index range is
-    // 0..7 (VAR_LOCALE_INDEX is documented 0..8, but slot 8 overreads into
-    // the string pool — clamp to 0..7 before reading). Used by the TOC
-    // `[TextLocale]` / `[AllowLoadTextLocale]` directives (AddOns::TocRewrite).
+    // and the list SetAddOnMetadata (0x51D580) matches a TOC key's
+    // `-xxXX` suffix against. Verified by resolving all 8 entries from the
+    // binary. Read through Localization::Locale::Client().
     VAR_LOCALE_NAME_TABLE = 0x008558A4,
 
     LUA_IS_NUMBER = 0x6F34D0,
