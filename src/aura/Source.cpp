@@ -1023,16 +1023,9 @@ CompressState *FindOrClaimCompressState(uint64_t targetGuid,
 // would compress it, this gate excludes it exactly as the server's does.
 // (Drain Soul passes via its effect-2 periodic damage: aura=[86,3,0].)
 bool HasPeriodicDamageOrLeech(const uint8_t *rec) {
-    if (rec == nullptr)
-        return false;
     constexpr int32_t kPeriodicDamage = 3, kPeriodicLeech = 53;
-    for (int i = 0; i < 3; ++i) {
-        const int32_t aura = *reinterpret_cast<const int32_t *>(
-            rec + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME + i * 4);
-        if (aura == kPeriodicDamage || aura == kPeriodicLeech)
-            return true;
-    }
-    return false;
+    return Spell::Lookup::HasAuraEffect(rec, kPeriodicDamage) ||
+           Spell::Lookup::HasAuraEffect(rec, kPeriodicLeech);
 }
 
 // Compression pairs by CASTER, mirroring the server (each warlock's Dark

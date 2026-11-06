@@ -21,14 +21,7 @@ namespace Spell::CrowdControl {
 const char *Classify(const uint8_t *rec) {
     if (rec == nullptr)
         return nullptr;
-    const int32_t *aura = reinterpret_cast<const int32_t *>(
-        rec + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
-    auto has = [&](int type) {
-        for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i)
-            if (aura[i] == type)
-                return true;
-        return false;
-    };
+    auto has = [rec](int type) { return Spell::Lookup::HasAuraEffect(rec, type); };
     if (has(Offsets::SPELL_AURA_MOD_POSSESS)) return "POSSESS";
     if (has(Offsets::SPELL_AURA_MOD_CHARM)) return "CHARM";
     if (has(Offsets::SPELL_AURA_MOD_STUN)) return "STUN";
@@ -50,12 +43,7 @@ bool IsCrowdControl(uint32_t spellID) {
     // slows / snares, which `Classify` (the LoC set) deliberately excludes.
     if (Classify(rec) != nullptr)
         return true;
-    const int32_t *aura = reinterpret_cast<const int32_t *>(
-        rec + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
-    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i)
-        if (aura[i] == Offsets::SPELL_AURA_MOD_DECREASE_SPEED)
-            return true;
-    return false;
+    return Spell::Lookup::HasAuraEffect(rec, Offsets::SPELL_AURA_MOD_DECREASE_SPEED);
 }
 
 } // namespace Spell::CrowdControl

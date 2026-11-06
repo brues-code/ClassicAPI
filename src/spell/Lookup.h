@@ -35,6 +35,15 @@ bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
 // SpellHasEffect. False for a null record.
 bool HasEffect(const uint8_t *spellRecord, int effect);
 
+// The index (0..2) of the first of the spell's three effects that applies
+// the aura `aura` (EffectApplyAuraName), or -1 when none does or the record
+// is null. For reading that effect's other columns (its misc value, ...).
+int FindAuraEffect(const uint8_t *spellRecord, int aura);
+
+// Whether one of the spell's three effects applies the aura `aura` —
+// 4.3.4's SpellHasAuraEffect. False for a null record.
+bool HasAuraEffect(const uint8_t *spellRecord, int aura);
+
 // Resolves a 1-based Lua-facing spellbook slot to the spellID stored
 // there. `bookType` is `0` for the player spellbook, `1` for the pet
 // spellbook (matches the engine's encoding from `Script_GetSpellName`).

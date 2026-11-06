@@ -62,6 +62,21 @@ bool HasEffect(const uint8_t *spellRecord, int effect) {
     return false;
 }
 
+int FindAuraEffect(const uint8_t *spellRecord, int aura) {
+    if (spellRecord == nullptr)
+        return -1;
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
+        if (Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME + i * 4) ==
+            aura)
+            return i;
+    }
+    return -1;
+}
+
+bool HasAuraEffect(const uint8_t *spellRecord, int aura) {
+    return FindAuraEffect(spellRecord, aura) >= 0;
+}
+
 int SpellbookSlotToID(int slot1Based, int bookType) {
     const int slot = slot1Based - 1;
     if (slot < 0 || slot >= Offsets::SPELLBOOK_MAX_SLOTS)

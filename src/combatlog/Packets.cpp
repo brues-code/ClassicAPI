@@ -55,6 +55,7 @@
 #include "aura/Data.h"
 #include "net/PacketDispatch.h"
 #include "object/Resolve.h"
+#include "spell/Lookup.h"
 #include "time/Clock.h"
 
 #include <cstdint>
@@ -501,7 +502,7 @@ const uint8_t *ShieldSpell(uint64_t owner, uint32_t school) {
         const uint8_t *spell = SpellRecord(static_cast<int>(spellId));
         if (spell == nullptr ||
             Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_SCHOOL) != school ||
-            !HasAuraEffect(spell, AURA_DAMAGE_SHIELD))
+            !Spell::Lookup::HasAuraEffect(spell, AURA_DAMAGE_SHIELD))
             continue;
         if (found != nullptr && found != spell)
             return nullptr;

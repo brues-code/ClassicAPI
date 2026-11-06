@@ -534,15 +534,11 @@ static int __fastcall Script_GetPlayerSpellsByAura(void *L) {
 
     int n = 0;
     ForEachKnownSpell([&](int spellID, const uint8_t *record) {
-        auto *auras = reinterpret_cast<const int32_t *>(
-            record + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
-        for (int e = 0; e < Offsets::SPELL_RECORD_EFFECT_COUNT; ++e) {
-            if (auras[e] == auraName) {
-                Game::Lua::PushNumber(L, static_cast<double>(++n));
-                Game::Lua::PushNumber(L, static_cast<double>(spellID));
-                Game::Lua::RawSet(L, -3);
-                break; // one entry per spell, however many effects match
-            }
+        // One entry per spell, however many effects match.
+        if (Spell::Lookup::HasAuraEffect(record, auraName)) {
+            Game::Lua::PushNumber(L, static_cast<double>(++n));
+            Game::Lua::PushNumber(L, static_cast<double>(spellID));
+            Game::Lua::RawSet(L, -3);
         }
         return true;
     });

@@ -46,16 +46,9 @@ static constexpr int32_t AURA_TRACK_STEALTHED = 151;
 // True iff `spellID`'s record has any of the three Track* effects.
 static bool IsTrackingSpell(int spellID) {
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
-    if (record == nullptr)
-        return false;
-    auto *aura = Game::Ptr<const int32_t>(
-        record, Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
-    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
-        if (aura[i] == AURA_TRACK_CREATURES || aura[i] == AURA_TRACK_RESOURCES ||
-            aura[i] == AURA_TRACK_STEALTHED)
-            return true;
-    }
-    return false;
+    return Spell::Lookup::HasAuraEffect(record, AURA_TRACK_CREATURES) ||
+           Spell::Lookup::HasAuraEffect(record, AURA_TRACK_RESOURCES) ||
+           Spell::Lookup::HasAuraEffect(record, AURA_TRACK_STEALTHED);
 }
 
 // Walks the player spellbook in slot order counting tracking spells. If
