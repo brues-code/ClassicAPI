@@ -4150,6 +4150,13 @@ enum Offsets {
     // Slot 36 of the Model and pane vtables; DressUpModel's own slot 36
     // (0x00504350) calls it first.
     FUN_SIMPLEMODEL_SET_MODEL_INSTANCE = 0x0076CD30,
+    // Every Model frame's member teardown (fastcall frame), called by the
+    // CSimpleModel deleting dtor 0x0076CA20 and CGCharacterModelBase's dtor
+    // 0x00505870 (PlayerModel, DressUpModel). It releases the frame's M2
+    // scene (+0x314), which frees the models in it even when something else
+    // still holds a reference (seen live: a kept compositor's release faulted
+    // on the freed model after /reload).
+    FUN_SIMPLEMODEL_DESTROY = 0x0076CA50,
     // The Model frame's per-paint update — `__thiscall(frame)`, slot 38.
     FUN_SIMPLEMODEL_UPDATE_MODEL = 0x0076D1A0,
 

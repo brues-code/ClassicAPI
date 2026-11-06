@@ -42,13 +42,16 @@
 //
 // The effects are children of the pane's model, so they go when the model
 // does: SetUnit, SetItem, a hide and show, and so on. A model destroyed with
-// stopped effects still on it detaches them first (0x0070E3F5).
+// stopped effects still on it detaches them first (0x0070E3F5). A stopped
+// effect is in the pane's scene, which frees it with the frame, so the pane's
+// teardown (Model::Teardown) drops our reference first.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
+#include "model/Teardown.h"
 #include "tick/FrameTick.h"
 
 #include <cstdint>
@@ -72,19 +75,25 @@ constexpr int32_t kProcAlpha = 14;
 // The ghost kit's byte scale (0x008026C8).
 constexpr float kByteScale = 1.0f / 255.0f;
 
-// Stopped one-shot effects, each with one reference of ours.
-std::vector<void *> g_stopped;
+// A stopped one-shot effect, with one reference of ours, and the pane whose
+// scene holds it.
+struct Stopped {
+    void *pane;
+    void *model;
+};
+std::vector<Stopped> g_stopped;
 
-// EffectDoneCallback's test, then CEffect::Stop's model steps.
+// EffectDoneCallback's test, then CEffect::Stop's model steps. The callback's
+// user data is the pane.
 void __fastcall OnEffectDone(void *model, uint32_t /*keyBone*/, uint32_t /*animID*/,
-                             uint32_t reason, uint32_t /*overshoot*/, uint32_t /*userLow*/,
+                             uint32_t reason, uint32_t /*overshoot*/, uint32_t userLow,
                              uint32_t /*userHigh*/) {
     if (reason != 0)
         return;
     M2::SetAnimDoneCallback(model, nullptr, 0, 0);
     M2::SetVisible(model, false);
     M2::AddRef(model);
-    g_stopped.push_back(model);
+    g_stopped.push_back({reinterpret_cast<void *>(static_cast<uintptr_t>(userLow)), model});
 }
 
 // KitEffectLoopCallback: a sequence that ended cleanly plays again.
@@ -104,23 +113,38 @@ void Discard(void *model) {
     M2::Release(model);
 }
 
-// The dying-effect drain: a stopped effect goes once its particles are gone,
-// or at once when its model has already dropped it.
-void Drain() {
+// Discards every stopped effect `done` picks.
+template <typename Pred>
+void DiscardWhere(Pred done) {
     for (size_t i = 0; i < g_stopped.size();) {
-        void *model = g_stopped[i];
-        if (Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT) != nullptr &&
-            reinterpret_cast<HasLiveParticles_t>(Offsets::FUN_M2MODEL_HAS_LIVE_PARTICLES)(model)) {
+        if (!done(g_stopped[i])) {
             ++i;
             continue;
         }
-        Discard(model);
+        Discard(g_stopped[i].model);
         g_stopped[i] = g_stopped.back();
         g_stopped.pop_back();
     }
 }
 
+// The dying-effect drain: a stopped effect goes once its particles are gone,
+// or at once when its model has already dropped it.
+void Drain() {
+    DiscardWhere([](const Stopped &e) {
+        return Game::Read<void *>(e.model, Offsets::OFF_M2MODEL_PARENT) == nullptr ||
+               !reinterpret_cast<HasLiveParticles_t>(Offsets::FUN_M2MODEL_HAS_LIVE_PARTICLES)(
+                   e.model);
+    });
+}
+
 const Tick::FrameTick::AutoSubscribe g_drain{&Drain};
+
+// The pane's scene is about to free its stopped effects.
+void OnPaneDestroyed(void *pane) {
+    DiscardWhere([pane](const Stopped &e) { return e.pane == pane; });
+}
+
+const Model::Teardown::AutoSubscribe _teardown{&OnPaneDestroyed};
 
 // The ghost kit's procedure step: kind 1 tints, kind 14 sets the alpha.
 void ApplyProcedures(void *model, const uint8_t *kit) {
@@ -157,10 +181,11 @@ void Apply(void *pane, const uint8_t *kit, bool oneShot) {
             scene, Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
         if (child == nullptr)
             continue;
-        M2::SetAnimDoneCallback(child,
-                                oneShot ? reinterpret_cast<const void *>(&OnEffectDone)
-                                        : reinterpret_cast<const void *>(&OnEffectLoop),
-                                0, 0);
+        if (oneShot)
+            M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectDone),
+                                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(pane)), 0);
+        else
+            M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
         reinterpret_cast<Attach_t>(Offsets::FUN_M2MODEL_ATTACH)(child, model, kAttachments[i]);
         M2::Release(child);
     }
@@ -207,15 +232,6 @@ void RegisterLuaFunctions() {
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
-
-// Drop every stopped effect before the reload tears the panes down.
-void PrepareForReload() {
-    for (void *model : g_stopped)
-        Discard(model);
-    g_stopped.clear();
-}
-
-const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 } // namespace
 } // namespace Model::VisualKit

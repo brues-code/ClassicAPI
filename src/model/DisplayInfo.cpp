@@ -56,6 +56,7 @@
 #include "model/DisplayInfo.h"
 #include "model/ItemDisplay.h"
 #include "model/M2.h"
+#include "model/Teardown.h"
 #include "tick/WorldTick.h"
 
 #include <cstdint>
@@ -124,6 +125,9 @@ void CancelJob(void *frame) {
     DestroyDresser(it->second.builder);
     g_jobs.erase(it);
 }
+
+// The frame's scene is about to free the model its builder holds.
+const Model::Teardown::AutoSubscribe _teardown{&CancelJob};
 
 // One WorldTick step for one job: wait for the load, then configure + feed
 // equipment, then pump until done. False once the job is dead.
@@ -268,12 +272,9 @@ void RegisterLuaFunctions() {
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
-// The reload teardown destroys every Model frame, and with it the model
-// instances the dress jobs point at: destroy their compositors first.
+// Frames are rebuilt on /reload and a new frame can reuse an old address. The
+// dress jobs are gone by now: each went with its frame (Model::Teardown).
 void PrepareForReload() {
-    for (auto &[frame, job] : g_jobs)
-        DestroyDresser(job.builder);
-    g_jobs.clear();
     g_displayRecords.clear();
 }
 

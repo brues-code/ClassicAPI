@@ -781,6 +781,12 @@ bool RunHookRegistrations();
 // issue #33, Frame::Attributes). A pure-C++ cache keyed by spellID/itemID is
 // NOT fragile and must not register.
 //
+// It runs AFTER the frames are gone: CGGameUI::Shutdown destroys every frame
+// (and each Model frame's scene with every model in it) before
+// CGGameUI::Initialize resets the Lua state. So a cleanup here only FORGETS
+// pointers; it never releases an engine object tied to a frame. Release those
+// when the frame dies (Model::Teardown for Model frames).
+//
 // Same lifetime + ordering rules as ModuleAutoRegister: static-init chaining,
 // undefined cross-TU order — fine, because each callback only clears its OWN
 // state. This is the "clear stale state" category only; a save-before-teardown
