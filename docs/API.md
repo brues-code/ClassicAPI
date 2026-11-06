@@ -25599,10 +25599,9 @@ Notes and limits:
 Returns `(classFile, classID)` — the locale-independent class
 token plus the numeric classID. The token is one of
 `"WARRIOR"`, `"PALADIN"`, `"HUNTER"`, `"ROGUE"`, `"PRIEST"`,
-`"SHAMAN"`, `"MAGE"`, `"WARLOCK"`, `"DRUID"`; the classID matches
-the integer `UnitClass`'s third return surfaces (1=Warrior,
-2=Paladin, 3=Hunter, 4=Rogue, 5=Priest, 7=Shaman, 8=Mage,
-9=Warlock, 11=Druid — 6 and 10 are unused here).
+`"SHAMAN"`, `"MAGE"`, `"WARLOCK"`, `"DRUID"`. The classID is
+1=Warrior, 2=Paladin, 3=Hunter, 4=Rogue, 5=Priest, 7=Shaman,
+8=Mage, 9=Warlock, 11=Druid. IDs 6 and 10 are not used.
 
 ```lua
 local token, id = UnitClassBase("player")    -- "WARRIOR", 1
@@ -25610,29 +25609,27 @@ local token = UnitClassBase("target")        -- works for any synced unit
 local color = RAID_CLASS_COLORS[UnitClassBase("party1")]
 ```
 
-Addons use the token for class detection because the
-`UnitClass(unit)` returns a localized first return (e.g.
-`"Krieger"` on a German client), which is fine for display but
-breaks any addon code that keys on `if class == "WARRIOR"`. The
-classID second return is a ClassicAPI extension — the standard
-`UnitClassBase` returns the token only — but it saves callers
-from chaining `UnitClass(unit)` just to get the integer.
+Use the token for class checks. The first return of
+`UnitClass(unit)` is localized (for example, `"Krieger"` on a
+German client). It is good for display, but a check such as
+`if class == "WARRIOR"` fails on other locales. The classID is a
+ClassicAPI extension: the standard `UnitClassBase` returns only
+the token.
 
-Reads the class byte from `UNIT_FIELD_BYTES_0` (descriptor `+0x79`,
-the same byte `UnitClass`'s general-token path reads) and looks up
-the english filename at `ChrClasses.dbc::Filename` (record `+0x38`).
-Both fields are broadcast / static, so remote players' class is
-current regardless of distance.
+`UnitClassBase` finds the unit and its class the same way as
+`UnitClass`, so the two functions always agree:
+- `"player"` gives a result before the player is in the world
+  (for example, during addon load).
+- Party and raid members that are out of range give a result if
+  the client has their name data.
+- Creatures give the same class as `UnitClass` gives for them.
 
-Returns `(nil, nil)` for:
-- `target` with no current target, empty `partyN` / `raidN` slots,
-  or units whose descriptor isn't loaded yet
-- creatures and other non-player units (their class byte indexes a
-  different table; the class-byte lookup naturally returns nil for
-  out-of-range / zero values)
+Returns `(nil, nil)` when `UnitClass` returns `(nil, nil)`. For
+example, `"target"` with no target, or an empty `partyN` / `raidN`
+slot.
 
-Throws a Lua error on missing / non-string `unit` argument — same
-shape as `UnitClass` itself.
+Throws a Lua error if `unit` is missing or is not a string, the
+same as `UnitClass`.
 
 ### `UnitRaceBase(unit)`
 
@@ -25646,14 +25643,17 @@ local token, id = UnitRaceBase("player")    -- "Human", 1
 local token = UnitRaceBase("target")        -- works for any synced unit
 ```
 
-Sibling to [`UnitClassBase`](#unitclassbaseunit). Same problem
-(the `UnitRace(unit)` returns a localized name — `"Mensch"`,
-`"Orc"`, etc.); same solution (locale-independent token straight
-from the DBC). Reads byte 0 of `UNIT_FIELD_BYTES_0` (descriptor
-`+0x78`) and looks up `ChrRaces.dbc::Filename` (`+0x3C`).
+Use the token for race checks. The first return of
+`UnitRace(unit)` is localized (for example, `"Mensch"` on a German
+client).
 
-Returns `(nil, nil)` for unresolvable units and non-player units
-(creature race bytes don't index `ChrRaces.dbc`).
+`UnitRaceBase` finds the unit and its race the same way as
+`UnitRace`, so the two functions always agree. The notes for
+[`UnitClassBase`](#unitclassbaseunit) about `"player"`,
+out-of-range group members and creatures also apply here.
+
+Returns `(nil, nil)` when `UnitRace` returns `(nil, nil)`. Throws a
+Lua error if `unit` is missing or is not a string.
 
 ### `ClosestUnitPosition(creatureID)`
 
