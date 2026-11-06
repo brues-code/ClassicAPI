@@ -3345,6 +3345,19 @@ enum Offsets {
     CALL_CAST_CHECK_TARGET_RANGE = 0x006E4F26,
     FUN_SPELL_TARGET_ARM = 0x006E5250,
     CALL_CAST_TARGET_ARM = 0x006E5038,
+    // SendCast — `void __fastcall(void *pendingCast /*ecx*/, uint8_t flag
+    // /*dl*/)`, plain ret: builds and sends CMSG_CAST_SPELL / CMSG_USE_ITEM /
+    // CMSG_PET_CAST_SPELL (4.3.4's Spell_C_SendPendingCast). Its five callers
+    // (xrefs) all pass the global pending cast (`mov ecx,0xCEAC48`): the
+    // target arm's two immediate sends, and the object / location / trade-
+    // slot binders the targeting cursor's click also runs. The arm's one
+    // caller is the cast request, after the caster check.
+    FUN_SPELL_SEND_CAST = 0x006E54F0,
+    CALL_TARGET_ARM_SEND_CAST = 0x006E5349,
+    CALL_TARGET_ARM_SEND_CAST_GUID = 0x006E5467,
+    CALL_BIND_TARGET_OBJECT_SEND_CAST = 0x006E60D7,
+    CALL_BIND_TARGET_LOCATION_SEND_CAST = 0x006E6177,
+    CALL_BIND_TARGET_TRADE_SLOT_SEND_CAST = 0x006E694F,
     // GetSpellHostility — `int __thiscall(const uint8_t *record)`: 2 harmful,
     // 1 helpful, 0 neither, from the Targets word and the implicit targets
     // (benilla-re spell/handlers#hostility-classifier).
@@ -3445,6 +3458,16 @@ enum Offsets {
     // 0x005D9139); the stock 1.12.1 exe reaches it.
     SITE_ITEM_USE_FORM_REFUSAL = 0x005D914D,
     ITEM_USE_FORM_PASSED = 0x005D9157,
+    // Past the form test, the item use's toggle test (4.3.4 runs it before
+    // the form cancel): a use spell with an activeIconID whose aura is on
+    // the player is cancelled instead of cast, `mov ecx,[ebp-0xC]` (spell)
+    // then CALL_ITEM_USE_TOGGLE_CANCEL → FUN_CANCEL_AURA_SEND, return 0.
+    // Every other path joins at SITE_ITEM_USE_BIND_TEST, the bind-on-use
+    // test: `mov ecx,[ebp-8]; cmp dword [ecx+0x194],3` (8B 4D F8 83 B9 94
+    // 01 00 00 03), then `jne`. There EDI = the spell (read after), EBX and
+    // EBP live; EAX, ECX, EDX are reloaded before use (disassembled).
+    CALL_ITEM_USE_TOGGLE_CANCEL = 0x005D9237,
+    SITE_ITEM_USE_BIND_TEST = 0x005D91D3,
     // The mount reads in 4.3.4's CGUnit_C::CanAttackNow, inlined in 1.12
     // (each followed by `test; jg refuse`):
     //   the unit right-click's attack step (8B 82 FC 01 00 00), player ESI,

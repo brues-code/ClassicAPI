@@ -19,8 +19,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "aura/Data.h"
-#include "spell/Lookup.h"
+#include "spell/Cancel.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -28,8 +27,6 @@
 namespace Unit::State {
 
 namespace {
-
-using CancelAuraSend_t = void(__fastcall *)(int spellID);
 
 // `FUN_UNIT_IS_OUTDOORS(unit) -> uint`, nonzero = outdoors (see Offsets.h).
 // The thunk tail-jumps into the WMO query, so eax carries the result even
@@ -62,34 +59,6 @@ uint32_t MountDisplayID(const uint8_t *desc) {
         desc + Offsets::OFF_UNIT_FIELD_MOUNTDISPLAYID);
 }
 
-// Scans the player's helpful-aura (buff) slots for the first spell whose
-// Spell.dbc record lists `auraEffect` (a `SPELL_AURA_*` code) in any of
-// its three effect slots, and returns that spellID (0 if none). Used by
-// `Dismount` to find the active mount aura to cancel — the engine's
-// `CMSG_CANCEL_AURA` needs the spellID, not a slot index.
-uint32_t FindPlayerBuffWithEffect(int auraEffect) {
-    auto *player = Unit::Identity::PlayerObject();
-    if (player == nullptr)
-        return 0;
-
-    for (int slot = 0; slot < Offsets::UNIT_AURA_BUFF_COUNT; ++slot) {
-        if (!Aura::Data::IsSlotPopulated(player, slot))
-            continue;
-        const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
-        const uint8_t *record = Spell::Lookup::RecordForID(static_cast<int>(spellID));
-        if (record == nullptr)
-            continue;
-
-        auto *auraTypes = reinterpret_cast<const int32_t *>(
-            record + Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME);
-        for (int eff = 0; eff < Offsets::SPELL_RECORD_EFFECT_COUNT; ++eff) {
-            if (auraTypes[eff] == auraEffect)
-                return spellID;
-        }
-    }
-    return 0;
-}
-
 // `IsMounted()` — true iff the player is currently mounted. Reads
 // `UNIT_FIELD_MOUNTDISPLAYID` from the descriptor; non-zero means
 // the engine is rendering a mount under the player.
@@ -99,28 +68,18 @@ int __fastcall Script_IsMounted(void *L) {
     return 1;
 }
 
-// `Dismount()` — drops the player's current mount. Walks the buff
-// range scanning for a spell with `SPELL_AURA_MOUNTED` (`78`) in any
-// effect slot, then sends `CMSG_CANCEL_AURA` for that spellID via
-// the same direct sender `CancelSpellByID` uses.
+// `Dismount()` — drops the player's current mount: CMSG_CANCEL_AURA for
+// the buff that applies `SPELL_AURA_MOUNTED`, the same dismount the
+// autoDismount cvar uses (1.12 has no CMSG_CANCEL_MOUNT_AURA).
 //
 // Vanilla 1.12 doesn't ship `Dismount` or any equivalent; mods that
 // wanted programmatic dismount had to call `CancelPlayerBuff` on the
 // right buff index by walking `GetPlayerBuff` themselves.
 //
-// No-op if the player isn't mounted (early-outs on the
-// `UNIT_FIELD_MOUNTDISPLAYID` check before walking auras).
+// No-op if the player isn't mounted.
 int __fastcall Script_Dismount(void *L) {
-    auto *desc = Unit::Identity::PlayerDescriptor();
-    if (MountDisplayID(desc) == 0)
-        return 0;
-
-    const uint32_t spellID = FindPlayerBuffWithEffect(Offsets::SPELL_AURA_MOUNTED);
-    if (spellID != 0) {
-        auto fn = reinterpret_cast<CancelAuraSend_t>(
-            static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND));
-        fn(static_cast<int>(spellID));
-    }
+    if (MountDisplayID(Unit::Identity::PlayerDescriptor()) != 0)
+        Spell::Cancel::CancelPlayerAura(Offsets::SPELL_AURA_MOUNTED);
     return 0;
 }
 

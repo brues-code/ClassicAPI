@@ -29,8 +29,11 @@
 //     auto action is allowed, noting it as pending;
 //   - both calls to the form check (caster check and FUN_SPELL_IS_USABLE)
 //     pass a SPELL_FAILED_NOT_SHAPESHIFT refusal when CanAutoUnshift holds;
-//   - the cast request's one call of the caster check runs the pending
-//     actions when it passes, before the request sends the cast.
+//   - the cast request's one call of the caster check keeps the pending
+//     actions when it passes, and the send of the pending cast runs them.
+//     1.12's request checks the caster before it arms the targets, so the
+//     actions wait for the send, as in 4.3.4: a cast with no target, or a
+//     targeting cursor the player cancels, does not stand or dismount.
 // The actions are the engine's own: the stand setter, and CMSG_CANCEL_AURA
 // for the mount / form aura (1.12 has no CMSG_CANCEL_MOUNT_AURA; cancelling
 // the mount aura is how its own UI dismounts). The server applies the
@@ -55,6 +58,13 @@
 //     so they get the same step. A locked object (a chest, a vein) opens by
 //     a spell whose cast passes the caster check above.
 //
+// 4.3.4's mount-in-form step (the cast path's and CGItem_C::Use's
+// CancelShapeshiftForMount, for a SPELL_AURA_MOUNTED spell when
+// !CanCurrentFormMount) needs no site of its own: 482 of 1.12's 484 mount
+// spells carry SPELL_ATTR_NOT_SHAPESHIFT, so the form check refuses them
+// with SPELL_FAILED_NOT_SHAPESHIFT and the form rung above unshifts; an item
+// reaches the same rung through its cast.
+//
 // The remaining 4.3.4 sites:
 //   - loot (autoStand): CGUnit_C / CGCorpse_C::OnRightClick stand up in
 //     place of ERR_LOOT_NOTSTANDING. 1.12's two loot steps read the stand
@@ -64,7 +74,10 @@
 //     step skips a mounted player, so its read passes, and 1.12's LootUnit
 //     dismounts at the same point. A corpse is not looted mounted in either.
 //   - item use (autoUnshift): CGItem_C::Use leaves the form in place of
-//     ERR_NO_ITEMS_WHILE_SHAPESHIFTED; we do that at 1.12's refusal.
+//     ERR_NO_ITEMS_WHILE_SHAPESHIFTED, after its toggle test (an item
+//     whose aura is up only turns it off). 1.12 tests the toggle after the
+//     form, so its refusal passes and the form is left at the next test,
+//     the bind-on-use one, where 4.3.4 has it.
 //   - attack (autoDismount): CanAttackNow (the attack cursor, the right-click
 //     attack) and VerifyAttackIconPressed (ERR_ATTACK_MOUNTED) pass a mount
 //     when CanAutoDismount holds; CombatModeEnter then dismounts in melee
@@ -87,6 +100,7 @@
 #include "unit/Identity.h"
 
 #include <cstdint>
+#include <initializer_list>
 
 namespace Spell::AutoPrepare {
 
@@ -110,6 +124,31 @@ uintptr_t g_itemUseFormPassed = Offsets::ITEM_USE_FORM_PASSED;
 uintptr_t g_startAttackReturn = Offsets::START_ATTACK_RETURN;
 
 constexpr int kGetStandStateSlot = 0xA4 / 4;
+
+// The instructions the sites replace, by name: the mount reads
+// (`mov dst,[base+0x1FC]`) and the GetStandState calls (`call [base+0xA4]`).
+constexpr uint8_t kMovEaxEcxMount[6] = {0x8B, 0x81, 0xFC, 0x01, 0x00, 0x00};
+constexpr uint8_t kMovEaxEdxMount[6] = {0x8B, 0x82, 0xFC, 0x01, 0x00, 0x00};
+constexpr uint8_t kMovEcxEaxMount[6] = {0x8B, 0x88, 0xFC, 0x01, 0x00, 0x00};
+constexpr uint8_t kMovEdxEaxMount[6] = {0x8B, 0x90, 0xFC, 0x01, 0x00, 0x00};
+constexpr uint8_t kMovEdxEcxMount[6] = {0x8B, 0x91, 0xFC, 0x01, 0x00, 0x00};
+constexpr uint8_t kCallEaxStandState[6] = {0xFF, 0x90, 0xA4, 0x00, 0x00, 0x00};
+constexpr uint8_t kCallEdxStandState[6] = {0xFF, 0x92, 0xA4, 0x00, 0x00, 0x00};
+
+// Common::ReplaceWithCall / RedirectCall / RedirectSlot, taking the hook
+// as a typed function.
+template <size_t N, typename Fn>
+bool Replace(uintptr_t site, const uint8_t (&original)[N], Fn *target) {
+    return Common::ReplaceWithCall(site, original, N, reinterpret_cast<const void *>(target));
+}
+
+template <typename Fn> bool Redirect(uintptr_t site, uintptr_t expected, Fn *target) {
+    return Common::RedirectCall(site, expected, reinterpret_cast<const void *>(target));
+}
+
+template <typename Fn> bool RedirectSlot(uintptr_t slot, uintptr_t expected, Fn *target) {
+    return Common::RedirectSlot(slot, expected, reinterpret_cast<const void *>(target));
+}
 
 CVar::Factory::Handle g_autoStand = nullptr;
 CVar::Factory::Handle g_autoDismount = nullptr;
@@ -141,6 +180,15 @@ int Form(const void *unit) {
     return (Game::Read<uint32_t>(Fields(unit), Offsets::OFF_UNIT_FIELD_BYTES_1) >> 16) & 0xFF;
 }
 
+// The unit's SpellShapeshiftForm row's flags; a form with no row reads as 0.
+uint32_t FormFlags(const void *unit) {
+    const uint8_t *form = DBC::Record(Offsets::VAR_SPELL_SHAPESHIFT_FORM_RECORDS,
+                                      Offsets::VAR_SPELL_SHAPESHIFT_FORM_COUNT,
+                                      static_cast<uint32_t>(Form(unit)));
+    return form != nullptr ? Game::Read<uint32_t>(form, Offsets::OFF_SPELL_SHAPESHIFT_FORM_FLAGS)
+                           : 0;
+}
+
 bool Enabled(CVar::Factory::Handle cvar) { return CVar::Factory::GetInt(cvar) != 0; }
 
 // 4.3.4 CGUnit_C::CanAutoStand.
@@ -154,14 +202,8 @@ bool CanAutoDismount(const void *unit) {
 
 // 4.3.4 CGUnit_C::CanAutoUnshift.
 bool CanAutoUnshift(const void *unit) {
-    if (!IsActivePlayer(unit) || OnTaxi(unit) || !Enabled(g_autoUnshift))
-        return false;
-    const uint8_t *form = DBC::Record(Offsets::VAR_SPELL_SHAPESHIFT_FORM_RECORDS,
-                                      Offsets::VAR_SPELL_SHAPESHIFT_FORM_COUNT,
-                                      static_cast<uint32_t>(Form(unit)));
-    return form == nullptr ||
-           (Game::Read<uint32_t>(form, Offsets::OFF_SPELL_SHAPESHIFT_FORM_FLAGS) &
-            Offsets::SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT) == 0;
+    return IsActivePlayer(unit) && !OnTaxi(unit) && Enabled(g_autoUnshift) &&
+           (FormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT) == 0;
 }
 
 int StandState(const void *unit) {
@@ -173,6 +215,12 @@ int StandState(const void *unit) {
 int MountDisplay(const void *unit) {
     return Game::Read<int>(Fields(unit), Offsets::OFF_UNIT_FIELD_MOUNTDISPLAYID);
 }
+
+// 4.3.4's pairing at every site: the state holds and its CanAuto* allows
+// the action.
+bool AutoStands(const void *unit) { return StandState(unit) != 0 && CanAutoStand(unit); }
+
+bool AutoDismounts(const void *unit) { return MountDisplay(unit) > 0 && CanAutoDismount(unit); }
 
 // The engine's actions: the stand setter, and CMSG_CANCEL_AURA for the
 // mount / form aura.
@@ -193,12 +241,7 @@ char IsShapeShifted(const void *unit) {
 // The gates' test after IsShapeShifted: a form with no row, or one
 // without the interact flag.
 bool FormBlocksInteraction(const void *unit) {
-    const uint8_t *form = DBC::Record(Offsets::VAR_SPELL_SHAPESHIFT_FORM_RECORDS,
-                                      Offsets::VAR_SPELL_SHAPESHIFT_FORM_COUNT,
-                                      static_cast<uint32_t>(Form(unit)));
-    return form == nullptr ||
-           (Game::Read<uint32_t>(form, Offsets::OFF_SPELL_SHAPESHIFT_FORM_FLAGS) &
-            Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT) == 0;
+    return (FormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT) == 0;
 }
 
 // True when the gate would refuse and autoUnshift takes the form off instead.
@@ -227,8 +270,7 @@ char __fastcall IsShapeShiftedForQuery(const void *player) {
 // use, a loot, an attack): the mount display, or 0 when the action that
 // follows dismounts first.
 int __fastcall MountDisplayForAction(const void *player) {
-    const int display = MountDisplay(player);
-    return display > 0 && CanAutoDismount(player) ? 0 : display;
+    return AutoDismounts(player) ? 0 : MountDisplay(player);
 }
 
 // Stands in for `mov ecx,[eax+0x1FC]` at SITE_GAMEOBJECT_CAN_USE_MOUNT_READ,
@@ -283,17 +325,16 @@ __declspec(naked) void ResolverMountReadThunk() {
 // The loot steps' GetStandState call (ECX = the player): stands the player
 // up and reports 0 when autoStand allows, as 4.3.4's OnRightClick does.
 int __fastcall StandStateForLoot(const void *player) {
-    const int state = StandState(player);
-    if (state != 0 && CanAutoStand(player)) {
+    if (AutoStands(player)) {
         Stand(player);
         return 0;
     }
-    return state;
+    return StandState(player);
 }
 
 // LootUnit before CMSG_LOOT: 4.3.4's dismount.
 void __fastcall DismountForLoot(const void *player) {
-    if (MountDisplay(player) > 0 && CanAutoDismount(player))
+    if (AutoDismounts(player))
         Dismount();
 }
 
@@ -313,13 +354,17 @@ __declspec(naked) void LootSendThunk() {
     }
 }
 
-// The item use's form refusal: leaves the form and lets the use go on when
-// autoUnshift allows.
+// Set at the item use's form refusal when autoUnshift lets the use go on;
+// the bind-on-use test runs the unshift, the toggle cancel drops it. Every
+// path past the form test reaches one of the two.
+bool g_itemUnshift = false;
+
+// The item use's form refusal: lets the use go on when autoUnshift allows.
+// The form is left later, at 4.3.4's point: past the toggle test, so an
+// item whose aura is up is only turned off, as 4.3.4 does it.
 bool __fastcall UnshiftForItem(const void *player) {
-    if (!CanAutoUnshift(player))
-        return false;
-    CancelForm(player);
-    return true;
+    g_itemUnshift = CanAutoUnshift(player);
+    return g_itemUnshift;
 }
 
 // Stands in for `push 0x15E` at SITE_ITEM_USE_FORM_REFUSAL, player in ESI:
@@ -341,11 +386,39 @@ __declspec(naked) void ItemFormRefusalThunk() {
     }
 }
 
+// The toggle test's cancel: the use turns the aura off and casts nothing,
+// so the form stays.
+void __fastcall ItemToggleCancel(int spellId) {
+    g_itemUnshift = false;
+    reinterpret_cast<void(__fastcall *)(int)>(Offsets::FUN_CANCEL_AURA_SEND)(spellId);
+}
+
+// Before the bind-on-use test: 4.3.4 CGItem_C::Use's form cancel.
+void UnshiftBeforeItemBind() {
+    if (!g_itemUnshift)
+        return;
+    g_itemUnshift = false;
+    if (const void *player = Unit::Identity::PlayerObject())
+        CancelForm(player);
+}
+
+// Stands in for `mov ecx,[ebp-8]; cmp dword [ecx+0x194],3` at
+// SITE_ITEM_USE_BIND_TEST: the unshift, then the replaced code, whose flags
+// the `jne` after the return reads. The call keeps EBX, ESI, EDI and EBP.
+__declspec(naked) void ItemBindTestThunk() {
+    __asm {
+        call UnshiftBeforeItemBind
+        mov ecx, [ebp - 8]
+        cmp dword ptr [ecx + 0x194], 3
+        ret
+    }
+}
+
 // StartAttack past its tests: 4.3.4 CombatModeEnter's dismount, in melee
 // reach only; out of reach it does not attack, and shows ERR_OUT_OF_RANGE
 // unless click-to-move is walking the player there (4.3.4's `silent`).
 bool __fastcall PrepareAttack(const void *player, void *target) {
-    if (MountDisplay(player) <= 0 || !CanAutoDismount(player))
+    if (!AutoDismounts(player))
         return true;
     if (!Combat::Swing::InMeleeRange(const_cast<void *>(player), target)) {
         if (!reinterpret_cast<CanAutoInteract_t>(Offsets::FUN_PLAYER_CAN_AUTO_INTERACT)(player))
@@ -384,10 +457,12 @@ void __fastcall TaxiMapOpenedTutorial(int id, int arg) {
     const void *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return;
-    if (StandState(player) != 0 && CanAutoStand(player))
+    if (AutoStands(player))
         Stand(player);
-    if (MountDisplay(player) > 0 && CanAutoDismount(player))
+    if (AutoDismounts(player))
         Dismount();
+    // 4.3.4's IsCancelShapeshiftAtFlightMaster adds forms with flag 0x800,
+    // which no 1.12 SpellShapeshiftForm row carries.
     if (IsShapeShifted(player) && CanAutoUnshift(player))
         CancelForm(player);
 }
@@ -400,7 +475,7 @@ void __fastcall PrepareObjectUse(const void *handler) {
         return;
     const uint8_t *object =
         Game::Read<const uint8_t *>(handler, Offsets::OFF_GAMEOBJECT_HANDLER_OBJECT);
-    if (MountDisplay(player) > 0 && CanAutoDismount(player) &&
+    if (AutoDismounts(player) &&
         !reinterpret_cast<UsableMounted_t>(Offsets::FUN_GAMEOBJECT_USABLE_MOUNTED)(
             object + Offsets::OFF_GAMEOBJECT_DESCRIPTOR))
         Dismount();
@@ -433,12 +508,11 @@ char __fastcall TextUse(void *handler) {
 // The mount rung's read: the mount display, or 0 when the cast will
 // dismount first.
 int __fastcall MountDisplayForCast(const void *caster) {
-    const int display = MountDisplay(caster);
-    if (display > 0 && CanAutoDismount(caster)) {
+    if (AutoDismounts(caster)) {
         g_pending.dismount = true;
         return 0;
     }
-    return display;
+    return MountDisplay(caster);
 }
 
 // Stands in for `mov edx,[ecx+0x1FC]` at SITE_CASTER_STATE_MOUNT_READ. The
@@ -459,12 +533,11 @@ __declspec(naked) void MountReadThunk() {
 // SITE_CASTER_STATE_STAND_CALL, caster in ECX: the stand state, or 0 when
 // the cast will stand first.
 int __fastcall StandStateForCast(const void *caster) {
-    const int state = StandState(caster);
-    if (state != 0 && CanAutoStand(caster)) {
+    if (AutoStands(caster)) {
         g_pending.stand = true;
         return 0;
     }
-    return state;
+    return StandState(caster);
 }
 
 char CheckForm(void *unit, const uint8_t *record, int *reason) {
@@ -489,23 +562,36 @@ char __fastcall CheckFormForUsable(void *unit, void *, const uint8_t *record, in
     return *reason == Offsets::SPELL_FAILED_NOT_SHAPESHIFT && CanAutoUnshift(unit);
 }
 
-// The cast request's call of the caster check. 4.3.4's order: stand,
-// dismount, then leave the form.
+// The cast request's call of the caster check: a passed check keeps what its
+// rungs noted for the send; a refused one drops it.
 char __fastcall CheckCasterState(void *caster, void *, const uint8_t *record, void *item) {
     g_pending = {};
     const char passed = reinterpret_cast<CheckCasterState_t>(
         Offsets::FUN_CHECK_CASTER_STATE_FOR_SPELL)(caster, nullptr, record, item);
+    if (!passed)
+        g_pending = {};
+    return passed;
+}
+
+// The pending cast's send (4.3.4's Spell_C_SendPendingCast): stand, dismount,
+// then leave the form, in that order, before the packet. Here, past the
+// target arm, a cast that finds no target ("You have no target") or whose
+// targeting cursor is cancelled has not dismounted. The rungs note only for
+// the active player; each action runs only while its state still holds, as
+// the cursor can be up while the player stands, dismounts or leaves the form.
+void __fastcall SendCast(void *pendingCast, uint8_t flag) {
     const Pending pending = g_pending;
     g_pending = {};
-    if (!passed)
-        return 0;
-    if (pending.stand)
-        Stand(caster);
-    if (pending.dismount)
-        Dismount();
-    if (pending.unshift)
-        CancelForm(caster);
-    return 1;
+    if (const void *player = Unit::Identity::PlayerObject()) {
+        if (pending.stand && StandState(player) != 0)
+            Stand(player);
+        if (pending.dismount && MountDisplay(player) > 0)
+            Dismount();
+        if (pending.unshift && Form(player) != 0)
+            CancelForm(player);
+    }
+    reinterpret_cast<void(__fastcall *)(void *, uint8_t)>(Offsets::FUN_SPELL_SEND_CAST)(
+        pendingCast, flag);
 }
 
 void Register() {
@@ -519,101 +605,75 @@ void Register() {
     // Interaction. The use check passes the mount and form only together
     // with the step at every use; without it the object would be used still
     // mounted or shifted.
-    Common::RedirectCall(Offsets::CALL_NPC_INTERACT_IS_SHAPESHIFTED,
-                         Offsets::FUN_UNIT_IS_SHAPESHIFTED,
-                         reinterpret_cast<const void *>(&IsShapeShiftedForTalk));
+    Redirect(Offsets::CALL_NPC_INTERACT_IS_SHAPESHIFTED, Offsets::FUN_UNIT_IS_SHAPESHIFTED,
+             &IsShapeShiftedForTalk);
     static const uint8_t kUseSend[5] = {0xBF, 0xE4, 0xF9, 0x7F, 0x00};
-    if (Common::ReplaceWithCall(Offsets::SITE_GAMEOBJECT_USE_SEND, kUseSend, sizeof kUseSend,
-                                reinterpret_cast<const void *>(&UseSendThunk)) &&
-        Common::RedirectSlot(Offsets::SLOT_GAMEOBJECT_MAILBOX_USE,
-                             Offsets::FUN_GAMEOBJECT_MAILBOX_USE,
-                             reinterpret_cast<const void *>(&MailboxUse)) &&
-        Common::RedirectSlot(Offsets::SLOT_GAMEOBJECT_TEXT_USE, Offsets::FUN_GAMEOBJECT_TEXT_USE,
-                             reinterpret_cast<const void *>(&TextUse))) {
-        static const uint8_t kUseMountRead[6] = {0x8B, 0x88, 0xFC, 0x01, 0x00, 0x00};
-        Common::ReplaceWithCall(Offsets::SITE_GAMEOBJECT_CAN_USE_MOUNT_READ, kUseMountRead,
-                                sizeof kUseMountRead,
-                                reinterpret_cast<const void *>(&UseMountReadThunk));
-        Common::RedirectCall(Offsets::CALL_GAMEOBJECT_CAN_USE_IS_SHAPESHIFTED,
-                             Offsets::FUN_UNIT_IS_SHAPESHIFTED,
-                             reinterpret_cast<const void *>(&IsShapeShiftedForQuery));
+    if (Replace(Offsets::SITE_GAMEOBJECT_USE_SEND, kUseSend, &UseSendThunk) &&
+        RedirectSlot(Offsets::SLOT_GAMEOBJECT_MAILBOX_USE, Offsets::FUN_GAMEOBJECT_MAILBOX_USE,
+                     &MailboxUse) &&
+        RedirectSlot(Offsets::SLOT_GAMEOBJECT_TEXT_USE, Offsets::FUN_GAMEOBJECT_TEXT_USE,
+                     &TextUse)) {
+        Replace(Offsets::SITE_GAMEOBJECT_CAN_USE_MOUNT_READ, kMovEcxEaxMount, &UseMountReadThunk);
+        Redirect(Offsets::CALL_GAMEOBJECT_CAN_USE_IS_SHAPESHIFTED,
+                 Offsets::FUN_UNIT_IS_SHAPESHIFTED, &IsShapeShiftedForQuery);
     }
-    Common::RedirectCall(Offsets::CALL_UNIT_CAN_INTERACT_NOW_IS_SHAPESHIFTED,
-                         Offsets::FUN_UNIT_IS_SHAPESHIFTED,
-                         reinterpret_cast<const void *>(&IsShapeShiftedForQuery));
+    Redirect(Offsets::CALL_UNIT_CAN_INTERACT_NOW_IS_SHAPESHIFTED,
+             Offsets::FUN_UNIT_IS_SHAPESHIFTED, &IsShapeShiftedForQuery);
 
     // Loot. The loot step passes the mount only together with LootUnit's
     // dismount.
-    static const uint8_t kUnitStandCall[6] = {0xFF, 0x90, 0xA4, 0x00, 0x00, 0x00};
-    static const uint8_t kCorpseStandCall[6] = {0xFF, 0x92, 0xA4, 0x00, 0x00, 0x00};
-    Common::ReplaceWithCall(Offsets::SITE_UNIT_LOOT_STAND_CALL, kUnitStandCall,
-                            sizeof kUnitStandCall,
-                            reinterpret_cast<const void *>(&StandStateForLoot));
-    Common::ReplaceWithCall(Offsets::SITE_CORPSE_LOOT_STAND_CALL, kCorpseStandCall,
-                            sizeof kCorpseStandCall,
-                            reinterpret_cast<const void *>(&StandStateForLoot));
+    Replace(Offsets::SITE_UNIT_LOOT_STAND_CALL, kCallEaxStandState, &StandStateForLoot);
+    Replace(Offsets::SITE_CORPSE_LOOT_STAND_CALL, kCallEdxStandState, &StandStateForLoot);
     static const uint8_t kLootSend[6] = {0x6A, 0x00, 0x32, 0xD2, 0xB1, 0x01};
-    static const uint8_t kLootMountRead[6] = {0x8B, 0x81, 0xFC, 0x01, 0x00, 0x00};
-    if (Common::ReplaceWithCall(Offsets::SITE_LOOT_UNIT_SEND, kLootSend, sizeof kLootSend,
-                                reinterpret_cast<const void *>(&LootSendThunk)))
-        Common::ReplaceWithCall(Offsets::SITE_UNIT_LOOT_MOUNT_READ, kLootMountRead,
-                                sizeof kLootMountRead,
-                                reinterpret_cast<const void *>(&MountReadEsiThunk));
+    if (Replace(Offsets::SITE_LOOT_UNIT_SEND, kLootSend, &LootSendThunk))
+        Replace(Offsets::SITE_UNIT_LOOT_MOUNT_READ, kMovEaxEcxMount, &MountReadEsiThunk);
 
-    // Item use.
+    // Item use. The refusal passes only together with the unshift after the
+    // toggle test; without it the item would be used still shifted.
+    static const uint8_t kItemBindTest[10] = {0x8B, 0x4D, 0xF8, 0x83, 0xB9,
+                                              0x94, 0x01, 0x00, 0x00, 0x03};
     static const uint8_t kItemFormRefusal[5] = {0x68, 0x5E, 0x01, 0x00, 0x00};
-    Common::ReplaceWithCall(Offsets::SITE_ITEM_USE_FORM_REFUSAL, kItemFormRefusal,
-                            sizeof kItemFormRefusal,
-                            reinterpret_cast<const void *>(&ItemFormRefusalThunk));
+    if (Redirect(Offsets::CALL_ITEM_USE_TOGGLE_CANCEL, Offsets::FUN_CANCEL_AURA_SEND,
+                 &ItemToggleCancel) &&
+        Replace(Offsets::SITE_ITEM_USE_BIND_TEST, kItemBindTest, &ItemBindTestThunk))
+        Replace(Offsets::SITE_ITEM_USE_FORM_REFUSAL, kItemFormRefusal, &ItemFormRefusalThunk);
 
     // Attack. The mount reads pass only together with StartAttack's
     // dismount; without it the attack would start mounted.
     static const uint8_t kStartAttackPassed[6] = {0x8B, 0x86, 0x8C, 0x0C, 0x00, 0x00};
-    if (Common::ReplaceWithCall(Offsets::SITE_START_ATTACK_PASSED, kStartAttackPassed,
-                                sizeof kStartAttackPassed,
-                                reinterpret_cast<const void *>(&StartAttackPassedThunk))) {
-        static const uint8_t kEdxMountRead[6] = {0x8B, 0x82, 0xFC, 0x01, 0x00, 0x00};
-        static const uint8_t kEcxMountRead[6] = {0x8B, 0x81, 0xFC, 0x01, 0x00, 0x00};
-        static const uint8_t kEaxMountReadToEdx[6] = {0x8B, 0x90, 0xFC, 0x01, 0x00, 0x00};
-        Common::ReplaceWithCall(Offsets::SITE_START_ATTACK_MOUNT_READ, kEcxMountRead,
-                                sizeof kEcxMountRead,
-                                reinterpret_cast<const void *>(&MountReadEsiThunk));
-        Common::ReplaceWithCall(Offsets::SITE_RIGHT_CLICK_ATTACK_MOUNT_READ, kEdxMountRead,
-                                sizeof kEdxMountRead,
-                                reinterpret_cast<const void *>(&MountReadEsiThunk));
-        Common::ReplaceWithCall(Offsets::SITE_CURSOR_ATTACK_MOUNT_READ, kEdxMountRead,
-                                sizeof kEdxMountRead,
-                                reinterpret_cast<const void *>(&MountReadEdiThunk));
-        Common::ReplaceWithCall(Offsets::SITE_ATTACK_RESOLVER_MOUNT_READ, kEcxMountRead,
-                                sizeof kEcxMountRead,
-                                reinterpret_cast<const void *>(&MountReadEdiThunk));
-        Common::ReplaceWithCall(Offsets::SITE_ATTACK_RESOLVER_CAN_ATTACK_MOUNT_READ,
-                                kEaxMountReadToEdx, sizeof kEaxMountReadToEdx,
-                                reinterpret_cast<const void *>(&ResolverMountReadThunk));
+    if (Replace(Offsets::SITE_START_ATTACK_PASSED, kStartAttackPassed, &StartAttackPassedThunk)) {
+        Replace(Offsets::SITE_START_ATTACK_MOUNT_READ, kMovEaxEcxMount, &MountReadEsiThunk);
+        Replace(Offsets::SITE_RIGHT_CLICK_ATTACK_MOUNT_READ, kMovEaxEdxMount, &MountReadEsiThunk);
+        Replace(Offsets::SITE_CURSOR_ATTACK_MOUNT_READ, kMovEaxEdxMount, &MountReadEdiThunk);
+        Replace(Offsets::SITE_ATTACK_RESOLVER_MOUNT_READ, kMovEaxEcxMount, &MountReadEdiThunk);
+        Replace(Offsets::SITE_ATTACK_RESOLVER_CAN_ATTACK_MOUNT_READ, kMovEdxEaxMount,
+                &ResolverMountReadThunk);
     }
 
     // Taxi.
-    Common::RedirectCall(Offsets::CALL_TAXI_MAP_OPENED_TUTORIAL, Offsets::FUN_TRIGGER_TUTORIAL,
-                         reinterpret_cast<const void *>(&TaxiMapOpenedTutorial));
+    Redirect(Offsets::CALL_TAXI_MAP_OPENED_TUTORIAL, Offsets::FUN_TRIGGER_TUTORIAL,
+             &TaxiMapOpenedTutorial);
 
-    // The rungs only note what to do; the caster-check call runs it. Without
-    // that call a passed rung would send the cast still mounted or seated.
-    if (!Common::RedirectCall(Offsets::CALL_TRY_CAST_CHECK_CASTER_STATE,
-                              Offsets::FUN_CHECK_CASTER_STATE_FOR_SPELL,
-                              reinterpret_cast<const void *>(&CheckCasterState)))
+    // The rungs only note what to do; the caster-check call keeps it and
+    // every send runs it. Without all of them a passed rung would send the
+    // cast still mounted or seated. A send with nothing noted is the
+    // original send, so sites redirected before a miss are harmless.
+    for (const uintptr_t site :
+         {Offsets::CALL_TARGET_ARM_SEND_CAST, Offsets::CALL_TARGET_ARM_SEND_CAST_GUID,
+          Offsets::CALL_BIND_TARGET_OBJECT_SEND_CAST, Offsets::CALL_BIND_TARGET_LOCATION_SEND_CAST,
+          Offsets::CALL_BIND_TARGET_TRADE_SLOT_SEND_CAST}) {
+        if (!Redirect(site, Offsets::FUN_SPELL_SEND_CAST, &SendCast))
+            return;
+    }
+    if (!Redirect(Offsets::CALL_TRY_CAST_CHECK_CASTER_STATE,
+                  Offsets::FUN_CHECK_CASTER_STATE_FOR_SPELL, &CheckCasterState))
         return;
-    static const uint8_t kMountRead[6] = {0x8B, 0x91, 0xFC, 0x01, 0x00, 0x00};
-    static const uint8_t kStandCall[6] = {0xFF, 0x92, 0xA4, 0x00, 0x00, 0x00};
-    Common::ReplaceWithCall(Offsets::SITE_CASTER_STATE_MOUNT_READ, kMountRead,
-                            sizeof kMountRead, reinterpret_cast<const void *>(&MountReadThunk));
-    Common::ReplaceWithCall(Offsets::SITE_CASTER_STATE_STAND_CALL, kStandCall,
-                            sizeof kStandCall, reinterpret_cast<const void *>(&StandStateForCast));
-    if (Common::RedirectCall(Offsets::CALL_CASTER_STATE_SHAPESHIFT_FORM,
-                             Offsets::FUN_CHECK_SPELL_SHAPESHIFT_FORM,
-                             reinterpret_cast<const void *>(&CheckFormForCast)))
-        Common::RedirectCall(Offsets::CALL_SPELL_USABLE_SHAPESHIFT_FORM,
-                             Offsets::FUN_CHECK_SPELL_SHAPESHIFT_FORM,
-                             reinterpret_cast<const void *>(&CheckFormForUsable));
+    Replace(Offsets::SITE_CASTER_STATE_MOUNT_READ, kMovEdxEcxMount, &MountReadThunk);
+    Replace(Offsets::SITE_CASTER_STATE_STAND_CALL, kCallEdxStandState, &StandStateForCast);
+    if (Redirect(Offsets::CALL_CASTER_STATE_SHAPESHIFT_FORM,
+                 Offsets::FUN_CHECK_SPELL_SHAPESHIFT_FORM, &CheckFormForCast))
+        Redirect(Offsets::CALL_SPELL_USABLE_SHAPESHIFT_FORM,
+                 Offsets::FUN_CHECK_SPELL_SHAPESHIFT_FORM, &CheckFormForUsable);
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

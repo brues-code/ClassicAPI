@@ -22486,8 +22486,10 @@ the usual error.
 | `autoDismount` | If you are mounted, you dismount. |
 | `autoUnshift` | If the spell fails with "You are in shapeshift form", you leave the form. |
 
-Each action occurs only when nothing else blocks the cast. `autoDismount` and
-`autoUnshift` do nothing on a flight path.
+Each action occurs only when nothing else blocks the cast. For example, if the
+spell needs a target and you have none, you stay mounted. If the spell shows
+the targeting cursor, the action occurs when you select the target. `autoDismount`
+and `autoUnshift` do nothing on a flight path.
 
 When `autoUnshift` is `1`, an action button stays usable in a form that the
 cast can leave. For example, Healing Touch in Bear Form and Renew in
