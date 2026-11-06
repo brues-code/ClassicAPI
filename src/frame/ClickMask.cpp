@@ -102,8 +102,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_methods);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

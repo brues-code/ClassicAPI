@@ -526,9 +526,7 @@ void RegisterLuaFunctions() {
         {"SetTotem", &Script_GameTooltipSetTotem},
     };
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
-        kTooltipMethods,
-        static_cast<int>(sizeof(kTooltipMethods) / sizeof(kTooltipMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), kTooltipMethods);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -537,8 +537,7 @@ const Game::Lua::FrameMethodEntry g_textureMethods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods,
-        static_cast<int>(sizeof(g_textureMethods) / sizeof(g_textureMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods);
 
     Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasInfo", &Script_GetAtlasInfo);
     Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasExists", &Script_GetAtlasExists);

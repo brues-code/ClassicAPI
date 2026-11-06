@@ -104,8 +104,8 @@ const Game::Doc::Function kDoc{"Sets which mouse buttons run the OnMouseDown and
 const Game::Doc::Method kDocs[] = {{"RegisterForMouse", &kDoc}};
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), kMethods, 1,
-                                    kDocs, 1);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), kMethods, kDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

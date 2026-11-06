@@ -438,10 +438,8 @@ static const Game::Doc::Method g_methodDocs[] = {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
-        g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])), g_methodDocs,
-        static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

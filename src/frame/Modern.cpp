@@ -569,26 +569,15 @@ const Game::Lua::FrameMethodEntry g_fontStringMethods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY),
-        g_regionMethods,
-        static_cast<int>(sizeof(g_regionMethods) / sizeof(g_regionMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_regionMethods);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY),
-        g_frameMethods,
-        static_cast<int>(sizeof(g_frameMethods) / sizeof(g_frameMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY),
-        g_buttonMethods,
-        static_cast<int>(sizeof(g_buttonMethods) / sizeof(g_buttonMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_buttonMethods);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY),
-        g_textureMethods,
-        static_cast<int>(sizeof(g_textureMethods) / sizeof(g_textureMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY),
-        g_fontStringMethods,
-        static_cast<int>(sizeof(g_fontStringMethods) /
-                         sizeof(g_fontStringMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

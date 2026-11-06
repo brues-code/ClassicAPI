@@ -359,8 +359,7 @@ const Game::Doc::Method g_methodDocs[] = {
 
 void RegisterLuaFunctions() {
     Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_STATUSBAR_METHOD_REGISTRY), g_methods,
-                              static_cast<int>(std::size(g_methods)), g_methodDocs,
-                              static_cast<int>(std::size(g_methodDocs)));
+                              g_methodDocs);
     Lua::RegisterIntegerEnum("Enum", "StatusBarTimerDirection", kDirectionEntries,
                              static_cast<int>(std::size(kDirectionEntries)), "SimpleStatusBarConstants");
     Lua::RegisterIntegerEnum("Enum", "StatusBarInterpolation", kInterpolationEntries,

@@ -181,8 +181,8 @@ const Game::Doc::Method kHtmlDocs[] = {
     {"GetIndentedWordWrap", &kHtmlGet},
 };
 
-template <typename P> void Register(uintptr_t registry, const Game::Doc::Method *docs) {
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(registry), P::methods, 2, docs, 2);
+template <typename P> void Register(uintptr_t registry, Game::Doc::MethodList docs) {
+    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(registry), P::methods, docs);
 }
 
 // A font string takes the bit from its font only when its settable mask

@@ -166,8 +166,9 @@ void RegisterLuaFunctions() {
     void *L = Game::Lua::State();
     Game::Lua::SetGlobalNumber(L, "SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP", kInsertModeTop);
     Game::Lua::SetGlobalNumber(L, "SCROLLING_MESSAGE_FRAME_INSERT_MODE_BOTTOM", kInsertModeBottom);
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
-                                    kMethods, 2, kDocs, 2);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY), kMethods,
+        kDocs);
     Common::RedirectCall(Offsets::CALL_SMF_LAYOUT_ANCHOR_LINE, Offsets::FUN_REGION_SET_POINT,
                          reinterpret_cast<const void *>(&AnchorNewLine));
 }

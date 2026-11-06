@@ -560,9 +560,8 @@ void RegisterLuaFunctions() {
     RegisterClass(Anim::s_rotationClass);
     RegisterClass(Anim::s_pathClass);
     RegisterClass(ControlPoint::s_class);
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), kRegionMethods,
-                                    static_cast<int>(sizeof(kRegionMethods) / sizeof(kRegionMethods[0])),
-                                    kRegionDocs, static_cast<int>(sizeof(kRegionDocs) / sizeof(kRegionDocs[0])));
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), kRegionMethods, kRegionDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

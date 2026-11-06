@@ -168,8 +168,9 @@ const Game::Doc::Method kDocs[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
-                                    kMethods, 1, kDocs, 1);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY), kMethods,
+        kDocs);
     // Every way to the put-off layout first; the writer's layout is put off
     // only when they all hold.
     const bool flushes =

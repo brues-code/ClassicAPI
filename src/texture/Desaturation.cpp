@@ -468,8 +468,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
     Game::Lua::RegisterGlobalFunction("IsDesaturateSupported", &Script_IsDesaturateSupported,
                                       &kIsDesaturateSupported);
     Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationInfo", &Script_DesaturationInfo);

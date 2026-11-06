@@ -108,10 +108,11 @@ const Game::Doc::Method kFontStringDocs[] = {{"SetFormattedText", &kFontStringDo
 const Game::Doc::Method kButtonDocs[] = {{"SetFormattedText", &kButtonDoc}};
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY),
-                                    kFontStringMethods, 1, kFontStringDocs, 1);
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), kButtonMethods,
-                                    1, kButtonDocs, 1);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), kFontStringMethods,
+        kFontStringDocs);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), kButtonMethods, kButtonDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

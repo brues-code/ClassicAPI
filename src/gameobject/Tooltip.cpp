@@ -126,9 +126,7 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY),
-        g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

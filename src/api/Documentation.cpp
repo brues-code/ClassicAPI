@@ -665,10 +665,15 @@ void RecordTable(const char *table, const char *name, const Function *doc) {
     Record(KIND_TABLE, table, name, nullptr, doc);
 }
 
-void RecordFrameMethods(const void *registry, const Game::Lua::FrameMethodEntry *table,
-                        int count, const Method *docs, int docCount) {
+void RecordFrameMethods(const void *registry,
+                        Game::ArrayRef<Game::Lua::FrameMethodEntry> methods,
+                        Game::Doc::MethodList docList) {
     if (g_pass == ENV_NONE)
         return;
+    const Game::Lua::FrameMethodEntry *table = methods.data;
+    const int count = methods.count;
+    const Method *docs = docList.data;
+    const int docCount = docList.count;
     for (int i = 0; i < count; ++i) {
         const Function *doc = nullptr;
         for (int d = 0; d < docCount; ++d) {

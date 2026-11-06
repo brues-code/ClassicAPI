@@ -351,8 +351,7 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
-        static_cast<int>(sizeof(g_frameMethods) / sizeof(g_frameMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods);
 }
 
 // Frames survive /reload but the engine rebuilds the event table with empty

@@ -49,8 +49,8 @@ const Game::Doc::Function kDoc{"Enables or disables the button, as Enable() or D
 const Game::Doc::Method kDocs[] = {{"SetEnabled", &kDoc}};
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), kMethods, 1,
-                                    kDocs, 1);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), kMethods, kDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

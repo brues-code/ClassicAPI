@@ -1588,9 +1588,7 @@ void RegisterLuaFunctions() {
     reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(
         "Cooldown", &CreateCooldown, 0);
     Api::Documentation::NameWidgetSystem(g_hash, "FrameAPICooldown");
-    Game::Lua::RegisterFrameMethods(
-        g_hash, g_methods, static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])),
-        g_methodDocs, static_cast<int>(sizeof(g_methodDocs) / sizeof(g_methodDocs[0])));
+    Game::Lua::RegisterFrameMethods(g_hash, g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

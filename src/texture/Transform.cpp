@@ -719,11 +719,9 @@ const Game::Lua::FrameMethodEntry g_fontStringMethods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods,
-        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods,
-        static_cast<int>(sizeof(g_fontStringMethods) / sizeof(g_fontStringMethods[0])));
+        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods);
     // The UPPER_LEFT_VERTEX / … constants that VertexSlot maps are defined
     // FrameXML-style in the embedded addon's Util/Constants.lua, not here.
 }

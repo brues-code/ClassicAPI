@@ -95,8 +95,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 void RegisterLuaFunctions() {
     for (const uintptr_t registry : {static_cast<uintptr_t>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
                                      static_cast<uintptr_t>(Offsets::VAR_SIMPLEHTML_METHOD_REGISTRY)}) {
-        Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(registry), g_methods,
-                                        static_cast<int>(sizeof(g_methods) / sizeof(g_methods[0])));
+        Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(registry), g_methods);
     }
 }
 

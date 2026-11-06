@@ -108,12 +108,9 @@ const Game::Doc::Method g_frameDocs[] = {
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_regionMethods,
-        static_cast<int>(sizeof(g_regionMethods) / sizeof(g_regionMethods[0])), g_regionDocs,
-        static_cast<int>(sizeof(g_regionDocs) / sizeof(g_regionDocs[0])));
+        g_regionDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
-        static_cast<int>(sizeof(g_frameMethods) / sizeof(g_frameMethods[0])), g_frameDocs,
-        static_cast<int>(sizeof(g_frameDocs) / sizeof(g_frameDocs[0])));
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods, g_frameDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

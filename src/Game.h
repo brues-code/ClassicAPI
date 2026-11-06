@@ -147,6 +147,18 @@ int StrCmpI(const char *a, const char *b, int n = 0x7FFFFFFF);
 //     literals + file-scope arrays): no heap, no dynamic init.
 //   - Summaries are user-facing text: one sentence, plain words, present
 //     tense, no patch versions.
+
+// A view over a file-scope `const T[]` that takes its count from the array's
+// type, so no call site passes one; `{}` means none.
+template <typename T>
+struct ArrayRef {
+    const T *data = nullptr;
+    int count = 0;
+    constexpr ArrayRef() = default;
+    template <size_t N>
+    constexpr ArrayRef(const T (&a)[N]) : data(a), count(static_cast<int>(N)) {}
+};
+
 namespace Doc {
 
 struct Field {
@@ -172,14 +184,7 @@ constexpr Field Vararg(const char *type, const char *doc = nullptr) {
     return {"...", type, true, nullptr, doc};
 }
 
-// A view over a file-scope `const Field[]`; `{}` means none.
-struct FieldList {
-    const Field *data = nullptr;
-    int count = 0;
-    constexpr FieldList() = default;
-    template <size_t N>
-    constexpr FieldList(const Field (&a)[N]) : data(a), count(static_cast<int>(N)) {}
-};
+using FieldList = ArrayRef<Field>;
 
 // A registered function. Positional init: `{summary, args, rets}` for a
 // table function, `{summary, args, rets, "XGlobals"}` for a global, and
@@ -200,6 +205,7 @@ struct Method {
     const char *name;
     const Function *doc;
 };
+using MethodList = ArrayRef<Method>;
 
 // A table shape a function returns or accepts → `Tables{Type="Structure"}`
 // in `system`. Self-registering: nothing binds a structure to Lua, so it
@@ -527,10 +533,11 @@ struct FrameMethodEntry {
 
 // Registers a batch of methods on a per-frame-type registry (e.g.
 // GameTooltipMethodRegistry for `tooltip:Foo()` calls). `context` is the
-// registry address — see Offsets::VAR_*_METHOD_REGISTRY. `docs` pairs
-// descriptors to the entries by NAME (any order, any subset).
-void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count,
-                          const Doc::Method *docs = nullptr, int docCount = 0);
+// registry address — see Offsets::VAR_*_METHOD_REGISTRY. `methods` and
+// `docs` are file-scope arrays; `docs` pairs descriptors to the entries by
+// NAME (any order, any subset).
+void RegisterFrameMethods(void *context, ArrayRef<FrameMethodEntry> methods,
+                          Doc::MethodList docs = {});
 
 // Registers `func` at `_G[tableName][methodName]`, creating the namespace
 // table if it doesn't already exist. This is how modern WoW C_*-style APIs

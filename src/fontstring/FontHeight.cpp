@@ -144,10 +144,11 @@ const Game::Doc::Method kFontDocs[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY),
-                                    kFontStringMethods, 2, kFontStringDocs, 2);
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_FONT_METHOD_REGISTRY), kFontMethods,
-                                    2, kFontDocs, 2);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), kFontStringMethods,
+        kFontStringDocs);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_FONT_METHOD_REGISTRY), kFontMethods, kFontDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

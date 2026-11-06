@@ -564,8 +564,9 @@ const Game::Doc::Method kDocs[] = {
 void RegisterLuaFunctions() {
     // Each registration pass is a new Lua state; the old state's ref is gone.
     g_extrasRef = kNoRef;
-    Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
-                                    kMethods, 4, kDocs, 4);
+    Game::Lua::RegisterFrameMethods(
+        reinterpret_cast<void *>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY), kMethods,
+        kDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

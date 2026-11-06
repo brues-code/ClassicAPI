@@ -367,11 +367,11 @@ void RegisterGlueFunction(const char *name, CFunction func, const Doc::Function 
     Api::Documentation::RecordGlobal(name, doc);
 }
 
-void RegisterFrameMethods(void *context, const FrameMethodEntry *table, int count,
-                          const Doc::Method *docs, int docCount) {
+void RegisterFrameMethods(void *context, ArrayRef<FrameMethodEntry> methods,
+                          Doc::MethodList docs) {
     auto fn = reinterpret_cast<RegisterFrameMethods_t>(Offsets::FUN_REGISTER_FRAME_METHODS);
-    fn(table, count, context);
-    Api::Documentation::RecordFrameMethods(context, table, count, docs, docCount);
+    fn(methods.data, methods.count, context);
+    Api::Documentation::RecordFrameMethods(context, methods, docs);
 }
 
 // Registers `func` at `_G[tableName][methodName]`. If the namespace
