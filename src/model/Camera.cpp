@@ -41,6 +41,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "model/M2.h"
 
 #include <cmath>
 #include <cstdint>
@@ -55,19 +56,13 @@ struct Settings {
 };
 std::unordered_map<void *, Settings> g_settings;
 
-using GetVector_t = void(__fastcall *)(void *camera, uint32_t id, float *out);
 using GetScalar_t = float(__fastcall *)(void *camera, uint32_t id);
 using SetVector_t = void(__fastcall *)(void *camera, uint32_t id, const float *value,
                                        uint32_t keep);
 using SetScalar_t = void(__fastcall *)(void *camera, uint32_t id, float value);
 using GetCameraCount_t = uint32_t(__thiscall *)(void *model);
 using GetCamera_t = void *(__thiscall *)(void *model, uint32_t index);
-using LookupIndex_t = uint16_t(__fastcall *)(uint32_t id, const void *table);
-using SetAnimated_t = void(__thiscall *)(void *model, int animated);
-using GetScene_t = void *(__thiscall *)(void *frame);
-using SceneAnimate_t = void(__thiscall *)(void *scene, const float *cameraPos);
 using UpdateModel_t = void(__thiscall *)(void *frame);
-using ModelLoaded_t = int(__thiscall *)(void *model, int tryLoad, int recurseChildren);
 using ConfigureCamera_t = void(__thiscall *)(void *pane);
 
 } // namespace
@@ -76,26 +71,20 @@ using ConfigureCamera_t = void(__thiscall *)(void *pane);
 void *CameraById(void *model, uint32_t id) {
     const uint32_t count =
         reinterpret_cast<GetCameraCount_t>(Offsets::FUN_M2MODEL_GET_CAMERA_COUNT)(model);
-    const uint8_t *data = Game::Read<const uint8_t *>(
-        Game::Read<const uint8_t *>(model, Offsets::OFF_M2MODEL_SHARED), Offsets::OFF_M2SHARED_DATA);
-    const uint16_t index = reinterpret_cast<LookupIndex_t>(Offsets::FUN_M2_LOOKUP_INDEX)(
-        id, data + Offsets::OFF_M2DATA_CAMERA_ID_LOOKUP);
+    const uint16_t index = M2::LookupIndex(model, Offsets::OFF_M2DATA_CAMERA_ID_LOOKUP, id);
     if (index >= count)
         return nullptr;
     return reinterpret_cast<GetCamera_t>(Offsets::FUN_M2MODEL_GET_CAMERA)(model, index);
 }
 
-namespace {
-
-struct Vec3 {
-    float x, y, z;
-};
-
 Vec3 GetVector(void *camera, uint32_t id) {
+    using Fn = void(__fastcall *)(void *camera, uint32_t id, float *out);
     Vec3 v{};
-    reinterpret_cast<GetVector_t>(Offsets::FUN_CAMERA_GET_VECTOR)(camera, id, &v.x);
+    reinterpret_cast<Fn>(Offsets::FUN_CAMERA_GET_VECTOR)(camera, id, &v.x);
     return v;
 }
+
+namespace {
 
 void SetVector(void *camera, uint32_t id, const Vec3 &v) {
     reinterpret_cast<SetVector_t>(Offsets::FUN_CAMERA_SET_VECTOR)(camera, id, &v.x, 0);
@@ -117,10 +106,9 @@ void AnimateUnrotated(void *pane, void *model) {
     facing = 0.0f;
     const void *vtable = Game::Read<const void *>(pane, 0);
     Game::Read<UpdateModel_t>(vtable, Offsets::VTBL_SIMPLEMODEL_UPDATE_MODEL)(pane);
-    reinterpret_cast<SetAnimated_t>(Offsets::FUN_M2MODEL_SET_ANIMATED)(model, 1);
+    M2::SetAnimated(model, true);
     const float origin[3] = {0.0f, 0.0f, 0.0f};
-    void *scene = reinterpret_cast<GetScene_t>(Offsets::FUN_SIMPLEMODEL_GET_SCENE)(pane);
-    reinterpret_cast<SceneAnimate_t>(Offsets::FUN_M2SCENE_ANIMATE)(scene, origin);
+    M2::AnimateScene(Pane::Scene(pane), origin);
     facing = saved;
 }
 
@@ -131,7 +119,7 @@ Vec3 Lerp(const Vec3 &from, const Vec3 &to, float t) {
 
 // 4.3.4 ConfigureCamera's last two steps, on the camera vanilla installed.
 void ApplySettings(void *pane, const Settings &s) {
-    void *model = Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
+    void *model = Pane::Model(pane);
     void *camera = Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODEL_CAMERA);
     if (model == nullptr || camera == nullptr)
         return;
@@ -190,19 +178,14 @@ const Game::HookAutoRegister _cameraHook{
 // be loaded: ConfigureCamera reads its cameras and bounds, and an unloaded
 // model is configured by the ready hook when it arrives, settings included.
 void Reconfigure(void *pane) {
-    void *model = Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
-    if (model == nullptr ||
-        !reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(model, 0, 0))
+    void *model = Pane::Model(pane);
+    if (model == nullptr || !M2::IsLoaded(model, 0, 0))
         return;
     reinterpret_cast<ConfigureCamera_t>(Offsets::FUN_PLAYERMODEL_CONFIGURE_CAMERA)(pane);
 }
 
-void *ResolvePane(void *L) {
-    return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
-}
-
 int __fastcall Script_SetPortraitZoom(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
@@ -219,7 +202,7 @@ int __fastcall Script_SetPortraitZoom(void *L) {
 }
 
 int __fastcall Script_SetCamDistanceScale(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
@@ -241,7 +224,7 @@ int __fastcall Script_SetCamDistanceScale(void *L) {
 }
 
 int __fastcall Script_RefreshCamera(void *L) {
-    if (void *pane = ResolvePane(L))
+    if (void *pane = Game::Lua::ResolvePlayerModel(L))
         Reconfigure(pane);
     return 0;
 }

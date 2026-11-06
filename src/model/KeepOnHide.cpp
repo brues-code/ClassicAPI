@@ -30,6 +30,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "model/M2.h"
 
 #include <cstdint>
 #include <unordered_set>
@@ -40,7 +41,6 @@ namespace {
 using PaneFn_t = void(__thiscall *)(void *pane);
 using SetUnitGuid_t = void(__thiscall *)(void *pane, uint64_t guid);
 using SetDisplay_t = void(__thiscall *)(void *pane, const uint8_t *record);
-using SetModelInstance_t = void(__thiscall *)(void *pane, void *model);
 
 PaneFn_t g_origHide = nullptr;
 PaneFn_t g_origShow = nullptr;
@@ -53,19 +53,16 @@ bool Keeps(void *pane) {
     return g_keeping.count(pane) != 0;
 }
 
-bool HasModel(void *pane) {
-    return Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE) != nullptr;
-}
-
-// The pane Hide's own drop: slot 36 with null.
-void DropModel(void *pane) {
-    Game::Read<SetModelInstance_t>(Game::Read<const void *>(pane, 0),
-                                   Offsets::VTBL_SIMPLEMODEL_SET_MODEL_INSTANCE)(pane, nullptr);
+// Hide's own drop (slot 36 with null), for a hidden pane still holding a
+// model.
+void DropIfHidden(void *pane) {
+    if (!Pane::IsVisible(pane) && Pane::Model(pane) != nullptr)
+        Pane::SetModel(pane, nullptr);
 }
 
 void DropIfKeptWhileHidden(void *pane) {
-    if (Game::Read<int>(pane, Offsets::OFF_FRAME_VISIBLE) == 0 && HasModel(pane) && Keeps(pane))
-        DropModel(pane);
+    if (Keeps(pane))
+        DropIfHidden(pane);
 }
 
 void __fastcall Hide_h(void *pane, void * /*edx*/) {
@@ -77,7 +74,7 @@ void __fastcall Hide_h(void *pane, void * /*edx*/) {
 }
 
 void __fastcall Show_h(void *pane, void * /*edx*/) {
-    if (Keeps(pane) && HasModel(pane)) {
+    if (Keeps(pane) && Pane::Model(pane) != nullptr) {
         reinterpret_cast<PaneFn_t>(Offsets::FUN_SIMPLEFRAME_SHOW)(pane);
         return;
     }
@@ -107,26 +104,21 @@ const Game::HookAutoRegister _setDisplayHook{Offsets::FUN_PLAYERMODEL_SET_DISPLA
                                              reinterpret_cast<void *>(&SetDisplay_h),
                                              reinterpret_cast<void **>(&g_origSetDisplay)};
 
-void *ResolvePane(void *L) {
-    return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
-}
-
 int __fastcall Script_SetKeepModelOnHide(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (Game::Lua::ToBoolean(L, 2) != 0) {
         g_keeping.insert(pane);
         return 0;
     }
-    if (g_keeping.erase(pane) != 0 && Game::Read<int>(pane, Offsets::OFF_FRAME_VISIBLE) == 0 &&
-        HasModel(pane))
-        DropModel(pane);
+    if (g_keeping.erase(pane) != 0)
+        DropIfHidden(pane);
     return 0;
 }
 
 int __fastcall Script_GetKeepModelOnHide(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     Game::Lua::PushBool(L, Keeps(pane));

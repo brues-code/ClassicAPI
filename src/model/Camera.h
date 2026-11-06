@@ -14,7 +14,14 @@
 
 namespace Model::Camera {
 
+struct Vec3 {
+    float x, y, z;
+};
+
 // The M2 model's camera with id `id` (0 = portrait), or null when it has none.
 void *CameraById(void *model, uint32_t id);
+
+// A camera's vector property (Offsets::CAMERA_PROP_EYE / _TARGET).
+Vec3 GetVector(void *camera, uint32_t id);
 
 } // namespace Model::Camera

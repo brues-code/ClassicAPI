@@ -28,17 +28,15 @@
 namespace Model::Rotation {
 namespace {
 
-constexpr int kTypeNone = -1; // lua_type of an absent argument
-
-using LuaMethod_t = int(__fastcall *)(void *L);
-
 int __fastcall Script_SetRotation(void *L) {
-    void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
-    const bool animate = Game::Lua::Type(L, 3) == kTypeNone || Game::Lua::ToBoolean(L, 3) != 0;
+    const bool animate =
+        Game::Lua::Type(L, 3) == Game::Lua::TYPE_NONE || Game::Lua::ToBoolean(L, 3) != 0;
     if (animate && !Model::Animation::HasRestingAnimation(pane))
-        return reinterpret_cast<LuaMethod_t>(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_ROTATION)(L);
+        return reinterpret_cast<Game::Lua::CFunction>(
+            Offsets::FUN_SCRIPT_PLAYERMODEL_SET_ROTATION)(L);
     if (!Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: SetRotation(rotation (in radians))");
         return 0;

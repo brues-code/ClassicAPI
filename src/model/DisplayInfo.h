@@ -31,9 +31,4 @@ void DestroyDresser(void *dresser);
 // `frame` gives its own model, so the children are lit like it.
 void LightChildren(void *frame, void *instance);
 
-// The reload teardown destroys every Model frame (and with it the model
-// instances our pending character-dress jobs point at). Drop all jobs and
-// destroy their engine compositors before the engine starts tearing down.
-void PrepareForReload();
-
 } // namespace Model::DisplayInfo

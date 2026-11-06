@@ -22,4 +22,9 @@ namespace Model::ItemDisplay {
 // other record returns false and is the engine's to build.
 bool Attach(void *pane, const uint8_t *record);
 
+// The ItemVisuals row an ItemDisplayInfo `display` hangs itself, or 0 when it
+// names none that exists. An enchant's glow shows only when this is 0
+// (GetItemDescVisual 0x0062EC70).
+uint32_t OwnVisual(const uint8_t *display);
+
 } // namespace Model::ItemDisplay

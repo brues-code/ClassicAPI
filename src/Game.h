@@ -240,7 +240,9 @@ constexpr int UpvalueIndex(int i) { return GLOBALS_INDEX - i; }
 // `lua_call` / `lua_pcall` nresults sentinel meaning "all".
 constexpr int MULTRET = -1;
 
-// Type tag values returned by `Type()` (lua_type).
+// Type tag values returned by `Type()` (lua_type). TYPE_NONE is an absent
+// argument (past the top of the stack).
+constexpr int TYPE_NONE = -1;
 constexpr int TYPE_NIL = 0;
 constexpr int TYPE_BOOLEAN = 1;
 constexpr int TYPE_LIGHTUSERDATA = 2;
@@ -479,6 +481,8 @@ void *ResolveTexture(void *L, int idx = 1, bool raiseError = true);
 void *ResolveFontString(void *L, int idx = 1, bool raiseError = true);
 void *ResolveEditBox(void *L, int idx = 1, bool raiseError = true);
 void *ResolveModel(void *L, int idx = 1, bool raiseError = true);
+void *ResolvePlayerModel(void *L, int idx = 1, bool raiseError = true);
+void *ResolveDressUpModel(void *L, int idx = 1, bool raiseError = true);
 
 // Every name these registrars bind is ALSO bound under `_G.ClassicAPI` —
 // `ClassicAPI.GetSpellInfo`, `ClassicAPI.C_Item.IsBound` — as an escape

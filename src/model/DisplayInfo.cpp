@@ -55,6 +55,7 @@
 #include "dbc/Lookup.h"
 #include "model/DisplayInfo.h"
 #include "model/ItemDisplay.h"
+#include "model/M2.h"
 #include "tick/WorldTick.h"
 
 #include <cstdint>
@@ -96,8 +97,6 @@ using CharCompDestroy_t = void(__fastcall *)(void *builder);
 using CharCompSetInfo_t = char(__thiscall *)(void *builder, const CharCompInfo *info);
 using CharCompSetItem_t = void(__thiscall *)(void *builder, int slot, int itemDisplayID);
 using CharCompPump_t = char(__thiscall *)(void *builder, int *unused);
-using ModelAddRef_t = void(__fastcall *)(void *instance);
-using ModelLoaded_t = int(__thiscall *)(void *instance, int tryLoad, int recurseChildren);
 
 // A pending / finished dress for one Model frame. The model loads async, and
 // the engine only dresses a LOADED model (its poll gate FUN_00607da0 checks
@@ -107,100 +106,59 @@ using ModelLoaded_t = int(__thiscall *)(void *instance, int tryLoad, int recurse
 // lifetime, and it holds the ref on the model instance — until the frame
 // loads another display or the reload teardown.
 struct DressJob {
-    void *frame = nullptr;         // CSimpleModelFFX that requested the dress
-    void *instance = nullptr;      // model instance the job is bound to
+    void *instance = nullptr;          // model instance the job is bound to
     const uint8_t *extraRec = nullptr; // CreatureDisplayInfoExtra (DBC memory, stable)
-    void *builder = nullptr;       // engine compositor (owned)
+    void *builder = nullptr;           // engine compositor (owned)
     bool configured = false;
     bool done = false;
     int ticks = 0;
 };
-
-// Model frames are few and permanent; SetDisplayInfo users fewer still.
-DressJob g_jobs[8];
+std::unordered_map<void *, DressJob> g_jobs; // by frame
 // Give up on a model that never finishes loading (bad path, missing file).
 constexpr int kMaxDressTicks = 600;
 
-void CancelJob(DressJob &job) {
-    DestroyDresser(job.builder);
-    job = DressJob{};
-}
-
-DressJob *FindJob(void *frame) {
-    for (auto &job : g_jobs)
-        if (job.frame == frame)
-            return &job;
-    return nullptr;
-}
-
-// Claim a slot for `frame`: its own existing slot, a free one, or — all busy —
-// a finished one (the dressed model keeps its geosets and texture refs; only
-// the kept-alive builder is dropped early).
-DressJob *ClaimJob(void *frame) {
-    DressJob *slot = FindJob(frame);
-    if (slot == nullptr)
-        for (auto &job : g_jobs)
-            if (job.frame == nullptr) {
-                slot = &job;
-                break;
-            }
-    if (slot == nullptr)
-        for (auto &job : g_jobs)
-            if (job.done) {
-                slot = &job;
-                break;
-            }
-    if (slot == nullptr)
-        slot = &g_jobs[0];
-    CancelJob(*slot);
-    return slot;
-}
-
-// Queue a dress for a character display just loaded into `frame`.
-void ScheduleDress(void *frame, const uint8_t *extraRec) {
-    DressJob *job = ClaimJob(frame);
-    job->frame = frame;
-    job->instance = Game::Read<void *>(frame,
-                                       Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
-    job->extraRec = extraRec;
+void CancelJob(void *frame) {
+    const auto it = g_jobs.find(frame);
+    if (it == g_jobs.end())
+        return;
+    DestroyDresser(it->second.builder);
+    g_jobs.erase(it);
 }
 
 // One WorldTick step for one job: wait for the load, then configure + feed
-// equipment (the engine's order: SetInfo, then the 10 Extra equipment slots),
-// then pump until done. Field-for-field mirror of FUN_005fb200's NPC branch.
-void StepJob(DressJob &job) {
-    void *instance = Game::Read<void *>(job.frame,
-                                        Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
+// equipment, then pump until done. False once the job is dead.
+bool StepJob(void *frame, DressJob &job) {
+    void *instance = Pane::Model(frame);
     if (job.instance == nullptr)
         job.instance = instance;
-    if (instance == nullptr || instance != job.instance || ++job.ticks > kMaxDressTicks) {
-        CancelJob(job); // model swapped out from under us / never loaded
-        return;
-    }
+    if (instance == nullptr || instance != job.instance || ++job.ticks > kMaxDressTicks)
+        return false; // model swapped out from under us / never loaded
 
     if (!job.configured) {
-        if (!reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(instance, 0, 0))
-            return;
+        if (!M2::IsLoaded(instance, 0, 0))
+            return true;
         job.builder = CreateDresser(instance, job.extraRec);
-        if (job.builder == nullptr) {
-            CancelJob(job);
-            return;
-        }
-
+        if (job.builder == nullptr)
+            return false;
         // The helm/shoulder feeds attach child model instances.
-        LightChildren(job.frame, instance);
-
+        LightChildren(frame, instance);
         job.configured = true;
     }
 
     if (PumpDresser(job.builder))
         job.done = true; // builder kept — it owns the model ref for the dressed model
+    return true;
 }
 
 void OnWorldTick() {
-    for (auto &job : g_jobs)
-        if (job.frame != nullptr && !job.done)
-            StepJob(job);
+    for (auto it = g_jobs.begin(); it != g_jobs.end();) {
+        if (it->second.done || StepJob(it->first, it->second)) {
+            ++it;
+            continue;
+        }
+        DestroyDresser(it->second.builder);
+        it = g_jobs.erase(it);
+    }
 }
 
 const Tick::WorldTick::AutoSubscribe g_tick{&OnWorldTick};
@@ -216,8 +174,7 @@ AttachDisplayModel_t g_origAttach = nullptr;
 void __fastcall AttachDisplayModel_h(void *pane, void * /*edx*/, const uint8_t *record) {
     // Any pending or kept dress for this pane is about to point at the wrong
     // model — drop it before the original swaps the instance.
-    if (DressJob *job = FindJob(pane))
-        CancelJob(*job);
+    CancelJob(pane);
 
     if (Model::ItemDisplay::Attach(pane, record))
         return;
@@ -227,7 +184,7 @@ void __fastcall AttachDisplayModel_h(void *pane, void * /*edx*/, const uint8_t *
         return;
     if (const uint8_t *extraRec =
             DressRecord(Game::Read<uint32_t>(record, Offsets::OFF_CREATURE_DISPLAYID)))
-        ScheduleDress(pane, extraRec);
+        g_jobs[pane] = DressJob{Pane::Model(pane), extraRec};
 }
 
 const Game::HookAutoRegister _attachHook{
@@ -237,31 +194,20 @@ const Game::HookAutoRegister _attachHook{
 
 // ---- Lua methods --------------------------------------------------------------
 
-using SetDisplay_t = void(__thiscall *)(void *pane, const uint8_t *record);
-
-void SetDisplay(void *pane, const uint8_t *record) {
-    reinterpret_cast<SetDisplay_t>(Offsets::FUN_PLAYERMODEL_SET_DISPLAY)(pane, record);
-}
-
-// The record a pane shows for SetDisplayInfo: only the display-ID field is
-// ever read. One per pane, never freed — the pane keeps the pointer and
-// rebuilds from it on every show, and panes live as long as the UI.
-struct DisplayRecord {
-    uint8_t bytes[Offsets::OFF_CREATURE_DISPLAYID + sizeof(uint32_t)];
-};
-std::unordered_map<void *, DisplayRecord> g_displayRecords;
+// The record each pane shows for SetDisplayInfo.
+std::unordered_map<void *, Pane::DisplayRecord> g_displayRecords;
 
 void ShowDisplayID(void *pane, uint32_t displayID) {
     if (displayID == 0)
         return;
-    DisplayRecord &rec = g_displayRecords[pane];
-    std::memset(rec.bytes, 0, sizeof(rec.bytes));
-    std::memcpy(rec.bytes + Offsets::OFF_CREATURE_DISPLAYID, &displayID, sizeof(displayID));
-    SetDisplay(pane, rec.bytes);
+    Pane::DisplayRecord &rec = g_displayRecords[pane];
+    rec = {};
+    Game::Ref<uint32_t>(rec.bytes, Offsets::OFF_CREATURE_DISPLAYID) = displayID;
+    Pane::SetDisplay(pane, rec.bytes);
 }
 
 int __fastcall Script_SetDisplayInfo(void *L) {
-    void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
@@ -273,7 +219,7 @@ int __fastcall Script_SetDisplayInfo(void *L) {
 }
 
 int __fastcall Script_SetCreature(void *L) {
-    void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
@@ -287,7 +233,7 @@ int __fastcall Script_SetCreature(void *L) {
     if (Game::Lua::IsNumber(L, 3))
         ShowDisplayID(pane, static_cast<uint32_t>(Game::Lua::ToNumber(L, 3)));
     else
-        SetDisplay(pane, record);
+        Pane::SetDisplay(pane, record);
     return 0;
 }
 
@@ -321,6 +267,17 @@ void RegisterLuaFunctions() {
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+
+// The reload teardown destroys every Model frame, and with it the model
+// instances the dress jobs point at: destroy their compositors first.
+void PrepareForReload() {
+    for (auto &[frame, job] : g_jobs)
+        DestroyDresser(job.builder);
+    g_jobs.clear();
+    g_displayRecords.clear();
+}
+
+const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 } // namespace
 
@@ -371,7 +328,7 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
     std::memcpy(info.geosetDefaults, kGeosetGroupDefaults, sizeof(kGeosetGroupDefaults));
 
     // The builder owns this ref (releases it on destroy / re-configure).
-    reinterpret_cast<ModelAddRef_t>(Offsets::FUN_MODEL_INSTANCE_ADDREF)(instance);
+    M2::AddRef(instance);
     if (!reinterpret_cast<CharCompSetInfo_t>(Offsets::FUN_CHARCOMP_SET_INFO)(builder, &info)) {
         DestroyDresser(builder); // releases the model ref already copied in
         return nullptr;
@@ -391,14 +348,12 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
 // black. Each child gets the frame's own light/fog callback; it reads the
 // frame's live light struct, so later SetLight calls reach them too.
 void LightChildren(void *frame, void *instance) {
-    using SetRenderCb_t = void(__thiscall *)(void *instance, const void *cb, void *userData);
-    auto setRenderCb = reinterpret_cast<SetRenderCb_t>(Offsets::FUN_MODEL_INSTANCE_SET_RENDER_CB);
     const void *lightFogCb =
         reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB);
     for (auto *child = Game::Read<uint8_t *>(instance, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
          child != nullptr;
          child = Game::Read<uint8_t *>(child, Offsets::OFF_MODEL_INSTANCE_CHILD_NEXT))
-        setRenderCb(child, lightFogCb, frame);
+        M2::SetRenderCallback(child, lightFogCb, frame);
 }
 
 bool PumpDresser(void *dresser) {
@@ -409,12 +364,5 @@ void DestroyDresser(void *dresser) {
     if (dresser != nullptr)
         reinterpret_cast<CharCompDestroy_t>(Offsets::FUN_CHARCOMP_DESTROY)(dresser);
 }
-
-void PrepareForReload() {
-    for (auto &job : g_jobs)
-        CancelJob(job);
-}
-
-static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 } // namespace Model::DisplayInfo

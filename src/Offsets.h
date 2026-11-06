@@ -6168,15 +6168,37 @@ enum Offsets {
     // (21) set only the main-hand bit, off-hand-only (22) only the off-hand.
     VAR_INVTYPE_SLOT_MASKS = 0x00809200,
 
-    // The two `m_inventoryType` values that mean "consumed when used", so
-    // both the item-consumable test (`C_Item.IsConsumableItem`) and the
-    // action-slot one (`IsConsumableAction`) single them out. Indices into
-    // the table above: 24 = `INVTYPE_AMMO`, 25 = `INVTYPE_THROWN`.
+    // `m_inventoryType` (`OFF_ITEMSTATS_INVENTORY_TYPE`) values, named by
+    // their key in the string table above (read from WoW.exe).
+    INVTYPE_NON_EQUIP = 0,
+    INVTYPE_HEAD = 1,
+    INVTYPE_NECK = 2,
+    INVTYPE_SHOULDER = 3,
+    INVTYPE_BODY = 4,
+    INVTYPE_CHEST = 5,
+    INVTYPE_WAIST = 6,
+    INVTYPE_LEGS = 7,
+    INVTYPE_FEET = 8,
+    INVTYPE_WRIST = 9,
+    INVTYPE_HAND = 10,
+    INVTYPE_FINGER = 11,
+    INVTYPE_TRINKET = 12,
+    INVTYPE_WEAPON = 13,
+    INVTYPE_SHIELD = 14,
+    INVTYPE_RANGED = 15,
+    INVTYPE_CLOAK = 16,
+    INVTYPE_2HWEAPON = 17,
+    INVTYPE_BAG = 18,
+    INVTYPE_TABARD = 19,
+    INVTYPE_ROBE = 20,
+    INVTYPE_WEAPONMAINHAND = 21,
+    INVTYPE_WEAPONOFFHAND = 22,
+    INVTYPE_HOLDABLE = 23,
     INVTYPE_AMMO = 24,
     INVTYPE_THROWN = 25,
-    // Index 16 of the table above (read from WoW.exe). The bag search skips
-    // a cloak's subclass name ("Cloth"), as 4.3.4's does.
-    INVTYPE_CLOAK = 16,
+    INVTYPE_RANGEDRIGHT = 26,
+    INVTYPE_QUIVER = 27,
+    INVTYPE_RELIC = 28,
 
     // Faction "displayed list" — the engine maintains a sorted/visible list
     // of factions the player has rep with. `Script_GetNumFactions` (at
@@ -10937,10 +10959,6 @@ enum Offsets {
     // off-hand weapons, and held items via `ItemMgr::GetItemBySlot`.
     INVSLOT_OFFHAND = 17,
     INVSLOT_MAINHAND = 16,
-
-    // INVTYPE (`OFF_ITEMSTATS_INVENTORY_TYPE`) of a two-handed weapon,
-    // which occupies the main-hand slot and blocks the off-hand.
-    INVTYPE_2HWEAPON = 17,
 
     // Character-pane equipment slot range: 1..19 (head=1, neck=2, …,
     // tabard=19). Used by `C_Item.IsEquippedItem` to walk every slot

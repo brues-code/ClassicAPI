@@ -48,6 +48,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "model/M2.h"
 #include "time/Clock.h"
 
 #include <cstdint>
@@ -58,11 +59,7 @@ namespace {
 
 using PaneFn_t = void(__thiscall *)(void *pane);
 using SetModelInstance_t = void(__thiscall *)(void *frame, void *model);
-using PlayAnimation_t = void(__thiscall *)(void *model, int keyBone, uint32_t id, int variation,
-                                           int offset, float speed, int blend, int primary);
 using GetKeyBoneAnim_t = uint32_t(__thiscall *)(void *model, int keyBone);
-using LookupIndex_t = uint16_t(__fastcall *)(uint32_t id, const void *table);
-using ModelLoaded_t = int(__thiscall *)(void *model, int tryLoad, int recurseChildren);
 
 struct PaneState {
     bool doBlend = false;
@@ -78,21 +75,13 @@ std::unordered_map<void *, PaneState> g_panes;
 PaneFn_t g_origUpdateModel = nullptr;
 SetModelInstance_t g_origSetModelInstance = nullptr;
 
-void *PaneModel(void *pane) {
-    return Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
-}
-
-bool IsLoaded(void *model) {
-    return reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(model, 0, 0) != 0;
-}
-
 uint32_t KeyBoneAnim(void *model) {
     return reinterpret_cast<GetKeyBoneAnim_t>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM)(model, -1);
 }
 
 void Arm(void *model, const PaneState &s) {
-    reinterpret_cast<PlayAnimation_t>(Offsets::FUN_M2MODEL_PLAY_ANIMATION)(
-        model, -1, s.animation, s.variation, 0, s.frozen ? 0.0f : 1.0f, s.doBlend ? 1 : 0, 1);
+    M2::PlayAnimation(model, -1, s.animation, s.variation, 0, s.frozen ? 0.0f : 1.0f,
+                      s.doBlend ? 1 : 0, 1);
     // PlayAnimation stores the id only when it found a sequence to play.
     if (!s.frozen || KeyBoneAnim(model) != s.animation)
         return;
@@ -109,11 +98,11 @@ void __fastcall UpdateModel_h(void *pane, void * /*edx*/) {
     }
     PaneState &s = it->second;
     reinterpret_cast<PaneFn_t>(Offsets::FUN_SIMPLEMODEL_UPDATE_MODEL)(pane);
-    void *model = PaneModel(pane);
+    void *model = Pane::Model(pane);
     const uint32_t deadline = Game::Read<uint32_t>(pane, Offsets::OFF_PLAYERMODEL_TURN_DEADLINE);
     if (Game::Read<int>(pane, Offsets::OFF_PLAYERMODEL_TURNING) == 0 &&
-        (deadline == 0 || Time::Clock::Reached(deadline)) && model != nullptr && IsLoaded(model) &&
-        (s.pending || KeyBoneAnim(model) != s.animation)) {
+        (deadline == 0 || Time::Clock::Reached(deadline)) && model != nullptr &&
+        M2::IsLoaded(model, 0, 0) && (s.pending || KeyBoneAnim(model) != s.animation)) {
         Arm(model, s);
         s.pending = false;
         Game::Ref<uint32_t>(pane, Offsets::OFF_PLAYERMODEL_TURN_DEADLINE) = 0;
@@ -135,29 +124,33 @@ const Game::HookAutoRegister _setModelHook{Offsets::FUN_SIMPLEMODEL_SET_MODEL_IN
                                            reinterpret_cast<void *>(&SetModelInstance_h),
                                            reinterpret_cast<void **>(&g_origSetModelInstance)};
 
-void *ResolvePane(void *L) {
-    return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+// SetAnimation / FreezeAnimation: the pane rests on `animation`, re-armed on
+// the next update.
+void Rest(void *pane, uint32_t animation, int variation, bool frozen, uint32_t frame) {
+    PaneState &s = g_panes[pane];
+    s.resting = true;
+    s.pending = true;
+    s.frozen = frozen;
+    s.animation = animation;
+    s.variation = variation;
+    s.frame = frame;
 }
 
 int __fastcall Script_SetAnimation(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L, "Usage: SetAnimation(animation [, variation])");
         return 0;
     }
-    PaneState &s = g_panes[pane];
-    s.resting = true;
-    s.pending = true;
-    s.frozen = false;
-    s.animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
-    s.variation = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : 0;
+    Rest(pane, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)),
+         Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : 0, false, 0);
     return 0;
 }
 
 int __fastcall Script_FreezeAnimation(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3) || !Game::Lua::IsNumber(L, 4)) {
@@ -165,24 +158,20 @@ int __fastcall Script_FreezeAnimation(void *L) {
         return 0;
     }
     const double frame = Game::Lua::ToNumber(L, 4);
-    PaneState &s = g_panes[pane];
-    s.resting = true;
-    s.pending = true;
-    s.frozen = true;
-    s.animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
-    s.variation = static_cast<int>(Game::Lua::ToNumber(L, 3));
-    s.frame = frame > 0.0 ? static_cast<uint32_t>(frame) : 0;
+    Rest(pane, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)),
+         static_cast<int>(Game::Lua::ToNumber(L, 3)), true,
+         frame > 0.0 ? static_cast<uint32_t>(frame) : 0);
     return 0;
 }
 
 int __fastcall Script_SetDoBlend(void *L) {
-    if (void *pane = ResolvePane(L))
+    if (void *pane = Game::Lua::ResolvePlayerModel(L))
         g_panes[pane].doBlend = Game::Lua::ToBoolean(L, 2) != 0;
     return 0;
 }
 
 int __fastcall Script_GetDoBlend(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     const auto it = g_panes.find(pane);
@@ -191,7 +180,7 @@ int __fastcall Script_GetDoBlend(void *L) {
 }
 
 int __fastcall Script_HasAnimation(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
@@ -200,15 +189,10 @@ int __fastcall Script_HasAnimation(void *L) {
     }
     const auto id = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
     bool has = false;
-    void *model = PaneModel(pane);
-    if (model != nullptr && IsLoaded(model)) {
-        const auto *data = Game::Read<const uint8_t *>(
-            Game::Read<const uint8_t *>(model, Offsets::OFF_M2MODEL_SHARED),
-            Offsets::OFF_M2SHARED_DATA);
-        const uint16_t index = reinterpret_cast<LookupIndex_t>(Offsets::FUN_M2_LOOKUP_INDEX)(
-            id, data + Offsets::OFF_M2DATA_ANIMATION_LOOKUP);
-        has = index < Game::Read<uint32_t>(data, Offsets::OFF_M2DATA_SEQUENCE_COUNT);
-    }
+    void *model = Pane::Model(pane);
+    if (model != nullptr && M2::IsLoaded(model, 0, 0))
+        has = M2::LookupIndex(model, Offsets::OFF_M2DATA_ANIMATION_LOOKUP, id) <
+              Game::Read<uint32_t>(M2::Data(model), Offsets::OFF_M2DATA_SEQUENCE_COUNT);
     Game::Lua::PushBool(L, has);
     return 1;
 }

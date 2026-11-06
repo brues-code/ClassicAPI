@@ -33,20 +33,14 @@
 namespace Model::Subject {
 namespace {
 
-using LuaMethod_t = int(__fastcall *)(void *L);
-
-void *ResolvePane(void *L) {
-    return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
-}
-
 void *PaneUnit(void *pane) {
     return Object::ByGuid(Offsets::TYPEMASK_UNIT,
                           Game::Read<uint64_t>(pane, Offsets::OFF_PLAYERMODEL_UNIT_GUID));
 }
 
 int __fastcall Script_SetUnit(void *L) {
-    reinterpret_cast<LuaMethod_t>(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_UNIT)(L);
-    void *pane = ResolvePane(L);
+    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_UNIT)(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     Game::Lua::PushBool(L, PaneUnit(pane) != nullptr);
@@ -54,7 +48,7 @@ int __fastcall Script_SetUnit(void *L) {
 }
 
 int __fastcall Script_CanSetUnit(void *L) {
-    if (ResolvePane(L) == nullptr)
+    if (Game::Lua::ResolvePlayerModel(L) == nullptr)
         return 0;
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: CanSetUnit(unit)");
@@ -65,7 +59,7 @@ int __fastcall Script_CanSetUnit(void *L) {
 }
 
 int __fastcall Script_GetDisplayInfo(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     uint32_t displayID = 0;

@@ -54,6 +54,7 @@
 #include "dbc/Lookup.h"
 #include "model/Camera.h"
 #include "model/DisplayInfo.h"
+#include "model/M2.h"
 #include "texture/Load.h"
 #include "tick/FrameTick.h"
 
@@ -71,19 +72,11 @@ constexpr uint32_t kTexels = kSize * kSize;
 
 using CreateScene_t = void *(__cdecl *)();
 using ReleaseScene_t = void(__thiscall *)(void *scene);
-using CreateModel_t = void *(__thiscall *)(void *scene, const char *path, uint32_t flags);
 using CopyModel_t = void *(__thiscall *)(void *scene, void *source, uint32_t flags);
 using ApplyDisplay_t = void(__fastcall *)(void *model, const uint8_t *display,
                                           const uint8_t *modelData);
-using ReleaseModel_t = void(__fastcall *)(void *model);
-using ModelState_t = int(__thiscall *)(void *model, int wait, int recurseChildren);
-using SetFlag_t = void(__thiscall *)(void *model, int on);
-using PlayAnimation_t = void(__thiscall *)(void *model, int, int, int, int, float, int, int);
-using SetRenderCb_t = void(__thiscall *)(void *model, const void *cb, void *userData);
 using DetachAll_t = void(__fastcall *)(void *model);
-using AnimateScene_t = void(__thiscall *)(void *scene, const float *cameraPos);
 using DrawScene_t = void(__thiscall *)(void *scene, uint32_t pass);
-using GetVector_t = void(__fastcall *)(void *camera, uint32_t id, float *out);
 using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
 using GetMatrix_t = void(__fastcall *)(float *m);
 using SetMatrix_t = void(__fastcall *)(const float *m);
@@ -130,7 +123,7 @@ std::vector<Portrait *> g_loading;
 
 void ReleaseModel(Portrait &p) {
     Model::DisplayInfo::DestroyDresser(p.dresser);
-    reinterpret_cast<ReleaseModel_t>(Offsets::FUN_MODEL_INSTANCE_RELEASE)(p.model);
+    M2::Release(p.model);
     reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(p.scene);
     p.dresser = p.model = p.scene = nullptr;
     p.dressRecord = nullptr;
@@ -166,8 +159,7 @@ bool Bake(Portrait &p) {
     }
     reinterpret_cast<DetachAll_t>(Offsets::FUN_DETACH_ALL_ITEM_MODELS)(copy);
     void *camera = Model::Camera::CameraById(copy, 0);
-    reinterpret_cast<PlayAnimation_t>(Offsets::FUN_M2MODEL_PLAY_ANIMATION)(copy, -1, 0, 0, 0,
-                                                                           1.0f, 0, 1);
+    M2::PlayAnimation(copy, -1, 0, 0, 0, 1.0f, 0, 1);
 
     float projection[16];
     float view[16];
@@ -188,19 +180,12 @@ bool Bake(Portrait &p) {
     toNdc(&x1, &y1, x1, y1);
 
     // First collection: evaluate the portrait camera.
-    auto isLoaded = reinterpret_cast<ModelState_t>(Offsets::FUN_MODEL_INSTANCE_LOADED);
-    auto isReady = reinterpret_cast<ModelState_t>(Offsets::FUN_MODEL_INSTANCE_READY);
-    auto setAnimated = reinterpret_cast<SetFlag_t>(Offsets::FUN_M2MODEL_SET_ANIMATED);
-    auto animate = reinterpret_cast<AnimateScene_t>(Offsets::FUN_M2SCENE_ANIMATE);
-    auto getVector = reinterpret_cast<GetVector_t>(Offsets::FUN_CAMERA_GET_VECTOR);
-    isLoaded(copy, 1, 1);
-    setAnimated(copy, 1);
+    M2::IsLoaded(copy, 1, 1);
+    M2::SetAnimated(copy, true);
     const float origin[3] = {0.0f, 0.0f, 0.0f};
-    animate(scene, origin);
-    float eye[3] = {};
-    float target[3] = {};
-    getVector(camera, Offsets::CAMERA_PROP_EYE, eye);
-    getVector(camera, Offsets::CAMERA_PROP_TARGET, target);
+    M2::AnimateScene(scene, origin);
+    const Model::Camera::Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
+    Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_TARGET); // the bake reads it too
     const float rect[4] = {0.0f, 0.0f, 1.0f, aspect};
     reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
     reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(x0, x1, y0, y1, 0.0f, 1.0f);
@@ -209,12 +194,12 @@ bool Bake(Portrait &p) {
     clear(3);
 
     // Second collection from the portrait eye, then both passes.
-    isReady(copy, 1, 1);
-    setAnimated(copy, 1);
-    reinterpret_cast<SetFlag_t>(Offsets::FUN_M2MODEL_SET_VISIBLE)(copy, 1);
-    reinterpret_cast<SetRenderCb_t>(Offsets::FUN_MODEL_INSTANCE_SET_RENDER_CB)(
-        copy, reinterpret_cast<const void *>(Offsets::FUN_PORTRAIT_LIGHTING), nullptr);
-    animate(scene, eye);
+    M2::IsReady(copy, 1, 1);
+    M2::SetAnimated(copy, true);
+    M2::SetVisible(copy, true);
+    M2::SetRenderCallback(copy, reinterpret_cast<const void *>(Offsets::FUN_PORTRAIT_LIGHTING),
+                          nullptr);
+    M2::AnimateScene(scene, &eye.x);
     auto draw = reinterpret_cast<DrawScene_t>(Offsets::FUN_M2SCENE_DRAW);
     draw(scene, 0);
     draw(scene, 1);
@@ -239,14 +224,14 @@ bool Bake(Portrait &p) {
     reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(
         viewport[0], viewport[1], viewport[2], viewport[3], viewport[4], viewport[5]);
     setMaster(Offsets::GX_MASTER_FOG, fog ? 1 : 0);
-    reinterpret_cast<ReleaseModel_t>(Offsets::FUN_MODEL_INSTANCE_RELEASE)(copy);
+    M2::Release(copy);
     reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
     return true;
 }
 
 // One frame for one pending display; true once it is baked (or cannot be).
 bool Step(Portrait &p) {
-    if (!reinterpret_cast<ModelState_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(p.model, 0, 1))
+    if (!M2::IsLoaded(p.model, 0, 1))
         return false;
     if (p.dressRecord != nullptr) {
         // A dress the engine rejects bakes undressed, as a unit with no
@@ -298,8 +283,8 @@ Portrait *Acquire(uint32_t displayID) {
     void *scene = reinterpret_cast<CreateScene_t>(Offsets::FUN_M2_CREATE_SCENE)();
     if (scene == nullptr)
         return nullptr;
-    void *model = reinterpret_cast<CreateModel_t>(Offsets::FUN_M2SCENE_CREATE_MODEL)(
-        scene, Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH), 0);
+    void *model = M2::CreateModel(
+        scene, Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH));
     if (model == nullptr) {
         reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
         return nullptr;

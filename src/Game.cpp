@@ -252,6 +252,12 @@ void *ResolveEditBox(void *L, int idx, bool raiseError) {
 void *ResolveModel(void *L, int idx, bool raiseError) {
     return ResolveTypedObject(L, idx, Offsets::VAR_MODEL_LUA_TYPE_ID, raiseError);
 }
+void *ResolvePlayerModel(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID, raiseError);
+}
+void *ResolveDressUpModel(void *L, int idx, bool raiseError) {
+    return ResolveTypedObject(L, idx, Offsets::VAR_DRESSUPMODEL_LUA_TYPE_ID, raiseError);
+}
 
 // Looks up `_G[name]`. If absent, creates a fresh table and binds it.
 // Leaves the resulting table on top of the stack.

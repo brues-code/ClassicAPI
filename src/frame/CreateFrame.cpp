@@ -53,9 +53,6 @@ using SetAttr_t = void(__thiscall *)(void *node, const char *name, const char *v
 using Build_t = void *(__fastcall *)(const void *node, void *parent, void *status);
 using StatusReset_t = void(__thiscall *)(void *self);
 
-// LUA_TNONE: lua_type of an index past the top.
-constexpr int kTypeNone = -1;
-
 // 4.3.4's usage line; vanilla's (0x00872F60) has no `id`.
 constexpr const char *kUsage =
     "Usage: CreateFrame(\"frameType\" [, \"name\"] [, parent] [, \"template\"] [, id])";
@@ -102,7 +99,7 @@ int __fastcall CreateFrame_h(void *L) {
 
     const int parentType = Type(L, 3);
     if (!IsString(L, 1) ||
-        (parentType != kTypeNone && parentType != TYPE_NIL && parentType != TYPE_TABLE)) {
+        (parentType != TYPE_NONE && parentType != TYPE_NIL && parentType != TYPE_TABLE)) {
         Error(L, kUsage);
         return 0;
     }

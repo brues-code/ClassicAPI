@@ -73,6 +73,8 @@
 #include "item/ID.h"
 #include "item/Location.h"
 #include "item/Record.h"
+#include "model/ItemDisplay.h"
+#include "model/M2.h"
 #include "object/Resolve.h"
 
 #include <cstdint>
@@ -94,9 +96,7 @@ using TryOnItem_t = void(__thiscall *)(void *pane, uint32_t itemID);
 using SetModelInstance_t = void(__thiscall *)(void *pane, void *model);
 using ClearModel_t = void(__thiscall *)(void *pane);
 using GetHeldItemDisplay_t = const void *(__thiscall *)(void *unit, uint32_t hand);
-using ModelLoaded_t = int(__thiscall *)(void *model, int tryLoad, int recurseChildren);
 using FindChild_t = void *(__thiscall *)(void *model, int attachId);
-using AttachItemVisuals_t = void(__fastcall *)(void *model, uint32_t visualID);
 using GetVisibleItem_t = const void *(__thiscall *)(void *player, uint32_t slot);
 using GetDescVisual_t = int(__thiscall *)(const void *visibleItem);
 using DisplayError_t = void(__cdecl *)(uint32_t id, ...);
@@ -104,14 +104,22 @@ using DisplayError_t = void(__cdecl *)(uint32_t id, ...);
 // Body slots of the two held lanes.
 constexpr uint32_t kBodySlotMainHand = 0xF;
 constexpr uint32_t kBodySlotOffHand = 0x10;
-constexpr uint8_t kInvTypeShield = 14;
-constexpr uint8_t kInvTypeRangedRight = 26;
 
 // Retail's Enum.ItemTryOnReason.
 constexpr int kTryOnSuccess = 0;
 constexpr int kTryOnWrongRace = 1;
 constexpr int kTryOnNotEquippable = 2;
 constexpr int kTryOnDataPending = 3;
+
+// A held lane (OFF_DRESSUPMODEL_*_HAND_LANE).
+struct HeldLane {
+    uint8_t itemClass; // 0 = empty
+    uint8_t unknown1[2];
+    uint8_t inventoryType;
+    uint8_t sheatheType;
+    uint8_t unknown5[3];
+};
+static_assert(sizeof(HeldLane) == 8, "ClearModel zeroes 8 bytes per lane");
 
 struct Lane {
     uintptr_t offset;
@@ -140,12 +148,8 @@ bool g_dressing = false;      // Dress() is rebuilding the pane
 uintptr_t g_mainHandPath = Offsets::TRY_ON_MAIN_HAND_PATH;
 uintptr_t g_offHandPath = Offsets::TRY_ON_OFF_HAND_PATH;
 
-void *ResolvePane(void *L) {
-    return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_DRESSUPMODEL_LUA_TYPE_ID);
-}
-
-void *PaneModel(void *pane) {
-    return Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
+HeldLane &LaneOf(void *pane, int i) {
+    return Game::Ref<HeldLane>(pane, kLanes[i].offset);
 }
 
 int LaneIndex(uint32_t bodySlot) {
@@ -153,12 +157,10 @@ int LaneIndex(uint32_t bodySlot) {
 }
 
 // The glow `enchantID` gives an item shown with `display`: none when the
-// display has its own ItemVisuals row (GetItemDescVisual 0x0062EC70).
+// display has its own.
 uint32_t EnchantVisual(const void *display, uint32_t enchantID) {
     if (display == nullptr ||
-        DBC::Record(Offsets::VAR_ITEMVISUALS_RECORDS, Offsets::VAR_ITEMVISUALS_COUNT,
-                    Game::Read<uint32_t>(display, Offsets::OFF_ITEMDISPLAYINFO_ITEM_VISUAL)) !=
-            nullptr)
+        Model::ItemDisplay::OwnVisual(static_cast<const uint8_t *>(display)) != 0)
         return 0;
     const uint8_t *enchant = DBC::Record(Offsets::VAR_SPELLITEMENCHANT_RECORDS,
                                          Offsets::VAR_SPELLITEMENCHANT_COUNT, enchantID);
@@ -174,27 +176,33 @@ void HangVisual(void *model, int attachId, uint32_t visual) {
         return;
     if (void *item = reinterpret_cast<FindChild_t>(Offsets::FUN_M2MODEL_FIND_CHILD)(model,
                                                                                    attachId))
-        reinterpret_cast<AttachItemVisuals_t>(Offsets::FUN_ATTACH_ITEM_VISUALS)(item, visual);
+        M2::AttachItemVisuals(item, visual);
+}
+
+// DetachHeldItemSlot on lane `i`'s item.
+void DetachLane(void *model, int i, const HeldLane &lane) {
+    reinterpret_cast<DetachHeldItem_t>(Offsets::FUN_DETACH_HELD_ITEM_SLOT)(
+        model, kLanes[i].bodySlot, lane.sheatheType,
+        lane.inventoryType == Offsets::INVTYPE_SHIELD);
 }
 
 // The unit's AttachHandItem step on each occupied lane: detach it, then hang
 // it in the hand or the sheath, or leave it off.
 void ApplyWeapons(void *pane, const PaneState &s) {
-    void *model = PaneModel(pane);
+    void *model = Pane::Model(pane);
     if (model == nullptr)
         return;
     for (int i = 0; i < 2; ++i) {
-        const uint8_t *lane = Game::Ptr<uint8_t>(pane, kLanes[i].offset);
-        if (lane[0] == 0 || s.laneDisplay[i] == nullptr)
+        const HeldLane &lane = LaneOf(pane, i);
+        if (lane.itemClass == 0 || s.laneDisplay[i] == nullptr)
             continue;
-        const bool shield = lane[3] == kInvTypeShield;
-        reinterpret_cast<DetachHeldItem_t>(Offsets::FUN_DETACH_HELD_ITEM_SLOT)(
-            model, kLanes[i].bodySlot, lane[4], shield);
+        DetachLane(model, i, lane);
         if (s.hideWeapons)
             continue;
         const int attachId = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL)(
-            model, s.laneDisplay[i], kLanes[i].bodySlot, lane[4], s.sheathed, shield,
-            lane[3] == kInvTypeRangedRight);
+            model, s.laneDisplay[i], kLanes[i].bodySlot, lane.sheatheType, s.sheathed,
+            lane.inventoryType == Offsets::INVTYPE_SHIELD,
+            lane.inventoryType == Offsets::INVTYPE_RANGEDRIGHT);
         HangVisual(model, attachId, s.laneVisual[i]);
     }
 }
@@ -265,8 +273,9 @@ int __fastcall TryOnAttach(void *model, const void *record, uint32_t bodySlot,
 void __fastcall TryOnEvict(void *model, uint32_t bodySlot, uint32_t sheatheType, bool shield) {
     if (g_tryOnPane != nullptr) {
         PaneState &s = g_panes[g_tryOnPane];
-        s.laneDisplay[LaneIndex(bodySlot)] = nullptr;
-        s.laneVisual[LaneIndex(bodySlot)] = 0;
+        const int lane = LaneIndex(bodySlot);
+        s.laneDisplay[lane] = nullptr;
+        s.laneVisual[lane] = 0;
     }
     reinterpret_cast<DetachHeldItem_t>(Offsets::FUN_DETACH_HELD_ITEM_SLOT)(model, bodySlot,
                                                                          sheatheType, shield);
@@ -294,14 +303,12 @@ __declspec(naked) void HandChoiceThunk() {
 }
 
 // ClearModel's lane step: detach the held item and zero the lane.
-void ClearLane(void *pane, uintptr_t laneOffset, uint32_t bodySlot) {
-    uint8_t *lane = Game::Ptr<uint8_t>(pane, laneOffset);
-    if (lane[0] == 0)
+void ClearLane(void *pane, int i) {
+    HeldLane &lane = LaneOf(pane, i);
+    if (lane.itemClass == 0)
         return;
-    reinterpret_cast<DetachHeldItem_t>(Offsets::FUN_DETACH_HELD_ITEM_SLOT)(
-        Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE), bodySlot, lane[4],
-        lane[3] == kInvTypeShield);
-    std::memset(lane, 0, 8);
+    DetachLane(Pane::Model(pane), i, lane);
+    lane = HeldLane{};
 }
 
 // Component slot for a 0-based inventory slot, or -1 (4.3.4 UndressSlot).
@@ -323,7 +330,7 @@ int ComponentSlot(int slot0) {
 }
 
 int __fastcall Script_UndressSlot(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
@@ -332,13 +339,12 @@ int __fastcall Script_UndressSlot(void *L) {
     }
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1;
     void *component = Game::Read<void *>(pane, Offsets::OFF_DRESSUPMODEL_COMPONENT);
-    if (Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE) == nullptr ||
-        component == nullptr)
+    if (Pane::Model(pane) == nullptr || component == nullptr)
         return 0;
-    if (slot0 == 15) {
-        ClearLane(pane, Offsets::OFF_DRESSUPMODEL_MAIN_HAND_LANE, kBodySlotMainHand);
-    } else if (slot0 == 16) {
-        ClearLane(pane, Offsets::OFF_DRESSUPMODEL_OFF_HAND_LANE, kBodySlotOffHand);
+    if (slot0 + 1 == Offsets::INVSLOT_MAINHAND) {
+        ClearLane(pane, 0);
+    } else if (slot0 + 1 == Offsets::INVSLOT_OFFHAND) {
+        ClearLane(pane, 1);
     } else {
         const int compSlot = ComponentSlot(slot0);
         if (compSlot >= 0)
@@ -399,8 +405,8 @@ uint32_t NamedHand(const char *name) {
                           name) != 0)
             continue;
         switch (Game::Read<int>(row, Offsets::OFF_PAPERDOLLITEMFRAME_SLOT_NUMBER)) {
-        case 16: return kBodySlotMainHand;
-        case 17: return kBodySlotOffHand;
+        case Offsets::INVSLOT_MAINHAND: return kBodySlotMainHand;
+        case Offsets::INVSLOT_OFFHAND: return kBodySlotOffHand;
         default: return 0;
         }
     }
@@ -413,17 +419,35 @@ int TryOnResult(void *pane, uint32_t itemID) {
     if (record == nullptr)
         return kTryOnDataPending;
     if (Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID) == 0 ||
-        PaneModel(pane) == nullptr)
+        Pane::Model(pane) == nullptr)
         return kTryOnNotEquippable;
     switch (Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE)) {
-    case 1: case 3: case 4: case 5: case 6: case 7: case 8: case 9: case 10:
-    case 16: case 19: case 20:
+    case Offsets::INVTYPE_HEAD:
+    case Offsets::INVTYPE_SHOULDER:
+    case Offsets::INVTYPE_BODY:
+    case Offsets::INVTYPE_CHEST:
+    case Offsets::INVTYPE_WAIST:
+    case Offsets::INVTYPE_LEGS:
+    case Offsets::INVTYPE_FEET:
+    case Offsets::INVTYPE_WRIST:
+    case Offsets::INVTYPE_HAND:
+    case Offsets::INVTYPE_CLOAK:
+    case Offsets::INVTYPE_TABARD:
+    case Offsets::INVTYPE_ROBE:
         // The armor arms: the component and the ready byte.
         return Game::Read<void *>(pane, Offsets::OFF_DRESSUPMODEL_COMPONENT) != nullptr &&
                        Game::Read<uint8_t>(pane, Offsets::OFF_DRESSUPMODEL_READY) != 0
                    ? kTryOnSuccess
                    : kTryOnNotEquippable;
-    case 13: case 14: case 15: case 17: case 21: case 22: case 23: case 25: case 26:
+    case Offsets::INVTYPE_WEAPON:
+    case Offsets::INVTYPE_SHIELD:
+    case Offsets::INVTYPE_RANGED:
+    case Offsets::INVTYPE_2HWEAPON:
+    case Offsets::INVTYPE_WEAPONMAINHAND:
+    case Offsets::INVTYPE_WEAPONOFFHAND:
+    case Offsets::INVTYPE_HOLDABLE:
+    case Offsets::INVTYPE_THROWN:
+    case Offsets::INVTYPE_RANGEDRIGHT:
         return kTryOnSuccess; // the held arm
     default:
         return kTryOnNotEquippable;
@@ -431,7 +455,7 @@ int TryOnResult(void *pane, uint32_t itemID) {
 }
 
 int __fastcall Script_TryOn(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
     // Read before the name search below, which stomps the Lua stack.
@@ -484,18 +508,16 @@ int __fastcall Script_Dress(void *L) {
 }
 
 int __fastcall Script_IsGeoReady(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
-    void *model = PaneModel(pane);
-    Game::Lua::PushBool(L, model != nullptr &&
-                               reinterpret_cast<ModelLoaded_t>(Offsets::FUN_MODEL_INSTANCE_LOADED)(
-                                   model, 0, 1) != 0);
+    void *model = Pane::Model(pane);
+    Game::Lua::PushBool(L, model != nullptr && M2::IsLoaded(model, 0, 1));
     return 1;
 }
 
 int __fastcall Script_SetSheathed(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
     PaneState &s = g_panes[pane];
@@ -507,7 +529,7 @@ int __fastcall Script_SetSheathed(void *L) {
 }
 
 int __fastcall Script_GetSheathed(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
     const auto it = g_panes.find(pane);
@@ -516,13 +538,13 @@ int __fastcall Script_GetSheathed(void *L) {
 }
 
 int __fastcall Script_SetAutoDress(void *L) {
-    if (void *pane = ResolvePane(L))
+    if (void *pane = Game::Lua::ResolveDressUpModel(L))
         g_panes[pane].autoDress = Game::Lua::ToBoolean(L, 2) != 0;
     return 0;
 }
 
 int __fastcall Script_GetAutoDress(void *L) {
-    void *pane = ResolvePane(L);
+    void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
     const auto it = g_panes.find(pane);

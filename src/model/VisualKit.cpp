@@ -48,6 +48,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "model/DisplayInfo.h"
+#include "model/M2.h"
 #include "tick/FrameTick.h"
 
 #include <cstdint>
@@ -56,19 +57,12 @@
 namespace Model::VisualKit {
 namespace {
 
-using GetScene_t = void *(__thiscall *)(void *frame);
-using CreateModel_t = void *(__thiscall *)(void *scene, const char *path, uint32_t flags);
 using ModelFn_t = void(__fastcall *)(void *model);
 using HasAttachment_t = int(__thiscall *)(void *model, uint32_t id);
 using Attach_t = void(__thiscall *)(void *child, void *parent, uint32_t id);
-using SetVisible_t = void(__thiscall *)(void *model, int visible);
 using SetAlpha_t = void(__thiscall *)(void *model, float alpha);
 using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
 using HasLiveParticles_t = int(__thiscall *)(void *model);
-using SetAnimDone_t = void(__thiscall *)(void *model, const void *callback, uint32_t userLow,
-                                         uint32_t userHigh);
-using PlayAnimation_t = void(__thiscall *)(void *model, int keyBone, uint32_t id, int variation,
-                                           int offset, float speed, int blend, int primary);
 
 // The attachment of each effect column, in the ghost kit's order.
 constexpr uint32_t kAttachments[] = {20, 34, 19, 21, 22, 17, 23, 24, 25};
@@ -81,24 +75,15 @@ constexpr float kByteScale = 1.0f / 255.0f;
 // Stopped one-shot effects, each with one reference of ours.
 std::vector<void *> g_stopped;
 
-void Release(void *model) {
-    reinterpret_cast<ModelFn_t>(Offsets::FUN_MODEL_INSTANCE_RELEASE)(model);
-}
-
-void SetDoneCallback(void *model, const void *callback) {
-    reinterpret_cast<SetAnimDone_t>(Offsets::FUN_M2MODEL_SET_ANIM_DONE_CALLBACK)(model, callback,
-                                                                                0, 0);
-}
-
 // EffectDoneCallback's test, then CEffect::Stop's model steps.
 void __fastcall OnEffectDone(void *model, uint32_t /*keyBone*/, uint32_t /*animID*/,
                              uint32_t reason, uint32_t /*overshoot*/, uint32_t /*userLow*/,
                              uint32_t /*userHigh*/) {
     if (reason != 0)
         return;
-    SetDoneCallback(model, nullptr);
-    reinterpret_cast<SetVisible_t>(Offsets::FUN_M2MODEL_SET_VISIBLE)(model, 0);
-    reinterpret_cast<ModelFn_t>(Offsets::FUN_MODEL_INSTANCE_ADDREF)(model);
+    M2::SetAnimDoneCallback(model, nullptr, 0, 0);
+    M2::SetVisible(model, false);
+    M2::AddRef(model);
     g_stopped.push_back(model);
 }
 
@@ -108,8 +93,7 @@ void __fastcall OnEffectLoop(void *model, uint32_t /*keyBone*/, uint32_t animID,
                              uint32_t /*userHigh*/) {
     if (reason != 0)
         return;
-    reinterpret_cast<PlayAnimation_t>(Offsets::FUN_M2MODEL_PLAY_ANIMATION)(model, -1, animID, -1,
-                                                                          0, 1.0f, 1, 1);
+    M2::PlayAnimation(model, -1, animID, -1, 0, 1.0f, 1, 1);
 }
 
 // Detaches a stopped effect that is still on its model, then drops our
@@ -117,7 +101,7 @@ void __fastcall OnEffectLoop(void *model, uint32_t /*keyBone*/, uint32_t animID,
 void Discard(void *model) {
     if (Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT) != nullptr)
         reinterpret_cast<ModelFn_t>(Offsets::FUN_M2MODEL_DETACH)(model);
-    Release(model);
+    M2::Release(model);
 }
 
 // The dying-effect drain: a stopped effect goes once its particles are gone,
@@ -157,10 +141,10 @@ void ApplyProcedures(void *model, const uint8_t *kit) {
 }
 
 void Apply(void *pane, const uint8_t *kit, bool oneShot) {
-    void *model = Game::Read<void *>(pane, Offsets::OFF_SIMPLEMODELFFX_MODEL_INSTANCE);
+    void *model = Pane::Model(pane);
     if (model == nullptr)
         return;
-    void *scene = reinterpret_cast<GetScene_t>(Offsets::FUN_SIMPLEMODEL_GET_SCENE)(pane);
+    void *scene = Pane::Scene(pane);
     for (int i = 0; i < static_cast<int>(sizeof(kAttachments) / sizeof(kAttachments[0])); ++i) {
         const uint8_t *effect = DBC::Record(
             Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
@@ -169,21 +153,23 @@ void Apply(void *pane, const uint8_t *kit, bool oneShot) {
             !reinterpret_cast<HasAttachment_t>(Offsets::FUN_M2MODEL_HAS_ATTACHMENT)(
                 model, kAttachments[i]))
             continue;
-        void *child = reinterpret_cast<CreateModel_t>(Offsets::FUN_M2SCENE_CREATE_MODEL)(
-            scene, Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE), 0);
+        void *child = M2::CreateModel(
+            scene, Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
         if (child == nullptr)
             continue;
-        SetDoneCallback(child, oneShot ? reinterpret_cast<const void *>(&OnEffectDone)
-                                       : reinterpret_cast<const void *>(&OnEffectLoop));
+        M2::SetAnimDoneCallback(child,
+                                oneShot ? reinterpret_cast<const void *>(&OnEffectDone)
+                                        : reinterpret_cast<const void *>(&OnEffectLoop),
+                                0, 0);
         reinterpret_cast<Attach_t>(Offsets::FUN_M2MODEL_ATTACH)(child, model, kAttachments[i]);
-        Release(child);
+        M2::Release(child);
     }
     Model::DisplayInfo::LightChildren(pane, model);
     ApplyProcedures(model, kit);
 }
 
 int __fastcall Script_ApplySpellVisualKit(void *L) {
-    void *pane = Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_PLAYERMODEL_LUA_TYPE_ID);
+    void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;
     if (!Game::Lua::IsNumber(L, 2)) {
