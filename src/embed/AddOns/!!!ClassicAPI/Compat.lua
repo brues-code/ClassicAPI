@@ -38,3 +38,8 @@ end
 
 function C_ModelInfo.ClearActiveModelSceneActor(modelSceneFrameActor)
 end
+
+-- This client has no alternate player forms.
+function C_PlayerInfo.GetAlternateFormInfo()
+    return false, false
+end

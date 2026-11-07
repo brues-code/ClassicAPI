@@ -59,6 +59,8 @@ bool FloatAttr(const void *node, const char *name, float &out) {
     return true;
 }
 
+} // namespace
+
 // object[parentKey] = child, as 4.3.4's LoadXML does for both.
 void BindParentKey(void *object, Object *child, const char *key) {
     if (key == nullptr || *key == '\0')
@@ -144,6 +146,8 @@ void LoadKeyValues(Object *object, const void *node, void *status) {
     ::Xml::KeyValues::Apply(L, top + 1, node, status, object->DisplayName());
     Game::Lua::SetTop(L, top);
 }
+
+namespace {
 
 // LoadXML_AnimOrigin: <Origin point="..."><Offset x= y=/></Origin>.
 void LoadOrigin(Anim *anim, const void *node) {

@@ -52,6 +52,7 @@
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "model/Teardown.h"
+#include "model/VisualKit.h"
 #include "tick/FrameTick.h"
 
 #include <cstdint>
@@ -164,11 +165,18 @@ void ApplyProcedures(void *model, const uint8_t *kit) {
     }
 }
 
-void Apply(void *pane, const uint8_t *kit, bool oneShot) {
-    void *model = Pane::Model(pane);
+} // namespace
+
+const uint8_t *Record(uint32_t kitID) {
+    return DBC::Record(Offsets::VAR_SPELLVISUALKIT_RECORDS, Offsets::VAR_SPELLVISUALKIT_COUNT,
+                       kitID);
+}
+
+void Apply(void *frame, void *model, const uint8_t *kit, bool oneShot,
+           std::vector<void *> *effects) {
     if (model == nullptr)
         return;
-    void *scene = Pane::Scene(pane);
+    void *scene = Pane::Scene(frame);
     for (int i = 0; i < static_cast<int>(sizeof(kAttachments) / sizeof(kAttachments[0])); ++i) {
         const uint8_t *effect = DBC::Record(
             Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
@@ -183,15 +191,20 @@ void Apply(void *pane, const uint8_t *kit, bool oneShot) {
             continue;
         if (oneShot)
             M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectDone),
-                                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(pane)), 0);
+                                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame)), 0);
         else
             M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
         reinterpret_cast<Attach_t>(Offsets::FUN_M2MODEL_ATTACH)(child, model, kAttachments[i]);
-        M2::Release(child);
+        if (effects != nullptr)
+            effects->push_back(child); // our reference, handed over
+        else
+            M2::Release(child);
     }
-    Model::DisplayInfo::LightChildren(pane, model);
+    Model::DisplayInfo::LightChildren(frame, model);
     ApplyProcedures(model, kit);
 }
+
+namespace {
 
 int __fastcall Script_ApplySpellVisualKit(void *L) {
     void *pane = Game::Lua::ResolvePlayerModel(L);
@@ -201,11 +214,8 @@ int __fastcall Script_ApplySpellVisualKit(void *L) {
         Game::Lua::Error(L, "Usage: ApplySpellVisualKit(spellVisualKitID [, oneShot])");
         return 0;
     }
-    const uint8_t *kit =
-        DBC::Record(Offsets::VAR_SPELLVISUALKIT_RECORDS, Offsets::VAR_SPELLVISUALKIT_COUNT,
-                    static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
-    if (kit != nullptr)
-        Apply(pane, kit, Game::Lua::ToBoolean(L, 3) != 0);
+    if (const uint8_t *kit = Record(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))))
+        Apply(pane, Pane::Model(pane), kit, Game::Lua::ToBoolean(L, 3) != 0);
     return 0;
 }
 

@@ -50,14 +50,33 @@
 // PlayerModel; OnModelLoaded runs once it is dressed. A finished animation
 // plays again (an actor keeps its animation, as PlayerModel re-arms Stand)
 // after OnAnimFinished.
+//
+// A spell visual kit is Model::VisualKit's routine (PlayerModel:
+// ApplySpellVisualKit) on the actor's model, applied once the model has
+// loaded (attaching waits for the file) and again on each new model; a new
+// kit takes the old one's effects off first and resets its tint. 1.12 has no
+// animation kits (AnimKit data is a later client's), so PlayAnimationKit and
+// StopAnimationKit change nothing.
+//
+// XML: an <Actor> element is a template CreateActor names (1.12's file loader
+// registers every virtual top-level node whatever its tag), loaded the way an
+// animation group is: the mixins of the whole inherits chain first, then each
+// node from the base up: parentKey / parentArray on the scene, `alpha`,
+// `scale`, `file`, <Scripts> and <KeyValues>; then OnLoad. `fileID` and
+// `desaturation` load nothing: 1.12 has no file IDs and no model
+// desaturation.
 
 #include "model/Scene.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "animation/Xml.h"
 #include "api/Documentation.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
+#include "model/VisualKit.h"
+#include "xml/FrameLoad.h"
+#include "xml/Mixin.h"
 
 #include <cmath>
 #include <cstdint>
@@ -81,10 +100,36 @@ void __fastcall OnAnimDone(void * /*model*/, uint32_t /*keyBone*/, uint32_t /*an
         reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow))->animFinished = true;
 }
 
+// Takes the kit's effects off the model and undoes its tint.
+void DropKitEffects(Actor &actor) {
+    using Detach_t = void(__fastcall *)(void *model);
+    using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
+    for (void *effect : actor.kitEffects) {
+        if (M2::Parent(effect) != nullptr)
+            reinterpret_cast<Detach_t>(Offsets::FUN_M2MODEL_DETACH)(effect);
+        M2::Release(effect);
+    }
+    actor.kitEffects.clear();
+    if (actor.model != nullptr) {
+        const float white[3] = {1.0f, 1.0f, 1.0f};
+        reinterpret_cast<SetDiffuse_t>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(actor.model, white);
+        actor.ApplyAlpha();
+    }
+}
+
+void ApplyKit(Actor &actor) {
+    if (actor.model == nullptr || !actor.loaded || actor.spellVisualKit == 0)
+        return;
+    if (const uint8_t *kit = Model::VisualKit::Record(actor.spellVisualKit))
+        Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, actor.spellVisualKitOneShot,
+                                &actor.kitEffects);
+}
+
 // Releases the model without scripts (a destroyed actor runs none).
 void ReleaseModel(Actor &actor) {
     if (actor.model == nullptr)
         return;
+    DropKitEffects(actor);
     M2::SetAnimDoneCallback(actor.model, nullptr, 0, 0);
     M2::SetVisible(actor.model, false);
     Model::DisplayInfo::DestroyDresser(actor.dresser);
@@ -130,7 +175,54 @@ void Actor::PlayAnimation() {
     if (model == nullptr)
         return;
     const int offsetMs = static_cast<int>(animOffsetSec * 1000.0f);
-    M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed, 1, 1);
+    M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed,
+                      static_cast<int>(blendOperation), 1);
+}
+
+void Actor::SetSpellVisualKit(uint32_t kitID, bool oneShot) {
+    DropKitEffects(*this);
+    spellVisualKit = kitID;
+    spellVisualKitOneShot = oneShot;
+    ApplyKit(*this);
+}
+
+namespace {
+
+// LoadXml re-enters LoadNode for each inherited template; the mixins of the
+// whole chain go in once, first (Xml::Mixin).
+void LoadNode(Actor &actor, const void *node, void *status) {
+    if (const char *inherits = ::Xml::Attr(node, "inherits"); inherits != nullptr && *inherits != '\0') {
+        if (const void *base = ::Xml::Template(inherits))
+            LoadNode(actor, base, status);
+        else
+            ::Xml::Warn(status, "Couldn't find inherited node: %s", inherits);
+    }
+    Animation::Xml::BindParentKey(actor.SceneFrame(), &actor, ::Xml::Attr(node, "parentKey"));
+    Animation::Xml::BindParentArray(actor.SceneFrame(), &actor, ::Xml::Attr(node, "parentArray"));
+    float value = 0.0f;
+    if (::Xml::FloatAttr(node, "alpha", value)) {
+        actor.alpha = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+        actor.ApplyAlpha();
+    }
+    if (::Xml::FloatAttr(node, "scale", value))
+        actor.scale = value;
+    if (const char *file = ::Xml::Attr(node, "file"); file != nullptr && *file != '\0')
+        actor.SetModel(M2::CreateModel(Model::Pane::Scene(actor.SceneFrame()), file), file, nullptr);
+    Animation::Xml::LoadScripts(&actor, node);
+    Animation::Xml::LoadKeyValues(&actor, node, status);
+}
+
+} // namespace
+
+void Actor::LoadXml(const void *node, void *status) {
+    if (void *L = Game::Lua::State()) {
+        const int top = Game::Lua::GetTop(L);
+        Animation::Push(L, this);
+        ::Xml::Mixin::ApplyChain(L, top + 1, node, status, DisplayName(), false);
+        Game::Lua::SetTop(L, top);
+    }
+    LoadNode(*this, node, status);
+    RunScript(S_ONLOAD, 0);
 }
 
 void Actor::ApplyAlpha() {
@@ -158,6 +250,7 @@ void Actor::Update(float elapsedSec) {
         }
         if (ready && M2::IsLoaded(model, 0, 1)) {
             loaded = true;
+            ApplyKit(*this);
             RunScript(S_ONMODELLOADED, 0);
         }
     }
@@ -418,6 +511,47 @@ int __fastcall Script_GetAnimationVariation(void *L) {
     return 1;
 }
 
+int __fastcall Script_SetAnimationBlendOperation(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr ||
+        !NumberArgs(L, 2, 1, "SetAnimationBlendOperation(blendOperation)", actor))
+        return 0;
+    actor->blendOperation = Game::Lua::ToNumber(L, 2) != 0.0 ? 1u : 0u;
+    return 0;
+}
+
+int __fastcall Script_GetAnimationBlendOperation(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, actor->blendOperation);
+    return 1;
+}
+
+int __fastcall Script_SetSpellVisualKit(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    const auto kitID =
+        Game::Lua::IsNumber(L, 2) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)) : 0u;
+    actor->SetSpellVisualKit(kitID, Game::Lua::ToBoolean(L, 3) != 0);
+    return 0;
+}
+
+int __fastcall Script_GetSpellVisualKit(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, actor->spellVisualKit);
+    return 1;
+}
+
+// No animation kits in this client: nothing to play or stop.
+int __fastcall Script_AnimationKit(void *L) {
+    Self(L);
+    return 0;
+}
+
 // Six numbers, bottom x, y, z then top x, y, z (what the retail getters
 // return and ModelSceneActorMixin reads); nothing until the model loads.
 int PushBox(void *L, const float (&box)[6]) {
@@ -483,6 +617,12 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetAnimationVariation", &Script_GetAnimationVariation},
     {"GetActiveBoundingBox", &Script_GetActiveBoundingBox},
     {"GetMaxBoundingBox", &Script_GetMaxBoundingBox},
+    {"SetAnimationBlendOperation", &Script_SetAnimationBlendOperation},
+    {"GetAnimationBlendOperation", &Script_GetAnimationBlendOperation},
+    {"SetSpellVisualKit", &Script_SetSpellVisualKit},
+    {"GetSpellVisualKit", &Script_GetSpellVisualKit},
+    {"PlayAnimationKit", &Script_AnimationKit},
+    {"StopAnimationKit", &Script_AnimationKit},
 };
 
 // ---- documentation --------------------------------------------------------------
@@ -537,6 +677,29 @@ const Game::Doc::Field kBoxRets[] = {
     Req("bottomX", "number"), Req("bottomY", "number"), Req("bottomZ", "number"),
     Req("topX", "number"),    Req("topY", "number"),    Req("topZ", "number"),
 };
+
+const Game::Doc::Field kBlendArg[] = {Req("blendOperation", "ModelBlendOperation")};
+const Game::Doc::Field kBlendRet[] = {Req("blendOperation", "ModelBlendOperation")};
+const Game::Doc::Field kKitArgs[] = {
+    Opt("spellVisualKitID", "number", "0", "A SpellVisualKit ID; 0 removes the kit."),
+    Opt("oneShot", "bool", "false", "True plays the effects once."),
+};
+const Game::Doc::Field kKitRet[] = {Req("spellVisualKitID", "number")};
+const Game::Doc::Field kAnimKitArgs[] = {
+    Req("animationKit", "number"),
+    Opt("isLooping", "bool", "false"),
+};
+const Game::Doc::Function kSetAnimationBlendOperation{
+    "Sets whether a new animation blends from the one playing.", kBlendArg, {}};
+const Game::Doc::Function kGetAnimationBlendOperation{
+    "Returns whether a new animation blends from the one playing.", {}, kBlendRet};
+const Game::Doc::Function kSetSpellVisualKit{
+    "Shows a spell visual kit on the model, in place of the one shown.", kKitArgs, {}};
+const Game::Doc::Function kGetSpellVisualKit{"Returns the spell visual kit shown.", {}, kKitRet};
+const Game::Doc::Function kPlayAnimationKit{
+    "Has no effect: this client has no animation kits.", kAnimKitArgs, {}};
+const Game::Doc::Function kStopAnimationKit{
+    "Has no effect: this client has no animation kits.", {}, {}};
 
 const Game::Doc::Function kSetModelByCreatureDisplayID{
     "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
@@ -609,6 +772,12 @@ const Game::Doc::Method kMethodDocs[] = {
     {"GetAnimationVariation", &kGetAnimationVariation},
     {"GetActiveBoundingBox", &kGetActiveBoundingBox},
     {"GetMaxBoundingBox", &kGetMaxBoundingBox},
+    {"SetAnimationBlendOperation", &kSetAnimationBlendOperation},
+    {"GetAnimationBlendOperation", &kGetAnimationBlendOperation},
+    {"SetSpellVisualKit", &kSetSpellVisualKit},
+    {"GetSpellVisualKit", &kGetSpellVisualKit},
+    {"PlayAnimationKit", &kPlayAnimationKit},
+    {"StopAnimationKit", &kStopAnimationKit},
 };
 
 } // namespace

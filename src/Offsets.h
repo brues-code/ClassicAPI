@@ -4195,6 +4195,20 @@ enum Offsets {
     FUN_M2LIGHT_SET_TYPE = 0x0071B620,
     FUN_M2LIGHT_SET_DIRECTION = 0x0071B6A0,
     FUN_M2LIGHT_SET_ENABLED = 0x0071B780,
+    // M2LightSetPosition — `__thiscall(light, const float v[3])`.
+    FUN_M2LIGHT_SET_POSITION = 0x0071B650,
+    // The frame's fog (benilla-re ui/modelanim "Fog"): bit 0 of the flags arms
+    // it (Script SetFogColor ors it in at 0x0076F059, ClearFog clears only it),
+    // the colour is 0xAARRGGBB with each byte trunc(c * 255 + 0.5) of the
+    // component clamped to [0, 1], near and far are stored as given; the
+    // light callback fogs only while armed, and only for far > near. Model's
+    // LoadXML clamps the fogNear / fogFar attributes at 0 and reads <FogColor>
+    // with FUN_XML_READ_COLOR, which arms it too.
+    OFF_SIMPLEMODEL_FOG_FLAGS = 0x3A4,
+    OFF_SIMPLEMODEL_FOG_COLOR = 0x3A8,
+    OFF_SIMPLEMODEL_FOG_NEAR = 0x3AC,
+    OFF_SIMPLEMODEL_FOG_FAR = 0x3B0,
+    SIMPLEMODEL_FOG_ARMED = 0x1,
     // SimpleModelInstallCamera — `__thiscall(frame, camera)`, `ret 4`: takes a
     // handle reference, releases the old camera, stores +0x31C and sets the
     // pending camera index (+0x320) to -1. CameraCreate — `void *__cdecl()`:
@@ -12752,6 +12766,9 @@ enum Offsets {
     // `bool __fastcall(const char *name, int *outLayer)`: case-insensitive
     // BACKGROUND..HIGHLIGHT -> 0..4; leaves *outLayer alone on a miss.
     FUN_XML_DRAW_LAYER_FROM_NAME = 0x006F18B0,
+    // DrawLayerIdToName — `const char *__fastcall(int layer)`: the inverse,
+    // what the regions' GetDrawLayer pushes.
+    FUN_DRAW_LAYER_TO_NAME = 0x006F1900,
     // "Frame %s: Unknown child node in %s element: %s"
     STR_XML_FRAME_UNKNOWN_CHILD = 0x008786E0,
     // Builds a node's <Frames> children. `__thiscall(frame, node, status)`,

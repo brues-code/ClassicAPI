@@ -8,6 +8,12 @@ function InputUtil.GetCursorPosition(parent)
 	return x / scale, y / scale;
 end
 
+function InputUtil.GetCursorDelta(parent)
+	local x, y = GetCursorDelta();
+	local scale = parent:GetEffectiveScale();
+	return x / scale, y / scale;
+end
+
 function InputUtil.AnchorRegionToCursor(region, point)
 	local parent = GetAppropriateTopLevelParent();
 	local x, y = InputUtil.GetCursorPosition(parent);
