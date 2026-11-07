@@ -86,6 +86,7 @@
 #include "frame/Region.h"
 #include "frame/RenderBatch.h"
 #include "frame/ScriptArgs.h"
+#include "frame/Subclass.h"
 #include "text/NumericFormatter.h"
 #include "texture/Load.h"
 #include "time/Clock.h"
@@ -185,9 +186,7 @@ struct Rect {
 };
 const Rect &RectOf(void *frame) { return *Game::Ptr<Rect>(frame, Offsets::OFF_REGION_RECT); }
 
-void *FrameOfLayout(void *layout) {
-    return static_cast<uint8_t *>(layout) - Offsets::OFF_FRAME_LAYOUT_SUBOBJECT;
-}
+using Frame::Subclass::FrameOfLayout;
 
 // The alpha the frame draws with — 4.3.4's m_alpha * m_parentAlpha / 255.
 // 1.12's alpha setter copies one byte down the tree instead of multiplying.
@@ -226,24 +225,17 @@ uint32_t ColorByte(double c) {
 
 // ---- vtables ----------------------------------------------------------------
 
-// An MSVC vtable with its RTTI locator in front, as the engine's are laid out.
-template <size_t N>
-struct VTable {
-    const void *locator;
-    const void *slots[N];
-};
-
-VTable<Offsets::VTBL_SIMPLEFRAME_SLOTS> g_vtable;
-VTable<Offsets::VTBL_SIMPLEFRAME_LAYOUT_SLOTS> g_layoutVtable;
+Frame::Subclass::VTable<Offsets::VTBL_SIMPLEFRAME_SLOTS> g_vtable;
+Frame::Subclass::VTable<Offsets::VTBL_SIMPLEFRAME_LAYOUT_SLOTS> g_layoutVtable;
 
 // CSimpleFrame's own slot, for the base call of an override.
 template <typename Fn>
 Fn Base(uintptr_t slot) {
-    return Game::Read<Fn>(reinterpret_cast<const void *>(Offsets::VTBL_SIMPLEFRAME), slot);
+    return Frame::Subclass::Slot<Fn>(Offsets::VTBL_SIMPLEFRAME, slot);
 }
 template <typename Fn>
 Fn LayoutBase(uintptr_t slot) {
-    return Game::Read<Fn>(reinterpret_cast<const void *>(Offsets::VTBL_SIMPLEFRAME_LAYOUT), slot);
+    return Frame::Subclass::Slot<Fn>(Offsets::VTBL_SIMPLEFRAME_LAYOUT, slot);
 }
 
 // 1.12's CSimpleFrame::Show / Hide, as Script Show / Hide make them.
@@ -643,10 +635,8 @@ using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int l
 using OnFrameSizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
 using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node,
                                           void *status);
-using PushMethod_t = int(__fastcall *)(void *L, const char *name, void *hash);
-
 // The class's method hash and type id (Offsets.h "Per-class method hashes").
-uint32_t g_hash[Offsets::METHOD_HASH_SIZE / 4];
+Frame::Subclass::MethodHash g_hash;
 int g_typeId = 0;
 
 uintptr_t TypeIdVar() { return reinterpret_cast<uintptr_t>(&g_typeId); }
@@ -684,7 +674,7 @@ void *__fastcall LayoutDeletingDestructor(void *layout, void *, uint32_t flags) 
 }
 
 int __fastcall GetScriptMethod(void *self, void *, void *L, const char *name) {
-    if (reinterpret_cast<PushMethod_t>(Offsets::FUN_FRAMESCRIPT_PUSH_METHOD)(L, name, g_hash))
+    if (g_hash.PushMethod(L, name))
         return 1;
     return Base<GetScriptMethod_t>(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD)(self, nullptr, L, name);
 }
@@ -862,29 +852,22 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
 }
 
 void BuildVTables() {
-    if (g_vtable.slots[0] != nullptr)
+    if (g_vtable.Built())
         return;
-    std::memcpy(&g_vtable, reinterpret_cast<const void *>(Offsets::VTBL_SIMPLEFRAME - 4),
-                sizeof(g_vtable));
-    std::memcpy(&g_layoutVtable,
-                reinterpret_cast<const void *>(Offsets::VTBL_SIMPLEFRAME_LAYOUT - 4),
-                sizeof(g_layoutVtable));
-    auto set = [](const void **slots, uintptr_t slot, const void *fn) { slots[slot / 4] = fn; };
-    const void **v = g_vtable.slots;
-    set(v, Offsets::VTBL_FRAME_DELETING_DESTRUCTOR, reinterpret_cast<const void *>(&DeletingDestructor));
-    set(v, Offsets::VTBL_FRAME_GET_SCRIPT_METHOD, reinterpret_cast<const void *>(&GetScriptMethod));
-    set(v, Offsets::VTBL_FRAME_IS_A, reinterpret_cast<const void *>(&IsA));
-    set(v, Offsets::VTBL_FRAME_IS_OBJECT_TYPE, reinterpret_cast<const void *>(&IsObjectType));
-    set(v, Offsets::VTBL_FRAME_GET_OBJECT_TYPE, reinterpret_cast<const void *>(&GetObjectType));
-    set(v, Offsets::VTBL_FRAME_SET_FRAME_ALPHA, reinterpret_cast<const void *>(&SetFrameAlpha));
-    set(v, Offsets::VTBL_FRAME_ON_FRAME_UPDATE, reinterpret_cast<const void *>(&OnFrameUpdate));
-    set(v, Offsets::VTBL_FRAME_EMIT_LAYER, reinterpret_cast<const void *>(&EmitLayer));
-    const void **l = g_layoutVtable.slots;
-    set(l, Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED,
-        reinterpret_cast<const void *>(&OnFrameSizeChanged));
-    set(l, Offsets::VTBL_LAYOUT_DELETING_DESTRUCTOR,
-        reinterpret_cast<const void *>(&LayoutDeletingDestructor));
-    set(l, Offsets::VTBL_XML_NODE_LOADER, reinterpret_cast<const void *>(&LoadXML));
+    g_vtable.CopyFrom(Offsets::VTBL_SIMPLEFRAME);
+    g_layoutVtable.CopyFrom(Offsets::VTBL_SIMPLEFRAME_LAYOUT);
+    auto fn = [](auto f) { return reinterpret_cast<const void *>(f); };
+    g_vtable.Set(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR, fn(&DeletingDestructor));
+    g_vtable.Set(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD, fn(&GetScriptMethod));
+    g_vtable.Set(Offsets::VTBL_FRAME_IS_A, fn(&IsA));
+    g_vtable.Set(Offsets::VTBL_FRAME_IS_OBJECT_TYPE, fn(&IsObjectType));
+    g_vtable.Set(Offsets::VTBL_FRAME_GET_OBJECT_TYPE, fn(&GetObjectType));
+    g_vtable.Set(Offsets::VTBL_FRAME_SET_FRAME_ALPHA, fn(&SetFrameAlpha));
+    g_vtable.Set(Offsets::VTBL_FRAME_ON_FRAME_UPDATE, fn(&OnFrameUpdate));
+    g_vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
+    g_layoutVtable.Set(Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED, fn(&OnFrameSizeChanged));
+    g_layoutVtable.Set(Offsets::VTBL_LAYOUT_DELETING_DESTRUCTOR, fn(&LayoutDeletingDestructor));
+    g_layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
 }
 
 // OFFSET (4.3.4): 0x008C6390 (CGCooldown::Create) — the "Cooldown" factory.
@@ -1561,17 +1544,6 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetCountdownFormatter", &kGetCountdownFormatter},
 };
 
-// The engine's static initializer for a class hash (Model's 0x0076F5F0).
-void InitMethodHash() {
-    if (g_hash[0] != 0)
-        return;
-    g_hash[0] = Offsets::VTBL_METHOD_HASH_ALLOCATOR;
-    g_hash[1] = 0xC; // node link offset
-    g_hash[2] = reinterpret_cast<uintptr_t>(&g_hash[2]);
-    g_hash[3] = reinterpret_cast<uintptr_t>(&g_hash[2]) | 1;
-    g_hash[9] = 0xFFFFFFFF; // no buckets yet
-}
-
 void RegisterLuaFunctions() {
     using RegisterFactory_t = int(__fastcall *)(const char *type, void *(__fastcall *)(void *),
                                                 int unique);
@@ -1580,35 +1552,17 @@ void RegisterLuaFunctions() {
     // pass runs before FrameXML loads (CGGameUI::Initialize calls
     // LoadScriptFunctions first), like the engine's own game-UI list
     // FUN_00495940, where 4.3.4 registers "Cooldown".
-    InitMethodHash();
     g_countdownForCooldowns = CVar::Factory::Register(
         "countdownForCooldowns",
         "Whether to use number countdown instead of radial swipe for action button cooldowns or not.",
         Offsets::CVAR_CATEGORY_GAME, "0");
     reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(
         "Cooldown", &CreateCooldown, 0);
-    Api::Documentation::NameWidgetSystem(g_hash, "FrameAPICooldown");
-    Game::Lua::RegisterFrameMethods(g_hash, g_methods, g_methodDocs);
+    Api::Documentation::NameWidgetSystem(g_hash.Registry(), "FrameAPICooldown");
+    Game::Lua::RegisterFrameMethods(g_hash.Registry(), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
-
-// The hash's functions are references into the game Lua state, so they are
-// released with the engine's own class hashes, at the end of the game UI's
-// unregister pass while that state is still open.
-using UnregisterScriptFunctions_t = void(__cdecl *)();
-using UnregisterMethods_t = void(__fastcall *)(void *hash);
-UnregisterScriptFunctions_t UnregisterScriptFunctions_o = nullptr;
-
-void __cdecl UnregisterScriptFunctions_h() {
-    UnregisterScriptFunctions_o();
-    reinterpret_cast<UnregisterMethods_t>(Offsets::FUN_FRAMESCRIPT_UNREGISTER_METHODS)(g_hash);
-}
-
-const Game::HookAutoRegister _unregisterHook{
-    Offsets::FUN_GAMEUI_UNREGISTER_SCRIPT_FUNCTIONS,
-    reinterpret_cast<void *>(&UnregisterScriptFunctions_h),
-    reinterpret_cast<void **>(&UnregisterScriptFunctions_o)};
 
 } // namespace
 

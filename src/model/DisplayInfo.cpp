@@ -301,6 +301,28 @@ const uint8_t *DressRecord(uint32_t displayID) {
     return bake != nullptr && bake[0] != '\0' ? extraRec : nullptr;
 }
 
+void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path) {
+    using ApplyDisplay_t = void(__fastcall *)(void *model, const uint8_t *display,
+                                              const uint8_t *modelData);
+    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+    if (display == nullptr)
+        return nullptr;
+    const uint8_t *modelData = DBC::Record(
+        Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
+        Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    if (modelData == nullptr)
+        return nullptr;
+    const char *file = Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH);
+    if (path != nullptr)
+        *path = file;
+    void *model = M2::CreateModel(scene, file);
+    if (model != nullptr)
+        reinterpret_cast<ApplyDisplay_t>(Offsets::FUN_APPLY_CREATURE_DISPLAY)(model, display,
+                                                                              modelData);
+    return model;
+}
+
 // Configure + feed equipment, the engine's order: SetInfo, then the 10 Extra
 // equipment slots. Field-for-field mirror of FUN_005fb200's NPC branch.
 void *CreateDresser(void *instance, const uint8_t *extraRec) {

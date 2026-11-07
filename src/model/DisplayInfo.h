@@ -18,6 +18,14 @@ namespace Model::DisplayInfo {
 // null when the display gets no character customization.
 const uint8_t *DressRecord(uint32_t displayID);
 
+// A new model of the display in `scene`, skinned as AttachDisplayModel skins
+// one (CreateModelFromPath on the CreatureModelData path, then
+// ApplyCreatureDisplay), that the caller owns one reference on. Null for a
+// display with no CreatureDisplayInfo or CreatureModelData row. Undressed: a
+// DressRecord display still needs CreateDresser once it has loaded. `path`,
+// when given, receives the model's file path (DBC memory).
+void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path = nullptr);
+
 // The engine character compositor, configured to dress the LOADED model
 // `instance` from `extraRec` (a DressRecord) and fed its equipment, or null
 // when the engine pool is empty or rejects the info. It holds a reference on

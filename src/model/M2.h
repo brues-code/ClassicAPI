@@ -69,6 +69,34 @@ inline void SetVisible(void *model, bool visible) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_VISIBLE)(model, visible ? 1 : 0);
 }
 
+inline void SetAlpha(void *model, float alpha) {
+    using Fn = void(__thiscall *)(void *, float);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_ALPHA)(model, alpha);
+}
+
+// The model this one is attached to, or null.
+inline void *Parent(const void *model) {
+    return Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT);
+}
+
+// The model's overall bounds {min xyz, max xyz}. Waits for an unloaded file.
+inline void GetBoundingBox(void *model, float (&box)[6]) {
+    using Fn = void(__thiscall *)(void *, float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BOUNDING_BOX)(model, box);
+}
+
+// The bounds of the animation's sequence, all zero when the model has none.
+// Waits for an unloaded file.
+inline void GetSequenceBounds(void *model, uint32_t animation, uint32_t variation,
+                              float (&box)[6]) {
+    using Fn = void(__thiscall *)(void *, uint32_t, uint32_t, void *);
+    uint8_t record[Offsets::M2_SEQUENCE_INFO_SIZE];
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_SEQUENCE_INFO)(model, animation, variation,
+                                                                record);
+    for (int i = 0; i < 6; ++i)
+        box[i] = Game::Read<float>(record, Offsets::OFF_M2_SEQUENCE_INFO_BOUNDS + i * 4);
+}
+
 inline void SetAnimated(void *model, bool animated) {
     using Fn = void(__thiscall *)(void *, int);
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_ANIMATED)(model, animated ? 1 : 0);
