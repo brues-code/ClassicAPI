@@ -46,6 +46,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/ScriptBindings.h"
+#include "storm/Memory.h"
 #include "xml/FrameLoad.h"
 #include "xml/Inherits.h"
 
@@ -60,7 +61,6 @@ using Factory_t = void *(__fastcall *)(void *parent);
 using RegisterFactory_t = int(__fastcall *)(const char *type, Factory_t factory, int unique);
 using Hash_t = uint32_t(__stdcall *)(const char *s);
 using NodeOp_t = void(__fastcall *)(void *node);
-using SMemFree_t = void(__stdcall *)(void *ptr, const char *file, int line, int flags);
 
 struct Def {
     const char *name; // the node's own `name` attribute
@@ -137,7 +137,7 @@ void Walk(const void *node, void *status, int depth, const Def **found) {
 void PrepareForReload() {
     for (const Def &d : g_defs) {
         reinterpret_cast<NodeOp_t>(Offsets::FUN_XML_NODE_DTOR)(d.node);
-        reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE)(d.node, __FILE__, __LINE__, 0);
+        Storm::Free(d.node, __FILE__, __LINE__);
     }
     g_defs.clear();
 }

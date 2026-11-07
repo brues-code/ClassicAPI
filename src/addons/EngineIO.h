@@ -32,10 +32,6 @@ using FileReadFn = int(__stdcall *)(int unused, const char *path, void **outBuf,
 // FUN_FILE_EXISTS (0x00648A30) — __stdcall, RET 8.
 using FileExistsFn = int(__stdcall *)(const char *path, int mode);
 
-// FUN_STORM_SMEM_ALLOC / FUN_STORM_SMEM_FREE — __stdcall, RET 0x10. Buffers
-// FUN_FILE_READ hands out are freed with SMemFreeFn; a buffer we allocate with
-// SMemAllocFn is freed cleanly by the engine's own SMemFree in turn.
-using SMemAllocFn = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
-using SMemFreeFn = void(__stdcall *)(void *buf, const char *file, int line, int flags);
+// Buffers FUN_FILE_READ hands out are freed with Storm::Free (storm/Memory.h).
 
 } // namespace AddOns::EngineIO

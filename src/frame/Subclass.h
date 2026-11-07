@@ -21,6 +21,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/Layout.h"
+#include "storm/Memory.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -180,17 +181,14 @@ bool BuildVTables() {
     return true;
 }
 
-// The allocation an engine factory makes (the "Frame" one, 0x006EEC10), sized
-// for the whole object and zero-filled; null when it fails.
-void *Allocate(size_t size, const char *file, int line);
-
-// A new frame of the class, shaped like the engine's factories: the block
-// (our part zero), the engine class's constructor, then our vtables, which
-// BuildVTables must have built. Null when the allocation fails.
+// A new frame of the class, shaped like the engine's factories (the "Frame"
+// one, 0x006EEC10): a Storm block for the whole object, zero-filled, the
+// engine class's constructor, then our vtables, which BuildVTables must have
+// built. Null when the allocation fails.
 template <auto &C>
 void *New(void *parent) {
     using Constructor_t = void(__fastcall *)(void *self, void *edx, void *parent);
-    void *frame = Allocate(C.size, __FILE__, __LINE__);
+    void *frame = Storm::Alloc(C.size, __FILE__, __LINE__, true);
     if (frame == nullptr)
         return nullptr;
     reinterpret_cast<Constructor_t>(C.constructor)(frame, nullptr, parent);

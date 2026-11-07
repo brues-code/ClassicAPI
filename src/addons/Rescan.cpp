@@ -86,6 +86,7 @@
 #include "addons/Embedded.h"
 #include "addons/EngineIO.h"
 #include "addons/Registry.h"
+#include "storm/Memory.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -235,9 +236,7 @@ bool TryHashToc(const char *name, uint32_t *outHash) {
     if (!ReadToc(name, &buf, &size))
         return false;
     *outHash = HashTocMetadata(static_cast<const char *>(buf), size);
-    reinterpret_cast<AddOns::EngineIO::SMemFreeFn>(
-        static_cast<uintptr_t>(Offsets::FUN_STORM_SMEM_FREE))(
-        buf, __FILE__, __LINE__, 0);
+    Storm::Free(buf, __FILE__, __LINE__);
     return true;
 }
 

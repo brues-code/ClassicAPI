@@ -9753,6 +9753,7 @@ enum Offsets {
     // engine's reload teardown loop (which `SMemFree`s every event entry's
     // name) doesn't trip its safety check on our injected pointers.
     FUN_STORM_SMEM_ALLOC = 0x006462E0,
+    STORM_SMEM_FLAG_ZERO_FILL = 0x08, // SMemAlloc flags bit 3
     FUN_STORM_SMEM_FREE = 0x00646430,
 
     // Engine's main file-content reader. Used by the TOC parser at

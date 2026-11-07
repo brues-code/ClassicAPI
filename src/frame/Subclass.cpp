@@ -21,7 +21,6 @@ namespace {
 // static initialization whatever the order of the translation units.
 MethodHash *g_hashes = nullptr;
 
-using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
 using RegisterFactory_t = int(__fastcall *)(const char *type, Factory_t factory, int unique);
 using PushMethod_t = int(__fastcall *)(void *L, const char *name, void *hash);
 using UnregisterMethods_t = void(__fastcall *)(void *hash);
@@ -40,12 +39,6 @@ const Game::HookAutoRegister _unregisterHook{
     reinterpret_cast<void **>(&UnregisterScriptFunctions_o)};
 
 } // namespace
-
-void *Allocate(size_t size, const char *file, int line) {
-    constexpr int kZeroFill = 0x08;
-    return reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC)(size, file, line,
-                                                                       kZeroFill);
-}
 
 void RegisterFactory(const char *type, Factory_t factory) {
     reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(type, factory, 0);
