@@ -220,9 +220,6 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
 }
 
 bool Actor::SetUnitModel(uint64_t guid) {
-    using CopyModel_t = void *(__thiscall *)(void *scene, void *source, uint32_t flags);
-    using DetachAll_t = void(__fastcall *)(void *model);
-    using FindChild_t = void *(__thiscall *)(void *model, int attachId);
     using CloseHand_t = void(__fastcall *)(void *model, uint32_t hand);
     ClearModel();
     void *unit = guid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) : nullptr;
@@ -231,11 +228,9 @@ bool Actor::SetUnitModel(uint64_t guid) {
         return false;
     if (void *own = Game::Read<void *>(unit, Offsets::OFF_CGUNIT_CHARACTER_COMPONENT))
         Model::DisplayInfo::PumpDresser(own, true);
-    void *copy = reinterpret_cast<CopyModel_t>(Offsets::FUN_M2SCENE_COPY_MODEL)(
-        Model::Pane::Scene(SceneFrame()), source, 0);
+    void *copy = M2::CopyWithoutItems(Model::Pane::Scene(SceneFrame()), source);
     if (copy == nullptr)
         return false;
-    reinterpret_cast<DetachAll_t>(Offsets::FUN_DETACH_ALL_ITEM_MODELS)(copy);
     unitGuid = guid;
     dresser = Outfit::CloneComponent(copy, unit);
     Outfit::ReadLanes(unit, lanes);

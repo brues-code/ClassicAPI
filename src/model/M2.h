@@ -50,6 +50,19 @@ inline void *CreateModel(void *scene, const char *path) {
     return reinterpret_cast<Fn>(Offsets::FUN_M2SCENE_CREATE_MODEL)(scene, path, 0);
 }
 
+// A new instance of `source`'s model in `scene` without its item attachments
+// (helm, shoulders, held items), the way the portrait bake copies a unit:
+// CreateModelFromModel (FUN_M2SCENE_COPY_MODEL), then DetachAllItemModels
+// (FUN_DETACH_ALL_ITEM_MODELS). The caller owns one reference, or null.
+inline void *CopyWithoutItems(void *scene, void *source) {
+    using Copy_t = void *(__thiscall *)(void *, void *, uint32_t);
+    using DetachAll_t = void(__fastcall *)(void *);
+    void *copy = reinterpret_cast<Copy_t>(Offsets::FUN_M2SCENE_COPY_MODEL)(scene, source, 0);
+    if (copy != nullptr)
+        reinterpret_cast<DetachAll_t>(Offsets::FUN_DETACH_ALL_ITEM_MODELS)(copy);
+    return copy;
+}
+
 inline void PlayAnimation(void *model, int keyBone, uint32_t id, int variation, int offset,
                           float speed, int blend, int primary) {
     using Fn = void(__thiscall *)(void *, int, uint32_t, int, int, float, int, int);
@@ -89,6 +102,18 @@ inline void SetAlpha(void *model, float alpha) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_ALPHA)(model, alpha);
 }
 
+// The tint the model is drawn with, {r, g, b}; white is none.
+inline void SetDiffuse(void *model, const float (&rgb)[3]) {
+    using Fn = void(__thiscall *)(void *, const float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(model, rgb);
+}
+
+// CM2Model::FindChild: the model hung at attachment `attachId`, or null.
+inline void *FindChild(void *model, int attachId) {
+    using Fn = void *(__thiscall *)(void *, int);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_FIND_CHILD)(model, attachId);
+}
+
 // The model this one is attached to, or null.
 inline void *Parent(const void *model) {
     return Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT);
@@ -100,18 +125,6 @@ inline void *Parent(const void *model) {
 inline void Attach(void *child, void *parent, uint32_t id) {
     using Fn = void(__thiscall *)(void *, void *, uint32_t);
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_ATTACH)(child, parent, id);
-}
-
-// The tint the model is drawn with, {r, g, b}; white is none.
-inline void SetDiffuse(void *model, const float (&rgb)[3]) {
-    using Fn = void(__thiscall *)(void *, const float *);
-    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(model, rgb);
-}
-
-// CM2Model::FindChild: the model hung at attachment `attachId`, or null.
-inline void *FindChild(void *model, int attachId) {
-    using Fn = void *(__thiscall *)(void *, int);
-    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_FIND_CHILD)(model, attachId);
 }
 
 // CM2Model::Detach, when the model is attached: off its parent, which drops

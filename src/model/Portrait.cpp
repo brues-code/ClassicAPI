@@ -71,8 +71,6 @@ constexpr uint32_t kTexels = kSize * kSize;
 
 using CreateScene_t = void *(__cdecl *)();
 using ReleaseScene_t = void(__thiscall *)(void *scene);
-using CopyModel_t = void *(__thiscall *)(void *scene, void *source, uint32_t flags);
-using DetachAll_t = void(__fastcall *)(void *model);
 using DrawScene_t = void(__thiscall *)(void *scene, uint32_t pass);
 using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
 using GetMatrix_t = void(__fastcall *)(float *m);
@@ -149,12 +147,11 @@ bool Bake(Portrait &p) {
     void *scene = reinterpret_cast<CreateScene_t>(Offsets::FUN_M2_CREATE_SCENE)();
     if (scene == nullptr)
         return false;
-    void *copy = reinterpret_cast<CopyModel_t>(Offsets::FUN_M2SCENE_COPY_MODEL)(scene, source, 0);
+    void *copy = M2::CopyWithoutItems(scene, source);
     if (copy == nullptr) {
         reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
         return false;
     }
-    reinterpret_cast<DetachAll_t>(Offsets::FUN_DETACH_ALL_ITEM_MODELS)(copy);
     void *camera = Model::Camera::CameraById(copy, 0);
     M2::PlayAnimation(copy, -1, 0, 0, 0, 1.0f, 0, 1);
 
