@@ -6270,6 +6270,41 @@ enum Offsets {
     VAR_SPELLVISUALEFFECTNAME_RECORDS = 0x00C0D760,
     VAR_SPELLVISUALEFFECTNAME_COUNT = 0x00C0D764,
     OFF_SPELLVISUALEFFECTNAME_FILE = 0x08,
+    // SpellVisualKit columns the world's kit player (0x0060EDF0) reads past
+    // the ghost's: the unit animation (+0x08, -1 none; 53 SpellCastDirected
+    // on Fireball's cast kit 38) and the SoundEntries id (+0x34; 1484 Fire
+    // Cast). Verified by parsing SpellVisualKit.dbc; the world's missile
+    // release gate tests `kit+0x08 > 0` (benilla spell/go, 0x006E8293).
+    OFF_SPELLVISUALKIT_ANIMATION = 0x08,
+    OFF_SPELLVISUALKIT_SOUND = 0x34,
+    // SpellVisual.dbc (16 columns), verified by parsing the DBC (Fireball's
+    // row 67: 30, 38, 286, 0, 0, 1, 365, 0, 1, 3011, ...) against the
+    // readers: the precast kit (+0x04, 0x006EC220), cast kit (+0x08), impact
+    // kit (+0x0C, 0x006E8BF0 / 0x0061DC50), the has-missile flag (+0x18) and
+    // missile model (+0x1C, a SpellVisualEffectName id) the launcher
+    // 0x0060A3D0 reads, the missile's target attachment (+0x24, an index
+    // into VAR_SPELL_VISUAL_ATTACHMENTS, 0x0060A526), the flight sound
+    // (+0x28, 0x0060A510) and the impact model (+0x30, a
+    // SpellVisualEffectName id that replaces the missile at arrival,
+    // 0x0061DA8D).
+    OFF_SPELLVISUAL_PRECAST_KIT = 0x04,
+    OFF_SPELLVISUAL_CAST_KIT = 0x08,
+    OFF_SPELLVISUAL_IMPACT_KIT = 0x0C,
+    OFF_SPELLVISUAL_HAS_MISSILE = 0x18,
+    OFF_SPELLVISUAL_MISSILE_MODEL = 0x1C,
+    OFF_SPELLVISUAL_MISSILE_ATTACHMENT = 0x24,
+    OFF_SPELLVISUAL_MISSILE_SOUND = 0x28,
+    OFF_SPELLVISUAL_IMPACT_MODEL = 0x30,
+    // s_spellVisualAttachments: int[11] = {20, 34, 19, 21, 22, 17, 23, 24,
+    // 25, 15, 16}, read from the binary; the first nine are the kit effect
+    // columns' attachments.
+    VAR_SPELL_VISUAL_ATTACHMENTS = 0x00860A18,
+    SPELL_VISUAL_ATTACHMENT_COUNT = 11,
+    // GetSpellVisualRecord — `const SpellVisualRec *__fastcall(const
+    // SpellRec *)`: the visual at Spell +0x1CC, or +0x1D0 when the
+    // violenceLevel cvar is below 2 and that id is set; null outside the
+    // store (Ghidra 0x006EC1E0, benilla spell/visuals#spell-visual-record-choice).
+    FUN_GET_SPELL_VISUAL = 0x006EC1E0,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at
@@ -10032,6 +10067,13 @@ enum Offsets {
     // engine has always played by SoundEntries ID internally, it simply
     // never exposed that to Lua (`PlaySound` takes only the row's name).
     FUN_SOUND_PLAY_ENTRY = 0x0045CE60,
+    // The SoundEntries 2D loop player — `void *__fastcall(int soundEntryID
+    // /*ecx*/, char ambience /*dl, flag 0x8*/, char noCategory /*stack,
+    // flag 0x10*/)`, RET 0x4 (disassembly 0x00458900). Opens a variant of
+    // the row as a held loop on bus 0 (loop count 0 = forever), applies the
+    // row's volume, unpauses, and returns the Sound record or NULL. The
+    // world's looping sounds (ambience, missiles) go through this family.
+    FUN_SOUND_PLAY_ENTRY_LOOPED = 0x00458900,
 
     // Head of the live stream list, walked by `FUN_007A66A0`'s dedup pass:
     // an intrusive list with `next` at `+0x04` and the Storm tagged-pointer
@@ -12034,6 +12076,7 @@ enum Offsets {
     OFF_SPELL_RECORD_FAMILY_NAME = 0x280,             // u32
     OFF_SPELL_RECORD_FAMILY_FLAGS = 0x284,            // u64
     OFF_SPELL_RECORD_ICON_ID = 0x1D4,                 // u32 SpellIconID (→ SpellIcon.dbc)
+    OFF_SPELL_RECORD_SPEED = 0x94,                    // float missile speed, yards/s (column 37; read by the missile launcher 0x0060A3D0 as m_speed; verified in Spell.dbc). 24.0 for Fireball 133
     OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
@@ -13261,6 +13304,21 @@ enum Offsets {
     // Animate sets while an emitter emits or holds a live particle. The
     // dying-effect drain (0x0061F6CC) releases a stopped effect once false.
     FUN_M2MODEL_HAS_LIVE_PARTICLES = 0x007135C0,
+    // CM2Model::SetEventCallback — `__thiscall(model, cb, userLow, userHigh)`,
+    // stores +0x1F4..+0x1FC (Ghidra 0x007133A0). Update (0x00719370) queues
+    // the callback for each animation event key the sequence passes, as it
+    // queues the done callback. The callback is `(tag, data, const float
+    // *point, ?, userLow, userHigh)` on the stack, RET 0x18 (the unit's,
+    // 0x00607840): `tag` the four characters ('$CSR' = 0x52534324), `point`
+    // the event's position in the scene (GetEventPosition's).
+    FUN_M2MODEL_SET_EVENT_CALLBACK = 0x007133A0,
+    // CM2Model::HasEvent — `__thiscall(model, tag)`, ret 4 (0x007130E0).
+    // GetEventPosition — `__thiscall(model, float out[3], tag)`, ret 8,
+    // returns `out` (0x007131B0): the event's offset through its bone and
+    // the scene matrix, like GetAttachmentPosition; zero for a missing tag.
+    // Both wait for an unloaded model file.
+    FUN_M2MODEL_HAS_EVENT = 0x007130E0,
+    FUN_M2MODEL_GET_EVENT_POSITION = 0x007131B0,
     // CM2Model::PlayAnimation — `__thiscall(model, 7 args)`, `ret 0x1C`. The
     // bake passes (-1, 0, 0, 0, 1.0f, 0, 1).
     FUN_M2MODEL_PLAY_ANIMATION = 0x007121A0,

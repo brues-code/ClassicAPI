@@ -153,6 +153,32 @@ inline void GetAttachmentPosition(void *model, uint32_t id, float (&out)[3]) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_POSITION)(model, out, id);
 }
 
+// The animation-event callback (Offsets::FUN_M2MODEL_SET_EVENT_CALLBACK).
+inline void SetEventCallback(void *model, const void *callback, uint32_t userLow,
+                             uint32_t userHigh) {
+    using Fn = void(__thiscall *)(void *, const void *, uint32_t, uint32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_EVENT_CALLBACK)(model, callback, userLow,
+                                                                  userHigh);
+}
+
+// CM2Model::HasEvent. Waits for an unloaded model file.
+inline bool HasEvent(void *model, uint32_t tag) {
+    using Fn = int(__thiscall *)(void *, uint32_t);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_HAS_EVENT)(model, tag) != 0;
+}
+
+// CM2Model::GetEventPosition: the event's point in the scene, as
+// GetAttachmentPosition's. Waits for an unloaded model file.
+inline void GetEventPosition(void *model, uint32_t tag, float (&out)[3]) {
+    using Fn = float *(__thiscall *)(void *, float *, uint32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_EVENT_POSITION)(model, out, tag);
+}
+
+inline bool HasLiveParticles(void *model) {
+    using Fn = int(__thiscall *)(void *);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_HAS_LIVE_PARTICLES)(model) != 0;
+}
+
 // CM2Model::Detach, when the model is attached: off its parent, which drops
 // its reference on it. Detach itself drops that reference unconditionally,
 // so the world's Dismount (0x00607CE0) tests the parent first, as this does.

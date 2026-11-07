@@ -30,4 +30,8 @@ const uint8_t *Record(uint32_t kitID);
 void Apply(void *frame, void *model, const uint8_t *kit, bool oneShot,
            std::vector<void *> *effects = nullptr);
 
+// The world's KitEffectLoopCallback (0x0060ED00) as a done callback: a
+// sequence that ended cleanly plays again.
+const void *LoopCallback();
+
 } // namespace Model::VisualKit

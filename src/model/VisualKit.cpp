@@ -61,8 +61,6 @@
 namespace Model::VisualKit {
 namespace {
 
-using HasLiveParticles_t = int(__thiscall *)(void *model);
-
 // The attachment of each effect column, in the ghost kit's order.
 constexpr uint32_t kAttachments[] = {20, 34, 19, 21, 22, 17, 23, 24, 25};
 constexpr int kProcedures = 4;
@@ -127,8 +125,7 @@ void DiscardWhere(Pred done) {
 void Drain() {
     DiscardWhere([](const Stopped &e) {
         return Game::Read<void *>(e.model, Offsets::OFF_M2MODEL_PARENT) == nullptr ||
-               !reinterpret_cast<HasLiveParticles_t>(Offsets::FUN_M2MODEL_HAS_LIVE_PARTICLES)(
-                   e.model);
+               !M2::HasLiveParticles(e.model);
     });
 }
 
@@ -160,6 +157,8 @@ void ApplyProcedures(void *model, const uint8_t *kit) {
 }
 
 } // namespace
+
+const void *LoopCallback() { return reinterpret_cast<const void *>(&OnEffectLoop); }
 
 const uint8_t *Record(uint32_t kitID) {
     return DBC::Record(Offsets::VAR_SPELLVISUALKIT_RECORDS, Offsets::VAR_SPELLVISUALKIT_COUNT,

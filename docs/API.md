@@ -875,6 +875,7 @@ build instructions.
   - [`actor:GetAttachmentPosition(attachmentID)`](#actorgetattachmentpositionattachmentid)
   - [`actor:AttachToActor(parent, attachmentID)`](#actorattachtoactorparent-attachmentid)
   - [`actor:DetachFromActor()`](#actordetachfromactor)
+  - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
   - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
@@ -19640,6 +19641,36 @@ Takes this actor off the actor that it hangs on, and returns `true`. The
 actor's position, turn and scale then count from the scene again. It returns
 `false` when the actor hangs on no actor. This also takes a rider off its
 mount. This is a ClassicAPI extension.
+
+### `actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`
+
+Plays the visual of a spell that this actor casts at `target`, and returns
+`true`. `target` is another actor of the same scene. Without a target, the
+spell is cast on this actor. The visual plays in these steps, as it does in
+the world:
+
+1. The preparation: the effects and the animation of the preparation
+   repeat, and its sound plays. This step lasts `castTimeMs` milliseconds. Without `castTimeMs`,
+   it lasts the cast time of the spell. An instant spell has no
+   preparation.
+2. The cast: the actor does the cast animation, with its effects and its
+   sound.
+3. The missile, for a spell that has one: it leaves the hand during the
+   cast animation and flies to the target at the speed of the spell, with
+   its flight sound. It follows the target if the target moves.
+4. The impact: the target flinches when a missile hits it. Then the impact
+   effects, animation and sound play on the target.
+
+A second call ends a preparation that has not finished. Missiles that are
+in flight go on. A paused actor (`actor:SetPaused`) holds its spells where
+they are. It returns `false` when the spell has no visual, when this actor
+shows no model, or when the target is in another scene. This is a
+ClassicAPI extension.
+
+```lua
+mage:PlaySpellVisual(133, dragon) -- Fireball
+priest:PlaySpellVisual(2061)      -- Flash Heal on itself
+```
 
 ### Actor scripts
 

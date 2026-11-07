@@ -222,8 +222,10 @@ void ApplyKit(Actor &actor) {
 void ReleaseModel(Actor &actor) {
     if (actor.model == nullptr)
         return;
+    Casts::Drop(actor);
     DropKitEffects(actor);
     M2::SetAnimDoneCallback(actor.model, nullptr, 0, 0);
+    M2::SetEventCallback(actor.model, nullptr, 0, 0);
     M2::SetVisible(actor.model, false);
     M2::Detach(actor.model); // a rider leaves its mount
     Model::DisplayInfo::DestroyDresser(actor.dresser);
@@ -241,6 +243,9 @@ void ReleaseModel(Actor &actor) {
     actor.pendingTryOns.clear();
     actor.loaded = false;
     actor.animFinished = false;
+    actor.kitAnimation = -1;
+    actor.kitAnimationLoops = false;
+    actor.kitAnimationEnded = false;
     actor.heldPositionMs = -1;
     actor.modelPath.clear();
 }
@@ -260,6 +265,7 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     dressRecord = newDressRecord;
     const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this));
     M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnAnimDone), user, 0);
+    M2::SetEventCallback(model, reinterpret_cast<const void *>(&Casts::OnModelEvent), user, 0);
     M2::SetRenderCallback(model, reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
                           SceneFrame());
     ApplyAlpha();
@@ -438,9 +444,20 @@ void Actor::PlayAnimation() {
     // whose animations end in one advance otherwise each see the other's
     // script replace theirs, then run OnAnimFinished for the new one.
     animFinished = false;
+    if (kitAnimation >= 0) {
+        M2::PlayAnimation(model, -1, static_cast<uint32_t>(kitAnimation), -1, 0, 1.0f,
+                          static_cast<int>(blendOperation), 1);
+        return;
+    }
     const int offsetMs = static_cast<int>(animOffsetSec * 1000.0f);
     M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed,
                       static_cast<int>(blendOperation), 1);
+}
+
+void Actor::PlayKitAnimation(int anim, bool loops) {
+    kitAnimation = anim;
+    kitAnimationLoops = loops;
+    PlayAnimation();
 }
 
 void Actor::SetSpellVisualKit(uint32_t kitID, bool oneShot) {
@@ -529,9 +546,20 @@ void Actor::Update(float elapsedSec) {
     }
     if (model != nullptr && animFinished) {
         animFinished = false;
-        PlayAnimation();
-        RunScript(S_ONANIMFINISHED, 0);
+        if (kitAnimation >= 0) {
+            // A kit's animation is the spell's, not the script's: no
+            // OnAnimFinished. A once-only one gives the actor's back.
+            if (!kitAnimationLoops) {
+                kitAnimation = -1;
+                kitAnimationEnded = true;
+            }
+            PlayAnimation();
+        } else {
+            PlayAnimation();
+            RunScript(S_ONANIMFINISHED, 0);
+        }
     }
+    Casts::Update(*this, elapsedSec);
     if (HasScript(S_ONUPDATE)) {
         void *L = Game::Lua::State();
         if (L != nullptr) {
@@ -546,6 +574,7 @@ void Actor::Update(float elapsedSec) {
 // updates only the models on the list, and that update is what queues the
 // end-of-sequence callback, while the paint's animate pass empties the list.
 void Actor::Link() {
+    Casts::Link(*this);
     if (model == nullptr || !M2::IsReady(model, 0, 1))
         return;
     if (M2::Parent(model) == nullptr) // a seated rider is animated by its mount
@@ -556,6 +585,7 @@ void Actor::Link() {
 // A seated rider is placed the same way, relative to its seat: the world's
 // Mount gives the attached rider its base transform too.
 void Actor::Place() {
+    Casts::Place(*this);
     if (model == nullptr)
         return;
     using SetTRS_t = void(__thiscall *)(void *model, const float *pos, float angle,
@@ -1004,6 +1034,32 @@ int __fastcall Script_AttachToActor(void *L) {
     return 1;
 }
 
+// The cast, from this actor at the target (another actor of the scene, or
+// none: the caster itself). See model/SceneSpell.cpp.
+int __fastcall Script_PlaySpellVisual(void *L) {
+    constexpr char kUsage[] = "PlaySpellVisual(spellID [, target [, castTimeMs]])";
+    Actor *caster = Self(L);
+    if (caster == nullptr || !NumberArgs(L, 2, 1, caster->DisplayName(), kUsage))
+        return 0;
+    Actor *target = nullptr;
+    if (Game::Lua::Type(L, 3) > Game::Lua::TYPE_NIL) {
+        target = static_cast<Actor *>(Animation::Resolve(L, 3, Actor::s_class));
+        if (target == nullptr) {
+            Game::Lua::Error(L, "Usage: %s:%s", caster->DisplayName(), kUsage);
+            return 0;
+        }
+    }
+    if (Game::Lua::Type(L, 4) > Game::Lua::TYPE_NIL && !NumberArgs(L, 4, 1, caster->DisplayName(), kUsage))
+        return 0;
+    const int castTimeMs =
+        Game::Lua::IsNumber(L, 4) ? static_cast<int>(Game::Lua::ToNumber(L, 4)) : -1;
+    const bool played = (target == nullptr || target->SceneFrame() == caster->SceneFrame()) &&
+                        Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)),
+                                    target, castTimeMs);
+    Game::Lua::PushBool(L, played);
+    return 1;
+}
+
 int __fastcall Script_DetachFromActor(void *L) {
     Actor *child = Self(L);
     if (child == nullptr)
@@ -1157,6 +1213,8 @@ int __fastcall Script_SetAnimation(void *L) {
     actor->variation = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : -1;
     actor->animSpeed = Game::Lua::IsNumber(L, 4) ? FloatArg(L, 4) : 1.0f;
     actor->animOffsetSec = Game::Lua::IsNumber(L, 5) ? FloatArg(L, 5) : 0.0f;
+    actor->kitAnimation = -1; // the script's animation replaces a spell kit's
+    actor->kitAnimationLoops = false;
     actor->PlayAnimation();
     return 0;
 }
@@ -1299,6 +1357,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetAttachmentPosition", &Script_GetAttachmentPosition},
     {"AttachToActor", &Script_AttachToActor},
     {"DetachFromActor", &Script_DetachFromActor},
+    {"PlaySpellVisual", &Script_PlaySpellVisual},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -1568,6 +1627,18 @@ const Game::Doc::Function kAttachToActor{
     "Hangs this actor on a point of the parent. Its position, yaw and scale then apply from that "
     "point. False when either actor shows no model, or when the parent hangs on this actor.",
     kAttachToActorArgs, kMountSuccessRet, nullptr, true};
+const Game::Doc::Field kPlaySpellVisualArgs[] = {
+    Req("spellID", "number"),
+    Opt("target", "ModelSceneFrameActor", nullptr,
+        "Another actor of the scene. Without one, the spell is cast on this actor."),
+    Opt("castTimeMs", "number", nullptr,
+        "How long the spell is prepared. Without it, the cast time of the spell."),
+};
+const Game::Doc::Function kPlaySpellVisual{
+    "Plays the visual of a spell cast from this actor at the target: the preparation, the cast, "
+    "the missile and the impact, with their animations and sounds. False when the spell has no "
+    "visual or this actor shows no model.",
+    kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -1644,6 +1715,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"GetAttachmentPosition", &kGetAttachmentPosition},
     {"AttachToActor", &kAttachToActor},
     {"DetachFromActor", &kDetachFromActor},
+    {"PlaySpellVisual", &kPlaySpellVisual},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

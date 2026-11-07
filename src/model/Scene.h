@@ -25,6 +25,33 @@
 // docs/notes/model-scene.md has the plan, the retail contract and the probes.
 namespace Model::Scene {
 
+class Actor;
+
+// One PlaySpellVisual on its caster (model/SceneSpell.cpp): the precast, the
+// cast, then the missile in flight.
+struct SpellCast {
+    enum class Phase { Precast, Cast, Flight };
+    uint32_t spellID = 0;
+    const uint8_t *visual = nullptr; // SpellVisual record
+    Actor *target = nullptr;         // the caster for a cast on itself
+    Phase phase = Phase::Precast;
+    float precastLeftSec = 0.0f;
+    std::vector<void *> precastEffects; // one reference each
+    bool precastTinted = false;         // the precast kit set a tint or alpha
+    void *missile = nullptr;            // one reference, from the cast on
+    void *missileSound = nullptr;
+    float queuedSec = 0.0f; // since the missile was made, until its release
+    float speed = 0.0f;
+    float position[3] = {};
+    float destination[3] = {};
+};
+
+// An impact model left at a missile's arrival, until its particles are gone.
+struct ImpactModel {
+    void *model = nullptr; // one reference
+    int framesShown = 0;
+};
+
 // A ModelSceneActor: one model in its scene frame's M2 scene, placed by the
 // scene's paint. A script object (Animation::Object) whose parent is the scene
 // frame, which owns it.
@@ -115,7 +142,38 @@ class Actor : public Animation::Object {
     uint32_t spellVisualKit = 0;
     bool spellVisualKitOneShot = false;
     std::vector<void *> kitEffects; // the kit's effect models, one reference each
+
+    // A spell kit's animation, shown in place of `animation` (-1 none): a
+    // precast's loops, a cast's or an impact's plays once.
+    int kitAnimation = -1;
+    bool kitAnimationLoops = false;
+    bool kitAnimationEnded = false; // a once-only kit animation ended this frame
+    void PlayKitAnimation(int anim, bool loops);
+    // A $CSL / $CSR / $CST event of the model this frame, and its point.
+    bool releaseEvent = false;
+    float releasePoint[3] = {};
+    std::vector<SpellCast> spellCasts;
+    std::vector<ImpactModel> impactModels;
 };
+
+// The spell visuals an actor casts (model/SceneSpell.cpp).
+namespace Casts {
+// Starts the cast; false when the spell, its visual or the caster's model is
+// missing. `castTimeMs` < 0 takes the spell's cast time.
+bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
+// From the actor's update, after the scene advance: the casts move on.
+void Update(Actor &caster, float elapsedSec);
+// From the actor's Link: the released missiles and the impact models go on
+// the scene's animate list.
+void Link(Actor &caster);
+// From the actor's Place: the missiles' placement.
+void Place(Actor &caster);
+// Drops every cast, missile and impact model of the caster.
+void Drop(Actor &caster);
+// The model event callback (Offsets::FUN_M2MODEL_SET_EVENT_CALLBACK).
+void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uint32_t unknown,
+                            uint32_t userLow, uint32_t userHigh);
+} // namespace Casts
 
 // Registers the actor class in the current Lua state.
 void RegisterActorClass();
