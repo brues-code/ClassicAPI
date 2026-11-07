@@ -518,6 +518,8 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 }
 
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
+    for (Actor *actor : *F(self).actors)
+        actor->Link();
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     else
