@@ -142,6 +142,12 @@
 // model's destructor detaches every child), and a rider that drops its own
 // leaves the seat first.
 //
+// ClassicAPI extensions on the same engine parts: AttachToActor hangs the
+// actor on any attachment of another (AttachToMount without the seat
+// animation), DetachFromActor takes it off, and GetAttachmentPosition is the
+// engine's own CM2Model::GetAttachmentPosition. Both attach methods refuse a
+// cycle (M2::CanAttach): EnsureAnimated recurses through the parent chain.
+//
 // XML: an <Actor> element is a template CreateActor names (1.12's file loader
 // registers every virtual top-level node whatever its tag), loaded the way an
 // animation group is: the mixins of the whole inherits chain first, then each
@@ -913,8 +919,8 @@ int __fastcall Script_AttachToMount(void *L) {
     Actor *rider = RiderArg(L, mount, kUsage);
     if (rider == nullptr || !NumberArgs(L, 3, 1, mount->DisplayName(), kUsage))
         return 0;
-    const bool seated = rider != mount && mount->model != nullptr && rider->model != nullptr &&
-                        rider->SceneFrame() == mount->SceneFrame();
+    const bool seated = rider->SceneFrame() == mount->SceneFrame() &&
+                        M2::CanAttach(rider->model, mount->model);
     if (seated) {
         M2::Detach(rider->model);
         M2::Attach(rider->model, mount->model, 0);
@@ -948,6 +954,64 @@ int __fastcall Script_CalculateMountScale(void *L) {
     if (mount == nullptr || RiderArg(L, mount, "CalculateMountScale(rider)") == nullptr)
         return 0;
     Game::Lua::PushNumber(L, mount->displayScale);
+    return 1;
+}
+
+// The engine's GetAttachmentPosition, which reads the bones of the frame the
+// scene last drew (EnsureAnimated animates only a model not yet animated in
+// that frame). It waits for unloaded files and animates the parents first, so
+// the model and every parent must have loaded; it does not test the id.
+int __fastcall Script_GetAttachmentPosition(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr ||
+        !NumberArgs(L, 2, 1, actor->DisplayName(), "GetAttachmentPosition(attachmentID)"))
+        return 0;
+    for (void *m = actor->model; m != nullptr; m = M2::Parent(m))
+        if (!M2::IsLoaded(m, 0, 0))
+            return 0;
+    const uint32_t id = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    if (actor->model == nullptr || !M2::HasAttachment(actor->model, id))
+        return 0;
+    float point[3];
+    M2::GetAttachmentPosition(actor->model, id, point);
+    for (float v : point)
+        Game::Lua::PushNumber(L, v);
+    return 3;
+}
+
+// AttachToMount on any attachment, from the child's side, without a seat
+// animation. An id the parent's model lacks hangs the child at the parent's
+// origin (EnsureAnimated's unresolved leg).
+int __fastcall Script_AttachToActor(void *L) {
+    constexpr char kUsage[] = "AttachToActor(parent, attachmentID)";
+    Actor *child = Self(L);
+    if (child == nullptr)
+        return 0;
+    Actor *parent = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    if (parent == nullptr) {
+        Game::Lua::Error(L, "Usage: %s:%s", child->DisplayName(), kUsage);
+        return 0;
+    }
+    if (!NumberArgs(L, 3, 1, child->DisplayName(), kUsage))
+        return 0;
+    const bool attached = child->SceneFrame() == parent->SceneFrame() &&
+                          M2::CanAttach(child->model, parent->model);
+    if (attached) {
+        M2::Detach(child->model);
+        M2::Attach(child->model, parent->model, static_cast<uint32_t>(Game::Lua::ToNumber(L, 3)));
+    }
+    Game::Lua::PushBool(L, attached);
+    return 1;
+}
+
+int __fastcall Script_DetachFromActor(void *L) {
+    Actor *child = Self(L);
+    if (child == nullptr)
+        return 0;
+    const bool attached = child->model != nullptr && M2::Parent(child->model) != nullptr;
+    if (attached)
+        M2::Detach(child->model);
+    Game::Lua::PushBool(L, attached);
     return 1;
 }
 
@@ -1232,6 +1296,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AttachToMount", &Script_AttachToMount},
     {"DetachFromMount", &Script_DetachFromMount},
     {"CalculateMountScale", &Script_CalculateMountScale},
+    {"GetAttachmentPosition", &Script_GetAttachmentPosition},
+    {"AttachToActor", &Script_AttachToActor},
+    {"DetachFromActor", &Script_DetachFromActor},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -1483,6 +1550,27 @@ const Game::Doc::Function kDetachFromMount{
 const Game::Doc::Function kCalculateMountScale{
     "Returns the size of this mount relative to the rider: the scale of its creature display.",
     kRiderArg, kMountScaleRet};
+const Game::Doc::Field kAttachmentIDArg[] = {
+    Req("attachmentID", "number", "A point of the model: 1 the right hand, 2 the left hand."),
+};
+const Game::Doc::Field kAttachmentPositionRets[] = {
+    Req("x", "number"), Req("y", "number"), Req("z", "number"),
+};
+const Game::Doc::Function kGetAttachmentPosition{
+    "Returns where a point of the model stood in the last frame the scene drew. Nothing until "
+    "the model loads, or when the model has no such point.",
+    kAttachmentIDArg, kAttachmentPositionRets, nullptr, true};
+const Game::Doc::Field kAttachToActorArgs[] = {
+    Req("parent", "ModelSceneFrameActor", "Another actor of the scene."),
+    Req("attachmentID", "number", "The point of the parent: 1 the right hand, 2 the left hand."),
+};
+const Game::Doc::Function kAttachToActor{
+    "Hangs this actor on a point of the parent. Its position, yaw and scale then apply from that "
+    "point. False when either actor shows no model, or when the parent hangs on this actor.",
+    kAttachToActorArgs, kMountSuccessRet, nullptr, true};
+const Game::Doc::Function kDetachFromActor{
+    "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
+    kMountSuccessRet, nullptr, true};
 
 const Game::Doc::Function kSetModelByCreatureDisplayID{
     "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
@@ -1553,6 +1641,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"AttachToMount", &kAttachToMount},
     {"DetachFromMount", &kDetachFromMount},
     {"CalculateMountScale", &kCalculateMountScale},
+    {"GetAttachmentPosition", &kGetAttachmentPosition},
+    {"AttachToActor", &kAttachToActor},
+    {"DetachFromActor", &kDetachFromActor},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

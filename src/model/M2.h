@@ -127,6 +127,32 @@ inline void Attach(void *child, void *parent, uint32_t id) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_ATTACH)(child, parent, id);
 }
 
+// Whether `child` may hang on `parent`: two models, and the parent is not the
+// child or hung (at any depth) from it. Animate recurses through the parent
+// chain (EnsureAnimated, 0x00714000), so a cycle never ends.
+inline bool CanAttach(const void *child, const void *parent) {
+    if (child == nullptr || parent == nullptr)
+        return false;
+    for (const void *m = parent; m != nullptr; m = Parent(m))
+        if (m == child)
+            return false;
+    return true;
+}
+
+// CM2Model::HasAttachment. Waits for an unloaded model file.
+inline bool HasAttachment(void *model, uint32_t id) {
+    using Fn = int(__thiscall *)(void *, uint32_t);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_HAS_ATTACHMENT)(model, id) != 0;
+}
+
+// CM2Model::GetAttachmentPosition: the attachment's point in the space the
+// root model's base matrix places it in (a scene's actor coordinates). The
+// model must have the attachment (HasAttachment).
+inline void GetAttachmentPosition(void *model, uint32_t id, float (&out)[3]) {
+    using Fn = float *(__thiscall *)(void *, float *, uint32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_POSITION)(model, out, id);
+}
+
 // CM2Model::Detach, when the model is attached: off its parent, which drops
 // its reference on it. Detach itself drops that reference unconditionally,
 // so the world's Dismount (0x00607CE0) tests the parent first, as this does.

@@ -61,7 +61,6 @@
 namespace Model::VisualKit {
 namespace {
 
-using HasAttachment_t = int(__thiscall *)(void *model, uint32_t id);
 using HasLiveParticles_t = int(__thiscall *)(void *model);
 
 // The attachment of each effect column, in the ghost kit's order.
@@ -176,9 +175,7 @@ void Apply(void *frame, void *model, const uint8_t *kit, bool oneShot,
         const uint8_t *effect = DBC::Record(
             Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
             Game::Read<uint32_t>(kit, Offsets::OFF_SPELLVISUALKIT_EFFECTS + i * 4));
-        if (effect == nullptr ||
-            !reinterpret_cast<HasAttachment_t>(Offsets::FUN_M2MODEL_HAS_ATTACHMENT)(
-                model, kAttachments[i]))
+        if (effect == nullptr || !M2::HasAttachment(model, kAttachments[i]))
             continue;
         void *child = M2::CreateModel(
             scene, Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));

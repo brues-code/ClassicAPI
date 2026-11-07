@@ -872,6 +872,9 @@ build instructions.
   - [`actor:AttachToMount(rider, animation [, spellKitVisualID])`](#actorattachtomountrider-animation--spellkitvisualid)
   - [`actor:DetachFromMount(rider)`](#actordetachfrommountrider)
   - [`actor:CalculateMountScale(rider)`](#actorcalculatemountscalerider)
+  - [`actor:GetAttachmentPosition(attachmentID)`](#actorgetattachmentpositionattachmentid)
+  - [`actor:AttachToActor(parent, attachmentID)`](#actorattachtoactorparent-attachmentid)
+  - [`actor:DetachFromActor()`](#actordetachfromactor)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
   - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
@@ -19579,7 +19582,7 @@ The rider plays `animation` (`91` is the mount animation for most mounts).
 With `spellKitVisualID`, the rider also shows that spell visual kit. A
 rider that sits on another mount moves to this one. It returns `false` when
 either actor shows no model, when the rider is in another scene, or when
-the rider is this actor.
+the rider is this actor or the actor that this actor hangs on.
 
 The rider's position, turn and scale then count from the seat. To make the
 rider fit the mount, use `rider:SetScale(1 / mount:CalculateMountScale(rider))`.
@@ -19593,6 +19596,50 @@ animation. It returns `false` when the rider does not sit on this actor.
 
 Returns the scale of this mount's creature display. A rider at a scale of
 `1` divided by this number has the same size as a player on that mount.
+
+### `actor:GetAttachmentPosition(attachmentID)`
+
+Returns the `x`, `y` and `z` of a point on the model, in the coordinates of
+`actor:SetPosition`. A missile, for example, can start at a hand. The point
+is where the model was in the last frame that the scene drew. It returns
+nothing until the model and the actor that it hangs on have loaded. It also
+returns nothing when the model does not have the point.
+
+These are some of the points: `1` is the right hand, `2` is the left hand,
+and `0` is the seat of a mount. This is a ClassicAPI extension.
+
+```lua
+local x, y, z = mage:GetAttachmentPosition(1)
+if x then
+  missile:SetPosition(x, y, z)
+end
+```
+
+### `actor:AttachToActor(parent, attachmentID)`
+
+Hangs this actor on a point of another actor of the same scene, and returns
+`true`. The actor then moves with that point: it follows the parent's
+position, turn and animation. The actor's own position, turn and scale then
+count from the point. If the parent's model does not have the point, the
+actor hangs at the parent's origin. An actor that hangs on another actor
+moves to the new parent.
+
+It returns `false` when either actor shows no model, when the parent is in
+another scene, or when the parent is this actor or hangs on this actor. This
+is a ClassicAPI extension.
+
+```lua
+-- A fireball in the mage's right hand.
+fireball:SetModelByPath("Spells\\Fireball_Missile_Low.mdx")
+fireball:AttachToActor(mage, 1)
+```
+
+### `actor:DetachFromActor()`
+
+Takes this actor off the actor that it hangs on, and returns `true`. The
+actor's position, turn and scale then count from the scene again. It returns
+`false` when the actor hangs on no actor. This also takes a rider off its
+mount. This is a ClassicAPI extension.
 
 ### Actor scripts
 

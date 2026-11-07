@@ -13240,6 +13240,14 @@ enum Offsets {
     // CM2Model::HasAttachment — `__thiscall(model, id)`, ret 4. Waits for
     // the model file (0x00710520) when it has not loaded.
     FUN_M2MODEL_HAS_ATTACHMENT = 0x00712CB0,
+    // CM2Model::GetAttachmentPosition — `__thiscall(model, float out[3], id)`,
+    // ret 8, returns `out` (Ghidra 0x00712D50). Waits for the model file,
+    // EnsureAnimated (0x00714000), then the attachment's offset through its
+    // bone matrix and the scene matrix (+0xDC, the inverse of the view the
+    // bones were built under): the point in the space of the root's base
+    // matrix. Does NOT test the id: a missing one (lookup 0xFFFF) reads past
+    // the attachment table, so callers test HasAttachment first.
+    FUN_M2MODEL_GET_ATTACHMENT_POSITION = 0x00712D50,
     // CM2Model::Attach — `__thiscall(child, parent, id)`, ret 8. The
     // parent takes a reference; the attach index resolves once the parent
     // loads.
