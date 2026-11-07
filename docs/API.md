@@ -843,6 +843,7 @@ build instructions.
   - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
   - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
   - [`actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`](#actordress--actorundressincludeweapons--actorundressslotslot)
+  - [`actor:TryOn(item [, handSlotName, spellEnchantID])`](#actortryonitem--handslotname-spellenchantid)
   - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
   - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
   - [`actor:IsGeoReady()`](#actorisgeoready)
@@ -19241,10 +19242,43 @@ the unit wears. `Undress` takes everything off. With `includeWeapons` set to
 `false`, the weapons stay. `UndressSlot` takes off the item in one inventory
 slot, from `1` (head) to `19` (tabard).
 
+### `actor:TryOn(item [, handSlotName, spellEnchantID])`
+
+Puts an item on the actor. The arguments are the same as the arguments of
+[`DressUpModel:TryOn`](#dressupmodeltryonitem--handslotname-spellenchantid).
+
+The model of the actor sets which items it can wear:
+
+- Weapons, shields, and off-hand items go on all models. A model that has no
+  hands holds nothing, but `TryOn` returns `Success`.
+- Armor goes on an actor that shows a unit (`SetModelByUnit`), or on a
+  display of a character model. A creature display takes no armor. A unit in
+  a shapeshift form takes no armor.
+
+The actor holds the weapons as `SetSheathed` sets. A one-hand weapon goes
+into the off hand only when the actor shows your character and you can dual
+wield. On all other actors, two one-hand weapons cannot be held together.
+
+If the model is not loaded yet, the actor wears the item when the model loads.
+`TryOn` then returns `Success`. If the item is not in the item cache, `TryOn`
+returns `DataPending`. The actor wears the item when the data arrives, in the
+hand and with the enchant glow that you gave.
+
+`TryOn` returns `NotEquippable` for an item that the model cannot wear. The
+next `SetModelBy...` call or `ClearModel` removes the items.
+
+```lua
+-- A creature display with a staff on its back.
+actor:SetModelByCreatureDisplayID(2510)
+actor:SetSheathed(true)
+actor:TryOn(18842)
+```
+
 ### `actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`
 
-Puts the weapons of a unit actor in its hands or in their sheaths. `hidden`
-set to `true` hides them.
+Puts the weapons of the actor in its hands or in their sheaths. `hidden`
+set to `true` hides them. The setting also applies to items that `TryOn`
+puts on later.
 
 ### `actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`
 
