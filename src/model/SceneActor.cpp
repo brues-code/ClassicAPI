@@ -430,18 +430,6 @@ namespace {
 
 Actor *Self(void *L) { return static_cast<Actor *>(Animation::Resolve(L, 1, Actor::s_class)); }
 
-bool NumberArgs(void *L, int first, int count, const char *usage, const Actor *actor) {
-    for (int i = 0; i < count; ++i) {
-        if (!Game::Lua::IsNumber(L, first + i)) {
-            Game::Lua::Error(L, "Usage: %s:%s", actor->DisplayName(), usage);
-            return false;
-        }
-    }
-    return true;
-}
-
-float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
-
 // Shows a creature display, dressed by its CreatureDisplayInfoExtra record.
 bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
     const char *path = nullptr;
@@ -459,7 +447,8 @@ bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
 int __fastcall Script_SetModelByCreatureDisplayID(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, "SetModelByCreatureDisplayID(creatureDisplayID)", actor))
+        !NumberArgs(L, 2, 1, actor->DisplayName(),
+                    "SetModelByCreatureDisplayID(creatureDisplayID)"))
         return 0;
     Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
     return 1;
@@ -554,7 +543,8 @@ int __fastcall Script_Undress(void *L) {
 
 int __fastcall Script_UndressSlot(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, "UndressSlot(inventorySlot)", actor))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
+                                        "UndressSlot(inventorySlot)"))
         return 0;
     Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes,
                         static_cast<int>(Game::Lua::ToNumber(L, 2)));
@@ -638,7 +628,7 @@ int __fastcall Script_AttachToMount(void *L) {
     if (mount == nullptr)
         return 0;
     Actor *rider = RiderArg(L, mount, kUsage);
-    if (rider == nullptr || !NumberArgs(L, 3, 1, kUsage, mount))
+    if (rider == nullptr || !NumberArgs(L, 3, 1, mount->DisplayName(), kUsage))
         return 0;
     const bool seated = rider != mount && mount->model != nullptr && rider->model != nullptr &&
                         rider->SceneFrame() == mount->SceneFrame();
@@ -702,7 +692,7 @@ int __fastcall Script_GetModelPath(void *L) {
 
 int __fastcall Script_SetPosition(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 3, "SetPosition(x, y, z)", actor))
+    if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(), "SetPosition(x, y, z)"))
         return 0;
     for (int i = 0; i < 3; ++i)
         actor->position[i] = FloatArg(L, 2 + i);
@@ -727,7 +717,7 @@ constexpr char kUsageSetScale[] = "SetScale(scale)";
 template <float Actor::*Field, const char *Usage>
 int __fastcall SetFloat(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, Usage, actor))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), Usage))
         return 0;
     actor->*Field = FloatArg(L, 2);
     return 0;
@@ -744,7 +734,7 @@ int __fastcall GetFloat(void *L) {
 
 int __fastcall Script_SetAlpha(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, "SetAlpha(alpha)", actor))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetAlpha(alpha)"))
         return 0;
     const float a = FloatArg(L, 2);
     actor->alpha = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
@@ -813,7 +803,8 @@ int __fastcall Script_IsVisible(void *L) {
 
 int __fastcall Script_SetAnimation(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, "SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])", actor))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
+                                        "SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])"))
         return 0;
     actor->animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
     actor->variation = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : -1;
@@ -843,7 +834,7 @@ int __fastcall Script_GetAnimationVariation(void *L) {
 int __fastcall Script_SetAnimationBlendOperation(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, "SetAnimationBlendOperation(blendOperation)", actor))
+        !NumberArgs(L, 2, 1, actor->DisplayName(), "SetAnimationBlendOperation(blendOperation)"))
         return 0;
     actor->blendOperation = Game::Lua::ToNumber(L, 2) != 0.0 ? 1u : 0u;
     return 0;

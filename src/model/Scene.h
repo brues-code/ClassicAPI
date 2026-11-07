@@ -100,4 +100,10 @@ class Actor : public Animation::Object {
 // Registers the actor class in the current Lua state.
 void RegisterActorClass();
 
+// The methods' argument checks, for the frame and its actors. True when the
+// `count` arguments from `first` are numbers; else the engine's usage error,
+// "Usage: <owner>:<usage>".
+bool NumberArgs(void *L, int first, int count, const char *owner, const char *usage);
+float FloatArg(void *L, int index);
+
 } // namespace Model::Scene

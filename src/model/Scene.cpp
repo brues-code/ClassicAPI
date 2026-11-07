@@ -576,18 +576,6 @@ void *__fastcall CreateModelScene(void *parent) {
 
 void *Self(void *L) { return Game::Lua::ResolveTypedObject(L, 1, g_class.TypeIdVar()); }
 
-bool NumberArgs(void *L, int first, int count, void *frame, const char *usage) {
-    for (int i = 0; i < count; ++i) {
-        if (!Game::Lua::IsNumber(L, first + i)) {
-            Game::Lua::Error(L, "Usage: %s:%s", Game::Lua::ObjectDisplayName(frame), usage);
-            return false;
-        }
-    }
-    return true;
-}
-
-float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
-
 int PushVec3(void *L, const Vec3 &v) {
     Game::Lua::PushNumber(L, v.x);
     Game::Lua::PushNumber(L, v.y);
@@ -632,7 +620,8 @@ int __fastcall Script_GetNumActors(void *L) {
 
 int __fastcall Script_GetActorAtIndex(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, frame, "GetActorAtIndex(index)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame),
+                                        "GetActorAtIndex(index)"))
         return 0;
     const std::vector<Actor *> &actors = *F(frame).actors;
     const double index = Game::Lua::ToNumber(L, 2);
@@ -644,7 +633,8 @@ int __fastcall Script_GetActorAtIndex(void *L) {
 
 int __fastcall Script_SetCameraPosition(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetCameraPosition(x, y, z)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                                        "SetCameraPosition(x, y, z)"))
         return 0;
     F(frame).position = Vec3Args(L, 2);
     ApplyCamera(frame);
@@ -659,7 +649,8 @@ int __fastcall Script_GetCameraPosition(void *L) {
 int __fastcall Script_SetCameraOrientationByYawPitchRoll(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
-        !NumberArgs(L, 2, 3, frame, "SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)"))
+        !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                    "SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)"))
         return 0;
     SetOrientation(F(frame), FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4));
     ApplyCamera(frame);
@@ -669,7 +660,7 @@ int __fastcall Script_SetCameraOrientationByYawPitchRoll(void *L) {
 int __fastcall Script_SetCameraOrientationByAxisVectors(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
-        !NumberArgs(L, 2, 9, frame,
+        !NumberArgs(L, 2, 9, Game::Lua::ObjectDisplayName(frame),
                     "SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, "
                     "rightY, rightZ, upX, upY, upZ)"))
         return 0;
@@ -704,7 +695,7 @@ constexpr char kUsageSetFarClip[] = "SetCameraFarClip(farClip)";
 template <float Fields::*Field, const char *Usage>
 int __fastcall SetCameraScalar(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, frame, Usage))
+    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), Usage))
         return 0;
     F(frame).*Field = FloatArg(L, 2);
     ApplyCamera(frame);
@@ -763,7 +754,8 @@ int __fastcall Script_SetPaused(void *L) {
 
 int __fastcall Script_Project3DPointTo2D(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "Project3DPointTo2D(pointX, pointY, pointZ)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                                        "Project3DPointTo2D(pointX, pointY, pointZ)"))
         return 0;
     double out[3];
     if (!Project(frame, Vec3Args(L, 2), out))
@@ -775,7 +767,8 @@ int __fastcall Script_Project3DPointTo2D(void *L) {
 
 int __fastcall Script_SetViewInsets(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 4, frame, "SetViewInsets(left, right, top, bottom)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 4, Game::Lua::ObjectDisplayName(frame),
+                                        "SetViewInsets(left, right, top, bottom)"))
         return 0;
     float *in = F(frame).viewInsets;
     for (int i = 0; i < 4; ++i)
@@ -794,7 +787,8 @@ int __fastcall Script_GetViewInsets(void *L) {
 
 int __fastcall Script_SetViewTranslation(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 2, frame, "SetViewTranslation(translationX, translationY)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 2, Game::Lua::ObjectDisplayName(frame),
+                                        "SetViewTranslation(translationX, translationY)"))
         return 0;
     F(frame).viewTranslation[0] = FloatArg(L, 2);
     F(frame).viewTranslation[1] = FloatArg(L, 3);
@@ -826,7 +820,8 @@ int __fastcall Script_GetAllowOverlappedModels(void *L) {
 
 int __fastcall Script_SetLightType(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, frame, "SetLightType(lightType)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame),
+                                        "SetLightType(lightType)"))
         return 0;
     SetLightType(frame, Game::Lua::ToNumber(L, 2) != 0.0 ? 1u : 0u);
     return 0;
@@ -856,7 +851,8 @@ int __fastcall Script_IsLightVisible(void *L) {
 
 int __fastcall Script_SetLightDirection(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetLightDirection(x, y, z)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                                        "SetLightDirection(x, y, z)"))
         return 0;
     SetLightDirection(frame, Vec3Args(L, 2));
     return 0;
@@ -869,7 +865,8 @@ int __fastcall Script_GetLightDirection(void *L) {
 
 int __fastcall Script_SetLightPosition(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetLightPosition(x, y, z)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                                        "SetLightPosition(x, y, z)"))
         return 0;
     SetLightPosition(frame, Vec3Args(L, 2));
     return 0;
@@ -882,7 +879,7 @@ int __fastcall Script_GetLightPosition(void *L) {
 
 int SetLightColor(void *L, float *(*color)(void *), const char *usage) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, usage))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame), usage))
         return 0;
     SetColor(color(frame), Vec3Args(L, 2));
     return 0;
@@ -907,7 +904,8 @@ int __fastcall Script_GetLightDiffuseColor(void *L) { return GetLightColor(L, &D
 
 int __fastcall Script_SetFogColor(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetFogColor(colorR, colorG, colorB)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                                        "SetFogColor(colorR, colorG, colorB)"))
         return 0;
     SetFogColor(frame, Vec3Args(L, 2));
     return 0;
@@ -924,7 +922,7 @@ int __fastcall Script_GetFogColor(void *L) {
 template <uintptr_t Offset, const char *Usage>
 int __fastcall SetFogDistance(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, frame, Usage))
+    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), Usage))
         return 0;
     Game::Ref<float>(frame, Offset) = FloatArg(L, 2);
     return 0;
@@ -1206,5 +1204,17 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+bool NumberArgs(void *L, int first, int count, const char *owner, const char *usage) {
+    for (int i = 0; i < count; ++i) {
+        if (!Game::Lua::IsNumber(L, first + i)) {
+            Game::Lua::Error(L, "Usage: %s:%s", owner, usage);
+            return false;
+        }
+    }
+    return true;
+}
+
+float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
 
 } // namespace Model::Scene
