@@ -14,6 +14,7 @@
 #pragma once
 
 #include "animation/Object.h"
+#include "model/Outfit.h"
 
 #include <cstdint>
 #include <string>
@@ -45,6 +46,11 @@ class Actor : public Animation::Object {
 
     // Shows `model` (one reference, which the actor takes over), or nothing.
     void SetModel(void *model, const char *path, const uint8_t *dressRecord);
+    // Shows a copy of the unit's model, dressed and armed per autoDress,
+    // sheathed and hideWeapons; false (and no model) when it has none.
+    bool SetUnitModel(uint64_t guid);
+    // Hangs the held items per sheathed and hideWeapons.
+    void ApplyWeapons();
     void ClearModel();
     void PlayAnimation();
     // Shows the kit (0 for none) on the model, replacing the one shown.
@@ -55,7 +61,16 @@ class Actor : public Animation::Object {
     void *model = nullptr;
     std::string modelPath;
     const uint8_t *dressRecord = nullptr; // CreatureDisplayInfoExtra, until dressed
+    // The character component dressing the model: a display's dress, or the
+    // clone of a unit's.
     void *dresser = nullptr;
+    // A unit's model (SetModelByUnit): the unit and what the copy holds.
+    uint64_t unitGuid = 0;
+    Outfit::Lanes lanes = {};
+    Outfit::Weapons weapons;
+    bool autoDress = true;
+    bool sheathed = false;
+    bool hideWeapons = false;
     bool loaded = false; // OnModelLoaded has run for the model
     bool animFinished = false;
 
