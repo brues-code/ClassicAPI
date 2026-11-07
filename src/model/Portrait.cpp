@@ -51,7 +51,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "model/Camera.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
@@ -73,8 +72,6 @@ constexpr uint32_t kTexels = kSize * kSize;
 using CreateScene_t = void *(__cdecl *)();
 using ReleaseScene_t = void(__thiscall *)(void *scene);
 using CopyModel_t = void *(__thiscall *)(void *scene, void *source, uint32_t flags);
-using ApplyDisplay_t = void(__fastcall *)(void *model, const uint8_t *display,
-                                          const uint8_t *modelData);
 using DetachAll_t = void(__fastcall *)(void *model);
 using DrawScene_t = void(__thiscall *)(void *scene, uint32_t pass);
 using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
@@ -270,27 +267,14 @@ Portrait *Acquire(uint32_t displayID) {
     auto found = g_portraits.find(displayID);
     if (found != g_portraits.end())
         return found->second.get();
-    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
-    if (display == nullptr)
-        return nullptr;
-    const uint8_t *modelData = DBC::Record(
-        Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
-        Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
-    if (modelData == nullptr)
-        return nullptr;
-
     void *scene = reinterpret_cast<CreateScene_t>(Offsets::FUN_M2_CREATE_SCENE)();
     if (scene == nullptr)
         return nullptr;
-    void *model = M2::CreateModel(
-        scene, Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH));
+    void *model = Model::DisplayInfo::CreateDisplayModel(scene, displayID);
     if (model == nullptr) {
         reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
         return nullptr;
     }
-    reinterpret_cast<ApplyDisplay_t>(Offsets::FUN_APPLY_CREATURE_DISPLAY)(model, display,
-                                                                          modelData);
 
     // The bake's own texture: 64x64, one mip, ARGB8888, flags (1, 0, 0, 0, 0,
     // 0, 1, 0), "Portrait1" (0x005257D3).

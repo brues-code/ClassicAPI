@@ -24,3 +24,17 @@ end
 function C_AutoComplete.GetAutoCompleteRealms()
     return {}
 end
+
+-- C_ModelInfo's getters come from the DLL. Retail's active-scene bookkeeping
+-- "does nothing in public clients" (its own documentation).
+function C_ModelInfo.AddActiveModelScene(modelSceneFrame, modelSceneID)
+end
+
+function C_ModelInfo.AddActiveModelSceneActor(modelSceneFrameActor, modelSceneActorID)
+end
+
+function C_ModelInfo.ClearActiveModelScene(modelSceneFrame)
+end
+
+function C_ModelInfo.ClearActiveModelSceneActor(modelSceneFrameActor)
+end

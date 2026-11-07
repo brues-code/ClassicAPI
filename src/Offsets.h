@@ -4160,6 +4160,74 @@ enum Offsets {
     // The Model frame's per-paint update — `__thiscall(frame)`, slot 38.
     FUN_SIMPLEMODEL_UPDATE_MODEL = 0x0076D1A0,
 
+    // ---- Subclassing CSimpleModel (Model::Scene, the ModelScene frame) ------
+    // The "Model" factory (0x006EECF0) is SMemAlloc(MODEL_FRAME_SIZE) then
+    // CSimpleModel::CSimpleModel — `__thiscall(frame, parent)`, `ret 4` — which
+    // builds the light with M2LightInitialize, zeroes the model fields and
+    // stores VTBL_SIMPLEMODEL at +0 and VTBL_SIMPLEMODEL_LAYOUT at
+    // OFF_FRAME_LAYOUT_SUBOBJECT (benilla-re ui/modelview "Model frame
+    // fields"). Its vtables are 40 and 11 slots (dumped from the exe: slots
+    // 40.. of the main one are float constants). Slot 0, the deleting
+    // destructor (0x0076CA20), runs FUN_SIMPLEMODEL_DESTROY, which releases the
+    // camera (+0x31C), the model (+0x318) and the scene (+0x314). Model's own
+    // overrides of CSimpleFrame's slots: +0x08 its method hash then Frame's,
+    // +0x0C its two script names, +0x10/+0x18/+0x1C its type, +0x28 alpha to
+    // the model, +0x38 the scene clock (CSimpleFrame's update, then
+    // M2SceneAdvance by the truncated ms; a null +0x318 skips only the model
+    // half), +0x44 EmitLayer (Frame's, then the paint callback on ARTWORK when
+    // +0x318 is set), +0x90..+0x9C SetModel / UpdateModel / model ready.
+    MODEL_FRAME_SIZE = 0x3DC,
+    FUN_SIMPLEMODEL_CONSTRUCTOR = 0x0076C8E0,
+    VTBL_SIMPLEMODEL = 0x0081C608,
+    VTBL_SIMPLEMODEL_SLOTS = 40,
+    VTBL_SIMPLEMODEL_LAYOUT = 0x0081C5D8,
+    VTBL_SIMPLEMODEL_LAYOUT_SLOTS = 11,
+    // The frame's light (an M2Light, 0x6C bytes) and, inside it, the ambient
+    // and diffuse colours (3 floats each, +0x354 / +0x360 of the frame).
+    // PlayerModel's constructor (0x00505680) writes both directly and sets the
+    // rest through M2LightSetType `__thiscall(light, int type)` (0 directional,
+    // 1 point), M2LightSetDirection `__thiscall(light, const float v[3])`
+    // (normalized) and M2LightSetEnabled `__thiscall(light, int)`. The light
+    // callback (FUN_SIMPLEMODELFFX_LIGHT_FOG_CB) adds it to a model's lighting
+    // only while it is enabled.
+    OFF_SIMPLEMODEL_LIGHT = 0x324,
+    OFF_M2LIGHT_AMBIENT = 0x30,
+    OFF_M2LIGHT_DIFFUSE = 0x3C,
+    FUN_M2LIGHT_SET_TYPE = 0x0071B620,
+    FUN_M2LIGHT_SET_DIRECTION = 0x0071B6A0,
+    FUN_M2LIGHT_SET_ENABLED = 0x0071B780,
+    // SimpleModelInstallCamera — `__thiscall(frame, camera)`, `ret 4`: takes a
+    // handle reference, releases the old camera, stores +0x31C and sets the
+    // pending camera index (+0x320) to -1. CameraCreate — `void *__cdecl()`:
+    // a new camera handle the caller owns one reference on (release with
+    // FUN_HANDLE_RELEASE); the pane fallback (0x00505890) makes, installs and
+    // releases one this way.
+    FUN_SIMPLEMODEL_INSTALL_CAMERA = 0x0076CE80,
+    FUN_CAMERA_CREATE = 0x007AC930,
+    // CM2Model::SetBaseTransformTRS — `__thiscall(model, const float pos[3],
+    // float angle, const float axis[3], const float scale[3])`, `ret 0x10`: the
+    // placement matrix at OFF_M2MODEL_BASE_MATRIX = identity, then
+    // TranslateMatrix, RotateMatrix(angle, axis, 1), ScaleMatrixRows. Each of
+    // the three pre-multiplies (row vectors: a point is scaled, then rotated,
+    // then translated). TranslateMatrix — `__thiscall(m, const float t[3])`,
+    // `ret 4`: row 3 += t·rows 0..2. RotateMatrix — `__thiscall(m, float
+    // angle, const float axis[3], int)`, `ret 0xC`. The animate pass places
+    // every unattached instance with this matrix (models/scene "Animate pass").
+    FUN_M2MODEL_SET_BASE_TRS = 0x00710650,
+    FUN_MATRIX_TRANSLATE = 0x007BDC40,
+    FUN_MATRIX_ROTATE = 0x007BDD60,
+    OFF_M2MODEL_BASE_MATRIX = 0xBC,
+    // CM2Model::GetBoundingBox — `__thiscall(model, float out[6])`: the
+    // model's bounds {min xyz, max xyz} (MD20 +0xB4); waits for the file when
+    // not loaded. GetSequenceInfo — `__thiscall(model, animID, variation,
+    // record[0x3C])`, `ret 0xC`: the sequence's flags, length, speed, bounds
+    // (+0x0C, the same six floats) and radius; zeroes them for an id the model
+    // has no sequence for (benilla-re models/model "Sequence info").
+    FUN_M2MODEL_GET_BOUNDING_BOX = 0x00713640,
+    FUN_M2MODEL_GET_SEQUENCE_INFO = 0x00711A20,
+    M2_SEQUENCE_INFO_SIZE = 0x3C,
+    OFF_M2_SEQUENCE_INFO_BOUNDS = 0x0C,
+
     // ---- PlayerModel / DressUpModel / TabardModel (benilla ui/playermodel) --
     // CGCharacterModelBase: a Model frame (0x3F8 bytes) that shows a copy of a
     // unit's model or a creature display. DressUpModel and TabardModel extend
@@ -4366,12 +4434,20 @@ enum Offsets {
     // ---- Camera properties (benilla camera#properties) -------------------
     // Get/SetVectorProperty `__fastcall(camera, id, float[3] [, keep])`,
     // Get/SetScalarProperty `__fastcall(camera, id [, float])`. Ids: 7 eye,
-    // 8 target, 4 field of view.
+    // 8 target, 4 field of view, 3 near clip, 2 far clip, 5 roll, 6 yaw
+    // (CameraCreate's registrations, benilla-re camera "Properties"; all
+    // angles in radians). The view looks along target − eye from the origin
+    // with up (sin yaw·sin roll, −cos yaw·sin roll, cos roll); the projection
+    // takes the field of view, near and far (0x007AC640).
     FUN_CAMERA_GET_VECTOR = 0x007ABF80,
     FUN_CAMERA_GET_SCALAR = 0x007AC0B0,
     FUN_CAMERA_SET_VECTOR = 0x007AC250,
     FUN_CAMERA_SET_SCALAR = 0x007AC3A0,
+    CAMERA_PROP_FAR_CLIP = 2,
+    CAMERA_PROP_NEAR_CLIP = 3,
     CAMERA_PROP_FOV = 4,
+    CAMERA_PROP_ROLL = 5,
+    CAMERA_PROP_YAW = 6,
     CAMERA_PROP_EYE = 7,
     CAMERA_PROP_TARGET = 8,
 

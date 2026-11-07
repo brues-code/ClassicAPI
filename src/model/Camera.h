@@ -21,7 +21,11 @@ struct Vec3 {
 // The M2 model's camera with id `id` (0 = portrait), or null when it has none.
 void *CameraById(void *model, uint32_t id);
 
-// A camera's vector property (Offsets::CAMERA_PROP_EYE / _TARGET).
+// A camera's properties (Offsets::CAMERA_PROP_*): vectors (eye, target) and
+// scalars (clips, field of view, roll, yaw).
 Vec3 GetVector(void *camera, uint32_t id);
+void SetVector(void *camera, uint32_t id, const Vec3 &v);
+float GetScalar(void *camera, uint32_t id);
+void SetScalar(void *camera, uint32_t id, float value);
 
 } // namespace Model::Camera
