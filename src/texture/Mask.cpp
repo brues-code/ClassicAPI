@@ -57,6 +57,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/AlphaGradient.h"
+#include "frame/Layout.h"
 #include "texture/Construct.h"
 #include "texture/Load.h"
 #include "texture/Mask.h"
@@ -167,28 +168,8 @@ using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStri
 
 PrimStreams_t g_primStreamsOriginal = nullptr;
 
-// --- region rect resolution ---------------------------------------------------
-
-using RegionGetRect_t = int(__thiscall *)(void *anchor, float *outTLBR);
-using RegionResolve_t = void(__thiscall *)(void *anchor, int flag);
-using RegionDirty_t = int(__thiscall *)(void *anchor);
-
-void *AnchorOf(void *region) {
-    return reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(region) +
-                                    Offsets::OFF_REGION_ANCHOR);
-}
-
-// Reads a region's resolved rect {top,left,bottom,right}. Mirrors the engine's
-// own GetLeft: if the layout is dirty, force a synchronous resolve with flag 1
-// (the read-time path that resolves NOW; flag 0 instead defers to the render's
-// layout pass, which never runs for a hidden mask). Only resolves when dirty, so
-// steady-state frames are a pure read. Returns false if it still can't resolve.
-bool RegionRect(void *region, float outTLBR[4]) {
-    void *anchor = AnchorOf(region);
-    if (reinterpret_cast<RegionDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(anchor) != 0)
-        reinterpret_cast<RegionResolve_t>(Offsets::FUN_LAYOUT_RESIZE)(anchor, 1);
-    return reinterpret_cast<RegionGetRect_t>(Offsets::FUN_REGION_GET_RECT)(anchor, outTLBR) != 0;
-}
+// A hidden mask's rect comes from Frame::Layout::GetResolvedRect: the layout
+// pass skips hidden regions, so a mask would otherwise have none.
 
 // --- texgen: every mask samples on its own unit, 1..N -------------------------
 //
@@ -301,7 +282,7 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
         return false;
 
     float br[4]; // base rect {top, left, bottom, right}
-    if (!RegionRect(base, br))
+    if (!Frame::Layout::GetResolvedRect(base, br))
         return false;
     // Mirror the engine corner store's input rect: the texcoord crop applies
     // only when the region opted in (SetTexCoordModifiesRect) — same gate as
@@ -342,7 +323,7 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
         if (cgx[units] == nullptr)
             return false;
         float mr[4];
-        if (!RegionRect(masks[i], mr))
+        if (!Frame::Layout::GetResolvedRect(masks[i], mr))
             return false;
         float angle = 0.0f, cxN = 0.5f, cyN = 0.5f;
         const bool rotated = Texture::Transform::GetRotation(masks[i], &angle, &cxN, &cyN);

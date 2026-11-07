@@ -37,6 +37,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 
@@ -44,15 +45,14 @@ namespace Xml::PostLoad {
 
 namespace {
 
-using LayoutDirty_t = int(__fastcall *)(void *layout);
-using Resize_t = void(__fastcall *)(void *layout, void *edx, int force);
 
 // Stands in for FUN_REGION_LAYOUT_REALIZE(0): `__thiscall(layout, int)`, `ret 4`.
 void __fastcall EndLoadDeferral(void *layout, void * /*edx*/, int /*deferred*/) {
     Game::Ref<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS) &=
         ~static_cast<uint32_t>(Offsets::LAYOUT_FLAG_DEFERRED);
-    if (reinterpret_cast<LayoutDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(layout) != 0)
-        reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(layout, nullptr, 0);
+    void *object = Frame::Layout::OwnerOf(layout);
+    if (Frame::Layout::IsResizePending(object))
+        Frame::Layout::Resize(object, false);
 }
 
 void PatchCode() {

@@ -72,6 +72,7 @@
 #include "Game.h"
 #include "HookSecureFunc.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "frame/ScriptBindings.h"
 
 #include <cstdint>
@@ -104,13 +105,10 @@ int __fastcall Script_SetSize(void *L) {
 }
 
 using LayoutExtent_t = float(__thiscall *)(void *layout);
-using LayoutDirty_t = int(__fastcall *)(void *layout);
-using LayoutResize_t = void(__fastcall *)(void *layout, void *edx, int force);
-using LayoutGetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
 
 // The explicit size of `self` in layout `slot`; 0 when none is set.
 float ExplicitExtent(void *self, int slot) {
-    void *layout = static_cast<uint8_t *>(self) + Offsets::OFF_REGION_ANCHOR;
+    void *layout = Frame::Layout::Of(self);
     auto *vtable = Game::Read<uintptr_t *>(layout, 0);
     return reinterpret_cast<LayoutExtent_t>(vtable[slot / sizeof(uintptr_t)])(layout);
 }
@@ -145,13 +143,10 @@ void PushUnscaledExtent(void *L, bool ignoreRect, int slot, bool vertical) {
     void *self = Game::Lua::ResolveRegion(L);
     if (self == nullptr)
         return;
-    void *layout = static_cast<uint8_t *>(self) + Offsets::OFF_REGION_ANCHOR;
     float extent = ExplicitExtent(self, slot);
     if (extent == 0.0f && !ignoreRect) {
-        if (reinterpret_cast<LayoutDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(layout) != 0)
-            reinterpret_cast<LayoutResize_t>(Offsets::FUN_LAYOUT_RESIZE)(layout, nullptr, 1);
         float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // {bottom, left, top, right}
-        if (reinterpret_cast<LayoutGetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, rect) != 0)
+        if (Frame::Layout::GetResolvedRect(self, rect))
             extent = (vertical ? rect[2] - rect[0] : rect[3] - rect[1]) /
                      Game::Read<float>(self, Offsets::OFF_REGION_EFFECTIVE_SCALE);
     }

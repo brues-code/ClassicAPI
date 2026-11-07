@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 
@@ -24,9 +25,6 @@ namespace {
 
 // FUN_HANDLE_RELEASE — DecRef a ref-counted handle. __fastcall(handle).
 using HandleRelease_t = void(__fastcall *)(void *handle);
-// FUN_LAYOUT_RESIZE — region layout resize (0 = invalidate). __thiscall(region,
-// int); dummy-EDX form.
-using LayoutInvalidate_t = void(__fastcall *)(void *region, void *edx, int arg);
 
 } // namespace
 
@@ -39,8 +37,7 @@ void Invalidate(void *fs) {
         Game::Ref<void *>(fs, Offsets::OFF_FONTSTRING_TEXT_BLOCK) = nullptr;
     }
     Game::Ref<uint32_t>(fs, Offsets::OFF_FONTSTRING_DIRTY_FLAGS) &= ~1u;
-    void *region = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(fs) + 0x24);
-    reinterpret_cast<LayoutInvalidate_t>(Offsets::FUN_LAYOUT_RESIZE)(region, nullptr, 0);
+    Frame::Layout::Resize(fs, false);
 }
 
 } // namespace FontString::Layout

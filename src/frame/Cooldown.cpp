@@ -84,6 +84,7 @@
 #include "cvar/Factory.h"
 #include "frame/ExtraScripts.h"
 #include "frame/LayerChange.h"
+#include "frame/Layout.h"
 #include "frame/Region.h"
 #include "frame/RenderBatch.h"
 #include "frame/ScriptArgs.h"
@@ -187,7 +188,7 @@ struct Rect {
 };
 const Rect &RectOf(void *frame) { return *Game::Ptr<Rect>(frame, Offsets::OFF_REGION_RECT); }
 
-using Frame::Subclass::FrameOfLayout;
+using Frame::Layout::OwnerOf;
 
 // The alpha the frame draws with — 4.3.4's m_alpha * m_parentAlpha / 255.
 // 1.12's alpha setter copies one byte down the tree instead of multiplying.
@@ -728,7 +729,7 @@ void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
 void __fastcall OnFrameSizeChanged(void *layout, void *, const float *oldRect) {
     g_class.LayoutBase<OnFrameSizeChanged_t>(Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED)(layout, nullptr,
                                                                                  oldRect);
-    ResetVerts(FrameOfLayout(layout));
+    ResetVerts(OwnerOf(layout));
 }
 
 // The stock CooldownFrameTemplate: a Model template (Cooldown.xml, 1.12).
@@ -749,7 +750,7 @@ void LoadModernTemplate(void *layout) {
                                                                                          nullptr);
     reinterpret_cast<SetAllPoints_t>(Offsets::FUN_LAYOUT_SET_ALL_POINTS)(layout, nullptr, parent,
                                                                          1);
-    Hide(FrameOfLayout(layout));
+    Hide(OwnerOf(layout));
 }
 
 // A texture element's <Color> child into `color`, read as CSimpleTexture::
@@ -778,7 +779,7 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         g_class.LayoutBase<LoadXML_t>(Offsets::VTBL_XML_NODE_LOADER)(layout, nullptr, node, status);
     if (node == nullptr)
         return result;
-    Fields &f = F(FrameOfLayout(layout));
+    Fields &f = F(OwnerOf(layout));
     if (const char *reverse = Xml::Attr(node, "reverse"))
         f.reverse = Game::StringToFlag(reverse);
     if (const char *drawEdge = Xml::Attr(node, "drawEdge"))
@@ -802,7 +803,7 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
             if (!Xml::TagIs(c, kSlotTag[slot]))
                 continue;
             uint32_t color = 0;
-            SetSlotTexture(FrameOfLayout(layout), static_cast<TextureSlot>(slot),
+            SetSlotTexture(OwnerOf(layout), static_cast<TextureSlot>(slot),
                            Xml::Attr(c, "file"),
                            XmlTextureColor(c, status, color) ? &color : nullptr);
         }

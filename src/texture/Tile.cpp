@@ -52,6 +52,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "texture/Atlas.h"
 #include "texture/CornerStore.h"
 #include "texture/Wrap.h"
@@ -64,7 +65,6 @@ namespace Texture::Tile {
 
 namespace {
 
-using GetRect_t = int(__fastcall *)(void *anchor, void *edx, float *outRect);
 using SetTexCoord_t = void(__fastcall *)(void *texture, void *edx, const float *values);
 using Emit_t = void(__fastcall *)(void *texture, void *edx, void *batch);
 
@@ -95,8 +95,7 @@ void Apply(void *texture) {
     if (device == nullptr)
         return; // the emit of the next batch build counts it
     float rect[4]; // bottom, left, top, right
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
-            Game::Ptr<uint8_t>(texture, Offsets::OFF_REGION_ANCHOR), nullptr, rect) == 0)
+    if (!Frame::Layout::GetRect(texture, rect))
         return;
     const float scale = Game::Read<float>(texture, Offsets::OFF_REGION_EFFECTIVE_SCALE);
     if (!(scale > 0.0f))

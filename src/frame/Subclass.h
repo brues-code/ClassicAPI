@@ -20,6 +20,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -41,11 +42,6 @@ struct VTable {
     // `slot` is a byte offset (Offsets::VTBL_*).
     void Set(uintptr_t slot, const void *fn) { slots[slot / 4] = fn; }
 };
-
-// The frame a layout sub-object (layout-vtable `this`) belongs to.
-inline void *FrameOfLayout(void *layout) {
-    return static_cast<uint8_t *>(layout) - Offsets::OFF_FRAME_LAYOUT_SUBOBJECT;
-}
 
 // The function in byte offset `slot` of the engine vtable at `address`, for
 // an override's base call.
@@ -131,7 +127,7 @@ void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {
 
 template <auto &C>
 void *__fastcall LayoutDeletingDestructor(void *layout, void *, uint32_t flags) {
-    return DeletingDestructor<C>(FrameOfLayout(layout), nullptr, flags);
+    return DeletingDestructor<C>(Layout::OwnerOf(layout), nullptr, flags);
 }
 
 // The class's methods, then a Frame's: none of the engine class's own

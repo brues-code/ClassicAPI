@@ -54,6 +54,7 @@
 #include "Offsets.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
+#include "frame/Layout.h"
 #include "gx/Device.h"
 #include "texture/Load.h"
 
@@ -67,7 +68,6 @@ namespace {
 using SetProjection_t = void(__fastcall *)(const float *m);
 using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
 using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
-using GetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
 using GetRenderable_t = void *(__fastcall *)(void *hTex, int force, void *);
 using RsSet_t = void(__fastcall *)(int selector, int value);
 using RsSetPtr_t = void(__fastcall *)(int selector, const void *value);
@@ -177,8 +177,7 @@ int AddStages(const void *frame, int n, int lastUnit) {
     if (it == g_gradients.end())
         return n;
     float rect[4];
-    void *layout = const_cast<uint8_t *>(static_cast<const uint8_t *>(frame) + Offsets::OFF_REGION_ANCHOR);
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, rect) == 0)
+    if (!Frame::Layout::GetRect(frame, rect))
         return n;
     const float scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
     const auto toNdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_DDC_TO_NDC);

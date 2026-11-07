@@ -100,6 +100,7 @@
 #include "Offsets.h"
 #include "api/Documentation.h"
 #include "frame/LayerChange.h"
+#include "frame/Layout.h"
 #include "frame/Subclass.h"
 #include "gx/Device.h"
 #include "model/Camera.h"
@@ -115,7 +116,7 @@ namespace Model::Scene {
 
 namespace {
 
-using Frame::Subclass::FrameOfLayout;
+using Frame::Layout::OwnerOf;
 using Model::Camera::Vec3;
 
 // Retail's camera defaults (probe, docs/notes/model-scene.md).
@@ -325,7 +326,6 @@ void FitProjection(const float rect[4], const float view[4]) {
 }
 
 void __fastcall Paint(void *frame) {
-    using GetRect_t = int(__thiscall *)(void *layout, float *rect);
     using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
     using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
     using Clear_t = void(__fastcall *)(uint32_t mask);
@@ -333,8 +333,7 @@ void __fastcall Paint(void *frame) {
 
     // {bottom, left, top, right}
     float rect[4] = {};
-    if (!reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
-            Game::Ptr<uint8_t>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), rect))
+    if (!Frame::Layout::GetRect(frame, rect))
         return;
     const Gx::SavedTransforms saved;
     const Gx::Viewport &vp = saved.SavedViewport();
@@ -395,13 +394,9 @@ void __fastcall Paint(void *frame) {
 // source for. Depth here is the same form without it (1 at the near clip,
 // 0 at the far); retail's callers all discard it.
 bool Project(void *frame, const Vec3 &point, double out[3]) {
-    using GetRect_t = int(__thiscall *)(void *layout, float *rect);
-
     void *camera = CameraOf(frame);
     float rect[4] = {}; // {bottom, left, top, right}
-    if (camera == nullptr ||
-        !reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
-            Game::Ptr<uint8_t>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), rect))
+    if (camera == nullptr || !Frame::Layout::GetRect(frame, rect))
         return false;
     Gx::Matrix projection, view;
     {
@@ -501,7 +496,7 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         Offsets::VTBL_SIMPLEFRAME_LAYOUT, Offsets::VTBL_XML_NODE_LOADER)(layout, nullptr, node, status);
     if (node == nullptr)
         return result;
-    void *frame = FrameOfLayout(layout);
+    void *frame = OwnerOf(layout);
     if (const char *layer = Xml::Attr(node, "drawLayer"); layer != nullptr && *layer != '\0')
         reinterpret_cast<LayerFromName_t>(Offsets::FUN_XML_DRAW_LAYER_FROM_NAME)(layer, &F(frame).drawLayer);
     float value = 0.0f;

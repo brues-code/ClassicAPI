@@ -66,6 +66,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/GetPointGuard.h"
+#include "frame/Layout.h"
 #include "frame/SourceLocation.h"
 #include "tooltip/Lines.h"
 #include "tooltip/SetEvents.h"
@@ -81,7 +82,6 @@ namespace Tooltip::FrameStack {
 namespace {
 
 using GetName_t = const char *(__thiscall *)(void *object);
-using GetRect_t = int(__thiscall *)(void *layout, float *rect);
 using NDCToDDC_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 using StrataToString_t = const char *(__fastcall *)(int strata);
 using PointToString_t = const char *(__fastcall *)(int point);
@@ -159,8 +159,7 @@ void FormatName(void *L, void *object, char *out, size_t size) {
 // rect cannot be resolved.
 bool UnderCursor(void *object, float x, float y) {
     float rect[4]; // {minY, minX, maxY, maxX}
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
-            static_cast<uint8_t *>(object) + Offsets::OFF_REGION_ANCHOR, rect) == 0)
+    if (!Frame::Layout::GetRect(object, rect))
         return false;
     return x >= rect[1] && x <= rect[3] && y <= rect[2] && y >= rect[0];
 }
