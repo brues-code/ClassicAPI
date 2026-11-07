@@ -76,7 +76,11 @@
 // the frame's own loader. Retail's <Actors> and <ViewInsets> children are not
 // read; no retail UI uses them. Not ported, as no UI this DLL targets uses
 // them and their exact effect is unprobed: view insets and translation,
-// desaturation, overlapped models, TakeActor and Project3DPointTo2D.
+// desaturation and TakeActor.
+//
+// SetAllowOverlappedModels only stores its flag (retail's default false,
+// probed): 1.12 draws a model frame whatever overlaps it, so there is nothing
+// for the flag to allow. Project3DPointTo2D is under "projection" below.
 
 #include "model/Scene.h"
 
@@ -119,6 +123,7 @@ struct Fields {
     Vec3 lightDirection;
     Vec3 lightPosition;
     uint32_t paused;
+    uint32_t allowOverlappedModels;
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -315,6 +320,70 @@ void __fastcall Paint(void *frame) {
     reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_VIEW)(view);
     reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(vp[0], vp[1], vp[2], vp[3], vp[4],
                                                                  vp[5]);
+}
+
+// ---- projection (Project3DPointTo2D) ---------------------------------------------
+
+// A scene point through the matrices the paint draws with: the device's
+// projection and view saved, CameraSetDeviceTransforms run over the frame's
+// rect, both read back, both restored. The view looks from the origin (the
+// eye is not in it, benilla camera.md), so the point goes in relative to the
+// eye, and the matrices are row-vector (0x005C3CC0 puts 1 at m11: w' is the
+// view depth). A |w'| under 0.001 projects nothing, the engine's own rule
+// (0x005C4F30).
+//
+// Retail probe (12.1.5, 400x200 frame, effective scale 0.7111, camera at
+// (-10, 0, 0) looking along +X): (0,0,0) -> (142.22, 71.11), the centre in
+// frame units x effective scale from the bottom-left; (0,2,1) -> 66.49 left
+// and 33.25 up of it, this matrix to every digit; a point behind the camera
+// still projects. Depth was (far - k * viewDepth) / (far - near): planar
+// (the off-axis point had the on-axis depth), the same k across far 100/200,
+// near 0.2/1, width and field of view, but k = 0.4607 at scale 1 and 1.8427
+// at SetScale(2) — about 0.911 * effectiveScale^2, a factor 1.12 has no
+// source for. Depth here is the same form without it (1 at the near clip,
+// 0 at the far); retail's callers all discard it.
+bool Project(void *frame, const Vec3 &point, double out[3]) {
+    using GetRect_t = int(__thiscall *)(void *layout, float *rect);
+    using Matrix_t = void(__fastcall *)(float *m);
+    using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
+
+    void *camera = CameraOf(frame);
+    float rect[4] = {}; // {bottom, left, top, right}
+    if (camera == nullptr ||
+        !reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
+            Game::Ptr<uint8_t>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), rect))
+        return false;
+    float savedProjection[16], savedView[16], projection[16], view[16];
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(savedProjection);
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(savedView);
+    reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(projection);
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(view);
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(savedProjection);
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_VIEW)(savedView);
+
+    const Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
+    const double p[4] = {point.x - eye.x, point.y - eye.y, point.z - eye.z, 1.0};
+    double v[4], c[4];
+    for (int col = 0; col < 4; ++col) {
+        v[col] = 0.0;
+        for (int row = 0; row < 4; ++row)
+            v[col] += p[row] * view[row * 4 + col];
+    }
+    for (int col = 0; col < 4; ++col) {
+        c[col] = 0.0;
+        for (int row = 0; row < 4; ++row)
+            c[col] += v[row] * projection[row * 4 + col];
+    }
+    if (!(std::fabs(c[3]) >= 0.001))
+        return false;
+    const double width = Game::InternalToPixel(rect[3] - rect[1]);
+    const double height = Game::InternalToPixel(rect[2] - rect[0]);
+    out[0] = (c[0] / c[3] + 1.0) * 0.5 * width;
+    out[1] = (c[1] / c[3] + 1.0) * 0.5 * height;
+    const Fields &f = F(frame);
+    out[2] = (f.farClip - c[3]) / (f.farClip - f.nearClip);
+    return true;
 }
 
 // ---- the overrides -----------------------------------------------------------------
@@ -673,6 +742,32 @@ int __fastcall Script_SetPaused(void *L) {
     return 0;
 }
 
+int __fastcall Script_Project3DPointTo2D(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "Project3DPointTo2D(pointX, pointY, pointZ)"))
+        return 0;
+    double out[3];
+    if (!Project(frame, Vec3Args(L, 2), out))
+        return 0;
+    for (double value : out)
+        Game::Lua::PushNumber(L, value);
+    return 3;
+}
+
+int __fastcall Script_SetAllowOverlappedModels(void *L) {
+    if (void *frame = Self(L))
+        F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
+    return 0;
+}
+
+int __fastcall Script_GetAllowOverlappedModels(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).allowOverlappedModels != 0);
+    return 1;
+}
+
 int __fastcall Script_SetLightType(void *L) {
     void *frame = Self(L);
     if (frame == nullptr || !NumberArgs(L, 2, 1, frame, "SetLightType(lightType)"))
@@ -817,6 +912,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetDrawLayer", &Script_SetDrawLayer},
     {"GetDrawLayer", &Script_GetDrawLayer},
     {"SetPaused", &Script_SetPaused},
+    {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
+    {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
+    {"Project3DPointTo2D", &Script_Project3DPointTo2D},
     {"SetLightType", &Script_SetLightType},
     {"GetLightType", &Script_GetLightType},
     {"SetLightVisible", &Script_SetLightVisible},
@@ -930,6 +1028,23 @@ const Game::Doc::Field kFarFogRet[] = {Req("far", "number")};
 const Game::Doc::Function kSetDrawLayer{"Sets the layer the scene draws in.", kLayerArg, {}};
 const Game::Doc::Function kGetDrawLayer{"Returns the layer the scene draws in.", {}, kLayerRets};
 const Game::Doc::Function kSetPaused{"Stops or restarts the actors' animations.", kPausedArgs, {}};
+const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
+const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
+const Game::Doc::Function kSetAllowOverlappedModels{
+    "Stores the flag. Scenes that overlap other model frames always draw.", kOverlappedArg, {}};
+const Game::Doc::Function kGetAllowOverlappedModels{"Returns the flag that SetAllowOverlappedModels stores.",
+                                                    {}, kOverlappedRet};
+const Game::Doc::Field kProjectArgs[] = {Req("pointX", "number"), Req("pointY", "number"),
+                                         Req("pointZ", "number")};
+const Game::Doc::Field kProjectRets[] = {
+    Req("point2DX", "number", "From the scene's left edge, in the frame's units times its effective scale."),
+    Req("point2DY", "number", "From the scene's bottom edge, in the same units."),
+    Req("depth", "number", "1 at the near clip, 0 at the far clip, by distance along the camera's forward axis."),
+};
+const Game::Doc::Function kProject3DPointTo2D{
+    "Returns where a scene point appears on the scene. Returns nothing before the scene has a size, "
+    "or for a point in the camera's plane.",
+    kProjectArgs, kProjectRets};
 const Game::Doc::Function kSetLightType{"Makes the light directional or a point light.",
                                         kLightTypeArg, {}};
 const Game::Doc::Function kGetLightType{"Returns the light's type.", {}, kLightTypeRet};
@@ -961,6 +1076,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetDrawLayer", &kSetDrawLayer},
     {"GetDrawLayer", &kGetDrawLayer},
     {"SetPaused", &kSetPaused},
+    {"SetAllowOverlappedModels", &kSetAllowOverlappedModels},
+    {"GetAllowOverlappedModels", &kGetAllowOverlappedModels},
+    {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"SetLightType", &kSetLightType},
     {"GetLightType", &kGetLightType},
     {"SetLightVisible", &kSetLightVisible},
