@@ -34,6 +34,15 @@
 // state machine — we no longer need `WaitingOpen` / `WaitingClose` /
 // per-tick `VAR_LOOT_GUID` reads, because the controller hook *is* the
 // state transition.
+//
+// Loot mode remembers corpses whose window opened EMPTY but which stay
+// LOOTABLE: the server keeps the flag while any loot is left (another
+// member's quest item, condition-gated loot) yet never sends this player a
+// slot it can't take, so an empty window is the server's own "nothing here
+// for you". Later walks skip such a corpse. A corpse whose window held
+// anything (bags full, a roll or master-loot assignment in progress) is not
+// remembered and is retried, because those refusals clear on their own.
+// See `s_emptyCorpses` for when an entry is forgotten.
 
 #include "../Game.h"
 #include "../Offsets.h"
@@ -45,6 +54,7 @@
 #include "../time/Clock.h"
 #include "Request.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -68,6 +78,8 @@ constexpr uint32_t kStepTimeoutMs = 3000;
 // fire unmodified.
 constexpr int EVENT_LOOT_OPENED = 0x10B;
 constexpr int EVENT_LOOT_CLOSED = 0x10D;
+// Observed, never swallowed (see `s_emptyCorpses`).
+constexpr int EVENT_QUEST_LOG_UPDATE = 0x134;
 
 enum class State {
     Idle,
@@ -100,6 +112,21 @@ struct ScanCtx {
 
 ScanCtx s_scan;
 
+// Loot-mode corpses whose window opened empty while the unit stayed
+// LOOTABLE (see the file comment). Outlives a walk. An entry is forgotten:
+//   - on the first world tick where its unit is gone (despawned, out of
+//     view) or no longer LOOTABLE (alive again after a respawn
+//     with the same GUID, or emptied by someone else), so a corpse back in
+//     view or a fresh corpse is opened again;
+//   - all at once on QUEST_LOG_UPDATE: quest items are per-player loot, so
+//     a quest change can turn an empty window into one with an item in it.
+std::vector<uint64_t> s_emptyCorpses;
+
+bool IsKnownEmpty(uint64_t guid) {
+    return std::find(s_emptyCorpses.begin(), s_emptyCorpses.end(), guid) !=
+           s_emptyCorpses.end();
+}
+
 // === Typedefs for engine helpers ===
 
 using ClntObjMgrEnumVisibleObjectsCallback_t = int(__fastcall *)(void *ctx,
@@ -129,6 +156,19 @@ using LootMoney_t = void(__fastcall *)(void *player);
 using LootController_t = void(__fastcall *)(int lootStructPtr,
                                              int coin,
                                              int unk);
+
+// Run every world tick, so no gone-and-back or respawn-and-die-again
+// can happen between two checks.
+void PruneEmptyCorpses() {
+    s_emptyCorpses.erase(
+        std::remove_if(s_emptyCorpses.begin(), s_emptyCorpses.end(),
+                       [](uint64_t guid) {
+                           void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT,
+                                                       guid, nullptr, 0);
+                           return unit == nullptr || !Request::IsLootable(unit);
+                       }),
+        s_emptyCorpses.end());
+}
 
 // === Scrape ===
 
@@ -325,6 +365,10 @@ void __fastcall LootController_h(int lootStructPtr, int coin, int unk) {
         LootEntry entry;
         entry.guid = s_scan.currentGuid;
         ScrapeCurrentLoot(&entry);
+        // Each corpse is queued once per walk and known-empty ones are not
+        // queued in loot mode, so this never adds a duplicate.
+        if (s_scan.lootMode && entry.coin == 0 && entry.items.empty())
+            s_emptyCorpses.push_back(entry.guid);
         s_scan.results.push_back(std::move(entry));
 
         // Loot mode: actually take everything (coin + all slots) before the
@@ -355,9 +399,19 @@ const Game::HookAutoRegister _hookController{
 
 const Event::SignalHook::AutoSubscribe _lootIntercept{&SuppressLootEvents};
 
-// === Tick (refusals and timeouts) ===
+// Observes only: the event still fires.
+bool ForgetEmptyCorpsesOnQuestChange(int eventID) {
+    if (eventID == EVENT_QUEST_LOG_UPDATE)
+        s_emptyCorpses.clear();
+    return false;
+}
+
+const Event::SignalHook::AutoSubscribe _questIntercept{&ForgetEmptyCorpsesOnQuestChange};
+
+// === Tick (memory upkeep, refusals and timeouts) ===
 
 void OnTick() {
+    PruneEmptyCorpses();
     if (s_scan.state == State::Idle)
         return;
     const bool timedOut = Time::Clock::Elapsed(s_scan.stepStartMs) >= kStepTimeoutMs;
@@ -396,6 +450,7 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 struct EnumCtx {
     void *player;
     std::vector<uint64_t> *out;
+    bool skipKnownEmpty;
 };
 
 int __fastcall EnumCallback(EnumCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
@@ -404,17 +459,19 @@ int __fastcall EnumCallback(EnumCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
         return 1;
     if (!Request::IsLootable(obj))
         return 1;
+    if (ctx->skipKnownEmpty && IsKnownEmpty(guid))
+        return 1;
     if (!Request::InReach(ctx->player, obj))
         return 1;
     ctx->out->push_back(guid);
     return 1;
 }
 
-void BuildQueue(void *player, size_t maxCount) {
+void BuildQueue(void *player, size_t maxCount, bool skipKnownEmpty) {
     s_scan.queue.clear();
     auto Enum = reinterpret_cast<ClntObjMgrEnumVisibleObjects_t>(
         Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-    EnumCtx ctx{player, &s_scan.queue};
+    EnumCtx ctx{player, &s_scan.queue, skipKnownEmpty};
     Enum(reinterpret_cast<ClntObjMgrEnumVisibleObjectsCallback_t>(&EnumCallback),
          &ctx);
     // Cap to `maxCount` corpses (0 = unlimited). Order is engine
@@ -440,7 +497,7 @@ bool BeginWalk(bool lootMode, size_t maxCount) {
     s_scan.results.clear();
     s_scan.player = player;
     s_scan.lootMode = lootMode;
-    BuildQueue(player, maxCount);
+    BuildQueue(player, maxCount, /*skipKnownEmpty=*/lootMode);
 
     if (s_scan.queue.empty()) {
         Complete(); // nothing nearby — fire LOOT_SCAN_COMPLETED immediately

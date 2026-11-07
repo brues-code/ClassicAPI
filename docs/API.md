@@ -15702,6 +15702,20 @@ suppressed so `LootFrame` never flickers open per corpse. The normal
 item-received and money events still fire (`CHAT_MSG_LOOT`,
 `CHAT_MSG_MONEY`, inventory updates), so the player sees what they got.
 
+Later walks skip a corpse that opened with nothing for you but stays
+lootable. This occurs when the remaining loot is for other players, for
+example a quest item for a different group member. The walk opens a
+skipped corpse again when one of these occurs:
+
+- The corpse leaves view and comes back.
+- The creature respawns and dies again.
+- Your quest log changes.
+
+Later walks try again a corpse that still shows loot, for example when
+your bags are full, or when a roll or a master-loot assignment is in
+progress. Skipped corpses are not in
+[`GetLastScanResults()`](#c_lootgetlastscanresults).
+
 ```lua
 -- Loot everything within interact range
 C_Loot.LootAllCorpses()
