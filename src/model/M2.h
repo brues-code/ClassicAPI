@@ -79,6 +79,23 @@ inline void *Parent(const void *model) {
     return Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT);
 }
 
+// CM2Model::Attach: `child` on the parent's attachment `id`. The child leaves
+// the animate list (the parent animates it) and the parent takes a reference
+// on it.
+inline void Attach(void *child, void *parent, uint32_t id) {
+    using Fn = void(__thiscall *)(void *, void *, uint32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_ATTACH)(child, parent, id);
+}
+
+// CM2Model::Detach, when the model is attached: off its parent, which drops
+// its reference on it. Detach itself drops that reference unconditionally,
+// so the world's Dismount (0x00607CE0) tests the parent first, as this does.
+inline void Detach(void *model) {
+    using Fn = void(__fastcall *)(void *);
+    if (Parent(model) != nullptr)
+        reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_DETACH)(model);
+}
+
 // The model's overall bounds {min xyz, max xyz}. Waits for an unloaded file.
 inline void GetBoundingBox(void *model, float (&box)[6]) {
     using Fn = void(__thiscall *)(void *, float *);

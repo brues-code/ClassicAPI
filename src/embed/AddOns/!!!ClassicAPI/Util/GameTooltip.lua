@@ -107,6 +107,12 @@ function GameTooltip_AddNormalLine(tooltip, text, wrap, leftOffset)
 	GameTooltip_AddColoredLine(tooltip, text, NORMAL_FONT_COLOR, wrap, leftOffset);
 end
 
+-- Retail's takes `...` and passes it on; named parameters keep Lua 5.0 from
+-- building an `arg` table per call.
+function GameTooltip_AddBodyLine(tooltip, text, wrap, leftOffset)
+	GameTooltip_AddNormalLine(tooltip, text, wrap, leftOffset);
+end
+
 function GameTooltip_AddHighlightLine(tooltip, text, wrap, leftOffset)
 	GameTooltip_AddColoredLine(tooltip, text, HIGHLIGHT_FONT_COLOR, wrap, leftOffset);
 end

@@ -75,6 +75,19 @@
 // to copy), so usePlayerNativeForm, holdBowString and customRaceID change
 // nothing.
 //
+// A mount actor seats a rider the way the world's Mount (0x00607A00) does:
+// the rider's model on the mount's attachment 0, playing the seat animation.
+// Attaching takes the rider off the animate list (the mount animates it), and
+// the mount holds a reference on it. The rider's placement is then relative to
+// the seat. Its scale is the one AttachPlayerToMount requests: 1 over
+// CalculateMountScale. The world gives the rider its +0x98 over the mount
+// display's scale, and +0x98 is always 1.0, so CalculateMountScale is the mount
+// display's CreatureModelScale. DetachFromMount only detaches: the retail probe
+// saw the rider keep the seat animation, where the world's Dismount
+// (0x00607CE0) plays 0. A mount that drops its model unseats its rider (the
+// model's destructor detaches every child), and a rider that drops its own
+// leaves the seat first.
+//
 // XML: an <Actor> element is a template CreateActor names (1.12's file loader
 // registers every virtual top-level node whatever its tag), loaded the way an
 // animation group is: the mixins of the whole inherits chain first, then each
@@ -89,6 +102,7 @@
 #include "Offsets.h"
 #include "animation/Xml.h"
 #include "api/Documentation.h"
+#include "dbc/Lookup.h"
 #include "guid/Guid.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
@@ -122,11 +136,9 @@ void __fastcall OnAnimDone(void * /*model*/, uint32_t /*keyBone*/, uint32_t /*an
 
 // Takes the kit's effects off the model and undoes its tint.
 void DropKitEffects(Actor &actor) {
-    using Detach_t = void(__fastcall *)(void *model);
     using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
     for (void *effect : actor.kitEffects) {
-        if (M2::Parent(effect) != nullptr)
-            reinterpret_cast<Detach_t>(Offsets::FUN_M2MODEL_DETACH)(effect);
+        M2::Detach(effect);
         M2::Release(effect);
     }
     actor.kitEffects.clear();
@@ -152,11 +164,13 @@ void ReleaseModel(Actor &actor) {
     DropKitEffects(actor);
     M2::SetAnimDoneCallback(actor.model, nullptr, 0, 0);
     M2::SetVisible(actor.model, false);
+    M2::Detach(actor.model); // a rider leaves its mount
     Model::DisplayInfo::DestroyDresser(actor.dresser);
     M2::Release(actor.model);
     actor.model = nullptr;
     actor.dresser = nullptr;
     actor.dressRecord = nullptr;
+    actor.displayScale = 1.0f;
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
@@ -322,7 +336,8 @@ void Actor::Update(float elapsedSec) {
         Model::DisplayInfo::PumpDresser(dresser);
     }
     if (model != nullptr && M2::IsReady(model, 0, 1)) {
-        M2::SetAnimated(model, true);
+        if (M2::Parent(model) == nullptr) // a seated rider is animated by its mount
+            M2::SetAnimated(model, true);
         M2::SetVisible(model, shown);
     }
     if (model != nullptr && animFinished) {
@@ -339,8 +354,10 @@ void Actor::Update(float elapsedSec) {
     }
 }
 
+// A seated rider is placed the same way, relative to its seat: the world's
+// Mount gives the attached rider its base transform too.
 void Actor::Place() {
-    if (model == nullptr || M2::Parent(model) != nullptr)
+    if (model == nullptr)
         return;
     using SetTRS_t = void(__thiscall *)(void *model, const float *pos, float angle,
                                         const float *axis, const float *scale);
@@ -397,6 +414,11 @@ int __fastcall Script_SetModelByCreatureDisplayID(void *L) {
     void *model = Model::DisplayInfo::CreateDisplayModel(Model::Pane::Scene(actor->SceneFrame()),
                                                          displayID, &path);
     actor->SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
+    if (model != nullptr)
+        actor->displayScale = Game::Read<float>(
+            DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                        Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
+            Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
 }
@@ -511,6 +533,62 @@ int __fastcall Script_IsGeoReady(void *L) {
     if (actor == nullptr)
         return 0;
     Game::Lua::PushBool(L, actor->model != nullptr && M2::IsLoaded(actor->model, 0, 1));
+    return 1;
+}
+
+// The rider argument of the mount methods.
+Actor *RiderArg(void *L, const Actor *mount, const char *usage) {
+    Actor *rider = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    if (rider == nullptr)
+        Game::Lua::Error(L, "Usage: %s:%s", mount->DisplayName(), usage);
+    return rider;
+}
+
+// Mount's seating (0x00607A00): the rider on attachment 0, then the seat
+// animation. A rider already seated moves to this mount.
+int __fastcall Script_AttachToMount(void *L) {
+    constexpr char kUsage[] = "AttachToMount(rider, animation [, spellKitVisualID])";
+    Actor *mount = Self(L);
+    if (mount == nullptr)
+        return 0;
+    Actor *rider = RiderArg(L, mount, kUsage);
+    if (rider == nullptr || !NumberArgs(L, 3, 1, kUsage, mount))
+        return 0;
+    const bool seated = rider != mount && mount->model != nullptr && rider->model != nullptr &&
+                        rider->SceneFrame() == mount->SceneFrame();
+    if (seated) {
+        M2::Detach(rider->model);
+        M2::Attach(rider->model, mount->model, 0);
+        rider->animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 3));
+        rider->PlayAnimation();
+        if (Game::Lua::IsNumber(L, 4) && Game::Lua::ToNumber(L, 4) != 0.0)
+            rider->SetSpellVisualKit(static_cast<uint32_t>(Game::Lua::ToNumber(L, 4)), false);
+    }
+    Game::Lua::PushBool(L, seated);
+    return 1;
+}
+
+int __fastcall Script_DetachFromMount(void *L) {
+    Actor *mount = Self(L);
+    if (mount == nullptr)
+        return 0;
+    Actor *rider = RiderArg(L, mount, "DetachFromMount(rider)");
+    if (rider == nullptr)
+        return 0;
+    const bool seated = mount->model != nullptr && rider->model != nullptr &&
+                        M2::Parent(rider->model) == mount->model;
+    if (seated)
+        M2::Detach(rider->model);
+    Game::Lua::PushBool(L, seated);
+    return 1;
+}
+
+// The mount display's scale over the rider's +0x98, which 1.12 keeps at 1.0.
+int __fastcall Script_CalculateMountScale(void *L) {
+    Actor *mount = Self(L);
+    if (mount == nullptr || RiderArg(L, mount, "CalculateMountScale(rider)") == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, mount->displayScale);
     return 1;
 }
 
@@ -744,6 +822,13 @@ int __fastcall Script_GetMaxBoundingBox(void *L) {
     return PushBox(L, box);
 }
 
+// Retail's Enum.ModelBlendOperation (ModelAnimationSharedDocumentation.lua);
+// the actor stores it as PlayAnimation's blend argument.
+const Game::Lua::EnumIntegerEntry kModelBlendOperation[] = {
+    {"None", 0},
+    {"Anim", 1},
+};
+
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetObjectType", &Animation::Script_GetObjectType},
     {"IsObjectType", &Animation::Script_IsObjectType},
@@ -765,6 +850,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetAutoDress", &Script_SetAutoDress},
     {"GetAutoDress", &Script_GetAutoDress},
     {"IsGeoReady", &Script_IsGeoReady},
+    {"AttachToMount", &Script_AttachToMount},
+    {"DetachFromMount", &Script_DetachFromMount},
+    {"CalculateMountScale", &Script_CalculateMountScale},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -918,6 +1006,27 @@ const Game::Doc::Function kGetAutoDress{
 const Game::Doc::Function kIsGeoReady{
     "Returns whether the model and the item models on it have loaded.", {}, kGeoReadyRet};
 
+const Game::Doc::Field kAttachToMountArgs[] = {
+    Req("rider", "ModelSceneFrameActor", "Another actor of the scene."),
+    Req("animation", "AnimationDataEnum", "The seat animation; 91 for most mounts."),
+    Opt("spellKitVisualID", "number", nullptr, "A spell visual kit shown on the rider."),
+};
+const Game::Doc::Field kRiderArg[] = {Req("rider", "ModelSceneFrameActor")};
+const Game::Doc::Field kMountSuccessRet[] = {Req("success", "bool")};
+const Game::Doc::Field kMountScaleRet[] = {
+    Req("scale", "number", "The rider fits the mount at 1 over this scale."),
+};
+const Game::Doc::Function kAttachToMount{
+    "Seats the rider on this actor. False when either actor shows no model.",
+    kAttachToMountArgs, kMountSuccessRet};
+const Game::Doc::Function kDetachFromMount{
+    "Takes the rider off this actor. The rider keeps its animation. False when the rider is "
+    "not seated on this actor.",
+    kRiderArg, kMountSuccessRet};
+const Game::Doc::Function kCalculateMountScale{
+    "Returns the size of this mount relative to the rider: the scale of its creature display.",
+    kRiderArg, kMountScaleRet};
+
 const Game::Doc::Function kSetModelByCreatureDisplayID{
     "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
 const Game::Doc::Function kSetModelByPath{"Shows a model file.", kPathArgs, kSuccessRet};
@@ -972,6 +1081,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetAutoDress", &kSetAutoDress},
     {"GetAutoDress", &kGetAutoDress},
     {"IsGeoReady", &kIsGeoReady},
+    {"AttachToMount", &kAttachToMount},
+    {"DetachFromMount", &kDetachFromMount},
+    {"CalculateMountScale", &kCalculateMountScale},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},
@@ -1020,6 +1132,8 @@ Animation::Class Actor::s_class{"ModelSceneActor",
 
 void RegisterActorClass() {
     Animation::RegisterClass(Actor::s_class);
+    Game::Lua::RegisterIntegerEnum("Enum", "ModelBlendOperation", kModelBlendOperation,
+                                   "ModelAnimationShared");
     Api::Documentation::NameWidgetSystem(&Actor::s_class, "FrameAPIModelSceneFrameActor");
     Api::Documentation::RecordFrameMethods(&Actor::s_class, kMethods, kMethodDocs);
 }

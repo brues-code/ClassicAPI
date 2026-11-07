@@ -1,0 +1,27 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<!-- The dressing room's mount mode (DressUpFrame.lua): a scene shown in
+	     place of DressUpModel, with retail's control frame. Like retail's, it
+	     fills the backdrop above the buttons: the four DressUpBackground
+	     textures, cut off at the top of the Reset / Close row (centred 422
+	     below the frame top, 22 tall, so 48 above the backdrop's bottom).
+	     DressUpModel's own rect is no guide: it is a scale 2 frame that
+	     reaches past the backdrop and over the buttons. -->
+	<ModelScene name="DressUpFrameModelScene" parent="DressUpFrame" inherits="ModelSceneMixinTemplate" hidden="true">
+		<Anchors>
+			<Anchor point="TOPLEFT" relativeTo="DressUpBackgroundTopLeft"/>
+			<Anchor point="BOTTOMRIGHT" relativeTo="DressUpBackgroundBotRight">
+				<Offset>
+					<AbsDimension x="0" y="48"/>
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<Frames>
+			<Frame parentKey="ControlFrame" inherits="ModelSceneControlFrameTemplate">
+				<Anchors>
+					<Anchor point="TOP" x="0" y="-10"/>
+				</Anchors>
+			</Frame>
+		</Frames>
+	</ModelScene>
+</Ui>
