@@ -15702,15 +15702,19 @@ suppressed so `LootFrame` never flickers open per corpse. The normal
 item-received and money events still fire (`CHAT_MSG_LOOT`,
 `CHAT_MSG_MONEY`, inventory updates), so the player sees what they got.
 
-A corpse that is still flagged lootable after the walk is remembered and
-skipped by later walks. The server keeps `UNIT_DYNFLAG_LOOTABLE` set while
-a corpse holds loot this player can never take — quest items for quests
-they don't have, condition-gated loot — so without that memory a caller
-that retries the walk on a timer would re-open the same corpse forever,
-re-attempting the refused slot. The entry is dropped once the corpse stops
-being lootable or leaves the object manager (despawn, out of render
-range), after which it may be retried. Taking the stuck item by hand still
-works if the condition later changes; only the walk skips it.
+Later walks skip a corpse that opened with nothing for you but stays
+lootable. This occurs when the remaining loot is for other players, for
+example a quest item for a different group member. The walk opens a
+skipped corpse again when one of these occurs:
+
+- The corpse leaves view and comes back.
+- The creature respawns and dies again.
+- Your quest log changes.
+
+Later walks try again a corpse that still shows loot, for example when
+your bags are full, or when a roll or a master-loot assignment is in
+progress. Skipped corpses are not in
+[`GetLastScanResults()`](#c_lootgetlastscanresults).
 
 ```lua
 -- Loot everything within interact range
