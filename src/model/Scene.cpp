@@ -73,10 +73,22 @@
 //
 // XML: `drawLayer`, `fogNear` and `fogFar` (clamped at 0, as Model's loader
 // clamps them) and <FogColor> (FUN_XML_READ_COLOR, which arms the fog), after
-// the frame's own loader. Retail's <Actors> and <ViewInsets> children are not
-// read; no retail UI uses them. Not ported, as no UI this DLL targets uses
-// them and their exact effect is unprobed: view insets and translation,
-// desaturation and TakeActor.
+// the frame's own loader, and <ViewInsets left right top bottom>. Retail's
+// <Actors> child is not read; no retail UI uses it. Not ported, as no UI this
+// DLL targets uses them and their exact effect is unprobed: desaturation and
+// TakeActor.
+//
+// View insets and translation (retail screenshots, 2026-11-06): the camera's
+// picture is built over the frame's rect less the insets, moved by the
+// translation (frame units, y up) — a left inset of 100 moved a horse right
+// 50 and shrank it to the narrower aspect's scale, a translation of (50, 20)
+// moved it right 50 and up 20 at the same size, negative insets reach past
+// the frame — but drawing still stops at the frame's edges (a horse moved up
+// 120 was cut at the frame's top), and Project3DPointTo2D ignores both. So
+// the camera builds its projection over that view rect (CameraSetDevice-
+// Transforms takes the aspect from the rect it is given), the projection is
+// then scaled and shifted to place the view in the frame, and the viewport
+// stays the frame's rect.
 //
 // SetAllowOverlappedModels only stores its flag (retail's default false,
 // probed): 1.12 draws a model frame whatever overlaps it, so there is nothing
@@ -124,6 +136,9 @@ struct Fields {
     Vec3 lightPosition;
     uint32_t paused;
     uint32_t allowOverlappedModels;
+    // In the frame's own units: left, right, top, bottom; then x, y (y up).
+    float viewInsets[4];
+    float viewTranslation[2];
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -265,6 +280,49 @@ float ClampUnit(float v) {
     return v > 0.0f ? v : 0.0f;
 }
 
+// The view: the frame's rect {bottom, left, top, right} less the insets and
+// moved by the translation, in layout units (a frame-unit length is
+// PixelToInternal(length * effectiveScale)). Returns false when it is the
+// frame's rect.
+bool ViewRect(void *frame, const float rect[4], float view[4]) {
+    const Fields &f = F(frame);
+    const float *in = f.viewInsets;
+    const float *move = f.viewTranslation;
+    if (in[0] == 0.0f && in[1] == 0.0f && in[2] == 0.0f && in[3] == 0.0f && move[0] == 0.0f &&
+        move[1] == 0.0f)
+        return false;
+    const float scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
+    auto internal = [scale](float length) { return Game::PixelToInternal(length * scale); };
+    view[0] = rect[0] + internal(in[3]) + internal(move[1]);
+    view[1] = rect[1] + internal(in[0]) + internal(move[0]);
+    view[2] = rect[2] - internal(in[2]) + internal(move[1]);
+    view[3] = rect[3] - internal(in[1]) + internal(move[0]);
+    return true;
+}
+
+// Puts the camera's picture of `view` where `view` lies in `rect`: the
+// projection the camera built over `view` (its aspect and centre), then
+// scaled and shifted in clip space, because the viewport stays the frame's
+// rect. Row-vector matrices: column 0 gives x', column 1 y', column 3 w'.
+void FitProjection(const float rect[4], const float view[4]) {
+    using Matrix_t = void(__fastcall *)(float *m);
+    const float frameW = rect[3] - rect[1], frameH = rect[2] - rect[0];
+    if (!(frameW > 0.0f) || !(frameH > 0.0f))
+        return;
+    const float sx = (view[3] - view[1]) / frameW;
+    const float sy = (view[2] - view[0]) / frameH;
+    const float tx = ((view[1] + view[3]) - (rect[1] + rect[3])) / frameW;
+    const float ty = ((view[0] + view[2]) - (rect[0] + rect[2])) / frameH;
+    float m[16];
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(m);
+    for (int row = 0; row < 4; ++row) {
+        float *r = &m[row * 4];
+        r[0] = sx * r[0] + tx * r[3];
+        r[1] = sy * r[1] + ty * r[3];
+    }
+    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(m);
+}
+
 void __fastcall Paint(void *frame) {
     using GetRect_t = int(__thiscall *)(void *layout, float *rect);
     using Matrix_t = void(__fastcall *)(float *m);
@@ -294,7 +352,13 @@ void __fastcall Paint(void *frame) {
         eye[0] = e.x;
         eye[1] = e.y;
         eye[2] = e.z;
-        reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
+        float viewRect[4];
+        if (ViewRect(frame, rect, viewRect)) {
+            reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, viewRect, 0);
+            FitProjection(rect, viewRect);
+        } else {
+            reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
+        }
     } else {
         const float point[2] = {rect[1], rect[0]};
         reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
@@ -492,11 +556,17 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
     if (Xml::FloatAttr(node, "fogFar", value))
         Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = value < 0.0f ? 0.0f : value;
     for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
-        if (!Xml::TagIs(c, "FogColor"))
-            continue;
-        reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(
-            c, Game::Ptr<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
-        FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+        if (Xml::TagIs(c, "FogColor")) {
+            reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(
+                c, Game::Ptr<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
+            FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+        } else if (Xml::TagIs(c, "ViewInsets")) {
+            float *in = F(frame).viewInsets;
+            Xml::FloatAttr(c, "left", in[0]);
+            Xml::FloatAttr(c, "right", in[1]);
+            Xml::FloatAttr(c, "top", in[2]);
+            Xml::FloatAttr(c, "bottom", in[3]);
+        }
     }
     return result;
 }
@@ -754,6 +824,43 @@ int __fastcall Script_Project3DPointTo2D(void *L) {
     return 3;
 }
 
+int __fastcall Script_SetViewInsets(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 4, frame, "SetViewInsets(left, right, top, bottom)"))
+        return 0;
+    float *in = F(frame).viewInsets;
+    for (int i = 0; i < 4; ++i)
+        in[i] = FloatArg(L, 2 + i);
+    return 0;
+}
+
+int __fastcall Script_GetViewInsets(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    for (float value : F(frame).viewInsets)
+        Game::Lua::PushNumber(L, value);
+    return 4;
+}
+
+int __fastcall Script_SetViewTranslation(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 2, frame, "SetViewTranslation(translationX, translationY)"))
+        return 0;
+    F(frame).viewTranslation[0] = FloatArg(L, 2);
+    F(frame).viewTranslation[1] = FloatArg(L, 3);
+    return 0;
+}
+
+int __fastcall Script_GetViewTranslation(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).viewTranslation[0]);
+    Game::Lua::PushNumber(L, F(frame).viewTranslation[1]);
+    return 2;
+}
+
 int __fastcall Script_SetAllowOverlappedModels(void *L) {
     if (void *frame = Self(L))
         F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
@@ -915,6 +1022,10 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
+    {"SetViewInsets", &Script_SetViewInsets},
+    {"GetViewInsets", &Script_GetViewInsets},
+    {"SetViewTranslation", &Script_SetViewTranslation},
+    {"GetViewTranslation", &Script_GetViewTranslation},
     {"SetLightType", &Script_SetLightType},
     {"GetLightType", &Script_GetLightType},
     {"SetLightVisible", &Script_SetLightVisible},
@@ -1045,6 +1156,22 @@ const Game::Doc::Function kProject3DPointTo2D{
     "Returns where a scene point appears on the scene. Returns nothing before the scene has a size, "
     "or for a point in the camera's plane.",
     kProjectArgs, kProjectRets};
+const Game::Doc::Field kInsetArgs[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
+                                       Req("bottom", "number")};
+const Game::Doc::Field kInsetRets[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
+                                       Req("bottom", "number")};
+const Game::Doc::Field kTranslationArgs[] = {Req("translationX", "number"), Req("translationY", "number")};
+const Game::Doc::Field kTranslationRets[] = {Req("translationX", "number"), Req("translationY", "number")};
+const Game::Doc::Function kSetViewInsets{
+    "Frames the camera's picture in the scene less these insets, in the frame's units. Negative insets "
+    "reach past the frame. Drawing still stops at the frame's edges. Project3DPointTo2D ignores them.",
+    kInsetArgs, {}};
+const Game::Doc::Function kGetViewInsets{"Returns the view insets.", {}, kInsetRets};
+const Game::Doc::Function kSetViewTranslation{
+    "Moves the camera's picture by this offset, in the frame's units, with y up. Drawing still stops at the "
+    "frame's edges. Project3DPointTo2D ignores it.",
+    kTranslationArgs, {}};
+const Game::Doc::Function kGetViewTranslation{"Returns the view translation.", {}, kTranslationRets};
 const Game::Doc::Function kSetLightType{"Makes the light directional or a point light.",
                                         kLightTypeArg, {}};
 const Game::Doc::Function kGetLightType{"Returns the light's type.", {}, kLightTypeRet};
@@ -1079,6 +1206,10 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetAllowOverlappedModels", &kSetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &kGetAllowOverlappedModels},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
+    {"SetViewInsets", &kSetViewInsets},
+    {"GetViewInsets", &kGetViewInsets},
+    {"SetViewTranslation", &kSetViewTranslation},
+    {"GetViewTranslation", &kGetViewTranslation},
     {"SetLightType", &kSetLightType},
     {"GetLightType", &kGetLightType},
     {"SetLightVisible", &kSetLightVisible},
