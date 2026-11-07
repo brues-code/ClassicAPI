@@ -116,6 +116,20 @@ end
 
 local pendingMount;
 
+-- The creature GetMountInfoExtraByID loads for a mount: a mount ID is its
+-- spell ID, and the mount aura's misc value is the creature.
+local SPELL_AURA_MOUNTED = 78;
+local function MountCreatureID(mountID)
+	local effects = C_Spell.GetSpellEffectInfo(mountID);
+	if ( effects ) then
+		for _, effect in ipairs(effects) do
+			if ( effect.auraName == SPELL_AURA_MOUNTED ) then
+				return effect.miscValue;
+			end
+		end
+	end
+end
+
 function DressUpMount(mountID, forcedFrame, shouldSetModelFromHyperlink, link)
 	if ( not mountID or mountID == 0 ) then
 		return false;
@@ -123,7 +137,7 @@ function DressUpMount(mountID, forcedFrame, shouldSetModelFromHyperlink, link)
 
 	local creatureDisplayID, _, _, isSelfMount, _, modelSceneID, animID, spellVisualKitID, disablePlayerMountPreview = C_MountJournal.GetMountInfoExtraByID(mountID);
 	if ( not creatureDisplayID ) then
-		pendingMount = { mountID = mountID, forcedFrame = forcedFrame, link = link };
+		pendingMount = { mountID = mountID, creatureID = MountCreatureID(mountID), forcedFrame = forcedFrame, link = link };
 		return false;
 	end
 	pendingMount = nil;
@@ -161,8 +175,11 @@ local creatureLoadFrame = CreateFrame("Frame");
 creatureLoadFrame:RegisterEvent("CREATURE_DATA_LOAD_RESULT");
 creatureLoadFrame:SetScript("OnEvent", function(self, event, creatureID, success)
 	local pending = pendingMount;
+	if ( not pending or creatureID ~= pending.creatureID ) then
+		return;
+	end
 	pendingMount = nil;
-	if ( pending and success ) then
+	if ( success ) then
 		DressUpMount(pending.mountID, pending.forcedFrame, false, pending.link);
 	end
 end);
