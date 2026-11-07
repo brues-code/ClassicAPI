@@ -6441,6 +6441,10 @@ enum Offsets {
     VAR_CREATUREDISPLAYINFO_COUNT = 0x00C0DE94,
     OFF_CREATUREDISPLAYINFO_MODEL_ID = 0x04,
     OFF_CREATUREDISPLAYINFO_TEXTURE_VARIATION = 0x18, // char*[3] @ +0x18/+0x1C/+0x20
+    // float CreatureModelScale (col 4). Mount (0x00607A75) stores a mount
+    // display's into the unit's +0x9C and seats the rider at +0x98 (always
+    // 1.0) over it. Parsed from the DBC: 2404 = 1.0, 14332 = 1.5.
+    OFF_CREATUREDISPLAYINFO_SCALE = 0x10,
     VAR_CREATUREMODELDATA_RECORDS = 0x00C0DE68,
     VAR_CREATUREMODELDATA_COUNT = 0x00C0DE6C,
     OFF_CREATUREMODELDATA_MODEL_PATH = 0x08,

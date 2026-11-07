@@ -61,9 +61,7 @@
 namespace Model::VisualKit {
 namespace {
 
-using ModelFn_t = void(__fastcall *)(void *model);
 using HasAttachment_t = int(__thiscall *)(void *model, uint32_t id);
-using Attach_t = void(__thiscall *)(void *child, void *parent, uint32_t id);
 using SetAlpha_t = void(__thiscall *)(void *model, float alpha);
 using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
 using HasLiveParticles_t = int(__thiscall *)(void *model);
@@ -109,8 +107,7 @@ void __fastcall OnEffectLoop(void *model, uint32_t /*keyBone*/, uint32_t animID,
 // Detaches a stopped effect that is still on its model, then drops our
 // reference.
 void Discard(void *model) {
-    if (Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT) != nullptr)
-        reinterpret_cast<ModelFn_t>(Offsets::FUN_M2MODEL_DETACH)(model);
+    M2::Detach(model);
     M2::Release(model);
 }
 
@@ -194,7 +191,7 @@ void Apply(void *frame, void *model, const uint8_t *kit, bool oneShot,
                                     static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame)), 0);
         else
             M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
-        reinterpret_cast<Attach_t>(Offsets::FUN_M2MODEL_ATTACH)(child, model, kAttachments[i]);
+        M2::Attach(child, model, kAttachments[i]);
         if (effects != nullptr)
             effects->push_back(child); // our reference, handed over
         else

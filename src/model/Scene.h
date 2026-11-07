@@ -61,6 +61,7 @@ class Actor : public Animation::Object {
     void *model = nullptr;
     std::string modelPath;
     const uint8_t *dressRecord = nullptr; // CreatureDisplayInfoExtra, until dressed
+    float displayScale = 1.0f; // a creature display's CreatureModelScale, else 1
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.
     void *dresser = nullptr;

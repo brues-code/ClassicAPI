@@ -144,7 +144,6 @@ FrameXML\ColorSwatch.lua
 FrameXML\ColorSwatch.xml
 FrameXML\ScriptErrorsFrame.lua
 FrameXML\ScriptErrorsFrame.xml
-FrameXML\DressUpFrame.lua
 FrameXML\ModelScene\CameraRegistry.lua
 FrameXML\ModelScene\CameraBaseMixin.lua
 FrameXML\ModelScene\OrbitCameraMixin.lua
@@ -152,6 +151,10 @@ FrameXML\ModelScene\ModelSceneMixin.lua
 FrameXML\ModelScene\ModelSceneMixin.xml
 FrameXML\ModelScene\ModelSceneActorMixin.lua
 FrameXML\ModelScene\ModelSceneActorMixin.xml
+FrameXML\ModelScene\ModelSceneControlFrame.lua
+FrameXML\ModelScene\ModelSceneControlFrame.xml
+FrameXML\DressUpFrame.xml
+FrameXML\DressUpFrame.lua
 
 Menu\MenuConstants.lua
 Menu\Classic\MenuConstants.lua

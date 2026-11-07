@@ -224,6 +224,9 @@ end
 -- extended `GameTooltip:SetHyperlink` (src/tooltip/Hyperlink.cpp), which
 -- builds the same tooltip `GameTooltip:SetSpellByID` builds, so the handler
 -- passes the payload through instead of rebuilding the tooltip itself.
+-- Control-click is retail's dress-up click: DressUpLink previews a mount
+-- spell, and nothing else happens, as retail's modified click shows no
+-- tooltip.
 ------------------------------------------------------------------------------
 LinkUtil.RegisterLinkHandler(LinkTypes.Spell, function(link, text, linkData, contextData)
 	local spellID = tonumber(string.match(link, "^spell:(%d+)"));
@@ -232,6 +235,10 @@ LinkUtil.RegisterLinkHandler(LinkTypes.Spell, function(link, text, linkData, con
 	end
 	if IsShiftKeyDown() and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
 		ChatFrameEditBox:Insert(text);
+		return LinkProcessorResponse.Handled;
+	end
+	if IsControlKeyDown() then
+		DressUpLink(text);
 		return LinkProcessorResponse.Handled;
 	end
 	local tooltip = ItemRefTooltip or GameTooltip;
@@ -250,13 +257,14 @@ end);
 -- links. Route spell links Turtle would drop back through SetItemRef so the
 -- Spell handler above shows them; Turtle-shaped links
 -- (`spell:<id>:<bookType>:<player>`) pass through to Turtle's handler
--- untouched. On a stock client the original already forwards everything to
--- SetItemRef, so both branches behave the same there.
+-- untouched, except a Control-click, which previews the mount here. On a
+-- stock client the original already forwards everything to SetItemRef, so
+-- both branches behave the same there.
 ------------------------------------------------------------------------------
 local originalChatFrameOnHyperlinkShow = ChatFrame_OnHyperlinkShow;
 function ChatFrame_OnHyperlinkShow(link, text, button)
 	if type(link) == "string" and strsub(link, 1, 6) == "spell:" and
-		not string.find(link, "^spell:(%d+):(%w+):(%w+)") then
+		(IsControlKeyDown() or not string.find(link, "^spell:(%d+):(%w+):(%w+)")) then
 		SetItemRef(link, text, button);
 		return;
 	end
