@@ -19,6 +19,13 @@
 // The slot map is 4.3.4's UndressSlot map, from inventory slot to component
 // slot.
 //
+// What a slot wears (Worn) is read from the unit's visible items, the item
+// IDs the engine keeps per equipment slot for every player, and kept only
+// while the model shows it: an armor slot while the component holds a record
+// for it (so a hidden helm or cloak wears nothing), a hand while its lane
+// holds an item. A weapon's enchant is the one behind the glow the engine
+// shows, picked as GetItemDescVisual (0x0062EC70) picks it.
+//
 // TryOn is DressUpModel::TryOnItem's arms (0x00504540, benilla ui/dressup)
 // for a holder that is not a pane, the ModelScene actor: the pane runs the
 // engine's worker itself (model/DressUp.cpp). Two differences:
@@ -36,6 +43,8 @@
 #include "model/M2.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
+
+#include <iterator>
 
 namespace Model::Outfit {
 namespace {
@@ -59,6 +68,15 @@ constexpr uint32_t kBodySlots[2] = {kBodySlotMainHand, kBodySlotOffHand};
 
 // The component slots ClearModel clears (0..11).
 constexpr uint32_t kComponentSlots = 12;
+
+// The inventory slot of each component slot 0..10 (4.3.4's UndressSlot map,
+// inverted); slot 11 has no inventory slot.
+constexpr int kInvSlotOfComponent[] = {1, 3, 4, 5, 6, 7, 8, 9, 10, 19, 15};
+
+// The ItemDisplayInfo record the component shows in `slot`, or null.
+const void *ComponentRecord(void *component, uint32_t slot) {
+    return Game::Read<const void *>(component, Offsets::OFF_CHARCOMP_ITEM_RECORDS + slot * 4);
+}
 
 template <typename Fn>
 Fn VirtualOf(void *object, uintptr_t slot) {
@@ -121,20 +139,11 @@ void HangLane(void *model, int i, const HeldLane &lane, const Weapons &weapons, 
 } // namespace
 
 int ComponentSlotOf(int invSlot) {
-    switch (invSlot) {
-    case 1: return 0;   // head
-    case 3: return 1;   // shoulder
-    case 4: return 2;   // shirt
-    case 5: return 3;   // chest
-    case 6: return 4;   // waist
-    case 7: return 5;   // legs
-    case 8: return 6;   // feet
-    case 9: return 7;   // wrist
-    case 10: return 8;  // hands
-    case 15: return 10; // back
-    case 19: return 9;  // tabard
-    default: return -1;
+    for (int slot = 0; slot < static_cast<int>(std::size(kInvSlotOfComponent)); ++slot) {
+        if (kInvSlotOfComponent[slot] == invSlot)
+            return slot;
     }
+    return -1;
 }
 
 void ReadLanes(void *unit, Lanes &lanes) {
@@ -252,26 +261,26 @@ bool CanDualWield(uint64_t guid) {
            reinterpret_cast<int(__cdecl *)()>(Offsets::FUN_PLAYER_CAN_DUAL_WIELD)() != 0;
 }
 
-bool TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
-           const uint8_t *record, const HeldTryOn &held) {
+int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
+          const uint8_t *record, const HeldTryOn &held) {
     const auto displayID = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
     if (model == nullptr || displayID == 0)
-        return false;
+        return 0;
     const auto type = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
     uint32_t componentSlot = 0;
     switch (ArmOf(type, &componentSlot)) {
     case Arm::Armor:
         if (component == nullptr || !armorReady)
-            return false;
+            return 0;
         reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component,
                                                                            componentSlot);
         reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(component,
                                                                            componentSlot, displayID);
-        return true;
+        return kInvSlotOfComponent[componentSlot];
     case Arm::Held:
         break;
     default:
-        return false;
+        return 0;
     }
     const int lane = HandFor(type, lanes, held);
     const int other = 1 - lane;
@@ -295,13 +304,14 @@ bool TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons 
                                          Offsets::VAR_ITEMDISPLAYINFO_COUNT, displayID);
     weapons.display[lane] = display;
     weapons.visual[lane] = EnchantVisual(display, held.enchant);
+    const int invSlot = lane == 0 ? Offsets::INVSLOT_MAINHAND : Offsets::INVSLOT_OFFHAND;
     if (display == nullptr || held.hide)
-        return true;
+        return invSlot;
     const int attachId = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL)(
         model, display, kBodySlots[lane], target.sheatheType, held.sheathed,
         type == Offsets::INVTYPE_SHIELD, type == Offsets::INVTYPE_RANGEDRIGHT);
     HangVisual(model, attachId, weapons.visual[lane]);
-    return true;
+    return invSlot;
 }
 
 void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot) {
@@ -341,12 +351,67 @@ void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weap
     if (compSlot < 0 || component == nullptr || source == nullptr || !armorReady)
         return;
     const auto slot = static_cast<uint32_t>(compSlot);
-    const auto *record =
-        Game::Read<const uint8_t *>(source, Offsets::OFF_CHARCOMP_ITEM_RECORDS + slot * 4);
+    const void *record = ComponentRecord(source, slot);
     reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component, slot);
     if (record != nullptr)
         reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(
             component, slot, Game::Read<uint32_t>(record, 0));
+}
+
+void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn) {
+    for (Appearance &slot : worn)
+        slot = Appearance{};
+    // Only a player has visible items: a creature's table is not initialized
+    // (FUN_UNIT_GET_VISIBLE_ITEM's hazard).
+    void *player = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid);
+    if (unit == nullptr || player == nullptr)
+        return;
+    const auto visibleItem = reinterpret_cast<GetVisibleItem_t>(Offsets::FUN_UNIT_GET_VISIBLE_ITEM);
+    const auto itemOf = [&](int invSlot) -> const uint8_t * {
+        const void *item = visibleItem(player, static_cast<uint32_t>(invSlot - 1));
+        return static_cast<const uint8_t *>(item);
+    };
+    void *component = Game::Read<void *>(unit, Offsets::OFF_CGUNIT_CHARACTER_COMPONENT);
+    if (component != nullptr) {
+        for (uint32_t slot = 0; slot < std::size(kInvSlotOfComponent); ++slot) {
+            const int invSlot = kInvSlotOfComponent[slot];
+            const uint8_t *item = itemOf(invSlot);
+            if (item != nullptr && ComponentRecord(component, slot) != nullptr)
+                worn[invSlot - 1].item = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ITEM_ID);
+        }
+    }
+    for (int i = 0; i < 2; ++i) {
+        const int invSlot = i == 0 ? Offsets::INVSLOT_MAINHAND : Offsets::INVSLOT_OFFHAND;
+        const uint8_t *item = itemOf(invSlot);
+        if (item == nullptr || weapons.display[i] == nullptr)
+            continue;
+        Appearance &held = worn[invSlot - 1];
+        held.item = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ITEM_ID);
+        if (weapons.visual[i] == 0)
+            continue;
+        // GetItemDescVisual's walk: the first enchant with an ItemVisual.
+        for (uint32_t e = 0; e < Offsets::VISIBLE_ITEM_ENCHANT_COUNT; ++e) {
+            const auto id = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ENCHANTS + e * 4);
+            const uint8_t *enchant = DBC::Record(Offsets::VAR_SPELLITEMENCHANT_RECORDS,
+                                                 Offsets::VAR_SPELLITEMENCHANT_COUNT, id);
+            if (enchant != nullptr &&
+                Game::Read<uint32_t>(enchant, Offsets::OFF_SPELLITEMENCHANT_ITEM_VISUAL) != 0) {
+                held.enchant = id;
+                break;
+            }
+        }
+    }
+}
+
+void TrimWorn(void *component, const Lanes &lanes, Worn &worn) {
+    for (uint32_t slot = 0; slot < std::size(kInvSlotOfComponent); ++slot) {
+        if (component == nullptr || ComponentRecord(component, slot) == nullptr)
+            worn[kInvSlotOfComponent[slot] - 1] = Appearance{};
+    }
+    if (lanes[0].itemClass == 0)
+        worn[Offsets::INVSLOT_MAINHAND - 1] = Appearance{};
+    if (lanes[1].itemClass == 0)
+        worn[Offsets::INVSLOT_OFFHAND - 1] = Appearance{};
 }
 
 void Undress(void *model, void *component, Lanes &lanes, bool weapons) {

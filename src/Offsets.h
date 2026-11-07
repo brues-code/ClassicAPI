@@ -2725,6 +2725,11 @@ enum Offsets {
     // first; we do the same in `Item::InventoryID`.
     FUN_UNIT_GET_VISIBLE_ITEM = 0x005F0D60,
     OFF_VISIBLE_ITEM_ITEM_ID = 0x08,
+    // The entry's SpellItemEnchantment IDs: 7 dwords from +0x0C, the array
+    // GetItemDescVisual (FUN_VISIBLE_ITEM_GET_DESC_VISUAL) walks for the
+    // first enchant with an ItemVisual (Ghidra, 0x0062EC70).
+    OFF_VISIBLE_ITEM_ENCHANTS = 0x0C,
+    VISIBLE_ITEM_ENCHANT_COUNT = 7,
 
     // CGUnit m_objectFields pointer offset. Different from CGItem's
     // descriptor at +0x114 — these are sibling classes under CGObject

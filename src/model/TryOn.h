@@ -32,6 +32,7 @@ struct Request {
     uint32_t itemID = 0;   // 0: nothing to try on
     uint32_t bodySlot = 0; // the hand the arguments name (Outfit::kBodySlot*), or 0
     uint32_t enchant = 0;  // the SpellItemEnchantment whose glow a weapon shows, or 0
+    bool quiet = false;    // no ERR_NOT_EQUIPPABLE: the caller shows its own (SetItemTransmogInfo)
 };
 
 // The arguments from stack index 2: 4.3.4's item forms (an item ID, an item

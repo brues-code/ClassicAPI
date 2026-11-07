@@ -76,6 +76,7 @@ class Actor : public Animation::Object {
     uint64_t unitGuid = 0;
     Outfit::Lanes lanes = {};
     Outfit::Weapons weapons;
+    Outfit::Worn worn = {}; // what each inventory slot wears (GetItemTransmogInfoList)
     bool autoDress = true;
     bool sheathed = false;
     bool hideWeapons = false;

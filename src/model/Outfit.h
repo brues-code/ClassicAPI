@@ -101,9 +101,10 @@ struct HeldTryOn {
 // TryOnItem's arms on whatever holds the component and the lanes: an armor
 // slot is cleared and set on the component, which `armorReady` (the pane's
 // ready byte) must allow; a held item evicts an other-lane item it cannot be
-// held with, then takes its lane and hangs. True when the item went on.
-bool TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
-           const uint8_t *record, const HeldTryOn &held);
+// held with, then takes its lane and hangs. The inventory slot (1-based) the
+// item went on, or 0.
+int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
+          const uint8_t *record, const HeldTryOn &held);
 
 // UndressSlot: the item in one inventory slot (1-based) off the model. A
 // held lane is detached and zeroed, an armor slot cleared on the component.
@@ -126,5 +127,25 @@ void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weap
 // DressUpModel ClearModel (0x00504490): component slots 0..11 cleared, and,
 // with `weapons`, both lanes detached and zeroed.
 void Undress(void *model, void *component, Lanes &lanes, bool weapons);
+
+// What one inventory slot wears, as retail's ItemTransmogInfo names it: the
+// item (1.12's appearance) and, on a hand, the SpellItemEnchantment whose
+// glow it shows. Zero for nothing.
+struct Appearance {
+    uint32_t item = 0;
+    uint32_t enchant = 0;
+};
+constexpr int kInventorySlots = 19;
+using Worn = Appearance[kInventorySlots]; // inventory slot n at [n - 1]
+
+// What the unit `guid` wears where its model shows it: each armor slot its
+// component shows and each hand `weapons` (ReadWeapons) holds. Nothing for a
+// unit that is not a player, which has no visible items.
+void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn);
+
+// Zeroes each slot of `worn` the model no longer shows: an armor slot the
+// component holds no record for (every one without a component), an empty
+// lane.
+void TrimWorn(void *component, const Lanes &lanes, Worn &worn);
 
 } // namespace Model::Outfit

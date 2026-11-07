@@ -846,6 +846,8 @@ build instructions.
   - [`actor:TryOn(item [, handSlotName, spellEnchantID])`](#actortryonitem--handslotname-spellenchantid)
   - [`actor:DressPlayerSlot(slot)`](#actordressplayerslotslot)
   - [`actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`](#actorisslotallowedslot--actorisslotvisibleslot)
+  - [`actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)
+  - [`actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#actorsetitemtransmoginfoinfo--slot-ignorechilditems)
   - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
   - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
   - [`actor:IsGeoReady()`](#actorisgeoready)
@@ -19300,6 +19302,64 @@ inventory slot:
 
 It returns `false` for an actor that shows no model. `IsSlotVisible` returns
 the same value, because an item in an allowed slot always shows.
+
+### `actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`
+
+These return what the actor wears, as `ItemTransmogInfoMixin` tables. Each
+table has three fields:
+
+| Field | Value |
+|-------|-------|
+| `appearanceID` | The item ID, or `0` for an empty slot. |
+| `secondaryAppearanceID` | Always `0` (`Constants.Transmog.NoTransmogID`). |
+| `illusionID` | On a weapon, the SpellItemEnchantment ID of the enchant glow that the weapon shows. Else `0`. |
+
+`GetItemTransmogInfo` returns the table for one inventory slot, from `1`
+(head) to `19` (tabard). It returns nothing for an actor that shows no model,
+or for a slot number outside this range. `GetItemTransmogInfoList` returns a
+list of 19 tables, one for each inventory slot, in slot order.
+
+An actor that shows a player (`SetModelByUnit`) starts with the items that
+the player wears. A helm or a cloak that the player hides is `0`. The neck,
+the rings, the trinkets, and the ranged slot are always `0`. An NPC or a
+creature display starts with all slots at `0`, also when its model wears
+items. `TryOn`, `UndressSlot`, `Undress`, and `DressPlayerSlot` change the
+values.
+
+`Constants.Transmog` holds the values that these fields use:
+
+| Field | Value |
+|-------|-------|
+| `NoTransmogID` | `0` |
+| `MainHandTransmogIsIndividualWeapon` | `-1` |
+| `MainHandTransmogIsPairedWeapon` | `0` |
+
+### `actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`
+
+Puts the item `info.appearanceID` on the actor, as `TryOn` does. A weapon
+shows the glow of the enchant `info.illusionID`. It returns the same
+`Enum.ItemTryOnReason` values as `TryOn`. These are the differences:
+
+- It shows no error message. The caller shows `ERR_NOT_EQUIPPABLE` when the
+  result is not `Success`.
+- A `slot` of `16` or `17` selects the hand that holds a weapon. With all
+  other values, the item goes into its own slot.
+- An `appearanceID` of `0` changes nothing and returns `NotEquippable`.
+  `UndressSlot` empties a slot.
+- `ignoreChildItems` has no effect.
+
+```lua
+-- Keep the outfit, try on an item, then put the outfit back.
+local saved = actor:GetItemTransmogInfoList()
+actor:TryOn(19019)
+for slot, info in ipairs(saved) do
+  if info.appearanceID == Constants.Transmog.NoTransmogID then
+    actor:UndressSlot(slot)
+  else
+    actor:SetItemTransmogInfo(info, slot)
+  end
+end
+```
 
 ### `actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`
 

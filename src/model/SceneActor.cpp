@@ -90,6 +90,17 @@
 // for the slots TryOn and UndressSlot act on; IsSlotVisible gives the same
 // answer, as no 1.12 model hides a slot it allows.
 //
+// The ItemTransmogInfo methods read and set what each inventory slot wears
+// (Outfit::Worn): retail's appearance is the item ID, its illusion the
+// enchant whose glow a weapon shows, and the secondary appearance is always
+// NoTransmogID (1.12 has neither split shoulders nor paired artifacts). The
+// list has every slot 1..19, as retail's TransmogUtil.GetEmptyItemTransmogInfoList
+// and its ipairs callers expect. SetItemTransmogInfo is TryOn on those IDs,
+// quiet (retail's callers show ERR_NOT_EQUIPPABLE themselves); a 0
+// appearance changes nothing, since retail's own transmog UI calls UndressSlot
+// for one instead (Blizzard_Transmog.lua). ignoreChildItems names Legion
+// artifact parts, which 1.12 has none of.
+//
 // SetModelByUnitCreatureDisplayID shows the display the unit shows now
 // (UNIT_FIELD_DISPLAYID) the way SetModelByCreatureDisplayID shows one: a
 // player shows its race's bare display, a pet its creature's.
@@ -207,6 +218,8 @@ void ReleaseModel(Actor &actor) {
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
+    for (Outfit::Appearance &slot : actor.worn)
+        slot = Outfit::Appearance{};
     actor.armorReady = true;
     actor.pendingTryOns.clear();
     actor.loaded = false;
@@ -256,15 +269,18 @@ bool Actor::SetUnitModel(uint64_t guid) {
     dresser = Outfit::CloneComponent(copy, unit);
     Outfit::ReadLanes(unit, lanes);
     Outfit::ReadWeapons(guid, weapons);
+    Outfit::ReadWorn(unit, guid, weapons, worn);
     const auto closeHand = reinterpret_cast<CloseHand_t>(Offsets::FUN_CLOSE_HAND);
     if (M2::FindChild(copy, 2) != nullptr)
         closeHand(copy, 1);
     if (M2::FindChild(copy, 1) != nullptr)
         closeHand(copy, 0);
-    if (autoDress)
+    if (autoDress) {
         Outfit::HangWeapons(copy, lanes, weapons, sheathed, hideWeapons);
-    else
+    } else {
         Outfit::Undress(copy, dresser, lanes, true);
+        Outfit::TrimWorn(dresser, lanes, worn);
+    }
     // SetModel keeps the unit fields: there is no model to clear.
     SetModel(copy, nullptr, nullptr);
     Model::DisplayInfo::LightChildren(SceneFrame(), copy);
@@ -304,18 +320,32 @@ void ShowIfNotEquippable(const uint8_t *record) {
         TryOn::ShowNotEquippable();
 }
 
-// The worker on the actor's component and lanes.
+// The worker on the actor's component and lanes. The slot it fills wears the
+// item, and on a hand the enchant whose glow it shows; an item it evicts
+// wears nothing.
 void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
-    ShowIfNotEquippable(record);
+    if (!request.quiet)
+        ShowIfNotEquippable(record);
     Outfit::HeldTryOn held;
     held.bodySlot = request.bodySlot;
     held.dualWield = Outfit::CanDualWield(actor.unitGuid);
     held.sheathed = actor.sheathed;
     held.hide = actor.hideWeapons;
     held.enchant = request.enchant;
-    if (Outfit::TryOn(actor.model, actor.dresser, actor.armorReady, actor.lanes, actor.weapons,
-                      record, held))
-        Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
+    const int invSlot = Outfit::TryOn(actor.model, actor.dresser, actor.armorReady, actor.lanes,
+                                      actor.weapons, record, held);
+    if (invSlot == 0)
+        return;
+    Outfit::Appearance &slot = actor.worn[invSlot - 1];
+    slot.item = TryOn::WornItem(request.itemID);
+    slot.enchant = 0;
+    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND) {
+        const int lane = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
+        if (actor.weapons.visual[lane] != 0)
+            slot.enchant = request.enchant;
+    }
+    Outfit::TrimWorn(actor.dresser, actor.lanes, actor.worn);
+    Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
 }
 
 // The waiting try-ons whose record is cached, in the order they came.
@@ -351,7 +381,7 @@ int Actor::TryOnItem(const Model::TryOn::Request &request) {
     const int reason = TryOnReason(*this, record);
     if (reason == TryOn::kSuccess)
         pendingTryOns.push_back(request);
-    else
+    else if (!request.quiet)
         ShowIfNotEquippable(record);
     return reason;
 }
@@ -634,6 +664,7 @@ int __fastcall Script_Undress(void *L) {
         return 0;
     const bool weapons = Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 2) != 0;
     Outfit::Undress(actor->model, actor->dresser, actor->lanes, weapons);
+    Outfit::TrimWorn(actor->dresser, actor->lanes, actor->worn);
     return 0;
 }
 
@@ -644,6 +675,7 @@ int __fastcall Script_UndressSlot(void *L) {
         return 0;
     Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes,
                         static_cast<int>(Game::Lua::ToNumber(L, 2)));
+    Outfit::TrimWorn(actor->dresser, actor->lanes, actor->worn);
     return 0;
 }
 
@@ -654,13 +686,96 @@ int __fastcall Script_DressPlayerSlot(void *L) {
         return 0;
     void *unit = actor->unitGuid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, actor->unitGuid)
                                       : nullptr;
+    const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     Outfit::DressSlot(actor->model, actor->dresser, actor->armorReady, actor->lanes,
-                      actor->weapons, unit, actor->unitGuid,
-                      static_cast<int>(Game::Lua::ToNumber(L, 2)), actor->sheathed,
+                      actor->weapons, unit, actor->unitGuid, invSlot, actor->sheathed,
                       actor->hideWeapons);
-    if (actor->model != nullptr)
-        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
+    if (actor->model == nullptr || unit == nullptr)
+        return 0;
+    // The slot wears what the unit wears there; the hand's row and glow are
+    // the unit's now.
+    if (invSlot >= 1 && invSlot <= Outfit::kInventorySlots) {
+        Outfit::Worn unitWorn;
+        Outfit::ReadWorn(unit, actor->unitGuid, actor->weapons, unitWorn);
+        actor->worn[invSlot - 1] = unitWorn[invSlot - 1];
+    }
+    Outfit::TrimWorn(actor->dresser, actor->lanes, actor->worn);
+    Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
     return 0;
+}
+
+// ItemUtil.CreateItemTransmogInfo(item, NoTransmogID, enchant): retail's
+// ItemTransmogInfoMixin, built by its own constructor.
+void PushTransmogInfo(void *L, const Outfit::Appearance &slot) {
+    Game::Lua::PushString(L, "ItemUtil");
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+    Game::Lua::PushString(L, "CreateItemTransmogInfo");
+    Game::Lua::GetTable(L, -2);
+    Game::Lua::Remove(L, -2);
+    Game::Lua::PushNumber(L, slot.item);
+    Game::Lua::PushNumber(L, 0);
+    Game::Lua::PushNumber(L, slot.enchant);
+    Game::Lua::Call(L, 3, 1);
+}
+
+int __fastcall Script_GetItemTransmogInfo(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
+                                        "GetItemTransmogInfo(inventorySlots)"))
+        return 0;
+    const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (actor->model == nullptr || invSlot < 1 || invSlot > Outfit::kInventorySlots)
+        return 0;
+    PushTransmogInfo(L, actor->worn[invSlot - 1]);
+    return 1;
+}
+
+int __fastcall Script_GetItemTransmogInfoList(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::NewTable(L);
+    for (int i = 0; i < Outfit::kInventorySlots; ++i) {
+        PushTransmogInfo(L, actor->worn[i]);
+        Game::Lua::RawSetI(L, -2, i + 1);
+    }
+    return 1;
+}
+
+// A number field of the table at `index`, or 0.
+uint32_t FieldNumber(void *L, int index, const char *key) {
+    Game::Lua::PushString(L, key);
+    Game::Lua::GetTable(L, index);
+    const double value = Game::Lua::IsNumber(L, -1) ? Game::Lua::ToNumber(L, -1) : 0.0;
+    Game::Lua::SetTop(L, -2);
+    return value > 0.0 ? static_cast<uint32_t>(value) : 0;
+}
+
+// TryOn with the info's item and enchant; `inventorySlots` names the hand a
+// weapon goes in. No appearance changes nothing. The caller shows the error.
+int __fastcall Script_SetItemTransmogInfo(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::Error(L, "Usage: %s:SetItemTransmogInfo(transmogInfo [, inventorySlots, ignoreChildItems])",
+                         actor->DisplayName());
+        return 0;
+    }
+    TryOn::Request request;
+    request.itemID = FieldNumber(L, 2, "appearanceID");
+    request.enchant = FieldNumber(L, 2, "illusionID");
+    request.quiet = true;
+    if (Game::Lua::IsNumber(L, 3)) {
+        const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 3));
+        if (invSlot == Offsets::INVSLOT_MAINHAND)
+            request.bodySlot = Outfit::kBodySlotMainHand;
+        else if (invSlot == Offsets::INVSLOT_OFFHAND)
+            request.bodySlot = Outfit::kBodySlotOffHand;
+    }
+    Game::Lua::PushNumber(L, request.itemID == 0 ? TryOn::kNotEquippable
+                                                 : actor->TryOnItem(request));
+    return 1;
 }
 
 // The slots TryOnReason's arms accept: a hand on any model, armor on one
@@ -1073,6 +1188,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"DressPlayerSlot", &Script_DressPlayerSlot},
     {"IsSlotAllowed", &Script_IsSlotAllowed},
     {"IsSlotVisible", &Script_IsSlotAllowed},
+    {"GetItemTransmogInfo", &Script_GetItemTransmogInfo},
+    {"GetItemTransmogInfoList", &Script_GetItemTransmogInfoList},
+    {"SetItemTransmogInfo", &Script_SetItemTransmogInfo},
     {"SetSheathed", &Script_SetSheathed},
     {"GetSheathed", &Script_GetSheathed},
     {"SetAutoDress", &Script_SetAutoDress},
@@ -1265,6 +1383,28 @@ const Game::Doc::Function kIsSlotAllowed{
 const Game::Doc::Function kIsSlotVisible{
     "Returns whether an item in an inventory slot shows on the actor. Same as IsSlotAllowed.",
     kUndressSlotArgs, kSlotVisibleRet};
+const Game::Doc::Field kTransmogInfoRet[] = {
+    Req("itemTransmogInfo", "ItemTransmogInfo",
+        "What the slot wears: appearanceID is the item ID, illusionID the enchant whose glow a "
+        "weapon shows. Nil when the actor shows no model."),
+};
+const Game::Doc::Function kGetItemTransmogInfo{
+    "Returns what the actor wears in one inventory slot.", kUndressSlotArgs, kTransmogInfoRet};
+const Game::Doc::Field kTransmogInfoListRet[] = {
+    Req("infoList", "table", "An ItemTransmogInfo for each inventory slot 1 to 19."),
+};
+const Game::Doc::Function kGetItemTransmogInfoList{
+    "Returns what the actor wears in each inventory slot.", {}, kTransmogInfoListRet};
+const Game::Doc::Field kSetTransmogInfoArgs[] = {
+    Req("transmogInfo", "ItemTransmogInfo",
+        "appearanceID is an item ID, illusionID a SpellItemEnchantment ID."),
+    Opt("inventorySlots", "number", nullptr, "16 or 17: the hand that holds a weapon."),
+    Opt("ignoreChildItems", "bool", "false", "Has no effect."),
+};
+const Game::Doc::Function kSetItemTransmogInfo{
+    "Puts an item on the actor, as TryOn does. Shows no error. An appearanceID of 0 changes "
+    "nothing.",
+    kSetTransmogInfoArgs, kTryOnRet};
 const Game::Doc::Function kSetSheathed{
     "Puts the held items in the hands or the sheaths, or hides them.", kSheathedArgs, {}};
 const Game::Doc::Function kGetSheathed{"Returns whether the held items are sheathed.", {},
@@ -1351,6 +1491,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"DressPlayerSlot", &kDressPlayerSlot},
     {"IsSlotAllowed", &kIsSlotAllowed},
     {"IsSlotVisible", &kIsSlotVisible},
+    {"GetItemTransmogInfo", &kGetItemTransmogInfo},
+    {"GetItemTransmogInfoList", &kGetItemTransmogInfoList},
+    {"SetItemTransmogInfo", &kSetItemTransmogInfo},
     {"SetSheathed", &kSetSheathed},
     {"GetSheathed", &kGetSheathed},
     {"SetAutoDress", &kSetAutoDress},
