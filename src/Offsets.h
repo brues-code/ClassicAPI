@@ -4401,6 +4401,13 @@ enum Offsets {
     FUN_CLOSE_HAND = 0x00479660,
     // TryOnItem — `__thiscall(pane, itemID)`: the worker behind TryOn.
     FUN_DRESSUPMODEL_TRY_ON_ITEM = 0x00504540,
+    // CanHoldBoth — `bool __fastcall(mainType, offType, bool dualWield)`,
+    // ret 4: TryOnItem keeps the other lane's item only when this is true.
+    // Main side 13 or 21 with off side 14 or 23, or 13 or 22 when dualWield.
+    FUN_DRESSUPMODEL_CAN_HOLD_BOTH = 0x00504BC0,
+    // `int __cdecl()`: the active player can dual wield (a non-zero
+    // 0x00C4D770). TryOnItem asks it only when the pane shows that player.
+    FUN_PLAYER_CAN_DUAL_WIELD = 0x005EAB70,
     // The worker's item-cache callback (0x00504BA0) re-runs it once the
     // record loads: `push itemID; mov ecx, pane; call` here. The only other
     // caller is the original Script_TryOn (0x00504E29), which ours replaces.
@@ -10992,6 +10999,10 @@ enum Offsets {
     // form's while shapeshifted). Field 0x7D in the update-field name table
     // (0x0083A73C).
     OFF_UNIT_FIELD_DISPLAYID = 0x1F4,
+    // UNIT_FIELD_NATIVEDISPLAYID: the unit's own display (field 0x7E).
+    // DressUpModel's ready byte is DISPLAYID == NATIVEDISPLAYID (0x00504450,
+    // benilla ui/dressup): a shapeshifted unit takes no armor try-on.
+    OFF_UNIT_FIELD_NATIVEDISPLAYID = 0x1F8,
 
     // Local player movement-flags u32. Lives directly on the
     // CGPlayer object (not the broadcast descriptor) — this is

@@ -15,6 +15,7 @@
 
 #include "animation/Object.h"
 #include "model/Outfit.h"
+#include "model/TryOn.h"
 
 #include <cstdint>
 #include <string>
@@ -54,6 +55,9 @@ class Actor : public Animation::Object {
     bool SetUnitModel(uint64_t guid);
     // Hangs the held items per sheathed and hideWeapons.
     void ApplyWeapons();
+    // Puts the item on the model (Outfit::TryOn), once the model has loaded
+    // and the item's record is cached; returns the ItemTryOnReason.
+    int TryOnItem(const Model::TryOn::Request &request);
     void ClearModel();
     void PlayAnimation();
     // Shows the kit (0 for none) on the model, replacing the one shown.
@@ -75,6 +79,10 @@ class Actor : public Animation::Object {
     bool autoDress = true;
     bool sheathed = false;
     bool hideWeapons = false;
+    // DressUpModel's ready byte: the model may take armor (not a shapeshifted
+    // unit's).
+    bool armorReady = true;
+    std::vector<Model::TryOn::Request> pendingTryOns; // waiting for the model or the record
     bool loaded = false; // OnModelLoaded has run for the model
     bool animFinished = false;
 

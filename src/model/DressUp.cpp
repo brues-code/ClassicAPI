@@ -23,17 +23,12 @@
 // which the ModelScene actor shares.
 //
 // TryOn keeps vanilla's worker (TryOnItem, FUN_DRESSUPMODEL_TRY_ON_ITEM) and
-// takes 4.3.4's argument forms in front of it: an item ID, an item link or
-// `item:` string, a trade-skill `enchant:` link (the item its recipe makes),
-// or the name of an item the player carries. Anything else shows
+// takes the arguments Model::TryOn reads in front of it. No item shows
 // ERR_NOT_EQUIPPABLE, as 4.3.4 does.
 //
-// Retail's hand argument is an inventory slot name, matched the way
-// GetInventorySlotInfo matches it (SStrCmpI over the PaperDollItemFrame
-// rows): MainHandSlot or SecondaryHandSlot. The worker picks a hand at one
-// site (SITE_TRY_ON_HAND_CHOICE); a named hand sends a held item down that
-// hand's path, so the worker's own eviction of an incompatible other lane
-// runs, as 4.3.4's does for a forced hand.
+// The worker picks a hand at one site (SITE_TRY_ON_HAND_CHOICE); a named hand
+// sends a held item down that hand's path, so the worker's own eviction of an
+// incompatible other lane runs, as 4.3.4's does for a forced hand.
 //
 // The enchant glow is the player's AttachEnchantVisual step on the item the
 // worker hangs: FindChild at the attachment AttachItemModel used, then
@@ -43,11 +38,10 @@
 // the link's enchant field, as 4.3.4 passes it. The worker's cache callback
 // re-runs with neither hand nor enchant, as 4.3.4's does.
 //
-// 4.3.4's worker (`TryOnWithVisual`, 0x00A05010) tries on what a recipe makes:
-// an item with no inventory type whose spell teaches a CREATE_ITEM spell is
-// swapped for the made item. Vanilla's worker shows ERR_NOT_EQUIPPABLE
-// instead. `TryOnItem` adds the swap in front of the worker, for our TryOn
-// and for the worker's cache-load callback, so an uncached pattern works too.
+// Vanilla's worker shows ERR_NOT_EQUIPPABLE for a recipe, where 4.3.4's
+// tries on what it makes. `TryOnItem` adds that swap (Model::TryOn::WornItem)
+// in front of the worker, for our TryOn and for the worker's cache-load
+// callback, so an uncached pattern works too.
 //
 // TryOn's result (retail's ItemTryOnReason) is read from the same gates the
 // worker passes: an uncached record is DataPending (the worker has queued the
@@ -68,21 +62,13 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "Common.h"
-#include "item/Arg.h"
-#include "item/Dressable.h"
-#include "item/ID.h"
-#include "item/Location.h"
 #include "item/Record.h"
-#include "model/ItemDisplay.h"
 #include "model/M2.h"
 #include "model/Outfit.h"
+#include "model/TryOn.h"
 
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <unordered_map>
 
 namespace Model::DressUp {
@@ -96,16 +82,6 @@ using AttachItemModel_t = int(__fastcall *)(void *model, const void *record, uin
 using TryOnItem_t = void(__thiscall *)(void *pane, uint32_t itemID);
 using SetModelInstance_t = void(__thiscall *)(void *pane, void *model);
 using ClearModel_t = void(__thiscall *)(void *pane);
-using DisplayError_t = void(__cdecl *)(uint32_t id, ...);
-
-using Outfit::kBodySlotMainHand;
-using Outfit::kBodySlotOffHand;
-
-// Retail's Enum.ItemTryOnReason.
-constexpr int kTryOnSuccess = 0;
-constexpr int kTryOnWrongRace = 1;
-constexpr int kTryOnNotEquippable = 2;
-constexpr int kTryOnDataPending = 3;
 
 static_assert(Offsets::OFF_DRESSUPMODEL_OFF_HAND_LANE ==
                   Offsets::OFF_DRESSUPMODEL_MAIN_HAND_LANE + sizeof(Outfit::HeldLane),
@@ -130,19 +106,6 @@ uintptr_t g_offHandPath = Offsets::TRY_ON_OFF_HAND_PATH;
 
 Outfit::Lanes &LanesOf(void *pane) {
     return Game::Ref<Outfit::Lanes>(pane, Offsets::OFF_DRESSUPMODEL_MAIN_HAND_LANE);
-}
-
-// The glow `enchantID` gives an item shown with `display`: none when the
-// display has its own.
-uint32_t EnchantVisual(const void *display, uint32_t enchantID) {
-    if (display == nullptr ||
-        Model::ItemDisplay::OwnVisual(static_cast<const uint8_t *>(display)) != 0)
-        return 0;
-    const uint8_t *enchant = DBC::Record(Offsets::VAR_SPELLITEMENCHANT_RECORDS,
-                                         Offsets::VAR_SPELLITEMENCHANT_COUNT, enchantID);
-    return enchant != nullptr
-               ? Game::Read<uint32_t>(enchant, Offsets::OFF_SPELLITEMENCHANT_ITEM_VISUAL)
-               : 0;
 }
 
 void ApplyWeapons(void *pane, const PaneState &s) {
@@ -176,7 +139,7 @@ int __fastcall TryOnAttach(void *model, const void *record, uint32_t bodySlot,
     PaneState &s = g_panes[g_tryOnPane];
     const int lane = Outfit::LaneIndex(bodySlot);
     s.weapons.display[lane] = record;
-    s.weapons.visual[lane] = EnchantVisual(record, g_tryOnEnchant);
+    s.weapons.visual[lane] = Outfit::EnchantVisual(record, g_tryOnEnchant);
     if (s.sheathSet) {
         if (s.hideWeapons)
             return -1;
@@ -236,103 +199,32 @@ int __fastcall Script_UndressSlot(void *L) {
     return 0;
 }
 
-// The item a trade-skill recipe makes, from an `enchant:<spellID>` link: a
-// TRADESPELL whose first effect makes an item (4.3.4's test).
-uint32_t RecipeItem(const char *link) {
-    const char *enchant = std::strstr(link, "enchant:");
-    if (enchant == nullptr)
-        return 0;
-    const long spellID = std::strtol(enchant + 8, nullptr, 10);
-    if (spellID <= 0)
-        return 0;
-    const uint8_t *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-                                       static_cast<uint32_t>(spellID));
-    if (spell == nullptr ||
-        (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
-         Offsets::SPELL_ATTR_TRADESPELL) == 0)
-        return 0;
-    return Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
-}
-
-// The item the worker is given: a cached recipe item becomes what it makes.
-uint32_t WornItem(uint32_t itemID) {
-    const uint8_t *record = Item::PeekRecord(itemID);
-    if (record != nullptr &&
-        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE) == 0) {
-        const uint32_t made = Item::Dressable::RecipeItem(record);
-        if (made != 0)
-            return made;
-    }
-    return itemID;
-}
-
 // `__thiscall(pane, itemID)` as `__fastcall` with the EDX slot unused, so it
 // can stand at the worker's call sites.
 void __fastcall TryOnItem(void *pane, void *, uint32_t itemID) {
     g_tryOnPane = pane;
-    reinterpret_cast<TryOnItem_t>(Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM)(pane, WornItem(itemID));
+    reinterpret_cast<TryOnItem_t>(Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM)(pane, TryOn::WornItem(itemID));
     g_tryOnPane = nullptr;
-}
-
-// The lane a hand name picks: the PaperDollItemFrame row it names
-// (GetInventorySlotInfo's match), if that row is a held slot; else 0.
-uint32_t NamedHand(const char *name) {
-    const auto *records = Game::Read<const uint8_t *>(Offsets::VAR_PAPERDOLLITEMFRAME_RECORDS);
-    const int count = Game::Read<int>(Offsets::VAR_PAPERDOLLITEMFRAME_COUNT);
-    if (records == nullptr)
-        return 0;
-    for (int i = 0; i < count; ++i) {
-        const uint8_t *row = records + i * Offsets::OFF_PAPERDOLLITEMFRAME_RECORD_STRIDE;
-        if (Game::StrCmpI(Game::Read<const char *>(row, Offsets::OFF_PAPERDOLLITEMFRAME_SLOT_NAME),
-                          name) != 0)
-            continue;
-        switch (Game::Read<int>(row, Offsets::OFF_PAPERDOLLITEMFRAME_SLOT_NUMBER)) {
-        case Offsets::INVSLOT_MAINHAND: return kBodySlotMainHand;
-        case Offsets::INVSLOT_OFFHAND: return kBodySlotOffHand;
-        default: return 0;
-        }
-    }
-    return 0;
 }
 
 // What the worker did with `itemID`, from the gates it passes (0x00504540).
 int TryOnResult(void *pane, uint32_t itemID) {
     const uint8_t *record = Item::PeekRecord(itemID);
     if (record == nullptr)
-        return kTryOnDataPending;
+        return TryOn::kDataPending;
     if (Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID) == 0 ||
         Pane::Model(pane) == nullptr)
-        return kTryOnNotEquippable;
-    switch (Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE)) {
-    case Offsets::INVTYPE_HEAD:
-    case Offsets::INVTYPE_SHOULDER:
-    case Offsets::INVTYPE_BODY:
-    case Offsets::INVTYPE_CHEST:
-    case Offsets::INVTYPE_WAIST:
-    case Offsets::INVTYPE_LEGS:
-    case Offsets::INVTYPE_FEET:
-    case Offsets::INVTYPE_WRIST:
-    case Offsets::INVTYPE_HAND:
-    case Offsets::INVTYPE_CLOAK:
-    case Offsets::INVTYPE_TABARD:
-    case Offsets::INVTYPE_ROBE:
-        // The armor arms: the component and the ready byte.
+        return TryOn::kNotEquippable;
+    switch (Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE))) {
+    case Outfit::Arm::Armor: // the component and the ready byte
         return Game::Read<void *>(pane, Offsets::OFF_DRESSUPMODEL_COMPONENT) != nullptr &&
                        Game::Read<uint8_t>(pane, Offsets::OFF_DRESSUPMODEL_READY) != 0
-                   ? kTryOnSuccess
-                   : kTryOnNotEquippable;
-    case Offsets::INVTYPE_WEAPON:
-    case Offsets::INVTYPE_SHIELD:
-    case Offsets::INVTYPE_RANGED:
-    case Offsets::INVTYPE_2HWEAPON:
-    case Offsets::INVTYPE_WEAPONMAINHAND:
-    case Offsets::INVTYPE_WEAPONOFFHAND:
-    case Offsets::INVTYPE_HOLDABLE:
-    case Offsets::INVTYPE_THROWN:
-    case Offsets::INVTYPE_RANGEDRIGHT:
-        return kTryOnSuccess; // the held arm
+                   ? TryOn::kSuccess
+                   : TryOn::kNotEquippable;
+    case Outfit::Arm::Held:
+        return TryOn::kSuccess;
     default:
-        return kTryOnNotEquippable;
+        return TryOn::kNotEquippable;
     }
 }
 
@@ -340,45 +232,17 @@ int __fastcall Script_TryOn(void *L) {
     void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
         return 0;
-    // Read before the name search below, which stomps the Lua stack.
-    const uint32_t bodySlot = Game::Lua::Type(L, 3) == Game::Lua::TYPE_STRING
-                                  ? NamedHand(Game::Lua::ToString(L, 3))
-                                  : 0;
-    const bool enchantGiven = Game::Lua::IsNumber(L, 4) != 0;
-    uint32_t enchant = enchantGiven ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 4)) : 0;
-    uint32_t itemID = 0;
-    if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_NUMBER) {
-        itemID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
-    } else if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING) {
-        // Copied: the name search below stomps the Lua stack.
-        char s[256];
-        std::snprintf(s, sizeof(s), "%s", Game::Lua::ToString(L, 2));
-        if (std::strstr(s, "enchant:") != nullptr) {
-            itemID = RecipeItem(s);
-        } else {
-            // An item link, `item:` string or numeric string resolves to an ID;
-            // any other string is the name of an item the player carries.
-            const Item::Arg::Resolved arg = Item::Arg::ResolveString(s);
-            Item::Location::ByGUIDResult found{};
-            if (arg.itemID != 0) {
-                itemID = static_cast<uint32_t>(arg.itemID);
-                if (!enchantGiven)
-                    enchant = static_cast<uint32_t>(arg.enchant);
-            } else if (arg.name != nullptr && Item::Location::FindByArg(L, arg, &found))
-                itemID = static_cast<uint32_t>(Item::ID::FromCGItem(found.item));
-        }
-    }
-    if (itemID == 0) {
-        reinterpret_cast<DisplayError_t>(Offsets::FUN_GAMEUI_DISPLAY_ERROR)(
-            Offsets::GAME_ERROR_NOT_EQUIPPABLE);
-        Game::Lua::PushNumber(L, kTryOnNotEquippable);
+    const TryOn::Request request = TryOn::ReadArgs(L);
+    if (request.itemID == 0) {
+        TryOn::ShowNotEquippable();
+        Game::Lua::PushNumber(L, TryOn::kNotEquippable);
         return 1;
     }
-    g_tryOnBodySlot = bodySlot;
-    g_tryOnEnchant = enchant;
-    TryOnItem(pane, nullptr, itemID);
+    g_tryOnBodySlot = request.bodySlot;
+    g_tryOnEnchant = request.enchant;
+    TryOnItem(pane, nullptr, request.itemID);
     g_tryOnBodySlot = g_tryOnEnchant = 0;
-    Game::Lua::PushNumber(L, TryOnResult(pane, WornItem(itemID)));
+    Game::Lua::PushNumber(L, TryOnResult(pane, TryOn::WornItem(request.itemID)));
     return 1;
 }
 
@@ -499,10 +363,10 @@ const Game::Doc::Method g_methodDocs[] = {
 };
 
 const Game::Lua::EnumIntegerEntry kItemTryOnReason[] = {
-    {"Success", kTryOnSuccess},
-    {"WrongRace", kTryOnWrongRace},
-    {"NotEquippable", kTryOnNotEquippable},
-    {"DataPending", kTryOnDataPending},
+    {"Success", TryOn::kSuccess},
+    {"WrongRace", TryOn::kWrongRace},
+    {"NotEquippable", TryOn::kNotEquippable},
+    {"DataPending", TryOn::kDataPending},
 };
 
 void RegisterLuaFunctions() {

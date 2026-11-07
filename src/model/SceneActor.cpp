@@ -76,6 +76,16 @@
 // to copy), so usePlayerNativeForm, holdBowString and customRaceID change
 // nothing.
 //
+// TryOn is DressUpModel's (Model::TryOn's arguments, then TryOnItem's arms,
+// Outfit::TryOn) on the actor's component and lanes: a unit's copy or a
+// dressed display takes armor and held items, any other model held items
+// only. A shapeshifted unit takes no armor, as the pane's ready byte allows
+// none. The held items hang per SetSheathed. The pane's worker waits for an
+// uncached item record (its cache callback runs it again); the actor waits
+// for the record and for its model to load (a display has no component until
+// then), and returns DataPending for the first and Success for the second.
+// OnModelLoaded runs after the waiting try-ons are on.
+//
 // SetModelByUnitCreatureDisplayID shows the display the unit shows now
 // (UNIT_FIELD_DISPLAYID) the way SetModelByCreatureDisplayID shows one: a
 // player shows its race's bare display, a pet its creature's.
@@ -122,6 +132,8 @@
 #include "api/Documentation.h"
 #include "dbc/Lookup.h"
 #include "guid/Guid.h"
+#include "item/Data.h"
+#include "item/Record.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "model/VisualKit.h"
@@ -191,6 +203,8 @@ void ReleaseModel(Actor &actor) {
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
+    actor.armorReady = true;
+    actor.pendingTryOns.clear();
     actor.loaded = false;
     actor.animFinished = false;
     actor.heldPositionMs = -1;
@@ -232,6 +246,9 @@ bool Actor::SetUnitModel(uint64_t guid) {
     if (copy == nullptr)
         return false;
     unitGuid = guid;
+    const auto *descriptor = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    armorReady = Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_DISPLAYID) ==
+                 Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_NATIVEDISPLAYID);
     dresser = Outfit::CloneComponent(copy, unit);
     Outfit::ReadLanes(unit, lanes);
     Outfit::ReadWeapons(guid, weapons);
@@ -255,6 +272,84 @@ void Actor::ApplyWeapons() {
         return;
     Outfit::HangWeapons(model, lanes, weapons, sheathed, hideWeapons);
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
+}
+
+namespace {
+
+// The worker's answer for `record` on the actor: what TryOnItem's gates allow.
+int TryOnReason(const Actor &actor, const uint8_t *record) {
+    if (actor.model == nullptr ||
+        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID) == 0)
+        return TryOn::kNotEquippable;
+    switch (Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE))) {
+    case Outfit::Arm::Armor: // a component now, or the display's once it loads
+        return (actor.dresser != nullptr || actor.dressRecord != nullptr) && actor.armorReady
+                   ? TryOn::kSuccess
+                   : TryOn::kNotEquippable;
+    case Outfit::Arm::Held:
+        return TryOn::kSuccess;
+    default:
+        return TryOn::kNotEquippable;
+    }
+}
+
+// The worker shows ERR_NOT_EQUIPPABLE for a type it has no arm for.
+void ShowIfNotEquippable(const uint8_t *record) {
+    if (Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE)) ==
+        Outfit::Arm::NotEquippable)
+        TryOn::ShowNotEquippable();
+}
+
+// The worker on the actor's component and lanes.
+void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
+    ShowIfNotEquippable(record);
+    Outfit::HeldTryOn held;
+    held.bodySlot = request.bodySlot;
+    held.dualWield = Outfit::CanDualWield(actor.unitGuid);
+    held.sheathed = actor.sheathed;
+    held.hide = actor.hideWeapons;
+    held.enchant = request.enchant;
+    if (Outfit::TryOn(actor.model, actor.dresser, actor.armorReady, actor.lanes, actor.weapons,
+                      record, held))
+        Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
+}
+
+// The waiting try-ons whose record is cached, in the order they came.
+void PutOnWaiting(Actor &actor) {
+    auto &waiting = actor.pendingTryOns;
+    for (size_t i = 0; i < waiting.size();) {
+        const TryOn::Request request = waiting[i];
+        const uint8_t *record = Item::PeekRecord(TryOn::WornItem(request.itemID));
+        if (record == nullptr) {
+            ++i;
+            continue;
+        }
+        waiting.erase(waiting.begin() + static_cast<std::ptrdiff_t>(i));
+        PutOn(actor, request, record);
+    }
+}
+
+} // namespace
+
+int Actor::TryOnItem(const Model::TryOn::Request &request) {
+    if (model == nullptr)
+        return TryOn::kNotEquippable;
+    const uint8_t *record = Item::PeekRecord(TryOn::WornItem(request.itemID));
+    if (record == nullptr) {
+        Item::Data::WarmCache(request.itemID);
+        pendingTryOns.push_back(request);
+        return TryOn::kDataPending;
+    }
+    if (loaded) {
+        PutOn(*this, request, record);
+        return TryOnReason(*this, record);
+    }
+    const int reason = TryOnReason(*this, record);
+    if (reason == TryOn::kSuccess)
+        pendingTryOns.push_back(request);
+    else
+        ShowIfNotEquippable(record);
+    return reason;
 }
 
 void Actor::ClearModel() {
@@ -348,11 +443,15 @@ void Actor::Update(float elapsedSec) {
             ready = false;
         if (ready && M2::IsLoaded(model, 0, 1)) {
             loaded = true;
+            PutOnWaiting(*this);
             ApplyKit(*this);
             RunScript(S_ONMODELLOADED, 0);
         }
-    } else if (dresser != nullptr) {
-        Model::DisplayInfo::PumpDresser(dresser);
+    } else {
+        if (!pendingTryOns.empty())
+            PutOnWaiting(*this);
+        if (dresser != nullptr)
+            Model::DisplayInfo::PumpDresser(dresser);
     }
     if (model != nullptr && loaded && (paused || globalPaused)) {
         if (heldPositionMs < 0)
@@ -542,6 +641,20 @@ int __fastcall Script_UndressSlot(void *L) {
     Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes,
                         static_cast<int>(Game::Lua::ToNumber(L, 2)));
     return 0;
+}
+
+int __fastcall Script_TryOn(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    const TryOn::Request request = TryOn::ReadArgs(L);
+    if (request.itemID == 0) {
+        TryOn::ShowNotEquippable();
+        Game::Lua::PushNumber(L, TryOn::kNotEquippable);
+        return 1;
+    }
+    Game::Lua::PushNumber(L, actor->TryOnItem(request));
+    return 1;
 }
 
 int __fastcall Script_SetSheathed(void *L) {
@@ -916,6 +1029,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"Dress", &Script_Dress},
     {"Undress", &Script_Undress},
     {"UndressSlot", &Script_UndressSlot},
+    {"TryOn", &Script_TryOn},
     {"SetSheathed", &Script_SetSheathed},
     {"GetSheathed", &Script_GetSheathed},
     {"SetAutoDress", &Script_SetAutoDress},
@@ -1082,6 +1196,19 @@ const Game::Doc::Function kDress{"Dresses the actor in what its unit wears.", {}
 const Game::Doc::Function kUndress{"Takes everything off the actor.", kUndressArgs, {}};
 const Game::Doc::Function kUndressSlot{
     "Takes the item in one inventory slot off the actor.", kUndressSlotArgs, {}};
+const Game::Doc::Field kTryOnArgs[] = {
+    Req("linkOrItemModifiedAppearanceID", "IDOrLink",
+        "An item ID, item link, trade-skill recipe link, or the name of an item you carry."),
+    Opt("handSlotName", "cstring", nullptr,
+        "MAINHANDSLOT or SECONDARYHANDSLOT: the hand that holds the item."),
+    Opt("spellEnchantID", "number", nullptr,
+        "The enchant whose glow a weapon shows. Defaults to the item link's enchant."),
+};
+const Game::Doc::Field kTryOnRet[] = {Req("result", "ItemTryOnReason")};
+const Game::Doc::Function kTryOn{
+    "Puts an item on the actor. Armor needs a character model. The item goes on once its data "
+    "and the model have loaded.",
+    kTryOnArgs, kTryOnRet};
 const Game::Doc::Function kSetSheathed{
     "Puts the held items in the hands or the sheaths, or hides them.", kSheathedArgs, {}};
 const Game::Doc::Function kGetSheathed{"Returns whether the held items are sheathed.", {},
@@ -1164,6 +1291,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"Dress", &kDress},
     {"Undress", &kUndress},
     {"UndressSlot", &kUndressSlot},
+    {"TryOn", &kTryOn},
     {"SetSheathed", &kSetSheathed},
     {"GetSheathed", &kGetSheathed},
     {"SetAutoDress", &kSetAutoDress},

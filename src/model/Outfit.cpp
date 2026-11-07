@@ -18,13 +18,24 @@
 //
 // The slot map is 4.3.4's UndressSlot map, from inventory slot to component
 // slot.
+//
+// TryOn is DressUpModel::TryOnItem's arms (0x00504540, benilla ui/dressup)
+// for a holder that is not a pane, the ModelScene actor: the pane runs the
+// engine's worker itself (model/DressUp.cpp). Two differences:
+//   - An evicted lane is zeroed, as Undress zeroes one. The worker leaves its
+//     record, which only makes a later try-on detach it again.
+//   - A tabard keeps no guild emblem. The worker's emblem step reads the
+//     pane's player.
 
 #include "model/Outfit.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
+#include "model/ItemDisplay.h"
 #include "model/M2.h"
 #include "object/Resolve.h"
+#include "unit/Identity.h"
 
 namespace Model::Outfit {
 namespace {
@@ -41,6 +52,8 @@ using GetVisibleItem_t = const void *(__thiscall *)(void *player, uint32_t slot)
 using GetDescVisual_t = int(__thiscall *)(const void *visibleItem);
 using CharCompCreate_t = void *(__cdecl *)();
 using CharCompClone_t = bool(__thiscall *)(void *component, void *model, void *source);
+using CharCompSetItem_t = void(__thiscall *)(void *component, uint32_t slot, uint32_t displayID);
+using CanHoldBoth_t = bool(__fastcall *)(uint32_t mainType, uint32_t offType, bool dualWield);
 
 constexpr uint32_t kBodySlots[2] = {kBodySlotMainHand, kBodySlotOffHand};
 
@@ -81,6 +94,29 @@ int ComponentSlot(int slot0) {
     case 14: return 10; // back
     case 18: return 9;  // tabard
     default: return -1;
+    }
+}
+
+// TryOnItem's hand for a held type: the named one, else a second one-hander
+// in the off hand of a dual wielder, and each type's own hand.
+int HandFor(uint32_t type, const Lanes &lanes, const HeldTryOn &held) {
+    if (held.bodySlot != 0)
+        return LaneIndex(held.bodySlot);
+    switch (type) {
+    case Offsets::INVTYPE_WEAPON:
+        return lanes[0].itemClass != 0 &&
+                       (lanes[0].inventoryType == Offsets::INVTYPE_WEAPON ||
+                        lanes[0].inventoryType == Offsets::INVTYPE_WEAPONMAINHAND) &&
+                       held.dualWield
+                   ? 1
+                   : 0;
+    case Offsets::INVTYPE_SHIELD:
+    case Offsets::INVTYPE_RANGED:
+    case Offsets::INVTYPE_WEAPONOFFHAND:
+    case Offsets::INVTYPE_HOLDABLE:
+        return 1;
+    default: // two-hand, main-hand, thrown and right-hand ranged
+        return 0;
     }
 }
 
@@ -156,6 +192,112 @@ void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool s
             lane.inventoryType == Offsets::INVTYPE_RANGEDRIGHT);
         HangVisual(model, attachId, weapons.visual[i]);
     }
+}
+
+uint32_t EnchantVisual(const void *display, uint32_t enchantID) {
+    if (display == nullptr ||
+        Model::ItemDisplay::OwnVisual(static_cast<const uint8_t *>(display)) != 0)
+        return 0;
+    const uint8_t *enchant = DBC::Record(Offsets::VAR_SPELLITEMENCHANT_RECORDS,
+                                         Offsets::VAR_SPELLITEMENCHANT_COUNT, enchantID);
+    return enchant != nullptr
+               ? Game::Read<uint32_t>(enchant, Offsets::OFF_SPELLITEMENCHANT_ITEM_VISUAL)
+               : 0;
+}
+
+Arm ArmOf(uint32_t inventoryType, uint32_t *componentSlot) {
+    uint32_t slot = 0;
+    switch (inventoryType) {
+    case Offsets::INVTYPE_HEAD: slot = 0; break;
+    case Offsets::INVTYPE_SHOULDER: slot = 1; break;
+    case Offsets::INVTYPE_BODY: slot = 2; break;
+    case Offsets::INVTYPE_CHEST:
+    case Offsets::INVTYPE_ROBE: slot = 3; break;
+    case Offsets::INVTYPE_WAIST: slot = 4; break;
+    case Offsets::INVTYPE_LEGS: slot = 5; break;
+    case Offsets::INVTYPE_FEET: slot = 6; break;
+    case Offsets::INVTYPE_WRIST: slot = 7; break;
+    case Offsets::INVTYPE_HAND: slot = 8; break;
+    case Offsets::INVTYPE_TABARD: slot = 9; break;
+    case Offsets::INVTYPE_CLOAK: slot = 10; break;
+    case Offsets::INVTYPE_WEAPON:
+    case Offsets::INVTYPE_SHIELD:
+    case Offsets::INVTYPE_RANGED:
+    case Offsets::INVTYPE_2HWEAPON:
+    case Offsets::INVTYPE_WEAPONMAINHAND:
+    case Offsets::INVTYPE_WEAPONOFFHAND:
+    case Offsets::INVTYPE_HOLDABLE:
+    case Offsets::INVTYPE_THROWN:
+    case Offsets::INVTYPE_RANGEDRIGHT:
+        return Arm::Held;
+    case Offsets::INVTYPE_NECK:
+    case Offsets::INVTYPE_FINGER:
+    case Offsets::INVTYPE_TRINKET:
+    case Offsets::INVTYPE_RELIC:
+        return Arm::Nothing;
+    default:
+        return Arm::NotEquippable;
+    }
+    if (componentSlot != nullptr)
+        *componentSlot = slot;
+    return Arm::Armor;
+}
+
+bool CanDualWield(uint64_t guid) {
+    return guid != 0 && guid == Unit::Identity::PlayerGuid() &&
+           reinterpret_cast<int(__cdecl *)()>(Offsets::FUN_PLAYER_CAN_DUAL_WIELD)() != 0;
+}
+
+bool TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
+           const uint8_t *record, const HeldTryOn &held) {
+    const auto displayID = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
+    if (model == nullptr || displayID == 0)
+        return false;
+    const auto type = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
+    uint32_t componentSlot = 0;
+    switch (ArmOf(type, &componentSlot)) {
+    case Arm::Armor:
+        if (component == nullptr || !armorReady)
+            return false;
+        reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component,
+                                                                           componentSlot);
+        reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(component,
+                                                                           componentSlot, displayID);
+        return true;
+    case Arm::Held:
+        break;
+    default:
+        return false;
+    }
+    const int lane = HandFor(type, lanes, held);
+    const int other = 1 - lane;
+    if (lanes[other].itemClass != 0) {
+        const uint32_t mainType = lane == 0 ? type : lanes[0].inventoryType;
+        const uint32_t offType = lane == 0 ? lanes[1].inventoryType : type;
+        if (!reinterpret_cast<CanHoldBoth_t>(Offsets::FUN_DRESSUPMODEL_CAN_HOLD_BOTH)(
+                mainType, offType, held.dualWield)) {
+            ClearLane(model, lanes, other);
+            weapons.display[other] = nullptr;
+            weapons.visual[other] = 0;
+        }
+    }
+    ClearLane(model, lanes, lane);
+    HeldLane &target = lanes[lane];
+    target.itemClass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS));
+    target.unknown1[0] = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS));
+    target.inventoryType = static_cast<uint8_t>(type);
+    target.sheatheType = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SHEATH));
+    const uint8_t *display = DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS,
+                                         Offsets::VAR_ITEMDISPLAYINFO_COUNT, displayID);
+    weapons.display[lane] = display;
+    weapons.visual[lane] = EnchantVisual(display, held.enchant);
+    if (display == nullptr || held.hide)
+        return true;
+    const int attachId = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL)(
+        model, display, kBodySlots[lane], target.sheatheType, held.sheathed,
+        type == Offsets::INVTYPE_SHIELD, type == Offsets::INVTYPE_RANGEDRIGHT);
+    HangVisual(model, attachId, weapons.visual[lane]);
+    return true;
 }
 
 void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot) {

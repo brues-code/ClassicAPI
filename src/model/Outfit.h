@@ -70,6 +70,41 @@ void HangVisual(void *model, int attachId, uint32_t visual);
 void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool sheathed,
                  bool hide);
 
+// The glow `enchantID` gives an item shown with `display` (an ItemDisplayInfo
+// row): none when the display hangs its own (GetItemDescVisual's rule).
+uint32_t EnchantVisual(const void *display, uint32_t enchantID);
+
+// TryOnItem's dispatch (0x00504540) on an item's inventory type.
+enum class Arm {
+    Armor,         // a component slot
+    Held,          // a held-item lane
+    Nothing,       // neck, finger, trinket, relic: nothing, and no error
+    NotEquippable, // anything else: the worker shows ERR_NOT_EQUIPPABLE
+};
+
+// The arm for `inventoryType`; `componentSlot` receives an armor arm's slot.
+Arm ArmOf(uint32_t inventoryType, uint32_t *componentSlot = nullptr);
+
+// DressUpModel's dual-wield test: the model shows the active player, and the
+// player can dual wield.
+bool CanDualWield(uint64_t guid);
+
+// How a held try-on is hung.
+struct HeldTryOn {
+    uint32_t bodySlot = 0; // the hand named (kBodySlot*), or 0 for the worker's choice
+    bool dualWield = false;
+    bool sheathed = false;
+    bool hide = false;
+    uint32_t enchant = 0; // its glow's SpellItemEnchantment, or 0
+};
+
+// TryOnItem's arms on whatever holds the component and the lanes: an armor
+// slot is cleared and set on the component, which `armorReady` (the pane's
+// ready byte) must allow; a held item evicts an other-lane item it cannot be
+// held with, then takes its lane and hangs. True when the item went on.
+bool TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
+           const uint8_t *record, const HeldTryOn &held);
+
 // UndressSlot: the item in one inventory slot (1-based) off the model. A
 // held lane is detached and zeroed, an armor slot cleared on the component.
 // Without a component it does nothing, held lanes included (4.3.4's
