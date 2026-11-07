@@ -58,6 +58,23 @@
 // animation kits (AnimKit data is a later client's), so PlayAnimationKit and
 // StopAnimationKit change nothing.
 //
+// A unit's model (SetModelByUnit) is 1.12's pane copy, AttachUnitModel
+// (0x005059A0) step for step: the unit's own component pumped (forced), a
+// copy of the unit's model in the scene (CreateModelFromModel, which copies
+// the attachments: helm, shoulders, held items), its effect / spell
+// attachments dropped (DetachAllItemModels), then what DressUpModel's
+// SetModelInstance (0x00504350) adds: a clone of the unit's character
+// component and its two held-item lanes. The hand grips close as the pane
+// closes them. The clone is pumped from the update walk, as the DressUpModel
+// paint pumps its own (0x00504470), so Undress / UndressSlot show at once;
+// OnModelLoaded runs once its first composite is done. Then retail's
+// SetModelByUnit arguments: autoDress off undresses it (ClearModel's steps),
+// and the held items are hung in the hands or the sheaths, or left off.
+// Dress builds the copy again from the unit. The copy shows the unit as it
+// looks: a shapeshifted unit shows its form (1.12 keeps no native-form model
+// to copy), so usePlayerNativeForm, holdBowString and customRaceID change
+// nothing.
+//
 // XML: an <Actor> element is a template CreateActor names (1.12's file loader
 // registers every virtual top-level node whatever its tag), loaded the way an
 // animation group is: the mixins of the whole inherits chain first, then each
@@ -72,9 +89,12 @@
 #include "Offsets.h"
 #include "animation/Xml.h"
 #include "api/Documentation.h"
+#include "guid/Guid.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "model/VisualKit.h"
+#include "object/Resolve.h"
+#include "unit/Identity.h"
 #include "xml/FrameLoad.h"
 #include "xml/Mixin.h"
 
@@ -137,6 +157,9 @@ void ReleaseModel(Actor &actor) {
     actor.model = nullptr;
     actor.dresser = nullptr;
     actor.dressRecord = nullptr;
+    actor.unitGuid = 0;
+    actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
+    actor.weapons = Outfit::Weapons{};
     actor.loaded = false;
     actor.animFinished = false;
     actor.modelPath.clear();
@@ -162,6 +185,50 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     ApplyAlpha();
     PlayAnimation();
     RunScript(S_ONMODELLOADING, 0);
+}
+
+bool Actor::SetUnitModel(uint64_t guid) {
+    using CopyModel_t = void *(__thiscall *)(void *scene, void *source, uint32_t flags);
+    using DetachAll_t = void(__fastcall *)(void *model);
+    using FindChild_t = void *(__thiscall *)(void *model, int attachId);
+    using CloseHand_t = void(__fastcall *)(void *model, uint32_t hand);
+    ClearModel();
+    void *unit = guid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) : nullptr;
+    void *source = unit != nullptr ? Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_MODEL) : nullptr;
+    if (source == nullptr)
+        return false;
+    if (void *own = Game::Read<void *>(unit, Offsets::OFF_CGUNIT_CHARACTER_COMPONENT))
+        Model::DisplayInfo::PumpDresser(own, true);
+    void *copy = reinterpret_cast<CopyModel_t>(Offsets::FUN_M2SCENE_COPY_MODEL)(
+        Model::Pane::Scene(SceneFrame()), source, 0);
+    if (copy == nullptr)
+        return false;
+    reinterpret_cast<DetachAll_t>(Offsets::FUN_DETACH_ALL_ITEM_MODELS)(copy);
+    unitGuid = guid;
+    dresser = Outfit::CloneComponent(copy, unit);
+    Outfit::ReadLanes(unit, lanes);
+    Outfit::ReadWeapons(guid, weapons);
+    const auto findChild = reinterpret_cast<FindChild_t>(Offsets::FUN_M2MODEL_FIND_CHILD);
+    const auto closeHand = reinterpret_cast<CloseHand_t>(Offsets::FUN_CLOSE_HAND);
+    if (findChild(copy, 2) != nullptr)
+        closeHand(copy, 1);
+    if (findChild(copy, 1) != nullptr)
+        closeHand(copy, 0);
+    if (autoDress)
+        Outfit::HangWeapons(copy, lanes, weapons, sheathed, hideWeapons);
+    else
+        Outfit::Undress(copy, dresser, lanes, true);
+    // SetModel keeps the unit fields: there is no model to clear.
+    SetModel(copy, nullptr, nullptr);
+    Model::DisplayInfo::LightChildren(SceneFrame(), copy);
+    return true;
+}
+
+void Actor::ApplyWeapons() {
+    if (model == nullptr)
+        return;
+    Outfit::HangWeapons(model, lanes, weapons, sheathed, hideWeapons);
+    Model::DisplayInfo::LightChildren(SceneFrame(), model);
 }
 
 void Actor::ClearModel() {
@@ -235,24 +302,24 @@ void Actor::ApplyAlpha() {
 void Actor::Update(float elapsedSec) {
     if (model != nullptr && !loaded) {
         bool ready = M2::IsLoaded(model, 0, 0);
-        if (ready && dressRecord != nullptr) {
-            if (dresser == nullptr) {
-                // A dress the engine rejects shows the model undressed, as a
-                // unit with no compositor shows.
-                dresser = Model::DisplayInfo::CreateDresser(model, dressRecord);
-                if (dresser == nullptr)
-                    dressRecord = nullptr;
-                else
-                    Model::DisplayInfo::LightChildren(SceneFrame(), model);
-            }
-            if (dresser != nullptr && !Model::DisplayInfo::PumpDresser(dresser))
-                ready = false;
+        if (ready && dressRecord != nullptr && dresser == nullptr) {
+            // A dress the engine rejects shows the model undressed, as a
+            // unit with no compositor shows.
+            dresser = Model::DisplayInfo::CreateDresser(model, dressRecord);
+            if (dresser == nullptr)
+                dressRecord = nullptr;
+            else
+                Model::DisplayInfo::LightChildren(SceneFrame(), model);
         }
+        if (ready && dresser != nullptr && !Model::DisplayInfo::PumpDresser(dresser))
+            ready = false;
         if (ready && M2::IsLoaded(model, 0, 1)) {
             loaded = true;
             ApplyKit(*this);
             RunScript(S_ONMODELLOADED, 0);
         }
+    } else if (dresser != nullptr) {
+        Model::DisplayInfo::PumpDresser(dresser);
     }
     if (model != nullptr && M2::IsReady(model, 0, 1)) {
         M2::SetAnimated(model, true);
@@ -346,6 +413,104 @@ int __fastcall Script_SetModelByPath(void *L) {
     void *model = M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path);
     actor->SetModel(model, path, nullptr);
     Game::Lua::PushBool(L, model != nullptr);
+    return 1;
+}
+
+// Retail's argument order: unit, sheatheWeapons, autoDress, hideWeapons,
+// usePlayerNativeForm, holdBowString, customRaceID.
+int __fastcall Script_SetModelByUnit(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons])",
+                         actor->DisplayName());
+        return 0;
+    }
+    actor->sheathed = Game::Lua::ToBoolean(L, 3) != 0;
+    actor->autoDress = Game::Lua::Type(L, 4) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 4) != 0;
+    actor->hideWeapons = Game::Lua::ToBoolean(L, 5) != 0;
+    const uint64_t guid = Unit::Identity::GuidForToken(Game::Lua::ToString(L, 2));
+    Game::Lua::PushBool(L, actor->SetUnitModel(guid));
+    return 1;
+}
+
+int __fastcall Script_GetModelUnitGUID(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || actor->unitGuid == 0)
+        return 0;
+    char buf[Guid::STRING_SIZE];
+    Game::Lua::PushString(L, Guid::FormatAsString(actor->unitGuid, buf, sizeof buf));
+    return 1;
+}
+
+// Builds the copy again from the unit, dressed.
+int __fastcall Script_Dress(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || actor->unitGuid == 0)
+        return 0;
+    const bool autoDress = actor->autoDress;
+    actor->autoDress = true;
+    actor->SetUnitModel(actor->unitGuid);
+    actor->autoDress = autoDress;
+    return 0;
+}
+
+int __fastcall Script_Undress(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    const bool weapons = Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 2) != 0;
+    Outfit::Undress(actor->model, actor->dresser, actor->lanes, weapons);
+    return 0;
+}
+
+int __fastcall Script_UndressSlot(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "UndressSlot(inventorySlot)", actor))
+        return 0;
+    Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes,
+                        static_cast<int>(Game::Lua::ToNumber(L, 2)));
+    return 0;
+}
+
+int __fastcall Script_SetSheathed(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    actor->sheathed = Game::Lua::ToBoolean(L, 2) != 0;
+    actor->hideWeapons = Game::Lua::ToBoolean(L, 3) != 0;
+    actor->ApplyWeapons();
+    return 0;
+}
+
+int __fastcall Script_GetSheathed(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->sheathed);
+    return 1;
+}
+
+int __fastcall Script_SetAutoDress(void *L) {
+    if (Actor *actor = Self(L))
+        actor->autoDress = Game::Lua::ToBoolean(L, 2) != 0;
+    return 0;
+}
+
+int __fastcall Script_GetAutoDress(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->autoDress);
+    return 1;
+}
+
+int __fastcall Script_IsGeoReady(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->model != nullptr && M2::IsLoaded(actor->model, 0, 1));
     return 1;
 }
 
@@ -590,6 +755,16 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"HookScript", &Animation::Script_HookScript},
     {"SetModelByCreatureDisplayID", &Script_SetModelByCreatureDisplayID},
     {"SetModelByPath", &Script_SetModelByPath},
+    {"SetModelByUnit", &Script_SetModelByUnit},
+    {"GetModelUnitGUID", &Script_GetModelUnitGUID},
+    {"Dress", &Script_Dress},
+    {"Undress", &Script_Undress},
+    {"UndressSlot", &Script_UndressSlot},
+    {"SetSheathed", &Script_SetSheathed},
+    {"GetSheathed", &Script_GetSheathed},
+    {"SetAutoDress", &Script_SetAutoDress},
+    {"GetAutoDress", &Script_GetAutoDress},
+    {"IsGeoReady", &Script_IsGeoReady},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -701,6 +876,48 @@ const Game::Doc::Function kPlayAnimationKit{
 const Game::Doc::Function kStopAnimationKit{
     "Has no effect: this client has no animation kits.", {}, {}};
 
+const Game::Doc::Field kUnitArgs[] = {
+    Req("unit", "UnitToken"),
+    Opt("sheatheWeapons", "bool", "false"),
+    Opt("autoDress", "bool", "true", "False shows the unit with nothing on."),
+    Opt("hideWeapons", "bool", "false"),
+    Opt("usePlayerNativeForm", "bool", "true", "Has no effect: the unit shows as it looks."),
+    Opt("holdBowString", "bool", "false", "Has no effect."),
+    Opt("customRaceID", "number", nullptr, "Has no effect."),
+};
+const Game::Doc::Field kGuidRet[] = {
+    Req("guid", "WOWGUID", "Nil when the actor shows no unit."),
+};
+const Game::Doc::Field kUndressArgs[] = {Opt("includeWeapons", "bool", "true")};
+const Game::Doc::Field kUndressSlotArgs[] = {
+    Req("inventorySlots", "number", "An inventory slot, 1 (head) to 19 (tabard)."),
+};
+const Game::Doc::Field kSheathedArgs[] = {
+    Req("sheathed", "bool"),
+    Opt("hidden", "bool", "false", "True hides the held items."),
+};
+const Game::Doc::Field kSheathedRet[] = {Req("sheathed", "bool")};
+const Game::Doc::Field kAutoDressArg[] = {Req("autoDress", "bool")};
+const Game::Doc::Field kAutoDressRet[] = {Req("autoDress", "bool")};
+const Game::Doc::Field kGeoReadyRet[] = {Req("isReady", "bool")};
+const Game::Doc::Function kSetModelByUnit{
+    "Shows a copy of the unit, dressed in what it wears.", kUnitArgs, kSuccessRet};
+const Game::Doc::Function kGetModelUnitGUID{"Returns the unit the actor shows.", {}, kGuidRet};
+const Game::Doc::Function kDress{"Dresses the actor in what its unit wears.", {}, {}};
+const Game::Doc::Function kUndress{"Takes everything off the actor.", kUndressArgs, {}};
+const Game::Doc::Function kUndressSlot{
+    "Takes the item in one inventory slot off the actor.", kUndressSlotArgs, {}};
+const Game::Doc::Function kSetSheathed{
+    "Puts the held items in the hands or the sheaths, or hides them.", kSheathedArgs, {}};
+const Game::Doc::Function kGetSheathed{"Returns whether the held items are sheathed.", {},
+                                       kSheathedRet};
+const Game::Doc::Function kSetAutoDress{
+    "Sets whether SetModelByUnit dresses the actor.", kAutoDressArg, {}};
+const Game::Doc::Function kGetAutoDress{
+    "Returns whether SetModelByUnit dresses the actor.", {}, kAutoDressRet};
+const Game::Doc::Function kIsGeoReady{
+    "Returns whether the model and the item models on it have loaded.", {}, kGeoReadyRet};
+
 const Game::Doc::Function kSetModelByCreatureDisplayID{
     "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
 const Game::Doc::Function kSetModelByPath{"Shows a model file.", kPathArgs, kSuccessRet};
@@ -745,6 +962,16 @@ const Game::Doc::Function kGetMaxBoundingBox{
 const Game::Doc::Method kMethodDocs[] = {
     {"SetModelByCreatureDisplayID", &kSetModelByCreatureDisplayID},
     {"SetModelByPath", &kSetModelByPath},
+    {"SetModelByUnit", &kSetModelByUnit},
+    {"GetModelUnitGUID", &kGetModelUnitGUID},
+    {"Dress", &kDress},
+    {"Undress", &kUndress},
+    {"UndressSlot", &kUndressSlot},
+    {"SetSheathed", &kSetSheathed},
+    {"GetSheathed", &kGetSheathed},
+    {"SetAutoDress", &kSetAutoDress},
+    {"GetAutoDress", &kGetAutoDress},
+    {"IsGeoReady", &kIsGeoReady},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

@@ -97,7 +97,7 @@ using CharCompCreate_t = void *(__cdecl *)();
 using CharCompDestroy_t = void(__fastcall *)(void *builder);
 using CharCompSetInfo_t = char(__thiscall *)(void *builder, const CharCompInfo *info);
 using CharCompSetItem_t = void(__thiscall *)(void *builder, int slot, int itemDisplayID);
-using CharCompPump_t = char(__thiscall *)(void *builder, int *unused);
+using CharCompPump_t = char(__thiscall *)(void *builder, int force);
 
 // A pending / finished dress for one Model frame. The model loads async, and
 // the engine only dresses a LOADED model (its poll gate FUN_00607da0 checks
@@ -378,8 +378,8 @@ void LightChildren(void *frame, void *instance) {
         M2::SetRenderCallback(child, lightFogCb, frame);
 }
 
-bool PumpDresser(void *dresser) {
-    return reinterpret_cast<CharCompPump_t>(Offsets::FUN_CHARCOMP_PUMP)(dresser, nullptr) != 0;
+bool PumpDresser(void *dresser, bool force) {
+    return reinterpret_cast<CharCompPump_t>(Offsets::FUN_CHARCOMP_PUMP)(dresser, force ? 1 : 0) != 0;
 }
 
 void DestroyDresser(void *dresser) {

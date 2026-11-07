@@ -4388,6 +4388,17 @@ enum Offsets {
     // ItemDisplayInfo row of the hand's item (CGUnit_C 0x00605EE0, CGPlayer_C
     // 0x005EC350); AttachHandItem's record source.
     VTBL_UNIT_GET_HELD_ITEM_DISPLAY = 0x9C,
+    // Unit vtable slot 38 — `const uint8_t *__thiscall(unit, hand 0/1, 1)`,
+    // ret 8: the 8-byte held-item lane of the hand's item (item class,
+    // subclass, inventory type at byte 3, sheathe type at byte 4), or null.
+    // DressUpModel SetModelInstance copies hands 0 and 1 into its lanes
+    // (`push 1; push 0; call [eax+0x98]`, 0x005043D9).
+    VTBL_UNIT_GET_HELD_ITEM_LANE = 0x98,
+    // CloseHand — `__fastcall(model, hand)`: HandsClosed (15) on the finger
+    // key bones, 8..12 for hand 0, 13..17 for hand 1. AttachUnitModel closes
+    // hand 1 when attachment 2 holds a model and hand 0 for attachment 1
+    // (0x00505A34..0x00505A5E).
+    FUN_CLOSE_HAND = 0x00479660,
     // TryOnItem — `__thiscall(pane, itemID)`: the worker behind TryOn.
     FUN_DRESSUPMODEL_TRY_ON_ITEM = 0x00504540,
     // The worker's item-cache callback (0x00504BA0) re-runs it once the
@@ -4497,11 +4508,21 @@ enum Offsets {
     // equipment piece (validated against ItemDisplayInfo.dbc, no-op for 0 /
     // out-of-range). Units pass CreatureDisplayInfoExtra +0x20..+0x44.
     FUN_CHARCOMP_SET_ITEM = 0x00478AA0,
-    // __thiscall(builder, int *unused /*engine passes 0*/) -> bool done.
+    // UpdateCharacterComponent — `bool __thiscall(builder, int force)`.
     // The per-frame pump: composites pending texture regions; the baked-NPC
     // path short-circuits to the geoset apply (FUN_00477520) and returns 1 on
-    // the first call. Keep calling until it returns 1.
+    // the first call. Keep calling until it returns 1. `force` loads every
+    // section blocking and ignores the load budget (benilla charactermodel/
+    // component#update-driver): the unit model update passes 0 (0x00607E7C),
+    // the DressUpModel paint (0x00504470) and AttachUnitModel's pump of the
+    // unit's own component before the copy (0x005059BC) pass 1.
     FUN_CHARCOMP_PUMP = 0x00477860,
+    // CloneCharacterComponent — `bool __thiscall(builder, model, source)`,
+    // ret 8: copies the source component's appearance block, section cells
+    // and item records onto `builder`, for `model`, whose reference it takes
+    // over (0x00476CDA; DressUpModel SetModelInstance AddRefs the model first;
+    // it is the only caller, 0x005043D5).
+    FUN_CHARCOMP_CLONE = 0x00476CB0,
     // Model-instance API used around the compositor:
     FUN_MODEL_INSTANCE_ADDREF = 0x00710390, // (model /*ecx*/)
     // __thiscall(model, tryLoad, recurseChildren) -> bool loaded. The engine's
@@ -5289,6 +5310,10 @@ enum Offsets {
     FUN_CGOBJECT_SET_LIGHT = 0x00614550,
     FUN_CGOBJECT_CLEAR_LIGHT = 0x006144F0,
     OFF_CGOBJECT_MODEL = 0xD8,
+    // The unit's character component, null for a unit with none (a creature
+    // without CreatureDisplayInfoExtra): AttachUnitModel pumps it at
+    // 0x005059B2 and DressUpModel SetModelInstance clones it.
+    OFF_CGUNIT_CHARACTER_COMPONENT = 0xD30,
     OFF_CGOBJECT_OVERRIDE_MODEL = 0xDC,
     OFF_CGOBJECT_VTBL_SELECTION_COLOR = 0x2C,
     OFF_CGUNIT_SELECTION_RADIUS = 0xCF0,

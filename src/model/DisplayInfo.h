@@ -30,9 +30,10 @@ void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path = nu
 // `instance` from `extraRec` (a DressRecord) and fed its equipment, or null
 // when the engine pool is empty or rejects the info. It holds a reference on
 // the model. Pump it with PumpDresser until that returns true; DestroyDresser
-// releases it (null is a no-op).
+// releases it (null is a no-op). `force` loads every texture at once,
+// ignoring the engine's per-frame load budget.
 void *CreateDresser(void *instance, const uint8_t *extraRec);
-bool PumpDresser(void *dresser);
+bool PumpDresser(void *dresser, bool force = false);
 void DestroyDresser(void *dresser);
 
 // Gives every model attached to `instance` the light and fog callback that
