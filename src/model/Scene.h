@@ -80,6 +80,17 @@ class Actor : public Animation::Object {
     bool autoDress = true;
     bool sheathed = false;
     bool hideWeapons = false;
+    // Per lane: the SetSheathedCategory category (Outfit::SheatheCategory),
+    // and the sheathe type the lane's item has of its own. The lane itself
+    // holds the type it hangs with.
+    uint32_t sheatheCategory[2] = {};
+    uint8_t ownSheathe[2] = {};
+    bool useUnitSheatheCategory = false; // UseUnitSheatheCategory
+    // Lane `i` (on `onModel`, the actor's model or the copy being built) was
+    // just filled with its item's own type: hang it per its category.
+    void TookLane(void *onModel, int i);
+    // Hangs lane `i` per its category.
+    void ApplySheatheCategory(void *onModel, int i);
     // DressUpModel's ready byte: the model may take armor (not a shapeshifted
     // unit's).
     bool armorReady = true;

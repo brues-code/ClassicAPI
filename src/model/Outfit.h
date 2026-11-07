@@ -37,6 +37,21 @@ struct HeldLane {
 static_assert(sizeof(HeldLane) == 8, "ClearModel zeroes 8 bytes per lane");
 using Lanes = HeldLane[2]; // main hand, off hand
 
+// Retail's Enum.TransmogOutfitSlotOptionSheatheCategory: where a held item
+// hangs while sheathed.
+enum SheatheCategory : uint32_t {
+    kSheatheDefault = 0, // the item's own sheath point
+    kSheatheBack = 1,
+    kSheatheSide = 2,
+    kSheatheHide = 3, // no sheath point: nothing shows while sheathed
+};
+
+// The sheathe type an item whose own type is `own` (OFF_ITEMSTATS_SHEATH)
+// hangs with in `category`: Back moves a hip weapon to the back pair, Side
+// moves a back weapon to the hip, Hide leaves no sheath point. Every other
+// item keeps its own (a shield, an item with no sheath point).
+uint8_t SheatheTypeFor(uint8_t own, uint32_t category);
+
 // The row and glow each lane's item is hung with. The lanes keep no display
 // row, so whoever re-hangs a weapon keeps these beside them.
 struct Weapons {
@@ -69,6 +84,13 @@ void HangVisual(void *model, int attachId, uint32_t visual);
 // it in the hand or the sheath, or leave it off.
 void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool sheathed,
                  bool hide);
+
+// Lane `i` hung again with `sheatheType`: detached at the type it hangs with
+// now (DetachHeldItemSlot finds the sheath point from it), then hung in the
+// hand or the sheath, or left off. The lane keeps the new type, so every
+// later detach finds the new sheath point.
+void SetSheatheType(void *model, Lanes &lanes, int i, const Weapons &weapons,
+                    uint8_t sheatheType, bool sheathed, bool hide);
 
 // The glow `enchantID` gives an item shown with `display` (an ItemDisplayInfo
 // row): none when the display hangs its own (GetItemDescVisual's rule).

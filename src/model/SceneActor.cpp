@@ -101,6 +101,17 @@
 // for one instead (Blizzard_Transmog.lua). ignoreChildItems names Legion
 // artifact parts, which 1.12 has none of.
 //
+// SetSheathedCategory moves a hand's sheath point by the item's sheathe type,
+// which AttachItemModel and DetachHeldItemSlot both turn into the attachment
+// (GetSheathAttachment 0x0047A070): Back hangs a hip weapon (type 3) as a
+// two-hander (type 1, the back pair), Side a back weapon (1 or 2) at the hip,
+// Hide with type 0, which has no sheath point. The lane keeps the type it hangs
+// with, so every detach (Undress, UndressSlot, TryOn's eviction) finds it; the
+// actor keeps the item's own type beside it. Each lane write (SetModelByUnit,
+// TryOn, DressPlayerSlot) puts the item's own type in the lane, then the
+// category hangs it again. UseUnitSheatheCategory takes the unit's categories:
+// 1.12 units have none, so every hand takes its own sheath point.
+//
 // SetModelByUnitCreatureDisplayID shows the display the unit shows now
 // (UNIT_FIELD_DISPLAYID) the way SetModelByCreatureDisplayID shows one: a
 // player shows its race's bare display, a pet its creature's.
@@ -277,6 +288,8 @@ bool Actor::SetUnitModel(uint64_t guid) {
         closeHand(copy, 0);
     if (autoDress) {
         Outfit::HangWeapons(copy, lanes, weapons, sheathed, hideWeapons);
+        TookLane(copy, 0);
+        TookLane(copy, 1);
     } else {
         Outfit::Undress(copy, dresser, lanes, true);
         Outfit::TrimWorn(dresser, lanes, worn);
@@ -292,6 +305,21 @@ void Actor::ApplyWeapons() {
         return;
     Outfit::HangWeapons(model, lanes, weapons, sheathed, hideWeapons);
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
+}
+
+void Actor::TookLane(void *onModel, int i) {
+    ownSheathe[i] = lanes[i].sheatheType;
+    ApplySheatheCategory(onModel, i);
+}
+
+void Actor::ApplySheatheCategory(void *onModel, int i) {
+    if (onModel == nullptr || lanes[i].itemClass == 0)
+        return;
+    const uint32_t category =
+        useUnitSheatheCategory ? Outfit::kSheatheDefault : sheatheCategory[i];
+    const uint8_t type = Outfit::SheatheTypeFor(ownSheathe[i], category);
+    if (type != lanes[i].sheatheType)
+        Outfit::SetSheatheType(onModel, lanes, i, weapons, type, sheathed, hideWeapons);
 }
 
 namespace {
@@ -343,6 +371,7 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
         const int lane = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
         if (actor.weapons.visual[lane] != 0)
             slot.enchant = request.enchant;
+        actor.TookLane(actor.model, lane);
     }
     Outfit::TrimWorn(actor.dresser, actor.lanes, actor.worn);
     Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
@@ -692,6 +721,8 @@ int __fastcall Script_DressPlayerSlot(void *L) {
                       actor->hideWeapons);
     if (actor->model == nullptr || unit == nullptr)
         return 0;
+    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND)
+        actor->TookLane(actor->model, invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0);
     // The slot wears what the unit wears there; the hand's row and glow are
     // the unit's now.
     if (invSlot >= 1 && invSlot <= Outfit::kInventorySlots) {
@@ -785,6 +816,40 @@ int __fastcall Script_GetSheathed(void *L) {
         return 0;
     Game::Lua::PushBool(L, actor->sheathed);
     return 1;
+}
+
+// A hand's sheath point while sheathed. 1.12 has no ranged slot to hang
+// (a ranged weapon is held in a hand), so other slots change nothing.
+int __fastcall Script_SetSheathedCategory(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 2, actor->DisplayName(),
+                                        "SetSheathedCategory(inventorySlots, category)"))
+        return 0;
+    const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (invSlot != Offsets::INVSLOT_MAINHAND && invSlot != Offsets::INVSLOT_OFFHAND)
+        return 0;
+    const int lane = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
+    actor->sheatheCategory[lane] = static_cast<uint32_t>(Game::Lua::ToNumber(L, 3));
+    if (actor->model != nullptr) {
+        actor->ApplySheatheCategory(actor->model, lane);
+        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
+    }
+    return 0;
+}
+
+// The unit's own categories in place of SetSheathedCategory's: a 1.12 unit
+// has none, so each hand takes its item's own sheath point.
+int __fastcall Script_UseUnitSheatheCategory(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    actor->useUnitSheatheCategory = Game::Lua::ToBoolean(L, 2) != 0;
+    if (actor->model != nullptr) {
+        actor->ApplySheatheCategory(actor->model, 0);
+        actor->ApplySheatheCategory(actor->model, 1);
+        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
+    }
+    return 0;
 }
 
 int __fastcall Script_SetAutoDress(void *L) {
@@ -1124,6 +1189,13 @@ const Game::Lua::EnumIntegerEntry kModelBlendOperation[] = {
     {"Anim", 1},
 };
 
+const Game::Lua::EnumIntegerEntry kSheatheCategory[] = {
+    {"Default", Outfit::kSheatheDefault},
+    {"Back", Outfit::kSheatheBack},
+    {"Side", Outfit::kSheatheSide},
+    {"Hide", Outfit::kSheatheHide},
+};
+
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetObjectType", &Animation::Script_GetObjectType},
     {"IsObjectType", &Animation::Script_IsObjectType},
@@ -1150,6 +1222,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetItemTransmogInfo", &Script_SetItemTransmogInfo},
     {"SetSheathed", &Script_SetSheathed},
     {"GetSheathed", &Script_GetSheathed},
+    {"SetSheathedCategory", &Script_SetSheathedCategory},
+    {"UseUnitSheatheCategory", &Script_UseUnitSheatheCategory},
     {"SetAutoDress", &Script_SetAutoDress},
     {"GetAutoDress", &Script_GetAutoDress},
     {"IsGeoReady", &Script_IsGeoReady},
@@ -1366,6 +1440,22 @@ const Game::Doc::Function kSetSheathed{
     "Puts the held items in the hands or the sheaths, or hides them.", kSheathedArgs, {}};
 const Game::Doc::Function kGetSheathed{"Returns whether the held items are sheathed.", {},
                                        kSheathedRet};
+const Game::Doc::Field kSheathedCategoryArgs[] = {
+    Req("inventorySlots", "number", "16 or 17: the hand. Other slots change nothing."),
+    Req("category", "TransmogOutfitSlotOptionSheatheCategory"),
+};
+const Game::Doc::Function kSetSheathedCategory{
+    "Sets where the item in a hand hangs while sheathed: its own place, the back, the side, or "
+    "hidden.",
+    kSheathedCategoryArgs, {}};
+const Game::Doc::Field kUseUnitSheatheCategoryArgs[] = {
+    Req("useCategory", "bool",
+        "True puts each held item at its own sheath place, in place of the SetSheathedCategory "
+        "categories."),
+};
+const Game::Doc::Function kUseUnitSheatheCategory{
+    "Sets whether the held items hang at the unit's sheath places.", kUseUnitSheatheCategoryArgs,
+    {}};
 const Game::Doc::Function kSetAutoDress{
     "Sets whether SetModelByUnit dresses the actor.", kAutoDressArg, {}};
 const Game::Doc::Function kGetAutoDress{
@@ -1453,6 +1543,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetItemTransmogInfo", &kSetItemTransmogInfo},
     {"SetSheathed", &kSetSheathed},
     {"GetSheathed", &kGetSheathed},
+    {"SetSheathedCategory", &kSetSheathedCategory},
+    {"UseUnitSheatheCategory", &kUseUnitSheatheCategory},
     {"SetAutoDress", &kSetAutoDress},
     {"GetAutoDress", &kGetAutoDress},
     {"IsGeoReady", &kIsGeoReady},
@@ -1511,6 +1603,8 @@ void RegisterActorClass() {
     Animation::RegisterClass(Actor::s_class);
     Game::Lua::RegisterIntegerEnum("Enum", "ModelBlendOperation", kModelBlendOperation,
                                    "ModelAnimationShared");
+    Game::Lua::RegisterIntegerEnum("Enum", "TransmogOutfitSlotOptionSheatheCategory",
+                                   kSheatheCategory, "TransmogOutfitConstants");
     Api::Documentation::NameWidgetSystem(&Actor::s_class, "FrameAPIModelSceneFrameActor");
     Api::Documentation::RecordFrameMethods(&Actor::s_class, kMethods, kMethodDocs);
 }

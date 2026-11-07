@@ -852,6 +852,8 @@ build instructions.
   - [`actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)
   - [`actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#actorsetitemtransmoginfoinfo--slot-ignorechilditems)
   - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
+  - [`actor:SetSheathedCategory(slot, category)`](#actorsetsheathedcategoryslot-category)
+  - [`actor:UseUnitSheatheCategory(useCategory)`](#actoruseunitsheathecategoryusecategory)
   - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
   - [`actor:IsGeoReady()`](#actorisgeoready)
   - [`actor:ClearModel()` / `actor:IsLoaded()` / `actor:GetModelPath()`](#actorclearmodel--actorisloaded--actorgetmodelpath)
@@ -19428,6 +19430,38 @@ end
 Puts the weapons of the actor in its hands or in their sheaths. `hidden`
 set to `true` hides them. The setting also applies to items that `TryOn`
 puts on later.
+
+### `actor:SetSheathedCategory(slot, category)`
+
+Sets where the item in a hand hangs while the actor's weapons are sheathed.
+`slot` is `16` (main hand) or `17` (off hand). Other slots change nothing,
+because a ranged weapon is held in a hand. `category` is an
+`Enum.TransmogOutfitSlotOptionSheatheCategory` value:
+
+| Value | Name | Sheathed item |
+|---|---|---|
+| `0` | `Default` | At the place of the item. |
+| `1` | `Back` | A one-handed weapon from the hip goes on the back, as a two-handed weapon does. |
+| `2` | `Side` | A weapon from the back goes on the hip. |
+| `3` | `Hide` | Not shown. |
+
+A shield, and an item that has no sheath place, stay at their own place with
+`Back` and `Side`. The category stays with the hand: items that `TryOn`,
+`SetModelByUnit`, and `DressPlayerSlot` put in that hand later use it too.
+The category has no effect on an item in the hand while the weapons are not
+sheathed.
+
+```lua
+actor:SetSheathed(true)
+actor:SetSheathedCategory(16, Enum.TransmogOutfitSlotOptionSheatheCategory.Side)
+```
+
+### `actor:UseUnitSheatheCategory(useCategory)`
+
+`useCategory` set to `true` puts each sheathed item at its own place. The
+`SetSheathedCategory` categories have no effect until a call with `false`.
+Units do not keep a sheath category, so the place of the item is the place
+of the unit. The default is `false`.
 
 ### `actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`
 

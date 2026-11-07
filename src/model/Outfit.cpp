@@ -217,6 +217,32 @@ void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool s
         HangLane(model, i, lanes[i], weapons, sheathed, hide);
 }
 
+void SetSheatheType(void *model, Lanes &lanes, int i, const Weapons &weapons,
+                    uint8_t sheatheType, bool sheathed, bool hide) {
+    if (model == nullptr || lanes[i].itemClass == 0)
+        return;
+    DetachLane(model, i, lanes[i]);
+    lanes[i].sheatheType = sheatheType;
+    HangLane(model, i, lanes[i], weapons, sheathed, hide);
+}
+
+uint8_t SheatheTypeFor(uint8_t own, uint32_t category) {
+    switch (category) {
+    case kSheatheBack:
+        if (own == Offsets::ITEM_SHEATH_HIP)
+            return static_cast<uint8_t>(Offsets::ITEM_SHEATH_BACK);
+        return own;
+    case kSheatheSide:
+        if (own == Offsets::ITEM_SHEATH_BACK || own == Offsets::ITEM_SHEATH_LARGE_BACK)
+            return static_cast<uint8_t>(Offsets::ITEM_SHEATH_HIP);
+        return own;
+    case kSheatheHide:
+        return static_cast<uint8_t>(Offsets::ITEM_SHEATH_NONE);
+    default:
+        return own;
+    }
+}
+
 uint32_t EnchantVisual(const void *display, uint32_t enchantID) {
     if (display == nullptr ||
         Model::ItemDisplay::OwnVisual(static_cast<const uint8_t *>(display)) != 0)

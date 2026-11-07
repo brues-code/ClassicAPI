@@ -6126,6 +6126,15 @@ enum Offsets {
     OFF_ITEMSTATS_START_QUEST = 0x1A8,
     OFF_ITEMSTATS_MATERIAL = 0x1B0,        // i32 — material type
     OFF_ITEMSTATS_SHEATH = 0x1B4,          // u32 — weapon sheath style
+    // OFF_ITEMSTATS_SHEATH values, as GetSheathAttachment (0x0047A070, jump
+    // table 0x0047A0A8) maps them to M2 attachments (main hand / off hand):
+    // 1 the back pair 26/27, 2 the large weapon on the back 30/31, 3 the hip
+    // 32/33, 4 the shield 28. 0 and anything above 4 have no sheath point, so
+    // AttachItemModel hangs nothing while sheathed.
+    ITEM_SHEATH_NONE = 0,
+    ITEM_SHEATH_BACK = 1,
+    ITEM_SHEATH_LARGE_BACK = 2,
+    ITEM_SHEATH_HIP = 3,
     OFF_ITEMSTATS_RANDOM_PROPERTY = 0x1B8, // i32 — random property template
     OFF_ITEMSTATS_BLOCK = 0x1BC,           // u32 — shield block value
     OFF_ITEMSTATS_MAX_DURABILITY = 0x1C4,  // u32
