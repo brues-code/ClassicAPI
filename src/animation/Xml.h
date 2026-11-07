@@ -21,6 +21,7 @@
 // (RegisterXMLTemplate), whatever its tag, so `inherits` resolves through
 // Xml::Template as 4.3.4's XMLHashNodeRef does.
 namespace Animation {
+class Object;
 class Group;
 class Anim;
 class ControlPoint;
@@ -38,5 +39,14 @@ void LoadAnim(Anim *anim, const void *node, void *status);
 void LoadControlPoint(ControlPoint *point, const void *node, void *status);
 // The template node `name` resolves to, or nullptr.
 const void *Template(const char *name);
+
+// What every script object's element shares (Model::Scene's actors too):
+// object[key] = child for parentKey, an append to object[key] for
+// parentArray, the <Scripts> (a body, a `function` global or a `method`
+// field) and the <KeyValues>.
+void BindParentKey(void *object, Object *child, const char *key);
+void BindParentArray(void *object, Object *child, const char *key);
+void LoadScripts(Object *object, const void *node);
+void LoadKeyValues(Object *object, const void *node, void *status);
 
 } // namespace Animation::Xml

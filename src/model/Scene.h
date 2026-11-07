@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // The ModelScene frame (model/Scene.cpp) and its actors (model/SceneActor.cpp).
 // docs/notes/model-scene.md has the plan, the retail contract and the probes.
@@ -46,6 +47,10 @@ class Actor : public Animation::Object {
     void SetModel(void *model, const char *path, const uint8_t *dressRecord);
     void ClearModel();
     void PlayAnimation();
+    // Shows the kit (0 for none) on the model, replacing the one shown.
+    void SetSpellVisualKit(uint32_t kitID, bool oneShot);
+    // Loads the actor's XML element (an <Actor> template), then runs OnLoad.
+    void LoadXml(const void *node, void *status);
 
     void *model = nullptr;
     std::string modelPath;
@@ -64,6 +69,10 @@ class Actor : public Animation::Object {
     int variation = -1;
     float animSpeed = 1.0f;
     float animOffsetSec = 0.0f;
+    uint32_t blendOperation = 1; // Enum.ModelBlendOperation: 0 None, 1 Anim
+    uint32_t spellVisualKit = 0;
+    bool spellVisualKitOneShot = false;
+    std::vector<void *> kitEffects; // the kit's effect models, one reference each
 };
 
 // Registers the actor class in the current Lua state.

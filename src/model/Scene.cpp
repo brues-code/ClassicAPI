@@ -61,7 +61,22 @@
 // The light is retail's default, set the way PlayerModel's constructor sets
 // its own (0x00505680): directional along (0, 1, 0), ambient 178/255, diffuse
 // (204, 204, 163)/255, enabled. Each actor's model is lit by it through the
-// frame's light callback, as a Model frame's model is.
+// frame's light callback, as a Model frame's model is, so the light setters
+// write the frame's M2Light through the engine's own light setters.
+//
+// Fog is the Model frame's own (+0x3A4..+0x3B0), stored the way Model's
+// SetFogColor / SetFogNear / SetFogFar / ClearFog store it (0x0076EE60..
+// 0x0076F5C5): the colour arms it, ClearFog disarms it only. It starts with
+// retail's values (near 1e7, far 1e8, white), which fog nothing. SetPaused
+// stops the scene clock: the frame's update runs without Model's
+// M2SceneAdvance, so every actor holds its pose.
+//
+// XML: `drawLayer`, `fogNear` and `fogFar` (clamped at 0, as Model's loader
+// clamps them) and <FogColor> (FUN_XML_READ_COLOR, which arms the fog), after
+// the frame's own loader. Retail's <Actors> and <ViewInsets> children are not
+// read; no retail UI uses them. Not ported, as no UI this DLL targets uses
+// them and their exact effect is unprobed: view insets and translation,
+// desaturation, overlapped models, TakeActor and Project3DPointTo2D.
 
 #include "model/Scene.h"
 
@@ -71,6 +86,7 @@
 #include "frame/Subclass.h"
 #include "model/Camera.h"
 #include "model/M2.h"
+#include "xml/FrameLoad.h"
 
 #include <cmath>
 #include <cstdint>
@@ -97,6 +113,12 @@ struct Fields {
     float nearClip;
     float farClip;
     int drawLayer;
+    // What the light setters were given, for the getters.
+    uint32_t lightType;
+    uint32_t lightVisible;
+    Vec3 lightDirection;
+    Vec3 lightPosition;
+    uint32_t paused;
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -156,20 +178,72 @@ void InstallCamera(void *frame) {
     ApplyCamera(frame);
 }
 
-// PlayerModel's light (0x00505680) with retail's values.
+// ---- the light and fog ---------------------------------------------------------------
+
+using LightInt_t = void(__thiscall *)(void *light, int value);
+using LightVector_t = void(__thiscall *)(void *light, const float *v);
+
+void *LightOf(void *frame) { return Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT); }
+float *AmbientOf(void *frame) { return Game::Ptr<float>(LightOf(frame), Offsets::OFF_M2LIGHT_AMBIENT); }
+float *DiffuseOf(void *frame) { return Game::Ptr<float>(LightOf(frame), Offsets::OFF_M2LIGHT_DIFFUSE); }
+
+void SetLightType(void *frame, uint32_t type) {
+    F(frame).lightType = type;
+    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(LightOf(frame), static_cast<int>(type));
+}
+
+void SetLightVisible(void *frame, bool visible) {
+    F(frame).lightVisible = visible ? 1 : 0;
+    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(LightOf(frame), visible ? 1 : 0);
+}
+
+void SetLightDirection(void *frame, const Vec3 &v) {
+    F(frame).lightDirection = v;
+    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_DIRECTION)(LightOf(frame), &v.x);
+}
+
+void SetLightPosition(void *frame, const Vec3 &v) {
+    F(frame).lightPosition = v;
+    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_POSITION)(LightOf(frame), &v.x);
+}
+
+void SetColor(float *color, const Vec3 &v) {
+    color[0] = v.x;
+    color[1] = v.y;
+    color[2] = v.z;
+}
+
+// Retail's light, set the way PlayerModel's constructor sets its own
+// (0x00505680).
 void InitLight(void *frame) {
-    using SetInt_t = void(__thiscall *)(void *light, int value);
-    using SetDirection_t = void(__thiscall *)(void *light, const float *v);
-    void *light = Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT);
-    reinterpret_cast<SetInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, 0);
-    const float direction[3] = {0.0f, 1.0f, 0.0f};
-    reinterpret_cast<SetDirection_t>(Offsets::FUN_M2LIGHT_SET_DIRECTION)(light, direction);
-    float *ambient = Game::Ptr<float>(light, Offsets::OFF_M2LIGHT_AMBIENT);
-    float *diffuse = Game::Ptr<float>(light, Offsets::OFF_M2LIGHT_DIFFUSE);
-    ambient[0] = ambient[1] = ambient[2] = 178.0f / 255.0f;
-    diffuse[0] = diffuse[1] = 204.0f / 255.0f;
-    diffuse[2] = 163.0f / 255.0f;
-    reinterpret_cast<SetInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(light, 1);
+    SetLightType(frame, 0);
+    SetLightDirection(frame, {0.0f, 1.0f, 0.0f});
+    SetColor(AmbientOf(frame), {178.0f / 255.0f, 178.0f / 255.0f, 178.0f / 255.0f});
+    SetColor(DiffuseOf(frame), {204.0f / 255.0f, 204.0f / 255.0f, 163.0f / 255.0f});
+    SetLightVisible(frame, true);
+}
+
+// Model's SetFogColor byte: clamped to [0, 1] (NaN to 1), trunc(c * 255 + 0.5).
+uint32_t FogByte(float c) {
+    if (!(c < 1.0f))
+        c = 1.0f;
+    else if (!(c > 0.0f))
+        c = 0.0f;
+    return static_cast<uint32_t>(c * 255.0f + 0.5f);
+}
+
+uint32_t &FogFlags(void *frame) { return Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS); }
+
+void SetFogColor(void *frame, const Vec3 &c) {
+    FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) =
+        0xFF000000u | (FogByte(c.x) << 16) | (FogByte(c.y) << 8) | FogByte(c.z);
+}
+
+void InitFog(void *frame) {
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) = 0xFFFFFFFFu;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = 1.0e7f;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = 1.0e8f;
 }
 
 // ---- the paint (SimpleModelDraw) -----------------------------------------------
@@ -311,7 +385,10 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 }
 
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
-    ModelBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
+    if (F(self).paused)
+        FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
+    else
+        ModelBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     // By index: an actor's script may create another.
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
@@ -326,6 +403,34 @@ void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
 }
 
 void __fastcall UpdateModel(void *self) { PlaceActors(self); }
+
+using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node, void *status);
+
+// The frame's own loader, then ModelSceneType's attributes and <FogColor>.
+uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *status) {
+    using LayerFromName_t = int(__fastcall *)(const char *name, int *layer);
+    using ReadColor_t = int(__fastcall *)(const void *node, uint32_t *bgra, void *status);
+    const uintptr_t result = Frame::Subclass::Slot<LoadXML_t>(
+        Offsets::VTBL_SIMPLEFRAME_LAYOUT, Offsets::VTBL_XML_NODE_LOADER)(layout, nullptr, node, status);
+    if (node == nullptr)
+        return result;
+    void *frame = FrameOfLayout(layout);
+    if (const char *layer = Xml::Attr(node, "drawLayer"); layer != nullptr && *layer != '\0')
+        reinterpret_cast<LayerFromName_t>(Offsets::FUN_XML_DRAW_LAYER_FROM_NAME)(layer, &F(frame).drawLayer);
+    float value = 0.0f;
+    if (Xml::FloatAttr(node, "fogNear", value))
+        Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = value < 0.0f ? 0.0f : value;
+    if (Xml::FloatAttr(node, "fogFar", value))
+        Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = value < 0.0f ? 0.0f : value;
+    for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
+        if (!Xml::TagIs(c, "FogColor"))
+            continue;
+        reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(
+            c, Game::Ptr<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
+        FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+    }
+    return result;
+}
 
 void BuildVTables() {
     if (g_vtable.Built())
@@ -345,9 +450,7 @@ void BuildVTables() {
     g_vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
     g_vtable.Set(Offsets::VTBL_SIMPLEMODEL_UPDATE_MODEL, fn(&UpdateModel));
     g_layoutVtable.Set(Offsets::VTBL_LAYOUT_DELETING_DESTRUCTOR, fn(&LayoutDeletingDestructor));
-    g_layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER,
-                       Frame::Subclass::Slot<const void *>(Offsets::VTBL_SIMPLEFRAME_LAYOUT,
-                                                           Offsets::VTBL_XML_NODE_LOADER));
+    g_layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
 }
 
 // The "ModelScene" factory, shaped like the engine's "Model" one (0x006EECF0).
@@ -371,6 +474,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.farClip = kDefaultFarClip;
     f.drawLayer = Offsets::DRAWLAYER_ARTWORK;
     InitLight(frame);
+    InitFog(frame);
     InstallCamera(frame);
     return frame;
 }
@@ -407,14 +511,20 @@ int __fastcall Script_CreateActor(void *L) {
     if (frame == nullptr)
         return 0;
     const char *name = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : nullptr;
+    const void *templateNode = nullptr;
     if (Game::Lua::IsString(L, 3)) {
-        // Actor templates are XML; no <Actor> loads yet.
-        Game::Lua::Error(L, "%s:CreateActor(): Couldn't find inherited node \"%s\"",
-                         Game::Lua::ObjectDisplayName(frame), Game::Lua::ToString(L, 3));
-        return 0;
+        const char *inherits = Game::Lua::ToString(L, 3);
+        templateNode = Xml::Template(inherits);
+        if (templateNode == nullptr) {
+            Game::Lua::Error(L, "%s:CreateActor(): Couldn't find inherited node \"%s\"",
+                             Game::Lua::ObjectDisplayName(frame), inherits);
+            return 0;
+        }
     }
     Actor *actor = new Actor(frame, name);
     F(frame).actors->push_back(actor);
+    if (templateNode != nullptr)
+        actor->LoadXml(templateNode, nullptr);
     Animation::Push(L, actor);
     return 1;
 }
@@ -494,9 +604,9 @@ int __fastcall Script_GetCameraUp(void *L) {
 }
 
 // The one-number camera setters and getters.
-constexpr char kSetFieldOfView[] = "SetCameraFieldOfView(fov)";
-constexpr char kSetNearClip[] = "SetCameraNearClip(nearClip)";
-constexpr char kSetFarClip[] = "SetCameraFarClip(farClip)";
+constexpr char kUsageSetFieldOfView[] = "SetCameraFieldOfView(fov)";
+constexpr char kUsageSetNearClip[] = "SetCameraNearClip(nearClip)";
+constexpr char kUsageSetFarClip[] = "SetCameraFarClip(farClip)";
 
 template <float Fields::*Field, const char *Usage>
 int __fastcall SetCameraScalar(void *L) {
@@ -517,6 +627,176 @@ int __fastcall GetCameraScalar(void *L) {
     return 1;
 }
 
+void NotifyLayerChanged(void *frame, int layer) {
+    using Fn_t = void(__fastcall *)(void *self, void *edx, int layer);
+    reinterpret_cast<Fn_t>(Offsets::FUN_FRAME_NOTIFY_LAYER_CHANGED)(frame, nullptr, layer);
+}
+
+int __fastcall Script_SetDrawLayer(void *L) {
+    using LayerFromName_t = int(__fastcall *)(const char *name, int *layer);
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    int layer = 0;
+    if (!Game::Lua::IsString(L, 2) ||
+        !reinterpret_cast<LayerFromName_t>(Offsets::FUN_XML_DRAW_LAYER_FROM_NAME)(
+            Game::Lua::ToString(L, 2), &layer)) {
+        Game::Lua::Error(L, "Usage: %s:SetDrawLayer(layer)", Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    Fields &f = F(frame);
+    if (layer == f.drawLayer)
+        return 0;
+    const int old = f.drawLayer;
+    f.drawLayer = layer;
+    NotifyLayerChanged(frame, old);
+    NotifyLayerChanged(frame, layer);
+    return 0;
+}
+
+int __fastcall Script_GetDrawLayer(void *L) {
+    using LayerToName_t = const char *(__fastcall *)(int layer);
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushString(
+        L, reinterpret_cast<LayerToName_t>(Offsets::FUN_DRAW_LAYER_TO_NAME)(F(frame).drawLayer));
+    Game::Lua::PushNumber(L, 0);
+    return 2;
+}
+
+int __fastcall Script_SetPaused(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    F(frame).paused = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
+    return 0;
+}
+
+int __fastcall Script_SetLightType(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 1, frame, "SetLightType(lightType)"))
+        return 0;
+    SetLightType(frame, Game::Lua::ToNumber(L, 2) != 0.0 ? 1u : 0u);
+    return 0;
+}
+
+int __fastcall Script_GetLightType(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).lightType);
+    return 1;
+}
+
+int __fastcall Script_SetLightVisible(void *L) {
+    if (void *frame = Self(L))
+        SetLightVisible(frame, Game::Lua::ToBoolean(L, 2) != 0);
+    return 0;
+}
+
+int __fastcall Script_IsLightVisible(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).lightVisible != 0);
+    return 1;
+}
+
+int __fastcall Script_SetLightDirection(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetLightDirection(x, y, z)"))
+        return 0;
+    SetLightDirection(frame, Vec3Args(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetLightDirection(void *L) {
+    void *frame = Self(L);
+    return frame != nullptr ? PushVec3(L, F(frame).lightDirection) : 0;
+}
+
+int __fastcall Script_SetLightPosition(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetLightPosition(x, y, z)"))
+        return 0;
+    SetLightPosition(frame, Vec3Args(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetLightPosition(void *L) {
+    void *frame = Self(L);
+    return frame != nullptr ? PushVec3(L, F(frame).lightPosition) : 0;
+}
+
+int SetLightColor(void *L, float *(*color)(void *), const char *usage) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, usage))
+        return 0;
+    SetColor(color(frame), Vec3Args(L, 2));
+    return 0;
+}
+
+int GetLightColor(void *L, float *(*color)(void *)) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    const float *c = color(frame);
+    return PushVec3(L, {c[0], c[1], c[2]});
+}
+
+int __fastcall Script_SetLightAmbientColor(void *L) {
+    return SetLightColor(L, &AmbientOf, "SetLightAmbientColor(colorR, colorG, colorB)");
+}
+int __fastcall Script_GetLightAmbientColor(void *L) { return GetLightColor(L, &AmbientOf); }
+int __fastcall Script_SetLightDiffuseColor(void *L) {
+    return SetLightColor(L, &DiffuseOf, "SetLightDiffuseColor(colorR, colorG, colorB)");
+}
+int __fastcall Script_GetLightDiffuseColor(void *L) { return GetLightColor(L, &DiffuseOf); }
+
+int __fastcall Script_SetFogColor(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 3, frame, "SetFogColor(colorR, colorG, colorB)"))
+        return 0;
+    SetFogColor(frame, Vec3Args(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetFogColor(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    const uint32_t c = Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR);
+    return PushVec3(L, {((c >> 16) & 0xFF) / 255.0f, ((c >> 8) & 0xFF) / 255.0f, (c & 0xFF) / 255.0f});
+}
+
+template <uintptr_t Offset, const char *Usage>
+int __fastcall SetFogDistance(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 1, frame, Usage))
+        return 0;
+    Game::Ref<float>(frame, Offset) = FloatArg(L, 2);
+    return 0;
+}
+
+template <uintptr_t Offset>
+int __fastcall GetFogDistance(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, Game::Read<float>(frame, Offset));
+    return 1;
+}
+
+constexpr char kUsageSetFogNear[] = "SetFogNear(near)";
+constexpr char kUsageSetFogFar[] = "SetFogFar(far)";
+
+int __fastcall Script_ClearFog(void *L) {
+    if (void *frame = Self(L))
+        FogFlags(frame) &= ~static_cast<uint32_t>(Offsets::SIMPLEMODEL_FOG_ARMED);
+    return 0;
+}
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"CreateActor", &Script_CreateActor},
     {"GetNumActors", &Script_GetNumActors},
@@ -528,12 +808,34 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetCameraForward", &Script_GetCameraForward},
     {"GetCameraRight", &Script_GetCameraRight},
     {"GetCameraUp", &Script_GetCameraUp},
-    {"SetCameraFieldOfView", &SetCameraScalar<&Fields::fieldOfView, kSetFieldOfView>},
+    {"SetCameraFieldOfView", &SetCameraScalar<&Fields::fieldOfView, kUsageSetFieldOfView>},
     {"GetCameraFieldOfView", &GetCameraScalar<&Fields::fieldOfView>},
-    {"SetCameraNearClip", &SetCameraScalar<&Fields::nearClip, kSetNearClip>},
+    {"SetCameraNearClip", &SetCameraScalar<&Fields::nearClip, kUsageSetNearClip>},
     {"GetCameraNearClip", &GetCameraScalar<&Fields::nearClip>},
-    {"SetCameraFarClip", &SetCameraScalar<&Fields::farClip, kSetFarClip>},
+    {"SetCameraFarClip", &SetCameraScalar<&Fields::farClip, kUsageSetFarClip>},
     {"GetCameraFarClip", &GetCameraScalar<&Fields::farClip>},
+    {"SetDrawLayer", &Script_SetDrawLayer},
+    {"GetDrawLayer", &Script_GetDrawLayer},
+    {"SetPaused", &Script_SetPaused},
+    {"SetLightType", &Script_SetLightType},
+    {"GetLightType", &Script_GetLightType},
+    {"SetLightVisible", &Script_SetLightVisible},
+    {"IsLightVisible", &Script_IsLightVisible},
+    {"SetLightDirection", &Script_SetLightDirection},
+    {"GetLightDirection", &Script_GetLightDirection},
+    {"SetLightPosition", &Script_SetLightPosition},
+    {"GetLightPosition", &Script_GetLightPosition},
+    {"SetLightAmbientColor", &Script_SetLightAmbientColor},
+    {"GetLightAmbientColor", &Script_GetLightAmbientColor},
+    {"SetLightDiffuseColor", &Script_SetLightDiffuseColor},
+    {"GetLightDiffuseColor", &Script_GetLightDiffuseColor},
+    {"SetFogColor", &Script_SetFogColor},
+    {"GetFogColor", &Script_GetFogColor},
+    {"SetFogNear", &SetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_NEAR, kUsageSetFogNear>},
+    {"GetFogNear", &GetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_NEAR>},
+    {"SetFogFar", &SetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_FAR, kUsageSetFogFar>},
+    {"GetFogFar", &GetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_FAR>},
+    {"ClearFog", &Script_ClearFog},
 };
 
 // ---- documentation --------------------------------------------------------------
@@ -602,7 +904,82 @@ const Game::Doc::Function kSetCameraFarClip{"Sets the farthest distance the came
 const Game::Doc::Function kGetCameraFarClip{"Returns the farthest distance the camera draws.", {},
                                             kFarRet};
 
+const Game::Doc::Field kLayerArg[] = {Req("layer", "DrawLayer")};
+const Game::Doc::Field kLayerRets[] = {Req("layer", "DrawLayer"), Req("sublevel", "number")};
+const Game::Doc::Field kPausedArgs[] = {
+    Req("paused", "bool"),
+    Opt("affectsGlobalPause", "bool", "true", "Has no effect."),
+};
+const Game::Doc::Field kLightTypeArg[] = {Req("lightType", "ModelLightType")};
+const Game::Doc::Field kLightTypeRet[] = {Req("lightType", "ModelLightType")};
+const Game::Doc::Field kVisibleArg[] = {Opt("visible", "bool", "false")};
+const Game::Doc::Field kVisibleRet[] = {Req("isVisible", "bool")};
+const Game::Doc::Field kDirectionArgs[] = {Req("directionX", "number"), Req("directionY", "number"),
+                                           Req("directionZ", "number")};
+const Game::Doc::Field kDirectionRets[] = {Req("directionX", "number"), Req("directionY", "number"),
+                                           Req("directionZ", "number")};
+const Game::Doc::Field kColorArgs[] = {Req("colorR", "number"), Req("colorG", "number"),
+                                       Req("colorB", "number")};
+const Game::Doc::Field kColorRets[] = {Req("colorR", "number"), Req("colorG", "number"),
+                                       Req("colorB", "number")};
+const Game::Doc::Field kNearFogArg[] = {Req("near", "number")};
+const Game::Doc::Field kNearFogRet[] = {Req("near", "number")};
+const Game::Doc::Field kFarFogArg[] = {Req("far", "number")};
+const Game::Doc::Field kFarFogRet[] = {Req("far", "number")};
+
+const Game::Doc::Function kSetDrawLayer{"Sets the layer the scene draws in.", kLayerArg, {}};
+const Game::Doc::Function kGetDrawLayer{"Returns the layer the scene draws in.", {}, kLayerRets};
+const Game::Doc::Function kSetPaused{"Stops or restarts the actors' animations.", kPausedArgs, {}};
+const Game::Doc::Function kSetLightType{"Makes the light directional or a point light.",
+                                        kLightTypeArg, {}};
+const Game::Doc::Function kGetLightType{"Returns the light's type.", {}, kLightTypeRet};
+const Game::Doc::Function kSetLightVisible{"Turns the light on or off.", kVisibleArg, {}};
+const Game::Doc::Function kIsLightVisible{"Returns whether the light is on.", {}, kVisibleRet};
+const Game::Doc::Function kSetLightDirection{"Sets the direction of a directional light.",
+                                             kDirectionArgs, {}};
+const Game::Doc::Function kGetLightDirection{"Returns the light's direction.", {}, kDirectionRets};
+const Game::Doc::Function kSetLightPosition{"Sets the position of a point light.", kPositionArgs,
+                                            {}};
+const Game::Doc::Function kGetLightPosition{"Returns the light's position.", {}, kPositionRets};
+const Game::Doc::Function kSetLightAmbientColor{"Sets the light's ambient colour.", kColorArgs, {}};
+const Game::Doc::Function kGetLightAmbientColor{"Returns the light's ambient colour.", {},
+                                                kColorRets};
+const Game::Doc::Function kSetLightDiffuseColor{"Sets the light's diffuse colour.", kColorArgs, {}};
+const Game::Doc::Function kGetLightDiffuseColor{"Returns the light's diffuse colour.", {},
+                                                kColorRets};
+const Game::Doc::Function kSetFogColor{"Sets the fog colour and turns the fog on.", kColorArgs, {}};
+const Game::Doc::Function kGetFogColor{"Returns the fog colour.", {}, kColorRets};
+const Game::Doc::Function kSetFogNear{"Sets the distance where the fog starts.", kNearFogArg, {}};
+const Game::Doc::Function kGetFogNear{"Returns the distance where the fog starts.", {},
+                                      kNearFogRet};
+const Game::Doc::Function kSetFogFar{"Sets the distance where the fog is full.", kFarFogArg, {}};
+const Game::Doc::Function kGetFogFar{"Returns the distance where the fog is full.", {},
+                                     kFarFogRet};
+const Game::Doc::Function kClearFog{"Turns the fog off.", {}, {}};
+
 const Game::Doc::Method g_methodDocs[] = {
+    {"SetDrawLayer", &kSetDrawLayer},
+    {"GetDrawLayer", &kGetDrawLayer},
+    {"SetPaused", &kSetPaused},
+    {"SetLightType", &kSetLightType},
+    {"GetLightType", &kGetLightType},
+    {"SetLightVisible", &kSetLightVisible},
+    {"IsLightVisible", &kIsLightVisible},
+    {"SetLightDirection", &kSetLightDirection},
+    {"GetLightDirection", &kGetLightDirection},
+    {"SetLightPosition", &kSetLightPosition},
+    {"GetLightPosition", &kGetLightPosition},
+    {"SetLightAmbientColor", &kSetLightAmbientColor},
+    {"GetLightAmbientColor", &kGetLightAmbientColor},
+    {"SetLightDiffuseColor", &kSetLightDiffuseColor},
+    {"GetLightDiffuseColor", &kGetLightDiffuseColor},
+    {"SetFogColor", &kSetFogColor},
+    {"GetFogColor", &kGetFogColor},
+    {"SetFogNear", &kSetFogNear},
+    {"GetFogNear", &kGetFogNear},
+    {"SetFogFar", &kSetFogFar},
+    {"GetFogFar", &kGetFogFar},
+    {"ClearFog", &kClearFog},
     {"CreateActor", &kCreateActor},
     {"GetNumActors", &kGetNumActors},
     {"GetActorAtIndex", &kGetActorAtIndex},
