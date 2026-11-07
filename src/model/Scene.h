@@ -86,6 +86,9 @@ class Actor : public Animation::Object {
     float animSpeed = 1.0f;
     float animOffsetSec = 0.0f;
     uint32_t blendOperation = 1; // Enum.ModelBlendOperation: 0 None, 1 Anim
+    bool paused = false;
+    bool globalPaused = false;
+    int heldPositionMs = -1; // the paused frame; -1 until read from a loaded model
     uint32_t spellVisualKit = 0;
     bool spellVisualKitOneShot = false;
     std::vector<void *> kitEffects; // the kit's effect models, one reference each

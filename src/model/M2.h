@@ -57,6 +57,21 @@ inline void PlayAnimation(void *model, int keyBone, uint32_t id, int variation, 
                                                               offset, speed, blend, primary);
 }
 
+// Where the key bone's animation stands, in ms into its sequence. Waits for
+// an unloaded instance.
+inline int GetAnimPosition(void *model, int keyBone) {
+    using Fn = void(__thiscall *)(void *, int, void *);
+    uint32_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE / 4];
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(model, keyBone, state);
+    return static_cast<int>(state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_POSITION / 4]);
+}
+
+// Moves the key bone's animation to `ms` into its sequence, keeping its speed.
+inline void SetAnimPosition(void *model, int keyBone, int ms) {
+    using Fn = void(__thiscall *)(void *, int, int);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_KEY_BONE_ANIM_TIME)(model, keyBone, ms);
+}
+
 inline void SetAnimDoneCallback(void *model, const void *callback, uint32_t userLow,
                                 uint32_t userHigh) {
     using Fn = void(__thiscall *)(void *, const void *, uint32_t, uint32_t);
