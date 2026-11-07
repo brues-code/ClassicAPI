@@ -59,6 +59,17 @@
 //
 // Auto-dress off undresses the pane with ClearModel right after
 // SetModelInstance clones the unit, unless Dress() is the one rebuilding it.
+//
+// The ItemTransmogInfo methods are the ModelScene actor's (Outfit::Worn, the
+// item ID as the appearance, the glowing enchant as the illusion) on what the
+// pane wears: the unit's visible items when SetModelInstance builds it, then
+// each slot the worker fills (an armor arm's component slot, or the lane
+// TryOnAttach hangs) and each lane it evicts. A read first drops every slot
+// the pane no longer shows (Outfit::TrimWorn), which covers the engine's own
+// Undress. SetItemTransmogInfo is TryOn without the worker's
+// ERR_NOT_EQUIPPABLE: the worker shows it only in its default arm, once the
+// record is cached, so a quiet try-on of such an item skips the worker, then
+// or when its cache callback runs.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -67,9 +78,11 @@
 #include "model/M2.h"
 #include "model/Outfit.h"
 #include "model/TryOn.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Model::DressUp {
 namespace {
@@ -93,12 +106,16 @@ struct PaneState {
     bool sheathed = false;
     bool hideWeapons = false;
     Outfit::Weapons weapons;
+    Outfit::Worn worn = {};
+    std::unordered_set<uint32_t> quietPending; // quiet try-ons waiting for their record
 };
 std::unordered_map<void *, PaneState> g_panes;
 
 void *g_tryOnPane = nullptr;  // the pane whose TryOnItem worker is running
 uint32_t g_tryOnBodySlot = 0; // the hand TryOn named (kBodySlot*), or 0
 uint32_t g_tryOnEnchant = 0;  // the SpellItemEnchantment TryOn gave, or 0
+bool g_tryOnQuiet = false;    // the try-on shows no ERR_NOT_EQUIPPABLE
+uint32_t g_tryOnItem = 0;     // the item the worker is putting on
 bool g_dressing = false;      // Dress() is rebuilding the pane
 
 uintptr_t g_mainHandPath = Offsets::TRY_ON_MAIN_HAND_PATH;
@@ -120,7 +137,10 @@ void __fastcall SetModelInstance(void *pane, void * /*edx*/, void *model) {
         return;
     PaneState &s = g_panes[pane];
     // The original filled the lanes from this unit, resolved the same way.
-    Outfit::ReadWeapons(Game::Read<uint64_t>(pane, Offsets::OFF_PLAYERMODEL_UNIT_GUID), s.weapons);
+    const auto guid = Game::Read<uint64_t>(pane, Offsets::OFF_PLAYERMODEL_UNIT_GUID);
+    Outfit::ReadWeapons(guid, s.weapons);
+    Outfit::ReadWorn(guid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) : nullptr, guid,
+                     s.weapons, s.worn);
     if (!s.autoDress && !g_dressing) {
         reinterpret_cast<ClearModel_t>(Offsets::FUN_DRESSUPMODEL_CLEAR_MODEL)(pane);
         return;
@@ -129,8 +149,8 @@ void __fastcall SetModelInstance(void *pane, void * /*edx*/, void *model) {
         ApplyWeapons(pane, s);
 }
 
-// TryOnItem's install: record the lane's row and glow, honor SetSheathed,
-// then hang the glow.
+// TryOnItem's install: record the lane's row, glow and item, honor
+// SetSheathed, then hang the glow.
 int __fastcall TryOnAttach(void *model, const void *record, uint32_t bodySlot,
                            uint32_t sheatheType, bool sheathed, bool shield, bool ranged) {
     const auto attach = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL);
@@ -140,6 +160,8 @@ int __fastcall TryOnAttach(void *model, const void *record, uint32_t bodySlot,
     const int lane = Outfit::LaneIndex(bodySlot);
     s.weapons.display[lane] = record;
     s.weapons.visual[lane] = Outfit::EnchantVisual(record, g_tryOnEnchant);
+    s.worn[(lane == 1 ? Offsets::INVSLOT_OFFHAND : Offsets::INVSLOT_MAINHAND) - 1] = {
+        g_tryOnItem, s.weapons.visual[lane] != 0 ? g_tryOnEnchant : 0};
     if (s.sheathSet) {
         if (s.hideWeapons)
             return -1;
@@ -159,6 +181,7 @@ void __fastcall TryOnEvict(void *model, uint32_t bodySlot, uint32_t sheatheType,
         const int lane = Outfit::LaneIndex(bodySlot);
         s.weapons.display[lane] = nullptr;
         s.weapons.visual[lane] = 0;
+        s.worn[(lane == 1 ? Offsets::INVSLOT_OFFHAND : Offsets::INVSLOT_MAINHAND) - 1] = {};
     }
     reinterpret_cast<DetachHeldItem_t>(Offsets::FUN_DETACH_HELD_ITEM_SLOT)(model, bodySlot,
                                                                          sheatheType, shield);
@@ -199,14 +222,6 @@ int __fastcall Script_UndressSlot(void *L) {
     return 0;
 }
 
-// `__thiscall(pane, itemID)` as `__fastcall` with the EDX slot unused, so it
-// can stand at the worker's call sites.
-void __fastcall TryOnItem(void *pane, void *, uint32_t itemID) {
-    g_tryOnPane = pane;
-    reinterpret_cast<TryOnItem_t>(Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM)(pane, TryOn::WornItem(itemID));
-    g_tryOnPane = nullptr;
-}
-
 // What the worker did with `itemID`, from the gates it passes (0x00504540).
 int TryOnResult(void *pane, uint32_t itemID) {
     const uint8_t *record = Item::PeekRecord(itemID);
@@ -228,6 +243,46 @@ int TryOnResult(void *pane, uint32_t itemID) {
     }
 }
 
+// `__thiscall(pane, itemID)` as `__fastcall` with the EDX slot unused, so it
+// can stand at the worker's call sites. An armor arm the worker took wears
+// the item in its slot.
+void __fastcall TryOnItem(void *pane, void *, uint32_t itemID) {
+    PaneState &s = g_panes[pane];
+    const bool quiet = g_tryOnQuiet || s.quietPending.erase(itemID) != 0;
+    const uint32_t item = TryOn::WornItem(itemID);
+    const uint8_t *record = Item::PeekRecord(item);
+    uint32_t componentSlot = 0;
+    const Outfit::Arm arm =
+        record != nullptr
+            ? Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE),
+                            &componentSlot)
+            : Outfit::Arm::Nothing;
+    if (record == nullptr) {
+        if (quiet)
+            s.quietPending.insert(item);
+    } else if (quiet && arm == Outfit::Arm::NotEquippable) {
+        return;
+    }
+    g_tryOnPane = pane;
+    g_tryOnItem = item;
+    reinterpret_cast<TryOnItem_t>(Offsets::FUN_DRESSUPMODEL_TRY_ON_ITEM)(pane, item);
+    g_tryOnPane = nullptr;
+    g_tryOnItem = 0;
+    if (arm == Outfit::Arm::Armor && TryOnResult(pane, item) == TryOn::kSuccess)
+        s.worn[Outfit::InvSlotOfComponent(componentSlot) - 1] = {item, 0};
+}
+
+// TryOn's step: the worker with the request's hand, enchant and quiet.
+int TryOnRequest(void *pane, const TryOn::Request &request) {
+    g_tryOnBodySlot = request.bodySlot;
+    g_tryOnEnchant = request.enchant;
+    g_tryOnQuiet = request.quiet;
+    TryOnItem(pane, nullptr, request.itemID);
+    g_tryOnBodySlot = g_tryOnEnchant = 0;
+    g_tryOnQuiet = false;
+    return TryOnResult(pane, TryOn::WornItem(request.itemID));
+}
+
 int __fastcall Script_TryOn(void *L) {
     void *pane = Game::Lua::ResolveDressUpModel(L);
     if (pane == nullptr)
@@ -238,11 +293,7 @@ int __fastcall Script_TryOn(void *L) {
         Game::Lua::PushNumber(L, TryOn::kNotEquippable);
         return 1;
     }
-    g_tryOnBodySlot = request.bodySlot;
-    g_tryOnEnchant = request.enchant;
-    TryOnItem(pane, nullptr, request.itemID);
-    g_tryOnBodySlot = g_tryOnEnchant = 0;
-    Game::Lua::PushNumber(L, TryOnResult(pane, TryOn::WornItem(request.itemID)));
+    Game::Lua::PushNumber(L, TryOnRequest(pane, request));
     return 1;
 }
 
@@ -298,6 +349,57 @@ int __fastcall Script_GetAutoDress(void *L) {
     return 1;
 }
 
+// What the pane wears now: nothing without a model, and no slot it no
+// longer shows.
+const Outfit::Worn &WornOf(void *pane) {
+    PaneState &s = g_panes[pane];
+    if (Pane::Model(pane) == nullptr) {
+        for (Outfit::Appearance &slot : s.worn)
+            slot = {};
+    }
+    Outfit::TrimWorn(Game::Read<void *>(pane, Offsets::OFF_DRESSUPMODEL_COMPONENT), LanesOf(pane),
+                     s.worn);
+    return s.worn;
+}
+
+int __fastcall Script_GetItemTransmogInfo(void *L) {
+    void *pane = Game::Lua::ResolveDressUpModel(L);
+    if (pane == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:GetItemTransmogInfo(inventorySlot)",
+                         Game::Lua::ObjectDisplayName(pane));
+        return 0;
+    }
+    const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (Pane::Model(pane) == nullptr || invSlot < 1 || invSlot > Outfit::kInventorySlots)
+        return 0;
+    TryOn::PushTransmogInfo(L, WornOf(pane)[invSlot - 1]);
+    return 1;
+}
+
+int __fastcall Script_GetItemTransmogInfoList(void *L) {
+    void *pane = Game::Lua::ResolveDressUpModel(L);
+    if (pane == nullptr)
+        return 0;
+    TryOn::PushTransmogInfoList(L, WornOf(pane));
+    return 1;
+}
+
+// TryOn with the info's item and enchant, quiet. No appearance changes
+// nothing.
+int __fastcall Script_SetItemTransmogInfo(void *L) {
+    void *pane = Game::Lua::ResolveDressUpModel(L);
+    if (pane == nullptr)
+        return 0;
+    TryOn::Request request;
+    if (!TryOn::ReadTransmogInfo(L, Game::Lua::ObjectDisplayName(pane), request))
+        return 0;
+    Game::Lua::PushNumber(L, request.itemID == 0 ? TryOn::kNotEquippable
+                                                 : TryOnRequest(pane, request));
+    return 1;
+}
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"UndressSlot", &Script_UndressSlot},
     {"TryOn", &Script_TryOn},
@@ -307,6 +409,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetSheathed", &Script_GetSheathed},
     {"SetAutoDress", &Script_SetAutoDress},
     {"GetAutoDress", &Script_GetAutoDress},
+    {"GetItemTransmogInfo", &Script_GetItemTransmogInfo},
+    {"GetItemTransmogInfoList", &Script_GetItemTransmogInfoList},
+    {"SetItemTransmogInfo", &Script_SetItemTransmogInfo},
 };
 
 const Game::Doc::Field kUndressArgs[] = {
@@ -355,11 +460,36 @@ const Game::Doc::Field kEnabledRets[] = {
 const Game::Doc::Function kGetAutoDress{
     "Returns whether the model wears its unit's equipment when the unit is set.", {},
     kEnabledRets};
+const Game::Doc::Field kTransmogInfoRets[] = {
+    Game::Doc::Req("itemTransmogInfo", "ItemTransmogInfo",
+                   "What the slot wears: appearanceID is the item ID, illusionID the enchant whose "
+                   "glow a weapon shows. Nil when the model shows nothing."),
+};
+const Game::Doc::Function kGetItemTransmogInfo{
+    "Returns what the model wears in one inventory slot.", kUndressArgs, kTransmogInfoRets};
+const Game::Doc::Field kTransmogInfoListRets[] = {
+    Game::Doc::Req("infoList", "table", "An ItemTransmogInfo for each inventory slot 1 to 19."),
+};
+const Game::Doc::Function kGetItemTransmogInfoList{
+    "Returns what the model wears in each inventory slot.", {}, kTransmogInfoListRets};
+const Game::Doc::Field kSetTransmogInfoArgs[] = {
+    Game::Doc::Req("transmogInfo", "ItemTransmogInfo",
+                   "appearanceID is an item ID, illusionID a SpellItemEnchantment ID."),
+    Game::Doc::Opt("inventorySlots", "number", nullptr, "16 or 17: the hand that holds a weapon."),
+    Game::Doc::Opt("ignoreChildItems", "bool", "false", "Has no effect."),
+};
+const Game::Doc::Function kSetItemTransmogInfo{
+    "Puts an item on the model, as TryOn does. Shows no error. An appearanceID of 0 changes "
+    "nothing.",
+    kSetTransmogInfoArgs, kTryOnRets};
 const Game::Doc::Method g_methodDocs[] = {
     {"UndressSlot", &kUndressSlot},   {"TryOn", &kTryOn},
     {"Dress", &kDress},               {"IsGeoReady", &kIsGeoReady},
     {"SetSheathed", &kSetSheathed},   {"GetSheathed", &kGetSheathed},
     {"SetAutoDress", &kSetAutoDress}, {"GetAutoDress", &kGetAutoDress},
+    {"GetItemTransmogInfo", &kGetItemTransmogInfo},
+    {"GetItemTransmogInfoList", &kGetItemTransmogInfoList},
+    {"SetItemTransmogInfo", &kSetItemTransmogInfo},
 };
 
 const Game::Lua::EnumIntegerEntry kItemTryOnReason[] = {

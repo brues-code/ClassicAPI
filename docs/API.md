@@ -812,6 +812,8 @@ build instructions.
   - [`DressUpModel:GetSheathed()`](#dressupmodelgetsheathed)
   - [`DressUpModel:SetAutoDress([enabled])`](#dressupmodelsetautodressenabled)
   - [`DressUpModel:GetAutoDress()`](#dressupmodelgetautodress)
+  - [`DressUpModel:GetItemTransmogInfo(slot)` / `DressUpModel:GetItemTransmogInfoList()`](#dressupmodelgetitemtransmoginfoslot--dressupmodelgetitemtransmoginfolist)
+  - [`DressUpModel:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#dressupmodelsetitemtransmoginfoinfo--slot-ignorechilditems)
   - [`Model:SetGlow(value)`](#modelsetglowvalue)
 
 - [ModelScene](#modelscene)
@@ -19030,6 +19032,50 @@ DressUpModel:TryOn(2077)         -- only the staff
 
 Returns the value of the last `SetAutoDress` call on the frame. Before the
 first call, it returns `true`.
+
+### `DressUpModel:GetItemTransmogInfo(slot)` / `DressUpModel:GetItemTransmogInfoList()`
+
+These return what a `DressUpModel` wears, as `ItemTransmogInfoMixin` tables.
+The tables have the same fields as the tables of the ModelScene actor (see
+[`actor:GetItemTransmogInfo`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)):
+`appearanceID` is the item ID, and `illusionID` is the enchant glow on a
+weapon.
+
+`GetItemTransmogInfo` returns the table for one inventory slot, from `1`
+(head) to `19` (tabard). It returns nothing for a frame that shows no model,
+or for a slot number outside this range. `GetItemTransmogInfoList` returns a
+list of 19 tables, one for each inventory slot, in slot order.
+
+A frame that shows a player (`SetUnit`, `Dress`) starts with the items that
+the player wears. A helm or a cloak that the player hides is `0`. The neck,
+the rings, the trinkets, and the ranged slot are always `0`. An NPC starts
+with all slots at `0`. `TryOn`, `UndressSlot`, and `Undress` change the
+values.
+
+### `DressUpModel:SetItemTransmogInfo(info [, slot, ignoreChildItems])`
+
+Puts the item `info.appearanceID` on the frame, as `TryOn` does. A weapon
+shows the glow of the enchant `info.illusionID`. It returns the same
+`Enum.ItemTryOnReason` values as `TryOn`. These are the differences:
+
+- It shows no error message. The caller shows `ERR_NOT_EQUIPPABLE` when the
+  result is not `Success`.
+- A `slot` of `16` or `17` selects the hand that holds a weapon. With all
+  other values, the item goes into its own slot.
+- An `appearanceID` of `0` changes nothing and returns `NotEquippable`.
+  `UndressSlot` empties a slot.
+- `ignoreChildItems` has no effect.
+
+```lua
+-- Copy the outfit of the dressing room to a second frame.
+for slot, info in ipairs(DressUpModel:GetItemTransmogInfoList()) do
+  if info.appearanceID == Constants.Transmog.NoTransmogID then
+    OtherModel:UndressSlot(slot)
+  else
+    OtherModel:SetItemTransmogInfo(info, slot)
+  end
+end
+```
 
 ### `Model:SetGlow(value)`
 

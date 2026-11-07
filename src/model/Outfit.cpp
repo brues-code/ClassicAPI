@@ -146,6 +146,10 @@ int ComponentSlotOf(int invSlot) {
     return -1;
 }
 
+int InvSlotOfComponent(uint32_t componentSlot) {
+    return componentSlot < std::size(kInvSlotOfComponent) ? kInvSlotOfComponent[componentSlot] : 0;
+}
+
 void ReadLanes(void *unit, Lanes &lanes) {
     const auto get = VirtualOf<GetHeldItemLane_t>(unit, Offsets::VTBL_UNIT_GET_HELD_ITEM_LANE);
     for (uint32_t hand = 0; hand < 2; ++hand) {

@@ -704,20 +704,6 @@ int __fastcall Script_DressPlayerSlot(void *L) {
     return 0;
 }
 
-// ItemUtil.CreateItemTransmogInfo(item, NoTransmogID, enchant): retail's
-// ItemTransmogInfoMixin, built by its own constructor.
-void PushTransmogInfo(void *L, const Outfit::Appearance &slot) {
-    Game::Lua::PushString(L, "ItemUtil");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    Game::Lua::PushString(L, "CreateItemTransmogInfo");
-    Game::Lua::GetTable(L, -2);
-    Game::Lua::Remove(L, -2);
-    Game::Lua::PushNumber(L, slot.item);
-    Game::Lua::PushNumber(L, 0);
-    Game::Lua::PushNumber(L, slot.enchant);
-    Game::Lua::Call(L, 3, 1);
-}
-
 int __fastcall Script_GetItemTransmogInfo(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
@@ -726,7 +712,7 @@ int __fastcall Script_GetItemTransmogInfo(void *L) {
     const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     if (actor->model == nullptr || invSlot < 1 || invSlot > Outfit::kInventorySlots)
         return 0;
-    PushTransmogInfo(L, actor->worn[invSlot - 1]);
+    TryOn::PushTransmogInfo(L, actor->worn[invSlot - 1]);
     return 1;
 }
 
@@ -734,21 +720,8 @@ int __fastcall Script_GetItemTransmogInfoList(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    Game::Lua::NewTable(L);
-    for (int i = 0; i < Outfit::kInventorySlots; ++i) {
-        PushTransmogInfo(L, actor->worn[i]);
-        Game::Lua::RawSetI(L, -2, i + 1);
-    }
+    TryOn::PushTransmogInfoList(L, actor->worn);
     return 1;
-}
-
-// A number field of the table at `index`, or 0.
-uint32_t FieldNumber(void *L, int index, const char *key) {
-    Game::Lua::PushString(L, key);
-    Game::Lua::GetTable(L, index);
-    const double value = Game::Lua::IsNumber(L, -1) ? Game::Lua::ToNumber(L, -1) : 0.0;
-    Game::Lua::SetTop(L, -2);
-    return value > 0.0 ? static_cast<uint32_t>(value) : 0;
 }
 
 // TryOn with the info's item and enchant; `inventorySlots` names the hand a
@@ -757,22 +730,9 @@ int __fastcall Script_SetItemTransmogInfo(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L, "Usage: %s:SetItemTransmogInfo(transmogInfo [, inventorySlots, ignoreChildItems])",
-                         actor->DisplayName());
-        return 0;
-    }
     TryOn::Request request;
-    request.itemID = FieldNumber(L, 2, "appearanceID");
-    request.enchant = FieldNumber(L, 2, "illusionID");
-    request.quiet = true;
-    if (Game::Lua::IsNumber(L, 3)) {
-        const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 3));
-        if (invSlot == Offsets::INVSLOT_MAINHAND)
-            request.bodySlot = Outfit::kBodySlotMainHand;
-        else if (invSlot == Offsets::INVSLOT_OFFHAND)
-            request.bodySlot = Outfit::kBodySlotOffHand;
-    }
+    if (!TryOn::ReadTransmogInfo(L, actor->DisplayName(), request))
+        return 0;
     Game::Lua::PushNumber(L, request.itemID == 0 ? TryOn::kNotEquippable
                                                  : actor->TryOnItem(request));
     return 1;

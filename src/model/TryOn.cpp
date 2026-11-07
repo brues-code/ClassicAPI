@@ -130,4 +130,57 @@ void ShowNotEquippable() {
         Offsets::GAME_ERROR_NOT_EQUIPPABLE);
 }
 
+namespace {
+
+// A number field of the table at `index`, or 0.
+uint32_t FieldNumber(void *L, int index, const char *key) {
+    Game::Lua::PushString(L, key);
+    Game::Lua::GetTable(L, index);
+    const double value = Game::Lua::IsNumber(L, -1) ? Game::Lua::ToNumber(L, -1) : 0.0;
+    Game::Lua::SetTop(L, -2);
+    return value > 0.0 ? static_cast<uint32_t>(value) : 0;
+}
+
+} // namespace
+
+bool ReadTransmogInfo(void *L, const char *name, Request &request) {
+    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::Error(L,
+                         "Usage: %s:SetItemTransmogInfo(transmogInfo [, inventorySlots, ignoreChildItems])",
+                         name);
+        return false;
+    }
+    request.itemID = FieldNumber(L, 2, "appearanceID");
+    request.enchant = FieldNumber(L, 2, "illusionID");
+    request.quiet = true;
+    if (Game::Lua::IsNumber(L, 3)) {
+        const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 3));
+        if (invSlot == Offsets::INVSLOT_MAINHAND)
+            request.bodySlot = Outfit::kBodySlotMainHand;
+        else if (invSlot == Offsets::INVSLOT_OFFHAND)
+            request.bodySlot = Outfit::kBodySlotOffHand;
+    }
+    return true;
+}
+
+void PushTransmogInfo(void *L, const Outfit::Appearance &slot) {
+    Game::Lua::PushString(L, "ItemUtil");
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
+    Game::Lua::PushString(L, "CreateItemTransmogInfo");
+    Game::Lua::GetTable(L, -2);
+    Game::Lua::Remove(L, -2);
+    Game::Lua::PushNumber(L, slot.item);
+    Game::Lua::PushNumber(L, 0);
+    Game::Lua::PushNumber(L, slot.enchant);
+    Game::Lua::Call(L, 3, 1);
+}
+
+void PushTransmogInfoList(void *L, const Outfit::Worn &worn) {
+    Game::Lua::NewTable(L);
+    for (int i = 0; i < Outfit::kInventorySlots; ++i) {
+        PushTransmogInfo(L, worn[i]);
+        Game::Lua::RawSetI(L, -2, i + 1);
+    }
+}
+
 } // namespace Model::TryOn

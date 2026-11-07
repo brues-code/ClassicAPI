@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "model/Outfit.h"
+
 #include <cstdint>
 
 // What every `TryOn(item [, handSlotName, spellEnchantID])` takes in front of
@@ -47,5 +49,18 @@ uint32_t WornItem(uint32_t itemID);
 
 // The worker's answer to an item it cannot put on: ERR_NOT_EQUIPPABLE.
 void ShowNotEquippable();
+
+// SetItemTransmogInfo's arguments from stack index 2: the info's item
+// (appearanceID) and enchant (illusionID), and the hand an inventory slot of
+// 16 or 17 names. Quiet: retail's callers show the error. False, after a Lua
+// usage error naming the frame `name`, when index 2 is not a table.
+bool ReadTransmogInfo(void *L, const char *name, Request &request);
+
+// One slot as retail's ItemTransmogInfo: ItemUtil.CreateItemTransmogInfo(item,
+// NoTransmogID, enchant), built by the mixin's own constructor.
+void PushTransmogInfo(void *L, const Outfit::Appearance &slot);
+
+// Every slot 1..19 as a list of ItemTransmogInfo.
+void PushTransmogInfoList(void *L, const Outfit::Worn &worn);
 
 } // namespace Model::TryOn

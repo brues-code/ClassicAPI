@@ -117,6 +117,9 @@ void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot);
 // ranged).
 int ComponentSlotOf(int invSlot);
 
+// The inventory slot (1-based) of a component slot ArmOf gives, or 0.
+int InvSlotOfComponent(uint32_t componentSlot);
+
 // What `unit` wears in one inventory slot (1-based), back on the model: an
 // armor slot takes the unit's component record (empty when the unit hides
 // its helm or cloak), a held lane the unit's lane, row and glow. Armor needs
