@@ -555,6 +555,7 @@ build instructions.
   - [`IsMouseButtonDown([button])`](#ismousebuttondownbutton)
   - [`GetMouseButtonName(button)`](#getmousebuttonnamebutton)
   - [`GetMouseButtonClicked()`](#getmousebuttonclicked)
+  - [`GetCursorDelta()`](#getcursordelta)
 
 - [Instance](#instance)
   - [`GetInstanceInfo()`](#getinstanceinfo)
@@ -813,8 +814,64 @@ build instructions.
   - [`DressUpModel:GetAutoDress()`](#dressupmodelgetautodress)
   - [`Model:SetGlow(value)`](#modelsetglowvalue)
 
+- [ModelScene](#modelscene)
+  - [`CreateFrame("ModelScene" [, name, parent, template])`](#createframemodelscene--name-parent-template)
+  - [`scene:CreateActor([name, template])`](#scenecreateactorname-template)
+  - [`scene:GetNumActors()` / `scene:GetActorAtIndex(index)`](#scenegetnumactors--scenegetactoratindexindex)
+  - [`scene:SetCameraPosition(x, y, z)` / `scene:GetCameraPosition()`](#scenesetcamerapositionx-y-z--scenegetcameraposition)
+  - [`scene:SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)`](#scenesetcameraorientationbyyawpitchrollyaw-pitch-roll)
+  - [`scene:SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, rightY, rightZ, upX, upY, upZ)`](#scenesetcameraorientationbyaxisvectorsforwardx-forwardy-forwardz-rightx-righty-rightz-upx-upy-upz)
+  - [`scene:GetCameraForward()` / `scene:GetCameraRight()` / `scene:GetCameraUp()`](#scenegetcameraforward--scenegetcameraright--scenegetcameraup)
+  - [`scene:SetCameraFieldOfView(fov)` / `scene:GetCameraFieldOfView()`](#scenesetcamerafieldofviewfov--scenegetcamerafieldofview)
+  - [`scene:SetCameraNearClip(nearClip)` / `scene:SetCameraFarClip(farClip)`](#scenesetcameranearclipnearclip--scenesetcamerafarclipfarclip)
+  - [`scene:SetViewInsets(left, right, top, bottom)` / `scene:GetViewInsets()`](#scenesetviewinsetsleft-right-top-bottom--scenegetviewinsets)
+  - [`scene:SetViewTranslation(x, y)` / `scene:GetViewTranslation()`](#scenesetviewtranslationx-y--scenegetviewtranslation)
+  - [`scene:Project3DPointTo2D(x, y, z)`](#sceneproject3dpointto2dx-y-z)
+  - [`scene:SetLightType(lightType)` / `scene:GetLightType()`](#scenesetlighttypelighttype--scenegetlighttype)
+  - [`scene:SetLightVisible([visible])` / `scene:IsLightVisible()`](#scenesetlightvisiblevisible--sceneislightvisible)
+  - [`scene:SetLightDirection(x, y, z)` / `scene:SetLightPosition(x, y, z)`](#scenesetlightdirectionx-y-z--scenesetlightpositionx-y-z)
+  - [`scene:SetLightAmbientColor(r, g, b)` / `scene:SetLightDiffuseColor(r, g, b)`](#scenesetlightambientcolorr-g-b--scenesetlightdiffusecolorr-g-b)
+  - [`scene:SetFogColor(r, g, b)` / `scene:GetFogColor()`](#scenesetfogcolorr-g-b--scenegetfogcolor)
+  - [`scene:SetFogNear(near)` / `scene:SetFogFar(far)`](#scenesetfognearnear--scenesetfogfarfar)
+  - [`scene:ClearFog()`](#sceneclearfog)
+  - [`scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`](#scenesetdrawlayerlayer--scenegetdrawlayer)
+  - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
+  - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
+  - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
+  - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
+  - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
+  - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
+  - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
+  - [`actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`](#actordress--actorundressincludeweapons--actorundressslotslot)
+  - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
+  - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
+  - [`actor:IsGeoReady()`](#actorisgeoready)
+  - [`actor:ClearModel()` / `actor:IsLoaded()` / `actor:GetModelPath()`](#actorclearmodel--actorisloaded--actorgetmodelpath)
+  - [`actor:SetPosition(x, y, z)` / `actor:GetPosition()`](#actorsetpositionx-y-z--actorgetposition)
+  - [`actor:SetYaw(yaw)` / `actor:SetPitch(pitch)` / `actor:SetRoll(roll)`](#actorsetyawyaw--actorsetpitchpitch--actorsetrollroll)
+  - [`actor:SetScale(scale)` / `actor:GetScale()`](#actorsetscalescale--actorgetscale)
+  - [`actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`](#actorsetusecenterfororiginx-y-z--actorisusingcenterfororigin)
+  - [`actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`](#actorgetactiveboundingbox--actorgetmaxboundingbox)
+  - [`actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`](#actorshow--actorhide--actorsetshownshown)
+  - [`actor:SetAlpha(alpha)` / `actor:GetAlpha()`](#actorsetalphaalpha--actorgetalpha)
+  - [`actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`](#actorsetanimationanimation--variation-animspeed-animoffsetseconds)
+  - [`actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`](#actorsetanimationblendoperationblendoperation--actorgetanimationblendoperation)
+  - [`actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused)
+  - [`actor:SetSpellVisualKit([spellVisualKitID, oneShot])` / `actor:GetSpellVisualKit()`](#actorsetspellvisualkitspellvisualkitid-oneshot--actorgetspellvisualkit)
+  - [`actor:PlayAnimationKit(animationKit [, isLooping])` / `actor:StopAnimationKit()`](#actorplayanimationkitanimationkit--islooping--actorstopanimationkit)
+  - [`actor:AttachToMount(rider, animation [, spellKitVisualID])`](#actorattachtomountrider-animation--spellkitvisualid)
+  - [`actor:DetachFromMount(rider)`](#actordetachfrommountrider)
+  - [`actor:CalculateMountScale(rider)`](#actorcalculatemountscalerider)
+  - [Actor scripts](#actor-scripts)
+  - [`<Actor>` templates](#actor-templates)
+  - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
+  - [`C_ModelInfo.GetModelSceneCameraInfoByID(modelSceneCameraID)`](#c_modelinfogetmodelscenecamerainfobyidmodelscenecameraid)
+  - [`C_ModelInfo.GetModelSceneActorInfoByID(modelActorID)`](#c_modelinfogetmodelsceneactorinfobyidmodelactorid)
+  - [`C_ModelInfo.GetModelSceneActorDisplayInfoByID(modelActorDisplayID)`](#c_modelinfogetmodelsceneactordisplayinfobyidmodelactordisplayid)
+
 - [Mount](#mount)
   - [`C_MountJournal.GetMountFromSpell(spellID)`](#c_mountjournalgetmountfromspellspellid)
+  - [`C_MountJournal.GetMountFromItem(itemID)`](#c_mountjournalgetmountfromitemitemid)
   - [`C_MountJournal.GetMountInfoExtraByID(mountID)`](#c_mountjournalgetmountinfoextrabyidmountid)
 
 - [NameCache](#namecache)
@@ -12792,6 +12849,22 @@ button:SetScript("OnClick", function()
 end)
 ```
 
+### `GetCursorDelta()`
+
+Returns how far the cursor moved since the last frame: `deltaX, deltaY`.
+Both are `0` when the cursor did not move. The values are in the units of
+`GetCursorPosition`, so the UI scale does not change them. To get a frame's
+units, divide by `frame:GetEffectiveScale()`. All `OnUpdate` scripts in one
+frame get the same values. The function also works at the login and
+character-select screens.
+
+```lua
+f:SetScript("OnUpdate", function(self)
+    local dx = GetCursorDelta()
+    self.yaw = self.yaw + dx / self:GetEffectiveScale() * 0.01
+end)
+```
+
 ## Instance
 
 ### `GetInstanceInfo()`
@@ -18958,6 +19031,416 @@ first call, it returns `true`.
 This method exists on every `Model` frame, for code from later clients. It
 has no effect in the game.
 
+## ModelScene
+
+A `ModelScene` frame shows many models in one 3D scene. Each model is an
+*actor*. The scene has one camera, one light and fog. You move the camera
+and the actors in scene coordinates: `z` is up, and distances are in yards.
+
+### `CreateFrame("ModelScene" [, name, parent, template])`
+
+Makes a `ModelScene` frame. In XML, use the `<ModelScene>` element.
+`GetObjectType()` returns `"ModelScene"`. `IsObjectType("Model")` returns
+`false`: a scene does not have the `Model` methods.
+
+A new scene has these settings:
+
+| Setting | Value |
+|---|---|
+| Camera | At `(0, 0, 0)`, looking along `+x` |
+| Field of view | `0.9424778` radians |
+| Near clip / far clip | `0.2` / `100` |
+| Light | Directional, along `(0, 1, 0)`, on |
+| Ambient color | `(0.698, 0.698, 0.698)` |
+| Diffuse color | `(0.8, 0.8, 0.639)` |
+| Fog | Near `10000000`, far `100000000`, white, so no fog shows |
+| Draw layer | `ARTWORK` |
+
+The XML element takes these attributes and children, in addition to the
+attributes of a frame:
+
+| XML | Effect |
+|---|---|
+| `drawLayer="OVERLAY"` | `SetDrawLayer` |
+| `fogNear="10"` / `fogFar="40"` | `SetFogNear` / `SetFogFar`. A negative value becomes `0`. |
+| `<FogColor r="1" g="0" b="0"/>` | `SetFogColor` |
+| `<ViewInsets left="0" right="0" top="50" bottom="0"/>` | `SetViewInsets` |
+
+```lua
+local scene = CreateFrame("ModelScene", nil, UIParent)
+scene:SetWidth(300)
+scene:SetHeight(300)
+scene:SetPoint("CENTER", 0, 0)
+scene:SetCameraPosition(-6, 0, 1)
+
+local horse = scene:CreateActor()
+horse:SetModelByCreatureDisplayID(2404)   -- a brown horse
+```
+
+### `scene:CreateActor([name, template])`
+
+Adds an actor to the scene and returns it. `name` gives the actor a global
+name. In `name`, `$parent` stands for the name of the scene. `template` is
+the name of a virtual `<Actor>` element. The actor gets the template's
+mixins, scripts and key values, and then its `OnLoad` runs.
+
+### `scene:GetNumActors()` / `scene:GetActorAtIndex(index)`
+
+`GetNumActors` returns the number of actors in the scene.
+`GetActorAtIndex` returns one actor. Index `1` is the first actor that the
+scene made.
+
+### `scene:SetCameraPosition(x, y, z)` / `scene:GetCameraPosition()`
+
+Sets or returns the position of the camera.
+
+### `scene:SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)`
+
+Turns the camera. All three angles are in radians. `yaw` turns about the up
+axis, a positive `pitch` looks down, and `roll` turns about the direction
+that the camera looks.
+
+### `scene:SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, rightY, rightZ, upX, upY, upZ)`
+
+Turns the camera so that it looks along the forward vector, with the right
+and up vectors as its sides.
+
+### `scene:GetCameraForward()` / `scene:GetCameraRight()` / `scene:GetCameraUp()`
+
+Each one returns three numbers: one axis of the camera.
+
+### `scene:SetCameraFieldOfView(fov)` / `scene:GetCameraFieldOfView()`
+
+Sets or returns the vertical field of view of the camera, in radians.
+
+### `scene:SetCameraNearClip(nearClip)` / `scene:SetCameraFarClip(farClip)`
+
+Sets the nearest and the farthest distance that the camera draws.
+`GetCameraNearClip()` and `GetCameraFarClip()` return them.
+
+### `scene:SetViewInsets(left, right, top, bottom)` / `scene:GetViewInsets()`
+
+Puts the picture of the camera in a smaller part of the scene. The camera
+draws the scene as if the frame were smaller by these insets, in the
+frame's units. The picture still stops at the edges of the frame, and a
+negative inset makes the picture larger than the frame. All four are `0` by
+default.
+
+For example, `SetViewInsets(100, 0, 0, 0)` moves the picture 50 units to
+the right, and the picture gets smaller for the narrower shape.
+
+### `scene:SetViewTranslation(x, y)` / `scene:GetViewTranslation()`
+
+Moves the picture of the camera by `x` and `y`, in the frame's units. A
+positive `y` moves the picture up. The size of the picture does not change,
+and the picture still stops at the edges of the frame.
+
+### `scene:Project3DPointTo2D(x, y, z)`
+
+Returns where a point of the scene shows on the frame: `x2D, y2D, depth`.
+
+- `x2D` and `y2D` are measured from the bottom-left corner of the frame, in
+  the frame's units multiplied by its effective scale.
+- `depth` is `1` at the near clip and `0` at the far clip.
+- A point behind the camera also gets a position.
+- The function returns nothing until the frame has a size. It also returns
+  nothing for a point in the plane through the camera, at a right angle to
+  the direction that the camera looks.
+
+`SetViewInsets` and `SetViewTranslation` do not change the result.
+
+### `scene:SetLightType(lightType)` / `scene:GetLightType()`
+
+`0` makes a directional light, and `1` makes a point light.
+
+### `scene:SetLightVisible([visible])` / `scene:IsLightVisible()`
+
+Turns the light on or off.
+
+### `scene:SetLightDirection(x, y, z)` / `scene:SetLightPosition(x, y, z)`
+
+Sets the direction of a directional light, or the position of a point
+light. `GetLightDirection()` and `GetLightPosition()` return them.
+
+### `scene:SetLightAmbientColor(r, g, b)` / `scene:SetLightDiffuseColor(r, g, b)`
+
+Sets the colors of the light, from `0` to `1`. `GetLightAmbientColor()` and
+`GetLightDiffuseColor()` return them.
+
+### `scene:SetFogColor(r, g, b)` / `scene:GetFogColor()`
+
+Sets the color of the fog and turns the fog on.
+
+### `scene:SetFogNear(near)` / `scene:SetFogFar(far)`
+
+Sets the distance where the fog starts and the distance where it is full.
+`GetFogNear()` and `GetFogFar()` return them.
+
+### `scene:ClearFog()`
+
+Turns the fog off.
+
+### `scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`
+
+Sets the draw layer of the scene, for example `"ARTWORK"` or `"OVERLAY"`.
+`GetDrawLayer` returns the layer and `0`.
+
+### `scene:SetPaused(paused [, affectsGlobalPause])`
+
+`true` stops the animations of all the actors. Each actor stays at its
+current frame. `false` starts the animations again from the same frame.
+`affectsGlobalPause` has no effect. To pause one actor, use
+[`actor:SetPaused`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused).
+
+### `scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`
+
+Stores a flag. It is `false` by default. The flag has no effect: a scene
+always draws, also when another model frame covers it.
+
+### `actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`
+
+Shows a creature by its display ID (a `CreatureDisplayInfo` ID) and returns
+`true`. It returns `false` and shows nothing for an ID that is not a
+display. A display of a character model is dressed in the clothes of its
+NPC. `useActivePlayerCustomizations` has no effect.
+
+### `actor:SetModelByPath(path [, useMips])`
+
+Shows a model file, for example `"Creature\\Wolf\\Wolf.mdx"`, and returns
+`true`. It returns `false` when the path does not give a model. `useMips`
+has no effect.
+
+### `actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`
+
+Shows a copy of a unit, with the items that it wears and holds, and returns
+`true`. It returns `false` when the unit does not exist.
+
+| Argument | Default | Effect |
+|---|---|---|
+| `sheatheWeapons` | `false` | `true` puts the weapons in their sheaths. |
+| `autoDress` | `true` | `false` shows the unit with nothing on. |
+| `hideWeapons` | `false` | `true` hides the weapons. |
+| `usePlayerNativeForm`, `holdBowString`, `customRaceID` | | No effect. A unit in a shapeshift form shows in that form. |
+
+### `actor:SetModelByUnitCreatureDisplayID(unit)`
+
+Shows the display that the unit shows now, the same as
+`SetModelByCreatureDisplayID`, and returns `true`. It does not copy the
+unit. A player shows with the bare model of its race, and a pet or an NPC
+shows its own display. It returns `false` when the unit does not exist.
+
+### `actor:GetModelUnitGUID()`
+
+Returns the GUID of the unit that `SetModelByUnit` shows. It returns
+nothing for an actor that does not show a unit.
+
+### `actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`
+
+These work on an actor that shows a unit. `Dress` puts on everything that
+the unit wears. `Undress` takes everything off. With `includeWeapons` set to
+`false`, the weapons stay. `UndressSlot` takes off the item in one inventory
+slot, from `1` (head) to `19` (tabard).
+
+### `actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`
+
+Puts the weapons of a unit actor in its hands or in their sheaths. `hidden`
+set to `true` hides them.
+
+### `actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`
+
+Sets whether the next `SetModelByUnit` call dresses the actor.
+
+### `actor:IsGeoReady()`
+
+Returns `true` when the model and the item models on it have loaded.
+
+### `actor:ClearModel()` / `actor:IsLoaded()` / `actor:GetModelPath()`
+
+`ClearModel` removes the model. `IsLoaded` returns `true` after the model
+has loaded and `OnModelLoaded` has run. `GetModelPath` returns the file of
+the model, or `""` for a unit copy.
+
+### `actor:SetPosition(x, y, z)` / `actor:GetPosition()`
+
+Moves the actor in the scene.
+
+### `actor:SetYaw(yaw)` / `actor:SetPitch(pitch)` / `actor:SetRoll(roll)`
+
+Turns the actor, in radians. A model faces `+x` at yaw `0`, and a positive
+yaw turns it to the left. `GetYaw()`, `GetPitch()` and `GetRoll()` return
+the angles.
+
+### `actor:SetScale(scale)` / `actor:GetScale()`
+
+Sets the size of the actor. `1` is the size of the model file.
+
+### `actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`
+
+For each axis set to `true`, the center of the model stands at the position
+of the actor. For each axis set to `false`, the origin of the model file
+stands there. For example, `SetUseCenterForOrigin(false, false, true)`
+moves a model up or down so that its middle is at the actor's height.
+
+### `actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`
+
+Each one returns six numbers: the bottom corner `x, y, z` and then the top
+corner `x, y, z`, in the coordinates of the model file.
+`GetActiveBoundingBox` gives the box of the current animation, and
+`GetMaxBoundingBox` gives the box of the whole model. Both return nothing
+until the model has loaded.
+
+### `actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`
+
+Shows or hides the actor. `IsShown()` returns whether the actor is set to
+show. `IsVisible()` also checks that the scene is visible.
+
+### `actor:SetAlpha(alpha)` / `actor:GetAlpha()`
+
+Sets the opacity of the actor, from `0` to `1`. The alpha of the scene
+frame multiplies it.
+
+### `actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`
+
+Plays an animation (an `AnimationData` ID, for example `0` for stand and
+`5` for run). When the animation ends, it plays again and `OnAnimFinished`
+runs. Use `OnAnimFinished` to go on to the next animation.
+
+| Argument | Default | Effect |
+|---|---|---|
+| `variation` | `nil` | One variation of the animation. `nil` plays any variation. |
+| `animSpeed` | `1` | The speed. `2` plays at double speed. |
+| `animOffsetSeconds` | `0` | Starts this many seconds into the animation. |
+
+`GetAnimation()` returns the animation. `GetAnimationVariation()` returns
+the variation, or `4294967295` when any variation plays.
+
+### `actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`
+
+Sets how the next animation starts. `Enum.ModelBlendOperation.Anim` (`1`,
+the default) blends from the animation that plays.
+`Enum.ModelBlendOperation.None` (`0`) starts the new animation at once.
+
+### `actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`
+
+Stops the animation of one actor at its current frame. The other actors
+continue. The actor still moves, turns and fades when you change it, and
+its animation does not end, so `OnAnimFinished` does not run. When you
+unpause it, the animation continues from the same frame.
+
+The actor has two pause flags. `GetPaused` returns both: `paused,
+globalPaused`. `SetPaused(paused)` sets both flags. `SetPaused(paused,
+false)` sets only the first flag. The actor stops when either flag is
+`true`.
+
+### `actor:SetSpellVisualKit([spellVisualKitID, oneShot])` / `actor:GetSpellVisualKit()`
+
+Shows the effects of a spell visual kit (a `SpellVisualKit` ID) on the
+model, for example the glow in the hands of a caster. A new kit removes the
+effects of the old kit. `0` or `nil` removes the kit. With `oneShot` set to
+`true`, each effect plays one time. Without it, the effects loop. The kit
+does not play its animation or its sound: use `SetAnimation` for the
+animation.
+
+```lua
+-- Cast a Fireball: hold the precast glow, then release it.
+caster:SetAnimation(51)            -- ReadySpellDirected
+caster:SetSpellVisualKit(30)       -- Fireball precast
+-- ...later:
+caster:SetAnimation(53)            -- SpellCastDirected
+caster:SetSpellVisualKit(38, true) -- Fireball cast
+target:SetSpellVisualKit(286, true) -- Fireball impact
+```
+
+### `actor:PlayAnimationKit(animationKit [, isLooping])` / `actor:StopAnimationKit()`
+
+These have no effect. There are no animation kits in this game.
+
+### `actor:AttachToMount(rider, animation [, spellKitVisualID])`
+
+Seats another actor of the same scene on this actor, and returns `true`.
+The rider plays `animation` (`91` is the mount animation for most mounts).
+With `spellKitVisualID`, the rider also shows that spell visual kit. A
+rider that sits on another mount moves to this one. It returns `false` when
+either actor shows no model, when the rider is in another scene, or when
+the rider is this actor.
+
+The rider's position, turn and scale then count from the seat. To make the
+rider fit the mount, use `rider:SetScale(1 / mount:CalculateMountScale(rider))`.
+
+### `actor:DetachFromMount(rider)`
+
+Takes the rider off this actor, and returns `true`. The rider keeps its
+animation. It returns `false` when the rider does not sit on this actor.
+
+### `actor:CalculateMountScale(rider)`
+
+Returns the scale of this mount's creature display. A rider at a scale of
+`1` divided by this number has the same size as a player on that mount.
+
+### Actor scripts
+
+Set them with `actor:SetScript`, `actor:HookScript` or the `<Scripts>`
+element of an `<Actor>` template. `actor:GetScript` and `actor:HasScript`
+work as they do on frames.
+
+| Script | Runs |
+|---|---|
+| `OnLoad` | After `CreateActor` has applied the template. |
+| `OnUpdate(self, elapsed)` | Each frame while the scene shows. |
+| `OnModelLoading` | When the actor gets a new model. |
+| `OnModelLoaded` | When the model and its clothes have loaded. |
+| `OnModelCleared` | When the actor loses its model. |
+| `OnAnimFinished` | Each time the animation ends. |
+
+An actor also has `GetObjectType()` (`"ModelSceneActor"`),
+`IsObjectType(type)`, `GetName()` and `GetParent()` (the scene).
+
+### `<Actor>` templates
+
+A virtual `<Actor>` element is a template for `CreateActor`:
+
+```xml
+<Actor name="MyHorseActorTemplate" mixin="MyHorseMixin" virtual="true" scale="1.5">
+    <Scripts>
+        <OnLoad method="OnLoad"/>
+        <OnModelLoaded method="OnModelLoaded"/>
+    </Scripts>
+</Actor>
+```
+
+It takes `inherits`, `mixin`, `parentKey`, `parentArray`, `alpha`, `scale`
+and `file` (a model path), and the `<Scripts>` and `<KeyValues>` children.
+`parentKey` and `parentArray` put the actor on the scene.
+
+### `C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`
+
+Returns four values for a model scene: `modelSceneType`, a table of the
+camera IDs, a table of the actor IDs, and `flags`. Model scenes `4` (mounts),
+`44` (the Qiraji battle tanks) and `596` are available. For other IDs, the
+function returns nothing.
+
+### `C_ModelInfo.GetModelSceneCameraInfoByID(modelSceneCameraID)`
+
+Returns a table with the settings of a scene camera: `modelSceneCameraID`,
+`scriptTag`, `cameraType` (`"OrbitCamera"`), `target`, `yaw`, `pitch`,
+`roll`, `zoomDistance`, `minZoomDistance`, `maxZoomDistance`,
+`zoomedTargetOffset`, `zoomedYawOffset`, `zoomedPitchOffset`,
+`zoomedRollOffset` and `flags`. `target` and `zoomedTargetOffset` are
+`Vector3DMixin` objects.
+
+### `C_ModelInfo.GetModelSceneActorInfoByID(modelActorID)`
+
+Returns a table with the settings of a scene actor: `modelActorID`,
+`scriptTag`, `position` (a `Vector3DMixin` object), `yaw`, `pitch`, `roll`,
+`normalizeScaleAggressiveness`, `useCenterForOriginX`,
+`useCenterForOriginY`, `useCenterForOriginZ` and `modelActorDisplayID`.
+
+### `C_ModelInfo.GetModelSceneActorDisplayInfoByID(modelActorDisplayID)`
+
+Returns a table with the animation, alpha and scale that a scene actor
+starts with: `animation`, `animationVariation`, `animSpeed`,
+`animationKitID`, `spellVisualKitID`, `alpha` and `scale`.
+
 ## Mount
 
 A mount ID is the spell ID of the spell that summons the mount. For example,
@@ -18980,6 +19463,19 @@ C_MountJournal.GetMountFromSpell(133)   -- nil (Fireball)
 On Turtle WoW, a mount item does not have its mount spell. Each mount item
 has the spell "Add Mount to Collection" (46499), and this spell is not a
 mount. Only the mount spell in the spellbook gives a mount ID.
+
+### `C_MountJournal.GetMountFromItem(itemID)`
+
+Returns the mount ID of an item that summons a mount. The mount ID is the
+ID of the item's use spell. For an item that does not summon a mount, the
+function returns `nil`.
+
+`itemID` can be an item ID or an item link. When the game does not have
+the data for the item yet, the function returns `nil` and requests the
+data. Call the function again after the item data has arrived.
+
+On Turtle WoW, a mount item has the spell "Add Mount to Collection" (46499)
+in place of its mount spell. So the function returns `nil` for it.
 
 ### `C_MountJournal.GetMountInfoExtraByID(mountID)`
 
