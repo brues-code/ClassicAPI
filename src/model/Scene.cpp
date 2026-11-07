@@ -393,6 +393,11 @@ void __fastcall Paint(void *frame) {
 // at SetScale(2) — about 0.911 * effectiveScale^2, a factor 1.12 has no
 // source for. Depth here is the same form without it (1 at the near clip,
 // 0 at the far); retail's callers all discard it.
+//
+// The view insets and translation do not move the projection: retail gave
+// (142.22, 71.11) with none, with SetViewInsets(100, 0, 0, 0) and with
+// SetViewTranslation(50, 0) (12.1.5, same frame). So this frames the
+// camera over the whole rect, not the paint's view rect.
 bool Project(void *frame, const Vec3 &point, double out[3]) {
     void *camera = CameraOf(frame);
     float rect[4] = {}; // {bottom, left, top, right}
