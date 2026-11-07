@@ -75,6 +75,23 @@
 // to copy), so usePlayerNativeForm, holdBowString and customRaceID change
 // nothing.
 //
+// SetModelByUnitCreatureDisplayID shows the display the unit shows now
+// (UNIT_FIELD_DISPLAYID) the way SetModelByCreatureDisplayID shows one: a
+// player shows its race's bare display, a pet its creature's.
+//
+// SetPaused sets the actor's own pause flag, and the global one too unless
+// affectsGlobalPause is false (retail probe, 2026-11-07: (true, false) ->
+// true false; then (true) -> true true; then (false, false) -> false true;
+// and (false), (true, false), (false) -> false false). Either flag holds
+// the actor where the engine's
+// own resume reads it from: the key bone's position (GetKeyBoneAnimState,
+// 0x00711FE0) once the model has loaded, pinned each update with
+// SetKeyBoneAnimTime (0x007127F0), so the
+// model stays on the animate list (it still moves, turns and lights) and
+// its sequence never reaches its end. Unpaused, it plays on from that frame.
+// A new animation while paused holds the new one's first frame. The model's
+// global sequences (texture scrolls, some emitters) run on.
+//
 // A mount actor seats a rider the way the world's Mount (0x00607A00) does:
 // the rider's model on the mount's attachment 0, playing the seat animation.
 // Attaching takes the rider off the animate list (the mount animates it), and
@@ -176,6 +193,7 @@ void ReleaseModel(Actor &actor) {
     actor.weapons = Outfit::Weapons{};
     actor.loaded = false;
     actor.animFinished = false;
+    actor.heldPositionMs = -1;
     actor.modelPath.clear();
 }
 
@@ -255,6 +273,7 @@ void Actor::ClearModel() {
 void Actor::PlayAnimation() {
     if (model == nullptr)
         return;
+    heldPositionMs = -1; // a paused actor holds the new animation's first frame
     const int offsetMs = static_cast<int>(animOffsetSec * 1000.0f);
     M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed,
                       static_cast<int>(blendOperation), 1);
@@ -340,6 +359,11 @@ void Actor::Update(float elapsedSec) {
             M2::SetAnimated(model, true);
         M2::SetVisible(model, shown);
     }
+    if (model != nullptr && loaded && (paused || globalPaused)) {
+        if (heldPositionMs < 0)
+            heldPositionMs = M2::GetAnimPosition(model, -1);
+        M2::SetAnimPosition(model, -1, heldPositionMs);
+    }
     if (model != nullptr && animFinished) {
         animFinished = false;
         PlayAnimation();
@@ -404,22 +428,49 @@ bool NumberArgs(void *L, int first, int count, const char *usage, const Actor *a
 
 float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
 
+// Shows a creature display, dressed by its CreatureDisplayInfoExtra record.
+bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
+    const char *path = nullptr;
+    void *model = Model::DisplayInfo::CreateDisplayModel(Model::Pane::Scene(actor.SceneFrame()),
+                                                         displayID, &path);
+    actor.SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
+    if (model != nullptr)
+        actor.displayScale = Game::Read<float>(
+            DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                        Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
+            Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
+    return model != nullptr;
+}
+
 int __fastcall Script_SetModelByCreatureDisplayID(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr ||
         !NumberArgs(L, 2, 1, "SetModelByCreatureDisplayID(creatureDisplayID)", actor))
         return 0;
-    const auto displayID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
-    const char *path = nullptr;
-    void *model = Model::DisplayInfo::CreateDisplayModel(Model::Pane::Scene(actor->SceneFrame()),
-                                                         displayID, &path);
-    actor->SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
-    if (model != nullptr)
-        actor->displayScale = Game::Read<float>(
-            DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                        Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
-            Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
-    Game::Lua::PushBool(L, model != nullptr);
+    Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
+    return 1;
+}
+
+// The display the unit shows now (UNIT_FIELD_DISPLAYID), as a creature
+// display: no copy of the unit, so nothing it wears beyond the display's own
+// dress.
+int __fastcall Script_SetModelByUnitCreatureDisplayID(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetModelByUnitCreatureDisplayID(unit)", actor->DisplayName());
+        return 0;
+    }
+    void *unit = Game::ResolveUnitToken(Game::Lua::ToString(L, 2));
+    if (unit == nullptr) {
+        actor->ClearModel();
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
+    const auto displayID = Game::Read<uint32_t>(Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR),
+                                                Offsets::OFF_UNIT_FIELD_DISPLAYID);
+    Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, displayID));
     return 1;
 }
 
@@ -526,6 +577,27 @@ int __fastcall Script_GetAutoDress(void *L) {
         return 0;
     Game::Lua::PushBool(L, actor->autoDress);
     return 1;
+}
+
+// Holds the actor's animation at its current frame; the scene keeps running.
+int __fastcall Script_SetPaused(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    actor->paused = Game::Lua::ToBoolean(L, 2) != 0;
+    if (Game::Lua::Type(L, 3) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 3) != 0)
+        actor->globalPaused = actor->paused;
+    actor->heldPositionMs = -1;
+    return 0;
+}
+
+int __fastcall Script_GetPaused(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->paused);
+    Game::Lua::PushBool(L, actor->globalPaused);
+    return 2;
 }
 
 int __fastcall Script_IsGeoReady(void *L) {
@@ -841,6 +913,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetModelByCreatureDisplayID", &Script_SetModelByCreatureDisplayID},
     {"SetModelByPath", &Script_SetModelByPath},
     {"SetModelByUnit", &Script_SetModelByUnit},
+    {"SetModelByUnitCreatureDisplayID", &Script_SetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &Script_GetModelUnitGUID},
     {"Dress", &Script_Dress},
     {"Undress", &Script_Undress},
@@ -850,6 +923,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetAutoDress", &Script_SetAutoDress},
     {"GetAutoDress", &Script_GetAutoDress},
     {"IsGeoReady", &Script_IsGeoReady},
+    {"SetPaused", &Script_SetPaused},
+    {"GetPaused", &Script_GetPaused},
     {"AttachToMount", &Script_AttachToMount},
     {"DetachFromMount", &Script_DetachFromMount},
     {"CalculateMountScale", &Script_CalculateMountScale},
@@ -988,6 +1063,20 @@ const Game::Doc::Field kSheathedRet[] = {Req("sheathed", "bool")};
 const Game::Doc::Field kAutoDressArg[] = {Req("autoDress", "bool")};
 const Game::Doc::Field kAutoDressRet[] = {Req("autoDress", "bool")};
 const Game::Doc::Field kGeoReadyRet[] = {Req("isReady", "bool")};
+const Game::Doc::Field kUnitTokenArg[] = {Req("unit", "UnitToken")};
+const Game::Doc::Function kSetModelByUnitCreatureDisplayID{
+    "Shows the creature display the unit shows now, dressed like a creature.", kUnitTokenArg,
+    kSuccessRet};
+const Game::Doc::Field kPausedArgs[] = {
+    Req("paused", "bool"),
+    Opt("affectsGlobalPause", "bool", "true", "False sets only the actor's own pause."),
+};
+const Game::Doc::Field kPausedRets[] = {Req("paused", "bool"), Req("globalPaused", "bool")};
+const Game::Doc::Function kSetPaused{
+    "Holds the actor's animation at its current frame, or lets it play on. Either pause holds it.",
+    kPausedArgs, {}};
+const Game::Doc::Function kGetPaused{"Returns whether the actor's animation is held.", {},
+                                     kPausedRets};
 const Game::Doc::Function kSetModelByUnit{
     "Shows a copy of the unit, dressed in what it wears.", kUnitArgs, kSuccessRet};
 const Game::Doc::Function kGetModelUnitGUID{"Returns the unit the actor shows.", {}, kGuidRet};
@@ -1072,6 +1161,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetModelByCreatureDisplayID", &kSetModelByCreatureDisplayID},
     {"SetModelByPath", &kSetModelByPath},
     {"SetModelByUnit", &kSetModelByUnit},
+    {"SetModelByUnitCreatureDisplayID", &kSetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &kGetModelUnitGUID},
     {"Dress", &kDress},
     {"Undress", &kUndress},
@@ -1081,6 +1171,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetAutoDress", &kSetAutoDress},
     {"GetAutoDress", &kGetAutoDress},
     {"IsGeoReady", &kIsGeoReady},
+    {"SetPaused", &kSetPaused},
+    {"GetPaused", &kGetPaused},
     {"AttachToMount", &kAttachToMount},
     {"DetachFromMount", &kDetachFromMount},
     {"CalculateMountScale", &kCalculateMountScale},

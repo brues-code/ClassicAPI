@@ -13236,6 +13236,17 @@ enum Offsets {
     // CM2Model::PlayAnimation — `__thiscall(model, 7 args)`, `ret 0x1C`. The
     // bake passes (-1, 0, 0, 0, 1.0f, 0, 1).
     FUN_M2MODEL_PLAY_ANIMATION = 0x007121A0,
+    // CM2Model::GetKeyBoneAnimState — `__thiscall(model, keyBone, out[7])`,
+    // ret 8: id, variation, position (ms into the sequence, `(clock - lo) *
+    // speed + offset`), speed, lo, hi, latch. Waits for an unloaded instance
+    // (0x00711FEF). SetKeyBoneAnimTime — `__thiscall(model, keyBone, int ms)`,
+    // ret 8: `lo = clock - ms * |1/speed|`, `hi` re-derived, so the sequence
+    // stands at `ms` (+ the offset field, 0 for a forward play); queued while
+    // the instance loads. Key bone -1 is bone 0, as PlayAnimation's.
+    FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE = 0x00711FE0,
+    FUN_M2MODEL_SET_KEY_BONE_ANIM_TIME = 0x007127F0,
+    M2_KEY_BONE_ANIM_STATE_SIZE = 0x1C,
+    OFF_M2_KEY_BONE_ANIM_STATE_POSITION = 0x08,
     // CM2Model::GetKeyBoneAnimId — `__thiscall(model, keyBone)`, ret 4: the id
     // last requested on the key bone (bone state +0xF8, the id as given, not
     // its fallback). Blocks on the shared data when the model is not loaded.
