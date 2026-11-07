@@ -65,8 +65,6 @@ namespace Texture::Tile {
 namespace {
 
 using GetRect_t = int(__fastcall *)(void *anchor, void *edx, float *outRect);
-using ScreenAspect_t = float(__cdecl *)();
-using DivideByScreenScaleX_t = float(__stdcall *)(float value);
 using SetTexCoord_t = void(__fastcall *)(void *texture, void *edx, const float *values);
 using Emit_t = void(__fastcall *)(void *texture, void *edx, void *batch);
 
@@ -74,11 +72,7 @@ using Emit_t = void(__fastcall *)(void *texture, void *edx, void *batch);
 constexpr float kWholeImage[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
 
 // A length in rect units as script units.
-float ScriptUnits(float length) {
-    const auto aspect = reinterpret_cast<ScreenAspect_t>(Offsets::FUN_COORD_GET_SCALED_SCREEN_ASPECT);
-    const auto divide = reinterpret_cast<DivideByScreenScaleX_t>(Offsets::FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X);
-    return divide(aspect() * Game::Read<float>(Offsets::FLOAT_SCRIPT_COORD_SCALE) * length);
-}
+float ScriptUnits(float length) { return static_cast<float>(Game::InternalToPixel(length)); }
 
 // 4.3.4's rule on one axis (0 x, 1 y) of the four corner pairs.
 void Count(float *coords, int axis, float length, uint32_t texels) {

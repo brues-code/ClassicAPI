@@ -89,8 +89,10 @@ void *ResolveUnitToken(const char *token);
 
 // UI pixels <-> internal layout (anchor) units. Script_SetPoint converts its
 // pixel offsets with `px * [VAR_COORD_DDC_WIDTH_SCALE] / ([VAR_COORD_ASPECT_COMPENSATION]
-// * UI_COORD_SCALE_UNIT)`; Script_GetLeft and Script_GetStringWidth push the
-// inverse. A region's LOCAL pixels must be multiplied by its effective scale
+// * [FLOAT_SCRIPT_COORD_SCALE])`; every script coordinate push (GetLeft,
+// GetStringWidth, GetFont's height, GetCursorPosition, OnCursorChanged) is the
+// inverse, `DivideByScreenScaleX(GetScaledScreenAspect() * 1024 * value)`,
+// which InternalToPixel calls in that order. A region's LOCAL pixels must be multiplied by its effective scale
 // (OFF_REGION_EFFECTIVE_SCALE) first. Both return 0 while the scale globals
 // are unset, so an early caller gets a zero offset rather than a wild one.
 float PixelToInternal(float px);
