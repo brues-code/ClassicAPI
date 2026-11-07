@@ -71,8 +71,9 @@ void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool s
                  bool hide);
 
 // UndressSlot: the item in one inventory slot (1-based) off the model. A
-// held lane is detached and zeroed, an armor slot cleared on the component
-// (nothing without one).
+// held lane is detached and zeroed, an armor slot cleared on the component.
+// Without a component it does nothing, held lanes included (4.3.4's
+// CGDressUpModelFrame::UndressSlot returns first).
 void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot);
 
 // DressUpModel ClearModel (0x00504490): component slots 0..11 cleared, and,

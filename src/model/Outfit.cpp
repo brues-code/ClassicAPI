@@ -161,13 +161,13 @@ void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool s
 }
 
 void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot) {
-    if (model == nullptr)
+    if (model == nullptr || component == nullptr)
         return;
     if (invSlot == Offsets::INVSLOT_MAINHAND) {
         ClearLane(model, lanes, 0);
     } else if (invSlot == Offsets::INVSLOT_OFFHAND) {
         ClearLane(model, lanes, 1);
-    } else if (component != nullptr) {
+    } else {
         const int compSlot = ComponentSlot(invSlot - 1);
         if (compSlot >= 0)
             reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(
