@@ -120,6 +120,11 @@ int ComponentSlotOf(int invSlot);
 // The inventory slot (1-based) of a component slot ArmOf gives, or 0.
 int InvSlotOfComponent(uint32_t componentSlot);
 
+// Whether TryOnItem's arms put anything in an inventory slot (1-based): a
+// hand takes any held item, an armor slot needs `armorReady` (a component the
+// model's ready gate allows).
+bool SlotAllowed(int invSlot, bool armorReady);
+
 // What `unit` wears in one inventory slot (1-based), back on the model: an
 // armor slot takes the unit's component record (empty when the unit hides
 // its helm or cloak), a held lane the unit's lane, row and glow. Armor needs

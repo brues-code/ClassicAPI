@@ -13,7 +13,8 @@
 
 // `DressUpModel:UndressSlot(slot)`, the 4.3.4 `DressUpModel:TryOn(item)`
 // (DressUpModelFrame_Scripts.cpp), and retail's TryOn result, IsGeoReady,
-// SetSheathed / GetSheathed and SetAutoDress / GetAutoDress.
+// SetSheathed / GetSheathed, SetAutoDress / GetAutoDress, IsSlotAllowed /
+// IsSlotVisible and the ItemTransmogInfo methods.
 //
 // UndressSlot is one step of vanilla's own Undress (DressUpModel::ClearModel
 // 0x00504490), which 4.3.4 split per slot: a component slot is cleared with
@@ -222,6 +223,12 @@ int __fastcall Script_UndressSlot(void *L) {
     return 0;
 }
 
+// The worker's armor gate: the component and the ready byte.
+bool ArmorReady(void *pane) {
+    return Game::Read<void *>(pane, Offsets::OFF_DRESSUPMODEL_COMPONENT) != nullptr &&
+           Game::Read<uint8_t>(pane, Offsets::OFF_DRESSUPMODEL_READY) != 0;
+}
+
 // What the worker did with `itemID`, from the gates it passes (0x00504540).
 int TryOnResult(void *pane, uint32_t itemID) {
     const uint8_t *record = Item::PeekRecord(itemID);
@@ -231,11 +238,8 @@ int TryOnResult(void *pane, uint32_t itemID) {
         Pane::Model(pane) == nullptr)
         return TryOn::kNotEquippable;
     switch (Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE))) {
-    case Outfit::Arm::Armor: // the component and the ready byte
-        return Game::Read<void *>(pane, Offsets::OFF_DRESSUPMODEL_COMPONENT) != nullptr &&
-                       Game::Read<uint8_t>(pane, Offsets::OFF_DRESSUPMODEL_READY) != 0
-                   ? TryOn::kSuccess
-                   : TryOn::kNotEquippable;
+    case Outfit::Arm::Armor:
+        return ArmorReady(pane) ? TryOn::kSuccess : TryOn::kNotEquippable;
     case Outfit::Arm::Held:
         return TryOn::kSuccess;
     default:
@@ -400,6 +404,30 @@ int __fastcall Script_SetItemTransmogInfo(void *L) {
     return 1;
 }
 
+// The slots the worker's arms put an item in. No 1.12 model hides a slot it
+// takes, so IsSlotVisible gives the same.
+int SlotQuery(void *L, const char *usage) {
+    void *pane = Game::Lua::ResolveDressUpModel(L);
+    if (pane == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, usage, Game::Lua::ObjectDisplayName(pane));
+        return 0;
+    }
+    Game::Lua::PushBool(L, Pane::Model(pane) != nullptr &&
+                               Outfit::SlotAllowed(static_cast<int>(Game::Lua::ToNumber(L, 2)),
+                                                   ArmorReady(pane)));
+    return 1;
+}
+
+int __fastcall Script_IsSlotAllowed(void *L) {
+    return SlotQuery(L, "Usage: %s:IsSlotAllowed(slot)");
+}
+
+int __fastcall Script_IsSlotVisible(void *L) {
+    return SlotQuery(L, "Usage: %s:IsSlotVisible(slot)");
+}
+
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"UndressSlot", &Script_UndressSlot},
     {"TryOn", &Script_TryOn},
@@ -412,6 +440,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetItemTransmogInfo", &Script_GetItemTransmogInfo},
     {"GetItemTransmogInfoList", &Script_GetItemTransmogInfoList},
     {"SetItemTransmogInfo", &Script_SetItemTransmogInfo},
+    {"IsSlotAllowed", &Script_IsSlotAllowed},
+    {"IsSlotVisible", &Script_IsSlotVisible},
 };
 
 const Game::Doc::Field kUndressArgs[] = {
@@ -482,6 +512,19 @@ const Game::Doc::Function kSetItemTransmogInfo{
     "Puts an item on the model, as TryOn does. Shows no error. An appearanceID of 0 changes "
     "nothing.",
     kSetTransmogInfoArgs, kTryOnRets};
+const Game::Doc::Field kSlotAllowedRets[] = {
+    Game::Doc::Req("allowed", "bool"),
+};
+const Game::Doc::Function kIsSlotAllowed{
+    "Returns whether TryOn can put an item in an inventory slot of the model. The hands are "
+    "always allowed. An armor slot is allowed when TryOn can put armor on the model.",
+    kUndressArgs, kSlotAllowedRets};
+const Game::Doc::Field kSlotVisibleRets[] = {
+    Game::Doc::Req("visible", "bool"),
+};
+const Game::Doc::Function kIsSlotVisible{
+    "Returns whether an item in an inventory slot shows on the model. Same as IsSlotAllowed.",
+    kUndressArgs, kSlotVisibleRets};
 const Game::Doc::Method g_methodDocs[] = {
     {"UndressSlot", &kUndressSlot},   {"TryOn", &kTryOn},
     {"Dress", &kDress},               {"IsGeoReady", &kIsGeoReady},
@@ -490,6 +533,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetItemTransmogInfo", &kGetItemTransmogInfo},
     {"GetItemTransmogInfoList", &kGetItemTransmogInfoList},
     {"SetItemTransmogInfo", &kSetItemTransmogInfo},
+    {"IsSlotAllowed", &kIsSlotAllowed},
+    {"IsSlotVisible", &kIsSlotVisible},
 };
 
 const Game::Lua::EnumIntegerEntry kItemTryOnReason[] = {

@@ -741,12 +741,9 @@ int __fastcall Script_SetItemTransmogInfo(void *L) {
 // The slots TryOnReason's arms accept: a hand on any model, armor on one
 // that takes it.
 bool SlotAllowed(const Actor &actor, int invSlot) {
-    if (actor.model == nullptr)
-        return false;
-    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND)
-        return true;
-    return Outfit::ComponentSlotOf(invSlot) >= 0 &&
-           (actor.dresser != nullptr || actor.dressRecord != nullptr) && actor.armorReady;
+    return actor.model != nullptr &&
+           Outfit::SlotAllowed(invSlot, (actor.dresser != nullptr || actor.dressRecord != nullptr) &&
+                                            actor.armorReady);
 }
 
 int __fastcall Script_IsSlotAllowed(void *L) {

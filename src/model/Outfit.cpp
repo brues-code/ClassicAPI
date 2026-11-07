@@ -150,6 +150,12 @@ int InvSlotOfComponent(uint32_t componentSlot) {
     return componentSlot < std::size(kInvSlotOfComponent) ? kInvSlotOfComponent[componentSlot] : 0;
 }
 
+bool SlotAllowed(int invSlot, bool armorReady) {
+    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND)
+        return true;
+    return ComponentSlotOf(invSlot) >= 0 && armorReady;
+}
+
 void ReadLanes(void *unit, Lanes &lanes) {
     const auto get = VirtualOf<GetHeldItemLane_t>(unit, Offsets::VTBL_UNIT_GET_HELD_ITEM_LANE);
     for (uint32_t hand = 0; hand < 2; ++hand) {

@@ -814,6 +814,7 @@ build instructions.
   - [`DressUpModel:GetAutoDress()`](#dressupmodelgetautodress)
   - [`DressUpModel:GetItemTransmogInfo(slot)` / `DressUpModel:GetItemTransmogInfoList()`](#dressupmodelgetitemtransmoginfoslot--dressupmodelgetitemtransmoginfolist)
   - [`DressUpModel:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#dressupmodelsetitemtransmoginfoinfo--slot-ignorechilditems)
+  - [`DressUpModel:IsSlotAllowed(slot)` / `DressUpModel:IsSlotVisible(slot)`](#dressupmodelisslotallowedslot--dressupmodelisslotvisibleslot)
   - [`Model:SetGlow(value)`](#modelsetglowvalue)
 
 - [ModelScene](#modelscene)
@@ -19076,6 +19077,21 @@ for slot, info in ipairs(DressUpModel:GetItemTransmogInfoList()) do
   end
 end
 ```
+
+### `DressUpModel:IsSlotAllowed(slot)` / `DressUpModel:IsSlotVisible(slot)`
+
+`IsSlotAllowed` returns `true` when the frame can wear an item in the
+inventory slot:
+
+- The hands (`16` and `17`) are allowed on all models.
+- The armor slots are allowed when `TryOn` can put armor on the frame. A
+  shapeshifted player, or a creature without a character model, has no armor
+  slots.
+- The neck, the rings, the trinkets, and the ranged slot are not allowed. A
+  ranged weapon that `TryOn` puts on goes into a hand.
+
+It returns `false` for a frame that shows no model. `IsSlotVisible` returns
+the same value, because an item in an allowed slot always shows.
 
 ### `Model:SetGlow(value)`
 
