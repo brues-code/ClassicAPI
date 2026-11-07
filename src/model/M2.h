@@ -102,6 +102,18 @@ inline void Attach(void *child, void *parent, uint32_t id) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_ATTACH)(child, parent, id);
 }
 
+// The tint the model is drawn with, {r, g, b}; white is none.
+inline void SetDiffuse(void *model, const float (&rgb)[3]) {
+    using Fn = void(__thiscall *)(void *, const float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(model, rgb);
+}
+
+// CM2Model::FindChild: the model hung at attachment `attachId`, or null.
+inline void *FindChild(void *model, int attachId) {
+    using Fn = void *(__thiscall *)(void *, int);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_FIND_CHILD)(model, attachId);
+}
+
 // CM2Model::Detach, when the model is attached: off its parent, which drops
 // its reference on it. Detach itself drops that reference unconditionally,
 // so the world's Dismount (0x00607CE0) tests the parent first, as this does.

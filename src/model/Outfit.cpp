@@ -37,7 +37,6 @@ using AttachItemModel_t = int(__fastcall *)(void *model, const void *record, uin
                                             bool ranged);
 using GetHeldItemDisplay_t = const void *(__thiscall *)(void *unit, uint32_t hand);
 using GetHeldItemLane_t = const HeldLane *(__thiscall *)(void *unit, uint32_t hand, int one);
-using FindChild_t = void *(__thiscall *)(void *model, int attachId);
 using GetVisibleItem_t = const void *(__thiscall *)(void *player, uint32_t slot);
 using GetDescVisual_t = int(__thiscall *)(const void *visibleItem);
 using CharCompCreate_t = void *(__cdecl *)();
@@ -136,8 +135,7 @@ void *CloneComponent(void *model, void *unit) {
 void HangVisual(void *model, int attachId, uint32_t visual) {
     if (visual == 0 || attachId < 0)
         return;
-    if (void *item = reinterpret_cast<FindChild_t>(Offsets::FUN_M2MODEL_FIND_CHILD)(model,
-                                                                                   attachId))
+    if (void *item = M2::FindChild(model, attachId))
         M2::AttachItemVisuals(item, visual);
 }
 

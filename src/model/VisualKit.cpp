@@ -62,8 +62,6 @@ namespace Model::VisualKit {
 namespace {
 
 using HasAttachment_t = int(__thiscall *)(void *model, uint32_t id);
-using SetAlpha_t = void(__thiscall *)(void *model, float alpha);
-using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
 using HasLiveParticles_t = int(__thiscall *)(void *model);
 
 // The attachment of each effect column, in the ghost kit's order.
@@ -154,10 +152,10 @@ void ApplyProcedures(void *model, const uint8_t *kit) {
             const float rgb[3] = {static_cast<float>((color >> 16) & 0xFF) * kByteScale,
                                   static_cast<float>((color >> 8) & 0xFF) * kByteScale,
                                   static_cast<float>(color & 0xFF) * kByteScale};
-            reinterpret_cast<SetDiffuse_t>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(model, rgb);
+            M2::SetDiffuse(model, rgb);
         } else if (kind == kProcAlpha) {
             const float alpha = value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value;
-            reinterpret_cast<SetAlpha_t>(Offsets::FUN_M2MODEL_SET_ALPHA)(model, alpha);
+            M2::SetAlpha(model, alpha);
         }
     }
 }

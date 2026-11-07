@@ -154,7 +154,6 @@ void __fastcall OnAnimDone(void * /*model*/, uint32_t /*keyBone*/, uint32_t /*an
 
 // Takes the kit's effects off the model and undoes its tint.
 void DropKitEffects(Actor &actor) {
-    using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
     for (void *effect : actor.kitEffects) {
         M2::Detach(effect);
         M2::Release(effect);
@@ -162,7 +161,7 @@ void DropKitEffects(Actor &actor) {
     actor.kitEffects.clear();
     if (actor.model != nullptr) {
         const float white[3] = {1.0f, 1.0f, 1.0f};
-        reinterpret_cast<SetDiffuse_t>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(actor.model, white);
+        M2::SetDiffuse(actor.model, white);
         actor.ApplyAlpha();
     }
 }
@@ -241,11 +240,10 @@ bool Actor::SetUnitModel(uint64_t guid) {
     dresser = Outfit::CloneComponent(copy, unit);
     Outfit::ReadLanes(unit, lanes);
     Outfit::ReadWeapons(guid, weapons);
-    const auto findChild = reinterpret_cast<FindChild_t>(Offsets::FUN_M2MODEL_FIND_CHILD);
     const auto closeHand = reinterpret_cast<CloseHand_t>(Offsets::FUN_CLOSE_HAND);
-    if (findChild(copy, 2) != nullptr)
+    if (M2::FindChild(copy, 2) != nullptr)
         closeHand(copy, 1);
-    if (findChild(copy, 1) != nullptr)
+    if (M2::FindChild(copy, 1) != nullptr)
         closeHand(copy, 0);
     if (autoDress)
         Outfit::HangWeapons(copy, lanes, weapons, sheathed, hideWeapons);
