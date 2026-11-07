@@ -65,8 +65,6 @@ using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, 
                                       int flag);
 using Resize_t = void(__fastcall *)(void *anchor, void *edx, int force);
 using Extent_t = float(__fastcall *)(void *anchor, void *edx);
-using ScreenAspect_t = float(__cdecl *)();
-using DivideByScreenScaleX_t = float(__stdcall *)(float value);
 using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt, ...);
 
 PlaceCaret_t g_origPlaceCaret = nullptr;
@@ -280,11 +278,8 @@ void __fastcall PlaceCaret_h(void *editBox) {
     void **vtable = *static_cast<void ***>(anchor);
     const float width = reinterpret_cast<Extent_t>(vtable[7])(anchor, nullptr);  // +0x1C GetWidth
     const float height = reinterpret_cast<Extent_t>(vtable[8])(anchor, nullptr); // +0x20 GetHeight
-    const auto aspect = reinterpret_cast<ScreenAspect_t>(Offsets::FUN_COORD_GET_SCALED_SCREEN_ASPECT);
-    const auto divide = reinterpret_cast<DivideByScreenScaleX_t>(Offsets::FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X);
-    const float factor = Game::Read<float>(Offsets::FLOAT_SCRIPT_COORD_SCALE);
-    const auto push = [&](float value) { return static_cast<double>(divide(aspect() * factor * value)); };
-    const double args[4] = {push(x), push(y), push(width), push(height)};
+    const double args[4] = {Game::InternalToPixel(x), Game::InternalToPixel(y), Game::InternalToPixel(width),
+                            Game::InternalToPixel(height)};
     void *L = Game::Lua::State();
     const int savedTop = (L != nullptr) ? Game::Lua::GetTop(L) : 0;
     reinterpret_cast<FireVariadic_t>(Offsets::FUN_FRAME_RUN_SCRIPT_VARIADIC)(

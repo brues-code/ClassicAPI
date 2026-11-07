@@ -39,19 +39,8 @@ namespace {
 
 // FUN_FONTSTRING_FONT_HEIGHT — __thiscall(fs, scaled-on-stack); dummy-EDX form.
 using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int scaled);
-using GetScaledScreenAspect_t = float(__cdecl *)();
-// Declared double so the quotient is read from ST0 with `fstp qword`, as
-// GetFont stores it, not narrowed to float.
-using DivideByScreenScaleX_t = double(__stdcall *)(float);
-
-// GetFont's push (0x0079D4A5..0x0079D4C4). `aspect * 1024` is exact, so the
-// float product rounds once, as GetFont's `fstp dword` does.
-double ToUiHeight(float internal) {
-    const float aspect =
-        reinterpret_cast<GetScaledScreenAspect_t>(Offsets::FUN_COORD_GET_SCALED_SCREEN_ASPECT)();
-    const float scaled = aspect * static_cast<float>(Offsets::UI_COORD_SCALE_UNIT) * internal;
-    return reinterpret_cast<DivideByScreenScaleX_t>(Offsets::FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X)(scaled);
-}
+// GetFont's push (0x0079D4A5..0x0079D4C4).
+double ToUiHeight(float internal) { return Game::InternalToPixel(internal); }
 
 void *FontStringSelf(void *L) { return Game::Lua::ResolveFontString(L); }
 void *FontSelf(void *L) { return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_FONT_LUA_TYPE_ID); }

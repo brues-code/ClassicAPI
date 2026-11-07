@@ -750,7 +750,6 @@ enum Offsets {
     VAR_COORD_DDC_WIDTH_SCALE = 0x00832A44,
     VAR_COORD_DDC_HEIGHT_SCALE = 0x00832A48,
     VAR_COORD_ASPECT_COMPENSATION = 0x00832A4C,
-    UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
     // `SetUiParentScale` — `void __stdcall(float scale)`, `ret 4`. The one
     // setter of UIParent's scale: raises the value to 0.64, calls SetScale
     // with force (0x0076AC10), drains the layout queue (0x00768ED0), and does
