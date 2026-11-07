@@ -69,6 +69,7 @@
 #include "frame/AlphaGradient.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
+#include "frame/LayerChange.h"
 #include "frame/ParentChange.h"
 #include "xml/FrameLoad.h"
 
@@ -85,7 +86,6 @@ using BatchOp_t = void(__fastcall *)(void *batch);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
-using NotifyLayerChanged_t = void(__fastcall *)(void *frame, void *edx, int layer);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
 using Matrix_t = void(__fastcall *)(float *m);
 using GetViewport_t = void(__fastcall *)(float *minX, float *maxX, float *minY, float *maxY, float *minZ,
@@ -345,7 +345,7 @@ const Game::HookAutoRegister _hitTestHook{Offsets::FUN_FRAME_HIT_TEST, reinterpr
 
 void MarkLayers(void *frame) {
     for (int layer = 0; layer < Offsets::FRAME_LAYER_COUNT; ++layer)
-        reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_FRAME_NOTIFY_LAYER_CHANGED)(frame, nullptr, layer);
+        Frame::LayerChange::NotifyFrame(frame, layer);
 }
 
 // Marks every layer of each frame under `frame` changed.

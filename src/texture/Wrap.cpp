@@ -43,6 +43,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/LayerChange.h"
 #include "texture/Atlas.h"
 #include "texture/Construct.h"
 #include "texture/Load.h"
@@ -75,7 +76,6 @@ using SetTexture_t = uint32_t(__fastcall *)(void *texture, void *edx, const char
                                             uint32_t filter, uint32_t shader);
 using NameMatch_t = int(__fastcall *)(void *hTexture, const char *name);
 using GetUiPixelShader_t = void *(__fastcall *)(uint32_t index);
-using NotifyLayerChanged_t = void(__fastcall *)(void *region);
 
 SetTexture_t g_origSetTexture = nullptr;
 
@@ -108,7 +108,7 @@ uint32_t Load(void *texture, const char *name, bool repeatH, bool repeatV, uint3
             reinterpret_cast<GetUiPixelShader_t>(Offsets::FUN_UI_GET_PIXEL_SHADER)(shader);
     Texture::ReleaseHandle(held);
     Game::Ref<void *>(texture, Offsets::OFF_SIMPLETEXTURE_HTEXTURE) = image;
-    reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(texture);
+    Frame::LayerChange::NotifyRegion(texture);
     return 1;
 }
 

@@ -99,6 +99,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "api/Documentation.h"
+#include "frame/LayerChange.h"
 #include "frame/Subclass.h"
 #include "model/Camera.h"
 #include "model/M2.h"
@@ -719,11 +720,6 @@ int __fastcall GetCameraScalar(void *L) {
     return 1;
 }
 
-void NotifyLayerChanged(void *frame, int layer) {
-    using Fn_t = void(__fastcall *)(void *self, void *edx, int layer);
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRAME_NOTIFY_LAYER_CHANGED)(frame, nullptr, layer);
-}
-
 int __fastcall Script_SetDrawLayer(void *L) {
     using LayerFromName_t = int(__fastcall *)(const char *name, int *layer);
     void *frame = Self(L);
@@ -741,8 +737,8 @@ int __fastcall Script_SetDrawLayer(void *L) {
         return 0;
     const int old = f.drawLayer;
     f.drawLayer = layer;
-    NotifyLayerChanged(frame, old);
-    NotifyLayerChanged(frame, layer);
+    Frame::LayerChange::NotifyFrame(frame, old);
+    Frame::LayerChange::NotifyFrame(frame, layer);
     return 0;
 }
 

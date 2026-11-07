@@ -83,6 +83,7 @@
 #include "api/Documentation.h"
 #include "cvar/Factory.h"
 #include "frame/ExtraScripts.h"
+#include "frame/LayerChange.h"
 #include "frame/Region.h"
 #include "frame/RenderBatch.h"
 #include "frame/ScriptArgs.h"
@@ -259,10 +260,7 @@ void Hide(void *frame) {
     Game::Read<Slot_t>(Game::Read<void *>(frame, 0), Offsets::VTBL_FRAME_HIDE)(frame, nullptr);
 }
 
-void NotifyLayerChanged(void *frame, int layer) {
-    using Fn_t = void(__fastcall *)(void *self, void *edx, int layer);
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRAME_NOTIFY_LAYER_CHANGED)(frame, nullptr, layer);
-}
+using Frame::LayerChange::NotifyFrame;
 
 // ---- textures ---------------------------------------------------------------
 
@@ -482,7 +480,7 @@ void SetSlotTexture(void *frame, TextureSlot slot, const char *file, const uint3
     if (base != nullptr)
         s.base = *base;
     f.texturesSet |= 1u << slot;
-    NotifyLayerChanged(frame, kSlotLayer[slot]);
+    NotifyFrame(frame, kSlotLayer[slot]);
     UpdateColors(frame);
 }
 
@@ -976,7 +974,7 @@ int __fastcall Script_SetDrawSwipe(void *L) {
     const uint32_t drawSwipe = Game::Lua::ToFlag(L, 2, true);
     if (drawSwipe != f.drawSwipe) {
         f.drawSwipe = drawSwipe;
-        NotifyLayerChanged(frame, kSlotLayer[SLOT_SWIPE]);
+        NotifyFrame(frame, kSlotLayer[SLOT_SWIPE]);
     }
     return 0;
 }
@@ -1238,7 +1236,7 @@ int __fastcall Script_SetDrawEdge(void *L) {
     const uint32_t drawEdge = Game::Lua::ToFlag(L, 2, true);
     if (drawEdge != f.drawEdge) {
         f.drawEdge = drawEdge;
-        NotifyLayerChanged(frame, kSlotLayer[SLOT_EDGE]);
+        NotifyFrame(frame, kSlotLayer[SLOT_EDGE]);
     }
     return 0;
 }
