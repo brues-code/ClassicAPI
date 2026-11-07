@@ -237,7 +237,14 @@ const Game::Doc::Function kGetModelSceneActorDisplayInfoByID{
     "Returns the animation, alpha and scale a model scene actor starts with.",
     kActorDisplayIDArg, kActorDisplayInfoRet};
 
+// Enum.ModelSceneSetting: the camera rows' flags, which OrbitCameraMixin
+// tests on every update (ShouldAlignLightToOrbitDelta).
+const Game::Lua::EnumIntegerEntry kModelSceneSetting[] = {
+    {"AlignLightToOrbitDelta", 1},
+};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterIntegerEnum("Enum", "ModelSceneSetting", kModelSceneSetting, "UIModelInfo");
     Game::Lua::RegisterTableFunction("C_ModelInfo", "GetModelSceneInfoByID",
                                      &Script_GetModelSceneInfoByID, &kGetModelSceneInfoByID);
     Game::Lua::RegisterTableFunction("C_ModelInfo", "GetModelSceneCameraInfoByID",
