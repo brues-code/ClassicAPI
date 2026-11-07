@@ -36,6 +36,9 @@ class Actor : public Animation::Object {
 
     void *SceneFrame() const { return parent; }
 
+    // From the scene frame's update, before the scene clock advances: puts a
+    // ready model on the scene's animate list.
+    void Link();
     // From the scene frame's update walk: load and dress state, scripts.
     void Update(float elapsedSec);
     // From the scene's paint, before the scene animates: the model's

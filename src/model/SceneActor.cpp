@@ -22,7 +22,8 @@
 // done callback and the light/fog callback with the frame as user data, and
 // the actor does the same for each of its models. The frame's clock
 // (0x0076D7F0) links a ready model into the scene's animate list and makes it
-// visible; the actor does that from the scene's update for its own. The
+// visible, then advances the scene; the scene's update does the same for each
+// actor's model (Link), in that order. The
 // scene's paint places every actor (Place) where a Model frame rebuilds its one
 // root transform (slot 0x98), with CM2Model::SetBaseTransformTRS, so the
 // placement is the engine's: scale, then rotate, then translate.
@@ -274,6 +275,12 @@ void Actor::PlayAnimation() {
     if (model == nullptr)
         return;
     heldPositionMs = -1; // a paused actor holds the new animation's first frame
+    // An end the scene's advance reported for the animation this replaces is
+    // not this one's: the engine reports a replaced play as reason 1, which
+    // OnAnimDone drops, and a pending end is dropped the same way. Two actors
+    // whose animations end in one advance otherwise each see the other's
+    // script replace theirs, then run OnAnimFinished for the new one.
+    animFinished = false;
     const int offsetMs = static_cast<int>(animOffsetSec * 1000.0f);
     M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed,
                       static_cast<int>(blendOperation), 1);
@@ -354,11 +361,6 @@ void Actor::Update(float elapsedSec) {
     } else if (dresser != nullptr) {
         Model::DisplayInfo::PumpDresser(dresser);
     }
-    if (model != nullptr && M2::IsReady(model, 0, 1)) {
-        if (M2::Parent(model) == nullptr) // a seated rider is animated by its mount
-            M2::SetAnimated(model, true);
-        M2::SetVisible(model, shown);
-    }
     if (model != nullptr && loaded && (paused || globalPaused)) {
         if (heldPositionMs < 0)
             heldPositionMs = M2::GetAnimPosition(model, -1);
@@ -376,6 +378,18 @@ void Actor::Update(float elapsedSec) {
             RunScript(S_ONUPDATE, 1);
         }
     }
+}
+
+// The Model frame's clock (0x0076D7F0) links its ready model into the animate
+// list before it advances the scene: the advance (M2SceneAdvance, 0x007074D8)
+// updates only the models on the list, and that update is what queues the
+// end-of-sequence callback, while the paint's animate pass empties the list.
+void Actor::Link() {
+    if (model == nullptr || !M2::IsReady(model, 0, 1))
+        return;
+    if (M2::Parent(model) == nullptr) // a seated rider is animated by its mount
+        M2::SetAnimated(model, true);
+    M2::SetVisible(model, shown);
 }
 
 // A seated rider is placed the same way, relative to its seat: the world's
