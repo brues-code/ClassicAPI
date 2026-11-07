@@ -71,6 +71,7 @@
 #include "frame/Destruction.h"
 #include "frame/LayerChange.h"
 #include "frame/ParentChange.h"
+#include "gx/Device.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -87,10 +88,6 @@ using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
-using Matrix_t = void(__fastcall *)(float *m);
-using GetViewport_t = void(__fastcall *)(float *minX, float *maxX, float *minY, float *maxY, float *minZ,
-                                         float *maxZ);
-using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
 using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
 using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 
@@ -218,18 +215,13 @@ bool ClipRect(const void *root, float rect[4]) {
 // The ScrollFrame's draw (0x00787220) with `rect` in place of its hit rect
 // and `draw(arg)` in place of its scroll child's.
 void DrawInside(float rect[4], Callback_t draw, void *arg) {
-    float projection[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    float view[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(view);
-    float vpMinX, vpMaxX, vpMinY, vpMaxY, vpMinZ, vpMaxZ;
-    reinterpret_cast<GetViewport_t>(Offsets::FUN_GX_GET_VIEWPORT)(&vpMinX, &vpMaxX, &vpMinY, &vpMaxY, &vpMinZ,
-                                                                 &vpMaxZ);
+    const Gx::SavedTransforms saved;
+    const Gx::Viewport &vp = saved.SavedViewport();
 
     const auto toDdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_NDC_TO_DDC);
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
-    toDdc(&minX, &minY, vpMinX, vpMinY);
-    toDdc(&maxX, &maxY, vpMaxX, vpMaxY);
+    toDdc(&minX, &minY, vp.minX, vp.minY);
+    toDdc(&maxX, &maxY, vp.maxX, vp.maxY);
     if (minX > rect[LEFT])
         rect[LEFT] = minX;
     if (maxX < rect[RIGHT])
@@ -261,14 +253,9 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
         rect[TOP] = 1.0f;
     }
     if (rect[LEFT] < rect[RIGHT] && rect[BOTTOM] < rect[TOP]) {
-        reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(rect[LEFT], rect[RIGHT], rect[BOTTOM],
-                                                                      rect[TOP], 0.0f, 1.0f);
+        Gx::SetViewport({rect[LEFT], rect[RIGHT], rect[BOTTOM], rect[TOP], 0.0f, 1.0f});
         draw(arg);
     }
-
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_VIEW)(view);
-    reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(vpMinX, vpMaxX, vpMinY, vpMaxY, vpMinZ, vpMaxZ);
 }
 
 void __fastcall DrawClipped(void *arg) {

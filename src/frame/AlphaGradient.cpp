@@ -54,6 +54,7 @@
 #include "Offsets.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
+#include "gx/Device.h"
 #include "texture/Load.h"
 
 #include <cstdint>
@@ -63,10 +64,7 @@ namespace Frame::AlphaGradient {
 
 namespace {
 
-using Matrix_t = void(__fastcall *)(float *m);
 using SetProjection_t = void(__fastcall *)(const float *m);
-using GetViewport_t = void(__fastcall *)(float *minX, float *maxX, float *minY, float *maxY, float *minZ,
-                                         float *maxZ);
 using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
 using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 using GetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
@@ -155,13 +153,12 @@ void RampColumn(const Stage &s, int axis, float vMin, float vMax, float col[4]) 
 }
 
 void Load(const Stage &s) {
-    float p[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(p);
-    float minX, maxX, minY, maxY, minZ, maxZ;
-    reinterpret_cast<GetViewport_t>(Offsets::FUN_GX_GET_VIEWPORT)(&minX, &maxX, &minY, &maxY, &minZ, &maxZ);
+    Gx::Matrix p;
+    Gx::GetProjection(p);
+    const Gx::Viewport vp = Gx::GetViewport();
     float u[4], v[4];
-    RampColumn(s, 0, minX, maxX, u);
-    RampColumn(s, 1, minY, maxY, v);
+    RampColumn(s, 0, vp.minX, vp.maxX, u);
+    RampColumn(s, 1, vp.minY, vp.maxY, v);
     float m[16];
     for (int r = 0; r < 4; ++r) {
         const float *row = p + r * 4;

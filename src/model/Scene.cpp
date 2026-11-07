@@ -101,6 +101,7 @@
 #include "api/Documentation.h"
 #include "frame/LayerChange.h"
 #include "frame/Subclass.h"
+#include "gx/Device.h"
 #include "model/Camera.h"
 #include "model/M2.h"
 #include "xml/FrameLoad.h"
@@ -306,7 +307,6 @@ bool ViewRect(void *frame, const float rect[4], float view[4]) {
 // scaled and shifted in clip space, because the viewport stays the frame's
 // rect. Row-vector matrices: column 0 gives x', column 1 y', column 3 w'.
 void FitProjection(const float rect[4], const float view[4]) {
-    using Matrix_t = void(__fastcall *)(float *m);
     const float frameW = rect[3] - rect[1], frameH = rect[2] - rect[0];
     if (!(frameW > 0.0f) || !(frameH > 0.0f))
         return;
@@ -314,22 +314,18 @@ void FitProjection(const float rect[4], const float view[4]) {
     const float sy = (view[2] - view[0]) / frameH;
     const float tx = ((view[1] + view[3]) - (rect[1] + rect[3])) / frameW;
     const float ty = ((view[0] + view[2]) - (rect[0] + rect[2])) / frameH;
-    float m[16];
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(m);
+    Gx::Matrix m;
+    Gx::GetProjection(m);
     for (int row = 0; row < 4; ++row) {
         float *r = &m[row * 4];
         r[0] = sx * r[0] + tx * r[3];
         r[1] = sy * r[1] + ty * r[3];
     }
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(m);
+    Gx::SetProjection(m);
 }
 
 void __fastcall Paint(void *frame) {
     using GetRect_t = int(__thiscall *)(void *layout, float *rect);
-    using Matrix_t = void(__fastcall *)(float *m);
-    using GetViewport_t = void(__fastcall *)(float *, float *, float *, float *, float *, float *);
-    using SetViewport_t = void(__stdcall *)(float, float, float, float, float, float);
-    using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
     using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
     using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
     using Clear_t = void(__fastcall *)(uint32_t mask);
@@ -340,13 +336,8 @@ void __fastcall Paint(void *frame) {
     if (!reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
             Game::Ptr<uint8_t>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), rect))
         return;
-    float projection[16];
-    float view[16];
-    float vp[6]; // minX, maxX, minY, maxY, minZ, maxZ
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(view);
-    reinterpret_cast<GetViewport_t>(Offsets::FUN_GX_GET_VIEWPORT)(&vp[0], &vp[1], &vp[2], &vp[3],
-                                                                 &vp[4], &vp[5]);
+    const Gx::SavedTransforms saved;
+    const Gx::Viewport &vp = saved.SavedViewport();
     float eye[3] = {0.0f, 0.0f, 0.0f};
     if (void *camera = CameraOf(frame)) {
         const Vec3 e = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
@@ -355,10 +346,10 @@ void __fastcall Paint(void *frame) {
         eye[2] = e.z;
         float viewRect[4];
         if (ViewRect(frame, rect, viewRect)) {
-            reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, viewRect, 0);
+            Model::Camera::SetDeviceTransforms(camera, viewRect);
             FitProjection(rect, viewRect);
         } else {
-            reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
+            Model::Camera::SetDeviceTransforms(camera, rect);
         }
     } else {
         const float point[2] = {rect[1], rect[0]};
@@ -371,8 +362,8 @@ void __fastcall Paint(void *frame) {
         edge = ClampUnit(edge);
     const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON); // 2^-22
     if (!(std::fabs(rect[1] - rect[3]) < epsilon) && !(std::fabs(rect[0] - rect[2]) < epsilon)) {
-        reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(
-            rect[1] * vp[1], rect[3] * vp[1], rect[0] * vp[3], rect[2] * vp[3], 0.0f, 1.0f);
+        Gx::SetViewport({rect[1] * vp.maxX, rect[3] * vp.maxX, rect[0] * vp.maxY, rect[2] * vp.maxY,
+                         0.0f, 1.0f});
         reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR)(2);
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
@@ -381,10 +372,6 @@ void __fastcall Paint(void *frame) {
         draw(scene, 0);
         draw(scene, 1);
     }
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_VIEW)(view);
-    reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(vp[0], vp[1], vp[2], vp[3], vp[4],
-                                                                 vp[5]);
 }
 
 // ---- projection (Project3DPointTo2D) ---------------------------------------------
@@ -409,8 +396,6 @@ void __fastcall Paint(void *frame) {
 // 0 at the far); retail's callers all discard it.
 bool Project(void *frame, const Vec3 &point, double out[3]) {
     using GetRect_t = int(__thiscall *)(void *layout, float *rect);
-    using Matrix_t = void(__fastcall *)(float *m);
-    using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
 
     void *camera = CameraOf(frame);
     float rect[4] = {}; // {bottom, left, top, right}
@@ -418,14 +403,13 @@ bool Project(void *frame, const Vec3 &point, double out[3]) {
         !reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(
             Game::Ptr<uint8_t>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), rect))
         return false;
-    float savedProjection[16], savedView[16], projection[16], view[16];
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(savedProjection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(savedView);
-    reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(view);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(savedProjection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_VIEW)(savedView);
+    Gx::Matrix projection, view;
+    {
+        const Gx::SavedTransforms saved;
+        Model::Camera::SetDeviceTransforms(camera, rect);
+        Gx::GetProjection(projection);
+        Gx::GetView(view);
+    }
 
     const Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
     const double p[4] = {point.x - eye.x, point.y - eye.y, point.z - eye.z, 1.0};

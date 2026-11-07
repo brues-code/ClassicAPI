@@ -28,4 +28,9 @@ void SetVector(void *camera, uint32_t id, const Vec3 &v);
 float GetScalar(void *camera, uint32_t id);
 void SetScalar(void *camera, uint32_t id, float value);
 
+// CameraSetDeviceTransforms (FUN_CAMERA_SET_DEVICE_TRANSFORMS): the device's
+// projection and view from the camera, framed over `rect` {bottom, left,
+// top, right}.
+void SetDeviceTransforms(void *camera, const float (&rect)[4]);
+
 } // namespace Model::Camera
