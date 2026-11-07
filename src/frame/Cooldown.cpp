@@ -223,20 +223,28 @@ uint32_t ColorByte(double c) {
     return static_cast<uint32_t>(c * 255.0 + 0.5);
 }
 
-// ---- vtables ----------------------------------------------------------------
+// ---- the class ----------------------------------------------------------------
 
-Frame::Subclass::VTable<Offsets::VTBL_SIMPLEFRAME_SLOTS> g_vtable;
-Frame::Subclass::VTable<Offsets::VTBL_SIMPLEFRAME_LAYOUT_SLOTS> g_layoutVtable;
+// CGCooldown::~CGCooldown, before CSimpleFrame's deleting destructor.
+void Destroy(void *frame) {
+    Fields &f = F(frame);
+    for (Slot &s : f.slots) {
+        Texture::ReleaseHandle(s.texture);
+        s.texture = nullptr;
+    }
+    Text::NumericFormatter::Release(f.countdownFormatter);
+    f.countdownFormatter = nullptr;
+    delete f.countdownText;
+    f.countdownText = nullptr;
+}
 
-// CSimpleFrame's own slot, for the base call of an override.
-template <typename Fn>
-Fn Base(uintptr_t slot) {
-    return Frame::Subclass::Slot<Fn>(Offsets::VTBL_SIMPLEFRAME, slot);
-}
-template <typename Fn>
-Fn LayoutBase(uintptr_t slot) {
-    return Frame::Subclass::Slot<Fn>(Offsets::VTBL_SIMPLEFRAME_LAYOUT, slot);
-}
+Frame::Subclass::Class<Offsets::VTBL_SIMPLEFRAME_SLOTS, Offsets::VTBL_SIMPLEFRAME_LAYOUT_SLOTS>
+    g_class{"Cooldown",
+            Offsets::VTBL_SIMPLEFRAME,
+            Offsets::VTBL_SIMPLEFRAME_LAYOUT,
+            Offsets::FUN_SIMPLEFRAME_CONSTRUCTOR,
+            kObjectSize,
+            &Destroy};
 
 // 1.12's CSimpleFrame::Show / Hide, as Script Show / Hide make them.
 void Show(void *frame) {
@@ -625,23 +633,13 @@ void UpdateCountdown(void *frame) {
 
 // ---- the overrides ------------------------------------------------------------
 
-using DeletingDestructor_t = void *(__fastcall *)(void *self, void *edx, uint32_t flags);
-using GetScriptMethod_t = int(__fastcall *)(void *self, void *edx, void *L, const char *name);
-using IsA_t = bool(__fastcall *)(void *self, void *edx, int typeId);
-using IsObjectType_t = bool(__fastcall *)(void *self, void *edx, const char *name);
 using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
 using OnFrameUpdate_t = void(__fastcall *)(void *self, void *edx, float elapsedSec);
 using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int layer);
 using OnFrameSizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
 using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node,
                                           void *status);
-// The class's method hash and type id (Offsets.h "Per-class method hashes").
-Frame::Subclass::MethodHash g_hash;
-int g_typeId = 0;
-
-uintptr_t TypeIdVar() { return reinterpret_cast<uintptr_t>(&g_typeId); }
-
-const Frame::ExtraScripts::Script g_onCooldownDone{"oncooldowndone", TypeIdVar()};
+const Frame::ExtraScripts::Script g_onCooldownDone{"oncooldowndone", g_class.TypeIdVar()};
 
 // From the update walk, where the engine runs OnUpdate.
 void RunOnCooldownDone(void *frame) {
@@ -654,52 +652,15 @@ void RunOnCooldownDone(void *frame) {
     Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, Game::Lua::GetTop(L) + 1, 0);
 }
 
-// CGCooldown::~CGCooldown, then CSimpleFrame's deleting destructor.
-void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {
-    Fields &f = F(self);
-    for (Slot &s : f.slots) {
-        Texture::ReleaseHandle(s.texture);
-        s.texture = nullptr;
-    }
-    Text::NumericFormatter::Release(f.countdownFormatter);
-    f.countdownFormatter = nullptr;
-    delete f.countdownText;
-    f.countdownText = nullptr;
-    return Base<DeletingDestructor_t>(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR)(self, nullptr,
-                                                                               flags);
-}
-
-void *__fastcall LayoutDeletingDestructor(void *layout, void *, uint32_t flags) {
-    return DeletingDestructor(FrameOfLayout(layout), nullptr, flags);
-}
-
-int __fastcall GetScriptMethod(void *self, void *, void *L, const char *name) {
-    if (g_hash.PushMethod(L, name))
-        return 1;
-    return Base<GetScriptMethod_t>(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD)(self, nullptr, L, name);
-}
-
-bool __fastcall IsA(void *self, void *, int typeId) {
-    return (g_typeId != 0 && typeId == g_typeId) ||
-           Base<IsA_t>(Offsets::VTBL_FRAME_IS_A)(self, nullptr, typeId);
-}
-
-bool __fastcall IsObjectType(void *self, void *, const char *name) {
-    return (name != nullptr && _stricmp(name, "Cooldown") == 0) ||
-           Base<IsObjectType_t>(Offsets::VTBL_FRAME_IS_OBJECT_TYPE)(self, nullptr, name);
-}
-
-const char *__fastcall GetObjectType(void *, void *) { return "Cooldown"; }
-
 // OFFSET (4.3.4): 0x009FF570 (UpdateAlpha)
 void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
-    Base<SetFrameAlpha_t>(Offsets::VTBL_FRAME_SET_FRAME_ALPHA)(self, nullptr, alpha);
+    g_class.Base<SetFrameAlpha_t>(Offsets::VTBL_FRAME_SET_FRAME_ALPHA)(self, nullptr, alpha);
     UpdateColors(self);
 }
 
 // OFFSET (4.3.4): 0x009FF5A0 (OnLayerUpdate)
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
-    Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
+    g_class.Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     Fields &f = F(self);
     // 4.3.4: `now <= start ? 0 : now - start`, compared wrap-safe. A paused
     // frame reads the time it was paused at.
@@ -747,7 +708,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
 
 // OFFSET (4.3.4): 0x009FE830 (OnFrameRender)
 void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
-    Base<EmitLayer_t>(Offsets::VTBL_FRAME_EMIT_LAYER)(self, nullptr, batch, layer);
+    g_class.Base<EmitLayer_t>(Offsets::VTBL_FRAME_EMIT_LAYER)(self, nullptr, batch, layer);
     Fields &f = F(self);
     using RenderBatch::QueueStrip;
     void *swipe = f.slots[SLOT_SWIPE].texture;
@@ -767,7 +728,7 @@ void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
 
 // OFFSET (4.3.4): 0x009FF580
 void __fastcall OnFrameSizeChanged(void *layout, void *, const float *oldRect) {
-    LayoutBase<OnFrameSizeChanged_t>(Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED)(layout, nullptr,
+    g_class.LayoutBase<OnFrameSizeChanged_t>(Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED)(layout, nullptr,
                                                                                  oldRect);
     ResetVerts(FrameOfLayout(layout));
 }
@@ -816,7 +777,7 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         return 0;
     }
     const uintptr_t result =
-        LayoutBase<LoadXML_t>(Offsets::VTBL_XML_NODE_LOADER)(layout, nullptr, node, status);
+        g_class.LayoutBase<LoadXML_t>(Offsets::VTBL_XML_NODE_LOADER)(layout, nullptr, node, status);
     if (node == nullptr)
         return result;
     Fields &f = F(FrameOfLayout(layout));
@@ -852,37 +813,23 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
 }
 
 void BuildVTables() {
-    if (g_vtable.Built())
+    if (!Frame::Subclass::BuildVTables<g_class>())
         return;
-    g_vtable.CopyFrom(Offsets::VTBL_SIMPLEFRAME);
-    g_layoutVtable.CopyFrom(Offsets::VTBL_SIMPLEFRAME_LAYOUT);
     auto fn = [](auto f) { return reinterpret_cast<const void *>(f); };
-    g_vtable.Set(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR, fn(&DeletingDestructor));
-    g_vtable.Set(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD, fn(&GetScriptMethod));
-    g_vtable.Set(Offsets::VTBL_FRAME_IS_A, fn(&IsA));
-    g_vtable.Set(Offsets::VTBL_FRAME_IS_OBJECT_TYPE, fn(&IsObjectType));
-    g_vtable.Set(Offsets::VTBL_FRAME_GET_OBJECT_TYPE, fn(&GetObjectType));
-    g_vtable.Set(Offsets::VTBL_FRAME_SET_FRAME_ALPHA, fn(&SetFrameAlpha));
-    g_vtable.Set(Offsets::VTBL_FRAME_ON_FRAME_UPDATE, fn(&OnFrameUpdate));
-    g_vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
-    g_layoutVtable.Set(Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED, fn(&OnFrameSizeChanged));
-    g_layoutVtable.Set(Offsets::VTBL_LAYOUT_DELETING_DESTRUCTOR, fn(&LayoutDeletingDestructor));
-    g_layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_SET_FRAME_ALPHA, fn(&SetFrameAlpha));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_ON_FRAME_UPDATE, fn(&OnFrameUpdate));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
+    g_class.layoutVtable.Set(Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED, fn(&OnFrameSizeChanged));
+    g_class.layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
 }
 
 // OFFSET (4.3.4): 0x008C6390 (CGCooldown::Create) — the "Cooldown" factory.
 void *__fastcall CreateCooldown(void *parent) {
-    using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
-    using Constructor_t = void(__fastcall *)(void *self, void *edx, void *parent);
     BuildVTables();
     // Zero-filled: 4.3.4's constructor zeroes every CGCooldown field.
-    void *frame = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC)(
-        kObjectSize, __FILE__, __LINE__, 0x08);
+    void *frame = Frame::Subclass::New<g_class>(parent);
     if (frame == nullptr)
         return nullptr;
-    reinterpret_cast<Constructor_t>(Offsets::FUN_SIMPLEFRAME_CONSTRUCTOR)(frame, nullptr, parent);
-    Game::Ref<const void *>(frame, 0) = g_vtable.slots;
-    Game::Ref<const void *>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT) = g_layoutVtable.slots;
     Fields &f = F(frame);
     f.modRate = 1.0f;
     f.drawSwipe = 1;
@@ -900,7 +847,7 @@ void *__fastcall CreateCooldown(void *parent) {
 
 // ---- the methods (CGCooldown_Scripts.cpp, then the later clients') -------------------
 
-void *ResolveCooldown(void *L) { return Game::Lua::ResolveTypedObject(L, 1, TypeIdVar()); }
+void *ResolveCooldown(void *L) { return Game::Lua::ResolveTypedObject(L, 1, g_class.TypeIdVar()); }
 
 // Seconds to ms on the GetTime() epoch, wrapping like the tick does.
 uint32_t Ms(double seconds) { return static_cast<uint32_t>(static_cast<int64_t>(seconds * 1000.0)); }
@@ -1545,21 +1492,16 @@ const Game::Doc::Method g_methodDocs[] = {
 };
 
 void RegisterLuaFunctions() {
-    using RegisterFactory_t = int(__fastcall *)(const char *type, void *(__fastcall *)(void *),
-                                                int unique);
-    // The engine's frame-type table outlives the Lua state, so on a /reload
-    // the name is already there and the registrar keeps the first one. This
-    // pass runs before FrameXML loads (CGGameUI::Initialize calls
+    // This pass runs before FrameXML loads (CGGameUI::Initialize calls
     // LoadScriptFunctions first), like the engine's own game-UI list
     // FUN_00495940, where 4.3.4 registers "Cooldown".
     g_countdownForCooldowns = CVar::Factory::Register(
         "countdownForCooldowns",
         "Whether to use number countdown instead of radial swipe for action button cooldowns or not.",
         Offsets::CVAR_CATEGORY_GAME, "0");
-    reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(
-        "Cooldown", &CreateCooldown, 0);
-    Api::Documentation::NameWidgetSystem(g_hash.Registry(), "FrameAPICooldown");
-    Game::Lua::RegisterFrameMethods(g_hash.Registry(), g_methods, g_methodDocs);
+    Frame::Subclass::RegisterFactory(g_class.name, &CreateCooldown);
+    Api::Documentation::NameWidgetSystem(g_class.hash.Registry(), "FrameAPICooldown");
+    Game::Lua::RegisterFrameMethods(g_class.hash.Registry(), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -452,67 +452,34 @@ bool Project(void *frame, const Vec3 &point, double out[3]) {
 
 // ---- the overrides -----------------------------------------------------------------
 
-using DeletingDestructor_t = void *(__fastcall *)(void *self, void *edx, uint32_t flags);
-using GetScriptMethod_t = int(__fastcall *)(void *self, void *edx, void *L, const char *name);
-using IsA_t = bool(__fastcall *)(void *self, void *edx, int typeId);
-using IsObjectType_t = bool(__fastcall *)(void *self, void *edx, const char *name);
 using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
 using OnFrameUpdate_t = void(__fastcall *)(void *self, void *edx, float elapsedSec);
 using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int layer);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 
-Frame::Subclass::VTable<Offsets::VTBL_SIMPLEMODEL_SLOTS> g_vtable;
-Frame::Subclass::VTable<Offsets::VTBL_SIMPLEMODEL_LAYOUT_SLOTS> g_layoutVtable;
-Frame::Subclass::MethodHash g_hash;
-int g_typeId = 0;
-
-uintptr_t TypeIdVar() { return reinterpret_cast<uintptr_t>(&g_typeId); }
-
-template <typename Fn>
-Fn ModelBase(uintptr_t slot) {
-    return Frame::Subclass::Slot<Fn>(Offsets::VTBL_SIMPLEMODEL, slot);
-}
-template <typename Fn>
-Fn FrameBase(uintptr_t slot) {
-    return Frame::Subclass::Slot<Fn>(Offsets::VTBL_SIMPLEFRAME, slot);
-}
-
-void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {
-    Fields &f = F(self);
+// The actors destroyed, before Model's deleting destructor (which frees the
+// camera and the scene).
+void Destroy(void *frame) {
+    Fields &f = F(frame);
     for (Actor *actor : *f.actors)
         delete actor;
     delete f.actors;
     f.actors = nullptr;
-    return ModelBase<DeletingDestructor_t>(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR)(self, nullptr,
-                                                                                    flags);
 }
 
-void *__fastcall LayoutDeletingDestructor(void *layout, void *, uint32_t flags) {
-    return DeletingDestructor(FrameOfLayout(layout), nullptr, flags);
-}
+Frame::Subclass::Class<Offsets::VTBL_SIMPLEMODEL_SLOTS, Offsets::VTBL_SIMPLEMODEL_LAYOUT_SLOTS>
+    g_class{"ModelScene",
+            Offsets::VTBL_SIMPLEMODEL,
+            Offsets::VTBL_SIMPLEMODEL_LAYOUT,
+            Offsets::FUN_SIMPLEMODEL_CONSTRUCTOR,
+            kObjectSize,
+            &Destroy};
 
-int __fastcall GetScriptMethod(void *self, void *, void *L, const char *name) {
-    if (g_hash.PushMethod(L, name))
-        return 1;
-    return FrameBase<GetScriptMethod_t>(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD)(self, nullptr, L,
-                                                                               name);
-}
-
-bool __fastcall IsA(void *self, void *, int typeId) {
-    return (g_typeId != 0 && typeId == g_typeId) ||
-           FrameBase<IsA_t>(Offsets::VTBL_FRAME_IS_A)(self, nullptr, typeId);
-}
-
-bool __fastcall IsObjectType(void *self, void *, const char *name) {
-    return (name != nullptr && Game::StrCmpI(name, "ModelScene") == 0) ||
-           FrameBase<IsObjectType_t>(Offsets::VTBL_FRAME_IS_OBJECT_TYPE)(self, nullptr, name);
-}
-
-const char *__fastcall GetObjectType(void *, void *) { return "ModelScene"; }
+using Frame::Subclass::FrameBase;
 
 void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
-    ModelBase<SetFrameAlpha_t>(Offsets::VTBL_FRAME_SET_FRAME_ALPHA)(self, nullptr, alpha);
+    g_class.Base<SetFrameAlpha_t>(Offsets::VTBL_FRAME_SET_FRAME_ALPHA)(self, nullptr, alpha);
     for (Actor *actor : *F(self).actors)
         actor->ApplyAlpha();
 }
@@ -523,7 +490,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     else
-        ModelBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
+        g_class.Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     // By index: an actor's script may create another.
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
@@ -531,7 +498,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
 }
 
 void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
-    ModelBase<EmitLayer_t>(Offsets::VTBL_FRAME_EMIT_LAYER)(self, nullptr, batch, layer);
+    g_class.Base<EmitLayer_t>(Offsets::VTBL_FRAME_EMIT_LAYER)(self, nullptr, batch, layer);
     if (layer == F(self).drawLayer)
         reinterpret_cast<AddCallback_t>(Offsets::FUN_RENDERBATCH_ADD_CALLBACK)(batch, nullptr,
                                                                               &Paint, self);
@@ -574,38 +541,22 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
 }
 
 void BuildVTables() {
-    if (g_vtable.Built())
+    if (!Frame::Subclass::BuildVTables<g_class>())
         return;
-    g_vtable.CopyFrom(Offsets::VTBL_SIMPLEMODEL);
-    g_layoutVtable.CopyFrom(Offsets::VTBL_SIMPLEMODEL_LAYOUT);
     auto fn = [](auto f) { return reinterpret_cast<const void *>(f); };
-    g_vtable.Set(Offsets::VTBL_FRAME_DELETING_DESTRUCTOR, fn(&DeletingDestructor));
-    g_vtable.Set(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD, fn(&GetScriptMethod));
-    g_vtable.Set(Offsets::VTBL_FRAME_SCRIPT_RESOLVER,
-                 FrameBase<const void *>(Offsets::VTBL_FRAME_SCRIPT_RESOLVER));
-    g_vtable.Set(Offsets::VTBL_FRAME_IS_A, fn(&IsA));
-    g_vtable.Set(Offsets::VTBL_FRAME_IS_OBJECT_TYPE, fn(&IsObjectType));
-    g_vtable.Set(Offsets::VTBL_FRAME_GET_OBJECT_TYPE, fn(&GetObjectType));
-    g_vtable.Set(Offsets::VTBL_FRAME_SET_FRAME_ALPHA, fn(&SetFrameAlpha));
-    g_vtable.Set(Offsets::VTBL_FRAME_ON_FRAME_UPDATE, fn(&OnFrameUpdate));
-    g_vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
-    g_vtable.Set(Offsets::VTBL_SIMPLEMODEL_UPDATE_MODEL, fn(&UpdateModel));
-    g_layoutVtable.Set(Offsets::VTBL_LAYOUT_DELETING_DESTRUCTOR, fn(&LayoutDeletingDestructor));
-    g_layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_SET_FRAME_ALPHA, fn(&SetFrameAlpha));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_ON_FRAME_UPDATE, fn(&OnFrameUpdate));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
+    g_class.vtable.Set(Offsets::VTBL_SIMPLEMODEL_UPDATE_MODEL, fn(&UpdateModel));
+    g_class.layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
 }
 
 // The "ModelScene" factory, shaped like the engine's "Model" one (0x006EECF0).
 void *__fastcall CreateModelScene(void *parent) {
-    using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
-    using Constructor_t = void(__fastcall *)(void *self, void *edx, void *parent);
     BuildVTables();
-    void *frame = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC)(
-        kObjectSize, __FILE__, __LINE__, 0x08);
+    void *frame = Frame::Subclass::New<g_class>(parent);
     if (frame == nullptr)
         return nullptr;
-    reinterpret_cast<Constructor_t>(Offsets::FUN_SIMPLEMODEL_CONSTRUCTOR)(frame, nullptr, parent);
-    Game::Ref<const void *>(frame, 0) = g_vtable.slots;
-    Game::Ref<const void *>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT) = g_layoutVtable.slots;
     Fields &f = F(frame);
     f.actors = new std::vector<Actor *>;
     f.position = {0.0f, 0.0f, 0.0f};
@@ -622,7 +573,7 @@ void *__fastcall CreateModelScene(void *parent) {
 
 // ---- the methods ------------------------------------------------------------------
 
-void *Self(void *L) { return Game::Lua::ResolveTypedObject(L, 1, TypeIdVar()); }
+void *Self(void *L) { return Game::Lua::ResolveTypedObject(L, 1, g_class.TypeIdVar()); }
 
 bool NumberArgs(void *L, int first, int count, void *frame, const char *usage) {
     for (int i = 0; i < count; ++i) {
@@ -1250,14 +1201,9 @@ const Game::Doc::Method g_methodDocs[] = {
 };
 
 void RegisterLuaFunctions() {
-    using RegisterFactory_t = int(__fastcall *)(const char *type, void *(__fastcall *)(void *),
-                                                int unique);
-    // The engine's frame-type table outlives the Lua state, so on a /reload
-    // the name is already there and the registrar keeps the first one.
-    reinterpret_cast<RegisterFactory_t>(Offsets::FUN_FRAMEXML_REGISTER_FACTORY)(
-        "ModelScene", &CreateModelScene, 0);
-    Api::Documentation::NameWidgetSystem(g_hash.Registry(), "FrameAPIModelSceneFrame");
-    Game::Lua::RegisterFrameMethods(g_hash.Registry(), g_methods, g_methodDocs);
+    Frame::Subclass::RegisterFactory(g_class.name, &CreateModelScene);
+    Api::Documentation::NameWidgetSystem(g_class.hash.Registry(), "FrameAPIModelSceneFrame");
+    Game::Lua::RegisterFrameMethods(g_class.hash.Registry(), g_methods, g_methodDocs);
     RegisterActorClass();
 }
 
