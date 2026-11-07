@@ -34,6 +34,13 @@
 // state machine — we no longer need `WaitingOpen` / `WaitingClose` /
 // per-tick `VAR_LOOT_GUID` reads, because the controller hook *is* the
 // state transition.
+//
+// Loot mode remembers every corpse it opened and released. A corpse can
+// stay LOOTABLE after the walk when the server withheld loot this player
+// can never take (quest items for other quests, condition-gated loot);
+// those are skipped by later walks until the corpse stops being lootable
+// or leaves the object manager, so a timer-driven caller doesn't reopen
+// them forever.
 
 #include "../Game.h"
 #include "../Offsets.h"
@@ -96,6 +103,13 @@ struct ScanCtx {
     bool lootMode = false;       // LootAllCorpses (true) vs ScanNearbyLoot (false)
     std::vector<uint64_t> queue;
     std::vector<LootEntry> results;
+    // Loot-mode corpses already opened and released. The server keeps
+    // UNIT_DYNFLAG_LOOTABLE set while the corpse still holds loot this
+    // player can never take (quest items for other quests, condition-
+    // gated loot), so without this memory a timer-driven caller would
+    // re-open such a corpse on every walk. Entries drop out as soon as
+    // the corpse stops being lootable or leaves the object manager.
+    std::vector<uint64_t> processed;
 };
 
 ScanCtx s_scan;
@@ -129,6 +143,36 @@ using LootMoney_t = void(__fastcall *)(void *player);
 using LootController_t = void(__fastcall *)(int lootStructPtr,
                                              int coin,
                                              int unk);
+
+// === Processed-corpse memory (loot mode only) ===
+
+bool WasProcessed(uint64_t guid) {
+    for (uint64_t g : s_scan.processed)
+        if (g == guid)
+            return true;
+    return false;
+}
+
+void RememberProcessed(uint64_t guid) {
+    if (!WasProcessed(guid))
+        s_scan.processed.push_back(guid);
+}
+
+// Keeps an entry only while its corpse is still visible AND lootable:
+// once the walk's loot has been taken, or the corpse despawns, the guid
+// no longer needs remembering. An entry whose corpse is merely out of
+// render range is dropped too, so the corpse gets one retry if the
+// player comes back into range later.
+void PruneProcessed() {
+    size_t out = 0;
+    for (size_t i = 0; i < s_scan.processed.size(); ++i) {
+        const uint64_t guid = s_scan.processed[i];
+        void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
+        if (unit != nullptr && Request::IsLootable(unit))
+            s_scan.processed[out++] = guid;
+    }
+    s_scan.processed.resize(out);
+}
 
 // === Scrape ===
 
@@ -341,6 +385,11 @@ void __fastcall LootController_h(int lootStructPtr, int coin, int unk) {
         SendCloseLoot();
 
         s_scan.suppressEvents = false;
+        // Whatever the server refused to hand over stays on the corpse and
+        // keeps the unit LOOTABLE; remember the corpse so later walks skip
+        // it instead of re-opening it forever.
+        if (s_scan.lootMode)
+            RememberProcessed(s_scan.currentGuid);
         TryStartNext();
         return;
     }
@@ -396,6 +445,7 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 struct EnumCtx {
     void *player;
     std::vector<uint64_t> *out;
+    bool skipProcessed;
 };
 
 int __fastcall EnumCallback(EnumCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
@@ -404,17 +454,19 @@ int __fastcall EnumCallback(EnumCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
         return 1;
     if (!Request::IsLootable(obj))
         return 1;
+    if (ctx->skipProcessed && WasProcessed(guid))
+        return 1;
     if (!Request::InReach(ctx->player, obj))
         return 1;
     ctx->out->push_back(guid);
     return 1;
 }
 
-void BuildQueue(void *player, size_t maxCount) {
+void BuildQueue(void *player, size_t maxCount, bool skipProcessed) {
     s_scan.queue.clear();
     auto Enum = reinterpret_cast<ClntObjMgrEnumVisibleObjects_t>(
         Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-    EnumCtx ctx{player, &s_scan.queue};
+    EnumCtx ctx{player, &s_scan.queue, skipProcessed};
     Enum(reinterpret_cast<ClntObjMgrEnumVisibleObjectsCallback_t>(&EnumCallback),
          &ctx);
     // Cap to `maxCount` corpses (0 = unlimited). Order is engine
@@ -440,7 +492,9 @@ bool BeginWalk(bool lootMode, size_t maxCount) {
     s_scan.results.clear();
     s_scan.player = player;
     s_scan.lootMode = lootMode;
-    BuildQueue(player, maxCount);
+    if (lootMode)
+        PruneProcessed();
+    BuildQueue(player, maxCount, /*skipProcessed=*/lootMode);
 
     if (s_scan.queue.empty()) {
         Complete(); // nothing nearby — fire LOOT_SCAN_COMPLETED immediately
