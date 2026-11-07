@@ -11,28 +11,37 @@
 --     cache. 1.12.1 opens no tooltip before a chat link's Control-click, so
 --     the test would drop most chat links; TryOn loads the item instead.
 --   - An item the model cannot wear goes on to DressUpMountLink, retail's
---     next step in DressUpLink: 1.12.1's ItemRef calls DressUpItemLink alone.
+--     next step in DressUpLink: 1.12.1's FrameXML (ItemRef, bags, loot, the
+--     auction house) calls DressUpItemLink alone.
 --   - It returns true when it showed the item or its mount, and false for a
 --     link of another type, as retail's does.
 
-function DressUpItemLink(link)
-	if ( not link ) then
-		return false;
-	end
+-- A link DressUpItemLink takes: an item link, or anything that is not a
+-- link (an item ID or name).
+local function IsItemLink(link)
 	local linkType = type(link) == "string" and LinkUtil.ExtractLink(link);
-	if ( linkType and linkType ~= "item" ) then
-		return false;
-	end
+	return not linkType or linkType == "item";
+end
+
+-- 4.3.4's DressUpItemLink body: the item, when the model can wear it.
+local function DressUpWearable(link)
 	if ( C_Item.IsItemDataCachedByID(link) and not IsDressableItem(link) ) then
-		return DressUpMountLink(link);
+		return false;
 	end
 	DressUpItem(link);
 	return true;
 end
 
+function DressUpItemLink(link)
+	if ( not link or not IsItemLink(link) ) then
+		return false;
+	end
+	return DressUpWearable(link) or DressUpMountLink(link);
+end
+
 -- Retail's DressUpLink (Mainline/DressUpFrames.lua), without battle pets.
 function DressUpLink(link, forcedFrame)
-	return link and (DressUpItemLink(link) or DressUpMountLink(link, forcedFrame));
+	return link and ((IsItemLink(link) and DressUpWearable(link)) or DressUpMountLink(link, forcedFrame));
 end
 
 -- Retail's mount preview (Mainline/DressUpFrames.lua DressUpMountLink and
