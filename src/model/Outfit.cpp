@@ -79,24 +79,6 @@ void ClearLane(void *model, Lanes &lanes, int i) {
     lanes[i] = HeldLane{};
 }
 
-// Component slot for a 0-based inventory slot, or -1.
-int ComponentSlot(int slot0) {
-    switch (slot0) {
-    case 0: return 0;   // head
-    case 2: return 1;   // shoulder
-    case 3: return 2;   // shirt
-    case 4: return 3;   // chest
-    case 5: return 4;   // waist
-    case 6: return 5;   // legs
-    case 7: return 6;   // feet
-    case 8: return 7;   // wrist
-    case 9: return 8;   // hands
-    case 14: return 10; // back
-    case 18: return 9;  // tabard
-    default: return -1;
-    }
-}
-
 // TryOnItem's hand for a held type: the named one, else a second one-hander
 // in the off hand of a dual wielder, and each type's own hand.
 int HandFor(uint32_t type, const Lanes &lanes, const HeldTryOn &held) {
@@ -120,7 +102,40 @@ int HandFor(uint32_t type, const Lanes &lanes, const HeldTryOn &held) {
     }
 }
 
+// The unit's AttachHandItem step on lane `i`: detach it, then hang it in the
+// hand or the sheath, or leave it off.
+void HangLane(void *model, int i, const HeldLane &lane, const Weapons &weapons, bool sheathed,
+              bool hide) {
+    if (lane.itemClass == 0 || weapons.display[i] == nullptr)
+        return;
+    DetachLane(model, i, lane);
+    if (hide)
+        return;
+    const int attachId = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL)(
+        model, weapons.display[i], kBodySlots[i], lane.sheatheType, sheathed,
+        lane.inventoryType == Offsets::INVTYPE_SHIELD,
+        lane.inventoryType == Offsets::INVTYPE_RANGEDRIGHT);
+    HangVisual(model, attachId, weapons.visual[i]);
+}
+
 } // namespace
+
+int ComponentSlotOf(int invSlot) {
+    switch (invSlot) {
+    case 1: return 0;   // head
+    case 3: return 1;   // shoulder
+    case 4: return 2;   // shirt
+    case 5: return 3;   // chest
+    case 6: return 4;   // waist
+    case 7: return 5;   // legs
+    case 8: return 6;   // feet
+    case 9: return 7;   // wrist
+    case 10: return 8;  // hands
+    case 15: return 10; // back
+    case 19: return 9;  // tabard
+    default: return -1;
+    }
+}
 
 void ReadLanes(void *unit, Lanes &lanes) {
     const auto get = VirtualOf<GetHeldItemLane_t>(unit, Offsets::VTBL_UNIT_GET_HELD_ITEM_LANE);
@@ -179,19 +194,8 @@ void HangWeapons(void *model, const Lanes &lanes, const Weapons &weapons, bool s
                  bool hide) {
     if (model == nullptr)
         return;
-    for (int i = 0; i < 2; ++i) {
-        const HeldLane &lane = lanes[i];
-        if (lane.itemClass == 0 || weapons.display[i] == nullptr)
-            continue;
-        DetachLane(model, i, lane);
-        if (hide)
-            continue;
-        const int attachId = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL)(
-            model, weapons.display[i], kBodySlots[i], lane.sheatheType, sheathed,
-            lane.inventoryType == Offsets::INVTYPE_SHIELD,
-            lane.inventoryType == Offsets::INVTYPE_RANGEDRIGHT);
-        HangVisual(model, attachId, weapons.visual[i]);
-    }
+    for (int i = 0; i < 2; ++i)
+        HangLane(model, i, lanes[i], weapons, sheathed, hide);
 }
 
 uint32_t EnchantVisual(const void *display, uint32_t enchantID) {
@@ -308,11 +312,41 @@ void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot) {
     } else if (invSlot == Offsets::INVSLOT_OFFHAND) {
         ClearLane(model, lanes, 1);
     } else {
-        const int compSlot = ComponentSlot(invSlot - 1);
+        const int compSlot = ComponentSlotOf(invSlot);
         if (compSlot >= 0)
             reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(
                 component, static_cast<uint32_t>(compSlot));
     }
+}
+
+void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
+               void *unit, uint64_t guid, int invSlot, bool sheathed, bool hide) {
+    if (model == nullptr || unit == nullptr)
+        return;
+    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND) {
+        const int i = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
+        Lanes worn;
+        Weapons wornWeapons;
+        ReadLanes(unit, worn);
+        ReadWeapons(guid, wornWeapons);
+        ClearLane(model, lanes, i);
+        lanes[i] = worn[i];
+        weapons.display[i] = wornWeapons.display[i];
+        weapons.visual[i] = wornWeapons.visual[i];
+        HangLane(model, i, lanes[i], weapons, sheathed, hide);
+        return;
+    }
+    const int compSlot = ComponentSlotOf(invSlot);
+    void *source = Game::Read<void *>(unit, Offsets::OFF_CGUNIT_CHARACTER_COMPONENT);
+    if (compSlot < 0 || component == nullptr || source == nullptr || !armorReady)
+        return;
+    const auto slot = static_cast<uint32_t>(compSlot);
+    const auto *record =
+        Game::Read<const uint8_t *>(source, Offsets::OFF_CHARCOMP_ITEM_RECORDS + slot * 4);
+    reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component, slot);
+    if (record != nullptr)
+        reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(
+            component, slot, Game::Read<uint32_t>(record, 0));
 }
 
 void Undress(void *model, void *component, Lanes &lanes, bool weapons) {

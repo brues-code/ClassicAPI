@@ -111,6 +111,18 @@ bool TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons 
 // CGDressUpModelFrame::UndressSlot returns first).
 void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot);
 
+// The component slot of an inventory slot (1-based), or -1 for a slot the
+// component has no record for (the neck, fingers, trinkets, hands held and
+// ranged).
+int ComponentSlotOf(int invSlot);
+
+// What `unit` wears in one inventory slot (1-based), back on the model: an
+// armor slot takes the unit's component record (empty when the unit hides
+// its helm or cloak), a held lane the unit's lane, row and glow. Armor needs
+// a component and `armorReady`.
+void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
+               void *unit, uint64_t guid, int invSlot, bool sheathed, bool hide);
+
 // DressUpModel ClearModel (0x00504490): component slots 0..11 cleared, and,
 // with `weapons`, both lanes detached and zeroed.
 void Undress(void *model, void *component, Lanes &lanes, bool weapons);

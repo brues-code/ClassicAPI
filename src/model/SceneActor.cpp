@@ -71,8 +71,10 @@
 // OnModelLoaded runs once its first composite is done. Then retail's
 // SetModelByUnit arguments: autoDress off undresses it (ClearModel's steps),
 // and the held items are hung in the hands or the sheaths, or left off.
-// Dress builds the copy again from the unit. The copy shows the unit as it
-// looks: a shapeshifted unit shows its form (1.12 keeps no native-form model
+// Dress builds the copy again from the unit; DressPlayerSlot puts one slot
+// back from it: an armor slot copies the unit's component record (so a hidden
+// helm or cloak stays off), a hand the unit's lane. The copy shows the unit
+// as it looks: a shapeshifted unit shows its form (1.12 keeps no native-form model
 // to copy), so usePlayerNativeForm, holdBowString and customRaceID change
 // nothing.
 //
@@ -84,7 +86,9 @@
 // uncached item record (its cache callback runs it again); the actor waits
 // for the record and for its model to load (a display has no component until
 // then), and returns DataPending for the first and Success for the second.
-// OnModelLoaded runs after the waiting try-ons are on.
+// OnModelLoaded runs after the waiting try-ons are on. IsSlotAllowed is true
+// for the slots TryOn and UndressSlot act on; IsSlotVisible gives the same
+// answer, as no 1.12 model hides a slot it allows.
 //
 // SetModelByUnitCreatureDisplayID shows the display the unit shows now
 // (UNIT_FIELD_DISPLAYID) the way SetModelByCreatureDisplayID shows one: a
@@ -643,6 +647,42 @@ int __fastcall Script_UndressSlot(void *L) {
     return 0;
 }
 
+int __fastcall Script_DressPlayerSlot(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
+                                        "DressPlayerSlot(invSlot)"))
+        return 0;
+    void *unit = actor->unitGuid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, actor->unitGuid)
+                                      : nullptr;
+    Outfit::DressSlot(actor->model, actor->dresser, actor->armorReady, actor->lanes,
+                      actor->weapons, unit, actor->unitGuid,
+                      static_cast<int>(Game::Lua::ToNumber(L, 2)), actor->sheathed,
+                      actor->hideWeapons);
+    if (actor->model != nullptr)
+        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
+    return 0;
+}
+
+// The slots TryOnReason's arms accept: a hand on any model, armor on one
+// that takes it.
+bool SlotAllowed(const Actor &actor, int invSlot) {
+    if (actor.model == nullptr)
+        return false;
+    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND)
+        return true;
+    return Outfit::ComponentSlotOf(invSlot) >= 0 &&
+           (actor.dresser != nullptr || actor.dressRecord != nullptr) && actor.armorReady;
+}
+
+int __fastcall Script_IsSlotAllowed(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
+                                        "IsSlotAllowed(inventorySlots)"))
+        return 0;
+    Game::Lua::PushBool(L, SlotAllowed(*actor, static_cast<int>(Game::Lua::ToNumber(L, 2))));
+    return 1;
+}
+
 int __fastcall Script_TryOn(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
@@ -1030,6 +1070,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"Undress", &Script_Undress},
     {"UndressSlot", &Script_UndressSlot},
     {"TryOn", &Script_TryOn},
+    {"DressPlayerSlot", &Script_DressPlayerSlot},
+    {"IsSlotAllowed", &Script_IsSlotAllowed},
+    {"IsSlotVisible", &Script_IsSlotAllowed},
     {"SetSheathed", &Script_SetSheathed},
     {"GetSheathed", &Script_GetSheathed},
     {"SetAutoDress", &Script_SetAutoDress},
@@ -1209,6 +1252,19 @@ const Game::Doc::Function kTryOn{
     "Puts an item on the actor. Armor needs a character model. The item goes on once its data "
     "and the model have loaded.",
     kTryOnArgs, kTryOnRet};
+const Game::Doc::Field kDressSlotArgs[] = {
+    Req("invSlot", "luaIndex", "An inventory slot, 1 (head) to 19 (tabard)."),
+};
+const Game::Doc::Function kDressPlayerSlot{
+    "Puts back what the actor's unit wears in one inventory slot.", kDressSlotArgs, {}};
+const Game::Doc::Field kSlotAllowedRet[] = {Req("allowed", "bool")};
+const Game::Doc::Field kSlotVisibleRet[] = {Req("visible", "bool")};
+const Game::Doc::Function kIsSlotAllowed{
+    "Returns whether the actor can wear an item in an inventory slot.", kUndressSlotArgs,
+    kSlotAllowedRet};
+const Game::Doc::Function kIsSlotVisible{
+    "Returns whether an item in an inventory slot shows on the actor. Same as IsSlotAllowed.",
+    kUndressSlotArgs, kSlotVisibleRet};
 const Game::Doc::Function kSetSheathed{
     "Puts the held items in the hands or the sheaths, or hides them.", kSheathedArgs, {}};
 const Game::Doc::Function kGetSheathed{"Returns whether the held items are sheathed.", {},
@@ -1292,6 +1348,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"Undress", &kUndress},
     {"UndressSlot", &kUndressSlot},
     {"TryOn", &kTryOn},
+    {"DressPlayerSlot", &kDressPlayerSlot},
+    {"IsSlotAllowed", &kIsSlotAllowed},
+    {"IsSlotVisible", &kIsSlotVisible},
     {"SetSheathed", &kSetSheathed},
     {"GetSheathed", &kGetSheathed},
     {"SetAutoDress", &kSetAutoDress},

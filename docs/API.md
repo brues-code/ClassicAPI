@@ -844,6 +844,8 @@ build instructions.
   - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
   - [`actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`](#actordress--actorundressincludeweapons--actorundressslotslot)
   - [`actor:TryOn(item [, handSlotName, spellEnchantID])`](#actortryonitem--handslotname-spellenchantid)
+  - [`actor:DressPlayerSlot(slot)`](#actordressplayerslotslot)
+  - [`actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`](#actorisslotallowedslot--actorisslotvisibleslot)
   - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
   - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
   - [`actor:IsGeoReady()`](#actorisgeoready)
@@ -19273,6 +19275,31 @@ actor:SetModelByCreatureDisplayID(2510)
 actor:SetSheathed(true)
 actor:TryOn(18842)
 ```
+
+### `actor:DressPlayerSlot(slot)`
+
+Puts back the item that the unit of the actor wears in one inventory slot,
+from `1` (head) to `19` (tabard). This undoes a `TryOn` or an `UndressSlot`
+on that slot. If the unit wears nothing in the slot, the slot becomes empty.
+A helm or a cloak that the unit hides stays off.
+
+It works on an actor that shows a unit (`SetModelByUnit`), while the unit is
+near enough for your client to see it. A hand slot changes only that hand.
+For example, after a two-hand weapon goes on with `TryOn`, `DressPlayerSlot(17)`
+puts the off-hand item of the unit back next to it.
+
+### `actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`
+
+`IsSlotAllowed` returns `true` when the actor can wear an item in the
+inventory slot:
+
+- The hands (`16` and `17`) are allowed on all models.
+- The armor slots are allowed when `TryOn` can put armor on the actor.
+- The neck, the rings, the trinkets, and the ranged slot are not allowed. A
+  ranged weapon that `TryOn` puts on goes into a hand.
+
+It returns `false` for an actor that shows no model. `IsSlotVisible` returns
+the same value, because an item in an allowed slot always shows.
 
 ### `actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`
 

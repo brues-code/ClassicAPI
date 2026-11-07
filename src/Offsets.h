@@ -4530,6 +4530,11 @@ enum Offsets {
     // over (0x00476CDA; DressUpModel SetModelInstance AddRefs the model first;
     // it is the only caller, 0x005043D5).
     FUN_CHARCOMP_CLONE = 0x00476CB0,
+    // The component's ItemDisplayInfo record per body slot 0..11 (a dword
+    // each, null when bare): UnequipCharacterSlot reads and clears
+    // `[component + slot*4 + 0x4A8]` (0x0047896A, 0x00478A72). A record's
+    // first dword is its ID, the column FUN_CHARCOMP_SET_ITEM looks up.
+    OFF_CHARCOMP_ITEM_RECORDS = 0x4A8,
     // Model-instance API used around the compositor:
     FUN_MODEL_INSTANCE_ADDREF = 0x00710390, // (model /*ecx*/)
     // __thiscall(model, tryLoad, recurseChildren) -> bool loaded. The engine's
