@@ -6295,6 +6295,9 @@ enum Offsets {
     OFF_SPELLVISUAL_MISSILE_ATTACHMENT = 0x24,
     OFF_SPELLVISUAL_MISSILE_SOUND = 0x28,
     OFF_SPELLVISUAL_IMPACT_MODEL = 0x30,
+    // The sound a player plays on its $TRD event while it prepares the spell
+    // (CGPlayer_C::PlayPrecastSound 0x0062FAA0).
+    OFF_SPELLVISUAL_PRECAST_SOUND = 0x38,
     // s_spellVisualAttachments: int[11] = {20, 34, 19, 21, 22, 17, 23, 24,
     // 25, 15, 16}, read from the binary; the first nine are the kit effect
     // columns' attachments.
@@ -6506,6 +6509,50 @@ enum Offsets {
     // display's into the unit's +0x9C and seats the rider at +0x98 (always
     // 1.0) over it. Parsed from the DBC: 2404 = 1.0, 14332 = 1.5.
     OFF_CREATUREDISPLAYINFO_SCALE = 0x10,
+    // The unit's sound data and size class come from the display, else its
+    // model data: GetSoundData (0x0060AFB0, display +0x08 else model data
+    // +0x34) and GetUnitSoundSize (0x00625500, display +0x24 unless -1, else
+    // model data +0x0C). Verified by parsing the DBCs: display 49 has sound
+    // 0 and size class 1 at +0x24; model data 49 has sound 49 and size 1.
+    OFF_CREATUREDISPLAYINFO_SOUND_ID = 0x08,
+    OFF_CREATUREDISPLAYINFO_SIZE_CLASS = 0x24,
+    OFF_CREATUREMODELDATA_SIZE_CLASS = 0x0C,
+    OFF_CREATUREMODELDATA_SOUND_ID = 0x34,
+    // CreatureSoundData.dbc (30 columns; class 0x00C0DE4C, docs/DBCs.md). The
+    // columns the unit's model events read (benilla objectlayer/sounds): the
+    // stand vocal $FDX plays (+0x20, kind 5), the footstep id (+0x24, a
+    // FootstepTerrainLookup CreatureFootstepID), and the four fidgets $FD1 to
+    // $FD4 play (+0x38). Row 49 (human male): 2941, 186, 2942, 2943, 0,
+    // 2944, 191, 192, footstep 7, ..., fidget 5519.
+    VAR_CREATURESOUNDDATA_RECORDS = 0x00C0DE54,
+    VAR_CREATURESOUNDDATA_COUNT = 0x00C0DE58,
+    OFF_CREATURESOUNDDATA_STAND = 0x20,
+    OFF_CREATURESOUNDDATA_FOOTSTEP = 0x24,
+    // The wing flap (+0x2C, vocal kind 7) and glide (+0x30, kind 10) that
+    // the $WNG and $WGG events play through slot 34 (0x005FFBD0: `push 7` /
+    // `push 0xA`, `call [eax+0x88]`). Onyxia's row 191: flap 5059.
+    OFF_CREATURESOUNDDATA_WING_FLAP = 0x2C,
+    OFF_CREATURESOUNDDATA_WING_GLIDE = 0x30,
+    OFF_CREATURESOUNDDATA_FIDGET = 0x38, // int[4]
+    // TerrainType.dbc (6 columns; ids 0 Dirt .. 10 None). Its +0x10 is the
+    // TerrainTypeSounds id the footstep and death-thud tables are indexed by.
+    VAR_TERRAINTYPE_RECORDS = 0x00C0D684,
+    VAR_TERRAINTYPE_COUNT = 0x00C0D688,
+    OFF_TERRAINTYPE_SOUND_ID = 0x10,
+    // GetFootstepSound — `int __fastcall(int creatureFootstepID /*ecx*/, int
+    // terrainTypeID /*edx*/, int wet /*stack*/)`, RET 0x4 (disassembly
+    // 0x00458450): the FootstepTerrainLookup sound for the TerrainType row's
+    // +0x10, dry or wet, or 0 for an unknown terrain or footstep id.
+    FUN_GET_FOOTSTEP_SOUND = 0x00458450,
+    // The death thud table: five size classes of {?, count, pairs *}, 12
+    // bytes each, the pair {dry, wet} indexed by TerrainTypeSounds id and
+    // bounded by count (PlayDeathThud 0x006236E0: `cmp ecx,[eax+0xC4E0F8]`,
+    // `mov eax,[eax+0xC4E0FC]`).
+    VAR_DEATH_THUD_SOUNDS = 0x00C4E0F4,
+    DEATH_THUD_SIZE_CLASSES = 5,
+    DEATH_THUD_STRIDE = 12,
+    OFF_DEATH_THUD_COUNT = 0x04,
+    OFF_DEATH_THUD_PAIRS = 0x08,
     VAR_CREATUREMODELDATA_RECORDS = 0x00C0DE68,
     VAR_CREATUREMODELDATA_COUNT = 0x00C0DE6C,
     OFF_CREATUREMODELDATA_MODEL_PATH = 0x08,

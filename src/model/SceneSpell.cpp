@@ -73,10 +73,8 @@ namespace Model::Scene::Casts {
 
 namespace {
 
-constexpr uint32_t kEventCSL = 0x4C534324; // '$CSL'
-constexpr uint32_t kEventCSR = 0x52534324; // '$CSR'
-constexpr uint32_t kEventCST = 0x54534324; // '$CST'
-constexpr uint32_t kReleaseEvents[] = {kEventCSL, kEventCSR, kEventCST};
+// The release events, '$CSL', '$CSR', '$CST'.
+constexpr uint32_t kReleaseEvents[] = {0x4C534324, 0x52534324, 0x54534324};
 constexpr int kAnimStand = 0;
 constexpr int kAnimCombatWound = 9;
 constexpr int kAnimInFlight = 144;
@@ -464,18 +462,6 @@ void Drop(Actor &caster) {
     }
     caster.impactModels.clear();
     caster.releaseEvent = false;
-}
-
-void __stdcall OnModelEvent(uint32_t tag, uint32_t /*data*/, const float *point,
-                            uint32_t /*unknown*/, uint32_t userLow, uint32_t /*userHigh*/) {
-    if (tag != kEventCSL && tag != kEventCSR && tag != kEventCST)
-        return;
-    if (point == nullptr || std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
-        return; // the unit's callback drops a point that is not a number (0x00607840)
-    auto *actor = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
-    actor->releaseEvent = true;
-    for (int i = 0; i < 3; ++i)
-        actor->releasePoint[i] = point[i];
 }
 
 } // namespace Model::Scene::Casts

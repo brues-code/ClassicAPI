@@ -840,6 +840,7 @@ build instructions.
   - [`scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`](#scenesetdrawlayerlayer--scenegetdrawlayer)
   - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
   - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
+  - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
@@ -875,6 +876,7 @@ build instructions.
   - [`actor:GetAttachmentPosition(attachmentID)`](#actorgetattachmentpositionattachmentid)
   - [`actor:AttachToActor(parent, attachmentID)`](#actorattachtoactorparent-attachmentid)
   - [`actor:DetachFromActor()`](#actordetachfromactor)
+  - [`actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
@@ -19270,6 +19272,31 @@ current frame. `false` starts the animations again from the same frame.
 Stores a flag. It is `false` by default. The flag has no effect: a scene
 always draws, also when another model frame covers it.
 
+### `scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`
+
+Sets the ground that the actors of the scene stand on. The ground selects
+the sounds of their footsteps and death thuds (see
+[`actor:SetPlayAnimationSounds`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)).
+`terrainTypeID` is a row of `TerrainType.dbc`:
+
+| ID | Ground |
+|---|---|
+| `0` | Dirt |
+| `1` | Metallic |
+| `2` | Stone |
+| `3` | Snow |
+| `4` | Wood |
+| `5` | Grass |
+| `6` | Leaves |
+| `7` | Sand |
+| `8` | Soggy |
+| `9` | Dusty grass |
+
+Without `terrainTypeID`, the scene has no ground, and the actors make no
+footsteps and no death thuds. This is the default. `scene:GetGroundTerrain()`
+returns the ID, or nothing when the scene has no ground. This is a
+ClassicAPI extension.
+
 ### `actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`
 
 Shows a creature by its display ID (a `CreatureDisplayInfo` ID) and returns
@@ -19641,6 +19668,35 @@ Takes this actor off the actor that it hangs on, and returns `true`. The
 actor's position, turn and scale then count from the scene again. It returns
 `false` when the actor hangs on no actor. This also takes a rider off its
 mount. This is a ClassicAPI extension.
+
+### `actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`
+
+Sets whether the animations of the model play their sounds, as the
+animations of a creature or a player do in the world. It is `false` by
+default. When it is `true`, the animations play these sounds:
+
+- The wing flaps and wing glides of flying creatures.
+- The fidget sounds and the stand voice of the creature. The stand voice
+  does not play every time, and all actors together play it at most once
+  every 10 seconds. A copy of your own character does not play it.
+- Footsteps and the death thud. These need a ground on the scene
+  ([`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)),
+  and footsteps need the `FootstepSounds` setting.
+- The sounds that some animations carry, with the `EmoteSounds` setting.
+- During the preparation of
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems),
+  the preparation sound of some spells.
+
+The sounds come from the creature display that the actor shows. An actor
+that shows a model file has only the sounds that its animations carry. The
+sounds play in 2D, like `PlaySound`. Attacks play no weapon sounds, because
+an actor does not hit anything. This is a ClassicAPI extension.
+
+```lua
+scene:SetGroundTerrain(5) -- grass
+wolf:SetPlayAnimationSounds(true)
+wolf:SetAnimation(5)      -- run
+```
 
 ### `actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`
 

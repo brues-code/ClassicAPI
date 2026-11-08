@@ -234,6 +234,7 @@ void ReleaseModel(Actor &actor) {
     actor.dresser = nullptr;
     actor.dressRecord = nullptr;
     actor.displayScale = 1.0f;
+    actor.displayID = 0;
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
@@ -265,7 +266,7 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     dressRecord = newDressRecord;
     const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this));
     M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnAnimDone), user, 0);
-    M2::SetEventCallback(model, reinterpret_cast<const void *>(&Casts::OnModelEvent), user, 0);
+    M2::SetEventCallback(model, reinterpret_cast<const void *>(&Events::OnModelEvent), user, 0);
     M2::SetRenderCallback(model, reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
                           SceneFrame());
     ApplyAlpha();
@@ -308,6 +309,7 @@ bool Actor::SetUnitModel(uint64_t guid) {
     }
     // SetModel keeps the unit fields: there is no model to clear.
     SetModel(copy, nullptr, nullptr);
+    displayID = Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_DISPLAYID);
     Model::DisplayInfo::LightChildren(SceneFrame(), copy);
     return true;
 }
@@ -627,12 +629,14 @@ bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
     void *model = Model::DisplayInfo::CreateDisplayModel(Model::Pane::Scene(actor.SceneFrame()),
                                                          displayID, &path);
     actor.SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
-    if (model != nullptr)
-        actor.displayScale = Game::Read<float>(
-            DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                        Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
-            Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
-    return model != nullptr;
+    if (model == nullptr)
+        return false;
+    actor.displayID = displayID;
+    actor.displayScale = Game::Read<float>(
+        DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                    Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
+        Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
+    return true;
 }
 
 int __fastcall Script_SetModelByCreatureDisplayID(void *L) {
@@ -1060,6 +1064,20 @@ int __fastcall Script_PlaySpellVisual(void *L) {
     return 1;
 }
 
+int __fastcall Script_SetPlayAnimationSounds(void *L) {
+    if (Actor *actor = Self(L))
+        actor->playAnimationSounds = Game::Lua::ToBoolean(L, 2) != 0;
+    return 0;
+}
+
+int __fastcall Script_GetPlayAnimationSounds(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->playAnimationSounds);
+    return 1;
+}
+
 int __fastcall Script_DetachFromActor(void *L) {
     Actor *child = Self(L);
     if (child == nullptr)
@@ -1358,6 +1376,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AttachToActor", &Script_AttachToActor},
     {"DetachFromActor", &Script_DetachFromActor},
     {"PlaySpellVisual", &Script_PlaySpellVisual},
+    {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
+    {"GetPlayAnimationSounds", &Script_GetPlayAnimationSounds},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -1639,6 +1659,15 @@ const Game::Doc::Function kPlaySpellVisual{
     "the missile and the impact, with their animations and sounds. False when the spell has no "
     "visual or this actor shows no model.",
     kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
+const Game::Doc::Field kAnimationSoundsArg[] = {Req("enabled", "bool")};
+const Game::Doc::Function kSetPlayAnimationSounds{
+    "Sets whether the model's animations play their sounds, as a unit's do in the world: fidgets, "
+    "the stand vocal, wing flaps, and on a scene with a ground terrain, footsteps and the death thud. Off by "
+    "default.",
+    kAnimationSoundsArg, {}, nullptr, true};
+const Game::Doc::Function kGetPlayAnimationSounds{
+    "Returns whether the model's animations play their sounds.", {}, kAnimationSoundsArg, nullptr,
+    true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -1716,6 +1745,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"AttachToActor", &kAttachToActor},
     {"DetachFromActor", &kDetachFromActor},
     {"PlaySpellVisual", &kPlaySpellVisual},
+    {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},
+    {"GetPlayAnimationSounds", &kGetPlayAnimationSounds},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

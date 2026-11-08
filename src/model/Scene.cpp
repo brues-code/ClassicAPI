@@ -142,6 +142,7 @@ struct Fields {
     // In the frame's own units: left, right, top, bottom; then x, y (y up).
     float viewInsets[4];
     float viewTranslation[2];
+    int32_t groundTerrain; // SetGroundTerrain: a TerrainType id, or -1
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -550,6 +551,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.nearClip = kDefaultNearClip;
     f.farClip = kDefaultFarClip;
     f.drawLayer = Offsets::DRAWLAYER_ARTWORK;
+    f.groundTerrain = -1;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -788,6 +790,31 @@ int __fastcall Script_GetViewTranslation(void *L) {
     return 2;
 }
 
+// The ground the actors' footsteps and death thuds sound on, as a unit's
+// terrain type (+0xC60) chooses them in the world. nil: no ground.
+int __fastcall Script_SetGroundTerrain(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        F(frame).groundTerrain = -1;
+        return 0;
+    }
+    if (!NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame),
+                    "SetGroundTerrain([terrainTypeID])"))
+        return 0;
+    F(frame).groundTerrain = static_cast<int32_t>(Game::Lua::ToNumber(L, 2));
+    return 0;
+}
+
+int __fastcall Script_GetGroundTerrain(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || F(frame).groundTerrain < 0)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).groundTerrain);
+    return 1;
+}
+
 int __fastcall Script_SetAllowOverlappedModels(void *L) {
     if (void *frame = Self(L))
         F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
@@ -950,6 +977,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetDrawLayer", &Script_SetDrawLayer},
     {"GetDrawLayer", &Script_GetDrawLayer},
     {"SetPaused", &Script_SetPaused},
+    {"SetGroundTerrain", &Script_SetGroundTerrain},
+    {"GetGroundTerrain", &Script_GetGroundTerrain},
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
@@ -1070,6 +1099,18 @@ const Game::Doc::Field kFarFogRet[] = {Req("far", "number")};
 const Game::Doc::Function kSetDrawLayer{"Sets the layer the scene draws in.", kLayerArg, {}};
 const Game::Doc::Function kGetDrawLayer{"Returns the layer the scene draws in.", {}, kLayerRets};
 const Game::Doc::Function kSetPaused{"Stops or restarts the actors' animations.", kPausedArgs, {}};
+const Game::Doc::Field kGroundTerrainArg[] = {
+    Opt("terrainTypeID", "number", nullptr,
+        "A TerrainType.dbc row: 0 Dirt, 1 Metallic, 2 Stone, 3 Snow, 4 Wood, 5 Grass, 6 Leaves, 7 "
+        "Sand, 8 Soggy, 9 DustyGrass. Without it, the scene has no ground."),
+};
+const Game::Doc::Field kGroundTerrainRet[] = {Opt("terrainTypeID", "number")};
+const Game::Doc::Function kSetGroundTerrain{
+    "Sets the ground that the footsteps and death thuds of the actors sound on.",
+    kGroundTerrainArg, {}, nullptr, true};
+const Game::Doc::Function kGetGroundTerrain{
+    "Returns the ground terrain of the scene, or nothing when it has none.", {},
+    kGroundTerrainRet, nullptr, true};
 const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Function kSetAllowOverlappedModels{
@@ -1136,6 +1177,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetPaused", &kSetPaused},
     {"SetAllowOverlappedModels", &kSetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &kGetAllowOverlappedModels},
+    {"SetGroundTerrain", &kSetGroundTerrain},
+    {"GetGroundTerrain", &kGetGroundTerrain},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"SetViewInsets", &kSetViewInsets},
     {"GetViewInsets", &kGetViewInsets},
@@ -1200,5 +1243,7 @@ bool NumberArgs(void *L, int first, int count, const char *owner, const char *us
 }
 
 float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
+
+int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 
 } // namespace Model::Scene

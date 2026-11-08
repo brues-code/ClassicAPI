@@ -96,6 +96,10 @@ class Actor : public Animation::Object {
     std::string modelPath;
     const uint8_t *dressRecord = nullptr; // CreatureDisplayInfoExtra, until dressed
     float displayScale = 1.0f; // a creature display's CreatureModelScale, else 1
+    // The CreatureDisplayInfo the model shows (a creature display's, or the
+    // unit's UNIT_FIELD_DISPLAYID), for its sound data; 0 for a model file.
+    uint32_t displayID = 0;
+    bool playAnimationSounds = false; // SetPlayAnimationSounds
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.
     void *dresser = nullptr;
@@ -170,10 +174,18 @@ void Link(Actor &caster);
 void Place(Actor &caster);
 // Drops every cast, missile and impact model of the caster.
 void Drop(Actor &caster);
-// The model event callback (Offsets::FUN_M2MODEL_SET_EVENT_CALLBACK).
+} // namespace Casts
+
+// The actor model's animation events (model/SceneEvents.cpp).
+namespace Events {
+// The model event callback (Offsets::FUN_M2MODEL_SET_EVENT_CALLBACK), user
+// data the actor: missile releases for Casts, and the event sounds.
 void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uint32_t unknown,
                             uint32_t userLow, uint32_t userHigh);
-} // namespace Casts
+} // namespace Events
+
+// The scene's ground terrain (SetGroundTerrain): a TerrainType id, or -1.
+int GroundTerrain(void *sceneFrame);
 
 // Registers the actor class in the current Lua state.
 void RegisterActorClass();
