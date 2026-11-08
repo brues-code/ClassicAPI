@@ -841,6 +841,8 @@ build instructions.
   - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
   - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
   - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
+  - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
+  - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
@@ -19297,6 +19299,46 @@ Without `terrainTypeID`, the scene has no ground, and the actors make no
 footsteps and no death thuds. This is the default. `scene:GetGroundTerrain()`
 returns the ID, or nothing when the scene has no ground. This is a
 ClassicAPI extension.
+
+### `scene:GetActorAtCursor()`
+
+Returns the actor under the cursor, or nothing. The test uses the triangles
+that the scene draws for each shown actor: its model, its held items and
+its spell visual kit effects. A space between the arms of a model is not
+part of the model. When actors overlap, the function returns the actor
+that is nearest to the camera. A seated rider is its own actor, not part of
+its mount. Missiles and impact models of `PlaySpellVisual` are not part of
+an actor.
+
+The function returns nothing when the cursor is outside the frame, when
+the frame is hidden, and before the scene draws the actor for the first
+time. This is a ClassicAPI extension.
+
+### `OnActorEnter` / `OnActorLeave`
+
+Scripts of the scene, with the arguments `(self, actor)`. When the actor
+under the cursor changes, `OnActorLeave` runs for the old actor, then
+`OnActorEnter` runs for the new actor. The actor under the cursor is the
+one that `GetActorAtCursor` returns. Set the scripts with `SetScript`,
+`HookScript`, or the elements `<OnActorEnter>` and `<OnActorLeave>` in
+`<Scripts>`:
+
+```lua
+scene:EnableMouse(true)
+scene:SetScript("OnActorEnter", function(self, actor)
+    print("enter", actor:GetModelPath())
+end)
+scene:SetScript("OnActorLeave", function(self, actor)
+    print("leave", actor:GetModelPath())
+end)
+```
+
+The scripts run only while the scene is the frame under the mouse (see
+`GetMouseFocus`). Thus the scene must take mouse input, for example with
+`EnableMouse(true)`. When the cursor leaves the scene, `OnActorLeave` runs
+for the last actor. While the scene is hidden, no script runs. When it
+shows again, the scripts tell of the changes. This is a ClassicAPI
+extension.
 
 ### `actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`
 

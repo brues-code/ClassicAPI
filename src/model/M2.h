@@ -206,6 +206,36 @@ inline void GetSequenceBounds(void *model, uint32_t animation, uint32_t variatio
         box[i] = Game::Read<float>(record, Offsets::OFF_M2_SEQUENCE_INFO_BOUNDS + i * 4);
 }
 
+// The world pick's steps (Offsets::FUN_M2SCENE_RAY_HIT): ray hits on, the
+// candidates on the scene's hit list, then the ray.
+inline void EnableRayHits(void *scene) {
+    using Fn = void(__fastcall *)(void *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2SCENE_ENABLE_RAY_HITS)(scene);
+}
+
+// Puts the model on its scene's hit list (skinned triangles), with `value`
+// for RayHit to return.
+inline void SetHitTest(void *model, uintptr_t value) {
+    using Fn = void(__thiscall *)(void *, int, int, uintptr_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_HIT_TEST_MODE)(model, Offsets::M2_HIT_TEST_SKINNED,
+                                                                 0, value);
+}
+
+// The hit value of the nearest triangle on p0..p1 (view space), else 0.
+// Empties the hit list.
+inline uintptr_t RayHit(void *scene, const float (&p0)[3], const float (&p1)[3]) {
+    using Fn = uintptr_t(__thiscall *)(void *, const float *, const float *, float *, int);
+    float fraction = 1.0f;
+    return reinterpret_cast<Fn>(Offsets::FUN_M2SCENE_RAY_HIT)(scene, p0, p1, &fraction, 1);
+}
+
+inline void *FirstChild(const void *model) {
+    return Game::Read<void *>(model, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
+}
+inline void *NextSibling(const void *model) {
+    return Game::Read<void *>(model, Offsets::OFF_MODEL_INSTANCE_CHILD_NEXT);
+}
+
 inline void SetAnimated(void *model, bool animated) {
     using Fn = void(__thiscall *)(void *, int);
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_ANIMATED)(model, animated ? 1 : 0);

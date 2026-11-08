@@ -13312,6 +13312,27 @@ enum Offsets {
     FUN_M2SCENE_COPY_MODEL = 0x00707400,
     // M2SceneDraw — `__thiscall(scene, pass)`; the bake draws 0 then 1.
     FUN_M2SCENE_DRAW = 0x00708900,
+    // The world's object pick (0x00480A50, Ghidra): EnableRayHits, then
+    // SetHitTestMode on each candidate and its children (0x00480D90), then
+    // RayHit with retry 1, the ray in view space (the device view of the
+    // last collect, from the camera's eye). EnableRayHits — `__fastcall(scene)`
+    // sets scene +0x12C, which RayHit clears.
+    FUN_M2SCENE_ENABLE_RAY_HITS = 0x007089B0,
+    // M2SceneRayHit — `uint __thiscall(scene, const float p0[3], const float
+    // p1[3], float *fraction, int retry)`, ret 0x10 (the pick's four pushes,
+    // 0x00480C11..0x00480C2E): the nearest triangle on p0..p1 (within
+    // *fraction of it) of the instances on the hit list, animated in the
+    // scene's latest collect (instance +0x40 == scene +0x10). Mode 1 skins
+    // each visible submesh on the CPU and skips alpha 0. Writes the hit's
+    // fraction and returns the instance's hit value, else 0; empties the hit
+    // list on every call. With `retry`, a miss reruns with fattened meshes.
+    FUN_M2SCENE_RAY_HIT = 0x007089C0,
+    // CM2Model::SetHitTestMode — `__thiscall(model, mode, priority, value)`,
+    // ret 0xC (0x00713CB0): a nonzero mode links the instance into its
+    // scene's hit list (+0x414/+0x418 into scene +0x130) and stores mode
+    // +0x410, priority +0x420, value +0x41C. Mode 1 is the world pick's.
+    FUN_M2MODEL_SET_HIT_TEST_MODE = 0x00713CB0,
+    M2_HIT_TEST_SKINNED = 1,
     // `__fastcall(model)`: drops one instance reference (HandleClose2).
     FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,
     // CM2Model::IsReady — `__thiscall(model, wait, recurseChildren)`:

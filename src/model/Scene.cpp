@@ -93,14 +93,21 @@
 // SetAllowOverlappedModels only stores its flag (retail's default false,
 // probed): 1.12 draws a model frame whatever overlaps it, so there is nothing
 // for the flag to allow. Project3DPointTo2D is under "projection" below.
+//
+// ClassicAPI extensions: GetActorAtCursor, and the scripts OnActorEnter /
+// OnActorLeave (self, actor), which run from the update walk when the actor
+// under the cursor changes while the scene is the mouse focus. Both use the
+// world's own object pick, under "picking" below.
 
 #include "model/Scene.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "api/Documentation.h"
+#include "frame/ExtraScripts.h"
 #include "frame/LayerChange.h"
 #include "frame/Layout.h"
+#include "frame/ScriptArgs.h"
 #include "frame/Subclass.h"
 #include "gx/Device.h"
 #include "model/Camera.h"
@@ -143,6 +150,7 @@ struct Fields {
     float viewInsets[4];
     float viewTranslation[2];
     int32_t groundTerrain; // SetGroundTerrain: a TerrainType id, or -1
+    Actor *hovered; // the actor OnActorEnter last ran for, or null
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -326,6 +334,18 @@ void FitProjection(const float rect[4], const float view[4]) {
     Gx::SetProjection(m);
 }
 
+// The device projection and view the paint draws with: the camera framed
+// over the view rect, placed in the frame's rect.
+void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
+    float viewRect[4];
+    if (ViewRect(frame, rect, viewRect)) {
+        Model::Camera::SetDeviceTransforms(camera, viewRect);
+        FitProjection(rect, viewRect);
+    } else {
+        Model::Camera::SetDeviceTransforms(camera, rect);
+    }
+}
+
 void __fastcall Paint(void *frame) {
     using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
     using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
@@ -344,13 +364,7 @@ void __fastcall Paint(void *frame) {
         eye[0] = e.x;
         eye[1] = e.y;
         eye[2] = e.z;
-        float viewRect[4];
-        if (ViewRect(frame, rect, viewRect)) {
-            Model::Camera::SetDeviceTransforms(camera, viewRect);
-            FitProjection(rect, viewRect);
-        } else {
-            Model::Camera::SetDeviceTransforms(camera, rect);
-        }
+        CameraTransforms(frame, camera, rect);
     } else {
         const float point[2] = {rect[1], rect[0]};
         reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
@@ -436,6 +450,119 @@ bool Project(void *frame, const Vec3 &point, double out[3]) {
     return true;
 }
 
+// ---- picking (GetActorAtCursor) ---------------------------------------------------
+
+// The world's object pick (0x00480A50) on the scene's own M2 scene: ray hits
+// on, each candidate's model and its children on the hit list
+// (SetHitTestMode, as 0x00480D90 does it), then the engine's ray, which
+// skins each model on the CPU and returns the value of the nearest triangle
+// (models/scene.md: Ray hits). So an actor is picked by what it draws, not
+// by its bounding box. The ray is in view space and the models are where the
+// scene's latest paint put them (RayHit skips a model that paint did not
+// animate), so the pick is what the frame shows.
+//
+// The ray is the cursor through the paint's projection (CameraTransforms):
+// the camera's rect aspect (CCamera::SetDeviceTransforms 0x007AC640 reads
+// nothing else of the rect) in the viewport the paint sets, the frame's rect
+// clamped to the screen. It runs from the near clip to the far clip, by view
+// depth (w', which FitProjection does not change).
+
+// The view-space point at clip (x, y) and view depth `depth`: solves
+// x' = x w', y' = y w', w' = depth for the row-vector projection `m`.
+bool Unproject(const Gx::Matrix &m, float x, float y, float depth, float (&out)[3]) {
+    double a[3][3], b[3];
+    for (int j = 0; j < 3; ++j) {
+        a[0][j] = m[j * 4 + 0] - x * m[j * 4 + 3];
+        a[1][j] = m[j * 4 + 1] - y * m[j * 4 + 3];
+        a[2][j] = m[j * 4 + 3];
+    }
+    b[0] = x * m[15] - m[12];
+    b[1] = y * m[15] - m[13];
+    b[2] = depth - m[15];
+    auto det = [](const double (&r)[3][3]) {
+        return r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1]) -
+               r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0]) +
+               r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
+    };
+    const double d = det(a);
+    if (!(std::fabs(d) > 1e-12))
+        return false;
+    for (int j = 0; j < 3; ++j) {
+        double c[3][3];
+        for (int r = 0; r < 3; ++r)
+            for (int k = 0; k < 3; ++k)
+                c[r][k] = k == j ? b[r] : a[r][k];
+        out[j] = static_cast<float>(det(c) / d);
+    }
+    return true;
+}
+
+// The cursor in the clip space of the paint's viewport, the frame's rect
+// {bottom, left, top, right} in NDC clamped to the screen; false when the
+// cursor is outside it or the paint draws nothing.
+bool CursorClip(const float (&rect)[4], float &x, float &y) {
+    using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
+    const uint8_t *ctx = Game::Read<const uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
+    if (ctx == nullptr)
+        return false;
+    const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
+    float vp[4] = {rect[0], rect[1], rect[2], rect[3]};
+    auto toNdc = reinterpret_cast<DdcToNdc_t>(Offsets::FUN_COORD_DDC_TO_NDC);
+    toNdc(&vp[1], &vp[0], vp[1], vp[0]);
+    toNdc(&vp[3], &vp[2], vp[3], vp[2]);
+    for (float &edge : vp)
+        edge = ClampUnit(edge);
+    const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON);
+    if (std::fabs(vp[1] - vp[3]) < epsilon || std::fabs(vp[0] - vp[2]) < epsilon)
+        return false;
+    if (!(mouse[0] >= vp[1] && mouse[0] <= vp[3] && mouse[1] >= vp[0] && mouse[1] <= vp[2]))
+        return false;
+    x = 2.0f * (mouse[0] - vp[1]) / (vp[3] - vp[1]) - 1.0f;
+    y = 2.0f * (mouse[1] - vp[0]) / (vp[2] - vp[0]) - 1.0f;
+    return true;
+}
+
+// The model and its children (held items, kit effects) on the hit list as
+// `actor`. A child that is another actor's model (a seated rider) is that
+// actor's to add.
+void AddHitTest(void *model, Actor *actor, const std::vector<Actor *> &actors) {
+    M2::SetHitTest(model, reinterpret_cast<uintptr_t>(actor));
+    for (void *child = M2::FirstChild(model); child != nullptr; child = M2::NextSibling(child)) {
+        bool otherActor = false;
+        for (const Actor *a : actors)
+            otherActor = otherActor || a->model == child;
+        if (!otherActor)
+            AddHitTest(child, actor, actors);
+    }
+}
+
+// The shown actor whose model is nearest under the cursor, or null.
+Actor *ActorAtCursor(void *frame) {
+    void *camera = CameraOf(frame);
+    float rect[4] = {}; // {bottom, left, top, right}
+    if (camera == nullptr || !Model::Pane::IsVisible(frame) || !Frame::Layout::GetRect(frame, rect))
+        return nullptr;
+    float x = 0.0f, y = 0.0f;
+    if (!CursorClip(rect, x, y))
+        return nullptr;
+    Gx::Matrix projection;
+    {
+        const Gx::SavedTransforms saved;
+        CameraTransforms(frame, camera, rect);
+        Gx::GetProjection(projection);
+    }
+    const Fields &f = F(frame);
+    float p0[3], p1[3];
+    if (!Unproject(projection, x, y, f.nearClip, p0) || !Unproject(projection, x, y, f.farClip, p1))
+        return nullptr;
+    void *scene = Model::Pane::Scene(frame);
+    M2::EnableRayHits(scene);
+    for (Actor *actor : *f.actors)
+        if (actor->shown && actor->model != nullptr)
+            AddHitTest(actor->model, actor, *f.actors);
+    return reinterpret_cast<Actor *>(M2::RayHit(scene, p0, p1));
+}
+
 // ---- the overrides -----------------------------------------------------------------
 
 using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
@@ -464,6 +591,49 @@ Frame::Subclass::Class<Offsets::VTBL_SIMPLEMODEL_SLOTS, Offsets::VTBL_SIMPLEMODE
 
 using Frame::Subclass::FrameBase;
 
+// OnActorEnter / OnActorLeave (self, actor): the actor under the cursor
+// changed while the scene is the mouse focus, from the update walk.
+const Frame::ExtraScripts::Script g_onActorEnter{"onactorenter", g_class.TypeIdVar()};
+const Frame::ExtraScripts::Script g_onActorLeave{"onactorleave", g_class.TypeIdVar()};
+
+bool HasScript(const Frame::ExtraScripts::Script &script, void *frame) {
+    const uint32_t *slot = script.Slot(frame);
+    return slot != nullptr && slot[0] != 0;
+}
+
+void RunActorScript(const Frame::ExtraScripts::Script &script, void *frame, Actor *actor) {
+    const uint32_t *slot = script.Slot(frame);
+    void *L = slot != nullptr && slot[0] != 0 ? Game::Lua::State() : nullptr;
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    Animation::Push(L, actor);
+    Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, top + 1, 1);
+    Game::Lua::SetTop(L, top);
+}
+
+bool IsMouseFocus(void *frame) {
+    const uint8_t *ctx = Game::Read<const uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
+    return ctx != nullptr && Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS) == frame;
+}
+
+// Picks only while a script would hear of it.
+void UpdateHover(void *frame) {
+    Fields &f = F(frame);
+    Actor *now = nullptr;
+    if ((HasScript(g_onActorEnter, frame) || HasScript(g_onActorLeave, frame)) && IsMouseFocus(frame))
+        now = ActorAtCursor(frame);
+    Actor *was = f.hovered;
+    if (now == was)
+        return;
+    f.hovered = now;
+    if (was != nullptr)
+        RunActorScript(g_onActorLeave, frame, was);
+    // OnActorLeave may have moved on to another actor.
+    if (now != nullptr && f.hovered == now)
+        RunActorScript(g_onActorEnter, frame, now);
+}
+
 void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
     g_class.Base<SetFrameAlpha_t>(Offsets::VTBL_FRAME_SET_FRAME_ALPHA)(self, nullptr, alpha);
     for (Actor *actor : *F(self).actors)
@@ -481,6 +651,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
         actors[i]->Update(elapsedSec);
+    UpdateHover(self);
 }
 
 void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
@@ -552,6 +723,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.farClip = kDefaultFarClip;
     f.drawLayer = Offsets::DRAWLAYER_ARTWORK;
     f.groundTerrain = -1;
+    f.hovered = nullptr;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -749,6 +921,17 @@ int __fastcall Script_Project3DPointTo2D(void *L) {
     for (double value : out)
         Game::Lua::PushNumber(L, value);
     return 3;
+}
+
+int __fastcall Script_GetActorAtCursor(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Actor *actor = ActorAtCursor(frame);
+    if (actor == nullptr)
+        return 0;
+    Animation::Push(L, actor);
+    return 1;
 }
 
 int __fastcall Script_SetViewInsets(void *L) {
@@ -982,6 +1165,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
+    {"GetActorAtCursor", &Script_GetActorAtCursor},
     {"SetViewInsets", &Script_SetViewInsets},
     {"GetViewInsets", &Script_GetViewInsets},
     {"SetViewTranslation", &Script_SetViewTranslation},
@@ -1128,6 +1312,11 @@ const Game::Doc::Function kProject3DPointTo2D{
     "Returns where a scene point appears on the scene. Returns nothing before the scene has a size, "
     "or for a point in the camera's plane.",
     kProjectArgs, kProjectRets};
+const Game::Doc::Function kGetActorAtCursor{
+    "Returns the shown actor that the scene draws nearest under the cursor. The test uses the "
+    "triangles of the model, its held items and its effects. Returns nothing when no actor is "
+    "under the cursor.",
+    {}, kActorRet, nullptr, true};
 const Game::Doc::Field kInsetArgs[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
                                        Req("bottom", "number")};
 const Game::Doc::Field kInsetRets[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
@@ -1180,6 +1369,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetGroundTerrain", &kSetGroundTerrain},
     {"GetGroundTerrain", &kGetGroundTerrain},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
+    {"GetActorAtCursor", &kGetActorAtCursor},
     {"SetViewInsets", &kSetViewInsets},
     {"GetViewInsets", &kGetViewInsets},
     {"SetViewTranslation", &kSetViewTranslation},
