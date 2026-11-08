@@ -101,6 +101,7 @@ class Actor : public Animation::Object {
     // unit's UNIT_FIELD_DISPLAYID), for its sound data; 0 for a model file.
     uint32_t displayID = 0;
     bool playAnimationSounds = false; // SetPlayAnimationSounds
+    bool shadowShown = false;         // SetShadowShown: a blob shadow under the model
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.
     void *dresser = nullptr;

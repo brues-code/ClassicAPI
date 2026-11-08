@@ -147,6 +147,8 @@
 // animation), DetachFromActor takes it off, and GetAttachmentPosition is the
 // engine's own CM2Model::GetAttachmentPosition. Both attach methods refuse a
 // cycle (M2::CanAttach): EnsureAnimated recurses through the parent chain.
+// SetShadowShown only sets the flag the scene's paint reads (model/Scene.cpp,
+// "ground shadows": the world's blob shadow on the actor's plane).
 //
 // XML: an <Actor> element is a template CreateActor names (1.12's file loader
 // registers every virtual top-level node whatever its tag), loaded the way an
@@ -1104,6 +1106,20 @@ int __fastcall Script_GetPlayAnimationSounds(void *L) {
     return 1;
 }
 
+int __fastcall Script_SetShadowShown(void *L) {
+    if (Actor *actor = Self(L))
+        actor->shadowShown = Game::Lua::ToBoolean(L, 2) != 0;
+    return 0;
+}
+
+int __fastcall Script_IsShadowShown(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->shadowShown);
+    return 1;
+}
+
 int __fastcall Script_DetachFromActor(void *L) {
     Actor *child = Self(L);
     if (child == nullptr)
@@ -1405,6 +1421,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &Script_GetPlayAnimationSounds},
+    {"SetShadowShown", &Script_SetShadowShown},
+    {"IsShadowShown", &Script_IsShadowShown},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -1703,6 +1721,13 @@ const Game::Doc::Function kSetPlayAnimationSounds{
 const Game::Doc::Function kGetPlayAnimationSounds{
     "Returns whether the model's animations play their sounds.", {}, kAnimationSoundsArg, nullptr,
     true};
+const Game::Doc::Field kShadowShownArg[] = {Req("shown", "bool")};
+const Game::Doc::Function kSetShadowShown{
+    "Sets whether a blob shadow shows under the model, as under a unit in the world, while the "
+    "shadowLOD cvar is 1. Off by default.",
+    kShadowShownArg, {}, nullptr, true};
+const Game::Doc::Function kIsShadowShown{"Returns whether the actor shows a blob shadow.", {},
+                                         kShadowShownArg, nullptr, true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -1783,6 +1808,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"ApplySpellVisualKit", &kApplySpellVisualKit},
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &kGetPlayAnimationSounds},
+    {"SetShadowShown", &kSetShadowShown},
+    {"IsShadowShown", &kIsShadowShown},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

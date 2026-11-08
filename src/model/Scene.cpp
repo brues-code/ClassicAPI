@@ -346,6 +346,108 @@ void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
     }
 }
 
+// ---- ground shadows (actor:SetShadowShown) -------------------------------------
+
+// The world's blob shadow (DrawBlobShadow 0x006D7920, Offsets::VAR_SHADOW_LOD):
+// Textures\ShadowBlob.blp over the box of the model's sequence (0, 0)
+// bounds, clamped to +-5, multiplied by the base scale and turned with the
+// base rotation, in white with the model's alpha, multiplied onto what is
+// behind it; only while shadowLOD is 1 and the model is ready. The world lays
+// it onto the ground's batches with a decal (0x006D7330). A scene has no
+// ground, so the turned box itself is drawn, flat on the plane of the base
+// translation (the model's origin, its feet), with the decal's states. Not
+// drawn: the decal's fade with height (the quad is at the feet) and the
+// shadowBias depth test EQUAL (it matches the ground's own depth, and the
+// quad is its own geometry). Culling is off, as for the engine's other
+// single quads (the lightning bolt, 0x007AFCB0), so the quad shows from
+// either side. A model hung on another (a seated rider) casts none: its
+// base transform is relative to its parent, and the world's entity list
+// holds the mount alone.
+//
+// The shadows draw after the animate pass and before the models, without
+// depth writes: each model then draws over the shadows, its own included.
+
+using GxRsSet_t = void(__fastcall *)(int selector, int value);
+using GxRsSetPtr_t = void(__fastcall *)(int selector, const void *value);
+using GxState_t = void(__fastcall *)();
+using GetRenderable_t = void *(__fastcall *)(void *texture, int force, void *);
+using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *normal,
+                                         int normalStride, const void *colors, int colorStride,
+                                         int unused8, int unused9, const void *uv0, int uv0Stride,
+                                         const void *uv1, int uv1Stride);
+using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const uint16_t *indices);
+
+// Draws one actor's shadow; the decal states are set.
+void DrawShadow(Actor &actor, const float (&eye)[3]) {
+    void *model = actor.model;
+    if (!actor.shadowShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
+        !M2::IsReady(model, 0, 0))
+        return;
+    float box[6]; // min xyz, max xyz
+    M2::GetSequenceBounds(model, 0, 0, box);
+    const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON);
+    if (std::fabs(box[4] - box[1]) < epsilon || std::fabs(box[3] - box[0]) < epsilon)
+        return;
+    constexpr float kClamp = static_cast<float>(Offsets::SHADOW_BOUNDS_CLAMP);
+    for (float &v : box)
+        v = v < -kClamp ? -kClamp : (v > kClamp ? kClamp : v);
+    float m[16];
+    M2::GetBaseTransform(model, m);
+    const float scale = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    for (float &v : box)
+        v *= scale;
+    // The rotation rows: the scaled axes over the scale, unless it is 1.
+    const float inv = std::fabs(scale - 1.0f) < epsilon ? 1.0f : 1.0f / scale;
+    const float x0 = box[0], y0 = box[1], x1 = box[3], y1 = box[4];
+    // Strip order; u runs along the model's y, v along its x.
+    const float local[4][2] = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}};
+    float pos[4][3];
+    float uv[4][2];
+    for (int i = 0; i < 4; ++i) {
+        const float x = local[i][0], y = local[i][1];
+        pos[i][0] = (x * m[0] + y * m[4]) * inv + m[12] - eye[0];
+        pos[i][1] = (x * m[1] + y * m[5]) * inv + m[13] - eye[1];
+        pos[i][2] = m[14] - eye[2];
+        uv[i][0] = (y - y0) / (y1 - y0);
+        uv[i][1] = (x - x0) / (x1 - x0);
+    }
+    float alpha = M2::GetAlpha(model);
+    alpha = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+    const uint32_t color = (static_cast<uint32_t>(alpha * 255.0f + 0.5f) << 24) | 0x00FFFFFFu;
+    const uint32_t colors[4] = {color, color, color, color};
+    static const uint16_t kStrip[4] = {0, 1, 2, 3};
+    reinterpret_cast<PrimStreams_t>(Offsets::FUN_GX_PRIM_STREAMS)(4, pos, 12, nullptr, 0, colors, 4, 0, 0,
+                                                                 uv, 8, nullptr, 0);
+    reinterpret_cast<PrimIndexed_t>(Offsets::FUN_GX_PRIM_INDEXED)(Offsets::GX_PRIM_TRIANGLE_STRIP, 4,
+                                                                  kStrip);
+}
+
+void DrawShadows(void *frame, const float (&eye)[3]) {
+    void *texture = Game::Read<void *>(Offsets::VAR_SHADOW_BLOB_TEXTURE);
+    if (Game::Read<int>(Offsets::VAR_SHADOW_LOD) != 1 || texture == nullptr)
+        return;
+    const std::vector<Actor *> &actors = *F(frame).actors;
+    bool any = false;
+    for (const Actor *actor : actors)
+        any = any || actor->shadowShown;
+    if (!any)
+        return;
+    auto rs = reinterpret_cast<GxRsSet_t>(Offsets::FUN_GX_RS_SET);
+    reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_PUSH)();
+    rs(Offsets::GXRS_BLEND, Offsets::GXRS_BLEND_MODULATE);
+    rs(Offsets::GXRS_LIGHTING, 0);
+    rs(Offsets::GXRS_FOG, 0);
+    rs(Offsets::GXRS_DEPTH_WRITE, 0);
+    rs(Offsets::GXRS_CULL, 0);
+    reinterpret_cast<GxRsSetPtr_t>(Offsets::FUN_GX_RS_SET_PTR)(
+        Offsets::GXRS_TEXTURE0,
+        reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(texture, 1, nullptr));
+    rs(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_BLEND_DIFFUSE_ALPHA);
+    for (Actor *actor : actors)
+        DrawShadow(*actor, eye);
+    reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_POP)();
+}
+
 void __fastcall Paint(void *frame) {
     using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
     using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
@@ -382,6 +484,7 @@ void __fastcall Paint(void *frame) {
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
+        DrawShadows(frame, eye);
         auto draw = reinterpret_cast<Draw_t>(Offsets::FUN_M2SCENE_DRAW);
         draw(scene, 0);
         draw(scene, 1);

@@ -13333,6 +13333,38 @@ enum Offsets {
     // +0x410, priority +0x420, value +0x41C. Mode 1 is the world pick's.
     FUN_M2MODEL_SET_HIT_TEST_MODE = 0x00713CB0,
     M2_HIT_TEST_SKINNED = 1,
+    // CM2Model::GetBaseTransform — `__thiscall(model, float out[16])`, ret 4:
+    // copies the base matrix +0xBC. GetAlpha — `float __thiscall(model)`:
+    // +0x180 (Ghidra 0x00710600, 0x00710CA0).
+    FUN_M2MODEL_GET_BASE_TRANSFORM = 0x00710600,
+    FUN_M2MODEL_GET_ALPHA = 0x00710CA0,
+
+    // ---- The blob shadow (DrawBlobShadow 0x006D7920; benilla
+    // lighting/shadows). A world entity with flag 0x400 draws it when its
+    // model is ready and shadowLOD is 1 (0x006D78F0). The box is the bounds
+    // of sequence (0, 0), skipped when the x or y extent is under
+    // VAR_HAS_RANGE_EPSILON, clamped to +-5 and multiplied by the length of
+    // the base transform's row 0 (times 1.0, 0x00811698); its four corners
+    // turn by the base rotation (rows over that length) and move by the base
+    // translation. The decal states (0x006D7F27..0x006D7FCF): push, blend 4,
+    // lighting / fog / depth write off, the blob on stage 0, fog colour
+    // white, combiner preset 5, depth function EQUAL when shadowBias is not
+    // 0; colour white with the model's alpha (0x004A2C10 packs its first
+    // argument as the top byte), then the decal draw 0x006D7330 and pop.
+    VAR_SHADOW_LOD = 0x0086F5B4,          // int, the shadowLOD cvar (default 1)
+    VAR_SHADOW_BLOB_TEXTURE = 0x00CE9DFC, // HTEXTURE Textures\ShadowBlob.blp; the unit setup loads it (0x006D8070)
+    SHADOW_BOUNDS_CLAMP = 5,
+    // Render-state ids (benilla gx/renderstate: the id table).
+    GXRS_BLEND = 0x07,       // blend mode 0..10
+    GXRS_LIGHTING = 0x0E,
+    GXRS_FOG = 0x0F,
+    GXRS_DEPTH_WRITE = 0x12,
+    GXRS_CULL = 0x14,
+    GXRS_BLEND_MODULATE = 4,          // DST_COLOR / ZERO
+    GXRS_COMBINE_BLEND_DIFFUSE_ALPHA = 5, // stage: texture to the vertex colour by its alpha
+    // Topology for FUN_GX_PRIM_INDEXED: 4 is a triangle strip (the lightning
+    // bolt's quad, 0x007AFCB0).
+    GX_PRIM_TRIANGLE_STRIP = 4,
     // `__fastcall(model)`: drops one instance reference (HandleClose2).
     FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,
     // CM2Model::IsReady — `__thiscall(model, wait, recurseChildren)`:

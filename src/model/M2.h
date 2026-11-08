@@ -229,6 +229,18 @@ inline uintptr_t RayHit(void *scene, const float (&p0)[3], const float (&p1)[3])
     return reinterpret_cast<Fn>(Offsets::FUN_M2SCENE_RAY_HIT)(scene, p0, p1, &fraction, 1);
 }
 
+// The base matrix (row vectors: rows 0..2 the scaled axes, row 3 the
+// translation).
+inline void GetBaseTransform(void *model, float (&m)[16]) {
+    using Fn = void(__thiscall *)(void *, float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BASE_TRANSFORM)(model, m);
+}
+
+inline float GetAlpha(void *model) {
+    using Fn = float(__thiscall *)(void *);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_ALPHA)(model);
+}
+
 inline void *FirstChild(const void *model) {
     return Game::Read<void *>(model, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
 }

@@ -880,6 +880,7 @@ build instructions.
   - [`actor:AttachToActor(parent, attachmentID)`](#actorattachtoactorparent-attachmentid)
   - [`actor:DetachFromActor()`](#actordetachfromactor)
   - [`actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)
+  - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
@@ -19753,6 +19754,30 @@ an actor does not hit anything. This is a ClassicAPI extension.
 scene:SetGroundTerrain(5) -- grass
 wolf:SetPlayAnimationSounds(true)
 wolf:SetAnimation(5)      -- run
+```
+
+### `actor:SetShadowShown(shown)` / `actor:IsShadowShown()`
+
+Shows or hides a blob shadow under the model. It is the same dark blob that
+units have on the ground in the world. The default is off.
+
+- The shadow lies flat on the plane of the actor's position, below its
+  feet. The scene has no ground, so the shadow does not follow a slope.
+- The size of the shadow comes from the bounds of the model and from the
+  scale of the actor. The shadow turns with the yaw of the actor.
+- The shadow darkens what is behind it. It fades with the alpha of the
+  actor.
+- The model draws over its shadow, and over the shadows of the other
+  actors.
+- The shadow shows only while the `shadowLOD` cvar is `1`, as in the world.
+  This is the default value.
+- A hidden actor shows no shadow. An actor that hangs on another actor (a
+  seated rider, or an actor of `AttachToActor`) shows no shadow of its own.
+
+This is a ClassicAPI extension.
+
+```lua
+mount:SetShadowShown(true)
 ```
 
 ### `actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`
