@@ -12071,7 +12071,8 @@ enum Offsets {
     // column 11: the parsed 1.12 DBC gives 0x7 for the warrior stances, 0x1
     // Stealth, 0x9 Shadowform, matching 3.3.5's column. 0x100 is the form
     // flag 3.3.5 / 4.3.4 `CGUnit_C::CanAutoUnshift` refuses on (set there
-    // only on Spirit of Redemption and the Ghoul forms); no 1.12 row has it.
+    // only on Spirit of Redemption and the Ghoul forms); no 1.12 row has it,
+    // so Spell::AutoPrepare adds it to Spirit of Redemption (form 32).
     VAR_SPELL_SHAPESHIFT_FORM_RECORDS = 0x00C0D774,
     VAR_SPELL_SHAPESHIFT_FORM_COUNT = 0x00C0D778,
     OFF_SPELL_SHAPESHIFT_FORM_FLAGS = 0x2C,

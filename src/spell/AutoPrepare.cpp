@@ -45,7 +45,8 @@
 //     so 4.3.4 talks and uses objects in them without leaving the form.
 //     1.12's rows lack it; with autoUnshift on, the gates read it as the
 //     later clients give it, so the cancels below are only for a form that
-//     cannot interact in either client.
+//     cannot interact in either client. Spirit of Redemption likewise
+//     reads the later clients' NO_AUTO_UNSHIFT, so it is never cancelled.
 //   - NPC right-click: 4.3.4's CGPlayer_C::HandleOnRightClick cancels a form
 //     without SHAPESHIFT_FORM_FLAG_CAN_INTERACT in place of
 //     ERR_CANT_INTERACT_SHAPESHIFTED, before its range check, so we do the
@@ -206,10 +207,43 @@ bool CanAutoDismount(const void *unit) {
     return IsActivePlayer(unit) && !OnTaxi(unit) && Enabled(g_autoDismount);
 }
 
-// 4.3.4 CGUnit_C::CanAutoUnshift.
+// SpellShapeshiftForm flags that 3.3.5 and 4.4.2 give (both DBCs parsed)
+// but 1.12's rows lack, for the forms a 1.12 player can take:
+//   - CAN_INTERACT on Cat (1), Travel (3), Aquatic (4), Bear (5), Dire Bear
+//     (8), Ghost Wolf (16), and 11, which Turtle uses for Swift Travel Form;
+//   - NO_AUTO_UNSHIFT on Spirit of Redemption (32, 0x4100 there, 0 in 1.12).
+// Every other 1.12 player form either has the same flags or has flag bit 0
+// (Moonkin, Tree of Life, the stances, Stealth), so IsShapeShifted does not
+// count it and no gate or form rung tests it.
+struct LaterFormFlags {
+    int form;
+    uint32_t flags;
+};
+constexpr LaterFormFlags kLaterFormFlags[] = {
+    {1, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {3, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {4, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {5, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {8, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {11, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {16, Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT},
+    {32, Offsets::SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT},
+};
+
+uint32_t AddedFormFlags(const void *unit) {
+    const int form = Form(unit);
+    for (const LaterFormFlags &entry : kLaterFormFlags) {
+        if (entry.form == form)
+            return entry.flags;
+    }
+    return 0;
+}
+
+// 4.3.4 CGUnit_C::CanAutoUnshift, on the later clients' NO_AUTO_UNSHIFT.
 bool CanAutoUnshift(const void *unit) {
     return IsActivePlayer(unit) && !OnTaxi(unit) && Enabled(g_autoUnshift) &&
-           (FormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT) == 0;
+           ((FormFlags(unit) | AddedFormFlags(unit)) &
+            Offsets::SHAPESHIFT_FORM_FLAG_NO_AUTO_UNSHIFT) == 0;
 }
 
 int StandState(const void *unit) {
@@ -244,32 +278,20 @@ char IsShapeShifted(const void *unit) {
     return reinterpret_cast<IsShapeShifted_t>(Offsets::FUN_UNIT_IS_SHAPESHIFTED)(unit);
 }
 
-// The forms whose SpellShapeshiftForm row has SHAPESHIFT_FORM_FLAG_CAN_-
-// INTERACT in 3.3.5 and 4.4.2 (both DBCs parsed) but not in 1.12: Cat (1),
-// Travel (3), Aquatic (4), Bear (5), Dire Bear (8), Ghost Wolf (16), and 11,
-// which Turtle uses for Swift Travel Form. Every other 1.12 form either has
-// the flag (Shadowform) or has flag bit 0 (Moonkin, Tree of Life, the
-// stances, Stealth), so IsShapeShifted does not count it and no gate tests
-// it. No 1.12 server tests the form on an NPC or object interaction
-// (vmangos / tortoise-wow CanInteractWithNPC and the use handlers), so the
-// client gates are the only refusal.
-constexpr int kLaterInteractForms[] = {1, 3, 4, 5, 8, 11, 16};
-
-bool HasLaterInteractFlag(int form) {
-    for (const int id : kLaterInteractForms) {
-        if (id == form)
-            return true;
-    }
-    return false;
-}
-
 // The gates' test after IsShapeShifted: the form row's interact flag. With
 // autoUnshift on, a form reads the flag that the later clients give it, so
-// the form stays on for the forms that can interact there.
+// the form stays on for the forms that can interact there. No 1.12 server
+// tests the form on an NPC or a plain object use (vmangos / tortoise-wow
+// CanInteractWithNPC, the use handlers, and no form spell's AuraInterrupt-
+// Flags has the use bit 0x800), so the client gates are the only refusal.
+// A locked object opens by a spell instead, which the server's CheckCast
+// form test refuses on 1.12's spell data (Opening 6478 keeps NOT_SHAPESHIFT,
+// which 3.3.5 dropped), so the cast's form rung must still unshift there.
 bool FormCanInteract(const void *unit) {
     if ((FormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT) != 0)
         return true;
-    return Enabled(g_autoUnshift) && HasLaterInteractFlag(Form(unit));
+    return Enabled(g_autoUnshift) &&
+           (AddedFormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT) != 0;
 }
 
 // True when the gate would refuse and autoUnshift takes the form off instead.

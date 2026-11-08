@@ -22579,7 +22579,8 @@ the usual error.
 Each action occurs only when nothing else blocks the cast. For example, if the
 spell needs a target and you have none, you stay mounted. If the spell shows
 the targeting cursor, the action occurs when you select the target. `autoDismount`
-and `autoUnshift` do nothing on a flight path.
+and `autoUnshift` do nothing on a flight path. `autoUnshift` never removes
+Spirit of Redemption.
 
 When `autoUnshift` is `1`, an action button stays usable in a form that the
 cast can leave. For example, Healing Touch in Bear Form and Renew in
