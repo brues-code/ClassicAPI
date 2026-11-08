@@ -4195,6 +4195,7 @@ enum Offsets {
     // callback (FUN_SIMPLEMODELFFX_LIGHT_FOG_CB) adds it to a model's lighting
     // only while it is enabled.
     OFF_SIMPLEMODEL_LIGHT = 0x324,
+    M2LIGHT_SIZE = 0x6C, // the 27 dwords AddMapLight copies (0x006A7BF5)
     OFF_M2LIGHT_AMBIENT = 0x30,
     OFF_M2LIGHT_DIFFUSE = 0x3C,
     FUN_M2LIGHT_SET_TYPE = 0x0071B620,
@@ -4558,10 +4559,11 @@ enum Offsets {
     // the body but not the equipment). `Model::DisplayInfo` fills each child's
     // slot with the same pair so equipment lights like the body.
     FUN_MODEL_INSTANCE_SET_RENDER_CB = 0x007134B0,
-    // __fastcall-shaped engine callback (never called by us directly): applies
-    // the owning frame's fog (+0x3A4/+0x3A8) and light struct (+0x324, written
-    // by Script_SetLight via FUN_0076cf30) to the render context each time the
-    // instance is drawn.
+    // SimpleModelLightCallback — `__fastcall(instance (unused), M2Lighting
+    // *record, void *frame)`, ret 4: applies the owning frame's fog
+    // (+0x3A4/+0x3A8, through M2LightingSetFog when armed) and light struct
+    // (+0x324, written by Script_SetLight via FUN_0076cf30; LightingAddLight
+    // skips it while disabled) to the record each time the instance is drawn.
     FUN_SIMPLEMODELFFX_LIGHT_FOG_CB = 0x0076D680,
 
     // Engine Script_* method implementations `Frame::Modern` delegates to
@@ -13365,6 +13367,156 @@ enum Offsets {
     // Topology for FUN_GX_PRIM_INDEXED: 4 is a triangle strip (the lightning
     // bolt's quad, 0x007AFCB0).
     GX_PRIM_TRIANGLE_STRIP = 4,
+
+    // ---- Map objects (WMOs) drawn outside the world (ModelScene
+    // SetWorldModel; docs/notes/model-scene.md "Extension 8"). The world's
+    // draw of one instance is DrawMapObjectPass 0x00684840: world stack 8 =
+    // placement x Translate(-camera), a lighting record committed at the
+    // camera with fog, then per group and frustum volume StoreFrustum +
+    // TransformFrustum(inverse placement) and the interior or exterior drawer.
+    //
+    // CMapObj::Get — `__fastcall(const char *path)`: the cached map object of
+    // that name, else a new one whose root file read is queued; either way
+    // with one more reference (+0x1C8). Its reader (CMap::SafeOpen
+    // 0x00694130) ENDS THE PROGRAM when a file does not open, for the root
+    // and for each group, and parses chunks in a fixed order with no tag
+    // check (0x006C3A60). CountDown — `__fastcall(obj)`: one reference less;
+    // at 0 a 30 s timer (+0x1CC), after which the world frame
+    // (BeginMapObjectFrame 0x006B3890) frees it. Nothing else frees a
+    // referenced object (MapObjReleaseAll 0x006A3160 runs only at client
+    // close). The cache, pools and shaders come from CMap::Initialize
+    // (0x00691B10, client start), so all of this works at the glue screen.
+    FUN_CMAPOBJ_GET = 0x006A3230,
+    FUN_CMAPOBJ_COUNT_DOWN = 0x006A33F0,
+    // GetLoadedGroup — `__thiscall(obj, index, force)`, ret 8: the group when
+    // the object is loaded and the group parsed, or with `force` parsed or
+    // not. LoadGroup — `__thiscall(obj, index)`, ret 4: queues the group
+    // file read (0x006C3E20; name: the root's up to its last '.', then
+    // "_%03d" and ".wmo").
+    FUN_CMAPOBJ_GET_LOADED_GROUP = 0x006A4A00,
+    FUN_CMAPOBJ_LOAD_GROUP = 0x006A4A30,
+    // GetBoundingSphere — `float *__thiscall(obj, float out[4])`: centre and
+    // radius of the root's box in model space, zero before it loads.
+    FUN_CMAPOBJ_GET_BOUNDING_SPHERE = 0x006A4310,
+    // The object holds 384 group pointers (+0x1F4); its parse writes one per
+    // MOGI record with no cap (0x006C39E0), so a root of more groups writes
+    // past them (benilla models/wmo "Root file chunks"). MOGI records are
+    // 0x20 bytes.
+    MAPOBJ_MAX_GROUPS = 384,
+    MOGI_RECORD_SIZE = 0x20,
+    OFF_CMAPOBJ_LOADED = 0x1D4,       // byte: root file parsed
+    OFF_CMAPOBJ_GROUP_COUNT = 0x168,  // MOGI count
+    OFF_CMAPOBJ_FOGS = 0x158,         // MFOG records, 0x30 bytes each
+    OFF_CMAPOBJ_FOG_COUNT = 0x190,
+    // A group (CMapObjGroup). The world's map update keeps a group it may
+    // draw alive by setting its timer to 30 s (0x00698800: `mov [g+0x15C],
+    // 0x41F00000`); the world frame frees the group's data when the timer
+    // runs out. Read handle +0x160 is set while its file read is queued.
+    OFF_CMAPOBJGROUP_FLAGS = 0x10,
+    OFF_CMAPOBJGROUP_VERTEX_FADE_DONE = 0xBC, // byte
+    OFF_CMAPOBJGROUP_KEEP_ALIVE = 0x15C,     // float seconds
+    OFF_CMAPOBJGROUP_READ = 0x160,
+    OFF_CMAPOBJGROUP_PARSED = 0x164,         // byte
+    MAPOBJ_GROUP_KEEP_ALIVE_SECONDS = 30,
+    // Group flags 0x8 (exterior) or 0x40 (exterior-lit) pick the exterior
+    // drawer (DrawMapObjectGroup 0x006B3F90).
+    MAPOBJ_GROUP_EXTERIOR_MASK = 0x48,
+    // FixVertexAlpha — `__thiscall(obj, group)`, ret 4: the portal vertex
+    // fade, once (DrawMapObjectGroup runs it while +0xBC is 0). The drawers —
+    // `__thiscall(obj, group, again)`, ret 8: bind the group's buffers, cull
+    // each batch's box against the frustum stack top and draw it with its
+    // material; `again` 0 clears the batches' drawn marks first. The world
+    // keeps them in pointers that only BeginMapObjectFrame sets, so call
+    // them directly.
+    FUN_CMAPOBJGROUP_FIX_VERTEX_ALPHA = 0x006C43D0,
+    FUN_MAPOBJ_DRAW_EXTERIOR_GROUP = 0x006B4F10,
+    FUN_MAPOBJ_DRAW_INTERIOR_GROUP = 0x006B5190,
+    // Globals the drawers read. The group fog flag (0 or 1) makes the
+    // interior drawer take the light state's interior fog; the scene sets 0
+    // and commits its own fog. The sun (a map light object, its CM2Light at
+    // +0x7C) is read only for window materials (flag 0x20), whose draw
+    // overwrites its colours; only CMap::Load writes the pointer, so it is
+    // NULL at the glue screen until a world loads.
+    VAR_MAPOBJ_GROUP_FOG_FLAG = 0x00CA7F00,
+    VAR_MAP_SUN = 0x00C89EF0,
+    OFF_MAP_SUN_LIGHT = 0x7C,
+    // The frustum stack the drawers cull against (0xFC-byte volumes: six
+    // planes, eight corners at +0x60, two points at +0xC0 / +0xCC).
+    // PushFrustum / PopFrustum `__cdecl()`; StoreFrustum `__thiscall(volume)`
+    // copies a volume to the top; TransformFrustum `__fastcall(const float
+    // m[16])` moves the top's corners by m and rebuilds its planes.
+    // BuildFrustumCorners `__fastcall(view, proj, float corners[24])`, ret 4:
+    // the eight world corners of view x proj, near (-,-) (-,+) (+,+) (+,-)
+    // then far, the volume's corner order; BuildConvexPlanes
+    // `__thiscall(volume)` makes the planes from them.
+    FUN_FRUSTUM_PUSH = 0x00682380,
+    FUN_FRUSTUM_POP = 0x00682F90,
+    FUN_FRUSTUM_STORE = 0x00682D90,
+    FUN_FRUSTUM_TRANSFORM = 0x00682ED0,
+    FUN_FRUSTUM_CORNERS = 0x005C43B0,
+    FUN_VOLUME_BUILD_PLANES = 0x00686640,
+    FRUSTUM_VOLUME_SIZE = 0xFC,
+    OFF_FRUSTUM_VOLUME_CORNERS = 0x60,
+    // The lighting record (0x1B4 bytes, benilla models/lights "Lighting
+    // record"): M2LightingInitialize `__thiscall(rec, scene, const float
+    // sphere[4])`, ret 8 (zeroes it); M2SceneAddLightsForPoint
+    // `__thiscall(scene, rec)`, ret 4 (the scene's global and grid lights
+    // around the sphere); LightingAddLight `__thiscall(rec, light)`, ret 4
+    // (skips a disabled light); M2LightingSetFog `__thiscall(rec, const
+    // float rgb[3], float start, float end)`, ret 0xC;
+    // M2LightingSetDeviceLights `__thiscall(rec, const float origin[3], int
+    // fog)`, ret 8: the four fixed-function lights, point lights at their
+    // position less `origin`, and with `fog` the fog states.
+    M2_LIGHTING_RECORD_SIZE = 0x1B4,
+    FUN_M2LIGHTING_INIT = 0x0071BC30,
+    FUN_M2SCENE_ADD_LIGHTS_FOR_POINT = 0x0070A0F0,
+    FUN_M2LIGHTING_ADD_LIGHT = 0x0071BF90,
+    FUN_M2LIGHTING_SET_FOG = 0x0071C110,
+    FUN_M2LIGHTING_SET_DEVICE_LIGHTS = 0x0071C730,
+    // An MFOG record: flags +0x0 (bit 0x1: not a candidate), position +0x4,
+    // radii +0x10 / +0x14, then {end, start fraction, colour 0xAARRGGBB}
+    // dry at +0x18 and underwater at +0x24 (benilla terrain/lights "Camera
+    // interior fog"). The world uses a WMO's fog only when it has more than
+    // one record (0x0069DE20); with no candidate group fog the output is
+    // record 0. The drawn end is min(end, far clip), the start the fraction
+    // of it (lighting/fog "Interior fog").
+    MAPOBJ_FOG_SIZE = 0x30,
+    OFF_MAPOBJ_FOG_END = 0x18,
+    OFF_MAPOBJ_FOG_START_FRACTION = 0x1C,
+    OFF_MAPOBJ_FOG_COLOR = 0x20,
+    // Matrix helpers (row vectors). MultiplyMatrix4 `float *__fastcall(out,
+    // a, b)`: out = a x b. InvertAffineMatrix `__thiscall(m, float out[16],
+    // float scale)`, ret 8. The engine's degrees-to-radians and pi floats,
+    // which the WDT placement uses (PlaceMapObjDef 0x00695650).
+    FUN_MATRIX_MULTIPLY = 0x007BC6A0,
+    FUN_MATRIX_INVERT_AFFINE = 0x007BD820,
+    VAR_DEGREES_TO_RADIANS = 0x007FFAAC,  // float 0.017453292
+    VAR_PI = 0x0081052C,                  // float 3.1415927
+    // SFile: Open `int __stdcall(const char *path, void **file)` (0 when it
+    // does not open, no error), Read `int __stdcall(file, void *buffer,
+    // uint size, uint *read, void *overlapped, int)`, Close `__stdcall(file)`,
+    // GetFileSize `uint __stdcall(file, uint *sizeHigh)`.
+    FUN_SFILE_OPEN = 0x006477A0,
+    FUN_SFILE_GET_FILE_SIZE = 0x006487F0,
+    FUN_SFILE_READ = 0x00648460,
+    FUN_SFILE_CLOSE = 0x00648730,
+    // A WMO-only map's WDT, as CMap::LoadWdt (0x00694760) reads it: header,
+    // version, header, MPHD (0x20), header, MAIN (0x8000), then, when MPHD's
+    // first dword has bit 0, header (its size is the name's), the name,
+    // header and one 0x40-byte MODF placement, placed with origin 0:
+    // translate (-pos[2], -pos[0], pos[1]) at +0x10 / +0x08 / +0x0C, rotate z
+    // by +0x18 degrees + pi, y by +0x14, x by +0x1C; doodad set +0x3A.
+    WDT_MAIN_SIZE = 0x8000,
+    WDT_MPHD_SIZE = 0x20,
+    WDT_FLAG_MAP_OBJECT = 0x1,
+    MODF_SIZE = 0x40,
+    OFF_MODF_POSITION = 0x08,
+    OFF_MODF_ROTATION = 0x14,
+    OFF_MODF_DOODAD_SET = 0x3A,
+    // Map.dbc +0x04: the map's directory name (World\Maps\<dir>\<dir>.wdt;
+    // CMap::Load 0x006941F0). Verified: map 249 is "OnyxiaLairInstance".
+    OFF_MAP_DIRECTORY = 0x04,
+
     // `__fastcall(model)`: drops one instance reference (HandleClose2).
     FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,
     // CM2Model::IsReady — `__thiscall(model, wait, recurseChildren)`:

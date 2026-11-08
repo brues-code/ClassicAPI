@@ -188,6 +188,25 @@ void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uin
                             uint32_t userLow, uint32_t userHigh);
 } // namespace Events
 
+// The scene's WMO (SetWorldModel; model/SceneWorld.cpp).
+namespace World {
+struct Backdrop;
+// Whether `path` names a WMO (ends in ".wmo"), which only the scene shows.
+bool IsWmoPath(const char *path);
+// Null when the engine cannot read `path` safely: it is not a WMO, a file
+// does not open, the root's chunks are not in the engine's order or it has
+// more groups than the engine holds.
+Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet);
+// The single WMO of a WMO-only map at the map's own placement; null for any
+// other map.
+Backdrop *LoadMap(uint32_t mapID);
+// SetWorldModel's placement: at `position`, turned by `yaw` about z.
+void Placement(const float (&position)[3], float yaw, float (&out)[16]);
+void Free(Backdrop *backdrop);
+// From the paint, after the animate pass: the WMO in the device's view.
+void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3], float farClip);
+} // namespace World
+
 // The scene's ground terrain (SetGroundTerrain): a TerrainType id, or -1.
 int GroundTerrain(void *sceneFrame);
 

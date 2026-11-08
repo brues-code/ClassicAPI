@@ -688,7 +688,8 @@ int __fastcall Script_SetModelByPath(void *L) {
         return 0;
     }
     const char *path = Game::Lua::ToString(L, 2);
-    void *model = M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path);
+    // A WMO is not an M2; the scene shows one (SetWorldModel).
+    void *model = World::IsWmoPath(path) ? nullptr : M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path);
     actor->SetModel(model, path, nullptr);
     Game::Lua::PushBool(L, model != nullptr);
     return 1;

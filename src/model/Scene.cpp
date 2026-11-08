@@ -97,7 +97,9 @@
 // ClassicAPI extensions: GetActorAtCursor, and the scripts OnActorEnter /
 // OnActorLeave (self, actor), which run from the update walk when the actor
 // under the cursor changes while the scene is the mouse focus. Both use the
-// world's own object pick, under "picking" below.
+// world's own object pick, under "picking" below. SetWorldModel /
+// SetWorldModelByMapID / ClearWorldModel: a WMO drawn by the world's own map
+// object draw after the animate pass (model/SceneWorld.cpp).
 
 #include "model/Scene.h"
 
@@ -151,6 +153,7 @@ struct Fields {
     float viewTranslation[2];
     int32_t groundTerrain; // SetGroundTerrain: a TerrainType id, or -1
     Actor *hovered; // the actor OnActorEnter last ran for, or null
+    World::Backdrop *world; // SetWorldModel, owned, or null
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -484,6 +487,8 @@ void __fastcall Paint(void *frame) {
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
+        if (F(frame).world != nullptr && CameraOf(frame) != nullptr)
+            World::Draw(*F(frame).world, frame, eye, F(frame).farClip);
         DrawShadows(frame, eye);
         auto draw = reinterpret_cast<Draw_t>(Offsets::FUN_M2SCENE_DRAW);
         draw(scene, 0);
@@ -682,6 +687,8 @@ void Destroy(void *frame) {
         delete actor;
     delete f.actors;
     f.actors = nullptr;
+    World::Free(f.world);
+    f.world = nullptr;
 }
 
 Frame::Subclass::Class<Offsets::VTBL_SIMPLEMODEL_SLOTS, Offsets::VTBL_SIMPLEMODEL_LAYOUT_SLOTS>
@@ -827,6 +834,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.drawLayer = Offsets::DRAWLAYER_ARTWORK;
     f.groundTerrain = -1;
     f.hovered = nullptr;
+    f.world = nullptr;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -1101,6 +1109,61 @@ int __fastcall Script_GetGroundTerrain(void *L) {
     return 1;
 }
 
+// The scene's WMO (a ClassicAPI extension, model/SceneWorld.cpp). A set that
+// fails clears it, as an actor's SetModelByPath clears its model.
+void SetWorld(void *frame, World::Backdrop *world) {
+    World::Free(F(frame).world);
+    F(frame).world = world;
+}
+
+constexpr char kUsageSetWorldModel[] = "SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])";
+
+int __fastcall Script_SetWorldModel(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    const char *owner = Game::Lua::ObjectDisplayName(frame);
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:%s", owner, kUsageSetWorldModel);
+        return 0;
+    }
+    const auto given = [L](int index) { return Game::Lua::Type(L, index) > Game::Lua::TYPE_NIL; };
+    float position[3] = {};
+    if (given(3) || given(4) || given(5)) {
+        if (!NumberArgs(L, 3, 3, owner, kUsageSetWorldModel))
+            return 0;
+        position[0] = FloatArg(L, 3);
+        position[1] = FloatArg(L, 4);
+        position[2] = FloatArg(L, 5);
+    }
+    if ((given(6) && !NumberArgs(L, 6, 1, owner, kUsageSetWorldModel)) ||
+        (given(7) && !NumberArgs(L, 7, 1, owner, kUsageSetWorldModel)))
+        return 0;
+    const float yaw = given(6) ? FloatArg(L, 6) : 0.0f;
+    const uint32_t doodadSet = given(7) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 7)) : 0;
+    float placement[16];
+    World::Placement(position, yaw, placement);
+    SetWorld(frame, World::Load(Game::Lua::ToString(L, 2), placement, doodadSet));
+    Game::Lua::PushBool(L, F(frame).world != nullptr);
+    return 1;
+}
+
+int __fastcall Script_SetWorldModelByMapID(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr ||
+        !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), "SetWorldModelByMapID(mapID)"))
+        return 0;
+    SetWorld(frame, World::LoadMap(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
+    Game::Lua::PushBool(L, F(frame).world != nullptr);
+    return 1;
+}
+
+int __fastcall Script_ClearWorldModel(void *L) {
+    if (void *frame = Self(L))
+        SetWorld(frame, nullptr);
+    return 0;
+}
+
 int __fastcall Script_SetAllowOverlappedModels(void *L) {
     if (void *frame = Self(L))
         F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
@@ -1265,6 +1328,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetPaused", &Script_SetPaused},
     {"SetGroundTerrain", &Script_SetGroundTerrain},
     {"GetGroundTerrain", &Script_GetGroundTerrain},
+    {"SetWorldModel", &Script_SetWorldModel},
+    {"SetWorldModelByMapID", &Script_SetWorldModelByMapID},
+    {"ClearWorldModel", &Script_ClearWorldModel},
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
@@ -1398,6 +1464,28 @@ const Game::Doc::Function kSetGroundTerrain{
 const Game::Doc::Function kGetGroundTerrain{
     "Returns the ground terrain of the scene, or nothing when it has none.", {},
     kGroundTerrainRet, nullptr, true};
+const Game::Doc::Field kWorldModelArgs[] = {
+    Req("path", "cstring", "A .wmo file, for example \"World\\wmo\\Dungeon\\KL_OnyxiasLair\\KL_OnyxiasLair_B.wmo\"."),
+    Opt("positionX", "number", "0"),
+    Opt("positionY", "number", "0"),
+    Opt("positionZ", "number", "0"),
+    Opt("yaw", "number", "0", "Radians about the up axis."),
+    Opt("doodadSet", "number", "0"),
+};
+const Game::Doc::Field kWorldModelMapArg[] = {
+    Req("mapID", "number", "A Map.dbc row whose map is one WMO, for example 249 (Onyxia's Lair)."),
+};
+const Game::Doc::Field kWorldModelRet[] = {Req("success", "bool")};
+const Game::Doc::Function kSetWorldModel{
+    "Shows a WMO around the actors, lit and fogged by its own data the way the world shows it. The "
+    "scene's light stands in for the sun. A WMO with fewer than two fogs takes the scene's fog. Returns "
+    "false, and shows no WMO, when the file is missing or is not a WMO.",
+    kWorldModelArgs, kWorldModelRet, nullptr, true};
+const Game::Doc::Function kSetWorldModelByMapID{
+    "Shows the WMO of a map that is one WMO, placed as the map places it, so scene positions are the "
+    "map's positions. Returns false, and shows no WMO, for any other map.",
+    kWorldModelMapArg, kWorldModelRet, nullptr, true};
+const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, nullptr, true};
 const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Function kSetAllowOverlappedModels{
@@ -1471,6 +1559,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetAllowOverlappedModels", &kGetAllowOverlappedModels},
     {"SetGroundTerrain", &kSetGroundTerrain},
     {"GetGroundTerrain", &kGetGroundTerrain},
+    {"SetWorldModel", &kSetWorldModel},
+    {"SetWorldModelByMapID", &kSetWorldModelByMapID},
+    {"ClearWorldModel", &kClearWorldModel},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"GetActorAtCursor", &kGetActorAtCursor},
     {"SetViewInsets", &kSetViewInsets},
