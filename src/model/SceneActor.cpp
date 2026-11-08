@@ -242,6 +242,7 @@ void ReleaseModel(Actor &actor) {
         slot = Outfit::Appearance{};
     actor.armorReady = true;
     actor.pendingTryOns.clear();
+    actor.pendingKits.clear();
     actor.loaded = false;
     actor.animFinished = false;
     actor.kitAnimation = -1;
@@ -533,6 +534,10 @@ void Actor::Update(float elapsedSec) {
             loaded = true;
             PutOnWaiting(*this);
             ApplyKit(*this);
+            for (const auto &[kitID, oneShot] : pendingKits)
+                if (const uint8_t *kit = Model::VisualKit::Record(kitID))
+                    Model::VisualKit::Apply(SceneFrame(), model, kit, oneShot);
+            pendingKits.clear();
             RunScript(S_ONMODELLOADED, 0);
         }
     } else {
@@ -1064,6 +1069,27 @@ int __fastcall Script_PlaySpellVisual(void *L) {
     return 1;
 }
 
+// Retail PlayerModel's ApplySpellVisualKit on the actor: the kit joins the
+// ones shown (Model::VisualKit::Apply, the model owning the effects), where
+// SetSpellVisualKit replaces the actor's one kit. Applied once the model has
+// loaded, as SetSpellVisualKit's.
+int __fastcall Script_ApplySpellVisualKit(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
+                                        "ApplySpellVisualKit(spellVisualKitID [, oneShot])"))
+        return 0;
+    const auto kitID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    const bool oneShot = Game::Lua::ToBoolean(L, 3) != 0;
+    const uint8_t *kit = Model::VisualKit::Record(kitID);
+    if (kit == nullptr || actor->model == nullptr)
+        return 0;
+    if (actor->loaded)
+        Model::VisualKit::Apply(actor->SceneFrame(), actor->model, kit, oneShot);
+    else
+        actor->pendingKits.emplace_back(kitID, oneShot);
+    return 0;
+}
+
 int __fastcall Script_SetPlayAnimationSounds(void *L) {
     if (Actor *actor = Self(L))
         actor->playAnimationSounds = Game::Lua::ToBoolean(L, 2) != 0;
@@ -1376,6 +1402,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AttachToActor", &Script_AttachToActor},
     {"DetachFromActor", &Script_DetachFromActor},
     {"PlaySpellVisual", &Script_PlaySpellVisual},
+    {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &Script_GetPlayAnimationSounds},
     {"ClearModel", &Script_ClearModel},
@@ -1659,6 +1686,14 @@ const Game::Doc::Function kPlaySpellVisual{
     "the missile and the impact, with their animations and sounds. False when the spell has no "
     "visual or this actor shows no model.",
     kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
+const Game::Doc::Field kApplySpellVisualKitArgs[] = {
+    Req("spellVisualKitID", "number", "A SpellVisualKit ID."),
+    Opt("oneShot", "bool", "false",
+        "True plays the effects once; false keeps them until the model changes."),
+};
+const Game::Doc::Function kApplySpellVisualKit{
+    "Adds a spell visual kit's effects to the model, next to the kits it already shows.",
+    kApplySpellVisualKitArgs, {}, nullptr, true};
 const Game::Doc::Field kAnimationSoundsArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetPlayAnimationSounds{
     "Sets whether the model's animations play their sounds, as a unit's do in the world: fidgets, "
@@ -1745,6 +1780,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"AttachToActor", &kAttachToActor},
     {"DetachFromActor", &kDetachFromActor},
     {"PlaySpellVisual", &kPlaySpellVisual},
+    {"ApplySpellVisualKit", &kApplySpellVisualKit},
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &kGetPlayAnimationSounds},
     {"ClearModel", &kClearModel},

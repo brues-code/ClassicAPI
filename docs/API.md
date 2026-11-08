@@ -869,6 +869,7 @@ build instructions.
   - [`actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`](#actorsetanimationblendoperationblendoperation--actorgetanimationblendoperation)
   - [`actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused)
   - [`actor:SetSpellVisualKit([spellVisualKitID, oneShot])` / `actor:GetSpellVisualKit()`](#actorsetspellvisualkitspellvisualkitid-oneshot--actorgetspellvisualkit)
+  - [`actor:ApplySpellVisualKit(spellVisualKitID [, oneShot])`](#actorapplyspellvisualkitspellvisualkitid--oneshot)
   - [`actor:PlayAnimationKit(animationKit [, isLooping])` / `actor:StopAnimationKit()`](#actorplayanimationkitanimationkit--islooping--actorstopanimationkit)
   - [`actor:AttachToMount(rider, animation [, spellKitVisualID])`](#actorattachtomountrider-animation--spellkitvisualid)
   - [`actor:DetachFromMount(rider)`](#actordetachfrommountrider)
@@ -19597,6 +19598,20 @@ caster:SetSpellVisualKit(30)       -- Fireball precast
 caster:SetAnimation(53)            -- SpellCastDirected
 caster:SetSpellVisualKit(38, true) -- Fireball cast
 target:SetSpellVisualKit(286, true) -- Fireball impact
+```
+
+### `actor:ApplySpellVisualKit(spellVisualKitID [, oneShot])`
+
+Adds the effects of a spell visual kit to the model. The kits that the model
+already shows stay: those of `SetSpellVisualKit`, of `PlaySpellVisual`, and
+of earlier calls of this method. With `oneShot` set to `true`, each effect
+plays one time. Without it, the effects stay until the model changes. As
+with `SetSpellVisualKit`, the kit does not play its animation or its sound.
+If the model has not loaded, the kit shows when it loads. This is a
+ClassicAPI extension.
+
+```lua
+target:ApplySpellVisualKit(286, true) -- a Fireball impact, the old kit stays
 ```
 
 ### `actor:PlayAnimationKit(animationKit [, isLooping])` / `actor:StopAnimationKit()`

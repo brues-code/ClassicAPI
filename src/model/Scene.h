@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The ModelScene frame (model/Scene.cpp) and its actors (model/SceneActor.cpp).
@@ -146,6 +147,8 @@ class Actor : public Animation::Object {
     uint32_t spellVisualKit = 0;
     bool spellVisualKitOneShot = false;
     std::vector<void *> kitEffects; // the kit's effect models, one reference each
+    // ApplySpellVisualKit calls made before the model loaded: {kit, oneShot}.
+    std::vector<std::pair<uint32_t, bool>> pendingKits;
 
     // A spell kit's animation, shown in place of `animation` (-1 none): a
     // precast's loops, a cast's or an impact's plays once.
