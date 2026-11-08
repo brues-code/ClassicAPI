@@ -40,6 +40,12 @@
 // cancel / stand before the cast packet that follows it.
 //
 // autoUnshift and autoDismount also cover interaction, as in 4.3.4:
+//   - the interact flag: the later clients' SpellShapeshiftForm.dbc gives
+//     SHAPESHIFT_FORM_FLAG_CAN_INTERACT to the druid forms and Ghost Wolf,
+//     so 4.3.4 talks and uses objects in them without leaving the form.
+//     1.12's rows lack it; with autoUnshift on, the gates read it as the
+//     later clients give it, so the cancels below are only for a form that
+//     cannot interact in either client.
 //   - NPC right-click: 4.3.4's CGPlayer_C::HandleOnRightClick cancels a form
 //     without SHAPESHIFT_FORM_FLAG_CAN_INTERACT in place of
 //     ERR_CANT_INTERACT_SHAPESHIFTED, before its range check, so we do the
@@ -238,15 +244,43 @@ char IsShapeShifted(const void *unit) {
     return reinterpret_cast<IsShapeShifted_t>(Offsets::FUN_UNIT_IS_SHAPESHIFTED)(unit);
 }
 
-// The gates' test after IsShapeShifted: a form with no row, or one
-// without the interact flag.
-bool FormBlocksInteraction(const void *unit) {
-    return (FormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT) == 0;
+// The forms whose SpellShapeshiftForm row has SHAPESHIFT_FORM_FLAG_CAN_-
+// INTERACT in 3.3.5 and 4.4.2 (both DBCs parsed) but not in 1.12: Cat (1),
+// Travel (3), Aquatic (4), Bear (5), Dire Bear (8), Ghost Wolf (16), and 11,
+// which Turtle uses for Swift Travel Form. Every other 1.12 form either has
+// the flag (Shadowform) or has flag bit 0 (Moonkin, Tree of Life, the
+// stances, Stealth), so IsShapeShifted does not count it and no gate tests
+// it. No 1.12 server tests the form on an NPC or object interaction
+// (vmangos / tortoise-wow CanInteractWithNPC and the use handlers), so the
+// client gates are the only refusal.
+constexpr int kLaterInteractForms[] = {1, 3, 4, 5, 8, 11, 16};
+
+bool HasLaterInteractFlag(int form) {
+    for (const int id : kLaterInteractForms) {
+        if (id == form)
+            return true;
+    }
+    return false;
+}
+
+// The gates' test after IsShapeShifted: the form row's interact flag. With
+// autoUnshift on, a form reads the flag that the later clients give it, so
+// the form stays on for the forms that can interact there.
+bool FormCanInteract(const void *unit) {
+    if ((FormFlags(unit) & Offsets::SHAPESHIFT_FORM_FLAG_CAN_INTERACT) != 0)
+        return true;
+    return Enabled(g_autoUnshift) && HasLaterInteractFlag(Form(unit));
 }
 
 // True when the gate would refuse and autoUnshift takes the form off instead.
 bool UnshiftsForInteraction(const void *player) {
-    return IsShapeShifted(player) && FormBlocksInteraction(player) && CanAutoUnshift(player);
+    return IsShapeShifted(player) && !FormCanInteract(player) && CanAutoUnshift(player);
+}
+
+// The gates' IsShapeShifted: "not shifted" when the form can interact, so
+// the engine's own flag test that follows does not refuse it.
+char ShiftedForGate(const void *player) {
+    return IsShapeShifted(player) && !FormCanInteract(player);
 }
 
 // The NPC right-click's IsShapeShifted: leaves the form and reports "not
@@ -256,14 +290,14 @@ char __fastcall IsShapeShiftedForTalk(const void *player) {
         CancelForm(player);
         return 0;
     }
-    return IsShapeShifted(player);
+    return ShiftedForGate(player);
 }
 
 // The game-object use check's and CanInteractNow's IsShapeShifted (4.3.4's
 // CanUseNow / CanInteractNow): the same verdict, nothing done. Both are
 // hover-cursor queries, so the cursor shows the service while shifted.
 char __fastcall IsShapeShiftedForQuery(const void *player) {
-    return UnshiftsForInteraction(player) ? 0 : IsShapeShifted(player);
+    return UnshiftsForInteraction(player) ? 0 : ShiftedForGate(player);
 }
 
 // The mount reads of the gates 4.3.4 passes on CanAutoDismount (an object

@@ -22590,17 +22590,19 @@ The settings also apply to these actions:
 
 | Action | `autoStand` | `autoDismount` | `autoUnshift` |
 |---|---|---|---|
-| Talk to an NPC | — | — | You leave the form. |
-| Use an object | — | You dismount. You stay mounted at a mailbox. | You leave the form. |
+| Talk to an NPC | — | — | You stay in the form. |
+| Use an object | — | You dismount. You stay mounted at a mailbox. | You stay in the form. |
 | Loot a creature | You stand up. | You dismount. | — |
 | Loot a corpse | You stand up. | — | — |
 | Use an item | — | — | You leave the form. |
 | Attack | — | You dismount. | — |
 | Open the flight map | You stand up. | You dismount. | You leave the form. |
 
-A form that can talk and use objects, for example Shadowform, stays on when
-you talk to an NPC or use an object. While `autoUnshift` is `1`, the cursor
-over an NPC or an object shows its usual icon in such a form. While
+While `autoUnshift` is `1`, you can talk to NPCs and use objects in Cat Form,
+Bear Form, Dire Bear Form, Travel Form, Swift Travel Form, Aquatic Form and
+Ghost Wolf. The cursor over an NPC or an object shows its usual icon in these
+forms. In a form that cannot talk to NPCs or use objects, you leave the form.
+Shadowform can always talk to NPCs and use objects. While
 `autoDismount` is `1`, the cursor shows the attack icon over an enemy while
 you are mounted.
 

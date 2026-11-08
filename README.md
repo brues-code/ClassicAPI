@@ -221,7 +221,7 @@ open the game menu and click AddOn Options, then ClassicAPI.
 | [Combat log](docs/API.md#kept-entries) | `combatLogRetentionTime` | `300` | The number of seconds that the combat log keeps an entry. |
 | [Stand, dismount and form](docs/API.md#stand-dismount-and-form-settings-autostand-autodismount-autounshift) | `autoStand` | `0` | `1` makes you stand up when you cast, loot or open the flight map while you sit. |
 | | `autoDismount` | `0` | `1` makes you dismount when you cast, use an object, loot, attack or open the flight map while you are mounted. |
-| | `autoUnshift` | `0` | `1` makes you leave your form when you cast a spell that cannot be cast in it, talk to an NPC, use an object or an item, or open the flight map. |
+| | `autoUnshift` | `0` | `1` makes you leave your form when you cast a spell that cannot be cast in it, use an item, or open the flight map. It also lets you talk to NPCs and use objects in druid forms and Ghost Wolf. |
 | [Bag sorting](docs/API.md#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable) | `sortBagsRightToLeft` | `0` | `1` makes a sort fill your bags from the last slot of the last bag. |
 | | `backpackAutosortDisabled` | `0` | `1` keeps the items in your backpack in place when you sort your bags. |
 | | `bankAutosortDisabled` | `0` | `1` keeps the items in the main bank slots in place when you sort your bank. |
