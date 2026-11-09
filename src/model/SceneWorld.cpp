@@ -490,6 +490,20 @@ void CommitLighting(const Backdrop &b, void *frame, const float (&eye)[3]) {
     StageLightAndFog(b, record, frame);
     using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
     reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+    // A record without fog turns the device fog off and leaves its range,
+    // but the group drawers turn the fog back on for every material without
+    // flag 0x2: the world always commits a fog first. With the device's own
+    // range (0 to 1, in 0xFFFF0080) a scene without fog would draw them in
+    // that colour, so it gets a range from the far clip to where a world
+    // without light ends its fog, which fogs nothing it draws. The caller's
+    // render-state scope ends it.
+    if (!WmoFogShown(b) &&
+        (Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) == 0) {
+        using SetFloat_t = void(__fastcall *)(int id, int, float value);
+        const auto setFloat = reinterpret_cast<SetFloat_t>(Offsets::FUN_GX_RS_SET_FLOAT);
+        setFloat(Offsets::GXRS_FOG_START, 0, b.farClip);
+        setFloat(Offsets::GXRS_FOG_END, 0, Game::Read<float>(Offsets::VAR_NO_LIGHT_FOG_END));
+    }
 }
 
 void DrawGroups(Backdrop &b, void *frame) {
@@ -1170,6 +1184,16 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
 
 using Fn_t = void(__cdecl *)();
 
+// The render states a pass of the WMO sets (CommitLighting's fog range) last
+// until it ends.
+class RenderStateScope {
+  public:
+    RenderStateScope() { reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)(); }
+    ~RenderStateScope() { reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)(); }
+    RenderStateScope(const RenderStateScope &) = delete;
+    RenderStateScope &operator=(const RenderStateScope &) = delete;
+};
+
 using Unit_t = void(__fastcall *)(int unit);
 using Load_t = void(__fastcall *)(int unit, const float *m);
 constexpr int kWorldStack = 8;
@@ -1595,6 +1619,7 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
         if (!(corners[i * 3 + 2] > lowest))
             lowest = corners[i * 3 + 2];
     b.probeDrop = eye[2] - lowest;
+    const RenderStateScope states;
     PushObjectSpace(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
@@ -1748,6 +1773,7 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
         return;
     // Outdoor water takes the light of the backdrop's map at the camera.
     const MapWaterLight mapLight(b, eye);
+    const RenderStateScope states;
     reinterpret_cast<Fn_t>(Offsets::FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP)();
     uint32_t &fogFlag = Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG);
     const uint32_t savedFogFlag = fogFlag;

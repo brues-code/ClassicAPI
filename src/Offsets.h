@@ -13601,6 +13601,11 @@ enum Offsets {
     OFF_GXCAPS_COLOR_SWAP = 0x1C,
     GXRS_DEPTH_BIAS = 0x00,
     GXRS_MATERIAL = 0x01,
+    // Fog start and end (floats), as M2LightingSetDeviceLights (0x0071C730)
+    // commits a record's fog; the device starts with 0 and 1.0 and the
+    // colour 0xFFFF0080 (0x00593BF0).
+    GXRS_FOG_START = 0x0A,
+    GXRS_FOG_END = 0x0B,
     GXRS_FOG_COLOR = 0x0D,
     GXRS_DEPTH_FUNC = 0x11,
     GXRS_DEPTH_FUNC_DECAL = 1, // the blob's depth function when shadowBias is 0
@@ -13833,6 +13838,10 @@ enum Offsets {
     // (0x006D64D0), OverblendLightRecord `__fastcall(base, src, w)` ret 4
     // (0x006D30E0). A record's members only zero themselves when made.
     VAR_LIGHT_TABLE = 0x00CE9C0C,
+    // BuildLightTable's fill with no light list: `mov [0x00CE9C50], 1e10`,
+    // the fog end of a world without light; the float is the instruction's
+    // immediate.
+    VAR_NO_LIGHT_FOG_END = 0x006D2301,
     LIGHT_RECORD_SIZE = 0x90,
     OFF_LIGHT_RECORD_DEEP_RIVER = 0x40,
     OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW = 0x68,
