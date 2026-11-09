@@ -225,21 +225,88 @@ void ApplyKit(Actor &actor) {
                                 &actor.kitEffects);
 }
 
-// Releases the model without scripts (a destroyed actor runs none).
-// RefreshRangedWeaponModel's unstring (0x00611E10): a null draw callback
-// before the bow's model goes.
-void UnstringBow(Actor &actor) {
-    if (actor.stringedBow == nullptr)
-        return;
-    M2::SetDrawCallback(actor.stringedBow, nullptr, nullptr, true);
-    M2::Release(actor.stringedBow);
-    actor.stringedBow = nullptr;
+// ---- the ranged slot (Offsets: UNIT_HAND_RANGED) ----
+
+// A wand, gun or thrown weapon is held in the right hand, a bow or crossbow
+// in the left (RefreshRangedWeaponModel's ranged flag, 0x00611E31).
+bool HeldRight(const Outfit::HeldLane &lane) {
+    return lane.inventoryType == Offsets::INVTYPE_RANGEDRIGHT || lane.inventoryType == Offsets::INVTYPE_THROWN;
 }
 
+void DetachAt(void *model, int attachId) {
+    reinterpret_cast<void(__thiscall *)(void *, int)>(Offsets::FUN_M2MODEL_DETACH_AT)(model, attachId);
+}
+
+// RefreshRangedWeaponModel's close of the old model (0x00611E41): a null
+// draw callback, then its reference goes; the model stays where it hangs.
+void CloseRanged(Actor &actor) {
+    if (actor.rangedModel == nullptr)
+        return;
+    M2::SetDrawCallback(actor.rangedModel, nullptr, nullptr, true);
+    M2::Release(actor.rangedModel);
+    actor.rangedModel = nullptr;
+}
+
+// The ranged model off the body (hidden weapons, an emptied slot).
+void TakeOffRanged(Actor &actor) {
+    if (actor.rangedModel != nullptr && M2::Parent(actor.rangedModel) != nullptr)
+        M2::Detach(actor.rangedModel);
+    CloseRanged(actor);
+}
+
+// RefreshRangedWeaponModel (0x00611E10): the old model closed; in hand
+// (`sheath` false) after both hands and the shield point are emptied, else
+// at the sheath point its type has. A bow is strung (DrawBowstring).
+void HangRanged(Actor &actor, bool sheath) {
+    using AttachItemModel_t = int(__fastcall *)(void *model, const void *record, uint32_t bodySlot,
+                                                uint32_t sheatheType, bool sheathed, bool shield, bool ranged);
+    void *body = actor.model;
+    if (body == nullptr)
+        return;
+    if (actor.ranged.itemClass == 0 || actor.rangedDisplay == nullptr || actor.hideWeapons) {
+        TakeOffRanged(actor);
+        return;
+    }
+    CloseRanged(actor);
+    if (!sheath) {
+        DetachAt(body, Offsets::ATTACH_HAND_RIGHT);
+        DetachAt(body, Offsets::ATTACH_HAND_LEFT);
+        DetachAt(body, 0);
+    }
+    const int at = reinterpret_cast<AttachItemModel_t>(Offsets::FUN_ATTACH_ITEM_MODEL)(
+        body, actor.rangedDisplay, Offsets::BODY_SLOT_RANGED, actor.ranged.sheatheType, sheath, false,
+        HeldRight(actor.ranged));
+    void *weapon = at >= 0 ? M2::FindChild(body, at) : nullptr;
+    if (weapon == nullptr)
+        return;
+    M2::AddRef(weapon);
+    actor.rangedModel = weapon;
+    if (actor.ranged.itemClass == Offsets::ITEM_CLASS_WEAPON &&
+        actor.ranged.subclass == Offsets::ITEM_SUBCLASS_WEAPON_BOW)
+        M2::SetDrawCallback(weapon, reinterpret_cast<const void *>(Offsets::FUN_DRAW_BOWSTRING), actor.stringUnit,
+                            true);
+}
+
+// The ranged slot emptied: its model off, its lane, row and worn item gone.
+void ClearRanged(Actor &actor) {
+    TakeOffRanged(actor);
+    actor.ranged = Outfit::HeldLane{};
+    actor.rangedDisplay = nullptr;
+    actor.worn[Offsets::INVSLOT_RANGED - 1] = Outfit::Appearance{};
+}
+
+// The unit fields DrawBowstring reads: the body model and the drawn bit.
+void WriteStringUnit(Actor &actor) {
+    const uint32_t flags = actor.bowDrawn ? static_cast<uint32_t>(Offsets::UNIT_STATE_BOW_DRAWN) : 0u;
+    std::memcpy(actor.stringUnit + Offsets::OFF_CGOBJECT_MODEL, &actor.model, sizeof actor.model);
+    std::memcpy(actor.stringUnit + Offsets::OFF_CGUNIT_STATE_FLAGS, &flags, sizeof flags);
+}
+
+// Releases the model without scripts (a destroyed actor runs none).
 void ReleaseModel(Actor &actor) {
     if (actor.model == nullptr)
         return;
-    UnstringBow(actor);
+    CloseRanged(actor);
     Casts::Drop(actor);
     DropKitEffects(actor);
     M2::SetAnimDoneCallback(actor.model, nullptr, 0, 0);
@@ -257,6 +324,8 @@ void ReleaseModel(Actor &actor) {
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
     actor.rangedDrawn = false;
+    actor.ranged = Outfit::HeldLane{};
+    actor.rangedDisplay = nullptr;
     actor.ammoDisplay = 0;
     for (Outfit::Appearance &slot : actor.worn)
         slot = Outfit::Appearance{};
@@ -326,6 +395,7 @@ bool Actor::SetUnitModel(uint64_t guid) {
     Outfit::ReadLanes(unit, lanes);
     Outfit::ReadWeapons(guid, weapons);
     Outfit::ReadWorn(unit, guid, weapons, worn);
+    Outfit::ReadRanged(unit, guid, ranged, rangedDisplay, worn[Offsets::INVSLOT_RANGED - 1]);
     const auto closeHand = reinterpret_cast<CloseHand_t>(Offsets::FUN_CLOSE_HAND);
     if (M2::FindChild(copy, 2) != nullptr)
         closeHand(copy, 1);
@@ -338,6 +408,9 @@ bool Actor::SetUnitModel(uint64_t guid) {
     } else {
         Outfit::Undress(copy, dresser, lanes, true);
         Outfit::TrimWorn(dresser, lanes, worn);
+        ranged = Outfit::HeldLane{};
+        rangedDisplay = nullptr;
+        worn[Offsets::INVSLOT_RANGED - 1] = Outfit::Appearance{};
     }
     // SetModel keeps the unit fields: there is no model to clear.
     SetModel(copy, nullptr, nullptr);
@@ -349,15 +422,18 @@ bool Actor::SetUnitModel(uint64_t guid) {
 void Actor::ApplyWeapons() {
     if (model == nullptr)
         return;
-    Outfit::HangWeapons(model, lanes, weapons, sheathed, hideWeapons);
-    for (int i = 0; i < 2; ++i)
-        if (LaneSheathed(i) != sheathed)
-            Outfit::SetSheatheType(model, lanes, i, weapons, lanes[i].sheatheType, LaneSheathed(i), hideWeapons);
+    Outfit::HangWeapons(model, lanes, weapons, MeleeSheathed(), hideWeapons);
+    if (rangedDrawn)
+        HangRanged(*this, false);
+    else if (hideWeapons)
+        TakeOffRanged(*this);
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
 }
 
-// Sheathe state 2, as SetSheatheState (0x00611CF0) applies it at once; a
-// second ranged spell finds it set and changes nothing.
+// Sheathe state 2, as SetSheatheState (0x00611CF0) applies it at once
+// (ApplySheatheChange 0x00611770: the melee items to their sheath points,
+// then RefreshRangedWeaponModel(0)); a second ranged spell finds it set and
+// changes nothing.
 void Actor::DrawRanged() {
     if (rangedDrawn || model == nullptr)
         return;
@@ -365,36 +441,27 @@ void Actor::DrawRanged() {
     ApplyWeapons();
 }
 
-bool Actor::LaneSheathed(int i) const { return rangedDrawn ? i != Casts::RangedLane(*this) : sheathed; }
-
-// RefreshRangedWeaponModel's string (0x00611E10) on a bow (class 2, subclass
-// 2), found where its lane hangs it as the weapon trail finds a held item
-// (0x00608D60: GetSheathAttachment, FindChild). DrawBowstring reads the
-// model and the drawn bit from `stringUnit` as from a unit.
-void Actor::StringBow() {
-    using SheathAttachment_t = int(__fastcall *)(uint32_t sheatheType, bool mainHand);
-    void *bow = nullptr;
-    const int lane = model != nullptr ? Casts::RangedLane(*this) : -1;
-    if (lane >= 0 && lanes[lane].itemClass == Offsets::ITEM_CLASS_WEAPON &&
-        lanes[lane].subclass == Offsets::ITEM_SUBCLASS_WEAPON_BOW) {
-        const int at = LaneSheathed(lane)
-                           ? reinterpret_cast<SheathAttachment_t>(Offsets::FUN_GET_SHEATH_ATTACHMENT)(
-                                 lanes[lane].sheatheType, lane == 0)
-                           : (lane == 0 ? Offsets::ATTACH_HAND_RIGHT : Offsets::ATTACH_HAND_LEFT);
-        if (at >= 0)
-            bow = M2::FindChild(model, at);
+// ApplySheatheChange (0x00611770) leaving state 2: for 0 the ammo point and
+// the weapon's hand are emptied and the hand opens; for 1 the weapon goes to
+// its sheath point, if its type has one (RefreshRangedWeaponModel(1)).
+void Actor::SheatheRanged() {
+    using OpenHand_t = void(__fastcall *)(void *model, uint32_t hand);
+    if (!rangedDrawn)
+        return;
+    rangedDrawn = false;
+    if (model == nullptr)
+        return;
+    if (!sheathed) {
+        HangRanged(*this, true);
+        return;
     }
-    if (bow != stringedBow) {
-        UnstringBow(*this);
-        if (bow != nullptr) {
-            M2::AddRef(bow);
-            M2::SetDrawCallback(bow, reinterpret_cast<const void *>(Offsets::FUN_DRAW_BOWSTRING), stringUnit, true);
-            stringedBow = bow;
-        }
-    }
-    const uint32_t flags = bowDrawn ? static_cast<uint32_t>(Offsets::UNIT_STATE_BOW_DRAWN) : 0u;
-    std::memcpy(stringUnit + Offsets::OFF_CGOBJECT_MODEL, &model, sizeof model);
-    std::memcpy(stringUnit + Offsets::OFF_CGUNIT_STATE_FLAGS, &flags, sizeof flags);
+    DetachAt(model, Offsets::ATTACH_BOW_RELEASE);
+    CloseRanged(*this);
+    if (ranged.itemClass == 0)
+        return;
+    const bool right = HeldRight(ranged);
+    DetachAt(model, right ? Offsets::ATTACH_HAND_RIGHT : Offsets::ATTACH_HAND_LEFT);
+    reinterpret_cast<OpenHand_t>(Offsets::FUN_OPEN_HAND)(model, right ? 0 : 1);
 }
 
 void Actor::TookLane(void *onModel, int i) {
@@ -408,8 +475,12 @@ void Actor::ApplySheatheCategory(void *onModel, int i) {
     const uint32_t category =
         useUnitSheatheCategory ? Outfit::kSheatheDefault : sheatheCategory[i];
     const uint8_t type = Outfit::SheatheTypeFor(ownSheathe[i], category);
-    if (type != lanes[i].sheatheType)
-        Outfit::SetSheatheType(onModel, lanes, i, weapons, type, LaneSheathed(i), hideWeapons);
+    if (type == lanes[i].sheatheType)
+        return;
+    Outfit::SetSheatheType(onModel, lanes, i, weapons, type, MeleeSheathed(), hideWeapons);
+    // The re-hang empties the lane's hand, which may hold the drawn weapon.
+    if (rangedDrawn && onModel == model)
+        HangRanged(*this, false);
 }
 
 namespace {
@@ -455,13 +526,26 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
     }
     if (!request.quiet)
         ShowIfNotEquippable(record);
+    // Every ranged weapon takes the ranged slot, not a hand.
+    const auto type = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
+    if (type == Offsets::INVTYPE_RANGED || type == Offsets::INVTYPE_RANGEDRIGHT || type == Offsets::INVTYPE_THROWN) {
+        actor.ranged = Outfit::LaneOf(record);
+        actor.rangedDisplay =
+            DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
+                        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID));
+        actor.worn[Offsets::INVSLOT_RANGED - 1] = {TryOn::WornItem(request.itemID), 0};
+        if (actor.rangedDrawn || actor.rangedModel != nullptr)
+            HangRanged(actor, !actor.rangedDrawn);
+        Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
+        return;
+    }
     Outfit::HeldTryOn held;
     held.bodySlot = request.bodySlot;
     // The dressing room's test (TryOnItem asks the active player's skill only
     // when it shows that player) is for a unit's model. A creature display
     // or a model file holds two one-handers, as the world draws an NPC's.
     held.dualWield = actor.unitGuid == 0 || Outfit::CanDualWield(actor.unitGuid);
-    held.sheathed = actor.sheathed;
+    held.sheathed = actor.MeleeSheathed();
     held.hide = actor.hideWeapons;
     held.enchant = request.enchant;
     const int invSlot = Outfit::TryOn(actor.model, actor.dresser, actor.armorReady, actor.lanes,
@@ -476,8 +560,10 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
         if (actor.weapons.visual[lane] != 0)
             slot.enchant = request.enchant;
         actor.TookLane(actor.model, lane);
+        // The new item's hang empties its hand, which may hold the drawn
+        // weapon.
         if (actor.rangedDrawn)
-            actor.ApplyWeapons();
+            HangRanged(actor, false);
     }
     Outfit::TrimWorn(actor.dresser, actor.lanes, actor.worn);
     Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
@@ -684,8 +770,7 @@ void Actor::Update(float elapsedSec) {
             RunScript(S_ONANIMFINISHED, 0);
         }
     }
-    if (loaded)
-        StringBow();
+    WriteStringUnit(*this);
     Casts::Update(*this, elapsedSec);
     if (HasScript(S_ONUPDATE)) {
         void *L = Game::Lua::State();
@@ -825,7 +910,6 @@ int __fastcall Script_SetModelByUnit(void *L) {
         return 0;
     }
     actor->sheathed = Game::Lua::ToBoolean(L, 3) != 0;
-    actor->rangedDrawn = false;
     actor->autoDress = Game::Lua::Type(L, 4) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 4) != 0;
     actor->hideWeapons = Game::Lua::ToBoolean(L, 5) != 0;
     const uint64_t guid = Unit::Identity::GuidForToken(Game::Lua::ToString(L, 2));
@@ -861,6 +945,8 @@ int __fastcall Script_Undress(void *L) {
     const bool weapons = Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 2) != 0;
     Outfit::Undress(actor->model, actor->dresser, actor->lanes, weapons);
     Outfit::TrimWorn(actor->dresser, actor->lanes, actor->worn);
+    if (weapons)
+        ClearRanged(*actor);
     return 0;
 }
 
@@ -869,8 +955,12 @@ int __fastcall Script_UndressSlot(void *L) {
     if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
                                         "UndressSlot(inventorySlot)"))
         return 0;
-    Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes,
-                        static_cast<int>(Game::Lua::ToNumber(L, 2)));
+    const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (invSlot == Offsets::INVSLOT_RANGED) {
+        ClearRanged(*actor);
+        return 0;
+    }
+    Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes, invSlot);
     Outfit::TrimWorn(actor->dresser, actor->lanes, actor->worn);
     return 0;
 }
@@ -883,13 +973,27 @@ int __fastcall Script_DressPlayerSlot(void *L) {
     void *unit = actor->unitGuid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, actor->unitGuid)
                                       : nullptr;
     const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (invSlot == Offsets::INVSLOT_RANGED) {
+        if (actor->model == nullptr || unit == nullptr)
+            return 0;
+        TakeOffRanged(*actor);
+        Outfit::ReadRanged(unit, actor->unitGuid, actor->ranged, actor->rangedDisplay,
+                           actor->worn[Offsets::INVSLOT_RANGED - 1]);
+        if (actor->rangedDrawn)
+            HangRanged(*actor, false);
+        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
+        return 0;
+    }
     Outfit::DressSlot(actor->model, actor->dresser, actor->armorReady, actor->lanes,
-                      actor->weapons, unit, actor->unitGuid, invSlot, actor->sheathed,
+                      actor->weapons, unit, actor->unitGuid, invSlot, actor->MeleeSheathed(),
                       actor->hideWeapons);
     if (actor->model == nullptr || unit == nullptr)
         return 0;
-    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND)
+    if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND) {
         actor->TookLane(actor->model, invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0);
+        if (actor->rangedDrawn)
+            HangRanged(*actor, false);
+    }
     // The slot wears what the unit wears there; the hand's row and glow are
     // the unit's now.
     if (invSlot >= 1 && invSlot <= Outfit::kInventorySlots) {
@@ -936,12 +1040,13 @@ int __fastcall Script_SetItemTransmogInfo(void *L) {
     return 1;
 }
 
-// The slots TryOnReason's arms accept: a hand on any model, armor on one
-// that takes it.
+// The slots TryOnReason's arms accept: a hand or the ranged slot on any
+// model, armor on one that takes it.
 bool SlotAllowed(const Actor &actor, int invSlot) {
     return actor.model != nullptr &&
-           Outfit::SlotAllowed(invSlot, (actor.dresser != nullptr || actor.dressRecord != nullptr) &&
-                                            actor.armorReady);
+           (invSlot == Offsets::INVSLOT_RANGED ||
+            Outfit::SlotAllowed(invSlot, (actor.dresser != nullptr || actor.dressRecord != nullptr) &&
+                                             actor.armorReady));
 }
 
 int __fastcall Script_IsSlotAllowed(void *L) {
@@ -973,7 +1078,7 @@ int __fastcall Script_SetSheathed(void *L) {
         return 0;
     actor->sheathed = Game::Lua::ToBoolean(L, 2) != 0;
     actor->hideWeapons = Game::Lua::ToBoolean(L, 3) != 0;
-    actor->rangedDrawn = false;
+    actor->SheatheRanged();
     actor->ApplyWeapons();
     return 0;
 }
@@ -986,8 +1091,8 @@ int __fastcall Script_GetSheathed(void *L) {
     return 1;
 }
 
-// A hand's sheath point while sheathed. 1.12 has no ranged slot to hang
-// (a ranged weapon is held in a hand), so other slots change nothing.
+// A hand's sheath point while sheathed. The ranged slot has no category (a
+// 1.12 ranged weapon hangs in hand), so other slots change nothing.
 int __fastcall Script_SetSheathedCategory(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || !NumberArgs(L, 2, 2, actor->DisplayName(),

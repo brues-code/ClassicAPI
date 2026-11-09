@@ -6415,11 +6415,28 @@ enum Offsets {
     FUN_M2MODEL_SET_DRAW_CALLBACK = 0x00710DB0,
     OFF_CGUNIT_STATE_FLAGS = 0xD58,
     UNIT_STATE_BOW_DRAWN = 0x4000,
-    // GetSheathAttachment — `int __fastcall(sheatheType, bool mainHand)`
-    // (0x0047A070): a held item's sheath attachment, or -1 (the
-    // OFF_ITEMSTATS_SHEATH table). The weapon trail (0x00608D60) finds a
-    // held item's model with it and FindChild.
-    FUN_GET_SHEATH_ATTACHMENT = 0x0047A070,
+    // A unit's ranged weapon (Ghidra): its third held lane, hand 2 of the
+    // held-lane and display virtuals (VTBL_UNIT_GET_HELD_ITEM_LANE with
+    // (2, 0), VTBL_UNIT_GET_HELD_ITEM_DISPLAY with 2), inventory slot 18.
+    // Its model (+0xD24, one reference) is hung only in the ranged sheathe
+    // state: ApplySheatheChange (0x00611770) entering state 2 moves the
+    // melee items to their sheath points, then RefreshRangedWeaponModel
+    // (0x00611E10, arg 0) empties attachments 1, 2 and 0 and hangs it in
+    // hand with AttachItemModel (body slot 0x11, its sheathe type, the
+    // ranged flag set for INVTYPE_RANGEDRIGHT and THROWN: attachment 1, else
+    // 2). Leaving state 2 detaches attachment 35 and the weapon's hand, then
+    // opens that hand (OpenHand 0x004796B0, `__fastcall(model, hand)`: no
+    // animation on finger key bones 8..12 for hand 0, 13..17 for hand 1);
+    // for state 1 RefreshRangedWeaponModel(1) hangs it at its sheath point
+    // (none for a bow or gun's sheathe type 0). DetachAt (0x007130A0,
+    // `__thiscall(model, attachId)`, ret 4) detaches every child hung there.
+    // While drawn, a player's quiver shows (component slot 11); not
+    // mirrored.
+    UNIT_HAND_RANGED = 2,
+    BODY_SLOT_RANGED = 0x11,
+    INVSLOT_RANGED = 18,
+    FUN_OPEN_HAND = 0x004796B0,
+    FUN_M2MODEL_DETACH_AT = 0x007130A0,
     // Stuck missiles (Ghidra). The launcher (0x0060A509) flags a ranged
     // spell's missile 0x4 when the ranged item is a bow, crossbow or thrown
     // weapon (0x0060A710: class 2, subclass 2, 18 or 16). Launch (0x0061CEB0)

@@ -332,10 +332,7 @@ int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &
     }
     ClearLane(model, lanes, lane);
     HeldLane &target = lanes[lane];
-    target.itemClass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS));
-    target.subclass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS));
-    target.inventoryType = static_cast<uint8_t>(type);
-    target.sheatheType = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SHEATH));
+    target = LaneOf(record);
     const uint8_t *display = DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS,
                                          Offsets::VAR_ITEMDISPLAYINFO_COUNT, displayID);
     weapons.display[lane] = display;
@@ -448,6 +445,38 @@ void TrimWorn(void *component, const Lanes &lanes, Worn &worn) {
         worn[Offsets::INVSLOT_MAINHAND - 1] = Appearance{};
     if (lanes[1].itemClass == 0)
         worn[Offsets::INVSLOT_OFFHAND - 1] = Appearance{};
+}
+
+HeldLane LaneOf(const uint8_t *record) {
+    HeldLane lane{};
+    lane.itemClass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS));
+    lane.subclass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS));
+    lane.inventoryType = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE));
+    lane.sheatheType = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SHEATH));
+    return lane;
+}
+
+void ReadRanged(void *unit, uint64_t guid, HeldLane &lane, const void *&display, Appearance &worn) {
+    lane = HeldLane{};
+    display = nullptr;
+    worn = Appearance{};
+    if (unit == nullptr)
+        return;
+    const HeldLane *held = VirtualOf<GetHeldItemLane_t>(unit, Offsets::VTBL_UNIT_GET_HELD_ITEM_LANE)(
+        unit, Offsets::UNIT_HAND_RANGED, 0);
+    const void *row = VirtualOf<GetHeldItemDisplay_t>(unit, Offsets::VTBL_UNIT_GET_HELD_ITEM_DISPLAY)(
+        unit, Offsets::UNIT_HAND_RANGED);
+    if (held == nullptr || held->itemClass == 0 || row == nullptr)
+        return;
+    lane = *held;
+    display = row;
+    // Only a player has visible items (ReadWorn's hazard).
+    void *player = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid);
+    if (player == nullptr)
+        return;
+    if (const void *item = reinterpret_cast<GetVisibleItem_t>(Offsets::FUN_UNIT_GET_VISIBLE_ITEM)(
+            player, static_cast<uint32_t>(Offsets::INVSLOT_RANGED - 1)))
+        worn.item = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ITEM_ID);
 }
 
 void Undress(void *model, void *component, Lanes &lanes, bool weapons) {

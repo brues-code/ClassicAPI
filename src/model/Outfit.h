@@ -179,4 +179,13 @@ void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn);
 // lane.
 void TrimWorn(void *component, const Lanes &lanes, Worn &worn);
 
+// The held lane an item record gives, as TryOnItem copies it: class,
+// subclass, inventory type and sheathe type.
+HeldLane LaneOf(const uint8_t *record);
+
+// RefreshRangedWeaponModel's source (0x00611E10): the unit's ranged lane and
+// display row (hand 2), and, for a player, the item its ranged slot wears.
+// All empty when the unit holds no ranged weapon.
+void ReadRanged(void *unit, uint64_t guid, HeldLane &lane, const void *&display, Appearance &worn);
+
 } // namespace Model::Outfit

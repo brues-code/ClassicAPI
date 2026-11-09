@@ -115,17 +115,6 @@ void SettleLight(void *model, EntityLight *light, float elapsed) {
 
 } // namespace
 
-int RangedLane(const Actor &actor) {
-    for (int i = 0; i < 2; ++i) {
-        const uint32_t type = actor.lanes[i].inventoryType;
-        if (actor.lanes[i].itemClass != 0 &&
-            (type == Offsets::INVTYPE_RANGED || type == Offsets::INVTYPE_THROWN ||
-             type == Offsets::INVTYPE_RANGEDRIGHT))
-            return i;
-    }
-    return -1;
-}
-
 namespace {
 
 // The release events, '$CSL', '$CSR', '$CST'.
@@ -201,11 +190,9 @@ bool BuildVisual(const Actor &caster, const uint8_t *spell, uint8_t (&out)[Offse
     using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
     const uint8_t *own = reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell);
     const uint8_t *weapon = nullptr;
-    const int lane = RangedLane(caster);
-    if (IsRanged(spell) && lane >= 0 && caster.weapons.display[lane] != nullptr)
+    if (IsRanged(spell) && caster.rangedDisplay != nullptr)
         weapon = DBC::Record(Offsets::VAR_SPELLVISUAL_RECORDS, Offsets::VAR_SPELLVISUAL_COUNT,
-                             Game::Read<uint32_t>(caster.weapons.display[lane],
-                                                  Offsets::OFF_ITEMDISPLAYINFO_SPELL_VISUAL));
+                             Game::Read<uint32_t>(caster.rangedDisplay, Offsets::OFF_ITEMDISPLAYINFO_SPELL_VISUAL));
     if (own == nullptr && weapon == nullptr)
         return false;
     if (own != nullptr)
@@ -240,15 +227,12 @@ bool BuildVisual(const Actor &caster, const uint8_t *spell, uint8_t (&out)[Offse
 // tried on, else what the server gives an NPC (Rough Arrow, Light Shot).
 void ShotAmmo(const Actor &caster, const uint8_t *spell, uint32_t &display, uint32_t &type) {
     display = type = 0;
-    const int lane = RangedLane(caster);
-    if (!IsRanged(spell) || lane < 0)
+    if (!IsRanged(spell) || caster.rangedDisplay == nullptr)
         return;
-    const Outfit::HeldLane &held = caster.lanes[lane];
+    const Outfit::HeldLane &held = caster.ranged;
     if (held.inventoryType == Offsets::INVTYPE_THROWN) {
-        if (caster.weapons.display[lane] != nullptr) {
-            display = Game::Read<uint32_t>(caster.weapons.display[lane], 0);
-            type = Offsets::INVTYPE_THROWN;
-        }
+        display = Game::Read<uint32_t>(caster.rangedDisplay, 0);
+        type = Offsets::INVTYPE_THROWN;
         return;
     }
     if (caster.ammoDisplay != 0)
@@ -270,19 +254,10 @@ bool IsGunOrCrossbow(const Outfit::HeldLane &held) {
 }
 
 // Whether the ammo stays off the string: a gun or crossbow is the ranged item.
-bool KeepsAmmoOff(const Actor &actor) {
-    const int lane = RangedLane(actor);
-    return lane >= 0 && IsGunOrCrossbow(actor.lanes[lane]);
-}
+bool KeepsAmmoOff(const Actor &actor) { return IsGunOrCrossbow(actor.ranged); }
 
-// The ranged weapon's model (a unit's +0xD24): the item hung in its lane's
-// hand, or null (none held, or sheathed).
-void *RangedModel(const Actor &actor) {
-    const int lane = RangedLane(actor);
-    if (lane < 0 || actor.model == nullptr)
-        return nullptr;
-    return M2::FindChild(actor.model, lane == 0 ? Offsets::ATTACH_HAND_RIGHT : Offsets::ATTACH_HAND_LEFT);
-}
+// The ranged weapon's model (a unit's +0xD24), or null (none hung).
+void *RangedModel(const Actor &actor) { return actor.rangedModel; }
 
 void Nock(Actor &actor) {
     M2::Attach(actor.heldAmmo, actor.model, Offsets::ATTACH_BOW_RELEASE);
@@ -304,10 +279,8 @@ void HoldAmmo(Actor &actor, uint32_t display) {
     actor.heldAmmoDisplay = display;
     if (display == 0 || actor.model == nullptr)
         return;
-    const int lane = RangedLane(actor);
-    const uint32_t kind = lane >= 0 && actor.lanes[lane].inventoryType == Offsets::INVTYPE_THROWN
-                              ? Offsets::LOOSE_ITEM_WEAPON
-                              : Offsets::LOOSE_ITEM_AMMO;
+    const uint32_t kind = actor.ranged.inventoryType == Offsets::INVTYPE_THROWN ? Offsets::LOOSE_ITEM_WEAPON
+                                                                                : Offsets::LOOSE_ITEM_AMMO;
     actor.heldAmmo = reinterpret_cast<LooseItem_t>(Offsets::FUN_CREATE_LOOSE_ITEM_MODEL)(
         actor.model,
         DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT, display), kind);
@@ -615,8 +588,7 @@ void StartCast(Actor &caster, SpellCast &cast) {
                          cast.speed > 0.0f && cast.target != &caster;
     if (missile) {
         cast.missile = MakeMissile(caster, cast);
-        const int lane = RangedLane(caster);
-        cast.sticks = spell != nullptr && IsRanged(spell) && lane >= 0 && IsBowCrossbowOrThrown(caster.lanes[lane]);
+        cast.sticks = spell != nullptr && IsRanged(spell) && IsBowCrossbowOrThrown(caster.ranged);
     }
     if (cast.missile != nullptr) {
         LightAsEntity(cast.missile, cast.light, caster.SceneFrame());

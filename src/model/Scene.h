@@ -114,14 +114,18 @@ class Actor : public Animation::Object {
     // Shows a copy of the unit's model, dressed and armed per autoDress,
     // sheathed and hideWeapons; false (and no model) when it has none.
     bool SetUnitModel(uint64_t guid);
-    // Hangs the held items per sheathed and hideWeapons, or drawn for a
-    // ranged shot.
+    // Hangs the hand lanes per MeleeSheathed and hideWeapons, and the ranged
+    // weapon in hand while it is drawn.
     void ApplyWeapons();
-    // A ranged spell's start: the ranged weapon in hand, the other held item
-    // sheathed, until SetSheathed or a new model.
+    // A ranged spell's start (the unit's sheathe state 2): the melee items
+    // on their sheath points, the ranged weapon in hand, until SetSheathed or
+    // a new model.
     void DrawRanged();
-    // Whether lane `i` hangs at its sheath point.
-    bool LaneSheathed(int i) const;
+    // Leaves sheathe state 2: the ranged weapon leaves the hand.
+    void SheatheRanged();
+    // Whether the hand lanes hang at their sheath points: sheathed, or the
+    // ranged weapon drawn.
+    bool MeleeSheathed() const { return sheathed || rangedDrawn; }
     // Puts the item on the model (Outfit::TryOn), once the model has loaded
     // and the item's record is cached; returns the ItemTryOnReason.
     int TryOnItem(const Model::TryOn::Request &request);
@@ -154,6 +158,14 @@ class Actor : public Animation::Object {
     bool sheathed = false;
     bool hideWeapons = false;
     bool rangedDrawn = false; // the unit's sheathe state 2
+    // The ranged slot (a ClassicAPI extension): a unit's third held lane,
+    // inventory slot 18, which every bow, gun, crossbow, wand and thrown
+    // weapon takes. Its ItemDisplayInfo row, and its model (a unit's +0xD24,
+    // one reference) while hung: in hand while drawn, else only at a sheath
+    // point its type has.
+    Outfit::HeldLane ranged = {};
+    const void *rangedDisplay = nullptr;
+    void *rangedModel = nullptr;
     // Per lane: the SetSheathedCategory category (Outfit::SheatheCategory),
     // and the sheathe type the lane's item has of its own. The lane itself
     // holds the type it hangs with.
@@ -217,14 +229,9 @@ class Actor : public Animation::Object {
     void *heldAmmo = nullptr;
     uint32_t heldAmmoDisplay = 0;
     bool bowDrawn = false;
-    // The bowstring, as RefreshRangedWeaponModel strings a unit's bow: the
-    // bow's model (one reference) draws DrawBowstring with `stringUnit`, the
-    // unit fields the callback reads (the model and the drawn bit).
-    void *stringedBow = nullptr;
+    // The unit fields DrawBowstring reads (the model and the drawn bit), the
+    // user data of a hung bow's string; each update, before the draw.
     alignas(4) uint8_t stringUnit[Offsets::OFF_CGUNIT_STATE_FLAGS + 4] = {};
-    // Strings the bow in the ranged lane, wherever it hangs, and unstrings a
-    // bow no longer hung; each update, before the draw.
-    void StringBow();
     std::vector<SpellCast> spellCasts;
     std::vector<ImpactModel> impactModels;
     std::vector<StuckMissile> stuckMissiles; // the missiles stuck in this actor
@@ -232,9 +239,6 @@ class Actor : public Animation::Object {
 
 // The spell visuals an actor casts (model/SceneSpell.cpp).
 namespace Casts {
-// The held item the caster shoots with (an INVTYPE_RANGED, THROWN or
-// RANGEDRIGHT lane), or -1.
-int RangedLane(const Actor &caster);
 // Starts the cast; false when the spell, its visual or the caster's model is
 // missing. `castTimeMs` < 0 takes the spell's cast time.
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
