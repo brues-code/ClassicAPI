@@ -841,6 +841,11 @@ build instructions.
   - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
   - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
   - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
+  - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset)
+  - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
+  - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
+  - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
+  - [Scene sounds](#scene-sounds)
   - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
@@ -882,6 +887,7 @@ build instructions.
   - [`actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)
   - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
+  - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
   - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
@@ -19115,6 +19121,7 @@ has no effect in the game.
 A `ModelScene` frame shows many models in one 3D scene. Each model is an
 *actor*. The scene has one camera, one light and fog. You move the camera
 and the actors in scene coordinates: `z` is up, and distances are in yards.
+The scene can also show a WMO, for example a dungeon, around the actors.
 
 ### `CreateFrame("ModelScene" [, name, parent, template])`
 
@@ -19300,6 +19307,105 @@ Without `terrainTypeID`, the scene has no ground, and the actors make no
 footsteps and no death thuds. This is the default. `scene:GetGroundTerrain()`
 returns the ID, or nothing when the scene has no ground. This is a
 ClassicAPI extension.
+
+### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])`
+
+Shows a WMO (a world map object, for example a building or a dungeon)
+around the actors, and returns `true`. `path` is a `.wmo` file. The WMO
+stands at `(x, y, z)` and turns by `yaw` radians about `z`. The defaults are
+`(0, 0, 0)` and `0`.
+
+The scene shows the WMO as the world shows it:
+
+- The data of the WMO lights and colors it. On the outdoor parts of the
+  WMO, the light of the scene is the sun.
+- A WMO with two or more fogs uses its own fog. Other WMOs use the fog of
+  the scene.
+- The WMO shows its props, for example torches, furniture and bones. The
+  props of doodad set `0` always show. `doodadSet` adds the props of one
+  more set. The props animate, and the lights of the WMO light them.
+- Props fade out with the distance from the camera, as in the world.
+  Small props fade first. A prop that is larger than 7 yards does not fade.
+- The parts of the WMO show when their files have loaded.
+
+The WMO replaces the previous WMO of the scene.
+
+The WMO also lights the actors, as the world lights a creature that stands
+in it:
+
+- An actor indoors takes the color of the floor under it, from the data of
+  the WMO. An actor outdoors, or with no floor of the WMO under it, takes
+  the light of the scene.
+- The lights of the WMO near an actor light it, for example torches.
+- The fog of an indoor actor is the fog of the WMO.
+- When an actor moves, its light changes at once. In the world, the light
+  changes during a short time.
+- A seated rider and an actor that hangs on another actor take the light
+  of that other actor.
+
+The far clip of the camera (`100` yards by default) also
+cuts the WMO. For a large WMO, increase the far clip with
+`scene:SetCameraFarClip`. `scene:GetActorAtCursor` does not return the WMO
+or its props.
+
+The function returns `false` and shows no WMO when the file is missing,
+when the file is not a WMO, or when the client cannot read the file. This
+is a ClassicAPI extension.
+
+```lua
+scene:SetWorldModel("World\\wmo\\Dungeon\\LD_Stratholme\\FrostWyrm_Final01.wmo",
+    3589.27, -5204, 252.46, -1.77151)
+scene:SetCameraFarClip(500)
+```
+
+### `scene:SetWorldModelByMapID(mapID)`
+
+Shows the WMO of a map that is only one WMO, for example a dungeon, and
+returns `true`. `mapID` is a row of `Map.dbc`. The WMO stands where the map
+puts it and uses the doodad set of the map. Thus the positions in the scene
+are the positions on the map: an actor at the position of a creature in the
+world stands where that creature stands.
+
+All the other rules of
+[`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset) apply.
+The function returns `false` and shows no WMO for a map that is not one WMO.
+This is a ClassicAPI extension.
+
+```lua
+scene:SetWorldModelByMapID(249) -- Onyxia's Lair
+scene:SetCameraFarClip(500)
+onyxia:SetPosition(0.7, -211.97, -86.08) -- her place in the lair
+```
+
+### `scene:ClearWorldModel()`
+
+Removes the WMO of the scene and its props. This is a ClassicAPI extension.
+
+### `scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`
+
+Sets whether the props of the WMO play their sounds, for example the
+crackle of a torch. It is `false` by default. You hear the sounds from the
+camera of the scene (see [Scene sounds](#scene-sounds)). As in the world, a
+prop plays its looping sound only when it is near enough.
+
+The sounds play only in the world. On the login screen and the character
+screen, the props play no sounds. When the scene hides, the looping sounds
+stop. When the scene shows again, each looping sound starts again a short
+time later. This is a ClassicAPI extension.
+
+### Scene sounds
+
+You hear all the sounds of a scene from the camera of the scene. These are
+the sounds of `actor:PlaySpellVisual`, of `actor:SetPlayAnimationSounds`, of
+`scene:SetPlayWorldModelSounds`, and of `actor:PlaySound`. Each sound plays
+as if you stand at the camera of the scene:
+
+- A sound that is far from the camera is quieter. A sound that is farther
+  than its range does not play. The range and the volume of each sound are
+  the same as in the world.
+- A sound on the right of the camera comes from the right.
+- The sound of a missile in flight moves with the missile and with the
+  camera. A short sound stays at the position where it started.
 
 ### `scene:GetActorAtCursor()`
 
@@ -19747,8 +19853,11 @@ default. When it is `true`, the animations play these sounds:
 
 The sounds come from the creature display that the actor shows. An actor
 that shows a model file has only the sounds that its animations carry. The
-sounds play in 2D, like `PlaySound`. Attacks play no weapon sounds, because
-an actor does not hit anything. This is a ClassicAPI extension.
+sounds play at the actor, and you hear them from the camera of the scene
+(see [Scene sounds](#scene-sounds)). Attacks play no weapon sounds, because
+an actor does not hit anything. To play a weapon sound or a voice, use
+[`actor:PlaySound`](#actorplaysoundsoundkitid). This is a ClassicAPI
+extension.
 
 ```lua
 scene:SetGroundTerrain(5) -- grass
@@ -19799,6 +19908,11 @@ the world:
 4. The impact: the target flinches when a missile hits it. Then the impact
    effects, animation and sound play on the target.
 
+You hear the sounds from the camera of the scene (see
+[Scene sounds](#scene-sounds)). The sounds of the caster play at the
+caster, the sounds of the impact play at the target, and the flight sound
+moves with the missile.
+
 A second call ends a preparation that has not finished. Missiles that are
 in flight go on. A paused actor (`actor:SetPaused`) holds its spells where
 they are. It returns `false` when the spell has no visual, when this actor
@@ -19808,6 +19922,25 @@ ClassicAPI extension.
 ```lua
 mage:PlaySpellVisual(133, dragon) -- Fireball
 priest:PlaySpellVisual(2061)      -- Flash Heal on itself
+```
+
+### `actor:PlaySound(soundKitID)`
+
+Plays a sound one time at the position of the actor. `soundKitID` is a row
+of `SoundEntries.dbc`, as for `PlaySound`. You hear the sound from the
+camera of the scene (see [Scene sounds](#scene-sounds)). Use it for the
+sounds that come from combat in the world, for example voices and weapon
+swings.
+
+The function returns `willPlay, soundHandle`, as `PlaySound` does.
+`willPlay` is `false` when the sound does not play. This also occurs when
+the actor is farther from the camera than the range of the sound.
+`StopSound(soundHandle)` stops the sound. The sound stays at the position
+where it started. It does not move with the actor. This is a ClassicAPI
+extension.
+
+```lua
+warrior:PlaySound(2941) -- the attack voice of a human male
 ```
 
 ### Actor scripts
