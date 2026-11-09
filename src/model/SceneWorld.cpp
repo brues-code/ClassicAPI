@@ -123,6 +123,7 @@
 #include "model/M2.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1430,6 +1431,41 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
 }
 
 int Ground(const Backdrop *b, const Ambience &a) { return b != nullptr && a.serial == b->serial ? a.ground : -1; }
+
+bool LiquidAt(const Backdrop &b, const float (&point)[3], uint32_t &type, float &surface) {
+    using Height_t = bool(__thiscall *)(void *group, const float *point, uint32_t *type, float *height,
+                                        float *vector);
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return false;
+    // The group, as a unit's is found (AttachEntityToGround 0x006A8A20): the
+    // nearest face down from the point.
+    const float end[3] = {point[0], point[1], point[2] - EngineFloat(Offsets::VAR_ENTITY_PROBE_LENGTH)};
+    float t = 1.0f;
+    uint32_t group = 0;
+    uint16_t face = 0;
+    if (!Nearest(b, point, end, t, group, face))
+        return false;
+    void *loaded = LoadedGroup(b.object, group);
+    if (loaded == nullptr)
+        return false;
+    float local[3], height = 0.0f, vector[3] = {};
+    TransformPoint(point, b.inverse, local);
+    type = Offsets::LIQUID_DRY;
+    if (!reinterpret_cast<Height_t>(Offsets::FUN_CMAPOBJGROUP_LIQUID_HEIGHT)(loaded, local, &type, &height, vector) ||
+        type == Offsets::LIQUID_DRY)
+        return false;
+    type &= 3; // the group's liquid word reads as its tile type, as the camera's fog reads it
+    // A group whose MOGP liquid word fills it answers FLT_MAX: no surface.
+    if (height >= FLT_MAX) {
+        surface = FLT_MAX;
+        return true;
+    }
+    const float top[3] = {local[0], local[1], height};
+    float scene[3];
+    TransformPoint(top, b.placement, scene);
+    surface = scene[2];
+    return true;
+}
 
 bool Trace(const Backdrop &b, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
            float (&normal)[3]) {

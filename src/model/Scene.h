@@ -328,6 +328,11 @@ int Ground(const Backdrop *backdrop, const Ambience &ambience);
 // before the WMO has loaded.
 bool Trace(const Backdrop &backdrop, const float (&start)[3], const float (&end)[3], bool camera,
            float &fraction, float (&normal)[3]);
+// The liquid a point (scene space) is in: the type (0 water, 1 ocean, 2
+// magma, 3 slime) and the surface's z, FLT_MAX for a group that is liquid
+// throughout. False when the point is not under a liquid surface of the
+// group below it, or before the WMO has loaded.
+bool LiquidAt(const Backdrop &backdrop, const float (&point)[3], uint32_t &type, float &surface);
 // From the paint, after Draw: a texture laid over the WMO's faces in `box`
 // (scene space), as the world lays a decal on its ground.
 void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,

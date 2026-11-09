@@ -118,6 +118,7 @@
 #include "model/M2.h"
 #include "xml/FrameLoad.h"
 
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -1298,6 +1299,30 @@ int __fastcall Script_TraceSegment(void *L) {
     return 7;
 }
 
+// The liquid at a point of the scene's WMO (a ClassicAPI extension): its type
+// and its surface's z, nil for a group that is liquid throughout. Nothing
+// when the point is dry or the scene has no WMO.
+int __fastcall Script_GetLiquidAtPoint(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr ||
+        !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame), "GetLiquidAtPoint(pointX, pointY, pointZ)"))
+        return 0;
+    const World::Backdrop *world = F(frame).world;
+    if (world == nullptr)
+        return 0;
+    const float point[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
+    uint32_t type = 0;
+    float surface = 0.0f;
+    if (!World::LiquidAt(*world, point, type, surface))
+        return 0;
+    Game::Lua::PushNumber(L, type);
+    if (surface >= FLT_MAX)
+        Game::Lua::PushNil(L);
+    else
+        Game::Lua::PushNumber(L, surface);
+    return 2;
+}
+
 // The actor the scene's sounds are heard at, as the world hears them at the
 // unit the player drives (a ClassicAPI extension). nil: the camera again.
 int __fastcall Script_SetSoundListenerActor(void *L) {
@@ -1509,6 +1534,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetWorldModelByMapID", &Script_SetWorldModelByMapID},
     {"ClearWorldModel", &Script_ClearWorldModel},
     {"TraceSegment", &Script_TraceSegment},
+    {"GetLiquidAtPoint", &Script_GetLiquidAtPoint},
     {"SetSoundListenerActor", &Script_SetSoundListenerActor},
     {"GetSoundListenerActor", &Script_GetSoundListenerActor},
     {"SetPlayWorldModelSounds", &Script_SetPlayWorldModelSounds},
@@ -1693,6 +1719,18 @@ const Game::Doc::Function kTraceSegment{
     "Returns nothing when the segment hits no face, when the scene has no WMO, or for parts of the WMO "
     "that have not loaded.",
     kTraceSegmentArgs, kTraceSegmentRets, nullptr, true};
+const Game::Doc::Field kLiquidArgs[] = {Req("pointX", "number"), Req("pointY", "number"),
+                                        Req("pointZ", "number")};
+const Game::Doc::Field kLiquidRets[] = {
+    Req("liquidType", "number", "0 water, 1 ocean, 2 magma, 3 slime."),
+    Opt("surfaceZ", "number", nullptr,
+        "The height of the surface above the point. Nil when that part of the WMO is liquid throughout."),
+};
+const Game::Doc::Function kGetLiquidAtPoint{
+    "Returns the liquid of the WMO that a scene point is in, as the world finds it for a unit that stands "
+    "there. Returns nothing when the point is above the surface or not in a liquid, when the scene has no "
+    "WMO, or for parts of the WMO that have not loaded.",
+    kLiquidArgs, kLiquidRets, nullptr, true};
 const Game::Doc::Field kListenerArg[] = {
     Opt("actor", "ModelSceneFrameActor", nullptr, "An actor of this scene. Without it, the camera hears the sounds."),
 };
@@ -1789,6 +1827,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetWorldModelByMapID", &kSetWorldModelByMapID},
     {"ClearWorldModel", &kClearWorldModel},
     {"TraceSegment", &kTraceSegment},
+    {"GetLiquidAtPoint", &kGetLiquidAtPoint},
     {"SetSoundListenerActor", &kSetSoundListenerActor},
     {"GetSoundListenerActor", &kGetSoundListenerActor},
     {"SetPlayWorldModelSounds", &kSetPlayWorldModelSounds},
