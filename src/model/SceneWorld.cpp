@@ -85,6 +85,15 @@
 // emitters' pump runs only in the world, so a
 // scene at the glue screen plays none; a hidden scene drops its loops, and
 // the next $DSL of the model brings each back.
+//
+// Actors stand on the WMO as units do: AttachEntityToGround (0x006A8A20, the
+// path a unit's world entity takes) probes down from the model's collision
+// box centre for the nearest group face, links that group (its lights light
+// the actor), takes its light class, the face's terrain type (the footsteps'
+// ground) and, inside, the face's baked colour. Shadows are the world's
+// decal draw (0x006D7330) over the WMO's faces in the shadow's box. The
+// engine's queries take a map object def; they read only its placement, its
+// inverse and the object, so the backdrop keeps a block with those three.
 
 #include "model/Scene.h"
 
@@ -139,6 +148,9 @@ struct Backdrop {
     float placement[16];
     float inverse[16];
     uint32_t doodadSet;
+    // The fields of a map object def the engine's queries read (the
+    // placement, its inverse, the object), at a def's offsets, set once.
+    alignas(16) uint8_t def[Offsets::MAPOBJDEF_QUERY_SIZE] = {};
     std::vector<std::unique_ptr<Doodad>> doodads;
     std::vector<Doodad *> byIndex; // MODD index -> its doodad
     std::vector<bool> groupsMade;
@@ -148,6 +160,10 @@ struct Backdrop {
     float farClip = 0.0f;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
 };
+
+static_assert(Offsets::OFF_MAPOBJDEF_OBJECT + sizeof(void *) <= Offsets::MAPOBJDEF_QUERY_SIZE &&
+                  Offsets::OFF_MAPOBJDEF_INVERSE + 16 * sizeof(float) <= Offsets::OFF_MAPOBJDEF_OBJECT,
+              "the def block holds the three fields at their offsets");
 
 // An actor's place in the WMO (Settle), as the world keeps it on the unit's
 // map entity.
@@ -160,6 +176,7 @@ struct Ambience {
     uint32_t ambient = 0;   // BGRA bytes (+0x9C)
     uint32_t directional = 0; // BGRA bytes (+0xA0)
     uint32_t dayWeight = 0; // a day face's blend toward the sun (+0xA3)
+    int32_t ground = -1;    // the face's TerrainType id (+0xDC), or -1
     std::vector<Light> lights;
 };
 
@@ -745,6 +762,9 @@ Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSe
     std::memcpy(b->placement, placement, sizeof b->placement);
     reinterpret_cast<void(__thiscall *)(const float *, float *, float)>(Offsets::FUN_MATRIX_INVERT_AFFINE)(
         b->placement, b->inverse, 1.0f);
+    std::memcpy(b->def + Offsets::OFF_MAPOBJDEF_PLACEMENT, b->placement, sizeof b->placement);
+    std::memcpy(b->def + Offsets::OFF_MAPOBJDEF_INVERSE, b->inverse, sizeof b->inverse);
+    std::memcpy(b->def + Offsets::OFF_MAPOBJDEF_OBJECT, &object, sizeof object);
     return b;
 }
 
@@ -843,90 +863,148 @@ uint32_t BlendBytes(uint32_t from, uint32_t to, uint32_t weight) {
     return out;
 }
 
-// LinkEntityToMapObject (0x006A8ED0) for the one WMO, then SetEntityLightFlags
-// (0x006A87F0) and BakeGroupLight's face path (0x006A8410).
+using GetGroup_t = void *(__thiscall *)(void *object, uint32_t group, int force);
+
+void *LoadedGroup(void *object, uint32_t group) {
+    return reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, group, 0);
+}
+
+// What every facet query does first (0x006A893B, 0x006D7497).
+void ResetFacets() {
+    Game::Ref<uint32_t>(Offsets::VAR_FACET_OVERFLOW) = 0;
+    Game::Ref<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT) = 0;
+    Game::Ref<uint32_t>(Offsets::VAR_FACET_FACE_CURSOR) = 0;
+    Game::Ref<uint32_t>(Offsets::VAR_FACET_INDEX_CURSOR) = 0;
+    Game::Ref<uint32_t>(Offsets::VAR_FACET_MATRIX_COUNT) = 0;
+}
+
+const uint8_t *FacetBatch(uint32_t index) {
+    return reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_FACET_BATCHES) +
+                                             index * Offsets::FACET_BATCH_SIZE);
+}
+
+// TraceMapObjectsNearest (0x006A8840) over the one WMO: the nearest group
+// face the segment crosses (mask 4), its group and the first face of the
+// group's batch. The world first screens the segment against the instance's
+// world box (0x006C3330); each group's own box test below already covers
+// it, so it is left out.
+bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], float &t, uint32_t &group,
+             uint16_t &face) {
+    using HitsBox_t = bool(__thiscall *)(void *object, const float *start, const float *end, uint32_t group);
+    using Intersect_t = bool(__thiscall *)(void *group, void *out, const float *segment, float *t, const void *def,
+                                           uint32_t liquidMask, uint16_t faceMask);
+    void *object = b.object;
+    t = 1.0f;
+    face = 0;
+    bool found = false;
+    float local[6];
+    float (&ls)[3] = *reinterpret_cast<float (*)[3]>(local);
+    float (&le)[3] = *reinterpret_cast<float (*)[3]>(local + 3);
+    TransformPoint(start, b.inverse, ls);
+    TransformPoint(end, b.inverse, le);
+    const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
+    for (uint32_t g = 0; g < count; ++g) {
+        if (!reinterpret_cast<HitsBox_t>(Offsets::FUN_CMAPOBJ_SEGMENT_HITS_GROUP_BOX)(object, ls, le, g))
+            continue;
+        void *loaded = LoadedGroup(object, g);
+        if (loaded == nullptr)
+            continue;
+        ResetFacets();
+        float segment[6];
+        std::memcpy(segment, local, sizeof segment);
+        float tt = t;
+        uint32_t out = 0;
+        if (reinterpret_cast<Intersect_t>(Offsets::FUN_CMAPOBJGROUP_INTERSECT_SEGMENT)(
+                loaded, &out, segment, &tt, b.def, 0, Offsets::MAPOBJ_TRACE_MASK_GROUND) &&
+            tt < t) {
+            t = tt;
+            group = g;
+            found = true;
+            if (const auto *faces = Game::Read<const uint16_t *>(FacetBatch(0), Offsets::OFF_FACET_BATCH_FACES))
+                face = faces[0];
+        }
+    }
+    return found;
+}
+
+// AttachEntityToGround (0x006A8A20), the map object leg (a scene has no
+// terrain), with SyncLightNode's box, centre and radius and UpdateNode's
+// probe point (0x00613F80).
 void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float *base) {
-    using Overlaps_t = bool(__thiscall *)(void *object, const float *box);
-    using OverlapsGroup_t = bool(__thiscall *)(void *object, const float *box, uint32_t group, int);
-    using GetGroup_t = void *(__thiscall *)(void *object, uint32_t group, int force);
-    using BoxHit_t = bool(__thiscall *)(void *object, const float *box, uint32_t group);
-    using SegmentHit_t = bool(__thiscall *)(void *object, const float *start, const float *end, float *t,
-                                            uint32_t group);
-    using Trace_t = bool(__thiscall *)(void *object, const float *start, const float *end, uint32_t group,
-                                       uint32_t mask, uint16_t *face, float *t);
+    using TraceFace_t = bool(__thiscall *)(const void *def, const float *start, const float *end, uint32_t group,
+                                           uint16_t *face, float *hit, float *t);
+    using TerrainType_t = int32_t(__thiscall *)(const void *def, uint32_t group, uint16_t face);
     using Sample_t = bool(__thiscall *)(void *object, uint32_t group, const float *point, uint16_t face,
                                         uint32_t *bgra, bool *day);
     using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
                                       uint8_t cap);
+    using CollisionBox_t = void(__thiscall *)(void *model, float *box);
     void *object = b.object;
     a.lights.clear();
     a.interior = false;
+    a.ground = -1;
 
-    // SyncLightNode's world box and centre: the model's bounds through its
-    // matrix, or its translation when the bounds are empty.
+    // SyncLightNode: the model's bounds through its matrix, their centre and
+    // radius, or the translation when the bounds are empty.
     float box[6];
     M2::GetBoundingBox(model, box);
-    float world[6], centre[3];
+    float centre[3];
+    float radius = 0.0f;
     if (box[0] > box[3] || box[1] > box[4] || box[2] > box[5]) {
-        for (int i = 0; i < 3; ++i)
-            world[i] = world[i + 3] = centre[i] = a.position[i];
+        std::memcpy(centre, a.position, sizeof centre);
     } else {
+        float world[6];
         TransformBox(base, box, world);
         for (int i = 0; i < 3; ++i)
             centre[i] = (world[i] + world[i + 3]) * 0.5f;
+        const float dx = world[3] - centre[0], dy = world[4] - centre[1], dz = world[5] - centre[2];
+        radius = std::sqrt(dx * dx + dy * dy + dz * dz);
     }
-    float local[6];
-    TransformBox(b.inverse, world, local);
-    if (!reinterpret_cast<Overlaps_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS)(object, local))
-        return;
-    const float length = EngineFloat(Offsets::VAR_ENTITY_PROBE_LENGTH);
-    const float below[3] = {centre[0], centre[1], centre[2] - length};
-    float start[3], end[3];
-    TransformPoint(centre, b.inverse, start);
-    TransformPoint(below, b.inverse, end);
-    const float up[3] = {start[0], start[1], start[2] + length};
+    // The probe point: the collision box's centre through the matrix.
+    float point[3] = {0.0f, 0.0f, 0.0f};
+    if (M2::IsLoaded(model, 0, 0)) {
+        float collision[6];
+        reinterpret_cast<CollisionBox_t>(Offsets::FUN_M2MODEL_GET_COLLISION_BOX)(model, collision);
+        for (int i = 0; i < 3; ++i)
+            point[i] = (collision[i + 3] + collision[i]) * 0.5f;
+    }
+    float start[3];
+    TransformPoint(point, *reinterpret_cast<const Matrix *>(base), start);
 
+    const float length = EngineFloat(Offsets::VAR_ENTITY_PROBE_LENGTH);
+    float end[3] = {start[0], start[1], start[2] - length};
     float t = 1.0f;
+    uint32_t group = 0;
     uint16_t face = 0;
-    bool hit = false;
-    uint32_t hitGroup = 0;
-    float point[3] = {};
-    const auto trace = reinterpret_cast<Trace_t>(Offsets::FUN_CMAPOBJ_TRACE_GROUP_MASKED);
-    const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
-    for (uint32_t g = 0; g < count; ++g) {
-        if (!reinterpret_cast<OverlapsGroup_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS_GROUP)(object, local, g, 1))
-            continue;
-        void *group = reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, g, 0);
-        if (group == nullptr)
-            continue;
-        if (!reinterpret_cast<BoxHit_t>(Offsets::FUN_CMAPOBJ_GROUP_BOX_ANY_HIT)(object, local, g) &&
-            !reinterpret_cast<SegmentHit_t>(Offsets::FUN_CMAPOBJ_GROUP_SEGMENT_ANY_HIT)(object, start, end, &t, g))
-            continue;
-        const uint32_t flags = Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS);
-        if ((flags & Offsets::MAPOBJ_GROUP_EXTERIOR) == 0 &&
-            (trace(object, start, end, g, Offsets::MAPOBJ_TRACE_MASK_ENTITY, &face, &t) ||
-             trace(object, start, up, g, Offsets::MAPOBJ_TRACE_MASK_ENTITY, &face, &t))) {
-            hit = true;
-            hitGroup = g;
-            for (int i = 0; i < 3; ++i)
-                point[i] = centre[i] + (below[i] - centre[i]) * t;
-        }
-        // The group links the unit: its lights light it (GatherMapObjectLights).
-        if (g < b.groupLights.size())
-            for (const MapLight &light : b.groupLights[g])
-                AddMapLight(a.position, light, a.lights);
+    if (!Nearest(b, start, end, t, group, face)) {
+        end[0] = centre[0];
+        end[1] = centre[1];
+        end[2] = radius + length + centre[2];
+        if (!Nearest(b, start, end, t, group, face))
+            return; // links nothing: the sun, no ground
     }
-    if (!hit)
+    // The hit group links the unit: its lights light it.
+    if (group < b.groupLights.size())
+        for (const MapLight &light : b.groupLights[group])
+            AddMapLight(a.position, light, a.lights);
+    void *loaded = LoadedGroup(object, group);
+    const uint32_t flags = Game::Read<uint32_t>(loaded, Offsets::OFF_CMAPOBJGROUP_FLAGS);
+    const bool interior = (flags & (Offsets::MAPOBJ_GROUP_EXTERIOR | Offsets::MAPOBJ_GROUP_EXTERIOR_LIT)) == 0;
+    a.interior = interior;
+    float hit[3] = {0.0f, 0.0f, 0.0f};
+    float faceT = 1.0f;
+    if (!reinterpret_cast<TraceFace_t>(Offsets::FUN_CMAPOBJDEF_TRACE_GROUP_FACE)(b.def, start, end, group, &face,
+                                                                                hit, &faceT))
+        return; // no ground; an interior unit keeps the bytes it had
+    a.ground = reinterpret_cast<TerrainType_t>(Offsets::FUN_CMAPOBJDEF_GET_FACE_TERRAIN_TYPE)(b.def, group, face);
+    if (!interior)
         return;
-    void *group = reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, hitGroup, 0);
-    if ((Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_EXTERIOR_LIT) != 0)
-        return;
-    a.interior = true;
+    // BakeGroupLight's face path (0x006A8410).
     float sample[3];
-    TransformPoint(point, b.inverse, sample);
+    TransformPoint(hit, b.inverse, sample);
     uint32_t color = 0;
     bool day = false;
-    if (!reinterpret_cast<Sample_t>(Offsets::FUN_CMAPOBJ_SAMPLE_GROUP_COLOR)(object, hitGroup, sample, face, &color,
+    if (!reinterpret_cast<Sample_t>(Offsets::FUN_CMAPOBJ_SAMPLE_GROUP_COLOR)(object, group, sample, face, &color,
                                                                             &day))
         return; // the bytes stay as they were, as on the unit
     reinterpret_cast<Split_t>(Offsets::FUN_SPLIT_LIGHT_COLOR)(&color, &a.directional,
@@ -994,6 +1072,151 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
     }
     for (const Light &light : a.lights)
         AddLight(record, light.bytes);
+}
+
+int Ground(const Backdrop *b, const Ambience &a) { return b != nullptr && a.serial == b->serial ? a.ground : -1; }
+
+namespace {
+
+// TestMapObjectBox (0x006AD330) for the one WMO: the box into the object's
+// space (centre through the inverse, half extents through its axes), then
+// the facets of the groups it touches into the batches.
+bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
+    using RotateBox_t = void(__fastcall *)(const float *axes, const float *box, float *out);
+    using Overlaps_t = bool(__thiscall *)(void *object, const float *box);
+    using Collect_t = bool(__thiscall *)(void *object, void *out, const float *box, const void *def, uint32_t mask);
+    float centre[3], half[6];
+    for (int i = 0; i < 3; ++i)
+        centre[i] = (box[i] + box[i + 3]) * 0.5f;
+    for (int i = 0; i < 6; ++i)
+        half[i] = box[i] - centre[i % 3];
+    float moved[3];
+    TransformPoint(centre, b.inverse, moved);
+    const float *m = b.inverse;
+    const float axes[9] = {m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]};
+    float local[6];
+    reinterpret_cast<RotateBox_t>(Offsets::FUN_ROTATE_BOX)(axes, half, local);
+    for (int i = 0; i < 6; ++i)
+        local[i] += moved[i % 3];
+    if (!reinterpret_cast<Overlaps_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS)(b.object, local))
+        return false;
+    uint32_t out = 0;
+    return reinterpret_cast<Collect_t>(Offsets::FUN_CMAPOBJ_COLLECT_BOX_FACETS)(b.object, &out, local, b.def, mask);
+}
+
+// A texture matrix built for absolute positions, for positions relative to
+// the eye (what texgen gives, the vertices being relative to it):
+// Translate(eye) x m.
+void FromEye(Matrix &m, const float (&eye)[3]) {
+    for (int j = 0; j < 4; ++j)
+        m[12 + j] += eye[0] * m[j] + eye[1] * m[4 + j] + eye[2] * m[8 + j];
+}
+
+// DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
+// world camera.
+void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
+    using Fn_t = void(__cdecl *)();
+    using Unit_t = void(__fastcall *)(int unit);
+    using Load_t = void(__fastcall *)(int unit, const float *m);
+    using GetInt_t = void(__fastcall *)(int id, int *out);
+    using Set_t = void(__fastcall *)(int id, int value);
+    using SetPtr_t = void(__fastcall *)(int id, const void *value);
+    using SetWord_t = void(__fastcall *)(int id, int, uint32_t value);
+    using SetFloat_t = void(__fastcall *)(int id, int, float value);
+    using Caps_t = const uint8_t *(__fastcall *)();
+    using WriteColored_t = void(__fastcall *)(const void *batch);
+    using Write_t = void(__thiscall *)(const void *batch, uint32_t color);
+    using Indices_t = void(__fastcall *)(const void *batch);
+    struct Prim {
+        uint32_t type, base;
+        uint16_t count, min, max, unused;
+    };
+    using Render_t = void(__fastcall *)(const Prim *prim, int count);
+    constexpr int kWorldStack = 8;
+
+    ResetFacets();
+    if (!CollectBox(b, box, mask))
+        return;
+    const auto getInt = reinterpret_cast<GetInt_t>(Offsets::FUN_GX_RS_GET_INT);
+    const auto set = reinterpret_cast<Set_t>(Offsets::FUN_GX_RS_SET);
+    const auto setPtr = reinterpret_cast<SetPtr_t>(Offsets::FUN_GX_RS_SET_PTR);
+    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)();
+    int blend = 0;
+    getInt(Offsets::GXRS_BLEND, &blend);
+    if (blend == Offsets::GXRS_BLEND_MODULATE) {
+        setPtr(Offsets::GXRS_TEXTURE0 + 1, Game::Read<void *>(Offsets::VAR_SHADOW_GREY_RAMP));
+        set(Offsets::GXRS_COMBINER0 + 1, Offsets::GXRS_COMBINE_ADD);
+    } else {
+        setPtr(Offsets::GXRS_TEXTURE0 + 1, Game::Read<void *>(Offsets::VAR_SHADOW_RAMP));
+    }
+    const float bias = Game::Read<float>(Offsets::VAR_SHADOW_BIAS);
+    if (bias != 0.0f)
+        reinterpret_cast<SetFloat_t>(Offsets::FUN_GX_RS_SET_FLOAT)(
+            Offsets::GXRS_DEPTH_BIAS, 0, (bias + bias) * Game::Read<float>(Offsets::VAR_SHADOW_BIAS_SCALE));
+    for (int unit = 0; unit < 2; ++unit) {
+        set(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_WORLD_POS);
+        set(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_MATRIX);
+    }
+    uint32_t color = argb;
+    int lighting = 0;
+    getInt(Offsets::GXRS_LIGHTING, &lighting);
+    if (lighting == 1) {
+        reinterpret_cast<SetWord_t>(Offsets::FUN_GX_RS_SET_WORD)(Offsets::GXRS_MATERIAL, 0, argb);
+    } else if (Game::Read<int>(reinterpret_cast<Caps_t>(Offsets::FUN_GX_DEVICE_CAPS)(),
+                               Offsets::OFF_GXCAPS_COLOR_SWAP) == 1) {
+        color = (argb & 0xFF00FF00u) | (argb & 0xFFu) << 16 | (argb >> 16 & 0xFFu);
+    }
+    Matrix toEye;
+    Identity(toEye);
+    Translate(toEye, {-eye[0], -eye[1], -eye[2]});
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_PUSH)(kWorldStack);
+    const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint8_t *batch = FacetBatch(i);
+        const uint16_t indices = Game::Read<uint16_t>(batch, Offsets::OFF_FACET_BATCH_INDEX_COUNT);
+        const auto *matrix = Game::Read<const float *>(batch, Offsets::OFF_FACET_BATCH_MATRIX);
+        if (static_cast<uint16_t>(indices * 3) > 0x8000 || matrix == nullptr ||
+            Game::Read<const void *>(batch, Offsets::OFF_FACET_BATCH_VERTICES) == nullptr ||
+            Game::Read<const void *>(batch, Offsets::OFF_FACET_BATCH_INDICES) == nullptr)
+            continue;
+        Matrix world;
+        Multiply(world, *reinterpret_cast<const Matrix *>(matrix), toEye);
+        reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_LOAD)(kWorldStack, world);
+        if (lighting == 1)
+            reinterpret_cast<WriteColored_t>(Offsets::FUN_WRITE_DECAL_VERTICES_COLOURED)(batch);
+        else
+            reinterpret_cast<Write_t>(Offsets::FUN_WRITE_DECAL_VERTICES)(batch, color);
+        reinterpret_cast<Indices_t>(Offsets::FUN_WRITE_DECAL_INDICES)(batch);
+        const Prim prim{Offsets::GX_PRIM_TRIANGLES, 0, indices, 0, static_cast<uint16_t>(indices - 1), 0};
+        reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
+    }
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
+    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)();
+}
+
+} // namespace
+
+// DrawDecal (0x006D7330) onto the WMO: the transforms built for absolute
+// positions (the other mode reads the world's camera), moved to the eye.
+void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
+               uint32_t mask, const float (&eye)[3]) {
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return;
+    using Build_t = void(__fastcall *)(float *tex0, float *tex1, const float *box, const float *m, float fade,
+                                       int absolute);
+    using Load_t = void(__fastcall *)(int unit, const float *m);
+    using Unit_t = void(__fastcall *)(int unit);
+    Matrix tex0, tex1;
+    Identity(tex0);
+    Identity(tex1);
+    reinterpret_cast<Build_t>(Offsets::FUN_BUILD_DECAL_TRANSFORMS)(tex0, tex1, box, m, fade, 1);
+    FromEye(tex0, eye);
+    FromEye(tex1, eye);
+    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(0, tex0);
+    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(1, tex1);
+    DrawBatches(b, box, argb, mask, eye);
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(0);
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(1);
 }
 
 void Update(Backdrop &b, void *frame, bool sounds) {

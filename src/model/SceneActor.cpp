@@ -1082,6 +1082,13 @@ int __fastcall Script_PlaySpellVisual(void *L) {
     return 1;
 }
 
+// Interrupts the actor's casts still preparing (model/SceneSpell.cpp).
+int __fastcall Script_StopSpellVisual(void *L) {
+    if (Actor *caster = Self(L))
+        Casts::Stop(*caster);
+    return 0;
+}
+
 // Retail PlayerModel's ApplySpellVisualKit on the actor: the kit joins the
 // ones shown (Model::VisualKit::Apply, the model owning the effects), where
 // SetSpellVisualKit replaces the actor's one kit. Applied once the model has
@@ -1445,6 +1452,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AttachToActor", &Script_AttachToActor},
     {"DetachFromActor", &Script_DetachFromActor},
     {"PlaySpellVisual", &Script_PlaySpellVisual},
+    {"StopSpellVisual", &Script_StopSpellVisual},
     {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
     {"PlaySound", &Script_PlaySound},
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
@@ -1732,6 +1740,10 @@ const Game::Doc::Function kPlaySpellVisual{
     "the missile and the impact, with their animations and sounds, heard from the scene's camera. "
     "False when the spell has no visual or this actor shows no model.",
     kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
+const Game::Doc::Function kStopSpellVisual{
+    "Interrupts the spells this actor is still preparing from PlaySpellVisual: their preparation "
+    "effects and animation stop. A spell already cast goes on, its missile included.",
+    {}, {}, nullptr, true};
 const Game::Doc::Field kApplySpellVisualKitArgs[] = {
     Req("spellVisualKitID", "number", "A SpellVisualKit ID."),
     Opt("oneShot", "bool", "false",
@@ -1842,6 +1854,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"AttachToActor", &kAttachToActor},
     {"DetachFromActor", &kDetachFromActor},
     {"PlaySpellVisual", &kPlaySpellVisual},
+    {"StopSpellVisual", &kStopSpellVisual},
     {"ApplySpellVisualKit", &kApplySpellVisualKit},
     {"PlaySound", &kPlaySound},
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},

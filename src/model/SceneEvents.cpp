@@ -29,7 +29,8 @@
 //                 0x00623490)
 //     $FSD        the footstep: +0x24 by the ground's terrain through the
 //                 engine's GetFootstepSound, with FootstepSounds on
-//                 (0x00623390); the ground is the scene's SetGroundTerrain
+//                 (0x00623390); the ground is the scene's SetGroundTerrain,
+//                 else the terrain type of the WMO face under the actor
 //     $DTH        the death thud by the size class and the ground, from the
 //                 engine's own table (0x006236E0)
 //     $WNG, $WGG  the wing flap +0x2C and glide +0x30 (vocal kinds 7 and 10,
@@ -39,8 +40,8 @@
 //     $TRD        the precast sound (visual +0x38) of the spell being
 //                 prepared (0x0062FAA0)
 //   The world plays these at the unit's position in 3D; a frame plays them
-//   2D, as PlaySound. A scene without a ground terrain has no footsteps and
-//   no death thud, as nothing tells it what the actor stands on.
+//   at the actor, heard from the scene camera. An actor with neither ground
+//   has no footsteps and no death thud, as nothing tells it what it stands on.
 //
 // Not played: the combat tags $CSS, $CAH and $AH0..$AH3 present a pending
 // swing (0x006247D0) and play nothing without one, and an actor never swings
@@ -149,9 +150,17 @@ void PlayStand(const Actor &actor, const uint8_t *soundData) {
     Play(actor, Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_STAND));
 }
 
+// The ground the actor stands on: the scene's SetGroundTerrain, else the
+// terrain type of the WMO face under it (the unit's +0xC60).
+int Ground(const Actor &actor) {
+    void *frame = actor.SceneFrame();
+    const int set = GroundTerrain(frame);
+    return set >= 0 ? set : World::Ground(WorldOf(frame), *actor.ambience);
+}
+
 void PlayFootstep(const Actor &actor, const uint8_t *soundData) {
     using GetFootstepSound_t = int(__fastcall *)(int footstepID, int terrainTypeID, int wet);
-    const int terrain = GroundTerrain(actor.SceneFrame());
+    const int terrain = Ground(actor);
     if (terrain < 0 || !CVarOn("FootstepSounds"))
         return;
     Play(actor, reinterpret_cast<GetFootstepSound_t>(Offsets::FUN_GET_FOOTSTEP_SOUND)(
@@ -161,7 +170,7 @@ void PlayFootstep(const Actor &actor, const uint8_t *soundData) {
 // PlayDeathThud's dry thud: the engine's table by size class and the
 // terrain's TerrainTypeSounds id, bounded as it bounds it.
 void PlayDeathThud(const Actor &actor) {
-    const int terrain = GroundTerrain(actor.SceneFrame());
+    const int terrain = Ground(actor);
     const int size = SizeClass(actor.displayID);
     if (terrain < 0 || size < 0 || size >= Offsets::DEATH_THUD_SIZE_CLASSES)
         return;

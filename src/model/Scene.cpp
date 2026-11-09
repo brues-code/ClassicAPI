@@ -121,6 +121,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace Model::Scene {
@@ -359,22 +360,24 @@ void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
 // bounds, clamped to +-5, multiplied by the base scale and turned with the
 // base rotation, in white with the model's alpha, multiplied onto what is
 // behind it; only while shadowLOD is 1 and the model is ready. The world lays
-// it onto the ground's batches with a decal (0x006D7330). A scene has no
-// ground, so the turned box itself is drawn, flat on the plane of the base
-// translation (the model's origin, its feet), with the decal's states. Not
-// drawn: the decal's fade with height (the quad is at the feet) and the
-// shadowBias depth test EQUAL (it matches the ground's own depth, and the
-// quad is its own geometry). Culling is off, as for the engine's other
-// single quads (the lightning bolt, 0x007AFCB0), so the quad shows from
-// either side. A model hung on another (a seated rider) casts none: its
-// base transform is relative to its parent, and the world's entity list
-// holds the mount alone.
+// it onto its ground with a decal (DrawDecal 0x006D7330): the faces in a box
+// from below the feet to above them, the texture placed on them by texgen,
+// faded with height by the ramp on stage 1. In a scene with a WMO the decal
+// is laid the same way on the WMO's faces (World::DrawDecal). A scene without
+// one has no ground, so the turned box itself is drawn, flat on the plane of
+// the base translation (the model's origin, its feet), culling off as for the
+// engine's other single quads (the lightning bolt, 0x007AFCB0), with no
+// height fade and no depth function (the quad is its own geometry). A model
+// hung on another (a seated rider) casts none: its base transform is relative
+// to its parent, and the world's entity list holds the mount alone.
 //
-// The shadows draw after the animate pass and before the models, without
-// depth writes: each model then draws over the shadows, its own included.
+// The shadows draw after the WMO and the animate pass and before the models,
+// without depth writes: each model then draws over the shadows, its own
+// included.
 
 using GxRsSet_t = void(__fastcall *)(int selector, int value);
 using GxRsSetPtr_t = void(__fastcall *)(int selector, const void *value);
+using GxRsSetWord_t = void(__fastcall *)(int selector, int, uint32_t value);
 using GxState_t = void(__fastcall *)();
 using GetRenderable_t = void *(__fastcall *)(void *texture, int force, void *);
 using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *normal,
@@ -383,49 +386,112 @@ using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStri
                                          const void *uv1, int uv1Stride);
 using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const uint16_t *indices);
 
-// Draws one actor's shadow; the decal states are set.
-void DrawShadow(Actor &actor, const float (&eye)[3]) {
-    void *model = actor.model;
-    if (!actor.shadowShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
-        !M2::IsReady(model, 0, 0))
-        return;
-    float box[6]; // min xyz, max xyz
-    M2::GetSequenceBounds(model, 0, 0, box);
+// DrawBlobShadow's part from the model, up to the decal draw.
+struct Blob {
+    float bounds[6];  // the sequence bounds, clamped and scaled
+    float axes[3][3]; // the base rotation: its rows over the scale
+    float origin[3];  // the base translation
+    float box[6];     // the decal box
+    float matrix[16]; // the decal's texture matrix
+    uint32_t color;
+};
+
+bool MakeBlob(void *model, Blob &blob) {
+    float *b = blob.bounds;
+    M2::GetSequenceBounds(model, 0, 0, blob.bounds);
     const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON);
-    if (std::fabs(box[4] - box[1]) < epsilon || std::fabs(box[3] - box[0]) < epsilon)
-        return;
+    if (std::fabs(b[4] - b[1]) < epsilon || std::fabs(b[3] - b[0]) < epsilon)
+        return false;
     constexpr float kClamp = static_cast<float>(Offsets::SHADOW_BOUNDS_CLAMP);
-    for (float &v : box)
+    for (float &v : blob.bounds)
         v = v < -kClamp ? -kClamp : (v > kClamp ? kClamp : v);
     float m[16];
     M2::GetBaseTransform(model, m);
     const float scale = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
-    for (float &v : box)
+    for (float &v : blob.bounds)
         v *= scale;
+    const float height = (b[5] - b[2]) / (static_cast<float>(Offsets::SHADOW_HEIGHT_THIRDS) *
+                                          Game::Read<float>(Offsets::VAR_ONE_THIRD));
     // The rotation rows: the scaled axes over the scale, unless it is 1.
     const float inv = std::fabs(scale - 1.0f) < epsilon ? 1.0f : 1.0f / scale;
-    const float x0 = box[0], y0 = box[1], x1 = box[3], y1 = box[4];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j)
+            blob.axes[i][j] = m[i * 4 + j] * inv;
+        blob.origin[i] = m[12 + i];
+    }
+    // The four corners (x, y, 0) turned, then their bounds moved to the
+    // translation; z from below the feet to above them.
+    const float corners[4][2] = {{b[3], b[4]}, {b[3], b[1]}, {b[0], b[1]}, {b[0], b[4]}};
+    float *box = blob.box;
+    for (int c = 0; c < 4; ++c) {
+        for (int j = 0; j < 2; ++j) {
+            const float v = corners[c][0] * blob.axes[0][j] + corners[c][1] * blob.axes[1][j];
+            box[j] = c == 0 || v < box[j] ? v : box[j];
+            box[j + 3] = c == 0 || v > box[j + 3] ? v : box[j + 3];
+        }
+    }
+    for (int j = 0; j < 2; ++j) {
+        box[j] += blob.origin[j];
+        box[j + 3] += blob.origin[j];
+    }
+    box[2] = blob.origin[2] - Game::Read<float>(Offsets::VAR_SHADOW_BOX_DOWN) * height;
+    box[5] = Game::Read<float>(Offsets::VAR_SHADOW_BOX_UP) * height + blob.origin[2];
+    // diag(box y, box x, 1) x the rotation transposed x diag(1 / bounds y,
+    // 1 / bounds x, 1).
+    const float rows[3] = {box[4] - box[1], box[3] - box[0], 1.0f};
+    const float columns[3] = {1.0f / std::fabs(b[4] - b[1]), 1.0f / std::fabs(b[3] - b[0]), 1.0f};
+    std::memset(blob.matrix, 0, sizeof blob.matrix);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            blob.matrix[i * 4 + j] = rows[i] * blob.axes[j][i] * columns[j];
+    blob.matrix[15] = 1.0f;
+    float alpha = M2::GetAlpha(model);
+    alpha = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+    blob.color = (static_cast<uint32_t>(alpha * 255.0f + 0.5f) << 24) | 0x00FFFFFFu;
+    return true;
+}
+
+// The turned box, flat at the feet.
+void DrawQuad(const Blob &blob, const float (&eye)[3]) {
+    const float *b = blob.bounds;
+    const float x0 = b[0], y0 = b[1], x1 = b[3], y1 = b[4];
     // Strip order; u runs along the model's y, v along its x.
     const float local[4][2] = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}};
     float pos[4][3];
     float uv[4][2];
     for (int i = 0; i < 4; ++i) {
         const float x = local[i][0], y = local[i][1];
-        pos[i][0] = (x * m[0] + y * m[4]) * inv + m[12] - eye[0];
-        pos[i][1] = (x * m[1] + y * m[5]) * inv + m[13] - eye[1];
-        pos[i][2] = m[14] - eye[2];
+        for (int j = 0; j < 2; ++j)
+            pos[i][j] = x * blob.axes[0][j] + y * blob.axes[1][j] + blob.origin[j] - eye[j];
+        pos[i][2] = blob.origin[2] - eye[2];
         uv[i][0] = (y - y0) / (y1 - y0);
         uv[i][1] = (x - x0) / (x1 - x0);
     }
-    float alpha = M2::GetAlpha(model);
-    alpha = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
-    const uint32_t color = (static_cast<uint32_t>(alpha * 255.0f + 0.5f) << 24) | 0x00FFFFFFu;
-    const uint32_t colors[4] = {color, color, color, color};
+    const uint32_t colors[4] = {blob.color, blob.color, blob.color, blob.color};
     static const uint16_t kStrip[4] = {0, 1, 2, 3};
     reinterpret_cast<PrimStreams_t>(Offsets::FUN_GX_PRIM_STREAMS)(4, pos, 12, nullptr, 0, colors, 4, 0, 0,
                                                                  uv, 8, nullptr, 0);
     reinterpret_cast<PrimIndexed_t>(Offsets::FUN_GX_PRIM_INDEXED)(Offsets::GX_PRIM_TRIANGLE_STRIP, 4,
                                                                   kStrip);
+}
+
+// Draws one actor's shadow; the blob states are set.
+void DrawShadow(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+    void *model = actor.model;
+    if (!actor.shadowShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
+        !M2::IsReady(model, 0, 0))
+        return;
+    Blob blob;
+    if (!MakeBlob(model, blob))
+        return;
+    if (world == nullptr) {
+        DrawQuad(blob, eye);
+        return;
+    }
+    const uint32_t fadeBits = Offsets::DECAL_SHADOW_FADE;
+    float fade;
+    std::memcpy(&fade, &fadeBits, sizeof fade);
+    World::DrawDecal(*world, blob.box, blob.color, blob.matrix, fade, Offsets::SHADOW_DECAL_MASK, eye);
 }
 
 void DrawShadows(void *frame, const float (&eye)[3]) {
@@ -438,19 +504,24 @@ void DrawShadows(void *frame, const float (&eye)[3]) {
         any = any || actor->shadowShown;
     if (!any)
         return;
+    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
     auto rs = reinterpret_cast<GxRsSet_t>(Offsets::FUN_GX_RS_SET);
     reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_PUSH)();
     rs(Offsets::GXRS_BLEND, Offsets::GXRS_BLEND_MODULATE);
     rs(Offsets::GXRS_LIGHTING, 0);
     rs(Offsets::GXRS_FOG, 0);
     rs(Offsets::GXRS_DEPTH_WRITE, 0);
-    rs(Offsets::GXRS_CULL, 0);
     reinterpret_cast<GxRsSetPtr_t>(Offsets::FUN_GX_RS_SET_PTR)(
         Offsets::GXRS_TEXTURE0,
         reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(texture, 1, nullptr));
+    reinterpret_cast<GxRsSetWord_t>(Offsets::FUN_GX_RS_SET_WORD)(Offsets::GXRS_FOG_COLOR, 0, 0xFFFFFFFFu);
     rs(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_BLEND_DIFFUSE_ALPHA);
+    if (world == nullptr)
+        rs(Offsets::GXRS_CULL, 0);
+    else if (Game::Read<float>(Offsets::VAR_SHADOW_BIAS) == 0.0f)
+        rs(Offsets::GXRS_DEPTH_FUNC, Offsets::GXRS_DEPTH_FUNC_DECAL);
     for (Actor *actor : actors)
-        DrawShadow(*actor, eye);
+        DrawShadow(*actor, world, eye);
     reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_POP)();
 }
 

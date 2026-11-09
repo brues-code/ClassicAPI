@@ -13367,14 +13367,81 @@ enum Offsets {
     // VAR_HAS_RANGE_EPSILON, clamped to +-5 and multiplied by the length of
     // the base transform's row 0 (times 1.0, 0x00811698); its four corners
     // turn by the base rotation (rows over that length) and move by the base
-    // translation. The decal states (0x006D7F27..0x006D7FCF): push, blend 4,
-    // lighting / fog / depth write off, the blob on stage 0, fog colour
-    // white, combiner preset 5, depth function EQUAL when shadowBias is not
-    // 0; colour white with the model's alpha (0x004A2C10 packs its first
-    // argument as the top byte), then the decal draw 0x006D7330 and pop.
+    // translation. The decal box is those corners' bounds, z from the base
+    // translation less BOX_DOWN x h to it plus BOX_UP x h, h the scaled
+    // bounds' height over ThirdOf(6) (6 x VAR_ONE_THIRD). The texture matrix
+    // is diag(box y, box x, 1) x the rotation transposed x diag(1 / bounds y,
+    // 1 / bounds x, 1) (MultiplyMatrix3 0x007BDFC0, out = a x b). The decal
+    // states (0x006D7F27..0x006D7FCF): push, blend 4, lighting / fog / depth
+    // write off, the blob on stage 0, fog colour white, combiner preset 5,
+    // depth function 1 when shadowBias is 0 (0x006D7FB2: TEST AH,0x44 / JP
+    // skips it otherwise); colour white with the model's alpha (0x004A2C10
+    // packs its first argument as the top byte), then the decal draw
+    // 0x006D7330 with fade 0.5 and mask 0x2F0122, and pop.
     VAR_SHADOW_LOD = 0x0086F5B4,          // int, the shadowLOD cvar (default 1)
     VAR_SHADOW_BLOB_TEXTURE = 0x00CE9DFC, // HTEXTURE Textures\ShadowBlob.blp; the unit setup loads it (0x006D8070)
     SHADOW_BOUNDS_CLAMP = 5,
+    VAR_SHADOW_BOX_DOWN = 0x00CEA610, // float 5/3, a static initializer (0x006D6E20)
+    VAR_SHADOW_BOX_UP = 0x00CEA60C,   // float 3/3, the same initializer
+    VAR_ONE_THIRD = 0x00807A40,       // float 1/3 (ThirdOf 0x006D6E50)
+    SHADOW_HEIGHT_THIRDS = 6,
+    SHADOW_DECAL_MASK = 0x2F0122,
+    // The decal draw (DrawDecal 0x006D7330, benilla lighting/shadows
+    // "Projected decals"). BuildDecalTransforms `__fastcall(float tex0[16],
+    // float tex1[16], const float box[6], const float m[16], float fade, int
+    // absolute)` ret 0x10: tex0 maps the box's x / y to [0, 1] (centred,
+    // turned -pi/2, then m), tex1 its height to the fade coordinate. With
+    // `absolute` 0 the input is relative to the WORLD camera (the world frame
+    // +0x65B8, 0x00481900); with 1 it is an absolute position. The two load
+    // stages 0 and 1 (FUN_GX_TEXMTX_PUSH_LOAD), then DrawDecalBatches
+    // (0x006D7480): the facet batches reset and filled by TestWorldBox (the
+    // world's map objects and terrain), then inside a state push: stage 1 the
+    // grey ramp with combiner 3 (add) when the blend is 4, else the ramp;
+    // depth bias 2 x shadowBias x 2^-15 when shadowBias is not 0; texgen 2
+    // (world position) and texture transform 1 on stages 0 and 1; with
+    // lighting on, the material colour (state 1) and coloured vertices,
+    // else the colour, R and B swapped when the device caps +0x1C is 1; world
+    // stack 8 pushed; per batch with at most 0x8000 indices x 3 and a
+    // matrix, vertices and indices: stack 8 = its matrix x Translate(-camera),
+    // WriteDecalVertices `__thiscall(batch, u32 colour)` ret 4 (or
+    // WriteDecalVerticesColoured `__fastcall(batch)`), WriteDecalIndices
+    // `__fastcall(batch)`, GxPrimRenderOne `__fastcall(const prim *, int
+    // count)` of {u32 3 (triangles), u32 0, u16 count, u16 0, u16 count - 1}.
+    // The world's map object box test (TestMapObjectBox 0x006AD330): the
+    // box's centre through the def's inverse, its half extents through the
+    // inverse's 3x3 (RotateBox `__fastcall(const float m3x3[9], const float
+    // box[6], float out[6])` ret 4), BoxOverlaps, then CollectBoxFacets
+    // `__thiscall(obj, void *out, const float box[6], def, u32 mask)` ret
+    // 0x10 (the group facets in the box, into the batches).
+    FUN_BUILD_DECAL_TRANSFORMS = 0x006D6FA0,
+    DECAL_SHADOW_FADE = 0x3F000000, // float 0.5 (0x006D8035)
+    FUN_WRITE_DECAL_VERTICES = 0x006D7810,
+    FUN_WRITE_DECAL_VERTICES_COLOURED = 0x006D7760,
+    FUN_WRITE_DECAL_INDICES = 0x006D78A0,
+    FUN_GX_PRIM_RENDER_ONE = 0x0058A830,
+    GX_PRIM_TRIANGLES = 3,
+    FUN_ROTATE_BOX = 0x006DC3F0,
+    FUN_CMAPOBJ_COLLECT_BOX_FACETS = 0x006A3B10,
+    VAR_SHADOW_RAMP = 0x00CE9DF8,      // device texture (64 x 8), stage 1
+    VAR_SHADOW_GREY_RAMP = 0x00CE9DF4, // device texture (64 x 8), stage 1 with blend 4
+    VAR_SHADOW_BIAS = 0x00CEA620,      // float, the shadowBias cvar (default 0.1)
+    VAR_SHADOW_BIAS_SCALE = 0x00811694, // float 2^-15
+    // GxRs readers and setters: GetInt `__fastcall(id, int *out)`; SetWord
+    // `__fastcall(id, int, u32 value)` ret 4 and SetFloat `__fastcall(id,
+    // int, float value)` ret 4 (the value on the stack). GxDeviceCaps
+    // `void *__fastcall()`.
+    FUN_GX_RS_GET_INT = 0x00589EE0,
+    FUN_GX_RS_SET_WORD = 0x00589E00,
+    FUN_GX_RS_SET_FLOAT = 0x00589E30,
+    FUN_GX_DEVICE_CAPS = 0x0058A230,
+    OFF_GXCAPS_COLOR_SWAP = 0x1C,
+    GXRS_DEPTH_BIAS = 0x00,
+    GXRS_MATERIAL = 0x01,
+    GXRS_FOG_COLOR = 0x0D,
+    GXRS_DEPTH_FUNC = 0x11,
+    GXRS_DEPTH_FUNC_DECAL = 1, // the blob's depth function when shadowBias is 0
+    GXRS_COMBINE_ADD = 3,
+    GXRS_TEXGEN_WORLD_POS = 2,
     // Render-state ids (benilla gx/renderstate: the id table).
     GXRS_BLEND = 0x07,       // blend mode 0..10
     GXRS_LIGHTING = 0x0E,
@@ -13639,41 +13706,76 @@ enum Offsets {
     VAR_DOODAD_FADE_END_SMALL = 0x008101A0,
     VAR_DOODAD_FADE_END_MEDIUM = 0x008101A4,
     VAR_DOODAD_FADE_END_LARGE = 0x008101A8,
-    // How the world lights a unit inside a WMO (PlaceEntity 0x006A8C10):
-    // LinkEntityToMapObject (0x006A8ED0) puts the model's world box through
-    // the placement's inverse (TransformBox `__fastcall(const float m[16],
-    // const float box[6], float out[6])`, ret 4), tests the WMO
-    // (CMapObj::BoxOverlaps `__thiscall(obj, box)`, ret 4), then each group:
-    // BoxOverlapsGroup `__thiscall(obj, box, group, 1)` ret 0xC, a loaded
-    // group (GetLoadedGroup(obj, group, 0)), GroupBoxAnyHit `__thiscall(obj,
-    // box, group)` ret 8 or GroupSegmentAnyHit `__thiscall(obj, start, end,
-    // float *t, group)` ret 0x10. Each such group links the unit (its MOLT
-    // lights light it: GatherMapObjectLights 0x006A79C0). In a group that is
-    // not exterior (flag 0x08), TraceGroupMasked `__thiscall(obj, start, end,
-    // group, 0x20, u16 *face, float *t)` ret 0x18 down from the box centre
-    // PROBE_LENGTH yards, else up as far; t is shared, so the nearest face of
-    // all groups wins. Its point is the centre + t x (0, 0, -PROBE_LENGTH)
-    // (also for an up hit). No face, or its group's flag 0x40: the sun.
-    // Else BakeGroupLight (0x006A8410) samples the face's MOCV colour
-    // (SampleGroupColor `__thiscall(obj, group, const float point[3], u16
-    // face, u32 *bgra, bool *day)` ret 0x14, the point in WMO space) and
-    // splits it with SplitLightColor (directional floor 0xA8, ambient cap
-    // DOODAD_AMBIENT_CAP); a day face blends both toward the sun's by the
-    // colour's alpha. The unit is placed again when its translation moved by
-    // a squared distance of VAR_MAP_LIGHT_RANGE_EPSILON or more
-    // (SyncLightNode 0x006717D0, the same 0.001).
+    // How the world places a unit on a WMO (AttachEntityToGround 0x006A8A20).
+    // A unit's world entity has no +0x90 bit 0x2000 (CGObject_C::CreateNode
+    // 0x00613E10 passes the factory 0x00670DB0 flags 0; the bit is flag bit
+    // 3, 0x00670E9C), so ReattachEntity (0x006A86D0) takes this path, not
+    // PlaceEntity 0x006A8C10 (game objects, transport doodads). The probe
+    // point +0xA8 is the model's collision box centre through the node matrix
+    // (CGObject_C::UpdateNode 0x00613F80 -> SyncLightNode 0x006717D0; (0, 0,
+    // 0) while the model is not loaded). TraceMapObjectsNearest (0x006A8840)
+    // from it PROBE_LENGTH down: per group whose box the segment (in WMO
+    // space) crosses (SegmentHitsGroupBox `__thiscall(obj, start, end,
+    // group)` ret 0xC), the facet batches reset, then
+    // CMapObjGroup::IntersectSegment `__thiscall(group, void *out, const
+    // float seg[6], float *t, def, 0, u16 faceMask)` ret 0x18 with mask
+    // MAPOBJ_TRACE_MASK_GROUND; the smallest t wins, its face the first one
+    // of batch 0. No hit: again up to the box centre + (0, 0, radius +
+    // PROBE_LENGTH). A hit links that one group (its MOLT lights light the
+    // unit, GatherMapObjectLights 0x006A79C0); SetEntityLightFlags
+    // (0x006A87F0): group flag 0x08 or 0x40 is the sun, else interior; then
+    // CMapObjDef::TraceGroupFace `__thiscall(def, start, end, group, u16
+    // *face, float hit[3], float *t)` ret 0x18 (mask 0x20, the hit point in
+    // world space) and CMapObjDef::GetFaceTerrainType `__thiscall(def, group,
+    // u16 face)` ret 8 (the face material's +0x20, -1 without a loaded group):
+    // the unit's ground id (+0xDC, a unit's +0xC60 for footsteps). An interior
+    // unit bakes (BakeGroupLight 0x006A8410): SampleGroupColor `__thiscall(
+    // obj, group, const float point[3], u16 face, u32 *bgra, bool *day)` ret
+    // 0x14 (the point in WMO space), split by SplitLightColor (directional
+    // floor 0xA8, ambient cap DOODAD_AMBIENT_CAP); a day face blends both
+    // toward the sun's by the colour's alpha. The unit is placed again when
+    // its translation moved by a squared distance of
+    // VAR_MAP_LIGHT_RANGE_EPSILON or more (SyncLightNode, the same 0.001).
+    // TransformBox `__fastcall(const float m[16], const float box[6], float
+    // out[6])` ret 4; CMapObj::BoxOverlaps `__thiscall(obj, box)` ret 4.
     FUN_TRANSFORM_BOX = 0x006DC540,
     FUN_CMAPOBJ_BOX_OVERLAPS = 0x006A4670,
-    FUN_CMAPOBJ_BOX_OVERLAPS_GROUP = 0x006A4830,
-    FUN_CMAPOBJ_GROUP_BOX_ANY_HIT = 0x006A3EE0,
-    FUN_CMAPOBJ_GROUP_SEGMENT_ANY_HIT = 0x006A3F10,
-    FUN_CMAPOBJ_TRACE_GROUP_MASKED = 0x006A3A40,
-    MAPOBJ_TRACE_MASK_ENTITY = 0x20,
+    FUN_CMAPOBJ_SEGMENT_HITS_GROUP_BOX = 0x006A47E0,
+    FUN_CMAPOBJGROUP_INTERSECT_SEGMENT = 0x006B92B0,
+    MAPOBJ_TRACE_MASK_GROUND = 4,
+    FUN_CMAPOBJDEF_TRACE_GROUP_FACE = 0x006A2600,
+    FUN_CMAPOBJDEF_GET_FACE_TERRAIN_TYPE = 0x006A26C0,
     FUN_CMAPOBJ_SAMPLE_GROUP_COLOR = 0x006A4DC0,
+    FUN_M2MODEL_GET_COLLISION_BOX = 0x00713700, // `__thiscall(model, float out[6])`; waits for an unloaded file
     VAR_ENTITY_PROBE_LENGTH = 0x008022CC, // 1000.0
     MAPOBJ_GROUP_EXTERIOR = 0x08,
     MAPOBJ_GROUP_EXTERIOR_LIT = 0x40,
     ENTITY_DIRECTIONAL_FLOOR = 0xA8,
+    // The map object def fields those queries read (CMapObjDef; also
+    // CommitFacets 0x006B8E50, which stores def + 0x94 as a batch's matrix):
+    // the placement, its inverse, the CMapObj. Nothing else of a def is read
+    // on these paths, so the scene hands them a block with these three.
+    OFF_MAPOBJDEF_PLACEMENT = 0x94,
+    OFF_MAPOBJDEF_INVERSE = 0xD4,
+    OFF_MAPOBJDEF_OBJECT = 0x118,
+    MAPOBJDEF_QUERY_SIZE = 0x11C,
+    // The world's facet batches (filled by the collectors' CommitFacets,
+    // read by the decal draw): 31 records of 0x20 at VAR_FACET_BATCHES —
+    // matrix pointer +0x00, vertices (12-byte positions) +0x04, indices
+    // +0x0C, faces +0x10, index count u16 +0x14. A query resets the five
+    // counters first (0x006D7497, 0x006A893B).
+    VAR_FACET_BATCHES = 0x00C62550,
+    FACET_BATCH_SIZE = 0x20,
+    OFF_FACET_BATCH_MATRIX = 0x00,
+    OFF_FACET_BATCH_VERTICES = 0x04,
+    OFF_FACET_BATCH_INDICES = 0x0C,
+    OFF_FACET_BATCH_FACES = 0x10,
+    OFF_FACET_BATCH_INDEX_COUNT = 0x14,
+    VAR_FACET_BATCH_COUNT = 0x00C5A474,
+    VAR_FACET_OVERFLOW = 0x00C63258,
+    VAR_FACET_FACE_CURSOR = 0x00C63260,
+    VAR_FACET_INDEX_CURSOR = 0x00C7B378,
+    VAR_FACET_MATRIX_COUNT = 0x00C63190,
     // ApplyMapLighting (0x006A7300), an interior unit: the ambient bytes, the
     // directional bytes along VAR_MAP_LIGHT_DIRECTION (blended toward the
     // sun's direction by a day face's weight, then normalised), the WMO fog,

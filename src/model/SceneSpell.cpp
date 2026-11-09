@@ -344,6 +344,20 @@ void DropCast(Actor &caster, SpellCast &cast) {
 
 } // namespace
 
+// An interrupt ends a spell still preparing (0x0060D1C0 stops its kits: the
+// effects, the tint and the looping animation); a spell already cast goes on,
+// its missile included.
+void Stop(Actor &caster) {
+    for (size_t i = 0; i < caster.spellCasts.size();) {
+        if (caster.spellCasts[i].phase != SpellCast::Phase::Precast) {
+            ++i;
+            continue;
+        }
+        DropCast(caster, caster.spellCasts[i]);
+        caster.spellCasts.erase(caster.spellCasts.begin() + static_cast<ptrdiff_t>(i));
+    }
+}
+
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
     using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
     using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
@@ -354,16 +368,8 @@ bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
     const uint8_t *visual = reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell);
     if (visual == nullptr)
         return false;
-    // A new cast ends the precast of one still preparing (0x0060D1C0 stops
-    // the old spell's kits); missiles already out fly on.
-    for (size_t i = 0; i < caster.spellCasts.size();) {
-        if (caster.spellCasts[i].phase != SpellCast::Phase::Precast) {
-            ++i;
-            continue;
-        }
-        DropCast(caster, caster.spellCasts[i]);
-        caster.spellCasts.erase(caster.spellCasts.begin() + static_cast<ptrdiff_t>(i));
-    }
+    // A new cast ends the precast of one still preparing.
+    Stop(caster);
     if (castTimeMs < 0)
         castTimeMs = reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME)(
             static_cast<int>(spellID), 0, 0);

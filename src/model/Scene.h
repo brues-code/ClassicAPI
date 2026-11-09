@@ -173,6 +173,8 @@ namespace Casts {
 // Starts the cast; false when the spell, its visual or the caster's model is
 // missing. `castTimeMs` < 0 takes the spell's cast time.
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
+// Interrupts the casts still preparing; casts already made go on.
+void Stop(Actor &caster);
 // From the actor's update, after the scene advance: the casts move on.
 void Update(Actor &caster, float elapsedSec);
 // From the actor's Link: the released missiles and the impact models go on
@@ -228,6 +230,13 @@ void Settle(const Backdrop &backdrop, Ambience &ambience, void *frame, void *mod
 // The actor's lighting slots: the frame's light and fog without a WMO, or
 // before the model is placed in this one.
 void ActorLight(const Backdrop *backdrop, const Ambience &ambience, void *frame, void *record);
+// The TerrainType id of the WMO face under the actor, or -1 (no face, no
+// WMO, or not placed in this one).
+int Ground(const Backdrop *backdrop, const Ambience &ambience);
+// From the paint, after Draw: a texture laid over the WMO's faces in `box`
+// (scene space), as the world lays a decal on its ground.
+void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
+               uint32_t mask, const float (&eye)[3]);
 } // namespace World
 
 // The scene's WMO, or null.
