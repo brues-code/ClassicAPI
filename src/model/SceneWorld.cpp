@@ -34,13 +34,24 @@
 //     exterior drawer, called directly (the world's drawer pointers are set
 //     only by its own frame, 0x006B3890).
 //
-// Fog: the world fogs a WMO's insides with its own MFOG records once the
-// camera is in it, but only for a WMO with more than one record
-// (0x0069DE20); with no candidate fog in the camera's group the fog is record
-// 0, its end capped at the far clip and its start the record's fraction of
-// that (benilla lighting/fog "Interior fog"). Other WMOs take the zone's fog,
-// which in a scene is the scene's own (SetFogColor and so on), staged with
-// the scene light by the frame's light callback.
+// Fog: the world fogs a WMO with its own MFOG records while the camera is
+// over one of its interior groups, and only for a WMO with more than one
+// record. Each update traces down from the scene's camera as the world
+// traces from its own (ClaimCameraMapObject 0x006821F0): the floor under it,
+// or the portal it crosses, names the groups that hold it. Record 0 blended
+// with the nearby candidate fogs of the first of them (GetCameraInteriorFog
+// 0x0069DE20) is the target, its end capped at the far clip and its start
+// the record's fraction of that; the drawn fog moves from the zone's toward
+// it by a weight that rises 0.25 a second while the camera is inside and
+// falls as it leaves (BuildSceneFog 0x006CEE30). The zone's fog in a scene
+// is the scene's own (SetFogColor and so on), staged with the scene light by
+// the frame's light callback. The WMO, its interior doodads and interior
+// actors take the drawn fog.
+//
+// Liquids: the groups with liquid (flag 0x1000) draw after the scene's
+// opaque models, as the world's group liquid pass (0x00684CD0) draws after
+// them, by the world's own drawer: the lava frames, the scroll, the water's
+// depth ramp.
 //
 // The drawers read two world globals. The group fog flag would replace that
 // fog with the light state's interior fog, so it is 0 while the scene draws.
@@ -68,9 +79,8 @@
 // exterior group the sun (the scene light, by the frame's callback, with the
 // scene fog), and each takes its groups' MOLT lights as AddMapLight
 // (0x006A7AC0) turns them: a directional from the light, faded from the
-// light's start to its end. The fog of an interior doodad is the WMO's own
-// when the WMO has more than one fog (the world gives it the camera WMO's
-// fog), else the scene's (0x006C31E0). A doodad two groups list is made once
+// light's start to its end. The fog of an interior doodad is the camera's
+// drawn fog while its weight is not 0, else the scene's (0x006C31E0). A doodad two groups list is made once
 // and takes both groups' lights; an exterior group makes it sun-lit. Torch
 // models emit their own M2 lights into the scene's light grid by being
 // animated, so the actors and the WMO get them as the world's do. Not
@@ -103,6 +113,7 @@
 #include "gx/Device.h"
 #include "model/M2.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -143,6 +154,23 @@ struct Doodad {
     float soundPoint[3];   // its point, in scene space
 };
 
+// The {end, second float, colour 0xAARRGGBB} triple LerpFogRecord blends: an
+// MFOG sub-record (the second float the start fraction) or a drawn fog (the
+// second float the start).
+struct FogValues {
+    float end;
+    float start;
+    uint32_t color;
+};
+static_assert(sizeof(FogValues) == 12, "the engine's sub-record");
+
+// The camera's WMO fog, as BuildSceneFog keeps it in the light state.
+struct CameraFog {
+    bool primed = false;
+    float weight = 0.0f; // +0x7C
+    FogValues target{};  // +0x8C: end capped at the far clip, start, colour
+};
+
 struct Backdrop {
     void *object; // CMapObj, one reference ours
     float placement[16];
@@ -159,6 +187,7 @@ struct Backdrop {
     uint32_t generation = 0; // one more each time a group's doodads and lights are made
     float farClip = 0.0f;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
+    CameraFog fog;
 };
 
 static_assert(Offsets::OFF_MAPOBJDEF_OBJECT + sizeof(void *) <= Offsets::MAPOBJDEF_QUERY_SIZE &&
@@ -379,32 +408,48 @@ void SceneFog(void *record, void *frame) {
 
 bool HasOwnFog(const Backdrop &b) { return Game::Read<uint32_t>(b.object, Offsets::OFF_CMAPOBJ_FOG_COUNT) > 1; }
 
-// A WMO with its own fog: its record 0, the end capped at the far clip.
-void WmoFog(const Backdrop &b, void *record, float farClip) {
-    const uint8_t *fog = Game::Read<const uint8_t *>(b.object, Offsets::OFF_CMAPOBJ_FOGS);
-    float end = Game::Read<float>(fog, Offsets::OFF_MAPOBJ_FOG_END);
-    if (!(end < farClip))
-        end = farClip;
-    const float start = Game::Read<float>(fog, Offsets::OFF_MAPOBJ_FOG_START_FRACTION) * end;
-    const uint32_t color = Game::Read<uint32_t>(fog, Offsets::OFF_MAPOBJ_FOG_COLOR);
-    const float rgb[3] = {static_cast<float>((color >> 16) & 0xFF) / 255.0f,
-                          static_cast<float>((color >> 8) & 0xFF) / 255.0f,
-                          static_cast<float>(color & 0xFF) / 255.0f};
-    reinterpret_cast<SetFog_t>(Offsets::FUN_M2LIGHTING_SET_FOG)(record, rgb, start, end);
+void LerpFog(FogValues &fog, const void *toward, float t) {
+    using Lerp_t = void(__thiscall *)(void *a, const void *b, float t);
+    reinterpret_cast<Lerp_t>(Offsets::FUN_LERP_FOG_RECORD)(&fog, toward, t);
 }
 
-// The WMO's record: the scene light as the sun with the WMO's own fog, else
-// the frame's callback (the scene fog and light, as a scene model gets them).
-void StageLightAndFog(Backdrop &b, void *record, void *frame, float farClip) {
-    if (!HasOwnFog(b)) {
+void SetFog(void *record, const FogValues &fog) {
+    const float rgb[3] = {static_cast<float>((fog.color >> 16) & 0xFF) / 255.0f,
+                          static_cast<float>((fog.color >> 8) & 0xFF) / 255.0f,
+                          static_cast<float>(fog.color & 0xFF) / 255.0f};
+    reinterpret_cast<SetFog_t>(Offsets::FUN_M2LIGHTING_SET_FOG)(record, rgb, fog.start, fog.end);
+}
+
+// The camera's WMO fog has a weight: the world then draws the WMO and the
+// interior entities of the claimed WMO with the drawn fog (the light state's
+// +0x80; ApplyMapObjectFog 0x006C31E0), else with the zone's.
+bool WmoFogShown(const Backdrop &b) { return b.fog.weight > 0.0f; }
+
+// The drawn fog: the zone's moved toward the target by the weight. The
+// scene's fog stands for the zone's; a scene without fog stands for one
+// that ends at the far clip in the target's colour.
+void WmoFog(const Backdrop &b, void *record, void *frame) {
+    FogValues drawn{b.farClip, b.farClip, b.fog.target.color};
+    if ((Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) != 0)
+        drawn = {Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR),
+                 Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
+                 Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR)};
+    LerpFog(drawn, &b.fog.target, b.fog.weight);
+    SetFog(record, drawn);
+}
+
+// The WMO's record: the scene light as the sun with the drawn fog, else the
+// frame's callback (the scene fog and light, as a scene model gets them).
+void StageLightAndFog(const Backdrop &b, void *record, void *frame) {
+    if (!WmoFogShown(b)) {
         FrameLightAndFog(record, frame);
         return;
     }
     AddLight(record, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT));
-    WmoFog(b, record, farClip);
+    WmoFog(b, record, frame);
 }
 
-void CommitLighting(Backdrop &b, void *frame, const float (&eye)[3], float farClip) {
+void CommitLighting(const Backdrop &b, void *frame, const float (&eye)[3]) {
     alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE];
     float sphere[4] = {};
     reinterpret_cast<float *(__thiscall *)(void *, float *)>(Offsets::FUN_CMAPOBJ_GET_BOUNDING_SPHERE)(
@@ -417,7 +462,7 @@ void CommitLighting(Backdrop &b, void *frame, const float (&eye)[3], float farCl
         record, nullptr, centre);
     reinterpret_cast<void(__thiscall *)(void *, void *)>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(
         Model::Pane::Scene(frame), record);
-    StageLightAndFog(b, record, frame, farClip);
+    StageLightAndFog(b, record, frame);
     using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
     reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
 }
@@ -541,8 +586,8 @@ const float (&MapLightDirection())[3] {
 // `direction`.
 void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambientBytes, uint32_t directionalBytes,
                    const float (&direction)[3]) {
-    if (HasOwnFog(b))
-        WmoFog(b, record, b.farClip);
+    if (WmoFogShown(b))
+        WmoFog(b, record, frame);
     else
         SceneFog(record, frame);
     float ambient[3], directional[3];
@@ -927,6 +972,163 @@ bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], 
     return found;
 }
 
+// ---- the camera's fog -----------------------------------------------------------------
+
+constexpr uint32_t kNoGroup = 0xFFFF;
+
+uint32_t GroupInfoFlags(void *object, uint32_t group) {
+    using Info_t = const uint32_t *(__thiscall *)(void *object, uint32_t group);
+    const uint32_t *info = reinterpret_cast<Info_t>(Offsets::FUN_CMAPOBJ_GET_GROUP_INFO)(object, group);
+    return info != nullptr ? *info : 0;
+}
+
+// ClaimCameraMapObject (0x006821F0) over the one WMO (a scene has no
+// terrain): IntersectMapObjects (0x006BE250) down from the eye, the floor
+// first, then the portal the segment crosses. The groups that hold the
+// camera (one or two), or none when the result is an exterior group.
+uint32_t ClaimCamera(const Backdrop &b, const float (&eye)[3], uint32_t (&groups)[2]) {
+    using Cross_t = bool(__thiscall *)(void *object, const float *segment, float *fraction, uint32_t *groups);
+    void *object = b.object;
+    const float end[3] = {eye[0], eye[1], eye[2] - EngineFloat(Offsets::VAR_CAMERA_DOWN_RAY_LENGTH)};
+    float t = 1.0f;
+    uint32_t group = kNoGroup, other = kNoGroup;
+    uint16_t face = 0;
+    bool claimed = Nearest(b, eye, end, t, group, face);
+    float segment[6];
+    TransformPoint(eye, b.inverse, *reinterpret_cast<float (*)[3]>(segment));
+    TransformPoint(end, b.inverse, *reinterpret_cast<float (*)[3]>(segment + 3));
+    float fraction;
+    const uint32_t bits = Offsets::CAMERA_PORTAL_FRACTION_BITS;
+    std::memcpy(&fraction, &bits, sizeof fraction);
+    uint32_t sides[2] = {kNoGroup, kNoGroup};
+    if (reinterpret_cast<Cross_t>(Offsets::FUN_CMAPOBJ_CROSS_PORTALS)(object, segment, &fraction, sides) &&
+        fraction - t < EngineFloat(Offsets::VAR_CAMERA_PORTAL_EPSILON)) {
+        claimed = true;
+        group = sides[0];
+        other = (GroupInfoFlags(object, sides[1]) & Offsets::MOGI_FLAG_EXTERIOR) == 0 ? sides[1] : kNoGroup;
+    }
+    if (!claimed || (GroupInfoFlags(object, group) & Offsets::MOGI_FLAG_EXTERIOR) != 0)
+        return 0;
+    groups[0] = group;
+    if (other == kNoGroup || other == group)
+        return 1;
+    groups[1] = other;
+    return 2;
+}
+
+// GetCameraInteriorFog (0x0069DE20) for the claim: the dry sub-record of
+// record 0 blended with the first group's candidate fogs, farthest first
+// (its heap's pop order), and whether a group of the claim is interior. The
+// underwater sub-record and the flags it also blends are left out: the
+// camera's liquid is not asked.
+// The engine reads a fog index past the records without a check; one is
+// skipped here.
+bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&groups)[2], uint32_t count,
+                 FogValues &dry) {
+    using Falloff_t = float(__thiscall *)(const void *fog, float distance);
+    void *object = b.object;
+    bool inside = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (const void *g = LoadedGroup(object, groups[i]))
+            inside = inside || (Game::Read<uint32_t>(g, Offsets::OFF_CMAPOBJGROUP_FLAGS) &
+                                Offsets::MAPOBJ_GROUP_EXTERIOR_MASK) == 0;
+    }
+    const uint8_t *fogs = Game::Read<const uint8_t *>(object, Offsets::OFF_CMAPOBJ_FOGS);
+    const uint32_t fogCount = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_FOG_COUNT);
+    FogValues out;
+    std::memcpy(&out, fogs + Offsets::OFF_MAPOBJ_FOG_END, sizeof out);
+    float camera[3];
+    TransformPoint(eye, b.inverse, camera);
+    struct Candidate {
+        float distance;
+        const uint8_t *fog;
+    };
+    Candidate candidates[Offsets::MAPOBJ_GROUP_FOG_INDICES];
+    uint32_t n = 0;
+    if (const uint8_t *first = static_cast<const uint8_t *>(LoadedGroup(object, groups[0]))) {
+        for (uint32_t k = 0; k < Offsets::MAPOBJ_GROUP_FOG_INDICES; ++k) {
+            const uint8_t index = first[Offsets::OFF_CMAPOBJGROUP_FOG_INDICES + k];
+            if (index == 0 || index >= fogCount)
+                continue;
+            const uint8_t *fog = fogs + index * Offsets::MAPOBJ_FOG_SIZE;
+            const float *at = reinterpret_cast<const float *>(fog + Offsets::OFF_MAPOBJ_FOG_POSITION);
+            const float dx = at[0] - camera[0], dy = at[1] - camera[1], dz = at[2] - camera[2];
+            const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (distance < Game::Read<float>(fog, Offsets::OFF_MAPOBJ_FOG_OUTER_RADIUS) &&
+                (Game::Read<uint32_t>(fog, Offsets::OFF_MAPOBJ_FOG_FLAGS) & Offsets::MAPOBJ_FOG_NOT_CANDIDATE) == 0)
+                candidates[n++] = {distance, fog};
+        }
+    }
+    std::sort(candidates, candidates + n,
+              [](const Candidate &x, const Candidate &y) { return x.distance > y.distance; });
+    for (uint32_t i = 0; i < n; ++i) {
+        const float w = reinterpret_cast<Falloff_t>(Offsets::FUN_LIGHT_FALLOFF)(candidates[i].fog,
+                                                                              candidates[i].distance);
+        LerpFog(out, candidates[i].fog + Offsets::OFF_MAPOBJ_FOG_END, w);
+    }
+    dry = out;
+    return inside;
+}
+
+// BuildSceneFog (0x006CEE30) for the scene's camera, dry (the camera's
+// liquid is not asked): with the claim, the target is the dry record, its
+// end capped at the far clip and its start the fraction of that; the weight
+// moves toward 1 while the camera is inside, else toward 0, and the target
+// stays the last one while it falls. The world starts the weight at 0 and
+// fades in; a scene's first update takes it as it stands.
+void UpdateCameraFog(Backdrop &b, const float (&eye)[3], float farClip, float elapsed) {
+    CameraFog &fog = b.fog;
+    uint32_t groups[2] = {kNoGroup, kNoGroup};
+    const uint32_t count = HasOwnFog(b) ? ClaimCamera(b, eye, groups) : 0;
+    bool inside = false;
+    if (count != 0) {
+        FogValues dry{};
+        inside = InteriorFog(b, eye, groups, count, dry);
+        fog.target.end = dry.end < farClip ? dry.end : farClip;
+        fog.target.start = fog.target.end * dry.start;
+        fog.target.color = dry.color;
+    }
+    const float step = EngineFloat(Offsets::VAR_INTERIOR_FOG_RATE) * elapsed;
+    if (!fog.primed) {
+        fog.primed = true;
+        fog.weight = inside ? 1.0f : 0.0f;
+    } else if (inside) {
+        fog.weight = fog.weight + step;
+        if (!(fog.weight >= 0.0f))
+            fog.weight = 0.0f;
+        else if (fog.weight >= 1.0f)
+            fog.weight = 1.0f;
+    } else {
+        fog.weight = fog.weight - step;
+        if (!(fog.weight > 0.0f))
+            fog.weight = 0.0f;
+    }
+}
+
+// ---- the group liquids ----------------------------------------------------------------
+
+using Fn_t = void(__cdecl *)();
+using Unit_t = void(__fastcall *)(int unit);
+using Load_t = void(__fastcall *)(int unit, const float *m);
+constexpr int kWorldStack = 8;
+
+// The render states pushed and world stack 8 = placement x Translate(-eye),
+// as the world's map object passes set it.
+void PushObjectSpace(const Backdrop &b, const float (&eye)[3]) {
+    Matrix toEye, world;
+    Identity(toEye);
+    Translate(toEye, {-eye[0], -eye[1], -eye[2]});
+    Multiply(world, b.placement, toEye);
+    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)();
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_PUSH)(kWorldStack);
+    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_LOAD)(kWorldStack, world);
+}
+
+void PopObjectSpace() {
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
+    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)();
+}
+
 // AttachEntityToGround (0x006A8A20), the map object leg (a scene has no
 // terrain), with SyncLightNode's box, centre and radius and UpdateNode's
 // probe point (0x00613F80).
@@ -1115,9 +1317,6 @@ void FromEye(Matrix &m, const float (&eye)[3]) {
 // DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
 // world camera.
 void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
-    using Fn_t = void(__cdecl *)();
-    using Unit_t = void(__fastcall *)(int unit);
-    using Load_t = void(__fastcall *)(int unit, const float *m);
     using GetInt_t = void(__fastcall *)(int id, int *out);
     using Set_t = void(__fastcall *)(int id, int value);
     using SetPtr_t = void(__fastcall *)(int id, const void *value);
@@ -1132,7 +1331,6 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
         uint16_t count, min, max, unused;
     };
     using Render_t = void(__fastcall *)(const Prim *prim, int count);
-    constexpr int kWorldStack = 8;
 
     ResetFacets();
     if (!CollectBox(b, box, mask))
@@ -1204,8 +1402,6 @@ void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const fl
         return;
     using Build_t = void(__fastcall *)(float *tex0, float *tex1, const float *box, const float *m, float fade,
                                        int absolute);
-    using Load_t = void(__fastcall *)(int unit, const float *m);
-    using Unit_t = void(__fastcall *)(int unit);
     Matrix tex0, tex1;
     Identity(tex0);
     Identity(tex1);
@@ -1219,7 +1415,7 @@ void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const fl
     reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(1);
 }
 
-void Update(Backdrop &b, void *frame, bool sounds) {
+void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
     const View view = CameraView(frame);
     b.farClip = view.farClip;
     b.sounds = sounds && Game::Read<uint8_t>(Offsets::VAR_IN_WORLD) != 0;
@@ -1228,6 +1424,7 @@ void Update(Backdrop &b, void *frame, bool sounds) {
     void *object = b.object;
     if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return;
+    UpdateCameraFog(b, view.eye, view.farClip, elapsed);
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     if (b.groupsMade.empty()) {
         b.groupsMade.assign(count, false);
@@ -1263,7 +1460,7 @@ void Update(Backdrop &b, void *frame, bool sounds) {
     }
 }
 
-void Draw(Backdrop &b, void *frame, const float (&eye)[3], float farClip) {
+void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
     void *object = b.object;
     if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return;
@@ -1277,26 +1474,49 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3], float farClip) {
         return;
     alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
     BuildViewVolume(volume, eye);
-    Matrix toEye, world;
-    Identity(toEye);
-    Translate(toEye, {-eye[0], -eye[1], -eye[2]});
-    Multiply(world, b.placement, toEye);
-
-    using Fn_t = void(__cdecl *)();
-    using Unit_t = void(__fastcall *)(int unit);
-    using Load_t = void(__fastcall *)(int unit, const float *m);
-    constexpr int kWorldStack = 8;
-    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)();
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_PUSH)(kWorldStack);
-    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_LOAD)(kWorldStack, world);
+    PushObjectSpace(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
     reinterpret_cast<void(__fastcall *)(const float *)>(Offsets::FUN_FRUSTUM_TRANSFORM)(b.inverse);
-    CommitLighting(b, frame, eye, farClip);
+    CommitLighting(b, frame, eye);
     DrawGroups(b, frame);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
-    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)();
+    PopObjectSpace();
+}
+
+// DrawGroupLiquidPass (0x00684CD0) over the one WMO's parsed liquid groups.
+// The world commits a record per group at the group def's sphere; here the
+// WMO's one record (the drawn fog, the lights near the WMO) serves them all.
+// Magma and slime draw unlit and water takes its colours from the world's
+// light state, so the record gives them their fog.
+void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
+    using Type_t = uint32_t(__fastcall *)(const void *group);
+    using DrawLiquid_t = void(__thiscall *)(void *object, uint32_t group, uint32_t parity);
+    void *object = b.object;
+    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return;
+    std::vector<uint32_t> liquids;
+    const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
+    for (uint32_t i = 0; i < count; ++i) {
+        const void *group = LoadedGroup(object, i);
+        if (group != nullptr &&
+            (Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_LIQUID) != 0 &&
+            (reinterpret_cast<Type_t>(Offsets::FUN_MAPOBJ_FIRST_LIQUID_TYPE)(group) & 0xFF) <=
+                Offsets::MAPOBJ_LIQUID_TYPE_LAST_DRAWN)
+            liquids.push_back(i);
+    }
+    if (liquids.empty())
+        return;
+    reinterpret_cast<Fn_t>(Offsets::FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP)();
+    uint32_t &fogFlag = Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG);
+    const uint32_t savedFogFlag = fogFlag;
+    fogFlag = 0;
+    PushObjectSpace(b, eye);
+    CommitLighting(b, frame, eye);
+    for (const uint32_t i : liquids)
+        reinterpret_cast<DrawLiquid_t>(Offsets::FUN_MAPOBJ_DRAW_GROUP_LIQUID)(object, i, 1);
+    PopObjectSpace();
+    fogFlag = savedFogFlag;
 }
 
 } // namespace Model::Scene::World

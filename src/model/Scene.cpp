@@ -561,11 +561,14 @@ void __fastcall Paint(void *frame) {
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
-        if (F(frame).world != nullptr && CameraOf(frame) != nullptr)
-            World::Draw(*F(frame).world, frame, eye, F(frame).farClip);
+        World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+        if (world != nullptr)
+            World::Draw(*world, frame, eye);
         DrawShadows(frame, eye);
         auto draw = reinterpret_cast<Draw_t>(Offsets::FUN_M2SCENE_DRAW);
         draw(scene, 0);
+        if (world != nullptr)
+            World::DrawLiquids(*world, frame, eye);
         draw(scene, 1);
     }
 }
@@ -829,7 +832,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     for (Actor *actor : *F(self).actors)
         actor->Link();
     if (World::Backdrop *world = F(self).world) {
-        World::Update(*world, self, F(self).playWorldModelSounds);
+        World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
         // A seated rider or an attached actor takes its parent's light.
         for (Actor *actor : *F(self).actors)
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))

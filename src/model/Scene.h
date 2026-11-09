@@ -226,12 +226,17 @@ void Placement(const float (&position)[3], float yaw, float (&out)[16]);
 void Free(Backdrop *backdrop);
 // From the scene's update, before the scene advances: makes the doodads of
 // each group parsed since, puts the ready ones on the animate list and
-// moves their sounds with the camera. `sounds` is SetPlayWorldModelSounds.
-void Update(Backdrop &backdrop, void *frame, bool sounds);
+// moves their sounds with the camera, and moves the camera's WMO fog (the
+// MFOG records near the camera, faded in and out as the world fades them).
+// `sounds` is SetPlayWorldModelSounds.
+void Update(Backdrop &backdrop, void *frame, bool sounds, float elapsed);
 // Drops the doodads' loop sounds (the scene hid).
 void Silence(Backdrop &backdrop);
 // From the paint, after the animate pass: the WMO in the device's view.
-void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3], float farClip);
+void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3]);
+// From the paint, between the scene's opaque and translucent lists: the
+// liquids of the WMO's groups (the world draws them between its model lists).
+void DrawLiquids(Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // How the world lights a unit that stands in a WMO, kept per actor: the
 // colour of the face under it, or the sun, and the WMO's lights near it.
 struct Ambience;

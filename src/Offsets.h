@@ -13617,6 +13617,63 @@ enum Offsets {
     OFF_MAPOBJ_FOG_END = 0x18,
     OFF_MAPOBJ_FOG_START_FRACTION = 0x1C,
     OFF_MAPOBJ_FOG_COLOR = 0x20,
+    OFF_MAPOBJ_FOG_FLAGS = 0x0,
+    OFF_MAPOBJ_FOG_POSITION = 0x4,
+    OFF_MAPOBJ_FOG_INNER_RADIUS = 0x10,
+    OFF_MAPOBJ_FOG_OUTER_RADIUS = 0x14,
+    MAPOBJ_FOG_NOT_CANDIDATE = 0x1,
+    // The camera's WMO (ClaimCameraMapObject 0x006821F0, Ghidra): a segment
+    // from the camera 1760 down (0x0080FEC8) through IntersectMapObjects
+    // (0x006BE250): the nearest floor of the groups (as
+    // TraceMapObjectsNearest), then CrossPortals with the fraction 1.05
+    // (immediate 0x3F866666 at 0x006BE411), taken when it is less than
+    // 0.0001 (0x0080C4F4) past the floor; a portal gives its two groups, the
+    // second only when its MOGI flags lack 0x8; a result whose MOGI flags
+    // have 0x8 claims nothing. CrossPortals `bool __thiscall(obj, const
+    // float segment[6], float *fraction, uint32_t groups[2])`, ret 0xC, in
+    // model space. GetGroupInfo `__thiscall(obj, index)`, ret 4: the MOGI
+    // record (flags first), or NULL before the root loads.
+    VAR_CAMERA_DOWN_RAY_LENGTH = 0x0080FEC8,
+    CAMERA_PORTAL_FRACTION_BITS = 0x3F866666,
+    VAR_CAMERA_PORTAL_EPSILON = 0x0080C4F4,
+    FUN_CMAPOBJ_CROSS_PORTALS = 0x006A3F80,
+    FUN_CMAPOBJ_GET_GROUP_INFO = 0x006A4B10,
+    MOGI_FLAG_EXTERIOR = 0x8,
+    // GetCameraInteriorFog (0x0069DE20, Ghidra) with the claim: record 0,
+    // then each candidate of the first group's four fog indices (+0x34;
+    // nonzero, nearer than the record's outer radius, flag 0x1 clear),
+    // farthest first, lerped in by LightFalloff `float __thiscall(fog,
+    // float distance)`, ret 4 (1 inside +0x10, 0 at +0x14), through
+    // LerpFogRecord `__thiscall(float+float+colour *a, const *b, float t)`,
+    // ret 8, on both sub-records; the nearest also gives its flags. "Inside"
+    // when a group of the claim lacks group flags 0x48. BuildSceneFog
+    // (0x006CEE30): the drawn fog moves from the zone's toward the dry
+    // record (end min(end, far clip), start the fraction of it) by a weight
+    // that moves 0.25 (0x008115B0) per second toward 1 while inside, else
+    // toward 0; the target stays the last one while it falls.
+    OFF_CMAPOBJGROUP_FOG_INDICES = 0x34,
+    MAPOBJ_GROUP_FOG_INDICES = 4,
+    FUN_LIGHT_FALLOFF = 0x0069E1C0,
+    FUN_LERP_FOG_RECORD = 0x0069EFD0,
+    VAR_INTERIOR_FOG_RATE = 0x008115B0,
+    // A group's liquid (DrawGroupLiquidPass 0x00684CD0, Ghidra): per def,
+    // matrix 8 = placement x Translate(-camera), a lighting record committed
+    // at the camera with fog, then DrawMapObjectGroupLiquid `__thiscall(obj,
+    // groupIndex, parity)`, ret 8, which pushes the render states, takes the
+    // liquid type of the first tile with liquid (FirstLiquidTileType
+    // `__fastcall(group)`), its animated frame (0x0068AAC0) and draws water
+    // (0, 4, 8), magma or slime (2, 3, 6, 7; 6 and 7 scroll). Type 0xF (no
+    // tile has liquid) asks for a frame past the table: a client fault, so
+    // only a type up to 8 is drawn. Parity is the portal walk's: tiles with
+    // bit 7 draw only for parity 1, the value every group gets from outside
+    // (RunGroupCallback 0x006B4160). BuildGroupDepthRamp `__cdecl()` fills
+    // the interior water's depth-to-alpha ramp; the pass builds it first.
+    // The world draws the pass between its model lists 2 and 1 (0x004836DD).
+    MAPOBJ_GROUP_LIQUID = 0x1000,
+    MAPOBJ_LIQUID_TYPE_LAST_DRAWN = 8,
+    FUN_MAPOBJ_DRAW_GROUP_LIQUID = 0x006B4060,
+    FUN_MAPOBJ_FIRST_LIQUID_TYPE = 0x006BA970,
+    FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP = 0x006B6B60,
     // Matrix helpers (row vectors). MultiplyMatrix4 `float *__fastcall(out,
     // a, b)`: out = a x b. InvertAffineMatrix `__thiscall(m, float out[16],
     // float scale)`, ret 8. The engine's degrees-to-radians and pi floats,
