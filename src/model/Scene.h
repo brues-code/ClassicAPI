@@ -177,6 +177,12 @@ class Actor : public Animation::Object {
     // from the bow or rifle release point), and its point.
     bool releaseEvent = false;
     float releasePoint[3] = {};
+    // The ranged pose, as a unit keeps it: the ammo in hand (one reference,
+    // nocked at attachment 35 while the bow is drawn), its display, and the
+    // drawn bit.
+    void *heldAmmo = nullptr;
+    uint32_t heldAmmoDisplay = 0;
+    bool bowDrawn = false;
     std::vector<SpellCast> spellCasts;
     std::vector<ImpactModel> impactModels;
 };
@@ -188,6 +194,14 @@ namespace Casts {
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
 // Interrupts the casts still preparing; casts already made go on.
 void Stop(Actor &caster);
+// The model's $BWP: the bow draws and the ammo is nocked, while a ranged
+// spell is cast.
+void BowPull(Actor &caster);
+// The model's $BWR: the weapon plays its release before the missiles go.
+void BowRelease(Actor &caster);
+// The animation a ranged load or hold goes on to when it ends, or -1 for
+// none (the ranged shot cycle).
+int RangedAnimationAfter(const Actor &caster, int ended);
 // From the actor's update, after the scene advance: the casts move on.
 void Update(Actor &caster, float elapsedSec);
 // From the actor's Link: the released missiles and the impact models go on

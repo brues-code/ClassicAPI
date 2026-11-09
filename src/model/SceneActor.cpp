@@ -579,8 +579,11 @@ void Actor::Update(float elapsedSec) {
         animFinished = false;
         if (kitAnimation >= 0) {
             // A kit's animation is the spell's, not the script's: no
-            // OnAnimFinished. A once-only one gives the actor's back.
-            if (!kitAnimationLoops) {
+            // OnAnimFinished. A ranged load goes on to its hold, as the
+            // unit's does; else a once-only one gives the actor's back.
+            if (const int next = Casts::RangedAnimationAfter(*this, kitAnimation); next >= 0)
+                kitAnimation = next;
+            else if (!kitAnimationLoops) {
                 kitAnimation = -1;
                 kitAnimationEnded = true;
             }

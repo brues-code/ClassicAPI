@@ -6357,6 +6357,49 @@ enum Offsets {
     FUN_IS_RIFLE_ANIMATION = 0x005FCFD0,
     ATTACH_BOW_RELEASE = 35,
     ATTACH_RIFLE_RELEASE = 36,
+    // The ranged pose (Ghidra). At a ranged or auto-repeat spell's start
+    // (HandleSpellStart 0x006E78B6) SetAmmoDisplay (0x0060BA30) makes the
+    // unit's in-hand ammo (+0xD28, display +0xD2C) with CreateLooseItemModel,
+    // kind 0x19 for a thrown ranged item, and nocks it at attachment 35 when
+    // the bow is drawn (+0xD58 bit 0x4000) and the weapon is no gun or
+    // crossbow. $BWP (OnCombatModelEvent 0x006247D0, with a ranged current
+    // or auto-repeat spell) runs PlayBowPull (0x00624CC0): the ranged weapon
+    // model (+0xD24) plays 160 BowPull at speed sequence length / time left
+    // in the body's animation (key bone state: hi - ftol(position / speed) -
+    // lo; nothing when the state's latch is set or no time is left); then
+    // the ammo is nocked and the bow drawn. $BWR with missiles queued plays 0
+    // Stand on the weapon for a bow animation, 161 BowRelease for a rifle
+    // one. EndRangedPose (0x0060F530; from ReleaseMissiles, a failed or
+    // interrupted precast and more) clears the drawn bit, detaches the ammo
+    // and plays 0 on the weapon unless it plays 161. HasAnimation
+    // `bool __thiscall(model, animID)`, ret 4. A held item hangs in the
+    // right hand (attachment 1) for the main-hand lane and the left (2) for
+    // the off hand (AttachItemModel 0x0047A0C0).
+    FUN_M2MODEL_HAS_ANIMATION = 0x00711960,
+    ANIM_STAND = 0,
+    ANIM_BOW_PULL = 160,
+    ANIM_BOW_RELEASE = 161,
+    // The ranged shot cycle (CGUnit_C's sequence-end handler 0x005FC3F0):
+    // the end of 105 LoadBow plays 109 HoldBow and of 106 LoadRifle 110
+    // HoldRifle, always; the end of 109 replays it, of 110 replays it, of 111
+    // HoldThrown or 112 LoadThrown plays 111, while the unit has a ranged
+    // model and channels or precasts (+0xD58 bit 0x400; 109 also takes the
+    // local auto-repeat bit 0x200); otherwise the base animation is picked
+    // again.
+    ANIM_LOAD_BOW = 105,
+    ANIM_LOAD_RIFLE = 106,
+    ANIM_HOLD_BOW = 109,
+    ANIM_HOLD_RIFLE = 110,
+    ANIM_HOLD_THROWN = 111,
+    ANIM_LOAD_THROWN = 112,
+    ATTACH_HAND_RIGHT = 1,
+    ATTACH_HAND_LEFT = 2,
+    OFF_M2_SEQUENCE_INFO_LENGTH = 0x04,
+    OFF_M2_KEY_BONE_ANIM_STATE_ID = 0x00,
+    OFF_M2_KEY_BONE_ANIM_STATE_SPEED = 0x0C,
+    OFF_M2_KEY_BONE_ANIM_STATE_LO = 0x10,
+    OFF_M2_KEY_BONE_ANIM_STATE_HI = 0x14,
+    OFF_M2_KEY_BONE_ANIM_STATE_LATCH = 0x18,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at

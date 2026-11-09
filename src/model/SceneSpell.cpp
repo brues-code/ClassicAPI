@@ -222,6 +222,127 @@ void ShotAmmo(const Actor &caster, const uint8_t *spell, uint32_t &display, uint
         type = Offsets::INVTYPE_AMMO;
 }
 
+// ---- the ranged pose ------------------------------------------------------------
+
+bool IsGunOrCrossbow(const Outfit::HeldLane &held) {
+    return held.itemClass == Offsets::ITEM_CLASS_WEAPON && (held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_GUN ||
+                                                            held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_CROSSBOW);
+}
+
+// Whether the ammo stays off the string: a gun or crossbow is the ranged item.
+bool KeepsAmmoOff(const Actor &actor) {
+    const int lane = RangedLane(actor);
+    return lane >= 0 && IsGunOrCrossbow(actor.lanes[lane]);
+}
+
+// The ranged weapon's model (a unit's +0xD24): the item hung in its lane's
+// hand, or null (none held, or sheathed).
+void *RangedModel(const Actor &actor) {
+    const int lane = RangedLane(actor);
+    if (lane < 0 || actor.model == nullptr)
+        return nullptr;
+    return M2::FindChild(actor.model, lane == 0 ? Offsets::ATTACH_HAND_RIGHT : Offsets::ATTACH_HAND_LEFT);
+}
+
+void Nock(Actor &actor) { M2::Attach(actor.heldAmmo, actor.model, Offsets::ATTACH_BOW_RELEASE); }
+
+// SetAmmoDisplay (0x0060BA30): the ammo in hand for `display`, made again
+// when it changes; nocked at once while the bow is drawn.
+void HoldAmmo(Actor &actor, uint32_t display) {
+    using LooseItem_t = void *(__fastcall *)(void *model, const void *record, uint32_t kind);
+    if (actor.heldAmmoDisplay == display && actor.heldAmmo != nullptr)
+        return;
+    if (actor.heldAmmo != nullptr) {
+        if (M2::Parent(actor.heldAmmo) != nullptr)
+            M2::Detach(actor.heldAmmo);
+        M2::Release(actor.heldAmmo);
+        actor.heldAmmo = nullptr;
+    }
+    actor.heldAmmoDisplay = display;
+    if (display == 0 || actor.model == nullptr)
+        return;
+    const int lane = RangedLane(actor);
+    const uint32_t kind = lane >= 0 && actor.lanes[lane].inventoryType == Offsets::INVTYPE_THROWN
+                              ? Offsets::LOOSE_ITEM_WEAPON
+                              : Offsets::LOOSE_ITEM_AMMO;
+    actor.heldAmmo = reinterpret_cast<LooseItem_t>(Offsets::FUN_CREATE_LOOSE_ITEM_MODEL)(
+        actor.model,
+        DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT, display), kind);
+    if (actor.heldAmmo != nullptr && !KeepsAmmoOff(actor) && actor.bowDrawn && kind == Offsets::LOOSE_ITEM_AMMO)
+        Nock(actor);
+}
+
+int KeyBoneAnimId(void *model) {
+    using Fn = void(__thiscall *)(void *, int, void *);
+    uint32_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE / 4];
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(model, -1, state);
+    return static_cast<int>(state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_ID / 4]);
+}
+
+// EndRangedPose (0x0060F530): the bow is no longer drawn, the ammo leaves the
+// hand, and the weapon stands again unless it plays its release.
+void EndRangedPose(Actor &actor) {
+    actor.bowDrawn = false;
+    if (actor.heldAmmo != nullptr && M2::Parent(actor.heldAmmo) != nullptr)
+        M2::Detach(actor.heldAmmo);
+    if (void *ranged = RangedModel(actor)) {
+        if (KeyBoneAnimId(ranged) != Offsets::ANIM_BOW_RELEASE)
+            M2::PlayAnimation(ranged, -1, Offsets::ANIM_STAND, -1, 0, 1.0f, 1, 1);
+    }
+}
+
+// PlayBowPull (0x00624CC0): the weapon's BowPull, fitted to end with the
+// body's animation. A unit whose +0xD5C is 4 asks key bone 4 first; an actor
+// has no such state and asks the whole model.
+void PlayBowPull(Actor &actor) {
+    using HasAnim_t = bool(__thiscall *)(void *model, uint32_t anim);
+    using State_t = void(__thiscall *)(void *model, int keyBone, void *state);
+    using Info_t = void(__thiscall *)(void *model, uint32_t anim, uint32_t variation, void *info);
+    void *ranged = RangedModel(actor);
+    if (ranged == nullptr || !M2::IsLoaded(ranged, 0, 0) ||
+        !reinterpret_cast<HasAnim_t>(Offsets::FUN_M2MODEL_HAS_ANIMATION)(ranged, Offsets::ANIM_BOW_PULL) ||
+        actor.model == nullptr || !M2::IsLoaded(actor.model, 0, 0))
+        return;
+    uint8_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE];
+    reinterpret_cast<State_t>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(actor.model, -1, state);
+    if (Game::Read<uint32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_LATCH) != 0)
+        return;
+    const auto position =
+        static_cast<double>(Game::Read<uint32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_POSITION));
+    const auto played =
+        static_cast<int>(position / Game::Read<float>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_SPEED));
+    const int left = Game::Read<int32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_HI) - played -
+                     Game::Read<int32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_LO);
+    if (left <= 0)
+        return;
+    uint8_t info[Offsets::M2_SEQUENCE_INFO_SIZE] = {};
+    reinterpret_cast<Info_t>(Offsets::FUN_M2MODEL_GET_SEQUENCE_INFO)(ranged, Offsets::ANIM_BOW_PULL, 0, info);
+    const float speed = static_cast<float>(Game::Read<uint32_t>(info, Offsets::OFF_M2_SEQUENCE_INFO_LENGTH)) /
+                        static_cast<float>(left);
+    M2::PlayAnimation(ranged, -1, Offsets::ANIM_BOW_PULL, 0, 0, speed, 1, 1);
+}
+
+// The unit's current spell is ranged: here a cast still preparing or waiting
+// for its release.
+bool CastsRanged(const Actor &actor) {
+    for (const SpellCast &cast : actor.spellCasts) {
+        if (cast.phase == SpellCast::Phase::Flight)
+            continue;
+        const uint8_t *spell =
+            DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, cast.spellID);
+        if (spell != nullptr && IsRanged(spell))
+            return true;
+    }
+    return false;
+}
+
+bool MissileQueued(const Actor &actor) {
+    for (const SpellCast &cast : actor.spellCasts)
+        if (cast.phase == SpellCast::Phase::Cast && cast.missile != nullptr)
+            return true;
+    return false;
+}
+
 void EndPrecast(Actor &caster, SpellCast &cast) {
     for (void *effect : cast.precastEffects) {
         M2::Detach(effect);
@@ -415,7 +536,9 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
         } else {
             return false;
         }
-        Launch(caster, cast, from);
+        // ReleaseMissiles ends the ranged pose (0x0060C951).
+        if (Launch(caster, cast, from))
+            EndRangedPose(caster);
         return false;
     }
     case SpellCast::Phase::Flight: {
@@ -452,9 +575,11 @@ void DropCast(Actor &caster, SpellCast &cast) {
 } // namespace
 
 // An interrupt ends a spell still preparing (0x0060D1C0 stops its kits: the
-// effects, the tint and the looping animation); a spell already cast goes on,
-// its missile included.
+// effects, the tint and the looping animation; the failed spell's EndPrecast
+// 0x0060FC50 ends the ranged pose); a spell already cast goes on, its missile
+// included.
 void Stop(Actor &caster) {
+    bool stopped = false;
     for (size_t i = 0; i < caster.spellCasts.size();) {
         if (caster.spellCasts[i].phase != SpellCast::Phase::Precast) {
             ++i;
@@ -462,7 +587,70 @@ void Stop(Actor &caster) {
         }
         DropCast(caster, caster.spellCasts[i]);
         caster.spellCasts.erase(caster.spellCasts.begin() + static_cast<ptrdiff_t>(i));
+        stopped = true;
     }
+    if (stopped)
+        EndRangedPose(caster);
+}
+
+// $BWP (OnCombatModelEvent 0x006247D0): with a ranged spell under way, the
+// weapon draws and the ammo goes on the string unless a gun or crossbow
+// shoots it.
+void BowPull(Actor &caster) {
+    if (!CastsRanged(caster))
+        return;
+    PlayBowPull(caster);
+    if (!KeepsAmmoOff(caster) && caster.heldAmmo != nullptr && M2::Parent(caster.heldAmmo) == nullptr)
+        Nock(caster);
+    caster.bowDrawn = true;
+}
+
+// $BWR (0x00600159): the bow is no longer drawn; with a missile waiting, a
+// bow animation plays the weapon's stand and a rifle animation its release;
+// the ammo leaves the string.
+void BowRelease(Actor &caster) {
+    using IsAnim_t = int(__fastcall *)(int anim);
+    caster.bowDrawn = false;
+    if (MissileQueued(caster) && caster.model != nullptr) {
+        const int anim = caster.CurrentAnimation();
+        void *ranged = RangedModel(caster);
+        if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_BOW_ANIMATION)(anim) != 0 &&
+            M2::HasAttachment(caster.model, Offsets::ATTACH_BOW_RELEASE)) {
+            if (ranged != nullptr)
+                M2::PlayAnimation(ranged, -1, Offsets::ANIM_STAND, -1, 0, 1.0f, 1, 1);
+        } else if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_RIFLE_ANIMATION)(anim) != 0 &&
+                   M2::HasAttachment(caster.model, Offsets::ATTACH_RIFLE_RELEASE)) {
+            if (ranged != nullptr)
+                M2::PlayAnimation(ranged, -1, Offsets::ANIM_BOW_RELEASE, -1, 0, 1.0f, 1, 1);
+        }
+    }
+    if (caster.heldAmmo != nullptr && M2::Parent(caster.heldAmmo) != nullptr)
+        M2::Detach(caster.heldAmmo);
+}
+
+// The sequence-end handler's ranged cases (0x005FC3F0): a load goes on to
+// its hold; a hold plays again while the weapon is held and the spell still
+// prepares.
+int RangedAnimationAfter(const Actor &caster, int ended) {
+    switch (ended) {
+    case Offsets::ANIM_LOAD_BOW:
+        return Offsets::ANIM_HOLD_BOW;
+    case Offsets::ANIM_LOAD_RIFLE:
+        return Offsets::ANIM_HOLD_RIFLE;
+    case Offsets::ANIM_HOLD_BOW:
+    case Offsets::ANIM_HOLD_RIFLE:
+    case Offsets::ANIM_HOLD_THROWN:
+    case Offsets::ANIM_LOAD_THROWN:
+        break;
+    default:
+        return -1;
+    }
+    bool preparing = false;
+    for (const SpellCast &cast : caster.spellCasts)
+        preparing = preparing || cast.phase == SpellCast::Phase::Precast;
+    if (RangedModel(caster) == nullptr || !preparing)
+        return -1;
+    return ended == Offsets::ANIM_LOAD_THROWN ? static_cast<int>(Offsets::ANIM_HOLD_THROWN) : ended;
 }
 
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
@@ -483,6 +671,11 @@ bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
     cast.spellID = spellID;
     std::memcpy(cast.visual, visual, sizeof visual);
     ShotAmmo(caster, spell, cast.ammoDisplay, cast.ammoType);
+    // HandleSpellStart (0x006E78A1): a ranged or auto-repeat spell sets the
+    // ammo in hand.
+    if (IsRanged(spell) || (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
+                            Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG) != 0)
+        HoldAmmo(caster, cast.ammoDisplay);
     cast.target = target != nullptr ? target : &caster;
     caster.spellCasts.push_back(std::move(cast));
     SpellCast &added = caster.spellCasts.back();
@@ -586,6 +779,8 @@ void Drop(Actor &caster) {
     }
     caster.impactModels.clear();
     caster.releaseEvent = false;
+    HoldAmmo(caster, 0);
+    caster.bowDrawn = false;
 }
 
 } // namespace Model::Scene::Casts

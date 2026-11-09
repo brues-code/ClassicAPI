@@ -17,7 +17,9 @@
 // (CGUnit_C::OnModelEvent, 0x005FFBD0, keyed by the four-character tag):
 //
 // - $CSL / $CSR / $CST release a PlaySpellVisual missile (model/SceneSpell.cpp),
-//   always.
+//   always; so does $BWR, from the bow or rifle point, after the weapon's
+//   release animation. $BWP draws the bow and nocks the ammo while a ranged
+//   spell is cast.
 // - With SetPlayAnimationSounds (a ClassicAPI extension, off by default so
 //   the stock scenes stay as quiet as before), the sounds a unit plays from
 //   its own data, here from the CreatureSoundData of the display the actor
@@ -77,6 +79,7 @@ constexpr uint32_t kCSL = Tag('$', 'C', 'S', 'L');
 constexpr uint32_t kCSR = Tag('$', 'C', 'S', 'R');
 constexpr uint32_t kCST = Tag('$', 'C', 'S', 'T');
 constexpr uint32_t kBWR = Tag('$', 'B', 'W', 'R');
+constexpr uint32_t kBWP = Tag('$', 'B', 'W', 'P');
 constexpr uint32_t kFD1 = Tag('$', 'F', 'D', '1');
 constexpr uint32_t kFD4 = Tag('$', 'F', 'D', '4');
 constexpr uint32_t kFDX = Tag('$', 'F', 'D', 'X');
@@ -254,8 +257,14 @@ void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uin
         actor->releaseEvent = true;
         for (int i = 0; i < 3; ++i)
             actor->releasePoint[i] = point[i];
-        if (tag == kBWR)
+        if (tag == kBWR) {
             BowReleasePoint(*actor, actor->releasePoint);
+            Casts::BowRelease(*actor);
+        }
+        return;
+    }
+    if (tag == kBWP) {
+        Casts::BowPull(*actor);
         return;
     }
     if (actor->playAnimationSounds)
