@@ -19323,13 +19323,25 @@ The scene shows the WMO as the world shows it:
 
 - The data of the WMO lights and colors it. On the outdoor parts of the
   WMO, the light of the scene is the sun.
-- A WMO with two or more fogs uses its own fog. Other WMOs use the fog of
-  the scene.
+- A WMO with two or more fogs uses its own fog while the camera is above
+  an indoor part of the WMO. Other WMOs use the fog of the scene.
+- When the camera goes into or out of the WMO, the fog changes gradually
+  from one fog to the other in 4 seconds, as in the world. When the scene
+  first shows the WMO, the fog is already the fog for the position of the
+  camera.
+- Some WMOs have more fogs around some points. As the camera comes near
+  such a point, its fog blends in.
+- If the scene has no fog, the fog of the WMO comes in from the far clip of
+  the camera.
+- A camera in water or lava does not change the fog.
 - The WMO shows its props, for example torches, furniture and bones. The
   props of doodad set `0` always show. `doodadSet` adds the props of one
   more set. The props animate, and the lights of the WMO light them.
 - Props fade out with the distance from the camera, as in the world.
   Small props fade first. A prop that is larger than 7 yards does not fade.
+- The water, lava and slime of the WMO show, and their textures animate.
+  Outdoor water takes its colors from the zone of the world that the
+  player is in.
 - The parts of the WMO show when their files have loaded.
 
 The WMO replaces the previous WMO of the scene.
@@ -19342,7 +19354,7 @@ in it:
   the light of the scene.
 - The lights of the part of the WMO that an actor stands on light it, for
   example torches.
-- The fog of an indoor actor is the fog of the WMO.
+- An indoor actor has the same fog as the WMO.
 - The floor under an actor selects the sounds of its footsteps and death
   thud (see
   [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)).
