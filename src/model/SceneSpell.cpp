@@ -680,8 +680,11 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
     return true;
 }
 
+// A cast past its precast already ended it: the caster's looping animation
+// now belongs to a newer cast's precast, which a missile landing does not end.
 void DropCast(Actor &caster, SpellCast &cast) {
-    EndPrecast(caster, cast);
+    if (cast.phase == SpellCast::Phase::Precast)
+        EndPrecast(caster, cast);
     ReleaseMissile(cast);
 }
 
