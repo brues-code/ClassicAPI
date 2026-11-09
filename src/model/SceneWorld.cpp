@@ -127,6 +127,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -186,6 +187,7 @@ struct Backdrop {
     float placement[16];
     float inverse[16];
     uint32_t doodadSet;
+    uint32_t mapID; // the map whose light its outdoor water takes, or kNoMap
     // The fields of a map object def the engine's queries read (the
     // placement, its inverse, the object), at a def's offsets, set once.
     alignas(16) uint8_t def[Offsets::MAPOBJDEF_QUERY_SIZE] = {};
@@ -820,14 +822,14 @@ void ReleaseDoodad(Doodad &d) {
 
 bool IsWmoPath(const char *path) { return path != nullptr && HasWmoSuffix(path); }
 
-Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet) {
+Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet, uint32_t mapID) {
     if (!IsWmoPath(path) || CheckedGroupCount(path) < 0)
         return nullptr;
     void *object = reinterpret_cast<void *(__fastcall *)(const char *)>(Offsets::FUN_CMAPOBJ_GET)(path);
     if (object == nullptr)
         return nullptr;
     static uint32_t serials = 0;
-    auto *b = new Backdrop{object, {}, {}, doodadSet};
+    auto *b = new Backdrop{object, {}, {}, doodadSet, mapID};
     b->serial = ++serials;
     std::memcpy(b->placement, placement, sizeof b->placement);
     reinterpret_cast<void(__thiscall *)(const float *, float *, float)>(Offsets::FUN_MATRIX_INVERT_AFFINE)(
@@ -876,7 +878,7 @@ Backdrop *LoadMap(uint32_t mapID) {
     Rotate(m, rot[1] * toRadians + pi, {0.0f, 0.0f, 1.0f});
     Rotate(m, rot[0] * toRadians, {0.0f, 1.0f, 0.0f});
     Rotate(m, rot[2] * toRadians, {1.0f, 0.0f, 0.0f});
-    return Load(name.data(), m, doodadSet);
+    return Load(name.data(), m, doodadSet, mapID);
 }
 
 // CreateEntityMapObjDef's placement (0x006953E0): translated, then turned
@@ -1167,6 +1169,7 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
 // ---- the group liquids ----------------------------------------------------------------
 
 using Fn_t = void(__cdecl *)();
+
 using Unit_t = void(__fastcall *)(int unit);
 using Load_t = void(__fastcall *)(int unit, const float *m);
 constexpr int kWorldStack = 8;
@@ -1604,11 +1607,127 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
 
 bool CameraWet(const Backdrop &b) { return b.cameraLiquid != Offsets::LIQUID_DRY; }
 
+namespace {
+
+using Record = uint8_t[Offsets::LIGHT_RECORD_SIZE];
+
+const uint8_t *LightParams(const uint8_t *light, uint32_t reference) {
+    return reinterpret_cast<const uint8_t *(__fastcall *)(const uint8_t *, uint32_t)>(Offsets::FUN_GET_LIGHT_PARAMS)(
+        light, reference);
+}
+
+// GatherLightRecord into a fresh record (its members zero themselves).
+void Gather(int h, Record &out, const uint8_t *params) {
+    std::memset(out, 0, sizeof out);
+    reinterpret_cast<void(__fastcall *)(int, uint8_t *, const uint8_t *)>(Offsets::FUN_GATHER_LIGHT_RECORD)(h, out,
+                                                                                                          params);
+}
+
+// BuildLightTable (0x006D2260) and BlendAreaLights (0x006D2D00) for the
+// backdrop's map at the scene's camera, as the world builds its table at its
+// camera: the time of day is the world's; the storm blend, which follows the
+// weather where the player is, is left out. False when the map has no light.
+bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
+    const float day = EngineFloat(Offsets::VAR_LIGHT_TIME_OF_DAY) * EngineFloat(Offsets::VAR_HALF_MINUTES_PER_DAY);
+    const int h = static_cast<int>(std::lrint(static_cast<double>(day) - EngineFloat(Offsets::VAR_DAY_NIGHT_HALF)));
+    const uint32_t liquid = b.cameraLiquid == Offsets::LIQUID_DRY ? b.cameraLiquid : (b.cameraLiquid & 3);
+    if (liquid == Offsets::LIQUID_MAGMA || liquid == Offsets::LIQUID_SLIME) {
+        const int id = liquid == Offsets::LIQUID_MAGMA ? Offsets::LIGHTPARAMS_MAGMA : Offsets::LIGHTPARAMS_SLIME;
+        if (Game::Read<int32_t>(Offsets::VAR_LIGHTPARAMS_LARGEST_ID) < id)
+            return false;
+        const auto *params = Game::Read<const uint8_t *const *>(Offsets::VAR_LIGHTPARAMS_ID_MAP)[id];
+        if (params == nullptr)
+            return false;
+        Gather(h, table, params);
+        return true;
+    }
+    const uint32_t reference = liquid == Offsets::LIQUID_DRY ? 0 : 1;
+    // The light list (0x006D6170): slot 0 the last row at the origin, else
+    // Light id 1; the rest in table order.
+    const auto *rows = Game::Read<const uint8_t *>(Offsets::VAR_LIGHT_ROWS);
+    const auto count = Game::Read<uint32_t>(Offsets::VAR_LIGHT_ROW_COUNT);
+    const uint8_t *origin = nullptr;
+    std::vector<const uint8_t *> area;
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint8_t *row = rows + i * Offsets::LIGHT_ROW_SIZE;
+        if (Game::Read<uint32_t>(row, Offsets::OFF_LIGHT_MAP) != b.mapID)
+            continue;
+        const float *p = Game::Ptr<float>(row, Offsets::OFF_LIGHT_POSITION);
+        if (p[0] == 0.0f && p[1] == 0.0f && p[2] == 0.0f)
+            origin = row;
+        else
+            area.push_back(row);
+    }
+    if (origin == nullptr && Game::Read<int32_t>(Offsets::VAR_LIGHT_LARGEST_ID) >= 1)
+        origin = Game::Read<const uint8_t *const *>(Offsets::VAR_LIGHT_ID_MAP)[1];
+    const uint8_t *base = origin != nullptr ? LightParams(origin, reference) : nullptr;
+    if (base == nullptr)
+        return false;
+    Gather(h, table, base);
+    // The lights around the eye, farthest first, the nearest blended last.
+    std::vector<std::pair<float, const uint8_t *>> near;
+    for (const uint8_t *row : area) {
+        const float *p = Game::Ptr<float>(row, Offsets::OFF_LIGHT_POSITION);
+        const float dx = eye[0] - p[0], dy = eye[1] - p[1], dz = eye[2] - p[2];
+        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < Game::Read<float>(row, Offsets::OFF_LIGHT_OUTER_RADIUS))
+            near.emplace_back(d, row);
+    }
+    std::stable_sort(near.begin(), near.end(), [](const auto &x, const auto &y) { return x.first > y.first; });
+    for (const auto &[d, row] : near) {
+        const uint8_t *params = LightParams(row, reference);
+        if (params == nullptr)
+            continue;
+        Record light;
+        Gather(h, light, params);
+        const float inner = Game::Read<float>(row, Offsets::OFF_LIGHT_INNER_RADIUS);
+        const float outer = Game::Read<float>(row, Offsets::OFF_LIGHT_OUTER_RADIUS);
+        const float w = inner < d ? 1.0f - (d - inner) / (outer - inner) : 1.0f;
+        reinterpret_cast<void(__fastcall *)(uint8_t *, const uint8_t *, float)>(Offsets::FUN_OVERBLEND_LIGHT_RECORD)(
+            table, light, w);
+    }
+    return true;
+}
+
+// The water fields of the world's light table, the backdrop map's while its
+// liquids draw, then the world's again.
+class MapWaterLight {
+  public:
+    MapWaterLight(const Backdrop &b, const float (&eye)[3]) {
+        Record table;
+        if (b.mapID == kNoMap || !BuildMapLight(b, eye, table))
+            return;
+        for (size_t i = 0; i < std::size(kFields); ++i) {
+            std::memcpy(&saved_[i], Live() + kFields[i], sizeof saved_[i]);
+            std::memcpy(Live() + kFields[i], table + kFields[i], sizeof saved_[i]);
+        }
+        swapped_ = true;
+    }
+    ~MapWaterLight() {
+        if (!swapped_)
+            return;
+        for (size_t i = 0; i < std::size(kFields); ++i)
+            std::memcpy(Live() + kFields[i], &saved_[i], sizeof saved_[i]);
+    }
+    MapWaterLight(const MapWaterLight &) = delete;
+    MapWaterLight &operator=(const MapWaterLight &) = delete;
+
+  private:
+    static constexpr uintptr_t kFields[] = {Offsets::OFF_LIGHT_RECORD_DEEP_RIVER,
+                                            Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW,
+                                            Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP};
+    static uint8_t *Live() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_TABLE)); }
+    uint32_t saved_[std::size(kFields)] = {};
+    bool swapped_ = false;
+};
+
+} // namespace
+
 // DrawGroupLiquidPass (0x00684CD0) over the one WMO's parsed liquid groups.
 // The world commits a record per group at the group def's sphere; here the
 // WMO's one record (the drawn fog, the lights near the WMO) serves them all.
-// Magma and slime draw unlit and water takes its colours from the world's
-// light state, so the record gives them their fog.
+// Magma and slime draw unlit and water takes its colours from the light
+// table, so the record gives them their fog.
 void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
     using Type_t = uint32_t(__fastcall *)(const void *group);
     using DrawLiquid_t = void(__thiscall *)(void *object, uint32_t group, uint32_t parity);
@@ -1627,6 +1746,8 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
     }
     if (liquids.empty())
         return;
+    // Outdoor water takes the light of the backdrop's map at the camera.
+    const MapWaterLight mapLight(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP)();
     uint32_t &fogFlag = Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG);
     const uint32_t savedFogFlag = fogFlag;

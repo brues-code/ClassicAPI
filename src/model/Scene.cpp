@@ -1221,7 +1221,7 @@ void SetWorld(void *frame, World::Backdrop *world) {
     F(frame).world = world;
 }
 
-constexpr char kUsageSetWorldModel[] = "SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])";
+constexpr char kUsageSetWorldModel[] = "SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])";
 
 int __fastcall Script_SetWorldModel(void *L) {
     void *frame = Self(L);
@@ -1241,14 +1241,15 @@ int __fastcall Script_SetWorldModel(void *L) {
         position[1] = FloatArg(L, 4);
         position[2] = FloatArg(L, 5);
     }
-    if ((given(6) && !NumberArgs(L, 6, 1, owner, kUsageSetWorldModel)) ||
-        (given(7) && !NumberArgs(L, 7, 1, owner, kUsageSetWorldModel)))
-        return 0;
+    for (int index = 6; index <= 8; ++index)
+        if (given(index) && !NumberArgs(L, index, 1, owner, kUsageSetWorldModel))
+            return 0;
     const float yaw = given(6) ? FloatArg(L, 6) : 0.0f;
     const uint32_t doodadSet = given(7) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 7)) : 0;
+    const uint32_t mapID = given(8) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 8)) : World::kNoMap;
     float placement[16];
     World::Placement(position, yaw, placement);
-    SetWorld(frame, World::Load(Game::Lua::ToString(L, 2), placement, doodadSet));
+    SetWorld(frame, World::Load(Game::Lua::ToString(L, 2), placement, doodadSet, mapID));
     Game::Lua::PushBool(L, F(frame).world != nullptr);
     return 1;
 }
@@ -1593,6 +1594,9 @@ const Game::Doc::Field kWorldModelArgs[] = {
     Opt("positionZ", "number", "0"),
     Opt("yaw", "number", "0", "Radians about the up axis."),
     Opt("doodadSet", "number", "0"),
+    Opt("mapID", "number", nullptr,
+        "The Map.dbc row the WMO stands on: its outdoor water takes that map's light at the camera. Without it, "
+        "the light where the player is."),
 };
 const Game::Doc::Field kWorldModelMapArg[] = {
     Req("mapID", "number", "A Map.dbc row whose map is one WMO, for example 249 (Onyxia's Lair)."),

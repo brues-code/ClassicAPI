@@ -281,7 +281,10 @@ bool IsWmoPath(const char *path);
 // Null when the engine cannot read `path` safely: it is not a WMO, a file
 // does not open, the root's chunks are not in the engine's order or it has
 // more groups than the engine holds.
-Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet);
+// `mapID` is the map whose light the outdoor water takes (Light.dbc at the
+// scene's camera), or kNoMap for the world's light where the player is.
+constexpr uint32_t kNoMap = 0xFFFFFFFFu;
+Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet, uint32_t mapID);
 // The single WMO of a WMO-only map at the map's own placement; null for any
 // other map.
 Backdrop *LoadMap(uint32_t mapID);

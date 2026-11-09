@@ -13810,6 +13810,52 @@ enum Offsets {
     FUN_MAPOBJ_DRAW_GROUP_LIQUID = 0x006B4060,
     FUN_MAPOBJ_FIRST_LIQUID_TYPE = 0x006BA970,
     FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP = 0x006B6B60,
+    // The light a group's exterior water reads (Ghidra; benilla-re
+    // lighting/daynight, terrain/watershade): the world's light table
+    // (0x00CE9C0C, a 0x90-byte light record) colour band 17 at +0x40, the
+    // deep river colour (DrawGroupLiquid's exterior arm), and LightParams
+    // columns 5 and 6 at +0x68 / +0x6C, the river alphas BuildGroupDepthRamp
+    // ramps between. BuildLightTable (0x006D2260) makes the table at the
+    // camera each frame from the current map's light list: dry or in water
+    // (reference 1 when the liquid nibble is 0 or 1, else 0), slot 0 gathered
+    // at half-minute h, then the area lights (BlendAreaLights 0x006D2D00):
+    // each list light whose distance d from the eye is below its outer
+    // radius, farthest first, gathered and blended by 1, or 1 - (d - inner) /
+    // (outer - inner) past the inner radius; in magma LightParams 7, in slime
+    // 6, gathered alone. h = round(f32(timeOfDay x 2880) - 0.5) with the
+    // state's time of day (0x00CE9B64). The light list (0x006D6170): the
+    // map's Light rows in table order, slot 0 the last one at (0, 0, 0), else
+    // Light id 1; positions and radii are world units since load. Light
+    // store: rows (0x30 bytes: id, map +4, x y z +8, inner +0x14, outer +0x18,
+    // LightParams ids +0x1C), count, id map, largest id. GetLightParams
+    // `__fastcall(lightRow, k)` (0x006D6AB0, null past the LightParams id
+    // map), GatherLightRecord `__fastcall(h, record, paramsRow)` ret 4
+    // (0x006D64D0), OverblendLightRecord `__fastcall(base, src, w)` ret 4
+    // (0x006D30E0). A record's members only zero themselves when made.
+    VAR_LIGHT_TABLE = 0x00CE9C0C,
+    LIGHT_RECORD_SIZE = 0x90,
+    OFF_LIGHT_RECORD_DEEP_RIVER = 0x40,
+    OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW = 0x68,
+    OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP = 0x6C,
+    VAR_LIGHT_TIME_OF_DAY = 0x00CE9B64,
+    VAR_HALF_MINUTES_PER_DAY = 0x00811630,
+    VAR_DAY_NIGHT_HALF = 0x0086F2C8,
+    VAR_LIGHT_ROWS = 0x00CE9D60,
+    VAR_LIGHT_ROW_COUNT = 0x00CE9D64,
+    VAR_LIGHT_ID_MAP = 0x00CE9D68,
+    VAR_LIGHT_LARGEST_ID = 0x00CE9D6C,
+    LIGHT_ROW_SIZE = 0x30,
+    OFF_LIGHT_MAP = 0x04,
+    OFF_LIGHT_POSITION = 0x08,
+    OFF_LIGHT_INNER_RADIUS = 0x14,
+    OFF_LIGHT_OUTER_RADIUS = 0x18,
+    VAR_LIGHTPARAMS_ID_MAP = 0x00CE9D7C,
+    VAR_LIGHTPARAMS_LARGEST_ID = 0x00CE9D80,
+    LIGHTPARAMS_MAGMA = 7,
+    LIGHTPARAMS_SLIME = 6,
+    FUN_GET_LIGHT_PARAMS = 0x006D6AB0,
+    FUN_GATHER_LIGHT_RECORD = 0x006D64D0,
+    FUN_OVERBLEND_LIGHT_RECORD = 0x006D30E0,
     // Matrix helpers (row vectors). MultiplyMatrix4 `float *__fastcall(out,
     // a, b)`: out = a x b. InvertAffineMatrix `__thiscall(m, float out[16],
     // float scale)`, ret 8. The engine's degrees-to-radians and pi floats,
