@@ -189,13 +189,17 @@ enum ActorScript { S_ONLOAD, S_ONUPDATE, S_ONMODELCLEARED, S_ONMODELLOADING, S_O
 const char *const kScripts[] = {"onload",         "onupdate",      "onmodelcleared",
                                 "onmodelloading", "onmodelloaded", "onanimfinished"};
 
-// The engine's done callback: a whole sequence ended (reason 0) — the test
-// the Model frame's own (0x0076CDC0) makes before it runs OnAnimFinished.
-void __fastcall OnAnimDone(void * /*model*/, uint32_t /*keyBone*/, uint32_t /*animID*/,
-                           uint32_t reason, uint32_t /*overshoot*/, uint32_t userLow,
-                           uint32_t /*userHigh*/) {
-    if (reason == 0)
+// The engine's done callback, as the character pane's (0x005062A0): a body
+// track that ended (reason 0) is the actor's animation's end; another key
+// bone's track stops, but for HandsClosed, which holds a weapon's grip.
+void __fastcall OnAnimDone(void *model, uint32_t keyBone, uint32_t animID, uint32_t reason,
+                           uint32_t /*overshoot*/, uint32_t userLow, uint32_t /*userHigh*/) {
+    if (reason != 0)
+        return;
+    if (keyBone == 0xFFFFFFFFu || keyBone == Offsets::M2_KEY_BONE_ROOT)
         reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow))->animFinished = true;
+    else if (animID != Offsets::ANIM_HANDS_CLOSED)
+        M2::PlayAnimation(model, static_cast<int>(keyBone), 0xFFFFFFFFu, -1, 0, 1.0f, 1, 1);
 }
 
 // Takes the kit's effects off the model and undoes its tint.
@@ -251,6 +255,7 @@ void ReleaseModel(Actor &actor) {
     actor.animFinished = false;
     actor.kitAnimation = -1;
     actor.kitAnimationLoops = false;
+    actor.kitLoopAnimation = -1;
     actor.kitAnimationEnded = false;
     actor.heldPositionMs = -1;
     actor.modelPath.clear();
@@ -499,6 +504,7 @@ void Actor::PlayAnimation() {
     if (kitAnimation >= 0 && IsDeathAnimation(static_cast<int>(animation)) && !IsDeathAnimation(kitAnimation)) {
         kitAnimation = -1;
         kitAnimationLoops = false;
+        kitLoopAnimation = -1;
         kitAnimationEnded = true;
     }
     heldPositionMs = -1; // a paused actor holds the new animation's first frame
@@ -519,6 +525,8 @@ void Actor::PlayAnimation() {
 }
 
 void Actor::PlayKitAnimation(int anim, bool loops) {
+    if (loops)
+        kitLoopAnimation = anim;
     kitAnimation = anim;
     kitAnimationLoops = loops;
     PlayAnimation();
@@ -617,11 +625,15 @@ void Actor::Update(float elapsedSec) {
         if (kitAnimation >= 0) {
             // A kit's animation is the spell's, not the script's: no
             // OnAnimFinished. A ranged load goes on to its hold, as the
-            // unit's does; else a once-only one gives the actor's back.
-            if (const int next = Casts::RangedAnimationAfter(*this, kitAnimation); next >= 0)
+            // unit's does; else a once-only one gives back the precast's
+            // loop, or the actor's own.
+            if (const int next = Casts::RangedAnimationAfter(*this, kitAnimation); next >= 0) {
                 kitAnimation = next;
-            else if (!kitAnimationLoops) {
-                kitAnimation = -1;
+                if (kitAnimationLoops)
+                    kitLoopAnimation = next;
+            } else if (!kitAnimationLoops) {
+                kitAnimation = kitLoopAnimation;
+                kitAnimationLoops = kitLoopAnimation >= 0;
                 kitAnimationEnded = true;
             }
             PlayAnimation();
@@ -1363,6 +1375,7 @@ int __fastcall Script_SetAnimation(void *L) {
     actor->animOffsetSec = Game::Lua::IsNumber(L, 5) ? FloatArg(L, 5) : 0.0f;
     actor->kitAnimation = -1; // the script's animation replaces a spell kit's
     actor->kitAnimationLoops = false;
+    actor->kitLoopAnimation = -1;
     actor->PlayAnimation();
     return 0;
 }

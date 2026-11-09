@@ -4278,6 +4278,12 @@ enum Offsets {
     // with the pane as user data (0x00505AFB) and which arms Stand when a
     // whole-body track completes.
     FUN_PLAYERMODEL_ON_ANIM_DONE = 0x005062A0,
+    // A done callback's key bone: the body track is -1 or the root, key bone
+    // 26 (0x005062A0, and the unit's 0x005FCA28); another bone's track (the
+    // fingers of CloseHand, 8..17) is stopped when it ends, except
+    // HandsClosed (15), which stays.
+    M2_KEY_BONE_ROOT = 0x1A,
+    ANIM_HANDS_CLOSED = 15,
     // CM2Model::SetAnimDoneCallback — `__thiscall(model, callback, uint64
     // userData)`, ret 0xC. AttachDisplayModel passes the pane sign-extended
     // (`cdq` at 0x00505AF8).

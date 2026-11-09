@@ -199,6 +199,10 @@ class Actor : public Animation::Object {
     // precast's loops, a cast's or an impact's plays once.
     int kitAnimation = -1;
     bool kitAnimationLoops = false;
+    // The precast's looping animation (-1 none), which a once-only kit
+    // animation (a wound) gives back when it ends, as a unit's replays its
+    // spell's looping kit animation.
+    int kitLoopAnimation = -1;
     bool kitAnimationEnded = false; // a once-only kit animation ended this frame
     void PlayKitAnimation(int anim, bool loops);
     // The animation the body plays: a spell kit's, else the script's.

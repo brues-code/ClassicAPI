@@ -412,6 +412,8 @@ void EndPrecast(Actor &caster, SpellCast &cast) {
         caster.ApplyAlpha();
         cast.precastTinted = false;
     }
+    // The loop goes; a once-only animation over it (a wound) plays on.
+    caster.kitLoopAnimation = -1;
     if (caster.kitAnimationLoops) {
         caster.kitAnimation = -1;
         caster.kitAnimationLoops = false;
