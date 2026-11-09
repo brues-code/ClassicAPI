@@ -14250,6 +14250,22 @@ enum Offsets {
     // last requested on the key bone (bone state +0xF8, the id as given, not
     // its fallback). Blocks on the shared data when the model is not loaded.
     FUN_M2MODEL_GET_KEY_BONE_ANIM = 0x00712090,
+    // The unit body pass's spine twist (CGUnit_C::Update 0x00607ED0):
+    // HasKeyBone `int __thiscall(model, keyBone)` ret 4, waits for an unloaded
+    // model; SetKeyBoneFlags `__thiscall(model, keyBone, flags, mask)` ret
+    // 0xC and SetKeyBoneOverride `__thiscall(model, keyBone, const float
+    // m[16])` ret 8, each queued while the model loads. The pass turns key
+    // bones 4 and 6 about z with an override under flag 0x80; a unit marks
+    // which of the two its model has when it loads (OnModelLoaded 0x0060CE70).
+    // BuildAxisRotation4x4 `float *__fastcall(float out[16], const float
+    // axis[3], float angle, int unitAxis)` ret 8.
+    FUN_M2MODEL_HAS_KEY_BONE = 0x00711D20,
+    FUN_M2MODEL_SET_KEY_BONE_FLAGS = 0x00711F10,
+    FUN_M2MODEL_SET_KEY_BONE_OVERRIDE = 0x00712B00,
+    FUN_MATRIX_AXIS_ROTATION = 0x007BDB00,
+    M2_KEY_BONE_TWIST_LOW = 4,
+    M2_KEY_BONE_TWIST_HIGH = 6,
+    M2_KEY_BONE_OVERRIDE = 0x80,
     // The bone states, 0x118 bytes each, at [model+0x90]; key bone -1 is bone
     // 0 (GetKeyBoneAnimId above). PlayAnimation fills a bone's primary slot
     // (+0x98): the offset at +0xB8, where the sequence time is start +

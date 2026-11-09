@@ -714,6 +714,160 @@ void Advance(Actor &actor) {
     Mover::UpdateSwimState(body, inLiquid, depth);
 }
 
+// ---- the body's facing (CGUnit_C::Update 0x00607ED0) ---------------------------------
+//
+// A unit draws its model at a body facing that follows the display facing:
+// toward a side angle while strafing, at once while moving straight, and,
+// standing, only past a quarter turn, the spine's two twist bones turning the
+// shoulders and head through the rest. The scene's actor is the active
+// mover, whose display facing is the mover's own; the world's camera sets it
+// at the render (MakeViewAngles 0x0050F7A1 calls 0x00600CD0), after the
+// units' update, so the body pass reads the one the last frame set. The
+// shuffle animations the pass would pick standing (11, 12) are the script's.
+
+constexpr float kPi = 3.14159274f;            // 0x008030B0
+constexpr double kTwoPi = 6.2831854820251465; // 0x00803090, a double
+constexpr float kHalfPi = 1.57079637f;        // 0x00808ACC
+constexpr float kQuarterPi = 0.785398185f;    // 0x0080C4E4
+constexpr float kFacingEpsilon = 1e-5f;       // 0x0080C5C8
+constexpr float kMsToSec = 0.001f;            // 0x00801360
+constexpr uint32_t kTurning = 0x1, kTwistLow = 0x80, kTwistHigh = 0x100;
+
+// WrapAngleToPi (0x006084F0).
+double WrapPi(float a) {
+    if (a > kPi)
+        return std::fmod(static_cast<double>(a) + kPi, kTwoPi) - kPi;
+    if (a < -kPi)
+        return std::fmod(static_cast<double>(a) - kPi, kTwoPi) + kPi;
+    return a;
+}
+
+void SetTwist(void *model, int bone, uint32_t flags, float angle) {
+    using Flags_t = void(__thiscall *)(void *model, int bone, uint32_t flags, uint32_t mask);
+    using Override_t = void(__thiscall *)(void *model, int bone, const float *m);
+    using Rotation_t = float *(__fastcall *)(float *out, const float *axis, float angle, int unitAxis);
+    reinterpret_cast<Flags_t>(Offsets::FUN_M2MODEL_SET_KEY_BONE_FLAGS)(model, bone, flags,
+                                                                      Offsets::M2_KEY_BONE_OVERRIDE);
+    if (flags == 0)
+        return;
+    const float up[3] = {0.0f, 0.0f, 1.0f};
+    float m[16];
+    reinterpret_cast<Override_t>(Offsets::FUN_M2MODEL_SET_KEY_BONE_OVERRIDE)(
+        model, bone, reinterpret_cast<Rotation_t>(Offsets::FUN_MATRIX_AXIS_ROTATION)(m, up, angle, 1));
+}
+
+void ClearTwist(void *model) {
+    SetTwist(model, Offsets::M2_KEY_BONE_TWIST_LOW, 0, 0.0f);
+    SetTwist(model, Offsets::M2_KEY_BONE_TWIST_HIGH, 0, 0.0f);
+}
+
+// The model's twist bones, marked once it has loaded (OnModelLoaded
+// 0x0060CE70).
+void MarkTwistBones(Actor &actor) {
+    using Has_t = int(__thiscall *)(void *model, int bone);
+    Actor::Facings &f = actor.facings;
+    if (actor.model == f.bonesOf || !actor.loaded)
+        return;
+    const auto has = reinterpret_cast<Has_t>(Offsets::FUN_M2MODEL_HAS_KEY_BONE);
+    f.bits &= ~(kTwistLow | kTwistHigh);
+    if (has(actor.model, Offsets::M2_KEY_BONE_TWIST_LOW) != 0)
+        f.bits |= kTwistLow;
+    if (has(actor.model, Offsets::M2_KEY_BONE_TWIST_HIGH) != 0)
+        f.bits |= kTwistHigh;
+    f.bonesOf = actor.model;
+}
+
+// The body pass (0x00608075 to 0x006083E6) for a live unit.
+void TurnBody(Actor &actor) {
+    using D = double;
+    const Mover::Body &b = *actor.mover;
+    Actor::Facings &f = actor.facings;
+    if (b.flags & Mover::FLAG_SWIMMING) {
+        f.body = f.display;
+    } else if (b.flags & 0xC) {
+        // Strafing aims a quarter turn aside, an eighth when also moving
+        // forward or back, to the left for left strafe forward and right
+        // strafe back; a quarter of the gap each frame.
+        float aside = (b.flags & 0x3) ? kQuarterPi : kHalfPi;
+        if ((((b.flags >> 1) & 0x2) ^ (b.flags & 0x2)) == 0)
+            aside = -aside;
+        const double step = WrapPi(static_cast<float>((D(f.display) - f.body) + aside)) * 0.25;
+        f.body = static_cast<float>(WrapPi(static_cast<float>(step + f.body)));
+    } else if (b.flags & 0x2003) {
+        f.body = f.display;
+    }
+    // The bones are set once the model has loaded (before it, each call
+    // would queue on the model, and it has no twist bones marked).
+    void *model = actor.loaded ? actor.model : nullptr;
+    const float gap = static_cast<float>(WrapPi(static_cast<float>(D(f.display) - f.body)));
+    const float absGap = std::fabs(gap);
+    if (absGap < kFacingEpsilon) {
+        if (model != nullptr)
+            ClearTwist(model);
+        return;
+    }
+    // Past a quarter turn the body follows at once; standing still, not
+    // turning, it also catches up at eight times the turn rate.
+    float turn = 0.0f;
+    if (absGap > kHalfPi)
+        turn = std::copysign(static_cast<float>(D(absGap) - kHalfPi), gap);
+    if (!(b.flags & 0xC) && !(f.bits & kTurning)) {
+        const uint32_t ms = Time::Clock::NowMs() - f.stamp;
+        double catchUp = ((D(ms) * kMsToSec) * b.turnRate) * 8.0;
+        if (catchUp > absGap)
+            catchUp = absGap;
+        turn = static_cast<float>(D(std::copysign(static_cast<float>(catchUp), gap)) + turn);
+    }
+    const double body = WrapPi(static_cast<float>(D(turn) + f.body));
+    f.body = static_cast<float>(body);
+    const double rest = std::fabs(WrapPi(static_cast<float>(D(f.display) - body)));
+    if (model == nullptr)
+        return;
+    if (rest < kFacingEpsilon) {
+        ClearTwist(model);
+        return;
+    }
+    // The twist: the lower bone half the rest, the upper what remains, an
+    // eighth of a turn each at most. A rider's lower bone is its mount's.
+    const float restF = static_cast<float>(rest);
+    double left = rest;
+    if (M2::Parent(model) == nullptr && (f.bits & kTwistLow)) {
+        float low = static_cast<float>(D(restF) * 0.5);
+        if (low > kQuarterPi)
+            low = kQuarterPi;
+        SetTwist(model, Offsets::M2_KEY_BONE_TWIST_LOW, Offsets::M2_KEY_BONE_OVERRIDE, std::copysign(low, gap));
+        left = D(restF) - low;
+    }
+    if (f.bits & kTwistHigh) {
+        if (!(left < kQuarterPi))
+            left = kQuarterPi;
+        SetTwist(model, Offsets::M2_KEY_BONE_TWIST_HIGH, Offsets::M2_KEY_BONE_OVERRIDE,
+                 std::copysign(static_cast<float>(left), gap));
+    }
+}
+
+// The active mover's display facing (0x00600CD0): the mover's own, and the
+// time it last stood still.
+void FaceDisplay(Actor &actor) {
+    Actor::Facings &f = actor.facings;
+    f.display = actor.mover->facing;
+    if (actor.mover->flags & 0x30) {
+        f.bits |= kTurning;
+    } else {
+        f.bits &= ~kTurning;
+        f.stamp = Time::Clock::NowMs();
+    }
+}
+
+// The facings of a body put down (0x00601020 and the unit's seed): both the
+// mover's, standing still.
+void ResetFacings(Actor &actor) {
+    Actor::Facings &f = actor.facings;
+    f.display = f.body = actor.mover->facing;
+    f.bits &= ~kTurning;
+    f.stamp = Time::Clock::NowMs();
+}
+
 } // namespace
 
 void Actor::LoadXml(const void *node, void *status) {
@@ -740,6 +894,9 @@ void Actor::Update(float elapsedSec) {
         std::memcpy(position, mover->position, sizeof position);
         yaw = mover->facing;
         pitch = Mover::ModelPitch(*mover);
+        MarkTwistBones(*this);
+        TurnBody(*this);
+        FaceDisplay(*this);
     }
     if (model != nullptr && !loaded) {
         bool ready = M2::IsLoaded(model, 0, 0);
@@ -835,7 +992,7 @@ void Actor::Place() {
     const float axisY[3] = {0.0f, 1.0f, 0.0f};
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {scale, scale, scale};
-    reinterpret_cast<SetTRS_t>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(model, position, yaw, axisZ,
+    reinterpret_cast<SetTRS_t>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(model, position, ShownYaw(), axisZ,
                                                                   scales);
     float *matrix = Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX);
     auto rotate = reinterpret_cast<Rotate_t>(Offsets::FUN_MATRIX_ROTATE);
@@ -1470,6 +1627,8 @@ int __fastcall Script_SetMovementEnabled(void *L) {
     if (actor == nullptr)
         return 0;
     if (Game::Lua::ToBoolean(L, 2) == 0) {
+        if (actor->mover != nullptr && actor->model != nullptr && actor->loaded)
+            ClearTwist(actor->model);
         actor->mover.reset();
         return 0;
     }
@@ -1482,6 +1641,7 @@ int __fastcall Script_SetMovementEnabled(void *L) {
     actor->mover->facets.context = WorldOf(actor->SceneFrame());
     SizeMover(*actor);
     PutDown(*actor);
+    ResetFacings(*actor);
     return 0;
 }
 
@@ -2179,8 +2339,9 @@ const Game::Doc::Function kSetMovementEnabled{
     "a character's speeds. The body is the size the world gives the actor's creature display, at the "
     "actor's scale. When you turn it on, and when you set the position while it is on, the actor falls "
     "to the floor below it. While it is on, the actor's position, yaw and pitch follow the movement: "
-    "the actor tilts up or down only while it swims forward or backward. Without a loaded WMO the actor "
-    "does not move. Off by default.",
+    "the actor tilts up or down only while it swims forward or backward. The model's body turns toward "
+    "the side it strafes to; standing, its shoulders and head turn first and the body follows past a "
+    "quarter turn. Without a loaded WMO the actor does not move. Off by default.",
     kMovementEnabledArg, {}, nullptr, true};
 const Game::Doc::Function kIsMovementEnabled{"Returns whether the actor moves as a character.", {},
                                              kMovementEnabledArg, nullptr, true};

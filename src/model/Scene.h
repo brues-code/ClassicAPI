@@ -194,6 +194,20 @@ class Actor : public Animation::Object {
     // The client's mover (SetMovementEnabled, a ClassicAPI extension): while
     // set, it moves `position` and turns `yaw` through the scene's WMO.
     std::unique_ptr<Mover::Body> mover;
+    // A unit's facings while the mover is on (CGUnit_C +0xC98, +0xC94): the
+    // display facing the body turns toward, the body facing the model is
+    // drawn at, the time the display last stood still (+0xCB0), and the body
+    // pass's bits (+0xD58): 0x1 turning, 0x80 and 0x100 the model's twist
+    // bones, marked for `bonesOf` once it has loaded.
+    struct Facings {
+        float display = 0.0f;
+        float body = 0.0f;
+        uint32_t stamp = 0;
+        uint32_t bits = 0;
+        const void *bonesOf = nullptr;
+    } facings;
+    // The yaw the model is drawn at: the body facing while the mover is on.
+    float ShownYaw() const { return mover != nullptr ? facings.body : yaw; }
 
     float position[3] = {0.0f, 0.0f, 0.0f};
     float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
