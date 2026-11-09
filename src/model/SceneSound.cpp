@@ -11,7 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The scene's sounds, heard from the scene camera. The engine has one
+// The scene's sounds, heard from the scene camera, or from the scene's
+// listener actor as the world hears from the player's unit (Ear). The engine has one
 // listener, which the world camera places; a scene is a second camera that
 // the sound engine knows nothing of. So a scene point is played at the spot
 // that lies from the listener as the point lies from the scene camera: its
@@ -26,6 +27,8 @@
 #include "model/Scene.h"
 
 #include "Offsets.h"
+#include "cvar/Factory.h"
+#include "model/M2.h"
 #include "sound/Play.h"
 
 #include <cmath>
@@ -86,11 +89,35 @@ Frame3 ListenerFrame() {
     return MakeFrame(p, f, u);
 }
 
+// Where the scene hears from. The world's listener (0x00482EA0) stands at the
+// unit the player drives while SoundListenerAtCharacter is on: its position
+// raised by its scale times its box height (+0x90 * +0xBC, the model box's
+// max z less min z), facing the unit's facing with z 0, up (0, 0, 1). The
+// scene's listener actor stands in for that unit; without one, or with the
+// variable off, the camera hears, as the world's camera branch does.
+Frame3 Ear(void *sceneFrame) {
+    const Actor *actor = SoundListener(sceneFrame);
+    if (actor != nullptr &&
+        CVar::Factory::GetInt(CVar::Factory::Find("SoundListenerAtCharacter"), 0) != 0) {
+        float height = 0.0f;
+        if (actor->model != nullptr && M2::IsLoaded(actor->model, 0, 0)) {
+            float box[6];
+            M2::GetBoundingBox(actor->model, box);
+            height = (box[5] - box[2]) * actor->scale;
+        }
+        const float origin[3] = {actor->position[0], actor->position[1], actor->position[2] + height};
+        const float forward[3] = {std::cos(actor->yaw), std::sin(actor->yaw), 0.0f};
+        const float up[3] = {0.0f, 0.0f, 1.0f};
+        return MakeFrame(origin, forward, up);
+    }
+    const View view = CameraView(sceneFrame);
+    return MakeFrame(view.eye, view.forward, view.up);
+}
+
 } // namespace
 
 void Heard(void *sceneFrame, const float (&point)[3], float (&out)[3]) {
-    const View view = CameraView(sceneFrame);
-    const Frame3 ear = MakeFrame(view.eye, view.forward, view.up);
+    const Frame3 ear = Ear(sceneFrame);
     const Frame3 listener = ListenerFrame();
     const float offset[3] = {point[0] - ear.origin[0], point[1] - ear.origin[1], point[2] - ear.origin[2]};
     for (int i = 0; i < 3; ++i)

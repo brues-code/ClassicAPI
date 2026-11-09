@@ -321,6 +321,12 @@ void ActorLight(const Backdrop *backdrop, const Ambience &ambience, void *frame,
 // The TerrainType id of the WMO face under the actor, or -1 (no face, no
 // WMO, or not placed in this one).
 int Ground(const Backdrop *backdrop, const Ambience &ambience);
+// The nearest face of the loaded groups that the segment from `start` to
+// `end` (scene space) crosses, of the faces the world's line of sight tests:
+// its fraction along the segment and its unit normal, turned to face
+// `start`. False on a miss or before the WMO has loaded.
+bool Trace(const Backdrop &backdrop, const float (&start)[3], const float (&end)[3], float &fraction,
+           float (&normal)[3]);
 // From the paint, after Draw: a texture laid over the WMO's faces in `box`
 // (scene space), as the world lays a decal on its ground.
 void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
@@ -330,12 +336,17 @@ void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, c
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);
 
+// The actor the scene's sounds are heard at (SetSoundListenerActor), or null.
+Actor *SoundListener(void *sceneFrame);
+
 // The scene's sounds (model/SceneSound.cpp), heard from the scene camera:
 // each plays where its scene point lies from the camera, turned into the
 // sound listener's frame, so the engine's cutoff, falloff and panning apply
 // as they would to a unit at that distance.
 namespace Sounds {
-// A scene point as a point of the listener's (the engine's axes).
+// A scene point as a point of the listener's (the engine's axes), heard at
+// the scene's listener actor while SoundListenerAtCharacter is on, else at
+// the scene camera.
 void Heard(void *sceneFrame, const float (&point)[3], float (&out)[3]);
 // Sound::Play::PlayKitIDAt, PlayKitLoopedAt and Move at a scene point.
 void *Play(void *sceneFrame, int soundKitID, const float (&point)[3]);

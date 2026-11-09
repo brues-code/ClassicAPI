@@ -59,7 +59,6 @@ using Intersect_t = char(__fastcall *)(const Vec3 *start, const Vec3 *end,
                                        int unused, Vec3 *hitOut, float *tOut,
                                        uint32_t flags);
 
-constexpr uint32_t kLoSFlags = 0x100111;   // terrain + WMO (LoS combo)
 constexpr float kMaxTraceYards = 150.0f;   // guard: raw call can crash beyond
 constexpr float kSamePointYards = 0.05f;
 
@@ -100,7 +99,7 @@ bool SegmentClear(const Vec3 &a, const Vec3 &b) {
     Vec3 hit{};
     float t = 1.0f;
     auto intersect = reinterpret_cast<Intersect_t>(Offsets::FUN_CWORLD_INTERSECT);
-    const char hitGeometry = intersect(&a, &b, 0, &hit, &t, kLoSFlags);
+    const char hitGeometry = intersect(&a, &b, 0, &hit, &t, Offsets::WORLD_TRACE_CLASS_LOS);
     if (hitGeometry == 0)
         return true;
     return !(t >= 0.0f && t <= 1.0f);

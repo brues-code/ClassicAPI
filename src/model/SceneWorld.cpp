@@ -973,9 +973,11 @@ const uint8_t *FacetBatch(uint32_t index) {
 // face the segment crosses (mask 4), its group and the first face of the
 // group's batch. The world first screens the segment against the instance's
 // world box (0x006C3330); each group's own box test below already covers
-// it, so it is left out.
+// it, so it is left out. `normal`, when given, takes the hit triangle's
+// normal in WMO space, unscaled and either way round, read from batch 0 as
+// CMapObj::IntersectSegment (0x006A37B0) reads it.
 bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], float &t, uint32_t &group,
-             uint16_t &face) {
+             uint16_t &face, float (*normal)[3] = nullptr) {
     using HitsBox_t = bool(__thiscall *)(void *object, const float *start, const float *end, uint32_t group);
     using Intersect_t = bool(__thiscall *)(void *group, void *out, const float *segment, float *t, const void *def,
                                            uint32_t liquidMask, uint16_t faceMask);
@@ -1006,8 +1008,21 @@ bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], 
             t = tt;
             group = g;
             found = true;
-            if (const auto *faces = Game::Read<const uint16_t *>(FacetBatch(0), Offsets::OFF_FACET_BATCH_FACES))
+            const uint8_t *batch = FacetBatch(0);
+            if (const auto *faces = Game::Read<const uint16_t *>(batch, Offsets::OFF_FACET_BATCH_FACES)) {
                 face = faces[0];
+                if (normal != nullptr) {
+                    const auto *index = Game::Read<const uint16_t *>(batch, Offsets::OFF_FACET_BATCH_INDICES);
+                    const auto *vertex = Game::Read<const float *>(batch, Offsets::OFF_FACET_BATCH_VERTICES);
+                    const float *v0 = vertex + 3 * index[0], *v1 = vertex + 3 * index[1],
+                                *v2 = vertex + 3 * index[2];
+                    const float e1[3] = {v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]};
+                    const float e2[3] = {v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]};
+                    (*normal)[0] = e1[1] * e2[2] - e1[2] * e2[1];
+                    (*normal)[1] = e1[2] * e2[0] - e1[0] * e2[2];
+                    (*normal)[2] = e1[0] * e2[1] - e1[1] * e2[0];
+                }
+            }
         }
     }
     return found;
@@ -1414,6 +1429,37 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
 }
 
 int Ground(const Backdrop *b, const Ambience &a) { return b != nullptr && a.serial == b->serial ? a.ground : -1; }
+
+bool Trace(const Backdrop &b, const float (&start)[3], const float (&end)[3], float &fraction,
+           float (&normal)[3]) {
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return false;
+    fraction = 1.0f;
+    uint32_t group = 0;
+    uint16_t face = 0;
+    float local[3] = {0.0f, 0.0f, 0.0f};
+    if (!Nearest(b, start, end, fraction, group, face, &local))
+        return false;
+    // Into scene space by the placement's turn: the two ends of the normal
+    // through the placement, less each other.
+    const float origin[3] = {0.0f, 0.0f, 0.0f};
+    float base[3], tip[3];
+    TransformPoint(origin, b.placement, base);
+    TransformPoint(local, b.placement, tip);
+    const float direction[3] = {end[0] - start[0], end[1] - start[1], end[2] - start[2]};
+    float dot = 0.0f, length = 0.0f;
+    for (int i = 0; i < 3; ++i) {
+        normal[i] = tip[i] - base[i];
+        dot += normal[i] * direction[i];
+        length += normal[i] * normal[i];
+    }
+    // The faces are hit from either side: the normal faces the start.
+    length = std::sqrt(length);
+    const float k = length > 0.0f ? (dot > 0.0f ? -1.0f : 1.0f) / length : 0.0f;
+    for (float &c : normal)
+        c *= k;
+    return true;
+}
 
 namespace {
 

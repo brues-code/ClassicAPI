@@ -158,6 +158,7 @@ struct Fields {
     Actor *hovered; // the actor OnActorEnter last ran for, or null
     World::Backdrop *world; // SetWorldModel, owned, or null
     bool playWorldModelSounds; // SetPlayWorldModelSounds
+    Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -940,6 +941,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.hovered = nullptr;
     f.world = nullptr;
     f.playWorldModelSounds = false;
+    f.listener = nullptr;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -1270,6 +1272,59 @@ int __fastcall Script_ClearWorldModel(void *L) {
     return 0;
 }
 
+// The WMO's nearest face on a segment (a ClassicAPI extension): the hit
+// point, the face's normal toward the start, and the fraction. Nothing on a
+// miss or without a WMO.
+int __fastcall Script_TraceSegment(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 6, Game::Lua::ObjectDisplayName(frame),
+                                        "TraceSegment(startX, startY, startZ, endX, endY, endZ)"))
+        return 0;
+    const World::Backdrop *world = F(frame).world;
+    if (world == nullptr)
+        return 0;
+    const float start[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
+    const float end[3] = {FloatArg(L, 5), FloatArg(L, 6), FloatArg(L, 7)};
+    float fraction = 1.0f;
+    float normal[3];
+    if (!World::Trace(*world, start, end, fraction, normal))
+        return 0;
+    for (int i = 0; i < 3; ++i)
+        Game::Lua::PushNumber(L, start[i] + (end[i] - start[i]) * fraction);
+    for (float c : normal)
+        Game::Lua::PushNumber(L, c);
+    Game::Lua::PushNumber(L, fraction);
+    return 7;
+}
+
+// The actor the scene's sounds are heard at, as the world hears them at the
+// unit the player drives (a ClassicAPI extension). nil: the camera again.
+int __fastcall Script_SetSoundListenerActor(void *L) {
+    constexpr char kUsage[] = "SetSoundListenerActor([actor])";
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        F(frame).listener = nullptr;
+        return 0;
+    }
+    auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    if (actor == nullptr || actor->SceneFrame() != frame) {
+        Game::Lua::Error(L, "Usage: %s:%s", Game::Lua::ObjectDisplayName(frame), kUsage);
+        return 0;
+    }
+    F(frame).listener = actor;
+    return 0;
+}
+
+int __fastcall Script_GetSoundListenerActor(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || F(frame).listener == nullptr)
+        return 0;
+    Animation::Push(L, F(frame).listener);
+    return 1;
+}
+
 // The next update drops the loops when it is turned off.
 int __fastcall Script_SetPlayWorldModelSounds(void *L) {
     if (void *frame = Self(L))
@@ -1452,6 +1507,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetWorldModel", &Script_SetWorldModel},
     {"SetWorldModelByMapID", &Script_SetWorldModelByMapID},
     {"ClearWorldModel", &Script_ClearWorldModel},
+    {"TraceSegment", &Script_TraceSegment},
+    {"SetSoundListenerActor", &Script_SetSoundListenerActor},
+    {"GetSoundListenerActor", &Script_GetSoundListenerActor},
     {"SetPlayWorldModelSounds", &Script_SetPlayWorldModelSounds},
     {"GetPlayWorldModelSounds", &Script_GetPlayWorldModelSounds},
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
@@ -1612,6 +1670,36 @@ const Game::Doc::Function kSetWorldModelByMapID{
     "map's positions. Returns false, and shows no WMO, for any other map.",
     kWorldModelMapArg, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, nullptr, true};
+const Game::Doc::Field kTraceSegmentArgs[] = {
+    Req("startX", "number"), Req("startY", "number"), Req("startZ", "number"),
+    Req("endX", "number"),   Req("endY", "number"),   Req("endZ", "number"),
+};
+const Game::Doc::Field kTraceSegmentRets[] = {
+    Req("hitX", "number"),
+    Req("hitY", "number"),
+    Req("hitZ", "number"),
+    Req("normalX", "number", "The unit normal of the face, on the side of the start."),
+    Req("normalY", "number"),
+    Req("normalZ", "number"),
+    Req("fraction", "number", "0 at the start, 1 at the end."),
+};
+const Game::Doc::Function kTraceSegment{
+    "Returns the first face of the WMO on the segment from the start to the end, in scene positions. "
+    "It tests the faces that the world's line of sight tests: walls, floors and roofs, not small details. "
+    "Returns nothing when the segment hits no face, when the scene has no WMO, or for parts of the WMO "
+    "that have not loaded.",
+    kTraceSegmentArgs, kTraceSegmentRets, nullptr, true};
+const Game::Doc::Field kListenerArg[] = {
+    Opt("actor", "ModelSceneFrameActor", nullptr, "An actor of this scene. Without it, the camera hears the sounds."),
+};
+const Game::Doc::Field kListenerRet[] = {Opt("actor", "ModelSceneFrameActor")};
+const Game::Doc::Function kSetSoundListenerActor{
+    "Sets the actor that hears the scene's sounds, as the world hears them at your character: at the top of "
+    "the actor's model, facing the way the actor faces. This applies while the SoundListenerAtCharacter "
+    "setting is on. Otherwise, and without an actor, the scene's camera hears them.",
+    kListenerArg, {}, nullptr, true};
+const Game::Doc::Function kGetSoundListenerActor{
+    "Returns the actor that SetSoundListenerActor set, or nothing.", {}, kListenerRet, nullptr, true};
 const Game::Doc::Field kWorldModelSoundsArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetPlayWorldModelSounds{
     "Sets whether the WMO's props play their sounds, as they do in the world, heard from the scene's "
@@ -1696,6 +1784,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetWorldModel", &kSetWorldModel},
     {"SetWorldModelByMapID", &kSetWorldModelByMapID},
     {"ClearWorldModel", &kClearWorldModel},
+    {"TraceSegment", &kTraceSegment},
+    {"SetSoundListenerActor", &kSetSoundListenerActor},
+    {"GetSoundListenerActor", &kGetSoundListenerActor},
     {"SetPlayWorldModelSounds", &kSetPlayWorldModelSounds},
     {"GetPlayWorldModelSounds", &kGetPlayWorldModelSounds},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
@@ -1767,6 +1858,8 @@ float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumb
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
+
+Actor *SoundListener(void *sceneFrame) { return F(sceneFrame).listener; }
 
 View CameraView(void *sceneFrame) {
     const Fields &f = F(sceneFrame);

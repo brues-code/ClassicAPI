@@ -5379,6 +5379,10 @@ enum Offsets {
     // intersect `FUN_0069BFF0`; verified in-binary and cross-checked
     // against UnitXP_SP3's `CWorld_Intersect` (same VA + flags).
     FUN_CWORLD_INTERSECT = 0x00672170,
+    // The class word of the world's own segment traces (walk-to-attack
+    // 0x0060FE18, corpse 0x005D6A9D): terrain (0xF00), WMO groups (0x10) with
+    // face mask 0x84 (detail faces skipped), doodads and game objects.
+    WORLD_TRACE_CLASS_LOS = 0x100111,
     // Collision-box height of a unit, read from its CMovement sub-struct
     // (`[unit + OFF_UNIT_MOVEMENT_INFO_PTR]`) at `+0xB4`. Used as the
     // eye-height offset for LoS so foot-to-foot traces don't false-block
@@ -14037,6 +14041,13 @@ enum Offsets {
     FUN_CMAPOBJ_BOX_OVERLAPS = 0x006A4670,
     FUN_CMAPOBJ_SEGMENT_HITS_GROUP_BOX = 0x006A47E0,
     FUN_CMAPOBJGROUP_INTERSECT_SEGMENT = 0x006B92B0,
+    // Face mask 4 (0x84 once the call ORs the visited bit in): every face but
+    // the detail faces (MOPY 0x04), the set the world's line of sight and the
+    // mover trace (class WORLD_TRACE_CLASS_LOS builds the same mask).
+    // CMapObj::IntersectSegment (0x006A37B0) takes a hit's triangle as batch
+    // 0's first three indices (u16, OFF_FACET_BATCH_INDICES) into its
+    // vertices (float[3], OFF_FACET_BATCH_VERTICES), in WMO space, read right
+    // after the group's call, and crosses its edges for the normal.
     MAPOBJ_TRACE_MASK_GROUND = 4,
     FUN_CMAPOBJDEF_TRACE_GROUP_FACE = 0x006A2600,
     FUN_CMAPOBJDEF_GET_FACE_TERRAIN_TYPE = 0x006A26C0,
