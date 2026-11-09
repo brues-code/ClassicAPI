@@ -194,6 +194,12 @@ inline void GetBoundingBox(void *model, float (&box)[6]) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BOUNDING_BOX)(model, box);
 }
 
+// The model's bounding sphere {centre xyz, radius}. Waits for an unloaded file.
+inline void GetBoundingSphere(void *model, float (&sphere)[4]) {
+    using Fn = void(__thiscall *)(void *, float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BOUNDING_SPHERE)(model, sphere);
+}
+
 // The bounds of the animation's sequence, all zero when the model has none.
 // Waits for an unloaded file.
 inline void GetSequenceBounds(void *model, uint32_t animation, uint32_t variation,

@@ -178,6 +178,8 @@ void Link(Actor &caster);
 void Place(Actor &caster);
 // Drops every cast, missile and impact model of the caster.
 void Drop(Actor &caster);
+// Stops the missiles' loop sounds (the scene hid; its update stops).
+void Silence(Actor &caster);
 } // namespace Casts
 
 // The actor model's animation events (model/SceneEvents.cpp).
@@ -203,9 +205,37 @@ Backdrop *LoadMap(uint32_t mapID);
 // SetWorldModel's placement: at `position`, turned by `yaw` about z.
 void Placement(const float (&position)[3], float yaw, float (&out)[16]);
 void Free(Backdrop *backdrop);
+// From the scene's update, before the scene advances: makes the doodads of
+// each group parsed since, puts the ready ones on the animate list and
+// moves their sounds with the camera. `sounds` is SetPlayWorldModelSounds.
+void Update(Backdrop &backdrop, void *frame, bool sounds);
+// Drops the doodads' loop sounds (the scene hid).
+void Silence(Backdrop &backdrop);
 // From the paint, after the animate pass: the WMO in the device's view.
 void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3], float farClip);
 } // namespace World
+
+// The scene's sounds (model/SceneSound.cpp), heard from the scene camera:
+// each plays where its scene point lies from the camera, turned into the
+// sound listener's frame, so the engine's cutoff, falloff and panning apply
+// as they would to a unit at that distance.
+namespace Sounds {
+// A scene point as a point of the listener's (the engine's axes).
+void Heard(void *sceneFrame, const float (&point)[3], float (&out)[3]);
+// Sound::Play::PlayKitIDAt, PlayKitLoopedAt and Move at a scene point.
+void *Play(void *sceneFrame, int soundKitID, const float (&point)[3]);
+void *Loop(void *sceneFrame, int soundKitID, const float (&point)[3]);
+void Move(void *sceneFrame, void *sound, const float (&point)[3]);
+} // namespace Sounds
+
+// The scene camera (model/Scene.cpp).
+struct View {
+    float eye[3];
+    float forward[3];
+    float up[3];
+    float farClip;
+};
+View CameraView(void *sceneFrame);
 
 // The scene's ground terrain (SetGroundTerrain): a TerrainType id, or -1.
 int GroundTerrain(void *sceneFrame);

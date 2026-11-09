@@ -130,9 +130,10 @@ int SizeClass(uint32_t displayID) {
 
 bool CVarOn(const char *name) { return CVar::Factory::GetInt(CVar::Factory::Find(name), 0) != 0; }
 
-void Play(int32_t soundID) {
+// A unit's animation sounds play at the unit (heard from the scene camera).
+void Play(const Actor &actor, int32_t soundID) {
     if (soundID > 0)
-        Sound::Play::PlayKitID(soundID);
+        Sounds::Play(actor.SceneFrame(), soundID, actor.position);
 }
 
 void PlayStand(const Actor &actor, const uint8_t *soundData) {
@@ -145,7 +146,7 @@ void PlayStand(const Actor &actor, const uint8_t *soundData) {
         return;
     g_standPlayed = true;
     g_lastStandMs = now;
-    Play(Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_STAND));
+    Play(actor, Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_STAND));
 }
 
 void PlayFootstep(const Actor &actor, const uint8_t *soundData) {
@@ -153,7 +154,7 @@ void PlayFootstep(const Actor &actor, const uint8_t *soundData) {
     const int terrain = GroundTerrain(actor.SceneFrame());
     if (terrain < 0 || !CVarOn("FootstepSounds"))
         return;
-    Play(reinterpret_cast<GetFootstepSound_t>(Offsets::FUN_GET_FOOTSTEP_SOUND)(
+    Play(actor, reinterpret_cast<GetFootstepSound_t>(Offsets::FUN_GET_FOOTSTEP_SOUND)(
         Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_FOOTSTEP), terrain, 0));
 }
 
@@ -175,13 +176,13 @@ void PlayDeathThud(const Actor &actor) {
     if (soundIndex < 0 || soundIndex >= Game::Read<int32_t>(table + Offsets::OFF_DEATH_THUD_COUNT))
         return;
     const auto *pairs = Game::Read<const int32_t *>(table + Offsets::OFF_DEATH_THUD_PAIRS);
-    Play(pairs[soundIndex * 2]);
+    Play(actor, pairs[soundIndex * 2]);
 }
 
 void PlayPrecast(const Actor &actor) {
     for (const SpellCast &cast : actor.spellCasts)
         if (cast.phase == SpellCast::Phase::Precast) {
-            Play(Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_PRECAST_SOUND));
+            Play(actor, Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_PRECAST_SOUND));
             return;
         }
 }
@@ -189,7 +190,7 @@ void PlayPrecast(const Actor &actor) {
 void PlaySound(Actor &actor, uint32_t tag, uint32_t data) {
     if (tag == kCSD) {
         if (CVarOn("EmoteSounds"))
-            Play(static_cast<int32_t>(data));
+            Play(actor, static_cast<int32_t>(data));
         return;
     }
     if (tag == kTRD) {
@@ -204,16 +205,16 @@ void PlaySound(Actor &actor, uint32_t tag, uint32_t data) {
     if (soundData == nullptr)
         return;
     if (tag >= kFD1 && tag <= kFD4 && (tag & 0x00FFFFFF) == (kFD1 & 0x00FFFFFF))
-        Play(Game::Read<int32_t>(soundData,
+        Play(actor, Game::Read<int32_t>(soundData,
                                  Offsets::OFF_CREATURESOUNDDATA_FIDGET + ((tag >> 24) - '1') * 4));
     else if (tag == kFDX)
         PlayStand(actor, soundData);
     else if (tag == kFSD)
         PlayFootstep(actor, soundData);
     else if (tag == kWNG)
-        Play(Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_WING_FLAP));
+        Play(actor, Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_WING_FLAP));
     else if (tag == kWGG)
-        Play(Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_WING_GLIDE));
+        Play(actor, Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_WING_GLIDE));
 }
 
 } // namespace

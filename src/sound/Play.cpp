@@ -439,6 +439,45 @@ void *PlayKitLooped(int soundKitID) {
     return sound;
 }
 
+static bool Quiet() { return Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_INTERFACE_SOUND_SUPPRESS)) > 0; }
+
+// The world's 3D player by row (FUN_SOUND_PLAY_ENTRY_AT), on the Sound
+// slider, under PlayKit's suppression rule.
+void *PlayKitIDAt(int soundKitID, const float (&position)[3]) {
+    using PlayAt_t = void *(__fastcall *)(bool *culled, char keep, char noCategory, int bus, int soundEntryID,
+                                          const float *pos, int variantIndex, float volumeScale);
+    if (soundKitID <= 0 || Quiet())
+        return nullptr;
+    bool culled = false;
+    void *sound = reinterpret_cast<PlayAt_t>(Offsets::FUN_SOUND_PLAY_ENTRY_AT)(&culled, 0, 0, 0, soundKitID,
+                                                                                position, kVariantRandom, 1.0f);
+    if (sound != nullptr)
+        Own(sound, false);
+    return sound;
+}
+
+// The world's 3D loop by row (FUN_SOUND_PLAY_ENTRY_LOOPED_AT).
+void *PlayKitLoopedAt(int soundKitID, const float (&position)[3]) {
+    using PlayLoopedAt_t = void *(__fastcall *)(int soundEntryID, const float *pos);
+    if (soundKitID <= 0 || Quiet())
+        return nullptr;
+    void *sound = reinterpret_cast<PlayLoopedAt_t>(Offsets::FUN_SOUND_PLAY_ENTRY_LOOPED_AT)(soundKitID, position);
+    if (sound != nullptr)
+        Own(sound, false);
+    return sound;
+}
+
+void Move(void *sound, const float (&position)[3]) {
+    using SetPosition_t = void(__thiscall *)(void *sound, const float *pos, const float *velocity);
+    const auto handle = reinterpret_cast<uintptr_t>(sound);
+    for (const Owned &o : g_owned) {
+        if (o.handle != handle || !StillPlaying(o))
+            continue;
+        reinterpret_cast<SetPosition_t>(Offsets::FUN_SOUND_SET_POSITION)(sound, position, nullptr);
+        break;
+    }
+}
+
 void Stop(void *sound, float fadeSeconds) {
     const auto handle = reinterpret_cast<uintptr_t>(sound);
     for (const Owned &o : g_owned) {

@@ -55,6 +55,36 @@
 // open and parses the root's chunks in a fixed order without reading their
 // tags, so a root is refused unless all its chunks are in that order inside
 // the file, it has at most 384 groups and each group file opens.
+//
+// Doodads: the world makes a group's doodads when the group is parsed
+// (CreateGroupDoodads 0x00695AA0), and so does the scene's update, as M2
+// models in the frame's own scene. Each is the world's def for the scene:
+// the MODD record's translate, quaternion and scale times the placement, the
+// model from its MODN name, the world's done callback, the default sequence
+// (CreateGroupDoodadDef 0x00694E90, CreateDoodadModel 0x00695100). Its light
+// is CMapDoodadDef::AddLights (0x006A8050): a doodad of an interior group
+// takes its MODD colour split into an ambient (cap 0x60) and a directional
+// (floor 0x70) along the world's fixed interior direction, one of an
+// exterior group the sun (the scene light, by the frame's callback, with the
+// scene fog), and each takes its groups' MOLT lights as AddMapLight
+// (0x006A7AC0) turns them: a directional from the light, faded from the
+// light's start to its end. The fog of an interior doodad is the WMO's own
+// when the WMO has more than one fog (the world gives it the camera WMO's
+// fog), else the scene's (0x006C31E0). A doodad two groups list is made once
+// and takes both groups' lights; an exterior group makes it sun-lit. Torch
+// models emit their own M2 lights into the scene's light grid by being
+// animated, so the actors and the WMO get them as the world's do. Not
+// mirrored: the light gate past the fog end (0x00672A20; past the end the fog
+// colour is all that draws) and the water clip slot (0x006A7650).
+//
+// Sounds, a switch of the scene (SetPlayWorldModelSounds): the doodad event
+// callback's $DSO / $DSL / $DSE (DoodadModelEvent 0x006951E0) through the
+// world's own one-shot play and loop emitters, so each loop's cutoff, its
+// one-play-per-id rule and the four-loop cap are the engine's, each point
+// heard from the scene camera (Sounds::Heard, model/SceneSound.cpp). The
+// emitters' pump runs only in the world, so a
+// scene at the glue screen plays none; a hidden scene drops its loops, and
+// the next $DSL of the model brings each back.
 
 #include "model/Scene.h"
 
@@ -64,19 +94,50 @@
 #include "gx/Device.h"
 #include "model/M2.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace Model::Scene::World {
+
+// An M2Light, as the lighting record takes it.
+struct Light {
+    alignas(4) uint8_t bytes[Offsets::M2LIGHT_SIZE];
+};
+
+struct Doodad {
+    Backdrop *backdrop;
+    void *frame;
+    void *model; // one reference, or null when the file did not make one
+    bool exterior;
+    uint32_t ambient;     // BGRA bytes, SplitLightColor's
+    uint32_t directional; // BGRA bytes
+    float position[3];    // the def's +0x24: the record's position placed
+    float matrix[16];     // the def's +0xCC: the record's placement, then the WMO's
+    float scale;          // the record's
+    // The def's sphere (+0x5C, +0x68), set once the model has loaded.
+    bool bounded;
+    float center[3];
+    float radius;
+    std::vector<Light> lights;
+    uint32_t sound;        // $DSL emitter handle, or 0
+    float soundPoint[3];   // its point, in scene space
+};
 
 struct Backdrop {
     void *object; // CMapObj, one reference ours
     float placement[16];
     float inverse[16];
     uint32_t doodadSet;
+    std::vector<std::unique_ptr<Doodad>> doodads;
+    std::vector<Doodad *> byIndex; // MODD index -> its doodad
+    std::vector<bool> groupsMade;
+    float farClip = 0.0f;
+    bool sounds = false; // SetPlayWorldModelSounds, in the world
 };
 
 namespace {
@@ -219,6 +280,14 @@ void *Group(void *object, uint32_t index) {
     return reinterpret_cast<Get_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, index, 1);
 }
 
+bool IsParsed(const void *group) {
+    return group != nullptr && Game::Read<uint8_t>(group, Offsets::OFF_CMAPOBJGROUP_PARSED) != 0;
+}
+
+bool IsExterior(const void *group) {
+    return (Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_EXTERIOR_MASK) != 0;
+}
+
 // The world's map update for a group it may draw (0x00698800): alive for
 // another 30 s, and its file read queued when the world frame freed it.
 // True when it is parsed.
@@ -244,18 +313,35 @@ void BuildViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const floa
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_VOLUME_BUILD_PLANES)(volume);
 }
 
-// The record's fog: record 0 of a WMO that has its own fog, else the scene's
-// (with the scene light, by the frame's callback, as a scene model gets them).
-void StageLightAndFog(Backdrop &b, void *record, void *frame, float farClip) {
-    void *object = b.object;
-    if (Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_FOG_COUNT) <= 1) {
-        using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
-        reinterpret_cast<Callback_t>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(nullptr, record, frame);
+using SetFog_t = void(__thiscall *)(void *record, const float *rgb, float start, float end);
+
+void AddLight(void *record, const void *light) {
+    reinterpret_cast<void(__thiscall *)(void *, const void *)>(Offsets::FUN_M2LIGHTING_ADD_LIGHT)(record, light);
+}
+
+// The frame's light callback: the scene fog, then the scene light.
+void FrameLightAndFog(void *record, void *frame) {
+    using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
+    reinterpret_cast<Callback_t>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(nullptr, record, frame);
+}
+
+// The callback's fog half alone (0x0076D68A..0x0076D7C1).
+void SceneFog(void *record, void *frame) {
+    if ((Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) == 0)
         return;
-    }
-    reinterpret_cast<void(__thiscall *)(void *, void *)>(Offsets::FUN_M2LIGHTING_ADD_LIGHT)(
-        record, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT));
-    const uint8_t *fog = Game::Read<const uint8_t *>(object, Offsets::OFF_CMAPOBJ_FOGS);
+    float rgb[3];
+    reinterpret_cast<void(__thiscall *)(const void *, float *)>(Offsets::FUN_UNPACK_COLOR_BYTES)(
+        Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), rgb);
+    reinterpret_cast<SetFog_t>(Offsets::FUN_M2LIGHTING_SET_FOG)(
+        record, rgb, Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
+        Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR));
+}
+
+bool HasOwnFog(const Backdrop &b) { return Game::Read<uint32_t>(b.object, Offsets::OFF_CMAPOBJ_FOG_COUNT) > 1; }
+
+// A WMO with its own fog: its record 0, the end capped at the far clip.
+void WmoFog(const Backdrop &b, void *record, float farClip) {
+    const uint8_t *fog = Game::Read<const uint8_t *>(b.object, Offsets::OFF_CMAPOBJ_FOGS);
     float end = Game::Read<float>(fog, Offsets::OFF_MAPOBJ_FOG_END);
     if (!(end < farClip))
         end = farClip;
@@ -264,8 +350,18 @@ void StageLightAndFog(Backdrop &b, void *record, void *frame, float farClip) {
     const float rgb[3] = {static_cast<float>((color >> 16) & 0xFF) / 255.0f,
                           static_cast<float>((color >> 8) & 0xFF) / 255.0f,
                           static_cast<float>(color & 0xFF) / 255.0f};
-    using SetFog_t = void(__thiscall *)(void *record, const float *rgb, float start, float end);
     reinterpret_cast<SetFog_t>(Offsets::FUN_M2LIGHTING_SET_FOG)(record, rgb, start, end);
+}
+
+// The WMO's record: the scene light as the sun with the WMO's own fog, else
+// the frame's callback (the scene fog and light, as a scene model gets them).
+void StageLightAndFog(Backdrop &b, void *record, void *frame, float farClip) {
+    if (!HasOwnFog(b)) {
+        FrameLightAndFog(record, frame);
+        return;
+    }
+    AddLight(record, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT));
+    WmoFog(b, record, farClip);
 }
 
 void CommitLighting(Backdrop &b, void *frame, const float (&eye)[3], float farClip) {
@@ -302,17 +398,307 @@ void DrawGroups(Backdrop &b, void *frame) {
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     for (uint32_t i = 0; i < count; ++i) {
         void *group = Group(object, i);
-        if (group == nullptr || Game::Read<uint8_t>(group, Offsets::OFF_CMAPOBJGROUP_PARSED) == 0)
+        if (!IsParsed(group))
             continue;
         if (Game::Read<uint8_t>(group, Offsets::OFF_CMAPOBJGROUP_VERTEX_FADE_DONE) == 0)
             reinterpret_cast<Fix_t>(Offsets::FUN_CMAPOBJGROUP_FIX_VERTEX_ALPHA)(object, group);
-        const bool exterior =
-            (Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_EXTERIOR_MASK) != 0;
-        reinterpret_cast<Draw_t>(exterior ? Offsets::FUN_MAPOBJ_DRAW_EXTERIOR_GROUP
-                                          : Offsets::FUN_MAPOBJ_DRAW_INTERIOR_GROUP)(object, group, 0);
+        reinterpret_cast<Draw_t>(IsExterior(group) ? Offsets::FUN_MAPOBJ_DRAW_EXTERIOR_GROUP
+                                                   : Offsets::FUN_MAPOBJ_DRAW_INTERIOR_GROUP)(object, group, 0);
     }
     sun = savedSun;
     fogFlag = savedFogFlag;
+}
+
+// ---- doodads --------------------------------------------------------------------------
+
+float EngineFloat(uintptr_t address) { return Game::Read<float>(address); }
+
+void TransformPoint(const float (&in)[3], const Matrix &m, float (&out)[3]) {
+    float v[3] = {in[0], in[1], in[2]};
+    reinterpret_cast<float *(__fastcall *)(float *, float *, const float *)>(Offsets::FUN_TRANSFORM_POINT_IN_PLACE)(
+        out, v, m);
+}
+
+void ReadVector(const uint8_t *at, float (&out)[3]) { std::memcpy(out, at, sizeof out); }
+
+// BGRA bytes as the rgb the record adds (byte / 255).
+void ColorOf(uint32_t bgra, float (&rgb)[3]) {
+    const float k = EngineFloat(Offsets::VAR_ONE_OVER_255);
+    rgb[0] = static_cast<float>((bgra >> 16) & 0xFF) * k;
+    rgb[1] = static_cast<float>((bgra >> 8) & 0xFF) * k;
+    rgb[2] = static_cast<float>(bgra & 0xFF) * k;
+}
+
+using LightInt_t = void(__thiscall *)(void *light, int value);
+using LightVector_t = void(__thiscall *)(void *light, const float *v);
+
+// A group's MOLT light as CreateGroupLights (0x00695C00) makes it.
+struct MapLight {
+    Light light;
+    float start, end, falloff;
+};
+
+MapLight MakeMapLight(const Backdrop &b, const uint8_t *record) {
+    MapLight m{};
+    void *light = m.light.bytes;
+    reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_M2LIGHT_INITIALIZE)(light);
+    float position[3];
+    ReadVector(record + Offsets::OFF_MOLT_POSITION, position);
+    TransformPoint(position, b.placement, position);
+    m.start = Game::Read<float>(record, Offsets::OFF_MOLT_START);
+    m.end = Game::Read<float>(record, Offsets::OFF_MOLT_END);
+    if (std::fabs(m.start - m.end) < EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_EPSILON))
+        m.end += EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_PAD);
+    m.falloff = EngineFloat(Offsets::VAR_ONE) / (m.end - m.start);
+    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(light, 1);
+    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, 1);
+    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_POSITION)(light, position);
+    const float intensity = Game::Read<float>(record, Offsets::OFF_MOLT_INTENSITY);
+    float rgb[3];
+    ColorOf(Game::Read<uint32_t>(record, Offsets::OFF_MOLT_COLOR), rgb);
+    for (float &c : rgb)
+        c *= intensity;
+    if (record[Offsets::OFF_MOLT_USE_DIFFUSE] != 0)
+        std::memcpy(m.light.bytes + Offsets::OFF_M2LIGHT_DIFFUSE, rgb, sizeof rgb);
+    if (record[Offsets::OFF_MOLT_USE_SPECULAR] != 0)
+        std::memcpy(m.light.bytes + Offsets::OFF_M2LIGHT_SPECULAR, rgb, sizeof rgb);
+    return m;
+}
+
+// AddMapLight (0x006A7AC0) for the doodad's point: the light as a
+// directional from it, faded from its start to its end.
+void AddMapLight(Doodad &d, const MapLight &m) {
+    if (m.falloff == 0.0f) {
+        d.lights.push_back(m.light);
+        return;
+    }
+    float lightPosition[3];
+    std::memcpy(lightPosition, m.light.bytes + Offsets::OFF_M2LIGHT_POSITION, sizeof lightPosition);
+    const float offset[3] = {d.position[0] - lightPosition[0], d.position[1] - lightPosition[1],
+                             d.position[2] + EngineFloat(Offsets::VAR_MAP_LIGHT_LIFT) - lightPosition[2]};
+    const float distance = std::sqrt(offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]);
+    float intensity = 1.0f;
+    if (!(distance < m.start)) {
+        if (!(distance < m.end))
+            return;
+        intensity = EngineFloat(Offsets::VAR_ONE) - (distance - m.start) * m.falloff;
+    }
+    Light added = m.light;
+    void *light = added.bytes;
+    const float k = EngineFloat(Offsets::VAR_ONE) / distance;
+    const float direction[3] = {k * offset[0], k * offset[1], k * offset[2]};
+    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_DIRECTION)(light, direction);
+    float *diffuse = reinterpret_cast<float *>(added.bytes + Offsets::OFF_M2LIGHT_DIFFUSE);
+    for (int i = 0; i < 3; ++i)
+        diffuse[i] *= intensity;
+    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(light, 1);
+    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, 0);
+    const float attenuation[3] = {1.0f, 0.0f, 0.0f};
+    std::memcpy(added.bytes + Offsets::OFF_M2LIGHT_ATTENUATION, attenuation, sizeof attenuation);
+    d.lights.push_back(added);
+}
+
+// The model's lighting callback, `__fastcall(instance, record, user)` ret 4,
+// as the world's ApplyEntityLighting (0x00672A20) runs a def's fog and light
+// slots.
+void __fastcall DoodadLighting(void * /*instance*/, void *record, Doodad *d) {
+    const Backdrop &b = *d->backdrop;
+    if (d->exterior) {
+        FrameLightAndFog(record, d->frame);
+    } else {
+        if (HasOwnFog(b))
+            WmoFog(b, record, b.farClip);
+        else
+            SceneFog(record, d->frame);
+        float ambient[3], directional[3];
+        ColorOf(d->ambient, ambient);
+        ColorOf(d->directional, directional);
+        reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHTING_ADD_AMBIENT)(record,
+                                                                                                       ambient);
+        reinterpret_cast<void(__thiscall *)(void *, const float *, const float *)>(
+            Offsets::FUN_M2LIGHTING_ADD_DIRECTIONAL)(
+            record, directional, reinterpret_cast<const float *>(static_cast<uintptr_t>(Offsets::VAR_MAP_LIGHT_DIRECTION)));
+    }
+    for (const Light &light : d->lights)
+        AddLight(record, light.bytes);
+}
+
+// ---- sounds ---------------------------------------------------------------------------
+
+void DropSound(Doodad &d) {
+    if (d.sound == 0)
+        return;
+    reinterpret_cast<void(__fastcall *)(uint32_t)>(Offsets::FUN_SOUND_REMOVE_EMITTER)(d.sound);
+    d.sound = 0;
+}
+
+void MoveSound(Doodad &d) {
+    float point[3];
+    Sounds::Heard(d.frame, d.soundPoint, point);
+    reinterpret_cast<void(__fastcall *)(uint32_t, const float *)>(Offsets::FUN_SOUND_MOVE_EMITTER)(d.sound, point);
+}
+
+constexpr uint32_t Event(char a, char b, char c, char d) {
+    return static_cast<uint32_t>(static_cast<uint8_t>(a)) | static_cast<uint32_t>(static_cast<uint8_t>(b)) << 8 |
+           static_cast<uint32_t>(static_cast<uint8_t>(c)) << 16 | static_cast<uint32_t>(static_cast<uint8_t>(d)) << 24;
+}
+constexpr uint32_t kSoundOnce = Event('$', 'D', 'S', 'O');
+constexpr uint32_t kSoundLoop = Event('$', 'D', 'S', 'L');
+constexpr uint32_t kSoundEnd = Event('$', 'D', 'S', 'E');
+static_assert(kSoundEnd == 0x45534424 && kSoundLoop == 0x4C534424 && kSoundOnce == 0x4F534424,
+              "the codes DoodadModelEvent compares");
+
+// DoodadModelEvent (0x006951E0) with the point heard from the scene camera.
+void __stdcall OnDoodadEvent(uint32_t tag, uint32_t soundID, const float *point, uint32_t /*unknown*/,
+                             uint32_t userLow, uint32_t /*userHigh*/) {
+    auto &d = *reinterpret_cast<Doodad *>(static_cast<uintptr_t>(userLow));
+    const Backdrop &b = *d.backdrop;
+    if (!b.sounds)
+        return;
+    if (tag == kSoundEnd) {
+        DropSound(d);
+        return;
+    }
+    if ((tag != kSoundLoop && tag != kSoundOnce) || point == nullptr)
+        return;
+    const float scenePoint[3] = {point[0], point[1], point[2]};
+    float heard[3];
+    Sounds::Heard(d.frame, scenePoint, heard);
+    if (tag == kSoundOnce) {
+        using PlayAt_t = void(__fastcall *)(uint32_t id, const float *pos, int index, float volume);
+        reinterpret_cast<PlayAt_t>(Offsets::FUN_SOUND_PLAY_AT)(soundID, heard, -1, 1.0f);
+        return;
+    }
+    if (d.sound != 0 &&
+        reinterpret_cast<uint32_t(__fastcall *)(uint32_t)>(Offsets::FUN_SOUND_EMITTER_SOUND_ID)(d.sound) != soundID)
+        DropSound(d);
+    std::memcpy(d.soundPoint, scenePoint, sizeof d.soundPoint);
+    if (d.sound == 0)
+        d.sound = reinterpret_cast<uint32_t(__fastcall *)(uint32_t, const float *, uint8_t)>(
+            Offsets::FUN_SOUND_ADD_EMITTER)(soundID, heard, 0);
+    else
+        reinterpret_cast<void(__fastcall *)(uint32_t, const float *)>(Offsets::FUN_SOUND_MOVE_EMITTER)(d.sound, heard);
+}
+
+// ---- making them ----------------------------------------------------------------------
+
+// CreateGroupDoodadDef (0x00694E90) and CreateDoodadModel (0x00695100) in the
+// frame's scene.
+Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
+    const uint8_t *record = Game::Read<const uint8_t *>(b.object, Offsets::OFF_CMAPOBJ_DOODADS) +
+                            static_cast<size_t>(index) * Offsets::MODD_SIZE;
+    const char *path = Game::Read<const char *>(b.object, Offsets::OFF_CMAPOBJ_DOODAD_NAMES) +
+                       Game::Read<uint32_t>(record, Offsets::OFF_MODD_NAME);
+    auto owned = std::make_unique<Doodad>();
+    Doodad &d = *owned;
+    d.backdrop = &b;
+    d.frame = frame;
+    float position[3];
+    ReadVector(record + Offsets::OFF_MODD_POSITION, position);
+    TransformPoint(position, b.placement, d.position);
+    Matrix m;
+    Identity(m);
+    Translate(m, position);
+    reinterpret_cast<void(__thiscall *)(float *, const float *)>(Offsets::FUN_MATRIX_ROTATE_QUATERNION)(
+        m, Game::Ptr<float>(record, Offsets::OFF_MODD_ROTATION));
+    reinterpret_cast<void(__thiscall *)(float *, float)>(Offsets::FUN_MATRIX_SCALE)(
+        m, Game::Read<float>(record, Offsets::OFF_MODD_SCALE));
+    reinterpret_cast<float *(__thiscall *)(float *, const float *)>(Offsets::FUN_MATRIX_MULTIPLY_IN_PLACE)(
+        m, b.placement);
+    std::memcpy(d.matrix, m, sizeof d.matrix);
+    d.scale = Game::Read<float>(record, Offsets::OFF_MODD_SCALE);
+    using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
+                                      uint8_t cap);
+    reinterpret_cast<Split_t>(Offsets::FUN_SPLIT_LIGHT_COLOR)(Game::Ptr<uint32_t>(record, Offsets::OFF_MODD_COLOR),
+                                                             &d.directional, Offsets::DOODAD_DIRECTIONAL_FLOOR,
+                                                             &d.ambient, Offsets::DOODAD_AMBIENT_CAP);
+    d.model = M2::CreateModel(Model::Pane::Scene(frame), path);
+    if (d.model != nullptr) {
+        reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2MODEL_SET_BASE_TRANSFORM)(d.model,
+                                                                                                          m);
+        const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&d));
+        M2::SetAnimDoneCallback(d.model, reinterpret_cast<const void *>(Offsets::FUN_DOODAD_MODEL_DONE), 0, 0);
+        M2::SetEventCallback(d.model, reinterpret_cast<const void *>(&OnDoodadEvent), user, 0);
+        M2::SetRenderCallback(d.model, reinterpret_cast<const void *>(&DoodadLighting), &d);
+        M2::PlayAnimation(d.model, -1, 0, -1, 0, 1.0f, 1, 1);
+    }
+    b.byIndex[index] = &d;
+    b.doodads.push_back(std::move(owned));
+    return &d;
+}
+
+// CreateGroupDoodads (0x00695AA0) with the group's lights (0x00695C00) for
+// each doodad it holds.
+void MakeGroupDoodads(Backdrop &b, void *frame, void *group) {
+    const auto *molt = Game::Read<const uint8_t *>(b.object, Offsets::OFF_CMAPOBJ_LIGHTS);
+    const uint32_t moltCount = Game::Read<uint32_t>(b.object, Offsets::OFF_CMAPOBJ_LIGHT_COUNT);
+    const auto *lightRefs = Game::Read<const uint16_t *>(group, Offsets::OFF_CMAPOBJGROUP_LIGHT_REFS);
+    std::vector<MapLight> lights;
+    for (uint32_t i = 0, n = Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_LIGHT_REF_COUNT); i < n; ++i) {
+        const uint32_t ref = lightRefs[i];
+        const uint8_t *record = molt + static_cast<size_t>(ref) * Offsets::MOLT_SIZE;
+        if (ref < moltCount && record[0] == 0)
+            lights.push_back(MakeMapLight(b, record));
+    }
+    using FindSet_t = uint32_t(__thiscall *)(void *object, uint32_t index);
+    const bool exterior = IsExterior(group);
+    const auto *doodadRefs = Game::Read<const uint16_t *>(group, Offsets::OFF_CMAPOBJGROUP_DOODAD_REFS);
+    for (uint32_t i = 0, n = Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_DOODAD_REF_COUNT); i < n; ++i) {
+        const uint32_t index = doodadRefs[i];
+        const uint32_t set = reinterpret_cast<FindSet_t>(Offsets::FUN_CMAPOBJ_FIND_DOODAD_SET)(b.object, index);
+        if (set == Offsets::MAPOBJ_DOODAD_SET_NONE || (set != 0 && set != b.doodadSet) || index >= b.byIndex.size())
+            continue;
+        Doodad *d = b.byIndex[index] != nullptr ? b.byIndex[index] : MakeDoodad(b, frame, index);
+        d->exterior = d->exterior || exterior;
+        for (const MapLight &light : lights)
+            AddMapLight(*d, light);
+    }
+}
+
+// SetDoodadDefBounds (0x006952A0), for a loaded model.
+void Bound(Doodad &d) {
+    float sphere[4];
+    M2::GetBoundingSphere(d.model, sphere);
+    const float centre[3] = {sphere[0], sphere[1], sphere[2]};
+    TransformPoint(centre, d.matrix, d.center);
+    d.radius = sphere[3] * d.scale;
+    d.bounded = true;
+}
+
+// DrawDoodadModels' fade (0x00683F80): by the doodad's size and the camera's
+// ground distance to it; drawn only while > 0.
+float FadeAlpha(const Doodad &d, const float (&eye)[3], float farClip) {
+    if (d.radius > EngineFloat(Offsets::VAR_DOODAD_FADE_RADIUS_LARGE))
+        return 1.0f;
+    float range, end;
+    if (d.radius <= EngineFloat(Offsets::VAR_DOODAD_FADE_RADIUS_SMALL)) {
+        range = EngineFloat(Offsets::VAR_DOODAD_FADE_RANGE_SMALL);
+        end = EngineFloat(Offsets::VAR_DOODAD_FADE_END_SMALL);
+    } else if (d.radius <= EngineFloat(Offsets::VAR_DOODAD_FADE_RADIUS_MEDIUM)) {
+        range = EngineFloat(Offsets::VAR_DOODAD_FADE_RANGE_MEDIUM);
+        end = EngineFloat(Offsets::VAR_DOODAD_FADE_END_MEDIUM);
+    } else {
+        range = EngineFloat(Offsets::VAR_DOODAD_FADE_RANGE_LARGE);
+        end = EngineFloat(Offsets::VAR_DOODAD_FADE_END_LARGE);
+        if (farClip < end)
+            end = farClip;
+    }
+    const float dx = d.center[0] - eye[0], dy = d.center[1] - eye[1];
+    const float distance = std::sqrt(dx * dx + dy * dy) - d.radius;
+    const float alpha = 1.0f - (distance - (end - range)) / range;
+    return alpha > 1.0f ? 1.0f : alpha;
+}
+
+void ReleaseDoodad(Doodad &d) {
+    DropSound(d);
+    if (d.model == nullptr)
+        return;
+    M2::SetAnimDoneCallback(d.model, nullptr, 0, 0);
+    M2::SetEventCallback(d.model, nullptr, 0, 0);
+    M2::SetRenderCallback(d.model, nullptr, nullptr);
+    M2::SetVisible(d.model, false);
+    M2::Release(d.model);
+    d.model = nullptr;
 }
 
 } // namespace
@@ -384,8 +770,58 @@ void Placement(const float (&position)[3], float yaw, float (&out)[16]) {
 void Free(Backdrop *backdrop) {
     if (backdrop == nullptr)
         return;
+    for (const auto &d : backdrop->doodads)
+        ReleaseDoodad(*d);
     reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_CMAPOBJ_COUNT_DOWN)(backdrop->object);
     delete backdrop;
+}
+
+void Silence(Backdrop &b) {
+    for (const auto &d : b.doodads)
+        DropSound(*d);
+}
+
+void Update(Backdrop &b, void *frame, bool sounds) {
+    const View view = CameraView(frame);
+    b.farClip = view.farClip;
+    b.sounds = sounds && Game::Read<uint8_t>(Offsets::VAR_IN_WORLD) != 0;
+    if (!b.sounds)
+        Silence(b);
+    void *object = b.object;
+    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return;
+    const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
+    if (b.groupsMade.empty()) {
+        b.groupsMade.assign(count, false);
+        b.byIndex.assign(Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_DOODAD_COUNT), nullptr);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        if (b.groupsMade[i])
+            continue;
+        void *group = Group(object, i);
+        if (!IsParsed(group))
+            continue;
+        MakeGroupDoodads(b, frame, group);
+        b.groupsMade[i] = true;
+    }
+    // The animate list empties at each paint (as for the actors' models), and
+    // the world shows each doodad it draws again each frame, faded by distance
+    // (DrawDoodadModels, 0x00683F80).
+    for (const auto &d : b.doodads) {
+        if (d->model != nullptr && M2::IsReady(d->model, 0, 1)) {
+            if (!d->bounded)
+                Bound(*d);
+            const float alpha = FadeAlpha(*d, view.eye, view.farClip);
+            const bool shown = alpha > 0.0f;
+            M2::SetVisible(d->model, shown);
+            if (shown) {
+                M2::SetAnimated(d->model, true);
+                M2::SetAlpha(d->model, alpha);
+            }
+        }
+        if (d->sound != 0)
+            MoveSound(*d);
+    }
 }
 
 void Draw(Backdrop &b, void *frame, const float (&eye)[3], float farClip) {

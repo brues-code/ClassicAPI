@@ -10123,6 +10123,25 @@ enum Offsets {
     // row's volume, unpauses, and returns the Sound record or NULL. The
     // world's looping sounds (ambience, missiles) go through this family.
     FUN_SOUND_PLAY_ENTRY_LOOPED = 0x00458900,
+    // The SoundEntries 3D player (0x0045CF00) — `void *__fastcall(bool
+    // *culled /*ecx*/, char keep /*dl, flag 0x4*/, char noCategory /*flag
+    // 0x10*/, int bus, int soundEntryID, const float pos[3], int
+    // variantIndex, float volumeScale)`, RET 0x18 (disassembly; PlaySoundAt
+    // 0x00458870 is `(0, 0, 0, id, pos, index, m)` turned into a bool).
+    // Refuses a position at or past the row's cutoff from the listener
+    // (sets *culled, returns NULL); else opens the file with Play3D, sets
+    // the row's volume, the position, the cutoff and the row's minimum
+    // distance, unpauses and returns the Sound record. `pos` is in the
+    // engine's axes.
+    FUN_SOUND_PLAY_ENTRY_AT = 0x0045CF00,
+    // The SoundEntries 3D loop player (0x004589A0) — `void *__fastcall(int
+    // soundEntryID /*ecx*/, const float pos[3] /*edx*/)`, RET 0: a held
+    // loop (count 0) on bus 0 at `pos`, with the row's volume, cutoff and
+    // minimum distance; the Sound record or NULL.
+    FUN_SOUND_PLAY_ENTRY_LOOPED_AT = 0x004589A0,
+    // Sound::SetPosition — `void __thiscall(Sound *, const float pos[3],
+    // const float *velocity)`, RET 0x8 (0x00458ED0 passes NULL velocity).
+    FUN_SOUND_SET_POSITION = 0x007A5B10,
 
     // Head of the live stream list, walked by `FUN_007A66A0`'s dedup pass:
     // an intrusive list with `next` at `+0x04` and the Storm tagged-pointer
@@ -13516,6 +13535,145 @@ enum Offsets {
     // Map.dbc +0x04: the map's directory name (World\Maps\<dir>\<dir>.wdt;
     // CMap::Load 0x006941F0). Verified: map 249 is "OnyxiaLairInstance".
     OFF_MAP_DIRECTORY = 0x04,
+
+    // ---- A WMO's doodads (Model::Scene::World; benilla terrain/doodads) -----
+    // Root: MOLT +0x148 (count +0x180), MODS +0x14C (count +0x184), MODN
+    // +0x150, MODD +0x154 (count +0x18C). Group: its MOLR (u16 indices into
+    // MOLT) +0xE4, count +0x140; its MODR (u16 indices into MODD) +0xE8, count
+    // +0x144. From CreateGroupDoodads 0x00695AA0, CreateGroupLights
+    // 0x00695C00 and FindDoodadSet 0x006A4FB0.
+    OFF_CMAPOBJ_LIGHTS = 0x148,
+    OFF_CMAPOBJ_LIGHT_COUNT = 0x180,
+    OFF_CMAPOBJ_DOODAD_NAMES = 0x150,
+    OFF_CMAPOBJ_DOODADS = 0x154,
+    OFF_CMAPOBJ_DOODAD_COUNT = 0x18C,
+    OFF_CMAPOBJGROUP_LIGHT_REFS = 0xE4,
+    OFF_CMAPOBJGROUP_LIGHT_REF_COUNT = 0x140,
+    OFF_CMAPOBJGROUP_DOODAD_REFS = 0xE8,
+    OFF_CMAPOBJGROUP_DOODAD_REF_COUNT = 0x144,
+    // FindDoodadSet — `__thiscall(obj, index)`: the 0-based MODS set whose
+    // range holds the index (a zero-count set skipped), or 0xFFFFFFFF for an
+    // unloaded root, an index past MODD or one in no set. A group takes a
+    // doodad in set 0 or the instance's set.
+    FUN_CMAPOBJ_FIND_DOODAD_SET = 0x006A4FB0,
+    MAPOBJ_DOODAD_SET_NONE = 0xFFFFFFFF,
+    // A MODD record (0x28): name offset into MODN +0x00 (the engine adds the
+    // whole dword), position +0x04, quaternion (x y z w) +0x10, scale +0x20,
+    // colour +0x24 (BGRA). CreateGroupDoodadDef 0x00694E90.
+    MODD_SIZE = 0x28,
+    OFF_MODD_NAME = 0x00,
+    OFF_MODD_POSITION = 0x04,
+    OFF_MODD_ROTATION = 0x10,
+    OFF_MODD_SCALE = 0x20,
+    OFF_MODD_COLOR = 0x24,
+    // A MOLT record (0x30): type byte +0x00 (only 0 makes a light), flag bytes
+    // +0x02 (sets the diffuse) and +0x03 (the specular), colour BGRA +0x04,
+    // position +0x08, intensity +0x14, attenuation start +0x28 and end +0x2C.
+    MOLT_SIZE = 0x30,
+    OFF_MOLT_USE_DIFFUSE = 0x02,
+    OFF_MOLT_USE_SPECULAR = 0x03,
+    OFF_MOLT_COLOR = 0x04,
+    OFF_MOLT_POSITION = 0x08,
+    OFF_MOLT_INTENSITY = 0x14,
+    OFF_MOLT_START = 0x28,
+    OFF_MOLT_END = 0x2C,
+    // A group light's end gains 0.1 when it is within 0.001 of its start
+    // (0x00695CB1 / 0x00695CC1); AddMapLight 0x006A7AC0 measures from the
+    // doodad's position raised by 1.1666666.
+    VAR_MAP_LIGHT_RANGE_EPSILON = 0x00801360, // float 0.001
+    VAR_MAP_LIGHT_RANGE_PAD = 0x00801620,     // float 0.1
+    VAR_MAP_LIGHT_LIFT = 0x00810A70,          // float 1.1666666
+    VAR_ONE = 0x007FF9D8,                     // float 1.0
+    VAR_ONE_OVER_255 = 0x008026C8,            // float 1/255
+    // The doodad def's light: SplitLightColor — `__stdcall(const u32 *src, u32
+    // *first, u8 floor, u32 *second, u8 cap)`, ret 0x14, no register
+    // arguments: first = src with its value raised to a largest channel of at
+    // least floor, second = src lowered to at most cap. A group doodad passes
+    // floor 0x70 into its directional and cap 0x60 into its ambient.
+    // CMapDoodadDef::AddLights (0x006A8050): interior, the ambient and the
+    // directional along s_globalLightDirection (a static initializer,
+    // 0x006A72B0: (-0.30822, -0.30822, -0.9)); else the sun block's ambient
+    // and its directional x the intensity (1.0 for a group doodad); then the
+    // gathered map lights.
+    FUN_SPLIT_LIGHT_COLOR = 0x006A77E0,
+    DOODAD_DIRECTIONAL_FLOOR = 0x70,
+    DOODAD_AMBIENT_CAP = 0x60,
+    VAR_MAP_LIGHT_DIRECTION = 0x00CA816C,
+    // M2LightingAddAmbient `__thiscall(rec, const float rgb[3])`, ret 4;
+    // M2LightingAddDirectional `__thiscall(rec, const float rgb[3], const float
+    // dir[3])`, ret 8.
+    FUN_M2LIGHTING_ADD_AMBIENT = 0x0071BC70,
+    FUN_M2LIGHTING_ADD_DIRECTIONAL = 0x0071BCE0,
+    // M2LightInitialize `__fastcall(light)`: point type (1), attenuation 0,
+    // 0.7, 0.03, the rest 0. M2Light fields beyond OFF_M2LIGHT_AMBIENT /
+    // _DIFFUSE: type +0x08, specular +0x48, attenuation +0x54 (3 floats).
+    // LightingAddLight sums a non-point light at once; it keeps a point light
+    // by pointer.
+    FUN_M2LIGHT_INITIALIZE = 0x0071B4A0,
+    OFF_M2LIGHT_POSITION = 0x0C, // LightingAddLight's point-light distance (0x0071BFD0)
+    OFF_M2LIGHT_SPECULAR = 0x48,
+    OFF_M2LIGHT_ATTENUATION = 0x54,
+    // Doodad model set-up (CreateDoodadModel 0x00695100):
+    // CM2Model::SetBaseTransform `__thiscall(model, const float m[16])` (to
+    // +0xBC); the done callback 0x006951B0, which replays the ended sequence
+    // when its reason is 0 and reads no user data.
+    FUN_M2MODEL_SET_BASE_TRANSFORM = 0x00710620,
+    FUN_DOODAD_MODEL_DONE = 0x006951B0,
+    // The doodad's sphere (SetDoodadDefBounds 0x006952A0, once the model has
+    // loaded): CM2Model::GetBoundingSphere `__thiscall(model, float out[4])`
+    // (its box's centre, then its radius; waits for an unloaded file), the
+    // centre through the def's matrix, the radius times the record's scale.
+    FUN_M2MODEL_GET_BOUNDING_SPHERE = 0x00713680,
+    // The doodad fade (DrawDoodadModels 0x00683F80), by sphere radius: up to
+    // RADIUS_SMALL 0.5, up to _MEDIUM 2.5, up to _LARGE 7.0, larger never
+    // fades. The alpha is 1 - (d - (END - RANGE)) / RANGE, with d the camera's
+    // ground distance to the centre less the radius; ENDs 50 / 125 / 200,
+    // RANGEs 10 / 25 / 50 (values read from the exe). The large END drops to
+    // the far clip when that is nearer. Drawn only when the alpha is > 0.
+    VAR_DOODAD_FADE_RADIUS_SMALL = 0x00810188,
+    VAR_DOODAD_FADE_RADIUS_MEDIUM = 0x0081018C,
+    VAR_DOODAD_FADE_RADIUS_LARGE = 0x00810190,
+    VAR_DOODAD_FADE_RANGE_SMALL = 0x00810194,
+    VAR_DOODAD_FADE_RANGE_MEDIUM = 0x00810198,
+    VAR_DOODAD_FADE_RANGE_LARGE = 0x0081019C,
+    VAR_DOODAD_FADE_END_SMALL = 0x008101A0,
+    VAR_DOODAD_FADE_END_MEDIUM = 0x008101A4,
+    VAR_DOODAD_FADE_END_LARGE = 0x008101A8,
+    // The doodad def's matrix: TranslateMatrix, then RotateMatrixByQuaternion
+    // `__thiscall(m, const float q[4])` (left-multiplies), ScaleMatrix
+    // `__thiscall(m, float)` (upper 3x3), MultiplyMatrix4InPlace
+    // `__thiscall(m, const float b[16])` (m = m x b). TransformPointInPlace
+    // `__fastcall(float out[3], float v[3], const float m[16])`, ret 4: v
+    // replaced by v x m, copied to out.
+    FUN_MATRIX_ROTATE_QUATERNION = 0x007BDDB0,
+    FUN_MATRIX_SCALE = 0x007BDD00,
+    FUN_MATRIX_MULTIPLY_IN_PLACE = 0x007BCE30,
+    FUN_TRANSFORM_POINT_IN_PLACE = 0x007BCC60,
+    // UnpackColorBytes `__thiscall(const u32 *argb, float out[3])`: the
+    // frame light callback's fog colour (0x0076D6A7).
+    FUN_UNPACK_COLOR_BYTES = 0x007BBF20,
+    // A doodad model's sounds (DoodadModelEvent 0x006951E0): $DSO plays the
+    // event's SoundEntries id once at the event point (PlaySoundAt
+    // `__fastcall(id, const float pos[3], int index, float volume)`, ret 8,
+    // index -1, volume 1.0); $DSL registers a loop emitter there, or moves
+    // the one it has for the same id, else replaces it; $DSE frees it.
+    // Emitters (benilla sound/ambience "Emitters"): AddEmitter
+    // `__fastcall(id, const float pos[3], u8 flag)` -> handle or 0, ret 4;
+    // MoveEmitter `__fastcall(handle, const float pos[3])`; RemoveEmitter /
+    // GetEmitterSoundId `__fastcall(handle)`. Their pump plays each id once,
+    // at its position nearest the listener, as a 3D loop with the entry's
+    // cutoff; it runs only in the world (SndInterfaceWorldInitialize).
+    FUN_SOUND_PLAY_AT = 0x00458870,
+    FUN_SOUND_ADD_EMITTER = 0x00461D80,
+    FUN_SOUND_MOVE_EMITTER = 0x00462000,
+    FUN_SOUND_REMOVE_EMITTER = 0x00461F80,
+    FUN_SOUND_EMITTER_SOUND_ID = 0x00462120,
+    // FSOUND_3D_Listener_GetAttributes (FMOD import thunk), `__stdcall(float
+    // pos[3], float vel[3], float *fx, *fy, *fz, float *tx, *ty, *tz)`. FMOD
+    // vectors are the engine's (x, y, z) as (-y, z, x) (Sound::SetListener
+    // 0x007A5EB0), so the engine's is (FMOD z, -FMOD x, FMOD y)
+    // (GetListenerPosition 0x007A5F50).
+    FUN_FSOUND_LISTENER_GET_ATTRIBUTES = 0x007FDB50,
 
     // `__fastcall(model)`: drops one instance reference (HandleClose2).
     FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,

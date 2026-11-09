@@ -50,8 +50,9 @@
 //
 // What the world does and this does not: the leading of a moving target
 // (actors move by script, not by a mover's velocity), misses, resists and
-// reflections (no combat), arrows stuck in the target, and the positional
-// 3D sound (a UI frame plays its sounds 2D, like PlaySound).
+// reflections (no combat), and arrows stuck in the target. The sounds play
+// where they would for units, heard from the scene camera (model/SceneSound.cpp):
+// the kits' at the actor, the missile's loop moving with the missile.
 //
 // A paused caster (SetPaused) holds its casts and missiles where they are.
 
@@ -122,7 +123,7 @@ void PlayKit(Actor &actor, const uint8_t *kit, bool loops, std::vector<void *> *
     const int anim = KitAnimation(kit);
     if (anim >= 0)
         actor.PlayKitAnimation(anim, loops);
-    Sound::Play::PlayKitID(Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SOUND));
+    Sounds::Play(actor.SceneFrame(), Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SOUND), actor.position);
 }
 
 bool HasTintProcedure(const uint8_t *kit) {
@@ -252,8 +253,9 @@ bool Launch(Actor &caster, SpellCast &cast, const float (&from)[3]) {
     M2::SetAnimDoneCallback(cast.missile, Model::VisualKit::LoopCallback(), 0, 0);
     M2::PlayAnimation(cast.missile, -1, flightSec > 0.0f ? kAnimInFlight : kAnimStand, 0, 0, 1.0f, 1,
                       1);
-    cast.missileSound = Sound::Play::PlayKitLooped(
-        Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_SOUND));
+    cast.missileSound = Sounds::Loop(caster.SceneFrame(),
+                                     Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_SOUND),
+                                     cast.position);
     cast.phase = SpellCast::Phase::Flight;
     return true;
 }
@@ -449,7 +451,16 @@ void Place(Actor &caster) {
                                                                       yaw, axisZ, scales);
         reinterpret_cast<Rotate_t>(Offsets::FUN_MATRIX_ROTATE)(
             Game::Ptr<float>(cast.missile, Offsets::OFF_M2MODEL_BASE_MATRIX), pitch, axisY, 1);
+        Sounds::Move(caster.SceneFrame(), cast.missileSound, cast.position);
     }
+}
+
+void Silence(Actor &caster) {
+    for (SpellCast &cast : caster.spellCasts)
+        if (cast.missileSound != nullptr) {
+            Sound::Play::Stop(cast.missileSound, 0.0f);
+            cast.missileSound = nullptr;
+        }
 }
 
 void Drop(Actor &caster) {

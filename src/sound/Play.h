@@ -23,6 +23,15 @@ namespace Sound::Play {
 void *PlayKitID(int soundKitID);
 // The row as a loop until Stop.
 void *PlayKitLooped(int soundKitID);
+// The row once at `position` (the engine's axes, as the listener's), with
+// the row's cutoff and minimum distance; null too when the position is past
+// the cutoff.
+void *PlayKitIDAt(int soundKitID, const float (&position)[3]);
+// The row as a loop at `position` until Stop.
+void *PlayKitLoopedAt(int soundKitID, const float (&position)[3]);
+// Moves a sound from PlayKitIDAt or PlayKitLoopedAt. A sound that has ended
+// is left alone.
+void Move(void *sound, const float (&position)[3]);
 // Fades a sound from PlayKitID or PlayKitLooped out over `fadeSeconds` (at
 // once below 0.1 s). A sound that has ended is left alone.
 void Stop(void *sound, float fadeSeconds);

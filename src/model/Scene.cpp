@@ -99,7 +99,9 @@
 // under the cursor changes while the scene is the mouse focus. Both use the
 // world's own object pick, under "picking" below. SetWorldModel /
 // SetWorldModelByMapID / ClearWorldModel: a WMO drawn by the world's own map
-// object draw after the animate pass (model/SceneWorld.cpp).
+// object draw after the animate pass, with its doodads as models of the
+// scene; Set/GetPlayWorldModelSounds: the doodads' sounds
+// (model/SceneWorld.cpp).
 
 #include "model/Scene.h"
 
@@ -154,6 +156,7 @@ struct Fields {
     int32_t groundTerrain; // SetGroundTerrain: a TerrainType id, or -1
     Actor *hovered; // the actor OnActorEnter last ran for, or null
     World::Backdrop *world; // SetWorldModel, owned, or null
+    bool playWorldModelSounds; // SetPlayWorldModelSounds
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -676,6 +679,7 @@ Actor *ActorAtCursor(void *frame) {
 using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
 using OnFrameUpdate_t = void(__fastcall *)(void *self, void *edx, float elapsedSec);
 using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int layer);
+using Hide_t = int(__fastcall *)(void *self, void *edx);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 
@@ -753,6 +757,8 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     for (Actor *actor : *F(self).actors)
         actor->Link();
+    if (World::Backdrop *world = F(self).world)
+        World::Update(*world, self, F(self).playWorldModelSounds);
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     else
@@ -772,6 +778,17 @@ void __fastcall EmitLayer(void *self, void *, void *batch, int layer) {
 }
 
 void __fastcall UpdateModel(void *self) { PlaceActors(self); }
+
+// CSimpleFrame::Hide (0x0076AD50), which a hiding parent also calls on each
+// child: the update stops, so the WMO's and the missiles' loop sounds would
+// stand still.
+int __fastcall Hide(void *self, void *) {
+    if (World::Backdrop *world = F(self).world)
+        World::Silence(*world);
+    for (Actor *actor : *F(self).actors)
+        Casts::Silence(*actor);
+    return g_class.Base<Hide_t>(Offsets::VTBL_FRAME_HIDE)(self, nullptr);
+}
 
 using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node, void *status);
 
@@ -814,6 +831,7 @@ void BuildVTables() {
     g_class.vtable.Set(Offsets::VTBL_FRAME_SET_FRAME_ALPHA, fn(&SetFrameAlpha));
     g_class.vtable.Set(Offsets::VTBL_FRAME_ON_FRAME_UPDATE, fn(&OnFrameUpdate));
     g_class.vtable.Set(Offsets::VTBL_FRAME_EMIT_LAYER, fn(&EmitLayer));
+    g_class.vtable.Set(Offsets::VTBL_FRAME_HIDE, fn(&Hide));
     g_class.vtable.Set(Offsets::VTBL_SIMPLEMODEL_UPDATE_MODEL, fn(&UpdateModel));
     g_class.layoutVtable.Set(Offsets::VTBL_XML_NODE_LOADER, fn(&LoadXML));
 }
@@ -835,6 +853,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.groundTerrain = -1;
     f.hovered = nullptr;
     f.world = nullptr;
+    f.playWorldModelSounds = false;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -1164,6 +1183,21 @@ int __fastcall Script_ClearWorldModel(void *L) {
     return 0;
 }
 
+// The next update drops the loops when it is turned off.
+int __fastcall Script_SetPlayWorldModelSounds(void *L) {
+    if (void *frame = Self(L))
+        F(frame).playWorldModelSounds = Game::Lua::ToBoolean(L, 2) != 0;
+    return 0;
+}
+
+int __fastcall Script_GetPlayWorldModelSounds(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, F(frame).playWorldModelSounds);
+    return 1;
+}
+
 int __fastcall Script_SetAllowOverlappedModels(void *L) {
     if (void *frame = Self(L))
         F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
@@ -1331,6 +1365,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetWorldModel", &Script_SetWorldModel},
     {"SetWorldModelByMapID", &Script_SetWorldModelByMapID},
     {"ClearWorldModel", &Script_ClearWorldModel},
+    {"SetPlayWorldModelSounds", &Script_SetPlayWorldModelSounds},
+    {"GetPlayWorldModelSounds", &Script_GetPlayWorldModelSounds},
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
@@ -1486,6 +1522,14 @@ const Game::Doc::Function kSetWorldModelByMapID{
     "map's positions. Returns false, and shows no WMO, for any other map.",
     kWorldModelMapArg, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, nullptr, true};
+const Game::Doc::Field kWorldModelSoundsArg[] = {Req("enabled", "bool")};
+const Game::Doc::Function kSetPlayWorldModelSounds{
+    "Sets whether the WMO's props play their sounds, as they do in the world, heard from the scene's "
+    "camera: a torch is heard near it and not far away. Only in the world, not at the glue screen. Off by "
+    "default.",
+    kWorldModelSoundsArg, {}, nullptr, true};
+const Game::Doc::Function kGetPlayWorldModelSounds{
+    "Returns whether the WMO's props play their sounds.", {}, kWorldModelSoundsArg, nullptr, true};
 const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Function kSetAllowOverlappedModels{
@@ -1562,6 +1606,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetWorldModel", &kSetWorldModel},
     {"SetWorldModelByMapID", &kSetWorldModelByMapID},
     {"ClearWorldModel", &kClearWorldModel},
+    {"SetPlayWorldModelSounds", &kSetPlayWorldModelSounds},
+    {"GetPlayWorldModelSounds", &kGetPlayWorldModelSounds},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"GetActorAtCursor", &kGetActorAtCursor},
     {"SetViewInsets", &kSetViewInsets},
@@ -1629,5 +1675,13 @@ bool NumberArgs(void *L, int first, int count, const char *owner, const char *us
 float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
 
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
+
+View CameraView(void *sceneFrame) {
+    const Fields &f = F(sceneFrame);
+    return {{f.position.x, f.position.y, f.position.z},
+            {f.forward.x, f.forward.y, f.forward.z},
+            {f.up.x, f.up.y, f.up.z},
+            f.farClip};
+}
 
 } // namespace Model::Scene

@@ -1107,6 +1107,22 @@ int __fastcall Script_GetPlayAnimationSounds(void *L) {
     return 1;
 }
 
+// A ClassicAPI extension: PlaySound(soundKitID) at the actor, heard from the
+// scene camera, as a unit's voice is heard at its distance in the world.
+// Returns `willPlay, soundHandle` as PlaySound does; StopSound stops it.
+int __fastcall Script_PlaySound(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "PlaySound(soundKitID)"))
+        return 0;
+    void *sound = Sounds::Play(actor->SceneFrame(), static_cast<int>(Game::Lua::ToNumber(L, 2)), actor->position);
+    Game::Lua::PushBool(L, sound != nullptr);
+    if (sound != nullptr)
+        Game::Lua::PushNumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(sound)));
+    else
+        Game::Lua::PushNil(L);
+    return 2;
+}
+
 int __fastcall Script_SetShadowShown(void *L) {
     if (Actor *actor = Self(L))
         actor->shadowShown = Game::Lua::ToBoolean(L, 2) != 0;
@@ -1420,6 +1436,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"DetachFromActor", &Script_DetachFromActor},
     {"PlaySpellVisual", &Script_PlaySpellVisual},
     {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
+    {"PlaySound", &Script_PlaySound},
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &Script_GetPlayAnimationSounds},
     {"SetShadowShown", &Script_SetShadowShown},
@@ -1702,8 +1719,8 @@ const Game::Doc::Field kPlaySpellVisualArgs[] = {
 };
 const Game::Doc::Function kPlaySpellVisual{
     "Plays the visual of a spell cast from this actor at the target: the preparation, the cast, "
-    "the missile and the impact, with their animations and sounds. False when the spell has no "
-    "visual or this actor shows no model.",
+    "the missile and the impact, with their animations and sounds, heard from the scene's camera. "
+    "False when the spell has no visual or this actor shows no model.",
     kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
 const Game::Doc::Field kApplySpellVisualKitArgs[] = {
     Req("spellVisualKitID", "number", "A SpellVisualKit ID."),
@@ -1713,11 +1730,20 @@ const Game::Doc::Field kApplySpellVisualKitArgs[] = {
 const Game::Doc::Function kApplySpellVisualKit{
     "Adds a spell visual kit's effects to the model, next to the kits it already shows.",
     kApplySpellVisualKitArgs, {}, nullptr, true};
+const Game::Doc::Field kPlaySoundArgs[] = {Req("soundKitID", "number")};
+const Game::Doc::Field kPlaySoundRet[] = {
+    Req("willPlay", "bool", "False when the sound does not play, also when the actor is past its range."),
+    Opt("soundHandle", "number", nullptr, "For StopSound."),
+};
+const Game::Doc::Function kPlaySound{
+    "Plays a sound once at the actor, heard from the scene's camera as it would be heard at that "
+    "distance in the world.",
+    kPlaySoundArgs, kPlaySoundRet, nullptr, true};
 const Game::Doc::Field kAnimationSoundsArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetPlayAnimationSounds{
     "Sets whether the model's animations play their sounds, as a unit's do in the world: fidgets, "
-    "the stand vocal, wing flaps, and on a scene with a ground terrain, footsteps and the death thud. Off by "
-    "default.",
+    "the stand vocal, wing flaps, and on a scene with a ground terrain, footsteps and the death thud. They "
+    "are heard from the scene's camera. Off by default.",
     kAnimationSoundsArg, {}, nullptr, true};
 const Game::Doc::Function kGetPlayAnimationSounds{
     "Returns whether the model's animations play their sounds.", {}, kAnimationSoundsArg, nullptr,
@@ -1807,6 +1833,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"DetachFromActor", &kDetachFromActor},
     {"PlaySpellVisual", &kPlaySpellVisual},
     {"ApplySpellVisualKit", &kApplySpellVisualKit},
+    {"PlaySound", &kPlaySound},
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &kGetPlayAnimationSounds},
     {"SetShadowShown", &kSetShadowShown},
