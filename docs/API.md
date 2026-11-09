@@ -19362,10 +19362,14 @@ in it:
   [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)).
 - The shadow of an actor lies on the floor of the WMO (see
   [`actor:SetShadowShown`](#actorsetshadowshownshown--actorisshadowshown)).
-- When an actor moves, its light changes at once. In the world, the light
-  changes during a short time.
+- When an actor moves into a part of the WMO with a different light, its
+  light changes during a short time, as in the world.
 - A seated rider and an actor that hangs on another actor take the light
   of that other actor.
+- The missiles and impact effects of
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems)
+  take the light of the place where they are. An arrow in a bow or in a
+  target takes the light of the actor that holds it.
 
 The far clip of the camera (`100` yards by default) also
 cuts the WMO. For a large WMO, increase the far clip with
@@ -19496,6 +19500,10 @@ Shows a copy of a unit, with the items that it wears and holds, and returns
 | `hideWeapons` | `false` | `true` hides the weapons. |
 | `usePlayerNativeForm`, `holdBowString`, `customRaceID` | | No effect. A unit in a shapeshift form shows in that form. |
 
+The actor also takes the ranged weapon of the unit. The ranged weapon shows
+only while the actor shoots (see
+[`actor:TryOn`](#actortryonitem--handslotname-spellenchantid)).
+
 ### `actor:SetModelByUnitCreatureDisplayID(unit)`
 
 Shows the display that the unit shows now, the same as
@@ -19512,8 +19520,9 @@ nothing for an actor that does not show a unit.
 
 These work on an actor that shows a unit. `Dress` puts on everything that
 the unit wears. `Undress` takes everything off. With `includeWeapons` set to
-`false`, the weapons stay. `UndressSlot` takes off the item in one inventory
-slot, from `1` (head) to `19` (tabard).
+`false`, the weapons stay, the ranged weapon too. `UndressSlot` takes off the
+item in one inventory slot, from `1` (head) to `19` (tabard). Slot `18` is
+the ranged slot.
 
 ### `actor:TryOn(item [, handSlotName, spellEnchantID])`
 
@@ -19524,6 +19533,12 @@ The model of the actor sets which items it can wear:
 
 - Weapons, shields, and off-hand items go on all models. A model that has no
   hands holds nothing, but `TryOn` returns `Success`.
+- A ranged weapon (a bow, a gun, a crossbow, a wand or a thrown weapon) goes
+  into the ranged slot (`18`), not into a hand. `handSlotName` has no effect
+  on it. The actor can hold two melee weapons and a ranged weapon together.
+  As in the world, the ranged weapon shows only while the actor shoots with
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
+  This is a ClassicAPI extension.
 - Armor goes on an actor that shows a unit (`SetModelByUnit`), or on a
   display of a character model. A creature display takes no armor. A unit in
   a shapeshift form takes no armor.
@@ -19552,7 +19567,9 @@ actor:SetModelByCreatureDisplayID(2510)
 actor:SetSheathed(true)
 actor:TryOn(18842)
 
--- A hunter with a bow and arrows.
+-- A hunter with a sword, a bow and arrows. The sword is in the hand until
+-- the hunter shoots.
+hunter:TryOn(18832) -- Brutality Blade
 hunter:TryOn(17069) -- Striker's Mark
 hunter:TryOn(19316) -- Ice Threaded Arrow
 ```
@@ -19566,7 +19583,7 @@ A helm or a cloak that the unit hides stays off.
 
 It works on an actor that shows a unit (`SetModelByUnit`), while the unit is
 near enough for your client to see it. A hand slot changes only that hand.
-For example, after a two-hand weapon goes on with `TryOn`, `DressPlayerSlot(17)`
+Slot `18` puts back the ranged weapon of the unit. For example, after a two-hand weapon goes on with `TryOn`, `DressPlayerSlot(17)`
 puts the off-hand item of the unit back next to it.
 
 ### `actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`
@@ -19574,13 +19591,14 @@ puts the off-hand item of the unit back next to it.
 `IsSlotAllowed` returns `true` when the actor can wear an item in the
 inventory slot:
 
-- The hands (`16` and `17`) are allowed on all models.
+- The hands (`16` and `17`) and the ranged slot (`18`) are allowed on all
+  models.
 - The armor slots are allowed when `TryOn` can put armor on the actor.
-- The neck, the rings, the trinkets, and the ranged slot are not allowed. A
-  ranged weapon that `TryOn` puts on goes into a hand.
+- The neck, the rings, and the trinkets are not allowed.
 
 It returns `false` for an actor that shows no model. `IsSlotVisible` returns
-the same value, because an item in an allowed slot always shows.
+the same value. An item in an allowed slot shows, but a ranged weapon shows
+only while the actor shoots.
 
 ### `actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`
 
@@ -19600,8 +19618,7 @@ list of 19 tables, one for each inventory slot, in slot order.
 
 An actor that shows a player (`SetModelByUnit`) starts with the items that
 the player wears. A helm or a cloak that the player hides is `0`. The neck,
-the rings, the trinkets, and the ranged slot are always `0`. An NPC or a
-creature display starts with all slots at `0`, also when its model wears
+the rings, and the trinkets are always `0`. An NPC or a creature display starts with all slots at `0`, also when its model wears
 items. `TryOn`, `UndressSlot`, `Undress`, and `DressPlayerSlot` change the
 values.
 
@@ -19644,13 +19661,14 @@ end
 
 Puts the weapons of the actor in its hands or in their sheaths. `hidden`
 set to `true` hides them. The setting also applies to items that `TryOn`
-puts on later.
+puts on later. After a ranged shot, the call also puts the ranged weapon
+away.
 
 ### `actor:SetSheathedCategory(slot, category)`
 
 Sets where the item in a hand hangs while the actor's weapons are sheathed.
-`slot` is `16` (main hand) or `17` (off hand). Other slots change nothing,
-because a ranged weapon is held in a hand. `category` is an
+`slot` is `16` (main hand) or `17` (off hand). Other slots change nothing.
+A ranged weapon has no sheath place. `category` is an
 `Enum.TransmogOutfitSlotOptionSheatheCategory` value:
 
 | Value | Name | Sheathed item |
@@ -19956,7 +19974,8 @@ moves with the missile.
 
 A ranged spell (for example Auto Shot, Aimed Shot or Throw) uses the ranged
 weapon of the actor, as in the world. Put the weapon on with `actor:TryOn`:
-a bow, a gun, a crossbow or a thrown weapon.
+a bow, a gun, a crossbow, a wand or a thrown weapon goes into the ranged
+slot.
 
 - The weapon gives the parts of the visual that the spell does not have,
   for example the draw, the shot animation and the flight sound. Auto Shot
@@ -19967,13 +19986,17 @@ a bow, a gun, a crossbow or a thrown weapon.
   itself.
 - A bullet does not show in flight, as in the world.
 - A spell with its own missile, for example Aimed Shot, keeps its missile.
-- The actor takes the ranged weapon in its hand when the spell starts, and
-  its other held item goes to its sheath. The weapons stay so until the
-  next `actor:SetSheathed`.
+- When the spell starts, the melee weapons of the actor go to their
+  sheaths and the ranged weapon comes into a hand: a bow or a crossbow into
+  the left hand, a gun, a wand or a thrown weapon into the right hand. The
+  weapons stay so until the next `actor:SetSheathed`. Before the first
+  ranged spell, the ranged weapon does not show.
 - While the spell prepares, the actor holds an arrow in its hand. When the
   animation of the actor draws the bow, the bow pulls and the arrow goes on
   the string. When the actor shoots, the bow releases. A gun or a crossbow
   keeps the ammo off the string.
+- A bow has a string. The string pulls back to the hand with the arrow,
+  and it is straight again when the bow releases.
 - An instant shot plays only the shot animation, so the bow does not draw.
 - An arrow or a thrown weapon that hits stays in the target for 5 seconds,
   at the point that it flew to. A bullet does not stay.
