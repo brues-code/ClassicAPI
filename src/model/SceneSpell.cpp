@@ -343,6 +343,20 @@ bool MissileQueued(const Actor &actor) {
     return false;
 }
 
+bool IsBowCrossbowOrThrown(const Outfit::HeldLane &held) {
+    return held.itemClass == Offsets::ITEM_CLASS_WEAPON &&
+           (held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_BOW || held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_CROSSBOW ||
+            held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_THROWN);
+}
+
+void FreeStuck(StuckMissile &stuck) {
+    if (M2::Parent(stuck.model) != nullptr)
+        M2::Detach(stuck.model);
+    M2::SetVisible(stuck.model, false);
+    M2::Release(stuck.model);
+    stuck.model = nullptr;
+}
+
 void EndPrecast(Actor &caster, SpellCast &cast) {
     for (void *effect : cast.precastEffects) {
         M2::Detach(effect);
@@ -362,11 +376,15 @@ void EndPrecast(Actor &caster, SpellCast &cast) {
     }
 }
 
-void ReleaseMissile(SpellCast &cast) {
+void StopMissileSound(SpellCast &cast) {
     if (cast.missileSound != nullptr) {
         Sound::Play::Stop(cast.missileSound, kSoundFadeSec);
         cast.missileSound = nullptr;
     }
+}
+
+void ReleaseMissile(SpellCast &cast) {
+    StopMissileSound(cast);
     if (cast.missile != nullptr) {
         M2::SetAnimDoneCallback(cast.missile, nullptr, 0, 0);
         M2::SetVisible(cast.missile, false);
@@ -377,10 +395,12 @@ void ReleaseMissile(SpellCast &cast) {
 
 // The target's attachment point, or its position raised by 0.75 of its
 // height. Unchanged while the target's model has not loaded.
-void Aim(SpellCast &cast) {
-    Actor *target = cast.target;
-    if (target == nullptr || !ChainLoaded(target->model))
-        return;
+// The attachment Launch settles (0x0061CEB0): the visual's, else 15, else
+// 19, else none (-1).
+int TargetAttachment(const SpellCast &cast) {
+    const Actor *target = cast.target;
+    if (target == nullptr || target->model == nullptr)
+        return -1;
     const auto index = Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_ATTACHMENT);
     const uint32_t wanted =
         index < Offsets::SPELL_VISUAL_ATTACHMENT_COUNT
@@ -389,10 +409,19 @@ void Aim(SpellCast &cast) {
             : kFallbackAttachments[0];
     const uint32_t tries[] = {wanted, kFallbackAttachments[0], kFallbackAttachments[1]};
     for (uint32_t id : tries) {
-        if (M2::HasAttachment(target->model, id)) {
-            M2::GetAttachmentPosition(target->model, id, cast.destination);
-            return;
-        }
+        if (M2::HasAttachment(target->model, id))
+            return static_cast<int>(id);
+    }
+    return -1;
+}
+
+void Aim(SpellCast &cast) {
+    Actor *target = cast.target;
+    if (target == nullptr || !ChainLoaded(target->model))
+        return;
+    if (const int id = TargetAttachment(cast); id >= 0) {
+        M2::GetAttachmentPosition(target->model, static_cast<uint32_t>(id), cast.destination);
+        return;
     }
     float box[6];
     M2::GetBoundingBox(target->model, box);
@@ -409,6 +438,38 @@ void Impact(SpellCast &cast, bool missileHit) {
     if (missileHit)
         target->PlayKitAnimation(kAnimCombatWound, false);
     PlayKit(*target, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_IMPACT_KIT), false, nullptr);
+}
+
+// StickInUnit (0x0061E7C0), from ArriveHit (0x0061DC50): a missile shot from
+// a bow, crossbow or thrown weapon stays in the target at the attachment it
+// flew at, as it struck, playing Impact, for 5 s. The missile is snapped to
+// the destination first (Arrive 0x0061E1D0), keeping the turn of its flight.
+bool Stick(SpellCast &cast) {
+    using Matrix_t = void(__thiscall *)(void *model, float *out, uint32_t id);
+    using Invert_t = void(__thiscall *)(const float *m, float *out, float scale);
+    using Multiply_t = float *(__fastcall *)(float *out, const float *a, const float *b);
+    using SetBase_t = void(__thiscall *)(void *model, const float *m);
+    Actor *target = cast.target;
+    if (!cast.sticks || cast.attachment < 0 || cast.missile == nullptr || target == nullptr ||
+        target->model == nullptr || !M2::HasAttachment(target->model, static_cast<uint32_t>(cast.attachment)))
+        return false;
+    void *missile = cast.missile;
+    float *base = Game::Ptr<float>(missile, Offsets::OFF_M2MODEL_BASE_MATRIX);
+    for (int i = 0; i < 3; ++i)
+        base[12 + i] = cast.destination[i];
+    M2::SetAnimDoneCallback(missile, nullptr, 0, 0);
+    M2::PlayAnimation(missile, -1, Offsets::ANIM_IMPACT, -1, 0, 1.0f, 1, 1);
+    M2::Attach(missile, target->model, static_cast<uint32_t>(cast.attachment));
+    float attachment[16], inverse[16], world[16], local[16];
+    reinterpret_cast<Matrix_t>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_MATRIX)(target->model, attachment,
+                                                                          static_cast<uint32_t>(cast.attachment));
+    reinterpret_cast<Invert_t>(Offsets::FUN_MATRIX_INVERT_AFFINE)(attachment, inverse, target->scale);
+    M2::GetBaseTransform(missile, world);
+    reinterpret_cast<Multiply_t>(Offsets::FUN_MATRIX_MULTIPLY)(local, world, inverse);
+    reinterpret_cast<SetBase_t>(Offsets::FUN_M2MODEL_SET_BASE_TRANSFORM)(missile, local);
+    target->stuckMissiles.push_back({missile, static_cast<float>(Offsets::MISSILE_STICK_MS) * 0.001f});
+    cast.missile = nullptr;
+    return true;
 }
 
 void LeaveImpactModel(Actor &caster, const SpellCast &cast) {
@@ -450,6 +511,7 @@ bool Launch(Actor &caster, SpellCast &cast, const float (&from)[3]) {
         return false;
     for (int i = 0; i < 3; ++i)
         cast.position[i] = from[i];
+    cast.attachment = ChainLoaded(cast.target->model) ? TargetAttachment(cast) : -1;
     Aim(cast);
     const float dx = cast.destination[0] - from[0];
     const float dy = cast.destination[1] - from[1];
@@ -503,8 +565,11 @@ void StartCast(Actor &caster, SpellCast &cast) {
     const bool missile = (Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) != 0 ||
                           cast.ammoDisplay != 0) &&
                          cast.speed > 0.0f && cast.target != &caster;
-    if (missile)
+    if (missile) {
         cast.missile = MakeMissile(caster, cast);
+        const int lane = RangedLane(caster);
+        cast.sticks = spell != nullptr && IsRanged(spell) && lane >= 0 && IsBowCrossbowOrThrown(caster.lanes[lane]);
+    }
     if (cast.missile != nullptr) {
         M2::SetRenderCallback(cast.missile,
                               reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
@@ -553,9 +618,11 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
         if (step * step > lengthSq) {
             for (int i = 0; i < 3; ++i)
                 cast.position[i] = cast.destination[i];
-            ReleaseMissile(cast);
+            StopMissileSound(cast);
             LeaveImpactModel(caster, cast);
             Impact(cast, true);
+            if (!Stick(cast))
+                ReleaseMissile(cast);
             return true;
         }
         const float scale = step / std::sqrt(lengthSq);
@@ -708,6 +775,16 @@ void Update(Actor &caster, float elapsedSec) {
     }
     caster.releaseEvent = false;
     caster.kitAnimationEnded = false;
+    for (size_t i = 0; i < caster.stuckMissiles.size();) {
+        StuckMissile &stuck = caster.stuckMissiles[i];
+        stuck.leftSec -= elapsedSec;
+        if (stuck.leftSec > 0.0f) {
+            ++i;
+            continue;
+        }
+        FreeStuck(stuck);
+        caster.stuckMissiles.erase(caster.stuckMissiles.begin() + static_cast<ptrdiff_t>(i));
+    }
     for (size_t i = 0; i < caster.impactModels.size();) {
         ImpactModel &impact = caster.impactModels[i];
         const bool gone = impact.framesShown >= 2 && !M2::HasLiveParticles(impact.model);
@@ -778,6 +855,9 @@ void Drop(Actor &caster) {
         M2::Release(impact.model);
     }
     caster.impactModels.clear();
+    for (StuckMissile &stuck : caster.stuckMissiles)
+        FreeStuck(stuck);
+    caster.stuckMissiles.clear();
     caster.releaseEvent = false;
     HoldAmmo(caster, 0);
     caster.bowDrawn = false;

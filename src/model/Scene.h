@@ -55,6 +55,14 @@ struct SpellCast {
     float speed = 0.0f;
     float position[3] = {};
     float destination[3] = {};
+    int attachment = -1; // the target attachment the launch settled, or -1
+    bool sticks = false; // shot from a bow, crossbow or thrown weapon
+};
+
+// A missile stuck in its target, until its time is up.
+struct StuckMissile {
+    void *model = nullptr; // one reference
+    float leftSec = 0.0f;
 };
 
 // An impact model left at a missile's arrival, until its particles are gone.
@@ -185,6 +193,7 @@ class Actor : public Animation::Object {
     bool bowDrawn = false;
     std::vector<SpellCast> spellCasts;
     std::vector<ImpactModel> impactModels;
+    std::vector<StuckMissile> stuckMissiles; // the missiles stuck in this actor
 };
 
 // The spell visuals an actor casts (model/SceneSpell.cpp).

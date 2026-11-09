@@ -6380,6 +6380,19 @@ enum Offsets {
     // dead unit plays only death animations: CGUnit_C::PlayAnimation
     // (0x005FE2F0) returns for health below 1 unless the animation is one.
     FUN_IS_DEATH_ANIMATION = 0x005FDA90,
+    // Stuck missiles (Ghidra). The launcher (0x0060A509) flags a ranged
+    // spell's missile 0x4 when the ranged item is a bow, crossbow or thrown
+    // weapon (0x0060A710: class 2, subclass 2, 18 or 16). Launch (0x0061CEB0)
+    // settles the target attachment: the visual's, else 15, else 19, else
+    // none. ArriveHit (0x0061DC50) with the flag, an attachment and a target
+    // model runs StickInUnit (0x0061E7C0, 5000 ms): 191 Impact on the
+    // missile, attached at the attachment, its base = its world pose times
+    // the inverse of GetAttachmentMatrix (`__thiscall(model, float out[16],
+    // id)`, ret 8, in scene space) at the unit's scale; the unit frees each
+    // on its stuck list (+0xB0) once its time comes (object slot 14).
+    FUN_M2MODEL_GET_ATTACHMENT_MATRIX = 0x00712DE0,
+    MISSILE_STICK_MS = 5000,
+    ANIM_IMPACT = 191,
     ANIM_STAND = 0,
     ANIM_BOW_PULL = 160,
     ANIM_BOW_RELEASE = 161,
