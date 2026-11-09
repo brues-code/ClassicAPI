@@ -333,6 +333,14 @@ bool Trace(const Backdrop &backdrop, const float (&start)[3], const float (&end)
 // throughout. False when the point is not under a liquid surface of the
 // group below it, or before the WMO has loaded.
 bool LiquidAt(const Backdrop &backdrop, const float (&point)[3], uint32_t &type, float &surface);
+// Sweeps a body by `move` to its first contact with the WMO's collision
+// faces, as the client's mover sweeps a unit's volume (CMovement::SweepVolume
+// 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and
+// `height` tall over a downward point at `feet`. `end` is where the feet
+// stop; true when a face was met, `normal` the facet's plane normal (scene
+// space). The feet stay put before the WMO has loaded.
+bool Sweep(const Backdrop &backdrop, const float (&feet)[3], float radius, float height, const float (&move)[3],
+           float (&end)[3], float (&normal)[3]);
 // From the paint, after Draw: a texture laid over the WMO's faces in `box`
 // (scene space), as the world lays a decal on its ground.
 void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,

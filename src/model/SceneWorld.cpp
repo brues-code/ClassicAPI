@@ -121,6 +121,7 @@
 #include "dbc/Lookup.h"
 #include "gx/Device.h"
 #include "model/M2.h"
+#include "model/SceneContact.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -1526,6 +1527,81 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
     uint32_t out = 0;
     return reinterpret_cast<Collect_t>(Offsets::FUN_CMAPOBJ_COLLECT_BOX_FACETS)(b.object, &out, local, b.def, mask);
 }
+
+// ---- the sweep ------------------------------------------------------------------------
+//
+// The scene's bodies meet the WMO as the client's mover meets the world:
+// SceneContact.cpp is its contact sweep, and this is its world query
+// (0x006721B0) for the one WMO. CollectBox with the mover's class fills the
+// facet batches, and each batch's triangles become facets as the facet
+// emitter (0x00671CC0) makes them: the vertices through the batch's matrix
+// (the same arithmetic as its 0x007BCA80), the plane from their winding. The
+// client's own lists (0x00C4E52C) and cached box are never touched.
+
+bool QueryFacets(void *context, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    const Backdrop &b = *static_cast<const Backdrop *>(context);
+    out.clear();
+    ResetFacets();
+    if (!CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
+        return true;
+    const uint32_t batches = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
+    for (uint32_t i = 0; i < batches; ++i) {
+        const uint8_t *batch = FacetBatch(i);
+        const auto *m = Game::Read<const Matrix *>(batch, Offsets::OFF_FACET_BATCH_MATRIX);
+        const auto *vertex = Game::Read<const float *>(batch, Offsets::OFF_FACET_BATCH_VERTICES);
+        const auto *index = Game::Read<const uint16_t *>(batch, Offsets::OFF_FACET_BATCH_INDICES);
+        const uint16_t triangles = Game::Read<uint16_t>(batch, Offsets::OFF_FACET_BATCH_TRIANGLE_COUNT);
+        if (m == nullptr || vertex == nullptr || index == nullptr)
+            continue;
+        for (uint32_t t = 0; t < triangles; ++t, index += 3) {
+            float v[3][3];
+            for (int c = 0; c < 3; ++c) {
+                const float *p = vertex + 3 * index[c];
+                const float in[3] = {p[0], p[1], p[2]};
+                TransformPoint(in, *m, v[c]);
+            }
+            out.push_back(Contact::MakeFacet(v[0], v[1], v[2]));
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+bool Sweep(const Backdrop &b, const float (&feet)[3], float radius, float height, const float (&move)[3],
+           float (&end)[3], float (&normal)[3]) {
+    std::copy(std::begin(feet), std::end(feet), std::begin(end));
+    normal[0] = normal[1] = normal[2] = 0.0f;
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0 || !(radius > 0.0f) || !(height > 0.0f))
+        return false;
+    // The move as the substep loop (0x00634040) hands it on: its length at
+    // 53 bits, the unit direction by the reciprocal, none below 2^-20.
+    const double length = std::sqrt((static_cast<double>(move[0]) * move[0] + static_cast<double>(move[1]) * move[1]) +
+                                    static_cast<double>(move[2]) * move[2]);
+    float dir[3] = {0.0f, 0.0f, 0.0f};
+    if (!(length < 9.5367431640625e-7)) {
+        const double inverse = 1.0 / length;
+        for (int k = 0; k < 3; ++k)
+            dir[k] = static_cast<float>(move[k] * inverse);
+    }
+    // The facets start empty over the volume's own box, as the substep's
+    // query frame (0x00633840) leaves its cache; the sweep's gather then
+    // takes that box joined with the end of the move.
+    Contact::Facets facets{{}, {}, &QueryFacets, const_cast<Backdrop *>(&b)};
+    Contact::BaseBox(feet, radius, height, facets.box);
+    Contact::Contact contact;
+    if (!Contact::Sweep(facets, feet, radius, height, dir, static_cast<float>(length), contact))
+        return false;
+    for (int k = 0; k < 3; ++k)
+        end[k] = static_cast<float>(feet[k] + static_cast<double>(dir[k]) * contact.distance);
+    if (contact.hit >= facets.solid.size())
+        return false;
+    std::copy(std::begin(facets.solid[contact.hit].plane.n), std::end(facets.solid[contact.hit].plane.n),
+              std::begin(normal));
+    return true;
+}
+
+namespace {
 
 // A texture matrix built for absolute positions, for positions relative to
 // the eye (what texgen gives, the vertices being relative to it):

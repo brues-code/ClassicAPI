@@ -1323,6 +1323,30 @@ int __fastcall Script_GetLiquidAtPoint(void *L) {
     return 2;
 }
 
+// A body swept through the scene's WMO to its first contact (a ClassicAPI
+// extension): where its feet stop, and the normal of the face it met.
+int __fastcall Script_SweepCollider(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr ||
+        !NumberArgs(L, 2, 8, Game::Lua::ObjectDisplayName(frame),
+                    "SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)"))
+        return 0;
+    const float feet[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
+    const float move[3] = {FloatArg(L, 7), FloatArg(L, 8), FloatArg(L, 9)};
+    float end[3] = {feet[0] + move[0], feet[1] + move[1], feet[2] + move[2]};
+    float normal[3] = {};
+    bool hit = false;
+    if (const World::Backdrop *world = F(frame).world)
+        hit = World::Sweep(*world, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
+    for (float c : end)
+        Game::Lua::PushNumber(L, c);
+    if (!hit)
+        return 3;
+    for (float c : normal)
+        Game::Lua::PushNumber(L, c);
+    return 6;
+}
+
 // The actor the scene's sounds are heard at, as the world hears them at the
 // unit the player drives (a ClassicAPI extension). nil: the camera again.
 int __fastcall Script_SetSoundListenerActor(void *L) {
@@ -1535,6 +1559,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"ClearWorldModel", &Script_ClearWorldModel},
     {"TraceSegment", &Script_TraceSegment},
     {"GetLiquidAtPoint", &Script_GetLiquidAtPoint},
+    {"SweepCollider", &Script_SweepCollider},
     {"SetSoundListenerActor", &Script_SetSoundListenerActor},
     {"GetSoundListenerActor", &Script_GetSoundListenerActor},
     {"SetPlayWorldModelSounds", &Script_SetPlayWorldModelSounds},
@@ -1731,6 +1756,31 @@ const Game::Doc::Function kGetLiquidAtPoint{
     "there. Returns nothing when the point is above the surface or not in a liquid, when the scene has no "
     "WMO, or for parts of the WMO that have not loaded.",
     kLiquidArgs, kLiquidRets, nullptr, true};
+const Game::Doc::Field kSweepArgs[] = {
+    Req("feetX", "number"),
+    Req("feetY", "number"),
+    Req("feetZ", "number"),
+    Req("radius", "number", "Half the width of the body."),
+    Req("height", "number"),
+    Req("moveX", "number"),
+    Req("moveY", "number"),
+    Req("moveZ", "number"),
+};
+const Game::Doc::Field kSweepRets[] = {
+    Req("feetX", "number", "Where the feet stop."),
+    Req("feetY", "number"),
+    Req("feetZ", "number"),
+    Opt("normalX", "number", nullptr, "The unit normal of the face the body met. It points toward the side that the face blocks from."),
+    Opt("normalY", "number"),
+    Opt("normalZ", "number"),
+};
+const Game::Doc::Function kSweepCollider{
+    "Moves a body in a straight line until it touches the WMO, as the world moves a character into a wall "
+    "or onto a floor. The body has the shape a character has in the world: a square box, radius from the "
+    "feet on each side and height tall, over a downward point at the feet. A face blocks the body only from "
+    "its front side. Returns where the feet stop, and the normal of the face the body met, or only the feet "
+    "when it met none. Without a WMO the body moves the full distance.",
+    kSweepArgs, kSweepRets, nullptr, true};
 const Game::Doc::Field kListenerArg[] = {
     Opt("actor", "ModelSceneFrameActor", nullptr, "An actor of this scene. Without it, the camera hears the sounds."),
 };
@@ -1828,6 +1878,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"ClearWorldModel", &kClearWorldModel},
     {"TraceSegment", &kTraceSegment},
     {"GetLiquidAtPoint", &kGetLiquidAtPoint},
+    {"SweepCollider", &kSweepCollider},
     {"SetSoundListenerActor", &kSetSoundListenerActor},
     {"GetSoundListenerActor", &kGetSoundListenerActor},
     {"SetPlayWorldModelSounds", &kSetPlayWorldModelSounds},

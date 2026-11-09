@@ -14088,8 +14088,9 @@ enum Offsets {
     // The world's facet batches (filled by the collectors' CommitFacets,
     // read by the decal draw): 31 records of 0x20 at VAR_FACET_BATCHES —
     // matrix pointer +0x00, vertices (12-byte positions) +0x04, indices
-    // +0x0C, faces +0x10, index count u16 +0x14. A query resets the five
-    // counters first (0x006D7497, 0x006A893B).
+    // +0x0C, faces +0x10, index count u16 +0x14, triangle count u16 +0x16
+    // (the facet emitter 0x00671CC0 loops to it, `cmp eax, word [0xC62566]`).
+    // A query resets the five counters first (0x006D7497, 0x006A893B).
     VAR_FACET_BATCHES = 0x00C62550,
     FACET_BATCH_SIZE = 0x20,
     OFF_FACET_BATCH_MATRIX = 0x00,
@@ -14097,6 +14098,7 @@ enum Offsets {
     OFF_FACET_BATCH_INDICES = 0x0C,
     OFF_FACET_BATCH_FACES = 0x10,
     OFF_FACET_BATCH_INDEX_COUNT = 0x14,
+    OFF_FACET_BATCH_TRIANGLE_COUNT = 0x16,
     VAR_FACET_BATCH_COUNT = 0x00C5A474,
     VAR_FACET_OVERFLOW = 0x00C63258,
     VAR_FACET_FACE_CURSOR = 0x00C63260,
