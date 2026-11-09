@@ -217,6 +217,14 @@ class Actor : public Animation::Object {
     void *heldAmmo = nullptr;
     uint32_t heldAmmoDisplay = 0;
     bool bowDrawn = false;
+    // The bowstring, as RefreshRangedWeaponModel strings a unit's bow: the
+    // bow's model (one reference) draws DrawBowstring with `stringUnit`, the
+    // unit fields the callback reads (the model and the drawn bit).
+    void *stringedBow = nullptr;
+    alignas(4) uint8_t stringUnit[Offsets::OFF_CGUNIT_STATE_FLAGS + 4] = {};
+    // Strings the bow in the ranged lane, wherever it hangs, and unstrings a
+    // bow no longer hung; each update, before the draw.
+    void StringBow();
     std::vector<SpellCast> spellCasts;
     std::vector<ImpactModel> impactModels;
     std::vector<StuckMissile> stuckMissiles; // the missiles stuck in this actor

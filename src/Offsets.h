@@ -6398,6 +6398,28 @@ enum Offsets {
     // dead unit plays only death animations: CGUnit_C::PlayAnimation
     // (0x005FE2F0) returns for health below 1 unless the animation is one.
     FUN_IS_DEATH_ANIMATION = 0x005FDA90,
+    // The bowstring (Ghidra). RefreshRangedWeaponModel (0x00611E10) gives
+    // the ranged model of a bow (class 2, subclass 2; 0x00611EDF) the draw
+    // callback DrawBowstring (0x00611FF0, `__fastcall(model, lightingRecord,
+    // unit)`, ret 4) with the unit as its user data (0x00611EEE), and sets a
+    // null callback before it closes that model. SetDrawCallback
+    // (0x00710DB0, `__thiscall(model, callback, user, list0)`, ret 0xC)
+    // writes instance +0x1B8 / +0x1BC / +0x1C0; the M2 draw runs the
+    // callback as a custom element, in list 0 when list0 is set. The
+    // callback reads only the unit's model (+0xD8, OFF_CGOBJECT_MODEL) and
+    // its bow-drawn bit (+0xD58 bit 0x4000, set by $BWP at 0x00624B70): two
+    // lines in the lighting record's colour (+0x54..+0x5C) from the bow's
+    // $WTT to its $WTB through the body's attachment 35 while drawn, else
+    // through their midpoint.
+    FUN_DRAW_BOWSTRING = 0x00611FF0,
+    FUN_M2MODEL_SET_DRAW_CALLBACK = 0x00710DB0,
+    OFF_CGUNIT_STATE_FLAGS = 0xD58,
+    UNIT_STATE_BOW_DRAWN = 0x4000,
+    // GetSheathAttachment — `int __fastcall(sheatheType, bool mainHand)`
+    // (0x0047A070): a held item's sheath attachment, or -1 (the
+    // OFF_ITEMSTATS_SHEATH table). The weapon trail (0x00608D60) finds a
+    // held item's model with it and FindChild.
+    FUN_GET_SHEATH_ATTACHMENT = 0x0047A070,
     // Stuck missiles (Ghidra). The launcher (0x0060A509) flags a ranged
     // spell's missile 0x4 when the ranged item is a bow, crossbow or thrown
     // weapon (0x0060A710: class 2, subclass 2, 18 or 16). Launch (0x0061CEB0)

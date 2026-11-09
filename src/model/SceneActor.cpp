@@ -178,6 +178,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace Model::Scene {
 
@@ -225,9 +226,20 @@ void ApplyKit(Actor &actor) {
 }
 
 // Releases the model without scripts (a destroyed actor runs none).
+// RefreshRangedWeaponModel's unstring (0x00611E10): a null draw callback
+// before the bow's model goes.
+void UnstringBow(Actor &actor) {
+    if (actor.stringedBow == nullptr)
+        return;
+    M2::SetDrawCallback(actor.stringedBow, nullptr, nullptr, true);
+    M2::Release(actor.stringedBow);
+    actor.stringedBow = nullptr;
+}
+
 void ReleaseModel(Actor &actor) {
     if (actor.model == nullptr)
         return;
+    UnstringBow(actor);
     Casts::Drop(actor);
     DropKitEffects(actor);
     M2::SetAnimDoneCallback(actor.model, nullptr, 0, 0);
@@ -354,6 +366,36 @@ void Actor::DrawRanged() {
 }
 
 bool Actor::LaneSheathed(int i) const { return rangedDrawn ? i != Casts::RangedLane(*this) : sheathed; }
+
+// RefreshRangedWeaponModel's string (0x00611E10) on a bow (class 2, subclass
+// 2), found where its lane hangs it as the weapon trail finds a held item
+// (0x00608D60: GetSheathAttachment, FindChild). DrawBowstring reads the
+// model and the drawn bit from `stringUnit` as from a unit.
+void Actor::StringBow() {
+    using SheathAttachment_t = int(__fastcall *)(uint32_t sheatheType, bool mainHand);
+    void *bow = nullptr;
+    const int lane = model != nullptr ? Casts::RangedLane(*this) : -1;
+    if (lane >= 0 && lanes[lane].itemClass == Offsets::ITEM_CLASS_WEAPON &&
+        lanes[lane].subclass == Offsets::ITEM_SUBCLASS_WEAPON_BOW) {
+        const int at = LaneSheathed(lane)
+                           ? reinterpret_cast<SheathAttachment_t>(Offsets::FUN_GET_SHEATH_ATTACHMENT)(
+                                 lanes[lane].sheatheType, lane == 0)
+                           : (lane == 0 ? Offsets::ATTACH_HAND_RIGHT : Offsets::ATTACH_HAND_LEFT);
+        if (at >= 0)
+            bow = M2::FindChild(model, at);
+    }
+    if (bow != stringedBow) {
+        UnstringBow(*this);
+        if (bow != nullptr) {
+            M2::AddRef(bow);
+            M2::SetDrawCallback(bow, reinterpret_cast<const void *>(Offsets::FUN_DRAW_BOWSTRING), stringUnit, true);
+            stringedBow = bow;
+        }
+    }
+    const uint32_t flags = bowDrawn ? static_cast<uint32_t>(Offsets::UNIT_STATE_BOW_DRAWN) : 0u;
+    std::memcpy(stringUnit + Offsets::OFF_CGOBJECT_MODEL, &model, sizeof model);
+    std::memcpy(stringUnit + Offsets::OFF_CGUNIT_STATE_FLAGS, &flags, sizeof flags);
+}
 
 void Actor::TookLane(void *onModel, int i) {
     ownSheathe[i] = lanes[i].sheatheType;
@@ -642,6 +684,8 @@ void Actor::Update(float elapsedSec) {
             RunScript(S_ONANIMFINISHED, 0);
         }
     }
+    if (loaded)
+        StringBow();
     Casts::Update(*this, elapsedSec);
     if (HasScript(S_ONUPDATE)) {
         void *L = Game::Lua::State();

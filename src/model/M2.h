@@ -269,6 +269,13 @@ inline void AttachItemVisuals(void *model, uint32_t visualID) {
     reinterpret_cast<Fn>(Offsets::FUN_ATTACH_ITEM_VISUALS)(model, visualID);
 }
 
+// CM2Model::SetDrawCallback: a callback the model's draw runs as one of its
+// elements, in list 0 when `listZero`; a null callback removes it.
+inline void SetDrawCallback(void *model, const void *callback, void *userData, bool listZero) {
+    using Fn = void(__thiscall *)(void *, const void *, void *, int);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_DRAW_CALLBACK)(model, callback, userData, listZero ? 1 : 0);
+}
+
 inline void SetRenderCallback(void *model, const void *callback, void *userData) {
     using Fn = void(__thiscall *)(void *, const void *, void *);
     reinterpret_cast<Fn>(Offsets::FUN_MODEL_INSTANCE_SET_RENDER_CB)(model, callback, userData);
