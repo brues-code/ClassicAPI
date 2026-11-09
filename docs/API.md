@@ -841,7 +841,7 @@ build instructions.
   - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
   - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
   - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
-  - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset)
+  - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
   - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
   - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
   - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
@@ -19305,19 +19305,22 @@ the sounds of their footsteps and death thuds (see
 | `9` | Dusty grass |
 
 Without `terrainTypeID`, an actor stands on the floor of the WMO of the scene
-([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset)).
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)).
 The material of the floor under the actor selects the sounds, as in the
 world. An actor with no floor of a WMO under it makes no footsteps and no
 death thuds. This is the default. A ground that you set replaces the floor of
 the WMO for all actors. `scene:GetGroundTerrain()` returns the ID that you
 set, or nothing. This is a ClassicAPI extension.
 
-### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])`
+### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`
 
 Shows a WMO (a world map object, for example a building or a dungeon)
 around the actors, and returns `true`. `path` is a `.wmo` file. The WMO
 stands at `(x, y, z)` and turns by `yaw` radians about `z`. The defaults are
-`(0, 0, 0)` and `0`.
+`(0, 0, 0)` and `0`. `mapID` is the row of `Map.dbc` for the map that the
+WMO stands on. Give it with the position of the WMO on that map, so that
+the positions in the scene are the positions on the map. It sets the color
+of the outdoor water (see below).
 
 The scene shows the WMO as the world shows it:
 
@@ -19342,8 +19345,10 @@ The scene shows the WMO as the world shows it:
 - Props fade out with the distance from the camera, as in the world.
   Small props fade first. A prop that is larger than 7 yards does not fade.
 - The water, lava and slime of the WMO show, and their textures animate.
-  Outdoor water takes its colors from the zone of the world that the
-  player is in.
+- Outdoor water takes its colors from the light of the map at the position
+  of the camera and at the time of day of the world, as in the world. The
+  light of a zone near the camera blends in. Without `mapID`, outdoor water
+  takes its colors from the place where the player is.
 - The parts of the WMO show when their files have loaded.
 
 The WMO replaces the previous WMO of the scene.
@@ -19392,10 +19397,11 @@ Shows the WMO of a map that is only one WMO, for example a dungeon, and
 returns `true`. `mapID` is a row of `Map.dbc`. The WMO stands where the map
 puts it and uses the doodad set of the map. Thus the positions in the scene
 are the positions on the map: an actor at the position of a creature in the
-world stands where that creature stands.
+world stands where that creature stands. Outdoor water takes its colors
+from the light of that map.
 
 All the other rules of
-[`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset) apply.
+[`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid) apply.
 The function returns `false` and shows no WMO for a map that is not one WMO.
 This is a ClassicAPI extension.
 
@@ -19924,7 +19930,7 @@ Shows or hides a blob shadow under the model. It is the same dark blob that
 units have on the ground in the world. The default is off.
 
 - In a scene with a WMO
-  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset)),
+  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)),
   the shadow lies on the floor of the WMO under the actor, as on the ground
   in the world. It follows slopes and steps, and it fades with the height of
   the actor above the floor. An actor with no floor of the WMO under it shows
