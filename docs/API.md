@@ -887,6 +887,7 @@ build instructions.
   - [`actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)
   - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
+  - [`actor:StopSpellVisual()`](#actorstopspellvisual)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
@@ -19303,10 +19304,13 @@ the sounds of their footsteps and death thuds (see
 | `8` | Soggy |
 | `9` | Dusty grass |
 
-Without `terrainTypeID`, the scene has no ground, and the actors make no
-footsteps and no death thuds. This is the default. `scene:GetGroundTerrain()`
-returns the ID, or nothing when the scene has no ground. This is a
-ClassicAPI extension.
+Without `terrainTypeID`, an actor stands on the floor of the WMO of the scene
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset)).
+The material of the floor under the actor selects the sounds, as in the
+world. An actor with no floor of a WMO under it makes no footsteps and no
+death thuds. This is the default. A ground that you set replaces the floor of
+the WMO for all actors. `scene:GetGroundTerrain()` returns the ID that you
+set, or nothing. This is a ClassicAPI extension.
 
 ### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet]]])`
 
@@ -19336,8 +19340,14 @@ in it:
 - An actor indoors takes the color of the floor under it, from the data of
   the WMO. An actor outdoors, or with no floor of the WMO under it, takes
   the light of the scene.
-- The lights of the WMO near an actor light it, for example torches.
+- The lights of the part of the WMO that an actor stands on light it, for
+  example torches.
 - The fog of an indoor actor is the fog of the WMO.
+- The floor under an actor selects the sounds of its footsteps and death
+  thud (see
+  [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)).
+- The shadow of an actor lies on the floor of the WMO (see
+  [`actor:SetShadowShown`](#actorsetshadowshownshown--actorisshadowshown)).
 - When an actor moves, its light changes at once. In the world, the light
   changes during a short time.
 - A seated rider and an actor that hangs on another actor take the light
@@ -19503,6 +19513,10 @@ The model of the actor sets which items it can wear:
 - Armor goes on an actor that shows a unit (`SetModelByUnit`), or on a
   display of a character model. A creature display takes no armor. A unit in
   a shapeshift form takes no armor.
+- Ammo (arrows and bullets) goes on all models. The actor holds nothing new,
+  but it shoots the ammo with a ranged spell of
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
+  This is a ClassicAPI extension.
 
 The actor holds the weapons as `SetSheathed` sets. A one-hand weapon goes
 into the off hand only when the actor shows your character and you can dual
@@ -19521,6 +19535,10 @@ next `SetModelBy...` call or `ClearModel` removes the items.
 actor:SetModelByCreatureDisplayID(2510)
 actor:SetSheathed(true)
 actor:TryOn(18842)
+
+-- A hunter with a bow and arrows.
+hunter:TryOn(17069) -- Striker's Mark
+hunter:TryOn(19316) -- Ice Threaded Arrow
 ```
 
 ### `actor:DressPlayerSlot(slot)`
@@ -19843,9 +19861,10 @@ default. When it is `true`, the animations play these sounds:
 - The fidget sounds and the stand voice of the creature. The stand voice
   does not play every time, and all actors together play it at most once
   every 10 seconds. A copy of your own character does not play it.
-- Footsteps and the death thud. These need a ground on the scene
-  ([`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)),
-  and footsteps need the `FootstepSounds` setting.
+- Footsteps and the death thud. These need a ground: the floor of the WMO
+  of the scene, or a ground that you set with
+  [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain).
+  Footsteps also need the `FootstepSounds` setting.
 - The sounds that some animations carry, with the `EmoteSounds` setting.
 - During the preparation of
   [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems),
@@ -19870,8 +19889,14 @@ wolf:SetAnimation(5)      -- run
 Shows or hides a blob shadow under the model. It is the same dark blob that
 units have on the ground in the world. The default is off.
 
-- The shadow lies flat on the plane of the actor's position, below its
-  feet. The scene has no ground, so the shadow does not follow a slope.
+- In a scene with a WMO
+  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset)),
+  the shadow lies on the floor of the WMO under the actor, as on the ground
+  in the world. It follows slopes and steps, and it fades with the height of
+  the actor above the floor. An actor with no floor of the WMO under it shows
+  no shadow.
+- In a scene with no WMO, the shadow lies flat on the plane of the actor's
+  position, below its feet.
 - The size of the shadow comes from the bounds of the model and from the
   scale of the actor. The shadow turns with the yaw of the actor.
 - The shadow darkens what is behind it. It fades with the alpha of the
@@ -19913,15 +19938,46 @@ You hear the sounds from the camera of the scene (see
 caster, the sounds of the impact play at the target, and the flight sound
 moves with the missile.
 
+A ranged spell (for example Auto Shot, Aimed Shot or Throw) uses the ranged
+weapon of the actor, as in the world. Put the weapon on with `actor:TryOn`:
+a bow, a gun, a crossbow or a thrown weapon.
+
+- The weapon gives the parts of the visual that the spell does not have,
+  for example the draw, the shot animation and the flight sound. Auto Shot
+  has no visual of its own, so all of its visual comes from the weapon.
+- When the spell has no missile model, the missile is the ammo of the actor
+  (`actor:TryOn` of arrows or bullets). Without ammo, a bow or a crossbow
+  shoots a plain arrow, and a gun shoots a bullet. A thrown weapon throws
+  itself.
+- A bullet does not show in flight, as in the world.
+- A spell with its own missile, for example Aimed Shot, keeps its missile.
+
 A second call ends a preparation that has not finished. Missiles that are
 in flight go on. A paused actor (`actor:SetPaused`) holds its spells where
 they are. It returns `false` when the spell has no visual, when this actor
-shows no model, or when the target is in another scene. This is a
-ClassicAPI extension.
+shows no model, or when the target is in another scene. A ranged spell
+without a visual of its own also needs a ranged weapon. This is a ClassicAPI
+extension.
 
 ```lua
 mage:PlaySpellVisual(133, dragon) -- Fireball
 priest:PlaySpellVisual(2061)      -- Flash Heal on itself
+hunter:PlaySpellVisual(75, dragon) -- Auto Shot, with the bow and arrows of the actor
+```
+
+### `actor:StopSpellVisual()`
+
+Interrupts the spells that this actor still prepares with
+[`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
+The effects, the color and the animation of the preparation stop. A spell
+that is already cast goes on, and its missile flies to the target. Use it
+when an actor dies or stops in the middle of a cast, so that the cast
+animation does not replace the death animation. This is a ClassicAPI
+extension.
+
+```lua
+boss:StopSpellVisual()
+boss:SetAnimation(1) -- death
 ```
 
 ### `actor:PlaySound(soundKitID)`
