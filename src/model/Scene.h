@@ -342,8 +342,10 @@ bool Trace(const Backdrop &backdrop, const float (&start)[3], const float (&end)
 // group below it, or before the WMO has loaded.
 bool LiquidAt(const Backdrop &backdrop, const float (&point)[3], uint32_t &type, float &surface);
 // The world query (0x006721B0) a scene body's sweeps make, for
-// Contact::Facets: the WMO's collision faces in a box (scene space). False
-// without a WMO or before it has loaded, so a body there does not move.
+// Contact::Facets: the WMO's collision faces in a box (scene space), then
+// its doodads' collision meshes. False without a WMO, before it has loaded,
+// or while a group or doodad in the box is still loading, so a body there
+// does not move.
 bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out);
 // The same query with a swimmer's class (0x30000), for Contact::Facets: the
 // water and ocean surfaces of the WMO's liquid groups in a box (scene space),

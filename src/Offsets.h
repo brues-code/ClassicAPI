@@ -4468,6 +4468,15 @@ enum Offsets {
     // lookup and drops it when the index is not below the count.
     OFF_M2DATA_SEQUENCE_COUNT = 0x1C,
     OFF_M2DATA_ANIMATION_LOOKUP = 0x24,
+    // The collision mesh, as GatherCollisionFacets (0x007137C0) reads it from
+    // the shared data: the triangles' u16 vertex triples (+0xF0), the vertex
+    // count and its 12-byte positions (+0xF4, +0xF8), and the triangle count
+    // with each triangle's 12-byte model-space normal (+0xFC, +0x100).
+    OFF_M2DATA_COLLISION_INDICES = 0xF0,
+    OFF_M2DATA_COLLISION_VERTEX_COUNT = 0xF4,
+    OFF_M2DATA_COLLISION_VERTICES = 0xF8,
+    OFF_M2DATA_COLLISION_TRIANGLE_COUNT = 0xFC,
+    OFF_M2DATA_COLLISION_NORMALS = 0x100,
     // SetAnimated — `__thiscall(model, bool)`; M2SceneAnimateAndCollect —
     // `__thiscall(scene, const float *cameraPos)`. ConfigureCamera runs both
     // (with the frame's facing zeroed) before it copies a model camera.
@@ -13608,6 +13617,10 @@ enum Offsets {
     // The mover's swimmer asks for WORLD_CLASS_SWIM_LIQUID (0x00633E81,
     // 0x006320D0): water and ocean, not magma or slime.
     FUN_CMAPOBJGROUP_COLLECT_LIQUID_BOX = 0x006BB170,
+    // CMapObj::GetBoundingBox `__thiscall(obj, float out[6])` ret 4: the
+    // root's box (model space), zeros before it loads. A placed def's world
+    // box (+0x44, SetPlacement 0x00698F50) is it through TransformBox.
+    FUN_CMAPOBJ_GET_BOUNDING_BOX = 0x006A4420,
     WORLD_CLASS_SWIM_LIQUID = 0x30000,
     OFF_MOGI_BOUNDS = 0x04,
     VAR_SHADOW_RAMP = 0x00CE9DF8,      // device texture (64 x 8), stage 1

@@ -89,7 +89,9 @@
 // mirrored: the water clip slot (0x006A7650), and ApplyEntityLighting's light
 // gate (0x00672A20), which skips the light of a model whose sphere lies past
 // the farclip setting (0x00C62964, stored by the farclip cvar at 0x0066F899):
-// such a model is not drawn.
+// such a model is not drawn. A doodad is solid to the scene's bodies once its
+// model file has loaded, as the world's are: its M2 collision mesh in the
+// facet query (GatherDoodadFacets 0x006ABC40), by its group.
 //
 // Spell models in flight or left behind (missiles, impact models) are lit as
 // the world lights them, as entities of their own standing on the WMO
@@ -124,6 +126,7 @@
 #include "model/SceneContact.h"
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -157,10 +160,15 @@ struct Doodad {
     float position[3];    // the def's +0x24: the record's position placed
     float matrix[16];     // the def's +0xCC: the record's placement, then the WMO's
     float scale;          // the record's
-    // The def's sphere (+0x5C, +0x68), set once the model has loaded.
+    // The def's bounds, set once the model file has loaded (the pending
+    // defs' finish 0x00698C50, which also sets the def's loaded bit 0x80):
+    // its sphere (+0x5C, +0x68) and its collision box through the matrix
+    // (+0x14C).
     bool bounded;
     float center[3];
     float radius;
+    float collision[6];
+    uint32_t stamp;        // the def's +0x8C: the last facet query that took it
     std::vector<Light> lights;
     uint32_t sound;        // $DSL emitter handle, or 0
     float soundPoint[3];   // its point, in scene space
@@ -196,6 +204,10 @@ struct Backdrop {
     std::vector<std::unique_ptr<Doodad>> doodads;
     std::vector<Doodad *> byIndex; // MODD index -> its doodad
     std::vector<bool> groupsMade;
+    // Per group, its doodads in the order its def group links them (the
+    // def group's list +0xA8; a doodad two groups hold is in both).
+    std::vector<std::vector<Doodad *>> groupDoodads;
+    uint32_t queryId = 0; // s_mapQueryId: one more for each facet query
     std::vector<std::vector<MapLight>> groupLights; // per group, once made
     uint32_t serial = 0;     // this backdrop among all loaded, for the actors' caches
     uint32_t generation = 0; // one more each time a group's doodads and lights are made
@@ -545,6 +557,11 @@ void TransformPoint(const float (&in)[3], const Matrix &m, float (&out)[3]) {
         out, v, m);
 }
 
+void TransformBox(const float *m, const float (&box)[6], float (&out)[6]) {
+    reinterpret_cast<void(__fastcall *)(const float *, const float *, float *)>(Offsets::FUN_TRANSFORM_BOX)(m, box,
+                                                                                                           out);
+}
+
 void ReadVector(const uint8_t *at, float (&out)[3]) { std::memcpy(out, at, sizeof out); }
 
 // BGRA bytes as the rgb the record adds (byte / 255).
@@ -780,6 +797,7 @@ void MakeGroupDoodads(Backdrop &b, void *frame, uint32_t groupIndex, void *group
         if (set == Offsets::MAPOBJ_DOODAD_SET_NONE || (set != 0 && set != b.doodadSet) || index >= b.byIndex.size())
             continue;
         Doodad *d = b.byIndex[index] != nullptr ? b.byIndex[index] : MakeDoodad(b, frame, index);
+        b.groupDoodads[groupIndex].push_back(d);
         d->exterior = d->exterior || exterior;
         for (const MapLight &light : lights)
             AddMapLight(d->position, light, d->lights);
@@ -788,13 +806,18 @@ void MakeGroupDoodads(Backdrop &b, void *frame, uint32_t groupIndex, void *group
     ++b.generation;
 }
 
-// SetDoodadDefBounds (0x006952A0), for a loaded model.
+// SetDoodadDefBounds (0x006952A0), for a loaded model: the sphere, and the
+// collision box through the matrix.
 void Bound(Doodad &d) {
+    using CollisionBox_t = void(__thiscall *)(void *model, float *out);
     float sphere[4];
     M2::GetBoundingSphere(d.model, sphere);
     const float centre[3] = {sphere[0], sphere[1], sphere[2]};
     TransformPoint(centre, d.matrix, d.center);
     d.radius = sphere[3] * d.scale;
+    float collision[6];
+    reinterpret_cast<CollisionBox_t>(Offsets::FUN_M2MODEL_GET_COLLISION_BOX)(d.model, collision);
+    TransformBox(d.matrix, collision, d.collision);
     d.bounded = true;
 }
 
@@ -922,11 +945,6 @@ void Silence(Backdrop &b) {
 // ---- actors ---------------------------------------------------------------------------
 
 namespace {
-
-void TransformBox(const float *m, const float (&box)[6], float (&out)[6]) {
-    reinterpret_cast<void(__fastcall *)(const float *, const float *, float *)>(Offsets::FUN_TRANSFORM_BOX)(m, box,
-                                                                                                           out);
-}
 
 // The sun's colour as the bytes a day face blends toward: the scene light's.
 uint32_t SunBytes(const uint8_t *sun, uintptr_t field) {
@@ -1569,13 +1587,120 @@ void EmitBatches(std::vector<Contact::Facet> &out) {
     }
 }
 
-bool QueryFacetsIn(const Backdrop &b, const float (&box)[6], std::vector<Contact::Facet> &out) {
+// Whether two boxes touch, closed, a NaN missing (0x006ACB40 and 0x00699330,
+// the doodad gather's own test at 0x006ABCEE).
+bool Touches(const float (&a)[6], const float (&box)[6]) {
+    for (int i = 0; i < 3; ++i)
+        if (!(a[i] <= box[i + 3] && box[i] <= a[i + 3]))
+            return false;
+    return true;
+}
+
+// CM2Model::GatherCollisionFacets (0x007137C0): the model's collision mesh
+// through the def's matrix, one facet per triangle whose three vertices are
+// not all past the same face of the box, its plane from the mesh's own
+// normal turned by the matrix's normalized axes. The client caches the
+// moved vertices on the model; they are made here for each call.
+void AddDoodadFacets(const Doodad &d, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    using D = double;
+    const auto *data = Game::Read<const uint8_t *>(Game::Read<const uint8_t *>(d.model, Offsets::OFF_M2MODEL_SHARED),
+                                                   Offsets::OFF_M2SHARED_DATA);
+    const uint32_t vertexCount = Game::Read<uint32_t>(data, Offsets::OFF_M2DATA_COLLISION_VERTEX_COUNT);
+    const auto *vertices = Game::Read<const float *>(data, Offsets::OFF_M2DATA_COLLISION_VERTICES);
+    std::vector<std::array<float, 3>> moved(vertexCount);
+    std::vector<uint32_t> outside(vertexCount);
+    for (uint32_t i = 0; i < vertexCount; ++i) {
+        const float in[3] = {vertices[3 * i], vertices[3 * i + 1], vertices[3 * i + 2]};
+        float v[3];
+        TransformPoint(in, d.matrix, v);
+        moved[i] = {v[0], v[1], v[2]};
+        uint32_t code = 0;
+        for (int k = 0; k < 3; ++k) {
+            if (v[k] < box[k])
+                code |= 1u << (2 * k);
+            else if (v[k] > box[k + 3])
+                code |= 2u << (2 * k);
+        }
+        outside[i] = code;
+    }
+    // The matrix's rows, each scaled to unit length unless shorter than
+    // 2^-22 (0x00713996).
+    float axes[3][3] = {{d.matrix[0], d.matrix[1], d.matrix[2]},
+                        {d.matrix[4], d.matrix[5], d.matrix[6]},
+                        {d.matrix[8], d.matrix[9], d.matrix[10]}};
+    for (auto &a : axes) {
+        const double length = std::sqrt((D(a[0]) * a[0] + D(a[1]) * a[1]) + D(a[2]) * a[2]);
+        if (!(std::fabs(length) < 2.384185791015625e-7)) {
+            const double inverse = 1.0 / length;
+            for (float &c : a)
+                c = static_cast<float>(c * inverse);
+        }
+    }
+    const uint32_t triangles = Game::Read<uint32_t>(data, Offsets::OFF_M2DATA_COLLISION_TRIANGLE_COUNT);
+    const auto *index = Game::Read<const uint16_t *>(data, Offsets::OFF_M2DATA_COLLISION_INDICES);
+    const auto *normals = Game::Read<const float *>(data, Offsets::OFF_M2DATA_COLLISION_NORMALS);
+    for (uint32_t t = 0; t < triangles; ++t, index += 3) {
+        if (outside[index[0]] & outside[index[1]] & outside[index[2]])
+            continue;
+        Contact::Facet f;
+        for (int c = 0; c < 3; ++c)
+            std::memcpy(f.v[c], moved[index[c]].data(), sizeof f.v[c]);
+        const float *n = normals + 3 * t;
+        for (int k = 0; k < 3; ++k)
+            f.plane.n[k] = static_cast<float>((D(axes[2][k]) * n[2] + D(axes[1][k]) * n[1]) + D(axes[0][k]) * n[0]);
+        f.plane.d = static_cast<float>(
+            -((D(f.v[0][2]) * f.plane.n[2] + D(f.v[0][1]) * f.plane.n[1]) + D(f.plane.n[0]) * f.v[0][0]));
+        out.push_back(f);
+    }
+}
+
+// The world query (0x006721B0) for the one WMO: GatherMapObjectFacets
+// (0x006AAAB0) under the mover's class. The placement's box must touch the
+// query's; then the groups' faces, then each group's box that touches it
+// gives its doodads (GatherDoodadFacets 0x006ABC40), each once per query.
+// A group not yet parsed, or a doodad whose model file has not loaded, fails
+// the query (the client waits for them), with the facets gathered so far
+// left in the list as the client leaves them.
+bool QueryFacetsIn(Backdrop &b, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    using Bounds_t = void(__thiscall *)(void *object, float *out);
+    using Info_t = const uint8_t *(__thiscall *)(void *object, uint32_t group);
     out.clear();
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+    void *object = b.object;
+    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return false;
+    ++b.queryId;
+    float bounds[6], placed[6];
+    reinterpret_cast<Bounds_t>(Offsets::FUN_CMAPOBJ_GET_BOUNDING_BOX)(object, bounds);
+    TransformBox(b.placement, bounds, placed);
+    if (!Touches(placed, box))
+        return true;
     ResetFacets();
     if (CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
         EmitBatches(out);
+    const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
+    for (uint32_t g = 0; g < count; ++g) {
+        const uint8_t *info = reinterpret_cast<Info_t>(Offsets::FUN_CMAPOBJ_GET_GROUP_INFO)(object, g);
+        if (info == nullptr)
+            continue;
+        float local[6], groupBox[6];
+        std::memcpy(local, info + Offsets::OFF_MOGI_BOUNDS, sizeof local);
+        TransformBox(b.placement, local, groupBox);
+        if (!Touches(groupBox, box))
+            continue;
+        // CMapObj::GetGroup (0x006A42B0): the group parsed, and here its
+        // doodads made, as the client makes them when it parses the group.
+        if (!IsParsed(Group(object, g)) || g >= b.groupsMade.size() || !b.groupsMade[g])
+            return false;
+        for (Doodad *d : b.groupDoodads[g]) {
+            if (d->stamp == b.queryId || d->model == nullptr)
+                continue;
+            if (!d->bounded)
+                return false;
+            if (Touches(d->collision, box))
+                AddDoodadFacets(*d, box, out);
+            d->stamp = b.queryId;
+        }
+    }
     return true;
 }
 
@@ -1624,7 +1749,7 @@ bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Fac
         out.clear();
         return false;
     }
-    return QueryFacetsIn(*static_cast<const Backdrop *>(backdrop), box, out);
+    return QueryFacetsIn(*static_cast<Backdrop *>(backdrop), box, out);
 }
 
 bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out) {
@@ -1794,6 +1919,7 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
         b.groupsMade.assign(count, false);
         b.groupLights.assign(count, {});
         b.byIndex.assign(Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_DOODAD_COUNT), nullptr);
+        b.groupDoodads.assign(count, {});
     }
     for (uint32_t i = 0; i < count; ++i) {
         if (b.groupsMade[i])
@@ -1808,9 +1934,10 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
     // the world shows each doodad it draws again each frame, faded by distance
     // (DrawDoodadModels, 0x00683F80).
     for (const auto &d : b.doodads) {
-        if (d->model != nullptr && M2::IsReady(d->model, 0, 1)) {
-            if (!d->bounded)
-                Bound(*d);
+        // A def's bounds are set once its model file has loaded (0x00698C50).
+        if (d->model != nullptr && !d->bounded && M2::IsLoaded(d->model, 0, 0))
+            Bound(*d);
+        if (d->model != nullptr && d->bounded && M2::IsReady(d->model, 0, 1)) {
             const float alpha = FadeAlpha(*d, view.eye, view.farClip);
             const bool shown = alpha > 0.0f;
             M2::SetVisible(d->model, shown);

@@ -1775,11 +1775,12 @@ const Game::Doc::Field kSweepRets[] = {
     Opt("normalZ", "number"),
 };
 const Game::Doc::Function kSweepCollider{
-    "Moves a body in a straight line until it touches the WMO, as the world moves a character into a wall "
-    "or onto a floor. The body has the shape a character has in the world: a square box, radius from the "
-    "feet on each side and height tall, over a downward point at the feet. A face blocks the body only from "
-    "its front side. Returns where the feet stop, and the normal of the face the body met, or only the feet "
-    "when it met none. Without a WMO the body moves the full distance.",
+    "Moves a body in a straight line until it touches the WMO or one of its doodads, as the world moves a "
+    "character into a wall or onto a floor. The body has the shape a character has in the world: a square "
+    "box, radius from the feet on each side and height tall, over a downward point at the feet. A face "
+    "blocks the body only from its front side. Returns where the feet stop, and the normal of the face the "
+    "body met, or only the feet when it met none. Without a WMO the body moves the full distance. While a "
+    "part of the WMO in the way is still loading, the body does not move.",
     kSweepArgs, kSweepRets, nullptr, true};
 const Game::Doc::Field kListenerArg[] = {
     Opt("actor", "ModelSceneFrameActor", nullptr, "An actor of this scene. Without it, the camera hears the sounds."),
