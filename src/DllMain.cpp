@@ -80,10 +80,13 @@ static void __stdcall LoadGlueScriptFunctions_h() {
 }
 
 // Every Lua-side `frame:RegisterEvent(...)` is a chance to claim a slot
-// for any custom event still waiting. By this point the engine's table
-// is fully populated and SuperWoWhook / other DLLs have done their
-// post-rebuild writes, so the table state is settled and our walk from the
-// low end finds genuinely free slots.
+// for any custom event still waiting. By the first FrameXML registration
+// the engine's table is fully populated and SuperWoWhook / other DLLs have
+// done their post-rebuild writes, so the walk from the low end finds
+// genuinely free slots. A registration that arrives EARLIER (another DLL's
+// frame, between LoadScriptFunctions and the table build — issue #134)
+// still sees glue's 26-entry table; `RetryClaims` refuses that table and
+// re-validates its cached slots against the live one on every call.
 static void __fastcall FrameRegisterEvent_h(void *frame, void *edx,
                                             const char *eventName) {
     Event::Custom::RetryClaims();

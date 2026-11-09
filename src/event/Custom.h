@@ -201,7 +201,7 @@ inline void FireIdSuccess(int eventID, int id, bool success) {
 // catch any reservations that couldn't claim earlier.
 void RetryClaims();
 
-// Internal: permit `TryClaim` to write to the event table. Held
+// Internal: permit `Claim` to write to the event table. Held
 // closed until `LoadScriptFunctions_h` returns, so the boot phase
 // (during which the engine and SuperWoWhook fire many internal
 // `RegisterEvent` calls) can't trigger our writes. Writing during
