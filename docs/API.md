@@ -19333,7 +19333,9 @@ The scene shows the WMO as the world shows it:
   such a point, its fog blends in.
 - If the scene has no fog, the fog of the WMO comes in from the far clip of
   the camera.
-- A camera in water or lava does not change the fog.
+- When the camera goes into the water of the WMO, the fog becomes the
+  underwater fog of the WMO. In lava or slime, the fog becomes the fog of
+  the scene, unless the WMO has a fog for that liquid.
 - The WMO shows its props, for example torches, furniture and bones. The
   props of doodad set `0` always show. `doodadSet` adds the props of one
   more set. The props animate, and the lights of the WMO light them.
@@ -19530,9 +19532,11 @@ The model of the actor sets which items it can wear:
   [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
   This is a ClassicAPI extension.
 
-The actor holds the weapons as `SetSheathed` sets. A one-hand weapon goes
-into the off hand only when the actor shows your character and you can dual
-wield. On all other actors, two one-hand weapons cannot be held together.
+The actor holds the weapons as `SetSheathed` sets. An actor that shows a
+creature display or a model file can hold two one-hand weapons, as the world
+shows the weapons of a creature. A second one-hand weapon then goes into the
+off hand. An actor that shows a unit holds two one-hand weapons only when
+the unit is your character and you can dual wield.
 
 If the model is not loaded yet, the actor wears the item when the model loads.
 `TryOn` then returns `Success`. If the item is not in the item cache, `TryOn`
@@ -19963,6 +19967,18 @@ a bow, a gun, a crossbow or a thrown weapon.
   itself.
 - A bullet does not show in flight, as in the world.
 - A spell with its own missile, for example Aimed Shot, keeps its missile.
+- The actor takes the ranged weapon in its hand when the spell starts, and
+  its other held item goes to its sheath. The weapons stay so until the
+  next `actor:SetSheathed`.
+- While the spell prepares, the actor holds an arrow in its hand. When the
+  animation of the actor draws the bow, the bow pulls and the arrow goes on
+  the string. When the actor shoots, the bow releases. A gun or a crossbow
+  keeps the ammo off the string.
+- An instant shot plays only the shot animation, so the bow does not draw.
+- An arrow or a thrown weapon that hits stays in the target for 5 seconds,
+  at the point that it flew to. A bullet does not stay.
+- An actor that plays a death animation shows no animation of a spell over
+  it, for example a wound from a missile that arrives late.
 
 A second call ends a preparation that has not finished. Missiles that are
 in flight go on. A paused actor (`actor:SetPaused`) holds its spells where
@@ -19981,11 +19997,10 @@ hunter:PlaySpellVisual(75, dragon) -- Auto Shot, with the bow and arrows of the 
 
 Interrupts the spells that this actor still prepares with
 [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
-The effects, the color and the animation of the preparation stop. A spell
-that is already cast goes on, and its missile flies to the target. Use it
-when an actor dies or stops in the middle of a cast, so that the cast
-animation does not replace the death animation. This is a ClassicAPI
-extension.
+The effects, the color and the animation of the preparation stop. A drawn
+bow comes down, and the arrow leaves the hand. A spell that is already cast
+goes on, and its missile flies to the target. Use it when an actor dies or
+stops in the middle of a cast. This is a ClassicAPI extension.
 
 ```lua
 boss:StopSpellVisual()
