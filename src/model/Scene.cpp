@@ -559,11 +559,14 @@ void __fastcall Paint(void *frame) {
     if (!(std::fabs(rect[1] - rect[3]) < epsilon) && !(std::fabs(rect[0] - rect[2]) < epsilon)) {
         Gx::SetViewport({rect[1] * vp.maxX, rect[3] * vp.maxX, rect[0] * vp.maxY, rect[2] * vp.maxY,
                          0.0f, 1.0f});
-        reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR)(2);
+        World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+        if (world != nullptr)
+            World::ClearAndDrawSky(*world, frame, eye);
+        else
+            reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR)(2);
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
-        World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
         if (world != nullptr)
             World::Draw(*world, frame, eye);
         DrawShadows(frame, eye);

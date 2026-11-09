@@ -321,6 +321,11 @@ void Free(Backdrop *backdrop);
 void Update(Backdrop &backdrop, void *frame, bool sounds, float elapsed);
 // Drops the doodads' loop sounds (the scene hid).
 void Silence(Backdrop &backdrop);
+// From the paint, in place of its depth clear: the world's frame clear and,
+// with the camera outside the WMO's interior groups and dry, the world's sky
+// (the dome, the sun and moons, the stars, the clouds and the skyboxes) in
+// the device's view, lit by the backdrop map's light at the camera.
+void ClearAndDrawSky(const Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // From the paint, after the animate pass: the WMO in the device's view.
 void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // From the paint, between the scene's opaque and translucent lists: the

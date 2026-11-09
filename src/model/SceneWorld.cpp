@@ -218,6 +218,9 @@ struct Backdrop {
     // is: the lowest of the eye and the near corners of the last paint.
     uint32_t cameraLiquid = Offsets::LIQUID_DRY;
     float probeDrop = 0.0f;
+    // Whether an interior group holds the camera (the world's claim,
+    // 0x00C7B748): the world then draws from inside, without the sky.
+    bool cameraClaimed = false;
 };
 
 static_assert(Offsets::OFF_MAPOBJDEF_OBJECT + sizeof(void *) <= Offsets::MAPOBJDEF_QUERY_SIZE &&
@@ -471,11 +474,18 @@ FogValues SceneZoneFog(const Backdrop &b, void *frame) {
 
 // The camera in magma or slime with a fog of its own makes the zone's fog the
 // target too.
-void WmoFog(const Backdrop &b, void *record, void *frame) {
-    FogValues drawn = b.fog.zoneIsTarget ? b.fog.target : SceneZoneFog(b, frame);
-    LerpFog(drawn, &b.fog.target, b.fog.weight);
-    SetFog(record, drawn);
+FogValues ZoneFog(const Backdrop &b, void *frame) {
+    return b.fog.zoneIsTarget ? b.fog.target : SceneZoneFog(b, frame);
 }
+
+// The drawn fog (the light state's +0x80).
+FogValues DrawnFog(const Backdrop &b, void *frame) {
+    FogValues drawn = ZoneFog(b, frame);
+    LerpFog(drawn, &b.fog.target, b.fog.weight);
+    return drawn;
+}
+
+void WmoFog(const Backdrop &b, void *record, void *frame) { SetFog(record, DrawnFog(b, frame)); }
 
 // The WMO's record: the scene light as the sun with the drawn fog, else the
 // frame's callback (the scene fog and light, as a scene model gets them).
@@ -1176,10 +1186,12 @@ uint32_t CameraLiquid(const Backdrop &b, const float (&eye)[3], uint32_t group) 
 void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farClip, float elapsed) {
     CameraFog &fog = b.fog;
     uint32_t groups[2] = {kNoGroup, kNoGroup};
-    const uint32_t count = HasOwnFog(b) ? ClaimCamera(b, eye, groups) : 0;
+    const uint32_t claimed = ClaimCamera(b, eye, groups);
+    const uint32_t count = HasOwnFog(b) ? claimed : 0;
     bool inside = false;
     fog.zoneIsTarget = false;
-    b.cameraLiquid = count != 0 ? CameraLiquid(b, eye, groups[0]) : static_cast<uint32_t>(Offsets::LIQUID_DRY);
+    b.cameraClaimed = claimed != 0;
+    b.cameraLiquid = claimed != 0 ? CameraLiquid(b, eye, groups[0]) : static_cast<uint32_t>(Offsets::LIQUID_DRY);
     if (count != 0) {
         FogValues records[2] = {};
         uint32_t flags = 0;
@@ -2138,6 +2150,162 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
         reinterpret_cast<DrawLiquid_t>(Offsets::FUN_MAPOBJ_DRAW_GROUP_LIQUID)(object, i, 1);
     PopObjectSpace();
     fogFlag = savedFogFlag;
+}
+
+// ---- the sky --------------------------------------------------------------------------
+//
+// The world clears its frame and draws its sky before its terrain and map
+// objects (DrawWorldScene 0x00681070). With no interior group holding the
+// camera and the camera dry, it clears to black and runs DrawSky
+// (0x006D4940) in its view, which has no translation. Under liquid it clears
+// to the zone fog's colour, and from inside to the drawn fog's, without the
+// sky. The scene's view has no translation either, so the scene runs the
+// same pass.
+//
+// The pass draws the world's sky objects, which the world's light build
+// (0x006D4530, each world frame) makes from the world's camera and light.
+// The parts that come from them are made again for the scene, as the build
+// makes them: the dome's colours from the scene camera's heading, and, for a
+// backdrop in a map, from that map's light at the scene's camera, with the
+// sun disc and white moon colour and the skybox slots of that light. The
+// world's are put back after the pass. The cloud texture stays the world's
+// (the world builds it a band at a time from its own light); the stars and
+// the bodies' places follow only the time of day.
+//
+// From inside, the world also draws the sky when its portal walk reaches an
+// exterior group (WalkPortals 0x006B41C0); the scene draws no sky from
+// inside. The sun and moon glares (0x006D48C0) are not drawn.
+
+namespace {
+
+uint8_t *LightState() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_STATE)); }
+
+// The light state's heading (0x006D4530): atan2(y, x) of the camera's
+// forward, or atan2(z, x) when its x-y length is short, in [0, 2pi).
+float Heading(const float (&forward)[3]) {
+    const double x = forward[0], y = forward[1];
+    const bool level = y * y + x * x > Game::Read<double>(Offsets::VAR_HEADING_MIN_XY);
+    float heading = static_cast<float>(level ? std::atan2(y, x) : std::atan2(static_cast<double>(forward[2]), x));
+    if (heading < 0.0f)
+        heading = static_cast<float>(static_cast<double>(heading) + EngineFloat(Offsets::VAR_HEADING_TWO_PI));
+    return heading;
+}
+
+// The skybox slots of a light record (0x006D2C79): each pair with an id, a
+// weight above 0 and an id below the LightSkybox count interns its path.
+void FillSkyboxSlots(const Record &table, uint8_t *state) {
+    using Intern_t = void *(__fastcall *)(const char *path);
+    const auto count = Game::Read<int32_t>(Offsets::VAR_LIGHTSKYBOX_COUNT);
+    const auto largest = Game::Read<int32_t>(Offsets::VAR_LIGHTSKYBOX_LARGEST_ID);
+    const auto *rows = Game::Read<const uint8_t *const *>(Offsets::VAR_LIGHTSKYBOX_ID_MAP);
+    for (uint32_t k = 0; k < Offsets::LIGHT_SKYBOX_SLOTS; ++k) {
+        const int32_t id = Game::Read<int32_t>(table, Offsets::OFF_LIGHT_RECORD_SKYBOXES + k * 8);
+        const float weight = Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_SKYBOXES + k * 8 + 4);
+        if (id == 0 || !(weight > 0.0f) || !(id < count))
+            continue;
+        const uint8_t *row = id < 0 || largest < id ? nullptr : rows[id];
+        if (row == nullptr)
+            continue; // the engine reads the null row's path
+        Game::Ref<void *>(state, Offsets::OFF_LIGHT_STATE_SKYBOXES + k * 4) =
+            reinterpret_cast<Intern_t>(Offsets::FUN_INTERN_SKYBOX)(
+                Game::Read<const char *>(row, Offsets::OFF_LIGHTSKYBOX_PATH));
+        Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_SKYBOX_WEIGHTS + k * 4) = weight;
+    }
+}
+
+// The sky objects the scene's pass makes again, kept to be put back.
+class SkyObjects {
+  public:
+    SkyObjects() {
+        uint8_t *state = LightState();
+        std::memcpy(table_, Table(), sizeof table_);
+        std::memcpy(slots_, state + Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX, sizeof slots_);
+        heading_ = Game::Read<float>(state, Offsets::OFF_LIGHT_STATE_HEADING);
+        tint_ = Game::Read<uint8_t>(state, Offsets::OFF_LIGHT_STATE_TINT_LEVEL);
+        for (uint32_t i = 0; i < Offsets::SKY_DISCS_LIT; ++i)
+            discs_[i] = Game::Read<uint32_t>(Disc(i));
+        const uint32_t *colours = DomeColours();
+        domeColours_.assign(colours, colours + DomeColourCount());
+    }
+    ~SkyObjects() {
+        uint8_t *state = LightState();
+        std::memcpy(Table(), table_, sizeof table_);
+        std::memcpy(state + Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX, slots_, sizeof slots_);
+        Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = heading_;
+        Game::Ref<uint8_t>(state, Offsets::OFF_LIGHT_STATE_TINT_LEVEL) = tint_;
+        for (uint32_t i = 0; i < Offsets::SKY_DISCS_LIT; ++i)
+            Game::Ref<uint32_t>(Disc(i)) = discs_[i];
+        std::memcpy(DomeColours(), domeColours_.data(), domeColours_.size() * sizeof(uint32_t));
+    }
+    SkyObjects(const SkyObjects &) = delete;
+    SkyObjects &operator=(const SkyObjects &) = delete;
+
+    static uint8_t *Table() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_TABLE)); }
+    static uint8_t *Dome() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_SKY_DOME)); }
+    static uint32_t *DomeColours() { return Game::Read<uint32_t *>(Dome(), Offsets::OFF_SKY_DOME_COLOURS); }
+    static uintptr_t Disc(uint32_t i) {
+        return Offsets::VAR_SKY_DISCS + i * Offsets::SKY_DISC_SIZE + Offsets::OFF_SKY_DISC_COLOUR;
+    }
+
+  private:
+    // The apex, four rings and the rim of a column each, and one more.
+    static size_t DomeColourCount() {
+        return 5 * static_cast<size_t>(Game::Read<uint32_t>(Dome(), Offsets::OFF_SKY_DOME_COLUMNS)) + 2;
+    }
+
+    Record table_{};
+    uint8_t slots_[Offsets::OFF_LIGHT_STATE_SKYBOX_WEIGHTS + Offsets::LIGHT_SKYBOX_SLOTS * 4 -
+                   Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX] = {};
+    float heading_ = 0.0f;
+    uint8_t tint_ = 0;
+    uint32_t discs_[Offsets::SKY_DISCS_LIT] = {};
+    std::vector<uint32_t> domeColours_;
+};
+
+void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward)[3]) {
+    uint8_t *state = LightState();
+    if (Game::Read<uint32_t>(state, Offsets::OFF_LIGHT_STATE_SKY_ON) == 0 || SkyObjects::DomeColours() == nullptr)
+        return;
+    const SkyObjects world;
+    Record table;
+    if (b.mapID != kNoMap && BuildMapLight(b, eye, table)) {
+        // The build for the map's light: no screen tint (the player's), the
+        // slots and the override cleared, then the light's own.
+        std::memcpy(SkyObjects::Table(), table, sizeof table);
+        Game::Ref<uint8_t>(state, Offsets::OFF_LIGHT_STATE_TINT_LEVEL) = 0;
+        std::memset(state + Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX, 0,
+                    Offsets::OFF_LIGHT_STATE_SKYBOX_WEIGHTS + Offsets::LIGHT_SKYBOX_SLOTS * 4 -
+                        Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX);
+        for (uint32_t i = 0; i < Offsets::SKY_DISCS_LIT; ++i)
+            Game::Ref<uint32_t>(SkyObjects::Disc(i)) = Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_SUN);
+        FillSkyboxSlots(table, state);
+    }
+    Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = Heading(forward);
+    reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_COLOUR_SKY_DOME)(SkyObjects::Dome());
+    const RenderStateScope states;
+    Matrix identity;
+    Identity(identity);
+    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(kWorldStack, identity);
+    reinterpret_cast<Fn_t>(Offsets::FUN_DRAW_SKY)();
+    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
+}
+
+} // namespace
+
+void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
+    using GetClear_t = uint32_t *(__fastcall *)(uint32_t *out);
+    using SetClear_t = void(__stdcall *)(uint32_t argb);
+    using Clear_t = void(__fastcall *)(uint32_t mask);
+    const bool outside = !b.cameraClaimed;
+    const bool dry = b.cameraLiquid == Offsets::LIQUID_DRY;
+    const uint32_t colour = !outside ? DrawnFog(b, frame).color : dry ? 0u : ZoneFog(b, frame).color;
+    uint32_t saved = 0;
+    reinterpret_cast<GetClear_t>(Offsets::FUN_GX_GET_CLEAR_COLOR)(&saved);
+    reinterpret_cast<SetClear_t>(Offsets::FUN_GX_SET_CLEAR_COLOR)(colour);
+    reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR)(3);
+    reinterpret_cast<SetClear_t>(Offsets::FUN_GX_SET_CLEAR_COLOR)(saved);
+    if (outside && dry)
+        DrawSkyPass(b, eye, CameraView(frame).forward);
 }
 
 } // namespace Model::Scene::World

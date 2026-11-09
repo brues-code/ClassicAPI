@@ -13902,6 +13902,58 @@ enum Offsets {
     FUN_GET_LIGHT_PARAMS = 0x006D6AB0,
     FUN_GATHER_LIGHT_RECORD = 0x006D64D0,
     FUN_OVERBLEND_LIGHT_RECORD = 0x006D30E0,
+    // The sky (benilla lighting/sky.md). DrawSky `__cdecl()` (0x006D4940):
+    // returns while the light state's sky flag (+0x198) is 0; else, in the
+    // depth range [0.975, 0.98] of the device viewport, the stars, the sun
+    // disc, the white moon, moon02, the gradient dome and the clouds (unless
+    // a ready skybox weighs above 0.99), then each ready skybox slot with a
+    // weight above 0, each followed by a depth clear; all in the device view
+    // around the eye. The world runs it from DrawWorldScene (0x006812AC)
+    // only with the weather byte set and the camera dry, after its clear.
+    // The light state (GetLightState 0x006D48B0): the heading +0x30
+    // (atan2 of the camera forward, 0x006D4530), the screen-tint level byte
+    // +0x44, the override skybox entry +0x54 and weight +0x58, the two
+    // table slots' entries +0x5C and weights +0x64, the sky flag +0x198.
+    // BuildLightTable (0x006D2260) clears the slots and the override, colours
+    // the dome (ColourSkyDome `__fastcall(dome)` 0x006D0F50: 5 x columns + 2
+    // colours at [dome+0x14] from the table's sky bands, the glow and the
+    // heading), copies colour band 9 (record +0x20) to the sun disc and the
+    // white moon (discs 0x20 apart from 0x00CE9858, colour +0x0C), and for
+    // each of the record's two {LightSkybox id, weight} pairs at +0x78 with
+    // id != 0, weight > 0 and id below the LightSkybox count interns the
+    // row's path (InternSkybox `__fastcall(path)` 0x006D4640, one model in
+    // the sky's scene per path) into the slot (0x006D2C79).
+    FUN_DRAW_SKY = 0x006D4940,
+    FUN_COLOUR_SKY_DOME = 0x006D0F50,
+    FUN_INTERN_SKYBOX = 0x006D4640,
+    VAR_LIGHT_STATE = 0x00CE9B60,
+    OFF_LIGHT_STATE_HEADING = 0x30,
+    OFF_LIGHT_STATE_TINT_LEVEL = 0x44,
+    OFF_LIGHT_STATE_OVERRIDE_SKYBOX = 0x54,
+    OFF_LIGHT_STATE_OVERRIDE_SKYBOX_WEIGHT = 0x58,
+    OFF_LIGHT_STATE_SKYBOXES = 0x5C,
+    OFF_LIGHT_STATE_SKYBOX_WEIGHTS = 0x64,
+    OFF_LIGHT_STATE_SKY_ON = 0x198,
+    // 0x006D4530's constants: the double 0.0001 the forward's squared x-y
+    // length must pass for atan2(y, x) (else atan2(z, x)), and the float 2pi
+    // a negative heading takes.
+    VAR_HEADING_MIN_XY = 0x00811658,
+    VAR_HEADING_TWO_PI = 0x0080295C,
+    LIGHT_SKYBOX_SLOTS = 2,
+    VAR_SKY_DOME = 0x00CE99A0,
+    OFF_SKY_DOME_COLOURS = 0x14,
+    OFF_SKY_DOME_COLUMNS = 0x24,
+    VAR_SKY_DISCS = 0x00CE9858, // the sun disc, the white moon, moon02
+    SKY_DISC_SIZE = 0x20,
+    OFF_SKY_DISC_COLOUR = 0x0C,
+    SKY_DISCS_LIT = 2, // the sun disc and the white moon take band 9
+    OFF_LIGHT_RECORD_SUN = 0x20,
+    OFF_LIGHT_RECORD_SKYBOXES = 0x78, // {LightSkybox id, float weight} x 2
+    // The LightSkybox store (id, model path; benilla lighting/tables.md).
+    VAR_LIGHTSKYBOX_COUNT = 0x00CE9DB4,
+    VAR_LIGHTSKYBOX_ID_MAP = 0x00CE9DB8,
+    VAR_LIGHTSKYBOX_LARGEST_ID = 0x00CE9DBC,
+    OFF_LIGHTSKYBOX_PATH = 0x04,
     // Matrix helpers (row vectors). MultiplyMatrix4 `float *__fastcall(out,
     // a, b)`: out = a x b. InvertAffineMatrix `__thiscall(m, float out[16],
     // float scale)`, ret 8. The engine's degrees-to-radians and pi floats,
@@ -14310,6 +14362,9 @@ enum Offsets {
     GX_MASTER_FOG = 1,
     // SetClearColorDevice — `__stdcall(uint32 argb)`; the bake sets 0.
     FUN_GX_SET_CLEAR_COLOR = 0x0058A920,
+    // The device's clear colour — `uint32 *__fastcall(uint32 *out)`; the
+    // world's scene saves it around its clear (DrawWorldScene 0x00681070).
+    FUN_GX_GET_CLEAR_COLOR = 0x0058A940,
     // ClearDevice — `__fastcall(uint32 mask)`; the bake clears 3 before the
     // draw and again after the readback.
     FUN_GX_CLEAR = 0x0058A970,
