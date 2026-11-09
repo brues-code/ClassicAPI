@@ -13639,6 +13639,46 @@ enum Offsets {
     VAR_DOODAD_FADE_END_SMALL = 0x008101A0,
     VAR_DOODAD_FADE_END_MEDIUM = 0x008101A4,
     VAR_DOODAD_FADE_END_LARGE = 0x008101A8,
+    // How the world lights a unit inside a WMO (PlaceEntity 0x006A8C10):
+    // LinkEntityToMapObject (0x006A8ED0) puts the model's world box through
+    // the placement's inverse (TransformBox `__fastcall(const float m[16],
+    // const float box[6], float out[6])`, ret 4), tests the WMO
+    // (CMapObj::BoxOverlaps `__thiscall(obj, box)`, ret 4), then each group:
+    // BoxOverlapsGroup `__thiscall(obj, box, group, 1)` ret 0xC, a loaded
+    // group (GetLoadedGroup(obj, group, 0)), GroupBoxAnyHit `__thiscall(obj,
+    // box, group)` ret 8 or GroupSegmentAnyHit `__thiscall(obj, start, end,
+    // float *t, group)` ret 0x10. Each such group links the unit (its MOLT
+    // lights light it: GatherMapObjectLights 0x006A79C0). In a group that is
+    // not exterior (flag 0x08), TraceGroupMasked `__thiscall(obj, start, end,
+    // group, 0x20, u16 *face, float *t)` ret 0x18 down from the box centre
+    // PROBE_LENGTH yards, else up as far; t is shared, so the nearest face of
+    // all groups wins. Its point is the centre + t x (0, 0, -PROBE_LENGTH)
+    // (also for an up hit). No face, or its group's flag 0x40: the sun.
+    // Else BakeGroupLight (0x006A8410) samples the face's MOCV colour
+    // (SampleGroupColor `__thiscall(obj, group, const float point[3], u16
+    // face, u32 *bgra, bool *day)` ret 0x14, the point in WMO space) and
+    // splits it with SplitLightColor (directional floor 0xA8, ambient cap
+    // DOODAD_AMBIENT_CAP); a day face blends both toward the sun's by the
+    // colour's alpha. The unit is placed again when its translation moved by
+    // a squared distance of VAR_MAP_LIGHT_RANGE_EPSILON or more
+    // (SyncLightNode 0x006717D0, the same 0.001).
+    FUN_TRANSFORM_BOX = 0x006DC540,
+    FUN_CMAPOBJ_BOX_OVERLAPS = 0x006A4670,
+    FUN_CMAPOBJ_BOX_OVERLAPS_GROUP = 0x006A4830,
+    FUN_CMAPOBJ_GROUP_BOX_ANY_HIT = 0x006A3EE0,
+    FUN_CMAPOBJ_GROUP_SEGMENT_ANY_HIT = 0x006A3F10,
+    FUN_CMAPOBJ_TRACE_GROUP_MASKED = 0x006A3A40,
+    MAPOBJ_TRACE_MASK_ENTITY = 0x20,
+    FUN_CMAPOBJ_SAMPLE_GROUP_COLOR = 0x006A4DC0,
+    VAR_ENTITY_PROBE_LENGTH = 0x008022CC, // 1000.0
+    MAPOBJ_GROUP_EXTERIOR = 0x08,
+    MAPOBJ_GROUP_EXTERIOR_LIT = 0x40,
+    ENTITY_DIRECTIONAL_FLOOR = 0xA8,
+    // ApplyMapLighting (0x006A7300), an interior unit: the ambient bytes, the
+    // directional bytes along VAR_MAP_LIGHT_DIRECTION (blended toward the
+    // sun's direction by a day face's weight, then normalised), the WMO fog,
+    // then its map lights. A sun-lit unit: the sun, then its map lights.
+    OFF_M2LIGHT_DIRECTION = 0x24,
     // The doodad def's matrix: TranslateMatrix, then RotateMatrixByQuaternion
     // `__thiscall(m, const float q[4])` (left-multiplies), ScaleMatrix
     // `__thiscall(m, float)` (upper 3x3), MultiplyMatrix4InPlace

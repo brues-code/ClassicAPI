@@ -109,6 +109,12 @@ struct Light {
     alignas(4) uint8_t bytes[Offsets::M2LIGHT_SIZE];
 };
 
+// A group's MOLT light as CreateGroupLights (0x00695C00) makes it.
+struct MapLight {
+    Light light;
+    float start, end, falloff;
+};
+
 struct Doodad {
     Backdrop *backdrop;
     void *frame;
@@ -136,8 +142,25 @@ struct Backdrop {
     std::vector<std::unique_ptr<Doodad>> doodads;
     std::vector<Doodad *> byIndex; // MODD index -> its doodad
     std::vector<bool> groupsMade;
+    std::vector<std::vector<MapLight>> groupLights; // per group, once made
+    uint32_t serial = 0;     // this backdrop among all loaded, for the actors' caches
+    uint32_t generation = 0; // one more each time a group's doodads and lights are made
     float farClip = 0.0f;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
+};
+
+// An actor's place in the WMO (Settle), as the world keeps it on the unit's
+// map entity.
+struct Ambience {
+    uint32_t serial = 0; // the backdrop's, 0 before the first placement
+    const void *model = nullptr;
+    uint32_t generation = 0;
+    float position[3] = {};
+    bool interior = false;  // baked from a face; else the sun
+    uint32_t ambient = 0;   // BGRA bytes (+0x9C)
+    uint32_t directional = 0; // BGRA bytes (+0xA0)
+    uint32_t dayWeight = 0; // a day face's blend toward the sun (+0xA3)
+    std::vector<Light> lights;
 };
 
 namespace {
@@ -432,12 +455,6 @@ void ColorOf(uint32_t bgra, float (&rgb)[3]) {
 using LightInt_t = void(__thiscall *)(void *light, int value);
 using LightVector_t = void(__thiscall *)(void *light, const float *v);
 
-// A group's MOLT light as CreateGroupLights (0x00695C00) makes it.
-struct MapLight {
-    Light light;
-    float start, end, falloff;
-};
-
 MapLight MakeMapLight(const Backdrop &b, const uint8_t *record) {
     MapLight m{};
     void *light = m.light.bytes;
@@ -465,17 +482,17 @@ MapLight MakeMapLight(const Backdrop &b, const uint8_t *record) {
     return m;
 }
 
-// AddMapLight (0x006A7AC0) for the doodad's point: the light as a
+// AddMapLight (0x006A7AC0) for a def's or a unit's position: the light as a
 // directional from it, faded from its start to its end.
-void AddMapLight(Doodad &d, const MapLight &m) {
+void AddMapLight(const float (&position)[3], const MapLight &m, std::vector<Light> &lights) {
     if (m.falloff == 0.0f) {
-        d.lights.push_back(m.light);
+        lights.push_back(m.light);
         return;
     }
     float lightPosition[3];
     std::memcpy(lightPosition, m.light.bytes + Offsets::OFF_M2LIGHT_POSITION, sizeof lightPosition);
-    const float offset[3] = {d.position[0] - lightPosition[0], d.position[1] - lightPosition[1],
-                             d.position[2] + EngineFloat(Offsets::VAR_MAP_LIGHT_LIFT) - lightPosition[2]};
+    const float offset[3] = {position[0] - lightPosition[0], position[1] - lightPosition[1],
+                             position[2] + EngineFloat(Offsets::VAR_MAP_LIGHT_LIFT) - lightPosition[2]};
     const float distance = std::sqrt(offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]);
     float intensity = 1.0f;
     if (!(distance < m.start)) {
@@ -495,7 +512,28 @@ void AddMapLight(Doodad &d, const MapLight &m) {
     reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, 0);
     const float attenuation[3] = {1.0f, 0.0f, 0.0f};
     std::memcpy(added.bytes + Offsets::OFF_M2LIGHT_ATTENUATION, attenuation, sizeof attenuation);
-    d.lights.push_back(added);
+    lights.push_back(added);
+}
+
+const float (&MapLightDirection())[3] {
+    return *reinterpret_cast<const float(*)[3]>(static_cast<uintptr_t>(Offsets::VAR_MAP_LIGHT_DIRECTION));
+}
+
+// The interior slots of a def or a unit: the WMO fog (the scene's when the
+// WMO has fewer than two), the ambient bytes and the directional bytes along
+// `direction`.
+void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambientBytes, uint32_t directionalBytes,
+                   const float (&direction)[3]) {
+    if (HasOwnFog(b))
+        WmoFog(b, record, b.farClip);
+    else
+        SceneFog(record, frame);
+    float ambient[3], directional[3];
+    ColorOf(ambientBytes, ambient);
+    ColorOf(directionalBytes, directional);
+    reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHTING_ADD_AMBIENT)(record, ambient);
+    reinterpret_cast<void(__thiscall *)(void *, const float *, const float *)>(Offsets::FUN_M2LIGHTING_ADD_DIRECTIONAL)(
+        record, directional, direction);
 }
 
 // The model's lighting callback, `__fastcall(instance, record, user)` ret 4,
@@ -503,22 +541,10 @@ void AddMapLight(Doodad &d, const MapLight &m) {
 // slots.
 void __fastcall DoodadLighting(void * /*instance*/, void *record, Doodad *d) {
     const Backdrop &b = *d->backdrop;
-    if (d->exterior) {
+    if (d->exterior)
         FrameLightAndFog(record, d->frame);
-    } else {
-        if (HasOwnFog(b))
-            WmoFog(b, record, b.farClip);
-        else
-            SceneFog(record, d->frame);
-        float ambient[3], directional[3];
-        ColorOf(d->ambient, ambient);
-        ColorOf(d->directional, directional);
-        reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHTING_ADD_AMBIENT)(record,
-                                                                                                       ambient);
-        reinterpret_cast<void(__thiscall *)(void *, const float *, const float *)>(
-            Offsets::FUN_M2LIGHTING_ADD_DIRECTIONAL)(
-            record, directional, reinterpret_cast<const float *>(static_cast<uintptr_t>(Offsets::VAR_MAP_LIGHT_DIRECTION)));
-    }
+    else
+        InteriorLight(b, record, d->frame, d->ambient, d->directional, MapLightDirection());
     for (const Light &light : d->lights)
         AddLight(record, light.bytes);
 }
@@ -629,7 +655,7 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
 
 // CreateGroupDoodads (0x00695AA0) with the group's lights (0x00695C00) for
 // each doodad it holds.
-void MakeGroupDoodads(Backdrop &b, void *frame, void *group) {
+void MakeGroupDoodads(Backdrop &b, void *frame, uint32_t groupIndex, void *group) {
     const auto *molt = Game::Read<const uint8_t *>(b.object, Offsets::OFF_CMAPOBJ_LIGHTS);
     const uint32_t moltCount = Game::Read<uint32_t>(b.object, Offsets::OFF_CMAPOBJ_LIGHT_COUNT);
     const auto *lightRefs = Game::Read<const uint16_t *>(group, Offsets::OFF_CMAPOBJGROUP_LIGHT_REFS);
@@ -651,8 +677,10 @@ void MakeGroupDoodads(Backdrop &b, void *frame, void *group) {
         Doodad *d = b.byIndex[index] != nullptr ? b.byIndex[index] : MakeDoodad(b, frame, index);
         d->exterior = d->exterior || exterior;
         for (const MapLight &light : lights)
-            AddMapLight(*d, light);
+            AddMapLight(d->position, light, d->lights);
     }
+    b.groupLights[groupIndex] = std::move(lights);
+    ++b.generation;
 }
 
 // SetDoodadDefBounds (0x006952A0), for a loaded model.
@@ -711,7 +739,9 @@ Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSe
     void *object = reinterpret_cast<void *(__fastcall *)(const char *)>(Offsets::FUN_CMAPOBJ_GET)(path);
     if (object == nullptr)
         return nullptr;
+    static uint32_t serials = 0;
     auto *b = new Backdrop{object, {}, {}, doodadSet};
+    b->serial = ++serials;
     std::memcpy(b->placement, placement, sizeof b->placement);
     reinterpret_cast<void(__thiscall *)(const float *, float *, float)>(Offsets::FUN_MATRIX_INVERT_AFFINE)(
         b->placement, b->inverse, 1.0f);
@@ -781,6 +811,191 @@ void Silence(Backdrop &b) {
         DropSound(*d);
 }
 
+// ---- actors ---------------------------------------------------------------------------
+
+namespace {
+
+void TransformBox(const float *m, const float (&box)[6], float (&out)[6]) {
+    reinterpret_cast<void(__fastcall *)(const float *, const float *, float *)>(Offsets::FUN_TRANSFORM_BOX)(m, box,
+                                                                                                           out);
+}
+
+// The sun's colour as the bytes a day face blends toward: the scene light's.
+uint32_t SunBytes(const uint8_t *sun, uintptr_t field) {
+    const auto *rgb = reinterpret_cast<const float *>(sun + field);
+    const auto byte = [](float c) {
+        const float v = c * 255.0f;
+        return static_cast<uint32_t>(v < 0.0f ? 0.0f : v > 255.0f ? 255.0f : v);
+    };
+    return 0xFF000000u | byte(rgb[0]) << 16 | byte(rgb[1]) << 8 | byte(rgb[2]);
+}
+
+// BakeGroupLight's day blend: each channel moves (to - from) x weight / 256
+// toward `to`, in the engine's unsigned byte arithmetic; 0xFF takes `to`.
+uint32_t BlendBytes(uint32_t from, uint32_t to, uint32_t weight) {
+    if (weight == 0xFF)
+        return (from & 0xFF000000u) | (to & 0x00FFFFFFu);
+    uint32_t out = from & 0xFF000000u;
+    for (int shift = 0; shift < 24; shift += 8) {
+        const uint32_t f = (from >> shift) & 0xFF, t = (to >> shift) & 0xFF;
+        out |= static_cast<uint32_t>(static_cast<uint8_t>(f + (((t - f) * weight) >> 8))) << shift;
+    }
+    return out;
+}
+
+// LinkEntityToMapObject (0x006A8ED0) for the one WMO, then SetEntityLightFlags
+// (0x006A87F0) and BakeGroupLight's face path (0x006A8410).
+void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float *base) {
+    using Overlaps_t = bool(__thiscall *)(void *object, const float *box);
+    using OverlapsGroup_t = bool(__thiscall *)(void *object, const float *box, uint32_t group, int);
+    using GetGroup_t = void *(__thiscall *)(void *object, uint32_t group, int force);
+    using BoxHit_t = bool(__thiscall *)(void *object, const float *box, uint32_t group);
+    using SegmentHit_t = bool(__thiscall *)(void *object, const float *start, const float *end, float *t,
+                                            uint32_t group);
+    using Trace_t = bool(__thiscall *)(void *object, const float *start, const float *end, uint32_t group,
+                                       uint32_t mask, uint16_t *face, float *t);
+    using Sample_t = bool(__thiscall *)(void *object, uint32_t group, const float *point, uint16_t face,
+                                        uint32_t *bgra, bool *day);
+    using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
+                                      uint8_t cap);
+    void *object = b.object;
+    a.lights.clear();
+    a.interior = false;
+
+    // SyncLightNode's world box and centre: the model's bounds through its
+    // matrix, or its translation when the bounds are empty.
+    float box[6];
+    M2::GetBoundingBox(model, box);
+    float world[6], centre[3];
+    if (box[0] > box[3] || box[1] > box[4] || box[2] > box[5]) {
+        for (int i = 0; i < 3; ++i)
+            world[i] = world[i + 3] = centre[i] = a.position[i];
+    } else {
+        TransformBox(base, box, world);
+        for (int i = 0; i < 3; ++i)
+            centre[i] = (world[i] + world[i + 3]) * 0.5f;
+    }
+    float local[6];
+    TransformBox(b.inverse, world, local);
+    if (!reinterpret_cast<Overlaps_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS)(object, local))
+        return;
+    const float length = EngineFloat(Offsets::VAR_ENTITY_PROBE_LENGTH);
+    const float below[3] = {centre[0], centre[1], centre[2] - length};
+    float start[3], end[3];
+    TransformPoint(centre, b.inverse, start);
+    TransformPoint(below, b.inverse, end);
+    const float up[3] = {start[0], start[1], start[2] + length};
+
+    float t = 1.0f;
+    uint16_t face = 0;
+    bool hit = false;
+    uint32_t hitGroup = 0;
+    float point[3] = {};
+    const auto trace = reinterpret_cast<Trace_t>(Offsets::FUN_CMAPOBJ_TRACE_GROUP_MASKED);
+    const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
+    for (uint32_t g = 0; g < count; ++g) {
+        if (!reinterpret_cast<OverlapsGroup_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS_GROUP)(object, local, g, 1))
+            continue;
+        void *group = reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, g, 0);
+        if (group == nullptr)
+            continue;
+        if (!reinterpret_cast<BoxHit_t>(Offsets::FUN_CMAPOBJ_GROUP_BOX_ANY_HIT)(object, local, g) &&
+            !reinterpret_cast<SegmentHit_t>(Offsets::FUN_CMAPOBJ_GROUP_SEGMENT_ANY_HIT)(object, start, end, &t, g))
+            continue;
+        const uint32_t flags = Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS);
+        if ((flags & Offsets::MAPOBJ_GROUP_EXTERIOR) == 0 &&
+            (trace(object, start, end, g, Offsets::MAPOBJ_TRACE_MASK_ENTITY, &face, &t) ||
+             trace(object, start, up, g, Offsets::MAPOBJ_TRACE_MASK_ENTITY, &face, &t))) {
+            hit = true;
+            hitGroup = g;
+            for (int i = 0; i < 3; ++i)
+                point[i] = centre[i] + (below[i] - centre[i]) * t;
+        }
+        // The group links the unit: its lights light it (GatherMapObjectLights).
+        if (g < b.groupLights.size())
+            for (const MapLight &light : b.groupLights[g])
+                AddMapLight(a.position, light, a.lights);
+    }
+    if (!hit)
+        return;
+    void *group = reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, hitGroup, 0);
+    if ((Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_EXTERIOR_LIT) != 0)
+        return;
+    a.interior = true;
+    float sample[3];
+    TransformPoint(point, b.inverse, sample);
+    uint32_t color = 0;
+    bool day = false;
+    if (!reinterpret_cast<Sample_t>(Offsets::FUN_CMAPOBJ_SAMPLE_GROUP_COLOR)(object, hitGroup, sample, face, &color,
+                                                                            &day))
+        return; // the bytes stay as they were, as on the unit
+    reinterpret_cast<Split_t>(Offsets::FUN_SPLIT_LIGHT_COLOR)(&color, &a.directional,
+                                                             Offsets::ENTITY_DIRECTIONAL_FLOOR, &a.ambient,
+                                                             Offsets::DOODAD_AMBIENT_CAP);
+    a.dayWeight = 0;
+    if (!day)
+        return;
+    const auto *sun = Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT);
+    const uint32_t weight = color >> 24;
+    if (weight != 0) {
+        a.directional = BlendBytes(a.directional, SunBytes(sun, Offsets::OFF_M2LIGHT_DIFFUSE), weight);
+        a.ambient = BlendBytes(a.ambient, SunBytes(sun, Offsets::OFF_M2LIGHT_AMBIENT), weight);
+    }
+    a.dayWeight = weight;
+}
+
+} // namespace
+
+Ambience *NewAmbience() { return new Ambience(); }
+
+void FreeAmbience(Ambience *ambience) { delete ambience; }
+
+void Settle(const Backdrop &b, Ambience &a, void *frame, void *model) {
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return;
+    const float *base = Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX);
+    const float position[3] = {base[12], base[13], base[14]};
+    if (a.serial == b.serial && a.model == model && a.generation == b.generation) {
+        const float dx = position[0] - a.position[0], dy = position[1] - a.position[1],
+                    dz = position[2] - a.position[2];
+        if (std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_EPSILON))
+            return;
+    }
+    a.serial = b.serial;
+    a.model = model;
+    a.generation = b.generation;
+    std::memcpy(a.position, position, sizeof a.position);
+    Place(b, a, frame, model, base);
+}
+
+// ApplyMapLighting (0x006A7300).
+void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record) {
+    if (b == nullptr || a.serial != b->serial) {
+        FrameLightAndFog(record, frame);
+        return;
+    }
+    if (!a.interior) {
+        FrameLightAndFog(record, frame);
+    } else {
+        float direction[3] = {MapLightDirection()[0], MapLightDirection()[1], MapLightDirection()[2]};
+        if (a.dayWeight != 0) {
+            const auto *sun = reinterpret_cast<const float *>(
+                Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT) + Offsets::OFF_M2LIGHT_DIRECTION);
+            const float f = static_cast<float>(a.dayWeight) * EngineFloat(Offsets::VAR_ONE_OVER_255);
+            for (int i = 0; i < 3; ++i)
+                direction[i] += (sun[i] - direction[i]) * f;
+            const float k =
+                EngineFloat(Offsets::VAR_ONE) /
+                std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+            for (float &c : direction)
+                c *= k;
+        }
+        InteriorLight(*b, record, frame, a.ambient, a.directional, direction);
+    }
+    for (const Light &light : a.lights)
+        AddLight(record, light.bytes);
+}
+
 void Update(Backdrop &b, void *frame, bool sounds) {
     const View view = CameraView(frame);
     b.farClip = view.farClip;
@@ -793,6 +1008,7 @@ void Update(Backdrop &b, void *frame, bool sounds) {
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     if (b.groupsMade.empty()) {
         b.groupsMade.assign(count, false);
+        b.groupLights.assign(count, {});
         b.byIndex.assign(Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_DOODAD_COUNT), nullptr);
     }
     for (uint32_t i = 0; i < count; ++i) {
@@ -801,7 +1017,7 @@ void Update(Backdrop &b, void *frame, bool sounds) {
         void *group = Group(object, i);
         if (!IsParsed(group))
             continue;
-        MakeGroupDoodads(b, frame, group);
+        MakeGroupDoodads(b, frame, i, group);
         b.groupsMade[i] = true;
     }
     // The animate list empties at each paint (as for the actors' models), and

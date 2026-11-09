@@ -254,11 +254,22 @@ void ReleaseModel(Actor &actor) {
     actor.modelPath.clear();
 }
 
+// The model's lighting callback, `__fastcall(instance, record, user)`: the
+// light of the unit's place in the scene's WMO (World::ActorLight), else the
+// frame's.
+void __fastcall OnModelLighting(void * /*instance*/, void *record, Actor *actor) {
+    void *frame = actor->SceneFrame();
+    World::ActorLight(WorldOf(frame), *actor->ambience, frame, record);
+}
+
 } // namespace
 
-Actor::Actor(void *scene, const char *name) : Object(s_class, scene, name) {}
+Actor::Actor(void *scene, const char *name) : Object(s_class, scene, name), ambience(World::NewAmbience()) {}
 
-Actor::~Actor() { ReleaseModel(*this); }
+Actor::~Actor() {
+    ReleaseModel(*this);
+    World::FreeAmbience(ambience);
+}
 
 void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRecord) {
     ClearModel();
@@ -270,8 +281,7 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this));
     M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnAnimDone), user, 0);
     M2::SetEventCallback(model, reinterpret_cast<const void *>(&Events::OnModelEvent), user, 0);
-    M2::SetRenderCallback(model, reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
-                          SceneFrame());
+    M2::SetRenderCallback(model, reinterpret_cast<const void *>(&OnModelLighting), this);
     ApplyAlpha();
     PlayAnimation();
     RunScript(S_ONMODELLOADING, 0);

@@ -27,6 +27,9 @@
 namespace Model::Scene {
 
 class Actor;
+namespace World {
+struct Ambience;
+}
 
 // One PlaySpellVisual on its caster (model/SceneSpell.cpp): the precast, the
 // cast, then the missile in flight.
@@ -102,6 +105,7 @@ class Actor : public Animation::Object {
     uint32_t displayID = 0;
     bool playAnimationSounds = false; // SetPlayAnimationSounds
     bool shadowShown = false;         // SetShadowShown: a blob shadow under the model
+    World::Ambience *ambience;        // its light in the scene's WMO (owned)
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.
     void *dresser = nullptr;
@@ -213,7 +217,21 @@ void Update(Backdrop &backdrop, void *frame, bool sounds);
 void Silence(Backdrop &backdrop);
 // From the paint, after the animate pass: the WMO in the device's view.
 void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3], float farClip);
+// How the world lights a unit that stands in a WMO, kept per actor: the
+// colour of the face under it, or the sun, and the WMO's lights near it.
+struct Ambience;
+Ambience *NewAmbience();
+void FreeAmbience(Ambience *ambience);
+// From the scene's update: places the model in the WMO again when it moved,
+// or when more of the WMO has loaded since.
+void Settle(const Backdrop &backdrop, Ambience &ambience, void *frame, void *model);
+// The actor's lighting slots: the frame's light and fog without a WMO, or
+// before the model is placed in this one.
+void ActorLight(const Backdrop *backdrop, const Ambience &ambience, void *frame, void *record);
 } // namespace World
+
+// The scene's WMO, or null.
+World::Backdrop *WorldOf(void *sceneFrame);
 
 // The scene's sounds (model/SceneSound.cpp), heard from the scene camera:
 // each plays where its scene point lies from the camera, turned into the

@@ -757,8 +757,13 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     for (Actor *actor : *F(self).actors)
         actor->Link();
-    if (World::Backdrop *world = F(self).world)
+    if (World::Backdrop *world = F(self).world) {
         World::Update(*world, self, F(self).playWorldModelSounds);
+        // A seated rider or an attached actor takes its parent's light.
+        for (Actor *actor : *F(self).actors)
+            if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
+                World::Settle(*world, *actor->ambience, self, actor->model);
+    }
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     else
@@ -1675,6 +1680,8 @@ bool NumberArgs(void *L, int first, int count, const char *owner, const char *us
 float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
 
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
+
+World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 
 View CameraView(void *sceneFrame) {
     const Fields &f = F(sceneFrame);
