@@ -16,6 +16,7 @@
 #include "Offsets.h"
 #include "animation/Object.h"
 #include "model/Outfit.h"
+#include "model/SceneContact.h"
 #include "model/TryOn.h"
 
 #include <cstdint>
@@ -31,6 +32,9 @@ namespace Model::Scene {
 class Actor;
 namespace World {
 struct Ambience;
+}
+namespace Mover {
+struct Body;
 }
 
 // The light of a spell's model in flight or left behind, as the world gives
@@ -187,6 +191,10 @@ class Actor : public Animation::Object {
     bool loaded = false; // OnModelLoaded has run for the model
     bool animFinished = false;
 
+    // The client's mover (SetMovementEnabled, a ClassicAPI extension): while
+    // set, it moves `position` and turns `yaw` through the scene's WMO.
+    std::unique_ptr<Mover::Body> mover;
+
     float position[3] = {0.0f, 0.0f, 0.0f};
     float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
     float scale = 1.0f;
@@ -333,6 +341,10 @@ bool Trace(const Backdrop &backdrop, const float (&start)[3], const float (&end)
 // throughout. False when the point is not under a liquid surface of the
 // group below it, or before the WMO has loaded.
 bool LiquidAt(const Backdrop &backdrop, const float (&point)[3], uint32_t &type, float &surface);
+// The world query (0x006721B0) a scene body's sweeps make, for
+// Contact::Facets: the WMO's collision faces in a box (scene space). False
+// without a WMO or before it has loaded, so a body there does not move.
+bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out);
 // Sweeps a body by `move` to its first contact with the WMO's collision
 // faces, as the client's mover sweeps a unit's volume (CMovement::SweepVolume
 // 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and

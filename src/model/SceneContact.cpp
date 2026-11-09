@@ -57,6 +57,7 @@ const float kBevelOut = Bits(0x3F613036);       // sin 61.6° (0x0080DFE4)
 const float kBevelDown = Bits(0x3EF386A4);      // cos 61.6° (0x0080DFE0)
 const float kWaist = Bits(0x3FECB91B);          // tan 61.6° (0x0080C740)
 const float kFltMax = Bits(0x7F7FFFFF);
+const float kTwelfth = Bits(0x3DAAAAAB);        // 1/12, the point-over-facet margin
 
 // The volume's faces as vertex indices (0x00631BE0's store block): the five
 // box faces as quads, in plane order, then the four bevels as triangles.
@@ -420,6 +421,20 @@ Facet MakeFacet(const float (&v0)[3], const float (&v1)[3], const float (&v2)[3]
     f.plane.n[2] = static_cast<float>(z);
     f.plane.d = static_cast<float>(-((z * v0[2] + y * v0[1]) + x * v0[0]));
     return f;
+}
+
+bool PointOverFacet(const Facet &facet, const float (&p)[3]) {
+    // 0x0063364A: the facet's prism along (0, 0, 1), its planes starting
+    // as (0, 0, 1, 0); 0x00633671 sums (x, z, y) and fails above 1/12.
+    const float up[3] = {0.0f, 0.0f, 1.0f};
+    Plane planes[3] = {{{0.0f, 0.0f, 1.0f}, 0.0f}, {{0.0f, 0.0f, 1.0f}, 0.0f}, {{0.0f, 0.0f, 1.0f}, 0.0f}};
+    for (int i = 0; i < 3; ++i)
+        if (!EdgePlane(facet.v[i], facet.v[(i + 1) % 3], facet.v[(i + 2) % 3], up, false, planes[i]))
+            break;
+    for (const Plane &pl : planes)
+        if (((D(pl.n[0]) * p[0] + D(pl.n[2]) * p[2]) + D(pl.n[1]) * p[1]) + pl.d > kTwelfth)
+            return false;
+    return true;
 }
 
 void BaseBox(const float (&p)[3], float radius, float height, float (&box)[6]) {

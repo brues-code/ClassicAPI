@@ -1538,9 +1538,10 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
 // (the same arithmetic as its 0x007BCA80), the plane from their winding. The
 // client's own lists (0x00C4E52C) and cached box are never touched.
 
-bool QueryFacets(void *context, const float (&box)[6], std::vector<Contact::Facet> &out) {
-    const Backdrop &b = *static_cast<const Backdrop *>(context);
+bool QueryFacetsIn(const Backdrop &b, const float (&box)[6], std::vector<Contact::Facet> &out) {
     out.clear();
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return false;
     ResetFacets();
     if (!CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
         return true;
@@ -1567,6 +1568,14 @@ bool QueryFacets(void *context, const float (&box)[6], std::vector<Contact::Face
 }
 
 } // namespace
+
+bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    if (backdrop == nullptr) {
+        out.clear();
+        return false;
+    }
+    return QueryFacetsIn(*static_cast<const Backdrop *>(backdrop), box, out);
+}
 
 bool Sweep(const Backdrop &b, const float (&feet)[3], float radius, float height, const float (&move)[3],
            float (&end)[3], float (&normal)[3]) {

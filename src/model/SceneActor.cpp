@@ -170,8 +170,10 @@
 #include "item/Record.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
+#include "model/SceneMover.h"
 #include "model/VisualKit.h"
 #include "object/Resolve.h"
+#include "time/Clock.h"
 #include "unit/Identity.h"
 #include "xml/FrameLoad.h"
 #include "xml/Mixin.h"
@@ -714,6 +716,13 @@ void Actor::ApplyAlpha() {
 }
 
 void Actor::Update(float elapsedSec) {
+    if (mover != nullptr) {
+        // The movement manager's tick for this body, against the scene's WMO.
+        mover->facets.context = WorldOf(SceneFrame());
+        Mover::Tick(*mover, Time::Clock::NowMs());
+        std::memcpy(position, mover->position, sizeof position);
+        yaw = mover->facing;
+    }
     if (model != nullptr && !loaded) {
         bool ready = M2::IsLoaded(model, 0, 0);
         if (ready && dressRecord != nullptr && dresser == nullptr) {
@@ -1402,12 +1411,113 @@ int __fastcall Script_GetModelPath(void *L) {
     return 1;
 }
 
+// ---- the mover (a ClassicAPI extension) ---------------------------------------------
+
+// The collision box the client gives a unit of the actor's display
+// (CGUnit_C::UpdateCollisionSize 0x0060B270), the actor's scale standing in
+// for the unit's; a model file keeps the constructor's box.
+void SizeMover(Actor &actor) {
+    constexpr float kNoBox = 9.5367431640625e-7f; // 2^-20, its NOCOLLISIONBOX bound
+    if (actor.displayID == 0)
+        return;
+    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, actor.displayID);
+    if (display == nullptr)
+        return;
+    const uint8_t *data =
+        DBC::Record(Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
+                    Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    if (data == nullptr)
+        return;
+    const float width = Game::Read<float>(data, Offsets::OFF_CREATUREMODELDATA_COLLISION_WIDTH);
+    const float height = Game::Read<float>(data, Offsets::OFF_CREATUREMODELDATA_COLLISION_HEIGHT);
+    const float displayScale = Game::Read<float>(display, Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
+    const float scale = actor.scale < displayScale ? displayScale : actor.scale;
+    if (std::fabs(width) < kNoBox || std::fabs(height) < kNoBox || std::fabs(scale) < kNoBox)
+        return;
+    Mover::SetCollisionSize(*actor.mover, width, height, scale, displayScale);
+}
+
+// Puts the body down where the actor stands, as the client puts a unit down
+// after a near teleport: the position reset (0x007C69A0), then the fall
+// gate (0x007C61C0), so it falls to the floor below.
+void PutDown(Actor &actor) {
+    Mover::Tick(*actor.mover, Time::Clock::NowMs());
+    Mover::Reset(*actor.mover, actor.position, actor.yaw);
+    Mover::FallGate(*actor.mover);
+}
+
+int __fastcall Script_SetMovementEnabled(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (Game::Lua::ToBoolean(L, 2) == 0) {
+        actor->mover.reset();
+        return 0;
+    }
+    if (actor->mover == nullptr) {
+        actor->mover = std::make_unique<Mover::Body>();
+        Mover::Init(*actor->mover, actor->position, actor->yaw, Time::Clock::NowMs());
+        actor->mover->facets.query = &World::QueryFacets;
+    }
+    actor->mover->facets.context = WorldOf(actor->SceneFrame());
+    SizeMover(*actor);
+    PutDown(*actor);
+    return 0;
+}
+
+int __fastcall Script_IsMovementEnabled(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->mover != nullptr);
+    return 1;
+}
+
+// A movement command at the body's tick, as the client applies a command
+// at its event time. Nothing without the mover.
+template <bool (*Command)(Mover::Body &)>
+int __fastcall MoverCommand(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || actor->mover == nullptr)
+        return 0;
+    Mover::Tick(*actor->mover, Time::Clock::NowMs());
+    Game::Lua::PushBool(L, Command(*actor->mover));
+    return 1;
+}
+
+bool StartForward(Mover::Body &b) { return Mover::StartMove(b, true); }
+bool StartBackward(Mover::Body &b) { return Mover::StartMove(b, false); }
+bool StartStrafeLeft(Mover::Body &b) { return Mover::StartStrafe(b, true); }
+bool StartStrafeRight(Mover::Body &b) { return Mover::StartStrafe(b, false); }
+bool StartTurnLeft(Mover::Body &b) {
+    Mover::StartTurn(b, true);
+    return true;
+}
+bool StartTurnRight(Mover::Body &b) {
+    Mover::StartTurn(b, false);
+    return true;
+}
+
+int __fastcall Script_IsFalling(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || actor->mover == nullptr || (actor->mover->flags & Mover::FLAG_FALLING) == 0) {
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
+    Game::Lua::PushBool(L, true);
+    Game::Lua::PushNumber(L, -Mover::FallSpeed(*actor->mover));
+    return 2;
+}
+
 int __fastcall Script_SetPosition(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(), "SetPosition(x, y, z)"))
         return 0;
     for (int i = 0; i < 3; ++i)
         actor->position[i] = FloatArg(L, 2 + i);
+    if (actor->mover != nullptr)
+        PutDown(*actor);
     return 0;
 }
 
@@ -1421,7 +1531,18 @@ int __fastcall Script_GetPosition(void *L) {
 }
 
 // The one-number setters and getters.
-constexpr char kUsageSetYaw[] = "SetYaw(yaw)";
+int __fastcall Script_SetYaw(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetYaw(yaw)"))
+        return 0;
+    actor->yaw = FloatArg(L, 2);
+    if (actor->mover != nullptr) {
+        Mover::Tick(*actor->mover, Time::Clock::NowMs());
+        Mover::SetFacing(*actor->mover, actor->yaw);
+    }
+    return 0;
+}
+
 constexpr char kUsageSetPitch[] = "SetPitch(pitch)";
 constexpr char kUsageSetRoll[] = "SetRoll(roll)";
 constexpr char kUsageSetScale[] = "SetScale(scale)";
@@ -1675,12 +1796,25 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetPlayAnimationSounds", &Script_GetPlayAnimationSounds},
     {"SetShadowShown", &Script_SetShadowShown},
     {"IsShadowShown", &Script_IsShadowShown},
+    {"SetMovementEnabled", &Script_SetMovementEnabled},
+    {"IsMovementEnabled", &Script_IsMovementEnabled},
+    {"StartMovingForward", &MoverCommand<&StartForward>},
+    {"StartMovingBackward", &MoverCommand<&StartBackward>},
+    {"StopMoving", &MoverCommand<&Mover::StopMove>},
+    {"StartStrafingLeft", &MoverCommand<&StartStrafeLeft>},
+    {"StartStrafingRight", &MoverCommand<&StartStrafeRight>},
+    {"StopStrafing", &MoverCommand<&Mover::StopStrafe>},
+    {"StartTurningLeft", &MoverCommand<&StartTurnLeft>},
+    {"StartTurningRight", &MoverCommand<&StartTurnRight>},
+    {"StopTurning", &MoverCommand<&Mover::StopTurn>},
+    {"Jump", &MoverCommand<&Mover::Jump>},
+    {"IsFalling", &Script_IsFalling},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
     {"SetPosition", &Script_SetPosition},
     {"GetPosition", &Script_GetPosition},
-    {"SetYaw", &SetFloat<&Actor::yaw, kUsageSetYaw>},
+    {"SetYaw", &Script_SetYaw},
     {"GetYaw", &GetFloat<&Actor::yaw>},
     {"SetPitch", &SetFloat<&Actor::pitch, kUsageSetPitch>},
     {"GetPitch", &GetFloat<&Actor::pitch>},
@@ -1996,6 +2130,53 @@ const Game::Doc::Function kSetShadowShown{
     kShadowShownArg, {}, nullptr, true};
 const Game::Doc::Function kIsShadowShown{"Returns whether the actor shows a blob shadow.", {},
                                          kShadowShownArg, nullptr, true};
+const Game::Doc::Field kMovementEnabledArg[] = {Req("enabled", "bool")};
+const Game::Doc::Function kSetMovementEnabled{
+    "Sets whether the actor moves as a character moves in the world: it walks and runs over the scene's "
+    "WMO, steps up and down ledges, slides along walls, falls, and jumps, at a character's speeds. The "
+    "body is the size the world gives the actor's creature display, at the actor's scale. When you "
+    "turn it on, and when you set the position while it is on, the actor falls to the floor below "
+    "it. While it is on, the actor's position and yaw follow the movement. Without a loaded WMO the "
+    "actor does not move. Off by default.",
+    kMovementEnabledArg, {}, nullptr, true};
+const Game::Doc::Function kIsMovementEnabled{"Returns whether the actor moves as a character.", {},
+                                             kMovementEnabledArg, nullptr, true};
+const Game::Doc::Field kCommandRet[] = {
+    Req("applied", "bool", "False when the command was refused, or kept until the actor lands."),
+};
+const Game::Doc::Function kStartMovingForward{
+    "Starts the actor running forward. In the air the actor keeps the way it jumped or fell, and the "
+    "command takes effect when it lands.",
+    {}, kCommandRet, nullptr, true};
+const Game::Doc::Function kStartMovingBackward{
+    "Starts the actor walking backward. In the air it takes effect when the actor lands.", {}, kCommandRet,
+    nullptr, true};
+const Game::Doc::Function kStopMoving{
+    "Stops the actor moving forward or backward. In the air it takes effect when the actor lands.", {},
+    kCommandRet, nullptr, true};
+const Game::Doc::Function kStartStrafingLeft{
+    "Starts the actor moving to its left. In the air it takes effect when the actor lands.", {},
+    kCommandRet, nullptr, true};
+const Game::Doc::Function kStartStrafingRight{
+    "Starts the actor moving to its right. In the air it takes effect when the actor lands.", {},
+    kCommandRet, nullptr, true};
+const Game::Doc::Function kStopStrafing{
+    "Stops the actor moving to the side. In the air it takes effect when the actor lands.", {},
+    kCommandRet, nullptr, true};
+const Game::Doc::Function kStartTurningLeft{"Starts the actor turning to its left.", {}, kCommandRet,
+                                            nullptr, true};
+const Game::Doc::Function kStartTurningRight{"Starts the actor turning to its right.", {}, kCommandRet,
+                                             nullptr, true};
+const Game::Doc::Function kStopTurning{"Stops the actor turning.", {}, kCommandRet, nullptr, true};
+const Game::Doc::Function kJump{"Makes the actor jump. False when it is already in the air.", {},
+                                kCommandRet, nullptr, true};
+const Game::Doc::Field kIsFallingRets[] = {
+    Req("falling", "bool", "True while the actor is in the air: jumping or falling."),
+    Opt("verticalSpeed", "number", nullptr, "Yards a second, up positive."),
+};
+const Game::Doc::Function kIsFalling{
+    "Returns whether the actor is in the air, and how fast it rises or falls.", {}, kIsFallingRets,
+    nullptr, true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -2080,6 +2261,19 @@ const Game::Doc::Method kMethodDocs[] = {
     {"GetPlayAnimationSounds", &kGetPlayAnimationSounds},
     {"SetShadowShown", &kSetShadowShown},
     {"IsShadowShown", &kIsShadowShown},
+    {"SetMovementEnabled", &kSetMovementEnabled},
+    {"IsMovementEnabled", &kIsMovementEnabled},
+    {"StartMovingForward", &kStartMovingForward},
+    {"StartMovingBackward", &kStartMovingBackward},
+    {"StopMoving", &kStopMoving},
+    {"StartStrafingLeft", &kStartStrafingLeft},
+    {"StartStrafingRight", &kStartStrafingRight},
+    {"StopStrafing", &kStopStrafing},
+    {"StartTurningLeft", &kStartTurningLeft},
+    {"StartTurningRight", &kStartTurningRight},
+    {"StopTurning", &kStopTurning},
+    {"Jump", &kJump},
+    {"IsFalling", &kIsFalling},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

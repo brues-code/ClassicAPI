@@ -6726,6 +6726,13 @@ enum Offsets {
     VAR_CREATUREMODELDATA_RECORDS = 0x00C0DE68,
     VAR_CREATUREMODELDATA_COUNT = 0x00C0DE6C,
     OFF_CREATUREMODELDATA_MODEL_PATH = 0x08,
+    // The collision box a unit's mover takes (CGUnit_C::UpdateCollisionSize
+    // 0x0060B270: width +0x38 and height +0x3C into
+    // CMovement::SetCollisionSize 0x006174B0, "NOCOLLISIONBOX" when either is
+    // below 2^-20), at the larger of the unit's scale and the display's
+    // CreatureModelScale.
+    OFF_CREATUREMODELDATA_COLLISION_WIDTH = 0x38,
+    OFF_CREATUREMODELDATA_COLLISION_HEIGHT = 0x3C,
 
     // CreatureDisplayInfo.extendedDisplayInfoID (col 3) — nonzero for a
     // CHARACTER-based display (shared Character\Race\Sex base model). It indexes

@@ -45,6 +45,11 @@ static_assert(sizeof(Facet) == 0x34, "the client's facet record");
 // v0) normalized, d = -n·v0.
 Facet MakeFacet(const float (&v0)[3], const float (&v1)[3], const float (&v2)[3]);
 
+// IsPointOverListedTriangle (0x006335D0): whether p lies at most 1/12
+// outside each edge of the facet, the edges extruded straight up, so above
+// or below the facet in plan.
+bool PointOverFacet(const Facet &facet, const float (&p)[3]);
+
 // The facet list a sweep reads and the box it covers (0x00C4E52C and its
 // cached box 0x00C4E5A0, min then max). `query` is the world query
 // (0x006721B0): it empties `solid` and fills it with the facets in a box,
