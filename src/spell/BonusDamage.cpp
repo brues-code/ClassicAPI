@@ -53,8 +53,12 @@
 // +15%/rank SpellMod), so an 18-point gap leaked into healing when that pure
 // +damage buff was gained. Reading aura 175 directly (above) sidesteps it.
 //
+//   3. Set bonuses — the bonus spells of every equipped set whose member
+//      count is met (ItemSet.dbc, the same rule the tooltip's set-bonus
+//      lines use), decoded through the same aura walk.
+//
 // Residual: assumes talent ranks supersede (only the learned rank is known —
-// otherwise summed) and misses set-bonus healing granted via a set spell.
+// otherwise summed) and ignores a set's profession-skill requirement.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -185,11 +189,52 @@ void AddSpellHealingAuras(long &total, int spellID, int32_t spirit,
     }
 }
 
+// Set bonuses the equipped gear has earned. The engine's own set-bonus lines
+// (the item tooltip, 0x52DFB9..) count how many of the set's members the
+// player has equipped and light a bonus whose member count (ItemSet.dbc
+// `+0x8C`) is met; the server applies the same bonus spells as auras. Those
+// auras are neither buffs nor known spells, so this is the only pass that
+// sees them — Lawbringer (3) is "Increase Healing 31", Judgement (3) is 57.
+// A set member's record names its set (`OFF_ITEMSTATS_ITEM_SET`), so the
+// equipped count per set is the equipped members' count.
+constexpr int kEquipSlots = 19;
+
+void AddSetBonusHealing(long &total, int32_t spirit, int32_t armor) {
+    struct Worn { uint32_t setID; int count; };
+    Worn worn[kEquipSlots];
+    int sets = 0;
+    for (int slot = 1; slot <= kEquipSlots; ++slot) {
+        const int itemID = Item::ID::FromCGItem(Item::Location::ResolveEquipmentSlot(slot));
+        const uint8_t *record = itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+        const uint32_t setID = record ? Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_ITEM_SET) : 0;
+        if (setID == 0)
+            continue;
+        int s = 0;
+        while (s < sets && worn[s].setID != setID)
+            ++s;
+        if (s == sets)
+            worn[sets++] = {setID, 0};
+        ++worn[s].count;
+    }
+    for (int s = 0; s < sets; ++s) {
+        const uint8_t *set = DBC::Record(Offsets::VAR_ITEMSET_RECORDS, Offsets::VAR_ITEMSET_COUNT,
+                                         worn[s].setID);
+        if (set == nullptr)
+            continue;
+        auto spells = Game::Ptr<const uint32_t>(set, Offsets::OFF_ITEMSET_SPELL_IDS);
+        auto needed = Game::Ptr<const uint32_t>(set, Offsets::OFF_ITEMSET_THRESHOLDS);
+        for (int i = 0; i < Offsets::ITEMSET_MAX_BONUSES; ++i)
+            if (spells[i] != 0 && needed[i] <= static_cast<uint32_t>(worn[s].count))
+                AddSpellHealingAuras(total, static_cast<int>(spells[i]), spirit, armor,
+                                     /*requirePassive=*/false);
+    }
+}
+
 long ComputeHealing() {
     long total = 0;
 
     // Items — flat +healing via the shared StatAccum engine.
-    for (int slot = 1; slot <= 19; ++slot)
+    for (int slot = 1; slot <= kEquipSlots; ++slot)
         total += ItemFlatHealing(Item::Location::ResolveEquipmentSlot(slot));
 
     // Player Spirit / Armor for the aura-175 / aura-199 conversions.
@@ -198,6 +243,8 @@ long ComputeHealing() {
         desc, Offsets::OFF_UNIT_FIELD_STAT_SPIRIT) : 0;
     const int32_t armor = desc ? Game::Read<int32_t>(
         desc, Offsets::OFF_UNIT_FIELD_RESISTANCE_ARMOR) : 0;
+
+    AddSetBonusHealing(total, spirit, armor);
 
     // Active buffs — flat healing + Spirit/Armor conversions, one pass.
     auto *table = reinterpret_cast<const uint8_t *>(

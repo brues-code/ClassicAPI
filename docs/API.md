@@ -21617,8 +21617,11 @@ GetSpellBonusHealing()   -- your +Healing
 > Turtle customs) and exact — e.g. Spiritual Guidance 5/5 with 182 Spirit
 > adds `int(182 × 25 / 100) = 45`.
 >
+> Set bonuses count: a bonus whose piece count your equipped gear meets
+> (for example Lawbringer's 3-piece +31 Healing) is included.
+>
 > Residual: assumes talent ranks supersede (only the learned rank is known)
-> and misses set-bonus healing granted via a set-completion spell.
+> and ignores a set's profession-skill requirement.
 
 ### `GetCritChance()` / `GetRangedCritChance()`
 
