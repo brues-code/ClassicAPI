@@ -19,6 +19,7 @@
 #include "model/TryOn.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,6 +32,18 @@ class Actor;
 namespace World {
 struct Ambience;
 }
+
+// The light of a spell's model in flight or left behind, as the world gives
+// a missile or an effect a light node of its own: an entity standing on the
+// WMO under it (World::Settle / ActorLight), else the frame's light.
+struct EntityLight {
+    explicit EntityLight(void *frame);
+    ~EntityLight();
+    EntityLight(const EntityLight &) = delete;
+    EntityLight &operator=(const EntityLight &) = delete;
+    void *frame;
+    World::Ambience *ambience;
+};
 
 // One PlaySpellVisual on its caster (model/SceneSpell.cpp): the precast, the
 // cast, then the missile in flight.
@@ -57,6 +70,7 @@ struct SpellCast {
     float destination[3] = {};
     int attachment = -1; // the target attachment the launch settled, or -1
     bool sticks = false; // shot from a bow, crossbow or thrown weapon
+    std::unique_ptr<EntityLight> light; // the missile's
 };
 
 // A missile stuck in its target, until its time is up.
@@ -69,6 +83,7 @@ struct StuckMissile {
 struct ImpactModel {
     void *model = nullptr; // one reference
     int framesShown = 0;
+    std::unique_ptr<EntityLight> light;
 };
 
 // A ModelSceneActor: one model in its scene frame's M2 scene, placed by the
@@ -280,7 +295,7 @@ Ambience *NewAmbience();
 void FreeAmbience(Ambience *ambience);
 // From the scene's update: places the model in the WMO again when it moved,
 // or when more of the WMO has loaded since.
-void Settle(const Backdrop &backdrop, Ambience &ambience, void *frame, void *model);
+void Settle(const Backdrop &backdrop, Ambience &ambience, void *frame, void *model, float elapsed);
 // The actor's lighting slots: the frame's light and fog without a WMO, or
 // before the model is placed in this one.
 void ActorLight(const Backdrop *backdrop, const Ambience &ambience, void *frame, void *record);

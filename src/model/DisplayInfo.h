@@ -36,8 +36,9 @@ void *CreateDresser(void *instance, const uint8_t *extraRec);
 bool PumpDresser(void *dresser, bool force = false);
 void DestroyDresser(void *dresser);
 
-// Gives every model attached to `instance` the light and fog callback that
-// `frame` gives its own model, so the children are lit like it.
+// Gives every model attached to `instance` the light and fog callback of
+// `instance` itself, else the one `frame` gives its own model, so the
+// children are lit like it.
 void LightChildren(void *frame, void *instance);
 
 } // namespace Model::DisplayInfo

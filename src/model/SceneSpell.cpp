@@ -61,6 +61,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "model/VisualKit.h"
 #include "sound/Play.h"
@@ -68,10 +69,51 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <utility>
 #include <vector>
 
+namespace Model::Scene {
+
+EntityLight::EntityLight(void *frame) : frame(frame), ambience(World::NewAmbience()) {}
+
+EntityLight::~EntityLight() { World::FreeAmbience(ambience); }
+
+} // namespace Model::Scene
+
 namespace Model::Scene::Casts {
+
+namespace {
+
+// The model's lighting callback, `__fastcall(instance, record, user)`.
+void __fastcall OnEntityLighting(void * /*instance*/, void *record, EntityLight *light) {
+    World::ActorLight(WorldOf(light->frame), *light->ambience, light->frame, record);
+}
+
+void LightAsEntity(void *model, std::unique_ptr<EntityLight> &light, void *frame) {
+    light = std::make_unique<EntityLight>(frame);
+    M2::SetRenderCallback(model, reinterpret_cast<const void *>(&OnEntityLighting), light.get());
+}
+
+// The model drops its callback to the frame's before the light goes.
+void ReleaseLit(void *model, std::unique_ptr<EntityLight> &light) {
+    if (light != nullptr)
+        M2::SetRenderCallback(model, reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
+                              light->frame);
+    light.reset();
+    M2::SetVisible(model, false);
+    M2::Release(model);
+}
+
+// The node's re-placement when it moved and its light's ease, each tick.
+void SettleLight(void *model, EntityLight *light, float elapsed) {
+    if (model == nullptr || light == nullptr || !M2::IsLoaded(model, 0, 0))
+        return;
+    if (World::Backdrop *world = WorldOf(light->frame))
+        World::Settle(*world, *light->ambience, light->frame, model, elapsed);
+}
+
+} // namespace
 
 int RangedLane(const Actor &actor) {
     for (int i = 0; i < 2; ++i) {
@@ -242,7 +284,10 @@ void *RangedModel(const Actor &actor) {
     return M2::FindChild(actor.model, lane == 0 ? Offsets::ATTACH_HAND_RIGHT : Offsets::ATTACH_HAND_LEFT);
 }
 
-void Nock(Actor &actor) { M2::Attach(actor.heldAmmo, actor.model, Offsets::ATTACH_BOW_RELEASE); }
+void Nock(Actor &actor) {
+    M2::Attach(actor.heldAmmo, actor.model, Offsets::ATTACH_BOW_RELEASE);
+    Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
+}
 
 // SetAmmoDisplay (0x0060BA30): the ammo in hand for `display`, made again
 // when it changes; nocked at once while the bow is drawn.
@@ -385,8 +430,7 @@ void ReleaseMissile(SpellCast &cast) {
     StopMissileSound(cast);
     if (cast.missile != nullptr) {
         M2::SetAnimDoneCallback(cast.missile, nullptr, 0, 0);
-        M2::SetVisible(cast.missile, false);
-        M2::Release(cast.missile);
+        ReleaseLit(cast.missile, cast.light);
         cast.missile = nullptr;
     }
 }
@@ -465,6 +509,10 @@ bool Stick(SpellCast &cast) {
     M2::GetBaseTransform(missile, world);
     reinterpret_cast<Multiply_t>(Offsets::FUN_MATRIX_MULTIPLY)(local, world, inverse);
     reinterpret_cast<SetBase_t>(Offsets::FUN_M2MODEL_SET_BASE_TRANSFORM)(missile, local);
+    // The world object goes (0x0061E859); the missile is lit as the target's
+    // child.
+    Model::DisplayInfo::LightChildren(target->SceneFrame(), target->model);
+    cast.light.reset();
     target->stuckMissiles.push_back({missile, static_cast<float>(Offsets::MISSILE_STICK_MS) * 0.001f});
     cast.missile = nullptr;
     return true;
@@ -477,14 +525,14 @@ void LeaveImpactModel(Actor &caster, const SpellCast &cast) {
     void *model = M2::CreateModel(Model::Pane::Scene(caster.SceneFrame()), file);
     if (model == nullptr)
         return;
-    M2::SetRenderCallback(model, reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
-                          caster.SceneFrame());
+    std::unique_ptr<EntityLight> light;
+    LightAsEntity(model, light, caster.SceneFrame());
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {1.0f, 1.0f, 1.0f};
     using SetTRS_t = void(__thiscall *)(void *, const float *, float, const float *, const float *);
     reinterpret_cast<SetTRS_t>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(model, cast.destination, 0.0f,
                                                                   axisZ, scales);
-    caster.impactModels.push_back({model, 0});
+    caster.impactModels.push_back({model, 0, std::move(light)});
 }
 
 // ReleaseMissilesFromHand's point: the first release event the model has,
@@ -569,9 +617,7 @@ void StartCast(Actor &caster, SpellCast &cast) {
         cast.sticks = spell != nullptr && IsRanged(spell) && lane >= 0 && IsBowCrossbowOrThrown(caster.lanes[lane]);
     }
     if (cast.missile != nullptr) {
-        M2::SetRenderCallback(cast.missile,
-                              reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
-                              caster.SceneFrame());
+        LightAsEntity(cast.missile, cast.light, caster.SceneFrame());
         Aim(cast);
         return;
     }
@@ -775,6 +821,11 @@ void Update(Actor &caster, float elapsedSec) {
     }
     caster.releaseEvent = false;
     caster.kitAnimationEnded = false;
+    for (SpellCast &cast : caster.spellCasts)
+        if (cast.phase == SpellCast::Phase::Flight)
+            SettleLight(cast.missile, cast.light.get(), elapsedSec);
+    for (ImpactModel &impact : caster.impactModels)
+        SettleLight(impact.model, impact.light.get(), elapsedSec);
     for (size_t i = 0; i < caster.stuckMissiles.size();) {
         StuckMissile &stuck = caster.stuckMissiles[i];
         stuck.leftSec -= elapsedSec;
@@ -792,8 +843,7 @@ void Update(Actor &caster, float elapsedSec) {
             ++i;
             continue;
         }
-        M2::SetVisible(impact.model, false);
-        M2::Release(impact.model);
+        ReleaseLit(impact.model, impact.light);
         caster.impactModels.erase(caster.impactModels.begin() + static_cast<ptrdiff_t>(i));
     }
 }
@@ -850,10 +900,8 @@ void Drop(Actor &caster) {
     for (SpellCast &cast : caster.spellCasts)
         DropCast(caster, cast);
     caster.spellCasts.clear();
-    for (ImpactModel &impact : caster.impactModels) {
-        M2::SetVisible(impact.model, false);
-        M2::Release(impact.model);
-    }
+    for (ImpactModel &impact : caster.impactModels)
+        ReleaseLit(impact.model, impact.light);
     caster.impactModels.clear();
     for (StuckMissile &stuck : caster.stuckMissiles)
         FreeStuck(stuck);

@@ -4559,6 +4559,13 @@ enum Offsets {
     // the body but not the equipment). `Model::DisplayInfo` fills each child's
     // slot with the same pair so equipment lights like the body.
     FUN_MODEL_INSTANCE_SET_RENDER_CB = 0x007134B0,
+    OFF_MODEL_INSTANCE_RENDER_CB = 0x3BC,
+    OFF_MODEL_INSTANCE_RENDER_CB_USER = 0x3C0,
+    // A missile's light (Ghidra): its world object is an entity light node
+    // made once in flight by CreateLightObjectB (0x00671010, from
+    // 0x0061E655), +0x90 bit 0x2000 clear, so ReattachEntity places it with
+    // AttachEntityToGround as a unit's; the node sets ApplyEntityLighting on
+    // the missile's model. Intensity 1.0 at first.
     // SimpleModelLightCallback — `__fastcall(instance (unused), M2Lighting
     // *record, void *frame)`, ret 4: applies the owning frame's fog
     // (+0x3A4/+0x3A8, through M2LightingSetFog when armed) and light struct
@@ -13939,6 +13946,22 @@ enum Offsets {
     MAPOBJ_GROUP_EXTERIOR = 0x08,
     MAPOBJ_GROUP_EXTERIOR_LIT = 0x40,
     ENTITY_DIRECTIONAL_FLOOR = 0xA8,
+    // An entity's light eases (AnimateMapEntityLight 0x0069E770, each tick
+    // before the draw, by the last frame's time; Ghidra): each byte of the
+    // ambient (+0x9C) steps toward its target (+0xF4) by max(1,
+    // trunc(2.0 (0x00810804) x dt x 255 (0x007FFE58))); with no channel
+    // moving and the entity not indoors both become the day ambient. The
+    // intensity (+0xA4), which scales the directional light (ApplyMapLighting
+    // 0x006A7300), moves toward its target (+0xF8) by 3.3333333 (0x00810808)
+    // x dt. The entity's bake (BakeMapEntityGroupLight 0x0069E4C0) writes the
+    // directional bytes and the ambient TARGET; the target intensity is 1.0
+    // indoors, else 2.5 (0x00810A68; an entity on a map object is not sampled
+    // for shadow), and a new node starts at 1.0 with the day ambient
+    // (0x00670DB0).
+    VAR_ENTITY_COLOR_RATE = 0x00810804,
+    VAR_TWO_FIFTY_FIVE = 0x007FFE58,
+    VAR_ENTITY_INTENSITY_RATE = 0x00810808,
+    VAR_ENTITY_INTENSITY_LIT = 0x00810A68,
     // The map object def fields those queries read (CMapObjDef; also
     // CommitFacets 0x006B8E50, which stores def + 0x94 as a batch's matrix):
     // the placement, its inverse, the CMapObj. Nothing else of a def is read

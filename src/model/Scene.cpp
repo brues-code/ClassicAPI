@@ -843,7 +843,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
         // A seated rider or an attached actor takes its parent's light.
         for (Actor *actor : *F(self).actors)
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
-                World::Settle(*world, *actor->ambience, self, actor->model);
+                World::Settle(*world, *actor->ambience, self, actor->model, elapsedSec);
     }
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);

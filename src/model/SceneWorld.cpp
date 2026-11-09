@@ -86,8 +86,15 @@
 // and takes both groups' lights; an exterior group makes it sun-lit. Torch
 // models emit their own M2 lights into the scene's light grid by being
 // animated, so the actors and the WMO get them as the world's do. Not
-// mirrored: the light gate past the fog end (0x00672A20; past the end the fog
-// colour is all that draws) and the water clip slot (0x006A7650).
+// mirrored: the water clip slot (0x006A7650), and ApplyEntityLighting's light
+// gate (0x00672A20), which skips the light of a model whose sphere lies past
+// the farclip setting (0x00C62964, stored by the farclip cvar at 0x0066F899):
+// such a model is not drawn.
+//
+// Spell models in flight or left behind (missiles, impact models) are lit as
+// the world lights them, as entities of their own standing on the WMO
+// (CreateLightObjectB 0x00671010); a model attached to another (equipment, a
+// stuck arrow, the ammo in hand) takes its parent's callback.
 //
 // Sounds, a switch of the scene (SetPlayWorldModelSounds): the doodad event
 // callback's $DSO / $DSL / $DSE (DoodadModelEvent 0x006951E0) through the
@@ -209,7 +216,10 @@ struct Ambience {
     uint32_t generation = 0;
     float position[3] = {};
     bool interior = false;  // baked from a face; else the sun
-    uint32_t ambient = 0;   // BGRA bytes (+0x9C)
+    uint32_t ambient = 0;   // BGRA bytes (+0x9C), easing toward the target
+    uint32_t ambientTarget = 0; // (+0xF4)
+    float intensity = 1.0f;       // the directional's scale (+0xA4), easing
+    float intensityTarget = 1.0f; // (+0xF8)
     uint32_t directional = 0; // BGRA bytes (+0xA0)
     uint32_t dayWeight = 0; // a day face's blend toward the sun (+0xA3)
     int32_t ground = -1;    // the face's TerrainType id (+0xDC), or -1
@@ -598,7 +608,7 @@ const float (&MapLightDirection())[3] {
 // WMO has fewer than two), the ambient bytes and the directional bytes along
 // `direction`.
 void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambientBytes, uint32_t directionalBytes,
-                   const float (&direction)[3]) {
+                   const float (&direction)[3], float intensity) {
     if (WmoFogShown(b))
         WmoFog(b, record, frame);
     else
@@ -606,6 +616,8 @@ void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambien
     float ambient[3], directional[3];
     ColorOf(ambientBytes, ambient);
     ColorOf(directionalBytes, directional);
+    for (float &c : directional)
+        c *= intensity;
     reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHTING_ADD_AMBIENT)(record, ambient);
     reinterpret_cast<void(__thiscall *)(void *, const float *, const float *)>(Offsets::FUN_M2LIGHTING_ADD_DIRECTIONAL)(
         record, directional, direction);
@@ -619,7 +631,7 @@ void __fastcall DoodadLighting(void * /*instance*/, void *record, Doodad *d) {
     if (d->exterior)
         FrameLightAndFog(record, d->frame);
     else
-        InteriorLight(b, record, d->frame, d->ambient, d->directional, MapLightDirection());
+        InteriorLight(b, record, d->frame, d->ambient, d->directional, MapLightDirection(), EngineFloat(Offsets::VAR_ONE));
     for (const Light &light : d->lights)
         AddLight(record, light.bytes);
 }
@@ -1176,6 +1188,42 @@ void PopObjectSpace() {
     reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)();
 }
 
+// AnimateMapEntityLight (0x0069E770): the ambient bytes and the intensity
+// move toward their targets by the frame's time; settled outside, the
+// ambient follows the day's (the scene light's).
+void Ease(Ambience &a, void *frame, float elapsed) {
+    int step = static_cast<int>(EngineFloat(Offsets::VAR_ENTITY_COLOR_RATE) * elapsed *
+                                EngineFloat(Offsets::VAR_TWO_FIFTY_FIVE));
+    if (step < 1)
+        step = 1;
+    bool moving = false;
+    uint32_t eased = a.ambient;
+    for (int shift = 0; shift <= 16; shift += 8) {
+        int value = static_cast<int>((a.ambient >> shift) & 0xFF);
+        const int target = static_cast<int>((a.ambientTarget >> shift) & 0xFF);
+        if (target == value)
+            continue;
+        moving = true;
+        value = target > value ? (std::min)(value + step, target) : (std::max)(value - step, target);
+        eased = (eased & ~(0xFFu << shift)) | static_cast<uint32_t>(value) << shift;
+    }
+    a.ambient = eased;
+    if (!a.interior && !moving)
+        a.ambient = a.ambientTarget =
+            SunBytes(Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT), Offsets::OFF_M2LIGHT_AMBIENT);
+    const float rate = EngineFloat(Offsets::VAR_ENTITY_INTENSITY_RATE) * elapsed;
+    const float d = a.intensity - a.intensityTarget;
+    if (d < 0.0f) {
+        a.intensity += rate;
+        if (a.intensity > a.intensityTarget)
+            a.intensity = a.intensityTarget;
+    } else if (!(d == 0.0f)) {
+        a.intensity -= rate;
+        if (a.intensity < a.intensityTarget)
+            a.intensity = a.intensityTarget;
+    }
+}
+
 // AttachEntityToGround (0x006A8A20), the map object leg (a scene has no
 // terrain), with SyncLightNode's box, centre and radius and UpdateNode's
 // probe point (0x00613F80).
@@ -1192,6 +1240,9 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     a.lights.clear();
     a.interior = false;
     a.ground = -1;
+    // Not indoors (0x0069E280): the day ambient and 2.5 are the targets.
+    a.ambientTarget = SunBytes(Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT), Offsets::OFF_M2LIGHT_AMBIENT);
+    a.intensityTarget = EngineFloat(Offsets::VAR_ENTITY_INTENSITY_LIT);
 
     // SyncLightNode: the model's bounds through its matrix, their centre and
     // radius, or the translation when the bounds are empty.
@@ -1240,6 +1291,8 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     const uint32_t flags = Game::Read<uint32_t>(loaded, Offsets::OFF_CMAPOBJGROUP_FLAGS);
     const bool interior = (flags & (Offsets::MAPOBJ_GROUP_EXTERIOR | Offsets::MAPOBJ_GROUP_EXTERIOR_LIT)) == 0;
     a.interior = interior;
+    if (interior)
+        a.intensityTarget = EngineFloat(Offsets::VAR_ONE);
     float hit[3] = {0.0f, 0.0f, 0.0f};
     float faceT = 1.0f;
     if (!reinterpret_cast<TraceFace_t>(Offsets::FUN_CMAPOBJDEF_TRACE_GROUP_FACE)(b.def, start, end, group, &face,
@@ -1257,7 +1310,7 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
                                                                             &day))
         return; // the bytes stay as they were, as on the unit
     reinterpret_cast<Split_t>(Offsets::FUN_SPLIT_LIGHT_COLOR)(&color, &a.directional,
-                                                             Offsets::ENTITY_DIRECTIONAL_FLOOR, &a.ambient,
+                                                             Offsets::ENTITY_DIRECTIONAL_FLOOR, &a.ambientTarget,
                                                              Offsets::DOODAD_AMBIENT_CAP);
     a.dayWeight = 0;
     if (!day)
@@ -1266,7 +1319,7 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     const uint32_t weight = color >> 24;
     if (weight != 0) {
         a.directional = BlendBytes(a.directional, SunBytes(sun, Offsets::OFF_M2LIGHT_DIFFUSE), weight);
-        a.ambient = BlendBytes(a.ambient, SunBytes(sun, Offsets::OFF_M2LIGHT_AMBIENT), weight);
+        a.ambientTarget = BlendBytes(a.ambientTarget, SunBytes(sun, Offsets::OFF_M2LIGHT_AMBIENT), weight);
     }
     a.dayWeight = weight;
 }
@@ -1277,22 +1330,32 @@ Ambience *NewAmbience() { return new Ambience(); }
 
 void FreeAmbience(Ambience *ambience) { delete ambience; }
 
-void Settle(const Backdrop &b, Ambience &a, void *frame, void *model) {
+void Settle(const Backdrop &b, Ambience &a, void *frame, void *model, float elapsed) {
     if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return;
     const float *base = Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX);
     const float position[3] = {base[12], base[13], base[14]};
-    if (a.serial == b.serial && a.model == model && a.generation == b.generation) {
+    const bool placed = a.serial == b.serial && a.model == model;
+    bool moved = true;
+    if (placed && a.generation == b.generation) {
         const float dx = position[0] - a.position[0], dy = position[1] - a.position[1],
                     dz = position[2] - a.position[2];
-        if (std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_EPSILON))
-            return;
+        moved = !(std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_EPSILON));
     }
-    a.serial = b.serial;
-    a.model = model;
-    a.generation = b.generation;
-    std::memcpy(a.position, position, sizeof a.position);
-    Place(b, a, frame, model, base);
+    if (!placed) {
+        // A new node (0x00670DB0): intensity 1.0, the day ambient.
+        a.ambient = a.ambientTarget =
+            SunBytes(Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT), Offsets::OFF_M2LIGHT_AMBIENT);
+        a.intensity = a.intensityTarget = EngineFloat(Offsets::VAR_ONE);
+    }
+    if (moved) {
+        a.serial = b.serial;
+        a.model = model;
+        a.generation = b.generation;
+        std::memcpy(a.position, position, sizeof a.position);
+        Place(b, a, frame, model, base);
+    }
+    Ease(a, frame, elapsed);
 }
 
 // ApplyMapLighting (0x006A7300).
@@ -1317,7 +1380,7 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
             for (float &c : direction)
                 c *= k;
         }
-        InteriorLight(*b, record, frame, a.ambient, a.directional, direction);
+        InteriorLight(*b, record, frame, a.ambient, a.directional, direction, a.intensity);
     }
     for (const Light &light : a.lights)
         AddLight(record, light.bytes);
