@@ -977,7 +977,8 @@ const uint8_t *FacetBatch(uint32_t index) {
 // normal in WMO space, unscaled and either way round, read from batch 0 as
 // CMapObj::IntersectSegment (0x006A37B0) reads it.
 bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], float &t, uint32_t &group,
-             uint16_t &face, float (*normal)[3] = nullptr) {
+             uint16_t &face, float (*normal)[3] = nullptr,
+             uint16_t faceMask = Offsets::MAPOBJ_TRACE_MASK_GROUND) {
     using HitsBox_t = bool(__thiscall *)(void *object, const float *start, const float *end, uint32_t group);
     using Intersect_t = bool(__thiscall *)(void *group, void *out, const float *segment, float *t, const void *def,
                                            uint32_t liquidMask, uint16_t faceMask);
@@ -1003,7 +1004,7 @@ bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], 
         float tt = t;
         uint32_t out = 0;
         if (reinterpret_cast<Intersect_t>(Offsets::FUN_CMAPOBJGROUP_INTERSECT_SEGMENT)(
-                loaded, &out, segment, &tt, b.def, 0, Offsets::MAPOBJ_TRACE_MASK_GROUND) &&
+                loaded, &out, segment, &tt, b.def, 0, faceMask) &&
             tt < t) {
             t = tt;
             group = g;
@@ -1430,7 +1431,7 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
 
 int Ground(const Backdrop *b, const Ambience &a) { return b != nullptr && a.serial == b->serial ? a.ground : -1; }
 
-bool Trace(const Backdrop &b, const float (&start)[3], const float (&end)[3], float &fraction,
+bool Trace(const Backdrop &b, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
            float (&normal)[3]) {
     if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return false;
@@ -1438,7 +1439,8 @@ bool Trace(const Backdrop &b, const float (&start)[3], const float (&end)[3], fl
     uint32_t group = 0;
     uint16_t face = 0;
     float local[3] = {0.0f, 0.0f, 0.0f};
-    if (!Nearest(b, start, end, fraction, group, face, &local))
+    if (!Nearest(b, start, end, fraction, group, face, &local,
+                 camera ? Offsets::MAPOBJ_TRACE_MASK_CAMERA : Offsets::MAPOBJ_TRACE_MASK_GROUND))
         return false;
     // Into scene space by the placement's turn: the two ends of the normal
     // through the placement, less each other.

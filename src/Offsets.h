@@ -14049,6 +14049,10 @@ enum Offsets {
     // vertices (float[3], OFF_FACET_BATCH_VERTICES), in WMO space, read right
     // after the group's call, and crosses its edges for the normal.
     MAPOBJ_TRACE_MASK_GROUND = 4,
+    // Face mask 2 (0x82): the camera's set. The camera solver (0x0050E570)
+    // traces with class 0x100171, whose mask builder (0x006A3839) gives 0x82:
+    // detail faces count, the no-camera-collision faces (MOPY 0x02) do not.
+    MAPOBJ_TRACE_MASK_CAMERA = 2,
     FUN_CMAPOBJDEF_TRACE_GROUP_FACE = 0x006A2600,
     FUN_CMAPOBJDEF_GET_FACE_TERRAIN_TYPE = 0x006A26C0,
     FUN_CMAPOBJ_SAMPLE_GROUP_COLOR = 0x006A4DC0,

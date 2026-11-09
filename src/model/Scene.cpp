@@ -1278,7 +1278,7 @@ int __fastcall Script_ClearWorldModel(void *L) {
 int __fastcall Script_TraceSegment(void *L) {
     void *frame = Self(L);
     if (frame == nullptr || !NumberArgs(L, 2, 6, Game::Lua::ObjectDisplayName(frame),
-                                        "TraceSegment(startX, startY, startZ, endX, endY, endZ)"))
+                                        "TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])"))
         return 0;
     const World::Backdrop *world = F(frame).world;
     if (world == nullptr)
@@ -1287,7 +1287,8 @@ int __fastcall Script_TraceSegment(void *L) {
     const float end[3] = {FloatArg(L, 5), FloatArg(L, 6), FloatArg(L, 7)};
     float fraction = 1.0f;
     float normal[3];
-    if (!World::Trace(*world, start, end, fraction, normal))
+    const bool camera = Game::Lua::ToBoolean(L, 8) != 0;
+    if (!World::Trace(*world, start, end, camera, fraction, normal))
         return 0;
     for (int i = 0; i < 3; ++i)
         Game::Lua::PushNumber(L, start[i] + (end[i] - start[i]) * fraction);
@@ -1673,6 +1674,9 @@ const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, n
 const Game::Doc::Field kTraceSegmentArgs[] = {
     Req("startX", "number"), Req("startY", "number"), Req("startZ", "number"),
     Req("endX", "number"),   Req("endY", "number"),   Req("endZ", "number"),
+    Opt("camera", "bool", "false",
+        "Tests the faces that the world's camera collides with instead: small details count, and faces "
+        "made to let the camera through do not."),
 };
 const Game::Doc::Field kTraceSegmentRets[] = {
     Req("hitX", "number"),
