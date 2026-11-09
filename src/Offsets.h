@@ -6376,6 +6376,11 @@ enum Offsets {
     // right hand (attachment 1) for the main-hand lane and the left (2) for
     // the off hand (AttachItemModel 0x0047A0C0).
     FUN_M2MODEL_HAS_ANIMATION = 0x00711960,
+    // A ranged or auto-repeat spell's start sets the caster's sheathe state
+    // to 2 at once (HandleSpellStart 0x006E78F3: SetSheatheState 0x00611CF0
+    // with (2, 1, 1)): the ranged weapon in hand, the melee weapons on their
+    // sheath points. A unit that is not the active player keeps state 2
+    // through its later animations (0x005FDF80 asks for 2 again).
     // IsDeathAnimation `int __stdcall(int anim)`, ret 4 (a jump table). A
     // dead unit plays only death animations: CGUnit_C::PlayAnimation
     // (0x005FE2F0) returns for health below 1 unless the animation is one.

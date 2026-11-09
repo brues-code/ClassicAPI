@@ -99,8 +99,14 @@ class Actor : public Animation::Object {
     // Shows a copy of the unit's model, dressed and armed per autoDress,
     // sheathed and hideWeapons; false (and no model) when it has none.
     bool SetUnitModel(uint64_t guid);
-    // Hangs the held items per sheathed and hideWeapons.
+    // Hangs the held items per sheathed and hideWeapons, or drawn for a
+    // ranged shot.
     void ApplyWeapons();
+    // A ranged spell's start: the ranged weapon in hand, the other held item
+    // sheathed, until SetSheathed or a new model.
+    void DrawRanged();
+    // Whether lane `i` hangs at its sheath point.
+    bool LaneSheathed(int i) const;
     // Puts the item on the model (Outfit::TryOn), once the model has loaded
     // and the item's record is cached; returns the ItemTryOnReason.
     int TryOnItem(const Model::TryOn::Request &request);
@@ -132,6 +138,7 @@ class Actor : public Animation::Object {
     bool autoDress = true;
     bool sheathed = false;
     bool hideWeapons = false;
+    bool rangedDrawn = false; // the unit's sheathe state 2
     // Per lane: the SetSheathedCategory category (Outfit::SheatheCategory),
     // and the sheathe type the lane's item has of its own. The lane itself
     // holds the type it hangs with.
@@ -198,6 +205,9 @@ class Actor : public Animation::Object {
 
 // The spell visuals an actor casts (model/SceneSpell.cpp).
 namespace Casts {
+// The held item the caster shoots with (an INVTYPE_RANGED, THROWN or
+// RANGEDRIGHT lane), or -1.
+int RangedLane(const Actor &caster);
 // Starts the cast; false when the spell, its visual or the caster's model is
 // missing. `castTimeMs` < 0 takes the spell's cast time.
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);

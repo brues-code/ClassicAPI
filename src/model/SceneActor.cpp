@@ -240,6 +240,7 @@ void ReleaseModel(Actor &actor) {
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
+    actor.rangedDrawn = false;
     actor.ammoDisplay = 0;
     for (Outfit::Appearance &slot : actor.worn)
         slot = Outfit::Appearance{};
@@ -332,8 +333,22 @@ void Actor::ApplyWeapons() {
     if (model == nullptr)
         return;
     Outfit::HangWeapons(model, lanes, weapons, sheathed, hideWeapons);
+    for (int i = 0; i < 2; ++i)
+        if (LaneSheathed(i) != sheathed)
+            Outfit::SetSheatheType(model, lanes, i, weapons, lanes[i].sheatheType, LaneSheathed(i), hideWeapons);
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
 }
+
+// Sheathe state 2, as SetSheatheState (0x00611CF0) applies it at once; a
+// second ranged spell finds it set and changes nothing.
+void Actor::DrawRanged() {
+    if (rangedDrawn || model == nullptr)
+        return;
+    rangedDrawn = true;
+    ApplyWeapons();
+}
+
+bool Actor::LaneSheathed(int i) const { return rangedDrawn ? i != Casts::RangedLane(*this) : sheathed; }
 
 void Actor::TookLane(void *onModel, int i) {
     ownSheathe[i] = lanes[i].sheatheType;
@@ -347,7 +362,7 @@ void Actor::ApplySheatheCategory(void *onModel, int i) {
         useUnitSheatheCategory ? Outfit::kSheatheDefault : sheatheCategory[i];
     const uint8_t type = Outfit::SheatheTypeFor(ownSheathe[i], category);
     if (type != lanes[i].sheatheType)
-        Outfit::SetSheatheType(onModel, lanes, i, weapons, type, sheathed, hideWeapons);
+        Outfit::SetSheatheType(onModel, lanes, i, weapons, type, LaneSheathed(i), hideWeapons);
 }
 
 namespace {
@@ -395,7 +410,10 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
         ShowIfNotEquippable(record);
     Outfit::HeldTryOn held;
     held.bodySlot = request.bodySlot;
-    held.dualWield = Outfit::CanDualWield(actor.unitGuid);
+    // The dressing room's test (TryOnItem asks the active player's skill only
+    // when it shows that player) is for a unit's model. A creature display
+    // or a model file holds two one-handers, as the world draws an NPC's.
+    held.dualWield = actor.unitGuid == 0 || Outfit::CanDualWield(actor.unitGuid);
     held.sheathed = actor.sheathed;
     held.hide = actor.hideWeapons;
     held.enchant = request.enchant;
@@ -411,6 +429,8 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
         if (actor.weapons.visual[lane] != 0)
             slot.enchant = request.enchant;
         actor.TookLane(actor.model, lane);
+        if (actor.rangedDrawn)
+            actor.ApplyWeapons();
     }
     Outfit::TrimWorn(actor.dresser, actor.lanes, actor.worn);
     Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
@@ -749,6 +769,7 @@ int __fastcall Script_SetModelByUnit(void *L) {
         return 0;
     }
     actor->sheathed = Game::Lua::ToBoolean(L, 3) != 0;
+    actor->rangedDrawn = false;
     actor->autoDress = Game::Lua::Type(L, 4) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 4) != 0;
     actor->hideWeapons = Game::Lua::ToBoolean(L, 5) != 0;
     const uint64_t guid = Unit::Identity::GuidForToken(Game::Lua::ToString(L, 2));
@@ -896,6 +917,7 @@ int __fastcall Script_SetSheathed(void *L) {
         return 0;
     actor->sheathed = Game::Lua::ToBoolean(L, 2) != 0;
     actor->hideWeapons = Game::Lua::ToBoolean(L, 3) != 0;
+    actor->rangedDrawn = false;
     actor->ApplyWeapons();
     return 0;
 }

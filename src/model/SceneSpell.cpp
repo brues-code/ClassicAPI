@@ -73,6 +73,17 @@
 
 namespace Model::Scene::Casts {
 
+int RangedLane(const Actor &actor) {
+    for (int i = 0; i < 2; ++i) {
+        const uint32_t type = actor.lanes[i].inventoryType;
+        if (actor.lanes[i].itemClass != 0 &&
+            (type == Offsets::INVTYPE_RANGED || type == Offsets::INVTYPE_THROWN ||
+             type == Offsets::INVTYPE_RANGEDRIGHT))
+            return i;
+    }
+    return -1;
+}
+
 namespace {
 
 // The release events, '$CSL', '$CSR', '$CST'.
@@ -135,19 +146,6 @@ bool HasTintProcedure(const uint8_t *kit) {
             return true;
     }
     return false;
-}
-
-// The held item the caster shoots with (an INVTYPE_RANGED, THROWN or
-// RANGEDRIGHT lane), or -1.
-int RangedLane(const Actor &actor) {
-    for (int i = 0; i < 2; ++i) {
-        const uint32_t type = actor.lanes[i].inventoryType;
-        if (actor.lanes[i].itemClass != 0 &&
-            (type == Offsets::INVTYPE_RANGED || type == Offsets::INVTYPE_THROWN ||
-             type == Offsets::INVTYPE_RANGEDRIGHT))
-            return i;
-    }
-    return -1;
 }
 
 bool IsRanged(const uint8_t *spell) {
@@ -741,8 +739,10 @@ bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
     // HandleSpellStart (0x006E78A1): a ranged or auto-repeat spell sets the
     // ammo in hand.
     if (IsRanged(spell) || (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
-                            Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG) != 0)
+                            Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG) != 0) {
         HoldAmmo(caster, cast.ammoDisplay);
+        caster.DrawRanged();
+    }
     cast.target = target != nullptr ? target : &caster;
     caster.spellCasts.push_back(std::move(cast));
     SpellCast &added = caster.spellCasts.back();
