@@ -6376,6 +6376,10 @@ enum Offsets {
     // right hand (attachment 1) for the main-hand lane and the left (2) for
     // the off hand (AttachItemModel 0x0047A0C0).
     FUN_M2MODEL_HAS_ANIMATION = 0x00711960,
+    // IsDeathAnimation `int __stdcall(int anim)`, ret 4 (a jump table). A
+    // dead unit plays only death animations: CGUnit_C::PlayAnimation
+    // (0x005FE2F0) returns for health below 1 unless the animation is one.
+    FUN_IS_DEATH_ANIMATION = 0x005FDA90,
     ANIM_STAND = 0,
     ANIM_BOW_PULL = 160,
     ANIM_BOW_RELEASE = 161,

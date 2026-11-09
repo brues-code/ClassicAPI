@@ -461,9 +461,26 @@ void Actor::ClearModel() {
     RunScript(S_ONMODELCLEARED, 0);
 }
 
+namespace {
+
+bool IsDeathAnimation(int anim) {
+    return reinterpret_cast<int(__stdcall *)(int)>(Offsets::FUN_IS_DEATH_ANIMATION)(anim) != 0;
+}
+
+} // namespace
+
+// An actor whose own animation is a death animation is dead to its spells, as
+// a unit without health is to its PlayAnimation (0x005FE2F0): a kit's
+// animation (a cast, an impact, a wound) does not play over the death, and a
+// death drops the one that plays.
 void Actor::PlayAnimation() {
     if (model == nullptr)
         return;
+    if (kitAnimation >= 0 && IsDeathAnimation(static_cast<int>(animation)) && !IsDeathAnimation(kitAnimation)) {
+        kitAnimation = -1;
+        kitAnimationLoops = false;
+        kitAnimationEnded = true;
+    }
     heldPositionMs = -1; // a paused actor holds the new animation's first frame
     // An end the scene's advance reported for the animation this replaces is
     // not this one's: the engine reports a replaced play as reason 1, which
