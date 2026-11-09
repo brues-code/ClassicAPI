@@ -53,6 +53,7 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "dbc/Lookup.h"
+#include "model/M2.h"
 #include "sound/Play.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
@@ -75,6 +76,7 @@ constexpr uint32_t Tag(char a, char b, char c, char d) {
 constexpr uint32_t kCSL = Tag('$', 'C', 'S', 'L');
 constexpr uint32_t kCSR = Tag('$', 'C', 'S', 'R');
 constexpr uint32_t kCST = Tag('$', 'C', 'S', 'T');
+constexpr uint32_t kBWR = Tag('$', 'B', 'W', 'R');
 constexpr uint32_t kFD1 = Tag('$', 'F', 'D', '1');
 constexpr uint32_t kFD4 = Tag('$', 'F', 'D', '4');
 constexpr uint32_t kFDX = Tag('$', 'F', 'D', 'X');
@@ -226,18 +228,34 @@ void PlaySound(Actor &actor, uint32_t tag, uint32_t data) {
         Play(actor, Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_WING_GLIDE));
 }
 
+// $BWR's point (0x00600159): a bow animation releases from the body's
+// attachment 35, a rifle animation from 36, any other from the event's point.
+void BowReleasePoint(const Actor &actor, float (&point)[3]) {
+    using IsAnim_t = int(__fastcall *)(int anim);
+    const int anim = actor.CurrentAnimation();
+    uint32_t attachment = 0;
+    if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_BOW_ANIMATION)(anim) != 0)
+        attachment = Offsets::ATTACH_BOW_RELEASE;
+    else if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_RIFLE_ANIMATION)(anim) != 0)
+        attachment = Offsets::ATTACH_RIFLE_RELEASE;
+    if (attachment != 0 && actor.model != nullptr && M2::HasAttachment(actor.model, attachment))
+        M2::GetAttachmentPosition(actor.model, attachment, point);
+}
+
 } // namespace
 
 void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
                             uint32_t userLow, uint32_t /*userHigh*/) {
     auto *actor = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
-    if (tag == kCSL || tag == kCSR || tag == kCST) {
+    if (tag == kCSL || tag == kCSR || tag == kCST || tag == kBWR) {
         // The unit's callback drops a point that is not a number (0x00607840).
         if (point == nullptr || std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
             return;
         actor->releaseEvent = true;
         for (int i = 0; i < 3; ++i)
             actor->releasePoint[i] = point[i];
+        if (tag == kBWR)
+            BowReleasePoint(*actor, actor->releasePoint);
         return;
     }
     if (actor->playAnimationSounds)

@@ -29,7 +29,8 @@ constexpr uint32_t kBodySlotOffHand = 0x10;
 // pane stores it (OFF_DRESSUPMODEL_*_HAND_LANE).
 struct HeldLane {
     uint8_t itemClass; // 0 = empty
-    uint8_t unknown1[2];
+    uint8_t subclass; // the item subclass (UNIT_VIRTUAL_ITEM_INFO byte 1)
+    uint8_t unknown2;
     uint8_t inventoryType;
     uint8_t sheatheType;
     uint8_t unknown5[3];

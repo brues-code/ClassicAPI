@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "Offsets.h"
 #include "animation/Object.h"
 #include "model/Outfit.h"
 #include "model/TryOn.h"
@@ -36,7 +37,13 @@ struct Ambience;
 struct SpellCast {
     enum class Phase { Precast, Cast, Flight };
     uint32_t spellID = 0;
-    const uint8_t *visual = nullptr; // SpellVisual record
+    // The visual the caster shows (UnitGetSpellVisual's 64 bytes: the
+    // spell's record, a ranged spell's gaps filled from its weapon's).
+    uint8_t visual[Offsets::SPELL_VISUAL_SIZE] = {};
+    // The ammo the shot carries (SMSG_SPELL_GO's): an ItemDisplayInfo id and
+    // inventory type, 0 for a spell that is not ranged.
+    uint32_t ammoDisplay = 0;
+    uint32_t ammoType = 0;
     Actor *target = nullptr;         // the caster for a cast on itself
     Phase phase = Phase::Precast;
     float precastLeftSec = 0.0f;
@@ -123,6 +130,9 @@ class Actor : public Animation::Object {
     uint32_t sheatheCategory[2] = {};
     uint8_t ownSheathe[2] = {};
     bool useUnitSheatheCategory = false; // UseUnitSheatheCategory
+    // The ammo tried on (an INVTYPE_AMMO item, as a player equips it): its
+    // ItemDisplayInfo id, 0 for none.
+    uint32_t ammoDisplay = 0;
     // Lane `i` (on `onModel`, the actor's model or the copy being built) was
     // just filled with its item's own type: hang it per its category.
     void TookLane(void *onModel, int i);
@@ -161,7 +171,10 @@ class Actor : public Animation::Object {
     bool kitAnimationLoops = false;
     bool kitAnimationEnded = false; // a once-only kit animation ended this frame
     void PlayKitAnimation(int anim, bool loops);
-    // A $CSL / $CSR / $CST event of the model this frame, and its point.
+    // The animation the body plays: a spell kit's, else the script's.
+    int CurrentAnimation() const { return kitAnimation >= 0 ? kitAnimation : static_cast<int>(animation); }
+    // A release event of the model this frame ($CSL / $CSR / $CST, or $BWR
+    // from the bow or rifle release point), and its point.
     bool releaseEvent = false;
     float releasePoint[3] = {};
     std::vector<SpellCast> spellCasts;

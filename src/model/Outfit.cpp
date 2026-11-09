@@ -333,7 +333,7 @@ int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &
     ClearLane(model, lanes, lane);
     HeldLane &target = lanes[lane];
     target.itemClass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS));
-    target.unknown1[0] = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS));
+    target.subclass = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS));
     target.inventoryType = static_cast<uint8_t>(type);
     target.sheatheType = static_cast<uint8_t>(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SHEATH));
     const uint8_t *display = DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS,

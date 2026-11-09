@@ -240,6 +240,7 @@ void ReleaseModel(Actor &actor) {
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
+    actor.ammoDisplay = 0;
     for (Outfit::Appearance &slot : actor.worn)
         slot = Outfit::Appearance{};
     actor.armorReady = true;
@@ -351,11 +352,18 @@ void Actor::ApplySheatheCategory(void *onModel, int i) {
 
 namespace {
 
+bool IsAmmo(const uint8_t *record) {
+    return Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE) == Offsets::INVTYPE_AMMO;
+}
+
 // The worker's answer for `record` on the actor: what TryOnItem's gates allow.
+// Ammo, which the worker refuses, is the actor's to shoot (an extension).
 int TryOnReason(const Actor &actor, const uint8_t *record) {
     if (actor.model == nullptr ||
         Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID) == 0)
         return TryOn::kNotEquippable;
+    if (IsAmmo(record))
+        return TryOn::kSuccess;
     switch (Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE))) {
     case Outfit::Arm::Armor: // a component now, or the display's once it loads
         return (actor.dresser != nullptr || actor.dressRecord != nullptr) && actor.armorReady
@@ -379,6 +387,10 @@ void ShowIfNotEquippable(const uint8_t *record) {
 // item, and on a hand the enchant whose glow it shows; an item it evicts
 // wears nothing.
 void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
+    if (IsAmmo(record)) {
+        actor.ammoDisplay = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
+        return;
+    }
     if (!request.quiet)
         ShowIfNotEquippable(record);
     Outfit::HeldTryOn held;
@@ -1625,8 +1637,9 @@ const Game::Doc::Field kTryOnArgs[] = {
 };
 const Game::Doc::Field kTryOnRet[] = {Req("result", "ItemTryOnReason")};
 const Game::Doc::Function kTryOn{
-    "Puts an item on the actor. Armor needs a character model. The item goes on once its data "
-    "and the model have loaded.",
+    "Puts an item on the actor. Armor needs a character model. Arrows and bullets become the "
+    "ammo that PlaySpellVisual shoots with a ranged spell (a ClassicAPI extension). The item goes "
+    "on once its data and the model have loaded.",
     kTryOnArgs, kTryOnRet};
 const Game::Doc::Field kDressSlotArgs[] = {
     Req("invSlot", "luaIndex", "An inventory slot, 1 (head) to 19 (tabard)."),
@@ -1738,7 +1751,9 @@ const Game::Doc::Field kPlaySpellVisualArgs[] = {
 const Game::Doc::Function kPlaySpellVisual{
     "Plays the visual of a spell cast from this actor at the target: the preparation, the cast, "
     "the missile and the impact, with their animations and sounds, heard from the scene's camera. "
-    "False when the spell has no visual or this actor shows no model.",
+    "A ranged spell such as Auto Shot takes what it lacks from the actor's ranged weapon, and "
+    "shoots the actor's ammo (from TryOn; without it, a plain arrow or bullet). False when the "
+    "spell has no visual or this actor shows no model.",
     kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
 const Game::Doc::Function kStopSpellVisual{
     "Interrupts the spells this actor is still preparing from PlaySpellVisual: their preparation "

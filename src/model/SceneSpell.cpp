@@ -67,6 +67,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -134,6 +135,91 @@ bool HasTintProcedure(const uint8_t *kit) {
             return true;
     }
     return false;
+}
+
+// The held item the caster shoots with (an INVTYPE_RANGED, THROWN or
+// RANGEDRIGHT lane), or -1.
+int RangedLane(const Actor &actor) {
+    for (int i = 0; i < 2; ++i) {
+        const uint32_t type = actor.lanes[i].inventoryType;
+        if (actor.lanes[i].itemClass != 0 &&
+            (type == Offsets::INVTYPE_RANGED || type == Offsets::INVTYPE_THROWN ||
+             type == Offsets::INVTYPE_RANGEDRIGHT))
+            return i;
+    }
+    return -1;
+}
+
+bool IsRanged(const uint8_t *spell) {
+    return (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & Offsets::SPELL_ATTR_RANGED) != 0;
+}
+
+// UnitGetSpellVisual (0x0060D450) for the actor: the spell's visual, and for
+// a ranged spell the empty fields filled from its ranged weapon's visual.
+// False when neither exists.
+bool BuildVisual(const Actor &caster, const uint8_t *spell, uint8_t (&out)[Offsets::SPELL_VISUAL_SIZE]) {
+    using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
+    const uint8_t *own = reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell);
+    const uint8_t *weapon = nullptr;
+    const int lane = RangedLane(caster);
+    if (IsRanged(spell) && lane >= 0 && caster.weapons.display[lane] != nullptr)
+        weapon = DBC::Record(Offsets::VAR_SPELLVISUAL_RECORDS, Offsets::VAR_SPELLVISUAL_COUNT,
+                             Game::Read<uint32_t>(caster.weapons.display[lane],
+                                                  Offsets::OFF_ITEMDISPLAYINFO_SPELL_VISUAL));
+    if (own == nullptr && weapon == nullptr)
+        return false;
+    if (own != nullptr)
+        std::memcpy(out, own, sizeof out);
+    else
+        std::memset(out, 0, sizeof out);
+    if (weapon == nullptr)
+        return true;
+    const auto field = [&out](uintptr_t at) -> uint32_t & { return *reinterpret_cast<uint32_t *>(out + at); };
+    const auto fill = [&](uintptr_t at) {
+        if (field(at) == 0)
+            field(at) = Game::Read<uint32_t>(weapon, at);
+    };
+    fill(Offsets::OFF_SPELLVISUAL_PRECAST_KIT);
+    fill(Offsets::OFF_SPELLVISUAL_CAST_KIT);
+    fill(Offsets::OFF_SPELLVISUAL_IMPACT_KIT);
+    if (field(Offsets::OFF_SPELLVISUAL_HAS_MISSILE) == 0 &&
+        Game::Read<uint32_t>(weapon, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) != 0) {
+        field(Offsets::OFF_SPELLVISUAL_HAS_MISSILE) = 1;
+        field(Offsets::OFF_SPELLVISUAL_MISSILE_MODEL) =
+            Game::Read<uint32_t>(weapon, Offsets::OFF_SPELLVISUAL_MISSILE_MODEL);
+    }
+    fill(Offsets::OFF_SPELLVISUAL_MISSILE_PATH);
+    fill(Offsets::OFF_SPELLVISUAL_MISSILE_ATTACHMENT);
+    fill(Offsets::OFF_SPELLVISUAL_MISSILE_SOUND);
+    fill(Offsets::OFF_SPELLVISUAL_PRECAST_SOUND);
+    return true;
+}
+
+// The ammo a ranged spell's packets carry (the server's WriteAmmoToPacket):
+// a thrown weapon is its own ammo; a bow, crossbow or gun shoots the ammo
+// tried on, else what the server gives an NPC (Rough Arrow, Light Shot).
+void ShotAmmo(const Actor &caster, const uint8_t *spell, uint32_t &display, uint32_t &type) {
+    display = type = 0;
+    const int lane = RangedLane(caster);
+    if (!IsRanged(spell) || lane < 0)
+        return;
+    const Outfit::HeldLane &held = caster.lanes[lane];
+    if (held.inventoryType == Offsets::INVTYPE_THROWN) {
+        if (caster.weapons.display[lane] != nullptr) {
+            display = Game::Read<uint32_t>(caster.weapons.display[lane], 0);
+            type = Offsets::INVTYPE_THROWN;
+        }
+        return;
+    }
+    if (caster.ammoDisplay != 0)
+        display = caster.ammoDisplay;
+    else if (held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_BOW ||
+             held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_CROSSBOW)
+        display = Offsets::NPC_ARROW_DISPLAY;
+    else if (held.subclass == Offsets::ITEM_SUBCLASS_WEAPON_GUN)
+        display = Offsets::NPC_BULLET_DISPLAY;
+    if (display != 0)
+        type = Offsets::INVTYPE_AMMO;
 }
 
 void EndPrecast(Actor &caster, SpellCast &cast) {
@@ -260,6 +346,32 @@ bool Launch(Actor &caster, SpellCast &cast, const float (&from)[3]) {
     return true;
 }
 
+// The launcher's model (0x0060A3D0): the visual's missile model, else the
+// ammo's, else the error cube. A shot made during a rifle animation is drawn
+// at alpha 0 (the bullet is not seen).
+void *MakeMissile(Actor &caster, const SpellCast &cast) {
+    using LooseItem_t = void *(__fastcall *)(void *model, const void *record, uint32_t kind);
+    void *scene = Model::Pane::Scene(caster.SceneFrame());
+    void *model = nullptr;
+    const auto effect = Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_MODEL);
+    if (effect < 1) {
+        if (cast.ammoDisplay != 0)
+            model = reinterpret_cast<LooseItem_t>(Offsets::FUN_CREATE_LOOSE_ITEM_MODEL)(
+                caster.model,
+                DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
+                            cast.ammoDisplay),
+                cast.ammoType == Offsets::INVTYPE_THROWN ? Offsets::LOOSE_ITEM_WEAPON : Offsets::LOOSE_ITEM_AMMO);
+    } else if (const char *file = EffectFile(static_cast<uint32_t>(effect))) {
+        model = M2::CreateModel(scene, file);
+    }
+    if (model == nullptr)
+        model = M2::CreateModel(scene, kErrorCube);
+    if (model != nullptr && reinterpret_cast<int(__fastcall *)(int)>(Offsets::FUN_IS_RIFLE_ANIMATION)(
+                                caster.CurrentAnimation()) != 0)
+        M2::SetAlpha(model, 0.0f);
+    return model;
+}
+
 void StartCast(Actor &caster, SpellCast &cast) {
     EndPrecast(caster, cast);
     cast.phase = SpellCast::Phase::Cast;
@@ -267,16 +379,11 @@ void StartCast(Actor &caster, SpellCast &cast) {
     const auto *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
                                     cast.spellID);
     cast.speed = spell != nullptr ? Game::Read<float>(spell, Offsets::OFF_SPELL_RECORD_SPEED) : 0.0f;
-    const bool missile = Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) != 0 &&
+    const bool missile = (Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) != 0 ||
+                          cast.ammoDisplay != 0) &&
                          cast.speed > 0.0f && cast.target != &caster;
-    if (missile) {
-        const char *file =
-            EffectFile(Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_MODEL));
-        void *scene = Model::Pane::Scene(caster.SceneFrame());
-        cast.missile = M2::CreateModel(scene, file != nullptr ? file : kErrorCube);
-        if (cast.missile == nullptr)
-            cast.missile = M2::CreateModel(scene, kErrorCube);
-    }
+    if (missile)
+        cast.missile = MakeMissile(caster, cast);
     if (cast.missile != nullptr) {
         M2::SetRenderCallback(cast.missile,
                               reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB),
@@ -359,14 +466,13 @@ void Stop(Actor &caster) {
 }
 
 bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
-    using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
     using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
     const uint8_t *spell =
         DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, spellID);
     if (spell == nullptr || caster.model == nullptr)
         return false;
-    const uint8_t *visual = reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell);
-    if (visual == nullptr)
+    uint8_t visual[Offsets::SPELL_VISUAL_SIZE];
+    if (!BuildVisual(caster, spell, visual))
         return false;
     // A new cast ends the precast of one still preparing.
     Stop(caster);
@@ -375,7 +481,8 @@ bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
             static_cast<int>(spellID), 0, 0);
     SpellCast cast;
     cast.spellID = spellID;
-    cast.visual = visual;
+    std::memcpy(cast.visual, visual, sizeof visual);
+    ShotAmmo(caster, spell, cast.ammoDisplay, cast.ammoType);
     cast.target = target != nullptr ? target : &caster;
     caster.spellCasts.push_back(std::move(cast));
     SpellCast &added = caster.spellCasts.back();

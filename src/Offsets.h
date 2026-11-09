@@ -6294,6 +6294,7 @@ enum Offsets {
     OFF_SPELLVISUAL_IMPACT_KIT = 0x0C,
     OFF_SPELLVISUAL_HAS_MISSILE = 0x18,
     OFF_SPELLVISUAL_MISSILE_MODEL = 0x1C,
+    OFF_SPELLVISUAL_MISSILE_PATH = 0x20, // the missile's path type (0 for Fireball's row 67)
     OFF_SPELLVISUAL_MISSILE_ATTACHMENT = 0x24,
     OFF_SPELLVISUAL_MISSILE_SOUND = 0x28,
     OFF_SPELLVISUAL_IMPACT_MODEL = 0x30,
@@ -6310,6 +6311,52 @@ enum Offsets {
     // violenceLevel cvar is below 2 and that id is set; null outside the
     // store (Ghidra 0x006EC1E0, benilla spell/visuals#spell-visual-record-choice).
     FUN_GET_SPELL_VISUAL = 0x006EC1E0,
+    VAR_SPELLVISUAL_RECORDS = 0x00C0D738,
+    VAR_SPELLVISUAL_COUNT = 0x00C0D73C,
+    SPELL_VISUAL_SIZE = 0x40,
+    // ---- A ranged shot (benilla objectlayer/auras "Precast and spell visual
+    // choice", "Missiles"; objectlayer/unitcombat "The ranged release").
+    // UnitGetSpellVisual (0x0060D450, ret 8) builds the 64-byte visual a
+    // unit shows: the spell's record, and for a ranged spell (Attributes
+    // 0x2) the zero fields +0x04, +0x08, +0x0C, +0x20, +0x24, +0x28 and +0x38
+    // filled from the SpellVisual of the ranged item's ItemDisplayInfo
+    // (+0x28; the unit's vtable +0xA0(2) gives the display), and +0x18 = 1
+    // with +0x1C when that visual has a missile; null when neither exists.
+    // Auto Shot (75) has no visual of its own: a bow's (display 8106 ->
+    // visual 5) gives LoadBow / AttackBow kits, attachment index 1 and the
+    // flight sound 4222 (parsed from the DBCs).
+    // The ammo: SMSG_SPELL_START / GO carry an ammo display and inventory
+    // type for a ranged spell (Attributes 0x2; the server's WriteAmmoToPacket:
+    // a thrown weapon is its own ammo, else the player's ammo item; an NPC
+    // with a bow or crossbow shoots 5996 Rough Arrow, with a gun 5998 Light
+    // Shot). The launcher (CGUnit_C::LaunchSpellMissile 0x0060A3D0) makes the
+    // missile from the visual's +0x1C when it is at least 1, else from the
+    // ammo through CreateLooseItemModel `__fastcall(model, record, kind)` ret
+    // 4 (0x00479F40: the record's second model and texture under
+    // Item\ObjectComponents\Ammo\ for kind 0x18, Weapon\ for 0x19, in the
+    // body model's scene), else Spells\ErrorCube.mdx; a missile launched
+    // while the caster plays a rifle animation is drawn at alpha 0. The
+    // launch needs the visual's +0x18 or an ammo display (0x006E8A50).
+    SPELL_ATTR_RANGED = 0x2,
+    OFF_ITEMDISPLAYINFO_SPELL_VISUAL = 0x28,
+    FUN_CREATE_LOOSE_ITEM_MODEL = 0x00479F40,
+    LOOSE_ITEM_AMMO = 0x18,   // the kind for ammo
+    LOOSE_ITEM_WEAPON = 0x19, // the kind for a thrown weapon
+    NPC_ARROW_DISPLAY = 5996,
+    NPC_BULLET_DISPLAY = 5998,
+    ITEM_SUBCLASS_WEAPON_BOW = 2,
+    ITEM_SUBCLASS_WEAPON_GUN = 3,
+    ITEM_SUBCLASS_WEAPON_THROWN = 16,
+    ITEM_SUBCLASS_WEAPON_CROSSBOW = 18,
+    // The ranged release (CGUnit_C::OnModelEvent's $BWR arm, 0x00600159):
+    // with missiles queued, a bow animation (IsBowAnimation 0x005FCFB0: 46,
+    // 105, 109) releases them from the body's attachment 35, a rifle
+    // animation (IsRifleAnimation 0x005FCFD0: 49, 106, 110) from 36, any other
+    // from the event's point. Both tests `__fastcall(int anim)` -> 0 / 1.
+    FUN_IS_BOW_ANIMATION = 0x005FCFB0,
+    FUN_IS_RIFLE_ANIMATION = 0x005FCFD0,
+    ATTACH_BOW_RELEASE = 35,
+    ATTACH_RIFLE_RELEASE = 36,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at
