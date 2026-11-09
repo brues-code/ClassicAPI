@@ -13679,6 +13679,7 @@ enum Offsets {
     OFF_MAPOBJ_FOG_COLOR = 0x20,
     OFF_MAPOBJ_FOG_FLAGS = 0x0,
     OFF_MAPOBJ_FOG_POSITION = 0x4,
+    OFF_MAPOBJ_FOG_UNDERWATER = 0x24,
     OFF_MAPOBJ_FOG_INNER_RADIUS = 0x10,
     OFF_MAPOBJ_FOG_OUTER_RADIUS = 0x14,
     MAPOBJ_FOG_NOT_CANDIDATE = 0x1,
@@ -13711,6 +13712,24 @@ enum Offsets {
     // record (end min(end, far clip), start the fraction of it) by a weight
     // that moves 0.25 (0x008115B0) per second toward 1 while inside, else
     // toward 0; the target stays the last one while it falls.
+    // The camera's liquid (CameraEnvironment 0x006809C0, Ghidra): with the
+    // claim, LiquidHeight `bool __thiscall(group, const float point[3],
+    // uint32_t *type, float *height, float vector[3])`, ret 0x10, of the
+    // first group, at the camera's x and y and the lowest z of the camera
+    // and the four near corners of its frustum, in model space; the type
+    // starts as 0xF (dry). It answers the MOGP liquid word when that is not
+    // 0xF, else the tile's nibble & 3 under its surface. BuildSceneFog then
+    // takes the underwater sub-record (+0x24) for water (0) or ocean (1),
+    // and for magma (2) with fog flag 0x100 or slime (3) with 0x10, which
+    // also make the zone fog the target; magma or slime without the flag
+    // make the target the zone fog. The world draws its liquids after the
+    // model list above the water while the camera is wet (0x004836F2).
+    FUN_CMAPOBJGROUP_LIQUID_HEIGHT = 0x006B9F10,
+    LIQUID_DRY = 0xF,
+    LIQUID_MAGMA = 2,
+    LIQUID_SLIME = 3,
+    MAPOBJ_FOG_FLAG_MAGMA = 0x100,
+    MAPOBJ_FOG_FLAG_SLIME = 0x10,
     OFF_CMAPOBJGROUP_FOG_INDICES = 0x34,
     MAPOBJ_GROUP_FOG_INDICES = 4,
     FUN_LIGHT_FALLOFF = 0x0069E1C0,

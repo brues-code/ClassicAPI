@@ -260,6 +260,9 @@ void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // From the paint, between the scene's opaque and translucent lists: the
 // liquids of the WMO's groups (the world draws them between its model lists).
 void DrawLiquids(Backdrop &backdrop, void *frame, const float (&eye)[3]);
+// Whether the camera is in one of the WMO's liquids: the world then draws the
+// liquids after the translucent models.
+bool CameraWet(const Backdrop &backdrop);
 // How the world lights a unit that stands in a WMO, kept per actor: the
 // colour of the face under it, or the sun, and the WMO's lights near it.
 struct Ambience;

@@ -567,9 +567,16 @@ void __fastcall Paint(void *frame) {
         DrawShadows(frame, eye);
         auto draw = reinterpret_cast<Draw_t>(Offsets::FUN_M2SCENE_DRAW);
         draw(scene, 0);
+        // The world's frame draws its liquids before the translucent models
+        // over the water and, with the camera in liquid, after them
+        // (0x004836D6).
+        const bool wet = world != nullptr && World::CameraWet(*world);
+        if (wet)
+            draw(scene, 1);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
-        draw(scene, 1);
+        if (!wet)
+            draw(scene, 1);
     }
 }
 

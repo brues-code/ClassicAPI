@@ -43,7 +43,9 @@
 // 0x0069DE20) is the target, its end capped at the far clip and its start
 // the record's fraction of that; the drawn fog moves from the zone's toward
 // it by a weight that rises 0.25 a second while the camera is inside and
-// falls as it leaves (BuildSceneFog 0x006CEE30). The zone's fog in a scene
+// falls as it leaves (BuildSceneFog 0x006CEE30). In the WMO's water the
+// target is the record's underwater fog, and in its magma or slime that fog
+// when the record's flags allow it, else the zone's. The zone's fog in a scene
 // is the scene's own (SetFogColor and so on), staged with the scene light by
 // the frame's light callback. The WMO, its interior doodads and interior
 // actors take the drawn fog.
@@ -169,6 +171,7 @@ struct CameraFog {
     bool primed = false;
     float weight = 0.0f; // +0x7C
     FogValues target{};  // +0x8C: end capped at the far clip, start, colour
+    bool zoneIsTarget = false; // the camera in magma or slime that has a fog of its own
 };
 
 struct Backdrop {
@@ -188,6 +191,10 @@ struct Backdrop {
     float farClip = 0.0f;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
     CameraFog fog;
+    // The camera's liquid type (0xF dry), and how far below the eye its probe
+    // is: the lowest of the eye and the near corners of the last paint.
+    uint32_t cameraLiquid = Offsets::LIQUID_DRY;
+    float probeDrop = 0.0f;
 };
 
 static_assert(Offsets::OFF_MAPOBJDEF_OBJECT + sizeof(void *) <= Offsets::MAPOBJDEF_QUERY_SIZE &&
@@ -428,12 +435,18 @@ bool WmoFogShown(const Backdrop &b) { return b.fog.weight > 0.0f; }
 // The drawn fog: the zone's moved toward the target by the weight. The
 // scene's fog stands for the zone's; a scene without fog stands for one
 // that ends at the far clip in the target's colour.
-void WmoFog(const Backdrop &b, void *record, void *frame) {
-    FogValues drawn{b.farClip, b.farClip, b.fog.target.color};
+FogValues SceneZoneFog(const Backdrop &b, void *frame) {
     if ((Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) != 0)
-        drawn = {Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR),
-                 Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
-                 Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR)};
+        return {Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR),
+                Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
+                Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR)};
+    return {b.farClip, b.farClip, b.fog.target.color};
+}
+
+// The camera in magma or slime with a fog of its own makes the zone's fog the
+// target too.
+void WmoFog(const Backdrop &b, void *record, void *frame) {
+    FogValues drawn = b.fog.zoneIsTarget ? b.fog.target : SceneZoneFog(b, frame);
     LerpFog(drawn, &b.fog.target, b.fog.weight);
     SetFog(record, drawn);
 }
@@ -1016,15 +1029,14 @@ uint32_t ClaimCamera(const Backdrop &b, const float (&eye)[3], uint32_t (&groups
     return 2;
 }
 
-// GetCameraInteriorFog (0x0069DE20) for the claim: the dry sub-record of
-// record 0 blended with the first group's candidate fogs, farthest first
-// (its heap's pop order), and whether a group of the claim is interior. The
-// underwater sub-record and the flags it also blends are left out: the
-// camera's liquid is not asked.
-// The engine reads a fog index past the records without a check; one is
-// skipped here.
+// GetCameraInteriorFog (0x0069DE20) for the claim: the dry and underwater
+// sub-records of record 0 blended with the first group's candidate fogs,
+// farthest first (its heap's pop order), the flags of record 0 or of the
+// nearest candidate, and whether a group of the claim is interior. The
+// engine reads a fog index past the records without a check; one is skipped
+// here.
 bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&groups)[2], uint32_t count,
-                 FogValues &dry) {
+                 FogValues (&out)[2], uint32_t &flags) {
     using Falloff_t = float(__thiscall *)(const void *fog, float distance);
     void *object = b.object;
     bool inside = false;
@@ -1035,8 +1047,8 @@ bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&grou
     }
     const uint8_t *fogs = Game::Read<const uint8_t *>(object, Offsets::OFF_CMAPOBJ_FOGS);
     const uint32_t fogCount = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_FOG_COUNT);
-    FogValues out;
-    std::memcpy(&out, fogs + Offsets::OFF_MAPOBJ_FOG_END, sizeof out);
+    std::memcpy(out, fogs + Offsets::OFF_MAPOBJ_FOG_END, sizeof out);
+    flags = Game::Read<uint32_t>(fogs, Offsets::OFF_MAPOBJ_FOG_FLAGS);
     float camera[3];
     TransformPoint(eye, b.inverse, camera);
     struct Candidate {
@@ -1064,29 +1076,64 @@ bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&grou
     for (uint32_t i = 0; i < n; ++i) {
         const float w = reinterpret_cast<Falloff_t>(Offsets::FUN_LIGHT_FALLOFF)(candidates[i].fog,
                                                                               candidates[i].distance);
-        LerpFog(out, candidates[i].fog + Offsets::OFF_MAPOBJ_FOG_END, w);
+        LerpFog(out[0], candidates[i].fog + Offsets::OFF_MAPOBJ_FOG_END, w);
+        LerpFog(out[1], candidates[i].fog + Offsets::OFF_MAPOBJ_FOG_UNDERWATER, w);
+        if (i + 1 == n)
+            flags = Game::Read<uint32_t>(candidates[i].fog, Offsets::OFF_MAPOBJ_FOG_FLAGS);
     }
-    dry = out;
     return inside;
 }
 
-// BuildSceneFog (0x006CEE30) for the scene's camera, dry (the camera's
-// liquid is not asked): with the claim, the target is the dry record, its
-// end capped at the far clip and its start the fraction of that; the weight
-// moves toward 1 while the camera is inside, else toward 0, and the target
-// stays the last one while it falls. The world starts the weight at 0 and
-// fades in; a scene's first update takes it as it stands.
-void UpdateCameraFog(Backdrop &b, const float (&eye)[3], float farClip, float elapsed) {
+// CameraEnvironment (0x006809C0) inside the WMO: the liquid of the camera's
+// first group at the probe point, 0xF when dry.
+uint32_t CameraLiquid(const Backdrop &b, const float (&eye)[3], uint32_t group) {
+    using Height_t = bool(__thiscall *)(void *group, const float *point, uint32_t *type, float *height,
+                                        float *vector);
+    void *loaded = LoadedGroup(b.object, group);
+    if (loaded == nullptr)
+        return Offsets::LIQUID_DRY;
+    const float probe[3] = {eye[0], eye[1], eye[2] - b.probeDrop};
+    float point[3], height = 0.0f, vector[3] = {};
+    TransformPoint(probe, b.inverse, point);
+    uint32_t type = Offsets::LIQUID_DRY;
+    reinterpret_cast<Height_t>(Offsets::FUN_CMAPOBJGROUP_LIQUID_HEIGHT)(loaded, point, &type, &height, vector);
+    return type;
+}
+
+// BuildSceneFog (0x006CEE30) for the scene's camera: with the claim, the
+// target is the dry record (the underwater one in water, and in magma or
+// slime whose fog flags allow it), its end capped at the far clip and its
+// start the fraction of that; magma or slime without the flag take the zone's
+// fog as the target. The weight moves toward 1 while the camera is inside,
+// else toward 0, and the target stays the last one while it falls. The world
+// starts the weight at 0 and fades in; a scene's first update takes it as it
+// stands. The camera's liquid outside the WMO (the terrain's) does not exist
+// in a scene; inside it the claim's first group answers.
+void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farClip, float elapsed) {
     CameraFog &fog = b.fog;
     uint32_t groups[2] = {kNoGroup, kNoGroup};
     const uint32_t count = HasOwnFog(b) ? ClaimCamera(b, eye, groups) : 0;
     bool inside = false;
+    fog.zoneIsTarget = false;
+    b.cameraLiquid = count != 0 ? CameraLiquid(b, eye, groups[0]) : static_cast<uint32_t>(Offsets::LIQUID_DRY);
     if (count != 0) {
-        FogValues dry{};
-        inside = InteriorFog(b, eye, groups, count, dry);
-        fog.target.end = dry.end < farClip ? dry.end : farClip;
-        fog.target.start = fog.target.end * dry.start;
-        fog.target.color = dry.color;
+        FogValues records[2] = {};
+        uint32_t flags = 0;
+        inside = InteriorFog(b, eye, groups, count, records, flags);
+        const uint32_t liquid = b.cameraLiquid == Offsets::LIQUID_DRY ? b.cameraLiquid : (b.cameraLiquid & 3);
+        const bool thick = liquid == Offsets::LIQUID_MAGMA || liquid == Offsets::LIQUID_SLIME;
+        const bool own = liquid == Offsets::LIQUID_MAGMA ? (flags & Offsets::MAPOBJ_FOG_FLAG_MAGMA) != 0
+                         : liquid == Offsets::LIQUID_SLIME ? (flags & Offsets::MAPOBJ_FOG_FLAG_SLIME) != 0
+                                                           : true;
+        if (!own) {
+            fog.target = SceneZoneFog(b, frame);
+        } else {
+            const FogValues &record = records[liquid == Offsets::LIQUID_DRY ? 0 : 1];
+            fog.target.end = record.end < farClip ? record.end : farClip;
+            fog.target.start = fog.target.end * record.start;
+            fog.target.color = record.color;
+            fog.zoneIsTarget = thick;
+        }
     }
     const float step = EngineFloat(Offsets::VAR_INTERIOR_FOG_RATE) * elapsed;
     if (!fog.primed) {
@@ -1424,7 +1471,7 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
     void *object = b.object;
     if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return;
-    UpdateCameraFog(b, view.eye, view.farClip, elapsed);
+    UpdateCameraFog(b, frame, view.eye, view.farClip, elapsed);
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     if (b.groupsMade.empty()) {
         b.groupsMade.assign(count, false);
@@ -1474,6 +1521,14 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
         return;
     alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
     BuildViewVolume(volume, eye);
+    // The camera's probe z (0x006809E2): a near corner at or below the
+    // lowest so far, or NaN, replaces it.
+    const auto *corners = reinterpret_cast<const float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
+    float lowest = eye[2];
+    for (int i = 0; i < 4; ++i)
+        if (!(corners[i * 3 + 2] > lowest))
+            lowest = corners[i * 3 + 2];
+    b.probeDrop = eye[2] - lowest;
     PushObjectSpace(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
@@ -1483,6 +1538,8 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
     PopObjectSpace();
 }
+
+bool CameraWet(const Backdrop &b) { return b.cameraLiquid != Offsets::LIQUID_DRY; }
 
 // DrawGroupLiquidPass (0x00684CD0) over the one WMO's parsed liquid groups.
 // The world commits a record per group at the group def's sphere; here the
