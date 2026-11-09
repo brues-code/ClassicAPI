@@ -13597,6 +13597,19 @@ enum Offsets {
     GX_PRIM_TRIANGLES = 3,
     FUN_ROTATE_BOX = 0x006DC3F0,
     FUN_CMAPOBJ_COLLECT_BOX_FACETS = 0x006A3B10,
+    // A map object's liquid facets in a box (the world gather 0x006AAAB0
+    // under class bits 0xF0000): CollectBoxLiquid 0x006A3C20 walks the groups
+    // whose MOGI bounds (OFF_MOGI_BOUNDS, min then max) overlap the box, each
+    // loaded one through 0x006BBCB0: reset the batches, then the group's
+    // CollectLiquidBox `bool __thiscall(group, u32 *flags, const float
+    // box[6], const void *def, u32 class)` ret 0x10, which adds two
+    // triangles per liquid tile in the box whose type (flag byte & 3) the
+    // class asks for (bit 16 + type) to the batches, then the facet emitter.
+    // The mover's swimmer asks for WORLD_CLASS_SWIM_LIQUID (0x00633E81,
+    // 0x006320D0): water and ocean, not magma or slime.
+    FUN_CMAPOBJGROUP_COLLECT_LIQUID_BOX = 0x006BB170,
+    WORLD_CLASS_SWIM_LIQUID = 0x30000,
+    OFF_MOGI_BOUNDS = 0x04,
     VAR_SHADOW_RAMP = 0x00CE9DF8,      // device texture (64 x 8), stage 1
     VAR_SHADOW_GREY_RAMP = 0x00CE9DF4, // device texture (64 x 8), stage 1 with blend 4
     VAR_SHADOW_BIAS = 0x00CEA620,      // float, the shadowBias cvar (default 0.1)

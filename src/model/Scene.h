@@ -345,6 +345,10 @@ bool LiquidAt(const Backdrop &backdrop, const float (&point)[3], uint32_t &type,
 // Contact::Facets: the WMO's collision faces in a box (scene space). False
 // without a WMO or before it has loaded, so a body there does not move.
 bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out);
+// The same query with a swimmer's class (0x30000), for Contact::Facets: the
+// water and ocean surfaces of the WMO's liquid groups in a box (scene space),
+// as their tiles' triangles. False without a WMO or before it has loaded.
+bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out);
 // Sweeps a body by `move` to its first contact with the WMO's collision
 // faces, as the client's mover sweeps a unit's volume (CMovement::SweepVolume
 // 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and

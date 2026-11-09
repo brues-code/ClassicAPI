@@ -24,8 +24,10 @@
 // into a window, the integrator (0x00616DE0, 0x00616CB0) turns the time
 // since the anchors into a displacement, the substep loop (0x00634040)
 // gathers the facets around each substep (0x00633840) and runs the walk
-// (0x006367B0) or fall (0x00635B00) resolver, and those sweep the body's
-// volume (SceneContact.h) and deflect, step and settle.
+// (0x006367B0), fall (0x00635B00) or swimmer's free-move (0x00634640)
+// resolver, and those sweep the body's volume (SceneContact.h) and deflect,
+// step and settle. After a tick the unit side decides whether the body swims
+// (UpdateSwimState).
 
 #include "model/SceneMover.h"
 
@@ -77,6 +79,9 @@ const float kTerminalSlow = Bits(0x40E00000); // the cap under 0x20000000 (0x008
 const float kJumpSpeed = Bits(0xC0FE93D8);    // the jump's launch (0x007C626F)
 const float kSwimJumpSpeed = Bits(0xC1118C48);
 const float kTwoPi = Bits(0x40C90FDB);        // 0x00CF5D00
+const float kHalfPi = Bits(0x3FC90FDB);       // pi/2 (0x00808ACC), the pitch clamp
+const float kNegHalfPi = Bits(0xBFC90FDB);    // -pi/2 (0x0080C5E4)
+const float kThreeQuarters = Bits(0x3F400000); // 0.75 (0x008012CC)
 const float kFltMax = Bits(0x7F7FFFFF);
 const float kNegFltMax = Bits(0xFF7FFFFF);
 const float kCellCentre = Bits(0x46855555);   // 17066.666 (0x00616BF0)
@@ -117,7 +122,8 @@ double Dot(const float (&a)[3], const float (&b)[3]) {
 using Contact::Facet;
 using Contact::Plane;
 
-// One sweep (0x00632BA0) of the body's volume from where it stands.
+// One sweep (0x00632BA0) of the body's volume from where it stands, against
+// the solid list or with `liquid` the liquid list.
 struct Hit {
     bool ok;
     float distance;
@@ -126,10 +132,11 @@ struct Hit {
     Plane faces[9];
 };
 
-Hit Sweep(Body &b, const float (&dir)[3], float length) {
+Hit Sweep(Body &b, const float (&dir)[3], float length, bool liquid = false) {
     Contact::Contact c{};
     Hit h{};
-    h.ok = Contact::Sweep(b.facets, b.position, b.radius, b.height, dir, length, c);
+    h.ok = Contact::Sweep(b.facets, liquid, (b.flags & FLAG_SWIMMING) != 0, b.position, b.radius, b.height, dir,
+                          length, c);
     h.distance = c.distance;
     h.index = c.hit;
     h.count = c.count;
@@ -173,6 +180,18 @@ double TurnRate(const Body &b) {
         rate = -D(b.turnRate);
     if (b.flags & 0x200F)
         rate *= 0.75;
+    return rate;
+}
+
+// The pitch rate (0x007C5C90), unrounded: up for 0x40, down for 0x80.
+double PitchRate(const Body &b) {
+    double rate = 0.0;
+    if (b.flags & FLAG_PITCH_UP)
+        rate = b.turnRate;
+    else if (b.flags & FLAG_PITCH_DOWN)
+        rate = -D(b.turnRate);
+    if (b.flags & 0x200F)
+        rate *= kThreeQuarters;
     return rate;
 }
 
@@ -254,6 +273,44 @@ void IntegrateFacing(Body &b, float t) {
     b.facing = static_cast<float>(r < 0.0 ? r + kTwoPi : r);
 }
 
+// The pitch at t seconds (0x007C4F80), held to +-pi/2; NaN holds at pi/2.
+void IntegratePitch(Body &b, float t) {
+    const double theta = PitchRate(b) * t + b.anchorPitch;
+    if (theta < kNegHalfPi)
+        b.pitch = kNegHalfPi;
+    else if (theta < kHalfPi)
+        b.pitch = static_cast<float>(theta);
+    else
+        b.pitch = kHalfPi;
+}
+
+// The pitch's clamp in the arcs (0x007C51B1, 0x007C5024): with theta the
+// pitch at t and `inverse` the float 1/p, past +-pi/2 the time spent beyond
+// it (tau), with the swept angle `delta` cut at the clamp; else 0, `delta`
+// as given.
+float ClampTime(const Body &b, double theta, float inverse, float &delta) {
+    if (theta > kHalfPi) {
+        delta = static_cast<float>(D(kHalfPi) - b.anchorPitch);
+        return static_cast<float>((theta - kHalfPi) * inverse);
+    }
+    if (theta < kNegHalfPi) {
+        delta = static_cast<float>(D(kNegHalfPi) - b.anchorPitch);
+        return static_cast<float>((theta + kHalfPi) * inverse);
+    }
+    return 0.0f;
+}
+
+// The arcs' last step (0x007C5265, 0x007C5127): past the clamp the body
+// climbs or dives straight for the time tau beyond it.
+float ClampClimb(const Body &b, double z, float tau, float delta, float speed) {
+    if (std::fabs(tau) < kTiny)
+        return static_cast<float>(z);
+    const double climb = D(tau) * speed;
+    if (std::fabs((D(delta) + b.anchorPitch) - kHalfPi) < kTiny)
+        return static_cast<float>(climb + z);
+    return static_cast<float>(z - climb);
+}
+
 // The straight line (0x007C4ED0).
 void Straight(const Body &b, float t, float (&out)[3]) {
     const double s = b.speed;
@@ -278,8 +335,54 @@ void TurnArc(const Body &b, float t, float (&out)[3]) {
     out[2] = static_cast<float>((s * b.pitchBasis[1]) * t);
 }
 
-// The displacement over `ms` since the anchors (0x007C5360). The pitch
-// modes (8 and up) need the pitch bits, which only a swimmer sets.
+// The pitch arc (0x007C5180): on along the heading while the pitch turns,
+// a circle in the vertical plane.
+void PitchArc(const Body &b, float t, float (&out)[3]) {
+    const float s = b.speed;
+    const double p = PitchRate(b);
+    const double inverse = D(kOne) / p;
+    const float rv = static_cast<float>(inverse * s);
+    const double pt = p * t;
+    float delta = static_cast<float>(pt);
+    const float tau = ClampTime(b, pt + b.anchorPitch, static_cast<float>(inverse), delta);
+    const float sinD = static_cast<float>(std::sin(D(delta)));
+    const float cosD = static_cast<float>(std::cos(D(delta)));
+    const double h = D(sinD) * rv;
+    const double v = D(rv) - D(cosD) * rv;
+    out[0] = static_cast<float>((h * b.pitchBasis[0] - v * b.pitchBasis[1]) * b.heading[0]);
+    out[1] = static_cast<float>((h * b.pitchBasis[0] - v * b.pitchBasis[1]) * b.heading[1]);
+    const double z = v * b.pitchBasis[0] + h * b.pitchBasis[1];
+    out[2] = ClampClimb(b, z, tau, delta, s);
+}
+
+// The turn and pitch arc (0x007C4FD0): both turning at once.
+void TurnPitchArc(const Body &b, float t, float (&out)[3]) {
+    const float s = b.speed;
+    const float omega = static_cast<float>(TurnRate(b));
+    const double p = PitchRate(b);
+    const float rh = static_cast<float>(D(s) / omega);
+    const double inverse = D(kOne) / p;
+    const float rv = static_cast<float>(inverse * s);
+    const double pt = p * t;
+    float delta = static_cast<float>(pt);
+    const float tau = ClampTime(b, pt + b.anchorPitch, static_cast<float>(inverse), delta);
+    const float phi = static_cast<float>((D(t) - tau) * omega);
+    const float sinP = static_cast<float>(std::sin(D(phi)));
+    const float cosP = static_cast<float>(std::cos(D(phi)));
+    const float sinD = static_cast<float>(std::sin(D(delta)));
+    const float cosD = static_cast<float>(std::cos(D(delta)));
+    const double a = (D(sinD) * rv + D(sinP) * rh) * kHalf;
+    const double across = D(cosP) * rh - rh;
+    const float c = static_cast<float>(D(rv) - D(cosD) * rv);
+    const float x = static_cast<float>(a * b.heading[0] - across * b.heading[1]);
+    const double y = across * b.heading[0] + a * b.heading[1];
+    out[0] = static_cast<float>(D(x) * b.pitchBasis[0] - D(c) * b.pitchBasis[1]);
+    out[1] = static_cast<float>(y);
+    const double z = D(c) * b.pitchBasis[0] + D(x) * b.pitchBasis[1];
+    out[2] = ClampClimb(b, z, tau, delta, s);
+}
+
+// The displacement over `ms` since the anchors (0x007C5360).
 bool Displacement(Body &b, uint32_t ms, float (&out)[3]) {
     if (ms == 0)
         return false;
@@ -289,6 +392,10 @@ bool Displacement(Body &b, uint32_t ms, float (&out)[3]) {
         IntegrateFacing(b, t);
         if (!(b.flags & FLAG_FALLING))
             mode |= 2;
+    }
+    if (b.flags & 0xC0) {
+        IntegratePitch(b, t);
+        mode |= 8;
     }
     if (b.flags & 0x3)
         mode |= 1;
@@ -300,14 +407,24 @@ bool Displacement(Body &b, uint32_t ms, float (&out)[3]) {
     case 1:
     case 4:
     case 5:
+    case 12:
         Straight(b, t, out);
         return true;
     case 3:
     case 6:
     case 7:
+    case 14:
         TurnArc(b, t, out);
         return true;
-    default: // 2: a turn in place
+    case 9:
+    case 13:
+        PitchArc(b, t, out);
+        return true;
+    case 11:
+    case 15:
+        TurnPitchArc(b, t, out);
+        return true;
+    default: // 2, 8, 10: turning or pitching in place
         return false;
     }
 }
@@ -1383,7 +1500,7 @@ void Union(float (&box)[6], const float (&other)[6]) {
 }
 
 // CMovement::QuerySweptBox (0x00633840): the facets in the body's box grown
-// along the substep's move.
+// along the substep's move, and a swimmer's liquid in the same box.
 bool QuerySwept(Body &b, float dist, uint32_t ms, const float (&u)[3]) {
     const double r = b.radius;
     float box[6];
@@ -1403,6 +1520,26 @@ bool QuerySwept(Body &b, float dist, uint32_t ms, const float (&u)[3]) {
                 box[i + 3] = static_cast<float>(D(box[i + 3]) + t);
             }
         }
+    } else if (b.flags & FLAG_SWIMMING) {
+        // The box about the move's midpoint, half the move each way, widened
+        // to the body's diagonal and raised by its height (0x00633B5E).
+        const float half = static_cast<float>(D(dist) * kHalf);
+        float c[3];
+        for (int i = 0; i < 3; ++i)
+            c[i] = static_cast<float>(D(static_cast<float>(D(u[i]) * half)) + b.position[i]);
+        const float q = static_cast<float>(r * kSqrt2);
+        float around[6];
+        for (int i = 0; i < 3; ++i) {
+            around[i] = static_cast<float>(D(c[i]) - half);
+            around[i + 3] = static_cast<float>(D(c[i]) + half);
+        }
+        around[0] = static_cast<float>(D(around[0]) - q);
+        around[3] = static_cast<float>(D(around[3]) + q);
+        around[1] = static_cast<float>(D(around[1]) - q);
+        around[4] = static_cast<float>(D(around[4]) + q);
+        const float h = b.height;
+        around[5] = static_cast<float>(D(h < q ? q : h) + around[5]);
+        Union(box, around);
     } else {
         const double k = StepHeight(b);
         const float rPlus = static_cast<float>(r + kSkin);
@@ -1430,8 +1567,103 @@ bool QuerySwept(Body &b, float dist, uint32_t ms, const float (&u)[3]) {
     }
     if (!b.facets.query(b.facets.context, box, b.facets.solid))
         return false;
+    if (b.flags & FLAG_SWIMMING)
+        Contact::QueryLiquid(b.facets, box);
     std::memcpy(b.facets.box, box, sizeof box);
     return true;
+}
+
+// CMovement's slide off a facet (0x00634300): the part of `rem` along `u`
+// that goes into facet `hit` of `list`, pushed back out along its normal.
+void SlideOff(const std::vector<Facet> &list, uint32_t hit, const float (&u)[3], float rem, float (&out)[3]) {
+    const Plane &n = list[hit].plane;
+    const double k = ((-D(n.n[2]) * u[2] + -D(n.n[1]) * u[1]) + -D(n.n[0]) * u[0]) * rem;
+    const float kf = static_cast<float>(k);
+    out[0] = static_cast<float>(D(kf) * n.n[0]);
+    out[1] = static_cast<float>(D(kf) * n.n[1]);
+    out[2] = static_cast<float>(k * n.n[2]);
+}
+
+// Moves the body `a` along `u` (0x00634774, 0x006347AC): x and y at 53 bits,
+// z through a float.
+void MoveAlong(Body &b, const float (&u)[3], float a) {
+    const float dz = static_cast<float>(D(u[2]) * a);
+    b.position[0] = static_cast<float>(D(u[0]) * a + b.position[0]);
+    b.position[1] = static_cast<float>(D(u[1]) * a + b.position[1]);
+    b.position[2] = static_cast<float>(D(dz) + b.position[2]);
+}
+
+// CMovement::ResolveFreeMove (0x00634640): a swimmer's move, `dist` along
+// `u` over `ms`, with no gravity and no steps: it sweeps the solid list, and
+// while no solid facet has stopped it in this call the liquid list for what
+// is left, and slides along what it meets until the time is used, the move
+// is spent, or five passes in a row make no progress. Every end but a
+// failed sweep re-anchors, except a move that ended before any slide
+// without a hit or with no time left. It reports all of `ms` used.
+uint32_t FreeMove(Body &b, uint32_t ms, float dist, float (&u)[3]) {
+    if (ms == 0)
+        return 0;
+    if (std::fabs(dist) < kTiny)
+        return ms;
+    const float total = static_cast<float>(ms);
+    float used = 0.0f;
+    float rem = dist;
+    uint32_t stalls = 0;
+    bool solidHit = false, slid = false;
+    Hit h = Sweep(b, u, dist);
+    if (!h.ok)
+        return ms;
+    for (;;) {
+        bool liquid = false;
+        if (h.index < FacetCount(b)) {
+            solidHit = true;
+        } else {
+            if (!solidHit && !(b.flags & 0x800)) {
+                h = Sweep(b, u, rem, true);
+                if (!h.ok)
+                    return ms;
+                liquid = true;
+            }
+            const std::vector<Facet> &list = liquid ? b.facets.liquid : b.facets.solid;
+            if (h.index == list.size()) {
+                MoveAlong(b, u, h.distance);
+                if (slid)
+                    Anchor(b, false);
+                return ms;
+            }
+        }
+        MoveAlong(b, u, h.distance);
+        const double t = (D(total) - used) * (D(h.distance) / rem);
+        rem = static_cast<float>(D(rem) - h.distance);
+        if (D(kTiny) + t > kOne) {
+            used = static_cast<float>(t + used);
+            stalls = 1;
+        } else if (++stalls > 5) {
+            break;
+        }
+        if (D(total) - used < kOne) {
+            if (!(std::fabs(D(total) - used) < kTiny) || slid)
+                break;
+            return ms;
+        }
+        float push[3];
+        SlideOff(liquid ? b.facets.liquid : b.facets.solid, h.index, u, rem, push);
+        slid = true;
+        const float dz = static_cast<float>(D(u[2]) * rem);
+        const float m[3] = {static_cast<float>(D(u[0]) * rem + push[0]),
+                            static_cast<float>(D(push[1]) + D(u[1]) * rem), static_cast<float>(D(push[2]) + dz)};
+        rem = static_cast<float>(std::sqrt((D(m[2]) * m[2] + D(m[1]) * m[1]) + D(m[0]) * m[0]));
+        if (std::fabs(rem) < kTiny)
+            break;
+        const double inverse = D(kOne) / rem;
+        for (int i = 0; i < 3; ++i)
+            u[i] = static_cast<float>(D(m[i]) * inverse);
+        h = Sweep(b, u, rem);
+        if (!h.ok)
+            return ms;
+    }
+    Anchor(b, false);
+    return ms;
 }
 
 // CMovement::ResolveDisplacement (0x00634040): `d` over `ms` in substeps.
@@ -1457,7 +1689,12 @@ uint32_t Resolve(Body &b, uint32_t ms, const float (&d)[3]) {
         }
         const float savedSpeed = b.speed;
         const float flat[2] = {u[0], u[1]};
-        done += (b.flags & FLAG_FALLING) ? FallStep(b, rest, dist, flat) : Walk(b, rest, dist, flat);
+        if (b.flags & 0x200800) {
+            float free[3] = {u[0], u[1], u[2]};
+            done += FreeMove(b, rest, dist, free);
+        } else {
+            done += (b.flags & FLAG_FALLING) ? FallStep(b, rest, dist, flat) : Walk(b, rest, dist, flat);
+        }
         if (!(b.speed == savedSpeed)) {
             RefreshSpeed(b, false);
             break;
@@ -1540,15 +1777,16 @@ void SetCollisionSize(Body &body, float width, float height, float scale, float 
     body.height = static_cast<float>(D(height) * scale);
 }
 
-void Tick(Body &body, uint32_t now) {
+bool Tick(Body &body, uint32_t now) {
     if (static_cast<int32_t>(now - body.clock) <= 0)
-        return;
+        return false;
     uint32_t window = now - body.clock;
     body.clock = now;
     if (window > kMaxWindowMs)
         window = kMaxWindowMs; // the client reports the rest as skipped (0x00615AE0)
     if (body.flags & 0x20FF)
         Integrate(body, window);
+    return true;
 }
 
 void Reset(Body &body, const float (&p)[3], float facing) {
@@ -1674,6 +1912,74 @@ bool Jump(Body &body) {
         return false;
     StartFall(body, (body.flags & FLAG_SWIMMING) ? kSwimJumpSpeed : kJumpSpeed);
     return true;
+}
+
+void StartPitch(Body &body, bool up) {
+    if (!(body.flags & FLAG_SWIMMING))
+        return;
+    body.flags = up ? (body.flags & ~FLAG_PITCH_DOWN) | FLAG_PITCH_UP : (body.flags & ~FLAG_PITCH_UP) | FLAG_PITCH_DOWN;
+    Anchor(body, false);
+}
+
+bool StopPitch(Body &body) {
+    if (!(body.flags & 0xC0))
+        return false;
+    body.flags &= ~0xC0u;
+    Anchor(body, false);
+    return true;
+}
+
+namespace {
+
+// IsRising (0x007C5DE0): in the air, still short of the jump's apex.
+bool Rising(const Body &b) {
+    if (!(b.flags & FLAG_FALLING) || b.fallSpeed == 0.0f)
+        return false;
+    const float t = static_cast<float>(static_cast<double>(b.fallTime) * kMsToSec);
+    return ApexTime(b) > t;
+}
+
+// Swimming on (0x007C6E50): a landing in the water, at the swim speed.
+void StartSwimming(Body &b) {
+    b.flags = (b.flags & ~FLAG_ON_STEP) | FLAG_SWIMMING;
+    Anchor(b, false);
+    Land(b);
+    RefreshSpeed(b, false);
+}
+
+// Swimming off (0x007C6E80): level, then a fall from rest.
+void StopSwimming(Body &b) {
+    b.flags &= 0xFFDFFF3F;
+    b.anchorPitch = 0.0f;
+    b.pitch = 0.0f;
+    FallGate(b);
+    RefreshSpeed(b, false);
+}
+
+} // namespace
+
+void UpdateSwimState(Body &body, bool inLiquid, float depth) {
+    if (body.flags & 0x400)
+        return;
+    const double enter = D(body.height) * kThreeQuarters;
+    const float leave = static_cast<float>(enter - kThirtySixth);
+    if (!(body.flags & FLAG_SWIMMING)) {
+        // The active mover's start request (0x00619FB0) is applied as
+        // EnterSwim (0x0061A230): swimming on, then the latched directions.
+        if (enter < depth && !Rising(body)) {
+            StartSwimming(body);
+            ApplyLatches(body);
+        }
+        return;
+    }
+    if (!inLiquid || !(depth >= leave))
+        StopSwimming(body);
+}
+
+float ModelPitch(const Body &body) {
+    if (!(body.flags & FLAG_SWIMMING) || !(body.flags & 0x3))
+        return 0.0f;
+    return static_cast<float>(D(kTwoPi) - body.pitch); // 2π at 0x0080295C
 }
 
 float FallSpeed(const Body &body) {

@@ -695,6 +695,25 @@ void LoadNode(Actor &actor, const void *node, void *status) {
     Animation::Xml::LoadKeyValues(&actor, node, status);
 }
 
+// The movement manager's tick for the actor's body, against the scene's WMO,
+// then the unit's step (CGUnit_C::OnMoverStepped 0x005FAC70): the liquid
+// over the feet, as the unit's liquid query finds it, and the swim decision.
+// The client steps only a mover on the manager's list (moving, falling or
+// with a queued command); an idle body here keeps its depth from tick to
+// tick, so deciding again changes nothing.
+void Advance(Actor &actor) {
+    Mover::Body &body = *actor.mover;
+    World::Backdrop *world = WorldOf(actor.SceneFrame());
+    body.facets.context = world;
+    if (!Mover::Tick(body, Time::Clock::NowMs()))
+        return;
+    uint32_t type = 0;
+    float surface = 0.0f;
+    const bool inLiquid = world != nullptr && World::LiquidAt(*world, body.position, type, surface);
+    const float depth = inLiquid ? static_cast<float>(static_cast<double>(surface) - body.position[2]) : 0.0f;
+    Mover::UpdateSwimState(body, inLiquid, depth);
+}
+
 } // namespace
 
 void Actor::LoadXml(const void *node, void *status) {
@@ -717,11 +736,10 @@ void Actor::ApplyAlpha() {
 
 void Actor::Update(float elapsedSec) {
     if (mover != nullptr) {
-        // The movement manager's tick for this body, against the scene's WMO.
-        mover->facets.context = WorldOf(SceneFrame());
-        Mover::Tick(*mover, Time::Clock::NowMs());
+        Advance(*this);
         std::memcpy(position, mover->position, sizeof position);
         yaw = mover->facing;
+        pitch = Mover::ModelPitch(*mover);
     }
     if (model != nullptr && !loaded) {
         bool ready = M2::IsLoaded(model, 0, 0);
@@ -1442,7 +1460,7 @@ void SizeMover(Actor &actor) {
 // after a near teleport: the position reset (0x007C69A0), then the fall
 // gate (0x007C61C0), so it falls to the floor below.
 void PutDown(Actor &actor) {
-    Mover::Tick(*actor.mover, Time::Clock::NowMs());
+    Advance(actor);
     Mover::Reset(*actor.mover, actor.position, actor.yaw);
     Mover::FallGate(*actor.mover);
 }
@@ -1459,6 +1477,7 @@ int __fastcall Script_SetMovementEnabled(void *L) {
         actor->mover = std::make_unique<Mover::Body>();
         Mover::Init(*actor->mover, actor->position, actor->yaw, Time::Clock::NowMs());
         actor->mover->facets.query = &World::QueryFacets;
+        actor->mover->facets.liquidQuery = &World::QueryLiquidFacets;
     }
     actor->mover->facets.context = WorldOf(actor->SceneFrame());
     SizeMover(*actor);
@@ -1481,7 +1500,7 @@ int __fastcall MoverCommand(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || actor->mover == nullptr)
         return 0;
-    Mover::Tick(*actor->mover, Time::Clock::NowMs());
+    Advance(*actor);
     Game::Lua::PushBool(L, Command(*actor->mover));
     return 1;
 }
@@ -1497,6 +1516,25 @@ bool StartTurnLeft(Mover::Body &b) {
 bool StartTurnRight(Mover::Body &b) {
     Mover::StartTurn(b, false);
     return true;
+}
+// The pitch commands act only while swimming.
+bool StartPitchUp(Mover::Body &b) {
+    const bool swimming = (b.flags & Mover::FLAG_SWIMMING) != 0;
+    Mover::StartPitch(b, true);
+    return swimming;
+}
+bool StartPitchDown(Mover::Body &b) {
+    const bool swimming = (b.flags & Mover::FLAG_SWIMMING) != 0;
+    Mover::StartPitch(b, false);
+    return swimming;
+}
+
+int __fastcall Script_IsSwimming(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->mover != nullptr && (actor->mover->flags & Mover::FLAG_SWIMMING) != 0);
+    return 1;
 }
 
 int __fastcall Script_IsFalling(void *L) {
@@ -1537,7 +1575,7 @@ int __fastcall Script_SetYaw(void *L) {
         return 0;
     actor->yaw = FloatArg(L, 2);
     if (actor->mover != nullptr) {
-        Mover::Tick(*actor->mover, Time::Clock::NowMs());
+        Advance(*actor);
         Mover::SetFacing(*actor->mover, actor->yaw);
     }
     return 0;
@@ -1808,7 +1846,11 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"StartTurningRight", &MoverCommand<&StartTurnRight>},
     {"StopTurning", &MoverCommand<&Mover::StopTurn>},
     {"Jump", &MoverCommand<&Mover::Jump>},
+    {"StartPitchingUp", &MoverCommand<&StartPitchUp>},
+    {"StartPitchingDown", &MoverCommand<&StartPitchDown>},
+    {"StopPitching", &MoverCommand<&Mover::StopPitch>},
     {"IsFalling", &Script_IsFalling},
+    {"IsSwimming", &Script_IsSwimming},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -2133,11 +2175,12 @@ const Game::Doc::Function kIsShadowShown{"Returns whether the actor shows a blob
 const Game::Doc::Field kMovementEnabledArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetMovementEnabled{
     "Sets whether the actor moves as a character moves in the world: it walks and runs over the scene's "
-    "WMO, steps up and down ledges, slides along walls, falls, and jumps, at a character's speeds. The "
-    "body is the size the world gives the actor's creature display, at the actor's scale. When you "
-    "turn it on, and when you set the position while it is on, the actor falls to the floor below "
-    "it. While it is on, the actor's position and yaw follow the movement. Without a loaded WMO the "
-    "actor does not move. Off by default.",
+    "WMO, steps up and down ledges, slides along walls, falls, jumps, and swims in the WMO's liquids, at "
+    "a character's speeds. The body is the size the world gives the actor's creature display, at the "
+    "actor's scale. When you turn it on, and when you set the position while it is on, the actor falls "
+    "to the floor below it. While it is on, the actor's position, yaw and pitch follow the movement: "
+    "the actor tilts up or down only while it swims forward or backward. Without a loaded WMO the actor "
+    "does not move. Off by default.",
     kMovementEnabledArg, {}, nullptr, true};
 const Game::Doc::Function kIsMovementEnabled{"Returns whether the actor moves as a character.", {},
                                              kMovementEnabledArg, nullptr, true};
@@ -2177,6 +2220,22 @@ const Game::Doc::Field kIsFallingRets[] = {
 const Game::Doc::Function kIsFalling{
     "Returns whether the actor is in the air, and how fast it rises or falls.", {}, kIsFallingRets,
     nullptr, true};
+const Game::Doc::Function kStartPitchingUp{
+    "Starts the actor turning its swim upward. False when the actor does not swim.", {}, kCommandRet,
+    nullptr, true};
+const Game::Doc::Function kStartPitchingDown{
+    "Starts the actor turning its swim downward. False when the actor does not swim.", {}, kCommandRet,
+    nullptr, true};
+const Game::Doc::Function kStopPitching{
+    "Stops the actor turning its swim up or down. It keeps the angle it reached. False when it was not "
+    "turning up or down.",
+    {}, kCommandRet, nullptr, true};
+const Game::Doc::Field kIsSwimmingRet[] = {Req("swimming", "bool")};
+const Game::Doc::Function kIsSwimming{
+    "Returns whether the actor swims. An actor swims when the liquid over its feet is deeper than three "
+    "quarters of its height. It stays level in the water unless it swims up or down, and it stops "
+    "swimming when it leaves the water or rises near the surface.",
+    {}, kIsSwimmingRet, nullptr, true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -2273,7 +2332,11 @@ const Game::Doc::Method kMethodDocs[] = {
     {"StartTurningRight", &kStartTurningRight},
     {"StopTurning", &kStopTurning},
     {"Jump", &kJump},
+    {"StartPitchingUp", &kStartPitchingUp},
+    {"StartPitchingDown", &kStartPitchingDown},
+    {"StopPitching", &kStopPitching},
     {"IsFalling", &kIsFalling},
+    {"IsSwimming", &kIsSwimming},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

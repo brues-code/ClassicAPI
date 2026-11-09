@@ -58,6 +58,7 @@ const float kBevelDown = Bits(0x3EF386A4);      // cos 61.6° (0x0080DFE0)
 const float kWaist = Bits(0x3FECB91B);          // tan 61.6° (0x0080C740)
 const float kFltMax = Bits(0x7F7FFFFF);
 const float kTwelfth = Bits(0x3DAAAAAB);        // 1/12, the point-over-facet margin
+const float kThreeQuarters = Bits(0x3F400000);  // 0.75 (0x008012CC), the swimmer's height
 
 // The volume's faces as vertex indices (0x00631BE0's store block): the five
 // box faces as quads, in plane order, then the four bevels as triangles.
@@ -372,8 +373,9 @@ bool InBox(const float (&box)[6], const float (&p)[3]) {
 }
 
 // CMovement::GatherSweepFacets (0x00631E70): the facets around the volume
-// moved by s, unless the cached box already holds it.
-bool Gather(Facets &facets, const float (&p)[3], float radius, float height, const float (&s)[3]) {
+// moved by s, unless the cached box already holds it; a swimmer's liquid too.
+// The box is the body's full height whichever list the sweep reads.
+bool Gather(Facets &facets, bool swimmer, const float (&p)[3], float radius, float height, const float (&s)[3]) {
     float e[3];
     for (int k = 0; k < 3; ++k)
         e[k] = static_cast<float>(D(p[k]) + s[k]);
@@ -392,11 +394,22 @@ bool Gather(Facets &facets, const float (&p)[3], float radius, float height, con
     }
     if (!facets.query(facets.context, query, facets.solid))
         return false;
+    if (swimmer)
+        QueryLiquid(facets, query);
     std::memcpy(facets.box, query, sizeof query);
     return true;
 }
 
 } // namespace
+
+void QueryLiquid(Facets &facets, const float (&box)[6]) {
+    facets.liquidQuery(facets.context, box, facets.liquid);
+    for (Facet &f : facets.liquid) {
+        for (float &c : f.plane.n)
+            c = -c;
+        f.plane.d = -f.plane.d;
+    }
+}
 
 Facet MakeFacet(const float (&v0)[3], const float (&v1)[3], const float (&v2)[3]) {
     // FlushTriangleBatchFacets (0x00671CC0), its SSE path: the client sets
@@ -446,26 +459,30 @@ void BaseBox(const float (&p)[3], float radius, float height, float (&box)[6]) {
     box[5] = static_cast<float>(D(p[2]) + height);
 }
 
-bool Sweep(Facets &facets, const float (&p)[3], float radius, float height, const float (&dir)[3], float length,
-           Contact &out) {
+bool Sweep(Facets &facets, bool liquid, bool swimmer, const float (&p)[3], float radius, float height,
+           const float (&dir)[3], float length, Contact &out) {
+    const std::vector<Facet> &list = liquid ? facets.liquid : facets.solid;
     out.count = 0;
     if (std::fabs(length) < kDegenerate) {
         out.distance = 0.0f;
-        out.hit = static_cast<uint32_t>(facets.solid.size());
+        out.hit = static_cast<uint32_t>(list.size());
         return true;
     }
+    // A swimmer meets the liquid with the lower three quarters of its body
+    // (0x00632C64), so it rests with its head above the surface.
+    const float volumeHeight = swimmer && liquid ? static_cast<float>(D(height) * kThreeQuarters) : height;
     // At least 1/36 of sweep, but every distance is capped at the length.
     const float d = length > kThirtySixth ? length : kThirtySixth;
     const float s[3] = {static_cast<float>(D(d) * dir[0]), static_cast<float>(D(d) * dir[1]),
                         static_cast<float>(D(d) * dir[2])};
-    const Volume volume = BuildVolume(p, radius, height);
-    if (!Gather(facets, p, radius, height, s)) {
+    const Volume volume = BuildVolume(p, radius, volumeHeight);
+    if (!Gather(facets, swimmer, p, radius, height, s)) {
         out.distance = 0.0f;
         return false;
     }
-    out.hit = static_cast<uint32_t>(facets.solid.size());
+    out.hit = static_cast<uint32_t>(list.size());
     float best = length;
-    Bevels(facets.solid, dir, length, s, volume, out, best);
+    Bevels(list, dir, length, s, volume, out, best);
     for (int a = 0; a < 5; ++a) {
         const Plane &face = volume.planes[a];
         if (!Leading((D(s[2]) * face.n[2] + D(s[1]) * face.n[1]) + D(s[0]) * face.n[0]))
@@ -474,7 +491,7 @@ bool Sweep(Facets &facets, const float (&p)[3], float radius, float height, cons
         if (!QuadPrism(volume, kFaces + 4 * a, s, prism))
             continue;
         float t = length;
-        if (!NearestFacet(facets.solid, dir, prism, 4, volume.planes, a, t, out.hit))
+        if (!NearestFacet(list, dir, prism, 4, volume.planes, a, t, out.hit))
             continue;
         Band(face, t, out, best);
     }

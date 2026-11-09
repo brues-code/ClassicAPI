@@ -14,15 +14,16 @@
 #pragma once
 
 // The client's mover, transcribed for a scene actor: CMovement's fields and
-// the functions that move a unit on the ground and through the air, from the
-// movement commands down to the contact sweep (SceneContact.h). Each function
-// is one client function, in its order and precision. A Body is the scene's
-// own; the client's movers, their manager and its lists are never touched.
+// the functions that move a unit on the ground, through the air and in the
+// water, from the movement commands down to the contact sweep
+// (SceneContact.h). Each function is one client function, in its order and
+// precision. A Body is the scene's own; the client's movers, their manager
+// and its lists are never touched.
 //
 // Left out, as the scene has none of them: transports, splines, the event
-// queue and every packet, hover (0x40000000), water walking and the
-// pitch bits. Swimming (the free-move resolver 0x00634640) is not ported yet,
-// and no command here sets 0x200000.
+// queue and every packet, hover (0x40000000), water walking, fixed height
+// (0x800) and the swim pitch setter (0x007C6F70), which the client drives
+// from the camera.
 
 #include "model/SceneContact.h"
 
@@ -69,6 +70,8 @@ enum : uint32_t {
     FLAG_STRAFE_RIGHT = 0x8,
     FLAG_TURN_LEFT = 0x10,
     FLAG_TURN_RIGHT = 0x20,
+    FLAG_PITCH_UP = 0x40,
+    FLAG_PITCH_DOWN = 0x80,
     FLAG_FALLING = 0x2000,
     FLAG_FALLING_FAR = 0x4000,
     FLAG_SWIMMING = 0x200000,
@@ -81,8 +84,10 @@ void Init(Body &body, const float (&p)[3], float facing, uint32_t now);
 // CMovement::SetCollisionSize (0x006174B0): a model's collision width and
 // height at `scale`, `displayScale` the display's CreatureModelScale.
 void SetCollisionSize(Body &body, float width, float height, float scale, float displayScale);
-// The movement manager's tick (0x00616800, 0x00616620) up to `now`.
-void Tick(Body &body, uint32_t now);
+// The movement manager's tick (0x00616800, 0x00616620) up to `now`. True
+// when time passed, where the client then runs the unit's step
+// (CGUnit_C::OnMoverStepped 0x005FAC70): the swim decision below.
+bool Tick(Body &body, uint32_t now);
 // The position reset (0x007C69A0): put down at `p` facing `facing`, at rest.
 void Reset(Body &body, const float (&p)[3], float facing);
 // SetFacing (0x007C6F30).
@@ -98,9 +103,24 @@ bool StartStrafe(Body &body, bool left);     // 0x007C6C50
 bool StopStrafe(Body &body);                 // 0x007C6D30
 void StartTurn(Body &body, bool left);       // 0x007C6D90
 bool StopTurn(Body &body);                   // 0x007C6DD0
+void StartPitch(Body &body, bool up);        // 0x007C6DF0, only while swimming
+bool StopPitch(Body &body);                  // 0x007C6E30
 bool Jump(Body &body);                       // 0x007C6230 with check 1
+
+// The unit's swim decision (CGUnit_C::UpdateSwimState 0x006030C0) for a
+// player-controlled unit, after a tick: `depth` is the liquid's surface less
+// the feet's z, 0 out of liquid. A body starts swimming deeper than three
+// quarters of its height, unless it is still rising from a jump, and stops
+// out of the liquid or 1/36 yard shallower than that.
+void UpdateSwimState(Body &body, bool inLiquid, float depth);
 
 // GetCurrentFallSpeed (0x007C5D70): the vertical speed now, down positive.
 float FallSpeed(const Body &body);
+
+// The pitch the client poses a unit's model with (the unit's pose 0x00608560,
+// 0x0060A110): a swimmer moving forward or back is turned by 2π less its
+// pitch about its own y axis (the euler builder 0x007BF4B0; nose up for a
+// rising swimmer), any other body not at all.
+float ModelPitch(const Body &body);
 
 } // namespace Model::Scene::Mover

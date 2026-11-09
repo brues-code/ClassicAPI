@@ -1502,13 +1502,13 @@ bool Trace(const Backdrop &b, const float (&start)[3], const float (&end)[3], bo
 
 namespace {
 
-// TestMapObjectBox (0x006AD330) for the one WMO: the box into the object's
-// space (centre through the inverse, half extents through its axes), then
-// the facets of the groups it touches into the batches.
-bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
+// The box in the object's space as the world's map object tests take it
+// (TestMapObjectBox 0x006AD330, GatherMapObjectFacets 0x006AAAB0): the
+// centre through the inverse, the half extents through its axes. False when
+// it misses the object (BoxOverlaps).
+bool LocalBox(const Backdrop &b, const float (&box)[6], float (&local)[6]) {
     using RotateBox_t = void(__fastcall *)(const float *axes, const float *box, float *out);
     using Overlaps_t = bool(__thiscall *)(void *object, const float *box);
-    using Collect_t = bool(__thiscall *)(void *object, void *out, const float *box, const void *def, uint32_t mask);
     float centre[3], half[6];
     for (int i = 0; i < 3; ++i)
         centre[i] = (box[i] + box[i + 3]) * 0.5f;
@@ -1518,11 +1518,18 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
     TransformPoint(centre, b.inverse, moved);
     const float *m = b.inverse;
     const float axes[9] = {m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]};
-    float local[6];
     reinterpret_cast<RotateBox_t>(Offsets::FUN_ROTATE_BOX)(axes, half, local);
     for (int i = 0; i < 6; ++i)
         local[i] += moved[i % 3];
-    if (!reinterpret_cast<Overlaps_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS)(b.object, local))
+    return reinterpret_cast<Overlaps_t>(Offsets::FUN_CMAPOBJ_BOX_OVERLAPS)(b.object, local);
+}
+
+// TestMapObjectBox (0x006AD330) for the one WMO: the facets of the groups
+// the box touches into the batches.
+bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
+    using Collect_t = bool(__thiscall *)(void *object, void *out, const float *box, const void *def, uint32_t mask);
+    float local[6];
+    if (!LocalBox(b, box, local))
         return false;
     uint32_t out = 0;
     return reinterpret_cast<Collect_t>(Offsets::FUN_CMAPOBJ_COLLECT_BOX_FACETS)(b.object, &out, local, b.def, mask);
@@ -1538,13 +1545,9 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
 // (the same arithmetic as its 0x007BCA80), the plane from their winding. The
 // client's own lists (0x00C4E52C) and cached box are never touched.
 
-bool QueryFacetsIn(const Backdrop &b, const float (&box)[6], std::vector<Contact::Facet> &out) {
-    out.clear();
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
-        return false;
-    ResetFacets();
-    if (!CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
-        return true;
+// The facet emitter (0x00671CC0) over the batches: one facet per triangle,
+// appended to `out`.
+void EmitBatches(std::vector<Contact::Facet> &out) {
     const uint32_t batches = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < batches; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1564,6 +1567,53 @@ bool QueryFacetsIn(const Backdrop &b, const float (&box)[6], std::vector<Contact
             out.push_back(Contact::MakeFacet(v[0], v[1], v[2]));
         }
     }
+}
+
+bool QueryFacetsIn(const Backdrop &b, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    out.clear();
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return false;
+    ResetFacets();
+    if (CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
+        EmitBatches(out);
+    return true;
+}
+
+// The swimmer's liquid query for the one WMO: the world gather's liquid leg
+// (0x006AAAB0 under 0xF0000) is CollectBoxLiquid (0x006A3C20), which takes
+// each loaded group whose bounds touch the box (closed, a NaN missing) and
+// emits that group's liquid tiles on their own (0x006BBCB0).
+bool QueryLiquidIn(const Backdrop &b, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    using Info_t = const uint8_t *(__thiscall *)(void *object, uint32_t group);
+    using CollectLiquid_t =
+        bool(__thiscall *)(void *group, uint32_t *flags, const float *box, const void *def, uint32_t mask);
+    out.clear();
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return false;
+    float local[6];
+    if (!LocalBox(b, box, local))
+        return true;
+    const uint32_t count = Game::Read<uint32_t>(b.object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
+    for (uint32_t g = 0; g < count; ++g) {
+        const uint8_t *info = reinterpret_cast<Info_t>(Offsets::FUN_CMAPOBJ_GET_GROUP_INFO)(b.object, g);
+        if (info == nullptr)
+            continue;
+        const float *bounds = reinterpret_cast<const float *>(info + Offsets::OFF_MOGI_BOUNDS);
+        bool touches = true;
+        for (int i = 0; i < 3; ++i)
+            if (!(bounds[i] <= local[i + 3] && local[i] <= bounds[i + 3]))
+                touches = false;
+        if (!touches)
+            continue;
+        void *group = LoadedGroup(b.object, g);
+        if (group == nullptr)
+            continue;
+        ResetFacets();
+        uint32_t flags = 0;
+        reinterpret_cast<CollectLiquid_t>(Offsets::FUN_CMAPOBJGROUP_COLLECT_LIQUID_BOX)(
+            group, &flags, local, b.def, Offsets::WORLD_CLASS_SWIM_LIQUID);
+        EmitBatches(out);
+    }
     return true;
 }
 
@@ -1575,6 +1625,14 @@ bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Fac
         return false;
     }
     return QueryFacetsIn(*static_cast<const Backdrop *>(backdrop), box, out);
+}
+
+bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    if (backdrop == nullptr) {
+        out.clear();
+        return false;
+    }
+    return QueryLiquidIn(*static_cast<const Backdrop *>(backdrop), box, out);
 }
 
 bool Sweep(const Backdrop &b, const float (&feet)[3], float radius, float height, const float (&move)[3],
@@ -1596,10 +1654,10 @@ bool Sweep(const Backdrop &b, const float (&feet)[3], float radius, float height
     // The facets start empty over the volume's own box, as the substep's
     // query frame (0x00633840) leaves its cache; the sweep's gather then
     // takes that box joined with the end of the move.
-    Contact::Facets facets{{}, {}, &QueryFacets, const_cast<Backdrop *>(&b)};
+    Contact::Facets facets{{}, {}, {}, &QueryFacets, &QueryLiquidFacets, const_cast<Backdrop *>(&b)};
     Contact::BaseBox(feet, radius, height, facets.box);
     Contact::Contact contact;
-    if (!Contact::Sweep(facets, feet, radius, height, dir, static_cast<float>(length), contact))
+    if (!Contact::Sweep(facets, false, false, feet, radius, height, dir, static_cast<float>(length), contact))
         return false;
     for (int k = 0; k < 3; ++k)
         end[k] = static_cast<float>(feet[k] + static_cast<double>(dir[k]) * contact.distance);
