@@ -840,6 +840,8 @@ build instructions.
   - [`scene:ClearFog()`](#sceneclearfog)
   - [`scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`](#scenesetdrawlayerlayer--scenegetdrawlayer)
   - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
+  - [`scene:GetSceneTime()`](#scenegetscenetime)
+  - [`scene:After(seconds, callback)` / `scene:NewTimer(seconds, callback)` / `scene:NewTicker(seconds, callback [, iterations])`](#sceneafterseconds-callback--scenenewtimerseconds-callback--scenenewtickerseconds-callback--iterations)
   - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
   - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
   - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
@@ -19331,6 +19333,41 @@ Sets the draw layer of the scene, for example `"ARTWORK"` or `"OVERLAY"`.
 current frame. `false` starts the animations again from the same frame.
 `affectsGlobalPause` has no effect. To pause one actor, use
 [`actor:SetPaused`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused).
+
+The clock of the scene ([`scene:GetSceneTime`](#scenegetscenetime)) and
+the timers of the scene stop with the animations.
+
+### `scene:GetSceneTime()`
+
+Returns the time on the clock of the scene, in seconds. The clock starts
+at 0 when the scene is made. The actors animate by this clock.
+
+The clock stops while the scene is paused (`scene:SetPaused`) and while
+the scene is hidden. This is a ClassicAPI extension.
+
+### `scene:After(seconds, callback)` / `scene:NewTimer(seconds, callback)` / `scene:NewTicker(seconds, callback [, iterations])`
+
+These functions are the same as
+[`C_Timer.After`](#c_timerafterseconds-callback),
+[`C_Timer.NewTimer`](#c_timernewtimerseconds-callback) and
+[`C_Timer.NewTicker`](#c_timernewtickerseconds-callback-iterations), but
+they use the clock of the scene. Time does not pass for these timers while
+the scene is paused or hidden. Thus the timers stay in step with the
+animations of the actors.
+
+The scene runs its timers when its clock moves, before the actors update.
+A ticker runs one time in each frame at most. A `/reload` cancels all the
+timers. This is a ClassicAPI extension.
+
+```lua
+-- The warrior swings every 2 seconds on the clock of the scene.
+local ticker = scene:NewTicker(2, function()
+    warrior:SetAnimation(17) -- Attack1H
+end)
+
+-- Later, to stop the swings:
+ticker:Cancel()
+```
 
 ### `scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`
 
