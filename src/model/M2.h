@@ -178,6 +178,14 @@ inline void GetAttachmentPosition(void *model, uint32_t id, float (&out)[3]) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_POSITION)(model, out, id);
 }
 
+// CM2Model::GetAttachmentOffset: the attachment's position in model space,
+// not posed by any animation. The model must have the attachment
+// (HasAttachment). Waits for an unloaded model file.
+inline void GetAttachmentOffset(void *model, uint32_t id, float (&out)[3]) {
+    using Fn = void(__thiscall *)(void *, float *, uint32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_OFFSET)(model, out, id);
+}
+
 // The animation-event callback (Offsets::FUN_M2MODEL_SET_EVENT_CALLBACK).
 inline void SetEventCallback(void *model, const void *callback, uint32_t userLow,
                              uint32_t userHigh) {
@@ -219,10 +227,23 @@ inline void GetBoundingBox(void *model, float (&box)[6]) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BOUNDING_BOX)(model, box);
 }
 
+// The model's collision box {min xyz, max xyz}. Waits for an unloaded file.
+inline void GetCollisionBox(void *model, float (&box)[6]) {
+    using Fn = void(__thiscall *)(void *, float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_COLLISION_BOX)(model, box);
+}
+
 // The model's bounding sphere {centre xyz, radius}. Waits for an unloaded file.
 inline void GetBoundingSphere(void *model, float (&sphere)[4]) {
     using Fn = void(__thiscall *)(void *, float *);
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BOUNDING_SPHERE)(model, sphere);
+}
+
+// CM2Model::HasAnimation: whether the model has a sequence for the
+// animation. Waits for an unloaded file.
+inline bool HasAnimation(void *model, uint32_t animation) {
+    using Fn = bool(__thiscall *)(void *, uint32_t);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_HAS_ANIMATION)(model, animation);
 }
 
 // An animation's sequence record (FUN_M2MODEL_GET_SEQUENCE_INFO), all zero

@@ -164,6 +164,7 @@
 #include "Offsets.h"
 #include "animation/Xml.h"
 #include "api/Documentation.h"
+#include "cvar/Factory.h"
 #include "dbc/Lookup.h"
 #include "guid/Guid.h"
 #include "gx/Matrix.h"
@@ -1809,6 +1810,102 @@ int __fastcall Script_IsFalling(void *L) {
     return 2;
 }
 
+// The pivot height the world's follow camera eases to for its target, from
+// the actor's model as the camera reads a unit's. CCamera::BuildPivotHeights
+// (0x0050CA90) makes three presets, which the camera's target setter
+// (0x0050D0F0) rebuilds every frame once the model has loaded:
+//
+//   - the base, the same in each: the height of the mouth (attachment 17,
+//     its unposed offset) plus 7/72 yard, or without one 0.9 of the
+//     collision box's height, times the scale;
+//   - near: lowered by how much lower the stand state's animation reaches
+//     than Stand (0), each sequence's bounds top times the scale;
+//   - swimming: lowered the same way by Swim (42), when the model has both;
+//
+// each kept from 5/6 to 15 yards. ArmPivotHeight (0x0050F880) picks the
+// swimming one for a swimmer, else near while the target distance is under
+// 1.8315 yards, else far.
+//
+// The scale is the actor's own, the size its model is drawn at, where a
+// unit's is its descriptor scale times its model scales (0x0050CB24). An
+// actor has no stand state: the animation it plays stands in for it when it
+// is one the stand states give (the jump table 0x0050D0CC), and
+// cameraHeightIgnoreStandState ignores it as it does a unit's. Left out: a
+// mount, whose model a mounted unit's camera reads in place of the body's
+// (0x0050CE10 on), as an actor rides by hanging on another actor.
+namespace {
+constexpr uint32_t kMouthAttachment = 17;
+
+uint32_t StanceAnimation(uint32_t animation) {
+    switch (animation) {
+    case Offsets::ANIM_SIT_GROUND: // stand state 1
+    case Offsets::ANIM_SLEEP:      // 3
+    case Offsets::ANIM_SIT_CHAIR_LOW:
+    case Offsets::ANIM_SIT_CHAIR_MED:
+    case Offsets::ANIM_SIT_CHAIR_HIGH:
+    case Offsets::ANIM_DEAD:       // 7
+    case Offsets::ANIM_KNEEL_LOOP: // 8
+        return animation;
+    default:
+        return Offsets::ANIM_STAND;
+    }
+}
+
+float SequenceTop(void *model, uint32_t animation, float scale) {
+    return M2::GetSequenceInfo(model, animation, 0).bounds[5] * scale;
+}
+
+float ClampPivot(float height) {
+    const float low = Game::Live<float>{Offsets::VAR_CAMERA_PIVOT_MIN};
+    const float high = Game::Live<float>{Offsets::VAR_CAMERA_PIVOT_MAX};
+    return height < low ? low : (height < high ? height : high);
+}
+} // namespace
+
+int __fastcall Script_GetCameraPivotHeight(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "GetCameraPivotHeight(distance)"))
+        return 0;
+    void *model = actor->model;
+    if (model == nullptr || !M2::IsLoaded(model, 0, 0))
+        return 0;
+    const float distance = FloatArg(L, 2);
+    const float scale = actor->scale;
+
+    uint32_t stance = StanceAnimation(actor->animation);
+    if (CVar::Factory::GetInt(Game::Read<void *>(Offsets::VAR_CVAR_CAMERA_HEIGHT_IGNORE_STAND_STATE)) != 0)
+        stance = Offsets::ANIM_STAND;
+    float base;
+    if (M2::HasAttachment(model, kMouthAttachment)) {
+        float mouth[3];
+        M2::GetAttachmentOffset(model, kMouthAttachment, mouth);
+        base = (mouth[2] + Game::Live<float>{Offsets::VAR_CAMERA_PIVOT_LIFT}) * scale;
+    } else {
+        float box[6];
+        M2::GetCollisionBox(model, box);
+        base = (box[5] - box[2]) * scale * Game::Live<float>{Offsets::VAR_NINE_TENTHS};
+    }
+    float nearHeight = base, farHeight = base, swimHeight = base;
+    if (!M2::HasAnimation(model, stance))
+        stance = Offsets::ANIM_STAND;
+    if (M2::HasAnimation(model, Offsets::ANIM_STAND)) {
+        const float standTop = SequenceTop(model, Offsets::ANIM_STAND, scale);
+        if (M2::HasAnimation(model, Offsets::ANIM_SWIM))
+            swimHeight -= standTop - SequenceTop(model, Offsets::ANIM_SWIM, scale);
+        nearHeight -= standTop - SequenceTop(model, stance, scale);
+    }
+
+    float height;
+    if (actor->mover != nullptr && (actor->mover->flags & Mover::FLAG_SWIMMING) != 0)
+        height = swimHeight;
+    else if (distance < Game::Live<float>{Offsets::VAR_CAMERA_NEAR_DISTANCE})
+        height = nearHeight;
+    else
+        height = farHeight;
+    Game::Lua::PushNumber(L, ClampPivot(height));
+    return 1;
+}
+
 int __fastcall Script_SetPosition(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(), "SetPosition(x, y, z)"))
@@ -2113,6 +2210,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"StopPitching", &MoverCommand<&StopPitch>},
     {"IsFalling", &Script_IsFalling},
     {"IsSwimming", &Script_IsSwimming},
+    {"GetCameraPivotHeight", &Script_GetCameraPivotHeight},
     {"MoveTo", &Script_MoveTo},
     {"SetWalking", &Script_SetWalking},
     {"IsWalking", &Script_IsWalking},
@@ -2513,6 +2611,18 @@ const Game::Doc::Function kIsSwimming{
     "quarters of its height. It stays level in the water unless it swims up or down, and it stops "
     "swimming when it leaves the water or rises near the surface.",
     {}, kIsSwimmingRet, nullptr, true};
+const Game::Doc::Field kPivotDistanceArg[] = {
+    Req("distance", "number", "The distance from the camera to the point it looks at, in yards."),
+};
+const Game::Doc::Field kPivotHeightRet[] = {Req("height", "number")};
+const Game::Doc::Function kGetCameraPivotHeight{
+    "Returns the height above the actor's feet that the camera of the world looks at for a character "
+    "like this actor. The height comes from the model and the scale: the mouth, or the height of the "
+    "model without a mouth. A camera nearer than about 1.83 yards looks lower when the actor sits, "
+    "sleeps, kneels or lies dead. A swimming actor gives a lower height when its swim animation is "
+    "lower than its stand animation. The height is from 5/6 to 15 yards. Returns nothing until the "
+    "model has loaded.",
+    kPivotDistanceArg, kPivotHeightRet, nullptr, true};
 const Game::Doc::Field kMoveToArgs[] = {
     Req("x", "number"),
     Req("y", "number"),
@@ -2640,6 +2750,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"StopPitching", &kStopPitching},
     {"IsFalling", &kIsFalling},
     {"IsSwimming", &kIsSwimming},
+    {"GetCameraPivotHeight", &kGetCameraPivotHeight},
     {"MoveTo", &kMoveTo},
     {"SetWalking", &kSetWalking},
     {"IsWalking", &kIsWalking},

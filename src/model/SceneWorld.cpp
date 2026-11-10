@@ -788,14 +788,13 @@ void MakeGroupDoodads(Backdrop &b, void *frame, uint32_t groupIndex, void *group
 // SetDoodadDefBounds (0x006952A0), for a loaded model: the sphere, and the
 // collision box through the matrix.
 void Bound(Doodad &d) {
-    using CollisionBox_t = void(__thiscall *)(void *model, float *out);
     float sphere[4];
     M2::GetBoundingSphere(d.model, sphere);
     const float centre[3] = {sphere[0], sphere[1], sphere[2]};
     TransformPoint(centre, d.matrix, d.center);
     d.radius = sphere[3] * d.scale;
     float collision[6];
-    reinterpret_cast<CollisionBox_t>(Offsets::FUN_M2MODEL_GET_COLLISION_BOX)(d.model, collision);
+    M2::GetCollisionBox(d.model, collision);
     TransformBox(d.matrix, collision, d.collision);
     d.bounded = true;
 }
@@ -1268,7 +1267,6 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
                                         uint32_t *bgra, bool *day);
     using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
                                       uint8_t cap);
-    using CollisionBox_t = void(__thiscall *)(void *model, float *box);
     void *object = b.object;
     a.lights.clear();
     a.interior = false;
@@ -1297,7 +1295,7 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     float point[3] = {0.0f, 0.0f, 0.0f};
     if (M2::IsLoaded(model, 0, 0)) {
         float collision[6];
-        reinterpret_cast<CollisionBox_t>(Offsets::FUN_M2MODEL_GET_COLLISION_BOX)(model, collision);
+        M2::GetCollisionBox(model, collision);
         for (int i = 0; i < 3; ++i)
             point[i] = (collision[i + 3] + collision[i]) * 0.5f;
     }

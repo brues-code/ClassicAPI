@@ -1884,6 +1884,10 @@ enum Offsets {
     // 0x0048FD7F). Read the float at OFF_CVAR_VALUE_FLOAT.
     VAR_CVAR_TARGET_NEAREST_DISTANCE = 0x00B4E2A8,
     VAR_CVAR_TARGET_NEAREST_DISTANCE_RADIUS = 0x00B4D8FC,
+    // CVar* of cameraHeightIgnoreStandState (default 0), stored by its
+    // registration at 0x0050BD9E. The follow camera's pivot heights read its
+    // int (0x0050CB9A): set, a stand state lowers no preset.
+    VAR_CVAR_CAMERA_HEIGHT_IGNORE_STAND_STATE = 0x00BE0CF4,
     // World::QueryObjectVisible — `bool __fastcall(worldObject)`: non-null
     // and `[+0x94] == 0`. A unit's world object is at OFF_CGOBJECT_WORLD_OBJECT
     // (the tab search passes `unit[0x38]`).
@@ -6528,6 +6532,17 @@ enum Offsets {
     ANIM_SWIM_BACKWARDS = 45,
     ANIM_SPRINT = 143,
     ANIM_JUMP_LAND_RUN = 187,
+    // The animations the follow camera's pivot heights (0x0050CA90, jump
+    // table 0x0050D0CC) give stand states 1 and 3 to 8, named from
+    // AnimationData.dbc: Dead, SitGround, Sleep, SitChairLow / Med / High,
+    // KneelLoop.
+    ANIM_DEAD = 6,
+    ANIM_SIT_GROUND = 97,
+    ANIM_SLEEP = 100,
+    ANIM_SIT_CHAIR_LOW = 102,
+    ANIM_SIT_CHAIR_MED = 103,
+    ANIM_SIT_CHAIR_HIGH = 104,
+    ANIM_KNEEL_LOOP = 115,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at
@@ -11651,6 +11666,19 @@ enum Offsets {
     VAR_CAMERA_MAX_PITCH = 0x008089D8,
     VAR_CAMERA_MIN_PITCH = 0x008089DC,
 
+    // The follow camera's pivot heights (CCamera::BuildPivotHeights
+    // 0x0050CA90) and the one it eases to (ArmPivotHeight 0x0050F880): the
+    // height of attachment 17 plus the lift (0x0050CBE4), else the share of
+    // the collision box (0x0050CC03, the plain 0.9 other code reads too);
+    // each preset kept from the minimum to the maximum (0x0050CFA7 on); the
+    // near preset while the target distance (+0x198) is under the near
+    // distance (0x0050F8B5), else the far one.
+    VAR_CAMERA_PIVOT_LIFT = 0x00808AB0,     // float 7/72
+    VAR_NINE_TENTHS = 0x00804588,           // float 0.9
+    VAR_CAMERA_PIVOT_MIN = 0x008089CC,      // float 5/6
+    VAR_CAMERA_PIVOT_MAX = 0x008089C8,      // float 15
+    VAR_CAMERA_NEAR_DISTANCE = 0x008089B0,  // float 1.8315
+
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /
     // turn-key / autorun / strafe-modifier / etc.). The slot at
@@ -14350,6 +14378,13 @@ enum Offsets {
     // CM2Model::HasAttachment — `__thiscall(model, id)`, ret 4. Waits for
     // the model file (0x00710520) when it has not loaded.
     FUN_M2MODEL_HAS_ATTACHMENT = 0x00712CB0,
+    // CM2Model::GetAttachmentOffset — `__thiscall(model, float out[3], id)`,
+    // ret 8 (Ghidra 0x00712CF0). Waits for the model file, then copies the
+    // attachment's position from the M2 attachment table (entry +0x08): the
+    // point in model space, not posed by any animation. Does NOT test the id,
+    // as GetAttachmentPosition. The follow camera's base pivot height reads
+    // attachment 17 with it (0x0050CBDC).
+    FUN_M2MODEL_GET_ATTACHMENT_OFFSET = 0x00712CF0,
     // CM2Model::GetAttachmentPosition — `__thiscall(model, float out[3], id)`,
     // ret 8, returns `out` (Ghidra 0x00712D50). Waits for the model file,
     // EnsureAnimated (0x00714000), then the attachment's offset through its

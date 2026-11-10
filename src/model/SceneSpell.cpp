@@ -312,10 +312,9 @@ namespace {
 // body's animation. A unit whose +0xD5C is 4 asks key bone 4 first; an actor
 // has no such state and asks the whole model.
 void PlayBowPull(Actor &actor) {
-    using HasAnim_t = bool(__thiscall *)(void *model, uint32_t anim);
     void *ranged = RangedModel(actor);
     if (ranged == nullptr || !M2::IsLoaded(ranged, 0, 0) ||
-        !reinterpret_cast<HasAnim_t>(Offsets::FUN_M2MODEL_HAS_ANIMATION)(ranged, Offsets::ANIM_BOW_PULL) ||
+        !M2::HasAnimation(ranged, Offsets::ANIM_BOW_PULL) ||
         actor.model == nullptr || !M2::IsLoaded(actor.model, 0, 0))
         return;
     const M2::AnimState state = M2::GetAnimState(actor.model, -1);
