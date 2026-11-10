@@ -13949,6 +13949,49 @@ enum Offsets {
     SKY_DISCS_LIT = 2, // the sun disc and the white moon take band 9
     OFF_LIGHT_RECORD_SUN = 0x20,
     OFF_LIGHT_RECORD_SKYBOXES = 0x78, // {LightSkybox id, float weight} x 2
+    // The portal walk (benilla terrain/portals.md) decides the sky from
+    // inside. WalkPortals `__thiscall(obj, group, from, const float
+    // rect[4], depth, interiorGroup)` ret 0x14 (0x006B41C0): skips a group
+    // past depth 10, unparsed or with flag 0x10000; sets the weather byte
+    // for flags 0x148 and, for flag 0x40000 with a MOSB name (obj +0x12C),
+    // the byte and the skybox state (the name); calls the group callback
+    // when one is set; then through each portal (projected once a pass by
+    // 0x006B46F0 with the object-to-clip matrix and the camera point in
+    // model space) that does not lead back, that the camera is in front
+    // of, and whose rectangle overlaps `rect` by more than 0.001 each way,
+    // into the neighbour with the overlap. It records windows only in the
+    // inside leg, and sets the group fog flag. The interior seed
+    // (0x006B3B20) advances the pass, sets the inside leg and the fog flag,
+    // makes the object-to-clip matrix world stack 8 x the device's
+    // (0x0058B0C0 `__fastcall(out)`: view x projection; 0x0058B280
+    // `__fastcall(unit, out)`: a stack's top), clears the liquid group seen,
+    // and walks each claimed group over (-1, -1, 1, 1) at depth 0, as its
+    // own interior group unless flagged 0x48. The exterior seed (0x006B3DD0)
+    // walks each MOGI group (obj +0x130, 0x20 each: flags, box) flagged 0x8
+    // and not 0x10000 whose box, turned by the def's matrix, the current
+    // volume does not cull (0x00682F60 `__fastcall(box, basis[9],
+    // position[3])`, 0 when inside). The frame clears the weather byte and
+    // the skybox state (0x006B3890); DrawWorldScene puts the skybox state
+    // into skybox slot 0 at the interior fog weight (+0x7C) and clears
+    // slot 1 (SetSkyboxSlot `__fastcall(slot, path, float weight)` ret 4,
+    // 0x006D4810) while the weather byte is set.
+    FUN_WALK_PORTALS = 0x006B41C0,
+    FUN_FRUSTUM_BOX_CULLED = 0x00682F60,
+    FUN_GX_GET_VIEW_PROJECTION = 0x0058B0C0,
+    FUN_GX_XFORM_GET = 0x0058B280,
+    FUN_SET_SKYBOX_SLOT = 0x006D4810,
+    VAR_MAPOBJ_PASS = 0x00CA8014,
+    VAR_PORTAL_INSIDE_LEG = 0x00CDE5AC,
+    VAR_PORTAL_CALLBACK = 0x00CDE5B0,
+    VAR_PORTAL_CAMERA_POINT = 0x00CA7EDC,
+    VAR_PORTAL_OBJECT_TO_CLIP = 0x00CBE2D8,
+    VAR_LIQUID_GROUP_SEEN = 0x00CE66E8,
+    VAR_LIQUID_GROUP_PARITY = 0x00CE269C,
+    VAR_WEATHER_VISIBLE = 0x00CA80C4, // byte
+    VAR_SKYBOX_STATE = 0x00CA8080,    // const char *, a MOSB name
+    OFF_CMAPOBJ_GROUP_INFOS = 0x130,
+    MAPOBJ_GROUP_UNWALKED = 0x10000,
+    MAPOBJ_PORTAL_FROM_NONE = 0xFFFF,
     // The LightSkybox store (id, model path; benilla lighting/tables.md).
     VAR_LIGHTSKYBOX_COUNT = 0x00CE9DB4,
     VAR_LIGHTSKYBOX_ID_MAP = 0x00CE9DB8,
