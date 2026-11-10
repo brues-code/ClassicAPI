@@ -147,6 +147,7 @@ FrameXML\ScriptErrorsFrame.xml
 FrameXML\ModelScene\CameraRegistry.lua
 FrameXML\ModelScene\CameraBaseMixin.lua
 FrameXML\ModelScene\OrbitCameraMixin.lua
+FrameXML\ModelScene\FollowCameraMixin.lua
 FrameXML\ModelScene\ModelSceneMixin.lua
 FrameXML\ModelScene\ModelSceneMixin.xml
 FrameXML\ModelScene\ModelSceneActorMixin.lua
