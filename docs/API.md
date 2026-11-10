@@ -856,6 +856,7 @@ build instructions.
   - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
   - [`scene:GetCursorRay()`](#scenegetcursorray)
   - [`scene:GetActorsInRadius(x, y, z, radius)`](#scenegetactorsinradiusx-y-z-radius)
+  - [`scene:SetMoveMarker(x, y, z)` / `scene:ClearMoveMarker()` / `scene:GetMoveMarker()`](#scenesetmovemarkerx-y-z--sceneclearmovemarker--scenegetmovemarker)
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
@@ -895,6 +896,8 @@ build instructions.
   - [`actor:DetachFromActor()`](#actordetachfromactor)
   - [`actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)
   - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
+  - [`actor:SetHighlight(kind, highlighted)` / `actor:IsHighlighted([kind])`](#actorsethighlightkind-highlighted--actorishighlightedkind)
+  - [`actor:SetSelectionCircle(r, g, b [, a])` / `actor:ClearSelectionCircle()` / `actor:GetSelectionCircle()`](#actorsetselectioncircler-g-b--a--actorclearselectioncircle--actorgetselectioncircle)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
   - [`actor:StopSpellVisual()`](#actorstopspellvisual)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
@@ -19689,6 +19692,42 @@ for _, actor in ipairs(scene:GetActorsInRadius(x, y, z, 5)) do
 end
 ```
 
+### `scene:SetMoveMarker(x, y, z)` / `scene:ClearMoveMarker()` / `scene:GetMoveMarker()`
+
+Shows the click-to-move marker at a point, in scene coordinates. It is the
+same pulsing yellow mark that the world shows where you click to move. The
+scene shows one marker. A new call moves it to the new point.
+
+- In a scene with a WMO, the marker lies on the faces of the WMO near the
+  point. In a scene with no WMO, it lies flat at the height of the point.
+- The marker pulses between 0.5 and 0.75 yards in size, two times each
+  second. It pulses also while the scene is paused.
+- The marker stays until you call `ClearMoveMarker`. It does not go away
+  when an actor gets to the point.
+
+`GetMoveMarker` returns `x, y, z`, or nothing when the scene shows no
+marker. This is a ClassicAPI extension.
+
+```lua
+-- The marker shows where the runner goes, until it gets there.
+scene:HookScript("OnMouseUp", function(self, button)
+    if button ~= "RightButton" then
+        return
+    end
+    local nearX, nearY, nearZ, farX, farY, farZ = self:GetCursorRay()
+    if nearX then
+        local x, y, z = self:TraceSegment(nearX, nearY, nearZ, farX, farY, farZ)
+        if x then
+            runner:MoveTo(x, y, z)
+            self:SetMoveMarker(x, y, z)
+        end
+    end
+end)
+runner:HookScript("OnMoveFinished", function()
+    scene:ClearMoveMarker()
+end)
+```
+
 ### `OnActorEnter` / `OnActorLeave`
 
 Scripts of the scene, with the arguments `(self, actor)`. When the actor
@@ -20183,6 +20222,71 @@ units have on the ground in the world. The default is off.
   seated rider, or an actor of `AttachToActor`) shows no shadow of its own.
 
 This is a ClassicAPI extension.
+
+### `actor:SetHighlight(kind, highlighted)` / `actor:IsHighlighted([kind])`
+
+Makes the model glow, as a unit in the world glows when it is your target or
+when it is under the cursor. `kind` is `"target"` or `"mouseover"`. The two
+kinds are separate: the actor glows while one or both are on. Both are off
+by default.
+
+- The colour of the glow is the ambient colour of the scene light at the
+  time that a kind goes on. A later change to the light does not change a
+  glow that is on.
+- The glow stays when the actor gets a new model.
+
+`IsHighlighted(kind)` returns `true` when that kind is on. With no `kind`,
+it returns `true` when one of the two is on. This is a ClassicAPI extension.
+
+```lua
+scene:SetScript("OnActorEnter", function(self, actor)
+    actor:SetHighlight("mouseover", true)
+end)
+scene:SetScript("OnActorLeave", function(self, actor)
+    actor:SetHighlight("mouseover", false)
+end)
+```
+
+### `actor:SetSelectionCircle(r, g, b [, a])` / `actor:ClearSelectionCircle()` / `actor:GetSelectionCircle()`
+
+Shows a selection circle under the feet of the actor. It is the same circle
+that the world shows under your target. The colour values are from 0 to 1,
+and `a` is 1 by default. An actor has no circle by default.
+
+- In a scene with a WMO, the circle lies on the floor of the WMO under the
+  actor. In a scene with no WMO, it lies flat at the height of the actor's
+  position.
+- The size of the circle comes from the bounds of the model and from the
+  scale of the actor, as for a unit in the world.
+- The circle adds its colour to what is behind it, so `a` sets how bright
+  it is. A dark colour shows less than a bright colour.
+- The shadow of the actor draws over its circle, as in the world.
+- The circle shows only while the `ObjectSelectionCircle` cvar is `1`, as in
+  the world. This is the default value.
+- A hidden actor, an actor with no model, and an actor that hangs on another
+  actor show no circle.
+
+`GetSelectionCircle` returns `r, g, b, a`, or nothing when the actor has no
+circle. This is a ClassicAPI extension.
+
+```lua
+-- A left click targets the actor under the cursor.
+local target
+scene:HookScript("OnMouseUp", function(self, button)
+    if button ~= "LeftButton" then
+        return
+    end
+    if target then
+        target:SetHighlight("target", false)
+        target:ClearSelectionCircle()
+    end
+    target = self:GetActorAtCursor()
+    if target then
+        target:SetHighlight("target", true)
+        target:SetSelectionCircle(1, 0, 0)
+    end
+end)
+```
 
 ```lua
 mount:SetShadowShown(true)
