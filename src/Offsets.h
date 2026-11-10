@@ -14477,6 +14477,14 @@ enum Offsets {
     // int)`: sets the device projection and view from the camera over the
     // rect; the bake passes {0, 0, 1, aspect} and 0.
     FUN_CAMERA_SET_DEVICE_TRANSFORMS = 0x007ADA40,
+    // UnprojectScreenPoint — `__fastcall(float near[3], float far[3], float
+    // a, float b)`, ret 8 (Ghidra 0x007AD2C0): the frustum corners of the
+    // device view and projection (BuildFrustumCorners), then the near and
+    // far plane points at horizontal fraction `a` and vertical fraction `b`
+    // of the viewport, each 0 to 1 (nothing for one outside). The world
+    // frame's pick ray (0x004813B0) passes the cursor's fractions across its
+    // rect and adds the camera's eye to both points: the view leaves it out.
+    FUN_UNPROJECT_SCREEN_POINT = 0x007AD2C0,
     // PortraitLighting — the bake's lighting callback (ambient 0.45 grey and a
     // white light along (-1, 0, -1)), set with FUN_MODEL_INSTANCE_SET_RENDER_CB
     // and a null argument.

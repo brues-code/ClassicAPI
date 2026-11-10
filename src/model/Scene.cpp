@@ -97,7 +97,8 @@
 // ClassicAPI extensions: GetActorAtCursor, and the scripts OnActorEnter /
 // OnActorLeave (self, actor), which run from the update walk when the actor
 // under the cursor changes while the scene is the mouse focus. Both use the
-// world's own object pick, under "picking" below. SetWorldModel /
+// world's own object pick, under "picking" below. GetCursorRay: the world
+// frame's pick ray, also under "picking". SetWorldModel /
 // SetWorldModelByMapID / ClearWorldModel: a WMO drawn by the world's own map
 // object draw after the animate pass, with its doodads as models of the
 // scene; Set/GetPlayWorldModelSounds: the doodads' sounds
@@ -681,10 +682,10 @@ bool Unproject(const Gx::Matrix &m, float x, float y, float depth, float (&out)[
     return true;
 }
 
-// The cursor in the clip space of the paint's viewport, the frame's rect
-// {bottom, left, top, right} in NDC clamped to the screen; false when the
-// cursor is outside it or the paint draws nothing.
-bool CursorClip(const float (&rect)[4], float &x, float &y) {
+// The cursor's fractions across and up the paint's viewport, the frame's
+// rect {bottom, left, top, right} in NDC clamped to the screen, each 0 to 1;
+// false when the cursor is outside it or the paint draws nothing.
+bool CursorFraction(const float (&rect)[4], float &x, float &y) {
     const uint8_t *ctx = Game::Read<const uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
     if (ctx == nullptr)
         return false;
@@ -699,8 +700,8 @@ bool CursorClip(const float (&rect)[4], float &x, float &y) {
         return false;
     if (!(mouse[0] >= vp[1] && mouse[0] <= vp[3] && mouse[1] >= vp[0] && mouse[1] <= vp[2]))
         return false;
-    x = 2.0f * (mouse[0] - vp[1]) / (vp[3] - vp[1]) - 1.0f;
-    y = 2.0f * (mouse[1] - vp[0]) / (vp[2] - vp[0]) - 1.0f;
+    x = (mouse[0] - vp[1]) / (vp[3] - vp[1]);
+    y = (mouse[1] - vp[0]) / (vp[2] - vp[0]);
     return true;
 }
 
@@ -725,8 +726,10 @@ Actor *ActorAtCursor(void *frame) {
     if (camera == nullptr || !Model::Pane::IsVisible(frame) || !Frame::Layout::GetRect(frame, rect))
         return nullptr;
     float x = 0.0f, y = 0.0f;
-    if (!CursorClip(rect, x, y))
+    if (!CursorFraction(rect, x, y))
         return nullptr;
+    x = 2.0f * x - 1.0f; // into clip space
+    y = 2.0f * y - 1.0f;
     Gx::Matrix projection;
     {
         const Gx::SavedTransforms saved;
@@ -743,6 +746,34 @@ Actor *ActorAtCursor(void *frame) {
         if (actor->shown && actor->model != nullptr)
             AddHitTest(actor->model, actor, *f.actors);
     return reinterpret_cast<Actor *>(M2::RayHit(scene, p0, p1));
+}
+
+// The world frame's pick ray (0x004813B0, from PickAtCursor 0x00481190):
+// the cursor's fractions across and up the viewport, through the engine's
+// UnprojectScreenPoint (0x007AD2C0) under the paint's device transforms,
+// then the eye added to the near and far plane points, as the camera's view
+// leaves it out. Scene coordinates; false when the cursor is not over the
+// shown picture.
+bool CursorRay(void *frame, float (&nearPoint)[3], float (&farPoint)[3]) {
+    void *camera = CameraOf(frame);
+    float rect[4] = {}; // {bottom, left, top, right}
+    if (camera == nullptr || !Model::Pane::IsVisible(frame) || !Frame::Layout::GetRect(frame, rect))
+        return false;
+    float a = 0.0f, b = 0.0f;
+    if (!CursorFraction(rect, a, b))
+        return false;
+    {
+        const Gx::SavedTransforms saved;
+        CameraTransforms(frame, camera, rect);
+        Gx::UnprojectScreenPoint(nearPoint, farPoint, a, b);
+    }
+    const Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
+    const float offset[3] = {eye.x, eye.y, eye.z};
+    for (int i = 0; i < 3; ++i) {
+        nearPoint[i] += offset[i];
+        farPoint[i] += offset[i];
+    }
+    return true;
 }
 
 // ---- the overrides -----------------------------------------------------------------
@@ -1137,6 +1168,20 @@ int __fastcall Script_GetActorAtCursor(void *L) {
         return 0;
     Animation::Push(L, actor);
     return 1;
+}
+
+int __fastcall Script_GetCursorRay(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    float nearPoint[3], farPoint[3];
+    if (!CursorRay(frame, nearPoint, farPoint))
+        return 0;
+    for (float value : nearPoint)
+        Game::Lua::PushNumber(L, value);
+    for (float value : farPoint)
+        Game::Lua::PushNumber(L, value);
+    return 6;
 }
 
 int __fastcall Script_SetViewInsets(void *L) {
@@ -1554,6 +1599,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
     {"GetActorAtCursor", &Script_GetActorAtCursor},
+    {"GetCursorRay", &Script_GetCursorRay},
     {"SetViewInsets", &Script_SetViewInsets},
     {"GetViewInsets", &Script_GetViewInsets},
     {"SetViewTranslation", &Script_SetViewTranslation},
@@ -1809,6 +1855,15 @@ const Game::Doc::Function kGetActorAtCursor{
     "triangles of the model, its held items and its effects. Returns nothing when no actor is "
     "under the cursor.",
     {}, kActorRet, nullptr, true};
+const Game::Doc::Field kCursorRayRets[] = {
+    Req("nearX", "number"), Req("nearY", "number"), Req("nearZ", "number"),
+    Req("farX", "number"),  Req("farY", "number"),  Req("farZ", "number"),
+};
+const Game::Doc::Function kGetCursorRay{
+    "Returns the line through the cursor, from the point under it on the near clip to the point "
+    "under it on the far clip, in scene coordinates. Returns nothing when the cursor is not over the "
+    "picture of the scene, or the scene is hidden.",
+    {}, kCursorRayRets, nullptr, true};
 const Game::Doc::Field kInsetArgs[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
                                        Req("bottom", "number")};
 const Game::Doc::Field kInsetRets[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
@@ -1872,6 +1927,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetPlayWorldModelSounds", &kGetPlayWorldModelSounds},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"GetActorAtCursor", &kGetActorAtCursor},
+    {"GetCursorRay", &kGetCursorRay},
     {"SetViewInsets", &kSetViewInsets},
     {"GetViewInsets", &kGetViewInsets},
     {"SetViewTranslation", &kSetViewTranslation},

@@ -123,6 +123,14 @@ inline void SetClearColor(uint32_t argb) {
 // `mask` 1 the colour, 2 the depth.
 inline void Clear(uint32_t mask) { reinterpret_cast<void(__fastcall *)(uint32_t)>(Offsets::FUN_GX_CLEAR)(mask); }
 
+// The near and far plane points at the viewport fractions `a` (across) and
+// `b` (up), through the device view and projection: relative to the eye when
+// the view leaves it out, as a camera's does.
+inline void UnprojectScreenPoint(float (&nearPoint)[3], float (&farPoint)[3], float a, float b) {
+    using Fn = void(__fastcall *)(float *, float *, float, float);
+    reinterpret_cast<Fn>(Offsets::FUN_UNPROJECT_SCREEN_POINT)(nearPoint, farPoint, a, b);
+}
+
 // The projection, view and viewport, put back when the scope ends.
 class SavedTransforms {
   public:
