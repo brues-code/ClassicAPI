@@ -23,8 +23,8 @@
 //      plays the animation.
 //   3. When it picks again: a movement command the mover took
 //      (ProcessLocalMoveEvent 0x0060E0A0 -> AnimateMoveOpcode 0x0060E480);
-//      a substep that lands, starts a fall or ends a swim
-//      (BroadcastStateChange 0x0061A820 -> OnLand 0x00602D00,
+//      a substep that arrives at a spline's end, lands, starts a fall or
+//      ends a swim (BroadcastStateChange 0x0061A820 -> OnLand 0x00602D00,
 //      UpdateLandingAnimation 0x00602C60, PlayFallAnimation 0x00602C40); a
 //      body that catches up turning on the spot (the tail of CGUnit_C::Update
 //      0x00607ED0); and a sequence that ends (OnAnimationDone 0x005FC920 ->
@@ -32,10 +32,9 @@
 //
 // What the unit has and an actor does not: the death, special stand, loot,
 // cast, ready, ranged, stand state and emote resolvers (an actor has no unit
-// state; its script plays those), stealth, splines and flying, and the walk
-// mode (no command sets it). An actor whose own animation is a death
-// animation is dead, as Actor::PlayAnimation treats it: the chain leaves it
-// to its script. A spell kit's animation (Casts) stays on top: a pick sets
+// state; its script plays those), stealth and flying. An actor whose own
+// animation is a death animation is dead, as Actor::PlayAnimation treats
+// it: the chain leaves it to its script. A spell kit's animation (Casts) stays on top: a pick sets
 // the actor's own animation under it, which the kit gives back when it ends.
 
 #include "model/Scene.h"
@@ -211,6 +210,11 @@ void OnMove(Actor &actor, Move move) {
     case Move::Jump:
         Play(actor, Offsets::ANIM_JUMP_START, false);
         return;
+    case Move::RunMode:
+    case Move::WalkMode:
+        if (actor.mover->flags & 0xF)
+            Pick(actor, JumpEndLock(actor), false);
+        return;
     case Move::Stop:
     case Move::StopStrafe:
     case Move::StartTurnLeft:
@@ -223,8 +227,13 @@ void OnMove(Actor &actor, Move move) {
     }
 }
 
-void OnStep(void *context, uint32_t oldFlags, bool jumped) {
+void OnStep(void *context, uint32_t oldFlags, bool jumped, bool arrived) {
     Actor &actor = *static_cast<Actor *>(context);
+    // The arrival's MSG_MOVE_STOP, after the spline's done report.
+    if (arrived) {
+        actor.movesFinished += 1;
+        OnMove(actor, Move::Stop);
+    }
     if (!Active(actor))
         return;
     const uint32_t flags = actor.mover->flags;
@@ -250,8 +259,8 @@ void OnStep(void *context, uint32_t oldFlags, bool jumped) {
         if (flags & Mover::FLAG_FALLING_FAR)
             Play(actor, Offsets::ANIM_FALL, false);
     }
-    // A swim ends: MSG_MOVE_STOP_SWIM.
-    if (!(flags & Mover::FLAG_SWIMMING) && (oldFlags & Mover::FLAG_SWIMMING))
+    // A swim ends: MSG_MOVE_STOP_SWIM, not sent along a spline.
+    if (!(flags & Mover::FLAG_SWIMMING) && (oldFlags & Mover::FLAG_SWIMMING) && !Mover::OnSpline(*actor.mover))
         OnMove(actor, Move::StopSwim);
 }
 

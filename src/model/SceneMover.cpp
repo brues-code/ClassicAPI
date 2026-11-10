@@ -84,6 +84,11 @@ const float kNegHalfPi = Bits(0xBFC90FDB);    // -pi/2 (0x0080C5E4)
 const float kThreeQuarters = Bits(0x3F400000); // 0.75 (0x008012CC)
 const float kFltMax = Bits(0x7F7FFFFF);
 const float kNegFltMax = Bits(0xFF7FFFFF);
+const float kSnapSq = Bits(0x41100000);       // 9.0, 3 yards squared (0x0080C5BC)
+const float kWarpSpeedSq = Bits(0x45610000);  // 3600.0, 60 yards a second squared (0x0080C734)
+const float kReachedSq = Bits(0x3A4A4588);    // (1/36)^2, one path point (0x0080C450)
+const float kSixth = Bits(0x3E2AAAAB);        // 1/6, the shortest path (0x00803568)
+const float kFour = Bits(0x40800000);         // the path speed's cap over the run speed (0x0080306C)
 const float kCellCentre = Bits(0x46855555);   // 17066.666 (0x00616BF0)
 const float kCellSpan = Bits(0x47055355);     // 34131.332 (0x0080C738)
 const float kDefaultRadius = Bits(0x3EAAAAAB);
@@ -148,10 +153,22 @@ uint32_t FacetCount(const Body &b) { return static_cast<uint32_t>(b.facets.solid
 
 // ---- kinematics (0x007C4850 to 0x007C5CD0) ------------------------------------------
 
-// The current speed (0x007C4C90).
+// Spline flags (+0x18).
+constexpr uint32_t kSplineArrived = 0x1;        // set by the follower at the duration
+constexpr uint32_t kSplineDone = 0x4;           // CompleteSpline (0x00619DEF)
+constexpr uint32_t kSplineRun = 0x100;          // the run mode (0x007C6AC2)
+constexpr uint32_t kSplineFinalAngle = 0x40000; // SetSplineFacingAngle (0x006188A0)
+constexpr uint32_t kSplineHeld = 0x80000000;    // the follower writes nothing (0x007C54BA)
+
+bool Live(const Body &b) { return b.spline && !(b.spline->flags & kSplineDone); }
+
+// The current speed (0x007C4C90). A live spline's is its length over its
+// duration (0x007C4CAA: fidiv by the signed duration, times 1000).
 float SelectSpeed(const Body &b, bool walk) {
     if ((b.flags & 0xF) == 0)
         return 0.0f;
+    if (Live(b))
+        return static_cast<float>(D(b.spline->length) / static_cast<int32_t>(b.spline->duration) * kThousand);
     if (b.flags & FLAG_SWIMMING) {
         if (b.flags & FLAG_BACKWARD)
             return b.swimBackSpeed <= b.swimSpeed ? b.swimBackSpeed : b.swimSpeed;
@@ -1666,6 +1683,215 @@ uint32_t FreeMove(Body &b, uint32_t ms, float dist, float (&u)[3]) {
     return ms;
 }
 
+// ---- the spline (0x00453300 to 0x00454820, 0x007C5490, 0x00616AF0 to 0x00616D60) ---------
+//
+// A ground spline's curve is the Catmull-Rom curve in mode 0: control
+// point i + 1 to i + 2 is segment i, a straight chord, and the curve is
+// walked by arc length. Its first and last control points are guards.
+
+// LocateCatmullRomByLength (0x00454380 -> 0x00453840): the segment and the
+// part of it at arc-length fraction `t`.
+void Locate(const Spline &s, float t, uint32_t &seg, float &frac) {
+    const uint32_t n = static_cast<uint32_t>(s.points.size()) - 3;
+    if (n == 1) {
+        seg = 0;
+        frac = t;
+        return;
+    }
+    const double at = D(s.length) * t;
+    float running = 0.0f;
+    uint32_t i = 0;
+    if (n - 1 != 0) {
+        for (;;) {
+            const double next = D(s.segments[i]) + running;
+            if (at < next)
+                break;
+            ++i;
+            running = static_cast<float>(next);
+            if (i >= n - 1)
+                break;
+        }
+    }
+    seg = i;
+    frac = static_cast<float>((at - running) / s.segments[i]);
+}
+
+// EvaluateCurvePosition (0x004541B0), mode 0: the chord's point at `f`.
+void ChordPoint(const Spline &s, uint32_t seg, float f, float (&out)[3]) {
+    const std::array<float, 3> &a = s.points[seg + 1];
+    const std::array<float, 3> &c = s.points[seg + 2];
+    const double dx = D(c[0]) - a[0];
+    const double dy = D(c[1]) - a[1];
+    const float dz = static_cast<float>(D(c[2]) - a[2]);
+    const float xf = static_cast<float>(dx * f);
+    out[0] = static_cast<float>(D(xf) + a[0]);
+    out[1] = static_cast<float>(dy * f + a[1]);
+    out[2] = static_cast<float>(D(dz) * f + a[2]);
+}
+
+// CatmullRomSegmentLength (0x00454320), mode 0: the chord's length.
+double ChordLength(const Spline &s, uint32_t seg) {
+    const std::array<float, 3> &a = s.points[seg + 1];
+    const std::array<float, 3> &c = s.points[seg + 2];
+    const double dx = D(c[0]) - a[0];
+    const double dy = D(c[1]) - a[1];
+    const double dz = D(c[2]) - a[2];
+    return std::sqrt((dz * dz + dy * dy) + dx * dx);
+}
+
+// The curve's points (0x00453360 -> slot 7 0x00454770, then 0x004532E0):
+// with more than three, each segment's length (slot 1 0x004543E0) and their
+// sum (slot 0 0x004543D0 -> 0x00453920) as the total.
+void SetPath(Spline &s, const std::vector<std::array<float, 3>> &points) {
+    s.points = points;
+    s.segments.clear();
+    if (s.points.size() <= 3)
+        return;
+    const uint32_t n = static_cast<uint32_t>(s.points.size()) - 3;
+    s.segments.resize(n);
+    for (uint32_t i = 0; i < n; ++i)
+        s.segments[i] = static_cast<float>(ChordLength(s, i));
+    double total = 0.0;
+    for (float len : s.segments)
+        total += len;
+    s.length = static_cast<float>(total);
+}
+
+// The frame at `t` (EvaluateSplineFrame 0x00453480 -> CatmullRomFrame
+// 0x00454580), mode 0: the unit chord as the tangent, and the point. The
+// follower reads no other row on the ground.
+void Frame(const Spline &s, float t, float (&tangent)[3], float (&point)[3]) {
+    if (t < 0.0f)
+        t = 0.0f;
+    else if (!(t < 1.0f)) // 1.0 and above, and NaN
+        t = 1.0f;
+    uint32_t seg = 0;
+    float frac = 0.0f;
+    Locate(s, t, seg, frac);
+    ChordPoint(s, seg, frac, point);
+    const std::array<float, 3> &a = s.points[seg + 1];
+    const std::array<float, 3> &c = s.points[seg + 2];
+    float chord[3] = {static_cast<float>(D(c[0]) - a[0]), static_cast<float>(D(c[1]) - a[1]),
+                      static_cast<float>(D(c[2]) - a[2])};
+    const double len = std::sqrt((D(chord[0]) * chord[0] + D(chord[1]) * chord[1]) + D(chord[2]) * chord[2]);
+    if (!(std::fabs(len) < kParallel)) { // 0x004549C0 by the stored length
+        const double inv = D(kOne) / static_cast<float>(len);
+        for (float &v : chord)
+            v = static_cast<float>(v * inv);
+    }
+    std::memcpy(tangent, chord, sizeof chord);
+}
+
+// CMovement::FollowSpline (0x007C5490): the spline's progress at `now`, the
+// direction and facing along it (and the pitch for a swimmer), and the
+// point less the anchor. Without a direction bit it returns the flags'
+// 0x200F and writes nothing.
+uint32_t FollowSpline(Body &b, uint32_t now, float (&out)[3]) {
+    if (!(b.flags & 0x3))
+        return b.flags & 0x200F;
+    Spline &s = *b.spline;
+    if (s.flags & kSplineHeld)
+        return 1;
+    s.elapsed = static_cast<int32_t>(now - s.start);
+    float u;
+    if (s.duration == 0) {
+        u = 1.0f;
+    } else if (s.elapsed < 0) {
+        u = 0.0f;
+    } else if (static_cast<uint32_t>(s.elapsed) < s.duration) {
+        u = static_cast<float>(static_cast<double>(s.elapsed) / static_cast<int32_t>(s.duration));
+    } else {
+        u = 1.0f;
+        s.flags |= kSplineArrived;
+    }
+    float tangent[3];
+    std::memcpy(tangent, b.direction, sizeof tangent);
+    float point[3] = {0.0f, 0.0f, 0.0f};
+    Frame(s, u, tangent, point);
+    const double facing = std::atan2(D(tangent[1]), D(tangent[0]));
+    b.facing = static_cast<float>(facing);
+    if (facing < 0.0)
+        b.facing = static_cast<float>(facing + kTwoPi);
+    std::memcpy(b.direction, tangent, sizeof tangent);
+    if (b.flags & FLAG_SWIMMING)
+        b.pitch = static_cast<float>(std::asin(D(tangent[2])));
+    for (int i = 0; i < 3; ++i)
+        out[i] = static_cast<float>(D(point[i]) - b.anchor[i]);
+    return 1;
+}
+
+// CMovement::GetSplineStep (0x00616AF0): the spline's displacement, or,
+// for a horizontal step past 3 yards or 60 yards a second, the point taken
+// at once without the collision, which ends the step (0).
+uint32_t SplineStep(Body &b, uint32_t end, uint32_t length, float (&delta)[3]) {
+    if (FollowSpline(b, end, delta) == 0)
+        return 0;
+    if (!(b.flags & 0x200F))
+        return 1;
+    float target[3];
+    for (int i = 0; i < 3; ++i)
+        target[i] = static_cast<float>(D(b.anchor[i]) + delta[i]);
+    const double dx = D(target[0]) - b.position[0];
+    const double dy = D(target[1]) - b.position[1];
+    const double d = dy * dy + dx * dx;
+    const double t = static_cast<double>(length) * kMsToSec;
+    // Greater, or NaN, takes the point (0x00616B88, 0x00616B95).
+    if (d / (t * t) <= kWarpSpeedSq && d <= kSnapSq)
+        return 1;
+    std::memcpy(b.position, target, sizeof target);
+    if (b.flags & FLAG_FALLING) // GetFallStartZ (0x007C5F30)
+        b.fallStartZ = static_cast<float>(FallDistanceMs(b, b.fallTime) + b.position[2]);
+    return 0;
+}
+
+// CMovement::SnapIfFar (0x00616D60): to `p` when it is 3 yards away or
+// more, or NaN, ending any fall.
+void SnapIfFar(Body &b, const float (&p)[3]) {
+    const double dx = D(p[0]) - b.position[0];
+    const double dy = D(p[1]) - b.position[1];
+    const double dz = D(p[2]) - b.position[2];
+    if ((dz * dz + dx * dx) + dy * dy < kSnapSq)
+        return;
+    std::memcpy(b.position, p, sizeof b.position);
+    Land(b);
+}
+
+// CompleteSpline (0x00619DE0) for the active mover: done, reported
+// (CMSG 0x2C9, the caller's) and freed.
+void CompleteSpline(Body &b) {
+    b.spline->flags |= kSplineDone;
+    ClearSpline(b);
+}
+
+// The spline's part of BroadcastStateChange (0x0061A820) after a substep
+// that used up its time (`rest` 0): at the end of the duration the body
+// stops at the last point, takes the final facing and completes the
+// spline. True when it arrived. (A completed spline is freed, so the
+// client's branch for one marked done never runs here.)
+bool SplineArrival(Body &b, uint32_t rest) {
+    if (rest != 0 || !Live(b) || !(b.flags & 0x3) || !(b.spline->flags & kSplineArrived))
+        return false;
+    StopMoveNow(b);
+    SnapIfFar(b, b.spline->end);
+    if (b.spline->flags & kSplineFinalAngle)
+        b.facing = b.spline->facingAngle;
+    CompleteSpline(b);
+    return true;
+}
+
+// CMovement::StopAllMotion (0x0061AA70): no fall, no latch, no turn, pitch,
+// strafe or move. The unit side picks its animation after.
+void StopAllMotion(Body &b) {
+    Land(b);
+    b.flags &= 0xFBE07FFF;
+    StopTurn(b);
+    StopPitch(b);
+    if (b.flags & 0xC)
+        StopStrafeNow(b);
+    StopMoveNow(b);
+    b.flags &= 0xFFFF9FFF;
+}
+
 // CMovement::ResolveDisplacement (0x00634040): `d` over `ms` in substeps.
 uint32_t Resolve(Body &b, uint32_t ms, const float (&d)[3]) {
     if (ms == 0)
@@ -1698,9 +1924,11 @@ uint32_t Resolve(Body &b, uint32_t ms, const float (&d)[3]) {
         } else {
             done += (b.flags & FLAG_FALLING) ? FallStep(b, rest, dist, flat) : Walk(b, rest, dist, flat);
         }
+        const bool arrived = SplineArrival(b, ms - done);
         if (b.stepped != nullptr)
-            b.stepped(b.steppedContext, oldFlags, jumped);
-        if (!(b.speed == savedSpeed)) {
+            b.stepped(b.steppedContext, oldFlags, jumped, arrived);
+        // A live spline sets the speed itself (0x0063426F).
+        if (!Live(b) && !(b.speed == savedSpeed)) {
             RefreshSpeed(b, false);
             break;
         }
@@ -1737,21 +1965,32 @@ uint32_t Apply(Body &b, uint32_t r, const float (&delta)[3]) {
     return Resolve(b, r, d);
 }
 
-// The substeps of one step (0x00616DE0).
-void Integrate(Body &b, uint32_t length) {
+// The substeps of one step (0x00616DE0) ending at the tick `end`: by the
+// live spline, else by the motion since the anchors. After them a body the
+// collision left 3 yards or more off its spline goes to the spline's point.
+void Integrate(Body &b, uint32_t end, uint32_t length) {
     if (!PositionValid(b) || length == 0)
         return;
     uint32_t done = 0;
+    float onSpline[3] = {0.0f, 0.0f, 0.0f};
     for (int pass = 0; pass < kMaxPasses && (b.flags & 0x20FF); ++pass) {
         const uint32_t r = length - done;
         b.elapsed += r;
         float delta[3] = {0.0f, 0.0f, 0.0f};
-        if (!Displacement(b, b.elapsed, delta))
+        if (Live(b)) {
+            if (SplineStep(b, end, r, delta) == 0)
+                return;
+            for (int i = 0; i < 3; ++i)
+                onSpline[i] = static_cast<float>(D(delta[i]) + b.anchor[i]);
+        } else if (!Displacement(b, b.elapsed, delta)) {
             return;
+        }
         done += Apply(b, r, delta);
         if (done >= length)
             break;
     }
+    if (PositionValid(b) && Live(b))
+        SnapIfFar(b, onSpline);
 }
 
 } // namespace
@@ -1790,10 +2029,11 @@ bool Tick(Body &body, uint32_t now) {
     if (window > kMaxWindowMs)
         window = kMaxWindowMs; // the client reports the rest as skipped (0x00615AE0)
     if (body.flags & 0x20FF)
-        Integrate(body, window);
+        Integrate(body, now, window);
     return true;
 }
 
+// The position reset frees a live spline (0x007C69A0 with free_spline 1).
 void Reset(Body &body, const float (&p)[3], float facing) {
     std::memcpy(body.position, p, sizeof body.position);
     body.facing = facing;
@@ -1802,6 +2042,8 @@ void Reset(Body &body, const float (&p)[3], float facing) {
     Land(body);
     Anchor(body, false);
     RefreshSpeed(body, false);
+    if (Live(body))
+        ClearSpline(body);
 }
 
 void SetFacing(Body &body, float facing) {
@@ -1917,6 +2159,162 @@ bool Jump(Body &body) {
         return false;
     StartFall(body, (body.flags & FLAG_SWIMMING) ? kSwimJumpSpeed : kJumpSpeed);
     return true;
+}
+
+void SetRunMode(Body &body, bool run) {
+    if (run)
+        body.flags &= ~FLAG_WALK;
+    else
+        body.flags |= FLAG_WALK;
+    Anchor(body, false);
+    RefreshSpeed(body, false);
+}
+
+void ClearSpline(Body &body) {
+    if (!body.spline)
+        return;
+    body.spline.reset();
+    RefreshSpeed(body, false);
+}
+
+bool OnSpline(const Body &body) { return Live(body); }
+
+namespace {
+
+using Point = std::array<float, 3>;
+
+// InitSpline (0x007C62C0): the record, made when absent, with no flags and
+// `p` as its last point.
+void InitSpline(Body &b, const float (&p)[3]) {
+    if (!b.spline)
+        b.spline.emplace();
+    b.spline->flags = 0;
+    std::memcpy(b.spline->end, p, sizeof b.spline->end);
+}
+
+// CMovement::StartSplinePath (0x006187A0), after the queue's flush: every
+// motion stops; unless rooted the spline starts at the tick (StartSpline
+// 0x007C6A50), its run mode set from flag 0x100, and the body moves
+// forward. Its last point is the curve's at 1.0 (0x00453390), the last
+// control point. (Deactivate 0x00619E80 would only mark a running spline
+// done, which InitSpline overwrites.)
+bool StartSplinePath(Body &b, const std::vector<Point> &points, uint32_t duration, uint32_t flags) {
+    StopAllMotion(b);
+    if (b.flags & 0x1000)
+        return false;
+    const float last[3] = {points.back()[0], points.back()[1], points.back()[2]};
+    InitSpline(b, last);
+    Spline &s = *b.spline;
+    s.flags = flags;
+    s.start = b.clock;
+    s.elapsed = 0;
+    s.duration = duration;
+    SetPath(s, points);
+    SetRunMode(b, (flags & kSplineRun) != 0);
+    StartMove(b, true);
+    std::memcpy(s.end, last, sizeof s.end);
+    return true;
+}
+
+// CMovement::FlushAndStopSpline (0x00618750): stopped where it stands, the
+// spline ending at `p` finished (FinishSpline 0x00616D30) and completed.
+void StopSplineAt(Body &b, const float (&p)[3]) {
+    StopAllMotion(b);
+    InitSpline(b, p);
+    b.spline->points.clear(); // ResetSplinePath (0x007C6A20): no points
+    b.spline->segments.clear();
+    SnapIfFar(b, b.spline->end);
+    b.spline->elapsed = static_cast<int32_t>(b.spline->duration);
+    b.spline->flags |= kSplineArrived;
+    CompleteSpline(b);
+}
+
+// SetWorldFacing (0x007C6EB0) with no transport: wrapped once into [0, 2pi].
+void SetWorldFacing(Body &b, float facing) {
+    if (facing <= kTwoPi) {
+        if (facing < 0.0f)
+            facing = static_cast<float>(D(kTwoPi) + facing);
+        SetFacing(b, facing);
+        return;
+    }
+    SetFacing(b, static_cast<float>(D(facing) - kTwoPi));
+}
+
+// __ftol by fistp under round to nearest; out of range gives 0x80000000.
+int32_t RoundNearest(float x) {
+    const double r = std::nearbyint(D(x));
+    if (!(r >= -2147483648.0 && r <= 2147483647.0))
+        return INT32_MIN;
+    return static_cast<int32_t>(r);
+}
+
+} // namespace
+
+bool MoveTo(Body &body, const float (&to)[3], const float *facing) {
+    // The move as a server sends it: from where the body stands, with the
+    // body's run mode, and the time the path takes at the body's own speed.
+    const uint32_t flags = (body.flags & FLAG_WALK) ? 0 : kSplineRun;
+    const float serverSpeed = (body.flags & FLAG_SWIMMING) ? body.swimSpeed
+                              : (body.flags & FLAG_WALK)   ? body.walkSpeed
+                                                           : body.runSpeed;
+    // The path (0x00601D41): the start, and the end unless within 1/36 yard
+    // of it. AnchorSplinePath (0x006021C0) keeps a path that starts where the
+    // body stands as it is, and empties a lone point there.
+    std::vector<Point> path{{body.position[0], body.position[1], body.position[2]}};
+    {
+        const double dx = D(to[0]) - body.position[0];
+        const double dy = D(to[1]) - body.position[1];
+        const double dz = D(to[2]) - body.position[2];
+        if ((dx * dx + dz * dz) + dy * dy > kReachedSq)
+            path.push_back({to[0], to[1], to[2]});
+    }
+    if (path.size() > 1) {
+        // The guards (0x00601E66 to 0x00601ECA): the last point again, and
+        // before the first the second reflected through it.
+        const Point &p = path[0], &q = path[1];
+        const float dz = static_cast<float>(D(q[2]) - p[2]);
+        std::vector<Point> points{{static_cast<float>(D(p[0]) - (D(q[0]) - p[0])),
+                                   static_cast<float>(D(p[1]) - (D(q[1]) - p[1])),
+                                   static_cast<float>(D(p[2]) - dz)}};
+        points.insert(points.end(), path.begin(), path.end());
+        points.push_back(path.back());
+        // The length (0x00601EF4), summed from the last chord.
+        double length = 0.0;
+        for (size_t i = points.size() - 2; i > 1; --i) {
+            const Point &lo = points[i - 1], &hi = points[i];
+            const double dx = D(hi[0]) - lo[0], dy = D(hi[1]) - lo[1], dz2 = D(hi[2]) - lo[2];
+            length += std::sqrt((dx * dx + dz2 * dz2) + dy * dy);
+        }
+        if (length > kSixth) {
+            const uint32_t sent =
+                serverSpeed > 0.0f ? static_cast<uint32_t>(length / serverSpeed * kThousand) : 0;
+            // The speed (0x00601F3D): the path's own when slower than four
+            // times the run speed.
+            double speed = D(body.runSpeed) * kFour;
+            if (sent != 0) {
+                const double pathSpeed = length / (static_cast<double>(sent) * kMsToSec);
+                if (pathSpeed < speed)
+                    speed = static_cast<float>(pathSpeed);
+            }
+            if (speed > kTiny) {
+                // The duration (0x00601F9F to 0x00601FCC), 1 ms at least.
+                const int32_t ms = RoundNearest(static_cast<float>((length / speed) * kThousand));
+                const uint32_t duration = ms <= 1 ? 1u : static_cast<uint32_t>(ms);
+                if (StartSplinePath(body, points, duration, flags)) {
+                    if (facing != nullptr) { // SetSplineFacingAngle (0x006188A0)
+                        body.spline->flags |= kSplineFinalAngle;
+                        body.spline->facingAngle = *facing;
+                    }
+                    return true;
+                }
+            }
+        }
+    }
+    // No path (0x0060205E): the facing now, and the spline done at once.
+    if (facing != nullptr)
+        SetWorldFacing(body, *facing);
+    StopSplineAt(body, to);
+    return false;
 }
 
 void StartPitch(Body &body, bool up) {

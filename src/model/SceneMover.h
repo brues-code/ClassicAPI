@@ -20,16 +20,37 @@
 // precision. A Body is the scene's own; the client's movers, their manager
 // and its lists are never touched.
 //
-// Left out, as the scene has none of them: transports, splines, the event
-// queue and every packet, hover (0x40000000), water walking, fixed height
-// (0x800) and the swim pitch setter (0x007C6F70), which the client drives
-// from the camera.
+// A body is the client's active mover (the unit the player controls), so a
+// spline it finishes is reported and freed (CompleteSpline 0x00619DE0).
+//
+// Left out, as the scene has none of them: transports, flying splines
+// (spline flag 0x200), the event queue and every packet, hover (0x40000000),
+// water walking, fixed height (0x800) and the swim pitch setter
+// (0x007C6F70), which the client drives from the camera.
 
 #include "model/SceneContact.h"
 
+#include <array>
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 namespace Model::Scene::Mover {
+
+// The spline record (0x00630C40, 0x70 bytes at CMovement +0xA4), the
+// fields a ground move uses, and its Catmull-Rom curve (+0x2C, vtable
+// 0x007FFD84) in mode 0: straight chords between the control points.
+struct Spline {
+    float facingAngle;              // +0x14, the facing at the end (flag 0x40000)
+    uint32_t flags;                 // +0x18
+    uint32_t start;                 // +0x1C, the tick it started at
+    int32_t elapsed;                // +0x20, ms
+    uint32_t duration;              // +0x24, ms
+    float length;                   // +0x30, the curve's total length (curve +0x04)
+    std::vector<std::array<float, 3>> points; // +0x3C, the curve's control points (curve +0x10)
+    std::vector<float> segments;    // +0x4C, the curve's segment lengths (curve +0x20)
+    float end[3];                   // +0x58, the last point
+};
 
 // CMovement, the fields a scene body uses (offsets from 0x00616FA0).
 struct Body {
@@ -55,6 +76,7 @@ struct Body {
     float swimBackSpeed;   // +0x98
     float turnRate;        // +0x9C
     float fallSpeed;       // +0xA0, down positive
+    std::optional<Spline> spline; // +0xA4, null when absent
     float radius;          // +0xB0
     float height;          // +0xB4
     float stepRatio;       // +0xB8
@@ -62,8 +84,10 @@ struct Body {
     Contact::Facets facets; // the world query's list (0x00C4E52C)
     // The unit's side of each substep (BroadcastStateChange 0x0061A820,
     // from the substep loop at 0x00634260): `oldFlags` the flags before the
-    // substep, `jumped` whether its fall had a start speed. Null for none.
-    void (*stepped)(void *context, uint32_t oldFlags, bool jumped) = nullptr;
+    // substep, `jumped` whether its fall had a start speed, `arrived` whether
+    // the body reached its spline's end and stopped (MSG_MOVE_STOP, after the
+    // spline's done report). Null for none.
+    void (*stepped)(void *context, uint32_t oldFlags, bool jumped, bool arrived) = nullptr;
     void *steppedContext = nullptr;
 };
 
@@ -75,6 +99,7 @@ enum : uint32_t {
     FLAG_STRAFE_RIGHT = 0x8,
     FLAG_TURN_LEFT = 0x10,
     FLAG_TURN_RIGHT = 0x20,
+    FLAG_WALK = 0x100,
     FLAG_PITCH_UP = 0x40,
     FLAG_PITCH_DOWN = 0x80,
     FLAG_FALLING = 0x2000,
@@ -111,6 +136,19 @@ bool StopTurn(Body &body);                   // 0x007C6DD0
 void StartPitch(Body &body, bool up);        // 0x007C6DF0, only while swimming
 bool StopPitch(Body &body);                  // 0x007C6E30
 bool Jump(Body &body);                       // 0x007C6230 with check 1
+void SetRunMode(Body &body, bool run);       // 0x007C71C0
+// ClearSpline (0x007C6310): what the client does first with a move event
+// that is not the player's own (UpdatePlayerMovement 0x00615C30).
+void ClearSpline(Body &body);
+
+// A server's move of the body to `to` along the ground, as the client reads
+// and starts it (CGUnit_C::OnMonsterMove 0x006018F0, mover side): a path
+// from where the body stands, at its own speed (swim, walk or run), ending
+// at `facing` when given. True when the body set off; false when it stopped
+// where it stands, which the client reports as the spline done at once.
+bool MoveTo(Body &body, const float (&to)[3], const float *facing);
+// Whether the body follows a spline (+0xA4 set, its flag 0x4 clear).
+bool OnSpline(const Body &body);
 
 // The unit's swim decision (CGUnit_C::UpdateSwimState 0x006030C0) for a
 // player-controlled unit, after a tick: `depth` is the liquid's surface less

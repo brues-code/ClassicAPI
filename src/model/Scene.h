@@ -271,6 +271,9 @@ class Actor : public Animation::Object {
     // OnSpellVisualImpact for them: outside the casts' step, which a script
     // that casts or stops a spell would change under it.
     std::vector<SpellImpact> spellImpacts;
+    // The moves (MoveTo) the mover reported done, until the update runs
+    // OnMoveFinished for them.
+    uint32_t movesFinished = 0;
     std::vector<ImpactModel> impactModels;
     std::vector<StuckMissile> stuckMissiles; // the missiles stuck in this actor
 };
@@ -325,6 +328,8 @@ enum class Move : uint32_t {
     StartTurnLeft = 0xBC,
     StartTurnRight = 0xBD,
     StopTurn = 0xBE,
+    RunMode = 0xC2,
+    WalkMode = 0xC3,
     TeleportAck = 0xC7,
     StartSwim = 0xCA,
     StopSwim = 0xCB,
@@ -332,9 +337,9 @@ enum class Move : uint32_t {
 // A movement message for a command the mover took, or a change the actor
 // made (ProcessLocalMoveEvent 0x0060E0A0 -> AnimateMoveOpcode).
 void OnMove(Actor &actor, Move move);
-// The mover's substep hook (Mover::Body::stepped), context the actor: a
-// landing, a fall or a swim's end.
-void OnStep(void *actor, uint32_t oldFlags, bool jumped);
+// The mover's substep hook (Mover::Body::stepped), context the actor: an
+// arrival at a spline's end, a landing, a fall or a swim's end.
+void OnStep(void *actor, uint32_t oldFlags, bool jumped, bool arrived);
 // The body pass's shuffle (the tail of CGUnit_C::Update 0x00607ED0), `turn`
 // the turn the body made this frame.
 void OnBodyTurn(Actor &actor, float turn);

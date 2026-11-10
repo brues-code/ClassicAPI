@@ -182,18 +182,20 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <utility>
 
 namespace Model::Scene {
 
 namespace {
 
 // Script indexes (kScripts order).
-// OnSpellVisualImpact is a ClassicAPI extension (PlaySpellVisual's).
+// OnSpellVisualImpact (PlaySpellVisual's) and OnMoveFinished (MoveTo's) are
+// ClassicAPI extensions.
 enum ActorScript { S_ONLOAD, S_ONUPDATE, S_ONMODELCLEARED, S_ONMODELLOADING, S_ONMODELLOADED,
-                   S_ONANIMFINISHED, S_ONSPELLVISUALIMPACT };
+                   S_ONANIMFINISHED, S_ONSPELLVISUALIMPACT, S_ONMOVEFINISHED };
 const char *const kScripts[] = {"onload",         "onupdate",      "onmodelcleared",
                                 "onmodelloading", "onmodelloaded", "onanimfinished",
-                                "onspellvisualimpact"};
+                                "onspellvisualimpact", "onmovefinished"};
 static_assert(sizeof(kScripts) / sizeof(kScripts[0]) <= Animation::kMaxScripts);
 
 // The engine's done callback, as the character pane's (0x005062A0): a body
@@ -989,6 +991,10 @@ void Actor::Update(float elapsedSec) {
             RunScript(S_ONSPELLVISUALIMPACT, 3);
         }
     }
+    // The moves the mover reported done. Taken first: a script may move the
+    // actor again.
+    for (uint32_t finished = std::exchange(movesFinished, 0); finished != 0; --finished)
+        RunScript(S_ONMOVEFINISHED, 0);
     if (HasScript(S_ONUPDATE)) {
         void *L = Game::Lua::State();
         if (L != nullptr) {
@@ -1651,9 +1657,11 @@ void SizeMover(Actor &actor) {
 
 // Puts the body down where the actor stands, as the client puts a unit down
 // after a near teleport: the position reset (0x007C69A0), then the fall
-// gate (0x007C61C0), so it falls to the floor below.
+// gate (0x007C61C0), so it falls to the floor below. As every move event
+// that is not the player's own, it ends a MoveTo first.
 void PutDown(Actor &actor) {
     Advance(actor);
+    Mover::ClearSpline(*actor.mover);
     Mover::Reset(*actor.mover, actor.position, actor.yaw);
     Mover::FallGate(*actor.mover);
     Locomotion::OnMove(actor, Locomotion::Move::TeleportAck);
@@ -1701,13 +1709,17 @@ struct Command {
 };
 
 // A movement command at the body's tick, as the client applies a command
-// at its event time. Nothing without the mover.
+// at its event time. The script stands in for the server, so a command is a
+// move event that is not the player's own: it ends a MoveTo first
+// (ClearSpline in UpdatePlayerMovement 0x00615C30). Nothing without the
+// mover.
 template <Command (*Apply)(Mover::Body &)>
 int __fastcall MoverCommand(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || actor->mover == nullptr)
         return 0;
     Advance(*actor);
+    Mover::ClearSpline(*actor->mover);
     const Command done = Apply(*actor->mover);
     if (done.move)
         Locomotion::OnMove(*actor, *done.move);
@@ -1750,6 +1762,52 @@ Command StartPitchDown(Mover::Body &b) {
     return {swimming, std::nullopt};
 }
 Command StopPitch(Mover::Body &b) { return {Mover::StopPitch(b), std::nullopt}; }
+
+// The server's move (SMSG_MONSTER_MOVE, CGUnit_C::OnMonsterMove 0x006018F0):
+// the mover's path, or its spline done at once; then the unit's side
+// (0x006020ED, 0x006020FB): the ranged pose ends (EndRangedPose 0x0060F530)
+// and the animation is picked again (UpdateBaseAnimation 0x005FD9E0). Left
+// out: the stand state and the precast clear (UnitClearPrecastSpell
+// 0x0060D040), which an actor's casts have no part for.
+int __fastcall Script_MoveTo(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(), "MoveTo(x, y, z [, facing])"))
+        return 0;
+    if (actor->mover == nullptr)
+        return 0;
+    const float to[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
+    const bool faces = Game::Lua::IsNumber(L, 5) != 0;
+    const float facing = faces ? FloatArg(L, 5) : 0.0f;
+    Advance(*actor);
+    if (!Mover::MoveTo(*actor->mover, to, faces ? &facing : nullptr))
+        actor->movesFinished += 1;
+    Casts::EndRangedPose(*actor);
+    Locomotion::Repick(*actor);
+    return 0;
+}
+
+// MSG_MOVE_SET_WALK_MODE and MSG_MOVE_SET_RUN_MODE (cases 0xF and 0xE of
+// UpdatePlayerMovement 0x00615C30): the run mode (SetRunMode 0x007C71C0),
+// which a moving body animates.
+int __fastcall Script_SetWalking(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || actor->mover == nullptr)
+        return 0;
+    const bool walking = Game::Lua::ToBoolean(L, 2) != 0;
+    Advance(*actor);
+    Mover::ClearSpline(*actor->mover);
+    Mover::SetRunMode(*actor->mover, !walking);
+    Locomotion::OnMove(*actor, walking ? Move::WalkMode : Move::RunMode);
+    return 0;
+}
+
+int __fastcall Script_IsWalking(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->mover != nullptr && (actor->mover->flags & Mover::FLAG_WALK) != 0);
+    return 1;
+}
 
 int __fastcall Script_IsSwimming(void *L) {
     Actor *actor = Self(L);
@@ -1798,6 +1856,7 @@ int __fastcall Script_SetYaw(void *L) {
     actor->yaw = FloatArg(L, 2);
     if (actor->mover != nullptr) {
         Advance(*actor);
+        Mover::ClearSpline(*actor->mover); // MSG_MOVE_SET_FACING (case 0x10)
         Mover::SetFacing(*actor->mover, actor->yaw);
     }
     return 0;
@@ -2073,6 +2132,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"StopPitching", &MoverCommand<&StopPitch>},
     {"IsFalling", &Script_IsFalling},
     {"IsSwimming", &Script_IsSwimming},
+    {"MoveTo", &Script_MoveTo},
+    {"SetWalking", &Script_SetWalking},
+    {"IsWalking", &Script_IsWalking},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -2422,8 +2484,8 @@ const Game::Doc::Field kCommandRet[] = {
     Req("applied", "bool", "False when the command was refused, or kept until the actor lands."),
 };
 const Game::Doc::Function kStartMovingForward{
-    "Starts the actor running forward. In the air the actor keeps the way it jumped or fell, and the "
-    "command takes effect when it lands.",
+    "Starts the actor moving forward: it runs, or walks while SetWalking is on. In the air the actor "
+    "keeps the way it jumped or fell, and the command takes effect when it lands.",
     {}, kCommandRet, nullptr, true};
 const Game::Doc::Function kStartMovingBackward{
     "Starts the actor walking backward. In the air it takes effect when the actor lands.", {}, kCommandRet,
@@ -2470,6 +2532,30 @@ const Game::Doc::Function kIsSwimming{
     "quarters of its height. It stays level in the water unless it swims up or down, and it stops "
     "swimming when it leaves the water or rises near the surface.",
     {}, kIsSwimmingRet, nullptr, true};
+const Game::Doc::Field kMoveToArgs[] = {
+    Req("x", "number"),
+    Req("y", "number"),
+    Req("z", "number"),
+    Opt("facing", "number", nullptr, "The yaw that the actor turns to when it arrives."),
+};
+const Game::Doc::Function kMoveTo{
+    "Moves the actor to the point along the ground, as the server moves a creature. The actor goes in a "
+    "straight line at its own speed: it runs, or walks while SetWalking is on, or swims. It follows the "
+    "floor, and it falls where the floor ends. A wall does not stop the move: when the actor is 3 yards "
+    "or more from its place on the line, it goes to that place at once. When the actor arrives, it stops "
+    "and turns to the facing, if you give one. Then its OnMoveFinished script runs. When the point is 1/6 "
+    "yard away or less, the actor stops where it stands and OnMoveFinished runs at the next update. "
+    "Another MoveTo, a "
+    "movement command, SetWalking, SetPosition or SetYaw ends the move, and then OnMoveFinished does "
+    "not run. Nothing happens unless SetMovementEnabled is on.",
+    kMoveToArgs, {}, nullptr, true};
+const Game::Doc::Field kWalkingArg[] = {Req("walking", "bool")};
+const Game::Doc::Function kSetWalking{
+    "Sets whether the actor walks instead of running when it moves forward, and in MoveTo. It ends a "
+    "move that MoveTo started. Off by default.",
+    kWalkingArg, {}, nullptr, true};
+const Game::Doc::Function kIsWalking{"Returns whether the actor walks instead of running.", {},
+                                     kWalkingArg, nullptr, true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -2573,6 +2659,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"StopPitching", &kStopPitching},
     {"IsFalling", &kIsFalling},
     {"IsSwimming", &kIsSwimming},
+    {"MoveTo", &kMoveTo},
+    {"SetWalking", &kSetWalking},
+    {"IsWalking", &kIsWalking},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},
