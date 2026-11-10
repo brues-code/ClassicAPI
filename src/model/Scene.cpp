@@ -125,7 +125,6 @@
 #include "gx/Matrix.h"
 #include "model/Camera.h"
 #include "model/M2.h"
-#include "time/Clock.h"
 #include "time/Timer.h"
 #include "xml/FrameLoad.h"
 
@@ -547,7 +546,8 @@ void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&ey
 // ObjectSelectionCircle cvar is on, as the world's (0x00614ADA). Drawn per
 // actor before its shadow, as the world's per-entity step draws it before
 // the blob. The marker: the auto-move target's pulsing box (Offsets::
-// VAR_AUTOMOVE_MARKER_*), on the OS clock as the world's, after the actors'.
+// VAR_AUTOMOVE_MARKER_*), after the actors', on the scene clock where the
+// world's runs on the OS clock: the scene clock is the scene's world time.
 
 bool SelectionDecalReady() {
     return Game::Read<void *>(Offsets::VAR_SELECTION_CIRCLE_TEXTURE) != nullptr &&
@@ -613,7 +613,7 @@ void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) 
     if (!f.moveMarkerShown)
         return;
     const uint32_t period = Game::Read<uint32_t>(Offsets::VAR_AUTOMOVE_MARKER_PERIOD_MS);
-    const uint32_t t = Time::Clock::NowMs() % period;
+    const uint32_t t = ClockMs(frame) % period;
     const float low = Game::Read<float>(Offsets::VAR_AUTOMOVE_MARKER_MIN);
     const float high = Game::Read<float>(Offsets::VAR_AUTOMOVE_MARKER_MAX);
     const float wave = (std::sin(static_cast<float>(t) * Game::Read<float>(Offsets::VAR_HEADING_TWO_PI) /
@@ -990,22 +990,20 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
                 World::Settle(*world, *actor->ambience, self, actor->model, elapsedSec);
     }
-    void *m2Scene = Model::Pane::Scene(self);
-    const uint32_t before = m2Scene != nullptr ? Game::Read<uint32_t>(m2Scene, Offsets::OFF_M2SCENE_TIME) : 0;
+    const uint32_t before = ClockMs(self);
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     else
         g_class.Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
-    // The scene's timers run on its clock, once it has moved this frame.
-    if (m2Scene != nullptr) {
-        const uint32_t advancedMs = Game::Read<uint32_t>(m2Scene, Offsets::OFF_M2SCENE_TIME) - before;
-        F(self).clock += advancedMs / 1000.0;
-    }
+    // The scene's timers, movement and casts run on its clock, once it has
+    // moved this frame.
+    const uint32_t advancedMs = ClockMs(self) - before;
+    F(self).clock += advancedMs / 1000.0;
     Time::Timer::Fire(self, F(self).clock);
     // By index: an actor's script may create another.
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
-        actors[i]->Update(elapsedSec);
+        actors[i]->Update(elapsedSec, static_cast<float>(advancedMs) / 1000.0f);
     UpdateHover(self);
 }
 
@@ -1944,11 +1942,14 @@ const Game::Doc::Field kFarFogRet[] = {Req("far", "number")};
 
 const Game::Doc::Function kSetDrawLayer{"Sets the layer the scene draws in.", kLayerArg, {}};
 const Game::Doc::Function kGetDrawLayer{"Returns the layer the scene draws in.", {}, kLayerRets};
-const Game::Doc::Function kSetPaused{"Stops or restarts the actors' animations.", kPausedArgs, {}};
+const Game::Doc::Function kSetPaused{
+    "Stops or restarts the scene: the actors' animations, movement and spell visuals, and the clock and timers "
+    "of the scene.",
+    kPausedArgs, {}};
 const Game::Doc::Field kSceneTimeRet[] = {Req("seconds", "number")};
 const Game::Doc::Function kGetSceneTime{
     "Returns the seconds that the clock of the scene has run since the scene was made. The clock "
-    "stops while the scene is paused or hidden. The actors' animations use this clock.",
+    "stops while the scene is paused or hidden. The actors animate and move by this clock.",
     {}, kSceneTimeRet, nullptr, true};
 const Game::Doc::Field kTimerArgs[] = {Req("seconds", "number", "On the clock of the scene."),
                                        Req("callback", "function")};
@@ -2278,6 +2279,10 @@ World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 Actor *SoundListener(void *sceneFrame) { return F(sceneFrame).listener; }
 
 const float *LightAmbient(void *sceneFrame) { return AmbientOf(sceneFrame); }
+
+uint32_t ClockMs(void *sceneFrame) {
+    return Game::Read<uint32_t>(Model::Pane::Scene(sceneFrame), Offsets::OFF_M2SCENE_TIME);
+}
 
 View CameraView(void *sceneFrame) {
     const Fields &f = F(sceneFrame);

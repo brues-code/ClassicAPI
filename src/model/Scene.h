@@ -115,7 +115,9 @@ class Actor : public Animation::Object {
     // ready model on the scene's animate list.
     void Link();
     // From the scene frame's update walk: load and dress state, scripts.
-    void Update(float elapsedSec);
+    // `elapsedSec` is the frame's time (OnUpdate), `sceneSec` the time the
+    // scene clock moved (casts; 0 while the scene is paused).
+    void Update(float elapsedSec, float sceneSec);
     // From the scene's paint, before the scene animates: the model's
     // placement matrix.
     void Place();
@@ -470,6 +472,11 @@ World::Backdrop *WorldOf(void *sceneFrame);
 // The scene light's ambient colour {r, g, b}: the colour an actor's highlight
 // takes, as a unit's takes the world light state's ambient.
 const float *LightAmbient(void *sceneFrame);
+
+// The scene clock in milliseconds (the M2 scene's): the actors' movement runs
+// on it as a unit's runs on the OS clock, so it stops while the scene is
+// paused or hidden, with the animations.
+uint32_t ClockMs(void *sceneFrame);
 
 // The actor the scene's sounds are heard at (SetSoundListenerActor), or null.
 Actor *SoundListener(void *sceneFrame);

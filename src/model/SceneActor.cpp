@@ -175,7 +175,6 @@
 #include "model/SceneMover.h"
 #include "model/VisualKit.h"
 #include "object/Resolve.h"
-#include "time/Clock.h"
 #include "unit/Identity.h"
 #include "xml/FrameLoad.h"
 #include "xml/Mixin.h"
@@ -706,7 +705,7 @@ void Advance(Actor &actor) {
     Mover::Body &body = *actor.mover;
     World::Backdrop *world = WorldOf(actor.SceneFrame());
     body.facets.context = world;
-    if (!Mover::Tick(body, Time::Clock::NowMs()))
+    if (!Mover::Tick(body, ClockMs(actor.SceneFrame())))
         return;
     uint32_t type = 0;
     float surface = 0.0f;
@@ -815,7 +814,7 @@ float TurnBody(Actor &actor) {
     if (absGap > kHalfPi)
         turn = std::copysign(static_cast<float>(D(absGap) - kHalfPi), gap);
     if (!(b.flags & 0xC) && !(f.bits & kTurning)) {
-        const uint32_t ms = Time::Clock::NowMs() - f.stamp;
+        const uint32_t ms = ClockMs(actor.SceneFrame()) - f.stamp;
         double catchUp = ((D(ms) * kMsToSec) * b.turnRate) * 8.0;
         if (catchUp > absGap)
             catchUp = absGap;
@@ -859,7 +858,7 @@ void FaceDisplay(Actor &actor) {
         f.bits |= kTurning;
     } else {
         f.bits &= ~kTurning;
-        f.stamp = Time::Clock::NowMs();
+        f.stamp = ClockMs(actor.SceneFrame());
     }
 }
 
@@ -869,7 +868,7 @@ void ResetFacings(Actor &actor) {
     Actor::Facings &f = actor.facings;
     f.display = f.body = actor.mover->facing;
     f.bits &= ~kTurning;
-    f.stamp = Time::Clock::NowMs();
+    f.stamp = ClockMs(actor.SceneFrame());
 }
 
 } // namespace
@@ -904,7 +903,7 @@ void Actor::ApplyHighlight() {
     reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2MODEL_SET_EMISSIVE)(model, rgb);
 }
 
-void Actor::Update(float elapsedSec) {
+void Actor::Update(float elapsedSec, float sceneSec) {
     if (mover != nullptr) {
         Advance(*this);
         std::memcpy(position, mover->position, sizeof position);
@@ -975,7 +974,7 @@ void Actor::Update(float elapsedSec) {
         }
     }
     WriteStringUnit(*this);
-    Casts::Update(*this, elapsedSec);
+    Casts::Update(*this, sceneSec);
     // The casts that reached their target, with (spellID, target, castID).
     // Taken first: a script may cast again, and its impact waits for the next
     // update.
@@ -1759,7 +1758,7 @@ int __fastcall Script_SetMovementEnabled(void *L) {
     }
     if (actor->mover == nullptr) {
         actor->mover = std::make_unique<Mover::Body>();
-        Mover::Init(*actor->mover, actor->position, actor->yaw, Time::Clock::NowMs());
+        Mover::Init(*actor->mover, actor->position, actor->yaw, ClockMs(actor->SceneFrame()));
         actor->mover->facets.query = &World::QueryFacets;
         actor->mover->facets.liquidQuery = &World::QueryLiquidFacets;
         actor->mover->stepped = &Locomotion::OnStep;

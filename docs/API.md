@@ -19337,13 +19337,24 @@ current frame. `false` starts the animations again from the same frame.
 `affectsGlobalPause` has no effect. To pause one actor, use
 [`actor:SetPaused`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused).
 
-The clock of the scene ([`scene:GetSceneTime`](#scenegetscenetime)) and
-the timers of the scene stop with the animations.
+These also stop with the animations:
+
+- The clock of the scene ([`scene:GetSceneTime`](#scenegetscenetime)) and
+  the timers of the scene.
+- The movement of all the actors: walking, running, jumping, falling,
+  swimming and `MoveTo`. A movement command that you give while the scene is
+  paused starts when the scene starts again.
+- The spell visuals of `PlaySpellVisual`, and missiles in flight.
+- The click-to-move marker of `scene:SetMoveMarker`.
+
+When the scene starts again, each of these continues from where it stopped.
+The `OnUpdate` scripts of the actors continue to run while the scene is
+paused.
 
 ### `scene:GetSceneTime()`
 
 Returns the time on the clock of the scene, in seconds. The clock starts
-at 0 when the scene is made. The actors animate by this clock.
+at 0 when the scene is made. The actors animate and move by this clock.
 
 The clock stops while the scene is paused (`scene:SetPaused`) and while
 the scene is hidden. This is a ClassicAPI extension.
@@ -19701,7 +19712,7 @@ scene shows one marker. A new call moves it to the new point.
 - In a scene with a WMO, the marker lies on the faces of the WMO near the
   point. In a scene with no WMO, it lies flat at the height of the point.
 - The marker pulses between 0.5 and 0.75 yards in size, two times each
-  second. It pulses also while the scene is paused.
+  second. It stops while the scene is paused.
 - The marker stays until you call `ClearMoveMarker`. It does not go away
   when an actor gets to the point.
 
