@@ -845,7 +845,11 @@ build instructions.
   - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
   - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
   - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
+  - [`scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
+  - [`scene:GetLiquidAtPoint(x, y, z)`](#scenegetliquidatpointx-y-z)
+  - [`scene:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)`](#scenesweepcolliderfeetx-feety-feetz-radius-height-movex-movey-movez)
   - [Scene sounds](#scene-sounds)
+  - [`scene:SetSoundListenerActor([actor])` / `scene:GetSoundListenerActor()`](#scenesetsoundlisteneractoractor--scenegetsoundlisteneractor)
   - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
@@ -889,6 +893,12 @@ build instructions.
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
   - [`actor:StopSpellVisual()`](#actorstopspellvisual)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
+  - [`actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`](#actorsetmovementenabledenabled--actorismovementenabled)
+  - [Movement commands](#movement-commands)
+  - [`actor:IsFalling()`](#actorisfalling)
+  - [`actor:IsSwimming()`](#actorisswimming)
+  - [`actor:MoveTo(x, y, z [, facing])`](#actormovetox-y-z--facing)
+  - [`actor:SetWalking(walking)` / `actor:IsWalking()`](#actorsetwalkingwalking--actoriswalking)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
   - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
@@ -19427,12 +19437,88 @@ screen, the props play no sounds. When the scene hides, the looping sounds
 stop. When the scene shows again, each looping sound starts again a short
 time later. This is a ClassicAPI extension.
 
+### `scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`
+
+Returns the first face of the WMO on the segment from the start to the
+end. The positions are scene positions. The function tests the faces that
+the line of sight of the world tests: walls, floors and roofs. It does not
+test small details or the props of the WMO.
+
+The function returns `hitX, hitY, hitZ, normalX, normalY, normalZ, fraction`:
+
+- `hitX, hitY, hitZ` is the point where the segment meets the face.
+- `normalX, normalY, normalZ` is the unit normal of the face, on the side
+  of the start.
+- `fraction` is the position of the hit on the segment: 0 at the start, 1
+  at the end.
+
+When `camera` is `true`, the function tests the faces that the camera of
+the world collides with. Small details count, and the faces that let the
+camera through do not count. Use it for a camera that stops in front of a
+wall.
+
+The function returns nothing in these cases:
+
+- The segment hits no face.
+- The scene has no WMO.
+- The part of the WMO on the segment has not loaded.
+
+This is a ClassicAPI extension.
+
+```lua
+-- The floor under a point.
+local _, _, floorZ = scene:TraceSegment(x, y, z + 2, x, y, z - 50)
+```
+
+### `scene:GetLiquidAtPoint(x, y, z)`
+
+Returns the liquid of the WMO at a scene point, as the world finds it for a
+unit that stands at the point. The function returns `liquidType, surfaceZ`:
+
+- `liquidType` is `0` for water, `1` for ocean, `2` for magma and `3` for
+  slime.
+- `surfaceZ` is the height of the surface above the point. It is `nil`
+  when that part of the WMO is full of the liquid from the bottom to the
+  top.
+
+The function returns nothing in these cases:
+
+- The point is above the surface, or it is not in a liquid.
+- The scene has no WMO.
+- The part of the WMO at the point has not loaded.
+
+This is a ClassicAPI extension.
+
+### `scene:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)`
+
+Moves a body in a straight line until it touches the WMO or one of its
+props. The world moves a character into a wall or onto a floor in the same
+way. The body
+has the shape of a character in the world: a square box over a downward
+point at the feet. `radius` is half the width of the box, and `height` is
+the height of the box. `moveX, moveY, moveZ` is the full movement.
+
+The function returns `feetX, feetY, feetZ, normalX, normalY, normalZ`. The
+feet are the position where the body stops. The normal is the unit normal
+of the face that the body touched. It points to the side that the face
+blocks. When the body touched no face, the function returns only the feet.
+
+A face blocks the body only from its front side. Without a WMO, the body
+moves the full distance. While a part of the WMO in the way loads, the body
+does not move. The function does not slide the body along a wall or step
+it up a ledge. For that movement, use
+[`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled).
+This is a ClassicAPI extension.
+
 ### Scene sounds
 
-You hear all the sounds of a scene from the camera of the scene. These are
-the sounds of `actor:PlaySpellVisual`, of `actor:SetPlayAnimationSounds`, of
-`scene:SetPlayWorldModelSounds`, and of `actor:PlaySound`. Each sound plays
-as if you stand at the camera of the scene:
+You hear all the sounds of a scene from the camera of the scene, or from
+the actor that
+[`scene:SetSoundListenerActor`](#scenesetsoundlisteneractoractor--scenegetsoundlisteneractor)
+sets. These are the sounds of `actor:PlaySpellVisual`, of
+`actor:SetPlayAnimationSounds`, of `scene:SetPlayWorldModelSounds`, and of
+`actor:PlaySound`. Each sound plays as if you stand at the camera of the
+scene:
 
 - A sound that is far from the camera is quieter. A sound that is farther
   than its range does not play. The range and the volume of each sound are
@@ -19440,6 +19526,20 @@ as if you stand at the camera of the scene:
 - A sound on the right of the camera comes from the right.
 - The sound of a missile in flight moves with the missile and with the
   camera. A short sound stays at the position where it started.
+
+### `scene:SetSoundListenerActor([actor])` / `scene:GetSoundListenerActor()`
+
+Sets the actor that hears the sounds of the scene, as you hear the world at
+your character. The actor hears at the top of its model, and it faces the
+way that the actor faces. `actor` is an actor of this scene. This applies
+while the `SoundListenerAtCharacter` cvar is on. When the cvar is off, or
+without an actor, the camera of the scene hears the sounds.
+`GetSoundListenerActor` returns the actor that you set, or nothing. This is
+a ClassicAPI extension.
+
+```lua
+scene:SetSoundListenerActor(hero) -- you hear the fight where the hero stands
+```
 
 ### `scene:GetActorAtCursor()`
 
@@ -20075,6 +20175,142 @@ extension.
 warrior:PlaySound(2941) -- the attack voice of a human male
 ```
 
+### `actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`
+
+Sets whether the actor moves as a character moves in the world. The default
+is off. The actor moves on the WMO of the scene
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)):
+
+- It walks and runs on the floors, and it steps up and down small ledges.
+- It slides along walls and props.
+- It falls where the floor ends, and it jumps.
+- It swims in the liquids of the WMO.
+
+The actor moves at the speeds of a character: it runs 7 yards a second,
+walks 2.5, backs up 4.5, swims 4.72 and swims backward 2.5. It turns half a
+circle each second. The size of its body comes from the model data of its
+creature display, at the scale of the actor. An actor with no creature
+display has a body 2/3 yard wide and 2.03 yards tall.
+
+When you turn the movement on, and when you call `actor:SetPosition` while
+it is on, the actor falls to the floor below its position. While the
+movement is on, the position, the yaw and the pitch of the actor follow the
+movement:
+
+- `actor:GetPosition` and `actor:GetYaw` give the position and the facing
+  that the movement gives.
+- `actor:SetYaw` turns the actor at once.
+- The actor tilts up or down only while it swims forward or backward.
+- The body of the model turns toward the side that the actor strafes to.
+  When the actor stands, its shoulders and its head turn first, and its
+  body follows after a quarter turn.
+
+While the movement is on, the actor also plays the movement animations of a
+character. It walks, runs, backs up, shuffles when it turns in place,
+swims, jumps, falls and lands as a character does. Its move animations play
+at the speed that it moves. An animation that you set with
+`actor:SetAnimation` plays until it ends or until the movement changes.
+Then the actor plays its movement animation again. An actor that plays a
+death animation keeps it.
+
+Without a loaded WMO, the actor does not move. While a part of the WMO in
+the way loads, the actor waits. This is a ClassicAPI extension.
+
+```lua
+hero:SetPosition(x, y, z)
+hero:SetMovementEnabled(true) -- the hero falls to the floor below
+hero:StartMovingForward()
+```
+
+### Movement commands
+
+These actor methods control an actor while
+[`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)
+is on. Each one returns `applied`, which is `false` when the actor refused
+the command or keeps it until it lands. Without the movement, the methods
+do nothing and return nothing.
+
+| Method | Effect |
+|---|---|
+| `StartMovingForward()` | Starts the actor moving forward. It runs, or it walks while `SetWalking` is on. |
+| `StartMovingBackward()` | Starts the actor walking backward. |
+| `StopMoving()` | Stops the actor moving forward or backward. |
+| `StartStrafingLeft()` / `StartStrafingRight()` | Starts the actor moving to its left or to its right. |
+| `StopStrafing()` | Stops the actor moving to the side. |
+| `StartTurningLeft()` / `StartTurningRight()` | Starts the actor turning to its left or to its right. |
+| `StopTurning()` | Stops the actor turning. |
+| `Jump()` | Makes the actor jump. `false` when the actor is already in the air. |
+| `StartPitchingUp()` / `StartPitchingDown()` | Starts the actor turning its swim up or down. `false` when the actor does not swim. |
+| `StopPitching()` | Stops the actor turning its swim up or down. The actor keeps the angle that it reached. `false` when it did not turn up or down. |
+
+A moving actor goes on until you stop it. In the air, the actor keeps the
+way that it jumped or fell. A command to move or to stop takes effect when
+the actor lands. Each command ends a move of
+[`actor:MoveTo`](#actormovetox-y-z--facing).
+
+```lua
+hero:StartMovingForward()
+hero:StartTurningLeft() -- the hero runs in a circle
+hero:Jump()
+```
+
+### `actor:IsFalling()`
+
+Returns `falling, verticalSpeed`. `falling` is `true` while the actor is in
+the air: when it jumps and when it falls. `verticalSpeed` is the speed in
+yards a second, up positive. It is there only while the actor is in the
+air. Without the movement, the function returns `false`. This is a
+ClassicAPI extension.
+
+### `actor:IsSwimming()`
+
+Returns whether the actor swims. An actor swims when the liquid over its
+feet is deeper than three quarters of its height. It stays level in the
+water unless it swims up or down. It stops swimming when it leaves the
+water or rises near the surface. This is a ClassicAPI extension.
+
+### `actor:MoveTo(x, y, z [, facing])`
+
+Moves the actor to a point of the scene along the ground, as the server
+moves a creature in the world. The movement of the actor must be on
+([`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)).
+
+- The actor goes in a straight line to the point, at its own speed. It
+  runs, or it walks while `SetWalking` is on. In the water it swims.
+- It follows the floor, and it falls where the floor ends.
+- A wall does not stop the move. When the actor is 3 yards or more from
+  its position on the line, it goes to that position at once.
+- When the actor arrives, it stops. If you give `facing`, the actor turns
+  to that yaw.
+- Then the `OnMoveFinished` script of the actor runs, with `(self)`.
+
+When the point is 1/6 yard away or less, the actor stops where it stands.
+Then `OnMoveFinished` runs at the next update of the actor.
+
+Another `MoveTo`, a [movement command](#movement-commands),
+`actor:SetWalking`, `actor:SetPosition` and `actor:SetYaw` end the move.
+Then `OnMoveFinished` does not run for it. This is a ClassicAPI extension,
+and so is `OnMoveFinished`.
+
+```lua
+-- A guard that walks between two points.
+local route = { {10, 0, 0}, {-10, 0, 0} }
+local leg = 1
+guard:SetWalking(true)
+guard:SetScript("OnMoveFinished", function(self)
+    leg = 3 - leg
+    self:MoveTo(unpack(route[leg]))
+end)
+guard:MoveTo(unpack(route[leg]))
+```
+
+### `actor:SetWalking(walking)` / `actor:IsWalking()`
+
+Sets whether the actor walks instead of running, when it moves forward and
+when it moves with `actor:MoveTo`. The default is off. A change while the
+actor moves changes its speed and its animation. In the air, the speed
+changes when the actor lands. `SetWalking` ends a move of `actor:MoveTo`. This is a ClassicAPI extension.
+
 ### Actor scripts
 
 Set them with `actor:SetScript`, `actor:HookScript` or the `<Scripts>`
@@ -20089,6 +20325,8 @@ work as they do on frames.
 | `OnModelLoaded` | When the model and its clothes have loaded. |
 | `OnModelCleared` | When the actor loses its model. |
 | `OnAnimFinished` | Each time the animation ends. |
+| `OnSpellVisualImpact(self, spellID, target, castID)` | When a spell of `actor:PlaySpellVisual` reaches its target. |
+| `OnMoveFinished` | When the actor arrives at the point of `actor:MoveTo`. |
 
 An actor also has `GetObjectType()` (`"ModelSceneActor"`),
 `IsObjectType(type)`, `GetName()` and `GetParent()` (the scene).
