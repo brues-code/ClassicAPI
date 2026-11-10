@@ -39,6 +39,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "model/DisplayInfo.h"
 #include "model/ItemDisplay.h"
 #include "model/M2.h"
 #include "object/Resolve.h"
@@ -49,7 +50,6 @@
 namespace Model::Outfit {
 namespace {
 
-using UnequipSlot_t = void(__thiscall *)(void *component, uint32_t slot);
 using DetachHeldItem_t = void(__fastcall *)(void *model, uint32_t bodySlot, uint32_t sheatheType,
                                             bool shield);
 using AttachItemModel_t = int(__fastcall *)(void *model, const void *record, uint32_t bodySlot,
@@ -59,9 +59,6 @@ using GetHeldItemDisplay_t = const void *(__thiscall *)(void *unit, uint32_t han
 using GetHeldItemLane_t = const HeldLane *(__thiscall *)(void *unit, uint32_t hand, int one);
 using GetVisibleItem_t = const void *(__thiscall *)(void *player, uint32_t slot);
 using GetDescVisual_t = int(__thiscall *)(const void *visibleItem);
-using CharCompCreate_t = void *(__cdecl *)();
-using CharCompClone_t = bool(__thiscall *)(void *component, void *model, void *source);
-using CharCompSetItem_t = void(__thiscall *)(void *component, uint32_t slot, uint32_t displayID);
 using CanHoldBoth_t = bool(__fastcall *)(uint32_t mainType, uint32_t offType, bool dualWield);
 
 constexpr uint32_t kBodySlots[2] = {kBodySlotMainHand, kBodySlotOffHand};
@@ -194,11 +191,11 @@ void *CloneComponent(void *model, void *unit) {
     void *source = Game::Read<void *>(unit, Offsets::OFF_CGUNIT_CHARACTER_COMPONENT);
     if (source == nullptr)
         return nullptr;
-    void *component = reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)();
+    void *component = DisplayInfo::NewDresser();
     if (component == nullptr)
         return nullptr;
     M2::AddRef(model); // the component's reference
-    reinterpret_cast<CharCompClone_t>(Offsets::FUN_CHARCOMP_CLONE)(component, model, source);
+    DisplayInfo::CloneDresser(component, model, source);
     return component;
 }
 
@@ -308,10 +305,8 @@ int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &
     case Arm::Armor:
         if (component == nullptr || !armorReady)
             return 0;
-        reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component,
-                                                                           componentSlot);
-        reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(component,
-                                                                           componentSlot, displayID);
+        DisplayInfo::UnequipDresserSlot(component, componentSlot);
+        DisplayInfo::SetDresserItem(component, componentSlot, displayID);
         return kInvSlotOfComponent[componentSlot];
     case Arm::Held:
         break;
@@ -357,8 +352,7 @@ void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot) {
     } else {
         const int compSlot = ComponentSlotOf(invSlot);
         if (compSlot >= 0)
-            reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(
-                component, static_cast<uint32_t>(compSlot));
+            DisplayInfo::UnequipDresserSlot(component, static_cast<uint32_t>(compSlot));
     }
 }
 
@@ -385,10 +379,9 @@ void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weap
         return;
     const auto slot = static_cast<uint32_t>(compSlot);
     const void *record = ComponentRecord(source, slot);
-    reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component, slot);
+    DisplayInfo::UnequipDresserSlot(component, slot);
     if (record != nullptr)
-        reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(
-            component, slot, Game::Read<uint32_t>(record, 0));
+        DisplayInfo::SetDresserItem(component, slot, Game::Read<uint32_t>(record, 0));
 }
 
 void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn) {
@@ -484,7 +477,7 @@ void Undress(void *model, void *component, Lanes &lanes, bool weapons) {
         return;
     if (component != nullptr) {
         for (uint32_t slot = 0; slot < kComponentSlots; ++slot)
-            reinterpret_cast<UnequipSlot_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(component, slot);
+            DisplayInfo::UnequipDresserSlot(component, slot);
     }
     if (weapons) {
         ClearLane(model, lanes, 0);

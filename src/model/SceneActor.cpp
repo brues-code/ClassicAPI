@@ -730,8 +730,6 @@ void Advance(Actor &actor) {
 // units' update, so the body pass reads the one the last frame set. The
 // pass's shuffle (11, 12) is Locomotion::OnBodyTurn's, given the turn it made.
 
-const Game::Live<float> kPi{Offsets::VAR_WRAP_PI};
-const Game::Live<double> kTwoPi{Offsets::VAR_WRAP_TWO_PI};
 const Game::Live<float> kHalfPi{Offsets::VAR_HALF_PI};
 const Game::Live<float> kQuarterPi{Offsets::VAR_QUARTER_PI};
 const Game::Live<float> kFacingEpsilon{Offsets::VAR_MOVER_FACING_EPSILON};
@@ -740,11 +738,7 @@ constexpr uint32_t kTurning = 0x1, kTwistLow = 0x80, kTwistHigh = 0x100;
 
 // WrapAngleToPi (0x006084F0).
 double WrapPi(float a) {
-    if (a > kPi)
-        return std::fmod(static_cast<double>(a) + kPi, kTwoPi) - kPi;
-    if (a < -kPi)
-        return std::fmod(static_cast<double>(a) - kPi, kTwoPi) + kPi;
-    return a;
+    return reinterpret_cast<double(__stdcall *)(float)>(Offsets::FUN_WRAP_ANGLE_TO_PI)(a);
 }
 
 void SetTwist(void *model, int bone, uint32_t flags, float angle) {

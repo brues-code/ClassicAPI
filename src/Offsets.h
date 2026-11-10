@@ -15750,16 +15750,15 @@ enum Offsets {
     VAR_HALF_PI = 0x00808ACC,                  // float pi/2
     VAR_MINUS_HALF_PI = 0x0080C5E4,            // float -pi/2
     VAR_QUARTER_PI = 0x0080C4E4,               // float pi/4
-    // WrapAngleToPi (0x006084F0): pi as a float, 2pi as a double.
-    VAR_WRAP_PI = 0x008030B0,
-    VAR_WRAP_TWO_PI = 0x00803090,              // double
+    // WrapAngleToPi `double __stdcall(float a)`, ret 4: a outside [-pi, pi]
+    // brought into it with fmod, the result unrounded in st0.
+    FUN_WRAP_ANGLE_TO_PI = 0x006084F0,
     // 2pi in .bss, filled by a static initializer: read it only at use.
     VAR_MOVER_TWO_PI = 0x00CF5D00,
     VAR_MOVER_FACING_EPSILON = 0x0080C5C8,     // float 1e-5, the turn and facing test
     VAR_MOVER_MINUS_FACING_EPSILON = 0x0080C5C4, // float -1e-5
     // The contact sweep's band and bounds (0x00631440 through 0x00632F80).
     VAR_MOVER_SKIN = 0x0080DFEC,               // float 1/720
-    VAR_MOVER_MINUS_SKIN = 0x0080DFF0,         // float -1/720
     VAR_MOVER_ALL_BEHIND = 0x0080DFF4,         // float -2^-20
     // The volume's bevels: sin, cos and tan of 61.6 degrees, the bevel
     // normal's z and the two-bevel normalizer.

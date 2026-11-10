@@ -36,6 +36,16 @@ void *CreateDresser(void *instance, const uint8_t *extraRec);
 bool PumpDresser(void *dresser, bool force = false);
 void DestroyDresser(void *dresser);
 
+// The compositor's own calls, for a dresser built another way. A new one
+// (FUN_CHARCOMP_CREATE), null when the pool is empty.
+void *NewDresser();
+// FUN_CHARCOMP_CLONE: `dresser` dresses `model` as `source` dresses its own;
+// the caller gives the dresser its reference on `model` first.
+void CloneDresser(void *dresser, void *model, void *source);
+// One component slot cleared, or set to an ItemDisplayInfo ID.
+void UnequipDresserSlot(void *dresser, uint32_t slot);
+void SetDresserItem(void *dresser, uint32_t slot, uint32_t displayID);
+
 // Gives every model attached to `instance` the light and fog callback of
 // `instance` itself, else the one `frame` gives its own model, so the
 // children are lit like it.

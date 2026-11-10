@@ -96,7 +96,7 @@ constexpr uint32_t kGeosetGroupDefaults[16] = {1,   101,  201,  301,  401,  501,
 using CharCompCreate_t = void *(__cdecl *)();
 using CharCompDestroy_t = void(__fastcall *)(void *builder);
 using CharCompSetInfo_t = char(__thiscall *)(void *builder, const CharCompInfo *info);
-using CharCompSetItem_t = void(__thiscall *)(void *builder, int slot, int itemDisplayID);
+using CharCompSetItem_t = void(__thiscall *)(void *builder, uint32_t slot, uint32_t itemDisplayID);
 using CharCompPump_t = char(__thiscall *)(void *builder, int force);
 
 // A pending / finished dress for one Model frame. The model loads async, and
@@ -326,7 +326,7 @@ void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path) {
 // Configure + feed equipment, the engine's order: SetInfo, then the 10 Extra
 // equipment slots. Field-for-field mirror of FUN_005fb200's NPC branch.
 void *CreateDresser(void *instance, const uint8_t *extraRec) {
-    void *builder = reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)();
+    void *builder = NewDresser();
     if (builder == nullptr)
         return nullptr;
 
@@ -355,12 +355,10 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
         DestroyDresser(builder); // releases the model ref already copied in
         return nullptr;
     }
-    auto setItem = reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM);
-    for (int slot = 0; slot < 10; ++slot) {
-        const auto displayID =
-            static_cast<int>(field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_EQUIP + slot * 4));
+    for (uint32_t slot = 0; slot < 10; ++slot) {
+        const uint32_t displayID = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_EQUIP + slot * 4);
         if (displayID != 0)
-            setItem(builder, slot, displayID);
+            SetDresserItem(builder, slot, displayID);
     }
     return builder;
 }
@@ -389,6 +387,22 @@ bool PumpDresser(void *dresser, bool force) {
 void DestroyDresser(void *dresser) {
     if (dresser != nullptr)
         reinterpret_cast<CharCompDestroy_t>(Offsets::FUN_CHARCOMP_DESTROY)(dresser);
+}
+
+void *NewDresser() { return reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)(); }
+
+void CloneDresser(void *dresser, void *model, void *source) {
+    using Clone_t = bool(__thiscall *)(void *dresser, void *model, void *source);
+    reinterpret_cast<Clone_t>(Offsets::FUN_CHARCOMP_CLONE)(dresser, model, source);
+}
+
+void UnequipDresserSlot(void *dresser, uint32_t slot) {
+    using Unequip_t = void(__thiscall *)(void *dresser, uint32_t slot);
+    reinterpret_cast<Unequip_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(dresser, slot);
+}
+
+void SetDresserItem(void *dresser, uint32_t slot, uint32_t displayID) {
+    reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(dresser, slot, displayID);
 }
 
 } // namespace Model::DisplayInfo

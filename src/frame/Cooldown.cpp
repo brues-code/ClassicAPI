@@ -370,8 +370,6 @@ void MapStarTexCoords(Fields &f, const Rect &r) {
 void AnimateVerts(void *frame) {
     Fields &f = F(frame);
     const Rect &r = RectOf(frame);
-    const float cx = (r.minX + r.maxX) * 0.5f;
-    const float cy = (r.minY + r.maxY) * 0.5f;
 
     if (!f.flashing) {
         const float elapsed = static_cast<float>(f.elapsed);
