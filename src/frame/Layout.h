@@ -31,6 +31,18 @@ inline void *Of(const void *object) {
     return const_cast<uint8_t *>(static_cast<const uint8_t *>(object) + Offsets::OFF_REGION_ANCHOR);
 }
 
+// Layout units (DDC, the space rects are stored in) to the device's 0..1
+// (NDC) and back: each axis scaled by the screen's (VAR_COORD_DDC_*_SCALE).
+// Either out pointer may be null, and may alias its input.
+inline void DdcToNdc(float *outX, float *outY, float x, float y) {
+    using Fn = void(__fastcall *)(float *, float *, float, float);
+    reinterpret_cast<Fn>(Offsets::FUN_COORD_DDC_TO_NDC)(outX, outY, x, y);
+}
+inline void NdcToDdc(float *outX, float *outY, float x, float y) {
+    using Fn = void(__fastcall *)(float *, float *, float, float);
+    reinterpret_cast<Fn>(Offsets::FUN_COORD_NDC_TO_DDC)(outX, outY, x, y);
+}
+
 // The region or frame a layout sub-object belongs to, for the layout
 // vtable's overrides and hooks.
 inline void *OwnerOf(void *layout) {

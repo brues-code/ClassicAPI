@@ -61,6 +61,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "gx/Matrix.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "model/VisualKit.h"
@@ -125,7 +126,7 @@ constexpr int kAnimInFlight = 144;
 constexpr float kReleaseTimeoutSec = 2.0f; // 0x0060A814
 constexpr float kMaxSpeed = 100.0f;        // 0x0080C854
 constexpr float kSoundFadeSec = 0.15f;     // the missile's free, 0x0061CD70
-constexpr float kAimHeight = 0.75f;        // 0x008012CC
+const Game::Live<float> kAimHeight{Offsets::VAR_THREE_QUARTERS};
 constexpr uint32_t kFallbackAttachments[] = {15, 19};
 constexpr char kErrorCube[] = "Spells\\ErrorCube.mdx";
 
@@ -264,10 +265,17 @@ void Nock(Actor &actor) {
     Model::DisplayInfo::LightChildren(actor.SceneFrame(), actor.model);
 }
 
+// CreateLooseItemModel: an item display's model for `body`, of `kind`
+// (LOOSE_ITEM_*), that the caller owns one reference on, or null.
+void *LooseItemModel(void *body, uint32_t display, uint32_t kind) {
+    using LooseItem_t = void *(__fastcall *)(void *model, const void *record, uint32_t kind);
+    return reinterpret_cast<LooseItem_t>(Offsets::FUN_CREATE_LOOSE_ITEM_MODEL)(
+        body, DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT, display), kind);
+}
+
 // SetAmmoDisplay (0x0060BA30): the ammo in hand for `display`, made again
 // when it changes; nocked at once while the bow is drawn.
 void HoldAmmo(Actor &actor, uint32_t display) {
-    using LooseItem_t = void *(__fastcall *)(void *model, const void *record, uint32_t kind);
     if (actor.heldAmmoDisplay == display && actor.heldAmmo != nullptr)
         return;
     if (actor.heldAmmo != nullptr) {
@@ -281,18 +289,9 @@ void HoldAmmo(Actor &actor, uint32_t display) {
         return;
     const uint32_t kind = actor.ranged.inventoryType == Offsets::INVTYPE_THROWN ? Offsets::LOOSE_ITEM_WEAPON
                                                                                 : Offsets::LOOSE_ITEM_AMMO;
-    actor.heldAmmo = reinterpret_cast<LooseItem_t>(Offsets::FUN_CREATE_LOOSE_ITEM_MODEL)(
-        actor.model,
-        DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT, display), kind);
+    actor.heldAmmo = LooseItemModel(actor.model, display, kind);
     if (actor.heldAmmo != nullptr && !KeepsAmmoOff(actor) && actor.bowDrawn && kind == Offsets::LOOSE_ITEM_AMMO)
         Nock(actor);
-}
-
-int KeyBoneAnimId(void *model) {
-    using Fn = void(__thiscall *)(void *, int, void *);
-    uint32_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE / 4];
-    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(model, -1, state);
-    return static_cast<int>(state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_ID / 4]);
 }
 
 } // namespace
@@ -302,7 +301,7 @@ void EndRangedPose(Actor &actor) {
     if (actor.heldAmmo != nullptr && M2::Parent(actor.heldAmmo) != nullptr)
         M2::Detach(actor.heldAmmo);
     if (void *ranged = RangedModel(actor)) {
-        if (KeyBoneAnimId(ranged) != Offsets::ANIM_BOW_RELEASE)
+        if (M2::GetAnimState(ranged, -1).id != Offsets::ANIM_BOW_RELEASE)
             M2::PlayAnimation(ranged, -1, Offsets::ANIM_STAND, -1, 0, 1.0f, 1, 1);
     }
 }
@@ -314,29 +313,20 @@ namespace {
 // has no such state and asks the whole model.
 void PlayBowPull(Actor &actor) {
     using HasAnim_t = bool(__thiscall *)(void *model, uint32_t anim);
-    using State_t = void(__thiscall *)(void *model, int keyBone, void *state);
-    using Info_t = void(__thiscall *)(void *model, uint32_t anim, uint32_t variation, void *info);
     void *ranged = RangedModel(actor);
     if (ranged == nullptr || !M2::IsLoaded(ranged, 0, 0) ||
         !reinterpret_cast<HasAnim_t>(Offsets::FUN_M2MODEL_HAS_ANIMATION)(ranged, Offsets::ANIM_BOW_PULL) ||
         actor.model == nullptr || !M2::IsLoaded(actor.model, 0, 0))
         return;
-    uint8_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE];
-    reinterpret_cast<State_t>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(actor.model, -1, state);
-    if (Game::Read<uint32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_LATCH) != 0)
+    const M2::AnimState state = M2::GetAnimState(actor.model, -1);
+    if (state.latch != 0)
         return;
-    const auto position =
-        static_cast<double>(Game::Read<uint32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_POSITION));
-    const auto played =
-        static_cast<int>(position / Game::Read<float>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_SPEED));
-    const int left = Game::Read<int32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_HI) - played -
-                     Game::Read<int32_t>(state, Offsets::OFF_M2_KEY_BONE_ANIM_STATE_LO);
+    const auto played = static_cast<int>(static_cast<double>(state.position) / state.speed);
+    const int left = static_cast<int32_t>(state.hi) - played - static_cast<int32_t>(state.lo);
     if (left <= 0)
         return;
-    uint8_t info[Offsets::M2_SEQUENCE_INFO_SIZE] = {};
-    reinterpret_cast<Info_t>(Offsets::FUN_M2MODEL_GET_SEQUENCE_INFO)(ranged, Offsets::ANIM_BOW_PULL, 0, info);
-    const float speed = static_cast<float>(Game::Read<uint32_t>(info, Offsets::OFF_M2_SEQUENCE_INFO_LENGTH)) /
-                        static_cast<float>(left);
+    const M2::SequenceInfo info = M2::GetSequenceInfo(ranged, Offsets::ANIM_BOW_PULL, 0);
+    const float speed = static_cast<float>(info.length) / static_cast<float>(left);
     M2::PlayAnimation(ranged, -1, Offsets::ANIM_BOW_PULL, 0, 0, speed, 1, 1);
 }
 
@@ -467,15 +457,12 @@ void Impact(Actor &caster, SpellCast &cast, bool missileHit) {
 // the destination first (Arrive 0x0061E1D0), keeping the turn of its flight.
 bool Stick(SpellCast &cast) {
     using Matrix_t = void(__thiscall *)(void *model, float *out, uint32_t id);
-    using Invert_t = void(__thiscall *)(const float *m, float *out, float scale);
-    using Multiply_t = float *(__fastcall *)(float *out, const float *a, const float *b);
-    using SetBase_t = void(__thiscall *)(void *model, const float *m);
     Actor *target = cast.target;
     if (!cast.sticks || cast.attachment < 0 || cast.missile == nullptr || target == nullptr ||
         target->model == nullptr || !M2::HasAttachment(target->model, static_cast<uint32_t>(cast.attachment)))
         return false;
     void *missile = cast.missile;
-    float *base = Game::Ptr<float>(missile, Offsets::OFF_M2MODEL_BASE_MATRIX);
+    float *base = M2::BaseMatrix(missile);
     for (int i = 0; i < 3; ++i)
         base[12 + i] = cast.destination[i];
     M2::SetAnimDoneCallback(missile, nullptr, 0, 0);
@@ -484,10 +471,10 @@ bool Stick(SpellCast &cast) {
     float attachment[16], inverse[16], world[16], local[16];
     reinterpret_cast<Matrix_t>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_MATRIX)(target->model, attachment,
                                                                           static_cast<uint32_t>(cast.attachment));
-    reinterpret_cast<Invert_t>(Offsets::FUN_MATRIX_INVERT_AFFINE)(attachment, inverse, target->scale);
+    Gx::InvertAffine(attachment, inverse, target->scale);
     M2::GetBaseTransform(missile, world);
-    reinterpret_cast<Multiply_t>(Offsets::FUN_MATRIX_MULTIPLY)(local, world, inverse);
-    reinterpret_cast<SetBase_t>(Offsets::FUN_M2MODEL_SET_BASE_TRANSFORM)(missile, local);
+    Gx::Multiply(local, world, inverse);
+    M2::SetBaseTransform(missile, local);
     // The world object goes (0x0061E859); the missile is lit as the target's
     // child.
     Model::DisplayInfo::LightChildren(target->SceneFrame(), target->model);
@@ -508,9 +495,7 @@ void LeaveImpactModel(Actor &caster, const SpellCast &cast) {
     LightAsEntity(model, light, caster.SceneFrame());
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {1.0f, 1.0f, 1.0f};
-    using SetTRS_t = void(__thiscall *)(void *, const float *, float, const float *, const float *);
-    reinterpret_cast<SetTRS_t>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(model, cast.destination, 0.0f,
-                                                                  axisZ, scales);
+    M2::SetBaseTRS(model, cast.destination, 0.0f, axisZ, scales);
     caster.impactModels.push_back({model, 0, std::move(light)});
 }
 
@@ -558,24 +543,20 @@ bool Launch(Actor &caster, SpellCast &cast, const float (&from)[3]) {
 // ammo's, else the error cube. A shot made during a rifle animation is drawn
 // at alpha 0 (the bullet is not seen).
 void *MakeMissile(Actor &caster, const SpellCast &cast) {
-    using LooseItem_t = void *(__fastcall *)(void *model, const void *record, uint32_t kind);
     void *scene = Model::Pane::Scene(caster.SceneFrame());
     void *model = nullptr;
     const auto effect = Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_MODEL);
     if (effect < 1) {
         if (cast.ammoDisplay != 0)
-            model = reinterpret_cast<LooseItem_t>(Offsets::FUN_CREATE_LOOSE_ITEM_MODEL)(
-                caster.model,
-                DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS, Offsets::VAR_ITEMDISPLAYINFO_COUNT,
-                            cast.ammoDisplay),
-                cast.ammoType == Offsets::INVTYPE_THROWN ? Offsets::LOOSE_ITEM_WEAPON : Offsets::LOOSE_ITEM_AMMO);
+            model = LooseItemModel(caster.model, cast.ammoDisplay,
+                                   cast.ammoType == Offsets::INVTYPE_THROWN ? Offsets::LOOSE_ITEM_WEAPON
+                                                                            : Offsets::LOOSE_ITEM_AMMO);
     } else if (const char *file = EffectFile(static_cast<uint32_t>(effect))) {
         model = M2::CreateModel(scene, file);
     }
     if (model == nullptr)
         model = M2::CreateModel(scene, kErrorCube);
-    if (model != nullptr && reinterpret_cast<int(__fastcall *)(int)>(Offsets::FUN_IS_RIFLE_ANIMATION)(
-                                caster.CurrentAnimation()) != 0)
+    if (model != nullptr && M2::IsRifleAnimation(caster.CurrentAnimation()))
         M2::SetAlpha(model, 0.0f);
     return model;
 }
@@ -701,16 +682,15 @@ void BowPull(Actor &caster) {
 // bow animation plays the weapon's stand and a rifle animation its release;
 // the ammo leaves the string.
 void BowRelease(Actor &caster) {
-    using IsAnim_t = int(__fastcall *)(int anim);
     caster.bowDrawn = false;
     if (MissileQueued(caster) && caster.model != nullptr) {
         const int anim = caster.CurrentAnimation();
         void *ranged = RangedModel(caster);
-        if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_BOW_ANIMATION)(anim) != 0 &&
+        if (M2::IsBowAnimation(anim) &&
             M2::HasAttachment(caster.model, Offsets::ATTACH_BOW_RELEASE)) {
             if (ranged != nullptr)
                 M2::PlayAnimation(ranged, -1, Offsets::ANIM_STAND, -1, 0, 1.0f, 1, 1);
-        } else if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_RIFLE_ANIMATION)(anim) != 0 &&
+        } else if (M2::IsRifleAnimation(anim) &&
                    M2::HasAttachment(caster.model, Offsets::ATTACH_RIFLE_RELEASE)) {
             if (ranged != nullptr)
                 M2::PlayAnimation(ranged, -1, Offsets::ANIM_BOW_RELEASE, -1, 0, 1.0f, 1, 1);
@@ -853,8 +833,6 @@ void Link(Actor &caster) {
 // The missile faces its travel: yaw about the up axis, then pitch, as an
 // actor's placement turns.
 void Place(Actor &caster) {
-    using SetTRS_t = void(__thiscall *)(void *, const float *, float, const float *, const float *);
-    using Rotate_t = void(__thiscall *)(float *m, float angle, const float *axis, int);
     const float axisY[3] = {0.0f, 1.0f, 0.0f};
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {1.0f, 1.0f, 1.0f};
@@ -866,10 +844,8 @@ void Place(Actor &caster) {
         const float dz = cast.destination[2] - cast.position[2];
         const float yaw = std::atan2(dy, dx);
         const float pitch = -std::atan2(dz, std::sqrt(dx * dx + dy * dy));
-        reinterpret_cast<SetTRS_t>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(cast.missile, cast.position,
-                                                                      yaw, axisZ, scales);
-        reinterpret_cast<Rotate_t>(Offsets::FUN_MATRIX_ROTATE)(
-            Game::Ptr<float>(cast.missile, Offsets::OFF_M2MODEL_BASE_MATRIX), pitch, axisY, 1);
+        M2::SetBaseTRS(cast.missile, cast.position, yaw, axisZ, scales);
+        Gx::Rotate(M2::BaseMatrix(cast.missile), pitch, axisY);
         Sounds::Move(caster.SceneFrame(), cast.missileSound, cast.position);
     }
 }

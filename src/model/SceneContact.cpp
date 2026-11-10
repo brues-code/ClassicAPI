@@ -27,7 +27,13 @@
 
 #include "model/SceneContact.h"
 
+#include "Game.h"
+#include "Offsets.h"
+#include "model/ScenePrecision.h"
+
 #include <algorithm>
+#include <cfloat>
+#include <cstddef>
 #include <cmath>
 #include <cstring>
 #include <xmmintrin.h>
@@ -36,29 +42,23 @@ namespace Model::Scene::Contact {
 
 namespace {
 
-float Bits(uint32_t bits) {
-    float f;
-    std::memcpy(&f, &bits, sizeof f);
-    return f;
-}
+using Game::Live;
+using Precision::Bits;
+using Precision::D;
 
-double D(float x) { return x; }
-
-const float kSkin = Bits(0x3AB60B61);           // 1/720 (0x0080DFEC)
-const float kNegSkin = Bits(0xBAB60B61);        // -1/720 (0x0080DFF0)
-const float kAllBehind = Bits(0xB5800000);      // -2^-20 (0x0080DFF4)
-const float kDegenerate = Bits(0x35800000);     // 2^-20 (0x008026BC)
-const float kParallel = Bits(0x34800000);       // 2^-22 (0x008029D4)
-const float kThirtySixth = Bits(0x3CE38E39);    // 1/36 (0x007FF9D0)
-const float kNegThirtySixth = Bits(0xBCE38E39); // -1/36 (0x007FF9C8)
-const float kFacing = Bits(0xB727C5AC);         // -1e-5 (0x0080C5C4)
-const float kGrowth = Bits(0x3E2AAAAB);         // 1/6, the gather's growth
-const float kBevelOut = Bits(0x3F613036);       // sin 61.6° (0x0080DFE4)
-const float kBevelDown = Bits(0x3EF386A4);      // cos 61.6° (0x0080DFE0)
-const float kWaist = Bits(0x3FECB91B);          // tan 61.6° (0x0080C740)
-const float kFltMax = Bits(0x7F7FFFFF);
-const float kTwelfth = Bits(0x3DAAAAAB);        // 1/12, the point-over-facet margin
-const float kThreeQuarters = Bits(0x3F400000);  // 0.75 (0x008012CC), the swimmer's height
+const Live<float> kSkin{Offsets::VAR_MOVER_SKIN};                      // 1/720
+const Live<float> kAllBehind{Offsets::VAR_MOVER_ALL_BEHIND};           // -2^-20
+const Live<float> kDegenerate{Offsets::VAR_TWO_POW_MINUS_20};
+const Live<float> kThirtySixth{Offsets::VAR_ONE_THIRTY_SIXTH};
+const Live<float> kNegThirtySixth{Offsets::VAR_MINUS_ONE_THIRTY_SIXTH};
+const Live<float> kFacing{Offsets::VAR_MOVER_MINUS_FACING_EPSILON};    // -1e-5
+const float kGrowth = Bits(0x3E2AAAAB);                                // 1/6, the gather's growth
+const Live<float> kBevelOut{Offsets::VAR_MOVER_BEVEL_OUT};             // sin 61.6°
+const Live<float> kBevelDown{Offsets::VAR_MOVER_BEVEL_DOWN};           // cos 61.6°
+const Live<float> kWaist{Offsets::VAR_MOVER_WAIST};                    // tan 61.6°
+constexpr float kFltMax = FLT_MAX;
+const float kTwelfth = Bits(0x3DAAAAAB);                               // 1/12, the point-over-facet margin
+const Live<float> kThreeQuarters{Offsets::VAR_THREE_QUARTERS};         // the swimmer's height
 
 // The volume's faces as vertex indices (0x00631BE0's store block): the five
 // box faces as quads, in plane order, then the four bevels as triangles.
@@ -72,110 +72,41 @@ struct Polygon {
     int32_t tag[15];
     uint32_t count;
 };
+static_assert(sizeof(Polygon) == 0xF4 && offsetof(Polygon, tag) == 0xB4 && offsetof(Polygon, count) == 0xF0,
+              "the client's clip polygon");
+static_assert(sizeof(Plane) == 0x10, "the client's plane");
 
 struct Volume {
     Plane planes[9];
     float v[9][3];
 };
 
-// ClipPolygonByPlane (0x006318C0): keeps the inside of a plane, with a
-// 1/720 band, tagging the vertices it adds.
+// ClipPolygonByPlane: keeps the inside of a plane, with a 1/720 band,
+// tagging the vertices it adds.
 void ClipByPlane(Polygon &poly, const Plane &pl, int32_t tag) {
-    const uint32_t n = poly.count;
-    if (n == 0)
-        return;
-    float s[15];
-    float most = -kFltMax, least = kFltMax;
-    for (uint32_t i = 0; i < n; ++i) {
-        const float *v = poly.v[i];
-        s[i] = static_cast<float>(-(((D(v[0]) * pl.n[0] + D(v[2]) * pl.n[2]) + D(v[1]) * pl.n[1]) + pl.d));
-        if (s[i] > most)
-            most = s[i];
-        if (s[i] < least)
-            least = s[i];
-    }
-    if (least > kNegSkin)
-        return;
-    if (most < kSkin) {
-        poly.count = 0;
-        return;
-    }
-    const Polygon old = poly;
-    uint32_t out = 0;
-    const auto keep = [&](uint32_t i) {
-        std::memcpy(poly.v[out], old.v[i], sizeof poly.v[out]);
-        poly.tag[out++] = old.tag[i];
-    };
-    uint32_t prev = n - 1;
-    for (uint32_t cur = 0; cur < n && out + 2 <= 15; prev = cur++) {
-        const float sp = s[prev], sc = s[cur];
-        const bool prevIn = !(sp < 0.0f), curIn = !(sc < 0.0f);
-        const float *p = old.v[prev], *c = old.v[cur];
-        if (!prevIn && curIn) {
-            if (sc > kSkin) {
-                // Out to in (0x00631A36): z's difference rounds first, y's
-                // product stays unrounded.
-                const float t = static_cast<float>(D(sp) / (D(sc) - sp));
-                const float ex = static_cast<float>((D(c[0]) - p[0]) * t);
-                const double ey = (D(c[1]) - p[1]) * t;
-                const float dz = static_cast<float>(D(c[2]) - p[2]);
-                const double ez = D(dz) * t;
-                poly.v[out][0] = static_cast<float>(D(p[0]) - ex);
-                poly.v[out][1] = static_cast<float>(D(p[1]) - ey);
-                poly.v[out][2] = static_cast<float>(D(p[2]) - ez);
-                poly.tag[out++] = tag;
-            }
-            keep(cur);
-        } else if (prevIn && curIn) {
-            keep(cur);
-        } else if (prevIn && !curIn && sp > kSkin) {
-            // In to out (0x00631B6B): each product rounds.
-            const float t = static_cast<float>(D(sp) / (D(sc) - sp));
-            for (int k = 0; k < 3; ++k)
-                poly.v[out][k] = static_cast<float>(D(p[k]) - static_cast<float>((D(c[k]) - p[k]) * t));
-            poly.tag[out++] = tag;
-        }
-    }
-    poly.count = out < 3 ? 0 : out;
+    using Fn = void(__fastcall *)(const Plane *, Polygon *, int32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_CLIP_POLYGON_BY_PLANE)(&pl, &poly, tag);
 }
 
-// ClipPolygonByPlanes (0x00631870): by each plane in turn, false once empty.
+// ClipPolygonByPlanes: by each plane in turn, false once empty.
 bool ClipByPlanes(Polygon &poly, const Plane *planes, int count) {
-    for (int i = 0; i < count; ++i) {
-        ClipByPlane(poly, planes[i], i);
-        if (poly.count == 0)
-            return false;
-    }
-    return true;
+    using Fn = int(__fastcall *)(const Plane *, uint32_t, Polygon *);
+    return reinterpret_cast<Fn>(Offsets::FUN_CLIP_POLYGON_BY_PLANES)(planes, static_cast<uint32_t>(count), &poly) != 0;
 }
 
-// ClipPolygonByPlanesExcept (0x00632980): by every volume plane but one.
+// ClipPolygonByPlanesExcept: by every volume plane but one.
 bool ClipByPlanesExcept(Polygon &poly, const Plane (&planes)[9], int skip) {
-    for (int i = 0; i < 9; ++i) {
-        if (i == skip)
-            continue;
-        ClipByPlane(poly, planes[i], i);
-        if (poly.count == 0)
-            return false;
-    }
-    return true;
+    using Fn = int(__fastcall *)(const Plane *, uint32_t, uint32_t, Polygon *);
+    return reinterpret_cast<Fn>(Offsets::FUN_CLIP_POLYGON_BY_PLANES_EXCEPT)(planes, 9, static_cast<uint32_t>(skip),
+                                                                           &poly) != 0;
 }
 
-// PlaneFromTriangle (0x00637480): the normalized plane through three points,
-// normal (p1 - p0) × (p2 - p0).
+// PlaneFromTriangle: the normalized plane through three points, normal
+// (p1 - p0) × (p2 - p0).
 Plane PlaneFromPoints(const float (&p0)[3], const float (&p1)[3], const float (&p2)[3]) {
-    const double a[3] = {D(p2[0]) - p0[0], D(p2[1]) - p0[1], D(p2[2]) - p0[2]};
-    const float bx = static_cast<float>(D(p1[0]) - p0[0]);
-    const float by = static_cast<float>(D(p1[1]) - p0[1]);
-    const double bz = D(p1[2]) - p0[2];
-    const float n[3] = {static_cast<float>(D(by) * a[2] - bz * a[1]), static_cast<float>(bz * a[0] - a[2] * bx),
-                        static_cast<float>(a[1] * bx - D(by) * a[0])};
-    const double inverse = 1.0 / std::sqrt((D(n[0]) * n[0] + D(n[1]) * n[1]) + D(n[2]) * n[2]);
-    const double f[3] = {D(n[0]) * inverse, D(n[1]) * inverse, D(n[2]) * inverse};
+    using Fn = void(__fastcall *)(Plane *, int, const float *, const float *, const float *);
     Plane pl;
-    for (int k = 0; k < 3; ++k)
-        pl.n[k] = static_cast<float>(f[k]);
-    pl.d = static_cast<float>(-((f[2] * p0[2] + f[1] * p0[1]) + f[0] * p0[0]));
+    reinterpret_cast<Fn>(Offsets::FUN_PLANE_FROM_TRIANGLE)(&pl, 0, p0, p1, p2);
     return pl;
 }
 
@@ -264,12 +195,11 @@ Volume BuildVolume(const float (&p)[3], float radius, float height) {
     return v;
 }
 
-// PlaneDistanceAlongRay (0x006329E0): how far a plane moves along `dir`
-// before it reaches q; n·q + d undivided when it runs parallel.
+// PlaneDistanceAlongRay: how far a plane moves along `dir` before it
+// reaches q; n·q + d undivided when it runs parallel.
 double DistanceAlongRay(const float (&q)[3], const Plane &pl, const float (&dir)[3]) {
-    const double num = ((D(q[2]) * pl.n[2] + D(q[1]) * pl.n[1]) + D(q[0]) * pl.n[0]) + pl.d;
-    const double den = (D(pl.n[2]) * dir[2] + D(pl.n[1]) * dir[1]) + D(pl.n[0]) * dir[0];
-    return std::fabs(den) < kParallel ? num : num / den;
+    using Fn = double(__fastcall *)(const float *, const Plane *, const float *);
+    return reinterpret_cast<Fn>(Offsets::FUN_PLANE_DISTANCE_ALONG_RAY)(q, &pl, dir);
 }
 
 // PolygonContactDistance (0x00632830): the travel until volume face k

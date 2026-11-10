@@ -51,23 +51,16 @@ namespace Model::Scene::Locomotion {
 
 namespace {
 
-using AnimTest_t = int(__fastcall *)(int anim);
-
 constexpr uint32_t kNone = 208;               // AnimationData's row count: no animation
-constexpr float kSprintSpeed = 11.0f;          // 0x0080C484
-constexpr float kTurnEpsilon = 1e-5f;          // 0x0080C5C8
-constexpr float kTurnEpsilonNegative = -1e-5f; // 0x0080C5C4
-
-bool Test(uintptr_t fn, uint32_t anim) { return reinterpret_cast<AnimTest_t>(fn)(static_cast<int>(anim)) != 0; }
-
-bool IsDeath(uint32_t anim) {
-    return reinterpret_cast<int(__stdcall *)(int)>(Offsets::FUN_IS_DEATH_ANIMATION)(static_cast<int>(anim)) != 0;
-}
+const Game::Live<float> kSprintSpeed{Offsets::VAR_MOVER_SPRINT_SPEED};
+const Game::Live<float> kTurnEpsilon{Offsets::VAR_MOVER_FACING_EPSILON};
+const Game::Live<float> kTurnEpsilonNegative{Offsets::VAR_MOVER_MINUS_FACING_EPSILON};
 
 // The chain runs for an actor with the mover and a loaded model that is not
 // dead.
 bool Active(const Actor &actor) {
-    return actor.mover != nullptr && actor.model != nullptr && actor.loaded && !IsDeath(actor.animation);
+    return actor.mover != nullptr && actor.model != nullptr && actor.loaded &&
+           !M2::IsDeathAnimation(static_cast<int>(actor.animation));
 }
 
 // A fall the pick holds through (0x005FD8EE to 0x005FD919): falling far, or
@@ -106,10 +99,9 @@ bool CanShuffle(const Actor &actor, bool jumpEndLock) {
         return false;
     if (b.flags & 0x40200800)
         return false;
-    const auto anim = static_cast<uint32_t>(actor.CurrentAnimation());
-    if (Test(Offsets::FUN_IS_EMOTE_ANIMATION, anim) || Test(Offsets::FUN_IS_SPELL_CAST_ANIMATION, anim) ||
-        Test(Offsets::FUN_IS_THROWN_ANIMATION, anim) || Test(Offsets::FUN_IS_BOW_ANIMATION, anim) ||
-        Test(Offsets::FUN_IS_RIFLE_ANIMATION, anim))
+    const int anim = actor.CurrentAnimation();
+    if (M2::IsEmoteAnimation(anim) || M2::IsSpellCastAnimation(anim) || M2::IsThrownAnimation(anim) ||
+        M2::IsBowAnimation(anim) || M2::IsRifleAnimation(anim))
         return false;
     return !jumpEndLock;
 }
@@ -132,21 +124,6 @@ uint32_t Select(const Actor &actor, bool jumpEndLock) {
 
 bool JumpEndLock(const Actor &actor) { return actor.animation == Offsets::ANIM_JUMP_END; }
 
-struct SequenceInfo {
-    uint32_t flags;
-    uint32_t length;
-    float speed;
-    uint8_t rest[Offsets::M2_SEQUENCE_INFO_SIZE - 12];
-};
-static_assert(sizeof(SequenceInfo) == Offsets::M2_SEQUENCE_INFO_SIZE);
-
-SequenceInfo Info(void *model, uint32_t anim, uint32_t variation) {
-    using Fn = void(__thiscall *)(void *model, uint32_t anim, uint32_t variation, void *out);
-    SequenceInfo info;
-    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_SEQUENCE_INFO)(model, anim, variation, &info);
-    return info;
-}
-
 // CGUnit_C::PlayAnimation (0x005FE2F0) of `anim` on the body's track, as a
 // body with no mount, swing, weapon or effect plays it: a move animation at
 // the mover's speed over the sequence's (0x005FE50A to 0x005FE54D), starting
@@ -157,20 +134,16 @@ void Play(Actor &actor, uint32_t anim, bool ended) {
         return;
     float rate = 1.0f;
     uint32_t offsetMs = 0;
-    const SequenceInfo info = Info(actor.model, anim, 0);
-    if (0.0f < info.speed && Test(Offsets::FUN_IS_MOVE_ANIMATION, anim)) {
+    const M2::SequenceInfo info = M2::GetSequenceInfo(actor.model, anim, 0);
+    if (0.0f < info.speed && M2::IsMoveAnimation(static_cast<int>(anim))) {
         rate = Mover::CurrentSpeed(*actor.mover) / info.speed;
         if (info.length != 0) {
-            using State_t = void(__thiscall *)(void *model, int keyBone, uint32_t *out);
-            uint32_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE / 4];
-            reinterpret_cast<State_t>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(actor.model, -1, state);
-            const SequenceInfo was = Info(actor.model, state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_ID / 4],
-                                          state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_VARIATION / 4]);
+            const M2::AnimState state = M2::GetAnimState(actor.model, -1);
+            const M2::SequenceInfo was = M2::GetSequenceInfo(actor.model, state.id, state.variation);
             // 32-bit, as the client's imul and two divs (0x005FE606): the
             // product wraps.
             if (0.0f < was.speed && was.length != 0)
-                offsetMs = state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_POSITION / 4] * info.length / was.length %
-                           info.length;
+                offsetMs = state.position * info.length / was.length % info.length;
         }
     }
     actor.animation = anim;

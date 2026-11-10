@@ -234,12 +234,11 @@ void PlaySound(Actor &actor, uint32_t tag, uint32_t data) {
 // $BWR's point (0x00600159): a bow animation releases from the body's
 // attachment 35, a rifle animation from 36, any other from the event's point.
 void BowReleasePoint(const Actor &actor, float (&point)[3]) {
-    using IsAnim_t = int(__fastcall *)(int anim);
     const int anim = actor.CurrentAnimation();
     uint32_t attachment = 0;
-    if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_BOW_ANIMATION)(anim) != 0)
+    if (M2::IsBowAnimation(anim))
         attachment = Offsets::ATTACH_BOW_RELEASE;
-    else if (reinterpret_cast<IsAnim_t>(Offsets::FUN_IS_RIFLE_ANIMATION)(anim) != 0)
+    else if (M2::IsRifleAnimation(anim))
         attachment = Offsets::ATTACH_RIFLE_RELEASE;
     if (attachment != 0 && actor.model != nullptr && M2::HasAttachment(actor.model, attachment))
         M2::GetAttachmentPosition(actor.model, attachment, point);

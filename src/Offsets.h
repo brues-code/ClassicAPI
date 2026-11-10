@@ -811,8 +811,8 @@ enum Offsets {
     // double-duties as the MINIMUM font size numerator in the node ctor
     // (FUN_005cd6d0 / FUN_005ccb80: fontSize floored at [0x801628]/rasterY =
     // 2 pen px).
-    FLOAT_OUTLINE_EXTRA_THICK = 0x0080306C,
-    FLOAT_OUTLINE_EXTRA_THIN = 0x00801628,
+    VAR_FOUR = 0x0080306C, // float 4.0
+    VAR_TWO = 0x00801628, // float 2.0
     // The node's BUILT line count — incremented once per emitted wrapped line
     // by the draw builder (FUN_005CDC20, including the \n break case) and the
     // builder's own early-out gate (`if (node+0x9C != 0) return`); zeroed by
@@ -2083,7 +2083,7 @@ enum Offsets {
     // Front-cone half angle of the tab-target collector (0x494200): pi times
     // 1/6, both read from these floats (stored into 0xB4D8F4 on first use).
     VAR_TARGETING_PI = 0x00804488,
-    VAR_TARGETING_ONE_SIXTH = 0x00803568,
+    VAR_ONE_SIXTH = 0x00803568, // float 1/6
     // HeadingBetweenPoints — `float __fastcall(const float *from, const
     // float *to)`: atan2 of the y and x differences (the tab collector's
     // heading).
@@ -3561,7 +3561,7 @@ enum Offsets {
     // counts as ranged (`fcomp` then `test ah,5; jp` at `0x4E5885`
     // passes unordered). Verified by a direct float dump of the image:
     // exactly 2^-22 (0x34800000) at this address. Read live, not hardcoded.
-    VAR_HAS_RANGE_EPSILON = 0x008029D4,
+    VAR_TWO_POW_MINUS_22 = 0x008029D4, // float 2^-22
 
     // The two floats `FUN_006e3480`'s COMBAT-RANGE branch folds into its
     // max-range output: `casterReach + targetReach + LEEWAY`, floored at
@@ -13589,7 +13589,7 @@ enum Offsets {
     // lighting/shadows). A world entity with flag 0x400 draws it when its
     // model is ready and shadowLOD is 1 (0x006D78F0). The box is the bounds
     // of sequence (0, 0), skipped when the x or y extent is under
-    // VAR_HAS_RANGE_EPSILON, clamped to +-5 and multiplied by the length of
+    // VAR_TWO_POW_MINUS_22, clamped to +-5 and multiplied by the length of
     // the base transform's row 0 (times 1.0, 0x00811698); its four corners
     // turn by the base rotation (rows over that length) and move by the base
     // translation. The decal box is those corners' bounds, z from the base
@@ -14133,8 +14133,8 @@ enum Offsets {
     // A group light's end gains 0.1 when it is within 0.001 of its start
     // (0x00695CB1 / 0x00695CC1); AddMapLight 0x006A7AC0 measures from the
     // doodad's position raised by 1.1666666.
-    VAR_MAP_LIGHT_RANGE_EPSILON = 0x00801360, // float 0.001
-    VAR_MAP_LIGHT_RANGE_PAD = 0x00801620,     // float 0.1
+    VAR_ONE_THOUSANDTH = 0x00801360, // float 0.001
+    VAR_ONE_TENTH = 0x00801620,     // float 0.1
     VAR_MAP_LIGHT_LIFT = 0x00810A70,          // float 1.1666666
     VAR_ONE = 0x007FF9D8,                     // float 1.0
     VAR_ONE_OVER_255 = 0x008026C8,            // float 1/255
@@ -14221,7 +14221,7 @@ enum Offsets {
     // floor 0xA8, ambient cap DOODAD_AMBIENT_CAP); a day face blends both
     // toward the sun's by the colour's alpha. The unit is placed again when
     // its translation moved by a squared distance of
-    // VAR_MAP_LIGHT_RANGE_EPSILON or more (SyncLightNode, the same 0.001).
+    // VAR_ONE_THOUSANDTH or more (SyncLightNode, the same 0.001).
     // TransformBox `__fastcall(const float m[16], const float box[6], float
     // out[6])` ret 4; CMapObj::BoxOverlaps `__thiscall(obj, box)` ret 4.
     FUN_TRANSFORM_BOX = 0x006DC540,
@@ -14244,7 +14244,7 @@ enum Offsets {
     FUN_CMAPOBJDEF_GET_FACE_TERRAIN_TYPE = 0x006A26C0,
     FUN_CMAPOBJ_SAMPLE_GROUP_COLOR = 0x006A4DC0,
     FUN_M2MODEL_GET_COLLISION_BOX = 0x00713700, // `__thiscall(model, float out[6])`; waits for an unloaded file
-    VAR_ENTITY_PROBE_LENGTH = 0x008022CC, // 1000.0
+    VAR_ONE_THOUSAND = 0x008022CC, // 1000.0
     MAPOBJ_GROUP_EXTERIOR = 0x08,
     MAPOBJ_GROUP_EXTERIOR_LIT = 0x40,
     ENTITY_DIRECTIONAL_FLOOR = 0xA8,
@@ -15172,7 +15172,7 @@ enum Offsets {
     DRAW_BUILDER_FRAME_LINE_X = 0x48,
     // The fit-to-height count's line test (0x005C21C0, after its stepper
     // call): `fld [ebp+10h]` (the block height), then this `fadd dword ptr
-    // [VAR_TEXT_FIT_HEIGHT_EPSILON]` (D8 05 BC 26 80 00), then FCOMPP against
+    // [VAR_TWO_POW_MINUS_20]` (D8 05 BC 26 80 00), then FCOMPP against
     // the running height + font height; it stops at the first line that
     // fails. [ebp-8] is the bytes fitted so far, 0 until a line fits. EAX is
     // dead here (FNSTSW AX, then both paths reload it from [ebp-8]).
@@ -15181,7 +15181,7 @@ enum Offsets {
     TEXT_FIT_HEIGHT_FRAME_FITTED_BYTES = 0x8,
     // Exactly 2^-20 (0x35800000, .rdata): the fit's line margin above. A
     // shared float, also read by collision, movement and matrix code.
-    VAR_TEXT_FIT_HEIGHT_EPSILON = 0x008026BC,
+    VAR_TWO_POW_MINUS_20 = 0x008026BC, // float 2^-20
     // The draw builder's right / centre x: `FUN_TEXT_SCREEN_TO_PIXEL_WIDTH(raw,
     // -width)` (or -width / 2), `float __fastcall(int raw, float)`, `ret 4`,
     // result in ST0, stored to the line x at 0x005CDE28.
@@ -15735,4 +15735,98 @@ enum Offsets {
     // (FUN_REGION_LAYOUT_DIRTY(layout)) FUN_007680e0(layout, 1)`, 4.3.4's
     // `if (IsResizePending()) Resize(1)`).
     FUN_LAYOUT_RESIZE = 0x007680E0,
+
+    // ---- The client mover's floats (Model::Scene::Mover / Contact, the
+    // scene actor's body facing and locomotion) ---------------------------
+    // Each is the float (or double) the transcribed client function reads at
+    // that address; every value was checked against the image's bytes. The
+    // pooled ones are named by value, the mover's own by their role. All
+    // are .rdata except the three noted.
+    VAR_HALF = 0x007FFA24,                     // float 0.5
+    VAR_THREE_QUARTERS = 0x008012CC,           // float 0.75; a swimmer's height share, the aim height
+    VAR_ONE_HUNDREDTH = 0x008029D0,            // float 0.01
+    VAR_ONE_THIRTY_SIXTH = 0x007FF9D0,         // float 1/36
+    VAR_MINUS_ONE_THIRTY_SIXTH = 0x007FF9C8,   // float -1/36
+    VAR_HALF_PI = 0x00808ACC,                  // float pi/2
+    VAR_MINUS_HALF_PI = 0x0080C5E4,            // float -pi/2
+    VAR_QUARTER_PI = 0x0080C4E4,               // float pi/4
+    // WrapAngleToPi (0x006084F0): pi as a float, 2pi as a double.
+    VAR_WRAP_PI = 0x008030B0,
+    VAR_WRAP_TWO_PI = 0x00803090,              // double
+    // 2pi in .bss, filled by a static initializer: read it only at use.
+    VAR_MOVER_TWO_PI = 0x00CF5D00,
+    VAR_MOVER_FACING_EPSILON = 0x0080C5C8,     // float 1e-5, the turn and facing test
+    VAR_MOVER_MINUS_FACING_EPSILON = 0x0080C5C4, // float -1e-5
+    // The contact sweep's band and bounds (0x00631440 through 0x00632F80).
+    VAR_MOVER_SKIN = 0x0080DFEC,               // float 1/720
+    VAR_MOVER_MINUS_SKIN = 0x0080DFF0,         // float -1/720
+    VAR_MOVER_ALL_BEHIND = 0x0080DFF4,         // float -2^-20
+    // The volume's bevels: sin, cos and tan of 61.6 degrees, the bevel
+    // normal's z and the two-bevel normalizer.
+    VAR_MOVER_BEVEL_OUT = 0x0080DFE4,
+    VAR_MOVER_BEVEL_DOWN = 0x0080DFE0,
+    VAR_MOVER_WAIST = 0x0080C740,
+    VAR_MOVER_BEVEL_Z = 0x0080E014,
+    VAR_MOVER_BISECT = 0x0080E024,
+    // The walk and fall resolvers.
+    VAR_MOVER_NINTH = 0x0080DFF8,              // float 1/9
+    VAR_MOVER_STALL = 0x0080C698,              // float 0.0005
+    VAR_MOVER_STALL_REACH = 0x0080E018,        // float 1.1866661
+    VAR_MOVER_COS_10 = 0x0080E01C,
+    VAR_MOVER_FLOOR_COS = 0x0080DFFC,          // float cos 50 degrees, the walkable limit
+    VAR_MOVER_FLOOR_TAN = 0x0080E008,          // float tan 50 degrees
+    VAR_MOVER_MINUS_FLOOR_TAN = 0x0080E010,
+    VAR_MOVER_SQRT_2 = 0x0080E00C,
+    // Gravity g (19.29110527) and the forms the fall arc reads.
+    VAR_MOVER_GRAVITY = 0x0081DA58,
+    VAR_MOVER_HALF_GRAVITY = 0x0081DA60,
+    VAR_MOVER_TWO_GRAVITY = 0x0081DA64,
+    VAR_MOVER_INV_GRAVITY = 0x0080E020,
+    VAR_MOVER_MINUS_INV_GRAVITY = 0x0081DA5C,
+    VAR_MOVER_TWO_OVER_GRAVITY = 0x0081DA68,
+    // The fall's speed cap and the cap under flag 0x20000000, in .data.
+    VAR_MOVER_TERMINAL_SPEED = 0x0087D894,
+    VAR_MOVER_TERMINAL_SPEED_SLOW = 0x0087D898,
+    // The spline mover (OnMonsterMove 0x006018F0, SnapIfFar 0x00616D60, the
+    // warp gate 0x00616AF0, the position check 0x00616BF0).
+    VAR_MOVER_SNAP_DISTANCE_SQ = 0x0080C5BC,   // float 9.0, 3 yards squared
+    VAR_MOVER_WARP_SPEED_SQ = 0x0080C734,      // float 3600.0, 60 yards a second squared
+    VAR_MOVER_PATH_POINT_SQ = 0x0080C450,      // float (1/36)^2
+    VAR_MOVER_CELL_SPAN = 0x0080C738,          // float 34131.332
+    // The unit's sprint threshold (the move animation pick 0x005FD100).
+    VAR_MOVER_SPRINT_SPEED = 0x0080C484,       // float 11.0
+    // The mover's pure geometry helpers: each reads only its arguments and
+    // .rdata constants (Ghidra), so a scene body calls them as the client's
+    // mover does. A plane is {n xyz, d}, 16 bytes; a clip polygon is 0xF4
+    // bytes: 15 vertices, the tag of each (+0xB4), the count (+0xF0). All are
+    // __fastcall with the callee popping its stack arguments.
+    //   DotVector3 `double(const float a[3], const float b[3])`, plain ret;
+    //   the result unrounded in st0.
+    FUN_DOT_VECTOR3 = 0x00602630,
+    //   PlaneFromTriangle `void(Plane *out, int /*edx unused*/, const float
+    //   p0[3], const float p1[3], const float p2[3])`, ret 0xC: the unit
+    //   normal (p1 - p0) x (p2 - p0) and d = -n·p0.
+    FUN_PLANE_FROM_TRIANGLE = 0x00637480,
+    //   PlaneDistanceAlongRay `double(const float p[3], const Plane *, const
+    //   float dir[3])`, ret 4: (n·p + d) / (n·dir), undivided when |n·dir| <
+    //   2^-22.
+    FUN_PLANE_DISTANCE_ALONG_RAY = 0x006329E0,
+    //   ClipPolygonByPlane `void(const Plane *, Polygon *, int tag)`, ret 4:
+    //   keeps the inside with a 1/720 band, tagging the vertices it adds;
+    //   fewer than three left empties it.
+    FUN_CLIP_POLYGON_BY_PLANE = 0x006318C0,
+    //   ClipPolygonByPlanes `int(const Plane *, uint32 count, Polygon *)`,
+    //   ret 4, and ClipPolygonByPlanesExcept `int(const Plane *, uint32
+    //   count, uint32 skip, Polygon *)`, ret 8: by each plane in turn (the
+    //   tag its index), 0 once empty.
+    FUN_CLIP_POLYGON_BY_PLANES = 0x00631870,
+    FUN_CLIP_POLYGON_BY_PLANES_EXCEPT = 0x00632980,
+    //   IntersectThreePlanes `float *(float out[3], const Plane *a, const
+    //   Plane *b, const Plane *c)`, ret 8: through Matrix3Determinant and
+    //   InvertMatrix3 (0x007BE0E0, 0x007BE2A0).
+    FUN_INTERSECT_THREE_PLANES = 0x00634FC0,
+    //   PointToLineDistanceSquared `double(const float p[3], const float
+    //   q[3], const float dir[3])`, ret 4: from p to the line through q
+    //   along the unit dir.
+    FUN_POINT_TO_LINE_DISTANCE_SQ = 0x00634F40,
 };

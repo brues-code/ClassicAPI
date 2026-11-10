@@ -71,6 +71,11 @@ void ReleaseHandle(void *handle) {
         reinterpret_cast<HandleRelease_t>(Offsets::FUN_HANDLE_RELEASE)(handle);
 }
 
+void *DeviceTexture(void *handle) {
+    using Fn = void *(__fastcall *)(void *handle, int load, void *callback);
+    return reinterpret_cast<Fn>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(handle, 1, nullptr);
+}
+
 // Same failure test and cleanup as SetTexture: a status level of 2 or more
 // closes the green fallback and passes the status to the (silent)
 // system-message printer; the status is destroyed either way.

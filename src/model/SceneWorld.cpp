@@ -122,6 +122,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "gx/Device.h"
+#include "gx/Matrix.h"
 #include "model/M2.h"
 #include "model/SceneContact.h"
 
@@ -249,7 +250,13 @@ struct Ambience {
 
 namespace {
 
-using Matrix = float[16];
+using Gx::Identity;
+using Gx::Matrix;
+using Gx::Multiply;
+using Gx::Rotate;
+using Gx::TransformBox;
+using Gx::TransformPoint;
+using Gx::Translate;
 
 constexpr uint32_t Tag(const char (&name)[5]) {
     return (static_cast<uint32_t>(static_cast<uint8_t>(name[0])) << 24) |
@@ -357,27 +364,6 @@ int CheckedGroupCount(const char *path) {
             return -1;
     }
     return groups;
-}
-
-// ---- matrices --------------------------------------------------------------------
-
-void Identity(Matrix &m) {
-    std::memset(m, 0, sizeof m);
-    m[0] = m[5] = m[10] = m[15] = 1.0f;
-}
-
-void Translate(Matrix &m, const float (&t)[3]) {
-    reinterpret_cast<void(__thiscall *)(float *, const float *)>(Offsets::FUN_MATRIX_TRANSLATE)(m, t);
-}
-
-void Rotate(Matrix &m, float angle, const float (&axis)[3]) {
-    reinterpret_cast<void(__thiscall *)(float *, float, const float *, int)>(Offsets::FUN_MATRIX_ROTATE)(
-        m, angle, axis, 1);
-}
-
-void Multiply(Matrix &out, const Matrix &a, const Matrix &b) {
-    reinterpret_cast<float *(__fastcall *)(float *, const float *, const float *)>(
-        Offsets::FUN_MATRIX_MULTIPLY)(out, a, b);
 }
 
 // ---- the draw ---------------------------------------------------------------------
@@ -525,10 +511,8 @@ void CommitLighting(const Backdrop &b, void *frame, const float (&eye)[3]) {
     // render-state scope ends it.
     if (!WmoFogShown(b) &&
         (Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) == 0) {
-        using SetFloat_t = void(__fastcall *)(int id, int, float value);
-        const auto setFloat = reinterpret_cast<SetFloat_t>(Offsets::FUN_GX_RS_SET_FLOAT);
-        setFloat(Offsets::GXRS_FOG_START, 0, b.farClip);
-        setFloat(Offsets::GXRS_FOG_END, 0, Game::Read<float>(Offsets::VAR_NO_LIGHT_FOG_END));
+        Gx::SetStateFloat(Offsets::GXRS_FOG_START, b.farClip);
+        Gx::SetStateFloat(Offsets::GXRS_FOG_END, Game::Read<float>(Offsets::VAR_NO_LIGHT_FOG_END));
     }
 }
 
@@ -563,17 +547,6 @@ void DrawGroups(Backdrop &b, void *frame) {
 
 float EngineFloat(uintptr_t address) { return Game::Read<float>(address); }
 
-void TransformPoint(const float (&in)[3], const Matrix &m, float (&out)[3]) {
-    float v[3] = {in[0], in[1], in[2]};
-    reinterpret_cast<float *(__fastcall *)(float *, float *, const float *)>(Offsets::FUN_TRANSFORM_POINT_IN_PLACE)(
-        out, v, m);
-}
-
-void TransformBox(const float *m, const float (&box)[6], float (&out)[6]) {
-    reinterpret_cast<void(__fastcall *)(const float *, const float *, float *)>(Offsets::FUN_TRANSFORM_BOX)(m, box,
-                                                                                                           out);
-}
-
 void ReadVector(const uint8_t *at, float (&out)[3]) { std::memcpy(out, at, sizeof out); }
 
 // BGRA bytes as the rgb the record adds (byte / 255).
@@ -584,24 +557,22 @@ void ColorOf(uint32_t bgra, float (&rgb)[3]) {
     rgb[2] = static_cast<float>(bgra & 0xFF) * k;
 }
 
-using LightInt_t = void(__thiscall *)(void *light, int value);
-using LightVector_t = void(__thiscall *)(void *light, const float *v);
 
 MapLight MakeMapLight(const Backdrop &b, const uint8_t *record) {
     MapLight m{};
     void *light = m.light.bytes;
-    reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_M2LIGHT_INITIALIZE)(light);
+    M2::InitLight(light);
     float position[3];
     ReadVector(record + Offsets::OFF_MOLT_POSITION, position);
     TransformPoint(position, b.placement, position);
     m.start = Game::Read<float>(record, Offsets::OFF_MOLT_START);
     m.end = Game::Read<float>(record, Offsets::OFF_MOLT_END);
-    if (std::fabs(m.start - m.end) < EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_EPSILON))
-        m.end += EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_PAD);
+    if (std::fabs(m.start - m.end) < EngineFloat(Offsets::VAR_ONE_THOUSANDTH))
+        m.end += EngineFloat(Offsets::VAR_ONE_TENTH);
     m.falloff = EngineFloat(Offsets::VAR_ONE) / (m.end - m.start);
-    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(light, 1);
-    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, 1);
-    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_POSITION)(light, position);
+    M2::SetLightEnabled(light, true);
+    M2::SetLightType(light, 1);
+    M2::SetLightPosition(light, position);
     const float intensity = Game::Read<float>(record, Offsets::OFF_MOLT_INTENSITY);
     float rgb[3];
     ColorOf(Game::Read<uint32_t>(record, Offsets::OFF_MOLT_COLOR), rgb);
@@ -636,12 +607,12 @@ void AddMapLight(const float (&position)[3], const MapLight &m, std::vector<Ligh
     void *light = added.bytes;
     const float k = EngineFloat(Offsets::VAR_ONE) / distance;
     const float direction[3] = {k * offset[0], k * offset[1], k * offset[2]};
-    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_DIRECTION)(light, direction);
+    M2::SetLightDirection(light, direction);
     float *diffuse = reinterpret_cast<float *>(added.bytes + Offsets::OFF_M2LIGHT_DIFFUSE);
     for (int i = 0; i < 3; ++i)
         diffuse[i] *= intensity;
-    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(light, 1);
-    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, 0);
+    M2::SetLightEnabled(light, true);
+    M2::SetLightType(light, 0);
     const float attenuation[3] = {1.0f, 0.0f, 0.0f};
     std::memcpy(added.bytes + Offsets::OFF_M2LIGHT_ATTENUATION, attenuation, sizeof attenuation);
     lights.push_back(added);
@@ -759,12 +730,9 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
     Matrix m;
     Identity(m);
     Translate(m, position);
-    reinterpret_cast<void(__thiscall *)(float *, const float *)>(Offsets::FUN_MATRIX_ROTATE_QUATERNION)(
-        m, Game::Ptr<float>(record, Offsets::OFF_MODD_ROTATION));
-    reinterpret_cast<void(__thiscall *)(float *, float)>(Offsets::FUN_MATRIX_SCALE)(
-        m, Game::Read<float>(record, Offsets::OFF_MODD_SCALE));
-    reinterpret_cast<float *(__thiscall *)(float *, const float *)>(Offsets::FUN_MATRIX_MULTIPLY_IN_PLACE)(
-        m, b.placement);
+    Gx::RotateQuaternion(m, Game::Ptr<float>(record, Offsets::OFF_MODD_ROTATION));
+    Gx::Scale(m, Game::Read<float>(record, Offsets::OFF_MODD_SCALE));
+    Gx::MultiplyInPlace(m, b.placement);
     std::memcpy(d.matrix, m, sizeof d.matrix);
     d.scale = Game::Read<float>(record, Offsets::OFF_MODD_SCALE);
     using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
@@ -774,8 +742,7 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
                                                              &d.ambient, Offsets::DOODAD_AMBIENT_CAP);
     d.model = M2::CreateModel(Model::Pane::Scene(frame), path);
     if (d.model != nullptr) {
-        reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2MODEL_SET_BASE_TRANSFORM)(d.model,
-                                                                                                          m);
+        M2::SetBaseTransform(d.model, m);
         const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&d));
         M2::SetAnimDoneCallback(d.model, reinterpret_cast<const void *>(Offsets::FUN_DOODAD_MODEL_DONE), 0, 0);
         M2::SetEventCallback(d.model, reinterpret_cast<const void *>(&OnDoodadEvent), user, 0);
@@ -883,8 +850,7 @@ Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSe
     auto *b = new Backdrop{object, {}, {}, doodadSet, mapID};
     b->serial = ++serials;
     std::memcpy(b->placement, placement, sizeof b->placement);
-    reinterpret_cast<void(__thiscall *)(const float *, float *, float)>(Offsets::FUN_MATRIX_INVERT_AFFINE)(
-        b->placement, b->inverse, 1.0f);
+    Gx::InvertAffine(b->placement, b->inverse, 1.0f);
     std::memcpy(b->def + Offsets::OFF_MAPOBJDEF_PLACEMENT, b->placement, sizeof b->placement);
     std::memcpy(b->def + Offsets::OFF_MAPOBJDEF_INVERSE, b->inverse, sizeof b->inverse);
     std::memcpy(b->def + Offsets::OFF_MAPOBJDEF_OBJECT, &object, sizeof object);
@@ -1235,18 +1201,7 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
 
 using Fn_t = void(__cdecl *)();
 
-// The render states a pass of the WMO sets (CommitLighting's fog range) last
-// until it ends.
-class RenderStateScope {
-  public:
-    RenderStateScope() { reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)(); }
-    ~RenderStateScope() { reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)(); }
-    RenderStateScope(const RenderStateScope &) = delete;
-    RenderStateScope &operator=(const RenderStateScope &) = delete;
-};
 
-using Unit_t = void(__fastcall *)(int unit);
-using Load_t = void(__fastcall *)(int unit, const float *m);
 constexpr int kWorldStack = 8;
 
 // The render states pushed and world stack 8 = placement x Translate(-eye),
@@ -1256,14 +1211,14 @@ void PushObjectSpace(const Backdrop &b, const float (&eye)[3]) {
     Identity(toEye);
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
     Multiply(world, b.placement, toEye);
-    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)();
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_PUSH)(kWorldStack);
-    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_LOAD)(kWorldStack, world);
+    Gx::PushStates();
+    Gx::PushTransform(kWorldStack);
+    Gx::SetTransform(kWorldStack, world);
 }
 
 void PopObjectSpace() {
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
-    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)();
+    Gx::PopTransform(kWorldStack);
+    Gx::PopStates();
 }
 
 // AnimateMapEntityLight (0x0069E770): the ambient bytes and the intensity
@@ -1349,7 +1304,7 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     float start[3];
     TransformPoint(point, *reinterpret_cast<const Matrix *>(base), start);
 
-    const float length = EngineFloat(Offsets::VAR_ENTITY_PROBE_LENGTH);
+    const float length = EngineFloat(Offsets::VAR_ONE_THOUSAND);
     float end[3] = {start[0], start[1], start[2] - length};
     float t = 1.0f;
     uint32_t group = 0;
@@ -1418,7 +1373,7 @@ void Settle(const Backdrop &b, Ambience &a, void *frame, void *model, float elap
     if (placed && a.generation == b.generation) {
         const float dx = position[0] - a.position[0], dy = position[1] - a.position[1],
                     dz = position[2] - a.position[2];
-        moved = !(std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_MAP_LIGHT_RANGE_EPSILON));
+        moved = !(std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_ONE_THOUSANDTH));
     }
     if (!placed) {
         // A new node (0x00670DB0): intensity 1.0, the day ambient.
@@ -1473,7 +1428,7 @@ bool LiquidAt(const Backdrop &b, const float (&point)[3], uint32_t &type, float 
         return false;
     // The group, as a unit's is found (AttachEntityToGround 0x006A8A20): the
     // nearest face down from the point.
-    const float end[3] = {point[0], point[1], point[2] - EngineFloat(Offsets::VAR_ENTITY_PROBE_LENGTH)};
+    const float end[3] = {point[0], point[1], point[2] - EngineFloat(Offsets::VAR_ONE_THOUSAND)};
     float t = 1.0f;
     uint32_t group = 0;
     uint16_t face = 0;
@@ -1821,11 +1776,6 @@ void FromEye(Matrix &m, const float (&eye)[3]) {
 // DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
 // world camera.
 void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
-    using GetInt_t = void(__fastcall *)(int id, int *out);
-    using Set_t = void(__fastcall *)(int id, int value);
-    using SetPtr_t = void(__fastcall *)(int id, const void *value);
-    using SetWord_t = void(__fastcall *)(int id, int, uint32_t value);
-    using SetFloat_t = void(__fastcall *)(int id, int, float value);
     using Caps_t = const uint8_t *(__fastcall *)();
     using WriteColored_t = void(__fastcall *)(const void *batch);
     using Write_t = void(__thiscall *)(const void *batch, uint32_t color);
@@ -1839,31 +1789,25 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
     ResetFacets();
     if (!CollectBox(b, box, mask))
         return;
-    const auto getInt = reinterpret_cast<GetInt_t>(Offsets::FUN_GX_RS_GET_INT);
-    const auto set = reinterpret_cast<Set_t>(Offsets::FUN_GX_RS_SET);
-    const auto setPtr = reinterpret_cast<SetPtr_t>(Offsets::FUN_GX_RS_SET_PTR);
-    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_PUSH)();
-    int blend = 0;
-    getInt(Offsets::GXRS_BLEND, &blend);
+    Gx::PushStates();
+    const int blend = Gx::GetState(Offsets::GXRS_BLEND);
     if (blend == Offsets::GXRS_BLEND_MODULATE) {
-        setPtr(Offsets::GXRS_TEXTURE0 + 1, Game::Read<void *>(Offsets::VAR_SHADOW_GREY_RAMP));
-        set(Offsets::GXRS_COMBINER0 + 1, Offsets::GXRS_COMBINE_ADD);
+        Gx::SetState(Offsets::GXRS_TEXTURE0 + 1, Game::Read<void *>(Offsets::VAR_SHADOW_GREY_RAMP));
+        Gx::SetState(Offsets::GXRS_COMBINER0 + 1, Offsets::GXRS_COMBINE_ADD);
     } else {
-        setPtr(Offsets::GXRS_TEXTURE0 + 1, Game::Read<void *>(Offsets::VAR_SHADOW_RAMP));
+        Gx::SetState(Offsets::GXRS_TEXTURE0 + 1, Game::Read<void *>(Offsets::VAR_SHADOW_RAMP));
     }
     const float bias = Game::Read<float>(Offsets::VAR_SHADOW_BIAS);
     if (bias != 0.0f)
-        reinterpret_cast<SetFloat_t>(Offsets::FUN_GX_RS_SET_FLOAT)(
-            Offsets::GXRS_DEPTH_BIAS, 0, (bias + bias) * Game::Read<float>(Offsets::VAR_SHADOW_BIAS_SCALE));
+        Gx::SetStateFloat(Offsets::GXRS_DEPTH_BIAS, (bias + bias) * Game::Read<float>(Offsets::VAR_SHADOW_BIAS_SCALE));
     for (int unit = 0; unit < 2; ++unit) {
-        set(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_WORLD_POS);
-        set(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_MATRIX);
+        Gx::SetState(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_WORLD_POS);
+        Gx::SetState(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_MATRIX);
     }
     uint32_t color = argb;
-    int lighting = 0;
-    getInt(Offsets::GXRS_LIGHTING, &lighting);
+    const int lighting = Gx::GetState(Offsets::GXRS_LIGHTING);
     if (lighting == 1) {
-        reinterpret_cast<SetWord_t>(Offsets::FUN_GX_RS_SET_WORD)(Offsets::GXRS_MATERIAL, 0, argb);
+        Gx::SetStateWord(Offsets::GXRS_MATERIAL, argb);
     } else if (Game::Read<int>(reinterpret_cast<Caps_t>(Offsets::FUN_GX_DEVICE_CAPS)(),
                                Offsets::OFF_GXCAPS_COLOR_SWAP) == 1) {
         color = (argb & 0xFF00FF00u) | (argb & 0xFFu) << 16 | (argb >> 16 & 0xFFu);
@@ -1871,7 +1815,7 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
     Matrix toEye;
     Identity(toEye);
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_PUSH)(kWorldStack);
+    Gx::PushTransform(kWorldStack);
     const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1883,7 +1827,7 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
             continue;
         Matrix world;
         Multiply(world, *reinterpret_cast<const Matrix *>(matrix), toEye);
-        reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_LOAD)(kWorldStack, world);
+        Gx::SetTransform(kWorldStack, world);
         if (lighting == 1)
             reinterpret_cast<WriteColored_t>(Offsets::FUN_WRITE_DECAL_VERTICES_COLOURED)(batch);
         else
@@ -1892,8 +1836,8 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
         const Prim prim{Offsets::GX_PRIM_TRIANGLES, 0, indices, 0, static_cast<uint16_t>(indices - 1), 0};
         reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
     }
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
-    reinterpret_cast<Fn_t>(Offsets::FUN_GX_STATE_POP)();
+    Gx::PopTransform(kWorldStack);
+    Gx::PopStates();
 }
 
 } // namespace
@@ -1912,11 +1856,11 @@ void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const fl
     reinterpret_cast<Build_t>(Offsets::FUN_BUILD_DECAL_TRANSFORMS)(tex0, tex1, box, m, fade, 1);
     FromEye(tex0, eye);
     FromEye(tex1, eye);
-    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(0, tex0);
-    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(1, tex1);
+    Gx::PushTransform(0, tex0);
+    Gx::PushTransform(1, tex1);
     DrawBatches(b, box, argb, mask, eye);
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(0);
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(1);
+    Gx::PopTransform(0);
+    Gx::PopTransform(1);
 }
 
 void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
@@ -1988,7 +1932,9 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
         if (!(corners[i * 3 + 2] > lowest))
             lowest = corners[i * 3 + 2];
     b.probeDrop = eye[2] - lowest;
-    const RenderStateScope states;
+    // The render states a pass of the WMO sets (CommitLighting's fog range)
+    // last until it ends.
+    const Gx::SavedStates states;
     PushObjectSpace(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
@@ -2142,7 +2088,7 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
         return;
     // Outdoor water takes the light of the backdrop's map at the camera.
     const MapWaterLight mapLight(b, eye);
-    const RenderStateScope states;
+    const Gx::SavedStates states;
     reinterpret_cast<Fn_t>(Offsets::FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP)();
     uint32_t &fogFlag = Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG);
     const uint32_t savedFogFlag = fogFlag;
@@ -2308,7 +2254,6 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     using Culled_t = uint32_t(__fastcall *)(const float *box, const float *basis, const float *position);
     using GetMatrix_t = void(__fastcall *)(float *out);
     using GetXform_t = void(__fastcall *)(int unit, float *out);
-    using Multiply_t = float *(__fastcall *)(float *out, const float *a, const float *b);
     using Volume_t = void(__fastcall *)(const float *corners, const float *rect);
     void *object = b.object;
     const bool inside = b.cameraGroupCount != 0;
@@ -2338,7 +2283,7 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     Matrix device, slot, toClip;
     reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_VIEW_PROJECTION)(device);
     reinterpret_cast<GetXform_t>(Offsets::FUN_GX_XFORM_GET)(kWorldStack, slot);
-    reinterpret_cast<Multiply_t>(Offsets::FUN_MATRIX_MULTIPLY)(toClip, slot, device);
+    Multiply(toClip, slot, device);
     std::memcpy(reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_PORTAL_OBJECT_TO_CLIP)), toClip,
                 sizeof toClip);
     float camera[3];
@@ -2434,28 +2379,24 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     }
     Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = Heading(forward);
     reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_COLOUR_SKY_DOME)(SkyObjects::Dome());
-    const RenderStateScope states;
+    const Gx::SavedStates states;
     Matrix identity;
     Identity(identity);
-    reinterpret_cast<Load_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(kWorldStack, identity);
+    Gx::PushTransform(kWorldStack, identity);
     reinterpret_cast<Fn_t>(Offsets::FUN_DRAW_SKY)();
-    reinterpret_cast<Unit_t>(Offsets::FUN_GX_TEXMTX_POP)(kWorldStack);
+    Gx::PopTransform(kWorldStack);
 }
 
 } // namespace
 
 void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
-    using GetClear_t = uint32_t *(__fastcall *)(uint32_t *out);
-    using SetClear_t = void(__stdcall *)(uint32_t argb);
-    using Clear_t = void(__fastcall *)(uint32_t mask);
     const PortalSky walked = WalkFromCamera(b, eye);
     const bool dry = b.cameraLiquid == Offsets::LIQUID_DRY;
     const uint32_t colour = !walked.weather ? DrawnFog(b, frame).color : dry ? 0u : ZoneFog(b, frame).color;
-    uint32_t saved = 0;
-    reinterpret_cast<GetClear_t>(Offsets::FUN_GX_GET_CLEAR_COLOR)(&saved);
-    reinterpret_cast<SetClear_t>(Offsets::FUN_GX_SET_CLEAR_COLOR)(colour);
-    reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR)(3);
-    reinterpret_cast<SetClear_t>(Offsets::FUN_GX_SET_CLEAR_COLOR)(saved);
+    const uint32_t saved = Gx::GetClearColor();
+    Gx::SetClearColor(colour);
+    Gx::Clear(3);
+    Gx::SetClearColor(saved);
     if (walked.weather && dry)
         DrawSkyPass(b, eye, CameraView(frame).forward, walked.skybox);
 }

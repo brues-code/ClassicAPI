@@ -632,12 +632,11 @@ void UpdateCountdown(void *frame) {
 
 // ---- the overrides ------------------------------------------------------------
 
-using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
-using OnFrameUpdate_t = void(__fastcall *)(void *self, void *edx, float elapsedSec);
-using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int layer);
+using Frame::Subclass::EmitLayer_t;
+using Frame::Subclass::LoadXML_t;
+using Frame::Subclass::OnFrameUpdate_t;
+using Frame::Subclass::SetFrameAlpha_t;
 using OnFrameSizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
-using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node,
-                                          void *status);
 const Frame::ExtraScripts::Script g_onCooldownDone{"oncooldowndone", g_class.TypeIdVar()};
 
 // From the update walk, where the engine runs OnUpdate.
@@ -756,10 +755,9 @@ void LoadModernTemplate(void *layout) {
 // A texture element's <Color> child into `color`, read as CSimpleTexture::
 // LoadXML reads one (it passes its load status too); false when it has none.
 bool XmlTextureColor(const void *node, void *status, uint32_t &color) {
-    using ReadColor_t = int(__fastcall *)(const void *node, uint32_t *bgra, void *status);
     for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
         if (Xml::TagIs(c, "Color")) {
-            reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(c, &color, status);
+            Xml::ReadColor(c, color, status);
             return true;
         }
     }

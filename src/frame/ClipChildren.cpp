@@ -66,6 +66,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "frame/AlphaGradient.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
@@ -89,7 +90,6 @@ using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, 
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
 using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
-using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 
 // A hit rect: {bottom, left, top, right}.
 enum { BOTTOM, LEFT, TOP, RIGHT };
@@ -217,11 +217,9 @@ bool ClipRect(const void *root, float rect[4]) {
 void DrawInside(float rect[4], Callback_t draw, void *arg) {
     const Gx::SavedTransforms saved;
     const Gx::Viewport &vp = saved.SavedViewport();
-
-    const auto toDdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_NDC_TO_DDC);
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
-    toDdc(&minX, &minY, vp.minX, vp.minY);
-    toDdc(&maxX, &maxY, vp.maxX, vp.maxY);
+    Frame::Layout::NdcToDdc(&minX, &minY, vp.minX, vp.minY);
+    Frame::Layout::NdcToDdc(&maxX, &maxY, vp.maxX, vp.maxY);
     if (minX > rect[LEFT])
         rect[LEFT] = minX;
     if (maxX < rect[RIGHT])
@@ -233,9 +231,8 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
 
     const float point[2] = {0, 0};
     reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
-    const auto toNdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_DDC_TO_NDC);
-    toNdc(&rect[LEFT], &rect[BOTTOM], rect[LEFT], rect[BOTTOM]);
-    toNdc(&rect[RIGHT], &rect[TOP], rect[RIGHT], rect[TOP]);
+    Frame::Layout::DdcToNdc(&rect[LEFT], &rect[BOTTOM], rect[LEFT], rect[BOTTOM]);
+    Frame::Layout::DdcToNdc(&rect[RIGHT], &rect[TOP], rect[RIGHT], rect[TOP]);
     if (rect[LEFT] < 0.0f) {
         rect[RIGHT] -= rect[LEFT];
         rect[LEFT] = 0.0f;

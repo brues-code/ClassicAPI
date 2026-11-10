@@ -20,10 +20,11 @@
 // after; SavedTransforms does that for a scope.
 
 #include "Offsets.h"
+#include "gx/Matrix.h"
+
+#include <cstdint>
 
 namespace Gx {
-
-using Matrix = float[16];
 
 inline void GetProjection(Matrix &m) {
     reinterpret_cast<void(__fastcall *)(float *)>(Offsets::FUN_GX_GET_PROJECTION)(m);
@@ -55,6 +56,72 @@ inline void SetViewport(const Viewport &v) {
     reinterpret_cast<Fn>(Offsets::FUN_GX_SET_VIEWPORT)(v.minX, v.maxX, v.minY, v.maxY, v.minZ,
                                                       v.maxZ);
 }
+
+// ---- render states (GXRS_*) -----------------------------------------------------
+// The device journals each state written after a push; the pop puts every one
+// back. The engine brackets each region-layer draw in a pair.
+
+inline void PushStates() { reinterpret_cast<void(__fastcall *)()>(Offsets::FUN_GX_STATE_PUSH)(); }
+inline void PopStates() { reinterpret_cast<void(__fastcall *)()>(Offsets::FUN_GX_STATE_POP)(); }
+
+// The render states written in a scope, put back when it ends.
+class SavedStates {
+  public:
+    SavedStates() { PushStates(); }
+    ~SavedStates() { PopStates(); }
+    SavedStates(const SavedStates &) = delete;
+    SavedStates &operator=(const SavedStates &) = delete;
+};
+
+inline void SetState(int state, int value) {
+    reinterpret_cast<void(__fastcall *)(int, int)>(Offsets::FUN_GX_RS_SET)(state, value);
+}
+// A pointer state: a texture bind.
+inline void SetState(int state, const void *value) {
+    reinterpret_cast<void(__fastcall *)(int, const void *)>(Offsets::FUN_GX_RS_SET_PTR)(state, value);
+}
+// A colour state (fog colour, material).
+inline void SetStateWord(int state, uint32_t value) {
+    reinterpret_cast<void(__fastcall *)(int, int, uint32_t)>(Offsets::FUN_GX_RS_SET_WORD)(state, 0, value);
+}
+inline void SetStateFloat(int state, float value) {
+    reinterpret_cast<void(__fastcall *)(int, int, float)>(Offsets::FUN_GX_RS_SET_FLOAT)(state, 0, value);
+}
+inline int GetState(int state) {
+    int value = 0;
+    reinterpret_cast<void(__fastcall *)(int, int *)>(Offsets::FUN_GX_RS_GET_INT)(state, &value);
+    return value;
+}
+
+// ---- transform stacks -----------------------------------------------------------
+// Each texture unit has a matrix stack, and stack 8 is the world transform.
+
+inline void PushTransform(int unit) {
+    reinterpret_cast<void(__fastcall *)(int)>(Offsets::FUN_GX_TEXMTX_PUSH)(unit);
+}
+inline void PushTransform(int unit, const float *m) {
+    reinterpret_cast<void(__fastcall *)(int, const float *)>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(unit, m);
+}
+inline void PopTransform(int unit) {
+    reinterpret_cast<void(__fastcall *)(int)>(Offsets::FUN_GX_TEXMTX_POP)(unit);
+}
+// Over the top of the unit's stack.
+inline void SetTransform(int unit, const float *m) {
+    reinterpret_cast<void(__fastcall *)(int, const float *)>(Offsets::FUN_GX_TEXMTX_LOAD)(unit, m);
+}
+
+// ---- clear ----------------------------------------------------------------------
+
+inline uint32_t GetClearColor() {
+    uint32_t argb = 0;
+    reinterpret_cast<uint32_t *(__fastcall *)(uint32_t *)>(Offsets::FUN_GX_GET_CLEAR_COLOR)(&argb);
+    return argb;
+}
+inline void SetClearColor(uint32_t argb) {
+    reinterpret_cast<void(__stdcall *)(uint32_t)>(Offsets::FUN_GX_SET_CLEAR_COLOR)(argb);
+}
+// `mask` 1 the colour, 2 the depth.
+inline void Clear(uint32_t mask) { reinterpret_cast<void(__fastcall *)(uint32_t)>(Offsets::FUN_GX_CLEAR)(mask); }
 
 // The projection, view and viewport, put back when the scope ends.
 class SavedTransforms {

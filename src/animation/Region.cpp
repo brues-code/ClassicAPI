@@ -61,6 +61,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "frame/Alpha.h"
 #include "frame/Destruction.h"
 #include "texture/Transform.h"
@@ -115,7 +116,6 @@ using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *b
 using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
 using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
-using NdcToDdc_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 using SizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
 using InvalidateNode_t = void(__fastcall *)(void *node);
 
@@ -216,7 +216,7 @@ bool GetStringPos(void *block, float out[3]) {
     if (node == nullptr)
         return false;
     const float *position = Game::Ptr<const float>(node, Offsets::OFF_TEXT_NODE_POSITION);
-    reinterpret_cast<NdcToDdc_t>(Offsets::FUN_COORD_NDC_TO_DDC)(&out[0], &out[1], position[0], position[1]);
+    Frame::Layout::NdcToDdc(&out[0], &out[1], position[0], position[1]);
     out[2] = position[2];
     return true;
 }

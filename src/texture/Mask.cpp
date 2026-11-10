@@ -58,6 +58,7 @@
 #include "Offsets.h"
 #include "frame/AlphaGradient.h"
 #include "frame/Layout.h"
+#include "gx/Device.h"
 #include "texture/Construct.h"
 #include "texture/Load.h"
 #include "texture/Mask.h"
@@ -104,7 +105,6 @@ std::unordered_map<void *, std::vector<void *>> g_baseMasks;
 // Regions minted by CreateMaskTexture — a mask-source allow-list.
 std::unordered_set<void *> g_maskRegions;
 
-using GetRenderable_t = void *(__fastcall *)(void *hTex, int force, void *);
 
 using Texture::LoadByPath;
 using Texture::ReleaseHandle;
@@ -158,9 +158,6 @@ namespace {
 
 // --- stream-primitive co-hook: apply the mask on unit 1 ----------------------
 
-using GxRsSet_t = void(__fastcall *)(int selector, int value);
-using GxRsSetPtr_t = void(__fastcall *)(int selector, const void *value);
-using GxTexMtxOp_t = void(__fastcall *)(int unit);
 using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *s3,
                                          int s3Stride, const void *colors, int colorStride,
                                          int drop8, int drop9, const void *uv0, int uv0Stride,
@@ -227,7 +224,6 @@ bool BuildMaskMatrix(const float mr[4], float midY, bool rotated, float angle, f
     return true;
 }
 
-using GxTexMtxPushLoad_t = void(__fastcall *)(int unit, const float *m16);
 using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const void *indices);
 using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 
@@ -248,9 +244,9 @@ void RestoreAfterDraw() {
     g_pendingRestore = 0;
     for (int u = 1; u <= 7; ++u)
         if ((bits & (1u << u)) != 0)
-            reinterpret_cast<GxTexMtxOp_t>(Offsets::FUN_GX_TEXMTX_POP)(u);
+            Gx::PopTransform(u);
     if ((bits & 1u) != 0)
-        reinterpret_cast<void(__fastcall *)()>(Offsets::FUN_GX_STATE_POP)();
+        Gx::PopStates();
 }
 
 void __fastcall PrimIndexed_h(int primType, int indexCount, const void *indices) {
@@ -299,8 +295,7 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     // rotation — the exact matrix a mask region covering the base would get.
     // Per-frame residency reference (force=1), exactly like the minimap's mask.
     if (pathMaskH != nullptr) {
-        cgx[units] = reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(
-            pathMaskH, 1, nullptr);
+        cgx[units] = Texture::DeviceTexture(pathMaskH);
         if (cgx[units] == nullptr)
             return false;
         float angle = 0.0f, cxN = 0.5f, cyN = 0.5f;
@@ -318,8 +313,7 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
         void *hTex = Game::Read<void *>(masks[i], Offsets::OFF_SIMPLETEXTURE_HTEXTURE);
         if (hTex == nullptr)
             return false;
-        cgx[units] = reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(
-            hTex, 1, nullptr);
+        cgx[units] = Texture::DeviceTexture(hTex);
         if (cgx[units] == nullptr)
             return false;
         float mr[4];
@@ -337,17 +331,15 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     // never pops something that wasn't pushed.
     if (g_pendingRestore != 0)
         RestoreAfterDraw(); // stale leftover (shouldn't happen) — clear first
-    auto rs = reinterpret_cast<GxRsSet_t>(Offsets::FUN_GX_RS_SET);
-    auto rsPtr = reinterpret_cast<GxRsSetPtr_t>(Offsets::FUN_GX_RS_SET_PTR);
-    reinterpret_cast<void(__fastcall *)()>(Offsets::FUN_GX_STATE_PUSH)();
+    Gx::PushStates();
     g_pendingRestore = 1u;
     for (int i = 0; i < units; ++i) {
         const int unit = first + i;
-        rsPtr(Offsets::GXRS_TEXTURE0 + unit, cgx[i]);
-        rs(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
-        rs(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_OBJECT_POS);
-        rs(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_MATRIX);
-        reinterpret_cast<GxTexMtxPushLoad_t>(Offsets::FUN_GX_TEXMTX_PUSH_LOAD)(unit, mtx[i]);
+        Gx::SetState(Offsets::GXRS_TEXTURE0 + unit, cgx[i]);
+        Gx::SetState(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
+        Gx::SetState(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_OBJECT_POS);
+        Gx::SetState(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_MATRIX);
+        Gx::PushTransform(unit, mtx[i]);
         g_pendingRestore |= 1u << unit;
     }
     g_primStreamsOriginal(count, pos, posStride, s3, s3Stride, colors, colorStride, drop8, drop9,

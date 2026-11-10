@@ -31,6 +31,11 @@
 
 #include "model/SceneMover.h"
 
+#include "Game.h"
+#include "Offsets.h"
+#include "model/ScenePrecision.h"
+
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 
@@ -38,59 +43,55 @@ namespace Model::Scene::Mover {
 
 namespace {
 
-float Bits(uint32_t bits) {
-    float f;
-    std::memcpy(&f, &bits, sizeof f);
-    return f;
-}
+using Game::Live;
+using Precision::Bits;
+using Precision::D;
 
-double D(float x) { return x; }
-
-const float kMsToSec = Bits(0x3A83126F);      // 0.001 (0x00801360), also the 0.001 nudge
-const float kThousand = Bits(0x447A0000);     // 1000.0 (0x008022CC)
-const float kHalf = Bits(0x3F000000);         // 0.5 (0x007FFA24)
-const float kOne = Bits(0x3F800000);          // 1.0 (0x007FF9D8)
-const float kTiny = Bits(0x35800000);         // 2^-20 (0x008026BC)
-const float kParallel = Bits(0x34800000);     // 2^-22 (0x008029D4)
-const float kSkin = Bits(0x3AB60B61);         // 1/720 (0x0080DFEC)
-const float kThirtySixth = Bits(0x3CE38E39);  // 1/36 (0x007FF9D0)
-const float kNinth = Bits(0x3DE38E39);        // 1/9 (0x0080DFF8)
-const float kDownBias = Bits(0x3C23D70A);     // 0.01 (0x008029D0)
-const float kStall = Bits(0x3A03126F);        // 0.0005 (0x0080C698)
-const float kStallReach = Bits(0x3F97E4AD);   // 1.1866661 (0x0080E018)
-const float kTenth = Bits(0x3DCCCCCD);        // 0.1 (0x00801620)
-const float kCos10 = Bits(0x3F7C1C5C);        // cos 10° (0x0080E01C)
-const float kCos50 = Bits(0x3F248DBB);        // cos 50° (0x0080DFFC), the floor limit
-const float kTan50 = Bits(0x3F988B62);        // tan 50° (0x0080E008)
-const float kNegTan50 = Bits(0xBF988B62);     // -tan 50° (0x0080E010)
-const float kSqrt2 = Bits(0x3FB504F3);        // √2 (0x0080E00C)
-const float kRootHalf = Bits(0x3F3504F3);     // √½, the diagonal
-const float kWaist = Bits(0x3FECB91B);        // tan 61.6° (0x0080C740)
-const float kBevelZ = Bits(0xBEF386A4);       // the bevels' normal z (0x0080E014)
-const float kBisect = Bits(0x3F237868);       // the two-bevel normalizer (0x0080E024)
-const float kG = Bits(0x419A542F);            // g (0x0081DA58)
-const float kHalfG = Bits(0x411A542F);        // g/2 (0x0081DA60)
-const float kTwoG = Bits(0x421A542F);         // 2g (0x0081DA64)
-const float kInvG = Bits(0x3D54536A);         // 1/g (0x0080E020)
-const float kNegInvG = Bits(0xBD54536A);      // -1/g (0x0081DA5C)
-const float kTwoOverG = Bits(0x3DD4536A);     // 2/g (0x0081DA68)
-const float kTerminal = Bits(0x4270978E);     // the fall's cap (0x0087D894)
-const float kTerminalSlow = Bits(0x40E00000); // the cap under 0x20000000 (0x0087D898)
-const float kJumpSpeed = Bits(0xC0FE93D8);    // the jump's launch (0x007C626F)
+const Live<float> kMsToSec{Offsets::VAR_ONE_THOUSANDTH};         // also the 0.001 nudge
+const Live<float> kThousand{Offsets::VAR_ONE_THOUSAND};
+const Live<float> kHalf{Offsets::VAR_HALF};
+const Live<float> kOne{Offsets::VAR_ONE};
+const Live<float> kTiny{Offsets::VAR_TWO_POW_MINUS_20};
+const Live<float> kParallel{Offsets::VAR_TWO_POW_MINUS_22};
+const Live<float> kSkin{Offsets::VAR_MOVER_SKIN};                // 1/720
+const Live<float> kThirtySixth{Offsets::VAR_ONE_THIRTY_SIXTH};
+const Live<float> kNinth{Offsets::VAR_MOVER_NINTH};
+const Live<float> kDownBias{Offsets::VAR_ONE_HUNDREDTH};
+const Live<float> kStall{Offsets::VAR_MOVER_STALL};
+const Live<float> kStallReach{Offsets::VAR_MOVER_STALL_REACH};
+const Live<float> kTenth{Offsets::VAR_ONE_TENTH};
+const Live<float> kCos10{Offsets::VAR_MOVER_COS_10};
+const Live<float> kCos50{Offsets::VAR_MOVER_FLOOR_COS};          // the floor limit
+const Live<float> kTan50{Offsets::VAR_MOVER_FLOOR_TAN};
+const Live<float> kNegTan50{Offsets::VAR_MOVER_MINUS_FLOOR_TAN};
+const Live<float> kSqrt2{Offsets::VAR_MOVER_SQRT_2};
+const float kRootHalf = Bits(0x3F3504F3);                        // √½, the diagonal
+const Live<float> kWaist{Offsets::VAR_MOVER_WAIST};              // tan 61.6°
+const Live<float> kBevelZ{Offsets::VAR_MOVER_BEVEL_Z};           // the bevels' normal z
+const Live<float> kBisect{Offsets::VAR_MOVER_BISECT};            // the two-bevel normalizer
+const Live<float> kG{Offsets::VAR_MOVER_GRAVITY};
+const Live<float> kHalfG{Offsets::VAR_MOVER_HALF_GRAVITY};
+const Live<float> kTwoG{Offsets::VAR_MOVER_TWO_GRAVITY};
+const Live<float> kInvG{Offsets::VAR_MOVER_INV_GRAVITY};
+const Live<float> kNegInvG{Offsets::VAR_MOVER_MINUS_INV_GRAVITY};
+const Live<float> kTwoOverG{Offsets::VAR_MOVER_TWO_OVER_GRAVITY};
+const Live<float> kTerminal{Offsets::VAR_MOVER_TERMINAL_SPEED};  // the fall's cap
+const Live<float> kTerminalSlow{Offsets::VAR_MOVER_TERMINAL_SPEED_SLOW}; // the cap under 0x20000000
+const float kJumpSpeed = Bits(0xC0FE93D8);                       // the jump's launch, an immediate (0x007C626F)
 const float kSwimJumpSpeed = Bits(0xC1118C48);
-const float kTwoPi = Bits(0x40C90FDB);        // 0x00CF5D00
-const float kHalfPi = Bits(0x3FC90FDB);       // pi/2 (0x00808ACC), the pitch clamp
-const float kNegHalfPi = Bits(0xBFC90FDB);    // -pi/2 (0x0080C5E4)
-const float kThreeQuarters = Bits(0x3F400000); // 0.75 (0x008012CC)
-const float kFltMax = Bits(0x7F7FFFFF);
-const float kNegFltMax = Bits(0xFF7FFFFF);
-const float kSnapSq = Bits(0x41100000);       // 9.0, 3 yards squared (0x0080C5BC)
-const float kWarpSpeedSq = Bits(0x45610000);  // 3600.0, 60 yards a second squared (0x0080C734)
-const float kReachedSq = Bits(0x3A4A4588);    // (1/36)^2, one path point (0x0080C450)
-const float kSixth = Bits(0x3E2AAAAB);        // 1/6, the shortest path (0x00803568)
-const float kFour = Bits(0x40800000);         // the path speed's cap over the run speed (0x0080306C)
-const float kCellCentre = Bits(0x46855555);   // 17066.666 (0x00616BF0)
-const float kCellSpan = Bits(0x47055355);     // 34131.332 (0x0080C738)
+const Live<float> kTwoPi{Offsets::VAR_MOVER_TWO_PI};
+const Live<float> kHalfPi{Offsets::VAR_HALF_PI};                 // the pitch clamp
+const Live<float> kNegHalfPi{Offsets::VAR_MINUS_HALF_PI};
+const Live<float> kThreeQuarters{Offsets::VAR_THREE_QUARTERS};
+constexpr float kFltMax = FLT_MAX;
+constexpr float kNegFltMax = -FLT_MAX;
+const Live<float> kSnapSq{Offsets::VAR_MOVER_SNAP_DISTANCE_SQ};  // 3 yards squared
+const Live<float> kWarpSpeedSq{Offsets::VAR_MOVER_WARP_SPEED_SQ}; // 60 yards a second squared
+const Live<float> kReachedSq{Offsets::VAR_MOVER_PATH_POINT_SQ};  // one path point
+const Live<float> kSixth{Offsets::VAR_ONE_SIXTH};                // the shortest path
+const Live<float> kFour{Offsets::VAR_FOUR};                      // the path speed's cap over the run speed
+const float kCellCentre = Bits(0x46855555);                      // 17066.666, an immediate (0x00616BF0)
+const Live<float> kCellSpan{Offsets::VAR_MOVER_CELL_SPAN};
 const float kDefaultRadius = Bits(0x3EAAAAAB);
 const float kDefaultHeight = Bits(0x4001C71C);
 
@@ -119,9 +120,10 @@ int32_t Round(double x) {
     return static_cast<int32_t>(static_cast<int64_t>(biased));
 }
 
-// DotVector3 (0x00602630).
+// DotVector3, unrounded.
 double Dot(const float (&a)[3], const float (&b)[3]) {
-    return (D(a[2]) * b[2] + D(a[1]) * b[1]) + D(a[0]) * b[0];
+    using Fn = double(__fastcall *)(const float *, const float *);
+    return reinterpret_cast<Fn>(Offsets::FUN_DOT_VECTOR3)(a, b);
 }
 
 using Contact::Facet;
@@ -639,7 +641,9 @@ bool LandsOn(const Body &b, const Facet &f, const float (&move)[3]) {
 
 // ---- walking helpers (0x00635C00 to 0x00636610) ------------------------------------
 
-// SelectBevelContactNormal (0x00636610).
+// SelectBevelContactNormal (0x00636610), transcribed rather than called: with
+// three bevels and no odd one out the client reads an index from a stack slot
+// it never wrote.
 bool BevelDirection(const Plane *faces, uint32_t count, float (&out)[3]) {
     if (count == 0 || count > 4)
         return false;
@@ -756,52 +760,21 @@ bool PlaneNearFoot(const Body &b, const Plane &pl) {
     return false;
 }
 
-// Matrix3Determinant (0x007BE0E0), Matrix3Adjugate (0x007BE1E0),
-// InvertMatrix3 (0x007BE2A0).
-float Determinant(const float (&m)[9]) {
-    return static_cast<float>(D(m[6]) * m[1] * m[5] + D(m[2]) * m[3] * m[7] + D(m[8]) * m[0] * m[4] -
-                              D(m[6]) * m[2] * m[4] - D(m[8]) * m[1] * m[3] - D(m[0]) * m[7] * m[5]);
-}
-
-void Invert(const float (&m)[9], float det, float (&out)[9]) {
-    const float adj[9] = {
-        static_cast<float>(D(m[8]) * m[4] - D(m[5]) * m[7]),    static_cast<float>(-(D(m[1]) * m[8] - D(m[2]) * m[7])),
-        static_cast<float>(D(m[5]) * m[1] - D(m[2]) * m[4]),    static_cast<float>(-(D(m[3]) * m[8] - D(m[5]) * m[6])),
-        static_cast<float>(D(m[8]) * m[0] - D(m[2]) * m[6]),    static_cast<float>(-(D(m[5]) * m[0] - D(m[2]) * m[3])),
-        static_cast<float>(D(m[7]) * m[3] - D(m[6]) * m[4]),    static_cast<float>(-(D(m[7]) * m[0] - D(m[1]) * m[6])),
-        static_cast<float>(D(m[0]) * m[4] - D(m[1]) * m[3])};
-    const float inverse = static_cast<float>(1.0 / det);
-    for (int i = 0; i < 9; ++i)
-        out[i] = static_cast<float>(D(inverse) * adj[i]);
-}
-
-// IntersectThreePlanes (0x00634FC0).
+// IntersectThreePlanes: the point the three planes share.
 void ThreePlanes(const Plane &a, const Plane &b, const Plane &c, float (&out)[3]) {
-    const float m[9] = {a.n[0], a.n[1], a.n[2], b.n[0], b.n[1], b.n[2], c.n[0], c.n[1], c.n[2]};
-    const float v[3] = {-a.d, -b.d, -c.d};
-    float inv[9];
-    Invert(m, Determinant(m), inv);
-    for (int r = 0; r < 3; ++r)
-        out[r] = static_cast<float>((D(inv[r * 3 + 2]) * v[2] + D(inv[r * 3 + 1]) * v[1]) + D(inv[r * 3]) * v[0]);
+    using Fn = float *(__fastcall *)(float *, const Plane *, const Plane *, const Plane *);
+    reinterpret_cast<Fn>(Offsets::FUN_INTERSECT_THREE_PLANES)(out, &a, &b, &c);
 }
 
-// PointToLineDistanceSquared (0x00634F40).
+// PointToLineDistanceSquared: from p to the line through q along the unit
+// `dir`.
 double LineDistance2(const float (&p)[3], const float (&q)[3], const float (&dir)[3]) {
-    const double v[3] = {D(p[0]) - q[0], D(p[1]) - q[1], D(p[2]) - q[2]};
-    const double proj = (v[2] * dir[2] + v[1] * dir[1]) + v[0] * dir[0];
-    const double px = proj * dir[0];
-    const float py = static_cast<float>(proj * dir[1]);
-    const float pz = static_cast<float>(proj * dir[2]);
-    const double cx = px + q[0];
-    const double cy = D(py) + q[1];
-    const float cz = static_cast<float>(D(pz) + q[2]);
-    const float ex = static_cast<float>(D(p[0]) - cx);
-    const double ey = D(p[1]) - cy;
-    const double ez = D(p[2]) - cz;
-    return (ez * ez + ey * ey) + D(ex) * ex;
+    using Fn = double(__fastcall *)(const float *, const float *, const float *);
+    return reinterpret_cast<Fn>(Offsets::FUN_POINT_TO_LINE_DISTANCE_SQ)(p, q, dir);
 }
 
-// FindNearestTriangleEdge (0x00634DA0).
+// FindNearestTriangleEdge (0x00634DA0), which the client runs on its own
+// facet list (0x00C4E534): transcribed for the body's list.
 void NearestEdge(const Facet &f, const float (&point)[3], const float (&crease)[3], float (&out)[3]) {
     float best = kFltMax;
     out[0] = out[1] = out[2] = 0.0f;

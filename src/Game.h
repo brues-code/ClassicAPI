@@ -58,6 +58,18 @@ inline T &Ref(uintptr_t address) {
     return *reinterpret_cast<T *>(address);
 }
 
+// An engine constant at a fixed VA, read each time it is used, so the value is
+// the one the engine's own code reads: a runtime patch shows, and so does a
+// global the engine's static initializers fill after this DLL loads. Converts
+// to T, so it stands in a float expression as a float would.
+//
+//   const Game::Live<float> kSkin{Offsets::VAR_MOVER_SKIN};
+template <typename T>
+struct Live {
+    uintptr_t address;
+    operator T() const { return Read<T>(address); }
+};
+
 // Calls `fn(object)` for each object of one of a frame's intrusive lists,
 // OFF_FRAME_REGION_LIST or OFF_FRAME_CHILD_LIST: node+4 next, node+8 object,
 // a NULL or low-bit-1 link ends it - the walk the engine's own frame code

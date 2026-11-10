@@ -118,6 +118,13 @@ using GetScriptMethod_t = int(__fastcall *)(void *self, void *edx, void *L, cons
 using IsA_t = bool(__fastcall *)(void *self, void *edx, int typeId);
 using IsObjectType_t = bool(__fastcall *)(void *self, void *edx, const char *name);
 
+// The slots a class overrides for itself, for their base calls.
+using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
+using OnFrameUpdate_t = void(__fastcall *)(void *self, void *edx, float elapsedSec);
+using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int layer);
+// The layout vtable's node loader (Offsets::VTBL_XML_NODE_LOADER).
+using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node, void *status);
+
 // Our part released, then the engine class's deleting destructor.
 template <auto &C>
 void *__fastcall DeletingDestructor(void *self, void *, uint32_t flags) {

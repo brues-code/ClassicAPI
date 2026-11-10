@@ -166,6 +166,7 @@
 #include "api/Documentation.h"
 #include "dbc/Lookup.h"
 #include "guid/Guid.h"
+#include "gx/Matrix.h"
 #include "item/Data.h"
 #include "item/Record.h"
 #include "model/DisplayInfo.h"
@@ -622,14 +623,6 @@ void Actor::ClearModel() {
     RunScript(S_ONMODELCLEARED, 0);
 }
 
-namespace {
-
-bool IsDeathAnimation(int anim) {
-    return reinterpret_cast<int(__stdcall *)(int)>(Offsets::FUN_IS_DEATH_ANIMATION)(anim) != 0;
-}
-
-} // namespace
-
 // An actor whose own animation is a death animation is dead to its spells, as
 // a unit without health is to its PlayAnimation (0x005FE2F0): a kit's
 // animation (a cast, an impact, a wound) does not play over the death, and a
@@ -637,7 +630,7 @@ bool IsDeathAnimation(int anim) {
 void Actor::PlayAnimation() {
     if (model == nullptr)
         return;
-    if (kitAnimation >= 0 && IsDeathAnimation(static_cast<int>(animation)) && !IsDeathAnimation(kitAnimation)) {
+    if (kitAnimation >= 0 && M2::IsDeathAnimation(static_cast<int>(animation)) && !M2::IsDeathAnimation(kitAnimation)) {
         kitAnimation = -1;
         kitAnimationLoops = false;
         kitLoopAnimation = -1;
@@ -737,12 +730,12 @@ void Advance(Actor &actor) {
 // units' update, so the body pass reads the one the last frame set. The
 // pass's shuffle (11, 12) is Locomotion::OnBodyTurn's, given the turn it made.
 
-constexpr float kPi = 3.14159274f;            // 0x008030B0
-constexpr double kTwoPi = 6.2831854820251465; // 0x00803090, a double
-constexpr float kHalfPi = 1.57079637f;        // 0x00808ACC
-constexpr float kQuarterPi = 0.785398185f;    // 0x0080C4E4
-constexpr float kFacingEpsilon = 1e-5f;       // 0x0080C5C8
-constexpr float kMsToSec = 0.001f;            // 0x00801360
+const Game::Live<float> kPi{Offsets::VAR_WRAP_PI};
+const Game::Live<double> kTwoPi{Offsets::VAR_WRAP_TWO_PI};
+const Game::Live<float> kHalfPi{Offsets::VAR_HALF_PI};
+const Game::Live<float> kQuarterPi{Offsets::VAR_QUARTER_PI};
+const Game::Live<float> kFacingEpsilon{Offsets::VAR_MOVER_FACING_EPSILON};
+const Game::Live<float> kMsToSec{Offsets::VAR_ONE_THOUSANDTH};
 constexpr uint32_t kTurning = 0x1, kTwistLow = 0x80, kTwistHigh = 0x100;
 
 // WrapAngleToPi (0x006084F0).
@@ -1023,22 +1016,16 @@ void Actor::Place() {
     Casts::Place(*this);
     if (model == nullptr)
         return;
-    using SetTRS_t = void(__thiscall *)(void *model, const float *pos, float angle,
-                                        const float *axis, const float *scale);
-    using Rotate_t = void(__thiscall *)(float *m, float angle, const float *axis, int);
-    using Translate_t = void(__thiscall *)(float *m, const float *t);
     const float axisX[3] = {1.0f, 0.0f, 0.0f};
     const float axisY[3] = {0.0f, 1.0f, 0.0f};
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {scale, scale, scale};
-    reinterpret_cast<SetTRS_t>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(model, position, ShownYaw(), axisZ,
-                                                                  scales);
-    float *matrix = Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX);
-    auto rotate = reinterpret_cast<Rotate_t>(Offsets::FUN_MATRIX_ROTATE);
+    M2::SetBaseTRS(model, position, ShownYaw(), axisZ, scales);
+    float *matrix = M2::BaseMatrix(model);
     if (pitch != 0.0f)
-        rotate(matrix, pitch, axisY, 1);
+        Gx::Rotate(matrix, pitch, axisY);
     if (roll != 0.0f)
-        rotate(matrix, roll, axisX, 1);
+        Gx::Rotate(matrix, roll, axisX);
     if (!loaded || !(useCenterForOrigin[0] || useCenterForOrigin[1] || useCenterForOrigin[2]))
         return;
     float box[6];
@@ -1047,7 +1034,7 @@ void Actor::Place() {
     float offset[3];
     for (int i = 0; i < 3; ++i)
         offset[i] = useCenterForOrigin[i] ? -(box[i] + box[i + 3]) * 0.5f : 0.0f;
-    reinterpret_cast<Translate_t>(Offsets::FUN_MATRIX_TRANSLATE)(matrix, offset);
+    Gx::Translate(matrix, offset);
 }
 
 // ---- the methods ---------------------------------------------------------------

@@ -82,7 +82,6 @@ namespace Tooltip::FrameStack {
 namespace {
 
 using GetName_t = const char *(__thiscall *)(void *object);
-using NDCToDDC_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 using StrataToString_t = const char *(__fastcall *)(int strata);
 using PointToString_t = const char *(__fastcall *)(int point);
 using GetRelative_t = void *(__thiscall *)(void *node);
@@ -243,7 +242,7 @@ int __fastcall Script_GameTooltipSetFrameStack(void *L) {
     const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
     float x = 0.0f;
     float y = 0.0f;
-    reinterpret_cast<NDCToDDC_t>(Offsets::FUN_COORD_NDC_TO_DDC)(&x, &y, mouse[0], mouse[1]);
+    Frame::Layout::NdcToDdc(&x, &y, mouse[0], mouse[1]);
 
     void *frame = Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_FRAME_LIST_HEAD);
     if (frame == nullptr || (reinterpret_cast<uintptr_t>(frame) & 1) != 0)

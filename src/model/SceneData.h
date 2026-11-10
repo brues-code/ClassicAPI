@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "model/Camera.h"
+
 #include <cstdint>
 
 // The UiModelScene rows behind C_ModelInfo. Retail keeps them in four DB2s
@@ -28,9 +30,7 @@
 //     modelSceneType.
 namespace Model::SceneData {
 
-struct Vec3 {
-    float x, y, z;
-};
+using Model::Camera::Vec3;
 
 struct SceneRow {
     uint32_t id;

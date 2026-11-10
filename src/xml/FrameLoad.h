@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 // Shared observer for the engine's frame XML loader FUN_XML_FRAME_LOAD
 // (0x00769820) — `__thiscall(loader, node, status)`, where loader is the
 // object's layout sub-object (object + OFF_XML_LOADER_SUBOBJECT). Every
@@ -42,6 +44,9 @@ const char *Attr(const void *node, const char *name);
 // A number attribute through the engine's SStrToFloat (the frame loader's
 // `alpha` conversion); false, `out` untouched, when absent or empty.
 bool FloatAttr(const void *node, const char *name, float &out);
+// A colour element's r / g / b / a attributes as BGRA (FUN_XML_READ_COLOR),
+// the read CSimpleTexture::LoadXML gives <Color>, with the loader's status.
+void ReadColor(const void *node, uint32_t &bgra, void *status);
 // The template definition node `inherits=` resolves `name` to
 // (FUN_XML_TEMPLATE_LOOKUP); nullptr when no template has that name.
 const void *Template(const char *name);

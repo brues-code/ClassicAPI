@@ -107,6 +107,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "texture/Load.h"
 #include "api/Documentation.h"
 #include "frame/ExtraScripts.h"
 #include "frame/LayerChange.h"
@@ -221,8 +222,6 @@ void InstallCamera(void *frame) {
 
 // ---- the light and fog ---------------------------------------------------------------
 
-using LightInt_t = void(__thiscall *)(void *light, int value);
-using LightVector_t = void(__thiscall *)(void *light, const float *v);
 
 void *LightOf(void *frame) { return Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT); }
 float *AmbientOf(void *frame) { return Game::Ptr<float>(LightOf(frame), Offsets::OFF_M2LIGHT_AMBIENT); }
@@ -230,22 +229,22 @@ float *DiffuseOf(void *frame) { return Game::Ptr<float>(LightOf(frame), Offsets:
 
 void SetLightType(void *frame, uint32_t type) {
     F(frame).lightType = type;
-    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_TYPE)(LightOf(frame), static_cast<int>(type));
+    M2::SetLightType(LightOf(frame), static_cast<int>(type));
 }
 
 void SetLightVisible(void *frame, bool visible) {
     F(frame).lightVisible = visible ? 1 : 0;
-    reinterpret_cast<LightInt_t>(Offsets::FUN_M2LIGHT_SET_ENABLED)(LightOf(frame), visible ? 1 : 0);
+    M2::SetLightEnabled(LightOf(frame), visible);
 }
 
 void SetLightDirection(void *frame, const Vec3 &v) {
     F(frame).lightDirection = v;
-    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_DIRECTION)(LightOf(frame), &v.x);
+    M2::SetLightDirection(LightOf(frame), &v.x);
 }
 
 void SetLightPosition(void *frame, const Vec3 &v) {
     F(frame).lightPosition = v;
-    reinterpret_cast<LightVector_t>(Offsets::FUN_M2LIGHT_SET_POSITION)(LightOf(frame), &v.x);
+    M2::SetLightPosition(LightOf(frame), &v.x);
 }
 
 void SetColor(float *color, const Vec3 &v) {
@@ -377,11 +376,6 @@ void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
 // without depth writes: each model then draws over the shadows, its own
 // included.
 
-using GxRsSet_t = void(__fastcall *)(int selector, int value);
-using GxRsSetPtr_t = void(__fastcall *)(int selector, const void *value);
-using GxRsSetWord_t = void(__fastcall *)(int selector, int, uint32_t value);
-using GxState_t = void(__fastcall *)();
-using GetRenderable_t = void *(__fastcall *)(void *texture, int force, void *);
 using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *normal,
                                          int normalStride, const void *colors, int colorStride,
                                          int unused8, int unused9, const void *uv0, int uv0Stride,
@@ -401,7 +395,7 @@ struct Blob {
 bool MakeBlob(void *model, Blob &blob) {
     float *b = blob.bounds;
     M2::GetSequenceBounds(model, 0, 0, blob.bounds);
-    const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON);
+    const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22);
     if (std::fabs(b[4] - b[1]) < epsilon || std::fabs(b[3] - b[0]) < epsilon)
         return false;
     constexpr float kClamp = static_cast<float>(Offsets::SHADOW_BOUNDS_CLAMP);
@@ -507,31 +501,26 @@ void DrawShadows(void *frame, const float (&eye)[3]) {
     if (!any)
         return;
     World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
-    auto rs = reinterpret_cast<GxRsSet_t>(Offsets::FUN_GX_RS_SET);
-    reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_PUSH)();
-    rs(Offsets::GXRS_BLEND, Offsets::GXRS_BLEND_MODULATE);
-    rs(Offsets::GXRS_LIGHTING, 0);
-    rs(Offsets::GXRS_FOG, 0);
-    rs(Offsets::GXRS_DEPTH_WRITE, 0);
-    reinterpret_cast<GxRsSetPtr_t>(Offsets::FUN_GX_RS_SET_PTR)(
-        Offsets::GXRS_TEXTURE0,
-        reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(texture, 1, nullptr));
-    reinterpret_cast<GxRsSetWord_t>(Offsets::FUN_GX_RS_SET_WORD)(Offsets::GXRS_FOG_COLOR, 0, 0xFFFFFFFFu);
-    rs(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_BLEND_DIFFUSE_ALPHA);
+    Gx::PushStates();
+    Gx::SetState(Offsets::GXRS_BLEND, Offsets::GXRS_BLEND_MODULATE);
+    Gx::SetState(Offsets::GXRS_LIGHTING, 0);
+    Gx::SetState(Offsets::GXRS_FOG, 0);
+    Gx::SetState(Offsets::GXRS_DEPTH_WRITE, 0);
+    Gx::SetState(Offsets::GXRS_TEXTURE0, Texture::DeviceTexture(texture));
+    Gx::SetStateWord(Offsets::GXRS_FOG_COLOR, 0xFFFFFFFFu);
+    Gx::SetState(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_BLEND_DIFFUSE_ALPHA);
     if (world == nullptr)
-        rs(Offsets::GXRS_CULL, 0);
+        Gx::SetState(Offsets::GXRS_CULL, 0);
     else if (Game::Read<float>(Offsets::VAR_SHADOW_BIAS) == 0.0f)
-        rs(Offsets::GXRS_DEPTH_FUNC, Offsets::GXRS_DEPTH_FUNC_DECAL);
+        Gx::SetState(Offsets::GXRS_DEPTH_FUNC, Offsets::GXRS_DEPTH_FUNC_DECAL);
     for (Actor *actor : actors)
         DrawShadow(*actor, world, eye);
-    reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_POP)();
+    Gx::PopStates();
 }
 
 void __fastcall Paint(void *frame) {
     using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
-    using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
     using Clear_t = void(__fastcall *)(uint32_t mask);
-    using Draw_t = void(__thiscall *)(void *scene, uint32_t pass);
 
     // {bottom, left, top, right}
     float rect[4] = {};
@@ -550,12 +539,11 @@ void __fastcall Paint(void *frame) {
         const float point[2] = {rect[1], rect[0]};
         reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
     }
-    auto toNdc = reinterpret_cast<DdcToNdc_t>(Offsets::FUN_COORD_DDC_TO_NDC);
-    toNdc(&rect[1], &rect[0], rect[1], rect[0]);
-    toNdc(&rect[3], &rect[2], rect[3], rect[2]);
+    Frame::Layout::DdcToNdc(&rect[1], &rect[0], rect[1], rect[0]);
+    Frame::Layout::DdcToNdc(&rect[3], &rect[2], rect[3], rect[2]);
     for (float &edge : rect)
         edge = ClampUnit(edge);
-    const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON); // 2^-22
+    const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22); // 2^-22
     if (!(std::fabs(rect[1] - rect[3]) < epsilon) && !(std::fabs(rect[0] - rect[2]) < epsilon)) {
         Gx::SetViewport({rect[1] * vp.maxX, rect[3] * vp.maxX, rect[0] * vp.maxY, rect[2] * vp.maxY,
                          0.0f, 1.0f});
@@ -563,25 +551,24 @@ void __fastcall Paint(void *frame) {
         if (world != nullptr)
             World::ClearAndDrawSky(*world, frame, eye);
         else
-            reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR)(2);
+            Gx::Clear(2);
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
         if (world != nullptr)
             World::Draw(*world, frame, eye);
         DrawShadows(frame, eye);
-        auto draw = reinterpret_cast<Draw_t>(Offsets::FUN_M2SCENE_DRAW);
-        draw(scene, 0);
+        M2::DrawScene(scene, 0);
         // The world's frame draws its liquids before the translucent models
         // over the water and, with the camera in liquid, after them
         // (0x004836D6).
         const bool wet = world != nullptr && World::CameraWet(*world);
         if (wet)
-            draw(scene, 1);
+            M2::DrawScene(scene, 1);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
         if (!wet)
-            draw(scene, 1);
+            M2::DrawScene(scene, 1);
     }
 }
 
@@ -698,18 +685,16 @@ bool Unproject(const Gx::Matrix &m, float x, float y, float depth, float (&out)[
 // {bottom, left, top, right} in NDC clamped to the screen; false when the
 // cursor is outside it or the paint draws nothing.
 bool CursorClip(const float (&rect)[4], float &x, float &y) {
-    using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
     const uint8_t *ctx = Game::Read<const uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
     if (ctx == nullptr)
         return false;
     const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
     float vp[4] = {rect[0], rect[1], rect[2], rect[3]};
-    auto toNdc = reinterpret_cast<DdcToNdc_t>(Offsets::FUN_COORD_DDC_TO_NDC);
-    toNdc(&vp[1], &vp[0], vp[1], vp[0]);
-    toNdc(&vp[3], &vp[2], vp[3], vp[2]);
+    Frame::Layout::DdcToNdc(&vp[1], &vp[0], vp[1], vp[0]);
+    Frame::Layout::DdcToNdc(&vp[3], &vp[2], vp[3], vp[2]);
     for (float &edge : vp)
         edge = ClampUnit(edge);
-    const float epsilon = Game::Read<float>(Offsets::VAR_HAS_RANGE_EPSILON);
+    const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22);
     if (std::fabs(vp[1] - vp[3]) < epsilon || std::fabs(vp[0] - vp[2]) < epsilon)
         return false;
     if (!(mouse[0] >= vp[1] && mouse[0] <= vp[3] && mouse[1] >= vp[0] && mouse[1] <= vp[2]))
@@ -762,9 +747,6 @@ Actor *ActorAtCursor(void *frame) {
 
 // ---- the overrides -----------------------------------------------------------------
 
-using SetFrameAlpha_t = void(__fastcall *)(void *self, void *edx, uint8_t alpha);
-using OnFrameUpdate_t = void(__fastcall *)(void *self, void *edx, float elapsedSec);
-using EmitLayer_t = void(__fastcall *)(void *self, void *edx, void *batch, int layer);
 using Hide_t = int(__fastcall *)(void *self, void *edx);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
@@ -790,6 +772,10 @@ Frame::Subclass::Class<Offsets::VTBL_SIMPLEMODEL_SLOTS, Offsets::VTBL_SIMPLEMODE
             &Destroy};
 
 using Frame::Subclass::FrameBase;
+using Frame::Subclass::EmitLayer_t;
+using Frame::Subclass::LoadXML_t;
+using Frame::Subclass::OnFrameUpdate_t;
+using Frame::Subclass::SetFrameAlpha_t;
 
 // OnActorEnter / OnActorLeave (self, actor): the actor under the cursor
 // changed while the scene is the mouse focus, from the update walk.
@@ -881,12 +867,10 @@ int __fastcall Hide(void *self, void *) {
     return g_class.Base<Hide_t>(Offsets::VTBL_FRAME_HIDE)(self, nullptr);
 }
 
-using LoadXML_t = uintptr_t(__fastcall *)(void *layout, void *edx, const void *node, void *status);
 
 // The frame's own loader, then ModelSceneType's attributes and <FogColor>.
 uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *status) {
     using LayerFromName_t = int(__fastcall *)(const char *name, int *layer);
-    using ReadColor_t = int(__fastcall *)(const void *node, uint32_t *bgra, void *status);
     const uintptr_t result = Frame::Subclass::Slot<LoadXML_t>(
         Offsets::VTBL_SIMPLEFRAME_LAYOUT, Offsets::VTBL_XML_NODE_LOADER)(layout, nullptr, node, status);
     if (node == nullptr)
@@ -901,8 +885,7 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = value < 0.0f ? 0.0f : value;
     for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
         if (Xml::TagIs(c, "FogColor")) {
-            reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(
-                c, Game::Ptr<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
+            Xml::ReadColor(c, Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
             FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
         } else if (Xml::TagIs(c, "ViewInsets")) {
             float *in = F(frame).viewInsets;

@@ -101,6 +101,11 @@ bool FloatAttr(const void *node, const char *name, float &out) {
     return true;
 }
 
+void ReadColor(const void *node, uint32_t &bgra, void *status) {
+    using ReadColor_t = int(__fastcall *)(const void *node, uint32_t *bgra, void *status);
+    reinterpret_cast<ReadColor_t>(Offsets::FUN_XML_READ_COLOR)(node, &bgra, status);
+}
+
 void Warn(void *status, const char *fmt, const char *a, const char *b, const char *c) {
     Report(status, Offsets::XML_STATUS_WARNING, fmt, a, b, c);
 }

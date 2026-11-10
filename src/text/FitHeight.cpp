@@ -47,10 +47,10 @@ namespace {
 // 4.3.4's numLines: the line the fit is trying.
 int g_line = 0;
 
-constexpr uintptr_t addrEpsilon = Offsets::VAR_TEXT_FIT_HEIGHT_EPSILON;
+constexpr uintptr_t addrEpsilon = Offsets::VAR_TWO_POW_MINUS_20;
 static_assert(Offsets::TEXT_FIT_HEIGHT_FRAME_FITTED_BYTES == 8, "LineMarginThunk reads [ebp - 8]");
 
-// Stands in for `fadd dword ptr [VAR_TEXT_FIT_HEIGHT_EPSILON]`, with the
+// Stands in for `fadd dword ptr [VAR_TWO_POW_MINUS_20]`, with the
 // block height in ST0. The bytes fitted so far ([ebp - 8]) are 0 only while
 // the first line is tried.
 __declspec(naked) void LineMarginThunk() {

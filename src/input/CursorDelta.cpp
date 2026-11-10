@@ -27,6 +27,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "tick/FrameTick.h"
 
 namespace Input::CursorDelta {
@@ -44,7 +45,6 @@ bool g_sampled = false;
 
 // What GetCursorPosition pushes now, or false before the UI top exists.
 bool ReadCursor(Position &out) {
-    using NdcToDdc_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
     const void *top = Game::Read<const void *>(Offsets::VAR_UI_CONTEXT_PTR);
     if (top == nullptr)
         return false;
@@ -52,7 +52,7 @@ bool ReadCursor(Position &out) {
     const float ndcY = Game::Read<float>(top, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION + 4);
     float ddcX = 0.0f;
     float ddcY = 0.0f;
-    reinterpret_cast<NdcToDdc_t>(Offsets::FUN_COORD_NDC_TO_DDC)(&ddcX, &ddcY, ndcX, ndcY);
+    Frame::Layout::NdcToDdc(&ddcX, &ddcY, ndcX, ndcY);
     out = {Game::InternalToPixel(ddcX), Game::InternalToPixel(ddcY)};
     return true;
 }

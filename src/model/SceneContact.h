@@ -18,9 +18,11 @@
 // and the first contact of the moving volume with them (0x00631440 through
 // 0x00632F80). Each function is one client function, with its arithmetic in
 // the client's order and precision (53-bit sums, float stores), so a body
-// meets a face where the client's mover would. Nothing here calls the engine:
-// the facets come in through Facets::query, and the client's own mover state
-// (CMovement, the lists at 0x00C4E52C) is never touched.
+// meets a face where the client's mover would. The client's pure geometry
+// helpers (the polygon clips, the plane builder, the ray distance) are called,
+// not copied; the functions that read the client's mover state (CMovement,
+// the lists at 0x00C4E52C) are transcribed over the body's own, which come in
+// through Facets::query.
 
 #include <cstdint>
 #include <vector>

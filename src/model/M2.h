@@ -19,6 +19,7 @@
 #include "Game.h"
 #include "Offsets.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Model::M2 {
@@ -70,13 +71,37 @@ inline void PlayAnimation(void *model, int keyBone, uint32_t id, int variation, 
                                                               offset, speed, blend, primary);
 }
 
+// The key bone's sequence as it plays (FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE).
+struct AnimState {
+    uint32_t id;
+    uint32_t variation;
+    uint32_t position; // ms into the sequence
+    float speed;
+    uint32_t lo;
+    uint32_t hi;
+    uint32_t latch;
+};
+static_assert(sizeof(AnimState) == Offsets::M2_KEY_BONE_ANIM_STATE_SIZE);
+static_assert(offsetof(AnimState, id) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_ID);
+static_assert(offsetof(AnimState, variation) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_VARIATION);
+static_assert(offsetof(AnimState, position) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_POSITION);
+static_assert(offsetof(AnimState, speed) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_SPEED);
+static_assert(offsetof(AnimState, lo) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_LO);
+static_assert(offsetof(AnimState, hi) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_HI);
+static_assert(offsetof(AnimState, latch) == Offsets::OFF_M2_KEY_BONE_ANIM_STATE_LATCH);
+
+// Waits for an unloaded instance.
+inline AnimState GetAnimState(void *model, int keyBone) {
+    using Fn = void(__thiscall *)(void *, int, AnimState *);
+    AnimState state;
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(model, keyBone, &state);
+    return state;
+}
+
 // Where the key bone's animation stands, in ms into its sequence. Waits for
 // an unloaded instance.
 inline int GetAnimPosition(void *model, int keyBone) {
-    using Fn = void(__thiscall *)(void *, int, void *);
-    uint32_t state[Offsets::M2_KEY_BONE_ANIM_STATE_SIZE / 4];
-    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE)(model, keyBone, state);
-    return static_cast<int>(state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_POSITION / 4]);
+    return static_cast<int>(GetAnimState(model, keyBone).position);
 }
 
 // Moves the key bone's animation to `ms` into its sequence, keeping its speed.
@@ -200,16 +225,35 @@ inline void GetBoundingSphere(void *model, float (&sphere)[4]) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BOUNDING_SPHERE)(model, sphere);
 }
 
+// An animation's sequence record (FUN_M2MODEL_GET_SEQUENCE_INFO), all zero
+// when the model has no sequence for it.
+struct SequenceInfo {
+    uint32_t flags;
+    uint32_t length; // ms
+    float speed;     // the move speed times the model's scale
+    float bounds[6]; // {min xyz, max xyz}
+    uint8_t rest[Offsets::M2_SEQUENCE_INFO_SIZE - 0x24];
+};
+static_assert(sizeof(SequenceInfo) == Offsets::M2_SEQUENCE_INFO_SIZE);
+static_assert(offsetof(SequenceInfo, length) == Offsets::OFF_M2_SEQUENCE_INFO_LENGTH);
+static_assert(offsetof(SequenceInfo, speed) == Offsets::OFF_M2_SEQUENCE_INFO_SPEED);
+static_assert(offsetof(SequenceInfo, bounds) == Offsets::OFF_M2_SEQUENCE_INFO_BOUNDS);
+
+// Waits for an unloaded file.
+inline SequenceInfo GetSequenceInfo(void *model, uint32_t animation, uint32_t variation) {
+    using Fn = void(__thiscall *)(void *, uint32_t, uint32_t, SequenceInfo *);
+    SequenceInfo info{};
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_SEQUENCE_INFO)(model, animation, variation, &info);
+    return info;
+}
+
 // The bounds of the animation's sequence, all zero when the model has none.
 // Waits for an unloaded file.
 inline void GetSequenceBounds(void *model, uint32_t animation, uint32_t variation,
                               float (&box)[6]) {
-    using Fn = void(__thiscall *)(void *, uint32_t, uint32_t, void *);
-    uint8_t record[Offsets::M2_SEQUENCE_INFO_SIZE];
-    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_SEQUENCE_INFO)(model, animation, variation,
-                                                                record);
+    const SequenceInfo info = GetSequenceInfo(model, animation, variation);
     for (int i = 0; i < 6; ++i)
-        box[i] = Game::Read<float>(record, Offsets::OFF_M2_SEQUENCE_INFO_BOUNDS + i * 4);
+        box[i] = info.bounds[i];
 }
 
 // The world pick's steps (Offsets::FUN_M2SCENE_RAY_HIT): ray hits on, the
@@ -242,6 +286,23 @@ inline void GetBaseTransform(void *model, float (&m)[16]) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_BASE_TRANSFORM)(model, m);
 }
 
+// CM2Model::SetBaseTransform: the base matrix as given.
+inline void SetBaseTransform(void *model, const float (&m)[16]) {
+    using Fn = void(__thiscall *)(void *, const float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_BASE_TRANSFORM)(model, m);
+}
+
+// CM2Model::SetBaseTransformTRS: identity, translated to `position`, rotated
+// by `angle` about `axis`, then each row scaled.
+inline void SetBaseTRS(void *model, const float (&position)[3], float angle, const float (&axis)[3],
+                       const float (&scale)[3]) {
+    using Fn = void(__thiscall *)(void *, const float *, float, const float *, const float *);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_BASE_TRS)(model, position, angle, axis, scale);
+}
+
+// The base matrix in place, for the engine's matrix calls after SetBaseTRS.
+inline float *BaseMatrix(void *model) { return Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX); }
+
 inline float GetAlpha(void *model) {
     using Fn = float(__thiscall *)(void *);
     return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_ALPHA)(model);
@@ -262,6 +323,12 @@ inline void SetAnimated(void *model, bool animated) {
 inline void AnimateScene(void *scene, const float *cameraPos) {
     using Fn = void(__thiscall *)(void *, const float *);
     reinterpret_cast<Fn>(Offsets::FUN_M2SCENE_ANIMATE)(scene, cameraPos);
+}
+
+// M2SceneDraw: pass 0 the opaque models, 1 the translucent ones.
+inline void DrawScene(void *scene, uint32_t pass) {
+    using Fn = void(__thiscall *)(void *, uint32_t);
+    reinterpret_cast<Fn>(Offsets::FUN_M2SCENE_DRAW)(scene, pass);
 }
 
 inline void AttachItemVisuals(void *model, uint32_t visualID) {
@@ -293,6 +360,44 @@ inline uint16_t LookupIndex(void *model, uintptr_t tableOffset, uint32_t id) {
     using Fn = uint16_t(__fastcall *)(uint32_t, const void *);
     return reinterpret_cast<Fn>(Offsets::FUN_M2_LOOKUP_INDEX)(id, Data(model) + tableOffset);
 }
+
+// ---- a model light (M2LIGHT_SIZE bytes) -----------------------------------------
+
+inline void InitLight(void *light) {
+    reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_M2LIGHT_INITIALIZE)(light);
+}
+// 0 directional, 1 point.
+inline void SetLightType(void *light, int type) {
+    reinterpret_cast<void(__thiscall *)(void *, int)>(Offsets::FUN_M2LIGHT_SET_TYPE)(light, type);
+}
+inline void SetLightEnabled(void *light, bool enabled) {
+    reinterpret_cast<void(__thiscall *)(void *, int)>(Offsets::FUN_M2LIGHT_SET_ENABLED)(light, enabled ? 1 : 0);
+}
+inline void SetLightDirection(void *light, const float *v) {
+    reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHT_SET_DIRECTION)(light, v);
+}
+inline void SetLightPosition(void *light, const float *v) {
+    reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHT_SET_POSITION)(light, v);
+}
+
+// ---- animation classes (Offsets::FUN_IS_*_ANIMATION) -----------------------------
+// The unit's tests of an AnimationData ID. The death test is __stdcall, the
+// others __fastcall.
+
+inline bool IsDeathAnimation(int anim) {
+    return reinterpret_cast<int(__stdcall *)(int)>(Offsets::FUN_IS_DEATH_ANIMATION)(anim) != 0;
+}
+
+namespace Detail {
+inline bool AnimTest(uintptr_t fn, int anim) { return reinterpret_cast<int(__fastcall *)(int)>(fn)(anim) != 0; }
+} // namespace Detail
+
+inline bool IsBowAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_BOW_ANIMATION, anim); }
+inline bool IsRifleAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_RIFLE_ANIMATION, anim); }
+inline bool IsThrownAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_THROWN_ANIMATION, anim); }
+inline bool IsEmoteAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_EMOTE_ANIMATION, anim); }
+inline bool IsSpellCastAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_SPELL_CAST_ANIMATION, anim); }
+inline bool IsMoveAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_MOVE_ANIMATION, anim); }
 
 } // namespace Model::M2
 
