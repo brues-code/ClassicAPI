@@ -1687,6 +1687,9 @@ uint32_t Resolve(Body &b, uint32_t ms, const float (&d)[3]) {
             done = ms;
             break;
         }
+        const uint32_t oldFlags = b.flags;
+        // The loop's own test: a start speed of exactly 0, or NaN, is no jump.
+        const bool jumped = (oldFlags & FLAG_FALLING) && (b.fallSpeed < 0.0f || b.fallSpeed > 0.0f);
         const float savedSpeed = b.speed;
         const float flat[2] = {u[0], u[1]};
         if (b.flags & 0x200800) {
@@ -1695,6 +1698,8 @@ uint32_t Resolve(Body &b, uint32_t ms, const float (&d)[3]) {
         } else {
             done += (b.flags & FLAG_FALLING) ? FallStep(b, rest, dist, flat) : Walk(b, rest, dist, flat);
         }
+        if (b.stepped != nullptr)
+            b.stepped(b.steppedContext, oldFlags, jumped);
         if (!(b.speed == savedSpeed)) {
             RefreshSpeed(b, false);
             break;
@@ -1988,5 +1993,7 @@ float FallSpeed(const Body &body) {
     const float w = static_cast<float>(D(t) * kG + CappedFallSpeed(body));
     return cap < w ? static_cast<float>(cap) : w;
 }
+
+float CurrentSpeed(const Body &body) { return SelectSpeed(body, false); }
 
 } // namespace Model::Scene::Mover

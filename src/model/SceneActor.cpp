@@ -181,6 +181,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 namespace Model::Scene {
 
@@ -711,7 +712,13 @@ void Advance(Actor &actor) {
     float surface = 0.0f;
     const bool inLiquid = world != nullptr && World::LiquidAt(*world, body.position, type, surface);
     const float depth = inLiquid ? static_cast<float>(static_cast<double>(surface) - body.position[2]) : 0.0f;
+    const bool swam = (body.flags & Mover::FLAG_SWIMMING) != 0;
     Mover::UpdateSwimState(body, inLiquid, depth);
+    // The client's swim decision queues EnterSwim or StopSwimming, whose
+    // messages the unit animates.
+    const bool swims = (body.flags & Mover::FLAG_SWIMMING) != 0;
+    if (swims != swam)
+        Locomotion::OnMove(actor, swims ? Locomotion::Move::StartSwim : Locomotion::Move::StopSwim);
 }
 
 // ---- the body's facing (CGUnit_C::Update 0x00607ED0) ---------------------------------
@@ -723,7 +730,7 @@ void Advance(Actor &actor) {
 // mover, whose display facing is the mover's own; the world's camera sets it
 // at the render (MakeViewAngles 0x0050F7A1 calls 0x00600CD0), after the
 // units' update, so the body pass reads the one the last frame set. The
-// shuffle animations the pass would pick standing (11, 12) are the script's.
+// pass's shuffle (11, 12) is Locomotion::OnBodyTurn's, given the turn it made.
 
 constexpr float kPi = 3.14159274f;            // 0x008030B0
 constexpr double kTwoPi = 6.2831854820251465; // 0x00803090, a double
@@ -777,8 +784,10 @@ void MarkTwistBones(Actor &actor) {
     f.bonesOf = actor.model;
 }
 
-// The body pass (0x00608075 to 0x006083E6) for a live unit.
-void TurnBody(Actor &actor) {
+// The body pass (0x00608075 to 0x006083E6) for a live unit; returns the turn
+// it made past the strafe aim and the follow (the function's argument slot,
+// which the tail reads).
+float TurnBody(Actor &actor) {
     using D = double;
     const Mover::Body &b = *actor.mover;
     Actor::Facings &f = actor.facings;
@@ -804,7 +813,7 @@ void TurnBody(Actor &actor) {
     if (absGap < kFacingEpsilon) {
         if (model != nullptr)
             ClearTwist(model);
-        return;
+        return 0.0f;
     }
     // Past a quarter turn the body follows at once; standing still, not
     // turning, it also catches up at eight times the turn rate.
@@ -822,10 +831,10 @@ void TurnBody(Actor &actor) {
     f.body = static_cast<float>(body);
     const double rest = std::fabs(WrapPi(static_cast<float>(D(f.display) - body)));
     if (model == nullptr)
-        return;
+        return turn;
     if (rest < kFacingEpsilon) {
         ClearTwist(model);
-        return;
+        return turn;
     }
     // The twist: the lower bone half the rest, the upper what remains, an
     // eighth of a turn each at most. A rider's lower bone is its mount's.
@@ -844,6 +853,7 @@ void TurnBody(Actor &actor) {
         SetTwist(model, Offsets::M2_KEY_BONE_TWIST_HIGH, Offsets::M2_KEY_BONE_OVERRIDE,
                  std::copysign(static_cast<float>(left), gap));
     }
+    return turn;
 }
 
 // The active mover's display facing (0x00600CD0): the mover's own, and the
@@ -895,7 +905,7 @@ void Actor::Update(float elapsedSec) {
         yaw = mover->facing;
         pitch = Mover::ModelPitch(*mover);
         MarkTwistBones(*this);
-        TurnBody(*this);
+        Locomotion::OnBodyTurn(*this, TurnBody(*this));
         FaceDisplay(*this);
     }
     if (model != nullptr && !loaded) {
@@ -919,6 +929,9 @@ void Actor::Update(float elapsedSec) {
                 if (const uint8_t *kit = Model::VisualKit::Record(kitID))
                     Model::VisualKit::Apply(SceneFrame(), model, kit, oneShot);
             pendingKits.clear();
+            // The pick an unloaded model could not take (PlayAnimation keeps
+            // it pending at +0xD64).
+            Locomotion::Repick(*this);
             RunScript(S_ONMODELLOADED, 0);
         }
     } else {
@@ -950,7 +963,8 @@ void Actor::Update(float elapsedSec) {
             }
             PlayAnimation();
         } else {
-            PlayAnimation();
+            if (!Locomotion::FollowOn(*this))
+                PlayAnimation();
             RunScript(S_ONANIMFINISHED, 0);
         }
     }
@@ -1620,6 +1634,7 @@ void PutDown(Actor &actor) {
     Advance(actor);
     Mover::Reset(*actor.mover, actor.position, actor.yaw);
     Mover::FallGate(*actor.mover);
+    Locomotion::OnMove(actor, Locomotion::Move::TeleportAck);
 }
 
 int __fastcall Script_SetMovementEnabled(void *L) {
@@ -1637,6 +1652,8 @@ int __fastcall Script_SetMovementEnabled(void *L) {
         Mover::Init(*actor->mover, actor->position, actor->yaw, Time::Clock::NowMs());
         actor->mover->facets.query = &World::QueryFacets;
         actor->mover->facets.liquidQuery = &World::QueryLiquidFacets;
+        actor->mover->stepped = &Locomotion::OnStep;
+        actor->mover->steppedContext = actor;
     }
     actor->mover->facets.context = WorldOf(actor->SceneFrame());
     SizeMover(*actor);
@@ -1653,41 +1670,64 @@ int __fastcall Script_IsMovementEnabled(void *L) {
     return 1;
 }
 
+// What a command did: whether the mover took it, and the movement message
+// the client then sends and animates (UpdatePlayerMovement 0x00615C30), if
+// any.
+struct Command {
+    bool took;
+    std::optional<Locomotion::Move> move;
+};
+
 // A movement command at the body's tick, as the client applies a command
 // at its event time. Nothing without the mover.
-template <bool (*Command)(Mover::Body &)>
+template <Command (*Apply)(Mover::Body &)>
 int __fastcall MoverCommand(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || actor->mover == nullptr)
         return 0;
     Advance(*actor);
-    Game::Lua::PushBool(L, Command(*actor->mover));
+    const Command done = Apply(*actor->mover);
+    if (done.move)
+        Locomotion::OnMove(*actor, *done.move);
+    Game::Lua::PushBool(L, done.took);
     return 1;
+}
+
+using Locomotion::Move;
+
+// A command whose message goes only when the mover took it.
+template <bool (*Run)(Mover::Body &), Move M>
+Command Sent(Mover::Body &b) {
+    const bool took = Run(b);
+    return {took, took ? std::optional<Move>(M) : std::nullopt};
 }
 
 bool StartForward(Mover::Body &b) { return Mover::StartMove(b, true); }
 bool StartBackward(Mover::Body &b) { return Mover::StartMove(b, false); }
 bool StartStrafeLeft(Mover::Body &b) { return Mover::StartStrafe(b, true); }
 bool StartStrafeRight(Mover::Body &b) { return Mover::StartStrafe(b, false); }
-bool StartTurnLeft(Mover::Body &b) {
+// The turns' messages go whatever the mover did (cases 8 to 10).
+Command StartTurnLeft(Mover::Body &b) {
     Mover::StartTurn(b, true);
-    return true;
+    return {true, Move::StartTurnLeft};
 }
-bool StartTurnRight(Mover::Body &b) {
+Command StartTurnRight(Mover::Body &b) {
     Mover::StartTurn(b, false);
-    return true;
+    return {true, Move::StartTurnRight};
 }
-// The pitch commands act only while swimming.
-bool StartPitchUp(Mover::Body &b) {
+Command StopTurn(Mover::Body &b) { return {Mover::StopTurn(b), Move::StopTurn}; }
+// The pitch commands act only while swimming, and animate nothing.
+Command StartPitchUp(Mover::Body &b) {
     const bool swimming = (b.flags & Mover::FLAG_SWIMMING) != 0;
     Mover::StartPitch(b, true);
-    return swimming;
+    return {swimming, std::nullopt};
 }
-bool StartPitchDown(Mover::Body &b) {
+Command StartPitchDown(Mover::Body &b) {
     const bool swimming = (b.flags & Mover::FLAG_SWIMMING) != 0;
     Mover::StartPitch(b, false);
-    return swimming;
+    return {swimming, std::nullopt};
 }
+Command StopPitch(Mover::Body &b) { return {Mover::StopPitch(b), std::nullopt}; }
 
 int __fastcall Script_IsSwimming(void *L) {
     Actor *actor = Self(L);
@@ -1996,19 +2036,19 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"IsShadowShown", &Script_IsShadowShown},
     {"SetMovementEnabled", &Script_SetMovementEnabled},
     {"IsMovementEnabled", &Script_IsMovementEnabled},
-    {"StartMovingForward", &MoverCommand<&StartForward>},
-    {"StartMovingBackward", &MoverCommand<&StartBackward>},
-    {"StopMoving", &MoverCommand<&Mover::StopMove>},
-    {"StartStrafingLeft", &MoverCommand<&StartStrafeLeft>},
-    {"StartStrafingRight", &MoverCommand<&StartStrafeRight>},
-    {"StopStrafing", &MoverCommand<&Mover::StopStrafe>},
+    {"StartMovingForward", &MoverCommand<&Sent<&StartForward, Move::StartForward>>},
+    {"StartMovingBackward", &MoverCommand<&Sent<&StartBackward, Move::StartBackward>>},
+    {"StopMoving", &MoverCommand<&Sent<&Mover::StopMove, Move::Stop>>},
+    {"StartStrafingLeft", &MoverCommand<&Sent<&StartStrafeLeft, Move::StartStrafeLeft>>},
+    {"StartStrafingRight", &MoverCommand<&Sent<&StartStrafeRight, Move::StartStrafeRight>>},
+    {"StopStrafing", &MoverCommand<&Sent<&Mover::StopStrafe, Move::StopStrafe>>},
     {"StartTurningLeft", &MoverCommand<&StartTurnLeft>},
     {"StartTurningRight", &MoverCommand<&StartTurnRight>},
-    {"StopTurning", &MoverCommand<&Mover::StopTurn>},
-    {"Jump", &MoverCommand<&Mover::Jump>},
+    {"StopTurning", &MoverCommand<&StopTurn>},
+    {"Jump", &MoverCommand<&Sent<&Mover::Jump, Move::Jump>>},
     {"StartPitchingUp", &MoverCommand<&StartPitchUp>},
     {"StartPitchingDown", &MoverCommand<&StartPitchDown>},
-    {"StopPitching", &MoverCommand<&Mover::StopPitch>},
+    {"StopPitching", &MoverCommand<&StopPitch>},
     {"IsFalling", &Script_IsFalling},
     {"IsSwimming", &Script_IsSwimming},
     {"ClearModel", &Script_ClearModel},
@@ -2341,7 +2381,11 @@ const Game::Doc::Function kSetMovementEnabled{
     "to the floor below it. While it is on, the actor's position, yaw and pitch follow the movement: "
     "the actor tilts up or down only while it swims forward or backward. The model's body turns toward "
     "the side it strafes to; standing, its shoulders and head turn first and the body follows past a "
-    "quarter turn. Without a loaded WMO the actor does not move. Off by default.",
+    "quarter turn. While it is on, the actor also plays a character's movement animations. It walks, "
+    "runs, backs up, shuffles when it turns in place, swims, jumps, falls and lands as a character "
+    "does, and its move animations play at the speed it moves. An animation that you set plays until "
+    "it ends or the movement changes. Then the actor plays its movement animation again. Without a "
+    "loaded WMO the actor does not move. Off by default.",
     kMovementEnabledArg, {}, nullptr, true};
 const Game::Doc::Function kIsMovementEnabled{"Returns whether the actor moves as a character.", {},
                                              kMovementEnabledArg, nullptr, true};
@@ -2432,7 +2476,9 @@ const Game::Doc::Function kIsShown{"Returns whether the actor is set to show.", 
 const Game::Doc::Function kIsVisible{
     "Returns whether the actor is shown and its scene is visible.", {}, kVisibleRet};
 const Game::Doc::Function kSetAnimation{
-    "Plays an animation on the actor, again each time it ends.", kAnimationArgs, {}};
+    "Plays an animation on the actor, again each time it ends. While movement is on "
+    "(SetMovementEnabled), it plays once, and a change in movement can replace it first.",
+    kAnimationArgs, {}};
 const Game::Doc::Function kGetAnimation{"Returns the animation.", {}, kAnimationRet};
 const Game::Doc::Function kGetAnimationVariation{"Returns the animation variation.", {},
                                                  kVariationRet};

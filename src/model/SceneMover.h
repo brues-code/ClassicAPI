@@ -60,6 +60,11 @@ struct Body {
     float stepRatio;       // +0xB8
     uint32_t clock;        // the movement manager's +0x128: the tick moved to
     Contact::Facets facets; // the world query's list (0x00C4E52C)
+    // The unit's side of each substep (BroadcastStateChange 0x0061A820,
+    // from the substep loop at 0x00634260): `oldFlags` the flags before the
+    // substep, `jumped` whether its fall had a start speed. Null for none.
+    void (*stepped)(void *context, uint32_t oldFlags, bool jumped) = nullptr;
+    void *steppedContext = nullptr;
 };
 
 // The client's flag bits (+0x40) a scene body takes.
@@ -116,6 +121,9 @@ void UpdateSwimState(Body &body, bool inLiquid, float depth);
 
 // GetCurrentFallSpeed (0x007C5D70): the vertical speed now, down positive.
 float FallSpeed(const Body &body);
+// GetCurrentSpeed (0x007C4C90, walk 0): the speed the flags pick, 0 with no
+// direction.
+float CurrentSpeed(const Body &body);
 
 // The pitch the client poses a unit's model with (the unit's pose 0x00608560,
 // 0x0060A110): a swimmer moving forward or back is turned by 2π less its

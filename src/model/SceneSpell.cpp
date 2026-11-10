@@ -295,8 +295,8 @@ int KeyBoneAnimId(void *model) {
     return static_cast<int>(state[Offsets::OFF_M2_KEY_BONE_ANIM_STATE_ID / 4]);
 }
 
-// EndRangedPose (0x0060F530): the bow is no longer drawn, the ammo leaves the
-// hand, and the weapon stands again unless it plays its release.
+} // namespace
+
 void EndRangedPose(Actor &actor) {
     actor.bowDrawn = false;
     if (actor.heldAmmo != nullptr && M2::Parent(actor.heldAmmo) != nullptr)
@@ -306,6 +306,8 @@ void EndRangedPose(Actor &actor) {
             M2::PlayAnimation(ranged, -1, Offsets::ANIM_STAND, -1, 0, 1.0f, 1, 1);
     }
 }
+
+namespace {
 
 // PlayBowPull (0x00624CC0): the weapon's BowPull, fitted to end with the
 // body's animation. A unit whose +0xD5C is 4 asks key bone 4 first; an actor

@@ -6487,6 +6487,47 @@ enum Offsets {
     OFF_M2_KEY_BONE_ANIM_STATE_LO = 0x10,
     OFF_M2_KEY_BONE_ANIM_STATE_HI = 0x14,
     OFF_M2_KEY_BONE_ANIM_STATE_LATCH = 0x18,
+    OFF_M2_KEY_BONE_ANIM_STATE_VARIATION = 0x04,
+    // GetSequenceInfo's +0x08 (0x00711A20): the sequence's move speed times
+    // the length of the base matrix's first row, the model's scale.
+    OFF_M2_SEQUENCE_INFO_SPEED = 0x08,
+
+    // A unit's movement animations (benilla objectlayer/unitanim). The pick
+    // SelectBaseAnimation (0x005FD8B0) asks resolvers in order: after death
+    // and the special stand, a fall holds what plays (falling far, or a fall
+    // with a start speed); a mover with a direction bit claims a move
+    // animation (0x005FD100: swim 41 to 45, back 13, 143 from 11 yd/s, 5
+    // above twice the walk speed, else 4); a turn on the spot shuffles
+    // (0x005FD3F0, gate CanShuffle 0x005FCE30); idle is 41 swimming, else 0
+    // (0x005FD830), but nothing while JumpEnd's lock (+0xD58 bit 0x4) holds.
+    // The play (0x005FE2F0) gives a move animation (IsMoveAnimation
+    // 0x005FEE80) the rate GetCurrentSpeed / the sequence's speed, and the
+    // phase of the move animation it replaces; PlayTrack (0x005FDBA0)
+    // returns at once when the track already plays the animation. The
+    // gate's sets IsEmoteAnimation (0x005FCED0), IsSpellCastAnimation
+    // (0x005FCBB0) and IsThrownAnimation (0x005FCF90), and IsMoveAnimation,
+    // are `int __fastcall(int anim)` with a plain ret, as the bow and rifle
+    // tests above.
+    FUN_IS_MOVE_ANIMATION = 0x005FEE80,
+    FUN_IS_EMOTE_ANIMATION = 0x005FCED0,
+    FUN_IS_SPELL_CAST_ANIMATION = 0x005FCBB0,
+    FUN_IS_THROWN_ANIMATION = 0x005FCF90,
+    ANIM_WALK = 4,
+    ANIM_RUN = 5,
+    ANIM_SHUFFLE_LEFT = 11,
+    ANIM_SHUFFLE_RIGHT = 12,
+    ANIM_WALK_BACKWARDS = 13,
+    ANIM_JUMP_START = 37,
+    ANIM_JUMP = 38,
+    ANIM_JUMP_END = 39,
+    ANIM_FALL = 40,
+    ANIM_SWIM_IDLE = 41,
+    ANIM_SWIM = 42,
+    ANIM_SWIM_LEFT = 43,
+    ANIM_SWIM_RIGHT = 44,
+    ANIM_SWIM_BACKWARDS = 45,
+    ANIM_SPRINT = 143,
+    ANIM_JUMP_LAND_RUN = 187,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at

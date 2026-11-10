@@ -198,12 +198,15 @@ class Actor : public Animation::Object {
     // display facing the body turns toward, the body facing the model is
     // drawn at, the time the display last stood still (+0xCB0), and the body
     // pass's bits (+0xD58): 0x1 turning, 0x80 and 0x100 the model's twist
-    // bones, marked for `bonesOf` once it has loaded.
+    // bones, marked for `bonesOf` once it has loaded. `shuffle` is the pass's
+    // 0x800 (1) or 0x1000 (-1): the body caught up turning left or right on
+    // the spot this frame.
     struct Facings {
         float display = 0.0f;
         float body = 0.0f;
         uint32_t stamp = 0;
         uint32_t bits = 0;
+        int shuffle = 0;
         const void *bonesOf = nullptr;
     } facings;
     // The yaw the model is drawn at: the body facing while the mover is on.
@@ -274,6 +277,9 @@ void BowRelease(Actor &caster);
 // The animation a ranged load or hold goes on to when it ends, or -1 for
 // none (the ranged shot cycle).
 int RangedAnimationAfter(const Actor &caster, int ended);
+// EndRangedPose (0x0060F530): the bow is no longer drawn, the ammo leaves the
+// hand, and the weapon stands again unless it plays its release.
+void EndRangedPose(Actor &actor);
 // From the actor's update, after the scene advance: the casts move on.
 void Update(Actor &caster, float elapsedSec);
 // From the actor's Link: the released missiles and the impact models go on
@@ -286,6 +292,45 @@ void Drop(Actor &caster);
 // Stops the missiles' loop sounds (the scene hid; its update stops).
 void Silence(Actor &caster);
 } // namespace Casts
+
+// The unit's movement animations (model/SceneLocomotion.cpp): an actor with
+// the mover on picks and plays them as the client's unit does from its own
+// mover. Each is a no-op for an actor without the mover, without a loaded
+// model, or dead (its own animation a death animation).
+namespace Locomotion {
+// The movement messages a unit animates (AnimateMoveOpcode 0x0060E480), by
+// their 1.12 opcodes.
+enum class Move : uint32_t {
+    StartForward = 0xB5,
+    StartBackward = 0xB6,
+    Stop = 0xB7,
+    StartStrafeLeft = 0xB8,
+    StartStrafeRight = 0xB9,
+    StopStrafe = 0xBA,
+    Jump = 0xBB,
+    StartTurnLeft = 0xBC,
+    StartTurnRight = 0xBD,
+    StopTurn = 0xBE,
+    TeleportAck = 0xC7,
+    StartSwim = 0xCA,
+    StopSwim = 0xCB,
+};
+// A movement message for a command the mover took, or a change the actor
+// made (ProcessLocalMoveEvent 0x0060E0A0 -> AnimateMoveOpcode).
+void OnMove(Actor &actor, Move move);
+// The mover's substep hook (Mover::Body::stepped), context the actor: a
+// landing, a fall or a swim's end.
+void OnStep(void *actor, uint32_t oldFlags, bool jumped);
+// The body pass's shuffle (the tail of CGUnit_C::Update 0x00607ED0), `turn`
+// the turn the body made this frame.
+void OnBodyTurn(Actor &actor, float turn);
+// The actor's own animation ended: plays what follows it
+// (PlayFollowOnAnimation 0x005FC3F0) and returns true; false when the chain
+// does not run, and the caller replays it.
+bool FollowOn(Actor &actor);
+// Picks again (UpdateBaseAnimation 0x005FD9E0).
+void Repick(Actor &actor);
+} // namespace Locomotion
 
 // The actor model's animation events (model/SceneEvents.cpp).
 namespace Events {
