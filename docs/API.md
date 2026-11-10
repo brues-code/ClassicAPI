@@ -19957,7 +19957,7 @@ mount:SetShadowShown(true)
 ### `actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`
 
 Plays the visual of a spell that this actor casts at `target`, and returns
-`true`. `target` is another actor of the same scene. Without a target, the
+a cast ID. `target` is another actor of the same scene. Without a target, the
 spell is cast on this actor. The visual plays in these steps, as it does in
 the world:
 
@@ -19972,6 +19972,16 @@ the world:
    its flight sound. It follows the target if the target moves.
 4. The impact: the target flinches when a missile hits it. Then the impact
    effects, animation and sound play on the target.
+
+When the spell reaches its target, the `OnSpellVisualImpact` script of
+this actor runs with `(self, spellID, target, castID)`. `target` is the
+actor that the spell hit. For a spell cast on itself, `target` is this
+actor. `castID` is the value that `PlaySpellVisual` returned, so you can
+find the cast when several casts are on their way. The script runs when the
+missile arrives. For a spell without a missile, it runs at the cast, during
+the next update of the actor. An interrupted spell does not reach its
+target, so the script does not run for it. Use this script to apply the
+result of the spell at the moment that the impact shows.
 
 You hear the sounds from the camera of the scene (see
 [Scene sounds](#scene-sounds)). The sounds of the caster play at the
@@ -20011,15 +20021,25 @@ slot.
 
 A second call ends a preparation that has not finished. Missiles that are
 in flight go on. A paused actor (`actor:SetPaused`) holds its spells where
-they are. It returns `false` when the spell has no visual, when this actor
+they are. It returns `nil` when the spell has no visual, when this actor
 shows no model, or when the target is in another scene. A ranged spell
 without a visual of its own also needs a ranged weapon. This is a ClassicAPI
-extension.
+extension, and so is `OnSpellVisualImpact`.
 
 ```lua
 mage:PlaySpellVisual(133, dragon) -- Fireball
 priest:PlaySpellVisual(2061)      -- Flash Heal on itself
 hunter:PlaySpellVisual(75, dragon) -- Auto Shot, with the bow and arrows of the actor
+
+local damage = {}
+mage:SetScript("OnSpellVisualImpact", function(self, spellID, target, castID)
+    print("hit for", damage[castID])
+    damage[castID] = nil
+end)
+local castID = mage:PlaySpellVisual(133, dragon)
+if castID then
+    damage[castID] = 40
+end
 ```
 
 ### `actor:StopSpellVisual()`

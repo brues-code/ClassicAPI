@@ -449,8 +449,10 @@ void Aim(SpellCast &cast) {
     cast.destination[2] = target->position[2] + box[5] * target->scale * kAimHeight;
 }
 
-// The wound animation, then the impact kit once.
-void Impact(SpellCast &cast, bool missileHit) {
+// The spell reaches its target: the caster's OnSpellVisualImpact (queued),
+// the wound animation, then the impact kit once.
+void Impact(Actor &caster, SpellCast &cast, bool missileHit) {
+    caster.spellImpacts.push_back({cast.id, cast.spellID, cast.target});
     Actor *target = cast.target;
     if (target == nullptr || target->model == nullptr)
         return;
@@ -597,7 +599,7 @@ void StartCast(Actor &caster, SpellCast &cast) {
         Aim(cast);
         return;
     }
-    Impact(cast, false);
+    Impact(caster, cast, false);
 }
 
 // Moves the cast on; true once it is over.
@@ -640,7 +642,7 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
                 cast.position[i] = cast.destination[i];
             StopMissileSound(cast);
             LeaveImpactModel(caster, cast);
-            Impact(cast, true);
+            Impact(caster, cast, true);
             if (!Stick(cast))
                 ReleaseMissile(cast);
             return true;
@@ -743,21 +745,25 @@ int RangedAnimationAfter(const Actor &caster, int ended) {
     return ended == Offsets::ANIM_LOAD_THROWN ? static_cast<int>(Offsets::ANIM_HOLD_THROWN) : ended;
 }
 
-bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
+uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
     using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
+    static uint32_t s_lastCastID = 0;
     const uint8_t *spell =
         DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, spellID);
     if (spell == nullptr || caster.model == nullptr)
-        return false;
+        return 0;
     uint8_t visual[Offsets::SPELL_VISUAL_SIZE];
     if (!BuildVisual(caster, spell, visual))
-        return false;
+        return 0;
     // A new cast ends the precast of one still preparing.
     Stop(caster);
     if (castTimeMs < 0)
         castTimeMs = reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME)(
             static_cast<int>(spellID), 0, 0);
     SpellCast cast;
+    if (++s_lastCastID == 0) // the IDs start again from 1 after 2^32 casts
+        s_lastCastID = 1;
+    cast.id = s_lastCastID;
     cast.spellID = spellID;
     std::memcpy(cast.visual, visual, sizeof visual);
     ShotAmmo(caster, spell, cast.ammoDisplay, cast.ammoType);
@@ -777,12 +783,13 @@ bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
         added.precastLeftSec = static_cast<float>(castTimeMs) * 0.001f;
         added.precastTinted = HasTintProcedure(precast);
         PlayKit(caster, precast, true, &added.precastEffects);
-        return true;
+        return added.id;
     }
     StartCast(caster, added);
+    const uint32_t id = added.id;
     if (added.missile == nullptr)
         caster.spellCasts.pop_back();
-    return true;
+    return id;
 }
 
 void Update(Actor &caster, float elapsedSec) {

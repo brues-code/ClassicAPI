@@ -53,6 +53,7 @@ struct EntityLight {
 // cast, then the missile in flight.
 struct SpellCast {
     enum class Phase { Precast, Cast, Flight };
+    uint32_t id = 0; // PlaySpellVisual's cast ID
     uint32_t spellID = 0;
     // The visual the caster shows (UnitGetSpellVisual's 64 bytes: the
     // spell's record, a ranged spell's gaps filled from its weapon's).
@@ -75,6 +76,14 @@ struct SpellCast {
     int attachment = -1; // the target attachment the launch settled, or -1
     bool sticks = false; // shot from a bow, crossbow or thrown weapon
     std::unique_ptr<EntityLight> light; // the missile's
+};
+
+// A cast that reached its target this frame, for the caster's
+// OnSpellVisualImpact.
+struct SpellImpact {
+    uint32_t castID = 0;
+    uint32_t spellID = 0;
+    Actor *target = nullptr;
 };
 
 // A missile stuck in its target, until its time is up.
@@ -258,15 +267,20 @@ class Actor : public Animation::Object {
     // user data of a hung bow's string; each update, before the draw.
     alignas(4) uint8_t stringUnit[Offsets::OFF_CGUNIT_STATE_FLAGS + 4] = {};
     std::vector<SpellCast> spellCasts;
+    // The casts that reached their target, in order, until the update runs
+    // OnSpellVisualImpact for them: outside the casts' step, which a script
+    // that casts or stops a spell would change under it.
+    std::vector<SpellImpact> spellImpacts;
     std::vector<ImpactModel> impactModels;
     std::vector<StuckMissile> stuckMissiles; // the missiles stuck in this actor
 };
 
 // The spell visuals an actor casts (model/SceneSpell.cpp).
 namespace Casts {
-// Starts the cast; false when the spell, its visual or the caster's model is
-// missing. `castTimeMs` < 0 takes the spell's cast time.
-bool Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
+// Starts the cast and returns its ID (from 1); 0 when the spell, its visual
+// or the caster's model is missing. `castTimeMs` < 0 takes the spell's cast
+// time.
+uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
 // Interrupts the casts still preparing; casts already made go on.
 void Stop(Actor &caster);
 // The model's $BWP: the bow draws and the ammo is nocked, while a ranged

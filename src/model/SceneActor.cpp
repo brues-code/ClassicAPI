@@ -188,10 +188,13 @@ namespace Model::Scene {
 namespace {
 
 // Script indexes (kScripts order).
+// OnSpellVisualImpact is a ClassicAPI extension (PlaySpellVisual's).
 enum ActorScript { S_ONLOAD, S_ONUPDATE, S_ONMODELCLEARED, S_ONMODELLOADING, S_ONMODELLOADED,
-                   S_ONANIMFINISHED };
+                   S_ONANIMFINISHED, S_ONSPELLVISUALIMPACT };
 const char *const kScripts[] = {"onload",         "onupdate",      "onmodelcleared",
-                                "onmodelloading", "onmodelloaded", "onanimfinished"};
+                                "onmodelloading", "onmodelloaded", "onanimfinished",
+                                "onspellvisualimpact"};
+static_assert(sizeof(kScripts) / sizeof(kScripts[0]) <= Animation::kMaxScripts);
 
 // The engine's done callback, as the character pane's (0x005062A0): a body
 // track that ended (reason 0) is the actor's animation's end; another key
@@ -970,6 +973,22 @@ void Actor::Update(float elapsedSec) {
     }
     WriteStringUnit(*this);
     Casts::Update(*this, elapsedSec);
+    // The casts that reached their target, with (spellID, target, castID).
+    // Taken first: a script may cast again, and its impact waits for the next
+    // update.
+    if (!spellImpacts.empty()) {
+        const std::vector<SpellImpact> impacts = std::move(spellImpacts);
+        spellImpacts.clear();
+        void *L = Game::Lua::State();
+        for (const SpellImpact &impact : impacts) {
+            if (L == nullptr || !HasScript(S_ONSPELLVISUALIMPACT))
+                break;
+            Game::Lua::PushNumber(L, impact.spellID);
+            Animation::Push(L, impact.target);
+            Game::Lua::PushNumber(L, impact.castID);
+            RunScript(S_ONSPELLVISUALIMPACT, 3);
+        }
+    }
     if (HasScript(S_ONUPDATE)) {
         void *L = Game::Lua::State();
         if (L != nullptr) {
@@ -1488,10 +1507,13 @@ int __fastcall Script_PlaySpellVisual(void *L) {
         return 0;
     const int castTimeMs =
         Game::Lua::IsNumber(L, 4) ? static_cast<int>(Game::Lua::ToNumber(L, 4)) : -1;
-    const bool played = (target == nullptr || target->SceneFrame() == caster->SceneFrame()) &&
-                        Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)),
-                                    target, castTimeMs);
-    Game::Lua::PushBool(L, played);
+    const uint32_t castID =
+        target == nullptr || target->SceneFrame() == caster->SceneFrame()
+            ? Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), target, castTimeMs)
+            : 0;
+    if (castID == 0)
+        return 0;
+    Game::Lua::PushNumber(L, castID);
     return 1;
 }
 
@@ -2328,13 +2350,20 @@ const Game::Doc::Field kPlaySpellVisualArgs[] = {
     Opt("castTimeMs", "number", nullptr,
         "How long the spell is prepared. Without it, the cast time of the spell."),
 };
+const Game::Doc::Field kPlaySpellVisualRet[] = {
+    Opt("castID", "number", nullptr,
+        "Identifies this cast in OnSpellVisualImpact. Nil when the spell has no visual or this "
+        "actor shows no model."),
+};
 const Game::Doc::Function kPlaySpellVisual{
     "Plays the visual of a spell cast from this actor at the target: the preparation, the cast, "
     "the missile and the impact, with their animations and sounds, heard from the scene's camera. "
     "A ranged spell such as Auto Shot takes what it lacks from the actor's ranged weapon, and "
-    "shoots the actor's ammo (from TryOn; without it, a plain arrow or bullet). False when the "
-    "spell has no visual or this actor shows no model.",
-    kPlaySpellVisualArgs, kMountSuccessRet, nullptr, true};
+    "shoots the actor's ammo (from TryOn; without it, a plain arrow or bullet). When the spell "
+    "reaches its target, this actor's OnSpellVisualImpact script runs with (spellID, target, "
+    "castID). This occurs when the missile arrives, or at the cast for a spell with no missile. "
+    "An interrupted spell does not reach its target.",
+    kPlaySpellVisualArgs, kPlaySpellVisualRet, nullptr, true};
 const Game::Doc::Function kStopSpellVisual{
     "Interrupts the spells this actor is still preparing from PlaySpellVisual: their preparation "
     "effects and animation stop. A spell already cast goes on, its missile included.",
