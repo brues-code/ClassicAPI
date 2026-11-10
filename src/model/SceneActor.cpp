@@ -179,6 +179,7 @@
 #include "xml/FrameLoad.h"
 #include "xml/Mixin.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -359,12 +360,28 @@ void __fastcall OnModelLighting(void * /*instance*/, void *record, Actor *actor)
     World::ActorLight(WorldOf(frame), *actor->ambience, frame, record);
 }
 
+// The name's draw callback, as the unit's PlayerNameDrawCallback (0x006C7780):
+// the plate update once the model is ready.
+void __fastcall OnNameDraw(void *instance, void * /*lightingRecord*/, Actor *actor) {
+    if (M2::IsReady(instance, 0, 0))
+        actor->DrawName();
+}
+
+// The name's callback on the model while the actor has a name (list0 0, as
+// the unit's at 0x006C7756).
+void InstallName(Actor &actor) {
+    if (actor.model != nullptr)
+        M2::SetDrawCallback(actor.model, actor.nameText.empty() ? nullptr : reinterpret_cast<const void *>(&OnNameDraw),
+                            actor.nameText.empty() ? nullptr : &actor, false);
+}
+
 } // namespace
 
 Actor::Actor(void *scene, const char *name) : Object(s_class, scene, name), ambience(World::NewAmbience()) {}
 
 Actor::~Actor() {
     ReleaseModel(*this);
+    DropNameString();
     World::FreeAmbience(ambience);
 }
 
@@ -381,6 +398,9 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     M2::SetRenderCallback(model, reinterpret_cast<const void *>(&OnModelLighting), this);
     ApplyAlpha();
     ApplyHighlight();
+    // The new model sizes the name again.
+    nameDirty = true;
+    InstallName(*this);
     PlayAnimation();
     RunScript(S_ONMODELLOADING, 0);
 }
@@ -894,6 +914,93 @@ void Actor::ApplyAlpha() {
 // SetLight's colour (0x00614550) while a bit is set, else ClearLight's black
 // (0x006144F0); a new model takes the bits' colour (a unit's copy may carry
 // its own target glow).
+// GetNamePosition (0x00608640): a mounted unit's model is its mount's, which
+// places the name at its PlayerNameMounted attachment; else the model's
+// PlayerName; without the attachment, 1.25 times the scaled box height above
+// the feet. A seated rider (AttachToMount, AttachToActor) is the mounted
+// unit here: its parent's model is the one asked.
+bool Actor::NamePosition(float (&out)[3]) const {
+    if (model == nullptr || !loaded)
+        return false;
+    void *mount = M2::Parent(model);
+    void *body = mount != nullptr ? mount : model;
+    const uint32_t id = mount != nullptr ? static_cast<uint32_t>(Offsets::M2_ATTACHMENT_PLAYER_NAME_MOUNTED)
+                                         : static_cast<uint32_t>(Offsets::M2_ATTACHMENT_PLAYER_NAME);
+    if (M2::HasAttachment(body, id)) {
+        M2::GetAttachmentPosition(body, id, out);
+        return true;
+    }
+    float m[16];
+    M2::GetBaseTransform(body, m);
+    float box[6];
+    M2::GetBoundingBox(body, box);
+    const float scale = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    out[0] = m[12];
+    out[1] = m[13];
+    out[2] = scale * (box[5] - box[2]) * Game::Read<float>(Offsets::VAR_NAME_HEIGHT_FACTOR) + m[14];
+    return true;
+}
+
+void Actor::DropNameString() {
+    // A string of a font the world has destroyed went with it.
+    if (nameString != nullptr && nameFont == Game::Read<void *>(Offsets::VAR_UNIT_NAME_FONT))
+        reinterpret_cast<void(__thiscall *)(void **)>(Offsets::FUN_GXU_FONT_DESTROY_STRING)(&nameString);
+    nameString = nullptr;
+    nameFont = nullptr;
+}
+
+// UpdatePlate's (0x006C6E90) name: the plate scale from the name position's
+// height over the feet, the text made again while dirty, then added to the
+// world's name batch at the name position raised by the block height, and
+// the batch drawn. A custom draw runs under the scene's view with no offset
+// (0x0070D96D), and the paint gives the scene its eye as the origin, so the
+// position goes in absolute, as the world's. The world's name font and batch
+// exist only in the world: at the glue screens nothing draws.
+void Actor::DrawName() {
+    using CreateString_t = int(__fastcall *)(void *font, const char *text, float size, const float *pos,
+                                             float width, float height, float spacing, void **out, int vjust,
+                                             int hjust, uint32_t flags, const uint32_t *colour, float extra);
+    using Expand_t = const char *(__fastcall *)(const char *text);
+    void *font = Game::Read<void *>(Offsets::VAR_UNIT_NAME_FONT);
+    void *batch = Game::Read<void *>(Offsets::VAR_UNIT_NAME_BATCH);
+    if (nameString != nullptr && nameFont != font) {
+        nameString = nullptr;
+        nameDirty = true;
+    }
+    float at[3];
+    if (font == nullptr || batch == nullptr || nameText.empty() || !NamePosition(at))
+        return;
+    float m[16];
+    M2::GetBaseTransform(M2::Parent(model) != nullptr ? M2::Parent(model) : model, m);
+    const float d = at[2] - m[14];
+    const uint32_t scaleBits = Offsets::UNIT_NAME_SCALE;
+    float scale;
+    std::memcpy(&scale, &scaleBits, sizeof scale);
+    const float high = Game::Read<float>(Offsets::VAR_UNIT_NAME_SCALE_HEIGHT);
+    if (d > high)
+        scale = d / high * Game::Read<float>(Offsets::VAR_UNIT_NAME_SCALE_GROWTH) *
+                Game::Read<float>(Offsets::VAR_UNIT_NAME_SCALE_BASE);
+    if (nameString == nullptr || nameDirty) {
+        DropNameString();
+        const auto lines = std::count(nameText.begin(), nameText.end(), '\n');
+        nameBlockHeight = static_cast<float>(lines) * scale;
+        const float origin[3] = {0.0f, 0.0f, 0.0f};
+        const char *text = reinterpret_cast<Expand_t>(Offsets::FUN_EXPAND_GRAMMAR_ESCAPES)(nameText.c_str());
+        reinterpret_cast<CreateString_t>(Offsets::FUN_TEXT_CREATE_STRING)(
+            font, text, scale, origin, 100000.0f, 100000.0f, 0.0f, &nameString, 2, 1,
+            Offsets::UNIT_NAME_STRING_FLAGS, &nameColor, 0.0f);
+        nameFont = font;
+        nameDirty = false;
+    }
+    if (nameString == nullptr)
+        return;
+    reinterpret_cast<int(__fastcall *)(void *, void *)>(Offsets::FUN_GXU_FONT_BATCH_ADD)(batch, nameString);
+    const float placed[3] = {at[0], at[1], at[2] + nameBlockHeight};
+    reinterpret_cast<void(__fastcall *)(void *, const float *)>(Offsets::FUN_GXU_STRING_SET_POSITION)(nameString,
+                                                                                                      placed);
+    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_GXU_FONT_BATCH_DRAW)(batch);
+}
+
 void Actor::ApplyHighlight() {
     if (model == nullptr)
         return;
@@ -1674,6 +1781,76 @@ int __fastcall Script_GetSelectionCircle(void *L) {
     return 4;
 }
 
+void ClearName(Actor &actor) {
+    actor.nameText.clear();
+    actor.DropNameString();
+    InstallName(actor);
+}
+
+// A new text is made at the next draw; a new colour alone goes to the string
+// made, as UpdatePlate's colour refetch does (GxuStringSetColor).
+int __fastcall Script_SetNameText(void *L) {
+    constexpr char kUsage[] = "SetNameText(text [, colorR, colorG, colorB])";
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    // The colour is optional: a nil third argument (UnitName's realm) is none.
+    const bool colored = Game::Lua::IsNumber(L, 3) != 0;
+    if (!Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:%s", actor->DisplayName(), kUsage);
+        return 0;
+    }
+    if (colored && !NumberArgs(L, 3, 3, actor->DisplayName(), kUsage))
+        return 0;
+    const char *text = Game::Lua::ToString(L, 2);
+    if (*text == '\0') {
+        ClearName(*actor);
+        return 0;
+    }
+    uint32_t color = 0xFFFFFFFFu;
+    if (colored)
+        color = 0xFF000000u | ColorByte(static_cast<float>(Game::Lua::ToNumber(L, 3))) << 16 |
+                ColorByte(static_cast<float>(Game::Lua::ToNumber(L, 4))) << 8 |
+                ColorByte(static_cast<float>(Game::Lua::ToNumber(L, 5)));
+    const bool sameText = actor->nameText == text;
+    actor->nameColor = color;
+    if (sameText && actor->nameString != nullptr && !actor->nameDirty) {
+        reinterpret_cast<void(__fastcall *)(void *, const uint32_t *)>(Offsets::FUN_GXU_STRING_SET_COLOR)(
+            actor->nameString, &actor->nameColor);
+        return 0;
+    }
+    actor->nameText = text;
+    actor->nameDirty = true;
+    InstallName(*actor);
+    return 0;
+}
+
+int __fastcall Script_ClearNameText(void *L) {
+    if (Actor *actor = Self(L))
+        ClearName(*actor);
+    return 0;
+}
+
+int __fastcall Script_GetNameText(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || actor->nameText.empty())
+        return 0;
+    Game::Lua::PushString(L, actor->nameText.c_str());
+    for (int shift : {16, 8, 0})
+        Game::Lua::PushNumber(L, ((actor->nameColor >> shift) & 0xFFu) / 255.0);
+    return 4;
+}
+
+int __fastcall Script_GetNamePosition(void *L) {
+    Actor *actor = Self(L);
+    float at[3];
+    if (actor == nullptr || !actor->NamePosition(at))
+        return 0;
+    for (float v : at)
+        Game::Lua::PushNumber(L, v);
+    return 3;
+}
+
 int __fastcall Script_DetachFromActor(void *L) {
     Actor *child = Self(L);
     if (child == nullptr)
@@ -2294,6 +2471,10 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetSelectionCircle", &Script_SetSelectionCircle},
     {"ClearSelectionCircle", &Script_ClearSelectionCircle},
     {"GetSelectionCircle", &Script_GetSelectionCircle},
+    {"SetNameText", &Script_SetNameText},
+    {"ClearNameText", &Script_ClearNameText},
+    {"GetNameText", &Script_GetNameText},
+    {"GetNamePosition", &Script_GetNamePosition},
     {"IsShadowShown", &Script_IsShadowShown},
     {"SetMovementEnabled", &Script_SetMovementEnabled},
     {"IsMovementEnabled", &Script_IsMovementEnabled},
@@ -2670,6 +2851,25 @@ const Game::Doc::Function kClearSelectionCircle{"Hides the selection circle.", {
 const Game::Doc::Function kGetSelectionCircle{
     "Returns the colour of the selection circle. Returns nothing while the actor has none.", {},
     kSelectionCircleColor, nullptr, true};
+const Game::Doc::Field kNameTextArgs[] = {
+    Req("text", "string", "Lines split by new lines. An empty text removes the name."),
+    Opt("colorR", "number", "1"), Opt("colorG", "number", "1"), Opt("colorB", "number", "1"),
+};
+const Game::Doc::Function kSetNameText{
+    "Shows a name over the actor's head, drawn as the world draws a unit's name: the same font, at the "
+    "head of the model, larger for a tall model.",
+    kNameTextArgs, {}, nullptr, true};
+const Game::Doc::Function kClearNameText{"Removes the name.", {}, {}, nullptr, true};
+const Game::Doc::Field kNameTextRet[] = {
+    Req("text", "string"), Req("colorR", "number"), Req("colorG", "number"), Req("colorB", "number"),
+};
+const Game::Doc::Function kGetNameText{"Returns the name and its colour. Returns nothing while the actor has none.",
+                                       {}, kNameTextRet, nullptr, true};
+const Game::Doc::Field kNamePositionRet[] = {Req("x", "number"), Req("y", "number"), Req("z", "number")};
+const Game::Doc::Function kGetNamePosition{
+    "Returns the point over the head where a unit's name sits, in scene coordinates: the model's name "
+    "attachment, or a mount's for a seated rider. Returns nothing until the model has loaded.",
+    {}, kNamePositionRet, nullptr, true};
 const Game::Doc::Field kMovementEnabledArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetMovementEnabled{
     "Sets whether the actor moves as a character moves in the world: it walks and runs over the scene's "
@@ -2865,6 +3065,10 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetSelectionCircle", &kSetSelectionCircle},
     {"ClearSelectionCircle", &kClearSelectionCircle},
     {"GetSelectionCircle", &kGetSelectionCircle},
+    {"SetNameText", &kSetNameText},
+    {"ClearNameText", &kClearNameText},
+    {"GetNameText", &kGetNameText},
+    {"GetNamePosition", &kGetNamePosition},
     {"IsShadowShown", &kIsShadowShown},
     {"SetMovementEnabled", &kSetMovementEnabled},
     {"IsMovementEnabled", &kIsMovementEnabled},

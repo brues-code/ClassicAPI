@@ -2074,6 +2074,47 @@ enum Offsets {
     // yard), both floats.
     VAR_NAME_HEIGHT_FACTOR = 0x0080C5D0,
     VAR_NAMEPLATE_LIFT = 0x0080ABFC,
+    // GetNamePosition's attachments (0x00608640): PlayerName on the unit's
+    // model, PlayerNameMounted when the unit is mounted (its model is then
+    // the mount's).
+    M2_ATTACHMENT_PLAYER_NAME = 18,
+    M2_ATTACHMENT_PLAYER_NAME_MOUNTED = 29,
+    // The world's overhead unit names (PLAYERNAMEDESC::UpdatePlate
+    // 0x006C6E90, Ghidra), drawn from the unit model's draw callback
+    // (0x006C7780, installed with SetDrawCallback, list0 0). The plate scale:
+    // with d = the name position's z less the feet's, UNIT_NAME_SCALE (0.2,
+    // an immediate at 0x006C6F16) for d <= VAR_UNIT_NAME_SCALE_HEIGHT (4.0)
+    // or NaN, else d / 4.0 * VAR_UNIT_NAME_SCALE_GROWTH (1.5) *
+    // VAR_UNIT_NAME_SCALE_BASE (0.2), an f32 store (0x006C6F1D..0x006C6F3C).
+    // The text is made (0x006C703F..0x006C704C) by GxuFontCreateString
+    // (FUN_TEXT_CREATE_STRING) on VAR_UNIT_NAME_FONT with the expanded text
+    // (FUN_EXPAND_GRAMMAR_ESCAPES), size = the scale, position 0, a 100000 by
+    // 100000 box, spacing 0, vertical justification 2, horizontal 1, flags
+    // UNIT_NAME_STRING_FLAGS, the colour, extra 0; the block height is the
+    // extra line count times the scale. Each draw adds the string to
+    // VAR_UNIT_NAME_BATCH (world space, emptied after drawing), places it at
+    // the name position raised by the block height and draws the batch.
+    // UNIT_NAME_FONT at size 0.99, flags 4, and the batch are made at world
+    // entry (0x006C7470) and destroyed by PlayerNameShutdown (0x006C7630) in
+    // ClientDestroyGame (0x0040202F), before the game UI shuts down.
+    UNIT_NAME_SCALE = 0x3E4CCCCD,
+    VAR_UNIT_NAME_SCALE_HEIGHT = 0x008112A8,
+    VAR_UNIT_NAME_SCALE_GROWTH = 0x008112AC,
+    VAR_UNIT_NAME_SCALE_BASE = 0x0080679C,
+    UNIT_NAME_STRING_FLAGS = 0xC8,
+    VAR_UNIT_NAME_FONT = 0x00CE8738,
+    VAR_UNIT_NAME_BATCH = 0x00CE8734,
+    // The font string calls UpdatePlate makes. GxuFontDestroyString
+    // `__thiscall(void **string)` destroys and clears the handle;
+    // GxuFontBatchAdd `int __fastcall(batch, string)`; GxuFontBatchDraw
+    // `__thiscall(batch)`; GxuStringSetColor `__fastcall(string, const
+    // uint32_t *argb)`; GxuStringSetPosition `__fastcall(string, const float
+    // pos[3])`.
+    FUN_GXU_FONT_DESTROY_STRING = 0x005C1D00,
+    FUN_GXU_FONT_BATCH_ADD = 0x005C1E60,
+    FUN_GXU_FONT_BATCH_DRAW = 0x005C1EF0,
+    FUN_GXU_STRING_SET_COLOR = 0x005C2750,
+    FUN_GXU_STRING_SET_POSITION = 0x005C2770,
     // CGObject scale (+0x90, float, 1.0 at construction) and box height
     // (+0xBC, float, max.z - min.z of the model box) — GetNamePosition's
     // no-attachment inputs (benilla-re objectbase / unitnames).

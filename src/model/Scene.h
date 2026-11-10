@@ -169,6 +169,24 @@ class Actor : public Animation::Object {
     uint32_t selectionCircle = 0;
     // The model's emissive colour for the highlight bits.
     void ApplyHighlight();
+    // SetNameText: the name over the head, drawn as the world draws a unit's
+    // (UpdatePlate 0x006C6E90) from the model's draw callback. Its text and
+    // ARGB colour; the font string, made at the next draw while nameDirty,
+    // with the font that made it (the world's name font, destroyed at
+    // logout before the actors); and the block height, the extra lines times
+    // the plate scale at that draw.
+    std::string nameText;
+    uint32_t nameColor = 0xFFFFFFFFu;
+    void *nameString = nullptr;
+    const void *nameFont = nullptr;
+    bool nameDirty = false;
+    float nameBlockHeight = 0.0f;
+    // GetNamePosition (0x00608640) for the model, in scene coordinates;
+    // false without a loaded model.
+    bool NamePosition(float (&out)[3]) const;
+    // From the model's draw callback: UpdatePlate's name half.
+    void DrawName();
+    void DropNameString();
     World::Ambience *ambience;        // its light in the scene's WMO (owned)
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.

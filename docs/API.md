@@ -898,6 +898,8 @@ build instructions.
   - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
   - [`actor:SetHighlight(kind, highlighted)` / `actor:IsHighlighted([kind])`](#actorsethighlightkind-highlighted--actorishighlightedkind)
   - [`actor:SetSelectionCircle(r, g, b [, a])` / `actor:ClearSelectionCircle()` / `actor:GetSelectionCircle()`](#actorsetselectioncircler-g-b--a--actorclearselectioncircle--actorgetselectioncircle)
+  - [`actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`](#actorsetnametexttext--r-g-b--actorclearnametext--actorgetnametext)
+  - [`actor:GetNamePosition()`](#actorgetnameposition)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
   - [`actor:StopSpellVisual()`](#actorstopspellvisual)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
@@ -20301,6 +20303,73 @@ end)
 
 ```lua
 mount:SetShadowShown(true)
+```
+
+### `actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`
+
+Shows a name over the head of the actor. It looks the same as the name of a
+unit in the world: the same font, at the same point over the head. The
+colour values are from 0 to 1, and the colour is white by default. An actor
+has no name by default.
+
+- The name sits at the point that
+  [`actor:GetNamePosition`](#actorgetnameposition) returns, and turns to
+  face the camera.
+- The name is larger over a tall model, as in the world.
+- A new line (`\n`) in the text starts a second line, as the guild line of
+  a player. The name moves up for each line that you add.
+- The name shows and hides with the model.
+- An empty text removes the name, as `ClearNameText` does.
+- A call with the same text and a new colour changes only the colour.
+- The names show only in the world. At the login and character screens the
+  actors show no name.
+
+`GetNameText` returns `text, r, g, b`, or nothing when the actor has no
+name. This is a ClassicAPI extension.
+
+```lua
+local onyxia = scene:AcquireActor()
+onyxia:SetModelByCreatureDisplayID(8570)
+onyxia:SetNameText("Onyxia", 1, 0, 0)
+
+local player = scene:AcquireActor()
+player:SetModelByUnit("player")
+player:SetNameText(UnitName("player"))
+```
+
+### `actor:GetNamePosition()`
+
+Returns the point over the head of the actor where a unit's name sits, in
+scene coordinates: `x, y, z`. The world uses the same rules:
+
+- The name point of the model, when the model has one.
+- For a rider on a mount (`AttachToMount`), the rider name point of the
+  mount.
+- Else, a point over the feet that is 1.25 times the height of the model.
+
+The point moves with the animation of the model. The function returns
+nothing until the model has loaded. This is a ClassicAPI extension.
+
+To put a frame over the head, for example a health bar, give the point to
+[`scene:Project3DPointTo2D`](#sceneproject3dpointto2dx-y-z). Its
+result is in the frame's units multiplied by its effective scale, so divide
+it by the scale first.
+
+```lua
+-- A health bar follows the actor's head. The scene runs the script, so
+-- the bar can hide itself.
+scene:HookScript("OnUpdate", function()
+    local x, y, z = actor:GetNamePosition()
+    if not x then
+        bar:Hide()
+        return
+    end
+    local sx, sy = scene:Project3DPointTo2D(x, y, z)
+    local scale = scene:GetEffectiveScale()
+    bar:ClearAllPoints()
+    bar:SetPoint("BOTTOM", scene, "BOTTOMLEFT", sx / scale, sy / scale + 12)
+    bar:Show()
+end)
 ```
 
 ### `actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`
