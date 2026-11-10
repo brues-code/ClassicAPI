@@ -2178,10 +2178,9 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
 // From inside, the world draws the sky only when its portal walk from the
 // camera's groups reaches an exterior group (WalkPortals 0x006B41C0); a walk
 // that meets a group flagged for a skybox puts the WMO's own skybox (MOSB)
-// into slot 0 at the camera's WMO fog weight. The scene runs the same walks.
-// The world also walks its WMOs again through the windows a walk from inside
-// records, which can only name a skybox the first walk did not meet; the
-// scene does not. The sun and moon glares (0x006D48C0) are not drawn.
+// into slot 0 at the camera's WMO fog weight. The scene runs the same walks,
+// with the second walk from the exterior groups the first walk's windows
+// show. The sun and moon glares (0x006D48C0) are not drawn.
 
 namespace {
 
@@ -2292,12 +2291,17 @@ struct PortalSky {
 };
 
 // The world's walks for the one WMO, from the scene's camera, in the
-// device's view: from inside, the interior seed's walk (0x006B3B20) from the
-// claimed groups; from outside, where the weather byte is set anyway, the
+// device's view: from inside, the interior seed's (0x006B3B20) walk from the
+// claimed groups, then its walk from the exterior groups each recorded
+// window shows; from outside, where the weather byte is set anyway, the
 // exterior seed's (0x006B3DD0) from each exterior group in view, which can
 // still name a skybox. The engine's own WalkPortals runs with no group
-// callback and outside the inside leg, so it records no windows and links
-// nothing into the world's frame; the globals it writes are put back.
+// callback, so it links nothing into the world's frame; the corner rays are
+// the scene camera's, and every global the walks read or write is put back.
+// The seeds' last loop (the callback for 0x10000 groups) touches only the
+// callback and the liquid state, so it is not run.
+constexpr size_t kCornerBytes = 8 * 3 * sizeof(float); // the frustum's eight corners
+
 PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     using Walk_t = void(__thiscall *)(void *object, uint32_t group, uint32_t from, const float *rect, uint32_t depth,
                                       void *interior);
@@ -2305,7 +2309,7 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     using GetMatrix_t = void(__fastcall *)(float *out);
     using GetXform_t = void(__fastcall *)(int unit, float *out);
     using Multiply_t = float *(__fastcall *)(float *out, const float *a, const float *b);
-    using Store_t = void(__thiscall *)(void *volume);
+    using Volume_t = void(__fastcall *)(const float *corners, const float *rect);
     void *object = b.object;
     const bool inside = b.cameraGroupCount != 0;
     PortalSky found;
@@ -2322,9 +2326,14 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
         {Offsets::VAR_LIQUID_GROUP_PARITY, sizeof(uint32_t)},
         {Offsets::VAR_WEATHER_VISIBLE, sizeof(uint8_t)},
         {Offsets::VAR_SKYBOX_STATE, sizeof(const char *)},
+        {Offsets::VAR_CAMERA_CORNER_RAYS, kCornerBytes},
+        {Offsets::VAR_PORTAL_WINDOW_COUNT, sizeof(uint32_t)},
+        {Offsets::VAR_PORTAL_WINDOWS, Offsets::PORTAL_WINDOW_SLOTS * Offsets::PORTAL_WINDOW_SIZE},
     };
     alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
     BuildViewVolume(volume, eye);
+    const auto *corners = reinterpret_cast<const float *>(static_cast<uintptr_t>(Offsets::VAR_CAMERA_CORNER_RAYS));
+    std::memcpy(const_cast<float *>(corners), volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS, kCornerBytes);
     PushObjectSpace(b, eye);
     Matrix device, slot, toClip;
     reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_VIEW_PROJECTION)(device);
@@ -2337,29 +2346,22 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     std::memcpy(reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_PORTAL_CAMERA_POINT)), camera,
                 sizeof camera);
     Game::Ref<void *>(Offsets::VAR_PORTAL_CALLBACK) = nullptr;
-    Game::Ref<uint32_t>(Offsets::VAR_PORTAL_INSIDE_LEG) = 0;
+    Game::Ref<uint32_t>(Offsets::VAR_PORTAL_INSIDE_LEG) = inside ? 1u : 0u;
+    Game::Ref<uint32_t>(Offsets::VAR_PORTAL_WINDOW_COUNT) = 0;
     Game::Ref<uint8_t>(Offsets::VAR_WEATHER_VISIBLE) = 0;
     Game::Ref<const char *>(Offsets::VAR_SKYBOX_STATE) = nullptr;
     Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG) = 1;
     ++Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_PASS);
-    const float rect[4] = {-1.0f, -1.0f, 1.0f, 1.0f};
     const auto walk = reinterpret_cast<Walk_t>(Offsets::FUN_WALK_PORTALS);
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
-    if (inside) {
-        Game::Ref<uint32_t>(Offsets::VAR_LIQUID_GROUP_SEEN) = 0;
-        for (uint32_t i = 0; i < b.cameraGroupCount; ++i) {
-            void *group = LoadedGroup(object, b.cameraGroups[i]);
-            if (group != nullptr &&
-                (Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_EXTERIOR_MASK) !=
-                    0)
-                group = nullptr;
-            walk(object, b.cameraGroups[i], Offsets::MAPOBJ_PORTAL_FROM_NONE, rect, 0, group);
-        }
-    } else {
-        reinterpret_cast<Store_t>(Offsets::FUN_FRUSTUM_STORE)(volume);
-        const Matrix &m = b.placement;
-        const float basis[9] = {m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]};
-        const float position[3] = {m[12], m[13], m[14]};
+    // A seed's walk from each exterior group that a window ([0, 1]) shows.
+    const Matrix &m = b.placement;
+    const float basis[9] = {m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]};
+    const float position[3] = {m[12], m[13], m[14]};
+    const auto walkExteriors = [&](const float *window) {
+        const float rect[4] = {window[0] * 2.0f - 1.0f, window[1] * 2.0f - 1.0f, window[2] * 2.0f - 1.0f,
+                               window[3] * 2.0f - 1.0f};
+        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
+        reinterpret_cast<Volume_t>(Offsets::FUN_BUILD_PORTAL_VOLUME)(corners, window);
         const auto *infos = Game::Read<const uint8_t *>(object, Offsets::OFF_CMAPOBJ_GROUP_INFOS);
         const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
         for (uint32_t i = 0; i < count; ++i) {
@@ -2371,8 +2373,30 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
                     Game::Ptr<float>(info, Offsets::OFF_MOGI_BOUNDS), basis, position) == 0)
                 walk(object, i, Offsets::MAPOBJ_PORTAL_FROM_NONE, rect, 0, nullptr);
         }
+        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
+    };
+    if (inside) {
+        const float screen[4] = {-1.0f, -1.0f, 1.0f, 1.0f};
+        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
+        Game::Ref<uint32_t>(Offsets::VAR_LIQUID_GROUP_SEEN) = 0;
+        for (uint32_t i = 0; i < b.cameraGroupCount; ++i) {
+            void *group = LoadedGroup(object, b.cameraGroups[i]);
+            if (group != nullptr &&
+                (Game::Read<uint32_t>(group, Offsets::OFF_CMAPOBJGROUP_FLAGS) & Offsets::MAPOBJ_GROUP_EXTERIOR_MASK) !=
+                    0)
+                group = nullptr;
+            walk(object, b.cameraGroups[i], Offsets::MAPOBJ_PORTAL_FROM_NONE, screen, 0, group);
+        }
+        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
+        Game::Ref<uint32_t>(Offsets::VAR_PORTAL_INSIDE_LEG) = 0;
+        const uint32_t windows = Game::Read<uint32_t>(Offsets::VAR_PORTAL_WINDOW_COUNT);
+        for (uint32_t w = 0; w < windows; ++w)
+            walkExteriors(reinterpret_cast<const float *>(
+                static_cast<uintptr_t>(Offsets::VAR_PORTAL_WINDOWS + w * Offsets::PORTAL_WINDOW_SIZE)));
+    } else {
+        const float whole[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+        walkExteriors(whole);
     }
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
     PopObjectSpace();
     found.weather = found.weather || Game::Read<uint8_t>(Offsets::VAR_WEATHER_VISIBLE) != 0;
     found.skybox = Game::Read<const char *>(Offsets::VAR_SKYBOX_STATE);

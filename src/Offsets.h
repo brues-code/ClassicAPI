@@ -13975,6 +13975,24 @@ enum Offsets {
     // into skybox slot 0 at the interior fog weight (+0x7C) and clears
     // slot 1 (SetSkyboxSlot `__fastcall(slot, path, float weight)` ret 4,
     // 0x006D4810) while the weather byte is set.
+    // A window the inside leg records (0x006B4541) is 5 floats: the
+    // overlap rectangle mapped to [0, 1], then the portal's reach; the
+    // array is the 16 records 0x006B37B0 constructs, and the push checks
+    // no bound. The interior seed's second phase walks, for each window,
+    // every exterior group whose box the window's volume shows, over the
+    // window as (2r - 1); the exterior seed does the same for its one
+    // rectangle. The volume comes from BuildPortalVolume
+    // `__fastcall(const float corners[8][3], const float rect[4])`, plain
+    // ret (0x00682930; call at 0x006B3CA4: ecx = the corner rays, edx =
+    // the record), which lerps the corner rays (0x00C7BCD8, filled by
+    // FUN_FRUSTUM_CORNERS at 0x00680E3C) by the rectangle into the top of
+    // the frustum stack.
+    FUN_BUILD_PORTAL_VOLUME = 0x00682930,
+    VAR_CAMERA_CORNER_RAYS = 0x00C7BCD8,
+    VAR_PORTAL_WINDOW_COUNT = 0x00CBE320,
+    VAR_PORTAL_WINDOWS = 0x00CBE324,
+    PORTAL_WINDOW_SIZE = 0x14,
+    PORTAL_WINDOW_SLOTS = 16,
     FUN_WALK_PORTALS = 0x006B41C0,
     FUN_FRUSTUM_BOX_CULLED = 0x00682F60,
     FUN_GX_GET_VIEW_PROJECTION = 0x0058B0C0,
