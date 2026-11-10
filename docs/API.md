@@ -830,6 +830,7 @@ build instructions.
   - [`scene:SetViewInsets(left, right, top, bottom)` / `scene:GetViewInsets()`](#scenesetviewinsetsleft-right-top-bottom--scenegetviewinsets)
   - [`scene:SetViewTranslation(x, y)` / `scene:GetViewTranslation()`](#scenesetviewtranslationx-y--scenegetviewtranslation)
   - [`scene:Project3DPointTo2D(x, y, z)`](#sceneproject3dpointto2dx-y-z)
+  - [Follow camera](#follow-camera)
   - [`scene:SetLightType(lightType)` / `scene:GetLightType()`](#scenesetlighttypelighttype--scenegetlighttype)
   - [`scene:SetLightVisible([visible])` / `scene:IsLightVisible()`](#scenesetlightvisiblevisible--sceneislightvisible)
   - [`scene:SetLightDirection(x, y, z)` / `scene:SetLightPosition(x, y, z)`](#scenesetlightdirectionx-y-z--scenesetlightpositionx-y-z)
@@ -899,6 +900,7 @@ build instructions.
   - [`actor:IsSwimming()`](#actorisswimming)
   - [`actor:MoveTo(x, y, z [, facing])`](#actormovetox-y-z--facing)
   - [`actor:SetWalking(walking)` / `actor:IsWalking()`](#actorsetwalkingwalking--actoriswalking)
+  - [`actor:GetCameraPivotHeight(distance)`](#actorgetcamerapivotheightdistance)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
   - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
@@ -19246,6 +19248,45 @@ Returns where a point of the scene shows on the frame: `x2D, y2D, depth`.
 
 `SetViewInsets` and `SetViewTranslation` do not change the result.
 
+### Follow camera
+
+The camera type `"FollowCamera"` follows an actor, as the camera of the
+world follows your character. It has all the methods of the orbit camera
+(`OrbitCameraMixin`) and these two:
+
+- `camera:SetFollowActor([actor])` sets the actor that the camera follows.
+  Without an actor, the camera is an orbit camera.
+- `camera:GetFollowActor()` returns that actor.
+
+While the camera follows an actor:
+
+- It looks at a point above the feet of the actor. The height of this
+  point is the result of
+  [`actor:GetCameraPivotHeight`](#actorgetcamerapivotheightdistance).
+- When that height changes, the camera moves to the new height smoothly.
+  The CVar `cameraHeightSmoothSpeed` sets the speed, in yards a second.
+  The first height applies at once.
+- It stops in front of a wall of the WMO between the actor and the camera,
+  1/9 yard from the wall.
+- It does not move until the model of the actor has loaded.
+
+The camera does not turn by itself. Set its yaw, its pitch and its zoom as
+you set those of the orbit camera.
+
+A scene made from `ModelSceneMixinTemplate` has the methods that add a
+camera. Add the follow camera next to the camera of the scene, with the
+same settings, then make it the active camera. This is a ClassicAPI
+extension.
+
+```lua
+local _, cameraIDs = C_ModelInfo.GetModelSceneInfoByID(modelSceneID)
+local camera = scene:AddCamera(CameraRegistry:CreateCameraByType("FollowCamera"))
+camera:ApplyFromModelSceneCameraInfo(C_ModelInfo.GetModelSceneCameraInfoByID(cameraIDs[1]),
+    CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD)
+camera:SetFollowActor(runner)
+scene:SetActiveCamera(camera)
+```
+
 ### `scene:SetLightType(lightType)` / `scene:GetLightType()`
 
 `0` makes a directional light, and `1` makes a point light.
@@ -20310,6 +20351,29 @@ Sets whether the actor walks instead of running, when it moves forward and
 when it moves with `actor:MoveTo`. The default is off. A change while the
 actor moves changes its speed and its animation. In the air, the speed
 changes when the actor lands. `SetWalking` ends a move of `actor:MoveTo`. This is a ClassicAPI extension.
+
+### `actor:GetCameraPivotHeight(distance)`
+
+Returns the height above the feet of the actor that the camera of the
+world looks at for a character like this actor. `distance` is the
+distance from the camera to the actor, in yards. The
+[follow camera](#follow-camera) uses this height.
+
+The height comes from the model and the scale of the actor:
+
+- It is the height of the mouth of the model, plus 7/72 yard. A model
+  without a mouth gives 0.9 of the height of its collision box.
+- When `distance` is less than 1.8315 yards, the height is lower while the
+  actor plays one of these animations: 97 (SitGround), 100 (Sleep), 102,
+  103 and 104 (on a chair), 6 (Dead) and 115 (KneelLoop). When the CVar
+  `cameraHeightIgnoreStandState` is on, these animations do not change
+  the height.
+- While the actor swims, the height is lower when the swim animation of
+  the model is lower than its stand animation.
+- The height is always from 5/6 to 15 yards.
+
+The function returns nothing until the model has loaded. This is a
+ClassicAPI extension.
 
 ### Actor scripts
 
