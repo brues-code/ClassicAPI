@@ -71,6 +71,11 @@
 // stops the scene clock: the frame's update runs without Model's
 // M2SceneAdvance, so every actor holds its pose.
 //
+// ClassicAPI extensions on that clock: GetSceneTime, and After / NewTimer /
+// NewTicker, C_Timer's queue and handles with deadlines in scene seconds,
+// fired from the update right after the clock moves. A paused or hidden
+// scene's clock stands still, and so do its timers.
+//
 // XML: `drawLayer`, `fogNear` and `fogFar` (clamped at 0, as Model's loader
 // clamps them) and <FogColor> (FUN_XML_READ_COLOR, which arms the fog), after
 // the frame's own loader, and <ViewInsets left right top bottom>. Retail's
@@ -118,6 +123,7 @@
 #include "gx/Device.h"
 #include "model/Camera.h"
 #include "model/M2.h"
+#include "time/Timer.h"
 #include "xml/FrameLoad.h"
 
 #include <algorithm>
@@ -163,6 +169,9 @@ struct Fields {
     World::Backdrop *world; // SetWorldModel, owned, or null
     bool playWorldModelSounds; // SetPlayWorldModelSounds
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
+    // GetSceneTime: the seconds the M2 scene's clock has advanced since the
+    // frame was made, summed from each update's change so it never wraps.
+    double clock;
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -793,6 +802,7 @@ void Destroy(void *frame) {
     f.actors = nullptr;
     World::Free(f.world);
     f.world = nullptr;
+    Time::Timer::CancelOwned(frame);
 }
 
 Frame::Subclass::Class<Offsets::VTBL_SIMPLEMODEL_SLOTS, Offsets::VTBL_SIMPLEMODEL_LAYOUT_SLOTS>
@@ -868,10 +878,18 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
                 World::Settle(*world, *actor->ambience, self, actor->model, elapsedSec);
     }
+    void *m2Scene = Model::Pane::Scene(self);
+    const uint32_t before = m2Scene != nullptr ? Game::Read<uint32_t>(m2Scene, Offsets::OFF_M2SCENE_TIME) : 0;
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     else
         g_class.Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
+    // The scene's timers run on its clock, once it has moved this frame.
+    if (m2Scene != nullptr) {
+        const uint32_t advancedMs = Game::Read<uint32_t>(m2Scene, Offsets::OFF_M2SCENE_TIME) - before;
+        F(self).clock += advancedMs / 1000.0;
+    }
+    Time::Timer::Fire(self, F(self).clock);
     // By index: an actor's script may create another.
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
@@ -961,6 +979,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.world = nullptr;
     f.playWorldModelSounds = false;
     f.listener = nullptr;
+    f.clock = 0.0;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -1145,6 +1164,27 @@ int __fastcall Script_SetPaused(void *L) {
         return 0;
     F(frame).paused = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
     return 0;
+}
+
+int __fastcall Script_GetSceneTime(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).clock);
+    return 1;
+}
+
+template <Time::Timer::Kind kind>
+int __fastcall Script_Timer(void *L) {
+    static constexpr const char *kUsage[] = {
+        "Usage: scene:After(seconds, callback)",
+        "Usage: local cbObject = scene:NewTimer(seconds, callback)",
+        "Usage: local cbObject = scene:NewTicker(seconds, callback [, iterations])",
+    };
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    return Time::Timer::Script(L, 2, frame, F(frame).clock, kind, kUsage[static_cast<int>(kind)]);
 }
 
 int __fastcall Script_Project3DPointTo2D(void *L) {
@@ -1623,6 +1663,10 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetDrawLayer", &Script_SetDrawLayer},
     {"GetDrawLayer", &Script_GetDrawLayer},
     {"SetPaused", &Script_SetPaused},
+    {"GetSceneTime", &Script_GetSceneTime},
+    {"After", &Script_Timer<Time::Timer::Kind::After>},
+    {"NewTimer", &Script_Timer<Time::Timer::Kind::NewTimer>},
+    {"NewTicker", &Script_Timer<Time::Timer::Kind::NewTicker>},
     {"SetGroundTerrain", &Script_SetGroundTerrain},
     {"GetGroundTerrain", &Script_GetGroundTerrain},
     {"SetWorldModel", &Script_SetWorldModel},
@@ -1758,6 +1802,28 @@ const Game::Doc::Field kFarFogRet[] = {Req("far", "number")};
 const Game::Doc::Function kSetDrawLayer{"Sets the layer the scene draws in.", kLayerArg, {}};
 const Game::Doc::Function kGetDrawLayer{"Returns the layer the scene draws in.", {}, kLayerRets};
 const Game::Doc::Function kSetPaused{"Stops or restarts the actors' animations.", kPausedArgs, {}};
+const Game::Doc::Field kSceneTimeRet[] = {Req("seconds", "number")};
+const Game::Doc::Function kGetSceneTime{
+    "Returns the seconds that the clock of the scene has run since the scene was made. The clock "
+    "stops while the scene is paused or hidden. The actors' animations use this clock.",
+    {}, kSceneTimeRet, nullptr, true};
+const Game::Doc::Field kTimerArgs[] = {Req("seconds", "number", "On the clock of the scene."),
+                                       Req("callback", "function")};
+const Game::Doc::Field kTickerArgs[] = {Req("seconds", "number", "On the clock of the scene."),
+                                        Req("callback", "function"),
+                                        Opt("iterations", "number", nullptr, "Without it, the ticker runs until it is cancelled.")};
+const Game::Doc::Field kTimerRet[] = {
+    Req("cbObject", "table", "Cancel() stops the timer. IsCancelled() returns true when the timer has stopped.")};
+const Game::Doc::Function kAfter{
+    "Calls the callback once, after the clock of the scene has run for the seconds. As C_Timer.After, "
+    "on the clock of the scene.",
+    kTimerArgs, {}, nullptr, true};
+const Game::Doc::Function kNewTimer{
+    "As scene:After, and returns a handle that can cancel the timer.", kTimerArgs, kTimerRet, nullptr, true};
+const Game::Doc::Function kNewTicker{
+    "Calls the callback each time the clock of the scene runs for the seconds. As C_Timer.NewTicker, "
+    "on the clock of the scene.",
+    kTickerArgs, kTimerRet, nullptr, true};
 const Game::Doc::Field kGroundTerrainArg[] = {
     Opt("terrainTypeID", "number", nullptr,
         "A TerrainType.dbc row: 0 Dirt, 1 Metallic, 2 Stone, 3 Snow, 4 Wood, 5 Grass, 6 Leaves, 7 "
@@ -1963,6 +2029,10 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetDrawLayer", &kSetDrawLayer},
     {"GetDrawLayer", &kGetDrawLayer},
     {"SetPaused", &kSetPaused},
+    {"GetSceneTime", &kGetSceneTime},
+    {"After", &kAfter},
+    {"NewTimer", &kNewTimer},
+    {"NewTicker", &kNewTicker},
     {"SetAllowOverlappedModels", &kSetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &kGetAllowOverlappedModels},
     {"SetGroundTerrain", &kSetGroundTerrain},

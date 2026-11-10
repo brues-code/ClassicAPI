@@ -13586,6 +13586,11 @@ enum Offsets {
     FUN_M2SCENE_COPY_MODEL = 0x00707400,
     // M2SceneDraw — `__thiscall(scene, pass)`; the bake draws 0 then 1.
     FUN_M2SCENE_DRAW = 0x00708900,
+    // The scene's clock, uint32 milliseconds: M2SceneAdvance (0x007074B0,
+    // `__thiscall(scene, ms)`, nothing for 0) passes +0x0C + ms to SetTime
+    // (0x00707490), which stores it here. A Model frame's update (slot 14,
+    // 0x0076D7F0) advances its scene by the truncated ms of each frame.
+    OFF_M2SCENE_TIME = 0x0C,
     // The world's object pick (0x00480A50, Ghidra): EnableRayHits, then
     // SetHitTestMode on each candidate and its children (0x00480D90), then
     // RayHit with retry 1, the ray in view space (the device view of the
