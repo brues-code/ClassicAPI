@@ -115,14 +115,17 @@
 #include "Offsets.h"
 #include "texture/Load.h"
 #include "api/Documentation.h"
+#include "cvar/Factory.h"
 #include "frame/ExtraScripts.h"
 #include "frame/LayerChange.h"
 #include "frame/Layout.h"
 #include "frame/ScriptArgs.h"
 #include "frame/Subclass.h"
 #include "gx/Device.h"
+#include "gx/Matrix.h"
 #include "model/Camera.h"
 #include "model/M2.h"
+#include "time/Clock.h"
 #include "time/Timer.h"
 #include "xml/FrameLoad.h"
 
@@ -172,6 +175,9 @@ struct Fields {
     // GetSceneTime: the seconds the M2 scene's clock has advanced since the
     // frame was made, summed from each update's change so it never wraps.
     double clock;
+    // SetMoveMarker: the auto-move marker's point, while shown.
+    bool moveMarkerShown;
+    float moveMarker[3];
 };
 
 constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
@@ -501,17 +507,11 @@ void DrawShadow(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
     World::DrawDecal(*world, blob.box, blob.color, blob.matrix, fade, Offsets::SHADOW_DECAL_MASK, eye);
 }
 
-void DrawShadows(void *frame, const float (&eye)[3]) {
+// Draws one actor's shadow with the blob states (while shadowLOD is 1).
+void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
     void *texture = Game::Read<void *>(Offsets::VAR_SHADOW_BLOB_TEXTURE);
-    if (Game::Read<int>(Offsets::VAR_SHADOW_LOD) != 1 || texture == nullptr)
+    if (!actor.shadowShown || Game::Read<int>(Offsets::VAR_SHADOW_LOD) != 1 || texture == nullptr)
         return;
-    const std::vector<Actor *> &actors = *F(frame).actors;
-    bool any = false;
-    for (const Actor *actor : actors)
-        any = any || actor->shadowShown;
-    if (!any)
-        return;
-    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
     Gx::PushStates();
     Gx::SetState(Offsets::GXRS_BLEND, Offsets::GXRS_BLEND_MODULATE);
     Gx::SetState(Offsets::GXRS_LIGHTING, 0);
@@ -524,9 +524,121 @@ void DrawShadows(void *frame, const float (&eye)[3]) {
         Gx::SetState(Offsets::GXRS_CULL, 0);
     else if (Game::Read<float>(Offsets::VAR_SHADOW_BIAS) == 0.0f)
         Gx::SetState(Offsets::GXRS_DEPTH_FUNC, Offsets::GXRS_DEPTH_FUNC_DECAL);
-    for (Actor *actor : actors)
-        DrawShadow(*actor, world, eye);
+    DrawShadow(actor, world, eye);
     Gx::PopStates();
+}
+
+// ---- selection circles and the move marker (SetSelectionCircle, SetMoveMarker) --
+//
+// The world draws the target's selection circle (0x00608E00) and the
+// auto-move marker (0x00611400) with one decal recipe: a texture matrix
+// turned about z by minus the heading from the camera to the point
+// (0x00615070, given the scene's eye for the world camera's), then inside a
+// state push, in the scene's fog for the world's (World::CommitDecalFog),
+// the circle's state (FUN_SELECTION_CIRCLE_STATE: blend 3, which
+// adds by source alpha, UnitSelectTexture.blp and its ramp) and the decal at
+// fade 0.5, flags 0x200122. In a scene with a WMO the decal lands on its
+// faces (World::DrawDecal), as the shadows do; without one, on the flat
+// ground at the feet (World::DrawDecalOnPlane).
+//
+// The circle: the box about the feet, half size r across and 2r up and
+// down, r = the radius the unit takes when its model loads (0x0060AEE0,
+// Offsets::SELECTION_RADIUS_FLAT) times the model's scale; only while the
+// ObjectSelectionCircle cvar is on, as the world's (0x00614ADA). Drawn per
+// actor before its shadow, as the world's per-entity step draws it before
+// the blob. The marker: the auto-move target's pulsing box (Offsets::
+// VAR_AUTOMOVE_MARKER_*), on the OS clock as the world's, after the actors'.
+
+bool SelectionDecalReady() {
+    return Game::Read<void *>(Offsets::VAR_SELECTION_CIRCLE_TEXTURE) != nullptr &&
+           Game::Read<void *>(Offsets::VAR_SELECTION_CIRCLE_RAMP) != nullptr;
+}
+
+void DrawSelectionDecal(void *frame, World::Backdrop *world, const float (&box)[6], uint32_t argb,
+                        const float (&point)[3], float groundZ, const float (&eye)[3]) {
+    using Heading_t = float(__fastcall *)(const float *from, const float *to);
+    using CircleState_t = void(__thiscall *)(void *obj);
+    float m[16];
+    Gx::Identity(m);
+    const float heading = reinterpret_cast<Heading_t>(Offsets::FUN_HEADING_BETWEEN_POINTS)(eye, point);
+    Gx::Rotate(m, -heading, {0.0f, 0.0f, 1.0f});
+    const uint32_t fadeBits = Offsets::DECAL_SELECTION_FADE;
+    float fade;
+    std::memcpy(&fade, &fadeBits, sizeof fade);
+    Gx::PushStates();
+    World::CommitDecalFog(world, frame, point, eye);
+    reinterpret_cast<CircleState_t>(Offsets::FUN_SELECTION_CIRCLE_STATE)(nullptr);
+    if (world != nullptr)
+        World::DrawDecal(*world, box, argb, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
+    else
+        World::DrawDecalOnPlane(box, argb, m, fade, groundZ, eye);
+    Gx::PopStates();
+}
+
+// 0x0060AEE0's radius for the model.
+float SelectionRadius(void *model) {
+    float bounds[6];
+    if (M2::HasAnimation(model, 0))
+        M2::GetSequenceBounds(model, 0, 0, bounds);
+    else
+        M2::GetBoundingBox(model, bounds);
+    if (bounds[3] == bounds[0] && bounds[4] == bounds[1]) {
+        const uint32_t flatBits = Offsets::SELECTION_RADIUS_FLAT;
+        float flat;
+        std::memcpy(&flat, &flatBits, sizeof flat);
+        return flat;
+    }
+    const float dx = bounds[3] - bounds[0];
+    const float dy = bounds[4] - bounds[1];
+    return std::sqrt(std::sqrt(dx * dx + dy * dy) * Game::Read<float>(Offsets::VAR_HALF));
+}
+
+void DrawSelectionCircle(void *frame, Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+    void *model = actor.model;
+    if (!actor.selectionCircleShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
+        !M2::IsReady(model, 0, 0))
+        return;
+    float m[16];
+    M2::GetBaseTransform(model, m);
+    const float scale = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    const float r = SelectionRadius(model) * scale;
+    const float feet[3] = {m[12], m[13], m[14]};
+    const float box[6] = {feet[0] - r, feet[1] - r, feet[2] - 2.0f * r,
+                          feet[0] + r, feet[1] + r, feet[2] + 2.0f * r};
+    DrawSelectionDecal(frame, world, box, actor.selectionCircle, feet, feet[2], eye);
+}
+
+void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) {
+    const Fields &f = F(frame);
+    if (!f.moveMarkerShown)
+        return;
+    const uint32_t period = Game::Read<uint32_t>(Offsets::VAR_AUTOMOVE_MARKER_PERIOD_MS);
+    const uint32_t t = Time::Clock::NowMs() % period;
+    const float low = Game::Read<float>(Offsets::VAR_AUTOMOVE_MARKER_MIN);
+    const float high = Game::Read<float>(Offsets::VAR_AUTOMOVE_MARKER_MAX);
+    const float wave = (std::sin(static_cast<float>(t) * Game::Read<float>(Offsets::VAR_HEADING_TWO_PI) /
+                                 static_cast<float>(period)) +
+                        Game::Read<float>(Offsets::VAR_ONE)) *
+                       Game::Read<float>(Offsets::VAR_HALF);
+    const float s = wave * (high - low) + low;
+    const float(&p)[3] = f.moveMarker;
+    const float box[6] = {p[0] - s, p[1] - s, p[2] - s, p[0] + s, p[1] + s, p[2] + s};
+    DrawSelectionDecal(frame, world, box, Offsets::AUTOMOVE_MARKER_COLOR, p, p[2], eye);
+}
+
+// What the world lays on the ground under its entities, for the actors.
+void DrawGroundDecals(void *frame, const float (&eye)[3]) {
+    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+    const bool decals = SelectionDecalReady();
+    void *cvar = Game::Read<void *>(Offsets::VAR_CVAR_OBJECT_SELECTION_CIRCLE);
+    const bool circles = decals && cvar != nullptr && CVar::Factory::GetInt(cvar) != 0;
+    for (Actor *actor : *F(frame).actors) {
+        if (circles)
+            DrawSelectionCircle(frame, *actor, world, eye);
+        DrawShadowWithStates(*actor, world, eye);
+    }
+    if (decals)
+        DrawMoveMarker(frame, world, eye);
 }
 
 void __fastcall Paint(void *frame) {
@@ -568,7 +680,7 @@ void __fastcall Paint(void *frame) {
         M2::AnimateScene(scene, eye);
         if (world != nullptr)
             World::Draw(*world, frame, eye);
-        DrawShadows(frame, eye);
+        DrawGroundDecals(frame, eye);
         M2::DrawScene(scene, 0);
         // The world's frame draws its liquids before the translucent models
         // over the water and, with the camera in liquid, after them
@@ -980,6 +1092,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.playWorldModelSounds = false;
     f.listener = nullptr;
     f.clock = 0.0;
+    f.moveMarkerShown = false;
     InitLight(frame);
     InitFog(frame);
     InstallCamera(frame);
@@ -1262,6 +1375,33 @@ int __fastcall Script_GetActorsInRadius(void *L) {
         Game::Lua::RawSetI(L, -2, ++n);
     }
     return 1;
+}
+
+int __fastcall Script_SetMoveMarker(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
+                                        "SetMoveMarker(pointX, pointY, pointZ)"))
+        return 0;
+    Fields &f = F(frame);
+    for (int i = 0; i < 3; ++i)
+        f.moveMarker[i] = FloatArg(L, 2 + i);
+    f.moveMarkerShown = true;
+    return 0;
+}
+
+int __fastcall Script_ClearMoveMarker(void *L) {
+    if (void *frame = Self(L))
+        F(frame).moveMarkerShown = false;
+    return 0;
+}
+
+int __fastcall Script_GetMoveMarker(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !F(frame).moveMarkerShown)
+        return 0;
+    for (float v : F(frame).moveMarker)
+        Game::Lua::PushNumber(L, v);
+    return 3;
 }
 
 int __fastcall Script_SetViewInsets(void *L) {
@@ -1685,6 +1825,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetActorAtCursor", &Script_GetActorAtCursor},
     {"GetCursorRay", &Script_GetCursorRay},
     {"GetActorsInRadius", &Script_GetActorsInRadius},
+    {"SetMoveMarker", &Script_SetMoveMarker},
+    {"ClearMoveMarker", &Script_ClearMoveMarker},
+    {"GetMoveMarker", &Script_GetMoveMarker},
     {"SetViewInsets", &Script_SetViewInsets},
     {"GetViewInsets", &Script_GetViewInsets},
     {"SetViewTranslation", &Script_SetViewTranslation},
@@ -1982,6 +2125,16 @@ const Game::Doc::Function kGetActorsInRadius{
     "Returns the shown actors with a model whose position is not more than the radius from the point, "
     "in scene coordinates. The list is empty when no actor is in the radius.",
     kRadiusArgs, kRadiusRets, nullptr, true};
+const Game::Doc::Field kMarkerPoint[] = {Req("pointX", "number"), Req("pointY", "number"),
+                                         Req("pointZ", "number")};
+const Game::Doc::Function kSetMoveMarker{
+    "Shows the world's click-to-move marker at a point, in scene coordinates: a pulsing ring on the "
+    "ground. One marker per scene; a new point moves it.",
+    kMarkerPoint, {}, nullptr, true};
+const Game::Doc::Function kClearMoveMarker{"Hides the move marker.", {}, {}, nullptr, true};
+const Game::Doc::Function kGetMoveMarker{
+    "Returns the point of the move marker. Returns nothing while the marker is hidden.", {}, kMarkerPoint,
+    nullptr, true};
 const Game::Doc::Field kInsetArgs[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
                                        Req("bottom", "number")};
 const Game::Doc::Field kInsetRets[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
@@ -2051,6 +2204,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetActorAtCursor", &kGetActorAtCursor},
     {"GetCursorRay", &kGetCursorRay},
     {"GetActorsInRadius", &kGetActorsInRadius},
+    {"SetMoveMarker", &kSetMoveMarker},
+    {"ClearMoveMarker", &kClearMoveMarker},
+    {"GetMoveMarker", &kGetMoveMarker},
     {"SetViewInsets", &kSetViewInsets},
     {"GetViewInsets", &kGetViewInsets},
     {"SetViewTranslation", &kSetViewTranslation},
@@ -2120,6 +2276,8 @@ int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 
 Actor *SoundListener(void *sceneFrame) { return F(sceneFrame).listener; }
+
+const float *LightAmbient(void *sceneFrame) { return AmbientOf(sceneFrame); }
 
 View CameraView(void *sceneFrame) {
     const Fields &f = F(sceneFrame);

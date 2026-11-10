@@ -381,6 +381,7 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     M2::SetEventCallback(model, reinterpret_cast<const void *>(&Events::OnModelEvent), user, 0);
     M2::SetRenderCallback(model, reinterpret_cast<const void *>(&OnModelLighting), this);
     ApplyAlpha();
+    ApplyHighlight();
     PlayAnimation();
     RunScript(S_ONMODELLOADING, 0);
 }
@@ -889,6 +890,18 @@ void Actor::ApplyAlpha() {
         return;
     const float frameAlpha = Game::Read<uint8_t>(SceneFrame(), Offsets::OFF_FRAME_ALPHA) / 255.0f;
     M2::SetAlpha(model, alpha * frameAlpha);
+}
+
+// SetLight's colour (0x00614550) while a bit is set, else ClearLight's black
+// (0x006144F0); a new model takes the bits' colour (a unit's copy may carry
+// its own target glow).
+void Actor::ApplyHighlight() {
+    if (model == nullptr)
+        return;
+    float rgb[3] = {0.0f, 0.0f, 0.0f};
+    if (highlightBits != 0)
+        std::memcpy(rgb, LightAmbient(SceneFrame()), sizeof rgb);
+    reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2MODEL_SET_EMISSIVE)(model, rgb);
 }
 
 void Actor::Update(float elapsedSec) {
@@ -1577,6 +1590,91 @@ int __fastcall Script_IsShadowShown(void *L) {
     return 1;
 }
 
+// The highlight's sources: a unit's two light bits.
+bool HighlightBit(void *L, int index, uint32_t &bit) {
+    const char *kind = Game::Lua::IsString(L, index) ? Game::Lua::ToString(L, index) : nullptr;
+    if (kind != nullptr && std::strcmp(kind, "target") == 0)
+        bit = Offsets::CGOBJECT_LIGHT_BIT_TARGET;
+    else if (kind != nullptr && std::strcmp(kind, "mouseover") == 0)
+        bit = Offsets::CGOBJECT_LIGHT_BIT_MOUSEOVER;
+    else
+        return false;
+    return true;
+}
+
+// SetLight / ClearLight (0x00614550 / 0x006144F0): setting a bit gives the
+// model the colour again, clearing one blacks it only when none is left.
+int __fastcall Script_SetHighlight(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    uint32_t bit = 0;
+    if (!HighlightBit(L, 2, bit)) {
+        Game::Lua::Error(L, "Usage: %s:SetHighlight(\"target\" or \"mouseover\", highlighted)",
+                         actor->DisplayName());
+        return 0;
+    }
+    if (Game::Lua::ToBoolean(L, 3) != 0) {
+        actor->highlightBits |= 1u << bit;
+        actor->ApplyHighlight();
+    } else {
+        actor->highlightBits &= ~(1u << bit);
+        if (actor->highlightBits == 0)
+            actor->ApplyHighlight();
+    }
+    return 0;
+}
+
+int __fastcall Script_IsHighlighted(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    uint32_t mask = ~0u;
+    uint32_t bit = 0;
+    if (HighlightBit(L, 2, bit))
+        mask = 1u << bit;
+    Game::Lua::PushBool(L, (actor->highlightBits & mask) != 0);
+    return 1;
+}
+
+// A colour channel as a byte, as the fog's (clamped, NaN to 1).
+uint32_t ColorByte(float c) {
+    if (!(c < 1.0f))
+        c = 1.0f;
+    else if (!(c > 0.0f))
+        c = 0.0f;
+    return static_cast<uint32_t>(c * 255.0f + 0.5f);
+}
+
+int __fastcall Script_SetSelectionCircle(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(),
+                                        "SetSelectionCircle(colorR, colorG, colorB [, a])"))
+        return 0;
+    const float a = Game::Lua::IsNumber(L, 5) ? static_cast<float>(Game::Lua::ToNumber(L, 5)) : 1.0f;
+    actor->selectionCircle = ColorByte(a) << 24 |
+                             ColorByte(static_cast<float>(Game::Lua::ToNumber(L, 2))) << 16 |
+                             ColorByte(static_cast<float>(Game::Lua::ToNumber(L, 3))) << 8 |
+                             ColorByte(static_cast<float>(Game::Lua::ToNumber(L, 4)));
+    actor->selectionCircleShown = true;
+    return 0;
+}
+
+int __fastcall Script_ClearSelectionCircle(void *L) {
+    if (Actor *actor = Self(L))
+        actor->selectionCircleShown = false;
+    return 0;
+}
+
+int __fastcall Script_GetSelectionCircle(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !actor->selectionCircleShown)
+        return 0;
+    for (int shift : {16, 8, 0, 24})
+        Game::Lua::PushNumber(L, ((actor->selectionCircle >> shift) & 0xFFu) / 255.0);
+    return 4;
+}
+
 int __fastcall Script_DetachFromActor(void *L) {
     Actor *child = Self(L);
     if (child == nullptr)
@@ -2192,6 +2290,11 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &Script_GetPlayAnimationSounds},
     {"SetShadowShown", &Script_SetShadowShown},
+    {"SetHighlight", &Script_SetHighlight},
+    {"IsHighlighted", &Script_IsHighlighted},
+    {"SetSelectionCircle", &Script_SetSelectionCircle},
+    {"ClearSelectionCircle", &Script_ClearSelectionCircle},
+    {"GetSelectionCircle", &Script_GetSelectionCircle},
     {"IsShadowShown", &Script_IsShadowShown},
     {"SetMovementEnabled", &Script_SetMovementEnabled},
     {"IsMovementEnabled", &Script_IsMovementEnabled},
@@ -2542,6 +2645,32 @@ const Game::Doc::Function kSetShadowShown{
     kShadowShownArg, {}, nullptr, true};
 const Game::Doc::Function kIsShadowShown{"Returns whether the actor shows a blob shadow.", {},
                                          kShadowShownArg, nullptr, true};
+const Game::Doc::Field kSetHighlightArgs[] = {
+    Req("kind", "cstring", "\"target\" or \"mouseover\"."),
+    Req("highlighted", "bool"),
+};
+const Game::Doc::Function kSetHighlight{
+    "Sets or clears one kind of highlight. While either kind is set, the model glows in the ambient "
+    "colour of the scene light, as a unit in the world glows under the cursor or as the target.",
+    kSetHighlightArgs, {}, nullptr, true};
+const Game::Doc::Field kIsHighlightedArgs[] = {
+    Opt("kind", "cstring", nullptr, "\"target\" or \"mouseover\". Without it, either kind counts."),
+};
+const Game::Doc::Field kIsHighlightedRet[] = {Req("highlighted", "bool")};
+const Game::Doc::Function kIsHighlighted{"Returns whether the actor has the highlight.", kIsHighlightedArgs,
+                                         kIsHighlightedRet, nullptr, true};
+const Game::Doc::Field kSelectionCircleColor[] = {
+    Req("colorR", "number"), Req("colorG", "number"), Req("colorB", "number"),
+    Opt("a", "number", "1", "The brightness: the circle adds its colour by this alpha."),
+};
+const Game::Doc::Function kSetSelectionCircle{
+    "Shows the world's selection circle under the model in a colour, sized to the model as a unit's. "
+    "It shows while the ObjectSelectionCircle cvar is on.",
+    kSelectionCircleColor, {}, nullptr, true};
+const Game::Doc::Function kClearSelectionCircle{"Hides the selection circle.", {}, {}, nullptr, true};
+const Game::Doc::Function kGetSelectionCircle{
+    "Returns the colour of the selection circle. Returns nothing while the actor has none.", {},
+    kSelectionCircleColor, nullptr, true};
 const Game::Doc::Field kMovementEnabledArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetMovementEnabled{
     "Sets whether the actor moves as a character moves in the world: it walks and runs over the scene's "
@@ -2732,6 +2861,11 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},
     {"GetPlayAnimationSounds", &kGetPlayAnimationSounds},
     {"SetShadowShown", &kSetShadowShown},
+    {"SetHighlight", &kSetHighlight},
+    {"IsHighlighted", &kIsHighlighted},
+    {"SetSelectionCircle", &kSetSelectionCircle},
+    {"ClearSelectionCircle", &kClearSelectionCircle},
+    {"GetSelectionCircle", &kGetSelectionCircle},
     {"IsShadowShown", &kIsShadowShown},
     {"SetMovementEnabled", &kSetMovementEnabled},
     {"IsMovementEnabled", &kIsMovementEnabled},

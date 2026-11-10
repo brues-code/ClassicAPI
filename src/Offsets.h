@@ -5354,6 +5354,14 @@ enum Offsets {
     // OFF_CGOBJECT_MODEL). Decompiled; benilla-re objectbase#highlight-light-bits.
     FUN_CGOBJECT_SET_LIGHT = 0x00614550,
     FUN_CGOBJECT_CLEAR_LIGHT = 0x006144F0,
+    // The two bits above, and the colour SetLight gives: its vector is (byte
+    // +0x17A, +0x179, +0x178) of the light state (0x006D48B0 returns
+    // 0x00CE9B60), the ambient colour band, each times 1/255 (0x008026C8).
+    CGOBJECT_LIGHT_BIT_TARGET = 0,
+    CGOBJECT_LIGHT_BIT_MOUSEOVER = 1,
+    // CM2Model::SetEmissiveColor — `__thiscall(model, const float rgb[3])`,
+    // ret 4: copies the three floats to +0x190. SetLight / ClearLight's call.
+    FUN_M2MODEL_SET_EMISSIVE = 0x00710D40,
     OFF_CGOBJECT_MODEL = 0xD8,
     // The unit's character component, null for a unit with none (a creature
     // without CreatureDisplayInfoExtra): AttachUnitModel pumps it at
@@ -5367,6 +5375,33 @@ enum Offsets {
     FUN_SELECTION_CIRCLE_STATE = 0x00614E00,
     FUN_DRAW_DECAL = 0x006D7330,
     VAR_CVAR_OBJECT_SELECTION_CIRCLE = 0x00C4DAF8, // CVar* of ObjectSelectionCircle
+    // FUN_SELECTION_CIRCLE_STATE's textures (0x006146D0 makes both; the state
+    // sets nothing while either is null): stage 0 the HTEXTURE of
+    // Textures\UnitSelectTexture.blp, stage 1 the 64x8 alpha ramp's device
+    // texture. The state never reads its object: blend 3, cull, lighting and
+    // depth write off, then the two textures.
+    VAR_SELECTION_CIRCLE_TEXTURE = 0x00C4DAC4,
+    VAR_SELECTION_CIRCLE_RAMP = 0x00C4DAFC,
+    // FUN_DRAW_DECAL's fade and flags, the same at the selection circle
+    // (0x00608E00) and the auto-move marker (0x00611400): 0.5, 0x200122.
+    DECAL_SELECTION_FADE = 0x3F000000,
+    DECAL_SELECTION_FLAGS = 0x200122,
+    // The radius 0x0060AEE0 stores at OFF_CGUNIT_SELECTION_RADIUS when the
+    // model loads: sqrt(VAR_HALF x sqrt(dx^2 + dy^2)) of animation 0's
+    // bounds (FUN_M2MODEL_HAS_ANIMATION, then GetSequenceInfo), else of the
+    // model's (FUN_M2MODEL_GET_BOUNDING_BOX); float 1.2 when dx and dy are
+    // both 0.
+    SELECTION_RADIUS_FLAT = 0x3F99999A,
+    // The auto-move marker (0x00611400, drawn while the auto-move mode
+    // 0x00C4D888 is 4 or 10): a box of half size s about the target point,
+    // s = min + (max - min) x (sin(VAR_HEADING_TWO_PI x t / period) +
+    // VAR_ONE) x VAR_HALF, t = the OS ms tick mod the period; then the
+    // selection circle's yaw matrix, state and decal, in AUTOMOVE_MARKER_COLOR.
+    // Static .data: nothing in .text writes the three.
+    VAR_AUTOMOVE_MARKER_PERIOD_MS = 0x00860AE0, // uint32 500
+    VAR_AUTOMOVE_MARKER_MIN = 0x00860AE4,       // float 0.5
+    VAR_AUTOMOVE_MARKER_MAX = 0x00860AE8,       // float 0.75
+    AUTOMOVE_MARKER_COLOR = 0xFFFFFF7F,         // ARGB
     // CGUnit vtable slot (byte offset): GetSpellCastingTime `int __thiscall(int
     // spellId)`, the unit's cast time for the spell in ms. The combat log's
     // cast-start line drops a spell it gives 0 (0x0062B460 pushes the

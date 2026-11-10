@@ -1771,22 +1771,12 @@ void FromEye(Matrix &m, const float (&eye)[3]) {
         m[12 + j] += eye[0] * m[j] + eye[1] * m[4 + j] + eye[2] * m[8 + j];
 }
 
-// DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
-// world camera.
-void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
+// DrawDecalBatches' (0x006D7480) states around `draw(color, lighting)`: the
+// ramp on stage 1, the depth bias, texgen from the position through the
+// texture matrices, and the vertex colour (the material instead while
+// lighting is on; red and blue swapped where the device wants them).
+template <typename Draw> void WithDecalStates(uint32_t argb, Draw draw) {
     using Caps_t = const uint8_t *(__fastcall *)();
-    using WriteColored_t = void(__fastcall *)(const void *batch);
-    using Write_t = void(__thiscall *)(const void *batch, uint32_t color);
-    using Indices_t = void(__fastcall *)(const void *batch);
-    struct Prim {
-        uint32_t type, base;
-        uint16_t count, min, max, unused;
-    };
-    using Render_t = void(__fastcall *)(const Prim *prim, int count);
-
-    ResetFacets();
-    if (!CollectBox(b, box, mask))
-        return;
     Gx::PushStates();
     const int blend = Gx::GetState(Offsets::GXRS_BLEND);
     if (blend == Offsets::GXRS_BLEND_MODULATE) {
@@ -1810,6 +1800,20 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
                                Offsets::OFF_GXCAPS_COLOR_SWAP) == 1) {
         color = (argb & 0xFF00FF00u) | (argb & 0xFFu) << 16 | (argb >> 16 & 0xFFu);
     }
+    draw(color, lighting);
+    Gx::PopStates();
+}
+
+// The facet batches CollectBox filled, drawn with the decal states set.
+void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
+    using WriteColored_t = void(__fastcall *)(const void *batch);
+    using Write_t = void(__thiscall *)(const void *batch, uint32_t color);
+    using Indices_t = void(__fastcall *)(const void *batch);
+    struct Prim {
+        uint32_t type, base;
+        uint16_t count, min, max, unused;
+    };
+    using Render_t = void(__fastcall *)(const Prim *prim, int count);
     Matrix toEye;
     Identity(toEye);
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
@@ -1835,17 +1839,22 @@ void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32
         reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
     }
     Gx::PopTransform(kWorldStack);
-    Gx::PopStates();
 }
 
-} // namespace
-
-// DrawDecal (0x006D7330) onto the WMO: the transforms built for absolute
-// positions (the other mode reads the world's camera), moved to the eye.
-void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
-               uint32_t mask, const float (&eye)[3]) {
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+// DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
+// world camera.
+void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
+    ResetFacets();
+    if (!CollectBox(b, box, mask))
         return;
+    WithDecalStates(argb, [&](uint32_t color, int lighting) { DrawFacetBatches(color, lighting, eye); });
+}
+
+// The texture transforms DrawDecal (0x006D7330) builds for absolute
+// positions (the other mode reads the world's camera), moved to the eye,
+// pushed around `draw()`.
+template <typename Draw>
+void WithDecalTransforms(const float (&box)[6], const float (&m)[16], float fade, const float (&eye)[3], Draw draw) {
     using Build_t = void(__fastcall *)(float *tex0, float *tex1, const float *box, const float *m, float fade,
                                        int absolute);
     Matrix tex0, tex1;
@@ -1856,9 +1865,67 @@ void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const fl
     FromEye(tex1, eye);
     Gx::PushTransform(0, tex0);
     Gx::PushTransform(1, tex1);
-    DrawBatches(b, box, argb, mask, eye);
+    draw();
     Gx::PopTransform(0);
     Gx::PopTransform(1);
+}
+
+} // namespace
+
+// DrawDecal (0x006D7330) onto the WMO.
+void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
+               uint32_t mask, const float (&eye)[3]) {
+    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        return;
+    WithDecalTransforms(box, m, fade, eye, [&] { DrawBatches(b, box, argb, mask, eye); });
+}
+
+// The flat ground stands in for the world's faces: one quad over the box at
+// `z`, texgen placing the texture on it as on any face.
+void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16], float fade, float z,
+                      const float (&eye)[3]) {
+    using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *normal,
+                                             int normalStride, const void *colors, int colorStride, int unused8,
+                                             int unused9, const void *uv0, int uv0Stride, const void *uv1,
+                                             int uv1Stride);
+    using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const uint16_t *indices);
+    WithDecalTransforms(box, m, fade, eye, [&] {
+        WithDecalStates(argb, [&](uint32_t color, int) {
+            const float corners[4][2] = {{box[0], box[1]}, {box[3], box[1]}, {box[0], box[4]}, {box[3], box[4]}};
+            float pos[4][3];
+            for (int i = 0; i < 4; ++i) {
+                pos[i][0] = corners[i][0] - eye[0];
+                pos[i][1] = corners[i][1] - eye[1];
+                pos[i][2] = z - eye[2];
+            }
+            const uint32_t colors[4] = {color, color, color, color};
+            static const uint16_t kStrip[4] = {0, 1, 2, 3};
+            reinterpret_cast<PrimStreams_t>(Offsets::FUN_GX_PRIM_STREAMS)(4, pos, 12, nullptr, 0, colors, 4, 0, 0,
+                                                                         nullptr, 0, nullptr, 0);
+            reinterpret_cast<PrimIndexed_t>(Offsets::FUN_GX_PRIM_INDEXED)(Offsets::GX_PRIM_TRIANGLE_STRIP, 4,
+                                                                          kStrip);
+        });
+    });
+}
+
+// The world draws its entity decals in the fog CWorld::SetFogState set for
+// the whole pass (RenderWorldFrame 0x0048361D); the selection circle's state
+// (0x00614E00) turns lighting off, not fog. The scene's paint holds no fog of
+// its own at that point (the device's 0 to 1 in 0xFFFF0080), so the scene's
+// stands in: the WMO's record, as its liquids get their fog, or without a WMO
+// the frame's light and fog, as an actor gets them.
+void CommitDecalFog(const Backdrop *b, void *frame, const float (&point)[3], const float (&eye)[3]) {
+    if (b != nullptr) {
+        CommitLighting(*b, frame, eye);
+        return;
+    }
+    alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE];
+    const float sphere[4] = {point[0], point[1], point[2], 0.0f};
+    reinterpret_cast<void(__thiscall *)(void *, void *, const float *)>(Offsets::FUN_M2LIGHTING_INIT)(record, nullptr,
+                                                                                                     sphere);
+    FrameLightAndFog(record, frame);
+    using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
+    reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
 }
 
 void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {

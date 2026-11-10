@@ -31,6 +31,7 @@
 #include "tick/FrameTick.h"
 
 #include <cstdint>
+#include <cstring>
 
 namespace Target::SoftTargetCircle {
 
@@ -44,10 +45,6 @@ using CircleState_t = void(__thiscall *)(void *obj);
 using DrawDecal_t = void(__fastcall *)(const float box[6], const uint32_t *argb, const float m[16],
                                        float fade, uint32_t flags);
 using GxState_t = void(__cdecl *)();
-
-// The arguments 0x608E00 passes FUN_DRAW_DECAL.
-constexpr float kDecalFade = 0.5f;
-constexpr uint32_t kDecalFlags = 0x200122;
 
 // The soft circle against the target's, from retail screenshots of one unit
 // (Master Wood, same zoom: its title 104 px wide in both) as softfriend and
@@ -89,8 +86,11 @@ void DrawCircle(void *unit, float scale, uint32_t alpha) {
 
     reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_PUSH)();
     reinterpret_cast<CircleState_t>(Offsets::FUN_SELECTION_CIRCLE_STATE)(unit);
-    reinterpret_cast<DrawDecal_t>(Offsets::FUN_DRAW_DECAL)(box, &argb, m, kDecalFade,
-                                                           kDecalFlags);
+    const uint32_t fadeBits = Offsets::DECAL_SELECTION_FADE;
+    float fade;
+    std::memcpy(&fade, &fadeBits, sizeof fade);
+    reinterpret_cast<DrawDecal_t>(Offsets::FUN_DRAW_DECAL)(box, &argb, m, fade,
+                                                           Offsets::DECAL_SELECTION_FLAGS);
     reinterpret_cast<GxState_t>(Offsets::FUN_GX_STATE_POP)();
 }
 

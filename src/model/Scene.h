@@ -158,6 +158,15 @@ class Actor : public Animation::Object {
     uint32_t displayID = 0;
     bool playAnimationSounds = false; // SetPlayAnimationSounds
     bool shadowShown = false;         // SetShadowShown: a blob shadow under the model
+    // SetHighlight: a unit's light bits (CGObject +0xB8, Offsets
+    // CGOBJECT_LIGHT_BIT_*); while any is set the model glows in the scene
+    // light's ambient colour.
+    uint32_t highlightBits = 0;
+    // SetSelectionCircle: a selection circle under the model, in this ARGB.
+    bool selectionCircleShown = false;
+    uint32_t selectionCircle = 0;
+    // The model's emissive colour for the highlight bits.
+    void ApplyHighlight();
     World::Ambience *ambience;        // its light in the scene's WMO (owned)
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.
@@ -446,10 +455,21 @@ bool Sweep(const Backdrop &backdrop, const float (&feet)[3], float radius, float
 // (scene space), as the world lays a decal on its ground.
 void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
                uint32_t mask, const float (&eye)[3]);
+// The same decal in a scene without a WMO: laid on the flat ground at
+// height `z`, one quad over the box.
+void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16], float fade, float z,
+                      const float (&eye)[3]);
+// The scene's fog on the device, for a decal at `point` that the world draws
+// in its own fog: the WMO's, or the frame's without one. Inside a state push.
+void CommitDecalFog(const Backdrop *backdrop, void *frame, const float (&point)[3], const float (&eye)[3]);
 } // namespace World
 
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);
+
+// The scene light's ambient colour {r, g, b}: the colour an actor's highlight
+// takes, as a unit's takes the world light state's ambient.
+const float *LightAmbient(void *sceneFrame);
 
 // The actor the scene's sounds are heard at (SetSoundListenerActor), or null.
 Actor *SoundListener(void *sceneFrame);
