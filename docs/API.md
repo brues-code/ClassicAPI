@@ -853,6 +853,7 @@ build instructions.
   - [`scene:SetSoundListenerActor([actor])` / `scene:GetSoundListenerActor()`](#scenesetsoundlisteneractoractor--scenegetsoundlisteneractor)
   - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
   - [`scene:GetCursorRay()`](#scenegetcursorray)
+  - [`scene:GetActorsInRadius(x, y, z, radius)`](#scenegetactorsinradiusx-y-z-radius)
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
@@ -19626,6 +19627,29 @@ scene:HookScript("OnMouseUp", function(self, button)
         end
     end
 end)
+```
+
+### `scene:GetActorsInRadius(x, y, z, radius)`
+
+Returns a table of the actors near a point, in scene coordinates. The
+table holds each shown actor with a model that is not more than `radius`
+yards from the point. The distance includes the height.
+
+The nearest actor is first. Actors at the same distance keep the order in
+which the scene created them. When no actor is near the point, the table
+is empty.
+
+The function uses the position that `actor:GetPosition` returns. The size
+of the model does not change the result. This is a ClassicAPI extension.
+
+```lua
+-- A cleave hits each actor within 5 yards of the warrior.
+local x, y, z = warrior:GetPosition()
+for _, actor in ipairs(scene:GetActorsInRadius(x, y, z, 5)) do
+    if actor ~= warrior then
+        Hit(actor)
+    end
+end
 ```
 
 ### `OnActorEnter` / `OnActorLeave`
