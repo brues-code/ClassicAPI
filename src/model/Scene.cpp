@@ -120,6 +120,7 @@
 #include "model/M2.h"
 #include "xml/FrameLoad.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -1184,6 +1185,45 @@ int __fastcall Script_GetCursorRay(void *L) {
     return 6;
 }
 
+// The client's nearest-unit collector (0x00494200, for TargetNearest*) on the
+// scene's actors: a shown actor with a model (the collector keeps a unit
+// whose scene node is drawn, 0x006704C0) whose squared distance from the
+// point, in three axes, is not more than the squared radius; the list goes
+// nearest first, as its sort (0x00494450) orders a kind. Ties keep creation
+// order.
+int __fastcall Script_GetActorsInRadius(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || !NumberArgs(L, 2, 4, Game::Lua::ObjectDisplayName(frame),
+                                        "GetActorsInRadius(pointX, pointY, pointZ, radius)"))
+        return 0;
+    const Vec3 point = Vec3Args(L, 2);
+    const float radius = FloatArg(L, 5);
+    struct Hit {
+        float distanceSq;
+        Actor *actor;
+    };
+    std::vector<Hit> hits;
+    for (Actor *actor : *F(frame).actors) {
+        if (!actor->shown || actor->model == nullptr)
+            continue;
+        const float dx = actor->position[0] - point.x;
+        const float dy = actor->position[1] - point.y;
+        const float dz = actor->position[2] - point.z;
+        const float distanceSq = dx * dx + dy * dy + dz * dz;
+        if (distanceSq <= radius * radius)
+            hits.push_back({distanceSq, actor});
+    }
+    std::stable_sort(hits.begin(), hits.end(),
+                     [](const Hit &a, const Hit &b) { return a.distanceSq < b.distanceSq; });
+    Game::Lua::NewTable(L);
+    int n = 0;
+    for (const Hit &hit : hits) {
+        Animation::Push(L, hit.actor);
+        Game::Lua::RawSetI(L, -2, ++n);
+    }
+    return 1;
+}
+
 int __fastcall Script_SetViewInsets(void *L) {
     void *frame = Self(L);
     if (frame == nullptr || !NumberArgs(L, 2, 4, Game::Lua::ObjectDisplayName(frame),
@@ -1600,6 +1640,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
     {"GetActorAtCursor", &Script_GetActorAtCursor},
     {"GetCursorRay", &Script_GetCursorRay},
+    {"GetActorsInRadius", &Script_GetActorsInRadius},
     {"SetViewInsets", &Script_SetViewInsets},
     {"GetViewInsets", &Script_GetViewInsets},
     {"SetViewTranslation", &Script_SetViewTranslation},
@@ -1864,6 +1905,17 @@ const Game::Doc::Function kGetCursorRay{
     "under it on the far clip, in scene coordinates. Returns nothing when the cursor is not over the "
     "picture of the scene, or the scene is hidden.",
     {}, kCursorRayRets, nullptr, true};
+const Game::Doc::Field kRadiusArgs[] = {
+    Req("pointX", "number"), Req("pointY", "number"), Req("pointZ", "number"),
+    Req("radius", "number", "In yards."),
+};
+const Game::Doc::Field kRadiusRets[] = {
+    Req("actors", "table", "The actors, nearest first. Actors at the same distance stay in creation order."),
+};
+const Game::Doc::Function kGetActorsInRadius{
+    "Returns the shown actors with a model whose position is not more than the radius from the point, "
+    "in scene coordinates. The list is empty when no actor is in the radius.",
+    kRadiusArgs, kRadiusRets, nullptr, true};
 const Game::Doc::Field kInsetArgs[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
                                        Req("bottom", "number")};
 const Game::Doc::Field kInsetRets[] = {Req("left", "number"), Req("right", "number"), Req("top", "number"),
@@ -1928,6 +1980,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"GetActorAtCursor", &kGetActorAtCursor},
     {"GetCursorRay", &kGetCursorRay},
+    {"GetActorsInRadius", &kGetActorsInRadius},
     {"SetViewInsets", &kSetViewInsets},
     {"GetViewInsets", &kGetViewInsets},
     {"SetViewTranslation", &kSetViewTranslation},
