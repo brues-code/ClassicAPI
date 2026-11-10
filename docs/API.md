@@ -852,6 +852,7 @@ build instructions.
   - [Scene sounds](#scene-sounds)
   - [`scene:SetSoundListenerActor([actor])` / `scene:GetSoundListenerActor()`](#scenesetsoundlisteneractoractor--scenegetsoundlisteneractor)
   - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
+  - [`scene:GetCursorRay()`](#scenegetcursorray)
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
@@ -19595,6 +19596,37 @@ an actor.
 The function returns nothing when the cursor is outside the frame, when
 the frame is hidden, and before the scene draws the actor for the first
 time. This is a ClassicAPI extension.
+
+### `scene:GetCursorRay()`
+
+Returns the line through the cursor, in scene coordinates:
+`nearX, nearY, nearZ, farX, farY, farZ`. The first point is under the
+cursor on the near clip, and the second point is under the cursor on the
+far clip. The line goes the same way as the line of sight of the camera
+through that point of the picture.
+
+The function returns nothing when the cursor is not over the picture of
+the scene, and when the frame is hidden. This is a ClassicAPI extension.
+
+To find the point of the WMO under the cursor, give the line to
+[`scene:TraceSegment`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera).
+The world finds the point of a mouse click in the same way.
+
+```lua
+-- A right click sends the runner to the floor under the cursor.
+scene:HookScript("OnMouseUp", function(self, button)
+    if button ~= "RightButton" then
+        return
+    end
+    local nearX, nearY, nearZ, farX, farY, farZ = self:GetCursorRay()
+    if nearX then
+        local x, y, z = self:TraceSegment(nearX, nearY, nearZ, farX, farY, farZ)
+        if x then
+            runner:MoveTo(x, y, z)
+        end
+    end
+end)
+```
 
 ### `OnActorEnter` / `OnActorLeave`
 
