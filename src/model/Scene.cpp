@@ -626,6 +626,57 @@ void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) 
     DrawSelectionDecal(frame, world, box, Offsets::AUTOMOVE_MARKER_COLOR, p, p[2], eye);
 }
 
+// ---- the ground-target reticle (SetGroundReticle) ----------------------------------
+//
+// The world shows where a ground-targeted spell will land with one reticle
+// at the pointer (0x004837B0); here any actor can show one at its position,
+// so a scene can mark several spots at once. The world's recipe: the box
+// about the point, half size the radius across (1.3888889 for a radius of
+// 0) and 2 yards up and down; inside a state push lighting and depth write
+// off, blend 2 and the in-range or out-of-range texture; then the decal in
+// white, with no texture matrix (it does not turn with the camera, as the
+// selection circle does) and fade 0.5, onto terrain and buildings. It is
+// drawn after the opaque models and before the water and the translucent
+// models (0x004836B0), in the world's fog, so here in the scene's
+// (World::CommitDecalFog). Without a WMO it lies on the flat ground at the
+// actor's height. The textures exist once the world frame is built, so at
+// the login and character screens no reticle shows.
+
+void DrawGroundReticle(void *frame, const Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+    if (!actor.groundReticleShown || !actor.shown)
+        return;
+    void *texture = Game::Read<void *>(actor.groundReticleValid ? Offsets::VAR_RETICLE_TEXTURE_ACCEPTABLE
+                                                                : Offsets::VAR_RETICLE_TEXTURE_UNACCEPTABLE);
+    if (texture == nullptr)
+        return;
+    const float r = GroundReticleRadius(actor);
+    const float(&p)[3] = actor.position;
+    const float two = Game::Read<float>(Offsets::VAR_TWO);
+    const float box[6] = {p[0] - r, p[1] - r, p[2] - two, p[0] + r, p[1] + r, p[2] + two};
+    float m[16];
+    Gx::Identity(m);
+    const uint32_t fadeBits = Offsets::RETICLE_FADE;
+    float fade;
+    std::memcpy(&fade, &fadeBits, sizeof fade);
+    Gx::PushStates();
+    World::CommitDecalFog(world, frame, p, eye);
+    Gx::SetState(Offsets::GXRS_LIGHTING, 0);
+    Gx::SetState(Offsets::GXRS_DEPTH_WRITE, 0);
+    Gx::SetState(Offsets::GXRS_BLEND, Offsets::RETICLE_BLEND);
+    Gx::SetState(Offsets::GXRS_TEXTURE0, Texture::DeviceTexture(texture));
+    if (world != nullptr)
+        World::DrawDecal(*world, box, Offsets::RETICLE_COLOR, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
+    else
+        World::DrawDecalOnPlane(box, Offsets::RETICLE_COLOR, m, fade, p[2], eye);
+    Gx::PopStates();
+}
+
+void DrawGroundReticles(void *frame, const float (&eye)[3]) {
+    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+    for (const Actor *actor : *F(frame).actors)
+        DrawGroundReticle(frame, *actor, world, eye);
+}
+
 // What the world lays on the ground under its entities, for the actors.
 void DrawGroundDecals(void *frame, const float (&eye)[3]) {
     World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
@@ -682,6 +733,7 @@ void __fastcall Paint(void *frame) {
             World::Draw(*world, frame, eye);
         DrawGroundDecals(frame, eye);
         M2::DrawScene(scene, 0);
+        DrawGroundReticles(frame, eye);
         // The world's frame draws its liquids before the translucent models
         // over the water and, with the camera in liquid, after them
         // (0x004836D6).
@@ -2281,6 +2333,17 @@ World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 Actor *SoundListener(void *sceneFrame) { return F(sceneFrame).listener; }
 
 const float *LightAmbient(void *sceneFrame) { return AmbientOf(sceneFrame); }
+
+float GroundReticleRadius(const Actor &actor) {
+    if (actor.groundReticleRadius != 0.0f)
+        return actor.groundReticleRadius;
+    const uint32_t bits = Offsets::RETICLE_DEFAULT_RADIUS;
+    float radius;
+    std::memcpy(&radius, &bits, sizeof radius);
+    return radius;
+}
+
+bool IsPaused(void *sceneFrame) { return F(sceneFrame).paused != 0; }
 
 uint32_t ClockMs(void *sceneFrame) {
     return Game::Read<uint32_t>(Model::Pane::Scene(sceneFrame), Offsets::OFF_M2SCENE_TIME);

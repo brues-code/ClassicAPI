@@ -1845,6 +1845,37 @@ int __fastcall Script_GetSelectionCircle(void *L) {
     return 4;
 }
 
+// The world's ground-target reticle at the actor's position (Scene.cpp,
+// DrawGroundReticle). A radius of 0 takes the world's default.
+int __fastcall Script_SetGroundReticle(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (Game::Lua::IsNumber(L, 2) == 0 || !(FloatArg(L, 2) >= 0.0f)) {
+        Game::Lua::Error(L, "Usage: %s:SetGroundReticle(radius [, valid])", actor->DisplayName());
+        return 0;
+    }
+    actor->groundReticleRadius = FloatArg(L, 2);
+    actor->groundReticleValid = Game::Lua::Type(L, 3) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 3) != 0;
+    actor->groundReticleShown = true;
+    return 0;
+}
+
+int __fastcall Script_ClearGroundReticle(void *L) {
+    if (Actor *actor = Self(L))
+        actor->groundReticleShown = false;
+    return 0;
+}
+
+int __fastcall Script_GetGroundReticle(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !actor->groundReticleShown)
+        return 0;
+    Game::Lua::PushNumber(L, GroundReticleRadius(*actor));
+    Game::Lua::PushBool(L, actor->groundReticleValid);
+    return 2;
+}
+
 void ClearName(Actor &actor) {
     actor.nameText.clear();
     actor.DropNameString();
@@ -2600,6 +2631,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetSelectionCircle", &Script_SetSelectionCircle},
     {"ClearSelectionCircle", &Script_ClearSelectionCircle},
     {"GetSelectionCircle", &Script_GetSelectionCircle},
+    {"SetGroundReticle", &Script_SetGroundReticle},
+    {"ClearGroundReticle", &Script_ClearGroundReticle},
+    {"GetGroundReticle", &Script_GetGroundReticle},
     {"SetNameText", &Script_SetNameText},
     {"ClearNameText", &Script_ClearNameText},
     {"GetNameText", &Script_GetNameText},
@@ -2979,6 +3013,19 @@ const Game::Doc::Function kSetSelectionCircle{
     "It shows while the ObjectSelectionCircle cvar is on.",
     kSelectionCircleColor, {}, nullptr, true};
 const Game::Doc::Function kClearSelectionCircle{"Hides the selection circle.", {}, {}, nullptr, true};
+const Game::Doc::Field kReticleArgs[] = {
+    Req("radius", "number", "The radius in yards. 0 takes the size of the world's reticle."),
+    Opt("valid", "bool", "true", "False shows the out-of-range reticle."),
+};
+const Game::Doc::Field kReticleRet[] = {Req("radius", "number"), Req("valid", "bool")};
+const Game::Doc::Function kSetGroundReticle{
+    "Shows the world's ground-target reticle on the ground at the actor's position, as the world shows "
+    "where a spell such as Blizzard will land.",
+    kReticleArgs, {}, nullptr, true};
+const Game::Doc::Function kClearGroundReticle{"Hides the ground-target reticle.", {}, {}, nullptr, true};
+const Game::Doc::Function kGetGroundReticle{
+    "Returns the reticle's radius and whether it shows in range, or nothing when it is hidden.", {},
+    kReticleRet, nullptr, true};
 const Game::Doc::Function kGetSelectionCircle{
     "Returns the colour of the selection circle. Returns nothing while the actor has none.", {},
     kSelectionCircleColor, nullptr, true};
@@ -3221,6 +3268,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetSelectionCircle", &kSetSelectionCircle},
     {"ClearSelectionCircle", &kClearSelectionCircle},
     {"GetSelectionCircle", &kGetSelectionCircle},
+    {"SetGroundReticle", &kSetGroundReticle},
+    {"ClearGroundReticle", &kClearGroundReticle},
+    {"GetGroundReticle", &kGetGroundReticle},
     {"SetNameText", &kSetNameText},
     {"ClearNameText", &kClearNameText},
     {"GetNameText", &kGetNameText},

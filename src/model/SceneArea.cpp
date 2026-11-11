@@ -33,6 +33,9 @@
 // - The kit's sound loops on the area (0x005D569C), and stops with a 3.0
 //   second fade (0x005D56D0).
 //
+// The world has no pause; a paused scene (or actor) holds its shards still
+// and silences the loop, which starts again when the pause ends.
+//
 // The random draws are the client's own (its random state 0x00882664). The
 // traces are the scene's WMO (World::Trace); a scene without a WMO has no
 // floor, so there its shards land at the area's height. The scene clock
@@ -231,7 +234,10 @@ void Update(Actor &actor, float sceneSec) {
     else if (!wanted && emitter.running)
         Stop(actor);
     if (emitter.running) {
-        if (emitter.soundID > 0 && emitter.loopSound == nullptr)
+        const bool held = IsPaused(actor.SceneFrame()) || actor.paused || actor.globalPaused;
+        if (held)
+            StopLoop(emitter, 0.0f);
+        else if (emitter.soundID > 0 && emitter.loopSound == nullptr)
             emitter.loopSound = Sounds::Loop(actor.SceneFrame(), emitter.soundID, actor.position);
         if (emitter.path != nullptr) {
             emitter.accumulator += static_cast<double>(sceneSec) * emitter.rate;

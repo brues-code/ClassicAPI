@@ -209,6 +209,12 @@ class Actor : public Animation::Object {
     // SetSelectionCircle: a selection circle under the model, in this ARGB.
     bool selectionCircleShown = false;
     uint32_t selectionCircle = 0;
+    // SetGroundReticle: the world's ground-target reticle at the actor's
+    // position: its radius as given (0 takes the world's default) and
+    // whether it shows the in-range texture.
+    bool groundReticleShown = false;
+    float groundReticleRadius = 0.0f;
+    bool groundReticleValid = true;
     // The model's emissive colour for the highlight bits.
     void ApplyHighlight();
     // SetNameText: the name over the head, drawn as the world draws a unit's
@@ -557,6 +563,11 @@ const float *LightAmbient(void *sceneFrame);
 // on it as a unit's runs on the OS clock, so it stops while the scene is
 // paused or hidden, with the animations.
 uint32_t ClockMs(void *sceneFrame);
+// Whether SetPaused holds the scene.
+bool IsPaused(void *sceneFrame);
+// The radius the actor's ground-target reticle draws at: its own, or the
+// world's default for 0 (Offsets::RETICLE_DEFAULT_RADIUS).
+float GroundReticleRadius(const Actor &actor);
 
 // The actor the scene's sounds are heard at (SetSoundListenerActor), or null.
 Actor *SoundListener(void *sceneFrame);

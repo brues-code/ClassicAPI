@@ -5427,6 +5427,24 @@ enum Offsets {
     // (0x00608E00) and the auto-move marker (0x00611400): 0.5, 0x200122.
     DECAL_SELECTION_FADE = 0x3F000000,
     DECAL_SELECTION_FLAGS = 0x200122,
+    // The ground-target reticle (WorldFrame, 0x004837B0, the path without a
+    // placement model; verified by disassembly): the box is the point +- the
+    // radius in x and y and +- VAR_TWO in z, a radius of 0 taking
+    // RETICLE_DEFAULT_RADIUS (1.3888889, stored at 0x00483858); lighting
+    // (0xE) and depth write (0x12) off, blend RETICLE_BLEND (2, alpha), the
+    // state's texture at stage 0x17 (GXRS_TEXTURE0), then DrawDecal with
+    // RETICLE_COLOR, no texture matrix, fade RETICLE_FADE (0.5) and the
+    // receiver class 0x200122 (terrain and buildings, the first of its two
+    // passes; the second, 0xF0000, is the liquids). Its two textures, loaded
+    // when the world frame is built (0x00481C00) and indexed by the state
+    // 0x0083DC2C at 0x00483922: Interface\SpellShadow\Spell-Shadow-Acceptable
+    // (0, in range) and Spell-Shadow-Unacceptable (1, out of range).
+    VAR_RETICLE_TEXTURE_ACCEPTABLE = 0x00B4B344,
+    VAR_RETICLE_TEXTURE_UNACCEPTABLE = 0x00B4B348,
+    RETICLE_DEFAULT_RADIUS = 0x3FB1C71C,
+    RETICLE_BLEND = 2,
+    RETICLE_COLOR = 0xFFFFFFFF,
+    RETICLE_FADE = 0x3F000000,
     // The radius 0x0060AEE0 stores at OFF_CGUNIT_SELECTION_RADIUS when the
     // model loads: sqrt(VAR_HALF x sqrt(dx^2 + dy^2)) of animation 0's
     // bounds (FUN_M2MODEL_HAS_ANIMATION, then GetSequenceInfo), else of the
