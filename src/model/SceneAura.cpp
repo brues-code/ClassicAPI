@@ -1,0 +1,221 @@
+// This file is part of ClassicAPI.
+//
+// ClassicAPI is free software: you can redistribute it and/or modify it under the terms
+// of the GNU General Public License as published by the Free Software Foundation, either
+// version 3 of the License, or (at your option) any later version.
+//
+// ClassicAPI is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+// PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
+
+// `actor:AddAuraVisual(spellID)` / `actor:RemoveAuraVisual([spellID])`, a
+// ClassicAPI extension: the auras an actor carries, shown as the world shows
+// a unit's. A unit shows each aura on it at once, where SetSpellVisualKit
+// holds one kit:
+//   - A new aura (0x005FF350 shows an aura slot): the state kit of the
+//     spell's visual (+0x10) plays as a lasting kit (kind 2, 0x0060EDF0).
+//     Each effect column's model hangs at its attachment and holds 158 Hold
+//     at each end (KitEffectHoldCallback 0x005FF170). The +0x30 world effect
+//     is planted where the unit stands (PlantEffect 0x0061FCF0), turned by
+//     its facing and scaled by its scale (0x00620A90), and it follows the
+//     unit when the spell roots (aura 26: flag 0x4000, re-placed at the
+//     owner each update, 0x006205A5). The kit's tint and alpha apply.
+//   - The aura's end (0x005FF290 clears the slot and stops the spell's kits
+//     with force, 0x00614150): an effect whose model is loaded and has 159
+//     Decay plays it and stops at its end; any other stops at once
+//     (CEffect::Stop 0x006203E0: hidden, its particles finish).
+// One aura slot holds a spell, so each spell shows once. The auras outlive
+// a model change: the new model shows them once it loads, as
+// SetSpellVisualKit's kit. ClearModel ends them, as the pool releases an
+// actor through it.
+//
+// What the world does and this does not: the state kit's animation (the
+// stationary pin puts it in place of the stand while the unit stands,
+// benilla animation/units), its sound, and the auras' priorities and
+// visions (a scene shows every aura it is given).
+
+#include "model/Scene.h"
+
+#include "Game.h"
+#include "Offsets.h"
+#include "dbc/Lookup.h"
+#include "model/M2.h"
+#include "model/VisualKit.h"
+
+#include <cstdint>
+#include <memory>
+#include <utility>
+#include <vector>
+
+namespace Model::Scene::AuraVisuals {
+namespace {
+
+const uint8_t *Spell(uint32_t spellID) {
+    return DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, spellID);
+}
+
+// The state kit of the spell's visual (GetSpellVisualRecord), or null.
+const uint8_t *StateKit(const uint8_t *spell) {
+    using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
+    const uint8_t *visual = reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell);
+    return visual != nullptr
+               ? Model::VisualKit::Record(Game::Read<uint32_t>(visual, Offsets::OFF_SPELLVISUAL_STATE_KIT))
+               : nullptr;
+}
+
+// A spell with a root aura in one of its effects: its world effect follows
+// the unit (flag 0x4000).
+bool Roots(const uint8_t *spell) {
+    for (int i = 0; i < 3; ++i) {
+        if (Game::Read<int32_t>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_APPLY_AURA_NAME + i * 4) ==
+            Offsets::SPELL_AURA_MOD_ROOT)
+            return true;
+    }
+    return false;
+}
+
+void ShowOne(Actor &actor, AuraVisual &aura) {
+    if (aura.shown || actor.model == nullptr || !actor.loaded)
+        return;
+    aura.shown = true;
+    void *frame = actor.SceneFrame();
+    Model::VisualKit::Apply(frame, actor.model, aura.kit, false, &aura.effects);
+    const uint8_t *effect =
+        DBC::Record(Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
+                    Game::Read<uint32_t>(aura.kit, Offsets::OFF_SPELLVISUALKIT_WORLD_EFFECT));
+    if (effect == nullptr)
+        return;
+    void *planted =
+        M2::CreateModel(Model::Pane::Scene(frame), Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
+    if (planted == nullptr)
+        return;
+    aura.worldEffect = planted;
+    for (int i = 0; i < 3; ++i)
+        aura.worldPosition[i] = actor.position[i];
+    aura.worldYaw = actor.ShownYaw();
+    aura.worldScale = actor.scale > 0.0f ? actor.scale : 1.0f;
+    LightAsEntity(planted, aura.worldLight, frame);
+    M2::SetAnimDoneCallback(planted, Model::VisualKit::LoopCallback(), 0, 0);
+}
+
+// The aura's effects go: stopped as its end stops them, or at once with the
+// model.
+void HideOne(Actor &actor, AuraVisual &aura, bool stop) {
+    void *frame = actor.SceneFrame();
+    for (void *effect : aura.effects) {
+        if (stop) {
+            Model::VisualKit::Stop(frame, effect);
+        } else {
+            M2::Detach(effect);
+            M2::Release(effect);
+        }
+    }
+    aura.effects.clear();
+    if (aura.worldEffect != nullptr) {
+        if (stop) {
+            Casts::Retire(actor, aura.worldEffect, std::move(aura.worldLight));
+        } else {
+            M2::SetAnimDoneCallback(aura.worldEffect, nullptr, 0, 0);
+            ReleaseLit(aura.worldEffect, aura.worldLight);
+        }
+        aura.worldEffect = nullptr;
+    }
+    aura.shown = false;
+}
+
+} // namespace
+
+bool Add(Actor &actor, uint32_t spellID) {
+    for (const AuraVisual &aura : actor.auraVisuals) {
+        if (aura.spellID == spellID)
+            return true;
+    }
+    const uint8_t *spell = Spell(spellID);
+    const uint8_t *kit = spell != nullptr ? StateKit(spell) : nullptr;
+    if (kit == nullptr)
+        return false;
+    AuraVisual aura;
+    aura.spellID = spellID;
+    aura.kit = kit;
+    aura.worldFollows = Roots(spell);
+    actor.auraVisuals.push_back(std::move(aura));
+    ShowOne(actor, actor.auraVisuals.back());
+    return true;
+}
+
+void Remove(Actor &actor, uint32_t spellID) {
+    bool colored = false;
+    for (size_t i = 0; i < actor.auraVisuals.size();) {
+        AuraVisual &aura = actor.auraVisuals[i];
+        if (spellID != 0 && aura.spellID != spellID) {
+            ++i;
+            continue;
+        }
+        colored = colored || (aura.shown && Model::VisualKit::SetsColor(aura.kit));
+        HideOne(actor, aura, true);
+        actor.auraVisuals.erase(actor.auraVisuals.begin() + static_cast<ptrdiff_t>(i));
+    }
+    // The aura's tint goes: the model's own color, then the kits still on it.
+    if (colored && actor.model != nullptr) {
+        const float white[3] = {1.0f, 1.0f, 1.0f};
+        M2::SetDiffuse(actor.model, white);
+        actor.ApplyAlpha();
+        if (const uint8_t *kit = Model::VisualKit::Record(actor.spellVisualKit))
+            Model::VisualKit::ApplyProcedures(actor.model, kit);
+        ApplyColors(actor);
+    }
+}
+
+void Show(Actor &actor) {
+    for (AuraVisual &aura : actor.auraVisuals)
+        ShowOne(actor, aura);
+}
+
+void Drop(Actor &actor) {
+    for (AuraVisual &aura : actor.auraVisuals)
+        HideOne(actor, aura, false);
+}
+
+void ApplyColors(Actor &actor) {
+    if (actor.model == nullptr)
+        return;
+    for (const AuraVisual &aura : actor.auraVisuals) {
+        if (aura.shown)
+            Model::VisualKit::ApplyProcedures(actor.model, aura.kit);
+    }
+}
+
+void Update(Actor &actor, float elapsedSec) {
+    for (AuraVisual &aura : actor.auraVisuals) {
+        if (aura.worldEffect != nullptr)
+            SettleLight(aura.worldEffect, aura.worldLight.get(), elapsedSec);
+    }
+}
+
+void Link(Actor &actor) {
+    for (AuraVisual &aura : actor.auraVisuals) {
+        if (aura.worldEffect == nullptr || !M2::IsReady(aura.worldEffect, 0, 1))
+            continue;
+        M2::SetVisible(aura.worldEffect, actor.shown);
+        M2::SetAnimated(aura.worldEffect, true);
+    }
+}
+
+void Place(Actor &actor) {
+    const float axisZ[3] = {0.0f, 0.0f, 1.0f};
+    for (AuraVisual &aura : actor.auraVisuals) {
+        if (aura.worldEffect == nullptr)
+            continue;
+        if (aura.worldFollows) {
+            for (int i = 0; i < 3; ++i)
+                aura.worldPosition[i] = actor.position[i];
+        }
+        const float scales[3] = {aura.worldScale, aura.worldScale, aura.worldScale};
+        M2::SetBaseTRS(aura.worldEffect, aura.worldPosition, aura.worldYaw, axisZ, scales);
+    }
+}
+
+} // namespace Model::Scene::AuraVisuals

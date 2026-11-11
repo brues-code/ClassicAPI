@@ -145,6 +145,23 @@ struct AreaShard {
     std::unique_ptr<EntityLight> light;
 };
 
+// An aura the actor shows (AddAuraVisual, model/SceneAura.cpp): the state kit
+// of its spell's visual, held while the aura lasts.
+struct AuraVisual {
+    uint32_t spellID = 0;
+    const uint8_t *kit = nullptr; // the SpellVisualKit record
+    bool shown = false;           // on the loaded model
+    std::vector<void *> effects;  // one reference each
+    // The kit's world effect, planted where the actor stood (turned by its
+    // facing, scaled by its scale), following it for a spell that roots.
+    void *worldEffect = nullptr; // one reference
+    std::unique_ptr<EntityLight> worldLight;
+    float worldPosition[3] = {};
+    float worldYaw = 0.0f;
+    float worldScale = 1.0f;
+    bool worldFollows = false;
+};
+
 // The area kit of a spell's ground area while it runs: the shard emitter
 // (0x006EB930) and the kit's looping sound.
 struct AreaEmitter {
@@ -352,6 +369,8 @@ class Actor : public Animation::Object {
     bool kitWorldDone = false;
     // ApplySpellVisualKit calls made before the model loaded: {kit, oneShot}.
     std::vector<std::pair<uint32_t, bool>> pendingKits;
+    // The auras shown (AddAuraVisual), one per spell, in the order added.
+    std::vector<AuraVisual> auraVisuals;
 
     // A spell kit's animation, shown in place of `animation` (-1 none): a
     // precast's loops, a cast's or an impact's plays once.
@@ -422,6 +441,10 @@ void Link(Actor &caster);
 void Place(Actor &caster);
 // Drops every cast, missile and impact model of the caster.
 void Drop(Actor &caster);
+// A planted effect of the caster's stops (CEffect::Stop 0x006203E0, after
+// 159 Decay when its model has it, 0x00614150) and joins the impact list,
+// which frees it once its particles are gone. Takes the model's reference.
+void Retire(Actor &caster, void *model, std::unique_ptr<EntityLight> light);
 // Stops the missiles' loop sounds (the scene hid; its update stops).
 void Silence(Actor &caster);
 } // namespace Casts
@@ -450,6 +473,26 @@ void Forget(Actor &actor);
 // The scene goes.
 void Destroy(void *frame);
 } // namespace Chains
+
+// The auras an actor shows (model/SceneAura.cpp).
+namespace AuraVisuals {
+// The spell's aura joins the actor's, its state kit shown once the model has
+// loaded. False when the spell's visual has no state kit.
+bool Add(Actor &actor, uint32_t spellID);
+// The spell's aura goes (0 for every aura): its effects decay or stop.
+void Remove(Actor &actor, uint32_t spellID);
+// The model loaded: the auras show on it.
+void Show(Actor &actor);
+// The model goes: the auras' effects go with it, the auras stay.
+void Drop(Actor &actor);
+// The tint and alpha of the auras shown, after a kit reset the model's.
+void ApplyColors(Actor &actor);
+// From the actor's update, link and place: the world effects' light,
+// visibility and placement.
+void Update(Actor &actor, float elapsedSec);
+void Link(Actor &actor);
+void Place(Actor &actor);
+} // namespace AuraVisuals
 
 // The area kit of an actor that shows a spell's ground area
 // (model/SceneArea.cpp): its shard emitter and its looping sound.

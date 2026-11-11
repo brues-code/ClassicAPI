@@ -906,6 +906,8 @@ build instructions.
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])`](#actorplayspellvisualspellid--target--casttimems--channeltimems)
   - [`actor:PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])`](#actorplayspellvisualatpointspellid-x-y-z--casttimems--channeltimems)
   - [`actor:StopSpellVisual([castID])`](#actorstopspellvisualcastid)
+  - [`actor:AddAuraVisual(spellID)`](#actoraddauravisualspellid)
+  - [`actor:RemoveAuraVisual([spellID])`](#actorremoveauravisualspellid)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
   - [`actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`](#actorsetmovementenabledenabled--actorismovementenabled)
   - [Movement commands](#movement-commands)
@@ -20629,6 +20631,39 @@ stops in the middle of a cast. This is a ClassicAPI extension.
 ```lua
 boss:StopSpellVisual()
 boss:SetAnimation(1) -- death
+```
+
+### `actor:AddAuraVisual(spellID)`
+
+Shows the aura of a spell on this actor, as a unit in the world shows an
+aura that it carries. It returns `true`, or `false` when the spell has no
+aura visual. The effects of the aura stay on the actor until
+`RemoveAuraVisual`. For example, the orbs of Lightning Shield circle the
+actor. Some auras also leave an effect on the ground where the actor
+stands. The ground effect of a spell that roots, for example the ice of
+Frost Nova, moves with the actor. Some auras also change the color of the
+actor.
+
+An actor shows any number of auras at the same time, and they show next to
+the kit of `SetSpellVisualKit`. A spell shows one time: when you add the
+same spell again, nothing changes. The auras stay when the actor gets a new
+model, and they show again when the new model has loaded. `ClearModel`
+removes them. This is a ClassicAPI extension.
+
+```lua
+hero:AddAuraVisual(324)  -- Lightning Shield
+hero:AddAuraVisual(17)   -- Power Word: Shield, at the same time
+```
+
+### `actor:RemoveAuraVisual([spellID])`
+
+Removes the aura of a spell from this actor. Without `spellID`, it removes
+every aura. The effects end as they do in the world: some fade out, the
+others stop, and their particles go when their time ends. The color that
+the aura gave goes too. This is a ClassicAPI extension.
+
+```lua
+hero:RemoveAuraVisual(324)
 ```
 
 ### `actor:PlaySound(soundKitID)`

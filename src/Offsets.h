@@ -6434,6 +6434,13 @@ enum Offsets {
     OFF_SPELLVISUAL_PRECAST_KIT = 0x04,
     OFF_SPELLVISUAL_CAST_KIT = 0x08,
     OFF_SPELLVISUAL_IMPACT_KIT = 0x0C,
+    // The state kit: a unit plays it as a lasting (kind 2) kit while it
+    // carries the spell's aura (0x005FF350 shows an aura slot), and the
+    // aura's removal stops it (0x005FF290 -> 0x00614150 with force 1).
+    // Verified by parsing SpellVisual.dbc: Lightning Shield's row 37 has 292
+    // (LightningShield_State_Base), Inferno Effect's row 2816 has 349
+    // (StunSwirl_State_Head).
+    OFF_SPELLVISUAL_STATE_KIT = 0x10,
     // The channel kit: a unit whose UNIT_CHANNEL_SPELL becomes the spell plays
     // it as a lasting (kind 2) kit (0x00612A30), and its animation is the
     // unit's while it channels (0x00612990 reads +0x14, benilla
@@ -6477,6 +6484,11 @@ enum Offsets {
     // KitEffectDecayCallback (0x005FF1D0) plays it again until the effect's
     // end time, which a state kit leaves at 0, so it holds until the aura goes.
     ANIM_HOLD = 158,
+    // Decay (AnimationData.dbc), a held effect's end: when a spell's kits stop
+    // with force (an aura's removal), an effect whose model is loaded and has
+    // it plays it and stops when it ends (0x006141C0, done callback
+    // 0x006141F0); any other stops at once (0x006141D8).
+    ANIM_DECAY = 159,
     // The area kit's shard emitter (0x005D55C0 -> 0x006ECE30 -> 0x006EB930;
     // the shards 0x006EBB30..0x006EBDA9), verified by disassembly and by
     // reading the binary: the procedure kind that starts it (cmp [ecx], 9 at

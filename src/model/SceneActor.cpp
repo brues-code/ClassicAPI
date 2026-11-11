@@ -358,6 +358,7 @@ void ReleaseModel(Actor &actor) {
     CloseRanged(actor);
     Casts::Drop(actor);
     DropKitEffects(actor);
+    AuraVisuals::Drop(actor);
     M2::SetAnimDoneCallback(actor.model, nullptr, 0, 0);
     M2::SetEventCallback(actor.model, nullptr, 0, 0);
     M2::SetVisible(actor.model, false);
@@ -686,6 +687,7 @@ void Actor::ClearModel() {
     if (model == nullptr)
         return;
     ReleaseModel(*this);
+    auraVisuals.clear(); // a released actor goes back to its pool bare
     RunScript(S_ONMODELCLEARED, 0);
 }
 
@@ -732,6 +734,7 @@ void Actor::SetSpellVisualKit(uint32_t kitID, bool oneShot) {
     spellVisualKit = kitID;
     spellVisualKitOneShot = oneShot;
     ApplyKit(*this);
+    AuraVisuals::ApplyColors(*this); // the kit's drop reset the color
 }
 
 namespace {
@@ -1112,6 +1115,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             loaded = true;
             PutOnWaiting(*this);
             ApplyKit(*this);
+            AuraVisuals::Show(*this);
             for (const auto &[kitID, oneShot] : pendingKits)
                 if (const uint8_t *kit = Model::VisualKit::Record(kitID))
                     Model::VisualKit::Apply(SceneFrame(), model, kit, oneShot);
@@ -1171,6 +1175,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
     WriteStringUnit(*this);
     Casts::Update(*this, sceneSec);
     Areas::Update(*this, sceneSec);
+    AuraVisuals::Update(*this, sceneSec);
     if (kitWorldEffect != nullptr)
         SettleLight(kitWorldEffect, kitWorldLight.get(), sceneSec);
     // The casts that reached their target, with (spellID, target, castID).
@@ -1212,6 +1217,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
 void Actor::Link() {
     Casts::Link(*this);
     Areas::Link(*this);
+    AuraVisuals::Link(*this);
     if (kitWorldEffect != nullptr && M2::IsReady(kitWorldEffect, 0, 1)) {
         M2::SetVisible(kitWorldEffect, shown && !kitWorldDone);
         M2::SetAnimated(kitWorldEffect, true);
@@ -1228,6 +1234,7 @@ void Actor::Link() {
 void Actor::Place() {
     Casts::Place(*this);
     Areas::Place(*this);
+    AuraVisuals::Place(*this);
     const float axisX[3] = {1.0f, 0.0f, 0.0f};
     const float axisY[3] = {0.0f, 1.0f, 0.0f};
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
@@ -1784,6 +1791,23 @@ int __fastcall Script_PlaySpellVisualAtPoint(void *L) {
         return 0;
     Game::Lua::PushNumber(L, castID);
     return 1;
+}
+
+// The spell's aura on the actor, its state kit shown (model/SceneAura.cpp).
+int __fastcall Script_AddAuraVisual(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "AddAuraVisual(spellID)"))
+        return 0;
+    Game::Lua::PushBool(L, AuraVisuals::Add(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
+    return 1;
+}
+
+// The spell's aura ends, or every aura without a spell.
+int __fastcall Script_RemoveAuraVisual(void *L) {
+    if (Actor *actor = Self(L))
+        AuraVisuals::Remove(*actor,
+                            Game::Lua::IsNumber(L, 2) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)) : 0u);
+    return 0;
 }
 
 // Interrupts the actor's casts still preparing and its channels, or only
@@ -2785,6 +2809,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"PlaySpellVisual", &Script_PlaySpellVisual},
     {"PlaySpellVisualAtPoint", &Script_PlaySpellVisualAtPoint},
     {"StopSpellVisual", &Script_StopSpellVisual},
+    {"AddAuraVisual", &Script_AddAuraVisual},
+    {"RemoveAuraVisual", &Script_RemoveAuraVisual},
     {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
     {"PlaySound", &Script_PlaySound},
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
@@ -3141,6 +3167,22 @@ const Game::Doc::Function kPlaySpellVisualAtPoint{
     "particles end. A spell with a missile flies the missile to the point. OnSpellVisualImpact "
     "runs with a nil target, at the cast or when the missile arrives.",
     kPlaySpellVisualAtPointArgs, kPlaySpellVisualRet, nullptr, true};
+const Game::Doc::Field kAddAuraVisualArgs[] = {Req("spellID", "number")};
+const Game::Doc::Field kAddAuraVisualRet[] = {
+    Req("shown", "bool", "False when the spell has no aura visual."),
+};
+const Game::Doc::Function kAddAuraVisual{
+    "Shows the aura of a spell on this actor, as a unit in the world shows it: the effects stay "
+    "on the actor until RemoveAuraVisual. An actor shows any number of auras, each spell once, "
+    "next to the kit of SetSpellVisualKit. The auras stay through a new model and end with "
+    "ClearModel.",
+    kAddAuraVisualArgs, kAddAuraVisualRet, nullptr, true};
+const Game::Doc::Field kRemoveAuraVisualArgs[] = {
+    Opt("spellID", "number", nullptr, "Without it, every aura ends."),
+};
+const Game::Doc::Function kRemoveAuraVisual{
+    "Ends the aura of a spell on this actor: its effects fade out as in the world.",
+    kRemoveAuraVisualArgs, {}, nullptr, true};
 const Game::Doc::Field kStopSpellVisualArgs[] = {
     Opt("castID", "number", nullptr, "A cast from PlaySpellVisual. Without it, every cast it can stop."),
 };
@@ -3470,6 +3512,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"PlaySpellVisual", &kPlaySpellVisual},
     {"PlaySpellVisualAtPoint", &kPlaySpellVisualAtPoint},
     {"StopSpellVisual", &kStopSpellVisual},
+    {"AddAuraVisual", &kAddAuraVisual},
+    {"RemoveAuraVisual", &kRemoveAuraVisual},
     {"ApplySpellVisualKit", &kApplySpellVisualKit},
     {"PlaySound", &kPlaySound},
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},

@@ -145,6 +145,8 @@ void OnPaneDestroyed(void *pane) {
 
 const Model::Teardown::AutoSubscribe _teardown{&OnPaneDestroyed};
 
+} // namespace
+
 // The ghost kit's procedure step: kind 1 tints, kind 14 sets the alpha.
 void ApplyProcedures(void *model, const uint8_t *kit) {
     for (int i = 0; i < kProcedures; ++i) {
@@ -163,7 +165,28 @@ void ApplyProcedures(void *model, const uint8_t *kit) {
     }
 }
 
-} // namespace
+bool SetsColor(const uint8_t *kit) {
+    for (int i = 0; i < kProcedures; ++i) {
+        const auto kind = Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_KIND + i * 4);
+        if (kind == kProcTint || kind == kProcAlpha)
+            return true;
+    }
+    return false;
+}
+
+void Stop(void *frame, void *effect) {
+    const auto pane = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame));
+    if (M2::IsLoaded(effect, 0, 0) && M2::HasAnimation(effect, Offsets::ANIM_DECAY)) {
+        // Its parent holds it until the decay ends and OnEffectDone stops it.
+        M2::SetAnimDoneCallback(effect, reinterpret_cast<const void *>(&OnEffectDone), pane, 0);
+        M2::PlayAnimation(effect, -1, Offsets::ANIM_DECAY, -1, 0, 1.0f, 1, 1);
+        M2::Release(effect);
+        return;
+    }
+    M2::SetAnimDoneCallback(effect, nullptr, 0, 0);
+    M2::SetVisible(effect, false);
+    g_stopped.push_back({frame, effect}); // our reference, handed over
+}
 
 const void *LoopCallback() { return reinterpret_cast<const void *>(&OnEffectLoop); }
 

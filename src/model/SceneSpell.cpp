@@ -218,16 +218,6 @@ void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, Spe
     }
 }
 
-bool HasTintProcedure(const uint8_t *kit) {
-    constexpr int32_t kTint = 1, kAlpha = 14;
-    for (int i = 0; i < 4; ++i) {
-        const auto kind = Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_KIND + i * 4);
-        if (kind == kTint || kind == kAlpha)
-            return true;
-    }
-    return false;
-}
-
 bool IsRanged(const uint8_t *spell) {
     return (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & Offsets::SPELL_ATTR_RANGED) != 0;
 }
@@ -704,7 +694,7 @@ void StartChannel(Actor &caster, SpellCast &cast, int channelMs) {
     const uint8_t *kit = Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CHANNEL_KIT);
     if (kit == nullptr)
         return;
-    cast.channelTinted = HasTintProcedure(kit);
+    cast.channelTinted = Model::VisualKit::SetsColor(kit);
     PlayKit(caster, kit, &cast.channelEffects, &cast.channelLoop);
     if (cast.target != nullptr && cast.target != &caster)
         Chains::Start(caster, *cast.target, cast.visual, kit, cast.id);
@@ -947,7 +937,7 @@ uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *poin
     if (castTimeMs > 0 && precast != nullptr) {
         added.phase = SpellCast::Phase::Precast;
         added.precastLeftSec = static_cast<float>(castTimeMs) * 0.001f;
-        added.precastTinted = HasTintProcedure(precast);
+        added.precastTinted = Model::VisualKit::SetsColor(precast);
         PlayKit(caster, precast, &added.precastEffects, &added.precastLoop);
         return added.id;
     }
@@ -1105,6 +1095,22 @@ void Drop(Actor &caster) {
     caster.releaseEvent = false;
     HoldAmmo(caster, 0);
     caster.bowDrawn = false;
+}
+
+void Retire(Actor &caster, void *model, std::unique_ptr<EntityLight> light) {
+    ImpactModel retired{model, 2, std::move(light)};
+    retired.planted = true;
+    M2::SetEventCallback(model, nullptr, 0, 0);
+    if (M2::IsLoaded(model, 0, 0) && M2::HasAnimation(model, Offsets::ANIM_DECAY)) {
+        M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnPlantedDone),
+                                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&caster)), 0);
+        M2::PlayAnimation(model, -1, Offsets::ANIM_DECAY, -1, 0, 1.0f, 1, 1);
+    } else {
+        M2::SetAnimDoneCallback(model, nullptr, 0, 0);
+        M2::SetVisible(model, false);
+        retired.ended = true;
+    }
+    caster.impactModels.push_back(std::move(retired));
 }
 
 } // namespace Model::Scene::Casts
