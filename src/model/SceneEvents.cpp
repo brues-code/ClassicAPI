@@ -47,7 +47,9 @@
 //
 // Not played: the combat tags $CSS, $CAH and $AH0..$AH3 present a pending
 // swing (0x006247D0) and play nothing without one, and an actor never swings
-// at anything; footprints, splashes and camera shakes are world effects.
+// at anything; footprints and splashes are world effects, and so are the
+// footstep shake (CreatureModelData +0x2C, 0x005FBF70) and the swing shake
+// (+0x30, 0x00625C30), which stock scenes, unlike the world, do not show.
 
 #include "model/Scene.h"
 
@@ -90,7 +92,9 @@ constexpr uint32_t kWGG = Tag('$', 'W', 'G', 'G');
 constexpr uint32_t kCSD = Tag('$', 'C', 'S', 'D');
 constexpr uint32_t kTRD = Tag('$', 'T', 'R', 'D');
 constexpr uint32_t kSND = Tag('$', 'S', 'N', 'D');
+constexpr uint32_t kSHK = Tag('$', 'S', 'H', 'K');
 static_assert(kSND == 0x444E5324, "$SND as the dynamic object compares it (0x005D58E1)");
+static_assert(kSHK == 0x4B485324, "$SHK as the dynamic object compares it (0x005D58E9)");
 static_assert(kCSR == 0x52534324 && kWNG == 0x474E5724, "tags compare as the engine's dwords");
 
 constexpr int kStandChance = 40;            // 0x008626D4[5]: pass at <= 40 of 0..100
@@ -252,11 +256,16 @@ void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uin
                             uint32_t userLow, uint32_t /*userHigh*/) {
     auto *actor = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
     // A spell's ground area takes a dynamic object's events (0x005D58C0):
-    // $SND plays its payload as a SoundEntries id at the area, always; its
-    // other tag, $SHK, shakes the world's camera, which a scene does not have.
+    // $SND plays its payload as a SoundEntries id at the area, always; $SHK
+    // adds the three shakes of the SpellEffectCameraShakes row its payload
+    // names at the event's point (0x005D5920 to 0x005D592B).
     if (actor->areaEffect != nullptr) {
-        if (tag == kSND)
+        if (tag == kSND) {
             Play(*actor, static_cast<int32_t>(data));
+        } else if (tag == kSHK && point != nullptr) {
+            const float at[3] = {point[0], point[1], point[2]};
+            Shakes::AddGroup(actor->SceneFrame(), static_cast<int32_t>(data), at);
+        }
         return;
     }
     if (tag == kCSL || tag == kCSR || tag == kCST || tag == kBWR) {

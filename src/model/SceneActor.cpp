@@ -262,6 +262,7 @@ void ApplyKit(Actor &actor) {
     if (kit == nullptr)
         return;
     Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, actor.spellVisualKitOneShot, &actor.kitEffects);
+    Shakes::PlayKit(actor, kit);
     // The world effect, planted where the actor stands (PlantEffect
     // 0x0061FCF0). A kit given without a spell has no root aura, so it stays
     // there, as the world's does without flag 0x4000.
@@ -1143,9 +1144,12 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             PutOnWaiting(*this);
             ApplyKit(*this);
             AuraVisuals::Show(*this);
-            for (const auto &[kitID, oneShot] : pendingKits)
-                if (const uint8_t *kit = Model::VisualKit::Record(kitID))
+            for (const auto &[kitID, oneShot] : pendingKits) {
+                if (const uint8_t *kit = Model::VisualKit::Record(kitID)) {
                     Model::VisualKit::Apply(SceneFrame(), model, kit, oneShot);
+                    Shakes::PlayKit(*this, kit);
+                }
+            }
             pendingKits.clear();
             // The pick an unloaded model could not take (PlayAnimation keeps
             // it pending at +0xD64).
@@ -1773,7 +1777,32 @@ int __fastcall Script_PlaySpellVisual(void *L) {
     if (caster == nullptr || !NumberArgs(L, 2, 1, caster->DisplayName(), kUsage))
         return 0;
     Actor *target = nullptr;
-    if (Game::Lua::Type(L, 3) > Game::Lua::TYPE_NIL) {
+    // A table of actors is one cast at all of them: the first is the target,
+    // the rest the go's other hits.
+    std::vector<Actor *> others;
+    if (Game::Lua::Type(L, 3) == Game::Lua::TYPE_TABLE) {
+        for (int i = 1;; ++i) {
+            Game::Lua::RawGetI(L, 3, i);
+            if (Game::Lua::Type(L, -1) <= Game::Lua::TYPE_NIL) {
+                Game::Lua::SetTop(L, -2);
+                break;
+            }
+            auto *actor = static_cast<Actor *>(Animation::Resolve(L, Game::Lua::GetTop(L), Actor::s_class));
+            Game::Lua::SetTop(L, -2);
+            if (actor == nullptr) {
+                Game::Lua::Error(L, "Usage: %s:%s", caster->DisplayName(), kUsage);
+                return 0;
+            }
+            if (actor->SceneFrame() != caster->SceneFrame())
+                continue;
+            if (target == nullptr)
+                target = actor;
+            else
+                others.push_back(actor);
+        }
+        if (target == nullptr)
+            return 0;
+    } else if (Game::Lua::Type(L, 3) > Game::Lua::TYPE_NIL) {
         target = static_cast<Actor *>(Animation::Resolve(L, 3, Actor::s_class));
         if (target == nullptr) {
             Game::Lua::Error(L, "Usage: %s:%s", caster->DisplayName(), kUsage);
@@ -1790,7 +1819,8 @@ int __fastcall Script_PlaySpellVisual(void *L) {
         Game::Lua::IsNumber(L, 5) ? static_cast<int>(Game::Lua::ToNumber(L, 5)) : -1;
     const uint32_t castID =
         target == nullptr || target->SceneFrame() == caster->SceneFrame()
-            ? Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), target, castTimeMs, channelMs)
+            ? Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), target, castTimeMs, channelMs,
+                          others)
             : 0;
     if (castID == 0)
         return 0;
@@ -1859,10 +1889,12 @@ int __fastcall Script_ApplySpellVisualKit(void *L) {
     const uint8_t *kit = Model::VisualKit::Record(kitID);
     if (kit == nullptr || actor->model == nullptr)
         return 0;
-    if (actor->loaded)
+    if (actor->loaded) {
         Model::VisualKit::Apply(actor->SceneFrame(), actor->model, kit, oneShot);
-    else
+        Shakes::PlayKit(*actor, kit);
+    } else {
         actor->pendingKits.emplace_back(kitID, oneShot);
+    }
     return 0;
 }
 
@@ -3154,7 +3186,8 @@ const Game::Doc::Function kAttachToActor{
 const Game::Doc::Field kPlaySpellVisualArgs[] = {
     Req("spellID", "number"),
     Opt("target", "ModelSceneFrameActor", nullptr,
-        "Another actor of the scene. Without one, the spell is cast on this actor."),
+        "Another actor of the scene, or a table of actors: one cast at all of them, a missile or an impact "
+        "each. Without one, the spell is cast on this actor."),
     Opt("castTimeMs", "number", nullptr,
         "How long the spell is prepared. Without it, the cast time of the spell."),
     Opt("channelTimeMs", "number", nullptr,

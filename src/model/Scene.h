@@ -72,6 +72,9 @@ struct SpellCast {
     uint32_t ammoDisplay = 0;
     uint32_t ammoType = 0;
     Actor *target = nullptr;         // the caster for a cast on itself, null at a point
+    // The rest of the go's hit list (a cast at several targets): at the cast
+    // each gets a missile of its own, or its impact at once.
+    std::vector<Actor *> otherTargets;
     bool atPoint = false;            // cast at the ground point `destination`
     Phase phase = Phase::Precast;
     float precastLeftSec = 0.0f;
@@ -406,6 +409,9 @@ class Actor : public Animation::Object {
     // user data of a hung bow's string; each update, before the draw.
     alignas(4) uint8_t stringUnit[Offsets::OFF_CGUNIT_STATE_FLAGS + 4] = {};
     std::vector<SpellCast> spellCasts;
+    // The missiles a cast made for its other targets this step, joining
+    // spellCasts after it (a step holds a reference into that list).
+    std::vector<SpellCast> castsMade;
     // The casts that reached their target, in order, until the update runs
     // OnSpellVisualImpact for them: outside the casts' step, which a script
     // that casts or stops a spell would change under it.
@@ -423,7 +429,10 @@ namespace Casts {
 // or the caster's model is missing. `castTimeMs` < 0 takes the spell's cast
 // time.
 // channelMs: a channeled spell's channel time, -1 for its duration.
-uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs, int channelMs);
+// `others`: more targets of the same cast (one cast kit, a missile or an
+// impact each).
+uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs, int channelMs,
+              const std::vector<Actor *> &others = {});
 // The same cast at a ground point of the scene instead of an actor.
 uint32_t PlayAtPoint(Actor &caster, uint32_t spellID, const float (&point)[3], int castTimeMs, int channelMs);
 // Interrupts the casts still preparing; casts already made go on.
@@ -481,6 +490,22 @@ void Forget(Actor &actor);
 // The scene goes.
 void Destroy(void *frame);
 } // namespace Chains
+
+// The scene camera's shakes (model/SceneShake.cpp).
+namespace Shakes {
+// CameraAddShake (0x00511D40): the CameraShakes row `shakeID` at a scene point.
+void Add(void *frame, int32_t shakeID, const float (&position)[3]);
+// PlaySpellEffectCameraShakes (0x006ECB40): the three shakes of a
+// SpellEffectCameraShakes row.
+void AddGroup(void *frame, int32_t groupID, const float (&position)[3]);
+// A kit's shake group (+0x38), once per play of the kit, at the actor.
+void PlayKit(const Actor &actor, const uint8_t *kit);
+// The eye's offset this frame from the unshaken eye and the camera's heading
+// (the walk 0x00511760); the shakes past their time go.
+void Offset(void *frame, const float (&eye)[3], float heading, float (&out)[3]);
+// The scene goes.
+void Destroy(void *frame);
+} // namespace Shakes
 
 // The auras an actor shows (model/SceneAura.cpp).
 namespace AuraVisuals {

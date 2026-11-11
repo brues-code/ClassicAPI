@@ -6421,6 +6421,44 @@ enum Offsets {
     // release gate tests `kit+0x08 > 0` (benilla spell/go, 0x006E8293).
     OFF_SPELLVISUALKIT_ANIMATION = 0x08,
     OFF_SPELLVISUALKIT_SOUND = 0x34,
+    // The kit's camera shake group (+0x38, a SpellEffectCameraShakes id):
+    // the kit player plays it once per play when it is above 0 (0x0060EE2E,
+    // benilla spell/shakes). Thunder Clap's cast kit 356 and the Goblin
+    // Sapper Charge's 1424 have one (parsed from the DBC).
+    OFF_SPELLVISUALKIT_SHAKE = 0x38,
+    // ---- Camera shakes (benilla uicamera/effects, spell/shakes).
+    // SpellEffectCameraShakes.dbc: three CameraShakes ids from +0x04;
+    // PlaySpellEffectCameraShakes (0x006ECB40) adds each nonzero one.
+    VAR_SPELLEFFECTCAMERASHAKES_RECORDS = 0x00C0D814,
+    VAR_SPELLEFFECTCAMERASHAKES_COUNT = 0x00C0D818,
+    OFF_SPELLEFFECTCAMERASHAKES_SHAKES = 0x04,
+    SPELL_EFFECT_CAMERA_SHAKE_COUNT = 3,
+    // CameraShakes.dbc, as CameraAddShake (0x00511D40) passes the row to
+    // 0x00511C60: type (1 decays), axis (0 along the facing, 1 across it, 2
+    // up), amplitude (times 1/36 once), frequency, duration, pre-roll (the
+    // seconds a shake starts into its curve) and the decay rate. Verified
+    // against the disassembly and the DBC (row 1: 1, 2, 2.0, 3.0, 0.4,
+    // 0.06, 1.0).
+    VAR_CAMERASHAKES_RECORDS = 0x00C0DFD0,
+    VAR_CAMERASHAKES_COUNT = 0x00C0DFD4,
+    OFF_CAMERASHAKES_TYPE = 0x04,
+    OFF_CAMERASHAKES_AXIS = 0x08,
+    OFF_CAMERASHAKES_AMPLITUDE = 0x0C,
+    OFF_CAMERASHAKES_FREQUENCY = 0x10,
+    OFF_CAMERASHAKES_DURATION = 0x14,
+    OFF_CAMERASHAKES_PREROLL = 0x18,
+    OFF_CAMERASHAKES_DECAY = 0x1C,
+    CAMERA_SHAKE_TYPE_DECAYING = 1,
+    // The falloff (0x005116E0): a shake past 80 yards of the eye (squared,
+    // the static at 0x00BE1060, 6400) adds nothing; within 9 (0x00808A0C;
+    // squared at 0x00BE103C, 81) it is whole; between, its amplitude is
+    // times 0.7^((d - 9) / 9) with the double 0.7 at 0x00808AD0
+    // (0.699999988079071). The statics are set at load from 0x00808A0C and
+    // 0x00808A10 (0x0050B2C0, 0x0050B2F0).
+    VAR_CAMERA_SHAKE_NEAR = 0x00808A0C,
+    VAR_CAMERA_SHAKE_NEAR_SQ = 0x00BE103C,
+    VAR_CAMERA_SHAKE_FAR_SQ = 0x00BE1060,
+    VAR_CAMERA_SHAKE_FALLOFF_BASE = 0x00808AD0,
     // SpellVisual.dbc (16 columns), verified by parsing the DBC (Fireball's
     // row 67: 30, 38, 286, 0, 0, 1, 365, 0, 1, 3011, ...) against the
     // readers: the precast kit (+0x04, 0x006EC220), cast kit (+0x08), impact

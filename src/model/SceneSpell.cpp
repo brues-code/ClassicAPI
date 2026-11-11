@@ -25,7 +25,9 @@
 //      speed above 0, a target that is not the caster) makes the missile
 //      model (+0x1C's SpellVisualEffectName file, else Spells\ErrorCube.mdx,
 //      as the launcher 0x0060A3D0), held until its release. Without one the
-//      impact plays at once (0x006E8BF0).
+//      impact plays at once (0x006E8BF0). A cast at several targets is one
+//      go with a hit list: the kits play once, the launcher makes a missile
+//      for each hit (0x006E8A50), else each gets its impact at once.
 //   3. Release (CGUnit_C::ReleaseMissiles, 0x0060C940): at the caster
 //      model's $CSL / $CSR / $CST event, from the event's point (the unit's
 //      event callback, 0x005FFBD0). Without the event it is
@@ -196,6 +198,7 @@ void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, Spe
         return;
     const bool lasting = loop != nullptr;
     Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, !lasting, effects);
+    Shakes::PlayKit(actor, kit);
     const int anim = KitAnimation(kit);
     if (anim >= 0) {
         actor.PlayKitAnimation(anim, lasting);
@@ -711,6 +714,32 @@ void StartCast(Actor &caster, SpellCast &cast) {
     }
     if (cast.atPoint && Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) == 0)
         PlantEffect(caster, cast);
+    // The go's other hits: the launcher makes one missile per hit
+    // (0x006E8A50); without missiles the instant impact walks the hit list
+    // (0x006E8BF0). The cast kit played once, above.
+    for (Actor *other : cast.otherTargets) {
+        SpellCast hit;
+        hit.id = cast.id;
+        hit.spellID = cast.spellID;
+        std::memcpy(hit.visual, cast.visual, sizeof hit.visual);
+        hit.ammoDisplay = cast.ammoDisplay;
+        hit.ammoType = cast.ammoType;
+        hit.target = other;
+        hit.phase = SpellCast::Phase::Cast;
+        hit.speed = cast.speed;
+        hit.sticks = cast.sticks;
+        if (cast.missile == nullptr) {
+            Impact(caster, hit, false);
+            continue;
+        }
+        hit.missile = MakeMissile(caster, hit);
+        if (hit.missile == nullptr)
+            continue;
+        LightAsEntity(hit.missile, hit.light, caster.SceneFrame());
+        Aim(hit);
+        caster.castsMade.push_back(std::move(hit));
+    }
+    cast.otherTargets.clear();
     if (cast.missile != nullptr) {
         LightAsEntity(cast.missile, cast.light, caster.SceneFrame());
         Aim(cast);
@@ -878,8 +907,17 @@ int RangedAnimationAfter(const Actor &caster, int ended) {
 
 namespace {
 
-// The cast at the target, else at `point` when given, else on the caster.
-uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *point, int castTimeMs, int channelMs) {
+// The casts made for a cast's other targets join the list.
+void AddCastsMade(Actor &caster) {
+    for (SpellCast &made : caster.castsMade)
+        caster.spellCasts.push_back(std::move(made));
+    caster.castsMade.clear();
+}
+
+// The cast at the target (and `others`), else at `point` when given, else on
+// the caster.
+uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *point, int castTimeMs, int channelMs,
+               const std::vector<Actor *> &others) {
     using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
     static uint32_t s_lastCastID = 0;
     const uint8_t *spell =
@@ -914,6 +952,7 @@ uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *poin
             cast.destination[i] = point[i];
     } else {
         cast.target = target != nullptr ? target : &caster;
+        cast.otherTargets = others;
     }
     // A channeled spell channels after its cast, for the time given, else its
     // duration (forever for an endless one).
@@ -938,17 +977,19 @@ uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *poin
     const uint32_t id = added.id;
     if (added.missile == nullptr && added.phase != SpellCast::Phase::Channel)
         caster.spellCasts.pop_back();
+    AddCastsMade(caster);
     return id;
 }
 
 } // namespace
 
-uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs, int channelMs) {
-    return Begin(caster, spellID, target, nullptr, castTimeMs, channelMs);
+uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs, int channelMs,
+              const std::vector<Actor *> &others) {
+    return Begin(caster, spellID, target, nullptr, castTimeMs, channelMs, others);
 }
 
 uint32_t PlayAtPoint(Actor &caster, uint32_t spellID, const float (&point)[3], int castTimeMs, int channelMs) {
-    return Begin(caster, spellID, nullptr, point, castTimeMs, channelMs);
+    return Begin(caster, spellID, nullptr, point, castTimeMs, channelMs, {});
 }
 
 void Update(Actor &caster, float elapsedSec) {
@@ -964,6 +1005,7 @@ void Update(Actor &caster, float elapsedSec) {
         DropCast(caster, caster.spellCasts[i]);
         caster.spellCasts.erase(caster.spellCasts.begin() + static_cast<ptrdiff_t>(i));
     }
+    AddCastsMade(caster);
     caster.releaseEvent = false;
     caster.castAnimationEnded = false;
     // The world has no pause; a paused scene (or caster) holds its missiles
@@ -1079,6 +1121,7 @@ void Drop(Actor &caster) {
     for (SpellCast &cast : caster.spellCasts)
         DropCast(caster, cast);
     caster.spellCasts.clear();
+    caster.castsMade.clear(); // empty outside a step
     for (ImpactModel &impact : caster.impactModels)
         FreeImpactModel(impact);
     caster.impactModels.clear();

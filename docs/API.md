@@ -20486,8 +20486,16 @@ end)
 
 Plays the visual of a spell that this actor casts at `target`, and returns
 a cast ID. `target` is another actor of the same scene. Without a target, the
-spell is cast on this actor. The visual plays in these steps, as it does in
-the world:
+spell is cast on this actor.
+
+`target` can also be a table of actors, for a spell that hits several
+targets at once, such as a volley. That is one cast: the preparation, the
+cast animation and their sounds play one time, and each target gets its own
+missile (or, for a spell without a missile, its own impact). The script
+`OnSpellVisualImpact` runs one time for each target, with the same cast ID.
+Actors of other scenes in the table are skipped.
+
+The visual plays in these steps, as it does in the world:
 
 1. The preparation: the effects and the animation of the preparation
    repeat, and its sound plays. This step lasts `castTimeMs` milliseconds. Without `castTimeMs`,
@@ -20523,6 +20531,15 @@ You hear the sounds from the camera of the scene (see
 caster, the sounds of the impact play at the target, and the flight sound
 moves with the missile. While the scene or the caster is paused, the flight
 sound stops. It starts again when the pause ends.
+
+Some spells shake the camera of the scene, as they shake the camera in the
+world. For example, Thunder Clap and War Stomp shake it when they are cast,
+and Knockdown shakes it at the impact. The camera moves, but it does not
+turn. A shake is strongest within 9 yards of the camera, weaker farther
+away, and gone past 80 yards. While the scene is paused, its shakes stop.
+The auras of `AddAuraVisual`, the kits of `SetSpellVisualKit` and
+`ApplySpellVisualKit`, and the ground areas of `SetModelBySpellArea` shake
+the camera in the same way.
 
 A spell with a chain effect, for example Chain Lightning, also shows a bolt
 of lightning at the cast. The bolt goes from the hand of the caster to the

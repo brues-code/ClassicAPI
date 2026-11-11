@@ -708,6 +708,13 @@ void __fastcall Paint(void *frame) {
         eye[0] = e.x;
         eye[1] = e.y;
         eye[2] = e.z;
+        // The shakes move the eye, not the view (the world's driver adds
+        // them to the eye, 0x0050EDCC); everything draws from the moved eye.
+        const Fields &f = F(frame);
+        float shake[3];
+        Shakes::Offset(frame, eye, std::atan2(f.forward.y, f.forward.x), shake);
+        for (int i = 0; i < 3; ++i)
+            eye[i] += shake[i];
         CameraTransforms(frame, camera, rect);
     } else {
         const float point[2] = {rect[1], rect[0]};
@@ -962,6 +969,7 @@ using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, 
 void Destroy(void *frame) {
     Fields &f = F(frame);
     Chains::Destroy(frame);
+    Shakes::Destroy(frame);
     for (Actor *actor : *f.actors)
         delete actor;
     delete f.actors;

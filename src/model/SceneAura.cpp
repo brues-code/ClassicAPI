@@ -94,6 +94,7 @@ void ShowOne(Actor &actor, AuraVisual &aura) {
     aura.shown = true;
     void *frame = actor.SceneFrame();
     Model::VisualKit::Apply(frame, actor.model, aura.kit, false, &aura.effects);
+    Shakes::PlayKit(actor, aura.kit);
     // The kit's sound, once per play: a looping one stays on the unit until
     // the aura's effects stop.
     const auto sound = Game::Read<int32_t>(aura.kit, Offsets::OFF_SPELLVISUALKIT_SOUND);
