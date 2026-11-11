@@ -61,7 +61,7 @@ void SettleLight(void *model, EntityLight *light, float elapsed);
 // One PlaySpellVisual on its caster (model/SceneSpell.cpp): the precast, the
 // cast, then the missile in flight.
 struct SpellCast {
-    enum class Phase { Precast, Cast, Flight };
+    enum class Phase { Precast, Cast, Flight, Channel };
     uint32_t id = 0; // PlaySpellVisual's cast ID
     uint32_t spellID = 0;
     // The visual the caster shows (UnitGetSpellVisual's 64 bytes: the
@@ -71,11 +71,22 @@ struct SpellCast {
     // inventory type, 0 for a spell that is not ranged.
     uint32_t ammoDisplay = 0;
     uint32_t ammoType = 0;
-    Actor *target = nullptr;         // the caster for a cast on itself
+    Actor *target = nullptr;         // the caster for a cast on itself, null at a point
+    bool atPoint = false;            // cast at the ground point `destination`
     Phase phase = Phase::Precast;
     float precastLeftSec = 0.0f;
     std::vector<void *> precastEffects; // one reference each
     bool precastTinted = false;         // the precast kit set a tint or alpha
+    // A lasting kit's loop: the animation it made the caster's loop (-1 for
+    // none), and its looping sound with the sound's ID (0 for a sound played
+    // once), for the precast and for the channel.
+    struct KitLoop {
+        int animation = -1;
+        void *sound = nullptr;
+        int soundID = 0;
+    };
+    KitLoop precastLoop;
+    KitLoop channelLoop;
     void *missile = nullptr;            // one reference, from the cast on
     void *missileSound = nullptr;
     float queuedSec = 0.0f; // since the missile was made, until its release
@@ -85,6 +96,14 @@ struct SpellCast {
     int attachment = -1; // the target attachment the launch settled, or -1
     bool sticks = false; // shot from a bow, crossbow or thrown weapon
     std::unique_ptr<EntityLight> light; // the missile's
+    // The channel after the cast (a channeled spell): its kit's effects, one
+    // reference each, whether it tinted, and its time left (forever when
+    // `channelEndless`).
+    int channelMs = 0; // from Play: 0 for no channel, -1 for one without end
+    std::vector<void *> channelEffects;
+    bool channelTinted = false;
+    float channelLeftSec = 0.0f;
+    bool channelEndless = false;
 };
 
 // A cast that reached its target this frame, for the caster's
@@ -101,11 +120,16 @@ struct StuckMissile {
     float leftSec = 0.0f;
 };
 
-// An impact model left at a missile's arrival, until its particles are gone.
+// An impact model left at a missile's arrival, until its particles are gone;
+// or the effect a spell plants at its ground point (`planted`), which plays
+// its sequence once, hides when it ends (`ended`), and goes once its
+// particles are gone.
 struct ImpactModel {
     void *model = nullptr; // one reference
     int framesShown = 0;
     std::unique_ptr<EntityLight> light;
+    bool planted = false;
+    bool ended = false;
 };
 
 // A shard of a spell's ground area (model/SceneArea.cpp): one model of the
@@ -371,9 +395,13 @@ namespace Casts {
 // Starts the cast and returns its ID (from 1); 0 when the spell, its visual
 // or the caster's model is missing. `castTimeMs` < 0 takes the spell's cast
 // time.
-uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs);
+// channelMs: a channeled spell's channel time, -1 for its duration.
+uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs, int channelMs);
+// The same cast at a ground point of the scene instead of an actor.
+uint32_t PlayAtPoint(Actor &caster, uint32_t spellID, const float (&point)[3], int castTimeMs, int channelMs);
 // Interrupts the casts still preparing; casts already made go on.
-void Stop(Actor &caster);
+// With `channels`, the channels end too; with a `castID`, only that cast.
+void Stop(Actor &caster, bool channels, uint32_t castID = 0);
 // The model's $BWP: the bow draws and the ammo is nocked, while a ranged
 // spell is cast.
 void BowPull(Actor &caster);
@@ -406,9 +434,12 @@ uint8_t DecodeKitByte(float value);
 // The chain effects of a scene's casts (model/SceneChain.cpp): Chain
 // Lightning's bolts, drawn by a lightning renderer the scene owns.
 namespace Chains {
-// From a cast's start: the cast kit's chain procedures (kinds 0 and 12)
-// draw a bolt from the caster to the target.
-void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *kit);
+// From a cast's start, or a channel's (`channelCastID` its cast ID): the
+// kit's chain procedures (kinds 0 and 12) draw a bolt from the caster to the
+// target. A persistent chain of a channel lasts until End.
+void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *kit, uint32_t channelCastID = 0);
+// The channel `castID` of `caster` ends: its persistent chains go.
+void End(Actor &caster, uint32_t castID);
 // From the scene's update, after the actors': the hops move with their
 // ends and end on the scene clock; the bolts animate.
 void Update(void *frame, float sceneSec);

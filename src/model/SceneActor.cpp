@@ -1184,7 +1184,10 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             if (L == nullptr || !HasScript(S_ONSPELLVISUALIMPACT))
                 break;
             Game::Lua::PushNumber(L, impact.spellID);
-            Animation::Push(L, impact.target);
+            if (impact.target != nullptr) // nil for a cast at a ground point
+                Animation::Push(L, impact.target);
+            else
+                Game::Lua::PushNil(L);
             Game::Lua::PushNumber(L, impact.castID);
             RunScript(S_ONSPELLVISUALIMPACT, 3);
         }
@@ -1732,7 +1735,7 @@ int __fastcall Script_AttachToActor(void *L) {
 // The cast, from this actor at the target (another actor of the scene, or
 // none: the caster itself). See model/SceneSpell.cpp.
 int __fastcall Script_PlaySpellVisual(void *L) {
-    constexpr char kUsage[] = "PlaySpellVisual(spellID [, target [, castTimeMs]])";
+    constexpr char kUsage[] = "PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])";
     Actor *caster = Self(L);
     if (caster == nullptr || !NumberArgs(L, 2, 1, caster->DisplayName(), kUsage))
         return 0;
@@ -1748,9 +1751,13 @@ int __fastcall Script_PlaySpellVisual(void *L) {
         return 0;
     const int castTimeMs =
         Game::Lua::IsNumber(L, 4) ? static_cast<int>(Game::Lua::ToNumber(L, 4)) : -1;
+    if (Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL && !NumberArgs(L, 5, 1, caster->DisplayName(), kUsage))
+        return 0;
+    const int channelMs =
+        Game::Lua::IsNumber(L, 5) ? static_cast<int>(Game::Lua::ToNumber(L, 5)) : -1;
     const uint32_t castID =
         target == nullptr || target->SceneFrame() == caster->SceneFrame()
-            ? Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), target, castTimeMs)
+            ? Casts::Play(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), target, castTimeMs, channelMs)
             : 0;
     if (castID == 0)
         return 0;
@@ -1758,10 +1765,33 @@ int __fastcall Script_PlaySpellVisual(void *L) {
     return 1;
 }
 
-// Interrupts the actor's casts still preparing (model/SceneSpell.cpp).
+// The cast, from this actor at a ground point of the scene (model/SceneSpell.cpp).
+int __fastcall Script_PlaySpellVisualAtPoint(void *L) {
+    constexpr char kUsage[] = "PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])";
+    Actor *caster = Self(L);
+    if (caster == nullptr || !NumberArgs(L, 2, 4, caster->DisplayName(), kUsage))
+        return 0;
+    for (int i : {6, 7}) {
+        if (Game::Lua::Type(L, i) > Game::Lua::TYPE_NIL && !NumberArgs(L, i, 1, caster->DisplayName(), kUsage))
+            return 0;
+    }
+    const float point[3] = {FloatArg(L, 3), FloatArg(L, 4), FloatArg(L, 5)};
+    const int castTimeMs = Game::Lua::IsNumber(L, 6) ? static_cast<int>(Game::Lua::ToNumber(L, 6)) : -1;
+    const int channelMs = Game::Lua::IsNumber(L, 7) ? static_cast<int>(Game::Lua::ToNumber(L, 7)) : -1;
+    const uint32_t castID = Casts::PlayAtPoint(*caster, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), point,
+                                               castTimeMs, channelMs);
+    if (castID == 0)
+        return 0;
+    Game::Lua::PushNumber(L, castID);
+    return 1;
+}
+
+// Interrupts the actor's casts still preparing and its channels, or only
+// the cast `castID` names (model/SceneSpell.cpp).
 int __fastcall Script_StopSpellVisual(void *L) {
     if (Actor *caster = Self(L))
-        Casts::Stop(*caster);
+        Casts::Stop(*caster, true,
+                    Game::Lua::IsNumber(L, 2) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)) : 0u);
     return 0;
 }
 
@@ -2228,7 +2258,7 @@ int __fastcall Script_KnockBack(void *L) {
     const float dy = actor->mover->position[1] - FloatArg(L, 3);
     const float angle =
         dx == 0.0f && dy == 0.0f ? actor->mover->facing + Game::Read<float>(Offsets::VAR_PI) : std::atan2(dy, dx);
-    Casts::Stop(*actor);
+    Casts::Stop(*actor, true);
     Mover::ClearSpline(*actor->mover);
     Mover::KnockBack(*actor->mover, std::cos(angle), std::sin(angle), FloatArg(L, 4), -FloatArg(L, 5));
     Locomotion::OnMove(*actor, Move::KnockBack);
@@ -2753,6 +2783,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"AttachToActor", &Script_AttachToActor},
     {"DetachFromActor", &Script_DetachFromActor},
     {"PlaySpellVisual", &Script_PlaySpellVisual},
+    {"PlaySpellVisualAtPoint", &Script_PlaySpellVisualAtPoint},
     {"StopSpellVisual", &Script_StopSpellVisual},
     {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
     {"PlaySound", &Script_PlaySound},
@@ -3074,6 +3105,8 @@ const Game::Doc::Field kPlaySpellVisualArgs[] = {
         "Another actor of the scene. Without one, the spell is cast on this actor."),
     Opt("castTimeMs", "number", nullptr,
         "How long the spell is prepared. Without it, the cast time of the spell."),
+    Opt("channelTimeMs", "number", nullptr,
+        "How long a channeled spell channels after its cast. Without it, the duration of the spell."),
 };
 const Game::Doc::Field kPlaySpellVisualRet[] = {
     Opt("castID", "number", nullptr,
@@ -3087,12 +3120,35 @@ const Game::Doc::Function kPlaySpellVisual{
     "shoots the actor's ammo (from TryOn; without it, a plain arrow or bullet). When the spell "
     "reaches its target, this actor's OnSpellVisualImpact script runs with (spellID, target, "
     "castID). This occurs when the missile arrives, or at the cast for a spell with no missile. "
-    "An interrupted spell does not reach its target.",
+    "An interrupted spell does not reach its target. A channeled spell such as Drain Life then "
+    "channels: its channel effects and animation last, and its beam to the target holds, until "
+    "its time ends or StopSpellVisual.",
     kPlaySpellVisualArgs, kPlaySpellVisualRet, nullptr, true};
+const Game::Doc::Field kPlaySpellVisualAtPointArgs[] = {
+    Req("spellID", "number"),
+    Req("x", "number"),
+    Req("y", "number"),
+    Req("z", "number", "The ground point, in scene coordinates."),
+    Opt("castTimeMs", "number", nullptr,
+        "How long the spell is prepared. Without it, the cast time of the spell."),
+    Opt("channelTimeMs", "number", nullptr,
+        "How long a channeled spell channels after its cast. Without it, the duration of the spell."),
+};
+const Game::Doc::Function kPlaySpellVisualAtPoint{
+    "Plays the visual of a spell cast from this actor at a ground point, as PlaySpellVisual does at "
+    "an actor. A spell with no missile, such as Inferno, shows its ground effect at the point when "
+    "it is cast: the effect turns with this actor's facing, plays once, then fades as its "
+    "particles end. A spell with a missile flies the missile to the point. OnSpellVisualImpact "
+    "runs with a nil target, at the cast or when the missile arrives.",
+    kPlaySpellVisualAtPointArgs, kPlaySpellVisualRet, nullptr, true};
+const Game::Doc::Field kStopSpellVisualArgs[] = {
+    Opt("castID", "number", nullptr, "A cast from PlaySpellVisual. Without it, every cast it can stop."),
+};
 const Game::Doc::Function kStopSpellVisual{
-    "Interrupts the spells this actor is still preparing from PlaySpellVisual: their preparation "
-    "effects and animation stop. A spell already cast goes on, its missile included.",
-    {}, {}, nullptr, true};
+    "Interrupts the spells this actor is still preparing from PlaySpellVisual, and ends its "
+    "channels: their effects, animation and beams stop. With a castID, only that cast. A spell "
+    "already cast goes on, its missile included.",
+    kStopSpellVisualArgs, {}, nullptr, true};
 const Game::Doc::Field kApplySpellVisualKitArgs[] = {
     Req("spellVisualKitID", "number", "A SpellVisualKit ID."),
     Opt("oneShot", "bool", "false",
@@ -3412,6 +3468,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"AttachToActor", &kAttachToActor},
     {"DetachFromActor", &kDetachFromActor},
     {"PlaySpellVisual", &kPlaySpellVisual},
+    {"PlaySpellVisualAtPoint", &kPlaySpellVisualAtPoint},
     {"StopSpellVisual", &kStopSpellVisual},
     {"ApplySpellVisualKit", &kApplySpellVisualKit},
     {"PlaySound", &kPlaySound},

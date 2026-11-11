@@ -903,8 +903,9 @@ build instructions.
   - [`actor:SetGroundReticle(radius [, valid])` / `actor:ClearGroundReticle()` / `actor:GetGroundReticle()`](#actorsetgroundreticleradius--valid--actorcleargroundreticle--actorgetgroundreticle)
   - [`actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`](#actorsetnametexttext--r-g-b--actorclearnametext--actorgetnametext)
   - [`actor:GetNamePosition()`](#actorgetnameposition)
-  - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
-  - [`actor:StopSpellVisual()`](#actorstopspellvisual)
+  - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])`](#actorplayspellvisualspellid--target--casttimems--channeltimems)
+  - [`actor:PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])`](#actorplayspellvisualatpointspellid-x-y-z--casttimems--channeltimems)
+  - [`actor:StopSpellVisual([castID])`](#actorstopspellvisualcastid)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
   - [`actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`](#actorsetmovementenabledenabled--actorismovementenabled)
   - [Movement commands](#movement-commands)
@@ -19486,7 +19487,7 @@ in it:
 - A seated rider and an actor that hangs on another actor take the light
   of that other actor.
 - The missiles and impact effects of
-  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems)
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems)
   take the light of the place where they are. An arrow in a bow or in a
   target takes the light of the actor that holds it.
 
@@ -19868,14 +19869,14 @@ The model of the actor sets which items it can wear:
   into the ranged slot (`18`), not into a hand. `handSlotName` has no effect
   on it. The actor can hold two melee weapons and a ranged weapon together.
   As in the world, the ranged weapon shows only while the actor shoots with
-  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems).
   This is a ClassicAPI extension.
 - Armor goes on an actor that shows a unit (`SetModelByUnit`), or on a
   display of a character model. A creature display takes no armor. A unit in
   a shapeshift form takes no armor.
 - Ammo (arrows and bullets) goes on all models. The actor holds nothing new,
   but it shoots the ammo with a ranged spell of
-  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems).
   This is a ClassicAPI extension.
 
 The actor holds the weapons as `SetSheathed` sets. An actor that shows a
@@ -20268,7 +20269,7 @@ default. When it is `true`, the animations play these sounds:
   Footsteps also need the `FootstepSounds` setting.
 - The sounds that some animations carry, with the `EmoteSounds` setting.
 - During the preparation of
-  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems),
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems),
   the preparation sound of some spells.
 
 The sounds come from the creature display that the actor shows. An actor
@@ -20479,7 +20480,7 @@ scene:HookScript("OnUpdate", function()
 end)
 ```
 
-### `actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`
+### `actor:PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])`
 
 Plays the visual of a spell that this actor casts at `target`, and returns
 a cast ID. `target` is another actor of the same scene. Without a target, the
@@ -20497,6 +20498,13 @@ the world:
    its flight sound. It follows the target if the target moves.
 4. The impact: the target flinches when a missile hits it. Then the impact
    effects, animation and sound play on the target.
+5. The channel, for a channeled spell such as Drain Life, Mind Flay or
+   Hellfire: after the cast, the channel effects of the spell stay on the
+   actor and its channel animation repeats. A beam goes from the hand of
+   the actor to the target and follows them, for example the green beam of
+   Drain Life. The channel lasts `channelTimeMs` milliseconds. Without
+   `channelTimeMs`, it lasts the duration of the spell. A spell that lasts
+   until it is cancelled channels until `StopSpellVisual`.
 
 When the spell reaches its target, the `OnSpellVisualImpact` script of
 this actor runs with `(self, spellID, target, castID)`. `target` is the
@@ -20554,7 +20562,8 @@ slot.
   it, for example a wound from a missile that arrives late.
 
 A second call ends a preparation that has not finished. Missiles that are
-in flight go on. A paused actor (`actor:SetPaused`) holds its spells where
+in flight go on, and so do channels: use `StopSpellVisual` to end a
+channel. A paused actor (`actor:SetPaused`) holds its spells where
 they are. It returns `nil` when the spell has no visual, when this actor
 shows no model, or when the target is in another scene. A ranged spell
 without a visual of its own also needs a ranged weapon. This is a ClassicAPI
@@ -20576,10 +20585,42 @@ if castID then
 end
 ```
 
-### `actor:StopSpellVisual()`
+### `actor:PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])`
+
+Plays the visual of a spell that this actor casts at a point on the ground,
+and returns a cast ID. `x`, `y` and `z` are the point, in the coordinates of
+the scene. The preparation, the cast and the channel are the same as for
+[`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems).
+The ground point changes these steps:
+
+- A spell without a missile, for example Inferno, shows its ground effect at
+  the point when it is cast. The effect turns with the facing of this actor
+  and grows with its scale. It plays one time, then it goes, and its
+  particles go when their time ends. The sounds of the effect play at the
+  point.
+- A spell with a missile flies the missile to the point. The impact effect
+  of the spell stays at the point until its particles go.
+- No actor is hit, so no impact animation plays.
+
+The `OnSpellVisualImpact` script of this actor runs with `nil` as the
+target: at the cast for a spell without a missile, or when the missile
+arrives. `StopSpellVisual` stops these casts as it stops the others. It
+returns `nil` when the spell has no visual or this actor shows no model.
+This is a ClassicAPI extension.
+
+```lua
+-- Inferno: the meteor falls where the dragon stands.
+local x, y, z = dragon:GetPosition()
+warlock:PlaySpellVisualAtPoint(1122, x, y, z)
+```
+
+### `actor:StopSpellVisual([castID])`
 
 Interrupts the spells that this actor still prepares with
-[`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems).
+[`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems),
+and ends its channels: their effects, animation and beams stop. With
+`castID` (a value that `PlaySpellVisual` returned), it stops only that
+cast.
 The effects, the color and the animation of the preparation stop. A drawn
 bow comes down, and the arrow leaves the hand. A spell that is already cast
 goes on, and its missile flies to the target. Use it when an actor dies or
@@ -20765,7 +20806,7 @@ Returns `true`, or `false` while the movement is off.
 `KnockBack` ends a move of
 [`actor:MoveTo`](#actormovetox-y-z--facing). Then `OnMoveFinished` does not
 run for it. It also stops the spells that the actor prepares, as
-[`actor:StopSpellVisual`](#actorstopspellvisual) does. A
+[`actor:StopSpellVisual`](#actorstopspellvisualcastid) does. A
 [movement command](#movement-commands) that you give in the air takes effect
 when the actor lands, as after a jump. Give a new `MoveTo` only after the
 actor lands, when [`actor:IsFalling`](#actorisfalling) returns `false`. This

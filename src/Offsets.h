@@ -6434,6 +6434,12 @@ enum Offsets {
     OFF_SPELLVISUAL_PRECAST_KIT = 0x04,
     OFF_SPELLVISUAL_CAST_KIT = 0x08,
     OFF_SPELLVISUAL_IMPACT_KIT = 0x0C,
+    // The channel kit: a unit whose UNIT_CHANNEL_SPELL becomes the spell plays
+    // it as a lasting (kind 2) kit (0x00612A30), and its animation is the
+    // unit's while it channels (0x00612990 reads +0x14, benilla
+    // objectlayer/auras#channels). Drain Life's row 402: ChannelCastDirected
+    // and the persistent SoulBeam chain.
+    OFF_SPELLVISUAL_CHANNEL_KIT = 0x14,
     OFF_SPELLVISUAL_HAS_MISSILE = 0x18,
     OFF_SPELLVISUAL_MISSILE_MODEL = 0x1C,
     OFF_SPELLVISUAL_MISSILE_PATH = 0x20, // the missile's path type (0 for Fireball's row 67)
@@ -10570,6 +10576,16 @@ enum Offsets {
     // duplicate check (`0x00458F40`: `([def+0x7C] >> 5) & 1`).
     OFF_SOUND_DEFINITION_FLAGS = 0x7C,
     SOUND_DEFINITION_FLAG_NO_DUPLICATES = 0x20,
+    // GetSoundDefFlag200 — `bool __fastcall(uint soundEntryID, char *out)`:
+    // stores bit 0x200 of the definition's flags in `out` and returns whether
+    // the definition exists (verified by decompile). The kit player
+    // (0x0060EDF0) tests it: a lasting kit (kinds 2, 3 and 4) with the bit
+    // makes its sound an effect sound, a 3D loop that follows the unit
+    // (AddEffectSound 0x0061FEC0 -> PlaySoundLoop3D) and stops with the effect
+    // (CEffect::Stop 0x006203E0, Sound::Stop2 over 0.15 s); a one-shot kit
+    // clears the bit and plays the sound once. Every channel kit's sound has
+    // it (LifeDrainLoop, SoulFunnel), no cast kit's.
+    FUN_SOUND_DEFINITION_KIT_LOOP = 0x00458830,
 
     // SoundEntries player (InternalPlaySound) — `void *__fastcall(char keep
     // /*ecx, flag 0x4*/, char noCategory /*edx, flag 0x10*/, int bus, int

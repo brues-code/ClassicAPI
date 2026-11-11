@@ -47,10 +47,36 @@
 //   5. Arrival (0x0061DC50): the target plays its wound animation, then the
 //      +0x0C impact kit once. A +0x30 impact model stays at the arrival
 //      point until it holds no live particle (the impact list, 0x0061E930).
+//   6. Channel, for a channeled spell (AttributesEx 0x4 or 0x40) after its
+//      cast: the server sets UNIT_CHANNEL_SPELL and UNIT_CHANNEL_OBJECT, and
+//      the client plays the visual's +0x14 channel kit as a lasting kit
+//      (0x00612A30): its effects hold, its animation is the unit's while it
+//      channels (0x00612990), and its chain procedures draw a beam to the
+//      channel object (0x006ECB90), which a persistent chain keeps. When the
+//      channel ends, 0x0060D1C0 stops the spell's kits, tints and chains.
+//      The script stands in for the server: the channel lasts the spell's
+//      duration (GetSpellDuration 0x006EA000, without the player's spell
+//      modifiers) unless one is given, or until StopSpellVisual. A new cast
+//      does not end it, as the server, not a cast, clears the channel.
+//   7. A ground point (`actor:PlaySpellVisualAtPoint`, a go whose target
+//      block has a destination, mask 0x40): at the cast, a visual without a
+//      missile (+0x18 is 0) plants its +0x30 model at the point (0x006E8088
+//      to 0x006E8143: a CEffect at the destination through PlantEffect
+//      0x0061FCF0, turned by the caster's facing and scaled by its scale,
+//      0x00620A90). It plays its sequence once; at the end
+//      EffectDoneCallback (0x005FBF50) stops it (CEffect::Stop 0x006203E0:
+//      hidden, its particles finish), and the dying list frees it once no
+//      particle lives (0x0061F680). Its $SND events play at the event's point
+//      and $HIT wounds the caster, the effect's target (0x0061F6F0). There is
+//      no impact kit, as there is no unit hit (0x006E8BF0 returns on an empty
+//      hit list). A visual with a missile flies one missile to the point
+//      (0x006E8A50, masks 0x20 and 0x40) and leaves its +0x30 impact model
+//      there.
 //
 // What the world does and this does not: the leading of a moving target
 // (actors move by script, not by a mover's velocity), misses, resists and
-// reflections (no combat), and arrows stuck in the target. The sounds play
+// reflections (no combat), arrows stuck in the target, and the +0x34 kit a
+// missile's arrival at a bare point plays on the caster (0x0061D870). The sounds play
 // where they would for units, heard from the scene camera (model/SceneSound.cpp):
 // the kits' at the actor, the missile's loop moving with the missile.
 //
@@ -159,16 +185,37 @@ bool ChainLoaded(void *model) {
     return true;
 }
 
+// Whether a kit's sound loops with a lasting kit (FUN_SOUND_DEFINITION_KIT_LOOP).
+bool KitSoundLoops(int soundID) {
+    using Flag_t = bool(__fastcall *)(uint32_t id, char *out);
+    char loops = 0;
+    return soundID > 0 &&
+           reinterpret_cast<Flag_t>(Offsets::FUN_SOUND_DEFINITION_KIT_LOOP)(static_cast<uint32_t>(soundID), &loops) &&
+           loops != 0;
+}
+
 // The world's kit player on a unit, for a model: the effects (looping into
 // `effects`, or once and owned by the model), the animation and the sound.
-void PlayKit(Actor &actor, const uint8_t *kit, bool loops, std::vector<void *> *effects) {
+// A lasting kit (`loop`) records the animation it made the caster's loop,
+// and a sound with the kit-loop bit loops in it until the kit ends.
+void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, SpellCast::KitLoop *loop) {
     if (kit == nullptr || actor.model == nullptr)
         return;
-    Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, !loops, effects);
+    const bool lasting = loop != nullptr;
+    Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, !lasting, effects);
     const int anim = KitAnimation(kit);
-    if (anim >= 0)
-        actor.PlayKitAnimation(anim, loops);
-    Sounds::Play(actor.SceneFrame(), Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SOUND), actor.position);
+    if (anim >= 0) {
+        actor.PlayKitAnimation(anim, lasting);
+        if (lasting)
+            loop->animation = anim;
+    }
+    const int sound = Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SOUND);
+    if (lasting && KitSoundLoops(sound)) {
+        loop->soundID = sound;
+        loop->sound = Sounds::Loop(actor.SceneFrame(), sound, actor.position);
+    } else {
+        Sounds::Play(actor.SceneFrame(), sound, actor.position);
+    }
 }
 
 bool HasTintProcedure(const uint8_t *kit) {
@@ -365,25 +412,48 @@ void FreeStuck(StuckMissile &stuck) {
     stuck.model = nullptr;
 }
 
-void EndPrecast(Actor &caster, SpellCast &cast) {
-    for (void *effect : cast.precastEffects) {
+// A lasting kit (a precast's or a channel's) goes: its effects, its tint,
+// its sound (CEffect::Stop's fade), and its looping animation when the
+// caster still loops it, not one a later kit made; a once-only animation
+// over it (a wound) plays on.
+void EndKitLoop(Actor &caster, std::vector<void *> &effects, bool &tinted, SpellCast::KitLoop &loop) {
+    if (loop.sound != nullptr) {
+        Sound::Play::Stop(loop.sound, kSoundFadeSec);
+        loop.sound = nullptr;
+    }
+    loop.soundID = 0;
+    const int owned = loop.animation;
+    loop.animation = -1;
+    for (void *effect : effects) {
         M2::Detach(effect);
         M2::Release(effect);
     }
-    cast.precastEffects.clear();
-    if (cast.precastTinted && caster.model != nullptr) {
+    effects.clear();
+    if (tinted && caster.model != nullptr) {
         const float white[3] = {1.0f, 1.0f, 1.0f};
         M2::SetDiffuse(caster.model, white);
         caster.ApplyAlpha();
-        cast.precastTinted = false;
+        tinted = false;
     }
-    // The loop goes; a once-only animation over it (a wound) plays on.
+    if (owned < 0 || caster.kitLoopAnimation != owned)
+        return;
     caster.kitLoopAnimation = -1;
     if (caster.kitAnimationLoops) {
         caster.kitAnimation = -1;
         caster.kitAnimationLoops = false;
         caster.PlayAnimation();
     }
+}
+
+void EndPrecast(Actor &caster, SpellCast &cast) {
+    EndKitLoop(caster, cast.precastEffects, cast.precastTinted, cast.precastLoop);
+}
+
+// The channel's end (0x0060D1C0): its kit's effects, tint and animation, and
+// its chains.
+void EndChannel(Actor &caster, SpellCast &cast) {
+    EndKitLoop(caster, cast.channelEffects, cast.channelTinted, cast.channelLoop);
+    Chains::End(caster, cast.id);
 }
 
 void StopMissileSound(SpellCast &cast) {
@@ -448,7 +518,7 @@ void Impact(Actor &caster, SpellCast &cast, bool missileHit) {
         return;
     if (missileHit)
         target->PlayKitAnimation(kAnimCombatWound, false);
-    PlayKit(*target, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_IMPACT_KIT), false, nullptr);
+    PlayKit(*target, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_IMPACT_KIT), nullptr, nullptr);
 }
 
 // StickInUnit (0x0061E7C0), from ArriveHit (0x0061DC50): a missile shot from
@@ -499,6 +569,70 @@ void LeaveImpactModel(Actor &caster, const SpellCast &cast) {
     caster.impactModels.push_back({model, 0, std::move(light)});
 }
 
+// The planted effect's events (0x0061F6F0): $SND plays the event's sound at
+// the event's point, $HIT the wound animation of the effect's target, the
+// caster.
+constexpr uint32_t kSND = 0x444E5324;
+constexpr uint32_t kHIT = 0x54494824;
+
+void __stdcall OnPlantedEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
+                              uint32_t userLow, uint32_t /*userHigh*/) {
+    auto *caster = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
+    if (tag == kSND && point != nullptr) {
+        const float where[3] = {point[0], point[1], point[2]};
+        Sounds::Play(caster->SceneFrame(), static_cast<int32_t>(data), where);
+    } else if (tag == kHIT && caster->model != nullptr) {
+        caster->PlayKitAnimation(kAnimCombatWound, false);
+    }
+}
+
+// EffectDoneCallback (0x005FBF50): a natural end (reason 0) stops the
+// effect; it hides, and goes once its particles are gone.
+void __fastcall OnPlantedDone(void *model, uint32_t /*keyBone*/, uint32_t /*animID*/, uint32_t reason,
+                              uint32_t /*overshoot*/, uint32_t userLow, uint32_t /*userHigh*/) {
+    if (reason != 0)
+        return;
+    auto *caster = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
+    for (ImpactModel &impact : caster->impactModels) {
+        if (impact.model == model)
+            impact.ended = true;
+    }
+    M2::SetVisible(model, false);
+}
+
+// The spell go's effect at its destination (0x006E8088): the +0x30 model,
+// planted at the point, turned by the caster's facing and scaled by its
+// scale, 1 for a scale at or below 0 (0x00620A90).
+void PlantEffect(Actor &caster, const SpellCast &cast) {
+    const char *file = EffectFile(Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_IMPACT_MODEL));
+    if (file == nullptr)
+        return;
+    void *model = M2::CreateModel(Model::Pane::Scene(caster.SceneFrame()), file);
+    if (model == nullptr)
+        return;
+    std::unique_ptr<EntityLight> light;
+    LightAsEntity(model, light, caster.SceneFrame());
+    const float axisZ[3] = {0.0f, 0.0f, 1.0f};
+    const float scale = caster.scale > 0.0f ? caster.scale : 1.0f;
+    const float scales[3] = {scale, scale, scale};
+    M2::SetBaseTRS(model, cast.destination, caster.ShownYaw(), axisZ, scales);
+    const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&caster));
+    M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnPlantedDone), user, 0);
+    M2::SetEventCallback(model, reinterpret_cast<const void *>(&OnPlantedEvent), user, 0);
+    ImpactModel planted{model, 0, std::move(light)};
+    planted.planted = true;
+    caster.impactModels.push_back(std::move(planted));
+}
+
+// An impact model's callbacks go before it does.
+void FreeImpactModel(ImpactModel &impact) {
+    if (impact.planted) {
+        M2::SetAnimDoneCallback(impact.model, nullptr, 0, 0);
+        M2::SetEventCallback(impact.model, nullptr, 0, 0);
+    }
+    ReleaseLit(impact.model, impact.light);
+}
+
 // ReleaseMissilesFromHand's point: the first release event the model has,
 // else the caster's position.
 void HandPoint(Actor &caster, float (&point)[3]) {
@@ -521,7 +655,7 @@ bool Launch(Actor &caster, SpellCast &cast, const float (&from)[3]) {
         return false;
     for (int i = 0; i < 3; ++i)
         cast.position[i] = from[i];
-    cast.attachment = ChainLoaded(cast.target->model) ? TargetAttachment(cast) : -1;
+    cast.attachment = cast.target != nullptr && ChainLoaded(cast.target->model) ? TargetAttachment(cast) : -1;
     Aim(cast);
     const float dx = cast.destination[0] - from[0];
     const float dy = cast.destination[1] - from[1];
@@ -561,10 +695,25 @@ void *MakeMissile(Actor &caster, const SpellCast &cast) {
     return model;
 }
 
+// The channel's start (0x00612A30): the channel kit as a lasting kit, its
+// chains to the channel object held until the channel ends.
+void StartChannel(Actor &caster, SpellCast &cast, int channelMs) {
+    cast.phase = SpellCast::Phase::Channel;
+    cast.channelEndless = channelMs < 0;
+    cast.channelLeftSec = static_cast<float>(channelMs) * 0.001f;
+    const uint8_t *kit = Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CHANNEL_KIT);
+    if (kit == nullptr)
+        return;
+    cast.channelTinted = HasTintProcedure(kit);
+    PlayKit(caster, kit, &cast.channelEffects, &cast.channelLoop);
+    if (cast.target != nullptr && cast.target != &caster)
+        Chains::Start(caster, *cast.target, cast.visual, kit, cast.id);
+}
+
 void StartCast(Actor &caster, SpellCast &cast) {
     EndPrecast(caster, cast);
     cast.phase = SpellCast::Phase::Cast;
-    PlayKit(caster, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT), false, nullptr);
+    PlayKit(caster, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT), nullptr, nullptr);
     if (cast.target != nullptr)
         Chains::Start(caster, *cast.target, cast.visual, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT));
     const auto *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
@@ -577,12 +726,16 @@ void StartCast(Actor &caster, SpellCast &cast) {
         cast.missile = MakeMissile(caster, cast);
         cast.sticks = spell != nullptr && IsRanged(spell) && IsBowCrossbowOrThrown(caster.ranged);
     }
+    if (cast.atPoint && Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) == 0)
+        PlantEffect(caster, cast);
     if (cast.missile != nullptr) {
         LightAsEntity(cast.missile, cast.light, caster.SceneFrame());
         Aim(cast);
         return;
     }
     Impact(caster, cast, false);
+    if (cast.channelMs != 0)
+        StartChannel(caster, cast, cast.channelMs);
 }
 
 // Moves the cast on; true once it is over.
@@ -593,7 +746,15 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
         if (cast.precastLeftSec > 0.0f)
             return false;
         StartCast(caster, cast);
-        return cast.missile == nullptr;
+        return cast.missile == nullptr && cast.phase != SpellCast::Phase::Channel;
+    case SpellCast::Phase::Channel:
+        if (cast.channelEndless)
+            return false;
+        cast.channelLeftSec -= elapsedSec;
+        if (cast.channelLeftSec > 0.0f)
+            return false;
+        EndChannel(caster, cast);
+        return true;
     case SpellCast::Phase::Cast: {
         cast.queuedSec += elapsedSec;
         float from[3];
@@ -644,6 +805,8 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
 void DropCast(Actor &caster, SpellCast &cast) {
     if (cast.phase == SpellCast::Phase::Precast)
         EndPrecast(caster, cast);
+    else if (cast.phase == SpellCast::Phase::Channel)
+        EndChannel(caster, cast);
     ReleaseMissile(cast);
 }
 
@@ -652,11 +815,14 @@ void DropCast(Actor &caster, SpellCast &cast) {
 // An interrupt ends a spell still preparing (0x0060D1C0 stops its kits: the
 // effects, the tint and the looping animation; the failed spell's EndPrecast
 // 0x0060FC50 ends the ranged pose); a spell already cast goes on, its missile
-// included.
-void Stop(Actor &caster) {
+// included. With `channels`, the channels end too, as their visual does when
+// the server clears the channel.
+void Stop(Actor &caster, bool channels, uint32_t castID) {
     bool stopped = false;
     for (size_t i = 0; i < caster.spellCasts.size();) {
-        if (caster.spellCasts[i].phase != SpellCast::Phase::Precast) {
+        const SpellCast::Phase phase = caster.spellCasts[i].phase;
+        if ((castID != 0 && caster.spellCasts[i].id != castID) ||
+            (phase != SpellCast::Phase::Precast && !(channels && phase == SpellCast::Phase::Channel))) {
             ++i;
             continue;
         }
@@ -727,7 +893,10 @@ int RangedAnimationAfter(const Actor &caster, int ended) {
     return ended == Offsets::ANIM_LOAD_THROWN ? static_cast<int>(Offsets::ANIM_HOLD_THROWN) : ended;
 }
 
-uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
+namespace {
+
+// The cast at the target, else at `point` when given, else on the caster.
+uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *point, int castTimeMs, int channelMs) {
     using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
     static uint32_t s_lastCastID = 0;
     const uint8_t *spell =
@@ -738,7 +907,7 @@ uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
     if (!BuildVisual(caster, spell, visual))
         return 0;
     // A new cast ends the precast of one still preparing.
-    Stop(caster);
+    Stop(caster, false);
     if (castTimeMs < 0)
         castTimeMs = reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME)(
             static_cast<int>(spellID), 0, 0);
@@ -756,7 +925,22 @@ uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
         HoldAmmo(caster, cast.ammoDisplay);
         caster.DrawRanged();
     }
-    cast.target = target != nullptr ? target : &caster;
+    if (point != nullptr) {
+        cast.atPoint = true;
+        for (int i = 0; i < 3; ++i)
+            cast.destination[i] = point[i];
+    } else {
+        cast.target = target != nullptr ? target : &caster;
+    }
+    // A channeled spell channels after its cast, for the time given, else its
+    // duration (forever for an endless one).
+    if ((Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX) & Offsets::SPELL_ATTR_EX_CHANNELED) != 0) {
+        using GetDuration_t = int(__fastcall *)(const void *spell, int pet, int unmodified);
+        cast.channelMs = channelMs >= 0 ? channelMs
+                                        : reinterpret_cast<GetDuration_t>(Offsets::FUN_GET_SPELL_DURATION)(spell, 0, 1);
+        if (cast.channelMs == 0)
+            cast.channelMs = 1; // a channel with no time still shows for a frame
+    }
     caster.spellCasts.push_back(std::move(cast));
     SpellCast &added = caster.spellCasts.back();
     const uint8_t *precast = Kit(visual, Offsets::OFF_SPELLVISUAL_PRECAST_KIT);
@@ -764,14 +948,24 @@ uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs) {
         added.phase = SpellCast::Phase::Precast;
         added.precastLeftSec = static_cast<float>(castTimeMs) * 0.001f;
         added.precastTinted = HasTintProcedure(precast);
-        PlayKit(caster, precast, true, &added.precastEffects);
+        PlayKit(caster, precast, &added.precastEffects, &added.precastLoop);
         return added.id;
     }
     StartCast(caster, added);
     const uint32_t id = added.id;
-    if (added.missile == nullptr)
+    if (added.missile == nullptr && added.phase != SpellCast::Phase::Channel)
         caster.spellCasts.pop_back();
     return id;
+}
+
+} // namespace
+
+uint32_t Play(Actor &caster, uint32_t spellID, Actor *target, int castTimeMs, int channelMs) {
+    return Begin(caster, spellID, target, nullptr, castTimeMs, channelMs);
+}
+
+uint32_t PlayAtPoint(Actor &caster, uint32_t spellID, const float (&point)[3], int castTimeMs, int channelMs) {
+    return Begin(caster, spellID, nullptr, point, castTimeMs, channelMs);
 }
 
 void Update(Actor &caster, float elapsedSec) {
@@ -794,6 +988,18 @@ void Update(Actor &caster, float elapsedSec) {
     // ends, as a hidden scene's does when it shows again.
     const bool held = IsPaused(caster.SceneFrame()) || caster.paused || caster.globalPaused;
     for (SpellCast &cast : caster.spellCasts) {
+        for (SpellCast::KitLoop *loop : {&cast.precastLoop, &cast.channelLoop}) {
+            if (loop->soundID == 0)
+                continue;
+            if (held) {
+                if (loop->sound != nullptr) {
+                    Sound::Play::Stop(loop->sound, 0.0f);
+                    loop->sound = nullptr;
+                }
+            } else if (loop->sound == nullptr) {
+                loop->sound = Sounds::Loop(caster.SceneFrame(), loop->soundID, caster.position);
+            }
+        }
         if (cast.phase != SpellCast::Phase::Flight)
             continue;
         SettleLight(cast.missile, cast.light.get(), elapsedSec);
@@ -822,12 +1028,14 @@ void Update(Actor &caster, float elapsedSec) {
     }
     for (size_t i = 0; i < caster.impactModels.size();) {
         ImpactModel &impact = caster.impactModels[i];
-        const bool gone = impact.framesShown >= 2 && !M2::HasLiveParticles(impact.model);
+        // A planted effect waits for its end, then for its particles.
+        const bool gone = impact.framesShown >= 2 && (!impact.planted || impact.ended) &&
+                          !M2::HasLiveParticles(impact.model);
         if (!gone) {
             ++i;
             continue;
         }
-        ReleaseLit(impact.model, impact.light);
+        FreeImpactModel(impact);
         caster.impactModels.erase(caster.impactModels.begin() + static_cast<ptrdiff_t>(i));
     }
 }
@@ -843,7 +1051,7 @@ void Link(Actor &caster) {
         if (!M2::IsReady(impact.model, 0, 1))
             continue;
         M2::SetAnimated(impact.model, true);
-        M2::SetVisible(impact.model, true);
+        M2::SetVisible(impact.model, !impact.ended);
         ++impact.framesShown;
     }
 }
@@ -855,6 +1063,8 @@ void Place(Actor &caster) {
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {1.0f, 1.0f, 1.0f};
     for (SpellCast &cast : caster.spellCasts) {
+        Sounds::Move(caster.SceneFrame(), cast.precastLoop.sound, caster.position);
+        Sounds::Move(caster.SceneFrame(), cast.channelLoop.sound, caster.position);
         if (cast.phase != SpellCast::Phase::Flight)
             continue;
         const float dx = cast.destination[0] - cast.position[0];
@@ -869,11 +1079,17 @@ void Place(Actor &caster) {
 }
 
 void Silence(Actor &caster) {
-    for (SpellCast &cast : caster.spellCasts)
+    for (SpellCast &cast : caster.spellCasts) {
         if (cast.missileSound != nullptr) {
             Sound::Play::Stop(cast.missileSound, 0.0f);
             cast.missileSound = nullptr;
         }
+        for (SpellCast::KitLoop *loop : {&cast.precastLoop, &cast.channelLoop})
+            if (loop->sound != nullptr) {
+                Sound::Play::Stop(loop->sound, 0.0f);
+                loop->sound = nullptr;
+            }
+    }
 }
 
 void Drop(Actor &caster) {
@@ -881,7 +1097,7 @@ void Drop(Actor &caster) {
         DropCast(caster, cast);
     caster.spellCasts.clear();
     for (ImpactModel &impact : caster.impactModels)
-        ReleaseLit(impact.model, impact.light);
+        FreeImpactModel(impact);
     caster.impactModels.clear();
     for (StuckMissile &stuck : caster.stuckMissiles)
         FreeStuck(stuck);

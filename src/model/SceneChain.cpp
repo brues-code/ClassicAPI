@@ -31,8 +31,10 @@
 // by 0.75 of its height (0x006EC6F0); the target's attachment that the
 // spell visual's +0x24 names, else its position (0x006EC780). A hidden end
 // hides the bolt, as a missing object does. The scene clock times the hops,
-// so a paused scene holds them. A persistent chain (a channel's) is drawn
-// for the row's life too, as a scene cast has no channel to end it.
+// so a paused scene holds them. A persistent chain of a channel (the
+// procedure's third value, Drain Life's SoulBeam) lasts until the channel
+// ends (End), as the world's LightningObject does until 0x0060D1C0 stops
+// the spell's effects; one started by a cast lives the row's life.
 
 #include "model/Scene.h"
 
@@ -63,6 +65,7 @@ struct Hop {
     const uint8_t *record = nullptr;
     void *texture = nullptr; // the scene's reference to the row's texture
     int handle = -1;          // the renderer's bolt, or -1
+    uint32_t channelCastID = 0; // a channel's persistent hop, held until End
 };
 
 struct State {
@@ -157,7 +160,7 @@ void *ChainTexture(State &state, uint32_t chainID, const uint8_t *record) {
 
 } // namespace
 
-void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *kit) {
+void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *kit, uint32_t channelCastID) {
     if (kit == nullptr || &target == &caster)
         return;
     for (int i = 0; i < 4; ++i) {
@@ -166,6 +169,8 @@ void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *k
             continue;
         const uint8_t chainID = DecodeKitByte(Game::Read<float>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE + i * 4));
         uint32_t strands = DecodeKitByte(Game::Read<float>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE2 + i * 4));
+        const bool persistent =
+            DecodeKitByte(Game::Read<float>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE3 + i * 4)) != 0;
         const uint8_t *record =
             DBC::Record(Offsets::VAR_SPELLCHAINEFFECTS_RECORDS, Offsets::VAR_SPELLCHAINEFFECTS_COUNT, chainID);
         if (record == nullptr || strands == 0)
@@ -185,6 +190,7 @@ void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *k
             hop.endMs = now + life;
             hop.record = record;
             hop.texture = texture;
+            hop.channelCastID = persistent ? channelCastID : 0;
             state.hops.push_back(hop);
         }
     }
@@ -198,7 +204,7 @@ void Update(void *frame, float sceneSec) {
     const uint32_t now = ClockMs(frame);
     for (size_t i = 0; i < state->hops.size();) {
         Hop &hop = state->hops[i];
-        if (Time::Clock::Reached(now, hop.endMs)) {
+        if (hop.channelCastID == 0 && Time::Clock::Reached(now, hop.endMs)) {
             DestroyBolt(*state, hop.handle);
             state->hops.erase(state->hops.begin() + static_cast<ptrdiff_t>(i));
             continue;
@@ -229,6 +235,21 @@ void Render(void *frame, const float (&eye)[3]) {
     if (state == nullptr || state->hops.empty())
         return;
     reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_LIGHTNING_RENDER)(state->renderer, eye);
+}
+
+void End(Actor &caster, uint32_t castID) {
+    State *state = Find(caster.SceneFrame());
+    if (state == nullptr || castID == 0)
+        return;
+    for (size_t i = 0; i < state->hops.size();) {
+        Hop &hop = state->hops[i];
+        if (hop.from != &caster || hop.channelCastID != castID) {
+            ++i;
+            continue;
+        }
+        DestroyBolt(*state, hop.handle);
+        state->hops.erase(state->hops.begin() + static_cast<ptrdiff_t>(i));
+    }
 }
 
 void Forget(Actor &actor) {
