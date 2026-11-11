@@ -80,6 +80,7 @@ local UpdatePet = BW.UpdatePet
 local ClearPet = BW.ClearPet
 local UpdateChannels = BW.UpdateChannels
 local ClearChannels = BW.ClearChannels
+local Zap = BW.Zap
 local UpdateInfernals = BW.UpdateInfernals
 local ClearInfernals = BW.ClearInfernals
 local EndShield = BW.EndShield
@@ -152,6 +153,7 @@ local function StartRun()
 		ClearInfernals();
 	end
 	BW.hero:SetSpellVisualKit();
+	BW.hero:RemoveAuraVisual();
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {
 		time = 0, kills = 0, alive = 0, level = 1, xp = 0, pendingLevels = 0,
@@ -202,7 +204,12 @@ local function Chase(dt, hx, hy, hz)
 		end
 		local e = enemies[BW.run.retargetCursor];
 		if e.alive and not (e.stunUntil and BW.run.time < e.stunUntil) and not e.actor:IsFalling() then
-			if e.fearUntil then
+			if e.sheepUntil then
+				-- A sheep grazes about where it is.
+				local x, y = e.actor:GetPosition();
+				local a = math.random() * 2 * math.pi;
+				e.actor:MoveTo(x + TUNING.SHEEP_WANDER * math.cos(a), y + TUNING.SHEEP_WANDER * math.sin(a), hz);
+			elseif e.fearUntil then
 				local x, y = e.actor:GetPosition();
 				local dx, dy = x - hx, y - hy;
 				local d = math.sqrt(dx * dx + dy * dy);
@@ -288,8 +295,9 @@ local function Step(dt)
 		if e.alive then
 			local x, y = e.actor:GetPosition();
 			local reach = e.kind.reach;
-			if not Taunted(e) and not e.fearUntil and Dist2(x, y, hx, hy) <= reach * reach then
+			if not Taunted(e) and not e.fearUntil and not e.sheepUntil and Dist2(x, y, hx, hy) <= reach * reach then
 				hurt = hurt + e.dps * BiteShare(e) * (1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100);
+				Zap(e);
 				if thorns then
 					Damage(e, BW.run.thornsDamage, SPELLS.thorns.color);
 					if Mastered("thorns") then

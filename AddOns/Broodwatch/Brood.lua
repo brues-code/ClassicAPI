@@ -52,6 +52,10 @@ local function Spawn(kind)
 	end
 	local pool = pools[kind.key];
 	local e = pool and table.remove(pool) or NewEnemy(kind);
+	if e.sheepUntil then -- it died a sheep
+		e.sheepUntil = nil;
+		e.actor:SetModelByCreatureDisplayID(kind.display);
+	end
 	e.hp, e.dps = KindStats(kind);
 	e.maxHp = e.hp;
 	e.alive = true;
@@ -269,6 +273,31 @@ local function Fear(e, seconds, kit)
 	ShowKit(e, kit, e.fearUntil);
 end
 
+-- An enemy's run speed: a sheep's amble, else its kind's, slowed.
+local function ApplySpeed(e)
+	local speed = e.sheepUntil and TUNING.SHEEP_SPEED or e.kind.speed * (e.slowFactor or 1);
+	e.actor:SetMovementSpeed("run", speed);
+end
+
+-- Polymorph: the enemy is a sheep (SPELLS.polymorph.display) that wanders,
+-- harmless, until its time ends. Its own model comes back after.
+local function Polymorph(e, seconds)
+	if not e.sheepUntil then
+		e.sheepUntil = 0;
+		e.actor:SetModelByCreatureDisplayID(SPELLS.polymorph.display);
+		e.actor:StopMoving();
+		ApplySpeed(e);
+	end
+	e.fearUntil = nil;
+	e.sheepUntil = math.max(e.sheepUntil, BW.run.time + seconds * HoldShare(e));
+end
+
+local function Unpolymorph(e)
+	e.sheepUntil = nil;
+	e.actor:SetModelByCreatureDisplayID(e.kind.display);
+	ApplySpeed(e);
+end
+
 local function Weaken(e, share, seconds)
 	e.weakShare = math.max(e.weakShare or 0, share);
 	e.weakUntil = math.max(e.weakUntil or 0, BW.run.time + seconds);
@@ -297,6 +326,9 @@ local function UpdateStates(e, dt)
 	end
 	if e.weakUntil and t >= e.weakUntil then
 		e.weakUntil, e.weakShare = nil, nil;
+	end
+	if e.sheepUntil and t >= e.sheepUntil then
+		Unpolymorph(e);
 	end
 end
 
@@ -357,6 +389,8 @@ BW.Blast = Blast
 BW.Hold = Hold
 BW.Fear = Fear
 BW.Weaken = Weaken
+BW.Polymorph = Polymorph
+BW.ApplySpeed = ApplySpeed
 BW.UpdateStates = UpdateStates
 BW.BiteShare = BiteShare
 BW.Spawn = Spawn

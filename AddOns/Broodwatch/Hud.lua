@@ -89,11 +89,11 @@ local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
 	heal = "Heal per hit", radius = "Radius", slow = "Enemy speed", duration = "Lasts", cooldown = "Every",
 	absorb = "Absorbs", root = "Freezes for", fear = "Fears for", weaken = "Their bites",
-	hit = "Infernal's blows", burn = "Immolation per second",
+	hit = "Infernal's blows", burn = "Immolation per second", orbs = "Orbs",
 }
 local STAT_UNITS = { radius = " yd", duration = " s", cooldown = " s", root = " s", fear = " s" }
 local STAT_ORDER = {
-	"damage", "hit", "burn", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear",
+	"damage", "hit", "burn", "orbs", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear",
 	"weaken",
 	"duration", "cooldown",
 }
@@ -236,6 +236,47 @@ local function FillCard(i, o)
 	return CARD_ABOVE + nameText:GetStringHeight() + tagText:GetStringHeight() + descHeight + CARD_BELOW;
 end
 
+-- A build slot's tooltip: what the spell or passive does at the rank you
+-- have.
+local function ShowSlotTip(slot)
+	local tip = GameTooltip;
+	tip:SetOwner(slot, "ANCHOR_RIGHT");
+	if slot.spellKey then
+		local def = SPELLS[slot.spellKey];
+		local level = BW.run.spells[slot.spellKey].level;
+		local color = CARD_COLORS.spell;
+		tip:SetText(def.name, color[1], color[2], color[3]);
+		tip:AddLine("Rank " .. ROMAN[level], 0.6, 0.6, 0.6);
+		tip:AddLine(def.blurb, 1, 1, 1, 1);
+		for _, field in ipairs(STAT_ORDER) do
+			local v = Stat(def, field, level);
+			if v then
+				tip:AddDoubleLine(STAT_LABELS[field], StatText(field, v), 0.8, 0.8, 0.8, 1, 1, 1);
+			end
+		end
+		if def.mastery then
+			if level == MAX_LEVEL then
+				tip:AddLine("Mastery: " .. def.mastery.text, 1, 0.82, 0, 1);
+			else
+				tip:AddLine("At rank V: " .. def.mastery.text, 0.53, 0.53, 0.53, 1);
+			end
+		end
+	else
+		local p = PASSIVES[slot.passiveKey];
+		local level = BW.run.passives[slot.passiveKey];
+		local color = CARD_COLORS.passive;
+		tip:SetText(p.name, color[1], color[2], color[3]);
+		tip:AddLine("Passive, rank " .. ROMAN[level], 0.6, 0.6, 0.6);
+		tip:AddLine(p.text, 1, 1, 1, 1);
+		tip:AddLine("Total: " .. string.format(p.total, p.per * level), 0.8, 0.8, 0.8, 1);
+	end
+	tip:Show();
+end
+
+local function HideSlotTip()
+	GameTooltip:Hide();
+end
+
 function Broodwatch_CardHover(card, over)
 	if over then
 		card:SetBackdropBorderColor(1, 1, 1);
@@ -271,6 +312,9 @@ local function BuildSlot(i)
 		slot.rank = slot.top:CreateFontString(nil, "OVERLAY");
 		slot.rank:SetFontObject(NumberFontNormal);
 		slot.rank:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -1, 1);
+		slot:EnableMouse(true);
+		slot:SetScript("OnEnter", function() ShowSlotTip(slot); end);
+		slot:SetScript("OnLeave", HideSlotTip);
 		buildSlots[i] = slot;
 	end
 	return slot;
@@ -313,6 +357,7 @@ local function UpdateBuild()
 			-- A new spell can move the others along the bar: each slot shows
 			-- its own spell's recharge again.
 			state.slot = AddBuildSlot(Icon(SPELLS[key].spell), state.level, x, 0, BUILD_SLOT);
+			state.slot.spellKey, state.slot.passiveKey = key, nil;
 			ShowRecharge(state.slot, state.cooldown, state.cdFull);
 			x = x + BUILD_SLOT + 4;
 		end
@@ -322,6 +367,7 @@ local function UpdateBuild()
 		local level = BW.run.passives[key];
 		if level then
 			local slot = AddBuildSlot(Icon(PASSIVES[key].icon), level, x, BUILD_SLOT + 6, PASSIVE_SLOT);
+			slot.spellKey, slot.passiveKey = nil, key;
 			slot.cd:Clear();
 			slot.icon:SetDesaturated(key == "soulstone" and BW.run.soulstoneUsed and true or false);
 			x = x + PASSIVE_SLOT + 3;

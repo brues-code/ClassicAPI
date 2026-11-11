@@ -214,11 +214,45 @@ local SPELLS = {
 		cooldown = { 30, 28, 26, 24, 22 },
 		mastery = { text = "Two meteors fall, the second on another part of the brood.", meteors = 2 },
 	},
+	-- Lightning Shield (324): its orbs circle you as the aura's state kit
+	-- (AddAuraVisual, kit 292). An orb strikes a whelp that bites you, with
+	-- the spell's impact kit 62 on it; the shield goes with its last orb.
+	lshield = {
+		spell = 324, zapKit = 62, blurb = "Orbs of lightning circle you and strike the whelps that bite you.",
+		color = { 0.6, 0.75, 1 }, kind = "lshield",
+		damage = { 18, 23, 29, 36, 45 }, orbs = { 3, 3, 4, 5, 6 }, cooldown = { 9, 8.5, 8, 7.5, 7 },
+		mastery = { text = "Each strike also jumps to a second whelp nearby.", jump = 5 },
+	},
+	-- Polymorph (118): the toughest enemies in range become Polymorphed Sheep
+	-- (creature 16372, display 856) that wander, harmless, until it wears off.
+	polymorph = {
+		spell = 118, display = 856, blurb = "Turns the toughest enemies in range into harmless sheep.",
+		color = { 0.85, 0.55, 1 }, kind = "polymorph", pick = "strongest", range = 20,
+		count = { 1, 1, 2, 2, 3 }, duration = { 4, 5, 5, 6, 6 }, cooldown = { 10, 9.5, 9, 8.5, 8 },
+		mastery = { text = "Every whelp near each target becomes a sheep too.", radius = 3 },
+	},
+	-- Arcane Missiles (5143): a channel (kit 729) that fires the real Arcane
+	-- Missile (7268) at its target each second, for 3 s (duration 27).
+	arcanemissiles = {
+		spell = 5143, missile = 7268, blurb = "Channels a missile into the toughest enemy in range every second.",
+		color = { 0.85, 0.55, 1 }, kind = "channel", pick = "strongest", range = 22,
+		damage = { 14, 18, 23, 29, 36 }, duration = { 3, 3, 4, 4, 5 }, cooldown = { 6, 5.5, 5, 4.5, 4 },
+		mastery = { text = "Each missile splits into three, at the enemies nearest its target.", split = 3 },
+	},
+	-- Death Coil (6789): a missile that harms its target, heals you, and
+	-- fears the target for 3 s (duration 27).
+	deathcoil = {
+		spell = 6789, blurb = "A coil of shadow harms the nearest enemy, heals you and sends it fleeing.",
+		color = { 0.55, 0.85, 0.3 }, kind = "missile", pick = "nearest", range = 22,
+		damage = { 25, 32, 40, 50, 62 }, heal = { 4, 5, 6, 7, 8 }, fear = { 3, 3, 3, 3, 3 },
+		cooldown = { 7, 6.5, 6, 5.5, 5 },
+		mastery = { text = "The coil fears every enemy around its target.", radius = 5 },
+	},
 }
 local SPELL_ORDER = {
 	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
 	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
-	"drainlife", "mindflay", "inferno",
+	"drainlife", "mindflay", "inferno", "lshield", "polymorph", "arcanemissiles", "deathcoil",
 }
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
@@ -320,6 +354,9 @@ local TUNING = {
 	INFERNAL_SWING = 2,        -- seconds between two blows
 	INFERNAL_BURN_RADIUS = 4,  -- yards its Immolation burns, once a second
 	INFERNAL_TAUNT = 3,        -- seconds a burn holds the whelps on it
+	ZAP_GAP = 0.5,             -- seconds between two of Lightning Shield's strikes
+	SHEEP_SPEED = 1.5,
+	SHEEP_WANDER = 2,          -- yards a sheep ambles before its next MoveTo
 }
 -- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
 local ITEMS = {

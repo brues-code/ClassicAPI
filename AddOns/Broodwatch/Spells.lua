@@ -14,6 +14,8 @@ local Blast = BW.Blast
 local Hold = BW.Hold
 local Fear = BW.Fear
 local Weaken = BW.Weaken
+local Polymorph = BW.Polymorph
+local ApplySpeed = BW.ApplySpeed
 local TUNING = BW.TUNING
 local Mastered = BW.Mastered
 
@@ -43,7 +45,8 @@ local function PickTargets(def, count, hx, hy)
 	for _ = 1, count do
 		local best, bestScore;
 		for _, e in ipairs(enemies) do
-			if e.alive and not e.marked and not (def.kind == "dot" and e.dotLeft) then
+			if e.alive and not e.marked and not (def.kind == "dot" and e.dotLeft)
+				and not (def.kind == "polymorph" and e.sheepUntil) then
 				local x, y = e.actor:GetPosition();
 				local d2 = Dist2(x, y, hx, hy);
 				if d2 <= range2 then
@@ -191,14 +194,14 @@ local function Slow(e, factor, seconds)
 	e.slowUntil = math.max(e.slowUntil or 0, BW.run.time + (seconds or SLOW_SECONDS));
 	if e.slowFactor ~= factor then
 		e.slowFactor = factor;
-		e.actor:SetMovementSpeed("run", e.kind.speed * factor);
+		ApplySpeed(e);
 	end
 end
 
 local function Unslow(e)
 	e.slowUntil = nil;
 	e.slowFactor = nil;
-	e.actor:SetMovementSpeed("run", e.kind.speed);
+	ApplySpeed(e);
 end
 
 -- The point of the thickest pack in range: of up to 24 enemies in range,
@@ -665,6 +668,46 @@ local function ClearInfernals()
 end
 
 ------------------------------------------------------------------------------
+-- Lightning Shield: its orbs circle you as the aura's state kit
+-- (AddAuraVisual). Every ZAP_GAP seconds an orb strikes a whelp that bites
+-- you (the step calls Zap), and the shield goes with its last orb. A recast
+-- fills the orbs again.
+
+local function RaiseLightningShield(def, level)
+	BW.run.orbs = Stat(def, "orbs", level);
+	BW.run.orbDamage = Stat(def, "damage", level);
+	BW.run.nextZap = BW.run.nextZap or 0;
+	BW.hero:AddAuraVisual(def.spell);
+end
+
+local function Strike(e)
+	local def = SPELLS.lshield;
+	Damage(e, BW.run.orbDamage, def.color);
+	e.actor:ApplySpellVisualKit(def.zapKit, true);
+end
+
+local function Zap(biter)
+	local run = BW.run;
+	if not run.orbs or run.time < run.nextZap then
+		return;
+	end
+	run.nextZap = run.time + TUNING.ZAP_GAP;
+	Strike(biter);
+	if Mastered("lshield") then
+		local x, y = biter.actor:GetPosition();
+		local other = Nearest(x, y, SPELLS.lshield.mastery.jump, function(o) return o == biter; end);
+		if other then
+			Strike(other);
+		end
+	end
+	run.orbs = run.orbs - 1;
+	if run.orbs <= 0 then
+		run.orbs = nil;
+		BW.hero:RemoveAuraVisual(SPELLS.lshield.spell);
+	end
+end
+
+------------------------------------------------------------------------------
 -- Channels: the hero's beam on one enemy (PlaySpellVisual with a channel
 -- time). Each second it burns the target: Drain Life heals you, Mind Flay
 -- slows it. The beam ends (StopSpellVisual with its cast) when its target
@@ -678,10 +721,9 @@ local function Channel(key, def, level, target)
 	if not castID then
 		return false;
 	end
-	channels[key] = {
-		castID = castID, target = target, level = level, tick = 1,
-		left = Stat(def, "duration", level),
-	};
+	-- A tick each second, the last at the channel's end, as a periodic
+	-- aura's last tick comes at its expiry.
+	channels[key] = { castID = castID, target = target, level = level, tick = 1, ticks = Stat(def, "duration", level) };
 	return true;
 end
 
@@ -698,62 +740,93 @@ local function NotChannelHit(e)
 	return channelHit[e];
 end
 
+-- Arcane Missiles' tick: the server's triggered missile (def.missile) from
+-- the hero at the target, its damage at its impact. The mastery splits it
+-- among the enemies nearest the target.
+local function ChannelMissiles(key, def, level, target, damage)
+	local count = Mastered(key) and def.mastery.split or 1;
+	local x, y = target.actor:GetPosition();
+	local e = target;
+	for _ = 1, count do
+		channelHit[e] = true;
+		local castID = BW.hero:PlaySpellVisual(def.missile, e.actor, 0);
+		if castID then
+			BW.run.inFlight[castID] = { key = key, target = e, damage = damage, level = level };
+		end
+		e = Nearest(x, y, def.range, NotChannelHit);
+		if not e then
+			break;
+		end
+	end
+	for hit in pairs(channelHit) do
+		channelHit[hit] = nil;
+	end
+end
+
+-- A channel's tick on its target at (x, y): the damage (or Arcane
+-- Missiles' missiles), Drain Life's heal, Mind Flay's slow and its mastery's
+-- flay around the target.
+local function ChannelTick(key, def, channel, target, x, y)
+	local damage = Stat(def, "damage", channel.level);
+	if def.missile then
+		ChannelMissiles(key, def, channel.level, target, damage);
+	else
+		Damage(target, damage, def.color);
+	end
+	local heal = Stat(def, "heal", channel.level);
+	if heal then
+		BW.run.pendingHeal = BW.run.pendingHeal + heal;
+	end
+	local slow = Stat(def, "slow", channel.level);
+	if slow and target.alive then
+		Slow(target, slow);
+	end
+	if Mastered(key) and def.mastery.radius then
+		local r2 = def.mastery.radius * def.mastery.radius;
+		for _, e in ipairs(enemies) do
+			if e.alive and e ~= target then
+				local ex, ey = e.actor:GetPosition();
+				if Dist2(ex, ey, x, y) <= r2 then
+					Damage(e, damage, def.color);
+				end
+			end
+		end
+	end
+end
+
+-- Removing a key during `pairs` is allowed; adding one is not, so a leap
+-- reuses its entry.
 local function UpdateChannels(dt)
 	local hx, hy = BW.hero:GetPosition();
 	for key, channel in pairs(channels) do
 		local def = SPELLS[key];
 		local target = channel.target;
-		channel.left = channel.left - dt;
-		if channel.left <= 0 then
-			channels[key] = nil; -- its own time ends the beam
-		else
-			local reach = def.range + CHANNEL_SLACK;
-			local x, y = target.actor:GetPosition();
-			if not target.alive or Dist2(x, y, hx, hy) > reach * reach then
-				-- Drain Life's mastery leaps the beam on for the time left.
-				local nextTarget;
-				if Mastered(key) and def.mastery.leap then
-					channelHit[target] = true;
-					nextTarget = Nearest(x, y, def.mastery.leap, NotChannelHit);
-					channelHit[target] = nil;
-				end
-				-- The entry stays while the loop runs (a key added during
-				-- `pairs` is undefined); the leap reuses it.
-				BW.hero:StopSpellVisual(channel.castID);
-				local castID = nextTarget
-					and BW.hero:PlaySpellVisual(def.spell, nextTarget.actor, 0, channel.left * 1000);
-				if castID then
-					channel.castID, channel.target = castID, nextTarget;
-				else
-					channels[key] = nil;
-				end
-			else
-				channel.tick = channel.tick - dt;
-				if channel.tick <= 0 then
-					channel.tick = channel.tick + 1;
-					local damage = Stat(def, "damage", channel.level);
-					Damage(target, damage, def.color);
-					local heal = Stat(def, "heal", channel.level);
-					if heal then
-						BW.run.pendingHeal = BW.run.pendingHeal + heal;
-					end
-					local slow = Stat(def, "slow", channel.level);
-					if slow and target.alive then
-						Slow(target, slow);
-					end
-					if Mastered(key) and def.mastery.radius then
-						local r2 = def.mastery.radius * def.mastery.radius;
-						for _, e in ipairs(enemies) do
-							if e.alive and e ~= target then
-								local ex, ey = e.actor:GetPosition();
-								if Dist2(ex, ey, x, y) <= r2 then
-									Damage(e, damage, def.color);
-								end
-							end
-						end
-					end
-				end
+		local reach = def.range + CHANNEL_SLACK;
+		local x, y = target.actor:GetPosition();
+		channel.tick = channel.tick - dt;
+		if not target.alive or Dist2(x, y, hx, hy) > reach * reach then
+			-- Drain Life's mastery leaps the beam on for the ticks left.
+			local nextTarget;
+			if Mastered(key) and def.mastery.leap then
+				channelHit[target] = true;
+				nextTarget = Nearest(x, y, def.mastery.leap, NotChannelHit);
+				channelHit[target] = nil;
 			end
+			BW.hero:StopSpellVisual(channel.castID);
+			local leftMs = (channel.tick + channel.ticks - 1) * 1000;
+			local castID = nextTarget and BW.hero:PlaySpellVisual(def.spell, nextTarget.actor, 0, leftMs);
+			if castID then
+				channel.castID, channel.target = castID, nextTarget;
+			else
+				channels[key] = nil;
+			end
+		elseif channel.tick <= 0 then
+			channel.tick = channel.tick + 1;
+			channel.ticks = channel.ticks - 1;
+			if channel.ticks <= 0 then
+				channels[key] = nil; -- the last tick; the beam's own time ends it
+			end
+			ChannelTick(key, def, channel, target, x, y);
 		end
 	end
 end
@@ -801,7 +874,7 @@ local function Fire(key, state)
 	local def = SPELLS[key];
 	local level = state.level;
 	local hx, hy = BW.hero:GetPosition();
-	if def.kind == "missile" or def.kind == "dot" or def.kind == "chain" then
+	if def.kind == "missile" or def.kind == "dot" or def.kind == "chain" or def.kind == "polymorph" then
 		local targets = PickTargets(def, Stat(def, "count", level) or 1, hx, hy);
 		if table.getn(targets) == 0 then
 			return false;
@@ -821,7 +894,8 @@ local function Fire(key, state)
 		end
 		local target = PickTargets(def, 1, hx, hy)[1];
 		return target ~= nil and Channel(key, def, level, target);
-	elseif def.kind == "totem" or def.kind == "ward" or def.kind == "shield" or def.kind == "thorns" then
+	elseif def.kind == "totem" or def.kind == "ward" or def.kind == "shield" or def.kind == "thorns"
+		or def.kind == "lshield" then
 		QueueCast({ key = key, state = state, level = level });
 		state.pending = state.pending + 1;
 	elseif def.kind == "inferno" then
@@ -885,6 +959,9 @@ local function CastNext()
 		BW.run.thornsUntil = BW.run.time + Stat(def, "duration", entry.level);
 		BW.run.thornsDamage = Stat(def, "damage", entry.level);
 		BW.run.thornsTick = 1;
+	elseif def.kind == "lshield" then
+		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
+		RaiseLightningShield(def, entry.level);
 	elseif def.kind == "inferno" then
 		DropMeteor(entry.level, entry.x, entry.y, entry.z);
 		-- The mastery's second meteor, at another enemy in range.
@@ -1014,6 +1091,27 @@ local function Leap(entry)
 	end
 end
 
+-- Polymorph's impact: the target, and at rank V every whelp near it, turn
+-- into sheep.
+local function Sheep(entry, def, target)
+	local seconds = Stat(def, "duration", entry.level);
+	if target.alive then
+		Polymorph(target, seconds);
+	end
+	if Mastered(entry.key) then
+		local tx, ty = target.actor:GetPosition();
+		local r2 = def.mastery.radius * def.mastery.radius;
+		for _, e in ipairs(enemies) do
+			if e.alive and not e.sheepUntil then
+				local x, y = e.actor:GetPosition();
+				if Dist2(x, y, tx, ty) <= r2 then
+					Polymorph(e, seconds);
+				end
+			end
+		end
+	end
+end
+
 BW.OnImpact = function(_, _, _, castID)
 	if not BW.run then
 		return;
@@ -1038,8 +1136,35 @@ BW.OnImpact = function(_, _, _, castID)
 		Leap(entry);
 	end
 	local target = entry.target;
+	if def.kind == "polymorph" then
+		Sheep(entry, def, target);
+		return;
+	end
 	local wasAlive = target.alive;
 	Damage(target, entry.damage, def.color);
+	-- Death Coil: you heal, and the target flees (at rank V, all around it).
+	local heal = def.kind == "missile" and Stat(def, "heal", entry.level);
+	if heal then
+		BW.run.pendingHeal = BW.run.pendingHeal + heal;
+	end
+	local fear = Stat(def, "fear", entry.level);
+	if fear and def.kind == "missile" then
+		if target.alive then
+			Fear(target, fear);
+		end
+		if Mastered(entry.key) and def.mastery.radius then
+			local tx, ty = target.actor:GetPosition();
+			local r2 = def.mastery.radius * def.mastery.radius;
+			for _, e in ipairs(enemies) do
+				if e.alive then
+					local x, y = e.actor:GetPosition();
+					if Dist2(x, y, tx, ty) <= r2 then
+						Fear(e, fear);
+					end
+				end
+			end
+		end
+	end
 	if not Mastered(entry.key) or not def.mastery then
 		return;
 	end
@@ -1069,6 +1194,7 @@ BW.OnImpact = function(_, _, _, castID)
 end
 
 -- For the files that load after this one.
+BW.Zap = Zap
 BW.UpdateInfernals = UpdateInfernals
 BW.ClearInfernals = ClearInfernals
 BW.UpdateChannels = UpdateChannels
