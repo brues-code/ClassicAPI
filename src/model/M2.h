@@ -419,6 +419,9 @@ inline bool IsThrownAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_I
 inline bool IsEmoteAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_EMOTE_ANIMATION, anim); }
 inline bool IsSpellCastAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_SPELL_CAST_ANIMATION, anim); }
 inline bool IsMoveAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_MOVE_ANIMATION, anim); }
+inline bool IsMissileReleaseAnimation(int anim) {
+    return Detail::AnimTest(Offsets::FUN_IS_MISSILE_RELEASE_ANIMATION, anim);
+}
 
 } // namespace Model::M2
 

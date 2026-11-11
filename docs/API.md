@@ -20644,6 +20644,12 @@ stands. The ground effect of a spell that roots, for example the ice of
 Frost Nova, moves with the actor. Some auras also change the color of the
 actor.
 
+Some auras also have an animation, for example the stun of a stun aura.
+While the actor does not move, it plays the animation of its newest aura
+with one, in place of its own animation, and a death replaces it. When the
+actor moves, it plays its own animation again. After the aura ends, the
+animation finishes its cycle, then the actor's own animation plays.
+
 An actor shows any number of auras at the same time, and they show next to
 the kit of `SetSpellVisualKit`. A spell shows one time: when you add the
 same spell again, nothing changes. The auras stay when the actor gets a new

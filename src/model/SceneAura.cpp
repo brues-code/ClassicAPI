@@ -32,10 +32,14 @@
 // SetSpellVisualKit's kit. ClearModel ends them, as the pool releases an
 // actor through it.
 //
-// What the world does and this does not: the state kit's animation (the
-// stationary pin puts it in place of the stand while the unit stands,
-// benilla animation/units), its sound, and the auras' priorities and
-// visions (a scene shows every aura it is given).
+// The state kit's animation is pinned (ApplyEffectAnimation 0x005FDE80,
+// Actor::PlayAnimation): while the actor neither moves nor swims, every
+// animation but a death plays the newest aura's kit animation instead, so a
+// stunned actor stands stunned. An aura's end does not pick again; its
+// animation plays on until its sequence ends, as on a unit.
+//
+// What the world does and this does not: the state kit's sound, and the
+// auras' priorities and visions (a scene shows every aura it is given).
 
 #include "model/Scene.h"
 
@@ -143,6 +147,14 @@ bool Add(Actor &actor, uint32_t spellID) {
     aura.worldFollows = Roots(spell);
     actor.auraVisuals.push_back(std::move(aura));
     ShowOne(actor, actor.auraVisuals.back());
+    // A state kit with an animation picks the base animation again unless
+    // the unit already plays it (0x0060F383 to 0x0060F399); the pick takes
+    // the pin.
+    if (actor.model != nullptr && actor.loaded) {
+        const int pinned = PinnedAnimation(actor);
+        if (pinned > 0 && M2::GetAnimState(actor.model, -1).id != static_cast<uint32_t>(pinned))
+            actor.PlayAnimation();
+    }
     return true;
 }
 
@@ -177,6 +189,17 @@ void Show(Actor &actor) {
 void Drop(Actor &actor) {
     for (AuraVisual &aura : actor.auraVisuals)
         HideOne(actor, aura, false);
+}
+
+int PinnedAnimation(const Actor &actor) {
+    for (auto it = actor.auraVisuals.rbegin(); it != actor.auraVisuals.rend(); ++it) {
+        if (!it->shown)
+            continue;
+        const auto anim = Game::Read<int32_t>(it->kit, Offsets::OFF_SPELLVISUALKIT_ANIMATION);
+        if (anim > 0)
+            return anim;
+    }
+    return -1;
 }
 
 void ApplyColors(Actor &actor) {

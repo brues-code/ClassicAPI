@@ -6758,6 +6758,13 @@ enum Offsets {
     FUN_IS_MOVE_ANIMATION = 0x005FEE80,
     FUN_IS_EMOTE_ANIMATION = 0x005FCED0,
     FUN_IS_SPELL_CAST_ANIMATION = 0x005FCBB0,
+    // The sequence-end handler's missile release test (0x005FCCB0, plain ret,
+    // `int __fastcall(int anim)`): the spell casts above (2, 32, 33, 53, 54,
+    // decoded from the jump table at 0x005FCBD8) and 46, 49 and 107. The
+    // handler (0x005FC920) asks it before its reason test (0x005FC9FC), so a
+    // sequence that ends or is replaced releases a unit's queued missiles
+    // (0x0060C9B0 at 0x005FC9A2).
+    FUN_IS_MISSILE_RELEASE_ANIMATION = 0x005FCCB0,
     FUN_IS_THROWN_ANIMATION = 0x005FCF90,
     ANIM_WALK = 4,
     ANIM_RUN = 5,

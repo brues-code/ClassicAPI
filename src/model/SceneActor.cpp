@@ -191,6 +191,13 @@ namespace Model::Scene {
 
 namespace {
 
+// The movement flags that keep a state kit's animation off a unit
+// (ApplyEffectAnimation's `and edi,0x20000f` at 0x005FDE9C): a move in any
+// of the four directions, or swimming.
+constexpr uint32_t kPinMovingFlags = Mover::FLAG_FORWARD | Mover::FLAG_BACKWARD | Mover::FLAG_STRAFE_LEFT |
+                                     Mover::FLAG_STRAFE_RIGHT | Mover::FLAG_SWIMMING;
+static_assert(kPinMovingFlags == 0x20000F, "ApplyEffectAnimation's mask");
+
 // Script indexes (kScripts order).
 // OnSpellVisualImpact (PlaySpellVisual's) and OnMoveFinished (MoveTo's) are
 // ClassicAPI extensions.
@@ -204,12 +211,17 @@ static_assert(sizeof(kScripts) / sizeof(kScripts[0]) <= Animation::kMaxScripts);
 // The engine's done callback, as the character pane's (0x005062A0): a body
 // track that ended (reason 0) is the actor's animation's end; another key
 // bone's track stops, but for HandsClosed, which holds a weapon's grip.
+// First, as the unit's handler (0x005FC920) does before it tests the reason:
+// a cast animation that ends or is replaced releases the queued missiles.
 void __fastcall OnAnimDone(void *model, uint32_t keyBone, uint32_t animID, uint32_t reason,
                            uint32_t /*overshoot*/, uint32_t userLow, uint32_t /*userHigh*/) {
+    auto *actor = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
+    if (M2::IsMissileReleaseAnimation(static_cast<int>(animID)))
+        actor->castAnimationEnded = true;
     if (reason != 0)
         return;
     if (keyBone == 0xFFFFFFFFu || keyBone == Offsets::M2_KEY_BONE_ROOT)
-        reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow))->animFinished = true;
+        actor->animFinished = true;
     else if (animID != Offsets::ANIM_HANDS_CLOSED)
         M2::PlayAnimation(model, static_cast<int>(keyBone), 0xFFFFFFFFu, -1, 0, 1.0f, 1, 1);
 }
@@ -266,6 +278,10 @@ void ApplyKit(Actor &actor) {
     actor.kitWorldEffect = planted;
     actor.kitWorldDone = false;
     std::memcpy(actor.kitWorldPosition, actor.position, sizeof actor.kitWorldPosition);
+    // Turned by the owner's facing and scaled by its scale, 1 for a scale at
+    // or below 0 (0x00620A90).
+    actor.kitWorldYaw = actor.ShownYaw();
+    actor.kitWorldScale = actor.scale > 0.0f ? actor.scale : 1.0f;
     LightAsEntity(planted, actor.kitWorldLight, frame);
     if (actor.spellVisualKitOneShot)
         M2::SetAnimDoneCallback(planted, reinterpret_cast<const void *>(&OnKitWorldDone),
@@ -391,7 +407,7 @@ void ReleaseModel(Actor &actor) {
     actor.kitAnimation = -1;
     actor.kitAnimationLoops = false;
     actor.kitLoopAnimation = -1;
-    actor.kitAnimationEnded = false;
+    actor.castAnimationEnded = false;
     actor.heldPositionMs = -1;
     actor.modelPath.clear();
 }
@@ -702,7 +718,6 @@ void Actor::PlayAnimation() {
         kitAnimation = -1;
         kitAnimationLoops = false;
         kitLoopAnimation = -1;
-        kitAnimationEnded = true;
     }
     heldPositionMs = -1; // a paused actor holds the new animation's first frame
     // An end the scene's advance reported for the animation this replaces is
@@ -711,6 +726,18 @@ void Actor::PlayAnimation() {
     // whose animations end in one advance otherwise each see the other's
     // script replace theirs, then run OnAnimFinished for the new one.
     animFinished = false;
+    // The stationary pin (ApplyEffectAnimation 0x005FDE80): every request but
+    // a death, while the unit neither moves nor swims (its movement flags &
+    // 0x20000F), plays the animation of the newest state kit on it instead,
+    // with variation -1. A stunned actor stands stunned; a moving one runs.
+    if (!M2::IsDeathAnimation(CurrentAnimation()) &&
+        !(mover != nullptr && (mover->flags & kPinMovingFlags) != 0)) {
+        if (const int pinned = AuraVisuals::PinnedAnimation(*this); pinned > 0) {
+            M2::PlayAnimation(model, -1, static_cast<uint32_t>(pinned), -1, 0, 1.0f,
+                              static_cast<int>(blendOperation), 1);
+            return;
+        }
+    }
     if (kitAnimation >= 0) {
         M2::PlayAnimation(model, -1, static_cast<uint32_t>(kitAnimation), -1, 0, 1.0f,
                           static_cast<int>(blendOperation), 1);
@@ -1152,7 +1179,6 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             } else if (!kitAnimationLoops) {
                 kitAnimation = kitLoopAnimation;
                 kitAnimationLoops = kitLoopAnimation >= 0;
-                kitAnimationEnded = true;
             }
             PlayAnimation();
         } else {
@@ -1239,8 +1265,8 @@ void Actor::Place() {
     const float axisY[3] = {0.0f, 1.0f, 0.0f};
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     if (kitWorldEffect != nullptr) {
-        const float unit[3] = {1.0f, 1.0f, 1.0f};
-        M2::SetBaseTRS(kitWorldEffect, kitWorldPosition, 0.0f, axisZ, unit);
+        const float scales[3] = {kitWorldScale, kitWorldScale, kitWorldScale};
+        M2::SetBaseTRS(kitWorldEffect, kitWorldPosition, kitWorldYaw, axisZ, scales);
     }
     if (model == nullptr)
         return;

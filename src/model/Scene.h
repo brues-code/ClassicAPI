@@ -365,6 +365,8 @@ class Actor : public Animation::Object {
     // an entity; `kitWorldDone` once a one-shot effect has ended.
     void *kitWorldEffect = nullptr;
     float kitWorldPosition[3] = {0.0f, 0.0f, 0.0f};
+    float kitWorldYaw = 0.0f;   // the actor's facing and scale when it was planted
+    float kitWorldScale = 1.0f;
     std::unique_ptr<EntityLight> kitWorldLight;
     bool kitWorldDone = false;
     // ApplySpellVisualKit calls made before the model loaded: {kit, oneShot}.
@@ -380,7 +382,9 @@ class Actor : public Animation::Object {
     // animation (a wound) gives back when it ends, as a unit's replays its
     // spell's looping kit animation.
     int kitLoopAnimation = -1;
-    bool kitAnimationEnded = false; // a once-only kit animation ended this frame
+    // A cast animation ended or was replaced this frame (the missile release
+    // test, M2::IsMissileReleaseAnimation): the queued missiles go.
+    bool castAnimationEnded = false;
     void PlayKitAnimation(int anim, bool loops);
     // The animation the body plays: a spell kit's, else the script's.
     int CurrentAnimation() const { return kitAnimation >= 0 ? kitAnimation : static_cast<int>(animation); }
@@ -487,6 +491,9 @@ void Show(Actor &actor);
 void Drop(Actor &actor);
 // The tint and alpha of the auras shown, after a kit reset the model's.
 void ApplyColors(Actor &actor);
+// The animation the newest aura shown pins while the actor stands (a state
+// kit's, ApplyEffectAnimation 0x005FDE80), or -1.
+int PinnedAnimation(const Actor &actor);
 // From the actor's update, link and place: the world effects' light,
 // visibility and placement.
 void Update(Actor &actor, float elapsedSec);

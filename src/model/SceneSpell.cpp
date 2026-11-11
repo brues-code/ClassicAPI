@@ -32,8 +32,11 @@
 //      ReleaseMissilesFromHand (0x0060C9B0): the first of those events the
 //      model has, at its current point, else the caster's position. The
 //      world calls that when the cast kit has no animation (0x006E8293),
-//      when the cast animation ends (0x005FC920) and 2000 ms after the queue
-//      (0x0060A814). A missile whose model has not loaded waits.
+//      when a cast animation ends or another play replaces it (0x005FC920,
+//      before its reason test, for the ids of 0x005FCCB0: 2, 32, 33, 46, 49,
+//      53, 54, 107; a channel's ChannelCastDirected is not one) and 2000 ms
+//      after the queue (0x0060A814). A missile whose model has not loaded
+//      waits.
 //   4. Flight (CMissile::Launch 0x0061CEB0, 0x0061E2A0): the speed is fitted
 //      so the flight ends when the server would have it end, `t = d/speed -
 //      queued`, `speed = min(d/t, 100)` (100 for t <= 0); the model plays
@@ -752,7 +755,7 @@ bool Step(Actor &caster, SpellCast &cast, float elapsedSec) {
             for (int i = 0; i < 3; ++i)
                 from[i] = caster.releasePoint[i];
         } else if (KitAnimation(Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT)) <= 0 ||
-                   caster.kitAnimationEnded || cast.queuedSec >= kReleaseTimeoutSec) {
+                   caster.castAnimationEnded || cast.queuedSec >= kReleaseTimeoutSec) {
             HandPoint(caster, from);
         } else {
             return false;
@@ -972,7 +975,7 @@ void Update(Actor &caster, float elapsedSec) {
         caster.spellCasts.erase(caster.spellCasts.begin() + static_cast<ptrdiff_t>(i));
     }
     caster.releaseEvent = false;
-    caster.kitAnimationEnded = false;
+    caster.castAnimationEnded = false;
     // The world has no pause; a paused scene (or caster) holds its missiles
     // still and silences their flight, which starts again when the pause
     // ends, as a hidden scene's does when it shows again.
