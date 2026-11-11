@@ -2138,6 +2138,35 @@ int __fastcall Script_MoveTo(void *L) {
     return 0;
 }
 
+// A server's knockback (Unit::KnockBackFrom): the direction from the source
+// to the unit, or its facing turned half a circle when it stands on the
+// source; the vertical speed negated into the client's down-positive fall
+// speed; the unit's spells interrupted (InterruptNonMeleeSpells). The client
+// takes it as a move event that is not the player's own, so a MoveTo ends
+// first (ClearSpline), then launches (0x006179C0) and animates the
+// acknowledgement (0xF0: Fall). False without the mover.
+int __fastcall Script_KnockBack(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 4, actor->DisplayName(),
+                                        "KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)"))
+        return 0;
+    if (actor->mover == nullptr) {
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
+    Advance(*actor);
+    const float dx = actor->mover->position[0] - FloatArg(L, 2);
+    const float dy = actor->mover->position[1] - FloatArg(L, 3);
+    const float angle =
+        dx == 0.0f && dy == 0.0f ? actor->mover->facing + Game::Read<float>(Offsets::VAR_PI) : std::atan2(dy, dx);
+    Casts::Stop(*actor);
+    Mover::ClearSpline(*actor->mover);
+    Mover::KnockBack(*actor->mover, std::cos(angle), std::sin(angle), FloatArg(L, 4), -FloatArg(L, 5));
+    Locomotion::OnMove(*actor, Move::KnockBack);
+    Game::Lua::PushBool(L, true);
+    return 1;
+}
+
 // MSG_MOVE_SET_WALK_MODE and MSG_MOVE_SET_RUN_MODE (cases 0xF and 0xE of
 // UpdatePlayerMovement 0x00615C30): the run mode (SetRunMode 0x007C71C0),
 // which a moving body animates.
@@ -2659,6 +2688,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"IsSwimming", &Script_IsSwimming},
     {"GetCameraPivotHeight", &Script_GetCameraPivotHeight},
     {"MoveTo", &Script_MoveTo},
+    {"KnockBack", &Script_KnockBack},
     {"SetWalking", &Script_SetWalking},
     {"IsWalking", &Script_IsWalking},
     {"SetMovementSpeed", &Script_SetMovementSpeed},
@@ -3095,6 +3125,19 @@ const Game::Doc::Function kStartTurningRight{"Starts the actor turning to its ri
 const Game::Doc::Function kStopTurning{"Stops the actor turning.", {}, kCommandRet, nullptr, true};
 const Game::Doc::Function kJump{"Makes the actor jump. False when it is already in the air.", {},
                                 kCommandRet, nullptr, true};
+const Game::Doc::Field kKnockBackArgs[] = {
+    Req("fromX", "number", "The point the actor is thrown away from."),
+    Req("fromY", "number"),
+    Req("horizontalSpeed", "number", "Yards a second along the ground. Negative pulls toward the point."),
+    Req("verticalSpeed", "number", "Yards a second up at the start."),
+};
+const Game::Doc::Field kKnockBackRet[] = {
+    Req("launched", "bool", "False unless SetMovementEnabled is on."),
+};
+const Game::Doc::Function kKnockBack{
+    "Throws the actor away from a point, as a knockback spell throws a character. A MoveTo ends, and the "
+    "spells that the actor prepares stop. The actor flies until it lands, then stops.",
+    kKnockBackArgs, kKnockBackRet, nullptr, true};
 const Game::Doc::Field kIsFallingRets[] = {
     Req("falling", "bool", "True while the actor is in the air: jumping or falling."),
     Opt("verticalSpeed", "number", nullptr, "Yards a second, up positive."),
@@ -3296,6 +3339,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"IsSwimming", &kIsSwimming},
     {"GetCameraPivotHeight", &kGetCameraPivotHeight},
     {"MoveTo", &kMoveTo},
+    {"KnockBack", &kKnockBack},
     {"SetWalking", &kSetWalking},
     {"IsWalking", &kIsWalking},
     {"SetMovementSpeed", &kSetMovementSpeed},

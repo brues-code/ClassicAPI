@@ -183,6 +183,10 @@ void OnMove(Actor &actor, Move move) {
     case Move::Jump:
         Play(actor, Offsets::ANIM_JUMP_START, false);
         return;
+    // AnimateMoveOpcode's 0xF0 arm (0x0060E4FC): the knockback falls at once.
+    case Move::KnockBack:
+        Play(actor, Offsets::ANIM_FALL, false);
+        return;
     case Move::RunMode:
     case Move::WalkMode:
         if (actor.mover->flags & 0xF)

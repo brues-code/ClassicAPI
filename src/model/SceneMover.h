@@ -104,6 +104,8 @@ enum : uint32_t {
     FLAG_PITCH_DOWN = 0x80,
     FLAG_FALLING = 0x2000,
     FLAG_FALLING_FAR = 0x4000,
+    // The deferred stop: a landing stops the move (ApplyLatches 0x0061AB20).
+    FLAG_STOP_ON_LAND = 0x8000,
     FLAG_SWIMMING = 0x200000,
     FLAG_ON_STEP = 0x4000000,
 };
@@ -137,6 +139,15 @@ void StartPitch(Body &body, bool up);        // 0x007C6DF0, only while swimming
 bool StopPitch(Body &body);                  // 0x007C6E30
 bool Jump(Body &body);                       // 0x007C6230 with check 1
 void SetRunMode(Body &body, bool run);       // 0x007C71C0
+
+// A server's knockback, as the client launches it (0x006179C0, from the
+// drain's knockback entry and the relayed MSG_MOVE_KNOCK_BACK 0x00617A60):
+// swimming ends (0x007C6E80); a fall starts at `speedZ` (0x007C61F0, down
+// positive, so a launch upward is negative); the direction (cosine, sine)
+// is world-absolute and becomes the heading and the direction; backward
+// clears and forward sets with the stop-on-landing latch, whatever the
+// speeds; `speedXY` is the speed. Nothing refuses it.
+void KnockBack(Body &body, float cosine, float sine, float speedXY, float speedZ);
 
 // The speeds a server changes (the spline speed opcodes 0x2FE to 0x303).
 enum class Speed { Walk, Run, RunBack, Swim, SwimBack, Turn };

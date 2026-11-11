@@ -910,6 +910,7 @@ build instructions.
   - [`actor:IsFalling()`](#actorisfalling)
   - [`actor:IsSwimming()`](#actorisswimming)
   - [`actor:MoveTo(x, y, z [, facing])`](#actormovetox-y-z--facing)
+  - [`actor:KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)`](#actorknockbackfromx-fromy-horizontalspeed-verticalspeed)
   - [`actor:SetWalking(walking)` / `actor:IsWalking()`](#actorsetwalkingwalking--actoriswalking)
   - [`actor:SetMovementSpeed(speedType, speed)` / `actor:GetMovementSpeed(speedType)`](#actorsetmovementspeedspeedtype-speed--actorgetmovementspeedspeedtype)
   - [`actor:GetCameraPivotHeight(distance)`](#actorgetcamerapivotheightdistance)
@@ -20702,6 +20703,42 @@ guard:SetScript("OnMoveFinished", function(self)
     self:MoveTo(unpack(route[leg]))
 end)
 guard:MoveTo(unpack(route[leg]))
+```
+
+### `actor:KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)`
+
+Throws the actor away from the point (`fromX`, `fromY`), as a knockback
+spell throws a character in the world. The movement of the actor must be on
+([`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)).
+Returns `true`, or `false` while the movement is off.
+
+- The actor flies away from the point at `horizontalSpeed` yards a second
+  along the ground. A negative `horizontalSpeed` pulls it toward the point.
+- It goes up at `verticalSpeed` yards a second at the start. Then it falls
+  as a jump falls.
+- When the actor stands on the point, it flies backward from the way that
+  it faces.
+- The direction does not change in the air. When the actor lands, it stops.
+- Walls and props block the flight, as they block any movement.
+- The actor plays its fall animation. When it lands, it plays its landing
+  animation. An actor that plays a death animation keeps it, so a dead
+  actor flies in its death pose.
+- A swimming actor stops swimming.
+
+`KnockBack` ends a move of
+[`actor:MoveTo`](#actormovetox-y-z--facing). Then `OnMoveFinished` does not
+run for it. It also stops the spells that the actor prepares, as
+[`actor:StopSpellVisual`](#actorstopspellvisual) does. A
+[movement command](#movement-commands) that you give in the air takes effect
+when the actor lands, as after a jump. Give a new `MoveTo` only after the
+actor lands, when [`actor:IsFalling`](#actorisfalling) returns `false`. This
+is a ClassicAPI extension.
+
+```lua
+-- An explosion at (x, y) throws the actors near it.
+for _, actor in ipairs(nearby) do
+    actor:KnockBack(x, y, 12, 8)
+end
 ```
 
 ### `actor:SetWalking(walking)` / `actor:IsWalking()`

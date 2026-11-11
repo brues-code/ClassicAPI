@@ -452,6 +452,7 @@ enum class Move : uint32_t {
     TeleportAck = 0xC7,
     StartSwim = 0xCA,
     StopSwim = 0xCB,
+    KnockBack = 0xF0, // CMSG_MOVE_KNOCK_BACK_ACK, after the launch
 };
 // A movement message for a command the mover took, or a change the actor
 // made (ProcessLocalMoveEvent 0x0060E0A0 -> AnimateMoveOpcode).

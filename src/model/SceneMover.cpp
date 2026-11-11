@@ -571,7 +571,7 @@ void StopStrafeNow(Body &b) { // 0x007C6CE0
 // The deferred direction latches (0x0061AB20), applied at a landing.
 uint32_t ApplyLatches(Body &b) {
     const uint32_t entry = b.flags;
-    if (b.flags & 0x8000)
+    if (b.flags & FLAG_STOP_ON_LAND)
         StopMoveNow(b);
     if (b.flags & 0x10000)
         StopStrafeNow(b);
@@ -2368,6 +2368,21 @@ void StopSwimming(Body &b) {
 }
 
 } // namespace
+
+void KnockBack(Body &body, float cosine, float sine, float speedXY, float speedZ) {
+    if (body.flags & FLAG_SWIMMING)
+        StopSwimming(body);
+    StartFall(body, speedZ);
+    // The fall start re-anchored with the old flags; the pair overwrites the
+    // direction it computed (0x006179E5 to 0x00617A04).
+    body.heading[0] = cosine;
+    body.heading[1] = sine;
+    body.direction[0] = cosine;
+    body.direction[1] = sine;
+    body.direction[2] = 0.0f;
+    body.flags = (body.flags & ~FLAG_BACKWARD) | FLAG_STOP_ON_LAND | FLAG_FORWARD;
+    body.speed = speedXY;
+}
 
 void UpdateSwimState(Body &body, bool inLiquid, float depth) {
     if (body.flags & 0x400)
