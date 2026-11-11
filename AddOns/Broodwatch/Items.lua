@@ -26,16 +26,17 @@ local ITEMS = BW.ITEMS
 -- floor (a reticle under it, its icon bobbing over it) and is used when you
 -- walk over it. The icons are the items' use spells' (C_Spell.GetSpellTexture).
 
-local ANIM_ATTACK_UNARMED = 16
+local ANIM_ATTACK_UNARMED = BW.ANIM_ATTACK_UNARMED
 
 local drops = {}
 local dropPool = {}
 local chickens = {}
 local chickenPool = {}
 
+-- Item damage grows as the brood's health does (KindStats: (1 + m)^3).
 local function RunGrowth()
-	local m = BW.run.time / 300;
-	return 1 + 2 * m + m * m;
+	local m = 1 + BW.run.time / 300;
+	return m * m * m;
 end
 
 local function PickItem()

@@ -78,6 +78,10 @@ local UpdateWards = BW.UpdateWards
 local ClearWards = BW.ClearWards
 local UpdatePet = BW.UpdatePet
 local ClearPet = BW.ClearPet
+local UpdateChannels = BW.UpdateChannels
+local ClearChannels = BW.ClearChannels
+local UpdateInfernals = BW.UpdateInfernals
+local ClearInfernals = BW.ClearInfernals
 local EndShield = BW.EndShield
 local Mastered = BW.Mastered
 
@@ -144,6 +148,8 @@ local function StartRun()
 		ClearItems();
 		ClearWards();
 		ClearPet();
+		ClearChannels();
+		ClearInfernals();
 	end
 	BW.hero:SetSpellVisualKit();
 	BW.hurtTexture:SetAlpha(0);
@@ -324,6 +330,8 @@ local function Step(dt)
 	UpdateItems(dt, hx, hy, hz);
 	UpdateWards(dt);
 	UpdatePet(dt, hx, hy, hz);
+	UpdateChannels(dt);
+	UpdateInfernals(dt);
 	if BW.run.shoutUntil and BW.run.time >= BW.run.shoutUntil then
 		BW.run.shoutUntil = nil;
 		BW.ApplyHeroSpeed();

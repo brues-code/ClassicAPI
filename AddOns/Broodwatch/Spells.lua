@@ -512,6 +512,259 @@ local function PetCast(key, def, level)
 end
 
 ------------------------------------------------------------------------------
+-- Inferno: the meteor (PlaySpellVisualAtPoint) strikes the ground
+-- INFERNO_FALL after the cast. Where it lands it burns and stuns the brood,
+-- and an Infernal stands in the crater: rooted while it lands, then it hunts
+-- the nearest whelp and swings at it, and its Immolation burns the whelps
+-- around it every second, which then chase it instead of you.
+
+local meteors = {}   -- falling, until they land
+local infernals = {} -- fighting, or fading out
+local infernalPool = {}
+
+local function NoSkip()
+	return false;
+end
+
+local function DropMeteor(level, x, y, z)
+	z = FloorAt(x, y, z);
+	BW.hero:PlaySpellVisualAtPoint(SPELLS.inferno.spell, x, y, z, 0);
+	tinsert(meteors, { x = x, y = y, z = z, left = TUNING.INFERNO_FALL, level = level });
+end
+
+local function Land(meteor)
+	local def = SPELLS.inferno;
+	local radius = Stat(def, "radius", meteor.level);
+	local damage = Stat(def, "damage", meteor.level);
+	for _, e in ipairs(enemies) do
+		if e.alive then
+			local x, y = e.actor:GetPosition();
+			if Dist2(x, y, meteor.x, meteor.y) <= radius * radius then
+				Damage(e, damage, def.color);
+				if e.alive then
+					Hold(e, TUNING.INFERNO_STUN, def.stunKit);
+				end
+			end
+		end
+	end
+	local infernal = table.remove(infernalPool);
+	if not infernal then
+		infernal = { actor = BW.scene:AcquireActor() };
+		infernal.actor:SetModelByCreatureDisplayID(def.display);
+	end
+	infernal.gone = nil;
+	infernal.prey = nil;
+	infernal.life = Stat(def, "duration", meteor.level);
+	infernal.hit = Stat(def, "hit", meteor.level);
+	infernal.burnDamage = Stat(def, "burn", meteor.level);
+	infernal.rooted = TUNING.INFERNAL_ROOT;
+	infernal.swing, infernal.burn, infernal.move = 0, 1, 0;
+	infernal.actor:SetPosition(meteor.x, meteor.y, meteor.z);
+	infernal.actor:SetYaw(BW.run.heroYaw);
+	infernal.actor:Show();
+	infernal.actor:SetAnimation(BW.ANIM_STAND);
+	infernal.actor:SetMovementEnabled(true);
+	infernal.actor:SetMovementSpeed("run", TUNING.INFERNAL_SPEED);
+	tinsert(infernals, infernal);
+end
+
+-- Immolation: burns the whelps around the Infernal, and they turn on it.
+local function Immolate(infernal, x, y)
+	local r2 = TUNING.INFERNAL_BURN_RADIUS * TUNING.INFERNAL_BURN_RADIUS;
+	for _, e in ipairs(enemies) do
+		if e.alive then
+			local ex, ey = e.actor:GetPosition();
+			if Dist2(ex, ey, x, y) <= r2 then
+				Damage(e, infernal.burnDamage, SPELLS.inferno.color);
+				e.taunter = infernal;
+				e.tauntUntil = BW.run.time + TUNING.INFERNAL_TAUNT;
+			end
+		end
+	end
+end
+
+local function Fight(infernal, dt)
+	local x, y = infernal.actor:GetPosition();
+	infernal.burn = infernal.burn - dt;
+	if infernal.burn <= 0 then
+		infernal.burn = infernal.burn + 1;
+		Immolate(infernal, x, y);
+	end
+	local prey = infernal.prey;
+	if not (prey and prey.alive) then
+		prey = Nearest(x, y, BW.ROOM_RADIUS * 2, NoSkip);
+		infernal.prey = prey;
+	end
+	if not prey then
+		return;
+	end
+	local tx, ty, tz = prey.actor:GetPosition();
+	infernal.swing = infernal.swing - dt;
+	if Dist2(tx, ty, x, y) <= TUNING.INFERNAL_REACH * TUNING.INFERNAL_REACH then
+		if infernal.swing <= 0 then
+			infernal.swing = TUNING.INFERNAL_SWING;
+			infernal.actor:StopMoving();
+			infernal.actor:SetYaw(math.atan2(ty - y, tx - x));
+			infernal.actor:SetAnimation(BW.ANIM_ATTACK_UNARMED);
+			Damage(prey, infernal.hit, SPELLS.inferno.color);
+		end
+	else
+		infernal.move = infernal.move - dt;
+		if infernal.move <= 0 then
+			infernal.move = 0.25;
+			infernal.actor:MoveTo(tx, ty, tz);
+		end
+	end
+end
+
+local function UpdateInfernals(dt)
+	for i = table.getn(meteors), 1, -1 do
+		local meteor = meteors[i];
+		meteor.left = meteor.left - dt;
+		if meteor.left <= 0 then
+			table.remove(meteors, i);
+			Land(meteor);
+		end
+	end
+	for i = table.getn(infernals), 1, -1 do
+		local infernal = infernals[i];
+		if infernal.gone then
+			-- The fade hid it.
+			if not infernal.actor:IsShown() then
+				table.remove(infernals, i);
+				tinsert(infernalPool, infernal);
+			end
+		else
+			infernal.life = infernal.life - dt;
+			if infernal.life <= 0 then
+				-- Gone: the whelps it held come back for you (Taunted).
+				infernal.gone = true;
+				infernal.actor:SetMovementEnabled(false);
+				infernal.actor:FadeOut();
+			elseif infernal.rooted > 0 then
+				infernal.rooted = infernal.rooted - dt;
+			else
+				Fight(infernal, dt);
+			end
+		end
+	end
+end
+
+local function ClearInfernals()
+	for i = table.getn(meteors), 1, -1 do
+		meteors[i] = nil;
+	end
+	for i = table.getn(infernals), 1, -1 do
+		local infernal = infernals[i];
+		infernal.gone = true;
+		infernal.actor:SetMovementEnabled(false);
+		infernal.actor:Hide();
+		tinsert(infernalPool, infernal);
+		infernals[i] = nil;
+	end
+end
+
+------------------------------------------------------------------------------
+-- Channels: the hero's beam on one enemy (PlaySpellVisual with a channel
+-- time). Each second it burns the target: Drain Life heals you, Mind Flay
+-- slows it. The beam ends (StopSpellVisual with its cast) when its target
+-- dies or slips out of reach, or with its time.
+
+local channels = {} -- spell key -> the channel under way
+local CHANNEL_SLACK = 4 -- yards past the spell's range before the beam breaks
+
+local function Channel(key, def, level, target)
+	local castID = BW.hero:PlaySpellVisual(def.spell, target.actor, 0, Stat(def, "duration", level) * 1000);
+	if not castID then
+		return false;
+	end
+	channels[key] = {
+		castID = castID, target = target, level = level, tick = 1,
+		left = Stat(def, "duration", level),
+	};
+	return true;
+end
+
+local function EndChannel(key)
+	local channel = channels[key];
+	if channel then
+		channels[key] = nil;
+		BW.hero:StopSpellVisual(channel.castID);
+	end
+end
+
+local channelHit = {}
+local function NotChannelHit(e)
+	return channelHit[e];
+end
+
+local function UpdateChannels(dt)
+	local hx, hy = BW.hero:GetPosition();
+	for key, channel in pairs(channels) do
+		local def = SPELLS[key];
+		local target = channel.target;
+		channel.left = channel.left - dt;
+		if channel.left <= 0 then
+			channels[key] = nil; -- its own time ends the beam
+		else
+			local reach = def.range + CHANNEL_SLACK;
+			local x, y = target.actor:GetPosition();
+			if not target.alive or Dist2(x, y, hx, hy) > reach * reach then
+				-- Drain Life's mastery leaps the beam on for the time left.
+				local nextTarget;
+				if Mastered(key) and def.mastery.leap then
+					channelHit[target] = true;
+					nextTarget = Nearest(x, y, def.mastery.leap, NotChannelHit);
+					channelHit[target] = nil;
+				end
+				-- The entry stays while the loop runs (a key added during
+				-- `pairs` is undefined); the leap reuses it.
+				BW.hero:StopSpellVisual(channel.castID);
+				local castID = nextTarget
+					and BW.hero:PlaySpellVisual(def.spell, nextTarget.actor, 0, channel.left * 1000);
+				if castID then
+					channel.castID, channel.target = castID, nextTarget;
+				else
+					channels[key] = nil;
+				end
+			else
+				channel.tick = channel.tick - dt;
+				if channel.tick <= 0 then
+					channel.tick = channel.tick + 1;
+					local damage = Stat(def, "damage", channel.level);
+					Damage(target, damage, def.color);
+					local heal = Stat(def, "heal", channel.level);
+					if heal then
+						BW.run.pendingHeal = BW.run.pendingHeal + heal;
+					end
+					local slow = Stat(def, "slow", channel.level);
+					if slow and target.alive then
+						Slow(target, slow);
+					end
+					if Mastered(key) and def.mastery.radius then
+						local r2 = def.mastery.radius * def.mastery.radius;
+						for _, e in ipairs(enemies) do
+							if e.alive and e ~= target then
+								local ex, ey = e.actor:GetPosition();
+								if Dist2(ex, ey, x, y) <= r2 then
+									Damage(e, damage, def.color);
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function ClearChannels()
+	for key in pairs(channels) do
+		EndChannel(key);
+	end
+end
+
+------------------------------------------------------------------------------
 -- Power Word: Shield: the bites soak into it first (the step), and its bubble
 -- shows until it breaks or its time ends.
 
@@ -562,8 +815,21 @@ local function Fire(key, state)
 		end
 	elseif def.kind == "pet" then
 		return PetCast(key, def, level);
+	elseif def.kind == "channel" then
+		if channels[key] then
+			return false;
+		end
+		local target = PickTargets(def, 1, hx, hy)[1];
+		return target ~= nil and Channel(key, def, level, target);
 	elseif def.kind == "totem" or def.kind == "ward" or def.kind == "shield" or def.kind == "thorns" then
 		QueueCast({ key = key, state = state, level = level });
+		state.pending = state.pending + 1;
+	elseif def.kind == "inferno" then
+		local x, y, z = PackCenter(def.range, Stat(def, "radius", level));
+		if not x then
+			return false;
+		end
+		QueueCast({ key = key, state = state, level = level, x = x, y = y, z = z });
 		state.pending = state.pending + 1;
 	elseif def.kind == "area" then
 		local x, y, z;
@@ -619,6 +885,17 @@ local function CastNext()
 		BW.run.thornsUntil = BW.run.time + Stat(def, "duration", entry.level);
 		BW.run.thornsDamage = Stat(def, "damage", entry.level);
 		BW.run.thornsTick = 1;
+	elseif def.kind == "inferno" then
+		DropMeteor(entry.level, entry.x, entry.y, entry.z);
+		-- The mastery's second meteor, at another enemy in range.
+		if Mastered(entry.key) then
+			local hx, hy = BW.hero:GetPosition();
+			local other = PickTargets(def, 1, hx, hy)[1];
+			if other then
+				local x, y, z = other.actor:GetPosition();
+				DropMeteor(entry.level, x, y, z);
+			end
+		end
 	elseif def.kind == "area" then
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
 		if def.place == "pack" then
@@ -792,6 +1069,10 @@ BW.OnImpact = function(_, _, _, castID)
 end
 
 -- For the files that load after this one.
+BW.UpdateInfernals = UpdateInfernals
+BW.ClearInfernals = ClearInfernals
+BW.UpdateChannels = UpdateChannels
+BW.ClearChannels = ClearChannels
 BW.UpdateWards = UpdateWards
 BW.ClearWards = ClearWards
 BW.UpdatePet = UpdatePet

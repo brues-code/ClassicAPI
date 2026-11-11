@@ -89,10 +89,12 @@ local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
 	heal = "Heal per hit", radius = "Radius", slow = "Enemy speed", duration = "Lasts", cooldown = "Every",
 	absorb = "Absorbs", root = "Freezes for", fear = "Fears for", weaken = "Their bites",
+	hit = "Infernal's blows", burn = "Immolation per second",
 }
 local STAT_UNITS = { radius = " yd", duration = " s", cooldown = " s", root = " s", fear = " s" }
 local STAT_ORDER = {
-	"damage", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear", "weaken",
+	"damage", "hit", "burn", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear",
+	"weaken",
 	"duration", "cooldown",
 }
 
@@ -419,8 +421,11 @@ end
 
 local LEVEL_HEAL = 0.12 -- each level heals this share of the maximum health
 
+-- The XP to the next level: cubic, so a strong run tops out around level 50
+-- and has to choose, rather than maxing everything (level 10 needs 55,
+-- level 30 needs 635).
 local function XpNeeded(level)
-	return 5 + 3 * level + math.floor(level * level / 8);
+	return 5 + 3 * level + math.floor(level * level * level / 50);
 end
 
 local function GainXp(xp)

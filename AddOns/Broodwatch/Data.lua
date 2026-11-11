@@ -24,6 +24,7 @@ local CAST_SPACING = 0.3     -- seconds between two of the hero's casts
 local DEATH_SECONDS = 4.5    -- the death animation (1.5 s), then the corpse lies; then it fades out
 local ANIM_STAND = 0
 local ANIM_DEATH = 1
+local ANIM_ATTACK_UNARMED = 16
 
 local HERO_HP = 100
 local MAGNET = 5             -- gems this close (yards) fly to you
@@ -176,6 +177,22 @@ local SPELLS = {
 		damage = { 18, 24, 30, 38, 48 }, radius = { 6, 6.5, 7, 7.5, 8 }, cooldown = { 7, 6.6, 6.2, 5.8, 5.4 },
 		mastery = { text = "The brood it hits is dazed: half speed for 3 seconds.", slow = 0.5, seconds = 3 },
 	},
+	-- Channels: the hero holds the spell's beam on one enemy (PlaySpellVisual's
+	-- channel) and burns it every second for the duration.
+	drainlife = {
+		spell = 689, blurb = "A beam drains the toughest enemy in range, healing you every second.",
+		color = { 0.55, 0.9, 0.4 }, kind = "channel", pick = "strongest", range = 20,
+		damage = { 8, 10, 13, 16, 20 }, heal = { 2, 2.5, 3, 3.5, 4 }, duration = { 5, 5, 6, 6, 7 },
+		cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "When its target dies, the beam leaps to the next enemy.", leap = 8 },
+	},
+	mindflay = {
+		spell = 15407, blurb = "A beam flays the toughest enemy in range and slows it.",
+		color = { 0.75, 0.55, 1 }, kind = "channel", pick = "strongest", range = 22,
+		damage = { 14, 18, 23, 28, 35 }, slow = { 0.5, 0.45, 0.4, 0.35, 0.3 }, duration = { 3, 3, 4, 4, 5 },
+		cooldown = { 6, 5.5, 5, 4.5, 4 },
+		mastery = { text = "Each tick also flays every enemy within 3 yards of its target.", radius = 3 },
+	},
 	-- The imp (display 4449) stays for the run and casts the real Firebolt.
 	imp = {
 		spell = 688, missile = 3110, display = 4449, blurb = "An imp follows you and hurls Firebolts.",
@@ -183,10 +200,25 @@ local SPELLS = {
 		damage = { 12, 15, 19, 24, 30 }, cooldown = { 1.6, 1.5, 1.4, 1.3, 1.2 },
 		mastery = { text = "The imp hurls two Firebolts at once.", bolts = 2 },
 	},
+	-- Inferno (1122) plants its meteor at the thickest pack
+	-- (PlaySpellVisualAtPoint). Where it lands, the brood is burned and
+	-- stunned (Inferno Effect 22703: 2 s within 10 yards), and an Infernal
+	-- (display 169) climbs out, rooted for a moment (22707: 1.7 s), then
+	-- hunts, taunting the whelps it burns.
+	inferno = {
+		spell = 1122, display = 169, stunKit = 349, -- 22703's state kit, StunSwirl
+		blurb = "A meteor crashes into the thickest pack and an Infernal climbs out to fight.",
+		color = { 1, 0.5, 0.15 }, kind = "inferno", range = 24,
+		damage = { 40, 55, 70, 90, 115 }, radius = { 8, 8, 9, 9, 10 },
+		hit = { 14, 18, 23, 29, 36 }, burn = { 3, 4, 5, 6, 8 }, duration = { 12, 13, 14, 15, 16 },
+		cooldown = { 30, 28, 26, 24, 22 },
+		mastery = { text = "Two meteors fall, the second on another part of the brood.", meteors = 2 },
+	},
 }
 local SPELL_ORDER = {
 	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
 	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
+	"drainlife", "mindflay", "inferno",
 }
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
@@ -280,6 +312,14 @@ local TUNING = {
 	FEAR_STEP = 6,             -- yards a fleeing enemy runs before its next MoveTo
 	IMP_SPEED = 8.5,
 	IMP_FOLLOW = 3,            -- yards: farther from you than this, the imp follows
+	INFERNO_FALL = 1.0,        -- seconds from the cast until the meteor strikes the ground
+	INFERNO_STUN = 2,          -- Inferno Effect's stun (22703, duration 39)
+	INFERNAL_ROOT = 1.7,       -- the Infernal's landing (22707, duration 487)
+	INFERNAL_SPEED = 7,
+	INFERNAL_REACH = 2.5,
+	INFERNAL_SWING = 2,        -- seconds between two blows
+	INFERNAL_BURN_RADIUS = 4,  -- yards its Immolation burns, once a second
+	INFERNAL_TAUNT = 3,        -- seconds a burn holds the whelps on it
 }
 -- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
 local ITEMS = {
@@ -318,6 +358,7 @@ BW.CAST_SPACING = CAST_SPACING
 BW.DEATH_SECONDS = DEATH_SECONDS
 BW.ANIM_STAND = ANIM_STAND
 BW.ANIM_DEATH = ANIM_DEATH
+BW.ANIM_ATTACK_UNARMED = ANIM_ATTACK_UNARMED
 BW.HERO_HP = HERO_HP
 BW.MAGNET = MAGNET
 BW.GEM_SPEED = GEM_SPEED

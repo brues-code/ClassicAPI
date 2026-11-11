@@ -23,12 +23,12 @@ local SPELLS = BW.SPELLS
 ------------------------------------------------------------------------------
 -- The brood
 
--- Health grows faster as the run goes on (x3 at 5:00, x9 at 10:00), so late
--- upgrades keep pace instead of running away; bites grow x4 by 10:00.
+-- The brood toughens as the run goes on, so late builds keep meeting
+-- resistance: with m the run's minutes over 5, health grows (1 + m)^3 (x8 at
+-- 5:00, x27 at 10:00) and bites (1 + m)^2 (x4 at 5:00, x9 at 10:00).
 local function KindStats(kind)
-	local m = BW.run.time / 300;
-	local grow = 1 + 2 * m + m * m;
-	return math.floor(kind.hp * grow + 0.5), kind.dps * grow;
+	local m = 1 + BW.run.time / 300;
+	return math.floor(kind.hp * m * m * m + 0.5), kind.dps * m * m;
 end
 
 local function NewEnemy(kind)
