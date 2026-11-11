@@ -389,9 +389,11 @@ local function Step(dt)
 			UpdateHealth();
 		end
 	end
-	if BW.run.pendingHeal > 0 then
-		local heal = math.floor(BW.run.pendingHeal + 0.5);
-		BW.run.pendingHeal = 0;
+	if BW.run.pendingHeal >= 1 then
+		-- Whole points heal; the fraction waits for more (Siphon Life heals
+		-- 0.3 a tick).
+		local heal = math.floor(BW.run.pendingHeal);
+		BW.run.pendingHeal = BW.run.pendingHeal - heal;
 		if heal > 0 and BW.run.hp < MaxHp() then
 			BW.run.hp = math.min(MaxHp(), BW.run.hp + heal);
 			UpdateHealth();
