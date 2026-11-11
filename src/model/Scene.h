@@ -303,6 +303,10 @@ class Actor : public Animation::Object {
     float scale = 1.0f;
     float alpha = 1.0f;
     bool shown = true;
+    // FadeOut: the world's fade of a removed object's model, on the scene
+    // clock from fadeStartMs; the actor hides when it ends.
+    bool fadingOut = false;
+    uint32_t fadeStartMs = 0;
     bool useCenterForOrigin[3] = {false, false, false};
     uint32_t animation = 0;
     int variation = -1;

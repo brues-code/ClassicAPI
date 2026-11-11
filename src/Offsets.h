@@ -5445,6 +5445,17 @@ enum Offsets {
     RETICLE_BLEND = 2,
     RETICLE_COLOR = 0xFFFFFFFF,
     RETICLE_FADE = 0x3F000000,
+    // The world's fade of a removed object's model (deactivate 0x006145E0 ->
+    // FadeOutModel 0x00672DF0, its per-frame pass 0x00672EF0; verified by
+    // disassembly): a ready model whose alpha is VAR_ONE_HUNDREDTH or more
+    // (or NaN; fcomp at 0x00672E21, test ah,5 / jnp) is kept with the time
+    // and that alpha, else released at once. Each frame it shows (3 - 2x)x^2
+    // with x = (1 - age x VAR_MODEL_FADE_RATE) x the alpha, x held to 0..1
+    // (0x00672FD3 to 0x00673025), and it is released when the age passes
+    // MODEL_FADE_OUT_MS (cmp eax,0x7D0; jle at 0x00672F36).
+    // VAR_MODEL_FADE_RATE is with the mover's constants (the same float).
+    MODEL_FADE_OUT_MS = 2000,
+    VAR_THREE = 0x0080297C, // float 3.0
     // The radius 0x0060AEE0 stores at OFF_CGUNIT_SELECTION_RADIUS when the
     // model loads: sqrt(VAR_HALF x sqrt(dx^2 + dy^2)) of animation 0's
     // bounds (FUN_M2MODEL_HAS_ANIMATION, then GetSequenceInfo), else of the
@@ -6740,6 +6751,12 @@ enum Offsets {
     // AnimationData.dbc: Dead, SitGround, Sleep, SitChairLow / Med / High,
     // KneelLoop.
     ANIM_DEAD = 6,
+    // The deaths whose end PlayFollowOnAnimation holds (0x005FC52D for 1
+    // and 6, 0x005FC573 for 131 and 132, by the byte table 0x005FC848):
+    // Death -> Dead, Drown -> Drowned (AnimationData.dbc names).
+    ANIM_DEATH = 1,
+    ANIM_DROWN = 131,
+    ANIM_DROWNED = 132,
     ANIM_SIT_GROUND = 97,
     ANIM_SLEEP = 100,
     ANIM_SIT_CHAIR_LOW = 102,
@@ -16021,6 +16038,7 @@ enum Offsets {
     // The walk and fall resolvers.
     VAR_MOVER_NINTH = 0x0080DFF8,              // float 1/9
     VAR_MOVER_STALL = 0x0080C698,              // float 0.0005
+    VAR_MODEL_FADE_RATE = VAR_MOVER_STALL,     // the same float, in FadeOutModel's pass (0x00672FD3)
     VAR_MOVER_STALL_REACH = 0x0080E018,        // float 1.1866661
     VAR_MOVER_COS_10 = 0x0080E01C,
     VAR_MOVER_FLOOR_COS = 0x0080DFFC,          // float cos 50 degrees, the walkable limit

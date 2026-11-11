@@ -882,6 +882,7 @@ build instructions.
   - [`actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`](#actorsetusecenterfororiginx-y-z--actorisusingcenterfororigin)
   - [`actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`](#actorgetactiveboundingbox--actorgetmaxboundingbox)
   - [`actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`](#actorshow--actorhide--actorsetshownshown)
+  - [`actor:FadeOut()` / `actor:IsFadingOut()`](#actorfadeout--actorisfadingout)
   - [`actor:SetAlpha(alpha)` / `actor:GetAlpha()`](#actorsetalphaalpha--actorgetalpha)
   - [`actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`](#actorsetanimationanimation--variation-animspeed-animoffsetseconds)
   - [`actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`](#actorsetanimationblendoperationblendoperation--actorgetanimationblendoperation)
@@ -20074,6 +20075,31 @@ until the model has loaded.
 Shows or hides the actor. `IsShown()` returns whether the actor is set to
 show. `IsVisible()` also checks that the scene is visible.
 
+### `actor:FadeOut()` / `actor:IsFadingOut()`
+
+Fades the actor out over 2 seconds, as the world fades out a unit that goes
+away, for example a corpse. Then the actor hides: `IsShown()` returns
+`false`.
+
+- The fade starts from the alpha that the actor shows and slows at the end.
+- When the actor shows less than 1/100 alpha, or its model has not loaded,
+  it hides at once.
+- While the scene is paused, the fade stops where it is.
+- `actor:Show`, `actor:Hide` and `actor:SetShown` end the fade. Then the
+  actor shows at its alpha again, or hides.
+- `actor:GetAlpha` returns the alpha that you set. The fade does not change
+  it.
+
+`IsFadingOut` returns `true` while the actor fades out. This is a
+ClassicAPI extension.
+
+```lua
+-- A dead whelp lies for 1.5 seconds, then fades out.
+scene:After(1.5, function()
+    whelp:FadeOut()
+end)
+```
+
 ### `actor:SetAlpha(alpha)` / `actor:GetAlpha()`
 
 Sets the opacity of the actor, from `0` to `1`. The alpha of the scene
@@ -20612,7 +20638,9 @@ swims, jumps, falls and lands as a character does. Its move animations play
 at the speed that it moves. An animation that you set with
 `actor:SetAnimation` plays until it ends or until the movement changes.
 Then the actor plays its movement animation again. An actor that plays a
-death animation keeps it.
+death animation keeps it. When Death (1) ends, the actor lies Dead (6), and
+when Drown (131) ends, it lies Drowned (132), as a dead unit does in the
+world.
 
 Without a loaded WMO, the actor does not move. While a part of the WMO in
 the way loads, the actor waits. This is a ClassicAPI extension.

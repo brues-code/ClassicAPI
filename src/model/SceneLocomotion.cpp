@@ -268,6 +268,27 @@ void OnBodyTurn(Actor &actor, float turn) {
 }
 
 bool FollowOn(Actor &actor) {
+    // A death's end (0x005FC52D, 0x005FC573): a dead unit holds Dead after
+    // Death or Dead, and Drowned after Drown or Drowned, in the variation
+    // the ended sequence played (GetKeyBoneAnimState 0x00711FE0); one that
+    // is not dead picks again. An actor with the mover is dead while it
+    // plays a death animation, so it lies where it fell.
+    if (actor.mover != nullptr && actor.model != nullptr && actor.loaded) {
+        uint32_t hold = 0;
+        if (actor.animation == Offsets::ANIM_DEATH || actor.animation == Offsets::ANIM_DEAD)
+            hold = Offsets::ANIM_DEAD;
+        else if (actor.animation == Offsets::ANIM_DROWN || actor.animation == Offsets::ANIM_DROWNED)
+            hold = Offsets::ANIM_DROWNED;
+        if (hold != 0) {
+            actor.animation = hold;
+            actor.variation = static_cast<int>(M2::GetAnimState(actor.model, -1).variation);
+            actor.animSpeed = 1.0f;
+            actor.animOffsetSec = 0.0f;
+            if (actor.kitAnimation < 0)
+                actor.PlayAnimation();
+            return true;
+        }
+    }
     if (!Active(actor))
         return false;
     switch (actor.animation) {

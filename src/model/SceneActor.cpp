@@ -175,6 +175,7 @@
 #include "model/SceneMover.h"
 #include "model/VisualKit.h"
 #include "object/Resolve.h"
+#include "time/Clock.h"
 #include "unit/Identity.h"
 #include "xml/FrameLoad.h"
 #include "xml/Mixin.h"
@@ -914,7 +915,16 @@ void Actor::ApplyAlpha() {
     if (model == nullptr)
         return;
     const float frameAlpha = Game::Read<uint8_t>(SceneFrame(), Offsets::OFF_FRAME_ALPHA) / 255.0f;
-    M2::SetAlpha(model, alpha * frameAlpha);
+    float shownAlpha = alpha * frameAlpha;
+    // The fade pass (0x00672EF0): x = (1 - age x 0.0005) x the alpha, held to
+    // 0..1, shown as (3 - 2x)x^2.
+    if (fadingOut) {
+        const uint32_t age = Time::Clock::Elapsed(fadeStartMs, ClockMs(SceneFrame()));
+        double x = (1.0 - static_cast<double>(age) * Game::Read<float>(Offsets::VAR_MODEL_FADE_RATE)) * shownAlpha;
+        x = x <= 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x);
+        shownAlpha = static_cast<float>((Game::Read<float>(Offsets::VAR_THREE) - (x + x)) * x * x);
+    }
+    M2::SetAlpha(model, shownAlpha);
 }
 
 // SetLight's colour (0x00614550) while a bit is set, else ClearLight's black
@@ -1108,6 +1118,17 @@ void Actor::Update(float elapsedSec, float sceneSec) {
                 PlayAnimation();
             RunScript(S_ONANIMFINISHED, 0);
         }
+    }
+    // A fade out shows its step each frame, and the actor hides once its age
+    // passes the fade's time, where the world releases the model.
+    if (fadingOut) {
+        if (Time::Clock::Elapsed(fadeStartMs, ClockMs(SceneFrame())) > Offsets::MODEL_FADE_OUT_MS) {
+            fadingOut = false;
+            shown = false;
+            if (model != nullptr)
+                M2::SetVisible(model, false);
+        }
+        ApplyAlpha();
     }
     WriteStringUnit(*this);
     Casts::Update(*this, sceneSec);
@@ -2457,6 +2478,40 @@ void SetShown(Actor &actor, bool shown) {
     actor.shown = shown;
     if (actor.model != nullptr && !shown)
         M2::SetVisible(actor.model, false);
+    // Showing or hiding ends a fade out; the actor's alpha returns.
+    if (actor.fadingOut) {
+        actor.fadingOut = false;
+        actor.ApplyAlpha();
+    }
+}
+
+// A removed object's fade (deactivate 0x006145E0 -> FadeOutModel
+// 0x00672DF0): a ready model (0x00710450 with 0, 0) shown at an alpha of
+// 0.01 or more, or NaN, fades over 2 seconds; any other goes at once. The
+// world's clock is the OS tick; here it is the scene's, so a paused scene
+// holds the fade.
+int __fastcall Script_FadeOut(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !actor->shown || actor->fadingOut)
+        return 0;
+    const float shownAlpha =
+        actor->alpha * (Game::Read<uint8_t>(actor->SceneFrame(), Offsets::OFF_FRAME_ALPHA) / 255.0f);
+    if (actor->model == nullptr || !M2::IsReady(actor->model, 0, 0) ||
+        shownAlpha < Game::Read<float>(Offsets::VAR_ONE_HUNDREDTH)) {
+        SetShown(*actor, false);
+        return 0;
+    }
+    actor->fadingOut = true;
+    actor->fadeStartMs = ClockMs(actor->SceneFrame());
+    return 0;
+}
+
+int __fastcall Script_IsFadingOut(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->fadingOut);
+    return 1;
 }
 
 int __fastcall Script_Show(void *L) {
@@ -2714,6 +2769,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"Hide", &Script_Hide},
     {"SetShown", &Script_SetShown},
     {"IsShown", &Script_IsShown},
+    {"FadeOut", &Script_FadeOut},
+    {"IsFadingOut", &Script_IsFadingOut},
     {"IsVisible", &Script_IsVisible},
     {"SetAnimation", &Script_SetAnimation},
     {"GetAnimation", &Script_GetAnimation},
@@ -3253,6 +3310,12 @@ const Game::Doc::Function kShow{"Shows the actor.", {}, {}};
 const Game::Doc::Function kHide{"Hides the actor.", {}, {}};
 const Game::Doc::Function kSetShown{"Shows or hides the actor.", kShowArg, {}};
 const Game::Doc::Function kIsShown{"Returns whether the actor is set to show.", {}, kShownRet};
+const Game::Doc::Function kFadeOut{
+    "Fades the actor out over 2 seconds, as the world fades a unit that goes away, then hides it. Show and "
+    "Hide end the fade.",
+    {}, {}, nullptr, true};
+const Game::Doc::Field kFadingOutRet[] = {Req("fadingOut", "bool")};
+const Game::Doc::Function kIsFadingOut{"Returns whether the actor fades out.", {}, kFadingOutRet, nullptr, true};
 const Game::Doc::Function kIsVisible{
     "Returns whether the actor is shown and its scene is visible.", {}, kVisibleRet};
 const Game::Doc::Function kSetAnimation{
@@ -3365,6 +3428,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"Hide", &kHide},
     {"SetShown", &kSetShown},
     {"IsShown", &kIsShown},
+    {"FadeOut", &kFadeOut},
+    {"IsFadingOut", &kIsFadingOut},
     {"IsVisible", &kIsVisible},
     {"SetAnimation", &kSetAnimation},
     {"GetAnimation", &kGetAnimation},
