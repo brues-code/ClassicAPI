@@ -137,6 +137,16 @@ void StartPitch(Body &body, bool up);        // 0x007C6DF0, only while swimming
 bool StopPitch(Body &body);                  // 0x007C6E30
 bool Jump(Body &body);                       // 0x007C6230 with check 1
 void SetRunMode(Body &body, bool run);       // 0x007C71C0
+
+// The speeds a server changes (the spline speed opcodes 0x2FE to 0x303).
+enum class Speed { Walk, Run, RunBack, Swim, SwimBack, Turn };
+// CMovement's setters: SetWalkSpeed 0x007C70D0, SetRunSpeed 0x007C7030,
+// SetRunBackSpeed 0x007C7080, SetSwimSpeed 0x007C7120, SetSwimBackSpeed
+// 0x007C7170 and SetTurnRate 0x007C6FF0. Each stores `value` unless it is
+// within 2^-22 of the field (a NaN stores), then re-anchors and, except the
+// turn rate, refreshes the current speed. True when it stored.
+bool SetSpeed(Body &body, Speed which, float value);
+float GetSpeed(const Body &body, Speed which);
 // ClearSpline (0x007C6310): what the client does first with a move event
 // that is not the player's own (UpdatePlayerMovement 0x00615C30).
 void ClearSpline(Body &body);

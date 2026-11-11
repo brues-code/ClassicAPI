@@ -330,6 +330,8 @@ void ReleaseModel(Actor &actor) {
     actor.dressRecord = nullptr;
     actor.displayScale = 1.0f;
     actor.displayID = 0;
+    actor.areaEffect = nullptr;
+    actor.areaRadius = 0.0f;
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
@@ -1010,6 +1012,27 @@ void Actor::ApplyHighlight() {
     reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2MODEL_SET_EMISSIVE)(model, rgb);
 }
 
+// A dynamic object's loaded hook (slot 13, 0x005D52F0): the model is scaled
+// to the area's radius over its bounding-sphere radius, or over the effect
+// row's size when it has no sphere, and a model with animation 158 and none
+// for 0 loops 158 (the done callback 0x005D5580 plays it again, as the
+// actor's own animation replays).
+void SizeSpellArea(Actor &actor) {
+    float sphere[4];
+    M2::GetBoundingSphere(actor.model, sphere);
+    if (sphere[3] > Game::Read<double>(Offsets::VAR_DYNAMIC_OBJECT_MIN_SPHERE)) {
+        actor.scale = actor.areaRadius / sphere[3];
+    } else {
+        const auto size = Game::Read<float>(actor.areaEffect, Offsets::OFF_SPELLVISUALEFFECTNAME_AREA_SIZE);
+        if (size > 0.0f)
+            actor.scale = actor.areaRadius / size;
+    }
+    if (M2::HasAnimation(actor.model, Offsets::ANIM_DYNAMIC_OBJECT_LOOP) && !M2::HasAnimation(actor.model, 0)) {
+        actor.animation = Offsets::ANIM_DYNAMIC_OBJECT_LOOP;
+        actor.PlayAnimation();
+    }
+}
+
 void Actor::Update(float elapsedSec, float sceneSec) {
     if (mover != nullptr) {
         Advance(*this);
@@ -1044,6 +1067,8 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             // The pick an unloaded model could not take (PlayAnimation keeps
             // it pending at +0xD64).
             Locomotion::Repick(*this);
+            if (areaEffect != nullptr)
+                SizeSpellArea(*this);
             RunScript(S_ONMODELLOADED, 0);
         }
     } else {
@@ -1218,6 +1243,38 @@ int __fastcall Script_SetModelByPath(void *L) {
     // A WMO is not an M2; the scene shows one (SetWorldModel).
     void *model = World::IsWmoPath(path) ? nullptr : M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path);
     actor->SetModel(model, path, nullptr);
+    Game::Lua::PushBool(L, model != nullptr);
+    return 1;
+}
+
+// A spell's ground area, as the world shows the dynamic object a spell like
+// Blizzard leaves: the model the dynamic object names (slot 10, 0x005D5890 ->
+// 0x005D57C0: the spell's visual must have the area flag +0x2C, and its +0x30
+// SpellVisualEffectName row gives the file), sized to `radius` once loaded.
+int __fastcall Script_SetModelBySpellArea(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (Game::Lua::IsNumber(L, 2) == 0 || Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f)) {
+        Game::Lua::Error(L, "Usage: %s:SetModelBySpellArea(spellID, radius)", actor->DisplayName());
+        return 0;
+    }
+    using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
+    const auto *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
+                                    static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
+    const uint8_t *visual = spell != nullptr ? reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell) : nullptr;
+    const uint8_t *effect =
+        visual != nullptr && Game::Read<uint32_t>(visual, Offsets::OFF_SPELLVISUAL_HAS_AREA) != 0
+            ? DBC::Record(Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
+                          Game::Read<uint32_t>(visual, Offsets::OFF_SPELLVISUAL_IMPACT_MODEL))
+            : nullptr;
+    const char *path = effect != nullptr ? Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE) : nullptr;
+    void *model = path != nullptr && *path != '\0' ? M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path) : nullptr;
+    actor->SetModel(model, path, nullptr);
+    if (model != nullptr) {
+        actor->areaEffect = effect;
+        actor->areaRadius = FloatArg(L, 3);
+    }
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
 }
@@ -2057,6 +2114,70 @@ int __fastcall Script_SetWalking(void *L) {
     return 0;
 }
 
+// The speed names of SetMovementSpeed and GetMovementSpeed.
+bool SpeedArg(void *L, int index, Mover::Speed &which) {
+    static const struct {
+        const char *name;
+        Mover::Speed speed;
+    } kSpeeds[] = {
+        {"walk", Mover::Speed::Walk},   {"run", Mover::Speed::Run},
+        {"runBack", Mover::Speed::RunBack}, {"swim", Mover::Speed::Swim},
+        {"swimBack", Mover::Speed::SwimBack}, {"turn", Mover::Speed::Turn},
+    };
+    const char *name = Game::Lua::IsString(L, index) ? Game::Lua::ToString(L, index) : nullptr;
+    if (name == nullptr)
+        return false;
+    for (const auto &entry : kSpeeds) {
+        if (std::strcmp(name, entry.name) == 0) {
+            which = entry.speed;
+            return true;
+        }
+    }
+    return false;
+}
+
+constexpr char kUsageSetMovementSpeed[] =
+    "Usage: %s:SetMovementSpeed(\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\", speed)";
+
+// A server's speed change for a unit it moves (the spline forms of
+// SMSG_SPLINE_SET_*_SPEED, CGUnit_C 0x00601360): the mover's setter at once,
+// then AnimateMoveOpcode (0x0060E480, nothing for these opcodes) and
+// UpdateBaseAnimation(-1) (0x005FD9E0), so a moving unit takes the new
+// speed's animation and rate. The setter does not touch a spline: a MoveTo
+// keeps the speed it started with.
+int __fastcall Script_SetMovementSpeed(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Mover::Speed which{};
+    if (!SpeedArg(L, 2, which) || Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f)) {
+        Game::Lua::Error(L, kUsageSetMovementSpeed, actor->DisplayName());
+        return 0;
+    }
+    if (actor->mover == nullptr)
+        return 0;
+    Advance(*actor);
+    if (Mover::SetSpeed(*actor->mover, which, FloatArg(L, 3)))
+        Locomotion::Repick(*actor);
+    return 0;
+}
+
+int __fastcall Script_GetMovementSpeed(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Mover::Speed which{};
+    if (!SpeedArg(L, 2, which)) {
+        Game::Lua::Error(L, "Usage: %s:GetMovementSpeed(\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\")",
+                         actor->DisplayName());
+        return 0;
+    }
+    if (actor->mover == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, Mover::GetSpeed(*actor->mover, which));
+    return 1;
+}
+
 int __fastcall Script_IsWalking(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
@@ -2431,6 +2552,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"HookScript", &Animation::Script_HookScript},
     {"SetModelByCreatureDisplayID", &Script_SetModelByCreatureDisplayID},
     {"SetModelByPath", &Script_SetModelByPath},
+    {"SetModelBySpellArea", &Script_SetModelBySpellArea},
     {"SetModelByUnit", &Script_SetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &Script_SetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &Script_GetModelUnitGUID},
@@ -2497,6 +2619,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"MoveTo", &Script_MoveTo},
     {"SetWalking", &Script_SetWalking},
     {"IsWalking", &Script_IsWalking},
+    {"SetMovementSpeed", &Script_SetMovementSpeed},
+    {"GetMovementSpeed", &Script_GetMovementSpeed},
     {"ClearModel", &Script_ClearModel},
     {"IsLoaded", &Script_IsLoaded},
     {"GetModelPath", &Script_GetModelPath},
@@ -2975,6 +3099,22 @@ const Game::Doc::Function kSetWalking{
     kWalkingArg, {}, nullptr, true};
 const Game::Doc::Function kIsWalking{"Returns whether the actor walks instead of running.", {},
                                      kWalkingArg, nullptr, true};
+const Game::Doc::Field kSpeedNameArg[] = {
+    Req("speedType", "string", "\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\"."),
+};
+const Game::Doc::Field kSetMovementSpeedArgs[] = {
+    Req("speedType", "string", "\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\"."),
+    Req("speed", "number", "Yards a second; radians a second for \"turn\". More than 0."),
+};
+const Game::Doc::Field kSpeedRet[] = {Req("speed", "number")};
+const Game::Doc::Function kSetMovementSpeed{
+    "Sets one of the speeds that the actor moves at. A move of MoveTo keeps the speed that it started "
+    "with. The speeds go back to the defaults when SetMovementEnabled turns off. Nothing happens "
+    "unless SetMovementEnabled is on.",
+    kSetMovementSpeedArgs, {}, nullptr, true};
+const Game::Doc::Function kGetMovementSpeed{
+    "Returns one of the speeds that the actor moves at, or nothing unless SetMovementEnabled is on.",
+    kSpeedNameArg, kSpeedRet, nullptr, true};
 const Game::Doc::Function kDetachFromActor{
     "Takes this actor off the actor it hangs on. False when it hangs on none.", {},
     kMountSuccessRet, nullptr, true};
@@ -2982,6 +3122,14 @@ const Game::Doc::Function kDetachFromActor{
 const Game::Doc::Function kSetModelByCreatureDisplayID{
     "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
 const Game::Doc::Function kSetModelByPath{"Shows a model file.", kPathArgs, kSuccessRet};
+const Game::Doc::Field kSpellAreaArgs[] = {
+    Req("spellID", "number", "A spell with a ground area, such as Blizzard or Consecration."),
+    Req("radius", "number", "The radius of the area in yards. More than 0."),
+};
+const Game::Doc::Function kSetModelBySpellArea{
+    "Shows the ground area of a spell, as the world shows the area that a spell such as Blizzard leaves, "
+    "sized to the radius. False when the spell has no ground area.",
+    kSpellAreaArgs, kSuccessRet, nullptr, true};
 const Game::Doc::Function kClearModel{"Removes the model.", {}, {}};
 const Game::Doc::Function kIsLoaded{"Returns whether the model has loaded.", {}, kLoadedRet};
 const Game::Doc::Function kGetModelPath{"Returns the file of the model.", {}, kPathRet};
@@ -3025,6 +3173,7 @@ const Game::Doc::Function kGetMaxBoundingBox{
 const Game::Doc::Method kMethodDocs[] = {
     {"SetModelByCreatureDisplayID", &kSetModelByCreatureDisplayID},
     {"SetModelByPath", &kSetModelByPath},
+    {"SetModelBySpellArea", &kSetModelBySpellArea},
     {"SetModelByUnit", &kSetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &kSetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &kGetModelUnitGUID},
@@ -3091,6 +3240,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"MoveTo", &kMoveTo},
     {"SetWalking", &kSetWalking},
     {"IsWalking", &kIsWalking},
+    {"SetMovementSpeed", &kSetMovementSpeed},
+    {"GetMovementSpeed", &kGetMovementSpeed},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
     {"GetModelPath", &kGetModelPath},

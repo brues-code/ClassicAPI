@@ -6407,6 +6407,30 @@ enum Offsets {
     // The sound a player plays on its $TRD event while it prepares the spell
     // (CGPlayer_C::PlayPrecastSound 0x0062FAA0).
     OFF_SPELLVISUAL_PRECAST_SOUND = 0x38,
+    // The ground area of a spell as a dynamic object shows it
+    // (CGDynamicObject_C): the area flag (+0x2C, nonzero for a spell with a
+    // ground area; the model getter 0x005D57C0 tests it at 0x005D582F and
+    // prints SPELLEFFECTNOAREAEFFECT without it), whose model is the +0x30
+    // SpellVisualEffectName row (read at 0x005D5853, the column a missile's
+    // arrival model also reads), and the area kit (+0x34, 0x005D5612): its
+    // first kind-9 procedure starts the shard emitter and its sound loops on
+    // the area. Verified by parsing SpellVisual.dbc: Blizzard's row 259 has
+    // 1, 398 (Blizzard_Impact_Base), 609; Consecration's row 5600 has 1,
+    // 2542 (consecration_impact_base), 695.
+    OFF_SPELLVISUAL_HAS_AREA = 0x2C,
+    OFF_SPELLVISUAL_AREA_KIT = 0x34,
+    // SpellVisualEffectName +0x10: the size the dynamic object's loaded hook
+    // divides its radius by when the model has no bounding sphere
+    // (0x005D53B6, compared with 0.0 at 0x005D53B9).
+    OFF_SPELLVISUALEFFECTNAME_AREA_SIZE = 0x10,
+    // The dynamic object's loaded hook (slot 13, 0x005D52F0) scales the model
+    // to the area's radius over the model's bounding-sphere radius when that
+    // radius is above this double (0.001, fcomp at 0x005D538E).
+    VAR_DYNAMIC_OBJECT_MIN_SPHERE = 0x00801608,
+    // The animation the hook plays on a model that has it and no animation 0
+    // (HasAnimation 0x9E at 0x005D5345, played at 0x005D53D8); the done
+    // callback (0x005D5580) plays it again at each natural end.
+    ANIM_DYNAMIC_OBJECT_LOOP = 158,
     // s_spellVisualAttachments: int[11] = {20, 34, 19, 21, 22, 17, 23, 24,
     // 25, 15, 16}, read from the binary; the first nine are the kit effect
     // columns' attachments.

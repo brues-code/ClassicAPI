@@ -159,6 +159,11 @@ class Actor : public Animation::Object {
     // unit's UNIT_FIELD_DISPLAYID), for its sound data; 0 for a model file.
     uint32_t displayID = 0;
     bool playAnimationSounds = false; // SetPlayAnimationSounds
+    // SetModelBySpellArea: the ground area of a spell, as the world shows a
+    // dynamic object (CGDynamicObject_C). Its SpellVisualEffectName row and
+    // its radius in yards; null and 0 for any other model.
+    const uint8_t *areaEffect = nullptr;
+    float areaRadius = 0.0f;
     bool shadowShown = false;         // SetShadowShown: a blob shadow under the model
     // SetHighlight: a unit's light bits (CGObject +0xB8, Offsets
     // CGOBJECT_LIGHT_BIT_*); while any is set the model glows in the scene

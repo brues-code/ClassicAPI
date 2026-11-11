@@ -89,6 +89,8 @@ constexpr uint32_t kWNG = Tag('$', 'W', 'N', 'G');
 constexpr uint32_t kWGG = Tag('$', 'W', 'G', 'G');
 constexpr uint32_t kCSD = Tag('$', 'C', 'S', 'D');
 constexpr uint32_t kTRD = Tag('$', 'T', 'R', 'D');
+constexpr uint32_t kSND = Tag('$', 'S', 'N', 'D');
+static_assert(kSND == 0x444E5324, "$SND as the dynamic object compares it (0x005D58E1)");
 static_assert(kCSR == 0x52534324 && kWNG == 0x474E5724, "tags compare as the engine's dwords");
 
 constexpr int kStandChance = 40;            // 0x008626D4[5]: pass at <= 40 of 0..100
@@ -249,6 +251,14 @@ void BowReleasePoint(const Actor &actor, float (&point)[3]) {
 void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
                             uint32_t userLow, uint32_t /*userHigh*/) {
     auto *actor = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
+    // A spell's ground area takes a dynamic object's events (0x005D58C0):
+    // $SND plays its payload as a SoundEntries id at the area, always; its
+    // other tag, $SHK, shakes the world's camera, which a scene does not have.
+    if (actor->areaEffect != nullptr) {
+        if (tag == kSND)
+            Play(*actor, static_cast<int32_t>(data));
+        return;
+    }
     if (tag == kCSL || tag == kCSR || tag == kCST || tag == kBWR) {
         // The unit's callback drops a point that is not a number (0x00607840).
         if (point == nullptr || std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))

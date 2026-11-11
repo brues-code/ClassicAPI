@@ -52,6 +52,8 @@ const Live<float> kThousand{Offsets::VAR_ONE_THOUSAND};
 const Live<float> kHalf{Offsets::VAR_HALF};
 const Live<float> kOne{Offsets::VAR_ONE};
 const Live<float> kTiny{Offsets::VAR_TWO_POW_MINUS_20};
+// The speed setters' test (fcomp [0x008029D4] at 0x007C7041).
+const Live<float> kSpeedTiny{Offsets::VAR_TWO_POW_MINUS_22};
 const Live<float> kParallel{Offsets::VAR_TWO_POW_MINUS_22};
 const Live<float> kSkin{Offsets::VAR_MOVER_SKIN};                // 1/720
 const Live<float> kThirtySixth{Offsets::VAR_ONE_THIRTY_SIXTH};
@@ -2142,6 +2144,39 @@ void SetRunMode(Body &body, bool run) {
     Anchor(body, false);
     RefreshSpeed(body, false);
 }
+
+namespace {
+float &SpeedField(Body &b, Speed which) {
+    switch (which) {
+    case Speed::Walk:
+        return b.walkSpeed;
+    case Speed::Run:
+        return b.runSpeed;
+    case Speed::RunBack:
+        return b.runBackSpeed;
+    case Speed::Swim:
+        return b.swimSpeed;
+    case Speed::SwimBack:
+        return b.swimBackSpeed;
+    case Speed::Turn:
+        break;
+    }
+    return b.turnRate;
+}
+} // namespace
+
+bool SetSpeed(Body &body, Speed which, float value) {
+    float &field = SpeedField(body, which);
+    if (std::fabs(D(value) - field) < kSpeedTiny)
+        return false;
+    field = value;
+    Anchor(body, false);
+    if (which != Speed::Turn)
+        RefreshSpeed(body, false);
+    return true;
+}
+
+float GetSpeed(const Body &body, Speed which) { return SpeedField(const_cast<Body &>(body), which); }
 
 void ClearSpline(Body &body) {
     if (!body.spline)
