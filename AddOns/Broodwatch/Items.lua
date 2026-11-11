@@ -103,7 +103,7 @@ local function ThrowGrenade(item)
 			if o.alive then
 				local ox, oy = o.actor:GetPosition();
 				if Dist2(ox, oy, ex, ey) <= r2 then
-					Hold(o, TUNING.GRENADE_STUN, item.spell);
+					Hold(o, TUNING.GRENADE_STUN, item.stunAura);
 					Damage(o, damage, TUNING.ITEM_COLOR);
 					Blast(o, ex, ey, TUNING.GRENADE_KNOCK);
 				end

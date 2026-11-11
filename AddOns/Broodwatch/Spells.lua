@@ -903,7 +903,8 @@ local function EndShield(broken)
 	if BW.run.shield then
 		BW.run.shield = nil;
 		BW.run.shieldUntil = nil;
-		BW.hero:RemoveAuraVisual(SPELLS.shield.spell);
+		BW.hero:RemoveAuraVisual(BW.run.shieldSpell);
+		BW.run.shieldSpell = nil;
 		BW.UpdateHealth();
 	end
 end
@@ -921,6 +922,16 @@ local function Fire(key, state)
 		local targets = PickTargets(def, Stat(def, "count", level) or 1, hx, hy);
 		if table.getn(targets) == 0 then
 			return false;
+		end
+		if def.volley then
+			-- A volley is one cast: its missiles leave together.
+			local all = {};
+			for i, e in ipairs(targets) do
+				all[i] = e;
+			end
+			QueueCast({ key = key, state = state, targets = all, damage = Stat(def, "damage", level), level = level });
+			state.pending = state.pending + 1;
+			return true;
 		end
 		for _, e in ipairs(targets) do
 			QueueCast({
@@ -989,6 +1000,27 @@ local function CastNext()
 		if castID then
 			BW.run.inFlight[castID] = entry;
 		end
+	elseif entry.targets then
+		-- A volley: one cast at every target still alive (PlaySpellVisual with
+		-- a table), so its cast plays once; each target's impact comes back
+		-- with the cast's ID and the actor it hit (OnImpact).
+		local actors, byActor, count = {}, {}, 0;
+		for _, e in ipairs(entry.targets) do
+			if e.alive then
+				count = count + 1;
+				actors[count] = e.actor;
+				byActor[e.actor] = e;
+			end
+		end
+		if count == 0 then
+			return CastNext();
+		end
+		local castID = BW.hero:PlaySpellVisual(def.spell, actors, 0);
+		if castID then
+			BW.run.inFlight[castID] = {
+				key = entry.key, damage = entry.damage, level = entry.level, byActor = byActor, left = count,
+			};
+		end
 	elseif def.kind == "totem" then
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
 		PlantTotems(def, entry.level);
@@ -997,8 +1029,13 @@ local function CastNext()
 		PlantWard(def, entry.level);
 	elseif def.kind == "shield" then
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
-		BW.run.shield = BW.MaxHp() * Stat(def, "absorb", entry.level) / 100;
+		-- Divine Shield (immune) soaks everything until its time ends.
+		if BW.run.shieldSpell and BW.run.shieldSpell ~= def.spell then
+			BW.hero:RemoveAuraVisual(BW.run.shieldSpell);
+		end
+		BW.run.shield = def.immune and math.huge or BW.MaxHp() * Stat(def, "absorb", entry.level) / 100;
 		BW.run.shieldUntil = BW.run.time + Stat(def, "duration", entry.level);
+		BW.run.shieldSpell = def.spell;
 		BW.hero:AddAuraVisual(def.spell);
 		BW.UpdateHealth();
 	elseif def.kind == "thorns" then
@@ -1097,14 +1134,17 @@ local function CastNext()
 	BW.run.castGap = CAST_SPACING;
 end
 
--- Puts Corruption on an enemy: `damage` each second for `seconds`, and it
--- spreads to `spread` neighbours when the enemy dies.
-local function Corrupt(e, damage, seconds, spread)
+-- Puts the rot of spell `key` (Corruption, Siphon Life) on an enemy:
+-- `damage` each second for `seconds`, healing you `heal` a tick (Siphon
+-- Life), and it spreads to `spread` neighbours when the enemy dies.
+local function Corrupt(e, damage, seconds, spread, key, heal)
 	e.dotLeft = seconds;
 	e.dotTick = 1;
 	e.dotDamage = damage;
 	e.dotSeconds = seconds;
 	e.dotSpread = spread;
+	e.dotKey = key;
+	e.dotHeal = heal;
 	Flash(e);
 end
 
@@ -1159,7 +1199,7 @@ local function Sheep(entry, def, target)
 	end
 end
 
-BW.OnImpact = function(_, _, _, castID)
+BW.OnImpact = function(_, _, hitActor, castID)
 	if not BW.run then
 		return;
 	end
@@ -1167,7 +1207,20 @@ BW.OnImpact = function(_, _, _, castID)
 	if not entry then
 		return;
 	end
-	BW.run.inFlight[castID] = nil;
+	if entry.byActor then
+		-- A volley: an impact for each target of the one cast.
+		entry.left = entry.left - 1;
+		if entry.left <= 0 then
+			BW.run.inFlight[castID] = nil;
+		end
+		local e = hitActor and entry.byActor[hitActor];
+		if not e then
+			return;
+		end
+		entry = { key = entry.key, target = e, damage = entry.damage, level = entry.level };
+	else
+		BW.run.inFlight[castID] = nil;
+	end
 	if entry.onImpact then
 		entry.onImpact(entry);
 		return;
@@ -1175,7 +1228,8 @@ BW.OnImpact = function(_, _, _, castID)
 	local def = SPELLS[entry.key];
 	if def.kind == "dot" then
 		if entry.target.alive then
-			Corrupt(entry.target, entry.damage, Stat(def, "duration", entry.level), Stat(def, "spread", entry.level));
+			Corrupt(entry.target, entry.damage, Stat(def, "duration", entry.level), Stat(def, "spread", entry.level),
+				entry.key, Stat(def, "heal", entry.level));
 		end
 		return;
 	end
@@ -1189,6 +1243,11 @@ BW.OnImpact = function(_, _, _, castID)
 	end
 	local wasAlive = target.alive;
 	Damage(target, entry.damage, def.color);
+	-- Frostbolt Volley chills.
+	local slow = def.kind == "missile" and Stat(def, "slow", entry.level);
+	if slow and target.alive then
+		Slow(target, slow);
+	end
 	-- Death Coil: you heal, and the target flees (at rank V, all around it).
 	local heal = def.kind == "missile" and Stat(def, "heal", entry.level);
 	if heal then

@@ -251,6 +251,48 @@ local SPELLS = {
 		duration = { 4, 4, 5, 5, 6 }, cooldown = { 9, 8.5, 8, 7.5, 7 },
 		mastery = { text = "The fire heals you instead of burning you.", heal = 3 },
 	},
+	-- Evolutions (EVOLUTIONS): a spell at rank V and the passive it needs
+	-- become one of these, in the spell's place. Each has one rank and is
+	-- never offered on its own.
+	-- Frostbolt Volley (8398): the real volley's frostbolts, one at each
+	-- target at once; each chills.
+	frostvolley = {
+		spell = 8398, evolved = true, blurb = "Frostbolts fly at many enemies at once, chilling each one.",
+		color = { 0.55, 0.8, 1 }, kind = "missile", volley = true, pick = "nearest", range = 24,
+		-- Four bolts a volley: each missile starts its own flight loop at the
+		-- hand (PlaySoundLoop3D, as in the world), and eight at once roared.
+		damage = { 32 }, count = { 4 }, slow = { 0.5 }, cooldown = { 0.9 },
+	},
+	-- Shadow Bolt Volley (9081): heavy bolts at the toughest enemies at once.
+	shadowvolley = {
+		spell = 9081, evolved = true, blurb = "Heavy shadow bolts fly at the toughest enemies at once.",
+		color = { 0.8, 0.45, 1 }, kind = "missile", volley = true, pick = "strongest", range = 26,
+		damage = { 110 }, count = { 5 }, cooldown = { 2.2 },
+	},
+	-- Siphon Life (18265): Corruption's rot that heals you as it ticks.
+	siphonlife = {
+		spell = 18265, evolved = true, blurb = "Rots enemies every second and heals you as it does. It spreads when they die.",
+		color = { 0.55, 0.85, 0.3 }, kind = "dot", pick = "nearest", range = 22, hop = 6,
+		damage = { 18 }, heal = { 0.3 }, count = { 6 }, spread = { 3 }, duration = { 8 }, cooldown = { 2.2 },
+	},
+	-- Divine Shield (642): nothing hurts you while its bubble (state kit 252)
+	-- lasts.
+	divineshield = {
+		spell = 642, evolved = true, blurb = "For a few seconds nothing can hurt you.",
+		color = { 1, 0.9, 0.5 }, kind = "shield", immune = true, duration = { 5 }, cooldown = { 18 },
+	},
+	-- War Stomp (45): stuns everything around you (its state kit 349 pins
+	-- Stun), and its cast kit (356) shakes the camera.
+	warstomp = {
+		spell = 45, evolved = true, blurb = "Stomps the ground, hurting and stunning everything around you.",
+		color = { 1, 0.6, 0.2 }, kind = "nova", damage = { 45 }, radius = { 8 }, root = { 1.5 }, cooldown = { 3 },
+	},
+	-- Flamestrike (2120): a large burning ground area on the thickest pack.
+	flamestrike = {
+		spell = 2120, evolved = true, blurb = "A pillar of fire scorches the thickest pack and leaves the ground burning.",
+		color = { 1, 0.45, 0.15 }, kind = "area", place = "pack", range = 22,
+		damage = { 40 }, radius = { 8 }, duration = { 5 }, cooldown = { 5 },
+	},
 	-- Death Coil (6789): a missile that harms its target, heals you, and
 	-- fears the target for 3 s (duration 27).
 	deathcoil = {
@@ -265,6 +307,18 @@ local SPELL_ORDER = {
 	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
 	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
 	"drainlife", "mindflay", "inferno", "lshield", "polymorph", "arcanemissiles", "deathcoil", "hellfire",
+	-- The evolutions, on the bar after the others.
+	"frostvolley", "shadowvolley", "siphonlife", "divineshield", "warstomp", "flamestrike",
+}
+-- A spell at rank V with the passive it `needs` (any rank) evolves `into` a
+-- stronger spell, which takes its place.
+local EVOLUTIONS = {
+	frostbolt = { needs = "multishot", into = "frostvolley" },
+	shadowbolt = { needs = "might", into = "shadowvolley" },
+	corruption = { needs = "vampiric", into = "siphonlife" },
+	shield = { needs = "vigor", into = "divineshield" },
+	thunder = { needs = "devotion", into = "warstomp" },
+	rainoffire = { needs = "amplify", into = "flamestrike" },
 }
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
@@ -374,7 +428,10 @@ local TUNING = {
 -- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
 local ITEMS = {
 	{ key = "potion", itemID = 929, spell = 17534, weight = 30 },
-	{ key = "grenade", itemID = 15993, spell = 19769, weight = 25 }, -- 19769 also stuns: state kit 780
+	-- The grenade stuns with War Stomp's silent StunSwirl (20549): its own
+	-- stun kit (19769's 780) plays Gouge on every whelp it holds, with no
+	-- duplicate guard, a roar over a whole pack.
+	{ key = "grenade", itemID = 15993, spell = 19769, stunAura = 20549, weight = 25 },
 	{ key = "swift", itemID = 2459, spell = 2379, weight = 15 },
 	{ key = "hearth", itemID = 6948, spell = 8690, weight = 10 },
 	{ key = "sapper", itemID = 10646, spell = 13241, weight = 10 },
@@ -419,6 +476,7 @@ BW.KINDS = KINDS
 BW.ELITE = ELITE
 BW.SPELLS = SPELLS
 BW.SPELL_ORDER = SPELL_ORDER
+BW.EVOLUTIONS = EVOLUTIONS
 BW.MAX_SPELLS = MAX_SPELLS
 BW.EARLY_SPELLS = EARLY_SPELLS
 BW.PASSIVES = PASSIVES

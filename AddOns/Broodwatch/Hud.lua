@@ -4,6 +4,7 @@ local _, BW = ...
 local HERO_HP = BW.HERO_HP
 local SPELLS = BW.SPELLS
 local SPELL_ORDER = BW.SPELL_ORDER
+local EVOLUTIONS = BW.EVOLUTIONS
 local MAX_SPELLS = BW.MAX_SPELLS
 local EARLY_SPELLS = BW.EARLY_SPELLS
 local PASSIVES = BW.PASSIVES
@@ -30,7 +31,9 @@ local function BuildOffers()
 	end
 	for _, key in ipairs(SPELL_ORDER) do
 		local state = BW.run.spells[key];
-		if state and state.level < MAX_LEVEL then
+		if SPELLS[key].evolved then
+			-- An evolution comes only from its spell (below), and has one rank.
+		elseif state and state.level < MAX_LEVEL then
 			tinsert(all, { kind = "spell", key = key, level = state.level + 1 });
 		elseif not state and owned < MAX_SPELLS then
 			tinsert(all, { kind = "spell", key = key, level = 1 });
@@ -72,6 +75,16 @@ local function BuildOffers()
 			tinsert(all, 3, fresh[1]);
 		end
 	end
+	-- An evolution ready (its spell at rank V, its passive owned) always
+	-- takes the first card.
+	for _, key in ipairs(SPELL_ORDER) do
+		local evolution = EVOLUTIONS[key];
+		local state = BW.run.spells[key];
+		if evolution and state and state.level >= MAX_LEVEL and BW.run.passives[evolution.needs] then
+			tinsert(all, 1, { kind = "evolve", key = evolution.into, from = key, level = 1 });
+			break;
+		end
+	end
 	for i = 1, 3 do
 		offers[i] = all[i] or { kind = "heal" };
 	end
@@ -84,6 +97,7 @@ local CARD_COLORS = {
 	spell = { 0.35, 0.65, 1 },
 	passive = { 0.3, 0.9, 0.4 },
 	heal = { 1, 0.45, 0.45 },
+	evolve = { 0.85, 0.5, 1 },
 }
 local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
@@ -160,6 +174,22 @@ local function OfferLines(o)
 				tinsert(lines, "|cff888888At rank V: " .. def.mastery.text .. "|r");
 			end
 		end
+		local evolution = EVOLUTIONS[o.key];
+		if evolution and o.level == MAX_LEVEL then
+			tinsert(lines, "|cffd980ffEvolves with " .. PASSIVES[evolution.needs].name .. ".|r");
+		end
+	elseif o.kind == "evolve" then
+		local def = SPELLS[o.key];
+		tinsert(lines, "Replaces " .. SPELLS[o.from].name .. ".");
+		tinsert(lines, "");
+		tinsert(lines, def.blurb);
+		tinsert(lines, "");
+		for _, field in ipairs(STAT_ORDER) do
+			local v = Stat(def, field, 1);
+			if v then
+				tinsert(lines, STAT_LABELS[field] .. " " .. StatText(field, v));
+			end
+		end
 	elseif o.kind == "passive" then
 		local p = PASSIVES[o.key];
 		tinsert(lines, p.text);
@@ -197,6 +227,9 @@ local function FillCard(i, o)
 		local p = PASSIVES[o.key];
 		icon, title = Icon(p.icon), p.name;
 		tag, colorKey = "Passive, rank " .. ROMAN[o.level], "passive";
+	elseif o.kind == "evolve" then
+		local def = SPELLS[o.key];
+		icon, title, tag, colorKey = Icon(def.spell), def.name, "Evolution", "evolve";
 	else
 		icon, title, tag, colorKey = Icon(HEAL_ICON), "Second Wind", "Everything is at rank V", "heal";
 	end
@@ -220,7 +253,7 @@ local function FillCard(i, o)
 	local maxRank = o.kind == "passive" and PASSIVES[o.key].max or MAX_LEVEL;
 	for r = 1, MAX_LEVEL do
 		local pip = getglobal(name .. "Pip" .. r);
-		if o.kind == "heal" or r > maxRank then
+		if o.kind == "heal" or o.kind == "evolve" or r > maxRank then
 			pip:Hide();
 		else
 			pip:Show();
@@ -244,9 +277,18 @@ local function ShowSlotTip(slot)
 	if slot.spellKey then
 		local def = SPELLS[slot.spellKey];
 		local level = BW.run.spells[slot.spellKey].level;
-		local color = CARD_COLORS.spell;
+		local color = def.evolved and CARD_COLORS.evolve or CARD_COLORS.spell;
 		tip:SetText(def.name, color[1], color[2], color[3]);
-		tip:AddLine("Rank " .. ROMAN[level], 0.6, 0.6, 0.6);
+		if def.evolved then
+			for from, evolution in pairs(EVOLUTIONS) do
+				if evolution.into == slot.spellKey then
+					tip:AddLine("Evolved from " .. SPELLS[from].name .. " and " .. PASSIVES[evolution.needs].name,
+						0.6, 0.6, 0.6, 1);
+				end
+			end
+		else
+			tip:AddLine("Rank " .. ROMAN[level], 0.6, 0.6, 0.6);
+		end
 		tip:AddLine(def.blurb, 1, 1, 1, 1);
 		for _, field in ipairs(STAT_ORDER) do
 			local v = Stat(def, field, level);
@@ -260,6 +302,12 @@ local function ShowSlotTip(slot)
 			else
 				tip:AddLine("At rank V: " .. def.mastery.text, 0.53, 0.53, 0.53, 1);
 			end
+		end
+		local evolution = EVOLUTIONS[slot.spellKey];
+		if evolution then
+			local into = SPELLS[evolution.into];
+			tip:AddLine("At rank V with " .. PASSIVES[evolution.needs].name .. ", evolves into " .. into.name .. ".",
+				0.85, 0.5, 1, 1);
 		end
 	else
 		local p = PASSIVES[slot.passiveKey];
@@ -358,6 +406,9 @@ local function UpdateBuild()
 			-- its own spell's recharge again.
 			state.slot = AddBuildSlot(Icon(SPELLS[key].spell), state.level, x, 0, BUILD_SLOT);
 			state.slot.spellKey, state.slot.passiveKey = key, nil;
+			if SPELLS[key].evolved then
+				state.slot.rank:SetText("|cffd980ffE|r");
+			end
 			ShowRecharge(state.slot, state.cooldown, state.cdFull);
 			x = x + BUILD_SLOT + 4;
 		end
@@ -425,7 +476,13 @@ function Broodwatch_PickCard(i)
 		return;
 	end
 	local o = offers[i];
-	if o.kind == "spell" then
+	if o.kind == "evolve" then
+		-- The evolution takes its spell's place, recharge and all.
+		local state = BW.run.spells[o.from];
+		BW.run.spells[o.from] = nil;
+		state.level = 1;
+		BW.run.spells[o.key] = state;
+	elseif o.kind == "spell" then
 		local state = BW.run.spells[o.key];
 		if state then
 			state.level = o.level;
@@ -459,7 +516,9 @@ local function UpdateHealth(mode)
 	BW.healthBar:SetMinMaxValues(0, max, mode or EASE);
 	BW.healthBar:SetValue(math.max(BW.run.hp, 0), mode or EASE);
 	local text = string.format("%d / %d", math.max(math.ceil(BW.run.hp), 0), max);
-	if BW.run.shield then
+	if BW.run.shield == math.huge then -- Divine Shield
+		text = text .. "  (immune)";
+	elseif BW.run.shield then
 		text = text .. string.format("  (+%d)", math.ceil(BW.run.shield));
 	end
 	BW.healthText:SetText(text);

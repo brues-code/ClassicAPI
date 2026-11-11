@@ -280,7 +280,10 @@ local function Step(dt)
 				e.dotLeft = e.dotLeft - 1;
 				-- The last tick can kill too, and then it still spreads (Kill
 				-- reads dotLeft), so it ends after the damage.
-				Damage(e, e.dotDamage, SPELLS.corruption.color);
+				Damage(e, e.dotDamage, SPELLS[e.dotKey].color);
+				if e.dotHeal then -- Siphon Life
+					BW.run.pendingHeal = BW.run.pendingHeal + e.dotHeal;
+				end
 				if e.dotLeft and e.dotLeft <= 0 then
 					e.dotLeft = nil;
 				end
@@ -325,11 +328,11 @@ local function Step(dt)
 		BW.run.spreads[i] = nil;
 		local fx, fy = from.actor:GetPosition();
 		for _ = 1, from.dotSpread do
-			local e = Nearest(fx, fy, SPELLS.corruption.hop, IsCorrupted);
+			local e = Nearest(fx, fy, SPELLS[from.dotKey].hop, IsCorrupted);
 			if not e then
 				break;
 			end
-			Corrupt(e, from.dotDamage, from.dotSeconds, from.dotSpread);
+			Corrupt(e, from.dotDamage, from.dotSeconds, from.dotSpread, from.dotKey, from.dotHeal);
 		end
 	end
 	UpdateTotems(dt);
