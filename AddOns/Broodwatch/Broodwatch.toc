@@ -6,9 +6,11 @@ Data.lua
 Core.lua
 Brood.lua
 Eggs.lua
+Mines.lua
 Spells.lua
 Hud.lua
 Items.lua
 Chests.lua
+Vents.lua
 Broodwatch.lua
 Broodwatch.xml

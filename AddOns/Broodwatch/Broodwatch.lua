@@ -77,6 +77,9 @@ local UpdateChests = BW.UpdateChests
 local ClearChests = BW.ClearChests
 local UpdateEggs = BW.UpdateEggs
 local ClearEggs = BW.ClearEggs
+local UpdateMines = BW.UpdateMines
+local ClearMines = BW.ClearMines
+local UpdateVents = BW.UpdateVents
 local UpdateStates = BW.UpdateStates
 local BiteShare = BW.BiteShare
 local UpdateWards = BW.UpdateWards
@@ -154,6 +157,7 @@ local function StartRun()
 		ClearItems();
 		ClearChests();
 		ClearEggs();
+		ClearMines();
 		ClearWards();
 		ClearPet();
 		ClearChannels();
@@ -181,6 +185,8 @@ local function StartRun()
 	BW.hero:Show();
 	BW.hero:SetMovementEnabled(true);
 	BW.run.heroRun = BW.hero:GetMovementSpeed("run");
+	BW.LayMines(); -- away from the hero, so after it stands at the centre
+	BW.ResetVents();
 	BW.cards:Hide();
 	BW.bannerText:SetText("");
 	BW.hintText:SetText("");
@@ -256,6 +262,8 @@ local function Step(dt)
 		end
 	end
 	UpdateEggs();
+	UpdateMines(dt);
+	UpdateVents(dt, hx, hy);
 
 	Chase(dt, hx, hy, hz);
 
@@ -644,7 +652,8 @@ SLASH_BROODWATCH1 = "/broodwatch";
 -- `/broodwatch [spell [rank]]`: a spell key of SPELLS (with its rank, I by
 -- default) starts the run with that spell alone, for testing it.
 -- `/broodwatch chest` (or `golden`) starts the run with a chest close by,
--- `/broodwatch eggs` with a clutch of eggs.
+-- `/broodwatch eggs` with a clutch of eggs, `/broodwatch vents` with the
+-- lava vents erupting from the start.
 SlashCmdList["BROODWATCH"] = function(msg)
 	BW.frame:Show();
 	if not BW.hero then
@@ -663,6 +672,8 @@ SlashCmdList["BROODWATCH"] = function(msg)
 		BW.DropChest(hx + 8, hy, hz);
 	elseif key == "eggs" then
 		BW.LayClutch();
+	elseif key == "vents" then
+		BW.run.nextVents = 0;
 	elseif key then
 		print("Broodwatch: no spell \"" .. key .. "\"");
 	end

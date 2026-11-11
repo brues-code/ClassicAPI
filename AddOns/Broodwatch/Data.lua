@@ -412,6 +412,37 @@ local TUNING = {
 	EGG_HATCH = 20,            -- seconds an egg takes to hatch
 	EGG_WARN = 5,              -- seconds before it hatches that a red ring marks it
 	EGG_WHELPS = 4,            -- whelps that hatch from each egg
+	-- Goblin Land Mines (the creature 7527's display 6271: Stand 0, Despawn
+	-- 157 of 1.17 s). A whelp that steps within MINE_TRIGGER sets one off: it
+	-- casts the Goblin Sapper Charge's visual (13241) at its own point,
+	-- which plants Bomb_ExplosionA there and plays the FireNova cast kit.
+	MINE_DISPLAY = 6271,
+	MINE_SPELL = 13241,
+	MINE_COUNT = 4,            -- mines lying in the lair
+	MINE_RESPAWN = 15,         -- seconds before a spent mine is laid again
+	MINE_TRIGGER = 1.5,        -- yards: a whelp this close sets it off
+	MINE_RADIUS = 6,           -- yards the blast reaches
+	MINE_DAMAGE = 60,          -- grows with the run as the brood's health does
+	MINE_KNOCK = { 12, 8 },
+	MINE_DESPAWN = 1.17,       -- seconds of Despawn, then the spent mine hides
+	MINE_COLOR = { 1, 0.5, 0.1 },
+	-- The lair's lava cracks (VENTS). From VENT_FIRST, every VENT_EVERY
+	-- seconds a wave of cracks is marked by a red ring for VENT_WARN
+	-- seconds, then erupts: its Custom0 (153, 1.57 s) and Onyxia's Eruption
+	-- sound (spell 17731's cast kit 4409: SoundEntries 7714). The eruption
+	-- burns everything within VENT_RADIUS (times the crack's scale), you too.
+	VENT_FIRST = 120,
+	VENT_EVERY = 8,
+	VENT_WARN = 2,
+	VENT_ERUPT = 1.57,
+	VENT_SOUND = 7714,
+	VENT_RADIUS = 4.5,
+	VENT_DAMAGE = 50,          -- to the brood, grown with the run as its health is
+	VENT_HERO = 0.15,          -- of your maximum health
+	VENT_KNOCK = { 3, 12 },    -- mostly up
+	VENT_WAVE_GROWTH = 150,    -- seconds after VENT_FIRST for each crack more in a wave
+	VENT_WAVE_MAX = 4,
+	VENT_COLOR = { 1, 0.35, 0 },
 	POTION_HEAL = 0.3,         -- of the maximum health
 	GRENADE_RADIUS = 5,
 	GRENADE_DAMAGE = 45,       -- grows with the run as the brood's health does
@@ -471,6 +502,27 @@ local GOLDEN_EVERY = 5
 local CHESTS = {
 	plain = { path = "World\\SkillActivated\\Containers\\TreasureChest01.m2", scale = 1.2, open = 0.666, speed = 1, picks = 1, title = "Treasure" },
 	golden = { path = "World\\Goober\\G_ChestTitan.m2", scale = 0.6, open = 3.2, speed = 2, picks = 3, title = "Golden Treasure" },
+}
+-- Onyxia's Lair's lava cracks inside the arena: { x, y, z, facing, scale,
+-- mirrored }. They are the lava-trap gameobjects of the server's Onyxia
+-- encounter (177984-178020, Doodad_OnyziasLairLavaTrap* and *Mirror*, at
+-- AzerothCore's retail spawns on map 249), within 23 yards of CENTER. The
+-- crack's mesh lies under the floor: only its eruption shows.
+local VENT_PATH = "World\\Kalimdor\\OnyxiasLair\\LavaTraps\\OnyziasLairLavaTrap.m2"
+local VENT_MIRROR_PATH = "World\\Kalimdor\\OnyxiasLair\\LavaTraps\\OnyziasLairLavaTrapMirror.m2"
+local VENTS = {
+	{ -1.67, -217.14, -85.67, 0.785, 1.00, false },
+	{ -9.81, -212.03, -88.14, -0.262, 0.82, false },
+	{ 13.19, -214.44, -86.48, 0.873, 0.82, false },
+	{ 2.95, -198.74, -87.05, 1.484, 0.82, true },
+	{ 17.00, -204.31, -86.22, -2.618, 1.00, true },
+	{ 3.20, -230.38, -87.05, -1.484, 0.82, false },
+	{ -19.70, -209.64, -88.55, -0.436, 1.00, false },
+	{ 16.84, -225.11, -86.22, 2.618, 1.00, false },
+	{ 14.30, -195.44, -86.03, 0.436, 0.85, true },
+	{ -19.40, -219.85, -88.48, -2.793, 1.00, false },
+	{ -15.67, -196.47, -89.10, 1.047, 1.00, true },
+	{ -0.40, -189.26, -87.35, -1.396, 0.82, true },
 }
 -- Each item's name and icon are the client's (the Item mixin), once its data
 -- has come from the server.
@@ -532,3 +584,6 @@ BW.ITEMS = ITEMS
 BW.CHEST_SOUND = CHEST_SOUND
 BW.GOLDEN_EVERY = GOLDEN_EVERY
 BW.CHESTS = CHESTS
+BW.VENT_PATH = VENT_PATH
+BW.VENT_MIRROR_PATH = VENT_MIRROR_PATH
+BW.VENTS = VENTS

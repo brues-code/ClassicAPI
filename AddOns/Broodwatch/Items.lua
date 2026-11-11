@@ -33,11 +33,7 @@ local dropPool = {}
 local chickens = {}
 local chickenPool = {}
 
--- Item damage grows as the brood's health does (KindStats: (1 + m)^3).
-local function RunGrowth()
-	local m = 1 + BW.run.time / 300;
-	return m * m * m;
-end
+local RunGrowth = BW.RunGrowth
 
 local function PickItem()
 	local total = 0;

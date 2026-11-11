@@ -52,6 +52,13 @@ local function Clock(seconds)
 	return string.format("%d:%02d", math.floor(s / 60), math.mod(s, 60));
 end
 
+-- Damage that is not a spell's (items, mines) grows as the brood's health
+-- does (KindStats: (1 + m)^3, m the run's minutes over 5).
+local function RunGrowth()
+	local m = 1 + BW.run.time / 300;
+	return m * m * m;
+end
+
 local function Shuffle(list)
 	for i = table.getn(list), 2, -1 do
 		local j = math.random(i);
@@ -101,5 +108,6 @@ BW.FloorAt = FloorAt
 BW.Dist2 = Dist2
 BW.Clock = Clock
 BW.Shuffle = Shuffle
+BW.RunGrowth = RunGrowth
 BW.DropGem = DropGem
 BW.ClearGems = ClearGems
