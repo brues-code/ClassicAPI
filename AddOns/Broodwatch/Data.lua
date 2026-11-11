@@ -133,7 +133,7 @@ local SPELLS = {
 	-- while the effect lasts: the shield's bubble, Frost Nova's ice on each
 	-- frozen enemy, Psychic Scream's terror over each fleeing one.
 	shield = {
-		spell = 17, kit = 847, blurb = "A shield soaks up the brood's bites until it breaks.",
+		spell = 17, blurb = "A shield soaks up the brood's bites until it breaks.",
 		color = { 1, 1, 0.75 }, kind = "shield",
 		absorb = { 30, 40, 50, 60, 75 }, duration = { 10, 10, 12, 12, 15 }, cooldown = { 15, 14, 13, 12, 11 },
 		mastery = { text = "When the shield breaks, it bursts and hurls the brood around you away.", radius = 6, damage = 30, knock = { 12, 8 } },
@@ -145,14 +145,14 @@ local SPELLS = {
 		mastery = { text = "You heal 1 health for every biter it burns.", heal = 1 },
 	},
 	frostnova = {
-		spell = 122, kit = 285, blurb = "Freezes every enemy around you in place.",
+		spell = 122, blurb = "Freezes every enemy around you in place.",
 		color = { 0.6, 0.85, 1 }, kind = "nova",
 		damage = { 6, 8, 10, 12, 15 }, radius = { 6, 6.5, 7, 7.5, 8 }, root = { 2, 2.5, 3, 3.5, 4 },
 		cooldown = { 10, 9.5, 9, 8.5, 8 },
 		mastery = { text = "Shatter: frozen enemies take double damage.", amplify = 2 },
 	},
 	scream = {
-		spell = 8122, kit = 4031, blurb = "Every enemy around you flees in terror.",
+		spell = 8122, blurb = "Every enemy around you flees in terror.",
 		color = { 0.75, 0.5, 1 }, kind = "nova",
 		radius = { 6, 6.5, 7, 7.5, 8 }, fear = { 2, 2.5, 3, 3.5, 4 }, cooldown = { 14, 13, 12, 11, 10 },
 		mastery = { text = "Terror: fleeing enemies take 10 damage a second.", damage = 10 },
@@ -168,7 +168,7 @@ local SPELLS = {
 		spell = 5730, display = 4588, blurb = "Plants a totem that the brood around it must attack.",
 		color = { 0.8, 0.65, 0.4 }, kind = "ward",
 		radius = { 6, 7, 8, 9, 10 }, duration = { 5, 6, 7, 8, 9 }, cooldown = { 16, 15, 14, 13, 12 },
-		mastery = { text = "When the totem crumbles, it stuns the brood around it for 2 seconds.", stun = 2 },
+		mastery = { text = "When the totem crumbles, it stuns the brood around it for 2 seconds.", stun = 2, aura = 20549 },
 	},
 	-- Fun ones. `knock` is the knockback (out, up), as the items' are.
 	blastwave = {
@@ -206,7 +206,7 @@ local SPELLS = {
 	-- (display 169) climbs out, rooted for a moment (22707: 1.7 s), then
 	-- hunts, taunting the whelps it burns.
 	inferno = {
-		spell = 1122, display = 169, stunKit = 349, -- 22703's state kit, StunSwirl
+		spell = 1122, display = 169, stunAura = 22703, -- Inferno Effect: its state kit 349 is StunSwirl
 		blurb = "A meteor crashes into the thickest pack and an Infernal climbs out to fight.",
 		color = { 1, 0.5, 0.15 }, kind = "inferno", range = 24,
 		damage = { 40, 55, 70, 90, 115 }, radius = { 8, 8, 9, 9, 10 },
@@ -361,7 +361,7 @@ local TUNING = {
 -- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
 local ITEMS = {
 	{ key = "potion", itemID = 929, spell = 17534, weight = 30 },
-	{ key = "grenade", itemID = 15993, spell = 19769, weight = 25 },
+	{ key = "grenade", itemID = 15993, spell = 19769, weight = 25 }, -- 19769 also stuns: state kit 780
 	{ key = "swift", itemID = 2459, spell = 2379, weight = 15 },
 	{ key = "hearth", itemID = 6948, spell = 8690, weight = 10 },
 	{ key = "sapper", itemID = 10646, spell = 13241, weight = 10 },

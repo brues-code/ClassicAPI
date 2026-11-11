@@ -153,7 +153,6 @@ local function StartRun()
 		ClearChannels();
 		ClearInfernals();
 	end
-	BW.hero:SetSpellVisualKit();
 	BW.hero:RemoveAuraVisual();
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {

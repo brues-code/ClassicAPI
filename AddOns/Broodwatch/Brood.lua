@@ -31,8 +31,20 @@ local function KindStats(kind)
 	return math.floor(kind.hp * m * m * m + 0.5), kind.dps * m * m;
 end
 
+-- Every aura on the enemy goes (its death, or its return from the pool).
+local function ClearAuras(e)
+	if next(e.auras) then
+		for spell in pairs(e.auras) do
+			e.auras[spell] = nil;
+		end
+		e.actor:RemoveAuraVisual();
+	end
+	e.fearAura = nil;
+end
+
 local function NewEnemy(kind)
-	local e = { kind = kind, actor = BW.scene:AcquireActor() };
+	-- auras: the spell of each aura shown -> the time it ends (ShowAura).
+	local e = { kind = kind, actor = BW.scene:AcquireActor(), auras = {} };
 	e.actor:SetModelByCreatureDisplayID(kind.display);
 	-- A whelp casts the next leap of Chain Lightning: its impact comes here.
 	e.actor:HookScript("OnSpellVisualImpact", function(_, _, _, castID) BW.OnImpact(nil, nil, nil, castID); end);
@@ -68,10 +80,7 @@ local function Spawn(kind)
 	e.frozenUntil = nil;
 	e.weakUntil, e.weakShare = nil, nil;
 	e.taunter, e.tauntUntil = nil, nil;
-	if e.kit then
-		e.kit, e.kitUntil = nil, nil;
-		e.actor:SetSpellVisualKit();
-	end
+	ClearAuras(e);
 	e.angle = math.random() * 2 * math.pi;
 	local actor = e.actor;
 	actor:SetPosition(x, y, FloorAt(x, y, CENTER[3]) + 0.5);
@@ -94,11 +103,8 @@ local function Kill(e)
 	-- it is, plays Death, then lies Dead, as a dead unit does.
 	e.actor:StopMoving();
 	e.actor:SetAnimation(ANIM_DEATH);
-	if e.kit then
-		e.kit, e.kitUntil = nil, nil;
-		e.actor:SetSpellVisualKit();
-	end
-	e.fearUntil = nil;
+	ClearAuras(e);
+	e.fearUntil, e.fearTick = nil, nil;
 	DropGem(x, y, z, e.kind.xp, e.kind.gemScale);
 	BW.DropItem(e, x, y, z);
 	-- A corrupted enemy passes its Corruption on (in the step, after the loop).
@@ -239,38 +245,61 @@ end
 ------------------------------------------------------------------------------
 -- Lasting effects: a hold (a root or a stun) keeps an enemy where it is, a
 -- fear sends it away from you, a weakness softens its bites. A hold or a fear
--- can show a SpellVisualKit on the enemy while it lasts. Elites shrug off
--- part of a hold or a fear.
+-- shows the aura of the spell that caused it (ShowAura) for its own time,
+-- and the auras stack: a frozen whelp that is feared keeps its ice. A stun
+-- aura's kit pins Stun while the whelp stands. Elites shrug off part of a
+-- hold or a fear.
 
-local function ShowKit(e, kit, untilTime)
-	if not kit then
+local function ShowAura(e, spell, untilTime)
+	if not spell then
 		return;
 	end
-	if e.kit ~= kit then
-		e.kit = kit;
-		e.actor:SetSpellVisualKit(kit);
+	if not e.auras[spell] then
+		e.actor:AddAuraVisual(spell);
 	end
-	e.kitUntil = math.max(e.kitUntil or 0, untilTime);
+	e.auras[spell] = math.max(e.auras[spell] or 0, untilTime);
+end
+
+local function EndAura(e, spell)
+	if spell and e.auras[spell] then
+		e.auras[spell] = nil;
+		e.actor:RemoveAuraVisual(spell);
+	end
+end
+
+-- A hold or a polymorph breaks a fear, its aura with it.
+local function EndFear(e)
+	EndAura(e, e.fearAura);
+	e.fearUntil, e.fearTick, e.fearAura = nil, nil, nil;
 end
 
 local function HoldShare(e)
 	return e.kind == ELITE and TUNING.ELITE_HOLD_SHARE or 1;
 end
 
--- `frozen`: the hold is ice (Frost Nova's Shatter counts it).
-local function Hold(e, seconds, kit, frozen)
-	e.stunUntil = math.max(e.stunUntil or 0, BW.run.time + seconds * HoldShare(e));
+-- `aura`: the spell whose aura shows; `frozen`: the hold is ice (Frost
+-- Nova's Shatter counts it).
+local function Hold(e, seconds, aura, frozen)
+	local untilTime = BW.run.time + seconds * HoldShare(e);
+	e.stunUntil = math.max(e.stunUntil or 0, untilTime);
 	if frozen then
 		e.frozenUntil = e.stunUntil;
 	end
-	e.fearUntil = nil;
+	EndFear(e);
 	e.actor:StopMoving();
-	ShowKit(e, kit, e.stunUntil);
+	ShowAura(e, aura, untilTime);
 end
 
-local function Fear(e, seconds, kit)
-	e.fearUntil = math.max(e.fearUntil or 0, BW.run.time + seconds * HoldShare(e));
-	ShowKit(e, kit, e.fearUntil);
+local function Fear(e, seconds, aura)
+	local untilTime = BW.run.time + seconds * HoldShare(e);
+	e.fearUntil = math.max(e.fearUntil or 0, untilTime);
+	if aura then
+		if e.fearAura ~= aura then
+			EndAura(e, e.fearAura);
+		end
+		e.fearAura = aura;
+		ShowAura(e, aura, untilTime);
+	end
 end
 
 -- An enemy's run speed: a sheep's amble, else its kind's, slowed.
@@ -288,7 +317,7 @@ local function Polymorph(e, seconds)
 		e.actor:StopMoving();
 		ApplySpeed(e);
 	end
-	e.fearUntil = nil;
+	EndFear(e);
 	e.sheepUntil = math.max(e.sheepUntil, BW.run.time + seconds * HoldShare(e));
 end
 
@@ -317,12 +346,14 @@ local function UpdateStates(e, dt)
 			end
 		end
 	end
-	if e.kitUntil and t >= e.kitUntil then
-		e.kit, e.kitUntil = nil, nil;
-		e.actor:SetSpellVisualKit();
+	for spell, untilTime in pairs(e.auras) do
+		if t >= untilTime then -- clearing a key during `pairs` is allowed
+			e.auras[spell] = nil;
+			e.actor:RemoveAuraVisual(spell);
+		end
 	end
 	if e.fearUntil and t >= e.fearUntil then
-		e.fearUntil, e.fearTick = nil, nil;
+		EndFear(e);
 	end
 	if e.weakUntil and t >= e.weakUntil then
 		e.weakUntil, e.weakShare = nil, nil;

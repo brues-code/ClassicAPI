@@ -295,7 +295,7 @@ local function UpdateAreas(dt)
 					if e.alive then
 						local x, y = e.actor:GetPosition();
 						if Dist2(x, y, area.x, area.y) <= r2 then
-							Hold(e, def.mastery.freeze, SPELLS.frostnova.kit, true);
+							Hold(e, def.mastery.freeze, SPELLS.frostnova.spell, true);
 						end
 					end
 				end
@@ -393,7 +393,7 @@ local function DropWard(i, crumbled)
 			if e.alive then
 				local x, y = e.actor:GetPosition();
 				if Dist2(x, y, ward.x, ward.y) <= r2 then
-					Hold(e, SPELLS.stoneclaw.mastery.stun);
+					Hold(e, SPELLS.stoneclaw.mastery.stun, SPELLS.stoneclaw.mastery.aura);
 				end
 			end
 		end
@@ -545,7 +545,7 @@ local function Land(meteor)
 			if Dist2(x, y, meteor.x, meteor.y) <= radius * radius then
 				Damage(e, damage, def.color);
 				if e.alive then
-					Hold(e, TUNING.INFERNO_STUN, def.stunKit);
+					Hold(e, TUNING.INFERNO_STUN, def.stunAura);
 				end
 			end
 		end
@@ -860,7 +860,7 @@ local function EndShield(broken)
 	if BW.run.shield then
 		BW.run.shield = nil;
 		BW.run.shieldUntil = nil;
-		BW.hero:SetSpellVisualKit();
+		BW.hero:RemoveAuraVisual(SPELLS.shield.spell);
 		BW.UpdateHealth();
 	end
 end
@@ -952,7 +952,7 @@ local function CastNext()
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
 		BW.run.shield = BW.MaxHp() * Stat(def, "absorb", entry.level) / 100;
 		BW.run.shieldUntil = BW.run.time + Stat(def, "duration", entry.level);
-		BW.hero:SetSpellVisualKit(def.kit);
+		BW.hero:AddAuraVisual(def.spell);
 		BW.UpdateHealth();
 	elseif def.kind == "thorns" then
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
@@ -1006,10 +1006,10 @@ local function CastNext()
 					end
 					if e.alive then
 						if root then
-							Hold(e, root, def.kit);
+							Hold(e, root, def.spell);
 						end
 						if fear then
-							Fear(e, fear, def.kit);
+							Fear(e, fear, def.spell);
 						end
 						if weaken then
 							Weaken(e, weaken, Stat(def, "duration", entry.level));
@@ -1150,7 +1150,7 @@ BW.OnImpact = function(_, _, _, castID)
 	local fear = Stat(def, "fear", entry.level);
 	if fear and def.kind == "missile" then
 		if target.alive then
-			Fear(target, fear);
+			Fear(target, fear, def.spell);
 		end
 		if Mastered(entry.key) and def.mastery.radius then
 			local tx, ty = target.actor:GetPosition();
@@ -1159,7 +1159,7 @@ BW.OnImpact = function(_, _, _, castID)
 				if e.alive then
 					local x, y = e.actor:GetPosition();
 					if Dist2(x, y, tx, ty) <= r2 then
-						Fear(e, fear);
+						Fear(e, fear, def.spell);
 					end
 				end
 			end
@@ -1170,7 +1170,7 @@ BW.OnImpact = function(_, _, _, castID)
 	end
 	local m = def.mastery;
 	if entry.key == "frostbolt" and target.alive then
-		Hold(target, m.freeze, SPELLS.frostnova.kit, true);
+		Hold(target, m.freeze, SPELLS.frostnova.spell, true);
 	elseif entry.key == "shadowbolt" and wasAlive and not target.alive then
 		local tx, ty = target.actor:GetPosition();
 		local r2 = m.radius * m.radius;
