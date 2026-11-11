@@ -6483,6 +6483,55 @@ enum Offsets {
     // written to `out` (__fastcall(out, state), returns out; plain ret at
     // 0x0044FE1B). The shards draw from them at 0x006EBB64 and 0x006EBB83.
     VAR_CLIENT_RANDOM = 0x00882664,
+    // A kit procedure's third value (+0x6C): a chain's persistent flag
+    // (decoded at 0x0060DB19 with the others).
+    OFF_SPELLVISUALKIT_PROC_VALUE3 = 0x6C,
+    // The kit procedures that start a chain effect: kinds 0 and 12
+    // (0x0060D7FC through the byte table 0x0060DC20 -> 0x0060DA79 ->
+    // 0x006ECB90), their values the SpellChainEffects id, the strand count
+    // (at most 3, 0x006ECC65) and the persistent flag. Chain Lightning's
+    // cast kit 321 has kind 12 with chain 1, one strand (SpellVisualKit.dbc).
+    SPELLVISUALKIT_PROC_CHAIN = 0,
+    SPELLVISUALKIT_PROC_CHAIN_ALT = 12,
+    CHAIN_MAX_STRANDS = 3,
+    // SpellChainEffects.dbc (8 columns, 0x20-byte rows; docs/DBCs.md): the
+    // bolt's segment length (+0x04), width (+0x08), jitter (+0x0C) and
+    // texture scroll period (+0x10), a hop's life in ms (+0x14), the stagger
+    // between hops in ms (+0x18) and the texture (+0x1C). A LightningObject
+    // keeps +0x04..+0x10, life * 0.001 and the texture for CreateBolt
+    // (0x006EC65F). Verified by parsing the DBC: row 1 is 2.78, 0.5, 0.04,
+    // 1.0, 1000, 300, Textures\SpellChainEffects\Lightning.blp.
+    VAR_SPELLCHAINEFFECTS_RECORDS = 0x00C0D850,
+    VAR_SPELLCHAINEFFECTS_COUNT = 0x00C0D854,
+    OFF_SPELLCHAINEFFECTS_SEGMENT = 0x04,
+    OFF_SPELLCHAINEFFECTS_WIDTH = 0x08,
+    OFF_SPELLCHAINEFFECTS_JITTER = 0x0C,
+    OFF_SPELLCHAINEFFECTS_PERIOD = 0x10,
+    OFF_SPELLCHAINEFFECTS_LIFE = 0x14,
+    OFF_SPELLCHAINEFFECTS_STAGGER = 0x18,
+    OFF_SPELLCHAINEFFECTS_TEXTURE = 0x1C,
+    // The hop's bolt colour (0x006EC644 builds it from -1) and the caster
+    // end's share of the height without a $CSL event (0.75, 0x006EC73E).
+    CHAIN_BOLT_COLOR = 0xFFFFFFFF,
+    CHAIN_CASTER_HEIGHT = 0x3F400000,
+    // The chain-lightning bolt renderer (Lightning.cpp), __thiscall on a
+    // 32-byte renderer, verified by the ret sizes: Init (0x007B0760, ret)
+    // and Destroy (0x007B0780, ret); CreateBolt(start, end, segment, width,
+    // argb, jitter, period, extra, texture, callback, argument) returns the
+    // handle (ret 0x2C); MoveBolt(handle, start, end) (ret 0xC);
+    // ShowBolt(handle, on) (ret 8); DestroyBolt(handle) (ret 4);
+    // Update(seconds) (ret 4); Render(eye) (ret 4): every shown bolt as an
+    // additive, camera-facing ribbon through the device view, its points
+    // taken relative to `eye`.
+    LIGHTNING_RENDERER_SIZE = 32,
+    FUN_LIGHTNING_INIT = 0x007B0760,
+    FUN_LIGHTNING_DESTROY = 0x007B0780,
+    FUN_LIGHTNING_CREATE_BOLT = 0x007B07F0,
+    FUN_LIGHTNING_MOVE_BOLT = 0x007B0950,
+    FUN_LIGHTNING_SHOW_BOLT = 0x007B0BD0,
+    FUN_LIGHTNING_DESTROY_BOLT = 0x007B0AC0,
+    FUN_LIGHTNING_UPDATE = 0x007B0A40,
+    FUN_LIGHTNING_RENDER = 0x007B0A80,
     FUN_RANDOM_UINT32 = 0x004531E0,
     FUN_RANDOM_UNIT_VECTOR2 = 0x0044FD00,
     // s_spellVisualAttachments: int[11] = {20, 34, 19, 21, 22, 17, 23, 24,

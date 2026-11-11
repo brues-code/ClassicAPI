@@ -386,6 +386,7 @@ Actor::Actor(void *scene, const char *name) : Object(s_class, scene, name), ambi
 Actor::~Actor() {
     ReleaseModel(*this);
     Areas::Drop(*this);
+    Chains::Forget(*this);
     DropNameString();
     World::FreeAmbience(ambience);
 }

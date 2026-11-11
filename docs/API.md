@@ -860,6 +860,7 @@ build instructions.
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
+  - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
   - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
   - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
@@ -898,6 +899,7 @@ build instructions.
   - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
   - [`actor:SetHighlight(kind, highlighted)` / `actor:IsHighlighted([kind])`](#actorsethighlightkind-highlighted--actorishighlightedkind)
   - [`actor:SetSelectionCircle(r, g, b [, a])` / `actor:ClearSelectionCircle()` / `actor:GetSelectionCircle()`](#actorsetselectioncircler-g-b--a--actorclearselectioncircle--actorgetselectioncircle)
+  - [`actor:SetGroundReticle(radius [, valid])` / `actor:ClearGroundReticle()` / `actor:GetGroundReticle()`](#actorsetgroundreticleradius--valid--actorcleargroundreticle--actorgetgroundreticle)
   - [`actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`](#actorsetnametexttext--r-g-b--actorclearnametext--actorgetnametext)
   - [`actor:GetNamePosition()`](#actorgetnameposition)
   - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs]])`](#actorplayspellvisualspellid--target--casttimems)
@@ -909,6 +911,7 @@ build instructions.
   - [`actor:IsSwimming()`](#actorisswimming)
   - [`actor:MoveTo(x, y, z [, facing])`](#actormovetox-y-z--facing)
   - [`actor:SetWalking(walking)` / `actor:IsWalking()`](#actorsetwalkingwalking--actoriswalking)
+  - [`actor:SetMovementSpeed(speedType, speed)` / `actor:GetMovementSpeed(speedType)`](#actorsetmovementspeedspeedtype-speed--actorgetmovementspeedspeedtype)
   - [`actor:GetCameraPivotHeight(distance)`](#actorgetcamerapivotheightdistance)
   - [Actor scripts](#actor-scripts)
   - [`<Actor>` templates](#actor-templates)
@@ -19346,7 +19349,10 @@ These also stop with the animations:
 - The movement of all the actors: walking, running, jumping, falling,
   swimming and `MoveTo`. A movement command that you give while the scene is
   paused starts when the scene starts again.
-- The spell visuals of `PlaySpellVisual`, and missiles in flight.
+- The spell visuals of `PlaySpellVisual`, missiles in flight and chain
+  bolts. The flight sounds of the missiles stop.
+- The shards of a spell ground area (`actor:SetModelBySpellArea`). The
+  sound of the area stops.
 - The click-to-move marker of `scene:SetMoveMarker`.
 
 When the scene starts again, each of these continues from where it stopped.
@@ -19780,6 +19786,37 @@ Shows a model file, for example `"Creature\\Wolf\\Wolf.mdx"`, and returns
 `true`. It returns `false` when the path does not give a model. `useMips`
 has no effect.
 
+### `actor:SetModelBySpellArea(spellID, radius)`
+
+Shows the ground area of a spell on the actor, as the world shows the area
+that a spell such as Blizzard, Rain of Fire or Consecration leaves on the
+ground. `radius` is the radius of the area in yards. It must be more than 0.
+Returns `true`, or `false` when the spell has no ground area.
+
+- When the model loads, it gets the size of `radius`. Its animation repeats.
+- For a spell such as Blizzard or Rain of Fire, shards of ice or fire fall
+  on the area. They fall from 16.67 yards above the area to the floor, and
+  more of them land near the centre. At the lower spell detail levels,
+  fewer shards fall.
+- In a scene with a WMO, the shards land on its floor and stop below a
+  ceiling. In a scene with no WMO, they land at the height of the actor.
+- The sound of the area repeats at the position of the actor, and some
+  of the shards make a sound when they land.
+- When you hide the actor or change its model, the area stops. No more
+  shards fall, and the sound fades out in 3 seconds. Shards that are in the
+  air land first. When you show the actor again, the area starts again.
+- While the scene or the actor is paused, the shards stop where they are
+  and the sound stops. When the pause ends, they continue.
+
+This is a ClassicAPI extension.
+
+```lua
+local storm = scene:CreateActor()
+storm:SetPosition(x, y, z)
+storm:SetModelBySpellArea(10, 8) -- Blizzard, 8 yards
+storm:SetGroundReticle(8)
+```
+
 ### `actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`
 
 Shows a copy of a unit, with the items that it wears and holds, and returns
@@ -20066,8 +20103,10 @@ the default) blends from the animation that plays.
 
 Stops the animation of one actor at its current frame. The other actors
 continue. The actor still moves, turns and fades when you change it, and
-its animation does not end, so `OnAnimFinished` does not run. When you
-unpause it, the animation continues from the same frame.
+its animation does not end, so `OnAnimFinished` does not run. The flight
+sounds of its missiles and the sound of its spell ground area stop. When
+you unpause it, the animation continues from the same frame, and the
+sounds start again.
 
 The actor has two pause flags. `GetPaused` returns both: `paused,
 globalPaused`. `SetPaused(paused)` sets both flags. `SetPaused(paused,
@@ -20305,6 +20344,38 @@ end)
 mount:SetShadowShown(true)
 ```
 
+### `actor:SetGroundReticle(radius [, valid])` / `actor:ClearGroundReticle()` / `actor:GetGroundReticle()`
+
+Shows the ground-target reticle at the position of the actor. It is the
+same circle that the world shows when you aim a spell such as Blizzard at
+the ground. `radius` is the radius in yards, and 0 gives a reticle of 1.39
+yards. With `valid` set to `false`, it shows the reticle that the world
+shows out of range. `valid` is `true` by default. An actor has no reticle
+by default.
+
+- In a scene with a WMO, the reticle lies on the floor of the WMO, up to 2
+  yards above or below the position of the actor. In a scene with no WMO,
+  it lies flat at the height of the actor's position.
+- An actor with no model shows its reticle too, so an empty actor can mark
+  a point on the ground.
+- A hidden actor shows no reticle.
+- At the login and character screens, no reticle shows.
+
+`GetGroundReticle` returns `radius, valid`, or nothing when the actor has no
+reticle. This is a ClassicAPI extension.
+
+```lua
+-- Marks where a storm lands, then shows the storm.
+marker:SetPosition(x, y, z)
+marker:SetGroundReticle(6)
+marker:Show()
+scene:After(0.6, function()
+    marker:ClearGroundReticle()
+    storm:SetPosition(x, y, z)
+    storm:SetModelBySpellArea(10, 6)
+end)
+```
+
 ### `actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`
 
 Shows a name over the head of the actor. It looks the same as the name of a
@@ -20404,7 +20475,16 @@ result of the spell at the moment that the impact shows.
 You hear the sounds from the camera of the scene (see
 [Scene sounds](#scene-sounds)). The sounds of the caster play at the
 caster, the sounds of the impact play at the target, and the flight sound
-moves with the missile.
+moves with the missile. While the scene or the caster is paused, the flight
+sound stops. It starts again when the pause ends.
+
+A spell with a chain effect, for example Chain Lightning, also shows a bolt
+of lightning at the cast. The bolt goes from the hand of the caster to the
+target, and it follows the two actors when they move. It lasts as long as
+the effect of the spell gives, 1 second for Chain Lightning. When the caster
+or the target is hidden, the bolt does not show. The bolt goes to the one
+target only. For a chain that jumps from target to target, play the spell
+again from each target.
 
 A ranged spell (for example Auto Shot, Aimed Shot or Throw) uses the ranged
 weapon of the actor, as in the world. Put the weapon on with `actor:TryOn`:
@@ -20506,7 +20586,9 @@ is off. The actor moves on the WMO of the scene
 
 The actor moves at the speeds of a character: it runs 7 yards a second,
 walks 2.5, backs up 4.5, swims 4.72 and swims backward 2.5. It turns half a
-circle each second. The size of its body comes from the model data of its
+circle each second. To change these speeds, use
+[`actor:SetMovementSpeed`](#actorsetmovementspeedspeedtype-speed--actorgetmovementspeedspeedtype).
+The size of its body comes from the model data of its
 creature display, at the scale of the actor. An actor with no creature
 display has a body 2/3 yard wide and 2.03 yards tall.
 
@@ -20628,6 +20710,40 @@ Sets whether the actor walks instead of running, when it moves forward and
 when it moves with `actor:MoveTo`. The default is off. A change while the
 actor moves changes its speed and its animation. In the air, the speed
 changes when the actor lands. `SetWalking` ends a move of `actor:MoveTo`. This is a ClassicAPI extension.
+
+### `actor:SetMovementSpeed(speedType, speed)` / `actor:GetMovementSpeed(speedType)`
+
+Sets one of the speeds of the actor, as the server changes the speed of a
+creature in the world. `speedType` is one of these:
+
+| `speedType` | The speed | Default |
+|---|---|---|
+| `"walk"` | Walking, in yards a second | 2.5 |
+| `"run"` | Running, in yards a second | 7 |
+| `"runBack"` | Moving backward, in yards a second | 4.5 |
+| `"swim"` | Swimming, in yards a second | 4.72 |
+| `"swimBack"` | Swimming backward, in yards a second | 2.5 |
+| `"turn"` | Turning, in radians a second | 3.14 |
+
+`speed` must be more than 0.
+
+- When the actor moves, it changes to the new speed at once. Its movement
+  animation and the speed of the animation change with it.
+- A move of `actor:MoveTo` keeps the speed that it started with. The next
+  `MoveTo` uses the new speed.
+- The speeds apply only while the movement of the actor is on
+  ([`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)).
+  While it is off, `SetMovementSpeed` does nothing. When you turn the
+  movement off, the speeds go back to the defaults.
+
+`GetMovementSpeed` returns the speed, or nothing while the movement is off.
+This is a ClassicAPI extension.
+
+```lua
+whelp:SetMovementEnabled(true)
+whelp:SetMovementSpeed("run", 4.4) -- slower than a character
+whelp:MoveTo(x, y, z)
+```
 
 ### `actor:GetCameraPivotHeight(distance)`
 

@@ -387,6 +387,28 @@ void Drop(Actor &caster);
 void Silence(Actor &caster);
 } // namespace Casts
 
+// The byte a spell visual kit procedure keeps in a float value: the bits of
+// the value + 512.0, shifted right 14 (the engine's decode, 0x005D5665 and
+// 0x0060DB19; model/SceneArea.cpp).
+uint8_t DecodeKitByte(float value);
+
+// The chain effects of a scene's casts (model/SceneChain.cpp): Chain
+// Lightning's bolts, drawn by a lightning renderer the scene owns.
+namespace Chains {
+// From a cast's start: the cast kit's chain procedures (kinds 0 and 12)
+// draw a bolt from the caster to the target.
+void Start(Actor &caster, Actor &target, const uint8_t *visual, const uint8_t *kit);
+// From the scene's update, after the actors': the hops move with their
+// ends and end on the scene clock; the bolts animate.
+void Update(void *frame, float sceneSec);
+// From the scene's paint, after the models: draws the bolts.
+void Render(void *frame, const float (&eye)[3]);
+// The actor goes: its hops go with it.
+void Forget(Actor &actor);
+// The scene goes.
+void Destroy(void *frame);
+} // namespace Chains
+
 // The area kit of an actor that shows a spell's ground area
 // (model/SceneArea.cpp): its shard emitter and its looping sound.
 namespace Areas {

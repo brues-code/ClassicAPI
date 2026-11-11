@@ -565,6 +565,8 @@ void StartCast(Actor &caster, SpellCast &cast) {
     EndPrecast(caster, cast);
     cast.phase = SpellCast::Phase::Cast;
     PlayKit(caster, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT), false, nullptr);
+    if (cast.target != nullptr)
+        Chains::Start(caster, *cast.target, cast.visual, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT));
     const auto *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
                                     cast.spellID);
     cast.speed = spell != nullptr ? Game::Read<float>(spell, Offsets::OFF_SPELL_RECORD_SPEED) : 0.0f;
@@ -787,9 +789,25 @@ void Update(Actor &caster, float elapsedSec) {
     }
     caster.releaseEvent = false;
     caster.kitAnimationEnded = false;
-    for (SpellCast &cast : caster.spellCasts)
-        if (cast.phase == SpellCast::Phase::Flight)
-            SettleLight(cast.missile, cast.light.get(), elapsedSec);
+    // The world has no pause; a paused scene (or caster) holds its missiles
+    // still and silences their flight, which starts again when the pause
+    // ends, as a hidden scene's does when it shows again.
+    const bool held = IsPaused(caster.SceneFrame()) || caster.paused || caster.globalPaused;
+    for (SpellCast &cast : caster.spellCasts) {
+        if (cast.phase != SpellCast::Phase::Flight)
+            continue;
+        SettleLight(cast.missile, cast.light.get(), elapsedSec);
+        if (held) {
+            if (cast.missileSound != nullptr) {
+                Sound::Play::Stop(cast.missileSound, 0.0f);
+                cast.missileSound = nullptr;
+            }
+        } else if (cast.missileSound == nullptr) {
+            const auto sound = Game::Read<int32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_MISSILE_SOUND);
+            if (sound > 0)
+                cast.missileSound = Sounds::Loop(caster.SceneFrame(), sound, cast.position);
+        }
+    }
     for (ImpactModel &impact : caster.impactModels)
         SettleLight(impact.model, impact.light.get(), elapsedSec);
     for (size_t i = 0; i < caster.stuckMissiles.size();) {

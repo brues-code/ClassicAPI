@@ -88,12 +88,6 @@ void Direction(float (&out)[4]) {
     reinterpret_cast<Vector_t>(Offsets::FUN_RANDOM_UNIT_VECTOR2)(out, RandomState());
 }
 
-// The byte the emitter decodes from a float: the bits of the value + 512.0,
-// shifted right 14 (0x005D5665..0x005D567D, 0x006EBD87..0x006EBD96).
-uint8_t Decode(float value) {
-    return static_cast<uint8_t>(BitsOf(value + Game::Read<float>(Offsets::VAR_FIVE_TWELVE)) >> 14);
-}
-
 // The rate at the spell detail level (0x006EB95E..0x006EB98F).
 float DetailRate(float rate) {
     const auto *record = Game::Read<const uint8_t *>(Offsets::VAR_SPELL_EFFECT_LEVEL_RECORD);
@@ -151,7 +145,7 @@ void Start(Actor &actor) {
             Offsets::SPELLVISUALKIT_PROC_AREA_SHARDS)
             continue;
         // The engine reads the table with no bound; a type past it has no path.
-        const uint8_t type = Decode(Game::Read<float>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE + i * 4));
+        const uint8_t type = DecodeKitByte(Game::Read<float>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE + i * 4));
         if (type < Offsets::AREA_SHARD_PATH_COUNT) {
             emitter.path = Game::Read<const char *>(Offsets::VAR_AREA_SHARD_PATHS + type * 4u);
             emitter.rate = DetailRate(Game::Read<float>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE2 + i * 4));
@@ -220,6 +214,21 @@ void StopLoop(AreaEmitter &emitter, float fadeSec) {
 }
 
 } // namespace
+
+} // namespace Model::Scene::Areas
+
+namespace Model::Scene {
+
+uint8_t DecodeKitByte(float value) {
+    uint32_t bits;
+    const float sum = value + Game::Read<float>(Offsets::VAR_FIVE_TWELVE);
+    std::memcpy(&bits, &sum, sizeof bits);
+    return static_cast<uint8_t>(bits >> 14);
+}
+
+} // namespace Model::Scene
+
+namespace Model::Scene::Areas {
 
 void Stop(Actor &actor) {
     StopLoop(actor.areaEmitter, kLoopStopFadeSec);

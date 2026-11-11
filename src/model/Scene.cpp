@@ -744,6 +744,7 @@ void __fastcall Paint(void *frame) {
             World::DrawLiquids(*world, frame, eye);
         if (!wet)
             M2::DrawScene(scene, 1);
+        Chains::Render(frame, eye);
     }
 }
 
@@ -960,6 +961,7 @@ using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, 
 // camera and the scene).
 void Destroy(void *frame) {
     Fields &f = F(frame);
+    Chains::Destroy(frame);
     for (Actor *actor : *f.actors)
         delete actor;
     delete f.actors;
@@ -1056,6 +1058,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
         actors[i]->Update(elapsedSec, static_cast<float>(advancedMs) / 1000.0f);
+    Chains::Update(self, static_cast<float>(advancedMs) / 1000.0f);
     UpdateHover(self);
 }
 
