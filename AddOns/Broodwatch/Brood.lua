@@ -107,6 +107,9 @@ local function Kill(e)
 	e.fearUntil, e.fearTick = nil, nil;
 	DropGem(x, y, z, e.kind.xp, e.kind.gemScale);
 	BW.DropItem(e, x, y, z);
+	if e.kind == ELITE then
+		BW.DropChest(x, y, z);
+	end
 	-- A corrupted enemy passes its Corruption on (in the step, after the loop).
 	if e.dotLeft and e.dotSpread > 0 then
 		tinsert(BW.run.spreads, e);

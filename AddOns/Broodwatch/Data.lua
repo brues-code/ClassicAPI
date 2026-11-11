@@ -386,6 +386,9 @@ local TUNING = {
 	ITEM_SECONDS = 30,         -- a drop lies this long
 	ITEM_ICON = 28,            -- pixels
 	ITEM_COLOR = { 1, 0.82, 0 },
+	CHEST_REACH = 2,           -- yards: walking this close opens a chest
+	CHEST_AWAY = 2.5,          -- yards from the elite's corpse that its chest lands
+	CHEST_LINGER = 4,          -- seconds an open chest stays before it fades
 	POTION_HEAL = 0.3,         -- of the maximum health
 	GRENADE_RADIUS = 5,
 	GRENADE_DAMAGE = 45,       -- grows with the run as the brood's health does
@@ -436,6 +439,17 @@ local ITEMS = {
 	{ key = "hearth", itemID = 6948, spell = 8690, weight = 10 },
 	{ key = "sapper", itemID = 10646, spell = 13241, weight = 10 },
 	{ key = "chicken", itemID = 10725, spell = 23133, weight = 10 },
+}
+-- Chests: an elite drops one, and every GOLDEN_EVERY-th is golden. Walking up
+-- opens it (Open 148, then Opened 149 held, as the client's chests do), and
+-- the chest gives `picks` upgrade cards. `open` is the Open sequence's length
+-- in the model's file; `speed` plays it faster. The two models are about
+-- 1.3 and 3.1 yards across at scale 1.
+local CHEST_SOUND = 1277 -- ChestOpen (SoundEntries)
+local GOLDEN_EVERY = 5
+local CHESTS = {
+	plain = { path = "World\\SkillActivated\\Containers\\TreasureChest01.m2", scale = 1.2, open = 0.666, speed = 1, picks = 1, title = "Treasure" },
+	golden = { path = "World\\Goober\\G_ChestTitan.m2", scale = 0.6, open = 3.2, speed = 2, picks = 3, title = "Golden Treasure" },
 }
 -- Each item's name and icon are the client's (the Item mixin), once its data
 -- has come from the server.
@@ -493,3 +507,6 @@ BW.EASE = EASE
 BW.AT_ONCE = AT_ONCE
 BW.TUNING = TUNING
 BW.ITEMS = ITEMS
+BW.CHEST_SOUND = CHEST_SOUND
+BW.GOLDEN_EVERY = GOLDEN_EVERY
+BW.CHESTS = CHESTS

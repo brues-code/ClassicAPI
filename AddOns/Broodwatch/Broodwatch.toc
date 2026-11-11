@@ -8,5 +8,6 @@ Brood.lua
 Spells.lua
 Hud.lua
 Items.lua
+Chests.lua
 Broodwatch.lua
 Broodwatch.xml

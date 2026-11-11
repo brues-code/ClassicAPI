@@ -441,7 +441,22 @@ local function SetPaused(on)
 	end
 end
 
+-- Shows the next waiting pick, a chest's before a level's. The game stays
+-- paused until the last pick is made.
 local function ShowCards()
+	if BW.cards:IsShown() then
+		return;
+	end
+	local title;
+	if BW.run.chestPicks > 0 then
+		BW.run.picking = "chest";
+		title = BW.run.chestTitle;
+	elseif BW.run.pendingLevels > 0 then
+		BW.run.picking = "level";
+		title = "Level " .. (BW.run.level - BW.run.pendingLevels + 1);
+	else
+		return;
+	end
 	BuildOffers();
 	-- The three cards share the tallest one's height.
 	local height = CARD_MIN_HEIGHT;
@@ -451,7 +466,7 @@ local function ShowCards()
 	for i = 1, 3 do
 		getglobal(BW.cards:GetName() .. "Card" .. i):SetHeight(height);
 	end
-	getglobal(BW.cards:GetName() .. "Title"):SetText("Level " .. (BW.run.level - BW.run.pendingLevels + 1));
+	getglobal(BW.cards:GetName() .. "Title"):SetText(title);
 	BW.cards:Show();
 	SetPaused(true);
 end
@@ -503,10 +518,13 @@ function Broodwatch_PickCard(i)
 	end
 	BW.cards:Hide();
 	UpdateBuild();
-	BW.run.pendingLevels = BW.run.pendingLevels - 1;
-	if BW.run.pendingLevels > 0 then
-		ShowCards();
+	if BW.run.picking == "chest" then
+		BW.run.chestPicks = BW.run.chestPicks - 1;
 	else
+		BW.run.pendingLevels = BW.run.pendingLevels - 1;
+	end
+	ShowCards();
+	if not BW.cards:IsShown() then
 		SetPaused(false);
 	end
 end
@@ -552,9 +570,7 @@ local function GainXp(xp)
 	local mode = wrapped and AT_ONCE or EASE;
 	BW.xpBar:SetMinMaxValues(0, XpNeeded(BW.run.level), mode);
 	BW.xpBar:SetValue(BW.run.xp, mode);
-	if BW.run.pendingLevels > 0 and not BW.cards:IsShown() then
-		ShowCards();
-	end
+	ShowCards();
 end
 
 -- For the files that load after this one.
@@ -566,3 +582,4 @@ BW.MaxHp = MaxHp
 BW.UpdateHealth = UpdateHealth
 BW.XpNeeded = XpNeeded
 BW.GainXp = GainXp
+BW.ShowCards = ShowCards

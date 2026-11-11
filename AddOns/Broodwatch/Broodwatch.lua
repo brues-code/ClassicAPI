@@ -73,6 +73,8 @@ local GainXp = BW.GainXp
 local Taunted = BW.Taunted
 local UpdateItems = BW.UpdateItems
 local ClearItems = BW.ClearItems
+local UpdateChests = BW.UpdateChests
+local ClearChests = BW.ClearChests
 local UpdateStates = BW.UpdateStates
 local BiteShare = BW.BiteShare
 local UpdateWards = BW.UpdateWards
@@ -148,6 +150,7 @@ local function StartRun()
 		ClearAreas();
 		ClearLandings();
 		ClearItems();
+		ClearChests();
 		ClearWards();
 		ClearPet();
 		ClearChannels();
@@ -156,7 +159,7 @@ local function StartRun()
 	BW.hero:RemoveAuraVisual();
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {
-		time = 0, kills = 0, alive = 0, level = 1, xp = 0, pendingLevels = 0,
+		time = 0, kills = 0, alive = 0, level = 1, xp = 0, pendingLevels = 0, chests = 0, chestPicks = 0,
 		hp = HERO_HP, damageScale = 1, heroYaw = 0,
 		spells = { frostbolt = { level = 1, cooldown = 0, pending = 0 } },
 		passives = {},
@@ -339,6 +342,7 @@ local function Step(dt)
 	UpdateAreas(dt);
 	UpdateLandings(dt);
 	UpdateItems(dt, hx, hy, hz);
+	UpdateChests(dt, hx, hy);
 	UpdateWards(dt);
 	UpdatePet(dt, hx, hy, hz);
 	UpdateChannels(dt);
@@ -630,6 +634,7 @@ end
 SLASH_BROODWATCH1 = "/broodwatch";
 -- `/broodwatch [spell [rank]]`: a spell key of SPELLS (with its rank, I by
 -- default) starts the run with that spell alone, for testing it.
+-- `/broodwatch chest` (or `golden`) starts the run with a chest close by.
 SlashCmdList["BROODWATCH"] = function(msg)
 	BW.frame:Show();
 	if not BW.hero then
@@ -640,6 +645,12 @@ SlashCmdList["BROODWATCH"] = function(msg)
 	if key and SPELLS[key] then
 		BW.run.spells = { [key] = { level = math.min(tonumber(rank) or 1, MAX_LEVEL), cooldown = 0, pending = 0 } };
 		BW.UpdateBuild();
+	elseif key == "chest" or key == "golden" then
+		if key == "golden" then
+			BW.run.chests = BW.GOLDEN_EVERY - 1;
+		end
+		local hx, hy, hz = BW.hero:GetPosition();
+		BW.DropChest(hx + 8, hy, hz);
 	elseif key then
 		print("Broodwatch: no spell \"" .. key .. "\"");
 	end
