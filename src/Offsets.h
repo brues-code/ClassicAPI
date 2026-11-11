@@ -11981,13 +11981,6 @@ enum Offsets {
     // failure on this bit) use it; thrown items (grenades — e.g. spell 4068)
     // lack it, so movement must not end their cast. See Spell::Cast (issue #23).
     SPELL_INTERRUPT_FLAG_MOVEMENT = 0x1,
-    // Bit 1: the bit the server's interrupt EFFECT tests on a cast before Kick /
-    // Pummel / Counterspell may stop it — tortoise `Spell::EffectInterruptCast`
-    // (vmangos names the same bit DAMAGE_PUSHBACK). Player casts carry 0x0F;
-    // creature casts with 0x00 / 0x08 / 0x09 / 0x0D (Shadow Flame, Frost
-    // Breath, …) cannot be interrupted by those abilities. Silence auras ignore
-    // the flags (PreventionType only). Read by Spell::Interruptible.
-    SPELL_INTERRUPT_FLAG_DAMAGE = 0x2,
     // Bit 3 — server rule for "does casting this spell reset the caster's
     // melee swing timer" (tortoise-wow `Spell::cast`:
     // `IsMeleeAttackResetSpell() = !triggered && (InterruptFlags &
@@ -12000,11 +11993,6 @@ enum Offsets {
     // `SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS` instead. Read by
     // `Combat::Swing`.
     SPELL_INTERRUPT_FLAG_AUTOATTACK = 0x8,
-    // ChannelInterruptFlags (column 23). Bit 2 is the channel analog of the
-    // gate above (CHANNEL_FLAG_INTERRUPT in both cores). Verified in Spell.dbc:
-    // Blizzard / Arcane Missiles 0x7C0C, non-channels 0.
-    OFF_SPELL_RECORD_CHANNEL_INTERRUPT_FLAGS = 0x5C,  // u32 (column 23)
-    CHANNEL_FLAG_INTERRUPT = 0x4,
 
     // Remaining Spell.dbc record fields — the single source of truth for the
     // record layout (byte = column * 4). Modules must use these rather than

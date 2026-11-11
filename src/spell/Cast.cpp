@@ -354,8 +354,7 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
         Game::Lua::PushString(L, castGuid);
     else
         Game::Lua::PushNil(L);
-    Game::Lua::PushBool(L, Spell::Interruptible::NotInterruptible(
-                               casterUnit, rec, /*isChannel*/ false)); // 8 notInterruptible
+    Game::Lua::PushBool(L, Spell::Interruptible::NotInterruptible(casterUnit, rec)); // 8 notInterruptible
     Game::Lua::PushNumber(L, static_cast<double>(c.spellID)); // 9 castingSpellID
     Game::Lua::PushNil(L);                                   // 10 castBarID
     Game::Lua::PushNumber(L, static_cast<double>(c.delayMs)); // 11 delayTimeMs
@@ -396,8 +395,7 @@ int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes
         Game::Lua::PushNil(L);
     }
     Game::Lua::PushBool(L, IsTradeskill(rec));               // 6 isTradeskill
-    Game::Lua::PushBool(L, Spell::Interruptible::NotInterruptible(
-                               casterUnit, rec, /*isChannel*/ true)); // 7 notInterruptible
+    Game::Lua::PushBool(L, Spell::Interruptible::NotInterruptible(casterUnit, rec)); // 7 notInterruptible
     Game::Lua::PushNumber(L, static_cast<double>(spellID));   // 8 spellID
     return 8;
 }
@@ -855,24 +853,23 @@ struct InterruptWatch {
 };
 InterruptWatch g_interruptWatch[2]; // target, focus
 
-// The cast or channel `guid` is in now: spell, start (the cast's identity) and
-// whether it is a channel. False when it isn't casting.
-bool CurrentCastOf(uint64_t guid, const uint8_t *unit, int *spellID, int *startMs,
-                   bool *isChannel) {
+// The cast or channel `guid` is in now: spell and start (the cast's identity).
+// False when it isn't casting.
+bool CurrentCastOf(uint64_t guid, const uint8_t *unit, int *spellID, int *startMs) {
     const int now = NowMs();
     if (guid == Unit::Identity::PlayerGuid()) {
         if (g_cast.spellID != 0 && !Ended(now, g_cast.endMs)) {
-            *spellID = g_cast.spellID, *startMs = g_cast.startMs, *isChannel = false;
+            *spellID = g_cast.spellID, *startMs = g_cast.startMs;
             return true;
         }
         if (g_channel.spellID != 0 && (g_channel.endMs == 0 || !Ended(now, g_channel.endMs))) {
-            *spellID = g_channel.spellID, *startMs = g_channel.startMs, *isChannel = true;
+            *spellID = g_channel.spellID, *startMs = g_channel.startMs;
             return true;
         }
         return false;
     }
     if (const RemoteCast *rc = FindRemoteCast(guid); rc != nullptr && !Ended(now, rc->endMs)) {
-        *spellID = rc->spellID, *startMs = rc->startMs, *isChannel = rc->isChannel;
+        *spellID = rc->spellID, *startMs = rc->startMs;
         return true;
     }
     // A channel seen only through the broadcast field: no start time, so the
@@ -882,7 +879,7 @@ bool CurrentCastOf(uint64_t guid, const uint8_t *unit, int *spellID, int *startM
         desc != nullptr ? Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL) : 0;
     if (chan == 0)
         return false;
-    *spellID = chan, *startMs = 0, *isChannel = true;
+    *spellID = chan, *startMs = 0;
     return true;
 }
 
@@ -904,16 +901,14 @@ void PollInterruptible() {
                                      Object::ByGuid(Offsets::TYPEMASK_UNIT, guid))
                                : nullptr;
         int spellID = 0, startMs = 0;
-        bool isChannel = false;
         const uint8_t *rec = nullptr;
-        if (unit != nullptr && CurrentCastOf(guid, unit, &spellID, &startMs, &isChannel))
+        if (unit != nullptr && CurrentCastOf(guid, unit, &spellID, &startMs))
             rec = Spell::Lookup::RecordForID(spellID);
         if (rec == nullptr) {
             w = InterruptWatch{};
             continue;
         }
-        const bool notInterruptible =
-            Spell::Interruptible::NotInterruptible(unit, rec, isChannel);
+        const bool notInterruptible = Spell::Interruptible::NotInterruptible(unit, rec);
         const bool sameCast = w.guid == guid && w.spellID == spellID && w.startMs == startMs;
         if (sameCast && w.notInterruptible != notInterruptible)
             Spell::CastEvents::OnInterruptibleChanged(guid, notInterruptible);

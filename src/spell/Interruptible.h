@@ -21,12 +21,11 @@
 namespace Spell::Interruptible {
 
 // True when no interrupt or silence the local player knows can stop
-// `spellRecord`, cast (or channeled, per `isChannel`) by `caster` — a CGUnit
-// pointer, or null when the caster's auras aren't readable (the static and
-// capability parts still apply). False for a null record, and ALWAYS false
-// while the player knows no interrupt or silence at all (the 3.3.5 reader's
-// rule: the flag only exists for someone who could act on it).
-bool NotInterruptible(const uint8_t *caster, const uint8_t *spellRecord,
-                      bool isChannel);
+// `spellRecord`, cast or channeled by `caster` — a CGUnit pointer, or null when
+// the caster's auras aren't readable (the static and capability parts still
+// apply). False for a null record, and ALWAYS false while the player knows no
+// interrupt or silence at all (the 3.3.5 reader's rule: the flag only exists
+// for someone who could act on it).
+bool NotInterruptible(const uint8_t *caster, const uint8_t *spellRecord);
 
 } // namespace Spell::Interruptible

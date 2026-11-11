@@ -47,14 +47,16 @@
 //    of step 2 is fully available.
 //  - Spell.dbc carries a single `School` column, so a spell's mask is
 //    `1 << School` (the server's GetSpellSchoolMask does the same).
-//  - The vanilla server's interrupt EFFECT has an extra static gate the 3.3.5
-//    client never checks: tortoise and vmangos `Spell::EffectInterruptCast`
-//    only stop a cast with InterruptFlags 0x02 (a channel: ChannelInterrupt-
-//    Flags 0x04). Blizzard data keeps those consistent with PreventionType;
-//    vanilla creature spells do not (225 timed casts have PreventionType
-//    SILENCE and no 0x02 — Nefarian's Shadow Flame 0x08, Frost Breath 0). A
-//    SILENCE aura ignores the flags (`Aura::HandleAuraModSilence` tests
-//    PreventionType only), so the gate applies to the interrupt mask alone.
+//  - InterruptFlags are NOT consulted, exactly as in 3.3.5 and 4.3.4 (4.3.4's
+//    `CGUnit_C::ProcessCastNotInterruptible` reads only PreventionType, the
+//    immunity block and the immunity auras). tortoise and vmangos
+//    `Spell::EffectInterruptCast` additionally require InterruptFlags 0x02
+//    (channels: ChannelInterruptFlags 0x04), but that tests the SERVER's
+//    spell_template, which a server may patch without touching the client's
+//    Spell.dbc. Issue #137: stock 1.12.1 ships Healing Ward 5605 with
+//    InterruptFlags 0x0D (Turtle's DBC patches it to 0x0F), yet Pummel stops
+//    it on the reporter's realm — a client-side flag gate read the stock row
+//    and reported every Healing Ward as uninterruptible.
 //  - A druid's interrupt lives on the TRIGGERED "Feral Charge Effect" 19675,
 //    not on Feral Charge 16979 (effect TRIGGER_SPELL). 3.3.5 covered that case
 //    with an AttributesEx7 bit on 16979; here the capability walk follows one
@@ -181,7 +183,7 @@ void StripImmunities(const uint8_t *caster, Capability &cap) {
 
 } // namespace
 
-bool NotInterruptible(const uint8_t *caster, const uint8_t *spellRecord, bool isChannel) {
+bool NotInterruptible(const uint8_t *caster, const uint8_t *spellRecord) {
     if (spellRecord == nullptr)
         return false;
     // Reader rule first: with no interrupt or silence known, the flag is never
@@ -190,22 +192,13 @@ bool NotInterruptible(const uint8_t *caster, const uint8_t *spellRecord, bool is
     if (!cap.Any())
         return false;
     // Static: PreventionType is the one gate shared by the server's interrupt
-    // effect, the server's silence aura and the 3.3.5 client.
+    // effect, the server's silence aura and the 3.3.5 / 4.3.4 clients.
     if (Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_PREVENTION_TYPE) !=
         Offsets::SPELL_PREVENTION_TYPE_SILENCE)
         return true;
     if (caster != nullptr)
         StripImmunities(caster, cap);
-    // The interrupt EFFECT additionally needs the cast's flag bit (server gate);
-    // a silence does not.
-    const uint32_t flags = Game::Read<uint32_t>(
-        spellRecord, isChannel ? Offsets::OFF_SPELL_RECORD_CHANNEL_INTERRUPT_FLAGS
-                               : Offsets::OFF_SPELL_RECORD_INTERRUPT_FLAGS);
-    const uint32_t needed = isChannel ? Offsets::CHANNEL_FLAG_INTERRUPT
-                                      : Offsets::SPELL_INTERRUPT_FLAG_DAMAGE;
-    const bool interruptWorks = cap.interrupt != 0 && (flags & needed) != 0;
-    const bool silenceWorks = cap.silence != 0;
-    return !(interruptWorks || silenceWorks);
+    return !cap.Any();
 }
 
 } // namespace Spell::Interruptible
