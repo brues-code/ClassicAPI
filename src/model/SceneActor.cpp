@@ -1777,10 +1777,11 @@ int __fastcall Script_PlaySpellVisual(void *L) {
     if (caster == nullptr || !NumberArgs(L, 2, 1, caster->DisplayName(), kUsage))
         return 0;
     Actor *target = nullptr;
-    // A table of actors is one cast at all of them: the first is the target,
-    // the rest the go's other hits.
+    // A list of actors is one cast at all of them: the first is the target,
+    // the rest the go's other hits. An actor is a table too, one that
+    // resolves to an object; a list resolves to none.
     std::vector<Actor *> others;
-    if (Game::Lua::Type(L, 3) == Game::Lua::TYPE_TABLE) {
+    if (Game::Lua::Type(L, 3) == Game::Lua::TYPE_TABLE && Game::Lua::ResolveObject(L, 3) == nullptr) {
         for (int i = 1;; ++i) {
             Game::Lua::RawGetI(L, 3, i);
             if (Game::Lua::Type(L, -1) <= Game::Lua::TYPE_NIL) {
