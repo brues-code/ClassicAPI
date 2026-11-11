@@ -44,79 +44,150 @@ local KINDS = {
 local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach = 2.2, speed = 4.8, gemScale = 0.6 }
 
 -- Spells, by level 1 to 5. A missile spell hits `count` enemies in `range`;
--- a nova spell hits every enemy within `radius` of the hero.
+-- a nova spell hits every enemy within `radius` of the hero. At rank V a
+-- spell masters: `mastery` is what it does then, and its numbers.
 local SPELLS = {
 	frostbolt = {
-		name = "Frostbolt", spell = 116, blurb = "Bolts the nearest enemy.", color = { 0.55, 0.8, 1 }, kind = "missile", pick = "nearest", range = 24,
+		spell = 116, blurb = "Bolts the nearest enemy.", color = { 0.55, 0.8, 1 }, kind = "missile", pick = "nearest", range = 24,
 		damage = { 14, 18, 18, 24, 26 }, count = { 1, 1, 2, 2, 3 }, cooldown = { 1.2, 1.05, 1.05, 0.9, 0.8 },
+		mastery = { text = "Frostbite: each bolt freezes its target for 1 second.", freeze = 1 },
 	},
 	shadowbolt = {
-		name = "Shadow Bolt", spell = 686, blurb = "A heavy bolt at the toughest enemy in range.", color = { 0.8, 0.45, 1 }, kind = "missile", pick = "strongest", range = 26,
+		spell = 686, blurb = "A heavy bolt at the toughest enemy in range.", color = { 0.8, 0.45, 1 }, kind = "missile", pick = "strongest", range = 26,
 		damage = { 45, 60, 75, 75, 100 }, count = { 1, 1, 1, 2, 2 }, cooldown = { 2.6, 2.4, 2.2, 2.2, 2.0 },
+		mastery = { text = "Shadowburn: a bolt that kills bursts, hitting enemies within 4 yards for half its damage.", radius = 4, share = 0.5 },
 	},
 	lightning = {
-		name = "Lightning Bolt", spell = 403, blurb = "Strikes enemies at random.", color = { 1, 0.95, 0.4 }, kind = "missile", pick = "random", range = 22,
+		spell = 403, blurb = "Strikes enemies at random.", color = { 1, 0.95, 0.4 }, kind = "missile", pick = "random", range = 22,
 		damage = { 22, 28, 34, 40, 48 }, count = { 1, 2, 2, 3, 4 }, cooldown = { 1.8, 1.7, 1.6, 1.5, 1.3 },
+		mastery = { text = "Overload: each bolt has a 1 in 3 chance to strike another enemy.", chance = 1 / 3 },
 	},
 	nova = {
-		name = "Arcane Explosion", spell = 1449, blurb = "Bursts arcane power at every enemy around you.", color = { 0.85, 0.55, 1 }, kind = "nova",
+		spell = 1449, blurb = "Bursts arcane power at every enemy around you.", color = { 0.85, 0.55, 1 }, kind = "nova",
 		damage = { 10, 14, 18, 22, 28 }, radius = { 6, 6.5, 7, 7.5, 8 }, cooldown = { 5, 4.6, 4.2, 3.8, 3.4 },
+		mastery = { text = "Echo: each explosion bursts a second time." },
 	},
 	chain = {
-		name = "Chain Lightning", spell = 421, blurb = "Leaps from enemy to enemy.",
+		spell = 421, blurb = "Leaps from enemy to enemy.",
 		color = { 0.6, 0.75, 1 }, kind = "chain", pick = "nearest", range = 22, hop = 8,
 		damage = { 20, 24, 30, 36, 44 }, jumps = { 3, 4, 4, 5, 6 }, cooldown = { 2.4, 2.2, 2.0, 1.8, 1.6 },
+		mastery = { text = "Each leap strikes 20% harder than the one before.", grow = 1.2 },
 	},
 	corruption = {
-		name = "Corruption", spell = 172, blurb = "Rots enemies every second, and spreads when they die.",
+		spell = 172, blurb = "Rots enemies every second, and spreads when they die.",
 		color = { 0.55, 0.85, 0.3 }, kind = "dot", pick = "nearest", range = 22, hop = 6,
 		damage = { 6, 8, 10, 12, 15 }, count = { 2, 3, 3, 4, 5 }, spread = { 1, 1, 2, 2, 3 },
 		duration = { 6, 6, 7, 7, 8 }, cooldown = { 3, 3, 2.8, 2.6, 2.4 },
+		mastery = { text = "Corrupted enemies take 25% more damage from everything.", amplify = 1.25 },
 	},
 	holynova = {
-		name = "Holy Nova", spell = 15237, blurb = "Burns enemies around you, and heals you for each one.",
+		spell = 15237, blurb = "Burns enemies around you, and heals you for each one.",
 		color = { 1, 0.95, 0.6 }, kind = "nova",
 		damage = { 12, 16, 20, 26, 32 }, radius = { 6, 6.5, 7, 7.5, 8 }, heal = { 1, 1, 1.5, 1.5, 2 },
 		cooldown = { 4, 3.7, 3.4, 3.1, 2.8 },
+		mastery = { text = "Enemies it burns are dazed: half speed for 2 seconds.", slow = 0.5, seconds = 2 },
 	},
 	-- A fire totem model (display 4589, FireElementalTotem.mdx) that pulses
 	-- as the real Magma Totem does (its pulse spell 8187, whose visual puts an
 	-- Immolate impact on each enemy it burns).
 	totem = {
-		name = "Magma Totem", spell = 8190, pulse = 8187, display = 4589,
+		spell = 8190, pulse = 8187, display = 4589,
 		blurb = "Plants a totem that burns every enemy near it every 2 seconds.",
 		color = { 1, 0.5, 0.15 }, kind = "totem", pulseEvery = 2,
 		damage = { 14, 18, 23, 28, 35 }, radius = { 6, 6.5, 7, 7.5, 8 }, totems = { 1, 1, 2, 2, 3 },
 		duration = { 12, 12, 14, 14, 16 }, cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "When a totem's time runs out, it erupts for triple damage.", burst = 3 },
 	},
 	-- Ground areas: the spell's own area model (SetModelBySpellArea) stands
 	-- where it lands and burns every enemy inside it each second. An area
 	-- with `slow` also slows them to that share of their speed.
 	blizzard = {
-		name = "Blizzard", spell = 10, blurb = "Ice storms down on the thickest pack and chills it.",
+		spell = 10, blurb = "Ice storms down on the thickest pack and chills it.",
 		color = { 0.55, 0.8, 1 }, kind = "area", place = "pack", range = 22,
 		damage = { 8, 10, 13, 16, 20 }, radius = { 5, 5.5, 6, 6.5, 7 }, slow = { 0.7, 0.65, 0.6, 0.55, 0.5 },
 		duration = { 4, 4, 5, 5, 6 },
 		cooldown = { 6, 5.5, 5, 4.5, 4 },
+		mastery = { text = "Deep Freeze: when the storm ends, it freezes everything inside for 2 seconds.", freeze = 2 },
 	},
 	rainoffire = {
-		name = "Rain of Fire", spell = 5740, blurb = "Fire rains on the thickest pack.",
+		spell = 5740, blurb = "Fire rains on the thickest pack.",
 		color = { 1, 0.45, 0.15 }, kind = "area", place = "pack", range = 22,
 		damage = { 14, 18, 23, 28, 35 }, radius = { 4, 4.4, 4.8, 5.2, 6 }, duration = { 3, 3, 3, 4, 4 },
 		cooldown = { 7, 6.5, 6, 5.5, 5 },
+		mastery = { text = "A second storm falls on another enemy." },
 	},
 	consecration = {
-		name = "Consecration", spell = 26573, blurb = "Hallows the ground at your feet.",
+		spell = 26573, blurb = "Hallows the ground at your feet.",
 		color = { 1, 0.85, 0.4 }, kind = "area", place = "self",
 		damage = { 6, 8, 10, 13, 16 }, radius = { 5, 5.5, 6, 6.5, 7 }, duration = { 6, 6, 7, 7, 8 },
 		cooldown = { 7, 6.5, 6, 5.5, 5 },
+		mastery = { text = "The hallowed ground moves with you." },
 	},
 	thunder = {
-		name = "Thunder Clap", spell = 6343, blurb = "Shakes the ground close around you.", color = { 1, 0.6, 0.2 }, kind = "nova",
+		spell = 6343, blurb = "Shakes the ground close around you.", color = { 1, 0.6, 0.2 }, kind = "nova",
 		damage = { 16, 20, 26, 32, 40 }, radius = { 4, 4.4, 4.8, 5.2, 6 }, cooldown = { 3, 2.8, 2.6, 2.4, 2.2 },
+		mastery = { text = "Aftershock: the clap throws the brood back.", knock = { 8, 5 } },
+	},
+	-- Tanky spells keep the brood off you. `kit` is a SpellVisualKit shown
+	-- while the effect lasts: the shield's bubble, Frost Nova's ice on each
+	-- frozen enemy, Psychic Scream's terror over each fleeing one.
+	shield = {
+		spell = 17, kit = 847, blurb = "A shield soaks up the brood's bites until it breaks.",
+		color = { 1, 1, 0.75 }, kind = "shield",
+		absorb = { 30, 40, 50, 60, 75 }, duration = { 10, 10, 12, 12, 15 }, cooldown = { 15, 14, 13, 12, 11 },
+		mastery = { text = "When the shield breaks, it bursts and hurls the brood around you away.", radius = 6, damage = 30, knock = { 12, 8 } },
+	},
+	thorns = {
+		spell = 467, blurb = "Every enemy biting you takes damage each second.",
+		color = { 0.6, 0.9, 0.3 }, kind = "thorns",
+		damage = { 6, 8, 10, 13, 16 }, duration = { 8, 9, 10, 11, 12 }, cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "You heal 1 health for every biter it burns.", heal = 1 },
+	},
+	frostnova = {
+		spell = 122, kit = 285, blurb = "Freezes every enemy around you in place.",
+		color = { 0.6, 0.85, 1 }, kind = "nova",
+		damage = { 6, 8, 10, 12, 15 }, radius = { 6, 6.5, 7, 7.5, 8 }, root = { 2, 2.5, 3, 3.5, 4 },
+		cooldown = { 10, 9.5, 9, 8.5, 8 },
+		mastery = { text = "Shatter: frozen enemies take double damage.", amplify = 2 },
+	},
+	scream = {
+		spell = 8122, kit = 4031, blurb = "Every enemy around you flees in terror.",
+		color = { 0.75, 0.5, 1 }, kind = "nova",
+		radius = { 6, 6.5, 7, 7.5, 8 }, fear = { 2, 2.5, 3, 3.5, 4 }, cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "Terror: fleeing enemies take 10 damage a second.", damage = 10 },
+	},
+	demoshout = {
+		spell = 1160, blurb = "Enemies around you bite softer for a while.",
+		color = { 1, 0.55, 0.35 }, kind = "nova",
+		radius = { 8, 8.5, 9, 9.5, 10 }, weaken = { 0.3, 0.35, 0.4, 0.45, 0.5 }, duration = { 6, 7, 8, 9, 10 },
+		cooldown = { 10, 9.5, 9, 8.5, 8 },
+		mastery = { text = "Battle cry: you run 20% faster while it lasts.", speed = 1.2 },
+	},
+	stoneclaw = {
+		spell = 5730, display = 4588, blurb = "Plants a totem that the brood around it must attack.",
+		color = { 0.8, 0.65, 0.4 }, kind = "ward",
+		radius = { 6, 7, 8, 9, 10 }, duration = { 5, 6, 7, 8, 9 }, cooldown = { 16, 15, 14, 13, 12 },
+		mastery = { text = "When the totem crumbles, it stuns the brood around it for 2 seconds.", stun = 2 },
+	},
+	-- Fun ones. `knock` is the knockback (out, up), as the items' are.
+	blastwave = {
+		spell = 11113, blurb = "A ring of fire hurls the brood away from you.",
+		color = { 1, 0.5, 0.2 }, kind = "nova", knock = { 10, 7 },
+		damage = { 18, 24, 30, 38, 48 }, radius = { 6, 6.5, 7, 7.5, 8 }, cooldown = { 7, 6.6, 6.2, 5.8, 5.4 },
+		mastery = { text = "The brood it hits is dazed: half speed for 3 seconds.", slow = 0.5, seconds = 3 },
+	},
+	-- The imp (display 4449) stays for the run and casts the real Firebolt.
+	imp = {
+		spell = 688, missile = 3110, display = 4449, blurb = "An imp follows you and hurls Firebolts.",
+		color = { 1, 0.55, 0.2 }, kind = "pet", range = 22,
+		damage = { 12, 15, 19, 24, 30 }, cooldown = { 1.6, 1.5, 1.4, 1.3, 1.2 },
+		mastery = { text = "The imp hurls two Firebolts at once.", bolts = 2 },
 	},
 }
-local SPELL_ORDER = { "frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard", "rainoffire", "consecration" }
+local SPELL_ORDER = {
+	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
+	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
+}
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
 
@@ -128,24 +199,33 @@ local PASSIVES = {
 	reach = { name = "Reach", icon = 2481, text = "+40% gem pickup radius", total = "+%d%% pickup radius", per = 40 },
 	vigor = { name = "Vigor", icon = 1243, text = "+25 maximum health, and heal 25", total = "+%d maximum health", per = 25 },
 	renewal = { name = "Renewal", icon = 139, text = "+1.2 health per second", total = "%.1f health per second", per = 1.2 },
-	sprint = { name = "Sprint", icon = 2983, text = "+8% run speed", total = "+%d%% run speed", per = 8 },
-	devotion = { name = "Devotion Aura", icon = 465, text = "-5% damage taken", total = "-%d%% damage taken", per = 5 },
-	amplify = { name = "Amplify Magic", icon = 1008, text = "+10% spell radius", total = "+%d%% spell radius", per = 10 },
+	sprint = { icon = 2983, text = "+8% run speed", total = "+%d%% run speed", per = 8 },
+	devotion = { icon = 465, text = "-5% damage taken", total = "-%d%% damage taken", per = 5 },
+	amplify = { icon = 1008, text = "+10% spell radius", total = "+%d%% spell radius", per = 10 },
 	multishot = {
-		name = "Multi-Shot", icon = 2643, text = "+1 target for bolts and Corruption", total = "+%d targets", per = 1,
+		icon = 2643, text = "+1 target for bolts and Corruption", total = "+%d targets", per = 1,
 		max = 3,
 	},
-	wisdom = { name = "Blessing of Wisdom", icon = 19742, text = "+15% experience", total = "+%d%% experience", per = 15 },
+	wisdom = { icon = 19742, text = "+15% experience", total = "+%d%% experience", per = 15 },
 	soulstone = {
 		name = "Soulstone", icon = 20707, text = "Once per run, rise again with half your health",
 		total = "%d revive", per = 1, max = 1,
 	},
 	vampiric = {
-		name = "Vampiric Embrace", icon = 15286,
+		icon = 15286,
 		text = "Heals you for 0.2% of the damage you deal, at most 2 health a second",
 		total = "up to %d health a second", per = 2,
 	},
 }
+-- The names are the client's own, in its language: each spell's from its
+-- spell, and each passive without a name of its own from its icon's spell.
+for _, def in pairs(SPELLS) do
+	def.name = C_Spell.GetSpellName(def.spell)
+end
+for _, p in pairs(PASSIVES) do
+	p.name = p.name or C_Spell.GetSpellName(p.icon)
+end
+
 local HEAL_ICON = 5185 -- Healing Touch
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local PASSIVE_ORDER = {
@@ -196,15 +276,29 @@ local TUNING = {
 	GRENADE_KNOCK = { 10, 7 },
 	SOULSTONE_KNOCK = { 16, 10 },
 	ELITE_KNOCK_SHARE = 0.4,   -- an elite takes this share of a knockback
+	ELITE_HOLD_SHARE = 0.5,    -- and this share of a root's or a fear's time
+	FEAR_STEP = 6,             -- yards a fleeing enemy runs before its next MoveTo
+	IMP_SPEED = 8.5,
+	IMP_FOLLOW = 3,            -- yards: farther from you than this, the imp follows
 }
+-- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
 local ITEMS = {
-	{ key = "potion", name = "Healing Potion", spell = 17534, icon = "Interface\\Icons\\INV_Potion_51", weight = 30 },
-	{ key = "grenade", name = "Thorium Grenade", spell = 19769, weight = 25 },
-	{ key = "swift", name = "Swiftness Potion", spell = 2379, weight = 15 },
-	{ key = "hearth", name = "Hearthstone", spell = 8690, weight = 10 },
-	{ key = "sapper", name = "Goblin Sapper Charge", spell = 13241, weight = 10 },
-	{ key = "chicken", name = "Battle Chicken", spell = 23133, weight = 10 },
+	{ key = "potion", itemID = 929, spell = 17534, weight = 30 },
+	{ key = "grenade", itemID = 15993, spell = 19769, weight = 25 },
+	{ key = "swift", itemID = 2459, spell = 2379, weight = 15 },
+	{ key = "hearth", itemID = 6948, spell = 8690, weight = 10 },
+	{ key = "sapper", itemID = 10646, spell = 13241, weight = 10 },
+	{ key = "chicken", itemID = 10725, spell = 23133, weight = 10 },
 }
+-- Each item's name and icon are the client's (the Item mixin), once its data
+-- has come from the server.
+for _, item in ipairs(ITEMS) do
+	local data = Item:CreateFromItemID(item.itemID);
+	data:ContinueOnItemLoad(function()
+		item.name = data:GetItemName();
+		item.icon = data:GetItemIcon();
+	end);
+end
 
 -- For the files that load after this one.
 BW.LAIR_MAP = LAIR_MAP

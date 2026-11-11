@@ -200,7 +200,7 @@
 						<Frames>
 							<Button name="$parentCard2" inherits="BroodwatchCardTemplate" id="2">
 								<Anchors>
-									<Anchor point="CENTER" x="0" y="-20"/>
+									<Anchor point="TOP" relativeTo="$parentHint" relativePoint="BOTTOM" x="0" y="-24"/>
 								</Anchors>
 							</Button>
 							<Button name="$parentCard1" inherits="BroodwatchCardTemplate" id="1">

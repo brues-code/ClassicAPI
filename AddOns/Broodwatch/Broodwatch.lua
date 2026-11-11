@@ -72,6 +72,14 @@ local GainXp = BW.GainXp
 local Taunted = BW.Taunted
 local UpdateItems = BW.UpdateItems
 local ClearItems = BW.ClearItems
+local UpdateStates = BW.UpdateStates
+local BiteShare = BW.BiteShare
+local UpdateWards = BW.UpdateWards
+local ClearWards = BW.ClearWards
+local UpdatePet = BW.UpdatePet
+local ClearPet = BW.ClearPet
+local EndShield = BW.EndShield
+local Mastered = BW.Mastered
 
 ------------------------------------------------------------------------------
 -- Movement: W A S D in screen directions. The hero faces the way it runs.
@@ -134,7 +142,10 @@ local function StartRun()
 		ClearAreas();
 		ClearLandings();
 		ClearItems();
+		ClearWards();
+		ClearPet();
 	end
+	BW.hero:SetSpellVisualKit();
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {
 		time = 0, kills = 0, alive = 0, level = 1, xp = 0, pendingLevels = 0,
@@ -185,7 +196,16 @@ local function Chase(dt, hx, hy, hz)
 		end
 		local e = enemies[BW.run.retargetCursor];
 		if e.alive and not (e.stunUntil and BW.run.time < e.stunUntil) and not e.actor:IsFalling() then
-			if Taunted(e) then
+			if e.fearUntil then
+				local x, y = e.actor:GetPosition();
+				local dx, dy = x - hx, y - hy;
+				local d = math.sqrt(dx * dx + dy * dy);
+				if d < 0.1 then
+					dx, dy, d = math.cos(e.angle), math.sin(e.angle), 1;
+				end
+				local step = TUNING.FEAR_STEP / d;
+				e.actor:MoveTo(x + dx * step, y + dy * step, hz);
+			elseif Taunted(e) then
 				local cx, cy, cz = e.taunter.actor:GetPosition();
 				e.actor:MoveTo(cx + SURROUND_RADIUS * math.cos(e.angle), cy + SURROUND_RADIUS * math.sin(e.angle), cz);
 			else
@@ -218,8 +238,20 @@ local function Step(dt)
 
 	Chase(dt, hx, hy, hz);
 
-	-- Contact damage, and the corpses.
+	-- Contact damage, and the corpses. Thorns burns the biters once a second.
 	local hurt = 0;
+	local thorns = false;
+	if BW.run.thornsUntil then
+		if BW.run.time >= BW.run.thornsUntil then
+			BW.run.thornsUntil = nil;
+		else
+			BW.run.thornsTick = BW.run.thornsTick - dt;
+			if BW.run.thornsTick <= 0 then
+				BW.run.thornsTick = BW.run.thornsTick + 1;
+				thorns = true;
+			end
+		end
+	end
 	for i = table.getn(enemies), 1, -1 do
 		local e = enemies[i];
 		if e.lit then
@@ -245,10 +277,19 @@ local function Step(dt)
 			Unslow(e);
 		end
 		if e.alive then
+			UpdateStates(e, dt);
+		end
+		if e.alive then
 			local x, y = e.actor:GetPosition();
 			local reach = e.kind.reach;
-			if not Taunted(e) and Dist2(x, y, hx, hy) <= reach * reach then
-				hurt = hurt + e.dps * (1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100);
+			if not Taunted(e) and not e.fearUntil and Dist2(x, y, hx, hy) <= reach * reach then
+				hurt = hurt + e.dps * BiteShare(e) * (1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100);
+				if thorns then
+					Damage(e, BW.run.thornsDamage, SPELLS.thorns.color);
+					if Mastered("thorns") then
+						BW.run.pendingHeal = BW.run.pendingHeal + SPELLS.thorns.mastery.heal;
+					end
+				end
 			end
 		else
 			-- The corpse lies, then fades out as the world's do, and goes
@@ -281,10 +322,31 @@ local function Step(dt)
 	UpdateAreas(dt);
 	UpdateLandings(dt);
 	UpdateItems(dt, hx, hy, hz);
+	UpdateWards(dt);
+	UpdatePet(dt, hx, hy, hz);
+	if BW.run.shoutUntil and BW.run.time >= BW.run.shoutUntil then
+		BW.run.shoutUntil = nil;
+		BW.ApplyHeroSpeed();
+	end
+
+	-- Power Word: Shield soaks the bites first.
+	local taken = hurt * dt;
+	if BW.run.shield then
+		local soak = math.min(BW.run.shield, taken);
+		BW.run.shield = BW.run.shield - soak;
+		taken = taken - soak;
+		if BW.run.shield <= 0 then
+			EndShield(true);
+		elseif BW.run.time >= BW.run.shieldUntil then
+			EndShield();
+		elseif soak > 0 then
+			UpdateHealth();
+		end
+	end
 
 	-- The screen's edge glows red while the brood bites, and fades after.
 	local glow = BW.run.hurtGlow;
-	if hurt > 0 then
+	if taken > 0 then
 		glow = math.min(0.8, glow + 4 * dt);
 	elseif glow > 0 then
 		glow = math.max(0, glow - 1.5 * dt);
@@ -318,8 +380,8 @@ local function Step(dt)
 	end
 
 	local regen = PASSIVES.renewal.per * (BW.run.passives.renewal or 0);
-	if hurt > 0 or (regen > 0 and BW.run.hp < MaxHp()) then
-		BW.run.hp = math.min(MaxHp(), BW.run.hp + (regen - hurt) * dt);
+	if taken > 0 or (regen > 0 and BW.run.hp < MaxHp()) then
+		BW.run.hp = math.min(MaxHp(), BW.run.hp + regen * dt - taken);
 		UpdateHealth();
 		if BW.run.hp <= 0 and BW.run.passives.soulstone and not BW.run.soulstoneUsed then
 			-- Rise again at half health, and throw back the brood close by.

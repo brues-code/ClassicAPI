@@ -17,6 +17,8 @@ local enemies = BW.enemies
 local FloorAt = BW.FloorAt
 local Dist2 = BW.Dist2
 local DropGem = BW.DropGem
+local Mastered = BW.Mastered
+local SPELLS = BW.SPELLS
 
 ------------------------------------------------------------------------------
 -- The brood
@@ -58,7 +60,14 @@ local function Spawn(kind)
 	e.dotLeft = nil;
 	e.slowUntil, e.slowFactor = nil, nil;
 	e.stunUntil = nil;
+	e.fearUntil, e.fearTick = nil, nil;
+	e.frozenUntil = nil;
+	e.weakUntil, e.weakShare = nil, nil;
 	e.taunter, e.tauntUntil = nil, nil;
+	if e.kit then
+		e.kit, e.kitUntil = nil, nil;
+		e.actor:SetSpellVisualKit();
+	end
 	e.angle = math.random() * 2 * math.pi;
 	local actor = e.actor;
 	actor:SetPosition(x, y, FloorAt(x, y, CENTER[3]) + 0.5);
@@ -81,6 +90,11 @@ local function Kill(e)
 	-- it is, plays Death, then lies Dead, as a dead unit does.
 	e.actor:StopMoving();
 	e.actor:SetAnimation(ANIM_DEATH);
+	if e.kit then
+		e.kit, e.kitUntil = nil, nil;
+		e.actor:SetSpellVisualKit();
+	end
+	e.fearUntil = nil;
 	DropGem(x, y, z, e.kind.xp, e.kind.gemScale);
 	BW.DropItem(e, x, y, z);
 	-- A corrupted enemy passes its Corruption on (in the step, after the loop).
@@ -192,6 +206,13 @@ local function Damage(e, amount, color)
 	if not e.alive then
 		return;
 	end
+	-- Masteries: Corruption and Frost Nova's Shatter make their marks take more.
+	if e.dotLeft and Mastered("corruption") then
+		amount = amount * SPELLS.corruption.mastery.amplify;
+	end
+	if e.frozenUntil and BW.run.time < e.frozenUntil and Mastered("frostnova") then
+		amount = amount * SPELLS.frostnova.mastery.amplify;
+	end
 	local dealt = math.floor(amount * BW.run.damageScale + 0.5);
 	e.hp = e.hp - dealt;
 	if BW.run.passives.vampiric then
@@ -209,6 +230,79 @@ end
 local function Blast(e, x, y, knock)
 	local share = e.kind == ELITE and TUNING.ELITE_KNOCK_SHARE or 1;
 	e.actor:KnockBack(x, y, knock[1] * share, knock[2] * share);
+end
+
+------------------------------------------------------------------------------
+-- Lasting effects: a hold (a root or a stun) keeps an enemy where it is, a
+-- fear sends it away from you, a weakness softens its bites. A hold or a fear
+-- can show a SpellVisualKit on the enemy while it lasts. Elites shrug off
+-- part of a hold or a fear.
+
+local function ShowKit(e, kit, untilTime)
+	if not kit then
+		return;
+	end
+	if e.kit ~= kit then
+		e.kit = kit;
+		e.actor:SetSpellVisualKit(kit);
+	end
+	e.kitUntil = math.max(e.kitUntil or 0, untilTime);
+end
+
+local function HoldShare(e)
+	return e.kind == ELITE and TUNING.ELITE_HOLD_SHARE or 1;
+end
+
+-- `frozen`: the hold is ice (Frost Nova's Shatter counts it).
+local function Hold(e, seconds, kit, frozen)
+	e.stunUntil = math.max(e.stunUntil or 0, BW.run.time + seconds * HoldShare(e));
+	if frozen then
+		e.frozenUntil = e.stunUntil;
+	end
+	e.fearUntil = nil;
+	e.actor:StopMoving();
+	ShowKit(e, kit, e.stunUntil);
+end
+
+local function Fear(e, seconds, kit)
+	e.fearUntil = math.max(e.fearUntil or 0, BW.run.time + seconds * HoldShare(e));
+	ShowKit(e, kit, e.fearUntil);
+end
+
+local function Weaken(e, share, seconds)
+	e.weakShare = math.max(e.weakShare or 0, share);
+	e.weakUntil = math.max(e.weakUntil or 0, BW.run.time + seconds);
+end
+
+-- Ends the effects whose time has run out (the step, for each live enemy),
+-- and burns the fleeing with Psychic Scream's Terror.
+local function UpdateStates(e, dt)
+	local t = BW.run.time;
+	if e.fearUntil and Mastered("scream") then
+		e.fearTick = (e.fearTick or 1) - dt;
+		if e.fearTick <= 0 then
+			e.fearTick = e.fearTick + 1;
+			Damage(e, SPELLS.scream.mastery.damage, SPELLS.scream.color);
+			if not e.alive then
+				return;
+			end
+		end
+	end
+	if e.kitUntil and t >= e.kitUntil then
+		e.kit, e.kitUntil = nil, nil;
+		e.actor:SetSpellVisualKit();
+	end
+	if e.fearUntil and t >= e.fearUntil then
+		e.fearUntil, e.fearTick = nil, nil;
+	end
+	if e.weakUntil and t >= e.weakUntil then
+		e.weakUntil, e.weakShare = nil, nil;
+	end
+end
+
+-- The share of an enemy's bite that lands.
+local function BiteShare(e)
+	return e.weakShare and 1 - e.weakShare or 1;
 end
 
 local function Release(i)
@@ -260,6 +354,11 @@ end
 
 -- For the files that load after this one.
 BW.Blast = Blast
+BW.Hold = Hold
+BW.Fear = Fear
+BW.Weaken = Weaken
+BW.UpdateStates = UpdateStates
+BW.BiteShare = BiteShare
 BW.Spawn = Spawn
 BW.Kill = Kill
 BW.ShowNumber = ShowNumber

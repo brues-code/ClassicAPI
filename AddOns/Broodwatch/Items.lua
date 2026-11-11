@@ -2,6 +2,7 @@
 
 local _, BW = ...
 local Blast = BW.Blast
+local Hold = BW.Hold
 local ELITE = BW.ELITE
 local enemies = BW.enemies
 local gems = BW.gems
@@ -13,7 +14,7 @@ local Damage = BW.Damage
 local PackCenter = BW.PackCenter
 local markerPool = BW.markerPool
 local ReleaseMarker = BW.ReleaseMarker
-local Icon = BW.Icon
+local UNKNOWN_ICON = BW.UNKNOWN_ICON
 local TUNING = BW.TUNING
 local ApplyHeroSpeed = BW.ApplyHeroSpeed
 local MaxHp = BW.MaxHp
@@ -68,7 +69,7 @@ BW.DropItem = function(e, x, y, z)
 	drop.actor:SetPosition(x, y, z);
 	drop.actor:SetGroundReticle(0.9);
 	drop.actor:Show();
-	drop.icon:SetTexture(drop.item.icon or Icon(drop.item.spell));
+	drop.icon:SetTexture(drop.item.icon or UNKNOWN_ICON);
 	drop.icon:Show();
 	tinsert(drops, drop);
 end
@@ -80,12 +81,6 @@ local function ReleaseDrop(i)
 	drop.icon:Hide();
 	tinsert(dropPool, drop);
 	table.remove(drops, i);
-end
-
-local function Stun(e, seconds)
-	e.stunUntil = BW.run.time + seconds;
-	local x, y, z = e.actor:GetPosition();
-	e.actor:MoveTo(x, y, z);
 end
 
 -- A grenade lands on the thickest pack: the reticle marks it while it flies.
@@ -107,7 +102,7 @@ local function ThrowGrenade(item)
 			if o.alive then
 				local ox, oy = o.actor:GetPosition();
 				if Dist2(ox, oy, ex, ey) <= r2 then
-					Stun(o, TUNING.GRENADE_STUN);
+					Hold(o, TUNING.GRENADE_STUN);
 					Damage(o, damage, TUNING.ITEM_COLOR);
 					Blast(o, ex, ey, TUNING.GRENADE_KNOCK);
 				end

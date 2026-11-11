@@ -88,9 +88,13 @@ local CARD_COLORS = {
 local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
 	heal = "Heal per hit", radius = "Radius", slow = "Enemy speed", duration = "Lasts", cooldown = "Every",
+	absorb = "Absorbs", root = "Freezes for", fear = "Fears for", weaken = "Their bites",
 }
-local STAT_UNITS = { radius = " yd", duration = " s", cooldown = " s" }
-local STAT_ORDER = { "damage", "count", "jumps", "totems", "spread", "heal", "radius", "slow", "duration", "cooldown" }
+local STAT_UNITS = { radius = " yd", duration = " s", cooldown = " s", root = " s", fear = " s" }
+local STAT_ORDER = {
+	"damage", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear", "weaken",
+	"duration", "cooldown",
+}
 
 local function Num(v)
 	if v == math.floor(v) then
@@ -108,6 +112,10 @@ end
 local function StatText(field, v)
 	if field == "slow" then
 		return math.floor(v * 100 + 0.5) .. "%";
+	elseif field == "weaken" then
+		return "-" .. math.floor(v * 100 + 0.5) .. "%";
+	elseif field == "absorb" then
+		return Num(v) .. "% of health";
 	end
 	return Num(v) .. (STAT_UNITS[field] or "");
 end
@@ -140,6 +148,16 @@ local function OfferLines(o)
 				end
 			end
 		end
+		-- The mastery: a teaser on a new spell's card, the prize at rank V.
+		if def.mastery then
+			if o.level == MAX_LEVEL then
+				tinsert(lines, "");
+				tinsert(lines, "|cffffd100Mastery:|r " .. def.mastery.text);
+			elseif o.level == 1 then
+				tinsert(lines, "");
+				tinsert(lines, "|cff888888At rank V: " .. def.mastery.text .. "|r");
+			end
+		end
 	elseif o.kind == "passive" then
 		local p = PASSIVES[o.key];
 		tinsert(lines, p.text);
@@ -151,6 +169,16 @@ local function OfferLines(o)
 	return table.concat(lines, "\n");
 end
 
+-- A card grows to its text: the parts above the description (the icon at
+-- 20 from the top, 64 tall, the name 10 below it, the tag 4 below that, the
+-- description 14 below that) and below it (12 above the pips, which sit 40
+-- from the bottom, 6 tall), as Broodwatch.xml lays them out.
+local CARD_ABOVE = 20 + 64 + 10 + 4 + 14
+local CARD_BELOW = 12 + 6 + 40
+local CARD_MIN_HEIGHT = 280
+local CARD_DESC_ROOM = 1000 -- the description's height while it is measured
+
+-- Fills card i with offer o; returns the height the card needs.
 local function FillCard(i, o)
 	local card = getglobal(BW.cards:GetName() .. "Card" .. i);
 	local name = card:GetName();
@@ -178,8 +206,13 @@ local function FillCard(i, o)
 	local nameText = getglobal(name .. "Name");
 	nameText:SetText(title);
 	nameText:SetTextColor(color[1], color[2], color[3]);
-	getglobal(name .. "Tag"):SetText(tag);
-	getglobal(name .. "Desc"):SetText(OfferLines(o));
+	local tagText = getglobal(name .. "Tag");
+	tagText:SetText(tag);
+	local desc = getglobal(name .. "Desc");
+	desc:SetHeight(CARD_DESC_ROOM);
+	desc:SetText(OfferLines(o));
+	local descHeight = desc:GetStringHeight();
+	desc:SetHeight(descHeight);
 	getglobal(name .. "Key"):SetText("Press " .. i);
 	-- The ranks: those you have in the card's colour, the new one white.
 	local maxRank = o.kind == "passive" and PASSIVES[o.key].max or MAX_LEVEL;
@@ -198,6 +231,7 @@ local function FillCard(i, o)
 			end
 		end
 	end
+	return CARD_ABOVE + nameText:GetStringHeight() + tagText:GetStringHeight() + descHeight + CARD_BELOW;
 end
 
 function Broodwatch_CardHover(card, over)
@@ -310,8 +344,13 @@ end
 
 local function ShowCards()
 	BuildOffers();
+	-- The three cards share the tallest one's height.
+	local height = CARD_MIN_HEIGHT;
 	for i = 1, 3 do
-		FillCard(i, offers[i]);
+		height = math.max(height, FillCard(i, offers[i]));
+	end
+	for i = 1, 3 do
+		getglobal(BW.cards:GetName() .. "Card" .. i):SetHeight(height);
 	end
 	getglobal(BW.cards:GetName() .. "Title"):SetText("Level " .. (BW.run.level - BW.run.pendingLevels + 1));
 	BW.cards:Show();
@@ -322,6 +361,9 @@ local function ApplyHeroSpeed()
 	local factor = 1 + PASSIVES.sprint.per * (BW.run.passives.sprint or 0) / 100;
 	if BW.run.swiftUntil then
 		factor = factor * TUNING.SWIFTNESS_FACTOR;
+	end
+	if BW.run.shoutUntil then
+		factor = factor * SPELLS.demoshout.mastery.speed;
 	end
 	BW.hero:SetMovementSpeed("run", BW.run.heroRun * factor);
 end
@@ -368,7 +410,11 @@ local function UpdateHealth(mode)
 	local max = MaxHp();
 	BW.healthBar:SetMinMaxValues(0, max, mode or EASE);
 	BW.healthBar:SetValue(math.max(BW.run.hp, 0), mode or EASE);
-	BW.healthText:SetText(string.format("%d / %d", math.max(math.ceil(BW.run.hp), 0), max));
+	local text = string.format("%d / %d", math.max(math.ceil(BW.run.hp), 0), max);
+	if BW.run.shield then
+		text = text .. string.format("  (+%d)", math.ceil(BW.run.shield));
+	end
+	BW.healthText:SetText(text);
 end
 
 local LEVEL_HEAL = 0.12 -- each level heals this share of the maximum health

@@ -10,6 +10,12 @@ local FloorAt = BW.FloorAt
 local Dist2 = BW.Dist2
 local Flash = BW.Flash
 local Damage = BW.Damage
+local Blast = BW.Blast
+local Hold = BW.Hold
+local Fear = BW.Fear
+local Weaken = BW.Weaken
+local TUNING = BW.TUNING
+local Mastered = BW.Mastered
 
 ------------------------------------------------------------------------------
 -- The hero's spells
@@ -120,6 +126,23 @@ local function UpdateTotems(dt)
 		local totem = totems[i];
 		totem.life = totem.life - dt;
 		if totem.life <= 0 then
+			if Mastered("totem") then
+				-- The eruption: every enemy in reach, at the mastery's multiple.
+				local r2 = totem.radius * totem.radius;
+				local shown = 0;
+				for _, e in ipairs(enemies) do
+					if e.alive then
+						local x, y = e.actor:GetPosition();
+						if Dist2(x, y, totem.x, totem.y) <= r2 then
+							if shown < MAGMA_IMPACTS then
+								shown = shown + 1;
+								totem.actor:PlaySpellVisual(def.pulse, e.actor, 0);
+							end
+							Damage(e, totem.damage * def.mastery.burst, def.color);
+						end
+					end
+				end
+			end
 			totem.actor:Hide();
 			tinsert(totemPool, totem);
 			table.remove(totems, i);
@@ -164,8 +187,8 @@ local areaPool = {}
 -- Slows an enemy to `factor` of its run speed until a little after the next
 -- tick; the step lets it go when that time passes.
 local SLOW_SECONDS = 1.2
-local function Slow(e, factor)
-	e.slowUntil = BW.run.time + SLOW_SECONDS;
+local function Slow(e, factor, seconds)
+	e.slowUntil = math.max(e.slowUntil or 0, BW.run.time + (seconds or SLOW_SECONDS));
 	if e.slowFactor ~= factor then
 		e.slowFactor = factor;
 		e.actor:SetMovementSpeed("run", e.kind.speed * factor);
@@ -235,8 +258,14 @@ local function PlantArea(key, level, x, y, z)
 end
 
 local function UpdateAreas(dt)
+	local follow = Mastered("consecration");
 	for i = table.getn(areas), 1, -1 do
 		local area = areas[i];
+		if follow and area.key == "consecration" then
+			local hx, hy, hz = BW.hero:GetPosition();
+			area.x, area.y = hx, hy;
+			area.actor:SetPosition(hx, hy, hz);
+		end
 		area.life = area.life - dt;
 		area.tick = area.tick - dt;
 		if area.tick <= 0 then
@@ -256,6 +285,18 @@ local function UpdateAreas(dt)
 			end
 		end
 		if area.life <= 0 then
+			if area.key == "blizzard" and Mastered("blizzard") then
+				local def = SPELLS.blizzard;
+				local r2 = area.radius * area.radius;
+				for _, e in ipairs(enemies) do
+					if e.alive then
+						local x, y = e.actor:GetPosition();
+						if Dist2(x, y, area.x, area.y) <= r2 then
+							Hold(e, def.mastery.freeze, SPELLS.frostnova.kit, true);
+						end
+					end
+				end
+			end
 			area.actor:Hide();
 			tinsert(areaPool, area);
 			table.remove(areas, i);
@@ -313,6 +354,191 @@ local function ClearAreas()
 	end
 end
 
+------------------------------------------------------------------------------
+-- Stoneclaw Totems: each pulls the brood around it onto itself (the Battle
+-- Chicken's taunt, BW.Taunted) until it crumbles.
+
+local wards = {}
+local wardPool = {}
+local WARD_PULSE = 0.5 -- seconds between two taunts
+
+local function PlantWard(def, level)
+	local hx, hy, hz = BW.hero:GetPosition();
+	local ward = table.remove(wardPool);
+	if not ward then
+		ward = { actor = BW.scene:AcquireActor() };
+		ward.actor:SetModelByCreatureDisplayID(def.display);
+	end
+	local a = math.random() * 2 * math.pi;
+	local x, y = hx + 2.5 * math.cos(a), hy + 2.5 * math.sin(a);
+	ward.x, ward.y = x, y;
+	ward.life = Stat(def, "duration", level);
+	ward.radius = Stat(def, "radius", level);
+	ward.pulse = 0;
+	ward.gone = nil;
+	ward.actor:SetPosition(x, y, FloorAt(x, y, hz));
+	ward.actor:Show();
+	tinsert(wards, ward);
+end
+
+-- `crumbled`: its time ran out (the mastery's stun), not a run's end.
+local function DropWard(i, crumbled)
+	local ward = wards[i];
+	if crumbled and Mastered("stoneclaw") then
+		local r2 = ward.radius * ward.radius;
+		for _, e in ipairs(enemies) do
+			if e.alive then
+				local x, y = e.actor:GetPosition();
+				if Dist2(x, y, ward.x, ward.y) <= r2 then
+					Hold(e, SPELLS.stoneclaw.mastery.stun);
+				end
+			end
+		end
+	end
+	ward.gone = true;
+	ward.actor:Hide();
+	tinsert(wardPool, ward);
+	table.remove(wards, i);
+end
+
+local function UpdateWards(dt)
+	for i = table.getn(wards), 1, -1 do
+		local ward = wards[i];
+		ward.life = ward.life - dt;
+		if ward.life <= 0 then
+			DropWard(i, true);
+		else
+			ward.pulse = ward.pulse - dt;
+			if ward.pulse <= 0 then
+				ward.pulse = ward.pulse + WARD_PULSE;
+				local r2 = ward.radius * ward.radius;
+				for _, e in ipairs(enemies) do
+					if e.alive then
+						local x, y = e.actor:GetPosition();
+						if Dist2(x, y, ward.x, ward.y) <= r2 then
+							e.taunter = ward;
+							e.tauntUntil = BW.run.time + WARD_PULSE * 2;
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function ClearWards()
+	for i = table.getn(wards), 1, -1 do
+		DropWard(i);
+	end
+end
+
+------------------------------------------------------------------------------
+-- The imp: summoned the first time Summon Imp casts, it stays for the run,
+-- follows you and casts Firebolt (the spell's `missile`) at the nearest enemy.
+
+local pet
+
+local function SummonPet(def)
+	if pet and pet.out then
+		return pet;
+	end
+	if not pet then
+		pet = { actor = BW.scene:AcquireActor() };
+		pet.actor:SetModelByCreatureDisplayID(def.display);
+		pet.actor:HookScript("OnSpellVisualImpact", function(_, _, _, castID) BW.OnImpact(nil, nil, nil, castID); end);
+	end
+	local hx, hy, hz = BW.hero:GetPosition();
+	BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
+	pet.actor:SetPosition(hx + 1.5, hy + 1.5, hz + 0.5);
+	pet.actor:Show();
+	pet.actor:SetMovementEnabled(true);
+	pet.actor:SetMovementSpeed("run", TUNING.IMP_SPEED);
+	pet.out = true;
+	pet.move = 0;
+	return pet;
+end
+
+local function UpdatePet(dt, hx, hy, hz)
+	if not (pet and pet.out) then
+		return;
+	end
+	pet.move = pet.move - dt;
+	if pet.move > 0 then
+		return;
+	end
+	pet.move = 0.4;
+	local px, py = pet.actor:GetPosition();
+	if Dist2(px, py, hx, hy) > TUNING.IMP_FOLLOW * TUNING.IMP_FOLLOW then
+		-- To your side and behind you, as a pet follows.
+		local a = BW.run.heroYaw + 2.4;
+		pet.actor:MoveTo(hx + 2 * math.cos(a), hy + 2 * math.sin(a), hz);
+	end
+end
+
+local function ClearPet()
+	if pet and pet.out then
+		pet.out = nil;
+		pet.actor:SetMovementEnabled(false);
+		pet.actor:Hide();
+	end
+end
+
+local petHit = {}
+local function NotPetHit(e)
+	return petHit[e];
+end
+
+local function PetCast(key, def, level)
+	local imp = SummonPet(def);
+	local px, py = imp.actor:GetPosition();
+	local bolts = Mastered(key) and def.mastery.bolts or 1;
+	local cast = false;
+	for _ = 1, bolts do
+		local target = Nearest(px, py, def.range, NotPetHit);
+		if not target then
+			break;
+		end
+		petHit[target] = true;
+		local castID = imp.actor:PlaySpellVisual(def.missile, target.actor, 0);
+		if castID then
+			BW.run.inFlight[castID] = { key = key, target = target, damage = Stat(def, "damage", level) };
+		end
+		cast = true;
+	end
+	for e in pairs(petHit) do
+		petHit[e] = nil;
+	end
+	return cast;
+end
+
+------------------------------------------------------------------------------
+-- Power Word: Shield: the bites soak into it first (the step), and its bubble
+-- shows until it breaks or its time ends.
+
+-- `broken`: the bites used it up (the mastery's burst), not its time.
+local function EndShield(broken)
+	if broken and Mastered("shield") then
+		local m = SPELLS.shield.mastery;
+		local hx, hy = BW.hero:GetPosition();
+		local r2 = m.radius * m.radius;
+		for _, e in ipairs(enemies) do
+			if e.alive then
+				local x, y = e.actor:GetPosition();
+				if Dist2(x, y, hx, hy) <= r2 then
+					Damage(e, m.damage, SPELLS.shield.color);
+					Blast(e, hx, hy, m.knock);
+				end
+			end
+		end
+	end
+	if BW.run.shield then
+		BW.run.shield = nil;
+		BW.run.shieldUntil = nil;
+		BW.hero:SetSpellVisualKit();
+		BW.UpdateHealth();
+	end
+end
+
 -- The hero casts one visual at a time; casts wait in a queue.
 local function QueueCast(entry)
 	tinsert(BW.run.castQueue, entry);
@@ -334,7 +560,9 @@ local function Fire(key, state)
 			});
 			state.pending = state.pending + 1;
 		end
-	elseif def.kind == "totem" then
+	elseif def.kind == "pet" then
+		return PetCast(key, def, level);
+	elseif def.kind == "totem" or def.kind == "ward" or def.kind == "shield" or def.kind == "thorns" then
 		QueueCast({ key = key, state = state, level = level });
 		state.pending = state.pending + 1;
 	elseif def.kind == "area" then
@@ -351,8 +579,8 @@ local function Fire(key, state)
 		state.pending = state.pending + 1;
 	else
 		QueueCast({
-			key = key, state = state, damage = Stat(def, "damage", level), radius = Stat(def, "radius", level),
-			heal = Stat(def, "heal", level),
+			key = key, state = state, level = level, damage = Stat(def, "damage", level),
+			radius = Stat(def, "radius", level), heal = Stat(def, "heal", level),
 		});
 		state.pending = state.pending + 1;
 	end
@@ -377,10 +605,32 @@ local function CastNext()
 	elseif def.kind == "totem" then
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
 		PlantTotems(def, entry.level);
+	elseif def.kind == "ward" then
+		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
+		PlantWard(def, entry.level);
+	elseif def.kind == "shield" then
+		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
+		BW.run.shield = BW.MaxHp() * Stat(def, "absorb", entry.level) / 100;
+		BW.run.shieldUntil = BW.run.time + Stat(def, "duration", entry.level);
+		BW.hero:SetSpellVisualKit(def.kit);
+		BW.UpdateHealth();
+	elseif def.kind == "thorns" then
+		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
+		BW.run.thornsUntil = BW.run.time + Stat(def, "duration", entry.level);
+		BW.run.thornsDamage = Stat(def, "damage", entry.level);
+		BW.run.thornsTick = 1;
 	elseif def.kind == "area" then
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
 		if def.place == "pack" then
 			QueueLanding(entry.key, entry.level, entry.x, entry.y, entry.z);
+			if entry.key == "rainoffire" and Mastered("rainoffire") then
+				local hx, hy = BW.hero:GetPosition();
+				local other = PickTargets(def, 1, hx, hy)[1];
+				if other then
+					local x, y, z = other.actor:GetPosition();
+					QueueLanding(entry.key, entry.level, x, y, z);
+				end
+			end
 		else
 			PlantArea(entry.key, entry.level, entry.x, entry.y, entry.z);
 		end
@@ -388,18 +638,59 @@ local function CastNext()
 		BW.hero:PlaySpellVisual(def.spell, BW.hero, 0);
 		local hx, hy = BW.hero:GetPosition();
 		local r2 = entry.radius * entry.radius;
+		local root = Stat(def, "root", entry.level);
+		local fear = Stat(def, "fear", entry.level);
+		local weaken = Stat(def, "weaken", entry.level);
+		local mastery = Mastered(entry.key) and def.mastery;
 		local hits = 0;
 		for _, e in ipairs(enemies) do
 			if e.alive then
 				local x, y = e.actor:GetPosition();
 				if Dist2(x, y, hx, hy) <= r2 then
-					Damage(e, entry.damage, def.color);
+					if entry.damage then
+						Damage(e, entry.damage, def.color);
+					end
+					if e.alive then
+						if root then
+							Hold(e, root, def.kit);
+						end
+						if fear then
+							Fear(e, fear, def.kit);
+						end
+						if weaken then
+							Weaken(e, weaken, Stat(def, "duration", entry.level));
+						end
+					end
+					if def.knock then
+						Blast(e, hx, hy, def.knock);
+					end
+					if mastery then
+						if mastery.slow and e.alive then
+							Slow(e, mastery.slow, mastery.seconds);
+						end
+						if mastery.knock then
+							Blast(e, hx, hy, mastery.knock);
+						end
+					end
 					hits = hits + 1;
 				end
 			end
 		end
 		if entry.heal and hits > 0 then
 			BW.run.pendingHeal = BW.run.pendingHeal + entry.heal * math.min(hits, HOLY_NOVA_HEAL_TARGETS);
+		end
+		-- Arcane Explosion's Echo bursts again (once); the shout's battle cry
+		-- speeds you while it lasts.
+		if mastery and entry.key == "nova" and not entry.echo then
+			QueueCast({
+				key = entry.key, state = entry.state, level = entry.level, damage = entry.damage,
+				radius = entry.radius, echo = true,
+			});
+			entry.state.pending = entry.state.pending + 1;
+		end
+		if mastery and entry.key == "demoshout" then
+			BW.run.shoutUntil = BW.run.time + Stat(def, "duration", entry.level);
+			BW.ApplyHeroSpeed();
 		end
 	end
 	BW.run.castGap = CAST_SPACING;
@@ -440,7 +731,8 @@ local function Leap(entry)
 	local castID = from.actor:PlaySpellVisual(SPELLS[entry.key].spell, nextTarget.actor, 0);
 	if castID then
 		BW.run.inFlight[castID] = {
-			key = entry.key, target = nextTarget, damage = entry.damage, jumps = entry.jumps - 1, hit = entry.hit,
+			key = entry.key, target = nextTarget, jumps = entry.jumps - 1, hit = entry.hit,
+			damage = Mastered(entry.key) and entry.damage * SPELLS[entry.key].mastery.grow or entry.damage,
 		};
 	end
 end
@@ -468,10 +760,43 @@ BW.OnImpact = function(_, _, _, castID)
 	if def.kind == "chain" then
 		Leap(entry);
 	end
-	Damage(entry.target, entry.damage, def.color);
+	local target = entry.target;
+	local wasAlive = target.alive;
+	Damage(target, entry.damage, def.color);
+	if not Mastered(entry.key) or not def.mastery then
+		return;
+	end
+	local m = def.mastery;
+	if entry.key == "frostbolt" and target.alive then
+		Hold(target, m.freeze, SPELLS.frostnova.kit, true);
+	elseif entry.key == "shadowbolt" and wasAlive and not target.alive then
+		local tx, ty = target.actor:GetPosition();
+		local r2 = m.radius * m.radius;
+		for _, e in ipairs(enemies) do
+			if e.alive then
+				local x, y = e.actor:GetPosition();
+				if Dist2(x, y, tx, ty) <= r2 then
+					Damage(e, entry.damage * m.share, def.color);
+				end
+			end
+		end
+	elseif entry.key == "lightning" and not entry.overload and math.random() < m.chance then
+		local hx, hy = BW.hero:GetPosition();
+		local other = PickTargets(def, 1, hx, hy)[1];
+		local state = BW.run.spells[entry.key];
+		if other and state then
+			QueueCast({ key = entry.key, state = state, target = other, damage = entry.damage, level = entry.level, overload = true });
+			state.pending = state.pending + 1;
+		end
+	end
 end
 
 -- For the files that load after this one.
+BW.UpdateWards = UpdateWards
+BW.ClearWards = ClearWards
+BW.UpdatePet = UpdatePet
+BW.ClearPet = ClearPet
+BW.EndShield = EndShield
 BW.Stat = Stat
 BW.Nearest = Nearest
 BW.UpdateTotems = UpdateTotems

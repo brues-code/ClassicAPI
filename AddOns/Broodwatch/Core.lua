@@ -8,6 +8,13 @@
 local _, BW = ...
 local GEM_PATH = BW.GEM_PATH
 local MAX_GEMS = BW.MAX_GEMS
+local MAX_LEVEL = BW.MAX_LEVEL
+
+-- Whether the hero has the spell at rank V (its mastery).
+local function Mastered(key)
+	local state = BW.run and BW.run.spells[key];
+	return state ~= nil and state.level >= MAX_LEVEL;
+end
 
 ------------------------------------------------------------------------------
 -- State
@@ -84,6 +91,7 @@ local function ClearGems()
 end
 
 -- For the files that load after this one.
+BW.Mastered = Mastered
 BW.pools = pools
 BW.enemies = enemies
 BW.gemPool = gemPool
