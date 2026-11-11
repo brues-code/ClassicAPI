@@ -555,14 +555,15 @@ void LeaveImpactModel(Actor &caster, const SpellCast &cast) {
     caster.impactModels.push_back({model, 0, std::move(light)});
 }
 
-// The planted effect's events (0x0061F6F0): $SND plays the event's sound at
-// the event's point, $HIT the wound animation of the effect's target, the
-// caster.
+// An effect's events (CEffect::OnModelEvent 0x0061F6F0): $SND plays the
+// event's sound at the event's point, $HIT the wound animation of the
+// effect's unit (the caster of a planted effect, the actor a hard-coded
+// effect hangs on).
 constexpr uint32_t kSND = 0x444E5324;
 constexpr uint32_t kHIT = 0x54494824;
 
-void __stdcall OnPlantedEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
-                              uint32_t userLow, uint32_t /*userHigh*/) {
+void __stdcall OnEffectEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
+                             uint32_t userLow, uint32_t /*userHigh*/) {
     auto *caster = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
     if (tag == kSND && point != nullptr) {
         const float where[3] = {point[0], point[1], point[2]};
@@ -604,7 +605,7 @@ void PlantEffect(Actor &caster, const SpellCast &cast) {
     M2::SetBaseTRS(model, cast.destination, caster.ShownYaw(), axisZ, scales);
     const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&caster));
     M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnPlantedDone), user, 0);
-    M2::SetEventCallback(model, reinterpret_cast<const void *>(&OnPlantedEvent), user, 0);
+    M2::SetEventCallback(model, reinterpret_cast<const void *>(&OnEffectEvent), user, 0);
     ImpactModel planted{model, 0, std::move(light)};
     planted.planted = true;
     caster.impactModels.push_back(std::move(planted));
@@ -1150,3 +1151,32 @@ void Retire(Actor &caster, void *model, std::unique_ptr<EntityLight> light) {
 }
 
 } // namespace Model::Scene::Casts
+
+namespace Model::Scene {
+
+// AddHardcodedEffect (0x0061FAE0) on the actor: the kind's attachment
+// (s_hardcodedEffectAttachments; none for 37, the base when the model lacks
+// it), the effect row start-up found by name (s_hardcodedEffectIds), its
+// model hung there once (EffectDoneCallback) with the effect's events
+// (CEffect::OnModelEvent). The world first stops the unit's running copy of
+// the row (StopUnitEffectsAt 0x006208E0); here a copy plays to its end.
+void PlayHardcodedEffect(Actor &actor, int kind) {
+    if (actor.model == nullptr || !actor.loaded || kind < 0 || kind >= Offsets::HARDCODED_EFFECT_COUNT)
+        return;
+    uint32_t attachment = Game::Read<uint32_t>(Offsets::VAR_HARDCODED_EFFECT_ATTACHMENTS + kind * 4);
+    if (attachment == Offsets::HARDCODED_EFFECT_NO_ATTACHMENT)
+        return;
+    if (!M2::HasAttachment(actor.model, attachment))
+        attachment = Offsets::HARDCODED_EFFECT_FALLBACK_ATTACHMENT;
+    const uint8_t *effect =
+        DBC::Record(Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
+                    Game::Read<uint32_t>(Offsets::VAR_HARDCODED_EFFECT_IDS + kind * 4));
+    void *child = Model::VisualKit::Hang(actor.SceneFrame(), actor.model, effect, attachment, true);
+    if (child == nullptr)
+        return;
+    M2::SetEventCallback(child, reinterpret_cast<const void *>(&Casts::OnEffectEvent),
+                         static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&actor)), 0);
+    M2::Release(child); // the actor's model holds it
+}
+
+} // namespace Model::Scene

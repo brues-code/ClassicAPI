@@ -1867,6 +1867,14 @@ int __fastcall Script_RemoveAuraVisual(void *L) {
     return 0;
 }
 
+// The world's level-up glow on the actor: CGUnit_C::OnLevelChanged
+// (0x0060CE2F) plays the unit's hard-coded effect 5 on every level change.
+int __fastcall Script_PlayLevelUpEffect(void *L) {
+    if (Actor *actor = Self(L))
+        PlayHardcodedEffect(*actor, Offsets::HARDCODED_EFFECT_UNIT_LEVEL_UP);
+    return 0;
+}
+
 // Interrupts the actor's casts still preparing and its channels, or only
 // the cast `castID` names (model/SceneSpell.cpp).
 int __fastcall Script_StopSpellVisual(void *L) {
@@ -2870,6 +2878,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"StopSpellVisual", &Script_StopSpellVisual},
     {"AddAuraVisual", &Script_AddAuraVisual},
     {"RemoveAuraVisual", &Script_RemoveAuraVisual},
+    {"PlayLevelUpEffect", &Script_PlayLevelUpEffect},
     {"ApplySpellVisualKit", &Script_ApplySpellVisualKit},
     {"PlaySound", &Script_PlaySound},
     {"SetPlayAnimationSounds", &Script_SetPlayAnimationSounds},
@@ -3243,6 +3252,10 @@ const Game::Doc::Field kRemoveAuraVisualArgs[] = {
 const Game::Doc::Function kRemoveAuraVisual{
     "Ends the aura of a spell on this actor: its effects fade out as in the world.",
     kRemoveAuraVisualArgs, {}, nullptr, true};
+const Game::Doc::Function kPlayLevelUpEffect{
+    "Plays the glow and the sound that the world shows on a unit that gains a level, once, at "
+    "the feet of this actor.",
+    {}, {}, nullptr, true};
 const Game::Doc::Field kStopSpellVisualArgs[] = {
     Opt("castID", "number", nullptr, "A cast from PlaySpellVisual. Without it, every cast it can stop."),
 };
@@ -3574,6 +3587,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"StopSpellVisual", &kStopSpellVisual},
     {"AddAuraVisual", &kAddAuraVisual},
     {"RemoveAuraVisual", &kRemoveAuraVisual},
+    {"PlayLevelUpEffect", &kPlayLevelUpEffect},
     {"ApplySpellVisualKit", &kApplySpellVisualKit},
     {"PlaySound", &kPlaySound},
     {"SetPlayAnimationSounds", &kSetPlayAnimationSounds},

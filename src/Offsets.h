@@ -6414,6 +6414,21 @@ enum Offsets {
     VAR_SPELLVISUALEFFECTNAME_RECORDS = 0x00C0D760,
     VAR_SPELLVISUALEFFECTNAME_COUNT = 0x00C0D764,
     OFF_SPELLVISUALEFFECTNAME_FILE = 0x08,
+    // The unit's hard-coded effects (AddHardcodedEffect 0x0061FAE0): 14 kinds,
+    // each a SpellVisualEffectName id that start-up (0x0061F5B0) finds by
+    // name into s_hardcodedEffectIds, and an attachment in
+    // s_hardcodedEffectAttachments (37 none; the binary holds 37, 37, 17, 17,
+    // 19, 19, 19, 17, 19, 19, 19, 19, 19, 19). A unit whose model lacks the
+    // attachment gets 19, the base. Kind 5 is "HARDCODED Unit Level Up"
+    // (row 21, Spells\LevelUp\LevelUp.mdl, whose own $SND event is 888
+    // LEVELUP), which CGUnit_C::OnLevelChanged (0x0060CE2F) plays on every
+    // level change.
+    VAR_HARDCODED_EFFECT_IDS = 0x00C4DF30,
+    VAR_HARDCODED_EFFECT_ATTACHMENTS = 0x0080C968,
+    HARDCODED_EFFECT_COUNT = 14,
+    HARDCODED_EFFECT_UNIT_LEVEL_UP = 5,
+    HARDCODED_EFFECT_NO_ATTACHMENT = 37,
+    HARDCODED_EFFECT_FALLBACK_ATTACHMENT = 19,
     // SpellVisualKit columns the world's kit player (0x0060EDF0) reads past
     // the ghost's: the unit animation (+0x08, -1 none; 53 SpellCastDirected
     // on Fireball's cast kit 38) and the SoundEntries id (+0x34; 1484 Fire

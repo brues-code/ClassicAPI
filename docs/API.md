@@ -908,6 +908,7 @@ build instructions.
   - [`actor:StopSpellVisual([castID])`](#actorstopspellvisualcastid)
   - [`actor:AddAuraVisual(spellID)`](#actoraddauravisualspellid)
   - [`actor:RemoveAuraVisual([spellID])`](#actorremoveauravisualspellid)
+  - [`actor:PlayLevelUpEffect()`](#actorplaylevelupeffect)
   - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
   - [`actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`](#actorsetmovementenabledenabled--actorismovementenabled)
   - [Movement commands](#movement-commands)
@@ -20690,6 +20691,18 @@ the aura gave goes too. This is a ClassicAPI extension.
 
 ```lua
 hero:RemoveAuraVisual(324)
+```
+
+### `actor:PlayLevelUpEffect()`
+
+Plays the glow that the world shows on a unit that gains a level. The glow
+rises from the feet of the actor one time, with the level-up sound. The
+model of the actor must be loaded. When you call the function again before
+the glow ends, a second glow plays over the first. This is a ClassicAPI
+extension.
+
+```lua
+hero:PlayLevelUpEffect()
 ```
 
 ### `actor:PlaySound(soundKitID)`

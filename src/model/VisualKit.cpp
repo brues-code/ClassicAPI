@@ -87,6 +87,7 @@ void __fastcall OnEffectDone(void *model, uint32_t /*keyBone*/, uint32_t /*animI
     if (reason != 0)
         return;
     M2::SetAnimDoneCallback(model, nullptr, 0, 0);
+    M2::SetEventCallback(model, nullptr, 0, 0);
     M2::SetVisible(model, false);
     M2::AddRef(model);
     g_stopped.push_back({reinterpret_cast<void *>(static_cast<uintptr_t>(userLow)), model});
@@ -184,6 +185,7 @@ void Stop(void *frame, void *effect) {
         return;
     }
     M2::SetAnimDoneCallback(effect, nullptr, 0, 0);
+    M2::SetEventCallback(effect, nullptr, 0, 0);
     M2::SetVisible(effect, false);
     g_stopped.push_back({frame, effect}); // our reference, handed over
 }
@@ -195,33 +197,39 @@ const uint8_t *Record(uint32_t kitID) {
                        kitID);
 }
 
+void *Hang(void *frame, void *model, const uint8_t *effect, uint32_t attachment, bool oneShot) {
+    if (model == nullptr || effect == nullptr || !M2::HasAttachment(model, attachment))
+        return nullptr;
+    void *child = M2::CreateModel(Pane::Scene(frame),
+                                  Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
+    if (child == nullptr)
+        return nullptr;
+    if (oneShot)
+        M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectDone),
+                                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame)), 0);
+    else
+        M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
+    M2::Attach(child, model, attachment);
+    Model::DisplayInfo::LightChildren(frame, model);
+    return child;
+}
+
 void Apply(void *frame, void *model, const uint8_t *kit, bool oneShot,
            std::vector<void *> *effects) {
     if (model == nullptr)
         return;
-    void *scene = Pane::Scene(frame);
     for (int i = 0; i < static_cast<int>(sizeof(kAttachments) / sizeof(kAttachments[0])); ++i) {
         const uint8_t *effect = DBC::Record(
             Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
             Game::Read<uint32_t>(kit, Offsets::OFF_SPELLVISUALKIT_EFFECTS + i * 4));
-        if (effect == nullptr || !M2::HasAttachment(model, kAttachments[i]))
-            continue;
-        void *child = M2::CreateModel(
-            scene, Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
+        void *child = Hang(frame, model, effect, kAttachments[i], oneShot);
         if (child == nullptr)
             continue;
-        if (oneShot)
-            M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectDone),
-                                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame)), 0);
-        else
-            M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
-        M2::Attach(child, model, kAttachments[i]);
         if (effects != nullptr)
             effects->push_back(child); // our reference, handed over
         else
             M2::Release(child);
     }
-    Model::DisplayInfo::LightChildren(frame, model);
     ApplyProcedures(model, kit);
 }
 

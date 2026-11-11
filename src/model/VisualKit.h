@@ -22,8 +22,15 @@ namespace Model::VisualKit {
 // The SpellVisualKit record, or null.
 const uint8_t *Record(uint32_t kitID);
 
-// Hangs the kit's effect models on `model`, a model in `frame`'s scene, lit
-// by the frame's light, and applies its tint and alpha procedures. A oneShot
+// One effect: the model of the SpellVisualEffectName record `effect`, made in
+// `frame`'s scene, attached to `model` at `attachment` and lit by the frame's
+// light. A oneShot effect stops when its sequence ends; the others loop.
+// Returns the effect model with one reference the caller then owns, or null
+// when the record, the attachment or the model is missing.
+void *Hang(void *frame, void *model, const uint8_t *effect, uint32_t attachment, bool oneShot);
+
+// Hangs the kit's effect models on `model` (Hang, each column at its
+// attachment), and applies its tint and alpha procedures. A oneShot
 // effect stops when its sequence ends; the others loop. When `effects` is
 // given, each attached effect model is appended to it with one reference the
 // caller then owns; otherwise the effects live as long as `model` holds them.
@@ -37,7 +44,8 @@ const void *LoopCallback();
 // Stops a lasting effect that Apply handed over, taking its reference, as an
 // aura's removal stops a state kit's effects (0x00614150 with force): a
 // loaded model with Decay (159) plays it and stops when it ends; any other
-// stops at once. A stopped effect hides, and goes once its particles are gone.
+// stops at once. A stopped effect hides, loses its callbacks as CEffect::Stop
+// (0x006203E0) clears them, and goes once its particles are gone.
 void Stop(void *frame, void *effect);
 
 // Whether the kit sets the model's tint or alpha (procedure kinds 1 and 14).

@@ -466,6 +466,11 @@ void Retire(Actor &caster, void *model, std::unique_ptr<EntityLight> light);
 void Silence(Actor &caster);
 } // namespace Casts
 
+// AddHardcodedEffect (0x0061FAE0): the unit's hard-coded effect `kind`
+// (Offsets::HARDCODED_EFFECT_*) on the loaded actor, once, with its model's
+// $SND and $HIT (model/SceneSpell.cpp).
+void PlayHardcodedEffect(Actor &actor, int kind);
+
 // The byte a spell visual kit procedure keeps in a float value: the bits of
 // the value + 512.0, shifted right 14 (the engine's decode, 0x005D5665 and
 // 0x0060DB19; model/SceneArea.cpp).
