@@ -262,7 +262,7 @@ local function Step(dt)
 		end
 	end
 	UpdateEggs();
-	UpdateMines(dt);
+	UpdateMines(dt, hx, hy);
 	UpdateVents(dt, hx, hy);
 
 	Chase(dt, hx, hy, hz);

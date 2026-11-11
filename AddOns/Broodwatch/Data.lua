@@ -413,14 +413,16 @@ local TUNING = {
 	EGG_WARN = 5,              -- seconds before it hatches that a red ring marks it
 	EGG_WHELPS = 4,            -- whelps that hatch from each egg
 	-- Goblin Land Mines (the creature 7527's display 6271: Stand 0, Despawn
-	-- 157 of 1.17 s). A whelp that steps within MINE_TRIGGER sets one off: it
-	-- casts the Goblin Sapper Charge's visual (13241) at its own point,
-	-- which plants Bomb_ExplosionA there and plays the FireNova cast kit.
+	-- 157 of 1.17 s). The hero stepping within MINE_TRIGGER arms one; then a
+	-- whelp stepping within it sets it off: it casts the Goblin Sapper
+	-- Charge's visual (13241) at its own point, which plants Bomb_ExplosionA
+	-- there and plays the FireNova cast kit.
 	MINE_DISPLAY = 6271,
 	MINE_SPELL = 13241,
+	MINE_ARM_SOUND = 3216,     -- Land Mine Arming's (11816) cast kit 259 sound
 	MINE_COUNT = 4,            -- mines lying in the lair
 	MINE_RESPAWN = 15,         -- seconds before a spent mine is laid again
-	MINE_TRIGGER = 1.5,        -- yards: a whelp this close sets it off
+	MINE_TRIGGER = 1.5,        -- yards: the hero this close arms it, then a whelp sets it off
 	MINE_RADIUS = 6,           -- yards the blast reaches
 	MINE_DAMAGE = 60,          -- grows with the run as the brood's health does
 	MINE_KNOCK = { 12, 8 },

@@ -16,23 +16,32 @@ local ANIM_DESPAWN = 157
 
 ------------------------------------------------------------------------------
 -- A mine is not an enemy: no spell aims at it, and the hero walks over it
--- safely. It lies armed under a reticle the size of its blast until a whelp
--- (any enemy that moves) comes within MINE_TRIGGER. Then it blows: every
--- enemy within MINE_RADIUS is hurt and thrown, the mine plays Despawn and
--- hides, and MINE_RESPAWN seconds later it lies armed somewhere else.
+-- safely. It lies dormant under a small reticle until the hero steps within
+-- MINE_TRIGGER: that arms it (Land Mine Arming's sound), and its reticle
+-- grows to its blast. An armed mine waits for a whelp (any enemy that moves)
+-- within MINE_TRIGGER. Then it blows: every enemy within MINE_RADIUS is hurt
+-- and thrown, the mine plays Despawn and hides, and MINE_RESPAWN seconds
+-- later it lies dormant somewhere else. So a mine works where you lead the
+-- brood, not wherever it wanders.
 
 local mines = {}
 
-local function Arm(mine)
+local function Place(mine)
 	local x, y = SpawnPoint();
 	local _, _, hz = BW.hero:GetPosition();
 	mine.x, mine.y, mine.z = x, y, FloorAt(x, y, hz);
-	mine.state = "armed";
+	mine.state = "dormant";
 	mine.actor:SetPosition(mine.x, mine.y, mine.z);
 	mine.actor:SetYaw(math.random() * 2 * math.pi);
 	mine.actor:SetAnimation(ANIM_STAND);
-	mine.actor:SetGroundReticle(TUNING.MINE_RADIUS);
+	mine.actor:SetGroundReticle(0);
 	mine.actor:Show();
+end
+
+local function Arm(mine)
+	mine.state = "armed";
+	mine.actor:SetGroundReticle(TUNING.MINE_RADIUS);
+	mine.actor:PlaySound(TUNING.MINE_ARM_SOUND);
 end
 
 -- Lays MINE_COUNT armed mines (a new run).
@@ -44,7 +53,7 @@ local function LayMines()
 			mine.actor:SetModelByCreatureDisplayID(TUNING.MINE_DISPLAY);
 			mines[i] = mine;
 		end
-		Arm(mine);
+		Place(mine);
 	end
 end
 
@@ -81,9 +90,14 @@ local function Stepped(mine)
 	return false;
 end
 
-local function UpdateMines(dt)
+local function UpdateMines(dt, hx, hy)
+	local t2 = TUNING.MINE_TRIGGER * TUNING.MINE_TRIGGER;
 	for _, mine in ipairs(mines) do
-		if mine.state == "armed" then
+		if mine.state == "dormant" then
+			if Dist2(hx, hy, mine.x, mine.y) <= t2 then
+				Arm(mine);
+			end
+		elseif mine.state == "armed" then
 			if Stepped(mine) then
 				Blow(mine);
 			end
@@ -95,7 +109,7 @@ local function UpdateMines(dt)
 					mine.left = TUNING.MINE_RESPAWN;
 					mine.actor:Hide();
 				else
-					Arm(mine);
+					Place(mine);
 				end
 			end
 		end

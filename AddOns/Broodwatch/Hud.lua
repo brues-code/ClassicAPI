@@ -563,6 +563,7 @@ local function GainXp(xp)
 	-- A level starts the bar again from empty at once; a gain within a
 	-- level eases.
 	if wrapped then
+		BW.hero:PlayLevelUpEffect(); -- the world's glow and sound, once however many levels
 		local levels = BW.run.pendingLevels;
 		BW.run.hp = math.min(MaxHp(), BW.run.hp + MaxHp() * LEVEL_HEAL * levels);
 		UpdateHealth();
