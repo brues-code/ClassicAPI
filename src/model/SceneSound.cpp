@@ -141,6 +141,14 @@ void *Loop(void *sceneFrame, int soundKitID, const float (&point)[3]) {
     return Sound::Play::PlayKitLoopedAt(soundKitID, heard);
 }
 
+bool KitLoops(int soundID) {
+    using Flag_t = bool(__fastcall *)(uint32_t id, char *out);
+    char loops = 0;
+    return soundID > 0 &&
+           reinterpret_cast<Flag_t>(Offsets::FUN_SOUND_DEFINITION_KIT_LOOP)(static_cast<uint32_t>(soundID), &loops) &&
+           loops != 0;
+}
+
 void Move(void *sceneFrame, void *sound, const float (&point)[3]) {
     if (sound == nullptr)
         return;

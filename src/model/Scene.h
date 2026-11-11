@@ -160,6 +160,10 @@ struct AuraVisual {
     float worldYaw = 0.0f;
     float worldScale = 1.0f;
     bool worldFollows = false;
+    // The kit's sound when it loops (Sounds::KitLoops): its ID, and the loop
+    // playing at the actor (null while the scene is paused or hidden).
+    int loopSoundID = 0;
+    void *loopSound = nullptr;
 };
 
 // The area kit of a spell's ground area while it runs: the shard emitter
@@ -495,10 +499,13 @@ void ApplyColors(Actor &actor);
 // kit's, ApplyEffectAnimation 0x005FDE80), or -1.
 int PinnedAnimation(const Actor &actor);
 // From the actor's update, link and place: the world effects' light,
-// visibility and placement.
+// visibility and placement, and the loop sounds' place and pause.
 void Update(Actor &actor, float elapsedSec);
 void Link(Actor &actor);
 void Place(Actor &actor);
+// Stops the loop sounds (the scene hid; its update stops). The update starts
+// them again.
+void Silence(Actor &actor);
 } // namespace AuraVisuals
 
 // The area kit of an actor that shows a spell's ground area
@@ -700,6 +707,13 @@ void Heard(void *sceneFrame, const float (&point)[3], float (&out)[3]);
 void *Play(void *sceneFrame, int soundKitID, const float (&point)[3]);
 void *Loop(void *sceneFrame, int soundKitID, const float (&point)[3]);
 void Move(void *sceneFrame, void *sound, const float (&point)[3]);
+// A sound's fade when its effect or missile stops: CEffect::Stop's `push
+// 0x3E19999A` before Sound::Stop2 (0x006204B6) and the missile's free
+// (0x0061CD70).
+constexpr float kStopFadeSec = 0.15f;
+// Whether a lasting kit (kinds 2 to 4) loops the sound rather than playing
+// it once: bit 0x200 of its SoundEntries flags (FUN_SOUND_DEFINITION_KIT_LOOP).
+bool KitLoops(int soundID);
 } // namespace Sounds
 
 // The scene camera (model/Scene.cpp).

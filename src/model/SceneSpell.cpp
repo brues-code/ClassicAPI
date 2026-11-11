@@ -155,7 +155,6 @@ constexpr int kAnimCombatWound = 9;
 constexpr int kAnimInFlight = 144;
 constexpr float kReleaseTimeoutSec = 2.0f; // 0x0060A814
 constexpr float kMaxSpeed = 100.0f;        // 0x0080C854
-constexpr float kSoundFadeSec = 0.15f;     // the missile's free, 0x0061CD70
 const Game::Live<float> kAimHeight{Offsets::VAR_THREE_QUARTERS};
 constexpr uint32_t kFallbackAttachments[] = {15, 19};
 constexpr char kErrorCube[] = "Spells\\ErrorCube.mdx";
@@ -188,15 +187,6 @@ bool ChainLoaded(void *model) {
     return true;
 }
 
-// Whether a kit's sound loops with a lasting kit (FUN_SOUND_DEFINITION_KIT_LOOP).
-bool KitSoundLoops(int soundID) {
-    using Flag_t = bool(__fastcall *)(uint32_t id, char *out);
-    char loops = 0;
-    return soundID > 0 &&
-           reinterpret_cast<Flag_t>(Offsets::FUN_SOUND_DEFINITION_KIT_LOOP)(static_cast<uint32_t>(soundID), &loops) &&
-           loops != 0;
-}
-
 // The world's kit player on a unit, for a model: the effects (looping into
 // `effects`, or once and owned by the model), the animation and the sound.
 // A lasting kit (`loop`) records the animation it made the caster's loop,
@@ -213,7 +203,7 @@ void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, Spe
             loop->animation = anim;
     }
     const int sound = Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SOUND);
-    if (lasting && KitSoundLoops(sound)) {
+    if (lasting && Sounds::KitLoops(sound)) {
         loop->soundID = sound;
         loop->sound = Sounds::Loop(actor.SceneFrame(), sound, actor.position);
     } else {
@@ -411,7 +401,7 @@ void FreeStuck(StuckMissile &stuck) {
 // over it (a wound) plays on.
 void EndKitLoop(Actor &caster, std::vector<void *> &effects, bool &tinted, SpellCast::KitLoop &loop) {
     if (loop.sound != nullptr) {
-        Sound::Play::Stop(loop.sound, kSoundFadeSec);
+        Sound::Play::Stop(loop.sound, Sounds::kStopFadeSec);
         loop.sound = nullptr;
     }
     loop.soundID = 0;
@@ -451,7 +441,7 @@ void EndChannel(Actor &caster, SpellCast &cast) {
 
 void StopMissileSound(SpellCast &cast) {
     if (cast.missileSound != nullptr) {
-        Sound::Play::Stop(cast.missileSound, kSoundFadeSec);
+        Sound::Play::Stop(cast.missileSound, Sounds::kStopFadeSec);
         cast.missileSound = nullptr;
     }
 }

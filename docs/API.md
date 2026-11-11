@@ -20642,7 +20642,10 @@ aura visual. The effects of the aura stay on the actor until
 actor. Some auras also leave an effect on the ground where the actor
 stands. The ground effect of a spell that roots, for example the ice of
 Frost Nova, moves with the actor. Some auras also change the color of the
-actor.
+actor. The sound of the aura plays when it shows, from the actor. A few
+auras repeat their sound until they end. A sound that does not play twice
+at once in the world, for example the crack of Frost Nova's ice, plays one
+time when many actors get the aura together.
 
 Some auras also have an animation, for example the stun of a stun aura.
 While the actor does not move, it plays the animation of its newest aura

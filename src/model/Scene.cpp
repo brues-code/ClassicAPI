@@ -1080,6 +1080,7 @@ int __fastcall Hide(void *self, void *) {
     for (Actor *actor : *F(self).actors) {
         Casts::Silence(*actor);
         Areas::Silence(*actor);
+        AuraVisuals::Silence(*actor);
     }
     return g_class.Base<Hide_t>(Offsets::VTBL_FRAME_HIDE)(self, nullptr);
 }

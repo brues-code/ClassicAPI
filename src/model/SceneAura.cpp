@@ -38,8 +38,14 @@
 // stunned actor stands stunned. An aura's end does not pick again; its
 // animation plays on until its sequence ends, as on a unit.
 //
-// What the world does and this does not: the state kit's sound, and the
-// auras' priorities and visions (a scene shows every aura it is given).
+// The kit's sound plays once per play at the actor (the first effect's arm
+// pass, 0x00620C10 to 0x006210B9), or loops on it when its definition has
+// bit 0x200 (AddEffectSound 0x0061FEC0) until the aura's end stops it with
+// CEffect::Stop's fade. A definition with no-duplicates (0x20), as Frost
+// Nova's and Fear's, plays once however many actors show it at once.
+//
+// What the world does and this does not: the auras' priorities and visions
+// (a scene shows every aura it is given).
 
 #include "model/Scene.h"
 
@@ -48,6 +54,7 @@
 #include "dbc/Lookup.h"
 #include "model/M2.h"
 #include "model/VisualKit.h"
+#include "sound/Play.h"
 
 #include <cstdint>
 #include <memory>
@@ -87,6 +94,15 @@ void ShowOne(Actor &actor, AuraVisual &aura) {
     aura.shown = true;
     void *frame = actor.SceneFrame();
     Model::VisualKit::Apply(frame, actor.model, aura.kit, false, &aura.effects);
+    // The kit's sound, once per play: a looping one stays on the unit until
+    // the aura's effects stop.
+    const auto sound = Game::Read<int32_t>(aura.kit, Offsets::OFF_SPELLVISUALKIT_SOUND);
+    if (Sounds::KitLoops(sound)) {
+        aura.loopSoundID = sound;
+        aura.loopSound = Sounds::Loop(frame, sound, actor.position);
+    } else if (sound > 0) {
+        Sounds::Play(frame, sound, actor.position);
+    }
     const uint8_t *effect =
         DBC::Record(Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
                     Game::Read<uint32_t>(aura.kit, Offsets::OFF_SPELLVISUALKIT_WORLD_EFFECT));
@@ -109,6 +125,10 @@ void ShowOne(Actor &actor, AuraVisual &aura) {
 // model.
 void HideOne(Actor &actor, AuraVisual &aura, bool stop) {
     void *frame = actor.SceneFrame();
+    if (aura.loopSound != nullptr)
+        Sound::Play::Stop(aura.loopSound, stop ? Sounds::kStopFadeSec : 0.0f);
+    aura.loopSound = nullptr;
+    aura.loopSoundID = 0;
     for (void *effect : aura.effects) {
         if (stop) {
             Model::VisualKit::Stop(frame, effect);
@@ -211,10 +231,30 @@ void ApplyColors(Actor &actor) {
     }
 }
 
+// The world has no pause; a paused scene (or actor) silences the loops, which
+// start again when the pause ends, as a hidden scene's do when it shows.
 void Update(Actor &actor, float elapsedSec) {
+    const bool held = IsPaused(actor.SceneFrame()) || actor.paused || actor.globalPaused;
     for (AuraVisual &aura : actor.auraVisuals) {
         if (aura.worldEffect != nullptr)
             SettleLight(aura.worldEffect, aura.worldLight.get(), elapsedSec);
+        if (aura.loopSoundID == 0)
+            continue;
+        if (held && aura.loopSound != nullptr) {
+            Sound::Play::Stop(aura.loopSound, 0.0f);
+            aura.loopSound = nullptr;
+        } else if (!held && aura.loopSound == nullptr) {
+            aura.loopSound = Sounds::Loop(actor.SceneFrame(), aura.loopSoundID, actor.position);
+        }
+    }
+}
+
+void Silence(Actor &actor) {
+    for (AuraVisual &aura : actor.auraVisuals) {
+        if (aura.loopSound != nullptr) {
+            Sound::Play::Stop(aura.loopSound, 0.0f);
+            aura.loopSound = nullptr;
+        }
     }
 }
 
@@ -230,6 +270,7 @@ void Link(Actor &actor) {
 void Place(Actor &actor) {
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     for (AuraVisual &aura : actor.auraVisuals) {
+        Sounds::Move(actor.SceneFrame(), aura.loopSound, actor.position);
         if (aura.worldEffect == nullptr)
             continue;
         if (aura.worldFollows) {
