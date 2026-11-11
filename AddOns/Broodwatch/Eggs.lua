@@ -8,6 +8,8 @@ local Spawn = BW.Spawn
 local SpawnPoint = BW.SpawnPoint
 local Retire = BW.Retire
 local PickKind = BW.PickKind
+local FloorAt = BW.FloorAt
+local CENTER = BW.CENTER
 
 ------------------------------------------------------------------------------
 -- An egg is an enemy (BW.enemies), so every spell can break it, and a broken
@@ -17,13 +19,17 @@ local PickKind = BW.PickKind
 
 local eggs = {} -- the eggs laid and not yet broken or hatched
 
+-- Each egg knows its clutch: where it was laid and when it hatches (the
+-- off-screen markers show a clutch once).
 local function LayClutch()
 	local cx, cy = SpawnPoint();
+	local clutch = { x = cx, y = cy, z = FloorAt(cx, cy, CENTER[3]), hatchAt = BW.run.time + TUNING.EGG_HATCH };
 	local n = TUNING.EGG_CLUTCH;
 	for k = 1, n do
 		local a = (k - 1) * 2 * math.pi / n + math.random() * 0.6;
 		local e = Spawn(EGG, cx + TUNING.EGG_SPREAD * math.cos(a), cy + TUNING.EGG_SPREAD * math.sin(a));
-		e.hatchAt = BW.run.time + TUNING.EGG_HATCH;
+		e.hatchAt = clutch.hatchAt;
+		e.clutch = clutch;
 		e.warned = nil;
 		tinsert(eggs, e);
 	end
@@ -71,6 +77,7 @@ local function ClearEggs()
 end
 
 -- For the files that load after this one.
+BW.eggs = eggs
 BW.LayClutch = LayClutch
 BW.UpdateEggs = UpdateEggs
 BW.ClearEggs = ClearEggs

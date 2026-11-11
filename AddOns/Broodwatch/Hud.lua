@@ -5,6 +5,7 @@ local HERO_HP = BW.HERO_HP
 local SPELLS = BW.SPELLS
 local SPELL_ORDER = BW.SPELL_ORDER
 local EVOLUTIONS = BW.EVOLUTIONS
+local FUSIONS = BW.FUSIONS
 local MAX_SPELLS = BW.MAX_SPELLS
 local EARLY_SPELLS = BW.EARLY_SPELLS
 local PASSIVES = BW.PASSIVES
@@ -85,6 +86,14 @@ local function BuildOffers()
 			break;
 		end
 	end
+	-- A fusion ready (both its spells at rank V) comes before that.
+	for _, fusion in ipairs(FUSIONS) do
+		local a, b = BW.run.spells[fusion.a], BW.run.spells[fusion.b];
+		if a and b and a.level >= MAX_LEVEL and b.level >= MAX_LEVEL then
+			tinsert(all, 1, { kind = "fuse", key = fusion.into, a = fusion.a, b = fusion.b, level = 1 });
+			break;
+		end
+	end
 	for i = 1, 3 do
 		offers[i] = all[i] or { kind = "heal" };
 	end
@@ -98,16 +107,23 @@ local CARD_COLORS = {
 	passive = { 0.3, 0.9, 0.4 },
 	heal = { 1, 0.45, 0.45 },
 	evolve = { 0.85, 0.5, 1 },
+	fuse = { 1, 0.55, 0.15 },
 }
 local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
 	heal = "Heal per hit", radius = "Radius", slow = "Enemy speed", duration = "Lasts", cooldown = "Every",
 	absorb = "Absorbs", root = "Freezes for", fear = "Fears for", weaken = "Their bites",
 	hit = "Infernal's blows", burn = "Immolation per second", orbs = "Orbs", selfBurn = "Burns you for",
+	length = "Reaches", ignite = "Burns per second", traps = "Traps", freeze = "Freezes for", stun = "Stuns for",
+	pulseDamage = "Pulse",
 }
-local STAT_UNITS = { radius = " yd", duration = " s", cooldown = " s", root = " s", fear = " s" }
+local STAT_UNITS = {
+	radius = " yd", duration = " s", cooldown = " s", root = " s", fear = " s", length = " yd", freeze = " s",
+	stun = " s",
+}
 local STAT_ORDER = {
-	"damage", "hit", "burn", "selfBurn", "orbs", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear",
+	"damage", "hit", "pulseDamage", "burn", "ignite", "selfBurn", "orbs", "count", "jumps", "totems", "traps", "spread", "heal",
+	"absorb", "radius", "length", "slow", "root", "freeze", "stun", "fear",
 	"weaken",
 	"duration", "cooldown",
 }
@@ -178,9 +194,19 @@ local function OfferLines(o)
 		if evolution and o.level == MAX_LEVEL then
 			tinsert(lines, "|cffd980ffEvolves with " .. PASSIVES[evolution.needs].name .. ".|r");
 		end
-	elseif o.kind == "evolve" then
+		for _, fusion in ipairs(FUSIONS) do
+			if o.level == MAX_LEVEL and (fusion.a == o.key or fusion.b == o.key) then
+				local other = fusion.a == o.key and fusion.b or fusion.a;
+				tinsert(lines, "|cffff8c26Fuses with " .. SPELLS[other].name .. " at rank V.|r");
+			end
+		end
+	elseif o.kind == "evolve" or o.kind == "fuse" then
 		local def = SPELLS[o.key];
-		tinsert(lines, "Replaces " .. SPELLS[o.from].name .. ".");
+		if o.kind == "fuse" then
+			tinsert(lines, "Fuses " .. SPELLS[o.a].name .. " and " .. SPELLS[o.b].name .. ", and frees a slot.");
+		else
+			tinsert(lines, "Replaces " .. SPELLS[o.from].name .. ".");
+		end
 		tinsert(lines, "");
 		tinsert(lines, def.blurb);
 		tinsert(lines, "");
@@ -230,6 +256,9 @@ local function FillCard(i, o)
 	elseif o.kind == "evolve" then
 		local def = SPELLS[o.key];
 		icon, title, tag, colorKey = Icon(def.spell), def.name, "Evolution", "evolve";
+	elseif o.kind == "fuse" then
+		local def = SPELLS[o.key];
+		icon, title, tag, colorKey = Icon(def.spell), def.name, "Fusion", "fuse";
 	else
 		icon, title, tag, colorKey = Icon(HEAL_ICON), "Second Wind", "Everything is at rank V", "heal";
 	end
@@ -253,7 +282,7 @@ local function FillCard(i, o)
 	local maxRank = o.kind == "passive" and PASSIVES[o.key].max or MAX_LEVEL;
 	for r = 1, MAX_LEVEL do
 		local pip = getglobal(name .. "Pip" .. r);
-		if o.kind == "heal" or o.kind == "evolve" or r > maxRank then
+		if o.kind == "heal" or o.kind == "evolve" or o.kind == "fuse" or r > maxRank then
 			pip:Hide();
 		else
 			pip:Show();
@@ -277,9 +306,15 @@ local function ShowSlotTip(slot)
 	if slot.spellKey then
 		local def = SPELLS[slot.spellKey];
 		local level = BW.run.spells[slot.spellKey].level;
-		local color = def.evolved and CARD_COLORS.evolve or CARD_COLORS.spell;
+		local color = def.fused and CARD_COLORS.fuse or def.evolved and CARD_COLORS.evolve or CARD_COLORS.spell;
 		tip:SetText(def.name, color[1], color[2], color[3]);
-		if def.evolved then
+		if def.fused then
+			for _, fusion in ipairs(FUSIONS) do
+				if fusion.into == slot.spellKey then
+					tip:AddLine("Fused from " .. SPELLS[fusion.a].name .. " and " .. SPELLS[fusion.b].name, 0.6, 0.6, 0.6, 1);
+				end
+			end
+		elseif def.evolved then
 			for from, evolution in pairs(EVOLUTIONS) do
 				if evolution.into == slot.spellKey then
 					tip:AddLine("Evolved from " .. SPELLS[from].name .. " and " .. PASSIVES[evolution.needs].name,
@@ -308,6 +343,13 @@ local function ShowSlotTip(slot)
 			local into = SPELLS[evolution.into];
 			tip:AddLine("At rank V with " .. PASSIVES[evolution.needs].name .. ", evolves into " .. into.name .. ".",
 				0.85, 0.5, 1, 1);
+		end
+		for _, fusion in ipairs(FUSIONS) do
+			if fusion.a == slot.spellKey or fusion.b == slot.spellKey then
+				local other = fusion.a == slot.spellKey and fusion.b or fusion.a;
+				tip:AddLine("At rank V with " .. SPELLS[other].name .. " at rank V, fuses into "
+					.. SPELLS[fusion.into].name .. ".", 1, 0.55, 0.15, 1);
+			end
 		end
 	else
 		local p = PASSIVES[slot.passiveKey];
@@ -491,7 +533,15 @@ function Broodwatch_PickCard(i)
 		return;
 	end
 	local o = offers[i];
-	if o.kind == "evolve" then
+	if o.kind == "fuse" then
+		-- The fusion takes the first spell's place and recharge; the second
+		-- spell's slot frees.
+		local state = BW.run.spells[o.a];
+		BW.run.spells[o.a] = nil;
+		BW.run.spells[o.b] = nil;
+		state.level = 1;
+		BW.run.spells[o.key] = state;
+	elseif o.kind == "evolve" then
 		-- The evolution takes its spell's place, recharge and all.
 		local state = BW.run.spells[o.from];
 		BW.run.spells[o.from] = nil;
@@ -526,6 +576,21 @@ function Broodwatch_PickCard(i)
 	ShowCards();
 	if not BW.cards:IsShown() then
 		SetPaused(false);
+		-- A grace when the last card closes: the brood that crowded you while
+		-- you leveled is thrown back, and nothing hurts you for a moment (the
+		-- step; you show faded while it lasts).
+		BW.run.graceUntil = BW.run.time + TUNING.GRACE_SECONDS;
+		BW.hero:SetAlpha(TUNING.GRACE_ALPHA);
+		local hx, hy = BW.hero:GetPosition();
+		local r2 = TUNING.GRACE_RADIUS * TUNING.GRACE_RADIUS;
+		for _, e in ipairs(BW.enemies) do
+			if e.alive then
+				local x, y = e.actor:GetPosition();
+				if BW.Dist2(x, y, hx, hy) <= r2 then
+					BW.Blast(e, hx, hy, TUNING.GRACE_KNOCK);
+				end
+			end
+		end
 	end
 end
 

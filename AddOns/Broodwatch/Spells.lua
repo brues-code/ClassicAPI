@@ -9,7 +9,8 @@ local enemies = BW.enemies
 local FloorAt = BW.FloorAt
 local Dist2 = BW.Dist2
 local Flash = BW.Flash
-local Damage = BW.Damage
+local SpellDamage = BW.SpellDamage
+local Burn = BW.Burn
 local Blast = BW.Blast
 local Hold = BW.Hold
 local Fear = BW.Fear
@@ -142,7 +143,7 @@ local function UpdateTotems(dt)
 								shown = shown + 1;
 								totem.actor:PlaySpellVisual(def.pulse, e.actor, 0);
 							end
-							Damage(e, totem.damage * def.mastery.burst, def.color);
+							SpellDamage(e, totem.damage * def.mastery.burst, def);
 						end
 					end
 				end
@@ -164,7 +165,7 @@ local function UpdateTotems(dt)
 								shown = shown + 1;
 								totem.actor:PlaySpellVisual(def.pulse, e.actor, 0);
 							end
-							Damage(e, totem.damage, def.color);
+							SpellDamage(e, totem.damage, def);
 						end
 					end
 				end
@@ -275,7 +276,6 @@ local function UpdateAreas(dt)
 		if area.tick <= 0 then
 			area.tick = area.tick + 1;
 			local r2 = area.radius * area.radius;
-			local color = SPELLS[area.key].color;
 			for _, e in ipairs(enemies) do
 				if e.alive then
 					local x, y = e.actor:GetPosition();
@@ -283,7 +283,7 @@ local function UpdateAreas(dt)
 						if area.slow then
 							Slow(e, area.slow);
 						end
-						Damage(e, area.damage, color);
+						SpellDamage(e, area.damage, SPELLS[area.key]);
 					end
 				end
 			end
@@ -544,7 +544,7 @@ local function Land(meteor)
 		if e.alive then
 			local x, y = e.actor:GetPosition();
 			if Dist2(x, y, meteor.x, meteor.y) <= radius * radius then
-				Damage(e, damage, def.color);
+				SpellDamage(e, damage, def);
 				if e.alive then
 					Hold(e, TUNING.INFERNO_STUN, def.stunAura);
 				end
@@ -579,7 +579,7 @@ local function Immolate(infernal, x, y)
 		if e.alive then
 			local ex, ey = e.actor:GetPosition();
 			if Dist2(ex, ey, x, y) <= r2 then
-				Damage(e, infernal.burnDamage, SPELLS.inferno.color);
+				SpellDamage(e, infernal.burnDamage, SPELLS.inferno);
 				e.taunter = infernal;
 				e.tauntUntil = BW.run.time + TUNING.INFERNAL_TAUNT;
 			end
@@ -610,7 +610,7 @@ local function Fight(infernal, dt)
 			infernal.actor:StopMoving();
 			infernal.actor:SetYaw(math.atan2(ty - y, tx - x));
 			infernal.actor:SetAnimation(BW.ANIM_ATTACK_UNARMED);
-			Damage(prey, infernal.hit, SPELLS.inferno.color);
+			SpellDamage(prey, infernal.hit, SPELLS.inferno);
 		end
 	else
 		infernal.move = infernal.move - dt;
@@ -683,7 +683,7 @@ end
 
 local function Strike(e)
 	local def = SPELLS.lshield;
-	Damage(e, BW.run.orbDamage, def.color);
+	SpellDamage(e, BW.run.orbDamage, def);
 	e.actor:ApplySpellVisualKit(def.zapKit, true);
 end
 
@@ -775,7 +775,7 @@ local function ChannelTick(key, def, channel, target, x, y)
 	if def.missile then
 		ChannelMissiles(key, def, channel.level, target, damage);
 	else
-		Damage(target, damage, def.color);
+		SpellDamage(target, damage, def);
 	end
 	local heal = Stat(def, "heal", channel.level);
 	if heal then
@@ -791,7 +791,7 @@ local function ChannelTick(key, def, channel, target, x, y)
 			if e.alive and e ~= target then
 				local ex, ey = e.actor:GetPosition();
 				if Dist2(ex, ey, x, y) <= r2 then
-					Damage(e, damage, def.color);
+					SpellDamage(e, damage, def);
 				end
 			end
 		end
@@ -813,7 +813,7 @@ local function HellfireTick(key, def, channel)
 		if e.alive then
 			local x, y = e.actor:GetPosition();
 			if Dist2(x, y, hx, hy) <= radius * radius then
-				Damage(e, damage, def.color);
+				SpellDamage(e, damage, def);
 				if lit < TUNING.HELLFIRE_IMPACTS then
 					lit = lit + 1;
 					e.actor:ApplySpellVisualKit(def.impactKit, true);
@@ -895,7 +895,7 @@ local function EndShield(broken)
 			if e.alive then
 				local x, y = e.actor:GetPosition();
 				if Dist2(x, y, hx, hy) <= r2 then
-					Damage(e, m.damage, SPELLS.shield.color);
+					SpellDamage(e, m.damage, SPELLS.shield);
 					Blast(e, hx, hy, m.knock);
 				end
 			end
@@ -915,9 +915,17 @@ local function QueueCast(entry)
 	tinsert(BW.run.castQueue, entry);
 end
 
+-- Kinds another file handles (Kinds.lua): kind -> { Fire(key, state, def,
+-- level) -> cast?, Cast(entry, def) }.
+BW.kindHandlers = {}
+
 local function Fire(key, state)
 	local def = SPELLS[key];
 	local level = state.level;
+	local handler = BW.kindHandlers[def.kind];
+	if handler then
+		return handler.Fire(key, state, def, level);
+	end
 	local hx, hy = BW.hero:GetPosition();
 	if def.kind == "missile" or def.kind == "dot" or def.kind == "chain" or def.kind == "polymorph" then
 		local targets = PickTargets(def, Stat(def, "count", level) or 1, hx, hy);
@@ -993,7 +1001,10 @@ local function CastNext()
 	end
 	entry.state.pending = entry.state.pending - 1;
 	local def = SPELLS[entry.key];
-	if entry.target then
+	local handler = BW.kindHandlers[def.kind];
+	if handler then
+		handler.Cast(entry, def);
+	elseif entry.target then
 		if not entry.target.alive then
 			return CastNext();
 		end
@@ -1087,7 +1098,7 @@ local function CastNext()
 				local x, y = e.actor:GetPosition();
 				if Dist2(x, y, hx, hy) <= r2 then
 					if entry.damage then
-						Damage(e, entry.damage, def.color);
+						SpellDamage(e, entry.damage, def);
 					end
 					if e.alive then
 						if root then
@@ -1120,7 +1131,7 @@ local function CastNext()
 		end
 		-- Arcane Explosion's Echo bursts again (once); the shout's battle cry
 		-- speeds you while it lasts.
-		if mastery and entry.key == "nova" and not entry.echo then
+		if mastery and mastery.echo and not entry.echo then
 			QueueCast({
 				key = entry.key, state = entry.state, level = entry.level, damage = entry.damage,
 				radius = entry.radius, echo = true,
@@ -1243,7 +1254,30 @@ BW.OnImpact = function(_, _, hitActor, castID)
 		return;
 	end
 	local wasAlive = target.alive;
-	Damage(target, entry.damage, def.color);
+	SpellDamage(target, entry.damage, def);
+	-- A burn: on the target, and with Pyroblast's mastery on every enemy
+	-- near it; Moonfire's mastery makes it last longer.
+	local ignite = Stat(def, "ignite", entry.level);
+	if ignite then
+		local seconds = def.igniteSeconds;
+		if Mastered(entry.key) and def.mastery.longer then
+			seconds = seconds * def.mastery.longer;
+		end
+		local school = def.burnSchool or def.school;
+		Burn(target, ignite, seconds, school, def.color);
+		if Mastered(entry.key) and def.mastery.radius and entry.key == "pyroblast" then
+			local tx, ty = target.actor:GetPosition();
+			local r2 = def.mastery.radius * def.mastery.radius;
+			for _, e in ipairs(enemies) do
+				if e.alive and e ~= target then
+					local x, y = e.actor:GetPosition();
+					if Dist2(x, y, tx, ty) <= r2 then
+						Burn(e, ignite, seconds, school, def.color);
+					end
+				end
+			end
+		end
+	end
 	-- Frostbolt Volley chills.
 	local slow = def.kind == "missile" and Stat(def, "slow", entry.level);
 	if slow and target.alive then
@@ -1285,7 +1319,7 @@ BW.OnImpact = function(_, _, hitActor, castID)
 			if e.alive then
 				local x, y = e.actor:GetPosition();
 				if Dist2(x, y, tx, ty) <= r2 then
-					Damage(e, entry.damage * m.share, def.color);
+					SpellDamage(e, entry.damage * m.share, def);
 				end
 			end
 		end
@@ -1325,4 +1359,9 @@ BW.ClearLandings = ClearLandings
 BW.ClearAreas = ClearAreas
 BW.Fire = Fire
 BW.CastNext = CastNext
+BW.QueueCast = QueueCast
+BW.PickTargets = PickTargets
+BW.Slow = Slow
+BW.NoSkip = NoSkip
+BW.PlantArea = PlantArea
 BW.Corrupt = Corrupt

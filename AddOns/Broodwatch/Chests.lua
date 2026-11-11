@@ -98,5 +98,6 @@ local function ClearChests()
 end
 
 -- For the files that load after this one.
+BW.chests = chests
 BW.UpdateChests = UpdateChests
 BW.ClearChests = ClearChests

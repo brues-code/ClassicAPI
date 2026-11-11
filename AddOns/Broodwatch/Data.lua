@@ -58,7 +58,8 @@ local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach
 -- its gameobject's Custom0 (153) and that slot's sound (GameObjectDisplayInfo
 -- 477's sound 6, SoundEntries 4785).
 local EGG = { key = "egg", path = "World\\Goober\\G_DragonEggBlack.m2", hp = 60, dps = 0, xp = 6, reach = 0, speed = 0,
-	gemScale = 0.5, holdShare = 0, knockShare = 0, crackAnim = 153, crackSound = 4785, crackSeconds = 0.95 }
+	gemScale = 0.5, holdShare = 0, knockShare = 0, crackAnim = 153, crackSound = 4785, crackSeconds = 0.95,
+	icon = "Interface\\Icons\\INV_Egg_01" }
 
 -- Spells, by level 1 to 5. A missile spell hits `count` enemies in `range`;
 -- a nova spell hits every enemy within `radius` of the hero. At rank V a
@@ -82,7 +83,7 @@ local SPELLS = {
 	nova = {
 		spell = 1449, blurb = "Bursts arcane power at every enemy around you.", color = { 0.85, 0.55, 1 }, kind = "nova",
 		damage = { 10, 14, 18, 22, 28 }, radius = { 6, 6.5, 7, 7.5, 8 }, cooldown = { 5, 4.6, 4.2, 3.8, 3.4 },
-		mastery = { text = "Echo: each explosion bursts a second time." },
+		mastery = { text = "Echo: each explosion bursts a second time.", echo = true },
 	},
 	chain = {
 		spell = 421, blurb = "Leaps from enemy to enemy.",
@@ -318,13 +319,159 @@ local SPELLS = {
 		cooldown = { 7, 6.5, 6, 5.5, 5 },
 		mastery = { text = "The coil fears every enemy around its target.", radius = 5 },
 	},
+	-- Cones (Kinds.lua): everything within `length` yards in front of you,
+	-- inside CONE_ARC of your facing. Cone of Cold's cast kit (1027) holds
+	-- its cone at the hand.
+	conecold = {
+		spell = 120, blurb = "A cone of frost in front of you hurts and chills the brood.",
+		color = { 0.6, 0.85, 1 }, kind = "cone",
+		damage = { 20, 26, 32, 40, 50 }, length = { 10, 10, 11, 11, 12 }, slow = { 0.6, 0.55, 0.5, 0.45, 0.4 },
+		cooldown = { 4, 3.7, 3.4, 3.1, 2.8 },
+		mastery = { text = "The cone freezes what it hits for 1 second.", freeze = 1 },
+	},
+	-- Turrets (Kinds.lua): a totem that shoots its `bolt` at the nearest
+	-- enemy in range every `every` seconds. Searing Totem is the creature
+	-- 2523 (display 4589); its bolt is Searing Bolt (3606).
+	searing = {
+		spell = 3599, bolt = 3606, display = 4589, blurb = "Plants a totem that shoots fire at the nearest enemy.",
+		color = { 1, 0.5, 0.15 }, kind = "turret", range = 20, every = 1,
+		damage = { 10, 13, 16, 20, 25 }, duration = { 12, 14, 16, 18, 20 }, cooldown = { 12, 11.5, 11, 10.5, 10 },
+		mastery = { text = "The totem shoots two bolts at once.", bolts = 2 },
+	},
+	-- Zones (Kinds.lua): a totem whose aura slows every enemy near it, showing
+	-- the aura's visual on each. Earthbind Totem is the creature 2630
+	-- (display 4588); its aura is Earthbind (3600).
+	earthbind = {
+		spell = 2484, aura = 3600, display = 4588, blurb = "Plants a totem that slows every enemy near it.",
+		color = { 0.8, 0.65, 0.4 }, kind = "zone",
+		radius = { 8, 8.5, 9, 9.5, 10 }, slow = { 0.5, 0.45, 0.4, 0.35, 0.3 }, duration = { 10, 11, 12, 13, 14 },
+		cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "Every 3 seconds the totem roots everything near it for 1 second.", root = 1, every = 3 },
+	},
+	-- Traps (Kinds.lua): a hunter's trap (its gameobject's model) at your
+	-- feet. Freezing Trap's effect is Freezing Trap Effect (3355: its state
+	-- kit 3709 is the ice block); Explosive Trap's is Explosive Trap Effect
+	-- (13812), whose ground area burns where it went off.
+	freezetrap = {
+		spell = 1499, effect = 3355, path = "World\\Goober\\G_FreezingTrap.m2", sound = 6522,
+		blurb = "Drops a trap at your feet that freezes the first whelp to step on it, and those beside it.",
+		color = { 0.6, 0.85, 1 }, kind = "trap",
+		radius = { 2, 2.5, 3, 3.5, 4 }, freeze = { 3, 3.5, 4, 4.5, 5 }, traps = { 1, 1, 2, 2, 3 },
+		cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "Each trap springs twice.", springs = 2 },
+	},
+	explosivetrap = {
+		spell = 13813, effect = 13812, path = "World\\Goober\\G_ExplosiveTrap.m2", sound = 6523,
+		blurb = "Drops a trap at your feet that blows up under the first whelp to step on it and sets the brood alight.",
+		color = { 1, 0.5, 0.15 }, kind = "trap", knock = { 6, 8 },
+		damage = { 30, 40, 50, 62, 75 }, radius = { 5, 5.5, 6, 6.5, 7 }, ignite = { 5, 6, 8, 10, 12 }, igniteSeconds = 4,
+		traps = { 1, 1, 2, 2, 3 }, cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "The ground it blasts burns for 4 seconds.", area = 4 },
+	},
+	-- Pyroblast (11366): a slow, heavy fireball at the toughest enemy, which
+	-- leaves it burning.
+	pyroblast = {
+		spell = 11366, blurb = "A great fireball at the toughest enemy in range, which leaves it burning.",
+		color = { 1, 0.45, 0.15 }, kind = "missile", pick = "strongest", range = 26,
+		damage = { 80, 105, 130, 160, 200 }, ignite = { 6, 8, 10, 12, 15 }, igniteSeconds = 4,
+		cooldown = { 5, 4.7, 4.4, 4.1, 3.8 },
+		mastery = { text = "The blast sets every enemy within 4 yards of its target alight.", radius = 4 },
+	},
+	-- Charge (100): you rush into the thickest pack in range (its cast kit
+	-- 44: the trail at the chest, the dust at the base), stunning what is
+	-- around you where you land (Charge Stun 7922: state kit 349).
+	charge = {
+		spell = 100, stunAura = 7922, blurb = "You rush into the thickest pack in range and stun the brood where you land.",
+		color = { 1, 0.6, 0.2 }, kind = "charge",
+		range = { 12, 13, 14, 15, 16 }, damage = { 20, 26, 32, 40, 50 }, radius = { 4, 4, 4.5, 4.5, 5 },
+		stun = { 1, 1.2, 1.4, 1.6, 2 }, cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "Where you land, the brood is thrown back.", knock = { 10, 6 } },
+	},
+	-- Whirlwind (1680): a nova; its cast kit (369) spins you (126) with the
+	-- whirlwind at your feet.
+	whirlwind = {
+		spell = 1680, blurb = "You spin with your weapon, cutting everything close around you.",
+		color = { 1, 0.75, 0.4 }, kind = "nova",
+		damage = { 18, 24, 30, 38, 48 }, radius = { 5, 5.2, 5.4, 5.7, 6 }, cooldown = { 3, 2.8, 2.6, 2.4, 2.2 },
+		mastery = { text = "You spin twice.", echo = true },
+	},
+	-- Mind Blast (8092) and Moonfire (8921) are instant: their impacts land
+	-- at once. Moonfire leaves an arcane burn.
+	mindblast = {
+		spell = 8092, blurb = "Blasts the mind of the toughest enemy in range.",
+		color = { 0.75, 0.5, 1 }, kind = "missile", pick = "strongest", range = 24,
+		damage = { 40, 52, 65, 80, 100 }, count = { 1, 1, 1, 1, 2 }, cooldown = { 4, 3.7, 3.4, 3.1, 2.8 },
+		mastery = { text = "It blasts two enemies." },
+	},
+	moonfire = {
+		spell = 8921, blurb = "Moonlight strikes enemies at random and leaves them burning.",
+		color = { 0.85, 0.6, 1 }, kind = "missile", pick = "random", range = 24,
+		damage = { 12, 15, 18, 22, 27 }, count = { 1, 2, 2, 3, 3 }, ignite = { 4, 5, 6, 7, 8 }, igniteSeconds = 4,
+		cooldown = { 3, 2.8, 2.6, 2.4, 2.2 },
+		mastery = { text = "Its burn lasts twice as long.", longer = 2 },
+	},
+	-- Fusions (FUSIONS): two spells at rank V become one of these. Like an
+	-- evolution, each has one rank and is never offered on its own.
+	-- Fire Nova Totem (1535, creature 5879: display 4683): a turret that also
+	-- burns everything around it, as Magma Totem's pulse does.
+	firenova = {
+		spell = 1535, bolt = 3606, pulse = 8187, display = 4683, evolved = true, fused = true,
+		blurb = "Plants a totem that shoots fire at the brood and burns everything around it.",
+		color = { 1, 0.5, 0.15 }, kind = "turret", range = 22, every = 0.6, pulseEvery = 2, bolts = 2,
+		damage = { 30 }, pulseDamage = { 30 }, radius = { 8 }, duration = { 20 }, cooldown = { 12 },
+	},
+	-- Frost Trap (13809): a trap that freezes everything around it and leaves
+	-- its icy ground (Frost Trap Aura 13810: frosttrap_aura.mdx) slowing the
+	-- brood.
+	frosttrap = {
+		spell = 13809, effect = 3355, area = 13810, path = "World\\Goober\\G_FrostTrap.m2", sound = 6524,
+		evolved = true, fused = true,
+		blurb = "Drops traps that blow up, freeze everything around them, and leave the ground icy.",
+		color = { 0.6, 0.85, 1 }, kind = "trap", knock = { 4, 6 },
+		damage = { 60 }, radius = { 7 }, freeze = { 3 }, slow = { 0.4 }, duration = { 6 }, traps = { 3 }, cooldown = { 5 },
+	},
+	-- Intercept (20252): Charge's rush (cast kit 44) that lands in a
+	-- Whirlwind.
+	intercept = {
+		spell = 20252, stunAura = 7922, whirl = 1680, evolved = true, fused = true,
+		blurb = "You rush into the thickest pack, spin through it and stun it.",
+		color = { 1, 0.6, 0.2 }, kind = "charge",
+		range = { 18 }, damage = { 60 }, radius = { 6 }, stun = { 2 }, cooldown = { 4 },
+	},
+	-- Starfire (2912): heavy arcane strikes at random that leave a burn.
+	starfire = {
+		spell = 2912, evolved = true, fused = true,
+		blurb = "Starlight crashes down on enemies at random and leaves them burning.",
+		color = { 0.85, 0.6, 1 }, kind = "missile", pick = "random", range = 26,
+		damage = { 55 }, count = { 4 }, ignite = { 10 }, igniteSeconds = 6, cooldown = { 2 },
+	},
+	-- Frost Breath (3129): a wide cone from your breath (its cast kit 2610:
+	-- FrostBreath.mdx at the breath) that freezes.
+	frostbreath = {
+		spell = 3129, evolved = true, fused = true,
+		blurb = "You breathe frost over everything in front of you, freezing it.",
+		color = { 0.6, 0.85, 1 }, kind = "cone", wide = 1.5,
+		damage = { 60 }, length = { 14 }, freeze = { 2 }, cooldown = { 3 },
+	},
+	-- Shadow Flame (22539): Nefarian's breath, a cone of shadowfire that leaves
+	-- the brood burning (its impact kit 5870 on each). Its flame hangs at an
+	-- attachment a character has none of, so the impacts show the cone.
+	shadowflame = {
+		spell = 22539, evolved = true, fused = true,
+		blurb = "A cone of shadowflame in front of you that leaves the brood burning.",
+		color = { 0.75, 0.45, 1 }, kind = "cone", wide = 1.3, burnSchool = "Fire", -- its burn is flame
+		damage = { 70 }, length = { 13 }, ignite = { 15 }, igniteSeconds = 4, cooldown = { 3 },
+	},
 }
 local SPELL_ORDER = {
 	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
 	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
 	"drainlife", "mindflay", "inferno", "lshield", "polymorph", "arcanemissiles", "deathcoil", "hellfire",
-	-- The evolutions, on the bar after the others.
+	"conecold", "searing", "earthbind", "freezetrap", "explosivetrap", "pyroblast", "charge", "whirlwind",
+	"mindblast", "moonfire",
+	-- The evolutions and fusions, on the bar after the others.
 	"frostvolley", "shadowvolley", "siphonlife", "divineshield", "warstomp", "flamestrike",
+	"firenova", "frosttrap", "intercept", "starfire", "frostbreath", "shadowflame",
 }
 -- A spell at rank V with the passive it `needs` (any rank) evolves `into` a
 -- stronger spell, which takes its place.
@@ -335,6 +482,16 @@ local EVOLUTIONS = {
 	shield = { needs = "vigor", into = "divineshield" },
 	thunder = { needs = "devotion", into = "warstomp" },
 	rainoffire = { needs = "amplify", into = "flamestrike" },
+}
+-- Two spells both at rank V fuse `into` one stronger spell, which takes the
+-- first one's place and frees the second one's slot.
+local FUSIONS = {
+	{ a = "searing", b = "totem", into = "firenova" },
+	{ a = "freezetrap", b = "explosivetrap", into = "frosttrap" },
+	{ a = "charge", b = "whirlwind", into = "intercept" },
+	{ a = "moonfire", b = "lightning", into = "starfire" },
+	{ a = "conecold", b = "frostnova", into = "frostbreath" },
+	{ a = "mindblast", b = "pyroblast", into = "shadowflame" },
 }
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
@@ -369,6 +526,9 @@ local PASSIVES = {
 -- spell, and each passive without a name of its own from its icon's spell.
 for _, def in pairs(SPELLS) do
 	def.name = C_Spell.GetSpellName(def.spell)
+	-- The spell's school, which the combos read: "Fire", "Frost", ...
+	local _, school = GetSpellSchool(def.spell)
+	def.school = school
 end
 for _, p in pairs(PASSIVES) do
 	p.name = p.name or C_Spell.GetSpellName(p.icon)
@@ -445,6 +605,40 @@ local TUNING = {
 	VENT_WAVE_GROWTH = 150,    -- seconds after VENT_FIRST for each crack more in a wave
 	VENT_WAVE_MAX = 4,
 	VENT_COLOR = { 1, 0.35, 0 },
+	-- Combos (Brood.lua's SpellDamage, by the spells' schools).
+	SHATTER = 3,               -- a hit but frost on a frozen enemy, times
+	DREAD = 1.5,               -- shadow on a fleeing enemy, times
+	DETONATE_RADIUS = 4,       -- yards a detonated burn splashes, at half
+	STEAM_STUN = 1.5,          -- seconds frost on a fire burn stuns
+	WILDFIRE_RADIUS = 4,       -- yards a burning enemy's death sets alight
+	COMBO_COLOR = { 1, 0.9, 0.3 },
+	BURN_AURA = 348,           -- Immolate: its state kit 235 burns at the base
+	STUN_AURA = 20549,         -- War Stomp's StunSwirl (no Gouge roar)
+	-- Traps (Kinds.lua): a trap lands at your feet, arms after TRAP_ARM, and
+	-- springs on the first whelp within TRAP_TRIGGER: its gameobject's
+	-- Custom0 (153) with that slot's sound, then it hides.
+	TRAP_ARM = 1,
+	TRAP_TRIGGER = 1.5,
+	TRAP_LIFE = 30,            -- seconds an unsprung trap lies
+	TRAP_MAX = 6,              -- traps lying at once; the oldest goes first
+	TRAP_SPRUNG = 1.2,         -- seconds the sprung trap shows before it hides
+	-- Charge (Kinds.lua): you rush at this many yards a second; the dash ends
+	-- at the target or after CHARGE_MAX seconds.
+	CHARGE_SPEED = 28,
+	CHARGE_MAX = 1,
+	CONE_ARC = math.pi / 2,    -- radians a cone spans, centred on its aim
+	CAST_POSE = 0.4,           -- seconds a cone's cast holds you facing it
+	-- The grace when the last level-up or chest card closes (Hud.lua).
+	GRACE_SECONDS = 1.5,       -- nothing hurts you this long
+	GRACE_RADIUS = 6,          -- yards: the brood this close is thrown back
+	GRACE_KNOCK = { 12, 6 },
+	GRACE_ALPHA = 0.5,         -- how you show while it lasts
+	-- Off-screen markers (Markers.lua): a closed chest or a clutch past the
+	-- scene's edge shows an arrow at the edge, pointing at it, and its icon.
+	MARKER_ARROW = "Interface\\ChatFrame\\ChatFrameExpandArrow", -- points right
+	MARKER_ARROW_SIZE = 24,    -- pixels
+	MARKER_ICON_SIZE = 26,     -- pixels
+	MARKER_MARGIN = 36,        -- pixels from the scene's edge to the arrow's centre
 	POTION_HEAL = 0.3,         -- of the maximum health
 	GRENADE_RADIUS = 5,
 	GRENADE_DAMAGE = 45,       -- grows with the run as the brood's health does
@@ -502,8 +696,10 @@ local ITEMS = {
 local CHEST_SOUND = 1277 -- ChestOpen (SoundEntries)
 local GOLDEN_EVERY = 5
 local CHESTS = {
-	plain = { path = "World\\SkillActivated\\Containers\\TreasureChest01.m2", scale = 1.2, open = 0.666, speed = 1, picks = 1, title = "Treasure" },
-	golden = { path = "World\\Goober\\G_ChestTitan.m2", scale = 0.6, open = 3.2, speed = 2, picks = 3, title = "Golden Treasure" },
+	plain = { path = "World\\SkillActivated\\Containers\\TreasureChest01.m2", scale = 1.2, open = 0.666, speed = 1, picks = 1,
+		title = "Treasure", icon = "Interface\\Icons\\INV_Box_01" },
+	golden = { path = "World\\Goober\\G_ChestTitan.m2", scale = 0.6, open = 3.2, speed = 2, picks = 3,
+		title = "Golden Treasure", icon = "Interface\\Icons\\INV_Box_02" },
 }
 -- Onyxia's Lair's lava cracks inside the arena: { x, y, z, facing, scale,
 -- mirrored }. They are the lava-trap gameobjects of the server's Onyxia
@@ -567,6 +763,7 @@ BW.EGG = EGG
 BW.SPELLS = SPELLS
 BW.SPELL_ORDER = SPELL_ORDER
 BW.EVOLUTIONS = EVOLUTIONS
+BW.FUSIONS = FUSIONS
 BW.MAX_SPELLS = MAX_SPELLS
 BW.EARLY_SPELLS = EARLY_SPELLS
 BW.PASSIVES = PASSIVES

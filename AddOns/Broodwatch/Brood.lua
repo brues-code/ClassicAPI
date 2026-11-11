@@ -88,8 +88,10 @@ local function Spawn(kind, x, y)
 	e.dying = nil;
 	e.fading = nil;
 	e.dotLeft = nil;
+	e.burnLeft = nil;
 	e.slowUntil, e.slowFactor = nil, nil;
 	e.stunUntil = nil;
+	e.frozenAura = nil;
 	e.fearUntil, e.fearTick = nil, nil;
 	e.frozenUntil = nil;
 	e.weakUntil, e.weakShare = nil, nil;
@@ -133,6 +135,8 @@ local function Retire(e)
 	e.fearUntil, e.fearTick = nil, nil;
 end
 
+local Wildfire -- a combo, below with the lasting effects
+
 local function Kill(e)
 	Retire(e);
 	BW.run.kills = BW.run.kills + 1;
@@ -147,6 +151,10 @@ local function Kill(e)
 		tinsert(BW.run.spreads, e);
 	end
 	e.dotLeft = nil;
+	if e.burnLeft and e.burnSchool == "Fire" then
+		Wildfire(e, x, y);
+	end
+	e.burnLeft = nil;
 end
 
 ------------------------------------------------------------------------------
@@ -326,6 +334,7 @@ local function Hold(e, seconds, aura, frozen)
 	e.stunUntil = math.max(e.stunUntil or 0, untilTime);
 	if frozen then
 		e.frozenUntil = e.stunUntil;
+		e.frozenAura = aura;
 	end
 	EndFear(e);
 	e.actor:StopMoving();
@@ -383,10 +392,140 @@ local function Weaken(e, share, seconds)
 	e.weakUntil = math.max(e.weakUntil or 0, BW.run.time + seconds);
 end
 
+------------------------------------------------------------------------------
+-- Burning: `dps` each second for `seconds`, of a spell's school (Pyroblast's
+-- fire, Moonfire's arcane). A stronger burn takes over, a longer one lasts.
+-- A fire burn shows Immolate's aura (348: state kit 235, flames at the base).
+
+local function Burn(e, dps, seconds, school, color)
+	if not e.alive then
+		return;
+	end
+	e.burnDps = math.max(e.burnLeft and e.burnDps or 0, dps);
+	e.burnLeft = math.max(e.burnLeft or 0, seconds);
+	e.burnSeconds = seconds;
+	e.burnTick = e.burnTick or 1;
+	e.burnSchool = school;
+	e.burnColor = color;
+	if school == "Fire" then
+		ShowAura(e, TUNING.BURN_AURA, BW.run.time + e.burnLeft);
+	end
+end
+
+local function EndBurn(e)
+	if e.burnSchool == "Fire" then
+		EndAura(e, TUNING.BURN_AURA);
+	end
+	e.burnLeft, e.burnTick = nil, nil;
+end
+
+-- A frozen enemy's ice breaks (Shatter): its hold and its aura end.
+local function Thaw(e)
+	EndAura(e, e.frozenAura);
+	e.frozenUntil, e.stunUntil, e.frozenAura = nil, nil, nil;
+end
+
+local function Announce(e, combo)
+	ShowNumber(e, BIG_HIT, TUNING.COMBO_COLOR, combo .. "!");
+end
+
+-- Wildfire: a burning enemy that dies sets the enemies around it alight
+-- with its burn (called from Kill).
+Wildfire = function(e, x, y)
+	local r2 = TUNING.WILDFIRE_RADIUS * TUNING.WILDFIRE_RADIUS;
+	local caught = false;
+	for _, o in ipairs(enemies) do
+		if o.alive and not o.burnLeft then
+			local ox, oy = o.actor:GetPosition();
+			if Dist2(ox, oy, x, y) <= r2 then
+				Burn(o, e.burnDps, e.burnSeconds, "Fire", e.burnColor);
+				caught = true;
+			end
+		end
+	end
+	if caught then
+		Announce(e, "Wildfire");
+	end
+end
+
+-- A spell's hit, by its school (def.school, the spell's own) against what
+-- the enemy suffers. The combos:
+-- - Shatter: any hit but frost on a frozen enemy deals SHATTER times its
+--   damage and breaks the ice.
+-- - Dread: shadow hurts a fleeing enemy DREAD times as much.
+-- - Detonate: nature sets off a burn: what is left of it lands at once,
+--   and half of that on every enemy within DETONATE_RADIUS.
+-- - Steam: frost puts out a fire burn and stuns the enemy for STEAM_STUN.
+-- - Wildfire (Kill): a burning enemy that dies sets its neighbours alight.
+local function SpellDamage(e, amount, def)
+	if not e.alive then
+		return;
+	end
+	local school = def.school;
+	local combo, detonated, steamed;
+	if school ~= "Frost" and e.frozenUntil and BW.run.time < e.frozenUntil then
+		amount = amount * TUNING.SHATTER;
+		Thaw(e);
+		combo = "Shatter";
+	elseif school == "Shadow" and e.fearUntil then
+		amount = amount * TUNING.DREAD;
+	end
+	if e.burnLeft then
+		if school == "Nature" then
+			detonated = e.burnDps * e.burnLeft;
+			EndBurn(e);
+			amount = amount + detonated;
+			combo = "Detonate";
+		elseif school == "Frost" and e.burnSchool == "Fire" then
+			EndBurn(e);
+			steamed = true;
+			combo = "Steam";
+		end
+	end
+	local x, y = e.actor:GetPosition();
+	Damage(e, amount, def.color);
+	if combo then
+		Announce(e, combo);
+	end
+	if steamed and e.alive then
+		Hold(e, TUNING.STEAM_STUN, TUNING.STUN_AURA);
+	end
+	if detonated then
+		local r2 = TUNING.DETONATE_RADIUS * TUNING.DETONATE_RADIUS;
+		for _, o in ipairs(enemies) do
+			if o.alive and o ~= e then
+				local ox, oy = o.actor:GetPosition();
+				if Dist2(ox, oy, x, y) <= r2 then
+					Damage(o, detonated * 0.5, def.color);
+				end
+			end
+		end
+	end
+end
+
+local function TickBurn(e, dt)
+	e.burnTick = e.burnTick - dt;
+	if e.burnTick > 0 then
+		return;
+	end
+	e.burnTick = e.burnTick + 1;
+	e.burnLeft = e.burnLeft - 1;
+	Damage(e, e.burnDps, e.burnColor);
+	if e.alive and e.burnLeft <= 0 then
+		EndBurn(e);
+	end
+end
+
 -- Ends the effects whose time has run out (the step, for each live enemy),
 -- and burns the fleeing with Psychic Scream's Terror.
 local function UpdateStates(e, dt)
 	local t = BW.run.time;
+	if e.burnLeft then
+		TickBurn(e, dt);
+		if not e.alive then
+			return;
+		end
+	end
 	if e.fearUntil and Mastered("scream") then
 		e.fearTick = (e.fearTick or 1) - dt;
 		if e.fearTick <= 0 then
@@ -469,9 +608,12 @@ end
 -- For the files that load after this one.
 BW.Blast = Blast
 BW.Hold = Hold
+BW.ShowAura = ShowAura
 BW.Fear = Fear
 BW.HoldShare = HoldShare
 BW.Weaken = Weaken
+BW.Burn = Burn
+BW.SpellDamage = SpellDamage
 BW.Polymorph = Polymorph
 BW.ApplySpeed = ApplySpeed
 BW.UpdateStates = UpdateStates

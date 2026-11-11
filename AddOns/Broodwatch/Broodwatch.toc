@@ -8,9 +8,11 @@ Brood.lua
 Eggs.lua
 Mines.lua
 Spells.lua
+Kinds.lua
 Hud.lua
 Items.lua
 Chests.lua
 Vents.lua
+Markers.lua
 Broodwatch.lua
 Broodwatch.xml

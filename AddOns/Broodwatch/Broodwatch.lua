@@ -102,7 +102,8 @@ local function Held(key)
 end
 
 local function Steer()
-	if not BW.run or BW.paused or BW.run.over then
+	-- A charge steers itself, and a cone's cast holds you facing it (Kinds.lua).
+	if not BW.run or BW.paused or BW.run.over or BW.run.charge or BW.run.pose then
 		return;
 	end
 	local forward = Held("W") - Held("S");
@@ -162,6 +163,7 @@ local function StartRun()
 		ClearPet();
 		ClearChannels();
 		ClearInfernals();
+		BW.ClearKinds();
 	end
 	BW.hero:RemoveAuraVisual();
 	BW.hurtTexture:SetAlpha(0);
@@ -183,6 +185,7 @@ local function StartRun()
 	BW.hero:SetPosition(CENTER[1], CENTER[2], CENTER[3] + 0.5);
 	BW.hero:SetYaw(CAMERA_YAW);
 	BW.hero:Show();
+	BW.hero:SetAlpha(1); -- a grace may have faded it
 	BW.hero:SetMovementEnabled(true);
 	BW.run.heroRun = BW.hero:GetMovementSpeed("run");
 	BW.LayMines(); -- away from the hero, so after it stands at the centre
@@ -264,6 +267,7 @@ local function Step(dt)
 	UpdateEggs();
 	UpdateMines(dt, hx, hy);
 	UpdateVents(dt, hx, hy);
+	BW.UpdateMarkers();
 
 	Chase(dt, hx, hy, hz);
 
@@ -364,6 +368,7 @@ local function Step(dt)
 	UpdatePet(dt, hx, hy, hz);
 	UpdateChannels(dt);
 	UpdateInfernals(dt);
+	BW.UpdateKinds(dt);
 	if BW.run.shoutUntil and BW.run.time >= BW.run.shoutUntil then
 		BW.run.shoutUntil = nil;
 		BW.ApplyHeroSpeed();
@@ -373,6 +378,14 @@ local function Step(dt)
 	-- spells (Hellfire's fire).
 	local taken = hurt * dt + BW.run.pendingHurt;
 	BW.run.pendingHurt = 0;
+	if BW.run.graceUntil then -- the grace after the cards (Hud.lua)
+		if BW.run.time < BW.run.graceUntil then
+			taken = 0;
+		else
+			BW.run.graceUntil = nil;
+			BW.hero:SetAlpha(1);
+		end
+	end
 	if BW.run.shield then
 		local soak = math.min(BW.run.shield, taken);
 		BW.run.shield = BW.run.shield - soak;
@@ -649,8 +662,9 @@ function Broodwatch_OnLoad(self)
 end
 
 SLASH_BROODWATCH1 = "/broodwatch";
--- `/broodwatch [spell [rank]]`: a spell key of SPELLS (with its rank, I by
--- default) starts the run with that spell alone, for testing it.
+-- `/broodwatch [spell [rank] ...]`: spell keys of SPELLS (each with its
+-- rank, I by default) start the run with those spells alone, for testing
+-- them: `/broodwatch charge 5 whirlwind 5` makes Intercept the next pick.
 -- `/broodwatch chest` (or `golden`) starts the run with a chest close by,
 -- `/broodwatch eggs` with a clutch of eggs, `/broodwatch vents` with the
 -- lava vents erupting from the start.
@@ -660,9 +674,16 @@ SlashCmdList["BROODWATCH"] = function(msg)
 		Build();
 	end
 	StartRun();
-	local _, _, key, rank = string.find(msg or "", "^%s*(%w+)%s*(%d*)");
+	local _, _, key = string.find(msg or "", "^%s*(%w+)");
 	if key and SPELLS[key] then
-		BW.run.spells = { [key] = { level = math.min(tonumber(rank) or 1, MAX_LEVEL), cooldown = 0, pending = 0 } };
+		BW.run.spells = {};
+		for spell, rank in string.gfind(msg, "(%a+)%s*(%d*)") do
+			if SPELLS[spell] then
+				BW.run.spells[spell] = { level = math.min(tonumber(rank) or 1, MAX_LEVEL), cooldown = 0, pending = 0 };
+			else
+				print("Broodwatch: no spell \"" .. spell .. "\"");
+			end
+		end
 		BW.UpdateBuild();
 	elseif key == "chest" or key == "golden" then
 		if key == "golden" then
