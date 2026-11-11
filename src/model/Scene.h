@@ -319,6 +319,13 @@ class Actor : public Animation::Object {
     uint32_t spellVisualKit = 0;
     bool spellVisualKitOneShot = false;
     std::vector<void *> kitEffects; // the kit's effect models, one reference each
+    // The kit's world effect (OFF_SPELLVISUALKIT_WORLD_EFFECT): a model of its
+    // own in the scene, planted where the actor stood, one reference, lit as
+    // an entity; `kitWorldDone` once a one-shot effect has ended.
+    void *kitWorldEffect = nullptr;
+    float kitWorldPosition[3] = {0.0f, 0.0f, 0.0f};
+    std::unique_ptr<EntityLight> kitWorldLight;
+    bool kitWorldDone = false;
     // ApplySpellVisualKit calls made before the model loaded: {kit, oneShot}.
     std::vector<std::pair<uint32_t, bool>> pendingKits;
 

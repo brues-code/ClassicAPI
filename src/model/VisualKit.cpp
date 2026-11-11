@@ -36,9 +36,11 @@
 // drain (0x0061F680) releases a stopped effect once HasLiveParticles is
 // false. Here the release is the detach from the pane's model, run on
 // FrameTick's tail where no model is mid-draw. Without oneShot an effect
-// loops until the model is replaced, as on retail: an effect model's sequence
-// does not loop by itself, so it gets the world's loop callback
-// (KitEffectLoopCallback, 0x0060ED00), which plays the ended animation again.
+// lasts until the model is replaced, as on retail: an effect model's sequence
+// does not loop by itself, so at each end it holds Hold (158) when the model
+// has it, as a state kit's effect does (KitEffectHoldCallback 0x005FF170),
+// and else plays the ended animation again (KitEffectLoopCallback,
+// 0x0060ED00).
 //
 // The effects are children of the pane's model, so they go when the model
 // does: SetUnit, SetItem, a hide and show, and so on. A model destroyed with
@@ -90,13 +92,18 @@ void __fastcall OnEffectDone(void *model, uint32_t /*keyBone*/, uint32_t /*animI
     g_stopped.push_back({reinterpret_cast<void *>(static_cast<uintptr_t>(userLow)), model});
 }
 
-// KitEffectLoopCallback: a sequence that ended cleanly plays again.
+// A lasting effect's sequence that ended cleanly: a model with Hold holds
+// it, as a state kit's effect does (KitEffectHoldCallback 0x005FF170, then
+// KitEffectDecayCallback 0x005FF1D0 with no end time, which plays Hold again
+// at each end); one without plays its sequence again, as a channel kit's does
+// (KitEffectLoopCallback 0x0060ED00). Frost Nova's ice forms once, then stays.
 void __fastcall OnEffectLoop(void *model, uint32_t /*keyBone*/, uint32_t animID, uint32_t reason,
                              uint32_t /*overshoot*/, uint32_t /*userLow*/,
                              uint32_t /*userHigh*/) {
     if (reason != 0)
         return;
-    M2::PlayAnimation(model, -1, animID, -1, 0, 1.0f, 1, 1);
+    const uint32_t next = M2::HasAnimation(model, Offsets::ANIM_HOLD) ? Offsets::ANIM_HOLD : animID;
+    M2::PlayAnimation(model, -1, next, -1, 0, 1.0f, 1, 1);
 }
 
 // Detaches a stopped effect that is still on its model, then drops our

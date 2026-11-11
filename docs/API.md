@@ -20145,9 +20145,18 @@ false)` sets only the first flag. The actor stops when either flag is
 Shows the effects of a spell visual kit (a `SpellVisualKit` ID) on the
 model, for example the glow in the hands of a caster. A new kit removes the
 effects of the old kit. `0` or `nil` removes the kit. With `oneShot` set to
-`true`, each effect plays one time. Without it, the effects loop. The kit
+`true`, each effect plays one time. Without it, the effects last until the
+kit changes: an effect that has a lasting state shows it after it starts,
+for example the ice of Frost Nova after it forms, and the other effects
+loop. The kit
 does not play its animation or its sound: use `SetAnimation` for the
 animation.
+
+Most effects of a kit hang on a point of the model, for example a hand. A
+kit can also have one effect that stands on the ground where the actor is,
+for example the ice of Frost Nova's state kit (285). This effect stays at
+the place where the actor stood when the kit started. It does not move with
+the actor.
 
 ```lua
 -- Cast a Fireball: hold the precast glow, then release it.

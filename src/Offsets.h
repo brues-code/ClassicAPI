@@ -6400,6 +6400,13 @@ enum Offsets {
     VAR_SPELLVISUALKIT_RECORDS = 0x00C0D74C,
     VAR_SPELLVISUALKIT_COUNT = 0x00C0D750,
     OFF_SPELLVISUALKIT_EFFECTS = 0x0C,
+    // The kit's tenth effect, which the world plants in the world rather
+    // than on an attachment: PlayUnitSpellVisualKit (0x0060EDF0) makes a
+    // CEffect and PlantEffect (0x0061FCF0) puts it at the unit's position
+    // (its vtable +0x14), or at the point it is given; with a spell that has a
+    // root aura (26) the effect gets flag 0x4000 and follows the unit. Frost
+    // Nova's state kit 285 holds its ice here (Frost_Nova_state.mdx).
+    OFF_SPELLVISUALKIT_WORLD_EFFECT = 0x30,
     OFF_SPELLVISUALKIT_PROC_KIND = 0x3C,
     OFF_SPELLVISUALKIT_PROC_VALUE = 0x4C,
     // SpellVisualEffectName.dbc: the model file at +0x08, which the ghost
@@ -6456,10 +6463,14 @@ enum Offsets {
     // to the area's radius over the model's bounding-sphere radius when that
     // radius is above this double (0.001, fcomp at 0x005D538E).
     VAR_DYNAMIC_OBJECT_MIN_SPHERE = 0x00801608,
-    // The animation the hook plays on a model that has it and no animation 0
-    // (HasAnimation 0x9E at 0x005D5345, played at 0x005D53D8); the done
-    // callback (0x005D5580) plays it again at each natural end.
-    ANIM_DYNAMIC_OBJECT_LOOP = 158,
+    // Hold (AnimationData.dbc), an effect's lasting state. The hook plays it
+    // on a model that has it and no animation 0 (HasAnimation 0x9E at
+    // 0x005D5345, played at 0x005D53D8), and its done callback (0x005D5580)
+    // plays it again at each natural end. A state kit's effect plays it once
+    // its first sequence ends (KitEffectHoldCallback 0x005FF170), and
+    // KitEffectDecayCallback (0x005FF1D0) plays it again until the effect's
+    // end time, which a state kit leaves at 0, so it holds until the aura goes.
+    ANIM_HOLD = 158,
     // The area kit's shard emitter (0x005D55C0 -> 0x006ECE30 -> 0x006EB930;
     // the shards 0x006EBB30..0x006EBDA9), verified by disassembly and by
     // reading the binary: the procedure kind that starts it (cmp [ecx], 9 at

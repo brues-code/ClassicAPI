@@ -214,6 +214,16 @@ void __fastcall OnAnimDone(void *model, uint32_t keyBone, uint32_t animID, uint3
         M2::PlayAnimation(model, static_cast<int>(keyBone), 0xFFFFFFFFu, -1, 0, 1.0f, 1, 1);
 }
 
+// A one-shot world effect's end (EffectDoneCallback's test, reason 0): it
+// hides until the kit goes.
+void __fastcall OnKitWorldDone(void *model, uint32_t /*keyBone*/, uint32_t /*animID*/, uint32_t reason,
+                               uint32_t /*overshoot*/, uint32_t userLow, uint32_t /*userHigh*/) {
+    if (reason != 0)
+        return;
+    reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow))->kitWorldDone = true;
+    M2::SetVisible(model, false);
+}
+
 // Takes the kit's effects off the model and undoes its tint.
 void DropKitEffects(Actor &actor) {
     for (void *effect : actor.kitEffects) {
@@ -221,6 +231,11 @@ void DropKitEffects(Actor &actor) {
         M2::Release(effect);
     }
     actor.kitEffects.clear();
+    if (actor.kitWorldEffect != nullptr) {
+        M2::SetAnimDoneCallback(actor.kitWorldEffect, nullptr, 0, 0);
+        ReleaseLit(actor.kitWorldEffect, actor.kitWorldLight);
+        actor.kitWorldEffect = nullptr;
+    }
     if (actor.model != nullptr) {
         const float white[3] = {1.0f, 1.0f, 1.0f};
         M2::SetDiffuse(actor.model, white);
@@ -231,9 +246,32 @@ void DropKitEffects(Actor &actor) {
 void ApplyKit(Actor &actor) {
     if (actor.model == nullptr || !actor.loaded || actor.spellVisualKit == 0)
         return;
-    if (const uint8_t *kit = Model::VisualKit::Record(actor.spellVisualKit))
-        Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, actor.spellVisualKitOneShot,
-                                &actor.kitEffects);
+    const uint8_t *kit = Model::VisualKit::Record(actor.spellVisualKit);
+    if (kit == nullptr)
+        return;
+    Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, actor.spellVisualKitOneShot, &actor.kitEffects);
+    // The world effect, planted where the actor stands (PlantEffect
+    // 0x0061FCF0). A kit given without a spell has no root aura, so it stays
+    // there, as the world's does without flag 0x4000.
+    const uint8_t *effect =
+        DBC::Record(Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
+                    Game::Read<uint32_t>(kit, Offsets::OFF_SPELLVISUALKIT_WORLD_EFFECT));
+    if (effect == nullptr)
+        return;
+    void *frame = actor.SceneFrame();
+    void *planted =
+        M2::CreateModel(Model::Pane::Scene(frame), Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
+    if (planted == nullptr)
+        return;
+    actor.kitWorldEffect = planted;
+    actor.kitWorldDone = false;
+    std::memcpy(actor.kitWorldPosition, actor.position, sizeof actor.kitWorldPosition);
+    LightAsEntity(planted, actor.kitWorldLight, frame);
+    if (actor.spellVisualKitOneShot)
+        M2::SetAnimDoneCallback(planted, reinterpret_cast<const void *>(&OnKitWorldDone),
+                                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&actor)), 0);
+    else
+        M2::SetAnimDoneCallback(planted, Model::VisualKit::LoopCallback(), 0, 0);
 }
 
 // ---- the ranged slot (Offsets: UNIT_HAND_RANGED) ----
@@ -1041,8 +1079,8 @@ void SizeSpellArea(Actor &actor) {
         if (size > 0.0f)
             actor.scale = actor.areaRadius / size;
     }
-    if (M2::HasAnimation(actor.model, Offsets::ANIM_DYNAMIC_OBJECT_LOOP) && !M2::HasAnimation(actor.model, 0)) {
-        actor.animation = Offsets::ANIM_DYNAMIC_OBJECT_LOOP;
+    if (M2::HasAnimation(actor.model, Offsets::ANIM_HOLD) && !M2::HasAnimation(actor.model, 0)) {
+        actor.animation = Offsets::ANIM_HOLD;
         actor.PlayAnimation();
     }
 }
@@ -1133,6 +1171,8 @@ void Actor::Update(float elapsedSec, float sceneSec) {
     WriteStringUnit(*this);
     Casts::Update(*this, sceneSec);
     Areas::Update(*this, sceneSec);
+    if (kitWorldEffect != nullptr)
+        SettleLight(kitWorldEffect, kitWorldLight.get(), sceneSec);
     // The casts that reached their target, with (spellID, target, castID).
     // Taken first: a script may cast again, and its impact waits for the next
     // update.
@@ -1169,6 +1209,10 @@ void Actor::Update(float elapsedSec, float sceneSec) {
 void Actor::Link() {
     Casts::Link(*this);
     Areas::Link(*this);
+    if (kitWorldEffect != nullptr && M2::IsReady(kitWorldEffect, 0, 1)) {
+        M2::SetVisible(kitWorldEffect, shown && !kitWorldDone);
+        M2::SetAnimated(kitWorldEffect, true);
+    }
     if (model == nullptr || !M2::IsReady(model, 0, 1))
         return;
     if (M2::Parent(model) == nullptr) // a seated rider is animated by its mount
@@ -1181,11 +1225,15 @@ void Actor::Link() {
 void Actor::Place() {
     Casts::Place(*this);
     Areas::Place(*this);
-    if (model == nullptr)
-        return;
     const float axisX[3] = {1.0f, 0.0f, 0.0f};
     const float axisY[3] = {0.0f, 1.0f, 0.0f};
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
+    if (kitWorldEffect != nullptr) {
+        const float unit[3] = {1.0f, 1.0f, 1.0f};
+        M2::SetBaseTRS(kitWorldEffect, kitWorldPosition, 0.0f, axisZ, unit);
+    }
+    if (model == nullptr)
+        return;
     const float scales[3] = {scale, scale, scale};
     M2::SetBaseTRS(model, position, ShownYaw(), axisZ, scales);
     float *matrix = M2::BaseMatrix(model);
