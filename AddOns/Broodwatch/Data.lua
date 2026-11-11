@@ -239,6 +239,18 @@ local SPELLS = {
 		damage = { 14, 18, 23, 29, 36 }, duration = { 3, 3, 4, 4, 5 }, cooldown = { 6, 5.5, 5, 4.5, 4 },
 		mastery = { text = "Each missile splits into three, at the enemies nearest its target.", split = 3 },
 	},
+	-- Hellfire (1949): a channel on yourself (kit 4809). Each second its
+	-- trigger, Hellfire Effect (5857), bursts around you (cast kit 844) and
+	-- burns the brood in reach, each hit lit by its impact kit (845); and it
+	-- burns you, as the spell's own damage aura (3) does.
+	hellfire = {
+		spell = 1949, tick = 5857, impactKit = 845,
+		blurb = "Channels fire around you that burns the brood close by, and you with it.",
+		color = { 1, 0.45, 0.15 }, kind = "channel", self = true,
+		damage = { 12, 15, 19, 24, 30 }, radius = { 6, 6, 7, 7, 8 }, selfBurn = { 3, 3, 3, 3, 3 },
+		duration = { 4, 4, 5, 5, 6 }, cooldown = { 9, 8.5, 8, 7.5, 7 },
+		mastery = { text = "The fire heals you instead of burning you.", heal = 3 },
+	},
 	-- Death Coil (6789): a missile that harms its target, heals you, and
 	-- fears the target for 3 s (duration 27).
 	deathcoil = {
@@ -252,7 +264,7 @@ local SPELLS = {
 local SPELL_ORDER = {
 	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
 	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
-	"drainlife", "mindflay", "inferno", "lshield", "polymorph", "arcanemissiles", "deathcoil",
+	"drainlife", "mindflay", "inferno", "lshield", "polymorph", "arcanemissiles", "deathcoil", "hellfire",
 }
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
@@ -357,6 +369,7 @@ local TUNING = {
 	ZAP_GAP = 0.5,             -- seconds between two of Lightning Shield's strikes
 	SHEEP_SPEED = 1.5,
 	SHEEP_WANDER = 2,          -- yards a sheep ambles before its next MoveTo
+	HELLFIRE_IMPACTS = 8,      -- hit whelps a Hellfire tick lights with its impact kit
 }
 -- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
 local ITEMS = {

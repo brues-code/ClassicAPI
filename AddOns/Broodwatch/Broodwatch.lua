@@ -163,7 +163,7 @@ local function StartRun()
 		castQueue = {}, castGap = 0, inFlight = {},
 		spawnGap = 0, nextElite = ELITE_EVERY, retargetCarry = 0, retargetCursor = 1,
 		shownSecond = -1, perfFrames = 0, perfLua = 0, perfClock = 0, hurtGlow = 0,
-		spreads = {}, pendingHeal = 0, leech = 0, landings = {},
+		spreads = {}, pendingHeal = 0, pendingHurt = 0, leech = 0, landings = {},
 	};
 	SetPaused(false);
 	BW.held = {};
@@ -345,8 +345,10 @@ local function Step(dt)
 		BW.ApplyHeroSpeed();
 	end
 
-	-- Power Word: Shield soaks the bites first.
-	local taken = hurt * dt;
+	-- Power Word: Shield soaks the bites first, and the hurt of your own
+	-- spells (Hellfire's fire).
+	local taken = hurt * dt + BW.run.pendingHurt;
+	BW.run.pendingHurt = 0;
 	if BW.run.shield then
 		local soak = math.min(BW.run.shield, taken);
 		BW.run.shield = BW.run.shield - soak;

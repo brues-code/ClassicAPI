@@ -89,11 +89,11 @@ local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
 	heal = "Heal per hit", radius = "Radius", slow = "Enemy speed", duration = "Lasts", cooldown = "Every",
 	absorb = "Absorbs", root = "Freezes for", fear = "Fears for", weaken = "Their bites",
-	hit = "Infernal's blows", burn = "Immolation per second", orbs = "Orbs",
+	hit = "Infernal's blows", burn = "Immolation per second", orbs = "Orbs", selfBurn = "Burns you for",
 }
 local STAT_UNITS = { radius = " yd", duration = " s", cooldown = " s", root = " s", fear = " s" }
 local STAT_ORDER = {
-	"damage", "hit", "burn", "orbs", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear",
+	"damage", "hit", "burn", "selfBurn", "orbs", "count", "jumps", "totems", "spread", "heal", "absorb", "radius", "slow", "root", "fear",
 	"weaken",
 	"duration", "cooldown",
 }

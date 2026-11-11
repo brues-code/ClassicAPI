@@ -716,8 +716,11 @@ end
 local channels = {} -- spell key -> the channel under way
 local CHANNEL_SLACK = 4 -- yards past the spell's range before the beam breaks
 
+-- `target`: the enemy the beam holds, or nil for a channel on the hero
+-- (def.self, Hellfire).
 local function Channel(key, def, level, target)
-	local castID = BW.hero:PlaySpellVisual(def.spell, target.actor, 0, Stat(def, "duration", level) * 1000);
+	local on = target and target.actor or BW.hero;
+	local castID = BW.hero:PlaySpellVisual(def.spell, on, 0, Stat(def, "duration", level) * 1000);
 	if not castID then
 		return false;
 	end
@@ -794,6 +797,36 @@ local function ChannelTick(key, def, channel, target, x, y)
 	end
 end
 
+-- Hellfire's tick: the server's Hellfire Effect (def.tick) bursts around the
+-- hero (its cast kit, at the hero's point: PlaySpellVisualAtPoint plays no
+-- impact on a target) and burns the brood in reach, the first
+-- HELLFIRE_IMPACTS hits lit by its impact kit. It burns the hero too; at
+-- rank V it heals instead.
+local function HellfireTick(key, def, channel)
+	local hx, hy, hz = BW.hero:GetPosition();
+	BW.hero:PlaySpellVisualAtPoint(def.tick, hx, hy, hz, 0);
+	local damage = Stat(def, "damage", channel.level);
+	local radius = Stat(def, "radius", channel.level);
+	local lit = 0;
+	for _, e in ipairs(enemies) do
+		if e.alive then
+			local x, y = e.actor:GetPosition();
+			if Dist2(x, y, hx, hy) <= radius * radius then
+				Damage(e, damage, def.color);
+				if lit < TUNING.HELLFIRE_IMPACTS then
+					lit = lit + 1;
+					e.actor:ApplySpellVisualKit(def.impactKit, true);
+				end
+			end
+		end
+	end
+	if Mastered(key) then
+		BW.run.pendingHeal = BW.run.pendingHeal + def.mastery.heal;
+	else
+		BW.run.pendingHurt = BW.run.pendingHurt + Stat(def, "selfBurn", channel.level);
+	end
+end
+
 -- Removing a key during `pairs` is allowed; adding one is not, so a leap
 -- reuses its entry.
 local function UpdateChannels(dt)
@@ -801,10 +834,16 @@ local function UpdateChannels(dt)
 	for key, channel in pairs(channels) do
 		local def = SPELLS[key];
 		local target = channel.target;
-		local reach = def.range + CHANNEL_SLACK;
-		local x, y = target.actor:GetPosition();
 		channel.tick = channel.tick - dt;
-		if not target.alive or Dist2(x, y, hx, hy) > reach * reach then
+		-- A beam breaks when its target dies or slips out of reach; a channel
+		-- on the hero lasts its time.
+		local x, y, lost = hx, hy, false;
+		if target then
+			local reach = def.range + CHANNEL_SLACK;
+			x, y = target.actor:GetPosition();
+			lost = not target.alive or Dist2(x, y, hx, hy) > reach * reach;
+		end
+		if lost then
 			-- Drain Life's mastery leaps the beam on for the ticks left.
 			local nextTarget;
 			if Mastered(key) and def.mastery.leap then
@@ -826,7 +865,11 @@ local function UpdateChannels(dt)
 			if channel.ticks <= 0 then
 				channels[key] = nil; -- the last tick; the beam's own time ends it
 			end
-			ChannelTick(key, def, channel, target, x, y);
+			if target then
+				ChannelTick(key, def, channel, target, x, y);
+			else
+				HellfireTick(key, def, channel);
+			end
 		end
 	end
 end
@@ -891,6 +934,10 @@ local function Fire(key, state)
 	elseif def.kind == "channel" then
 		if channels[key] then
 			return false;
+		end
+		if def.self then
+			-- Only with the brood in reach: the fire burns you either way.
+			return Nearest(hx, hy, Stat(def, "radius", level), NoSkip) ~= nil and Channel(key, def, level);
 		end
 		local target = PickTargets(def, 1, hx, hy)[1];
 		return target ~= nil and Channel(key, def, level, target);
