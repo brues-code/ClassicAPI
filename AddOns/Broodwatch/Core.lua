@@ -1,0 +1,97 @@
+-- Broodwatch core: the shared state, small helpers and the gems.
+--
+-- The files share the addon table BW (`local _, BW = ...`). A file keeps
+-- its own helpers local. What another file calls, and state that changes,
+-- lives on BW; constants are copied into a local at the top of each file
+-- that reads them. The TOC loads Data first and Broodwatch.lua last.
+
+local _, BW = ...
+local GEM_PATH = BW.GEM_PATH
+local MAX_GEMS = BW.MAX_GEMS
+
+------------------------------------------------------------------------------
+-- State
+
+-- BW.OnImpact (the impact of any cast in flight) is defined with the spells,
+-- BW.DropItem (a kill's chance of an item) with the items.
+
+BW.held = {}
+BW.moving = false
+
+local pools = {}   -- kind key -> list of free enemy records
+local enemies = {} -- live and dying enemy records
+local gemPool = {}
+local gems = {}
+
+-- BW.run is the current run, or nil.
+BW.paused = false
+local offers = {}  -- the three level-up choices
+
+------------------------------------------------------------------------------
+-- Helpers
+
+local function FloorAt(x, y, z)
+	local _, _, hz = BW.scene:TraceSegment(x, y, z + 10, x, y, z - 50);
+	return hz or z;
+end
+
+local function Dist2(ax, ay, bx, by)
+	local dx, dy = ax - bx, ay - by;
+	return dx * dx + dy * dy;
+end
+
+local function Clock(seconds)
+	local s = math.floor(seconds);
+	return string.format("%d:%02d", math.floor(s / 60), math.mod(s, 60));
+end
+
+local function Shuffle(list)
+	for i = table.getn(list), 2, -1 do
+		local j = math.random(i);
+		list[i], list[j] = list[j], list[i];
+	end
+end
+
+------------------------------------------------------------------------------
+-- Gems
+
+local function DropGem(x, y, z, xp, scale)
+	if table.getn(gems) >= MAX_GEMS then
+		-- Too many on the floor: the experience goes straight to the oldest gem.
+		gems[1].xp = gems[1].xp + xp;
+		return;
+	end
+	local gem = table.remove(gemPool);
+	if not gem then
+		gem = { actor = BW.scene:AcquireActor() };
+		gem.actor:SetModelByPath(GEM_PATH);
+	end
+	gem.xp = xp;
+	gem.x, gem.y, gem.z = x, y, z;
+	gem.pulled = false;
+	gem.actor:SetScale(scale or 0.3);
+	gem.actor:SetPosition(x, y, z);
+	gem.actor:Show();
+	tinsert(gems, gem);
+end
+
+local function ClearGems()
+	for i = table.getn(gems), 1, -1 do
+		gems[i].actor:Hide();
+		tinsert(gemPool, gems[i]);
+		gems[i] = nil;
+	end
+end
+
+-- For the files that load after this one.
+BW.pools = pools
+BW.enemies = enemies
+BW.gemPool = gemPool
+BW.gems = gems
+BW.offers = offers
+BW.FloorAt = FloorAt
+BW.Dist2 = Dist2
+BW.Clock = Clock
+BW.Shuffle = Shuffle
+BW.DropGem = DropGem
+BW.ClearGems = ClearGems
