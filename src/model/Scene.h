@@ -49,6 +49,15 @@ struct EntityLight {
     World::Ambience *ambience;
 };
 
+// The model lights as an entity of the scene's WMO through its render
+// callback, with its own `light` (model/SceneSpell.cpp).
+void LightAsEntity(void *model, std::unique_ptr<EntityLight> &light, void *frame);
+// Gives the model the frame's light callback again, frees `light`, and
+// hides and releases the model.
+void ReleaseLit(void *model, std::unique_ptr<EntityLight> &light);
+// The light's re-placement when the model moved, and its ease, each tick.
+void SettleLight(void *model, EntityLight *light, float elapsed);
+
 // One PlaySpellVisual on its caster (model/SceneSpell.cpp): the precast, the
 // cast, then the missile in flight.
 struct SpellCast {
@@ -97,6 +106,30 @@ struct ImpactModel {
     void *model = nullptr; // one reference
     int framesShown = 0;
     std::unique_ptr<EntityLight> light;
+};
+
+// A shard of a spell's ground area (model/SceneArea.cpp): one model of the
+// emitter's file, played once where it fell, as the world's shard
+// (0x006EBB30). Its callbacks hold its address.
+struct AreaShard {
+    void *frame = nullptr;
+    void *model = nullptr; // one reference
+    float position[3] = {};
+    uint32_t startMs = 0; // the scene clock at which it starts
+    bool started = false;
+    bool done = false; // its animation ended
+    std::unique_ptr<EntityLight> light;
+};
+
+// The area kit of a spell's ground area while it runs: the shard emitter
+// (0x006EB930) and the kit's looping sound.
+struct AreaEmitter {
+    bool running = false;
+    const char *path = nullptr; // the shard file, null for a kit without an emitter
+    float rate = 0.0f;          // shards a second
+    double accumulator = 0.0;
+    int32_t soundID = 0;
+    void *loopSound = nullptr;
 };
 
 // A ModelSceneActor: one model in its scene frame's M2 scene, placed by the
@@ -164,6 +197,10 @@ class Actor : public Animation::Object {
     // its radius in yards; null and 0 for any other model.
     const uint8_t *areaEffect = nullptr;
     float areaRadius = 0.0f;
+    const uint8_t *areaVisual = nullptr; // the spell's SpellVisual row
+    // The area's kit, and its shards, which play out after the area goes.
+    AreaEmitter areaEmitter;
+    std::vector<std::unique_ptr<AreaShard>> areaShards;
     bool shadowShown = false;         // SetShadowShown: a blob shadow under the model
     // SetHighlight: a unit's light bits (CGObject +0xB8, Offsets
     // CGOBJECT_LIGHT_BIT_*); while any is set the model glows in the scene
@@ -343,6 +380,26 @@ void Drop(Actor &caster);
 // Stops the missiles' loop sounds (the scene hid; its update stops).
 void Silence(Actor &caster);
 } // namespace Casts
+
+// The area kit of an actor that shows a spell's ground area
+// (model/SceneArea.cpp): its shard emitter and its looping sound.
+namespace Areas {
+// From the actor's update, after the scene advance: the kit starts while the
+// actor shows an area and is shown, and stops otherwise; shards fall and
+// the finished ones go.
+void Update(Actor &actor, float sceneSec);
+// From the actor's Link: the shards whose start came go on the animate list.
+void Link(Actor &actor);
+// From the actor's Place: the shards' placement and the loop sound's.
+void Place(Actor &actor);
+// The kit stops (the model changed): no new shards, the loop fades.
+void Stop(Actor &actor);
+// Stops the kit and frees every shard (the actor goes).
+void Drop(Actor &actor);
+// Stops the loop sound (the scene hid; its update stops). It loops again
+// at the next update.
+void Silence(Actor &actor);
+} // namespace Areas
 
 // The unit's movement animations (model/SceneLocomotion.cpp): an actor with
 // the mover on picks and plays them as the client's unit does from its own

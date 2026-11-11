@@ -80,14 +80,8 @@ EntityLight::EntityLight(void *frame) : frame(frame), ambience(World::NewAmbienc
 
 EntityLight::~EntityLight() { World::FreeAmbience(ambience); }
 
-} // namespace Model::Scene
-
-namespace Model::Scene::Casts {
-
-namespace {
-
 // The model's lighting callback, `__fastcall(instance, record, user)`.
-void __fastcall OnEntityLighting(void * /*instance*/, void *record, EntityLight *light) {
+static void __fastcall OnEntityLighting(void * /*instance*/, void *record, EntityLight *light) {
     World::ActorLight(WorldOf(light->frame), *light->ambience, light->frame, record);
 }
 
@@ -113,6 +107,13 @@ void SettleLight(void *model, EntityLight *light, float elapsed) {
     if (World::Backdrop *world = WorldOf(light->frame))
         World::Settle(*world, *light->ambience, light->frame, model, elapsed);
 }
+
+} // namespace Model::Scene
+
+namespace Model::Scene::Casts {
+
+namespace {
+
 
 } // namespace
 

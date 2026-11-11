@@ -1022,8 +1022,10 @@ void __fastcall UpdateModel(void *self) { PlaceActors(self); }
 int __fastcall Hide(void *self, void *) {
     if (World::Backdrop *world = F(self).world)
         World::Silence(*world);
-    for (Actor *actor : *F(self).actors)
+    for (Actor *actor : *F(self).actors) {
         Casts::Silence(*actor);
+        Areas::Silence(*actor);
+    }
     return g_class.Base<Hide_t>(Offsets::VTBL_FRAME_HIDE)(self, nullptr);
 }
 

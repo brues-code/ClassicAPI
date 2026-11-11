@@ -6431,6 +6431,42 @@ enum Offsets {
     // (HasAnimation 0x9E at 0x005D5345, played at 0x005D53D8); the done
     // callback (0x005D5580) plays it again at each natural end.
     ANIM_DYNAMIC_OBJECT_LOOP = 158,
+    // The area kit's shard emitter (0x005D55C0 -> 0x006ECE30 -> 0x006EB930;
+    // the shards 0x006EBB30..0x006EBDA9), verified by disassembly and by
+    // reading the binary: the procedure kind that starts it (cmp [ecx], 9 at
+    // 0x005D5640), a procedure's second value (+0x5C, the rate, 0x005D5654),
+    // and the shard files by type, char *[7] read with no bound (0x006ECEF4):
+    // Blizzard_Impact_Base, RainOfFire_Impact_Base, CallLightning_Impact,
+    // FlamestrikeSmall_Impact_Base, DeathAndDecay_Area_Base, ArcaneShot_Area,
+    // StarShards_Impact_Base (Spells\*.mdx). SpellVisualKit.dbc: Blizzard's
+    // area kit 609 is kind 9, values 0.0 and 5.0 (type 0, 5 a second).
+    SPELLVISUALKIT_PROC_AREA_SHARDS = 9,
+    OFF_SPELLVISUALKIT_PROC_VALUE2 = 0x5C,
+    VAR_AREA_SHARD_PATHS = 0x00870E24,
+    AREA_SHARD_PATH_COUNT = 7,
+    // The spell detail record (spellEffectLevel's) and the two scales its
+    // level +0x28 gives the shard rate: 0.33 at 0, 0.66 at 1, else none
+    // (0x006EB95E..0x006EB981).
+    VAR_SPELL_EFFECT_LEVEL_RECORD = 0x00CEE9A8,
+    OFF_SPELL_EFFECT_LEVEL = 0x28,
+    VAR_SPELL_EFFECT_LOW_SCALE = 0x00808300,
+    VAR_SPELL_EFFECT_MEDIUM_SCALE = 0x0081199C,
+    // A shard's fall: it starts this high over the area (16.666666,
+    // 0x006EBBD4), keeps this share of a trace that hits a ceiling (0.95,
+    // 0x006EBC64), and falls this far to the floor (33.333332, 0x006EBCDB).
+    VAR_AREA_SHARD_DROP_HEIGHT = 0x00810E20,
+    VAR_AREA_SHARD_HIT_SHARE = 0x008119A0,
+    VAR_AREA_SHARD_FALL = 0x0080FEE4,
+    // float 512.0, which the emitter adds before it takes a byte from a
+    // float's bits (0x005D5665, 0x006EBD87).
+    VAR_FIVE_TWELVE = 0x008029CC,
+    // The client's random state and two of its draws: a uint32
+    // (__thiscall(state), plain ret at 0x004532B2) and a random unit vector
+    // written to `out` (__fastcall(out, state), returns out; plain ret at
+    // 0x0044FE1B). The shards draw from them at 0x006EBB64 and 0x006EBB83.
+    VAR_CLIENT_RANDOM = 0x00882664,
+    FUN_RANDOM_UINT32 = 0x004531E0,
+    FUN_RANDOM_UNIT_VECTOR2 = 0x0044FD00,
     // s_spellVisualAttachments: int[11] = {20, 34, 19, 21, 22, 17, 23, 24,
     // 25, 15, 16}, read from the binary; the first nine are the kit effect
     // columns' attachments.

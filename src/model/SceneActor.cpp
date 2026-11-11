@@ -332,6 +332,8 @@ void ReleaseModel(Actor &actor) {
     actor.displayID = 0;
     actor.areaEffect = nullptr;
     actor.areaRadius = 0.0f;
+    actor.areaVisual = nullptr;
+    Areas::Stop(actor);
     actor.unitGuid = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
@@ -383,6 +385,7 @@ Actor::Actor(void *scene, const char *name) : Object(s_class, scene, name), ambi
 
 Actor::~Actor() {
     ReleaseModel(*this);
+    Areas::Drop(*this);
     DropNameString();
     World::FreeAmbience(ambience);
 }
@@ -1107,6 +1110,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
     }
     WriteStringUnit(*this);
     Casts::Update(*this, sceneSec);
+    Areas::Update(*this, sceneSec);
     // The casts that reached their target, with (spellID, target, castID).
     // Taken first: a script may cast again, and its impact waits for the next
     // update.
@@ -1142,6 +1146,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
 // end-of-sequence callback, while the paint's animate pass empties the list.
 void Actor::Link() {
     Casts::Link(*this);
+    Areas::Link(*this);
     if (model == nullptr || !M2::IsReady(model, 0, 1))
         return;
     if (M2::Parent(model) == nullptr) // a seated rider is animated by its mount
@@ -1153,6 +1158,7 @@ void Actor::Link() {
 // Mount gives the attached rider its base transform too.
 void Actor::Place() {
     Casts::Place(*this);
+    Areas::Place(*this);
     if (model == nullptr)
         return;
     const float axisX[3] = {1.0f, 0.0f, 0.0f};
@@ -1274,6 +1280,7 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
     if (model != nullptr) {
         actor->areaEffect = effect;
         actor->areaRadius = FloatArg(L, 3);
+        actor->areaVisual = visual;
     }
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
