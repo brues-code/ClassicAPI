@@ -42,7 +42,23 @@ local KINDS = {
 -- `speed` is the run speed in yards a second (the hero runs at 7): black
 -- whelps plod, red ones dart, green ones are slow and tough, and the elite
 -- is faster than any whelp but still slower than you.
-local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach = 2.2, speed = 4.8, gemScale = 0.6 }
+-- A kind's traits are its fields, read by what they govern:
+-- - `holdShare`: the share of a root's, stun's, fear's or polymorph's time
+--   it takes (1 if absent); 0 is immune, and Polymorph never picks it.
+-- - `knockShare`: the share of a knockback it takes (1 if absent); 0 stands.
+-- - `speed` 0: it never moves. `dps` 0: it never bites.
+-- - `path`: a model file, in place of the creature `display`.
+-- - `crackAnim`, `crackSound`, `crackSeconds`: it ends with this animation
+--   and sound, holds the frame at `crackSeconds` (just short of the
+--   animation's end, before it loops) and fades, in place of Death and a
+--   corpse.
+local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach = 2.2, speed = 4.8, gemScale = 0.6,
+	holdShare = 0.5, knockShare = 0.4 }
+-- A black dragon egg (Blackwing Lair's). Broken or hatched, it cracks with
+-- its gameobject's Custom0 (153) and that slot's sound (GameObjectDisplayInfo
+-- 477's sound 6, SoundEntries 4785).
+local EGG = { key = "egg", path = "World\\Goober\\G_DragonEggBlack.m2", hp = 60, dps = 0, xp = 6, reach = 0, speed = 0,
+	gemScale = 0.5, holdShare = 0, knockShare = 0, crackAnim = 153, crackSound = 4785, crackSeconds = 0.95 }
 
 -- Spells, by level 1 to 5. A missile spell hits `count` enemies in `range`;
 -- a nova spell hits every enemy within `radius` of the hero. At rank V a
@@ -389,6 +405,13 @@ local TUNING = {
 	CHEST_REACH = 2,           -- yards: walking this close opens a chest
 	CHEST_AWAY = 2.5,          -- yards from the elite's corpse that its chest lands
 	CHEST_LINGER = 4,          -- seconds an open chest stays before it fades
+	EGG_FIRST = 60,            -- the second of the run the first clutch is laid
+	EGG_EVERY = 75,            -- seconds between clutches
+	EGG_CLUTCH = 4,            -- eggs in a clutch
+	EGG_SPREAD = 2.5,          -- yards from the clutch's middle to each egg
+	EGG_HATCH = 20,            -- seconds an egg takes to hatch
+	EGG_WARN = 5,              -- seconds before it hatches that a red ring marks it
+	EGG_WHELPS = 4,            -- whelps that hatch from each egg
 	POTION_HEAL = 0.3,         -- of the maximum health
 	GRENADE_RADIUS = 5,
 	GRENADE_DAMAGE = 45,       -- grows with the run as the brood's health does
@@ -410,8 +433,6 @@ local TUNING = {
 	-- Knockbacks (actor:KnockBack): yards a second out and up.
 	GRENADE_KNOCK = { 10, 7 },
 	SOULSTONE_KNOCK = { 16, 10 },
-	ELITE_KNOCK_SHARE = 0.4,   -- an elite takes this share of a knockback
-	ELITE_HOLD_SHARE = 0.5,    -- and this share of a root's or a fear's time
 	FEAR_STEP = 6,             -- yards a fleeing enemy runs before its next MoveTo
 	IMP_SPEED = 8.5,
 	IMP_FOLLOW = 3,            -- yards: farther from you than this, the imp follows
@@ -488,6 +509,7 @@ BW.GEM_PATH = GEM_PATH
 BW.MAX_GEMS = MAX_GEMS
 BW.KINDS = KINDS
 BW.ELITE = ELITE
+BW.EGG = EGG
 BW.SPELLS = SPELLS
 BW.SPELL_ORDER = SPELL_ORDER
 BW.EVOLUTIONS = EVOLUTIONS

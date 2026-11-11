@@ -18,6 +18,7 @@ local Polymorph = BW.Polymorph
 local ApplySpeed = BW.ApplySpeed
 local TUNING = BW.TUNING
 local Mastered = BW.Mastered
+local HoldShare = BW.HoldShare
 
 ------------------------------------------------------------------------------
 -- The hero's spells
@@ -46,7 +47,7 @@ local function PickTargets(def, count, hx, hy)
 		local best, bestScore;
 		for _, e in ipairs(enemies) do
 			if e.alive and not e.marked and not (def.kind == "dot" and e.dotLeft)
-				and not (def.kind == "polymorph" and e.sheepUntil) then
+				and not (def.kind == "polymorph" and (e.sheepUntil or HoldShare(e) == 0)) then
 				local x, y = e.actor:GetPosition();
 				local d2 = Dist2(x, y, hx, hy);
 				if d2 <= range2 then

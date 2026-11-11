@@ -75,6 +75,8 @@ local UpdateItems = BW.UpdateItems
 local ClearItems = BW.ClearItems
 local UpdateChests = BW.UpdateChests
 local ClearChests = BW.ClearChests
+local UpdateEggs = BW.UpdateEggs
+local ClearEggs = BW.ClearEggs
 local UpdateStates = BW.UpdateStates
 local BiteShare = BW.BiteShare
 local UpdateWards = BW.UpdateWards
@@ -151,6 +153,7 @@ local function StartRun()
 		ClearLandings();
 		ClearItems();
 		ClearChests();
+		ClearEggs();
 		ClearWards();
 		ClearPet();
 		ClearChannels();
@@ -160,6 +163,7 @@ local function StartRun()
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {
 		time = 0, kills = 0, alive = 0, level = 1, xp = 0, pendingLevels = 0, chests = 0, chestPicks = 0,
+		nextClutch = TUNING.EGG_FIRST,
 		hp = HERO_HP, damageScale = 1, heroYaw = 0,
 		spells = { frostbolt = { level = 1, cooldown = 0, pending = 0 } },
 		passives = {},
@@ -206,7 +210,7 @@ local function Chase(dt, hx, hy, hz)
 			BW.run.retargetCursor = 1;
 		end
 		local e = enemies[BW.run.retargetCursor];
-		if e.alive and not (e.stunUntil and BW.run.time < e.stunUntil) and not e.actor:IsFalling() then
+		if e.alive and e.kind.speed > 0 and not (e.stunUntil and BW.run.time < e.stunUntil) and not e.actor:IsFalling() then
 			if e.sheepUntil then
 				-- A sheep grazes about where it is.
 				local x, y = e.actor:GetPosition();
@@ -251,6 +255,7 @@ local function Step(dt)
 			Spawn(ELITE);
 		end
 	end
+	UpdateEggs();
 
 	Chase(dt, hx, hy, hz);
 
@@ -301,7 +306,7 @@ local function Step(dt)
 		if e.alive then
 			local x, y = e.actor:GetPosition();
 			local reach = e.kind.reach;
-			if not Taunted(e) and not e.fearUntil and not e.sheepUntil and Dist2(x, y, hx, hy) <= reach * reach then
+			if e.kind.dps > 0 and not Taunted(e) and not e.fearUntil and not e.sheepUntil and Dist2(x, y, hx, hy) <= reach * reach then
 				hurt = hurt + e.dps * BiteShare(e) * (1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100);
 				Zap(e);
 				if thorns then
@@ -313,11 +318,15 @@ local function Step(dt)
 			end
 		else
 			-- The corpse lies, then fades out as the world's do, and goes
-			-- once the fade has hidden it.
+			-- once the fade has hidden it. A cracked egg holds the crack's
+			-- last frame while it fades.
 			e.dying = e.dying - dt;
 			if e.dying <= 0 then
 				if not e.fading then
 					e.fading = true;
+					if e.kind.crackAnim then
+						e.actor:SetPaused(true, false);
+					end
 					e.actor:FadeOut();
 				elseif not e.actor:IsShown() then
 					Release(i);
@@ -634,7 +643,8 @@ end
 SLASH_BROODWATCH1 = "/broodwatch";
 -- `/broodwatch [spell [rank]]`: a spell key of SPELLS (with its rank, I by
 -- default) starts the run with that spell alone, for testing it.
--- `/broodwatch chest` (or `golden`) starts the run with a chest close by.
+-- `/broodwatch chest` (or `golden`) starts the run with a chest close by,
+-- `/broodwatch eggs` with a clutch of eggs.
 SlashCmdList["BROODWATCH"] = function(msg)
 	BW.frame:Show();
 	if not BW.hero then
@@ -651,6 +661,8 @@ SlashCmdList["BROODWATCH"] = function(msg)
 		end
 		local hx, hy, hz = BW.hero:GetPosition();
 		BW.DropChest(hx + 8, hy, hz);
+	elseif key == "eggs" then
+		BW.LayClutch();
 	elseif key then
 		print("Broodwatch: no spell \"" .. key .. "\"");
 	end

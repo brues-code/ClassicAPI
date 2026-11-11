@@ -5,6 +5,7 @@
 Data.lua
 Core.lua
 Brood.lua
+Eggs.lua
 Spells.lua
 Hud.lua
 Items.lua

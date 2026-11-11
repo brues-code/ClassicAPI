@@ -45,13 +45,18 @@ end
 local function NewEnemy(kind)
 	-- auras: the spell of each aura shown -> the time it ends (ShowAura).
 	local e = { kind = kind, actor = BW.scene:AcquireActor(), auras = {} };
-	e.actor:SetModelByCreatureDisplayID(kind.display);
+	if kind.path then
+		e.actor:SetModelByPath(kind.path);
+	else
+		e.actor:SetModelByCreatureDisplayID(kind.display);
+	end
 	-- A whelp casts the next leap of Chain Lightning: its impact comes here.
 	e.actor:HookScript("OnSpellVisualImpact", function(_, _, _, castID) BW.OnImpact(nil, nil, nil, castID); end);
 	return e;
 end
 
-local function Spawn(kind)
+-- A point in the room at least SPAWN_MIN_DISTANCE from the hero (ten tries).
+local function SpawnPoint()
 	local hx, hy = BW.hero:GetPosition();
 	local x, y;
 	for _ = 1, 10 do
@@ -61,6 +66,15 @@ local function Spawn(kind)
 		if Dist2(x, y, hx, hy) >= SPAWN_MIN_DISTANCE * SPAWN_MIN_DISTANCE then
 			break;
 		end
+	end
+	return x, y;
+end
+
+-- A whelp drops in a little above the floor and lands; an egg stands on it.
+-- (x, y): where, or a SpawnPoint.
+local function Spawn(kind, x, y)
+	if not x then
+		x, y = SpawnPoint();
 	end
 	local pool = pools[kind.key];
 	local e = pool and table.remove(pool) or NewEnemy(kind);
@@ -83,28 +97,46 @@ local function Spawn(kind)
 	ClearAuras(e);
 	e.angle = math.random() * 2 * math.pi;
 	local actor = e.actor;
-	actor:SetPosition(x, y, FloorAt(x, y, CENTER[3]) + 0.5);
 	actor:SetAnimation(ANIM_STAND);
-	actor:Show();
-	actor:SetMovementEnabled(true);
-	actor:SetMovementSpeed("run", kind.speed);
+	actor:SetPaused(false, false); -- a crack held its last frame (the corpses, Step)
+	if kind.speed == 0 then
+		actor:SetPosition(x, y, FloorAt(x, y, CENTER[3]));
+		actor:SetYaw(math.random() * 2 * math.pi);
+		actor:Show();
+	else
+		actor:SetPosition(x, y, FloorAt(x, y, CENTER[3]) + 0.5);
+		actor:Show();
+		actor:SetMovementEnabled(true);
+		actor:SetMovementSpeed("run", kind.speed);
+	end
 	tinsert(enemies, e);
 	BW.run.alive = BW.run.alive + 1;
 	return e;
 end
 
-local function Kill(e)
+-- The enemy leaves the fight. A whelp's corpse keeps its movement until it
+-- is released: it stops where it is, plays Death, then lies Dead, as a dead
+-- unit does. A kind with a crack (an egg) plays it, with its sound.
+local function Retire(e)
 	e.alive = false;
-	e.dying = DEATH_SECONDS;
 	BW.run.alive = BW.run.alive - 1;
-	BW.run.kills = BW.run.kills + 1;
-	local x, y, z = e.actor:GetPosition();
-	-- The corpse keeps its movement until it is released: it stops where
-	-- it is, plays Death, then lies Dead, as a dead unit does.
 	e.actor:StopMoving();
-	e.actor:SetAnimation(ANIM_DEATH);
+	if e.kind.crackAnim then
+		e.dying = e.kind.crackSeconds;
+		e.actor:SetAnimation(e.kind.crackAnim);
+		e.actor:PlaySound(e.kind.crackSound);
+	else
+		e.dying = DEATH_SECONDS;
+		e.actor:SetAnimation(ANIM_DEATH);
+	end
 	ClearAuras(e);
 	e.fearUntil, e.fearTick = nil, nil;
+end
+
+local function Kill(e)
+	Retire(e);
+	BW.run.kills = BW.run.kills + 1;
+	local x, y, z = e.actor:GetPosition();
 	DropGem(x, y, z, e.kind.xp, e.kind.gemScale);
 	BW.DropItem(e, x, y, z);
 	if e.kind == ELITE then
@@ -241,7 +273,10 @@ end
 -- Throws an enemy away from (x, y) at `knock` (out, up). A corpse flies too,
 -- in its death pose.
 local function Blast(e, x, y, knock)
-	local share = e.kind == ELITE and TUNING.ELITE_KNOCK_SHARE or 1;
+	local share = e.kind.knockShare or 1;
+	if share == 0 then
+		return;
+	end
 	e.actor:KnockBack(x, y, knock[1] * share, knock[2] * share);
 end
 
@@ -250,8 +285,9 @@ end
 -- fear sends it away from you, a weakness softens its bites. A hold or a fear
 -- shows the aura of the spell that caused it (ShowAura) for its own time,
 -- and the auras stack: a frozen whelp that is feared keeps its ice. A stun
--- aura's kit pins Stun while the whelp stands. Elites shrug off part of a
--- hold or a fear.
+-- aura's kit pins Stun while the whelp stands. A kind takes its holdShare
+-- of a hold's, a fear's or a polymorph's time: elites shrug off part, and a
+-- kind with none (an egg) is immune.
 
 local function ShowAura(e, spell, untilTime)
 	if not spell then
@@ -277,12 +313,15 @@ local function EndFear(e)
 end
 
 local function HoldShare(e)
-	return e.kind == ELITE and TUNING.ELITE_HOLD_SHARE or 1;
+	return e.kind.holdShare or 1;
 end
 
 -- `aura`: the spell whose aura shows; `frozen`: the hold is ice (Frost
 -- Nova's Shatter counts it).
 local function Hold(e, seconds, aura, frozen)
+	if HoldShare(e) == 0 then
+		return;
+	end
 	local untilTime = BW.run.time + seconds * HoldShare(e);
 	e.stunUntil = math.max(e.stunUntil or 0, untilTime);
 	if frozen then
@@ -294,6 +333,9 @@ local function Hold(e, seconds, aura, frozen)
 end
 
 local function Fear(e, seconds, aura)
+	if HoldShare(e) == 0 then
+		return;
+	end
 	local untilTime = BW.run.time + seconds * HoldShare(e);
 	e.fearUntil = math.max(e.fearUntil or 0, untilTime);
 	if aura then
@@ -307,6 +349,9 @@ end
 
 -- An enemy's run speed: a sheep's amble, else its kind's, slowed.
 local function ApplySpeed(e)
+	if e.kind.speed == 0 then
+		return;
+	end
 	local speed = e.sheepUntil and TUNING.SHEEP_SPEED or e.kind.speed * (e.slowFactor or 1);
 	e.actor:SetMovementSpeed("run", speed);
 end
@@ -314,6 +359,9 @@ end
 -- Polymorph: the enemy is a sheep (SPELLS.polymorph.display) that wanders,
 -- harmless, until its time ends. Its own model comes back after.
 local function Polymorph(e, seconds)
+	if HoldShare(e) == 0 then
+		return;
+	end
 	if not e.sheepUntil then
 		e.sheepUntil = 0;
 		e.actor:SetModelByCreatureDisplayID(SPELLS.polymorph.display);
@@ -422,12 +470,15 @@ end
 BW.Blast = Blast
 BW.Hold = Hold
 BW.Fear = Fear
+BW.HoldShare = HoldShare
 BW.Weaken = Weaken
 BW.Polymorph = Polymorph
 BW.ApplySpeed = ApplySpeed
 BW.UpdateStates = UpdateStates
 BW.BiteShare = BiteShare
+BW.SpawnPoint = SpawnPoint
 BW.Spawn = Spawn
+BW.Retire = Retire
 BW.Kill = Kill
 BW.ShowNumber = ShowNumber
 BW.UpdateNumbers = UpdateNumbers
