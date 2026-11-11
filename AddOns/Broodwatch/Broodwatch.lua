@@ -30,6 +30,7 @@ local GEM_SPEED = BW.GEM_SPEED
 local GEM_TAKE = BW.GEM_TAKE
 local ELITE = BW.ELITE
 local SPELLS = BW.SPELLS
+local MAX_LEVEL = BW.MAX_LEVEL
 local PASSIVES = BW.PASSIVES
 local SOULSTONE_SPELL = BW.SOULSTONE_SPELL
 local SOULSTONE_BLAST = BW.SOULSTONE_BLAST
@@ -621,10 +622,19 @@ function Broodwatch_OnLoad(self)
 end
 
 SLASH_BROODWATCH1 = "/broodwatch";
-SlashCmdList["BROODWATCH"] = function()
+-- `/broodwatch [spell [rank]]`: a spell key of SPELLS (with its rank, I by
+-- default) starts the run with that spell alone, for testing it.
+SlashCmdList["BROODWATCH"] = function(msg)
 	BW.frame:Show();
 	if not BW.hero then
 		Build();
 	end
 	StartRun();
+	local _, _, key, rank = string.find(msg or "", "^%s*(%w+)%s*(%d*)");
+	if key and SPELLS[key] then
+		BW.run.spells = { [key] = { level = math.min(tonumber(rank) or 1, MAX_LEVEL), cooldown = 0, pending = 0 } };
+		BW.UpdateBuild();
+	elseif key then
+		print("Broodwatch: no spell \"" .. key .. "\"");
+	end
 end
