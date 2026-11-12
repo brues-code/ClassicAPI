@@ -122,7 +122,7 @@
 					<Layer level="OVERLAY">
 						<FontString name="$parentInfo" inherits="GameFontHighlightLarge" justifyH="LEFT">
 							<Anchors>
-								<Anchor point="TOPLEFT" x="14" y="-30"/>
+								<Anchor point="TOPLEFT" x="14" y="-14"/>
 							</Anchors>
 						</FontString>
 						<FontString name="$parentPerf" inherits="GameFontHighlightSmall" justifyH="RIGHT">
@@ -143,14 +143,23 @@
 					</Layer>
 				</Layers>
 				<Frames>
+					<!-- Experience: on the health bar, as wide, with its level and what is left. -->
 					<StatusBar name="$parentXP">
-						<Size x="10" y="12"/>
+						<Size x="320" y="14"/>
 						<Anchors>
-							<Anchor point="TOPLEFT" x="8" y="-8"/>
-							<Anchor point="TOPRIGHT" x="-8" y="-8"/>
+							<Anchor point="BOTTOM" x="0" y="44"/>
 						</Anchors>
 						<BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
 						<BarColor r="0.58" g="0.0" b="0.55"/>
+						<Layers>
+							<Layer level="OVERLAY">
+								<FontString name="$parentText" inherits="GameFontHighlightSmall">
+									<Anchors>
+										<Anchor point="CENTER"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
 					</StatusBar>
 					<StatusBar name="$parentHealth">
 						<Size x="320" y="16"/>

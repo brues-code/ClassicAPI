@@ -68,7 +68,6 @@ local UpdateBuild = BW.UpdateBuild
 local SetPaused = BW.SetPaused
 local MaxHp = BW.MaxHp
 local UpdateHealth = BW.UpdateHealth
-local XpNeeded = BW.XpNeeded
 local GainXp = BW.GainXp
 local Taunted = BW.Taunted
 local UpdateItems = BW.UpdateItems
@@ -193,8 +192,7 @@ local function StartRun()
 	BW.cards:Hide();
 	BW.bannerText:SetText("");
 	BW.hintText:SetText("");
-	BW.xpBar:SetMinMaxValues(0, XpNeeded(1), AT_ONCE);
-	BW.xpBar:SetValue(0, AT_ONCE);
+	BW.UpdateXp(AT_ONCE);
 	UpdateHealth(AT_ONCE);
 	UpdateBuild();
 	BW.camera:SetZoomDistance(CAMERA_ZOOM);
@@ -524,7 +522,7 @@ local function UpdateHud(dt, luaMs)
 	local second = math.floor(BW.run.time);
 	if second ~= BW.run.shownSecond then
 		BW.run.shownSecond = second;
-		BW.infoText:SetText(string.format("Level %d    %s    Kills %d", BW.run.level, Clock(BW.run.time), BW.run.kills));
+		BW.infoText:SetText(string.format("%s    Kills %d", Clock(BW.run.time), BW.run.kills));
 	end
 	BW.run.perfFrames = BW.run.perfFrames + 1;
 	BW.run.perfLua = BW.run.perfLua + luaMs;
@@ -643,6 +641,7 @@ function Broodwatch_OnLoad(self)
 	BW.bannerText = getglobal(hud .. "Banner");
 	BW.hintText = getglobal(hud .. "Hint");
 	BW.xpBar = getglobal(hud .. "XP");
+	BW.xpText = getglobal(hud .. "XPText");
 	BW.healthBar = getglobal(hud .. "Health");
 	BW.healthText = getglobal(hud .. "HealthText");
 	BW.cards = getglobal(hud .. "Cards");

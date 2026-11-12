@@ -622,6 +622,7 @@ local TUNING = {
 	TRAP_LIFE = 30,            -- seconds an unsprung trap lies
 	TRAP_MAX = 6,              -- traps lying at once; the oldest goes first
 	TRAP_SPRUNG = 1.2,         -- seconds the sprung trap shows before it hides
+	TRAP_SCALE = 2,            -- the trap models are a yard across; this shows them from the camera
 	-- Charge (Kinds.lua): you rush at this many yards a second; the dash ends
 	-- at the target or after CHARGE_MAX seconds.
 	CHARGE_SPEED = 28,

@@ -616,6 +616,15 @@ local function XpNeeded(level)
 	return 5 + 3 * level + math.floor(level * level * level / 50);
 end
 
+-- The experience bar and its text: the level, and the experience toward the
+-- next one.
+local function UpdateXp(mode)
+	local needed = XpNeeded(BW.run.level);
+	BW.xpBar:SetMinMaxValues(0, needed, mode);
+	BW.xpBar:SetValue(BW.run.xp, mode);
+	BW.xpText:SetText(string.format("Level %d    %d / %d", BW.run.level, math.floor(BW.run.xp), needed));
+end
+
 local function GainXp(xp)
 	BW.run.xp = BW.run.xp + xp;
 	local wrapped = false;
@@ -633,9 +642,7 @@ local function GainXp(xp)
 		BW.run.hp = math.min(MaxHp(), BW.run.hp + MaxHp() * LEVEL_HEAL * levels);
 		UpdateHealth();
 	end
-	local mode = wrapped and AT_ONCE or EASE;
-	BW.xpBar:SetMinMaxValues(0, XpNeeded(BW.run.level), mode);
-	BW.xpBar:SetValue(BW.run.xp, mode);
+	UpdateXp(wrapped and AT_ONCE or EASE);
 	ShowCards();
 end
 
@@ -648,4 +655,5 @@ BW.MaxHp = MaxHp
 BW.UpdateHealth = UpdateHealth
 BW.XpNeeded = XpNeeded
 BW.GainXp = GainXp
+BW.UpdateXp = UpdateXp
 BW.ShowCards = ShowCards

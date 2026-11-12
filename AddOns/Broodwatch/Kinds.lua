@@ -26,7 +26,7 @@ local IMPACTS = 8       -- enemies a hit shows its impact kit on, so a pack does
 local ANIM_SPAWN, ANIM_CLOSED, ANIM_CUSTOM0 = 145, 147, 153
 
 -- The usual Fire of a kind with no aim: one cast in the queue.
-local function QueueOne(key, state, level)
+local function QueueOne(key, state, def, level)
 	QueueCast({ key = key, state = state, level = level });
 	state.pending = state.pending + 1;
 	return true;
@@ -130,7 +130,7 @@ end
 handlers.cone = {
 	Fire = function(key, state, def, level)
 		local hx, hy = BW.hero:GetPosition();
-		return BestAim(def, level, hx, hy) ~= nil and QueueOne(key, state, level);
+		return BestAim(def, level, hx, hy) ~= nil and QueueOne(key, state, def, level);
 	end,
 	Cast = function(entry, def)
 		local hx, hy = BW.hero:GetPosition();
@@ -311,6 +311,7 @@ local groundPool = {}
 
 local function DropTrap(i)
 	local trap = traps[i];
+	trap.actor:ClearGroundReticle();
 	trap.actor:Hide();
 	tinsert(trapPool, trap);
 	table.remove(traps, i);
@@ -324,6 +325,7 @@ local function LayTrap(key, def, level, x, y, z)
 	if trap.path ~= def.path then
 		trap.path = def.path;
 		trap.actor:SetModelByPath(def.path);
+		trap.actor:SetScale(TUNING.TRAP_SCALE);
 	end
 	trap.key, trap.level = key, level;
 	trap.x, trap.y, trap.z = x, y, FloorAt(x, y, z);
@@ -334,6 +336,7 @@ local function LayTrap(key, def, level, x, y, z)
 	trap.actor:SetPosition(trap.x, trap.y, trap.z);
 	trap.actor:SetYaw(math.random() * 2 * math.pi);
 	trap.actor:SetAnimation(ANIM_SPAWN);
+	trap.actor:SetGroundReticle(0); -- small while it arms
 	trap.actor:Show();
 	tinsert(traps, trap);
 end
@@ -356,6 +359,7 @@ local function Spring(trap)
 	trap.left = trap.springs > 0 and TUNING.TRAP_ARM or TUNING.TRAP_SPRUNG;
 	trap.actor:SetAnimation(ANIM_CUSTOM0);
 	trap.actor:PlaySound(def.sound);
+	trap.actor:SetGroundReticle(0);
 	local radius = Stat(def, "radius", trap.level);
 	local r2 = radius * radius;
 	local hit = {};
@@ -416,6 +420,8 @@ local function UpdateTraps(dt)
 				if trap.state == "arming" then
 					trap.state = "armed";
 					trap.actor:SetAnimation(ANIM_CLOSED);
+					-- Armed: the ring shows what it will catch.
+					trap.actor:SetGroundReticle(Stat(SPELLS[trap.key], "radius", trap.level));
 				else
 					DropTrap(i);
 				end
