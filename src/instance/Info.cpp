@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 
 #include <cstdint>
 
@@ -46,16 +47,7 @@ int CapForType(uint32_t type) {
 }
 
 const uint8_t *MapRecord(uint32_t mapID) {
-    const int count = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_MAP_COUNT));
-    if (static_cast<int>(mapID) < 0 || static_cast<int>(mapID) > count)
-        return nullptr;
-    const uint8_t *const *records =
-        *reinterpret_cast<const uint8_t *const *const *>(
-            static_cast<uintptr_t>(Offsets::VAR_MAP_RECORDS));
-    if (records == nullptr)
-        return nullptr;
-    return records[mapID];
+    return DBC::Record(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, mapID);
 }
 
 } // namespace
