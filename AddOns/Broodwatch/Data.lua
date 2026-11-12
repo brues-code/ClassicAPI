@@ -1,0 +1,919 @@
+-- Broodwatch tuning and data: the game's constants, spells, passives and items.
+
+local _, BW = ...
+
+------------------------------------------------------------------------------
+-- Tuning
+
+local LAIR_MAP = 249
+local CENTER = { 0.7, -211.97, -86.08 } -- Onyxia's spawn point, the room's floor
+local ROOM_RADIUS = 22                  -- yards around CENTER where the brood spawns
+local SPAWN_MIN_DISTANCE = 13           -- yards from the hero
+local FAR_CLIP = 500
+
+local CAMERA_YAW = 3.09
+local CAMERA_PITCH = 1.0
+local CAMERA_ZOOM = 50 -- each run starts zoomed out; the wheel zooms in
+
+local RUN_SECONDS = 600
+local ELITE_EVERY = 90
+local MAX_ALIVE = 200
+local RETARGET_SECONDS = 0.3 -- each chaser gets a new MoveTo this often
+local SURROUND_RADIUS = 1.0  -- chasers aim at a ring around the hero, not its centre
+local CAST_SPACING = 0.3     -- seconds between two of the hero's casts
+local DEATH_SECONDS = 4.5    -- the death animation (1.5 s), then the corpse lies; then it fades out
+local ANIM_STAND = 0
+local ANIM_DEATH = 1
+local ANIM_ATTACK_UNARMED = 16
+
+local HERO_HP = 100
+local MAGNET = 5             -- gems this close (yards) fly to you
+local GEM_SPEED = 20         -- yards a second, once pulled
+local GEM_TAKE = 0.8         -- a pulled gem this close is taken
+local GEM_PATH = "World\\Generic\\ActiveDoodads\\Rocks\\GemRock01.m2"
+local MAX_GEMS = 150
+
+-- The brood. `from` is the second of the run when the kind starts to spawn.
+local KINDS = {
+	{ key = "black", display = 497, hp = 20, dps = 5, xp = 1, reach = 1.4, speed = 3.0, from = 0 },
+	-- Red whelps breathe fire: Flame Breath 16396, whose flame hangs where a
+	-- whelp's own fireball leaves (its cast kit's sixth slot).
+	{ key = "red", display = 956, hp = 30, dps = 6, xp = 2, reach = 1.4, speed = 4.4, from = 120,
+		act = { kind = "breath", spell = 16396, school = "Fire", every = 7, range = 4.5, near = 2, cast = 0.9, recover = 0.5,
+			length = 6, arc = math.pi / 3, hit = 1.5 } },
+	{ key = "green", display = 694, hp = 70, dps = 9, xp = 3, reach = 1.4, speed = 2.4, from = 240 },
+	-- Onyxian Warders (creature 12129's display) keep their distance and
+	-- throw Fireball (133) at where you stand.
+	{ key = "warder", display = 8711, hp = 120, dps = 8, xp = 8, reach = 2.6, speed = 3.2, from = 180, max = 5,
+		keep = 13, gemScale = 0.5, knockShare = 0.6,
+		act = { kind = "bolt", spell = 133, school = "Fire", every = 5, range = 20, cast = 1.2, recover = 0.6, radius = 2.5, hit = 2 } },
+	-- Onyxian Drakes (creature 12260's display) charge along a line through
+	-- you, with Charge's trail (100).
+	{ key = "drake", display = 6369, hp = 260, dps = 12, xp = 12, reach = 3, speed = 4.0, from = 300, max = 3,
+		gemScale = 0.6, holdShare = 0.5, knockShare = 0.3,
+		act = { kind = "charge", spell = 100, school = "Physical", every = 8, range = 18, near = 4, cast = 1.2, recover = 1.2,
+			speed = 24, past = 6, width = 1.6, hit = 2.5, knock = { 9, 6 } } },
+}
+-- `speed` is the run speed in yards a second (the hero runs at 7): black
+-- whelps plod, red ones dart, green ones are slow and tough, and the elite
+-- is faster than any whelp but still slower than you.
+-- A kind's traits are its fields, read by what they govern:
+-- - `holdShare`: the share of a root's, stun's, fear's or polymorph's time
+--   it takes (1 if absent); 0 is immune, and Polymorph never picks it.
+-- - `knockShare`: the share of a knockback it takes (1 if absent); 0 stands.
+-- - `speed` 0: it never moves. `dps` 0: it never bites.
+-- - `path`: a model file, in place of the creature `display`.
+-- - `max`: the most of the kind alive at once.
+-- - `keep`: it holds this many yards from you instead of closing in.
+-- - `act`: what it does besides bite (Foes.lua). It acts every `every`
+--   seconds while you are within `range` (and no closer than `near`): it
+--   stands for `cast` seconds with the floor marked where it will strike,
+--   strikes, then stands for `recover`. A strike that lands on you hurts for
+--   `hit` seconds of its bite, of `school`. `kind`: "bolt" (`spell` thrown at your spot,
+--   `radius` wide), "breath" (a cone `length` long and `arc` wide) or
+--   "charge" (a run at `speed` along a line `past` yards beyond you, `width`
+--   wide; it throws you by `knock`).
+-- - `crackAnim`, `crackSound`, `crackSeconds`: it ends with this animation
+--   and sound, holds the frame at `crackSeconds` (just short of the
+--   animation's end, before it loops) and fades, in place of Death and a
+--   corpse.
+local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach = 2.2, speed = 4.8, gemScale = 0.6,
+	holdShare = 0.5, knockShare = 0.4 }
+-- A black dragon egg (Blackwing Lair's). Broken or hatched, it cracks with
+-- its gameobject's Custom0 (153) and that slot's sound (GameObjectDisplayInfo
+-- 477's sound 6, SoundEntries 4785).
+local EGG = { key = "egg", path = "World\\Goober\\G_DragonEggBlack.m2", hp = 60, dps = 0, xp = 6, reach = 0, speed = 0,
+	gemScale = 0.5, holdShare = 0, knockShare = 0, crackAnim = 153, crackSound = 4785, crackSeconds = 0.95,
+	icon = "Interface\\Icons\\INV_Egg_01" }
+
+-- Spells, by level 1 to 5. A missile spell hits `count` enemies in `range`;
+-- a nova spell hits every enemy within `radius` of the hero. At rank V a
+-- spell masters: `mastery` is what it does then, and its numbers.
+local SPELLS = {
+	frostbolt = {
+		spell = 116, blurb = "Bolts the nearest enemy.", color = { 0.55, 0.8, 1 }, kind = "missile", pick = "nearest", range = 24,
+		damage = { 14, 18, 18, 24, 26 }, count = { 1, 1, 2, 2, 3 }, cooldown = { 1.2, 1.05, 1.05, 0.9, 0.8 },
+		mastery = { text = "Frostbite: each bolt freezes its target for 1 second.", freeze = 1 },
+	},
+	shadowbolt = {
+		spell = 686, blurb = "A heavy bolt at the toughest enemy in range.", color = { 0.8, 0.45, 1 }, kind = "missile", pick = "strongest", range = 26,
+		damage = { 45, 60, 75, 75, 100 }, count = { 1, 1, 1, 2, 2 }, cooldown = { 2.6, 2.4, 2.2, 2.2, 2.0 },
+		mastery = { text = "Shadowburn: a bolt that kills bursts, hitting enemies within 4 yards for half its damage.", radius = 4, share = 0.5 },
+	},
+	lightning = {
+		spell = 403, blurb = "Strikes enemies at random.", color = { 1, 0.95, 0.4 }, kind = "missile", pick = "random", range = 22,
+		damage = { 22, 28, 34, 40, 48 }, count = { 1, 2, 2, 3, 4 }, cooldown = { 1.8, 1.7, 1.6, 1.5, 1.3 },
+		mastery = { text = "Overload: each bolt has a 1 in 3 chance to strike another enemy.", chance = 1 / 3 },
+	},
+	nova = {
+		spell = 1449, blurb = "Bursts arcane power at every enemy around you.", color = { 0.85, 0.55, 1 }, kind = "nova",
+		damage = { 10, 14, 18, 22, 28 }, radius = { 6, 6.5, 7, 7.5, 8 }, cooldown = { 5, 4.6, 4.2, 3.8, 3.4 },
+		mastery = { text = "Echo: each explosion bursts a second time.", echo = true },
+	},
+	chain = {
+		spell = 421, blurb = "Leaps from enemy to enemy.",
+		color = { 0.6, 0.75, 1 }, kind = "chain", pick = "nearest", range = 22, hop = 8,
+		damage = { 20, 24, 30, 36, 44 }, jumps = { 3, 4, 4, 5, 6 }, cooldown = { 2.4, 2.2, 2.0, 1.8, 1.6 },
+		mastery = { text = "Each leap strikes 20% harder than the one before.", grow = 1.2 },
+	},
+	corruption = {
+		spell = 172, blurb = "Rots enemies every second, and spreads when they die.",
+		color = { 0.55, 0.85, 0.3 }, kind = "dot", pick = "nearest", range = 22, hop = 6,
+		damage = { 6, 8, 10, 12, 15 }, count = { 2, 3, 3, 4, 5 }, spread = { 1, 1, 2, 2, 3 },
+		duration = { 6, 6, 7, 7, 8 }, cooldown = { 3, 3, 2.8, 2.6, 2.4 },
+		mastery = { text = "Corrupted enemies take 25% more damage from everything.", amplify = 1.25 },
+	},
+	holynova = {
+		spell = 15237, blurb = "Burns enemies around you, and heals you for each one.",
+		color = { 1, 0.95, 0.6 }, kind = "nova",
+		damage = { 12, 16, 20, 26, 32 }, radius = { 6, 6.5, 7, 7.5, 8 }, heal = { 1, 1, 1.5, 1.5, 2 },
+		cooldown = { 4, 3.7, 3.4, 3.1, 2.8 },
+		mastery = { text = "Enemies it burns are dazed: half speed for 2 seconds.", slow = 0.5, seconds = 2 },
+	},
+	-- A fire totem model (display 4589, FireElementalTotem.mdx) that pulses
+	-- as the real Magma Totem does (its pulse spell 8187, whose visual puts an
+	-- Immolate impact on each enemy it burns).
+	totem = {
+		spell = 8190, pulse = 8187, display = 4589,
+		blurb = "Plants a totem that burns every enemy near it every 2 seconds.",
+		color = { 1, 0.5, 0.15 }, kind = "totem", pulseEvery = 2,
+		damage = { 14, 18, 23, 28, 35 }, radius = { 6, 6.5, 7, 7.5, 8 }, totems = { 1, 1, 2, 2, 3 },
+		duration = { 12, 12, 14, 14, 16 }, cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "When a totem's time runs out, it erupts for triple damage.", burst = 3 },
+	},
+	-- Ground areas: the spell's own area model (SetModelBySpellArea) stands
+	-- where it lands and burns every enemy inside it each second. An area
+	-- with `slow` also slows them to that share of their speed.
+	blizzard = {
+		spell = 10, blurb = "Ice storms down on the thickest pack and chills it.",
+		color = { 0.55, 0.8, 1 }, kind = "area", place = "pack", range = 22,
+		damage = { 8, 10, 13, 16, 20 }, radius = { 5, 5.5, 6, 6.5, 7 }, slow = { 0.7, 0.65, 0.6, 0.55, 0.5 },
+		duration = { 4, 4, 5, 5, 6 },
+		cooldown = { 6, 5.5, 5, 4.5, 4 },
+		mastery = { text = "Deep Freeze: when the storm ends, it freezes everything inside for 2 seconds.", freeze = 2 },
+	},
+	rainoffire = {
+		spell = 5740, blurb = "Fire rains on the thickest pack.",
+		color = { 1, 0.45, 0.15 }, kind = "area", place = "pack", range = 22,
+		damage = { 14, 18, 23, 28, 35 }, radius = { 4, 4.4, 4.8, 5.2, 6 }, duration = { 3, 3, 3, 4, 4 },
+		cooldown = { 7, 6.5, 6, 5.5, 5 },
+		mastery = { text = "A second storm falls on another enemy." },
+	},
+	consecration = {
+		spell = 26573, blurb = "Hallows the ground at your feet.",
+		color = { 1, 0.85, 0.4 }, kind = "area", place = "self",
+		damage = { 6, 8, 10, 13, 16 }, radius = { 5, 5.5, 6, 6.5, 7 }, duration = { 6, 6, 7, 7, 8 },
+		cooldown = { 7, 6.5, 6, 5.5, 5 },
+		mastery = { text = "The hallowed ground moves with you." },
+	},
+	thunder = {
+		spell = 6343, blurb = "Shakes the ground close around you.", color = { 1, 0.6, 0.2 }, kind = "nova",
+		damage = { 16, 20, 26, 32, 40 }, radius = { 4, 4.4, 4.8, 5.2, 6 }, cooldown = { 3, 2.8, 2.6, 2.4, 2.2 },
+		mastery = { text = "Aftershock: the clap throws the brood back.", knock = { 8, 5 } },
+	},
+	-- Tanky spells keep the brood off you. `kit` is a SpellVisualKit shown
+	-- while the effect lasts: the shield's bubble, Frost Nova's ice on each
+	-- frozen enemy, Psychic Scream's terror over each fleeing one.
+	shield = {
+		spell = 17, blurb = "A shield soaks up the brood's bites until it breaks.",
+		color = { 1, 1, 0.75 }, kind = "shield",
+		absorb = { 30, 40, 50, 60, 75 }, duration = { 10, 10, 12, 12, 15 }, cooldown = { 15, 14, 13, 12, 11 },
+		mastery = { text = "When the shield breaks, it bursts and hurls the brood around you away.", radius = 6, damage = 30, knock = { 12, 8 } },
+	},
+	thorns = {
+		spell = 467, blurb = "Every enemy biting you takes damage each second.",
+		color = { 0.6, 0.9, 0.3 }, kind = "thorns",
+		damage = { 6, 8, 10, 13, 16 }, duration = { 8, 9, 10, 11, 12 }, cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "You heal 1 health for every biter it burns.", heal = 1 },
+	},
+	frostnova = {
+		spell = 122, blurb = "Freezes every enemy around you in place.",
+		color = { 0.6, 0.85, 1 }, kind = "nova",
+		damage = { 6, 8, 10, 12, 15 }, radius = { 6, 6.5, 7, 7.5, 8 }, root = { 2, 2.5, 3, 3.5, 4 },
+		cooldown = { 10, 9.5, 9, 8.5, 8 },
+		mastery = { text = "Shatter: frozen enemies take double damage.", amplify = 2 },
+	},
+	scream = {
+		spell = 8122, blurb = "Every enemy around you flees in terror.",
+		color = { 0.75, 0.5, 1 }, kind = "nova",
+		radius = { 6, 6.5, 7, 7.5, 8 }, fear = { 2, 2.5, 3, 3.5, 4 }, cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "Terror: fleeing enemies take 10 damage a second.", damage = 10 },
+	},
+	demoshout = {
+		spell = 1160, blurb = "Enemies around you bite softer for a while.",
+		color = { 1, 0.55, 0.35 }, kind = "nova",
+		radius = { 8, 8.5, 9, 9.5, 10 }, weaken = { 0.3, 0.35, 0.4, 0.45, 0.5 }, duration = { 6, 7, 8, 9, 10 },
+		cooldown = { 10, 9.5, 9, 8.5, 8 },
+		mastery = { text = "Battle cry: you run 20% faster while it lasts.", speed = 1.2 },
+	},
+	stoneclaw = {
+		spell = 5730, display = 4588, blurb = "Plants a totem that the brood around it must attack.",
+		color = { 0.8, 0.65, 0.4 }, kind = "ward",
+		radius = { 6, 7, 8, 9, 10 }, duration = { 5, 6, 7, 8, 9 }, cooldown = { 16, 15, 14, 13, 12 },
+		mastery = { text = "When the totem crumbles, it stuns the brood around it for 2 seconds.", stun = 2, aura = 20549 },
+	},
+	-- Fun ones. `knock` is the knockback (out, up), as the items' are.
+	blastwave = {
+		spell = 11113, blurb = "A ring of fire hurls the brood away from you.",
+		color = { 1, 0.5, 0.2 }, kind = "nova", knock = { 10, 7 },
+		damage = { 18, 24, 30, 38, 48 }, radius = { 6, 6.5, 7, 7.5, 8 }, cooldown = { 7, 6.6, 6.2, 5.8, 5.4 },
+		mastery = { text = "The brood it hits is dazed: half speed for 3 seconds.", slow = 0.5, seconds = 3 },
+	},
+	-- Channels: the hero holds the spell's beam on one enemy (PlaySpellVisual's
+	-- channel) and burns it every second for the duration.
+	drainlife = {
+		spell = 689, blurb = "A beam drains the toughest enemy in range, healing you every second.",
+		color = { 0.55, 0.9, 0.4 }, kind = "channel", pick = "strongest", range = 20,
+		damage = { 8, 10, 13, 16, 20 }, heal = { 2, 2.5, 3, 3.5, 4 }, duration = { 5, 5, 6, 6, 7 },
+		cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "When its target dies, the beam leaps to the next enemy.", leap = 8 },
+	},
+	mindflay = {
+		spell = 15407, blurb = "A beam flays the toughest enemy in range and slows it.",
+		color = { 0.75, 0.55, 1 }, kind = "channel", pick = "strongest", range = 22,
+		damage = { 14, 18, 23, 28, 35 }, slow = { 0.5, 0.45, 0.4, 0.35, 0.3 }, duration = { 3, 3, 4, 4, 5 },
+		cooldown = { 6, 5.5, 5, 4.5, 4 },
+		mastery = { text = "Each tick also flays every enemy within 3 yards of its target.", radius = 3 },
+	},
+	-- The imp (display 4449) stays for the run and casts the real Firebolt.
+	imp = {
+		spell = 688, missile = 3110, display = 4449, blurb = "An imp follows you and hurls Firebolts.",
+		color = { 1, 0.55, 0.2 }, kind = "pet", range = 22,
+		damage = { 12, 15, 19, 24, 30 }, cooldown = { 1.6, 1.5, 1.4, 1.3, 1.2 },
+		mastery = { text = "The imp hurls two Firebolts at once.", bolts = 2 },
+	},
+	-- Inferno (1122) plants its meteor at the thickest pack
+	-- (PlaySpellVisualAtPoint). Where it lands, the brood is burned and
+	-- stunned (Inferno Effect 22703: 2 s within 10 yards), and an Infernal
+	-- (display 169) climbs out, rooted for a moment (22707: 1.7 s), then
+	-- hunts, taunting the whelps it burns.
+	inferno = {
+		spell = 1122, display = 169, stunAura = 22703, -- Inferno Effect: its state kit 349 is StunSwirl
+		blurb = "A meteor crashes into the thickest pack and an Infernal climbs out to fight.",
+		color = { 1, 0.5, 0.15 }, kind = "inferno", range = 24,
+		damage = { 40, 55, 70, 90, 115 }, radius = { 8, 8, 9, 9, 10 },
+		hit = { 14, 18, 23, 29, 36 }, burn = { 3, 4, 5, 6, 8 }, duration = { 12, 13, 14, 15, 16 },
+		cooldown = { 30, 28, 26, 24, 22 },
+		mastery = { text = "Two meteors fall, the second on another part of the brood.", meteors = 2 },
+	},
+	-- Lightning Shield (324): its orbs circle you as the aura's state kit
+	-- (AddAuraVisual, kit 292). An orb strikes a whelp that bites you, with
+	-- the spell's impact kit 62 on it; the shield goes with its last orb.
+	lshield = {
+		spell = 324, zapKit = 62, blurb = "Orbs of lightning circle you and strike the whelps that bite you.",
+		color = { 0.6, 0.75, 1 }, kind = "lshield",
+		damage = { 18, 23, 29, 36, 45 }, orbs = { 3, 3, 4, 5, 6 }, cooldown = { 9, 8.5, 8, 7.5, 7 },
+		mastery = { text = "Each strike also jumps to a second whelp nearby.", jump = 5 },
+	},
+	-- Polymorph (118): the toughest enemies in range become Polymorphed Sheep
+	-- (creature 16372, display 856) that wander, harmless, until it wears off.
+	polymorph = {
+		spell = 118, display = 856, blurb = "Turns the toughest enemies in range into harmless sheep.",
+		color = { 0.85, 0.55, 1 }, kind = "polymorph", pick = "strongest", range = 20,
+		count = { 1, 1, 2, 2, 3 }, duration = { 4, 5, 5, 6, 6 }, cooldown = { 10, 9.5, 9, 8.5, 8 },
+		mastery = { text = "Every whelp near each target becomes a sheep too.", radius = 3 },
+	},
+	-- Arcane Missiles (5143): a channel (kit 729) that fires the real Arcane
+	-- Missile (7268) at its target each second, for 3 s (duration 27).
+	arcanemissiles = {
+		spell = 5143, missile = 7268, blurb = "Channels a missile into the toughest enemy in range every second.",
+		color = { 0.85, 0.55, 1 }, kind = "channel", pick = "strongest", range = 22,
+		damage = { 14, 18, 23, 29, 36 }, duration = { 3, 3, 4, 4, 5 }, cooldown = { 6, 5.5, 5, 4.5, 4 },
+		mastery = { text = "Each missile splits into three, at the enemies nearest its target.", split = 3 },
+	},
+	-- Hellfire (1949): a channel on yourself (kit 4809). Each second its
+	-- trigger, Hellfire Effect (5857), bursts around you (cast kit 844) and
+	-- burns the brood in reach, each hit lit by its impact kit (845); and it
+	-- burns you, as the spell's own damage aura (3) does.
+	hellfire = {
+		spell = 1949, tick = 5857, impactKit = 845,
+		blurb = "Channels fire around you that burns the brood close by, and you with it.",
+		color = { 1, 0.45, 0.15 }, kind = "channel", self = true,
+		damage = { 12, 15, 19, 24, 30 }, radius = { 6, 6, 7, 7, 8 }, selfBurn = { 3, 3, 3, 3, 3 },
+		duration = { 4, 4, 5, 5, 6 }, cooldown = { 9, 8.5, 8, 7.5, 7 },
+		mastery = { text = "The fire heals you instead of burning you.", heal = 3 },
+	},
+	-- Evolutions (EVOLUTIONS): a spell at rank V and the passive it needs
+	-- become one of these, in the spell's place. Each has one rank and is
+	-- never offered on its own.
+	-- Frostbolt Volley (8398): the real volley's frostbolts, one at each
+	-- target at once; each chills.
+	frostvolley = {
+		spell = 8398, evolved = true, blurb = "Frostbolts fly at many enemies at once, chilling each one.",
+		color = { 0.55, 0.8, 1 }, kind = "missile", volley = true, pick = "nearest", range = 24,
+		-- Four bolts a volley: each missile starts its own flight loop at the
+		-- hand (PlaySoundLoop3D, as in the world), and eight at once roared.
+		damage = { 32 }, count = { 4 }, slow = { 0.5 }, cooldown = { 0.9 },
+	},
+	-- Shadow Bolt Volley (9081): heavy bolts at the toughest enemies at once.
+	shadowvolley = {
+		spell = 9081, evolved = true, blurb = "Heavy shadow bolts fly at the toughest enemies at once.",
+		color = { 0.8, 0.45, 1 }, kind = "missile", volley = true, pick = "strongest", range = 26,
+		damage = { 110 }, count = { 5 }, cooldown = { 2.2 },
+	},
+	-- Siphon Life (18265): Corruption's rot that heals you as it ticks.
+	siphonlife = {
+		spell = 18265, evolved = true, blurb = "Rots enemies every second and heals you as it does. It spreads when they die.",
+		color = { 0.55, 0.85, 0.3 }, kind = "dot", pick = "nearest", range = 22, hop = 6,
+		damage = { 18 }, heal = { 0.3 }, count = { 6 }, spread = { 3 }, duration = { 8 }, cooldown = { 2.2 },
+	},
+	-- Divine Shield (642): nothing hurts you while its bubble (state kit 252)
+	-- lasts.
+	divineshield = {
+		spell = 642, evolved = true, blurb = "For a few seconds nothing can hurt you.",
+		color = { 1, 0.9, 0.5 }, kind = "shield", immune = true, duration = { 5 }, cooldown = { 18 },
+	},
+	-- War Stomp (45): stuns everything around you (its state kit 349 pins
+	-- Stun), and its cast kit (356) shakes the camera.
+	warstomp = {
+		spell = 45, evolved = true, blurb = "Stomps the ground, hurting and stunning everything around you.",
+		color = { 1, 0.6, 0.2 }, kind = "nova", damage = { 45 }, radius = { 8 }, root = { 1.5 }, cooldown = { 3 },
+	},
+	-- Flamestrike (2120): a large burning ground area on the thickest pack.
+	flamestrike = {
+		spell = 2120, evolved = true, blurb = "A pillar of fire scorches the thickest pack and leaves the ground burning.",
+		color = { 1, 0.45, 0.15 }, kind = "area", place = "pack", range = 22,
+		damage = { 40 }, radius = { 8 }, duration = { 5 }, cooldown = { 5 },
+	},
+	-- Death Coil (6789): a missile that harms its target, heals you, and
+	-- fears the target for 3 s (duration 27).
+	deathcoil = {
+		spell = 6789, blurb = "A coil of shadow harms the nearest enemy, heals you and sends it fleeing.",
+		color = { 0.55, 0.85, 0.3 }, kind = "missile", pick = "nearest", range = 22,
+		damage = { 25, 32, 40, 50, 62 }, heal = { 4, 5, 6, 7, 8 }, fear = { 3, 3, 3, 3, 3 },
+		cooldown = { 7, 6.5, 6, 5.5, 5 },
+		mastery = { text = "The coil fears every enemy around its target.", radius = 5 },
+	},
+	-- Cones (Kinds.lua): everything within `length` yards in front of you,
+	-- inside CONE_ARC of your facing. Cone of Cold's cast kit (1027) holds
+	-- its cone at the hand.
+	conecold = {
+		spell = 120, blurb = "A cone of frost in front of you hurts and chills the brood.",
+		color = { 0.6, 0.85, 1 }, kind = "cone",
+		damage = { 20, 26, 32, 40, 50 }, length = { 10, 10, 11, 11, 12 }, slow = { 0.6, 0.55, 0.5, 0.45, 0.4 },
+		cooldown = { 4, 3.7, 3.4, 3.1, 2.8 },
+		mastery = { text = "The cone freezes what it hits for 1 second.", freeze = 1 },
+	},
+	-- Turrets (Kinds.lua): a totem that shoots its `bolt` at the nearest
+	-- enemy in range every `every` seconds. Searing Totem is the creature
+	-- 2523 (display 4589); its bolt is Searing Bolt (3606).
+	searing = {
+		spell = 3599, bolt = 3606, display = 4589, blurb = "Plants a totem that shoots fire at the nearest enemy.",
+		color = { 1, 0.5, 0.15 }, kind = "turret", range = 20, every = 1,
+		damage = { 10, 13, 16, 20, 25 }, duration = { 12, 14, 16, 18, 20 }, cooldown = { 12, 11.5, 11, 10.5, 10 },
+		mastery = { text = "The totem shoots two bolts at once.", bolts = 2 },
+	},
+	-- Zones (Kinds.lua): a totem whose aura slows every enemy near it, showing
+	-- the aura's visual on each. Earthbind Totem is the creature 2630
+	-- (display 4588); its aura is Earthbind (3600).
+	earthbind = {
+		spell = 2484, aura = 3600, display = 4588, blurb = "Plants a totem that slows every enemy near it.",
+		color = { 0.8, 0.65, 0.4 }, kind = "zone",
+		radius = { 8, 8.5, 9, 9.5, 10 }, slow = { 0.5, 0.45, 0.4, 0.35, 0.3 }, duration = { 10, 11, 12, 13, 14 },
+		cooldown = { 14, 13, 12, 11, 10 },
+		mastery = { text = "Every 3 seconds the totem roots everything near it for 1 second.", root = 1, every = 3 },
+	},
+	-- Traps (Kinds.lua): a hunter's trap (its gameobject's model) at your
+	-- feet. Freezing Trap's effect is Freezing Trap Effect (3355: its state
+	-- kit 3709 is the ice block); Explosive Trap's is Explosive Trap Effect
+	-- (13812), whose ground area burns where it went off.
+	freezetrap = {
+		spell = 1499, effect = 3355, path = "World\\Goober\\G_FreezingTrap.m2", sound = 6522,
+		blurb = "Drops a trap at your feet that freezes the first whelp to step on it, and those beside it.",
+		color = { 0.6, 0.85, 1 }, kind = "trap",
+		radius = { 2, 2.5, 3, 3.5, 4 }, freeze = { 3, 3.5, 4, 4.5, 5 }, traps = { 1, 1, 2, 2, 3 },
+		cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "Each trap springs twice.", springs = 2 },
+	},
+	explosivetrap = {
+		spell = 13813, effect = 13812, path = "World\\Goober\\G_ExplosiveTrap.m2", sound = 6523,
+		blurb = "Drops a trap at your feet that blows up under the first whelp to step on it and sets the brood alight.",
+		color = { 1, 0.5, 0.15 }, kind = "trap", knock = { 6, 8 },
+		damage = { 30, 40, 50, 62, 75 }, radius = { 5, 5.5, 6, 6.5, 7 }, ignite = { 5, 6, 8, 10, 12 }, igniteSeconds = 4,
+		traps = { 1, 1, 2, 2, 3 }, cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "The ground it blasts burns for 4 seconds.", area = 4 },
+	},
+	-- Pyroblast (11366): a slow, heavy fireball at the toughest enemy, which
+	-- leaves it burning.
+	pyroblast = {
+		spell = 11366, blurb = "A great fireball at the toughest enemy in range, which leaves it burning.",
+		color = { 1, 0.45, 0.15 }, kind = "missile", pick = "strongest", range = 26,
+		damage = { 80, 105, 130, 160, 200 }, ignite = { 6, 8, 10, 12, 15 }, igniteSeconds = 4,
+		cooldown = { 5, 4.7, 4.4, 4.1, 3.8 },
+		mastery = { text = "The blast sets every enemy within 4 yards of its target alight.", radius = 4 },
+	},
+	-- Charge (100): you rush into the thickest pack in range (its cast kit
+	-- 44: the trail at the chest, the dust at the base), stunning what is
+	-- around you where you land (Charge Stun 7922: state kit 349).
+	charge = {
+		spell = 100, stunAura = 7922, blurb = "You rush into the thickest pack in range and stun the brood where you land.",
+		color = { 1, 0.6, 0.2 }, kind = "charge",
+		range = { 12, 13, 14, 15, 16 }, damage = { 20, 26, 32, 40, 50 }, radius = { 4, 4, 4.5, 4.5, 5 },
+		stun = { 1, 1.2, 1.4, 1.6, 2 }, cooldown = { 8, 7.5, 7, 6.5, 6 },
+		mastery = { text = "Where you land, the brood is thrown back.", knock = { 10, 6 } },
+	},
+	-- Whirlwind (1680): a nova; its cast kit (369) spins you (126) with the
+	-- whirlwind at your feet.
+	whirlwind = {
+		spell = 1680, blurb = "You spin with your weapon, cutting everything close around you.",
+		color = { 1, 0.75, 0.4 }, kind = "nova",
+		damage = { 18, 24, 30, 38, 48 }, radius = { 5, 5.2, 5.4, 5.7, 6 }, cooldown = { 3, 2.8, 2.6, 2.4, 2.2 },
+		mastery = { text = "You spin twice.", echo = true },
+	},
+	-- Mind Blast (8092) and Moonfire (8921) are instant: their impacts land
+	-- at once. Moonfire leaves an arcane burn.
+	mindblast = {
+		spell = 8092, blurb = "Blasts the mind of the toughest enemy in range.",
+		color = { 0.75, 0.5, 1 }, kind = "missile", pick = "strongest", range = 24,
+		damage = { 40, 52, 65, 80, 100 }, count = { 1, 1, 1, 1, 2 }, cooldown = { 4, 3.7, 3.4, 3.1, 2.8 },
+		mastery = { text = "It blasts two enemies." },
+	},
+	moonfire = {
+		spell = 8921, blurb = "Moonlight strikes enemies at random and leaves them burning.",
+		color = { 0.85, 0.6, 1 }, kind = "missile", pick = "random", range = 24,
+		damage = { 12, 15, 18, 22, 27 }, count = { 1, 2, 2, 3, 3 }, ignite = { 4, 5, 6, 7, 8 }, igniteSeconds = 4,
+		cooldown = { 3, 2.8, 2.6, 2.4, 2.2 },
+		mastery = { text = "Its burn lasts twice as long.", longer = 2 },
+	},
+	-- Fusions (FUSIONS): two spells at rank V become one of these. Like an
+	-- evolution, each has one rank and is never offered on its own.
+	-- Fire Nova Totem (1535, creature 5879: display 4683): a turret that also
+	-- burns everything around it, as Magma Totem's pulse does.
+	firenova = {
+		spell = 1535, bolt = 3606, pulse = 8187, display = 4683, evolved = true, fused = true,
+		blurb = "Plants a totem that shoots fire at the brood and burns everything around it.",
+		color = { 1, 0.5, 0.15 }, kind = "turret", range = 22, every = 0.6, pulseEvery = 2, bolts = 2,
+		damage = { 30 }, pulseDamage = { 30 }, radius = { 8 }, duration = { 20 }, cooldown = { 12 },
+	},
+	-- Frost Trap (13809): a trap that freezes everything around it and leaves
+	-- its icy ground (Frost Trap Aura 13810: frosttrap_aura.mdx) slowing the
+	-- brood.
+	frosttrap = {
+		spell = 13809, effect = 3355, area = 13810, path = "World\\Goober\\G_FrostTrap.m2", sound = 6524,
+		evolved = true, fused = true,
+		blurb = "Drops traps that blow up, freeze everything around them, and leave the ground icy.",
+		color = { 0.6, 0.85, 1 }, kind = "trap", knock = { 4, 6 },
+		damage = { 60 }, radius = { 7 }, freeze = { 3 }, slow = { 0.4 }, duration = { 6 }, traps = { 3 }, cooldown = { 5 },
+	},
+	-- Intercept (20252): Charge's rush (cast kit 44) that lands in a
+	-- Whirlwind.
+	intercept = {
+		spell = 20252, stunAura = 7922, whirl = 1680, evolved = true, fused = true,
+		blurb = "You rush into the thickest pack, spin through it and stun it.",
+		color = { 1, 0.6, 0.2 }, kind = "charge",
+		range = { 18 }, damage = { 60 }, radius = { 6 }, stun = { 2 }, cooldown = { 4 },
+	},
+	-- Starfire (2912): heavy arcane strikes at random that leave a burn.
+	starfire = {
+		spell = 2912, evolved = true, fused = true,
+		blurb = "Starlight crashes down on enemies at random and leaves them burning.",
+		color = { 0.85, 0.6, 1 }, kind = "missile", pick = "random", range = 26,
+		damage = { 55 }, count = { 4 }, ignite = { 10 }, igniteSeconds = 6, cooldown = { 2 },
+	},
+	-- Frost Breath (3129): a wide cone from your breath (its cast kit 2610:
+	-- FrostBreath.mdx at the breath) that freezes.
+	frostbreath = {
+		spell = 3129, evolved = true, fused = true,
+		blurb = "You breathe frost over everything in front of you, freezing it.",
+		color = { 0.6, 0.85, 1 }, kind = "cone", wide = 1.5,
+		damage = { 60 }, length = { 14 }, freeze = { 2 }, cooldown = { 3 },
+	},
+	-- Shadow Flame (22539): Nefarian's breath, a cone of shadowfire that leaves
+	-- the brood burning (its impact kit 5870 on each). Its flame hangs at an
+	-- attachment a character has none of, so the impacts show the cone.
+	shadowflame = {
+		spell = 22539, evolved = true, fused = true,
+		blurb = "A cone of shadowflame in front of you that leaves the brood burning.",
+		color = { 0.75, 0.45, 1 }, kind = "cone", wide = 1.3, burnSchool = "Fire", -- its burn is flame
+		damage = { 70 }, length = { 13 }, ignite = { 15 }, igniteSeconds = 4, cooldown = { 3 },
+	},
+}
+local SPELL_ORDER = {
+	"frostbolt", "shadowbolt", "lightning", "chain", "corruption", "nova", "holynova", "thunder", "totem", "blizzard",
+	"rainoffire", "consecration", "shield", "thorns", "frostnova", "scream", "demoshout", "stoneclaw", "blastwave", "imp",
+	"drainlife", "mindflay", "inferno", "lshield", "polymorph", "arcanemissiles", "deathcoil", "hellfire",
+	"conecold", "searing", "earthbind", "freezetrap", "explosivetrap", "pyroblast", "charge", "whirlwind",
+	"mindblast", "moonfire",
+	-- The evolutions and fusions, on the bar after the others.
+	"frostvolley", "shadowvolley", "siphonlife", "divineshield", "warstomp", "flamestrike",
+	"firenova", "frosttrap", "intercept", "starfire", "frostbreath", "shadowflame",
+}
+-- A spell at rank V with the passive it `needs` (any rank) evolves `into` a
+-- stronger spell, which takes its place.
+local EVOLUTIONS = {
+	frostbolt = { needs = "multishot", into = "frostvolley" },
+	shadowbolt = { needs = "might", into = "shadowvolley" },
+	corruption = { needs = "vampiric", into = "siphonlife" },
+	shield = { needs = "vigor", into = "divineshield" },
+	thunder = { needs = "devotion", into = "warstomp" },
+	rainoffire = { needs = "amplify", into = "flamestrike" },
+}
+-- Two spells both at rank V fuse `into` one stronger spell, which takes the
+-- first one's place and frees the second one's slot.
+local FUSIONS = {
+	{ a = "searing", b = "totem", into = "firenova" },
+	{ a = "freezetrap", b = "explosivetrap", into = "frosttrap" },
+	{ a = "charge", b = "whirlwind", into = "intercept" },
+	{ a = "moonfire", b = "lightning", into = "starfire" },
+	{ a = "conecold", b = "frostnova", into = "frostbreath" },
+	{ a = "mindblast", b = "pyroblast", into = "shadowflame" },
+}
+local MAX_SPELLS = 6
+local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
+-- The first spell of a run, by class (UnitClass's English name). The start
+-- offers your class's and two others' (Hud.lua's BuildOffers); a class with
+-- none here (a rogue) gets three others.
+local STARTERS = {
+	MAGE = "frostbolt", WARLOCK = "shadowbolt", SHAMAN = "lightning", PRIEST = "holynova", DRUID = "moonfire",
+	PALADIN = "consecration", WARRIOR = "thunder", HUNTER = "explosivetrap",
+}
+
+-- `icon` is the spell whose icon the passive shows; `total` is what all its
+-- ranks give together.
+local PASSIVES = {
+	might = { name = "Might", icon = 19740, text = "+15% damage", total = "+%d%% damage", per = 15 },
+	haste = { name = "Haste", icon = 12043, text = "-8% spell cooldowns", total = "-%d%% cooldowns", per = 8 },
+	reach = { name = "Reach", icon = 2481, text = "+40% gem pickup radius", total = "+%d%% pickup radius", per = 40 },
+	vigor = { name = "Vigor", icon = 1243, text = "+25 maximum health, and heal 25", total = "+%d maximum health", per = 25 },
+	renewal = { name = "Renewal", icon = 139, text = "+1.2 health per second", total = "%.1f health per second", per = 1.2 },
+	sprint = { icon = 2983, text = "+8% run speed", total = "+%d%% run speed", per = 8 },
+	devotion = { icon = 465, text = "-5% damage taken", total = "-%d%% damage taken", per = 5 },
+	amplify = { icon = 1008, text = "+10% spell radius", total = "+%d%% spell radius", per = 10 },
+	multishot = {
+		icon = 2643, text = "+1 target for bolts and Corruption", total = "+%d targets", per = 1,
+		max = 3,
+	},
+	wisdom = { icon = 19742, text = "+15% experience", total = "+%d%% experience", per = 15 },
+	soulstone = {
+		name = "Soulstone", icon = 20707, text = "Once per run, rise again with half your health",
+		total = "%d revive", per = 1, max = 1,
+	},
+	vampiric = {
+		icon = 15286,
+		text = "Heals you for 0.2% of the damage you deal, at most 2 health a second",
+		total = "up to %d health a second", per = 2,
+	},
+}
+-- A school's colour for its damage numbers, as the combat log colours it
+-- (COMBATLOG_DEFAULT_COLORS). `school`: GetSpellSchool's name of it.
+local SCHOOL_MASKS = {
+	Physical = SCHOOL_MASK_PHYSICAL, Holy = SCHOOL_MASK_HOLY, Fire = SCHOOL_MASK_FIRE, Nature = SCHOOL_MASK_NATURE,
+	Frost = SCHOOL_MASK_FROST, Shadow = SCHOOL_MASK_SHADOW, Arcane = SCHOOL_MASK_ARCANE,
+}
+local COMBAT_LOG_SETTINGS = { colors = COMBATLOG_DEFAULT_COLORS }
+local schoolColors = {}
+
+local function SchoolColor(school)
+	local color = schoolColors[school];
+	if not color then
+		local c = CombatLogUtil.GetColorBySchool(SCHOOL_MASKS[school], COMBAT_LOG_SETTINGS);
+		color = { c.r, c.g, c.b };
+		schoolColors[school] = color;
+	end
+	return color;
+end
+
+-- The names are the client's own, in its language: each spell's from its
+-- spell, and each passive without a name of its own from its icon's spell.
+-- A spell's `color` marks it in the HUD; its hits show in its school's
+-- colour (`hitColor`).
+for _, def in pairs(SPELLS) do
+	def.name = C_Spell.GetSpellName(def.spell)
+	-- The spell's school, which the combos read: "Fire", "Frost", ...
+	local _, school = GetSpellSchool(def.spell)
+	def.school = school
+	def.hitColor = SchoolColor(school)
+end
+for _, p in pairs(PASSIVES) do
+	p.name = p.name or C_Spell.GetSpellName(p.icon)
+end
+
+local HEAL_ICON = 5185 -- Healing Touch
+local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local PASSIVE_ORDER = {
+	"might", "haste", "reach", "vigor", "renewal", "sprint", "vampiric", "devotion", "amplify", "multishot",
+	"wisdom", "soulstone",
+}
+local VAMPIRIC_SHARE = 0.002     -- of the damage dealt, per rank
+local HOLY_NOVA_HEAL_TARGETS = 8 -- Holy Nova heals for at most this many enemies
+local SOULSTONE_SPELL = 20707 -- Soulstone Resurrection, the revive's visual
+local SOULSTONE_BLAST = 10   -- yards: rising again throws back the enemies this close
+local MAX_LEVEL = 5
+
+local ROMAN = { "I", "II", "III", "IV", "V" }
+
+-- The bars ease to a new value in the engine (StatusBar interpolation); a
+-- reset (a new run, a level's wrap) shows at once.
+local EASE = Enum.StatusBarInterpolation.ExponentialEaseOut
+local AT_ONCE = Enum.StatusBarInterpolation.Immediate
+
+-- The items' tuning.
+local TUNING = {
+	SWIFTNESS_FACTOR = 1.5,
+	SWIFTNESS_SECONDS = 10,
+	ITEM_CHANCE = 1 / 150,     -- a whelp's chance to drop an item
+	ITEM_REACH = 1.5,          -- yards: walking this close uses a drop
+	ITEM_SECONDS = 30,         -- a drop lies this long
+	ITEM_ICON = 28,            -- pixels
+	ITEM_COLOR = { 1, 0.82, 0 },
+	CHEST_REACH = 2,           -- yards: walking this close opens a chest
+	CHEST_AWAY = 2.5,          -- yards from the elite's corpse that its chest lands
+	CHEST_LINGER = 4,          -- seconds an open chest stays before it fades
+	EGG_FIRST = 60,            -- the second of the run the first clutch is laid
+	EGG_EVERY = 75,            -- seconds between clutches
+	EGG_CLUTCH = 4,            -- eggs in a clutch
+	EGG_SPREAD = 2.5,          -- yards from the clutch's middle to each egg
+	EGG_HATCH = 20,            -- seconds an egg takes to hatch
+	EGG_WARN = 5,              -- seconds before it hatches that a red ring marks it
+	EGG_WHELPS = 4,            -- whelps that hatch from each egg
+	-- Goblin Land Mines (the creature 7527's display 6271: Stand 0, Despawn
+	-- 157 of 1.17 s). The hero stepping within MINE_TRIGGER arms one; then a
+	-- whelp stepping within it sets it off: it casts the Goblin Sapper
+	-- Charge's visual (13241) at its own point, which plants Bomb_ExplosionA
+	-- there and plays the FireNova cast kit.
+	MINE_DISPLAY = 6271,
+	MINE_SPELL = 13241,
+	MINE_ARM_SOUND = 3216,     -- Land Mine Arming's (11816) cast kit 259 sound
+	MINE_COUNT = 4,            -- mines lying in the lair
+	MINE_RESPAWN = 15,         -- seconds before a spent mine is laid again
+	MINE_TRIGGER = 1.5,        -- yards: the hero this close arms it, then a whelp sets it off
+	MINE_RADIUS = 6,           -- yards the blast reaches
+	MINE_DAMAGE = 60,          -- grows with the run as the brood's health does
+	MINE_KNOCK = { 12, 8 },
+	MINE_DESPAWN = 1.17,       -- seconds of Despawn, then the spent mine hides
+	MINE_COLOR = { 1, 0.5, 0.1 },
+	-- The lair's lava cracks (VENTS). From VENT_FIRST, every VENT_EVERY
+	-- seconds a wave of cracks is marked by a red ring for VENT_WARN
+	-- seconds, then erupts: its Custom0 (153, 1.57 s) and Onyxia's Eruption
+	-- sound (spell 17731's cast kit 4409: SoundEntries 7714). The eruption
+	-- burns everything within VENT_RADIUS (times the crack's scale), you too.
+	VENT_FIRST = 120,
+	VENT_EVERY = 8,
+	VENT_WARN = 2,
+	VENT_ERUPT = 1.57,
+	VENT_SOUND = 7714,
+	VENT_RADIUS = 4.5,
+	VENT_DAMAGE = 50,          -- to the brood, grown with the run as its health is
+	VENT_HERO = 0.15,          -- of your maximum health
+	VENT_KNOCK = { 3, 12 },    -- mostly up
+	VENT_WAVE_GROWTH = 150,    -- seconds after VENT_FIRST for each crack more in a wave
+	VENT_WAVE_MAX = 4,
+	VENT_COLOR = { 1, 0.35, 0 },
+	-- Combos (Brood.lua's SpellDamage, by the spells' schools).
+	SHATTER = 3,               -- a hit but frost on a frozen enemy, times
+	DREAD = 1.5,               -- shadow on a fleeing enemy, times
+	DETONATE_RADIUS = 4,       -- yards a detonated burn splashes, at half
+	STEAM_STUN = 1.5,          -- seconds frost on a fire burn stuns
+	WILDFIRE_RADIUS = 4,       -- yards a burning enemy's death sets alight
+	COMBO_COLOR = { 1, 0.9, 0.3 },
+	BURN_AURA = 348,           -- Immolate: its state kit 235 burns at the base
+	STUN_AURA = 20549,         -- War Stomp's StunSwirl (no Gouge roar)
+	-- Traps (Kinds.lua): a trap lands at your feet, arms after TRAP_ARM, and
+	-- springs on the first whelp within TRAP_TRIGGER: its gameobject's
+	-- Custom0 (153) with that slot's sound, then it hides.
+	TRAP_ARM = 1,
+	TRAP_TRIGGER = 1.5,
+	TRAP_LIFE = 30,            -- seconds an unsprung trap lies
+	TRAP_MAX = 6,              -- traps lying at once; the oldest goes first
+	TRAP_SPRUNG = 1.2,         -- seconds the sprung trap shows before it hides
+	TRAP_SCALE = 2,            -- the trap models are a yard across; this shows them from the camera
+	-- Charge (Kinds.lua): you rush at this many yards a second; the dash ends
+	-- at the target or after CHARGE_MAX seconds.
+	CHARGE_SPEED = 28,
+	CHARGE_MAX = 1,
+	CONE_ARC = math.pi / 2,    -- radians a cone spans, centred on its aim
+	CAST_POSE = 0.4,           -- seconds a cone's cast holds you facing it
+	-- The grace when the last level-up or chest card closes (Hud.lua).
+	GRACE_SECONDS = 1.5,       -- nothing hurts you this long
+	GRACE_RADIUS = 6,          -- yards: the brood this close is thrown back
+	GRACE_KNOCK = { 12, 6 },
+	GRACE_ALPHA = 0.5,         -- how you show while it lasts
+	-- Off-screen markers (Markers.lua): a closed chest or a clutch past the
+	-- scene's edge shows an arrow at the edge, pointing at it, and its icon.
+	MARKER_ARROW = "Interface\\ChatFrame\\ChatFrameExpandArrow", -- points right
+	MARKER_ARROW_SIZE = 24,    -- pixels
+	MARKER_ICON_SIZE = 26,     -- pixels
+	MARKER_MARGIN = 36,        -- pixels from the scene's edge to the arrow's centre
+	POTION_HEAL = 0.3,         -- of the maximum health
+	FIREWARD_SHARE = 0.6,      -- of the maximum health: the fire a Fire Protection Potion soaks
+	FIREWARD_SECONDS = 60,
+	INVULNERABLE_SECONDS = 6,  -- a Limited Invulnerability Potion: no bites, no charges
+	BOMB_COUNT = 3,            -- Goblin Bomb Dispenser: walking bombs (Pet Bomb's display)
+	BOMB_DISPLAY = 8189,
+	BOMB_SPEED = 8,
+	BOMB_LIFE = 12,            -- seconds; a bomb with no prey goes off where it stands
+	BOMB_TRIGGER = 1.5,        -- yards from its prey
+	BOMB_RADIUS = 4,
+	BOMB_DAMAGE = 50,          -- grows with the run
+	BOMB_SPELL = 13241,        -- the land mine's blast
+	BOMB_KNOCK = { 10, 7 },
+	SAPPER_RADIUS = 10,
+	SAPPER_SELF = 0.15,        -- of the maximum health; it never kills you
+	SAPPER_ELITE = 0.25,       -- of an elite's maximum health
+	CHICKEN_DISPLAY = 6909,    -- the robot chicken (ChickenSkinRobot)
+	CHICKEN_SECONDS = 20,
+	CHICKEN_SPEED = 9,
+	CHICKEN_DAMAGE = 12,       -- a peck, grows with the run
+	CHICKEN_PECK = 0.8,        -- seconds between pecks
+	CHICKEN_REACH = 1.8,
+	CHICKEN_LEASH = 20,        -- yards from the hero: it hunts no farther
+	CHICKEN_HUNT_MIN = 6,      -- yards from the hero: it prefers prey past this
+	CHICKEN_TAUNT = 3,         -- seconds a peck holds the whelps around it
+	CHICKEN_TAUNT_RADIUS = 3,  -- yards around the chicken that a peck taunts
+	CHICKEN_ROAM = 6,          -- yards around the hero that it roams with no prey
+	-- Knockbacks (actor:KnockBack): yards a second out and up.
+	SOULSTONE_KNOCK = { 16, 10 },
+	FEAR_STEP = 6,             -- yards a fleeing enemy runs before its next MoveTo
+	IMP_SPEED = 8.5,
+	IMP_FOLLOW = 3,            -- yards: farther from you than this, the imp follows
+	INFERNO_FALL = 1.0,        -- seconds from the cast until the meteor strikes the ground
+	INFERNO_STUN = 2,          -- Inferno Effect's stun (22703, duration 39)
+	INFERNAL_ROOT = 1.7,       -- the Infernal's landing (22707, duration 487)
+	INFERNAL_SPEED = 7,
+	INFERNAL_REACH = 2.5,
+	INFERNAL_SWING = 2,        -- seconds between two blows
+	INFERNAL_BURN_RADIUS = 4,  -- yards its Immolation burns, once a second
+	INFERNAL_TAUNT = 3,        -- seconds a burn holds the whelps on it
+	ZAP_GAP = 0.5,             -- seconds between two of Lightning Shield's strikes
+	SHEEP_SPEED = 1.5,
+	SHEEP_WANDER = 2,          -- yards a sheep ambles before its next MoveTo
+	HELLFIRE_IMPACTS = 8,      -- hit whelps a Hellfire tick lights with its impact kit
+}
+-- `itemID` is the real item (its name and icon), `spell` the visual its use plays.
+local ITEMS = {
+	{ key = "potion", itemID = 929, spell = 17534, weight = 30 },
+	-- The grenade stuns with War Stomp's silent StunSwirl (20549): its own
+	-- stun kit (19769's 780) plays Gouge on every whelp it holds, with no
+	-- duplicate guard, a roar over a whole pack.
+	-- A thrown item lands on the thickest pack: `radius`, `damage` (grown with
+	-- the run as the brood's health is), a `stun` and a `knock`.
+	{ key = "grenade", itemID = 15993, spell = 19769, stunAura = 20549, weight = 25,
+		radius = 5, damage = 45, stun = 2, knock = { 10, 7 } },
+	-- Dense Dynamite (its throw, 23063): wider and harder, with no stun.
+	{ key = "dynamite", itemID = 18641, spell = 23063, weight = 12, radius = 7, damage = 75, knock = { 14, 9 } },
+	-- The potions' drink (their spells' cast kit 704, a vial in hand).
+	{ key = "fireward", itemID = 13457, spell = 17543, weight = 8 },
+	{ key = "invulnerable", itemID = 3387, spell = 3169, weight = 6 },
+	{ key = "bombs", itemID = 10587, weight = 8 },
+	{ key = "swift", itemID = 2459, spell = 2379, weight = 15 },
+	{ key = "hearth", itemID = 6948, spell = 8690, weight = 10 },
+	{ key = "sapper", itemID = 10646, spell = 13241, weight = 10 },
+	{ key = "chicken", itemID = 10725, spell = 23133, weight = 10 },
+}
+-- Chests: an elite drops one, and every GOLDEN_EVERY-th is golden. Walking up
+-- opens it (Open 148, then Opened 149 held, as the client's chests do), and
+-- the chest gives `picks` upgrade cards. `open` is the Open sequence's length
+-- in the model's file; `speed` plays it faster. The two models are about
+-- 1.3 and 3.1 yards across at scale 1.
+local CHEST_SOUND = 1277 -- ChestOpen (SoundEntries)
+local GOLDEN_EVERY = 5
+local CHESTS = {
+	plain = { path = "World\\SkillActivated\\Containers\\TreasureChest01.m2", scale = 1.2, open = 0.666, speed = 1, picks = 1,
+		title = "Treasure", icon = "Interface\\Icons\\INV_Box_01" },
+	golden = { path = "World\\Goober\\G_ChestTitan.m2", scale = 0.6, open = 3.2, speed = 2, picks = 3,
+		title = "Golden Treasure", icon = "Interface\\Icons\\INV_Box_02" },
+}
+-- Onyxia's Lair's lava cracks inside the arena: { x, y, z, facing, scale,
+-- mirrored }. They are the lava-trap gameobjects of the server's Onyxia
+-- encounter (177984-178020, Doodad_OnyziasLairLavaTrap* and *Mirror*, at
+-- AzerothCore's retail spawns on map 249), within 23 yards of CENTER. The
+-- crack's mesh lies under the floor: only its eruption shows.
+local VENT_PATH = "World\\Kalimdor\\OnyxiasLair\\LavaTraps\\OnyziasLairLavaTrap.m2"
+local VENT_MIRROR_PATH = "World\\Kalimdor\\OnyxiasLair\\LavaTraps\\OnyziasLairLavaTrapMirror.m2"
+local VENTS = {
+	{ -1.67, -217.14, -85.67, 0.785, 1.00, false },
+	{ -9.81, -212.03, -88.14, -0.262, 0.82, false },
+	{ 13.19, -214.44, -86.48, 0.873, 0.82, false },
+	{ 2.95, -198.74, -87.05, 1.484, 0.82, true },
+	{ 17.00, -204.31, -86.22, -2.618, 1.00, true },
+	{ 3.20, -230.38, -87.05, -1.484, 0.82, false },
+	{ -19.70, -209.64, -88.55, -0.436, 1.00, false },
+	{ 16.84, -225.11, -86.22, 2.618, 1.00, false },
+	{ 14.30, -195.44, -86.03, 0.436, 0.85, true },
+	{ -19.40, -219.85, -88.48, -2.793, 1.00, false },
+	{ -15.67, -196.47, -89.10, 1.047, 1.00, true },
+	{ -0.40, -189.26, -87.35, -1.396, 0.82, true },
+}
+-- Gear: kept for the run. Chests offer it (Hud.lua's BuildOffers): a golden
+-- chest's first pick, while you hold no weapon, is three of the weapons; any
+-- other chest pick may offer one piece of worn gear while you wear fewer
+-- than MAX_WORN. `slot`: "weapon" (one, in your hands: actor:TryOn) or
+-- "worn". `text`: what it does. The numbers of an effect that hurts grow
+-- with the run, as the brood's health does.
+local MAX_WORN = 3
+local GEAR = {
+	-- Thunderfury's proc (21992, the item's chance-on-hit spell): its bolt
+	-- leaps from enemy to enemy as Chain Lightning's does. `chance` a spell
+	-- hit, at most once in `every` seconds.
+	thunderfury = { itemID = 19019, slot = "weapon", spell = 21992, school = "Nature", chance = 0.2, every = 1.5,
+		damage = 30, jumps = 4, hop = 8, slow = 0.6, slowSeconds = 3,
+		text = "Your spell hits may loose a bolt of lightning that leaps to 4 more of the brood and slows them." },
+	-- Sulfuras's proc (21162, a Fireball).
+	sulfuras = { itemID = 17182, slot = "weapon", spell = 21162, school = "Fire", chance = 0.15, every = 2,
+		damage = 40, radius = 5, burn = 8, burnSeconds = 4, knock = { 6, 5 },
+		text = "Your spell hits may hurl a fireball that bursts and sets the brood around it burning." },
+	-- Benediction and Anathema (18609) are one staff that turns, with their
+	-- Call Anathema (23041) and Call Benediction (23042).
+	benediction = { itemID = 18608, other = 18609, slot = "weapon", toAnathema = 23041, toBenediction = 23042,
+		every = 20, bonus = 0.6, renew = 2,
+		text = "Every 20 s the staff turns. Benediction: Holy spells hit 60% harder, and you heal 2 a second. "
+			.. "Anathema: Shadow spells hit 60% harder." },
+	-- Rhok'delar shoots Auto Shot (75); the bow shows in your hands as it does.
+	rhokdelar = { itemID = 18713, slot = "weapon", spell = 75, school = "Physical", every = 0.8, range = 30, damage = 18,
+		text = "Shoots the nearest of the brood within 30 yd every 0.8 s." },
+	drakefire = { itemID = 16309, slot = "worn", share = 0.5,
+		text = "Fire hurts you half as much: lava, fireballs, breath, your own Hellfire." },
+	onyxiacloak = { itemID = 15138, slot = "worn", text = "A dragon's breath does you no harm." },
+	hoj = { itemID = 11815, slot = "worn", chance = 0.1, text = "Each spell you cast has a 10% chance to recharge at once." },
+	-- The on-use trinkets go off by themselves when the brood is within
+	-- `near`, with their use spells' visuals.
+	tep = { itemID = 18820, slot = "worn", spell = 23271, every = 90, seconds = 15, bonus = 0.4, near = 20,
+		text = "Every 90 s, with the brood near, your spells hit 40% harder for 15 s." },
+	zhc = { itemID = 19950, slot = "worn", spell = 24658, every = 120, seconds = 20, bonus = 0.8, fade = 0.05, near = 20,
+		text = "Every 2 min, with the brood near, your spells hit 80% harder for 20 s, 5% less with each cast." },
+	-- The talisman's dodge: the brood's blows (bites, charges) miss a share.
+	drakefang = { itemID = 19406, slot = "worn", share = 0.1, text = "You dodge a tenth of the brood's blows: bites and charges hurt 10% less." },
+}
+local GEAR_ORDER = { "thunderfury", "sulfuras", "benediction", "rhokdelar", "drakefire", "onyxiacloak", "hoj", "tep", "zhc",
+	"drakefang" }
+
+-- Each item's name, icon and quality colour are the client's (the Item
+-- mixin), once its data has come from the server.
+local function LoadItem(entry)
+	local data = Item:CreateFromItemID(entry.itemID);
+	data:ContinueOnItemLoad(function()
+		entry.name = data:GetItemName();
+		entry.icon = data:GetItemIcon();
+		local r, g, b = data:GetItemQualityColorRGB();
+		entry.quality = { r, g, b };
+	end);
+end
+for _, item in ipairs(ITEMS) do
+	LoadItem(item);
+end
+for _, gear in pairs(GEAR) do
+	LoadItem(gear);
+end
+-- The staff's other face, for its slot while it is Anathema.
+GEAR.benediction.anathema = { itemID = GEAR.benediction.other }
+LoadItem(GEAR.benediction.anathema)
+
+-- For the files that load after this one.
+BW.LAIR_MAP = LAIR_MAP
+BW.CENTER = CENTER
+BW.ROOM_RADIUS = ROOM_RADIUS
+BW.SPAWN_MIN_DISTANCE = SPAWN_MIN_DISTANCE
+BW.FAR_CLIP = FAR_CLIP
+BW.CAMERA_YAW = CAMERA_YAW
+BW.CAMERA_PITCH = CAMERA_PITCH
+BW.CAMERA_ZOOM = CAMERA_ZOOM
+BW.RUN_SECONDS = RUN_SECONDS
+BW.ELITE_EVERY = ELITE_EVERY
+BW.MAX_ALIVE = MAX_ALIVE
+BW.RETARGET_SECONDS = RETARGET_SECONDS
+BW.SURROUND_RADIUS = SURROUND_RADIUS
+BW.CAST_SPACING = CAST_SPACING
+BW.DEATH_SECONDS = DEATH_SECONDS
+BW.ANIM_STAND = ANIM_STAND
+BW.ANIM_DEATH = ANIM_DEATH
+BW.ANIM_ATTACK_UNARMED = ANIM_ATTACK_UNARMED
+BW.HERO_HP = HERO_HP
+BW.MAGNET = MAGNET
+BW.GEM_SPEED = GEM_SPEED
+BW.GEM_TAKE = GEM_TAKE
+BW.GEM_PATH = GEM_PATH
+BW.MAX_GEMS = MAX_GEMS
+BW.KINDS = KINDS
+BW.ELITE = ELITE
+BW.EGG = EGG
+BW.SPELLS = SPELLS
+BW.SPELL_ORDER = SPELL_ORDER
+BW.EVOLUTIONS = EVOLUTIONS
+BW.FUSIONS = FUSIONS
+BW.MAX_SPELLS = MAX_SPELLS
+BW.EARLY_SPELLS = EARLY_SPELLS
+BW.STARTERS = STARTERS
+BW.PASSIVES = PASSIVES
+BW.SchoolColor = SchoolColor
+BW.HEAL_ICON = HEAL_ICON
+BW.UNKNOWN_ICON = UNKNOWN_ICON
+BW.PASSIVE_ORDER = PASSIVE_ORDER
+BW.VAMPIRIC_SHARE = VAMPIRIC_SHARE
+BW.HOLY_NOVA_HEAL_TARGETS = HOLY_NOVA_HEAL_TARGETS
+BW.SOULSTONE_SPELL = SOULSTONE_SPELL
+BW.SOULSTONE_BLAST = SOULSTONE_BLAST
+BW.MAX_LEVEL = MAX_LEVEL
+BW.ROMAN = ROMAN
+BW.EASE = EASE
+BW.AT_ONCE = AT_ONCE
+BW.TUNING = TUNING
+BW.ITEMS = ITEMS
+BW.GEAR = GEAR
+BW.GEAR_ORDER = GEAR_ORDER
+BW.MAX_WORN = MAX_WORN
+BW.CHEST_SOUND = CHEST_SOUND
+BW.GOLDEN_EVERY = GOLDEN_EVERY
+BW.CHESTS = CHESTS
+BW.VENT_PATH = VENT_PATH
+BW.VENT_MIRROR_PATH = VENT_MIRROR_PATH
+BW.VENTS = VENTS

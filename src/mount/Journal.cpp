@@ -12,6 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `C_MountJournal.GetMountFromSpell(spellID)` -> mountID | nil
+// `C_MountJournal.GetMountFromItem(itemID)` -> mountID | nil
 // `C_MountJournal.GetMountInfoExtraByID(mountID)` -> creatureDisplayInfoID,
 //     description, source, isSelfMount, mountTypeID, uiModelSceneID, animID,
 //     spellVisualKitID, disablePlayerMountPreview
@@ -26,7 +27,9 @@
 // On Turtle a mount ITEM does not carry its mount spell: every one carries
 // 46499 "Add Mount to Collection", which teaches a spell from a server-only
 // item table. So only the mount spell (spellbook, spell link) resolves; 46499
-// is not a mount. See docs/notes/model-scene.md.
+// is not a mount. See docs/notes/model-scene.md. On a stock server an item
+// is a mount when its use spell is one (retail's GetMountFromItem hop); an
+// uncached item returns nil and starts the item cache load.
 //
 // creatureDisplayInfoID is the display the server mounts the caster on: the
 // aura's misc value is a creature entry, and the server takes a display from
@@ -49,6 +52,10 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "creature/Info.h"
+#include "item/Arg.h"
+#include "item/Data.h"
+#include "item/Record.h"
+#include "item/Spell.h"
 #include "spell/Arg.h"
 #include "spell/Description.h"
 #include "spell/Lookup.h"
@@ -112,6 +119,22 @@ int __fastcall Script_GetMountFromSpell(void *L) {
     return 1;
 }
 
+int __fastcall Script_GetMountFromItem(void *L) {
+    const int itemID = Item::Arg::ResolveItemID(L, 1);
+    if (itemID <= 0)
+        return 0;
+    const uint8_t *item = Item::PeekRecord(static_cast<uint32_t>(itemID));
+    if (item == nullptr) {
+        Item::Data::WarmCache(static_cast<uint32_t>(itemID));
+        return 0;
+    }
+    const int spellID = Item::Spell::FindOnUseSpellIDInRecord(item);
+    if (MountRecord(spellID) == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, static_cast<double>(spellID));
+    return 1;
+}
+
 int __fastcall Script_GetMountInfoExtraByID(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return 0;
@@ -160,6 +183,18 @@ const Game::Doc::Function kGetMountFromSpell{
     "The mount a spell summons. A mount's ID is the ID of the spell that summons it.",
     kGetMountFromSpellArgs, kGetMountFromSpellRets};
 
+const Game::Doc::Field kGetMountFromItemArgs[] = {
+    Game::Doc::Req("itemID", "number", "An item ID or item link."),
+};
+const Game::Doc::Field kGetMountFromItemRets[] = {
+    Game::Doc::Opt("mountID", "number", nullptr,
+                   "The mount the item's use spell summons, which is that spell's ID. Nil "
+                   "when the item does not summon a mount, or while the item is not cached; "
+                   "the call starts loading it."),
+};
+const Game::Doc::Function kGetMountFromItem{
+    "The mount an item summons when used.", kGetMountFromItemArgs, kGetMountFromItemRets};
+
 const Game::Doc::Field kGetMountInfoExtraByIDArgs[] = {
     Game::Doc::Req("mountID", "number", "A mount ID, which is the mount's spell ID."),
 };
@@ -184,6 +219,8 @@ const Game::Doc::Function kGetMountInfoExtraByID{
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_MountJournal", "GetMountFromSpell",
                                      &Script_GetMountFromSpell, &kGetMountFromSpell);
+    Game::Lua::RegisterTableFunction("C_MountJournal", "GetMountFromItem",
+                                     &Script_GetMountFromItem, &kGetMountFromItem);
     Game::Lua::RegisterTableFunction("C_MountJournal", "GetMountInfoExtraByID",
                                      &Script_GetMountInfoExtraByID, &kGetMountInfoExtraByID);
 }

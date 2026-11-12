@@ -45,6 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "text/InlineTexture.h"
 
 #include <cstdint>
@@ -59,21 +60,17 @@ using IndexAtPoint_t = void(__fastcall *)(void *editBox, void *edx, float x, flo
 using FontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 using MeasureRun_t = float(__fastcall *)(void *fs, void *edx, const uint8_t *text, int len);
 using PixelAlignY_t = float(__stdcall *)(float length);
-using GetRect_t = int(__fastcall *)(void *anchor, void *edx, float *out);
 using ClearAllPoints_t = void(__fastcall *)(void *anchor);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint, float x, float y,
                                       int flag);
-using Resize_t = void(__fastcall *)(void *anchor, void *edx, int force);
 using Extent_t = float(__fastcall *)(void *anchor, void *edx);
-using ScreenAspect_t = float(__cdecl *)();
-using DivideByScreenScaleX_t = float(__stdcall *)(float value);
 using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt, ...);
 
 PlaceCaret_t g_origPlaceCaret = nullptr;
 PlaceSelectionPiece_t g_origPlaceSelectionPiece = nullptr;
 IndexAtPoint_t g_origIndexAtPoint = nullptr;
 
-void *AnchorOf(void *region) { return static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR; }
+using Frame::Layout::Of;
 
 // A multi-line box's rows: its label, the buffer the line table indexes (the
 // '*' copy of a password box) and the table — each line's first byte, the
@@ -179,9 +176,9 @@ bool AnchorX(const Rows &rows, int line, uint32_t pos, float &x, int &relPoint) 
 
 // Anchors `region` as the placer did, at `y`.
 void Anchor(const Rows &rows, void *region, int relPoint, float x, float y, int flag) {
-    void *anchor = AnchorOf(region);
+    void *anchor = Of(region);
     reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(anchor);
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(anchor, Offsets::FRAMEPOINT_TOPLEFT, AnchorOf(rows.fs),
+    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(anchor, Offsets::FRAMEPOINT_TOPLEFT, Of(rows.fs),
                                                                 relPoint, x, y, flag);
 }
 
@@ -192,7 +189,7 @@ void __fastcall IndexAtPoint_h(void *editBox, void *edx, float x, float y, int *
     if (!MultiLineRows(editBox, rows))
         return g_origIndexAtPoint(editBox, edx, x, y, index);
     float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // bottom, left, top, right
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(AnchorOf(rows.fs), nullptr, rect) == 0)
+    if (!Frame::Layout::GetRect(rows.fs, rect))
         return g_origIndexAtPoint(editBox, edx, x, y, index);
     // The engine walks rows down from the label's top while the click is
     // below the row (strictly), stopping at the last line. Walk the rows as
@@ -240,7 +237,7 @@ void __fastcall PlaceSelectionPiece_h(void *editBox, void *edx, void *piece, int
         return;
     const float y = -(RowHeight(rows) / rows.scale) * static_cast<float>(line) - shift;
     Anchor(rows, piece, relPoint, x, y, 0);
-    reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(AnchorOf(piece), nullptr, 1);
+    Frame::Layout::Resize(piece, true);
 }
 
 // --- the caret ----------------------------------------------------------------
@@ -276,15 +273,12 @@ void __fastcall PlaceCaret_h(void *editBox) {
         return;
     // OnCursorChanged(x, y, width, height) as the engine fires it: each
     // value by the anchor→script factor, pushed as a double.
-    void *anchor = AnchorOf(caret);
+    void *anchor = Of(caret);
     void **vtable = *static_cast<void ***>(anchor);
     const float width = reinterpret_cast<Extent_t>(vtable[7])(anchor, nullptr);  // +0x1C GetWidth
     const float height = reinterpret_cast<Extent_t>(vtable[8])(anchor, nullptr); // +0x20 GetHeight
-    const auto aspect = reinterpret_cast<ScreenAspect_t>(Offsets::FUN_COORD_GET_SCALED_SCREEN_ASPECT);
-    const auto divide = reinterpret_cast<DivideByScreenScaleX_t>(Offsets::FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X);
-    const float factor = Game::Read<float>(Offsets::FLOAT_SCRIPT_COORD_SCALE);
-    const auto push = [&](float value) { return static_cast<double>(divide(aspect() * factor * value)); };
-    const double args[4] = {push(x), push(y), push(width), push(height)};
+    const double args[4] = {Game::InternalToPixel(x), Game::InternalToPixel(y), Game::InternalToPixel(width),
+                            Game::InternalToPixel(height)};
     void *L = Game::Lua::State();
     const int savedTop = (L != nullptr) ? Game::Lua::GetTop(L) : 0;
     reinterpret_cast<FireVariadic_t>(Offsets::FUN_FRAME_RUN_SCRIPT_VARIADIC)(

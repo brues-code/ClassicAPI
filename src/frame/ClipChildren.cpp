@@ -66,10 +66,13 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "frame/AlphaGradient.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
+#include "frame/LayerChange.h"
 #include "frame/ParentChange.h"
+#include "gx/Device.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -85,14 +88,8 @@ using BatchOp_t = void(__fastcall *)(void *batch);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
-using NotifyLayerChanged_t = void(__fastcall *)(void *frame, void *edx, int layer);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
-using Matrix_t = void(__fastcall *)(float *m);
-using GetViewport_t = void(__fastcall *)(float *minX, float *maxX, float *minY, float *maxY, float *minZ,
-                                         float *maxZ);
-using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
 using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
-using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 
 // A hit rect: {bottom, left, top, right}.
 enum { BOTTOM, LEFT, TOP, RIGHT };
@@ -218,18 +215,11 @@ bool ClipRect(const void *root, float rect[4]) {
 // The ScrollFrame's draw (0x00787220) with `rect` in place of its hit rect
 // and `draw(arg)` in place of its scroll child's.
 void DrawInside(float rect[4], Callback_t draw, void *arg) {
-    float projection[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    float view[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_VIEW)(view);
-    float vpMinX, vpMaxX, vpMinY, vpMaxY, vpMinZ, vpMaxZ;
-    reinterpret_cast<GetViewport_t>(Offsets::FUN_GX_GET_VIEWPORT)(&vpMinX, &vpMaxX, &vpMinY, &vpMaxY, &vpMinZ,
-                                                                 &vpMaxZ);
-
-    const auto toDdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_NDC_TO_DDC);
+    const Gx::SavedTransforms saved;
+    const Gx::Viewport &vp = saved.SavedViewport();
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
-    toDdc(&minX, &minY, vpMinX, vpMinY);
-    toDdc(&maxX, &maxY, vpMaxX, vpMaxY);
+    Frame::Layout::NdcToDdc(&minX, &minY, vp.minX, vp.minY);
+    Frame::Layout::NdcToDdc(&maxX, &maxY, vp.maxX, vp.maxY);
     if (minX > rect[LEFT])
         rect[LEFT] = minX;
     if (maxX < rect[RIGHT])
@@ -241,9 +231,8 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
 
     const float point[2] = {0, 0};
     reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
-    const auto toNdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_DDC_TO_NDC);
-    toNdc(&rect[LEFT], &rect[BOTTOM], rect[LEFT], rect[BOTTOM]);
-    toNdc(&rect[RIGHT], &rect[TOP], rect[RIGHT], rect[TOP]);
+    Frame::Layout::DdcToNdc(&rect[LEFT], &rect[BOTTOM], rect[LEFT], rect[BOTTOM]);
+    Frame::Layout::DdcToNdc(&rect[RIGHT], &rect[TOP], rect[RIGHT], rect[TOP]);
     if (rect[LEFT] < 0.0f) {
         rect[RIGHT] -= rect[LEFT];
         rect[LEFT] = 0.0f;
@@ -261,14 +250,9 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
         rect[TOP] = 1.0f;
     }
     if (rect[LEFT] < rect[RIGHT] && rect[BOTTOM] < rect[TOP]) {
-        reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(rect[LEFT], rect[RIGHT], rect[BOTTOM],
-                                                                      rect[TOP], 0.0f, 1.0f);
+        Gx::SetViewport({rect[LEFT], rect[RIGHT], rect[BOTTOM], rect[TOP], 0.0f, 1.0f});
         draw(arg);
     }
-
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_PROJECTION)(projection);
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_SET_VIEW)(view);
-    reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(vpMinX, vpMaxX, vpMinY, vpMaxY, vpMinZ, vpMaxZ);
 }
 
 void __fastcall DrawClipped(void *arg) {
@@ -345,7 +329,7 @@ const Game::HookAutoRegister _hitTestHook{Offsets::FUN_FRAME_HIT_TEST, reinterpr
 
 void MarkLayers(void *frame) {
     for (int layer = 0; layer < Offsets::FRAME_LAYER_COUNT; ++layer)
-        reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_FRAME_NOTIFY_LAYER_CHANGED)(frame, nullptr, layer);
+        Frame::LayerChange::NotifyFrame(frame, layer);
 }
 
 // Marks every layer of each frame under `frame` changed.

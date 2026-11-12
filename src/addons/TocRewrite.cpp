@@ -17,6 +17,7 @@
 #include "localization/Locale.h"
 
 #include "Offsets.h"
+#include "storm/Memory.h"
 #include "turtle/Detect.h"
 
 #include <cstddef>
@@ -28,8 +29,6 @@ namespace AddOns::TocRewrite {
 
 namespace {
 
-using AddOns::EngineIO::SMemAllocFn;
-using AddOns::EngineIO::SMemFreeFn;
 using AddOns::Toc::EqCI;
 using AddOns::Toc::Lower;
 
@@ -288,15 +287,13 @@ void Transform(const char *path, void **outBuf, size_t *outSize) {
         std::memcmp(rebuilt.data(), content, size) == 0)
         return; // brackets/commas were only in unaffected lines — nothing changed
 
-    auto SMemAlloc = reinterpret_cast<SMemAllocFn>(Offsets::FUN_STORM_SMEM_ALLOC);
-    auto SMemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
     const size_t newLen = rebuilt.size();
-    void *buf = SMemAlloc(newLen + 1, __FILE__, __LINE__, 0); // +1 NUL (extraBytes=1)
+    void *buf = Storm::Alloc(newLen + 1, __FILE__, __LINE__); // +1 NUL (extraBytes=1)
     if (buf == nullptr) return;                               // OOM — keep the original
     std::memcpy(buf, rebuilt.data(), newLen);
     static_cast<char *>(buf)[newLen] = '\0';
 
-    SMemFree(*outBuf, __FILE__, __LINE__, 0);
+    Storm::Free(*outBuf, __FILE__, __LINE__);
     *outBuf = buf;
     if (outSize != nullptr) *outSize = newLen;
 }

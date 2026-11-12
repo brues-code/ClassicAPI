@@ -56,6 +56,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "scrollingmessageframe/DisplayRefreshed.h"
+#include "storm/Memory.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -265,8 +266,6 @@ uint32_t MessageColor(void *L, void *frame) {
 // out as before (a hidden frame's layout places nothing).
 int __fastcall Script_BackFillMessage(void *L) {
     using namespace Game::Lua;
-    using StormAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
-    using StormFree_t = int(__stdcall *)(void *ptr, const char *file, int line, int flags);
     using Layout_t = void(__fastcall *)(void *smf, void *edx, int newestRecord);
     static const char kStormFile[] = "ClassicAPI ScrollingMessageFrame:BackFillMessage";
 
@@ -284,7 +283,7 @@ int __fastcall Script_BackFillMessage(void *L) {
     const uint32_t color = MessageColor(L, frame);
     const size_t bytes = std::strlen(text) + 1;
     char *copy = static_cast<char *>(
-        reinterpret_cast<StormAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC)(bytes, kStormFile, __LINE__, 0));
+        Storm::Alloc(bytes, kStormFile, __LINE__));
     if (copy == nullptr)
         return 0;
     std::memcpy(copy, text, bytes);
@@ -298,7 +297,7 @@ int __fastcall Script_BackFillMessage(void *L) {
     uint8_t *record = Game::Read<uint8_t *>(frame, Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGES);
     char *&stored = *reinterpret_cast<char **>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT);
     if (stored != nullptr)
-        reinterpret_cast<StormFree_t>(Offsets::FUN_STORM_SMEM_FREE)(stored, kStormFile, __LINE__, 0);
+        Storm::Free(stored, kStormFile, __LINE__);
     stored = copy;
     *reinterpret_cast<uint32_t *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_COLOR) = color;
     *reinterpret_cast<int *>(record + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_SHOWN) = 1;
@@ -399,7 +398,6 @@ int __fastcall Script_RemoveMessagesByPredicate(void *L) {
     using Layout_t = void(__fastcall *)(void *smf, void *edx, int newestRecord);
     using Smf_t = void(__fastcall *)(void *smf);
     using ScrollOffset_t = int(__fastcall *)(void *smf);
-    using StormFree_t = int(__stdcall *)(void *ptr, const char *file, int line, int flags);
     static const char kStormFile[] = "ClassicAPI ScrollingMessageFrame:RemoveMessagesByPredicate";
 
     void *frame = ResolveTypedObject(L, 1, Offsets::VAR_SCROLLINGMESSAGEFRAME_LUA_TYPE_ID);
@@ -460,7 +458,7 @@ int __fastcall Script_RemoveMessagesByPredicate(void *L) {
                 uint8_t *from = records + src * Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE;
                 char *&landedOn = *reinterpret_cast<char **>(to + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT);
                 if (landedOn != nullptr)
-                    reinterpret_cast<StormFree_t>(Offsets::FUN_STORM_SMEM_FREE)(landedOn, kStormFile, __LINE__, 0);
+                    Storm::Free(landedOn, kStormFile, __LINE__);
                 std::memcpy(to, from, Offsets::SCROLLINGMESSAGEFRAME_MESSAGE_STRIDE);
                 *reinterpret_cast<char **>(from + Offsets::OFF_SCROLLINGMESSAGEFRAME_MESSAGE_TEXT) = nullptr;
                 if (extras) {

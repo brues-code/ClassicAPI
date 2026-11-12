@@ -49,6 +49,7 @@
 #include "Inject.h"
 #include "Common.h"
 #include "Offsets.h"
+#include "storm/Memory.h"
 
 #include "embed/Resource.h"
 #include "embedded_resources.h"
@@ -213,8 +214,6 @@ const char *FindSplicePosition(const char *content, size_t size,
     return FindOutsideComment(content, end, "</Bindings>");
 }
 
-using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file, int line, int flags);
-using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
 
 } // namespace
 
@@ -257,10 +256,8 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
     const size_t splicePos = static_cast<size_t>(splice - content);
     const size_t newSize = origSize + config.innerSize;
 
-    auto SMemAlloc = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC);
-    auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
 
-    void *newBuf = SMemAlloc(newSize + extraBytes, __FILE__, __LINE__, 0);
+    void *newBuf = Storm::Alloc(newSize + extraBytes, __FILE__, __LINE__);
     if (newBuf == nullptr) {
         // Allocation failed — fall back to the original buffer so the
         // engine still loads its own bindings.
@@ -277,7 +274,7 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
     if (extraBytes > 0)
         std::memset(dest + newSize, 0, extraBytes);
 
-    SMemFree(origBuf, __FILE__, __LINE__, 0);
+    Storm::Free(origBuf, __FILE__, __LINE__);
 
     if (outBuf != nullptr) *outBuf = newBuf;
     if (outSize != nullptr) *outSize = newSize;

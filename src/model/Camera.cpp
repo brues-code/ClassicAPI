@@ -84,8 +84,6 @@ Vec3 GetVector(void *camera, uint32_t id) {
     return v;
 }
 
-namespace {
-
 void SetVector(void *camera, uint32_t id, const Vec3 &v) {
     reinterpret_cast<SetVector_t>(Offsets::FUN_CAMERA_SET_VECTOR)(camera, id, &v.x, 0);
 }
@@ -97,6 +95,13 @@ float GetScalar(void *camera, uint32_t id) {
 void SetScalar(void *camera, uint32_t id, float value) {
     reinterpret_cast<SetScalar_t>(Offsets::FUN_CAMERA_SET_SCALAR)(camera, id, value);
 }
+
+void SetDeviceTransforms(void *camera, const float (&rect)[4]) {
+    using Fn = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
+    reinterpret_cast<Fn>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
+}
+
+namespace {
 
 // ConfigureCamera's own evaluation pass: facing 0, rebuild the root
 // transform, animate the scene, restore the facing.

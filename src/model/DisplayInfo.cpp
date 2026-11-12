@@ -96,8 +96,8 @@ constexpr uint32_t kGeosetGroupDefaults[16] = {1,   101,  201,  301,  401,  501,
 using CharCompCreate_t = void *(__cdecl *)();
 using CharCompDestroy_t = void(__fastcall *)(void *builder);
 using CharCompSetInfo_t = char(__thiscall *)(void *builder, const CharCompInfo *info);
-using CharCompSetItem_t = void(__thiscall *)(void *builder, int slot, int itemDisplayID);
-using CharCompPump_t = char(__thiscall *)(void *builder, int *unused);
+using CharCompSetItem_t = void(__thiscall *)(void *builder, uint32_t slot, uint32_t itemDisplayID);
+using CharCompPump_t = char(__thiscall *)(void *builder, int force);
 
 // A pending / finished dress for one Model frame. The model loads async, and
 // the engine only dresses a LOADED model (its poll gate FUN_00607da0 checks
@@ -301,10 +301,32 @@ const uint8_t *DressRecord(uint32_t displayID) {
     return bake != nullptr && bake[0] != '\0' ? extraRec : nullptr;
 }
 
+void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path) {
+    using ApplyDisplay_t = void(__fastcall *)(void *model, const uint8_t *display,
+                                              const uint8_t *modelData);
+    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+    if (display == nullptr)
+        return nullptr;
+    const uint8_t *modelData = DBC::Record(
+        Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
+        Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    if (modelData == nullptr)
+        return nullptr;
+    const char *file = Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH);
+    if (path != nullptr)
+        *path = file;
+    void *model = M2::CreateModel(scene, file);
+    if (model != nullptr)
+        reinterpret_cast<ApplyDisplay_t>(Offsets::FUN_APPLY_CREATURE_DISPLAY)(model, display,
+                                                                              modelData);
+    return model;
+}
+
 // Configure + feed equipment, the engine's order: SetInfo, then the 10 Extra
 // equipment slots. Field-for-field mirror of FUN_005fb200's NPC branch.
 void *CreateDresser(void *instance, const uint8_t *extraRec) {
-    void *builder = reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)();
+    void *builder = NewDresser();
     if (builder == nullptr)
         return nullptr;
 
@@ -333,12 +355,10 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
         DestroyDresser(builder); // releases the model ref already copied in
         return nullptr;
     }
-    auto setItem = reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM);
-    for (int slot = 0; slot < 10; ++slot) {
-        const auto displayID =
-            static_cast<int>(field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_EQUIP + slot * 4));
+    for (uint32_t slot = 0; slot < 10; ++slot) {
+        const uint32_t displayID = field(Offsets::OFF_CREATUREDISPLAYINFOEXTRA_EQUIP + slot * 4);
         if (displayID != 0)
-            setItem(builder, slot, displayID);
+            SetDresserItem(builder, slot, displayID);
     }
     return builder;
 }
@@ -347,22 +367,60 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
 // SetModelInstance registers), so attached children would render unlit, pure
 // black. Each child gets the frame's own light/fog callback; it reads the
 // frame's live light struct, so later SetLight calls reach them too.
+namespace {
+
+// The light and fog callback `instance` passes to its children.
+void ChildLight(void *frame, void *instance, const void *&callback, void *&user) {
+    callback = Game::Read<const void *>(instance, Offsets::OFF_MODEL_INSTANCE_RENDER_CB);
+    user = Game::Read<void *>(instance, Offsets::OFF_MODEL_INSTANCE_RENDER_CB_USER);
+    if (callback == nullptr) {
+        callback = reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB);
+        user = frame;
+    }
+}
+
+} // namespace
+
 void LightChildren(void *frame, void *instance) {
-    const void *lightFogCb =
-        reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB);
+    const void *callback;
+    void *user;
+    ChildLight(frame, instance, callback, user);
     for (auto *child = Game::Read<uint8_t *>(instance, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
          child != nullptr;
          child = Game::Read<uint8_t *>(child, Offsets::OFF_MODEL_INSTANCE_CHILD_NEXT))
-        M2::SetRenderCallback(child, lightFogCb, frame);
+        M2::SetRenderCallback(child, callback, user);
 }
 
-bool PumpDresser(void *dresser) {
-    return reinterpret_cast<CharCompPump_t>(Offsets::FUN_CHARCOMP_PUMP)(dresser, nullptr) != 0;
+void LightChild(void *frame, void *instance, void *child) {
+    const void *callback;
+    void *user;
+    ChildLight(frame, instance, callback, user);
+    M2::SetRenderCallback(child, callback, user);
+}
+
+bool PumpDresser(void *dresser, bool force) {
+    return reinterpret_cast<CharCompPump_t>(Offsets::FUN_CHARCOMP_PUMP)(dresser, force ? 1 : 0) != 0;
 }
 
 void DestroyDresser(void *dresser) {
     if (dresser != nullptr)
         reinterpret_cast<CharCompDestroy_t>(Offsets::FUN_CHARCOMP_DESTROY)(dresser);
+}
+
+void *NewDresser() { return reinterpret_cast<CharCompCreate_t>(Offsets::FUN_CHARCOMP_CREATE)(); }
+
+void CloneDresser(void *dresser, void *model, void *source) {
+    using Clone_t = bool(__thiscall *)(void *dresser, void *model, void *source);
+    reinterpret_cast<Clone_t>(Offsets::FUN_CHARCOMP_CLONE)(dresser, model, source);
+}
+
+void UnequipDresserSlot(void *dresser, uint32_t slot) {
+    using Unequip_t = void(__thiscall *)(void *dresser, uint32_t slot);
+    reinterpret_cast<Unequip_t>(Offsets::FUN_CHARCOMP_UNEQUIP_SLOT)(dresser, slot);
+}
+
+void SetDresserItem(void *dresser, uint32_t slot, uint32_t displayID) {
+    reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(dresser, slot, displayID);
 }
 
 } // namespace Model::DisplayInfo

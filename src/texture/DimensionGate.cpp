@@ -116,6 +116,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/Memory.h"
 
 #include <windows.h>
 
@@ -197,7 +198,6 @@ constexpr const char *kAllocTag = "ClassicAPI/texture/DimensionGate.cpp";
 
 using DecodeBufferAlloc_t = void *(__fastcall *)(int format, uint32_t width, uint32_t height,
                                                  const char *file, uint32_t line);
-using SMemFree_t = void(__stdcall *)(void *buf, const char *file, int line, int flags);
 
 void *g_retiredScratch = nullptr; // the previous scratch, freed at the next growth
 
@@ -224,8 +224,7 @@ bool GrowScratch(uint32_t side) {
     // means any holder not accounted for reads stale bytes instead of unmapped
     // memory. Bounded: one buffer, freed at the next growth.
     if (g_retiredScratch != nullptr)
-        reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE)(g_retiredScratch, kAllocTag,
-                                                                  __LINE__, 0);
+        Storm::Free(g_retiredScratch, kAllocTag, __LINE__);
     g_retiredScratch = old;
     WriteImm32(Offsets::PATCH_TEXDECODE_SCRATCH_DIM_W + 1, side);
     WriteImm32(Offsets::PATCH_TEXDECODE_SCRATCH_DIM_H + 1, side);
@@ -473,8 +472,7 @@ void *__fastcall AllocMips_h(uint32_t format, uint32_t width, uint32_t height) {
 void __fastcall FreeMips_h(void *buffer, uint32_t format, uint32_t width, uint32_t height) {
     if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height)) {
         if (buffer != nullptr)
-            reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE)(buffer, kAllocTag, __LINE__,
-                                                                      0);
+            Storm::Free(buffer, kAllocTag, __LINE__);
         return;
     }
     FreeMips_o(buffer, format, width, height);

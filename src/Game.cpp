@@ -30,15 +30,23 @@ float PixelToInternal(float px) {
     const float div = Read<float>(Offsets::VAR_COORD_ASPECT_COMPENSATION);
     if (div == 0.0f)
         return 0.0f;
-    return px * mul / (div * static_cast<float>(Offsets::UI_COORD_SCALE_UNIT));
+    return px * mul / (div * Read<float>(Offsets::FLOAT_SCRIPT_COORD_SCALE));
 }
 
 double InternalToPixel(float internal) {
-    const float mul = Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
-    const float div = Read<float>(Offsets::VAR_COORD_ASPECT_COMPENSATION);
-    if (mul == 0.0f)
+    using GetScaledScreenAspect_t = float(__cdecl *)();
+    // Declared double so the quotient is read from ST0, as the engine's
+    // pushes store it with `fstp qword`, not narrowed to float.
+    using DivideByScreenScaleX_t = double(__stdcall *)(float);
+    if (Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE) == 0.0f)
         return 0.0;
-    return static_cast<double>(internal) * div * Offsets::UI_COORD_SCALE_UNIT / mul;
+    // `aspect * 1024` is exact, so the float product rounds once, as the
+    // engine's `fstp dword` does.
+    const float aspect =
+        reinterpret_cast<GetScaledScreenAspect_t>(Offsets::FUN_COORD_GET_SCALED_SCREEN_ASPECT)();
+    const float scaled = aspect * Read<float>(Offsets::FLOAT_SCRIPT_COORD_SCALE) * internal;
+    return reinterpret_cast<DivideByScreenScaleX_t>(Offsets::FUN_COORD_DIVIDE_BY_SCREEN_SCALE_X)(
+        scaled);
 }
 
 bool StringToFlag(const char *text) {

@@ -248,5 +248,16 @@ COMBATLOG_FILTER_NEUTRAL_UNITS		= bit.bor(
 COMBATLOG_FILTER_UNKNOWN_UNITS		= COMBATLOG_OBJECT_NONE;
 COMBATLOG_FILTER_EVERYTHING =	tonumber("FFFFFFFF", 16);
 
+-- Damage school masks (Classic's Blizzard_FrameXMLBase/Classic/Constants.lua).
+-- GetSpellSchool's 1-based school ID n is the mask 2^(n-1).
+SCHOOL_MASK_NONE		= 0;
+SCHOOL_MASK_PHYSICAL	= 1;
+SCHOOL_MASK_HOLY		= 2;
+SCHOOL_MASK_FIRE		= 4;
+SCHOOL_MASK_NATURE		= 8;
+SCHOOL_MASK_FROST		= 16;
+SCHOOL_MASK_SHADOW		= 32;
+SCHOOL_MASK_ARCANE		= 64;
+
 -- Retail defines this in Blizzard_UIPanels_Game/MerchantFrame.lua.
 LIST_DELIMITER = ", ";

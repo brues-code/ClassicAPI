@@ -1,0 +1,238 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<!-- A level-up card: icon, name, what kind of pick it is, what it changes,
+	     five rank pips and the key that picks it. Broodwatch.lua fills it. -->
+	<Button name="BroodwatchCardTemplate" virtual="true">
+		<Size x="210" y="280"/>
+		<Backdrop bgFile="Interface\Tooltips\UI-Tooltip-Background" edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
+			<EdgeSize>
+				<AbsValue val="16"/>
+			</EdgeSize>
+			<TileSize>
+				<AbsValue val="16"/>
+			</TileSize>
+			<BackgroundInsets>
+				<AbsInset left="4" right="4" top="4" bottom="4"/>
+			</BackgroundInsets>
+		</Backdrop>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentIcon">
+					<Size x="64" y="64"/>
+					<Anchors>
+						<Anchor point="TOP" x="0" y="-20"/>
+					</Anchors>
+				</Texture>
+				<Texture name="$parentPip3">
+					<Size x="18" y="6"/>
+					<Anchors>
+						<Anchor point="BOTTOM" x="0" y="40"/>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="1"/>
+				</Texture>
+				<Texture name="$parentPip2">
+					<Size x="18" y="6"/>
+					<Anchors>
+						<Anchor point="RIGHT" relativeTo="$parentPip3" relativePoint="LEFT" x="-4" y="0"/>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="1"/>
+				</Texture>
+				<Texture name="$parentPip1">
+					<Size x="18" y="6"/>
+					<Anchors>
+						<Anchor point="RIGHT" relativeTo="$parentPip2" relativePoint="LEFT" x="-4" y="0"/>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="1"/>
+				</Texture>
+				<Texture name="$parentPip4">
+					<Size x="18" y="6"/>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentPip3" relativePoint="RIGHT" x="4" y="0"/>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="1"/>
+				</Texture>
+				<Texture name="$parentPip5">
+					<Size x="18" y="6"/>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentPip4" relativePoint="RIGHT" x="4" y="0"/>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="1"/>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<!-- As wide as the description: a long name wraps (Hud.lua's FillCard measures it). -->
+				<FontString name="$parentName" inherits="GameFontNormalLarge" justifyH="CENTER" justifyV="TOP">
+					<Size x="184" y="20"/>
+					<Anchors>
+						<Anchor point="TOP" relativeTo="$parentIcon" relativePoint="BOTTOM" x="0" y="-10"/>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTag" inherits="GameFontHighlightSmall">
+					<Anchors>
+						<Anchor point="TOP" relativeTo="$parentName" relativePoint="BOTTOM" x="0" y="-4"/>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentDesc" inherits="GameFontHighlight" justifyH="CENTER" justifyV="TOP">
+					<Size x="184" y="96"/>
+					<Anchors>
+						<Anchor point="TOP" relativeTo="$parentTag" relativePoint="BOTTOM" x="0" y="-14"/>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentKey" inherits="GameFontDisableSmall">
+					<Anchors>
+						<Anchor point="BOTTOM" x="0" y="16"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnClick>
+				Broodwatch_PickCard(this:GetID());
+			</OnClick>
+			<OnEnter>
+				Broodwatch_CardHover(this, true);
+			</OnEnter>
+			<OnLeave>
+				Broodwatch_CardHover(this, false);
+			</OnLeave>
+		</Scripts>
+	</Button>
+
+	<Frame name="BroodwatchFrame" parent="UIParent" toplevel="true" hidden="true" frameStrata="DIALOG">
+		<Anchors>
+			<Anchor point="TOPLEFT" x="40" y="-40"/>
+			<Anchor point="BOTTOMRIGHT" x="-40" y="40"/>
+		</Anchors>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture setAllPoints="true">
+					<Color r="0" g="0" b="0" a="1"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Frames>
+			<ModelScene name="$parentScene" inherits="ModelSceneMixinTemplate" setAllPoints="true"/>
+			<Frame name="$parentFeedback" setAllPoints="true">
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture name="$parentHurt" file="Interface\FullScreenTextures\LowHealth" alphaMode="ADD" setAllPoints="true"/>
+					</Layer>
+				</Layers>
+			</Frame>
+			<Frame name="$parentHud" setAllPoints="true">
+				<Layers>
+					<Layer level="OVERLAY">
+						<FontString name="$parentInfo" inherits="GameFontHighlightLarge" justifyH="LEFT">
+							<Anchors>
+								<Anchor point="TOPLEFT" x="14" y="-14"/>
+							</Anchors>
+						</FontString>
+						<FontString name="$parentPerf" inherits="GameFontHighlightSmall" justifyH="RIGHT">
+							<Anchors>
+								<Anchor point="BOTTOMRIGHT" x="-10" y="10"/>
+							</Anchors>
+						</FontString>
+						<FontString name="$parentBanner" inherits="GameFontNormalHuge">
+							<Anchors>
+								<Anchor point="CENTER" x="0" y="140"/>
+							</Anchors>
+						</FontString>
+						<FontString name="$parentHint" inherits="GameFontHighlight">
+							<Anchors>
+								<Anchor point="TOP" relativeTo="$parentBanner" relativePoint="BOTTOM" x="0" y="-10"/>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<!-- Experience: on the health bar, as wide, with its level and what is left. -->
+					<StatusBar name="$parentXP">
+						<Size x="320" y="14"/>
+						<Anchors>
+							<Anchor point="BOTTOM" x="0" y="44"/>
+						</Anchors>
+						<BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
+						<BarColor r="0.58" g="0.0" b="0.55"/>
+						<Layers>
+							<Layer level="OVERLAY">
+								<FontString name="$parentText" inherits="GameFontHighlightSmall">
+									<Anchors>
+										<Anchor point="CENTER"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+					</StatusBar>
+					<StatusBar name="$parentHealth">
+						<Size x="320" y="16"/>
+						<Anchors>
+							<Anchor point="BOTTOM" x="0" y="24"/>
+						</Anchors>
+						<BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
+						<BarColor r="0.1" g="0.85" b="0.1"/>
+						<Layers>
+							<Layer level="OVERLAY">
+								<FontString name="$parentText" inherits="GameFontHighlightSmall">
+									<Anchors>
+										<Anchor point="CENTER"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+					</StatusBar>
+					<!-- What you have: one slot per spell and passive, filled by Lua. -->
+					<Frame name="$parentBuild">
+						<Size x="10" y="34"/>
+						<Anchors>
+							<Anchor point="BOTTOMLEFT" x="12" y="12"/>
+						</Anchors>
+					</Frame>
+					<!-- The level-up screen: the scene dims behind three cards. -->
+					<Frame name="$parentCards" hidden="true" setAllPoints="true">
+						<Layers>
+							<Layer level="BACKGROUND">
+								<Texture setAllPoints="true">
+									<Color r="0" g="0" b="0" a="0.55"/>
+								</Texture>
+							</Layer>
+							<Layer level="OVERLAY">
+								<FontString name="$parentTitle" inherits="GameFontNormalHuge">
+									<Anchors>
+										<Anchor point="BOTTOM" relativePoint="CENTER" x="0" y="160"/>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentHint" inherits="GameFontHighlight" text="Choose an upgrade: click a card, or press 1, 2 or 3.">
+									<Anchors>
+										<Anchor point="TOP" relativeTo="$parentTitle" relativePoint="BOTTOM" x="0" y="-6"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<Button name="$parentCard2" inherits="BroodwatchCardTemplate" id="2">
+								<Anchors>
+									<Anchor point="TOP" relativeTo="$parentHint" relativePoint="BOTTOM" x="0" y="-24"/>
+								</Anchors>
+							</Button>
+							<Button name="$parentCard1" inherits="BroodwatchCardTemplate" id="1">
+								<Anchors>
+									<Anchor point="RIGHT" relativeTo="$parentCard2" relativePoint="LEFT" x="-18" y="0"/>
+								</Anchors>
+							</Button>
+							<Button name="$parentCard3" inherits="BroodwatchCardTemplate" id="3">
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="$parentCard2" relativePoint="RIGHT" x="18" y="0"/>
+								</Anchors>
+							</Button>
+						</Frames>
+					</Frame>
+				</Frames>
+			</Frame>
+		</Frames>
+		<Scripts>
+			<OnLoad>
+				Broodwatch_OnLoad(this);
+			</OnLoad>
+		</Scripts>
+	</Frame>
+</Ui>

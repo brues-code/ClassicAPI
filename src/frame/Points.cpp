@@ -44,6 +44,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/GetPointGuard.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 
@@ -55,9 +56,6 @@ using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
 using RemoveDependent_t = void(__fastcall *)(void *relative, void *edx, void *layout, int mask);
 using GetRelative_t = void *(__thiscall *)(void *node);
 using DeleteNode_t = void(__thiscall *)(void *node, int flags);
-using LayoutDirty_t = int(__fastcall *)(void *layout);
-using Resize_t = void(__fastcall *)(void *layout, void *edx, int force);
-using GetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
                                       float x, float y, int flag);
 
@@ -154,12 +152,8 @@ int __fastcall Script_IsRectValid(void *L) {
     void *region = Game::Lua::ResolveRegion(L);
     if (region == nullptr)
         return 0;
-    void *layout = static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR;
-    if (reinterpret_cast<LayoutDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(layout) != 0)
-        reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(layout, nullptr, 1);
     float rect[4];
-    Game::Lua::PushBoolean(
-        L, reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, rect) != 0);
+    Game::Lua::PushBoolean(L, Frame::Layout::GetResolvedRect(region, rect));
     return 1;
 }
 

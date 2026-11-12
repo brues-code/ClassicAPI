@@ -34,6 +34,11 @@ void *LoadByPath(const char *path, uint32_t flags = DefaultFlags());
 // Drops one reference on a handle (FUN_HANDLE_RELEASE). Null is a no-op.
 void ReleaseHandle(void *handle);
 
+// The handle's device texture (FUN_TEXTURE_GET_RENDERABLE), what a render
+// state binds. The texture is finished loading first, so null means it has
+// none.
+void *DeviceTexture(void *handle);
+
 // A one-mip `width` x `height` texture of ARGB8888 `texels`, through the
 // engine's own procedural path (FUN_TEXTURE_CREATE_WITH_CALLBACK) with the
 // texture flags word a loader was handed (TextureMakeFlags is idempotent on

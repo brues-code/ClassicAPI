@@ -58,6 +58,18 @@ inline T &Ref(uintptr_t address) {
     return *reinterpret_cast<T *>(address);
 }
 
+// An engine constant at a fixed VA, read each time it is used, so the value is
+// the one the engine's own code reads: a runtime patch shows, and so does a
+// global the engine's static initializers fill after this DLL loads. Converts
+// to T, so it stands in a float expression as a float would.
+//
+//   const Game::Live<float> kSkin{Offsets::VAR_MOVER_SKIN};
+template <typename T>
+struct Live {
+    uintptr_t address;
+    operator T() const { return Read<T>(address); }
+};
+
 // Calls `fn(object)` for each object of one of a frame's intrusive lists,
 // OFF_FRAME_REGION_LIST or OFF_FRAME_CHILD_LIST: node+4 next, node+8 object,
 // a NULL or low-bit-1 link ends it - the walk the engine's own frame code
@@ -89,8 +101,10 @@ void *ResolveUnitToken(const char *token);
 
 // UI pixels <-> internal layout (anchor) units. Script_SetPoint converts its
 // pixel offsets with `px * [VAR_COORD_DDC_WIDTH_SCALE] / ([VAR_COORD_ASPECT_COMPENSATION]
-// * UI_COORD_SCALE_UNIT)`; Script_GetLeft and Script_GetStringWidth push the
-// inverse. A region's LOCAL pixels must be multiplied by its effective scale
+// * [FLOAT_SCRIPT_COORD_SCALE])`; every script coordinate push (GetLeft,
+// GetStringWidth, GetFont's height, GetCursorPosition, OnCursorChanged) is the
+// inverse, `DivideByScreenScaleX(GetScaledScreenAspect() * 1024 * value)`,
+// which InternalToPixel calls in that order. A region's LOCAL pixels must be multiplied by its effective scale
 // (OFF_REGION_EFFECTIVE_SCALE) first. Both return 0 while the scale globals
 // are unset, so an early caller gets a zero offset rather than a wild one.
 float PixelToInternal(float px);

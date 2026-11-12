@@ -214,6 +214,28 @@ constexpr Entry kAtlases[] = {
     {"UI-ScrollBar-ScrollRightButton-Highlight",
      "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight", 17, 19,
      0.1875f, 0.78125f, 0.21875f, 0.75f, 1769, 17409, false, false, true},
+    // EMBEDDED ART. ModelSceneControlFrame's buttons and icons have no 1.12
+    // art, so the DLL carries them (Texture::Builtin): the seven sprites cut
+    // from retail's Interface\Common\CommonButtons (atlas 2666) and
+    // CommonIcons (1563) at the member table's rects, which match retail's
+    // sheets, and downscaled into one 128x128 sheet near their drawn size (the
+    // buttons draw at 32, the icons at 16; a built-in texture has one mip).
+    // Size is the member table's OverrideWidth/Height, the size retail lays
+    // them out at.
+    {"common-button-square-gray-up", "Interface\\Common\\ModelSceneControl", 42, 42, 0.0f,
+     0.5f, 0.0f, 0.5f, 2666, 25907, false, false},
+    {"common-button-square-gray-down", "Interface\\Common\\ModelSceneControl", 42, 42, 0.5f,
+     1.0f, 0.0f, 0.5f, 2666, 25906, false, false},
+    {"common-icon-zoomin", "Interface\\Common\\ModelSceneControl", 25, 25, 0.0f, 0.25f, 0.5f,
+     0.75f, 1563, 11970, false, false},
+    {"common-icon-zoomout", "Interface\\Common\\ModelSceneControl", 25, 25, 0.25f, 0.5f, 0.5f,
+     0.75f, 1563, 11971, false, false},
+    {"common-icon-rotateleft", "Interface\\Common\\ModelSceneControl", 20, 20, 0.5f, 0.75f,
+     0.5f, 0.75f, 1563, 11967, false, false},
+    {"common-icon-rotateright", "Interface\\Common\\ModelSceneControl", 20, 20, 0.75f, 1.0f,
+     0.5f, 0.75f, 1563, 11968, false, false},
+    {"common-icon-undo", "Interface\\Common\\ModelSceneControl", 25, 25, 0.0f, 0.25f, 0.75f,
+     1.0f, 1563, 11969, false, false},
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);

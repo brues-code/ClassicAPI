@@ -555,6 +555,7 @@ build instructions.
   - [`IsMouseButtonDown([button])`](#ismousebuttondownbutton)
   - [`GetMouseButtonName(button)`](#getmousebuttonnamebutton)
   - [`GetMouseButtonClicked()`](#getmousebuttonclicked)
+  - [`GetCursorDelta()`](#getcursordelta)
 
 - [Instance](#instance)
   - [`GetInstanceInfo()`](#getinstanceinfo)
@@ -811,10 +812,123 @@ build instructions.
   - [`DressUpModel:GetSheathed()`](#dressupmodelgetsheathed)
   - [`DressUpModel:SetAutoDress([enabled])`](#dressupmodelsetautodressenabled)
   - [`DressUpModel:GetAutoDress()`](#dressupmodelgetautodress)
+  - [`DressUpModel:GetItemTransmogInfo(slot)` / `DressUpModel:GetItemTransmogInfoList()`](#dressupmodelgetitemtransmoginfoslot--dressupmodelgetitemtransmoginfolist)
+  - [`DressUpModel:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#dressupmodelsetitemtransmoginfoinfo--slot-ignorechilditems)
+  - [`DressUpModel:IsSlotAllowed(slot)` / `DressUpModel:IsSlotVisible(slot)`](#dressupmodelisslotallowedslot--dressupmodelisslotvisibleslot)
   - [`Model:SetGlow(value)`](#modelsetglowvalue)
+
+- [ModelScene](#modelscene)
+  - [`CreateFrame("ModelScene" [, name, parent, template])`](#createframemodelscene--name-parent-template)
+  - [`scene:CreateActor([name, template])`](#scenecreateactorname-template)
+  - [`scene:GetNumActors()` / `scene:GetActorAtIndex(index)`](#scenegetnumactors--scenegetactoratindexindex)
+  - [`scene:SetCameraPosition(x, y, z)` / `scene:GetCameraPosition()`](#scenesetcamerapositionx-y-z--scenegetcameraposition)
+  - [`scene:SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)`](#scenesetcameraorientationbyyawpitchrollyaw-pitch-roll)
+  - [`scene:SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, rightY, rightZ, upX, upY, upZ)`](#scenesetcameraorientationbyaxisvectorsforwardx-forwardy-forwardz-rightx-righty-rightz-upx-upy-upz)
+  - [`scene:GetCameraForward()` / `scene:GetCameraRight()` / `scene:GetCameraUp()`](#scenegetcameraforward--scenegetcameraright--scenegetcameraup)
+  - [`scene:SetCameraFieldOfView(fov)` / `scene:GetCameraFieldOfView()`](#scenesetcamerafieldofviewfov--scenegetcamerafieldofview)
+  - [`scene:SetCameraNearClip(nearClip)` / `scene:SetCameraFarClip(farClip)`](#scenesetcameranearclipnearclip--scenesetcamerafarclipfarclip)
+  - [`scene:SetViewInsets(left, right, top, bottom)` / `scene:GetViewInsets()`](#scenesetviewinsetsleft-right-top-bottom--scenegetviewinsets)
+  - [`scene:SetViewTranslation(x, y)` / `scene:GetViewTranslation()`](#scenesetviewtranslationx-y--scenegetviewtranslation)
+  - [`scene:Project3DPointTo2D(x, y, z)`](#sceneproject3dpointto2dx-y-z)
+  - [Follow camera](#follow-camera)
+  - [`scene:SetLightType(lightType)` / `scene:GetLightType()`](#scenesetlighttypelighttype--scenegetlighttype)
+  - [`scene:SetLightVisible([visible])` / `scene:IsLightVisible()`](#scenesetlightvisiblevisible--sceneislightvisible)
+  - [`scene:SetLightDirection(x, y, z)` / `scene:SetLightPosition(x, y, z)`](#scenesetlightdirectionx-y-z--scenesetlightpositionx-y-z)
+  - [`scene:SetLightAmbientColor(r, g, b)` / `scene:SetLightDiffuseColor(r, g, b)`](#scenesetlightambientcolorr-g-b--scenesetlightdiffusecolorr-g-b)
+  - [`scene:SetFogColor(r, g, b)` / `scene:GetFogColor()`](#scenesetfogcolorr-g-b--scenegetfogcolor)
+  - [`scene:SetFogNear(near)` / `scene:SetFogFar(far)`](#scenesetfognearnear--scenesetfogfarfar)
+  - [`scene:ClearFog()`](#sceneclearfog)
+  - [`scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`](#scenesetdrawlayerlayer--scenegetdrawlayer)
+  - [`scene:SetPaused(paused [, affectsGlobalPause])`](#scenesetpausedpaused--affectsglobalpause)
+  - [`scene:GetSceneTime()`](#scenegetscenetime)
+  - [`scene:After(seconds, callback)` / `scene:NewTimer(seconds, callback)` / `scene:NewTicker(seconds, callback [, iterations])`](#sceneafterseconds-callback--scenenewtimerseconds-callback--scenenewtickerseconds-callback--iterations)
+  - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
+  - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
+  - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
+  - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
+  - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
+  - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
+  - [`scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
+  - [`scene:GetLiquidAtPoint(x, y, z)`](#scenegetliquidatpointx-y-z)
+  - [`scene:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)`](#scenesweepcolliderfeetx-feety-feetz-radius-height-movex-movey-movez)
+  - [Scene sounds](#scene-sounds)
+  - [`scene:SetSoundListenerActor([actor])` / `scene:GetSoundListenerActor()`](#scenesetsoundlisteneractoractor--scenegetsoundlisteneractor)
+  - [`scene:GetActorAtCursor()`](#scenegetactoratcursor)
+  - [`scene:GetCursorRay()`](#scenegetcursorray)
+  - [`scene:GetActorsInRadius(x, y, z, radius)`](#scenegetactorsinradiusx-y-z-radius)
+  - [`scene:SetMoveMarker(x, y, z)` / `scene:ClearMoveMarker()` / `scene:GetMoveMarker()`](#scenesetmovemarkerx-y-z--sceneclearmovemarker--scenegetmovemarker)
+  - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
+  - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
+  - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
+  - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
+  - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
+  - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
+  - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
+  - [`actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`](#actordress--actorundressincludeweapons--actorundressslotslot)
+  - [`actor:TryOn(item [, handSlotName, spellEnchantID])`](#actortryonitem--handslotname-spellenchantid)
+  - [`actor:DressPlayerSlot(slot)`](#actordressplayerslotslot)
+  - [`actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`](#actorisslotallowedslot--actorisslotvisibleslot)
+  - [`actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)
+  - [`actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#actorsetitemtransmoginfoinfo--slot-ignorechilditems)
+  - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
+  - [`actor:SetSheathedCategory(slot, category)`](#actorsetsheathedcategoryslot-category)
+  - [`actor:UseUnitSheatheCategory(useCategory)`](#actoruseunitsheathecategoryusecategory)
+  - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
+  - [`actor:IsGeoReady()`](#actorisgeoready)
+  - [`actor:ClearModel()` / `actor:IsLoaded()` / `actor:GetModelPath()`](#actorclearmodel--actorisloaded--actorgetmodelpath)
+  - [`actor:SetPosition(x, y, z)` / `actor:GetPosition()`](#actorsetpositionx-y-z--actorgetposition)
+  - [`actor:SetYaw(yaw)` / `actor:SetPitch(pitch)` / `actor:SetRoll(roll)`](#actorsetyawyaw--actorsetpitchpitch--actorsetrollroll)
+  - [`actor:SetScale(scale)` / `actor:GetScale()`](#actorsetscalescale--actorgetscale)
+  - [`actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`](#actorsetusecenterfororiginx-y-z--actorisusingcenterfororigin)
+  - [`actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`](#actorgetactiveboundingbox--actorgetmaxboundingbox)
+  - [`actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`](#actorshow--actorhide--actorsetshownshown)
+  - [`actor:FadeOut()` / `actor:IsFadingOut()`](#actorfadeout--actorisfadingout)
+  - [`actor:SetAlpha(alpha)` / `actor:GetAlpha()`](#actorsetalphaalpha--actorgetalpha)
+  - [`actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`](#actorsetanimationanimation--variation-animspeed-animoffsetseconds)
+  - [`actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`](#actorsetanimationblendoperationblendoperation--actorgetanimationblendoperation)
+  - [`actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused)
+  - [`actor:SetSpellVisualKit([spellVisualKitID, oneShot])` / `actor:GetSpellVisualKit()`](#actorsetspellvisualkitspellvisualkitid-oneshot--actorgetspellvisualkit)
+  - [`actor:ApplySpellVisualKit(spellVisualKitID [, oneShot])`](#actorapplyspellvisualkitspellvisualkitid--oneshot)
+  - [`actor:PlayAnimationKit(animationKit [, isLooping])` / `actor:StopAnimationKit()`](#actorplayanimationkitanimationkit--islooping--actorstopanimationkit)
+  - [`actor:AttachToMount(rider, animation [, spellKitVisualID])`](#actorattachtomountrider-animation--spellkitvisualid)
+  - [`actor:DetachFromMount(rider)`](#actordetachfrommountrider)
+  - [`actor:CalculateMountScale(rider)`](#actorcalculatemountscalerider)
+  - [`actor:GetAttachmentPosition(attachmentID)`](#actorgetattachmentpositionattachmentid)
+  - [`actor:AttachToActor(parent, attachmentID)`](#actorattachtoactorparent-attachmentid)
+  - [`actor:DetachFromActor()`](#actordetachfromactor)
+  - [`actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)
+  - [`actor:SetShadowShown(shown)` / `actor:IsShadowShown()`](#actorsetshadowshownshown--actorisshadowshown)
+  - [`actor:SetHighlight(kind, highlighted)` / `actor:IsHighlighted([kind])`](#actorsethighlightkind-highlighted--actorishighlightedkind)
+  - [`actor:SetSelectionCircle(r, g, b [, a])` / `actor:ClearSelectionCircle()` / `actor:GetSelectionCircle()`](#actorsetselectioncircler-g-b--a--actorclearselectioncircle--actorgetselectioncircle)
+  - [`actor:SetGroundReticle(radius [, valid])` / `actor:ClearGroundReticle()` / `actor:GetGroundReticle()`](#actorsetgroundreticleradius--valid--actorcleargroundreticle--actorgetgroundreticle)
+  - [`actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`](#actorsetnametexttext--r-g-b--actorclearnametext--actorgetnametext)
+  - [`actor:GetNamePosition()`](#actorgetnameposition)
+  - [`actor:PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])`](#actorplayspellvisualspellid--target--casttimems--channeltimems)
+  - [`actor:PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])`](#actorplayspellvisualatpointspellid-x-y-z--casttimems--channeltimems)
+  - [`actor:StopSpellVisual([castID])`](#actorstopspellvisualcastid)
+  - [`actor:AddAuraVisual(spellID)`](#actoraddauravisualspellid)
+  - [`actor:RemoveAuraVisual([spellID])`](#actorremoveauravisualspellid)
+  - [`actor:PlayLevelUpEffect()`](#actorplaylevelupeffect)
+  - [`actor:PlaySound(soundKitID)`](#actorplaysoundsoundkitid)
+  - [`actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`](#actorsetmovementenabledenabled--actorismovementenabled)
+  - [Movement commands](#movement-commands)
+  - [`actor:IsFalling()`](#actorisfalling)
+  - [`actor:IsSwimming()`](#actorisswimming)
+  - [`actor:MoveTo(x, y, z [, facing])`](#actormovetox-y-z--facing)
+  - [`actor:KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)`](#actorknockbackfromx-fromy-horizontalspeed-verticalspeed)
+  - [`actor:SetWalking(walking)` / `actor:IsWalking()`](#actorsetwalkingwalking--actoriswalking)
+  - [`actor:SetMovementSpeed(speedType, speed)` / `actor:GetMovementSpeed(speedType)`](#actorsetmovementspeedspeedtype-speed--actorgetmovementspeedspeedtype)
+  - [`actor:GetCameraPivotHeight(distance)`](#actorgetcamerapivotheightdistance)
+  - [Actor scripts](#actor-scripts)
+  - [`<Actor>` templates](#actor-templates)
+  - [`C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`](#c_modelinfogetmodelsceneinfobyidmodelsceneid)
+  - [`C_ModelInfo.GetModelSceneCameraInfoByID(modelSceneCameraID)`](#c_modelinfogetmodelscenecamerainfobyidmodelscenecameraid)
+  - [`C_ModelInfo.GetModelSceneActorInfoByID(modelActorID)`](#c_modelinfogetmodelsceneactorinfobyidmodelactorid)
+  - [`C_ModelInfo.GetModelSceneActorDisplayInfoByID(modelActorDisplayID)`](#c_modelinfogetmodelsceneactordisplayinfobyidmodelactordisplayid)
 
 - [Mount](#mount)
   - [`C_MountJournal.GetMountFromSpell(spellID)`](#c_mountjournalgetmountfromspellspellid)
+  - [`C_MountJournal.GetMountFromItem(itemID)`](#c_mountjournalgetmountfromitemitemid)
   - [`C_MountJournal.GetMountInfoExtraByID(mountID)`](#c_mountjournalgetmountinfoextrabyidmountid)
 
 - [NameCache](#namecache)
@@ -12792,6 +12906,22 @@ button:SetScript("OnClick", function()
 end)
 ```
 
+### `GetCursorDelta()`
+
+Returns how far the cursor moved since the last frame: `deltaX, deltaY`.
+Both are `0` when the cursor did not move. The values are in the units of
+`GetCursorPosition`, so the UI scale does not change them. To get a frame's
+units, divide by `frame:GetEffectiveScale()`. All `OnUpdate` scripts in one
+frame get the same values. The function also works at the login and
+character-select screens.
+
+```lua
+f:SetScript("OnUpdate", function(self)
+    local dx = GetCursorDelta()
+    self.yaw = self.yaw + dx / self:GetEffectiveScale() * 0.01
+end)
+```
+
 ## Instance
 
 ### `GetInstanceInfo()`
@@ -18953,10 +19083,1945 @@ DressUpModel:TryOn(2077)         -- only the staff
 Returns the value of the last `SetAutoDress` call on the frame. Before the
 first call, it returns `true`.
 
+### `DressUpModel:GetItemTransmogInfo(slot)` / `DressUpModel:GetItemTransmogInfoList()`
+
+These return what a `DressUpModel` wears, as `ItemTransmogInfoMixin` tables.
+The tables have the same fields as the tables of the ModelScene actor (see
+[`actor:GetItemTransmogInfo`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)):
+`appearanceID` is the item ID, and `illusionID` is the enchant glow on a
+weapon.
+
+`GetItemTransmogInfo` returns the table for one inventory slot, from `1`
+(head) to `19` (tabard). It returns nothing for a frame that shows no model,
+or for a slot number outside this range. `GetItemTransmogInfoList` returns a
+list of 19 tables, one for each inventory slot, in slot order.
+
+A frame that shows a player (`SetUnit`, `Dress`) starts with the items that
+the player wears. A helm or a cloak that the player hides is `0`. The neck,
+the rings, the trinkets, and the ranged slot are always `0`. An NPC starts
+with all slots at `0`. `TryOn`, `UndressSlot`, and `Undress` change the
+values.
+
+### `DressUpModel:SetItemTransmogInfo(info [, slot, ignoreChildItems])`
+
+Puts the item `info.appearanceID` on the frame, as `TryOn` does. A weapon
+shows the glow of the enchant `info.illusionID`. It returns the same
+`Enum.ItemTryOnReason` values as `TryOn`. These are the differences:
+
+- It shows no error message. The caller shows `ERR_NOT_EQUIPPABLE` when the
+  result is not `Success`.
+- A `slot` of `16` or `17` selects the hand that holds a weapon. With all
+  other values, the item goes into its own slot.
+- An `appearanceID` of `0` changes nothing and returns `NotEquippable`.
+  `UndressSlot` empties a slot.
+- `ignoreChildItems` has no effect.
+
+```lua
+-- Copy the outfit of the dressing room to a second frame.
+for slot, info in ipairs(DressUpModel:GetItemTransmogInfoList()) do
+  if info.appearanceID == Constants.Transmog.NoTransmogID then
+    OtherModel:UndressSlot(slot)
+  else
+    OtherModel:SetItemTransmogInfo(info, slot)
+  end
+end
+```
+
+### `DressUpModel:IsSlotAllowed(slot)` / `DressUpModel:IsSlotVisible(slot)`
+
+`IsSlotAllowed` returns `true` when the frame can wear an item in the
+inventory slot:
+
+- The hands (`16` and `17`) are allowed on all models.
+- The armor slots are allowed when `TryOn` can put armor on the frame. A
+  shapeshifted player, or a creature without a character model, has no armor
+  slots.
+- The neck, the rings, the trinkets, and the ranged slot are not allowed. A
+  ranged weapon that `TryOn` puts on goes into a hand.
+
+It returns `false` for a frame that shows no model. `IsSlotVisible` returns
+the same value, because an item in an allowed slot always shows.
+
 ### `Model:SetGlow(value)`
 
 This method exists on every `Model` frame, for code from later clients. It
 has no effect in the game.
+
+## ModelScene
+
+A `ModelScene` frame shows many models in one 3D scene. Each model is an
+*actor*. The scene has one camera, one light and fog. You move the camera
+and the actors in scene coordinates: `z` is up, and distances are in yards.
+The scene can also show a WMO, for example a dungeon, around the actors.
+
+### `CreateFrame("ModelScene" [, name, parent, template])`
+
+Makes a `ModelScene` frame. In XML, use the `<ModelScene>` element.
+`GetObjectType()` returns `"ModelScene"`. `IsObjectType("Model")` returns
+`false`: a scene does not have the `Model` methods.
+
+A new scene has these settings:
+
+| Setting | Value |
+|---|---|
+| Camera | At `(0, 0, 0)`, looking along `+x` |
+| Field of view | `0.9424778` radians |
+| Near clip / far clip | `0.2` / `100` |
+| Light | Directional, along `(0, 1, 0)`, on |
+| Ambient color | `(0.698, 0.698, 0.698)` |
+| Diffuse color | `(0.8, 0.8, 0.639)` |
+| Fog | Near `10000000`, far `100000000`, white, so no fog shows |
+| Draw layer | `ARTWORK` |
+
+The XML element takes these attributes and children, in addition to the
+attributes of a frame:
+
+| XML | Effect |
+|---|---|
+| `drawLayer="OVERLAY"` | `SetDrawLayer` |
+| `fogNear="10"` / `fogFar="40"` | `SetFogNear` / `SetFogFar`. A negative value becomes `0`. |
+| `<FogColor r="1" g="0" b="0"/>` | `SetFogColor` |
+| `<ViewInsets left="0" right="0" top="50" bottom="0"/>` | `SetViewInsets` |
+
+```lua
+local scene = CreateFrame("ModelScene", nil, UIParent)
+scene:SetWidth(300)
+scene:SetHeight(300)
+scene:SetPoint("CENTER", 0, 0)
+scene:SetCameraPosition(-6, 0, 1)
+
+local horse = scene:CreateActor()
+horse:SetModelByCreatureDisplayID(2404)   -- a brown horse
+```
+
+### `scene:CreateActor([name, template])`
+
+Adds an actor to the scene and returns it. `name` gives the actor a global
+name. In `name`, `$parent` stands for the name of the scene. `template` is
+the name of a virtual `<Actor>` element. The actor gets the template's
+mixins, scripts and key values, and then its `OnLoad` runs.
+
+### `scene:GetNumActors()` / `scene:GetActorAtIndex(index)`
+
+`GetNumActors` returns the number of actors in the scene.
+`GetActorAtIndex` returns one actor. Index `1` is the first actor that the
+scene made.
+
+### `scene:SetCameraPosition(x, y, z)` / `scene:GetCameraPosition()`
+
+Sets or returns the position of the camera.
+
+### `scene:SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)`
+
+Turns the camera. All three angles are in radians. `yaw` turns about the up
+axis, a positive `pitch` looks down, and `roll` turns about the direction
+that the camera looks.
+
+### `scene:SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, rightY, rightZ, upX, upY, upZ)`
+
+Turns the camera so that it looks along the forward vector, with the right
+and up vectors as its sides.
+
+### `scene:GetCameraForward()` / `scene:GetCameraRight()` / `scene:GetCameraUp()`
+
+Each one returns three numbers: one axis of the camera.
+
+### `scene:SetCameraFieldOfView(fov)` / `scene:GetCameraFieldOfView()`
+
+Sets or returns the vertical field of view of the camera, in radians.
+
+### `scene:SetCameraNearClip(nearClip)` / `scene:SetCameraFarClip(farClip)`
+
+Sets the nearest and the farthest distance that the camera draws.
+`GetCameraNearClip()` and `GetCameraFarClip()` return them.
+
+### `scene:SetViewInsets(left, right, top, bottom)` / `scene:GetViewInsets()`
+
+Puts the picture of the camera in a smaller part of the scene. The camera
+draws the scene as if the frame were smaller by these insets, in the
+frame's units. The picture still stops at the edges of the frame, and a
+negative inset makes the picture larger than the frame. All four are `0` by
+default.
+
+For example, `SetViewInsets(100, 0, 0, 0)` moves the picture 50 units to
+the right, and the picture gets smaller for the narrower shape.
+
+### `scene:SetViewTranslation(x, y)` / `scene:GetViewTranslation()`
+
+Moves the picture of the camera by `x` and `y`, in the frame's units. A
+positive `y` moves the picture up. The size of the picture does not change,
+and the picture still stops at the edges of the frame.
+
+### `scene:Project3DPointTo2D(x, y, z)`
+
+Returns where a point of the scene shows on the frame: `x2D, y2D, depth`.
+
+- `x2D` and `y2D` are measured from the bottom-left corner of the frame, in
+  the frame's units multiplied by its effective scale.
+- `depth` is `1` at the near clip and `0` at the far clip.
+- A point behind the camera also gets a position.
+- The function returns nothing until the frame has a size. It also returns
+  nothing for a point in the plane through the camera, at a right angle to
+  the direction that the camera looks.
+
+`SetViewInsets` and `SetViewTranslation` do not change the result.
+
+### Follow camera
+
+The camera type `"FollowCamera"` follows an actor, as the camera of the
+world follows your character. It has all the methods of the orbit camera
+(`OrbitCameraMixin`) and these two:
+
+- `camera:SetFollowActor([actor])` sets the actor that the camera follows.
+  Without an actor, the camera is an orbit camera.
+- `camera:GetFollowActor()` returns that actor.
+
+While the camera follows an actor:
+
+- It looks at a point above the feet of the actor. The height of this
+  point is the result of
+  [`actor:GetCameraPivotHeight`](#actorgetcamerapivotheightdistance).
+- When that height changes, the camera moves to the new height smoothly.
+  The CVar `cameraHeightSmoothSpeed` sets the speed, in yards a second.
+  The first height applies at once.
+- It stops in front of a wall of the WMO between the actor and the camera,
+  1/9 yard from the wall.
+- It does not move until the model of the actor has loaded.
+
+The camera does not turn by itself. Set its yaw, its pitch and its zoom as
+you set those of the orbit camera.
+
+A scene made from `ModelSceneMixinTemplate` has the methods that add a
+camera. Add the follow camera next to the camera of the scene, with the
+same settings, then make it the active camera. This is a ClassicAPI
+extension.
+
+```lua
+local _, cameraIDs = C_ModelInfo.GetModelSceneInfoByID(modelSceneID)
+local camera = scene:AddCamera(CameraRegistry:CreateCameraByType("FollowCamera"))
+camera:ApplyFromModelSceneCameraInfo(C_ModelInfo.GetModelSceneCameraInfoByID(cameraIDs[1]),
+    CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD)
+camera:SetFollowActor(runner)
+scene:SetActiveCamera(camera)
+```
+
+### `scene:SetLightType(lightType)` / `scene:GetLightType()`
+
+`0` makes a directional light, and `1` makes a point light.
+
+### `scene:SetLightVisible([visible])` / `scene:IsLightVisible()`
+
+Turns the light on or off.
+
+### `scene:SetLightDirection(x, y, z)` / `scene:SetLightPosition(x, y, z)`
+
+Sets the direction of a directional light, or the position of a point
+light. `GetLightDirection()` and `GetLightPosition()` return them.
+
+### `scene:SetLightAmbientColor(r, g, b)` / `scene:SetLightDiffuseColor(r, g, b)`
+
+Sets the colors of the light, from `0` to `1`. `GetLightAmbientColor()` and
+`GetLightDiffuseColor()` return them.
+
+### `scene:SetFogColor(r, g, b)` / `scene:GetFogColor()`
+
+Sets the color of the fog and turns the fog on.
+
+### `scene:SetFogNear(near)` / `scene:SetFogFar(far)`
+
+Sets the distance where the fog starts and the distance where it is full.
+`GetFogNear()` and `GetFogFar()` return them.
+
+### `scene:ClearFog()`
+
+Turns the fog off.
+
+### `scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`
+
+Sets the draw layer of the scene, for example `"ARTWORK"` or `"OVERLAY"`.
+`GetDrawLayer` returns the layer and `0`.
+
+### `scene:SetPaused(paused [, affectsGlobalPause])`
+
+`true` stops the animations of all the actors. Each actor stays at its
+current frame. `false` starts the animations again from the same frame.
+`affectsGlobalPause` has no effect. To pause one actor, use
+[`actor:SetPaused`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused).
+
+These also stop with the animations:
+
+- The clock of the scene ([`scene:GetSceneTime`](#scenegetscenetime)) and
+  the timers of the scene.
+- The movement of all the actors: walking, running, jumping, falling,
+  swimming and `MoveTo`. A movement command that you give while the scene is
+  paused starts when the scene starts again.
+- The spell visuals of `PlaySpellVisual`, missiles in flight and chain
+  bolts. The flight sounds of the missiles stop.
+- The shards of a spell ground area (`actor:SetModelBySpellArea`). The
+  sound of the area stops.
+- The click-to-move marker of `scene:SetMoveMarker`.
+
+When the scene starts again, each of these continues from where it stopped.
+The `OnUpdate` scripts of the actors continue to run while the scene is
+paused.
+
+### `scene:GetSceneTime()`
+
+Returns the time on the clock of the scene, in seconds. The clock starts
+at 0 when the scene is made. The actors animate and move by this clock.
+
+The clock stops while the scene is paused (`scene:SetPaused`) and while
+the scene is hidden. This is a ClassicAPI extension.
+
+### `scene:After(seconds, callback)` / `scene:NewTimer(seconds, callback)` / `scene:NewTicker(seconds, callback [, iterations])`
+
+These functions are the same as
+[`C_Timer.After`](#c_timerafterseconds-callback),
+[`C_Timer.NewTimer`](#c_timernewtimerseconds-callback) and
+[`C_Timer.NewTicker`](#c_timernewtickerseconds-callback-iterations), but
+they use the clock of the scene. Time does not pass for these timers while
+the scene is paused or hidden. Thus the timers stay in step with the
+animations of the actors.
+
+The scene runs its timers when its clock moves, before the actors update.
+A ticker runs one time in each frame at most. A `/reload` cancels all the
+timers. This is a ClassicAPI extension.
+
+```lua
+-- The warrior swings every 2 seconds on the clock of the scene.
+local ticker = scene:NewTicker(2, function()
+    warrior:SetAnimation(17) -- Attack1H
+end)
+
+-- Later, to stop the swings:
+ticker:Cancel()
+```
+
+### `scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`
+
+Stores a flag. It is `false` by default. The flag has no effect: a scene
+always draws, also when another model frame covers it.
+
+### `scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`
+
+Sets the ground that the actors of the scene stand on. The ground selects
+the sounds of their footsteps and death thuds (see
+[`actor:SetPlayAnimationSounds`](#actorsetplayanimationsoundsenabled--actorgetplayanimationsounds)).
+`terrainTypeID` is a row of `TerrainType.dbc`:
+
+| ID | Ground |
+|---|---|
+| `0` | Dirt |
+| `1` | Metallic |
+| `2` | Stone |
+| `3` | Snow |
+| `4` | Wood |
+| `5` | Grass |
+| `6` | Leaves |
+| `7` | Sand |
+| `8` | Soggy |
+| `9` | Dusty grass |
+
+Without `terrainTypeID`, an actor stands on the floor of the WMO of the scene
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)).
+The material of the floor under the actor selects the sounds, as in the
+world. An actor with no floor of a WMO under it makes no footsteps and no
+death thuds. This is the default. A ground that you set replaces the floor of
+the WMO for all actors. `scene:GetGroundTerrain()` returns the ID that you
+set, or nothing. This is a ClassicAPI extension.
+
+### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`
+
+Shows a WMO (a world map object, for example a building or a dungeon)
+around the actors, and returns `true`. `path` is a `.wmo` file. The WMO
+stands at `(x, y, z)` and turns by `yaw` radians about `z`. The defaults are
+`(0, 0, 0)` and `0`. `mapID` is the row of `Map.dbc` for the map that the
+WMO stands on. Give it with the position of the WMO on that map, so that
+the positions in the scene are the positions on the map. It sets the color
+of the outdoor water (see below).
+
+The scene shows the WMO as the world shows it:
+
+- The data of the WMO lights and colors it. On the outdoor parts of the
+  WMO, the light of the scene is the sun.
+- A WMO with two or more fogs uses its own fog while the camera is above
+  an indoor part of the WMO. Other WMOs use the fog of the scene.
+- When the camera goes into or out of the WMO, the fog changes gradually
+  from one fog to the other in 4 seconds, as in the world. When the scene
+  first shows the WMO, the fog is already the fog for the position of the
+  camera.
+- Some WMOs have more fogs around some points. As the camera comes near
+  such a point, its fog blends in.
+- If the scene has no fog, the fog of the WMO comes in from the far clip of
+  the camera.
+- When the camera goes into the water of the WMO, the fog becomes the
+  underwater fog of the WMO. In lava or slime, the fog becomes the fog of
+  the scene, unless the WMO has a fog for that liquid.
+- The WMO shows its props, for example torches, furniture and bones. The
+  props of doodad set `0` always show. `doodadSet` adds the props of one
+  more set. The props animate, and the lights of the WMO light them.
+- Props fade out with the distance from the camera, as in the world.
+  Small props fade first. A prop that is larger than 7 yards does not fade.
+- The water, lava and slime of the WMO show, and their textures animate.
+- Outdoor water takes its colors from the light of the map at the position
+  of the camera and at the time of day of the world, as in the world. The
+  light of a zone near the camera blends in. Without `mapID`, outdoor water
+  takes its colors from the place where the player is.
+- The parts of the WMO show when their files have loaded.
+
+The WMO replaces the previous WMO of the scene.
+
+The WMO also lights the actors, as the world lights a creature that stands
+in it:
+
+- An actor indoors takes the color of the floor under it, from the data of
+  the WMO. An actor outdoors, or with no floor of the WMO under it, takes
+  the light of the scene.
+- The lights of the part of the WMO that an actor stands on light it, for
+  example torches.
+- An indoor actor has the same fog as the WMO.
+- The floor under an actor selects the sounds of its footsteps and death
+  thud (see
+  [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)).
+- The shadow of an actor lies on the floor of the WMO (see
+  [`actor:SetShadowShown`](#actorsetshadowshownshown--actorisshadowshown)).
+- When an actor moves into a part of the WMO with a different light, its
+  light changes during a short time, as in the world.
+- A seated rider and an actor that hangs on another actor take the light
+  of that other actor.
+- The missiles and impact effects of
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems)
+  take the light of the place where they are. An arrow in a bow or in a
+  target takes the light of the actor that holds it.
+
+The far clip of the camera (`100` yards by default) also
+cuts the WMO. For a large WMO, increase the far clip with
+`scene:SetCameraFarClip`. `scene:GetActorAtCursor` does not return the WMO
+or its props.
+
+The function returns `false` and shows no WMO when the file is missing,
+when the file is not a WMO, or when the client cannot read the file. This
+is a ClassicAPI extension.
+
+```lua
+scene:SetWorldModel("World\\wmo\\Dungeon\\LD_Stratholme\\FrostWyrm_Final01.wmo",
+    3589.27, -5204, 252.46, -1.77151)
+scene:SetCameraFarClip(500)
+```
+
+### `scene:SetWorldModelByMapID(mapID)`
+
+Shows the WMO of a map that is only one WMO, for example a dungeon, and
+returns `true`. `mapID` is a row of `Map.dbc`. The WMO stands where the map
+puts it and uses the doodad set of the map. Thus the positions in the scene
+are the positions on the map: an actor at the position of a creature in the
+world stands where that creature stands. Outdoor water takes its colors
+from the light of that map.
+
+All the other rules of
+[`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid) apply.
+The function returns `false` and shows no WMO for a map that is not one WMO.
+This is a ClassicAPI extension.
+
+```lua
+scene:SetWorldModelByMapID(249) -- Onyxia's Lair
+scene:SetCameraFarClip(500)
+onyxia:SetPosition(0.7, -211.97, -86.08) -- her place in the lair
+```
+
+### `scene:ClearWorldModel()`
+
+Removes the WMO of the scene and its props. This is a ClassicAPI extension.
+
+### `scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`
+
+Sets whether the props of the WMO play their sounds, for example the
+crackle of a torch. It is `false` by default. You hear the sounds from the
+camera of the scene (see [Scene sounds](#scene-sounds)). As in the world, a
+prop plays its looping sound only when it is near enough.
+
+The sounds play only in the world. On the login screen and the character
+screen, the props play no sounds. When the scene hides, the looping sounds
+stop. When the scene shows again, each looping sound starts again a short
+time later. This is a ClassicAPI extension.
+
+### `scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`
+
+Returns the first face of the WMO on the segment from the start to the
+end. The positions are scene positions. The function tests the faces that
+the line of sight of the world tests: walls, floors and roofs. It does not
+test small details or the props of the WMO.
+
+The function returns `hitX, hitY, hitZ, normalX, normalY, normalZ, fraction`:
+
+- `hitX, hitY, hitZ` is the point where the segment meets the face.
+- `normalX, normalY, normalZ` is the unit normal of the face, on the side
+  of the start.
+- `fraction` is the position of the hit on the segment: 0 at the start, 1
+  at the end.
+
+When `camera` is `true`, the function tests the faces that the camera of
+the world collides with. Small details count, and the faces that let the
+camera through do not count. Use it for a camera that stops in front of a
+wall.
+
+The function returns nothing in these cases:
+
+- The segment hits no face.
+- The scene has no WMO.
+- The part of the WMO on the segment has not loaded.
+
+This is a ClassicAPI extension.
+
+```lua
+-- The floor under a point.
+local _, _, floorZ = scene:TraceSegment(x, y, z + 2, x, y, z - 50)
+```
+
+### `scene:GetLiquidAtPoint(x, y, z)`
+
+Returns the liquid of the WMO at a scene point, as the world finds it for a
+unit that stands at the point. The function returns `liquidType, surfaceZ`:
+
+- `liquidType` is `0` for water, `1` for ocean, `2` for magma and `3` for
+  slime.
+- `surfaceZ` is the height of the surface above the point. It is `nil`
+  when that part of the WMO is full of the liquid from the bottom to the
+  top.
+
+The function returns nothing in these cases:
+
+- The point is above the surface, or it is not in a liquid.
+- The scene has no WMO.
+- The part of the WMO at the point has not loaded.
+
+This is a ClassicAPI extension.
+
+### `scene:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)`
+
+Moves a body in a straight line until it touches the WMO or one of its
+props. The world moves a character into a wall or onto a floor in the same
+way. The body
+has the shape of a character in the world: a square box over a downward
+point at the feet. `radius` is half the width of the box, and `height` is
+the height of the box. `moveX, moveY, moveZ` is the full movement.
+
+The function returns `feetX, feetY, feetZ, normalX, normalY, normalZ`. The
+feet are the position where the body stops. The normal is the unit normal
+of the face that the body touched. It points to the side that the face
+blocks. When the body touched no face, the function returns only the feet.
+
+A face blocks the body only from its front side. Without a WMO, the body
+moves the full distance. While a part of the WMO in the way loads, the body
+does not move. The function does not slide the body along a wall or step
+it up a ledge. For that movement, use
+[`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled).
+This is a ClassicAPI extension.
+
+### Scene sounds
+
+You hear all the sounds of a scene from the camera of the scene, or from
+the actor that
+[`scene:SetSoundListenerActor`](#scenesetsoundlisteneractoractor--scenegetsoundlisteneractor)
+sets. These are the sounds of `actor:PlaySpellVisual`, of
+`actor:SetPlayAnimationSounds`, of `scene:SetPlayWorldModelSounds`, and of
+`actor:PlaySound`. Each sound plays as if you stand at the camera of the
+scene:
+
+- A sound that is far from the camera is quieter. A sound that is farther
+  than its range does not play. The range and the volume of each sound are
+  the same as in the world.
+- A sound on the right of the camera comes from the right.
+- The sound of a missile in flight moves with the missile and with the
+  camera. A short sound stays at the position where it started.
+
+### `scene:SetSoundListenerActor([actor])` / `scene:GetSoundListenerActor()`
+
+Sets the actor that hears the sounds of the scene, as you hear the world at
+your character. The actor hears at the top of its model, and it faces the
+way that the actor faces. `actor` is an actor of this scene. This applies
+while the `SoundListenerAtCharacter` cvar is on. When the cvar is off, or
+without an actor, the camera of the scene hears the sounds.
+`GetSoundListenerActor` returns the actor that you set, or nothing. This is
+a ClassicAPI extension.
+
+```lua
+scene:SetSoundListenerActor(hero) -- you hear the fight where the hero stands
+```
+
+### `scene:GetActorAtCursor()`
+
+Returns the actor under the cursor, or nothing. The test uses the triangles
+that the scene draws for each shown actor: its model, its held items and
+its spell visual kit effects. A space between the arms of a model is not
+part of the model. When actors overlap, the function returns the actor
+that is nearest to the camera. A seated rider is its own actor, not part of
+its mount. Missiles and impact models of `PlaySpellVisual` are not part of
+an actor.
+
+The function returns nothing when the cursor is outside the frame, when
+the frame is hidden, and before the scene draws the actor for the first
+time. This is a ClassicAPI extension.
+
+### `scene:GetCursorRay()`
+
+Returns the line through the cursor, in scene coordinates:
+`nearX, nearY, nearZ, farX, farY, farZ`. The first point is under the
+cursor on the near clip, and the second point is under the cursor on the
+far clip. The line goes the same way as the line of sight of the camera
+through that point of the picture.
+
+The function returns nothing when the cursor is not over the picture of
+the scene, and when the frame is hidden. This is a ClassicAPI extension.
+
+To find the point of the WMO under the cursor, give the line to
+[`scene:TraceSegment`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera).
+The world finds the point of a mouse click in the same way.
+
+```lua
+-- A right click sends the runner to the floor under the cursor.
+scene:HookScript("OnMouseUp", function(self, button)
+    if button ~= "RightButton" then
+        return
+    end
+    local nearX, nearY, nearZ, farX, farY, farZ = self:GetCursorRay()
+    if nearX then
+        local x, y, z = self:TraceSegment(nearX, nearY, nearZ, farX, farY, farZ)
+        if x then
+            runner:MoveTo(x, y, z)
+        end
+    end
+end)
+```
+
+### `scene:GetActorsInRadius(x, y, z, radius)`
+
+Returns a table of the actors near a point, in scene coordinates. The
+table holds each shown actor with a model that is not more than `radius`
+yards from the point. The distance includes the height.
+
+The nearest actor is first. Actors at the same distance keep the order in
+which the scene created them. When no actor is near the point, the table
+is empty.
+
+The function uses the position that `actor:GetPosition` returns. The size
+of the model does not change the result. This is a ClassicAPI extension.
+
+```lua
+-- A cleave hits each actor within 5 yards of the warrior.
+local x, y, z = warrior:GetPosition()
+for _, actor in ipairs(scene:GetActorsInRadius(x, y, z, 5)) do
+    if actor ~= warrior then
+        Hit(actor)
+    end
+end
+```
+
+### `scene:SetMoveMarker(x, y, z)` / `scene:ClearMoveMarker()` / `scene:GetMoveMarker()`
+
+Shows the click-to-move marker at a point, in scene coordinates. It is the
+same pulsing yellow mark that the world shows where you click to move. The
+scene shows one marker. A new call moves it to the new point.
+
+- In a scene with a WMO, the marker lies on the faces of the WMO near the
+  point. In a scene with no WMO, it lies flat at the height of the point.
+- The marker pulses between 0.5 and 0.75 yards in size, two times each
+  second. It stops while the scene is paused.
+- The marker stays until you call `ClearMoveMarker`. It does not go away
+  when an actor gets to the point.
+
+`GetMoveMarker` returns `x, y, z`, or nothing when the scene shows no
+marker. This is a ClassicAPI extension.
+
+```lua
+-- The marker shows where the runner goes, until it gets there.
+scene:HookScript("OnMouseUp", function(self, button)
+    if button ~= "RightButton" then
+        return
+    end
+    local nearX, nearY, nearZ, farX, farY, farZ = self:GetCursorRay()
+    if nearX then
+        local x, y, z = self:TraceSegment(nearX, nearY, nearZ, farX, farY, farZ)
+        if x then
+            runner:MoveTo(x, y, z)
+            self:SetMoveMarker(x, y, z)
+        end
+    end
+end)
+runner:HookScript("OnMoveFinished", function()
+    scene:ClearMoveMarker()
+end)
+```
+
+### `OnActorEnter` / `OnActorLeave`
+
+Scripts of the scene, with the arguments `(self, actor)`. When the actor
+under the cursor changes, `OnActorLeave` runs for the old actor, then
+`OnActorEnter` runs for the new actor. The actor under the cursor is the
+one that `GetActorAtCursor` returns. Set the scripts with `SetScript`,
+`HookScript`, or the elements `<OnActorEnter>` and `<OnActorLeave>` in
+`<Scripts>`:
+
+```lua
+scene:EnableMouse(true)
+scene:SetScript("OnActorEnter", function(self, actor)
+    print("enter", actor:GetModelPath())
+end)
+scene:SetScript("OnActorLeave", function(self, actor)
+    print("leave", actor:GetModelPath())
+end)
+```
+
+The scripts run only while the scene is the frame under the mouse (see
+`GetMouseFocus`). Thus the scene must take mouse input, for example with
+`EnableMouse(true)`. When the cursor leaves the scene, `OnActorLeave` runs
+for the last actor. While the scene is hidden, no script runs. When it
+shows again, the scripts tell of the changes. This is a ClassicAPI
+extension.
+
+### `actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`
+
+Shows a creature by its display ID (a `CreatureDisplayInfo` ID) and returns
+`true`. It returns `false` and shows nothing for an ID that is not a
+display. A display of a character model is dressed in the clothes of its
+NPC. `useActivePlayerCustomizations` has no effect.
+
+### `actor:SetModelByPath(path [, useMips])`
+
+Shows a model file, for example `"Creature\\Wolf\\Wolf.mdx"`, and returns
+`true`. It returns `false` when the path does not give a model. `useMips`
+has no effect.
+
+### `actor:SetModelBySpellArea(spellID, radius)`
+
+Shows the ground area of a spell on the actor, as the world shows the area
+that a spell such as Blizzard, Rain of Fire or Consecration leaves on the
+ground. `radius` is the radius of the area in yards. It must be more than 0.
+Returns `true`, or `false` when the spell has no ground area.
+
+- When the model loads, it gets the size of `radius`. Its animation repeats.
+- For a spell such as Blizzard or Rain of Fire, shards of ice or fire fall
+  on the area. They fall from 16.67 yards above the area to the floor, and
+  more of them land near the centre. At the lower spell detail levels,
+  fewer shards fall.
+- In a scene with a WMO, the shards land on its floor and stop below a
+  ceiling. In a scene with no WMO, they land at the height of the actor.
+- The sound of the area repeats at the position of the actor, and some
+  of the shards make a sound when they land.
+- When you hide the actor or change its model, the area stops. No more
+  shards fall, and the sound fades out in 3 seconds. Shards that are in the
+  air land first. When you show the actor again, the area starts again.
+- While the scene or the actor is paused, the shards stop where they are
+  and the sound stops. When the pause ends, they continue.
+
+This is a ClassicAPI extension.
+
+```lua
+local storm = scene:CreateActor()
+storm:SetPosition(x, y, z)
+storm:SetModelBySpellArea(10, 8) -- Blizzard, 8 yards
+storm:SetGroundReticle(8)
+```
+
+### `actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`
+
+Shows a copy of a unit, with the items that it wears and holds, and returns
+`true`. It returns `false` when the unit does not exist.
+
+| Argument | Default | Effect |
+|---|---|---|
+| `sheatheWeapons` | `false` | `true` puts the weapons in their sheaths. |
+| `autoDress` | `true` | `false` shows the unit with nothing on. |
+| `hideWeapons` | `false` | `true` hides the weapons. |
+| `usePlayerNativeForm`, `holdBowString`, `customRaceID` | | No effect. A unit in a shapeshift form shows in that form. |
+
+The actor also takes the ranged weapon of the unit. The ranged weapon shows
+only while the actor shoots (see
+[`actor:TryOn`](#actortryonitem--handslotname-spellenchantid)).
+
+### `actor:SetModelByUnitCreatureDisplayID(unit)`
+
+Shows the display that the unit shows now, the same as
+`SetModelByCreatureDisplayID`, and returns `true`. It does not copy the
+unit. A player shows with the bare model of its race, and a pet or an NPC
+shows its own display. It returns `false` when the unit does not exist.
+
+### `actor:GetModelUnitGUID()`
+
+Returns the GUID of the unit that `SetModelByUnit` shows. It returns
+nothing for an actor that does not show a unit.
+
+### `actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`
+
+These work on an actor that shows a unit. `Dress` puts on everything that
+the unit wears. `Undress` takes everything off. With `includeWeapons` set to
+`false`, the weapons stay, the ranged weapon too. `UndressSlot` takes off the
+item in one inventory slot, from `1` (head) to `19` (tabard). Slot `18` is
+the ranged slot.
+
+### `actor:TryOn(item [, handSlotName, spellEnchantID])`
+
+Puts an item on the actor. The arguments are the same as the arguments of
+[`DressUpModel:TryOn`](#dressupmodeltryonitem--handslotname-spellenchantid).
+
+The model of the actor sets which items it can wear:
+
+- Weapons, shields, and off-hand items go on all models. A model that has no
+  hands holds nothing, but `TryOn` returns `Success`.
+- A ranged weapon (a bow, a gun, a crossbow, a wand or a thrown weapon) goes
+  into the ranged slot (`18`), not into a hand. `handSlotName` has no effect
+  on it. The actor can hold two melee weapons and a ranged weapon together.
+  As in the world, the ranged weapon shows only while the actor shoots with
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems).
+  This is a ClassicAPI extension.
+- Armor goes on an actor that shows a unit (`SetModelByUnit`), or on a
+  display of a character model. A creature display takes no armor. A unit in
+  a shapeshift form takes no armor.
+- Ammo (arrows and bullets) goes on all models. The actor holds nothing new,
+  but it shoots the ammo with a ranged spell of
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems).
+  This is a ClassicAPI extension.
+
+The actor holds the weapons as `SetSheathed` sets. An actor that shows a
+creature display or a model file can hold two one-hand weapons, as the world
+shows the weapons of a creature. A second one-hand weapon then goes into the
+off hand. An actor that shows a unit holds two one-hand weapons only when
+the unit is your character and you can dual wield.
+
+If the model is not loaded yet, the actor wears the item when the model loads.
+`TryOn` then returns `Success`. If the item is not in the item cache, `TryOn`
+returns `DataPending`. The actor wears the item when the data arrives, in the
+hand and with the enchant glow that you gave.
+
+`TryOn` returns `NotEquippable` for an item that the model cannot wear. The
+next `SetModelBy...` call or `ClearModel` removes the items.
+
+```lua
+-- A creature display with a staff on its back.
+actor:SetModelByCreatureDisplayID(2510)
+actor:SetSheathed(true)
+actor:TryOn(18842)
+
+-- A hunter with a sword, a bow and arrows. The sword is in the hand until
+-- the hunter shoots.
+hunter:TryOn(18832) -- Brutality Blade
+hunter:TryOn(17069) -- Striker's Mark
+hunter:TryOn(19316) -- Ice Threaded Arrow
+```
+
+### `actor:DressPlayerSlot(slot)`
+
+Puts back the item that the unit of the actor wears in one inventory slot,
+from `1` (head) to `19` (tabard). This undoes a `TryOn` or an `UndressSlot`
+on that slot. If the unit wears nothing in the slot, the slot becomes empty.
+A helm or a cloak that the unit hides stays off.
+
+It works on an actor that shows a unit (`SetModelByUnit`), while the unit is
+near enough for your client to see it. A hand slot changes only that hand.
+Slot `18` puts back the ranged weapon of the unit. For example, after a two-hand weapon goes on with `TryOn`, `DressPlayerSlot(17)`
+puts the off-hand item of the unit back next to it.
+
+### `actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`
+
+`IsSlotAllowed` returns `true` when the actor can wear an item in the
+inventory slot:
+
+- The hands (`16` and `17`) and the ranged slot (`18`) are allowed on all
+  models.
+- The armor slots are allowed when `TryOn` can put armor on the actor.
+- The neck, the rings, and the trinkets are not allowed.
+
+It returns `false` for an actor that shows no model. `IsSlotVisible` returns
+the same value. An item in an allowed slot shows, but a ranged weapon shows
+only while the actor shoots.
+
+### `actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`
+
+These return what the actor wears, as `ItemTransmogInfoMixin` tables. Each
+table has three fields:
+
+| Field | Value |
+|-------|-------|
+| `appearanceID` | The item ID, or `0` for an empty slot. |
+| `secondaryAppearanceID` | Always `0` (`Constants.Transmog.NoTransmogID`). |
+| `illusionID` | On a weapon, the SpellItemEnchantment ID of the enchant glow that the weapon shows. Else `0`. |
+
+`GetItemTransmogInfo` returns the table for one inventory slot, from `1`
+(head) to `19` (tabard). It returns nothing for an actor that shows no model,
+or for a slot number outside this range. `GetItemTransmogInfoList` returns a
+list of 19 tables, one for each inventory slot, in slot order.
+
+An actor that shows a player (`SetModelByUnit`) starts with the items that
+the player wears. A helm or a cloak that the player hides is `0`. The neck,
+the rings, and the trinkets are always `0`. An NPC or a creature display starts with all slots at `0`, also when its model wears
+items. `TryOn`, `UndressSlot`, `Undress`, and `DressPlayerSlot` change the
+values.
+
+`Constants.Transmog` holds the values that these fields use:
+
+| Field | Value |
+|-------|-------|
+| `NoTransmogID` | `0` |
+| `MainHandTransmogIsIndividualWeapon` | `-1` |
+| `MainHandTransmogIsPairedWeapon` | `0` |
+
+### `actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`
+
+Puts the item `info.appearanceID` on the actor, as `TryOn` does. A weapon
+shows the glow of the enchant `info.illusionID`. It returns the same
+`Enum.ItemTryOnReason` values as `TryOn`. These are the differences:
+
+- It shows no error message. The caller shows `ERR_NOT_EQUIPPABLE` when the
+  result is not `Success`.
+- A `slot` of `16` or `17` selects the hand that holds a weapon. With all
+  other values, the item goes into its own slot.
+- An `appearanceID` of `0` changes nothing and returns `NotEquippable`.
+  `UndressSlot` empties a slot.
+- `ignoreChildItems` has no effect.
+
+```lua
+-- Keep the outfit, try on an item, then put the outfit back.
+local saved = actor:GetItemTransmogInfoList()
+actor:TryOn(19019)
+for slot, info in ipairs(saved) do
+  if info.appearanceID == Constants.Transmog.NoTransmogID then
+    actor:UndressSlot(slot)
+  else
+    actor:SetItemTransmogInfo(info, slot)
+  end
+end
+```
+
+### `actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`
+
+Puts the weapons of the actor in its hands or in their sheaths. `hidden`
+set to `true` hides them. The setting also applies to items that `TryOn`
+puts on later. After a ranged shot, the call also puts the ranged weapon
+away.
+
+### `actor:SetSheathedCategory(slot, category)`
+
+Sets where the item in a hand hangs while the actor's weapons are sheathed.
+`slot` is `16` (main hand) or `17` (off hand). Other slots change nothing.
+A ranged weapon has no sheath place. `category` is an
+`Enum.TransmogOutfitSlotOptionSheatheCategory` value:
+
+| Value | Name | Sheathed item |
+|---|---|---|
+| `0` | `Default` | At the place of the item. |
+| `1` | `Back` | A one-handed weapon from the hip goes on the back, as a two-handed weapon does. |
+| `2` | `Side` | A weapon from the back goes on the hip. |
+| `3` | `Hide` | Not shown. |
+
+A shield, and an item that has no sheath place, stay at their own place with
+`Back` and `Side`. The category stays with the hand: items that `TryOn`,
+`SetModelByUnit`, and `DressPlayerSlot` put in that hand later use it too.
+The category has no effect on an item in the hand while the weapons are not
+sheathed.
+
+```lua
+actor:SetSheathed(true)
+actor:SetSheathedCategory(16, Enum.TransmogOutfitSlotOptionSheatheCategory.Side)
+```
+
+### `actor:UseUnitSheatheCategory(useCategory)`
+
+`useCategory` set to `true` puts each sheathed item at its own place. The
+`SetSheathedCategory` categories have no effect until a call with `false`.
+Units do not keep a sheath category, so the place of the item is the place
+of the unit. The default is `false`.
+
+### `actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`
+
+Sets whether the next `SetModelByUnit` call dresses the actor.
+
+### `actor:IsGeoReady()`
+
+Returns `true` when the model and the item models on it have loaded.
+
+### `actor:ClearModel()` / `actor:IsLoaded()` / `actor:GetModelPath()`
+
+`ClearModel` removes the model. `IsLoaded` returns `true` after the model
+has loaded and `OnModelLoaded` has run. `GetModelPath` returns the file of
+the model, or `""` for a unit copy.
+
+### `actor:SetPosition(x, y, z)` / `actor:GetPosition()`
+
+Moves the actor in the scene.
+
+### `actor:SetYaw(yaw)` / `actor:SetPitch(pitch)` / `actor:SetRoll(roll)`
+
+Turns the actor, in radians. A model faces `+x` at yaw `0`, and a positive
+yaw turns it to the left. `GetYaw()`, `GetPitch()` and `GetRoll()` return
+the angles.
+
+### `actor:SetScale(scale)` / `actor:GetScale()`
+
+Sets the size of the actor. `1` is the size of the model file.
+
+### `actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`
+
+For each axis set to `true`, the center of the model stands at the position
+of the actor. For each axis set to `false`, the origin of the model file
+stands there. For example, `SetUseCenterForOrigin(false, false, true)`
+moves a model up or down so that its middle is at the actor's height.
+
+### `actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`
+
+Each one returns six numbers: the bottom corner `x, y, z` and then the top
+corner `x, y, z`, in the coordinates of the model file.
+`GetActiveBoundingBox` gives the box of the current animation, and
+`GetMaxBoundingBox` gives the box of the whole model. Both return nothing
+until the model has loaded.
+
+### `actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`
+
+Shows or hides the actor. `IsShown()` returns whether the actor is set to
+show. `IsVisible()` also checks that the scene is visible.
+
+### `actor:FadeOut()` / `actor:IsFadingOut()`
+
+Fades the actor out over 2 seconds, as the world fades out a unit that goes
+away, for example a corpse. Then the actor hides: `IsShown()` returns
+`false`.
+
+- The fade starts from the alpha that the actor shows and slows at the end.
+- When the actor shows less than 1/100 alpha, or its model has not loaded,
+  it hides at once.
+- While the scene is paused, the fade stops where it is.
+- `actor:Show`, `actor:Hide` and `actor:SetShown` end the fade. Then the
+  actor shows at its alpha again, or hides.
+- `actor:GetAlpha` returns the alpha that you set. The fade does not change
+  it.
+
+`IsFadingOut` returns `true` while the actor fades out. This is a
+ClassicAPI extension.
+
+```lua
+-- A dead whelp lies for 1.5 seconds, then fades out.
+scene:After(1.5, function()
+    whelp:FadeOut()
+end)
+```
+
+### `actor:SetAlpha(alpha)` / `actor:GetAlpha()`
+
+Sets the opacity of the actor, from `0` to `1`. The alpha of the scene
+frame multiplies it.
+
+### `actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`
+
+Plays an animation (an `AnimationData` ID, for example `0` for stand and
+`5` for run). When the animation ends, it plays again and `OnAnimFinished`
+runs. Use `OnAnimFinished` to go on to the next animation.
+
+| Argument | Default | Effect |
+|---|---|---|
+| `variation` | `nil` | One variation of the animation. `nil` plays any variation. |
+| `animSpeed` | `1` | The speed. `2` plays at double speed. |
+| `animOffsetSeconds` | `0` | Starts this many seconds into the animation. |
+
+`GetAnimation()` returns the animation. `GetAnimationVariation()` returns
+the variation, or `4294967295` when any variation plays.
+
+### `actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`
+
+Sets how the next animation starts. `Enum.ModelBlendOperation.Anim` (`1`,
+the default) blends from the animation that plays.
+`Enum.ModelBlendOperation.None` (`0`) starts the new animation at once.
+
+### `actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`
+
+Stops the animation of one actor at its current frame. The other actors
+continue. The actor still moves, turns and fades when you change it, and
+its animation does not end, so `OnAnimFinished` does not run. The flight
+sounds of its missiles and the sound of its spell ground area stop. When
+you unpause it, the animation continues from the same frame, and the
+sounds start again.
+
+The actor has two pause flags. `GetPaused` returns both: `paused,
+globalPaused`. `SetPaused(paused)` sets both flags. `SetPaused(paused,
+false)` sets only the first flag. The actor stops when either flag is
+`true`.
+
+### `actor:SetSpellVisualKit([spellVisualKitID, oneShot])` / `actor:GetSpellVisualKit()`
+
+Shows the effects of a spell visual kit (a `SpellVisualKit` ID) on the
+model, for example the glow in the hands of a caster. A new kit removes the
+effects of the old kit. `0` or `nil` removes the kit. With `oneShot` set to
+`true`, each effect plays one time. Without it, the effects last until the
+kit changes: an effect that has a lasting state shows it after it starts,
+for example the ice of Frost Nova after it forms, and the other effects
+loop. The kit
+does not play its animation or its sound: use `SetAnimation` for the
+animation.
+
+Most effects of a kit hang on a point of the model, for example a hand. A
+kit can also have one effect that stands on the ground where the actor is,
+for example the ice of Frost Nova's state kit (285). This effect stays at
+the place where the actor stood when the kit started. It does not move with
+the actor.
+
+```lua
+-- Cast a Fireball: hold the precast glow, then release it.
+caster:SetAnimation(51)            -- ReadySpellDirected
+caster:SetSpellVisualKit(30)       -- Fireball precast
+-- ...later:
+caster:SetAnimation(53)            -- SpellCastDirected
+caster:SetSpellVisualKit(38, true) -- Fireball cast
+target:SetSpellVisualKit(286, true) -- Fireball impact
+```
+
+### `actor:ApplySpellVisualKit(spellVisualKitID [, oneShot])`
+
+Adds the effects of a spell visual kit to the model. The kits that the model
+already shows stay: those of `SetSpellVisualKit`, of `PlaySpellVisual`, and
+of earlier calls of this method. With `oneShot` set to `true`, each effect
+plays one time. Without it, the effects stay until the model changes. As
+with `SetSpellVisualKit`, the kit does not play its animation or its sound.
+If the model has not loaded, the kit shows when it loads. This is a
+ClassicAPI extension.
+
+```lua
+target:ApplySpellVisualKit(286, true) -- a Fireball impact, the old kit stays
+```
+
+### `actor:PlayAnimationKit(animationKit [, isLooping])` / `actor:StopAnimationKit()`
+
+These have no effect. There are no animation kits in this game.
+
+### `actor:AttachToMount(rider, animation [, spellKitVisualID])`
+
+Seats another actor of the same scene on this actor, and returns `true`.
+The rider plays `animation` (`91` is the mount animation for most mounts).
+With `spellKitVisualID`, the rider also shows that spell visual kit. A
+rider that sits on another mount moves to this one. It returns `false` when
+either actor shows no model, when the rider is in another scene, or when
+the rider is this actor or the actor that this actor hangs on.
+
+The rider's position, turn and scale then count from the seat. To make the
+rider fit the mount, use `rider:SetScale(1 / mount:CalculateMountScale(rider))`.
+
+### `actor:DetachFromMount(rider)`
+
+Takes the rider off this actor, and returns `true`. The rider keeps its
+animation. It returns `false` when the rider does not sit on this actor.
+
+### `actor:CalculateMountScale(rider)`
+
+Returns the scale of this mount's creature display. A rider at a scale of
+`1` divided by this number has the same size as a player on that mount.
+
+### `actor:GetAttachmentPosition(attachmentID)`
+
+Returns the `x`, `y` and `z` of a point on the model, in the coordinates of
+`actor:SetPosition`. A missile, for example, can start at a hand. The point
+is where the model was in the last frame that the scene drew. It returns
+nothing until the model and the actor that it hangs on have loaded. It also
+returns nothing when the model does not have the point.
+
+These are some of the points: `1` is the right hand, `2` is the left hand,
+and `0` is the seat of a mount. This is a ClassicAPI extension.
+
+```lua
+local x, y, z = mage:GetAttachmentPosition(1)
+if x then
+  missile:SetPosition(x, y, z)
+end
+```
+
+### `actor:AttachToActor(parent, attachmentID)`
+
+Hangs this actor on a point of another actor of the same scene, and returns
+`true`. The actor then moves with that point: it follows the parent's
+position, turn and animation. The actor's own position, turn and scale then
+count from the point. If the parent's model does not have the point, the
+actor hangs at the parent's origin. An actor that hangs on another actor
+moves to the new parent.
+
+It returns `false` when either actor shows no model, when the parent is in
+another scene, or when the parent is this actor or hangs on this actor. This
+is a ClassicAPI extension.
+
+```lua
+-- A fireball in the mage's right hand.
+fireball:SetModelByPath("Spells\\Fireball_Missile_Low.mdx")
+fireball:AttachToActor(mage, 1)
+```
+
+### `actor:DetachFromActor()`
+
+Takes this actor off the actor that it hangs on, and returns `true`. The
+actor's position, turn and scale then count from the scene again. It returns
+`false` when the actor hangs on no actor. This also takes a rider off its
+mount. This is a ClassicAPI extension.
+
+### `actor:SetPlayAnimationSounds(enabled)` / `actor:GetPlayAnimationSounds()`
+
+Sets whether the animations of the model play their sounds, as the
+animations of a creature or a player do in the world. It is `false` by
+default. When it is `true`, the animations play these sounds:
+
+- The wing flaps and wing glides of flying creatures.
+- The fidget sounds and the stand voice of the creature. The stand voice
+  does not play every time, and all actors together play it at most once
+  every 10 seconds. A copy of your own character does not play it.
+- Footsteps and the death thud. These need a ground: the floor of the WMO
+  of the scene, or a ground that you set with
+  [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain).
+  Footsteps also need the `FootstepSounds` setting.
+- The sounds that some animations carry, with the `EmoteSounds` setting.
+- During the preparation of
+  [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems),
+  the preparation sound of some spells.
+
+The sounds come from the creature display that the actor shows. An actor
+that shows a model file has only the sounds that its animations carry. The
+sounds play at the actor, and you hear them from the camera of the scene
+(see [Scene sounds](#scene-sounds)). Attacks play no weapon sounds, because
+an actor does not hit anything. To play a weapon sound or a voice, use
+[`actor:PlaySound`](#actorplaysoundsoundkitid). This is a ClassicAPI
+extension.
+
+```lua
+scene:SetGroundTerrain(5) -- grass
+wolf:SetPlayAnimationSounds(true)
+wolf:SetAnimation(5)      -- run
+```
+
+### `actor:SetShadowShown(shown)` / `actor:IsShadowShown()`
+
+Shows or hides a blob shadow under the model. It is the same dark blob that
+units have on the ground in the world. The default is off.
+
+- In a scene with a WMO
+  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)),
+  the shadow lies on the floor of the WMO under the actor, as on the ground
+  in the world. It follows slopes and steps, and it fades with the height of
+  the actor above the floor. An actor with no floor of the WMO under it shows
+  no shadow.
+- In a scene with no WMO, the shadow lies flat on the plane of the actor's
+  position, below its feet.
+- The size of the shadow comes from the bounds of the model and from the
+  scale of the actor. The shadow turns with the yaw of the actor.
+- The shadow darkens what is behind it. It fades with the alpha of the
+  actor.
+- The model draws over its shadow, and over the shadows of the other
+  actors.
+- The shadow shows only while the `shadowLOD` cvar is `1`, as in the world.
+  This is the default value.
+- A hidden actor shows no shadow. An actor that hangs on another actor (a
+  seated rider, or an actor of `AttachToActor`) shows no shadow of its own.
+
+This is a ClassicAPI extension.
+
+### `actor:SetHighlight(kind, highlighted)` / `actor:IsHighlighted([kind])`
+
+Makes the model glow, as a unit in the world glows when it is your target or
+when it is under the cursor. `kind` is `"target"` or `"mouseover"`. The two
+kinds are separate: the actor glows while one or both are on. Both are off
+by default.
+
+- The colour of the glow is the ambient colour of the scene light at the
+  time that a kind goes on. A later change to the light does not change a
+  glow that is on.
+- The glow stays when the actor gets a new model.
+
+`IsHighlighted(kind)` returns `true` when that kind is on. With no `kind`,
+it returns `true` when one of the two is on. This is a ClassicAPI extension.
+
+```lua
+scene:SetScript("OnActorEnter", function(self, actor)
+    actor:SetHighlight("mouseover", true)
+end)
+scene:SetScript("OnActorLeave", function(self, actor)
+    actor:SetHighlight("mouseover", false)
+end)
+```
+
+### `actor:SetSelectionCircle(r, g, b [, a])` / `actor:ClearSelectionCircle()` / `actor:GetSelectionCircle()`
+
+Shows a selection circle under the feet of the actor. It is the same circle
+that the world shows under your target. The colour values are from 0 to 1,
+and `a` is 1 by default. An actor has no circle by default.
+
+- In a scene with a WMO, the circle lies on the floor of the WMO under the
+  actor. In a scene with no WMO, it lies flat at the height of the actor's
+  position.
+- The size of the circle comes from the bounds of the model and from the
+  scale of the actor, as for a unit in the world.
+- The circle adds its colour to what is behind it, so `a` sets how bright
+  it is. A dark colour shows less than a bright colour.
+- The shadow of the actor draws over its circle, as in the world.
+- The circle shows only while the `ObjectSelectionCircle` cvar is `1`, as in
+  the world. This is the default value.
+- A hidden actor, an actor with no model, and an actor that hangs on another
+  actor show no circle.
+
+`GetSelectionCircle` returns `r, g, b, a`, or nothing when the actor has no
+circle. This is a ClassicAPI extension.
+
+```lua
+-- A left click targets the actor under the cursor.
+local target
+scene:HookScript("OnMouseUp", function(self, button)
+    if button ~= "LeftButton" then
+        return
+    end
+    if target then
+        target:SetHighlight("target", false)
+        target:ClearSelectionCircle()
+    end
+    target = self:GetActorAtCursor()
+    if target then
+        target:SetHighlight("target", true)
+        target:SetSelectionCircle(1, 0, 0)
+    end
+end)
+```
+
+```lua
+mount:SetShadowShown(true)
+```
+
+### `actor:SetGroundReticle(radius [, valid])` / `actor:ClearGroundReticle()` / `actor:GetGroundReticle()`
+
+Shows the ground-target reticle at the position of the actor. It is the
+same circle that the world shows when you aim a spell such as Blizzard at
+the ground. `radius` is the radius in yards, and 0 gives a reticle of 1.39
+yards. With `valid` set to `false`, it shows the reticle that the world
+shows out of range. `valid` is `true` by default. An actor has no reticle
+by default.
+
+- In a scene with a WMO, the reticle lies on the floor of the WMO, up to 2
+  yards above or below the position of the actor. In a scene with no WMO,
+  it lies flat at the height of the actor's position.
+- An actor with no model shows its reticle too, so an empty actor can mark
+  a point on the ground.
+- A hidden actor shows no reticle.
+- At the login and character screens, no reticle shows.
+
+`GetGroundReticle` returns `radius, valid`, or nothing when the actor has no
+reticle. This is a ClassicAPI extension.
+
+```lua
+-- Marks where a storm lands, then shows the storm.
+marker:SetPosition(x, y, z)
+marker:SetGroundReticle(6)
+marker:Show()
+scene:After(0.6, function()
+    marker:ClearGroundReticle()
+    storm:SetPosition(x, y, z)
+    storm:SetModelBySpellArea(10, 6)
+end)
+```
+
+### `actor:SetNameText(text [, r, g, b])` / `actor:ClearNameText()` / `actor:GetNameText()`
+
+Shows a name over the head of the actor. It looks the same as the name of a
+unit in the world: the same font, at the same point over the head. The
+colour values are from 0 to 1, and the colour is white by default. An actor
+has no name by default.
+
+- The name sits at the point that
+  [`actor:GetNamePosition`](#actorgetnameposition) returns, and turns to
+  face the camera.
+- The name is larger over a tall model, as in the world.
+- A new line (`\n`) in the text starts a second line, as the guild line of
+  a player. The name moves up for each line that you add.
+- The name shows and hides with the model.
+- An empty text removes the name, as `ClearNameText` does.
+- A call with the same text and a new colour changes only the colour.
+- The names show only in the world. At the login and character screens the
+  actors show no name.
+
+`GetNameText` returns `text, r, g, b`, or nothing when the actor has no
+name. This is a ClassicAPI extension.
+
+```lua
+local onyxia = scene:AcquireActor()
+onyxia:SetModelByCreatureDisplayID(8570)
+onyxia:SetNameText("Onyxia", 1, 0, 0)
+
+local player = scene:AcquireActor()
+player:SetModelByUnit("player")
+player:SetNameText(UnitName("player"))
+```
+
+### `actor:GetNamePosition()`
+
+Returns the point over the head of the actor where a unit's name sits, in
+scene coordinates: `x, y, z`. The world uses the same rules:
+
+- The name point of the model, when the model has one.
+- For a rider on a mount (`AttachToMount`), the rider name point of the
+  mount.
+- Else, a point over the feet that is 1.25 times the height of the model.
+
+The point moves with the animation of the model. The function returns
+nothing until the model has loaded. This is a ClassicAPI extension.
+
+To put a frame over the head, for example a health bar, give the point to
+[`scene:Project3DPointTo2D`](#sceneproject3dpointto2dx-y-z). Its
+result is in the frame's units multiplied by its effective scale, so divide
+it by the scale first.
+
+```lua
+-- A health bar follows the actor's head. The scene runs the script, so
+-- the bar can hide itself.
+scene:HookScript("OnUpdate", function()
+    local x, y, z = actor:GetNamePosition()
+    if not x then
+        bar:Hide()
+        return
+    end
+    local sx, sy = scene:Project3DPointTo2D(x, y, z)
+    local scale = scene:GetEffectiveScale()
+    bar:ClearAllPoints()
+    bar:SetPoint("BOTTOM", scene, "BOTTOMLEFT", sx / scale, sy / scale + 12)
+    bar:Show()
+end)
+```
+
+### `actor:PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])`
+
+Plays the visual of a spell that this actor casts at `target`, and returns
+a cast ID. `target` is another actor of the same scene. Without a target, the
+spell is cast on this actor.
+
+`target` can also be a table of actors, for a spell that hits several
+targets at once, such as a volley. That is one cast: the preparation, the
+cast animation and their sounds play one time, and each target gets its own
+missile (or, for a spell without a missile, its own impact). The script
+`OnSpellVisualImpact` runs one time for each target, with the same cast ID.
+Actors of other scenes in the table are skipped.
+
+The visual plays in these steps, as it does in the world:
+
+1. The preparation: the effects and the animation of the preparation
+   repeat, and its sound plays. This step lasts `castTimeMs` milliseconds. Without `castTimeMs`,
+   it lasts the cast time of the spell. An instant spell has no
+   preparation.
+2. The cast: the actor does the cast animation, with its effects and its
+   sound.
+3. The missile, for a spell that has one: it leaves the hand during the
+   cast animation and flies to the target at the speed of the spell, with
+   its flight sound. It follows the target if the target moves.
+4. The impact: the target flinches when a missile hits it. Then the impact
+   effects, animation and sound play on the target.
+5. The channel, for a channeled spell such as Drain Life, Mind Flay or
+   Hellfire: after the cast, the channel effects of the spell stay on the
+   actor and its channel animation repeats. A beam goes from the hand of
+   the actor to the target and follows them, for example the green beam of
+   Drain Life. The channel lasts `channelTimeMs` milliseconds. Without
+   `channelTimeMs`, it lasts the duration of the spell. A spell that lasts
+   until it is cancelled channels until `StopSpellVisual`.
+
+When the spell reaches its target, the `OnSpellVisualImpact` script of
+this actor runs with `(self, spellID, target, castID)`. `target` is the
+actor that the spell hit. For a spell cast on itself, `target` is this
+actor. `castID` is the value that `PlaySpellVisual` returned, so you can
+find the cast when several casts are on their way. The script runs when the
+missile arrives. For a spell without a missile, it runs at the cast, during
+the next update of the actor. An interrupted spell does not reach its
+target, so the script does not run for it. Use this script to apply the
+result of the spell at the moment that the impact shows.
+
+You hear the sounds from the camera of the scene (see
+[Scene sounds](#scene-sounds)). The sounds of the caster play at the
+caster, the sounds of the impact play at the target, and the flight sound
+moves with the missile. While the scene or the caster is paused, the flight
+sound stops. It starts again when the pause ends.
+
+Some spells shake the camera of the scene, as they shake the camera in the
+world. For example, Thunder Clap and War Stomp shake it when they are cast,
+and Knockdown shakes it at the impact. The camera moves, but it does not
+turn. A shake is strongest within 9 yards of the camera, weaker farther
+away, and gone past 80 yards. While the scene is paused, its shakes stop.
+The auras of `AddAuraVisual`, the kits of `SetSpellVisualKit` and
+`ApplySpellVisualKit`, and the ground areas of `SetModelBySpellArea` shake
+the camera in the same way.
+
+A spell with a chain effect, for example Chain Lightning, also shows a bolt
+of lightning at the cast. The bolt goes from the hand of the caster to the
+target, and it follows the two actors when they move. It lasts as long as
+the effect of the spell gives, 1 second for Chain Lightning. When the caster
+or the target is hidden, the bolt does not show. The bolt goes to the one
+target only. For a chain that jumps from target to target, play the spell
+again from each target.
+
+A ranged spell (for example Auto Shot, Aimed Shot or Throw) uses the ranged
+weapon of the actor, as in the world. Put the weapon on with `actor:TryOn`:
+a bow, a gun, a crossbow, a wand or a thrown weapon goes into the ranged
+slot.
+
+- The weapon gives the parts of the visual that the spell does not have,
+  for example the draw, the shot animation and the flight sound. Auto Shot
+  has no visual of its own, so all of its visual comes from the weapon.
+- When the spell has no missile model, the missile is the ammo of the actor
+  (`actor:TryOn` of arrows or bullets). Without ammo, a bow or a crossbow
+  shoots a plain arrow, and a gun shoots a bullet. A thrown weapon throws
+  itself.
+- A bullet does not show in flight, as in the world.
+- A spell with its own missile, for example Aimed Shot, keeps its missile.
+- When the spell starts, the melee weapons of the actor go to their
+  sheaths and the ranged weapon comes into a hand: a bow or a crossbow into
+  the left hand, a gun, a wand or a thrown weapon into the right hand. The
+  weapons stay so until the next `actor:SetSheathed`. Before the first
+  ranged spell, the ranged weapon does not show.
+- While the spell prepares, the actor holds an arrow in its hand. When the
+  animation of the actor draws the bow, the bow pulls and the arrow goes on
+  the string. When the actor shoots, the bow releases. A gun or a crossbow
+  keeps the ammo off the string.
+- A bow has a string. The string pulls back to the hand with the arrow,
+  and it is straight again when the bow releases.
+- An instant shot plays only the shot animation, so the bow does not draw.
+- An arrow or a thrown weapon that hits stays in the target for 5 seconds,
+  at the point that it flew to. A bullet does not stay.
+- An actor that plays a death animation shows no animation of a spell over
+  it, for example a wound from a missile that arrives late.
+
+A second call ends a preparation that has not finished. Missiles that are
+in flight go on, and so do channels: use `StopSpellVisual` to end a
+channel. A paused actor (`actor:SetPaused`) holds its spells where
+they are. It returns `nil` when the spell has no visual, when this actor
+shows no model, or when the target is in another scene. A ranged spell
+without a visual of its own also needs a ranged weapon. This is a ClassicAPI
+extension, and so is `OnSpellVisualImpact`.
+
+```lua
+mage:PlaySpellVisual(133, dragon) -- Fireball
+priest:PlaySpellVisual(2061)      -- Flash Heal on itself
+hunter:PlaySpellVisual(75, dragon) -- Auto Shot, with the bow and arrows of the actor
+
+local damage = {}
+mage:SetScript("OnSpellVisualImpact", function(self, spellID, target, castID)
+    print("hit for", damage[castID])
+    damage[castID] = nil
+end)
+local castID = mage:PlaySpellVisual(133, dragon)
+if castID then
+    damage[castID] = 40
+end
+```
+
+### `actor:PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])`
+
+Plays the visual of a spell that this actor casts at a point on the ground,
+and returns a cast ID. `x`, `y` and `z` are the point, in the coordinates of
+the scene. The preparation, the cast and the channel are the same as for
+[`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems).
+The ground point changes these steps:
+
+- A spell without a missile, for example Inferno, shows its ground effect at
+  the point when it is cast. The effect turns with the facing of this actor
+  and grows with its scale. It plays one time, then it goes, and its
+  particles go when their time ends. The sounds of the effect play at the
+  point.
+- A spell with a missile flies the missile to the point. The impact effect
+  of the spell stays at the point until its particles go.
+- No actor is hit, so no impact animation plays.
+
+The `OnSpellVisualImpact` script of this actor runs with `nil` as the
+target: at the cast for a spell without a missile, or when the missile
+arrives. `StopSpellVisual` stops these casts as it stops the others. It
+returns `nil` when the spell has no visual or this actor shows no model.
+This is a ClassicAPI extension.
+
+```lua
+-- Inferno: the meteor falls where the dragon stands.
+local x, y, z = dragon:GetPosition()
+warlock:PlaySpellVisualAtPoint(1122, x, y, z)
+```
+
+### `actor:StopSpellVisual([castID])`
+
+Interrupts the spells that this actor still prepares with
+[`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems),
+and ends its channels: their effects, animation and beams stop. With
+`castID` (a value that `PlaySpellVisual` returned), it stops only that
+cast.
+The effects, the color and the animation of the preparation stop. A drawn
+bow comes down, and the arrow leaves the hand. A spell that is already cast
+goes on, and its missile flies to the target. Use it when an actor dies or
+stops in the middle of a cast. This is a ClassicAPI extension.
+
+```lua
+boss:StopSpellVisual()
+boss:SetAnimation(1) -- death
+```
+
+### `actor:AddAuraVisual(spellID)`
+
+Shows the aura of a spell on this actor, as a unit in the world shows an
+aura that it carries. It returns `true`, or `false` when the spell has no
+aura visual. The effects of the aura stay on the actor until
+`RemoveAuraVisual`. For example, the orbs of Lightning Shield circle the
+actor. Some auras also leave an effect on the ground where the actor
+stands. The ground effect of a spell that roots, for example the ice of
+Frost Nova, moves with the actor. Some auras also change the color of the
+actor. The sound of the aura plays when it shows, from the actor. A few
+auras repeat their sound until they end. A sound that does not play twice
+at once in the world, for example the crack of Frost Nova's ice, plays one
+time when many actors get the aura together.
+
+Some auras also have an animation, for example the stun of a stun aura.
+While the actor does not move, it plays the animation of its newest aura
+with one, in place of its own animation, and a death replaces it. When the
+actor moves, it plays its own animation again. After the aura ends, the
+animation finishes its cycle, then the actor's own animation plays.
+
+An actor shows any number of auras at the same time, and they show next to
+the kit of `SetSpellVisualKit`. A spell shows one time: when you add the
+same spell again, nothing changes. The auras stay when the actor gets a new
+model, and they show again when the new model has loaded. `ClearModel`
+removes them. This is a ClassicAPI extension.
+
+```lua
+hero:AddAuraVisual(324)  -- Lightning Shield
+hero:AddAuraVisual(17)   -- Power Word: Shield, at the same time
+```
+
+### `actor:RemoveAuraVisual([spellID])`
+
+Removes the aura of a spell from this actor. Without `spellID`, it removes
+every aura. The effects end as they do in the world: some fade out, the
+others stop, and their particles go when their time ends. The color that
+the aura gave goes too. This is a ClassicAPI extension.
+
+```lua
+hero:RemoveAuraVisual(324)
+```
+
+### `actor:PlayLevelUpEffect()`
+
+Plays the glow that the world shows on a unit that gains a level. The glow
+rises from the feet of the actor one time, with the level-up sound. The
+model of the actor must be loaded. When you call the function again before
+the glow ends, a second glow plays over the first. This is a ClassicAPI
+extension.
+
+```lua
+hero:PlayLevelUpEffect()
+```
+
+### `actor:PlaySound(soundKitID)`
+
+Plays a sound one time at the position of the actor. `soundKitID` is a row
+of `SoundEntries.dbc`, as for `PlaySound`. You hear the sound from the
+camera of the scene (see [Scene sounds](#scene-sounds)). Use it for the
+sounds that come from combat in the world, for example voices and weapon
+swings.
+
+The function returns `willPlay, soundHandle`, as `PlaySound` does.
+`willPlay` is `false` when the sound does not play. This also occurs when
+the actor is farther from the camera than the range of the sound.
+`StopSound(soundHandle)` stops the sound. The sound stays at the position
+where it started. It does not move with the actor. This is a ClassicAPI
+extension.
+
+```lua
+warrior:PlaySound(2941) -- the attack voice of a human male
+```
+
+### `actor:SetMovementEnabled(enabled)` / `actor:IsMovementEnabled()`
+
+Sets whether the actor moves as a character moves in the world. The default
+is off. The actor moves on the WMO of the scene
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)):
+
+- It walks and runs on the floors, and it steps up and down small ledges.
+- It slides along walls and props.
+- It falls where the floor ends, and it jumps.
+- It swims in the liquids of the WMO.
+
+The actor moves at the speeds of a character: it runs 7 yards a second,
+walks 2.5, backs up 4.5, swims 4.72 and swims backward 2.5. It turns half a
+circle each second. To change these speeds, use
+[`actor:SetMovementSpeed`](#actorsetmovementspeedspeedtype-speed--actorgetmovementspeedspeedtype).
+The size of its body comes from the model data of its
+creature display, at the scale of the actor. An actor with no creature
+display has a body 2/3 yard wide and 2.03 yards tall.
+
+When you turn the movement on, and when you call `actor:SetPosition` while
+it is on, the actor falls to the floor below its position. While the
+movement is on, the position, the yaw and the pitch of the actor follow the
+movement:
+
+- `actor:GetPosition` and `actor:GetYaw` give the position and the facing
+  that the movement gives.
+- `actor:SetYaw` turns the actor at once.
+- The actor tilts up or down only while it swims forward or backward.
+- The body of the model turns toward the side that the actor strafes to.
+  When the actor stands, its shoulders and its head turn first, and its
+  body follows after a quarter turn.
+
+While the movement is on, the actor also plays the movement animations of a
+character. It walks, runs, backs up, shuffles when it turns in place,
+swims, jumps, falls and lands as a character does. Its move animations play
+at the speed that it moves. An animation that you set with
+`actor:SetAnimation` plays until it ends or until the movement changes.
+Then the actor plays its movement animation again. An actor that plays a
+death animation keeps it. When Death (1) ends, the actor lies Dead (6), and
+when Drown (131) ends, it lies Drowned (132), as a dead unit does in the
+world.
+
+Without a loaded WMO, the actor does not move. While a part of the WMO in
+the way loads, the actor waits. This is a ClassicAPI extension.
+
+```lua
+hero:SetPosition(x, y, z)
+hero:SetMovementEnabled(true) -- the hero falls to the floor below
+hero:StartMovingForward()
+```
+
+### Movement commands
+
+These actor methods control an actor while
+[`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)
+is on. Each one returns `applied`, which is `false` when the actor refused
+the command or keeps it until it lands. Without the movement, the methods
+do nothing and return nothing.
+
+| Method | Effect |
+|---|---|
+| `StartMovingForward()` | Starts the actor moving forward. It runs, or it walks while `SetWalking` is on. |
+| `StartMovingBackward()` | Starts the actor walking backward. |
+| `StopMoving()` | Stops the actor moving forward or backward. |
+| `StartStrafingLeft()` / `StartStrafingRight()` | Starts the actor moving to its left or to its right. |
+| `StopStrafing()` | Stops the actor moving to the side. |
+| `StartTurningLeft()` / `StartTurningRight()` | Starts the actor turning to its left or to its right. |
+| `StopTurning()` | Stops the actor turning. |
+| `Jump()` | Makes the actor jump. `false` when the actor is already in the air. |
+| `StartPitchingUp()` / `StartPitchingDown()` | Starts the actor turning its swim up or down. `false` when the actor does not swim. |
+| `StopPitching()` | Stops the actor turning its swim up or down. The actor keeps the angle that it reached. `false` when it did not turn up or down. |
+
+A moving actor goes on until you stop it. In the air, the actor keeps the
+way that it jumped or fell. A command to move or to stop takes effect when
+the actor lands. Each command ends a move of
+[`actor:MoveTo`](#actormovetox-y-z--facing).
+
+```lua
+hero:StartMovingForward()
+hero:StartTurningLeft() -- the hero runs in a circle
+hero:Jump()
+```
+
+### `actor:IsFalling()`
+
+Returns `falling, verticalSpeed`. `falling` is `true` while the actor is in
+the air: when it jumps and when it falls. `verticalSpeed` is the speed in
+yards a second, up positive. It is there only while the actor is in the
+air. Without the movement, the function returns `false`. This is a
+ClassicAPI extension.
+
+### `actor:IsSwimming()`
+
+Returns whether the actor swims. An actor swims when the liquid over its
+feet is deeper than three quarters of its height. It stays level in the
+water unless it swims up or down. It stops swimming when it leaves the
+water or rises near the surface. This is a ClassicAPI extension.
+
+### `actor:MoveTo(x, y, z [, facing])`
+
+Moves the actor to a point of the scene along the ground, as the server
+moves a creature in the world. The movement of the actor must be on
+([`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)).
+
+- The actor goes in a straight line to the point, at its own speed. It
+  runs, or it walks while `SetWalking` is on. In the water it swims.
+- It follows the floor, and it falls where the floor ends.
+- A wall does not stop the move. When the actor is 3 yards or more from
+  its position on the line, it goes to that position at once.
+- When the actor arrives, it stops. If you give `facing`, the actor turns
+  to that yaw.
+- Then the `OnMoveFinished` script of the actor runs, with `(self)`.
+
+When the point is 1/6 yard away or less, the actor stops where it stands.
+Then `OnMoveFinished` runs at the next update of the actor.
+
+Another `MoveTo`, a [movement command](#movement-commands),
+`actor:SetWalking`, `actor:SetPosition` and `actor:SetYaw` end the move.
+Then `OnMoveFinished` does not run for it. This is a ClassicAPI extension,
+and so is `OnMoveFinished`.
+
+```lua
+-- A guard that walks between two points.
+local route = { {10, 0, 0}, {-10, 0, 0} }
+local leg = 1
+guard:SetWalking(true)
+guard:SetScript("OnMoveFinished", function(self)
+    leg = 3 - leg
+    self:MoveTo(unpack(route[leg]))
+end)
+guard:MoveTo(unpack(route[leg]))
+```
+
+### `actor:KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)`
+
+Throws the actor away from the point (`fromX`, `fromY`), as a knockback
+spell throws a character in the world. The movement of the actor must be on
+([`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)).
+Returns `true`, or `false` while the movement is off.
+
+- The actor flies away from the point at `horizontalSpeed` yards a second
+  along the ground. A negative `horizontalSpeed` pulls it toward the point.
+- It goes up at `verticalSpeed` yards a second at the start. Then it falls
+  as a jump falls.
+- When the actor stands on the point, it flies backward from the way that
+  it faces.
+- The direction does not change in the air. When the actor lands, it stops.
+- Walls and props block the flight, as they block any movement.
+- The actor plays its fall animation. When it lands, it plays its landing
+  animation. An actor that plays a death animation keeps it, so a dead
+  actor flies in its death pose.
+- A swimming actor stops swimming.
+
+`KnockBack` ends a move of
+[`actor:MoveTo`](#actormovetox-y-z--facing). Then `OnMoveFinished` does not
+run for it. It also stops the spells that the actor prepares, as
+[`actor:StopSpellVisual`](#actorstopspellvisualcastid) does. A
+[movement command](#movement-commands) that you give in the air takes effect
+when the actor lands, as after a jump. Give a new `MoveTo` only after the
+actor lands, when [`actor:IsFalling`](#actorisfalling) returns `false`. This
+is a ClassicAPI extension.
+
+```lua
+-- An explosion at (x, y) throws the actors near it.
+for _, actor in ipairs(nearby) do
+    actor:KnockBack(x, y, 12, 8)
+end
+```
+
+### `actor:SetWalking(walking)` / `actor:IsWalking()`
+
+Sets whether the actor walks instead of running, when it moves forward and
+when it moves with `actor:MoveTo`. The default is off. A change while the
+actor moves changes its speed and its animation. In the air, the speed
+changes when the actor lands. `SetWalking` ends a move of `actor:MoveTo`. This is a ClassicAPI extension.
+
+### `actor:SetMovementSpeed(speedType, speed)` / `actor:GetMovementSpeed(speedType)`
+
+Sets one of the speeds of the actor, as the server changes the speed of a
+creature in the world. `speedType` is one of these:
+
+| `speedType` | The speed | Default |
+|---|---|---|
+| `"walk"` | Walking, in yards a second | 2.5 |
+| `"run"` | Running, in yards a second | 7 |
+| `"runBack"` | Moving backward, in yards a second | 4.5 |
+| `"swim"` | Swimming, in yards a second | 4.72 |
+| `"swimBack"` | Swimming backward, in yards a second | 2.5 |
+| `"turn"` | Turning, in radians a second | 3.14 |
+
+`speed` must be more than 0.
+
+- When the actor moves, it changes to the new speed at once. Its movement
+  animation and the speed of the animation change with it.
+- A move of `actor:MoveTo` keeps the speed that it started with. The next
+  `MoveTo` uses the new speed.
+- The speeds apply only while the movement of the actor is on
+  ([`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)).
+  While it is off, `SetMovementSpeed` does nothing. When you turn the
+  movement off, the speeds go back to the defaults.
+
+`GetMovementSpeed` returns the speed, or nothing while the movement is off.
+This is a ClassicAPI extension.
+
+```lua
+whelp:SetMovementEnabled(true)
+whelp:SetMovementSpeed("run", 4.4) -- slower than a character
+whelp:MoveTo(x, y, z)
+```
+
+### `actor:GetCameraPivotHeight(distance)`
+
+Returns the height above the feet of the actor that the camera of the
+world looks at for a character like this actor. `distance` is the
+distance from the camera to the actor, in yards. The
+[follow camera](#follow-camera) uses this height.
+
+The height comes from the model and the scale of the actor:
+
+- It is the height of the mouth of the model, plus 7/72 yard. A model
+  without a mouth gives 0.9 of the height of its collision box.
+- When `distance` is less than 1.8315 yards, the height is lower while the
+  actor plays one of these animations: 97 (SitGround), 100 (Sleep), 102,
+  103 and 104 (on a chair), 6 (Dead) and 115 (KneelLoop). When the CVar
+  `cameraHeightIgnoreStandState` is on, these animations do not change
+  the height.
+- While the actor swims, the height is lower when the swim animation of
+  the model is lower than its stand animation.
+- The height is always from 5/6 to 15 yards.
+
+The function returns nothing until the model has loaded. This is a
+ClassicAPI extension.
+
+### Actor scripts
+
+Set them with `actor:SetScript`, `actor:HookScript` or the `<Scripts>`
+element of an `<Actor>` template. `actor:GetScript` and `actor:HasScript`
+work as they do on frames.
+
+| Script | Runs |
+|---|---|
+| `OnLoad` | After `CreateActor` has applied the template. |
+| `OnUpdate(self, elapsed)` | Each frame while the scene shows. |
+| `OnModelLoading` | When the actor gets a new model. |
+| `OnModelLoaded` | When the model and its clothes have loaded. |
+| `OnModelCleared` | When the actor loses its model. |
+| `OnAnimFinished` | Each time the animation ends. |
+| `OnSpellVisualImpact(self, spellID, target, castID)` | When a spell of `actor:PlaySpellVisual` reaches its target. |
+| `OnMoveFinished` | When the actor arrives at the point of `actor:MoveTo`. |
+
+An actor also has `GetObjectType()` (`"ModelSceneActor"`),
+`IsObjectType(type)`, `GetName()` and `GetParent()` (the scene).
+
+### `<Actor>` templates
+
+A virtual `<Actor>` element is a template for `CreateActor`:
+
+```xml
+<Actor name="MyHorseActorTemplate" mixin="MyHorseMixin" virtual="true" scale="1.5">
+    <Scripts>
+        <OnLoad method="OnLoad"/>
+        <OnModelLoaded method="OnModelLoaded"/>
+    </Scripts>
+</Actor>
+```
+
+It takes `inherits`, `mixin`, `parentKey`, `parentArray`, `alpha`, `scale`
+and `file` (a model path), and the `<Scripts>` and `<KeyValues>` children.
+`parentKey` and `parentArray` put the actor on the scene.
+
+### `C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`
+
+Returns four values for a model scene: `modelSceneType`, a table of the
+camera IDs, a table of the actor IDs, and `flags`. Model scenes `4` (mounts),
+`44` (the Qiraji battle tanks) and `596` are available. For other IDs, the
+function returns nothing.
+
+### `C_ModelInfo.GetModelSceneCameraInfoByID(modelSceneCameraID)`
+
+Returns a table with the settings of a scene camera: `modelSceneCameraID`,
+`scriptTag`, `cameraType` (`"OrbitCamera"`), `target`, `yaw`, `pitch`,
+`roll`, `zoomDistance`, `minZoomDistance`, `maxZoomDistance`,
+`zoomedTargetOffset`, `zoomedYawOffset`, `zoomedPitchOffset`,
+`zoomedRollOffset` and `flags`. `target` and `zoomedTargetOffset` are
+`Vector3DMixin` objects.
+
+### `C_ModelInfo.GetModelSceneActorInfoByID(modelActorID)`
+
+Returns a table with the settings of a scene actor: `modelActorID`,
+`scriptTag`, `position` (a `Vector3DMixin` object), `yaw`, `pitch`, `roll`,
+`normalizeScaleAggressiveness`, `useCenterForOriginX`,
+`useCenterForOriginY`, `useCenterForOriginZ` and `modelActorDisplayID`.
+
+### `C_ModelInfo.GetModelSceneActorDisplayInfoByID(modelActorDisplayID)`
+
+Returns a table with the animation, alpha and scale that a scene actor
+starts with: `animation`, `animationVariation`, `animSpeed`,
+`animationKitID`, `spellVisualKitID`, `alpha` and `scale`.
 
 ## Mount
 
@@ -18980,6 +21045,19 @@ C_MountJournal.GetMountFromSpell(133)   -- nil (Fireball)
 On Turtle WoW, a mount item does not have its mount spell. Each mount item
 has the spell "Add Mount to Collection" (46499), and this spell is not a
 mount. Only the mount spell in the spellbook gives a mount ID.
+
+### `C_MountJournal.GetMountFromItem(itemID)`
+
+Returns the mount ID of an item that summons a mount. The mount ID is the
+ID of the item's use spell. For an item that does not summon a mount, the
+function returns `nil`.
+
+`itemID` can be an item ID or an item link. When the game does not have
+the data for the item yet, the function returns `nil` and requests the
+data. Call the function again after the item data has arrived.
+
+On Turtle WoW, a mount item has the spell "Add Mount to Collection" (46499)
+in place of its mount spell. So the function returns `nil` for it.
 
 ### `C_MountJournal.GetMountInfoExtraByID(mountID)`
 

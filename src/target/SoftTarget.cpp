@@ -252,7 +252,7 @@ bool Begin(Area &area, CVar::Factory::Handle arc, CVar::Factory::Handle range,
         return false;
     area.arc = CVar::Factory::GetInt(arc);
     area.coneHalf = Game::Read<float>(Offsets::VAR_TARGETING_PI) *
-                    Game::Read<float>(Offsets::VAR_TARGETING_ONE_SIXTH);
+                    Game::Read<float>(Offsets::VAR_ONE_SIXTH);
     float r = CVar::Factory::GetFloat(range, defaultRange);
     if (CVar::Factory::Handle tabRange =
             Game::Read<void *>(Offsets::VAR_CVAR_TARGET_NEAREST_DISTANCE)) {

@@ -46,6 +46,7 @@
 #include "baselib/Ascii.h"
 #include "frame/ClickEvents.h"
 #include "input/Modifier.h"
+#include "storm/Memory.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -219,8 +220,7 @@ void LoadModifiedClicks(const char *path, void *status) {
         return;
     void *tree = reinterpret_cast<TreeLoad_t>(Offsets::FUN_XML_TREE_LOAD)(
         static_cast<const char *>(data), static_cast<uint32_t>(size));
-    reinterpret_cast<AddOns::EngineIO::SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE)(data, __FILE__,
-                                                                                 __LINE__, 0);
+    Storm::Free(data, __FILE__, __LINE__);
     if (tree == nullptr)
         return; // the engine loader reports the parse error
     const void *root = Game::Read<const void *>(tree, 0);

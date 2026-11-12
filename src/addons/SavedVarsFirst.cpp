@@ -48,6 +48,7 @@
 #include "addons/EngineIO.h"
 #include "addons/Toc.h"
 #include "script/LoadFile.h"
+#include "storm/Memory.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -66,7 +67,6 @@ constexpr size_t NPOS = static_cast<size_t>(-1);
 // FlavorToc applies), the exists-check, and the Storm free. See addons/EngineIO.h.
 using AddOns::EngineIO::FileExistsFn;
 using AddOns::EngineIO::FileReadFn;
-using AddOns::EngineIO::SMemFreeFn;
 using LoadTocFilesFn = uint32_t(__fastcall *)(char *tocPath, int *a2, int *a3);
 using NameFn = const char *(*)(); // no-arg readers (return in EAX)
 
@@ -160,8 +160,7 @@ SvFlags ReadSvFlags(const char *tocPath) {
     f.perChar =
         AddOns::Toc::FindValue(b, size, "SavedVariablesPerCharacter", &v, &n) && n > 0;
 
-    reinterpret_cast<SMemFreeFn>(static_cast<uintptr_t>(Offsets::FUN_STORM_SMEM_FREE))(
-        buf, __FILE__, __LINE__, 0);
+    Storm::Free(buf, __FILE__, __LINE__);
     return f;
 }
 

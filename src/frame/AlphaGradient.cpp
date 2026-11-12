@@ -54,6 +54,8 @@
 #include "Offsets.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
+#include "frame/Layout.h"
+#include "gx/Device.h"
 #include "texture/Load.h"
 
 #include <cstdint>
@@ -63,19 +65,8 @@ namespace Frame::AlphaGradient {
 
 namespace {
 
-using Matrix_t = void(__fastcall *)(float *m);
 using SetProjection_t = void(__fastcall *)(const float *m);
-using GetViewport_t = void(__fastcall *)(float *minX, float *maxX, float *minY, float *maxY, float *minZ,
-                                         float *maxZ);
 using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
-using Convert_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
-using GetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
-using GetRenderable_t = void *(__fastcall *)(void *hTex, int force, void *);
-using RsSet_t = void(__fastcall *)(int selector, int value);
-using RsSetPtr_t = void(__fastcall *)(int selector, const void *value);
-using StateOp_t = void(__fastcall *)();
-using TexMtxLoad_t = void(__fastcall *)(int unit, const float *m);
-using TexMtxOp_t = void(__fastcall *)(int unit);
 using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 
 // A rect: {bottom, left, top, right}.
@@ -135,7 +126,7 @@ void *RampTexture() {
     if (g_ramp == nullptr)
         g_ramp = Texture::CreateFromPixels("ClassicAPI\\AlphaGradient", 2, 2, kRampTexels, Texture::DefaultFlags());
     return g_ramp != nullptr
-               ? reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(g_ramp, 1, nullptr)
+               ? Texture::DeviceTexture(g_ramp)
                : nullptr;
 }
 
@@ -155,13 +146,12 @@ void RampColumn(const Stage &s, int axis, float vMin, float vMax, float col[4]) 
 }
 
 void Load(const Stage &s) {
-    float p[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    reinterpret_cast<Matrix_t>(Offsets::FUN_GX_GET_PROJECTION)(p);
-    float minX, maxX, minY, maxY, minZ, maxZ;
-    reinterpret_cast<GetViewport_t>(Offsets::FUN_GX_GET_VIEWPORT)(&minX, &maxX, &minY, &maxY, &minZ, &maxZ);
+    Gx::Matrix p;
+    Gx::GetProjection(p);
+    const Gx::Viewport vp = Gx::GetViewport();
     float u[4], v[4];
-    RampColumn(s, 0, minX, maxX, u);
-    RampColumn(s, 1, minY, maxY, v);
+    RampColumn(s, 0, vp.minX, vp.maxX, u);
+    RampColumn(s, 1, vp.minY, vp.maxY, v);
     float m[16];
     for (int r = 0; r < 4; ++r) {
         const float *row = p + r * 4;
@@ -170,7 +160,7 @@ void Load(const Stage &s) {
         m[r * 4 + 2] = row[3];
         m[r * 4 + 3] = 0.0f;
     }
-    reinterpret_cast<TexMtxLoad_t>(Offsets::FUN_GX_TEXMTX_LOAD)(s.unit, m);
+    Gx::SetTransform(s.unit, m);
 }
 
 // Appends the stages of `frame`'s gradient at g_stages[g_count + n]. Returns
@@ -180,11 +170,9 @@ int AddStages(const void *frame, int n, int lastUnit) {
     if (it == g_gradients.end())
         return n;
     float rect[4];
-    void *layout = const_cast<uint8_t *>(static_cast<const uint8_t *>(frame) + Offsets::OFF_REGION_ANCHOR);
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, rect) == 0)
+    if (!Frame::Layout::GetRect(frame, rect))
         return n;
     const float scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    const auto toNdc = reinterpret_cast<Convert_t>(Offsets::FUN_COORD_DDC_TO_NDC);
     for (int index = 0; index < 2; ++index) {
         const float lx = it->second.x[index], ly = it->second.y[index];
         if (!(lx > 0.0f) && !(ly > 0.0f))
@@ -198,8 +186,8 @@ int AddStages(const void *frame, int n, int lastUnit) {
         const float dy = Game::PixelToInternal(ly * scale) * (index == 0 ? -1.0f : 1.0f);
         Stage &s = g_stages[g_count + n];
         s.unit = 1 + g_count + n;
-        toNdc(&s.p0[0], &s.p0[1], ex, ey);
-        toNdc(&s.p1[0], &s.p1[1], ex + dx, ey + dy);
+        Frame::Layout::DdcToNdc(&s.p0[0], &s.p0[1], ex, ey);
+        Frame::Layout::DdcToNdc(&s.p1[0], &s.p1[1], ex + dx, ey + dy);
         s.on[0] = lx > 0.0f && s.p1[0] != s.p0[0];
         s.on[1] = ly > 0.0f && s.p1[1] != s.p0[1];
         if (s.on[0] || s.on[1])
@@ -355,16 +343,14 @@ int Begin(const void *frame, bool ancestors) {
     void *ramp = RampTexture();
     if (ramp == nullptr)
         return 0;
-    const auto rs = reinterpret_cast<RsSet_t>(Offsets::FUN_GX_RS_SET);
-    const auto rsPtr = reinterpret_cast<RsSetPtr_t>(Offsets::FUN_GX_RS_SET_PTR);
-    reinterpret_cast<StateOp_t>(Offsets::FUN_GX_STATE_PUSH)();
+    Gx::PushStates();
     for (int i = g_count; i < g_count + n; ++i) {
         const int unit = g_stages[i].unit;
-        rsPtr(Offsets::GXRS_TEXTURE0 + unit, ramp);
-        rs(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
-        rs(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_CAMERA_POS);
-        rs(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_PROJECTED);
-        reinterpret_cast<TexMtxOp_t>(Offsets::FUN_GX_TEXMTX_PUSH)(unit);
+        Gx::SetState(Offsets::GXRS_TEXTURE0 + unit, ramp);
+        Gx::SetState(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
+        Gx::SetState(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_CAMERA_POS);
+        Gx::SetState(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_PROJECTED);
+        Gx::PushTransform(unit);
         Load(g_stages[i]);
     }
     g_count += n;
@@ -375,9 +361,9 @@ void End(int stages) {
     if (stages == 0)
         return;
     for (int i = g_count - 1; i >= g_count - stages; --i)
-        reinterpret_cast<TexMtxOp_t>(Offsets::FUN_GX_TEXMTX_POP)(g_stages[i].unit);
+        Gx::PopTransform(g_stages[i].unit);
     g_count -= stages;
-    reinterpret_cast<StateOp_t>(Offsets::FUN_GX_STATE_POP)();
+    Gx::PopStates();
 }
 
 int StagesInUse() { return g_count; }

@@ -15,12 +15,12 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "texture/Load.h"
 
 namespace Frame::RenderBatch {
 
 namespace {
 
-using GetRenderable_t = void *(__fastcall *)(void *texture, int load, void *callback);
 using ReserveQuads_t = void(__thiscall *)(void *array, uint32_t extra, int round);
 
 struct QuadRecord {
@@ -40,8 +40,7 @@ void QueueStrip(void *batch, void *texture, Blend blend, const C3Vector *positio
                 const C2Vector *texCoords, const uint32_t *color) {
     // Loading on demand, as the texture emit does: a texture still streaming
     // is finished here, so the first rebuild already draws it.
-    void *device = reinterpret_cast<GetRenderable_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(
-        texture, 1, nullptr);
+    void *device = Texture::DeviceTexture(texture);
     if (device == nullptr)
         return;
     reinterpret_cast<ReserveQuads_t>(Offsets::FUN_RENDERBATCH_RESERVE_QUADS)(

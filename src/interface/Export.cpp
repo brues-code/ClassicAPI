@@ -93,6 +93,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "storm/Memory.h"
 
 #include <windows.h>
 
@@ -114,7 +115,6 @@ namespace {
 using FileRead_t = int(__stdcall *)(int unused, const char *path, void **outBuf,
                                     unsigned int *outSize, unsigned int extraBytes,
                                     int flag1, int flag2);
-using SMemFree_t = void(__stdcall *)(void *ptr, const char *file, int line, int flags);
 
 // MPQ enumerator (see Offsets::FUN_MPQ_ENUM_FILES). The callback
 // receives each listfile entry's full path in ecx; returning 0 STOPS
@@ -301,7 +301,6 @@ void ScanPathGetters(Collector &c) {
 int WriteFiles(const std::vector<std::string> &files, size_t prefixLen,
                const char *dstRoot, int *skipped) {
     auto FileRead = reinterpret_cast<FileRead_t>(Offsets::FUN_FILE_READ);
-    auto SMemFree = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
 
     int written = 0;
     int missed = 0;
@@ -327,7 +326,7 @@ int WriteFiles(const std::vector<std::string> &files, size_t prefixLen,
                                static_cast<unsigned long>(GetLastError()), dst.c_str());
         }
 
-        SMemFree(buf, __FILE__, __LINE__, 0);
+        Storm::Free(buf, __FILE__, __LINE__);
     }
     if (skipped != nullptr)
         *skipped = missed;

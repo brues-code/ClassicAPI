@@ -750,7 +750,6 @@ enum Offsets {
     VAR_COORD_DDC_WIDTH_SCALE = 0x00832A44,
     VAR_COORD_DDC_HEIGHT_SCALE = 0x00832A48,
     VAR_COORD_ASPECT_COMPENSATION = 0x00832A4C,
-    UI_COORD_SCALE_UNIT = 1024,            // DAT_007ffd68
     // `SetUiParentScale` — `void __stdcall(float scale)`, `ret 4`. The one
     // setter of UIParent's scale: raises the value to 0.64, calls SetScale
     // with force (0x0076AC10), drains the layout queue (0x00768ED0), and does
@@ -812,8 +811,8 @@ enum Offsets {
     // double-duties as the MINIMUM font size numerator in the node ctor
     // (FUN_005cd6d0 / FUN_005ccb80: fontSize floored at [0x801628]/rasterY =
     // 2 pen px).
-    FLOAT_OUTLINE_EXTRA_THICK = 0x0080306C,
-    FLOAT_OUTLINE_EXTRA_THIN = 0x00801628,
+    VAR_FOUR = 0x0080306C, // float 4.0
+    VAR_TWO = 0x00801628, // float 2.0
     // The node's BUILT line count — incremented once per emitted wrapped line
     // by the draw builder (FUN_005CDC20, including the \n break case) and the
     // builder's own early-out gate (`if (node+0x9C != 0) return`); zeroed by
@@ -1885,6 +1884,10 @@ enum Offsets {
     // 0x0048FD7F). Read the float at OFF_CVAR_VALUE_FLOAT.
     VAR_CVAR_TARGET_NEAREST_DISTANCE = 0x00B4E2A8,
     VAR_CVAR_TARGET_NEAREST_DISTANCE_RADIUS = 0x00B4D8FC,
+    // CVar* of cameraHeightIgnoreStandState (default 0), stored by its
+    // registration at 0x0050BD9E. The follow camera's pivot heights read its
+    // int (0x0050CB9A): set, a stand state lowers no preset.
+    VAR_CVAR_CAMERA_HEIGHT_IGNORE_STAND_STATE = 0x00BE0CF4,
     // World::QueryObjectVisible — `bool __fastcall(worldObject)`: non-null
     // and `[+0x94] == 0`. A unit's world object is at OFF_CGOBJECT_WORLD_OBJECT
     // (the tab search passes `unit[0x38]`).
@@ -2071,6 +2074,47 @@ enum Offsets {
     // yard), both floats.
     VAR_NAME_HEIGHT_FACTOR = 0x0080C5D0,
     VAR_NAMEPLATE_LIFT = 0x0080ABFC,
+    // GetNamePosition's attachments (0x00608640): PlayerName on the unit's
+    // model, PlayerNameMounted when the unit is mounted (its model is then
+    // the mount's).
+    M2_ATTACHMENT_PLAYER_NAME = 18,
+    M2_ATTACHMENT_PLAYER_NAME_MOUNTED = 29,
+    // The world's overhead unit names (PLAYERNAMEDESC::UpdatePlate
+    // 0x006C6E90, Ghidra), drawn from the unit model's draw callback
+    // (0x006C7780, installed with SetDrawCallback, list0 0). The plate scale:
+    // with d = the name position's z less the feet's, UNIT_NAME_SCALE (0.2,
+    // an immediate at 0x006C6F16) for d <= VAR_UNIT_NAME_SCALE_HEIGHT (4.0)
+    // or NaN, else d / 4.0 * VAR_UNIT_NAME_SCALE_GROWTH (1.5) *
+    // VAR_UNIT_NAME_SCALE_BASE (0.2), an f32 store (0x006C6F1D..0x006C6F3C).
+    // The text is made (0x006C703F..0x006C704C) by GxuFontCreateString
+    // (FUN_TEXT_CREATE_STRING) on VAR_UNIT_NAME_FONT with the expanded text
+    // (FUN_EXPAND_GRAMMAR_ESCAPES), size = the scale, position 0, a 100000 by
+    // 100000 box, spacing 0, vertical justification 2, horizontal 1, flags
+    // UNIT_NAME_STRING_FLAGS, the colour, extra 0; the block height is the
+    // extra line count times the scale. Each draw adds the string to
+    // VAR_UNIT_NAME_BATCH (world space, emptied after drawing), places it at
+    // the name position raised by the block height and draws the batch.
+    // UNIT_NAME_FONT at size 0.99, flags 4, and the batch are made at world
+    // entry (0x006C7470) and destroyed by PlayerNameShutdown (0x006C7630) in
+    // ClientDestroyGame (0x0040202F), before the game UI shuts down.
+    UNIT_NAME_SCALE = 0x3E4CCCCD,
+    VAR_UNIT_NAME_SCALE_HEIGHT = 0x008112A8,
+    VAR_UNIT_NAME_SCALE_GROWTH = 0x008112AC,
+    VAR_UNIT_NAME_SCALE_BASE = 0x0080679C,
+    UNIT_NAME_STRING_FLAGS = 0xC8,
+    VAR_UNIT_NAME_FONT = 0x00CE8738,
+    VAR_UNIT_NAME_BATCH = 0x00CE8734,
+    // The font string calls UpdatePlate makes. GxuFontDestroyString
+    // `__thiscall(void **string)` destroys and clears the handle;
+    // GxuFontBatchAdd `int __fastcall(batch, string)`; GxuFontBatchDraw
+    // `__thiscall(batch)`; GxuStringSetColor `__fastcall(string, const
+    // uint32_t *argb)`; GxuStringSetPosition `__fastcall(string, const float
+    // pos[3])`.
+    FUN_GXU_FONT_DESTROY_STRING = 0x005C1D00,
+    FUN_GXU_FONT_BATCH_ADD = 0x005C1E60,
+    FUN_GXU_FONT_BATCH_DRAW = 0x005C1EF0,
+    FUN_GXU_STRING_SET_COLOR = 0x005C2750,
+    FUN_GXU_STRING_SET_POSITION = 0x005C2770,
     // CGObject scale (+0x90, float, 1.0 at construction) and box height
     // (+0xBC, float, max.z - min.z of the model box) — GetNamePosition's
     // no-attachment inputs (benilla-re objectbase / unitnames).
@@ -2084,7 +2128,7 @@ enum Offsets {
     // Front-cone half angle of the tab-target collector (0x494200): pi times
     // 1/6, both read from these floats (stored into 0xB4D8F4 on first use).
     VAR_TARGETING_PI = 0x00804488,
-    VAR_TARGETING_ONE_SIXTH = 0x00803568,
+    VAR_ONE_SIXTH = 0x00803568, // float 1/6
     // HeadingBetweenPoints — `float __fastcall(const float *from, const
     // float *to)`: atan2 of the y and x differences (the tab collector's
     // heading).
@@ -2726,6 +2770,11 @@ enum Offsets {
     // first; we do the same in `Item::InventoryID`.
     FUN_UNIT_GET_VISIBLE_ITEM = 0x005F0D60,
     OFF_VISIBLE_ITEM_ITEM_ID = 0x08,
+    // The entry's SpellItemEnchantment IDs: 7 dwords from +0x0C, the array
+    // GetItemDescVisual (FUN_VISIBLE_ITEM_GET_DESC_VISUAL) walks for the
+    // first enchant with an ItemVisual (Ghidra, 0x0062EC70).
+    OFF_VISIBLE_ITEM_ENCHANTS = 0x0C,
+    VISIBLE_ITEM_ENCHANT_COUNT = 7,
 
     // CGUnit m_objectFields pointer offset. Different from CGItem's
     // descriptor at +0x114 — these are sibling classes under CGObject
@@ -3557,7 +3606,7 @@ enum Offsets {
     // counts as ranged (`fcomp` then `test ah,5; jp` at `0x4E5885`
     // passes unordered). Verified by a direct float dump of the image:
     // exactly 2^-22 (0x34800000) at this address. Read live, not hardcoded.
-    VAR_HAS_RANGE_EPSILON = 0x008029D4,
+    VAR_TWO_POW_MINUS_22 = 0x008029D4, // float 2^-22
 
     // The two floats `FUN_006e3480`'s COMBAT-RANGE branch folds into its
     // max-range output: `casterReach + targetReach + LEEWAY`, floored at
@@ -4160,6 +4209,89 @@ enum Offsets {
     // The Model frame's per-paint update — `__thiscall(frame)`, slot 38.
     FUN_SIMPLEMODEL_UPDATE_MODEL = 0x0076D1A0,
 
+    // ---- Subclassing CSimpleModel (Model::Scene, the ModelScene frame) ------
+    // The "Model" factory (0x006EECF0) is SMemAlloc(MODEL_FRAME_SIZE) then
+    // CSimpleModel::CSimpleModel — `__thiscall(frame, parent)`, `ret 4` — which
+    // builds the light with M2LightInitialize, zeroes the model fields and
+    // stores VTBL_SIMPLEMODEL at +0 and VTBL_SIMPLEMODEL_LAYOUT at
+    // OFF_FRAME_LAYOUT_SUBOBJECT (benilla-re ui/modelview "Model frame
+    // fields"). Its vtables are 40 and 11 slots (dumped from the exe: slots
+    // 40.. of the main one are float constants). Slot 0, the deleting
+    // destructor (0x0076CA20), runs FUN_SIMPLEMODEL_DESTROY, which releases the
+    // camera (+0x31C), the model (+0x318) and the scene (+0x314). Model's own
+    // overrides of CSimpleFrame's slots: +0x08 its method hash then Frame's,
+    // +0x0C its two script names, +0x10/+0x18/+0x1C its type, +0x28 alpha to
+    // the model, +0x38 the scene clock (CSimpleFrame's update, then
+    // M2SceneAdvance by the truncated ms; a null +0x318 skips only the model
+    // half), +0x44 EmitLayer (Frame's, then the paint callback on ARTWORK when
+    // +0x318 is set), +0x90..+0x9C SetModel / UpdateModel / model ready.
+    MODEL_FRAME_SIZE = 0x3DC,
+    FUN_SIMPLEMODEL_CONSTRUCTOR = 0x0076C8E0,
+    VTBL_SIMPLEMODEL = 0x0081C608,
+    VTBL_SIMPLEMODEL_SLOTS = 40,
+    VTBL_SIMPLEMODEL_LAYOUT = 0x0081C5D8,
+    VTBL_SIMPLEMODEL_LAYOUT_SLOTS = 11,
+    // The frame's light (an M2Light, 0x6C bytes) and, inside it, the ambient
+    // and diffuse colours (3 floats each, +0x354 / +0x360 of the frame).
+    // PlayerModel's constructor (0x00505680) writes both directly and sets the
+    // rest through M2LightSetType `__thiscall(light, int type)` (0 directional,
+    // 1 point), M2LightSetDirection `__thiscall(light, const float v[3])`
+    // (normalized) and M2LightSetEnabled `__thiscall(light, int)`. The light
+    // callback (FUN_SIMPLEMODELFFX_LIGHT_FOG_CB) adds it to a model's lighting
+    // only while it is enabled.
+    OFF_SIMPLEMODEL_LIGHT = 0x324,
+    M2LIGHT_SIZE = 0x6C, // the 27 dwords AddMapLight copies (0x006A7BF5)
+    OFF_M2LIGHT_AMBIENT = 0x30,
+    OFF_M2LIGHT_DIFFUSE = 0x3C,
+    FUN_M2LIGHT_SET_TYPE = 0x0071B620,
+    FUN_M2LIGHT_SET_DIRECTION = 0x0071B6A0,
+    FUN_M2LIGHT_SET_ENABLED = 0x0071B780,
+    // M2LightSetPosition — `__thiscall(light, const float v[3])`.
+    FUN_M2LIGHT_SET_POSITION = 0x0071B650,
+    // The frame's fog (benilla-re ui/modelanim "Fog"): bit 0 of the flags arms
+    // it (Script SetFogColor ors it in at 0x0076F059, ClearFog clears only it),
+    // the colour is 0xAARRGGBB with each byte trunc(c * 255 + 0.5) of the
+    // component clamped to [0, 1], near and far are stored as given; the
+    // light callback fogs only while armed, and only for far > near. Model's
+    // LoadXML clamps the fogNear / fogFar attributes at 0 and reads <FogColor>
+    // with FUN_XML_READ_COLOR, which arms it too.
+    OFF_SIMPLEMODEL_FOG_FLAGS = 0x3A4,
+    OFF_SIMPLEMODEL_FOG_COLOR = 0x3A8,
+    OFF_SIMPLEMODEL_FOG_NEAR = 0x3AC,
+    OFF_SIMPLEMODEL_FOG_FAR = 0x3B0,
+    SIMPLEMODEL_FOG_ARMED = 0x1,
+    // SimpleModelInstallCamera — `__thiscall(frame, camera)`, `ret 4`: takes a
+    // handle reference, releases the old camera, stores +0x31C and sets the
+    // pending camera index (+0x320) to -1. CameraCreate — `void *__cdecl()`:
+    // a new camera handle the caller owns one reference on (release with
+    // FUN_HANDLE_RELEASE); the pane fallback (0x00505890) makes, installs and
+    // releases one this way.
+    FUN_SIMPLEMODEL_INSTALL_CAMERA = 0x0076CE80,
+    FUN_CAMERA_CREATE = 0x007AC930,
+    // CM2Model::SetBaseTransformTRS — `__thiscall(model, const float pos[3],
+    // float angle, const float axis[3], const float scale[3])`, `ret 0x10`: the
+    // placement matrix at OFF_M2MODEL_BASE_MATRIX = identity, then
+    // TranslateMatrix, RotateMatrix(angle, axis, 1), ScaleMatrixRows. Each of
+    // the three pre-multiplies (row vectors: a point is scaled, then rotated,
+    // then translated). TranslateMatrix — `__thiscall(m, const float t[3])`,
+    // `ret 4`: row 3 += t·rows 0..2. RotateMatrix — `__thiscall(m, float
+    // angle, const float axis[3], int)`, `ret 0xC`. The animate pass places
+    // every unattached instance with this matrix (models/scene "Animate pass").
+    FUN_M2MODEL_SET_BASE_TRS = 0x00710650,
+    FUN_MATRIX_TRANSLATE = 0x007BDC40,
+    FUN_MATRIX_ROTATE = 0x007BDD60,
+    OFF_M2MODEL_BASE_MATRIX = 0xBC,
+    // CM2Model::GetBoundingBox — `__thiscall(model, float out[6])`: the
+    // model's bounds {min xyz, max xyz} (MD20 +0xB4); waits for the file when
+    // not loaded. GetSequenceInfo — `__thiscall(model, animID, variation,
+    // record[0x3C])`, `ret 0xC`: the sequence's flags, length, speed, bounds
+    // (+0x0C, the same six floats) and radius; zeroes them for an id the model
+    // has no sequence for (benilla-re models/model "Sequence info").
+    FUN_M2MODEL_GET_BOUNDING_BOX = 0x00713640,
+    FUN_M2MODEL_GET_SEQUENCE_INFO = 0x00711A20,
+    M2_SEQUENCE_INFO_SIZE = 0x3C,
+    OFF_M2_SEQUENCE_INFO_BOUNDS = 0x0C,
+
     // ---- PlayerModel / DressUpModel / TabardModel (benilla ui/playermodel) --
     // CGCharacterModelBase: a Model frame (0x3F8 bytes) that shows a copy of a
     // unit's model or a creature display. DressUpModel and TabardModel extend
@@ -4191,6 +4323,12 @@ enum Offsets {
     // with the pane as user data (0x00505AFB) and which arms Stand when a
     // whole-body track completes.
     FUN_PLAYERMODEL_ON_ANIM_DONE = 0x005062A0,
+    // A done callback's key bone: the body track is -1 or the root, key bone
+    // 26 (0x005062A0, and the unit's 0x005FCA28); another bone's track (the
+    // fingers of CloseHand, 8..17) is stopped when it ends, except
+    // HandsClosed (15), which stays.
+    M2_KEY_BONE_ROOT = 0x1A,
+    ANIM_HANDS_CLOSED = 15,
     // CM2Model::SetAnimDoneCallback — `__thiscall(model, callback, uint64
     // userData)`, ret 0xC. AttachDisplayModel passes the pane sign-extended
     // (`cdq` at 0x00505AF8).
@@ -4307,8 +4445,26 @@ enum Offsets {
     // ItemDisplayInfo row of the hand's item (CGUnit_C 0x00605EE0, CGPlayer_C
     // 0x005EC350); AttachHandItem's record source.
     VTBL_UNIT_GET_HELD_ITEM_DISPLAY = 0x9C,
+    // Unit vtable slot 38 — `const uint8_t *__thiscall(unit, hand 0/1, 1)`,
+    // ret 8: the 8-byte held-item lane of the hand's item (item class,
+    // subclass, inventory type at byte 3, sheathe type at byte 4), or null.
+    // DressUpModel SetModelInstance copies hands 0 and 1 into its lanes
+    // (`push 1; push 0; call [eax+0x98]`, 0x005043D9).
+    VTBL_UNIT_GET_HELD_ITEM_LANE = 0x98,
+    // CloseHand — `__fastcall(model, hand)`: HandsClosed (15) on the finger
+    // key bones, 8..12 for hand 0, 13..17 for hand 1. AttachUnitModel closes
+    // hand 1 when attachment 2 holds a model and hand 0 for attachment 1
+    // (0x00505A34..0x00505A5E).
+    FUN_CLOSE_HAND = 0x00479660,
     // TryOnItem — `__thiscall(pane, itemID)`: the worker behind TryOn.
     FUN_DRESSUPMODEL_TRY_ON_ITEM = 0x00504540,
+    // CanHoldBoth — `bool __fastcall(mainType, offType, bool dualWield)`,
+    // ret 4: TryOnItem keeps the other lane's item only when this is true.
+    // Main side 13 or 21 with off side 14 or 23, or 13 or 22 when dualWield.
+    FUN_DRESSUPMODEL_CAN_HOLD_BOTH = 0x00504BC0,
+    // `int __cdecl()`: the active player can dual wield (a non-zero
+    // 0x00C4D770). TryOnItem asks it only when the pane shows that player.
+    FUN_PLAYER_CAN_DUAL_WIELD = 0x005EAB70,
     // The worker's item-cache callback (0x00504BA0) re-runs it once the
     // record loads: `push itemID; mov ecx, pane; call` here. The only other
     // caller is the original Script_TryOn (0x00504E29), which ours replaces.
@@ -4357,6 +4513,15 @@ enum Offsets {
     // lookup and drops it when the index is not below the count.
     OFF_M2DATA_SEQUENCE_COUNT = 0x1C,
     OFF_M2DATA_ANIMATION_LOOKUP = 0x24,
+    // The collision mesh, as GatherCollisionFacets (0x007137C0) reads it from
+    // the shared data: the triangles' u16 vertex triples (+0xF0), the vertex
+    // count and its 12-byte positions (+0xF4, +0xF8), and the triangle count
+    // with each triangle's 12-byte model-space normal (+0xFC, +0x100).
+    OFF_M2DATA_COLLISION_INDICES = 0xF0,
+    OFF_M2DATA_COLLISION_VERTEX_COUNT = 0xF4,
+    OFF_M2DATA_COLLISION_VERTICES = 0xF8,
+    OFF_M2DATA_COLLISION_TRIANGLE_COUNT = 0xFC,
+    OFF_M2DATA_COLLISION_NORMALS = 0x100,
     // SetAnimated — `__thiscall(model, bool)`; M2SceneAnimateAndCollect —
     // `__thiscall(scene, const float *cameraPos)`. ConfigureCamera runs both
     // (with the frame's facing zeroed) before it copies a model camera.
@@ -4366,12 +4531,20 @@ enum Offsets {
     // ---- Camera properties (benilla camera#properties) -------------------
     // Get/SetVectorProperty `__fastcall(camera, id, float[3] [, keep])`,
     // Get/SetScalarProperty `__fastcall(camera, id [, float])`. Ids: 7 eye,
-    // 8 target, 4 field of view.
+    // 8 target, 4 field of view, 3 near clip, 2 far clip, 5 roll, 6 yaw
+    // (CameraCreate's registrations, benilla-re camera "Properties"; all
+    // angles in radians). The view looks along target − eye from the origin
+    // with up (sin yaw·sin roll, −cos yaw·sin roll, cos roll); the projection
+    // takes the field of view, near and far (0x007AC640).
     FUN_CAMERA_GET_VECTOR = 0x007ABF80,
     FUN_CAMERA_GET_SCALAR = 0x007AC0B0,
     FUN_CAMERA_SET_VECTOR = 0x007AC250,
     FUN_CAMERA_SET_SCALAR = 0x007AC3A0,
+    CAMERA_PROP_FAR_CLIP = 2,
+    CAMERA_PROP_NEAR_CLIP = 3,
     CAMERA_PROP_FOV = 4,
+    CAMERA_PROP_ROLL = 5,
+    CAMERA_PROP_YAW = 6,
     CAMERA_PROP_EYE = 7,
     CAMERA_PROP_TARGET = 8,
 
@@ -4408,11 +4581,26 @@ enum Offsets {
     // equipment piece (validated against ItemDisplayInfo.dbc, no-op for 0 /
     // out-of-range). Units pass CreatureDisplayInfoExtra +0x20..+0x44.
     FUN_CHARCOMP_SET_ITEM = 0x00478AA0,
-    // __thiscall(builder, int *unused /*engine passes 0*/) -> bool done.
+    // UpdateCharacterComponent — `bool __thiscall(builder, int force)`.
     // The per-frame pump: composites pending texture regions; the baked-NPC
     // path short-circuits to the geoset apply (FUN_00477520) and returns 1 on
-    // the first call. Keep calling until it returns 1.
+    // the first call. Keep calling until it returns 1. `force` loads every
+    // section blocking and ignores the load budget (benilla charactermodel/
+    // component#update-driver): the unit model update passes 0 (0x00607E7C),
+    // the DressUpModel paint (0x00504470) and AttachUnitModel's pump of the
+    // unit's own component before the copy (0x005059BC) pass 1.
     FUN_CHARCOMP_PUMP = 0x00477860,
+    // CloneCharacterComponent — `bool __thiscall(builder, model, source)`,
+    // ret 8: copies the source component's appearance block, section cells
+    // and item records onto `builder`, for `model`, whose reference it takes
+    // over (0x00476CDA; DressUpModel SetModelInstance AddRefs the model first;
+    // it is the only caller, 0x005043D5).
+    FUN_CHARCOMP_CLONE = 0x00476CB0,
+    // The component's ItemDisplayInfo record per body slot 0..11 (a dword
+    // each, null when bare): UnequipCharacterSlot reads and clears
+    // `[component + slot*4 + 0x4A8]` (0x0047896A, 0x00478A72). A record's
+    // first dword is its ID, the column FUN_CHARCOMP_SET_ITEM looks up.
+    OFF_CHARCOMP_ITEM_RECORDS = 0x4A8,
     // Model-instance API used around the compositor:
     FUN_MODEL_INSTANCE_ADDREF = 0x00710390, // (model /*ecx*/)
     // __thiscall(model, tryLoad, recurseChildren) -> bool loaded. The engine's
@@ -4431,10 +4619,18 @@ enum Offsets {
     // the body but not the equipment). `Model::DisplayInfo` fills each child's
     // slot with the same pair so equipment lights like the body.
     FUN_MODEL_INSTANCE_SET_RENDER_CB = 0x007134B0,
-    // __fastcall-shaped engine callback (never called by us directly): applies
-    // the owning frame's fog (+0x3A4/+0x3A8) and light struct (+0x324, written
-    // by Script_SetLight via FUN_0076cf30) to the render context each time the
-    // instance is drawn.
+    OFF_MODEL_INSTANCE_RENDER_CB = 0x3BC,
+    OFF_MODEL_INSTANCE_RENDER_CB_USER = 0x3C0,
+    // A missile's light (Ghidra): its world object is an entity light node
+    // made once in flight by CreateLightObjectB (0x00671010, from
+    // 0x0061E655), +0x90 bit 0x2000 clear, so ReattachEntity places it with
+    // AttachEntityToGround as a unit's; the node sets ApplyEntityLighting on
+    // the missile's model. Intensity 1.0 at first.
+    // SimpleModelLightCallback — `__fastcall(instance (unused), M2Lighting
+    // *record, void *frame)`, ret 4: applies the owning frame's fog
+    // (+0x3A4/+0x3A8, through M2LightingSetFog when armed) and light struct
+    // (+0x324, written by Script_SetLight via FUN_0076cf30; LightingAddLight
+    // skips it while disabled) to the record each time the instance is drawn.
     FUN_SIMPLEMODELFFX_LIGHT_FOG_CB = 0x0076D680,
 
     // Engine Script_* method implementations `Frame::Modern` delegates to
@@ -5199,7 +5395,19 @@ enum Offsets {
     // OFF_CGOBJECT_MODEL). Decompiled; benilla-re objectbase#highlight-light-bits.
     FUN_CGOBJECT_SET_LIGHT = 0x00614550,
     FUN_CGOBJECT_CLEAR_LIGHT = 0x006144F0,
+    // The two bits above, and the colour SetLight gives: its vector is (byte
+    // +0x17A, +0x179, +0x178) of the light state (0x006D48B0 returns
+    // 0x00CE9B60), the ambient colour band, each times 1/255 (0x008026C8).
+    CGOBJECT_LIGHT_BIT_TARGET = 0,
+    CGOBJECT_LIGHT_BIT_MOUSEOVER = 1,
+    // CM2Model::SetEmissiveColor — `__thiscall(model, const float rgb[3])`,
+    // ret 4: copies the three floats to +0x190. SetLight / ClearLight's call.
+    FUN_M2MODEL_SET_EMISSIVE = 0x00710D40,
     OFF_CGOBJECT_MODEL = 0xD8,
+    // The unit's character component, null for a unit with none (a creature
+    // without CreatureDisplayInfoExtra): AttachUnitModel pumps it at
+    // 0x005059B2 and DressUpModel SetModelInstance clones it.
+    OFF_CGUNIT_CHARACTER_COMPONENT = 0xD30,
     OFF_CGOBJECT_OVERRIDE_MODEL = 0xDC,
     OFF_CGOBJECT_VTBL_SELECTION_COLOR = 0x2C,
     OFF_CGUNIT_SELECTION_RADIUS = 0xCF0,
@@ -5208,6 +5416,62 @@ enum Offsets {
     FUN_SELECTION_CIRCLE_STATE = 0x00614E00,
     FUN_DRAW_DECAL = 0x006D7330,
     VAR_CVAR_OBJECT_SELECTION_CIRCLE = 0x00C4DAF8, // CVar* of ObjectSelectionCircle
+    // FUN_SELECTION_CIRCLE_STATE's textures (0x006146D0 makes both; the state
+    // sets nothing while either is null): stage 0 the HTEXTURE of
+    // Textures\UnitSelectTexture.blp, stage 1 the 64x8 alpha ramp's device
+    // texture. The state never reads its object: blend 3, cull, lighting and
+    // depth write off, then the two textures.
+    VAR_SELECTION_CIRCLE_TEXTURE = 0x00C4DAC4,
+    VAR_SELECTION_CIRCLE_RAMP = 0x00C4DAFC,
+    // FUN_DRAW_DECAL's fade and flags, the same at the selection circle
+    // (0x00608E00) and the auto-move marker (0x00611400): 0.5, 0x200122.
+    DECAL_SELECTION_FADE = 0x3F000000,
+    DECAL_SELECTION_FLAGS = 0x200122,
+    // The ground-target reticle (WorldFrame, 0x004837B0, the path without a
+    // placement model; verified by disassembly): the box is the point +- the
+    // radius in x and y and +- VAR_TWO in z, a radius of 0 taking
+    // RETICLE_DEFAULT_RADIUS (1.3888889, stored at 0x00483858); lighting
+    // (0xE) and depth write (0x12) off, blend RETICLE_BLEND (2, alpha), the
+    // state's texture at stage 0x17 (GXRS_TEXTURE0), then DrawDecal with
+    // RETICLE_COLOR, no texture matrix, fade RETICLE_FADE (0.5) and the
+    // receiver class 0x200122 (terrain and buildings, the first of its two
+    // passes; the second, 0xF0000, is the liquids). Its two textures, loaded
+    // when the world frame is built (0x00481C00) and indexed by the state
+    // 0x0083DC2C at 0x00483922: Interface\SpellShadow\Spell-Shadow-Acceptable
+    // (0, in range) and Spell-Shadow-Unacceptable (1, out of range).
+    VAR_RETICLE_TEXTURE_ACCEPTABLE = 0x00B4B344,
+    VAR_RETICLE_TEXTURE_UNACCEPTABLE = 0x00B4B348,
+    RETICLE_DEFAULT_RADIUS = 0x3FB1C71C,
+    RETICLE_BLEND = 2,
+    RETICLE_COLOR = 0xFFFFFFFF,
+    RETICLE_FADE = 0x3F000000,
+    // The world's fade of a removed object's model (deactivate 0x006145E0 ->
+    // FadeOutModel 0x00672DF0, its per-frame pass 0x00672EF0; verified by
+    // disassembly): a ready model whose alpha is VAR_ONE_HUNDREDTH or more
+    // (or NaN; fcomp at 0x00672E21, test ah,5 / jnp) is kept with the time
+    // and that alpha, else released at once. Each frame it shows (3 - 2x)x^2
+    // with x = (1 - age x VAR_MODEL_FADE_RATE) x the alpha, x held to 0..1
+    // (0x00672FD3 to 0x00673025), and it is released when the age passes
+    // MODEL_FADE_OUT_MS (cmp eax,0x7D0; jle at 0x00672F36).
+    // VAR_MODEL_FADE_RATE is with the mover's constants (the same float).
+    MODEL_FADE_OUT_MS = 2000,
+    VAR_THREE = 0x0080297C, // float 3.0
+    // The radius 0x0060AEE0 stores at OFF_CGUNIT_SELECTION_RADIUS when the
+    // model loads: sqrt(VAR_HALF x sqrt(dx^2 + dy^2)) of animation 0's
+    // bounds (FUN_M2MODEL_HAS_ANIMATION, then GetSequenceInfo), else of the
+    // model's (FUN_M2MODEL_GET_BOUNDING_BOX); float 1.2 when dx and dy are
+    // both 0.
+    SELECTION_RADIUS_FLAT = 0x3F99999A,
+    // The auto-move marker (0x00611400, drawn while the auto-move mode
+    // 0x00C4D888 is 4 or 10): a box of half size s about the target point,
+    // s = min + (max - min) x (sin(VAR_HEADING_TWO_PI x t / period) +
+    // VAR_ONE) x VAR_HALF, t = the OS ms tick mod the period; then the
+    // selection circle's yaw matrix, state and decal, in AUTOMOVE_MARKER_COLOR.
+    // Static .data: nothing in .text writes the three.
+    VAR_AUTOMOVE_MARKER_PERIOD_MS = 0x00860AE0, // uint32 500
+    VAR_AUTOMOVE_MARKER_MIN = 0x00860AE4,       // float 0.5
+    VAR_AUTOMOVE_MARKER_MAX = 0x00860AE8,       // float 0.75
+    AUTOMOVE_MARKER_COLOR = 0xFFFFFF7F,         // ARGB
     // CGUnit vtable slot (byte offset): GetSpellCastingTime `int __thiscall(int
     // spellId)`, the unit's cast time for the spell in ms. The combat log's
     // cast-start line drops a spell it gives 0 (0x0062B460 pushes the
@@ -5233,6 +5497,10 @@ enum Offsets {
     // intersect `FUN_0069BFF0`; verified in-binary and cross-checked
     // against UnitXP_SP3's `CWorld_Intersect` (same VA + flags).
     FUN_CWORLD_INTERSECT = 0x00672170,
+    // The class word of the world's own segment traces (walk-to-attack
+    // 0x0060FE18, corpse 0x005D6A9D): terrain (0xF00), WMO groups (0x10) with
+    // face mask 0x84 (detail faces skipped), doodads and game objects.
+    WORLD_TRACE_CLASS_LOS = 0x100111,
     // Collision-box height of a unit, read from its CMovement sub-struct
     // (`[unit + OFF_UNIT_MOVEMENT_INFO_PTR]`) at `+0xB4`. Used as the
     // eye-height offset for LoS so foot-to-foot traces don't false-block
@@ -5995,6 +6263,15 @@ enum Offsets {
     OFF_ITEMSTATS_START_QUEST = 0x1A8,
     OFF_ITEMSTATS_MATERIAL = 0x1B0,        // i32 — material type
     OFF_ITEMSTATS_SHEATH = 0x1B4,          // u32 — weapon sheath style
+    // OFF_ITEMSTATS_SHEATH values, as GetSheathAttachment (0x0047A070, jump
+    // table 0x0047A0A8) maps them to M2 attachments (main hand / off hand):
+    // 1 the back pair 26/27, 2 the large weapon on the back 30/31, 3 the hip
+    // 32/33, 4 the shield 28. 0 and anything above 4 have no sheath point, so
+    // AttachItemModel hangs nothing while sheathed.
+    ITEM_SHEATH_NONE = 0,
+    ITEM_SHEATH_BACK = 1,
+    ITEM_SHEATH_LARGE_BACK = 2,
+    ITEM_SHEATH_HIP = 3,
     OFF_ITEMSTATS_RANDOM_PROPERTY = 0x1B8, // i32 — random property template
     OFF_ITEMSTATS_BLOCK = 0x1BC,           // u32 — shield block value
     OFF_ITEMSTATS_MAX_DURABILITY = 0x1C4,  // u32
@@ -6123,6 +6400,13 @@ enum Offsets {
     VAR_SPELLVISUALKIT_RECORDS = 0x00C0D74C,
     VAR_SPELLVISUALKIT_COUNT = 0x00C0D750,
     OFF_SPELLVISUALKIT_EFFECTS = 0x0C,
+    // The kit's tenth effect, which the world plants in the world rather
+    // than on an attachment: PlayUnitSpellVisualKit (0x0060EDF0) makes a
+    // CEffect and PlantEffect (0x0061FCF0) puts it at the unit's position
+    // (its vtable +0x14), or at the point it is given; with a spell that has a
+    // root aura (26) the effect gets flag 0x4000 and follows the unit. Frost
+    // Nova's state kit 285 holds its ice here (Frost_Nova_state.mdx).
+    OFF_SPELLVISUALKIT_WORLD_EFFECT = 0x30,
     OFF_SPELLVISUALKIT_PROC_KIND = 0x3C,
     OFF_SPELLVISUALKIT_PROC_VALUE = 0x4C,
     // SpellVisualEffectName.dbc: the model file at +0x08, which the ghost
@@ -6130,6 +6414,444 @@ enum Offsets {
     VAR_SPELLVISUALEFFECTNAME_RECORDS = 0x00C0D760,
     VAR_SPELLVISUALEFFECTNAME_COUNT = 0x00C0D764,
     OFF_SPELLVISUALEFFECTNAME_FILE = 0x08,
+    // The unit's hard-coded effects (AddHardcodedEffect 0x0061FAE0): 14 kinds,
+    // each a SpellVisualEffectName id that start-up (0x0061F5B0) finds by
+    // name into s_hardcodedEffectIds, and an attachment in
+    // s_hardcodedEffectAttachments (37 none; the binary holds 37, 37, 17, 17,
+    // 19, 19, 19, 17, 19, 19, 19, 19, 19, 19). A unit whose model lacks the
+    // attachment gets 19, the base. Kind 5 is "HARDCODED Unit Level Up"
+    // (row 21, Spells\LevelUp\LevelUp.mdl, whose own $SND event is 888
+    // LEVELUP), which CGUnit_C::OnLevelChanged (0x0060CE2F) plays on every
+    // level change.
+    VAR_HARDCODED_EFFECT_IDS = 0x00C4DF30,
+    VAR_HARDCODED_EFFECT_ATTACHMENTS = 0x0080C968,
+    HARDCODED_EFFECT_COUNT = 14,
+    HARDCODED_EFFECT_UNIT_LEVEL_UP = 5,
+    HARDCODED_EFFECT_NO_ATTACHMENT = 37,
+    HARDCODED_EFFECT_FALLBACK_ATTACHMENT = 19,
+    // SpellVisualKit columns the world's kit player (0x0060EDF0) reads past
+    // the ghost's: the unit animation (+0x08, -1 none; 53 SpellCastDirected
+    // on Fireball's cast kit 38) and the SoundEntries id (+0x34; 1484 Fire
+    // Cast). Verified by parsing SpellVisualKit.dbc; the world's missile
+    // release gate tests `kit+0x08 > 0` (benilla spell/go, 0x006E8293).
+    OFF_SPELLVISUALKIT_ANIMATION = 0x08,
+    OFF_SPELLVISUALKIT_SOUND = 0x34,
+    // The kit's camera shake group (+0x38, a SpellEffectCameraShakes id):
+    // the kit player plays it once per play when it is above 0 (0x0060EE2E,
+    // benilla spell/shakes). Thunder Clap's cast kit 356 and the Goblin
+    // Sapper Charge's 1424 have one (parsed from the DBC).
+    OFF_SPELLVISUALKIT_SHAKE = 0x38,
+    // ---- Camera shakes (benilla uicamera/effects, spell/shakes).
+    // SpellEffectCameraShakes.dbc: three CameraShakes ids from +0x04;
+    // PlaySpellEffectCameraShakes (0x006ECB40) adds each nonzero one.
+    VAR_SPELLEFFECTCAMERASHAKES_RECORDS = 0x00C0D814,
+    VAR_SPELLEFFECTCAMERASHAKES_COUNT = 0x00C0D818,
+    OFF_SPELLEFFECTCAMERASHAKES_SHAKES = 0x04,
+    SPELL_EFFECT_CAMERA_SHAKE_COUNT = 3,
+    // CameraShakes.dbc, as CameraAddShake (0x00511D40) passes the row to
+    // 0x00511C60: type (1 decays), axis (0 along the facing, 1 across it, 2
+    // up), amplitude (times 1/36 once), frequency, duration, pre-roll (the
+    // seconds a shake starts into its curve) and the decay rate. Verified
+    // against the disassembly and the DBC (row 1: 1, 2, 2.0, 3.0, 0.4,
+    // 0.06, 1.0).
+    VAR_CAMERASHAKES_RECORDS = 0x00C0DFD0,
+    VAR_CAMERASHAKES_COUNT = 0x00C0DFD4,
+    OFF_CAMERASHAKES_TYPE = 0x04,
+    OFF_CAMERASHAKES_AXIS = 0x08,
+    OFF_CAMERASHAKES_AMPLITUDE = 0x0C,
+    OFF_CAMERASHAKES_FREQUENCY = 0x10,
+    OFF_CAMERASHAKES_DURATION = 0x14,
+    OFF_CAMERASHAKES_PREROLL = 0x18,
+    OFF_CAMERASHAKES_DECAY = 0x1C,
+    CAMERA_SHAKE_TYPE_DECAYING = 1,
+    // The falloff (0x005116E0): a shake past 80 yards of the eye (squared,
+    // the static at 0x00BE1060, 6400) adds nothing; within 9 (0x00808A0C;
+    // squared at 0x00BE103C, 81) it is whole; between, its amplitude is
+    // times 0.7^((d - 9) / 9) with the double 0.7 at 0x00808AD0
+    // (0.699999988079071). The statics are set at load from 0x00808A0C and
+    // 0x00808A10 (0x0050B2C0, 0x0050B2F0).
+    VAR_CAMERA_SHAKE_NEAR = 0x00808A0C,
+    VAR_CAMERA_SHAKE_NEAR_SQ = 0x00BE103C,
+    VAR_CAMERA_SHAKE_FAR_SQ = 0x00BE1060,
+    VAR_CAMERA_SHAKE_FALLOFF_BASE = 0x00808AD0,
+    // SpellVisual.dbc (16 columns), verified by parsing the DBC (Fireball's
+    // row 67: 30, 38, 286, 0, 0, 1, 365, 0, 1, 3011, ...) against the
+    // readers: the precast kit (+0x04, 0x006EC220), cast kit (+0x08), impact
+    // kit (+0x0C, 0x006E8BF0 / 0x0061DC50), the has-missile flag (+0x18) and
+    // missile model (+0x1C, a SpellVisualEffectName id) the launcher
+    // 0x0060A3D0 reads, the missile's target attachment (+0x24, an index
+    // into VAR_SPELL_VISUAL_ATTACHMENTS, 0x0060A526), the flight sound
+    // (+0x28, 0x0060A510) and the impact model (+0x30, a
+    // SpellVisualEffectName id that replaces the missile at arrival,
+    // 0x0061DA8D).
+    OFF_SPELLVISUAL_PRECAST_KIT = 0x04,
+    OFF_SPELLVISUAL_CAST_KIT = 0x08,
+    OFF_SPELLVISUAL_IMPACT_KIT = 0x0C,
+    // The state kit: a unit plays it as a lasting (kind 2) kit while it
+    // carries the spell's aura (0x005FF350 shows an aura slot), and the
+    // aura's removal stops it (0x005FF290 -> 0x00614150 with force 1).
+    // Verified by parsing SpellVisual.dbc: Lightning Shield's row 37 has 292
+    // (LightningShield_State_Base), Inferno Effect's row 2816 has 349
+    // (StunSwirl_State_Head).
+    OFF_SPELLVISUAL_STATE_KIT = 0x10,
+    // The channel kit: a unit whose UNIT_CHANNEL_SPELL becomes the spell plays
+    // it as a lasting (kind 2) kit (0x00612A30), and its animation is the
+    // unit's while it channels (0x00612990 reads +0x14, benilla
+    // objectlayer/auras#channels). Drain Life's row 402: ChannelCastDirected
+    // and the persistent SoulBeam chain.
+    OFF_SPELLVISUAL_CHANNEL_KIT = 0x14,
+    OFF_SPELLVISUAL_HAS_MISSILE = 0x18,
+    OFF_SPELLVISUAL_MISSILE_MODEL = 0x1C,
+    OFF_SPELLVISUAL_MISSILE_PATH = 0x20, // the missile's path type (0 for Fireball's row 67)
+    OFF_SPELLVISUAL_MISSILE_ATTACHMENT = 0x24,
+    OFF_SPELLVISUAL_MISSILE_SOUND = 0x28,
+    OFF_SPELLVISUAL_IMPACT_MODEL = 0x30,
+    // The sound a player plays on its $TRD event while it prepares the spell
+    // (CGPlayer_C::PlayPrecastSound 0x0062FAA0).
+    OFF_SPELLVISUAL_PRECAST_SOUND = 0x38,
+    // The ground area of a spell as a dynamic object shows it
+    // (CGDynamicObject_C): the area flag (+0x2C, nonzero for a spell with a
+    // ground area; the model getter 0x005D57C0 tests it at 0x005D582F and
+    // prints SPELLEFFECTNOAREAEFFECT without it), whose model is the +0x30
+    // SpellVisualEffectName row (read at 0x005D5853, the column a missile's
+    // arrival model also reads), and the area kit (+0x34, 0x005D5612): its
+    // first kind-9 procedure starts the shard emitter and its sound loops on
+    // the area. Verified by parsing SpellVisual.dbc: Blizzard's row 259 has
+    // 1, 398 (Blizzard_Impact_Base), 609; Consecration's row 5600 has 1,
+    // 2542 (consecration_impact_base), 695.
+    OFF_SPELLVISUAL_HAS_AREA = 0x2C,
+    OFF_SPELLVISUAL_AREA_KIT = 0x34,
+    // SpellVisualEffectName +0x10: the size the dynamic object's loaded hook
+    // divides its radius by when the model has no bounding sphere
+    // (0x005D53B6, compared with 0.0 at 0x005D53B9).
+    OFF_SPELLVISUALEFFECTNAME_AREA_SIZE = 0x10,
+    // The dynamic object's loaded hook (slot 13, 0x005D52F0) scales the model
+    // to the area's radius over the model's bounding-sphere radius when that
+    // radius is above this double (0.001, fcomp at 0x005D538E).
+    VAR_DYNAMIC_OBJECT_MIN_SPHERE = 0x00801608,
+    // Hold (AnimationData.dbc), an effect's lasting state. The hook plays it
+    // on a model that has it and no animation 0 (HasAnimation 0x9E at
+    // 0x005D5345, played at 0x005D53D8), and its done callback (0x005D5580)
+    // plays it again at each natural end. A state kit's effect plays it once
+    // its first sequence ends (KitEffectHoldCallback 0x005FF170), and
+    // KitEffectDecayCallback (0x005FF1D0) plays it again until the effect's
+    // end time, which a state kit leaves at 0, so it holds until the aura goes.
+    ANIM_HOLD = 158,
+    // Decay (AnimationData.dbc), a held effect's end: when a spell's kits stop
+    // with force (an aura's removal), an effect whose model is loaded and has
+    // it plays it and stops when it ends (0x006141C0, done callback
+    // 0x006141F0); any other stops at once (0x006141D8).
+    ANIM_DECAY = 159,
+    // The area kit's shard emitter (0x005D55C0 -> 0x006ECE30 -> 0x006EB930;
+    // the shards 0x006EBB30..0x006EBDA9), verified by disassembly and by
+    // reading the binary: the procedure kind that starts it (cmp [ecx], 9 at
+    // 0x005D5640), a procedure's second value (+0x5C, the rate, 0x005D5654),
+    // and the shard files by type, char *[7] read with no bound (0x006ECEF4):
+    // Blizzard_Impact_Base, RainOfFire_Impact_Base, CallLightning_Impact,
+    // FlamestrikeSmall_Impact_Base, DeathAndDecay_Area_Base, ArcaneShot_Area,
+    // StarShards_Impact_Base (Spells\*.mdx). SpellVisualKit.dbc: Blizzard's
+    // area kit 609 is kind 9, values 0.0 and 5.0 (type 0, 5 a second).
+    SPELLVISUALKIT_PROC_AREA_SHARDS = 9,
+    OFF_SPELLVISUALKIT_PROC_VALUE2 = 0x5C,
+    VAR_AREA_SHARD_PATHS = 0x00870E24,
+    AREA_SHARD_PATH_COUNT = 7,
+    // The spell detail record (spellEffectLevel's) and the two scales its
+    // level +0x28 gives the shard rate: 0.33 at 0, 0.66 at 1, else none
+    // (0x006EB95E..0x006EB981).
+    VAR_SPELL_EFFECT_LEVEL_RECORD = 0x00CEE9A8,
+    OFF_SPELL_EFFECT_LEVEL = 0x28,
+    VAR_SPELL_EFFECT_LOW_SCALE = 0x00808300,
+    VAR_SPELL_EFFECT_MEDIUM_SCALE = 0x0081199C,
+    // A shard's fall: it starts this high over the area (16.666666,
+    // 0x006EBBD4), keeps this share of a trace that hits a ceiling (0.95,
+    // 0x006EBC64), and falls this far to the floor (33.333332, 0x006EBCDB).
+    VAR_AREA_SHARD_DROP_HEIGHT = 0x00810E20,
+    VAR_AREA_SHARD_HIT_SHARE = 0x008119A0,
+    VAR_AREA_SHARD_FALL = 0x0080FEE4,
+    // float 512.0, which the emitter adds before it takes a byte from a
+    // float's bits (0x005D5665, 0x006EBD87).
+    VAR_FIVE_TWELVE = 0x008029CC,
+    // The client's random state and two of its draws: a uint32
+    // (__thiscall(state), plain ret at 0x004532B2) and a random unit vector
+    // written to `out` (__fastcall(out, state), returns out; plain ret at
+    // 0x0044FE1B). The shards draw from them at 0x006EBB64 and 0x006EBB83.
+    VAR_CLIENT_RANDOM = 0x00882664,
+    // A kit procedure's third value (+0x6C): a chain's persistent flag
+    // (decoded at 0x0060DB19 with the others).
+    OFF_SPELLVISUALKIT_PROC_VALUE3 = 0x6C,
+    // The kit procedures that start a chain effect: kinds 0 and 12
+    // (0x0060D7FC through the byte table 0x0060DC20 -> 0x0060DA79 ->
+    // 0x006ECB90), their values the SpellChainEffects id, the strand count
+    // (at most 3, 0x006ECC65) and the persistent flag. Chain Lightning's
+    // cast kit 321 has kind 12 with chain 1, one strand (SpellVisualKit.dbc).
+    SPELLVISUALKIT_PROC_CHAIN = 0,
+    SPELLVISUALKIT_PROC_CHAIN_ALT = 12,
+    CHAIN_MAX_STRANDS = 3,
+    // SpellChainEffects.dbc (8 columns, 0x20-byte rows; docs/DBCs.md): the
+    // bolt's segment length (+0x04), width (+0x08), jitter (+0x0C) and
+    // texture scroll period (+0x10), a hop's life in ms (+0x14), the stagger
+    // between hops in ms (+0x18) and the texture (+0x1C). A LightningObject
+    // keeps +0x04..+0x10, life * 0.001 and the texture for CreateBolt
+    // (0x006EC65F). Verified by parsing the DBC: row 1 is 2.78, 0.5, 0.04,
+    // 1.0, 1000, 300, Textures\SpellChainEffects\Lightning.blp.
+    VAR_SPELLCHAINEFFECTS_RECORDS = 0x00C0D850,
+    VAR_SPELLCHAINEFFECTS_COUNT = 0x00C0D854,
+    OFF_SPELLCHAINEFFECTS_SEGMENT = 0x04,
+    OFF_SPELLCHAINEFFECTS_WIDTH = 0x08,
+    OFF_SPELLCHAINEFFECTS_JITTER = 0x0C,
+    OFF_SPELLCHAINEFFECTS_PERIOD = 0x10,
+    OFF_SPELLCHAINEFFECTS_LIFE = 0x14,
+    OFF_SPELLCHAINEFFECTS_STAGGER = 0x18,
+    OFF_SPELLCHAINEFFECTS_TEXTURE = 0x1C,
+    // The hop's bolt colour (0x006EC644 builds it from -1) and the caster
+    // end's share of the height without a $CSL event (0.75, 0x006EC73E).
+    CHAIN_BOLT_COLOR = 0xFFFFFFFF,
+    CHAIN_CASTER_HEIGHT = 0x3F400000,
+    // The chain-lightning bolt renderer (Lightning.cpp), __thiscall on a
+    // 32-byte renderer, verified by the ret sizes: Init (0x007B0760, ret)
+    // and Destroy (0x007B0780, ret); CreateBolt(start, end, segment, width,
+    // argb, jitter, period, extra, texture, callback, argument) returns the
+    // handle (ret 0x2C); MoveBolt(handle, start, end) (ret 0xC);
+    // ShowBolt(handle, on) (ret 8); DestroyBolt(handle) (ret 4);
+    // Update(seconds) (ret 4); Render(eye) (ret 4): every shown bolt as an
+    // additive, camera-facing ribbon through the device view, its points
+    // taken relative to `eye`.
+    LIGHTNING_RENDERER_SIZE = 32,
+    FUN_LIGHTNING_INIT = 0x007B0760,
+    FUN_LIGHTNING_DESTROY = 0x007B0780,
+    FUN_LIGHTNING_CREATE_BOLT = 0x007B07F0,
+    FUN_LIGHTNING_MOVE_BOLT = 0x007B0950,
+    FUN_LIGHTNING_SHOW_BOLT = 0x007B0BD0,
+    FUN_LIGHTNING_DESTROY_BOLT = 0x007B0AC0,
+    FUN_LIGHTNING_UPDATE = 0x007B0A40,
+    FUN_LIGHTNING_RENDER = 0x007B0A80,
+    FUN_RANDOM_UINT32 = 0x004531E0,
+    FUN_RANDOM_UNIT_VECTOR2 = 0x0044FD00,
+    // s_spellVisualAttachments: int[11] = {20, 34, 19, 21, 22, 17, 23, 24,
+    // 25, 15, 16}, read from the binary; the first nine are the kit effect
+    // columns' attachments.
+    VAR_SPELL_VISUAL_ATTACHMENTS = 0x00860A18,
+    SPELL_VISUAL_ATTACHMENT_COUNT = 11,
+    // GetSpellVisualRecord — `const SpellVisualRec *__fastcall(const
+    // SpellRec *)`: the visual at Spell +0x1CC, or +0x1D0 when the
+    // violenceLevel cvar is below 2 and that id is set; null outside the
+    // store (Ghidra 0x006EC1E0, benilla spell/visuals#spell-visual-record-choice).
+    FUN_GET_SPELL_VISUAL = 0x006EC1E0,
+    VAR_SPELLVISUAL_RECORDS = 0x00C0D738,
+    VAR_SPELLVISUAL_COUNT = 0x00C0D73C,
+    SPELL_VISUAL_SIZE = 0x40,
+    // ---- A ranged shot (benilla objectlayer/auras "Precast and spell visual
+    // choice", "Missiles"; objectlayer/unitcombat "The ranged release").
+    // UnitGetSpellVisual (0x0060D450, ret 8) builds the 64-byte visual a
+    // unit shows: the spell's record, and for a ranged spell (Attributes
+    // 0x2) the zero fields +0x04, +0x08, +0x0C, +0x20, +0x24, +0x28 and +0x38
+    // filled from the SpellVisual of the ranged item's ItemDisplayInfo
+    // (+0x28; the unit's vtable +0xA0(2) gives the display), and +0x18 = 1
+    // with +0x1C when that visual has a missile; null when neither exists.
+    // Auto Shot (75) has no visual of its own: a bow's (display 8106 ->
+    // visual 5) gives LoadBow / AttackBow kits, attachment index 1 and the
+    // flight sound 4222 (parsed from the DBCs).
+    // The ammo: SMSG_SPELL_START / GO carry an ammo display and inventory
+    // type for a ranged spell (Attributes 0x2; the server's WriteAmmoToPacket:
+    // a thrown weapon is its own ammo, else the player's ammo item; an NPC
+    // with a bow or crossbow shoots 5996 Rough Arrow, with a gun 5998 Light
+    // Shot). The launcher (CGUnit_C::LaunchSpellMissile 0x0060A3D0) makes the
+    // missile from the visual's +0x1C when it is at least 1, else from the
+    // ammo through CreateLooseItemModel `__fastcall(model, record, kind)` ret
+    // 4 (0x00479F40: the record's second model and texture under
+    // Item\ObjectComponents\Ammo\ for kind 0x18, Weapon\ for 0x19, in the
+    // body model's scene), else Spells\ErrorCube.mdx; a missile launched
+    // while the caster plays a rifle animation is drawn at alpha 0. The
+    // launch needs the visual's +0x18 or an ammo display (0x006E8A50).
+    SPELL_ATTR_RANGED = 0x2,
+    OFF_ITEMDISPLAYINFO_SPELL_VISUAL = 0x28,
+    FUN_CREATE_LOOSE_ITEM_MODEL = 0x00479F40,
+    LOOSE_ITEM_AMMO = 0x18,   // the kind for ammo
+    LOOSE_ITEM_WEAPON = 0x19, // the kind for a thrown weapon
+    NPC_ARROW_DISPLAY = 5996,
+    NPC_BULLET_DISPLAY = 5998,
+    ITEM_SUBCLASS_WEAPON_BOW = 2,
+    ITEM_SUBCLASS_WEAPON_GUN = 3,
+    ITEM_SUBCLASS_WEAPON_THROWN = 16,
+    ITEM_SUBCLASS_WEAPON_CROSSBOW = 18,
+    // The ranged release (CGUnit_C::OnModelEvent's $BWR arm, 0x00600159):
+    // with missiles queued, a bow animation (IsBowAnimation 0x005FCFB0: 46,
+    // 105, 109) releases them from the body's attachment 35, a rifle
+    // animation (IsRifleAnimation 0x005FCFD0: 49, 106, 110) from 36, any other
+    // from the event's point. Both tests `__fastcall(int anim)` -> 0 / 1.
+    FUN_IS_BOW_ANIMATION = 0x005FCFB0,
+    FUN_IS_RIFLE_ANIMATION = 0x005FCFD0,
+    ATTACH_BOW_RELEASE = 35,
+    ATTACH_RIFLE_RELEASE = 36,
+    // The ranged pose (Ghidra). At a ranged or auto-repeat spell's start
+    // (HandleSpellStart 0x006E78B6) SetAmmoDisplay (0x0060BA30) makes the
+    // unit's in-hand ammo (+0xD28, display +0xD2C) with CreateLooseItemModel,
+    // kind 0x19 for a thrown ranged item, and nocks it at attachment 35 when
+    // the bow is drawn (+0xD58 bit 0x4000) and the weapon is no gun or
+    // crossbow. $BWP (OnCombatModelEvent 0x006247D0, with a ranged current
+    // or auto-repeat spell) runs PlayBowPull (0x00624CC0): the ranged weapon
+    // model (+0xD24) plays 160 BowPull at speed sequence length / time left
+    // in the body's animation (key bone state: hi - ftol(position / speed) -
+    // lo; nothing when the state's latch is set or no time is left); then
+    // the ammo is nocked and the bow drawn. $BWR with missiles queued plays 0
+    // Stand on the weapon for a bow animation, 161 BowRelease for a rifle
+    // one. EndRangedPose (0x0060F530; from ReleaseMissiles, a failed or
+    // interrupted precast and more) clears the drawn bit, detaches the ammo
+    // and plays 0 on the weapon unless it plays 161. HasAnimation
+    // `bool __thiscall(model, animID)`, ret 4. A held item hangs in the
+    // right hand (attachment 1) for the main-hand lane and the left (2) for
+    // the off hand (AttachItemModel 0x0047A0C0).
+    FUN_M2MODEL_HAS_ANIMATION = 0x00711960,
+    // A ranged or auto-repeat spell's start sets the caster's sheathe state
+    // to 2 at once (HandleSpellStart 0x006E78F3: SetSheatheState 0x00611CF0
+    // with (2, 1, 1)): the ranged weapon in hand, the melee weapons on their
+    // sheath points. A unit that is not the active player keeps state 2
+    // through its later animations (0x005FDF80 asks for 2 again).
+    // IsDeathAnimation `int __stdcall(int anim)`, ret 4 (a jump table). A
+    // dead unit plays only death animations: CGUnit_C::PlayAnimation
+    // (0x005FE2F0) returns for health below 1 unless the animation is one.
+    FUN_IS_DEATH_ANIMATION = 0x005FDA90,
+    // The bowstring (Ghidra). RefreshRangedWeaponModel (0x00611E10) gives
+    // the ranged model of a bow (class 2, subclass 2; 0x00611EDF) the draw
+    // callback DrawBowstring (0x00611FF0, `__fastcall(model, lightingRecord,
+    // unit)`, ret 4) with the unit as its user data (0x00611EEE), and sets a
+    // null callback before it closes that model. SetDrawCallback
+    // (0x00710DB0, `__thiscall(model, callback, user, list0)`, ret 0xC)
+    // writes instance +0x1B8 / +0x1BC / +0x1C0; the M2 draw runs the
+    // callback as a custom element, in list 0 when list0 is set. The
+    // callback reads only the unit's model (+0xD8, OFF_CGOBJECT_MODEL) and
+    // its bow-drawn bit (+0xD58 bit 0x4000, set by $BWP at 0x00624B70): two
+    // lines in the lighting record's colour (+0x54..+0x5C) from the bow's
+    // $WTT to its $WTB through the body's attachment 35 while drawn, else
+    // through their midpoint.
+    FUN_DRAW_BOWSTRING = 0x00611FF0,
+    FUN_M2MODEL_SET_DRAW_CALLBACK = 0x00710DB0,
+    OFF_CGUNIT_STATE_FLAGS = 0xD58,
+    UNIT_STATE_BOW_DRAWN = 0x4000,
+    // A unit's ranged weapon (Ghidra): its third held lane, hand 2 of the
+    // held-lane and display virtuals (VTBL_UNIT_GET_HELD_ITEM_LANE with
+    // (2, 0), VTBL_UNIT_GET_HELD_ITEM_DISPLAY with 2), inventory slot 18.
+    // Its model (+0xD24, one reference) is hung only in the ranged sheathe
+    // state: ApplySheatheChange (0x00611770) entering state 2 moves the
+    // melee items to their sheath points, then RefreshRangedWeaponModel
+    // (0x00611E10, arg 0) empties attachments 1, 2 and 0 and hangs it in
+    // hand with AttachItemModel (body slot 0x11, its sheathe type, the
+    // ranged flag set for INVTYPE_RANGEDRIGHT and THROWN: attachment 1, else
+    // 2). Leaving state 2 detaches attachment 35 and the weapon's hand, then
+    // opens that hand (OpenHand 0x004796B0, `__fastcall(model, hand)`: no
+    // animation on finger key bones 8..12 for hand 0, 13..17 for hand 1);
+    // for state 1 RefreshRangedWeaponModel(1) hangs it at its sheath point
+    // (none for a bow or gun's sheathe type 0). DetachAt (0x007130A0,
+    // `__thiscall(model, attachId)`, ret 4) detaches every child hung there.
+    // While drawn, a player's quiver shows (component slot 11); not
+    // mirrored.
+    UNIT_HAND_RANGED = 2,
+    BODY_SLOT_RANGED = 0x11,
+    INVSLOT_RANGED = 18,
+    FUN_OPEN_HAND = 0x004796B0,
+    FUN_M2MODEL_DETACH_AT = 0x007130A0,
+    // Stuck missiles (Ghidra). The launcher (0x0060A509) flags a ranged
+    // spell's missile 0x4 when the ranged item is a bow, crossbow or thrown
+    // weapon (0x0060A710: class 2, subclass 2, 18 or 16). Launch (0x0061CEB0)
+    // settles the target attachment: the visual's, else 15, else 19, else
+    // none. ArriveHit (0x0061DC50) with the flag, an attachment and a target
+    // model runs StickInUnit (0x0061E7C0, 5000 ms): 191 Impact on the
+    // missile, attached at the attachment, its base = its world pose times
+    // the inverse of GetAttachmentMatrix (`__thiscall(model, float out[16],
+    // id)`, ret 8, in scene space) at the unit's scale; the unit frees each
+    // on its stuck list (+0xB0) once its time comes (object slot 14).
+    FUN_M2MODEL_GET_ATTACHMENT_MATRIX = 0x00712DE0,
+    MISSILE_STICK_MS = 5000,
+    ANIM_IMPACT = 191,
+    ANIM_STAND = 0,
+    ANIM_BOW_PULL = 160,
+    ANIM_BOW_RELEASE = 161,
+    // The ranged shot cycle (CGUnit_C's sequence-end handler 0x005FC3F0):
+    // the end of 105 LoadBow plays 109 HoldBow and of 106 LoadRifle 110
+    // HoldRifle, always; the end of 109 replays it, of 110 replays it, of 111
+    // HoldThrown or 112 LoadThrown plays 111, while the unit has a ranged
+    // model and channels or precasts (+0xD58 bit 0x400; 109 also takes the
+    // local auto-repeat bit 0x200); otherwise the base animation is picked
+    // again.
+    ANIM_LOAD_BOW = 105,
+    ANIM_LOAD_RIFLE = 106,
+    ANIM_HOLD_BOW = 109,
+    ANIM_HOLD_RIFLE = 110,
+    ANIM_HOLD_THROWN = 111,
+    ANIM_LOAD_THROWN = 112,
+    ATTACH_HAND_RIGHT = 1,
+    ATTACH_HAND_LEFT = 2,
+    OFF_M2_SEQUENCE_INFO_LENGTH = 0x04,
+    OFF_M2_KEY_BONE_ANIM_STATE_ID = 0x00,
+    OFF_M2_KEY_BONE_ANIM_STATE_SPEED = 0x0C,
+    OFF_M2_KEY_BONE_ANIM_STATE_LO = 0x10,
+    OFF_M2_KEY_BONE_ANIM_STATE_HI = 0x14,
+    OFF_M2_KEY_BONE_ANIM_STATE_LATCH = 0x18,
+    OFF_M2_KEY_BONE_ANIM_STATE_VARIATION = 0x04,
+    // GetSequenceInfo's +0x08 (0x00711A20): the sequence's move speed times
+    // the length of the base matrix's first row, the model's scale.
+    OFF_M2_SEQUENCE_INFO_SPEED = 0x08,
+
+    // A unit's movement animations (benilla objectlayer/unitanim). The pick
+    // SelectBaseAnimation (0x005FD8B0) asks resolvers in order: after death
+    // and the special stand, a fall holds what plays (falling far, or a fall
+    // with a start speed); a mover with a direction bit claims a move
+    // animation (0x005FD100: swim 41 to 45, back 13, 143 from 11 yd/s, 5
+    // above twice the walk speed, else 4); a turn on the spot shuffles
+    // (0x005FD3F0, gate CanShuffle 0x005FCE30); idle is 41 swimming, else 0
+    // (0x005FD830), but nothing while JumpEnd's lock (+0xD58 bit 0x4) holds.
+    // The play (0x005FE2F0) gives a move animation (IsMoveAnimation
+    // 0x005FEE80) the rate GetCurrentSpeed / the sequence's speed, and the
+    // phase of the move animation it replaces; PlayTrack (0x005FDBA0)
+    // returns at once when the track already plays the animation. The
+    // gate's sets IsEmoteAnimation (0x005FCED0), IsSpellCastAnimation
+    // (0x005FCBB0) and IsThrownAnimation (0x005FCF90), and IsMoveAnimation,
+    // are `int __fastcall(int anim)` with a plain ret, as the bow and rifle
+    // tests above.
+    FUN_IS_MOVE_ANIMATION = 0x005FEE80,
+    FUN_IS_EMOTE_ANIMATION = 0x005FCED0,
+    FUN_IS_SPELL_CAST_ANIMATION = 0x005FCBB0,
+    // The sequence-end handler's missile release test (0x005FCCB0, plain ret,
+    // `int __fastcall(int anim)`): the spell casts above (2, 32, 33, 53, 54,
+    // decoded from the jump table at 0x005FCBD8) and 46, 49 and 107. The
+    // handler (0x005FC920) asks it before its reason test (0x005FC9FC), so a
+    // sequence that ends or is replaced releases a unit's queued missiles
+    // (0x0060C9B0 at 0x005FC9A2).
+    FUN_IS_MISSILE_RELEASE_ANIMATION = 0x005FCCB0,
+    FUN_IS_THROWN_ANIMATION = 0x005FCF90,
+    ANIM_WALK = 4,
+    ANIM_RUN = 5,
+    ANIM_SHUFFLE_LEFT = 11,
+    ANIM_SHUFFLE_RIGHT = 12,
+    ANIM_WALK_BACKWARDS = 13,
+    ANIM_JUMP_START = 37,
+    ANIM_JUMP = 38,
+    ANIM_JUMP_END = 39,
+    ANIM_FALL = 40,
+    ANIM_SWIM_IDLE = 41,
+    ANIM_SWIM = 42,
+    ANIM_SWIM_LEFT = 43,
+    ANIM_SWIM_RIGHT = 44,
+    ANIM_SWIM_BACKWARDS = 45,
+    ANIM_SPRINT = 143,
+    ANIM_JUMP_LAND_RUN = 187,
+    // The animations the follow camera's pivot heights (0x0050CA90, jump
+    // table 0x0050D0CC) give stand states 1 and 3 to 8, named from
+    // AnimationData.dbc: Dead, SitGround, Sleep, SitChairLow / Med / High,
+    // KneelLoop.
+    ANIM_DEAD = 6,
+    // The deaths whose end PlayFollowOnAnimation holds (0x005FC52D for 1
+    // and 6, 0x005FC573 for 131 and 132, by the byte table 0x005FC848):
+    // Death -> Dead, Drown -> Drowned (AnimationData.dbc names).
+    ANIM_DEATH = 1,
+    ANIM_DROWN = 131,
+    ANIM_DROWNED = 132,
+    ANIM_SIT_GROUND = 97,
+    ANIM_SLEEP = 100,
+    ANIM_SIT_CHAIR_LOW = 102,
+    ANIM_SIT_CHAIR_MED = 103,
+    ANIM_SIT_CHAIR_HIGH = 104,
+    ANIM_KNEEL_LOOP = 115,
 
     // ItemSet.dbc — armor/equipment set definitions referenced by
     // `ItemStats_C::m_itemSet`. Standard 5-DWORD class shape at
@@ -6327,9 +7049,64 @@ enum Offsets {
     VAR_CREATUREDISPLAYINFO_COUNT = 0x00C0DE94,
     OFF_CREATUREDISPLAYINFO_MODEL_ID = 0x04,
     OFF_CREATUREDISPLAYINFO_TEXTURE_VARIATION = 0x18, // char*[3] @ +0x18/+0x1C/+0x20
+    // float CreatureModelScale (col 4). Mount (0x00607A75) stores a mount
+    // display's into the unit's +0x9C and seats the rider at +0x98 (always
+    // 1.0) over it. Parsed from the DBC: 2404 = 1.0, 14332 = 1.5.
+    OFF_CREATUREDISPLAYINFO_SCALE = 0x10,
+    // The unit's sound data and size class come from the display, else its
+    // model data: GetSoundData (0x0060AFB0, display +0x08 else model data
+    // +0x34) and GetUnitSoundSize (0x00625500, display +0x24 unless -1, else
+    // model data +0x0C). Verified by parsing the DBCs: display 49 has sound
+    // 0 and size class 1 at +0x24; model data 49 has sound 49 and size 1.
+    OFF_CREATUREDISPLAYINFO_SOUND_ID = 0x08,
+    OFF_CREATUREDISPLAYINFO_SIZE_CLASS = 0x24,
+    OFF_CREATUREMODELDATA_SIZE_CLASS = 0x0C,
+    OFF_CREATUREMODELDATA_SOUND_ID = 0x34,
+    // CreatureSoundData.dbc (30 columns; class 0x00C0DE4C, docs/DBCs.md). The
+    // columns the unit's model events read (benilla objectlayer/sounds): the
+    // stand vocal $FDX plays (+0x20, kind 5), the footstep id (+0x24, a
+    // FootstepTerrainLookup CreatureFootstepID), and the four fidgets $FD1 to
+    // $FD4 play (+0x38). Row 49 (human male): 2941, 186, 2942, 2943, 0,
+    // 2944, 191, 192, footstep 7, ..., fidget 5519.
+    VAR_CREATURESOUNDDATA_RECORDS = 0x00C0DE54,
+    VAR_CREATURESOUNDDATA_COUNT = 0x00C0DE58,
+    OFF_CREATURESOUNDDATA_STAND = 0x20,
+    OFF_CREATURESOUNDDATA_FOOTSTEP = 0x24,
+    // The wing flap (+0x2C, vocal kind 7) and glide (+0x30, kind 10) that
+    // the $WNG and $WGG events play through slot 34 (0x005FFBD0: `push 7` /
+    // `push 0xA`, `call [eax+0x88]`). Onyxia's row 191: flap 5059.
+    OFF_CREATURESOUNDDATA_WING_FLAP = 0x2C,
+    OFF_CREATURESOUNDDATA_WING_GLIDE = 0x30,
+    OFF_CREATURESOUNDDATA_FIDGET = 0x38, // int[4]
+    // TerrainType.dbc (6 columns; ids 0 Dirt .. 10 None). Its +0x10 is the
+    // TerrainTypeSounds id the footstep and death-thud tables are indexed by.
+    VAR_TERRAINTYPE_RECORDS = 0x00C0D684,
+    VAR_TERRAINTYPE_COUNT = 0x00C0D688,
+    OFF_TERRAINTYPE_SOUND_ID = 0x10,
+    // GetFootstepSound — `int __fastcall(int creatureFootstepID /*ecx*/, int
+    // terrainTypeID /*edx*/, int wet /*stack*/)`, RET 0x4 (disassembly
+    // 0x00458450): the FootstepTerrainLookup sound for the TerrainType row's
+    // +0x10, dry or wet, or 0 for an unknown terrain or footstep id.
+    FUN_GET_FOOTSTEP_SOUND = 0x00458450,
+    // The death thud table: five size classes of {?, count, pairs *}, 12
+    // bytes each, the pair {dry, wet} indexed by TerrainTypeSounds id and
+    // bounded by count (PlayDeathThud 0x006236E0: `cmp ecx,[eax+0xC4E0F8]`,
+    // `mov eax,[eax+0xC4E0FC]`).
+    VAR_DEATH_THUD_SOUNDS = 0x00C4E0F4,
+    DEATH_THUD_SIZE_CLASSES = 5,
+    DEATH_THUD_STRIDE = 12,
+    OFF_DEATH_THUD_COUNT = 0x04,
+    OFF_DEATH_THUD_PAIRS = 0x08,
     VAR_CREATUREMODELDATA_RECORDS = 0x00C0DE68,
     VAR_CREATUREMODELDATA_COUNT = 0x00C0DE6C,
     OFF_CREATUREMODELDATA_MODEL_PATH = 0x08,
+    // The collision box a unit's mover takes (CGUnit_C::UpdateCollisionSize
+    // 0x0060B270: width +0x38 and height +0x3C into
+    // CMovement::SetCollisionSize 0x006174B0, "NOCOLLISIONBOX" when either is
+    // below 2^-20), at the larger of the unit's scale and the display's
+    // CreatureModelScale.
+    OFF_CREATUREMODELDATA_COLLISION_WIDTH = 0x38,
+    OFF_CREATUREMODELDATA_COLLISION_HEIGHT = 0x3C,
 
     // CreatureDisplayInfo.extendedDisplayInfoID (col 3) — nonzero for a
     // CHARACTER-based display (shared Character\Race\Sex base model). It indexes
@@ -9635,6 +10412,7 @@ enum Offsets {
     // engine's reload teardown loop (which `SMemFree`s every event entry's
     // name) doesn't trip its safety check on our injected pointers.
     FUN_STORM_SMEM_ALLOC = 0x006462E0,
+    STORM_SMEM_FLAG_ZERO_FILL = 0x08, // SMemAlloc flags bit 3
     FUN_STORM_SMEM_FREE = 0x00646430,
 
     // Engine's main file-content reader. Used by the TOC parser at
@@ -9870,6 +10648,16 @@ enum Offsets {
     // duplicate check (`0x00458F40`: `([def+0x7C] >> 5) & 1`).
     OFF_SOUND_DEFINITION_FLAGS = 0x7C,
     SOUND_DEFINITION_FLAG_NO_DUPLICATES = 0x20,
+    // GetSoundDefFlag200 — `bool __fastcall(uint soundEntryID, char *out)`:
+    // stores bit 0x200 of the definition's flags in `out` and returns whether
+    // the definition exists (verified by decompile). The kit player
+    // (0x0060EDF0) tests it: a lasting kit (kinds 2, 3 and 4) with the bit
+    // makes its sound an effect sound, a 3D loop that follows the unit
+    // (AddEffectSound 0x0061FEC0 -> PlaySoundLoop3D) and stops with the effect
+    // (CEffect::Stop 0x006203E0, Sound::Stop2 over 0.15 s); a one-shot kit
+    // clears the bit and plays the sound once. Every channel kit's sound has
+    // it (LifeDrainLoop, SoulFunnel), no cast kit's.
+    FUN_SOUND_DEFINITION_KIT_LOOP = 0x00458830,
 
     // SoundEntries player (InternalPlaySound) — `void *__fastcall(char keep
     // /*ecx, flag 0x4*/, char noCategory /*edx, flag 0x10*/, int bus, int
@@ -9887,6 +10675,32 @@ enum Offsets {
     // engine has always played by SoundEntries ID internally, it simply
     // never exposed that to Lua (`PlaySound` takes only the row's name).
     FUN_SOUND_PLAY_ENTRY = 0x0045CE60,
+    // The SoundEntries 2D loop player — `void *__fastcall(int soundEntryID
+    // /*ecx*/, char ambience /*dl, flag 0x8*/, char noCategory /*stack,
+    // flag 0x10*/)`, RET 0x4 (disassembly 0x00458900). Opens a variant of
+    // the row as a held loop on bus 0 (loop count 0 = forever), applies the
+    // row's volume, unpauses, and returns the Sound record or NULL. The
+    // world's looping sounds (ambience, missiles) go through this family.
+    FUN_SOUND_PLAY_ENTRY_LOOPED = 0x00458900,
+    // The SoundEntries 3D player (0x0045CF00) — `void *__fastcall(bool
+    // *culled /*ecx*/, char keep /*dl, flag 0x4*/, char noCategory /*flag
+    // 0x10*/, int bus, int soundEntryID, const float pos[3], int
+    // variantIndex, float volumeScale)`, RET 0x18 (disassembly; PlaySoundAt
+    // 0x00458870 is `(0, 0, 0, id, pos, index, m)` turned into a bool).
+    // Refuses a position at or past the row's cutoff from the listener
+    // (sets *culled, returns NULL); else opens the file with Play3D, sets
+    // the row's volume, the position, the cutoff and the row's minimum
+    // distance, unpauses and returns the Sound record. `pos` is in the
+    // engine's axes.
+    FUN_SOUND_PLAY_ENTRY_AT = 0x0045CF00,
+    // The SoundEntries 3D loop player (0x004589A0) — `void *__fastcall(int
+    // soundEntryID /*ecx*/, const float pos[3] /*edx*/)`, RET 0: a held
+    // loop (count 0) on bus 0 at `pos`, with the row's volume, cutoff and
+    // minimum distance; the Sound record or NULL.
+    FUN_SOUND_PLAY_ENTRY_LOOPED_AT = 0x004589A0,
+    // Sound::SetPosition — `void __thiscall(Sound *, const float pos[3],
+    // const float *velocity)`, RET 0x8 (0x00458ED0 passes NULL velocity).
+    FUN_SOUND_SET_POSITION = 0x007A5B10,
 
     // Head of the live stream list, walked by `FUN_007A66A0`'s dedup pass:
     // an intrusive list with `next` at `+0x04` and the Storm tagged-pointer
@@ -10873,6 +11687,10 @@ enum Offsets {
     // form's while shapeshifted). Field 0x7D in the update-field name table
     // (0x0083A73C).
     OFF_UNIT_FIELD_DISPLAYID = 0x1F4,
+    // UNIT_FIELD_NATIVEDISPLAYID: the unit's own display (field 0x7E).
+    // DressUpModel's ready byte is DISPLAYID == NATIVEDISPLAYID (0x00504450,
+    // benilla ui/dressup): a shapeshifted unit takes no armor try-on.
+    OFF_UNIT_FIELD_NATIVEDISPLAYID = 0x1F8,
 
     // Local player movement-flags u32. Lives directly on the
     // CGPlayer object (not the broadcast descriptor) — this is
@@ -11166,6 +11984,19 @@ enum Offsets {
     // constant shares the slot.
     VAR_CAMERA_MAX_PITCH = 0x008089D8,
     VAR_CAMERA_MIN_PITCH = 0x008089DC,
+
+    // The follow camera's pivot heights (CCamera::BuildPivotHeights
+    // 0x0050CA90) and the one it eases to (ArmPivotHeight 0x0050F880): the
+    // height of attachment 17 plus the lift (0x0050CBE4), else the share of
+    // the collision box (0x0050CC03, the plain 0.9 other code reads too);
+    // each preset kept from the minimum to the maximum (0x0050CFA7 on); the
+    // near preset while the target distance (+0x198) is under the near
+    // distance (0x0050F8B5), else the far one.
+    VAR_CAMERA_PIVOT_LIFT = 0x00808AB0,     // float 7/72
+    VAR_NINE_TENTHS = 0x00804588,           // float 0.9
+    VAR_CAMERA_PIVOT_MIN = 0x008089CC,      // float 5/6
+    VAR_CAMERA_PIVOT_MAX = 0x008089C8,      // float 15
+    VAR_CAMERA_NEAR_DISTANCE = 0x008089B0,  // float 1.8315
 
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /
@@ -11885,6 +12716,7 @@ enum Offsets {
     OFF_SPELL_RECORD_FAMILY_NAME = 0x280,             // u32
     OFF_SPELL_RECORD_FAMILY_FLAGS = 0x284,            // u64
     OFF_SPELL_RECORD_ICON_ID = 0x1D4,                 // u32 SpellIconID (→ SpellIcon.dbc)
+    OFF_SPELL_RECORD_SPEED = 0x94,                    // float missile speed, yards/s (column 37; read by the missile launcher 0x0060A3D0 as m_speed; verified in Spell.dbc). 24.0 for Fireball 133
     OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
     OFF_SPELL_RECORD_ATTRIBUTES = 0x18,               // u32 (column 6, base Attributes)
     SPELL_ATTR_PASSIVE = 0x40,                        // bit 6 — always-on aura
@@ -12666,6 +13498,9 @@ enum Offsets {
     // `bool __fastcall(const char *name, int *outLayer)`: case-insensitive
     // BACKGROUND..HIGHLIGHT -> 0..4; leaves *outLayer alone on a miss.
     FUN_XML_DRAW_LAYER_FROM_NAME = 0x006F18B0,
+    // DrawLayerIdToName — `const char *__fastcall(int layer)`: the inverse,
+    // what the regions' GetDrawLayer pushes.
+    FUN_DRAW_LAYER_TO_NAME = 0x006F1900,
     // "Frame %s: Unknown child node in %s element: %s"
     STR_XML_FRAME_UNKNOWN_CHILD = 0x008786E0,
     // Builds a node's <Frames> children. `__thiscall(frame, node, status)`,
@@ -13070,6 +13905,789 @@ enum Offsets {
     FUN_M2SCENE_COPY_MODEL = 0x00707400,
     // M2SceneDraw — `__thiscall(scene, pass)`; the bake draws 0 then 1.
     FUN_M2SCENE_DRAW = 0x00708900,
+    // The scene's clock, uint32 milliseconds: M2SceneAdvance (0x007074B0,
+    // `__thiscall(scene, ms)`, nothing for 0) passes +0x0C + ms to SetTime
+    // (0x00707490), which stores it here. A Model frame's update (slot 14,
+    // 0x0076D7F0) advances its scene by the truncated ms of each frame.
+    OFF_M2SCENE_TIME = 0x0C,
+    // The world's object pick (0x00480A50, Ghidra): EnableRayHits, then
+    // SetHitTestMode on each candidate and its children (0x00480D90), then
+    // RayHit with retry 1, the ray in view space (the device view of the
+    // last collect, from the camera's eye). EnableRayHits — `__fastcall(scene)`
+    // sets scene +0x12C, which RayHit clears.
+    FUN_M2SCENE_ENABLE_RAY_HITS = 0x007089B0,
+    // M2SceneRayHit — `uint __thiscall(scene, const float p0[3], const float
+    // p1[3], float *fraction, int retry)`, ret 0x10 (the pick's four pushes,
+    // 0x00480C11..0x00480C2E): the nearest triangle on p0..p1 (within
+    // *fraction of it) of the instances on the hit list, animated in the
+    // scene's latest collect (instance +0x40 == scene +0x10). Mode 1 skins
+    // each visible submesh on the CPU and skips alpha 0. Writes the hit's
+    // fraction and returns the instance's hit value, else 0; empties the hit
+    // list on every call. With `retry`, a miss reruns with fattened meshes.
+    FUN_M2SCENE_RAY_HIT = 0x007089C0,
+    // CM2Model::SetHitTestMode — `__thiscall(model, mode, priority, value)`,
+    // ret 0xC (0x00713CB0): a nonzero mode links the instance into its
+    // scene's hit list (+0x414/+0x418 into scene +0x130) and stores mode
+    // +0x410, priority +0x420, value +0x41C. Mode 1 is the world pick's.
+    FUN_M2MODEL_SET_HIT_TEST_MODE = 0x00713CB0,
+    M2_HIT_TEST_SKINNED = 1,
+    // CM2Model::GetBaseTransform — `__thiscall(model, float out[16])`, ret 4:
+    // copies the base matrix +0xBC. GetAlpha — `float __thiscall(model)`:
+    // +0x180 (Ghidra 0x00710600, 0x00710CA0).
+    FUN_M2MODEL_GET_BASE_TRANSFORM = 0x00710600,
+    FUN_M2MODEL_GET_ALPHA = 0x00710CA0,
+
+    // ---- The blob shadow (DrawBlobShadow 0x006D7920; benilla
+    // lighting/shadows). A world entity with flag 0x400 draws it when its
+    // model is ready and shadowLOD is 1 (0x006D78F0). The box is the bounds
+    // of sequence (0, 0), skipped when the x or y extent is under
+    // VAR_TWO_POW_MINUS_22, clamped to +-5 and multiplied by the length of
+    // the base transform's row 0 (times 1.0, 0x00811698); its four corners
+    // turn by the base rotation (rows over that length) and move by the base
+    // translation. The decal box is those corners' bounds, z from the base
+    // translation less BOX_DOWN x h to it plus BOX_UP x h, h the scaled
+    // bounds' height over ThirdOf(6) (6 x VAR_ONE_THIRD). The texture matrix
+    // is diag(box y, box x, 1) x the rotation transposed x diag(1 / bounds y,
+    // 1 / bounds x, 1) (MultiplyMatrix3 0x007BDFC0, out = a x b). The decal
+    // states (0x006D7F27..0x006D7FCF): push, blend 4, lighting / fog / depth
+    // write off, the blob on stage 0, fog colour white, combiner preset 5,
+    // depth function 1 when shadowBias is 0 (0x006D7FB2: TEST AH,0x44 / JP
+    // skips it otherwise); colour white with the model's alpha (0x004A2C10
+    // packs its first argument as the top byte), then the decal draw
+    // 0x006D7330 with fade 0.5 and mask 0x2F0122, and pop.
+    VAR_SHADOW_LOD = 0x0086F5B4,          // int, the shadowLOD cvar (default 1)
+    VAR_SHADOW_BLOB_TEXTURE = 0x00CE9DFC, // HTEXTURE Textures\ShadowBlob.blp; the unit setup loads it (0x006D8070)
+    SHADOW_BOUNDS_CLAMP = 5,
+    VAR_SHADOW_BOX_DOWN = 0x00CEA610, // float 5/3, a static initializer (0x006D6E20)
+    VAR_SHADOW_BOX_UP = 0x00CEA60C,   // float 3/3, the same initializer
+    VAR_ONE_THIRD = 0x00807A40,       // float 1/3 (ThirdOf 0x006D6E50)
+    SHADOW_HEIGHT_THIRDS = 6,
+    SHADOW_DECAL_MASK = 0x2F0122,
+    // The decal draw (DrawDecal 0x006D7330, benilla lighting/shadows
+    // "Projected decals"). BuildDecalTransforms `__fastcall(float tex0[16],
+    // float tex1[16], const float box[6], const float m[16], float fade, int
+    // absolute)` ret 0x10: tex0 maps the box's x / y to [0, 1] (centred,
+    // turned -pi/2, then m), tex1 its height to the fade coordinate. With
+    // `absolute` 0 the input is relative to the WORLD camera (the world frame
+    // +0x65B8, 0x00481900); with 1 it is an absolute position. The two load
+    // stages 0 and 1 (FUN_GX_TEXMTX_PUSH_LOAD), then DrawDecalBatches
+    // (0x006D7480): the facet batches reset and filled by TestWorldBox (the
+    // world's map objects and terrain), then inside a state push: stage 1 the
+    // grey ramp with combiner 3 (add) when the blend is 4, else the ramp;
+    // depth bias 2 x shadowBias x 2^-15 when shadowBias is not 0; texgen 2
+    // (world position) and texture transform 1 on stages 0 and 1; with
+    // lighting on, the material colour (state 1) and coloured vertices,
+    // else the colour, R and B swapped when the device caps +0x1C is 1; world
+    // stack 8 pushed; per batch with at most 0x8000 indices x 3 and a
+    // matrix, vertices and indices: stack 8 = its matrix x Translate(-camera),
+    // WriteDecalVertices `__thiscall(batch, u32 colour)` ret 4 (or
+    // WriteDecalVerticesColoured `__fastcall(batch)`), WriteDecalIndices
+    // `__fastcall(batch)`, GxPrimRenderOne `__fastcall(const prim *, int
+    // count)` of {u32 3 (triangles), u32 0, u16 count, u16 0, u16 count - 1}.
+    // The world's map object box test (TestMapObjectBox 0x006AD330): the
+    // box's centre through the def's inverse, its half extents through the
+    // inverse's 3x3 (RotateBox `__fastcall(const float m3x3[9], const float
+    // box[6], float out[6])` ret 4), BoxOverlaps, then CollectBoxFacets
+    // `__thiscall(obj, void *out, const float box[6], def, u32 mask)` ret
+    // 0x10 (the group facets in the box, into the batches).
+    FUN_BUILD_DECAL_TRANSFORMS = 0x006D6FA0,
+    DECAL_SHADOW_FADE = 0x3F000000, // float 0.5 (0x006D8035)
+    FUN_WRITE_DECAL_VERTICES = 0x006D7810,
+    FUN_WRITE_DECAL_VERTICES_COLOURED = 0x006D7760,
+    FUN_WRITE_DECAL_INDICES = 0x006D78A0,
+    FUN_GX_PRIM_RENDER_ONE = 0x0058A830,
+    GX_PRIM_TRIANGLES = 3,
+    FUN_ROTATE_BOX = 0x006DC3F0,
+    FUN_CMAPOBJ_COLLECT_BOX_FACETS = 0x006A3B10,
+    // A map object's liquid facets in a box (the world gather 0x006AAAB0
+    // under class bits 0xF0000): CollectBoxLiquid 0x006A3C20 walks the groups
+    // whose MOGI bounds (OFF_MOGI_BOUNDS, min then max) overlap the box, each
+    // loaded one through 0x006BBCB0: reset the batches, then the group's
+    // CollectLiquidBox `bool __thiscall(group, u32 *flags, const float
+    // box[6], const void *def, u32 class)` ret 0x10, which adds two
+    // triangles per liquid tile in the box whose type (flag byte & 3) the
+    // class asks for (bit 16 + type) to the batches, then the facet emitter.
+    // The mover's swimmer asks for WORLD_CLASS_SWIM_LIQUID (0x00633E81,
+    // 0x006320D0): water and ocean, not magma or slime.
+    FUN_CMAPOBJGROUP_COLLECT_LIQUID_BOX = 0x006BB170,
+    // CMapObj::GetBoundingBox `__thiscall(obj, float out[6])` ret 4: the
+    // root's box (model space), zeros before it loads. A placed def's world
+    // box (+0x44, SetPlacement 0x00698F50) is it through TransformBox.
+    FUN_CMAPOBJ_GET_BOUNDING_BOX = 0x006A4420,
+    WORLD_CLASS_SWIM_LIQUID = 0x30000,
+    OFF_MOGI_BOUNDS = 0x04,
+    VAR_SHADOW_RAMP = 0x00CE9DF8,      // device texture (64 x 8), stage 1
+    VAR_SHADOW_GREY_RAMP = 0x00CE9DF4, // device texture (64 x 8), stage 1 with blend 4
+    VAR_SHADOW_BIAS = 0x00CEA620,      // float, the shadowBias cvar (default 0.1)
+    VAR_SHADOW_BIAS_SCALE = 0x00811694, // float 2^-15
+    // GxRs readers and setters: GetInt `__fastcall(id, int *out)`; SetWord
+    // `__fastcall(id, int, u32 value)` ret 4 and SetFloat `__fastcall(id,
+    // int, float value)` ret 4 (the value on the stack). GxDeviceCaps
+    // `void *__fastcall()`.
+    FUN_GX_RS_GET_INT = 0x00589EE0,
+    FUN_GX_RS_SET_WORD = 0x00589E00,
+    FUN_GX_RS_SET_FLOAT = 0x00589E30,
+    FUN_GX_DEVICE_CAPS = 0x0058A230,
+    OFF_GXCAPS_COLOR_SWAP = 0x1C,
+    GXRS_DEPTH_BIAS = 0x00,
+    GXRS_MATERIAL = 0x01,
+    // Fog start and end (floats), as M2LightingSetDeviceLights (0x0071C730)
+    // commits a record's fog; the device starts with 0 and 1.0 and the
+    // colour 0xFFFF0080 (0x00593BF0).
+    GXRS_FOG_START = 0x0A,
+    GXRS_FOG_END = 0x0B,
+    GXRS_FOG_COLOR = 0x0D,
+    GXRS_DEPTH_FUNC = 0x11,
+    GXRS_DEPTH_FUNC_DECAL = 1, // the blob's depth function when shadowBias is 0
+    GXRS_COMBINE_ADD = 3,
+    GXRS_TEXGEN_WORLD_POS = 2,
+    // Render-state ids (benilla gx/renderstate: the id table).
+    GXRS_BLEND = 0x07,       // blend mode 0..10
+    GXRS_LIGHTING = 0x0E,
+    GXRS_FOG = 0x0F,
+    GXRS_DEPTH_WRITE = 0x12,
+    GXRS_CULL = 0x14,
+    GXRS_BLEND_MODULATE = 4,          // DST_COLOR / ZERO
+    GXRS_COMBINE_BLEND_DIFFUSE_ALPHA = 5, // stage: texture to the vertex colour by its alpha
+    // Topology for FUN_GX_PRIM_INDEXED: 4 is a triangle strip (the lightning
+    // bolt's quad, 0x007AFCB0).
+    GX_PRIM_TRIANGLE_STRIP = 4,
+
+    // ---- Map objects (WMOs) drawn outside the world (ModelScene
+    // SetWorldModel; docs/notes/model-scene.md "Extension 8"). The world's
+    // draw of one instance is DrawMapObjectPass 0x00684840: world stack 8 =
+    // placement x Translate(-camera), a lighting record committed at the
+    // camera with fog, then per group and frustum volume StoreFrustum +
+    // TransformFrustum(inverse placement) and the interior or exterior drawer.
+    //
+    // CMapObj::Get — `__fastcall(const char *path)`: the cached map object of
+    // that name, else a new one whose root file read is queued; either way
+    // with one more reference (+0x1C8). Its reader (CMap::SafeOpen
+    // 0x00694130) ENDS THE PROGRAM when a file does not open, for the root
+    // and for each group, and parses chunks in a fixed order with no tag
+    // check (0x006C3A60). CountDown — `__fastcall(obj)`: one reference less;
+    // at 0 a 30 s timer (+0x1CC), after which the world frame
+    // (BeginMapObjectFrame 0x006B3890) frees it. Nothing else frees a
+    // referenced object (MapObjReleaseAll 0x006A3160 runs only at client
+    // close). The cache, pools and shaders come from CMap::Initialize
+    // (0x00691B10, client start), so all of this works at the glue screen.
+    FUN_CMAPOBJ_GET = 0x006A3230,
+    FUN_CMAPOBJ_COUNT_DOWN = 0x006A33F0,
+    // GetLoadedGroup — `__thiscall(obj, index, force)`, ret 8: the group when
+    // the object is loaded and the group parsed, or with `force` parsed or
+    // not. LoadGroup — `__thiscall(obj, index)`, ret 4: queues the group
+    // file read (0x006C3E20; name: the root's up to its last '.', then
+    // "_%03d" and ".wmo").
+    FUN_CMAPOBJ_GET_LOADED_GROUP = 0x006A4A00,
+    FUN_CMAPOBJ_LOAD_GROUP = 0x006A4A30,
+    // GetBoundingSphere — `float *__thiscall(obj, float out[4])`: centre and
+    // radius of the root's box in model space, zero before it loads.
+    FUN_CMAPOBJ_GET_BOUNDING_SPHERE = 0x006A4310,
+    // The object holds 384 group pointers (+0x1F4); its parse writes one per
+    // MOGI record with no cap (0x006C39E0), so a root of more groups writes
+    // past them (benilla models/wmo "Root file chunks"). MOGI records are
+    // 0x20 bytes.
+    MAPOBJ_MAX_GROUPS = 384,
+    MOGI_RECORD_SIZE = 0x20,
+    OFF_CMAPOBJ_LOADED = 0x1D4,       // byte: root file parsed
+    OFF_CMAPOBJ_GROUP_COUNT = 0x168,  // MOGI count
+    OFF_CMAPOBJ_FOGS = 0x158,         // MFOG records, 0x30 bytes each
+    OFF_CMAPOBJ_FOG_COUNT = 0x190,
+    // A group (CMapObjGroup). The world's map update keeps a group it may
+    // draw alive by setting its timer to 30 s (0x00698800: `mov [g+0x15C],
+    // 0x41F00000`); the world frame frees the group's data when the timer
+    // runs out. Read handle +0x160 is set while its file read is queued.
+    OFF_CMAPOBJGROUP_FLAGS = 0x10,
+    OFF_CMAPOBJGROUP_VERTEX_FADE_DONE = 0xBC, // byte
+    OFF_CMAPOBJGROUP_KEEP_ALIVE = 0x15C,     // float seconds
+    OFF_CMAPOBJGROUP_READ = 0x160,
+    OFF_CMAPOBJGROUP_PARSED = 0x164,         // byte
+    MAPOBJ_GROUP_KEEP_ALIVE_SECONDS = 30,
+    // Group flags 0x8 (exterior) or 0x40 (exterior-lit) pick the exterior
+    // drawer (DrawMapObjectGroup 0x006B3F90).
+    MAPOBJ_GROUP_EXTERIOR_MASK = 0x48,
+    // FixVertexAlpha — `__thiscall(obj, group)`, ret 4: the portal vertex
+    // fade, once (DrawMapObjectGroup runs it while +0xBC is 0). The drawers —
+    // `__thiscall(obj, group, again)`, ret 8: bind the group's buffers, cull
+    // each batch's box against the frustum stack top and draw it with its
+    // material; `again` 0 clears the batches' drawn marks first. The world
+    // keeps them in pointers that only BeginMapObjectFrame sets, so call
+    // them directly.
+    FUN_CMAPOBJGROUP_FIX_VERTEX_ALPHA = 0x006C43D0,
+    FUN_MAPOBJ_DRAW_EXTERIOR_GROUP = 0x006B4F10,
+    FUN_MAPOBJ_DRAW_INTERIOR_GROUP = 0x006B5190,
+    // Globals the drawers read. The group fog flag (0 or 1) makes the
+    // interior drawer take the light state's interior fog; the scene sets 0
+    // and commits its own fog. The sun (a map light object, its CM2Light at
+    // +0x7C) is read only for window materials (flag 0x20), whose draw
+    // overwrites its colours; only CMap::Load writes the pointer, so it is
+    // NULL at the glue screen until a world loads.
+    VAR_MAPOBJ_GROUP_FOG_FLAG = 0x00CA7F00,
+    VAR_MAP_SUN = 0x00C89EF0,
+    OFF_MAP_SUN_LIGHT = 0x7C,
+    // The frustum stack the drawers cull against (0xFC-byte volumes: six
+    // planes, eight corners at +0x60, two points at +0xC0 / +0xCC).
+    // PushFrustum / PopFrustum `__cdecl()`; StoreFrustum `__thiscall(volume)`
+    // copies a volume to the top; TransformFrustum `__fastcall(const float
+    // m[16])` moves the top's corners by m and rebuilds its planes.
+    // BuildFrustumCorners `__fastcall(view, proj, float corners[24])`, ret 4:
+    // the eight world corners of view x proj, near (-,-) (-,+) (+,+) (+,-)
+    // then far, the volume's corner order; BuildConvexPlanes
+    // `__thiscall(volume)` makes the planes from them.
+    FUN_FRUSTUM_PUSH = 0x00682380,
+    FUN_FRUSTUM_POP = 0x00682F90,
+    FUN_FRUSTUM_STORE = 0x00682D90,
+    FUN_FRUSTUM_TRANSFORM = 0x00682ED0,
+    FUN_FRUSTUM_CORNERS = 0x005C43B0,
+    FUN_VOLUME_BUILD_PLANES = 0x00686640,
+    FRUSTUM_VOLUME_SIZE = 0xFC,
+    OFF_FRUSTUM_VOLUME_CORNERS = 0x60,
+    // The lighting record (0x1B4 bytes, benilla models/lights "Lighting
+    // record"): M2LightingInitialize `__thiscall(rec, scene, const float
+    // sphere[4])`, ret 8 (zeroes it); M2SceneAddLightsForPoint
+    // `__thiscall(scene, rec)`, ret 4 (the scene's global and grid lights
+    // around the sphere); LightingAddLight `__thiscall(rec, light)`, ret 4
+    // (skips a disabled light); M2LightingSetFog `__thiscall(rec, const
+    // float rgb[3], float start, float end)`, ret 0xC;
+    // M2LightingSetDeviceLights `__thiscall(rec, const float origin[3], int
+    // fog)`, ret 8: the four fixed-function lights, point lights at their
+    // position less `origin`, and with `fog` the fog states.
+    M2_LIGHTING_RECORD_SIZE = 0x1B4,
+    FUN_M2LIGHTING_INIT = 0x0071BC30,
+    FUN_M2SCENE_ADD_LIGHTS_FOR_POINT = 0x0070A0F0,
+    FUN_M2LIGHTING_ADD_LIGHT = 0x0071BF90,
+    FUN_M2LIGHTING_SET_FOG = 0x0071C110,
+    FUN_M2LIGHTING_SET_DEVICE_LIGHTS = 0x0071C730,
+    // An MFOG record: flags +0x0 (bit 0x1: not a candidate), position +0x4,
+    // radii +0x10 / +0x14, then {end, start fraction, colour 0xAARRGGBB}
+    // dry at +0x18 and underwater at +0x24 (benilla terrain/lights "Camera
+    // interior fog"). The world uses a WMO's fog only when it has more than
+    // one record (0x0069DE20); with no candidate group fog the output is
+    // record 0. The drawn end is min(end, far clip), the start the fraction
+    // of it (lighting/fog "Interior fog").
+    MAPOBJ_FOG_SIZE = 0x30,
+    OFF_MAPOBJ_FOG_END = 0x18,
+    OFF_MAPOBJ_FOG_START_FRACTION = 0x1C,
+    OFF_MAPOBJ_FOG_COLOR = 0x20,
+    OFF_MAPOBJ_FOG_FLAGS = 0x0,
+    OFF_MAPOBJ_FOG_POSITION = 0x4,
+    OFF_MAPOBJ_FOG_UNDERWATER = 0x24,
+    OFF_MAPOBJ_FOG_INNER_RADIUS = 0x10,
+    OFF_MAPOBJ_FOG_OUTER_RADIUS = 0x14,
+    MAPOBJ_FOG_NOT_CANDIDATE = 0x1,
+    // The camera's WMO (ClaimCameraMapObject 0x006821F0, Ghidra): a segment
+    // from the camera 1760 down (0x0080FEC8) through IntersectMapObjects
+    // (0x006BE250): the nearest floor of the groups (as
+    // TraceMapObjectsNearest), then CrossPortals with the fraction 1.05
+    // (immediate 0x3F866666 at 0x006BE411), taken when it is less than
+    // 0.0001 (0x0080C4F4) past the floor; a portal gives its two groups, the
+    // second only when its MOGI flags lack 0x8; a result whose MOGI flags
+    // have 0x8 claims nothing. CrossPortals `bool __thiscall(obj, const
+    // float segment[6], float *fraction, uint32_t groups[2])`, ret 0xC, in
+    // model space. GetGroupInfo `__thiscall(obj, index)`, ret 4: the MOGI
+    // record (flags first), or NULL before the root loads.
+    VAR_CAMERA_DOWN_RAY_LENGTH = 0x0080FEC8,
+    CAMERA_PORTAL_FRACTION_BITS = 0x3F866666,
+    VAR_CAMERA_PORTAL_EPSILON = 0x0080C4F4,
+    FUN_CMAPOBJ_CROSS_PORTALS = 0x006A3F80,
+    FUN_CMAPOBJ_GET_GROUP_INFO = 0x006A4B10,
+    MOGI_FLAG_EXTERIOR = 0x8,
+    // GetCameraInteriorFog (0x0069DE20, Ghidra) with the claim: record 0,
+    // then each candidate of the first group's four fog indices (+0x34;
+    // nonzero, nearer than the record's outer radius, flag 0x1 clear),
+    // farthest first, lerped in by LightFalloff `float __thiscall(fog,
+    // float distance)`, ret 4 (1 inside +0x10, 0 at +0x14), through
+    // LerpFogRecord `__thiscall(float+float+colour *a, const *b, float t)`,
+    // ret 8, on both sub-records; the nearest also gives its flags. "Inside"
+    // when a group of the claim lacks group flags 0x48. BuildSceneFog
+    // (0x006CEE30): the drawn fog moves from the zone's toward the dry
+    // record (end min(end, far clip), start the fraction of it) by a weight
+    // that moves 0.25 (0x008115B0) per second toward 1 while inside, else
+    // toward 0; the target stays the last one while it falls.
+    // The camera's liquid (CameraEnvironment 0x006809C0, Ghidra): with the
+    // claim, LiquidHeight `bool __thiscall(group, const float point[3],
+    // uint32_t *type, float *height, float vector[3])`, ret 0x10, of the
+    // first group, at the camera's x and y and the lowest z of the camera
+    // and the four near corners of its frustum, in model space; the type
+    // starts as 0xF (dry). It answers the MOGP liquid word when that is not
+    // 0xF, else the tile's nibble & 3 under its surface. BuildSceneFog then
+    // takes the underwater sub-record (+0x24) for water (0) or ocean (1),
+    // and for magma (2) with fog flag 0x100 or slime (3) with 0x10, which
+    // also make the zone fog the target; magma or slime without the flag
+    // make the target the zone fog. The world draws its liquids after the
+    // model list above the water while the camera is wet (0x004836F2).
+    FUN_CMAPOBJGROUP_LIQUID_HEIGHT = 0x006B9F10,
+    LIQUID_DRY = 0xF,
+    LIQUID_MAGMA = 2,
+    LIQUID_SLIME = 3,
+    MAPOBJ_FOG_FLAG_MAGMA = 0x100,
+    MAPOBJ_FOG_FLAG_SLIME = 0x10,
+    OFF_CMAPOBJGROUP_FOG_INDICES = 0x34,
+    MAPOBJ_GROUP_FOG_INDICES = 4,
+    FUN_LIGHT_FALLOFF = 0x0069E1C0,
+    FUN_LERP_FOG_RECORD = 0x0069EFD0,
+    VAR_INTERIOR_FOG_RATE = 0x008115B0,
+    // A group's liquid (DrawGroupLiquidPass 0x00684CD0, Ghidra): per def,
+    // matrix 8 = placement x Translate(-camera), a lighting record committed
+    // at the camera with fog, then DrawMapObjectGroupLiquid `__thiscall(obj,
+    // groupIndex, parity)`, ret 8, which pushes the render states, takes the
+    // liquid type of the first tile with liquid (FirstLiquidTileType
+    // `__fastcall(group)`), its animated frame (0x0068AAC0) and draws water
+    // (0, 4, 8), magma or slime (2, 3, 6, 7; 6 and 7 scroll). Type 0xF (no
+    // tile has liquid) asks for a frame past the table: a client fault, so
+    // only a type up to 8 is drawn. Parity is the portal walk's: tiles with
+    // bit 7 draw only for parity 1, the value every group gets from outside
+    // (RunGroupCallback 0x006B4160). BuildGroupDepthRamp `__cdecl()` fills
+    // the interior water's depth-to-alpha ramp; the pass builds it first.
+    // The world draws the pass between its model lists 2 and 1 (0x004836DD).
+    MAPOBJ_GROUP_LIQUID = 0x1000,
+    MAPOBJ_LIQUID_TYPE_LAST_DRAWN = 8,
+    FUN_MAPOBJ_DRAW_GROUP_LIQUID = 0x006B4060,
+    FUN_MAPOBJ_FIRST_LIQUID_TYPE = 0x006BA970,
+    FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP = 0x006B6B60,
+    // The light a group's exterior water reads (Ghidra; benilla-re
+    // lighting/daynight, terrain/watershade): the world's light table
+    // (0x00CE9C0C, a 0x90-byte light record) colour band 17 at +0x40, the
+    // deep river colour (DrawGroupLiquid's exterior arm), and LightParams
+    // columns 5 and 6 at +0x68 / +0x6C, the river alphas BuildGroupDepthRamp
+    // ramps between. BuildLightTable (0x006D2260) makes the table at the
+    // camera each frame from the current map's light list: dry or in water
+    // (reference 1 when the liquid nibble is 0 or 1, else 0), slot 0 gathered
+    // at half-minute h, then the area lights (BlendAreaLights 0x006D2D00):
+    // each list light whose distance d from the eye is below its outer
+    // radius, farthest first, gathered and blended by 1, or 1 - (d - inner) /
+    // (outer - inner) past the inner radius; in magma LightParams 7, in slime
+    // 6, gathered alone. h = round(f32(timeOfDay x 2880) - 0.5) with the
+    // state's time of day (0x00CE9B64). The light list (0x006D6170): the
+    // map's Light rows in table order, slot 0 the last one at (0, 0, 0), else
+    // Light id 1; positions and radii are world units since load. Light
+    // store: rows (0x30 bytes: id, map +4, x y z +8, inner +0x14, outer +0x18,
+    // LightParams ids +0x1C), count, id map, largest id. GetLightParams
+    // `__fastcall(lightRow, k)` (0x006D6AB0, null past the LightParams id
+    // map), GatherLightRecord `__fastcall(h, record, paramsRow)` ret 4
+    // (0x006D64D0), OverblendLightRecord `__fastcall(base, src, w)` ret 4
+    // (0x006D30E0). A record's members only zero themselves when made.
+    VAR_LIGHT_TABLE = 0x00CE9C0C,
+    // BuildLightTable's fill with no light list: `mov [0x00CE9C50], 1e10`,
+    // the fog end of a world without light; the float is the instruction's
+    // immediate.
+    VAR_NO_LIGHT_FOG_END = 0x006D2301,
+    LIGHT_RECORD_SIZE = 0x90,
+    OFF_LIGHT_RECORD_DEEP_RIVER = 0x40,
+    OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW = 0x68,
+    OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP = 0x6C,
+    VAR_LIGHT_TIME_OF_DAY = 0x00CE9B64,
+    VAR_HALF_MINUTES_PER_DAY = 0x00811630,
+    VAR_DAY_NIGHT_HALF = 0x0086F2C8,
+    VAR_LIGHT_ROWS = 0x00CE9D60,
+    VAR_LIGHT_ROW_COUNT = 0x00CE9D64,
+    VAR_LIGHT_ID_MAP = 0x00CE9D68,
+    VAR_LIGHT_LARGEST_ID = 0x00CE9D6C,
+    LIGHT_ROW_SIZE = 0x30,
+    OFF_LIGHT_MAP = 0x04,
+    OFF_LIGHT_POSITION = 0x08,
+    OFF_LIGHT_INNER_RADIUS = 0x14,
+    OFF_LIGHT_OUTER_RADIUS = 0x18,
+    VAR_LIGHTPARAMS_ID_MAP = 0x00CE9D7C,
+    VAR_LIGHTPARAMS_LARGEST_ID = 0x00CE9D80,
+    LIGHTPARAMS_MAGMA = 7,
+    LIGHTPARAMS_SLIME = 6,
+    FUN_GET_LIGHT_PARAMS = 0x006D6AB0,
+    FUN_GATHER_LIGHT_RECORD = 0x006D64D0,
+    FUN_OVERBLEND_LIGHT_RECORD = 0x006D30E0,
+    // The sky (benilla lighting/sky.md). DrawSky `__cdecl()` (0x006D4940):
+    // returns while the light state's sky flag (+0x198) is 0; else, in the
+    // depth range [0.975, 0.98] of the device viewport, the stars, the sun
+    // disc, the white moon, moon02, the gradient dome and the clouds (unless
+    // a ready skybox weighs above 0.99), then each ready skybox slot with a
+    // weight above 0, each followed by a depth clear; all in the device view
+    // around the eye. The world runs it from DrawWorldScene (0x006812AC)
+    // only with the weather byte set and the camera dry, after its clear.
+    // The light state (GetLightState 0x006D48B0): the heading +0x30
+    // (atan2 of the camera forward, 0x006D4530), the screen-tint level byte
+    // +0x44, the override skybox entry +0x54 and weight +0x58, the two
+    // table slots' entries +0x5C and weights +0x64, the sky flag +0x198.
+    // BuildLightTable (0x006D2260) clears the slots and the override, colours
+    // the dome (ColourSkyDome `__fastcall(dome)` 0x006D0F50: 5 x columns + 2
+    // colours at [dome+0x14] from the table's sky bands, the glow and the
+    // heading), copies colour band 9 (record +0x20) to the sun disc and the
+    // white moon (discs 0x20 apart from 0x00CE9858, colour +0x0C), and for
+    // each of the record's two {LightSkybox id, weight} pairs at +0x78 with
+    // id != 0, weight > 0 and id below the LightSkybox count interns the
+    // row's path (InternSkybox `__fastcall(path)` 0x006D4640, one model in
+    // the sky's scene per path) into the slot (0x006D2C79).
+    FUN_DRAW_SKY = 0x006D4940,
+    FUN_COLOUR_SKY_DOME = 0x006D0F50,
+    FUN_INTERN_SKYBOX = 0x006D4640,
+    VAR_LIGHT_STATE = 0x00CE9B60,
+    OFF_LIGHT_STATE_HEADING = 0x30,
+    OFF_LIGHT_STATE_TINT_LEVEL = 0x44,
+    OFF_LIGHT_STATE_OVERRIDE_SKYBOX = 0x54,
+    OFF_LIGHT_STATE_OVERRIDE_SKYBOX_WEIGHT = 0x58,
+    OFF_LIGHT_STATE_SKYBOXES = 0x5C,
+    OFF_LIGHT_STATE_SKYBOX_WEIGHTS = 0x64,
+    OFF_LIGHT_STATE_SKY_ON = 0x198,
+    // 0x006D4530's constants: the double 0.0001 the forward's squared x-y
+    // length must pass for atan2(y, x) (else atan2(z, x)), and the float 2pi
+    // a negative heading takes.
+    VAR_HEADING_MIN_XY = 0x00811658,
+    VAR_HEADING_TWO_PI = 0x0080295C,
+    LIGHT_SKYBOX_SLOTS = 2,
+    VAR_SKY_DOME = 0x00CE99A0,
+    OFF_SKY_DOME_COLOURS = 0x14,
+    OFF_SKY_DOME_COLUMNS = 0x24,
+    VAR_SKY_DISCS = 0x00CE9858, // the sun disc, the white moon, moon02
+    SKY_DISC_SIZE = 0x20,
+    OFF_SKY_DISC_COLOUR = 0x0C,
+    SKY_DISCS_LIT = 2, // the sun disc and the white moon take band 9
+    OFF_LIGHT_RECORD_SUN = 0x20,
+    OFF_LIGHT_RECORD_SKYBOXES = 0x78, // {LightSkybox id, float weight} x 2
+    // The portal walk (benilla terrain/portals.md) decides the sky from
+    // inside. WalkPortals `__thiscall(obj, group, from, const float
+    // rect[4], depth, interiorGroup)` ret 0x14 (0x006B41C0): skips a group
+    // past depth 10, unparsed or with flag 0x10000; sets the weather byte
+    // for flags 0x148 and, for flag 0x40000 with a MOSB name (obj +0x12C),
+    // the byte and the skybox state (the name); calls the group callback
+    // when one is set; then through each portal (projected once a pass by
+    // 0x006B46F0 with the object-to-clip matrix and the camera point in
+    // model space) that does not lead back, that the camera is in front
+    // of, and whose rectangle overlaps `rect` by more than 0.001 each way,
+    // into the neighbour with the overlap. It records windows only in the
+    // inside leg, and sets the group fog flag. The interior seed
+    // (0x006B3B20) advances the pass, sets the inside leg and the fog flag,
+    // makes the object-to-clip matrix world stack 8 x the device's
+    // (0x0058B0C0 `__fastcall(out)`: view x projection; 0x0058B280
+    // `__fastcall(unit, out)`: a stack's top), clears the liquid group seen,
+    // and walks each claimed group over (-1, -1, 1, 1) at depth 0, as its
+    // own interior group unless flagged 0x48. The exterior seed (0x006B3DD0)
+    // walks each MOGI group (obj +0x130, 0x20 each: flags, box) flagged 0x8
+    // and not 0x10000 whose box, turned by the def's matrix, the current
+    // volume does not cull (0x00682F60 `__fastcall(box, basis[9],
+    // position[3])`, 0 when inside). The frame clears the weather byte and
+    // the skybox state (0x006B3890); DrawWorldScene puts the skybox state
+    // into skybox slot 0 at the interior fog weight (+0x7C) and clears
+    // slot 1 (SetSkyboxSlot `__fastcall(slot, path, float weight)` ret 4,
+    // 0x006D4810) while the weather byte is set.
+    // A window the inside leg records (0x006B4541) is 5 floats: the
+    // overlap rectangle mapped to [0, 1], then the portal's reach; the
+    // array is the 16 records 0x006B37B0 constructs, and the push checks
+    // no bound. The interior seed's second phase walks, for each window,
+    // every exterior group whose box the window's volume shows, over the
+    // window as (2r - 1); the exterior seed does the same for its one
+    // rectangle. The volume comes from BuildPortalVolume
+    // `__fastcall(const float corners[8][3], const float rect[4])`, plain
+    // ret (0x00682930; call at 0x006B3CA4: ecx = the corner rays, edx =
+    // the record), which lerps the corner rays (0x00C7BCD8, filled by
+    // FUN_FRUSTUM_CORNERS at 0x00680E3C) by the rectangle into the top of
+    // the frustum stack.
+    FUN_BUILD_PORTAL_VOLUME = 0x00682930,
+    VAR_CAMERA_CORNER_RAYS = 0x00C7BCD8,
+    VAR_PORTAL_WINDOW_COUNT = 0x00CBE320,
+    VAR_PORTAL_WINDOWS = 0x00CBE324,
+    PORTAL_WINDOW_SIZE = 0x14,
+    PORTAL_WINDOW_SLOTS = 16,
+    FUN_WALK_PORTALS = 0x006B41C0,
+    FUN_FRUSTUM_BOX_CULLED = 0x00682F60,
+    FUN_GX_GET_VIEW_PROJECTION = 0x0058B0C0,
+    FUN_GX_XFORM_GET = 0x0058B280,
+    FUN_SET_SKYBOX_SLOT = 0x006D4810,
+    VAR_MAPOBJ_PASS = 0x00CA8014,
+    VAR_PORTAL_INSIDE_LEG = 0x00CDE5AC,
+    VAR_PORTAL_CALLBACK = 0x00CDE5B0,
+    VAR_PORTAL_CAMERA_POINT = 0x00CA7EDC,
+    VAR_PORTAL_OBJECT_TO_CLIP = 0x00CBE2D8,
+    VAR_LIQUID_GROUP_SEEN = 0x00CE66E8,
+    VAR_LIQUID_GROUP_PARITY = 0x00CE269C,
+    VAR_WEATHER_VISIBLE = 0x00CA80C4, // byte
+    VAR_SKYBOX_STATE = 0x00CA8080,    // const char *, a MOSB name
+    OFF_CMAPOBJ_GROUP_INFOS = 0x130,
+    MAPOBJ_GROUP_UNWALKED = 0x10000,
+    MAPOBJ_PORTAL_FROM_NONE = 0xFFFF,
+    // The LightSkybox store (id, model path; benilla lighting/tables.md).
+    VAR_LIGHTSKYBOX_COUNT = 0x00CE9DB4,
+    VAR_LIGHTSKYBOX_ID_MAP = 0x00CE9DB8,
+    VAR_LIGHTSKYBOX_LARGEST_ID = 0x00CE9DBC,
+    OFF_LIGHTSKYBOX_PATH = 0x04,
+    // Matrix helpers (row vectors). MultiplyMatrix4 `float *__fastcall(out,
+    // a, b)`: out = a x b. InvertAffineMatrix `__thiscall(m, float out[16],
+    // float scale)`, ret 8. The engine's degrees-to-radians and pi floats,
+    // which the WDT placement uses (PlaceMapObjDef 0x00695650).
+    FUN_MATRIX_MULTIPLY = 0x007BC6A0,
+    FUN_MATRIX_INVERT_AFFINE = 0x007BD820,
+    VAR_DEGREES_TO_RADIANS = 0x007FFAAC,  // float 0.017453292
+    VAR_PI = 0x0081052C,                  // float 3.1415927
+    // SFile: Open `int __stdcall(const char *path, void **file)` (0 when it
+    // does not open, no error), Read `int __stdcall(file, void *buffer,
+    // uint size, uint *read, void *overlapped, int)`, Close `__stdcall(file)`,
+    // GetFileSize `uint __stdcall(file, uint *sizeHigh)`.
+    FUN_SFILE_OPEN = 0x006477A0,
+    FUN_SFILE_GET_FILE_SIZE = 0x006487F0,
+    FUN_SFILE_READ = 0x00648460,
+    FUN_SFILE_CLOSE = 0x00648730,
+    // A WMO-only map's WDT, as CMap::LoadWdt (0x00694760) reads it: header,
+    // version, header, MPHD (0x20), header, MAIN (0x8000), then, when MPHD's
+    // first dword has bit 0, header (its size is the name's), the name,
+    // header and one 0x40-byte MODF placement, placed with origin 0:
+    // translate (-pos[2], -pos[0], pos[1]) at +0x10 / +0x08 / +0x0C, rotate z
+    // by +0x18 degrees + pi, y by +0x14, x by +0x1C; doodad set +0x3A.
+    WDT_MAIN_SIZE = 0x8000,
+    WDT_MPHD_SIZE = 0x20,
+    WDT_FLAG_MAP_OBJECT = 0x1,
+    MODF_SIZE = 0x40,
+    OFF_MODF_POSITION = 0x08,
+    OFF_MODF_ROTATION = 0x14,
+    OFF_MODF_DOODAD_SET = 0x3A,
+    // Map.dbc +0x04: the map's directory name (World\Maps\<dir>\<dir>.wdt;
+    // CMap::Load 0x006941F0). Verified: map 249 is "OnyxiaLairInstance".
+    OFF_MAP_DIRECTORY = 0x04,
+
+    // ---- A WMO's doodads (Model::Scene::World; benilla terrain/doodads) -----
+    // Root: MOLT +0x148 (count +0x180), MODS +0x14C (count +0x184), MODN
+    // +0x150, MODD +0x154 (count +0x18C). Group: its MOLR (u16 indices into
+    // MOLT) +0xE4, count +0x140; its MODR (u16 indices into MODD) +0xE8, count
+    // +0x144. From CreateGroupDoodads 0x00695AA0, CreateGroupLights
+    // 0x00695C00 and FindDoodadSet 0x006A4FB0.
+    OFF_CMAPOBJ_LIGHTS = 0x148,
+    OFF_CMAPOBJ_LIGHT_COUNT = 0x180,
+    OFF_CMAPOBJ_DOODAD_NAMES = 0x150,
+    OFF_CMAPOBJ_DOODADS = 0x154,
+    OFF_CMAPOBJ_DOODAD_COUNT = 0x18C,
+    OFF_CMAPOBJGROUP_LIGHT_REFS = 0xE4,
+    OFF_CMAPOBJGROUP_LIGHT_REF_COUNT = 0x140,
+    OFF_CMAPOBJGROUP_DOODAD_REFS = 0xE8,
+    OFF_CMAPOBJGROUP_DOODAD_REF_COUNT = 0x144,
+    // FindDoodadSet — `__thiscall(obj, index)`: the 0-based MODS set whose
+    // range holds the index (a zero-count set skipped), or 0xFFFFFFFF for an
+    // unloaded root, an index past MODD or one in no set. A group takes a
+    // doodad in set 0 or the instance's set.
+    FUN_CMAPOBJ_FIND_DOODAD_SET = 0x006A4FB0,
+    MAPOBJ_DOODAD_SET_NONE = 0xFFFFFFFF,
+    // A MODD record (0x28): name offset into MODN +0x00 (the engine adds the
+    // whole dword), position +0x04, quaternion (x y z w) +0x10, scale +0x20,
+    // colour +0x24 (BGRA). CreateGroupDoodadDef 0x00694E90.
+    MODD_SIZE = 0x28,
+    OFF_MODD_NAME = 0x00,
+    OFF_MODD_POSITION = 0x04,
+    OFF_MODD_ROTATION = 0x10,
+    OFF_MODD_SCALE = 0x20,
+    OFF_MODD_COLOR = 0x24,
+    // A MOLT record (0x30): type byte +0x00 (only 0 makes a light), flag bytes
+    // +0x02 (sets the diffuse) and +0x03 (the specular), colour BGRA +0x04,
+    // position +0x08, intensity +0x14, attenuation start +0x28 and end +0x2C.
+    MOLT_SIZE = 0x30,
+    OFF_MOLT_USE_DIFFUSE = 0x02,
+    OFF_MOLT_USE_SPECULAR = 0x03,
+    OFF_MOLT_COLOR = 0x04,
+    OFF_MOLT_POSITION = 0x08,
+    OFF_MOLT_INTENSITY = 0x14,
+    OFF_MOLT_START = 0x28,
+    OFF_MOLT_END = 0x2C,
+    // A group light's end gains 0.1 when it is within 0.001 of its start
+    // (0x00695CB1 / 0x00695CC1); AddMapLight 0x006A7AC0 measures from the
+    // doodad's position raised by 1.1666666.
+    VAR_ONE_THOUSANDTH = 0x00801360, // float 0.001
+    VAR_ONE_TENTH = 0x00801620,     // float 0.1
+    VAR_MAP_LIGHT_LIFT = 0x00810A70,          // float 1.1666666
+    VAR_ONE = 0x007FF9D8,                     // float 1.0
+    VAR_ONE_OVER_255 = 0x008026C8,            // float 1/255
+    // The doodad def's light: SplitLightColor — `__stdcall(const u32 *src, u32
+    // *first, u8 floor, u32 *second, u8 cap)`, ret 0x14, no register
+    // arguments: first = src with its value raised to a largest channel of at
+    // least floor, second = src lowered to at most cap. A group doodad passes
+    // floor 0x70 into its directional and cap 0x60 into its ambient.
+    // CMapDoodadDef::AddLights (0x006A8050): interior, the ambient and the
+    // directional along s_globalLightDirection (a static initializer,
+    // 0x006A72B0: (-0.30822, -0.30822, -0.9)); else the sun block's ambient
+    // and its directional x the intensity (1.0 for a group doodad); then the
+    // gathered map lights.
+    FUN_SPLIT_LIGHT_COLOR = 0x006A77E0,
+    DOODAD_DIRECTIONAL_FLOOR = 0x70,
+    DOODAD_AMBIENT_CAP = 0x60,
+    VAR_MAP_LIGHT_DIRECTION = 0x00CA816C,
+    // M2LightingAddAmbient `__thiscall(rec, const float rgb[3])`, ret 4;
+    // M2LightingAddDirectional `__thiscall(rec, const float rgb[3], const float
+    // dir[3])`, ret 8.
+    FUN_M2LIGHTING_ADD_AMBIENT = 0x0071BC70,
+    FUN_M2LIGHTING_ADD_DIRECTIONAL = 0x0071BCE0,
+    // M2LightInitialize `__fastcall(light)`: point type (1), attenuation 0,
+    // 0.7, 0.03, the rest 0. M2Light fields beyond OFF_M2LIGHT_AMBIENT /
+    // _DIFFUSE: type +0x08, specular +0x48, attenuation +0x54 (3 floats).
+    // LightingAddLight sums a non-point light at once; it keeps a point light
+    // by pointer.
+    FUN_M2LIGHT_INITIALIZE = 0x0071B4A0,
+    OFF_M2LIGHT_POSITION = 0x0C, // LightingAddLight's point-light distance (0x0071BFD0)
+    OFF_M2LIGHT_SPECULAR = 0x48,
+    OFF_M2LIGHT_ATTENUATION = 0x54,
+    // Doodad model set-up (CreateDoodadModel 0x00695100):
+    // CM2Model::SetBaseTransform `__thiscall(model, const float m[16])` (to
+    // +0xBC); the done callback 0x006951B0, which replays the ended sequence
+    // when its reason is 0 and reads no user data.
+    FUN_M2MODEL_SET_BASE_TRANSFORM = 0x00710620,
+    FUN_DOODAD_MODEL_DONE = 0x006951B0,
+    // The doodad's sphere (SetDoodadDefBounds 0x006952A0, once the model has
+    // loaded): CM2Model::GetBoundingSphere `__thiscall(model, float out[4])`
+    // (its box's centre, then its radius; waits for an unloaded file), the
+    // centre through the def's matrix, the radius times the record's scale.
+    FUN_M2MODEL_GET_BOUNDING_SPHERE = 0x00713680,
+    // The doodad fade (DrawDoodadModels 0x00683F80), by sphere radius: up to
+    // RADIUS_SMALL 0.5, up to _MEDIUM 2.5, up to _LARGE 7.0, larger never
+    // fades. The alpha is 1 - (d - (END - RANGE)) / RANGE, with d the camera's
+    // ground distance to the centre less the radius; ENDs 50 / 125 / 200,
+    // RANGEs 10 / 25 / 50 (values read from the exe). The large END drops to
+    // the far clip when that is nearer. Drawn only when the alpha is > 0.
+    VAR_DOODAD_FADE_RADIUS_SMALL = 0x00810188,
+    VAR_DOODAD_FADE_RADIUS_MEDIUM = 0x0081018C,
+    VAR_DOODAD_FADE_RADIUS_LARGE = 0x00810190,
+    VAR_DOODAD_FADE_RANGE_SMALL = 0x00810194,
+    VAR_DOODAD_FADE_RANGE_MEDIUM = 0x00810198,
+    VAR_DOODAD_FADE_RANGE_LARGE = 0x0081019C,
+    VAR_DOODAD_FADE_END_SMALL = 0x008101A0,
+    VAR_DOODAD_FADE_END_MEDIUM = 0x008101A4,
+    VAR_DOODAD_FADE_END_LARGE = 0x008101A8,
+    // How the world places a unit on a WMO (AttachEntityToGround 0x006A8A20).
+    // A unit's world entity has no +0x90 bit 0x2000 (CGObject_C::CreateNode
+    // 0x00613E10 passes the factory 0x00670DB0 flags 0; the bit is flag bit
+    // 3, 0x00670E9C), so ReattachEntity (0x006A86D0) takes this path, not
+    // PlaceEntity 0x006A8C10 (game objects, transport doodads). The probe
+    // point +0xA8 is the model's collision box centre through the node matrix
+    // (CGObject_C::UpdateNode 0x00613F80 -> SyncLightNode 0x006717D0; (0, 0,
+    // 0) while the model is not loaded). TraceMapObjectsNearest (0x006A8840)
+    // from it PROBE_LENGTH down: per group whose box the segment (in WMO
+    // space) crosses (SegmentHitsGroupBox `__thiscall(obj, start, end,
+    // group)` ret 0xC), the facet batches reset, then
+    // CMapObjGroup::IntersectSegment `__thiscall(group, void *out, const
+    // float seg[6], float *t, def, 0, u16 faceMask)` ret 0x18 with mask
+    // MAPOBJ_TRACE_MASK_GROUND; the smallest t wins, its face the first one
+    // of batch 0. No hit: again up to the box centre + (0, 0, radius +
+    // PROBE_LENGTH). A hit links that one group (its MOLT lights light the
+    // unit, GatherMapObjectLights 0x006A79C0); SetEntityLightFlags
+    // (0x006A87F0): group flag 0x08 or 0x40 is the sun, else interior; then
+    // CMapObjDef::TraceGroupFace `__thiscall(def, start, end, group, u16
+    // *face, float hit[3], float *t)` ret 0x18 (mask 0x20, the hit point in
+    // world space) and CMapObjDef::GetFaceTerrainType `__thiscall(def, group,
+    // u16 face)` ret 8 (the face material's +0x20, -1 without a loaded group):
+    // the unit's ground id (+0xDC, a unit's +0xC60 for footsteps). An interior
+    // unit bakes (BakeGroupLight 0x006A8410): SampleGroupColor `__thiscall(
+    // obj, group, const float point[3], u16 face, u32 *bgra, bool *day)` ret
+    // 0x14 (the point in WMO space), split by SplitLightColor (directional
+    // floor 0xA8, ambient cap DOODAD_AMBIENT_CAP); a day face blends both
+    // toward the sun's by the colour's alpha. The unit is placed again when
+    // its translation moved by a squared distance of
+    // VAR_ONE_THOUSANDTH or more (SyncLightNode, the same 0.001).
+    // TransformBox `__fastcall(const float m[16], const float box[6], float
+    // out[6])` ret 4; CMapObj::BoxOverlaps `__thiscall(obj, box)` ret 4.
+    FUN_TRANSFORM_BOX = 0x006DC540,
+    FUN_CMAPOBJ_BOX_OVERLAPS = 0x006A4670,
+    FUN_CMAPOBJ_SEGMENT_HITS_GROUP_BOX = 0x006A47E0,
+    FUN_CMAPOBJGROUP_INTERSECT_SEGMENT = 0x006B92B0,
+    // Face mask 4 (0x84 once the call ORs the visited bit in): every face but
+    // the detail faces (MOPY 0x04), the set the world's line of sight and the
+    // mover trace (class WORLD_TRACE_CLASS_LOS builds the same mask).
+    // CMapObj::IntersectSegment (0x006A37B0) takes a hit's triangle as batch
+    // 0's first three indices (u16, OFF_FACET_BATCH_INDICES) into its
+    // vertices (float[3], OFF_FACET_BATCH_VERTICES), in WMO space, read right
+    // after the group's call, and crosses its edges for the normal.
+    MAPOBJ_TRACE_MASK_GROUND = 4,
+    // Face mask 2 (0x82): the camera's set. The camera solver (0x0050E570)
+    // traces with class 0x100171, whose mask builder (0x006A3839) gives 0x82:
+    // detail faces count, the no-camera-collision faces (MOPY 0x02) do not.
+    MAPOBJ_TRACE_MASK_CAMERA = 2,
+    FUN_CMAPOBJDEF_TRACE_GROUP_FACE = 0x006A2600,
+    FUN_CMAPOBJDEF_GET_FACE_TERRAIN_TYPE = 0x006A26C0,
+    FUN_CMAPOBJ_SAMPLE_GROUP_COLOR = 0x006A4DC0,
+    FUN_M2MODEL_GET_COLLISION_BOX = 0x00713700, // `__thiscall(model, float out[6])`; waits for an unloaded file
+    VAR_ONE_THOUSAND = 0x008022CC, // 1000.0
+    MAPOBJ_GROUP_EXTERIOR = 0x08,
+    MAPOBJ_GROUP_EXTERIOR_LIT = 0x40,
+    ENTITY_DIRECTIONAL_FLOOR = 0xA8,
+    // An entity's light eases (AnimateMapEntityLight 0x0069E770, each tick
+    // before the draw, by the last frame's time; Ghidra): each byte of the
+    // ambient (+0x9C) steps toward its target (+0xF4) by max(1,
+    // trunc(2.0 (0x00810804) x dt x 255 (0x007FFE58))); with no channel
+    // moving and the entity not indoors both become the day ambient. The
+    // intensity (+0xA4), which scales the directional light (ApplyMapLighting
+    // 0x006A7300), moves toward its target (+0xF8) by 3.3333333 (0x00810808)
+    // x dt. The entity's bake (BakeMapEntityGroupLight 0x0069E4C0) writes the
+    // directional bytes and the ambient TARGET; the target intensity is 1.0
+    // indoors, else 2.5 (0x00810A68; an entity on a map object is not sampled
+    // for shadow), and a new node starts at 1.0 with the day ambient
+    // (0x00670DB0).
+    VAR_ENTITY_COLOR_RATE = 0x00810804,
+    VAR_TWO_FIFTY_FIVE = 0x007FFE58,
+    VAR_ENTITY_INTENSITY_RATE = 0x00810808,
+    VAR_ENTITY_INTENSITY_LIT = 0x00810A68,
+    // The map object def fields those queries read (CMapObjDef; also
+    // CommitFacets 0x006B8E50, which stores def + 0x94 as a batch's matrix):
+    // the placement, its inverse, the CMapObj. Nothing else of a def is read
+    // on these paths, so the scene hands them a block with these three.
+    OFF_MAPOBJDEF_PLACEMENT = 0x94,
+    OFF_MAPOBJDEF_INVERSE = 0xD4,
+    OFF_MAPOBJDEF_OBJECT = 0x118,
+    MAPOBJDEF_QUERY_SIZE = 0x11C,
+    // The world's facet batches (filled by the collectors' CommitFacets,
+    // read by the decal draw): 31 records of 0x20 at VAR_FACET_BATCHES —
+    // matrix pointer +0x00, vertices (12-byte positions) +0x04, indices
+    // +0x0C, faces +0x10, index count u16 +0x14, triangle count u16 +0x16
+    // (the facet emitter 0x00671CC0 loops to it, `cmp eax, word [0xC62566]`).
+    // A query resets the five counters first (0x006D7497, 0x006A893B).
+    VAR_FACET_BATCHES = 0x00C62550,
+    FACET_BATCH_SIZE = 0x20,
+    OFF_FACET_BATCH_MATRIX = 0x00,
+    OFF_FACET_BATCH_VERTICES = 0x04,
+    OFF_FACET_BATCH_INDICES = 0x0C,
+    OFF_FACET_BATCH_FACES = 0x10,
+    OFF_FACET_BATCH_INDEX_COUNT = 0x14,
+    OFF_FACET_BATCH_TRIANGLE_COUNT = 0x16,
+    VAR_FACET_BATCH_COUNT = 0x00C5A474,
+    VAR_FACET_OVERFLOW = 0x00C63258,
+    VAR_FACET_FACE_CURSOR = 0x00C63260,
+    VAR_FACET_INDEX_CURSOR = 0x00C7B378,
+    VAR_FACET_MATRIX_COUNT = 0x00C63190,
+    // ApplyMapLighting (0x006A7300), an interior unit: the ambient bytes, the
+    // directional bytes along VAR_MAP_LIGHT_DIRECTION (blended toward the
+    // sun's direction by a day face's weight, then normalised), the WMO fog,
+    // then its map lights. A sun-lit unit: the sun, then its map lights.
+    OFF_M2LIGHT_DIRECTION = 0x24,
+    // The doodad def's matrix: TranslateMatrix, then RotateMatrixByQuaternion
+    // `__thiscall(m, const float q[4])` (left-multiplies), ScaleMatrix
+    // `__thiscall(m, float)` (upper 3x3), MultiplyMatrix4InPlace
+    // `__thiscall(m, const float b[16])` (m = m x b). TransformPointInPlace
+    // `__fastcall(float out[3], float v[3], const float m[16])`, ret 4: v
+    // replaced by v x m, copied to out.
+    FUN_MATRIX_ROTATE_QUATERNION = 0x007BDDB0,
+    FUN_MATRIX_SCALE = 0x007BDD00,
+    FUN_MATRIX_MULTIPLY_IN_PLACE = 0x007BCE30,
+    FUN_TRANSFORM_POINT_IN_PLACE = 0x007BCC60,
+    // UnpackColorBytes `__thiscall(const u32 *argb, float out[3])`: the
+    // frame light callback's fog colour (0x0076D6A7).
+    FUN_UNPACK_COLOR_BYTES = 0x007BBF20,
+    // A doodad model's sounds (DoodadModelEvent 0x006951E0): $DSO plays the
+    // event's SoundEntries id once at the event point (PlaySoundAt
+    // `__fastcall(id, const float pos[3], int index, float volume)`, ret 8,
+    // index -1, volume 1.0); $DSL registers a loop emitter there, or moves
+    // the one it has for the same id, else replaces it; $DSE frees it.
+    // Emitters (benilla sound/ambience "Emitters"): AddEmitter
+    // `__fastcall(id, const float pos[3], u8 flag)` -> handle or 0, ret 4;
+    // MoveEmitter `__fastcall(handle, const float pos[3])`; RemoveEmitter /
+    // GetEmitterSoundId `__fastcall(handle)`. Their pump plays each id once,
+    // at its position nearest the listener, as a 3D loop with the entry's
+    // cutoff; it runs only in the world (SndInterfaceWorldInitialize).
+    FUN_SOUND_PLAY_AT = 0x00458870,
+    FUN_SOUND_ADD_EMITTER = 0x00461D80,
+    FUN_SOUND_MOVE_EMITTER = 0x00462000,
+    FUN_SOUND_REMOVE_EMITTER = 0x00461F80,
+    FUN_SOUND_EMITTER_SOUND_ID = 0x00462120,
+    // FSOUND_3D_Listener_GetAttributes (FMOD import thunk), `__stdcall(float
+    // pos[3], float vel[3], float *fx, *fy, *fz, float *tx, *ty, *tz)`. FMOD
+    // vectors are the engine's (x, y, z) as (-y, z, x) (Sound::SetListener
+    // 0x007A5EB0), so the engine's is (FMOD z, -FMOD x, FMOD y)
+    // (GetListenerPosition 0x007A5F50).
+    FUN_FSOUND_LISTENER_GET_ATTRIBUTES = 0x007FDB50,
+    // CVar* of SoundListenerAtCharacter: the world frame's constructor stores
+    // it (0x00481BBA), its OnRender reads it to place the listener
+    // (0x00483118). Ghidra: those are its only two references.
+    VAR_CVAR_SOUND_LISTENER_AT_CHARACTER = 0x00B4B2B4,
+
     // `__fastcall(model)`: drops one instance reference (HandleClose2).
     FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,
     // CM2Model::IsReady — `__thiscall(model, wait, recurseChildren)`:
@@ -13088,6 +14706,21 @@ enum Offsets {
     // CM2Model::HasAttachment — `__thiscall(model, id)`, ret 4. Waits for
     // the model file (0x00710520) when it has not loaded.
     FUN_M2MODEL_HAS_ATTACHMENT = 0x00712CB0,
+    // CM2Model::GetAttachmentOffset — `__thiscall(model, float out[3], id)`,
+    // ret 8 (Ghidra 0x00712CF0). Waits for the model file, then copies the
+    // attachment's position from the M2 attachment table (entry +0x08): the
+    // point in model space, not posed by any animation. Does NOT test the id,
+    // as GetAttachmentPosition. The follow camera's base pivot height reads
+    // attachment 17 with it (0x0050CBDC).
+    FUN_M2MODEL_GET_ATTACHMENT_OFFSET = 0x00712CF0,
+    // CM2Model::GetAttachmentPosition — `__thiscall(model, float out[3], id)`,
+    // ret 8, returns `out` (Ghidra 0x00712D50). Waits for the model file,
+    // EnsureAnimated (0x00714000), then the attachment's offset through its
+    // bone matrix and the scene matrix (+0xDC, the inverse of the view the
+    // bones were built under): the point in the space of the root's base
+    // matrix. Does NOT test the id: a missing one (lookup 0xFFFF) reads past
+    // the attachment table, so callers test HasAttachment first.
+    FUN_M2MODEL_GET_ATTACHMENT_POSITION = 0x00712D50,
     // CM2Model::Attach — `__thiscall(child, parent, id)`, ret 8. The
     // parent takes a reference; the attach index resolves once the parent
     // loads.
@@ -13101,13 +14734,58 @@ enum Offsets {
     // Animate sets while an emitter emits or holds a live particle. The
     // dying-effect drain (0x0061F6CC) releases a stopped effect once false.
     FUN_M2MODEL_HAS_LIVE_PARTICLES = 0x007135C0,
+    // CM2Model::SetEventCallback — `__thiscall(model, cb, userLow, userHigh)`,
+    // stores +0x1F4..+0x1FC (Ghidra 0x007133A0). Update (0x00719370) queues
+    // the callback for each animation event key the sequence passes, as it
+    // queues the done callback. The callback is `(tag, data, const float
+    // *point, ?, userLow, userHigh)` on the stack, RET 0x18 (the unit's,
+    // 0x00607840): `tag` the four characters ('$CSR' = 0x52534324), `point`
+    // the event's position in the scene (GetEventPosition's).
+    FUN_M2MODEL_SET_EVENT_CALLBACK = 0x007133A0,
+    // '$SND' as an event callback's `tag`: play the event's sound. The
+    // dynamic object compares it at 0x005D58E1, the area loop at 0x006EBE42.
+    M2_EVENT_TAG_SND = 0x444E5324,
+    // CM2Model::HasEvent — `__thiscall(model, tag)`, ret 4 (0x007130E0).
+    // GetEventPosition — `__thiscall(model, float out[3], tag)`, ret 8,
+    // returns `out` (0x007131B0): the event's offset through its bone and
+    // the scene matrix, like GetAttachmentPosition; zero for a missing tag.
+    // Both wait for an unloaded model file.
+    FUN_M2MODEL_HAS_EVENT = 0x007130E0,
+    FUN_M2MODEL_GET_EVENT_POSITION = 0x007131B0,
     // CM2Model::PlayAnimation — `__thiscall(model, 7 args)`, `ret 0x1C`. The
     // bake passes (-1, 0, 0, 0, 1.0f, 0, 1).
     FUN_M2MODEL_PLAY_ANIMATION = 0x007121A0,
+    // CM2Model::GetKeyBoneAnimState — `__thiscall(model, keyBone, out[7])`,
+    // ret 8: id, variation, position (ms into the sequence, `(clock - lo) *
+    // speed + offset`), speed, lo, hi, latch. Waits for an unloaded instance
+    // (0x00711FEF). SetKeyBoneAnimTime — `__thiscall(model, keyBone, int ms)`,
+    // ret 8: `lo = clock - ms * |1/speed|`, `hi` re-derived, so the sequence
+    // stands at `ms` (+ the offset field, 0 for a forward play); queued while
+    // the instance loads. Key bone -1 is bone 0, as PlayAnimation's.
+    FUN_M2MODEL_GET_KEY_BONE_ANIM_STATE = 0x00711FE0,
+    FUN_M2MODEL_SET_KEY_BONE_ANIM_TIME = 0x007127F0,
+    M2_KEY_BONE_ANIM_STATE_SIZE = 0x1C,
+    OFF_M2_KEY_BONE_ANIM_STATE_POSITION = 0x08,
     // CM2Model::GetKeyBoneAnimId — `__thiscall(model, keyBone)`, ret 4: the id
     // last requested on the key bone (bone state +0xF8, the id as given, not
     // its fallback). Blocks on the shared data when the model is not loaded.
     FUN_M2MODEL_GET_KEY_BONE_ANIM = 0x00712090,
+    // The unit body pass's spine twist (CGUnit_C::Update 0x00607ED0):
+    // HasKeyBone `int __thiscall(model, keyBone)` ret 4, waits for an unloaded
+    // model; SetKeyBoneFlags `__thiscall(model, keyBone, flags, mask)` ret
+    // 0xC and SetKeyBoneOverride `__thiscall(model, keyBone, const float
+    // m[16])` ret 8, each queued while the model loads. The pass turns key
+    // bones 4 and 6 about z with an override under flag 0x80; a unit marks
+    // which of the two its model has when it loads (OnModelLoaded 0x0060CE70).
+    // BuildAxisRotation4x4 `float *__fastcall(float out[16], const float
+    // axis[3], float angle, int unitAxis)` ret 8.
+    FUN_M2MODEL_HAS_KEY_BONE = 0x00711D20,
+    FUN_M2MODEL_SET_KEY_BONE_FLAGS = 0x00711F10,
+    FUN_M2MODEL_SET_KEY_BONE_OVERRIDE = 0x00712B00,
+    FUN_MATRIX_AXIS_ROTATION = 0x007BDB00,
+    M2_KEY_BONE_TWIST_LOW = 4,
+    M2_KEY_BONE_TWIST_HIGH = 6,
+    M2_KEY_BONE_OVERRIDE = 0x80,
     // The bone states, 0x118 bytes each, at [model+0x90]; key bone -1 is bone
     // 0 (GetKeyBoneAnimId above). PlayAnimation fills a bone's primary slot
     // (+0x98): the offset at +0xB8, where the sequence time is start +
@@ -13130,6 +14808,14 @@ enum Offsets {
     // int)`: sets the device projection and view from the camera over the
     // rect; the bake passes {0, 0, 1, aspect} and 0.
     FUN_CAMERA_SET_DEVICE_TRANSFORMS = 0x007ADA40,
+    // UnprojectScreenPoint — `__fastcall(float near[3], float far[3], float
+    // a, float b)`, ret 8 (Ghidra 0x007AD2C0): the frustum corners of the
+    // device view and projection (BuildFrustumCorners), then the near and
+    // far plane points at horizontal fraction `a` and vertical fraction `b`
+    // of the viewport, each 0 to 1 (nothing for one outside). The world
+    // frame's pick ray (0x004813B0) passes the cursor's fractions across its
+    // rect and adds the camera's eye to both points: the view leaves it out.
+    FUN_UNPROJECT_SCREEN_POINT = 0x007AD2C0,
     // PortraitLighting — the bake's lighting callback (ambient 0.45 grey and a
     // white light along (-1, 0, -1)), set with FUN_MODEL_INSTANCE_SET_RENDER_CB
     // and a null argument.
@@ -13152,6 +14838,9 @@ enum Offsets {
     GX_MASTER_FOG = 1,
     // SetClearColorDevice — `__stdcall(uint32 argb)`; the bake sets 0.
     FUN_GX_SET_CLEAR_COLOR = 0x0058A920,
+    // The device's clear colour — `uint32 *__fastcall(uint32 *out)`; the
+    // world's scene saves it around its clear (DrawWorldScene 0x00681070).
+    FUN_GX_GET_CLEAR_COLOR = 0x0058A940,
     // ClearDevice — `__fastcall(uint32 mask)`; the bake clears 3 before the
     // draw and again after the readback.
     FUN_GX_CLEAR = 0x0058A970,
@@ -13857,7 +15546,7 @@ enum Offsets {
     DRAW_BUILDER_FRAME_LINE_X = 0x48,
     // The fit-to-height count's line test (0x005C21C0, after its stepper
     // call): `fld [ebp+10h]` (the block height), then this `fadd dword ptr
-    // [VAR_TEXT_FIT_HEIGHT_EPSILON]` (D8 05 BC 26 80 00), then FCOMPP against
+    // [VAR_TWO_POW_MINUS_20]` (D8 05 BC 26 80 00), then FCOMPP against
     // the running height + font height; it stops at the first line that
     // fails. [ebp-8] is the bytes fitted so far, 0 until a line fits. EAX is
     // dead here (FNSTSW AX, then both paths reload it from [ebp-8]).
@@ -13866,7 +15555,7 @@ enum Offsets {
     TEXT_FIT_HEIGHT_FRAME_FITTED_BYTES = 0x8,
     // Exactly 2^-20 (0x35800000, .rdata): the fit's line margin above. A
     // shared float, also read by collision, movement and matrix code.
-    VAR_TEXT_FIT_HEIGHT_EPSILON = 0x008026BC,
+    VAR_TWO_POW_MINUS_20 = 0x008026BC, // float 2^-20
     // The draw builder's right / centre x: `FUN_TEXT_SCREEN_TO_PIXEL_WIDTH(raw,
     // -width)` (or -width / 2), `float __fastcall(int raw, float)`, `ret 4`,
     // result in ST0, stored to the line x at 0x005CDE28.
@@ -14420,4 +16109,98 @@ enum Offsets {
     // (FUN_REGION_LAYOUT_DIRTY(layout)) FUN_007680e0(layout, 1)`, 4.3.4's
     // `if (IsResizePending()) Resize(1)`).
     FUN_LAYOUT_RESIZE = 0x007680E0,
+
+    // ---- The client mover's floats (Model::Scene::Mover / Contact, the
+    // scene actor's body facing and locomotion) ---------------------------
+    // Each is the float (or double) the transcribed client function reads at
+    // that address; every value was checked against the image's bytes. The
+    // pooled ones are named by value, the mover's own by their role. All
+    // are .rdata except the three noted.
+    VAR_HALF = 0x007FFA24,                     // float 0.5
+    VAR_THREE_QUARTERS = 0x008012CC,           // float 0.75; a swimmer's height share, the aim height
+    VAR_ONE_HUNDREDTH = 0x008029D0,            // float 0.01
+    VAR_ONE_THIRTY_SIXTH = 0x007FF9D0,         // float 1/36
+    VAR_MINUS_ONE_THIRTY_SIXTH = 0x007FF9C8,   // float -1/36
+    VAR_HALF_PI = 0x00808ACC,                  // float pi/2
+    VAR_MINUS_HALF_PI = 0x0080C5E4,            // float -pi/2
+    VAR_QUARTER_PI = 0x0080C4E4,               // float pi/4
+    // WrapAngleToPi `double __stdcall(float a)`, ret 4: a outside [-pi, pi]
+    // brought into it with fmod, the result unrounded in st0.
+    FUN_WRAP_ANGLE_TO_PI = 0x006084F0,
+    // 2pi in .bss, filled by a static initializer: read it only at use.
+    VAR_MOVER_TWO_PI = 0x00CF5D00,
+    VAR_MOVER_FACING_EPSILON = 0x0080C5C8,     // float 1e-5, the turn and facing test
+    VAR_MOVER_MINUS_FACING_EPSILON = 0x0080C5C4, // float -1e-5
+    // The contact sweep's band and bounds (0x00631440 through 0x00632F80).
+    VAR_MOVER_SKIN = 0x0080DFEC,               // float 1/720
+    VAR_MOVER_ALL_BEHIND = 0x0080DFF4,         // float -2^-20
+    // The volume's bevels: sin, cos and tan of 61.6 degrees, the bevel
+    // normal's z and the two-bevel normalizer.
+    VAR_MOVER_BEVEL_OUT = 0x0080DFE4,
+    VAR_MOVER_BEVEL_DOWN = 0x0080DFE0,
+    VAR_MOVER_WAIST = 0x0080C740,
+    VAR_MOVER_BEVEL_Z = 0x0080E014,
+    VAR_MOVER_BISECT = 0x0080E024,
+    // The walk and fall resolvers.
+    VAR_MOVER_NINTH = 0x0080DFF8,              // float 1/9
+    VAR_MOVER_STALL = 0x0080C698,              // float 0.0005
+    VAR_MODEL_FADE_RATE = VAR_MOVER_STALL,     // the same float, in FadeOutModel's pass (0x00672FD3)
+    VAR_MOVER_STALL_REACH = 0x0080E018,        // float 1.1866661
+    VAR_MOVER_COS_10 = 0x0080E01C,
+    VAR_MOVER_FLOOR_COS = 0x0080DFFC,          // float cos 50 degrees, the walkable limit
+    VAR_MOVER_FLOOR_TAN = 0x0080E008,          // float tan 50 degrees
+    VAR_MOVER_MINUS_FLOOR_TAN = 0x0080E010,
+    VAR_MOVER_SQRT_2 = 0x0080E00C,
+    // Gravity g (19.29110527) and the forms the fall arc reads.
+    VAR_MOVER_GRAVITY = 0x0081DA58,
+    VAR_MOVER_HALF_GRAVITY = 0x0081DA60,
+    VAR_MOVER_TWO_GRAVITY = 0x0081DA64,
+    VAR_MOVER_INV_GRAVITY = 0x0080E020,
+    VAR_MOVER_MINUS_INV_GRAVITY = 0x0081DA5C,
+    VAR_MOVER_TWO_OVER_GRAVITY = 0x0081DA68,
+    // The fall's speed cap and the cap under flag 0x20000000, in .data.
+    VAR_MOVER_TERMINAL_SPEED = 0x0087D894,
+    VAR_MOVER_TERMINAL_SPEED_SLOW = 0x0087D898,
+    // The spline mover (OnMonsterMove 0x006018F0, SnapIfFar 0x00616D60, the
+    // warp gate 0x00616AF0, the position check 0x00616BF0).
+    VAR_MOVER_SNAP_DISTANCE_SQ = 0x0080C5BC,   // float 9.0, 3 yards squared
+    VAR_MOVER_WARP_SPEED_SQ = 0x0080C734,      // float 3600.0, 60 yards a second squared
+    VAR_MOVER_PATH_POINT_SQ = 0x0080C450,      // float (1/36)^2
+    VAR_MOVER_CELL_SPAN = 0x0080C738,          // float 34131.332
+    // The unit's sprint threshold (the move animation pick 0x005FD100).
+    VAR_MOVER_SPRINT_SPEED = 0x0080C484,       // float 11.0
+    // The mover's pure geometry helpers: each reads only its arguments and
+    // .rdata constants (Ghidra), so a scene body calls them as the client's
+    // mover does. A plane is {n xyz, d}, 16 bytes; a clip polygon is 0xF4
+    // bytes: 15 vertices, the tag of each (+0xB4), the count (+0xF0). All are
+    // __fastcall with the callee popping its stack arguments.
+    //   DotVector3 `double(const float a[3], const float b[3])`, plain ret;
+    //   the result unrounded in st0.
+    FUN_DOT_VECTOR3 = 0x00602630,
+    //   PlaneFromTriangle `void(Plane *out, int /*edx unused*/, const float
+    //   p0[3], const float p1[3], const float p2[3])`, ret 0xC: the unit
+    //   normal (p1 - p0) x (p2 - p0) and d = -n·p0.
+    FUN_PLANE_FROM_TRIANGLE = 0x00637480,
+    //   PlaneDistanceAlongRay `double(const float p[3], const Plane *, const
+    //   float dir[3])`, ret 4: (n·p + d) / (n·dir), undivided when |n·dir| <
+    //   2^-22.
+    FUN_PLANE_DISTANCE_ALONG_RAY = 0x006329E0,
+    //   ClipPolygonByPlane `void(const Plane *, Polygon *, int tag)`, ret 4:
+    //   keeps the inside with a 1/720 band, tagging the vertices it adds;
+    //   fewer than three left empties it.
+    FUN_CLIP_POLYGON_BY_PLANE = 0x006318C0,
+    //   ClipPolygonByPlanes `int(const Plane *, uint32 count, Polygon *)`,
+    //   ret 4, and ClipPolygonByPlanesExcept `int(const Plane *, uint32
+    //   count, uint32 skip, Polygon *)`, ret 8: by each plane in turn (the
+    //   tag its index), 0 once empty.
+    FUN_CLIP_POLYGON_BY_PLANES = 0x00631870,
+    FUN_CLIP_POLYGON_BY_PLANES_EXCEPT = 0x00632980,
+    //   IntersectThreePlanes `float *(float out[3], const Plane *a, const
+    //   Plane *b, const Plane *c)`, ret 8: through Matrix3Determinant and
+    //   InvertMatrix3 (0x007BE0E0, 0x007BE2A0).
+    FUN_INTERSECT_THREE_PLANES = 0x00634FC0,
+    //   PointToLineDistanceSquared `double(const float p[3], const float
+    //   q[3], const float dir[3])`, ret 4: from p to the line through q
+    //   along the unit dir.
+    FUN_POINT_TO_LINE_DISTANCE_SQ = 0x00634F40,
 };

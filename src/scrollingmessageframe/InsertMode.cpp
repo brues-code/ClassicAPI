@@ -38,6 +38,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/Destruction.h"
+#include "frame/Layout.h"
 #include "scrollingmessageframe/DisplayRefreshed.h"
 #include "scrollingmessageframe/InsertMode.h"
 
@@ -55,7 +56,6 @@ constexpr int kInsertModeBottom = 2;
 using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint, float x, float y,
                                       int flag);
 using ClearAllPoints_t = void(__fastcall *)(void *anchor);
-using Resize_t = void(__fastcall *)(void *anchor, void *edx, int force);
 using PixelAlignY_t = float(__stdcall *)(float length);
 
 // The frames in TOP mode. Every frame is rebuilt on /reload, so the set is
@@ -64,7 +64,7 @@ std::unordered_set<void *> g_topFrames;
 
 bool IsTop(void *smf) { return g_topFrames.count(smf) != 0; }
 
-void *AnchorOf(void *region) { return static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR; }
+using Frame::Layout::Of;
 
 // Sets a line's anchor as the layout gives it - (BOTTOMLEFT, the frame,
 // BOTTOMLEFT, x, y) for the first line, (BOTTOMLEFT, the line before, TOPLEFT,
@@ -88,7 +88,7 @@ void SetLinePoint(void *smf, void *anchor, int point, void *relative, int relati
 // the frame.
 void __fastcall AnchorNewLine(void *anchor, void *, int point, void *relative, int relativePoint, float x, float y,
                               int flag) {
-    void *line = static_cast<uint8_t *>(anchor) - Offsets::OFF_REGION_ANCHOR;
+    void *line = Frame::Layout::OwnerOf(anchor);
     SetLinePoint(Game::Read<void *>(line, Offsets::OFF_REGION_PARENT), anchor, point, relative, relativePoint, x, y,
                  flag);
 }
@@ -104,7 +104,7 @@ void AnchorLines(void *smf) {
     const int count = Game::Read<int>(smf, Offsets::OFF_SMF_LINE_COUNT);
     for (int i = 0; i < count; ++i) {
         AnchorLine(smf, i);
-        reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(AnchorOf(LineOf(smf, i)), nullptr, 1);
+        Frame::Layout::Resize(LineOf(smf, i), true);
     }
 }
 
@@ -185,14 +185,14 @@ const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
 void AnchorLine(void *smf, int index) {
     void *line = LineOf(smf, index);
-    void *anchor = AnchorOf(line);
+    void *anchor = Of(line);
     reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(anchor);
     if (index == 0)
-        SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, AnchorOf(smf), Offsets::FRAMEPOINT_BOTTOMLEFT,
+        SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, Of(smf), Offsets::FRAMEPOINT_BOTTOMLEFT,
                      Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_LEFT),
                      Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_BOTTOM), 1);
     else
-        SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, AnchorOf(LineOf(smf, index - 1)),
+        SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, Of(LineOf(smf, index - 1)),
                      Offsets::FRAMEPOINT_TOPLEFT, 0.0f,
                      reinterpret_cast<PixelAlignY_t>(Offsets::FUN_PIXEL_ALIGN_Y)(
                          Game::Read<float>(line, Offsets::OFF_FONTSTRING_SPACING)),

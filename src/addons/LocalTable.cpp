@@ -34,6 +34,7 @@
 #include "addons/EngineIO.h"
 #include "addons/Toc.h"
 #include "luasyntax/AddonNamespace.h"
+#include "storm/Memory.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -51,7 +52,6 @@ using IsLoadedFn_t = uint8_t(__fastcall *)(const char *name);
 // FUN_FILE_READ address routes through Embedded's file-read hook, which forwards
 // every non-`!!!ClassicAPI` path to the original untouched — what we want here.
 using AddOns::EngineIO::FileReadFn;
-using AddOns::EngineIO::SMemFreeFn;
 
 // True iff the addon's `.toc` has a line `## AllowAddOnTableAccess: <nonzero>`.
 // The value is read as a TOC boolean flag: parse the leading integer, true iff
@@ -87,8 +87,7 @@ bool TocAllowsTableAccess(const char *name) {
         allowed = anyDigit && value != 0;
     }
 
-    auto smemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
-    smemFree(buf, __FILE__, __LINE__, 0);
+    Storm::Free(buf, __FILE__, __LINE__);
     return allowed;
 }
 

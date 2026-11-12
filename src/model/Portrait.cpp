@@ -51,7 +51,8 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
+#include "frame/Layout.h"
+#include "gx/Device.h"
 #include "model/Camera.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
@@ -72,25 +73,11 @@ constexpr uint32_t kTexels = kSize * kSize;
 
 using CreateScene_t = void *(__cdecl *)();
 using ReleaseScene_t = void(__thiscall *)(void *scene);
-using CopyModel_t = void *(__thiscall *)(void *scene, void *source, uint32_t flags);
-using ApplyDisplay_t = void(__fastcall *)(void *model, const uint8_t *display,
-                                          const uint8_t *modelData);
-using DetachAll_t = void(__fastcall *)(void *model);
-using DrawScene_t = void(__thiscall *)(void *scene, uint32_t pass);
-using SetTransforms_t = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
-using GetMatrix_t = void(__fastcall *)(float *m);
-using SetMatrix_t = void(__fastcall *)(const float *m);
-using GetViewport_t = void(__fastcall *)(float *, float *, float *, float *, float *, float *);
-using SetViewport_t = void(__stdcall *)(float, float, float, float, float, float);
 using ScreenSize_t = void(__fastcall *)(float *rect);
-using DdcToNdc_t = void(__fastcall *)(float *x, float *y, float inX, float inY);
 using DeviceGate_t = int(__cdecl *)();
 using MasterGet_t = bool(__fastcall *)(uint32_t cap);
 using MasterSet_t = void(__fastcall *)(uint32_t cap, uint32_t on);
-using SetClearColor_t = void(__stdcall *)(uint32_t argb);
-using Clear_t = void(__fastcall *)(uint32_t mask);
 using AlphaMask_t = const uint8_t *(__fastcall *)(uint32_t size);
-using GetDeviceTexture_t = void *(__fastcall *)(void *texture, uint32_t wait, void *callback);
 using MarkDirty_t = void(__fastcall *)(void *gxTex, const int32_t *rect, uint32_t immediate);
 using SetImage_t = void(__thiscall *)(void *region, void *texture);
 
@@ -152,77 +139,62 @@ bool Bake(Portrait &p) {
     void *scene = reinterpret_cast<CreateScene_t>(Offsets::FUN_M2_CREATE_SCENE)();
     if (scene == nullptr)
         return false;
-    void *copy = reinterpret_cast<CopyModel_t>(Offsets::FUN_M2SCENE_COPY_MODEL)(scene, source, 0);
+    void *copy = M2::CopyWithoutItems(scene, source);
     if (copy == nullptr) {
         reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
         return false;
     }
-    reinterpret_cast<DetachAll_t>(Offsets::FUN_DETACH_ALL_ITEM_MODELS)(copy);
     void *camera = Model::Camera::CameraById(copy, 0);
     M2::PlayAnimation(copy, -1, 0, 0, 0, 1.0f, 0, 1);
 
-    float projection[16];
-    float view[16];
-    float viewport[6];
-    reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_PROJECTION)(projection);
-    reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_VIEW)(view);
-    reinterpret_cast<GetViewport_t>(Offsets::FUN_GX_GET_VIEWPORT)(
-        &viewport[0], &viewport[1], &viewport[2], &viewport[3], &viewport[4], &viewport[5]);
     const bool fog = reinterpret_cast<MasterGet_t>(Offsets::FUN_GX_MASTER_ENABLE_GET)(
         Offsets::GX_MASTER_FOG);
     auto setMaster = reinterpret_cast<MasterSet_t>(Offsets::FUN_GX_MASTER_ENABLE_SET);
     setMaster(Offsets::GX_MASTER_FOG, 0);
+    {
+        const Gx::SavedTransforms saved;
+        const float aspect = static_cast<float>((static_cast<double>(x1) - x0) /
+                                                (static_cast<double>(y1) - y0));
+        Frame::Layout::DdcToNdc(&x0, &y0, x0, y0);
+        Frame::Layout::DdcToNdc(&x1, &y1, x1, y1);
 
-    const float aspect = static_cast<float>((static_cast<double>(x1) - x0) /
-                                            (static_cast<double>(y1) - y0));
-    auto toNdc = reinterpret_cast<DdcToNdc_t>(Offsets::FUN_COORD_DDC_TO_NDC);
-    toNdc(&x0, &y0, x0, y0);
-    toNdc(&x1, &y1, x1, y1);
+        // First collection: evaluate the portrait camera.
+        M2::IsLoaded(copy, 1, 1);
+        M2::SetAnimated(copy, true);
+        const float origin[3] = {0.0f, 0.0f, 0.0f};
+        M2::AnimateScene(scene, origin);
+        const Model::Camera::Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
+        Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_TARGET); // the bake reads it too
+        const float rect[4] = {0.0f, 0.0f, 1.0f, aspect};
+        Model::Camera::SetDeviceTransforms(camera, rect);
+        Gx::SetViewport({x0, x1, y0, y1, 0.0f, 1.0f});
+        Gx::SetClearColor(0);
+        Gx::Clear(3);
 
-    // First collection: evaluate the portrait camera.
-    M2::IsLoaded(copy, 1, 1);
-    M2::SetAnimated(copy, true);
-    const float origin[3] = {0.0f, 0.0f, 0.0f};
-    M2::AnimateScene(scene, origin);
-    const Model::Camera::Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
-    Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_TARGET); // the bake reads it too
-    const float rect[4] = {0.0f, 0.0f, 1.0f, aspect};
-    reinterpret_cast<SetTransforms_t>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
-    reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(x0, x1, y0, y1, 0.0f, 1.0f);
-    reinterpret_cast<SetClearColor_t>(Offsets::FUN_GX_SET_CLEAR_COLOR)(0);
-    auto clear = reinterpret_cast<Clear_t>(Offsets::FUN_GX_CLEAR);
-    clear(3);
+        // Second collection from the portrait eye, then both passes.
+        M2::IsReady(copy, 1, 1);
+        M2::SetAnimated(copy, true);
+        M2::SetVisible(copy, true);
+        M2::SetRenderCallback(copy, reinterpret_cast<const void *>(Offsets::FUN_PORTRAIT_LIGHTING),
+                              nullptr);
+        M2::AnimateScene(scene, &eye.x);
+        M2::DrawScene(scene, 0);
+        M2::DrawScene(scene, 1);
 
-    // Second collection from the portrait eye, then both passes.
-    M2::IsReady(copy, 1, 1);
-    M2::SetAnimated(copy, true);
-    M2::SetVisible(copy, true);
-    M2::SetRenderCallback(copy, reinterpret_cast<const void *>(Offsets::FUN_PORTRAIT_LIGHTING),
-                          nullptr);
-    M2::AnimateScene(scene, &eye.x);
-    auto draw = reinterpret_cast<DrawScene_t>(Offsets::FUN_M2SCENE_DRAW);
-    draw(scene, 0);
-    draw(scene, 1);
-
-    const int32_t box[4] = {0, 0, static_cast<int32_t>(kSize), static_cast<int32_t>(kSize)};
-    TexelArray out{kTexels, kTexels, p.texels.data(), kTexels};
-    reinterpret_cast<void(__fastcall *)(const int32_t *, TexelArray *)>(
-        Offsets::FUN_GX_READ_PIXELS)(box, &out);
-    clear(3);
-    const auto *mask = reinterpret_cast<const AlphaMask *>(
-        reinterpret_cast<AlphaMask_t>(Offsets::FUN_PORTRAIT_ALPHA_MASK)(kSize));
-    if (out.data == p.texels.data()) {
-        for (uint32_t i = 0; i < kTexels; ++i)
-            p.texels[i] = (p.texels[i] & 0x00FFFFFFu) | static_cast<uint32_t>(mask->alpha[i]) << 24;
-        void *gxTex = reinterpret_cast<GetDeviceTexture_t>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(
-            p.texture, 1, nullptr);
-        reinterpret_cast<MarkDirty_t>(Offsets::FUN_GX_TEX_MARK_RECT_DIRTY)(gxTex, box, 1);
+        const int32_t box[4] = {0, 0, static_cast<int32_t>(kSize), static_cast<int32_t>(kSize)};
+        TexelArray out{kTexels, kTexels, p.texels.data(), kTexels};
+        reinterpret_cast<void(__fastcall *)(const int32_t *, TexelArray *)>(
+            Offsets::FUN_GX_READ_PIXELS)(box, &out);
+        Gx::Clear(3);
+        const auto *mask = reinterpret_cast<const AlphaMask *>(
+            reinterpret_cast<AlphaMask_t>(Offsets::FUN_PORTRAIT_ALPHA_MASK)(kSize));
+        if (out.data == p.texels.data()) {
+            for (uint32_t i = 0; i < kTexels; ++i)
+                p.texels[i] = (p.texels[i] & 0x00FFFFFFu) | static_cast<uint32_t>(mask->alpha[i]) << 24;
+            void *gxTex = Texture::DeviceTexture(p.texture);
+            reinterpret_cast<MarkDirty_t>(Offsets::FUN_GX_TEX_MARK_RECT_DIRTY)(gxTex, box, 1);
+        }
     }
-
-    reinterpret_cast<SetMatrix_t>(Offsets::FUN_GX_SET_PROJECTION)(projection);
-    reinterpret_cast<SetMatrix_t>(Offsets::FUN_GX_SET_VIEW)(view);
-    reinterpret_cast<SetViewport_t>(Offsets::FUN_GX_SET_VIEWPORT)(
-        viewport[0], viewport[1], viewport[2], viewport[3], viewport[4], viewport[5]);
     setMaster(Offsets::GX_MASTER_FOG, fog ? 1 : 0);
     M2::Release(copy);
     reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
@@ -270,27 +242,14 @@ Portrait *Acquire(uint32_t displayID) {
     auto found = g_portraits.find(displayID);
     if (found != g_portraits.end())
         return found->second.get();
-    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
-    if (display == nullptr)
-        return nullptr;
-    const uint8_t *modelData = DBC::Record(
-        Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
-        Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
-    if (modelData == nullptr)
-        return nullptr;
-
     void *scene = reinterpret_cast<CreateScene_t>(Offsets::FUN_M2_CREATE_SCENE)();
     if (scene == nullptr)
         return nullptr;
-    void *model = M2::CreateModel(
-        scene, Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH));
+    void *model = Model::DisplayInfo::CreateDisplayModel(scene, displayID);
     if (model == nullptr) {
         reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
         return nullptr;
     }
-    reinterpret_cast<ApplyDisplay_t>(Offsets::FUN_APPLY_CREATURE_DISPLAY)(model, display,
-                                                                          modelData);
 
     // The bake's own texture: 64x64, one mip, ARGB8888, flags (1, 0, 0, 0, 0,
     // 0, 1, 0), "Portrait1" (0x005257D3).

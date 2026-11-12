@@ -77,6 +77,7 @@
 #include "addons/TocRewrite.h"
 #include "bindings/Inject.h"
 #include "embed/Resource.h"
+#include "storm/Memory.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -153,8 +154,6 @@ Embed::Bytes LookupEmbedded(const char *relPath) {
 // by the caller's standard SMemFree in turn.
 using AddOns::EngineIO::FileExistsFn;
 using AddOns::EngineIO::FileReadFn;
-using AddOns::EngineIO::SMemAllocFn;
-using AddOns::EngineIO::SMemFreeFn;
 
 // The trampolines to the original FUN_FILE_READ / FUN_FILE_EXISTS (installed
 // by the co-hooks below).
@@ -277,8 +276,7 @@ void DecideSource(int addon) {
     // Free the disk buffer we just borrowed — we only needed it for
     // the version-line scrape. The actual content for the engine's
     // TOC read comes through the regular hook path below.
-    auto SMemFree = reinterpret_cast<SMemFreeFn>(Offsets::FUN_STORM_SMEM_FREE);
-    SMemFree(diskBuf, __FILE__, __LINE__, 0);
+    Storm::Free(diskBuf, __FILE__, __LINE__);
 
     // Missing or unparseable disk version → assume it's older than
     // anything we ship, embedded wins.
@@ -320,10 +318,8 @@ int ReadAddonFile(int addon, const char *relPath, int unused, const char *path,
                           flag1, flag2);
     }
 
-    auto SMemAlloc = reinterpret_cast<SMemAllocFn>(
-        Offsets::FUN_STORM_SMEM_ALLOC);
     const size_t totalSize = entry.size + extraBytes;
-    void *buf = SMemAlloc(totalSize, __FILE__, __LINE__, 0);
+    void *buf = Storm::Alloc(totalSize, __FILE__, __LINE__);
     if (buf == nullptr) return 0;
     std::memcpy(buf, entry.data, entry.size);
     if (extraBytes > 0) {

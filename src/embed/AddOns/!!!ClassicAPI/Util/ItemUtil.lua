@@ -6,8 +6,9 @@
 --     (scrapping, runeforging, soulbinds, keystones, item upgrades,
 --     recrafting, bank tabs), and the stock bag and character frames never
 --     ask for it.
---   - No ItemUtil.CreateItemTransmogInfo or ItemTransmogInfoMixin: there is
---     no transmogrification.
+--   - ItemTransmogInfoMixin's appearanceID is an item ID and its illusionID a
+--     SpellItemEnchantment ID, as the ModelSceneActor ItemTransmogInfo
+--     methods read and write them.
 --   - ItemUtil.GetItemDetails has no currency path: there are no currencies.
 --   - No ItemUtil.GetCraftingReagentCount: it picks between the reagent bank
 --     and the account bank, and neither exists.
@@ -93,6 +94,10 @@ function ItemUtil.FilterOwnedItems(itemIDs)
 		end
 	end
 	return filtered;
+end
+
+function ItemUtil.CreateItemTransmogInfo(appearanceID, secondaryAppearanceID, illusionID)
+	return CreateAndInitFromMixin(ItemTransmogInfoMixin, appearanceID, secondaryAppearanceID, illusionID);
 end
 
 function ItemUtil.TransformItemIDsToItems(itemIDs)
@@ -193,4 +198,43 @@ function ItemUtil.GetEquipSlotTexture(equipSlot)
 	end
 
 	return nil;
+end
+
+ItemTransmogInfoMixin = {};
+
+function ItemTransmogInfoMixin:Init(appearanceID, secondaryAppearanceID, illusionID)
+	self.appearanceID = appearanceID;
+	self.secondaryAppearanceID = secondaryAppearanceID or Constants.Transmog.NoTransmogID;
+	self.illusionID = illusionID or Constants.Transmog.NoTransmogID;
+end
+
+function ItemTransmogInfoMixin:IsEqual(itemTransmogInfo)
+	if not itemTransmogInfo then
+		return false;
+	end
+	return self.appearanceID == itemTransmogInfo.appearanceID and self.secondaryAppearanceID == itemTransmogInfo.secondaryAppearanceID and self.illusionID == itemTransmogInfo.illusionID;
+end
+
+function ItemTransmogInfoMixin:Clear()
+	self.appearanceID = Constants.Transmog.NoTransmogID;
+	self.secondaryAppearanceID = Constants.Transmog.NoTransmogID;
+	self.illusionID = Constants.Transmog.NoTransmogID;
+end
+
+-- There is no slot info in ItemTransmogInfo so the following 3 MainHand functions must be used with correct itemTransmogInfo at call site
+function ItemTransmogInfoMixin:ConfigureSecondaryForMainHand(isLegionArtifact)
+	if isLegionArtifact then
+		self.secondaryAppearanceID = Constants.Transmog.MainHandTransmogIsPairedWeapon;
+	else
+		self.secondaryAppearanceID = Constants.Transmog.MainHandTransmogIsIndividualWeapon;
+	end
+end
+
+function ItemTransmogInfoMixin:IsMainHandIndividualWeapon()
+	return self.secondaryAppearanceID == Constants.Transmog.MainHandTransmogIsIndividualWeapon;
+end
+
+function ItemTransmogInfoMixin:IsMainHandPairedWeapon()
+	-- paired weapon can be value Constants.Transmog.MainHandTransmogIsPairedWeapon or greater
+	return not self:IsMainHandIndividualWeapon();
 end

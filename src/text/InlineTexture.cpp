@@ -690,9 +690,9 @@ float OutlinePadPen(const void *fontFace, float fontPx) {
     const uint32_t flags = Game::Read<uint32_t>(fontFace, Offsets::OFF_FONTFACE_FLAGS);
     float ink = 0.0f;
     if ((flags & 8u) != 0)
-        ink = Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THICK);
+        ink = Game::Read<float>(Offsets::VAR_FOUR);
     else if ((flags & 1u) != 0)
-        ink = Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THIN);
+        ink = Game::Read<float>(Offsets::VAR_TWO);
     if (ink == 0.0f)
         return 0.0f;
     using FontNativeHeight_t = int(__fastcall *)(const void *font);
@@ -959,7 +959,7 @@ bool ResolveFsPenFont(void *fs, FsPenFont &out) {
     // fontHInt/fontHPen bridge inflated fixed-size/ink width terms (the
     // money-tooltip right-anchor gap).
     float sizeNorm = out.fontHInt * scale / anchorH;
-    const float minNorm = Game::Read<float>(Offsets::FLOAT_OUTLINE_EXTRA_THIN) /
+    const float minNorm = Game::Read<float>(Offsets::VAR_TWO) /
                           static_cast<float>(rasterY);
     if (sizeNorm < minNorm)
         sizeNorm = minNorm;

@@ -19,6 +19,7 @@
 #include "frame/ScriptArgs.h"
 #include "frame/UnitEvent.h"
 #include "profile/ScriptTime.h"
+#include "storm/Memory.h"
 
 #include <cstdint>
 #include <cstring>
@@ -92,23 +93,6 @@ char *SStrDup(const char *s) {
                                           int line);
     auto fn = reinterpret_cast<SStrDup_t>(Offsets::FUN_STORM_SSTRDUP);
     return fn(s, __FILE__, __LINE__);
-}
-
-// Storm allocator/free — the same pair the engine uses for the event-table
-// buffer (see RebuildEventTable), so its reload teardown `SMemFree`s our
-// grown buffer exactly as its own. Both `__stdcall`, 4 args (`ret 0x10`).
-// SMemAlloc flag bit 8 zero-fills (matching SetEventCount's fresh entries).
-void *SMemAlloc(unsigned size) {
-    using SMemAlloc_t = void *(__stdcall *)(unsigned size, const char *file,
-                                            int line, int flags);
-    auto fn = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC);
-    return fn(size, __FILE__, __LINE__, 8 /* zero-fill */);
-}
-void SMemFree(void *ptr) {
-    using SMemFree_t = int(__stdcall *)(void *ptr, const char *file, int line,
-                                        int flags);
-    auto fn = reinterpret_cast<SMemFree_t>(Offsets::FUN_STORM_SMEM_FREE);
-    fn(ptr, __FILE__, __LINE__, 0);
 }
 
 // True when slot `id` of the live table can take one of our names: its name
@@ -294,8 +278,12 @@ void Grow() {
     constexpr int kMargin = 16;
     const int deficit = (nulls < demand) ? (demand - nulls) : 0;
     const int newCount = count + deficit + kMargin;
+    // Storm's heap, like the engine's own table buffer (see RebuildEventTable),
+    // so its reload teardown SMemFrees ours the same way; zero-filled, like
+    // SetEventCount's fresh entries.
     auto *newBuf = static_cast<uint8_t *>(
-        SMemAlloc(static_cast<unsigned>(newCount) * Offsets::EVENT_ENTRY_STRIDE));
+        Storm::Alloc(static_cast<size_t>(newCount) * Offsets::EVENT_ENTRY_STRIDE, __FILE__,
+                     __LINE__, true));
     if (newBuf == nullptr)
         return; // alloc failed — keep the old table; claiming still works
 
@@ -323,7 +311,7 @@ void Grow() {
     Game::Ref<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR) = newBuf;
     Game::Ref<int>(Offsets::VAR_EVENT_TABLE_CAP) = newCount;
     Game::Ref<int>(Offsets::VAR_EVENT_TABLE_COUNT) = newCount;
-    SMemFree(base);
+    Storm::Free(base, __FILE__, __LINE__);
 
     Debug::Log::Printf("[event] grew table %d -> %d (%d NULL, %d reserved%s)",
                        count, newCount, nulls, demand,

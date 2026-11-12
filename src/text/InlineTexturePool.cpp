@@ -20,6 +20,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/LayerChange.h"
 #include "frame/Region.h"
 #include "frame/RegionDestruction.h"
 #include "text/PtrProbe.h"
@@ -44,7 +45,6 @@ using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
 using DeletingDestructor_t = void(__thiscall *)(void *region, int flags);
 using Emit_t = void(__fastcall *)(void *region, void *edx, void *batch);
-using NotifyLayerChanged_t = void(__fastcall *)(void *region);
 using OnColorChanged_t = void(__fastcall *)(void *fs, void *edx, int changed);
 
 // LAA-aware pointer sanity probe: Text::LooksReadable (text/PtrProbe.h).
@@ -225,7 +225,7 @@ void ApplyPlacements(void *fs, FsPlacements &np, uint32_t fsColor) {
     np.shown = (want < static_cast<int>(np.regions.size()))
                    ? want
                    : static_cast<int>(np.regions.size());
-    reinterpret_cast<NotifyLayerChanged_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(fs);
+    Frame::LayerChange::NotifyRegion(fs);
 }
 
 // Per-frame tick (FrameTick — glue AND world): deletes orphaned textures.

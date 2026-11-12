@@ -30,6 +30,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cfloat>
 #include <cstdint>
@@ -43,20 +44,12 @@ struct Rect {
     float bottom, left, top, right;
 };
 
-using GetRect_t = int(__fastcall *)(void *layout, void *edx, Rect *out);
-using LayoutDirty_t = int(__fastcall *)(void *layout);
-using Resize_t = void(__fastcall *)(void *layout, void *edx, int force);
-
-void *LayoutOf(void *region) { return static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR; }
-
 // Grows `rect` by a region's own rect, resolving a pending layout first.
 void AddRegionRect(void *region, Rect &rect) {
-    void *layout = LayoutOf(region);
-    if (reinterpret_cast<LayoutDirty_t>(Offsets::FUN_REGION_LAYOUT_DIRTY)(layout) != 0)
-        reinterpret_cast<Resize_t>(Offsets::FUN_LAYOUT_RESIZE)(layout, nullptr, 1);
-    Rect own{};
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, &own) == 0)
+    float r[4];
+    if (!Frame::Layout::GetResolvedRect(region, r))
         return;
+    const Rect own{r[0], r[1], r[2], r[3]};
     rect.left = own.left < rect.left ? own.left : rect.left;
     rect.right = own.right > rect.right ? own.right : rect.right;
     rect.bottom = own.bottom < rect.bottom ? own.bottom : rect.bottom;

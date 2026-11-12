@@ -36,9 +36,11 @@
 // drain (0x0061F680) releases a stopped effect once HasLiveParticles is
 // false. Here the release is the detach from the pane's model, run on
 // FrameTick's tail where no model is mid-draw. Without oneShot an effect
-// loops until the model is replaced, as on retail: an effect model's sequence
-// does not loop by itself, so it gets the world's loop callback
-// (KitEffectLoopCallback, 0x0060ED00), which plays the ended animation again.
+// lasts until the model is replaced, as on retail: an effect model's sequence
+// does not loop by itself, so at each end it holds Hold (158) when the model
+// has it, as a state kit's effect does (KitEffectHoldCallback 0x005FF170),
+// and else plays the ended animation again (KitEffectLoopCallback,
+// 0x0060ED00).
 //
 // The effects are children of the pane's model, so they go when the model
 // does: SetUnit, SetItem, a hide and show, and so on. A model destroyed with
@@ -52,6 +54,7 @@
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "model/Teardown.h"
+#include "model/VisualKit.h"
 #include "tick/FrameTick.h"
 
 #include <cstdint>
@@ -59,13 +62,6 @@
 
 namespace Model::VisualKit {
 namespace {
-
-using ModelFn_t = void(__fastcall *)(void *model);
-using HasAttachment_t = int(__thiscall *)(void *model, uint32_t id);
-using Attach_t = void(__thiscall *)(void *child, void *parent, uint32_t id);
-using SetAlpha_t = void(__thiscall *)(void *model, float alpha);
-using SetDiffuse_t = void(__thiscall *)(void *model, const float *rgb);
-using HasLiveParticles_t = int(__thiscall *)(void *model);
 
 // The attachment of each effect column, in the ghost kit's order.
 constexpr uint32_t kAttachments[] = {20, 34, 19, 21, 22, 17, 23, 24, 25};
@@ -91,25 +87,30 @@ void __fastcall OnEffectDone(void *model, uint32_t /*keyBone*/, uint32_t /*animI
     if (reason != 0)
         return;
     M2::SetAnimDoneCallback(model, nullptr, 0, 0);
+    M2::SetEventCallback(model, nullptr, 0, 0);
     M2::SetVisible(model, false);
     M2::AddRef(model);
     g_stopped.push_back({reinterpret_cast<void *>(static_cast<uintptr_t>(userLow)), model});
 }
 
-// KitEffectLoopCallback: a sequence that ended cleanly plays again.
+// A lasting effect's sequence that ended cleanly: a model with Hold holds
+// it, as a state kit's effect does (KitEffectHoldCallback 0x005FF170, then
+// KitEffectDecayCallback 0x005FF1D0 with no end time, which plays Hold again
+// at each end); one without plays its sequence again, as a channel kit's does
+// (KitEffectLoopCallback 0x0060ED00). Frost Nova's ice forms once, then stays.
 void __fastcall OnEffectLoop(void *model, uint32_t /*keyBone*/, uint32_t animID, uint32_t reason,
                              uint32_t /*overshoot*/, uint32_t /*userLow*/,
                              uint32_t /*userHigh*/) {
     if (reason != 0)
         return;
-    M2::PlayAnimation(model, -1, animID, -1, 0, 1.0f, 1, 1);
+    const uint32_t next = M2::HasAnimation(model, Offsets::ANIM_HOLD) ? Offsets::ANIM_HOLD : animID;
+    M2::PlayAnimation(model, -1, next, -1, 0, 1.0f, 1, 1);
 }
 
 // Detaches a stopped effect that is still on its model, then drops our
 // reference.
 void Discard(void *model) {
-    if (Game::Read<void *>(model, Offsets::OFF_M2MODEL_PARENT) != nullptr)
-        reinterpret_cast<ModelFn_t>(Offsets::FUN_M2MODEL_DETACH)(model);
+    M2::Detach(model);
     M2::Release(model);
 }
 
@@ -132,8 +133,7 @@ void DiscardWhere(Pred done) {
 void Drain() {
     DiscardWhere([](const Stopped &e) {
         return Game::Read<void *>(e.model, Offsets::OFF_M2MODEL_PARENT) == nullptr ||
-               !reinterpret_cast<HasLiveParticles_t>(Offsets::FUN_M2MODEL_HAS_LIVE_PARTICLES)(
-                   e.model);
+               !M2::HasLiveParticles(e.model);
     });
 }
 
@@ -146,6 +146,8 @@ void OnPaneDestroyed(void *pane) {
 
 const Model::Teardown::AutoSubscribe _teardown{&OnPaneDestroyed};
 
+} // namespace
+
 // The ghost kit's procedure step: kind 1 tints, kind 14 sets the alpha.
 void ApplyProcedures(void *model, const uint8_t *kit) {
     for (int i = 0; i < kProcedures; ++i) {
@@ -156,42 +158,82 @@ void ApplyProcedures(void *model, const uint8_t *kit) {
             const float rgb[3] = {static_cast<float>((color >> 16) & 0xFF) * kByteScale,
                                   static_cast<float>((color >> 8) & 0xFF) * kByteScale,
                                   static_cast<float>(color & 0xFF) * kByteScale};
-            reinterpret_cast<SetDiffuse_t>(Offsets::FUN_M2MODEL_SET_DIFFUSE_COLOR)(model, rgb);
+            M2::SetDiffuse(model, rgb);
         } else if (kind == kProcAlpha) {
             const float alpha = value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value;
-            reinterpret_cast<SetAlpha_t>(Offsets::FUN_M2MODEL_SET_ALPHA)(model, alpha);
+            M2::SetAlpha(model, alpha);
         }
     }
 }
 
-void Apply(void *pane, const uint8_t *kit, bool oneShot) {
-    void *model = Pane::Model(pane);
+bool SetsColor(const uint8_t *kit) {
+    for (int i = 0; i < kProcedures; ++i) {
+        const auto kind = Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_PROC_KIND + i * 4);
+        if (kind == kProcTint || kind == kProcAlpha)
+            return true;
+    }
+    return false;
+}
+
+void Stop(void *frame, void *effect) {
+    const auto pane = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame));
+    if (M2::IsLoaded(effect, 0, 0) && M2::HasAnimation(effect, Offsets::ANIM_DECAY)) {
+        // Its parent holds it until the decay ends and OnEffectDone stops it.
+        M2::SetAnimDoneCallback(effect, reinterpret_cast<const void *>(&OnEffectDone), pane, 0);
+        M2::PlayAnimation(effect, -1, Offsets::ANIM_DECAY, -1, 0, 1.0f, 1, 1);
+        M2::Release(effect);
+        return;
+    }
+    M2::SetAnimDoneCallback(effect, nullptr, 0, 0);
+    M2::SetEventCallback(effect, nullptr, 0, 0);
+    M2::SetVisible(effect, false);
+    g_stopped.push_back({frame, effect}); // our reference, handed over
+}
+
+const void *LoopCallback() { return reinterpret_cast<const void *>(&OnEffectLoop); }
+
+const uint8_t *Record(uint32_t kitID) {
+    return DBC::Record(Offsets::VAR_SPELLVISUALKIT_RECORDS, Offsets::VAR_SPELLVISUALKIT_COUNT,
+                       kitID);
+}
+
+void *Hang(void *frame, void *model, const uint8_t *effect, uint32_t attachment, bool oneShot) {
+    if (model == nullptr || effect == nullptr || !M2::HasAttachment(model, attachment))
+        return nullptr;
+    void *child = M2::CreateModel(Pane::Scene(frame),
+                                  Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
+    if (child == nullptr)
+        return nullptr;
+    if (oneShot)
+        M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectDone),
+                                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(frame)), 0);
+    else
+        M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
+    M2::Attach(child, model, attachment);
+    Model::DisplayInfo::LightChild(frame, model, child);
+    return child;
+}
+
+void Apply(void *frame, void *model, const uint8_t *kit, bool oneShot,
+           std::vector<void *> *effects) {
     if (model == nullptr)
         return;
-    void *scene = Pane::Scene(pane);
     for (int i = 0; i < static_cast<int>(sizeof(kAttachments) / sizeof(kAttachments[0])); ++i) {
         const uint8_t *effect = DBC::Record(
             Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
             Game::Read<uint32_t>(kit, Offsets::OFF_SPELLVISUALKIT_EFFECTS + i * 4));
-        if (effect == nullptr ||
-            !reinterpret_cast<HasAttachment_t>(Offsets::FUN_M2MODEL_HAS_ATTACHMENT)(
-                model, kAttachments[i]))
-            continue;
-        void *child = M2::CreateModel(
-            scene, Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE));
+        void *child = Hang(frame, model, effect, kAttachments[i], oneShot);
         if (child == nullptr)
             continue;
-        if (oneShot)
-            M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectDone),
-                                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(pane)), 0);
+        if (effects != nullptr)
+            effects->push_back(child); // our reference, handed over
         else
-            M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
-        reinterpret_cast<Attach_t>(Offsets::FUN_M2MODEL_ATTACH)(child, model, kAttachments[i]);
-        M2::Release(child);
+            M2::Release(child);
     }
-    Model::DisplayInfo::LightChildren(pane, model);
     ApplyProcedures(model, kit);
 }
+
+namespace {
 
 int __fastcall Script_ApplySpellVisualKit(void *L) {
     void *pane = Game::Lua::ResolvePlayerModel(L);
@@ -201,11 +243,8 @@ int __fastcall Script_ApplySpellVisualKit(void *L) {
         Game::Lua::Error(L, "Usage: ApplySpellVisualKit(spellVisualKitID [, oneShot])");
         return 0;
     }
-    const uint8_t *kit =
-        DBC::Record(Offsets::VAR_SPELLVISUALKIT_RECORDS, Offsets::VAR_SPELLVISUALKIT_COUNT,
-                    static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
-    if (kit != nullptr)
-        Apply(pane, kit, Game::Lua::ToBoolean(L, 3) != 0);
+    if (const uint8_t *kit = Record(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))))
+        Apply(pane, Pane::Model(pane), kit, Game::Lua::ToBoolean(L, 3) != 0);
     return 0;
 }
 

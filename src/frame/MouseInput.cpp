@@ -44,6 +44,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
 #include "frame/MotionFocus.h"
@@ -63,7 +64,6 @@ using EnableEvent_t = void(__thiscall *)(void *frame, int kind, int priority);
 using DisableEvent_t = void(__thiscall *)(void *frame, int kind);
 using Button_t = void(__thiscall *)(void *frame, const void *event);
 using HitTest_t = int(__thiscall *)(void *frame, const float *point);
-using NDCToDDC_t = void(__fastcall *)(float *outX, float *outY, float x, float y);
 
 // Frames with their mouse bit on and that half off.
 std::unordered_set<void *> g_clickOff;
@@ -119,7 +119,7 @@ void ClickTargets(uint8_t *ctx, std::vector<void *> &out) {
     void *const primary = Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS);
     const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
     float point[2] = {0.0f, 0.0f};
-    reinterpret_cast<NDCToDDC_t>(Offsets::FUN_COORD_NDC_TO_DDC)(&point[0], &point[1], mouse[0], mouse[1]);
+    Frame::Layout::NdcToDdc(&point[0], &point[1], mouse[0], mouse[1]);
     const auto hitTest = reinterpret_cast<HitTest_t>(Offsets::FUN_FRAME_HIT_TEST);
 
     bool pastPrimary = primary == nullptr;

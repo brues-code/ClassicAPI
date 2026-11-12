@@ -63,7 +63,7 @@ bool EngineHasRange(void *caster, int spellID) {
     float maxRange;
     EngineMinMax(caster, spellID, nullptr, minRange, maxRange);
     const float epsilon = Game::Read<float>(
-        static_cast<uintptr_t>(Offsets::VAR_HAS_RANGE_EPSILON));
+        static_cast<uintptr_t>(Offsets::VAR_TWO_POW_MINUS_22));
     return !(std::fabs(minRange) < epsilon) ||
            !(std::fabs(maxRange) < epsilon);
 }

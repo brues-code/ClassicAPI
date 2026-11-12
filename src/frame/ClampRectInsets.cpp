@@ -34,6 +34,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -54,10 +55,7 @@ std::unordered_map<void *, Insets> g_insets;
 using CalcRect_t = int(__thiscall *)(void *layout, float *rect);
 CalcRect_t g_origCalcRect = nullptr;
 
-using Invalidate_t = void(__thiscall *)(void *layout, int arg);
 
-void *LayoutOf(void *frame) { return static_cast<uint8_t *>(frame) + Offsets::OFF_REGION_ANCHOR; }
-void *FrameOf(void *layout) { return static_cast<uint8_t *>(layout) - Offsets::OFF_REGION_ANCHOR; }
 
 // A length in the frame's own units (what GetLeft returns) in layout units:
 // the inverse of Script GetLeft's conversion.
@@ -70,7 +68,7 @@ int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
     const uint32_t flags = Game::Read<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS);
     if ((flags & Offsets::LAYOUT_FLAG_CLAMPED) == 0 || g_insets.empty())
         return g_origCalcRect(layout, rect);
-    void *frame = FrameOf(layout);
+    void *frame = Frame::Layout::OwnerOf(layout);
     const auto it = g_insets.find(frame);
     if (it == g_insets.end())
         return g_origCalcRect(layout, rect);
@@ -144,7 +142,7 @@ int __fastcall Script_SetClampRectInsets(void *L) {
     else
         g_insets[frame] = in;
     // Re-lay the frame out, as SetClampedToScreen does after changing the clamp.
-    reinterpret_cast<Invalidate_t>(Offsets::FUN_LAYOUT_RESIZE)(LayoutOf(frame), 0);
+    Frame::Layout::Resize(frame, false);
     return 0;
 }
 

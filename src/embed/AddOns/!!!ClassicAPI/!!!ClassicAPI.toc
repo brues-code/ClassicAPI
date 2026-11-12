@@ -46,6 +46,8 @@ Util\IndexRangeDataProvider.lua
 Util\CircularBuffer.lua
 Util\ColorUtil.lua
 Util\SharedColorConstants.lua
+Util\CombatLogColors.lua
+Util\CombatLogUtil.lua
 Util\ItemLocation.lua
 Util\PlayerLocation.lua
 Util\EventUtil.lua
@@ -144,6 +146,17 @@ FrameXML\ColorSwatch.lua
 FrameXML\ColorSwatch.xml
 FrameXML\ScriptErrorsFrame.lua
 FrameXML\ScriptErrorsFrame.xml
+FrameXML\ModelScene\CameraRegistry.lua
+FrameXML\ModelScene\CameraBaseMixin.lua
+FrameXML\ModelScene\OrbitCameraMixin.lua
+FrameXML\ModelScene\FollowCameraMixin.lua
+FrameXML\ModelScene\ModelSceneMixin.lua
+FrameXML\ModelScene\ModelSceneMixin.xml
+FrameXML\ModelScene\ModelSceneActorMixin.lua
+FrameXML\ModelScene\ModelSceneActorMixin.xml
+FrameXML\ModelScene\ModelSceneControlFrame.lua
+FrameXML\ModelScene\ModelSceneControlFrame.xml
+FrameXML\DressUpFrame.xml
 FrameXML\DressUpFrame.lua
 
 Menu\MenuConstants.lua

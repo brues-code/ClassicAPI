@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "time/Timer.h"
+
 #include "Game.h"
 #include "tick/WorldTick.h"
 
@@ -40,6 +42,9 @@ namespace Time::Timer {
 //     the new entry is appended after this tick's snapshot. A
 //     callback that cancels another pending timer is also safe; we
 //     re-check the cancel flag inside the fire pass.
+//   - Owners (Timer.h): a ModelScene's timers share the queue, the
+//     handles and the callback storage, with deadlines on the scene's
+//     clock; the scene fires its own, the WorldTick only C_Timer's.
 
 namespace {
 
@@ -47,7 +52,8 @@ constexpr double TIMER_MIN_PERIOD = 0.0001; // tickers with period<=0 would tigh
 
 struct Entry {
     int id;
-    double deadline;        // seconds since clock start, absolute
+    const void *owner;      // null = C_Timer; else the object whose clock this is on
+    double deadline;        // seconds on the owner's clock, absolute
     double period;          // 0 = one-shot; >0 = ticker period
     int iterationsLeft;     // -1 = infinite; 0 = mark for removal; >0 = countdown
     bool cancelled;
@@ -56,11 +62,11 @@ struct Entry {
 std::vector<Entry> g_timers;
 int g_nextID = 1;
 
-// The earliest deadline of a live timer: a frame before it has nothing to
-// fire and returns at once. Scheduling lowers it; the sweep at the end of a
+// The earliest deadline of a live C_Timer timer: a frame before it has
+// nothing to fire and returns at once. Scheduling lowers it; the sweep at the end of a
 // firing frame recomputes it. A timer cancelled first only costs one early
 // pass that fires nothing.
-double g_nextDeadline = 0.0;
+double g_nextDeadline = HUGE_VAL;
 
 // IDs due this frame (Tick pass 1), kept for its capacity.
 std::vector<int> g_toFire;
@@ -157,24 +163,21 @@ void PushCancelHandle(void *L, int id) {
     Game::Lua::SetTable(L, -3);
 }
 
-// ----- Tick: fire ready timers -----------------------------------------
+// ----- Fire ready timers -----------------------------------------------
 
-void Tick() {
+void FireDue(const void *owner, double now) {
     if (g_timers.empty())
-        return;
-    const double now = Now();
-    if (now < g_nextDeadline)
         return;
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
 
-    // Pass 1: snapshot IDs of timers due to fire. Walking by index
-    // would invalidate on re-entrant scheduling; capture IDs and
+    // Pass 1: snapshot IDs of the owner's timers due to fire. Walking by
+    // index would invalidate on re-entrant scheduling; capture IDs and
     // re-lookup inside the fire pass.
     g_toFire.clear();
     for (const auto &t : g_timers) {
-        if (!t.cancelled && t.iterationsLeft != 0 && t.deadline <= now)
+        if (t.owner == owner && !t.cancelled && t.iterationsLeft != 0 && t.deadline <= now)
             g_toFire.push_back(t.id);
     }
 
@@ -218,7 +221,7 @@ void Tick() {
     }
 
     // Pass 3: sweep cancelled entries and release their registry refs, in
-    // one compacting pass, and find the next deadline among the rest.
+    // one compacting pass, and find the next C_Timer deadline among the rest.
     size_t keep = 0;
     g_nextDeadline = HUGE_VAL;
     for (const Entry &t : g_timers) {
@@ -226,29 +229,37 @@ void Tick() {
             ReleaseCallback(L, t.id);
             continue;
         }
-        if (t.deadline < g_nextDeadline)
+        if (t.owner == nullptr && t.deadline < g_nextDeadline)
             g_nextDeadline = t.deadline;
         g_timers[keep++] = t;
     }
     g_timers.resize(keep);
 }
 
+void Tick() {
+    const double now = Now();
+    if (now < g_nextDeadline)
+        return;
+    FireDue(nullptr, now);
+}
+
 // ----- Scheduling --------------------------------------------------------
 
-int Schedule(void *L, int callbackStackIdx, double seconds, double period,
-             int iterations) {
+int Schedule(void *L, int callbackStackIdx, const void *owner, double now, double seconds,
+             double period, int iterations) {
     const int id = g_nextID++;
     Game::Lua::PushValue(L, callbackStackIdx);
     StoreCallback(L, id);
 
     Entry e{};
     e.id = id;
-    e.deadline = Now() + (seconds < 0 ? 0 : seconds);
+    e.owner = owner;
+    e.deadline = now + (seconds < 0 ? 0 : seconds);
     e.period = period;
     e.iterationsLeft = iterations;
     e.cancelled = false;
     g_timers.push_back(e);
-    if (g_timers.size() == 1 || e.deadline < g_nextDeadline)
+    if (owner == nullptr && e.deadline < g_nextDeadline)
         g_nextDeadline = e.deadline;
     return id;
 }
@@ -256,50 +267,17 @@ int Schedule(void *L, int callbackStackIdx, double seconds, double period,
 // ----- Lua surface -------------------------------------------------------
 
 int __fastcall Script_C_Timer_After(void *L) {
-    if (!Game::Lua::IsNumber(L, 1) ||
-        Game::Lua::Type(L, 2) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Error(L, "Usage: C_Timer.After(seconds, callback)");
-        return 0;
-    }
-    const double seconds = Game::Lua::ToNumber(L, 1);
-    Schedule(L, 2, seconds, /*period=*/0.0, /*iterations=*/1);
-    return 0;
+    return Script(L, 1, nullptr, Now(), Kind::After, "Usage: C_Timer.After(seconds, callback)");
 }
 
 int __fastcall Script_C_Timer_NewTimer(void *L) {
-    if (!Game::Lua::IsNumber(L, 1) ||
-        Game::Lua::Type(L, 2) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Error(L,
-            "Usage: local cbObject = C_Timer.NewTimer(seconds, callback)");
-        return 0;
-    }
-    const double seconds = Game::Lua::ToNumber(L, 1);
-    const int id = Schedule(L, 2, seconds, /*period=*/0.0, /*iterations=*/1);
-    PushCancelHandle(L, id);
-    return 1;
+    return Script(L, 1, nullptr, Now(), Kind::NewTimer,
+                  "Usage: local cbObject = C_Timer.NewTimer(seconds, callback)");
 }
 
 int __fastcall Script_C_Timer_NewTicker(void *L) {
-    if (!Game::Lua::IsNumber(L, 1) ||
-        Game::Lua::Type(L, 2) != Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Error(L,
-            "Usage: local cbObject = C_Timer.NewTicker(seconds, callback [, iterations])");
-        return 0;
-    }
-    double seconds = Game::Lua::ToNumber(L, 1);
-    if (seconds < TIMER_MIN_PERIOD)
-        seconds = TIMER_MIN_PERIOD;
-    int iterations = -1; // infinite by default
-    if (Game::Lua::IsNumber(L, 3)) {
-        const double v = Game::Lua::ToNumber(L, 3);
-        if (v >= 1.0)
-            iterations = static_cast<int>(v);
-        // negative / zero / non-numeric → keep -1 (infinite), matching
-        // modern WoW's behavior where omitted iterations means forever.
-    }
-    const int id = Schedule(L, 2, seconds, /*period=*/seconds, iterations);
-    PushCancelHandle(L, id);
-    return 1;
+    return Script(L, 1, nullptr, Now(), Kind::NewTicker,
+                  "Usage: local cbObject = C_Timer.NewTicker(seconds, callback [, iterations])");
 }
 
 void RegisterLuaFunctions() {
@@ -309,6 +287,50 @@ void RegisterLuaFunctions() {
 }
 
 } // namespace
+
+int Script(void *L, int first, const void *owner, double now, Kind kind, const char *usage) {
+    if (!Game::Lua::IsNumber(L, first) || Game::Lua::Type(L, first + 1) != Game::Lua::TYPE_FUNCTION) {
+        Game::Lua::Error(L, "%s", usage);
+        return 0;
+    }
+    double seconds = Game::Lua::ToNumber(L, first);
+    if (kind != Kind::NewTicker) {
+        const int id = Schedule(L, first + 1, owner, now, seconds, /*period=*/0.0, /*iterations=*/1);
+        if (kind == Kind::After)
+            return 0;
+        PushCancelHandle(L, id);
+        return 1;
+    }
+    if (seconds < TIMER_MIN_PERIOD)
+        seconds = TIMER_MIN_PERIOD;
+    int iterations = -1; // infinite by default
+    if (Game::Lua::IsNumber(L, first + 2)) {
+        const double v = Game::Lua::ToNumber(L, first + 2);
+        if (v >= 1.0)
+            iterations = static_cast<int>(v);
+        // negative / zero / non-numeric → keep -1 (infinite), matching
+        // modern WoW's behavior where omitted iterations means forever.
+    }
+    const int id = Schedule(L, first + 1, owner, now, seconds, /*period=*/seconds, iterations);
+    PushCancelHandle(L, id);
+    return 1;
+}
+
+void Fire(const void *owner, double now) { FireDue(owner, now); }
+
+void CancelOwned(const void *owner) {
+    void *L = Game::Lua::State();
+    size_t keep = 0;
+    for (const Entry &t : g_timers) {
+        if (t.owner == owner) {
+            if (L != nullptr)
+                ReleaseCallback(L, t.id);
+            continue;
+        }
+        g_timers[keep++] = t;
+    }
+    g_timers.resize(keep);
+}
 
 // Cancel every pending timer and release its Lua registry callback before a
 // /reload (or logout) resets the Lua state. Otherwise g_timers would carry
@@ -323,6 +345,7 @@ void PrepareForReload() {
             ReleaseCallback(L, t.id);
     g_timers.clear();
     g_nextID = 1;
+    g_nextDeadline = HUGE_VAL;
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -45,6 +45,8 @@
 // plays on the Sound slider; a FILE on "Ambience" is exact, because
 // Play2D takes the flags whole.
 
+#include "sound/Play.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
@@ -366,13 +368,7 @@ int __fastcall Script_StopSound(void *L) {
     const auto handle = static_cast<uintptr_t>(Game::Lua::ToNumber(L, 1));
     const double fadeMs =
         Game::Lua::Type(L, 2) == Game::Lua::TYPE_NUMBER ? Game::Lua::ToNumber(L, 2) : 0.0;
-    for (const Owned &o : g_owned) {
-        if (o.handle != handle || !StillPlaying(o))
-            continue;
-        reinterpret_cast<Stop_t>(Offsets::FUN_SOUND_STOP)(
-            reinterpret_cast<void *>(handle), static_cast<float>(fadeMs * 0.001));
-        break;
-    }
+    Stop(reinterpret_cast<void *>(handle), static_cast<float>(fadeMs * 0.001));
     return 0;
 }
 
@@ -426,5 +422,70 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+void *PlayKitID(int soundKitID) { return PlayKit(soundKitID, PlayOptions{}); }
+
+// The world's 2D loop by row (FUN_SOUND_PLAY_ENTRY_LOOPED), on the Sound
+// slider, under PlayKit's suppression rule.
+void *PlayKitLooped(int soundKitID) {
+    using PlayLooped_t = void *(__fastcall *)(int soundEntryID, char ambience, char noCategory);
+    if (soundKitID <= 0 ||
+        Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_INTERFACE_SOUND_SUPPRESS)) > 0)
+        return nullptr;
+    void *sound = reinterpret_cast<PlayLooped_t>(Offsets::FUN_SOUND_PLAY_ENTRY_LOOPED)(
+        soundKitID, 0, 0);
+    if (sound != nullptr)
+        Own(sound, false);
+    return sound;
+}
+
+static bool Quiet() { return Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_INTERFACE_SOUND_SUPPRESS)) > 0; }
+
+// The world's 3D player by row (FUN_SOUND_PLAY_ENTRY_AT), on the Sound
+// slider, under PlayKit's suppression rule.
+void *PlayKitIDAt(int soundKitID, const float (&position)[3]) {
+    using PlayAt_t = void *(__fastcall *)(bool *culled, char keep, char noCategory, int bus, int soundEntryID,
+                                          const float *pos, int variantIndex, float volumeScale);
+    if (soundKitID <= 0 || Quiet())
+        return nullptr;
+    bool culled = false;
+    void *sound = reinterpret_cast<PlayAt_t>(Offsets::FUN_SOUND_PLAY_ENTRY_AT)(&culled, 0, 0, 0, soundKitID,
+                                                                                position, kVariantRandom, 1.0f);
+    if (sound != nullptr)
+        Own(sound, false);
+    return sound;
+}
+
+// The world's 3D loop by row (FUN_SOUND_PLAY_ENTRY_LOOPED_AT).
+void *PlayKitLoopedAt(int soundKitID, const float (&position)[3]) {
+    using PlayLoopedAt_t = void *(__fastcall *)(int soundEntryID, const float *pos);
+    if (soundKitID <= 0 || Quiet())
+        return nullptr;
+    void *sound = reinterpret_cast<PlayLoopedAt_t>(Offsets::FUN_SOUND_PLAY_ENTRY_LOOPED_AT)(soundKitID, position);
+    if (sound != nullptr)
+        Own(sound, false);
+    return sound;
+}
+
+void Move(void *sound, const float (&position)[3]) {
+    using SetPosition_t = void(__thiscall *)(void *sound, const float *pos, const float *velocity);
+    const auto handle = reinterpret_cast<uintptr_t>(sound);
+    for (const Owned &o : g_owned) {
+        if (o.handle != handle || !StillPlaying(o))
+            continue;
+        reinterpret_cast<SetPosition_t>(Offsets::FUN_SOUND_SET_POSITION)(sound, position, nullptr);
+        break;
+    }
+}
+
+void Stop(void *sound, float fadeSeconds) {
+    const auto handle = reinterpret_cast<uintptr_t>(sound);
+    for (const Owned &o : g_owned) {
+        if (o.handle != handle || !StillPlaying(o))
+            continue;
+        reinterpret_cast<Stop_t>(Offsets::FUN_SOUND_STOP)(sound, fadeSeconds);
+        break;
+    }
+}
 
 } // namespace Sound::Play
