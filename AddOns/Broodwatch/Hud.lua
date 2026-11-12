@@ -60,10 +60,24 @@ local function BuildOffers()
 	for _ in pairs(BW.run.spells) do
 		owned = owned + 1;
 	end
+	-- A spell spent on an evolution or fusion you own does not come back.
+	local spent = {};
+	for from, evolution in pairs(EVOLUTIONS) do
+		if BW.run.spells[evolution.into] then
+			spent[from] = true;
+		end
+	end
+	for _, fusion in ipairs(FUSIONS) do
+		if BW.run.spells[fusion.into] then
+			spent[fusion.a] = true;
+			spent[fusion.b] = true;
+		end
+	end
 	for _, key in ipairs(SPELL_ORDER) do
 		local state = BW.run.spells[key];
-		if SPELLS[key].evolved then
-			-- An evolution comes only from its spell (below), and has one rank.
+		if SPELLS[key].evolved or spent[key] then
+			-- An evolution comes only from its spell (below), and has one rank;
+			-- a spent spell is gone for the run.
 		elseif state and state.level < MAX_LEVEL then
 			tinsert(all, { kind = "spell", key = key, level = state.level + 1 });
 		elseif not state and owned < MAX_SPELLS then
