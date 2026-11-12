@@ -36,8 +36,23 @@ local MAX_GEMS = 150
 -- The brood. `from` is the second of the run when the kind starts to spawn.
 local KINDS = {
 	{ key = "black", display = 497, hp = 20, dps = 5, xp = 1, reach = 1.4, speed = 3.0, from = 0 },
-	{ key = "red", display = 956, hp = 30, dps = 6, xp = 2, reach = 1.4, speed = 4.4, from = 120 },
+	-- Red whelps breathe fire: Flame Breath 16396, whose flame hangs where a
+	-- whelp's own fireball leaves (its cast kit's sixth slot).
+	{ key = "red", display = 956, hp = 30, dps = 6, xp = 2, reach = 1.4, speed = 4.4, from = 120,
+		act = { kind = "breath", spell = 16396, every = 7, range = 4.5, near = 2, cast = 0.9, recover = 0.5,
+			length = 6, arc = math.pi / 3, hit = 1.5 } },
 	{ key = "green", display = 694, hp = 70, dps = 9, xp = 3, reach = 1.4, speed = 2.4, from = 240 },
+	-- Onyxian Warders (creature 12129's display) keep their distance and
+	-- throw Fireball (133) at where you stand.
+	{ key = "warder", display = 8711, hp = 120, dps = 8, xp = 8, reach = 2.6, speed = 3.2, from = 180, max = 5,
+		keep = 13, gemScale = 0.5, knockShare = 0.6,
+		act = { kind = "bolt", spell = 133, every = 5, range = 20, cast = 1.2, recover = 0.6, radius = 2.5, hit = 2 } },
+	-- Onyxian Drakes (creature 12260's display) charge along a line through
+	-- you, with Charge's trail (100).
+	{ key = "drake", display = 6369, hp = 260, dps = 12, xp = 12, reach = 3, speed = 4.0, from = 300, max = 3,
+		gemScale = 0.6, holdShare = 0.5, knockShare = 0.3,
+		act = { kind = "charge", spell = 100, every = 8, range = 18, near = 4, cast = 1.2, recover = 1.2,
+			speed = 24, past = 6, width = 1.6, hit = 2.5, knock = { 9, 6 } } },
 }
 -- `speed` is the run speed in yards a second (the hero runs at 7): black
 -- whelps plod, red ones dart, green ones are slow and tough, and the elite
@@ -48,6 +63,16 @@ local KINDS = {
 -- - `knockShare`: the share of a knockback it takes (1 if absent); 0 stands.
 -- - `speed` 0: it never moves. `dps` 0: it never bites.
 -- - `path`: a model file, in place of the creature `display`.
+-- - `max`: the most of the kind alive at once.
+-- - `keep`: it holds this many yards from you instead of closing in.
+-- - `act`: what it does besides bite (Foes.lua). It acts every `every`
+--   seconds while you are within `range` (and no closer than `near`): it
+--   stands for `cast` seconds with the floor marked where it will strike,
+--   strikes, then stands for `recover`. A strike that lands on you hurts for
+--   `hit` seconds of its bite. `kind`: "bolt" (`spell` thrown at your spot,
+--   `radius` wide), "breath" (a cone `length` long and `arc` wide) or
+--   "charge" (a run at `speed` along a line `past` yards beyond you, `width`
+--   wide; it throws you by `knock`).
 -- - `crackAnim`, `crackSound`, `crackSeconds`: it ends with this animation
 --   and sound, holds the frame at `crackSeconds` (just short of the
 --   animation's end, before it loops) and fades, in place of Death and a
@@ -522,13 +547,35 @@ local PASSIVES = {
 		total = "up to %d health a second", per = 2,
 	},
 }
+-- A school's colour for its damage numbers, as the combat log colours it
+-- (COMBATLOG_DEFAULT_COLORS). `school`: GetSpellSchool's name of it.
+local SCHOOL_MASKS = {
+	Physical = SCHOOL_MASK_PHYSICAL, Holy = SCHOOL_MASK_HOLY, Fire = SCHOOL_MASK_FIRE, Nature = SCHOOL_MASK_NATURE,
+	Frost = SCHOOL_MASK_FROST, Shadow = SCHOOL_MASK_SHADOW, Arcane = SCHOOL_MASK_ARCANE,
+}
+local COMBAT_LOG_SETTINGS = { colors = COMBATLOG_DEFAULT_COLORS }
+local schoolColors = {}
+
+local function SchoolColor(school)
+	local color = schoolColors[school];
+	if not color then
+		local c = CombatLogUtil.GetColorBySchool(SCHOOL_MASKS[school], COMBAT_LOG_SETTINGS);
+		color = { c.r, c.g, c.b };
+		schoolColors[school] = color;
+	end
+	return color;
+end
+
 -- The names are the client's own, in its language: each spell's from its
 -- spell, and each passive without a name of its own from its icon's spell.
+-- A spell's `color` marks it in the HUD; its hits show in its school's
+-- colour (`hitColor`).
 for _, def in pairs(SPELLS) do
 	def.name = C_Spell.GetSpellName(def.spell)
 	-- The spell's school, which the combos read: "Fire", "Frost", ...
 	local _, school = GetSpellSchool(def.spell)
 	def.school = school
+	def.hitColor = SchoolColor(school)
 end
 for _, p in pairs(PASSIVES) do
 	p.name = p.name or C_Spell.GetSpellName(p.icon)
@@ -768,6 +815,7 @@ BW.FUSIONS = FUSIONS
 BW.MAX_SPELLS = MAX_SPELLS
 BW.EARLY_SPELLS = EARLY_SPELLS
 BW.PASSIVES = PASSIVES
+BW.SchoolColor = SchoolColor
 BW.HEAL_ICON = HEAL_ICON
 BW.UNKNOWN_ICON = UNKNOWN_ICON
 BW.PASSIVE_ORDER = PASSIVE_ORDER

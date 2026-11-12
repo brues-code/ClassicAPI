@@ -18,6 +18,7 @@ local FloorAt = BW.FloorAt
 local Dist2 = BW.Dist2
 local DropGem = BW.DropGem
 local Mastered = BW.Mastered
+local SchoolColor = BW.SchoolColor
 local SPELLS = BW.SPELLS
 
 ------------------------------------------------------------------------------
@@ -96,6 +97,7 @@ local function Spawn(kind, x, y)
 	e.frozenUntil = nil;
 	e.weakUntil, e.weakShare = nil, nil;
 	e.taunter, e.tauntUntil = nil, nil;
+	e.actState, e.actNext = nil, nil;
 	ClearAuras(e);
 	e.angle = math.random() * 2 * math.pi;
 	local actor = e.actor;
@@ -113,6 +115,7 @@ local function Spawn(kind, x, y)
 	end
 	tinsert(enemies, e);
 	BW.run.alive = BW.run.alive + 1;
+	BW.run.kindAlive[kind.key] = (BW.run.kindAlive[kind.key] or 0) + 1;
 	return e;
 end
 
@@ -122,6 +125,7 @@ end
 local function Retire(e)
 	e.alive = false;
 	BW.run.alive = BW.run.alive - 1;
+	BW.run.kindAlive[e.kind.key] = BW.run.kindAlive[e.kind.key] - 1;
 	e.actor:StopMoving();
 	if e.kind.crackAnim then
 		e.dying = e.kind.crackSeconds;
@@ -394,10 +398,10 @@ end
 
 ------------------------------------------------------------------------------
 -- Burning: `dps` each second for `seconds`, of a spell's school (Pyroblast's
--- fire, Moonfire's arcane). A stronger burn takes over, a longer one lasts.
+-- fire, Moonfire's arcane), its ticks in the school's colour. A stronger burn takes over, a longer one lasts.
 -- A fire burn shows Immolate's aura (348: state kit 235, flames at the base).
 
-local function Burn(e, dps, seconds, school, color)
+local function Burn(e, dps, seconds, school)
 	if not e.alive then
 		return;
 	end
@@ -406,7 +410,7 @@ local function Burn(e, dps, seconds, school, color)
 	e.burnSeconds = seconds;
 	e.burnTick = e.burnTick or 1;
 	e.burnSchool = school;
-	e.burnColor = color;
+	e.burnColor = SchoolColor(school);
 	if school == "Fire" then
 		ShowAura(e, TUNING.BURN_AURA, BW.run.time + e.burnLeft);
 	end
@@ -438,7 +442,7 @@ Wildfire = function(e, x, y)
 		if o.alive and not o.burnLeft then
 			local ox, oy = o.actor:GetPosition();
 			if Dist2(ox, oy, x, y) <= r2 then
-				Burn(o, e.burnDps, e.burnSeconds, "Fire", e.burnColor);
+				Burn(o, e.burnDps, e.burnSeconds, "Fire");
 				caught = true;
 			end
 		end
@@ -483,7 +487,7 @@ local function SpellDamage(e, amount, def)
 		end
 	end
 	local x, y = e.actor:GetPosition();
-	Damage(e, amount, def.color);
+	Damage(e, amount, def.hitColor);
 	if combo then
 		Announce(e, combo);
 	end
@@ -496,7 +500,7 @@ local function SpellDamage(e, amount, def)
 			if o.alive and o ~= e then
 				local ox, oy = o.actor:GetPosition();
 				if Dist2(ox, oy, x, y) <= r2 then
-					Damage(o, detonated * 0.5, def.color);
+					Damage(o, detonated * 0.5, def.hitColor);
 				end
 			end
 		end
@@ -530,7 +534,7 @@ local function UpdateStates(e, dt)
 		e.fearTick = (e.fearTick or 1) - dt;
 		if e.fearTick <= 0 then
 			e.fearTick = e.fearTick + 1;
-			Damage(e, SPELLS.scream.mastery.damage, SPELLS.scream.color);
+			Damage(e, SPELLS.scream.mastery.damage, SPELLS.scream.hitColor);
 			if not e.alive then
 				return;
 			end
@@ -593,19 +597,37 @@ local function PickKind()
 			open = open + 1;
 		end
 	end
-	-- Newer kinds are rarer: the first kind open gets the most weight.
+	-- Newer kinds are rarer: the first kind open gets the most weight. A
+	-- kind at its `max` gives way to the first.
 	local roll = math.random() * (open * (open + 1) / 2);
 	for i = 1, open do
 		local w = open - i + 1;
 		if roll < w then
-			return KINDS[i];
+			local kind = KINDS[i];
+			if kind.max and (BW.run.kindAlive[kind.key] or 0) >= kind.max then
+				return KINDS[1];
+			end
+			return kind;
 		end
 		roll = roll - w;
 	end
 	return KINDS[1];
 end
 
+-- The kind of a key (KINDS, or the elite's), for the slash command.
+local function KindByKey(key)
+	if key == ELITE.key then
+		return ELITE;
+	end
+	for _, kind in ipairs(KINDS) do
+		if kind.key == key then
+			return kind;
+		end
+	end
+end
+
 -- For the files that load after this one.
+BW.KindByKey = KindByKey
 BW.Blast = Blast
 BW.Hold = Hold
 BW.ShowAura = ShowAura

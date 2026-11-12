@@ -13,6 +13,7 @@ Hud.lua
 Items.lua
 Chests.lua
 Vents.lua
+Foes.lua
 Markers.lua
 Broodwatch.lua
 Broodwatch.xml

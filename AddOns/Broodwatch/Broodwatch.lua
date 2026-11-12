@@ -167,11 +167,12 @@ local function StartRun()
 		ClearChannels();
 		ClearInfernals();
 		BW.ClearKinds();
+		BW.ClearFoes();
 	end
 	BW.hero:RemoveAuraVisual();
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {
-		time = 0, kills = 0, alive = 0, level = 1, xp = 0, pendingLevels = 0, chests = 0, chestPicks = 0,
+		time = 0, kills = 0, alive = 0, kindAlive = {}, level = 1, xp = 0, pendingLevels = 0, chests = 0, chestPicks = 0,
 		nextClutch = TUNING.EGG_FIRST,
 		hp = HERO_HP, damageScale = 1, heroYaw = 0,
 		spells = { frostbolt = { level = 1, cooldown = 0, pending = 0 } },
@@ -209,7 +210,9 @@ local function IsCorrupted(e)
 end
 
 -- Sends a slice of the brood after the hero, so each one gets a new MoveTo
--- every RETARGET_SECONDS, at its own point of a ring around the hero.
+-- every RETARGET_SECONDS, at its own point of a ring around the hero (or,
+-- for a kind that keeps its distance, a point that far away). One busy with
+-- an act moves as the act says (Foes.lua).
 local function Chase(dt, hx, hy, hz)
 	local n = table.getn(enemies);
 	if n == 0 then
@@ -222,7 +225,8 @@ local function Chase(dt, hx, hy, hz)
 			BW.run.retargetCursor = 1;
 		end
 		local e = enemies[BW.run.retargetCursor];
-		if e.alive and e.kind.speed > 0 and not (e.stunUntil and BW.run.time < e.stunUntil) and not e.actor:IsFalling() then
+		if e.alive and e.kind.speed > 0 and not (e.stunUntil and BW.run.time < e.stunUntil) and not e.actor:IsFalling()
+			and not BW.Acting(e) then
 			if e.sheepUntil then
 				-- A sheep grazes about where it is.
 				local x, y = e.actor:GetPosition();
@@ -240,6 +244,9 @@ local function Chase(dt, hx, hy, hz)
 			elseif Taunted(e) then
 				local cx, cy, cz = e.taunter.actor:GetPosition();
 				e.actor:MoveTo(cx + SURROUND_RADIUS * math.cos(e.angle), cy + SURROUND_RADIUS * math.sin(e.angle), cz);
+			elseif e.kind.keep then
+				local px, py = BW.KeepPoint(e, hx, hy);
+				e.actor:MoveTo(px, py, hz);
 			else
 				e.actor:MoveTo(hx + SURROUND_RADIUS * math.cos(e.angle), hy + SURROUND_RADIUS * math.sin(e.angle), hz);
 			end
@@ -273,6 +280,7 @@ local function Step(dt)
 	BW.UpdateMarkers();
 
 	Chase(dt, hx, hy, hz);
+	BW.UpdateFoes(dt, hx, hy, hz);
 
 	-- Contact damage, and the corpses. Thorns burns the biters once a second.
 	local hurt = 0;
@@ -303,7 +311,7 @@ local function Step(dt)
 				e.dotLeft = e.dotLeft - 1;
 				-- The last tick can kill too, and then it still spreads (Kill
 				-- reads dotLeft), so it ends after the damage.
-				Damage(e, e.dotDamage, SPELLS[e.dotKey].color);
+				Damage(e, e.dotDamage, SPELLS[e.dotKey].hitColor);
 				if e.dotHeal then -- Siphon Life
 					BW.run.pendingHeal = BW.run.pendingHeal + e.dotHeal;
 				end
@@ -325,7 +333,7 @@ local function Step(dt)
 				hurt = hurt + e.dps * BiteShare(e) * (1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100);
 				Zap(e);
 				if thorns then
-					Damage(e, BW.run.thornsDamage, SPELLS.thorns.color);
+					Damage(e, BW.run.thornsDamage, SPELLS.thorns.hitColor);
 					if Mastered("thorns") then
 						BW.run.pendingHeal = BW.run.pendingHeal + SPELLS.thorns.mastery.heal;
 					end
@@ -671,7 +679,8 @@ SLASH_BROODWATCH1 = "/broodwatch";
 -- them: `/broodwatch charge 5 whirlwind 5` makes Intercept the next pick.
 -- `/broodwatch chest` (or `golden`) starts the run with a chest close by,
 -- `/broodwatch eggs` with a clutch of eggs, `/broodwatch vents` with the
--- lava vents erupting from the start.
+-- lava vents erupting from the start, and `/broodwatch <kind>` (a key of
+-- KINDS, or `elite`) with three of that kind.
 SlashCmdList["BROODWATCH"] = function(msg)
 	BW.frame:Show();
 	if not BW.hero then
@@ -699,6 +708,10 @@ SlashCmdList["BROODWATCH"] = function(msg)
 		BW.LayClutch();
 	elseif key == "vents" then
 		BW.run.nextVents = 0;
+	elseif key and BW.KindByKey(key) then
+		for _ = 1, 3 do
+			Spawn(BW.KindByKey(key));
+		end
 	elseif key then
 		print("Broodwatch: no spell \"" .. key .. "\"");
 	end

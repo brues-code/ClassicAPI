@@ -62,7 +62,7 @@ local function Afflict(e, key, def, level, fromX, fromY)
 	end
 	local ignite = Stat(def, "ignite", level);
 	if ignite then
-		Burn(e, ignite, def.igniteSeconds, def.burnSchool or def.school, def.color);
+		Burn(e, ignite, def.igniteSeconds, def.burnSchool or def.school);
 	end
 	if def.knock then
 		Blast(e, fromX, fromY, def.knock);
@@ -442,7 +442,7 @@ local function UpdateTraps(dt)
 					local x, y = e.actor:GetPosition();
 					if Dist2(x, y, ground.x, ground.y) <= r2 then
 						if ignite then
-							Burn(e, ignite, def.igniteSeconds, def.school, def.color);
+							Burn(e, ignite, def.igniteSeconds, def.school);
 						end
 						if slow then
 							Slow(e, slow, 1.2);

@@ -1264,7 +1264,7 @@ BW.OnImpact = function(_, _, hitActor, castID)
 			seconds = seconds * def.mastery.longer;
 		end
 		local school = def.burnSchool or def.school;
-		Burn(target, ignite, seconds, school, def.color);
+		Burn(target, ignite, seconds, school);
 		if Mastered(entry.key) and def.mastery.radius and entry.key == "pyroblast" then
 			local tx, ty = target.actor:GetPosition();
 			local r2 = def.mastery.radius * def.mastery.radius;
@@ -1272,7 +1272,7 @@ BW.OnImpact = function(_, _, hitActor, castID)
 				if e.alive and e ~= target then
 					local x, y = e.actor:GetPosition();
 					if Dist2(x, y, tx, ty) <= r2 then
-						Burn(e, ignite, seconds, school, def.color);
+						Burn(e, ignite, seconds, school);
 					end
 				end
 			end
