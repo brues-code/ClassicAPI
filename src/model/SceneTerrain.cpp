@@ -59,7 +59,9 @@
 #include "gx/Device.h"
 #include "gx/Matrix.h"
 #include "model/M2.h"
+#include "model/SceneContact.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -174,6 +176,9 @@ struct Land {
     void *indexPool = nullptr;
     std::vector<std::pair<void *, void *>> buffers; // one pair per chunk, in order
     Settings built;
+    // The chunks by (global row, global column), as the world finds them in
+    // its area table.
+    std::map<std::pair<uint32_t, uint32_t>, void *> byCell;
 };
 
 namespace {
@@ -356,7 +361,8 @@ void BuildChunk(Chunk &c) {
 // LinkNeighbours' rule (0x006C29C0) over the scene's own chunks: a row
 // before, a column after, a row after, a column before.
 void LinkNeighbours(Land &land) {
-    std::map<std::pair<uint32_t, uint32_t>, void *> at;
+    std::map<std::pair<uint32_t, uint32_t>, void *> &at = land.byCell;
+    at.clear();
     for (Chunk &c : land.chunks)
         at[{Game::Read<uint32_t>(c.object(), Offsets::OFF_CMAPCHUNK_GLOBAL_ROW),
             Game::Read<uint32_t>(c.object(), Offsets::OFF_CMAPCHUNK_GLOBAL_COLUMN)}] = c.object();
@@ -624,6 +630,301 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
     camera[1] = savedCamera[1];
     camera[2] = savedCamera[2];
     worldFogEnd = savedFogEnd;
+}
+
+// ---- collision (layer 3) ------------------------------------------------------
+//
+// The world's terrain legs over the scene's chunks. The world finds a chunk
+// through its global area table, so its own two functions cannot see these;
+// both are transcribed with the arithmetic in the client's order (x87 at
+// 53 bits, float stores where it stores), and call its helpers where they
+// are pure: the trace's four cell walks and its ray-triangle test. A cell
+// outside the scene's chunks has no ground: the world, which loads every
+// tile it needs, fails a box query there and ends a trace; the scene's
+// terrain ends at its radius, past which a WMO may still stand.
+
+namespace {
+
+double D(float v) { return static_cast<double>(v); }
+
+// The cell of a distance from the map's origin (0x006AA9B4, 0x0069C375):
+// the product stored as a float, less a half, fistp (nearest).
+int32_t Cell(float perYard, float half, float distance) {
+    const float product = static_cast<float>(D(perYard) * distance);
+    return static_cast<int32_t>(std::lrint(D(product) - half));
+}
+
+void *ChunkAt(const Land &land, int32_t row, int32_t column) {
+    if (row < 0 || column < 0)
+        return nullptr;
+    const auto found = land.byCell.find({static_cast<uint32_t>(row), static_cast<uint32_t>(column)});
+    return found != land.byCell.end() ? found->second : nullptr;
+}
+
+const float *Vertices(const void *chunk) { return Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_VERTICES); }
+
+uint16_t Holes(const void *chunk) {
+    return Game::Read<uint16_t>(Game::Read<const uint8_t *>(chunk, Offsets::OFF_CMAPCHUNK_HEADER),
+                                Offsets::OFF_MCNK_HOLES);
+}
+
+// The hole bit of a cell: (column >> 1) + (row >> 1) x 4 of the table.
+bool CellIsHole(const void *chunk, int32_t row, int32_t column) {
+    const uint32_t bit =
+        Game::Read<uint32_t>(Offsets::VAR_HOLE_BITS + ((column >> 1) + (row >> 1) * 4) * sizeof(uint32_t));
+    return (bit & Holes(chunk)) != 0;
+}
+
+// A wall facet: its axis normal, d = -n.p, and its vertices.
+Contact::Facet WallFacet(const float (&n)[3], const float (&a)[3], const float (&b)[3], const float (&c)[3]) {
+    Contact::Facet f;
+    std::memcpy(f.plane.n, n, sizeof f.plane.n);
+    f.plane.d = static_cast<float>(-((D(n[0]) * a[0] + D(n[1]) * a[1]) + D(n[2]) * a[2]));
+    std::memcpy(f.v[0], a, sizeof f.v[0]);
+    std::memcpy(f.v[1], b, sizeof f.v[1]);
+    std::memcpy(f.v[2], c, sizeof f.v[2]);
+    return f;
+}
+
+void Add3(const float (&a)[3], const float (&b)[3], float (&out)[3]) {
+    for (int i = 0; i < 3; ++i)
+        out[i] = static_cast<float>(D(a[i]) + b[i]);
+}
+
+// AddImpassableWalls (0x006AB530): a quad of two facets on each side of the
+// chunk's box the query box crosses, in the order y-min, y-max, x-min, x-max.
+void AddWalls(const void *chunk, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    const float *lo = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_BOX_MIN);
+    const float *hi = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_BOX_MAX);
+    const float up[3] = {0.0f, 0.0f, Game::Read<float>(Offsets::VAR_CHUNK_WALL_HEIGHT_IMMEDIATE)};
+    const auto side = [&](const float (&p)[3], const float (&e)[3], const float (&n)[3]) {
+        float pe[3], pu[3], peu[3];
+        Add3(p, e, pe);
+        Add3(pe, up, peu);
+        Add3(p, up, pu);
+        out.push_back(WallFacet(n, p, pe, peu));
+        out.push_back(WallFacet(n, p, peu, pu));
+    };
+    if (box[1] < lo[1]) {
+        const float p[3] = {lo[0], lo[1], lo[2]};
+        const float e[3] = {static_cast<float>(D(hi[0]) - lo[0]), 0.0f, 0.0f};
+        const float n[3] = {0.0f, -1.0f, 0.0f};
+        side(p, e, n);
+    }
+    if (box[4] > hi[1]) {
+        const float p[3] = {hi[0], hi[1], lo[2]};
+        const float e[3] = {static_cast<float>(D(lo[0]) - hi[0]), 0.0f, 0.0f};
+        const float n[3] = {0.0f, 1.0f, 0.0f};
+        side(p, e, n);
+    }
+    if (box[0] < lo[0]) {
+        const float p[3] = {lo[0], hi[1], lo[2]};
+        const float e[3] = {0.0f, static_cast<float>(D(lo[1]) - hi[1]), 0.0f};
+        const float n[3] = {-1.0f, 0.0f, 0.0f};
+        side(p, e, n);
+    }
+    if (box[3] > hi[0]) {
+        const float p[3] = {hi[0], lo[1], lo[2]};
+        const float e[3] = {0.0f, static_cast<float>(D(hi[1]) - lo[1]), 0.0f};
+        const float n[3] = {1.0f, 0.0f, 0.0f};
+        side(p, e, n);
+    }
+}
+
+// The outcode of a chunk-relative vertex against the shifted box (0x006AAF60):
+// the sign bits of float(v - min + e), then of float(max - v + e).
+uint32_t Outcode(const float *v, const float (&lo)[3], const float (&hi)[3], float e) {
+    uint32_t code = 0;
+    for (int i = 0; i < 3; ++i) {
+        if (std::signbit(static_cast<float>((D(v[i]) - lo[i]) + e)))
+            code |= 1u << i;
+        if (std::signbit(static_cast<float>((D(hi[i]) - v[i]) + e)))
+            code |= 8u << i;
+    }
+    return code;
+}
+
+// GatherChunkFacets' wall and triangle legs (0x006AAE2A..0x006AB3F1).
+void GatherChunk(const void *chunk, int32_t row, int32_t column, const int32_t (&cells)[4], const float (&box)[6],
+                 std::vector<Contact::Facet> &out) {
+    if ((Game::Read<uint8_t>(chunk, Offsets::OFF_CMAPCHUNK_FLAGS) & Offsets::CMAPCHUNK_FLAG_IMPASSABLE) != 0)
+        AddWalls(chunk, box, out);
+    const int32_t last = Offsets::CHUNK_CELLS - 1;
+    const int32_t rowFirst = (std::max)(cells[0] - row * Offsets::CHUNK_CELLS, 0);
+    const int32_t columnFirst = (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0);
+    const int32_t rowLast = (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last);
+    const int32_t columnLast = (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last);
+    const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
+    float lo[3], hi[3];
+    for (int i = 0; i < 3; ++i) {
+        const float shift = -position[i];
+        lo[i] = static_cast<float>(D(box[i]) + shift);
+        hi[i] = static_cast<float>(D(box[i + 3]) + shift);
+    }
+    const float e = Game::Read<float>(Offsets::VAR_GATHER_EPSILON);
+    const auto *probe = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_OUTCODE_VERTICES));
+    const auto *triangles = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_FACET_TRIANGLES));
+    const float *vertices = Vertices(chunk);
+    for (int32_t r = rowFirst; r <= rowLast; ++r) {
+        for (int32_t c = columnFirst; c <= columnLast; ++c) {
+            if (CellIsHole(chunk, r, c))
+                continue;
+            const float *corner = vertices + (r * Offsets::CHUNK_ROW_VERTICES + c) * 3;
+            uint32_t codes[Offsets::CHUNK_ROW_VERTICES + 2] = {};
+            for (int k = 0; k < Offsets::CELL_OUTCODE_VERTICES; ++k)
+                codes[probe[k]] = Outcode(corner + probe[k] * 3, lo, hi, e);
+            for (int t = 0; t < Offsets::CELL_TRIANGLES; ++t) {
+                const int32_t *tri = triangles + t * 3;
+                if ((codes[tri[0]] & codes[tri[1]] & codes[tri[2]]) != 0)
+                    continue;
+                float v[3][3];
+                for (int k = 0; k < 3; ++k)
+                    for (int i = 0; i < 3; ++i)
+                        v[k][i] = static_cast<float>(D(corner[tri[k] * 3 + i]) + position[i]);
+                out.push_back(Contact::MakeFacet(v[0], v[1], v[2]));
+            }
+        }
+    }
+}
+
+} // namespace
+
+bool QueryFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    // 0x006AA92D: the distances from the origin, the bounds, the cells.
+    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const float fromMaxX = static_cast<float>(-(D(box[3]) - origin));
+    const double fromMaxY = -(D(box[4]) - origin);
+    const float fromMinX = static_cast<float>(-(D(box[0]) - origin));
+    const float fromMinY = static_cast<float>(-(D(box[1]) - origin));
+    const float extent = Game::Read<float>(Offsets::VAR_MAP_EXTENT);
+    if (fromMaxY < 0.0 || fromMaxX < 0.0f || fromMinY >= extent || fromMinX >= extent)
+        return false;
+    const float perYard = Game::Read<float>(Offsets::VAR_GATHER_CELLS_PER_YARD);
+    const float half = Game::Read<float>(Offsets::VAR_GATHER_HALF_CELL);
+    const int32_t cells[4] = {Cell(perYard, half, fromMaxX), Cell(perYard, half, static_cast<float>(fromMaxY)),
+                              Cell(perYard, half, fromMinX), Cell(perYard, half, fromMinY)};
+    for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row)
+        for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column)
+            if (const void *chunk = ChunkAt(land, row, column))
+                GatherChunk(chunk, row, column, cells, box, out);
+    return true;
+}
+
+namespace {
+
+struct Ray {
+    float origin[3];
+    float direction[3];
+};
+
+// TraceTerrainSegment's walk (0x0069C320..0x0069C4B8): the ends to cells,
+// then the engine's own walks fill its cell list.
+void ListCells(const float (&start)[3], const float (&end)[3]) {
+    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const float startY = static_cast<float>(-(D(start[1]) - origin));
+    const float startX = static_cast<float>(-(D(start[0]) - origin));
+    const float endY = static_cast<float>(-(D(end[1]) - origin));
+    const float endX = static_cast<float>(-(D(end[0]) - origin));
+    const float dy = static_cast<float>(D(endY) - startY);
+    const float dx = static_cast<float>(D(endX) - startX);
+    const float perYard = Game::Read<float>(Offsets::VAR_TRACE_CELLS_PER_YARD);
+    const float half = Game::Read<float>(Offsets::VAR_TRACE_HALF_CELL);
+    int32_t cells[4] = {Cell(perYard, half, startX), Cell(perYard, half, startY), Cell(perYard, half, endX),
+                        Cell(perYard, half, endY)};
+    Game::Ref<uint32_t>(Offsets::VAR_TRACE_CELL_COUNT) = 0;
+    const float epsilon = Game::Read<float>(Offsets::VAR_TRACE_RUN_EPSILON);
+    const float spanY = std::fabs(dy);
+    const float spanX = std::fabs(dx);
+    using Run_t = void(__thiscall *)(int32_t *cells);
+    using Line_t = void(__fastcall *)(float *start, const float *end, int32_t *cells);
+    if (spanY < epsilon || cells[1] == cells[3]) {
+        reinterpret_cast<Run_t>(Offsets::FUN_LIST_CELL_COLUMN_RUN)(cells);
+    } else if (spanX < epsilon || cells[0] == cells[2]) {
+        reinterpret_cast<Run_t>(Offsets::FUN_LIST_CELL_ROW_RUN)(cells);
+    } else {
+        float from[3] = {startY, startX, 0.0f};
+        const float to[3] = {endY, endX, 0.0f};
+        reinterpret_cast<Line_t>(spanY > spanX ? Offsets::FUN_LIST_CELLS_ALONG_ROWS
+                                               : Offsets::FUN_LIST_CELLS_ALONG_COLUMNS)(from, to, cells);
+    }
+}
+
+} // namespace
+
+bool Trace(const Land &land, const float (&start)[3], const float (&end)[3], float &fraction, float (&normal)[3]) {
+    ListCells(start, end);
+    // TraceListedCells (0x0069C920), its terrain triangles.
+    const uint32_t *list = Game::Read<const uint32_t *>(Offsets::VAR_TRACE_CELLS);
+    uint32_t left = Game::Read<uint32_t>(Offsets::VAR_TRACE_CELL_COUNT);
+    if (list == nullptr || left == 0)
+        return false;
+    const double dx = D(end[0]) - start[0], dy = D(end[1]) - start[1], dz = D(end[2]) - start[2];
+    const float dzf = static_cast<float>(dz);
+    const float k = static_cast<float>(1.0 / std::sqrt((dz * dzf + dy * dy) + dx * dx));
+    Ray ray{{start[0], start[1], start[2]},
+            {static_cast<float>(dx * k), static_cast<float>(dy * k), static_cast<float>(D(dzf) * k)}};
+    float best = fraction;
+    const void *hitChunk = nullptr;
+    uint32_t hitIndices[3] = {};
+    const void *chunk = nullptr;
+    // The walk's chunk keys start from the first pair crossed, as 0x0069C932
+    // loads them.
+    uint32_t seenA = list[1] & Offsets::TRACE_CELL_LIMIT;
+    uint32_t seenB = list[0] & Offsets::TRACE_CELL_LIMIT;
+    const auto *pairs = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_TRACE_TRIANGLES));
+    const float slack = Game::Read<float>(Offsets::VAR_TRACE_SLACK_IMMEDIATE);
+    using Intersect_t = uint8_t(__fastcall *)(const Ray *ray, const float *vertices, const uint32_t *indices,
+                                              float *t, float *uv, float slack);
+    for (; left != 0; list += 2) {
+        const uint32_t a = list[0], b = list[1]; // the y cell, then the x cell
+        left -= 2;
+        if (a > Offsets::TRACE_CELL_LIMIT || b > Offsets::TRACE_CELL_LIMIT)
+            break;
+        if ((a & Offsets::TRACE_CELL_CHUNK_BITS) != seenA || (b & Offsets::TRACE_CELL_CHUNK_BITS) != seenB) {
+            chunk = ChunkAt(land, static_cast<int32_t>(b >> 3), static_cast<int32_t>(a >> 3));
+            if (chunk == nullptr)
+                break;
+            seenA = a & Offsets::TRACE_CELL_CHUNK_BITS;
+            seenB = b & Offsets::TRACE_CELL_CHUNK_BITS;
+            const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
+            for (int i = 0; i < 3; ++i)
+                ray.origin[i] = static_cast<float>(D(start[i]) - position[i]);
+        }
+        if (chunk == nullptr)
+            break;
+        const int32_t column = static_cast<int32_t>(a & 7), row = static_cast<int32_t>(b & 7);
+        if (CellIsHole(chunk, row, column))
+            continue;
+        const uint32_t base = static_cast<uint32_t>(row * Offsets::CHUNK_ROW_VERTICES + column);
+        for (int t = 0; t < Offsets::CELL_TRIANGLES; ++t) {
+            const uint32_t indices[3] = {base + Offsets::CELL_CENTRE_VERTEX, base + pairs[t * 2 + 1],
+                                         base + pairs[t * 2]};
+            float raw = 0.0f;
+            if (reinterpret_cast<Intersect_t>(Offsets::FUN_INTERSECT_RAY_TRIANGLE)(&ray, Vertices(chunk), indices,
+                                                                                  &raw, nullptr, slack) == 0)
+                continue;
+            const double scaled = D(raw) * k;
+            if (scaled < best && !(scaled < 0.0)) {
+                best = static_cast<float>(scaled);
+                hitChunk = chunk;
+                std::memcpy(hitIndices, indices, sizeof hitIndices);
+            }
+        }
+    }
+    if (!(best < fraction) || hitChunk == nullptr)
+        return false;
+    fraction = best;
+    // The hit triangle's plane (PlaneFromTriangle, as the terrain first hit
+    // 0x006AA600 records it), turned to face the start.
+    const float *v = Vertices(hitChunk);
+    Contact::Plane plane;
+    using Plane_t = void(__fastcall *)(Contact::Plane *, int, const float *, const float *, const float *);
+    reinterpret_cast<Plane_t>(Offsets::FUN_PLANE_FROM_TRIANGLE)(&plane, 0, v + hitIndices[0] * 3,
+                                                                v + hitIndices[1] * 3, v + hitIndices[2] * 3);
+    const double facing = (D(plane.n[0]) * dx + D(plane.n[1]) * dy) + D(plane.n[2]) * dz;
+    for (int i = 0; i < 3; ++i)
+        normal[i] = facing > 0.0 ? -plane.n[i] : plane.n[i];
+    return true;
 }
 
 } // namespace Model::Scene::Terrain

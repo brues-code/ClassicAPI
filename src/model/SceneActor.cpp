@@ -818,7 +818,6 @@ void LoadNode(Actor &actor, const void *node, void *status) {
 void Advance(Actor &actor) {
     Mover::Body &body = *actor.mover;
     World::Backdrop *world = WorldOf(actor.SceneFrame());
-    body.facets.context = world;
     if (!Mover::Tick(body, ClockMs(actor.SceneFrame())))
         return;
     uint32_t type = 0;
@@ -2245,12 +2244,12 @@ int __fastcall Script_SetMovementEnabled(void *L) {
     if (actor->mover == nullptr) {
         actor->mover = std::make_unique<Mover::Body>();
         Mover::Init(*actor->mover, actor->position, actor->yaw, ClockMs(actor->SceneFrame()));
-        actor->mover->facets.query = &World::QueryFacets;
-        actor->mover->facets.liquidQuery = &World::QueryLiquidFacets;
+        actor->mover->facets.query = &QueryGroundFacets;
+        actor->mover->facets.liquidQuery = &QueryGroundLiquidFacets;
         actor->mover->stepped = &Locomotion::OnStep;
         actor->mover->steppedContext = actor;
     }
-    actor->mover->facets.context = WorldOf(actor->SceneFrame());
+    actor->mover->facets.context = actor->SceneFrame();
     SizeMover(*actor);
     PutDown(*actor);
     ResetFacings(*actor);

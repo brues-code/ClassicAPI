@@ -1630,23 +1630,20 @@ int __fastcall Script_ClearWorldTerrain(void *L) {
     return 0;
 }
 
-// The WMO's nearest face on a segment (a ClassicAPI extension): the hit
-// point, the face's normal toward the start, and the fraction. Nothing on a
-// miss or without a WMO.
+// The nearest face of the scene's ground on a segment (a ClassicAPI
+// extension): the hit point, the face's normal toward the start, and the
+// fraction. Nothing on a miss or without ground.
 int __fastcall Script_TraceSegment(void *L) {
     void *frame = Self(L);
     if (frame == nullptr || !NumberArgs(L, 2, 6, Game::Lua::ObjectDisplayName(frame),
                                         "TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])"))
-        return 0;
-    const World::Backdrop *world = F(frame).world;
-    if (world == nullptr)
         return 0;
     const float start[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     const float end[3] = {FloatArg(L, 5), FloatArg(L, 6), FloatArg(L, 7)};
     float fraction = 1.0f;
     float normal[3];
     const bool camera = Game::Lua::ToBoolean(L, 8) != 0;
-    if (!World::Trace(*world, start, end, camera, fraction, normal))
+    if (!TraceGround(frame, start, end, camera, fraction, normal))
         return 0;
     for (int i = 0; i < 3; ++i)
         Game::Lua::PushNumber(L, start[i] + (end[i] - start[i]) * fraction);
@@ -1680,7 +1677,46 @@ int __fastcall Script_GetLiquidAtPoint(void *L) {
     return 2;
 }
 
-// A body swept through the scene's WMO to its first contact (a ClassicAPI
+// Sweeps a body by `move` to its first contact with the scene's ground, as
+// the client's mover sweeps a unit's volume (CMovement::SweepVolume
+// 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and
+// `height` tall over a downward point at `feet`. `end` is where the feet
+// stop; true when a face was met, `normal` the facet's plane normal. The
+// feet stay put while the WMO is loading.
+bool SweepGround(void *frame, const float (&feet)[3], float radius, float height, const float (&move)[3],
+                 float (&end)[3], float (&normal)[3]) {
+    std::copy(std::begin(feet), std::end(feet), std::begin(end));
+    normal[0] = normal[1] = normal[2] = 0.0f;
+    if (!HasGround(frame) || !(radius > 0.0f) || !(height > 0.0f))
+        return false;
+    // The move as the substep loop (0x00634040) hands it on: its length at
+    // 53 bits, the unit direction by the reciprocal, none below 2^-20.
+    const double length = std::sqrt((static_cast<double>(move[0]) * move[0] + static_cast<double>(move[1]) * move[1]) +
+                                    static_cast<double>(move[2]) * move[2]);
+    float dir[3] = {0.0f, 0.0f, 0.0f};
+    if (!(length < 9.5367431640625e-7)) {
+        const double inverse = 1.0 / length;
+        for (int k = 0; k < 3; ++k)
+            dir[k] = static_cast<float>(move[k] * inverse);
+    }
+    // The facets start empty over the volume's own box, as the substep's
+    // query frame (0x00633840) leaves its cache; the sweep's gather then
+    // takes that box joined with the end of the move.
+    Contact::Facets facets{{}, {}, {}, &QueryGroundFacets, &QueryGroundLiquidFacets, frame};
+    Contact::BaseBox(feet, radius, height, facets.box);
+    Contact::Contact contact;
+    if (!Contact::Sweep(facets, false, false, feet, radius, height, dir, static_cast<float>(length), contact))
+        return false;
+    for (int k = 0; k < 3; ++k)
+        end[k] = static_cast<float>(feet[k] + static_cast<double>(dir[k]) * contact.distance);
+    if (contact.hit >= facets.solid.size())
+        return false;
+    std::copy(std::begin(facets.solid[contact.hit].plane.n), std::end(facets.solid[contact.hit].plane.n),
+              std::begin(normal));
+    return true;
+}
+
+// A body swept through the scene's ground to its first contact (a ClassicAPI
 // extension): where its feet stop, and the normal of the face it met.
 int __fastcall Script_SweepCollider(void *L) {
     void *frame = Self(L);
@@ -1693,8 +1729,7 @@ int __fastcall Script_SweepCollider(void *L) {
     float end[3] = {feet[0] + move[0], feet[1] + move[1], feet[2] + move[2]};
     float normal[3] = {};
     bool hit = false;
-    if (const World::Backdrop *world = F(frame).world)
-        hit = World::Sweep(*world, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
+    hit = SweepGround(frame, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
     for (float c : end)
         Game::Lua::PushNumber(L, c);
     if (!hit)
@@ -2124,7 +2159,8 @@ const Game::Doc::Field kWorldTerrainArgs[] = {
 const Game::Doc::Function kSetWorldTerrain{
     "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
-    "zone's. Returns false, and shows no terrain, when no ground lies within the radius.",
+    "zone's. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
+    "ground. Returns false, and shows no terrain, when no ground lies within the radius.",
     kWorldTerrainArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
 const Game::Doc::Field kTraceSegmentArgs[] = {
@@ -2144,10 +2180,10 @@ const Game::Doc::Field kTraceSegmentRets[] = {
     Req("fraction", "number", "0 at the start, 1 at the end."),
 };
 const Game::Doc::Function kTraceSegment{
-    "Returns the first face of the WMO on the segment from the start to the end, in scene positions. "
-    "It tests the faces that the world's line of sight tests: walls, floors and roofs, not small details. "
-    "Returns nothing when the segment hits no face, when the scene has no WMO, or for parts of the WMO "
-    "that have not loaded.",
+    "Returns the first face of the WMO or of the scene's terrain on the segment from the start to the end, "
+    "in scene positions. It tests the faces that the world's line of sight tests: the WMO's walls, floors "
+    "and roofs, not small details, and the terrain. Returns nothing when the segment hits no face, when the "
+    "scene has no WMO and no terrain, or for parts of the WMO that have not loaded.",
     kTraceSegmentArgs, kTraceSegmentRets, nullptr, true};
 const Game::Doc::Field kLiquidArgs[] = {Req("pointX", "number"), Req("pointY", "number"),
                                         Req("pointZ", "number")};
@@ -2180,12 +2216,12 @@ const Game::Doc::Field kSweepRets[] = {
     Opt("normalZ", "number"),
 };
 const Game::Doc::Function kSweepCollider{
-    "Moves a body in a straight line until it touches the WMO or one of its doodads, as the world moves a "
-    "character into a wall or onto a floor. The body has the shape a character has in the world: a square "
-    "box, radius from the feet on each side and height tall, over a downward point at the feet. A face "
-    "blocks the body only from its front side. Returns where the feet stop, and the normal of the face the "
-    "body met, or only the feet when it met none. Without a WMO the body moves the full distance. While a "
-    "part of the WMO in the way is still loading, the body does not move.",
+    "Moves a body in a straight line until it touches the WMO, one of its doodads or the scene's terrain, "
+    "as the world moves a character into a wall or onto a floor. The body has the shape a character has "
+    "in the world: a square box, radius from the feet on each side and height tall, over a downward point "
+    "at the feet. A face blocks the body only from its front side. Returns where the feet stop, and the "
+    "normal of the face the body met, or only the feet when it met none. Without a WMO or terrain the body "
+    "moves the full distance. While a part of the WMO in the way is still loading, the body does not move.",
     kSweepArgs, kSweepRets, nullptr, true};
 const Game::Doc::Field kListenerArg[] = {
     Opt("actor", "ModelSceneFrameActor", nullptr, "An actor of this scene. Without it, the camera hears the sounds."),
@@ -2399,6 +2435,37 @@ float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumb
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
+
+bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    const Fields &f = F(sceneFrame);
+    out.clear();
+    if (f.world == nullptr && f.terrain == nullptr)
+        return false;
+    if (f.world != nullptr && !World::QueryFacets(f.world, box, out))
+        return false;
+    return f.terrain == nullptr || Terrain::QueryFacets(*f.terrain, box, out);
+}
+
+bool QueryGroundLiquidFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    return World::QueryLiquidFacets(F(sceneFrame).world, box, out);
+}
+
+bool TraceGround(void *sceneFrame, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
+                 float (&normal)[3]) {
+    const Fields &f = F(sceneFrame);
+    fraction = 1.0f;
+    bool hit = false;
+    float wmoFraction = 1.0f;
+    if (f.world != nullptr && World::Trace(*f.world, start, end, camera, wmoFraction, normal)) {
+        fraction = wmoFraction;
+        hit = true;
+    }
+    if (f.terrain != nullptr && Terrain::Trace(*f.terrain, start, end, fraction, normal))
+        hit = true;
+    return hit;
+}
+
+bool HasGround(void *sceneFrame) { return F(sceneFrame).world != nullptr || F(sceneFrame).terrain != nullptr; }
 
 Actor *SoundListener(void *sceneFrame) { return F(sceneFrame).listener; }
 

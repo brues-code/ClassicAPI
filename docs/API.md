@@ -19553,7 +19553,14 @@ stands on the ground when you give it its position on the same map.
 
 The function returns `false` and shows no ground when the map has no
 ground within the radius. A new call replaces the ground of the scene.
-Actors do not stand on the ground yet, and the trees, grass and water of
+
+Actors stand, walk and fall on the ground as on the floor of a WMO (see
+[`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)),
+and
+[`scene:TraceSegment`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
+and
+[`scene:SweepCollider`](#scenesweepcolliderfeetx-feety-feetz-radius-height-movex-movey-movez)
+find it. Past the radius there is no ground. The trees, grass and water of
 the map are not shown. This is a ClassicAPI extension.
 
 ```lua
@@ -19582,10 +19589,12 @@ time later. This is a ClassicAPI extension.
 
 ### `scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`
 
-Returns the first face of the WMO on the segment from the start to the
-end. The positions are scene positions. The function tests the faces that
-the line of sight of the world tests: walls, floors and roofs. It does not
-test small details or the props of the WMO.
+Returns the first face of the WMO or of the ground on the segment from the
+start to the end. The positions are scene positions. The function tests the
+faces that the line of sight of the world tests: the walls, floors and
+roofs of the WMO, and the ground of
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius). It does
+not test small details or the props of the WMO.
 
 The function returns `hitX, hitY, hitZ, normalX, normalY, normalZ, fraction`:
 
@@ -19603,7 +19612,7 @@ wall.
 The function returns nothing in these cases:
 
 - The segment hits no face.
-- The scene has no WMO.
+- The scene has no WMO and no ground.
 - The part of the WMO on the segment has not loaded.
 
 This is a ClassicAPI extension.
@@ -19634,9 +19643,10 @@ This is a ClassicAPI extension.
 
 ### `scene:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)`
 
-Moves a body in a straight line until it touches the WMO or one of its
-props. The world moves a character into a wall or onto a floor in the same
-way. The body
+Moves a body in a straight line until it touches the WMO, one of its
+props, or the ground of
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius). The
+world moves a character into a wall or onto a floor in the same way. The body
 has the shape of a character in the world: a square box over a downward
 point at the feet. `radius` is half the width of the box, and `height` is
 the height of the box. `moveX, moveY, moveZ` is the full movement.
@@ -19646,8 +19656,8 @@ feet are the position where the body stops. The normal is the unit normal
 of the face that the body touched. It points to the side that the face
 blocks. When the body touched no face, the function returns only the feet.
 
-A face blocks the body only from its front side. Without a WMO, the body
-moves the full distance. While a part of the WMO in the way loads, the body
+A face blocks the body only from its front side. Without a WMO or ground,
+the body moves the full distance. While a part of the WMO in the way loads, the body
 does not move. The function does not slide the body along a wall or step
 it up a ledge. For that movement, use
 [`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled).

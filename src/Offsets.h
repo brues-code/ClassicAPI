@@ -16383,4 +16383,75 @@ enum Offsets {
     VAR_TILE_SIZE = 0x0080654C,
     MAP_TILES = 64,
     TILE_CHUNKS = 16,
+    // ---- Terrain collision (Model::Scene::Terrain, layer 3) ----------------------
+    // The box gather (0x006AA8B0 under the box query 0x006721B0): map objects
+    // first, then each chunk whose cells the box touches. Corners map to
+    // cells as fistp(float(0.24 x float(17066.666 - c)) - 0.5), rows from x;
+    // the box must have origin - max >= 0 (a NaN passes) and origin - min
+    // < 34133.332 on both axes. Chunk rows run from the max-x cell >> 3 to
+    // the min-x cell >> 3, columns likewise from y.
+    VAR_GATHER_CELLS_PER_YARD = 0x00810AE4,
+    VAR_GATHER_HALF_CELL = 0x0086AA2C,
+    VAR_MAP_EXTENT = 0x007FFAB0,
+    // GatherChunkFacets (0x006AADC0, terrain legs): the fence walls of an
+    // impassable chunk first, then each cell of the clamped rectangle that
+    // no hole bit drops: outcodes of its five vertices (offsets 0, 9, 17, 1,
+    // 18 from its corner, 0x00810468) against the box less the chunk
+    // position, grown by 0.019444443 (0x008101B8), sign bits of float(v -
+    // min + e) and float(max - v + e); each of its four triangles (0x00810438,
+    // three vertex offsets each) kept unless its three codes share a bit, at
+    // vertex + position, its plane by the emitter's SSE arithmetic
+    // (Contact::MakeFacet). Hole bit (column >> 1) + (row >> 1) x 4 of the
+    // table 0x008103F8 against MCNK +0x3C.
+    VAR_CELL_OUTCODE_VERTICES = 0x00810468,
+    CELL_OUTCODE_VERTICES = 5,
+    VAR_CELL_FACET_TRIANGLES = 0x00810438,
+    CELL_TRIANGLES = 4,
+    VAR_GATHER_EPSILON = 0x008101B8,
+    VAR_HOLE_BITS = 0x008103F8,
+    CHUNK_ROW_VERTICES = 17,
+    CHUNK_CELLS = 8,
+    // The chunk's own box (BuildVertices 0x006B0E50): min +0x44, max +0x50.
+    // AddImpassableWalls (0x006AB530): for each side the query box crosses
+    // (strictly: y-min, y-max, x-min, x-max), facets (p, p+e, p+e+u) and (p,
+    // p+e+u, p+u) with u = (0, 0, 32000), the side's outward axis normal and
+    // d = -n.p; the 32000 is the immediate stored at 0x006AB599.
+    OFF_CMAPCHUNK_BOX_MIN = 0x44,
+    OFF_CMAPCHUNK_BOX_MAX = 0x50,
+    // The 145 chunk-relative vertices (BuildVertices), 12 bytes each: row r,
+    // column c of the outer grid at r x 17 + c, a cell centre 9 past its corner.
+    OFF_CMAPCHUNK_VERTICES = 0x83C,
+    VAR_CHUNK_WALL_HEIGHT_IMMEDIATE = 0x006AB59C,
+    // The segment trace's terrain leg (TraceTerrainSegment 0x0069C320): ends
+    // to cells as the gather does (0x008107A4 = 0.24, 0x0086A758 = 0.5), a
+    // run along one column when |dy| < 2^-22 (0x008029D4) or both ends share
+    // a column, else along one row likewise for x, else a line walk: Rows
+    // (0x0069C600) when |dy| > |dx|, else Columns (0x0069C780), each
+    // `__fastcall(start, end, cells)` ret 4 with start/end = {origin - y,
+    // origin - x, 0}; the runs are `__thiscall(cells)`; cells = {start x, start
+    // y, end x, end y}. They fill the cell list 0x00C962C8 (pairs: the y
+    // cell, then the x cell; count of dwords 0x00C89F40, zeroed first).
+    VAR_TRACE_CELLS_PER_YARD = 0x008107A4,
+    VAR_TRACE_HALF_CELL = 0x0086A758,
+    VAR_TRACE_RUN_EPSILON = 0x008029D4,
+    FUN_LIST_CELL_ROW_RUN = 0x0069C4E0,
+    FUN_LIST_CELL_COLUMN_RUN = 0x0069C570,
+    FUN_LIST_CELLS_ALONG_ROWS = 0x0069C600,
+    FUN_LIST_CELLS_ALONG_COLUMNS = 0x0069C780,
+    VAR_TRACE_CELLS = 0x00C962C8,
+    VAR_TRACE_CELL_COUNT = 0x00C89F40,
+    // TraceListedCells (0x0069C920): a cell word above 0x2000 or a missing
+    // chunk ends the walk; the ray is the start less the chunk position and
+    // the unit direction (k = 1/sqrt((dz*float(dz) + dy*dy) + dx*dx)); each
+    // of the cell's four triangles (centre + 9, then the pairs at 0x0081047C,
+    // second then first) through IntersectRayTriangle `uint8 __fastcall(ray,
+    // vertices, const uint32 indices[3], float *t, float *uv, float slack)`
+    // ret 0x10, slack the immediate pushed at 0x0069CB95 (0.01); a hit at
+    // t*k below the best and not below 0 is the best.
+    TRACE_CELL_LIMIT = 0x2000,
+    TRACE_CELL_CHUNK_BITS = 0x1FF8,
+    VAR_CELL_TRACE_TRIANGLES = 0x0081047C,
+    CELL_CENTRE_VERTEX = 9,
+    FUN_INTERSECT_RAY_TRIANGLE = 0x007C2C40,
+    VAR_TRACE_SLACK_IMMEDIATE = 0x0069CB96,
 };

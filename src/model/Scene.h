@@ -686,14 +686,6 @@ bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Fac
 // water and ocean surfaces of the WMO's liquid groups in a box (scene space),
 // as their tiles' triangles. False without a WMO or before it has loaded.
 bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out);
-// Sweeps a body by `move` to its first contact with the WMO's collision
-// faces, as the client's mover sweeps a unit's volume (CMovement::SweepVolume
-// 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and
-// `height` tall over a downward point at `feet`. `end` is where the feet
-// stop; true when a face was met, `normal` the facet's plane normal (scene
-// space). The feet stay put before the WMO has loaded.
-bool Sweep(const Backdrop &backdrop, const float (&feet)[3], float radius, float height, const float (&move)[3],
-           float (&end)[3], float (&normal)[3]);
 // From the paint, after Draw: a texture laid over the WMO's faces in `box`
 // (scene space), as the world lays a decal on its ground.
 void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
@@ -725,10 +717,35 @@ void Free(Land *land);
 // scene's view shows, as the world's chunk pass draws them. `farClip` is the
 // scene's, the fog end of a scene without fog.
 void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
+// The world's box query's terrain leg (0x006AA8B0, GatherChunkFacets
+// 0x006AADC0): the triangles of the chunks' cells in a box (scene space) and
+// an impassable chunk's walls, appended to `out`. A box outside the map
+// fails, as the world's does; a cell outside the scene's chunks has none.
+bool QueryFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out);
+// The world's segment trace's terrain leg (TraceTerrainSegment 0x0069C320):
+// the nearest triangle of the cells the segment crosses below `fraction`,
+// which it lowers, and that triangle's unit normal turned to face `start`.
+// False when nothing nearer is hit.
+bool Trace(const Land &land, const float (&start)[3], const float (&end)[3], float &fraction,
+           float (&normal)[3]);
 } // namespace Terrain
 
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);
+
+// The scene's ground, as the world's queries take map objects then the
+// terrain (0x006AA8B0, 0x0069BFF0): the WMO's, then the terrain's.
+// The box query a body's sweeps make (Contact::Facets with the scene frame as
+// context): false without either, or while the WMO is loading.
+bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out);
+// The swimmer's liquid query (the WMO's liquids).
+bool QueryGroundLiquidFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out);
+// The nearest face on a segment of the WMO (its ground or `camera` face set)
+// or the terrain: its fraction and its unit normal toward `start`.
+bool TraceGround(void *sceneFrame, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
+                 float (&normal)[3]);
+// Whether the scene has any ground to trace against.
+bool HasGround(void *sceneFrame);
 
 // The scene light's ambient colour {r, g, b}: the colour an actor's highlight
 // takes, as a unit's takes the world light state's ambient.

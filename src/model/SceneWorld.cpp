@@ -1734,38 +1734,6 @@ bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contac
     return QueryLiquidIn(*static_cast<const Backdrop *>(backdrop), box, out);
 }
 
-bool Sweep(const Backdrop &b, const float (&feet)[3], float radius, float height, const float (&move)[3],
-           float (&end)[3], float (&normal)[3]) {
-    std::copy(std::begin(feet), std::end(feet), std::begin(end));
-    normal[0] = normal[1] = normal[2] = 0.0f;
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0 || !(radius > 0.0f) || !(height > 0.0f))
-        return false;
-    // The move as the substep loop (0x00634040) hands it on: its length at
-    // 53 bits, the unit direction by the reciprocal, none below 2^-20.
-    const double length = std::sqrt((static_cast<double>(move[0]) * move[0] + static_cast<double>(move[1]) * move[1]) +
-                                    static_cast<double>(move[2]) * move[2]);
-    float dir[3] = {0.0f, 0.0f, 0.0f};
-    if (!(length < 9.5367431640625e-7)) {
-        const double inverse = 1.0 / length;
-        for (int k = 0; k < 3; ++k)
-            dir[k] = static_cast<float>(move[k] * inverse);
-    }
-    // The facets start empty over the volume's own box, as the substep's
-    // query frame (0x00633840) leaves its cache; the sweep's gather then
-    // takes that box joined with the end of the move.
-    Contact::Facets facets{{}, {}, {}, &QueryFacets, &QueryLiquidFacets, const_cast<Backdrop *>(&b)};
-    Contact::BaseBox(feet, radius, height, facets.box);
-    Contact::Contact contact;
-    if (!Contact::Sweep(facets, false, false, feet, radius, height, dir, static_cast<float>(length), contact))
-        return false;
-    for (int k = 0; k < 3; ++k)
-        end[k] = static_cast<float>(feet[k] + static_cast<double>(dir[k]) * contact.distance);
-    if (contact.hit >= facets.solid.size())
-        return false;
-    std::copy(std::begin(facets.solid[contact.hit].plane.n), std::end(facets.solid[contact.hit].plane.n),
-              std::begin(normal));
-    return true;
-}
 
 namespace {
 
