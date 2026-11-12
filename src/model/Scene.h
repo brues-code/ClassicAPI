@@ -727,6 +727,23 @@ void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&e
 // The fog half of the frame's light callback: the scene's fog on a lighting
 // record, nothing when the scene has none.
 void FrameFog(void *record, void *frame);
+// While it lives, the water fields of the world's light table (the river and
+// ocean colours and alphas) are map `mapID`'s at `eye` (Light.dbc, as the
+// world's light build makes them), for a scene's liquids; the world's again
+// after. Nothing changes for kNoMap or a map without a light.
+class MapWater {
+  public:
+    static constexpr size_t kFields = 8;
+    MapWater(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]);
+    ~MapWater();
+    MapWater(const MapWater &) = delete;
+    MapWater &operator=(const MapWater &) = delete;
+    bool Swapped() const { return swapped_; }
+
+  private:
+    uint32_t saved_[kFields] = {};
+    bool swapped_ = false;
+};
 } // namespace World
 
 // The scene's terrain (SetWorldTerrain; model/SceneTerrain.cpp).
@@ -741,6 +758,12 @@ void Free(Land *land);
 // scene's view shows, as the world's chunk pass draws them. `farClip` is the
 // scene's, the fog end of a scene without fog.
 void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
+// From the paint, after the WMO: the chunks' magma (DrawWorldScene's magma
+// pass 0x006855A0 follows the map objects).
+void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip);
+// From the paint, before the WMO's liquids: the chunks' ocean and river
+// (RenderLiquid 0x006816D0), in the colours of the terrain's map at the eye.
+void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip);
 // From the scene's update, before it advances: the chunks' doodads.
 void Update(Land &land, void *frame, bool sounds);
 // Drops the doodads' loop sounds (the scene hid).

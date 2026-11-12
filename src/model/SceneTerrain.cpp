@@ -84,6 +84,8 @@ using Gx::Translate;
 constexpr int kWorldStack = 8;
 constexpr char kVertexPoolName[] = "ModelScene_terrain_vtx";
 constexpr char kIndexPoolName[] = "ModelScene_terrain_idx";
+constexpr char kLiquidVertexPoolName[] = "ModelScene_liquid_vtx";
+constexpr char kLiquidIndexPoolName[] = "ModelScene_liquid_idx";
 
 struct alignas(16) ChunkMemory {
     uint8_t bytes[Offsets::CMAPCHUNK_SIZE];
@@ -188,6 +190,11 @@ struct Land {
     void *vertexPool = nullptr;
     void *indexPool = nullptr;
     std::vector<std::pair<void *, void *>> buffers; // one pair per chunk, in order
+    // The liquid slots' buffers, one pair per slot in chunk and slot order.
+    void *liquidVertexPool = nullptr;
+    void *liquidIndexPool = nullptr;
+    std::vector<std::pair<void *, void *>> liquidBuffers;
+    uint32_t mapID = 0;
     Settings built;
     // The chunks by (global row, global column), as the world finds them in
     // its area table.
@@ -295,6 +302,13 @@ const uint8_t *CheckedRecord(const Tile &t, uint32_t index, uint32_t textures) {
     if ((U32(header + Offsets::OFF_MCNK_FLAGS) & Offsets::MCNK_FLAG_SHADOW) != 0 &&
         !sub(Offsets::OFF_MCNK_MCSH, Offsets::MCSH_SIZE))
         return nullptr;
+    // LoadLiquids reads one MCLQ block per liquid flag, back to back.
+    uint32_t liquids = 0;
+    for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i)
+        if ((U32(header + Offsets::OFF_MCNK_FLAGS) & (Offsets::MCNK_FLAG_LIQUID_FIRST << i)) != 0)
+            ++liquids;
+    if (liquids != 0 && !sub(Offsets::OFF_MCNK_MCLQ, uint64_t{liquids} * Offsets::MCLQ_SIZE))
+        return nullptr;
     const uint64_t mcly = uint64_t{record} + U32(header + Offsets::OFF_MCNK_MCLY) + Offsets::MCNK_RECORD_HEADER;
     const uint64_t mcal = uint64_t{record} + U32(header + Offsets::OFF_MCNK_MCAL) + Offsets::MCNK_RECORD_HEADER;
     for (uint32_t i = 0; i < layers; ++i) {
@@ -372,6 +386,7 @@ void BuildChunk(Chunk &c) {
     Game::Ref<const uint8_t *>(o, Offsets::OFF_CMAPCHUNK_DOODAD_MAP) = header + Offsets::OFF_MCNK_DOODAD_MAP;
     reinterpret_cast<This_t>(Offsets::FUN_CMAPCHUNK_BUILD_VERTICES)(o);
     reinterpret_cast<This_t>(Offsets::FUN_CMAPCHUNK_LOAD_NORMALS)(o);
+    reinterpret_cast<void(__thiscall *)(void *, uint32_t)>(Offsets::FUN_CMAPCHUNK_LOAD_LIQUIDS)(o, 1);
 
     const uint32_t flags = U32(header + Offsets::OFF_MCNK_FLAGS);
     Game::Ref<uint16_t>(o, Offsets::OFF_CMAPCHUNK_FLAGS) =
@@ -471,6 +486,29 @@ void AttachBuffers(Land &land) {
     }
 }
 
+void *LiquidSlot(void *chunk, uint32_t slot) {
+    return Game::Read<void *>(chunk, Offsets::OFF_CMAPCHUNK_LIQUIDS + slot * sizeof(void *));
+}
+
+// The scene's liquid buffers onto its slots, in chunk and slot order, marked
+// unfilled (a rebuilt slot fills them again).
+void AttachLiquidBuffers(Land &land) {
+    using Invalidate_t = void(__fastcall *)(void *buffer);
+    size_t next = 0;
+    for (Chunk &c : land.chunks) {
+        for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
+            void *slot = LiquidSlot(c.object(), i);
+            if (slot == nullptr || next >= land.liquidBuffers.size())
+                continue;
+            const auto &pair = land.liquidBuffers[next++];
+            Game::Ref<void *>(slot, Offsets::OFF_CHUNKLIQUID_VERTEX_BUFFER) = pair.first;
+            Game::Ref<void *>(slot, Offsets::OFF_CHUNKLIQUID_INDEX_BUFFER) = pair.second;
+            reinterpret_cast<Invalidate_t>(Offsets::FUN_GX_BUFFER_INVALIDATE)(pair.first);
+            reinterpret_cast<Invalidate_t>(Offsets::FUN_GX_BUFFER_INVALIDATE)(pair.second);
+        }
+    }
+}
+
 void BuildAll(Land &land) {
     land.built = Settings::Current();
     for (auto &t : land.tiles)
@@ -479,6 +517,7 @@ void BuildAll(Land &land) {
         BuildChunk(c);
     LinkNeighbours(land);
     AttachBuffers(land);
+    AttachLiquidBuffers(land);
 }
 
 // The detail doodad batch of a chunk, freed (FreeDetailDoodadBatch); it holds
@@ -533,6 +572,39 @@ bool MakeBuffers(Land &land) {
     return true;
 }
 
+// The liquid pools, made as CreateLiquidBufferPool (0x0068CA50) makes the
+// world's: a vertex and an index pair for each of the slots.
+void MakeLiquidBuffers(Land &land) {
+    using Pool_t = void *(__fastcall *)(uint32_t kind, uint32_t usage, uint32_t size, uint32_t arg, const char *name);
+    using Buffer_t = void *(__fastcall *)(void *pool, uint32_t itemSize, uint32_t count, uint32_t offset);
+    uint32_t slots = 0;
+    for (Chunk &c : land.chunks)
+        for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i)
+            if (LiquidSlot(c.object(), i) != nullptr)
+                ++slots;
+    if (slots == 0)
+        return;
+    const uint32_t vertexBytes = Offsets::LIQUID_VERTEX_SIZE * Offsets::LIQUID_VERTEX_COUNT;
+    const uint32_t indexBytes = Offsets::CHUNK_INDEX_SIZE * Offsets::LIQUID_INDEX_COUNT;
+    land.liquidVertexPool = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
+        Offsets::GX_POOL_KIND_VERTEX, Offsets::GX_POOL_USAGE_STATIC, slots * vertexBytes, Offsets::GX_POOL_ARG,
+        kLiquidVertexPoolName);
+    land.liquidIndexPool = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
+        Offsets::GX_POOL_KIND_INDEX, Offsets::GX_POOL_USAGE_STATIC, slots * indexBytes, Offsets::GX_POOL_ARG,
+        kLiquidIndexPoolName);
+    if (land.liquidVertexPool == nullptr || land.liquidIndexPool == nullptr)
+        return;
+    for (uint32_t i = 0; i < slots; ++i) {
+        void *v = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(
+            land.liquidVertexPool, Offsets::LIQUID_VERTEX_SIZE, Offsets::LIQUID_VERTEX_COUNT, i * vertexBytes);
+        void *x = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(
+            land.liquidIndexPool, Offsets::CHUNK_INDEX_SIZE, Offsets::LIQUID_INDEX_COUNT, i * indexBytes);
+        if (v == nullptr || x == nullptr)
+            break;
+        land.liquidBuffers.emplace_back(v, x);
+    }
+}
+
 // FreeChunkBufferPool's order (0x006AE5C0): each sub-buffer, then the pools.
 void FreeBuffers(Land &land) {
     using Free_t = void(__fastcall *)(void *buffer);
@@ -543,10 +615,15 @@ void FreeBuffers(Land &land) {
             reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.second);
     }
     land.buffers.clear();
-    for (void *pool : {land.indexPool, land.vertexPool})
+    for (auto &pair : land.liquidBuffers) {
+        reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.first);
+        reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.second);
+    }
+    land.liquidBuffers.clear();
+    for (void *pool : {land.indexPool, land.vertexPool, land.liquidIndexPool, land.liquidVertexPool})
         if (pool != nullptr)
             reinterpret_cast<Free_t>(Offsets::FUN_GX_BUFFER_RELEASE)(pool);
-    land.vertexPool = land.indexPool = nullptr;
+    land.vertexPool = land.indexPool = land.liquidVertexPool = land.liquidIndexPool = nullptr;
 }
 
 // The distance from a point to a chunk's square, its corner at the MCNK
@@ -621,7 +698,10 @@ Land *Load(void *frame, uint32_t mapID, float x, float y, float radius) {
         FreeBuffers(*land);
         return nullptr;
     }
+    land->mapID = mapID;
     BuildAll(*land);
+    MakeLiquidBuffers(*land);
+    AttachLiquidBuffers(*land);
     MakeProps(*land, frame);
     static uint32_t serials = 0;
     land->serial = ++serials;
@@ -649,6 +729,91 @@ void Free(Land *land) {
     delete land;
 }
 
+namespace {
+
+// What a terrain pass draws under, as the world's frame has it: the camera and
+// the fog end the chunk and liquid draws read (the scene's while it draws), the
+// scene's volume on the frustum stack and the world transform stack pushed.
+class Staged {
+  public:
+    Staged(void *frame, const float (&eye)[3], float farClip) : eye_(eye) {
+        // The fog end the world's draws compare with: the scene's fog, else
+        // the far clip, past which nothing draws.
+        const bool fogged =
+            (Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) != 0;
+        fogEnd = fogged ? Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) : farClip;
+        // The view looks from the origin, so its third column is the view
+        // axis for a point relative to the eye.
+        Gx::GetView(view);
+        alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
+        World::ViewVolume(volume, eye);
+        float *camera = &Game::Ref<float>(Offsets::VAR_CAMERA_POSITION);
+        float &worldFogEnd = Game::Ref<float>(Offsets::VAR_FOG_END);
+        for (int i = 0; i < 3; ++i) {
+            savedCamera_[i] = camera[i];
+            camera[i] = eye[i];
+        }
+        savedFogEnd_ = worldFogEnd;
+        worldFogEnd = fogEnd;
+        reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_PUSH)();
+        reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
+        Gx::PushTransform(kWorldStack);
+    }
+    ~Staged() {
+        Gx::PopTransform(kWorldStack);
+        reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_POP)();
+        float *camera = &Game::Ref<float>(Offsets::VAR_CAMERA_POSITION);
+        for (int i = 0; i < 3; ++i)
+            camera[i] = savedCamera_[i];
+        Game::Ref<float>(Offsets::VAR_FOG_END) = savedFogEnd_;
+    }
+    Staged(const Staged &) = delete;
+    Staged &operator=(const Staged &) = delete;
+
+    // The depth along the view axis of a point, less `radius`.
+    float Depth(const float *p, float radius) const {
+        return (p[0] - eye_[0]) * view[2] + (p[1] - eye_[1]) * view[6] + (p[2] - eye_[2]) * view[10] - radius;
+    }
+    // The world transform at a chunk's position less the eye.
+    void PlaceAt(const void *chunk) const {
+        const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
+        Matrix world;
+        Identity(world);
+        Translate(world, {position[0] - eye_[0], position[1] - eye_[1], position[2] - eye_[2]});
+        Gx::SetTransform(kWorldStack, world);
+    }
+    bool Culled(const float (&box)[6]) const {
+        return reinterpret_cast<uint32_t(__thiscall *)(const float *)>(Offsets::FUN_FRUSTUM_IS_BOX_CULLED)(box) != 0;
+    }
+
+    float fogEnd = 0.0f;
+    Matrix view;
+
+  private:
+    const float (&eye_)[3];
+    float savedCamera_[3] = {};
+    float savedFogEnd_ = 0.0f;
+};
+
+// A lighting record committed at the eye: the scene's lights at the sphere,
+// the scene's fog, and its light (the sun's stand-in) when `lit`.
+void CommitRecord(void *frame, const float (&sphere)[4], bool lit, const float (&eye)[3]) {
+    using Init_t = void(__thiscall *)(void *record, void *unused, const float *sphere);
+    using Lights_t = void(__thiscall *)(void *scene, void *record);
+    using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
+    using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
+    alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE] = {};
+    reinterpret_cast<Init_t>(Offsets::FUN_M2LIGHTING_INIT)(record, nullptr, sphere);
+    reinterpret_cast<Lights_t>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(Model::Pane::Scene(frame), record);
+    if (lit)
+        reinterpret_cast<Callback_t>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(nullptr, record, frame);
+    else
+        World::FrameFog(record, frame);
+    reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+}
+
+} // namespace
+
 void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
     const uint32_t worldFlags = Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS);
     if ((worldFlags & Offsets::WORLD_FLAG_CHUNKS) == 0)
@@ -673,74 +838,33 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
     const float horizon = Game::Read<float>(Offsets::VAR_DETAIL_DOODAD_HORIZON);
     std::vector<void *> detailed; // the chunks the detail pass draws
 
-    // The fog end the world's draw compares with: the scene's fog, else the
-    // far clip, past which nothing draws.
-    const bool fogged =
-        (Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) != 0;
-    const float fogEnd = fogged ? Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) : farClip;
-
+    const Staged staged(frame, eye, farClip);
+    const float fogEnd = staged.fogEnd;
     // The chunk update (0x006AFAD0) for every chunk: the sphere's view depth
     // and the level, before any mesh is keyed (SelectMesh reads the
-    // neighbours' levels). The view looks from the origin, so its third
-    // column is the view axis for a point relative to the eye.
-    Matrix view;
-    Gx::GetView(view);
+    // neighbours' levels).
     const bool lod = (worldFlags & Offsets::WORLD_FLAG_LOD) != 0;
     const float lodDist = Game::Read<float>(Offsets::VAR_CHUNK_LOD_DIST);
     const uint32_t nearLevel = Game::Read<uint32_t>(Offsets::VAR_CHUNK_MAX_LOD);
     const uint32_t farLevel = Game::Read<uint32_t>(Offsets::VAR_CHUNK_FAR_LOD);
     for (Chunk &c : land.chunks) {
         void *o = c.object();
-        const float *centre = Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_CENTRE);
-        const float depth = (centre[0] - eye[0]) * view[2] + (centre[1] - eye[1]) * view[6] +
-                            (centre[2] - eye[2]) * view[10] - Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_RADIUS);
+        const float depth = staged.Depth(Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_CENTRE),
+                                         Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_RADIUS));
         Game::Ref<float>(o, Offsets::OFF_CMAPCHUNK_VIEW_DEPTH) = depth;
         Game::Ref<uint32_t>(o, Offsets::OFF_CMAPCHUNK_LEVEL) = lod && depth > lodDist ? farLevel : nearLevel;
     }
 
-    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-    World::ViewVolume(volume, eye);
-    float &cameraX = Game::Ref<float>(Offsets::VAR_CAMERA_POSITION);
-    float *camera = &cameraX;
-    float &worldFogEnd = Game::Ref<float>(Offsets::VAR_FOG_END);
-    const float savedCamera[3] = {camera[0], camera[1], camera[2]};
-    const float savedFogEnd = worldFogEnd;
-    camera[0] = eye[0];
-    camera[1] = eye[1];
-    camera[2] = eye[2];
-    worldFogEnd = fogEnd;
-
-    using Fn_t = void(__cdecl *)();
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
-    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
-    Gx::PushTransform(kWorldStack);
-    void *scene = Model::Pane::Scene(frame);
-    using Culled_t = uint32_t(__thiscall *)(const float *box);
-    using Init_t = void(__thiscall *)(void *record, void *unused, const float *sphere);
-    using Lights_t = void(__thiscall *)(void *scene, void *record);
-    using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
-    using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
     using Mesh_t = void(__thiscall *)(void *chunk, uint32_t draw);
     // The world transform at the chunk less the eye, and the chunk's lighting
-    // record: the scene's lights there, the fog always, the light only nearer
-    // than the fog end by twice the radius (a NaN depth adds none).
+    // record at its sphere: the fog always, the light only nearer than the
+    // fog end by twice the radius (a NaN depth adds none).
     const auto placeAndLight = [&](void *o) {
-        const float *position = Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_POSITION);
-        Matrix world;
-        Identity(world);
-        Translate(world, {position[0] - eye[0], position[1] - eye[1], position[2] - eye[2]});
-        Gx::SetTransform(kWorldStack, world);
-        alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE] = {};
-        reinterpret_cast<Init_t>(Offsets::FUN_M2LIGHTING_INIT)(record, nullptr,
-                                                              Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_CENTRE));
-        reinterpret_cast<Lights_t>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(scene, record);
-        const float reach = Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_VIEW_DEPTH) -
-                            Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_RADIUS);
-        if (reach < fogEnd)
-            reinterpret_cast<Callback_t>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(nullptr, record, frame);
-        else
-            World::FrameFog(record, frame);
-        reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+        staged.PlaceAt(o);
+        const float *centre = Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_CENTRE);
+        const float sphere[4] = {centre[0], centre[1], centre[2], Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_RADIUS)};
+        const float reach = Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_VIEW_DEPTH) - sphere[3];
+        CommitRecord(frame, sphere, reach < fogEnd, eye);
     };
     // The chunk pass in its own state push (DrawChunkPass 0x00684510): the
     // shader path's layer draw (0x006BF690) leaves its pixel program bound,
@@ -755,8 +879,7 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
         void *o = c.object();
         const uint8_t *header = Game::Read<const uint8_t *>(o, Offsets::OFF_CMAPCHUNK_HEADER);
         if (Game::Read<uint16_t>(header, Offsets::OFF_MCNK_HOLES) == Offsets::MCNK_HOLES_ALL ||
-            reinterpret_cast<Culled_t>(Offsets::FUN_FRUSTUM_IS_BOX_CULLED)(
-                Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_BOX)) != 0)
+            staged.Culled(*reinterpret_cast<const float(*)[6]>(Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_BOX))))
             continue;
         placeAndLight(o);
         reinterpret_cast<Mesh_t>(Offsets::FUN_CMAPCHUNK_SELECT_MESH)(o, 1);
@@ -788,12 +911,118 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
             reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_RELEASE_DETAIL_BATCH_BUFFERS)(
                 Game::Read<void *>(o, Offsets::OFF_CMAPCHUNK_DETAIL_BATCH));
     }
-    Gx::PopTransform(kWorldStack);
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
-    camera[0] = savedCamera[0];
-    camera[1] = savedCamera[1];
-    camera[2] = savedCamera[2];
-    worldFogEnd = savedFogEnd;
+}
+
+namespace {
+
+// The slots of one pass the scene's view shows (the layer cull 0x00683AB0):
+// a slot's box is its chunk's with the slot's heights as z (0x0068DF40).
+std::vector<void *> VisibleSlots(Land &land, const Staged &staged, uint32_t pass) {
+    std::vector<void *> out;
+    for (Chunk &c : land.chunks) {
+        void *slot = LiquidSlot(c.object(), pass);
+        if (slot == nullptr)
+            continue;
+        float box[6];
+        std::memcpy(box, Game::Ptr<float>(c.object(), Offsets::OFF_CMAPCHUNK_BOX_MIN), sizeof box);
+        box[2] = Game::Read<float>(slot, Offsets::OFF_CHUNKLIQUID_LOW);
+        box[5] = Game::Read<float>(slot, Offsets::OFF_CHUNKLIQUID_HIGH);
+        if (!staged.Culled(box))
+            out.push_back(slot);
+    }
+    return out;
+}
+
+// A pass's slots (0x00685010, 0x006851B0, 0x006855A0 per slot): with world
+// flag 0x1000000, the transform at the slot's chunk, GatherSlotLights'
+// record (0x0068DF70) and the slot's draw.
+void DrawSlots(const std::vector<void *> &slots, uint32_t pass, const Staged &staged, void *frame,
+               const float (&eye)[3]) {
+    if ((Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS) & Offsets::WORLD_FLAG_LIQUIDS) == 0)
+        return;
+    const float half = Game::Read<float>(Offsets::VAR_HALF);
+    const float radius = Game::Read<float>(Offsets::VAR_LIQUID_LIGHT_RADIUS_IMMEDIATE);
+    for (void *slot : slots) {
+        const void *chunk = Game::Read<const void *>(slot, Offsets::OFF_CHUNKLIQUID_CHUNK);
+        staged.PlaceAt(chunk);
+        const float *centre = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_CENTRE);
+        const float low = Game::Read<float>(slot, Offsets::OFF_CHUNKLIQUID_LOW);
+        const float high = Game::Read<float>(slot, Offsets::OFF_CHUNKLIQUID_HIGH);
+        const float sphere[4] = {centre[0], centre[1],
+                                 static_cast<float>((static_cast<double>(high) - low) * half + low), radius};
+        // The sun and the chunk's lights when the depth less twice the radius
+        // is inside the fog end (0x0068E128).
+        CommitRecord(frame, sphere, staged.Depth(sphere, radius) - radius < staged.fogEnd, eye);
+        reinterpret_cast<void(__thiscall *)(void *, uint32_t)>(Offsets::FUN_CHUNKLIQUID_DRAW)(slot, pass);
+    }
+}
+
+// The water passes' states (0x00685010 ocean, 0x006851B0 river): the swatch
+// on stage 0, then the water program with its material, or the add combine.
+// The river's leg for a third-stage program (0x00C800EC) is left out: nothing
+// writes that program.
+void WaterStates(uintptr_t swatch) {
+    Gx::SetState(Offsets::GXRS_CULL, 0);
+    Gx::SetState(Offsets::GXRS_TEXTURE0, Game::Read<void *>(swatch));
+    if (Game::Read<uint8_t>(Offsets::VAR_FANCY_WATER) == 0) {
+        Gx::SetState(Offsets::GXRS_PIXEL_SHADER, static_cast<const void *>(nullptr));
+        Gx::SetState(Offsets::GXRS_COMBINER0 + 1, Offsets::LIQUID_STAGE1_ADD);
+        return;
+    }
+    Gx::SetState(Offsets::GXRS_PIXEL_SHADER, Game::Read<void *>(Offsets::VAR_WATER_PROGRAM));
+    Gx::SetStateWord(Offsets::GXRS_SPECULAR, 0xFFFFFFFFu);
+    Gx::SetStateFloat(Offsets::GXRS_SHININESS, Game::Read<float>(Offsets::VAR_WATER_SHININESS));
+    Gx::SetState(Offsets::GXRS_BLEND, Offsets::GXRS_BLEND_ALPHA);
+    Gx::SetState(Offsets::GXRS_DEPTH_WRITE, 0);
+}
+
+} // namespace
+
+void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip) {
+    if ((Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS) & Offsets::WORLD_FLAG_CHUNKS) == 0)
+        return;
+    const Staged staged(frame, eye, farClip);
+    const std::vector<void *> slots = VisibleSlots(land, staged, Offsets::LIQUID_PASS_MAGMA);
+    if (slots.empty())
+        return;
+    // DrawMagmaPass (0x006855A0): culling, lighting and blending off.
+    const Gx::SavedStates states;
+    Gx::SetState(Offsets::GXRS_CULL, 0);
+    Gx::SetState(Offsets::GXRS_LIGHTING, 0);
+    Gx::SetState(Offsets::GXRS_BLEND, 0);
+    DrawSlots(slots, Offsets::LIQUID_PASS_MAGMA, staged, frame, eye);
+}
+
+void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip) {
+    if ((Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS) & Offsets::WORLD_FLAG_CHUNKS) == 0)
+        return;
+    const Staged staged(frame, eye, farClip);
+    const std::vector<void *> ocean = VisibleSlots(land, staged, Offsets::LIQUID_PASS_OCEAN);
+    const std::vector<void *> river = VisibleSlots(land, staged, Offsets::LIQUID_PASS_RIVER);
+    if (ocean.empty() && river.empty())
+        return;
+    // The swatches in the map's water colours at the eye: the first slot each
+    // pass draws refills its swatch from the light state while its fresh flag
+    // is clear (0x0068DE9E, 0x0068DEED); clearing them again after lets the
+    // world's next frame refill them in its own.
+    const World::MapWater water(land.mapID, Offsets::LIQUID_DRY, eye);
+    uint32_t &riverFresh = Game::Ref<uint32_t>(Offsets::VAR_RIVER_SWATCH_FRESH);
+    uint32_t &oceanFresh = Game::Ref<uint32_t>(Offsets::VAR_OCEAN_SWATCH_FRESH);
+    if (water.Swapped())
+        riverFresh = oceanFresh = 0;
+    // RenderLiquid's order (0x006816D0): the ocean, then the river.
+    if (!ocean.empty()) {
+        const Gx::SavedStates states;
+        WaterStates(Offsets::VAR_OCEAN_SWATCH);
+        DrawSlots(ocean, Offsets::LIQUID_PASS_OCEAN, staged, frame, eye);
+    }
+    if (!river.empty()) {
+        const Gx::SavedStates states;
+        WaterStates(Offsets::VAR_RIVER_SWATCH);
+        DrawSlots(river, Offsets::LIQUID_PASS_RIVER, staged, frame, eye);
+    }
+    if (water.Swapped())
+        riverFresh = oceanFresh = 0;
 }
 
 // ---- collision (layer 3) ------------------------------------------------------

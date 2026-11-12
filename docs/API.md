@@ -19569,8 +19569,11 @@ show as in the world. They fade with distance, and actors collide with them.
 They play their sounds when
 [`scene:SetPlayWorldModelSounds`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
 is on. Near the camera, the ground shows its grass and small clutter, as
-in the world, with the density of the ground clutter setting. The water of
-the map is not shown. This is a ClassicAPI extension.
+in the world, with the density of the ground clutter setting. The water and
+lava of the map show, and their textures animate. The water takes its colors
+from the light of the map at the camera. Actors do not swim in this water,
+and [`scene:GetLiquidAtPoint`](#scenegetliquidatpointx-y-z) does not find
+it. This is a ClassicAPI extension.
 
 ```lua
 -- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.

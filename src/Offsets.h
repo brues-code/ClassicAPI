@@ -14047,6 +14047,7 @@ enum Offsets {
     GXRS_FOG = 0x0F,
     GXRS_DEPTH_WRITE = 0x12,
     GXRS_CULL = 0x14,
+    GXRS_BLEND_ALPHA = 2,             // SRC_ALPHA / INV_SRC_ALPHA, with the alpha test
     GXRS_BLEND_MODULATE = 4,          // DST_COLOR / ZERO
     GXRS_COMBINE_BLEND_DIFFUSE_ALPHA = 5, // stage: texture to the vertex colour by its alpha
     // Topology for FUN_GX_PRIM_INDEXED: 4 is a triangle strip (the lightning
@@ -14273,6 +14274,15 @@ enum Offsets {
     // immediate.
     VAR_NO_LIGHT_FOG_END = 0x006D2301,
     LIGHT_RECORD_SIZE = 0x90,
+    // The water fields of a light record (the light state's +0xE0 to +0xEC
+    // and +0x114 to +0x120 less 0xAC): the swatch fill 0x0068A830 reads ocean
+    // shallow, ocean deep, river shallow, river deep, then river shallow and
+    // deep alpha, ocean shallow and deep alpha.
+    OFF_LIGHT_RECORD_SHALLOW_OCEAN = 0x34,
+    OFF_LIGHT_RECORD_DEEP_OCEAN = 0x38,
+    OFF_LIGHT_RECORD_SHALLOW_RIVER = 0x3C,
+    OFF_LIGHT_RECORD_OCEAN_ALPHA_SHALLOW = 0x70,
+    OFF_LIGHT_RECORD_OCEAN_ALPHA_DEEP = 0x74,
     OFF_LIGHT_RECORD_DEEP_RIVER = 0x40,
     OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW = 0x68,
     OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP = 0x6C,
@@ -16403,6 +16413,69 @@ enum Offsets {
     FUN_RELEASE_DETAIL_BATCH_BUFFERS = 0x006B28E0,
     FUN_FREE_DETAIL_DOODAD_BATCH = 0x006B2030,
     OFF_CMAPCHUNK_DETAIL_BATCH = 0xC0,
+    // Terrain liquid (benilla terrain/liquid, liquidpass, watershade; Ghidra
+    // 2026-11-11). CMapChunk::LoadLiquids `__thiscall(chunk, uint first)`
+    // (0x006AF760, Load's third step): one 0x324-byte MCLQ block (MCNK +0x60)
+    // per set flag bit 0x4 / 0x8 / 0x10 / 0x20, in order, into slots 0-3 (+0x118)
+    // of the growable WCHUNKLIQUID pool (AllocChunkLiquid 0x006A0EE0; its list
+    // 0x00CA7D7C is walked only at exit). A slot: +0x04 / +0x08 the low and
+    // high heights, +0x1C its chunk, +0x400 / +0x404 its buffers (81 x 0x28,
+    // 192 x 2). The world's liquid buffer pool is rebuilt in DrawWorldScene
+    // (CreateLiquidBufferPool 0x0068CA50), and ReleaseLiquidBuffers (0x0068CD50)
+    // only nulls a buffer of another pool; CChunkLiquid::Draw `__thiscall(slot,
+    // uint pass)` (0x0068DE40) acquires only for no buffer or a usage 2 pool.
+    // A slot draws in the pass of its index (CMapChunk::Update 0x006AFAD0
+    // buckets slot i in layer i): 0 river, 1 ocean, 2 magma; slime (3) is
+    // never drawn. Its box: the chunk's (+0x44) with z the slot's heights
+    // (0x0068DF40).
+    FUN_CMAPCHUNK_LOAD_LIQUIDS = 0x006AF760,
+    FUN_CHUNKLIQUID_DRAW = 0x0068DE40,
+    OFF_MCNK_MCLQ = 0x60,
+    MCLQ_SIZE = 0x324,
+    MCNK_FLAG_LIQUID_FIRST = 0x4,
+    CHUNK_LIQUID_SLOTS = 4,
+    OFF_CMAPCHUNK_LIQUIDS = 0x118,
+    OFF_CHUNKLIQUID_LOW = 0x04,
+    OFF_CHUNKLIQUID_HIGH = 0x08,
+    OFF_CHUNKLIQUID_CHUNK = 0x1C,
+    OFF_CHUNKLIQUID_VERTEX_BUFFER = 0x400,
+    OFF_CHUNKLIQUID_INDEX_BUFFER = 0x404,
+    LIQUID_VERTEX_SIZE = 0x28,
+    LIQUID_VERTEX_COUNT = 0x51,
+    LIQUID_INDEX_COUNT = 0xC0,
+    LIQUID_PASS_RIVER = 0,
+    LIQUID_PASS_OCEAN = 1,
+    LIQUID_PASS_MAGMA = 2,
+    // The passes: magma (0x006855A0) in DrawWorldScene after the map objects;
+    // ocean (0x00685010) then river (0x006851B0) in RenderLiquid before the
+    // group liquids. Each pushes the state and turns culling off. Ocean and
+    // river bind their swatch (0x00C81B90, 0x00C89D68) on stage 0; with the
+    // fancy-water byte (0x00C9A324) the water program (0x00C81B7C), specular
+    // white, shininess 6.0 (0x008102E8), blend 2 and no depth write, else no
+    // program and stage 1 preset 3 (add); the river's third-stage leg tests
+    // a program 0x00C800EC that nothing writes. Magma: lighting and blending
+    // off. Per slot, with world flag 0x1000000: the world transform at the
+    // chunk less the camera, GatherSlotLights (0x0068DF70: a record at the
+    // chunk's x, y and the middle of the slot's heights, (high - low) x 0.5 +
+    // low, radius 23.570166 the immediate at 0x0068DFAF; the zone fog; the
+    // sun and the chunk's lights when the depth less twice the radius is
+    // inside the fog end), then the draw. Each swatch refills from the light
+    // state on the first slot drawn after its fresh flag (0x00C8117C river,
+    // 0x00C81B70 ocean) is cleared, which the world does once a frame
+    // (0x006809C0).
+    WORLD_FLAG_LIQUIDS = 0x1000000,
+    VAR_OCEAN_SWATCH = 0x00C81B90,
+    VAR_RIVER_SWATCH = 0x00C89D68,
+    VAR_FANCY_WATER = 0x00C9A324,
+    VAR_WATER_PROGRAM = 0x00C81B7C,
+    VAR_WATER_SHININESS = 0x008102E8,
+    VAR_RIVER_SWATCH_FRESH = 0x00C8117C,
+    VAR_OCEAN_SWATCH_FRESH = 0x00C81B70,
+    VAR_LIQUID_LIGHT_RADIUS_IMMEDIATE = 0x0068DFAF,
+    GXRS_SPECULAR = 0x03,
+    GXRS_SHININESS = 0x04,
+    LIQUID_STAGE1_ADD = 3,
+    FUN_GX_BUFFER_INVALIDATE = 0x0058A130,
     // The MCNK header's reference counts (LoadReferences): doodads +0x10,
     // map objects +0x38; the MCRF list holds the doodad indices first.
     OFF_MCNK_DOODAD_REF_COUNT = 0x10,

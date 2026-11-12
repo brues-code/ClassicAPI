@@ -2055,10 +2055,10 @@ void Gather(int h, Record &out, const uint8_t *params) {
 // backdrop's map at the scene's camera, as the world builds its table at its
 // camera: the time of day is the world's; the storm blend, which follows the
 // weather where the player is, is left out. False when the map has no light.
-bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
+bool BuildMapLight(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], Record &table) {
     const float day = EngineFloat(Offsets::VAR_LIGHT_TIME_OF_DAY) * EngineFloat(Offsets::VAR_HALF_MINUTES_PER_DAY);
     const int h = static_cast<int>(std::lrint(static_cast<double>(day) - EngineFloat(Offsets::VAR_DAY_NIGHT_HALF)));
-    const uint32_t liquid = b.cameraLiquid == Offsets::LIQUID_DRY ? b.cameraLiquid : (b.cameraLiquid & 3);
+    const uint32_t liquid = cameraLiquid == Offsets::LIQUID_DRY ? cameraLiquid : (cameraLiquid & 3);
     if (liquid == Offsets::LIQUID_MAGMA || liquid == Offsets::LIQUID_SLIME) {
         const int id = liquid == Offsets::LIQUID_MAGMA ? Offsets::LIGHTPARAMS_MAGMA : Offsets::LIGHTPARAMS_SLIME;
         if (Game::Read<int32_t>(Offsets::VAR_LIGHTPARAMS_LARGEST_ID) < id)
@@ -2078,7 +2078,7 @@ bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
     std::vector<const uint8_t *> area;
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t *row = rows + i * Offsets::LIGHT_ROW_SIZE;
-        if (Game::Read<uint32_t>(row, Offsets::OFF_LIGHT_MAP) != b.mapID)
+        if (Game::Read<uint32_t>(row, Offsets::OFF_LIGHT_MAP) != mapID)
             continue;
         const float *p = Game::Ptr<float>(row, Offsets::OFF_LIGHT_POSITION);
         if (p[0] == 0.0f && p[1] == 0.0f && p[2] == 0.0f)
@@ -2117,39 +2117,35 @@ bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
     return true;
 }
 
-// The water fields of the world's light table, the backdrop map's while its
-// liquids draw, then the world's again.
-class MapWaterLight {
-  public:
-    MapWaterLight(const Backdrop &b, const float (&eye)[3]) {
-        Record table;
-        if (b.mapID == kNoMap || !BuildMapLight(b, eye, table))
-            return;
-        for (size_t i = 0; i < std::size(kFields); ++i) {
-            std::memcpy(&saved_[i], Live() + kFields[i], sizeof saved_[i]);
-            std::memcpy(Live() + kFields[i], table + kFields[i], sizeof saved_[i]);
-        }
-        swapped_ = true;
-    }
-    ~MapWaterLight() {
-        if (!swapped_)
-            return;
-        for (size_t i = 0; i < std::size(kFields); ++i)
-            std::memcpy(Live() + kFields[i], &saved_[i], sizeof saved_[i]);
-    }
-    MapWaterLight(const MapWaterLight &) = delete;
-    MapWaterLight &operator=(const MapWaterLight &) = delete;
-
-  private:
-    static constexpr uintptr_t kFields[] = {Offsets::OFF_LIGHT_RECORD_DEEP_RIVER,
-                                            Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW,
-                                            Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP};
-    static uint8_t *Live() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_TABLE)); }
-    uint32_t saved_[std::size(kFields)] = {};
-    bool swapped_ = false;
-};
-
 } // namespace
+
+namespace {
+constexpr uintptr_t kWaterFields[] = {
+    Offsets::OFF_LIGHT_RECORD_SHALLOW_OCEAN,      Offsets::OFF_LIGHT_RECORD_DEEP_OCEAN,
+    Offsets::OFF_LIGHT_RECORD_SHALLOW_RIVER,      Offsets::OFF_LIGHT_RECORD_DEEP_RIVER,
+    Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW, Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP,
+    Offsets::OFF_LIGHT_RECORD_OCEAN_ALPHA_SHALLOW, Offsets::OFF_LIGHT_RECORD_OCEAN_ALPHA_DEEP};
+static_assert(std::size(kWaterFields) == MapWater::kFields, "one saved word per water field");
+uint8_t *LiveLightTable() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_TABLE)); }
+} // namespace
+
+MapWater::MapWater(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]) {
+    Record table;
+    if (mapID == kNoMap || !BuildMapLight(mapID, cameraLiquid, eye, table))
+        return;
+    for (size_t i = 0; i < std::size(kWaterFields); ++i) {
+        std::memcpy(&saved_[i], LiveLightTable() + kWaterFields[i], sizeof saved_[i]);
+        std::memcpy(LiveLightTable() + kWaterFields[i], table + kWaterFields[i], sizeof saved_[i]);
+    }
+    swapped_ = true;
+}
+
+MapWater::~MapWater() {
+    if (!swapped_)
+        return;
+    for (size_t i = 0; i < std::size(kWaterFields); ++i)
+        std::memcpy(LiveLightTable() + kWaterFields[i], &saved_[i], sizeof saved_[i]);
+}
 
 // DrawGroupLiquidPass (0x00684CD0) over the one WMO's parsed liquid groups.
 // The world commits a record per group at the group def's sphere; here the
@@ -2175,7 +2171,7 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
     if (liquids.empty())
         return;
     // Outdoor water takes the light of the backdrop's map at the camera.
-    const MapWaterLight mapLight(b, eye);
+    const MapWater mapLight(b.mapID, b.cameraLiquid, eye);
     const Gx::SavedStates states;
     reinterpret_cast<Fn_t>(Offsets::FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP)();
     uint32_t &fogFlag = Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG);
@@ -2445,7 +2441,7 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     // light with no screen tint (the player's) and no override; else the
     // world's light and its override.
     Record table;
-    const bool own = b.mapID != kNoMap && BuildMapLight(b, eye, table);
+    const bool own = b.mapID != kNoMap && BuildMapLight(b.mapID, b.cameraLiquid, eye, table);
     const uintptr_t from = own ? Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX : Offsets::OFF_LIGHT_STATE_SKYBOXES;
     std::memset(state + from, 0, Offsets::OFF_LIGHT_STATE_SKYBOX_WEIGHTS + Offsets::LIGHT_SKYBOX_SLOTS * 4 - from);
     if (own) {

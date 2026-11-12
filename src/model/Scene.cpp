@@ -755,11 +755,15 @@ void __fastcall Paint(void *frame) {
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
-        // The world's frame draws its chunks before its map objects.
-        if (Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr)
+        // The world's frame draws its chunks before its map objects, and the
+        // terrain's magma after them (DrawWorldScene 0x006812B1..0x006812BB).
+        Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
+        if (terrain != nullptr)
             Terrain::Draw(*terrain, frame, eye, F(frame).farClip);
         if (world != nullptr)
             World::Draw(*world, frame, eye);
+        if (terrain != nullptr)
+            Terrain::DrawMagma(*terrain, frame, eye, F(frame).farClip);
         DrawGroundDecals(frame, eye);
         M2::DrawScene(scene, 0);
         DrawGroundReticles(frame, eye);
@@ -769,6 +773,10 @@ void __fastcall Paint(void *frame) {
         const bool wet = world != nullptr && World::CameraWet(*world);
         if (wet)
             M2::DrawScene(scene, 1);
+        // RenderLiquid (0x006816D0): the terrain's ocean and river, then the
+        // map objects' liquids.
+        if (terrain != nullptr)
+            Terrain::DrawWater(*terrain, frame, eye, F(frame).farClip);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
         if (!wet)
@@ -2183,7 +2191,7 @@ const Game::Doc::Function kSetWorldTerrain{
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
     "zone's. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
     "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
-    "grass shows near the camera. Returns false, and shows no terrain, when no ground lies within the "
+    "grass shows near the camera, and its water and lava show. Returns false, and shows no terrain, when no ground lies within the "
     "radius.",
     kWorldTerrainArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
