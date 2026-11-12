@@ -622,6 +622,15 @@ struct Land;
 // The scene's WMO (SetWorldModel; model/SceneWorld.cpp).
 namespace World {
 struct Backdrop;
+// The scene's view volume in scene space (the device's view moved by -eye
+// and its projection), as the world's camera builds its own. The paint
+// builds it once, after its camera transforms, and its passes all read it:
+// none changes the view or projection (the sky's draw 0x006D4940 sets only
+// the viewport, and puts it back).
+struct ViewVolume {
+    alignas(16) uint8_t bytes[Offsets::FRUSTUM_VOLUME_SIZE] = {};
+};
+void BuildViewVolume(ViewVolume &volume, const float (&eye)[3]);
 // Whether `path` names a WMO (ends in ".wmo"), which only the scene shows.
 bool IsWmoPath(const char *path);
 // Null when the engine cannot read `path` safely: it is not a WMO, a file
@@ -649,14 +658,14 @@ void Silence(Backdrop &backdrop);
 // with the camera outside the WMO's interior groups and dry, the world's sky
 // (the dome, the sun and moons, the stars, the clouds and the skyboxes) in
 // the device's view, lit by the backdrop map's light at the camera.
-void ClearAndDrawSky(const Backdrop &backdrop, void *frame, const float (&eye)[3]);
+void ClearAndDrawSky(const Backdrop &backdrop, void *frame, const float (&eye)[3], const ViewVolume &volume);
 // The same without a WMO, as the world's frame does in the open (the weather
 // byte stands set outside every map object): dry, the clear to black and the
 // sky in map `mapID`'s light at the camera; under a liquid, the clear to the
 // frame's fog colour (the zone's, LiquidFog) and no sky.
 void ClearAndDrawOpenSky(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]);
 // From the paint, after the animate pass: the WMO in the device's view.
-void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3]);
+void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3], const ViewVolume &volume);
 // From the paint, between the scene's opaque and translucent lists: the
 // liquids of the WMO's groups (the world draws them between its model lists).
 void DrawLiquids(Backdrop &backdrop, void *frame, const float (&eye)[3]);
@@ -746,13 +755,10 @@ void SilenceProps(Props &props);
 // while the prop's model is loading.
 void BeginPropQuery(Props &props);
 bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vector<Contact::Facet> &out);
-// The scene's view volume in scene space (the device's view moved by -eye
-// and its projection), as the world's camera builds its own.
-void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]);
 // How far below the eye the camera's liquid probe is (0x006809E2): the
 // lowest of the eye and the four near corners of the view volume, from the
 // paint (the device's view and projection).
-float ProbeDrop(const float (&eye)[3]);
+float ProbeDrop(const ViewVolume &volume, const float (&eye)[3]);
 // The fog half of the frame's light callback: the scene's fog on a lighting
 // record, nothing when the scene has none.
 void FrameFog(void *record, void *frame);
@@ -808,14 +814,15 @@ void Free(Land *land);
 // From the paint, after the animate pass and before the WMO: the chunks the
 // scene's view shows, as the world's chunk pass draws them. `farClip` is the
 // scene's, the fog end of a scene without fog.
-void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
+void Draw(Land &land, void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip);
 // From the paint, after the WMO: the chunks' magma (DrawWorldScene's magma
 // pass 0x006855A0 follows the map objects).
-void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip);
+void DrawMagma(Land &land, void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip);
 // From the paint, before the WMO's liquids: the chunks' ocean and river
 // (RenderLiquid 0x006816D0), in the colours of the terrain's map at the eye
 // for the camera's liquid.
-void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip, uint32_t cameraLiquid);
+void DrawWater(Land &land, void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip,
+               uint32_t cameraLiquid);
 // From the scene's update, before it advances: the chunks' doodads.
 void Update(Land &land, void *frame, bool sounds);
 // Drops the doodads' loop sounds (the scene hid).

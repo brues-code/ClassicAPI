@@ -60,6 +60,7 @@
 #include "gx/Matrix.h"
 #include "model/M2.h"
 #include "model/SceneContact.h"
+#include "model/SceneFile.h"
 
 #include <algorithm>
 #include <cmath>
@@ -104,27 +105,6 @@ float F32(const uint8_t *at) {
     float v;
     std::memcpy(&v, at, sizeof v);
     return v;
-}
-
-// The whole file, through SFile (a missing file opens nothing, no error).
-bool ReadFile(const char *path, std::vector<uint8_t> &out) {
-    using Open_t = int(__stdcall *)(const char *path, void **file);
-    using Size_t = uint32_t(__stdcall *)(void *file, uint32_t *high);
-    using Read_t = int(__stdcall *)(void *file, void *buffer, uint32_t size, uint32_t *read, void *overlapped, int);
-    using Close_t = uint32_t(__stdcall *)(void *file);
-    void *file = nullptr;
-    if (reinterpret_cast<Open_t>(Offsets::FUN_SFILE_OPEN)(path, &file) == 0 || file == nullptr)
-        return false;
-    const uint32_t size = reinterpret_cast<Size_t>(Offsets::FUN_SFILE_GET_FILE_SIZE)(file, nullptr);
-    bool ok = size != 0 && size != 0xFFFFFFFFu;
-    if (ok) {
-        out.resize(size);
-        uint32_t read = 0;
-        ok = reinterpret_cast<Read_t>(Offsets::FUN_SFILE_READ)(file, out.data(), size, &read, nullptr, 0) != 0 &&
-             read == size;
-    }
-    reinterpret_cast<Close_t>(Offsets::FUN_SFILE_CLOSE)(file);
-    return ok;
 }
 
 // What a chunk's textures were made for (AddLayer, CreateShadowTexture,
@@ -665,7 +645,7 @@ Land *Load(void *frame, uint32_t mapID, float x, float y, float radius) {
             auto t = std::make_unique<Tile>();
             t->column = static_cast<uint32_t>(column);
             t->row = static_cast<uint32_t>(row);
-            if (!ReadFile(path, t->file) || !ParseHeader(*t))
+            if (!File(path).ReadAll(t->file) || !ParseHeader(*t))
                 continue;
             const uint32_t textures = TextureCount(*t);
             for (uint32_t i = 0; i < Offsets::ADT_CHUNKS; ++i) {
@@ -711,23 +691,6 @@ uint32_t Serial(const Land &land) { return land.serial; }
 
 uint32_t MapOf(const Land &land) { return land.mapID; }
 
-uint32_t AreaAt(const Land &land, const float (&point)[3]) {
-    // 0x0069B126: x's distance stored, then times k and stored; y's product
-    // stored once; each less a half, rounded.
-    const double origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
-    const double perYard = Game::Read<float>(Offsets::VAR_AREA_CHUNKS_PER_YARD);
-    const double half = Game::Read<float>(Offsets::VAR_POINT_HALF_CELL);
-    const float fromX = static_cast<float>(-(static_cast<double>(point[0]) - origin));
-    const float y = static_cast<float>(-(static_cast<double>(point[1]) - origin) * perYard);
-    const float x = static_cast<float>(perYard * fromX);
-    const int32_t column = static_cast<int32_t>(std::lrint(static_cast<double>(y) - half));
-    const int32_t row = static_cast<int32_t>(std::lrint(static_cast<double>(x) - half));
-    if (row < 0 || column < 0)
-        return 0;
-    const auto found = land.byCell.find({static_cast<uint32_t>(row), static_cast<uint32_t>(column)});
-    return found != land.byCell.end() ? Game::Read<uint32_t>(found->second, Offsets::OFF_CMAPCHUNK_AREA_ID) : 0;
-}
-
 void Update(Land &land, void *frame, bool sounds) {
     if (land.props != nullptr)
         World::UpdateProps(*land.props, frame, sounds);
@@ -754,7 +717,7 @@ namespace {
 // scene's volume on the frustum stack and the world transform stack pushed.
 class Staged {
   public:
-    Staged(void *frame, const float (&eye)[3], float farClip) : eye_(eye) {
+    Staged(void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip) : eye_(eye) {
         // The fog end the world's draws compare with: the scene's fog, else
         // the far clip, past which nothing draws.
         const bool fogged =
@@ -763,8 +726,6 @@ class Staged {
         // The view looks from the origin, so its third column is the view
         // axis for a point relative to the eye.
         Gx::GetView(view);
-        alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-        World::ViewVolume(volume, eye);
         float *camera = &Game::Ref<float>(Offsets::VAR_CAMERA_POSITION);
         float &worldFogEnd = Game::Ref<float>(Offsets::VAR_FOG_END);
         for (int i = 0; i < 3; ++i) {
@@ -774,7 +735,7 @@ class Staged {
         savedFogEnd_ = worldFogEnd;
         worldFogEnd = fogEnd;
         reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_PUSH)();
-        reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
+        reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
         Gx::PushTransform(Offsets::GX_XFORM_WORLD);
     }
     ~Staged() {
@@ -832,7 +793,7 @@ void CommitRecord(void *frame, const float (&sphere)[4], bool lit, const float (
 
 } // namespace
 
-void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
+void Draw(Land &land, void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip) {
     const uint32_t worldFlags = Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS);
     if ((worldFlags & Offsets::WORLD_FLAG_CHUNKS) == 0)
         return;
@@ -856,7 +817,7 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
     const float horizon = Game::Read<float>(Offsets::VAR_DETAIL_DOODAD_HORIZON);
     std::vector<void *> detailed; // the chunks the detail pass draws
 
-    const Staged staged(frame, eye, farClip);
+    const Staged staged(frame, eye, volume, farClip);
     const float fogEnd = staged.fogEnd;
     // The chunk update (0x006AFAD0) for every chunk: the sphere's view depth
     // and the level, before any mesh is keyed (SelectMesh reads the
@@ -996,10 +957,10 @@ void WaterStates(uintptr_t swatch) {
 
 } // namespace
 
-void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip) {
+void DrawMagma(Land &land, void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip) {
     if ((Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS) & Offsets::WORLD_FLAG_CHUNKS) == 0)
         return;
-    const Staged staged(frame, eye, farClip);
+    const Staged staged(frame, eye, volume, farClip);
     const std::vector<void *> slots = VisibleSlots(land, staged, Offsets::LIQUID_PASS_MAGMA);
     if (slots.empty())
         return;
@@ -1011,10 +972,11 @@ void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip) {
     DrawSlots(slots, Offsets::LIQUID_PASS_MAGMA, staged, frame, eye);
 }
 
-void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip, uint32_t cameraLiquid) {
+void DrawWater(Land &land, void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip,
+               uint32_t cameraLiquid) {
     if ((Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS) & Offsets::WORLD_FLAG_CHUNKS) == 0)
         return;
-    const Staged staged(frame, eye, farClip);
+    const Staged staged(frame, eye, volume, farClip);
     const std::vector<void *> ocean = VisibleSlots(land, staged, Offsets::LIQUID_PASS_OCEAN);
     const std::vector<void *> river = VisibleSlots(land, staged, Offsets::LIQUID_PASS_RIVER);
     if (ocean.empty() && river.empty())
@@ -1144,24 +1106,24 @@ void AddWalls(const void *chunk, const float (&box)[6], std::vector<Contact::Fac
 
 // The outcode of a chunk-relative vertex against the shifted box (0x006AAF60):
 // the sign bits of float(v - min + e), then of float(max - v + e).
-uint32_t Outcode(const float *v, const float (&lo)[3], const float (&hi)[3], float e) {
+uint32_t Outcode(const float *v, const float (&box)[6], float e) {
     uint32_t code = 0;
     for (int i = 0; i < 3; ++i) {
-        if (std::signbit(static_cast<float>((D(v[i]) - lo[i]) + e)))
+        if (std::signbit(static_cast<float>((D(v[i]) - box[i]) + e)))
             code |= 1u << i;
-        if (std::signbit(static_cast<float>((D(hi[i]) - v[i]) + e)))
+        if (std::signbit(static_cast<float>((D(box[i + 3]) - v[i]) + e)))
             code |= 8u << i;
     }
     return code;
 }
 
-// A chunk's part of a box query (GatherChunkFacets 0x006AAE2A): the query's
-// cell rectangle clipped to the chunk's cells, {row first, column first, row
-// last, column last}, and the box less the chunk's position.
+// A chunk's part of a box query (GatherChunkFacets 0x006AAE2A, TestChunkBox
+// 0x006AD610): the query's cell rectangle clipped to the chunk's cells, {row
+// first, column first, row last, column last}, and the box less the chunk's
+// position, {min, max}.
 struct Window {
     int32_t rect[4];
-    float lo[3];
-    float hi[3];
+    float box[6];
 };
 
 Window ChunkWindow(const void *chunk, int32_t row, int32_t column, const int32_t (&cells)[4],
@@ -1171,13 +1133,12 @@ Window ChunkWindow(const void *chunk, int32_t row, int32_t column, const int32_t
                  (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0),
                  (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last),
                  (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last)},
-                {},
                 {}};
     const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
     for (int i = 0; i < 3; ++i) {
         const float shift = -position[i];
-        w.lo[i] = static_cast<float>(D(box[i]) + shift);
-        w.hi[i] = static_cast<float>(D(box[i + 3]) + shift);
+        w.box[i] = static_cast<float>(D(box[i]) + shift);
+        w.box[i + 3] = static_cast<float>(D(box[i + 3]) + shift);
     }
     return w;
 }
@@ -1194,8 +1155,6 @@ void GatherChunk(const void *chunk, int32_t row, int32_t column, const int32_t (
     const Window w = ChunkWindow(chunk, row, column, cells, box);
     const int32_t rowFirst = w.rect[0], columnFirst = w.rect[1], rowLast = w.rect[2], columnLast = w.rect[3];
     const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
-    const float(&lo)[3] = w.lo;
-    const float(&hi)[3] = w.hi;
     const float e = Game::Read<float>(Offsets::VAR_GATHER_EPSILON);
     const auto *probe = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_OUTCODE_VERTICES));
     const auto *triangles = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_FACET_TRIANGLES));
@@ -1207,7 +1166,7 @@ void GatherChunk(const void *chunk, int32_t row, int32_t column, const int32_t (
             const float *corner = vertices + (r * Offsets::CHUNK_ROW_VERTICES + c) * 3;
             uint32_t codes[Offsets::CHUNK_ROW_VERTICES + 2] = {};
             for (int k = 0; k < Offsets::CELL_OUTCODE_VERTICES; ++k)
-                codes[probe[k]] = Outcode(corner + probe[k] * 3, lo, hi, e);
+                codes[probe[k]] = Outcode(corner + probe[k] * 3, w.box, e);
             for (int t = 0; t < Offsets::CELL_TRIANGLES; ++t) {
                 const int32_t *tri = triangles + t * 3;
                 if ((codes[tri[0]] & codes[tri[1]] & codes[tri[2]]) != 0)
@@ -1293,28 +1252,15 @@ bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask)
                               Cell(perYard, half, fromMinX), minY};
     using Triangles_t = uint8_t(__fastcall *)(void *chunk, const int32_t *rect, const float *box, uint32_t unused);
     using Gather_t = uint8_t(__thiscall *)(void *slot, void *unused, const float *box, const int32_t *cells);
-    const int32_t last = Offsets::CHUNK_CELLS - 1;
     bool any = false;
     for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row) {
         for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column) {
             void *chunk = ChunkAt(land, row, column);
             if (chunk == nullptr)
                 continue;
-            // TestChunkBox (0x006AD610): the box less the chunk position, the
-            // rectangle clipped to the chunk's cells.
-            const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
-            float local[6];
-            for (int i = 0; i < 3; ++i) {
-                const float shift = -position[i];
-                local[i] = static_cast<float>(D(box[i]) + shift);
-                local[i + 3] = static_cast<float>(D(box[i + 3]) + shift);
-            }
-            const int32_t rect[4] = {(std::max)(cells[0] - row * Offsets::CHUNK_CELLS, 0),
-                                     (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0),
-                                     (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last),
-                                     (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last)};
+            const Window w = ChunkWindow(chunk, row, column, cells, box);
             if ((mask & Offsets::CHUNK_TRIANGLE_CLASS) != 0 &&
-                reinterpret_cast<Triangles_t>(Offsets::FUN_TEST_CHUNK_TRIANGLES)(chunk, rect, local, 0) != 0)
+                reinterpret_cast<Triangles_t>(Offsets::FUN_TEST_CHUNK_TRIANGLES)(chunk, w.rect, w.box, 0) != 0)
                 any = true;
             // The liquid leg (0x006AD75E): each slot the class names into the
             // same batches.
@@ -1323,13 +1269,26 @@ bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask)
                 if (slot == nullptr || (mask & (1u << (Offsets::LIQUID_CLASS_FIRST_BIT + i))) == 0)
                     continue;
                 uint32_t unused = 0;
-                if (reinterpret_cast<Gather_t>(Offsets::FUN_CHUNKLIQUID_GATHER_CELL_FACETS)(slot, &unused, local,
-                                                                                             rect) != 0)
+                if (reinterpret_cast<Gather_t>(Offsets::FUN_CHUNKLIQUID_GATHER_CELL_FACETS)(slot, &unused, w.box,
+                                                                                             w.rect) != 0)
                     any = true;
             }
         }
     }
     return any;
+}
+
+uint32_t AreaAt(const Land &land, const float (&point)[3]) {
+    // 0x0069B126: x's distance stored, then times k and stored; y's product
+    // stored once; each less a half, rounded.
+    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const float perYard = Game::Read<float>(Offsets::VAR_AREA_CHUNKS_PER_YARD);
+    const float half = Game::Read<float>(Offsets::VAR_POINT_HALF_CELL);
+    const float y = static_cast<float>(-(D(point[1]) - origin) * perYard);
+    const int32_t column = static_cast<int32_t>(std::lrint(D(y) - half));
+    const int32_t row = Cell(perYard, half, static_cast<float>(-(D(point[0]) - origin)));
+    const void *chunk = ChunkAt(land, row, column);
+    return chunk != nullptr ? Game::Read<uint32_t>(chunk, Offsets::OFF_CMAPCHUNK_AREA_ID) : 0;
 }
 
 bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainType) {
@@ -1445,7 +1404,6 @@ bool QueryLiquidFacets(const Land &land, const float (&box)[6], std::vector<Cont
             // The liquid leg (0x006AB3F7): each slot the class names, through
             // GatherLiquidFacets (0x006AB4E0).
             const Window w = ChunkWindow(chunk, row, column, cells, box);
-            const float local[6] = {w.lo[0], w.lo[1], w.lo[2], w.hi[0], w.hi[1], w.hi[2]};
             for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
                 void *slot = LiquidSlot(chunk, i);
                 if (slot == nullptr ||
@@ -1453,7 +1411,7 @@ bool QueryLiquidFacets(const Land &land, const float (&box)[6], std::vector<Cont
                     continue;
                 World::ResetFacetBatches();
                 uint32_t unused = 0;
-                if (reinterpret_cast<Gather_t>(Offsets::FUN_CHUNKLIQUID_GATHER_CELL_FACETS)(slot, &unused, local,
+                if (reinterpret_cast<Gather_t>(Offsets::FUN_CHUNKLIQUID_GATHER_CELL_FACETS)(slot, &unused, w.box,
                                                                                              w.rect) != 0)
                     World::EmitFacetBatches(out);
             }
@@ -1484,7 +1442,7 @@ void ListCells(const float (&start)[3], const float (&end)[3]) {
     int32_t cells[4] = {Cell(perYard, half, startX), Cell(perYard, half, startY), Cell(perYard, half, endX),
                         Cell(perYard, half, endY)};
     Game::Ref<uint32_t>(Offsets::VAR_TRACE_CELL_COUNT) = 0;
-    const float epsilon = Game::Read<float>(Offsets::VAR_TRACE_RUN_EPSILON);
+    const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22);
     const float spanY = std::fabs(dy);
     const float spanX = std::fabs(dx);
     using Run_t = void(__thiscall *)(int32_t *cells);

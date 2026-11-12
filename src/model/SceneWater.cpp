@@ -437,9 +437,7 @@ void Update(Effects *&effects, uint32_t before, uint32_t now, const float (&eye)
             if (effects != nullptr && effects->drift != nullptr)
                 Game::Ref<uint8_t>(effects->drift, Offsets::OFF_DRIFT_CLOUD_ENABLED) = 0;
         } else if (now != before && Particulates()) {
-            if (effects == nullptr)
-                effects = new Effects();
-            void *drift = Drift(*effects);
+            void *drift = Drift(Ensure(effects, clock));
             reinterpret_cast<Word_t>(Offsets::FUN_SCATTER_DRIFT_CLOUD)(drift, now);
             reinterpret_cast<Word_t>(Offsets::FUN_SET_DRIFT_CLOUD_SIZE_BASE)(
                 drift, kind == Offsets::LIQUID_MAGMA ? Offsets::DRIFT_SIZE_BASE_MAGMA : Offsets::DRIFT_SIZE_BASE_WATER);

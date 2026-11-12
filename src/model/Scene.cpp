@@ -754,7 +754,9 @@ void __fastcall Paint(void *frame) {
                          0.0f, 1.0f});
         World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
         Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
-        F(frame).probeDrop = World::ProbeDrop(eye);
+        World::ViewVolume volume;
+        World::BuildViewVolume(volume, eye);
+        F(frame).probeDrop = World::ProbeDrop(volume, eye);
         // The world's frame under a liquid: its fog the map's for that liquid.
         const uint32_t liquid = CameraLiquid(frame);
         const uint32_t map = terrain != nullptr ? Terrain::MapOf(*terrain)
@@ -763,7 +765,7 @@ void __fastcall Paint(void *frame) {
         const World::LiquidFog liquidFog(frame, map, liquid, eye, F(frame).farClip);
         const bool wet = liquid != Offsets::LIQUID_DRY;
         if (world != nullptr)
-            World::ClearAndDrawSky(*world, frame, eye);
+            World::ClearAndDrawSky(*world, frame, eye, volume);
         else if (terrain != nullptr)
             World::ClearAndDrawOpenSky(frame, map, liquid, eye);
         else
@@ -774,11 +776,11 @@ void __fastcall Paint(void *frame) {
         // The world's frame draws its chunks before its map objects, and the
         // terrain's magma after them (DrawWorldScene 0x006812B1..0x006812BB).
         if (terrain != nullptr)
-            Terrain::Draw(*terrain, frame, eye, F(frame).farClip);
+            Terrain::Draw(*terrain, frame, eye, volume, F(frame).farClip);
         if (world != nullptr)
-            World::Draw(*world, frame, eye);
+            World::Draw(*world, frame, eye, volume);
         if (terrain != nullptr)
-            Terrain::DrawMagma(*terrain, frame, eye, F(frame).farClip);
+            Terrain::DrawMagma(*terrain, frame, eye, volume, F(frame).farClip);
         DrawGroundDecals(frame, eye);
         M2::DrawScene(scene, 0);
         DrawGroundReticles(frame, eye);
@@ -790,7 +792,7 @@ void __fastcall Paint(void *frame) {
         // RenderLiquid (0x006816D0): the terrain's ocean and river, then the
         // map objects' liquids.
         if (terrain != nullptr)
-            Terrain::DrawWater(*terrain, frame, eye, F(frame).farClip, liquid);
+            Terrain::DrawWater(*terrain, frame, eye, volume, F(frame).farClip, liquid);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
         Water::DrawRipples(F(frame).water, eye);
@@ -1734,13 +1736,19 @@ int __fastcall Script_GetLiquidAtPoint(void *L) {
 // the client's mover sweeps a unit's volume (CMovement::SweepVolume
 // 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and
 // `height` tall over a downward point at `feet`. `end` is where the feet
-// stop; true when a face was met, `normal` the facet's plane normal. The
-// feet stay put while the WMO is loading.
+// stop; true when a face was met, `normal` the facet's plane normal. With
+// no ground the body moves the full distance; the feet stay put while the
+// WMO is loading.
 bool SweepGround(void *frame, const float (&feet)[3], float radius, float height, const float (&move)[3],
                  float (&end)[3], float (&normal)[3]) {
-    std::copy(std::begin(feet), std::end(feet), std::begin(end));
     normal[0] = normal[1] = normal[2] = 0.0f;
-    if (!HasGround(frame) || !(radius > 0.0f) || !(height > 0.0f))
+    if (!HasGround(frame)) {
+        for (int k = 0; k < 3; ++k)
+            end[k] = feet[k] + move[k];
+        return false;
+    }
+    std::copy(std::begin(feet), std::end(feet), std::begin(end));
+    if (!(radius > 0.0f) || !(height > 0.0f))
         return false;
     // The move as the substep loop (0x00634040) hands it on: its length at
     // 53 bits, the unit direction by the reciprocal, none below 2^-20.
@@ -1779,10 +1787,9 @@ int __fastcall Script_SweepCollider(void *L) {
         return 0;
     const float feet[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     const float move[3] = {FloatArg(L, 7), FloatArg(L, 8), FloatArg(L, 9)};
-    float end[3] = {feet[0] + move[0], feet[1] + move[1], feet[2] + move[2]};
-    float normal[3] = {};
-    bool hit = false;
-    hit = SweepGround(frame, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
+    float end[3];
+    float normal[3];
+    const bool hit = SweepGround(frame, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
     for (float c : end)
         Game::Lua::PushNumber(L, c);
     if (!hit)

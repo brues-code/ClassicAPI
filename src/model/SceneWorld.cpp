@@ -125,6 +125,7 @@
 #include "gx/Matrix.h"
 #include "model/M2.h"
 #include "model/SceneContact.h"
+#include "model/SceneFile.h"
 
 #include <algorithm>
 #include <array>
@@ -278,41 +279,9 @@ struct ChunkHeader {
 
 // ---- files ------------------------------------------------------------------
 
-class File {
-  public:
-    explicit File(const char *path) {
-        using Open_t = int(__stdcall *)(const char *path, void **file);
-        if (reinterpret_cast<Open_t>(Offsets::FUN_SFILE_OPEN)(path, &handle_) == 0)
-            handle_ = nullptr;
-    }
-    ~File() {
-        if (handle_ != nullptr)
-            reinterpret_cast<uint32_t(__stdcall *)(void *)>(Offsets::FUN_SFILE_CLOSE)(handle_);
-    }
-    File(const File &) = delete;
-    File &operator=(const File &) = delete;
-
-    bool IsOpen() const { return handle_ != nullptr; }
-    uint32_t Size() const {
-        using Size_t = uint32_t(__stdcall *)(void *file, uint32_t *high);
-        return reinterpret_cast<Size_t>(Offsets::FUN_SFILE_GET_FILE_SIZE)(handle_, nullptr);
-    }
-    bool Read(void *buffer, uint32_t size) {
-        using Read_t = int(__stdcall *)(void *file, void *buffer, uint32_t size, uint32_t *read,
-                                        void *overlapped, int);
-        uint32_t read = 0;
-        return handle_ != nullptr &&
-               reinterpret_cast<Read_t>(Offsets::FUN_SFILE_READ)(handle_, buffer, size, &read, nullptr,
-                                                                0) != 0 &&
-               read == size;
-    }
-    bool Chunk(const char (&tag)[5], ChunkHeader &header) {
-        return Read(&header, sizeof header) && header.tag == Tag(tag);
-    }
-
-  private:
-    void *handle_ = nullptr;
-};
+bool ReadChunk(File &file, const char (&tag)[5], ChunkHeader &header) {
+    return file.Read(&header, sizeof header) && header.tag == Tag(tag);
+}
 
 bool HasWmoSuffix(const char *path) {
     const size_t n = std::strlen(path);
@@ -337,13 +306,10 @@ constexpr const char kRootChunks[][5] = {"MOHD", "MOTX", "MOMT", "MOGN", "MOGI",
 
 // The root's group count when the engine can read it safely, else -1.
 int CheckedGroupCount(const char *path) {
-    File file(path);
-    if (!file.IsOpen())
+    std::vector<uint8_t> data;
+    if (!File(path).ReadAll(data) || data.size() < sizeof(ChunkHeader) + 4)
         return -1;
-    const uint32_t size = file.Size();
-    std::vector<uint8_t> data(size);
-    if (size < sizeof(ChunkHeader) + 4 || !file.Read(data.data(), size))
-        return -1;
+    const size_t size = data.size();
     const auto header = [&](size_t at) {
         ChunkHeader h{};
         std::memcpy(&h, data.data() + at, sizeof h);
@@ -398,18 +364,6 @@ bool KeepGroup(void *object, uint32_t index, void *group) {
     if (Game::Read<void *>(group, Offsets::OFF_CMAPOBJGROUP_READ) == nullptr)
         reinterpret_cast<void(__thiscall *)(void *, uint32_t)>(Offsets::FUN_CMAPOBJ_LOAD_GROUP)(object, index);
     return false;
-}
-
-// A volume of the device's view and projection in scene space.
-void BuildViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]) {
-    Matrix view, projection;
-    Gx::GetView(view);
-    Gx::GetProjection(projection);
-    Translate(view, {-eye[0], -eye[1], -eye[2]});
-    using Corners_t = void(__fastcall *)(const float *view, const float *projection, float *corners);
-    reinterpret_cast<Corners_t>(Offsets::FUN_FRUSTUM_CORNERS)(
-        view, projection, reinterpret_cast<float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS));
-    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_VOLUME_BUILD_PLANES)(volume);
 }
 
 using SetFog_t = void(__thiscall *)(void *record, const float *rgb, float start, float end);
@@ -870,16 +824,21 @@ void ReleaseDoodad(Doodad &d) {
 
 } // namespace
 
-void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]) {
-    BuildViewVolume(volume, eye);
+void BuildViewVolume(ViewVolume &volume, const float (&eye)[3]) {
+    Matrix view, projection;
+    Gx::GetView(view);
+    Gx::GetProjection(projection);
+    Translate(view, {-eye[0], -eye[1], -eye[2]});
+    using Corners_t = void(__fastcall *)(const float *view, const float *projection, float *corners);
+    reinterpret_cast<Corners_t>(Offsets::FUN_FRUSTUM_CORNERS)(
+        view, projection, reinterpret_cast<float *>(volume.bytes + Offsets::OFF_FRUSTUM_VOLUME_CORNERS));
+    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_VOLUME_BUILD_PLANES)(volume.bytes);
 }
 
-float ProbeDrop(const float (&eye)[3]) {
-    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-    BuildViewVolume(volume, eye);
+float ProbeDrop(const ViewVolume &volume, const float (&eye)[3]) {
     // The camera's probe z (0x006809E2): a near corner at or below the
     // lowest so far, or NaN, replaces it.
-    const auto *corners = reinterpret_cast<const float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
+    const auto *corners = reinterpret_cast<const float *>(volume.bytes + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
     float lowest = eye[2];
     for (int i = 0; i < 4; ++i)
         if (!(corners[i * 3 + 2] > lowest))
@@ -922,16 +881,16 @@ Backdrop *LoadMap(uint32_t mapID) {
     uint32_t version = 0;
     uint8_t mphd[Offsets::WDT_MPHD_SIZE];
     std::vector<uint8_t> main(Offsets::WDT_MAIN_SIZE);
-    if (!wdt.Chunk("MVER", h) || !wdt.Read(&version, sizeof version) || !wdt.Chunk("MPHD", h) ||
-        !wdt.Read(mphd, sizeof mphd) || !wdt.Chunk("MAIN", h) || !wdt.Read(main.data(), Offsets::WDT_MAIN_SIZE))
+    if (!ReadChunk(wdt, "MVER", h) || !wdt.Read(&version, sizeof version) || !ReadChunk(wdt, "MPHD", h) ||
+        !wdt.Read(mphd, sizeof mphd) || !ReadChunk(wdt, "MAIN", h) || !wdt.Read(main.data(), Offsets::WDT_MAIN_SIZE))
         return nullptr;
     uint32_t flags = 0;
     std::memcpy(&flags, mphd, sizeof flags);
-    if ((flags & Offsets::WDT_FLAG_MAP_OBJECT) == 0 || !wdt.Chunk("MWMO", h) || h.size == 0 || h.size > 260)
+    if ((flags & Offsets::WDT_FLAG_MAP_OBJECT) == 0 || !ReadChunk(wdt, "MWMO", h) || h.size == 0 || h.size > 260)
         return nullptr;
     std::vector<char> name(h.size + 1, '\0');
     uint8_t entry[Offsets::MODF_SIZE];
-    if (!wdt.Read(name.data(), h.size) || !wdt.Chunk("MODF", h) || !wdt.Read(entry, sizeof entry))
+    if (!wdt.Read(name.data(), h.size) || !ReadChunk(wdt, "MODF", h) || !wdt.Read(entry, sizeof entry))
         return nullptr;
     float pos[3], rot[3];
     uint16_t doodadSet = 0;
@@ -2104,7 +2063,7 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
     ShowDoodads(b.doodads, view);
 }
 
-void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
+void Draw(Backdrop &b, void *frame, const float (&eye)[3], const ViewVolume &volume) {
     void *object = b.object;
     if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return;
@@ -2116,14 +2075,12 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
     }
     if (!any)
         return;
-    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-    BuildViewVolume(volume, eye);
     // The render states a pass of the WMO sets (CommitLighting's fog range)
     // last until it ends.
     const Gx::SavedStates states;
     PushObjectSpace(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
-    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
+    reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
     reinterpret_cast<void(__fastcall *)(const float *)>(Offsets::FUN_FRUSTUM_TRANSFORM)(b.inverse);
     CommitLighting(b, frame, eye);
     DrawGroups(b, frame);
@@ -2465,7 +2422,7 @@ struct PortalSky {
 // callback and the liquid state, so it is not run.
 constexpr size_t kCornerBytes = 8 * 3 * sizeof(float); // the frustum's eight corners
 
-PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
+PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3], const ViewVolume &volume) {
     using Walk_t = void(__thiscall *)(void *object, uint32_t group, uint32_t from, const float *rect, uint32_t depth,
                                       void *interior);
     using Culled_t = uint32_t(__fastcall *)(const float *box, const float *basis, const float *position);
@@ -2492,10 +2449,8 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
         {Offsets::VAR_PORTAL_WINDOW_COUNT, sizeof(uint32_t)},
         {Offsets::VAR_PORTAL_WINDOWS, Offsets::PORTAL_WINDOW_SLOTS * Offsets::PORTAL_WINDOW_SIZE},
     };
-    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-    BuildViewVolume(volume, eye);
     const auto *corners = reinterpret_cast<const float *>(static_cast<uintptr_t>(Offsets::VAR_CAMERA_CORNER_RAYS));
-    std::memcpy(const_cast<float *>(corners), volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS, kCornerBytes);
+    std::memcpy(const_cast<float *>(corners), volume.bytes + Offsets::OFF_FRUSTUM_VOLUME_CORNERS, kCornerBytes);
     PushObjectSpace(b, eye);
     Matrix device, slot, toClip;
     reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_VIEW_PROJECTION)(device);
@@ -2609,8 +2564,8 @@ void DrawSkyPass(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], c
 
 } // namespace
 
-void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
-    const PortalSky walked = WalkFromCamera(b, eye);
+void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3], const ViewVolume &volume) {
+    const PortalSky walked = WalkFromCamera(b, eye, volume);
     const bool dry = b.cameraLiquid == Offsets::LIQUID_DRY;
     const uint32_t colour = !walked.weather ? DrawnFog(b, frame).color : dry ? 0u : ZoneFog(b, frame).color;
     const uint32_t saved = Gx::GetClearColor();
