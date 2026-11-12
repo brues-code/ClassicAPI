@@ -46,6 +46,8 @@ Util\IndexRangeDataProvider.lua
 Util\CircularBuffer.lua
 Util\ColorUtil.lua
 Util\SharedColorConstants.lua
+Util\CombatLogColors.lua
+Util\CombatLogUtil.lua
 Util\ItemLocation.lua
 Util\PlayerLocation.lua
 Util\EventUtil.lua
