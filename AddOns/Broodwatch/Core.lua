@@ -67,6 +67,43 @@ local function Shuffle(list)
 end
 
 ------------------------------------------------------------------------------
+-- The hero's movement: forward or back (1, -1 or 0), to the side (1 left,
+-- -1 right, 0) and the facing (nil keeps it), sent to the actor only when
+-- they change, since each command re-anchors the move. Back is the client's
+-- backpedal, slower than a run; the side is its strafe.
+
+BW.moveFwd, BW.moveSide, BW.moveFacing = 0, 0, nil
+
+local function Drive(fwd, side, facing)
+	local hero = BW.hero;
+	if facing and facing ~= BW.moveFacing then
+		BW.moveFacing = facing;
+		hero:SetYaw(facing);
+	end
+	if fwd ~= BW.moveFwd then
+		BW.moveFwd = fwd;
+		if fwd > 0 then
+			hero:StartMovingForward();
+		elseif fwd < 0 then
+			hero:StartMovingBackward();
+		else
+			hero:StopMoving();
+		end
+	end
+	if side ~= BW.moveSide then
+		BW.moveSide = side;
+		if side > 0 then
+			hero:StartStrafingLeft();
+		elseif side < 0 then
+			hero:StartStrafingRight();
+		else
+			hero:StopStrafing();
+		end
+	end
+	BW.moving = fwd ~= 0 or side ~= 0;
+end
+
+------------------------------------------------------------------------------
 -- Gems
 
 local function DropGem(x, y, z, xp, scale)
@@ -108,6 +145,7 @@ BW.FloorAt = FloorAt
 BW.Dist2 = Dist2
 BW.Clock = Clock
 BW.Shuffle = Shuffle
+BW.Drive = Drive
 BW.RunGrowth = RunGrowth
 BW.DropGem = DropGem
 BW.ClearGems = ClearGems

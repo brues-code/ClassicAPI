@@ -100,28 +100,32 @@ local function Held(key)
 	return BW.held[key] and 1 or 0;
 end
 
+-- The eight moves about the facing, from straight ahead counter-clockwise
+-- in eighths of a turn: { forward or back, side (left positive) }.
+local OCTANTS = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+
 local function Steer()
-	-- A charge steers itself, and a cone's cast holds you facing it (Kinds.lua).
-	if not BW.run or BW.paused or BW.run.over or BW.run.charge or BW.run.pose then
+	-- A charge steers itself (Kinds.lua).
+	if not BW.run or BW.paused or BW.run.over or BW.run.charge then
 		return;
 	end
 	local forward = Held("W") - Held("S");
 	local left = Held("A") - Held("D");
+	local pose = BW.run.pose and BW.run.poseYaw;
 	if forward == 0 and left == 0 then
-		if BW.moving then
-			BW.hero:StopMoving();
-			BW.moving = false;
-		end
+		BW.Drive(0, 0, pose);
 		return;
 	end
 	local yaw = BW.camera:GetYaw() + math.atan2(left, forward);
-	if not BW.moving or math.abs(yaw - BW.run.heroYaw) > 0.001 then
-		BW.run.heroYaw = yaw;
-		BW.hero:SetYaw(yaw);
-	end
-	if not BW.moving then
-		BW.hero:StartMovingForward();
-		BW.moving = true;
+	BW.run.heroYaw = yaw;
+	if pose then
+		-- A cone's cast holds you facing it: you go the way you hold by the
+		-- nearest of the eight moves a character makes about its facing.
+		local off = math.mod(yaw - pose + 3 * math.pi, 2 * math.pi) - math.pi;
+		local octant = OCTANTS[math.mod(math.floor(off / (math.pi / 4) + 0.5) + 8, 8) + 1];
+		BW.Drive(octant[1], octant[2], pose);
+	else
+		BW.Drive(1, 0, yaw);
 	end
 end
 
@@ -180,6 +184,7 @@ local function StartRun()
 	SetPaused(false);
 	BW.held = {};
 	BW.moving = false;
+	BW.moveFwd, BW.moveSide, BW.moveFacing = 0, 0, CAMERA_YAW;
 	BW.hero:SetMovementEnabled(false);
 	BW.hero:SetPosition(CENTER[1], CENTER[2], CENTER[3] + 0.5);
 	BW.hero:SetYaw(CAMERA_YAW);

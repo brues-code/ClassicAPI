@@ -72,9 +72,9 @@ end
 ------------------------------------------------------------------------------
 -- Cones: everything within `length` of you, inside CONE_ARC (times `wide`)
 -- of the cone's aim. The aim is the direction that catches the most of the
--- brood; the cast turns you to it and holds you there for CAST_POSE (the
--- cone hangs at your hand or breath, and you move the way you face), then
--- you run on (Steer).
+-- brood; the cast turns you to it for CAST_POSE (the cone hangs at your hand
+-- or breath), and you strafe or backpedal the way you hold meanwhile
+-- (Steer).
 
 -- Counts the enemies in the cone aimed at `yaw`, or with `list` gathers them.
 local function InCone(def, level, hx, hy, yaw, list)
@@ -138,12 +138,9 @@ handlers.cone = {
 		if not yaw then
 			return;
 		end
-		-- The pose: you stop and face the cone.
-		BW.hero:StopMoving();
-		BW.moving = false;
-		BW.run.heroYaw = yaw;
-		BW.hero:SetYaw(yaw);
+		-- The pose: you face the cone (Steer turns you, next frame).
 		BW.run.pose = TUNING.CAST_POSE;
+		BW.run.poseYaw = yaw;
 		local hit = {};
 		InCone(def, entry.level, hx, hy, yaw, hit);
 		ShowHits(BW.hero, def.spell, hit);
@@ -516,16 +513,16 @@ handlers.charge = {
 		BW.hero:PlaySpellVisual(def.spell, entry.goal.actor, 0);
 		BW.run.charge = { key = entry.key, level = entry.level, goal = entry.goal, left = TUNING.CHARGE_MAX };
 		BW.hero:SetMovementSpeed("run", TUNING.CHARGE_SPEED);
-		BW.hero:StartMovingForward();
-		BW.moving = true;
+		local hx, hy = BW.hero:GetPosition();
+		local gx, gy = entry.goal.actor:GetPosition();
+		BW.Drive(1, 0, math.atan2(gy - hy, gx - hx));
 	end,
 }
 
 local function Land(charge)
 	local def = SPELLS[charge.key];
 	BW.run.charge = nil;
-	BW.hero:StopMoving();
-	BW.moving = false;
+	BW.Drive(0, 0);
 	BW.ApplyHeroSpeed();
 	if def.whirl then
 		BW.hero:PlaySpellVisual(def.whirl, BW.hero, 0);
@@ -566,9 +563,7 @@ local function UpdateCharge(dt)
 		return;
 	end
 	-- Steer at the goal as it moves.
-	local yaw = math.atan2(gy - hy, gx - hx);
-	BW.run.heroYaw = yaw;
-	BW.hero:SetYaw(yaw);
+	BW.Drive(1, 0, math.atan2(gy - hy, gx - hx));
 end
 
 ------------------------------------------------------------------------------
@@ -577,7 +572,7 @@ local function UpdateKinds(dt)
 	if BW.run.pose then
 		BW.run.pose = BW.run.pose - dt;
 		if BW.run.pose <= 0 then
-			BW.run.pose = nil; -- Steer turns you back to the way you hold
+			BW.run.pose, BW.run.poseYaw = nil, nil; -- Steer turns you back to the way you hold
 		end
 	end
 	UpdateTotems(dt);

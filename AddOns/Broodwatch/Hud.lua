@@ -477,9 +477,8 @@ local function SetPaused(on)
 	for _, slot in ipairs(buildSlots) do
 		slot.cd:SetPaused(on);
 	end
-	if on and BW.moving then
-		BW.hero:StopMoving();
-		BW.moving = false;
+	if on then
+		BW.Drive(0, 0);
 	end
 end
 
